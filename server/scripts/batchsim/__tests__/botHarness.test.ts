@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, type Island } from '@salvo/shared';
-import { World } from '../../../src/game/world.js';
+import { NO_DECK, World } from '../../../src/game/world.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
@@ -321,7 +321,7 @@ describe('runner — the bot lobby', () => {
 
   it('bots are participants: they are NOT humans and never arm a countdown', () => {
     const world = new World(7, 20);
-    const bot = world.addBot();
+    const bot = world.addBot(undefined, undefined, NO_DECK);
     expect(bot.role).toBe('bot');
     expect(world.bots.profileOf(bot.id)).not.toBeNull();
   });

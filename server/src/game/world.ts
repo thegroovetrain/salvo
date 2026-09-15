@@ -26,7 +26,7 @@ import {
   cardBehaviors,
   boostedKinematics,
   boonStackCount,
-  buildDeck,
+  buildDeckState,
   burstVictims,
   consumeCard,
   drawOffer,
@@ -170,10 +170,33 @@ const FLEET_SHIP_NAME = 'DRONE';
  *  card-less ShipRecord's per-tick hook fold is allocation-free. */
 const NO_BEHAVIORS: readonly BoonBehaviorEffect[] = Object.freeze([]);
 
-/** The frozen empty deck — DRONES NEVER GET A DECK (Story 2.8, amendment 38):
- *  a drone banks no levels (addXpMs guards) and could never draw; the shared
- *  identity keeps the pin allocation-free and test-visible. */
+/** The frozen empty deck — DRONES NEVER GET A DECK (Story 2.8, amendment 38;
+ *  reaffirmed by epic-8 amendment 12: drones stay gun-only, no fleet fit of
+ *  any kind): a drone banks no levels (addXpMs guards) and could never draw;
+ *  the shared identity keeps the pin allocation-free and test-visible. */
 const EMPTY_DECK: DeckState = Object.freeze({ cards: Object.freeze([]) as readonly LineId[] });
+
+/** The frozen empty deck LIST — a fleet hull's `deckList`, and what a caller
+ *  with no deck to give passes EXPLICITLY (a World never chooses a deck: it
+ *  enters through the door's loader, server/src/game/decks.ts). */
+const EMPTY_DECK_LIST: readonly LineId[] = Object.freeze([]);
+
+/** How a bot spawn resolves its deck from the hull it was dealt or rolled
+ *  (Story 8.2). REQUIRED at every call site — see `addBot`. */
+export type DeckResolver = (hull: ShipClassId) => readonly LineId[];
+
+/** The resolver for a spawn that deliberately deals NO cards (fixtures that
+ *  test kinematics, callsigns or roles and never open a refit). Named so the
+ *  choice is VISIBLE at the call site: an empty pool used to be what a caller
+ *  got by FORGETTING the argument, which is how the batch-sim harness came to
+ *  sail deckless bots alongside production bots on the default deck. */
+export const NO_DECK: DeckResolver = () => EMPTY_DECK_LIST;
+
+/** The list as given if already frozen (the shared default-deck identity —
+ *  no copy), else a frozen copy (a dev override arrives as a fresh array). */
+function frozenList(deck: readonly LineId[]): readonly LineId[] {
+  return Object.isFrozen(deck) ? deck : Object.freeze([...deck]);
+}
 
 /** ms — how long a dazzle mark outlives its last inside-the-zone tick (Story
  *  2.8 RULING): `dazzledUntil = now + DAZZLE_GRACE_MS`, refreshed every tick
@@ -372,16 +395,26 @@ export interface ShipRecord {
   /**
    * THE DECK (Story 2.8, amendment 38): this player's card multiset — the
    * universal lines + carried-equipment subdecks + absent-equipment
-   * acquisitions (sim/deck.ts buildDeck over the FRESH loadout's fit). Every
-   * offer is DRAWN from it WITHOUT taking anything out (materializeOffer);
-   * exactly ONE card leaves when a pick is FITTED (settleSpend's consumeCard),
-   * a swapped-out doctrine rival RETURNS to it, an acquisition pick purges it.
-   * SERVER-PRIVATE: never on the wire (the drawn offer ids are). Rebuilt by
-   * redeployShip (fresh match = fresh deck over the fresh fit), PRESERVED by
-   * respawn (waiting-phase deaths keep the build). Drones hold the frozen
-   * EMPTY_DECK and never draw (pinned).
+   * acquisitions (sim/deck.ts buildDeckState over `deckList` and the FRESH
+   * loadout's carried seed). Every offer is DRAWN from it WITHOUT taking
+   * anything out (materializeOffer); exactly ONE card leaves when a pick is
+   * FITTED (settleSpend's consumeCard). SERVER-PRIVATE: never on the wire
+   * (the drawn offer ids are). Rebuilt by redeployShip (fresh match = fresh
+   * pool over the same frozen list), PRESERVED by respawn (waiting-phase
+   * deaths keep the build). Drones hold the frozen EMPTY_DECK and never draw
+   * (pinned).
    */
   deck: DeckState;
+  /**
+   * THE FROZEN DECK LIST (Story 8.2): the 40 line ids the door admitted for
+   * this hull — the queue's seat reservation or the arena's own load + check
+   * (server/src/game/decks.ts, rooms/deckDoor.ts). Stubs are IN it (epic-8
+   * amendment 11) and only leave on the way into `deck`. Immutable for the
+   * life of the record: every redeploy rebuilds `deck` from it, never from
+   * the catalog. SERVER-PRIVATE like `deck` (pinned in perception.test.ts).
+   * Fleet hulls hold the empty list.
+   */
+  deckList: readonly LineId[];
   /**
    * This ship's PRIVATE deck stream (Story 2.8): mulberry32 decorrelated from
    * mapgen/spawn/drone streams by its own golden constant XOR a stable per-ship
@@ -1247,8 +1280,16 @@ export class World {
    *  row rather than inherited). A brand-new record's wake ring is FRESH, so
    *  the mandatory detachWake at a teleport has nothing to detach here — the
    *  bogus cross-map segment it exists to prevent is structurally impossible
-   *  on this path. */
-  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at?: Vec2): ShipRecord {
+   *  on this path.
+   *
+   *  `deck` (Story 8.2) is the FROZEN 40-id list the door admitted; the World
+   *  stores it on `deckList` and deals the drawable pool from it. A World
+   *  never picks a deck itself, and it no longer has a default to fall back
+   *  on: `deck` is REQUIRED, so a caller with none says `[]` out loud and an
+   *  unlisted caller is a tsc error rather than a hull that silently sails an
+   *  empty pool. A fleet hull gets the empty list whatever is passed
+   *  (amendment 12: drones stay gun-only). */
+  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, deck: readonly LineId[]): ShipRecord {
     const p = at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase);
     const heading = Math.atan2(-p.y, -p.x);
     const cls = hullEnvelope(hullId);
@@ -1258,7 +1299,7 @@ export class World {
     // THE SPAWN SEED (see carriedLines): the card lines this fit already holds.
     // `stats` above needs no recompute — the seed is stat-neutral by
     // construction (tier I IS the bare weapon), which the spawn tests pin.
-    const carried = World.carriedLines(loadout, this.catalog);
+    const { carried, deckList } = World.spawnDeck(role, loadout, deck, this.catalog);
     const rec: ShipRecord = {
       id,
       name,
@@ -1280,11 +1321,12 @@ export class World {
       // nothing on the hull's first tick.
       // (Wake ring provisioned from the TRUE attainable top speed — Story 4.12.)
       wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: wrapPositive(heading), prevSweepAngle: wrapPositive(heading),
-      // THE DECK (2.8): over the fresh fit; fleet hulls never get one (pinned).
-      // ECONOMY, so it keys on the FLEET reading — an AI captain (6.4) is a
-      // participant that plays the game, and gets a deck like any other.
-      deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.catalog, carried),
-      deckRng: this.deckRngFor(this.joinSeq++),
+      // THE DECK (2.8, 8.2): the drawable pool over the frozen list and the
+      // fresh fit; fleet hulls never get one (pinned). ECONOMY, so it keys on
+      // the FLEET reading — an AI captain (6.4) is a participant that plays
+      // the game, and gets a deck like any other.
+      deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeckState(deckList, carried, this.catalog),
+      deckList, deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [...carried],
@@ -1362,11 +1404,15 @@ export class World {
    * not a profile was forced. A forced profile governs the hull (each row is
    * hull-bound), so callers pass the profile alone.
    */
-  addBot(hull?: ShipClassId, profile?: AnyProfileId): ShipRecord {
+  addBot(hull: ShipClassId | undefined, profile: AnyProfileId | undefined, deckFor: DeckResolver): ShipRecord {
     this.botSeq += 1;
     const id = `bot-${this.botSeq}`;
     const { name, hullId } = this.bots.enroll(id, hull, profile);
-    return this.addShip(id, name, 'bot', hullId);
+    // `deckFor` (Story 8.2) is resolved AFTER enroll because the hull may be
+    // rolled inside it; the room passes the door's loader, the harness its
+    // own table, and a fixture that wants no cards says NO_DECK — there is no
+    // default, so nobody deals an empty pool by omission.
+    return this.addShip(id, name, 'bot', hullId, DEFAULT_HORN_ID, undefined, deckFor(hullId));
   }
 
   /**
@@ -1428,8 +1474,8 @@ export class World {
   }
 
   /**
-   * THE CARRIED LINES of a fit, in slot order — the spawn SEED and `buildDeck`'s
-   * input in one list.
+   * THE CARRIED LINES of a fit, in slot order — the spawn SEED and
+   * `buildDeckState`'s `carried` input in one list.
    *
    * Copy 1 of an equipment line IS the bare weapon (catalog-v3 §4), so a hull
    * that spawns with that weapon fitted is, by the catalog's own reading,
@@ -1445,6 +1491,24 @@ export class World {
    * nothing, and neither does a STUB line — the deck deals it no copies, so
    * there is none to hold back.
    */
+  private static spawnDeck(
+    role: ShipRole,
+    loadout: LoadoutSlot[],
+    deck: readonly LineId[],
+    catalog: Catalog,
+  ): { carried: LineId[]; deckList: readonly LineId[] } {
+    // THE SPAWN'S TWO DECK INPUTS (Story 8.2): the carried seed (below) and
+    // the FROZEN LIST the record stores. Frozen once, at the edge: the default
+    // decks arrive frozen (the shared identity, no copy); a dev override
+    // arrives as a fresh array and is frozen here so no later code can mutate
+    // what the door admitted. A fleet hull gets no list whatever was passed
+    // (epic-8 amendment 12: drones stay gun-only).
+    return {
+      carried: World.carriedLines(loadout, catalog),
+      deckList: roleIsFleetHull({ role }) ? EMPTY_DECK_LIST : frozenList(deck),
+    };
+  }
+
   private static carriedLines(loadout: LoadoutSlot[], catalog: Catalog): LineId[] {
     const out: LineId[] = [];
     for (const slot of loadout) {
@@ -1602,13 +1666,14 @@ export class World {
     ship.seenBallistics.clear();
     ship.torpDirs.clear();
     ship.loadout = loadoutFor(ship.hullId, ship.stats);
-    // THE DECK is rebuilt over the FRESH fit (Story 2.8): a fresh match means a
-    // fresh deck — but the deck STREAM is deliberately NOT reseeded (ship.
-    // deckRng persists), so a player's whole-session draw sequence stays a pure
+    // THE DECK is rebuilt over the FRESH fit (Story 2.8) FROM THE FROZEN LIST
+    // (Story 8.2 — never from the catalog): a fresh match means a fresh pool
+    // — but the deck STREAM is deliberately NOT reseeded (ship.deckRng
+    // persists), so a player's whole-session draw sequence stays a pure
     // function of (mapSeed, join ordinal, draw count). Drones keep EMPTY_DECK.
     ship.deck = roleIsFleetHull(ship)
       ? EMPTY_DECK
-      : buildDeck(this.catalog, carried);
+      : buildDeckState(ship.deckList, carried, this.catalog);
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
     ship.pveKills = {}; // ...and its telemetry sibling (amendment 44), same boundary
     ship.deaths = 0;
@@ -3007,7 +3072,7 @@ export class World {
       this.addShip(id, FLEET_SHIP_NAME, 'fleet', hullId, DEFAULT_HORN_ID, {
         x: anchor.x + offset.x,
         y: anchor.y + offset.y,
-      });
+      }, []);
       this.drones.add(id, fleetSizeOf(hullId), fleetId, offset);
     }
   }

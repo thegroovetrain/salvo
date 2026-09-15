@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_DECKS } from '@salvo/shared';
+
+/** A captain fixture sails its hull's default deck (Story 8.2) — the arena
+ *  door's answer with no account module. */
+const TB_DECK = DEFAULT_DECKS.torpedoBoat;
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -19,7 +23,7 @@ const input = (seq: number, extra = {}) => ({
 
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(w: World, id: string, x: number, y: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, TB_DECK);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;
@@ -95,7 +99,7 @@ describe('buildFrame — shape and clock', () => {
     // OwnShip.cls is a ShipClassId by construction; a drone hull id reaching
     // toOwnShip means a drone was mis-routed to a client frame — fail loud.
     const w = makeWorld();
-    w.addShip('drone1', 'DRONE', 'fleet', 'droneMedium');
+    w.addShip('drone1', 'DRONE', 'fleet', 'droneMedium', undefined, undefined, []);
     expect(() => buildFrame(w, 'drone1')).toThrow(/drone hull id/);
   });
 
@@ -149,7 +153,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
 
   it('drone contacts carry their DRONE hull id on the wire (Contact.cls: HullId)', () => {
     const w = makeWorld();
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium', undefined, undefined, []);
     d.state.x = 0;
     d.state.y = 120; // inside a's sight bubble
     d.state.heading = 0;
@@ -181,7 +185,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
 describe('buildFrame — events (fogged via perception)', () => {
   it('emits your own spawn event on the tick after a join, then goes quiet', () => {
     const w = new World(7);
-    w.addShip('a', 'ALPHA');
+    w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
     w.step();
     const f = buildFrame(w, 'a');
     expect(f.events).toEqual([expect.objectContaining({ k: 'spawn', id: 'a' })]);
@@ -214,7 +218,7 @@ describe('buildFrame — events (fogged via perception)', () => {
 
   it('spawn events carry the spawn position', () => {
     const w = new World(11);
-    const rec = w.addShip('a', 'ALPHA');
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
     w.step();
     expect(buildFrame(w, 'a').events[0]).toEqual({
       k: 'spawn',

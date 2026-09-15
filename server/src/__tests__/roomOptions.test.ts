@@ -3,7 +3,17 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { NAME_MAX, sanitizeName, sanitizeRoomOptions, type RoomOptions } from '../rooms/roomOptions.js';
+import { DEFAULT_DECKS } from '@salvo/shared';
+import {
+  DECK_ID_MAX,
+  DECK_OVERRIDE_MAX,
+  NAME_MAX,
+  sanitizeDeckOptions,
+  sanitizeName,
+  sanitizeRoomOptions,
+  type JoinOptions,
+  type RoomOptions,
+} from '../rooms/roomOptions.js';
 
 const MATCH_OVERRIDE = { sandbox: true, minHumans: 1, countdownMs: 1, resultsMs: 1, joinWindowMs: 0 };
 const ZONE_OVERRIDE = { beatMs: 1000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0.5, terminalSightFactor: 1 };
@@ -175,5 +185,114 @@ describe('sanitizeName — options.name is client-supplied and untrusted', () =>
   it('leaves ordinary names — including emoji — untouched', () => {
     expect(sanitizeName('SALTY DOG')).toBe('SALTY DOG');
     expect(sanitizeName('🚢 AHOY')).toBe('🚢 AHOY'); // a paired surrogate is one code point
+  });
+});
+
+// sanitizeDeckOptions (Story 8.2) — the deck-shaped join options at BOTH
+// doors. A client `deck` key is REFUSED (the door reads `clientDeck`),
+// `deckId` is a plain bounded string, and `deckOverride` is a dev tool gated
+// exactly like matchOverride.
+
+const TB = DEFAULT_DECKS.torpedoBoat;
+
+describe('sanitizeDeckOptions — the `deck` key is never accepted', () => {
+  it('flags a `deck` key whatever its value — an array, a string, an object, even undefined', () => {
+    for (const deck of [[...TB], 'armor', { cards: [...TB] }, 42, null, undefined]) {
+      const options = { deck } as JoinOptions;
+      expect(sanitizeDeckOptions(options, false).clientDeck, String(deck)).toBe(true);
+      expect(sanitizeDeckOptions(options, true).clientDeck, String(deck)).toBe(true);
+    }
+  });
+
+  it('does not flag options without the key', () => {
+    expect(sanitizeDeckOptions({}, false).clientDeck).toBe(false);
+    expect(sanitizeDeckOptions({ name: 'X', cls: 'battleship' }, true).clientDeck).toBe(false);
+    // ...and never reads the prototype: an inherited `deck` is not a key.
+    const inherited = Object.create({ deck: [...TB] }) as JoinOptions;
+    expect(sanitizeDeckOptions(inherited, false).clientDeck).toBe(false);
+  });
+});
+
+describe('sanitizeDeckOptions — deckId (the Epic 9 port, accepted but unread)', () => {
+  it('trims a string and passes it through', () => {
+    expect(sanitizeDeckOptions({ deckId: '  my-deck ' }, false).deckId).toBe('my-deck');
+  });
+
+  it('drops a non-string, an empty/whitespace id, and one over DECK_ID_MAX code points', () => {
+    for (const bad of [42, {}, [], null, '', '   ', 'x'.repeat(DECK_ID_MAX + 1)]) {
+      expect(sanitizeDeckOptions({ deckId: bad } as JoinOptions, false).deckId, String(bad)).toBeUndefined();
+    }
+    expect(sanitizeDeckOptions({ deckId: 'x'.repeat(DECK_ID_MAX) }, false).deckId).toHaveLength(DECK_ID_MAX);
+    expect(sanitizeDeckOptions({ deckId: '🚢'.repeat(DECK_ID_MAX) }, false).deckId).toHaveLength(DECK_ID_MAX * 2); // code points, not UTF-16 units
+  });
+
+  it('is never dev-gated', () => {
+    expect(sanitizeDeckOptions({ deckId: 'd' }, false)).toEqual({ deckId: 'd', clientDeck: false, rejectedKeys: [] });
+  });
+});
+
+describe('sanitizeDeckOptions — deckOverride (dev-only, the matchOverride precedent)', () => {
+  it('is DROPPED and reported without HC_DEV_OPTIONS, whatever its shape', () => {
+    const out = sanitizeDeckOptions({ deckOverride: [...TB] }, false);
+    expect(out.deckOverride).toBeUndefined();
+    expect(out.rejectedKeys).toEqual(['deckOverride']);
+    expect(sanitizeDeckOptions({ deckOverride: 'junk' as unknown as string[] }, false).rejectedKeys).toEqual(['deckOverride']);
+  });
+
+  it('is honoured under devEnabled as a FRESH array of line ids', () => {
+    const list = [...TB];
+    const out = sanitizeDeckOptions({ deckOverride: list }, true);
+    expect(out.deckOverride).toEqual(TB);
+    expect(out.deckOverride).not.toBe(list);
+    expect(out.rejectedKeys).toEqual([]);
+  });
+
+  it('honours an ILLEGAL but well-formed override (legality is the door\'s job, not the sanitizer\'s)', () => {
+    const fortyOne = [...TB, 'armor'];
+    expect(sanitizeDeckOptions({ deckOverride: fortyOne }, true).deckOverride).toEqual(fortyOne);
+  });
+
+  it('honours an UNKNOWN id verbatim — checkDeck refuses it as `unowned`, the sanitizer never substitutes', () => {
+    // The sanitizer used to drop the whole override on one unknown id, which
+    // made the door sail the DEFAULT (a silent substitution) and left
+    // checkDeck's `unowned` rule unreachable from either door.
+    for (const junk of ['nope', 'constructor', '__proto__', '']) {
+      const list = [...TB.slice(1), junk];
+      const out = sanitizeDeckOptions({ deckOverride: list }, true);
+      expect(out.deckOverride, junk).toEqual(list);
+      expect(out.rejectedKeys, junk).toEqual([]);
+    }
+  });
+
+  it('DROPS AND REPORTS a malformed shape: a non-array, a non-string entry, too many entries, an over-long entry', () => {
+    const bad: unknown[] = [
+      'armor',
+      { 0: 'armor' },
+      null,
+      [...TB.slice(1), 7],
+      new Array<string>(DECK_OVERRIDE_MAX + 1).fill('armor'),
+      [...TB.slice(1), 'x'.repeat(DECK_ID_MAX + 1)],
+    ];
+    for (const v of bad) {
+      const out = sanitizeDeckOptions({ deckOverride: v as string[] }, true);
+      expect(out.deckOverride, JSON.stringify(v)?.slice(0, 40)).toBeUndefined();
+      // A drop is never silent any more — the door logs deck.devOptionsRejected.
+      expect(out.rejectedKeys, JSON.stringify(v)?.slice(0, 40)).toEqual(['deckOverride']);
+    }
+    // ...and the bounds themselves are inclusive.
+    expect(sanitizeDeckOptions({ deckOverride: new Array<string>(DECK_OVERRIDE_MAX).fill('armor') }, true).deckOverride)
+      .toHaveLength(DECK_OVERRIDE_MAX);
+    expect(sanitizeDeckOptions({ deckOverride: ['x'.repeat(DECK_ID_MAX)] }, true).deckOverride).toEqual(['x'.repeat(DECK_ID_MAX)]);
+  });
+
+  it('no rejection noise when the caller passed no override', () => {
+    expect(sanitizeDeckOptions({}, false).rejectedKeys).toEqual([]);
+    expect(sanitizeDeckOptions({ deckId: 'd' }, false).rejectedKeys).toEqual([]);
+  });
+
+  it('sanitizeRoomOptions is untouched by the deck keys (they are join-time, not create-time)', () => {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions({ deckOverride: [...TB], deckId: 'd', deck: [] } as RoomOptions, false);
+    expect(sanitized).toEqual({});
+    expect(rejectedKeys).toEqual([]);
   });
 });

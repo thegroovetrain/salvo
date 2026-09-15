@@ -42,8 +42,13 @@ import {
   NO_CARDS,
   applyCardStats,
   applySlotEffect,
-  buildDeck,
+  buildDeckState,
   cardBehaviors,
+  checkDeck,
+  DEFAULT_DECKS,
+  DEFAULT_OWNED,
+  deckFromCounts,
+  equipmentLineCount,
   cardCounts,
   catalogCardCount,
   consumeCard,
@@ -570,9 +575,15 @@ describe('shared barrel', () => {
   });
 
   it('re-exports THE DECK MODEL engine + the offer/spend wire shape (Story 2.8)', () => {
-    for (const fn of [buildDeck, drawOffer, consumeCard]) {
+    for (const fn of [buildDeckState, drawOffer, consumeCard]) {
       expect(typeof fn).toBe('function');
     }
+    // Story 8.2: the interim `buildDeck` is gone — the pool is built from a
+    // frozen list — and the legality engine + the default decks are exported.
+    expect((shared as Record<string, unknown>).buildDeck).toBeUndefined();
+    for (const fn of [checkDeck, equipmentLineCount, deckFromCounts]) expect(typeof fn).toBe('function');
+    expect(Object.keys(DEFAULT_DECKS).sort()).toEqual(['battleship', 'mineLayer', 'torpedoBoat']);
+    expect(DEFAULT_OWNED.size).toBe(24);
     // RETIRED with the exclusivity mechanism (Story 7-5 wave 2, R2.6):
     // `returnCards` was the doctrine swap-out's give-back and the cannon pair
     // was the mechanism's last user, so the deck now has no inflow at all.
@@ -587,8 +598,8 @@ describe('shared barrel', () => {
     // second banked offer to scrub stale acquisition cards out of.
     expect((shared as Record<string, unknown>).scrubAcquisitions).toBeUndefined();
     // THE SOFT-PITY DIALS DIED WITH RARITY (Story 8.1). CONFIG.deck now carries
-    // the AUTHORED-deck rules (AR52), unused until Story 8.2 builds the forge,
-    // and CONFIG.catalog carries the one engine dial the fold needs.
+    // the AUTHORED-deck rules (AR52), read by checkDeck at the door since
+    // Story 8.2, and CONFIG.catalog carries the one engine dial the fold needs.
     expect(CONFIG.deck).toEqual({ size: 40, maxEquipmentLines: 3 });
     expect(CONFIG.catalog).toEqual({ reloadStepPerTier: 0.05 });
     expect(CONFIG.offer.size).toBe(4); // four cards, four DIFFERENT lines

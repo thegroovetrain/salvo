@@ -65,7 +65,7 @@ function bareWorld(seed = 7): World {
  *  empty extra slot in one hull. The role stays 'captain' so the
  *  FleetController never overwrites the scripted inputs. */
 function place(w: World, id: string, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'mineLayer');
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'mineLayer', undefined, undefined, []);
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
 }
@@ -73,7 +73,7 @@ function place(w: World, id: string, heading = 0): ShipRecord {
 /** The TORPEDO BOAT sibling: [gun, torpedo, speedBoost, empty] — the only fit
  *  that carries a torpedo, so every bow-arc case runs on this hull. */
 function placeTb(w: World, id: string, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat');
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, []);
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
 }

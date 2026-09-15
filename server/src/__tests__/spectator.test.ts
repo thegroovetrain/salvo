@@ -14,6 +14,7 @@ import {
   isSinking,
   isSunk,
   CONFIG,
+  DEFAULT_DECKS,
   bearing,
   mulberry32,
   paintCoverage,
@@ -61,7 +62,8 @@ function bareWorld(seed = 1): World {
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+  // A captain fixture sails its hull's default deck (Story 8.2).
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;

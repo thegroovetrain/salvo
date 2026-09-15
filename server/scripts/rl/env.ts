@@ -21,6 +21,7 @@
 
 import {
   CONFIG,
+  DEFAULT_DECKS,
   EQUIPMENT_IS_WEAPON,
   HEAL_CHOICE,
   mulberry32,
@@ -125,7 +126,8 @@ export class HullcrackerEnv {
       disconnect: () => {},
     });
     this.agents = enrollAgents(world, seed, opts);
-    for (let i = 0; i < botCount; i += 1) world.addBot();
+    // Bots sail the hull's DEFAULT deck (Story 8.2), like the arena's.
+    for (let i = 0; i < botCount; i += 1) world.addBot(undefined, undefined, (h) => DEFAULT_DECKS[h]);
     match.notifyRosterChanged();
     this.world = world;
     this.match = match;
@@ -260,7 +262,8 @@ function enrollAgents(world: World, seed: number, opts: ResetOptions): AgentStat
   for (let i = 0; i < opts.agents; i += 1) {
     const id = `rl-${i + 1}`;
     const hull = opts.agentHulls?.[i] ?? HULLS[i % HULLS.length];
-    world.addShip(id, `RL-${String(i + 1).padStart(2, '0')}`, 'captain', hull);
+    // RL captains sail their hull's DEFAULT deck (Story 8.2) — the door's answer.
+    world.addShip(id, `RL-${String(i + 1).padStart(2, '0')}`, 'captain', hull, undefined, undefined, DEFAULT_DECKS[hull]);
     agents.push({
       id,
       seq: 0,

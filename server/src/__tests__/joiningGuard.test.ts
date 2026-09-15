@@ -53,7 +53,7 @@ function bareRoom(clients: FakeClient[]): BareRoom {
   w.map.islands.length = 0;
   const players = new Map<string, unknown>();
   for (const c of clients) {
-    w.addShip(c.sessionId, c.sessionId.toUpperCase());
+    w.addShip(c.sessionId, c.sessionId.toUpperCase(), undefined, undefined, undefined, undefined, []);
     players.set(c.sessionId, {});
   }
   const room = new ArenaRoom() as unknown as BareRoom;

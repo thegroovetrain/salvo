@@ -17,6 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  DEFAULT_DECKS,
   HEAL_CHOICE,
   founderDeadline,
   isAfloat,
@@ -48,7 +49,8 @@ function bareWorld(seed = 11): World {
 }
 
 function place(w: World, id: string, x: number, y: number, cls: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls);
+  // The hull's default deck (Story 8.2): what the door admits for a captain.
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls, undefined, undefined, DEFAULT_DECKS[cls]);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;
@@ -453,10 +455,10 @@ function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: R
   };
   const m = new Match(w, TIMINGS, hooks);
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase());
+    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
     m.notifyRosterChanged();
   }
-  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, 'fleet');
+  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, 'fleet', undefined, undefined, undefined, []);
   for (let i = 0; i < 100 && m.phase !== 'active'; i++) {
     w.step();
     m.update();

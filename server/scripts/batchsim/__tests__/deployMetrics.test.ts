@@ -14,7 +14,7 @@
 // Like every other number in botMetrics this is READ-ONLY over World state.
 
 import { describe, it, expect } from 'vitest';
-import { World } from '../../../src/game/world.js';
+import { NO_DECK, World } from '../../../src/game/world.js';
 import { BotCollector } from '../botMetrics.js';
 import { addBuoy } from '../../../src/game/equipment/radarBuoy.js';
 import { addMine } from '../../../src/game/equipment/mines.js';
@@ -22,7 +22,7 @@ import { addMine } from '../../../src/game/equipment/mines.js';
 describe('botMetrics — placeables that actually reached the water', () => {
   it('counts a real buoy and a real mine against their OWNER, once each', () => {
     const world = new World(11, 20);
-    const bot = world.addBot('mineLayer');
+    const bot = world.addBot('mineLayer', undefined, NO_DECK);
     const col = new BotCollector([bot.id]);
 
     col.observe(world, 1); // nothing on the water yet
@@ -46,7 +46,7 @@ describe('botMetrics — placeables that actually reached the water', () => {
 
   it('DISCRIMINATES a deployment from a denied request — the whole point', () => {
     const world = new World(12, 20);
-    const bot = world.addBot('mineLayer');
+    const bot = world.addBot('mineLayer', undefined, NO_DECK);
     const col = new BotCollector([bot.id]);
 
     // The denied-request case, staged directly: the fire sequence advances
@@ -73,8 +73,8 @@ describe('botMetrics — placeables that actually reached the water', () => {
 
   it('ignores a placement owned by someone who is not an enrolled bot', () => {
     const world = new World(13, 20);
-    const bot = world.addBot('mineLayer');
-    const other = world.addBot('torpedoBoat');
+    const bot = world.addBot('mineLayer', undefined, NO_DECK);
+    const other = world.addBot('torpedoBoat', undefined, NO_DECK);
     const col = new BotCollector([bot.id]); // `other` is deliberately NOT enrolled
 
     addMine(world.mines, other.id, 300, 300, world.now, 'm7');

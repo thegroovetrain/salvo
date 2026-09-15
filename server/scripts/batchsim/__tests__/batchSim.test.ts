@@ -9,13 +9,27 @@
 // NEVER import ./main.ts here — it runs the CLI (process.exit) at import time.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, LIFECYCLE_ALIVE, SHIP_CLASS_IDS, angleDiff, sunkAt, zoneEndgameAtMs, type HullId } from '@salvo/shared';
+import {
+  CATALOG,
+  CONFIG,
+  DEFAULT_DECKS,
+  DEFAULT_OWNED,
+  LIFECYCLE_ALIVE,
+  LINE_IDS,
+  SHIP_CLASS_IDS,
+  angleDiff,
+  checkDeck,
+  equipmentLineCount,
+  sunkAt,
+  zoneEndgameAtMs,
+  type HullId,
+} from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
-import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
+import { TunableError, applyOverrides, isTunableKey, validateTunableKey } from '../overrides.js';
 import { buildBotAggregate } from '../botReport.js';
 import { mixSeed, percentile, summarize } from '../stats.js';
-import { CONTROL_REGISTRY } from '../controls.js';
+import { CONTROL_REGISTRY, PACIFIST_DECK } from '../controls.js';
 import { pickSpendChoice } from '../spendPolicy.js';
 import { Match } from '../../../src/game/match.js';
 import { MatchCollector, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
@@ -400,6 +414,22 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     restore();
   });
 
+  it('REFUSES deck.* on every surface — the decks are baked at module load, so it would be inert', () => {
+    // `--set deck.size=30` used to be accepted and change nothing a hull
+    // sails (DEFAULT_DECKS / PACIFIST_DECK expand at import), while making
+    // checkDeck call every baked 40-card deck illegal.
+    for (const key of ['deck.size', 'deck.maxEquipmentLines']) {
+      expect(() => parseArgs(['--set', `${key}=30`]), key).toThrow(TunableError);
+      expect(() => parseArgs(['--set', `${key}=30`]), key).toThrow(/baked at MODULE LOAD|at MODULE LOAD/);
+      expect(() => parseArgs(['--sweep', `${key}=30,40`]), key).toThrow(TunableError);
+      expect(() => validateTunableKey(key), key).toThrow(/MODULE LOAD/);
+      expect(isTunableKey(key), key).toBe(false);
+      expect(() => applyOverrides({ [key]: 30 }), key).toThrow(TunableError);
+    }
+    // ...and the deck dials are untouched by the refused apply.
+    expect(CONFIG.deck.size).toBe(40);
+  });
+
   it('leaves the --set/--sweep whitelist BYTE-IDENTICAL: gun.* is still refused there', () => {
     // The pin at the top of this file says the same thing for --set; this is
     // the fail-proof that adding --tune did not quietly widen the other surface.
@@ -591,7 +621,7 @@ describe('controls — determinism', () => {
    *  gunner this block used to drive is deleted). */
   function inputStream(worldSeed: number, controlSeed: number, ticks: number): string {
     const w = new World(worldSeed, CONFIG.match.fillTo);
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, []);
     const control = CONTROL_REGISTRY.pacifist('cap-1', controlSeed);
     const lines: string[] = [];
     for (let t = 0; t < ticks; t += 1) {
@@ -710,6 +740,52 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
   });
 });
 
+describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2, AR50)', () => {
+  it('is 40 cards, ZERO equipment lines, and LEGAL against a fresh account', () => {
+    expect(PACIFIST_DECK).toHaveLength(CONFIG.deck.size);
+    expect(equipmentLineCount(PACIFIST_DECK)).toBe(0);
+    expect(checkDeck(PACIFIST_DECK, DEFAULT_OWNED)).toEqual({ ok: true });
+    expect(Object.isFrozen(PACIFIST_DECK)).toBe(true);
+  });
+
+  it('is every owned ladder + the deck-gun family + every owned consumable at cap, trimmed in LINE_IDS order', () => {
+    const counts = new Map<string, number>();
+    for (const id of PACIFIST_DECK) counts.set(id, (counts.get(id) ?? 0) + 1);
+    for (const id of PACIFIST_DECK) {
+      expect(['ladder', 'consumable']).toContain(CATALOG[id].kind);
+      expect(DEFAULT_OWNED.has(id)).toBe(true);
+      expect(counts.get(id)!).toBeLessThanOrEqual(CATALOG[id].cap);
+    }
+    expect(counts.get('decoyBuoy')).toBeUndefined(); // unhomed → unowned → never here
+    // LINE_IDS order, trimmed at 40: the cut lands inside SMOKE SCREEN today.
+    const order = [...new Set(PACIFIST_DECK)];
+    expect(order).toEqual(LINE_IDS.filter((id) => counts.has(id)));
+    expect(counts.get('smokeScreen')).toBe(1);
+    expect(counts.get('chaff')).toBeUndefined();
+  });
+
+  it('the pacifist control SAILS it: the runner hands the control\'s deck to the World', () => {
+    const control = CONTROL_REGISTRY.pacifist('cap-1', 1);
+    expect(control.deck).toBe(PACIFIST_DECK);
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const rec = w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, control.deck);
+    expect(rec.deckList).toBe(PACIFIST_DECK);
+    // Drawable today: the three stub consumables stay in the list but not the
+    // pool; a TB carries no line the pacifist deck holds, so nothing is seeded out.
+    expect(rec.deck.cards).toHaveLength(29);
+    for (const id of rec.deck.cards) expect(CATALOG[id].kind).toBe('ladder');
+  });
+
+  it('bots in the harness lobby sail their hull\'s DEFAULT deck', () => {
+    const w = new World(2);
+    w.map.islands.length = 0;
+    const rec = w.addBot(undefined, undefined, (h) => DEFAULT_DECKS[h]);
+    expect(rec.deckList).toBe(DEFAULT_DECKS[rec.hullId as keyof typeof DEFAULT_DECKS]);
+    expect(rec.deck.cards).toHaveLength(23);
+  });
+});
+
 describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
   it('NEVER fires, and never even aims, with a target parked alongside', () => {
     // THE DISCRIMINATING NEGATIVE IS RETIRED, NOT REPLACED (cycle 110). This
@@ -723,8 +799,8 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
     // comes from BOTS (--bots), which are pinned in server/src/__tests__.
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
-    const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall');
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, []);
+    const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined, []);
     const cap = w.ships.get('cap-1')!;
     // Park a live target right inside comfortable gun range.
     target.state.x = cap.state.x + 150;
@@ -750,7 +826,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
     // fires" must not read as "never acts". FAIL-PROOF for a control that
     // stopped calling world.spendPoint when the hunt plumbing came out.
     const w = new World(7, CONFIG.match.fillTo);
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, []);
     const cap = w.ships.get('cap-1')!;
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
     w.grantXp(cap, 3);
@@ -764,7 +840,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
   it('is deterministic per seed', () => {
     const run = (): string => {
       const w = new World(9, CONFIG.match.fillTo);
-      w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
+      w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined, []);
       const control = CONTROL_REGISTRY.pacifist('cap-1', 5);
       const lines: string[] = [];
       for (let t = 0; t < 150; t += 1) {
@@ -801,7 +877,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
   ): { throttles: number[]; rudders: number[]; headings: number[]; fireSeq: number } {
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', opts.hull ?? 'battleship'); // slowest hull by default
+    w.addShip('cap-1', 'CAP-01', 'captain', opts.hull ?? 'battleship', undefined, undefined, []); // slowest hull by default
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     if (opts.islandOffsetRad !== undefined) {
@@ -896,7 +972,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
     // read the rudder the control answers with.
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
+    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined, []);
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
@@ -946,7 +1022,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
 
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship');
+    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined, []);
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
@@ -1111,7 +1187,7 @@ describe('runner — at-cap classification keeps a real conclusion (review FIX 5
     const world = new World(21, 4);
     const hooks = { lock: () => {}, unlock: () => {}, broadcastResults: () => {}, requeue: () => {}, disconnect: () => {} };
     const match = new Match(world, { countdownMs: 100, resultsMs: 1000, joinWindowMs: 0, minHumans: 1 }, hooks);
-    world.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat');
+    world.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, []);
     match.notifyRosterChanged();
     for (let t = 0; t < 100 && match.phase !== 'finished'; t += 1) {
       world.step();
@@ -1136,6 +1212,11 @@ describe('runner — a captain who leaves mid-match (review gate 2026-07-31)', (
       let t = 0;
       return {
         id,
+        // The wrapped control's own deck (Story 8.2): a CaptainControl
+        // DECLARES what it sails, and the runner hands exactly that to
+        // addShip — omitting it used to fall through to addShip's default
+        // and spawn the quitter with an empty pool.
+        deck: inner.deck,
         tick(world: World): void {
           t += 1;
           if (id === quitId && t >= atTick) {

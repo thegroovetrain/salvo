@@ -65,13 +65,13 @@ function bareWorld(seed = 1, zone: ZoneTimeline = CONFIG.zone): World {
  * anchor; the wave tests below drive the real scheduler instead.
  */
 function fleetShip(w: World, id: string, size: DroneSizeId, x: number, y: number, fleetId = 1): ShipRecord {
-  const rec = w.addShip(id, 'DRONE', 'fleet', droneHullOf(size), DEFAULT_HORN_ID, { x, y });
+  const rec = w.addShip(id, 'DRONE', 'fleet', droneHullOf(size), DEFAULT_HORN_ID, { x, y }, []);
   w.drones.add(id, size, fleetId, { x: 0, y: 0 });
   return rec;
 }
 
 function captain(w: World, id: string, x = 0, y = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', DEFAULT_HORN_ID, { x, y });
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', DEFAULT_HORN_ID, { x, y }, []);
   return rec;
 }
 
@@ -872,7 +872,7 @@ function buildMatch(ids: string[], timings: MatchTimings, seed: number): MatchCt
   const results: unknown[] = [];
   const m = new Match(w, timings, inertHooks(calls, results));
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase());
+    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
     m.notifyRosterChanged();
   }
   return { w, m, calls, results };

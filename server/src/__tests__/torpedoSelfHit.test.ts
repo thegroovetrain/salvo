@@ -58,7 +58,7 @@ function place(
   heading: number,
   classId: ShipClassId = 'torpedoBoat',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', classId);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', classId, undefined, undefined, []);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }

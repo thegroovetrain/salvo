@@ -16,6 +16,7 @@ import {
   isAfloat,
   CATALOG,
   CONFIG,
+  DEFAULT_DECKS,
   HEAL_CHOICE,
   LINE_IDS,
   boonStackCount,
@@ -30,6 +31,7 @@ import {
   type BoonOffer,
   type FrameMsg,
   type GameEvent,
+  type LineId,
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
@@ -54,7 +56,9 @@ function bareWorld(seed = 1, opts?: WorldOptions): World {
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
+  // The hull's DEFAULT deck (Story 8.2): what the door admits with no account
+  // module — the frozen 40-id list the World deals the drawable pool from.
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, DEFAULT_DECKS[hull]);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -125,15 +129,11 @@ const ballisticsOf = (f: FrameMsg) =>
  *  deleted — no deck, offer, or catalog may ever hold one again. */
 const DEAD_RELOAD_IDS = ['gunReload', 'cannonReload', 'torpedoReload', 'mineReload', 'boostReload', 'starReload', 'decoyReload'];
 
-/** THE INTERIM DECK SIZE (Story 8.1, Eric ruling 2026-09-15): every NON-STUB
- *  line at its cap — 16 lines, 53 cards — and IDENTICAL for every hull until
- *  Story 8.2 authors real per-hull decks. Derived from the catalog rather than
- *  restated, so the number moves with the catalog and the PIN is the RULE. */
-const INTERIM_DECK_SIZE = LINE_IDS.reduce((n, id) => (isStubLine(id) ? n : n + CATALOG[id].cap), 0);
-
 /** THE SPAWN SEED per hull: copy 1 of every equipment line whose weapon the
- *  hull already carries. The hull HOLDS these, so the deck deals one copy
- *  fewer of each — the interim deck is 53 cards LESS the seed. */
+ *  hull already carries. The hull HOLDS these, so the pool deals one copy
+ *  fewer of each — where the deck carries the line at all (the Battleship's
+ *  `broadside` is carried but NOT in its default deck, so nothing is removed
+ *  for it). */
 const SEED_FOR: Record<string, string[]> = {
   torpedoBoat: ['heavyTorpedo'],
   battleship: ['broadside', 'starShells'],
@@ -141,31 +141,59 @@ const SEED_FOR: Record<string, string[]> = {
 };
 /** The seed `place()` hands a default (torpedoBoat) fixture. */
 const TB_SEED = SEED_FOR.torpedoBoat;
-/** The interim deck size for a hull: every non-stub line at cap, less its seed. */
-const deckSizeFor = (hull = 'torpedoBoat'): number => INTERIM_DECK_SIZE - SEED_FOR[hull].length;
+/** Copies of `id` in a fresh torpedoBoat POOL: its default-deck count less
+ *  the one copy the seed holds (Story 8.2 — the pool is dealt from the list,
+ *  so `CATALOG[id].cap` is no longer the number a line starts at). */
+const poolCopies = (id: string): number =>
+  DEFAULT_DECKS.torpedoBoat.filter((x) => x === id).length - (TB_SEED.includes(id) ? 1 : 0);
+/** A DIRECTED board list for the extra-slot fits: the TB default plus every
+ *  copy of NAVAL MINES. Not a legal deck (46 cards, four equipment lines) —
+ *  the World checks no legality (the door does), and the TB's own default
+ *  holds no unfitted, non-stub equipment line to fit, so the fixture adds
+ *  one on purpose. */
+const TB_WITH_MINES: readonly LineId[] = [...DEFAULT_DECKS.torpedoBoat, ...new Array<LineId>(CATALOG.navalMines.cap).fill('navalMines')];
+/** THE DRAWABLE POOL SIZE for a hull (Story 8.2, amendment 11): its 40-card
+ *  DEFAULT deck less every stub card less the carried copies the deck
+ *  actually holds. Derived from the ruling's list rather than restated, so
+ *  the number moves with the stub flags (8.7–8.15 flip them) and the PIN is
+ *  the RULE — and pinned at 23 for all three today. */
+const deckSizeFor = (hull: ShipClassId = 'torpedoBoat'): number => {
+  const list = DEFAULT_DECKS[hull];
+  const dealt = list.filter((id) => !isStubLine(id)).length;
+  const held = SEED_FOR[hull].filter((id) => list.includes(id as (typeof list)[number])).length;
+  return dealt - held;
+};
 
-describe('deck composition — the INTERIM buildDeck (Story 8.1)', () => {
+describe('deck composition — the DEFAULT deck through the World (Story 8.2)', () => {
   const HULLS: ShipClassId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
 
   for (const hull of HULLS) {
-    it(`${hull}: every non-stub line at its cap LESS the carried seed (${deckSizeFor(hull)} cards)`, () => {
+    it(`${hull}: the frozen default list, the drawable pool = list − stubs − carried (${deckSizeFor(hull)} cards)`, () => {
       const w = bareWorld();
       const rec = place(w, 'a', 0, 0, 0, hull);
+      // The FROZEN LIST is stored as given — the shared default identity, 40
+      // ids, stubs included (amendment 11) — and is immutable.
+      expect(rec.deckList).toBe(DEFAULT_DECKS[hull]);
+      expect(rec.deckList).toHaveLength(CONFIG.deck.size);
+      expect(Object.isFrozen(rec.deckList)).toBe(true);
+      // The POOL is the list less stubs less the carried copies: 23 today.
       expect(rec.deck.cards).toHaveLength(deckSizeFor(hull));
-      expect(INTERIM_DECK_SIZE).toBe(53);
+      expect(deckSizeFor(hull)).toBe(23);
+      const listed = new Map<string, number>();
+      for (const id of rec.deckList) listed.set(id, (listed.get(id) ?? 0) + 1);
       for (const id of LINE_IDS) {
         // A STUB line is authored but unbuilt: it can never be dealt, which is
         // the single point at which "authored" becomes "unofferable". A CARRIED
         // line is dealt one short: the hull already holds copy 1 (the weapon).
-        const seeded = SEED_FOR[hull].includes(id) ? 1 : 0;
-        expect(copiesInDeck(rec, id), id).toBe(isStubLine(id) ? 0 : CATALOG[id].cap - seeded);
+        const seeded = SEED_FOR[hull].includes(id) && listed.has(id) ? 1 : 0;
+        expect(copiesInDeck(rec, id), id).toBe(isStubLine(id) ? 0 : (listed.get(id) ?? 0) - seeded);
       }
-      // The deck-gun family and the global RELOAD ladder are universal — every
-      // hull's deck carries all their copies, and no per-equipment reload line
+      // The deck-gun family and the global RELOAD ladder are universal
+      // (amendment 10's 30 shared cards), and no per-equipment reload line
       // survives anywhere.
       expect(copiesInDeck(rec, 'deckGunBarrel')).toBe(2);
       expect(copiesInDeck(rec, 'deckGunTurret')).toBe(1);
-      expect(copiesInDeck(rec, 'reload')).toBe(5);
+      expect(copiesInDeck(rec, 'reload')).toBe(3);
       for (const dead of DEAD_RELOAD_IDS) {
         expect(Object.hasOwn(CATALOG, dead)).toBe(false);
         expect(copiesInDeck(rec, dead)).toBe(0);
@@ -173,19 +201,42 @@ describe('deck composition — the INTERIM buildDeck (Story 8.1)', () => {
     });
   }
 
-  it('the hulls differ ONLY by their carried seed (no other per-hull composition until 8.2)', () => {
+  it('the hulls spawn holding their carried seed, and the seed + the pool + the stubs is the whole list', () => {
     for (const hull of HULLS) {
       const w = bareWorld();
       const rec = place(w, 'a', 0, 0, 0, hull);
       expect(rec.cards).toEqual(SEED_FOR[hull]);
-      // Put the seed back and the three decks are byte-identical again.
-      expect([...rec.deck.cards, ...rec.cards].length).toBe(INTERIM_DECK_SIZE);
+      const stubs = rec.deckList.filter((id) => isStubLine(id)).length;
+      const heldInDeck = SEED_FOR[hull].filter((id) => rec.deckList.includes(id as (typeof rec.deckList)[number])).length;
+      expect(rec.deck.cards.length + stubs + heldInDeck).toBe(CONFIG.deck.size);
     }
+  });
+
+  it('a World never chooses a deck: a captain added with NO list gets an EMPTY pool and an empty list', () => {
+    const w = bareWorld();
+    const bare = w.addShip('bare', 'BARE', 'captain', 'torpedoBoat', undefined, undefined, []);
+    expect(bare.deckList).toEqual([]);
+    expect(bare.deck.cards).toEqual([]);
+    // ...and a level still banks — with no offer (deck exhaustion banks silently).
+    w.grantXp(bare, 1);
+    expect(bare.bankedLevels).toBe(1);
+    expect(bare.offer).toBeNull();
+  });
+
+  it('a dev override arrives as a fresh array and is FROZEN on the record', () => {
+    const w = bareWorld();
+    const list = [...DEFAULT_DECKS.torpedoBoat];
+    const rec = w.addShip('o', 'O', 'captain', 'torpedoBoat', undefined, undefined, list);
+    expect(rec.deckList).toEqual(list);
+    expect(rec.deckList).not.toBe(list);
+    expect(Object.isFrozen(rec.deckList)).toBe(true);
+    list.push('armor'); // the caller's array is not the record's
+    expect(rec.deckList).toHaveLength(CONFIG.deck.size);
   });
 
   it('DRONES get NO deck and never draw (the frozen empty identity)', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall');
+    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []);
     expect(d.deck.cards).toEqual([]);
     // Even a direct XP grant banks nothing for a drone (the addXpMs guard).
     w.grantXp(d, 5);
@@ -407,7 +458,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const buildSize = a.deck.cards.length;
-    expect(buildSize).toBe(deckSizeFor()); // the interim build (suite above)
+    expect(buildSize).toBe(deckSizeFor()); // the default build (suite above)
     const hands: string[][] = [];
     for (let i = 0; i < 20; i++) {
       bank(w, a, 1);
@@ -437,7 +488,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     const hand = front(a);
     const passed = hand[1]; // fit slot 0, pass on the rest
     const copiesBefore = copiesInDeck(a, passed);
-    expect(copiesBefore).toBe(CATALOG[passed].cap); // never left the deck at all
+    expect(copiesBefore).toBe(poolCopies(passed)); // never left the deck at all
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(copiesInDeck(a, passed)).toBe(copiesBefore); // ...and still hasn't
     // It is eligible for the very next draw: hammer the stream from this state
@@ -462,9 +513,9 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     // Exactly ONE card left the pool — the fitted one.
     expect(a.deck.cards).toHaveLength(deckBefore - 1);
     const chosen = offer[0];
-    expect(copiesInDeck(a, chosen)).toBe(CATALOG[chosen].cap - 1); // one copy consumed
+    expect(copiesInDeck(a, chosen)).toBe(poolCopies(chosen) - 1); // one copy consumed
     for (const id of offer.slice(1)) {
-      expect(copiesInDeck(a, id)).toBe(CATALOG[id].cap - boonStackCount(a.cards, id));
+      expect(copiesInDeck(a, id)).toBe(poolCopies(id)); // untouched
     }
   });
 
@@ -497,7 +548,11 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
       ({ id, kind: 'ladder', cap: 9, tiers: new Array(9).fill([{ kind: 'stat', path: 'equipment.gun.damage', add: 1 }]) }) as unknown as CatalogLine;
     const catalog: Catalog = { c1: line('c1'), c2: line('c2'), c3: line('c3'), c4: line('c4'), c5: line('c5'), c6: line('c6') };
     const w = bareWorld(3, { catalog });
-    const a = place(w, 'a', 0, 0);
+    // The list must name the INJECTED lines (Story 8.2: the pool is dealt
+    // from the list, and an id the catalog does not know is dropped).
+    const list = Object.keys(catalog).flatMap((id) => new Array<LineId>(9).fill(id as LineId));
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, list);
+    a.state.speed = 0;
     // Count the stream instead of a deleted counter: wrap this ship's own rng.
     let rolls = 0;
     const inner = a.deckRng;
@@ -864,10 +919,11 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
 describe('equipment lines — copy 1 fits the weapon into the extra slot', () => {
   /** A TB holding `extraLevels` more banked levels behind a directed
    *  navalMines front offer (the TB carries no mine, so its extra slot is the
-   *  one this fit lands in). */
+   *  one this fit lands in). Sails TB_WITH_MINES so the line is IN the pool. */
   function fitBoard(extraLevels = 0): { w: World; a: ShipRecord } {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, TB_WITH_MINES);
+    a.state.speed = 0;
     a.bankedLevels = 1 + extraLevels;
     a.offer = ['navalMines', 'deckGunBarrel', 'armor', 'radarSweep'];
     return { w, a };
@@ -995,16 +1051,19 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
 
 describe('empty deck — level banks, NO offer materializes (pinned unreachable in production)', () => {
   it('with a one-card injected catalog: the level materializes the last card, and only FITTING it empties the deck', () => {
-    // The interim deck is 53 cards and, since the lazy-draw bugfix, banking
-    // costs none of them — a match can never exhaust one. The rule is still
-    // DEFINED: reach it with a tiny catalog (one universal line, one copy).
+    // The default pool is 23 drawable cards and, since the lazy-draw bugfix,
+    // banking costs none of them — only FITS do, so ~23 fits against a match's
+    // levels is the margin (re-derived in Story 8.3, see deferred-work.md).
+    // The rule is still DEFINED: reach it with a tiny catalog (one universal
+    // line, one copy) and a one-card list.
     const tiny: WorldOptions = {
       catalog: {
         lastShell: { id: 'lastShell', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'equipment.gun.damage', add: 1 }]] } as unknown as CatalogLine,
       },
     };
     const w = bareWorld(1, tiny);
-    const a = place(w, 'a', 0, 0);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, ['lastShell' as LineId]);
+    a.state.speed = 0;
     expect(a.deck.cards).toEqual(['lastShell']);
     w.grantXp(a, 1);
     w.step();
@@ -1075,7 +1134,10 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
 
   it('redeployShip (match start) WIPES the build AND rebuilds the deck over the fresh fit', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
+    // TB_WITH_MINES: the TB default holds no unfitted non-stub equipment line,
+    // so the board adds NAVAL MINES to have a fit that diverges the deck.
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, TB_WITH_MINES);
+    a.state.speed = 0;
     // Fit an equipment line so the live deck and the live FIT both diverge
     // hard from a fresh build.
     a.bankedLevels = 1;
@@ -1091,10 +1153,14 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     expect(a.xpMs).toBe(0);
     expect(a.stats).toEqual(effectiveStats(a.cls));
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'heavyTorpedo', 'speedBoost', null]);
-    // The fresh deck is the fresh interim build: every non-stub line back at
-    // its full cap.
+    // The fresh pool is rebuilt from the SAME frozen list (never the catalog):
+    // every dealt line back at its listed count, less the re-seeded copy —
+    // including the fitted mines, back at all five.
+    expect(a.deckList).toEqual(TB_WITH_MINES);
     expect(copiesInDeck(a, 'navalMines')).toBe(CATALOG['navalMines'].cap);
-    expect(a.deck.cards).toHaveLength(deckSizeFor());
+    expect(copiesInDeck(a, 'armor')).toBe(3);
+    expect(copiesInDeck(a, 'heavyTorpedo')).toBe(2);
+    expect(a.deck.cards).toHaveLength(deckSizeFor() + CATALOG['navalMines'].cap);
   });
 });
 
@@ -1110,7 +1176,12 @@ describe('wire privacy — banked levels and the deck never leak', () => {
     expect(f.you!.offer).toEqual(front(a));
     for (const id of f.you!.offer) expect(Object.hasOwn(CATALOG, id)).toBe(true);
     expect('deck' in f.you!).toBe(false);
-    expect(JSON.stringify(f)).not.toContain('deck');
+    // Key-shaped scan (Story 8.2): the deck-gun family's ids legitimately
+    // ride `offer`/`cards`, so the pin is on KEYS — no `deck`, `deckList` or
+    // `deckId` key anywhere in the frame (the perception invariant carries
+    // the same pin over every random world).
+    const text = JSON.stringify(f);
+    for (const key of ['"deck"', '"deckList"', '"deckId"']) expect(text).not.toContain(key);
   });
 
   it("another ship's frame carries no pt/bn events, and its contacts carry no pts/offer/deck", () => {
@@ -1467,19 +1538,25 @@ describe('STUB lines can never be fitted (server gate + shared replay)', () => {
 // card: `slotFill` no-ops against equipment already fitted, so a Torpedo Boat
 // could spend a whole level on HEAVY TORPEDO and get nothing at all.
 describe('the CARRIED seed — a hull spawns holding copy 1 of its own weapons', () => {
+  // Sizes (Story 8.2): 40 − 16 stub cards − the ONE carried copy the default
+  // deck holds = 23 for every hull; the Battleship's `broadside` is carried
+  // but not in its deck, so it holds 0 copies rather than −1.
   const SEEDS: [ShipClassId, string[], number][] = [
-    ['torpedoBoat', ['heavyTorpedo'], 52],
-    ['battleship', ['broadside', 'starShells'], 51],
-    ['mineLayer', ['navalMines'], 52],
+    ['torpedoBoat', ['heavyTorpedo'], 23],
+    ['battleship', ['broadside', 'starShells'], 23],
+    ['mineLayer', ['navalMines'], 23],
   ];
 
   for (const [hull, seed, size] of SEEDS) {
-    it(`${hull} spawns with cards ${JSON.stringify(seed)} and a ${size}-card deck`, () => {
+    it(`${hull} spawns with cards ${JSON.stringify(seed)} and a ${size}-card pool`, () => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0, 0, hull);
       expect(a.cards).toEqual(seed);
       expect(a.deck.cards).toHaveLength(size);
-      for (const id of seed) expect(copiesInDeck(a, id), id).toBe(CATALOG[id].cap - 1);
+      for (const id of seed) {
+        const inDeck = DEFAULT_DECKS[hull].filter((x) => x === id).length;
+        expect(copiesInDeck(a, id), id).toBe(Math.max(0, inDeck - 1));
+      }
       // The seed is STAT- and FIT-NEUTRAL: tier I is the bare weapon, which is
       // what the hull already had.
       expect(a.stats).toEqual(effectiveStats(a.cls));
@@ -1505,13 +1582,13 @@ describe('the CARRIED seed — a hull spawns holding copy 1 of its own weapons',
     w.applyCard(a, 'armor');
     w.resetForMatchStart();
     expect(a.cards).toEqual(['broadside', 'starShells']);
-    expect(a.deck.cards).toHaveLength(51);
+    expect(a.deck.cards).toHaveLength(23);
     expect(a.stats).toEqual(effectiveStats(a.cls));
   });
 
   it('DRONES still get NO deck, seeded cards or not', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall');
+    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []);
     expect(d.deck.cards).toEqual([]);
   });
 });

@@ -78,9 +78,9 @@ describe('Match.endSummary — pre-activation safety', () => {
 
   it('duration stays 0 mid-match (activated but not finished)', () => {
     const ctx = build();
-    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat');
+    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, []);
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', 'captain', 'mineLayer');
+    ctx.w.addShip('b', 'B', 'captain', 'mineLayer', undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
     expect(ctx.m.phase).toBe('active');
@@ -97,11 +97,11 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
     // Two humans of distinct classes (arm the countdown) + one drone (fills a
     // slot; drones never count toward humanCount so this can't start/hold it).
     // The drone takes a DRONE hull id — telemetry buckets it under that id.
-    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat');
+    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, []);
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', 'captain', 'mineLayer');
+    ctx.w.addShip('b', 'B', 'captain', 'mineLayer', undefined, undefined, []);
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('d1', 'D1', 'fleet', 'droneLarge');
+    ctx.w.addShip('d1', 'D1', 'fleet', 'droneLarge', undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     // Activate (2 ticks: now 0 -> 100 == countdownEndT).
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
@@ -145,9 +145,9 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
 describe('Match.endSummary — the PvE column (amendment 44)', () => {
   it('counts drone sinkings per VICTIM size, and leaves killsByClass untouched', () => {
     const ctx = build();
-    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat');
+    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, []);
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', 'captain', 'mineLayer');
+    ctx.w.addShip('b', 'B', 'captain', 'mineLayer', undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     for (const [id, hull] of [
       ['d1', 'droneSmall'],
@@ -155,7 +155,7 @@ describe('Match.endSummary — the PvE column (amendment 44)', () => {
       ['d3', 'droneMedium'],
       ['d4', 'droneLarge'],
     ] as const) {
-      ctx.w.addShip(id, id.toUpperCase(), 'fleet', hull);
+      ctx.w.addShip(id, id.toUpperCase(), 'fleet', hull, undefined, undefined, []);
       ctx.m.notifyRosterChanged();
     }
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
@@ -183,11 +183,11 @@ describe('Match.endSummary — endedBy classification', () => {
    *  keeps it live — but they still prove a finish can happen with hulls afloat. */
   function activated(drones: number): Ctx {
     const ctx = build();
-    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat');
+    ctx.w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, []);
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', 'captain', 'mineLayer');
+    ctx.w.addShip('b', 'B', 'captain', 'mineLayer', undefined, undefined, []);
     ctx.m.notifyRosterChanged();
-    for (let i = 0; i < drones; i++) ctx.w.addShip(`d${i}`, `D${i}`, 'fleet', 'droneLarge');
+    for (let i = 0; i < drones; i++) ctx.w.addShip(`d${i}`, `D${i}`, 'fleet', 'droneLarge', undefined, undefined, []);
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
     expect(ctx.m.phase).toBe('active');
     return ctx;

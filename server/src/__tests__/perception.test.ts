@@ -312,7 +312,7 @@ function bareWorld(seed = 1, opts: WorldOptions = {}): World {
 
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -742,7 +742,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0); // the killer
     place(w, 'c', 0, 800); // an uninvolved, out-of-sight bystander
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined, []);
     d.state.x = 500; // far outside everyone's sight
     d.state.y = 0;
     w.sinkShip('d1', 'a');
@@ -760,7 +760,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
   it('a WITNESSED drone sinking arrives with seen: true (today\'s rule, unchanged)', () => {
     const w = bareWorld();
     place(w, 'c', 0, 0); // a witness who did not fire the shot
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined, []);
     d.state.x = 100; // inside c's sight bubble
     d.state.y = 0;
     w.sinkShip('d1', 'a');
@@ -826,7 +826,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     // of whom already know the leader's identity from the public
     // ArenaState.bountyId, and `by` is already on the line. The out-of-sight
     // bystander gets NOTHING: drone sinkings are not public.
-    const d = w.addShip('d', 'D', 'fleet'); // a drone, in the leader's sight
+    const d = w.addShip('d', 'D', 'fleet', undefined, undefined, undefined, []); // a drone, in the leader's sight
     d.state.x = 200;
     d.state.y = 0;
     d.state.speed = 0;
@@ -869,7 +869,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     w.step(); // flush a's own join spawn
-    const c = w.addShip('c', 'CHARLIE'); // ring spawn, far from a
+    const c = w.addShip('c', 'CHARLIE', undefined, undefined, undefined, undefined, []); // ring spawn, far from a
     w.step();
     const fa = buildFrame(w, 'a');
     expect(fa.events.filter((e) => e.k === 'spawn')).toEqual([]);
@@ -1287,7 +1287,7 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
 describe('perception — Contact.aggro is SELF-PRIVATE (Story 5.6, amendment 40)', () => {
   /** Register a PvE fleet hull at an exact pose (the wave spawner's own seam). */
   function fleet(w: World, id: string, x: number, y: number): ShipRecord {
-    const rec = w.addShip(id, 'DRONE', 'fleet', 'droneMedium', undefined, { x, y });
+    const rec = w.addShip(id, 'DRONE', 'fleet', 'droneMedium', undefined, { x, y }, []);
     rec.state.speed = 0;
     w.drones.add(id, 'medium', 1, { x: 0, y: 0 });
     return rec;
@@ -1386,7 +1386,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
     // 2000u away — far outside sight (330u) and outside radar (660u) alike.
     // This is precisely the disclosure the client cannot reconstruct: no
     // roster row, no contact, no blip, and the wreck was never rendered.
-    const victim = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 2000, y: 0 });
+    const victim = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 2000, y: 0 }, []);
     expect(sighted(w, killer, victim.state)).toBe(false);
     w.sinkShip('f', 'killer');
     w.step();
@@ -1401,7 +1401,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
     const w = bareWorld();
     place(w, 'killer', 0, 0);
     const bystander = place(w, 'bystander', 100, 0);
-    const victim = w.addShip('f', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 150, y: 0 });
+    const victim = w.addShip('f', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 150, y: 0 }, []);
     expect(sighted(w, bystander, victim.state)).toBe(true); // genuinely watched it go down
     w.sinkShip('f', 'killer');
     w.step();
@@ -1424,7 +1424,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
     const w = bareWorld();
     const watcher = place(w, 'watcher', 100, 0);
     place(w, 'killer', 0, 0);
-    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 150, y: 0 });
+    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 150, y: 0 }, []);
     spectateOut(w, 'watcher', 'killer');
     expect(isAfloat(watcher.lifecycle)).toBe(false);
     w.sinkShip('f', 'killer'); // someone ELSE's kill, while they watch
@@ -1446,7 +1446,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
     const killer = place(w, 'killer', 0, 0);
     place(w, 'watcher', 100, 0);
     // 2000u away: never sighted, and now the killer has no hull to see with.
-    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 2000, y: 0 });
+    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 2000, y: 0 }, []);
     spectateOut(w, 'killer', 'watcher');
     expect(isAfloat(killer.lifecycle)).toBe(false);
     w.sinkShip('f', 'killer'); // the trap springs posthumously
@@ -1480,7 +1480,7 @@ describe('perception — SunkEvent.vcls reaches the CREDITED KILLER alone (amend
   it('a STORM death (no killer) carries it to nobody', () => {
     const w = bareWorld();
     place(w, 'watcher', 0, 0);
-    w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 });
+    w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 }, []);
     w.sinkShip('f'); // unattributed
     w.step();
     const rows = sunkRows(w, 'watcher');
@@ -1506,7 +1506,7 @@ describe('perception — SunkEvent.kcls names a FLEET killer and never a captain
     const w = bareWorld();
     const victim = place(w, 'bob', 0, 0);
     const watcher = place(w, 'watcher', 60, 0);
-    const drone = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 2000, y: 0 });
+    const drone = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 2000, y: 0 }, []);
     expect(sighted(w, victim, drone.state)).toBe(false);
     expect(sighted(w, watcher, drone.state)).toBe(false);
     w.sinkShip('bob', 'f');
@@ -1544,7 +1544,7 @@ describe('perception — SunkEvent.kcls names a FLEET killer and never a captain
     // The gate reads the Story 6.3 role seam's FLEET-HULL reading, not "is not
     // a human": a bot is a captain for every disclosure purpose.
     const w = bareWorld();
-    const bot = w.addShip('ai', 'AI', 'bot', 'battleship', undefined, { x: 0, y: 0 });
+    const bot = w.addShip('ai', 'AI', 'bot', 'battleship', undefined, { x: 0, y: 0 }, []);
     expect(bot.role).toBe('bot');
     place(w, 'victim', 3000, 0);
     place(w, 'watcher', 60, 0);
@@ -1560,8 +1560,8 @@ describe('perception — SunkEvent.kcls names a FLEET killer and never a captain
     // since the credited killer is a drone with no client) and `kcls`.
     const w = bareWorld();
     const watcher = place(w, 'watcher', 0, 0);
-    const target = w.addShip('t', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 150, y: 0 });
-    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 2000, y: 0 });
+    const target = w.addShip('t', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 150, y: 0 }, []);
+    w.addShip('f', 'DRONE', 'fleet', 'droneMedium', undefined, { x: 2000, y: 0 }, []);
     expect(sighted(w, watcher, target.state)).toBe(true); // a drone sinking needs a witness
     w.sinkShip('t', 'f');
     w.step();
@@ -1575,7 +1575,7 @@ describe('perception — SunkEvent.kcls names a FLEET killer and never a captain
   it('a STORM death (no killer) and a SELF-SINK both carry it to nobody', () => {
     const w = bareWorld();
     const watcher = place(w, 'watcher', 0, 0);
-    const drone = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 });
+    const drone = w.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 }, []);
     expect(sighted(w, watcher, drone.state)).toBe(true);
     w.sinkShip('f'); // unattributed
     w.step();
@@ -1584,7 +1584,7 @@ describe('perception — SunkEvent.kcls names a FLEET killer and never a captain
     // fleet hull that goes down on its own id must not name ITSELF as killer.
     const w2 = bareWorld();
     const w2watcher = place(w2, 'watcher', 0, 0);
-    const d2 = w2.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 });
+    const d2 = w2.addShip('f', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 150, y: 0 }, []);
     expect(sighted(w2, w2watcher, d2.state)).toBe(true);
     w2.sinkShip('f', 'f');
     w2.step();
@@ -1595,7 +1595,7 @@ describe('perception — SunkEvent.kcls names a FLEET killer and never a captain
     const w = bareWorld();
     place(w, 'victim', 0, 0);
     place(w, 'watcher', 60, 0);
-    w.addShip('f', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 2000, y: 0 });
+    w.addShip('f', 'DRONE', 'fleet', 'droneLarge', undefined, { x: 2000, y: 0 }, []);
     w.sinkShip('victim', 'f');
     w.removeShip('f');
     w.step();
@@ -1828,6 +1828,14 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // spectator passthrough — fails here even if no verifier knows about it.
   const withoutYou = { ...f, you: undefined };
   expect(JSON.stringify(withoutYou)).not.toContain('repairHp');
+  // THE DECK NEVER RIDES THE WIRE (Story 8.2, epic-8 Anti-cheat): the
+  // server-private pool (`deck`), the frozen list (`deckList`) and the deck
+  // id (`deckId`) may appear as a KEY nowhere in ANY frame — `you` included,
+  // because `you.cards` and `you.offer` are the only card-shaped fields a
+  // captain may see. Key-shaped scan (with the quotes), because the deck-gun
+  // family's LINE IDS legitimately ride `offer`/`cards` as VALUES.
+  const wholeFrame = JSON.stringify(f);
+  for (const key of ['"deck"', '"deckList"', '"deckId"']) expect(wholeFrame).not.toContain(key);
   for (const c of f.contacts) {
     const target = w.ships.get(c.id)!;
     expect(target).toBeDefined();

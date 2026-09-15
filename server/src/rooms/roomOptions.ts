@@ -65,6 +65,116 @@ export interface JoinOptions {
    * sanitizeSolo — only the boolean `true` counts.
    */
   solo?: boolean;
+  /**
+   * WHICH of the captain's decks to sail (Story 8.2, the Epic 9 port). A plain
+   * join option (NOT dev-gated): sanitizeDeckOptions trims it and caps it at
+   * 64 code points, else drops it. ACCEPTED BUT UNREAD today — with no account
+   * module `loadDeckFor` ignores it and every captain sails the hull's default
+   * deck. The shipped client does NOT send it (a field with no consumer may
+   * not ride — the Story 4.9 rule); the server accepting it is what lets Epic 9
+   * add the client half without a wire change at the door.
+   */
+  deckId?: string;
+  /**
+   * DEV TOOL for tests/smokes only — the real client NEVER sets it. A full
+   * 40-id list that REPLACES `loadDeckFor`'s answer and still goes through
+   * `checkDeck` at the door (which is how the refusal path is reached end to
+   * end). Honoured ONLY under HC_DEV_OPTIONS=1 (the matchOverride precedent);
+   * otherwise dropped, reported in `rejectedKeys` and logged once
+   * (`deck.devOptionsRejected`). SHAPE-sanitized even when honoured — an
+   * array of at most DECK_OVERRIDE_MAX strings, each at most 64 code points,
+   * else the whole override is dropped and reported — but the IDS THEMSELVES
+   * are not filtered: an unknown id rides through to `checkDeck` and is
+   * refused as `unowned`, rather than being quietly replaced by the default.
+   */
+  deckOverride?: readonly string[];
+  /**
+   * NEVER ACCEPTED. A client may not supply deck CONTENTS (epic-8 Anti-cheat:
+   * "the option sanitizer rejects a `deck` key at both doors"): the presence of
+   * the key — any value, even `undefined` — makes the door REFUSE the join
+   * with `deck.illegal { rule: 'clientSupplied' }`. Typed so the sanitizer can
+   * name it; it never reaches a room.
+   */
+  deck?: unknown;
+}
+
+/** Deck-shaped join options after sanitizeDeckOptions. */
+export interface DeckOptions {
+  /** Trimmed, ≤ 64 code points; absent when missing or malformed. */
+  deckId?: string;
+  /** A dev override, shape-sanitized but NOT id-filtered (the door's
+   *  `checkDeck` judges the ids); present ONLY when devEnabled honoured it. */
+  deckOverride?: readonly string[];
+  /** The `deck` key was present — the door must refuse (clientSupplied). */
+  clientDeck: boolean;
+  /** Keys DROPPED — the dev gate was closed, or the shape was malformed:
+   *  `['deckOverride']` or empty. The door logs them once. */
+  rejectedKeys: string[];
+}
+
+/** Callsign-style cap for a deck id, in CODE POINTS (Epic 9 names decks; a
+ *  64-point id is a generous bound for an opaque store key). */
+export const DECK_ID_MAX = 64;
+
+/** A trimmed, bounded deck id, or undefined for anything malformed/empty. */
+function sanitizeDeckId(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const trimmed = v.trim();
+  if (trimmed === '' || Array.from(trimmed).length > DECK_ID_MAX) return undefined;
+  return trimmed;
+}
+
+/** Bounds on a dev override: entries, and code points per entry. Generous —
+ *  they exist to keep a hostile payload from reaching the rules engine at all,
+ *  not to express any deck rule (a 40-card deck is CONFIG.deck.size). */
+export const DECK_OVERRIDE_MAX = 256;
+const OVERRIDE_ID_MAX = DECK_ID_MAX;
+
+/**
+ * A bounded array of PLAIN STRINGS, or undefined when the value is not an
+ * array, carries more than DECK_OVERRIDE_MAX entries, or holds a non-string /
+ * over-long entry — in which case the caller DROPS the override and reports
+ * it, so a malformed dev payload is never silent.
+ *
+ * DELIBERATELY NOT FILTERED AGAINST THE CATALOG (orchestrator ruling, review
+ * of Story 8.2): an unknown id used to drop the whole override, and the door
+ * then sailed the DEFAULT — a silent substitution on the dev path, and it made
+ * `checkDeck`'s `unowned` rule unreachable from either door. Ids are passed
+ * through verbatim and `checkDeck` judges them, so an unknown id is REFUSED as
+ * `unowned` end to end. The list is copied, so nothing downstream aliases the
+ * raw join options.
+ */
+function sanitizeDeckOverride(v: unknown): readonly string[] | undefined {
+  if (!Array.isArray(v) || v.length > DECK_OVERRIDE_MAX) return undefined;
+  for (const id of v) {
+    if (typeof id !== 'string' || Array.from(id).length > OVERRIDE_ID_MAX) return undefined;
+  }
+  return [...(v as string[])];
+}
+
+/**
+ * Sanitize the deck-shaped join options (Story 8.2), used by BOTH doors.
+ * `devEnabled` must come from `process.env.HC_DEV_OPTIONS === '1'` (checked by
+ * the caller, like sanitizeRoomOptions). Pure, zero Colyseus.
+ *
+ *   - `deck` present (any value) → `clientDeck: true`; the door refuses.
+ *   - `deckId` → trimmed string ≤ DECK_ID_MAX code points, else dropped.
+ *   - `deckOverride` → honoured (shape-sanitized, ids NOT filtered) only under
+ *     devEnabled; dropped and pushed to `rejectedKeys` for the door to log
+ *     once when the gate is closed OR the shape is malformed.
+ */
+export function sanitizeDeckOptions(options: JoinOptions, devEnabled: boolean): DeckOptions {
+  const out: DeckOptions = { clientDeck: Object.hasOwn(options, 'deck'), rejectedKeys: [] };
+  const deckId = sanitizeDeckId(options.deckId);
+  if (deckId !== undefined) out.deckId = deckId;
+  if (options.deckOverride === undefined) return out;
+  const override = devEnabled ? sanitizeDeckOverride(options.deckOverride) : undefined;
+  // A DROP IS ALWAYS REPORTED — gate closed or shape malformed. The silent
+  // half of this used to be the malformed case, which then sailed the default
+  // with nothing in the log to say the override had been thrown away.
+  if (override === undefined) out.rejectedKeys.push('deckOverride');
+  else out.deckOverride = override;
+  return out;
 }
 
 /**

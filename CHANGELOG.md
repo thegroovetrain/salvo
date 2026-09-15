@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.18.2] - 2026-09-15
+
+### Changed
+- **Legal decks, default decks, and the door (Story 8.2)** — every hull now sails a real 40-card deck. Eric's three default decks (epic-8 amendment 10) are the deck each captain and each bot sails: thirty cards shared by every hull plus ten per hull (Torpedo Boat: light torpedo, heavy torpedo, machine gun, acoustic homing; Mine Layer: naval mines, captive mines, flak, fouling mines; Battleship: missile, monitor, star shells, dazzle shells). The lines whose mechanism is not built yet stay in the deck but are never dealt (amendment 11), so 23 cards are drawable per hull until the later catalog stories switch them on — no code change then. A deck is legal when it has exactly 40 cards, at most three weapon lines, only lines you own, and no line above its copy limit — nothing else (`checkDeck`, shared by both sides). The server checks legality once, at the door: the queue freezes the deck into the seat reservation's server-only slot and the arena reads it back, so a client can never supply deck contents (a `deck` key in the join is refused outright; a `deckId` is accepted for the account work in Epic 9 but unread today). A refused deck is a plain connection failure on the home screen, never the "version mismatch" line. Drones stay gun-only — the `FLEET_FIT` idea is struck from the epic (amendment 12). No wire change (protocol stays v51). Under the hood: `DEFAULT_DECKS` / `DEFAULT_OWNED` and `deckFromCounts` in the catalog, `sim/deckRules.ts`, `server/src/game/decks.ts` (the one deck loader, the Epic 9 port), `rooms/deckDoor.ts`, `ShipRecord.deckList`, and the batch-sim harness's zero-weapon `PACIFIST_DECK`.
+
 ## [0.18.1] - 2026-09-15
 
 Version scheme change (Eric ruling 2026-09-15): the `0.17.X` freeze is lifted with a one-time move to `0.18.1`; from here the patch number keeps counting landed build cycles (`0.18.2`, `0.18.3`, …) regardless of epic. No gameplay or wire change; interstitial cycle 136.

@@ -36,7 +36,7 @@ function place(
   heading = 0,
   hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -172,7 +172,7 @@ describe('denial channel — lifecycle + privacy edges', () => {
 
   it('drones never queue denials (no client, no channel)', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall'); // universal fit: slot 1 = torpedo
+    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []); // universal fit: slot 1 = torpedo
     d.state.x = 0;
     d.state.y = 0;
     d.state.heading = 0;

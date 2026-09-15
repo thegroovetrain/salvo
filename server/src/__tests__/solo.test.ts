@@ -40,7 +40,7 @@ import {
 } from '@salvo/shared';
 import { ArenaRoom, ARENA_DIRECT_JOIN_ERROR } from '../rooms/ArenaRoom.js';
 import { sanitizeSolo, type RoomOptions } from '../rooms/roomOptions.js';
-import { World } from '../game/world.js';
+import { NO_DECK, World } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import type { ArenaState, PlayerMeta } from '../rooms/schema/ArenaState.js';
 
@@ -371,7 +371,7 @@ describe('bots one tick late — the failure the timing pin exists to catch', ()
     w.map.islands.length = 0;
     const calls: string[] = [];
     const m = new Match(w, TIMINGS, hooks(calls));
-    w.addShip('alice', 'ALICE');
+    w.addShip('alice', 'ALICE', undefined, undefined, undefined, undefined, []);
     m.notifyRosterChanged();
     for (let i = 0; i < 10; i += 1) {
       w.step(DT);
@@ -379,7 +379,7 @@ describe('bots one tick late — the failure the timing pin exists to catch', ()
     }
     // THE DAMAGE: the match is already decided before the fleet exists.
     expect(m.winnerId).toBe('alice');
-    for (let i = 0; i < 5; i += 1) w.addBot();
+    for (let i = 0; i < 5; i += 1) w.addBot(undefined, undefined, NO_DECK);
     expect(m.placements.size).toBeLessThanOrEqual(1); // no bot can ever place here
   });
 
@@ -388,8 +388,8 @@ describe('bots one tick late — the failure the timing pin exists to catch', ()
     w.map.islands.length = 0;
     const calls: string[] = [];
     const m = new Match(w, TIMINGS, hooks(calls));
-    for (let i = 0; i < 5; i += 1) w.addBot();
-    w.addShip('alice', 'ALICE');
+    for (let i = 0; i < 5; i += 1) w.addBot(undefined, undefined, NO_DECK);
+    w.addShip('alice', 'ALICE', undefined, undefined, undefined, undefined, []);
     m.notifyRosterChanged();
     for (let i = 0; i < 10; i += 1) {
       w.step(DT);
@@ -406,17 +406,17 @@ describe('World.addBot — the optional class (Story 6.5)', () => {
   it('honours a supplied hull class', () => {
     const w = new World(1);
     w.map.islands.length = 0;
-    for (const hull of SHIP_CLASS_IDS) expect(w.addBot(hull).hullId).toBe(hull);
+    for (const hull of SHIP_CLASS_IDS) expect(w.addBot(hull, undefined, NO_DECK).hullId).toBe(hull);
   });
 
   it('with NO argument behaves exactly as it shipped — same classes, same order', () => {
     const shipped: ShipClassId[] = [];
     const a = new World(7);
     a.map.islands.length = 0;
-    for (let i = 0; i < 8; i += 1) shipped.push(a.addBot().hullId as ShipClassId);
+    for (let i = 0; i < 8; i += 1) shipped.push(a.addBot(undefined, undefined, NO_DECK).hullId as ShipClassId);
     const b = new World(7);
     b.map.islands.length = 0;
-    const again = Array.from({ length: 8 }, () => b.addBot().hullId as ShipClassId);
+    const again = Array.from({ length: 8 }, () => b.addBot(undefined, undefined, NO_DECK).hullId as ShipClassId);
     expect(again).toEqual(shipped);
   });
 
@@ -427,9 +427,9 @@ describe('World.addBot — the optional class (Story 6.5)', () => {
     a.map.islands.length = 0;
     const b = new World(9);
     b.map.islands.length = 0;
-    a.addBot();
-    b.addBot('battleship');
-    expect(a.addBot().hullId).toBe(b.addBot().hullId);
+    a.addBot(undefined, undefined, NO_DECK);
+    b.addBot('battleship', undefined, NO_DECK);
+    expect(a.addBot(undefined, undefined, NO_DECK).hullId).toBe(b.addBot(undefined, undefined, NO_DECK).hullId);
     expect([...a.ships.values()].map((s) => s.name)).toEqual([...b.ships.values()].map((s) => s.name));
   });
 });
@@ -438,7 +438,7 @@ describe('World.renameBot', () => {
   it('draws a fresh unused callsign and leaves the hull alone', () => {
     const w = new World(3);
     w.map.islands.length = 0;
-    const rec = w.addBot('mineLayer');
+    const rec = w.addBot('mineLayer', undefined, NO_DECK);
     const was = rec.name;
     const next = w.renameBot(rec.id);
     expect(next).not.toBeNull();
@@ -451,7 +451,7 @@ describe('World.renameBot', () => {
   it('refuses an unknown id and a human captain', () => {
     const w = new World(3);
     w.map.islands.length = 0;
-    w.addShip('alice', 'ALICE');
+    w.addShip('alice', 'ALICE', undefined, undefined, undefined, undefined, []);
     expect(w.renameBot('nobody')).toBeNull();
     expect(w.renameBot('alice')).toBeNull();
     expect(w.ships.get('alice')!.name).toBe('ALICE');

@@ -27,7 +27,7 @@
 //   node_modules/.bin/tsx --tsconfig server/scripts/batchsim/tsconfig.json \
 //     server/scripts/batchsim/encounterSpan.ts [matches] [seed]
 
-import { CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { CONFIG, DEFAULT_DECKS, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
 import { World } from '../../src/game/world.js';
 import { Match } from '../../src/game/match.js';
 import { isFleetHull } from '../../src/game/participants.js';
@@ -80,7 +80,10 @@ for (let m = 0; m < MATCHES; m++) {
   );
   // Even roster, offset by match index — the same deal the campaigns use via
   // `--roster even`, so an over-represented class cannot skew the reading.
-  for (let i = 0; i < 20; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length]);
+  // ...and every bot sails its hull's DEFAULT DECK, exactly as a production
+  // bot does (ArenaRoom passes the door's loader). A measurement run whose
+  // hulls sailed an EMPTY pool would be measuring a different game.
+  for (let i = 0; i < 20; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length], undefined, (h) => DEFAULT_DECKS[h]);
   match.notifyRosterChanged();
 
   let prev = new Map<string, Per[]>();

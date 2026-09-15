@@ -21,7 +21,8 @@
 // C. THE ORDNANCE + GUARDRAIL LEDGER. See catalogMetrics.ts for how damage is
 //    attributed with no weapon field on the wire.
 
-import { CATALOG, SHIP_CLASS_IDS, buildDeck, isStubLine } from '@salvo/shared';
+import { CATALOG, SHIP_CLASS_IDS, isStubLine } from '@salvo/shared';
+import { defaultPoolFor } from './deckSim.js';
 import { fmt } from './stats.js';
 import type { CatalogSample } from './catalogMetrics.js';
 import type { BatchResult } from './runner.js';
@@ -97,14 +98,14 @@ export function buildCatalogAggregate(result: BatchResult): CatalogAggregate {
 
 /** BLOCK A — structural reachability. No simulation involved. */
 export function renderDeckComposition(): string[] {
-  const lines: string[] = ['== DECK COMPOSITION (structural — buildDeck over each class fresh fit) =='];
+  const lines: string[] = ['== DECK COMPOSITION (structural — the DEFAULT deck pool over each class fresh fit) =='];
   const ids = Object.keys(CATALOG).sort();
   const decks = new Map<string, Map<string, number>>();
   for (const cls of SHIP_CLASS_IDS) {
     const counts = new Map<string, number>();
-    // The INTERIM deck (Story 8.1) is hull-independent; the per-class columns
-    // stay so the table is ready for Story 8.2's real per-hull decks.
-    for (const id of buildDeck().cards) counts.set(id, (counts.get(id) ?? 0) + 1);
+    // Each class's DEFAULT deck (Story 8.2) less stubs less its carried seed —
+    // the pool a captain of that hull actually draws from.
+    for (const id of defaultPoolFor(cls).cards) counts.set(id, (counts.get(id) ?? 0) + 1);
     decks.set(cls, counts);
   }
   lines.push(`catalog lines: ${ids.length}`);

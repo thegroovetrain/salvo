@@ -28,7 +28,7 @@ function place(
   heading = 0,
   hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;

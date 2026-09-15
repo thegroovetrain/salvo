@@ -17,14 +17,17 @@ import {
   MSG,
   sanitizeClassId,
   sanitizeHornId,
+  type LineId,
   type QueueStatusMsg,
 } from '@salvo/shared';
 import {
   protocolVersionError,
   sanitizeColorPref,
+  sanitizeDeckOptions,
   sanitizeName,
   type JoinOptions,
 } from './roomOptions.js';
+import { admitDeck } from './deckDoor.js';
 import { stagingGateError } from '../stagingGate.js';
 import { defaultQueueConfig, queueStep, type QueueConfig, type QueueDecision } from './queue.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
@@ -74,6 +77,29 @@ interface PooledCaptain {
    * sanitizing simply happens one door earlier.
    */
   options: JoinOptions;
+  /**
+   * THE FROZEN DECK (Story 8.2): the 40 line ids this captain sails, resolved
+   * and legality-checked at THIS door (admitDeck) and written into the seat
+   * reservation's SERVER-ONLY `auth` payload — never into `options`, which a
+   * client can shape. ArenaRoom.onJoin reads it back off `client.auth.deck`.
+   */
+  deck: readonly LineId[];
+}
+
+/**
+ * The reservation's `auth` payload for a pooled captain: whatever the queue's
+ * own door left on `client.auth` (today `undefined`, which spreads to nothing
+ * — the queue's static `onAuth` returns the bare verdict `true`, and
+ * @colyseus/core 0.18.13 maps a `true` verdict to `undefined` in `callOnAuth`
+ * and then assigns only a TRUTHY `authData` in `_onJoin`; Epic 9 puts the
+ * account there) plus the frozen deck. Only an OBJECT is spread: a primitive
+ * verdict would otherwise be lost silently and a hostile shape can never reach
+ * here (auth is server-written).
+ */
+function seatAuth(client: Client, deck: readonly LineId[]): Record<string, unknown> {
+  const base: unknown = client.auth;
+  const carried = typeof base === 'object' && base !== null ? (base as Record<string, unknown>) : {};
+  return { ...carried, deck };
 }
 
 /**
@@ -98,12 +124,25 @@ function errorFields(err: unknown): LogFields {
  * `{}`, so a queued client can never reach them at all.
  */
 function sanitizeArenaOptions(options: JoinOptions): JoinOptions {
-  return {
+  const out: JoinOptions = {
     name: sanitizeName(options.name),
     cls: sanitizeClassId(options.cls),
     horn: sanitizeHornId(options.horn),
     colorPref: sanitizeColorPref(options.colorPref),
   };
+  // `deckId` is forwarded (Story 8.2 — the Epic 9 port); `deck` and
+  // `deckOverride` are NOT: the deck itself travels in the reservation's
+  // `auth`, resolved at this door, so the arena never re-reads a deck option
+  // off a queued captain.
+  //
+  // FORWARD THE SANITIZED VALUE, NOT THE RAW ONE. A bare `typeof === 'string'`
+  // test let an untrimmed, unbounded client string ride the seat reservation
+  // into the arena while the door next to it applied sanitizeDeckId's trim and
+  // 64-code-point cap to a copy it then threw away — so the ONE deckId that
+  // survived the queue was the one nobody had bounded.
+  const { deckId } = sanitizeDeckOptions(options, false);
+  if (deckId !== undefined) out.deckId = deckId;
+  return out;
 }
 
 export class StandardQueueRoom extends Room {
@@ -172,7 +211,19 @@ export class StandardQueueRoom extends Room {
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
-    this.pool.push({ client, options: sanitizeArenaOptions(options) });
+    // THE DECK DOOR (Story 8.2) runs BEFORE the pool push: a refused captain
+    // (client `deck` key, illegal dev override) throws here, core tears down
+    // just that client, and onLeave finds nothing to splice — the pool is
+    // untouched. The frozen list rides the seat reservation's `auth`.
+    const arenaOptions = sanitizeArenaOptions(options);
+    const deck = admitDeck(
+      options,
+      sanitizeClassId(options.cls),
+      process.env.HC_DEV_OPTIONS === '1',
+      this.log,
+      client.sessionId,
+    );
+    this.pool.push({ client, options: arenaOptions, deck });
     this.log.info('queue.join', { sessionId: client.sessionId, pooled: this.pool.length });
     this.armJoiningDeadline(client);
     this.evaluate(true);
@@ -343,9 +394,19 @@ export class StandardQueueRoom extends Room {
       // waiting for). Explicitly NOT a mode, and not a client-supplied option:
       // the arena still never learns what kind of queue formed it.
       const arena = await matchMaker.createRoom(ARENA_ROOM, { expectedCaptains: seated.length });
+      // THE DECK RIDES `auth`, NEVER `options` (Story 8.2, orchestrator
+      // ruling): the arena cannot tell a reservation's options from a direct
+      // join's, but a reservation's `auth` is written only by server code and
+      // surfaces as `client.auth` in ArenaRoom.onJoin — so "a client never
+      // supplies a deck" holds structurally. Verified against @colyseus/core
+      // 0.18.13: MatchMaker.mjs reserveMultipleSeatsFor :461-481 forwards each
+      // `auth` to Room._reserveMultipleSeats :1344, which stores it as the
+      // seat's authData :1313, and Room._onJoin :1098-1099 assigns it to
+      // `client.auth` before onJoin :1125 (the static-onAuth branch never
+      // overwrites it).
       const reserved = await matchMaker.reserveMultipleSeatsFor(
         arena,
-        seated.map((p) => ({ sessionId: p.client.sessionId, options: p.options, auth: p.client.auth })),
+        seated.map((p) => ({ sessionId: p.client.sessionId, options: p.options, auth: seatAuth(p.client, p.deck) })),
       );
       this.deliverSeats(arena, seated, reserved);
     } catch (err) {

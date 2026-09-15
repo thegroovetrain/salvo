@@ -1,19 +1,22 @@
 // THE DECK MODEL (Story 2.8, amendment 38; re-cut for catalog v3 in Story 8.1)
 // — the pure per-player card-deck engine behind every offer.
 //
-// THE INTERIM DECK (Eric ruling 2026-09-15, amendment 5 — STAY PLAYABLE). Until
-// Story 8.2 builds default decks, deck legality and the forge, `buildDeck()`
-// takes EVERY NON-STUB LINE AT ITS CAP, LESS the copies the hull already holds
-// (`carried`). That is not the shipped design; it is the smallest deck that
-// keeps a staging match playable while the card MODEL lands.
-//
-// TWO RULES KEEP A DEAD CARD OUT OF A LIVE DECK, and they are the only two:
-//   - a STUB line — one whose mechanism is not built yet — is excluded here,
-//     the single point at which "authored but unbuilt" becomes "unofferable";
+// THE FROZEN LIST BECOMES THE DRAWABLE POOL HERE (Story 8.2). A captain's deck
+// is a 40-card LIST frozen at the door (the hull's default deck until Epic 9
+// — sim/catalog.ts DEFAULT_DECKS, checked by sim/deckRules.ts); `buildDeckState`
+// turns that list into the server-private pool the offers draw from. Two
+// things leave the pool on the way, and they are the only two:
+//   - a STUB line — one whose mechanism is not built yet — is never dealt
+//     (Eric ruling 2026-09-15, amendment 11: stubs stay in the frozen 40 so
+//     the deck IS the real deck, but they never reach an offer until their
+//     story flips the flag — no code change then). This is the single point
+//     at which "authored but unbuilt" becomes "unofferable";
 //   - a CARRIED line is dealt one copy short, because copy 1 of an equipment
 //     line IS the bare weapon and a hull that spawns with that weapon is
 //     already holding it. Dealing it anyway deals a card whose `slotFill`
 //     no-ops against its own fitted weapon — a whole level spent on nothing.
+// Today that leaves 23 drawable cards per hull (40 − 16 stub cards − 1
+// carried copy; pinned in deck.test.ts).
 //
 // THE DRAW DOES NOT TAKE CARDS OUT (the lazy-draw bugfix): drawOffer only READS
 // the pool — every drawn line stays in the deck, and exactly ONE card leaves it
@@ -46,10 +49,8 @@ export interface DeckState {
 }
 
 /**
- * Build the INTERIM deck: every NON-STUB line repeated `cap` times, in CATALOG
- * order (deterministic composition), MINUS one copy of every line in
- * `carried`. Story 8.2 replaces this with authored per-hull decks + the match
- * consumable pool.
+ * Build a ship's DRAWABLE pool from its frozen deck list: `deckList` in list
+ * order, MINUS every stub line, MINUS one copy of every id in `carried`.
  *
  * WHY `carried` (review gate, Story 8.1). Catalog v3's own semantics are that
  * COPY 1 OF AN EQUIPMENT LINE IS THE BARE WEAPON — so a hull that spawns with
@@ -60,22 +61,38 @@ export interface DeckState {
  * the next copy the line's tier II (a real −5 % reload step) rather than a
  * second wasted tier I.
  *
- * Interim sizes, from the three shipped fits: Torpedo Boat 52, Battleship 51
- * (broadside + star shells), Mine Layer 52. REPEATS in `carried` remove a copy
- * each; an id with nothing dealt (a stub, junk) removes nothing — fail-closed,
- * never negative.
+ * FAIL-CLOSED at every edge: a carried id the list holds no copy of (a stub,
+ * a weapon the deck does not carry — the Battleship's `broadside` — or junk)
+ * removes nothing; REPEATS in `carried` remove a copy each; an id the catalog
+ * does not know is dropped (the door refused it already; nothing drawable may
+ * ride on an unknown id). Never negative, never throws.
+ *
+ * Sizes for the three default decks with their spawn seeds: TB 23 (carried
+ * `heavyTorpedo`), ML 23 (`navalMines`), BS 23 (`starShells`; `broadside` is
+ * carried but not in the deck).
  */
-export function buildDeck(catalog: Catalog = CATALOG, carried: readonly LineId[] = []): DeckState {
+export function buildDeckState(
+  deckList: readonly LineId[],
+  carried: readonly LineId[] = [],
+  catalog: Catalog = CATALOG,
+): DeckState {
   const held = new Map<string, number>();
   for (const id of carried) held.set(id, (held.get(id) ?? 0) + 1);
   const cards: LineId[] = [];
-  for (const key of Object.keys(catalog)) {
-    const line = catalog[key];
-    if (line === undefined || line.stub === true) continue;
-    const copies = Math.max(0, Math.floor(line.cap) - (held.get(key) ?? 0));
-    for (let i = 0; i < copies; i += 1) cards.push(line.id);
+  for (const id of deckList) {
+    if (!isDealable(id, catalog)) continue;
+    const owed = held.get(id) ?? 0;
+    if (owed > 0) held.set(id, owed - 1); // the hull already holds this copy
+    else cards.push(id);
   }
   return { cards };
+}
+
+/** A known, NON-STUB line — the only kind a pool may hold. */
+function isDealable(id: string, catalog: Catalog): boolean {
+  if (!Object.hasOwn(catalog, id)) return false;
+  const line = catalog[id];
+  return line !== undefined && line.stub !== true;
 }
 
 /** The distinct lines of a card multiset, in CATALOG order, with copy counts.
@@ -140,7 +157,7 @@ function removeCopies(cards: readonly LineId[], picked: readonly LineId[]): Line
  * unchanged (same reference); the pair shape survives because callers thread it.
  * An empty (or thin) deck draws a short or empty offer — NEVER throws (the
  * server materializes no offer for an empty draw). A STUB line can never be
- * offered, because `buildDeck` never deals one.
+ * offered, because `buildDeckState` never deals one.
  */
 export function drawOffer(
   deck: DeckState,
