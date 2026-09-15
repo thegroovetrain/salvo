@@ -82,23 +82,23 @@ warnings: [oversized]
 - `server/src/__tests__/liveness.test.ts:911` -- reads `colyseus.__globalEndpoints`, REMOVED in 0.18
 - 10 other Colyseus-importing tests: `joiningGuard`, `operability`, `queue`, `reconnect`, `regatta`, `rtt`, `solo`, `soloThrottle`, `metrics` (server), `connection.test.ts` (client); `boarding.test.ts:150` hardcodes the 15s seat reservation
 - `server/scripts/*.mjs` (15) -- `reconnectSmoke.mjs:296-301` reaches `room.reconnection` + `room.connection.transport.ws`; `loadTest.mjs:99` header-merge internal
-- `CLAUDE.md`, `_bmad-output/project-context.md` -- stack lines say 0.17
+- `_bmad-output/project-context.md` -- stack lines say 0.17. (`CLAUDE.md` is OFF-LIMITS by Eric's standing instruction, reaffirmed 2026-09-14 mid-cycle: every edit to it was reverted and its stack lines are left as they are.)
 - `VERSION`, `package.json`, `CHANGELOG.md`, `_bmad-output/implementation-artifacts/sprint-status.yaml`, `_bmad-output/gds-workflow-status.yaml`, `deferred-work.md:1797`, `epic-8-context-amendments.md`
 
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `server/package.json` + `client/package.json` + `package-lock.json` -- move every `@colyseus/*` to the ruled set (core `^0.18.13`, schema `^5.0.32` both sides, `@colyseus/database` `0.18.3` exact, auth/admin as unmounted `dependencies`, monitor/playground stay dev); `npm install`; record the resolved versions -- the pinned target set is the AC
-- [ ] `shared/src/index.ts` -- `PROTOCOL_VERSION` 49 → 50 with a dated log line -- schema 5 encoder + JOIN_ROOM layout are a wire break
-- [ ] `server/src/rooms/ArenaRoom.ts` -- `setTimestep` at the one call; fix the `:494` merge comment; anything else tsc flags -- the AC's named conversions
-- [ ] `server/src/rooms/StandardQueueRoom.ts`, `schema/ArenaState.ts`, `app.config.ts`, `metrics.ts`, `liveness.ts`, `soloThrottle.ts` -- compile under 0.18 with minimal, comment-honest edits; verify `reserveMultipleSeatsFor` still skips `onAuth` in 0.18.13 -- adapter containment
-- [ ] `client/src/net/connection.ts` -- re-pin the token-ordering comment to the 0.18 SDK lines; confirm `reconnection` + `onMessage` unbind shapes -- resume flow is the riskiest client path
-- [ ] `server/src/__tests__/liveness.test.ts` -- replace the `__globalEndpoints` pin with a 0.18-valid assertion that both endpoints are registered on the router -- symbol removed upstream
-- [ ] 10 remaining Colyseus-importing tests + `boarding.test.ts` -- update rather than delete; re-verify the 15s constant -- the AC says updated, not deleted
-- [ ] new tests -- (a) every Schema class stays under `MAX_FIELDS` 63; (b) PV gate refuses `pv: 49`; (c) both rooms' listing writes carry every meta key -- the three 0.18-specific regressions
-- [ ] `server/scripts/*.mjs` -- run all 15 over 0.18 sockets; re-pin `reconnectSmoke`'s transport internal -- the AC's socket proof
-- [ ] `CLAUDE.md`, `project-context.md`, `VERSION`, `package.json`, `CHANGELOG.md`, both trackers, `deferred-work.md` (resolve `:1797`; ledger the postgres/kit deferral + the ORM/kit mismatch), `epic-8-context-amendments.md` -- doc + tracker discipline
-- [ ] `npm run check` green; `grep -r colyseus server/src/game/` empty -- the gate
+- [x] `server/package.json` + `client/package.json` + `package-lock.json` -- move every `@colyseus/*` to the ruled set (core `^0.18.13`, schema `^5.0.32` both sides, `@colyseus/database` `0.18.3` exact, auth/admin as unmounted `dependencies`, monitor/playground stay dev); `npm install`; record the resolved versions -- the pinned target set is the AC
+- [x] `shared/src/index.ts` -- `PROTOCOL_VERSION` 49 → 50 with a dated log line -- schema 5 encoder + JOIN_ROOM layout are a wire break
+- [x] `server/src/rooms/ArenaRoom.ts` -- `setTimestep` at the one call; fix the `:494` merge comment; anything else tsc flags -- the AC's named conversions
+- [x] `server/src/rooms/StandardQueueRoom.ts`, `schema/ArenaState.ts`, `app.config.ts`, `metrics.ts`, `liveness.ts`, `soloThrottle.ts` -- compile under 0.18 with minimal, comment-honest edits; verify `reserveMultipleSeatsFor` still skips `onAuth` in 0.18.13 -- adapter containment
+- [x] `client/src/net/connection.ts` -- re-pin the token-ordering comment to the 0.18 SDK lines; confirm `reconnection` + `onMessage` unbind shapes -- resume flow is the riskiest client path
+- [x] `server/src/__tests__/liveness.test.ts` -- replace the `__globalEndpoints` pin with a 0.18-valid assertion that both endpoints are registered on the router -- symbol removed upstream
+- [x] 10 remaining Colyseus-importing tests + `boarding.test.ts` -- update rather than delete; re-verify the 15s constant -- the AC says updated, not deleted
+- [x] new tests -- (a) every Schema class stays under `MAX_FIELDS` 63; (b) PV gate refuses `pv: 49`; (c) both rooms' listing writes carry every meta key -- the three 0.18-specific regressions
+- [x] `server/scripts/*.mjs` -- run all 15 over 0.18 sockets; re-pin `reconnectSmoke`'s transport internal -- the AC's socket proof
+- [x] `project-context.md` (NOT `CLAUDE.md` — Eric ruling), `VERSION`, `package.json`, `CHANGELOG.md`, both trackers, `deferred-work.md` (resolve `:1797`; ledger the postgres/kit deferral + the ORM/kit mismatch), `epic-8-context-amendments.md` -- doc + tracker discipline
+- [x] `npm run check` green; `grep -r colyseus server/src/game/` empty -- the gate
 
 **Acceptance Criteria:**
 - Given the upgraded workspaces, when `npm run check` runs, then lint + tsc + every test passes in shared, server and client.

@@ -24,7 +24,7 @@
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/fogSmoke.mjs
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, generateMap, bearing, angleDiff, islandBlocksSegment } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, generateMap, bearing, angleDiff, islandBlocksSegment, visibilityTo } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const SIGHT = CONFIG.vision.sight;
@@ -36,6 +36,19 @@ function assert(cond, msg) {
 }
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+/** World-space center of a `ReturnBlipEvent`'s cell rect.
+ *  A blip has carried NO x/y since the `return` radar grammar replaced the
+ *  retired `silhouette` shape (cycle 105, PV 44): the payload is an ABSOLUTE
+ *  world cell rect on the `CONFIG.vision.radarCellU` lattice
+ *  (`shared/src/types.ts` ReturnBlipEvent — k,t,gx,gy,w,h,bits) plus a packed
+ *  coverage mask, and it carries no identity either. This smoke's band check
+ *  predates that change and was reading `e.x`/`e.y` (undefined → NaN → the
+ *  assert could never pass); the rect center is the equivalent proxy for
+ *  "the paint landed on the target hull". */
+const blipCenter = (e) => ({
+  x: (e.gx + e.w / 2) * CONFIG.vision.radarCellU,
+  y: (e.gy + e.h / 2) * CONFIG.vision.radarCellU,
+});
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------- clients ---
@@ -185,12 +198,38 @@ async function observe(a, b, ms) {
   return out;
 }
 
-const blipsIn = (ctx, t0, t1) => ctx.blips.filter((e) => e.t >= t0 && e.t <= t1);
+/**
+ * Blips in a window, ATTRIBUTED to `target` when one is given. The `return`
+ * radar grammar carries no identity (cycle 105), so attribution is geometric:
+ * a paint whose cell-rect center is within ATTRIBUTE_U of the (parked) subject
+ * is the subject's. Same reason as assertNoContactsWhile — PvE fleet hulls
+ * paint too, and their paints say nothing about a captain-to-captain claim.
+ */
+// 60u: a hull's rasterized footprint centers within well under a hull length of
+// its own hull (the band phase asserts exactly that bound independently). Wider
+// than this and a PvE fleet hull loitering near the subject is mistaken for it —
+// measured: at 150u the island phase attributed a drone's paint to the subject
+// on a bearing whose `visibilityTo` was a hard 0.
+const ATTRIBUTE_U = 60;
+const blipsIn = (ctx, t0, t1, target) =>
+  ctx.blips.filter(
+    (e) =>
+      e.t >= t0 && e.t <= t1 &&
+      (!target || (target.you && dist(blipCenter(e), target.you) < ATTRIBUTE_U)),
+  );
 
 /** Frames where the predicate held; asserts none of them carried a contact. */
-function assertNoContactsWhile(frames, pred, label) {
+/**
+ * Every fog claim in this smoke is about ONE subject — the other captain —
+ * because every predicate is written over `f.dist`, the captain-to-captain
+ * separation. The PvE fleet (Story 5.6) sails its own hulls into these rooms
+ * and they legitimately enter sight, so counting ANY contact (what this did
+ * before) makes the claim false for a reason it never meant to test. Scope it
+ * to the subject id.
+ */
+function assertNoContactsWhile(frames, pred, label, subjectId) {
   const held = frames.filter(pred);
-  const bad = held.filter((f) => f.contactIds.length > 0);
+  const bad = held.filter((f) => f.contactIds.includes(subjectId));
   assert(bad.length === 0, `${label}: ${bad.length}/${held.length} frames leaked a contact`);
   return held.length;
 }
@@ -202,10 +241,10 @@ async function phaseFar(a, b, log) {
   const d0 = dist(a.you, b.you);
   assert(d0 > RADAR, `spawns unexpectedly close (${d0.toFixed(0)}u <= radar)`);
   const obs = await observe(a, b, PERIOD * 1.5);
-  assertNoContactsWhile(obs.a, () => true, 'far/A');
-  assertNoContactsWhile(obs.b, () => true, 'far/B');
-  assert(blipsIn(a, obs.w0.a, obs.w1.a).length === 0, 'far: A got blips beyond radar range');
-  assert(blipsIn(b, obs.w0.b, obs.w1.b).length === 0, 'far: B got blips beyond radar range');
+  assertNoContactsWhile(obs.a, () => true, 'far/A', b.room.sessionId);
+  assertNoContactsWhile(obs.b, () => true, 'far/B', a.room.sessionId);
+  assert(blipsIn(a, obs.w0.a, obs.w1.a, b).length === 0, 'far: A got blips beyond radar range');
+  assert(blipsIn(b, obs.w0.b, obs.w1.b, a).length === 0, 'far: B got blips beyond radar range');
   log.push(`far: dist=${d0.toFixed(0)}u — no contacts, no blips over ${(PERIOD * 1.5) / 1000}s`);
 }
 
@@ -228,16 +267,17 @@ async function phaseRadarBand(a, b, map, log) {
   const nBlipsA = a.blips.length;
   const obs = await observe(a, b, PERIOD * 2.5);
   // Fog: still zero contacts anywhere outside sight (small transit margin).
-  assertNoContactsWhile(obs.a, (f) => f.dist > SIGHT + 15, 'band/A');
-  assertNoContactsWhile(obs.b, (f) => f.dist > SIGHT + 15, 'band/B');
+  assertNoContactsWhile(obs.a, (f) => f.dist > SIGHT + 15, 'band/A', b.room.sessionId);
+  assertNoContactsWhile(obs.b, (f) => f.dist > SIGHT + 15, 'band/B', a.room.sessionId);
   // Radar: ≈ once per sweep period, each way.
-  const ba = blipsIn(a, obs.w0.a, obs.w1.a);
-  const bb = blipsIn(b, obs.w0.b, obs.w1.b);
+  const ba = blipsIn(a, obs.w0.a, obs.w1.a, b);
+  const bb = blipsIn(b, obs.w0.b, obs.w1.b, a);
   for (const [who, blips, target2] of [['A', ba, b], ['B', bb, a]]) {
     assert(blips.length >= 2 && blips.length <= 3,
       `band: ${who} got ${blips.length} blips over 2.5 periods (want 2-3)`);
     for (const e of blips) {
-      assert(dist(e, target2.you) < 60, `band: ${who} blip ${dist(e, target2.you).toFixed(0)}u off target`);
+      const c = blipCenter(e);
+      assert(dist(c, target2.you) < 60, `band: ${who} blip ${dist(c, target2.you).toFixed(0)}u off target`);
     }
     for (let i = 1; i < blips.length; i++) {
       const gap = blips[i].t - blips[i - 1].t;
@@ -301,28 +341,53 @@ async function phaseSight(a, b, map, log) {
   const nA = obs.a.filter((f) => inSight(f) && f.contactIds.includes(b.room.sessionId)).length;
   assert(nA > 0, 'sight: contact vanished while parked inside sight');
   // Inside sight there is no paint: no blips stamped in the parked window.
-  const late = (ctx, w0, w1) => blipsIn(ctx, w0 + 300, w1).length;
-  assert(late(a, obs.w0.a, obs.w1.a) === 0, 'sight: A still painted blips inside sight');
-  assert(late(b, obs.w0.b, obs.w1.b) === 0, 'sight: B still painted blips inside sight');
+  const late = (ctx, w0, w1, target) => blipsIn(ctx, w0 + 300, w1, target).length;
+  assert(late(a, obs.w0.a, obs.w1.a, b) === 0, 'sight: A still painted blips inside sight');
+  assert(late(b, obs.w0.b, obs.w1.b, a) === 0, 'sight: B still painted blips inside sight');
   log.push(`sight: dist~150u — contacts steady (${nA} frames), blips stopped over ${(PERIOD * 1.5) / 1000}s`);
 }
 
-/** Pick an island + opposing park points that fit in the map, LOS-checked. */
+/** Pick an island + opposing park points that fit in the map, LOS-checked.
+ *
+ *  THE RADAR CLAUSE IS HEIGHT-AWARE NOW (Story 4.11, cycle 68): binary polygon
+ *  LOS still gates truesight (phase 4a), but the radar gate is
+ *  `radarShadow.visibilityTo(...) > 0` — a low island deliberately no longer
+ *  hides a distant ship. Phase 4b's "no blip" claim is therefore only true
+ *  behind terrain that is ABSOLUTE COVER at that standoff (~39% of
+ *  land-crossing bearings), so the island/bearing search now demands it
+ *  explicitly instead of assuming every rock blocks every ray. */
 function islandSetup(map, near, gapA, gapB) {
+  /** Absolute radar cover both ways at this standoff (the phase-4b claim). */
+  const hardCover = (p, q) =>
+    visibilityTo(map.heightRaster, p.x, p.y, q.x, q.y) === 0 &&
+    visibilityTo(map.heightRaster, q.x, q.y, p.x, p.y) === 0;
   const ok = (p) =>
     Math.hypot(p.x, p.y) < map.radius - 60 &&
     map.islands.every((i) => Math.hypot(p.x - i.x, p.y - i.y) > i.r + 30);
+  // Upper bound is the 4a constraint: parked on opposite sides at `gap` each,
+  // the pair must still be inside truesight (2r + gapA + gapB < SIGHT), which
+  // tops out near r = 110. The shipped 65 predates the height-aware radar gate
+  // and excluded exactly the tall rocks phase 4b now needs for absolute cover.
   const isles = map.islands
-    .filter((i) => i.r >= 28 && i.r <= 65)
+    .filter((i) => i.r >= 28 && i.r <= 110 && 2 * i.r + gapA + gapB < SIGHT - 20)
     .sort((p, q) => dist(p, near) - dist(q, near));
   for (const isle of isles) {
-    for (let k = 0; k < 12; k++) {
-      const ang = (k * Math.PI) / 6;
+    for (let k = 0; k < 36; k++) {
+      const ang = (k * Math.PI) / 18;
       const u = { x: Math.cos(ang), y: Math.sin(ang) };
       const pa = { x: isle.x + u.x * (isle.r + gapA), y: isle.y + u.y * (isle.r + gapA) };
       const pb = { x: isle.x - u.x * (isle.r + gapB), y: isle.y - u.y * (isle.r + gapB) };
-      const paFar = { x: isle.x + u.x * (isle.r + 240), y: isle.y + u.y * (isle.r + 240) };
-      if (ok(pa) && ok(pb) && ok(paFar)) return { isle, pa, pb, paFar };
+      // The 4b standoff must land A in the RADAR ANNULUS (SIGHT < d <= RADAR),
+      // and the separation there is `2r + farGap + gapB` — so a fixed offset is
+      // only safe for a big rock. The shipped 240 gave 2*28+280 = 336u against
+      // SIGHT 330 on a minimum-radius island, i.e. 6u of headroom against ~10u
+      // of parking slop: whether the phase could pass at all depended on which
+      // island happened to be nearest B's (randomly placed) spawn. Derive the
+      // offset from the island instead, aiming ~SIGHT+120 (450u — comfortably
+      // clear of both band edges at RADAR 660).
+      const farGap = Math.max(240, SIGHT + 120 - 2 * isle.r - gapB);
+      const paFar = { x: isle.x + u.x * (isle.r + farGap), y: isle.y + u.y * (isle.r + farGap) };
+      if (ok(pa) && ok(pb) && ok(paFar) && hardCover(paFar, pb)) return { isle, pa, pb, paFar };
     }
   }
   throw new Error('no usable island for the shadow phase');
@@ -363,10 +428,10 @@ async function phaseIsland(a, b, map, log) {
   // 4a: inside sight range but shadowed — no contacts (and trivially no paint).
   let obs = await observe(a, b, PERIOD * 1.5);
   const shadowed = (f) => f.blocked && f.dist <= SIGHT;
-  const nA = assertNoContactsWhile(obs.a, shadowed, 'island/A');
-  const nB = assertNoContactsWhile(obs.b, shadowed, 'island/B');
+  const nA = assertNoContactsWhile(obs.a, shadowed, 'island/A', b.room.sessionId);
+  const nB = assertNoContactsWhile(obs.b, shadowed, 'island/B', a.room.sessionId);
   assert(nA > 20 && nB > 20, `island: shadow barely held (A=${nA} B=${nB} frames) — park failed?`);
-  assert(blipsIn(a, obs.w0.a + 300, obs.w1.a).length === 0, 'island: A painted a shadowed blip');
+  assert(blipsIn(a, obs.w0.a + 300, obs.w1.a, b).length === 0, 'island: A painted a shadowed blip');
   const d1 = dist(a.you, b.you);
 
   // 4b: back A out into the radar annulus, still down-shadow — radar stays blind.
@@ -374,10 +439,16 @@ async function phaseIsland(a, b, map, log) {
   obs = await observe(a, b, PERIOD * 2.2);
   const bandShadow = (f) => f.blocked && f.dist > SIGHT && f.dist <= RADAR;
   const nA2 = obs.a.filter(bandShadow).length;
-  assert(nA2 > 20, `island: banded shadow barely held (${nA2} frames)`);
-  assertNoContactsWhile(obs.a, () => true, 'island-band/A');
-  assert(blipsIn(a, obs.w0.a + 300, obs.w1.a).length === 0, 'island: LOS failed to block radar (A got a blip)');
-  assert(blipsIn(b, obs.w0.b + 300, obs.w1.b).length === 0, 'island: LOS failed to block radar (B got a blip)');
+  const dbg = `frames=${obs.a.length} blocked=${obs.a.filter((f) => f.blocked).length} inBand=${obs.a.filter((f) => f.dist > SIGHT && f.dist <= RADAR).length} d=[${Math.min(...obs.a.map((f) => f.dist)).toFixed(0)}..${Math.max(...obs.a.map((f) => f.dist)).toFixed(0)}]u SIGHT=${SIGHT}`;
+  assert(nA2 > 20, `island: banded shadow barely held (${nA2} frames; ${dbg})`);
+  assertNoContactsWhile(obs.a, () => true, 'island-band/A', b.room.sessionId);
+  // Absolute cover was a precondition of the setup (see islandSetup), so a
+  // blip here means the height-aware radar gate leaked, not that terrain is soft.
+  const liveVis = visibilityTo(map.heightRaster, a.you.x, a.you.y, b.you.x, b.you.y).toFixed(4);
+  const nomVis = visibilityTo(map.heightRaster, paFar.x, paFar.y, pb.x, pb.y).toFixed(4);
+  const offA = dist(a.you, paFar).toFixed(0), offB = dist(b.you, pb).toFixed(0);
+  assert(blipsIn(a, obs.w0.a + 300, obs.w1.a, b).length === 0, `island: terrain failed to block radar (A got a blip; liveVis=${liveVis} nomVis=${nomVis} offA=${offA}u offB=${offB}u d=${dist(a.you, b.you).toFixed(0)}u)`);
+  assert(blipsIn(b, obs.w0.b + 300, obs.w1.b, a).length === 0, 'island: terrain failed to block radar (B got a blip)');
   log.push(`island: r=${isle.r.toFixed(0)}u — shadowed at ${d1.toFixed(0)}u: no contact (${nA}f); at ${dist(a.you, b.you).toFixed(0)}u in band: no blip over ${(PERIOD * 2.2) / 1000}s (${nA2}f)`);
 }
 

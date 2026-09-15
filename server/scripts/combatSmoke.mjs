@@ -17,6 +17,9 @@ import { CONFIG, PROTOCOL_VERSION, generateMap, bearing, angleDiff, islandBlocks
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const HALF_PI = Math.PI / 2;
+// Module-scoped so the failure handler can print the trace it collected — a
+// timeout with no trace says nothing about WHY the scenario stalled.
+const log = [];
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -185,7 +188,14 @@ async function fightScenario(a, b, log) {
       lastLog = Date.now();
       log.push(`fight: B.hp=${b.you?.hp} range=${range.toFixed(0)} shellsA=${a.shells}`);
     }
-  }, () => roster(a.room, b.room.sessionId)?.deaths >= 1, 130000, 'B never sank');
+    // BUDGET (was 130s, stale since balance cycle 1): the two captains spawn
+    // max-min apart on the ring — ~4.5k u, ~100 s of transit at full ahead —
+    // and only then does the gun open up. Hull HP DOUBLED at cycle 122 (TB 125
+    // -> 250) while the gun stayed at 15 dmg on a 5 s reload (3 s -> 5 s,
+    // Eric ruling 2026-08-04), so sinking a torpedo boat is ~17 rounds ≈ 85 s
+    // of firing. 100 + 85 is already past 130; 300 s leaves real margin for a
+    // miss or two.
+  }, () => roster(a.room, b.room.sessionId)?.deaths >= 1, 300000, 'B never sank');
   log.push(`fight: B sank; A.kills=${roster(a.room, a.room.sessionId).kills}`);
 
   // Let B respawn.
@@ -269,7 +279,6 @@ async function main() {
   assert(a.welcome && b.welcome, 'missing welcome');
   assert(Number.isFinite(a.welcome.playerCap), 'welcome missing playerCap');
 
-  const log = [];
   await fightScenario(a, b, log);
   const bothSawBooms = a.booms.length > 0 && b.booms.length > 0;
   assert(bothSawBooms, `booms not seen by both (A=${a.booms.length} B=${b.booms.length})`);
@@ -292,5 +301,6 @@ async function main() {
 
 main().catch((err) => {
   console.error('COMBAT SMOKE FAILED:', err.message);
+  for (const line of log) console.error('  ' + line);
   process.exit(1);
 });
