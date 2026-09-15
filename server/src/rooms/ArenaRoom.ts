@@ -245,7 +245,9 @@ interface PingState {
 
 // Colyseus 0.17 changed the Room generic from `Room<State>` to
 // `Room<{ state: State }>` (the parameter is now a RoomOptions bag carrying
-// state/metadata/client types), so `this.state` types as ArenaState again.
+// state/metadata/client types — @colyseus/core 0.18.13 Room.d.ts:49 declares
+// `RoomOptions`, :128 declares `Room<T extends RoomOptions = RoomOptions>`),
+// so `this.state` types as ArenaState again.
 export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = CONFIG.map.playerCap;
   autoDispose = true;

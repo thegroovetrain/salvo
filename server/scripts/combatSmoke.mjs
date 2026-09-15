@@ -38,7 +38,7 @@ const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, 
 async function joinClient(name) {
   const client = new Client(endpoint);
   const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
-  const ctx = { name, room, welcome: null, you: null, contacts: [], booms: [], shells: 0, islands: [] };
+  const ctx = { name, room, welcome: null, you: null, contacts: [], booms: [], shells: 0, sunk: [], islands: [] };
   room.onMessage('w', (m) => {
     ctx.welcome = m;
     ctx.islands = generateMap(m.mapSeed, m.playerCap).islands; // arms islandAvoid
@@ -58,6 +58,10 @@ function onFrame(ctx, f) {
     // interception or island stop still booms) — count both as detonations.
     if (e.k === 'boom' || e.k === 'burst') ctx.booms.push(e);
     if (e.k === 'shell') ctx.shells += 1;
+    // The Public Register (cycle 45): `sunk` is identity-only — {k,id,by?} —
+    // and reaches every client for a captain's sinking by any cause. That
+    // `by` is what lets the fight scenario name its killer.
+    if (e.k === 'sunk') ctx.sunk.push(e);
   }
 }
 
@@ -195,8 +199,23 @@ async function fightScenario(a, b, log) {
     // Eric ruling 2026-08-04), so sinking a torpedo boat is ~17 rounds ≈ 85 s
     // of firing. 100 + 85 is already past 130; 300 s leaves real margin for a
     // miss or two.
-  }, () => roster(a.room, b.room.sessionId)?.deaths >= 1, 300000, 'B never sank');
-  log.push(`fight: B sank; A.kills=${roster(a.room, a.room.sessionId).kills}`);
+    //
+    // THE DONE PREDICATE NAMES BOTH PARTIES. `deaths >= 1 && kills >= 1` on the
+    // roster is satisfiable WITHOUT A EVER TOUCHING B: the PvE fleet (Story
+    // 5.6) sails armed hulls into this room, so a fleet gun sinking idle B
+    // books B a death while A sinking a fleet hull books A a kill — two
+    // unrelated events that together pass a conjunction and prove nothing about
+    // A's shells hitting B. The real claim is ONE `sunk` event asserting both
+    // halves at once: victim is B, credited killer is A. A fleet kill of B
+    // carries `by` = the fleet hull's id (never A's sessionId), and A's kill of
+    // a fleet hull carries `id` = that hull's id (never B's sessionId), so
+    // neither satisfies the pair. A reads it under the Public Register's
+    // "credited to you" clause, so fog cannot hide it either.
+  }, () => a.sunk.some((e) => e.id === b.room.sessionId && e.by === a.room.sessionId), 300000, 'A never sank B');
+  // Secondary: the public roster booked the same outcome.
+  assert(roster(a.room, b.room.sessionId)?.deaths >= 1, 'B sank but the roster booked no death');
+  assert(roster(a.room, a.room.sessionId)?.kills >= 1, 'A sank B but the roster booked no kill');
+  log.push(`fight: A sank B (sunk event by=${a.room.sessionId}); A.kills=${roster(a.room, a.room.sessionId).kills}`);
 
   // Let B respawn.
   b.goal = { mode: 'idle' };

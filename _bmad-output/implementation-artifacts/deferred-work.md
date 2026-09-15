@@ -1909,3 +1909,17 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   status: OPEN — design note, no action
   summary: `@colyseus/core` 0.18's own `resolveClientIp` takes the FIRST `X-Forwarded-For` hop (`Transport.mjs:50`) while `server/src/rooms/soloThrottle.ts` deliberately takes the RIGHTMOST; that divergence is why `AuthContext.ip` (now typed `string | undefined`) must stay unread and the throttle keeps parsing headers itself.
   evidence: wave 1 read of `node_modules/@colyseus/core/build/Transport.mjs`, 2026-09-14.
+
+### Story 8.0 review-gate defers (2026-09-14, cycle 133) — pre-existing, surfaced by the 0.18 review
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  summary: `server/scripts/reconnectSmoke.mjs` (~:314-316) simulates a drop with `ws.terminate()` falling back to `ws.close()`, but on Node 22.19 the SDK picks `globalThis.WebSocket` (undici) over the `ws` package (`@colyseus/sdk/build/transport/WebSocketTransport.mjs:10`), which has no `terminate()` — so the fallback `close()` produces close code 1005, never 1006, and the documented ABNORMAL_CLOSURE reconnect branch is exercised by no smoke; a regression narrowing the server's reconnectable set to 1006 alone would pass. Fix candidates: import `ws` and force the Node transport in the smoke, or accept-and-assert the actual code emitted.
+  evidence: Edge Case Hunter, Story 8.0 review, traced `WebSocketTransport.mjs:7,10` in sdk 0.18.2; the smoke passes today because its assertion admits either path.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  summary: `server/src/rooms/ArenaRoom.ts` `onDrop` hold branch (~:1092-1102) calls `allowReconnection` for a client that never acked JOIN_ROOM (core still holds `_enqueuedMessages`); core rejects with "not joined" (`@colyseus/core/build/Room.mjs` ~:1179-1181) and the `.catch` swallows the reason, so the `client.drop` log records a hold that core immediately tore down. Guard: treat a non-JOINED drop as teardown and log `held:false`. Behaviour identical on 0.17.44 (`allowReconnection` is byte-identical), so not a 0.18 regression.
+  evidence: Edge Case Hunter, Story 8.0 review; the JOINING kick timer already bounds the enqueue buffer, so the consequence is a misleading log line, not a leak.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  summary: `ArenaRoom` defines no `onUncaughtException`, and core wraps the timestep tick in try/catch ONLY when that hook exists (`@colyseus/core/build/Room.mjs` ~:487-489, same in 0.17.44), so one throwing `update()` tick escapes `setInterval` as a process-level uncaught exception and every room on the node dies with it. Adding the hook (log `room.uncaught` with the method name, keep the room alive or disconnect just that room) is a one-method operability change; it belongs with the Epic 0 operability baseline, not a framework floor story.
+  evidence: Edge Case Hunter + Blind Hunter (independently), Story 8.0 review; propagation is unchanged 0.17 → 0.18.

@@ -911,12 +911,24 @@ describe('the HTTP router carries both endpoints (F11)', () => {
     // playground lists routes from `Server.current?.router?.endpoints`
     // (@colyseus/playground 0.18.4 build/index.mjs:101), which is the ONE
     // router built from app.config's `routes` — so both endpoints must live on
-    // that same router object, which is exactly what `.extend()` would break.
+    // that same router object.
+    //
+    // NOT because `.extend()` would drop one: better-call's `extend` MERGES
+    // (`createRouter({ ...endpoints, ...newEndpoints }, config)`,
+    // @colyseus/better-call dist/router.mjs:117), and core's own
+    // `Server.bindRoutes()` always extends the declared router with its
+    // framework defaults (@colyseus/core 0.18.13 build/Server.mjs:152-159) —
+    // so `Server.current.router.endpoints` is always an EXTENDED router, keys
+    // additive, nothing silently dropped. What this pin actually guards is
+    // DECLARATION COMPLETENESS: that the one router object app.config hands
+    // to `config({ routes })` — the object this test imports and reads
+    // directly, before any framework extension touches it — already carries
+    // both endpoints itself, rather than relying on some other call site to
+    // have added the second one.
     const appConfig = (await import('../app.config.js')).default as unknown as {
       routes: { endpoints: Record<string, { path: string }> };
     };
-    // BOTH declared in the one call (a second `createRouter` or an `.extend()`
-    // chain would leave one of these keys off this object entirely).
+    // BOTH declared in the one call.
     expect(Object.keys(appConfig.routes.endpoints).sort()).toEqual(['getLiveness', 'getMetrics']);
     const paths = Object.values(appConfig.routes.endpoints).map((e) => e.path);
     expect(paths).toContain('/metrics');

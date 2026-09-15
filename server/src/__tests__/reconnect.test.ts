@@ -448,7 +448,7 @@ describe('CONFIG.net.reconnectGraceSeconds', () => {
 // A refreshed page loses its JS heap, so it resumes into a socket that has
 // never told it its own sessionId or the map seed — and can render nothing.
 // Core calls onReconnect INSTEAD OF onJoin on the reconnection branch
-// (@colyseus/core 0.17.44 Room.mjs:693-701), so the re-send is the ONLY way
+// (@colyseus/core 0.18.13 Room.mjs:1070-1090), so the re-send is the ONLY way
 // those bytes reach a resumed client, and equally: nothing on this path may
 // re-run the SPAWN half of onJoin. Harness is radarModes.test.ts's joinRoom —
 // a bare `new ArenaRoom()` never runs core's __init(), so world/state/clock
@@ -552,8 +552,9 @@ describe('ArenaRoom.onReconnect (Story 6.7 — the welcome re-send)', () => {
   });
 
   it('is TOTAL — a throwing send is swallowed, because core answers a throw by ABORTING the resume', () => {
-    // Core wraps onReconnect rethrow-true (Room.mjs:1129-1130) and its own
-    // catch runs _onLeave(FAILED_TO_RECONNECT). A captain who reconnected
+    // Core wraps onReconnect rethrow-true (@colyseus/core 0.18.13
+    // Room.mjs:1534-1535) and its own catch runs _onLeave(FAILED_TO_RECONNECT)
+    // (Room.mjs:1089). A captain who reconnected
     // successfully must never lose the seat to a diagnostic failure.
     const room = resumeRoom();
     const c = resumeClient('alice');

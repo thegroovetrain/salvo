@@ -8,7 +8,8 @@
 //       than MAX_FIELDS fields AT CLASS-DEFINITION TIME — i.e. at import, so
 //       the whole process fails to boot rather than one room failing to
 //       create. Field indexes ride the low 6 bits of the operation byte and
-//       index 63 collides with SWITCH_TO_STRUCTURE, so 0..62 is all there is.
+//       index 63 collides with SWITCH_TO_STRUCTURE, so indexes 0..62 (63
+//       fields) are legal and index 63 (the 64th field) throws.
 //   (b) THE PV JOIN GATE. PROTOCOL_VERSION moved 49 → 50 for the schema 5
 //       encoder + the 0.18 JOIN_ROOM handshake. A gate that admitted 49 would
 //       let a stale bundle in to fail later at decode.
@@ -23,6 +24,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Schema, MapSchema, Metadata, type } from '@colyseus/schema';
 import { PROTOCOL_VERSION } from '@salvo/shared';
+import * as schemaModule from '../rooms/schema/ArenaState.js';
 import { ArenaState, PlayerMeta } from '../rooms/schema/ArenaState.js';
 import { ArenaRoom, type ArenaListingMeta } from '../rooms/ArenaRoom.js';
 import { StandardQueueRoom, type QueueListingMeta } from '../rooms/StandardQueueRoom.js';
@@ -58,10 +60,30 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
     ['PlayerMeta', PlayerMeta],
   ];
 
+  /**
+   * Every Schema subclass the module actually exports, discovered by
+   * inspecting the module's own namespace rather than restated by hand — so
+   * a third Schema class added to that file without a row in
+   * `SCHEMA_CLASSES` fails this test the moment it is exported, instead of
+   * the registry silently agreeing with itself.
+   */
+  const exportedSchemaClasses = (
+    Object.entries(schemaModule) as Array<[string, unknown]>
+  ).filter(
+    (entry): entry is [string, typeof Schema] =>
+      typeof entry[1] === 'function' && (entry[1] as typeof Schema).prototype instanceof Schema,
+  );
+
   it('rooms/schema/ArenaState.ts declares exactly the two classes pinned here', () => {
-    // Guards the registry itself: a third Schema class added to that file
-    // without a row here would leave the cap unpinned for it.
-    expect(SCHEMA_CLASSES.map(([name]) => name).sort()).toEqual(['ArenaState', 'PlayerMeta']);
+    // Guards the registry itself in BOTH directions: every exported Schema
+    // subclass has a row in SCHEMA_CLASSES, and every row is an exported
+    // Schema subclass. A directory scan can't see what a file exports
+    // without importing it — this imports the module as a namespace and
+    // reads real exports, so the guard fails the moment a third Schema class
+    // is exported from that module without a row here.
+    expect(exportedSchemaClasses.map(([name]) => name).sort()).toEqual(
+      SCHEMA_CLASSES.map(([name]) => name).sort(),
+    );
     // And both really carry schema metadata (a mis-typed row would pass
     // vacuously otherwise). isValidInstance takes an INSTANCE — it reads
     // `klass.constructor[Symbol.metadata]` (@colyseus/schema 5.0.32
@@ -76,7 +98,10 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
     it(`${name} is under the cap`, () => {
       const n = fieldCount(klass);
       expect(n).toBeGreaterThan(0); // non-vacuous: a class with no metadata would read 0
-      expect(n).toBeLessThan(MAX_FIELDS);
+      // A class with EXACTLY MAX_FIELDS (63) fields is legal — the throw is
+      // `index >= MAX_FIELDS` (@colyseus/schema 5.0.32 index.mjs:1151-1152),
+      // and the 63rd field lands at index 62. So the pin is <=, not <.
+      expect(n).toBeLessThanOrEqual(MAX_FIELDS);
     });
   }
 
@@ -89,9 +114,9 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
     expect(fieldCount(PlayerMeta)).toBe(8);
   });
 
-  it('THE GUARD IS REAL: defining a 64th field throws at class-definition time', () => {
+  it('THE GUARD IS REAL: defining a 64th field (index 63) throws at class-definition time', () => {
     // Non-vacuity proof for the whole block. `Metadata.addField` throws on
-    // `index >= MAX_FIELDS` (@colyseus/schema 5.0.32, index.mjs:1149-1153), and
+    // `index >= MAX_FIELDS` (@colyseus/schema 5.0.32, index.mjs:1151-1152), and
     // decorators run while the class body is being evaluated — so this is a
     // BOOT failure, not a runtime one. Built through Metadata.setFields rather
     // than 64 hand-written decorators so the test states the cap, not a wall
@@ -104,12 +129,25 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
     }).toThrow(/up to 63 fields/);
   });
 
-  it('exactly 62 fields is still legal — the cap is the boundary we think it is', () => {
+  it('exactly 63 fields (indexes 0..62) is still legal — the true cap boundary', () => {
     const atCap: Record<string, 'number'> = {};
-    for (let i = 0; i < MAX_FIELDS - 1; i += 1) atCap[`f${i}`] = 'number';
+    for (let i = 0; i < MAX_FIELDS; i += 1) atCap[`f${i}`] = 'number';
     expect(() => {
       class AtCap extends Schema {}
       Metadata.setFields(AtCap, atCap as never);
+    }).not.toThrow();
+    // And prove it actually LANDED all 63, not merely that no throw fired.
+    const AtCapKlass = class extends Schema {} as unknown as typeof Schema;
+    Metadata.setFields(AtCapKlass, atCap as never);
+    expect(fieldCount(AtCapKlass)).toBe(MAX_FIELDS);
+  });
+
+  it('62 fields is legal too — one under the boundary', () => {
+    const under: Record<string, 'number'> = {};
+    for (let i = 0; i < MAX_FIELDS - 1; i += 1) under[`f${i}`] = 'number';
+    expect(() => {
+      class UnderCap extends Schema {}
+      Metadata.setFields(UnderCap, under as never);
     }).not.toThrow();
   });
 

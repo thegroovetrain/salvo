@@ -2421,9 +2421,9 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
 // nothing else does.
 
 /**
- * A Colyseus 0.17 room SIGNAL, faithfully: callable to register, with its own
+ * A Colyseus 0.18 room SIGNAL, faithfully: callable to register, with its own
  * `remove` for unregistration. VERIFIED against the installed
- * @colyseus/sdk 0.17.43 (`build/core/signal.mjs` — `createSignal` hangs
+ * @colyseus/sdk 0.18.2 (`build/core/signal.mjs:27-44` — `createSignal` hangs
  * `remove`/`once`/`clear` off the register function), not assumed.
  */
 interface SignalFake<C> {
@@ -2459,9 +2459,11 @@ interface MsgRoom {
 /**
  * A fake room that actually delivers messages (the shared one drops them) —
  * and, since the Story 6.3 review gate, one that models the SDK's REMOVAL
- * surface too: `onMessage` hands back the unbind function 0.17.43 really
- * returns, and the four signals expose `remove`. Without that the disposal
- * tests below would only ever exercise the latch.
+ * surface too: `onMessage` hands back the unbind function 0.18.2 really
+ * returns (`Room.onMessage` → `onMessageHandlers.on()`, @colyseus/sdk 0.18.2
+ * build/Room.mjs:170-171 over build/core/nanoevents.mjs:37-40), and the four
+ * signals expose `remove`. Without that the disposal tests below would only
+ * ever exercise the latch.
  */
 function msgRoom(): MsgRoom {
   const handlers = new Map<string, Set<(msg: unknown) => void>>();
@@ -2651,7 +2653,7 @@ describe('bindRoom — the disposer', () => {
 
   it('really UNREGISTERS through the SDK rather than only latching', () => {
     // The latch alone would leave every callback attached to a room that keeps
-    // firing them forever. 0.17.43 can undo all of it (onMessage returns an
+    // firing them forever. 0.18.2 can undo all of it (onMessage returns an
     // unbind fn; the signals expose remove), so the room must end up empty.
     const { room, unbind } = setupSignals();
     expect(room.liveHandlers()).toBeGreaterThan(0);
