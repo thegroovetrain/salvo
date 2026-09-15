@@ -19,7 +19,7 @@
 //    level and frozen until spent (world.ts materializeOffer), so a REFERENCE
 //    comparison counts each distinct hand exactly once — no id-set hashing, no
 //    double counting across the ticks a hand sits open. Fits are read by
-//    diffing `ship.boons`, which is append-only within a life.
+//    diffing `ship.cards`, which is append-only within a life.
 //    READ THE PICK COLUMN AS "POLICY + REACHABILITY", NEVER AS PLAYER TASTE:
 //    captains spend through spendPolicy.pickSpendChoice (rarity-preferring, 75%
 //    top-rank) and bots through their per-profile weights. The OFFER column is
@@ -254,18 +254,18 @@ export class CatalogCollector {
       }
     }
     const seen = this.seenBoons.get(ship.id) ?? 0;
-    if (ship.boons.length > seen) {
+    if (ship.cards.length > seen) {
       const byClass = (this.sample.fitsByClass![ship.hullId] ??= {});
       const byProfile = (this.sample.fitsByProfile![spender] ??= {});
-      for (let i = seen; i < ship.boons.length; i += 1) {
-        bump(this.sample.fits, ship.boons[i]);
-        bump(byClass, ship.boons[i]);
-        bump(byProfile, ship.boons[i]);
+      for (let i = seen; i < ship.cards.length; i += 1) {
+        bump(this.sample.fits, ship.cards[i]);
+        bump(byClass, ship.cards[i]);
+        bump(byProfile, ship.cards[i]);
       }
     }
     // Assign unconditionally: redeployShip WIPES boons, and a stale high-water
     // mark would then silently swallow every refit of the next life.
-    this.seenBoons.set(ship.id, ship.boons.length);
+    this.seenBoons.set(ship.id, ship.cards.length);
   }
 
   private observeOrdnance(world: World): void {

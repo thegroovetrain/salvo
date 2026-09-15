@@ -286,7 +286,7 @@ describe('boarding freeze — weapons locked', () => {
     // exactly the loadout they boarded with.
     const slot = a.loadout[0]!;
     expect(slot.state!.reloadMsLeft).toBe(0);
-    expect(slot.state!.n).toBe(a.stats.gun.maxAmmo);
+    expect(slot.state!.n).toBe(a.stats.equipment.gun.maxAmmo);
   });
 
   it('the same click fires in a non-boarding room', () => {
@@ -481,7 +481,7 @@ describe('the held start line — a boarding captain starts where they boarded',
     a.level = 4;
     activateAndDrainSpawns(ctx);
     expect(a.hp).toBe(a.stats.maxHp);
-    expect(a.loadout[0]!.state!.n).toBe(a.stats.gun.maxAmmo);
+    expect(a.loadout[0]!.state!.n).toBe(a.stats.equipment.gun.maxAmmo);
     expect(a.loadout[0]!.state!.reloadMsLeft).toBe(0);
     expect(a.bankedLevels).toBe(0);
     expect(a.level).toBe(0);

@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isAfloat,
   CONFIG,
+  effectiveStats,
   hullSilhouette,
   paintCoverage,
   transformPolygon,
@@ -452,9 +453,27 @@ describe('mines — owner gun-burst detonation (armed-only, owner-only, no casca
     return { w, a };
   }
 
+  /**
+   * THE CAPTIVE CHASSIS, SET DIRECTLY ON THE STAT ROW (Story 8.1). `captive`
+   * used to be a doctrine card on the naval mine (`mineCaptive`); catalog v3
+   * (R25) made CAPTIVE MINES its OWN equipment line whose row carries the flag
+   * at base — and that line is a STUB until Story 8.13 builds the module, so
+   * nothing in the catalog can set the flag this cycle. The BEHAVIOUR ships and
+   * still needs its pins (8.13 inherits them), so it is set where a fitted
+   * captive line would put it. The radii are taken from the real `captiveMines`
+   * row rather than restated: clampStats derives them ONCE, off the flag.
+   */
+  function makeCaptive(o: ShipRecord): void {
+    const row = o.stats.equipment.navalMines;
+    row.captive = true;
+    const captiveRow = effectiveStats(o.cls).equipment.captiveMines;
+    row.blastRadius = captiveRow.blastRadius;
+    row.triggerRadius = captiveRow.triggerRadius;
+  }
+
   it('R2.18: an ARMED CAPTIVE mine under the owner’s own burst survives, un-fired', () => {
     const { w, a } = lonely();
-    w.applyBoon(a, 'mineCaptive');
+    makeCaptive(a);
     w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 }); // armed, at the click point
     shootAt(w, 300);
     expect(w.mines.has('m1')).toBe(true); // NOT detonated — the burst passed over it
@@ -464,7 +483,7 @@ describe('mines — owner gun-burst detonation (armed-only, owner-only, no casca
   });
 
   it('R2.18 is CAPTIVE-ONLY: the very same burst still detonates an ORDINARY mine', () => {
-    const { w } = lonely(); // no mineCaptive fitted — everything else identical
+    const { w } = lonely(); // no captive chassis — everything else identical
     w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 });
     shootAt(w, 300);
     expect(w.mines.has('m1')).toBe(false); // detonated exactly as it always has
@@ -473,7 +492,7 @@ describe('mines — owner gun-burst detonation (armed-only, owner-only, no casca
 
   it('R2.18: a CAPTIVE field never chains either — a whole cluster survives one burst', () => {
     const { w, a } = lonely();
-    w.applyBoon(a, 'mineCaptive');
+    makeCaptive(a);
     w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 }); // under the click
     w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0 }); // the chain neighbour
     shootAt(w, 300);

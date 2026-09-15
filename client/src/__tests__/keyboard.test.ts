@@ -104,11 +104,11 @@ describe('nextPrimedSlot — switch-to / same-key revert', () => {
 });
 
 describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
-  const TB_SLOTS = ['gun', 'torpedo', 'speedBoost', null] as const; // Torpedo Boat
+  const TB_SLOTS = ['gun', 'heavyTorpedo', 'speedBoost', null] as const; // Torpedo Boat
   const BB_SLOTS = ['gun', 'broadside', 'starShells', null] as const; // Battleship (both specials weapons)
   // Mine Layer: as of Story 2.8 (amendment 45) the MINE is a click-aimed
   // weapon, so only the decoy rack (slot 2) is still an ability here.
-  const ML_SLOTS = ['gun', 'mine', 'radarBuoy', null] as const;
+  const ML_SLOTS = ['gun', 'navalMines', 'radarBuoy', null] as const;
 
   it('is true only for a slot holding EQUIPMENT_IS_WEAPON:false equipment', () => {
     expect(slotHoldsAbility(TB_SLOTS, 2)).toBe(true); // speedBoost
@@ -349,7 +349,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     const presses: number[] = [];
     kb = new KeyboardInput({
       isSlotFitted: (slot) => slot === 1 || slot === 2,
-      isAbilitySlot: (slot) => slotHoldsAbility(['gun', 'mine', 'radarBuoy', null], slot),
+      isAbilitySlot: (slot) => slotHoldsAbility(['gun', 'navalMines', 'radarBuoy', null], slot),
       onAbility: (slot) => presses.push(slot),
     });
     kb.attach();

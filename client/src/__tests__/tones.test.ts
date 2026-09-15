@@ -4,11 +4,11 @@
 // untested adapter per convention — this file covers everything pure.
 
 import { describe, it, expect } from 'vitest';
-import { BOON_CATALOG, CONFIG, type BoonRarity } from '@salvo/shared';
+import { CATALOG, CONFIG, LINE_IDS, type LineKind } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   TONES,
-  FIT_CATEGORIES,
+  FIT_KINDS,
   fireTone,
   fitDetune,
   fitTone,
@@ -106,14 +106,14 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
   // of EquipmentId (Story 1.6), so an ability id can't even reach it.
   it('maps every firing weapon to its distinct tone', () => {
     expect(fireTone('gun')).toBe('fireGun');
-    expect(fireTone('torpedo')).toBe('fireTorp');
-    expect(fireTone('mine')).toBe('fireMine');
+    expect(fireTone('heavyTorpedo')).toBe('fireTorp');
+    expect(fireTone('navalMines')).toBe('fireMine');
     expect(fireTone('broadside')).toBe('fireBroadside'); // the BB's heavy report
     expect(fireTone('starShells')).toBe('fireStarShells'); // Story 1.7: BB flare pop
   });
 
   it('covers all five weapon ids with no gaps', () => {
-    const ids = ['gun', 'torpedo', 'mine', 'broadside', 'starShells'] as const;
+    const ids = ['gun', 'heavyTorpedo', 'navalMines', 'broadside', 'starShells'] as const;
     for (const id of ids) expect(TONES[fireTone(id)]).toBeDefined();
   });
 
@@ -196,19 +196,23 @@ describe('the FIT family (Story 2.9) — one two-note template, three tier weigh
     expect(exclusive.volume).toBeGreaterThan(rare.volume);
   });
 
-  it('routes a boon rarity to its cue, and fails OPEN (never silent) on junk', () => {
-    expect(fitTone('common')).toBe('fitCommon');
-    expect(fitTone('rare')).toBe('fitRare');
-    expect(fitTone('exclusive')).toBe('fitExclusive');
+  it('routes a card KIND to its cue, and fails OPEN (never silent) on junk', () => {
+    // Story 8.1: rarity is deleted with the v2 catalog — the kind is the one
+    // audible axis now, and an EQUIPMENT fit (a whole new weapon) is the fuller
+    // cue the RARE tier used to own.
+    expect(fitTone('equipment')).toBe('fitRare');
+    expect(fitTone('ladder')).toBe('fitCommon');
+    expect(fitTone('addon')).toBe('fitCommon');
+    expect(fitTone('consumable')).toBe('fitCommon');
     expect(fitTone(undefined)).toBe('fitCommon');
-    expect(fitTone('legendary' as BoonRarity)).toBe('fitCommon');
+    expect(fitTone('legendary' as LineKind)).toBe('fitCommon');
   });
 
-  it('every catalog line maps to a fit cue with a real spec (no silent boon)', () => {
-    const silent = Object.values(BOON_CATALOG).filter((def) => TONES[fitTone(def.rarity)] === undefined);
+  it('every catalog line maps to a fit cue with a real spec (no silent fit)', () => {
+    const silent = Object.values(CATALOG).filter((line) => TONES[fitTone(line.kind)] === undefined);
     expect(silent).toEqual([]);
-    // Story 7-5 wave 1 shrank the catalog 33 -> 28 lines.
-    expect(Object.keys(BOON_CATALOG).length).toBeGreaterThanOrEqual(28);
+    // Catalog v3 authors 29 lines (Eric ruling 2026-09-15, amendment 7).
+    expect(Object.keys(CATALOG)).toHaveLength(LINE_IDS.length);
   });
 });
 
@@ -355,40 +359,39 @@ describe('stormEnterEdge', () => {
   });
 });
 
-// --- STORY 2.9: the per-CATEGORY fit transposition ------------------------------
+// --- STORY 2.9 (re-keyed in 8.1): the per-KIND fit transposition ----------------
 //
-// Tier picks the cue's weight (fitTone); category moves it up or down the scale
-// (fitDetune, in cents). One family, nine voices — so fitting a gun common and a
-// mine common back to back are audibly different EVENTS without being different
-// cues, and neither needs a new tone spec.
+// The kind picks the cue's weight (fitTone) and moves it up or down the scale
+// (fitDetune, in cents). One family, FOUR voices — the v2 catalog's nine
+// categories are deleted, so the kind is the only axis the catalog still states.
 
-describe('fitDetune — one fit family, nine category voices', () => {
-  const CATEGORIES = [...new Set(Object.values(BOON_CATALOG).map((d) => d.category))];
+describe('fitDetune — one fit family, four kind voices', () => {
+  const KINDS = [...new Set(Object.values(CATALOG).map((line) => line.kind))];
 
-  it('covers EXACTLY the catalog\'s categories — no gap, no orphan', () => {
-    expect([...FIT_CATEGORIES].sort()).toEqual([...CATEGORIES].sort());
-    expect(CATEGORIES).toHaveLength(9);
+  it('covers EXACTLY the catalog\'s kinds — no gap, no orphan', () => {
+    expect([...FIT_KINDS].sort()).toEqual([...KINDS].sort());
+    expect(KINDS).toHaveLength(4);
   });
 
-  it('gives every category a DISTINCT transposition inside ±4 semitones', () => {
-    const cents = CATEGORIES.map((c) => fitDetune(c));
-    expect(new Set(cents).size).toBe(CATEGORIES.length);
+  it('gives every kind a DISTINCT transposition inside ±4 semitones', () => {
+    const cents = KINDS.map((k) => fitDetune(k));
+    expect(new Set(cents).size).toBe(KINDS.length);
     for (const c of cents) expect(Math.abs(c)).toBeLessThanOrEqual(400);
   });
 
-  it('every category lands on a whole semitone (no microtonal drift)', () => {
-    for (const c of CATEGORIES) expect(Math.abs(fitDetune(c) % 100)).toBe(0);
+  it('every kind lands on a whole semitone (no microtonal drift)', () => {
+    for (const k of KINDS) expect(Math.abs(fitDetune(k) % 100)).toBe(0);
   });
 
-  it('fails OPEN to the untransposed root on a junk/absent category', () => {
+  it('fails OPEN to the untransposed root on a junk/absent kind', () => {
     expect(fitDetune('')).toBe(0);
-    expect(fitDetune('notACategory')).toBe(0);
+    expect(fitDetune('notAKind')).toBe(0);
   });
 
   it('every catalog line therefore has BOTH a weight and a voice', () => {
-    for (const def of Object.values(BOON_CATALOG)) {
-      expect(TONES[fitTone(def.rarity)]).toBeDefined();
-      expect(Number.isFinite(fitDetune(def.category))).toBe(true);
+    for (const line of Object.values(CATALOG)) {
+      expect(TONES[fitTone(line.kind)]).toBeDefined();
+      expect(Number.isFinite(fitDetune(line.kind))).toBe(true);
     }
   });
 });

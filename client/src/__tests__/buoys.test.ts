@@ -12,7 +12,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
-import { CONFIG, effectiveStats, resolveBoons, type BoonDef, type BuoyView } from '@salvo/shared';
+import { CATALOG, CONFIG, effectiveStats, type Catalog, type CatalogLine, type BuoyView } from '@salvo/shared';
 import {
   BUOY_MARKER,
   Buoys,
@@ -31,9 +31,9 @@ const HUE = (): number => 0x123456;
 
 /** The owner-side buoy readout parameters, off REAL effective stats — never a
  *  hand-written radius, so a stats change moves this test with the game. */
-function ownState(boons: readonly string[] = [], now = 0): OwnBuoyState {
-  const s = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons([...boons])).radarBuoy;
-  return { radarRange: s.radarRange, gun: s.gun, jamming: s.jamming, durationMs: s.durationMs, now };
+function ownState(over: Partial<OwnBuoyState> = {}, now = 0): OwnBuoyState {
+  const s = effectiveStats(CONFIG.shipClasses.mineLayer, []).equipment.radarBuoy;
+  return { radarRange: s.radarRange, gun: s.gun, jamming: s.jamming, durationMs: s.durationMs, now, ...over };
 }
 
 /** An INJECTED def that widens the OWNER's radar range. No shipped card writes
@@ -41,19 +41,22 @@ function ownState(boons: readonly string[] = [], now = 0): OwnBuoyState {
  *  still whitelisted on BOON_STAT_PATHS for exactly this reason — and R2.7's
  *  contrast case is only meaningful while the owner's scope and the buoy's flat
  *  set are DIFFERENT numbers. Same shape as the server suite's `OMNI_BOON`. */
-const WIDE_RADAR: BoonDef = {
+const WIDE_RADAR = {
   id: 'testWideRadar',
-  category: 'test',
-  rarity: 'common',
-  copies: 1,
-  effects: [{ kind: 'stat', path: 'radarRange', mult: 1.25 }],
-};
+  kind: 'ladder',
+  cap: 1,
+  tiers: [[{ kind: 'stat', path: 'radarRange', mult: 1.25 }]],
+} as unknown as CatalogLine;
+
+/** CATALOG plus the injected line — `effectiveStats`' third argument is THE
+ *  test seam since Story 8.1 made the fold resolve ids internally. */
+const WIDE_CATALOG: Catalog = { ...CATALOG, testWideRadar: WIDE_RADAR };
 
 /** The owner readout built on a WIDENED owner radar, alongside the folded owner
  *  radar range itself so the contrast can be asserted rather than assumed. */
 function wideOwnState(): { own: OwnBuoyState; ownRadarRange: number } {
-  const full = effectiveStats(CONFIG.shipClasses.mineLayer, [WIDE_RADAR]);
-  const s = full.radarBuoy;
+  const full = effectiveStats(CONFIG.shipClasses.mineLayer, ['testWideRadar'], WIDE_CATALOG);
+  const s = full.equipment.radarBuoy;
   return {
     own: { radarRange: s.radarRange, gun: s.gun, jamming: s.jamming, durationMs: s.durationMs, now: 0 },
     ownRadarRange: full.radarRange,
@@ -94,9 +97,9 @@ describe('reconcileBuoys — buoy list → sprite lifecycle diff', () => {
   });
 
   it('the add list carries `own` through (the split data for the renderer)', () => {
-    const { add } = reconcileBuoys(new Set(), [buoy('mine', true), buoy('theirs', false)]);
+    const { add } = reconcileBuoys(new Set(), [buoy('navalMines', true), buoy('theirs', false)]);
     expect(add.map((d) => ({ id: d.id, own: d.own }))).toEqual([
-      { id: 'mine', own: true },
+      { id: 'navalMines', own: true },
       { id: 'theirs', own: false },
     ]);
   });
@@ -120,7 +123,7 @@ describe('Buoys — own/enemy layer split + own-spawn cue hook (mines precedent)
 
   it('routes an OWN buoy to the chart layer and an ENEMY buoy to the world layer', () => {
     const { ownLayer, enemyLayer, buoys } = harness();
-    buoys.sync([buoy('mine', true), buoy('theirs', false)], HUE);
+    buoys.sync([buoy('navalMines', true), buoy('theirs', false)], HUE);
     expect(ownLayer.children).toHaveLength(1);
     expect(enemyLayer.children).toHaveLength(1);
   });
@@ -139,21 +142,21 @@ describe('Buoys — own/enemy layer split + own-spawn cue hook (mines precedent)
 
   it('fires the own-spawn hook ONLY for newly-added OWN buoys (never for enemy)', () => {
     const { onOwnBuoySpawn, buoys } = harness();
-    buoys.sync([buoy('mine', true), buoy('theirs', false)], HUE);
+    buoys.sync([buoy('navalMines', true), buoy('theirs', false)], HUE);
     expect(onOwnBuoySpawn).toHaveBeenCalledTimes(1);
-    expect(onOwnBuoySpawn.mock.calls[0][0].id).toBe('mine');
+    expect(onOwnBuoySpawn.mock.calls[0][0].id).toBe('navalMines');
   });
 
   it('fires the hook once per placement, not every tick a buoy persists', () => {
     const { onOwnBuoySpawn, buoys } = harness();
-    buoys.sync([buoy('mine', true)], HUE);
-    buoys.sync([buoy('mine', true)], HUE); // still present — no re-add, no re-cue
+    buoys.sync([buoy('navalMines', true)], HUE);
+    buoys.sync([buoy('navalMines', true)], HUE); // still present — no re-add, no re-cue
     expect(onOwnBuoySpawn).toHaveBeenCalledTimes(1);
   });
 
   it('clears both layers when the incoming list empties', () => {
     const { ownLayer, enemyLayer, buoys } = harness();
-    buoys.sync([buoy('mine', true), buoy('theirs', false)], HUE);
+    buoys.sync([buoy('navalMines', true), buoy('theirs', false)], HUE);
     buoys.sync([], HUE);
     expect(ownLayer.children).toHaveLength(0);
     expect(enemyLayer.children).toHaveLength(0);
@@ -178,13 +181,13 @@ describe('Buoys.ownUntil — the buoy slot’s ACTIVE window follows the water',
 
   it('reports our own buoy’s expiry while it is on the water', () => {
     const b = buoys();
-    b.sync([buoy('mine', true, 20000)], HUE);
+    b.sync([buoy('navalMines', true, 20000)], HUE);
     expect(b.ownUntil()).toBe(20000);
   });
 
   it('DROPS TO 0 the tick our buoy leaves the frame — destroyed, not just expired', () => {
     const b = buoys();
-    b.sync([buoy('mine', true, 20000)], HUE); // dropped at t=0, nominal life to 20s
+    b.sync([buoy('navalMines', true, 20000)], HUE); // dropped at t=0, nominal life to 20s
     b.sync([], HUE); // shot off the water at t≈1s: silent removal, no event
     expect(b.ownUntil()).toBe(0);
   });
@@ -293,16 +296,22 @@ describe('ownBuoyRing — the owner-only coverage ring and its doctrine channels
     expect(ring.fill).toBe(0);
   });
 
-  it('GUN BUOY strokes the ring SOLID — the circle is now a weapon envelope', () => {
-    expect(ownBuoyRing(ownState(['buoyGun'])).style).toBe('solid');
+  // THE VERBS HAVE NO CARD BEHIND THEM ANY MORE (Story 8.1). Catalog-v3 R1
+  // deletes the RADAR BUOY outright — equipment, cards and both doctrines — in
+  // favour of the DECOY BUOY consumable, and Story 8.15 removes the module. The
+  // RENDER seam is what these pins are about, and it is unchanged: the owner
+  // readout is a plain struct, so the flags are set on it directly rather than
+  // through a card that no longer exists.
+  it('a GUN buoy strokes the ring SOLID — the circle is a weapon envelope', () => {
+    expect(ownBuoyRing(ownState({ gun: true })).style).toBe('solid');
   });
 
-  it('JAMMING BUOY washes the disc — the water inside it is unreadable to everyone else', () => {
-    expect(ownBuoyRing(ownState(['buoyJamming'])).fill).toBeGreaterThan(0);
+  it('a JAMMING buoy washes the disc — the water inside it is unreadable to everyone else', () => {
+    expect(ownBuoyRing(ownState({ jamming: true })).fill).toBeGreaterThan(0);
   });
 
-  it('the two verbs COMPOSE (both are rare ×1 and neither excludes the other)', () => {
-    const ring = ownBuoyRing(ownState(['buoyGun', 'buoyJamming']));
+  it('the two verbs COMPOSE (neither excludes the other)', () => {
+    const ring = ownBuoyRing(ownState({ gun: true, jamming: true }));
     expect(ring.style).toBe('solid');
     expect(ring.fill).toBeGreaterThan(0);
   });
@@ -325,9 +334,9 @@ describe('buoyLifeFrac — how much of its window an own buoy has left', () => {
     expect(buoyLifeFrac(5000, 0, 0)).toBe(0);
   });
 
-  it('BUOY I–IV lengthens the window, so the same age reads FULLER at a bigger stack', () => {
+  it('a LONGER window reads FULLER at the same age (the lifetime is a real input)', () => {
     const base = ownState();
-    const maxed = ownState(['buoyDuration', 'buoyDuration', 'buoyDuration', 'buoyDuration']);
+    const maxed = ownState({ durationMs: base.durationMs * 2 });
     expect(maxed.durationMs).toBeGreaterThan(base.durationMs);
     const age = 15_000;
     expect(buoyLifeFrac(base.durationMs, age, base.durationMs)).toBeLessThan(
@@ -344,7 +353,7 @@ describe('buoyDrawKey — the sprite redraws on change, never per frame', () => 
 
   it('changes when a doctrine lands', () => {
     expect(buoyDrawKey(ownBuoyRing(ownState()), 1)).not.toBe(
-      buoyDrawKey(ownBuoyRing(ownState(['buoyGun'])), 1),
+      buoyDrawKey(ownBuoyRing(ownState({ gun: true })), 1),
     );
   });
 
@@ -364,15 +373,15 @@ describe('Buoys — the owner-only readout is owner-only', () => {
 
   it('an OWN buoy draws its coverage ring and life arc', () => {
     const { buoys, ownLayer } = harness();
-    buoys.sync([buoy('mine', true, 20_000)], HUE, ownState([], 0));
-    expect(buoys.ringAt('mine')?.r).toBe(CONFIG.radarBuoy.radarRange);
-    expect(buoys.lifeAt('mine')).toBeGreaterThan(0);
+    buoys.sync([buoy('navalMines', true, 20_000)], HUE, ownState({}, 0));
+    expect(buoys.ringAt('navalMines')?.r).toBe(CONFIG.radarBuoy.radarRange);
+    expect(buoys.lifeAt('navalMines')).toBeGreaterThan(0);
     expect(pathActions(soleSprite(ownLayer))).toContain('arc'); // dashed ring + life arc
   });
 
   it('an ENEMY buoy draws NO ring and NO life arc — their numbers are theirs', () => {
     const { buoys, enemyLayer } = harness();
-    buoys.sync([buoy('theirs', false, 20_000)], HUE, ownState([], 0));
+    buoys.sync([buoy('theirs', false, 20_000)], HUE, ownState({}, 0));
     expect(buoys.ringAt('theirs')).toBeNull();
     expect(buoys.lifeAt('theirs')).toBeNull();
     expect(pathActions(soleSprite(enemyLayer))).not.toContain('arc');
@@ -380,16 +389,16 @@ describe('Buoys — the owner-only readout is owner-only', () => {
 
   it('no owner stats yet (spectator, pre-join) = markers only, never a crash', () => {
     const { buoys } = harness();
-    buoys.sync([buoy('mine', true)], HUE);
-    expect(buoys.ringAt('mine')).toBeNull();
+    buoys.sync([buoy('navalMines', true)], HUE);
+    expect(buoys.ringAt('navalMines')).toBeNull();
   });
 
   it('the life arc empties as the frame clock advances', () => {
     const { buoys } = harness();
     const d = CONFIG.radarBuoy.durationMs;
-    buoys.sync([buoy('mine', true, d)], HUE, ownState([], 0));
-    const full = buoys.lifeAt('mine')!;
-    buoys.sync([buoy('mine', true, d)], HUE, ownState([], d * 0.75));
-    expect(buoys.lifeAt('mine')!).toBeLessThan(full);
+    buoys.sync([buoy('navalMines', true, d)], HUE, ownState({}, 0));
+    const full = buoys.lifeAt('navalMines')!;
+    buoys.sync([buoy('navalMines', true, d)], HUE, ownState({}, d * 0.75));
+    expect(buoys.lifeAt('navalMines')!).toBeLessThan(full);
   });
 });

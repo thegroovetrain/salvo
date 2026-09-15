@@ -149,7 +149,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     healHpFrac: DEFAULT_HEAL,
     // The opener weapon leads every tick; boost is spent eagerly on the way
     // out (the old usesBoost: true, now a number the ordering also reads).
-    appetite: { torpedo: 2.5, speedBoost: 2.0 },
+    appetite: { heavyTorpedo: 2.5, speedBoost: 2.0 },
   },
   duelist: {
     id: 'duelist',
@@ -165,7 +165,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     healHpFrac: DEFAULT_HEAL,
     // Gun-led by BAND, not by ordering: the tube is still tried first when a
     // credible opening exists (mid appetite), and the boost breaks a bad fight.
-    appetite: { torpedo: 1.5, speedBoost: 1.5 },
+    appetite: { heavyTorpedo: 1.5, speedBoost: 1.5 },
   },
   bulwark: {
     id: 'bulwark',
@@ -230,7 +230,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // CAPTIVE doctrine opens the prepared lay at this tier, but that lives
     // with the weapon in ai/equipment.ts), and the buoy is plain recon
     // between fleet groups.
-    appetite: { mine: 1.4, radarBuoy: 1.1 },
+    appetite: { navalMines: 1.4, radarBuoy: 1.1 },
   },
   trapper: {
     id: 'trapper',
@@ -251,7 +251,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // EAGER mines — the standing plan (the old usesMinesProactively: true,
     // now the eager tier of the ONE shared mine tactic) — and the mine
     // outranks the buoy, so a threatened tick answers with the trap first.
-    appetite: { mine: 2.6, radarBuoy: 1.6 },
+    appetite: { navalMines: 2.6, radarBuoy: 1.6 },
   },
 });
 
@@ -274,8 +274,8 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
  */
 const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.freeze({
   gun: 2.0,
-  torpedo: 2.2,
-  mine: 2.2,
+  heavyTorpedo: 2.2,
+  navalMines: 2.2,
   speedBoost: 2.2,
   broadside: 2.2,
   starShells: 2.2,

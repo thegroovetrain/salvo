@@ -71,11 +71,11 @@ export function burstPointAlong(
 
 /**
  * The gun's clicked burst point: burstPoint at the ship's EFFECTIVE max gun
- * range (stats.gun.rangeU — the gunRange upgrade; base = CONFIG.vision.radar).
+ * range (stats.equipment.gun.rangeU — the gunRange upgrade; base = CONFIG.vision.radar).
  * Exported for tests.
  */
 export function gunTarget(ship: ShipRecord, mapRadius: number): Vec2 {
-  return burstPoint(ship, mapRadius, ship.stats.gun.rangeU);
+  return burstPoint(ship, mapRadius, ship.stats.equipment.gun.rangeU);
 }
 
 /**
@@ -96,7 +96,7 @@ export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shel
 /**
  * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15) — the ShipRecord-shaped
  * wrapper around the SHARED predicate (`sim/aim.ts` `gunReachU`, where the full
- * rationale lives). A gun click normally clamps to `stats.gun.rangeU`; a click
+ * rationale lives). A gun click normally clamps to `stats.equipment.gun.rangeU`; a click
  * whose burst point lies inside a LIVE lit zone the CLICKING PLAYER owns is
  * legal past it, and the shell flies the whole way.
  *
@@ -122,14 +122,14 @@ export function gunReachU(ctx: ActivationContext): number {
     ship.state,
     ship.input.aim,
     ship.input.aimDist,
-    ship.stats.gun.rangeU,
+    ship.stats.equipment.gun.rangeU,
     ctx.mapRadius,
     ctx.ownLitZones(),
   );
 }
 
 /**
- * Gun fire control against one slot pool: `stats.gun.barrels` shells (1..3 —
+ * Gun fire control against one slot pool: `stats.equipment.gun.barrels` shells (1..3 —
  * TWIN/TRIPLE MOUNT, Story 2.8) for ONE consumed round, each a REAL shell
  * bursting at its OWN point. The ONLY denial is an empty pool ('no-ammo' — the
  * shot cooldown; single-consume, so the denial mapping is unchanged from the
@@ -189,8 +189,8 @@ function fireGunShells(
   mapRadius: number,
   mkId: () => string,
 ): { shells: ShellState[]; denial: ActivationDenial | null } {
-  if (!consume(pool, ship.stats.gun.reloadMs)) return { shells: [], denial: 'no-ammo' }; // pool empty
-  const gun = ship.stats.gun;
+  if (!consume(pool, ship.stats.equipment.gun.reloadMs)) return { shells: [], denial: 'no-ammo' }; // pool empty
+  const gun = ship.stats.equipment.gun;
   const dir = ship.input.aim;
   const center = burstPointAlong(ship, mapRadius, reachU, dir);
   const muzzle = muzzleOrTarget(ship, dir, center, CONFIG.gun.shellRadius);
@@ -222,7 +222,7 @@ export const gunEquipment: Equipment = {
   id: 'gun',
   isWeapon: EQUIPMENT_IS_WEAPON.gun, // shared weapon/ability split — single source
   tick(ship, slot, dtMs): void {
-    tickReload(slot.state!, ship.stats.gun.maxAmmo, ship.stats.gun.reloadMs, dtMs);
+    tickReload(slot.state!, ship.stats.equipment.gun.maxAmmo, ship.stats.equipment.gun.reloadMs, dtMs);
   },
   activate(ctx, slot) {
     // bornAt = the VALIDATED fire time (D1): a back-dated shell is then

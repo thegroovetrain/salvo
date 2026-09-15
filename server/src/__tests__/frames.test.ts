@@ -79,7 +79,7 @@ describe('buildFrame — shape and clock', () => {
       // on the boostUntil terms. REQUIRED (never omitted), so a pool-less hull
       // still carries an explicit 0 rather than a missing key.
       repairHp: 0,
-      boons: [], // applied boon ids — self-private, dormant until 2.7 (Story 2.5)
+      cards: [], // fitted card LINE ids — self-private (Story 8.1)
       // Story 2.6, self-private too: levels completed + progress toward the
       // next as a 0..1 fraction of CONFIG.xp.levelMs. One 50ms step of passive
       // accrual has already landed (the world defaults to the active policy).

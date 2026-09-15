@@ -11,14 +11,14 @@
 // FEATURE_VERSION so a stale learner fails loudly instead of training on
 // scrambled inputs.
 
-import { BOON_CATALOG, CONFIG, HEAL_CHOICE, type GameEvent } from '@salvo/shared';
+import { CATALOG, CONFIG, HEAL_CHOICE, type GameEvent } from '@salvo/shared';
 import type { ShipRecord, World } from '../../src/game/world.js';
 import type { PerceptionView } from '../../src/game/perception.js';
 
 export const FEATURE_VERSION = 1;
 
 /** Stable card index: catalog literal insertion order (deterministic). */
-export const CARD_IDS: readonly string[] = Object.freeze(Object.keys(BOON_CATALOG));
+export const CARD_IDS: readonly string[] = Object.freeze(Object.keys(CATALOG));
 
 export const K_CONTACTS = 8;
 export const K_BLIPS = 6;
@@ -89,7 +89,7 @@ function writeOwn(out: Float32Array, at: number, me: ShipRecord, R: number): num
   out[at + 5] = me.stats.maxHp > 0 ? me.hp / me.stats.maxHp : 0;
   out[at + 6] = clip(me.bankedLevels / 5, 0, 1);
   out[at + 7] = clip(me.level / 20, 0, 1);
-  out[at + 8] = clip(me.boons.length / 12, 0, 1);
+  out[at + 8] = clip(me.cards.length / 12, 0, 1);
   out[at + 9] = me.offer !== null ? 1 : 0;
   for (let i = 0; i < 4; i += 1) {
     const slot = me.loadout[i];
@@ -216,7 +216,7 @@ function writeOffer(out: Float32Array, at: number, me: ShipRecord): number {
 }
 
 function writeBuild(out: Float32Array, at: number, me: ShipRecord): number {
-  for (const id of me.boons) {
+  for (const id of me.cards) {
     const idx = CARD_IDS.indexOf(id);
     if (idx >= 0) out[at + idx] = clip(out[at + idx] + 0.2, 0, 1); // copies / 5
   }

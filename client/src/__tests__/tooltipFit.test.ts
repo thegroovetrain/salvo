@@ -17,18 +17,16 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
-  EQUIPMENT_CATEGORY,
+  EQUIPMENT_IDS as SHARED_EQUIPMENT_IDS,
   effectiveStats,
-  resolveBoons,
   type EquipmentId,
   type ShipClassId,
 } from '@salvo/shared';
 import {
   SHIP_DIVIDER_ROW,
   TOOLTIP_MAX_PANEL_H,
-  boonMark,
   boonRows,
   quickInfoLine,
   slotBoonIds,
@@ -36,34 +34,42 @@ import {
   tooltipMetrics,
   tooltipModel,
 } from '../render/hotbar.js';
-import { equipmentInfo, SHIPWIDE_CATEGORIES } from '../render/equipmentInfo.js';
+import { cardEquipmentIds, equipmentInfo, isShipwideCard } from '../render/equipmentInfo.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
+import { boonName } from '../ui/boonCopy.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const H = CLIENT_CONFIG.hotbar;
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
-const LINES = Object.values(BOON_CATALOG);
-const EQUIPMENT_IDS = Object.keys(EQUIPMENT_CATEGORY) as EquipmentId[];
+const LINES = Object.values(CATALOG);
+const EQUIPMENT_IDS = [...SHARED_EQUIPMENT_IDS];
 
-/** Every copy of every line in a set of categories — the MAXIMUM accrued build
- *  a slot's tooltip can ever be asked to render. Doctrines are mutually
- *  exclusive per weapon, but including BOTH is the strictly harsher case (and
- *  the panel must fit whatever the wire hands it). */
-function maxedFor(categories: readonly string[]): string[] {
-  return LINES.filter((d) => categories.includes(d.category)).flatMap((d) => Array<string>(d.copies).fill(d.id));
+/** Every copy of every line that ADDRESSES one of `ids` — the MAXIMUM accrued
+ *  build a slot's tooltip can ever be asked to render. Story 8.1: the v2
+ *  categories are deleted, so a line's slot comes from the equipment it
+ *  addresses (render/equipmentInfo.cardEquipmentIds). */
+function maxedFor(ids: readonly EquipmentId[]): string[] {
+  return LINES.filter((d) => cardEquipmentIds(d.id).some((e) => ids.includes(e)))
+    .flatMap((d) => Array<string>(d.cap).fill(d.id));
 }
+
+/** Every copy of every SHIPWIDE line (the five universal ladders) — the gun
+ *  slot hosts these under the `— SHIP —` divider. */
+const SHIPWIDE_CARDS = LINES.filter((d) => isShipwideCard(d.id) && d.kind === 'ladder')
+  .flatMap((d) => Array<string>(d.cap).fill(d.id));
+
+/** The whole catalog at cap — the filter, not the panel, is what keeps another
+ *  slot's lines out, so the worst possible input proves the filter. */
+const WHOLE_CATALOG = LINES.flatMap((d) => Array<string>(d.cap).fill(d.id));
 
 /** The accrued builds each equipment's tooltip is measured against. */
 function buildsFor(id: EquipmentId): { label: string; boons: string[] }[] {
-  const own = EQUIPMENT_CATEGORY[id];
-  const wanted = id === 'gun' ? [own, ...SHIPWIDE_CATEGORIES] : [own];
+  const own = maxedFor([id]);
   return [
     { label: 'bare', boons: [] },
-    { label: 'subdeck maxed', boons: maxedFor([own]) },
-    { label: 'everything this slot can show', boons: maxedFor(wanted) },
-    // Plus the whole catalog: the filter, not the panel, is what keeps another
-    // slot's lines out — so prove the filter under the worst possible input.
-    { label: 'whole catalog fitted', boons: maxedFor(Object.keys(EQUIPMENT_CATEGORY).map((e) => EQUIPMENT_CATEGORY[e as EquipmentId]).concat(SHIPWIDE_CATEGORIES)) },
+    { label: 'own lines maxed', boons: own },
+    { label: 'everything this slot can show', boons: id === 'gun' ? [...own, ...SHIPWIDE_CARDS] : own },
+    { label: 'whole catalog fitted', boons: WHOLE_CATALOG },
   ];
 }
 
@@ -79,7 +85,7 @@ const CASES: Case[] = EQUIPMENT_IDS.flatMap((id) =>
 );
 
 function statsFor(c: Case) {
-  return effectiveStats(CONFIG.shipClasses[c.cls], resolveBoons(c.boons));
+  return effectiveStats(CONFIG.shipClasses[c.cls], c.boons);
 }
 
 function modelFor(c: Case) {
@@ -117,7 +123,7 @@ describe('slot tooltip container fit (amendment 47)', () => {
   it('the panel GROWS with the build (the rows are really rendered, not dropped)', () => {
     const bare = tooltipMetrics(modelFor({ label: '', id: 'gun', cls: 'battleship', boons: [] })).height;
     const fitted = tooltipMetrics(
-      modelFor({ label: '', id: 'gun', cls: 'battleship', boons: ['gunBarrel', 'gunTurret'] }),
+      modelFor({ label: '', id: 'gun', cls: 'battleship', boons: ['deckGunBarrel', 'deckGunTurret'] }),
     ).height;
     expect(fitted).toBeGreaterThan(bare);
   });
@@ -148,21 +154,43 @@ describe('the laws that constrain the fix', () => {
     }
   });
 
-  it('every accrued row carries BOTH a ◆ name and a non-empty effect line', () => {
+  // Since catalog v3 (Story 8.1) an EQUIPMENT line has no holding line to print
+  // — copy 1 fits the weapon and tiers II–V are unauthored until Stories
+  // 8.12–8.16 — so the row is its `◆ NAME` alone, which is the honest readout.
+  // Every row still carries the diamond, and every LADDER/ADD-ON row still
+  // carries a real effect line.
+  it('every accrued row carries a ◆ name, and an effect line wherever there is one', () => {
     const bad: string[] = [];
     for (const c of CASES) {
       for (const row of modelFor(c).boons) {
         if (row.divider) continue;
-        if (!row.label.startsWith('◆ ') || row.effect.trim() === '') bad.push(`${c.label}: ${row.label}`);
+        if (!row.label.startsWith('◆ ')) bad.push(`${c.label}: ${row.label}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  // HEAT SEEKING is the one add-on with no holding line: its verb rides the
+  // HORIZONTAL MISSILE, whose module is Story 8.14, and writing copy for a
+  // weapon nobody has played is what the naming law forbids.
+  it('a LADDER or ADD-ON row always reports a live effect line', () => {
+    const chatty = LINES.filter((d) => (d.kind === 'ladder' || d.kind === 'addon') && d.id !== 'heatSeeking')
+      .map((d) => d.id);
+    const bad: string[] = [];
+    for (const c of CASES) {
+      for (const row of boonRows(c.id, c.boons, statsFor(c))) {
+        if (row.divider) continue;
+        const id = chatty.find((x) => row.label === `◆ ${boonName(x)}`);
+        if (id !== undefined && row.effect.trim() === '') bad.push(`${c.label}: ${row.label}`);
       }
     }
     expect(bad).toEqual([]);
   });
 
   it('hosts the shipwide lines under the SHIP divider — in the GUN slot only', () => {
-    const shipwide = maxedFor(SHIPWIDE_CATEGORIES);
+    const shipwide = SHIPWIDE_CARDS;
     // The divider SEPARATES, so it needs the gun's own lines above it...
-    const mixed = modelFor({ label: '', id: 'gun', cls: 'torpedoBoat', boons: ['gunBarrel', ...shipwide] });
+    const mixed = modelFor({ label: '', id: 'gun', cls: 'torpedoBoat', boons: ['deckGunBarrel', ...shipwide] });
     expect(mixed.boons.some((r) => r.label === SHIP_DIVIDER_ROW)).toBe(true);
     // ...and a gun holding ONLY shipwide lines lists them bare (2.9 review): a
     // heading over the whole list separates it from nothing and spends a row of
@@ -195,15 +223,16 @@ describe('the ◆n quick-info compression fits the label column', () => {
     for (const c of CASES) {
       const stats = statsFor(c);
       const info = equipmentInfo(stats, c.id);
-      const n = slotBoonIds(c.id, c.boons).length;
       // Worst case per row: a live reload countdown AND — for the two pieces of
       // equipment that HAVE a window — that window at its longest fitted
-      // duration, AND the accrued mark, all on the line at once.
-      const window = { speedBoost: stats.boost.durationMs, radarBuoy: stats.radarBuoy.durationMs }[
+      // duration, both on the line at once. The `◆n` accrued mark is GONE
+      // (Eric ruling 2026-09-15, amendment 8), so the label column no longer
+      // spends glyphs on it.
+      const window = { speedBoost: stats.equipment.speedBoost.durationMs, radarBuoy: stats.equipment.radarBuoy.durationMs }[
         c.id as 'speedBoost' | 'radarBuoy'
       ];
       for (const active of [0, window ?? 0]) {
-        const line = quickInfoLine(info, info.reloadMs, active, n);
+        const line = quickInfoLine(info, info.reloadMs, active);
         const w = monoTextWidth(line, 16, 0.8);
         if (w > H.labelWidth) over.push(`${c.label}: "${line}" ${w.toFixed(1)}px > ${H.labelWidth}px`);
       }
@@ -211,11 +240,13 @@ describe('the ◆n quick-info compression fits the label column', () => {
     expect(over).toEqual([]);
   });
 
-  it('clamps the mark at 9+ and shows nothing at zero', () => {
-    expect(boonMark(0)).toBe('');
-    expect(boonMark(3)).toBe(' ◆3');
-    expect(boonMark(9)).toBe(' ◆9');
-    expect(boonMark(10)).toBe(' ◆9+');
-    expect(boonMark(37)).toBe(' ◆9+');
+  // THE PER-SLOT `◆n` MARK IS DELETED (Eric ruling 2026-09-15, amendment 8).
+  // It counted a slot's CATEGORY, and catalog v3 has no categories; the tooltip
+  // still lists the build, which is where the information really lived.
+  it('spends no glyphs on an accrued count — the quick-info line is DMG/CD only', () => {
+    const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, WHOLE_CATALOG);
+    const info = equipmentInfo(stats, 'gun');
+    expect(quickInfoLine(info, 0)).not.toContain('◆');
+    expect(quickInfoLine(info, 0, 5000)).not.toContain('◆');
   });
 });

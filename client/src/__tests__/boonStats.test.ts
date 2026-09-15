@@ -7,12 +7,11 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
-  resolveBoons,
   type OwnShip,
 } from '@salvo/shared';
 import { boonName } from '../ui/boonCopy.js';
@@ -26,13 +25,13 @@ function statsFor(cls: OwnShip['cls'], boons: Record<string, number> = {}) {
   for (const [id, n] of Object.entries(boons)) {
     for (let i = 0; i < n; i += 1) ids.push(id);
   }
-  return effectiveStats(CONFIG.shipClasses[cls], resolveBoons(ids, BOON_CATALOG));
+  return effectiveStats(CONFIG.shipClasses[cls], ids);
 }
 
-function ownShip(cls: OwnShip['cls'], boons: string[] = []): OwnShip {
+function ownShip(cls: OwnShip['cls'], cards: string[] = []): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 100, alive: true,
-    ammo: [], sweep: 0, cls, pts: 0, offer: [], boostUntil: 0, boons, lvl: 0, xp: 0, repairHp: 0,
+    ammo: [], sweep: 0, cls, pts: 0, offer: [], boostUntil: 0, cards, lvl: 0, xp: 0, repairHp: 0,
   };
 }
 
@@ -57,8 +56,8 @@ describe('ownStatsChanged — the recompute gate', () => {
 
   it('stays quiet when cls and the boon list are unchanged (per-frame fast path)', () => {
     expect(ownStatsChanged(ownShip('torpedoBoat'), ownShip('torpedoBoat'))).toBe(false);
-    const prev = ownShip('torpedoBoat', ['intelSweep', 'intelSweep']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['intelSweep', 'intelSweep']), prev)).toBe(false);
+    const prev = ownShip('torpedoBoat', ['radarSweep', 'radarSweep']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep', 'radarSweep']), prev)).toBe(false);
   });
 
   it('IGNORES pts/offer-only deltas — banking a level must not fire the stats/fog recompute', () => {
@@ -66,7 +65,7 @@ describe('ownStatsChanged — the recompute gate', () => {
     const next = {
       ...ownShip('torpedoBoat'),
       pts: 2,
-      offer: ['intelSweep', 'shipHull', 'gunBarrel', 'mineBlast'],
+      offer: ['radarSweep', 'armor', 'deckGunBarrel', 'navalMines'],
     };
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
@@ -83,31 +82,31 @@ describe('ownStatsChanged — the recompute gate', () => {
 
   it('fires on ANY boons change: first fit, append, removal, and reorder', () => {
     const prev = ownShip('torpedoBoat', []);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['intelSweep']), prev)).toBe(true);
-    const one = ownShip('torpedoBoat', ['intelSweep']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['intelSweep', 'shipHull']), one)).toBe(true);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep']), prev)).toBe(true);
+    const one = ownShip('torpedoBoat', ['radarSweep']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep', 'armor']), one)).toBe(true);
     expect(ownStatsChanged(ownShip('torpedoBoat', []), one)).toBe(true); // redeploy wipe
-    const two = ownShip('torpedoBoat', ['intelSweep', 'shipHull']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['shipHull', 'intelSweep']), two)).toBe(true);
+    const two = ownShip('torpedoBoat', ['radarSweep', 'armor']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['armor', 'radarSweep']), two)).toBe(true);
   });
 
   it('fires on a REPEAT of a line already held — a stack is a real stat change', () => {
     // The deck's copy-count law: occurrences stack, so appending the SAME id is
     // exactly as load-bearing as appending a new one.
-    const one = ownShip('torpedoBoat', ['intelSweep']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['intelSweep', 'intelSweep']), one)).toBe(true);
+    const one = ownShip('torpedoBoat', ['radarSweep']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep', 'radarSweep']), one)).toBe(true);
   });
 
   it('fires on a DOCTRINE SWAP — the rival id replaces the held one in place', () => {
-    const homing = ownShip('torpedoBoat', ['torpedoSpeed', 'torpedoHoming']);
-    const command = ownShip('torpedoBoat', ['torpedoSpeed', 'mineSelfPropelled']);
+    const homing = ownShip('torpedoBoat', ['heavyTorpedo', 'acousticHoming']);
+    const command = ownShip('torpedoBoat', ['heavyTorpedo', 'mineSelfPropelled']);
     expect(ownStatsChanged(command, homing)).toBe(true);
   });
 
-  it('stays quiet on an IDENTICAL boons list in a fresh array (per-frame reallocation must not refire)', () => {
-    const prev = ownShip('torpedoBoat', ['intelSweep', 'shipHull']);
-    const next = ownShip('torpedoBoat', ['intelSweep', 'shipHull']);
-    expect(next.boons).not.toBe(prev.boons); // genuinely fresh arrays
+  it('stays quiet on an IDENTICAL cards list in a fresh array (per-frame reallocation must not refire)', () => {
+    const prev = ownShip('torpedoBoat', ['radarSweep', 'armor']);
+    const next = ownShip('torpedoBoat', ['radarSweep', 'armor']);
+    expect(next.cards).not.toBe(prev.cards); // genuinely fresh arrays
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
 });
@@ -115,9 +114,9 @@ describe('ownStatsChanged — the recompute gate', () => {
 describe('HUD denominators react to effective stats', () => {
   const TB = CONFIG.shipClasses.torpedoBoat;
 
-  it('speed ladder: at the same true speed, a shipSpeed stack reads a LOWER fraction', () => {
+  it('speed ladder: at the same true speed, a SPEED stack reads a LOWER fraction', () => {
     const base = effectiveStats(TB).kinematics;
-    const fast = statsFor('torpedoBoat', { shipSpeed: 2 }).kinematics;
+    const fast = statsFor('torpedoBoat', { speed: 2 }).kinematics;
     expect(speedLadderFraction(20, fast)).toBeLessThan(speedLadderFraction(20, base));
     // Full ahead at the STACKED max still pins the needle at exactly 1.
     expect(speedLadderFraction(fast.maxSpeed, fast)).toBe(1);
@@ -128,61 +127,58 @@ describe('HUD denominators react to effective stats', () => {
     // PIN FLIPPED (Story 2.8): the gun pool is no longer pinned at 1 — the rare
     // AFT TURRET line raises it, and effectiveStats is the one place it moves.
     expect(equipmentMaxAmmo(effectiveStats(TB), 'gun')).toBe(CONFIG.gun.maxAmmo);
-    const turret = statsFor('torpedoBoat', { gunTurret: 1 });
+    const turret = statsFor('torpedoBoat', { deckGunTurret: 1 });
     expect(equipmentMaxAmmo(turret, 'gun')).toBe(CONFIG.gun.maxAmmo + 1);
   });
 
-  // PIN INVERTED (2026-08-04): the seven per-equipment reload lines are gone and
-  // ONE universal `shipCooldown` card scales every cooldown at once. The old
-  // pin proved a gun card left the mines alone; this one proves the opposite —
-  // a single stack has to move ALL SEVEN reloads, or the card is a lie.
-  it('cooldown chips: ONE shipCooldown stack scales every equipment reload at once', () => {
+  // PIN INVERTED (2026-08-04): the per-equipment reload lines are gone and ONE
+  // universal RELOAD card scales every cooldown at once. RETUNED by catalog v3
+  // (R12, Eric's sheet): −5 % per tier over five tiers, cap 25 % — was −10 %
+  // per copy to 50 %.
+  it('cooldown chips: ONE RELOAD stack scales every equipment reload at once', () => {
     const base = effectiveStats(TB);
-    const drilled = statsFor('torpedoBoat', { shipCooldown: 1 });
-    expect(drilled.cooldownScale).toBe(0.9);
-    for (const id of ['gun', 'broadside', 'torpedo', 'mine', 'starShells', 'speedBoost', 'radarBuoy'] as const) {
-      expect(equipmentReloadMs(drilled, id), id).toBe(equipmentReloadMs(base, id) * 0.9);
+    const drilled = statsFor('torpedoBoat', { reload: 1 });
+    expect(drilled.cooldownScale).toBe(0.95);
+    for (const id of ['gun', 'broadside', 'heavyTorpedo', 'navalMines', 'starShells', 'speedBoost', 'radarBuoy'] as const) {
+      expect(equipmentReloadMs(drilled, id), id).toBe(equipmentReloadMs(base, id) * 0.95);
     }
     // ...and nothing that is not a cooldown moves with it.
-    expect(equipmentMaxAmmo(drilled, 'mine')).toBe(equipmentMaxAmmo(base, 'mine'));
-    expect(drilled.gun.damage).toBe(base.gun.damage);
+    expect(equipmentMaxAmmo(drilled, 'navalMines')).toBe(equipmentMaxAmmo(base, 'navalMines'));
+    expect(drilled.equipment.gun.damage).toBe(base.equipment.gun.damage);
     expect(drilled.kinematics.maxSpeed).toBe(base.kinematics.maxSpeed);
   });
 
   // The HUD/hotbar surface reads the SAME scaled numbers the sim does — the
   // firewall's post-fold multiply is the only place the scale is applied, so a
-  // full 5-stack build (Eric ruling 2026-08-04: copies 4 → 5, cap 0.6 → 0.5)
-  // lands the ratified 2.5s gun on the chips. The BB's heavy-weapon half of this
-  // pin moved with the weapon: the cannon's 45s/22.5s is RETIRED with it, and the
-  // BROADSIDE BARRAGE's ratified 30s base halves to 15s (Story 7-5 wave 2, R2.4).
-  it('a FULL shipCooldown stack lands 2.5s gun and 9s broadside on the chips', () => {
-    const maxed = statsFor('battleship', { shipCooldown: 5 });
-    expect(equipmentReloadMs(maxed, 'gun')).toBe(2500);
-    expect(equipmentReloadMs(maxed, 'broadside')).toBe(9000); // 18000 base × 0.5
-    // Additive-linear, never 0.9^5 (which would land 2952/26572).
-    expect(maxed.cooldownScale).toBe(0.5);
-    // The 5th rung has ratified copy — the card can name the stack it just took.
-    // (Story 7-5 wave 1 renamed the ladder: DRILL SCHEDULE… → RELOAD I–V.)
-    expect(boonName('shipCooldown', 4)).toBe('RELOAD V');
+  // full 5-stack build lands the ratified numbers on the chips. Catalog v3 (R12)
+  // caps the ladder at 25 %, so the BB's gun runs 3.75s and its broadside 13.5s.
+  it('a FULL RELOAD stack lands 3.75s gun and 13.5s broadside on the chips', () => {
+    const maxed = statsFor('battleship', { reload: 5 });
+    expect(equipmentReloadMs(maxed, 'gun')).toBe(3750);
+    expect(equipmentReloadMs(maxed, 'broadside')).toBe(13500); // 18000 base × 0.75
+    // Additive-linear, never 0.95^5 (which would land 3869/13930).
+    expect(maxed.cooldownScale).toBe(0.75);
+    // The line has a ratified name — catalog v3 names the LINE, not the rung.
+    expect(boonName('reload', 4)).toBe('RELOAD');
   });
 
-  // The whole ladder, rung by rung: 1 / 0.9 / 0.8 / 0.7 / 0.6 / 0.5 — every step
+  // The whole ladder, rung by rung: 1 / .95 / .9 / .85 / .8 / .75 — every step
   // exact after clampStats' 3-decimal rounding, so no reachable stack can leave
   // float dust that costs a whole 50ms ammo tick.
   it('walks the exact scale ladder at every reachable stack (0..5), strictly', () => {
-    const ladder = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
+    const ladder = [1, 0.95, 0.9, 0.85, 0.8, 0.75];
     ladder.forEach((scale, n) => {
-      const s = statsFor('battleship', { shipCooldown: n });
+      const s = statsFor('battleship', { reload: n });
       expect(s.cooldownScale, `stack ${n}`).toBe(scale);
       expect(equipmentReloadMs(s, 'gun'), `gun @ ${n}`).toBe(CONFIG.gun.reloadMs * scale);
       expect(equipmentReloadMs(s, 'broadside'), `broadside @ ${n}`).toBe(CONFIG.broadside.reloadMs * scale);
     });
   });
 
-  it('hp bar: the effective maxHp denominator grows with shipHull stacks', () => {
-    expect(statsFor('torpedoBoat', { shipHull: 3 }).maxHp).toBeGreaterThan(TB.hp);
+  it('hp bar: the effective maxHp denominator grows with ARMOR stacks', () => {
+    expect(statsFor('torpedoBoat', { armor: 3 }).maxHp).toBeGreaterThan(TB.hp);
     // Three copies of one line stack by occurrence — the deck's copy-count law.
-    const one = statsFor('torpedoBoat', { shipHull: 1 }).maxHp - TB.hp;
-    expect(statsFor('torpedoBoat', { shipHull: 3 }).maxHp).toBe(TB.hp + 3 * one);
+    const one = statsFor('torpedoBoat', { armor: 1 }).maxHp - TB.hp;
+    expect(statsFor('torpedoBoat', { armor: 3 }).maxHp).toBe(TB.hp + 3 * one);
   });
 });

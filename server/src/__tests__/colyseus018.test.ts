@@ -165,14 +165,17 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 49 and admits 50', () => {
-  it('PROTOCOL_VERSION is 50', () => {
-    expect(PROTOCOL_VERSION).toBe(50);
+describe('the PV join gate refuses 50 and admits 51', () => {
+  it('PROTOCOL_VERSION is 51', () => {
+    // Story 8.1 bumped 50 -> 51: catalog v3 is wire contract (the line ids ride
+    // the offer) and `OwnShip.boons` became `OwnShip.cards`.
+    expect(PROTOCOL_VERSION).toBe(51);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 49 is the one that matters: a client built one commit before this story
-    // speaks a wire the 0.18 handshake and the schema 5 encoder have both moved.
+    // 50 is the one that matters: a client built one story before this one
+    // speaks v2 card ids and reads `you.boons`.
+    expect(protocolVersionError(50)).toMatch(/refresh/i);
     expect(protocolVersionError(49)).toMatch(/refresh/i);
   });
 
@@ -181,12 +184,12 @@ describe('the PV join gate refuses 49 and admits 50', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(51)).toMatch(/refresh/i);
+    expect(protocolVersionError(52)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(50)).toBeNull();
+    expect(protocolVersionError(51)).toBeNull();
   });
 });
 

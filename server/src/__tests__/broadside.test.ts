@@ -20,9 +20,11 @@ import {
   angleDiff,
   burstPointAlong,
   turretMuzzles,
+  type Catalog,
+  type CatalogLine,
   type InputMsg,
 } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { broadsideAim } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -34,9 +36,33 @@ const RUNG_5_8 = CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor;
 /** A bearing squarely inside the port beam sector (heading 0 + 90°). */
 const ABEAM = Math.PI / 2;
 
+/**
+ * THE TWO BROADSIDE LADDERS, AS AN INJECTED TEST CATALOG (Story 8.1).
+ *
+ * The MECHANISMS below — `equipment.broadside.turrets` and the `spreadRung`
+ * that drives both derived arc ladders — are live, whitelisted stats that the
+ * fire path reads every barrage. What catalog v3 has not authored YET is a
+ * CARD that moves them: the broadside line's tiers II–V are empty until Story
+ * 8.16 fills them from catalog-v3 §4. Inventing those numbers here is exactly
+ * what the story forbids, and deleting these pins would lose coverage of
+ * shipped behaviour — so the ladders are injected with the shipped v2 steps
+ * and every arc/turret assertion below keeps its subject. When 8.16 authors
+ * the real tiers, these worlds move to the production catalog.
+ */
+const ladder = (id: string, cap: number, path: string, add: number): CatalogLine =>
+  ({ id, kind: 'ladder', cap, tiers: new Array(cap).fill([{ kind: 'stat', path, add }]) }) as unknown as CatalogLine;
+
+const BROADSIDE_LADDERS: Catalog = {
+  broadsideSpread: ladder('broadsideSpread', 4, 'equipment.broadside.spreadRung', 1),
+  broadsideTurrets: ladder('broadsideTurrets', 2, 'equipment.broadside.turrets', 1),
+  // The production DECK GUN BARREL line, carried into the injected catalog so
+  // the "the gun is unchanged" counter-pin still has its card.
+  deckGunBarrel: ladder('deckGunBarrel', 2, 'equipment.gun.barrels', 1),
+};
+
 /** World whose islands are cleared, for exact-geometry cases. */
-function bareWorld(seed = 7): World {
-  const w = new World(seed);
+function bareWorld(seed = 7, opts: WorldOptions = { catalog: BROADSIDE_LADDERS }): World {
+  const w = new World(seed, CONFIG.map.playerCap, CONFIG.zone, opts);
   w.map.islands.length = 0;
   return w;
 }
@@ -90,14 +116,14 @@ describe('broadside — server loadout + barrage construction', () => {
   it('RANGE IS THE 5/8 RUNG: a click beyond reach clamps to 412.5u, NOT the 660u radar horizon', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    expect(bb.stats.broadside.rangeU).toBeCloseTo(RUNG_5_8, 9);
-    expect(bb.stats.broadside.rangeU).toBeLessThan(bb.stats.gun.rangeU); // the FIRST short-reach weapon
+    expect(bb.stats.equipment.broadside.rangeU).toBeCloseTo(RUNG_5_8, 9);
+    expect(bb.stats.equipment.broadside.rangeU).toBeLessThan(bb.stats.equipment.gun.rangeU); // the FIRST short-reach weapon
     // Measured at the ×4 SPREAD cap, where every gun bears and so every shell
     // lands on the clamped CLICK itself. At base (2026-08-27's zero-overlap
     // ladder) the shells sit at per-gun arc limits, whose distance from the ship
     // CENTRE is a parallax artefact rather than the weapon's reach — the reach
     // is the click, and this is where the click shows.
-    for (let i = 0; i < 4; i += 1) w.applyBoon(bb, 'broadsideSpread');
+    for (let i = 0; i < 4; i += 1) w.applyCard(bb, 'broadsideSpread');
     setInput(bb, { aim: ABEAM, aimDist: 1200, slot: SLOT_BROADSIDE });
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     for (const p of polar(w, { x: 0, y: 0 })) expect(p.range).toBeCloseTo(RUNG_5_8, 6);
@@ -183,9 +209,9 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
     // ±28°/±9.33° off the beam under only ±6° of traverse. Full convergence is
     // now what the ×4 SPREAD stack BUYS: mounts in to ±6°, arcs out to ±14°, so
     // an abeam click past ~265u sits inside every one of them.
-    for (let i = 0; i < 4; i += 1) w.applyBoon(bb, 'broadsideSpread');
+    for (let i = 0; i < 4; i += 1) w.applyCard(bb, 'broadsideSpread');
     setInput(bb, { aim: ABEAM, aimDist: 350, slot: SLOT_BROADSIDE });
-    const click = burstPointAlong(bb.state, 350, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
+    const click = burstPointAlong(bb.state, 350, w.map.radius, bb.stats.equipment.broadside.rangeU, ABEAM);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     const targets = [...w.shells.values()].map((s) => ({ x: s.targetX!, y: s.targetY! }));
     expect(targets).toHaveLength(CONFIG.broadside.turrets);
@@ -204,7 +230,7 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
     // bears and the whole barrage is arc-limited. That is the "inaccurate
     // shotgun" the ruling asks for; the click is legal and is never denied.
     setInput(bb, { aim: ABEAM, aimDist: 150, slot: SLOT_BROADSIDE });
-    const click = burstPointAlong(bb.state, 150, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
+    const click = burstPointAlong(bb.state, 150, w.map.radius, bb.stats.equipment.broadside.rangeU, ABEAM);
     const aim = broadsideAim(bb, 1, w.map.radius);
     expect(aim.filter((t) => t.onClick)).toHaveLength(0);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
@@ -227,7 +253,7 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
     const onClick = (aimDist: number, spread = 0): number => {
       const w = bareWorld();
       const bb = place(w, 'a', 'battleship', 0, 0);
-      for (let i = 0; i < spread; i += 1) w.applyBoon(bb, 'broadsideSpread');
+      for (let i = 0; i < spread; i += 1) w.applyCard(bb, 'broadsideSpread');
       setInput(bb, { aim: ABEAM, aimDist, slot: SLOT_BROADSIDE });
       return broadsideAim(bb, 1, w.map.radius).filter((t) => t.onClick).length;
     };
@@ -246,17 +272,17 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
   it('BROADSIDE SPREAD moves BOTH arc ladders: wider arcs, mounts swung inward', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    const baseTraverse = bb.stats.broadside.traverseRad;
-    const baseMounts = bb.stats.broadside.mountSpreadRad;
+    const baseTraverse = bb.stats.equipment.broadside.traverseRad;
+    const baseMounts = bb.stats.equipment.broadside.mountSpreadRad;
     setInput(bb, { aim: ABEAM, aimDist: 350, slot: SLOT_BROADSIDE });
     expect(broadsideAim(bb, 1, w.map.radius).filter((t) => t.onClick)).toHaveLength(0);
-    for (let i = 0; i < 4; i += 1) w.applyBoon(bb, 'broadsideSpread');
-    expect(bb.stats.broadside.traverseRad).toBeGreaterThan(baseTraverse); // arcs WIDEN…
-    expect(bb.stats.broadside.mountSpreadRad).toBeLessThan(baseMounts); // …mounts swing IN
+    for (let i = 0; i < 4; i += 1) w.applyCard(bb, 'broadsideSpread');
+    expect(bb.stats.equipment.broadside.traverseRad).toBeGreaterThan(baseTraverse); // arcs WIDEN…
+    expect(bb.stats.equipment.broadside.mountSpreadRad).toBeLessThan(baseMounts); // …mounts swing IN
     // The same click is now inside every turret's arc.
     expect(broadsideAim(bb, 1, w.map.radius).filter((t) => t.onClick)).toHaveLength(CONFIG.broadside.turrets);
     // …and the fired shells all land exactly there.
-    const click = burstPointAlong(bb.state, 350, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
+    const click = burstPointAlong(bb.state, 350, w.map.radius, bb.stats.equipment.broadside.rangeU, ABEAM);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     for (const s of w.shells.values()) {
       expect(s.targetX!).toBeCloseTo(click.x, 9);
@@ -267,9 +293,9 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
   it('BROADSIDE TURRETS raises the shell count to the ×2 cap of 6 — six guns, six arcs', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    w.applyBoon(bb, 'broadsideTurrets');
-    w.applyBoon(bb, 'broadsideTurrets');
-    expect(bb.stats.broadside.turrets).toBe(6);
+    w.applyCard(bb, 'broadsideTurrets');
+    w.applyCard(bb, 'broadsideTurrets');
+    expect(bb.stats.equipment.broadside.turrets).toBe(6);
     setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
     const aim = broadsideAim(bb, 1, w.map.radius);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
@@ -312,18 +338,18 @@ describe('broadside — per-shell signals (R2.5, Eric A2)', () => {
   it('the count FOLLOWS the turret stat — 6 turrets, 6 flashes (no salvo aggregation)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    w.applyBoon(bb, 'broadsideTurrets');
-    w.applyBoon(bb, 'broadsideTurrets');
+    w.applyCard(bb, 'broadsideTurrets');
+    w.applyCard(bb, 'broadsideTurrets');
     expect(clickAndStep(w, 'a', {}).filter((k) => k === 'mz')).toHaveLength(6);
   });
 
   it('THE GUN IS UNCHANGED: a multi-barrel gun click still collapses to ONE flash', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    w.applyBoon(bb, 'gunBarrel'); // a second barrel — two shells, one flash
-    expect(bb.stats.gun.barrels).toBeGreaterThan(1);
+    w.applyCard(bb, 'deckGunBarrel'); // a second barrel — two shells, one flash
+    expect(bb.stats.equipment.gun.barrels).toBeGreaterThan(1);
     const kinds = clickAndStep(w, 'a', { slot: 0, aim: 0 });
-    expect(w.shells.size).toBe(bb.stats.gun.barrels);
+    expect(w.shells.size).toBe(bb.stats.equipment.gun.barrels);
     expect(kinds.filter((k) => k === 'mz')).toHaveLength(1);
   });
 
@@ -424,12 +450,12 @@ describe('broadside — denials + cross-hull parity', () => {
   it('no other hull carries it: TB slot-1 is the torpedo, ML slot-1 the mine — never a broadside shell', () => {
     const w = bareWorld();
     const tb = place(w, 'tb', 'torpedoBoat', 0, 0);
-    expect(tb.loadout[1].equipmentId).toBe('torpedo');
+    expect(tb.loadout[1].equipmentId).toBe('heavyTorpedo');
     setInput(tb, { aim: tb.state.heading, slot: 1 }); // over the bow — in arc
     expect(w.sinkingActivationGate(tb, 1)).toEqual({ ok: true });
     expect([...w.shells.values()].map((s) => s.kind)).toEqual(['torp']);
     const ml = place(w, 'ml', 'mineLayer', 0, 300);
-    expect(ml.loadout[1].equipmentId).toBe('mine');
+    expect(ml.loadout[1].equipmentId).toBe('navalMines');
     expect(ml.loadout.map((s) => s.equipmentId)).not.toContain('broadside');
   });
 });
@@ -463,7 +489,7 @@ describe('broadside — limit shots are clamped to the water disk (ONE shared an
     const w = bareWorld();
     const bb = rimBattleship(w);
     const aim = broadsideAim(bb, 1, w.map.radius);
-    const click = burstPointAlong(bb.state, w.map.radius, w.map.radius, bb.stats.broadside.rangeU, RIM_AIM);
+    const click = burstPointAlong(bb.state, w.map.radius, w.map.radius, bb.stats.equipment.broadside.rangeU, RIM_AIM);
     expect(Math.hypot(click.x, click.y)).toBeGreaterThan(w.map.radius - 2); // the click IS pinned at the rim
     let raw = 0;
     for (const t of aim) {
@@ -485,7 +511,7 @@ describe('broadside — limit shots are clamped to the water disk (ONE shared an
     const aim = broadsideAim(bb, 1, w.map.radius);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     const fired = [...w.shells.values()];
-    expect(fired).toHaveLength(bb.stats.broadside.turrets);
+    expect(fired).toHaveLength(bb.stats.equipment.broadside.turrets);
     fired.forEach((s, i) => {
       expect(Math.hypot(s.targetX!, s.targetY!)).toBeLessThanOrEqual(w.map.radius);
       // Byte-identical to the shared helper the client's broadsidePreview calls
@@ -539,7 +565,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
     // The SAME call the client's broadsidePreview makes (render/aimPreview.ts),
     // with the client's own predicted pose + effectiveStats. Two derivations of
     // one battery is exactly the desync class shared/ exists to prevent.
-    const truth = turretMuzzles(bb.state, bb.hullId, bb.stats.broadside.turrets, 1);
+    const truth = turretMuzzles(bb.state, bb.hullId, bb.stats.equipment.broadside.turrets, 1);
     origins.forEach((p, i) => {
       expect(p.x, `turret ${i} x`).toBeCloseTo(truth[i].x, 9);
       expect(p.y, `turret ${i} y`).toBeCloseTo(truth[i].y, 9);
@@ -568,7 +594,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
     const spanAndGap = (boons: number): { span: number; gap: number; n: number } => {
       const w = bareWorld();
       const bb = place(w, 'a', 'battleship', 0, 0);
-      for (let i = 0; i < boons; i += 1) w.applyBoon(bb, 'broadsideTurrets');
+      for (let i = 0; i < boons; i += 1) w.applyCard(bb, 'broadsideTurrets');
       setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
       const xs = fired(w, bb).map((p) => p.x).sort((a, b) => a - b);
       return { span: xs[xs.length - 1] - xs[0], gap: xs[1] - xs[0], n: xs.length };
@@ -595,7 +621,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
     const key = (p: { x: number; y: number }): string => `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
     // The flash rides the shell's PRE-PRE-STEP origin, which is now the turret:
     // a barrage lights the whole battery, gun by gun, not one point N times.
-    const truth = turretMuzzles(bb.state, bb.hullId, bb.stats.broadside.turrets, 1);
+    const truth = turretMuzzles(bb.state, bb.hullId, bb.stats.equipment.broadside.turrets, 1);
     expect(new Set(flashes.map(key))).toEqual(new Set(truth.map(key)));
   });
 
@@ -608,9 +634,9 @@ describe('broadside - every shell fires from its OWN turret', () => {
     // survives, and what this test now pins, is that a gun which DOES bear
     // fires exactly at the click FROM ITS OWN TURRET. At 150u the pair that
     // bears is the INNER pair, straddling amidships.
-    for (let i = 0; i < 4; i += 1) w.applyBoon(bb, 'broadsideSpread');
+    for (let i = 0; i < 4; i += 1) w.applyCard(bb, 'broadsideSpread');
     setInput(bb, { aim: ABEAM, aimDist: 150, slot: SLOT_BROADSIDE });
-    const click = burstPointAlong(bb.state, 150, w.map.radius, bb.stats.broadside.rangeU, ABEAM);
+    const click = burstPointAlong(bb.state, 150, w.map.radius, bb.stats.equipment.broadside.rangeU, ABEAM);
     const aim = broadsideAim(bb, 1, w.map.radius);
     const bearing = aim.filter((t) => t.onClick);
     expect(bearing).toHaveLength(2);

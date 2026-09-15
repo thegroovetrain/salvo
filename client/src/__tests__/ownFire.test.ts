@@ -53,11 +53,11 @@ describe('OwnFireLatch — the one-shot claim', () => {
   it('claims only the BALLISTIC ids — an ability never dresses a projectile', () => {
     expect(isBallisticFire('gun')).toBe(true);
     expect(isBallisticFire('broadside')).toBe(true);
-    expect(isBallisticFire('torpedo')).toBe(true);
+    expect(isBallisticFire('heavyTorpedo')).toBe(true);
     expect(isBallisticFire('starShells')).toBe(true); // rides the `shell` kind
     expect(isBallisticFire('speedBoost')).toBe(false);
     expect(isBallisticFire('radarBuoy')).toBe(false);
-    expect(isBallisticFire('mine')).toBe(false); // placed, never revealed as a track
+    expect(isBallisticFire('navalMines')).toBe(false); // placed, never revealed as a track
     const latch = new OwnFireLatch();
     latch.latch('speedBoost', 1000);
     expect(latch.claim(1000)).toBeNull();

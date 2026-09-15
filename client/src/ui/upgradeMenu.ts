@@ -38,13 +38,13 @@
 // same DOM-chrome scale as everything else (modals above it, feed chrome below).
 
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
   HEAL_CHOICE,
   boonStackCount,
   effectiveStats,
-  resolveBoons,
-  type BoonDef,
+  resolveCards,
+  type CatalogLine,
   type OwnShip,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -54,11 +54,10 @@ import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
 import { REFIT_TYPE } from './refitCardFit.js';
 import { REFIT_TIP, refitTooltipLeft, refitTooltipMaxPanelH } from './refitTooltip.js';
 import {
-  boonCategoryLabel,
   boonDescription,
+  boonKindLabel,
   boonLineageLine,
   boonName,
-  boonRarityLabel,
   boonTooltipText,
 } from './boonCopy.js';
 
@@ -86,14 +85,14 @@ const AMBER = 'var(--hc-amber)';
 const PHOSPHOR = 'var(--hc-phosphor)';
 const DENIED = 'var(--hc-denied)';
 const HAIRLINE = 'var(--hc-hairline)';
-/** Rarity tag colors (Story 2.8, implementer-drafted inside the ratified CVD
- *  constraints): INFO blue (~199°) for RARE and the STORM READOUT family
- *  (~277°) for EXCLUSIVE, both clear of the denied (0°) and amber (43°) bands
- *  and distinct from the phosphor (152°) the card's own data text rides. They
- *  are TEXT colors only — the card's border/box-shadow channel belongs to the
- *  denied pulse and the armed edge, and nothing else may claim it. */
-const RARE = 'var(--hc-info)';
-const EXCLUSIVE = 'var(--hc-storm-readout)';
+/**
+ * THE META ROW IS NEUTRAL (Eric ruling 2026-09-15, amendment 8). The v2 RARE /
+ * EXCLUSIVE tag colours are DELETED with the rarity axis itself: catalog v3 has
+ * no tier to colour, and the interim meta row carries the line's KIND word and
+ * its copy count, both in the shipped secondary-text token. Stories 8.6/8.7 own
+ * the real card faces — nothing here anticipates them with a colour ramp.
+ */
+const META = 'var(--hc-text-secondary)';
 /** The slot tooltip's ratified surface, reused verbatim for the refit card's
  *  hover panel (DESIGN.md `components.slot-tooltip`): the `panel` bed at .97 and
  *  a `silver` edge at .4. Composed from the TOKENS through `cssRgba` rather than
@@ -257,10 +256,12 @@ export function refitBandLayout(screenW: number, screenH: number, cards = CARD_S
  *  handrail, doctrine-swap line, and rules text with LIVE values). */
 export interface OfferCard {
   id: string;
-  /** Uppercase category tag (one of the ratified nine). */
-  category: string;
-  /** Rarity tag — '' for a plain common (the absence IS the tier). */
-  rarity: string;
+  /** The KIND word (WEAPON / UPGRADE / ADD-ON / CONSUMABLE) — the meta row's
+   *  left mark, and the a11y channel that carries what colour no longer does. */
+  kind: string;
+  /** The copy count, "n/cap" — how many of this line the build already holds
+   *  out of how many the catalog authors. Neutral, never tinted. */
+  count: string;
   /** The ladder name at this card's stack position. */
   name: string;
   /** Lineage handrail for a multi-copy line ("II/V"), null for a single. */
@@ -277,7 +278,7 @@ export interface OfferCard {
    *  (Eric's colour ruling — see `lineageTint`) without the DOM layer having to
    *  re-parse "III/V" back into numbers. */
   stack: number;
-  copies: number;
+  cap: number;
 }
 
 // --- pure core: the DAMAGE CONTROL rail ----------------------------------------
@@ -331,7 +332,7 @@ export function healReadout(): string {
  * as the HUD's HP rail and the cards' preview diffs already do it. Nothing here
  * re-derives, hardcodes, or reads a class table ad hoc.
  */
-function ownMaxHp(you: Pick<OwnShip, 'cls' | 'boons'>): number | null {
+function ownMaxHp(you: Pick<OwnShip, 'cls' | 'cards'>): number | null {
   // FAIL-OPEN on the class table (cycle 91), null = "cannot judge". An
   // unresolvable `cls` would hand `effectiveStats` an undefined spec and throw
   // on `cls.kinematics`, from a render path, which until this cycle meant a
@@ -340,7 +341,7 @@ function ownMaxHp(you: Pick<OwnShip, 'cls' | 'boons'>): number | null {
   // player a heal they need, which is strictly worse than offering a redundant
   // one. So an unknown hull leaves the rail armed.
   if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return null;
-  return effectiveStats(CONFIG.shipClasses[you.cls], resolveBoons(you.boons)).maxHp;
+  return effectiveStats(CONFIG.shipClasses[you.cls], you.cards).maxHp;
 }
 
 /**
@@ -421,9 +422,9 @@ export function offerView(you: OwnShip | null, spectating: boolean, locked: bool
   // and every digit pick falls through main.ts's own guard; `healView` below
   // separately inerts the DAMAGE CONTROL rail on its own `!alive` clause.
   if (!you || spectating || sinking || you.pts === 0 || you.offer.length === 0) return null;
-  const defs = resolveBoons(you.offer, BOON_CATALOG);
-  if (defs.length !== you.offer.length) return null; // fail-closed: row k == server slot k
-  return { pts: you.pts, options: defs.map((def) => toCard(def, you)), locked, heal: healView(you, locked) };
+  const lines = resolveCards(you.offer, CATALOG);
+  if (lines.length !== you.offer.length) return null; // fail-closed: row k == server slot k
+  return { pts: you.pts, options: lines.map((line) => toCard(line, you)), locked, heal: healView(you, locked) };
 }
 
 /**
@@ -434,18 +435,18 @@ export function offerView(you: OwnShip | null, spectating: boolean, locked: bool
  * effectiveStats preview diff). Everything here is pure — `you` is read, never
  * touched.
  */
-function toCard(def: BoonDef, you: OwnShip): OfferCard {
-  const stack = boonStackCount(you.boons, def.id);
+function toCard(line: CatalogLine, you: OwnShip): OfferCard {
+  const stack = boonStackCount(you.cards, line.id);
   return {
-    id: def.id,
-    category: boonCategoryLabel(def.category),
-    rarity: boonRarityLabel(def.rarity),
-    name: boonName(def.id, stack),
-    lineage: boonLineageLine(def, stack),
-    description: boonDescription(def, you),
-    tooltip: boonTooltipText(def.id),
+    id: line.id,
+    kind: boonKindLabel(line.kind),
+    count: `${Math.min(stack, line.cap)}/${line.cap}`,
+    name: boonName(line.id, stack),
+    lineage: boonLineageLine(line, stack),
+    description: boonDescription(line, you),
+    tooltip: boonTooltipText(line.id),
     stack,
-    copies: def.copies,
+    cap: line.cap,
   };
 }
 
@@ -831,10 +832,12 @@ const STRIP_STATUS_CSS = `${STRIP_TEXT_CSS};margin-left:auto;color:${PHOSPHOR};o
  *  inner box breaks instead of painting out through the card's side. */
 const TEXT_ROW = [`line-height:${T.lineHeight}`, 'overflow-wrap:anywhere'].join(';');
 
-const CATEGORY_CSS = [
-  `font:400 ${R.categorySize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.categoryLetterSpacing}px`,
+const KIND_CSS = [
+  `font:600 ${R.kindSize}px var(--hc-font-mono)`,
+  `letter-spacing:${T.kindLetterSpacing}px`,
   'text-transform:uppercase',
+  `color:${META}`,
+  'white-space:nowrap', // the kind word is one token and never wraps
   TEXT_ROW,
 ].join(';');
 
@@ -852,8 +855,8 @@ const NAME_CSS = [
   TEXT_ROW,
 ].join(';');
 
-/** The category/rarity line: the category tag at rest, the rarity tag beside it
- *  (commons render no rarity span at all — the absence IS the tier). */
+/** The meta line: the KIND word at rest, the copy count hard right. Both
+ *  neutral — this row carries no state and no tier. */
 const META_ROW_CSS = [
   'display:flex',
   'flex-direction:row',
@@ -862,12 +865,12 @@ const META_ROW_CSS = [
   'align-self:stretch',
 ].join(';');
 
-const RARITY_CSS = [
-  `font:600 ${R.raritySize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.rarityLetterSpacing}px`,
-  'text-transform:uppercase',
-  'margin-left:auto', // the tier sits at the card's outer edge, opposite the category
-  'white-space:nowrap', // the tier tag is one token; the category yields first
+const COUNT_CSS = [
+  `font:600 ${R.kindSize}px var(--hc-font-mono)`,
+  `letter-spacing:${T.kindLetterSpacing}px`,
+  `color:${META}`,
+  'margin-left:auto', // the count sits at the card's outer edge, opposite the kind
+  'white-space:nowrap', // the count is one token; the kind word yields first
   TEXT_ROW,
 ].join(';');
 
@@ -895,25 +898,24 @@ const DESC_CSS = [
   'overflow-wrap:anywhere',
 ].join(';');
 
-/** The armed (hover/focus) treatment: amber edge + glow, amber chip/category/
- *  name — the hotbar's SELECTED grammar, one family. The RARITY tag keeps its
- *  tier color through the arm (the tier is a fact about the card, not a state
- *  of the pointer), and so does the lineage copy. */
+/** The armed (hover/focus) treatment: amber edge + glow, amber chip + name —
+ *  the hotbar's SELECTED grammar, one family. The META ROW stays NEUTRAL through
+ *  the arm: the kind word and the copy count are facts about the card, not
+ *  states of the pointer, and amendment 8 rules that row colourless. */
 function paintCard(card: RefitCardEls, armed: boolean): void {
   const c = armed ? AMBER : REST;
   card.root.style.borderColor = armed ? AMBER : HAIRLINE;
   card.root.style.boxShadow = armed ? `0 0 8px ${AMBER}` : 'none';
   card.root.style.color = c; // the key chip rides currentColor
-  card.category.style.color = armed ? AMBER : PHOSPHOR;
+  card.kind.style.color = META;
   card.name.style.color = c;
 }
 
-/** One rarity tag span (RARE / EXCLUSIVE) in its tier color. */
-function rarityEl(rarity: string): HTMLSpanElement {
+/** The copy-count span ("2/5"), hard right and neutral. */
+function countEl(count: string): HTMLSpanElement {
   const el = document.createElement('span');
-  el.style.cssText = RARITY_CSS;
-  el.style.color = rarity === 'EXCLUSIVE' ? EXCLUSIVE : RARE;
-  el.textContent = rarity;
+  el.style.cssText = COUNT_CSS;
+  el.textContent = count;
   return el;
 }
 
@@ -941,13 +943,13 @@ function lineageEl(text: string, stack: number, copies: number): HTMLSpanElement
  *  lineage, and current→next numbers, all of which are in here — so no
  *  separate build/stack signature is needed alongside it. */
 function cardSignature(card: OfferCard): string {
-  return [card.id, card.rarity, card.name, card.lineage ?? '', card.description, card.tooltip].join('~');
+  return [card.id, card.kind, card.count, card.name, card.lineage ?? '', card.description, card.tooltip].join('~');
 }
 
 /** The DOM handles of one built card. */
 interface RefitCardEls {
   root: HTMLButtonElement;
-  category: HTMLSpanElement;
+  kind: HTMLSpanElement;
   name: HTMLSpanElement;
 }
 
@@ -1184,12 +1186,13 @@ export class UpgradeMenu {
 
   /**
    * One card, top-down: the overhanging digit chip (PINNED as the card's FIRST
-   * span — the digit-to-slot mapping is read off it), the category/rarity meta
-   * row, the ladder name, the lineage handrail, and the rules text. Two of the
-   * Story 2.8 lines are CONDITIONAL: a plain common renders no rarity span and a
-   * single-copy line no lineage span — an empty element would eat vertical
-   * rhythm for information that isn't there. The doctrine-swap line is GONE with
-   * the exclusivity mechanism (Story 7-5 wave 2, R2.6).
+   * span — the digit-to-slot mapping is read off it), the KIND + copy-count
+   * meta row, the line name, the lineage handrail, and the rules text. The
+   * lineage span stays CONDITIONAL (a single-copy line has no rung to print, and
+   * an empty element would eat vertical rhythm for information that isn't
+   * there); the meta row is now UNCONDITIONAL — every line has a kind and a
+   * count. The doctrine-swap line is GONE with the exclusivity mechanism
+   * (Story 7-5 wave 2, R2.6).
    */
   private makeCard(card: OfferCard, choice: number, enabled: boolean): RefitCardEls {
     const btn = document.createElement('button');
@@ -1201,13 +1204,13 @@ export class UpgradeMenu {
     chip.style.backgroundColor = 'var(--hc-panel)'; // opaque under the overhang
     chip.textContent = `${choice + 1}`;
     btn.appendChild(chip); // FIRST child, always — pinned DOM order
-    const category = document.createElement('span');
-    category.style.cssText = CATEGORY_CSS;
-    category.textContent = card.category;
+    const kind = document.createElement('span');
+    kind.style.cssText = KIND_CSS;
+    kind.textContent = card.kind;
     const meta = document.createElement('div');
     meta.style.cssText = META_ROW_CSS;
-    meta.appendChild(category);
-    if (card.rarity) meta.appendChild(rarityEl(card.rarity));
+    meta.appendChild(kind);
+    meta.appendChild(countEl(card.count));
     const name = document.createElement('span');
     name.style.cssText = NAME_CSS;
     name.textContent = card.name;
@@ -1221,10 +1224,10 @@ export class UpgradeMenu {
     const body = document.createElement('div');
     body.style.cssText = CARD_BODY_CSS;
     body.append(meta, name);
-    if (card.lineage) body.appendChild(lineageEl(card.lineage, card.stack, card.copies));
+    if (card.lineage) body.appendChild(lineageEl(card.lineage, card.stack, card.cap));
     body.appendChild(desc);
     btn.appendChild(body);
-    const els: RefitCardEls = { root: btn, category, name };
+    const els: RefitCardEls = { root: btn, kind, name };
     paintCard(els, false);
     // Focus hygiene (full-lockout modal): never acquire focus on click —
     // a focus-retaining card would (a) let Space/Enter re-trigger the spend

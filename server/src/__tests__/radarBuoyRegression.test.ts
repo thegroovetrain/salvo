@@ -23,7 +23,6 @@ import {
   effectiveStats,
   paintCoverage,
   paintSegmentCoverage,
-  resolveBoons,
   type BlipEvent,
   type FrameMsg,
   type HullCoverage,
@@ -56,10 +55,31 @@ function place(w: World, id: string, x: number, y: number, heading = 0, cls: Shi
   return rec;
 }
 
+/**
+ * THE BUOY VERBS, SET DIRECTLY ON THE STAT ROW (Story 8.1).
+ *
+ * The GUN BUOY and JAMMING BUOY verbs are live, shipped mechanisms (the
+ * `gun`/`jamming` booleans on the buoy's effective row, read by the tick loop
+ * and by perception). What catalog v3 deliberately does NOT have is a card
+ * that grants them, or even a doctrine VOCABULARY entry for the buoy: R1
+ * deletes the radar buoy outright in Story 8.15 in favour of the DECOY BUOY
+ * consumable, so both the line and the `DOCTRINE_MODES.radarBuoy` row are gone
+ * (shared/src/sim/effects.ts says so in as many words). Authoring either back
+ * would be inventing catalog content the sheet does not hold — so these tests
+ * set the two booleans on the effective row directly. The BEHAVIOUR is what is
+ * under test here; the card that reaches it is 8.15's business.
+ */
+const BUOY_VERBS: Record<string, 'gun' | 'jamming'> = { buoyGun: 'gun', buoyJamming: 'jamming' };
+
+/** Fit raw card ids the way the fuzz does (ids + stats), with the two legacy
+ *  buoy verbs applied straight to the row (see above). */
 function fitBoons(rec: ShipRecord, ids: string[]): void {
-  rec.boons = ids;
-  rec.boonDefs = resolveBoons(ids);
-  rec.stats = effectiveStats(rec.cls, rec.boonDefs);
+  rec.cards = ids.filter((id) => !Object.hasOwn(BUOY_VERBS, id));
+  rec.stats = effectiveStats(rec.cls, rec.cards);
+  for (const id of ids) {
+    const verb = Object.hasOwn(BUOY_VERBS, id) ? BUOY_VERBS[id] : undefined;
+    if (verb !== undefined) rec.stats.equipment.radarBuoy[verb] = true;
+  }
 }
 
 function buoyWindowAround(b: BuoyState, brg: number, halfWidth = 0.02): void {

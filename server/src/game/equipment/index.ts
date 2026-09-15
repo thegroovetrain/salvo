@@ -137,12 +137,25 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
   return Object.freeze(rows);
 };
 
-/** String-keyed registry of every fitted system, by EquipmentId. Rows are
- *  added at authoring time only; the World resolves a slot's equipmentId here. */
-export const EQUIPMENT: Readonly<Record<EquipmentId, Equipment>> = deepFreezeRows({
+/**
+ * String-keyed registry of every fitted system, by EquipmentId. Rows are
+ * added at authoring time only; the World resolves a slot's equipmentId here.
+ *
+ * PARTIAL, NOT TOTAL (Story 8.1). Catalog v3 widened `EquipmentId` to fifteen
+ * ids, seven of which name weapons whose MODULES are not built yet (Stories
+ * 8.13–8.16) plus the `boost` placeholder (8.9). A total record would force
+ * eight fake rows into the tick dispatch; instead the registry holds only what
+ * exists, and the invariant that keeps that safe is pinned in
+ * equipment.test.ts: EVERY NON-STUB catalog `slotFill` target has a row here,
+ * and every STUB target has none. World.applyCard refuses to fit an id with no
+ * row, and both dispatch sites (`tick`, `activate`) resolve fail-closed — so
+ * an unbuilt weapon can never reach a slot, and could do nothing there if it
+ * somehow did.
+ */
+export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deepFreezeRows({
   gun: gunEquipment,
-  torpedo: torpedoEquipment,
-  mine: mineEquipment, // Story 1.8: flipped to a non-weapon (instant drop-astern ability)
+  heavyTorpedo: torpedoEquipment, // Story 8.1: the shipped torpedo under its v3 id
+  navalMines: mineEquipment, // Story 8.1: the shipped mine under its v3 id
   speedBoost: boostEquipment, // Story 1.6: the first non-weapon (ability) row
   broadside: broadsideEquipment, // Story 7-5 wave 2: the Battleship's twin-beam barrage (replaced the cannon)
   starShells: starShellsEquipment, // Story 1.7: the Battleship's lit-zone flare

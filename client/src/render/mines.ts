@@ -44,7 +44,7 @@ const DOT_R = 3.5; // u
  * ARE the mine's ground truth, not a decoration of it.
  *
  * `captive` is the CAPTIVE MINES verb (Story 7-5 wave 2, R2.12), read straight
- * off `stats.mine.captive`. It does NOT carry a radius of its own: the captive
+ * off `stats.equipment.navalMines.captive`. It does NOT carry a radius of its own: the captive
  * transform (swap trigger/blast, then trigger x3) is DERIVED inside
  * effectiveStats, so `blast`/`trigger` above already arrive transformed
  * (144u/32u at base, 210.8u/46.9u at a maxed MINES ladder). Nothing here may
@@ -53,7 +53,7 @@ const DOT_R = 3.5; // u
  * THE `acquire` CHANNEL IS DELETED. It carried the SELF-PROPELLED doctrine's
  * hunting reach, and that verb left the game with its card (R2.6), so the field
  * could only ever be null. It was NOT repurposed for the captive trip ring:
- * that ring IS `trigger` (it is literally `stats.mine.triggerRadius`), so a
+ * that ring IS `trigger` (it is literally `stats.equipment.navalMines.triggerRadius`), so a
  * second field carrying the same number would be two names for one radius —
  * exactly the drift a single derivation exists to prevent. What the channel's
  * GRAMMAR is inherited by is the line STYLE: dotted has always meant "the water

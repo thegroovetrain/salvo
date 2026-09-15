@@ -106,7 +106,7 @@ export { twinSectorSide };
  * gun family reads its OWN stats block — and as of Story 2.8 all of them ride
  * the folded radarRange, so they move together with it (no boon writes
  * `radarRange` today, but the derivation seam is what keeps them one number).
- * The BROADSIDE reads `stats.broadside.rangeU`,
+ * The BROADSIDE reads `stats.equipment.broadside.rangeU`,
  * THE 5/8 RUNG (R2.4) — the one weapon that does not reach the radar horizon,
  * so the shared gun-range fallback would over-promise it by 247.5u. The MINE and
  * — since Story 7-5 wave 2 — the RADAR BUOY read the ratified
@@ -117,15 +117,15 @@ export { twinSectorSide };
  *
  * CONTRACT — MEANINGFUL FOR `gunLike` IDS, THE BROADSIDE AND THE PLACED IDS ONLY.
  * For a torpedo / ability / empty slot there is NO range ring, and this returns
- * `stats.gun.rangeU` purely as a non-crashing fallback — it is NOT that
+ * `stats.equipment.gun.rangeU` purely as a non-crashing fallback — it is NOT that
  * weapon's range (a torpedo runs to the map edge). Do NOT consult this for
  * those ids; gate on the id first, as firing.ts's markers do.
  */
 export function weaponRangeU(stats: EffectiveStats, id: EquipmentId | null): number {
-  if (id === 'broadside') return stats.broadside.rangeU;
-  if (id === 'starShells') return stats.starShells.rangeU;
-  if (id === 'mine' || id === 'radarBuoy') return CONFIG.mine.placeRange;
-  return stats.gun.rangeU; // gun (radar-derived) — and the default
+  if (id === 'broadside') return stats.equipment.broadside.rangeU;
+  if (id === 'starShells') return stats.equipment.starShells.rangeU;
+  if (id === 'navalMines' || id === 'radarBuoy') return CONFIG.mine.placeRange;
+  return stats.equipment.gun.rangeU; // gun (radar-derived) — and the default
 }
 
 /**
@@ -152,7 +152,7 @@ export { pointInLitZone };
  * flare extension applies.
  *
  * A GUN click whose target point lies inside a LIVE lit zone the clicking
- * player OWNS is legal beyond `stats.gun.rangeU` — you can shell what your own
+ * player OWNS is legal beyond `stats.equipment.gun.rangeU` — you can shell what your own
  * flare is lighting.
  *
  * THE RULE ITSELF IS NOT WRITTEN HERE ANY MORE. It used to be, mirrored line
@@ -211,7 +211,7 @@ export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean
   // reuses CONFIG.mine.placeRange verbatim (R2.7 — "the mine's rear sector at
   // placeRange 150u"), so the client must refuse at exactly the same distance
   // or a long buoy click silently consumes the prime for a drop it will deny.
-  if (id !== 'mine' && id !== 'radarBuoy') return true;
+  if (id !== 'navalMines' && id !== 'radarBuoy') return true;
   return aimDist <= CONFIG.mine.placeRange;
 }
 

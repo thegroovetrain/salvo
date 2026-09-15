@@ -196,9 +196,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 49→50 bump (PV 50: Colyseus 0.18 — the @colyseus/schema 5 encoder and the 0.18 JOIN_ROOM handshake are both wire breaks, though no message SHAPE moved) is enforced at matchmake', () => {
-  it('rejects pv-49 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(50);
+describe('pv join gate — the 50→51 bump (PV 51: catalog v3 — the card LINE ids ride the offer and `OwnShip.boons` became `OwnShip.cards`) is enforced at matchmake', () => {
+  it('rejects pv-50 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(51);
+    expect(protocolVersionError(50)).toMatch(/refresh/);
     expect(protocolVersionError(49)).toMatch(/refresh/);
     expect(protocolVersionError(48)).toMatch(/refresh/);
     expect(protocolVersionError(47)).toMatch(/refresh/);

@@ -8,7 +8,7 @@
 //    the fogged perception view World hands the driver as a bound per-bot
 //    observe thunk (BotTickEntry.observe — called exactly once per live bot
 //    per tick), plus a SELF-READ of its own hull (BotSelf below: its own
-//    hp/ammo/reload/boons/offer — the bot's OwnShip equivalent). Never a
+//    hp/ammo/reload/cards/offer — the bot's OwnShip equivalent). Never a
 //    world collection, and never a lookup by id: ai/ is handed exactly its
 //    own record and its own view, so it is STRUCTURALLY incapable of
 //    addressing any other ship. The lint boundary in eslint.config.js bans
@@ -96,7 +96,8 @@ export interface BotSelf {
   readonly landContact: boolean;
   readonly bankedLevels: number;
   readonly offer: BoonOffer | null;
-  readonly boons: readonly string[];
+  /** Fitted card LINE ids, in fit order (Story 8.1 — repeats are stacks). */
+  readonly cards: readonly string[];
 }
 
 /**

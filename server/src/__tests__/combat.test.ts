@@ -126,7 +126,7 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
     const { w, a } = armed();
     a.input = gunInput(0, 5000);
     // Base effective range IS radar range (single source, no duplicated 660).
-    expect(a.stats.gun.rangeU).toBe(CONFIG.vision.radar);
+    expect(a.stats.equipment.gun.rangeU).toBe(CONFIG.vision.radar);
     expect(gunTarget(a, w.map.radius).x).toBeCloseTo(CONFIG.vision.radar, 9);
     w.sinkingActivationGate(a, SLOT_GUN);
     const [shell] = [...w.shells.values()];
@@ -134,12 +134,12 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
     expect(shell.targetY).toBeCloseTo(0, 9);
   });
 
-  it('the beyond-max clamp uses the EFFECTIVE range (ship.stats.gun.rangeU), not CONFIG', () => {
+  it('the beyond-max clamp uses the EFFECTIVE range (ship.stats.equipment.gun.rangeU), not CONFIG', () => {
     // The legacy gunRange upgrade died in the 2.8 strip; the clamp still reads
     // the cached effective stats, so a stats-side range change moves it.
     const { w, a } = armed();
     const widened = CONFIG.vision.radar * 1.3;
-    a.stats = { ...a.stats, gun: { ...a.stats.gun, rangeU: widened } };
+    a.stats = { ...a.stats, equipment: { ...a.stats.equipment, gun: { ...a.stats.equipment.gun, rangeU: widened } } };
     a.input = gunInput(0, 50000);
     w.sinkingActivationGate(a, SLOT_GUN);
     const [shell] = [...w.shells.values()];
@@ -306,7 +306,7 @@ describe('World combat — burst at the clicked point', () => {
     const R = w.map.radius;
     a.state = { x: R - 200, y: 0, heading: 0, speed: 0 };
     expect(R - 200 + 300).toBeGreaterThan(R); // the click WOULD land past the rim
-    expect(a.stats.gun.rangeU).toBeGreaterThan(300); // ...but 300u is within effective range
+    expect(a.stats.equipment.gun.rangeU).toBeGreaterThan(300); // ...but 300u is within effective range
     w.submitInput('a', gunInput(0, 300));
     const events = stepCollect(w, 90);
     const bursts = burstsOf(events);
@@ -389,9 +389,9 @@ describe('multi-barrel click — every shell that connects deals its own damage'
   /** A triple-mount gun: two gunBarrel cards (1 → 3 barrels). */
   function tripleMount(seed = 11): { w: World; a: ShipRecord } {
     const { w, a } = armed(seed);
-    w.applyBoon(a, 'gunBarrel');
-    w.applyBoon(a, 'gunBarrel');
-    expect(a.stats.gun.barrels).toBe(3);
+    w.applyCard(a, 'deckGunBarrel');
+    w.applyCard(a, 'deckGunBarrel');
+    expect(a.stats.equipment.gun.barrels).toBe(3);
     return { w, a };
   }
 
@@ -406,8 +406,8 @@ describe('multi-barrel click — every shell that connects deals its own damage'
     // ...and THREE damage applications, one per connecting shell.
     const dmgs = dmgsOf(events).filter((e) => e.id === 'b');
     expect(dmgs).toHaveLength(3);
-    for (const d of dmgs) expect(d.amount).toBe(a.stats.gun.damage);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 3 * a.stats.gun.damage);
+    for (const d of dmgs) expect(d.amount).toBe(a.stats.equipment.gun.damage);
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 3 * a.stats.equipment.gun.damage);
     // A base triple mount is 45 into a 125hp hull — a real bite, not a kill.
     expect(isAfloat(b.lifecycle)).toBe(true);
   });
@@ -429,8 +429,8 @@ describe('multi-barrel click — every shell that connects deals its own damage'
     const hitsOn = (id: string) => dmgs.filter((e) => e.id === id);
     expect(hitsOn('b')).toHaveLength(2);
     expect(hitsOn('c')).toHaveLength(2);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.gun.damage);
-    expect(c.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.gun.damage);
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.equipment.gun.damage);
+    expect(c.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.equipment.gun.damage);
   });
 
   it('CONTACT from one shell and BURST from another both land on the same hull', () => {
@@ -454,8 +454,8 @@ describe('multi-barrel click — every shell that connects deals its own damage'
     // deleted ledger would have allowed only the first, so the pair also fails
     // if the salvo rule returns.
     expect(amounts).toHaveLength(2);
-    expect([...amounts].sort((x, y) => x - y)).toEqual([a.stats.gun.contactDamage, a.stats.gun.damage]);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - a.stats.gun.contactDamage - a.stats.gun.damage);
+    expect([...amounts].sort((x, y) => x - y)).toEqual([a.stats.equipment.gun.contactDamage, a.stats.equipment.gun.damage]);
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - a.stats.equipment.gun.contactDamage - a.stats.equipment.gun.damage);
   });
 });
 
@@ -473,8 +473,8 @@ describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
    *  step leaves the whole volley in the water). */
   function volley(range: number, barrels: number, seed: number) {
     const { w, a } = armed(seed);
-    for (let i = 1; i < barrels; i++) w.applyBoon(a, 'gunBarrel');
-    expect(a.stats.gun.barrels).toBe(barrels);
+    for (let i = 1; i < barrels; i++) w.applyCard(a, 'deckGunBarrel');
+    expect(a.stats.equipment.gun.barrels).toBe(barrels);
     w.submitInput('a', gunInput(HALF_PI, range));
     w.step();
     return [...w.shells.values()];
@@ -526,9 +526,9 @@ describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
 
   it('SIGNALS DO NOT MOVE: a multi-barrel gun salvo still collapses to ONE mz', () => {
     const { w, a } = armed(26);
-    w.applyBoon(a, 'gunBarrel');
-    w.applyBoon(a, 'gunBarrel');
-    expect(a.stats.gun.barrels).toBe(3);
+    w.applyCard(a, 'deckGunBarrel');
+    w.applyCard(a, 'deckGunBarrel');
+    expect(a.stats.equipment.gun.barrels).toBe(3);
     w.submitInput('a', gunInput(HALF_PI, 300));
     w.step();
     expect(w.tickEvents.filter((e) => e.k === 'mz')).toHaveLength(1);
@@ -558,7 +558,7 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
 
   it('a click BEYOND gun range but inside your OWN live zone flies the whole way', () => {
     const { w, a } = litBoard('a');
-    expect(a.stats.gun.rangeU).toBeLessThan(REACH);
+    expect(a.stats.equipment.gun.rangeU).toBeLessThan(REACH);
     w.submitInput('a', gunInput(HALF_PI, REACH));
     w.step();
     const shell = [...w.shells.values()][0];
@@ -570,14 +570,14 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
     w.submitInput('a', gunInput(HALF_PI, REACH));
     w.step();
     const shell = [...w.shells.values()][0];
-    expect(shell.targetY).toBeCloseTo(a.stats.gun.rangeU, 6);
+    expect(shell.targetY).toBeCloseTo(a.stats.equipment.gun.rangeU, 6);
   });
 
   it('an out-of-range click with NO zone at all is clamped exactly as before', () => {
     const { w, a } = armed(32);
     w.submitInput('a', gunInput(HALF_PI, REACH));
     w.step();
-    expect([...w.shells.values()][0].targetY).toBeCloseTo(a.stats.gun.rangeU, 6);
+    expect([...w.shells.values()][0].targetY).toBeCloseTo(a.stats.equipment.gun.rangeU, 6);
   });
 
   it('an EXPIRED own zone licenses nothing (live means live)', () => {
@@ -585,7 +585,7 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
     w.litZones.get('z1')!.until = 0; // already dead when the click resolves
     w.submitInput('a', gunInput(HALF_PI, REACH));
     w.step();
-    expect([...w.shells.values()][0].targetY).toBeCloseTo(a.stats.gun.rangeU, 6);
+    expect([...w.shells.values()][0].targetY).toBeCloseTo(a.stats.equipment.gun.rangeU, 6);
   });
 
   it('the zone extends the GUN ONLY — a beyond-range STAR SHELL still clamps to its own range', () => {
@@ -598,8 +598,8 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
     w.submitInput('a', { ...gunInput(HALF_PI, REACH), slot: slot as 0 });
     w.step();
     const shell = [...w.shells.values()][0];
-    expect(a.stats.starShells.rangeU).toBeLessThan(REACH);
-    expect(shell.targetY).toBeCloseTo(a.stats.starShells.rangeU, 6);
+    expect(a.stats.equipment.starShells.rangeU).toBeLessThan(REACH);
+    expect(shell.targetY).toBeCloseTo(a.stats.equipment.starShells.rangeU, 6);
   });
 
   // THE PROMOTION IS REAL, NOT A MIRROR (Story 7-5 wave 2 cleanup). R2.15
@@ -638,7 +638,7 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
         { x: 0, y: 0 },
         HALF_PI,
         aimDist,
-        a.stats.gun.rangeU,
+        a.stats.equipment.gun.rangeU,
         w.map.radius,
         [...w.litZones.values()].map((z) => ({ x: z.x, y: z.y, r: z.r })),
       );
@@ -652,7 +652,7 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
 
   it('BARREL still straddles at the extended reach (the two features compose)', () => {
     const { w, a } = litBoard('a', 35);
-    w.applyBoon(a, 'gunBarrel');
+    w.applyCard(a, 'deckGunBarrel');
     w.submitInput('a', gunInput(HALF_PI, REACH));
     w.step();
     const shells = [...w.shells.values()];

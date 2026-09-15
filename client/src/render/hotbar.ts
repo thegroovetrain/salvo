@@ -40,8 +40,7 @@
 
 import { Container, Graphics, Text } from 'pixi.js';
 import {
-  BOON_CATALOG,
-  EQUIPMENT_CATEGORY,
+  CATALOG,
   SLOT_COUNT,
   boonStackCount,
   type EffectiveStats,
@@ -57,9 +56,10 @@ import { monoWrapLines } from '../ui/refitCardFit.js';
 import { drawEquipmentIcon, drawPlusGlyph } from './equipmentIcons.js';
 import { KEY_CHIP_STYLE, drawKeyChipBox, keyChipGlyphColor } from './keyChip.js';
 import {
-  SHIPWIDE_CATEGORIES,
   SLOT_KEY_GLYPHS,
+  cardEquipmentIds,
   equipmentInfo,
+  isShipwideCard,
   interactionLine,
   type EquipmentInfo,
 } from './equipmentInfo.js';
@@ -180,11 +180,10 @@ export function quickInfoLine(
   info: EquipmentInfo,
   reloadMsLeft: number,
   activeMsLeft = 0,
-  boons = 0,
 ): string {
   const cd = reloadMsLeft > 0 ? fmtRemaining(reloadMsLeft) : fmtSeconds(info.reloadMs);
   const core = info.isWeapon && info.damage !== null ? `DMG ${fmtDamage(info.damage)} · CD ${cd}` : `CD ${cd}`;
-  return `${activeTag(activeMsLeft)}${core}${boonMark(boons)}`;
+  return `${activeTag(activeMsLeft)}${core}`;
 }
 
 /**
@@ -210,35 +209,25 @@ export function fmtWindow(ms: number): string {
 }
 
 /**
- * Pure: the `◆n` accrued-boon mark that closes the quick-info line — the
- * COMPRESSION of the tooltip's full list into the always-visible row (the
- * diamond is the same mark the fit toast and the tooltip rows use, so one glyph
- * means "boon" everywhere).
+ * Pure: the accrued card ids a SLOT owns, in fit order with repeats intact.
  *
- * CLAMPED at 9 (the xpRail chipLabel precedent, amendment 47): the count shares
- * a fixed label column with the DMG/CD figures, and past 9 the exact number is
- * not the information — the tooltip has the list. '' at zero: a slot with no
- * boons shows ABSENCE, never `◆0`.
- */
-export function boonMark(n: number): string {
-  if (n <= 0) return '';
-  return ` ◆${n > 9 ? '9+' : n}`;
-}
-
-/**
- * Pure: the accrued boon ids a SLOT owns, in fit order with repeats intact.
- * That is its equipment's own catalog category — plus, for the GUN, the two
- * shipwide categories (see equipmentInfo.SHIPWIDE_CATEGORIES): the gun is the
- * permanent top slot, so it doubles as the ship card rather than smearing
- * INTEL/SHIP lines across every weapon's tooltip.
+ * STORY 8.1 — NO CATEGORY FILTER. Catalog v3 deleted the nine categories, so a
+ * slot claims the cards that actually ADDRESS its equipment: the line's own
+ * slotFill target, the equipment its stat effects write into, and the equipment
+ * an add-on bolts its verb onto (render/equipmentInfo.cardEquipmentIds). The
+ * GUN, being the permanent top slot, additionally hosts the SHIPWIDE ladders
+ * (ARMOR / SPEED / TURNING / RADAR SWEEP / RELOAD), which belong to no weapon —
+ * the same role the v2 INTEL/SHIP categories had, derived rather than declared.
  *
  * Fail-closed on the catalog (Object.hasOwn): a junk id on the wire is dropped
  * rather than rendering a row nothing can explain.
  */
-export function slotBoonIds(id: EquipmentId, boons: readonly string[]): string[] {
-  const own = EQUIPMENT_CATEGORY[id];
-  const wanted = id === 'gun' ? [own, ...SHIPWIDE_CATEGORIES] : [own];
-  return boons.filter((b) => Object.hasOwn(BOON_CATALOG, b) && wanted.includes(BOON_CATALOG[b].category));
+export function slotBoonIds(id: EquipmentId, cards: readonly string[]): string[] {
+  return cards.filter((c) => {
+    if (!Object.hasOwn(CATALOG, c)) return false;
+    const targets = cardEquipmentIds(c);
+    return targets.length === 0 ? id === 'gun' : targets.includes(id);
+  });
 }
 
 /** Everything one rendered slot row needs — the pure view model. */
@@ -262,7 +251,10 @@ export interface SlotViewModel {
   /** A boon just landed on this slot's family: the ≤80ms phosphor fit pulse is
    *  showing THIS frame (already motion-gated — see slotViewModel). */
   fitFlash: boolean;
-  /** Accrued boons on this slot's family (the `◆n` count, unclamped). */
+  /** Accrued cards on this slot (the tooltip's list length, unclamped). The
+   *  per-slot `◆n` MARK is gone with the v2 categories (Eric ruling
+   *  2026-09-15, amendment 8) — the count survives only as the fit-flash and
+   *  tooltip input it always was. */
   boonCount: number;
   /** This frame's one-shot on this row is DEGRADED by the aggregate flash budget
    *  (amendment 240): draw the flat mark, not the bloom. Absent = animate. */
@@ -294,9 +286,9 @@ export interface HotbarView {
    *  flash and the glow/breathing amplitude. Defaults to 'full' so existing
    *  callers/tests are unchanged. */
   motion?: MotionLevel;
-  /** The own fitted boon ids (OwnShip.boons, repeats intact) — the tooltip's
+  /** The own fitted card ids (OwnShip.cards, repeats intact) — the tooltip's
    *  accrued list and the `◆n` marks. Absent = a build with nothing fitted. */
-  boons?: readonly string[];
+  cards?: readonly string[];
   /** Per-slot REMAINING ability-window ms (0 = no window running) — the ACTIVE
    *  state's whole input (amendment 48: boost's `boostUntil`, the radar buoy's
    *  own `until`), resolved against the server clock by the caller. */
@@ -389,7 +381,7 @@ function slotViewModel(view: HotbarView, slot: number): SlotViewModel {
     chamfer: !info.isWeapon,
     keyGlyph,
     name: info.name,
-    quickInfo: quickInfoLine(info, left, activeLeft, boonCount),
+    quickInfo: quickInfoLine(info, left, activeLeft),
     badge: badgeText(info, a),
     coolFrac: coolFraction(left, info.reloadMs),
     fitFlash,
@@ -415,7 +407,7 @@ function slotEconomy(
 ): { activeLeft: number; boonCount: number; fitFlash: boolean } {
   return {
     activeLeft: Math.max(0, view.activeMsLeft?.[slot] ?? 0),
-    boonCount: slotBoonIds(id, view.boons ?? []).length,
+    boonCount: slotBoonIds(id, view.cards ?? []).length,
     fitFlash: (view.fit?.[slot] ?? false) && motionAllowed(view.motion ?? 'full'),
   };
 }
@@ -766,8 +758,8 @@ function boonRow(id: string, stack: number, stats: EffectiveStats): TooltipBoonR
  * a gun holding shipwide lines and nothing of its own lists them bare. A heading
  * over the whole list separates it from nothing and just spends a line saying so.
  */
-export function boonRows(id: EquipmentId, boons: readonly string[], stats: EffectiveStats): TooltipBoonRow[] {
-  const ids = slotBoonIds(id, boons);
+export function boonRows(id: EquipmentId, cards: readonly string[], stats: EffectiveStats): TooltipBoonRow[] {
+  const ids = slotBoonIds(id, cards);
   const own: TooltipBoonRow[] = [];
   const ship: TooltipBoonRow[] = [];
   const seen = new Set<string>();
@@ -775,7 +767,7 @@ export function boonRows(id: EquipmentId, boons: readonly string[], stats: Effec
     if (seen.has(b)) continue;
     seen.add(b);
     const row = boonRow(b, boonStackCount(ids, b), stats);
-    (SHIPWIDE_CATEGORIES.includes(BOON_CATALOG[b].category) ? ship : own).push(row);
+    (isShipwideCard(b) ? ship : own).push(row);
   }
   if (ship.length === 0) return own;
   if (own.length === 0) return ship;
@@ -792,7 +784,7 @@ export function tooltipModel(
   slot: number,
   id: EquipmentId | null,
   stats: EffectiveStats,
-  boons: readonly string[] = [],
+  cards: readonly string[] = [],
 ): TooltipModel | null {
   if (id === null) return null;
   const info = equipmentInfo(stats, id);
@@ -800,7 +792,7 @@ export function tooltipModel(
     name: info.name.toUpperCase(),
     interaction: interactionLine(slot, id),
     description: info.description,
-    boons: boonRows(id, boons, stats),
+    boons: boonRows(id, cards, stats),
   };
   return { ...full, boons: fitBoonRows(full) };
 }
@@ -1128,7 +1120,7 @@ interface TooltipCache {
 const EMPTY_BOONS: readonly string[] = [];
 
 /** Pure: are these the same accrued list, for cache purposes? Identity first (the
- *  usual case — `you.boons` is the wire array, replaced only when it changes),
+ *  usual case — `you.cards` is the wire array, replaced only when it changes),
  *  then length + last id, which is what a fit CAN only ever change (boons append,
  *  never reorder or drop). */
 function sameBoonList(a: readonly string[], b: readonly string[]): boolean {
@@ -1408,7 +1400,7 @@ export class Hotbar {
    * read (swapped as a whole object by applyOwnStats, so identity is exact).
    */
   private cachedModel(slot: number, id: EquipmentId | null, view: HotbarView): TooltipModel | null {
-    const boons = view.boons ?? EMPTY_BOONS;
+    const boons = view.cards ?? EMPTY_BOONS;
     const c = this.tipCache;
     if (c && c.slot === slot && c.id === id && c.stats === view.stats && sameBoonList(c.boons, boons)) {
       return c.model;

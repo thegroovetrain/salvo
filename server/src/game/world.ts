@@ -14,21 +14,20 @@
 // before the event swap, so a level banked this tick rides this tick's frame.
 
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
   EQUIPMENT_IS_WEAPON,
   HEAL_CHOICE,
   HOOK_REGISTRY,
   LIFECYCLE_ALIVE,
-  NO_BOONS,
   applyGroundingDamp,
   applySinkingDecel,
   applySlotEffect,
-  boonBehaviors,
+  cardBehaviors,
   boostedKinematics,
+  boonStackCount,
   buildDeck,
   burstVictims,
-  consumeAcquisition,
   consumeCard,
   drawOffer,
   DEFAULT_HORN_ID,
@@ -39,16 +38,14 @@ import {
   generateMap,
   hasFoundered,
   hookKinematics,
-  isAcquisitionDef,
   isAfloat,
   isSinking,
   isSunk,
   loadoutFor,
-  slotsWithBoons,
+  slotsWithCards,
   hullEnvelope,
   hullSilhouette,
   mulberry32,
-  resolveBoons,
   resolveShipPose,
   slowedKinematics,
   stepShell,
@@ -69,10 +66,10 @@ import {
   isOutside,
   type BallisticEvent,
   type BoonBehaviorEffect,
-  type BoonCatalog,
-  type BoonDef,
+  type Catalog,
   type BoonOffer,
   type DeckState,
+  type LineId,
   type DeniedView,
   type DenialReason,
   type EffectiveStats,
@@ -167,14 +164,14 @@ const FLEET_OFFSET_TRIES = 12;
  *  off the hull id — so there is no numbered identity to mint. */
 const FLEET_SHIP_NAME = 'DRONE';
 
-/** The frozen zero-boon behavior list — one shared identity so every
- *  boon-less ShipRecord's per-tick hook fold is allocation-free. */
+/** The frozen zero-card behavior list — one shared identity so every
+ *  card-less ShipRecord's per-tick hook fold is allocation-free. */
 const NO_BEHAVIORS: readonly BoonBehaviorEffect[] = Object.freeze([]);
 
 /** The frozen empty deck — DRONES NEVER GET A DECK (Story 2.8, amendment 38):
  *  a drone banks no levels (addXpMs guards) and could never draw; the shared
  *  identity keeps the pin allocation-free and test-visible. */
-const EMPTY_DECK: DeckState = Object.freeze({ cards: Object.freeze([]) as readonly string[], levelsSinceRare: 0 });
+const EMPTY_DECK: DeckState = Object.freeze({ cards: Object.freeze([]) as readonly LineId[] });
 
 /** ms — how long a dazzle mark outlives its last inside-the-zone tick (Story
  *  2.8 RULING): `dazzledUntil = now + DAZZLE_GRACE_MS`, refreshed every tick
@@ -199,14 +196,14 @@ function dotKey(ownerId: string, victimId: string): string {
 
 /**
  * Injectable engine registries (Story 2.5). Production omits both (the empty
- * shared HOOK_REGISTRY; the FULL shared BOON_CATALOG as of Story 2.8); tests
+ * shared HOOK_REGISTRY; the FULL shared CATALOG as of Story 8.1); tests
  * inject their own so real-tick hook execution and the deck/spend economy can
  * be driven against tiny controlled catalogs (amendment 29 — test hooks never
  * enter the production hook registry).
  */
 export interface WorldOptions {
   hookRegistry?: HookRegistry;
-  boonCatalog?: BoonCatalog;
+  catalog?: Catalog;
   /**
    * PER-RING seed material of the SERVER-PRIVATE zone ring streams (Story
    * 3.1, amendment 10 + review FIX 2): one uint32 per rolled ring
@@ -448,31 +445,28 @@ export interface ShipRecord {
    */
   damageFrom: Map<string, AssistTally>;
   /**
-   * Applied boon ids, in application order (Story 2.5 — dormant plumbing:
-   * nothing grants these in production until 2.7's spend flow). Mutated only
-   * by applyBoon(). Survive respawn (waiting-phase deaths keep the build,
+   * Fitted card LINE ids, in fit order (Story 8.1 — catalog v3). Mutated only
+   * by applyCard(). Survive respawn (waiting-phase deaths keep the build,
    * like upgrades) but NOT redeployShip (fresh match = fresh build). Mirrored
-   * onto OwnShip.boons (SELF-PRIVATE — rides `you` and nothing else).
+   * onto OwnShip.cards (SELF-PRIVATE — rides `you` and nothing else).
+   *
+   * THE ID LIST IS THE BUILD: `effectiveStats` counts copies per line itself
+   * and folds in CATALOG order, so there is no resolved-def cache to keep in
+   * step (the Story 8.1 deletion of the `boonDefs` mirror).
    */
-  boons: string[];
+  cards: string[];
   /**
-   * Cached resolved defs for `boons` (the resolveBoons result against the
-   * world's catalog) — recomputed only when `boons` changes, beside `stats`.
-   * The shared NO_BOONS identity at zero boons (allocation-free fast path).
+   * Cached `behavior` effects of the fitted cards — the per-tick
+   * hookKinematics workload (stepShips). Frozen empty identity at zero cards
+   * so the 20Hz loop allocates nothing for card-less hulls.
    */
-  boonDefs: readonly BoonDef[];
+  cardBehaviors: readonly BoonBehaviorEffect[];
   /**
-   * Cached `behavior` effects extracted from boonDefs — the per-tick
-   * hookKinematics workload (stepShips). Frozen empty identity at zero boons
-   * so the 20Hz loop allocates nothing for boon-less hulls.
-   */
-  boonBehaviors: readonly BoonBehaviorEffect[];
-  /**
-   * Cached effective stats for (cls, boonDefs) — the shared effectiveStats()
+   * Cached effective stats for (cls, cards) — the shared effectiveStats()
    * result. Every stat read in the sim (kinematics, vision, weapon pools,
    * reloads, ranges, damage/blast/trigger as of 2.8) goes through this, NEVER
-   * raw CONFIG, so boon-fitted hulls cannot silently fall back to base
-   * numbers. Recomputed on add/redeploy and on applyBoon.
+   * raw CONFIG, so card-fitted hulls cannot silently fall back to base
+   * numbers. Recomputed on add/redeploy and on applyCard.
    */
   stats: EffectiveStats;
   state: ShipState;
@@ -994,9 +988,9 @@ export class World {
   /** Hook registry every per-tick kinematics fold runs against (injectable —
    *  tests; production defaults to the empty shared HOOK_REGISTRY). */
   private readonly hookRegistry: HookRegistry;
-  /** Boon catalog applyBoon resolves ids against (injectable — tests;
-   *  production defaults to the empty shared BOON_CATALOG). */
-  private readonly boonCatalog: BoonCatalog;
+  /** The card catalog applyCard resolves ids against (injectable — tests;
+   *  production defaults to the shared CATALOG). */
+  private readonly catalog: Catalog;
 
   /**
    * THE MATCH'S ONE SPAWN LATTICE (Eric ruling 2026-08-16). Every placement
@@ -1032,7 +1026,7 @@ export class World {
     opts: WorldOptions = {},
   ) {
     this.hookRegistry = opts.hookRegistry ?? HOOK_REGISTRY;
-    this.boonCatalog = opts.boonCatalog ?? BOON_CATALOG;
+    this.catalog = opts.catalog ?? CATALOG;
     this.playerCap = playerCap;
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
@@ -1283,13 +1277,12 @@ export class World {
       // THE DECK (2.8): over the fresh fit; fleet hulls never get one (pinned).
       // ECONOMY, so it keys on the FLEET reading — an AI captain (6.4) is a
       // participant that plays the game, and gets a deck like any other.
-      deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.boonCatalog, World.carriedEquipment(loadout)),
+      deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeck(this.catalog),
       deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null,
       xpMs: 0, level: 0, damageFrom: new Map(),
-      boons: [],
-      boonDefs: NO_BOONS,
-      boonBehaviors: NO_BEHAVIORS,
+      cards: [],
+      cardBehaviors: NO_BEHAVIORS,
       stats,
       state: { x: p.x, y: p.y, heading, speed: 0 },
       hp: stats.maxHp,
@@ -1547,9 +1540,8 @@ export class World {
     ship.damageFrom.clear();
     // Boons are wiped WITH the level bank (Story 2.5): the match boundary means a
     // fresh build — respawn() below, waiting-phase only, preserves.
-    ship.boons = [];
-    ship.boonDefs = NO_BOONS;
-    ship.boonBehaviors = NO_BEHAVIORS;
+    ship.cards = [];
+    ship.cardBehaviors = NO_BEHAVIORS;
     ship.stats = effectiveStats(ship.cls);
     ship.hp = ship.stats.maxHp;
     // The match-start `redeploy` edge (Story 5.1, amendment 3): legal from ANY
@@ -1586,7 +1578,7 @@ export class World {
     // function of (mapSeed, join ordinal, draw count). Drones keep EMPTY_DECK.
     ship.deck = roleIsFleetHull(ship)
       ? EMPTY_DECK
-      : buildDeck(this.boonCatalog, World.carriedEquipment(ship.loadout));
+      : buildDeck(this.catalog);
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
     ship.pveKills = {}; // ...and its telemetry sibling (amendment 44), same boundary
     ship.deaths = 0;
@@ -2040,64 +2032,73 @@ export class World {
    */
   private materializeOffer(ship: ShipRecord): void {
     if (ship.bankedLevels <= 0 || ship.offer !== null) return;
-    const { deck, offer } = drawOffer(ship.deck, ship.deckRng, this.boonCatalog);
-    ship.deck = deck; // NON-CONSUMING: only levelsSinceRare moved
+    const { deck, offer } = drawOffer(ship.deck, ship.deckRng, this.catalog);
+    ship.deck = deck; // NON-CONSUMING: a draw is a read; the same state back
     if (offer.length > 0) ship.offer = offer;
   }
 
   /**
-   * Apply one boon to a ship (Story 2.5 seam, live since 2.7; Story 2.8 grew
-   * the doctrine swap, heal-on-grant, and raised-cap top-up). Exactly the two
-   * homes plus hooks, nothing else: resolve the doctrine swap (below), append
-   * the id, refresh the resolved-def/behavior caches, recompute the cached
-   * stats through effectiveStats (home 1), and apply THIS boon's slot effects
-   * incrementally to the live loadout (home 2 — untouched slots keep their
-   * ammo/reload state; behavior effects execute per-tick in stepShips via the
-   * cached boonBehaviors). NO event is queued (spendPoint owns the spend UX).
+   * Apply one CARD to a ship (Story 2.5 seam, live since 2.7; re-cut for
+   * catalog v3 in Story 8.1). Exactly the two homes plus hooks, nothing else:
+   * append the id, refresh the behavior cache, recompute the cached stats
+   * through effectiveStats (home 1 — it counts copies and folds in CATALOG
+   * order itself, so the ID LIST IS THE BUILD and there is no resolved-def
+   * mirror to keep in step), and apply THIS COPY's slot effects incrementally
+   * to the live loadout (home 2 — untouched slots keep their ammo/reload
+   * state; behavior effects execute per-tick in stepShips via the cached
+   * cardBehaviors). NO event is queued (spendPoint owns the spend UX).
    *
-   * HEAL-ON-GRANT (amendment 38, shipHull — the ONLY heal path): a
-   * healOnGrant def heals exactly the maxHp DELTA this fit produced (clamped
-   * to the new cap, never negative; only a LIVING hull heals — a corpse gets
-   * full effective hp on respawn anyway).
+   * WHICH TIER THIS COPY APPLIES: the copy index is how many copies of the
+   * line the ship holds AFTER the push, and `tiers[copy - 1]` is its step.
+   * Past the line's `cap` the fit buys nothing — the deck can never deal a
+   * card past the cap, so that is a fail-closed guard, not a path.
+   *
+   * HEAL-ON-GRANT (ARMOR — the ONLY heal path): a `healOnGrant` line heals
+   * exactly the maxHp DELTA this fit produced (clamped to the new cap, never
+   * negative; only a LIVING hull heals — a corpse gets full effective hp on
+   * respawn anyway).
+   *
+   * NEVER FIT AN ID WITH NO MODULE (Story 8.1): a `slotFill` whose target has
+   * no row in the server EQUIPMENT registry is a SILENT NO-OP. Stub lines are
+   * never dealt into a deck, so this is unreachable in play — it is the
+   * structural guarantee that an authored-but-unbuilt weapon can never land in
+   * a slot the tick loop would then have to dispatch.
    *
    * POOLS (amendment 41 — "everything arrives loaded", superseding the 2.5
    * clamp-down-only parking): after the slot effects, every fitted slot whose
    * effective cap ROSE fills to the new cap; a LOWERED cap still clamps down
-   * (reconcilePools). Acquisitions install full pools via freshSlotState.
+   * (reconcilePools). A slotFill installs a full pool via freshSlotState.
    *
    * TIMERS (Eric ruling 2026-08-04): a grant that moves a fitted slot's
    * effective reload rescales that slot's in-flight `reloadMsLeft` by the same
    * ratio, preserving the progress fraction — never a free round
-   * (rescaleReloadTimers).
-   *
-   * EXCLUSIVITY IS DELETED (Story 7-5 wave 2, R2.6): the cannon's AP/PLUNGING
-   * pair was the last user of `exclusiveWith`, and it died with the weapon. No
-   * grant removes anything any more — every doctrine is an independent verb
-   * that stacks — so applyBoon returns nothing and the deck has no give-back
-   * path (`returnCards` left the shared barrel with the mechanism).
+   * (rescaleReloadTimers). The per-tier −5 % reload step is DERIVED from the
+   * tier in clampStats, so an equipment-ladder copy moves those timers too.
    *
    * Fail-closed: an id the world's catalog cannot resolve appends (the wire
    * mirrors it; clients drop it at resolve) but applies nothing. Public so
    * directed tests (and the spend path) can drive it.
    */
-  applyBoon(ship: ShipRecord, boonId: string): void {
+  applyCard(ship: ShipRecord, lineId: string): void {
     // Own-property gate (fail-closed): a plain-object catalog answers
-    // `this.boonCatalog['constructor']` with Object.prototype.constructor —
-    // not undefined, and with no `effects` to iterate.
-    const def = Object.hasOwn(this.boonCatalog, boonId) ? this.boonCatalog[boonId] : undefined;
-    ship.boons.push(boonId);
-    ship.boonDefs = resolveBoons(ship.boons, this.boonCatalog);
-    ship.boonBehaviors = ship.boonDefs.length === 0 ? NO_BEHAVIORS : boonBehaviors(ship.boonDefs);
+    // `this.catalog['constructor']` with Object.prototype.constructor —
+    // not undefined, and with no `tiers` to iterate.
+    const line = Object.hasOwn(this.catalog, lineId) ? this.catalog[lineId] : undefined;
+    ship.cards.push(lineId);
+    ship.cardBehaviors = cardBehaviors(ship.cards, this.catalog);
     const prevStats = ship.stats;
-    ship.stats = effectiveStats(ship.cls, ship.boonDefs);
-    if (def?.healOnGrant === true && isAfloat(ship.lifecycle)) {
+    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
+    if (line?.healOnGrant === true && isAfloat(ship.lifecycle)) {
       const delta = Math.max(0, ship.stats.maxHp - prevStats.maxHp);
       ship.hp = Math.min(ship.hp + delta, ship.stats.maxHp);
     }
     // hp invariant: a maxHp-LOWERING fit may not leave hp above the cap.
     ship.hp = Math.min(ship.hp, ship.stats.maxHp);
-    if (def !== undefined) {
-      for (const effect of def.effects) applySlotEffect(ship.loadout, effect, ship.stats);
+    if (line !== undefined) {
+      for (const effect of line.tiers[boonStackCount(ship.cards, lineId) - 1] ?? []) {
+        if (effect.kind === 'slotFill' && !Object.hasOwn(EQUIPMENT, effect.equipmentId)) continue;
+        applySlotEffect(ship.loadout, effect, ship.stats);
+      }
     }
     this.reconcilePools(ship, prevStats);
     this.rescaleReloadTimers(ship, prevStats);
@@ -2263,43 +2264,21 @@ export class World {
   }
 
   /** The spend's application half: take the CHOSEN card out of the deck, fit
-   *  the pick, queue the self-private `bn`, and run the acquisition
-   *  bookkeeping when the pick filled the R slot. Split from spendPoint
-   *  (complexity budget). */
+   *  the pick, and queue the self-private `bn`. Split from spendPoint
+   *  (complexity budget).
+   *
+   *  THE ACQUISITION BRANCH IS GONE (Story 8.1): catalog v3 has no acquisition
+   *  card and no subdeck — an equipment LINE's copy 1 is the fit itself — so
+   *  there is no post-fit deck bookkeeping left to run. */
   private settleSpend(ship: ShipRecord, front: BoonOffer, choice: number): void {
-    const boon = front[choice];
+    const card = front[choice];
     // THE DECK's one and only outflow (the lazy-draw bugfix): the CHOSEN card
     // leaves the pool. The unchosen cards need no give-back — they never left —
     // so the deck thins over a match by exactly the cards FITTED, and a
     // passed-on line is at full copies for the very next draw.
-    ship.deck = consumeCard(ship.deck, boon);
-    this.applyBoon(ship, boon);
-    this.pending.push({ k: 'bn', id: ship.id, boon });
-    // Acquisition pick (amendment 38): the R slot is PERMANENT — the acquired
-    // subdeck shuffles in and every remaining acquisition card purges. The
-    // NEXT offer is materialized after this returns, so it is drawn from the
-    // already-cleaned deck (amendment 43's scrub has nothing left to do).
-    const def = Object.hasOwn(this.boonCatalog, boon) ? this.boonCatalog[boon] : undefined;
-    if (def !== undefined && isAcquisitionDef(def)) this.consumeAcquisitionPick(ship, def);
-  }
-
-  /**
-   * The acquisition-pick deck bookkeeping (Story 2.8, amendment 38), run AFTER
-   * applyBoon installed the equipment: shuffle the acquired equipment's subdeck
-   * into the pool and purge every remaining acquisition card
-   * (consumeAcquisition — the R slot can never fill again).
-   *
-   * AMENDMENT 43's SCRUB IS RETIRED (the lazy-draw bugfix): it removed dead
-   * acquisition cards from other BANKED offers, and there are none — only the
-   * FRONT offer is ever materialized, and spendCard drops it before calling
-   * here, then materializes the next one from this already-purged deck. A stale
-   * acquisition card is unreachable by construction, which also retires the P5
-   * scrubbed-to-empty deadlock the old refill could produce.
-   */
-  private consumeAcquisitionPick(ship: ShipRecord, def: BoonDef): void {
-    const fill = def.effects.find((e) => e.kind === 'slotFill');
-    if (fill === undefined || fill.kind !== 'slotFill') return;
-    ship.deck = consumeAcquisition(ship.deck, this.boonCatalog, fill.equipmentId);
+    ship.deck = consumeCard(ship.deck, card);
+    this.applyCard(ship, card);
+    this.pending.push({ k: 'bn', id: ship.id, boon: card });
   }
 
   /**
@@ -2593,7 +2572,7 @@ export class World {
       p.heading = ship.state.heading;
       // THE one place boost enters kinematics (Story 1.6): while the window is
       // open (now < boostUntil) the shared helper raises the forward maxSpeed cap
-      // by stats.boost.speedBonus; the hull accelerates toward it at class accel
+      // by stats.equipment.speedBoost.speedBonus; the hull accelerates toward it at class accel
       // and decays back at class decel on expiry. Client prediction/replay call
       // the identical helper, so a boosting hull stays in lockstep.
       // Story 2.5: boon behavior hooks fold in AFTER the bespoke boost —
@@ -2603,7 +2582,7 @@ export class World {
       // unchanged, so the pre-boon tick is byte-identical.
       const boosted = boostedKinematics(
         ship.stats.kinematics,
-        ship.stats.boost.speedBonus,
+        ship.stats.equipment.speedBoost.speedBonus,
         this.now < ship.boostUntil,
       );
       // PINNED COMPOSITION ORDER (server AND predictor, byte-identical —
@@ -2612,7 +2591,7 @@ export class World {
       // bespoke boost and the hook chain; the client's Predictor.tickKin
       // mirrors this exact order from you.boostUntil/you.slowedUntil.
       const slowed = slowedKinematics(boosted, CONFIG.mine.foulFactor, this.now < ship.slowedUntil);
-      const kin = hookKinematics(slowed, ship.boonBehaviors, this.hookRegistry);
+      const kin = hookKinematics(slowed, ship.cardBehaviors, this.hookRegistry);
       stepShip(ship.state, ship.input, kin, dt);
       // THE RITARDANDO (Story 5.2): the shared linear speed cap, applied
       // right after stepShip exactly where prediction.ts applies it — and
@@ -2670,7 +2649,7 @@ export class World {
    *  4.12): the effective kinematics cap plus the boost window's speedBonus —
    *  both off effectiveStats(), the sole derivation path. Never raw CONFIG. */
   private static wakeTopSpeed(stats: EffectiveStats): number {
-    return stats.kinematics.maxSpeed + stats.boost.speedBonus;
+    return stats.kinematics.maxSpeed + stats.equipment.speedBoost.speedBonus;
   }
 
   /**
@@ -3119,7 +3098,7 @@ export class World {
    *  dead build's numbers and no dead build's doctrine. */
   private mineTripRules(): MineTripRules {
     return {
-      triggerRadius: (ownerId) => this.ships.get(ownerId)?.stats.mine.triggerRadius ?? CONFIG.mine.triggerRadius,
+      triggerRadius: (ownerId) => this.ships.get(ownerId)?.stats.equipment.navalMines.triggerRadius ?? CONFIG.mine.triggerRadius,
       captive: (ownerId) => this.laysCaptiveMines(ownerId),
       hostile: (ownerId, victimId) => this.isCaptiveMineHostile(ownerId, victimId),
     };
@@ -3134,7 +3113,7 @@ export class World {
    * (launch instead of blast), the burst (R2.18), and the chain (R2.18).
    */
   private laysCaptiveMines(ownerId: string): boolean {
-    return this.ships.get(ownerId)?.stats.mine.captive ?? false;
+    return this.ships.get(ownerId)?.stats.equipment.navalMines.captive ?? false;
   }
 
   /**
@@ -3242,7 +3221,7 @@ export class World {
     if (owner === undefined) {
       return { damage: CONFIG.mine.damage, blastRadius: CONFIG.mine.blastRadius, fouls: false };
     }
-    const mine = owner.stats.mine;
+    const mine = owner.stats.equipment.navalMines;
     return { damage: mine.damage, blastRadius: mine.blastRadius, fouls: mine.propFouling };
   }
 
@@ -3662,7 +3641,7 @@ export class World {
    *  burns and blinds. */
   private spawnLitZone(shell: ShellState, at: Vec2): void {
     const id = this.nextLitZoneId();
-    const stars = this.ships.get(shell.ownerId)?.stats.starShells;
+    const stars = this.ships.get(shell.ownerId)?.stats.equipment.starShells;
     this.litZones.set(id, {
       id,
       ownerId: shell.ownerId,
@@ -3814,7 +3793,9 @@ export class World {
   private fireControl(dtMs: number): void {
     for (const ship of this.ships.values()) {
       for (const slot of ship.loadout) {
-        if (slot.equipmentId !== null) EQUIPMENT[slot.equipmentId].tick(ship, slot, dtMs);
+        // Fail-closed dispatch (Story 8.1): the registry is PARTIAL over the
+        // widened EquipmentId, so an id with no built module ticks nothing.
+        if (slot.equipmentId !== null) EQUIPMENT[slot.equipmentId]?.tick(ship, slot, dtMs);
       }
       for (const intent of ship.tickIntents) this.consumeClick(ship, intent);
       this.consumeClick(ship, ship.input);
@@ -4006,7 +3987,11 @@ export class World {
     if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) return { ok: false, reason: 'dead' };
     const slot = ship.loadout[slotIndex];
     if (!slot || slot.equipmentId === null) return { ok: false, reason: 'empty-slot' };
-    return EQUIPMENT[slot.equipmentId].activate(this.activationContext(ship, fireT), slot);
+    const row = EQUIPMENT[slot.equipmentId];
+    // Fail-closed (Story 8.1): an id with no built module answers exactly as an
+    // empty slot does — applyCard never fits one, so this is unreachable in play.
+    if (row === undefined) return { ok: false, reason: 'empty-slot' };
+    return row.activate(this.activationContext(ship, fireT), slot);
   }
 
   /** The capabilities equipment needs to activate for this ship this tick.
@@ -4162,7 +4147,7 @@ export class World {
    *  validated fireT (not necessarily `now`) and armedAt = droppedAt +
    *  armDelay. Caps / oldest-eviction untouched. */
   private spawnMine(owner: ShipRecord, x: number, y: number, droppedAt: number = this.now): void {
-    addMine(this.mines, owner.id, x, y, droppedAt, this.nextMineId(), owner.stats.mine.maxLive);
+    addMine(this.mines, owner.id, x, y, droppedAt, this.nextMineId(), owner.stats.equipment.navalMines.maxLive);
   }
 
   /** Store a newly-placed RADAR BUOY at an already-validated point (Story 7-5
@@ -4207,7 +4192,7 @@ export class World {
    */
   private advanceBuoySweep(buoy: BuoyState, dtMs: number): void {
     if (!this.radarEnabled) return;
-    const rpm = this.ships.get(buoy.ownerId)?.stats.radarBuoy.sweepRpm ?? CONFIG.radarBuoy.sweepRpm;
+    const rpm = this.ships.get(buoy.ownerId)?.stats.equipment.radarBuoy.sweepRpm ?? CONFIG.radarBuoy.sweepRpm;
     const delta = (TAU * dtMs) / (60000 / rpm);
     buoy.prevSweepAngle = buoy.sweepAngle;
     buoy.sweepAngle = wrapPositive(buoy.sweepAngle + delta);
@@ -4243,7 +4228,7 @@ export class World {
    */
   private fireBuoyGun(buoy: BuoyState, dtMs: number): void {
     const owner = this.ships.get(buoy.ownerId);
-    if (owner === undefined || !owner.stats.radarBuoy.gun) return;
+    if (owner === undefined || !owner.stats.equipment.radarBuoy.gun) return;
     buoy.gunReloadMsLeft = Math.max(0, buoy.gunReloadMsLeft - dtMs);
     if (buoy.gunReloadMsLeft > 0) return;
     const target = this.nearestBuoyTarget(buoy);
@@ -4298,17 +4283,17 @@ export class World {
         distLeft: dist - clear + CONFIG.gun.shellRadius,
         bornAt: this.now,
         kind: 'shell',
-        damage: owner.stats.radarBuoy.gunDamage,
+        damage: owner.stats.equipment.radarBuoy.gunDamage,
         hitRadius: CONFIG.gun.shellRadius,
         targetX: at.x,
         targetY: at.y,
         burstRadius: CONFIG.gun.burstRadius,
-        contactDamage: owner.stats.radarBuoy.gunDamage,
+        contactDamage: owner.stats.equipment.radarBuoy.gunDamage,
         noAggro: true,
       },
       true,
     );
-    buoy.gunReloadMsLeft = owner.stats.radarBuoy.gunReloadMs;
+    buoy.gunReloadMsLeft = owner.stats.equipment.radarBuoy.gunReloadMs;
   }
 
   /** The gun buoy's target pick (R2.21): the afloat non-owner ship NEAREST TO
@@ -4543,7 +4528,7 @@ export class World {
     // loadout re-derives with their slot effects replayed — the SAME shared
     // derivation the client runs (slotsWithBoons ≡ loadoutFor at zero boons,
     // byte-identical).
-    ship.loadout = slotsWithBoons(ship.hullId, ship.stats, ship.boonDefs);
+    ship.loadout = slotsWithCards(ship.hullId, ship.stats, ship.cards, this.catalog);
     // The respawn TELEPORTS the hull (Story 4.12, amendment 200): the old
     // life's water detaches into the orphan store — where it keeps disclosing
     // and ageing out, a fading track with nothing attached — and the new life

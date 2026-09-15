@@ -1795,16 +1795,20 @@ export const CLIENT_CONFIG = {
      *  bottom on the live site. 15px is a deliberate step ABOVE amendment 15's
      *  14px legibility floor, not a crash back to micro-type — the copy was cut
      *  first (boonCopy.ts) and the size second, in that ratified order. The
-     *  rarity tag went 12 → 11 so the widest meta row (STAR SHELLS + EXCLUSIVE)
-     *  fits ONE line inside 186px; 11px still clears the 9px mono floor at the
-     *  90% tier (9.9px). Both are pinned by __tests__/refitCardFit.test.ts. */
+     *  meta tag went 12 → 11 so the widest meta row fits ONE line inside 186px;
+     *  11px still clears the 9px mono floor at the 90% tier (9.9px). Both are
+     *  pinned by __tests__/refitCardFit.test.ts. */
     categorySize: 14,
     nameSize: 20,
     descSize: 15,
-    raritySize: 11,
+    /** The META ROW's type size — the KIND word and the copy count beside it
+     *  (Story 8.1 renamed this from `raritySize`; the value is unchanged, and
+     *  so is the amendment-47 fit it was cut to). The widest kind word is
+     *  CONSUMABLE. */
+    kindSize: 11,
     lineageSize: 12,
-    /** Gap (px) between the category tag and the rarity tag on the meta row.
-     *  8 → 6 with the amendment-47 meta-row fit (see raritySize above). */
+    /** Gap (px) between the kind word and the copy count on the meta row.
+     *  8 → 6 with the amendment-47 meta-row fit (see kindSize above). */
     metaGap: 6,
     /** Dashed ghost edge behind the row when more offers are queued (px). */
     ghostOffset: 6,

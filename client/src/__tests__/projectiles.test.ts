@@ -196,7 +196,7 @@ describe('Projectiles.render — the torpedo cull is genuinely separate from the
 // amendment rules on the owner's view of their own ordnance, so it stays where
 // it was before this story: the truesight ring.
 //
-// `own === 'torpedo'` is a GENUINE claim on this path and never a heuristic —
+// `own === 'heavyTorpedo'` is a GENUINE claim on this path and never a heuristic —
 // roomBindings.handleTorp only sets it against a live click-time torpedo latch
 // (the shell path's ratified 'gun' fallback has no torpedo analogue), which is
 // also why the same field already authorizes the burst ring.
@@ -209,7 +209,7 @@ describe('Projectiles.render — the detect cull applies to ENEMY fish only (rev
 
   const liveTorp = (x: number, mine: boolean): number => {
     const p = new Projectiles(900, new Container());
-    p.onShell(torpAt(x), mine ? 'torpedo' : null, mine ? 'torpedo' : null);
+    p.onShell(torpAt(x), mine ? 'heavyTorpedo' : null, mine ? 'heavyTorpedo' : null);
     p.render(1, own, []);
     return p.liveCount;
   };
@@ -245,7 +245,7 @@ describe('Projectiles.render — the detect cull applies to ENEMY fish only (rev
     // before the fact about it stops mattering. Left at `own: null` it would
     // hand our own resurrected fish the ENEMY cull ring.
     const p = new Projectiles(900, new Container());
-    p.onShell(torpAt(0), 'torpedo', 'torpedo');
+    p.onShell(torpAt(0), 'heavyTorpedo', 'heavyTorpedo');
     p.render(1, { x: -100_000, y: 0 }, []); // observer teleport → the track is culled
     expect(p.liveCount).toBe(0);
     p.onBallisticUpdate({ k: 'torpU', id: 't1', x: DETECT_CULL + 1, y: 0, vx: 0, vy: 0, t: 0 });
@@ -349,7 +349,7 @@ describe('Projectiles — an OWN track keeps the un-dazzled ring (review fix)', 
   const dazzledSightCull = CONFIG.vision.sight * DZ + 40; // 205u at base stats
   const at = (k: 'shell' | 'torp', x: number): BallisticEvent => ({ k, id: 'p1', x, y: 0, vx: 0, vy: 0, t: 0 });
 
-  const live = (ev: BallisticEvent, own: 'gun' | 'torpedo' | null): number => {
+  const live = (ev: BallisticEvent, own: 'gun' | 'heavyTorpedo' | null): number => {
     const p = new Projectiles(900, new Container());
     p.setSightRange(CONFIG.vision.sight);
     p.setDazzled(true);
@@ -364,13 +364,13 @@ describe('Projectiles — an OWN track keeps the un-dazzled ring (review fix)', 
   });
 
   it('KEEPS a DAZZLED captain\'s OWN fish out to the same truesight ring (never the detect ring either)', () => {
-    expect(live(at('torp', dazzledSightCull + 1), 'torpedo')).toBe(1);
-    expect(live(at('torp', OWN_CULL - 1), 'torpedo')).toBe(1);
+    expect(live(at('torp', dazzledSightCull + 1), 'heavyTorpedo')).toBe(1);
+    expect(live(at('torp', OWN_CULL - 1), 'heavyTorpedo')).toBe(1);
   });
 
   it('...and still culls an own track at ITS ring — un-dazzled truesight, exactly as before this story', () => {
     expect(live(at('shell', OWN_CULL + 1), 'gun')).toBe(0);
-    expect(live(at('torp', OWN_CULL + 1), 'torpedo')).toBe(0);
+    expect(live(at('torp', OWN_CULL + 1), 'heavyTorpedo')).toBe(0);
   });
 
   it('leaves the ENEMY rings dazzle-scaled — the fork is on OWNERSHIP, not on the dazzle', () => {
@@ -543,8 +543,8 @@ describe('lookForReveal — who gets which identity, on what evidence', () => {
   });
 
   it('styles an OWN homing fish from LAUNCH, and a stock own fish not at all', () => {
-    expect(lookForReveal('torp', 'torpedo', { torpedoHoming: true })).toBe('torpHoming');
-    expect(lookForReveal('torp', 'torpedo', stock)).toBe('torp');
+    expect(lookForReveal('torp', 'heavyTorpedo', { torpedoHoming: true })).toBe('torpHoming');
+    expect(lookForReveal('torp', 'heavyTorpedo', stock)).toBe('torp');
   });
 });
 
@@ -570,7 +570,7 @@ describe('Projectiles — the identity a live track paints with', () => {
     p.setOwnModes({ torpedoHoming: true });
     p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'broadside');
     p.onShell({ k: 'shell', id: 's2', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'gun');
-    p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }, 'torpedo');
+    p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }, 'heavyTorpedo');
     expect(p.lookOf('s1')).toBe('broadside');
     expect(p.lookOf('s2')).toBe('shell');
     expect(p.lookOf('t1')).toBe('torpHoming'); // styled at launch, before any steer
@@ -578,7 +578,7 @@ describe('Projectiles — the identity a live track paints with', () => {
 
   it('a doctrine swap never restyles ordnance already in the water', () => {
     const p = new Projectiles(900, new Container());
-    p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }, 'torpedo');
+    p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }, 'heavyTorpedo');
     expect(p.lookOf('t1')).toBe('torp'); // launched under the stock verb set
     p.setOwnModes({ torpedoHoming: true });
     expect(p.lookOf('t1')).toBe('torp'); // the fish that left the tube straight

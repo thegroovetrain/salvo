@@ -16,10 +16,11 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   effectiveStats,
-  resolveBoons,
   turretMountBearings,
   turretMuzzles,
   wrapAngle,
+  broadsideMountSpread,
+  broadsideTraverse,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { arcFillStyle, turretWedges } from '../render/firing.js';
@@ -27,16 +28,40 @@ import { arcFillStyle, turretWedges } from '../render/firing.js';
 const IDENTITY = { x: 0, y: 0, heading: 0 };
 const BW = CLIENT_CONFIG.broadsideArcs;
 
-const arcsFor = (...boons: string[]): {
+/**
+ * The broadside geometry at a given SPREAD rung and turret count, off the SHARED
+ * derivations — `broadsideTraverse` / `broadsideMountSpread` are the same two
+ * functions `clampStats` re-pins the live row with, so this is the firewall's
+ * own answer, not a re-derivation.
+ *
+ * WHY IT IS NO LONGER DRIVEN BY CARDS (Story 8.1). Catalog v3 makes BROADSIDE
+ * GUN one equipment line whose copy 1 fits the weapon; the v2 BROADSIDE SPREAD
+ * and BROADSIDE TURRETS ladders are gone, and the four upgrade tiers that
+ * replace them are Story 8.16's to author. The claim under test has always been
+ * about the RENDERED WEDGES, not about a card, so it is driven by the rung
+ * directly — and it will start covering real builds again the moment 8.16
+ * authors the tiers, with no edit here.
+ */
+const arcsAt = (rung: number, turrets: number): {
   hullId: 'battleship';
   turrets: number;
   traverseRad: number;
   mountSpreadRad: number;
-} => {
-  const b = effectiveStats(CONFIG.shipClasses.battleship, resolveBoons(boons)).broadside;
+} => ({
+  hullId: 'battleship',
+  turrets,
+  traverseRad: broadsideTraverse(rung),
+  mountSpreadRad: broadsideMountSpread(rung),
+});
+
+/** The base battleship broadside, straight off the firewall. */
+const arcsFor = (): ReturnType<typeof arcsAt> => {
+  const b = effectiveStats(CONFIG.shipClasses.battleship, []).equipment.broadside;
   return { hullId: 'battleship', turrets: b.turrets, traverseRad: b.traverseRad, mountSpreadRad: b.mountSpreadRad };
 };
-const MAXED = arcsFor('broadsideSpread', 'broadsideSpread', 'broadsideSpread', 'broadsideSpread');
+
+/** The ladder's top rung with its full six guns (catalog-v3 R35's cap). */
+const MAXED = arcsAt(CONFIG.broadside.traverseDeg.length, 6);
 
 describe('the broadside arc display — one wedge per gun, from the SHARED geometry', () => {
   it('THE ONE-GEOMETRY PIN: every apex is turretMuzzles() and every centre is turretMountBearings()', () => {
@@ -81,7 +106,7 @@ describe('the broadside arc display — one wedge per gun, from the SHARED geome
 
   it('BROADSIDE TURRETS densifies the SAME covered sector, never a wider one', () => {
     const four = turretWedges(1, arcsFor());
-    const six = turretWedges(1, arcsFor('broadsideTurrets', 'broadsideTurrets'));
+    const six = turretWedges(1, arcsAt(1, 6));
     expect(six).toHaveLength(6);
     const centre = (w: { from: number; to: number }): number => (w.from + w.to) / 2;
     // Outermost mount bearings are IDENTICAL — extra guns fill in between.

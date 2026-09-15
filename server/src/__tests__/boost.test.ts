@@ -142,7 +142,7 @@ describe('actSeq is inert on a weapon or empty slot', () => {
   it('a weapon slot (TB slot 1 = torpedo): actSeq advance launches NO fish and opens NO window', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    expect(a.loadout[SLOT_TORPEDO].equipmentId).toBe('torpedo');
+    expect(a.loadout[SLOT_TORPEDO].equipmentId).toBe('heavyTorpedo');
     pressActivate(w, 'a', 1, 1, SLOT_TORPEDO); // actSeq on a WEAPON slot
     w.step();
     expect(a.boostUntil).toBe(0);

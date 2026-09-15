@@ -1,5 +1,6 @@
-// COMBAT-BOT BOON POLICY (Story 6.4, wave 2) — how a bot spends a banked
-// level (Eric ruling D1: doctrine weights; D2: the heal rule).
+// COMBAT-BOT CARD POLICY (Story 6.4 wave 2; re-cut for catalog v3 in Story
+// 8.1) — how a bot spends a banked level (Eric ruling D1: doctrine weights;
+// D2: the heal rule).
 //
 // PURE POLICY, ZERO AUTHORITY. Nothing here calls World. `chooseSpend()`
 // returns a `spendChoice` — an offer index, HEAL_CHOICE (-1), or null for "not
@@ -13,68 +14,173 @@
 //      heal test comes first).
 //   2. hp/maxHp below the profile's healHpFrac → HEAL_CHOICE. A bot that
 //      keeps buying cards while sinking is a bot that dies with a full hand.
-//   3. Otherwise every offered line is scored by the PROFILE's weight table
-//      (CONFIG.bots.boonWeights): the per-LINE override if the table names
-//      that card, else the per-CATEGORY base, else a low default for anything
-//      the table does not speak to. Rarity breaks a tie (rares and exclusives
-//      are the nature-changers), then the lowest index — deterministic, no rng.
+//   3. Otherwise every offered LINE is scored: the profile's re-keyed per-line
+//      override if it names that line, else its re-keyed category base, else
+//      the line's KIND base, else a low default. Ties break on offer index —
+//      deterministic, no rng (a `spend: 'random'` test profile is the only
+//      path that touches the rng at all).
 //
-// EXCLUSIVE DEMOTION, and why it is not optional. A doctrine pair is
-// swap-legal: taking ACOUSTIC HOMING while holding COMMAND DETONATION swaps
-// the doctrine and returns the rival card to the deck, where it can be drawn
-// again. A weight table that says "raider loves torpedoHoming" would therefore
-// re-buy the same doctrine forever, ping-ponging every level the deck offers
-// it. So a line whose pair is ALREADY RESOLVED (this bot holds this card, or
-// holds its rival) drops to a neutral score — never zero, because taking it is
-// still legal and still better than nothing when the rest of the hand is
-// junk. Same shape as the batch-sim's `preferenceRank`, which is a
-// MEASUREMENT INSTRUMENT and not canon — it is deliberately not imported.
+// WHAT CATALOG V3 DELETED HERE (Story 8.1). RARITY is gone as a concept, so
+// the rarity tiebreak went with it; ACQUISITION cards are gone, so the
+// "already-resolved exclusive" demotion has nothing left to demote; and the
+// old `copies === 1` held-line test is replaced by the only thing that is
+// true of every v3 line — AT CAP: a bot that holds `CATALOG[id].cap` copies
+// of a line can buy nothing more from it, whatever its cap happens to be.
+//
+// THE V2 → V3 REMAP, AND WHY IT LIVES HERE. `CONFIG.bots.boonWeights` is
+// authored in the v2 vocabulary (nine CATEGORY bases + v2 LINE overrides).
+// Catalog v3 deleted both vocabularies, and the weight tables are a BOT TUNE,
+// not a card fact — retuning them is a balance pass with its own ruling, not
+// a side effect of the model swap (deferred-work already carries the bot
+// retune). So this module translates the shipped table onto the 29 v3 lines
+// and changes NO number:
+//
+//   CATEGORY   → v3 lines
+//   ship       → armor, speed, turning, reload
+//   guns       → deckGun, deckGunTurret, deckGunBarrel
+//   torpedoes  → lightTorpedo, heavyTorpedo, supercavTorpedo, acousticHoming
+//   mines      → navalMines, captiveMines, foulingMines
+//   broadside  → broadside
+//   starShells → starShells, dazzleShells, phosphorShells
+//   intel      → radarSweep
+//   radarBuoy  → decoyBuoy            (R1: the buoy becomes the consumable)
+//   speedBoost → (nothing — Story 8.9 makes the boost a universal ability,
+//                 so no v3 card addresses it and the base is simply unused)
+//
+//   LINE OVERRIDE                     → v3 line
+//   shipHull → armor · shipSpeed → speed · shipCooldown → reload
+//   intelSweep → radarSweep
+//   gunBarrel → deckGunBarrel · gunTurret → deckGunTurret
+//   torpedoTube, torpedoSpeed, acquireTorpedo → heavyTorpedo
+//   torpedoHoming → acousticHoming
+//   mineBlast, acquireMine → navalMines · mineCaptive → captiveMines
+//   minePropFouling → foulingMines
+//   broadsideTurrets, broadsideSpread, acquireBroadside → broadside
+//   starDuration, acquireStarShells → starShells · starDazzle → dazzleShells
+//   buoyDuration, acquireRadarBuoy → decoyBuoy
+//   buoyGun, acquireBoost → (nothing — no v3 card grants either)
+//
+// Several v2 keys land on ONE v3 line (raider's torpedoTube 2.5, torpedoSpeed
+// 2.2 and acquireTorpedo 1.6 all become `heavyTorpedo`). The HIGHEST of them
+// wins: the strongest thing the profile said about that weapon is what it
+// meant about the weapon.
 //
 // NO PICK-ORDER AWARENESS LIVES HERE, AND NONE SHOULD.
 // This policy scores each offered card on its own merits and never reasons
 // about the order cards are acquired in. That was a deliberate ruling when the
-// `mineDamage` × `minePropFouling` pick-order bug was still open (the pair
-// composed to 53 hp or 45 hp depending on which landed first): the finding was
-// against the BOON ENGINE, not the bots, and Eric confirmed bots should eat it
-// exactly as human players do rather than route around it.
-//
-// That bug is now FIXED UPSTREAM — amendment 25 deleted prop-fouling's damage
-// multiplier, so one effect writes `mine.damage` and order cannot matter. The
-// rule survives its occasion: if a future card reintroduces order-dependence,
-// the fix belongs in the boon engine for everyone, with a ruling — not as a
-// lookahead special case in here.
+// `mineDamage` × `minePropFouling` pick-order bug was still open: the finding
+// was against the CARD ENGINE, not the bots, and Eric confirmed bots should
+// eat it exactly as human players do rather than route around it. Catalog v3
+// removes the hazard by construction (the fold is permutation-invariant and
+// `validateCatalog` refuses an add/mult collision), but the rule survives its
+// occasion: a future order-dependence is fixed in the engine for everyone.
 
-import { BOON_CATALOG, CONFIG, HEAL_CHOICE, type BoonCatalog, type BoonDef, type Rng } from '@salvo/shared';
+import {
+  CATALOG,
+  CONFIG,
+  HEAL_CHOICE,
+  boonStackCount,
+  type Catalog,
+  type CatalogLine,
+  type LineKind,
+  type Rng,
+} from '@salvo/shared';
 import type { BotProfile } from './profiles.js';
 import type { AnyProfileId } from './types.js';
 
 /** Everything the policy needs about the bot's own economy — read by the
  *  driver off the bot's OWN ShipRecord (the sanctioned self-read: its bank,
- *  its front offer, its fitted boons, its hp). */
+ *  its front offer, its fitted cards, its hp). */
 export interface BotSpendState {
   /** Unspent banked levels. */
   bankedLevels: number;
-  /** The FRONT OFFER's boon ids, or null (nothing materialized). */
+  /** The FRONT OFFER's card line ids, or null (nothing materialized). */
   offer: readonly string[] | null;
-  /** Boon ids already fitted, in application order (repeats = stacks). */
-  boons: readonly string[];
+  /** Card line ids already fitted, in fit order (repeats = stacks). */
+  cards: readonly string[];
   hp: number;
   maxHp: number;
 }
 
-/** Score for a line this bot already holds a copy of — deliberately neither
- *  zero (the pick stays legal) nor competitive. Sits just under the lowest
- *  category base in the table. */
+/** Score for a line this bot has taken to its CAP — deliberately neither zero
+ *  (the pick stays legal, and a banked level held forever is wasted) nor
+ *  competitive. Sits just under the lowest category base in the table. */
 const HELD_LINE_SCORE = 0.9;
 
-/** Score for a card in a category this profile's table says nothing about.
- *  Below every real weight, above a resolved exclusive is NOT the point — an
- *  unlisted category is simply not wanted. */
+/** Score for a line nothing in this profile's table — and no kind base —
+ *  speaks to. Below every real weight. */
 const UNLISTED_SCORE = 0.5;
 
-/** Tiebreak only: at equal weight, prefer the scarcer, more transformative
- *  card. Never a term in the weight itself. */
-const RARITY_RANK: Readonly<Record<string, number>> = { common: 0, rare: 1, exclusive: 2 };
+/**
+ * THE KIND BASES (Story 8.1): what a profile wants from a line its re-keyed
+ * table says nothing about, by the card's v3 KIND.
+ *
+ * STRUCTURAL, NOT TUNED. These are not new balance decisions: they reproduce
+ * the shape the v2 table already had — a universal ladder is the safe
+ * always-useful buy, an add-on is a cheap nature-changer on a weapon you are
+ * already carrying, a new weapon is a bigger commitment, a consumable is the
+ * least of them until Story 8.7 gives the rack a use. The real bot retune
+ * against v3 decks is a balance pass with its own ruling (deferred-work).
+ */
+const KIND_BASE: Readonly<Record<LineKind, number>> = Object.freeze({
+  ladder: 1.8,
+  addon: 1.6,
+  equipment: 1.2,
+  consumable: 1.0,
+});
+
+/** v2 CATEGORY → the v3 lines it now speaks for (see the header table).
+ *  Exported so the re-key is pinnable rather than only documented. */
+export const CATEGORY_LINES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  ship: ['armor', 'speed', 'turning', 'reload'],
+  guns: ['deckGun', 'deckGunTurret', 'deckGunBarrel'],
+  torpedoes: ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo', 'acousticHoming'],
+  mines: ['navalMines', 'captiveMines', 'foulingMines'],
+  broadside: ['broadside'],
+  starShells: ['starShells', 'dazzleShells', 'phosphorShells'],
+  intel: ['radarSweep'],
+  radarBuoy: ['decoyBuoy'],
+  speedBoost: [], // Story 8.9: the boost becomes a universal ability, not a card
+});
+
+/** v2 LINE-override key → the v3 line it now names (see the header table).
+ *  A key with no v3 home is listed in HOMELESS_V2_LINES below instead, and
+ *  contributes nothing. Exported so the re-key is pinnable. */
+export const LINE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
+  shipHull: 'armor',
+  shipSpeed: 'speed',
+  shipCooldown: 'reload',
+  intelSweep: 'radarSweep',
+  gunBarrel: 'deckGunBarrel',
+  gunTurret: 'deckGunTurret',
+  torpedoTube: 'heavyTorpedo',
+  torpedoSpeed: 'heavyTorpedo',
+  acquireTorpedo: 'heavyTorpedo',
+  torpedoHoming: 'acousticHoming',
+  mineBlast: 'navalMines',
+  acquireMine: 'navalMines',
+  mineCaptive: 'captiveMines',
+  minePropFouling: 'foulingMines',
+  broadsideTurrets: 'broadside',
+  broadsideSpread: 'broadside',
+  acquireBroadside: 'broadside',
+  starDuration: 'starShells',
+  acquireStarShells: 'starShells',
+  starDazzle: 'dazzleShells',
+  buoyDuration: 'decoyBuoy',
+  acquireRadarBuoy: 'decoyBuoy',
+});
+
+/**
+ * The v2 line-override keys catalog v3 has NO home for, listed deliberately so
+ * the "every override names a real line" pin can tell a re-key gap from a
+ * ruled deletion:
+ *   - `buoyGun` — the GUN BUOY verb; R1 deletes the radar buoy (Story 8.15)
+ *     and no v3 line grants it.
+ *   - `acquireBoost` — the speed boost becomes the universal Shift ability in
+ *     Story 8.9, so it is not a card at all.
+ */
+export const HOMELESS_V2_LINES: ReadonlySet<string> = new Set(['buoyGun', 'acquireBoost']);
 
 /** One profile's two-level weight table, widened for lookup. */
 interface WeightTable {
@@ -85,8 +191,8 @@ interface WeightTable {
 /** The empty table a profile OUTSIDE CONFIG.bots.boonWeights resolves to —
  *  test-only rows have no doctrine table (they spend at random and only reach
  *  the weighted scorer through a hand-built call), so every line scores at
- *  the unlisted default rather than crashing on a missing table. Unreachable
- *  for the six in-game ids, whose tables always exist. */
+ *  its kind base rather than crashing on a missing table. Unreachable for the
+ *  six in-game ids, whose tables always exist. */
 const EMPTY_TABLE: WeightTable = { cat: {}, lines: {} };
 
 /** The CONFIG weight table for a profile (category bases + line overrides). */
@@ -100,79 +206,78 @@ function weightTable(profile: AnyProfileId): WeightTable {
 
 /** Catalog lookup, own-property only (the engine-wide fail-closed gate: a
  *  plain-object catalog answers `catalog['constructor']` otherwise). */
-function defOf(catalog: BoonCatalog, id: string): BoonDef | null {
+function lineOf(catalog: Catalog, id: string): CatalogLine | null {
   if (!Object.hasOwn(catalog, id)) return null;
   return catalog[id] ?? null;
 }
 
-/** True when this bot already holds the ONE-COPY line this def names — a rare
- *  ×1 doctrine card it has fitted is worth nothing more to it.
- *
- *  EXCLUSIVITY IS DELETED (Story 7-5 wave 2, R2.6): this used to also demote a
- *  line whose `exclusiveWith` RIVAL was held, because the cannon's AP/PLUNGING
- *  pair could only ever resolve one way. Doctrine verbs now stack, so there is
- *  no rival to be pre-empted by — only the card's own copies matter, and the
- *  deck already stops re-offering an exhausted line.
- *
- *  THE `copies === 1` TEST IS THE FIX, NOT A NARROWING (cross-model review,
- *  cycle 110). This read `fitted.includes(def.id)` with no copy test, so it
- *  demoted EVERY held line — including the deliberately stackable ones. A
- *  `siege` bot that bought one `intelRange` scored the next at 0.9 instead of
- *  its profile's 2.4 and stopped building the stacked line its whole doctrine
- *  is about; the same held for `shipCooldown` (×5), `mineBlast` (×4) and
- *  every other ladder. The docstring above always said ONE-COPY; only the
- *  implementation disagreed. A multi-copy line needs no demotion at all — the
- *  deck stops offering it once its copies are spent. */
-function alreadyHeld(def: BoonDef, fitted: readonly string[]): boolean {
-  return def.copies === 1 && fitted.includes(def.id);
+/** The HIGHEST re-keyed per-line override this profile has for `id`, or null.
+ *  A table key that already IS a v3 line id counts as itself, so a future
+ *  retune can author v3 keys directly without touching this module. */
+function overrideFor(table: WeightTable, id: string): number | null {
+  let best: number | null = null;
+  for (const key of Object.keys(table.lines)) {
+    const target = key === id ? id : LINE_ALIASES[key];
+    if (target !== id) continue;
+    const w = table.lines[key];
+    if (w !== undefined && (best === null || w > best)) best = w;
+  }
+  return best;
+}
+
+/** The HIGHEST re-keyed category base this profile has for `id`, or null. */
+function categoryFor(table: WeightTable, id: string): number | null {
+  let best: number | null = null;
+  for (const key of Object.keys(table.cat)) {
+    if (!(CATEGORY_LINES[key] ?? []).includes(id)) continue;
+    const w = table.cat[key];
+    if (w !== undefined && (best === null || w > best)) best = w;
+  }
+  return best;
 }
 
 /**
- * How much this profile wants one offered line: the per-LINE override if the
- * table names it, else the per-CATEGORY base, else the unlisted default —
- * with an already-held one-copy line demoted to neutral. Exported so tests (and a
- * future tuning tool) can read the policy without running a spend.
+ * How much this profile wants one offered LINE: the HIGHEST of its re-keyed
+ * per-line overrides and its re-keyed category bases for that line, else the
+ * line's KIND base — with a line already held AT CAP demoted to neutral.
+ * Exported so tests (and a future tuning tool) can read the policy without
+ * running a spend.
+ *
+ * WHY THE MAX RATHER THAN "OVERRIDE FIRST" (Story 8.1): the re-key collapses
+ * several v2 keys onto one v3 line, and a v2 table could legitimately price
+ * them differently — raider's `acquireRadarBuoy` 0.8 (an acquisition it ranked
+ * last) and its `radarBuoy` category base both now speak about `decoyBuoy`.
+ * Taking the strongest thing the profile said about that line keeps the v2
+ * intent intact in both directions; override-first would silently let an
+ * acquisition ranking demote a category the profile actually wants.
  */
 export function boonWeightFor(
   profile: AnyProfileId,
   id: string,
   fitted: readonly string[] = [],
-  catalog: BoonCatalog = BOON_CATALOG,
+  catalog: Catalog = CATALOG,
 ): number {
-  const def = defOf(catalog, id);
-  if (def === null) return 0; // unknown id: never picked
-  if (alreadyHeld(def, fitted)) return HELD_LINE_SCORE;
+  const line = lineOf(catalog, id);
+  if (line === null) return 0; // unknown id: never picked
+  if (boonStackCount(fitted, id) >= line.cap) return HELD_LINE_SCORE;
   const table = weightTable(profile);
-  return table.lines[id] ?? table.cat[def.category] ?? UNLISTED_SCORE;
-}
-
-/** Rarity rank of a line (tiebreak only). */
-function rarityOf(catalog: BoonCatalog, id: string): number {
-  const def = defOf(catalog, id);
-  return def === null ? -1 : (RARITY_RANK[def.rarity] ?? 0);
-}
-
-/** True when candidate `i` beats the incumbent on weight, then rarity. Index
- *  order settles a full tie by never displacing the incumbent. */
-function beats(w: number, r: number, bestW: number, bestR: number): boolean {
-  if (w !== bestW) return w > bestW;
-  return r > bestR;
+  const named = [overrideFor(table, id), categoryFor(table, id)].filter((w): w is number => w !== null);
+  if (named.length > 0) return Math.max(...named);
+  return KIND_BASE[line.kind] ?? UNLISTED_SCORE;
 }
 
 /** The best line in an offer under this profile's weights. Never returns -1
  *  for a non-empty offer: even an all-junk hand is spent, because a banked
- *  level held forever is a level wasted. */
-function bestOfferIndex(profile: BotProfile, s: BotSpendState, catalog: BoonCatalog): number {
+ *  level held forever is a level wasted. Ties keep the incumbent, so offer
+ *  index settles them — deterministic, rng-free. */
+function bestOfferIndex(profile: BotProfile, s: BotSpendState, catalog: Catalog): number {
   const offer = s.offer ?? [];
   let bestI = 0;
   let bestW = -Infinity;
-  let bestR = -1;
   for (let i = 0; i < offer.length; i += 1) {
-    const w = boonWeightFor(profile.id, offer[i], s.boons, catalog);
-    const r = rarityOf(catalog, offer[i]);
-    if (beats(w, r, bestW, bestR)) {
+    const w = boonWeightFor(profile.id, offer[i], s.cards, catalog);
+    if (w > bestW) {
       bestW = w;
-      bestR = r;
       bestI = i;
     }
   }
@@ -201,7 +306,7 @@ function bestOfferIndex(profile: BotProfile, s: BotSpendState, catalog: BoonCata
 export function chooseSpend(
   profile: BotProfile,
   s: BotSpendState,
-  catalog: BoonCatalog = BOON_CATALOG,
+  catalog: Catalog = CATALOG,
   rng?: Rng,
 ): number | null {
   if (s.bankedLevels <= 0) return null;

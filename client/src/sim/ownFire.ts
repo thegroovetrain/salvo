@@ -36,7 +36,7 @@ export const OWN_FIRE_WINDOW_MS = 400;
  *  PLACED ids (the mine and the radar buoy — placed, never revealed as a track)
  *  can never leak through into a projectile's identity, so they are rejected at
  *  the claim. */
-const BALLISTIC: readonly EquipmentId[] = ['gun', 'broadside', 'torpedo', 'starShells'];
+const BALLISTIC: readonly EquipmentId[] = ['gun', 'broadside', 'heavyTorpedo', 'starShells'];
 
 /** Pure: is this equipment id one a `shell`/`torp` reveal could have come from? */
 export function isBallisticFire(id: EquipmentId): boolean {

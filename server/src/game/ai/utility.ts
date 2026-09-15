@@ -389,7 +389,7 @@ export function tracksOf(mind: BotMind): BotTrack[] {
  * owner's own mines, at any range, so this is a true board count — no port
  * change, no perception widening). Consumed by the mine tactic's lay bounds
  * (ai/equipment.ts): `addMine` silently EVICTS the owner's oldest mine at
- * `stats.mine.maxLive`, so a bot that lays without counting churns the field
+ * `stats.equipment.navalMines.maxLive`, so a bot that lays without counting churns the field
  * it just built. A null view (never observed — a frozen boarding room, or a
  * hand-built test) reads as an empty board, matching tactics.ts's
  * `avoidMines` fail-open reading of the same array.

@@ -8,7 +8,7 @@
 // the only push in the one-way flow; everything else pulls).
 
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
   HULL_IDS,
   MSG,
@@ -133,7 +133,7 @@ export interface RoomBindingDeps {
   /**
    * THE OWN-FIRE CORRELATION (Story 2.9). CLAIMS the click-time own-fire latch
    * (sim/ownFire.ts): which weapon the local captain fired a moment ago —
-   * 'gun' | 'broadside' | 'torpedo' | 'starShells' — or null if we did not just
+   * 'gun' | 'broadside' | 'heavyTorpedo' | 'starShells' — or null if we did not just
    * shoot. main.ts latches it at CLICK time (the primed slot's equipment id, on
    * a click its own prediction says will fire) and expires it after a short
    * window, so an own reveal materializing on our own bow can be attributed to
@@ -280,14 +280,14 @@ export interface RoomBindingDeps {
    */
   onSpendAck: () => void;
   /**
-   * A boon just landed, with the CATEGORY it landed on (Story 2.9): main.ts
-   * latches the fit flash on the slot that category belongs to — or, for a
-   * shipwide INTEL/SHIP line that no slot owns, on the whole hotbar frame
+   * A card just landed, with its LINE ID (Story 2.9, re-keyed in 8.1): main.ts
+   * latches the fit flash on the slot holding the equipment that line addresses
+   * — or, for a shipwide ladder that no slot owns, on the whole hotbar frame
    * (amendment 51: the visible change is slot-side, never the hull). The tone
    * is played here (it is a cue, and cues live with their events); the flash is
    * a render latch, so net calls a callback rather than reaching into main.
    */
-  onBoonFitted: (category: string) => void;
+  onBoonFitted: (cardId: string) => void;
   /** Fired ONCE when the first spec frame arrives (enter spectate mode). */
   onSpectate: () => void;
   /** The one end-of-match results broadcast. */
@@ -705,7 +705,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     // never reads state.net.you.
     const statsChanged = ownStatsChanged(f.you, net.you);
     net.you = f.you;
-    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.boons);
+    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards);
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
@@ -817,7 +817,7 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
  */
 export function ownStatsChanged(next: OwnShip, prev: OwnShip | null | undefined): boolean {
   if (!prev || next.cls !== prev.cls) return true;
-  return !sameList(next.boons, prev.boons);
+  return !sameList(next.cards, prev.cards);
 }
 
 /** Element-wise equality of two flat lists (numbers or strings). */
@@ -1315,7 +1315,7 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
  * the spender), so the id check is defensive, not load-bearing. Deliberately
  * NOT dead-gated: spending while dead is legal (ratified 2.6/2.7), and the
  * confirmation that the spend landed is exactly what the player needs.
- * The authoritative boon list rides OwnShip.boons (onOwnStats); this is UX.
+ * The authoritative card list rides OwnShip.cards (onOwnStats); this is UX.
  *
  * It is ALSO the spend latch's ack (deps.onSpendAck — see the dep's note): the
  * one unambiguous "your spend landed" signal on the wire, where every other
@@ -1328,19 +1328,18 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   // boon (handleFrame applies it before the events fan out), so the occurrence
   // count IS the fitted position — 1 for a first fit, 3 for the third HEAVY
   // SHELLS. A defensive 0 (no `you`) floors to the ladder's first name.
-  pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.boons ?? [], e.boon)));
-  // STORY 2.9 — the fit is no longer one generic two-note for every line: the
-  // cue is WEIGHTED BY TIER (fitTone) and the flash lands on the CATEGORY's own
-  // slot. Both read off the shared catalog, fail-open (a junk/unknown id still
-  // gets the common weight and a rank-wide flash) — FR22 makes silence the
-  // defect, so no branch here may end without a cue.
-  // The TIER picks the cue's weight; the CATEGORY transposes it (fitDetune, in
-  // cents) so two commons fitted back to back on different slots are audibly
-  // different events without becoming different cues. Both fail open: an
-  // unknown id lands on the common weight at the untransposed root.
-  const def = Object.hasOwn(BOON_CATALOG, e.boon) ? BOON_CATALOG[e.boon] : undefined;
-  deps.audio.play(fitTone(def?.rarity), { detune: fitDetune(def?.category ?? '') });
-  deps.onBoonFitted(def?.category ?? '');
+  pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon)));
+  // STORY 2.9, re-keyed in 8.1 — the fit is no longer one generic two-note for
+  // every line: the cue is WEIGHTED BY KIND (fitTone) and the flash lands on the
+  // slot holding the equipment the card ADDRESSES. Both read off the shared
+  // catalog, fail-open (a junk/unknown id still gets the light weight and a
+  // rank-wide flash) — FR22 makes silence the defect, so no branch here may end
+  // without a cue. The KIND picks the cue's weight and transposes it (fitDetune,
+  // in cents), so a ladder rung and a weapon fit are audibly different events
+  // without becoming different cues.
+  const line = Object.hasOwn(CATALOG, e.boon) ? CATALOG[e.boon] : undefined;
+  deps.audio.play(fitTone(line?.kind), { detune: fitDetune(line?.kind ?? '') });
+  deps.onBoonFitted(e.boon);
   deps.onSpendAck();
 }
 
@@ -1446,12 +1445,12 @@ function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' {
  */
 function handleTorp(e: BallisticEvent, deps: RoomBindingDeps): void {
   const near = nearOwnShip(e.x, e.y, deps);
-  const own: OwnFire = near && deps.ownFireWeapon() === 'torpedo' ? 'torpedo' : null;
+  const own: OwnFire = near && deps.ownFireWeapon() === 'heavyTorpedo' ? 'heavyTorpedo' : null;
   // A torpedo's `own` IS a genuine claim (there is no fallback on this path —
   // an unclaimed fish renders the generic straight-runner), so it doubles as
   // the burst-ring authority for a COMMAND DETONATION fish.
   deps.projectiles.onShell(e, own, own);
-  if (near) deps.audio.play(fireTone('torpedo'));
+  if (near) deps.audio.play(fireTone('heavyTorpedo'));
 }
 
 /** True iff (x,y) is within one hull length of the own ship specifically. */

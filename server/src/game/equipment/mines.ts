@@ -147,7 +147,7 @@ export function addMine(
 // can never drift from what the client classifies/renders. Resolved at module
 // load — a non-sector mine arc is a CONFIG/arcs authoring error, failed loudly
 // at boot (sectorArcFor throws), never mid-tick.
-const REAR_SECTOR = sectorArcFor('mine');
+const REAR_SECTOR = sectorArcFor('navalMines');
 
 /** The clicked placement point: along the aim bearing at the clicked distance
  *  (never negative), measured from the ship CENTER — "place the mine AT the
@@ -314,14 +314,14 @@ export function hullFor(ship: ShipRecord): HullTarget {
  *  CONFIG.mine.placeRange — either miss is 'out-of-arc' (the aim-denial
  *  channel, per the amendment ruling); a clicked point inside a rock / off the
  *  water is 'blocked' (Story 1.10); an empty pool is 'no-ammo'. The drop ammo
- *  pool is distinct from the live-mine board cap (stats.mine.maxLive) that
+ *  pool is distinct from the live-mine board cap (stats.equipment.navalMines.maxLive) that
  *  addMine enforces. Pool size + reload come from the ship's cached effective
  *  stats. Slot state is non-null by the loadout invariant (see index.ts). */
 export const mineEquipment: Equipment = {
-  id: 'mine',
-  isWeapon: EQUIPMENT_IS_WEAPON.mine, // shared weapon/ability split — single source
+  id: 'navalMines',
+  isWeapon: EQUIPMENT_IS_WEAPON.navalMines, // shared weapon/ability split — single source
   tick(ship, slot, dtMs): void {
-    tickReload(slot.state!, ship.stats.mine.maxAmmo, ship.stats.mine.reloadMs, dtMs);
+    tickReload(slot.state!, ship.stats.equipment.navalMines.maxAmmo, ship.stats.equipment.navalMines.reloadMs, dtMs);
   },
   activate(ctx, slot) {
     const ship = ctx.ship;
@@ -332,7 +332,7 @@ export const mineEquipment: Equipment = {
     if (ship.input.aimDist > CONFIG.mine.placeRange) return { ok: false, reason: 'out-of-arc' };
     const p = minePlacePoint(ship);
     if (dropBlocked(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' }; // nothing consumed
-    if (!consume(slot.state!, ship.stats.mine.reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
+    if (!consume(slot.state!, ship.stats.equipment.navalMines.reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
     ctx.dropMine(p.x, p.y);
     return { ok: true };
   },

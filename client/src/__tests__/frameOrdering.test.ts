@@ -27,8 +27,8 @@ function fakeRoom(): unknown {
   };
 }
 
-/** A frame carrying an own-ship block with the given fitted boons. */
-function frameWith(tick: number, boons: readonly string[]): unknown {
+/** A frame carrying an own-ship block with the given fitted cards. */
+function frameWith(tick: number, cards: readonly string[]): unknown {
   return {
     t: tick * 50,
     tick,
@@ -38,7 +38,7 @@ function frameWith(tick: number, boons: readonly string[]): unknown {
     events: [],
     you: {
       x: 0, y: 0, heading: 0, speed: 0, alive: true, hp: 100,
-      cls: 'torpedoBoat', boons, sweep: 0, pts: 0, offer: [], ammo: [],
+      cls: 'torpedoBoat', cards, sweep: 0, pts: 0, offer: [], ammo: [],
     },
   };
 }
@@ -93,11 +93,11 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink, state } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['intelSweep']))).toThrow();
+    expect(() => sink.handler(frameWith(1, ['radarSweep']))).toThrow();
     // THE POINT: the mirror advanced despite the throw, so the next frame has a
     // fresh baseline to compare against.
     expect(state.net.you).not.toBeNull();
-    expect((state.net.you as { boons: string[] }).boons).toEqual(['intelSweep']);
+    expect((state.net.you as { cards: string[] }).cards).toEqual(['radarSweep']);
   });
 
   it('does not re-fire onOwnStats on the next frame for the same boon list', () => {
@@ -105,11 +105,11 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['intelSweep']))).toThrow();
+    expect(() => sink.handler(frameWith(1, ['radarSweep']))).toThrow();
     // Same boons: with the mirror advanced, ownStatsChanged is now false, so the
     // second frame must sail straight past the throwing callback. Under the old
     // ordering this threw again, and would have thrown on every frame forever.
-    sink.handler(frameWith(2, ['intelSweep']));
+    sink.handler(frameWith(2, ['radarSweep']));
     expect(onOwnStats).toHaveBeenCalledTimes(1);
   });
 
@@ -121,9 +121,9 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink, onServerState } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['intelSweep']))).toThrow();
+    expect(() => sink.handler(frameWith(1, ['radarSweep']))).toThrow();
     expect(onServerState).not.toHaveBeenCalled(); // frame 1 died below the throw
-    sink.handler(frameWith(2, ['intelSweep']));
+    sink.handler(frameWith(2, ['radarSweep']));
     expect(onServerState).toHaveBeenCalledTimes(1);
   });
 
@@ -132,9 +132,9 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
       throw new Error('applyOwnStats blew up');
     });
     const { sink, pushFrame } = setup(onOwnStats);
-    expect(() => sink.handler(frameWith(1, ['intelSweep']))).toThrow();
-    sink.handler(frameWith(2, ['intelSweep']));
-    sink.handler(frameWith(3, ['intelSweep']));
+    expect(() => sink.handler(frameWith(1, ['radarSweep']))).toThrow();
+    sink.handler(frameWith(2, ['radarSweep']));
+    sink.handler(frameWith(3, ['radarSweep']));
     // EXACTLY 2 (review gate): the throwing frame 1 must NOT reach pushFrame —
     // it is below the throw — and frames 2 and 3 must both get there. A `>= 2`
     // bound would also pass if frame 1 leaked through, which is the opposite of
@@ -145,8 +145,8 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
   it('fires again when the boon list genuinely changes', () => {
     const onOwnStats = vi.fn();
     const { sink } = setup(onOwnStats);
-    sink.handler(frameWith(1, ['intelSweep']));
-    sink.handler(frameWith(2, ['intelSweep', 'shipHull']));
+    sink.handler(frameWith(1, ['radarSweep']));
+    sink.handler(frameWith(2, ['radarSweep', 'armor']));
     expect(onOwnStats).toHaveBeenCalledTimes(2);
   });
 });

@@ -35,7 +35,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isAfloat,
   isSinking,
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
   HEAL_CHOICE,
   HORN_IDS,
@@ -45,7 +45,6 @@ import {
   hullSilhouette,
   mulberry32,
   paintSeed,
-  resolveBoons,
   segPolygonHit,
   segmentPaintSeed,
   wrapPositive,
@@ -117,7 +116,7 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 // dazzledUntil mark is live — mirrored independently from signals.sightOf.
 function stacksOf(me: ShipRecord, boonId: string): number {
   let n = 0;
-  for (const b of me.boons) if (b === boonId) n += 1;
+  for (const b of me.cards) if (b === boonId) n += 1;
   return n;
 }
 
@@ -1809,7 +1808,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
 function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   const me = w.ships.get(viewerId)!;
   // Fitted boons ride ONLY on the observer's own ship — never on a contact.
-  if (f.you) expect(f.you.boons).toEqual(me.boons);
+  if (f.you) expect(f.you.cards).toEqual(me.cards);
   // Story 2.6: level + XP progress are self-private on the same terms — the
   // observer's OWN values, and nothing else's.
   if (f.you) {
@@ -2227,7 +2226,22 @@ function buoyMaskOracle(b: BuoyState, t: number): MaskOracle {
   return wakeMaskOracle(b.x, b.y, b.x, b.y, BUOY_PAINT_W_U, t);
 }
 
-/** The JAMMING verb, re-derived from the owner's RAW fitted-boon list (never
+/**
+ * FIT THE JAMMING VERB (Story 8.1). `buoyJamming` was a doctrine card;
+ * catalog v3 deletes it — R1 removes the radar buoy outright in Story 8.15 in
+ * favour of the DECOY BUOY consumable, and the doctrine vocabulary lost the
+ * buoy with it — so no card can set the verb this cycle. The MECHANISM ships
+ * and the invariant must still be fuzzed against it, so the id stays on the
+ * ship's card list (which is what the oracle re-derives from) and the verb is
+ * set on the effective row, which is where a fitted line would put it.
+ */
+function fitJamming(owner: ShipRecord): void {
+  owner.cards = [...owner.cards, 'buoyJamming'];
+  owner.stats = effectiveStats(owner.cls, owner.cards);
+  owner.stats.equipment.radarBuoy.jamming = true;
+}
+
+/** The JAMMING verb, re-derived from the owner's RAW fitted-card list (never
  *  owner.stats — the effSight/effRadar reimplementation rule). A vacated
  *  owner jams nothing. */
 function ownerJams(w: World, buoy: BuoyState): boolean {
@@ -3089,7 +3103,7 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     // never ride another observer's frame, and a fabricated boon id can never
     // materialize (the server only ever emits what it just applied).
     expect((e as BoonFitEvent).id).toBe(me.id);
-    expect(Object.hasOwn(BOON_CATALOG, (e as BoonFitEvent).boon)).toBe(true);
+    expect(Object.hasOwn(CATALOG, (e as BoonFitEvent).boon)).toBe(true);
   },
   // Story 4.3 — the gunnery conversation's three DECLARED exceptions, each
   // reimplemented here independently of its registry row (the header rule).
@@ -3251,10 +3265,10 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         // RANGE removed the only card that could widen a per-observer RADIUS,
         // so the fuzz no longer varies radii — every observer runs the base
         // ladder and the invariant is exercised across rpm instead.
-        for (let n = rng.int(0, 5); n > 0; n--) intel.push('intelSweep'); // toward the rpm cap
-        rec.boons = intel;
-        rec.boonDefs = resolveBoons(intel);
-        rec.stats = effectiveStats(rec.cls, rec.boonDefs);
+        for (let n = rng.int(0, 5); n > 0; n--) intel.push('radarSweep'); // toward the rpm cap
+        rec.cards = intel;
+        rec.cards = [...intel];
+        rec.stats = effectiveStats(rec.cls, rec.cards);
         // RADAR WAKES (Story 4.12): guarantee the wk oracle is EXERCISED, not
         // vacuous — most hulls start with a laid track ending at their stern
         // (raw ring injection, ages spread across the 12s life so all four
@@ -3308,11 +3322,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       // injectMine's raw write) with a fuzz-drawn private jamSeed.
       for (let bi = 0; bi < rng.int(0, 2); bi++) {
         const owner = w.ships.get(ids[rng.int(0, ids.length - 1)])!;
-        if (rng.float(0, 1) < 0.5 && !owner.boons.includes('buoyJamming')) {
-          owner.boons = [...owner.boons, 'buoyJamming'];
-          owner.boonDefs = resolveBoons(owner.boons);
-          owner.stats = effectiveStats(owner.cls, owner.boonDefs);
-        }
+        if (rng.float(0, 1) < 0.5 && !owner.cards.includes('buoyJamming')) fitJamming(owner);
         const ang = rng.float(0, TAU);
         const r = rng.float(0, w.map.radius * 0.9);
         addBuoy(w.buoys, owner, Math.cos(ang) * r, Math.sin(ang) * r, w.now, `buoy${bi}`, rng.int(0, 0xffffffff));
@@ -3403,9 +3413,7 @@ describe('perception — the jamming carve-out still catches a genuine leak (R2.
     const w = bareWorld();
     place(w, 'a', 0, 0); // observer; place() parks its beam zero-width
     const j = place(w, 'j', 2000, 2000); // the jamming buoy's owner, far away
-    j.boons = ['buoyJamming'];
-    j.boonDefs = resolveBoons(j.boons);
-    j.stats = effectiveStats(j.cls, j.boonDefs);
+    fitJamming(j);
     addBuoy(w.buoys, j, 400, 0, w.now, 'jb1', 0xdead_beef);
     // The REAL hidden ship: inside the jammed circle and inside a's annulus,
     // but a's paint window is zero-width, so NO gate passes for it.

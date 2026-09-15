@@ -13,11 +13,14 @@
 // boon-copy rule) — canon later.
 
 import {
-  EQUIPMENT_CATEGORY,
+  CATALOG,
   EQUIPMENT_IS_WEAPON,
+  LINE_IDS,
   SLOT_GUN,
   equipmentMaxAmmo,
   equipmentReloadMs,
+  tierTargetOf,
+  type CatalogLine,
   type EffectiveStats,
   type EquipmentId,
 } from '@salvo/shared';
@@ -27,22 +30,42 @@ import {
  *  class specials, R the pickup/extra slot. Top-to-bottom Gun – Q – E – R. */
 export const SLOT_KEY_GLYPHS: readonly string[] = ['', 'Q', 'E', 'R'];
 
-/** Display name per equipment id (DRAFT copy). */
+/**
+ * Display name per equipment id. The seven BUILT ids keep their shipped names
+ * verbatim (Story 8.1 renamed ids, never copy); the eight ids catalog v3 widened
+ * `EquipmentId` with carry their catalog-v3 §1 sheet name and nothing else —
+ * no description, no glyph, no tone, because their modules do not exist yet
+ * (Stories 8.13-8.16) and their catalog lines are stubs excluded from every deck.
+ */
 export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   gun: 'Deck Gun',
-  torpedo: 'Torpedoes',
-  mine: 'Mines',
+  heavyTorpedo: 'Torpedoes',
+  navalMines: 'Mines',
   speedBoost: 'Speed Boost',
   broadside: 'Broadside Barrage',
   starShells: 'Star Shells',
   radarBuoy: 'Radar Buoy',
+  // --- catalog-v3 §1 names for the ids no module answers to yet --------------
+  boost: 'Speed Boost',
+  lightTorpedo: 'Light Torpedo',
+  supercavTorpedo: 'Supercavitating Torpedo',
+  captiveMines: 'Captive Mines',
+  missile: 'Horizontal Missile',
+  machineGun: 'Machine Gun',
+  flak: 'Flak Gun',
+  monitor: 'Monitor Gun',
 };
 
-/** One-to-two sentence tooltip description per equipment id (DRAFT copy). */
-export const EQUIPMENT_DESCRIPTION: Record<EquipmentId, string> = {
+/**
+ * One-to-two sentence tooltip description per equipment id (DRAFT copy).
+ * PARTIAL by construction: the unbuilt ids get no description, because writing
+ * one would be inventing copy for a weapon nobody has played. `equipmentDescription`
+ * fails open to '' for them, exactly as the rest of the copy layer does.
+ */
+export const EQUIPMENT_DESCRIPTION: Partial<Record<EquipmentId, string>> = {
   gun: 'The deck gun you always have. It flies to the clicked point and bursts there, hitting every hull inside the blast.',
-  torpedo: 'A bow-launched fish that runs flat and straight until it finds a hull. Slow to reload, brutal on contact.',
-  mine: 'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then takes the whole blast out of whoever found it.',
+  heavyTorpedo: 'A bow-launched fish that runs flat and straight until it finds a hull. Slow to reload, brutal on contact.',
+  navalMines: 'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then takes the whole blast out of whoever found it.',
   speedBoost: 'Opens the throttle past its stops for a short burst of extra speed. Nothing else changes — you just leave sooner.',
   broadside: 'Every turret on the aimed beam fires at once. The shells fan out to either side of the point you clicked, every one of them running to that same range.',
   starShells: 'An illumination round. Where it bursts, a wide circle of ocean lights up for everyone — including the hulls in it.',
@@ -68,8 +91,8 @@ const CAPTIVE_MINE_DESCRIPTION =
  * forks today (CAPTIVE MINES); every other id reads its static line.
  */
 export function equipmentDescription(stats: EffectiveStats, id: EquipmentId): string {
-  if (id === 'mine' && stats.mine.captive) return CAPTIVE_MINE_DESCRIPTION;
-  return EQUIPMENT_DESCRIPTION[id];
+  if (id === 'navalMines' && stats.equipment.navalMines.captive) return CAPTIVE_MINE_DESCRIPTION;
+  return EQUIPMENT_DESCRIPTION[id] ?? '';
 }
 
 /** The label a slot's tooltip uses for how the equipment is operated: the gun is
@@ -84,30 +107,76 @@ export function interactionLine(slot: number, id: EquipmentId): string {
 }
 
 /**
- * The two catalog categories that belong to no single slot: INTEL (sight/radar/
- * sweep) and SHIP (speed/hull) upgrade the whole vessel. Amendment 51 makes the
- * hotbar the ONLY place a boon becomes visible, so these need a home that is not
- * a weapon — the gun slot's tooltip carries them under a `— SHIP —` divider (the
- * gun is the permanent top slot, i.e. the natural ship card) and their fit flash
- * is rank-wide rather than slot-local.
+ * THE EQUIPMENT A CATALOG LINE ADDRESSES (Story 8.1). Categories are gone with
+ * the v2 catalog, so "which slot does this card belong to?" is answered from the
+ * LINE ITSELF: its slotFill target, the equipment its stat effects write into
+ * (`equipment.<id>.<field>`), and the equipment an add-on bolts its verb onto.
+ *
+ * An EMPTY list means SHIPWIDE - the five universal ladders (ARMOR, SPEED,
+ * TURNING, RADAR SWEEP, RELOAD) move the whole vessel and belong to no weapon.
+ * Amendment 51 makes the hotbar the only place a fitted card becomes visible, so
+ * those need a home that is not a weapon: the gun slot's tooltip carries them
+ * under a `- SHIP -` divider (the gun is the permanent top slot, i.e. the
+ * natural ship card) and their fit flash is rank-wide rather than slot-local.
+ *
+ * Built ONCE at module load off the frozen CATALOG - it is authored data, not
+ * per-frame state.
  */
-export const SHIPWIDE_CATEGORIES: readonly string[] = ['intel', 'ship'];
+function statPathEquipment(path: string): EquipmentId | null {
+  const seg = path.split('.');
+  return seg[0] === 'equipment' && seg[1] !== undefined ? (seg[1] as EquipmentId) : null;
+}
+
+/** Every equipment id one line addresses, deduped, in first-seen order. */
+function lineTargets(line: CatalogLine): EquipmentId[] {
+  const ids = new Set<EquipmentId>();
+  const tier = tierTargetOf(line);
+  if (tier !== undefined) ids.add(tier);
+  for (const eq of line.appliesTo ?? []) ids.add(eq);
+  for (const tierEffects of line.tiers) {
+    for (const e of tierEffects) {
+      if (e.kind === 'stat') {
+        const eq = statPathEquipment(e.path);
+        if (eq !== null) ids.add(eq);
+      } else if (e.kind === 'slotFill') ids.add(e.equipmentId);
+      else if (e.kind === 'doctrine') ids.add(e.weapon);
+    }
+  }
+  return [...ids];
+}
+
+const LINE_TARGETS: ReadonlyMap<string, readonly EquipmentId[]> = new Map(
+  LINE_IDS.map((id) => [id as string, lineTargets(CATALOG[id]) as readonly EquipmentId[]]),
+);
+
+/** Pure: the equipment a fitted card addresses ([] = shipwide, or an unknown id
+ *  - fail-open, since an unresolvable card must still get a rank-wide flash). */
+export function cardEquipmentIds(id: string): readonly EquipmentId[] {
+  return LINE_TARGETS.get(id) ?? [];
+}
+
+/** Pure: true iff this card belongs to no weapon - one of the five universal
+ *  ladders (or an id this build cannot resolve). */
+export function isShipwideCard(id: string): boolean {
+  return cardEquipmentIds(id).length === 0;
+}
 
 /**
- * Pure: the loadout slot a fitted boon's CATEGORY belongs to, or null when no
- * fitted slot owns it — a shipwide category (INTEL/SHIP), or an equipment
- * category for a piece of kit this hull does not carry (defensive: the server
- * only offers a subdeck's cards while its equipment is fitted).
+ * Pure: the loadout slot a fitted card belongs to, or null when no fitted slot
+ * owns it - a shipwide ladder, or a card for a piece of kit this hull does not
+ * carry.
  *
- * THE routing behind the fit flash (amendment 51): the boon lands on ITS slot.
+ * THE routing behind the fit flash (amendment 51): the card lands on ITS slot.
  */
-export function slotForBoonCategory(
+export function slotForCard(
   loadout: readonly (EquipmentId | null)[],
-  category: string,
+  cardId: string,
 ): number | null {
+  const targets = cardEquipmentIds(cardId);
+  if (targets.length === 0) return null;
   for (let slot = 0; slot < loadout.length; slot += 1) {
     const id = loadout[slot];
-    if (id !== null && EQUIPMENT_CATEGORY[id] === category) return slot;
+    if (id !== null && targets.includes(id)) return slot;
   }
   return null;
 }
@@ -127,14 +196,26 @@ export function slotForBoonCategory(
  * turret-count multiple would report a total no single hull can take.
  */
 export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number | null {
+  const e = stats.equipment;
   const table: Record<EquipmentId, number | null> = {
-    gun: stats.gun.damage,
-    torpedo: stats.torpedo.damage,
-    mine: stats.mine.damage,
+    gun: e.gun.damage,
+    heavyTorpedo: e.heavyTorpedo.damage,
+    navalMines: e.navalMines.damage,
     speedBoost: null,
-    broadside: stats.broadside.damage,
+    broadside: e.broadside.damage,
     starShells: null,
     radarBuoy: null,
+    // The widened ids carry real rows (catalog-v3 §4 base numbers, sim/stats.ts
+    // STUB_ROWS) even though no module fires them yet, so the table stays TOTAL
+    // and reads the same one place every other number comes from.
+    boost: null,
+    lightTorpedo: e.lightTorpedo.damage,
+    supercavTorpedo: e.supercavTorpedo.damage,
+    captiveMines: e.captiveMines.damage,
+    missile: e.missile.damage,
+    machineGun: e.machineGun.damage,
+    flak: e.flak.damage,
+    monitor: e.monitor.damage,
   };
   return table[id];
 }

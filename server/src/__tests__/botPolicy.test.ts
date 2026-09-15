@@ -19,7 +19,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
   SHIP_CLASS_IDS,
   effectiveStats,
@@ -49,7 +49,14 @@ import {
   type BotSituation,
   type BotTrack,
 } from '../game/ai/utility.js';
-import { boonWeightFor, chooseSpend, type BotSpendState } from '../game/ai/spending.js';
+import {
+  boonWeightFor,
+  chooseSpend,
+  CATEGORY_LINES,
+  HOMELESS_V2_LINES,
+  LINE_ALIASES,
+  type BotSpendState,
+} from '../game/ai/spending.js';
 import { APPETITE_EAGER, APPETITE_NEUTRAL, appetiteFor } from '../game/ai/equipment.js';
 
 // --- builders ---------------------------------------------------------------
@@ -220,9 +227,9 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
     // Temperament modulates PROACTIVITY only: trapper lays as a standing plan
     // (eager), siege only reacts (neutral base for an acquired mine).
-    expect(appetiteFor(profileOf('trapper'), 'mine')).toBeGreaterThanOrEqual(APPETITE_EAGER);
-    expect(appetiteFor(profileOf('siege'), 'mine')).toBeLessThan(APPETITE_EAGER);
-    expect(appetiteFor(profileOf('siege'), 'mine')).toBeGreaterThanOrEqual(APPETITE_NEUTRAL);
+    expect(appetiteFor(profileOf('trapper'), 'navalMines')).toBeGreaterThanOrEqual(APPETITE_EAGER);
+    expect(appetiteFor(profileOf('siege'), 'navalMines')).toBeLessThan(APPETITE_EAGER);
+    expect(appetiteFor(profileOf('siege'), 'navalMines')).toBeGreaterThanOrEqual(APPETITE_NEUTRAL);
     // The gun is the fallback: no profile ranks anything below it.
     for (const p of Object.values(BOT_PROFILES)) {
       for (const [id, v] of Object.entries(p.appetite)) {
@@ -653,13 +660,13 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
 
 // --- spending ---------------------------------------------------------------
 
-describe('ai/spending — the boon policy', () => {
+describe('ai/spending — the card policy', () => {
   function spendState(over: Partial<BotSpendState> = {}): BotSpendState {
-    return { bankedLevels: 1, offer: null, boons: [], hp: 100, maxHp: 100, ...over };
+    return { bankedLevels: 1, offer: null, cards: [], hp: 100, maxHp: 100, ...over };
   }
 
   it('returns null with nothing banked, and null with a healthy hull + no offer', () => {
-    expect(chooseSpend(profileOf('raider'), spendState({ bankedLevels: 0, offer: ['gunBarrel'] }))).toBeNull();
+    expect(chooseSpend(profileOf('raider'), spendState({ bankedLevels: 0, offer: ['deckGunBarrel'] }))).toBeNull();
     expect(chooseSpend(profileOf('raider'), spendState())).toBeNull();
   });
 
@@ -667,23 +674,24 @@ describe('ai/spending — the boon policy', () => {
     const raider = profileOf('raider');
     const hurt = raider.healHpFrac * 100 - 1;
     expect(chooseSpend(raider, spendState({ hp: hurt, offer: null }))).toBe(-1); // HEAL_CHOICE
-    expect(chooseSpend(raider, spendState({ hp: hurt, offer: ['torpedoHoming'] }))).toBe(-1);
+    expect(chooseSpend(raider, spendState({ hp: hurt, offer: ['acousticHoming'] }))).toBe(-1);
     // At the threshold exactly, it builds.
-    expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['gunBarrel'] }))).toBe(0);
+    expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['deckGunBarrel'] }))).toBe(0);
   });
 
   it('picks the profile\'s highest-weighted line out of the offered hand', () => {
-    const offer = ['gunBarrel', 'torpedoHoming', 'shipHull'];
+    const offer = ['deckGunBarrel', 'acousticHoming', 'armor'];
     expect(chooseSpend(profileOf('raider'), spendState({ offer }))).toBe(1); // torpedoHoming 3.0
     expect(chooseSpend(profileOf('bulwark'), spendState({ offer }))).toBe(2); // shipHull 3.0
   });
 
   it('a per-LINE override beats its own category base', () => {
-    // siege's broadside category is 2.6 and its broadsideTurrets override is
-    // 2.8, so the named line must win over an unnamed sibling of the same
-    // category (re-keyed off the deleted cannon lines, Story 7-5 wave 2).
-    expect(boonWeightFor('siege', 'broadsideTurrets')).toBeGreaterThan(boonWeightFor('siege', 'broadsideSpread'));
-    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['broadsideSpread', 'broadsideTurrets'] }))).toBe(1);
+    // siege's `starShells` category base is 2.0 and its re-keyed starDuration
+    // override lands 2.2 on the `starShells` LINE, so the named line must win
+    // over an unnamed sibling of the same category (`phosphorShells`, which
+    // has only the 2.0 base).
+    expect(boonWeightFor('siege', 'starShells')).toBeGreaterThan(boonWeightFor('siege', 'phosphorShells'));
+    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['phosphorShells', 'starShells'] }))).toBe(1);
   });
 
   // RE-KEYED AGAIN IN STORY 7-5 WAVE 2, and NARROWED. Wave 1 pointed this pin
@@ -701,36 +709,36 @@ describe('ai/spending — the boon policy', () => {
     // stopped building the line its whole doctrine rests on. Same for
     // `shipCooldown` (x5) and every other ladder. Without the fix the weight
     // collapses after one copy and the stacked card loses to its sibling.
-    expect(boonWeightFor('siege', 'intelRange', ['intelRange'])).toBe(
-      boonWeightFor('siege', 'intelRange', []),
+    expect(boonWeightFor('siege', 'radarSweep', ['radarSweep'])).toBe(
+      boonWeightFor('siege', 'radarSweep', []),
     );
-    expect(boonWeightFor('duelist', 'shipCooldown', ['shipCooldown', 'shipCooldown'])).toBe(
-      boonWeightFor('duelist', 'shipCooldown', []),
+    expect(boonWeightFor('duelist', 'reload', ['reload', 'reload'])).toBe(
+      boonWeightFor('duelist', 'reload', []),
     );
     // And the one-copy demotion it was always FOR still fires.
-    expect(boonWeightFor('bulwark', 'starDazzle', ['starDazzle'])).toBeLessThan(
-      boonWeightFor('bulwark', 'starDazzle', []),
+    expect(boonWeightFor('bulwark', 'dazzleShells', ['dazzleShells'])).toBeLessThan(
+      boonWeightFor('bulwark', 'dazzleShells', []),
     );
   });
 
   it('demotes a line this bot ALREADY HOLDS (re-buying a one-copy doctrine is a no-op)', () => {
     const bulwark = profileOf('bulwark');
-    const offer = ['starIncendiary', 'starDazzle'];
+    const offer = ['phosphorShells', 'dazzleShells'];
     // Fresh: bulwark's `starDazzle` line override (1.6) beats its unnamed
     // sibling on the starShells category base (1.0).
     expect(chooseSpend(bulwark, spendState({ offer }))).toBe(1);
     // Holding it already — re-buying is a no-op, so it drops below its sibling.
-    expect(chooseSpend(bulwark, spendState({ offer, boons: ['starDazzle'] }))).toBe(0);
-    expect(boonWeightFor('bulwark', 'starDazzle', ['starDazzle']))
-      .toBeLessThan(boonWeightFor('bulwark', 'starDazzle', []));
+    expect(chooseSpend(bulwark, spendState({ offer, cards: ['dazzleShells'] }))).toBe(0);
+    expect(boonWeightFor('bulwark', 'dazzleShells', ['dazzleShells']))
+      .toBeLessThan(boonWeightFor('bulwark', 'dazzleShells', []));
   });
 
   // Wave 1's counterpart, now the GENERAL rule (wave 2 deleted exclusivity):
   // holding one verb never demotes ANOTHER line. Holding one star-shell verb
   // must not push the other down — every doctrine stacks.
   it('a non-exclusive doctrine verb is NEVER demoted by holding its former rival', () => {
-    expect(boonWeightFor('bulwark', 'starDazzle', ['starIncendiary']))
-      .toBe(boonWeightFor('bulwark', 'starDazzle', []));
+    expect(boonWeightFor('bulwark', 'dazzleShells', ['phosphorShells']))
+      .toBe(boonWeightFor('bulwark', 'dazzleShells', []));
   });
 
   it('an all-junk hand is still SPENT — a banked level held forever is wasted', () => {
@@ -741,13 +749,38 @@ describe('ai/spending — the boon policy', () => {
 
   it('an unknown id never wins, and cannot crash the policy', () => {
     expect(boonWeightFor('siege', 'notACard')).toBe(0);
-    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['notACard', 'broadsideTurrets'] }))).toBe(1);
+    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['notACard', 'broadside'] }))).toBe(1);
   });
 
-  it('every per-line override names a REAL catalog line', () => {
+  // RE-CUT IN STORY 8.1. `CONFIG.bots.boonWeights` is still authored in the v2
+  // vocabulary — retuning it is a balance pass with its own ruling, not a side
+  // effect of the model swap — so ai/spending.ts translates it onto the 29 v3
+  // lines. The pin therefore moves from "names a catalog line" to "RESOLVES":
+  // every override key is either a v3 line id, or an alias naming one, or one
+  // of the two the sheet deliberately has no home for. That still fails loudly
+  // on a renamed catalog line; it just fails on the alias table instead.
+  it('every per-line override RESOLVES — a v3 line, an alias to one, or a ruled homeless key', () => {
     for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
       const t = CONFIG.bots.boonWeights[id] as { lines: Record<string, number> };
-      for (const line of Object.keys(t.lines)) expect(Object.hasOwn(BOON_CATALOG, line)).toBe(true);
+      for (const line of Object.keys(t.lines)) {
+        if (Object.hasOwn(CATALOG, line)) continue;
+        if (HOMELESS_V2_LINES.has(line)) continue;
+        const target = LINE_ALIASES[line];
+        expect(target, `${id}.lines.${line} has no v3 home`).toBeDefined();
+        expect(Object.hasOwn(CATALOG, target), `${line} -> ${target}`).toBe(true);
+      }
+    }
+  });
+
+  it('every re-keyed CATEGORY names only real v3 lines, and every category in a table is re-keyed', () => {
+    for (const lines of Object.values(CATEGORY_LINES)) {
+      for (const line of lines) expect(Object.hasOwn(CATALOG, line), line).toBe(true);
+    }
+    for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
+      const t = CONFIG.bots.boonWeights[id] as { cat: Record<string, number> };
+      for (const cat of Object.keys(t.cat)) {
+        expect(Object.hasOwn(CATEGORY_LINES, cat), `${id}.cat.${cat} is not re-keyed`).toBe(true);
+      }
     }
   });
 
@@ -761,80 +794,82 @@ describe('ai/spending — the boon policy', () => {
     // up well and prepare"* — exactly what the hull whose measured problem is
     // staying alive should buy. Restored as a genuinely reachable want,
     // WITHOUT displacing trapper's 2.4 signature.
-    const foragerFoul = boonWeightFor('forager', 'minePropFouling');
-    const trapperFoul = boonWeightFor('trapper', 'minePropFouling');
+    //
+    // STORY 8.1 re-keys the ids only: `mineCaptive` is now the `captiveMines`
+    // LINE and `minePropFouling` the `foulingMines` line. Every NUMBER below
+    // is the shipped one, carried through the alias table unchanged.
+    const foragerFoul = boonWeightFor('forager', 'foulingMines');
+    const trapperFoul = boonWeightFor('trapper', 'foulingMines');
     expect(trapperFoul).toBeGreaterThan(foragerFoul);
 
     // Forager WANTS captive again: above its mines category base and its
     // fouling want, below its gun ladder (still a gun-led fleet-clearer).
-    const foragerCaptive = boonWeightFor('forager', 'mineCaptive');
+    const foragerCaptive = boonWeightFor('forager', 'captiveMines');
     expect(foragerCaptive).toBe(2.0);
     expect(foragerCaptive).toBeGreaterThan(foragerFoul);
     expect(foragerCaptive).toBeGreaterThan(1.8); // its own `mines` category base
-    expect(foragerCaptive).toBeLessThan(boonWeightFor('forager', 'gunBarrel'));
+    expect(foragerCaptive).toBeLessThan(boonWeightFor('forager', 'deckGunBarrel'));
     // Trapper's want stays the stronger one, and fouling stays its signature.
-    expect(boonWeightFor('trapper', 'mineCaptive')).toBeGreaterThan(2);
-    expect(boonWeightFor('trapper', 'mineCaptive')).toBeGreaterThan(foragerCaptive);
-    expect(boonWeightFor('trapper', 'mineCaptive')).toBeLessThan(trapperFoul);
+    expect(boonWeightFor('trapper', 'captiveMines')).toBeGreaterThan(2);
+    expect(boonWeightFor('trapper', 'captiveMines')).toBeGreaterThan(foragerCaptive);
+    expect(boonWeightFor('trapper', 'captiveMines')).toBeLessThan(trapperFoul);
 
     // The pick moves with the ruling: offered captive against a merely
-    // category-weighted mine card, forager now TAKES the doctrine (weight tie
-    // with mineBlast at 2.0 — the scarcer, nature-changing rare wins the
-    // ruled tiebreak); trapper still leads with its fouling signature.
-    const offer = ['minePropFouling', 'mineCaptive'];
-    expect(chooseSpend(profileOf('trapper'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(0);
-    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer, boons: [], hp: 100, maxHp: 100 })).toBe(1);
-    const vsWanted = ['mineCaptive', 'mineBlast'];
-    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer: vsWanted, boons: [], hp: 100, maxHp: 100 })).toBe(0);
+    // category-weighted mine card, forager TAKES the captive line; trapper
+    // still leads with its fouling signature.
+    const offer = ['foulingMines', 'captiveMines'];
+    expect(chooseSpend(profileOf('trapper'), { bankedLevels: 1, offer, cards: [], hp: 100, maxHp: 100 })).toBe(0);
+    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer, cards: [], hp: 100, maxHp: 100 })).toBe(1);
+    // Against the naval-mine line at the same 2.0 want, offer index settles it.
+    const vsWanted = ['captiveMines', 'navalMines'];
+    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer: vsWanted, cards: [], hp: 100, maxHp: 100 })).toBe(0);
   });
 
-  it('the GUN BUOY is explicitly wanted by BOTH ML tables (cycle 111 — half the powerhouse combo)', () => {
-    // Before the ruling `buoyGun` was named by NEITHER ML table and fell
-    // through to a bare radarBuoy category weight (forager 1.0 / trapper 2.0)
-    // despite being half of the combo Eric calls a powerhouse. Both now name
-    // it, above their own category base.
-    expect(boonWeightFor('forager', 'buoyGun')).toBe(2.0);
-    expect(boonWeightFor('trapper', 'buoyGun')).toBe(2.2);
+  // THE TWO HOMELESS v2 KEYS (Story 8.1) ------------------------------------
+  // `buoyGun` was cycle 111's explicit ML want, half of the combo Eric calls a
+  // powerhouse. Catalog v3 has NO card for it — R1 deletes the radar buoy in
+  // Story 8.15 and the DECOY BUOY consumable takes the role — so the want has
+  // nothing to attach to and is deliberately homeless rather than silently
+  // re-keyed onto a line that means something else. The pin records that, and
+  // pins what DID survive: both ML tables still speak for the buoy SLOT
+  // through their `radarBuoy` category, which now reaches `decoyBuoy`.
+  it('the two ruled-homeless v2 keys score nothing, and the buoy category reaches decoyBuoy', () => {
+    for (const key of ['buoyGun', 'acquireBoost']) {
+      expect(HOMELESS_V2_LINES.has(key)).toBe(true);
+      expect(Object.hasOwn(CATALOG, key)).toBe(false);
+      expect(boonWeightFor('forager', key)).toBe(0); // unknown id: never picked
+      expect(boonWeightFor('trapper', key)).toBe(0);
+    }
     const tables = CONFIG.bots.boonWeights;
-    expect(boonWeightFor('forager', 'buoyGun')).toBeGreaterThan(tables.forager.cat.radarBuoy);
-    expect(boonWeightFor('trapper', 'buoyGun')).toBeGreaterThan(tables.trapper.cat.radarBuoy);
-    // Forager prices the combo as a PAIR: captive and the gun buoy land at
-    // the same want — buy whichever half the deck offers first.
-    expect(boonWeightFor('forager', 'buoyGun')).toBe(boonWeightFor('forager', 'mineCaptive'));
+    expect(boonWeightFor('forager', 'decoyBuoy')).toBeGreaterThanOrEqual(tables.forager.cat.radarBuoy);
+    expect(boonWeightFor('trapper', 'decoyBuoy')).toBeGreaterThanOrEqual(tables.trapper.cat.radarBuoy);
   });
 
-  // THE ACQUISITION RANKING (Eric ruling 2026-08-20) ---------------------------
-  const ACQUISITIONS = [
-    'acquireTorpedo',
-    'acquireMine',
-    'acquireStarShells',
-    'acquireBroadside',
-    'acquireRadarBuoy',
-    'acquireBoost',
-  ] as const;
+  // THE EQUIPMENT RANKING (Eric ruling 2026-08-20, re-keyed in Story 8.1) -----
+  // Acquisition cards are DELETED: an equipment LINE's copy 1 is the fit. The
+  // ruling behind the old pin — a profile must want a weapon it does not carry
+  // more than it wants junk, or the extra slot stays empty by accident —
+  // survives on the lines those six acquisitions now name.
+  const EQUIPMENT_LINES = ['heavyTorpedo', 'navalMines', 'starShells', 'broadside', 'decoyBuoy'] as const;
 
-  it('every profile ranks ALL SIX acquisition cards above the unlisted floor', () => {
-    // Acquisition cards inherit their TARGET equipment's category, which no
-    // profile's cat table names — so before the ruling all six scored the 0.5
-    // unlisted default and the extra slot stayed empty by accident. 0.5 here
-    // IS spending.ts's UNLISTED_SCORE, restated so a drift fails loudly.
+  it('every profile ranks every acquirable equipment LINE above the unlisted floor', () => {
+    // 0.5 here IS spending.ts's UNLISTED_SCORE, restated so a drift fails loudly.
     for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
-      for (const card of ACQUISITIONS) {
-        expect(Object.hasOwn(BOON_CATALOG, card)).toBe(true);
+      for (const card of EQUIPMENT_LINES) {
+        expect(Object.hasOwn(CATALOG, card)).toBe(true);
         expect(boonWeightFor(id, card), `${id} ${card}`).toBeGreaterThan(0.5);
       }
     }
   });
 
-  it('a bot SETTLES: its preferred acquisition absent, it takes the best one present', () => {
-    // Raider's ranking bottoms out at acquireBroadside (0.7) — still above
-    // every unlisted junk card, so a hand of [3rd-choice acquisition, junk]
-    // is spent on the acquisition, never passed out of pickiness.
-    expect(boonWeightFor('raider', 'acquireBroadside')).toBeGreaterThan(0.5);
-    const idx = chooseSpend(profileOf('raider'), spendState({ offer: ['buoyDuration', 'acquireMine'] }));
-    expect(idx).toBe(1); // buoyDuration is unlisted (0.5) for a raider
-    // And a genuinely wanted normal card still outranks a settled pickup.
-    expect(chooseSpend(profileOf('raider'), spendState({ offer: ['acquireMine', 'torpedoHoming'] }))).toBe(1);
+  it('a bot SETTLES: its preferred weapon absent, it takes the best line present', () => {
+    // Raider's weapon ranking bottoms out at `broadside` (acquireBroadside
+    // 0.7) — still above an unknown id, so a hand of [junk, 3rd-choice weapon]
+    // is spent on the weapon, never passed out of pickiness.
+    expect(boonWeightFor('raider', 'broadside')).toBeGreaterThan(0);
+    expect(chooseSpend(profileOf('raider'), spendState({ offer: ['notACard', 'broadside'] }))).toBe(1);
+    // And a genuinely wanted card still outranks a settled pickup.
+    expect(chooseSpend(profileOf('raider'), spendState({ offer: ['broadside', 'acousticHoming'] }))).toBe(1);
   });
 
   // RETIRED at the cycle-95 merge: "the mineDamage x minePropFouling PICK-ORDER
@@ -954,7 +989,7 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
 
 describe('ai/spending — random mode (wave 4)', () => {
   function spendState(over: Partial<BotSpendState> = {}): BotSpendState {
-    return { bankedLevels: 1, offer: null, boons: [], hp: 100, maxHp: 100, ...over };
+    return { bankedLevels: 1, offer: null, cards: [], hp: 100, maxHp: 100, ...over };
   }
 
   /** An rng that COUNTS its draws and fails the test if the weighted path
@@ -965,7 +1000,7 @@ describe('ai/spending — random mode (wave 4)', () => {
   const TRAP = { float: trapRng, int: trapRng, pick: trapRng } as unknown as Parameters<typeof chooseSpend>[3];
 
   it('the WEIGHTED path never draws, and is byte-identical with or without an rng in hand', () => {
-    const offer = ['gunBarrel', 'torpedoHoming', 'shipHull'];
+    const offer = ['deckGunBarrel', 'acousticHoming', 'armor'];
     const bare = chooseSpend(profileOf('raider'), spendState({ offer }));
     // Handing the weighted path a trap rng must neither change the answer nor
     // trigger a single draw — the shipped path is pure and rng-free.
@@ -974,7 +1009,7 @@ describe('ai/spending — random mode (wave 4)', () => {
 
   it('a random profile picks UNIFORMLY over the offer off its own stream', () => {
     const row = profileOf('randomMineLayer');
-    const offer = ['gunBarrel', 'torpedoHoming', 'shipHull', 'intelRange'];
+    const offer = ['deckGunBarrel', 'acousticHoming', 'armor', 'intelRange'];
     // The policy must be exactly one rng.int(0, offer.length - 1) draw: replay
     // the same seed independently and demand index equality, draw for draw.
     const rng = mulberry32(99);
@@ -995,7 +1030,7 @@ describe('ai/spending — random mode (wave 4)', () => {
     const row = profileOf('randomTorpedoBoat');
     const hurt = row.healHpFrac * 100 - 1;
     const rng = mulberry32(7);
-    expect(chooseSpend(row, spendState({ hp: hurt, offer: ['gunBarrel'] }), undefined, rng)).toBe(-1);
+    expect(chooseSpend(row, spendState({ hp: hurt, offer: ['deckGunBarrel'] }), undefined, rng)).toBe(-1);
     // And the heal branch drew NOTHING: the next card pick replays as draw #1.
     expect(chooseSpend(row, spendState({ offer: ['a1', 'a2'] }), undefined, rng))
       .toBe(mulberry32(7).int(0, 1));

@@ -191,8 +191,7 @@ export function validateTunableKey(key: string): void {
  *  `zone.beatMs` 0 collapses zoneClosedAtMs to 0 (a zero tick budget — the
  *  shared timeline fails closed, but every match would report as unresolved
  *  nonsense), and `map.baseRadius` 0 is a zero-area board. Everything else may
- *  legitimately be 0 — `deck.rareWeightPerDryLevel=0` (the ratified no-pity
- *  sweep arm), `zone.offsetCap=0` (concentric rings), `zone.ringSteps.N=0`
+ *  legitimately be 0 — `zone.offsetCap=0` (concentric rings), `zone.ringSteps.N=0`
  *  (a hold-at-map-radius ring) are real evidence values. */
 const MIN_ONE_KEYS = new Set(['xp.levelMs', 'offer.size', 'zone.beatMs', 'map.baseRadius']);
 

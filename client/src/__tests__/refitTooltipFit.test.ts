@@ -22,8 +22,8 @@
 // lift the band and this pin re-measures with it.
 
 import { describe, expect, it } from 'vitest';
-import { BOON_CATALOG, CONFIG, type BoonDef, type ShipClassId } from '@salvo/shared';
-import { boonName, boonLineageLine, boonRarityLabel, boonTooltipText } from '../ui/boonCopy.js';
+import { CATALOG, CONFIG, type CatalogLine, type ShipClassId } from '@salvo/shared';
+import { boonName, boonKindLabel, boonLineageLine, boonTooltipText } from '../ui/boonCopy.js';
 import {
   REFIT_TIP,
   REFIT_TIP_FLOOR_VIEWPORT_H,
@@ -38,7 +38,7 @@ import { LINEAGE_TIERS, UpgradeMenu, lineageTint, offerView, refitBandLayout, ty
 import { CLIENT_CONFIG } from '../config.js';
 
 const R = CLIENT_CONFIG.refit;
-const LINES: BoonDef[] = Object.values(BOON_CATALOG);
+const LINES: CatalogLine[] = Object.values(CATALOG);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
 /** The floor viewport's own band, and the container it leaves above itself.
@@ -53,7 +53,7 @@ const CONTAINER_H = refitTooltipMaxPanelH(FLOOR_BAND.band.y);
 function everyPanel(): { label: string; model: RefitTooltipModel }[] {
   const out: { label: string; model: RefitTooltipModel }[] = [];
   for (const def of LINES) {
-    for (let stack = 0; stack < def.copies; stack += 1) {
+    for (let stack = 0; stack < def.cap; stack += 1) {
       out.push({
         label: `${def.id}@${stack}`,
         model: { name: boonName(def.id, stack), body: boonTooltipText(def.id) },
@@ -67,9 +67,9 @@ const PANELS = everyPanel();
 
 describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => {
   it('covers every catalog line at every stack position', () => {
-    // 22 upgrade lines + 6 acquisitions (cycle 119 deleted the INTEL RANGE line).
-    expect(LINES.length).toBeGreaterThanOrEqual(28);
-    expect(PANELS.length).toBe(LINES.reduce((n, d) => n + d.copies, 0));
+    // Catalog v3: 29 lines / 114 physical cards (Eric's sheet, §1).
+    expect(LINES).toHaveLength(29);
+    expect(PANELS.length).toBe(LINES.reduce((n, d) => n + d.cap, 0));
   });
 
   it('leaves a real container above the band at the logical floor', () => {
@@ -132,14 +132,27 @@ describe('the laws that constrain the fix', () => {
   // Nor may it be "cut the copy back to the old card budget", which would undo
   // the ruling. Amendment 47's ~90 characters is what the FACE gets; the whole
   // point here is that an explanation is allowed to be a real explanation.
-  it('keeps the explanations genuinely explanatory — well past the old card budget', () => {
-    const thin = LINES.filter((d) => boonTooltipText(d.id).length <= 90).map((d) => d.id);
+  // PARTIAL, not total, since catalog v3 (Story 8.1): a line whose MECHANISM is
+  // not built has nothing honest to explain, and inventing copy for a weapon
+  // nobody has played is what the naming law forbids. The exemptions are named
+  // EXACTLY so the list cannot rot — an agent who builds one has to delete its
+  // entry, and `boonCopy.test.ts` pins the same list from the copy side.
+  const NO_EXPLANATION: readonly string[] = [
+    'turning', 'deckGun',
+    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
+    'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
+  ];
+
+  it('keeps the WRITTEN explanations genuinely explanatory — past the old card budget', () => {
+    const thin = LINES.filter((d) => !NO_EXPLANATION.includes(d.id))
+      .filter((d) => boonTooltipText(d.id).length <= 90)
+      .map((d) => d.id);
     expect(thin).toEqual([]);
   });
 
-  it('is TOTAL over the catalog: every line has a real explanation, stat lines included', () => {
+  it('covers every line whose mechanism exists — and NOTHING it cannot explain', () => {
     const blank = LINES.filter((d) => boonTooltipText(d.id).trim() === '').map((d) => d.id);
-    expect(blank).toEqual([]);
+    expect(blank.sort()).toEqual([...NO_EXPLANATION].sort());
   });
 });
 
@@ -152,13 +165,13 @@ describe('the laws that constrain the fix', () => {
 // the one player who does not want it.
 
 describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
-  const OFFER = ['mineCaptive', 'intelSweep', 'shipHull', 'buoyGun'];
+  const OFFER = ['acousticHoming', 'radarSweep', 'armor', 'foulingMines'];
 
   function open(): { menu: UpgradeMenu; cards: HTMLButtonElement[] } {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
       cls: 'torpedoBoat' as const, pts: 1, offer: OFFER, boostUntil: 0,
-      boons: [], lvl: 0, xp: 0, repairHp: 0,
+      cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const view = offerView(you as never, false, false, false) as OfferView;
     const menu = new UpgradeMenu(() => {});
@@ -174,7 +187,6 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
     expect(tip().style.display).toBe('none');
     cards[0].dispatchEvent(new MouseEvent('mouseenter'));
     expect(tip().style.display).toBe('flex');
-    // CAPTIVE MINES is Eric's own named example — the panel answers his question.
     expect(tip().textContent).toContain(boonName(OFFER[0], 0));
     expect(tip().textContent).toContain(boonTooltipText(OFFER[0]));
     cards[0].dispatchEvent(new MouseEvent('mouseleave'));
@@ -233,21 +245,21 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
 // state meaning — dual-code (shape/position/text/audio)."* So each of the two
 // distinctions colour now carries must ALSO be readable with the colour removed.
 
-describe('ladder position and rarity are colour-coded AND dual-coded', () => {
+describe('ladder position is colour-coded AND dual-coded; the KIND is a word only', () => {
   it('walks the loot-tier ramp green->blue->purple->red->gold, a DISTINCT hue per rung', () => {
     // Eric's ruling: cards are chrome, not the water, so they may carry the
     // convention every looter has taught players. The rungs must stay DISTINCT
     // — a repeated hue would make two rungs read as the same tier.
     expect(new Set(LINEAGE_TIERS).size).toBe(LINEAGE_TIERS.length);
     for (const def of LINES) {
-      if (def.copies <= 1) continue;
-      const ramp = Array.from({ length: def.copies }, (_, k) => lineageTint(k, def.copies));
+      if (def.cap <= 1) continue;
+      const ramp = Array.from({ length: def.cap }, (_, k) => lineageTint(k, def.cap));
       expect(new Set(ramp).size, def.id).toBe(ramp.length); // no rung repeats a hue
       expect(ramp[0], def.id).toBe(LINEAGE_TIERS[0]); // every ladder starts green
       // ABSOLUTE, not normalised: rung II is blue whether the ladder is 2 or 5
       // long, and a short ladder simply never reaches gold.
       expect(ramp[1], def.id).toBe(LINEAGE_TIERS[1]);
-      expect(ramp[ramp.length - 1], def.id).toBe(LINEAGE_TIERS[def.copies - 1]);
+      expect(ramp[ramp.length - 1], def.id).toBe(LINEAGE_TIERS[def.cap - 1]);
     }
     // Only a full five-copy ladder earns the gold capstone.
     expect(lineageTint(4, 5)).toBe(LINEAGE_TIERS[4]);
@@ -261,58 +273,61 @@ describe('ladder position and rarity are colour-coded AND dual-coded', () => {
   });
 
   // THE DUAL-CODING HALF. Strip the colour and the ladder position is still
-  // stated twice in TEXT: by the handrail's numeral and by the ladder name.
-  it('states the ladder position in TEXT too — the numeral and the name both move', () => {
+  // stated in TEXT by the handrail's numeral. Catalog v3 names the LINE, not the
+  // rung (one name per line, Eric's sheet §1), so the NAME no longer moves with
+  // the stack — the numeral is the text channel, and it moves every rung.
+  it('states the ladder position in TEXT too — the numeral moves on every rung', () => {
     for (const def of LINES) {
-      if (def.copies <= 1) continue;
-      const handrails = Array.from({ length: def.copies }, (_, k) => boonLineageLine(def, k));
-      const names = Array.from({ length: def.copies }, (_, k) => boonName(def.id, k));
-      expect(new Set(handrails).size, def.id).toBe(def.copies);
-      expect(new Set(names).size, def.id).toBe(def.copies);
+      if (def.cap <= 1) continue;
+      const handrails = Array.from({ length: def.cap }, (_, k) => boonLineageLine(def, k));
+      expect(new Set(handrails).size, def.id).toBe(def.cap);
       for (const h of handrails) expect(h, def.id).toMatch(/^[IVX]+\/[IVX]+$/);
     }
   });
 
-  // ...and rarity's non-colour channel is the WORD, present or absent. A common
-  // shows no tag at all (the absence IS the tier), so the two tiers are told
-  // apart with the hue thrown away.
-  it('states rarity in TEXT too — the tag is the channel, its colour is the accent', () => {
-    expect(boonRarityLabel('common')).toBe('');
-    expect(boonRarityLabel('rare')).toBe('RARE');
-    // Every SHIPPED tier resolves to a DISTINCT tag, so the word alone
-    // partitions the catalog exactly as the colour does.
-    const tiers = [...new Set(LINES.map((d) => d.rarity))];
-    expect(tiers.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(tiers.map(boonRarityLabel)).size).toBe(tiers.length);
+  // ...and the card's KIND is a WORD and ONLY a word (Eric ruling 2026-09-15,
+  // amendment 8): the meta row is neutral, so nothing here is carried by hue at
+  // all. Every kind the catalog uses resolves to a DISTINCT word, so the text
+  // alone partitions the catalog.
+  it('states the kind in TEXT only — four distinct words, no tier colour', () => {
+    expect(boonKindLabel('equipment')).toBe('WEAPON');
+    expect(boonKindLabel('ladder')).toBe('UPGRADE');
+    expect(boonKindLabel('addon')).toBe('ADD-ON');
+    expect(boonKindLabel('consumable')).toBe('CONSUMABLE');
+    const kinds = [...new Set(LINES.map((d) => d.kind))];
+    expect(kinds).toHaveLength(4);
+    expect(new Set(kinds.map(boonKindLabel)).size).toBe(kinds.length);
   });
 
-  it('renders the rarity WORD on the card, not merely a coloured mark', () => {
+  it('renders the KIND word and the copy count on the card', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['gunTurret', 'intelSweep'], boostUntil: 0,
-      boons: [], lvl: 0, xp: 0, repairHp: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['deckGunTurret', 'heavyTorpedo'], boostUntil: 0,
+      cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false) as OfferView);
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
-    expect(cards[0].textContent).toContain('RARE'); // gunTurret
-    expect(cards[1].textContent).not.toContain('RARE'); // intelSweep — a plain common
+    expect(cards[0].textContent).toContain('UPGRADE'); // deckGunTurret — a ladder
+    expect(cards[0].textContent).toContain('0/1'); // none held, one in the catalog
+    expect(cards[1].textContent).toContain('WEAPON'); // heavyTorpedo — an equipment line
+    expect(cards[1].textContent).toContain('0/5');
     menu.hide();
     document.body.replaceChildren();
   });
 
-  it('takes both tier colours from DESIGN.md tokens, never a fresh literal', () => {
+  it('paints the meta row NEUTRAL — no tier tint survives anywhere on it', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['gunTurret'], boostUntil: 0,
-      boons: [], lvl: 0, xp: 0, repairHp: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['deckGunTurret'], boostUntil: 0,
+      cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false) as OfferView);
-    const rarity = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button span')].find(
-      (el) => el.textContent === 'RARE',
-    ) as HTMLElement;
-    expect(rarity.style.color).toBe('var(--hc-info)');
+    const spans = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button span')] as HTMLElement[];
+    const meta = spans.filter((el) => el.textContent === 'UPGRADE' || el.textContent === '0/1');
+    expect(meta).toHaveLength(2);
+    for (const el of meta) expect(el.style.color).toBe('var(--hc-text-secondary)');
     menu.hide();
     document.body.replaceChildren();
   });
@@ -320,8 +335,8 @@ describe('ladder position and rarity are colour-coded AND dual-coded', () => {
   it('rides the handrail on the phosphor token, tinted only by opacity', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['intelSweep'], boostUntil: 0,
-      boons: ['intelSweep', 'intelSweep'], lvl: 0, xp: 0, repairHp: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['radarSweep'], boostUntil: 0,
+      cards: ['radarSweep', 'radarSweep'], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false) as OfferView);

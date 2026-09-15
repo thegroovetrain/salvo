@@ -36,7 +36,7 @@
 // produces 5 muzzle flashes and up to 5 Hit Calls, and epic-4 amendment 17's
 // "exactly one `hc` per shell resolution" keeps holding per SHELL.
 //
-// Range is `stats.broadside.rangeU` — THE 5/8 RUNG, derived post-fold in
+// Range is `stats.equipment.broadside.rangeU` — THE 5/8 RUNG, derived post-fold in
 // effectiveStats() (`radarRange × CONFIG.vision.muzzleFlashFactor`) and read
 // here, never re-derived. Pure over a ShipRecord's input + pose + slot pool;
 // the World owns shell storage + event emission.
@@ -74,7 +74,7 @@ const BEAMS = twinSectorArcFor('broadside');
  * makes (one answer, never two).
  */
 export function broadsideAim(ship: ShipRecord, side: 1 | -1, mapRadius: number): TurretAim[] {
-  const bs = ship.stats.broadside;
+  const bs = ship.stats.equipment.broadside;
   const click = burstPointAlong(ship, mapRadius, bs.rangeU, ship.input.aim);
   return turretAimPoints(
     ship.state,
@@ -123,8 +123,8 @@ function fireBroadside(
   if (side === null) {
     return { shells: [], denial: 'out-of-arc' }; // bow/stern dead zone — pool untouched
   }
-  if (!consume(pool, ship.stats.broadside.reloadMs)) return { shells: [], denial: 'no-ammo' };
-  const bs = ship.stats.broadside;
+  if (!consume(pool, ship.stats.equipment.broadside.reloadMs)) return { shells: [], denial: 'no-ammo' };
+  const bs = ship.stats.equipment.broadside;
   const shells: ShellState[] = [];
   broadsideAim(ship, side, mapRadius).forEach(({ muzzle: origin, target }) => {
     const dir = Math.atan2(target.y - origin.y, target.x - origin.x);
@@ -156,7 +156,7 @@ export const broadsideEquipment: Equipment = {
   id: 'broadside',
   isWeapon: EQUIPMENT_IS_WEAPON.broadside, // shared weapon/ability split — single source
   tick(ship, slot, dtMs): void {
-    tickReload(slot.state!, ship.stats.broadside.maxAmmo, ship.stats.broadside.reloadMs, dtMs);
+    tickReload(slot.state!, ship.stats.equipment.broadside.maxAmmo, ship.stats.equipment.broadside.reloadMs, dtMs);
   },
   activate(ctx, slot) {
     // bornAt = the VALIDATED fire time (D1): a back-dated shell is then

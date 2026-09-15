@@ -31,7 +31,7 @@ describe('args — CLI parsing', () => {
     // them (a deck run builds no World, so both would be inert).
     const opts = parseArgs([
       '--matches', '20', '--seed', '7', '--captains', '2',
-      '--set', 'xp.levelMs=45000', '--sweep', 'deck.rareWeightPerDryLevel=0.2,0.35',
+      '--set', 'xp.levelMs=45000', '--sweep', 'zone.stormDps=6,8',
       '--roster', 'even', '--tune', 'gun.reloadMs=4000',
       '--json', '/tmp/x.json', '--quiet',
     ]);
@@ -39,7 +39,7 @@ describe('args — CLI parsing', () => {
     expect(opts.seed).toBe(7);
     expect(opts.captains).toBe(2);
     expect(opts.set).toEqual({ 'xp.levelMs': 45000 });
-    expect(opts.sweeps).toEqual([{ key: 'deck.rareWeightPerDryLevel', values: [0.2, 0.35] }]);
+    expect(opts.sweeps).toEqual([{ key: 'zone.stormDps', values: [6, 8] }]);
     expect(opts.roster).toBe('even');
     expect(opts.tune).toEqual({ 'gun.reloadMs': 4000 });
     expect(opts.deckOnly).toBe(false);
@@ -122,12 +122,12 @@ describe('args — CLI parsing', () => {
       set: { 'zone.stormDps': 8 },
       sweeps: [
         { key: 'xp.levelMs', values: [45000, 60000] },
-        { key: 'deck.rareWeightBase', values: [1, 2] },
+        { key: 'zone.offsetCap', values: [1, 2] },
       ],
     });
     expect(variants).toHaveLength(4);
-    expect(variants[0].label).toBe('xp.levelMs=45000 deck.rareWeightBase=1');
-    expect(variants[3].set).toEqual({ 'zone.stormDps': 8, 'xp.levelMs': 60000, 'deck.rareWeightBase': 2 });
+    expect(variants[0].label).toBe('xp.levelMs=45000 zone.offsetCap=1');
+    expect(variants[3].set).toEqual({ 'zone.stormDps': 8, 'xp.levelMs': 60000, 'zone.offsetCap': 2 });
     // Every variant keeps the base --set override.
     for (const v of variants) expect(v.set['zone.stormDps']).toBe(8);
   });
@@ -139,7 +139,7 @@ describe('args — value hygiene (review gate 2026-07-31)', () => {
     expect(() => parseArgs(['--set', 'xp.levelMs='])).toThrow(UsageError);
     expect(() => parseArgs(['--set', 'xp.levelMs='])).toThrow(/empty value/);
     expect(() => parseArgs(['--set', 'xp.levelMs=   '])).toThrow(/empty value/);
-    expect(() => parseArgs(['--sweep', 'deck.rareWeightBase=1,,2'])).toThrow(/empty value/);
+    expect(() => parseArgs(['--sweep', 'zone.offsetCap=1,,2'])).toThrow(/empty value/);
     expect(() => parseArgs(['--seed', ''])).toThrow(/empty value/);
   });
 
@@ -148,7 +148,7 @@ describe('args — value hygiene (review gate 2026-07-31)', () => {
       /duplicate sweep key: xp\.levelMs/,
     );
     // Distinct keys still stack into the cartesian grid.
-    expect(parseArgs(['--sweep', 'xp.levelMs=30000', '--sweep', 'deck.rareWeightBase=1']).sweeps).toHaveLength(2);
+    expect(parseArgs(['--sweep', 'xp.levelMs=30000', '--sweep', 'zone.offsetCap=1']).sweeps).toHaveLength(2);
   });
 
   it('rejects --json swallowing the following flag', () => {
@@ -183,7 +183,7 @@ describe('overrides — per-key value floors (review gate 2026-07-31)', () => {
   });
 
   it('keeps the legitimate ZERO sweep arms legal (they are real ratification evidence)', () => {
-    expect(parseArgs(['--set', 'deck.rareWeightPerDryLevel=0']).set).toEqual({ 'deck.rareWeightPerDryLevel': 0 });
+    expect(parseArgs(['--set', 'zone.offsetCap=0']).set).toEqual({ 'zone.offsetCap': 0 });
     const restore = applyOverrides({ 'zone.offsetCap': 0, 'zone.ringSteps.0': 0 });
     expect(CONFIG.zone.offsetCap).toBe(0);
     expect(CONFIG.zone.ringSteps[0]).toBe(0);
@@ -758,7 +758,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
       control.tick(w);
       w.step();
     }
-    expect(cap.boons.length).toBeGreaterThan(0);
+    expect(cap.cards.length).toBeGreaterThan(0);
   });
 
   it('is deterministic per seed', () => {
@@ -1170,7 +1170,6 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
       id: 'cap-1', cls: 'torpedoBoat', finalLevel: 2, kills: 1, deaths: 0, picks: 2,
       boonsFitted: 2, deckRemaining: 30, cappedLines: 0,
       boonTimesS: new Array<number | null>(10).fill(null),
-      firstExclusiveOffered: null, firstExclusiveFitted: null,
       firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1, 2],
     };
     const match: MatchSample = {
@@ -1196,8 +1195,8 @@ describe('deck-only mode', () => {
     // Economies terminate for real (not via the 300-draw backstop).
     expect(a.drawsPlayed.max).toBeLessThan(300);
     expect(a.deckExhaustedRate).toBe(1);
-    // Pity table integrity: dry buckets partition all draws.
-    expect(a.pity.reduce((n, row) => n + row.draws, 0)).toBe(a.totalDraws);
+    // Every economy that ran contributed at least one draw to the total.
+    expect(a.drawsPlayed.mean * a.economies).toBeCloseTo(a.totalDraws, 6);
     // Fail-proof for the determinism pin: a different seed diverges.
     expect(JSON.stringify(runDeckSim({ seed: 8, draws: 3000 }))).not.toBe(JSON.stringify(a));
   });
@@ -1216,25 +1215,25 @@ describe('deck-only mode', () => {
     }
   });
 
-  it('a deck.rareWeightPerDryLevel override bites the pity curve', () => {
+  // SOFT PITY IS DELETED with rarity (Story 8.1), so the `deck.rareWeight*`
+  // dials — and the pity curve they bit — are gone. What replaces the pin is
+  // the dial the draw still HAS: `offer.size` moves how much of the deck each
+  // level shows, which is now the only knob between a deck and an offer.
+  it('an offer.size override bites the draw (the surviving deck dial)', () => {
     const base = runDeckSim({ seed: 7, draws: 4000 });
-    const restore = applyOverrides({ 'deck.rareWeightPerDryLevel': 50 });
-    let boosted;
+    const restore = applyOverrides({ 'offer.size': 2 });
+    let narrow;
     try {
-      boosted = runDeckSim({ seed: 7, draws: 4000 });
+      narrow = runDeckSim({ seed: 7, draws: 4000 });
     } finally {
       restore();
     }
-    // With an absurd escalation, one dry level makes a rare landing near
-    // certain — the dry=1 rate must exceed the production dial's. The absolute
-    // bar moved 0.95 -> 0.94 with the wave-1 catalog and 0.94 -> 0.88 with
-    // wave 2: the rare/common MIX shifted again (the cannon's 5-copy common
-    // ladder left, three rare doctrines arrived), and — the bigger mover — the
-    // harness's doctrine-ping-pong stopping rule went with exclusivity, so an
-    // economy now plays on to a genuinely empty deck and the long common tail
-    // is measured instead of truncated. It now measures ~0.888. The relative
-    // assertion above is the load-bearing one.
-    expect(boosted.pity[1].rareRate).toBeGreaterThan(base.pity[1].rareRate);
-    expect(boosted.pity[1].rareRate).toBeGreaterThan(0.85);
+    // Same deck, same spend-per-level: a narrower hand changes WHICH lines get
+    // seen, never how many cards a level costs — so the per-line offer ledger
+    // must move while the economy length does not.
+    const cards = (rec: Record<string, number>): number => Object.values(rec).reduce((n, v) => n + v, 0);
+    expect(cards(narrow.lineOffers)).toBeLessThan(cards(base.lineOffers));
+    expect(JSON.stringify(narrow.lineOffers)).not.toBe(JSON.stringify(base.lineOffers));
+    expect(narrow.deckExhaustedRate).toBe(base.deckExhaustedRate);
   });
 });

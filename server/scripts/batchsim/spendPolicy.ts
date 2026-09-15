@@ -8,40 +8,46 @@
 // World, a ship, or the clock — it is pure over (offer, rng, fitted).
 //
 // THE POLICY: whenever a level is banked, spend immediately on the front offer;
-// with probability SPEND_TOP_P pick uniformly among the offer's HIGHEST-rarity
-// lines (exclusive > rare > common — the "slight preference order"), otherwise
-// uniformly among the whole offer. One refinement keeps the instrument honest:
-// a line ALREADY FITTED on this ship is demoted to common preference, so an
-// always-prefer-exclusive policy cannot fixate on a card it already holds.
-// (Until Story 7-5 wave 2 this clause also covered a fitted doctrine RIVAL,
-// because the swap returned the rival's card for a net-zero deck drain and the
-// policy would ping-pong the pair forever. Exclusivity is deleted — R2.6 — so
-// nothing returns to a deck and only the card's own copies matter.)
-// This exercises the real spendPoint/settleSpend path (acquisition scrub)
-// while keeping picks deterministic per stream.
+// with probability SPEND_TOP_P pick uniformly among the offer's HIGHEST-RANKED
+// lines, otherwise uniformly among the whole offer. One refinement keeps the
+// instrument honest: a line ALREADY AT ITS CAP on this ship is demoted, so a
+// preference policy cannot fixate on a card it can buy nothing more of.
+//
+// RARITY IS GONE (Story 8.1). Catalog v3 has no rarity tier, so the old
+// "exclusive > rare > common" preference order has nothing to order by. The
+// rank is now the card's KIND — the same four words the refit card shows —
+// with a nature-changing ADD-ON ranked above a ladder rung and a new weapon
+// above both, which reproduces the instrument's original intent (bias toward
+// the transformative card) without inventing a balance number. Like the old
+// rank, it is a MEASUREMENT INSTRUMENT and not canon: ai/spending.ts owns what
+// bots actually want.
+// This exercises the real spendPoint/settleSpend path while keeping picks
+// deterministic per stream.
 //
 // Determinism: the caller owns the mulberry32 stream. No Math.random, no
 // Date.now, no ambient state.
 
-import { BOON_CATALOG, type Rng } from '@salvo/shared';
+import { CATALOG, boonStackCount, type LineKind, type Rng } from '@salvo/shared';
 
-/** Probability the spend policy takes the highest-rarity line (else uniform). */
+/** Probability the spend policy takes the top-ranked line (else uniform). */
 export const SPEND_TOP_P = 0.75;
 
-const RARITY_RANK: Record<string, number> = { common: 0, rare: 1, exclusive: 2 };
+/** The instrument's preference order over catalog-v3 KINDS (see header). */
+const KIND_RANK: Record<LineKind, number> = { consumable: 0, ladder: 1, addon: 2, equipment: 3 };
 
-/** Preference rank of one offer line for `fitted` — the already-held demotion
+/** Preference rank of one offer line for `fitted` — the at-cap demotion
  *  documented in the header. */
 function preferenceRank(id: string, fitted: readonly string[]): number {
-  const def = BOON_CATALOG[id];
-  if (def === undefined) return 0;
-  if (fitted.includes(id)) return 0;
-  return RARITY_RANK[def.rarity] ?? 0;
+  if (!Object.hasOwn(CATALOG, id)) return 0;
+  const line = CATALOG[id];
+  if (line === undefined) return 0;
+  if (boonStackCount(fitted, id) >= line.cap) return 0;
+  return KIND_RANK[line.kind] ?? 0;
 }
 
 /** The deterministic spend policy, shared by the scripted control AND the
- *  deck-only mode. `fitted` = the ship's currently-applied boon ids
- *  (ship.boons). */
+ *  deck-only mode. `fitted` = the ship's currently-fitted card line ids
+ *  (ship.cards). */
 export function pickSpendChoice(offer: readonly string[], rng: Rng, fitted: readonly string[]): number {
   const ranks = offer.map((id) => preferenceRank(id, fitted));
   const best = Math.max(...ranks);

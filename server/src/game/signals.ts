@@ -737,7 +737,7 @@ function buoyPaintBlip(ctx: SignalContext, buoy: BuoyState): BlipEvent {
  *  with the vacated-owner CONFIG fallback (false) — the mine-doctrine rule,
  *  so an orphan buoy stops jamming the tick its owner leaves. */
 function buoyJams(ctx: SignalContext, buoy: BuoyState): boolean {
-  return ctx.ships.get(buoy.ownerId)?.stats.radarBuoy.jamming ?? false;
+  return ctx.ships.get(buoy.ownerId)?.stats.equipment.radarBuoy.jamming ?? false;
 }
 
 /**

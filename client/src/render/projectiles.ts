@@ -131,7 +131,7 @@ export interface OwnModes {
  *  so it is claimable — it earns its OWN report (fireStarShells) while keeping
  *  the generic shell LOOK, because a flare in flight is just a shell until it
  *  bursts. */
-export type OwnFire = 'gun' | 'broadside' | 'torpedo' | 'starShells' | null;
+export type OwnFire = 'gun' | 'broadside' | 'heavyTorpedo' | 'starShells' | null;
 
 /**
  * Pure: the look a newly-revealed track paints with.
@@ -144,7 +144,7 @@ export type OwnFire = 'gun' | 'broadside' | 'torpedo' | 'starShells' | null;
  * wire kind) falls through to the generic shell look on the same clause.
  */
 export function lookForReveal(kind: Kind, own: OwnFire, modes: OwnModes): ProjectileLookId {
-  if (kind === 'torp') return own === 'torpedo' && modes.torpedoHoming ? 'torpHoming' : 'torp';
+  if (kind === 'torp') return own === 'heavyTorpedo' && modes.torpedoHoming ? 'torpHoming' : 'torp';
   return own === 'broadside' ? 'broadside' : 'shell';
 }
 

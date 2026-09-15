@@ -285,7 +285,7 @@ function scnPtBn(g: Golden): void {
   place(w, 'b', 400, 0); // far (out of a's sight); sunk to bank a a level
   w.sinkShip('b', 'a'); // sunk(b) + pt(a) — the sunk now reaches a UNSEEN (PV 23: credited killer)
   a.hp -= 30; // damaged — a non-heal spend may not restore this
-  a.offer = ['gunBarrel', 'shipCooldown', 'intelSweep', 'torpedoSpeed']; // fixed non-heal hand
+  a.offer = ['deckGunBarrel', 'reload', 'radarSweep', 'speed']; // fixed non-heal hand
   const hpBefore = a.hp;
   expect(w.spendPoint('a', 3)).toBe(true); // the fourth card — bn(a)
   expect(a.hp).toBe(hpBefore); // a non-heal spend never heals
@@ -695,7 +695,7 @@ function scnDenied(g: Golden): void {
 function scnHoming(g: Golden): void {
   const w = bareWorld(1017);
   const a = place(w, 'a', 0, 0);
-  w.applyBoon(a, 'torpedoHoming');
+  w.applyCard(a, 'acousticHoming');
   place(w, 'b', 320, 80); // the fish steers toward this hull mid-flight
   const c = place(w, 'c', 250, -60); // sight covers the turning stretch
   const d = place(w, 'd', -900, 0); // beyond sight of everything
@@ -729,7 +729,7 @@ function scnHoming(g: Golden): void {
 function scnDebuffs(g: Golden): void {
   const w = bareWorld(1018);
   const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-  w.applyBoon(o, 'minePropFouling');
+  w.applyCard(o, 'foulingMines');
   const b = place(w, 'b', 0, 10); // trips the fouling mine below on the first step
   place(w, 'watcher', 100, 60); // sees b as a contact
   injectMine(w, 'fm', 'o', 0, 0);
@@ -853,7 +853,7 @@ function scnHeal(g: Golden): void {
   place(w, 'z', 900, 900); // far away; sunk to bank `a` a level
   w.sinkShip('z', 'a');
   a.hp -= 60;
-  a.offer = ['gunBarrel', 'shipCooldown', 'intelSweep', 'torpedoSpeed']; // fixed hand (content-stable)
+  a.offer = ['deckGunBarrel', 'reload', 'radarSweep', 'speed']; // fixed hand (content-stable)
   expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
   w.step();
   const fa = cap(g, w, 'a');

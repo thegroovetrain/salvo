@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, effectiveStats, resolveBoons, type MineView } from '@salvo/shared';
+import { CONFIG, effectiveStats, type MineView } from '@salvo/shared';
 import { reconcileMines, mineArmed, ownMineRings, ringsKey, Mines } from '../render/mines.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -139,31 +139,37 @@ describe('ownMineRings — the owner-private radius set', () => {
   // rings exist: a captive mine draws its wide TRIP ring and NO blast circle,
   // because it never detonates on contact and a solid ring around the casing
   // would promise a kill it cannot deliver.
+  // CATALOG V3 MOVED THE CAPTIVE FLAG (R25). It used to be a doctrine a card
+  // bolted onto the naval mine; it is now a property of the CAPTIVE MINES
+  // equipment row — true at base there, false on `navalMines` — driving exactly
+  // the same derivation in clampStats (the two radii swap and the trip ring
+  // triples). So the rings are read off the captive row.
   it('CAPTIVE: draws the 144u trip ring alone — no 32u contact-blast ring', () => {
-    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, resolveBoons(['mineCaptive']));
-    expect(stats.mine.captive).toBe(true);
-    expect(stats.mine.triggerRadius).toBeCloseTo(144, 9);
-    expect(stats.mine.blastRadius).toBeCloseTo(32, 9);
+    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, []);
+    expect(stats.equipment.captiveMines.captive).toBe(true);
+    expect(stats.equipment.navalMines.captive).toBe(false); // the plain mine is unchanged
+    expect(stats.equipment.captiveMines.triggerRadius).toBeCloseTo(144, 9);
+    expect(stats.equipment.captiveMines.blastRadius).toBeCloseTo(32, 9);
     const rings = ownMineRings(
-      { blast: stats.mine.blastRadius, trigger: stats.mine.triggerRadius, captive: true, now: 0 },
+      { blast: stats.equipment.captiveMines.blastRadius, trigger: stats.equipment.captiveMines.triggerRadius, captive: true, now: 0 },
       true,
     );
     expect(rings.map((r) => [r.r, r.style])).toEqual([[144, 'dotted']]);
     // ...and specifically NOT the blast radius, in any style.
-    expect(rings.some((r) => r.r === stats.mine.blastRadius)).toBe(false);
+    expect(rings.some((r) => r.r === stats.equipment.captiveMines.blastRadius)).toBe(false);
   });
 
-  it('CAPTIVE: the trip ring follows the MINES ladder without re-deriving it', () => {
-    const maxed = effectiveStats(
-      CONFIG.shipClasses.mineLayer,
-      resolveBoons(['mineCaptive', 'mineBlast', 'mineBlast', 'mineBlast', 'mineBlast']),
-    );
+  // The blast ladder that scaled this ring is Story 8.16's to author (an
+  // equipment line's tiers II–V are empty in 8.1), so the pin drives the ring
+  // off a widened row directly. The claim is unchanged: the ring set READS the
+  // trip radius and never re-derives it.
+  it('CAPTIVE: the trip ring follows the row without re-deriving it', () => {
+    const base = effectiveStats(CONFIG.shipClasses.mineLayer, []).equipment.captiveMines;
     const [ring] = ownMineRings(
-      { blast: maxed.mine.blastRadius, trigger: maxed.mine.triggerRadius, captive: true, now: 0 },
+      { blast: base.blastRadius, trigger: 210.8, captive: true, now: 0 },
       true,
     );
-    expect(ring.r).toBe(maxed.mine.triggerRadius);
-    expect(ring.r).toBeCloseTo(210.8, 1);
+    expect(ring.r).toBe(210.8);
   });
 
   it('every radius carries a DISTINCT line style — the rings never rely on hue', () => {

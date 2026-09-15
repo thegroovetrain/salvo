@@ -13,7 +13,7 @@
 // for a pure rules module reading CLIENT_CONFIG. Pure of SIDE EFFECTS and of the
 // audio stack; not free of configuration.
 
-import { CONFIG, type BoonRarity, type EquipmentId } from '@salvo/shared';
+import { CONFIG, type EquipmentId, type LineKind } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** Every distinct cue the client can play. */
@@ -380,12 +380,16 @@ export function telegraphTone(dir: number): ToneId {
  *  The MINE stays included even though it is now an ability (Story 1.8) — its
  *  'fireMine' drop cue still fires, via the Mines reconcile own-spawn hook
  *  (main.ts); the buoy's cue rides the same hook shape. */
-type FiringEquipmentId = Exclude<EquipmentId, 'speedBoost' | 'radarBuoy'>;
+type FiringEquipmentId = Extract<EquipmentId, 'gun' | 'heavyTorpedo' | 'navalMines' | 'broadside' | 'starShells'>;
 
+/** TOTAL over the five ids that HAVE a cue. Story 8.1 widened `EquipmentId` to
+ *  catalog v3's thirteen weapons plus two legacy ids, so the old
+ *  `Exclude<..., 'speedBoost' | 'radarBuoy'>` would now demand a cue for eight
+ *  weapons that have no module to fire - the union names the five that do. */
 const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   gun: 'fireGun',
-  torpedo: 'fireTorp',
-  mine: 'fireMine',
+  heavyTorpedo: 'fireTorp',
+  navalMines: 'fireMine',
   broadside: 'fireBroadside',
   starShells: 'fireStarShells',
 };
@@ -395,19 +399,28 @@ export function fireTone(id: FiringEquipmentId): ToneId {
   return FIRE_TONE[id];
 }
 
-/** Boon rarity -> its fit cue (Story 2.9). The tier is the ONE audible axis:
- *  a common lands light, a rare fuller, an exclusive heaviest. */
-const FIT_TONE: Record<BoonRarity, ToneId> = {
-  common: 'fitCommon',
-  rare: 'fitRare',
-  exclusive: 'fitExclusive',
+/**
+ * Card KIND -> its fit cue (Story 2.9, re-keyed to catalog v3 in Story 8.1).
+ * Rarity is gone from the catalog, so the ONE audible axis is now the kind: an
+ * EQUIPMENT card fits a whole new weapon and lands on the fuller cue the RARE
+ * tier used to own; everything else (a ladder rung, an add-on verb, a
+ * consumable) lands light. The a11y dual-coding is unchanged - the refit card
+ * prints the kind as a WORD and the cue is the second channel, never the only
+ * one. `fitExclusive` keeps its voice in the tone table with no kind behind it:
+ * deleting a synthesised cue is a sound change, not a catalog change.
+ */
+const FIT_TONE: Record<LineKind, ToneId> = {
+  equipment: 'fitRare',
+  ladder: 'fitCommon',
+  addon: 'fitCommon',
+  consumable: 'fitCommon',
 };
 
-/** Pure: the fit cue for a fitted boon's rarity tier. Fail-open to the common
- *  weight — a junk/unknown rarity must still be AUDIBLE (FR22: a
- *  presentation-silent boon is a defect), never silent. */
-export function fitTone(rarity: BoonRarity | undefined): ToneId {
-  return rarity !== undefined && Object.hasOwn(FIT_TONE, rarity) ? FIT_TONE[rarity] : 'fitCommon';
+/** Pure: the fit cue for a fitted card's kind. Fail-open to the light weight -
+ *  a junk/unknown kind must still be AUDIBLE (FR22: a presentation-silent fit
+ *  is a defect), never silent. */
+export function fitTone(kind: LineKind | undefined): ToneId {
+  return kind !== undefined && Object.hasOwn(FIT_TONE, kind) ? FIT_TONE[kind] : 'fitCommon';
 }
 
 /** One semitone, in the CENTS `Audio.play`'s `detune` option speaks (the Web
@@ -415,40 +428,38 @@ export function fitTone(rarity: BoonRarity | undefined): ToneId {
 const SEMITONE_CENTS = 100;
 
 /**
- * Boon CATEGORY -> the fit cue's transposition, in cents (Story 2.9). The TIER
- * picks the instrument's weight (fitTone); the CATEGORY moves it up or down the
- * scale, so two commons fitted back to back on different slots are audibly
- * different events without becoming different cues. The nine v1 categories are
- * laid across ±4 semitones in the deck's own order — the four weapon families
- * below the root, the utilities above it, SHIP at the root — which keeps the
- * interval between any two neighbours a clean semitone. Draft mapping (the
- * draft-copy rule); the table is pinned exhaustive over the catalog by
- * __tests__/tones.test.ts, so a tenth category cannot ship untransposed.
+ * Card KIND -> the fit cue's transposition, in cents (Story 2.9, re-keyed in
+ * Story 8.1). The KIND picks the instrument's weight (fitTone); the same kind
+ * also moves it up or down the scale, so a ladder rung and an add-on verb are
+ * audibly different events without becoming different cues.
+ *
+ * WHY THE TABLE SHRANK FROM NINE VOICES TO FOUR. The transposition used to ride
+ * the v2 catalog's nine CATEGORIES, which are deleted: catalog v3 has no
+ * category axis at all, only the four kinds. Re-keying rather than removing
+ * keeps the axis alive (and keeps a fit distinguishable from the one before it)
+ * without inventing a new one the sheet does not state. Laid across +/-2
+ * semitones in catalog order, so the interval between neighbours stays a clean
+ * semitone and LADDER - the commonest fit - sits at the root.
  */
-const FIT_CATEGORY_CENTS: Readonly<Record<string, number>> = {
-  guns: -4 * SEMITONE_CENTS,
-  broadside: -3 * SEMITONE_CENTS,
-  torpedoes: -2 * SEMITONE_CENTS,
-  mines: -1 * SEMITONE_CENTS,
-  ship: 0,
-  intel: 1 * SEMITONE_CENTS,
-  speedBoost: 2 * SEMITONE_CENTS,
-  starShells: 3 * SEMITONE_CENTS,
-  radarBuoy: 4 * SEMITONE_CENTS,
+const FIT_KIND_CENTS: Readonly<Record<string, number>> = {
+  equipment: -2 * SEMITONE_CENTS,
+  ladder: 0,
+  addon: 1 * SEMITONE_CENTS,
+  consumable: 2 * SEMITONE_CENTS,
 };
 
 /**
- * Pure: the fit cue's detune (cents) for a fitted line's category. Fails OPEN to
- * the root — an unknown/junk category still gets the untransposed cue rather
- * than silence (FR22: a presentation-silent boon is the defect).
+ * Pure: the fit cue's detune (cents) for a fitted line's kind. Fails OPEN to
+ * the root - an unknown/junk kind still gets the untransposed cue rather than
+ * silence (FR22: a presentation-silent fit is the defect).
  */
-export function fitDetune(category: string): number {
-  return Object.hasOwn(FIT_CATEGORY_CENTS, category) ? FIT_CATEGORY_CENTS[category] : 0;
+export function fitDetune(kind: string): number {
+  return Object.hasOwn(FIT_KIND_CENTS, kind) ? FIT_KIND_CENTS[kind] : 0;
 }
 
-/** The categories the fit transposition covers (test seam — pinned against the
- *  live catalog so a new category cannot ship without a voice). */
-export const FIT_CATEGORIES: readonly string[] = Object.keys(FIT_CATEGORY_CENTS);
+/** The kinds the fit transposition covers (test seam - pinned against the live
+ *  catalog so a new kind cannot ship without a voice). */
+export const FIT_KINDS: readonly string[] = Object.keys(FIT_KIND_CENTS);
 
 // --- match-phase edge cues (countdown tick + match-start) -------------------
 
