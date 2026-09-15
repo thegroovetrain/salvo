@@ -43,6 +43,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
+import { DECK_ID_MAX } from '../rooms/roomOptions.js';
 import { StandardQueueRoom } from '../rooms/StandardQueueRoom.js';
 import { DECK_REFUSED_CODE, loadDeckFor } from '../game/decks.js';
 import { World } from '../game/world.js';
@@ -249,12 +250,39 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     expect(lines('warn deck.illegal')).toEqual([]);
   });
 
-  it('a malformed dev override (unknown id) is dropped by the sanitizer and the default is used — not a refusal', () => {
+  it('an UNKNOWN id in a dev override is REFUSED as `unowned` — never silently replaced by the default', () => {
+    // The sanitizer used to drop the whole override on one unknown id, and the
+    // door then sailed the default: a silent substitution on the dev path, and
+    // the reason checkDeck's `unowned` rule was unreachable from either door.
     process.env.HC_DEV_OPTIONS = '1';
     const room = arenaDoor();
-    joinArena(room, arenaClient('s1'), { cls: 'torpedoBoat', deckOverride: [...TB.slice(1), 'nope'] });
-    expect(room.world.ships.get('s1')!.deckList).toBe(TB);
-    expect(lines('warn deck.illegal')).toEqual([]);
+    expectRefusal(
+      () => joinArena(room, arenaClient('s1'), { cls: 'torpedoBoat', deckOverride: [...TB.slice(1), 'nope'] }),
+      'unowned',
+      's1',
+    );
+    expect(room.world.ships.has('s1')).toBe(false);
+  });
+
+  it('a MALFORMED dev override (not an array / an over-long list) is dropped, LOGGED, and the default is used', () => {
+    process.env.HC_DEV_OPTIONS = '1';
+    for (const [i, bad] of [['nope'].join(), new Array<string>(300).fill('armor')].entries()) {
+      const room = arenaDoor();
+      joinArena(room, arenaClient(`s${i}`), { cls: 'torpedoBoat', deckOverride: bad as unknown as string[] });
+      expect(room.world.ships.get(`s${i}`)!.deckList).toBe(TB);
+      expect(lines('warn deck.illegal')).toEqual([]);
+      const dropped = lines('warn deck.devOptionsRejected');
+      expect(dropped).toHaveLength(i + 1); // one per join, never silent
+      expect(fieldsOf(dropped[i])).toMatchObject({ rejected: ['deckOverride'] });
+    }
+  });
+
+  it('a REFUSED join burns nothing: the next nameless captain is still CAPTAIN-1', () => {
+    const room = arenaDoor();
+    expectRefusal(() => joinArena(room, arenaClient('s1'), { deck: [...TB] }), 'clientSupplied', 's1');
+    logSpy.mockClear();
+    joinArena(room, arenaClient('s2'), {}); // no name: the CAPTAIN-n fallback
+    expect(room.world.ships.get('s2')!.name).toBe('CAPTAIN-1');
   });
 
   it('accepts and ignores deckId (the Epic 9 port): the default is used', () => {
@@ -352,8 +380,12 @@ interface QueueDoor {
 }
 
 function queueClient(id: string): QueueClient {
-  // `auth` is what the queue's own static onAuth left there: the bare verdict.
-  return { sessionId: id, state: ClientState.JOINING, auth: true, send: vi.fn(), error: vi.fn(), leave: vi.fn() };
+  // `auth` is what the queue's own static onAuth leaves there: UNDEFINED.
+  // onAuth returns the bare verdict `true`, and @colyseus/core 0.18.13 maps a
+  // `true` verdict to `undefined` in callOnAuth and then assigns `client.auth`
+  // only for a truthy authData in _onJoin — so the object spread in seatAuth
+  // has nothing to carry, which is the shape this mock reproduces.
+  return { sessionId: id, state: ClientState.JOINING, auth: undefined, send: vi.fn(), error: vi.fn(), leave: vi.fn() };
 }
 
 /** Bare queue room with the real onCreate (the colyseus018 bareQueue idiom). */
@@ -381,9 +413,24 @@ describe('the queue door — refusals happen BEFORE the pool push', () => {
     expect(room.pool[0].deck).toBe(DEFAULT_DECKS.battleship);
     // `deckId` is forwarded to the arena options; nothing deck-shaped else is.
     joinQueue(room, queueClient('q2'), { cls: 'torpedoBoat', deckId: ' d1 ', deckOverride: [...TB] });
-    expect(room.pool[1].options).toEqual({ name: undefined, cls: 'torpedoBoat', horn: 'standard', colorPref: undefined, deckId: ' d1 ' });
+    expect(room.pool[1].options).toEqual({ name: undefined, cls: 'torpedoBoat', horn: 'standard', colorPref: undefined, deckId: 'd1' });
     expect('deck' in room.pool[1].options).toBe(false);
     expect('deckOverride' in room.pool[1].options).toBe(false);
+  });
+
+  it('forwards the SANITIZED deckId — an unbounded or malformed one never rides the reservation', () => {
+    const room = queueDoor();
+    // 100_000 characters and a control character: the door bounded its own
+    // copy while the one that travelled to the arena was the raw string.
+    joinQueue(room, queueClient('q1'), { cls: 'torpedoBoat', deckId: 'x'.repeat(100000) });
+    expect(room.pool[0].options.deckId).toBeUndefined();
+    joinQueue(room, queueClient('q2'), { cls: 'torpedoBoat', deckId: '  \u0007d-2\u0000  ' });
+    const forwarded = room.pool[1].options.deckId as string;
+    expect(forwarded).toBe('\u0007d-2\u0000'); // trimmed...
+    expect(Array.from(forwarded).length).toBeLessThanOrEqual(DECK_ID_MAX); // ...and bounded
+    for (const pooled of room.pool) {
+      expect(String(pooled.options.deckId ?? '').length).toBeLessThanOrEqual(DECK_ID_MAX);
+    }
   });
 
   it('REFUSES a client `deck` key: not pooled, and a later onLeave finds nothing to splice', () => {
@@ -434,7 +481,7 @@ describe('the queue door — the frozen deck rides the reservation\'s server-onl
       expect(data.sessionId).toBe(`q${i}`);
       // THE DECK IS IN `auth`, BY REFERENCE TO THE FROZEN DEFAULT...
       expect(data.auth.deck).toBe(DEFAULT_DECKS[classes[i % 3]]);
-      // ...and the bare `true` verdict the queue's onAuth left spreads to nothing.
+      // ...and the `undefined` the queue's onAuth left spreads to nothing.
       expect(Object.keys(data.auth)).toEqual(['deck']);
       // ...and NEVER in `options` — a client-shapeable payload.
       expect(data.options).toEqual({ name: `C${i}`, cls: classes[i % 3], horn: 'standard', colorPref: undefined, deckId: `d${i}` });
@@ -442,6 +489,38 @@ describe('the queue door — the frozen deck rides the reservation\'s server-onl
     });
     expect(seams.buildSeatReservation).toHaveBeenCalledTimes(CONFIG.map.playerCap);
     expect(room.pool).toHaveLength(0);
+  });
+
+  it('THE TRANSPORT ITSELF: the queued captain\'s deck reaches the arena through `auth`, not by re-loading a default', async () => {
+    // The discriminating case. Seat path and door path resolve to the SAME
+    // default for an ordinary captain, so a transport that silently stopped
+    // working would look identical. Here a dev override makes the queued deck
+    // DIFFER from the hull default, the REAL reservation payload the queue
+    // built is captured, and that payload's `auth` is handed to the arena's
+    // real onJoin: the record must hold the OVERRIDE, never TB's default.
+    process.env.HC_DEV_OPTIONS = '1';
+    const queue = queueDoor();
+    for (let i = 0; i < CONFIG.map.playerCap; i += 1) {
+      joinQueue(queue, queueClient(`q${i}`), { cls: 'torpedoBoat', name: `C${i}`, deckOverride: [...ML] });
+    }
+    await flush();
+    await flush();
+    const clientsData = seams.reserveMultipleSeatsFor.mock.calls[0][1] as {
+      sessionId: string;
+      options: Record<string, unknown>;
+      auth: Record<string, unknown>;
+    }[];
+    const seat = clientsData[7];
+    expect(seat.auth.deck).toEqual(ML);
+    expect(seat.options.deckOverride).toBeUndefined(); // the arena cannot re-derive it from options
+    // The arena, fed exactly what core would hand it.
+    const arena = arenaDoor();
+    logSpy.mockClear();
+    joinArena(arena, arenaClient(seat.sessionId, seat.auth), seat.options);
+    const rec = arena.world.ships.get(seat.sessionId)!;
+    expect(rec.deckList).toEqual(ML);
+    expect(rec.deckList).not.toEqual(TB); // the default would have been TB
+    expect(fieldsOf(lines('info client.join')[0])).toMatchObject({ sessionId: seat.sessionId, deckSource: 'seat' });
   });
 
   it('carries an OBJECT auth payload through (the Epic 9 account shape) with the deck added', async () => {

@@ -23,6 +23,7 @@ import {
 import {
   protocolVersionError,
   sanitizeColorPref,
+  sanitizeDeckOptions,
   sanitizeName,
   type JoinOptions,
 } from './roomOptions.js';
@@ -87,10 +88,13 @@ interface PooledCaptain {
 
 /**
  * The reservation's `auth` payload for a pooled captain: whatever the queue's
- * own door left on `client.auth` (today `true` — static onAuth's verdict,
- * which spreads to nothing; Epic 9 puts the account there) plus the frozen
- * deck. Only an OBJECT is spread: a primitive verdict would otherwise be lost
- * silently and a hostile shape can never reach here (auth is server-written).
+ * own door left on `client.auth` (today `undefined`, which spreads to nothing
+ * — the queue's static `onAuth` returns the bare verdict `true`, and
+ * @colyseus/core 0.18.13 maps a `true` verdict to `undefined` in `callOnAuth`
+ * and then assigns only a TRUTHY `authData` in `_onJoin`; Epic 9 puts the
+ * account there) plus the frozen deck. Only an OBJECT is spread: a primitive
+ * verdict would otherwise be lost silently and a hostile shape can never reach
+ * here (auth is server-written).
  */
 function seatAuth(client: Client, deck: readonly LineId[]): Record<string, unknown> {
   const base: unknown = client.auth;
@@ -130,7 +134,14 @@ function sanitizeArenaOptions(options: JoinOptions): JoinOptions {
   // `deckOverride` are NOT: the deck itself travels in the reservation's
   // `auth`, resolved at this door, so the arena never re-reads a deck option
   // off a queued captain.
-  if (typeof options.deckId === 'string') out.deckId = options.deckId;
+  //
+  // FORWARD THE SANITIZED VALUE, NOT THE RAW ONE. A bare `typeof === 'string'`
+  // test let an untrimmed, unbounded client string ride the seat reservation
+  // into the arena while the door next to it applied sanitizeDeckId's trim and
+  // 64-code-point cap to a copy it then threw away — so the ONE deckId that
+  // survived the queue was the one nobody had bounded.
+  const { deckId } = sanitizeDeckOptions(options, false);
+  if (deckId !== undefined) out.deckId = deckId;
   return out;
 }
 

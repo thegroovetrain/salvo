@@ -638,16 +638,27 @@ if (CATALOG_PROBLEMS.length > 0) throw new Error(CATALOG_PROBLEMS.join('\n'));
 /** Copies per line, the authoring shape of a deck (absent = 0). */
 export type DeckCounts = Partial<Readonly<Record<LineId, number>>>;
 
+/** LINE_IDS as a set — the membership test `deckFromCounts` expands against. */
+const LINE_ID_SET: ReadonlySet<string> = new Set<string>(LINE_IDS);
+
 /**
  * Expand a counts table into a frozen card list in LINE_IDS order. Refuses,
  * AT MODULE LOAD, a count that is not a non-negative integer, a count over the
  * line's cap, and a total other than CONFIG.deck.size — the three authoring
  * slips a spreadsheet transcription can make. (The full four-rule legality
  * check, which also needs the OWNED set, runs in sim/deckRules.ts.)
+ *
+ * THE UNKNOWN-KEY CHECK IS AGAINST `LINE_IDS`, NOT THE CATALOG, because the
+ * EXPANSION is: the loop below walks LINE_IDS, so a count keyed by anything
+ * outside it can never become a card. Checking an INJECTED catalog instead
+ * (which a test may give a line LINE_IDS does not list) admitted such a key
+ * and then silently dropped its copies — the deck came back short rather than
+ * wrong, which is exactly the kind of quiet transcription slip this helper
+ * exists to refuse.
  */
 export function deckFromCounts(counts: DeckCounts, catalog: Catalog = CATALOG): readonly LineId[] {
   for (const id of Object.keys(counts)) {
-    if (!Object.hasOwn(catalog, id)) throw new Error(`deckFromCounts: unknown line '${id}'`);
+    if (!LINE_ID_SET.has(id)) throw new Error(`deckFromCounts: unknown line '${id}' (not in LINE_IDS)`);
   }
   const out: LineId[] = [];
   for (const id of LINE_IDS) {
@@ -703,9 +714,30 @@ export const DEFAULT_DECKS: Readonly<Record<ShipClassId, readonly LineId[]>> = O
  * A FRESH ACCOUNT'S UNLOCKS: the union of the three default decks' line ids
  * (24 of the 29 lines). With no account module this is the `owned` set every
  * door checks a deck against (server/src/game/decks.ts); Epic 9's collection
- * grows it per account. A ReadonlySet — the type is the freeze.
+ * grows it per account.
+ *
+ * IMMUTABLE FOR REAL, NOT JUST BY TYPE. `ReadonlySet<LineId>` is a
+ * compile-time promise and `Object.freeze` does NOT close a Set: freezing
+ * locks the object's own properties, while `add`/`delete`/`clear` mutate
+ * INTERNAL slots and go on working. This is the legality authority `checkDeck`
+ * consults at the door, so one `DEFAULT_OWNED.add(...)` anywhere — a stray
+ * line in a test, a JS caller with no types — would silently unlock a line for
+ * every captain on the server for the rest of the process. The three mutators
+ * are therefore replaced with throwing own properties BEFORE the freeze; every
+ * read path (`has`, iteration, `size`) is untouched.
  */
-export const DEFAULT_OWNED: ReadonlySet<LineId> = Object.freeze(
+export const DEFAULT_OWNED: ReadonlySet<LineId> = sealOwnedSet(
   new Set<LineId>(Object.values(DEFAULT_DECKS).flat()),
 );
+
+/** Replace a Set's mutators with throwers, then freeze it (see DEFAULT_OWNED). */
+function sealOwnedSet(set: Set<LineId>): ReadonlySet<LineId> {
+  const refuse = (): never => {
+    throw new Error('DEFAULT_OWNED is immutable');
+  };
+  for (const name of ['add', 'delete', 'clear'] as const) {
+    Object.defineProperty(set, name, { value: refuse, writable: false, configurable: false, enumerable: false });
+  }
+  return Object.freeze(set);
+}
 

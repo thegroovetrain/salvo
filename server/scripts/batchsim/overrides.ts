@@ -7,10 +7,18 @@
 // shared/). Every apply returns a restore closure; the sweep path restores
 // between variants, single runs simply exit.
 //
-// The whitelist is EXACTLY the spec's tunable-dial surface: xp.*, deck.*,
-// offer.size, match.fillTo, map.baseRadius, zone.*. Anything else — even a
-// real CONFIG path like gun.damage — is rejected with a clear error, so the
-// harness can never quietly become a general balance-editing backdoor.
+// The whitelist is EXACTLY the spec's tunable-dial surface: xp.*, offer.size,
+// match.fillTo, map.baseRadius, zone.*. Anything else — even a real CONFIG
+// path like gun.damage — is rejected with a clear error, so the harness can
+// never quietly become a general balance-editing backdoor.
+//
+// `deck.*` WAS on that list and is now REFUSED (Story 8.2 review): since the
+// decks became real, `CONFIG.deck.size` no longer builds anything at run time
+// — DEFAULT_DECKS and PACIFIST_DECK are expanded ONCE at module load, before
+// any override can be applied — so `--set deck.size=30` was accepted, changed
+// nothing a hull sails, and merely made `checkDeck` call every baked 40-card
+// deck illegal. An accepted, inert dial that silently invalidates the run is
+// the one failure a balance harness may not have.
 // zone.* keys address the PHASED timeline shape (Story 3.1): zone.beatMs,
 // zone.offsetCap, zone.terminalSightFactor, zone.stormDps, and the per-group
 // ring exponents by INDEX — zone.ringSteps.0 / zone.ringSteps.1 (resolveLeaf
@@ -22,7 +30,7 @@ import { CONFIG } from '@salvo/shared';
 /** Unknown / non-tunable / non-numeric --set key — main prints and exits 2. */
 export class TunableError extends Error {}
 
-const TUNABLE_FAMILIES = ['xp.', 'deck.', 'zone.'];
+const TUNABLE_FAMILIES = ['xp.', 'zone.'];
 const TUNABLE_EXACT = new Set(['offer.size', 'match.fillTo', 'map.baseRadius']);
 
 export function isTunableKey(key: string): boolean {
@@ -108,6 +116,19 @@ function assertNotDerived(key: string): void {
   }
 }
 
+/** Refuse a CONFIG path whose consumers ran at MODULE LOAD, so an override
+ *  applied later cannot reach them (see the header's `deck.*` note). Named
+ *  separately from the whitelist because the reason is not "off the surface"
+ *  but "accepted and inert", which needs saying out loud. */
+function assertNotBaked(key: string): void {
+  if (!key.startsWith('deck.')) return;
+  throw new TunableError(
+    `'${key}' is not tunable: the default decks (shared/src/sim/catalog.ts) and PACIFIST_DECK ` +
+      '(batchsim/controls.ts) are expanded at MODULE LOAD, so a CONFIG.deck change cannot reach ' +
+      'any deck this run sails — it would only make checkDeck refuse them. Author the deck instead.',
+  );
+}
+
 /** The family gate, split out of resolveLeaf so the --set rejection message
  *  stays byte-identical to the one shipped before --tune existed. */
 function assertKeyAllowed(key: string, allowTune: boolean): void {
@@ -118,9 +139,10 @@ function assertKeyAllowed(key: string, allowTune: boolean): void {
       `'${key}' is not an equipment dial (allowed: ${TUNE_FAMILIES.map((f) => `${f}*`).join(', ')})`,
     );
   }
+  assertNotBaked(key);
   if (isTunableKey(key)) return;
   throw new TunableError(
-    `'${key}' is not a tunable dial (allowed: xp.*, deck.*, offer.size, match.fillTo, map.baseRadius, zone.*)`,
+    `'${key}' is not a tunable dial (allowed: xp.*, offer.size, match.fillTo, map.baseRadius, zone.*)`,
   );
 }
 

@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { DEFAULT_DECKS } from '@salvo/shared';
 import {
   DECK_ID_MAX,
+  DECK_OVERRIDE_MAX,
   NAME_MAX,
   sanitizeDeckOptions,
   sanitizeName,
@@ -238,7 +239,7 @@ describe('sanitizeDeckOptions — deckOverride (dev-only, the matchOverride prec
     expect(sanitizeDeckOptions({ deckOverride: 'junk' as unknown as string[] }, false).rejectedKeys).toEqual(['deckOverride']);
   });
 
-  it('is honoured under devEnabled as a FRESH array of known line ids', () => {
+  it('is honoured under devEnabled as a FRESH array of line ids', () => {
     const list = [...TB];
     const out = sanitizeDeckOptions({ deckOverride: list }, true);
     expect(out.deckOverride).toEqual(TB);
@@ -251,12 +252,37 @@ describe('sanitizeDeckOptions — deckOverride (dev-only, the matchOverride prec
     expect(sanitizeDeckOptions({ deckOverride: fortyOne }, true).deckOverride).toEqual(fortyOne);
   });
 
-  it('drops the WHOLE override on one unknown id, a non-string entry, a prototype key, or a non-array', () => {
-    for (const bad of [[...TB.slice(1), 'nope'], [...TB.slice(1), 7], [...TB.slice(1), 'constructor'], 'armor', { 0: 'armor' }, null]) {
-      const out = sanitizeDeckOptions({ deckOverride: bad as unknown as string[] }, true);
-      expect(out.deckOverride, JSON.stringify(bad)).toBeUndefined();
-      expect(out.rejectedKeys, JSON.stringify(bad)).toEqual([]); // honoured-and-malformed is not "rejected by the gate"
+  it('honours an UNKNOWN id verbatim — checkDeck refuses it as `unowned`, the sanitizer never substitutes', () => {
+    // The sanitizer used to drop the whole override on one unknown id, which
+    // made the door sail the DEFAULT (a silent substitution) and left
+    // checkDeck's `unowned` rule unreachable from either door.
+    for (const junk of ['nope', 'constructor', '__proto__', '']) {
+      const list = [...TB.slice(1), junk];
+      const out = sanitizeDeckOptions({ deckOverride: list }, true);
+      expect(out.deckOverride, junk).toEqual(list);
+      expect(out.rejectedKeys, junk).toEqual([]);
     }
+  });
+
+  it('DROPS AND REPORTS a malformed shape: a non-array, a non-string entry, too many entries, an over-long entry', () => {
+    const bad: unknown[] = [
+      'armor',
+      { 0: 'armor' },
+      null,
+      [...TB.slice(1), 7],
+      new Array<string>(DECK_OVERRIDE_MAX + 1).fill('armor'),
+      [...TB.slice(1), 'x'.repeat(DECK_ID_MAX + 1)],
+    ];
+    for (const v of bad) {
+      const out = sanitizeDeckOptions({ deckOverride: v as string[] }, true);
+      expect(out.deckOverride, JSON.stringify(v)?.slice(0, 40)).toBeUndefined();
+      // A drop is never silent any more — the door logs deck.devOptionsRejected.
+      expect(out.rejectedKeys, JSON.stringify(v)?.slice(0, 40)).toEqual(['deckOverride']);
+    }
+    // ...and the bounds themselves are inclusive.
+    expect(sanitizeDeckOptions({ deckOverride: new Array<string>(DECK_OVERRIDE_MAX).fill('armor') }, true).deckOverride)
+      .toHaveLength(DECK_OVERRIDE_MAX);
+    expect(sanitizeDeckOptions({ deckOverride: ['x'.repeat(DECK_ID_MAX)] }, true).deckOverride).toEqual(['x'.repeat(DECK_ID_MAX)]);
   });
 
   it('no rejection noise when the caller passed no override', () => {

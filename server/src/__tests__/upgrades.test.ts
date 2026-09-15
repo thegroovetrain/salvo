@@ -214,7 +214,7 @@ describe('deck composition — the DEFAULT deck through the World (Story 8.2)', 
 
   it('a World never chooses a deck: a captain added with NO list gets an EMPTY pool and an empty list', () => {
     const w = bareWorld();
-    const bare = w.addShip('bare', 'BARE', 'captain', 'torpedoBoat');
+    const bare = w.addShip('bare', 'BARE', 'captain', 'torpedoBoat', undefined, undefined, []);
     expect(bare.deckList).toEqual([]);
     expect(bare.deck.cards).toEqual([]);
     // ...and a level still banks — with no offer (deck exhaustion banks silently).
@@ -236,7 +236,7 @@ describe('deck composition — the DEFAULT deck through the World (Story 8.2)', 
 
   it('DRONES get NO deck and never draw (the frozen empty identity)', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall');
+    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []);
     expect(d.deck.cards).toEqual([]);
     // Even a direct XP grant banks nothing for a drone (the addXpMs guard).
     w.grantXp(d, 5);
@@ -1588,7 +1588,7 @@ describe('the CARRIED seed — a hull spawns holding copy 1 of its own weapons',
 
   it('DRONES still get NO deck, seeded cards or not', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall');
+    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []);
     expect(d.deck.cards).toEqual([]);
   });
 });

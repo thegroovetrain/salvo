@@ -93,9 +93,10 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      a multiple of 3, and otherwise even to within one hull per
                      class. Not valid with --deck-only
   --set key=value    CONFIG override, repeatable. Tunable dials ONLY:
-                     xp.*, deck.*, offer.size, match.fillTo, map.baseRadius,
+                     xp.*, offer.size, match.fillTo, map.baseRadius,
                      zone.* (phased shape: beatMs, ringSteps.N, offsetCap,
-                     terminalSightFactor, stormDps)
+                     terminalSightFactor, stormDps). deck.* is REFUSED: the
+                     decks are baked at module load, so it would be inert
   --sweep key=v1,v2  run the full batch per value and compare side-by-side
                      (repeatable; repeats form a cartesian variant grid)
   --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:

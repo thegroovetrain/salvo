@@ -50,6 +50,7 @@ import {
   buildDeckState,
   drawOffer,
   effectiveStats,
+  hullEnvelope,
   lineForEquipment,
   loadoutFor,
   mulberry32,
@@ -68,7 +69,7 @@ import {
  */
 export function carriedLinesFor(cls: ShipClassId): LineId[] {
   const out: LineId[] = [];
-  for (const slot of loadoutFor(cls, effectiveStats(cls))) {
+  for (const slot of loadoutFor(cls, effectiveStats(hullEnvelope(cls)))) {
     if (slot.equipmentId === null) continue;
     const line = lineForEquipment(slot.equipmentId);
     if (line !== undefined && line.stub !== true) out.push(line.id);

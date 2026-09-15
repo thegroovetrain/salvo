@@ -455,10 +455,10 @@ function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: R
   };
   const m = new Match(w, TIMINGS, hooks);
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase());
+    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
     m.notifyRosterChanged();
   }
-  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, 'fleet');
+  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, 'fleet', undefined, undefined, undefined, []);
   for (let i = 0; i < 100 && m.phase !== 'active'; i++) {
     w.step();
     m.update();

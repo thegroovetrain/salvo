@@ -9,8 +9,8 @@ import { hullClearOffset, makeBallistic, muzzleSpawn } from '../game/equipment/b
 describe('hullClearOffset', () => {
   it("is half the FIRER's class hull length plus the projectile/trigger radius", () => {
     const w = new World(1);
-    const boat = w.addShip('a', 'A', 'captain', 'torpedoBoat');
-    const battleship = w.addShip('b', 'B', 'captain', 'battleship');
+    const boat = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, []);
+    const battleship = w.addShip('b', 'B', 'captain', 'battleship', undefined, undefined, []);
     expect(hullClearOffset(boat, 2)).toBe(CONFIG.shipClasses.torpedoBoat.hull.length / 2 + 2);
     expect(hullClearOffset(battleship, CONFIG.mine.triggerRadius)).toBe(
       CONFIG.shipClasses.battleship.hull.length / 2 + CONFIG.mine.triggerRadius,
@@ -21,7 +21,7 @@ describe('hullClearOffset', () => {
 describe('makeBallistic', () => {
   it('spawns clear of the hull along dir and sets every weapon field explicitly', () => {
     const w = new World(1);
-    const ship = w.addShip('a', 'A');
+    const ship = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
     ship.state = { x: 100, y: 50, heading: 0, speed: 0 };
     const dir = Math.PI / 2; // straight up (+y)
     const s = makeBallistic('b1', ship, dir, 1234, {
@@ -60,7 +60,7 @@ describe('makeBallistic', () => {
   // silently drop the `+ spawnClearance` term without failing here first.
   it('spawnClearance adds real margin ON TOP of hitRadius (torpedo path)', () => {
     const w = new World(1);
-    const ship = w.addShip('a', 'A');
+    const ship = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const params = {
       speed: 70,
@@ -85,7 +85,7 @@ describe('makeBallistic', () => {
 
   it('omitting spawnClearance behaves exactly like spawnClearance: 0 (guns/mines path unchanged)', () => {
     const w = new World(1);
-    const ship = w.addShip('a', 'A');
+    const ship = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const params = {
       speed: CONFIG.gun.shellSpeed,
@@ -110,7 +110,7 @@ describe('muzzleSpawn — hull-silhouette-edge spawn (no dead ring)', () => {
 
   it('spawns strictly outside the own silhouette, hugging the boundary, on every bearing', () => {
     const w = new World(1);
-    const ship = w.addShip('a', 'A', 'captain', 'battleship');
+    const ship = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined, []);
     ship.state = { x: 40, y: -25, heading: 0.7, speed: 0 };
     const poly = transformPolygon(hullSilhouette('battleship'), 40, -25, 0.7);
     for (let i = 0; i < 16; i++) {
@@ -124,7 +124,7 @@ describe('muzzleSpawn — hull-silhouette-edge spawn (no dead ring)', () => {
 
   it('a concave bearing (mineLayer transom notch, dead astern) spawns in the OPEN cavity, outside the hull', () => {
     const w = new World(1);
-    const ship = w.addShip('a', 'A', 'captain', 'mineLayer');
+    const ship = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []);
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const poly = transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0);
     const p = muzzleSpawn(ship, Math.PI, CLEAR); // straight astern, through the notch cavity
@@ -139,7 +139,7 @@ describe('muzzleSpawn — hull-silhouette-edge spawn (no dead ring)', () => {
 
   it('follows the ship pose: spawn point rotates and translates with the hull', () => {
     const w = new World(1);
-    const ship = w.addShip('a', 'A');
+    const ship = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
     ship.state = { x: 100, y: 200, heading: Math.PI / 2, speed: 0 };
     const p = muzzleSpawn(ship, Math.PI / 2, CLEAR); // over the bow (heading +y)
     expect(p.x).toBeCloseTo(100, 4); // bow line stays on the ship's x

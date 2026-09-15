@@ -5,7 +5,7 @@
 // options — see sanitizeRoomOptions for why they must never reach a
 // production room ungated).
 
-import { CATALOG, CONFIG, PROTOCOL_VERSION, REGATTA_HUES, type LineId, type ZoneTimeline } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, REGATTA_HUES, type ZoneTimeline } from '@salvo/shared';
 
 /**
  * Callsign cap, in CODE POINTS. Mirrors the client's display/entry cap
@@ -81,8 +81,11 @@ export interface JoinOptions {
    * `checkDeck` at the door (which is how the refusal path is reached end to
    * end). Honoured ONLY under HC_DEV_OPTIONS=1 (the matchOverride precedent);
    * otherwise dropped, reported in `rejectedKeys` and logged once
-   * (`deck.devOptionsRejected`). Value-sanitized even when honoured: anything
-   * but an array of known LineIds drops the whole override.
+   * (`deck.devOptionsRejected`). SHAPE-sanitized even when honoured — an
+   * array of at most DECK_OVERRIDE_MAX strings, each at most 64 code points,
+   * else the whole override is dropped and reported — but the IDS THEMSELVES
+   * are not filtered: an unknown id rides through to `checkDeck` and is
+   * refused as `unowned`, rather than being quietly replaced by the default.
    */
   deckOverride?: readonly string[];
   /**
@@ -99,11 +102,13 @@ export interface JoinOptions {
 export interface DeckOptions {
   /** Trimmed, ≤ 64 code points; absent when missing or malformed. */
   deckId?: string;
-  /** A dev override of known LineIds, present ONLY when devEnabled honoured it. */
-  deckOverride?: readonly LineId[];
+  /** A dev override, shape-sanitized but NOT id-filtered (the door's
+   *  `checkDeck` judges the ids); present ONLY when devEnabled honoured it. */
+  deckOverride?: readonly string[];
   /** The `deck` key was present — the door must refuse (clientSupplied). */
   clientDeck: boolean;
-  /** Keys stripped because devEnabled was false — `['deckOverride']` or empty. */
+  /** Keys DROPPED — the dev gate was closed, or the shape was malformed:
+   *  `['deckOverride']` or empty. The door logs them once. */
   rejectedKeys: string[];
 }
 
@@ -119,17 +124,32 @@ function sanitizeDeckId(v: unknown): string | undefined {
   return trimmed;
 }
 
-/** An array of KNOWN line ids (Object.hasOwn against the catalog — the
- *  fail-closed gate every id lookup uses), else undefined: one bad entry
- *  drops the whole override rather than a hole in the list. */
-function sanitizeDeckOverride(v: unknown): readonly LineId[] | undefined {
-  if (!Array.isArray(v)) return undefined;
-  const out: LineId[] = [];
+/** Bounds on a dev override: entries, and code points per entry. Generous —
+ *  they exist to keep a hostile payload from reaching the rules engine at all,
+ *  not to express any deck rule (a 40-card deck is CONFIG.deck.size). */
+export const DECK_OVERRIDE_MAX = 256;
+const OVERRIDE_ID_MAX = DECK_ID_MAX;
+
+/**
+ * A bounded array of PLAIN STRINGS, or undefined when the value is not an
+ * array, carries more than DECK_OVERRIDE_MAX entries, or holds a non-string /
+ * over-long entry — in which case the caller DROPS the override and reports
+ * it, so a malformed dev payload is never silent.
+ *
+ * DELIBERATELY NOT FILTERED AGAINST THE CATALOG (orchestrator ruling, review
+ * of Story 8.2): an unknown id used to drop the whole override, and the door
+ * then sailed the DEFAULT — a silent substitution on the dev path, and it made
+ * `checkDeck`'s `unowned` rule unreachable from either door. Ids are passed
+ * through verbatim and `checkDeck` judges them, so an unknown id is REFUSED as
+ * `unowned` end to end. The list is copied, so nothing downstream aliases the
+ * raw join options.
+ */
+function sanitizeDeckOverride(v: unknown): readonly string[] | undefined {
+  if (!Array.isArray(v) || v.length > DECK_OVERRIDE_MAX) return undefined;
   for (const id of v) {
-    if (typeof id !== 'string' || !Object.hasOwn(CATALOG, id)) return undefined;
-    out.push(id as LineId);
+    if (typeof id !== 'string' || Array.from(id).length > OVERRIDE_ID_MAX) return undefined;
   }
-  return out;
+  return [...(v as string[])];
 }
 
 /**
@@ -139,20 +159,21 @@ function sanitizeDeckOverride(v: unknown): readonly LineId[] | undefined {
  *
  *   - `deck` present (any value) → `clientDeck: true`; the door refuses.
  *   - `deckId` → trimmed string ≤ DECK_ID_MAX code points, else dropped.
- *   - `deckOverride` → honoured (value-sanitized) only under devEnabled;
- *     otherwise pushed to `rejectedKeys` for the door to log once.
+ *   - `deckOverride` → honoured (shape-sanitized, ids NOT filtered) only under
+ *     devEnabled; dropped and pushed to `rejectedKeys` for the door to log
+ *     once when the gate is closed OR the shape is malformed.
  */
 export function sanitizeDeckOptions(options: JoinOptions, devEnabled: boolean): DeckOptions {
   const out: DeckOptions = { clientDeck: Object.hasOwn(options, 'deck'), rejectedKeys: [] };
   const deckId = sanitizeDeckId(options.deckId);
   if (deckId !== undefined) out.deckId = deckId;
   if (options.deckOverride === undefined) return out;
-  if (!devEnabled) {
-    out.rejectedKeys.push('deckOverride');
-    return out;
-  }
-  const override = sanitizeDeckOverride(options.deckOverride);
-  if (override !== undefined) out.deckOverride = override;
+  const override = devEnabled ? sanitizeDeckOverride(options.deckOverride) : undefined;
+  // A DROP IS ALWAYS REPORTED — gate closed or shape malformed. The silent
+  // half of this used to be the malformed case, which then sailed the default
+  // with nothing in the log to say the override had been thrown away.
+  if (override === undefined) out.rejectedKeys.push('deckOverride');
+  else out.deckOverride = override;
   return out;
 }
 

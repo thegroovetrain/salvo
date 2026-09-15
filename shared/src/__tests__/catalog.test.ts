@@ -384,6 +384,18 @@ describe('DEFAULT_DECKS — amendment 10, count for count', () => {
     expect(Object.isFrozen(DEFAULT_OWNED)).toBe(true);
     expect(() => { (DEFAULT_DECKS.torpedoBoat as LineId[]).push('armor'); }).toThrow();
   });
+
+  it('DEFAULT_OWNED REFUSES add/delete/clear — Object.freeze alone does not close a Set', () => {
+    // The legality authority the door checks every deck against: a mutation
+    // here would unlock (or lock out) a line for every captain in the process.
+    const owned = DEFAULT_OWNED as Set<LineId>;
+    expect(() => owned.add('phosphorShells')).toThrow('DEFAULT_OWNED is immutable');
+    expect(DEFAULT_OWNED.has('phosphorShells')).toBe(false);
+    expect(() => owned.delete('armor')).toThrow('DEFAULT_OWNED is immutable');
+    expect(DEFAULT_OWNED.has('armor')).toBe(true);
+    expect(() => owned.clear()).toThrow('DEFAULT_OWNED is immutable');
+    expect(DEFAULT_OWNED.size).toBe(LINE_IDS.length - UNHOMED.length);
+  });
 });
 
 describe('deckFromCounts — the authoring helper refuses transcription slips at load', () => {
@@ -402,6 +414,20 @@ describe('deckFromCounts — the authoring helper refuses transcription slips at
   it('throws on a total other than CONFIG.deck.size', () => {
     expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, armor: 4 })).toThrow(/41 cards/);
     expect(() => deckFromCounts({ ...UNIVERSAL })).toThrow(/30 cards/);
+  });
+
+  it('refuses a key an INJECTED catalog knows but LINE_IDS does not — the expansion walks LINE_IDS', () => {
+    // The membership test must be LINE_IDS, not the (injectable) catalog:
+    // the expansion loop walks LINE_IDS, so a count keyed outside it could
+    // never become a card and used to be dropped in silence.
+    const wider: Catalog = { ...CATALOG, phantomLine: { ...CATALOG.armor, id: 'phantomLine' as LineId } };
+    expect(() =>
+      deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, phantomLine: 3 } as Partial<Record<LineId, number>>, wider),
+    ).toThrow(/unknown line 'phantomLine'/);
+    // ...and a ZERO count for it is refused too: the key itself is the slip.
+    expect(() =>
+      deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, phantomLine: 0 } as Partial<Record<LineId, number>>, wider),
+    ).toThrow(/not in LINE_IDS/);
   });
 
   it('throws on an unknown line and on a non-integer or negative count', () => {

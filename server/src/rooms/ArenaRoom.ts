@@ -938,12 +938,6 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
-    this.joinCounter += 1;
-    // SECURITY (Story 2.3, deferred-work 127/130): options.name arrives verbatim
-    // from joinOrCreate. sanitizeName type-guards it (a non-string used to THROW
-    // on .trim()), trims it, and caps it at NAME_MAX code points; undefined ⇒
-    // the CAPTAIN-n fallback.
-    const name = sanitizeName(options.name) ?? `CAPTAIN-${this.joinCounter}`;
     const classId = sanitizeClassId(options.cls);
     // Foghorn variant (Story 4.5): sanitized HERE like cls — a plain identity
     // option, never a dev override — and handed straight to the ship record.
@@ -953,6 +947,17 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // because a refusal THROWS: core then tears down just this client with
     // nothing of it in the world or the roster to undo.
     const { deck, source: deckSource } = this.resolveJoinDeck(client, options, classId);
+    // THE JOIN ORDINAL IS ROOM STATE, so it is bumped only once the join can
+    // no longer be refused. Incrementing it first BURNED an ordinal on every
+    // refusal: the next nameless captain came aboard as CAPTAIN-2 with no
+    // CAPTAIN-1 in the room, and assignHue's exhaustion fallback (joinOrder %
+    // 20) drifted with it.
+    this.joinCounter += 1;
+    // SECURITY (Story 2.3, deferred-work 127/130): options.name arrives verbatim
+    // from joinOrCreate. sanitizeName type-guards it (a non-string used to THROW
+    // on .trim()), trims it, and caps it at NAME_MAX code points; undefined ⇒
+    // the CAPTAIN-n fallback.
+    const name = sanitizeName(options.name) ?? `CAPTAIN-${this.joinCounter}`;
     // A bot fleet was drawn BEFORE this captain arrived (Story 6.5), so its
     // callsigns were picked without knowing the player's. A shared name would
     // print two identical hulls in one kill feed with no way to tell them

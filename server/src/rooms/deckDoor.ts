@@ -37,11 +37,17 @@ export function deckRefusal(log: Logger, rule: DeckRefusal, sessionId: string): 
  * Check an already-resolved list at the door: legal → the same reference
  * back (frozen upstream); illegal → the refusal, thrown by the caller. Used
  * by `admitDeck` below and by the arena for a seat-carried list.
+ *
+ * TAKES PLAIN STRINGS, HANDS BACK LineIds. A dev override arrives as raw
+ * strings (the sanitizer no longer filters ids — an unknown one must be
+ * REFUSED as `unowned`, not silently replaced by the default), and `checkDeck`
+ * is exactly the gate that decides: past it, every id is in DEFAULT_OWNED and
+ * therefore a LineId, so the narrowing cast is the verdict, not a hope.
  */
-export function checkAtDoor(deck: readonly LineId[], log: Logger, sessionId: string): readonly LineId[] {
+export function checkAtDoor(deck: readonly string[], log: Logger, sessionId: string): readonly LineId[] {
   const verdict = checkDeck(deck, DEFAULT_OWNED);
   if (!verdict.ok) throw deckRefusal(log, verdict.rule, sessionId);
-  return deck;
+  return deck as readonly LineId[];
 }
 
 /**
@@ -49,9 +55,10 @@ export function checkAtDoor(deck: readonly LineId[], log: Logger, sessionId: str
  * ServerError; returns the frozen list to store on the record / in the seat.
  *
  *   1. a client `deck` key → refuse `clientSupplied` (any value);
- *   2. a `deckOverride` without HC_DEV_OPTIONS → dropped + logged, never
- *      honoured (the default is used — that is a silent DROP of a dev knob,
- *      not a substitution of a chosen deck);
+ *   2. a `deckOverride` the sanitizer dropped — the dev gate was closed, or
+ *      the shape was malformed → logged, never honoured (the default is used:
+ *      that is a DROP of a dev knob, reported in the log, not a silent
+ *      substitution of a chosen deck);
  *   3. the list = the honoured override, else `loadDeckFor(null, deckId, hull)`
  *      (no account module: the hull's default);
  *   4. `checkDeck` against DEFAULT_OWNED → refuse on the first failing rule.

@@ -46,7 +46,7 @@ function setup(timings: Partial<MatchTimings>): Ctx {
 }
 
 function join(ctx: Ctx, id: string): void {
-  ctx.w.addShip(id, id.toUpperCase());
+  ctx.w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
   ctx.m.notifyRosterChanged();
 }
 

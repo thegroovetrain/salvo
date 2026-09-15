@@ -37,7 +37,7 @@ function bareWorld(seed = 50, opts: WorldOptions = {}): World {
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: Parameters<World['addShip']>[3] = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -196,7 +196,7 @@ describe('pseudonym track ids — the server-private per-match stream survives t
   it('track ids ride the PRIVATE stream: same map seed + different pseudonym seeds ⇒ different tracks (never derivable from the client-known map seed alone)', () => {
     const mkTrack = (pseudonymSeed: number): string => {
       const w = bareWorld(58, { pseudonymSeed });
-      w.addShip('p0', 'P0');
+      w.addShip('p0', 'P0', undefined, undefined, undefined, undefined, []);
       return w.pseudonymFor('p0');
     };
     expect(mkTrack(0xdead_beef)).not.toBe(mkTrack(0x1234_5678)); // seed material decides
@@ -205,7 +205,7 @@ describe('pseudonym track ids — the server-private per-match stream survives t
 
   it('every ship gets a distinct track id, and ids survive removeShip (a paint may outlive the ship it belongs to)', () => {
     const w = bareWorld(59);
-    for (let i = 0; i < 12; i++) w.addShip(`p${i}`, `P${i}`);
+    for (let i = 0; i < 12; i++) w.addShip(`p${i}`, `P${i}`, undefined, undefined, undefined, undefined, []);
     const tracks = [...Array(12).keys()].map((i) => w.pseudonymFor(`p${i}`));
     expect(new Set(tracks).size).toBe(12); // all distinct
     const kept = w.pseudonymFor('p3');

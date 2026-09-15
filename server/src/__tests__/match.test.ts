@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { isAfloat, CONFIG, type ResultsMsg, type ShipClassId } from '@salvo/shared';
-import { World } from '../game/world.js';
+import { NO_DECK, World } from '../game/world.js';
 import { Match, type MatchHooks } from '../game/match.js';
 import { isFleetHull } from '../game/participants.js';
 
@@ -63,7 +63,7 @@ function setup(ids: string[], hull: ShipClassId = 'torpedoBoat', timings = TIMIN
   const rec = recorder();
   const m = new Match(w, timings, rec.hooks);
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase(), 'captain', hull);
+    w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
     m.notifyRosterChanged();
   }
   return { w, m, ...rec };
@@ -197,7 +197,7 @@ describe('match — countdown', () => {
   it('starts at minHumans, locks the room, sets countdownEndT', () => {
     const ctx = setup(['a']);
     expect(ctx.calls).toEqual([]);
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('countdown');
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + TIMINGS.countdownMs);
@@ -215,7 +215,7 @@ describe('match — countdown', () => {
     expect(ctx.w.ships.has('b')).toBe(false);
     // Reaching the minimum again starts a FRESH countdown.
     step(ctx, 5);
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('countdown');
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + TIMINGS.countdownMs);
@@ -272,7 +272,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
   it('NEGATIVE joinWindowMs takes the legacy path too: immediate countdown + lock', () => {
     // The contract is "<= 0 collapses to legacy", not "=== 0" — pin the < 0 leg.
     const ctx = setup(['a'], 'torpedoBoat', { countdownMs: 100, resultsMs: 200, joinWindowMs: -1 });
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('countdown');
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + 100);
@@ -282,7 +282,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
   it('opens UNLOCKED at minHumans: gathering phase, deadline set, no lock call', () => {
     const ctx = gsetup(['a']);
     expect(ctx.m.phase).toBe('waiting');
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('gathering');
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + GATHER_TIMINGS.joinWindowMs);
@@ -308,7 +308,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
     const ctx = gsetup(['a', 'b']);
     const deadline = ctx.m.countdownEndT;
     step(ctx); // let time advance so a reset would be visible
-    ctx.w.addShip('c', 'C');
+    ctx.w.addShip('c', 'C', undefined, undefined, undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('gathering');
     expect(ctx.m.countdownEndT).toBe(deadline);
@@ -329,7 +329,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
   it('countdownEndT is the CURRENT-PHASE deadline: gathering end, then countdown end, 0 in waiting', () => {
     const ctx = gsetup(['a']);
     expect(ctx.m.countdownEndT).toBe(0); // waiting
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     const gatherEnd = ctx.w.now + GATHER_TIMINGS.joinWindowMs;
     expect(ctx.m.countdownEndT).toBe(gatherEnd);
@@ -348,7 +348,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
     expect(ctx.calls).toEqual([]); // never locked, so never unlocked
     // Reaching the minimum again opens a FRESH window.
     step(ctx, 3);
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('gathering');
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + GATHER_TIMINGS.joinWindowMs);
@@ -420,7 +420,7 @@ describe('match — active phase', () => {
     // participants is snapshotted once at activate(); simulate a ship added
     // to the World afterward without going through the normal join path (the
     // room lock makes this unreachable in production, but harden it anyway).
-    ctx.w.addShip('late', 'LATE');
+    ctx.w.addShip('late', 'LATE', undefined, undefined, undefined, undefined, []);
     expect(ctx.m.phase).toBe('active'); // 3 humans now alive: no insta-finish
     ctx.w.sinkShip('a', 'late');
     ctx.w.sinkShip('b', 'late');
@@ -515,7 +515,7 @@ describe('match — finished phase', () => {
 
   it('never starts a new match in the same room', () => {
     const ctx = finished();
-    ctx.w.addShip('d', 'D');
+    ctx.w.addShip('d', 'D', undefined, undefined, undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     step(ctx, 5);
     expect(ctx.m.phase).toBe('finished');
@@ -546,7 +546,7 @@ describe('match — the results table is captains only', () => {
    *  AFTER the captains, so activation roster order is captains then drones. */
   function withDrones(captains: string[], drones: number): Ctx {
     const ctx = setup(captains);
-    for (let i = 1; i <= drones; i++) ctx.w.addShip(`drone-${i}`, `DRONE-0${i}`, 'fleet');
+    for (let i = 1; i <= drones; i++) ctx.w.addShip(`drone-${i}`, `DRONE-0${i}`, 'fleet', undefined, undefined, undefined, []);
     activate(ctx);
     return ctx;
   }
@@ -671,7 +671,7 @@ describe('match — the win check counts PARTICIPANTS, the countdown counts HUMA
   /** Captains + `fleet` PvE hulls in the water, activated. */
   function withFleet(captains: string[], fleet: number): Ctx {
     const ctx = setup(captains);
-    for (let i = 1; i <= fleet; i++) ctx.w.addShip(`fleet-${i}`, 'DRONE', 'fleet', 'droneSmall');
+    for (let i = 1; i <= fleet; i++) ctx.w.addShip(`fleet-${i}`, 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []);
     activate(ctx);
     return ctx;
   }
@@ -681,7 +681,7 @@ describe('match — the win check counts PARTICIPANTS, the countdown counts HUMA
     // and zero captains, so the room stays in its ready room — the property
     // FR34 turns into a hard rule for bots in 6.4.
     const ctx = setup(['a']);
-    for (let i = 1; i <= 9; i++) ctx.w.addShip(`fleet-${i}`, 'DRONE', 'fleet', 'droneSmall');
+    for (let i = 1; i <= 9; i++) ctx.w.addShip(`fleet-${i}`, 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []);
     ctx.m.notifyRosterChanged();
     step(ctx, 20);
     expect(ctx.m.phase).toBe('waiting');
@@ -751,8 +751,8 @@ describe('match — AI CAPTAINS are participants (Story 6.5: 1 human + a bot fle
     w.map.islands.length = 0;
     const rec = recorder();
     const m = new Match(w, timings, rec.hooks);
-    for (let i = 0; i < bots; i++) w.addBot();
-    w.addShip('alice', 'ALICE');
+    for (let i = 0; i < bots; i++) w.addBot(undefined, undefined, NO_DECK);
+    w.addShip('alice', 'ALICE', undefined, undefined, undefined, undefined, []);
     m.notifyRosterChanged();
     return { w, m, ...rec };
   }
@@ -805,7 +805,7 @@ describe('match — AI CAPTAINS are participants (Story 6.5: 1 human + a bot fle
     w.map.islands.length = 0;
     const rec = recorder();
     const m = new Match(w, SOLO, rec.hooks);
-    for (let i = 0; i < 19; i++) w.addBot();
+    for (let i = 0; i < 19; i++) w.addBot(undefined, undefined, NO_DECK);
     m.notifyRosterChanged();
     for (let i = 0; i < 20; i++) {
       w.step();
@@ -821,7 +821,7 @@ describe('world storm damage respects the damage policy flag', () => {
     // Fast zone: fully closed on a tiny concentric terminal within a few ticks.
     const w = new World(1, 6, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 1 });
     w.map.islands.length = 0;
-    const a = w.addShip('a', 'A');
+    const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
     w.startZone();
     for (let i = 0; i < 10; i++) w.step(); // zone now far smaller than the ring
     const ring = w.zoneLiveRing;

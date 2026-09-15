@@ -34,6 +34,15 @@
 //      of match.ts's 20 s boarding backstop, so the backstop cannot be what we
 //      observed.
 //
+//   6. THE DECK CROSSES THE SEAT RESERVATION (Story 8.2) — the arena's own
+//      `client.join` log lines are read off the server's stdout: one per
+//      captain, every one of them `"deckSource":"seat"`, and not a single
+//      `deck.illegal` anywhere. This is the ONE proof that @colyseus/core
+//      carries a reservation's server-only `auth` payload into `client.auth`
+//      before `onJoin` — no in-process unit test can reach that path, and
+//      without it the arena would quietly re-load a default deck and nothing
+//      would fail.
+//
 // WHY THE CAP PATH AND NOT THE TIMER: CONFIG.match.queueTimerMs (120000) is NOT
 // overridable per-room. StandardQueueRoom builds its policy from
 // defaultQueueConfig() with no options seam at all (StandardQueueRoom.ts:125),
@@ -82,9 +91,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // --- server lifecycle --------------------------------------------------------
 
+/** Every line the server wrote to stdout — its structured log (server/src/
+ *  log.ts emits `level event {json}` through console.log). Step 6 reads the
+ *  arena's own join lines out of it. */
+const serverLog = [];
+
 function bootServer() {
   const tsx = path.join(REPO, 'node_modules/.bin/tsx');
-  return spawn(tsx, ['src/index.ts'], {
+  const proc = spawn(tsx, ['src/index.ts'], {
     cwd: path.join(REPO, 'server'),
     detached: true, // own process group, so we can kill tsx + its node child
     // HC_DEV_OPTIONS=1 is NOT needed by the queue itself (it accepts no dev
@@ -92,9 +106,17 @@ function bootServer() {
     // every other smoke boots this way — kept identical so this script's server
     // is the same server the rest of the suite exercises.
     env: { ...process.env, NODE_ENV: 'development', PORT: String(PORT), HC_DEV_OPTIONS: '1' },
-    stdio: ['ignore', 'ignore', 'inherit'],
+    // stdout is PIPED (it used to be ignored) so step 6 can read the server's
+    // own structured log; stderr still passes through for diagnosability.
+    stdio: ['ignore', 'pipe', 'inherit'],
   });
+  proc.stdout.setEncoding('utf8');
+  proc.stdout.on('data', (chunk) => serverLog.push(chunk));
+  return proc;
 }
+
+/** The server's stdout so far, as whole lines. */
+const serverLines = () => serverLog.join('').split('\n');
 
 function portOpenOn(port, host) {
   return new Promise((resolve) => {
@@ -355,6 +377,31 @@ async function proveBoardingToActive(pool) {
   return `boarding held at ${CAP - 1}/${CAP} for ${HOLD_MS}ms in phase 'waiting'; the last loader armed the countdown (${armedIn}ms into a ${BOARDING_GRACE_MS}ms backstop window) and the match went ACTIVE with the storm anchored`;
 }
 
+/**
+ * Step 6: THE DECK CROSSED THE RESERVATION. Every captain reached the arena
+ * through the queue, so every arena join must report `deckSource: 'seat'` —
+ * the frozen 40-id list came off the reservation's server-only `auth` payload,
+ * not from the arena re-loading a default. A `door` source here would mean
+ * `client.auth` arrived empty and the arena silently substituted; a
+ * `deck.illegal` line would mean a refusal nobody asked for.
+ */
+async function proveDeckRodeTheSeat(expected) {
+  await sleep(300); // let the last join's line flush through the pipe
+  const joins = serverLines().filter((l) => l.startsWith('info client.join '));
+  assert(
+    joins.length === expected,
+    `saw ${joins.length} arena client.join lines, expected ${expected}`,
+  );
+  const seat = joins.filter((l) => l.includes('"deckSource":"seat"'));
+  assert(
+    seat.length === expected,
+    `only ${seat.length}/${expected} arena joins carried deckSource "seat" — the reservation auth did not reach client.auth: ${joins.filter((l) => !l.includes('"deckSource":"seat"')).join(' | ')}`,
+  );
+  const illegal = serverLines().filter((l) => l.includes('deck.illegal'));
+  assert(illegal.length === 0, `a deck was refused during the smoke: ${illegal.join(' | ')}`);
+  return `deck transport: all ${expected} arena joins logged deckSource "seat" (the reservation's server-only auth reached client.auth), no deck.illegal`;
+}
+
 // --- main --------------------------------------------------------------------
 
 async function main() {
@@ -385,6 +432,7 @@ async function main() {
 
     log.push(await step('4 one arena', 60000, () => proveOneArena(pool)));
     log.push(await step('5 boarding -> active', 90000, () => proveBoardingToActive(pool)));
+    log.push(await step('6 deck rode the seat reservation', 15000, () => proveDeckRodeTheSeat(CAP)));
 
     console.log('QUEUE SMOKE OK:', { queue: pool[0].queue.roomId, arena: pool[0].arena.roomId, trace: log });
   } finally {

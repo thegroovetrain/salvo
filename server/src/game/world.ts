@@ -176,15 +176,21 @@ const NO_BEHAVIORS: readonly BoonBehaviorEffect[] = Object.freeze([]);
  *  the shared identity keeps the pin allocation-free and test-visible. */
 const EMPTY_DECK: DeckState = Object.freeze({ cards: Object.freeze([]) as readonly LineId[] });
 
-/** The frozen empty deck LIST — a fleet hull's `deckList`, and the deck a
- *  caller that passes none gets (a World never chooses a deck: it enters
- *  through the door's loader, server/src/game/decks.ts). */
+/** The frozen empty deck LIST — a fleet hull's `deckList`, and what a caller
+ *  with no deck to give passes EXPLICITLY (a World never chooses a deck: it
+ *  enters through the door's loader, server/src/game/decks.ts). */
 const EMPTY_DECK_LIST: readonly LineId[] = Object.freeze([]);
 
 /** How a bot spawn resolves its deck from the hull it was dealt or rolled
- *  (Story 8.2). The default deals NO deck — the room passes the loader. */
+ *  (Story 8.2). REQUIRED at every call site — see `addBot`. */
 export type DeckResolver = (hull: ShipClassId) => readonly LineId[];
-const NO_DECK: DeckResolver = () => EMPTY_DECK_LIST;
+
+/** The resolver for a spawn that deliberately deals NO cards (fixtures that
+ *  test kinematics, callsigns or roles and never open a refit). Named so the
+ *  choice is VISIBLE at the call site: an empty pool used to be what a caller
+ *  got by FORGETTING the argument, which is how the batch-sim harness came to
+ *  sail deckless bots alongside production bots on the default deck. */
+export const NO_DECK: DeckResolver = () => EMPTY_DECK_LIST;
 
 /** The list as given if already frozen (the shared default-deck identity —
  *  no copy), else a frozen copy (a dev override arrives as a fresh array). */
@@ -1278,10 +1284,12 @@ export class World {
    *
    *  `deck` (Story 8.2) is the FROZEN 40-id list the door admitted; the World
    *  stores it on `deckList` and deals the drawable pool from it. A World
-   *  never picks a deck itself — a caller that passes none gets an EMPTY
-   *  pool, and a fleet hull gets the empty list whatever is passed
+   *  never picks a deck itself, and it no longer has a default to fall back
+   *  on: `deck` is REQUIRED, so a caller with none says `[]` out loud and an
+   *  unlisted caller is a tsc error rather than a hull that silently sails an
+   *  empty pool. A fleet hull gets the empty list whatever is passed
    *  (amendment 12: drones stay gun-only). */
-  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at?: Vec2, deck: readonly LineId[] = EMPTY_DECK_LIST): ShipRecord {
+  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, deck: readonly LineId[]): ShipRecord {
     const p = at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase);
     const heading = Math.atan2(-p.y, -p.x);
     const cls = hullEnvelope(hullId);
@@ -1396,13 +1404,14 @@ export class World {
    * not a profile was forced. A forced profile governs the hull (each row is
    * hull-bound), so callers pass the profile alone.
    */
-  addBot(hull?: ShipClassId, profile?: AnyProfileId, deckFor: DeckResolver = NO_DECK): ShipRecord {
+  addBot(hull: ShipClassId | undefined, profile: AnyProfileId | undefined, deckFor: DeckResolver): ShipRecord {
     this.botSeq += 1;
     const id = `bot-${this.botSeq}`;
     const { name, hullId } = this.bots.enroll(id, hull, profile);
     // `deckFor` (Story 8.2) is resolved AFTER enroll because the hull may be
     // rolled inside it; the room passes the door's loader, the harness its
-    // own table, and a caller that passes nothing deals an empty pool.
+    // own table, and a fixture that wants no cards says NO_DECK — there is no
+    // default, so nobody deals an empty pool by omission.
     return this.addShip(id, name, 'bot', hullId, DEFAULT_HORN_ID, undefined, deckFor(hullId));
   }
 
@@ -3063,7 +3072,7 @@ export class World {
       this.addShip(id, FLEET_SHIP_NAME, 'fleet', hullId, DEFAULT_HORN_ID, {
         x: anchor.x + offset.x,
         y: anchor.y + offset.y,
-      });
+      }, []);
       this.drones.add(id, fleetSizeOf(hullId), fleetId, offset);
     }
   }
