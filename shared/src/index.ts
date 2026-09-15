@@ -3,6 +3,21 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  51: 2026-09-15 Story 8.1 — CATALOG V3 AND THE CARD MODEL. The 28-line v2
+ *  boon catalog is replaced wholesale by the 29-line / 114-card catalog v3
+ *  (new shared sim/catalog.ts + sim/effects.ts), and CATALOG CONTENT IS WIRE
+ *  CONTRACT, so the content change alone is a break. With it: `OwnShip.boons`
+ *  becomes `OwnShip.cards` (same self-private anti-cheat posture, LINE ids
+ *  only); every card id on the wire is now one of the 29 `LINE_IDS`, and the
+ *  shipped equipment ids `torpedo`/`mine` become `heavyTorpedo`/`navalMines`;
+ *  `BoonEffect` gains `stock` and loses `slotReplace`; `EffectiveStats`
+ *  re-shapes its seven named equipment blocks into one TOTAL `equipment`
+ *  record keyed by the widened `EquipmentId`, each row carrying a `tier`;
+ *  `CONFIG.deck` becomes `{ size, maxEquipmentLines }` (the soft-pity dials
+ *  die with rarity) and a new `CONFIG.catalog.reloadStepPerTier` rides the
+ *  welcome config snapshot. Both sides resolve card ids FAIL-CLOSED, so a
+ *  stale client would silently mis-simulate every build it was dealt — this
+ *  join gate is the only guard.
  *  50: COLYSEUS 0.18 (Story 8.0, 2026-09-14) — the framework floor moves
  *  `@colyseus/core` 0.17.44 → 0.18.13, `@colyseus/schema` 4.0.27 → 5.0.32 and
  *  `@colyseus/sdk` 0.17.43 → 0.18.2. TWO transport-level breaks, neither of
@@ -560,7 +575,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 50;
+export const PROTOCOL_VERSION = 51;
 
 // Tunables
 export * from './constants.js';
@@ -579,6 +594,8 @@ export * from './sim/ship.js';
 export * from './sim/lifecycle.js';
 export * from './sim/sinking.js';
 export * from './sim/stats.js';
+export * from './sim/effects.js';
+export * from './sim/catalog.js';
 export * from './sim/boons.js';
 export * from './sim/hooks.js';
 export * from './sim/loadout.js';

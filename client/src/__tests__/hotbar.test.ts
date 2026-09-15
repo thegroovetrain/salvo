@@ -13,11 +13,10 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
   effectiveStats,
   loadoutFor,
-  resolveBoons,
   type EffectiveStats,
   type EquipmentId,
   type ShipClassId,
@@ -35,7 +34,6 @@ import {
   advanceBreathPhase,
   activeTag,
   badgeText,
-  boonMark,
   boonRows,
   breathedSkin,
   coolFraction,
@@ -69,9 +67,10 @@ import {
 } from '../render/hotbar.js';
 import {
   EQUIPMENT_NAME,
+  cardEquipmentIds,
   equipmentInfo,
   interactionLine,
-  slotForBoonCategory,
+  slotForCard,
   SLOT_KEY_GLYPHS,
 } from '../render/equipmentInfo.js';
 import { FLASH_ELEMENTS, createFlashBudget, hotbarSlotKey } from '../render/flashBudget.js';
@@ -91,7 +90,7 @@ function statsFor(cls: ShipClassId, boons: Partial<Record<string, number>> = {})
   for (const [id, n] of Object.entries(boons)) {
     for (let i = 0; i < (n ?? 0); i += 1) ids.push(id);
   }
-  return effectiveStats(CONFIG.shipClasses[cls], resolveBoons(ids, BOON_CATALOG));
+  return effectiveStats(CONFIG.shipClasses[cls], ids);
 }
 
 function idsFor(cls: ShipClassId, stats: EffectiveStats): (EquipmentId | null)[] {
@@ -122,7 +121,7 @@ describe('slot order — Gun (keyless) / Q / E / R, top to bottom (amendment 10)
     expect(SLOT_KEY_GLYPHS).toEqual(['', 'Q', 'E', 'R']);
     const rows = slotViewModels(viewFor('torpedoBoat'));
     expect(rows.map((r) => r.keyGlyph)).toEqual(['', 'Q', 'E', 'R']);
-    expect(rows.map((r) => r.id)).toEqual(['gun', 'torpedo', 'speedBoost', null]);
+    expect(rows.map((r) => r.id)).toEqual(['gun', 'heavyTorpedo', 'speedBoost', null]);
   });
 
   it('names each hull its own fit; slot 3 reads the awaiting-refit label', () => {
@@ -132,7 +131,7 @@ describe('slot order — Gun (keyless) / Q / E / R, top to bottom (amendment 10)
       'Star Shells',
       EMPTY_SLOT_LABEL,
     ]);
-    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(['gun', 'mine', 'radarBuoy', null]);
+    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(['gun', 'navalMines', 'radarBuoy', null]);
   });
 });
 
@@ -141,11 +140,11 @@ describe('the seven-state grammar + its precedence', () => {
 
   it('maps every state', () => {
     expect(slotState(null, NONE, false, false, false)).toBe('empty');
-    expect(slotState('torpedo', { ...NONE, denied: true }, false, false, true)).toBe('denied');
+    expect(slotState('heavyTorpedo', { ...NONE, denied: true }, false, false, true)).toBe('denied');
     expect(slotState('speedBoost', { ...NONE, activated: true }, false, false, false)).toBe('activated');
-    expect(slotState('torpedo', NONE, true, false, true)).toBe('cooling');
+    expect(slotState('heavyTorpedo', NONE, true, false, true)).toBe('cooling');
     expect(slotState('gun', NONE, false, true, true)).toBe('selected');
-    expect(slotState('torpedo', NONE, false, false, true)).toBe('readyWeapon');
+    expect(slotState('heavyTorpedo', NONE, false, false, true)).toBe('readyWeapon');
     expect(slotState('speedBoost', NONE, false, false, false)).toBe('readyAbility');
   });
 
@@ -176,7 +175,7 @@ describe('the seven-state grammar + its precedence', () => {
     expect(isCooling({ n: 0, reloadMsLeft: 4000 })).toBe(true);
     expect(isCooling({ n: 0, reloadMsLeft: 0 })).toBe(false); // dry with no reload running
     expect(isCooling(null)).toBe(false);
-    const stats = statsFor('torpedoBoat', { torpedoTube: 1 });
+    const stats = twoTubes('torpedoBoat');
     const rows = slotViewModels({
       ...viewFor('torpedoBoat'),
       stats,
@@ -217,13 +216,28 @@ describe('the chamfer is an ABILITY shape mark — weapons never carry it', () =
   });
 });
 
+/**
+ * A hull whose torpedo pool holds TWO — built by hand off real effective stats.
+ * Catalog v3 (Story 8.1) spends an equipment line's copy 1 on the weapon itself
+ * and leaves tiers II–V unauthored until Stories 8.12–8.16, so there is no card
+ * that grows the tube today. The claim under test is the SEAM (the badge and the
+ * pool read `effectiveStats`, never CONFIG), and that is unchanged.
+ */
+function twoTubes(cls: ShipClassId): EffectiveStats {
+  const base = statsFor(cls);
+  return {
+    ...base,
+    equipment: { ...base.equipment, heavyTorpedo: { ...base.equipment.heavyTorpedo, maxAmmo: 2 } },
+  };
+}
+
 describe('ammo badge — only on pools LARGER than one round', () => {
   it('shows nothing at base (gun 1, torpedo 1, boost 1)', () => {
     expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.badge)).toEqual([null, null, null, null]);
   });
 
-  it('appears once torpedoAmmo grows the tube, and counts the LIVE pool', () => {
-    const stats = statsFor('torpedoBoat', { torpedoTube: 1 });
+  it('appears once the tube pool grows, and counts the LIVE pool', () => {
+    const stats = twoTubes('torpedoBoat');
     const loadout = idsFor('torpedoBoat', stats);
     const view: HotbarView = {
       ...viewFor('torpedoBoat'),
@@ -231,16 +245,16 @@ describe('ammo badge — only on pools LARGER than one round', () => {
       loadout,
       ammo: [{ n: 1, reloadMsLeft: 0 }, { n: 2, reloadMsLeft: 0 }, { n: 1, reloadMsLeft: 0 }, null],
     };
-    expect(equipmentInfo(stats, 'torpedo').maxAmmo).toBe(2); // the upgrade landed
+    expect(equipmentInfo(stats, 'heavyTorpedo').maxAmmo).toBe(2); // the upgrade landed
     expect(slotViewModels(view).map((r) => r.badge)).toEqual([null, '2', null, null]);
     const fired = slotViewModels({ ...view, ammo: [view.ammo[0], { n: 1, reloadMsLeft: 4000 }, view.ammo[2], null] });
     expect(fired[1].badge).toBe('1'); // counts down on fire, back up on reload completion
   });
 
   it('renders NO badge when the ammo entry is missing (never a fabricated "0")', () => {
-    const stats = statsFor('torpedoBoat', { torpedoTube: 1 });
-    expect(badgeText(equipmentInfo(stats, 'torpedo'), null)).toBeNull();
-    expect(badgeText(equipmentInfo(stats, 'torpedo'), { n: 0, reloadMsLeft: 1 })).toBe('0'); // a REAL empty pool does read 0
+    const stats = twoTubes('torpedoBoat');
+    expect(badgeText(equipmentInfo(stats, 'heavyTorpedo'), null)).toBeNull();
+    expect(badgeText(equipmentInfo(stats, 'heavyTorpedo'), { n: 0, reloadMsLeft: 1 })).toBe('0'); // a REAL empty pool does read 0
     const rows = slotViewModels({ ...viewFor('torpedoBoat'), stats, loadout: idsFor('torpedoBoat', stats), ammo: [null, null, null, null] });
     expect(rows.map((r) => r.badge)).toEqual([null, null, null, null]);
   });
@@ -256,14 +270,14 @@ describe('quick-info line (amendment 13) — real values, live countdown', () =>
     expect(quickInfoLine(equipmentInfo(stats, 'gun'), 0)).toBe(
       `DMG ${CONFIG.gun.damage} · CD ${fmtSeconds(CONFIG.gun.reloadMs)}`,
     );
-    expect(quickInfoLine(equipmentInfo(stats, 'torpedo'), 0)).toBe(
+    expect(quickInfoLine(equipmentInfo(stats, 'heavyTorpedo'), 0)).toBe(
       `DMG ${CONFIG.torpedo.damage} · CD ${fmtSeconds(CONFIG.torpedo.reloadMs)}`,
     );
     expect(quickInfoLine(equipmentInfo(stats, 'broadside'), 0)).toContain(`DMG ${CONFIG.broadside.damage}`);
     // PIN FLIPPED (Story 2.8, amendment 45): the MINE is a click-aimed WEAPON
     // now, so it reads DMG · CD like every other weapon — the line it used to
     // hide in the tooltip description.
-    expect(quickInfoLine(equipmentInfo(stats, 'mine'), 0)).toBe(
+    expect(quickInfoLine(equipmentInfo(stats, 'navalMines'), 0)).toBe(
       `DMG ${CONFIG.mine.damage} · CD ${fmtSeconds(CONFIG.mine.reloadMs)}`,
     );
     // PIN FLIPPED (Story 2.8, amendment 39): star shells lost ALL damage — pure
@@ -286,13 +300,16 @@ describe('quick-info line (amendment 13) — real values, live countdown', () =>
     const base = statsFor('mineLayer');
     const heavy: EffectiveStats = {
       ...base,
-      mine: { ...base.mine, damage: base.mine.damage + 7 },
-      gun: { ...base.gun, damage: base.gun.damage + 3 },
+      equipment: {
+        ...base.equipment,
+        navalMines: { ...base.equipment.navalMines, damage: base.equipment.navalMines.damage + 7 },
+        gun: { ...base.equipment.gun, damage: base.equipment.gun.damage + 3 },
+      },
     };
-    expect(quickInfoLine(equipmentInfo(heavy, 'mine'), 0)).toContain(`DMG ${heavy.mine.damage}`);
-    expect(heavy.mine.damage).toBeGreaterThan(CONFIG.mine.damage);
-    expect(quickInfoLine(equipmentInfo(heavy, 'gun'), 0)).toContain(`DMG ${heavy.gun.damage}`);
-    expect(heavy.gun.damage).toBeGreaterThan(CONFIG.gun.damage);
+    expect(quickInfoLine(equipmentInfo(heavy, 'navalMines'), 0)).toContain(`DMG ${heavy.equipment.navalMines.damage}`);
+    expect(heavy.equipment.navalMines.damage).toBeGreaterThan(CONFIG.mine.damage);
+    expect(quickInfoLine(equipmentInfo(heavy, 'gun'), 0)).toContain(`DMG ${heavy.equipment.gun.damage}`);
+    expect(heavy.equipment.gun.damage).toBeGreaterThan(CONFIG.gun.damage);
   });
 
   it('counts the REMAINING seconds down while cooling', () => {
@@ -431,16 +448,16 @@ describe('tooltip model — name, interaction class, description, and NO boons',
   });
 
   it('labels a weapon slot SWITCH-TO and an ability slot ACTIVATES, with its key', () => {
-    expect(tooltipModel(1, 'torpedo', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
+    expect(tooltipModel(1, 'heavyTorpedo', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
     expect(tooltipModel(2, 'speedBoost', stats)?.interaction).toBe('ABILITY · E · ACTIVATES');
     // PIN FLIPPED (Story 2.8, amendment 45): the mine primes on its slot key
     // and places on a click, exactly like the torpedo.
-    expect(interactionLine(3, 'mine')).toBe('WEAPON · R · SWITCH-TO');
-    expect(tooltipModel(1, 'mine', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
+    expect(interactionLine(3, 'navalMines')).toBe('WEAPON · R · SWITCH-TO');
+    expect(tooltipModel(1, 'navalMines', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
   });
 
   it('renders boons as ABSENCE — the list is empty, so no divider and no rows are drawn', () => {
-    for (const id of ['gun', 'torpedo', 'mine', 'speedBoost', 'broadside', 'starShells', 'radarBuoy'] as const) {
+    for (const id of ['gun', 'heavyTorpedo', 'navalMines', 'speedBoost', 'broadside', 'starShells', 'radarBuoy'] as const) {
       expect(tooltipModel(1, id, stats)?.boons).toEqual([]);
     }
   });
@@ -492,10 +509,12 @@ describe('tooltip placement — flanks the stack and never leaves the viewport',
 describe('label column fit (amendment 47)', () => {
   const MONO_ADVANCE = 0.605; // Geist Mono 0.6em, Menlo 0.6021em — the whole declared stack
   const monoW = (s: string, px: number, ls: number): number => [...s].length * (px * MONO_ADVANCE + ls);
-  const EVERY = Object.values(BOON_CATALOG);
-  /** Every non-acquisition line at full copies: the largest numbers reachable. */
-  const MAXED = EVERY.filter((d) => !d.effects.some((e) => e.kind === 'slotFill')).flatMap((d) =>
-    Array<string>(d.copies).fill(d.id),
+  const EVERY = Object.values(CATALOG);
+  /** Every LADDER line at full copies: the largest numbers reachable. Equipment
+   *  lines are excluded because copy 1 is a slotFill (it fits a weapon rather
+   *  than moving a number) and tiers II–V are unauthored until 8.12–8.16. */
+  const MAXED = EVERY.filter((d) => d.kind === 'ladder').flatMap((d) =>
+    Array<string>(d.cap).fill(d.id),
   );
 
   /**
@@ -506,9 +525,13 @@ describe('label column fit (amendment 47)', () => {
    * so every (additive line, rival doctrine) pair is swept at every stack depth.
    */
   const BUILDS: string[][] = [[], MAXED];
-  for (const excl of EVERY.filter((d) => d.rarity === 'exclusive')) {
-    for (const common of EVERY.filter((d) => d.category === excl.category && d.rarity === 'common')) {
-      for (let k = 0; k <= common.copies; k += 1) BUILDS.push([...Array<string>(k).fill(common.id), excl.id]);
+  for (const addon of EVERY.filter((d) => d.kind === 'addon')) {
+    const targets = cardEquipmentIds(addon.id);
+    const rivals = EVERY.filter(
+      (d) => d.kind === 'ladder' && cardEquipmentIds(d.id).some((e) => targets.includes(e)),
+    );
+    for (const ladder of rivals) {
+      for (let k = 0; k <= ladder.cap; k += 1) BUILDS.push([...Array<string>(k).fill(ladder.id), addon.id]);
     }
   }
 
@@ -516,7 +539,7 @@ describe('label column fit (amendment 47)', () => {
     const over: string[] = [];
     for (const cls of Object.keys(CONFIG.shipClasses) as ShipClassId[]) {
       for (const boons of BUILDS) {
-        const stats = effectiveStats(CONFIG.shipClasses[cls], resolveBoons(boons, BOON_CATALOG));
+        const stats = effectiveStats(CONFIG.shipClasses[cls], boons);
         for (const id of Object.keys(EQUIPMENT_NAME) as EquipmentId[]) {
           const info = equipmentInfo(stats, id);
           for (const left of [0, 1, 999, info.reloadMs]) {
@@ -541,13 +564,26 @@ describe('label column fit (amendment 47)', () => {
     }
   });
 
-  it('NO slot name, including the empty-slot label, is wider than the label column', () => {
-    const names = [...Object.values(EQUIPMENT_NAME), EMPTY_SLOT_LABEL];
+  // ONE EXCEPTION, NAMED (Story 8.1). Catalog v3 §1's SUPERCAVITATING TORPEDO is
+  // 23 glyphs and overruns the 268px label column at the slot's 20px name size.
+  // Its MODULE does not exist (Story 8.13) and its catalog line is a stub
+  // excluded from every deck, so it can never be fitted into a slot and can
+  // never render — but the name is Eric's own sheet copy, so it is FLAGGED for
+  // 8.13 rather than shortened here. The exemption is exact so it cannot grow.
+  const WIDE_NAME_EXEMPT: readonly EquipmentId[] = ['supercavTorpedo'];
+
+  it('NO fittable slot name, including the empty-slot label, is wider than the column', () => {
+    const ids = (Object.keys(EQUIPMENT_NAME) as EquipmentId[]).filter((id) => !WIDE_NAME_EXEMPT.includes(id));
+    const names = [...ids.map((id) => EQUIPMENT_NAME[id]), EMPTY_SLOT_LABEL];
     for (const n of names) expect(monoW(n, 20, 0.3)).toBeLessThanOrEqual(H.labelWidth);
   });
 
+  it('the wide-name exemption cannot rot — each id on it really is too wide', () => {
+    for (const id of WIDE_NAME_EXEMPT) expect(monoW(EQUIPMENT_NAME[id], 20, 0.3)).toBeGreaterThan(H.labelWidth);
+  });
+
   it('NO ammo badge digit is wider than the 22px badge square', () => {
-    const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(MAXED, BOON_CATALOG));
+    const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, MAXED);
     for (const id of Object.keys(EQUIPMENT_NAME) as EquipmentId[]) {
       for (const n of [0, 1, 2, 9]) {
         const t = badgeText(equipmentInfo(stats, id), { n, reloadMsLeft: 0 });
@@ -641,56 +677,56 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
     expect(off[0].fitFlash).toBe(false);
   });
 
-  it('routes a fitted CATEGORY to its slot, and a shipwide line to no slot at all', () => {
+  it('routes a fitted CARD to its slot, and a shipwide ladder to no slot at all', () => {
     const loadout = idsFor('mineLayer', statsFor('mineLayer')); // gun / mine / radarBuoy / null
-    expect(slotForBoonCategory(loadout, 'guns')).toBe(0);
-    expect(slotForBoonCategory(loadout, 'mines')).toBe(1);
-    expect(slotForBoonCategory(loadout, 'radarBuoy')).toBe(2);
-    expect(slotForBoonCategory(loadout, 'intel')).toBeNull();
-    expect(slotForBoonCategory(loadout, 'ship')).toBeNull();
-    // A category this hull does not carry owns no slot either (rank-wide flash).
-    expect(slotForBoonCategory(loadout, 'torpedoes')).toBeNull();
+    expect(slotForCard(loadout, 'deckGunBarrel')).toBe(0);
+    expect(slotForCard(loadout, 'navalMines')).toBe(1);
+    expect(slotForCard(loadout, 'foulingMines')).toBe(1);
+    expect(slotForCard(loadout, 'radarSweep')).toBeNull();
+    expect(slotForCard(loadout, 'armor')).toBeNull();
+    // A card for kit this hull does not carry owns no slot either (rank-wide).
+    expect(slotForCard(loadout, 'heavyTorpedo')).toBeNull();
   });
 });
 
-describe('the ◆n accrued mark compresses the build into the row', () => {
-  it('counts the slot family only, and shows nothing on an unboonded slot', () => {
-    const boons = ['gunBarrel', 'gunBarrel', 'torpedoSpeed'];
-    const rows = slotViewModels(viewFor('torpedoBoat', { boons }));
+describe('the accrued build routes to its slot (the ◆n MARK is deleted — amendment 8)', () => {
+  it('counts the cards addressing this slot, and nothing on an unfitted-for slot', () => {
+    const cards = ['deckGunBarrel', 'deckGunBarrel', 'heavyTorpedo'];
+    const rows = slotViewModels(viewFor('torpedoBoat', { cards }));
     expect(rows[0].boonCount).toBe(2); // gun
-    expect(rows[1].boonCount).toBe(1); // torpedo
+    expect(rows[1].boonCount).toBe(1); // heavy torpedo
     expect(rows[2].boonCount).toBe(0); // boost
-    expect(rows[0].quickInfo.endsWith(' ◆2')).toBe(true);
-    expect(rows[2].quickInfo).not.toContain('◆');
+    // ...and NONE of it reaches the always-visible row any more: the per-slot
+    // count rode the v2 categories and left with them (Eric ruling 2026-09-15).
+    for (const row of rows) expect(row.quickInfo).not.toContain('◆');
   });
 
-  it('folds the shipwide lines into the GUN slot only (the ship card)', () => {
-    const boons = ['intelSweep', 'shipHull', 'shipCooldown'];
-    const rows = slotViewModels(viewFor('torpedoBoat', { boons }));
+  it('folds the shipwide ladders into the GUN slot only (the ship card)', () => {
+    const cards = ['radarSweep', 'armor', 'reload'];
+    const rows = slotViewModels(viewFor('torpedoBoat', { cards }));
     expect(rows[0].boonCount).toBe(3);
     expect(rows[1].boonCount).toBe(0);
-    expect(slotBoonIds('torpedo', boons)).toEqual([]);
+    expect(slotBoonIds('heavyTorpedo', cards)).toEqual([]);
   });
 
   it('ignores a junk id on the wire rather than counting it', () => {
-    expect(slotBoonIds('gun', ['gunBarrel', 'notARealBoon', 'constructor'])).toEqual(['gunBarrel']);
+    expect(slotBoonIds('gun', ['deckGunBarrel', 'notARealBoon', 'constructor'])).toEqual(['deckGunBarrel']);
   });
 
-  it('clamps at 9+ so the mark can never outgrow the label column', () => {
-    expect(boonMark(0)).toBe('');
-    expect(boonMark(9)).toBe(' ◆9');
-    expect(boonMark(12)).toBe(' ◆9+');
+  it('spends no glyphs on a count — the quick-info line is DMG/CD only', () => {
+    const rows = slotViewModels(viewFor('torpedoBoat', { cards: Array<string>(12).fill('deckGunBarrel') }));
+    expect(rows[0].quickInfo).not.toContain('◆');
   });
 });
 
 describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => {
   const stats = statsFor('torpedoBoat');
 
-  it('gives every held line a ◆ name row and a live effect line', () => {
-    const t = tooltipModel(1, 'torpedo', stats, ['torpedoSpeed', 'torpedoTube'])!;
-    expect(t.boons.map((r) => r.label)).toEqual(['◆ TORPEDO I', '◆ EXTRA TUBE']);
-    expect(t.boons[0].effect).toMatch(/^Torpedo speed: \d/);
-    expect(t.boons[1].effect).toMatch(/^Torpedoes loaded: \d/);
+  it('gives every held line a ◆ name row, and a live effect line where there is one', () => {
+    const t = tooltipModel(0, 'gun', stats, ['deckGunBarrel', 'deckGunTurret'])!;
+    expect(t.boons.map((r) => r.label)).toEqual(['◆ DECK GUN BARREL', '◆ DECK GUN TURRET']);
+    expect(t.boons[0].effect).toMatch(/^Shells per shot: \d/);
+    expect(t.boons[1].effect).toMatch(/^Gun rounds ready: \d/);
   });
 
   // PIN FLIPPED (2.9 review): the row carried a `×n` suffix beside a name that
@@ -699,50 +735,50 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   // thing twice — and the lines with no rung name are the single-copy ones,
   // where there is nothing to count. The suffix is gone; the row's contract
   // ("only when needed") is now trivially satisfied.
-  it('COLLAPSES a stack into ONE row that names the rung — and nothing else', () => {
-    const held = ['gunBarrel', 'gunBarrel'];
-    const rows = boonRows('gun', held, statsFor('torpedoBoat', { gunBarrel: 2 }));
+  it('COLLAPSES a stack into ONE row that names the LINE — and nothing else', () => {
+    const held = ['deckGunBarrel', 'deckGunBarrel'];
+    const rows = boonRows('gun', held, statsFor('torpedoBoat', { deckGunBarrel: 2 }));
     expect(rows).toHaveLength(1);
-    expect(rows[0].label).toBe('◆ BARREL II');
+    expect(rows[0].label).toBe('◆ DECK GUN BARREL');
     expect(rows[0].label).not.toContain('×');
   });
 
   it('prints a doctrine row with its behavior text, not a number', () => {
-    // SELF-PROPELLED MINES is deleted (Story 7-5 wave 2); CAPTIVE MINES is the
-    // mine verb that replaced it, and the claim under test is unchanged — a
-    // doctrine row prints BEHAVIOUR, never a stat readout.
-    const t = tooltipModel(1, 'mine', stats, ['mineCaptive'])!;
-    expect(t.boons[0].label).toBe('◆ CAPTIVE MINES');
-    expect(t.boons[0].effect).toContain('torpedo');
-    expect(t.boons[0].effect).not.toContain(':');
+    // Catalog v3 made CAPTIVE MINES its own equipment line (R25), so the mine
+    // slot's surviving verb is FOULING MINES — and the claim under test is
+    // unchanged: a doctrine row prints BEHAVIOUR, never a stat readout.
+    const t = tooltipModel(1, 'navalMines', stats, ['foulingMines'])!;
+    expect(t.boons[0].label).toBe('◆ FOULING MINES');
+    expect(t.boons[0].effect).toContain('foul screws');
+    expect(t.boons[0].effect).not.toContain('→');
   });
 
-  it('hosts INTEL/SHIP lines under the — SHIP — divider, in the gun tooltip only', () => {
-    // `shipCooldown` is a SHIP line (the universal cooldown card), so it belongs
-    // BELOW the divider with the intel/ship lines — the gun's own row here is
-    // the gun-category one, which is what puts a side on each of the separator.
-    const held = ['gunBarrel', 'shipCooldown', 'intelSweep', 'shipSpeed'];
+  it('hosts the SHIPWIDE ladders under the — SHIP — divider, in the gun tooltip only', () => {
+    // RELOAD, RADAR SWEEP and SPEED address no equipment at all, so they belong
+    // BELOW the divider — the gun's own row here is DECK GUN BARREL, which is
+    // what puts a side on each of the separator.
+    const held = ['deckGunBarrel', 'reload', 'radarSweep', 'speed'];
     const gun = tooltipModel(0, 'gun', stats, held)!;
     expect(gun.boons.map((r) => r.label)).toEqual([
-      '◆ BARREL I',
+      '◆ DECK GUN BARREL',
       SHIP_DIVIDER_ROW,
-      '◆ RELOAD I',
-      '◆ INTEL I',
-      '◆ SPEED I',
+      '◆ RELOAD',
+      '◆ RADAR SWEEP',
+      '◆ SPEED',
     ]);
     expect(gun.boons[1].divider).toBe(true);
     expect(gun.boons[1].effect).toBe('');
-    expect(tooltipModel(1, 'torpedo', stats, held)!.boons).toEqual([]);
+    expect(tooltipModel(1, 'heavyTorpedo', stats, held)!.boons).toEqual([]);
   });
 
   it('still renders ABSENCE for a slot with nothing fitted', () => {
-    expect(tooltipModel(1, 'torpedo', stats, ['gunBarrel'])!.boons).toEqual([]);
-    expect(tooltipModel(1, 'torpedo', stats)!.boons).toEqual([]);
+    expect(tooltipModel(1, 'heavyTorpedo', stats, ['deckGunBarrel'])!.boons).toEqual([]);
+    expect(tooltipModel(1, 'heavyTorpedo', stats)!.boons).toEqual([]);
   });
 
   it('reports the LIVE value, so the row moves with the stack', () => {
-    const one = tooltipModel(0, 'gun', statsFor('torpedoBoat', { gunBarrel: 1 }), ['gunBarrel'])!;
-    const two = tooltipModel(0, 'gun', statsFor('torpedoBoat', { gunBarrel: 2 }), Array(2).fill('gunBarrel'))!;
+    const one = tooltipModel(0, 'gun', statsFor('torpedoBoat', { deckGunBarrel: 1 }), ['deckGunBarrel'])!;
+    const two = tooltipModel(0, 'gun', statsFor('torpedoBoat', { deckGunBarrel: 2 }), Array(2).fill('deckGunBarrel'))!;
     expect(one.boons[0].effect).not.toBe(two.boons[0].effect);
   });
 });
@@ -791,12 +827,12 @@ describe('trimmedBoonRows — the +n MORE marker counts BOONS, not furniture', (
 describe('tooltipRenderGeom — the model reconciled with the real screen', () => {
   const stats = statsFor('torpedoBoat');
   /** The gun slot holding every gun + shipwide line it can (the tallest panel). */
-  const maxedGunBuild = Object.values(BOON_CATALOG)
-    .filter((d) => ['guns', 'intel', 'ship'].includes(d.category))
-    .flatMap((d) => Array<string>(d.copies).fill(d.id));
+  const maxedGunBuild = Object.values(CATALOG)
+    .filter((d) => d.kind === 'ladder')
+    .flatMap((d) => Array<string>(d.cap).fill(d.id));
 
   it('places the boons block below the MEASURED description, never under it', () => {
-    const model = tooltipModel(0, 'gun', stats, ['gunBarrel', 'shipCooldown'])!;
+    const model = tooltipModel(0, 'gun', stats, ['deckGunBarrel', 'reload'])!;
     const modelled = tooltipRenderGeom(model, 0, 1080);
     // Pixi wrapped the description taller than the mono model predicted (the
     // model is an upper bound on WIDTH, a nominal on height). The block below it
@@ -808,7 +844,7 @@ describe('tooltipRenderGeom — the model reconciled with the real screen', () =
   });
 
   it('never shrinks below the model — the fit pin stays the authority', () => {
-    const model = tooltipModel(0, 'gun', stats, ['gunBarrel'])!;
+    const model = tooltipModel(0, 'gun', stats, ['deckGunBarrel'])!;
     const under = tooltipRenderGeom(model, 1, 1080); // a measurement smaller than modelled
     expect(under.panelH).toBe(tooltipRenderGeom(model, 0, 1080).panelH);
   });

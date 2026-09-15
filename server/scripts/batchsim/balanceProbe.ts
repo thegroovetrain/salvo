@@ -19,11 +19,10 @@
 //     server/scripts/batchsim/balanceProbe.ts
 
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
   effectiveStats,
   hullEnvelope,
-  resolveBoons,
   DRONE_HULL_IDS,
   HULL_IDS,
   SHIP_CLASS_IDS,
@@ -182,30 +181,28 @@ function barrelBlock(): void {
  *  stacked to its copy cap (the ADDITIVE speed/range ladders of Story 7-5). */
 function statsBlock(): void {
   console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
-  const universal = ['shipHull', 'shipSpeed', 'shipCooldown', 'intelSweep'];
-  const maxBoons: string[] = [];
+  const universal = ['armor', 'speed', 'turning', 'reload', 'radarSweep'];
+  const maxCards: string[] = [];
   for (const id of universal) {
     // Fail LOUDLY on an id the catalog no longer holds. This list is hand-kept
-    // and a deleted line reads back as `undefined.copies` — a bare TypeError
-    // that says nothing about which id went away (INTEL RANGE's removal on
-    // 2026-08-20 landed exactly here).
-    const def = BOON_CATALOG[id];
-    if (def === undefined) throw new Error(`balanceProbe: '${id}' is not in BOON_CATALOG (deleted line?)`);
-    maxBoons.push(...new Array<string>(def.copies).fill(id));
+    // and a deleted line reads back as `undefined.cap` — a bare TypeError that
+    // says nothing about which id went away.
+    if (!Object.hasOwn(CATALOG, id)) throw new Error(`balanceProbe: '${id}' is not in CATALOG (deleted line?)`);
+    maxCards.push(...new Array<string>(CATALOG[id].cap).fill(id));
   }
-  console.log(`stack: ${universal.map((id) => `${id}x${BOON_CATALOG[id].copies}`).join(' ')}`);
+  console.log(`stack: ${universal.map((id) => `${id}x${CATALOG[id].cap}`).join(' ')}`);
   // detect is SIGHT-scaled (`sightOf(me) * detectFactor`), NOT radar-scaled —
   // the one rung that hangs off sight rather than radar range. Derived here the
   // same way the server does it so the ladder ordering is checkable by eye.
   console.log('class        |  maxHp |  speed | radar |  sight | detect | 5/8 rung | gun rangeU | broadside rangeU | cooldownScale');
   for (const cls of SHIP_CLASS_IDS) {
-    for (const [tag, boons] of [['base', [] as string[]] as const, ['MAXED', maxBoons] as const]) {
-      const st = effectiveStats(hullEnvelope(cls), resolveBoons(boons));
+    for (const [tag, cards] of [['base', [] as string[]] as const, ['MAXED', maxCards] as const]) {
+      const st = effectiveStats(hullEnvelope(cls), cards);
       const rung = st.radarRange * CONFIG.vision.muzzleFlashFactor;
       console.log(
         `${(cls + ' ' + tag).padEnd(12)} | ${fmt(st.maxHp).padStart(6)} | ${fmt(st.kinematics.maxSpeed).padStart(6)} | ` +
           `${fmt(st.radarRange).padStart(5)} | ${fmt(st.sightRange).padStart(6)} | ${fmt(st.sightRange * CONFIG.vision.detectFactor).padStart(6)} | ` +
-          `${fmt(rung).padStart(8)} | ${fmt(st.gun.rangeU).padStart(10)} | ${fmt(st.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3)}`,
+          `${fmt(rung).padStart(8)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3)}`,
       );
     }
   }

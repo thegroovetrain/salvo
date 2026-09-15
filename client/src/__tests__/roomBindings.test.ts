@@ -54,7 +54,7 @@ function ownFrame(x: number, y: number): unknown {
     t: 100,
     tick: 1,
     ackSeq: 0,
-    you: { x, y, heading: 0, speed: 0, cls: 'torpedoBoat', upg: [], boons: [], alive: true, sweep: 0 },
+    you: { x, y, heading: 0, speed: 0, cls: 'torpedoBoat', upg: [], cards: [], alive: true, sweep: 0 },
     contacts: [],
     mines: [],
     events: [],
@@ -409,7 +409,7 @@ describe('bindRoom own sunk', () => {
     // events, so the window is read off the very frame that opened it.
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 0, alive: false, ammo: [], sweep: 0,
-      cls: 'torpedoBoat', pts: 0, offer: [], boostUntil: 0, boons: [], lvl: 0, xp: 0,
+      cls: 'torpedoBoat', pts: 0, offer: [], boostUntil: 0, cards: [], lvl: 0, xp: 0,
       repairHp: 0, sinkingUntil: 5200,
     };
     sink.handler({ t: 200, tick: 2, ackSeq: 0, you, contacts: [], mines: [], events: [{ k: 'sunk', id: 'me', by: 'rival' }] });
@@ -478,7 +478,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
     t, tick: 1, ackSeq: 0, contacts: [], mines: [], events,
     you: {
       id: 'me', x, y, heading: 0, speed: 10, hp: 0, alive: false, ammo: [], sweep: 0,
-      cls: 'torpedoBoat', pts: 0, offer: [], boons: [], boostUntil: 0, lvl: 0, xp: 0,
+      cls: 'torpedoBoat', pts: 0, offer: [], cards: [], boostUntil: 0, lvl: 0, xp: 0,
       repairHp: 0, sinkingUntil: 1000 + CONFIG.ship.sinkingWindowMs,
     },
   });
@@ -1092,12 +1092,12 @@ describe('bindRoom denial channel (Story 1.10)', () => {
  *  `boons` is the list the frame ALREADY carries when its `bn` event fans out
  *  (handleFrame applies `you` before the events), which is what lets the fitted
  *  toast name the ladder rung the card showed. */
-function rewardFrame(event: unknown, own: { alive: boolean; boons?: string[] } | null): unknown {
+function rewardFrame(event: unknown, own: { alive: boolean; cards?: string[] } | null): unknown {
   const base = { t: 300, tick: 3, ackSeq: 0, contacts: [], mines: [], events: [event] };
   if (!own) return { ...base, spec: true };
   return {
     ...base,
-    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: own.boons ?? [], alive: own.alive, sweep: 0 },
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: own.cards ?? [], alive: own.alive, sweep: 0 },
   };
 }
 
@@ -1184,58 +1184,59 @@ describe('bindRoom reward toasts', () => {
     expect(play).not.toHaveBeenCalled();
   });
 
-  it('a fitted boon toasts with the ladder name + its TIER cue, even while dead', () => {
+  it('a fitted card toasts with the line name + its KIND cue, even while dead', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipCooldown' }, { alive: false, boons: ['shipCooldown'] }));
-    expect(toastLines()).toEqual(['◆ RELOAD I FITTED']);
-    // The cue carries BOTH axes as of Story 2.9: the tier picks the tone, the
-    // category transposes it (see the fitDetune suite below).
-    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('ship') });
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: false, cards: ['reload'] }));
+    expect(toastLines()).toEqual(['◆ RELOAD FITTED']);
+    // The cue carries BOTH axes as of Story 2.9, re-keyed in 8.1: the KIND picks
+    // the tone AND transposes it (see the fitDetune suite below).
+    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('ladder') });
   });
 
-  // The EXCLUSIVE rung is asserted through `fitTone` alone from Story 7-5 wave 2
-  // on: the cannon pair was the last exclusive LINE in the catalog (R2.6), so
-  // there is no boon id left that routes a `bn` event to that cue.
-  it('WEIGHTS the fit cue by the fitted line\'s tier (Story 2.9)', () => {
-    expect(fitTone('exclusive')).toBe('fitExclusive');
-    for (const [boon, tone] of [['shipCooldown', 'fitCommon'], ['gunBarrel', 'fitRare'], ['mineCaptive', 'fitRare']]) {
+  it('WEIGHTS the fit cue by the fitted line\'s KIND (Story 2.9, re-keyed in 8.1)', () => {
+    // An EQUIPMENT card fits a whole new weapon and gets the fuller cue; a
+    // ladder rung, an add-on verb and a consumable all land light.
+    for (const [boon, tone] of [
+      ['reload', 'fitCommon'], ['deckGunBarrel', 'fitCommon'],
+      ['captiveMines', 'fitRare'], ['acousticHoming', 'fitCommon'],
+    ]) {
       document.body.replaceChildren();
       const { sink, play } = setupToasts();
-      sink.handler(rewardFrame({ k: 'bn', id: 'me', boon }, { alive: true, boons: [boon] }));
+      sink.handler(rewardFrame({ k: 'bn', id: 'me', boon }, { alive: true, cards: [boon] }));
       expect(play).toHaveBeenCalledWith(tone, expect.anything());
     }
   });
 
-  it('routes the fit FLASH to the fitted line\'s category (amendment 51)', () => {
+  it('routes the fit FLASH by the fitted LINE ID (amendment 51, re-keyed in 8.1)', () => {
     document.body.replaceChildren();
     const { sink, onBoonFitted } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
-    expect(onBoonFitted).toHaveBeenCalledWith('mines');
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'intelSweep' }, { alive: true, boons: ['intelSweep'] }));
-    expect(onBoonFitted).toHaveBeenCalledWith('intel'); // shipwide -> the rank-wide flash
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'navalMines' }, { alive: true, cards: ['navalMines'] }));
+    expect(onBoonFitted).toHaveBeenCalledWith('navalMines');
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'radarSweep' }, { alive: true, cards: ['radarSweep'] }));
+    expect(onBoonFitted).toHaveBeenCalledWith('radarSweep'); // shipwide -> rank-wide flash
   });
 
   it('never goes SILENT on an unknown id (FR22): the common cue + a rank-wide flash', () => {
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, boons: ['notARealBoon'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, cards: ['notARealBoon'] }));
     expect(play).toHaveBeenCalledWith('fitCommon', { detune: 0 });
-    expect(onBoonFitted).toHaveBeenCalledWith('');
+    expect(onBoonFitted).toHaveBeenCalledWith('notARealBoon');
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 
-  it('the fitted toast names the RUNG that was fitted, not the line\'s first name', () => {
-    // Story 2.8's name-by-stack-position: the frame's `boons` already carries
-    // the new occurrence, so the third RELOAD card toasts as RELOAD III — exactly
-    // the name the card the player clicked was showing.
+  it('the fitted toast names the LINE, whatever rung it landed on (catalog v3)', () => {
+    // Catalog v3 names the LINE, not the rung (Eric's sheet §1), so the third
+    // RELOAD card toasts with the same words as the first — exactly the name the
+    // card the player clicked was showing.
     document.body.replaceChildren();
     const { sink } = setupToasts();
     sink.handler(rewardFrame(
-      { k: 'bn', id: 'me', boon: 'shipCooldown' },
-      { alive: true, boons: ['shipCooldown', 'shipCooldown', 'shipCooldown'] },
+      { k: 'bn', id: 'me', boon: 'reload' },
+      { alive: true, cards: ['reload', 'reload', 'reload'] },
     ));
-    expect(toastLines()).toEqual(['◆ RELOAD III FITTED']);
+    expect(toastLines()).toEqual(['◆ RELOAD FITTED']);
   });
 
   // DAMAGE CONTROL (cycle 46): the `heal` row is a pure self-private
@@ -1268,7 +1269,7 @@ describe('bindRoom reward toasts', () => {
     document.body.replaceChildren();
     const { sink, play, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'pt', id: 'someone-else' }, { alive: true }));
-    sink.handler(rewardFrame({ k: 'bn', id: 'someone-else', boon: 'shipSpeed' }, { alive: true }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'someone-else', boon: 'speed' }, { alive: true }));
     expect(toastLines()).toEqual([]);
     expect(play).not.toHaveBeenCalled();
     expect(onSpendAck).not.toHaveBeenCalled(); // and no foreign spend can ack ours
@@ -1282,14 +1283,14 @@ describe('bindRoom reward toasts', () => {
   it('routes a SELF boon-fit to deps.onSpendAck (the spend latch receipt)', () => {
     document.body.replaceChildren();
     const { sink, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipCooldown' }, { alive: true, boons: ['shipCooldown'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: true, cards: ['reload'] }));
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 
   it('acks a boon fitted while DEAD too (spending while dead is legal)', () => {
     document.body.replaceChildren();
     const { sink, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipSpeed' }, { alive: false, boons: ['shipSpeed'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'speed' }, { alive: false, cards: ['speed'] }));
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 
@@ -1339,7 +1340,7 @@ function victimFrame(
   if (!you) return { ...base, spec: true };
   return {
     ...base,
-    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: [], alive: true, sweep: 0, ...you },
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0, ...you },
   };
 }
 
@@ -1454,9 +1455,9 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
   });
 
   it('marks an own TORPEDO as ours (styled from own doctrine at launch)', () => {
-    const { sink, play, onShell } = setupWater('torpedo');
+    const { sink, play, onShell } = setupWater('heavyTorpedo');
     sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'torpedo', 'torpedo');
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'heavyTorpedo', 'heavyTorpedo');
     expect(play).toHaveBeenCalledWith('fireTorp');
   });
 
@@ -1733,7 +1734,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     sink.handler({
       t: 1400, tick: 4, ackSeq: 0, contacts: [], mines: [],
       events: [{ k: 'dmg', id: 'me', amount: 6 }],
-      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: [], alive: true, sweep: 0 },
+      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0 },
     });
     expect(play).toHaveBeenLastCalledWith('burn');
     expect(trigger).toHaveBeenLastCalledWith(6 * CLIENT_CONFIG.litZone.burnShakeScale);
@@ -1745,7 +1746,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     sink.handler({
       t: 6000, tick: 9, ackSeq: 0, contacts: [], mines: [],
       events: [{ k: 'dmg', id: 'me', amount: 6 }],
-      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: [], alive: true, sweep: 0 },
+      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0 },
     });
     expect(play).toHaveBeenLastCalledWith('damage');
   });
@@ -1956,28 +1957,28 @@ describe('victim tells (Story 2.9) — SLOWED / DAZZLED cue edges', () => {
   });
 });
 
-describe('the fit cue is transposed by CATEGORY (Story 2.9 carry-over)', () => {
-  it('plays the tier tone at its category\'s detune', () => {
+describe('the fit cue is transposed by KIND (Story 2.9 carry-over, re-keyed in 8.1)', () => {
+  it('plays the kind tone at its kind\'s detune', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
-    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('mines') });
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'navalMines' }, { alive: true, cards: ['navalMines'] }));
+    expect(play).toHaveBeenCalledWith('fitRare', { detune: fitDetune('equipment') });
   });
 
-  it('gives two same-tier fits on DIFFERENT slots different voices', () => {
+  it('gives two fits of DIFFERENT kinds different voices', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipCooldown' }, { alive: true, boons: ['shipCooldown'] }));
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: true, cards: ['reload'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'acousticHoming' }, { alive: true, cards: ['acousticHoming'] }));
     const [first, second] = play.mock.calls;
-    expect(first[0]).toBe(second[0]); // same tier → same tone id
+    expect(first[0]).toBe(second[0]); // both light → same tone id
     expect(first[1]).not.toEqual(second[1]); // ...heard as a different event
   });
 
   it('an unknown boon still sounds — common weight, untransposed root', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, boons: ['x'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, cards: ['x'] }));
     expect(play).toHaveBeenCalledWith('fitCommon', { detune: 0 });
   });
 });

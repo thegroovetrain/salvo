@@ -10,7 +10,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  CATALOG,
   HOOK_REGISTRY,
+  LINE_IDS,
+  cardBehaviors,
   hookKinematics,
   type HookRegistry,
   type HookParams,
@@ -33,6 +36,18 @@ describe('HOOK_REGISTRY — the registry lock (signals.test.ts pattern)', () => 
   it('has exactly the covered keys (EMPTY in v1 — amendment 29: boost stays bespoke)', () => {
     expect(Object.keys(HOOK_REGISTRY).sort()).toEqual(Object.keys(HOOK_COVERAGE).sort());
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0);
+  });
+
+  // THE EXPLICIT SHIPS-EMPTY PIN (Story 8.1). Catalog v3 authors no `behavior`
+  // effect on any of its 29 lines, so amendment 30 is still satisfied data-side
+  // and the registry needs no entry. Stated as its own assertion rather than
+  // left implicit in the coverage lock above: a story that registers a hook
+  // must come here and say so, and must bump PROTOCOL_VERSION with it (registry
+  // content IS wire contract — sim/hooks.ts).
+  it('SHIPS EMPTY: the production registry has zero entries under catalog v3', () => {
+    expect(HOOK_REGISTRY).toEqual({});
+    const everyCard = LINE_IDS.flatMap((id) => new Array<string>(CATALOG[id].cap).fill(id));
+    expect(cardBehaviors(everyCard)).toEqual([]);
   });
 
   it('is deep-frozen: neither the map nor any row can be mutated at runtime', () => {

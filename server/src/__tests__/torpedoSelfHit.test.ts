@@ -2,7 +2,7 @@
 // owner — gun shells, torpedoes, AND mines. This retires the old timed self-hit
 // grace entirely in favor of permanent owner exclusion in the hit-test path.
 // The original HULLCRACKER_NOTES bug (a full-speed torpedo boat re-catching its
-// own fish, torpedoBoat maxSpeed 45 now stackable past torpedo speed 60 via
+// own fish, torpedoBoat maxSpeed 45 now stackable past torpedo speed (65, catalog-v3 R17) via
 // maxSpeed upgrades) is now impossible BY LAW rather than by margin+grace
 // tuning. spawnClearance and bow/stern-clear spawn offsets are KEPT for clean
 // spawn geometry (they still prevent degenerate spawn overlap with OTHER
@@ -18,19 +18,36 @@ import {
   type DamageEvent,
   type GameEvent,
   type ShellState,
+  type CatalogLine,
+  type Catalog,
   type ShipClassId,
 } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 
 /** Torpedo slot index under the universal fit (loadout slot 1). */
 const SLOT_TORPEDO = 1;
 import { fireTorpedo } from '../game/equipment/torpedoes.js';
 
-function bareWorld(seed = 11): World {
-  const w = new World(seed);
+function bareWorld(seed = 11, opts?: WorldOptions): World {
+  const w = new World(seed, CONFIG.map.playerCap, CONFIG.zone, opts);
   w.map.islands.length = 0;
   return w;
 }
+
+/** An INJECTED overdrive catalog: the production SPEED ladder caps at 4 copies
+ *  (45 + 4x2.5 = 55 < the 65 u/s fish, catalog-v3 R17 — a max-stacked hull
+ *  cannot outrun its own torpedo, by guardrail design). The outrun geometry
+ *  the margin+grace fix depended on therefore needs a line production does
+ *  not have, so the test injects a 9-rung SPEED ladder rather than
+ *  overdriving past a real cap. */
+const OVERDRIVE: Catalog = {
+  speed: {
+    id: 'speed',
+    kind: 'ladder',
+    cap: 9,
+    tiers: new Array(9).fill([{ kind: 'stat', path: 'kinematics.maxSpeed', add: 2.5 }]),
+  } as unknown as CatalogLine,
+};
 
 /** Place a ship at an exact pose, bypassing spawn-ring placement. */
 function place(
@@ -46,10 +63,10 @@ function place(
   return rec;
 }
 
-/** Stack `count` copies of one boon line through the real grant seam (the
- *  2.8 deck economy's applyBoon — mirrors upgrades.test.ts). */
-function stack(w: World, ship: ShipRecord, boonId: string, count: number): void {
-  for (let i = 0; i < count; i++) w.applyBoon(ship, boonId);
+/** Stack `count` copies of one catalog line through the real grant seam
+ *  (World.applyCard — mirrors upgrades.test.ts). */
+function stack(w: World, ship: ShipRecord, lineId: string, count: number): void {
+  for (let i = 0; i < count; i++) w.applyCard(ship, lineId);
 }
 
 const dmgOf = (events: readonly GameEvent[]): DamageEvent[] =>
@@ -78,13 +95,13 @@ describe('torpedo spawn clearance (root-cause fix)', () => {
 // ---------- integration: the owner's exact full-throttle bug -----------------
 
 describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
-  /** Throttle a torpedo boat (fastest class: maxSpeed 45 vs torpedo speed 60)
+  /** Throttle a torpedo boat (fastest class: maxSpeed 45 vs torpedo speed 65, catalog-v3 R17)
    *  to max speed, fire a bow torpedo at `aim`, then run 5 more seconds and
    *  return every dmg event observed. */
   function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord } {
-    const w = bareWorld();
+    const w = bareWorld(11, maxSpeedStacks > 0 ? { catalog: OVERDRIVE } : undefined);
     const a = place(w, 'a', 0, 0, 0); // torpedoBoat, bow points +x (heading 0)
-    if (maxSpeedStacks > 0) stack(w, a, 'shipSpeed', maxSpeedStacks);
+    if (maxSpeedStacks > 0) stack(w, a, 'speed', maxSpeedStacks);
 
     const dmgs: DamageEvent[] = [];
 
@@ -120,16 +137,16 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
   });
 
   it('straight ahead with the hull OVERDRIVEN past the fish — firer STILL takes no damage', () => {
-    // Under the 2.8 catalog the deck caps shipSpeed at 5 copies (45 · 1.05⁵ ≈
-    // 57.4 < 60 — a max-stacked hull can no longer outrun its own base fish,
-    // by guardrail design). To keep the outrun geometry the old margin+grace
-    // fix depended on PINNED, the test overdrives the applyBoon seam past the
-    // deck's copy cap: 8 stacks ≈ 66.5 u/s > 60. Permanent owner immunity
-    // makes a self-hit impossible regardless of geometry.
-    expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed * 1.05 ** 8).toBeGreaterThan(
+    // Catalog v3 caps SPEED at 4 copies (45 + 4x2.5 = 55 < 65 — a max-stacked
+    // hull cannot outrun its own base fish, by guardrail design; catalog-v3
+    // R17 puts the fish at 65 u/s). To keep the outrun geometry the old
+    // margin+grace fix depended on PINNED, the world runs against the
+    // INJECTED 9-rung ladder above: 45 + 9x2.5 = 67.5 > 65.
+    // Permanent owner immunity makes a self-hit impossible regardless.
+    expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + 2.5 * 9).toBeGreaterThan(
       CONFIG.torpedo.speed,
     );
-    const { dmgs, ship } = runFullThrottleShot(0, 8);
+    const { dmgs, ship } = runFullThrottleShot(0, 9);
     expect(ship.stats.kinematics.maxSpeed).toBeGreaterThan(CONFIG.torpedo.speed);
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);

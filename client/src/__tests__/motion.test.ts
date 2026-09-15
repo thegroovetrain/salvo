@@ -123,7 +123,7 @@ describe('hotbar — the ACTIVATED pop is juice; DENIED never is', () => {
 
   function view(motion: 'full' | 'reduced' | 'off'): HotbarView {
     return {
-      loadout: ['gun', 'torpedo', 'speedBoost', null],
+      loadout: ['gun', 'heavyTorpedo', 'speedBoost', null],
       ammo: [null, null, null, null],
       stats,
       primedSlot: 0,

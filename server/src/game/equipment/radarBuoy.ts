@@ -185,7 +185,7 @@ export function addBuoy(
   id: string,
   jamSeed: number,
 ): BuoyState {
-  const stats = owner.stats.radarBuoy;
+  const stats = owner.stats.equipment.radarBuoy;
   const sweepAnchor = wrapPositive(Math.atan2(y - owner.state.y, x - owner.state.x));
   const buoy: BuoyState = {
     id,
@@ -238,7 +238,7 @@ export const radarBuoyEquipment: Equipment = {
   id: 'radarBuoy',
   isWeapon: EQUIPMENT_IS_WEAPON.radarBuoy, // shared weapon/ability split — single source
   tick(ship, slot, dtMs): void {
-    tickReload(slot.state!, ship.stats.radarBuoy.maxAmmo, ship.stats.radarBuoy.reloadMs, dtMs);
+    tickReload(slot.state!, ship.stats.equipment.radarBuoy.maxAmmo, ship.stats.equipment.radarBuoy.reloadMs, dtMs);
   },
   activate(ctx, slot) {
     const ship = ctx.ship;
@@ -247,7 +247,7 @@ export const radarBuoyEquipment: Equipment = {
     if (ship.input.aimDist > CONFIG.mine.placeRange) return { ok: false, reason: 'out-of-arc' };
     const p = buoyPlacePoint(ship);
     if (blockedWater(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' }; // nothing consumed
-    if (!consume(slot.state!, ship.stats.radarBuoy.reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
+    if (!consume(slot.state!, ship.stats.equipment.radarBuoy.reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
     ctx.dropBuoy(p.x, p.y);
     return { ok: true };
   },

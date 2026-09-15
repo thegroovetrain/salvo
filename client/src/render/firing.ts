@@ -246,7 +246,7 @@ export class FiringUX {
     // indicative ARC_R (72u, less than half its real 150u reach), torpedo green,
     // no boundary. That is Eric's "the buoy's targeting range indicator isn't
     // correct": it was not the buoy's range at all.
-    const placement = id === 'mine' || id === 'radarBuoy';
+    const placement = id === 'navalMines' || id === 'radarBuoy';
     const tint = placement ? AMBER : TORP_TINT;
     const radius = placement ? this.rangeU : ARC_R;
     const color = denied ? DENIED_RED : tint;
@@ -472,6 +472,6 @@ export class FiringUX {
    *  broadside's beams, the mine's rear placement) is amber. */
   private reticleColor(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): number {
     if (!(weaponArcHit(heading, aim, id) && hasAmmo)) return DIM;
-    return id === 'torpedo' ? TORP_TINT : AMBER;
+    return id === 'heavyTorpedo' ? TORP_TINT : AMBER;
   }
 }

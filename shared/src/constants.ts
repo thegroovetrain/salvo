@@ -142,8 +142,9 @@ export const CONFIG = {
    * The speed change DISCHARGES the rescale epics.md:1090 has owed since Story
    * 1.6 (2026-07-21): the small drone at 46 u/s was the FASTEST HULL AFLOAT,
    * ahead of the Torpedo Boat's 45. At 40 it sits below every player class,
-   * medium at 35 ties the Battleship, and CONFIG.torpedo.speed (60) still
-   * outruns everything — the damageGuardrail pin holds.
+   * medium at 35 ties the Battleship, and CONFIG.torpedo.speed (65 as of
+   * catalog-v3 R17, Eric 2026-09-15) still outruns everything — the
+   * damageGuardrail pin holds.
    *
    * `reverseSpeed`/`accel`/`decel` scale PROPORTIONALLY with maxSpeed;
    * `turnRate`/`steerageSpeed` deliberately DO NOT MOVE, so agility stays a
@@ -1000,8 +1001,9 @@ export const CONFIG = {
     // alternative of raising it to hold the torpedo track near its old
     // absolute 360u and declined, because that would put a fish's tell above
     // any ship's and break the one-model-one-ratio shape. So the torpedo
-    // shrinks with everything else: 2.75s at the fixed 60 u/s torpedo speed =
-    // 165u of one-cell-wide ribbon (was 6s / 360u), still the LONGEST track
+    // shrinks with everything else: 2.75s at the fixed torpedo speed (65 u/s
+    // as of catalog-v3 R17, Eric 2026-09-15) = 178.75u of one-cell-wide
+    // ribbon (was 6s / 360u; 165u at the pre-R17 60 u/s speed), still the LONGEST track
     // in the game per second of travel because the fish is the fastest thing
     // afloat. Findable if you happen to be watching that stretch of water,
     // easy to miss — which is the ruled reading. The FISH
@@ -1157,7 +1159,15 @@ export const CONFIG = {
     // can never re-catch its own fish; pinned by damageGuardrail.test. Also a
     // deliberate balance change: torps are harder to dodge (owner call,
     // 2026-07-14 self-hit fix session).
-    speed: 60, // u/s
+    // RETUNED 60 -> 65 (catalog-v3 R17, Eric 2026-09-15, epic-8 amendment 6): the
+    // shipped torpedo module IS catalog v3's HEAVY TORPEDO, whose Tier I speed
+    // R17 authors at 65 u/s. A max-SPEED-boosted Torpedo Boat now TIES the base
+    // fish (65 = 65) rather than being outrun by it; catalog-v3 note 19 (Eric
+    // 2026-09-11, epics.md AR49) accepts a boosted TB matching/outrunning
+    // torpedoes in v3, and no-friendly-fire is structural from Story 8.4, so a
+    // hull that catches its own fish is not a self-damage hazard. See
+    // damageGuardrail.test.ts for the re-pinned guardrail.
+    speed: 65, // u/s
     // hp. RETUNED 55 → 70 (Eric ruling 2026-08-04, the weapon balance pass): a
     // heavier fish on a much longer commitment cycle. HEAVY WARHEAD ×5 was
     // simultaneously cut to +1/card so the ladder topped at 75 — strictly under
@@ -1570,33 +1580,37 @@ export const CONFIG = {
   },
 
   /**
-   * THE DECK MODEL's draw-weight dials (Story 2.8, amendment 38). A rare or
-   * exclusive card LINE's per-card draw weight escalates the longer no rare/
-   * exclusive has landed in a draw (invisible soft pity):
-   *   perCardWeight = rareWeightBase + levelsSinceRare × rareWeightPerDryLevel
-   * (commons are always weight 1; a line's total weight = copiesInDeck ×
-   * perCardWeight — see sim/deck.ts). Values RATIFIED by Eric 2026-07-31 from
-   * the 2.10 batch-sim evidence (amendment 57): at 0.35 the escalation only
-   * offset natural rare depletion (flat pity curve); 0.7 makes the ratified
-   * soft pity genuinely rise (rareRate climbs from the dry-1 dip of ~0.43 to
-   * ~0.57 by dry 6, vs a ≈flat ~0.4 across the same span at the old 0.35 dial;
-   * the dry-0 opening rate is ~0.48 either way) and trims the
-   * first-exclusive tail without flooding shallow draws.
+   * THE AUTHORED DECK (catalog v3, Story 8.1 — AR52). `size` is the number of
+   * cards a player AUTHORS into a deck and `maxEquipmentLines` the legal cap on
+   * how many EQUIPMENT lines one deck may carry (catalog-v3 §1: every starter
+   * sums to 40 with exactly 3 equipment lines).
    *
-   * STALE RATES, DIALS UNCHANGED (2026-08-04, global-cooldown cycle 41): the
-   * ~0.48/~0.57 figures above were measured against the 42-line catalog.
-   * Deleting the seven per-equipment reload ladders removed 35 COMMON cards
-   * while leaving every rare/exclusive in place, so rare DENSITY rose on every
-   * deck (TB 14.5% -> 17.2%, ML 11.4% -> 13.2%) and with it the draw rate — a
-   * review simulation puts TB dry-0 P(>=1 rare per offer) at ~0.59, i.e. the
-   * new OPENING rate now exceeds the old ratified dry-6 pity CEILING. The dials
-   * themselves are untouched: retuning them is a balance decision that needs an
-   * Eric ruling + a batch-sim pass, and is ledgered in deferred-work.md. Treat
-   * the numbers above as the amendment-57 provenance record, not current rates.
+   * UNUSED UNTIL STORY 8.2. Nothing reads these numbers today: 8.1 ships the
+   * INTERIM deck (`buildDeck()` = every non-stub line at its cap — see
+   * sim/deck.ts), and 8.2 builds default decks, legality and the forge on top
+   * of them. They live here now because they are gameplay-authoritative the
+   * moment 8.2 lands, and because they replace the deleted soft-pity dials
+   * (`rareWeightBase`/`rareWeightPerDryLevel`) that died with rarity itself.
+   *
+   * NOT the deck AT QUEUE: catalog-v3 R4 shuffles a hidden 10-card match
+   * consumable pool into every deck, so a queued deck is 40 + 10 = 50. That
+   * pool is Story 8.2's, not a dial here.
    */
   deck: {
-    rareWeightBase: 1, // per-card weight of a rare/exclusive at zero dry levels
-    rareWeightPerDryLevel: 0.7, // weight added per level without a rare/exclusive drawn
+    size: 40, // authored cards per deck (catalog-v3 §1 — every starter sums to 40)
+    maxEquipmentLines: 3, // equipment lines per deck (catalog-v3 §1 arithmetic: "all at the ≤ 3 cap")
+  },
+
+  /**
+   * THE CATALOG's engine dials (Story 8.1). `reloadStepPerTier` is catalog-v3's
+   * STANDING RULE (§3, from R14): every equipment line steps −5 % of its OWN
+   * base reload per tier, in ADDITIVE five-point steps (100 → 95 → 90 → 85 →
+   * 80 %), composed BEFORE the global RELOAD ladder — so a maxed weapon under a
+   * maxed Reload runs at 0.80 × 0.75 = 60 % of base. Applied in ONE place
+   * (sim/stats.ts clampStats), never restated as a per-tier effect.
+   */
+  catalog: {
+    reloadStepPerTier: 0.05, // −5 % of base reload per tier (catalog-v3 §3 standing rule, §4 conventions)
   },
 
   /**

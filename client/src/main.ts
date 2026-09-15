@@ -14,17 +14,15 @@ import {
   EQUIPMENT_IS_WEAPON,
   HEAL_CHOICE,
   MSG,
-  NO_BOONS,
-  boonBehaviors,
+  NO_CARDS,
+  cardBehaviors,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
   hullSilhouette,
   isOutside,
-  resolveBoons,
-  slotsWithBoons,
+  slotsWithCards,
   SLOT_COUNT,
-  type BoonDef,
   type Island,
   type DeniedView,
   type EffectiveStats,
@@ -65,7 +63,7 @@ import { createFlashBudget, FLASH_ELEMENTS, hotbarSlotKey, type FlashBudget } fr
 import { Hud, conning, railFraction, reloadFraction, type OwnStatus } from './render/hud.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
-import { slotForBoonCategory } from './render/equipmentInfo.js';
+import { slotForCard } from './render/equipmentInfo.js';
 import { XpRail, type XpView } from './render/xpRail.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
@@ -598,7 +596,7 @@ interface Game {
    * Cached effectiveStats(ownClass, own fitted boons) — THE client-side stat
    * source (HUD denominators, predictor kinematics, radar/camera/fog ranges,
    * firing-arc gun range). Starts at the guessed class with zero boons;
-   * applyOwnStats() swaps it whenever you.cls or you.boons changes.
+   * applyOwnStats() swaps it whenever you.cls or you.cards changes.
    */
   ownStats: EffectiveStats;
   /**
@@ -638,8 +636,8 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
  *  slot effects replayed over it (slotsWithBoons — the SAME per-effect
  *  function the server applies incrementally, so slot ids agree by
  *  construction). Zero boons ≙ plain loadoutFor. */
-function slotIdsFor(cls: ShipClassId, stats: EffectiveStats, boons: readonly BoonDef[]): (EquipmentId | null)[] {
-  return slotsWithBoons(cls, stats, boons).map((s) => s.equipmentId);
+function slotIdsFor(cls: ShipClassId, stats: EffectiveStats, cards: readonly string[]): (EquipmentId | null)[] {
+  return slotsWithCards(cls, stats, cards).map((s) => s.equipmentId);
 }
 
 /**
@@ -1465,7 +1463,7 @@ function ownMatchTime(g: Game): number | null {
 
 /** Assemble the modal's personal-score block from the accumulator + roster. */
 function ownScore(g: Game): PersonalScore {
-  return personalScore(g.score, g.state.net.you?.boons, ownKills(g), isWinner(g), ownMatchTime(g));
+  return personalScore(g.score, g.state.net.you?.cards, ownKills(g), isWinner(g), ownMatchTime(g));
 }
 
 /**
@@ -1485,7 +1483,7 @@ function ownResultsIdentity(g: Game): ResultsOwn | null {
     name,
     cls: you.cls,
     hue: PLAYER_HUES[idx] ?? CLIENT_CONFIG.colors.droneOutline,
-    boons: you.boons ?? [],
+    cards: you.cards ?? [],
     offer: you.offer ?? [],
     pts: you.pts ?? 0,
   };
@@ -1690,7 +1688,7 @@ function showEliminationResults(g: Game): void {
  * PLACE #n" under a VICTORY banner until the patch caught up.
  */
 function showMatchResults(g: Game, msg: ResultsMsg): void {
-  const score = personalScoreFromResults(g.score, g.state.net.you?.boons, msg, g.state.net.sessionId, ownKills(g), ownMatchTime(g));
+  const score = personalScoreFromResults(g.score, g.state.net.you?.cards, msg, g.state.net.sessionId, ownKills(g), ownMatchTime(g));
   presentResults(g, {
     banner: winnerBanner(msg, g.state.net.sessionId),
     victory: score.winner,
@@ -2442,13 +2440,13 @@ function onOwnBuoy(audio: Audio): void {
 }
 
 /**
- * A boon landed: latch its FIT flash (Story 2.9). The category resolves to the
- * slot carrying that equipment; a shipwide INTEL/SHIP line (or any category no
- * fitted slot owns) falls through to the rank-wide frame pulse, so no fit is
- * ever presentation-silent (FR22).
+ * A card landed: latch its FIT flash (Story 2.9). The card resolves to the slot
+ * carrying the equipment it addresses; a shipwide ladder (or any card no fitted
+ * slot owns) falls through to the rank-wide frame pulse, so no fit is ever
+ * presentation-silent (FR22).
  */
-function latchFitFlash(g: Game, category: string): void {
-  const slot = slotForBoonCategory(g.ownSlots, category);
+function latchFitFlash(g: Game, cardId: string): void {
+  const slot = slotForCard(g.ownSlots, cardId);
   if (slot === null) g.fitFramePress = true;
   else g.fitPress[slot] = true;
 }
@@ -2591,7 +2589,7 @@ function buildGame(
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
-    ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
+    ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_CARDS),
   };
   gRef = g;
   armWorldFlashBudget(g, camera, flashBudget);
@@ -2664,7 +2662,7 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * localStorage correction); an upgrade that touches kinematics swaps the
  * config in place and lets the next reconcile replay pending inputs under it.
  */
-function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): void {
+function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[]): void {
   // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 91 review gate).
   // This is the PRIMARY site — gating boonCopy/upgradeMenu alone did not make an
   // unresolvable `cls` survivable, because this function threw first. Worse, it
@@ -2679,29 +2677,29 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
   const prev = g.ownStats;
   g.ownClass = cls;
   const spec = CONFIG.shipClasses[cls];
-  // Resolve the authoritative boon ids FAIL-CLOSED (Story 2.5): unknown ids
-  // are silently dropped, never a throw — a junk id on the wire must not take
-  // the client down. Story 2.8: boons are the ONLY stat modifier (the legacy
-  // counts param died with the 14 upgrades) — the same call the server caches.
-  const defs = resolveBoons(boons);
-  const stats = effectiveStats(spec, defs);
+  // The card ids fold FAIL-CLOSED inside `effectiveStats` (Story 8.1): unknown
+  // ids are silently dropped, never a throw — a junk id on the wire must not
+  // take the client down. Cards are the ONLY stat modifier, and this is the same
+  // call the server caches; since 8.1 the fold counts copies per line and walks
+  // the CATALOG's order, so the wire list's order cannot move a number.
+  const stats = effectiveStats(spec, cards);
   g.ownStats = stats;
-  // Own loadout follows the authoritative class + boons (Story 1.6 / 2.5):
+  // Own loadout follows the authoritative class + cards (Story 1.6 / 2.5):
   // the slot activate-vs-prime split, HUD chips, and ammo fallback all read
   // from here — derived via the SAME shared slot-effect replay the server
-  // applies incrementally (slotsWithBoons), so slot ids agree by construction.
-  g.ownSlots = slotIdsFor(cls, stats, defs);
+  // applies incrementally (slotsWithCards), so slot ids agree by construction.
+  g.ownSlots = slotIdsFor(cls, stats, cards);
   // Boost numbers ride the same stats swap (CONFIG pass-through today).
-  g.predictor.setBoostStats(stats.boost.speedBonus, stats.boost.durationMs);
+  g.predictor.setBoostStats(stats.equipment.speedBoost.speedBonus, stats.equipment.speedBoost.durationMs);
   // Behavior-boon hooks ride it too (Story 2.5): the predictor folds these
   // per tick in the SAME boost-then-hooks order the server steps with.
-  g.predictor.setBoons(boonBehaviors(defs));
+  g.predictor.setBoons(cardBehaviors(cards));
   // Story 2.9 — the OWN doctrine modes fan out to the on-water renderer, which
   // is how our own ordnance gets its identity from LAUNCH (an enemy's has to
   // earn it from observable behavior). Deliberately ABOVE the vision-change
   // early-return below: a doctrine swap moves no vision stat, so gating it on
   // one would leave the water lying about the build we just fitted.
-  g.projectiles.setOwnModes({ torpedoHoming: stats.torpedo.homing });
+  g.projectiles.setOwnModes({ torpedoHoming: stats.equipment.heavyTorpedo.homing });
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
     g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);
@@ -2742,7 +2740,7 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
  * `acquire` channel is gone with the SELF-PROPELLED doctrine that fed it.
  */
 function ownMineRingParams(g: Game, t: number): OwnMineRings {
-  const mine = g.ownStats.mine;
+  const mine = g.ownStats.equipment.navalMines;
   return {
     blast: mine.blastRadius,
     trigger: mine.triggerRadius,
@@ -2760,12 +2758,12 @@ function ownMineRingParams(g: Game, t: number): OwnMineRings {
  * estimate would charge the buoy for the transport delay and run its life arc
  * systematically short.
  *
- * `radarRange` here is `stats.radarBuoy.radarRange` — the BUOY's flat 330u set,
+ * `radarRange` here is `stats.equipment.radarBuoy.radarRange` — the BUOY's flat 330u set,
  * never the owner's own `stats.radarRange`, which no card on this line moves and
  * which the buoy does not use.
  */
 function ownBuoyParams(g: Game, t: number): OwnBuoyState {
-  const buoy = g.ownStats.radarBuoy;
+  const buoy = g.ownStats.equipment.radarBuoy;
   return {
     radarRange: buoy.radarRange,
     gun: buoy.gun,
@@ -2786,7 +2784,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // bearing from), so the bearing is derived from wherever the camera is at
     // the instant it lands — read live, never captured.
     cameraCenter: () => g.camera.center,
-    onOwnStats: (cls, boons) => applyOwnStats(g, cls, boons),
+    onOwnStats: (cls, cards) => applyOwnStats(g, cls, cards),
     // Story 1.10: self-private server denials route through the
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
     onDenied: (d) => handleServerDenial(g, d),
@@ -2829,7 +2827,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // Story 2.9: the fitted boon's CATEGORY decides which slot flashes (amendment
     // 51 — the visible change is slot-side). A shipwide INTEL/SHIP line owns no
     // slot, so the whole stack takes one rank-wide pulse instead.
-    onBoonFitted: (category) => latchFitFlash(g, category),
+    onBoonFitted: (cardId) => latchFitFlash(g, cardId),
     // Story 2.9: the click-time own-fire latch (see ownFireWeapon) — the only
     // honest way to tell an own CANNON shell from an own GUN shell, since the
     // ballistic wire shape says neither.
@@ -2931,7 +2929,7 @@ function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
       color: hullStyle(g.ownHueIndex).stroke,
       // Mirrors the server's `World.wakeTopSpeed` so the two ring buffers are
       // provisioned alike; a boost card lengthens both or neither.
-      maxSpeedU: own.kinematics.maxSpeed + own.boost.speedBonus,
+      maxSpeedU: own.kinematics.maxSpeed + own.equipment.speedBoost.speedBonus,
     });
   }
   const at = now - CLIENT_CONFIG.net.interpDelayMs;
@@ -3113,10 +3111,10 @@ function updateHotbar(g: Game, status: OwnStatus, nowMs: number): void {
     dim: combatLocked(g),
     motion: settings.current.motion, // gates the ACTIVATED/FIT pops + amplitudes
     // Story 2.9 — the build, felt on the slot: the accrued list + `◆n` marks
-    // (server-authoritative `you.boons`, rendered verbatim), the ACTIVE ability
+    // (server-authoritative `you.cards`, rendered verbatim), the ACTIVE ability
     // windows (amendment 48), and this frame's fit flashes. `nowSec` is the
     // shared server-clock estimate the ACTIVE outline breathes on.
-    boons: g.state.net.you?.boons ?? [],
+    cards: g.state.net.you?.cards ?? [],
     activeMsLeft: activeWindows(g, status),
     fit: g.fitFlash,
     fitFrame: g.fitFrameFlash,
@@ -3317,7 +3315,7 @@ function renderFiring(
 let arcsMemo: BroadsideArcs | null = null;
 
 function broadsideArcs(g: Game, status: OwnStatus): BroadsideArcs {
-  const b = status.stats.broadside;
+  const b = status.stats.equipment.broadside;
   // ONE SLOT: these four move only on a boon grant (or a new match's hull), so
   // the frame loop hands the renderer the SAME object it had last frame rather
   // than minting one every tick. render/firing.ts memoizes the wedge geometry
@@ -4265,7 +4263,7 @@ function reportFrameFailure(g: Game, err: unknown, phase: LoopPhase): void {
   const you = g.state.net.you;
   console.error(
     `[app] frame ${phase} threw — the loop contained it`,
-    { cls: you?.cls ?? null, boons: you?.boons ?? [], spectating: g.state.spectating },
+    { cls: you?.cls ?? null, cards: you?.cards ?? [], spectating: g.state.spectating },
     err,
   );
 }

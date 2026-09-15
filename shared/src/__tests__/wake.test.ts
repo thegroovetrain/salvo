@@ -94,7 +94,7 @@ describe('wakeCapacity — the DERIVED ring capacity (never a literal)', () => {
     expect(wakeCapacity(45, LIFE)).toBe(23); // torpedo boat
     expect(wakeCapacity(35, LIFE)).toBe(19); // battleship
     expect(wakeCapacity(40, LIFE)).toBe(21); // mine layer
-    expect(wakeCapacity(CONFIG.torpedo.speed, torpWakeLifeMs())).toBe(16); // torpedo
+    expect(wakeCapacity(CONFIG.torpedo.speed, torpWakeLifeMs())).toBe(17); // torpedo (65 u/s, catalog-v3 R17)
   });
 
   it('degenerate speed/life inputs yield the 2-sample floor, never NaN or zero allocation', () => {
@@ -274,9 +274,11 @@ describe('torpedo wake — half life, one-cell core, fixed fish speed (amendment
     expect(torpWakeLifeMs()).toBe(CONFIG.vision.wakeLifeMs * CONFIG.vision.wakeTorpLifeFactor);
     // 6s before the cycle-71 clock cut. Eric HELD the 0.5 factor through it
     // (amendment 213) rather than raising it to keep the fish's old absolute
-    // 360u track, so the torpedo shrank with everything else: 165u.
+    // 360u track, so the torpedo shrank with everything else: 165u at the
+    // then-60 u/s fish, now 178.75u since catalog-v3 R17 (2026-09-15) moved
+    // the fish to 65 u/s.
     expect(torpWakeLifeMs()).toBe(2750);
-    expect(torpWakeLifeMs() * CONFIG.torpedo.speed / 1000).toBe(165);
+    expect(torpWakeLifeMs() * CONFIG.torpedo.speed / 1000).toBe(178.75);
   });
 
   it('a torpedo ribbon expires at half a ship life', () => {

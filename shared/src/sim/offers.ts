@@ -1,15 +1,15 @@
-// BOON OFFERS — the wire-facing shape of the spend economy. Story 2.8 (THE
-// DECK MODEL, amendment 38) replaced the category-first roll wholesale:
-// `rollBoonOffer` and its catalog-insertion-order category machinery died —
-// offers are now DRAWN from the per-player deck (sim/deck.ts drawOffer:
-// up to CONFIG.offer.size DIFFERENT card lines, weighted by rarity with the
-// escalating rare weight). Only the offer TYPE survives here: the FRONT
-// level's drawn card ids, materialized once and held server-side
-// (ShipRecord.offer) so reopening the refit window can NEVER reroll (FR19).
+// CARD OFFERS — the wire-facing shape of the spend economy. Offers are DRAWN
+// from the per-player deck (sim/deck.ts drawOffer: up to CONFIG.offer.size
+// DIFFERENT card lines, weighted by the copies each line has left). Only the
+// offer TYPE lives here: the FRONT level's drawn line ids, materialized once
+// and held server-side (ShipRecord.offer) so reopening the refit window can
+// NEVER reroll (FR19).
 
-import type { BoonId } from './boons.js';
+import type { LineId } from './catalog.js';
 
 /** A materialized offer: the drawn card-line ids, in draw order. Length is
  *  `CONFIG.offer.size` against a healthy deck; shorter only when the deck ran
- *  thin (and an EMPTY draw materializes no offer at all — sim/deck.ts). */
-export type BoonOffer = readonly BoonId[];
+ *  thin (and an EMPTY draw materializes no offer at all — sim/deck.ts).
+ *
+ *  LINE IDS ARE THE ONLY IDS ON THE WIRE (Story 8.1). */
+export type BoonOffer = readonly LineId[];

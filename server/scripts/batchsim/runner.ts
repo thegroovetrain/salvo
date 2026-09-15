@@ -23,7 +23,7 @@
 // drone/solo tests use — no production code changes.
 
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
   SHIP_CLASS_IDS,
   zoneClosedAtMs,
@@ -176,8 +176,6 @@ export interface CaptainSample {
   cappedLines: number;
   /** boonTimesS[n-1] = sim-seconds to the n-th fitted boon (null = never). */
   boonTimesS: (number | null)[];
-  firstExclusiveOffered: ReachSample | null;
-  firstExclusiveFitted: ReachSample | null;
   /** Story 7-5: the same two reaches over DOCTRINE lines (see isDoctrineId). */
   firstDoctrineOffered: ReachSample | null;
   firstDoctrineFitted: ReachSample | null;
@@ -231,23 +229,19 @@ export interface BatchResult {
   failures: { index: number; seed: number; error: string }[];
 }
 
-const isExclusiveId = (id: string): boolean => BOON_CATALOG[id]?.rarity === 'exclusive';
-
-/** A DOCTRINE line — a card carrying a `doctrine` effect (Story 7-5 evidence
- *  pass). The `exclusive` RARITY is extinct as of Story 7-5 wave 2 (R2.6
- *  deleted exclusivity outright), so both `firstExclusive*` rows above now read
- *  0% structurally and no longer answer "how long until a build commits". These
- *  two rows are their honest replacement: a doctrine is still the shape-changing
- *  pick, it is just an ordinary `rare` now, and doctrines STACK. */
+/** A DOCTRINE line — a card any of whose tiers carries a `doctrine` effect
+ *  (Story 7-5 evidence pass; re-keyed to catalog v3's ADD-ONS in Story 8.1).
+ *  It is the shape-changing pick, and doctrines STACK. The old
+ *  `firstExclusive*` pair is deleted with rarity itself (Story 8.1). */
 const isDoctrineId = (id: string): boolean =>
-  BOON_CATALOG[id]?.effects.some((e) => e.kind === 'doctrine') ?? false;
+  Object.hasOwn(CATALOG, id) &&
+  CATALOG[id].tiers.some((tier) => tier.some((e) => e.kind === 'doctrine'));
 
 /** Lines whose fitted stack has physically consumed every copy in the catalog. */
-function cappedLineCount(boons: readonly string[]): number {
+function cappedLineCount(cards: readonly string[]): number {
   let capped = 0;
-  for (const [id, n] of tally(boons)) {
-    const def = BOON_CATALOG[id];
-    if (def !== undefined && n >= def.copies) capped += 1;
+  for (const [id, n] of tally(cards)) {
+    if (Object.hasOwn(CATALOG, id) && n >= CATALOG[id].cap) capped += 1;
   }
   return capped;
 }
@@ -255,8 +249,6 @@ function cappedLineCount(boons: readonly string[]): number {
 /** Per-captain progression tracking over the active phase. */
 class CaptainTracker {
   readonly boonTimesS: (number | null)[] = new Array<number | null>(BOON_N_MAX).fill(null);
-  firstExclusiveOffered: ReachSample | null = null;
-  firstExclusiveFitted: ReachSample | null = null;
   firstDoctrineOffered: ReachSample | null = null;
   firstDoctrineFitted: ReachSample | null = null;
   readonly levelCurve: number[] = [];
@@ -264,14 +256,12 @@ class CaptainTracker {
 
   observe(ship: ShipRecord, tS: number): void {
     for (let n = 0; n < BOON_N_MAX; n += 1) {
-      if (this.boonTimesS[n] === null && ship.boons.length >= n + 1) this.boonTimesS[n] = tS;
+      if (this.boonTimesS[n] === null && ship.cards.length >= n + 1) this.boonTimesS[n] = tS;
     }
     const offer = ship.offer ?? [];
     const at = { s: tS, level: ship.level };
-    this.firstExclusiveOffered = firstReach(this.firstExclusiveOffered, offer.some(isExclusiveId), at);
-    this.firstExclusiveFitted = firstReach(this.firstExclusiveFitted, ship.boons.some(isExclusiveId), at);
     this.firstDoctrineOffered = firstReach(this.firstDoctrineOffered, offer.some(isDoctrineId), at);
-    this.firstDoctrineFitted = firstReach(this.firstDoctrineFitted, ship.boons.some(isDoctrineId), at);
+    this.firstDoctrineFitted = firstReach(this.firstDoctrineFitted, ship.cards.some(isDoctrineId), at);
   }
 }
 
@@ -340,12 +330,10 @@ export class MatchCollector {
       kills: ship.kills,
       deaths: ship.deaths,
       picks: t.picks,
-      boonsFitted: ship.boons.length,
+      boonsFitted: ship.cards.length,
       deckRemaining: ship.deck.cards.length,
-      cappedLines: cappedLineCount(ship.boons),
+      cappedLines: cappedLineCount(ship.cards),
       boonTimesS: t.boonTimesS,
-      firstExclusiveOffered: t.firstExclusiveOffered,
-      firstExclusiveFitted: t.firstExclusiveFitted,
       firstDoctrineOffered: t.firstDoctrineOffered,
       firstDoctrineFitted: t.firstDoctrineFitted,
       levelCurve: t.levelCurve,

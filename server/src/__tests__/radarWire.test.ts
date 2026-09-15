@@ -144,14 +144,14 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     // including shipHull, which moves maxHp and heals — none of which is hull
     // geometry or pose, so NONE of it may reach the footprint.
     b.hp = b.stats.maxHp * 0.1;
-    w.applyBoon(b, 'shipHull');
-    w.applyBoon(b, 'gunBarrel');
-    w.applyBoon(b, 'shipSpeed');
+    w.applyCard(b, 'armor');
+    w.applyCard(b, 'deckGunBarrel');
+    w.applyCard(b, 'speed');
     windowAround(a, 0);
     const after = blipsOf(buildFrame(w, 'a'))[0];
     expect(maskOf(after)).toEqual(maskOf(before));
     // The OBSERVER's own non-vision boons change nothing either.
-    w.applyBoon(a, 'gunBarrel');
+    w.applyCard(a, 'deckGunBarrel');
     windowAround(a, 0);
     const observed = blipsOf(buildFrame(w, 'a'))[0];
     expect(maskOf(observed)).toEqual(maskOf(before));

@@ -14,7 +14,7 @@ import type { ActivationContext, ActivationResult, Equipment } from './index.js'
 import { consume, tickReload } from './ammo.js';
 
 /** The speed-boost Equipment row. Pool size (1 charge) + reload come from the
- *  ship's cached effective stats (stats.boost — a pure CONFIG.speedBoost
+ *  ship's cached effective stats (stats.equipment.speedBoost — a pure CONFIG.speedBoost
  *  pass-through; no upgrade touches it). Slot state is non-null by the loadout
  *  invariant (see index.ts). */
 export const boostEquipment: Equipment = {
@@ -23,7 +23,7 @@ export const boostEquipment: Equipment = {
   // never a hardcoded literal. false = an instant-activation ability.
   isWeapon: EQUIPMENT_IS_WEAPON.speedBoost,
   tick(ship: ShipRecord, slot: LoadoutSlot, dtMs: number): void {
-    tickReload(slot.state!, ship.stats.boost.maxAmmo, ship.stats.boost.reloadMs, dtMs);
+    tickReload(slot.state!, ship.stats.equipment.speedBoost.maxAmmo, ship.stats.equipment.speedBoost.reloadMs, dtMs);
   },
   activate(ctx: ActivationContext, slot: LoadoutSlot): ActivationResult {
     // Consume a charge (empty pool => no-ammo denial, no state change — the same
@@ -33,8 +33,8 @@ export const boostEquipment: Equipment = {
     // (materialize the projectile where the honest click placed it in time), and
     // nothing here is aimed, so the window starts at server apply time (`now`),
     // not a back-dated claim.
-    if (!consume(slot.state!, ctx.ship.stats.boost.reloadMs)) return { ok: false, reason: 'no-ammo' };
-    ctx.ship.boostUntil = ctx.now + ctx.ship.stats.boost.durationMs;
+    if (!consume(slot.state!, ctx.ship.stats.equipment.speedBoost.reloadMs)) return { ok: false, reason: 'no-ammo' };
+    ctx.ship.boostUntil = ctx.now + ctx.ship.stats.equipment.speedBoost.durationMs;
     return { ok: true };
   },
 };

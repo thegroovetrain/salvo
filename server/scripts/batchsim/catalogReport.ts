@@ -21,7 +21,7 @@
 // C. THE ORDNANCE + GUARDRAIL LEDGER. See catalogMetrics.ts for how damage is
 //    attributed with no weapon field on the wire.
 
-import { BOON_CATALOG, SHIP_CLASS_IDS, buildDeck, effectiveStats, hullEnvelope, loadoutFor, type EquipmentId, type ShipClassId } from '@salvo/shared';
+import { CATALOG, SHIP_CLASS_IDS, buildDeck, isStubLine } from '@salvo/shared';
 import { fmt } from './stats.js';
 import type { CatalogSample } from './catalogMetrics.js';
 import type { BatchResult } from './runner.js';
@@ -95,24 +95,16 @@ export function buildCatalogAggregate(result: BatchResult): CatalogAggregate {
   return agg;
 }
 
-/** Carried equipment ids for a class's fresh fit (deckSim.carriedFor twin —
- *  duplicated rather than exported across, so deck-only mode and this block
- *  cannot drift apart silently through a shared mutable helper). */
-function carriedFor(cls: ShipClassId): EquipmentId[] {
-  const loadout = loadoutFor(cls, effectiveStats(hullEnvelope(cls)));
-  const out: EquipmentId[] = [];
-  for (const slot of loadout) if (slot.equipmentId !== null) out.push(slot.equipmentId);
-  return out;
-}
-
 /** BLOCK A — structural reachability. No simulation involved. */
 export function renderDeckComposition(): string[] {
   const lines: string[] = ['== DECK COMPOSITION (structural — buildDeck over each class fresh fit) =='];
-  const ids = Object.keys(BOON_CATALOG).sort();
+  const ids = Object.keys(CATALOG).sort();
   const decks = new Map<string, Map<string, number>>();
   for (const cls of SHIP_CLASS_IDS) {
     const counts = new Map<string, number>();
-    for (const id of buildDeck(BOON_CATALOG, carriedFor(cls)).cards) counts.set(id, (counts.get(id) ?? 0) + 1);
+    // The INTERIM deck (Story 8.1) is hull-independent; the per-class columns
+    // stay so the table is ready for Story 8.2's real per-hull decks.
+    for (const id of buildDeck().cards) counts.set(id, (counts.get(id) ?? 0) + 1);
     decks.set(cls, counts);
   }
   lines.push(`catalog lines: ${ids.length}`);
@@ -123,11 +115,11 @@ export function renderDeckComposition(): string[] {
     lines.push(`  ${cls.padEnd(12)} deck=${String(cards).padStart(3)} cards across ${d.size} lines`);
   }
   const idW = Math.max(...ids.map((i) => i.length));
-  lines.push(`${'line'.padEnd(idW)} | rarity    | copies | ${SHIP_CLASS_IDS.map((c) => c.padEnd(12)).join(' | ')}`);
+  lines.push(`${'line'.padEnd(idW)} | kind       | cap | stub | ${SHIP_CLASS_IDS.map((c) => c.padEnd(12)).join(' | ')}`);
   for (const id of ids) {
-    const def = BOON_CATALOG[id];
+    const def = CATALOG[id];
     const cells = SHIP_CLASS_IDS.map((c) => String(decks.get(c)!.get(id) ?? 0).padEnd(12));
-    lines.push(`${id.padEnd(idW)} | ${def.rarity.padEnd(9)} | ${String(def.copies).padStart(6)} | ${cells.join(' | ')}`);
+    lines.push(`${id.padEnd(idW)} | ${def.kind.padEnd(10)} | ${String(def.cap).padStart(3)} | ${(isStubLine(id) ? 'yes' : '   ').padEnd(4)} | ${cells.join(' | ')}`);
   }
   return lines;
 }
@@ -138,7 +130,7 @@ export function renderCatalogLines(label: string, agg: CatalogAggregate): string
   lines.push(`ledgered matches: ${agg.sampled} | materialized offer hands: ${agg.offerHands}`);
   lines.push('OFFER% is policy-free (deck + offer roll). FIT% carries the spender policy');
   lines.push('(spendPolicy.pickSpendChoice for the scripted control, profile weights for bots) — never read it as taste.');
-  const ids = Object.keys(BOON_CATALOG).sort();
+  const ids = Object.keys(CATALOG).sort();
   const idW = Math.max(...ids.map((i) => i.length));
   lines.push(`${'line'.padEnd(idW)} | offers | offer% | fits  | fit/offer`);
   for (const id of ids) {
@@ -231,7 +223,7 @@ function renderGuardrail(agg: CatalogAggregate): string[] {
 export function renderDeckLines(label: string, agg: DeckAggregate): string[] {
   const lines: string[] = [`== DECK-ONLY CATALOG LINES ${label} ==`];
   lines.push(`hands: ${agg.hands} | by class: ${Object.keys(agg.handsByClass).sort().map((c) => `${c}=${agg.handsByClass[c]}`).join(' ')}`);
-  const ids = Object.keys(BOON_CATALOG).sort();
+  const ids = Object.keys(CATALOG).sort();
   const idW = Math.max(...ids.map((i) => i.length));
   const classes = Object.keys(agg.handsByClass).sort();
   lines.push(`${'line'.padEnd(idW)} | offer% | pick% | ${classes.map((c) => `${c} offer%`.padEnd(20)).join(' | ')}`);

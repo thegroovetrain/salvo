@@ -81,13 +81,13 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // the sum; splitting it would need a wire change to say something the
     // player cannot act on differently — neither pool can be spent or cancelled.
     repairHp: ship.repairHp + ship.levelRepairHp,
-    // Applied boon ids (Story 2.5 — dormant, [] until 2.7 grants any),
-    // defensive copy. SELF-PRIVATE like upg/boostUntil: rides `you` and
-    // NOTHING else — never a Contact, blip, ballistic event, boom, or
-    // spectator payload (enemy builds stay hidden).
-    boons: [...ship.boons],
+    // Fitted card LINE ids in fit order (Story 8.1 — catalog v3 renamed the
+    // field from `boons`), defensive copy. SELF-PRIVATE like upg/boostUntil:
+    // rides `you` and NOTHING else — never a Contact, blip, ballistic event,
+    // boom, or spectator payload (enemy builds stay hidden).
+    cards: [...ship.cards],
     // Levels completed + progress toward the next, as a 0..1 fraction of
-    // CONFIG.xp.levelMs (Story 2.6). SELF-PRIVATE like upg/pts/boons: both ride
+    // CONFIG.xp.levelMs (Story 2.6). SELF-PRIVATE like upg/pts/cards: both ride
     // `you` and NOTHING else — never a Contact, blip, ballistic event, boom, or
     // spectator payload. The client renders them verbatim (no XP prediction).
     lvl: ship.level,

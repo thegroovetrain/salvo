@@ -80,3 +80,7 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 2. **`@colyseus/auth` / `database` / `admin` are unmounted `dependencies`** (Eric 2026-09-14) — the install proof for the whole 0.18 set; nothing is mounted, routed or configured until Epic 9.
 3. **`postgres` and `drizzle-kit` are deferred to Story 9.1** (Eric 2026-09-14), superseding the "present" clause of the 8.0 AC / AR19 / D10; the AC's `drizzle-kit` 0.31.10 does not match the `drizzle-orm` 1.0.0-rc.2 that `@colyseus/database` pins.
 4. **Measured corrections of record**: 11 test files + 15 smokes (not "~26 test files"); `setSimulationInterval` survives as a deprecated forwarder; `__globalEndpoints` is removed; the JOIN_ROOM handshake is a wire break independent of the PV gate.
+5. **Interim state is "stay playable"** (Eric 2026-09-15): Story 8.1's interim deck holds every line whose mechanism exists; unbuilt weapon/consumable lines are `stub: true` and never drawn until their story lands.
+6. **`torpedo` → `heavyTorpedo`, `mine` → `navalMines`** (Eric 2026-09-15); 8.13 adds light/supercav torpedoes and captive mines as new modules.
+7. **The 29 `LINE_IDS` are locked** (Eric 2026-09-15) — see amendment 7 for the list; ids are wire contract.
+8. **Interim refit card shows the kind word in neutral colour** (Eric 2026-09-15); no tier ramp and no `◆n` category count until 8.6/8.7.

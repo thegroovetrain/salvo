@@ -125,7 +125,7 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
   it('a multi-barrel salvo (TWIN MOUNT) spawns 2 shells but exactly ONE mz for that ship that tick', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'gunBarrel'); // barrels 1 -> 2
+    w.applyCard(a, 'deckGunBarrel'); // barrels 1 -> 2
     fire(w, 'a', 0, 0, 400);
     w.step();
     expect(w.shells.size).toBe(2); // the salvo really is multi-barrel

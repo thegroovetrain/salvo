@@ -626,7 +626,7 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
   // nothing can have moved by more than the lattice can express while the floor
   // holds. That was FALSE at the shipped derivation: it used
   // `FASTEST_HULL_SPEED`, the BASE kinematics maximum, so a boosted Torpedo Boat
-  // (55 u/s) and a torpedo (60 u/s — a wake source in its own right since P10)
+  // (55 u/s) and a torpedo (65 u/s, catalog-v3 R17 — a wake source in its own right since P10)
   // both crossed a 9u cell INSIDE the 200ms floor. The property, not the number:
   // no source may cross a lattice cell faster than the floor.
   it('the rebuild floor is shorter than a lattice-cell crossing for EVERY source, boost and fish included', () => {

@@ -444,10 +444,10 @@ function endCause(world: World, by: string | undefined): BotEnd {
 function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.levelsEarned = ship.level;
   track.levelsUnspent = ship.bankedLevels;
-  track.boonsFitted = ship.boons.length;
+  track.boonsFitted = ship.cards.length;
   track.shots = ship.lastFireSeq;
   track.damageDealt = Math.round(ship.damageDealt * 10) / 10;
   // Copy-on-grow keeps the 20Hz loop allocation-light: boons is append-only
   // within a life and a bot has exactly one, so length IS the change signal.
-  if (ship.boons.length !== track.boons.length) track.boons = ship.boons.slice();
+  if (ship.cards.length !== track.boons.length) track.boons = ship.cards.slice();
 }

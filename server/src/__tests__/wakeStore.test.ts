@@ -152,7 +152,7 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     const laid = before.count;
     expect(laid).toBeGreaterThan(0);
     const capBefore = before.cap;
-    for (let i = 0; i < 5; i++) w.applyBoon(a, 'shipSpeed'); // ×1.05⁵ maxSpeed
+    for (let i = 0; i < 5; i++) w.applyCard(a, 'speed'); // ×1.05⁵ maxSpeed
     expect(a.wake.cap).toBeGreaterThan(capBefore); // upsized for the faster hull
     expect(a.wake.count).toBe(laid); // every live sample replayed, none dropped
     expect(a.wake.xs[0]).toBe(before.xs[(before.head + 0) % before.cap]);

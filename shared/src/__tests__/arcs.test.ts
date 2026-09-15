@@ -1,5 +1,5 @@
 // arcFor — the single arc-shape source (Story 1.10). These tests pin the
-// RATIFIED geometry byte-for-byte to CONFIG: the gun family 360°, the torpedo
+// RATIFIED geometry byte-for-byte to CONFIG: the gun family 360°, the heavy torpedo
 // bow sector ±30°, the mine's aimed REAR sector (FLIPPED from the stern drop
 // in Story 2.8, amendment 45 — offset 180° ± placeHalfArcDeg) which the RADAR
 // BUOY now shares (Story 7-5 wave 2 — it is click-placed, not dropped), the
@@ -14,7 +14,7 @@
 // declares.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, arcFor, sectorArcFor, twinSectorArcFor, type EquipmentId } from '../index.js';
+import { CONFIG, EQUIPMENT_IDS, arcFor, sectorArcFor, twinSectorArcFor, type EquipmentId } from '../index.js';
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
@@ -29,7 +29,7 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
   });
 
   it('the torpedo is the bow sector heading + offset ± halfArc, byte-identical to CONFIG', () => {
-    expect(arcFor('torpedo')).toEqual({
+    expect(arcFor('heavyTorpedo')).toEqual({
       kind: 'sector',
       offset: CONFIG.torpedo.offset,
       halfArc: CONFIG.torpedo.halfArc,
@@ -40,7 +40,7 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
   });
 
   it('the mine is the aimed REAR sector heading + 180° ± placeHalfArcDeg (FLIPPED, Story 2.8)', () => {
-    expect(arcFor('mine')).toEqual({
+    expect(arcFor('navalMines')).toEqual({
       kind: 'sector',
       offset: CONFIG.mine.offset,
       halfArc: deg(CONFIG.mine.placeHalfArcDeg),
@@ -50,10 +50,20 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(CONFIG.mine.placeRange).toBe(150); // the ratified placement leash (Eric 2026-08-02)
   });
 
+  it('the captive mine shares the naval mine chassis sector (catalog-v3 R25)', () => {
+    expect(arcFor('captiveMines')).toEqual(arcFor('navalMines'));
+  });
+
+  it('the seven UNBUILT v3 weapons and the v3 boost placeholder declare no arc yet (Story 8.1)', () => {
+    for (const id of ['boost', 'lightTorpedo', 'supercavTorpedo', 'missile', 'machineGun', 'flak', 'monitor'] as const) {
+      expect(arcFor(id)).toEqual({ kind: 'none' });
+    }
+  });
+
   it('the radarBuoy SHARES the mine rear sector exactly (click-placed, Story 7-5 wave 2)', () => {
     // Not merely equal-shaped: the SAME sector, so the two placement wedges can
     // never drift apart (R2.7 — "reuse the mine's rear sector").
-    expect(arcFor('radarBuoy')).toEqual(arcFor('mine'));
+    expect(arcFor('radarBuoy')).toEqual(arcFor('navalMines'));
   });
 
   it('the broadside is TWO mirrored beam sectors at ±90°, each 60° half-wide', () => {
@@ -77,14 +87,14 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
   });
 
   it('covers every EquipmentId (a new id cannot ship without an arc shape)', () => {
-    const ids: EquipmentId[] = ['gun', 'torpedo', 'mine', 'speedBoost', 'broadside', 'starShells', 'radarBuoy'];
+    const ids: EquipmentId[] = [...EQUIPMENT_IDS];
     for (const id of ids) {
       expect(['full', 'sector', 'twin-sector', 'none']).toContain(arcFor(id).kind);
     }
   });
 
   it('is pure and deterministic (same descriptor object shape every call)', () => {
-    expect(arcFor('torpedo')).toEqual(arcFor('torpedo'));
+    expect(arcFor('heavyTorpedo')).toEqual(arcFor('heavyTorpedo'));
     expect(arcFor('gun')).toEqual(arcFor('gun'));
     expect(arcFor('broadside')).toEqual(arcFor('broadside'));
   });
@@ -92,17 +102,17 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
 
 describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine/buoy rear arc)', () => {
   it('narrows the torpedo, the mine AND the radar buoy to their sector descriptors', () => {
-    expect(sectorArcFor('torpedo')).toEqual({
+    expect(sectorArcFor('heavyTorpedo')).toEqual({
       kind: 'sector',
       offset: CONFIG.torpedo.offset,
       halfArc: CONFIG.torpedo.halfArc,
     });
-    expect(sectorArcFor('mine')).toEqual({
+    expect(sectorArcFor('navalMines')).toEqual({
       kind: 'sector',
       offset: CONFIG.mine.offset,
       halfArc: deg(CONFIG.mine.placeHalfArcDeg),
     });
-    expect(sectorArcFor('radarBuoy')).toEqual(sectorArcFor('mine'));
+    expect(sectorArcFor('radarBuoy')).toEqual(sectorArcFor('navalMines'));
   });
 
   it('THROWS on any non-sector id (a CONFIG/arcs authoring error, loud at load)', () => {
@@ -122,7 +132,7 @@ describe('twinSectorArcFor — narrow-or-throw (the broadside beam accessor)', (
   });
 
   it('THROWS on every other id — including the plain SECTOR weapons', () => {
-    for (const id of ['gun', 'starShells', 'torpedo', 'mine', 'radarBuoy', 'speedBoost'] as const) {
+    for (const id of ['gun', 'starShells', 'heavyTorpedo', 'navalMines', 'radarBuoy', 'speedBoost'] as const) {
       expect(() => twinSectorArcFor(id)).toThrow(/must be a twin-sector/);
     }
   });

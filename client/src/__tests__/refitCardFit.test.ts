@@ -5,7 +5,7 @@
 // PAST the card bottom on the live site; this suite is what makes that
 // unshippable from here on.
 //
-// It walks EVERY BOON_CATALOG line in its WORST-CASE presentation state —
+// It walks EVERY CATALOG line in its WORST-CASE presentation state —
 //   • every stack position 0..copies-1 (the ladder's longest rung, the lineage
 //     handrail at its widest, and the biggest current→next numbers all move
 //     with the stack),
@@ -39,13 +39,12 @@
 // rules text never crashes back below 14px).
 
 import { describe, expect, it } from 'vitest';
-import { BOON_CATALOG, CONFIG, type BoonDef, type ShipClassId } from '@salvo/shared';
+import { CATALOG, CONFIG, type CatalogLine, type ShipClassId } from '@salvo/shared';
 import {
-  boonCategoryLabel,
   boonDescription,
+  boonKindLabel,
   boonLineageLine,
   boonName,
-  boonRarityLabel,
   boonTooltipText,
 } from '../ui/boonCopy.js';
 import {
@@ -61,30 +60,30 @@ import { UpgradeMenu, offerView } from '../ui/upgradeMenu.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const R = CLIENT_CONFIG.refit;
-const LINES: BoonDef[] = Object.values(BOON_CATALOG);
+const LINES: CatalogLine[] = Object.values(CATALOG);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
-/** A maximally stacked build — every non-exclusive line at its full copy count.
- *  Not a reachable deck state; it is the UPPER BOUND on the number of glyphs a
+/** A maximally stacked build — EVERY line at its full copy count. Not a
+ *  reachable deck state; it is the UPPER BOUND on the number of glyphs a
  *  `current → next` sentence can print, which is exactly what a fit pin wants. */
-const MAXED = LINES.filter((d) => d.rarity !== 'exclusive').flatMap((d) => Array<string>(d.copies).fill(d.id));
+const MAXED = LINES.flatMap((d) => Array<string>(d.cap).fill(d.id));
 
-/** The fitted-boon list a worst case is measured against: the line under test
+/** The fitted-card list a worst case is measured against: the line under test
  *  sits at `stack` copies, on top of a bare or a maximally stacked build. */
-function heldBoons(def: BoonDef, stack: number, maxed: boolean): string[] {
-  const base = maxed ? MAXED.filter((id) => id !== def.id) : [];
-  return [...base, ...Array<string>(stack).fill(def.id)];
+function heldCards(line: CatalogLine, stack: number, maxed: boolean): string[] {
+  const base = maxed ? MAXED.filter((id) => id !== line.id) : [];
+  return [...base, ...Array<string>(stack).fill(line.id)];
 }
 
 /** The card face exactly as ui/upgradeMenu.ts's toCard() builds it. */
-function faceOf(def: BoonDef, stack: number, cls: ShipClassId, maxed: boolean): RefitCardCopy {
-  const boons = heldBoons(def, stack, maxed);
+function faceOf(line: CatalogLine, stack: number, cls: ShipClassId, maxed: boolean): RefitCardCopy {
+  const cards = heldCards(line, stack, maxed);
   return {
-    category: boonCategoryLabel(def.category),
-    rarity: boonRarityLabel(def.rarity),
-    name: boonName(def.id, stack),
-    lineage: boonLineageLine(def, stack),
-    description: boonDescription(def, { cls, boons }),
+    kind: boonKindLabel(line.kind),
+    count: `${Math.min(stack, line.cap)}/${line.cap}`,
+    name: boonName(line.id, stack),
+    lineage: boonLineageLine(line, stack),
+    description: boonDescription(line, { cls, cards }),
   };
 }
 
@@ -98,7 +97,7 @@ interface FaceCase {
 function everyFace(): FaceCase[] {
   const out: FaceCase[] = [];
   for (const def of LINES) {
-    for (let stack = 0; stack < def.copies; stack += 1) {
+    for (let stack = 0; stack < def.cap; stack += 1) {
       for (const cls of CLASSES) {
         for (const maxed of [false, true]) {
           const label = `${def.id}@${stack}/${cls}${maxed ? '/maxed' : ''}`;
@@ -113,11 +112,11 @@ function everyFace(): FaceCase[] {
 const FACES = everyFace();
 
 describe('refit card container fit (amendment 47)', () => {
-  // Story 7-5 wave 2 settled the catalog at 23 upgrade lines + 6 acquisitions =
-  // 29; cycle 119 deleted the INTEL RANGE line, so it is 22 + 6 = 28.
+  // Catalog v3: 29 lines / 114 physical cards (Eric's sheet, §1).
   it('covers every catalog line at every stack position', () => {
-    expect(LINES.length).toBeGreaterThanOrEqual(28);
-    expect(FACES.length).toBe(LINES.reduce((n, d) => n + d.copies, 0) * CLASSES.length * 2);
+    expect(LINES).toHaveLength(29);
+    expect(LINES.reduce((n, d) => n + d.cap, 0)).toBe(114);
+    expect(FACES.length).toBe(LINES.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });
 
   it('NO card renders taller than its inner box, in any presentation state', () => {
@@ -128,20 +127,48 @@ describe('refit card container fit (amendment 47)', () => {
     expect(over).toEqual([]);
   });
 
-  it('the meta row (category + tier tag) fits ONE line on every card', () => {
+  it('the meta row (kind word + copy count) fits ONE line on every card', () => {
     const inner = refitCardInnerBox();
     const wrapped = FACES.filter(({ face }) => refitCardMetrics(face).metaLines > 1).map(
-      ({ label, face }) => `${label}: ${refitCardMetrics(face).metaWidth}px > ${inner.w}px (${face.category} + ${face.rarity})`,
+      ({ label, face }) => `${label}: ${refitCardMetrics(face).metaWidth}px > ${inner.w}px (${face.kind} + ${face.count})`,
     );
     expect(wrapped).toEqual([]);
   });
 
-  it('no ladder name carries a token too wide to fit the card, so names never mid-word break', () => {
+  // The a11y pin (Eric ruling 2026-09-15, amendment 8): the card's KIND is a
+  // WORD, never a colour — the v2 rarity tint is deleted and nothing replaced
+  // it, so this row has to carry its meaning in glyphs.
+  it('every card states its kind as a WORD, one of catalog v3\'s four', () => {
+    const WORDS = ['WEAPON', 'UPGRADE', 'ADD-ON', 'CONSUMABLE'];
+    const odd = [...new Set(FACES.map(({ face }) => face.kind))].filter((w) => !WORDS.includes(w));
+    expect(odd).toEqual([]);
+    expect([...new Set(FACES.map(({ face }) => face.kind))].sort()).toEqual([...WORDS].sort());
+  });
+
+  // ONE EXCEPTION, NAMED (Story 8.1). Catalog v3 §1's SUPERCAVITATING TORPEDO
+  // carries a 15-glyph unbreakable token that is wider than the 186px inner box
+  // at the card's 20px name size, so it is the one line whose name wraps
+  // mid-word. It does NOT overflow the card — `overflow-wrap:anywhere` breaks it
+  // and the height pin above still passes — it just reads less well than every
+  // other name. The name is Eric's own sheet copy and the real card face is
+  // Story 8.6's, so this is FLAGGED rather than solved here, and the exemption
+  // is exact so it cannot quietly grow.
+  const WIDE_NAME_EXEMPT: readonly string[] = ['supercavTorpedo'];
+
+  it('no line name carries a token too wide to fit the card, so names never mid-word break', () => {
     const inner = refitCardInnerBox();
-    const tooWide = FACES.filter(
-      ({ face }) => widestToken(face.name, R.nameSize, REFIT_TYPE.nameLetterSpacing) > inner.w,
-    ).map(({ face }) => face.name);
+    const tooWide = FACES.filter(({ id }) => !WIDE_NAME_EXEMPT.includes(id))
+      .filter(({ face }) => widestToken(face.name, R.nameSize, REFIT_TYPE.nameLetterSpacing) > inner.w)
+      .map(({ face }) => face.name);
     expect(tooWide).toEqual([]);
+  });
+
+  it('the wide-name exemption cannot rot — each id on it really is too wide', () => {
+    const inner = refitCardInnerBox();
+    const stale = WIDE_NAME_EXEMPT.filter(
+      (id) => widestToken(boonName(id), R.nameSize, REFIT_TYPE.nameLetterSpacing) <= inner.w,
+    );
+    expect(stale).toEqual([]);
   });
 
   it('leaves real headroom on the worst card — the pin is not sitting on the boundary', () => {
@@ -161,21 +188,23 @@ describe('the laws that constrain the fix', () => {
   });
 
   it('keeps every card font clear of the 9px mono accessibility floor at the 90% tier', () => {
-    const smallest = Math.min(R.categorySize, R.nameSize, R.descSize, R.raritySize, R.lineageSize);
+    const smallest = Math.min(R.categorySize, R.nameSize, R.descSize, R.kindSize, R.lineageSize);
     expect(smallest * 0.9).toBeGreaterThanOrEqual(CLIENT_CONFIG.settings.monoFloorPx);
   });
 
-  // Keyed off the EFFECT SHAPE, not the rarity tier: Story 7-5 wave 1 dropped
-  // the verb cards from `exclusive` to `rare` (they stopped being either/or), so
-  // a rarity-keyed partition would start demanding a `current → next` sentence
-  // off a doctrine card that has no number to print.
-  const VERBS = new Set(
-    LINES.filter((d) => d.effects.some((e) => e.kind === 'doctrine' || e.kind === 'slotFill')).map((d) => d.id),
+  // Keyed off the EFFECT SHAPE, not a tier: a line that only bolts on a verb or
+  // stocks a rack has no number to print, so it is exempt from the
+  // `current → next` contract and bound by the MINIMAL-face pin instead. A LIVE
+  // equipment line is NOT exempt — its copies past the first are tiers, and a
+  // tier is -5 % of that weapon's own reload, so it prints that. A STUB one has
+  // no built weapon to read.
+  const VERBS = new Set<string>(
+    LINES.filter((d) => d.kind !== 'ladder' && !(d.kind === 'equipment' && d.stub !== true)).map((d) => d.id),
   );
 
   it('keeps the contract: every STAT line still prints its live current → next', () => {
     const missing = LINES.filter((d) => !VERBS.has(d.id))
-      .filter((def) => !faceOf(def, 0, 'torpedoBoat', false).description.includes('→'))
+      .filter((line) => !faceOf(line, 0, 'torpedoBoat', false).description.includes('→'))
       .map((d) => d.id);
     expect(missing).toEqual([]);
   });
@@ -185,7 +214,7 @@ describe('the laws that constrain the fix', () => {
   // deleted. Its replacement is the OPPOSITE failure — a verb card that has
   // crept prose back onto the face — checked in EVERY presentation state, so a
   // future edit cannot reintroduce the overflow this suite exists to stop.
-  it('keeps the face MINIMAL: a verb or acquisition card carries no prose at all', () => {
+  it('keeps the face MINIMAL: a weapon, add-on or consumable card carries no prose', () => {
     const talkative = FACES.filter(({ id, face }) => VERBS.has(id) && face.description !== '').map(
       ({ label, face }) => `${label}: "${face.description}"`,
     );
@@ -195,9 +224,20 @@ describe('the laws that constrain the fix', () => {
   // ...and the explanation really did land somewhere, rather than being cut.
   // The tooltip's OWN container pin lives in __tests__/refitTooltipFit.test.ts;
   // this is the seam check that the two halves of R2.17 both happened.
-  it('keeps the contract: what left the face is on the hover tooltip, for EVERY line', () => {
-    const silent = LINES.filter((def) => boonTooltipText(def.id).trim() === '').map((d) => d.id);
-    expect(silent).toEqual([]);
+  // PARTIAL since catalog v3 (Story 8.1): a line whose MECHANISM is not built
+  // has nothing honest to explain, and inventing copy for a weapon nobody has
+  // played is what the naming law forbids. The pin is therefore "every line that
+  // CAN be explained is", with the exemptions named exactly so the list cannot
+  // rot — an agent who builds one of these has to delete its entry.
+  const NO_EXPLANATION: readonly string[] = [
+    'turning', 'deckGun', // new in v3: no v2 line to carry text from
+    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
+    'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
+  ];
+
+  it('keeps the contract: what left the face is on the hover tooltip, for every built line', () => {
+    const silent = LINES.filter((line) => boonTooltipText(line.id).trim() === '').map((d) => d.id);
+    expect(silent.sort()).toEqual([...NO_EXPLANATION].sort());
   });
 });
 
@@ -206,8 +246,8 @@ describe('the belt-and-braces clip (NOT the fix — the pin above is)', () => {
     const menu = new UpgradeMenu(() => {});
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['mineCaptive', 'intelSweep'], boostUntil: 0,
-      boons: [], lvl: 0, xp: 0, repairHp: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['captiveMines', 'radarSweep'], boostUntil: 0,
+      cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     menu.toggle(offerView(you, false, false, false)!);
     const card = document.querySelector('#upgrade-menu button') as HTMLElement;

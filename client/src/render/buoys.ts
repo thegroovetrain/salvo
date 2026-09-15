@@ -13,7 +13,7 @@
 //   • WHERE it is — the marker, in the owner's personal hue for every observer
 //     (Story 1.12, DESIGN.md:160's ordnance truth-marker rule).
 //   • WHAT WATER IT WATCHES — the coverage ring at the buoy's own flat 330u
-//     radar reach (`stats.radarBuoy.radarRange`), owner-only.
+//     radar reach (`stats.equipment.radarBuoy.radarRange`), owner-only.
 //   • WHICH DOCTRINE IT CARRIES — GUN BUOY strokes that ring SOLID (the mine
 //     grammar's "what it kills in": the gun's target set is literally what its
 //     radar sees), JAMMING BUOY washes the disc with a low-alpha fill (the

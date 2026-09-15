@@ -16,7 +16,6 @@ import {
   effectiveStats,
   paintCoverage,
   paintSegmentCoverage,
-  resolveBoons,
   type BlipEvent,
   type FrameMsg,
   type HullCoverage,
@@ -51,11 +50,31 @@ function place(w: World, id: string, x: number, y: number, heading = 0, cls: Shi
   return rec;
 }
 
-/** Fit raw boon ids the way the fuzz does (ids + resolved defs + stats). */
+/**
+ * THE BUOY VERBS, SET DIRECTLY ON THE STAT ROW (Story 8.1).
+ *
+ * The GUN BUOY and JAMMING BUOY verbs are live, shipped mechanisms (the
+ * `gun`/`jamming` booleans on the buoy's effective row, read by the tick loop
+ * and by perception). What catalog v3 deliberately does NOT have is a card
+ * that grants them, or even a doctrine VOCABULARY entry for the buoy: R1
+ * deletes the radar buoy outright in Story 8.15 in favour of the DECOY BUOY
+ * consumable, so both the line and the `DOCTRINE_MODES.radarBuoy` row are gone
+ * (shared/src/sim/effects.ts says so in as many words). Authoring either back
+ * would be inventing catalog content the sheet does not hold — so these tests
+ * set the two booleans on the effective row directly. The BEHAVIOUR is what is
+ * under test here; the card that reaches it is 8.15's business.
+ */
+const BUOY_VERBS: Record<string, 'gun' | 'jamming'> = { buoyGun: 'gun', buoyJamming: 'jamming' };
+
+/** Fit raw card ids the way the fuzz does (ids + stats), with the two legacy
+ *  buoy verbs applied straight to the row (see above). */
 function fitBoons(rec: ShipRecord, ids: string[]): void {
-  rec.boons = ids;
-  rec.boonDefs = resolveBoons(ids);
-  rec.stats = effectiveStats(rec.cls, rec.boonDefs);
+  rec.cards = ids.filter((id) => !Object.hasOwn(BUOY_VERBS, id));
+  rec.stats = effectiveStats(rec.cls, rec.cards);
+  for (const id of ids) {
+    const verb = Object.hasOwn(BUOY_VERBS, id) ? BUOY_VERBS[id] : undefined;
+    if (verb !== undefined) rec.stats.equipment.radarBuoy[verb] = true;
+  }
 }
 
 /** Open a SHIP's paint window around a bearing. */
@@ -143,25 +162,31 @@ describe('radar buoy — placement + the one-buoy lifecycle (R2.7)', () => {
   // R2.7's "at most ONE buoy can ever be live" is a statement about the BASE
   // numbers, and the wave-2 review gate corrected its wording: `radarBuoy.reloadMs`
   // sits under the ONE global cooldown scale (stats.ts clampStats) exactly like
-  // every other equipment's reload, so a full RELOAD stack legitimately buys back
-  // the overlap. Exempting the buoy would make it the odd equipment out, and the
-  // "do NOT close the gap" note in CONFIG was aimed at IMPLEMENTERS, never at
-  // player cards. Pinned as INTENDED here rather than forbidden.
-  it('a full RELOAD stack legitimately overlaps two buoys — the buoy is not exempt from the global cooldown lever', () => {
+  // every other equipment's reload, so a strong enough RELOAD ladder buys back
+  // the overlap. Under the v2 ladder (-0.1/copy, x0.5 at the cap) it did:
+  // 30s -> 15s beat the 20s lifetime and two buoys could sit on the water.
+  // CATALOG V3's RELOAD IS HALF AS STRONG (-0.05/copy, x0.75 at the 5-copy
+  // cap), so the maxed reload is 22.5s and the overlap is UNREACHABLE again —
+  // by arithmetic, not by an exemption. Both halves are pinned: the lever still
+  // reaches the buoy, and at the cap it no longer crosses the lifetime.
+  it('the buoy is not exempt from the global cooldown lever — but at the v3 cap it still cannot overlap', () => {
     const w = bareWorld();
     const ml = place(w, 'm', 0, 0, 0, 'mineLayer');
-    for (let i = 0; i < 5; i++) w.applyBoon(ml, 'shipCooldown');
-    expect(ml.stats.cooldownScale).toBeCloseTo(0.5, 9);
-    expect(ml.stats.radarBuoy.reloadMs).toBe(CONFIG.radarBuoy.reloadMs * 0.5);
-    // The ordering INVERTS: the next charge now arrives while the first buoy is
-    // still on the water.
-    expect(ml.stats.radarBuoy.reloadMs).toBeLessThan(ml.stats.radarBuoy.durationMs);
+    for (let i = 0; i < 5; i++) w.applyCard(ml, 'reload');
+    expect(ml.stats.cooldownScale).toBeCloseTo(0.75, 9); // v3 RELOAD: -0.05/copy, 5-copy cap
+    // The lever DOES reach the buoy — no exemption anywhere in the clamp.
+    expect(ml.stats.equipment.radarBuoy.reloadMs).toBe(CONFIG.radarBuoy.reloadMs * 0.75);
+    expect(ml.stats.equipment.radarBuoy.reloadMs).toBeLessThan(CONFIG.radarBuoy.reloadMs);
+    // ...and the ordering still does NOT invert: the next charge arrives after
+    // the first buoy has expired, so one buoy at a time survives the full stack.
+    expect(ml.stats.equipment.radarBuoy.reloadMs).toBeGreaterThan(ml.stats.equipment.radarBuoy.durationMs);
     dropBuoy(w, 'm', 1);
     expect(w.buoys.size).toBe(1);
     for (let t = 0; t < 600 && ml.loadout[SLOT_BUOY].state!.n < 1; t++) w.step();
-    expect(ml.loadout[SLOT_BUOY].state!.n).toBe(1); // recharged, first buoy still live
+    expect(ml.loadout[SLOT_BUOY].state!.n).toBe(1); // recharged...
+    expect(w.buoys.size).toBe(0); // ...and the first buoy is already gone
     dropBuoy(w, 'm', 2);
-    expect(w.buoys.size).toBe(2);
+    expect(w.buoys.size).toBe(1);
     expect([...w.buoys.values()].every((b) => b.ownerId === 'm')).toBe(true);
   });
 });

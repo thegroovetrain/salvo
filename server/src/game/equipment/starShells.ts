@@ -8,14 +8,14 @@
 // (World.resolveShell) — firer-only truesight parity inside it lives in
 // signals.ts/perception.ts, never here. Lit numbers come from the OWNER's
 // effective stats (the SLOW-BURN ladder); the PHOSPHOR verb
-// (stats.starShells.phosphor) shrinks the zone by CONFIG.starShells.
+// (stats.equipment.starShells.phosphor) shrinks the zone by CONFIG.starShells.
 // incendiaryRadiusFactor — its DoT, and DAZZLE's sight reduction, are World/
 // perception concerns keyed off the zone's own verb flags, never this row's.
 // The two verbs are INDEPENDENT as of Story 7-5 wave 1: a zone may be BOTH
 // phosphor and dazzle, and only the phosphor half moves the radius. Same fire
 // flow as the gun (360°, clamp at the system's effective range,
 // muzzle-or-target spawn, makeBallistic with D1 fireT); range = the gun's
-// BASE range (stats.starShells.rangeU, radar-derived). Pure over a
+// BASE range (stats.equipment.starShells.rangeU, radar-derived). Pure over a
 // ShipRecord's input + pose + slot pool; the World owns shell storage, zone
 // spawn, and event emission.
 
@@ -42,7 +42,7 @@ function fireStarShell(
   mapRadius: number,
   mkId: () => string,
 ): { shell: ShellState | null; denial: ActivationDenial | null } {
-  const stars = ship.stats.starShells;
+  const stars = ship.stats.equipment.starShells;
   if (!consume(pool, stars.reloadMs)) return { shell: null, denial: 'no-ammo' }; // pool empty
   const dir = ship.input.aim;
   const target = burstPoint(ship, mapRadius, stars.rangeU);
@@ -72,7 +72,7 @@ export const starShellsEquipment: Equipment = {
   id: 'starShells',
   isWeapon: EQUIPMENT_IS_WEAPON.starShells, // shared weapon/ability split — single source
   tick(ship, slot, dtMs): void {
-    tickReload(slot.state!, ship.stats.starShells.maxAmmo, ship.stats.starShells.reloadMs, dtMs);
+    tickReload(slot.state!, ship.stats.equipment.starShells.maxAmmo, ship.stats.equipment.starShells.reloadMs, dtMs);
   },
   activate(ctx, slot) {
     // bornAt = the VALIDATED fire time (D1): a back-dated flare is then

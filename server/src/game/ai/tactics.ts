@@ -192,12 +192,12 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
   };
 }
 
-/** Everything the boon policy needs about the bot's own economy. */
+/** Everything the card-spend policy needs about the bot's own economy. */
 export function spendStateOf(self: BotSelf): BotSpendState {
   return {
     bankedLevels: self.bankedLevels,
     offer: self.offer,
-    boons: self.boons,
+    cards: self.cards,
     hp: self.hp,
     maxHp: self.stats.maxHp,
   };
@@ -250,7 +250,7 @@ function firePass(
 ): Shot | null {
   for (const r of ranked) {
     const tactic = EQUIPMENT_TACTICS[r.id];
-    if (tactic.kind !== kind) continue;
+    if (tactic === undefined || tactic.kind !== kind) continue;
     if (!slotReady(base.self, r.slot)) continue;
     const ctx: TacticContext = { ...base, slot: r.slot };
     if (!tactic.want(ctx)) continue;
@@ -298,7 +298,7 @@ function chooseAct(
 ): number | null {
   for (const r of rankedSlots(self, sit.profile)) {
     const tactic = EQUIPMENT_TACTICS[r.id];
-    if (tactic.kind !== 'ability') continue;
+    if (tactic === undefined || tactic.kind !== 'ability') continue;
     if (!slotReady(self, r.slot)) continue;
     if (tactic.want({ self, mind, sit, port, target, posture, slot: r.slot })) return r.slot;
   }
@@ -316,7 +316,7 @@ export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[]
     const id = self.loadout[i].equipmentId;
     if (id === null || !slotReady(self, i)) continue;
     const tactic = EQUIPMENT_TACTICS[id];
-    if (tactic.kind === 'shot') out.push(tactic.reachU(stats));
+    if (tactic?.kind === 'shot') out.push(tactic.reachU(stats));
   }
   return out;
 }

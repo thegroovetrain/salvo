@@ -1412,7 +1412,7 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Q3 / "What this pass could NOT measure" item 1; `server/src/game/ai/tactics.ts`. Story 7-5 evidence pass, 2026-08-19.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — bot-tuning finding, structural; biases every per-class balance number
+  status: RESOLVED by obsolescence, Story 8.1, 2026-09-15 — acquisition cards no longer exist. Catalog v3 (`shared/src/sim/catalog.ts`) deletes acquisition cards, categories, and `EQUIPMENT_CATEGORY`/`UNLISTED_SCORE` entirely; bots now weight the new v3 equipment lines by kind through the v2→v3 alias table in `server/src/game/ai/spending.ts`. The specific policy gap this entry named cannot recur against a catalog that has no acquisition tier.
   summary: BOTS NEVER FIT AN ACQUISITION CARD — 0 fits out of 2 495 offers — AND IT IS A POLICY GAP, NOT A COINCIDENCE. An acquisition card carries its TARGET equipment's category (`EQUIPMENT_CATEGORY[equipmentId]`), a bot profile's weight table only names categories that profile's hull ALREADY carries, and an unnamed category scores `UNLISTED_SCORE = 0.5` — below every real weight. A bot can therefore only take an acquisition when the WHOLE HAND is unlisted, which the universal lines make almost impossible. Consequences: **~12 % of every offer hand a bot sees is dead to it**, and **no bot ever fields a third weapon**, so every per-class number in a bot campaign is measuring the AI's gap as much as the catalog. The captain campaign is the control that proves the CARDS are fine — acquisitions convert at 0.50–0.60 fits per offer, the highest conversion of any tier. Fix before the next balance campaign is trusted to per-class resolution.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Q3 "Never picked"; `CONFIG.bots.boonWeights`, `UNLISTED_SCORE`. Story 7-5 evidence pass, 2026-08-19.
 
@@ -1457,7 +1457,7 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Q2 and Findings #2/#5. Story 7-5 evidence pass, 2026-08-19.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — a ratified tunable that no longer does what it was tuned to do
+  status: RESOLVED by obsolescence, Story 8.1, 2026-09-15 — the rarity system this dial belonged to no longer exists. Catalog v3 deletes rarity, the pity/dry-level mechanism, the subdeck walk, and `CONFIG.deck.rareWeightPerDryLevel` itself; the interim deck is every buildable line at its cap (epic-8 amendment 5), so there is no draw economy left to re-tune this constant against.
   summary: `deck.rareWeightPerDryLevel = 0.7` WAS TUNED AGAINST A 53–58 CARD DECK AND THE DECK IS NOW 41. Deck lifetime fell 39 % — an economy played to exhaustion runs exactly 44 draws AFTER against 72.2 (55–105) BEFORE, with zero variance, because 44 is arithmetic rather than luck. The escalating soft pity now INVERTS past dry=3: rare-landing rate runs 46 / 51 / 48 / 35 / 21 / 9 / 3 % as dry levels climb, where BEFORE it ROSE 57 % → 68 %. A 41-card deck simply runs out of rare copies. Real matches rarely reach that far (gunner picks p50 3 / mean 4.5; bots mean 2.4), so this is a tail property of the deck-only MODEL rather than a live problem today — but the constant is ratified (cycle 39) and its premise is gone, so it should be re-derived rather than left to be rediscovered.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Finding #7 and Q1's deck-only rows; `CONFIG.deck.rareWeightPerDryLevel`. Story 7-5 evidence pass, 2026-08-19.
 
@@ -1943,3 +1943,50 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
   summary: `ArenaRoom` defines no `onUncaughtException`, and core wraps the timestep tick in try/catch ONLY when that hook exists (`@colyseus/core/build/Room.mjs` ~:487-489, same in 0.17.44), so one throwing `update()` tick escapes `setInterval` as a process-level uncaught exception and every room on the node dies with it. Adding the hook (log `room.uncaught` with the method name, keep the room alive or disconnect just that room) is a one-method operability change; it belongs with the Epic 0 operability baseline, not a framework floor story.
   evidence: Edge Case Hunter + Blind Hunter (independently), Story 8.0 review; propagation is unchanged 0.17 → 0.18.
+
+### Story 8.1 deferred items (2026-09-15, cycle 135) — card model and catalog engine
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — honest-home gap, structural
+  summary: `CONFIG.bots.boonWeights` IS STILL AUTHORED IN V2 VOCABULARY. Story 8.1 folds the new v3 equipment lines into bot spending through an alias table in `server/src/game/ai/spending.ts` that maps old v2 keys (e.g. `torpedoSpeed`, `torpedoTube`) onto the v3 lines they now land on (e.g. `heavyTorpedo`), so bots can spend on the new catalog without CONFIG itself changing. The honest home for v3 bot weights is `CONFIG.bots.boonWeights` directly, authored in v3 line ids; fold this into the bot retune that follows the deck landing rather than carrying the alias table indefinitely.
+  evidence: `server/src/game/ai/spending.ts` v2→v3 alias table and its header comment, Story 8.1 wave 2.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — needs an Eric ruling (a shorter name or a type step)
+  summary: `SUPERCAVITATING TORPEDO` (the catalog-v3 line name) DOES NOT FIT the refit card's 186px inner box or the hotbar's 268px label column at any of the type sizes those layouts use elsewhere. It is pinned as a declared exemption in `client/src/__tests__/refitCardFit.test.ts` and `client/src/__tests__/hotbar.test.ts` rather than silently overflowing or truncating. Stories 8.6 (refit UI) and 8.13 (the supercavitating torpedo content) need either a shorter display name from Eric or a type-size step for long names before the exemption can be closed.
+  evidence: `client/src/__tests__/refitCardFit.test.ts`, `client/src/__tests__/hotbar.test.ts` exemption pins, Story 8.1 wave 2.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — interim home, by design; closes incrementally
+  summary: BASE STAT ROWS FOR THE 7 UNBUILT EQUIPMENT IDS LIVE IN A `STUB_ROWS` TABLE IN `shared/src/sim/stats.ts`, NOT IN `CONFIG`. Story 8.1 authors the catalog with 13 stub lines so `EffectiveStats.equipment` can stay a TOTAL record over `EquipmentId` from day one, but a stub's numbers are placeholders rather than ratified CONFIG values. Each content story (8.13–8.16) promotes its own row out of `STUB_ROWS` and into `CONFIG` when that weapon or consumable actually lands, rather than one story doing all seven at once.
+  evidence: `shared/src/sim/stats.ts` `STUB_ROWS`, Story 8.1 wave 1.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — dead branch, low priority
+  summary: `server/scripts/batchsim/encounterSpan.ts:95` COMPARES `MatchPhase` TO `'results'`, A VALUE THE UNION DOES NOT CONTAIN. The comparison can never be true, so the branch is dead code. It was not caught by `npm run check` because `server/scripts/**` sits outside `server/tsconfig.json`'s `include`, so the batchsim scripts are not type-checked by the gate. Fix is a one-line correction (or bringing the scripts under the tsconfig); either way it is cosmetic today since the branch never fires.
+  evidence: `server/scripts/batchsim/encounterSpan.ts:95`; `server/tsconfig.json` `include`, found during Story 8.1 verification.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — harness state, not a game bug
+  summary: `combatSmoke.mjs` FAILS WITH "B sank but the roster booked no death" WHEN RE-RUN AGAINST AN ALREADY-USED SERVER, but passes cleanly on a fresh boot. The symptom points at the smoke's own state handling (a stale room or roster left over from a prior run) rather than at the sinking/death-booking path itself, which the fresh-boot pass already exercises successfully. Needs a fix to the smoke's setup/teardown before it can be trusted to run back-to-back without a server restart.
+  evidence: observed during Story 8.1 verification — fails against a warm server, passes against a fresh boot.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — agent-chosen placeholder, awaiting Eric's word
+  summary: CLIENT `STAT_LINES` LABELS `turning` → 'Turning' AND `deckGun` → 'Gun damage' ARE AGENT-CHOSEN MINIMAL LABELS, not copy Eric has reviewed. They were picked to be unambiguous and short enough to fit the existing stat-line layout, but per the no-in-game-copy-unasked rule they should be confirmed (or replaced) by Eric before being treated as final UI text.
+  evidence: client `STAT_LINES` table, Story 8.1 wave 2.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — pre-existing structural gap, resolved by Story 8.5 (nine slots) and 8.2 (authored decks)
+  summary: WITH ONE EXTRA WEAPON SLOT, EVERY EQUIPMENT CARD AFTER THE FIRST FIT IS A NO-OP, and an add-on for a weapon the hull never fits sets a verb on a row nothing fires. Codex and Blind Hunter both flagged it at the 8.1 gate; it is the same "at most one acquisition can ever fire" gap the v2 deck had, so it is NOT resolved by obsolescence yet — it persists in the interim deck until the nine-slot array (8.5) and per-hull authored decks (8.2) land. Bots are exposed the same way (`ai/spending.ts` scores kind/weights without a slot-free check).
+  evidence: `shared/src/sim/boons.ts` applySlotEffect no-ops on an occupied extra slot; `world.ts` settleSpend still consumes the level; review gate 2026-09-15.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — hand to Story 8.13 (captive mines module)
+  summary: CAPTIVE-MINE READERS ARE KEYED TO THE NAVAL ROW: `captiveMines` carries `captive: true` at base in `stats.ts`, but every reader (`world.ts` mine trip/blast rules, `ai/equipment.ts` captive tactic, `client/src/render/equipmentInfo.ts`) reads `equipment.navalMines.captive`, which is always false in production, so the captive path is dead until 8.13 re-keys every site per the equipment that laid the mine. Tests keep the path alive by poking the naval row.
+  evidence: Blind Hunter finding 6, review gate 2026-09-15; `botTactics.test.ts` pokes `stats.equipment.navalMines.captive = true`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — Eric ruling needed with the bot retune
+  summary: BOT LINE WEIGHTS: `KIND_BASE` (ladder 1.8 / addon 1.6 / equipment 1.2 / consumable 1.0) in `ai/spending.ts` is an agent-invented table (inert today: every non-stub line is covered by the v2→v3 alias mapping), and the alias resolution is max-wins, so e.g. the raider's old `torpedoTube 2.5` now prices a copy-1 `heavyTorpedo` fit — a policy change with no ruling. Fold both into the bot retune alongside the stale `CONFIG.bots.boonWeights` entry above.
+  evidence: Blind Hunter finding 7 and Edge Case Hunter bot finding, review gate 2026-09-15.

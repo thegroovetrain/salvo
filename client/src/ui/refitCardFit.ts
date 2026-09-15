@@ -4,8 +4,8 @@
 // part of the UX").
 //
 // The refit card is a FIXED box (216 × 236) holding WRAPPING mono text whose
-// length is data-driven (ladder names by stack position, a lineage handrail, a
-// doctrine REPLACES line, and rules text that prints live current→next values).
+// length is data-driven (the line name, the kind word and copy count, a lineage
+// handrail, and rules text that prints live current→next values).
 // That combination — fixed height + wrapping content — is exactly the shape that
 // silently overflows, which is what it did on the live site for the exclusive
 // doctrine cards.
@@ -14,7 +14,7 @@
 // here is pure arithmetic over the copy strings; ui/upgradeMenu.ts builds its
 // CSS from the very same REFIT_TYPE register, so the model and the DOM can never
 // drift. The permanent pin lives in __tests__/refitCardFit.test.ts, which walks
-// every BOON_CATALOG line at every stack position in its worst-case presentation
+// every CATALOG line at every stack position in its worst-case presentation
 // state and fails if any card exceeds its inner box.
 //
 // WHY THE MATH IS EXACT (and not a guess):
@@ -54,7 +54,7 @@ export const MONO_ADVANCE_EM = 0.605;
 export const REFIT_TYPE = {
   /** Letter-spacing (px) per card row. */
   categoryLetterSpacing: 1,
-  rarityLetterSpacing: 1,
+  kindLetterSpacing: 1,
   nameLetterSpacing: 1,
   lineageLetterSpacing: 2,
   descriptionLetterSpacing: 0,
@@ -200,9 +200,11 @@ export function refitStripMetrics(copy: RefitStripCopy): RefitStripMetrics {
 /** The copy a card face carries — structurally the ui/upgradeMenu OfferCard,
  *  restated here so the math module depends on nothing but strings. */
 export interface RefitCardCopy {
-  category: string;
-  /** '' for a plain common — the absence IS the tier, and no span is built. */
-  rarity: string;
+  /** The KIND word (WEAPON / UPGRADE / ADD-ON / CONSUMABLE) — the meta row's
+   *  left mark. CONSUMABLE is the widest, so it sets this row's worst case. */
+  kind: string;
+  /** The copy count, "n/cap" — the meta row's right mark, always built. */
+  count: string;
   name: string;
   lineage: string | null;
   description: string;
@@ -213,9 +215,9 @@ export interface RefitCardCopy {
 export interface RefitCardMetrics {
   innerW: number;
   innerH: number;
-  /** Category + gap + rarity on the meta row: it must fit ONE line (the row is
-   *  a flex pair — category left, tier hard right — and wrapping it both eats
-   *  vertical rhythm and reads as broken). */
+  /** Kind word + gap + copy count on the meta row: it must fit ONE line (the
+   *  row is a flex pair — kind left, count hard right — and wrapping it both
+   *  eats vertical rhythm and reads as broken). */
   metaWidth: number;
   metaLines: number;
   nameLines: number;
@@ -249,15 +251,18 @@ function rowHeight(text: string, fontPx: number, ls: number, boxW: number, lh: n
 export function refitCardMetrics(card: RefitCardCopy): RefitCardMetrics {
   const T = REFIT_TYPE;
   const { w: innerW, h: innerH } = refitCardInnerBox();
-  const rarityW = card.rarity ? R.metaGap + monoTextWidth(card.rarity, R.raritySize, T.rarityLetterSpacing) : 0;
-  const metaWidth = monoTextWidth(card.category, R.categorySize, T.categoryLetterSpacing) + rarityW;
+  // BOTH meta marks are unconditional since catalog v3 (Story 8.1): every line
+  // has a kind and a copy count, so the old "a plain common builds no tier span"
+  // branch is gone with the rarity axis.
+  const countW = R.metaGap + monoTextWidth(card.count, R.kindSize, T.kindLetterSpacing);
+  const metaWidth = monoTextWidth(card.kind, R.kindSize, T.kindLetterSpacing) + countW;
   const metaLines = Math.max(1, Math.ceil(metaWidth / innerW));
   const nameLines = monoWrapLines(card.name, R.nameSize, T.nameLetterSpacing, innerW);
   const descLines = monoWrapLines(card.description, R.descSize, T.descriptionLetterSpacing, innerW);
   const lineageH = card.lineage ? rowHeight(card.lineage, R.lineageSize, T.lineageLetterSpacing, innerW, T.lineHeight) : 0;
   const rows = 3 + (card.lineage ? 1 : 0); // meta + name + rules text always
   const height =
-    metaLines * lineBox(R.categorySize, T.lineHeight) +
+    metaLines * lineBox(R.kindSize, T.lineHeight) +
     nameLines * lineBox(R.nameSize, T.lineHeight) +
     lineageH +
     descLines * lineBox(R.descSize, T.descLineHeight) +

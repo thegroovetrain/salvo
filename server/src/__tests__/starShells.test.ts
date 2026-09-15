@@ -81,7 +81,7 @@ describe('star shells — shell construction', () => {
     setInput(bb, { aim: 0, aimDist: 1200, slot: SLOT_STAR });
     expect(w.sinkingActivationGate(bb, SLOT_STAR)).toEqual({ ok: true });
     const shell = [...w.shells.values()][0];
-    expect(bb.stats.starShells.rangeU).toBe(CONFIG.vision.radar);
+    expect(bb.stats.equipment.starShells.rangeU).toBe(CONFIG.vision.radar);
     expect(shell.targetX).toBeCloseTo(CONFIG.vision.radar, 9);
     expect(shell.targetY).toBeCloseTo(0, 9);
   });
@@ -132,9 +132,9 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 650, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     w.step(); // consumes the click; the flare is airborne, fired with NO verbs held
     expect(w.shells.size).toBe(1);
-    expect(a.stats.starShells.phosphor).toBe(false);
-    expect(a.stats.starShells.dazzle).toBe(false);
-    w.applyBoon(a, 'starIncendiary'); // the doctrine lands while the flare flies
+    expect(a.stats.equipment.starShells.phosphor).toBe(false);
+    expect(a.stats.equipment.starShells.dazzle).toBe(false);
+    w.applyCard(a, 'phosphorShells'); // the doctrine lands while the flare flies
     for (let i = 0; i < 120 && w.litZones.size === 0; i++) w.step();
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];

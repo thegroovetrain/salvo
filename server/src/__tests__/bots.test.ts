@@ -23,7 +23,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { BOON_CATALOG, CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { CATALOG, CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { HOMELESS_V2_LINES, LINE_ALIASES } from '../game/ai/spending.js';
 import { World } from '../game/world.js';
 import { botPhase } from '../game/ai/botDriver.js';
 import { isFleetHull, isHuman, isParticipant } from '../game/participants.js';
@@ -120,7 +121,16 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       // Universal categories (intel/ship/guns) — every deck draws them, so
       // an unlisted one would score at spending.ts's unlisted default.
       for (const cat of ['intel', 'ship', 'guns']) expect(t.cat[cat]).toBeGreaterThan(0);
-      for (const line of Object.keys(t.lines)) expect(Object.hasOwn(BOON_CATALOG, line)).toBe(true);
+      // STORY 8.1: the table is still authored in the v2 vocabulary (retuning
+      // it is a balance pass with its own ruling), and ai/spending.ts
+      // translates it onto the 29 v3 lines. The "a renamed catalog line fails
+      // loudly" guarantee moves to that alias table, pinned in
+      // botPolicy.test.ts; what is pinned here is that no override is left
+      // speaking about nothing at all.
+      for (const line of Object.keys(t.lines)) {
+        const resolved = Object.hasOwn(CATALOG, line) || HOMELESS_V2_LINES.has(line) || LINE_ALIASES[line] !== undefined;
+        expect(resolved, line).toBe(true);
+      }
     }
     // The class arsenal's own category leads its profiles' tables.
     expect((CONFIG.bots.boonWeights.raider.cat as Record<string, number>).torpedoes).toBeGreaterThan(0);

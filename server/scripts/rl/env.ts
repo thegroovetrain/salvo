@@ -184,7 +184,7 @@ export class HullcrackerEnv {
     const boostSlot = action.boost === 1 ? nonWeaponSlot(me) : -1;
     if (boostSlot >= 0) agent.actSeq += 1;
     const bearing = me.state.heading + (action.bearing / ACTION_BINS.bearing) * Math.PI * 2;
-    const reach = me.stats.gun.rangeU;
+    const reach = me.stats.equipment.gun.rangeU;
     world.submitInput(agent.id, {
       seq: agent.seq,
       throttle: THROTTLE[action.throttle] ?? 0,

@@ -14,17 +14,56 @@
 // below, which the old enum model could not have expressed.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CONFIG, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { isAfloat, transitionLifecycle, CATALOG, CONFIG, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, type Catalog, type CatalogLine, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 
-function bareWorld(seed = 3): World {
-  const w = new World(seed);
+/**
+ * THE MINE BLAST LADDER, AS AN INJECTED TEST CATALOG (Story 8.1).
+ *
+ * `equipment.navalMines.blastRadius` is a live, whitelisted stat the mine
+ * reads every detonation, and the derived trigger ring hangs off it. What
+ * catalog v3 has not authored YET is a CARD that moves it — the naval-mine
+ * line's tiers II–V are empty until Story 8.13 fills them from catalog-v3 §4,
+ * and inventing those numbers here is exactly what the story forbids. The
+ * shipped v2 step is injected so the vacated-owner fallback keeps its subject.
+ */
+const MINE_LADDERS: Catalog = Object.assign({}, CATALOG, {
+  mineBlast: {
+    id: 'mineBlast', kind: 'ladder', cap: 4,
+    tiers: new Array(4).fill([{ kind: 'stat', path: 'equipment.navalMines.blastRadius', mult: 1.1 }]),
+  } as unknown as CatalogLine,
+});
+
+function bareWorld(seed = 3, opts: WorldOptions = { catalog: MINE_LADDERS }): World {
+  const w = new World(seed, CONFIG.map.playerCap, CONFIG.zone, opts);
   w.map.islands.length = 0;
   return w;
+}
+
+/**
+ * THE CAPTIVE CHASSIS, SET DIRECTLY ON THE STAT ROW (Story 8.1).
+ *
+ * `captive` used to be a doctrine card on the naval mine (`mineCaptive`).
+ * Catalog v3 (R25) made CAPTIVE MINES its OWN equipment line whose row carries
+ * the flag at base — and that line is a STUB until Story 8.13 builds the
+ * module, so NOTHING in the catalog can set the flag this cycle and the
+ * doctrine vocabulary no longer has the verb. The BEHAVIOUR still ships and
+ * still needs its pins (8.13 inherits them), so these tests set the flag on
+ * the effective row, which is exactly where a fitted captive line would put it.
+ */
+function makeCaptive(o: ShipRecord): void {
+  const row = o.stats.equipment.navalMines;
+  row.captive = true;
+  // clampStats derives the captive radii ONCE, off the flag — so a flag set
+  // after the fold has to bring them with it. They are taken from the real
+  // `captiveMines` row rather than restated, so the swap can never drift.
+  const captiveRow = effectiveStats(o.cls).equipment.captiveMines;
+  row.blastRadius = captiveRow.blastRadius;
+  row.triggerRadius = captiveRow.triggerRadius;
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
@@ -67,8 +106,8 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
   function homingBoard(): { w: World; a: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoHoming');
-    expect(a.stats.torpedo.homing).toBe(true);
+    w.applyCard(a, 'acousticHoming');
+    expect(a.stats.equipment.heavyTorpedo.homing).toBe(true);
     const b = place(w, 'b', 320, 80); // off the track; within 120u of it mid-flight
     setInput(a, { aim: 0, aimDist: 0, slot: 1, fireSeq: 1, seq: 2 });
     return { w, a, b };
@@ -107,7 +146,7 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
   it('an ORBITING homing fish expires after its travel budget instead of circling forever', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoHoming');
+    w.applyCard(a, 'acousticHoming');
     const prey = place(w, 'b', 300, 110); // acquired, but inside the fish's turn radius
     prey.hp = 1e9; // survive any glancing contact — this is about the FISH dying
     setInput(a, { aim: 0, aimDist: 0, slot: 1, fireSeq: 1, seq: 2 });
@@ -129,7 +168,7 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
     expect(prey.hp).toBe(1e9); // ...and never by hitting anything: a true orbit
     // It ran out its budget (one tick's travel of slack — the fish is removed
     // on the step that exhausts distLeft).
-    const perTick = a.stats.torpedo.speed * (DT / 1000);
+    const perTick = a.stats.equipment.heavyTorpedo.speed * (DT / 1000);
     expect(travelled).toBeGreaterThan(CONFIG.torpedo.homingMaxRangeU - 2 * perTick);
     expect(travelled).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
   });
@@ -137,7 +176,7 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
   it('a STANDARD fish keeps its unbounded range — the budget rides the homing doctrine alone', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'torpedoHoming');
+    w.applyCard(a, 'acousticHoming');
     setInput(a, { aim: 0, aimDist: 0, slot: 1, fireSeq: 1, seq: 2 });
     w.step();
     expect([...w.shells.values()][0].distLeft).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
@@ -218,10 +257,10 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
 // made it conditional: every fish is now contact-only, whatever the build.
 describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
   it('a fish carries no target point and no burst radius, homing or not', () => {
-    for (const boons of [[], ['torpedoHoming'] as const]) {
+    for (const boons of [[], ['acousticHoming'] as const]) {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0);
-      for (const id of boons) w.applyBoon(a, id);
+      for (const id of boons) w.applyCard(a, id);
       setInput(a, { aim: 0, aimDist: 400, slot: 1, fireSeq: 1, seq: 2 });
       w.step();
       const [torp] = [...w.shells.values()];
@@ -245,7 +284,7 @@ describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
     }
     expect(seen.some((e) => e.k === 'burst')).toBe(false); // no point-detonation, ever
     expect(bystander.hp).toBe(bystander.stats.maxHp);
-    expect(blocker.hp).toBe(blocker.stats.maxHp - a.stats.torpedo.damage);
+    expect(blocker.hp).toBe(blocker.stats.maxHp - a.stats.equipment.heavyTorpedo.damage);
   });
 });
 
@@ -272,9 +311,9 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   function captiveBoard(extra: readonly string[] = []): { w: World; o: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    w.applyBoon(o, 'mineCaptive');
-    for (const id of extra) w.applyBoon(o, id as 'minePropFouling');
-    expect(o.stats.mine.captive).toBe(true);
+    for (const id of extra) w.applyCard(o, id as 'foulingMines');
+    makeCaptive(o);
+    expect(o.stats.equipment.navalMines.captive).toBe(true);
     const b = place(w, 'b', 0, 25); // silhouette ~15u out: inside the 32u blast
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     return { w, o, b };
@@ -299,28 +338,30 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   it('the torpedo is UN-UPGRADED (base CONFIG.torpedo) and deals MINE damage at MINE blast radius', () => {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    // Torpedo boons the LAYER holds must not reach the mine's fish: it belongs
-    // to the mine, not to the tubes.
-    w.applyBoon(o, 'mineCaptive');
-    w.applyBoon(o, 'torpedoSpeed');
-    expect(o.stats.torpedo.speed).toBeGreaterThan(CONFIG.torpedo.speed);
+    makeCaptive(o);
+    // Torpedo upgrades the LAYER holds must not reach the mine's fish: it
+    // belongs to the mine, not to the tubes. Catalog v3 has no card writing
+    // `equipment.heavyTorpedo.speed` yet (Story 8.13), so the divergence is
+    // forced on the ROW the fish must not read from.
+    o.stats.equipment.heavyTorpedo.speed = CONFIG.torpedo.speed + 25;
+    expect(o.stats.equipment.heavyTorpedo.speed).toBeGreaterThan(CONFIG.torpedo.speed);
     const b = place(w, 'b', 0, 40);
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     w.step();
     const fish = [...w.shells.values()][0];
     expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(CONFIG.torpedo.speed, 6); // BASE speed
     expect(fish.hitRadius).toBe(CONFIG.torpedo.hitRadius);
-    expect(fish.damage).toBe(o.stats.mine.damage); // MINE damage...
-    expect(fish.burstRadius).toBe(o.stats.mine.blastRadius); // ...at MINE blast radius
+    expect(fish.damage).toBe(o.stats.equipment.navalMines.damage); // MINE damage...
+    expect(fish.burstRadius).toBe(o.stats.equipment.navalMines.blastRadius); // ...at MINE blast radius
     // It runs home and detonates for the mine's damage.
     for (let i = 0; i < 40 && w.shells.size > 0; i++) w.step();
-    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.mine.damage, 6);
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.equipment.navalMines.damage, 6);
   });
 
   it('leads a MOVING target: the fish is aimed ahead of the hull, not at it', () => {
     const w = bareWorld();
     place(w, 'o', 600, 600, 0, 'mineLayer');
-    w.applyBoon(w.ships.get('o')!, 'mineCaptive');
+    makeCaptive(w.ships.get('o')!);
     // A hull crossing the trip ring to port at speed, 120u up the y axis.
     const b = place(w, 'b', 0, 120, Math.PI); // bow -x
     b.state.speed = b.stats.kinematics.maxSpeed;
@@ -333,10 +374,10 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   });
 
   it('CAPTIVE + PROP FOULING: the torpedo hit carries the FOUL (Eric A1, R2.14)', () => {
-    const { w, o, b } = captiveBoard(['minePropFouling']);
-    expect([o.stats.mine.captive, o.stats.mine.propFouling]).toEqual([true, true]);
+    const { w, o, b } = captiveBoard(['foulingMines']);
+    expect([o.stats.equipment.navalMines.captive, o.stats.equipment.navalMines.propFouling]).toEqual([true, true]);
     for (let i = 0; i < 40 && b.slowedUntil === 0; i++) w.step();
-    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.mine.damage, 6);
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.equipment.navalMines.damage, 6);
     expect(b.slowedUntil).toBe(w.now + CONFIG.mine.foulDurationMs);
   });
 
@@ -362,7 +403,7 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
   function droneBoard(): { w: World; o: ShipRecord; d: ShipRecord } {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    w.applyBoon(o, 'mineCaptive');
+    makeCaptive(o);
     const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 40 });
     w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
@@ -432,7 +473,7 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
     expect(booms.map((b) => b.id).sort()).toEqual(['m1', 'm2']); // ONE boom per mine
     const dmgs = w.tickEvents.filter((e) => e.k === 'dmg' && e.id === 'v');
     expect(dmgs).toHaveLength(2); // one application per mine — never four
-    expect(victim.hp).toBeCloseTo(victim.stats.maxHp - 2 * o.stats.mine.damage, 6);
+    expect(victim.hp).toBeCloseTo(victim.stats.maxHp - 2 * o.stats.equipment.navalMines.damage, 6);
   });
 
   it('a gun burst over a same-owner cluster detonates each mine once (snapshot ∩ cascade)', () => {
@@ -458,8 +499,8 @@ describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full dama
   function foulBoard(): { w: World; o: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    w.applyBoon(o, 'minePropFouling');
-    expect(o.stats.mine.propFouling).toBe(true);
+    w.applyCard(o, 'foulingMines');
+    expect(o.stats.equipment.navalMines.propFouling).toBe(true);
     const b = place(w, 'b', 0, 10); // trips the mine below on the first step
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     return { w, o, b };
@@ -472,7 +513,7 @@ describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full dama
   it('the blast deals FULL damage (the ×0.6 trade is retired) and stamps slowedUntil (refresh, never stack)', () => {
     const { w, o, b } = foulBoard();
     w.step();
-    expect(o.stats.mine.damage).toBe(CONFIG.mine.damage);
+    expect(o.stats.equipment.navalMines.damage).toBe(CONFIG.mine.damage);
     expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.mine.damage, 6);
     expect(b.slowedUntil).toBe(w.now + CONFIG.mine.foulDurationMs);
     const firstUntil = b.slowedUntil;
@@ -504,7 +545,7 @@ describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full dama
     b.slowedUntil = Number.MAX_SAFE_INTEGER; // hold the slow too — isolate the composition
     b.input.throttle = 1;
     for (let i = 0; i < 100; i++) w.step();
-    const expected = (b.stats.kinematics.maxSpeed + b.stats.boost.speedBonus) * CONFIG.mine.foulFactor;
+    const expected = (b.stats.kinematics.maxSpeed + b.stats.equipment.speedBoost.speedBonus) * CONFIG.mine.foulFactor;
     expect(b.state.speed).toBeCloseTo(expected, 1);
   });
 
@@ -532,8 +573,8 @@ describe('vacated owner — mines fall back to CONFIG bases (pinned)', () => {
   it('a blast-booned owner leaves; the orphan mine uses the CONFIG blast ring and CONFIG damage', () => {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    for (let i = 0; i < 4; i++) w.applyBoon(o, 'mineBlast'); // 48 → 48 × 1.1^4 ≈ 70.3u
-    expect(o.stats.mine.blastRadius).toBeGreaterThan(CONFIG.mine.blastRadius);
+    for (let i = 0; i < 4; i++) w.applyCard(o, 'mineBlast'); // 48 → 48 × 1.1^4 ≈ 70.3u
+    expect(o.stats.equipment.navalMines.blastRadius).toBeGreaterThan(CONFIG.mine.blastRadius);
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     w.removeShip('o'); // the owner VACATES; the mine survives
     const b = place(w, 'b', 0, 10); // trips it (silhouette ~5u out)
@@ -555,7 +596,7 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
   it('the fired flare lights a zone shrunk by incendiaryRadiusFactor, tagged with the phosphor verb', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
-    w.applyBoon(a, 'starIncendiary');
+    w.applyCard(a, 'phosphorShells');
     setInput(a, { aim: 0, aimDist: 400, slot: 2, fireSeq: 1, seq: 2 });
     for (let i = 0; i < 60 && w.litZones.size === 0; i++) w.step();
     expect(w.litZones.size).toBe(1);
@@ -752,20 +793,20 @@ describe('PHOSPHOR + DAZZLE stack on one star shell', () => {
   function bothStars(order: readonly string[]): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
-    for (const id of order) w.applyBoon(a, id);
+    for (const id of order) w.applyCard(a, id);
     return { w, a };
   }
 
   it('holding both cards sets both flags — and pick ORDER cannot erase either', () => {
-    for (const order of [['starIncendiary', 'starDazzle'], ['starDazzle', 'starIncendiary']]) {
+    for (const order of [['phosphorShells', 'dazzleShells'], ['dazzleShells', 'phosphorShells']]) {
       const { a } = bothStars(order);
-      expect(a.stats.starShells.phosphor).toBe(true);
-      expect(a.stats.starShells.dazzle).toBe(true);
+      expect(a.stats.equipment.starShells.phosphor).toBe(true);
+      expect(a.stats.equipment.starShells.dazzle).toBe(true);
     }
   });
 
   it('the fired flare stamps BOTH verbs on its zone, at the phosphor-shrunk radius', () => {
-    const { w, a } = bothStars(['starIncendiary', 'starDazzle']);
+    const { w, a } = bothStars(['phosphorShells', 'dazzleShells']);
     setInput(a, { aim: 0, aimDist: 400, slot: 2, fireSeq: 1, seq: 2 });
     for (let i = 0; i < 60 && w.litZones.size === 0; i++) w.step();
     const zone = [...w.litZones.values()][0];

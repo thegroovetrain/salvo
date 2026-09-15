@@ -93,10 +93,19 @@ const radarBuoy: Glyph = (g, cx, cy, r) => {
     .lineTo(cx, mast - r * 0.42);
 };
 
-const GLYPHS: Record<EquipmentId, Glyph> = {
+/**
+ * The glyph table. PARTIAL over `EquipmentId` since Story 8.1 widened that type
+ * to catalog v3's thirteen weapons plus the two legacy ids: the eight ids whose
+ * MODULES do not exist yet (Stories 8.13-8.16) get no glyph, because drawing
+ * linework for a weapon nobody has played would be inventing art. They are
+ * unreachable today - their catalog lines are stubs, excluded from every deck,
+ * so nothing can fit them into a slot - and `drawEquipmentIcon` draws nothing
+ * rather than throwing if one ever arrives.
+ */
+const GLYPHS: Partial<Record<EquipmentId, Glyph>> = {
   gun,
-  torpedo,
-  mine,
+  heavyTorpedo: torpedo,
+  navalMines: mine,
   speedBoost,
   broadside,
   starShells,
@@ -120,6 +129,8 @@ export function drawEquipmentIcon(
   size: number,
   style: StrokeInput,
 ): void {
-  GLYPHS[id](g, cx, cy, size / 2);
+  const glyph = GLYPHS[id];
+  if (glyph === undefined) return; // an unbuilt weapon: no art, and no throw
+  glyph(g, cx, cy, size / 2);
   g.stroke(style);
 }

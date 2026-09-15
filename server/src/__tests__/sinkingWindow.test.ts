@@ -208,9 +208,9 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
   it('all seven registry rows activate while sinking — the gate never answers dead', () => {
     const w = bareWorld();
     const fits: [ShipClassId, string[]][] = [
-      ['torpedoBoat', ['gun', 'torpedo', 'speedBoost']],
+      ['torpedoBoat', ['gun', 'heavyTorpedo', 'speedBoost']],
       ['battleship', ['gun', 'broadside', 'starShells']],
-      ['mineLayer', ['gun', 'mine', 'radarBuoy']],
+      ['mineLayer', ['gun', 'navalMines', 'radarBuoy']],
     ];
     for (const [cls, expected] of fits) {
       const ship = place(w, `s-${cls}`, 0, 0, cls);
@@ -283,7 +283,7 @@ describe('refit closed — "once sinking, you\'re done"', () => {
     expect(w.spendPoint('a', 0)).toBe(false); // card pick: clean denial
     expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false); // heal: clean denial
     expect(a.bankedLevels).toBe(1); // bank and queue untouched
-    expect(a.boons).toEqual([]);
+    expect(a.cards).toEqual(['heavyTorpedo']); // the spawn seed alone: nothing was fitted
     expect(a.repairHp).toBe(0);
     // Once FOUNDERED, dead spending resumes (builds persist across respawns).
     w.step(WINDOW);

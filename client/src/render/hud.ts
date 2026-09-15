@@ -1169,7 +1169,7 @@ export class Hud {
     this.layout(screenW, screenH);
     // Speed-needle denominator: the BOOSTED cap while the boost window is
     // active — via the one shared speed mutator, never a hand-tweaked maxSpeed.
-    const kin = boostedKinematics(status.stats.kinematics, status.stats.boost.speedBonus, status.boostActive);
+    const kin = boostedKinematics(status.stats.kinematics, status.stats.equipment.speedBoost.speedBonus, status.boostActive);
     this.updateTelegraph(axes, ship.speed, kin);
     // THE AMBER COROLLARY, resolved ONCE for the frame: this module owns both
     // amber channels, so the ranking is decided here and each channel is then

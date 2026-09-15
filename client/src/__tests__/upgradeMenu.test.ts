@@ -7,7 +7,7 @@
 // release predicate + its new outcome classifier. jsdom.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { BOON_CATALOG, CONFIG, HEAL_CHOICE, effectiveStats, resolveBoons, type OwnShip } from '@salvo/shared';
+import { CATALOG, CONFIG, HEAL_CHOICE, effectiveStats, type OwnShip } from '@salvo/shared';
 import {
   HEAL_LABEL,
   HEAL_STATUS_FULL,
@@ -28,7 +28,7 @@ import {
   type SpendLatch,
 } from '../ui/upgradeMenu.js';
 import { refitStripInnerBox, refitStripMetrics } from '../ui/refitCardFit.js';
-import { boonFitToastLine, boonName, boonTooltipText } from '../ui/boonCopy.js';
+import { boonFitToastLine, boonKindLabel, boonName, boonTooltipText } from '../ui/boonCopy.js';
 import { vitalsLayout } from '../render/hud.js';
 import { hotbarLayout } from '../render/hotbar.js';
 import { CLIENT_CONFIG } from '../config.js';
@@ -39,14 +39,14 @@ const R = CLIENT_CONFIG.refit;
 
 /** A real four-LINE draw from the shipped Boon Catalog v1 (the deck draws four
  *  different card LINES — categories may repeat; these happen not to). */
-const OFFER = ['intelSweep', 'shipHull', 'gunBarrel', 'mineBlast'];
-const OFFER_B = ['shipCooldown', 'shipSpeed', 'intelSweep', 'mineBlast'];
+const OFFER = ['radarSweep', 'armor', 'deckGunBarrel', 'navalMines'];
+const OFFER_B = ['reload', 'speed', 'radarSweep', 'navalMines'];
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
     ammo: [], sweep: 0, cls: 'torpedoBoat', pts: 1, offer: [...OFFER],
-    boostUntil: 0, boons: [], lvl: 0, xp: 0, repairHp: 0,
+    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     ...over,
   };
 }
@@ -55,7 +55,7 @@ function ownShip(over: Partial<OwnShip> = {}): OwnShip {
  *  shared effectiveStats firewall) — never a literal, so a class retune can
  *  never leave these tests asserting a stale full-hull number. */
 const maxHpOf = (cls: OwnShip['cls'], boons: readonly string[] = []): number =>
-  effectiveStats(CONFIG.shipClasses[cls], resolveBoons([...boons])).maxHp;
+  effectiveStats(CONFIG.shipClasses[cls], [...boons]).maxHp;
 
 // --- band geometry --------------------------------------------------------------
 //
@@ -333,15 +333,23 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     expect(offerView(ownShip({ pts: 0, offer: [] }), false, false, false)).toBeNull();
   });
 
-  it('resolves the front offer to four cards with catalog category + ratified copy', () => {
+  it('resolves the front offer to four cards with the kind word + ratified copy', () => {
     const view = offerView(ownShip(), false, false, false);
     expect(view?.options.map((o) => o.id)).toEqual(OFFER);
     expect(view?.options).toHaveLength(CONFIG.offer.size);
     expect(view?.pts).toBe(1);
     for (const card of view!.options) {
-      expect(card.category.length).toBeGreaterThan(0);
-      expect(card.name).toBe(boonName(card.id, 0)); // first rung — the build is empty
-      expect(card.description.length).toBeGreaterThan(0);
+      expect(card.kind.length).toBeGreaterThan(0);
+      expect(card.count).toMatch(/^\d+\/\d+$/);
+      expect(card.name).toBe(boonName(card.id, 0)); // the sheet's name for the line
+      // A LADDER card prints its live `current → next` sentence, and so does a
+      // LIVE equipment line (its reload — every copy past the first is a tier,
+      // and a tier is -5 %). An add-on, a consumable and an unbuilt weapon have
+      // no number, so their face is name + kind + count alone (R2.17).
+      const line = CATALOG[card.id];
+      const speaks = line.kind === 'ladder' || (line.kind === 'equipment' && line.stub !== true);
+      if (speaks) expect(card.description.length, card.id).toBeGreaterThan(0);
+      else expect(card.description, card.id).toBe('');
     }
     // Story 2.1 ("1-4 cards, no repair"): the view carries ONLY cards — the
     // canHeal/healHp fields left with the REPAIR spend and never came back.
@@ -397,12 +405,17 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
 
   // --- Story 2.8: the card face is resolved against the PLAYER'S OWN BUILD ----
 
-  it('names each card at the rung the player\'s stack puts it at (name-by-stack-position)', () => {
+  it('names the LINE and lets the COUNT and the handrail carry the stack', () => {
+    // Catalog v3 names the line, not the rung (Eric's sheet §1), so what moves
+    // with the player's build is the copy count and the lineage marker.
     const fresh = offerView(ownShip(), false, false, false);
-    expect(fresh?.options[0].name).toBe(boonName('intelSweep', 0));
-    const stacked = offerView(ownShip({ boons: ['intelSweep', 'intelSweep'] }), false, false, false);
-    expect(stacked?.options[0].name).toBe(boonName('intelSweep', 2));
-    expect(stacked?.options[0].name).not.toBe(fresh?.options[0].name);
+    expect(fresh?.options[0].name).toBe(boonName('radarSweep', 0));
+    expect(fresh?.options[0].count).toBe('0/5');
+    expect(fresh?.options[0].lineage).toBe('I/V');
+    const stacked = offerView(ownShip({ cards: ['radarSweep', 'radarSweep'] }), false, false, false);
+    expect(stacked?.options[0].name).toBe(fresh?.options[0].name);
+    expect(stacked?.options[0].count).toBe('2/5');
+    expect(stacked?.options[0].lineage).toBe('III/V');
   });
 
   // Story 7-5 wave 1 dropped the verb cards from `exclusive` to `rare` when they
@@ -410,32 +423,40 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // EXCLUSIVE line in the catalog. So no SHIPPED line carries that tier today;
   // the label itself is still supported and pinned in boonCopy.test.ts, and the
   // DOM row below still renders one from a hand-built card.
-  it('carries the rarity tier: nothing for a common, RARE otherwise', () => {
-    const view = offerView(ownShip({ offer: ['intelSweep', 'gunTurret', 'mineCaptive', 'acquireMine'] }), false, false, false);
-    expect(view?.options.map((o) => o.rarity)).toEqual(['', 'RARE', 'RARE', 'RARE']);
+  it('carries the KIND word and the copy count, neutral and unconditional', () => {
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret', 'captiveMines', 'acousticHoming'] }), false, false, false);
+    expect(view?.options.map((o) => o.kind)).toEqual(['UPGRADE', 'UPGRADE', 'WEAPON', 'ADD-ON']);
+    expect(view?.options.map((o) => o.count)).toEqual(['0/5', '0/1', '0/5', '0/1']);
+  });
+
+  it('counts the copies the build already holds, clamped at the line\'s cap', () => {
+    const held = ['radarSweep', 'radarSweep', 'radarSweep'];
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret'], cards: held }), false, false, false);
+    expect(view?.options[0].count).toBe('3/5');
+    expect(view?.options[1].count).toBe('0/1');
   });
 
   it('carries the lineage handrail for multi-copy lines only, at the right position', () => {
-    const view = offerView(ownShip({ offer: ['intelSweep', 'gunTurret'], boons: ['intelSweep'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret'], cards: ['radarSweep'] }), false, false, false);
     expect(view?.options[0].lineage).toBe('II/V'); // one held → this card is the second
     expect(view?.options[1].lineage).toBeNull(); // AFT TURRET is a single copy
   });
 
   // THE DOCTRINE-SWAP PIN IS RETIRED (Story 7-5 wave 2, R2.6). Amendment 44's
   // free swap needed an exclusive PAIR, and the cannon's was the last one in the
-  // game; `BoonDef.exclusiveWith` left the type with it, so an OfferCard has no
+  // game; `CatalogLine.exclusiveWith` left the type with it, so an OfferCard has no
   // `replaces` field for a card to carry.
 
   it('prints rules text with the player\'s LIVE values (a preview diff, not a static table)', () => {
-    const fresh = offerView(ownShip({ offer: ['intelSweep'] }), false, false, false);
-    const stacked = offerView(ownShip({ offer: ['intelSweep'], boons: ['intelSweep'] }), false, false, false);
+    const fresh = offerView(ownShip({ offer: ['radarSweep'] }), false, false, false);
+    const stacked = offerView(ownShip({ offer: ['radarSweep'], cards: ['radarSweep'] }), false, false, false);
     expect(fresh?.options[0].description).toContain('RPM →');
     expect(stacked?.options[0].description).not.toBe(fresh?.options[0].description);
   });
 
   it('resolves the card face against the OWN CLASS too (hull stats differ per class)', () => {
-    const tb = offerView(ownShip({ offer: ['shipHull'] }), false, false, false);
-    const bb = offerView(ownShip({ cls: 'battleship', offer: ['shipHull'] }), false, false, false);
+    const tb = offerView(ownShip({ offer: ['armor'] }), false, false, false);
+    const bb = offerView(ownShip({ cls: 'battleship', offer: ['armor'] }), false, false, false);
     expect(bb?.options[0].description).not.toBe(tb?.options[0].description);
   });
 
@@ -468,13 +489,13 @@ describe('healView — the rail is ARMED only where the server would honor the p
   });
 
   it('reads full HP through effectiveStats — a fitted hull line MOVES the threshold', () => {
-    const boons = ['shipHull', 'shipHull'];
+    const cards = ['armor', 'armor'];
     const base = maxHpOf('torpedoBoat');
-    const grown = maxHpOf('torpedoBoat', boons);
+    const grown = maxHpOf('torpedoBoat', cards);
     expect(grown).toBeGreaterThan(base); // the card ladder really does move it
     // At the BASE max with a grown hull the ship is damaged: armed, not inert.
-    expect(healView(ownShip({ hp: base, boons }), false).state).toBe('armed');
-    expect(healView(ownShip({ hp: grown, boons }), false).state).toBe('inert');
+    expect(healView(ownShip({ hp: base, cards }), false).state).toBe('armed');
+    expect(healView(ownShip({ hp: grown, cards }), false).state).toBe('inert');
   });
 
   it('is INERT on a dead hull, and with no own ship at all', () => {
@@ -526,8 +547,8 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   const cardsOf = (ids: readonly string[]): OfferCard[] =>
     ids.map((id) => ({
       id,
-      category: BOON_CATALOG[id].category.toUpperCase(),
-      rarity: '',
+      kind: boonKindLabel(CATALOG[id].kind),
+      count: `0/${CATALOG[id].cap}`,
       name: boonName(id, 0),
       lineage: null,
       description: '',
@@ -536,7 +557,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       // handrail's colour ramp reads.
       tooltip: boonTooltipText(id),
       stack: 0,
-      copies: BOON_CATALOG[id].copies,
+      cap: CATALOG[id].cap,
     }));
 
   const view = (over: Partial<OfferView> = {}): OfferView => ({
@@ -574,11 +595,12 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(chips).toEqual(['1', '2', '3', '4']);
   });
 
-  it('a card carries the category tag, the boon name, and its description', () => {
+  it('a card carries the kind word, the copy count, the line name and its description', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({ options: cardsOf(OFFER).map((c) => ({ ...c, description: 'DESC ' + c.id })) }));
     const text = cards()[0].textContent ?? '';
-    expect(text).toContain(BOON_CATALOG[OFFER[0]].category.toUpperCase());
+    expect(text).toContain(boonKindLabel(CATALOG[OFFER[0]].kind));
+    expect(text).toContain(`0/${CATALOG[OFFER[0]].cap}`);
     expect(text).toContain(boonName(OFFER[0], 0));
     expect(text).toContain('DESC ' + OFFER[0]);
   });
@@ -588,43 +610,50 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   // The card face grew three CONDITIONAL lines. The digit chip stays the FIRST
   // span in every card (pinned above and re-pinned here against the new lines):
   // the whole 1-4 spatial mapping is read off it.
-  it('renders the RARE / EXCLUSIVE tag and nothing at all for a plain common', () => {
+  // THE META ROW IS UNCONDITIONAL AND NEUTRAL (Eric ruling 2026-09-15,
+  // amendment 8). The v2 RARE / EXCLUSIVE tag and its two tier colours are
+  // deleted with the rarity axis; every card now states its KIND as a word and
+  // its copy count, both in the secondary-text token.
+  it('renders the kind word and copy count on EVERY card, in the neutral token', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({
       options: [
-        { ...cardsOf(['intelSweep'])[0] }, // common: rarity ''
-        { ...cardsOf(['gunTurret'])[0], rarity: 'RARE' },
-        { ...cardsOf(['mineCaptive'])[0], rarity: 'EXCLUSIVE' },
+        { ...cardsOf(['radarSweep'])[0] },
+        { ...cardsOf(['deckGunTurret'])[0] },
+        { ...cardsOf(['captiveMines'])[0] },
       ],
     }));
-    const [common, rare, exclusive] = cards();
-    expect(common.textContent).not.toContain('RARE');
-    expect(common.textContent).not.toContain('EXCLUSIVE');
-    expect(rare.textContent).toContain('RARE');
-    expect(exclusive.textContent).toContain('EXCLUSIVE');
-    // Tier colors are TEXT-only: the border/box-shadow channel belongs to the
-    // armed edge and the denied pulse, and a rarity tag must never touch it.
-    expect(rare.style.borderColor).not.toBe('var(--hc-info)');
-    expect(exclusive.style.borderColor).not.toBe('var(--hc-storm-readout)');
-    const tagColor = (b: HTMLButtonElement): string =>
-      [...b.querySelectorAll('span')].map((el) => (el as HTMLElement).style.color).join('|');
-    expect(tagColor(rare)).toContain('var(--hc-info)');
-    expect(tagColor(exclusive)).toContain('var(--hc-storm-readout)');
+    const [ladder, single, weapon] = cards();
+    expect(ladder.textContent).toContain('UPGRADE');
+    expect(ladder.textContent).toContain('0/5');
+    expect(single.textContent).toContain('0/1');
+    expect(weapon.textContent).toContain('WEAPON');
+    // No tier hue anywhere: not on the border (that channel belongs to the
+    // armed edge and the denied pulse) and not on any span.
+    for (const b of cards()) {
+      expect(b.style.borderColor).not.toBe('var(--hc-info)');
+      const colors = [...b.querySelectorAll('span')].map((el) => (el as HTMLElement).style.color);
+      expect(colors).not.toContain('var(--hc-info)');
+      expect(colors).not.toContain('var(--hc-storm-readout)');
+      expect(colors).toContain('var(--hc-text-secondary)');
+    }
   });
 
   it('renders the lineage handrail for a multi-copy line and nothing for a single', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({
       options: [
-        { ...cardsOf(['intelSweep'])[0], lineage: 'II/V' },
-        { ...cardsOf(['mineCaptive'])[0], rarity: 'RARE' },
-        { ...cardsOf(['gunTurret'])[0], rarity: 'RARE' }, // 1 copy: no lineage line
+        { ...cardsOf(['radarSweep'])[0], lineage: 'II/V' },
+        { ...cardsOf(['captiveMines'])[0], lineage: null },
+        { ...cardsOf(['deckGunTurret'])[0], lineage: null }, // 1 copy: no lineage line
       ],
     }));
     const [stacked, verb, single] = cards();
     expect(stacked.textContent).toContain('II/V');
-    expect(verb.textContent).not.toContain('/');
-    expect(single.textContent).not.toContain('/');
+    // The copy count also carries a slash, so the absence is checked on the
+    // ROMAN handrail specifically rather than on any '/' in the card.
+    expect(verb.textContent).not.toMatch(/[IVX]+\/[IVX]+/);
+    expect(single.textContent).not.toMatch(/[IVX]+\/[IVX]+/);
     // The chip is STILL the first span, with every line in place.
     expect(cards().map((b) => b.querySelector('span')?.textContent)).toEqual(['1', '2', '3']);
   });

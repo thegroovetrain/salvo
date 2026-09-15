@@ -382,13 +382,13 @@ export interface OwnShip {
    */
   pts: number;
   /**
-   * The FRONT offer, as BOON IDS (Story 2.8 — up to CONFIG.offer.size
+   * The FRONT offer, as CARD LINE IDS (Story 2.8, catalog v3 — up to CONFIG.offer.size
    * DIFFERENT card lines drawn from this player's deck; sim/deck.ts). `[]`
    * when pts is 0 (and, degenerately, when the deck drew nothing). Only the
    * front level ever has a hand at all — levels behind it are a bare count
    * server-side, and the DECK never leaves the server.
    * Self-private like `pts`: it rides `you` and NOTHING else. The client
-   * resolves each id against the shared BOON_CATALOG and drops the WHOLE view
+   * resolves each id against the shared CATALOG and drops the WHOLE view
    * on an unresolvable id (row k must stay server slot k).
    */
   offer: string[];
@@ -403,21 +403,22 @@ export interface OwnShip {
    */
   boostUntil: number;
   /**
-   * Applied boon ids, in application order (Story 2.5 — dormant until 2.7's
-   * spend flow grants any). Self-syncing every frame like `upg`: the client
-   * resolves ids through the shared BOON_CATALOG (fail-closed — unknown ids
-   * dropped) and feeds the defs to effectiveStats / the slot derivation / the
-   * predictor's behavior hooks. ANTI-CHEAT: like upgrade counts, boons appear
-   * ONLY here, on your own ship — never on a Contact, blip, ballistic event,
-   * boom, or spectator contact (enemy builds are inferable only from observed
-   * behavior on the water, never from the wire).
+   * Fitted card LINE ids, in fit order (Story 8.1 — renamed from `boons` with
+   * catalog v3). Self-syncing every frame like `upg`: the client feeds them
+   * straight to effectiveStats / the slot derivation / the predictor's behavior
+   * hooks, which resolve them through the shared CATALOG fail-closed (unknown
+   * ids dropped). REPEATS ARE THE STACK COUNT — a line held three times appears
+   * three times. ANTI-CHEAT: like upgrade counts, cards appear ONLY here, on
+   * your own ship — never on a Contact, blip, ballistic event, boom, or
+   * spectator contact (enemy builds are inferable only from observed behavior
+   * on the water, never from the wire).
    */
-  boons: string[];
+  cards: string[];
   /**
    * Levels COMPLETED so far this life-of-the-match (Story 2.6) — an integer,
    * starting at 0 and wiped with the build at the match boundary. Every level
    * banks one point (see `pts`): `lvl` is the running total earned, `pts` what
-   * is still unspent. ANTI-CHEAT: self-private like `upg`/`pts`/`boons` — it
+   * is still unspent. ANTI-CHEAT: self-private like `upg`/`pts`/`cards` — it
    * rides `you` and NOTHING else (never a Contact, blip, ballistic event,
    * boom, spectator payload, or the roster schema). An enemy's level is
    * inferable only from what their ship does on the water.
@@ -553,7 +554,7 @@ export interface Contact {
  * ruling's point (a fogged hull finally points the way it is moving).
  *
  * ANTI-CHEAT BOUND (amendment 66's rule carried forward): the mask derives
- * from hull geometry + pose ONLY — never boons, hp, damage state, or any
+ * from hull geometry + pose ONLY — never cards, hp, damage state, or any
  * range-derivable quantity. It is observer-INDEPENDENT: every observer
  * painting this hull this tick receives the identical mask. A radar buoy's
  * paint is rasterized by the same shared function from its frozen drop-time
@@ -877,7 +878,7 @@ export interface SmokeEvent {
  * at all. Anchoring on intel range rather than on
  * sight is what RETIRES amendment 53's max() clamps: dazzle never touches
  * radar range, so *dazzle cannot also DEAFEN* is now true BY CONSTRUCTION
- * rather than by defensive coding, and no arrangement of dazzle and boons can
+ * rather than by defensive coding, and no arrangement of dazzle and cards can
  * invert the bands. Hearing therefore widens with `intelRadar` rather than
  * with `intelTruesight` — a deliberate trade. No vision constant was added for
  * the foghorn (amendment 42's rule, still holding).
@@ -1092,7 +1093,7 @@ export interface PointEvent {
  * observer — the same gate as `upg`/`pt`, so an enemy build never rides another
  * observer's frame. Queued by World.spendPoint (NOT by applyBoon, which stays
  * event-free so directed grants make no UX noise). Purely UX (fitted toast +
- * tone): the authoritative boon list self-syncs every frame via OwnShip.boons.
+ * tone): the authoritative card list self-syncs every frame via OwnShip.cards.
  */
 export interface BoonFitEvent {
   k: 'bn';

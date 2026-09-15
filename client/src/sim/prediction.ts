@@ -199,7 +199,7 @@ export class Predictor {
   /**
    * Behavior-boon hook workload for the per-tick kinematics fold (Story 2.5):
    * the own ship's `behavior` effects, handed over by main.applyOwnStats via
-   * setBoons. Empty (the pre-boon identity path) until a frame's you.boons
+   * setBoons. Empty (the pre-card identity path) until a frame's you.cards
    * resolves to a behavior-carrying def — which no production catalog entry
    * does until 2.8.
    */

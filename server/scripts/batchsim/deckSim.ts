@@ -1,7 +1,14 @@
-// Deck-only fast mode (spec task: amendment 38's pity evidence at scale).
+// Deck-only fast mode — per-line reachability and depletion evidence at scale.
 //
 // A pure loop over the exported shared deck seam — buildDeck / drawOffer /
-// consumeCard / consumeAcquisition on a mulberry32 stream.
+// consumeCard on a mulberry32 stream.
+//
+// SOFT PITY AND RARITY ARE DELETED (Story 8.1). Catalog v3 has no rarity tier,
+// so there is no "rare landing rate" to escalate and no pity curve to measure;
+// a line's draw weight is simply the copies it has left. The pity buckets and
+// the exclusive-reach rows went with the mechanism. What survives is what the
+// harness is still good for: per-line offer/pick reachability (the dead-card
+// question) and deck depletion.
 //
 // IT NO LONGER REPLICATES ANY SERVER-SIDE BEHAVIOUR THE PURE SEAM LACKS.
 // It used to model exactly one: doctrine-rival return-to-deck (fitting a card
@@ -23,51 +30,33 @@
 // budget adherence). No World, no Match: >= 10^4 economies run in seconds.
 //
 // ===== THE STOPPING RULE IS A MODELING CHOICE (evidence honesty) =============
-// PRODUCTION HAS NO ECONOMY TERMINATION. A live captain's deck never "ends":
-// once a doctrine is fitted, its rival card is a permanent REPLACE offer —
-// world.ts settleSpend returns the swapped-out rival to the deck, so a
-// rivals-only deck cycles forever at net-zero depletion. Levels keep coming as
-// long as the match runs; only the MATCH ends, not the deck.
-//
-// This harness therefore imposes its own stop: an economy ends when the deck is
-// EMPTY OR holds only terminal rival cards (deckExhausted below), with
-// ECONOMY_DRAW_CAP as a backstop. That is a deliberate model, not a claim about
-// the server. It is sound for the comparative question it was built to answer:
-//   - EVERY dial variant runs under the SAME rule, so cross-variant deltas
-//     (flat vs escalating pity) are apples-to-apples;
-//   - the pity buckets are dominated by PRE-exhaustion draws (the shallow
-//     dry 0-6 rows that real matches actually reach), so the ratification
-//     evidence does not rest on the tail the rule truncates;
-//   - the batch mode (real World + Match) corroborates the same direction
-//     without any stopping rule at all.
+// PRODUCTION HAS NO ECONOMY TERMINATION. Levels keep coming as long as the
+// match runs; only the MATCH ends, not the deck. This harness therefore
+// imposes its own stop: an economy ends when the deck is EMPTY
+// (deckExhausted below), with ECONOMY_DRAW_CAP as a backstop. That is a
+// deliberate model, not a claim about the server. It is sound for the
+// comparative question it was built to answer, because EVERY variant runs
+// under the SAME rule, so cross-variant deltas are apples-to-apples; and the
+// batch mode (real World + Match) corroborates without any stopping rule.
 // What the rule DOES bias: absolute per-economy totals — "draws played per
-// economy", "decks effectively exhausted", and the deep-dry (>= ~10) buckets.
-// Read those as harness-model numbers, never as production lifetimes.
+// economy" and "decks effectively exhausted". Read those as harness-model
+// numbers, never as production lifetimes.
 // ============================================================================
 
 import {
-  BOON_CATALOG,
+  CATALOG,
   SHIP_CLASS_IDS,
   buildDeck,
-  consumeAcquisition,
   drawOffer,
-  effectiveStats,
-  hullEnvelope,
-  isAcquisitionDef,
-  loadoutFor,
   mulberry32,
   consumeCard,
-  type BoonDef,
   type DeckState,
-  type EquipmentId,
   type Rng,
   type ShipClassId,
 } from '@salvo/shared';
 import { pickSpendChoice } from './spendPolicy.js';
 import { mixSeed, summarize, tally, type Summary } from './stats.js';
 
-/** Pity buckets: levelsSinceRare 0..PITY_MAX-1, last bucket = "PITY_MAX+". */
-export const PITY_MAX = 15;
 /** Depletion is tracked for draw indices 1..DEPLETION_MAX. */
 const DEPLETION_MAX = 60;
 /** Hard per-economy draw cap (backstop only — see deckStalled). */
@@ -81,26 +70,17 @@ export interface DeckSimSpec {
 export interface DeckAggregate {
   economies: number;
   totalDraws: number;
-  /** Rare/exclusive landing rate per pre-draw levelsSinceRare (the pity curve). */
-  pity: { dry: number; draws: number; rareRate: number }[];
-  exclusiveOfferedReach: number;
-  exclusiveOfferedDraw: Summary;
-  exclusivePickedReach: number;
-  exclusivePickedDraw: Summary;
   /** Draws each economy played before hitting the harness stopping rule
    *  (empty-or-rivals-only; see the module header — production never stops). */
   drawsPlayed: Summary;
-  /** Fraction of economies that reached the harness stopping rule: the deck is
-   *  EMPTY OR holds only terminal rival cards. A fitted doctrine's rival can
-   *  never leave circulation (the swap returns it — net-zero draws forever), so
-   *  a deck with a doctrine fitted structurally floors at those cards instead of
-   *  zero. This is a MODELING stop, not a production one (module header). */
+  /** Fraction of economies that reached the harness stopping rule: an EMPTY
+   *  deck. This is a MODELING stop, not a production one (module header). */
   deckExhaustedRate: number;
   cappedLines: Summary;
   anyCapRate: number;
   /** PER-LINE REACHABILITY (Story 7-5 evidence pass) — the policy-free half is
    *  `lineOffers` (deck composition + the offer roll alone); `linePicks` also
-   *  carries pickSpendChoice's rarity preference and must never be read as
+   *  carries pickSpendChoice's kind preference and must never be read as
    *  player taste. `hands` is the offers denominator; `handsByClass` the
    *  per-class one. Every catalog line is reported, including lines that were
    *  offered ZERO times — the dead-card question. */
@@ -113,20 +93,6 @@ export interface DeckAggregate {
    *  (losing-option returns + doctrine-rival returns) included, since the spend
    *  resolves inside the same step (k = 1..DEPLETION_MAX, 5-step rows). */
   depletion: { draw: number; meanRemaining: number; n: number }[];
-}
-
-/** The slotFill target of an acquisition def (world.consumeAcquisitionPick). */
-function acquisitionTarget(def: BoonDef): EquipmentId | null {
-  const fill = def.effects.find((e) => e.kind === 'slotFill');
-  return fill !== undefined && fill.kind === 'slotFill' ? fill.equipmentId : null;
-}
-
-/** Carried equipment ids for a class's fresh fit (World.carriedEquipment). */
-function carriedFor(cls: ShipClassId): EquipmentId[] {
-  const loadout = loadoutFor(cls, effectiveStats(hullEnvelope(cls)));
-  const out: EquipmentId[] = [];
-  for (const slot of loadout) if (slot.equipmentId !== null) out.push(slot.equipmentId);
-  return out;
 }
 
 interface EconomyState {
@@ -163,8 +129,6 @@ function recordHand(ledger: LineLedger, cls: ShipClassId, offer: readonly string
 interface EconomyStats {
   draws: number;
   emptied: boolean;
-  firstExclusiveOffered: number | null;
-  firstExclusivePicked: number | null;
   remainingByDraw: number[];
   cappedLines: number;
 }
@@ -175,25 +139,13 @@ function spendFront(st: EconomyState, front: readonly string[], rng: Rng): strin
   if (front.length === 0) return null;
   const choice = pickSpendChoice(front, rng, st.fitted);
   const chosen = front[choice];
-  st.deck = consumeCard(st.deck, chosen);
-  const def = BOON_CATALOG[chosen];
+  st.deck = consumeCard(st.deck, chosen as (typeof st.deck.cards)[number]);
   st.fitted.push(chosen);
-  if (def !== undefined && isAcquisitionDef(def)) {
-    const target = acquisitionTarget(def);
-    // The next hand is drawn from the CLEANED deck — no banked offer can hold
-    // a now-dead acquisition card, so amendment 43's scrub is unreachable.
-    if (target !== null) st.deck = consumeAcquisition(st.deck, BOON_CATALOG, target);
-  }
   return chosen;
 }
 
-const hasExclusive = (ids: readonly string[]): boolean =>
-  ids.some((id) => BOON_CATALOG[id]?.rarity === 'exclusive');
-
-/** THE HARNESS STOPPING RULE: the deck is EMPTY. The old "or only terminal
- *  doctrine rivals" clause is retired with exclusivity itself (Story 7-5
- *  wave 2) — no card can return to a deck any more, so a net-zero ping-pong
- *  is unreachable and an empty deck is the only terminal state. */
+/** THE HARNESS STOPPING RULE: the deck is EMPTY. No card can return to a deck,
+ *  so an empty deck is the only terminal state. */
 const deckExhausted = (st: EconomyState): boolean => st.deck.cards.length === 0;
 
 /** One level's draw + immediate spend; false = deck could not draw (done).
@@ -203,68 +155,45 @@ function playOneDraw(
   stats: EconomyStats,
   draw: number,
   rng: Rng,
-  pityHits: number[],
-  pityDraws: number[],
   ledger: LineLedger,
   cls: ShipClassId,
 ): boolean {
-  const dry = Math.min(st.deck.levelsSinceRare, PITY_MAX);
-  const r = drawOffer(st.deck, rng, BOON_CATALOG);
+  const r = drawOffer(st.deck, rng);
   st.deck = r.deck;
   if (r.offer.length === 0) return false; // nothing drawable: a level banks nothing
   stats.draws = draw;
-  pityDraws[dry] += 1;
-  if (r.offer.some((id) => BOON_CATALOG[id]?.rarity !== 'common')) pityHits[dry] += 1;
-  if (stats.firstExclusiveOffered === null && hasExclusive(r.offer)) stats.firstExclusiveOffered = draw;
   recordHand(ledger, cls, r.offer);
   const picked = spendFront(st, r.offer, rng);
   if (picked !== null) bumpLine(ledger.picks, picked);
-  if (picked !== null && stats.firstExclusivePicked === null && hasExclusive([picked])) {
-    stats.firstExclusivePicked = draw;
-  }
   if (draw <= DEPLETION_MAX) stats.remainingByDraw.push(st.deck.cards.length);
   return true;
 }
 
-/** Play one full economy; feeds the shared pity buckets as it draws. */
-function playEconomy(
-  cls: ShipClassId,
-  rng: Rng,
-  pityHits: number[],
-  pityDraws: number[],
-  ledger: LineLedger,
-): EconomyStats {
-  const st: EconomyState = { deck: buildDeck(BOON_CATALOG, carriedFor(cls)), fitted: [] };
-  const stats: EconomyStats = {
-    draws: 0,
-    emptied: false,
-    firstExclusiveOffered: null,
-    firstExclusivePicked: null,
-    remainingByDraw: [],
-    cappedLines: 0,
-  };
+/** Play one full economy. */
+function playEconomy(cls: ShipClassId, rng: Rng, ledger: LineLedger): EconomyStats {
+  // The INTERIM deck (Story 8.1) is hull-independent; `cls` still labels the
+  // per-class ledger columns so the evidence is ready for Story 8.2's decks.
+  const st: EconomyState = { deck: buildDeck(), fitted: [] };
+  const stats: EconomyStats = { draws: 0, emptied: false, remainingByDraw: [], cappedLines: 0 };
   for (let draw = 1; draw <= ECONOMY_DRAW_CAP; draw += 1) {
-    if (deckExhausted(st)) break; // empty, or terminal-rival ping-pong only
-    if (!playOneDraw(st, stats, draw, rng, pityHits, pityDraws, ledger, cls)) break;
+    if (deckExhausted(st)) break;
+    if (!playOneDraw(st, stats, draw, rng, ledger, cls)) break;
   }
   stats.emptied = deckExhausted(st);
   for (const [id, n] of tally(st.fitted)) {
-    const def = BOON_CATALOG[id];
-    if (def !== undefined && n >= def.copies) stats.cappedLines += 1;
+    if (Object.hasOwn(CATALOG, id) && n >= CATALOG[id].cap) stats.cappedLines += 1;
   }
   return stats;
 }
 
 export function runDeckSim(spec: DeckSimSpec): DeckAggregate {
-  const pityHits = new Array<number>(PITY_MAX + 1).fill(0);
-  const pityDraws = new Array<number>(PITY_MAX + 1).fill(0);
   const economies: EconomyStats[] = [];
   const ledger = emptyLedger();
   let totalDraws = 0;
   for (let e = 0; totalDraws < spec.draws; e += 1) {
     const rng = mulberry32(mixSeed(spec.seed, e));
     const cls = SHIP_CLASS_IDS[e % SHIP_CLASS_IDS.length];
-    const stats = playEconomy(cls, rng, pityHits, pityDraws, ledger);
+    const stats = playEconomy(cls, rng, ledger);
     // ZERO-PROGRESS GUARD (defense in depth behind the --set floors): the budget
     // loop only advances on draws played, so an economy that plays none would
     // spin forever. The known cause is a non-positive offer.size (drawOffer
@@ -279,18 +208,14 @@ export function runDeckSim(spec: DeckSimSpec): DeckAggregate {
     economies.push(stats);
     totalDraws += stats.draws;
   }
-  return buildDeckAggregate(economies, totalDraws, pityHits, pityDraws, ledger);
+  return buildDeckAggregate(economies, totalDraws, ledger);
 }
 
 function buildDeckAggregate(
   economies: readonly EconomyStats[],
   totalDraws: number,
-  pityHits: readonly number[],
-  pityDraws: readonly number[],
   ledger: LineLedger,
 ): DeckAggregate {
-  const offered = economies.map((e) => e.firstExclusiveOffered).filter((d): d is number => d !== null);
-  const picked = economies.map((e) => e.firstExclusivePicked).filter((d): d is number => d !== null);
   const depletion: DeckAggregate['depletion'] = [];
   for (let k = 5; k <= DEPLETION_MAX; k += 5) {
     const at = economies.filter((e) => e.remainingByDraw.length >= k).map((e) => e.remainingByDraw[k - 1]);
@@ -300,11 +225,6 @@ function buildDeckAggregate(
   return {
     economies: economies.length,
     totalDraws,
-    pity: pityDraws.map((draws, dry) => ({ dry, draws, rareRate: draws === 0 ? 0 : pityHits[dry] / draws })),
-    exclusiveOfferedReach: economies.length === 0 ? 0 : offered.length / economies.length,
-    exclusiveOfferedDraw: summarize(offered),
-    exclusivePickedReach: economies.length === 0 ? 0 : picked.length / economies.length,
-    exclusivePickedDraw: summarize(picked),
     drawsPlayed: summarize(economies.map((e) => e.draws)),
     deckExhaustedRate: economies.length === 0 ? 0 : economies.filter((e) => e.emptied).length / economies.length,
     cappedLines: summarize(economies.map((e) => e.cappedLines)),

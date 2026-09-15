@@ -70,7 +70,7 @@ export interface AimPreviewInput {
   legal: boolean;
   /**
    * THE GUN'S RESOLVED REACH FOR THIS AIM (Story 7-5 wave 2, R2.15) — normally
-   * `stats.gun.rangeU`, but LIFTED to the click's own distance when the clicked
+   * `stats.equipment.gun.rangeU`, but LIFTED to the click's own distance when the clicked
    * point lies inside a live lit zone the player owns. Computed ONCE by the
    * caller through weaponArc.weaponReachU and handed to the range-clamp marker
    * (render/firing.ts) and to this preview as the SAME NUMBER, so the marker
@@ -79,7 +79,7 @@ export interface AimPreviewInput {
    *
    * GUN ONLY: no other branch reads it, because no other system has the
    * extension (R2.15 names the gun and excludes the broadside and the torpedo
-   * explicitly). Omitted = `stats.gun.rangeU`, i.e. the pre-wave-2 clamp
+   * explicitly). Omitted = `stats.equipment.gun.rangeU`, i.e. the pre-wave-2 clamp
    * byte-for-byte, which is what every non-main caller (tests) wants.
    */
   gunReachU?: number;
@@ -128,7 +128,7 @@ export interface PreviewBurst {
  * is NOT a circle around the drop point. Carried on the model anyway (it is the
  * honest number for the verb, and a later tooltip may print it), but the
  * renderer draws only the trip ring for it. Both radii arrive ALREADY
- * transformed off `stats.mine`; nothing here re-derives the swap-and-triple.
+ * transformed off `stats.equipment.navalMines`; nothing here re-derives the swap-and-triple.
  */
 export interface PreviewPlacement {
   x: number;
@@ -281,8 +281,8 @@ function parallelVolley(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel 
  *
  * The per-shell muzzles AND targets come from the ONE shared helper
  * (sim/aim.ts `turretAimPoints`), called with the ship pose, the range-clamped
- * click point, `stats.broadside.turrets`, the side and
- * `stats.broadside.traverseRad` — the exact call the server's `broadsideAim`
+ * click point, `stats.equipment.broadside.turrets`, the side and
+ * `stats.equipment.broadside.traverseRad` — the exact call the server's `broadsideAim`
  * makes. Re-deriving the geometry here is forbidden: the project's guarantee
  * is that the previewed circle IS where the shell bursts, and two derivations
  * of one aim solution is precisely the desync class effectiveStats() exists to
@@ -293,7 +293,7 @@ function parallelVolley(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel 
  * signals (R2.5).
  */
 function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
-  const b = inp.stats.broadside;
+  const b = inp.stats.equipment.broadside;
   const spec: BurstSpec = {
     rangeU: b.rangeU,
     burstRadius: b.burstRadius,
@@ -331,7 +331,7 @@ function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
 
 /**
  * The flare's EFFECTIVE lit radius — the exact number the server hands the
- * shell (`equipment/starShells.ts`): the owner's stats.starShells.litRadius,
+ * shell (`equipment/starShells.ts`): the owner's stats.equipment.starShells.litRadius,
  * shrunk by CONFIG.starShells.incendiaryRadiusFactor while the PHOSPHOR verb is
  * held. Both halves matter: the STAR SHELLS ladder moves the stat, and phosphor
  * trades reach for the burn, so a preview built on either the raw CONFIG base or
@@ -342,7 +342,7 @@ function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
  * the phosphor-shrunk circle.
  */
 export function effectiveLitRadius(stats: EffectiveStats): number {
-  const stars = stats.starShells;
+  const stars = stats.equipment.starShells;
   return stars.litRadius * (stars.phosphor ? CONFIG.starShells.incendiaryRadiusFactor : 1);
 }
 
@@ -363,7 +363,7 @@ export function effectiveLitRadius(stats: EffectiveStats): number {
  */
 function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
   return parallelVolley(inp, {
-    rangeU: inp.stats.starShells.rangeU,
+    rangeU: inp.stats.equipment.starShells.rangeU,
     burstRadius: effectiveLitRadius(inp.stats),
     shellRadius: CONFIG.starShells.shellRadius,
     barrels: 1,
@@ -388,7 +388,7 @@ function torpedoPreview(inp: AimPreviewInput): AimPreviewModel {
   // map clamp below would fold its whole run into a degenerate point and draw a
   // phantom track out of the ship's nose. Preview nothing instead.
   if (outsideDisk(origin, inp.mapRadius)) return EMPTY;
-  const homing = inp.stats.torpedo.homing;
+  const homing = inp.stats.equipment.heavyTorpedo.homing;
   const run = homing ? CONFIG.torpedo.homingMaxRangeU : inp.mapRadius * 2;
   const far = { x: origin.x + Math.cos(dir) * run, y: origin.y + Math.sin(dir) * run };
   const clip = clipAtIslands(origin, clampInsideMap(origin, far, inp.mapRadius), inp.islands);
@@ -417,9 +417,9 @@ function minePreview(inp: AimPreviewInput): AimPreviewModel {
     place: {
       x: p.x,
       y: p.y,
-      blast: inp.stats.mine.blastRadius,
-      trigger: inp.stats.mine.triggerRadius,
-      captive: inp.stats.mine.captive,
+      blast: inp.stats.equipment.navalMines.blastRadius,
+      trigger: inp.stats.equipment.navalMines.triggerRadius,
+      captive: inp.stats.equipment.navalMines.captive,
       blocked: blockedWater(p, inp.islands, inp.mapRadius),
     },
   };
@@ -446,9 +446,9 @@ function buoyPreview(inp: AimPreviewInput): AimPreviewModel {
   const blocked = blockedWater(p, inp.islands, inp.mapRadius);
   return {
     lines: [],
-    // The BUOY's own set (stats.radarBuoy.radarRange), never the owner's
+    // The BUOY's own set (stats.equipment.radarBuoy.radarRange), never the owner's
     // radarRange: the buoy's reach is flat by ruling and no card moves it.
-    bursts: [{ x: p.x, y: p.y, r: inp.stats.radarBuoy.radarRange, blocked, effect: true }],
+    bursts: [{ x: p.x, y: p.y, r: inp.stats.equipment.radarBuoy.radarRange, blocked, effect: true }],
     band: null,
     place: null,
   };
@@ -465,7 +465,7 @@ function buoyPreview(inp: AimPreviewInput): AimPreviewModel {
 export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   if (!inp.legal || inp.id === null) return EMPTY;
   if (inp.id === 'gun') {
-    const g = inp.stats.gun;
+    const g = inp.stats.equipment.gun;
     return parallelVolley(inp, {
       rangeU: inp.gunReachU ?? g.rangeU,
       burstRadius: g.burstRadius,
@@ -476,8 +476,8 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   }
   if (inp.id === 'broadside') return broadsidePreview(inp);
   if (inp.id === 'starShells') return starShellPreview(inp);
-  if (inp.id === 'torpedo') return torpedoPreview(inp);
-  if (inp.id === 'mine') return minePreview(inp);
+  if (inp.id === 'heavyTorpedo') return torpedoPreview(inp);
+  if (inp.id === 'navalMines') return minePreview(inp);
   if (inp.id === 'radarBuoy') return buoyPreview(inp);
   return EMPTY; // speedBoost — an instant ability aims nothing
 }
@@ -491,8 +491,8 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
  * enemy builds stay private, our own ring stops lying about our own blast.
  */
 export function ownBurstRadius(stats: EffectiveStats, own: OwnFire): number | undefined {
-  if (own === 'gun') return stats.gun.burstRadius;
-  if (own === 'broadside') return stats.broadside.burstRadius;
+  if (own === 'gun') return stats.equipment.gun.burstRadius;
+  if (own === 'broadside') return stats.equipment.broadside.burstRadius;
   // No torpedo bursts at a POINT any more — COMMAND DETONATION left the game in
   // Story 7-5 wave 1, and a standard/homing fish's contact hit rides the
   // boom/spark path — so the fish keeps the CONFIG default like everything else.
@@ -503,7 +503,7 @@ export function ownBurstRadius(stats: EffectiveStats, own: OwnFire): number | un
  *  identity (as its arc and reticle already do), everything else is aim amber.
  *  Color is decoration here — the INFORMATION is the geometry. */
 export function previewTint(id: EquipmentId | null): number {
-  return id === 'torpedo' ? CLIENT_CONFIG.colors.legacy.torpGlow : CLIENT_CONFIG.colors.amber;
+  return id === 'heavyTorpedo' ? CLIENT_CONFIG.colors.legacy.torpGlow : CLIENT_CONFIG.colors.amber;
 }
 
 /** Thin Pixi adapter: strokes one model per frame onto the fog-immune aim

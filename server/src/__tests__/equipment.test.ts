@@ -17,11 +17,15 @@ import { dirname, resolve, join } from 'node:path';
 import {
   isAfloat,
   CONFIG,
+  CATALOG,
   EQUIPMENT_IS_WEAPON,
+  LINE_IDS,
   SLOT_COUNT,
   SLOT_EXTRA,
   SLOT_GUN,
   equipmentMaxAmmo,
+  isStubLine,
+  tierTargetOf,
   type InputMsg,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
@@ -37,9 +41,9 @@ const DT = CONFIG.tick.simDtMs;
 //   TORPEDO BOAT [gun, torpedo, speedBoost, empty] — the torpedo cases
 // Every slot index below is named per hull rather than assumed universal.
 /** Mine Layer fit, by slot. */
-const ML_IDS = ['gun', 'mine', 'radarBuoy'] as const;
+const ML_IDS = ['gun', 'navalMines', 'radarBuoy'] as const;
 /** Torpedo Boat fit, by slot. */
-const TB_IDS = ['gun', 'torpedo', 'speedBoost'] as const;
+const TB_IDS = ['gun', 'heavyTorpedo', 'speedBoost'] as const;
 /** Mine Layer slot indices. */
 const SLOT_MINE = 1;
 const SLOT_BUOY = 2;
@@ -104,16 +108,38 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly gun / torpedo / mine / speedBoost / broadside / starShells / radarBuoy', () => {
+  it('holds exactly gun / heavyTorpedo / navalMines / speedBoost / broadside / starShells / radarBuoy', () => {
     expect(Object.keys(EQUIPMENT).sort()).toEqual([
       'broadside',
       'gun',
-      'mine',
+      'heavyTorpedo',
+      'navalMines',
       'radarBuoy',
       'speedBoost',
       'starShells',
-      'torpedo',
     ]);
+  });
+
+  // THE REGISTRY/CATALOG PIN (Story 8.1). The registry is PARTIAL over the
+  // widened EquipmentId, and this is the invariant that makes that safe:
+  // every NON-STUB catalog line's `slotFill` target has a module, and every
+  // STUB line's target has none. When Stories 8.13–8.16 build a weapon they
+  // flip its `stub` flag and this pin tightens automatically — it is what
+  // stops an authored-but-unbuilt id from ever reaching a slot.
+  it('every NON-STUB slotFill target has a module; every STUB target has none', () => {
+    let nonStubTargets = 0;
+    for (const id of LINE_IDS) {
+      const target = tierTargetOf(CATALOG[id]);
+      if (target === undefined || CATALOG[id].kind !== 'equipment') continue;
+      const built = Object.hasOwn(EQUIPMENT, target);
+      expect(built, `${id} -> ${target}`).toBe(!isStubLine(id));
+      if (!isStubLine(id)) nonStubTargets += 1;
+    }
+    expect(nonStubTargets).toBe(4); // heavyTorpedo, navalMines, broadside, starShells
+    // The gun and the speed boost are slotless/base fits — no line fills them,
+    // and they are exactly the registry rows no `slotFill` target names.
+    expect(Object.hasOwn(EQUIPMENT, 'gun')).toBe(true);
+    expect(Object.hasOwn(EQUIPMENT, 'speedBoost')).toBe(true);
   });
 
   // Content-level, NOT conformance: the weapon/ability split rides the shared
@@ -124,23 +150,23 @@ describe('EQUIPMENT registry — interface conformance', () => {
   // stern-drop ability). speedBoost (1.6) is the ONLY non-weapon left.
   it('each row mirrors the shared EQUIPMENT_IS_WEAPON split', () => {
     for (const [id, row] of Object.entries(EQUIPMENT)) {
-      expect(row.isWeapon).toBe(EQUIPMENT_IS_WEAPON[id as keyof typeof EQUIPMENT_IS_WEAPON]);
+      expect(row!.isWeapon).toBe(EQUIPMENT_IS_WEAPON[id as keyof typeof EQUIPMENT_IS_WEAPON]);
     }
-    expect(EQUIPMENT.gun.isWeapon).toBe(true);
-    expect(EQUIPMENT.torpedo.isWeapon).toBe(true);
+    expect(EQUIPMENT.gun!.isWeapon).toBe(true);
+    expect(EQUIPMENT.heavyTorpedo!.isWeapon).toBe(true);
     // Story 2.8 (amendment 45) DELIBERATELY FLIPS the 1.8 ability pin: the mine
     // is a click-aimed weapon again (rear placement arc + placeRange).
-    expect(EQUIPMENT.mine.isWeapon).toBe(true);
-    expect(EQUIPMENT.speedBoost.isWeapon).toBe(false);
-    expect(EQUIPMENT.broadside.isWeapon).toBe(true); // Story 7-5 wave 2
-    expect(EQUIPMENT.starShells.isWeapon).toBe(true); // Story 1.7
-    expect(EQUIPMENT.radarBuoy.isWeapon).toBe(true); // Story 7-5 wave 2 (R2.7): click-placed
+    expect(EQUIPMENT.navalMines!.isWeapon).toBe(true);
+    expect(EQUIPMENT.speedBoost!.isWeapon).toBe(false);
+    expect(EQUIPMENT.broadside!.isWeapon).toBe(true); // Story 7-5 wave 2
+    expect(EQUIPMENT.starShells!.isWeapon).toBe(true); // Story 1.7
+    expect(EQUIPMENT.radarBuoy!.isWeapon).toBe(true); // Story 7-5 wave 2 (R2.7): click-placed
   });
 
   it('the registry itself is frozen — rows cannot be added', () => {
     expect(Object.isFrozen(EQUIPMENT)).toBe(true);
     expect(() => {
-      (EQUIPMENT as unknown as Record<string, Equipment>).boost = EQUIPMENT.gun;
+      (EQUIPMENT as unknown as Record<string, Equipment>).boost = EQUIPMENT.gun!;
     }).toThrow();
   });
 
@@ -353,7 +379,9 @@ describe('the empty extra slot is never ticked', () => {
     expect(fire).toBeGreaterThan(-1);
     const loopBody = src.slice(fire, src.indexOf('sinkingActivationGate(ship', fire));
     // The tick dispatch runs only for fitted slots.
-    expect(/slot\.equipmentId !== null\)\s*EQUIPMENT\[slot\.equipmentId\]\.tick\(/.test(loopBody)).toBe(true);
+    // `?.` since Story 8.1: the registry is PARTIAL over the widened
+    // EquipmentId, so an id with no built module ticks nothing.
+    expect(/slot\.equipmentId !== null\)\s*EQUIPMENT\[slot\.equipmentId\]\?\.tick\(/.test(loopBody)).toBe(true);
   });
 });
 

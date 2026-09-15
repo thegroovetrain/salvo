@@ -161,7 +161,8 @@ export function torpWakeWidthU(): number {
 
 /** A torpedo wake's water life: roughly half a ship's (amendment 196) — the
  *  ONE place the `wakeLifeMs × wakeTorpLifeFactor` derivation lives. 6s at
- *  the fixed 60 u/s torpedo speed ≈ 360u of ribbon. */
+ *  the (then) fixed 60 u/s torpedo speed ≈ 360u of ribbon, pre-cycle-71; the
+ *  fish is now 65 u/s (catalog-v3 R17, Eric 2026-09-15). */
 export function torpWakeLifeMs(): number {
   return CONFIG.vision.wakeLifeMs * CONFIG.vision.wakeTorpLifeFactor;
 }

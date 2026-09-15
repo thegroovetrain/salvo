@@ -12,34 +12,34 @@
 // that would make it look intermittent and player-specific.
 
 import { describe, it, expect } from 'vitest';
-import { BOON_CATALOG, CONFIG, effectiveStats, type OwnShip } from '@salvo/shared';
+import { CATALOG, CONFIG, effectiveStats, type OwnShip } from '@salvo/shared';
 import { boonDescription, boonTooltipText } from '../ui/boonCopy.js';
 import { healView } from '../ui/upgradeMenu.js';
 import { makeOffer } from '../ui/results.js';
 
-const KNOWN = { cls: 'torpedoBoat', boons: [] as string[] };
-const UNKNOWN = { cls: 'notAHull', boons: [] as string[] };
+const KNOWN = { cls: 'torpedoBoat', cards: [] as string[] };
+const UNKNOWN = { cls: 'notAHull', cards: [] as string[] };
 
 /** The catalog ids whose card text is a computed `current → next` sentence —
  *  derived from behavior on a REAL hull rather than by duplicating the
  *  STAT_LINES table, so this cannot drift from it. Doctrine and acquisition
  *  lines print static rules text and need no hull. */
 const STAT_LINES_WITH_NUMBERS: Record<string, true> = Object.fromEntries(
-  Object.values(BOON_CATALOG)
+  Object.values(CATALOG)
     .filter((d) => boonDescription(d, KNOWN as never).includes('→'))
     .map((d) => [d.id, true]),
 );
 
 describe('boonDescription — an unresolvable hull renders nothing, never throws', () => {
   it('returns rules text for a real hull (the control)', () => {
-    const def = BOON_CATALOG['shipCooldown'];
+    const def = CATALOG['reload'];
     const text = boonDescription(def, KNOWN as never);
     expect(text.length).toBeGreaterThan(0);
     expect(text).toContain('→');
   });
 
   it('returns empty text for an unknown hull instead of throwing', () => {
-    const def = BOON_CATALOG['shipCooldown'];
+    const def = CATALOG['reload'];
     expect(() => boonDescription(def, UNKNOWN as never)).not.toThrow();
     expect(boonDescription(def, UNKNOWN as never)).toBe('');
   });
@@ -57,14 +57,15 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
   // template. Checked over EVERY stat line rather than one named example,
   // because there is no longer a note to make one line special.
   it('never prints a fragment of the diff template when the numbers cannot be computed', () => {
-    const stats = Object.values(BOON_CATALOG).filter((d) => Object.hasOwn(STAT_LINES_WITH_NUMBERS, d.id));
-    // A NON-DEGENERACY FLOOR, deliberately slack — not a catalog count pin.
-    // The set is derived from the catalog, so a card deletion moves it (cycle
-    // 119's INTEL RANGE removal took it from 16 to 15, measured); its only job is to
-    // prove the filter did not silently return an empty or near-empty set and
-    // make the loop below vacuous. The authoritative catalog/deck counts live
-    // in shared/src/__tests__/{boons,deck}.test.ts.
-    expect(stats.length).toBeGreaterThanOrEqual(12);
+    const stats = Object.values(CATALOG).filter((d) => Object.hasOwn(STAT_LINES_WITH_NUMBERS, d.id));
+    // A NON-DEGENERACY FLOOR, deliberately slack — not a catalog count pin. The
+    // set is derived from the catalog, so it moves when lines do: catalog v3
+    // (Story 8.1) took it to the EIGHT ladder lines, because an equipment line's
+    // copy 1 fits a weapon and its four upgrade tiers are unauthored until
+    // Stories 8.12–8.16. Its only job is to prove the filter did not silently
+    // return an empty set and make the loop below vacuous. The authoritative
+    // catalog counts live in shared/src/__tests__/catalog.test.ts.
+    expect(stats.length).toBeGreaterThanOrEqual(8);
     for (const def of stats) {
       // The control: on a real hull the line prints a label and two numbers.
       expect(boonDescription(def, KNOWN as never), def.id).toMatch(/^[^.]+: .+ → .+\.$/);
@@ -80,15 +81,15 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
   // line that carried a standing rider ("Repairs the hull it adds.") which the
   // same R2.17 move pushed into the hover explanation.
   it('moved the standing riders to the hover explanation, which needs no hull', () => {
-    expect(boonTooltipText('shipHull')).toContain('repairs');
-    expect(boonTooltipText('mineBlast')).toContain('trip ring');
+    expect(boonTooltipText('armor')).toContain('repairs');
+    expect(boonTooltipText('navalMines')).toContain('trip ring');
     // The explanation is keyed on the id alone, so an unresolvable hull cannot
     // silence it — the tooltip is the surface that always has something to say.
-    expect(boonTooltipText('shipHull').length).toBeGreaterThan(100);
+    expect(boonTooltipText('armor').length).toBeGreaterThan(100);
   });
 
   it('never substitutes a fabricated hull — every catalog line is SILENT, not merely non-throwing', () => {
-    for (const def of Object.values(BOON_CATALOG)) {
+    for (const def of Object.values(CATALOG)) {
       expect(() => boonDescription(def, UNKNOWN as never)).not.toThrow();
       const text = boonDescription(def, UNKNOWN as never);
       // Doctrine and acquisition lines carry static rules text that needs no
@@ -105,8 +106,8 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
 // is inside the spec's frozen block, so it gets covered rather than reworded.
 describe('results LAST OFFER — an unresolvable boon id drops its card, never the block', () => {
   const own = {
-    name: 'ERIC', cls: 'torpedoBoat', hue: 0, boons: [] as string[],
-    offer: ['intelSweep', 'notARealBoon', 'shipHull'] as string[],
+    name: 'ERIC', cls: 'torpedoBoat', hue: 0, cards: [] as string[],
+    offer: ['radarSweep', 'notARealBoon', 'armor'] as string[],
     pts: 3,
   };
 
@@ -126,7 +127,7 @@ describe('results LAST OFFER — an unresolvable boon id drops its card, never t
 });
 
 describe('healView — an unresolvable hull never claims FULL', () => {
-  const base = { alive: true, hp: 50, cls: 'torpedoBoat', boons: [] } as unknown as OwnShip;
+  const base = { alive: true, hp: 50, cls: 'torpedoBoat', cards: [] } as unknown as OwnShip;
 
   // The boundary, not a trivially-large number (review gate): `hp >= maxHp` is
   // the comparison under test, so exercise it AT the cap and one below it. A

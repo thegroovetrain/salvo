@@ -50,11 +50,11 @@
 // rest is a thin DOM adapter.
 
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
   boonStackCount,
   effectiveStats,
-  resolveBoons,
+  resolveCards,
   type EffectiveStats,
   type ResultsMsg,
   type ResultsRow,
@@ -64,7 +64,7 @@ import { CLIENT_CONFIG } from '../config.js';
 import { applyViewportCap } from './fit.js';
 import type { MatchLogEntry, PersonalScore } from '../score.js';
 import { cssHex, cssRgba, textSafe } from '../util/color.js';
-import { boonEffectLine, boonName, boonCategoryLabel } from './boonCopy.js';
+import { boonEffectLine, boonKindLabel, boonName } from './boonCopy.js';
 import { CLASS_DISPLAY_NAMES } from './classSelect.js';
 import { fmtBarClock, fmtElapsedClock } from './chromeBar.js';
 
@@ -326,8 +326,8 @@ export interface ResultsOwn {
    *  and the chrome bar lift it (the mockup's own legend: *"darker hues would
    *  use their text-safe variants"*). */
   hue: number;
-  /** Fitted boon ids, REPEATS INTACT (`OwnShip.boons`). */
-  boons: readonly string[];
+  /** Fitted card ids, REPEATS INTACT (`OwnShip.cards`). */
+  cards: readonly string[];
   /** The FRONT queued offer's boon ids (`OwnShip.offer`), `[]` when nothing is
    *  banked. Death is the only thing that expires an offer, which is why the
    *  modal is where it gets reviewed. */
@@ -647,17 +647,33 @@ function makeScoreCard(score: PersonalScore, fieldSize: number | null): HTMLElem
  *  the hotbar tooltip's accrued-row grammar verbatim: stacked copies COLLAPSE to
  *  one row named at the rung you hold, and the effect line reports what the
  *  FITTED build actually has (live `effectiveStats`, no preview diff). */
+/**
+ * The build list's order: the fitted lines, deduped, GROUPED BY KIND in catalog
+ * order (weapons, then the upgrade ladders, then add-ons, then consumables).
+ * Catalog v3 has no categories to group by any more, and a raw fit-order list
+ * reads as noise once a build carries twenty cards — the kind is the one axis
+ * the catalog still states. Unresolvable ids are dropped (fail-closed).
+ */
+const KIND_ORDER: readonly string[] = ['equipment', 'ladder', 'addon', 'consumable'];
+
+function buildOrder(cards: readonly string[]): string[] {
+  // resolveCards is the shared FAIL-CLOSED resolver: an id this build cannot
+  // resolve is silently dropped rather than rendering a row nothing explains.
+  const lines = [...resolveCards([...new Set(cards)])];
+  return lines.sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind)).map((l) => l.id);
+}
+
 function makeBoons(own: ResultsOwn): HTMLElement | null {
-  if (own.boons.length === 0) return null;
-  const stats: EffectiveStats = effectiveStats(CONFIG.shipClasses[own.cls], resolveBoons(own.boons));
+  if (own.cards.length === 0) return null;
+  const stats: EffectiveStats = effectiveStats(CONFIG.shipClasses[own.cls], own.cards);
   const block = document.createElement('div');
   block.appendChild(makeSectionHead('BOONS ACCRUED'));
   const list = document.createElement('div');
   list.style.cssText = LIST_CSS;
-  for (const id of [...new Set(own.boons)]) {
+  for (const id of buildOrder(own.cards)) {
     const row = document.createElement('div');
     const name = document.createElement('span');
-    name.textContent = `◆ ${boonName(id, boonStackCount(own.boons, id) - 1)}`;
+    name.textContent = `◆ ${boonName(id, boonStackCount(own.cards, id) - 1)}`;
     name.style.cssText = 'color:var(--hc-phosphor);font-weight:600';
     row.append(name, document.createTextNode(` — ${boonEffectLine(id, stats)}`));
     list.appendChild(row);
@@ -667,7 +683,7 @@ function makeBoons(own: ResultsOwn): HTMLElement | null {
 }
 
 /** LAST OFFER (cut-able — see the block note above). The dashed cards of the
- *  offer death expired, category over name. Drawn only with a banked level AND
+ *  offer death expired, kind word over name. Drawn only with a banked level AND
  *  a front offer to show: `pts === offer.length` is the server's own invariant,
  *  but both are checked because either alone would draw an empty row. */
 export function makeOffer(own: ResultsOwn): HTMLElement | null {
@@ -677,8 +693,8 @@ export function makeOffer(own: ResultsOwn): HTMLElement | null {
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;gap:10px';
   for (const id of own.offer) {
-    const def = BOON_CATALOG[id];
-    if (def === undefined) continue; // fail-open: an unresolvable id drops its card, never the block
+    if (!Object.hasOwn(CATALOG, id)) continue; // fail-open: an unresolvable id drops its card, never the block
+    const line = CATALOG[id];
     const card = document.createElement('div');
     card.style.cssText = [
       'flex:1',
@@ -693,9 +709,9 @@ export function makeOffer(own: ResultsOwn): HTMLElement | null {
       'line-height:1.7',
     ].join(';');
     const cat = document.createElement('span');
-    cat.textContent = boonCategoryLabel(def.category);
+    cat.textContent = boonKindLabel(line.kind);
     cat.style.cssText = 'color:var(--hc-text-secondary);font-size:9px;letter-spacing:.18em;display:block';
-    card.append(cat, document.createTextNode(boonName(id, boonStackCount(own.boons, id))));
+    card.append(cat, document.createTextNode(boonName(id, boonStackCount(own.cards, id))));
     row.appendChild(card);
   }
   block.appendChild(row);

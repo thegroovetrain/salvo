@@ -371,7 +371,7 @@ export const WAKE_STAMP_REBUILD_MS = CONFIG.vision.wakeLifeMs / WAKE_AGE_BUCKETS
  * at every instant of a match, and it was wrong TWICE over: it is the
  * base-kinematics maximum, so it misses the boost bonus (a boosted Torpedo Boat
  * runs 45 + 10 = 55 u/s), and since the torpedo became a wake source in its own
- * right it misses the fish entirely (a fixed 60 u/s). Every other derivation in
+ * right it misses the fish entirely (a fixed 65 u/s, catalog-v3 R17). Every other derivation in
  * this cycle already uses the true attainable figure (`World.wakeTopSpeed`,
  * `wakeHulls`' own-ship `maxSpeedU`), so this is the one place that was left
  * behind — and the floor below CITED the guarantee it was failing to deliver.
