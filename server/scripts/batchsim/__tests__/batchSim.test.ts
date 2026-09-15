@@ -9,13 +9,27 @@
 // NEVER import ./main.ts here — it runs the CLI (process.exit) at import time.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, LIFECYCLE_ALIVE, SHIP_CLASS_IDS, angleDiff, sunkAt, zoneEndgameAtMs, type HullId } from '@salvo/shared';
+import {
+  CATALOG,
+  CONFIG,
+  DEFAULT_DECKS,
+  DEFAULT_OWNED,
+  LIFECYCLE_ALIVE,
+  LINE_IDS,
+  SHIP_CLASS_IDS,
+  angleDiff,
+  checkDeck,
+  equipmentLineCount,
+  sunkAt,
+  zoneEndgameAtMs,
+  type HullId,
+} from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
 import { buildBotAggregate } from '../botReport.js';
 import { mixSeed, percentile, summarize } from '../stats.js';
-import { CONTROL_REGISTRY } from '../controls.js';
+import { CONTROL_REGISTRY, PACIFIST_DECK } from '../controls.js';
 import { pickSpendChoice } from '../spendPolicy.js';
 import { Match } from '../../../src/game/match.js';
 import { MatchCollector, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
@@ -707,6 +721,52 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
       1,
     );
     expect(agg.endedBy).toEqual({ fieldCleared: 1, lastHumanSunk: 1 });
+  });
+});
+
+describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2, AR50)', () => {
+  it('is 40 cards, ZERO equipment lines, and LEGAL against a fresh account', () => {
+    expect(PACIFIST_DECK).toHaveLength(CONFIG.deck.size);
+    expect(equipmentLineCount(PACIFIST_DECK)).toBe(0);
+    expect(checkDeck(PACIFIST_DECK, DEFAULT_OWNED)).toEqual({ ok: true });
+    expect(Object.isFrozen(PACIFIST_DECK)).toBe(true);
+  });
+
+  it('is every owned ladder + the deck-gun family + every owned consumable at cap, trimmed in LINE_IDS order', () => {
+    const counts = new Map<string, number>();
+    for (const id of PACIFIST_DECK) counts.set(id, (counts.get(id) ?? 0) + 1);
+    for (const id of PACIFIST_DECK) {
+      expect(['ladder', 'consumable']).toContain(CATALOG[id].kind);
+      expect(DEFAULT_OWNED.has(id)).toBe(true);
+      expect(counts.get(id)!).toBeLessThanOrEqual(CATALOG[id].cap);
+    }
+    expect(counts.get('decoyBuoy')).toBeUndefined(); // unhomed → unowned → never here
+    // LINE_IDS order, trimmed at 40: the cut lands inside SMOKE SCREEN today.
+    const order = [...new Set(PACIFIST_DECK)];
+    expect(order).toEqual(LINE_IDS.filter((id) => counts.has(id)));
+    expect(counts.get('smokeScreen')).toBe(1);
+    expect(counts.get('chaff')).toBeUndefined();
+  });
+
+  it('the pacifist control SAILS it: the runner hands the control\'s deck to the World', () => {
+    const control = CONTROL_REGISTRY.pacifist('cap-1', 1);
+    expect(control.deck).toBe(PACIFIST_DECK);
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const rec = w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, control.deck);
+    expect(rec.deckList).toBe(PACIFIST_DECK);
+    // Drawable today: the three stub consumables stay in the list but not the
+    // pool; a TB carries no line the pacifist deck holds, so nothing is seeded out.
+    expect(rec.deck.cards).toHaveLength(29);
+    for (const id of rec.deck.cards) expect(CATALOG[id].kind).toBe('ladder');
+  });
+
+  it('bots in the harness lobby sail their hull\'s DEFAULT deck', () => {
+    const w = new World(2);
+    w.map.islands.length = 0;
+    const rec = w.addBot(undefined, undefined, (h) => DEFAULT_DECKS[h]);
+    expect(rec.deckList).toBe(DEFAULT_DECKS[rec.hullId as keyof typeof DEFAULT_DECKS]);
+    expect(rec.deck.cards).toHaveLength(23);
   });
 });
 

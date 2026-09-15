@@ -5,7 +5,7 @@
 // options — see sanitizeRoomOptions for why they must never reach a
 // production room ungated).
 
-import { CONFIG, PROTOCOL_VERSION, REGATTA_HUES, type ZoneTimeline } from '@salvo/shared';
+import { CATALOG, CONFIG, PROTOCOL_VERSION, REGATTA_HUES, type LineId, type ZoneTimeline } from '@salvo/shared';
 
 /**
  * Callsign cap, in CODE POINTS. Mirrors the client's display/entry cap
@@ -65,6 +65,95 @@ export interface JoinOptions {
    * sanitizeSolo — only the boolean `true` counts.
    */
   solo?: boolean;
+  /**
+   * WHICH of the captain's decks to sail (Story 8.2, the Epic 9 port). A plain
+   * join option (NOT dev-gated): sanitizeDeckOptions trims it and caps it at
+   * 64 code points, else drops it. ACCEPTED BUT UNREAD today — with no account
+   * module `loadDeckFor` ignores it and every captain sails the hull's default
+   * deck. The shipped client does NOT send it (a field with no consumer may
+   * not ride — the Story 4.9 rule); the server accepting it is what lets Epic 9
+   * add the client half without a wire change at the door.
+   */
+  deckId?: string;
+  /**
+   * DEV TOOL for tests/smokes only — the real client NEVER sets it. A full
+   * 40-id list that REPLACES `loadDeckFor`'s answer and still goes through
+   * `checkDeck` at the door (which is how the refusal path is reached end to
+   * end). Honoured ONLY under HC_DEV_OPTIONS=1 (the matchOverride precedent);
+   * otherwise dropped, reported in `rejectedKeys` and logged once
+   * (`deck.devOptionsRejected`). Value-sanitized even when honoured: anything
+   * but an array of known LineIds drops the whole override.
+   */
+  deckOverride?: readonly string[];
+  /**
+   * NEVER ACCEPTED. A client may not supply deck CONTENTS (epic-8 Anti-cheat:
+   * "the option sanitizer rejects a `deck` key at both doors"): the presence of
+   * the key — any value, even `undefined` — makes the door REFUSE the join
+   * with `deck.illegal { rule: 'clientSupplied' }`. Typed so the sanitizer can
+   * name it; it never reaches a room.
+   */
+  deck?: unknown;
+}
+
+/** Deck-shaped join options after sanitizeDeckOptions. */
+export interface DeckOptions {
+  /** Trimmed, ≤ 64 code points; absent when missing or malformed. */
+  deckId?: string;
+  /** A dev override of known LineIds, present ONLY when devEnabled honoured it. */
+  deckOverride?: readonly LineId[];
+  /** The `deck` key was present — the door must refuse (clientSupplied). */
+  clientDeck: boolean;
+  /** Keys stripped because devEnabled was false — `['deckOverride']` or empty. */
+  rejectedKeys: string[];
+}
+
+/** Callsign-style cap for a deck id, in CODE POINTS (Epic 9 names decks; a
+ *  64-point id is a generous bound for an opaque store key). */
+export const DECK_ID_MAX = 64;
+
+/** A trimmed, bounded deck id, or undefined for anything malformed/empty. */
+function sanitizeDeckId(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const trimmed = v.trim();
+  if (trimmed === '' || Array.from(trimmed).length > DECK_ID_MAX) return undefined;
+  return trimmed;
+}
+
+/** An array of KNOWN line ids (Object.hasOwn against the catalog — the
+ *  fail-closed gate every id lookup uses), else undefined: one bad entry
+ *  drops the whole override rather than a hole in the list. */
+function sanitizeDeckOverride(v: unknown): readonly LineId[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: LineId[] = [];
+  for (const id of v) {
+    if (typeof id !== 'string' || !Object.hasOwn(CATALOG, id)) return undefined;
+    out.push(id as LineId);
+  }
+  return out;
+}
+
+/**
+ * Sanitize the deck-shaped join options (Story 8.2), used by BOTH doors.
+ * `devEnabled` must come from `process.env.HC_DEV_OPTIONS === '1'` (checked by
+ * the caller, like sanitizeRoomOptions). Pure, zero Colyseus.
+ *
+ *   - `deck` present (any value) → `clientDeck: true`; the door refuses.
+ *   - `deckId` → trimmed string ≤ DECK_ID_MAX code points, else dropped.
+ *   - `deckOverride` → honoured (value-sanitized) only under devEnabled;
+ *     otherwise pushed to `rejectedKeys` for the door to log once.
+ */
+export function sanitizeDeckOptions(options: JoinOptions, devEnabled: boolean): DeckOptions {
+  const out: DeckOptions = { clientDeck: Object.hasOwn(options, 'deck'), rejectedKeys: [] };
+  const deckId = sanitizeDeckId(options.deckId);
+  if (deckId !== undefined) out.deckId = deckId;
+  if (options.deckOverride === undefined) return out;
+  if (!devEnabled) {
+    out.rejectedKeys.push('deckOverride');
+    return out;
+  }
+  const override = sanitizeDeckOverride(options.deckOverride);
+  if (override !== undefined) out.deckOverride = override;
+  return out;
 }
 
 /**

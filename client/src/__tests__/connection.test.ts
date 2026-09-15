@@ -507,6 +507,24 @@ describe('connectErrorStatus', () => {
     expect(connectErrorStatus(new Error('timed out waiting for welcome'))).toMatch(/:2567/);
     expect(connectErrorStatus(undefined)).toMatch(/:2567/);
   });
+
+  // A DECK REFUSAL (Story 8.2): the server refuses an illegal deck at the door
+  // with ServerError(DECK_REFUSED_CODE = 4402 — server/src/game/decks.ts, an
+  // app-level code outside every Colyseus ErrorCode/CloseCode; hardcoded here
+  // because the client must not import the server workspace). It renders
+  // through the GENERIC branch, never as "VERSION MISMATCH": a refused deck is
+  // not a stale bundle, and a refresh would not fix it. No new copy (UX-DR71's
+  // surface is Epic 9's).
+  it('renders a deck refusal (code 4402) through the generic branch, never the version-mismatch branch', () => {
+    for (const rule of ['clientSupplied', 'size', 'equipmentLines', 'unowned', 'overCap']) {
+      const status = connectErrorStatus(codedError(4402, `deck illegal: ${rule}`));
+      expect(status).not.toMatch(/VERSION MISMATCH|REFRESH/);
+      expect(status).toMatch(/CONNECTION FAILED/);
+    }
+    // ...and the code, not the wording, discriminates: the same text with the
+    // auth code would still be the version line (unchanged behaviour).
+    expect(connectErrorStatus(codedError(525, 'deck illegal: size'))).toMatch(/REFRESH/);
+  });
 });
 
 describe('loadColorPref — persisted Regatta preference (Story 1.12)', () => {

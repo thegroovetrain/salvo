@@ -23,7 +23,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_DECKS, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
 import { HOMELESS_V2_LINES, LINE_ALIASES } from '../game/ai/spending.js';
 import { World } from '../game/world.js';
 import { botPhase } from '../game/ai/botDriver.js';
@@ -38,7 +38,9 @@ function botWorld(seed: number, bots: number): { w: World; ids: string[] } {
   const w = new World(seed);
   w.map.islands.length = 0; // open water: spawn placement never retries ashore
   const ids: string[] = [];
-  for (let i = 0; i < bots; i += 1) ids.push(w.addBot().id);
+  // Bots sail the hull's default deck (Story 8.2) — the resolver the arena
+  // passes is the loader, which answers exactly this with no account module.
+  for (let i = 0; i < bots; i += 1) ids.push(w.addBot(undefined, undefined, (hull) => DEFAULT_DECKS[hull]).id);
   return { w, ids };
 }
 

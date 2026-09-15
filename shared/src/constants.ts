@@ -1585,16 +1585,16 @@ export const CONFIG = {
    * how many EQUIPMENT lines one deck may carry (catalog-v3 §1: every starter
    * sums to 40 with exactly 3 equipment lines).
    *
-   * UNUSED UNTIL STORY 8.2. Nothing reads these numbers today: 8.1 ships the
-   * INTERIM deck (`buildDeck()` = every non-stub line at its cap — see
-   * sim/deck.ts), and 8.2 builds default decks, legality and the forge on top
-   * of them. They live here now because they are gameplay-authoritative the
-   * moment 8.2 lands, and because they replace the deleted soft-pity dials
-   * (`rareWeightBase`/`rareWeightPerDryLevel`) that died with rarity itself.
+   * LIVE SINCE STORY 8.2: `checkDeck` (sim/deckRules.ts) reads both at the
+   * door — a deck of any other size, or with more equipment lines than the
+   * cap, is refused before a seat is taken — and `deckFromCounts`
+   * (sim/catalog.ts) refuses an authored default whose counts do not sum to
+   * `size`. They replace the deleted soft-pity dials
+   * (`rareWeightBase`/`rareWeightPerDryLevel`) that died with rarity in 8.1.
    *
    * NOT the deck AT QUEUE: catalog-v3 R4 shuffles a hidden 10-card match
    * consumable pool into every deck, so a queued deck is 40 + 10 = 50. That
-   * pool is Story 8.2's, not a dial here.
+   * pool is Story 8.11's, not a dial here.
    */
   deck: {
     size: 40, // authored cards per deck (catalog-v3 §1 — every starter sums to 40)

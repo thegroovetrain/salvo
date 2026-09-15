@@ -113,21 +113,52 @@
 // Same run key => byte-identical input streams (unit-pinned).
 
 import {
+  CATALOG,
+  CONFIG,
+  DEFAULT_OWNED,
+  LINE_IDS,
   angleDiff,
   isAfloat,
   mulberry32,
   nearestCoastPoint,
   type InputMsg,
   type Island,
+  type LineId,
   type Rng,
   type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord, World } from '../../src/game/world.js';
 import { pickSpendChoice } from './spendPolicy.js';
 
-/** One scripted captain: drive your ship (and spend your levels) this tick. */
+/**
+ * THE PACIFIST DECK (Story 8.2, AR50 — the pacifist posture as a DECK, not
+ * just a script). 40 cards and ZERO equipment lines, drawn from a fresh
+ * account's unlocks (`DEFAULT_OWNED`): every owned ladder, the deck-gun family
+ * and every owned consumable at its catalog cap, trimmed to CONFIG.deck.size
+ * in LINE_IDS order. Legal by construction — `checkDeck` passes it (pinned in
+ * batchSim.test.ts) — which is itself a proof of the rule "a pure-gunboat deck
+ * is legal". The pacifist control sails it (`CaptainControl.deck`), so the
+ * control's economy spends real levels on cards that never arm a weapon slot.
+ *
+ * Today: armor 4 · speed 4 · turning 4 · radarSweep 5 · reload 5 · deckGun 4 ·
+ * deckGunTurret 1 · deckGunBarrel 2 · hullRepair 5 · shieldBlock 5 ·
+ * smokeScreen 1 = 40 (the trim lands one card into SMOKE SCREEN; chaff is
+ * cut). Recomputed from the catalog, so a stub flip or a cap change moves it.
+ */
+export const PACIFIST_DECK: readonly LineId[] = Object.freeze(
+  LINE_IDS.flatMap((id) => {
+    const line = CATALOG[id];
+    if (line.kind === 'equipment' || line.kind === 'addon' || !DEFAULT_OWNED.has(id)) return [];
+    return new Array<LineId>(line.cap).fill(id);
+  }).slice(0, CONFIG.deck.size),
+);
+
+/** One scripted captain: drive your ship (and spend your levels) this tick.
+ *  `deck` (Story 8.2) is the frozen 40-id list the runner hands `addShip` for
+ *  this captain — a control declares what it sails. */
 export interface CaptainControl {
   readonly id: string;
+  readonly deck: readonly LineId[];
   tick(world: World): void;
 }
 
@@ -262,6 +293,8 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
  * makes the "never fires" pin structural rather than behavioural.
  */
 class PacifistControl implements CaptainControl {
+  /** The pacifist posture as a deck: zero equipment lines (see PACIFIST_DECK). */
+  readonly deck = PACIFIST_DECK;
   private seq = 0;
   private waypoint: Vec2 | null = null;
   private readonly rng: Rng;

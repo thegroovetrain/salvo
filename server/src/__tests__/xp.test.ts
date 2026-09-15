@@ -11,7 +11,7 @@
 // approximation.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, type GameEvent, type HullId } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_DECKS, type GameEvent, type HullId, type LineId, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -26,8 +26,14 @@ function bareWorld(seed = 3): World {
   return w;
 }
 
+/** The hull's default deck (Story 8.2) — a captain fixture sails what the door
+ *  would admit; a fleet hull gets none. */
+function deckFor(hull: HullId): readonly LineId[] {
+  return Object.hasOwn(DEFAULT_DECKS, hull) ? DEFAULT_DECKS[hull as ShipClassId] : [];
+}
+
 function place(w: World, id: string, x = 0, y = 0, hull: HullId = 'torpedoBoat', drone = false): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), drone ? 'fleet' : 'captain', hull);
+  const rec = w.addShip(id, id.toUpperCase(), drone ? 'fleet' : 'captain', hull, undefined, undefined, deckFor(hull));
   rec.state.x = x;
   rec.state.y = y;
   rec.state.speed = 0;

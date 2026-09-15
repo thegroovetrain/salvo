@@ -12,10 +12,14 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  DEFAULT_DECKS,
+  DEFAULT_OWNED,
   LINE_IDS,
   SHIP_CLASS_IDS,
   catalogCardCount,
+  deckFromCounts,
   effectiveStats,
+  equipmentLineCount,
   isStubLine,
   mulberry32,
   resolveCards,
@@ -25,6 +29,7 @@ import {
   type CatalogLine,
   type LineId,
   type LineKind,
+  type ShipClassId,
 } from '../index.js';
 
 /** catalog-v3 §1, transcribed: every line's cap and kind. */
@@ -301,5 +306,107 @@ describe('THE ORDER-INDEPENDENCE PROPERTY', () => {
     const nine = effectiveStats(cls, new Array<LineId>(9).fill('reload'));
     expect(nine).toEqual(five);
     expect(five.cooldownScale).toBe(0.75);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE DEFAULT DECKS (Story 8.2 — Eric ruling 2026-09-15, epic-8 amendment 10,
+// delivered as a spreadsheet). The counts below are the ruling, transcribed
+// count for count; the code is checked AGAINST them, never the other way
+// round. Every count is at or under its cap (spec Block-If: verified here),
+// each deck is 40 with exactly three equipment lines, and the five unhomed
+// lines appear in none of them.
+// ---------------------------------------------------------------------------
+
+/** Amendment 10's 30 universal cards. */
+const UNIVERSAL: Partial<Record<LineId, number>> = {
+  armor: 3, speed: 3, turning: 3, radarSweep: 3, reload: 3,
+  hullRepair: 3, shieldBlock: 3, smokeScreen: 2, chaff: 2,
+  deckGun: 2, deckGunTurret: 1, deckGunBarrel: 2,
+};
+
+/** Amendment 10's per-hull ten. */
+const PER_HULL: Record<ShipClassId, Partial<Record<LineId, number>>> = {
+  torpedoBoat: { lightTorpedo: 3, heavyTorpedo: 3, machineGun: 3, acousticHoming: 1 },
+  mineLayer: { navalMines: 3, captiveMines: 3, flak: 3, foulingMines: 1 },
+  battleship: { missile: 3, monitor: 3, starShells: 3, dazzleShells: 1 },
+};
+
+/** The five lines in no default deck (amendment 10). */
+const UNHOMED: readonly LineId[] = ['supercavTorpedo', 'broadside', 'decoyBuoy', 'heatSeeking', 'phosphorShells'];
+
+function countsOf(ids: readonly LineId[]): Map<LineId, number> {
+  const out = new Map<LineId, number>();
+  for (const id of ids) out.set(id, (out.get(id) ?? 0) + 1);
+  return out;
+}
+
+describe('DEFAULT_DECKS — amendment 10, count for count', () => {
+  it.each(SHIP_CLASS_IDS)('%s: 40 cards at exactly the ruled counts, in LINE_IDS order', (hull) => {
+    const deck = DEFAULT_DECKS[hull];
+    expect(deck).toHaveLength(CONFIG.deck.size);
+    const expected = { ...UNIVERSAL, ...PER_HULL[hull] };
+    const counts = countsOf(deck);
+    for (const id of LINE_IDS) expect(counts.get(id) ?? 0, `${hull}:${id}`).toBe(expected[id] ?? 0);
+    // Composition order is LINE_IDS order — the determinism contract.
+    const order = [...new Set(deck)];
+    expect(order).toEqual(LINE_IDS.filter((id) => (expected[id] ?? 0) > 0));
+    // Thirty universal + ten per hull.
+    expect(Object.values(UNIVERSAL).reduce((a, b) => a + b, 0)).toBe(30);
+    expect(Object.values(PER_HULL[hull]).reduce((a, b) => a + b, 0)).toBe(10);
+  });
+
+  it.each(SHIP_CLASS_IDS)('%s: exactly three equipment lines, every count at or under its cap', (hull) => {
+    expect(equipmentLineCount(DEFAULT_DECKS[hull])).toBe(CONFIG.deck.maxEquipmentLines);
+    for (const [id, n] of countsOf(DEFAULT_DECKS[hull])) expect(n, `${hull}:${id}`).toBeLessThanOrEqual(CATALOG[id].cap);
+  });
+
+  it('the five UNHOMED lines appear in no default deck', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      for (const id of UNHOMED) expect(DEFAULT_DECKS[hull].includes(id), `${hull}:${id}`).toBe(false);
+    }
+  });
+
+  it('the Battleship no longer carries HEAT SEEKING (amendment 10 vs FR56)', () => {
+    expect(DEFAULT_DECKS.battleship.includes('heatSeeking')).toBe(false);
+  });
+
+  it('DEFAULT_OWNED is the union of the three decks — 24 of the 29 lines, the unhomed five absent', () => {
+    const union = new Set<LineId>(SHIP_CLASS_IDS.flatMap((h) => [...DEFAULT_DECKS[h]]));
+    expect(DEFAULT_OWNED).toEqual(union);
+    expect(DEFAULT_OWNED.size).toBe(LINE_IDS.length - UNHOMED.length);
+    for (const id of UNHOMED) expect(DEFAULT_OWNED.has(id)).toBe(false);
+  });
+
+  it('is frozen: the record, each list, and the owned set', () => {
+    expect(Object.isFrozen(DEFAULT_DECKS)).toBe(true);
+    for (const hull of SHIP_CLASS_IDS) expect(Object.isFrozen(DEFAULT_DECKS[hull])).toBe(true);
+    expect(Object.isFrozen(DEFAULT_OWNED)).toBe(true);
+    expect(() => { (DEFAULT_DECKS.torpedoBoat as LineId[]).push('armor'); }).toThrow();
+  });
+});
+
+describe('deckFromCounts — the authoring helper refuses transcription slips at load', () => {
+  it('expands counts in LINE_IDS order to a frozen 40-id list', () => {
+    const deck = deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat });
+    expect(deck).toEqual(DEFAULT_DECKS.torpedoBoat);
+    expect(Object.isFrozen(deck)).toBe(true);
+    // Key order in the counts object does not matter — LINE_IDS order wins.
+    expect(deckFromCounts({ ...PER_HULL.torpedoBoat, ...UNIVERSAL })).toEqual(DEFAULT_DECKS.torpedoBoat);
+  });
+
+  it('throws on a count over the cap', () => {
+    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, acousticHoming: 2, armor: 2 })).toThrow(/acousticHoming.*cap/);
+  });
+
+  it('throws on a total other than CONFIG.deck.size', () => {
+    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, armor: 4 })).toThrow(/41 cards/);
+    expect(() => deckFromCounts({ ...UNIVERSAL })).toThrow(/30 cards/);
+  });
+
+  it('throws on an unknown line and on a non-integer or negative count', () => {
+    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, nope: 1 } as Partial<Record<LineId, number>>)).toThrow(/unknown line/);
+    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, armor: 2.5 })).toThrow(/non-negative integer/);
+    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, armor: -1 })).toThrow(/non-negative integer/);
   });
 });

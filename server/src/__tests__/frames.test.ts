@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_DECKS } from '@salvo/shared';
+
+/** A captain fixture sails its hull's default deck (Story 8.2) — the arena
+ *  door's answer with no account module. */
+const TB_DECK = DEFAULT_DECKS.torpedoBoat;
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -19,7 +23,7 @@ const input = (seq: number, extra = {}) => ({
 
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(w: World, id: string, x: number, y: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, TB_DECK);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;

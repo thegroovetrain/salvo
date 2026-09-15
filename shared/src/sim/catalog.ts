@@ -22,21 +22,31 @@
 //
 // STUB LINES (`stub: true`) are lines whose MECHANISM does not exist yet. They
 // are authored in full shape so the catalog is complete and the ids are final,
-// and they are EXCLUDED from `buildDeck()` — so they can never be offered (Eric
-// ruling 2026-09-15: stay playable). A stub is also refused by the slot fold
-// (sim/boons.ts) and by the server's grant, so an id that reaches a card list
-// by any other route still fits nothing.
+// and they are EXCLUDED by `buildDeckState()` — a stub stays in a hull's frozen
+// 40-card list (Eric ruling 2026-09-15, epic-8 amendment 11) but is never dealt
+// into the drawable DeckState, so it can never be offered (amendment 5: stay
+// playable). A stub is also refused by the slot fold (sim/boons.ts) and by the
+// server's grant, so an id that reaches a card list by any other route still
+// fits nothing.
 //
 // NO DEAD CARD IN A LIVE DECK is the rule the stub exclusion serves, and it
 // takes one more thing: a hull spawns HOLDING copy 1 of every equipment line
-// whose weapon it already carries, and `buildDeck(catalog, carried)` deals that
-// copy one short (see sim/deck.ts).
+// whose weapon it already carries, and `buildDeckState(list, carried)` deals
+// that copy one short (see sim/deck.ts).
+//
+// THE DEFAULT DECKS (Story 8.2, Eric ruling 2026-09-15, amendment 10) live at
+// the foot of this file: three 40-card lists, one per hull, authored as COUNTS
+// through `deckFromCounts` and expanded in LINE_IDS order. With no account
+// module they are THE deck every captain and bot sails (server/src/game/
+// decks.ts `loadDeckFor`); Epic 9 layers named decks on top. Their legality
+// against the four deck rules is checked at load in sim/deckRules.ts.
 //
 // CATALOG CONTENT IS WIRE CONTRACT: adding, removing or changing any entry
 // REQUIRES a PROTOCOL_VERSION bump (shared/src/index.ts). Line ids ride the
 // wire and both sides resolve them FAIL-CLOSED (unknown id silently dropped) —
 // the PV join gate is the only desync guard.
 
+import { CONFIG, type ShipClassId } from '../constants.js';
 import type { EquipmentId } from './loadout.js';
 import { EQUIPMENT_IDS } from './loadout.js';
 import {
@@ -56,8 +66,9 @@ import {
 
 /**
  * THE 29 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7).
- * This order IS the fold order and the `buildDeck()` composition order, so it
- * is part of the determinism contract — never re-sort it.
+ * This order IS the fold order and the default decks' composition order
+ * (`deckFromCounts` expands in it), so it is part of the determinism contract
+ * — never re-sort it.
  */
 export const LINE_IDS = [
   // --- the five universal ladders (catalog-v3 §4) --------------------------
@@ -117,7 +128,7 @@ export type LineKind = 'equipment' | 'ladder' | 'addon' | 'consumable';
  * - `appliesTo` — for an `addon`, the equipment it bolts onto; for the
  *   `deckGun` LADDER, the single equipment row whose TIER its copies advance
  *   (the deck gun is slotless, so it has no `slotFill` to read the target off).
- * - `stub` — the mechanism does not exist yet: excluded from `buildDeck()`.
+ * - `stub` — the mechanism does not exist yet: never dealt by `buildDeckState()`.
  * - `healOnGrant` — the grant heals the granted maxHp delta (ARMOR only).
  */
 export interface CatalogLine {
@@ -616,3 +627,85 @@ export function catalogCardCount(catalog: Catalog = CATALOG): number {
  */
 const CATALOG_PROBLEMS = validateCatalog(CATALOG);
 if (CATALOG_PROBLEMS.length > 0) throw new Error(CATALOG_PROBLEMS.join('\n'));
+
+// ---------------------------------------------------------------------------
+// THE DEFAULT DECKS (Story 8.2 — Eric ruling 2026-09-15, epic-8 amendment 10,
+// delivered as a spreadsheet and transcribed count for count). Authored as
+// COUNTS so the file reads like the sheet; `deckFromCounts` expands them into
+// the frozen 40-id list the door freezes into a seat reservation.
+// ---------------------------------------------------------------------------
+
+/** Copies per line, the authoring shape of a deck (absent = 0). */
+export type DeckCounts = Partial<Readonly<Record<LineId, number>>>;
+
+/**
+ * Expand a counts table into a frozen card list in LINE_IDS order. Refuses,
+ * AT MODULE LOAD, a count that is not a non-negative integer, a count over the
+ * line's cap, and a total other than CONFIG.deck.size — the three authoring
+ * slips a spreadsheet transcription can make. (The full four-rule legality
+ * check, which also needs the OWNED set, runs in sim/deckRules.ts.)
+ */
+export function deckFromCounts(counts: DeckCounts, catalog: Catalog = CATALOG): readonly LineId[] {
+  for (const id of Object.keys(counts)) {
+    if (!Object.hasOwn(catalog, id)) throw new Error(`deckFromCounts: unknown line '${id}'`);
+  }
+  const out: LineId[] = [];
+  for (const id of LINE_IDS) {
+    const n = checkedCount(id, counts[id] ?? 0, catalog);
+    for (let i = 0; i < n; i += 1) out.push(id);
+  }
+  if (out.length !== CONFIG.deck.size) {
+    throw new Error(`deckFromCounts: ${out.length} cards, a deck is ${CONFIG.deck.size}`);
+  }
+  return Object.freeze(out);
+}
+
+/** One authored count, validated: a non-negative integer at or under cap. */
+function checkedCount(id: LineId, n: number, catalog: Catalog): number {
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(`deckFromCounts: ${id} count ${String(n)} is not a non-negative integer`);
+  }
+  const cap = catalog[id]?.cap ?? 0;
+  if (n > cap) throw new Error(`deckFromCounts: ${id} ×${n} exceeds its cap ${cap}`);
+  return n;
+}
+
+/** The 30 cards every default deck carries (amendment 10). */
+const UNIVERSAL_COUNTS: DeckCounts = {
+  armor: 3,
+  speed: 3,
+  turning: 3,
+  radarSweep: 3,
+  reload: 3,
+  hullRepair: 3,
+  shieldBlock: 3,
+  smokeScreen: 2,
+  chaff: 2,
+  deckGun: 2,
+  deckGunTurret: 1,
+  deckGunBarrel: 2,
+};
+
+/**
+ * THE THREE DEFAULT DECKS, keyed by hull (amendment 10): the 30 universal
+ * cards plus ten per hull — three equipment lines at three copies and one
+ * add-on. 40 cards each, exactly three equipment lines, every count at or
+ * under cap. UNHOMED (in no default): `supercavTorpedo`, `broadside`,
+ * `decoyBuoy`, `heatSeeking`, `phosphorShells`. Frozen at every depth.
+ */
+export const DEFAULT_DECKS: Readonly<Record<ShipClassId, readonly LineId[]>> = Object.freeze({
+  torpedoBoat: deckFromCounts({ ...UNIVERSAL_COUNTS, lightTorpedo: 3, heavyTorpedo: 3, machineGun: 3, acousticHoming: 1 }),
+  mineLayer: deckFromCounts({ ...UNIVERSAL_COUNTS, navalMines: 3, captiveMines: 3, flak: 3, foulingMines: 1 }),
+  battleship: deckFromCounts({ ...UNIVERSAL_COUNTS, missile: 3, monitor: 3, starShells: 3, dazzleShells: 1 }),
+});
+
+/**
+ * A FRESH ACCOUNT'S UNLOCKS: the union of the three default decks' line ids
+ * (24 of the 29 lines). With no account module this is the `owned` set every
+ * door checks a deck against (server/src/game/decks.ts); Epic 9's collection
+ * grows it per account. A ReadonlySet — the type is the freeze.
+ */
+export const DEFAULT_OWNED: ReadonlySet<LineId> = Object.freeze(
+  new Set<LineId>(Object.values(DEFAULT_DECKS).flat()),
+);
+

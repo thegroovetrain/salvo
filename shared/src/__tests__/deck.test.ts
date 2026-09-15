@@ -1,8 +1,11 @@
 // THE DECK MODEL engine (Story 2.8, amendment 38; re-cut for catalog v3 in
-// Story 8.1) — sim/deck.ts. Pins:
-//   (1) THE INTERIM DECK (Eric ruling 2026-09-15, amendment 5): every NON-STUB
-//       line at its cap, identical for every hull, and NO STUB EVER DEALT — so
-//       no stub id can reach an offer;
+// Story 8.1; fed by the frozen default decks since Story 8.2) — sim/deck.ts.
+// Pins:
+//   (1) buildDeckState (Story 8.2, Eric rulings 2026-09-15, amendments 10-11):
+//       the frozen 40-card list MINUS every stub line MINUS one copy per
+//       carried line — 23 drawable cards for each of the three default decks
+//       with its spawn seed, and NO STUB EVER DEALT, so no stub id can reach
+//       an offer;
 //   (2) drawOffer distinctness / weight-by-copies-remaining / determinism /
 //       empty-and-thin-deck fail-safety, and that a draw is NON-CONSUMING;
 //   (3) consumeCard — the FIT, the deck's one and only outflow;
@@ -13,17 +16,22 @@
 // RETIRED with rarity (Story 8.1): the per-hull subdeck composition matrix,
 // `consumeAcquisition` and the acquisition purge, and the soft-pity escalation
 // (`levelsSinceRare`, CONFIG.deck.rareWeight*). Catalog v3 has no rarity tier
-// to escalate and no acquisition card to purge.
+// to escalate and no acquisition card to purge. RETIRED in Story 8.2: the
+// interim all-lines-at-cap builder — the pool is now built from whatever list
+// the door froze.
 //
-// "Drones never get a deck" is a SERVER rule: buildDeck is hull-agnostic by
-// design, so that pin lives server-side.
+// "Drones never get a deck" is a SERVER rule: buildDeckState is hull-agnostic
+// by design (it takes whatever list the door froze), so that pin lives
+// server-side.
 
 import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  DEFAULT_DECKS,
   LINE_IDS,
-  buildDeck,
+  SHIP_CLASS_IDS,
+  buildDeckState,
   catalogCardCount,
   consumeCard,
   drawOffer,
@@ -33,6 +41,7 @@ import {
   type CatalogLine,
   type DeckState,
   type LineId,
+  type ShipClassId,
 } from '../index.js';
 
 /** Count cards per line id. */
@@ -59,73 +68,106 @@ const testLine = (id: string, cap = 5, stub?: true): CatalogLine => ({
 
 const NON_STUB = LINE_IDS.filter((id) => !isStubLine(id));
 
-describe('buildDeck — THE INTERIM DECK (Eric ruling 2026-09-15)', () => {
-  it('deals every NON-STUB line at its cap, in CATALOG order', () => {
-    const deck = buildDeck();
+/** THE SPAWN SEED per hull (Story 8.1 review gate): copy 1 of every equipment
+ *  line whose weapon the hull already carries. The Battleship's `broadside` is
+ *  carried but NOT in its default deck, so it removes nothing. */
+const CARRIED: Record<ShipClassId, readonly LineId[]> = {
+  torpedoBoat: ['heavyTorpedo'],
+  battleship: ['broadside', 'starShells'],
+  mineLayer: ['navalMines'],
+};
+
+/** A hull's drawable pool: its default deck less stubs less its seed. */
+const poolFor = (hull: ShipClassId): DeckState => buildDeckState(DEFAULT_DECKS[hull], CARRIED[hull]);
+
+/** The Torpedo Boat's pool — the fixture the draw/consume/replay pins use. */
+const tbPool = (): DeckState => poolFor('torpedoBoat');
+
+describe('buildDeckState — the frozen list becomes the drawable pool (Story 8.2)', () => {
+  it('deals every NON-STUB card of the list, in list order, and no stub', () => {
+    const deck = buildDeckState(DEFAULT_DECKS.torpedoBoat);
     const counts = tally(deck.cards);
+    const listed = tally(DEFAULT_DECKS.torpedoBoat);
     for (const id of LINE_IDS) {
-      expect(counts.get(id) ?? 0, id).toBe(isStubLine(id) ? 0 : CATALOG[id].cap);
+      expect(counts.get(id) ?? 0, id).toBe(isStubLine(id) ? 0 : (listed.get(id) ?? 0));
     }
-    // Composition order is the catalog's, which is what makes the deck itself
-    // deterministic rather than merely the draw off it.
-    expect([...new Set(deck.cards)]).toEqual(NON_STUB);
+    // List order is preserved (the defaults are authored in LINE_IDS order).
+    expect(deck.cards).toEqual(DEFAULT_DECKS.torpedoBoat.filter((id) => !isStubLine(id)));
   });
 
   it('NEVER deals a stub — the one place "authored but unbuilt" becomes "unofferable"', () => {
-    const dealt = new Set(buildDeck().cards);
-    for (const id of LINE_IDS) expect(dealt.has(id), id).toBe(!isStubLine(id));
+    for (const hull of SHIP_CLASS_IDS) {
+      const dealt = new Set(poolFor(hull).cards);
+      for (const id of dealt) expect(isStubLine(id), `${hull}:${id}`).toBe(false);
+    }
     expect(NON_STUB).toHaveLength(16);
   });
 
-  it('is 53 cards and IDENTICAL for every hull (interim: no per-hull composition yet)', () => {
-    const size = NON_STUB.reduce((n, id) => n + CATALOG[id].cap, 0);
-    expect(size).toBe(53);
-    expect(buildDeck().cards).toHaveLength(53);
-    // ...and it is a strict SUBSET of the 114-card catalog — the 61 stub cards
-    // are exactly what is missing.
-    expect(catalogCardCount() - size).toBe(61);
-    // buildDeck takes no hull argument at all, so "identical for every hull" is
-    // structural rather than asserted over three calls.
-    expect(buildDeck()).toEqual(buildDeck());
+  // THE DRAWABLE-SIZE TABLE (spec Design Notes): each default holds 16 stub
+  // cards (hullRepair 3 + shieldBlock 3 + smokeScreen 2 + chaff 2 + two stub
+  // weapon lines × 3) and the seed removes one copy → 40 − 16 − 1 = 23.
+  it.each([
+    ['torpedoBoat', 16, 23],
+    ['mineLayer', 16, 23],
+    ['battleship', 16, 23],
+  ] as const)('%s: 40 cards − %i stub cards − 1 carried copy = %i drawable', (hull, stubs, drawable) => {
+    const list = DEFAULT_DECKS[hull];
+    expect(list).toHaveLength(CONFIG.deck.size);
+    expect(list.filter((id) => isStubLine(id))).toHaveLength(stubs);
+    expect(poolFor(hull).cards).toHaveLength(drawable);
+    // ...and the stubs are still IN THE FROZEN LIST (amendment 11): the deck
+    // is the real deck; only the pool is short of them.
+    expect(new Set(list).size).toBeGreaterThan(new Set(poolFor(hull).cards).size);
   });
 
-  // THE CARRIED SEED (review gate, Story 8.1). A hull spawns HOLDING copy 1 of
-  // every equipment line whose weapon it already carries -- that IS v3's own
-  // semantics, copy 1 = the bare weapon. Without it the deck deals a copy 1
-  // the hull can never use: `slotFill` no-ops against an already-fitted
-  // weapon, so the pick costs a whole level and buys literally nothing.
   it('removes ONE copy of each CARRIED line (the hull already holds copy 1)', () => {
-    const deck = buildDeck(CATALOG, ['heavyTorpedo']);
-    expect(tally(deck.cards).get('heavyTorpedo')).toBe(CATALOG.heavyTorpedo.cap - 1);
-    expect(deck.cards).toHaveLength(52);
+    const deck = buildDeckState(DEFAULT_DECKS.torpedoBoat, ['heavyTorpedo']);
+    expect(tally(deck.cards).get('heavyTorpedo')).toBe(2); // 3 in the deck, 1 held
     // ...every OTHER line is untouched.
-    for (const id of NON_STUB) {
+    const bare = tally(buildDeckState(DEFAULT_DECKS.torpedoBoat).cards);
+    for (const [id, n] of tally(deck.cards)) {
       if (id === 'heavyTorpedo') continue;
-      expect(tally(deck.cards).get(id), id).toBe(CATALOG[id].cap);
+      expect(n, id).toBe(bare.get(id));
     }
   });
 
-  it('seeds the three real hull fits: TB 52, BS 51, ML 52', () => {
-    expect(buildDeck(CATALOG, ['heavyTorpedo']).cards).toHaveLength(52);
-    expect(buildDeck(CATALOG, ['broadside', 'starShells']).cards).toHaveLength(51);
-    expect(buildDeck(CATALOG, ['navalMines']).cards).toHaveLength(52);
+  it('ignores a carried line the list holds no copy of (stub, absent, junk) and removes one per repeat', () => {
+    const size = buildDeckState(DEFAULT_DECKS.torpedoBoat).cards.length;
+    expect(buildDeckState(DEFAULT_DECKS.torpedoBoat, ['lightTorpedo']).cards).toHaveLength(size); // stub: never dealt
+    expect(buildDeckState(DEFAULT_DECKS.torpedoBoat, ['broadside']).cards).toHaveLength(size); // not in the deck
+    expect(buildDeckState(DEFAULT_DECKS.torpedoBoat, ['nope' as LineId]).cards).toHaveLength(size);
+    expect(buildDeckState(DEFAULT_DECKS.torpedoBoat, ['heavyTorpedo', 'heavyTorpedo']).cards).toHaveLength(size - 2);
+    // Never negative: more carried than dealt removes what there is.
+    const four: LineId[] = ['heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo'];
+    const over = buildDeckState(DEFAULT_DECKS.torpedoBoat, four);
+    expect(tally(over.cards).get('heavyTorpedo')).toBeUndefined();
+    expect(over.cards).toHaveLength(size - 3);
   });
 
-  it('ignores a carried line it has no copies of (stub, junk, or repeated)', () => {
-    expect(buildDeck(CATALOG, ['lightTorpedo']).cards).toHaveLength(53); // stub: never dealt
-    expect(buildDeck(CATALOG, ['nope' as LineId]).cards).toHaveLength(53);
-    expect(buildDeck(CATALOG, ['heavyTorpedo', 'heavyTorpedo']).cards).toHaveLength(51);
+  it('drops an id the catalog does not know (fail-closed: nothing drawable rides an unknown id)', () => {
+    const deck = buildDeckState(['armor', 'junk', 'constructor', 'armor'] as unknown as LineId[]);
+    expect(deck.cards).toEqual(['armor', 'armor']);
   });
 
-  it('takes an injected catalog (the Story 8.2 seam) and honours `stub` in it', () => {
-    const deck = buildDeck(catalogOf([testLine('a', 2), testLine('b', 3, true), testLine('c', 1)]));
+  it('takes an injected catalog and honours `stub` in it', () => {
+    const cat = catalogOf([testLine('a', 2), testLine('b', 3, true), testLine('c', 1)]);
+    const deck = buildDeckState(['a', 'b', 'a', 'c', 'b'] as unknown as LineId[], [], cat);
     expect(deck.cards).toEqual(['a', 'a', 'c']);
+  });
+
+  it('is pure: the same inputs give an equal pool and the input list is untouched', () => {
+    const list = [...DEFAULT_DECKS.mineLayer];
+    expect(buildDeckState(list, ['navalMines'])).toEqual(buildDeckState(list, ['navalMines']));
+    expect(list).toEqual([...DEFAULT_DECKS.mineLayer]);
+    expect(Object.isFrozen(DEFAULT_DECKS.mineLayer)).toBe(true);
   });
 
   it('CONFIG.deck carries the AUTHORED-deck rules and nothing pity-shaped', () => {
     expect(CONFIG.deck).toEqual({ size: 40, maxEquipmentLines: 3 });
     expect('rareWeightBase' in CONFIG.deck).toBe(false);
     expect('rareWeightPerDryLevel' in CONFIG.deck).toBe(false);
+    // The 114-card catalog is what the three 40-card decks draw on.
+    expect(catalogCardCount()).toBe(114);
   });
 });
 
@@ -133,28 +175,30 @@ describe('drawOffer — distinct lines, weight by copies remaining, determinism'
   const rng = () => mulberry32(12345);
 
   it('draws CONFIG.offer.size DIFFERENT lines and takes NOTHING out of the pool', () => {
-    const deck = buildDeck();
+    const deck = tbPool();
     const { deck: after, offer } = drawOffer(deck, rng());
     expect(offer).toHaveLength(CONFIG.offer.size);
     expect(new Set(offer).size).toBe(offer.length);
     expect(after.cards).toEqual(deck.cards); // a draw is a READ
   });
 
-  it('never offers a STUB line, over many draws', () => {
-    const deck = buildDeck();
-    const stream = mulberry32(99);
-    for (let i = 0; i < 400; i += 1) {
-      for (const id of drawOffer(deck, stream).offer) expect(isStubLine(id), id).toBe(false);
+  it('never offers a STUB line, over many draws, from any default deck', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      const deck = poolFor(hull);
+      const stream = mulberry32(99);
+      for (let i = 0; i < 400; i += 1) {
+        for (const id of drawOffer(deck, stream).offer) expect(isStubLine(id), `${hull}:${id}`).toBe(false);
+      }
     }
   });
 
   it('is deterministic: the same rng seed yields the same offer', () => {
-    const deck = buildDeck();
+    const deck = tbPool();
     expect(drawOffer(deck, rng()).offer).toEqual(drawOffer(deck, rng()).offer);
   });
 
   it('advances the stream: consecutive draws off ONE rng are not all identical', () => {
-    const deck = buildDeck();
+    const deck = tbPool();
     const stream = mulberry32(7);
     const draws = [drawOffer(deck, stream).offer, drawOffer(deck, stream).offer, drawOffer(deck, stream).offer];
     expect(new Set(draws.map((d) => d.join(','))).size).toBeGreaterThan(1);
@@ -192,7 +236,7 @@ describe('drawOffer — distinct lines, weight by copies remaining, determinism'
 
 describe('the deck has no inflow — cards only ever LEAVE', () => {
   it('a draw never grows the pool and a fit shrinks it by exactly one', () => {
-    let deck = buildDeck();
+    let deck = tbPool();
     const start = deck.cards.length;
     deck = drawOffer(deck, mulberry32(1)).deck;
     expect(deck.cards).toHaveLength(start);
@@ -203,9 +247,11 @@ describe('the deck has no inflow — cards only ever LEAVE', () => {
 
 describe("consumeCard — the FIT, the deck's one and only outflow", () => {
   it('removes exactly ONE copy', () => {
-    const deck = buildDeck();
+    const deck = tbPool();
+    const before = tally(deck.cards).get('armor') ?? 0;
+    expect(before).toBe(3); // amendment 10: armor ×3 in every default
     const after = consumeCard(deck, 'armor');
-    expect(tally(after.cards).get('armor')).toBe(CATALOG.armor.cap - 1);
+    expect(tally(after.cards).get('armor')).toBe(before - 1);
     expect(after.cards).toHaveLength(deck.cards.length - 1);
   });
 
@@ -218,7 +264,7 @@ describe("consumeCard — the FIT, the deck's one and only outflow", () => {
   });
 
   it('a single-copy line, once fitted, can NEVER be drawn again (the cap is exact)', () => {
-    let deck = buildDeck();
+    let deck = tbPool();
     expect(tally(deck.cards).get('deckGunTurret')).toBe(1);
     deck = consumeCard(deck, 'deckGunTurret');
     const stream = mulberry32(31337);
@@ -230,7 +276,7 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
   /** Play the whole deck out: draw, take the first card, fit it, repeat. */
   function replay(seed: number): { picks: LineId[]; deck: DeckState } {
     const stream = mulberry32(seed);
-    let deck = buildDeck();
+    let deck = tbPool();
     const picks: LineId[] = [];
     for (let level = 0; level < 200; level += 1) {
       const drawn = drawOffer(deck, stream);
@@ -248,7 +294,7 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
       const { picks, deck } = replay(seed);
       const counts = tally(picks);
       for (const [id, n] of counts) expect(n, `${seed}:${id}`).toBeLessThanOrEqual(CATALOG[id].cap);
-      expect(picks.length, `${seed}`).toBe(53); // the whole deck plays out
+      expect(picks.length, `${seed}`).toBe(23); // the whole drawable pool plays out
       expect(deck.cards, `${seed}`).toEqual([]);
     }
   });

@@ -1828,6 +1828,14 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // spectator passthrough — fails here even if no verifier knows about it.
   const withoutYou = { ...f, you: undefined };
   expect(JSON.stringify(withoutYou)).not.toContain('repairHp');
+  // THE DECK NEVER RIDES THE WIRE (Story 8.2, epic-8 Anti-cheat): the
+  // server-private pool (`deck`), the frozen list (`deckList`) and the deck
+  // id (`deckId`) may appear as a KEY nowhere in ANY frame — `you` included,
+  // because `you.cards` and `you.offer` are the only card-shaped fields a
+  // captain may see. Key-shaped scan (with the quotes), because the deck-gun
+  // family's LINE IDS legitimately ride `offer`/`cards` as VALUES.
+  const wholeFrame = JSON.stringify(f);
+  for (const key of ['"deck"', '"deckList"', '"deckId"']) expect(wholeFrame).not.toContain(key);
   for (const c of f.contacts) {
     const target = w.ships.get(c.id)!;
     expect(target).toBeDefined();

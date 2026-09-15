@@ -18,6 +18,7 @@ import {
   sanitizeClassId,
   sanitizeHornId,
   zoneGroups,
+  type LineId,
   type RequeueMsg,
   type ResultsMsg,
   type Rng,
@@ -26,6 +27,8 @@ import {
 } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World } from '../game/world.js';
+import { loadDeckFor } from '../game/decks.js';
+import { admitDeck, checkAtDoor, deckRefusal } from './deckDoor.js';
 import { assignHue } from '../game/regatta.js';
 import { buildFrame } from '../game/frames.js';
 import {
@@ -803,7 +806,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const order = this.shuffledClasses();
     const count = CONFIG.map.playerCap - 1;
     for (let i = 0; i < count; i += 1) {
-      const rec = this.world.addBot(order[i % order.length]);
+      // Bots sail the SAME loader's answer as a captain (Story 8.2): with no
+      // account module, the hull's default deck. `deckFor` is a resolver
+      // because World.addBot may roll the hull itself (batchsim's rolled
+      // path); here the hull is dealt, so it is simply the same lookup.
+      const rec = this.world.addBot(order[i % order.length], undefined, (hull) => loadDeckFor(null, undefined, hull));
       const meta = new PlayerMeta();
       meta.id = rec.id;
       meta.name = rec.name;
@@ -942,6 +949,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // option, never a dev override — and handed straight to the ship record.
     // Fail-open to 'standard'; no roster/PlayerMeta field (amendment 52).
     const horn = sanitizeHornId(options.horn);
+    // THE DECK (Story 8.2) — resolved BEFORE anything is spawned or written,
+    // because a refusal THROWS: core then tears down just this client with
+    // nothing of it in the world or the roster to undo.
+    const { deck, source: deckSource } = this.resolveJoinDeck(client, options, classId);
     // A bot fleet was drawn BEFORE this captain arrived (Story 6.5), so its
     // callsigns were picked without knowing the player's. A shared name would
     // print two identical hulls in one kill feed with no way to tell them
@@ -952,7 +963,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // 13): the socket is the proof. Fleet hulls are world content spawned by
     // World itself and never reach this door; Story 6.4's AI captains will not
     // either.
-    this.world.addShip(client.sessionId, name, 'captain', classId, horn);
+    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, deck);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the
@@ -975,11 +986,44 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
     this.match?.notifyRosterChanged();
 
-    this.log.info('client.join', { sessionId: client.sessionId });
+    // `deckSource` (Story 8.2): 'seat' = the frozen list came off the queue's
+    // reservation `auth`; 'door' = this room loaded and checked it itself
+    // (Solo vs AI, dev direct join). Ops-only — never the deck's contents.
+    this.log.info('client.join', { sessionId: client.sessionId, deckSource });
     this.armJoiningDeadline(client);
     // /liveness (Story 6.6): the population moved. Publish-on-change, so a room
     // whose roster is stable never writes to the driver again.
     this.publishListing();
+  }
+
+  /**
+   * THE ARENA'S HALF OF THE DECK DOOR (Story 8.2). A queue-seated captain
+   * arrives with the frozen list on `client.auth.deck` — written by
+   * StandardQueueRoom into the reservation's server-only `auth` payload, which
+   * @colyseus/core hands back as `client.auth` (Room.mjs:1098-1099) — and it
+   * is used AS IS: no re-load, no substitution, but the four rules are run
+   * again (cheap, and a malformed server-written value is a BUG that must
+   * refuse loudly as `deck.illegal`, never sail a default in its place). A
+   * captain with no seat deck (Solo vs AI's `create('arena')`, the dev direct
+   * join) has the room load + check the deck itself through the same helper
+   * the queue uses. Either way a client `deck` key in the options refuses the
+   * join: options never carry a deck at this door.
+   */
+  private resolveJoinDeck(
+    client: Client,
+    options: JoinOptions,
+    hull: ShipClassId,
+  ): { deck: readonly LineId[]; source: 'seat' | 'door' } {
+    const auth: unknown = client.auth;
+    const fromSeat: unknown = typeof auth === 'object' && auth !== null ? (auth as { deck?: unknown }).deck : undefined;
+    if (fromSeat === undefined) {
+      const devEnabled = process.env.HC_DEV_OPTIONS === '1';
+      return { deck: admitDeck(options, hull, devEnabled, this.log, client.sessionId), source: 'door' };
+    }
+    if (Object.hasOwn(options, 'deck')) throw deckRefusal(this.log, 'clientSupplied', client.sessionId);
+    // A seat value that is not a list has no size — checkDeck says 'size'.
+    const list: readonly LineId[] = Array.isArray(fromSeat) ? (fromSeat as readonly LineId[]) : [];
+    return { deck: checkAtDoor(list, this.log, client.sessionId), source: 'seat' };
   }
 
   /**

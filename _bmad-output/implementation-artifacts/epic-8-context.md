@@ -65,7 +65,7 @@ One bottom-centre HUD cluster replaces both the bottom-left hotbar stack and the
 ## Cross-Story Dependencies
 
 - 8.0 lands alone and first; no deck code may share its PR.
-- 8.1 (catalog engine) precedes everything; 8.2 (deck rules, default decks, the door) needs it; 8.3 (draw) needs 8.2.
+- 8.1 (catalog engine) precedes everything; 8.2 (deck rules, default decks at amendment 10's counts, the door — the default decks are the frozen deck from 8.2 on, amendment 11) needs it; 8.3 (draw) needs 8.2. Drones never get a deck (amendment 12 — `FLEET_FIT` is struck).
 - 8.4 (damage gate + ordnance collector) is a no-wire prerequisite of 8.7, 8.13, 8.14, 8.15 and 8.16 and belongs to none of them.
 - 8.5 (nine slots) precedes 8.6 (the bar), which precedes 8.7 (consumables); 8.8 (heal as a card) needs 8.7; 8.10 (the opening) needs 8.3, 8.7 and 8.9.
 - Catalog content stories 8.12–8.16 all build on 8.1's stubbed lines plus 8.4/8.5.
@@ -85,3 +85,6 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 7. **The 29 `LINE_IDS` are locked** (Eric 2026-09-15) — see amendment 7 for the list; ids are wire contract.
 8. **Interim refit card shows the kind word in neutral colour** (Eric 2026-09-15); no tier ramp and no `◆n` category count until 8.6/8.7.
 9. **Version freeze lifted** (Eric 2026-09-15): one-time 0.18.1 at cycle 136, then +1 patch per landed cycle across epics; supersedes the 0.17.X ruling.
+10. **Default deck counts** (Eric 2026-09-15, spreadsheet): every hull `armor 3, speed 3, turning 3, radarSweep 3, reload 3, hullRepair 3, shieldBlock 3, smokeScreen 2, chaff 2, deckGun 2, deckGunTurret 1, deckGunBarrel 2` (30) + Torpedo Boat `lightTorpedo 3, heavyTorpedo 3, machineGun 3, acousticHoming 1` / Mine Layer `navalMines 3, captiveMines 3, flak 3, foulingMines 1` / Battleship `missile 3, monitor 3, starShells 3, dazzleShells 1`; 40 each, three equipment lines; unhomed: `supercavTorpedo, broadside, decoyBuoy, heatSeeking, phosphorShells`. Supersedes FR56's and catalog-v3 §1's counts (the Battleship drops HEAT SEEKING).
+11. **Default decks are the frozen deck from 8.2 on; stubs stay in the 40 but are never dealt** (Eric 2026-09-15) — 23 drawable cards per hull until 8.7–8.15 flip the stub flags, with no code change then. Rejected: keeping 8.1's interim all-lines deck.
+12. **Drones stay gun-only — `FLEET_FIT` is struck** (Eric 2026-09-15: *"I don't know what that FLEET_FIT thing is, that should not have been added to the epic. It was never even discussed with me."*). Epic-5 amendment 34 stands; nothing is built, drones get no deck and no cards; the `FLEET_FIT` clauses of epics.md Story 8.2 AC / Story 8.5 AC / FR45 / AR38 / AR52 are void.

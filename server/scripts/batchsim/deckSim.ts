@@ -45,15 +45,42 @@
 
 import {
   CATALOG,
+  DEFAULT_DECKS,
   SHIP_CLASS_IDS,
-  buildDeck,
+  buildDeckState,
   drawOffer,
+  effectiveStats,
+  lineForEquipment,
+  loadoutFor,
   mulberry32,
   consumeCard,
   type DeckState,
+  type LineId,
   type Rng,
   type ShipClassId,
 } from '@salvo/shared';
+
+/**
+ * THE CARRIED SEED of a hull's fresh fit (Story 8.1 review gate; mirrors
+ * World.carriedLines): copy 1 of every non-stub equipment line whose weapon
+ * the class fit already carries. The deck-only economy has no World, so it
+ * derives the seed the same way the World does — from the class loadout.
+ */
+export function carriedLinesFor(cls: ShipClassId): LineId[] {
+  const out: LineId[] = [];
+  for (const slot of loadoutFor(cls, effectiveStats(cls))) {
+    if (slot.equipmentId === null) continue;
+    const line = lineForEquipment(slot.equipmentId);
+    if (line !== undefined && line.stub !== true) out.push(line.id);
+  }
+  return out;
+}
+
+/** A hull's fresh drawable pool: its DEFAULT deck less stubs less its seed —
+ *  exactly what `World.addShip` deals for a captain at the door (Story 8.2). */
+export function defaultPoolFor(cls: ShipClassId): DeckState {
+  return buildDeckState(DEFAULT_DECKS[cls], carriedLinesFor(cls));
+}
 import { pickSpendChoice } from './spendPolicy.js';
 import { mixSeed, summarize, tally, type Summary } from './stats.js';
 
@@ -171,9 +198,10 @@ function playOneDraw(
 
 /** Play one full economy. */
 function playEconomy(cls: ShipClassId, rng: Rng, ledger: LineLedger): EconomyStats {
-  // The INTERIM deck (Story 8.1) is hull-independent; `cls` still labels the
-  // per-class ledger columns so the evidence is ready for Story 8.2's decks.
-  const st: EconomyState = { deck: buildDeck(), fitted: [] };
+  // Each class plays its own DEFAULT deck (Story 8.2): 23 drawable cards
+  // today, so an economy exhausts in ~23 draws and the per-class ledger
+  // columns are real per-hull evidence.
+  const st: EconomyState = { deck: defaultPoolFor(cls), fitted: [] };
   const stats: EconomyStats = { draws: 0, emptied: false, remainingByDraw: [], cappedLines: 0 };
   for (let draw = 1; draw <= ECONOMY_DRAW_CAP; draw += 1) {
     if (deckExhausted(st)) break;

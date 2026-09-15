@@ -25,6 +25,7 @@
 import {
   CATALOG,
   CONFIG,
+  DEFAULT_DECKS,
   SHIP_CLASS_IDS,
   zoneClosedAtMs,
   zoneGroups,
@@ -154,7 +155,11 @@ function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: num
     // battleship. On the rolled path (no forcing) a forced --bot-hull beats
     // the roster deal (args.ts refuses the ambiguous combinations), else the
     // roster policy deals as it does for captains.
-    ids.push(world.addBot(profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined, profile).id);
+    // Bots sail the hull's DEFAULT deck (Story 8.2) — the same list the arena's
+    // loader answers with no account module; resolved after the hull is dealt
+    // or rolled inside addBot.
+    const hull = profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined;
+    ids.push(world.addBot(hull, profile, (h) => DEFAULT_DECKS[h]).id);
   }
   return ids;
 }
@@ -447,8 +452,12 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   for (let i = 0; i < spec.captains; i += 1) {
     const id = `cap-${i + 1}`;
     captainIds.push(id);
-    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', rotate(offset, i));
-    controls.push(factory(id, mixSeed(matchSeed, 0x100 + i)));
+    // The control declares the deck it sails (Story 8.2: the pacifist control
+    // sails PACIFIST_DECK — zero equipment lines); the runner hands it to the
+    // World exactly as a door would hand a frozen list.
+    const control = factory(id, mixSeed(matchSeed, 0x100 + i));
+    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', rotate(offset, i), undefined, undefined, control.deck);
+    controls.push(control);
   }
   // THE BOT LOBBY — see buildBotLobby: there is no bot control and nothing
   // bot-shaped in the per-tick loop below. The roster policy deals the hull

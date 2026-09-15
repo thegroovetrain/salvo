@@ -604,6 +604,7 @@ export * from './sim/boost.js';
 export * from './sim/slow.js';
 export * from './sim/offers.js';
 export * from './sim/deck.js';
+export * from './sim/deckRules.js';
 export * from './sim/collision.js';
 export * from './sim/silhouette.js';
 export * from './sim/radarRaster.js';
