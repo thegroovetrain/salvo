@@ -2,8 +2,9 @@
 title: 'Story 8.0: Colyseus 0.18 Upgrade (floor story)'
 type: 'chore'
 created: '2026-09-14'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'ad1ed35f5cbd6b9e45a3e9d0f6ed3f3a0b90404f'
+final_revision: 'a16ecca'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -111,6 +112,27 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-09-14 — Review pass (Blind Hunter + Edge Case Hunter at session model, plus Codex `gpt-5.6-sol` cross-model review — gate PASS, 0 P1)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 0, medium 5, low 6)
+- defer: 3: (high 0, medium 1, low 2)
+- reject: 1
+- addressed_findings:
+  - `[medium]` `[patch]` (both hunters) fogSmoke band-accuracy assert was tautological — `blipsIn` pre-filtered to `< ATTRIBUTE_U` and the loop asserted the same bound → band phase now takes the UNFILTERED window and asserts no return in the 60–120u shell around the subject; fail-proven by shifting a paint 90u
+  - `[medium]` `[patch]` (both hunters) hard cover proven only at nominal park positions with 45u park slop → `parkShadowedBand()` re-evaluates `visibilityTo` on the actual parked poses, re-parks up to 3× per candidate over 3 candidates
+  - `[medium]` `[patch]` island filter ignored the 2×45u park tolerance → `PARK_TOL` declared once, reused by `settle`/`parkAcross`, folded into the truesight filter (run picked r=67u where r≤110 was previously admitted)
+  - `[medium]` `[patch]` leak assertion narrowed to the subject id lost any-hull coverage → every contact in every held frame must be within `SIGHT + 15` of the observer (the real `contactSignal` claim); subject clause kept
+  - `[medium]` `[patch]` (Codex) schema-cap registry guard compared a hand list to itself → derived from the schema module's real `Schema` exports, asserted both ways; fail-proven with a temporary third class
+  - `[low]` `[patch]` `blipsIn` with a null subject pose was vacuous → asserts the pose
+  - `[low]` `[patch]` combatSmoke done predicate satisfiable by a fleet hull sinking B → requires a `sunk` event with `id === B && by === A`
+  - `[low]` `[patch]` cap pin off by one (63 fields are legal; index 63 throws) → `toBeLessThanOrEqual(MAX_FIELDS)`, 63-legal and 64-throws probes
+  - `[low]` `[patch]` (Blind Hunter) `liveness.test.ts` router pin recorded a false invariant (`.extend` merges in 0.18) → rationale rewritten to declaration-completeness, citing better-call `router.mjs:117` and core `Server.mjs:152-159`
+  - `[low]` `[patch]` (Blind Hunter) intent contract promised a CHANGELOG entry the delivery skipped → `## [0.17.133]` entry added (renumbered `[0.17.134]` after the merge)
+  - `[low]` `[patch]` stale 0.17 line citations in `reconnect.test.ts` (×2), `soloThrottle.test.ts`, `connection.test.ts` (×3), `roomBindings.test.ts` (×3), `ArenaRoom.ts`, `livenessSmoke.mjs` → re-pinned to verified 0.18.13 / 0.18.2 lines
+- deferred (pre-existing, ledgered in `deferred-work.md`): reconnectSmoke's close path yields 1005 not 1006 on Node 22's global WebSocket; `onDrop` hold branch for a never-JOINED client; no `onUncaughtException` on `ArenaRoom` (one throwing tick kills the process — unchanged 0.17 → 0.18)
+- rejected: an orphaned `@colyseus/clock` 2.0.3 lockfile entry with no dependant (npm does not call it extraneous; a future full re-resolve drops it)
+
 ## Design Notes
 
 - The 0.17.44 baseline is a LATE 0.17: `onDrop`/`onReconnect`, `maxMessagesPerSecond`, `"type":"module"` and the deprecations of `setState`/`setPatchRate`/`setSeatReservationTime` are already in place, so the true delta is small. Verified byte-identical between 0.17.44 and 0.18: `@colyseus/tools` `config()`/`listen()`, `matchMaker.*`, `IRoomCache`, `ISeatReservation`, `static onAuth(token, options, context)`, `allowReconnection`, `ClientState`/`CloseCode`/`ErrorCode`, `Presence`, `createRouter`, the reconnection-token format, `patchRate` 50 ms, the 15 s seat reservation.
@@ -127,3 +149,17 @@ warnings: [oversized]
 - `HC_DEV_OPTIONS=1 PORT=<free> node server/scripts/<each>.mjs` -- expected: every smoke passes; matchSmoke flake A/B'd against baseline if it fails
 - `grep -rn "colyseus" server/src/game/` -- expected: no matches
 - `grep -rn "__globalEndpoints\|setSimulationInterval" server/src client/src` -- expected: no matches
+
+## Auto Run Result
+
+**Status:** done (2026-09-14, build cycle **134**, version **0.17.134** — the intent contract says 0.17.133 because that was the next number when the run started; PR #216 (the CLAUDE.md rewrite) landed on `development` as cycle 133 mid-run, so this cycle was renumbered at merge time and `origin/development` was merged into the branch.)
+
+**Summary:** Colyseus upgraded 0.17 → 0.18 across the monorepo, contained to the adapter layer: server on `colyseus` 0.18.5 / `@colyseus/core` 0.18.13 / `@colyseus/schema` 5.0.32 / `@colyseus/tools` 0.18.3, client on `@colyseus/sdk` 0.18.2 (sharing the same schema 5.0.32), with `@colyseus/auth` 0.18.2 / `@colyseus/database` 0.18.3 (exact pin) / `@colyseus/admin` 0.18.5 installed as unmounted `dependencies` and `postgres` + `drizzle-kit` deferred to Story 9.1 — all three by Eric ruling 2026-09-14 (epic-8 amendments 1–3). `setSimulationInterval` → `setTimestep` at its one call, `setMetadata` replace semantics documented and pinned, `PROTOCOL_VERSION` 49 → 50, 11 test files updated, 15 headless smokes green over real 0.18 sockets, `server/src/game/**` still imports zero Colyseus.
+
+**Files changed:** `server/package.json`, `client/package.json`, `package-lock.json` (0.18 set; only the Colyseus subtree re-resolved — npm 10.9.3 crashes on a lockfile-less resolve of this repo; `npm ci` proves the result); `shared/src/index.ts` (PV 50 + log line); `server/src/rooms/ArenaRoom.ts` (`setTimestep`, replace-semantics comment, 0.18 citations, `ArenaListingMeta` exported for the pin); `server/src/rooms/StandardQueueRoom.ts` (comments, `QueueListingMeta` exported); `server/src/app.config.ts`, `liveness.ts`, `metrics.ts`, `rooms/soloThrottle.ts` (comment honesty under 0.18); `client/src/net/connection.ts`, `resumeToken.ts`, `roomBindings.ts` (SDK 0.18.2 citations; no behaviour change); tests `liveness`, `solo`, `denials`, `operability`, `boarding`, `reconnect`, `soloThrottle`, `connection`, `roomBindings`, shared `barrel` + `radarRaster` (PV 50), new `server/src/__tests__/colyseus018.test.ts` (schema cap, PV gate, every-key listing writes); smokes `fogSmoke` (repaired for cycle-105 blip grammar, cycle-68 height-aware radar, fleet hulls; then hardened at the review gate), `combatSmoke` (300s budget after cycle-122 HP doubling; done predicate names both parties), `reconnectSmoke`, `loadTest`, `livenessSmoke` (citations); `VERSION`, root `package.json`, `CHANGELOG.md`, `_bmad-output/project-context.md`, both trackers, `deferred-work.md`, `epic-8-context.md`, `epic-8-context-amendments.md` (new). **`CLAUDE.md` is untouched** — every edit made to it mid-cycle was reverted on Eric's instruction and the file is now hook-frozen by PR #216.
+
+**Review findings breakdown:** Blind Hunter + Edge Case Hunter (session model) + Codex (`gpt-5.6-sol`, 87k tokens, gate PASS, 0 P1). 11 patches applied (5 medium: fogSmoke band-accuracy tautology, hard cover on nominal poses, park tolerance, leak coverage narrowed, self-referential schema registry; 6 low), 3 deferred (all pre-existing), 1 rejected, 0 intent gaps, 0 bad-spec loopbacks. Both hunters independently found the two fogSmoke defects; Codex alone found the registry tautology; Blind Hunter alone found the false router invariant and the CHANGELOG contract miss. Nobody found a runtime regression in the adapter layer, wire path or lockfile.
+
+**Verification performed:** `npm ci --include=dev` exit 0 from the resulting lockfile (the proof Render's `npm install --include=dev` build resolves); `npm run check` exit 0 on the merged tree — lint 0 errors, tsc clean ×3, **784 / 1745 / 3260** tests, plus PR #216's `check:hooks`; `npm ls` shows the ruled set exactly (core 0.18.13, schema 5.0.32 deduped to one copy for both sides); all 15 smokes PASS (matchSmoke first try, no flake); the three gate-patched smokes re-run green; server boots from `server/` and answers `/liveness`; `grep colyseus server/src/game/` empty; seat reservation verified NOT to call `onAuth` in 0.18.13 (`MatchMaker.mjs:438/:461` vs `callOnAuth` :509); SDK `onReconnect.invoke()` `Room.mjs:483` still precedes the token assignment `:485`.
+
+**Residual risks:** (1) the in-browser full match on the dev host is Eric's post-merge step, as it was for Story 0.1; (2) `weaponsSmoke.mjs` has a VACUOUS "torpedo never appeared as a blip" assertion (blips carry no id since cycle 105) — reported, not fixed, needs a ruling on geometric attribution; (3) `latencyHarness` advisory D1 agreement misses (60% vs the unratified 90% target) on the full run, pass at short runs — Eric's numbers; (4) fogSmoke's band oracle is an annulus, so a non-subject hull loitering 60–120u from the subject during the band window would false-fail (probabilistically excluded, not structurally — cost of a blip wire with no identity); (5) `MatchOverride` has no `fleet: false` dev switch, which would be the clean fix for (4); (6) wave 2 killed its own server with `pkill -f "tsx src/index.ts"`, a pattern kill — harmless here (no dev server was up) but the smoke runbook should name PIDs.
