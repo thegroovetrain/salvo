@@ -2,7 +2,7 @@
 title: 'Story 8.0: Colyseus 0.18 Upgrade (floor story)'
 type: 'chore'
 created: '2026-09-14'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'ad1ed35f5cbd6b9e45a3e9d0f6ed3f3a0b90404f'
 review_loop_iteration: 0
 followup_review_recommended: false

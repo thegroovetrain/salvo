@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.17.133] - 2026-09-14
+## [0.17.134] - 2026-09-14
 
 ### Changed
 - **Networking layer moved to Colyseus 0.18** — the game now runs on the current major of its networking framework on both server and client. Nothing about play changes; this is the floor Epic 8 (the deck) and Epic 9 (accounts) build on. The wire protocol is new (v50), so a stale browser tab from before the update needs a refresh.

@@ -1888,7 +1888,27 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   summary: The free per-level auto-heal (cycle 129) stays built and its fields stay under `CONFIG.damageControl` while the paid heal's numbers move to `hullRepair`. Its fate is the balance pass's call once bots sail v3 decks; nothing here deletes or keeps it by decision.
   evidence: gdd.md open note 14; `server/src/game/world.ts` `grantLevelHeal`.
 
-## 2026-09-14 — Story 8.0 Colyseus 0.18 upgrade (cycle 133): ledgered, not resolved
+- source_spec: `_bmad-output/implementation-artifacts/spec-claude-md-rewrite.md`
+  status: OPEN — interstitial chore, owner: gds-generate-project-context
+  summary: `_bmad-output/project-context.md` needs a full regeneration via `gds-generate-project-context` — only the facts current code directly contradicted were corrected at cycle 133 (PROTOCOL_VERSION, drawOffer/BoonOffer, the Equipment interface, the fleet-envelope identity test, the participants win-check rule, versioning, dates, and the new CLAUDE.md-frozen rule). The file is still substantively the 2026-07-17 generation and does not describe the boon deck, equipment loadouts, combat bots, sudden death, height-aware radar shadows, or the eighths ladder.
+  evidence: `_bmad-output/project-context.md` frontmatter `date:` corrected in place from 2026-07-17 to 2026-09-14 at cycle 133 without a full regeneration; spec-claude-md-rewrite.md R5.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-claude-md-rewrite.md` (R3)
+  status: OPEN — accepted limitation, Eric's call whether to close it
+  summary: The CLAUDE.md moratorium hook is a TRIPWIRE for DIRECT edits, not a wall. It sees one command string, so anything that keeps the target out of that string still passes: variable indirection (`p=CLAUDE; echo x > ${p}.md`), a symlink pointed at the file, an interpreter reading its program from stdin or from a script file whose CONTENTS never appear in the command, `sponge`/`ed`/`ex`/`rsync`/`curl -o` invoked under a name not on the verb list, and pathless history rewrites (`git reset --hard`, `git checkout -- .`, `git stash` with no path) which are deliberately out of scope because the bare form names no file. The candidate HARD stop is a content-based `PostToolUse` check — `git hash-object CLAUDE.md` against `git rev-parse HEAD:CLAUDE.md`, skipped under `HC_UNLOCK_CLAUDE_MD=1` — and it was NOT adopted: a `PostToolUse` hook fires AFTER the write, so it can only report or auto-revert, and auto-reverting would destroy Eric's own concurrent hand edits to the file (the one editor the moratorium exists to protect). Reporting-only was judged not worth a second mechanism. Also ledgered as ACCEPTED OVER-BREADTH in the other direction: the verb rule is target-scoped but not intent-aware, so a read through an interpreter or archiver is denied (`awk '{print}' CLAUDE.md`, `cp CLAUDE.md CLAUDE.local.md`, `tar -xf x.tar CLAUDE.md`) — use Read, `cat`, `grep`, `head`, `wc`, `sed -n` or `git diff/log/show` instead.
+  evidence: `.claude/hooks/protect-claude-md.sh` header ("SCOPE, STATED HONESTLY") and `.claude/hooks/protect-claude-md.test.sh` rows `Bash git reset without a path` (exit 0) and `Bash awk reading the file` (exit 2).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-claude-md-rewrite.md` (Eric ruling 2026-09-14: gstack retired)
+  status: OPEN — Eric's call; surfaced by the cycle-133 review gate
+  summary: Two client rigs still resolve Playwright from gstack's own install — `client/scripts/perfLib.mjs` and `client/scripts/readabilityCapture.mjs` look under `~/.claude/skills/gstack/node_modules/playwright-core` — so uninstalling gstack on the strength of "gstack is not used on this project" would silently break the perf and readability captures; they need a direct `playwright-core` devDependency (or a documented local install) before gstack can actually be removed from the machine.
+  evidence: `grep -n gstack client/scripts/perfLib.mjs client/scripts/readabilityCapture.mjs`; `.gitignore` and `eslint.config.js` still carry `.gstack/`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-claude-md-rewrite.md` (incidental, pre-existing)
+  status: OPEN — interstitial chore
+  summary: `_bmad-output/gds-workflow-status.yaml` does not parse as YAML (PyYAML ParserError at line 61) because a `next_expected` value contains literal `'\''` sequences — a shell single-quote-escaping artifact from an earlier cycle — instead of YAML's `''` doubled-quote escape; the file is read by humans and skills as text so nothing has broken, but any tool that loads it as YAML will fail until the value is re-quoted.
+  evidence: `python3 -c "import yaml; yaml.safe_load(open('_bmad-output/gds-workflow-status.yaml'))"` fails identically on `git show ad1ed35:_bmad-output/gds-workflow-status.yaml`, i.e. before cycle 133 touched the file.
+
+## 2026-09-14 — Story 8.0 Colyseus 0.18 upgrade (cycle 134): ledgered, not resolved
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
   status: OPEN — for Story 9.1

@@ -6,7 +6,7 @@ Format: numbered, dated, source-attributed. "Supersedes" names the exact plannin
 
 ---
 
-## Story 8.0 — Colyseus 0.18 Upgrade (cycle 133, 2026-09-14)
+## Story 8.0 — Colyseus 0.18 Upgrade (cycle 134, 2026-09-14)
 
 1. **`@colyseus/core` 0.18.13 and `@colyseus/schema` 5.0.32, not the AC's 0.18.12 / 5.0.27.** Eric ruling 2026-09-14 (AskUserQuestion, "Latest patches"). The story's pinned target set was registry-verified on 2026-09-09; core 0.18.13 shipped 2026-09-12 as a security fix in exactly the area the staging gate lives (*a room's `onAuth()` and plugin `onAuth` hooks now run when a client joins with a valid `@colyseus/auth` token*), and schema had moved to 5.0.32. Eric took the latest patches under his standing *"keep everything CURRENT"* ruling. **Supersedes** the version literals in epics.md Story 8.0 AC, AR19, and game-architecture.md D10 for those two packages ONLY; every other package installs at the version the AC lists (`colyseus` 0.18.5, `@colyseus/tools` 0.18.3, `@colyseus/sdk` 0.18.2, `@colyseus/auth` 0.18.2, `@colyseus/database` 0.18.3, `@colyseus/admin` 0.18.5, `@colyseus/monitor` 0.18.3, `@colyseus/playground` 0.18.4). The actually-resolved set is recorded in `spec-8-0-colyseus-0-18-upgrade.md`.
 
