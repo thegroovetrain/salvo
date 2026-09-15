@@ -2,11 +2,11 @@
 // state-null-iff-equipmentId-null invariant, and the per-hull fit (Stories
 // 1.6–1.8, 5.6). loadoutFor builds from a REAL effectiveStats() so pool sizes
 // match what the server writes on spawn/respawn/redeploy: the Torpedo Boat
-// fits [gun, torpedo, speedBoost, empty]; the Battleship fits
+// fits [gun, heavyTorpedo, speedBoost, empty]; the Battleship fits
 // [gun, broadside, starShells, empty]; the Mine Layer fits
-// [gun, mine, radarBuoy, empty] (Story 7-5 wave 2); a PvE fleet hull fits
+// [gun, navalMines, radarBuoy, empty] (Story 7-5 wave 2); a PvE fleet hull fits
 // [gun, empty, empty, empty] (Story 5.6, amendment 34 — gun-only self-defence
-// fit, superseding the old universal [gun, torpedo, mine, empty]). Also pins
+// fit, superseding the old universal [gun, heavyTorpedo, navalMines, empty]). Also pins
 // the EQUIPMENT_IS_WEAPON split — the single source server rows and the
 // client activation path read. Pure, zero I/O.
 
@@ -19,6 +19,7 @@ import {
   SLOT_GUN,
   SLOT_EXTRA,
   SLOT_ROLES,
+  EQUIPMENT_IDS,
   EQUIPMENT_IS_WEAPON,
   effectiveStats,
   equipmentMaxAmmo,
@@ -40,9 +41,9 @@ function statsFor(id: HullId): EffectiveStats {
  *  PvE fleet hulls fit no specials at all (amendment 34) and are excluded —
  *  see the dedicated drone-fit assertions below. */
 function expectedSpecials(id: HullId): [EquipmentId, EquipmentId] {
-  if (id === 'torpedoBoat') return ['torpedo', 'speedBoost'];
+  if (id === 'torpedoBoat') return ['heavyTorpedo', 'speedBoost'];
   if (id === 'battleship') return ['broadside', 'starShells'];
-  return ['mine', 'radarBuoy']; // mineLayer
+  return ['navalMines', 'radarBuoy']; // mineLayer
 }
 
 describe('slot-grammar constants', () => {
@@ -61,7 +62,7 @@ describe('slot-grammar constants', () => {
 });
 
 describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
-  it('marks every aimed-click weapon true; speedBoost is now the ONLY ability', () => {
+  it('marks every aimed-click weapon true; the two boosts are the only abilities', () => {
     // FLIPPED PIN (amendment 45): the mine is a click-aimed rear-arc WEAPON
     // again — prime, aim within CONFIG.mine.offset ± placeHalfArcDeg, click
     // places at the point up to placeRange. Supersedes the 1.8 stern drop.
@@ -69,15 +70,28 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
     // decoy is click-placed in that same rear sector, so it left the actSeq
     // ability channel for the fireSeq weapon channel — which leaves the speed
     // boost as the last instant activation in the game.
+    // WIDENED to catalog v3 (Story 8.1): the shipped torpedo/mine keep their
+    // behaviour under their v3 names, the seven unbuilt v3 weapons declare
+    // themselves aimed weapons ahead of their modules (8.13/8.14), and the v3
+    // `boost` placeholder joins `speedBoost` as a non-aimed activation.
     expect(EQUIPMENT_IS_WEAPON).toEqual({
       gun: true,
-      torpedo: true,
-      mine: true, // Story 2.8: click-aimed rear-arc placement (amendment 45)
-      speedBoost: false,
+      boost: false, // Story 8.9 builds the Shift ability
+      lightTorpedo: true,
+      heavyTorpedo: true,
+      supercavTorpedo: true,
+      navalMines: true, // Story 2.8: click-aimed rear-arc placement (amendment 45)
+      captiveMines: true,
+      missile: true,
+      machineGun: true,
+      flak: true,
+      monitor: true,
       broadside: true, // Story 7-5 wave 2: prime-then-click twin-sector barrage
       starShells: true, // Story 1.7: prime-then-click lit-zone flare
+      speedBoost: false,
       radarBuoy: true, // Story 7-5 wave 2: click-placed in the mine's rear sector
     });
+    expect(Object.keys(EQUIPMENT_IS_WEAPON)).toEqual([...EQUIPMENT_IDS]);
   });
 
   it('every value is a boolean (runtime completeness over EquipmentId)', () => {
@@ -88,10 +102,10 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
 });
 
 describe('loadoutFor — the per-hull fit (Stories 1.6–1.7)', () => {
-  it('the Torpedo Boat fits [gun, torpedo, speedBoost, empty]', () => {
+  it('the Torpedo Boat fits [gun, heavyTorpedo, speedBoost, empty]', () => {
     const stats = statsFor('torpedoBoat');
     const loadout = loadoutFor('torpedoBoat', stats);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'speedBoost', null]);
+    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'heavyTorpedo', 'speedBoost', null]);
     expect(loadout[2].state).toEqual({ n: equipmentMaxAmmo(stats, 'speedBoost'), reloadMsLeft: 0 });
     expect(loadout[2].state).toEqual({ n: CONFIG.speedBoost.maxAmmo, reloadMsLeft: 0 });
   });
@@ -106,17 +120,17 @@ describe('loadoutFor — the per-hull fit (Stories 1.6–1.7)', () => {
     expect(loadout[2].state).toEqual({ n: CONFIG.starShells.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('the Mine Layer fits [gun, mine, radarBuoy, empty] (Story 7-5 wave 2)', () => {
+  it('the Mine Layer fits [gun, navalMines, radarBuoy, empty] (Story 7-5 wave 2)', () => {
     const stats = statsFor('mineLayer');
     const loadout = loadoutFor('mineLayer', stats);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'mine', 'radarBuoy', null]);
-    expect(loadout[1].state).toEqual({ n: equipmentMaxAmmo(stats, 'mine'), reloadMsLeft: 0 });
+    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'navalMines', 'radarBuoy', null]);
+    expect(loadout[1].state).toEqual({ n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 });
     expect(loadout[1].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
     expect(loadout[2].state).toEqual({ n: equipmentMaxAmmo(stats, 'radarBuoy'), reloadMsLeft: 0 });
     expect(loadout[2].state).toEqual({ n: CONFIG.radarBuoy.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('every PvE fleet hull fits gun-only [gun, empty, empty, empty] (Story 5.6, amendment 34 — was the universal [gun, torpedo, mine, empty])', () => {
+  it('every PvE fleet hull fits gun-only [gun, empty, empty, empty] (Story 5.6, amendment 34 — was the universal [gun, heavyTorpedo, navalMines, empty])', () => {
     for (const id of HULL_IDS) {
       if (id === 'torpedoBoat' || id === 'battleship' || id === 'mineLayer') continue;
       const loadout = loadoutFor(id, statsFor(id));
@@ -162,9 +176,9 @@ describe('loadoutFor — the per-hull fit (Stories 1.6–1.7)', () => {
 describe('equipmentMaxAmmo / equipmentReloadMs cover speedBoost (from stats.boost)', () => {
   it('speedBoost pool + reload come from CONFIG.speedBoost', () => {
     const stats = statsFor('torpedoBoat');
-    expect(equipmentMaxAmmo(stats, 'speedBoost')).toBe(stats.boost.maxAmmo);
+    expect(equipmentMaxAmmo(stats, 'speedBoost')).toBe(stats.equipment.speedBoost.maxAmmo);
     expect(equipmentMaxAmmo(stats, 'speedBoost')).toBe(CONFIG.speedBoost.maxAmmo);
-    expect(equipmentReloadMs(stats, 'speedBoost')).toBe(stats.boost.reloadMs);
+    expect(equipmentReloadMs(stats, 'speedBoost')).toBe(stats.equipment.speedBoost.reloadMs);
     expect(equipmentReloadMs(stats, 'speedBoost')).toBe(CONFIG.speedBoost.reloadMs);
   });
 });
@@ -172,17 +186,17 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover speedBoost (from stats.boos
 describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells', () => {
   it('broadside pool + reload come from CONFIG.broadside (via stats.broadside)', () => {
     const stats = statsFor('battleship');
-    expect(equipmentMaxAmmo(stats, 'broadside')).toBe(stats.broadside.maxAmmo);
+    expect(equipmentMaxAmmo(stats, 'broadside')).toBe(stats.equipment.broadside.maxAmmo);
     expect(equipmentMaxAmmo(stats, 'broadside')).toBe(CONFIG.broadside.maxAmmo);
-    expect(equipmentReloadMs(stats, 'broadside')).toBe(stats.broadside.reloadMs);
+    expect(equipmentReloadMs(stats, 'broadside')).toBe(stats.equipment.broadside.reloadMs);
     expect(equipmentReloadMs(stats, 'broadside')).toBe(CONFIG.broadside.reloadMs);
   });
 
   it('starShells pool + reload come from CONFIG.starShells (via stats.starShells)', () => {
     const stats = statsFor('battleship');
-    expect(equipmentMaxAmmo(stats, 'starShells')).toBe(stats.starShells.maxAmmo);
+    expect(equipmentMaxAmmo(stats, 'starShells')).toBe(stats.equipment.starShells.maxAmmo);
     expect(equipmentMaxAmmo(stats, 'starShells')).toBe(CONFIG.starShells.maxAmmo);
-    expect(equipmentReloadMs(stats, 'starShells')).toBe(stats.starShells.reloadMs);
+    expect(equipmentReloadMs(stats, 'starShells')).toBe(stats.equipment.starShells.reloadMs);
     expect(equipmentReloadMs(stats, 'starShells')).toBe(CONFIG.starShells.reloadMs);
   });
 });
@@ -190,9 +204,9 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells', ()
 describe('equipmentMaxAmmo / equipmentReloadMs cover radarBuoy (Story 7-5 wave 2)', () => {
   it('radarBuoy pool + reload come from CONFIG.radarBuoy (via stats.radarBuoy)', () => {
     const stats = statsFor('mineLayer');
-    expect(equipmentMaxAmmo(stats, 'radarBuoy')).toBe(stats.radarBuoy.maxAmmo);
+    expect(equipmentMaxAmmo(stats, 'radarBuoy')).toBe(stats.equipment.radarBuoy.maxAmmo);
     expect(equipmentMaxAmmo(stats, 'radarBuoy')).toBe(CONFIG.radarBuoy.maxAmmo);
-    expect(equipmentReloadMs(stats, 'radarBuoy')).toBe(stats.radarBuoy.reloadMs);
+    expect(equipmentReloadMs(stats, 'radarBuoy')).toBe(stats.equipment.radarBuoy.reloadMs);
     expect(equipmentReloadMs(stats, 'radarBuoy')).toBe(CONFIG.radarBuoy.reloadMs);
   });
 });

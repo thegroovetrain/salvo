@@ -1,42 +1,42 @@
-// Boon effect engine (Story 2.5) + Boon Catalog v1 (Story 2.8). The 2.7-era
-// dummy-set pins FLIPPED DELIBERATELY to the ratified v1 catalog shape
-// (amendment 42, thinned by the 2026-08-04 global-cooldown ruling): 36 card
-// lines across 9 categories, rarity/copies as
-// physical scarcity, slotFill-only
-// acquisitions, healOnGrant on shipHull alone — all validated by the new
-// authoring-time validateBoonDef/validateCatalog (closing the 2.5 ledger
-// entry). The engine laws (two homes + hooks, fail-closed resolve, the
-// server-incremental vs client-replayed parity property) carry forward on the
-// new effectiveStats(cls, boons) signature.
+// THE CARD FOLD ENGINE (sim/effects.ts + sim/boons.ts) — the "two homes +
+// hooks" law under catalog v3. The CONTENT pins (29 lines, caps, kinds, the
+// stub set, the validator, order-independence) live in catalog.test.ts; this
+// suite is about the ENGINE:
+//   - the five-effect vocabulary, and that `slotReplace` is gone;
+//   - home 1: `stat` effects reach EffectiveStats and nothing else, through a
+//     GENERATED whitelist whose deliberate absences are pinned;
+//   - home 2: `slotFill` mutates the one LoadoutSlot[] and nothing else;
+//   - `doctrine` verbs, `behavior` hooks and `stock` (a total no-op today);
+//   - the parity property: the server's INCREMENTAL slot path and the client's
+//     REPLAYED `slotsWithCards` agree after any sequence of grants.
 
 import { describe, it, expect } from 'vitest';
 import {
-  BOON_CATALOG,
   BOON_STAT_PATHS,
+  CATALOG,
   CONFIG,
   DOCTRINE_MODES,
-  EQUIPMENT_CATEGORY,
-  NO_BOONS,
+  EQUIPMENT_INT_FIELDS,
+  EQUIPMENT_STAT_FIELDS,
+  EQUIPMENT_IDS,
+  LINE_IDS,
+  NO_CARDS,
   SLOT_EXTRA,
-  UNIVERSAL_CATEGORIES,
-  applyBoonStats,
+  applyCardStats,
   applySlotEffect,
-  boonBehaviors,
   boonStackCount,
+  cardBehaviors,
+  cardCounts,
   effectiveStats,
   equipmentMaxAmmo,
-  isAcquisitionDef,
   loadoutFor,
   mulberry32,
-  resolveBoons,
-  slotsWithBoons,
-  validateBoonDef,
-  validateCatalog,
-  type BoonCatalog,
-  type BoonDef,
+  slotsWithCards,
   type BoonEffect,
-  type BoonStatEffect,
+  type Catalog,
+  type CatalogLine,
   type EffectiveStats,
+  type LineId,
   type LoadoutSlot,
   type ShipClassId,
 } from '../index.js';
@@ -44,35 +44,33 @@ import {
 const TB = CONFIG.shipClasses.torpedoBoat;
 const BS = CONFIG.shipClasses.battleship;
 
-const def = (id: string, ...effects: BoonEffect[]): BoonDef => ({
-  id,
-  category: 'test',
-  rarity: 'common',
-  copies: 5,
-  effects,
+/** A one-copy test line carrying `effects` (never in the production catalog). */
+const line = (id: string, ...effects: BoonEffect[]): CatalogLine => ({
+  id: id as LineId,
+  kind: 'ladder',
+  cap: 1,
+  tiers: [effects],
 });
 
-// The local test boons — one per effect kind, plus combos. NEVER registered
-// in the production catalog: they resolve only through TEST_CATALOG below.
-const STAT_BOON = def('surgeEngines', { kind: 'stat', path: 'kinematics.maxSpeed', mult: 1.1 });
-const FILL_BOON = def('bolterRack', { kind: 'slotFill', equipmentId: 'torpedo' });
-const REPLACE_BOON = def('longLance', { kind: 'slotReplace', from: 'torpedo', to: 'mine' });
-const BEHAVIOR_BOON = def('stormRider', { kind: 'behavior', hookId: 'stormRider', params: { bonus: 5 } });
+/** Assemble an injectable catalog from test lines (insertion order kept). */
+function catalogOf(...lines: CatalogLine[]): Catalog {
+  const out: Record<string, CatalogLine> = {};
+  for (const l of lines) out[l.id] = l;
+  return out;
+}
 
-const TEST_CATALOG: BoonCatalog = {
-  surgeEngines: STAT_BOON,
-  bolterRack: FILL_BOON,
-  longLance: REPLACE_BOON,
-  stormRider: BEHAVIOR_BOON,
-};
+/** Fold one test line over a class. */
+const foldOne = (cls: typeof TB, l: CatalogLine): EffectiveStats =>
+  effectiveStats(cls, [l.id], catalogOf(l));
 
-/** Flatten an EffectiveStats tree into dotted-path -> scalar entries. */
-function flatten(stats: EffectiveStats): Map<string, number | string> {
-  const out = new Map<string, number | string>();
+/** Flatten an EffectiveStats tree into dotted-path -> scalar entries (booleans
+ *  are leaves — the doctrine verbs live there). */
+function flatten(stats: EffectiveStats): Map<string, number | string | boolean> {
+  const out = new Map<string, number | string | boolean>();
   const walk = (node: Record<string, unknown>, prefix: string): void => {
     for (const [key, value] of Object.entries(node)) {
       const path = prefix ? `${prefix}.${key}` : key;
-      if (typeof value === 'number' || typeof value === 'string') out.set(path, value);
+      if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') out.set(path, value);
       else walk(value as Record<string, unknown>, path);
     }
   };
@@ -80,412 +78,135 @@ function flatten(stats: EffectiveStats): Map<string, number | string> {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Boon Catalog v1 — the ratified content pins (amendment 42).
-// ---------------------------------------------------------------------------
-
-const ALL_DEFS = Object.values(BOON_CATALOG);
-
-/** The ratified rarity/copies table — the FINAL 29 lines (Story 7-5 wave 2:
- *  23 upgrade lines + 6 acquisitions). Wave 2 replaced two whole equipments:
- *  `cannonDamage`/`cannonArcing`/`cannonAp` gave way to `broadsideSpread` ×4 +
- *  `broadsideTurrets` ×2, `decoyDuration` to `buoyDuration` ×4 + `buoyGun` +
- *  `buoyJamming`, and `mineSelfPropelled` to `mineCaptive`. NO `exclusive`
- *  rarity survives anywhere in the table: the cannon pair was the tier's last
- *  user, and every doctrine card is now a plain `rare` verb that STACKS. */
-const SCARCITY: Record<string, { rarity: string; copies: number }> = {
-  gunBarrel: { rarity: 'rare', copies: 2 },
-  gunTurret: { rarity: 'rare', copies: 1 },
-  broadsideSpread: { rarity: 'common', copies: 4 },
-  broadsideTurrets: { rarity: 'rare', copies: 2 },
-  torpedoSpeed: { rarity: 'common', copies: 4 }, // the ratified ×4 ladder (60 → 80)
-  torpedoTube: { rarity: 'rare', copies: 1 },
-  torpedoHoming: { rarity: 'rare', copies: 1 },
-  mineBlast: { rarity: 'common', copies: 4 },
-  mineCaptive: { rarity: 'rare', copies: 1 },
-  minePropFouling: { rarity: 'rare', copies: 1 },
-  boostDuration: { rarity: 'common', copies: 4 },
-  boostSpeed: { rarity: 'common', copies: 2 },
-  starDuration: { rarity: 'common', copies: 4 },
-  starIncendiary: { rarity: 'rare', copies: 1 }, // PHOSPHOR SHELLS — display rename, id kept
-  starDazzle: { rarity: 'rare', copies: 1 },
-  buoyDuration: { rarity: 'common', copies: 4 },
-  buoyGun: { rarity: 'rare', copies: 1 },
-  buoyJamming: { rarity: 'rare', copies: 1 },
-  intelSweep: { rarity: 'common', copies: 5 },
-  shipSpeed: { rarity: 'common', copies: 4 },
-  shipHull: { rarity: 'common', copies: 4 },
-  shipCooldown: { rarity: 'common', copies: 5 }, // THE one global cooldown line, ×5 = 50% cap (Eric 2026-08-04)
-  acquireTorpedo: { rarity: 'rare', copies: 1 },
-  acquireMine: { rarity: 'rare', copies: 1 },
-  acquireStarShells: { rarity: 'rare', copies: 1 },
-  acquireBroadside: { rarity: 'rare', copies: 1 },
-  acquireRadarBuoy: { rarity: 'rare', copies: 1 },
-  acquireBoost: { rarity: 'rare', copies: 1 },
+const diff = (a: EffectiveStats, b: EffectiveStats): string[] => {
+  const before = flatten(a);
+  const after = flatten(b);
+  return [...after.keys()].filter((k) => after.get(k) !== before.get(k)).sort();
 };
 
-describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => {
-  it('ships exactly the 28 card lines of the scarcity table', () => {
-    expect(Object.keys(BOON_CATALOG).sort()).toEqual(Object.keys(SCARCITY).sort());
-    // 36 -> 35 (intel merge) -> 34 (cannonBlast deleted) -> 33 (mine ring cards
-    // merged) -> 28 (Story 7-5 wave 1: 7 deleted, 2 added) -> 29 (wave 2: 5
-    // deleted, 6 added) -> 28 (RANGE I-IV deleted, Eric 2026-08-20)
-    // = 22 upgrade lines + 6 acquisitions.
-    expect(ALL_DEFS).toHaveLength(28);
-    expect(ALL_DEFS.filter((d) => !isAcquisitionDef(d))).toHaveLength(22);
-  });
+// ---------------------------------------------------------------------------
+// THE GENERATED WHITELIST (sim/effects.ts).
+// ---------------------------------------------------------------------------
 
-  // THE DECK ARITHMETIC, VERIFIED BY EXECUTION rather than by table (Story 7-5
-  // wave 2): every EQUIPMENT subdeck is exactly 6 CARDS and every hull's deck is
-  // exactly 37 (was 41 before RANGE I-IV was deleted). The `guns` category is
-  // UNIVERSAL rather than an equipment subdeck (it is in every deck regardless
-  // of fit) and carries 3.
-  it('every equipment subdeck totals exactly 6 cards; the universal three total 21', () => {
-    const cardsIn = (category: string): number =>
-      ALL_DEFS.filter((d) => d.category === category && !isAcquisitionDef(d)).reduce((n, d) => n + d.copies, 0);
-    for (const category of ['torpedoes', 'mines', 'speedBoost', 'starShells', 'broadside', 'radarBuoy']) {
-      expect(cardsIn(category), category).toBe(6);
+describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)', () => {
+  it('is exactly the top-level paths plus every equipment.<id>.<field>', () => {
+    const expected: string[] = [
+      'maxHp', 'radarRange', 'sweepRpm', 'cooldownScale',
+      'kinematics.maxSpeed', 'kinematics.reverseSpeed', 'kinematics.accel',
+      'kinematics.decel', 'kinematics.turnRate', 'kinematics.steerageSpeed',
+    ];
+    for (const id of EQUIPMENT_IDS) {
+      for (const f of EQUIPMENT_STAT_FIELDS[id] as readonly string[]) expected.push(`equipment.${id}.${f}`);
     }
-    expect(cardsIn('intel') + cardsIn('ship') + cardsIn('guns')).toBe(21);
+    expect([...BOON_STAT_PATHS]).toEqual(expected);
+    expect(new Set(BOON_STAT_PATHS).size).toBe(BOON_STAT_PATHS.length); // no duplicates
   });
 
-  it('spans exactly the 9 categories', () => {
-    expect(new Set(ALL_DEFS.map((d) => d.category))).toEqual(
-      new Set(['guns', 'broadside', 'torpedoes', 'mines', 'speedBoost', 'starShells', 'radarBuoy', 'intel', 'ship']),
-    );
+  it('covers EVERY EquipmentId (the generator is total, so a new id cannot be missed)', () => {
+    expect(Object.keys(EQUIPMENT_STAT_FIELDS).sort()).toEqual([...EQUIPMENT_IDS].sort());
   });
 
-  it('every line carries its ratified rarity and copy count', () => {
-    for (const [id, expected] of Object.entries(SCARCITY)) {
-      const d = BOON_CATALOG[id];
-      expect({ rarity: d.rarity, copies: d.copies }, id).toEqual(expected);
-    }
-  });
-
-  it('is keyed by its own id, with camelCase ids (the registry-id convention)', () => {
-    for (const [key, d] of Object.entries(BOON_CATALOG)) {
-      expect(d.id).toBe(key);
-      expect(key).toMatch(/^[a-z][A-Za-z0-9]*$/);
-    }
-  });
-
-  it('the production catalog VALIDATES clean (validateCatalog — the 2.5 ledger entry closed)', () => {
-    expect(validateCatalog(BOON_CATALOG)).toEqual([]);
-    expect(validateCatalog()).toEqual([]); // default arg = the production catalog
-  });
-
-  // RETIRED, both of them (Story 7-5 wave 2): 'the ONE surviving exclusive pair
-  // is symmetric, same-weapon doctrine cards' and 'exclusiveWith and the
-  // exclusive tier still imply each other'. They tested a MECHANISM that no
-  // longer exists — `BoonDef.exclusiveWith` left the type with the cannon pair
-  // that was its last user (R2.6), so there is no link to be symmetric and no
-  // rival to require. What replaces them is one ABSENCE pin: the field cannot
-  // come back by accident, and no card in the catalog excludes another.
-  it('NO card excludes another — the exclusivity mechanism is gone end to end', () => {
-    expect(ALL_DEFS.filter((d) => d.rarity === 'exclusive')).toEqual([]);
-    for (const d of ALL_DEFS) {
-      expect(Object.hasOwn(d, 'exclusiveWith'), d.id).toBe(false);
-    }
-    // Every doctrine card is a plain `rare` VERB that stacks with its siblings.
-    for (const id of ['torpedoHoming', 'minePropFouling', 'mineCaptive', 'starIncendiary', 'starDazzle', 'buoyGun', 'buoyJamming']) {
-      expect(BOON_CATALOG[id].rarity, id).toBe('rare');
-      expect(BOON_CATALOG[id].effects.some((e) => e.kind === 'doctrine'), id).toBe(true);
+  // THE DELIBERATE ABSENCES. Each is DERIVED post-fold, so a card addressing it
+  // would be a second derivation — the whole reason the whitelist exists.
+  it('pins the derived paths ABSENT: sightRange, sweepPeriodMs, every rangeU, the broadside arcs, every triggerRadius, every tier', () => {
+    const absent = [
+      'sightRange',
+      'sweepPeriodMs',
+      'equipment.gun.rangeU',
+      'equipment.starShells.rangeU',
+      'equipment.broadside.rangeU',
+      'equipment.broadside.traverseRad',
+      'equipment.broadside.mountSpreadRad',
+      'equipment.navalMines.triggerRadius',
+      'equipment.captiveMines.triggerRadius',
+    ];
+    for (const path of absent) expect(BOON_STAT_PATHS, path).not.toContain(path);
+    // `tier` is derived from the COPY COUNT, never from an effect: a card that
+    // could write it would break the reload step's arithmetic.
+    for (const id of EQUIPMENT_IDS) expect(BOON_STAT_PATHS, id).not.toContain(`equipment.${id}.tier`);
+    // ...and no doctrine verb is addressable as a stat.
+    for (const [weapon, verbs] of Object.entries(DOCTRINE_MODES)) {
+      for (const v of verbs as readonly string[]) expect(BOON_STAT_PATHS).not.toContain(`equipment.${weapon}.${v}`);
     }
   });
 
-  it('the 6 acquisitions are rare ×1, slotFill-ONLY, in their equipment category', () => {
-    const acquisitions = ALL_DEFS.filter((d) => isAcquisitionDef(d));
-    expect(acquisitions.map((d) => d.id).sort()).toEqual([
-      'acquireBoost',
-      'acquireBroadside',
-      'acquireMine',
-      'acquireRadarBuoy',
-      'acquireStarShells',
-      'acquireTorpedo',
-    ]);
-    for (const d of acquisitions) {
-      expect(d.rarity, d.id).toBe('rare');
-      expect(d.copies, d.id).toBe(1);
-      expect(d.effects, d.id).toHaveLength(1);
-      const e = d.effects[0];
-      expect(e.kind, d.id).toBe('slotFill');
-      if (e.kind === 'slotFill') expect(d.category, d.id).toBe(EQUIPMENT_CATEGORY[e.equipmentId]);
-    }
-    // Every acquirable equipment except the universal gun has exactly one card.
-    const targets = acquisitions.map((d) => (d.effects[0].kind === 'slotFill' ? d.effects[0].equipmentId : ''));
-    expect(targets.sort()).toEqual(['broadside', 'mine', 'radarBuoy', 'speedBoost', 'starShells', 'torpedo']);
-  });
-
-  it('healOnGrant rides shipHull and NOTHING else', () => {
-    for (const d of ALL_DEFS) {
-      expect(d.healOnGrant === true, d.id).toBe(d.id === 'shipHull');
-    }
-  });
-
-  it('every stat effect addresses a whitelisted path (and the whitelist has no derived/mode paths)', () => {
-    for (const d of ALL_DEFS) {
-      for (const e of d.effects) {
-        if (e.kind === 'stat') expect(BOON_STAT_PATHS as readonly string[], d.id).toContain(e.path);
+  it('keeps the WHITELISTED-BUT-UNWRITTEN paths (a stat with no card is still addressable in principle)', () => {
+    const written = new Set<string>();
+    for (const id of LINE_IDS) {
+      for (const tier of CATALOG[id].tiers) {
+        for (const e of tier) if (e.kind === 'stat') written.add(e.path);
       }
     }
-    expect(BOON_STAT_PATHS).not.toContain('sweepPeriodMs'); // derived — never addressable
-    // No doctrine field is stat-addressable. The cannon's `mode` enum is gone
-    // (wave 2), so this is now a pure list of VERB BOOLEANS — `mode` stays in
-    // the list as a guard against any future enum sneaking back in.
-    const doctrineFields = ['mode', 'homing', 'propFouling', 'captive', 'phosphor', 'dazzle', 'jamming'];
-    for (const path of BOON_STAT_PATHS) {
-      for (const f of doctrineFields) expect(path.endsWith(`.${f}`), path).toBe(false);
+    // Catalog v3 authors five stat paths; the rest stand ready for 8.12–8.16.
+    expect([...written].sort()).toEqual([
+      'cooldownScale', 'equipment.gun.barrels', 'equipment.gun.damage', 'equipment.gun.maxAmmo',
+      'kinematics.maxSpeed', 'kinematics.turnRate', 'maxHp', 'sweepRpm',
+    ].sort());
+    for (const path of ['radarRange', 'equipment.heavyTorpedo.speed', 'equipment.navalMines.blastRadius']) {
+      expect(BOON_STAT_PATHS, path).toContain(path);
+      expect(written.has(path), path).toBe(false);
     }
   });
 
-  // The established shape (the cycle-93 FRAGMENTATION CASING precedent), now
-  // load-bearing for EIGHT paths rather than the seven reloads alone: a stat
-  // whose card was deleted keeps its whitelisted path so a future line can land
-  // without touching the whitelist. Only a stat that became DERIVED leaves.
-  // `radarRange` joined the list when RANGE I-IV was deleted (Eric 2026-08-20).
-  it('the deleted lines\' stat paths STAY whitelisted, unwritten', () => {
-    const orphaned = ['radarRange', 'gun.damage', 'torpedo.damage', 'mine.damage', 'mine.maxLive', 'starShells.litRadius', 'boost.maxAmmo', 'kinematics.reverseSpeed'];
-    for (const path of orphaned) {
-      expect(BOON_STAT_PATHS as readonly string[], path).toContain(path);
-      const writers = ALL_DEFS.filter((d) => d.effects.some((e) => e.kind === 'stat' && e.path === path));
-      expect(writers.map((d) => d.id), path).toEqual([]);
-    }
-    // ...while the DERIVED ones are structurally unaddressable, as before.
-    expect(BOON_STAT_PATHS).not.toContain('sightRange');
-    expect(BOON_STAT_PATHS).not.toContain('mine.triggerRadius');
+  it('EQUIPMENT_INT_FIELDS names the integer stats the clamp floors once', () => {
+    expect([...EQUIPMENT_INT_FIELDS]).toEqual(['maxAmmo', 'maxLive', 'barrels', 'turrets']);
   });
 
-  it('FLIPPED PIN: gun.maxAmmo IS whitelisted now (the single-shot pin retired knowingly)', () => {
-    expect(BOON_STAT_PATHS).toContain('gun.maxAmmo');
-    expect(BOON_STAT_PATHS).toContain('gun.barrels');
-    expect(BOON_STAT_PATHS).toContain('gun.damage'); // damage promoted onto EffectiveStats
-  });
-
-  it('WHITELIST SHRINK: every rangeU is OFF the whitelist (derived from radarRange, brainstorm 2026-07-30)', () => {
-    expect(BOON_STAT_PATHS).not.toContain('gun.rangeU');
-    expect(BOON_STAT_PATHS).not.toContain('starShells.rangeU');
-    // The broadside's rangeU is derived too — at the 5/8 rung rather than 8/8
-    // (Story 7-5 wave 2) — and so is its per-turret traverse, which reads the
-    // authored ladder off the stat-addressable SPREAD rung.
-    expect(BOON_STAT_PATHS).not.toContain('broadside.rangeU');
-    expect(BOON_STAT_PATHS).not.toContain('broadside.traverseRad');
-    // Its 2026-08-27 sibling: the SPREAD rung now drives the MOUNT spread too,
-    // and for the same reason a card must never address it directly.
-    expect(BOON_STAT_PATHS).not.toContain('broadside.mountSpreadRad');
-    expect(BOON_STAT_PATHS).toContain('broadside.spreadRung');
-  });
-
-  it('the universal categories are intel + ship + guns; equipment categories map 1:1', () => {
-    expect(UNIVERSAL_CATEGORIES).toEqual(['intel', 'ship', 'guns']);
-    expect(EQUIPMENT_CATEGORY).toEqual({
-      gun: 'guns',
-      torpedo: 'torpedoes',
-      mine: 'mines',
-      speedBoost: 'speedBoost',
-      broadside: 'broadside',
-      starShells: 'starShells',
-      radarBuoy: 'radarBuoy',
-    });
-    // The verb vocabulary. EVERY entry is now the NAME OF A BOOLEAN FIELD on
-    // EffectiveStats — the cannon's `mode` enum was the last exception and died
-    // with the weapon (Story 7-5 wave 2). SELF-PROPELLED became CAPTIVE, and the
-    // radar buoy brings two verbs of its own.
+  it('DOCTRINE_MODES is keyed by EquipmentId and carries only verbs a v3 add-on grants', () => {
     expect(DOCTRINE_MODES).toEqual({
-      torpedo: ['homing'],
-      mine: ['propFouling', 'captive'],
+      lightTorpedo: ['homing'],
+      heavyTorpedo: ['homing'],
+      navalMines: ['propFouling'],
+      missile: ['homing'],
       starShells: ['phosphor', 'dazzle'],
-      radarBuoy: ['gun', 'jamming'],
     });
-  });
-
-  it('is deep-frozen: no def can be smuggled in at runtime', () => {
-    expect(Object.isFrozen(BOON_CATALOG)).toBe(true);
-    expect(() => {
-      (BOON_CATALOG as Record<string, unknown>).injected = STAT_BOON;
-    }).toThrow(TypeError);
-    for (const d of ALL_DEFS) expect(Object.isFrozen(d)).toBe(true);
-  });
-
-  it('NO_BOONS is the frozen shared zero-boon identity', () => {
-    expect(NO_BOONS).toEqual([]);
-    expect(Object.isFrozen(NO_BOONS)).toBe(true);
+    for (const weapon of Object.keys(DOCTRINE_MODES)) expect(EQUIPMENT_IDS).toContain(weapon);
+    // The radar buoy's gun/jamming verbs left with the buoy (catalog-v3 R1) and
+    // `captive` left because CAPTIVE MINES became its own equipment line (R25).
+    expect('radarBuoy' in DOCTRINE_MODES).toBe(false);
+    expect(DOCTRINE_MODES.navalMines).not.toContain('captive');
   });
 });
 
 // ---------------------------------------------------------------------------
-// validateBoonDef — the authoring-time gate rejects malformed defs.
+// Home 1: stat effects.
 // ---------------------------------------------------------------------------
 
-describe('validateBoonDef — authoring-time rejection cases', () => {
-  // `gunDamage` carried this role until Story 7-5 wave 1 deleted it; any plain
-  // additive common line does the job. `intelSweep` moves `sweepRpm`, not
-  // `maxHp`, which is what the healOnGrant rejection case below needs.
-  const base = BOON_CATALOG.intelSweep;
-
-  it('accepts every production def against the production catalog', () => {
-    for (const d of ALL_DEFS) expect(validateBoonDef(d, BOON_CATALOG), d.id).toEqual([]);
+describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
+  it('a mult stat card moves EXACTLY its targeted path (flatten diff), nothing else', () => {
+    const l = line('t', { kind: 'stat', path: 'kinematics.maxSpeed', mult: 1.1 });
+    const s = foldOne(TB, l);
+    expect(diff(effectiveStats(TB), s)).toEqual(['kinematics.maxSpeed']);
+    expect(s.kinematics.maxSpeed).toBeCloseTo(TB.kinematics.maxSpeed * 1.1, 9);
   });
 
-  it('rejects an off-whitelist stat path', () => {
-    const bad = { ...base, effects: [{ kind: 'stat', path: 'sweepPeriodMs', add: 1 }] } as unknown as BoonDef;
-    expect(validateBoonDef(bad, BOON_CATALOG)).not.toEqual([]);
+  it('a THREE-SEGMENT equipment path resolves (the 8.1 walk), and only that row moves', () => {
+    const l = line('t', { kind: 'stat', path: 'equipment.heavyTorpedo.speed', add: 5 });
+    const s = foldOne(TB, l);
+    expect(diff(effectiveStats(TB), s)).toEqual(['equipment.heavyTorpedo.speed']);
+    expect(s.equipment.heavyTorpedo.speed).toBe(CONFIG.torpedo.speed + 5);
+    expect(s.equipment.lightTorpedo.speed).toBe(45); // the sibling row is untouched
   });
 
-  it('rejects non-finite / non-positive stat values and moves-nothing effects', () => {
-    const cases = [
-      { kind: 'stat', path: 'maxHp', mult: 0 },
-      { kind: 'stat', path: 'maxHp', mult: NaN },
-      { kind: 'stat', path: 'maxHp', add: Infinity },
-      { kind: 'stat', path: 'maxHp', add: 0 },
-      { kind: 'stat', path: 'maxHp' },
-    ];
-    for (const e of cases) {
-      const bad = { ...base, effects: [e] } as unknown as BoonDef;
-      expect(validateBoonDef(bad, BOON_CATALOG), JSON.stringify(e)).not.toEqual([]);
-    }
-  });
-
-  it('rejects empty effects, non-integer/zero copies, and a multi-copy exclusive', () => {
-    expect(validateBoonDef({ ...base, effects: [] }, BOON_CATALOG)).not.toEqual([]);
-    expect(validateBoonDef({ ...base, copies: 0 }, BOON_CATALOG)).not.toEqual([]);
-    expect(validateBoonDef({ ...base, copies: 1.5 }, BOON_CATALOG)).not.toEqual([]);
-    // The `exclusive` TIER survives as a scarcity label with no user in the
-    // catalog (Story 7-5 wave 2), and its 1-copy rule is still enforced — so a
-    // future exclusive cannot ship malformed. Built by hand now that no
-    // production def carries the rarity.
-    expect(validateBoonDef({ ...base, rarity: 'exclusive', copies: 2 } as BoonDef, BOON_CATALOG)).not.toEqual([]);
-  });
-
-  // RETIRED (Story 7-5 wave 2): 'rejects an asymmetric or wrong-weapon
-  // exclusive link'. `BoonDef.exclusiveWith` left the type with the cannon
-  // pair, so there is no link to author wrongly — the whole validator it
-  // exercised (validateExclusiveLink/validateRival) is deleted. The catalog-wide
-  // absence pin above is what guards the field's return.
-
-  // RETIRED CLAUSE, named rather than quietly dropped: this test used to also
-  // assert that a doctrine effect at non-exclusive rarity is rejected. Story
-  // 7-5 wave 1 makes that the NORMAL case — every doctrine line is a `rare`
-  // verb card — so the clause is gone. The unknown-weapon and unknown-verb
-  // rejections, which are the actual fail-closed gate, stand.
-  it('rejects unknown doctrine weapons and unknown verbs', () => {
-    const badMode = { ...BOON_CATALOG.mineCaptive, effects: [{ kind: 'doctrine', weapon: 'mine', mode: 'nuclear' }] } as unknown as BoonDef;
-    expect(validateBoonDef(badMode, BOON_CATALOG)).not.toEqual([]);
-    const badWeapon = { ...BOON_CATALOG.mineCaptive, effects: [{ kind: 'doctrine', weapon: 'gun', mode: 'captive' }] } as unknown as BoonDef;
-    expect(validateBoonDef(badWeapon, BOON_CATALOG)).not.toEqual([]);
-    // The DELETED weapon and verb are rejected exactly like any other unknown.
-    const goneWeapon = { ...BOON_CATALOG.mineCaptive, effects: [{ kind: 'doctrine', weapon: 'cannon', mode: 'ap' }] } as unknown as BoonDef;
-    expect(validateBoonDef(goneWeapon, BOON_CATALOG)).not.toEqual([]);
-    const goneVerb = { ...BOON_CATALOG.mineCaptive, effects: [{ kind: 'doctrine', weapon: 'mine', mode: 'selfPropelled' }] } as unknown as BoonDef;
-    expect(validateBoonDef(goneVerb, BOON_CATALOG)).not.toEqual([]);
-    // The RETIRED verb names are rejected exactly like any other unknown.
-    const retired = { ...BOON_CATALOG.starDazzle, effects: [{ kind: 'doctrine', weapon: 'starShells', mode: 'incendiary' }] } as unknown as BoonDef;
-    expect(validateBoonDef(retired, BOON_CATALOG)).not.toEqual([]);
-    const deleted = { ...BOON_CATALOG.torpedoHoming, effects: [{ kind: 'doctrine', weapon: 'torpedo', mode: 'command' }] } as unknown as BoonDef;
-    expect(validateBoonDef(deleted, BOON_CATALOG)).not.toEqual([]);
-    // ...and a `rare` doctrine card is now perfectly legal.
-    expect(validateBoonDef(BOON_CATALOG.starDazzle, BOON_CATALOG)).toEqual([]);
-  });
-
-  it('rejects slotFill/slotReplace of unknown equipment and healOnGrant without a heal', () => {
-    const badFill = { ...base, effects: [{ kind: 'slotFill', equipmentId: 'railgun' }] } as unknown as BoonDef;
-    expect(validateBoonDef(badFill, BOON_CATALOG)).not.toEqual([]);
-    const badHeal = { ...base, healOnGrant: true } as BoonDef; // intelSweep moves sweepRpm, not maxHp
-    expect(validateBoonDef(badHeal, BOON_CATALOG)).not.toEqual([]);
-  });
-
-  it('validateCatalog flags a key/id mismatch', () => {
-    const skewed: BoonCatalog = { wrongKey: BOON_CATALOG.intelSweep };
-    expect(validateCatalog(skewed)).not.toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// resolveBoons + boonStackCount — fail-closed id -> def, occurrence stacking.
-// ---------------------------------------------------------------------------
-
-describe('resolveBoons — fail-closed resolve', () => {
-  it('drops unknown ids silently and keeps known ids in list order', () => {
-    const defs = resolveBoons(['junk', 'surgeEngines', 'alsoJunk', 'bolterRack'], TEST_CATALOG);
-    expect(defs).toEqual([STAT_BOON, FILL_BOON]);
-  });
-
-  it('returns the NO_BOONS identity (same reference) for [] and for all-unknown lists', () => {
-    expect(resolveBoons([], TEST_CATALOG)).toBe(NO_BOONS);
-    expect(resolveBoons(['junk', 'junk2'], TEST_CATALOG)).toBe(NO_BOONS);
-  });
-
-  it('REPEATED ids resolve each time — stacking rides occurrence (the deck copy law)', () => {
-    expect(resolveBoons(['surgeEngines', 'surgeEngines'], TEST_CATALOG)).toEqual([STAT_BOON, STAT_BOON]);
-    const stacked = resolveBoons(['torpedoSpeed', 'torpedoSpeed', 'torpedoSpeed']);
-    expect(stacked).toHaveLength(3);
-    expect(effectiveStats(TB, stacked).torpedo.speed).toBe(CONFIG.torpedo.speed + 15);
-  });
-
-  it('boonStackCount counts occurrences over ids AND defs', () => {
-    expect(boonStackCount(['torpedoSpeed', 'shipHull', 'torpedoSpeed'], 'torpedoSpeed')).toBe(2);
-    expect(boonStackCount(resolveBoons(['torpedoSpeed', 'shipHull', 'torpedoSpeed']), 'torpedoSpeed')).toBe(2);
-    expect(boonStackCount([], 'torpedoSpeed')).toBe(0);
-    expect(boonStackCount(['shipHull'], 'torpedoSpeed')).toBe(0);
-  });
-
-  it('the seven DELETED reload ids resolve to nothing and move no stat (fail-closed, Eric 2026-08-04)', () => {
-    const dead = ['gunReload', 'cannonReload', 'torpedoReload', 'mineReload', 'boostReload', 'starReload', 'decoyReload'];
-    for (const id of dead) {
-      expect(BOON_CATALOG[id], id).toBeUndefined();
-      expect(resolveBoons([id]), id).toBe(NO_BOONS); // the shared empty identity
-      expect(effectiveStats(TB, resolveBoons([id])), id).toEqual(effectiveStats(TB));
-    }
-    expect(resolveBoons(dead)).toBe(NO_BOONS);
-    // Mixed with a live id: the survivor still resolves, the corpses drop.
-    expect(resolveBoons(['gunReload', 'shipCooldown'])).toEqual([BOON_CATALOG.shipCooldown]);
-  });
-
-  it('Object.prototype keys are NOT boons: a junk wire id can never resolve to an inherited property', () => {
-    const proto = ['constructor', 'toString', 'hasOwnProperty', '__proto__', 'valueOf'];
-    expect(resolveBoons(proto, TEST_CATALOG)).toBe(NO_BOONS);
-    expect(resolveBoons(proto)).toBe(NO_BOONS); // production catalog too
-    expect(resolveBoons(['constructor', 'surgeEngines'], TEST_CATALOG)).toEqual([STAT_BOON]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Home 1: stat effects — only through effectiveStats, list order.
-// ---------------------------------------------------------------------------
-
-describe('stat effects — home 1 (effectiveStats), list order, fail-closed folds', () => {
-  it('a mult stat boon moves EXACTLY its targeted path (flatten diff), nothing else', () => {
-    const identity = flatten(effectiveStats(TB));
-    const mooned = flatten(effectiveStats(TB, [STAT_BOON]));
-    expect([...mooned.keys()]).toEqual([...identity.keys()]); // same shape
-    const changed = [...mooned.keys()].filter((k) => mooned.get(k) !== identity.get(k));
-    expect(changed).toEqual(['kinematics.maxSpeed']);
-    expect(mooned.get('kinematics.maxSpeed')).toBeCloseTo(TB.kinematics.maxSpeed * 1.1, 9);
-  });
-
-  it('a sweepRpm boon re-derives sweepPeriodMs (the derived pair stays coherent)', () => {
-    const rpmBoon = def('r', { kind: 'stat', path: 'sweepRpm', add: 5 });
-    const s = effectiveStats(TB, [rpmBoon]);
+  it('a sweepRpm card re-derives sweepPeriodMs, and the CEILING is re-applied over the fold', () => {
+    const s = foldOne(TB, line('r', { kind: 'stat', path: 'sweepRpm', add: 5 }));
     expect(s.sweepRpm).toBe(CONFIG.vision.sweepRpm + 5);
     expect(s.sweepPeriodMs).toBeCloseTo(60000 / s.sweepRpm, 9);
+    const over = foldOne(TB, line('o', { kind: 'stat', path: 'sweepRpm', add: 1000 }));
+    expect(over.sweepRpm).toBe(CONFIG.vision.sweepRpmMax);
+    expect(over.sweepPeriodMs).toBe(60000 / CONFIG.vision.sweepRpmMax);
   });
 
-  it('the sweepRpm CEILING is CONFIG.vision.sweepRpmMax, re-applied over the boon fold', () => {
-    const s = effectiveStats(TB, [def('overclock', { kind: 'stat', path: 'sweepRpm', add: 1000 })]);
-    expect(s.sweepRpm).toBe(CONFIG.vision.sweepRpmMax);
-    expect(s.sweepPeriodMs).toBe(60000 / CONFIG.vision.sweepRpmMax);
-  });
-
-  it('an off-whitelist path in an untyped def is a fail-closed no-op (runtime guard)', () => {
-    const rogue = {
-      ...def('rogue'),
-      effects: [{ kind: 'stat', path: 'nope.nothere', mult: 99 }],
-    } as unknown as BoonDef;
-    expect(effectiveStats(TB, [rogue])).toEqual(effectiveStats(TB));
+  it('an off-whitelist or malformed path is a fail-closed no-op (runtime guard)', () => {
+    for (const path of ['nope.nothere', 'sightRange', 'equipment.gun.rangeU', 'equipment.nope.damage', 'equipment.gun']) {
+      const l = line('rogue', { kind: 'stat', path: path as never, mult: 99 });
+      expect(foldOne(TB, l), path).toEqual(effectiveStats(TB));
+    }
   });
 
   it('a folded value that is not a POSITIVE finite number is skipped per-assignment', () => {
     const base = effectiveStats(TB);
-    const cases: BoonStatEffect[] = [
+    const cases: BoonEffect[] = [
       { kind: 'stat', path: 'maxHp', mult: 0 },
       { kind: 'stat', path: 'maxHp', add: NaN },
       { kind: 'stat', path: 'maxHp', mult: NaN },
@@ -493,133 +214,158 @@ describe('stat effects — home 1 (effectiveStats), list order, fail-closed fold
       { kind: 'stat', path: 'maxHp', mult: Infinity },
       { kind: 'stat', path: 'maxHp', add: -(TB.hp + 1) },
     ];
-    for (const e of cases) {
-      expect(effectiveStats(TB, [def('bad', e)])).toEqual(base);
-    }
+    for (const e of cases) expect(foldOne(TB, line('bad', e))).toEqual(base);
     // Per-assignment: a valid effect after an invalid one still applies.
-    const s = effectiveStats(TB, [
-      def('mixed', { kind: 'stat', path: 'maxHp', mult: NaN }, { kind: 'stat', path: 'maxHp', add: 25 }),
-    ]);
-    expect(s.maxHp).toBe(TB.hp + 25);
+    const mixed = line('mixed', { kind: 'stat', path: 'maxHp', mult: NaN }, { kind: 'stat', path: 'maxHp', add: 25 });
+    expect(foldOne(TB, mixed).maxHp).toBe(TB.hp + 25);
+  });
+
+  it('applyCardStats mutates the tree IN PLACE and touches only the targeted scalar', () => {
+    const stats = effectiveStats(TB);
+    const before = flatten(stats);
+    const cat = catalogOf(line('hp', { kind: 'stat', path: 'maxHp', add: 25 }));
+    applyCardStats(stats, ['hp'], cat);
+    const after = flatten(stats);
+    expect([...after.keys()].filter((k) => after.get(k) !== before.get(k))).toEqual(['maxHp']);
+    expect(stats.maxHp).toBe(TB.hp + 25);
+  });
+
+  it('`stock` is a TOTAL no-op in the fold (Story 8.7 owns the rack)', () => {
+    const l: CatalogLine = {
+      id: 'hullRepair', kind: 'consumable', cap: 5,
+      tiers: new Array(5).fill([{ kind: 'stock', equipmentId: 'hullRepair' }]),
+    };
+    expect(effectiveStats(TB, new Array<LineId>(5).fill('hullRepair'), catalogOf(l))).toEqual(effectiveStats(TB));
   });
 });
 
 // ---------------------------------------------------------------------------
-// Home 2: slot effects — the ONE LoadoutSlot[] structure, one shared function.
+// Counting helpers.
+// ---------------------------------------------------------------------------
+
+describe('cardCounts / boonStackCount — the copy-count spine', () => {
+  it('counts occurrences, caps at the line cap, drops junk, and keeps CATALOG order', () => {
+    const counts = cardCounts(['reload', 'armor', 'reload', 'nope', 'constructor', 'armor', 'armor']);
+    expect([...counts]).toEqual([['armor', 3], ['reload', 2]]); // catalog order: armor before reload
+    expect(cardCounts(new Array<string>(9).fill('reload')).get('reload')).toBe(5); // capped
+    expect([...cardCounts([])]).toEqual([]);
+  });
+
+  it('boonStackCount counts occurrences of one id', () => {
+    expect(boonStackCount(['armor', 'speed', 'armor'], 'armor')).toBe(2);
+    expect(boonStackCount([], 'armor')).toBe(0);
+  });
+
+  it('NO_CARDS is the frozen shared zero-card identity', () => {
+    expect(NO_CARDS).toEqual([]);
+    expect(Object.isFrozen(NO_CARDS)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Home 2: slot effects.
 // ---------------------------------------------------------------------------
 
 describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])', () => {
   const stats = effectiveStats(TB);
+  const fill = (equipmentId: 'heavyTorpedo' | 'navalMines' | 'starShells'): BoonEffect =>
+    ({ kind: 'slotFill', equipmentId });
 
   it('slotFill fills the EMPTY extra slot with a fresh full pool at current stats', () => {
     const loadout = loadoutFor('battleship', stats); // no torpedo fitted
     expect(loadout[SLOT_EXTRA].equipmentId).toBeNull();
-    applySlotEffect(loadout, FILL_BOON.effects[0], stats);
-    expect(loadout[SLOT_EXTRA].equipmentId).toBe('torpedo');
-    expect(loadout[SLOT_EXTRA].state).toEqual({ n: equipmentMaxAmmo(stats, 'torpedo'), reloadMsLeft: 0 });
+    applySlotEffect(loadout, fill('heavyTorpedo'), stats);
+    expect(loadout[SLOT_EXTRA].equipmentId).toBe('heavyTorpedo');
+    expect(loadout[SLOT_EXTRA].state).toEqual({ n: equipmentMaxAmmo(stats, 'heavyTorpedo'), reloadMsLeft: 0 });
   });
 
   it('slotFill against an OCCUPIED extra slot is a silent no-op — existing state untouched', () => {
     const loadout = loadoutFor('battleship', stats);
-    applySlotEffect(loadout, FILL_BOON.effects[0], stats);
+    applySlotEffect(loadout, fill('heavyTorpedo'), stats);
     const occupied = loadout[SLOT_EXTRA];
     occupied.state!.n = 1;
     occupied.state!.reloadMsLeft = 777;
     const stateRef = occupied.state;
-    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'mine' }, stats);
-    expect(occupied.equipmentId).toBe('torpedo');
+    applySlotEffect(loadout, fill('navalMines'), stats);
+    expect(occupied.equipmentId).toBe('heavyTorpedo');
     expect(occupied.state).toBe(stateRef);
     expect(occupied.state).toEqual({ n: 1, reloadMsLeft: 777 });
   });
 
-  it('slotReplace swaps the slot holding `from` to `to`; OTHER slots keep live ammo state', () => {
-    const loadout = loadoutFor('torpedoBoat', stats); // [gun, torpedo, speedBoost, empty]
-    loadout[0].state!.n = 0;
-    loadout[0].state!.reloadMsLeft = 1500;
-    applySlotEffect(loadout, REPLACE_BOON.effects[0], stats);
-    expect(loadout[1].equipmentId).toBe('mine');
-    expect(loadout[1].state).toEqual({ n: equipmentMaxAmmo(stats, 'mine'), reloadMsLeft: 0 });
-    expect(loadout[0].state).toEqual({ n: 0, reloadMsLeft: 1500 });
-  });
-
-  it('slotReplace with `from` unfitted, or from === to, is a silent no-op', () => {
-    const bsLoadout = loadoutFor('battleship', stats); // no torpedo fitted
-    const before = bsLoadout.map((s) => ({ equipmentId: s.equipmentId, state: s.state ? { ...s.state } : null }));
-    expect(() => applySlotEffect(bsLoadout, REPLACE_BOON.effects[0], stats)).not.toThrow();
-    expect(bsLoadout.map((s) => ({ equipmentId: s.equipmentId, state: s.state ? { ...s.state } : null }))).toEqual(before);
-    // Degenerate self-replace: never a free instant reload.
-    const tbLoadout = loadoutFor('torpedoBoat', stats);
-    tbLoadout[1].state!.n = 0;
-    tbLoadout[1].state!.reloadMsLeft = 900;
-    const stateRef = tbLoadout[1].state;
-    applySlotEffect(tbLoadout, { kind: 'slotReplace', from: 'torpedo', to: 'torpedo' }, stats);
-    expect(tbLoadout[1].state).toBe(stateRef);
-    expect(tbLoadout[1].state).toEqual({ n: 0, reloadMsLeft: 900 });
-  });
-
-  it('slotFill of equipment ALREADY fitted is a no-op — PINNED production-unreachable (buildDeck excludes carried acquisitions)', () => {
-    const loadout = loadoutFor('torpedoBoat', stats); // torpedo already in slot 1
-    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'torpedo' }, stats);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'speedBoost', null]);
+  it('slotFill of equipment ALREADY fitted is a no-op (the duplicate guard)', () => {
+    const loadout = loadoutFor('torpedoBoat', stats); // heavyTorpedo already in slot 1
+    applySlotEffect(loadout, fill('heavyTorpedo'), stats);
+    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'heavyTorpedo', 'speedBoost', null]);
     expect(loadout[SLOT_EXTRA].state).toBeNull();
     // An UNfitted id still fills normally (the guard is duplicate-only).
-    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'mine' }, stats);
-    expect(loadout[SLOT_EXTRA].equipmentId).toBe('mine');
+    applySlotEffect(loadout, fill('navalMines'), stats);
+    expect(loadout[SLOT_EXTRA].equipmentId).toBe('navalMines');
   });
 
-  it('stat, behavior AND doctrine effects are structural no-ops in the slot home', () => {
+  it('stat, behavior, doctrine AND stock effects are structural no-ops in the slot home', () => {
     const loadout = loadoutFor('torpedoBoat', stats);
     const slotRefs = [...loadout];
     const stateRefs = loadout.map((s) => s.state);
-    applySlotEffect(loadout, STAT_BOON.effects[0], stats);
-    applySlotEffect(loadout, BEHAVIOR_BOON.effects[0], stats);
-    applySlotEffect(loadout, { kind: 'doctrine', weapon: 'torpedo', mode: 'homing' }, stats);
+    const effects: BoonEffect[] = [
+      { kind: 'stat', path: 'maxHp', add: 1 },
+      { kind: 'behavior', hookId: 'x', params: {} },
+      { kind: 'doctrine', weapon: 'heavyTorpedo', mode: 'homing' },
+      { kind: 'stock', equipmentId: 'hullRepair' },
+    ];
+    for (const e of effects) applySlotEffect(loadout, e, stats);
     expect(loadout.map((s) => s)).toEqual(slotRefs);
     loadout.forEach((s, i) => expect(s.state).toBe(stateRefs[i]));
+  });
+
+  it('`slotReplace` IS DELETED: an untyped one moves nothing (no catalog-v3 line swaps equipment)', () => {
+    const loadout = loadoutFor('torpedoBoat', stats);
+    const before = loadout.map((s) => s.equipmentId);
+    applySlotEffect(loadout, { kind: 'slotReplace', from: 'heavyTorpedo', to: 'navalMines' } as unknown as BoonEffect, stats);
+    expect(loadout.map((s) => s.equipmentId)).toEqual(before);
   });
 });
 
 // ---------------------------------------------------------------------------
-// The two-homes property (+ the doctrine third home).
+// The two-homes property (+ doctrine and hooks).
 // ---------------------------------------------------------------------------
 
-describe('two homes — a boon may touch stats and slots, NOTHING else, each via its home', () => {
-  it('a stat-only boon leaves the loadout REFERENCE-EQUAL through the slot path', () => {
-    const stats = effectiveStats(TB, [STAT_BOON]);
+describe('two homes — a card may touch stats and slots, NOTHING else, each via its home', () => {
+  it('a stat-only card leaves the loadout REFERENCE-EQUAL through the slot path', () => {
+    const l = line('t', { kind: 'stat', path: 'kinematics.maxSpeed', mult: 1.1 });
+    const stats = foldOne(TB, l);
     const base = loadoutFor('torpedoBoat', stats);
     const slotRefs = [...base];
-    for (const e of STAT_BOON.effects) applySlotEffect(base, e, stats);
+    for (const e of l.tiers[0]) applySlotEffect(base, e, stats);
     base.forEach((s, i) => expect(s).toBe(slotRefs[i]));
   });
 
-  it('a slot-only boon leaves effectiveStats output BYTE-IDENTICAL', () => {
-    expect(effectiveStats(TB, [FILL_BOON])).toEqual(effectiveStats(TB));
-    expect(effectiveStats(TB, [REPLACE_BOON])).toEqual(effectiveStats(TB));
-    // The production acquisitions are slot-only: byte-identical stats.
-    expect(effectiveStats(TB, resolveBoons(['acquireMine']))).toEqual(effectiveStats(TB));
+  it('a slot-only card leaves effectiveStats output BYTE-IDENTICAL', () => {
+    // The production equipment lines are exactly this shape at copy 1.
+    expect(effectiveStats(TB, ['navalMines'])).toEqual(effectiveStats(TB));
+    expect(effectiveStats(TB, ['broadside'])).toEqual(effectiveStats(TB));
   });
 
-  it('a behavior-only boon touches NEITHER home (hooks are its only leg)', () => {
-    expect(effectiveStats(TB, [BEHAVIOR_BOON])).toEqual(effectiveStats(TB));
+  it('a behavior-only card touches NEITHER home (hooks are its only leg)', () => {
+    expect(foldOne(TB, line('b', { kind: 'behavior', hookId: 'stormRider', params: { bonus: 5 } })))
+      .toEqual(effectiveStats(TB));
   });
 
-  it('boonBehaviors extracts exactly the behavior effects, in list order', () => {
-    const defs = [STAT_BOON, BEHAVIOR_BOON, FILL_BOON, def('b2', { kind: 'behavior', hookId: 'x', params: {} })];
-    expect(boonBehaviors(defs)).toEqual([
+  it('cardBehaviors extracts exactly the behavior effects the held copies buy, in fold order', () => {
+    const cat = catalogOf(
+      line('a', { kind: 'stat', path: 'maxHp', add: 1 }, { kind: 'behavior', hookId: 'stormRider', params: { bonus: 5 } }),
+      line('b', { kind: 'behavior', hookId: 'x', params: {} }),
+    );
+    expect(cardBehaviors(['b', 'a'], cat)).toEqual([
       { kind: 'behavior', hookId: 'stormRider', params: { bonus: 5 } },
       { kind: 'behavior', hookId: 'x', params: {} },
     ]);
-    expect(boonBehaviors([])).toEqual([]);
+    expect(cardBehaviors([], cat)).toEqual([]);
+    // Fold order, not list order — the same property effectiveStats has.
+    expect(cardBehaviors(['a', 'b'], cat)).toEqual(cardBehaviors(['b', 'a'], cat));
   });
 
-  it('applyBoonStats mutates ONLY the targeted scalar (+ the derived sweep pair) in place', () => {
-    const stats = effectiveStats(TB);
-    const before = flatten(stats);
-    applyBoonStats(stats, [def('hp', { kind: 'stat', path: 'maxHp', add: 25 })]);
-    const after = flatten(stats);
-    const changed = [...after.keys()].filter((k) => after.get(k) !== before.get(k));
-    expect(changed).toEqual(['maxHp']);
-    expect(stats.maxHp).toBe(TB.hp + 25);
+  it('the production catalog buys NO behavior effects (HOOK_REGISTRY stays empty)', () => {
+    expect(cardBehaviors(LINE_IDS.flatMap((id) => new Array<LineId>(CATALOG[id].cap).fill(id)))).toEqual([]);
   });
 });
 
@@ -628,58 +374,64 @@ describe('two homes — a boon may touch stats and slots, NOTHING else, each via
 // ---------------------------------------------------------------------------
 
 describe('one derivation, both sides — incremental vs replayed slot-id parity', () => {
-  const POOL: BoonDef[] = [
-    STAT_BOON,
-    FILL_BOON,
-    REPLACE_BOON,
-    BEHAVIOR_BOON,
-    def('fillMine', { kind: 'slotFill', equipmentId: 'mine' }),
-    def('mineToBuoy', { kind: 'slotReplace', from: 'mine', to: 'radarBuoy' }),
-    def('boostToBroadside', { kind: 'slotReplace', from: 'speedBoost', to: 'broadside' }),
-    def('combo', { kind: 'stat', path: 'torpedo.reloadMs', mult: 0.8 }, { kind: 'slotFill', equipmentId: 'starShells' }),
-  ];
+  /** The NON-STUB equipment lines plus a ladder, as a grant pool. */
+  const POOL: LineId[] = ['heavyTorpedo', 'navalMines', 'broadside', 'starShells', 'armor', 'deckGunTurret'];
 
-  /** The server's incremental path, emulated faithfully (world.applyBoon's
-   *  exact order: per applied boon, recompute stats over defs-so-far, then
-   *  apply THAT def's effects to the live loadout). */
-  function serverIncremental(cls: ShipClassId, defs: readonly BoonDef[]): LoadoutSlot[] {
-    const applied: BoonDef[] = [];
+  /**
+   * The server's incremental path, emulated faithfully: per granted card,
+   * recompute stats over the cards held SO FAR, then apply the effects THAT
+   * copy buys (tier k of its line) to the live loadout.
+   */
+  function serverIncremental(cls: ShipClassId, cards: readonly LineId[]): LoadoutSlot[] {
+    const held: LineId[] = [];
     let stats = effectiveStats(CONFIG.shipClasses[cls]);
     const loadout = loadoutFor(cls, stats);
-    for (const d of defs) {
-      applied.push(d);
-      stats = effectiveStats(CONFIG.shipClasses[cls], applied);
-      for (const e of d.effects) applySlotEffect(loadout, e, stats);
+    for (const id of cards) {
+      held.push(id);
+      stats = effectiveStats(CONFIG.shipClasses[cls], held);
+      const copy = held.filter((h) => h === id).length;
+      for (const e of CATALOG[id].tiers[copy - 1] ?? []) applySlotEffect(loadout, e, stats);
     }
     return loadout;
   }
 
-  it('server slot ids == client-derived slot ids after arbitrary boon sequences (seeded property)', () => {
+  it('server slot ids == client-derived slot ids after arbitrary grant sequences (seeded property)', () => {
     const rng = mulberry32(0xb00b5);
     const classes: ShipClassId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
-    for (let trial = 0; trial < 60; trial++) {
+    for (let trial = 0; trial < 120; trial += 1) {
       const cls = rng.pick(classes);
-      const n = rng.int(0, 5);
-      const defs = Array.from({ length: n }, () => rng.pick(POOL));
-      const server = serverIncremental(cls, defs).map((s) => s.equipmentId);
-      const client = slotsWithBoons(cls, effectiveStats(CONFIG.shipClasses[cls], defs), defs).map(
-        (s) => s.equipmentId,
-      );
-      expect(client).toEqual(server);
+      const n = rng.int(0, 6);
+      const cards = Array.from({ length: n }, () => rng.pick(POOL));
+      const server = serverIncremental(cls, cards).map((s) => s.equipmentId);
+      const client = slotsWithCards(cls, effectiveStats(CONFIG.shipClasses[cls], cards), cards)
+        .map((s) => s.equipmentId);
+      expect(client, cards.join('+')).toEqual(server);
     }
   });
 
-  it('slotsWithBoons at zero boons equals plain loadoutFor (byte-identical baseline)', () => {
+  it('slotsWithCards at zero cards equals plain loadoutFor (byte-identical baseline)', () => {
     const stats = effectiveStats(TB);
-    expect(slotsWithBoons('torpedoBoat', stats, [])).toEqual(loadoutFor('torpedoBoat', stats));
+    expect(slotsWithCards('torpedoBoat', stats, [])).toEqual(loadoutFor('torpedoBoat', stats));
   });
 
-  it('capacity-raise + acquisition compose: gunTurret pool 2 feeds a fresh acquisition fill', () => {
-    const build = resolveBoons(['gunTurret', 'acquireMine']);
-    const stats = effectiveStats(BS, build);
-    const loadout = slotsWithBoons('battleship', stats, build);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'broadside', 'starShells', 'mine']);
-    expect(loadout[0].state).toEqual({ n: 2, reloadMsLeft: 0 }); // AFT TURRET pool
-    expect(loadout[SLOT_EXTRA].state).toEqual({ n: equipmentMaxAmmo(stats, 'mine'), reloadMsLeft: 0 });
+  it('a capacity ladder + an equipment fit compose: turret pool 2 beside a fresh fill', () => {
+    const cards: LineId[] = ['deckGunTurret', 'navalMines'];
+    const stats = effectiveStats(BS, cards);
+    const loadout = slotsWithCards('battleship', stats, cards);
+    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'broadside', 'starShells', 'navalMines']);
+    expect(loadout[0].state).toEqual({ n: 2, reloadMsLeft: 0 }); // DECK GUN TURRET pool
+    expect(loadout[SLOT_EXTRA].state).toEqual({ n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 });
+  });
+
+  it('THE EXTRA SLOT IS FIRST-FIT: the replay follows FIT order, where the stat fold does not', () => {
+    // One extra slot, two equipment cards — which one a captain ends up
+    // carrying is a fact about the order they took the cards in. The stats,
+    // meanwhile, are identical either way: that asymmetry is the contract.
+    const cards: LineId[] = ['navalMines', 'heavyTorpedo'];
+    const reversed: LineId[] = ['heavyTorpedo', 'navalMines'];
+    const stats = effectiveStats(BS, cards);
+    expect(effectiveStats(BS, reversed)).toEqual(stats);
+    expect(slotsWithCards('battleship', stats, cards)[SLOT_EXTRA].equipmentId).toBe('navalMines');
+    expect(slotsWithCards('battleship', stats, reversed)[SLOT_EXTRA].equipmentId).toBe('heavyTorpedo');
   });
 });

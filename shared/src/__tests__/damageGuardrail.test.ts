@@ -26,14 +26,25 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  BOON_CATALOG,
+  BOON_STAT_PATHS,
+  CATALOG,
   CONFIG,
   DRONE_SIZE_IDS,
+  LINE_IDS,
   SHIP_CLASS_IDS,
   effectiveStats,
-  resolveBoons,
   type EffectiveStats,
+  type LineId,
 } from '../index.js';
+
+/** Every line that writes `path`, and the max-stacked hand that does it. */
+function maxStackFor(path: string): LineId[] {
+  return LINE_IDS.flatMap((id) =>
+    CATALOG[id].tiers.some((t) => t.some((e) => e.kind === 'stat' && e.path === path))
+      ? new Array<LineId>(CATALOG[id].cap).fill(id)
+      : [],
+  );
+}
 
 const classHps = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hp);
 const droneHps = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].hp);
@@ -48,8 +59,8 @@ const droneSpeeds = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].kinematics.maxSpe
 const maxHullSpeed = Math.max(...classSpeeds, ...droneSpeeds);
 
 /** Stats under N copies of one catalog line (the max-stack computation). */
-const stacked = (id: string, n = BOON_CATALOG[id].copies) =>
-  effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(new Array<string>(n).fill(id)));
+const stacked = (id: LineId, n = CATALOG[id].cap) =>
+  effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(n).fill(id));
 
 describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, Story 5.6)', () => {
   it('gun burst / contact damage cannot one-hit the lightest hull; bodyblock is the lighter outcome', () => {
@@ -142,30 +153,38 @@ describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming e
 describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; player-classes-only scope per Story 5.6)', () => {
   it('EVERY damage path, max-stacked from the catalog, stays UNDER the 250hp lightest CLASS hull', () => {
     // Swept from the catalog rather than listed, so a new damage card is
-    // covered the day it lands and a deleted one needs no edit here.
-    const damagePaths = ['gun.damage', 'broadside.damage', 'torpedo.damage', 'mine.damage'] as const;
-    const read = (s: EffectiveStats, path: string): number =>
-      (s as unknown as Record<string, Record<string, number>>)[path.split('.')[0]][path.split('.')[1]];
+    // covered the day it lands and a deleted one needs no edit here. Catalog
+    // v3 widened the sweep: every `equipment.<id>.damage` path the GENERATED
+    // whitelist carries is checked, built or not.
+    const damagePaths = BOON_STAT_PATHS.filter((p) => p.endsWith('.damage'));
+    const read = (st: EffectiveStats, path: string): number => {
+      const [, id, field] = path.split('.');
+      return (st.equipment as unknown as Record<string, Record<string, number>>)[id][field];
+    };
+    expect(damagePaths.length).toBeGreaterThanOrEqual(9);
     for (const path of damagePaths) {
-      const writers = Object.values(BOON_CATALOG).filter((d) => d.effects.some((e) => e.kind === 'stat' && e.path === path));
-      const maxed = writers.flatMap((d) => new Array<string>(d.copies).fill(d.id));
-      const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(maxed));
-      expect(read(s, path), path).toBeLessThan(minHullHp);
+      const s2 = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxStackFor(path));
+      expect(read(s2, path), path).toBeLessThan(minHullHp);
     }
-    // NO weapon carries a damage ladder any more: `cannonDamage` was the last
-    // one and it died with the cannon (Story 7-5 wave 2). The BROADSIDE
-    // BARRAGE's two cards move SHELL COUNT and FAN WIDTH, never damage.
-    expect(Object.values(BOON_CATALOG).filter((d) => d.effects.some((e) => e.kind === 'stat' && e.path.endsWith('.damage'))).map((d) => d.id))
-      .toEqual([]);
+    // THE DECK GUN IS THE ONE DAMAGE LADDER catalog v3 authors (R14, +1.25/tier).
+    // Every other damage number is its base until 8.12-8.16 fill the equipment
+    // tiers — and each of those will land under this same sweep automatically.
+    expect(damagePaths.filter((p) => maxStackFor(p).length > 0)).toEqual(['equipment.gun.damage']);
   });
 
   it('the drafted ladder endpoints land where the spec ruled them', () => {
-    // EVERY damage ladder is RETIRED now, so every endpoint IS its base —
-    // pinned here so a silent re-add is visible.
-    expect(effectiveStats(CONFIG.shipClasses.battleship).broadside.damage).toBe(CONFIG.broadside.damage);
-    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat).gun.damage).toBe(CONFIG.gun.damage);
-    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat).torpedo.damage).toBe(CONFIG.torpedo.damage);
-    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat).mine.damage).toBe(CONFIG.mine.damage);
+    // THE DECK GUN LADDER (catalog-v3 R14): 15 -> 20 across four tiers, and
+    // 20 is still comfortably under the 250hp floor.
+    expect(stacked('deckGun').equipment.gun.damage).toBe(20);
+    expect(stacked('deckGun').equipment.gun.damage).toBeLessThan(minHullHp);
+    // Every other damage endpoint IS its base this cycle — pinned so a silent
+    // re-add is visible.
+    const bs = effectiveStats(CONFIG.shipClasses.battleship);
+    const tb = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+    expect(bs.equipment.broadside.damage).toBe(CONFIG.broadside.damage);
+    expect(tb.equipment.gun.damage).toBe(CONFIG.gun.damage);
+    expect(tb.equipment.heavyTorpedo.damage).toBe(CONFIG.torpedo.damage);
+    expect(tb.equipment.navalMines.damage).toBe(CONFIG.mine.damage);
   });
 
   it('THE LAW IS PER SHELL: a max-stacked multi-barrel CLICK may legitimately exceed the floor', () => {
@@ -177,9 +196,10 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     //
     // What CI still enforces is the per-shell law, above and here: no single
     // shell of any weapon, max-stacked, reaches the lightest hull.
-    const barrels = stacked('gunBarrel').gun.barrels;
-    // HEAVY SHELLS is deleted, so the per-shell number is simply the base now.
-    const perShell = effectiveStats(CONFIG.shipClasses.torpedoBoat).gun.damage;
+    const barrels = stacked('deckGunBarrel').equipment.gun.barrels;
+    // The per-shell number under the strongest build catalog v3 can reach: the
+    // DECK GUN ladder at its cap (R14), 20 damage.
+    const perShell = stacked('deckGun').equipment.gun.damage;
     expect(barrels).toBe(3); // TWIN + TRIPLE MOUNT, both copies
     expect(perShell).toBeLessThan(minHullHp); // the law, per SHELL — the thing that holds
     // And this is the consequence Eric was shown and ACCEPTED: a fully
@@ -215,18 +235,20 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
   // ARMOR-PIERCING doctrine, its falloff table and the whole pierce sweep are
   // deleted with the cannon, so there is no falloff left to bound.
 
-  it('a max-stacked BROADSIDE obeys the per-shell law at every turret count', () => {
-    // The broadside's two cards move shell COUNT and turret TRAVERSE, never damage,
-    // so the per-shell number is its base at every build — the strongest form
-    // the law can take. The BARRAGE total (6 × 15 = 90) legitimately exceeds
-    // the 45hp drone and still lands under the 250hp class floor, but that is
-    // the multi-shell click case the law deliberately does not govern.
-    // Balance cycle 1 moved BOTH halves — turrets 3→4 (max 5→6) and damage
-    // 20→15 — so a maxed barrage FELL 100 → 90 while base alpha held at 60.
-    const maxed = stacked('broadsideTurrets');
-    expect(maxed.broadside.turrets).toBe(6);
-    expect(maxed.broadside.damage).toBe(CONFIG.broadside.damage);
-    expect(maxed.broadside.damage).toBeLessThan(minHullHp); // the law, per SHELL
+  it('the BROADSIDE obeys the per-shell law at every turret count', () => {
+    // CATALOG V3 INTERIM (Story 8.1): the broadside's tiers II-V are EMPTY
+    // until Story 8.16 authors them from catalog-v3 R35 (+0.5 turret/tier, 4 ->
+    // 6 at the cap), so no line moves turrets or damage this cycle and the
+    // whole battery sits at its base. The LAW is per SHELL either way, and the
+    // ruled cap is pinned here so 8.16 has a number to land on.
+    const maxed = stacked('broadside');
+    expect(maxed.equipment.broadside.turrets).toBe(CONFIG.broadside.turrets);
+    expect(maxed.equipment.broadside.damage).toBe(CONFIG.broadside.damage);
+    expect(maxed.equipment.broadside.damage).toBeLessThan(minHullHp); // the law, per SHELL
+    // The tier-V barrage total R35 rules (6 x 15 = 90) would still clear the
+    // 45hp drone and stay under the 250hp class floor — the multi-shell click
+    // case the law deliberately does not govern.
+    expect(6 * CONFIG.broadside.damage).toBeLessThan(minHullHp);
   });
 });
 
@@ -255,9 +277,14 @@ describe('mine blast geometry guardrail', () => {
   // (Eric 2026-08-16): the trip ring is now a fixed FRACTION of the blast, so
   // "never outgrows the blast" holds by construction at every stack rather than
   // by a ceiling that used to eat most of the 5th trigger card.
-  it('max-stacked trip ring can never outgrow the blast (now by derivation, not a clamp)', () => {
-    const s = stacked('mineBlast');
-    expect(s.mine.triggerRadius).toBeLessThan(s.mine.blastRadius);
+  it('the trip ring can never outgrow the blast (by derivation, not a clamp)', () => {
+    // CATALOG V3 INTERIM: no line writes `equipment.navalMines.blastRadius`
+    // until Story 8.13 authors the mine's tiers (R23/R24, x1.1 compounding), so
+    // the max stack IS the base today. The guarantee is STRUCTURAL rather than
+    // stacked — the trip ring is a fixed FRACTION of the blast — which is why
+    // it holds at every future stack too.
+    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxStackFor('equipment.navalMines.blastRadius'));
+    expect(s.equipment.navalMines.triggerRadius).toBeLessThan(s.equipment.navalMines.blastRadius);
     expect(CONFIG.mine.triggerFactor).toBeLessThan(1); // what makes it structural
   });
 });
@@ -271,11 +298,10 @@ describe('star-shell tell guardrail', () => {
   // writer and the base pin above is the whole guarantee. Kept as a SWEEP so a
   // future radius card cannot land without re-proving the tell guardrail.
   it('no catalog line grows litRadius; if one ever does, it must stay inside BASE radar range', () => {
-    const writers = Object.values(BOON_CATALOG).filter((d) => d.effects.some((e) => e.kind === 'stat' && e.path === 'starShells.litRadius'));
-    expect(writers.map((d) => d.id)).toEqual([]);
-    const maxed = writers.flatMap((d) => new Array<string>(d.copies).fill(d.id));
-    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(maxed));
-    expect(s.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
+    const maxed = maxStackFor('equipment.starShells.litRadius');
+    expect(maxed).toEqual([]);
+    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxed);
+    expect(s.equipment.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
   });
 });
 
@@ -296,21 +322,29 @@ describe('torpedo chase/dodge guardrail (classes AND drones)', () => {
     );
   });
 
-  it('the MAX-STACKED torpedo (80) outruns even a max-stacked, max-boosted hull (Story 2.8)', () => {
-    const torpMax = stacked('torpedoSpeed').torpedo.speed;
-    expect(torpMax).toBe(80); // the ratified 60 → 80 ladder
-    // The fastest achievable hull: TB with full shipSpeed stacks + full
-    // boostSpeed stacks, boost active — computed from the catalog defs.
-    // `boostMax` split into boostDuration + boostSpeed in Story 7-5 wave 1;
-    // only the SPEED half can move this bound, and duration cannot.
-    const build = resolveBoons([
-      ...new Array<string>(BOON_CATALOG.shipSpeed.copies).fill('shipSpeed'),
-      ...new Array<string>(BOON_CATALOG.boostSpeed.copies).fill('boostSpeed'),
-    ]);
-    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, build);
-    const maxAchievableHull = s.kinematics.maxSpeed + s.boost.speedBonus;
-    expect(maxAchievableHull).toBeLessThan(torpMax);
-    // Drones never stack; the fastest drone stays below even the base fish.
+  // FLIPPED PIN, AND THE FLIP IS THE POINT (Story 8.1). The MAX-STACK clause
+  // used to hold because TORPEDO I-IV added +5 u/s per card (60 -> 80) against
+  // a max-stacked hull's 75. Catalog v3 replaces that ladder with the heavy
+  // torpedo's own tiers II-V (R17: 65 u/s at tier I, 75 at tier V) and Story
+  // 8.1 authors those tiers EMPTY, so THIS CYCLE the fish has no ladder at all
+  // while the SPEED ladder still has its four cards. The clause is therefore
+  // OPEN by exactly 5 u/s, and it is recorded here rather than deleted.
+  it('THE MAX-STACK CLAUSE IS OPEN THIS CYCLE — a max-SPEED boosted Torpedo Boat (65) outruns the 60 u/s fish', () => {
+    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.speed.cap).fill('speed'));
+    const maxAchievableHull = s.kinematics.maxSpeed + s.equipment.speedBoost.speedBonus;
+    expect(s.kinematics.maxSpeed).toBe(55); // 45 + 2.5 x 4 (catalog-v3 R10)
+    expect(maxAchievableHull).toBe(65); // + the shipped flat +10 boost
+    expect(s.equipment.heavyTorpedo.speed).toBe(60); // no ladder authored yet
+    expect(maxAchievableHull).toBeGreaterThan(s.equipment.heavyTorpedo.speed);
+    // WHAT CLOSES IT, and the numbers Story 8.13 must land on: R17's tier I is
+    // 65 u/s (already a tie) and tier V is 75, while R9 retunes the Shift boost
+    // to +25 % of hull max speed (55 x 1.25 = 68.75 on a max-SPEED hull). Both
+    // halves have to move together, so this pin is deliberately written as the
+    // CURRENT fact — it fails loudly the moment either lands, which is when the
+    // clause should be re-argued rather than quietly restored.
+    expect(maxAchievableHull - s.equipment.heavyTorpedo.speed).toBe(5);
+    // The BASE clauses above are untouched and still hold: a base fish outruns
+    // every hull and a base-boosted Torpedo Boat.
     expect(Math.max(...droneSpeeds)).toBeLessThan(CONFIG.torpedo.speed);
   });
 });

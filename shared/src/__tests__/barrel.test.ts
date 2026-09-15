@@ -32,27 +32,28 @@ import {
   boostedKinematics,
   slowedKinematics,
   EQUIPMENT_IS_WEAPON,
-  BOON_CATALOG,
   BOON_STAT_PATHS,
+  CATALOG,
   DOCTRINE_MODES,
-  EQUIPMENT_CATEGORY,
+  EQUIPMENT_IDS,
+  EQUIPMENT_STAT_FIELDS,
   HOOK_REGISTRY,
-  NO_BOONS,
-  UNIVERSAL_CATEGORIES,
-  applyBoonStats,
+  LINE_IDS,
+  NO_CARDS,
+  applyCardStats,
   applySlotEffect,
-  boonBehaviors,
-  boonStackCount,
   buildDeck,
-  consumeAcquisition,
+  cardBehaviors,
+  cardCounts,
+  catalogCardCount,
   consumeCard,
   drawOffer,
   hookKinematics,
-  isAcquisitionDef,
-  resolveBoons,
-  slotsWithBoons,
-  validateBoonDef,
+  isStubLine,
+  resolveCards,
+  slotsWithCards,
   validateCatalog,
+  validateLine,
 } from '../index.js';
 
 describe('shared barrel', () => {
@@ -224,7 +225,14 @@ describe('shared barrel', () => {
     // `mountSpreadRad`. No wire SHAPE change: both sides compile the ladder and
     // both run `turretAimPoints`, so a stale client previews and predicts a
     // barrage the server does not fire -- the same break class as PV 45.
-    expect(PROTOCOL_VERSION).toBe(50);
+    // 50 -> 51: CATALOG V3 AND THE CARD MODEL (Story 8.1). Catalog CONTENT is
+    // wire contract, and this replaces the catalog wholesale: 29 lines / 114
+    // cards, `OwnShip.boons` -> `OwnShip.cards`, the `torpedo`/`mine`
+    // equipment ids renamed `heavyTorpedo`/`navalMines`, `EffectiveStats`
+    // re-shaped onto one total `equipment` record, and CONFIG.deck/CONFIG.catalog
+    // moving in the welcome snapshot. Both sides resolve card ids fail-closed,
+    // so a stale client would silently mis-simulate every build it was dealt.
+    expect(PROTOCOL_VERSION).toBe(51);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -289,19 +297,17 @@ describe('shared barrel', () => {
     // hand-enumerated list, so a future weapon's reload is covered
     // automatically. This also now covers the radar buoy's 30s reload, which
     // the old five-reload enumeration omitted.
-    const WEAPON_CONFIG_RELOAD_MS: Record<EquipmentId, number> = {
-      gun: CONFIG.gun.reloadMs,
-      torpedo: CONFIG.torpedo.reloadMs,
-      mine: CONFIG.mine.reloadMs,
-      speedBoost: -Infinity, // not a weapon — EQUIPMENT_IS_WEAPON filters it out below
-      broadside: CONFIG.broadside.reloadMs,
-      starShells: CONFIG.starShells.reloadMs,
-      radarBuoy: CONFIG.radarBuoy.reloadMs,
-    };
-    for (const id of Object.keys(EQUIPMENT_IS_WEAPON) as EquipmentId[]) {
+    // Read off the FIREWALL rather than a hand-built CONFIG table (Story 8.1:
+    // `EffectiveStats.equipment` is total over EquipmentId), so the seven
+    // UNBUILT v3 weapons are already covered and stay covered the day their
+    // modules land. The tightest of them is the MONITOR GUN's 50 s (catalog-v3
+    // R30) — still inside the 60 s window, with the least room of any weapon.
+    const stats = effectiveStats(CONFIG.shipClasses.battleship);
+    for (const id of EQUIPMENT_IDS) {
       if (!EQUIPMENT_IS_WEAPON[id]) continue;
-      expect(CONFIG.xp.assistWindowMs).toBeGreaterThan(WEAPON_CONFIG_RELOAD_MS[id]);
+      expect(CONFIG.xp.assistWindowMs, id).toBeGreaterThan(stats.equipment[id].reloadMs);
     }
+    expect(stats.equipment.monitor.reloadMs).toBe(50000); // R30 — the tightest margin
     expect(Object.keys(CONFIG.xp).sort()).toEqual(['assistWindowMs', 'droneTierLevels', 'killLevels', 'killerShare', 'levelMs']);
   });
 
@@ -373,15 +379,14 @@ describe('shared barrel', () => {
   });
 
   it('EQUIPMENT_IS_WEAPON: mine FLIPPED to a click-aimed weapon (Story 2.8, amendment 45)', () => {
-    expect(EQUIPMENT_IS_WEAPON).toEqual({
-      gun: true,
-      torpedo: true,
-      mine: true, // FLIPPED (was false since 1.8): aimed rear-arc placement
-      speedBoost: false,
-      broadside: true,
-      starShells: true,
-      radarBuoy: true, // FLIPPED (was false as the decoy): click-placed (7-5 w2)
-    });
+    // WIDENED to catalog v3 (Story 8.1): 7 ids -> 15, the shipped torpedo/mine
+    // renamed heavyTorpedo/navalMines. The per-id pins live in loadout.test.ts;
+    // here the barrel pins TOTALITY and the split's shape.
+    expect(Object.keys(EQUIPMENT_IS_WEAPON)).toEqual([...EQUIPMENT_IDS]);
+    expect(EQUIPMENT_IDS).toHaveLength(15);
+    expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost', 'speedBoost']);
+    expect(EQUIPMENT_IS_WEAPON.navalMines).toBe(true); // aimed rear-arc placement (2.8, a45)
+    expect(EQUIPMENT_IS_WEAPON.radarBuoy).toBe(true); // click-placed (7-5 w2)
   });
 
   it('CONFIG.broadside carries the barrage block; its range stays DERIVED at the 5/8 rung', () => {
@@ -417,8 +422,15 @@ describe('shared barrel', () => {
     // ladders, and the SAME length — one rung indexes them together
     // (effectiveStats pairs them by index; a length mismatch would silently
     // clamp one and run off the other).
-    expect(CONFIG.broadside.traverseDeg).toHaveLength(BOON_CATALOG.broadsideSpread.copies + 1);
-    expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(BOON_CATALOG.broadsideSpread.copies + 1);
+    //
+    // RE-PINNED AGAINST THE BROADSIDE LINE (Story 8.1). The v2 `broadsideSpread`
+    // card the old coupling counted is gone; catalog v3 folds the spread rung
+    // into the BROADSIDE equipment line's tiers II-V (catalog-v3 R35, "+1 spread
+    // rung" per tier), which Story 8.16 authors. Five rungs = the line's tier I
+    // plus its four upgrade steps, so the ladder length is `cap`, not `copies+1`.
+    expect(CATALOG.broadside.cap).toBe(5);
+    expect(CONFIG.broadside.traverseDeg).toHaveLength(CATALOG.broadside.cap);
+    expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(CATALOG.broadside.cap);
     expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(CONFIG.broadside.traverseDeg.length);
   });
 
@@ -506,43 +518,59 @@ describe('shared barrel', () => {
     expect(CONFIG.torpedo.homingMaxRangeU).toBe(1300);
   });
 
-  it('re-exports the boon effect engine + Catalog v1 (Stories 2.5/2.8)', () => {
-    // 42 - 7 reloads + shipCooldown; 36->35 intel merge; 35->34 cannonBlast
-    // deleted; 34->33 mine ring cards merged (Eric 2026-08-16); 33->28 Story
-    // 7-5 wave 1 (7 deleted, 2 new); 28->29 wave 2 (5 deleted, 6 new);
-    // 29->28 RANGE I-IV deleted (Eric 2026-08-20).
-    expect(Object.keys(BOON_CATALOG)).toHaveLength(28);
+  it('re-exports THE CATALOG + the card fold engine (Story 8.1, catalog v3)', () => {
+    // 28 v2 boon lines -> 29 v3 LINES / 114 physical cards (catalog-v3 §1).
+    expect(LINE_IDS).toHaveLength(29);
+    expect(Object.keys(CATALOG)).toHaveLength(29);
+    expect(catalogCardCount()).toBe(114);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
-    expect(Object.isFrozen(BOON_CATALOG)).toBe(true);
+    expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
-    expect(Object.isFrozen(NO_BOONS)).toBe(true);
+    expect(Object.isFrozen(NO_CARDS)).toBe(true);
+    // 13 of the 29 lines are STUBS — authored in shape, mechanism unbuilt,
+    // never dealt into a deck (Eric ruling 2026-09-15, amendment 5).
+    expect(LINE_IDS.filter((id) => isStubLine(id))).toHaveLength(13);
+    // THE GENERATED WHITELIST, and its deliberate absences (see sim/effects.ts).
     expect(BOON_STAT_PATHS.length).toBeGreaterThan(0);
-    expect(BOON_STAT_PATHS).not.toContain('sweepPeriodMs');
-    expect(UNIVERSAL_CATEGORIES).toEqual(['intel', 'ship', 'guns']);
-    expect(Object.keys(EQUIPMENT_CATEGORY)).toHaveLength(7);
-    expect(Object.keys(DOCTRINE_MODES)).toHaveLength(4);
+    expect(Object.keys(EQUIPMENT_STAT_FIELDS).sort()).toEqual([...EQUIPMENT_IDS].sort());
+    for (const path of [
+      'sweepPeriodMs', 'sightRange',
+      'equipment.gun.rangeU', 'equipment.starShells.rangeU', 'equipment.broadside.rangeU',
+      'equipment.broadside.traverseRad', 'equipment.broadside.mountSpreadRad',
+      'equipment.navalMines.triggerRadius', 'equipment.gun.tier',
+    ]) expect(BOON_STAT_PATHS, path).not.toContain(path);
+    expect(Object.keys(DOCTRINE_MODES)).toHaveLength(5);
+    // DELETED WITH RARITY AND THE SUBDECK WALK (Story 8.1): there is no card
+    // scarcity tier, no offer category and no acquisition card left anywhere.
+    for (const gone of [
+      'BOON_CATALOG', 'UNIVERSAL_CATEGORIES', 'EQUIPMENT_CATEGORY', 'isAcquisitionDef',
+      'consumeAcquisition', 'resolveBoons', 'applyBoonStats', 'slotsWithBoons',
+      'boonBehaviors', 'validateBoonDef', 'NO_BOONS',
+    ]) expect((shared as Record<string, unknown>)[gone], gone).toBeUndefined();
     // sim/spread.ts — the ONE straddle rule both sides call (Story 7-5 wave 2).
     for (const fn of [straddleOffsets, parallelOffsets]) {
       expect(typeof fn).toBe('function');
     }
     for (const fn of [
-      resolveBoons,
-      applyBoonStats,
+      resolveCards,
+      cardCounts,
+      applyCardStats,
       applySlotEffect,
-      slotsWithBoons,
-      boonBehaviors,
-      boonStackCount,
+      slotsWithCards,
+      cardBehaviors,
       hookKinematics,
-      isAcquisitionDef,
-      validateBoonDef,
+      isStubLine,
+      catalogCardCount,
+      validateLine,
       validateCatalog,
     ]) {
       expect(typeof fn).toBe('function');
     }
+    expect(validateCatalog()).toEqual([]);
   });
 
   it('re-exports THE DECK MODEL engine + the offer/spend wire shape (Story 2.8)', () => {
-    for (const fn of [buildDeck, drawOffer, consumeCard, consumeAcquisition]) {
+    for (const fn of [buildDeck, drawOffer, consumeCard]) {
       expect(typeof fn).toBe('function');
     }
     // RETIRED with the exclusivity mechanism (Story 7-5 wave 2, R2.6):
@@ -558,8 +586,11 @@ describe('shared barrel', () => {
     // survives): only the FRONT offer is ever materialized, so there is no
     // second banked offer to scrub stale acquisition cards out of.
     expect((shared as Record<string, unknown>).scrubAcquisitions).toBeUndefined();
-    // dial ratified 0.35 -> 0.7 by Eric from 2-10 batch-sim evidence (amendment 57)
-    expect(CONFIG.deck).toEqual({ rareWeightBase: 1, rareWeightPerDryLevel: 0.7 });
+    // THE SOFT-PITY DIALS DIED WITH RARITY (Story 8.1). CONFIG.deck now carries
+    // the AUTHORED-deck rules (AR52), unused until Story 8.2 builds the forge,
+    // and CONFIG.catalog carries the one engine dial the fold needs.
+    expect(CONFIG.deck).toEqual({ size: 40, maxEquipmentLines: 3 });
+    expect(CONFIG.catalog).toEqual({ reloadStepPerTier: 0.05 });
     expect(CONFIG.offer.size).toBe(4); // four cards, four DIFFERENT lines
     expect(MSG.spend).toBe('u');
     expect('upgradePoints' in CONFIG).toBe(false);

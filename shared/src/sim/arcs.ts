@@ -48,8 +48,8 @@ const deg = (d: number): number => (d * Math.PI) / 180;
 
 /**
  * The ratified arc shape for a fitted equipment id, derived from CONFIG only
- * (gun/starShells declare `arc: 'full'`; the torpedo sector reads
- * CONFIG.torpedo.offset/halfArc; the mine's AND the radar buoy's rear
+ * (gun/starShells declare `arc: 'full'`; the heavy torpedo's sector reads
+ * CONFIG.torpedo.offset/halfArc; the naval/captive mines' AND the radar buoy's rear
  * placement sector reads CONFIG.mine.offset/placeHalfArcDeg — Story 2.8
  * amendment 45, Story 7-5 wave 2 R2.7; the broadside's twin beams read
  * CONFIG.broadside.arcOffsetDeg/arcHalfArcDeg). Compile-forced to cover every
@@ -60,9 +60,10 @@ export function arcFor(id: EquipmentId): ArcShape {
     case 'gun':
     case 'starShells':
       return { kind: CONFIG[id].arc };
-    case 'torpedo':
+    case 'heavyTorpedo':
       return { kind: 'sector', offset: CONFIG.torpedo.offset, halfArc: CONFIG.torpedo.halfArc };
-    case 'mine':
+    case 'navalMines':
+    case 'captiveMines':
     case 'radarBuoy':
       return { kind: 'sector', offset: CONFIG.mine.offset, halfArc: deg(CONFIG.mine.placeHalfArcDeg) };
     case 'broadside':
@@ -71,9 +72,30 @@ export function arcFor(id: EquipmentId): ArcShape {
         offset: deg(CONFIG.broadside.arcOffsetDeg),
         halfArc: deg(CONFIG.broadside.arcHalfArcDeg),
       };
-    case 'speedBoost':
-      return { kind: 'none' };
+    default:
+      return unbuiltArc(id);
   }
+}
+
+/**
+ * THE SEVEN UNBUILT v3 WEAPONS (Story 8.1), the v3 `boost` placeholder and the
+ * legacy `speedBoost` ability declare NO aimed arc. For the boosts that is the
+ * shipped answer (an instant activation aims nothing); for the seven it is the
+ * honest one: no module aims them, and their catalog lines are STUBS that can
+ * never be dealt, so no loadout can hold one. Their arcs are already RULED and
+ * each lands with its module — catalog-v3 §4: LIGHT TORPEDO twin sector both
+ * beams ±45° about 90°, SUPERCAVITATING bow ±15°, MISSILE bow ±50°, MACHINE GUN
+ * bow ±90°, FLAK 360°, MONITOR bow ±10° (Stories 8.13/8.14). Declaring them
+ * here before their CONFIG blocks exist would put six uncited literals in the
+ * arc grammar.
+ *
+ * The narrow parameter type is the COMPILE FORCE: a new EquipmentId is not
+ * assignable to it, so it cannot reach this default without declaring an arc.
+ */
+function unbuiltArc(
+  _id: 'boost' | 'speedBoost' | 'lightTorpedo' | 'supercavTorpedo' | 'missile' | 'machineGun' | 'flak' | 'monitor',
+): ArcShape {
+  return { kind: 'none' };
 }
 
 /**

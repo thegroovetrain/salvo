@@ -1570,33 +1570,37 @@ export const CONFIG = {
   },
 
   /**
-   * THE DECK MODEL's draw-weight dials (Story 2.8, amendment 38). A rare or
-   * exclusive card LINE's per-card draw weight escalates the longer no rare/
-   * exclusive has landed in a draw (invisible soft pity):
-   *   perCardWeight = rareWeightBase + levelsSinceRare × rareWeightPerDryLevel
-   * (commons are always weight 1; a line's total weight = copiesInDeck ×
-   * perCardWeight — see sim/deck.ts). Values RATIFIED by Eric 2026-07-31 from
-   * the 2.10 batch-sim evidence (amendment 57): at 0.35 the escalation only
-   * offset natural rare depletion (flat pity curve); 0.7 makes the ratified
-   * soft pity genuinely rise (rareRate climbs from the dry-1 dip of ~0.43 to
-   * ~0.57 by dry 6, vs a ≈flat ~0.4 across the same span at the old 0.35 dial;
-   * the dry-0 opening rate is ~0.48 either way) and trims the
-   * first-exclusive tail without flooding shallow draws.
+   * THE AUTHORED DECK (catalog v3, Story 8.1 — AR52). `size` is the number of
+   * cards a player AUTHORS into a deck and `maxEquipmentLines` the legal cap on
+   * how many EQUIPMENT lines one deck may carry (catalog-v3 §1: every starter
+   * sums to 40 with exactly 3 equipment lines).
    *
-   * STALE RATES, DIALS UNCHANGED (2026-08-04, global-cooldown cycle 41): the
-   * ~0.48/~0.57 figures above were measured against the 42-line catalog.
-   * Deleting the seven per-equipment reload ladders removed 35 COMMON cards
-   * while leaving every rare/exclusive in place, so rare DENSITY rose on every
-   * deck (TB 14.5% -> 17.2%, ML 11.4% -> 13.2%) and with it the draw rate — a
-   * review simulation puts TB dry-0 P(>=1 rare per offer) at ~0.59, i.e. the
-   * new OPENING rate now exceeds the old ratified dry-6 pity CEILING. The dials
-   * themselves are untouched: retuning them is a balance decision that needs an
-   * Eric ruling + a batch-sim pass, and is ledgered in deferred-work.md. Treat
-   * the numbers above as the amendment-57 provenance record, not current rates.
+   * UNUSED UNTIL STORY 8.2. Nothing reads these numbers today: 8.1 ships the
+   * INTERIM deck (`buildDeck()` = every non-stub line at its cap — see
+   * sim/deck.ts), and 8.2 builds default decks, legality and the forge on top
+   * of them. They live here now because they are gameplay-authoritative the
+   * moment 8.2 lands, and because they replace the deleted soft-pity dials
+   * (`rareWeightBase`/`rareWeightPerDryLevel`) that died with rarity itself.
+   *
+   * NOT the deck AT QUEUE: catalog-v3 R4 shuffles a hidden 10-card match
+   * consumable pool into every deck, so a queued deck is 40 + 10 = 50. That
+   * pool is Story 8.2's, not a dial here.
    */
   deck: {
-    rareWeightBase: 1, // per-card weight of a rare/exclusive at zero dry levels
-    rareWeightPerDryLevel: 0.7, // weight added per level without a rare/exclusive drawn
+    size: 40, // authored cards per deck (catalog-v3 §1 — every starter sums to 40)
+    maxEquipmentLines: 3, // equipment lines per deck (catalog-v3 §1 arithmetic: "all at the ≤ 3 cap")
+  },
+
+  /**
+   * THE CATALOG's engine dials (Story 8.1). `reloadStepPerTier` is catalog-v3's
+   * STANDING RULE (§3, from R14): every equipment line steps −5 % of its OWN
+   * base reload per tier, in ADDITIVE five-point steps (100 → 95 → 90 → 85 →
+   * 80 %), composed BEFORE the global RELOAD ladder — so a maxed weapon under a
+   * maxed Reload runs at 0.80 × 0.75 = 60 % of base. Applied in ONE place
+   * (sim/stats.ts clampStats), never restated as a per-tier effect.
+   */
+  catalog: {
+    reloadStepPerTier: 0.05, // −5 % of base reload per tier (catalog-v3 §3 standing rule, §4 conventions)
   },
 
   /**

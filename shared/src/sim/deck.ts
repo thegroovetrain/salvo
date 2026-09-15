@@ -1,138 +1,89 @@
-// THE DECK MODEL (Story 2.8, amendment 38) — the pure per-player card-deck
-// engine behind every offer. A player's deck = the UNIVERSAL lines (intel +
-// ship + guns categories) + one SUBDECK per carried equipment (that
-// equipment's category lines) + ONE acquisition card per NOT-carried
-// acquirable equipment. Copies per catalog (`BoonDef.copies` — physical
-// scarcity IS the cap). Each level draws up to CONFIG.offer.size DIFFERENT
-// card LINES (weighted sampling without replacement at line level).
+// THE DECK MODEL (Story 2.8, amendment 38; re-cut for catalog v3 in Story 8.1)
+// — the pure per-player card-deck engine behind every offer.
 //
-// THE DRAW DOES NOT TAKE CARDS OUT (the lazy-draw bugfix): drawOffer only
-// READS the pool — every drawn line stays in the deck, and exactly ONE card
-// leaves it when a card is FITTED (consumeCard). The old model removed all
-// four at draw time and gave three back on the spend, which meant a level
-// banked but not spent held four cards hostage indefinitely — at
-// CONFIG.xp.levelMs levels arrive on a wall clock, so a banked queue drained
-// its own deck until offers went short and then empty. Under the new model no
-// card can sit in an offer and in the deck at once (only the FRONT offer is
-// ever materialized, server-side), so `copies` stays the exact stack cap with
-// no scrub and no reroll. THE DECK HAS NO INFLOW AT ALL since Story 7-5 wave 2:
-// `returnCards` was the give-back for the doctrine SWAP-OUT, and the exclusivity
-// mechanism that swapped died with the cannon pair (R2.6), so cards only ever
-// leave. Every card in the catalog now stacks with every other.
-// Rare/exclusive draw weight escalates with dry levels (CONFIG.deck —
-// invisible soft pity), resetting whenever any rare/exclusive lands in a draw.
+// THE INTERIM DECK (Eric ruling 2026-09-15, amendment 5 — STAY PLAYABLE). Until
+// Story 8.2 builds default decks, deck legality and the forge, `buildDeck()`
+// takes EVERY NON-STUB LINE AT ITS CAP and is identical for every hull. That is
+// not the shipped design; it is the smallest deck that keeps a staging match
+// playable while the card MODEL lands. A STUB line — one whose mechanism is not
+// built yet — is excluded here, which is the single point at which "authored but
+// unbuilt" becomes "unofferable", so no card in a live deck is ever a dead card.
 //
-// Acquisitions (amendments 38/41): when one is picked the server calls
-// consumeAcquisition (that equipment's subdeck joins the pool; EVERY remaining
-// acquisition card purges — the R slot is permanent). Amendment 43's
-// scrubAcquisitions is RETIRED: it existed to clean stale acquisition cards
-// out of OTHER banked offers, and under the lazy-draw model there are none.
+// THE DRAW DOES NOT TAKE CARDS OUT (the lazy-draw bugfix): drawOffer only READS
+// the pool — every drawn line stays in the deck, and exactly ONE card leaves it
+// when a card is FITTED (consumeCard). Under this model no card can sit in an
+// offer and in the deck at once (only the FRONT offer is ever materialized,
+// server-side), so `cap` stays the exact stack cap with no scrub and no reroll.
+// THE DECK HAS NO INFLOW AT ALL: cards only ever leave.
 //
-// Determinism: every function is pure over (state, rng, catalog) — same
-// inputs, same outputs, zero I/O. The server drives it with a per-ship
-// decorrelated mulberry32 stream; tests replay whole economies. Deck state is
-// SERVER-PRIVATE: it never rides the wire (the offer ids do).
+// WHAT CATALOG V3 DELETED HERE. Rarity, categories, the universal/subdeck walk,
+// acquisition cards and `consumeAcquisition`, and the SOFT PITY escalation
+// (`levelsSinceRare`, CONFIG.deck.rareWeight*) — v3 has no rarity tier to
+// escalate. A line's draw weight is now simply THE COPIES IT HAS LEFT, so a
+// thinning line fades out of offers by arithmetic rather than by a dial.
+//
+// Determinism: every function is pure over (state, rng, catalog) — same inputs,
+// same outputs, zero I/O. The server drives it with a per-ship decorrelated
+// mulberry32 stream; tests replay whole economies. Deck state is SERVER-PRIVATE:
+// it never rides the wire (the offer ids do).
 
 import { CONFIG } from '../constants.js';
 import type { Rng } from '../math/rng.js';
-import {
-  BOON_CATALOG,
-  EQUIPMENT_CATEGORY,
-  UNIVERSAL_CATEGORIES,
-  isAcquisitionDef,
-  type BoonCatalog,
-  type BoonDef,
-  type BoonId,
-} from './boons.js';
-import type { EquipmentId } from './loadout.js';
+import { CATALOG, type Catalog, type LineId } from './catalog.js';
 
 /**
- * One player's deck: the multiset of card ids still in the pool (one entry per
- * physical copy) and the rare-escalation counter (levels since a rare/
- * exclusive last landed in a draw). Immutable — every op returns fresh state.
+ * One player's deck: the multiset of card LINE ids still in the pool (one entry
+ * per physical copy). Immutable — every op returns fresh state.
  */
 export interface DeckState {
-  readonly cards: readonly BoonId[];
-  readonly levelsSinceRare: number;
-}
-
-/** The slotFill target of an acquisition def (undefined for non-acquisitions). */
-function acquisitionTarget(def: BoonDef): EquipmentId | undefined {
-  const fill = def.effects.find((e) => e.kind === 'slotFill');
-  return fill?.kind === 'slotFill' ? fill.equipmentId : undefined;
-}
-
-/** `copies` entries of one line id. */
-function copiesOf(def: BoonDef): BoonId[] {
-  return new Array<BoonId>(Math.max(0, Math.floor(def.copies))).fill(def.id);
+  readonly cards: readonly LineId[];
 }
 
 /**
- * Build the deck for a loadout: universal categories + carried-equipment
- * subdecks + one acquisition card per NOT-carried acquirable equipment.
- * Iterates the catalog in insertion order (deterministic composition). The
- * caller passes the CARRIED equipment ids (drones never get a deck — a server
- * rule; this function is loadout-driven and hull-agnostic).
+ * Build the INTERIM deck: every NON-STUB line repeated `cap` times, in CATALOG
+ * order (deterministic composition), identical for every hull. Story 8.2
+ * replaces this with authored per-hull decks + the match consumable pool.
  */
-export function buildDeck(catalog: BoonCatalog, carriedEquipment: readonly EquipmentId[]): DeckState {
-  const carried = new Set<EquipmentId>(carriedEquipment);
-  const categories = new Set<string>(UNIVERSAL_CATEGORIES);
-  for (const eq of carried) categories.add(EQUIPMENT_CATEGORY[eq]);
-  const cards: BoonId[] = [];
+export function buildDeck(catalog: Catalog = CATALOG): DeckState {
+  const cards: LineId[] = [];
   for (const key of Object.keys(catalog)) {
-    const def = catalog[key];
-    if (def === undefined) continue;
-    const target = acquisitionTarget(def);
-    if (target !== undefined) {
-      // Acquisition card: only for equipment the hull does NOT carry — a
-      // carried equipment's acquisition never enters the deck (so slotFill's
-      // already-fitted no-op stays production-unreachable).
-      if (!carried.has(target)) cards.push(...copiesOf(def));
-    } else if (categories.has(def.category)) {
-      cards.push(...copiesOf(def));
-    }
+    const line = catalog[key];
+    if (line === undefined || line.stub === true) continue;
+    for (let i = 0; i < Math.max(0, Math.floor(line.cap)); i += 1) cards.push(line.id);
   }
-  return { cards, levelsSinceRare: 0 };
+  return { cards };
 }
 
-/** Per-card draw weight of a line (CONFIG.deck escalation for rare/exclusive;
- *  commons always 1). */
-function perCardWeight(def: BoonDef, levelsSinceRare: number): number {
-  if (def.rarity === 'common') return 1;
-  return CONFIG.deck.rareWeightBase + levelsSinceRare * CONFIG.deck.rareWeightPerDryLevel;
-}
-
-/** The distinct lines of a card multiset, first-seen order, with copy counts.
+/** The distinct lines of a card multiset, in CATALOG order, with copy counts.
  *  Junk ids (not in the catalog) are skipped — fail-closed, never drawable. */
-function lineCounts(cards: readonly BoonId[], catalog: BoonCatalog): Map<BoonId, number> {
-  const counts = new Map<BoonId, number>();
+function lineCounts(cards: readonly LineId[], catalog: Catalog): Map<LineId, number> {
+  const raw = new Map<LineId, number>();
   for (const id of cards) {
     if (!Object.hasOwn(catalog, id)) continue;
-    counts.set(id, (counts.get(id) ?? 0) + 1);
+    raw.set(id, (raw.get(id) ?? 0) + 1);
+  }
+  const counts = new Map<LineId, number>();
+  for (const key of Object.keys(catalog)) {
+    const n = raw.get(key as LineId);
+    if (n !== undefined) counts.set(key as LineId, n);
   }
   return counts;
 }
 
-/** One weighted line pick over `counts` (line weight = copies × perCard),
- *  excluding `excluded` ids. Returns the picked id or undefined (nothing
- *  drawable). Consumes one rng.next() when a pick happens. */
+/** One weighted line pick over `counts` (weight = COPIES REMAINING — no rarity,
+ *  no pity), excluding `excluded` ids. Returns the picked id or undefined
+ *  (nothing drawable). Consumes one rng.next() when a pick happens. */
 function pickLine(
-  counts: ReadonlyMap<BoonId, number>,
-  catalog: BoonCatalog,
+  counts: ReadonlyMap<LineId, number>,
   rng: Rng,
-  levelsSinceRare: number,
-  excluded: ReadonlySet<BoonId>,
-): BoonId | undefined {
-  const lines: { id: BoonId; weight: number }[] = [];
+  excluded: ReadonlySet<LineId>,
+): LineId | undefined {
+  const lines: { id: LineId; weight: number }[] = [];
   let total = 0;
   for (const [id, count] of counts) {
     if (count <= 0 || excluded.has(id)) continue;
-    const def = catalog[id];
-    if (def === undefined) continue;
-    const weight = count * perCardWeight(def, levelsSinceRare);
-    if (weight <= 0) continue;
-    lines.push({ id, weight });
-    total += weight;
+    lines.push({ id, weight: count });
+    total += count;
   }
   if (lines.length === 0) return undefined;
   let r = rng.next() * total;
@@ -144,10 +95,10 @@ function pickLine(
 }
 
 /** Remove ONE copy of each named id from `cards`, preserving order. */
-function removeCopies(cards: readonly BoonId[], picked: readonly BoonId[]): BoonId[] {
-  const toRemove = new Map<BoonId, number>();
+function removeCopies(cards: readonly LineId[], picked: readonly LineId[]): LineId[] {
+  const toRemove = new Map<LineId, number>();
   for (const id of picked) toRemove.set(id, (toRemove.get(id) ?? 0) + 1);
-  const out: BoonId[] = [];
+  const out: LineId[] = [];
   for (const id of cards) {
     const n = toRemove.get(id) ?? 0;
     if (n > 0) toRemove.set(id, n - 1);
@@ -156,92 +107,43 @@ function removeCopies(cards: readonly BoonId[], picked: readonly BoonId[]): Boon
   return out;
 }
 
-/** Pick up to `want` DIFFERENT lines (weighted, without replacement at line
- *  level). READ-ONLY over `cards` — nothing leaves the pool here. Never
- *  throws: a thin/empty pool picks fewer/zero. */
-function drawLines(
-  cards: readonly BoonId[],
-  catalog: BoonCatalog,
-  rng: Rng,
-  want: number,
-  levelsSinceRare: number,
-): BoonId[] {
-  const counts = lineCounts(cards, catalog);
-  const taken = new Set<BoonId>();
-  const picked: BoonId[] = [];
-  for (let i = 0; i < want; i += 1) {
-    const id = pickLine(counts, catalog, rng, levelsSinceRare, taken);
-    if (id === undefined) break;
-    picked.push(id);
-    taken.add(id); // DIFFERENT lines per draw (duplicate auto-redraw, structurally)
-  }
-  return picked;
-}
-
 /**
  * Draw one level's offer: up to CONFIG.offer.size DIFFERENT card lines,
- * weighted at line level (weight = copiesInDeck × perCardWeight; common
- * per-card weight 1; rare/exclusive escalates with dry levels — CONFIG.deck).
+ * weighted at line level by COPIES REMAINING IN THE DECK.
  *
  * NON-CONSUMING: the drawn cards STAY in the pool — a draw is a read, and only
- * a FIT takes a card out (consumeCard). The returned deck differs from the
- * input in exactly one field: levelsSinceRare resets to 0 when any rare/
- * exclusive is drawn, else increments (the pity escalation still advances once
- * per draw). An empty (or thin) deck draws a short or empty offer — NEVER
- * throws (the server materializes no offer for an empty draw).
+ * a FIT takes a card out (consumeCard). The returned deck is the input state
+ * unchanged (same reference); the pair shape survives because callers thread it.
+ * An empty (or thin) deck draws a short or empty offer — NEVER throws (the
+ * server materializes no offer for an empty draw). A STUB line can never be
+ * offered, because `buildDeck` never deals one.
  */
 export function drawOffer(
   deck: DeckState,
   rng: Rng,
-  catalog: BoonCatalog = BOON_CATALOG,
-): { deck: DeckState; offer: BoonId[] } {
-  const picked = drawLines(deck.cards, catalog, rng, CONFIG.offer.size, deck.levelsSinceRare);
-  const drewRare = picked.some((id) => catalog[id] !== undefined && catalog[id].rarity !== 'common');
-  return {
-    deck: { cards: deck.cards, levelsSinceRare: drewRare ? 0 : deck.levelsSinceRare + 1 },
-    offer: picked,
-  };
+  catalog: Catalog = CATALOG,
+): { deck: DeckState; offer: LineId[] } {
+  const counts = lineCounts(deck.cards, catalog);
+  const taken = new Set<LineId>();
+  const offer: LineId[] = [];
+  for (let i = 0; i < CONFIG.offer.size; i += 1) {
+    const id = pickLine(counts, rng, taken);
+    if (id === undefined) break;
+    offer.push(id);
+    taken.add(id); // DIFFERENT lines per draw (duplicate auto-redraw, structurally)
+  }
+  return { deck, offer };
 }
 
 /**
  * Remove exactly ONE copy of a line from the deck — the FIT. This is the only
- * way a card leaves the pool in the normal economy (the draw no longer takes
- * any), so the deck thins by exactly the number of upgrades fitted and
- * `copies` stays the exact stack cap. An id with no copy left is a no-op (the
- * same state reference back) — fail-closed, never throws. levelsSinceRare
- * untouched: fitting is not a draw.
+ * way a card leaves the pool (the draw takes none), so the deck thins by exactly
+ * the number of cards fitted and `cap` stays the exact stack cap. An id with no
+ * copy left is a no-op (the same state reference back) — fail-closed, never
+ * throws.
  */
-export function consumeCard(deck: DeckState, id: BoonId): DeckState {
+export function consumeCard(deck: DeckState, id: LineId): DeckState {
   const cards = removeCopies(deck.cards, [id]);
   if (cards.length === deck.cards.length) return deck;
-  return { cards, levelsSinceRare: deck.levelsSinceRare };
+  return { cards };
 }
-
-/**
- * The R slot filled with `acquiredId` (amendment 38): shuffle that equipment's
- * subdeck lines into the pool (its category's non-acquisition lines, catalog
- * copies each — position is irrelevant to a weighted draw, so "shuffle in" is
- * an append) and PURGE every remaining acquisition card (the R slot is
- * permanent — no second acquisition can ever be drawn). levelsSinceRare
- * untouched.
- */
-export function consumeAcquisition(deck: DeckState, catalog: BoonCatalog, acquiredId: EquipmentId): DeckState {
-  const kept = deck.cards.filter((id) => {
-    if (!Object.hasOwn(catalog, id)) return true; // junk: not an acquisition, keep (undrawable anyway)
-    const def = catalog[id];
-    return def === undefined || !isAcquisitionDef(def);
-  });
-  const category = EQUIPMENT_CATEGORY[acquiredId];
-  const subdeck: BoonId[] = [];
-  for (const key of Object.keys(catalog)) {
-    const def = catalog[key];
-    if (def === undefined || isAcquisitionDef(def)) continue;
-    if (def.category === category) subdeck.push(...copiesOf(def));
-  }
-  return { cards: [...kept, ...subdeck], levelsSinceRare: deck.levelsSinceRare };
-}
-
-// scrubAcquisitions (amendment 43) was RETIRED by the lazy-draw bugfix: it
-// cleaned dead acquisition cards out of OTHER banked offers, and only the
-// FRONT offer is ever materialized now — there is no second offer to scrub, by
-// construction. The next offer is simply drawn from the already-purged deck.
