@@ -34,7 +34,7 @@ const ARENA_ROOM = 'arena';
 /** Telemetry mode tag, mirroring ArenaRoom's MODE. */
 const MODE = 'queue';
 /** Queue evaluation cadence. 1 Hz on the ROOM CLOCK (clock.setInterval, never
- *  setSimulationInterval — there is no simulation here, and a queue that ticks
+ *  setTimestep — there is no simulation here, and a queue that ticks
  *  at 60 Hz would burn a core doing arithmetic on an unchanged pool). One
  *  second is also the resolution QueueStatusMsg's countdown is rendered at. */
 const TICK_MS = 1000;
@@ -49,7 +49,7 @@ const FORM_FAILED_ERROR = 'could not start a match — please try again';
  * 6.6). It carries exactly what QueueStatusMsg already carries, with the
  * countdown re-expressed as an ABSOLUTE epoch deadline (see resolveDeadlineAt).
  */
-interface QueueListingMeta {
+export interface QueueListingMeta {
   pooled: number;
   min: number;
   cap: number;
@@ -117,8 +117,11 @@ export class StandardQueueRoom extends Room {
   /**
    * PROTOCOL_VERSION gate, re-implemented at the queue's door and load-bearing
    * there: matchMaker.reserveSeatFor / reserveMultipleSeatsFor call the room's
-   * `_reserveSeat` directly and NEVER call `callOnAuth` (verified in the
-   * installed @colyseus/core 0.17). So the arena's static onAuth no longer runs
+   * `_reserveSeat` directly and NEVER call `callOnAuth` (re-verified in the
+   * installed @colyseus/core 0.18.13: MatchMaker.mjs `reserveSeatFor` :438 and
+   * `reserveMultipleSeatsFor` :461 both go straight to the remote room call,
+   * while `callOnAuth` :509 is reached only from the join/create routes at
+   * :91/:115/:121/:160). So the arena's static onAuth no longer runs
    * for any real player — the queue is the only door left where a stale bundle
    * can be turned away with a readable "refresh" message instead of failing
    * later at schema decode.
@@ -271,6 +274,12 @@ export class StandardQueueRoom extends Room {
    * real, permanent cost the day the driver is Redis.
    *
    * `decision === null` is the onCreate seed: shape with no countdown.
+   *
+   * EVERY KEY OF QueueListingMeta IS WRITTEN ON EVERY CALL, and since Colyseus
+   * 0.18 that is load-bearing rather than tidy: `setMetadata` REPLACES the whole
+   * metadata object (`this._listing.metadata = meta` — @colyseus/core 0.18.13
+   * Room.mjs:663-669) where 0.17 shallow-merged into it, so a partial write is a
+   * SILENT WIPE of every key it omits. colyseus018.test.ts pins the key set.
    *
    * Policy is untouched by all of this — nothing here decides anything, it only
    * mirrors what queueStep already computed.

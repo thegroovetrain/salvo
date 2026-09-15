@@ -432,7 +432,11 @@ describe('JOINING-deadline kick', () => {
     const client = joinClient('a');
     const fire = join(room, client);
 
-    room.clients.length = 0; // core removed the client at drop/leave time
+    // Core removed the client at drop/leave time. `splice`, never `length = 0`:
+    // 0.18's ClientArray keeps a `_byId` sessionId index that only the overridden
+    // mutators maintain, and a bare length write silently desyncs it
+    // (@colyseus/core 0.18.13 Transport.d.ts:324-343).
+    room.clients.splice(0, room.clients.length);
     fire();
     expect(client.leave).not.toHaveBeenCalled();
     expect(lines('warn client.joiningKick')).toHaveLength(0);

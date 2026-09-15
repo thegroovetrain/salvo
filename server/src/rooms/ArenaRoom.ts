@@ -61,7 +61,7 @@ import {
 } from './soloThrottle.js';
 
 const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
-const INTERVAL_MS = 1000 / 60; // setSimulationInterval cadence
+const INTERVAL_MS = 1000 / 60; // setTimestep cadence
 const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
 /**
  * Cap on unanswered ping nonces retained per client. With one ping per
@@ -78,7 +78,7 @@ const MODE = 'arena';
  * 6.6): which door created it, and how many humans are aboard RIGHT NOW (see
  * publishListing for why the driver's own `clients` count cannot answer that).
  */
-interface ArenaListingMeta {
+export interface ArenaListingMeta {
   mode: 'standard' | 'soloVsAi';
   humans: number;
 }
@@ -160,7 +160,7 @@ function logSoloThrottleShape(context: AuthContext | undefined, ip: string, admi
  * Address derivation: the RIGHTMOST x-forwarded-for entry (proxy-appended —
  * client-forgeable only on its LEFT; see clientIpFrom for the full trust
  * model). The socket remote address is unreachable from static onAuth in
- * @colyseus/core 0.17.44 (the matchmake route's AuthContext carries headers
+ * @colyseus/core 0.18.13 (the matchmake route's AuthContext carries headers
  * and a socketless WHATWG Request — router/default_routes.mjs builds `ip`
  * from the same headers), so with no header at all — a bare local run, where
  * no proxy exists to append one — the throttle FAILS OPEN with one logged
@@ -212,11 +212,11 @@ function describeError(err: unknown): LogFields {
 /**
  * Close codes that earn the reconnect grace window (story 0.2, finding F1).
  * EXACTLY the set the @colyseus/sdk itself auto-reconnects on (verified against
- * @colyseus/sdk 0.17.43 Connection.onclose → handleReconnection) — genuine
+ * @colyseus/sdk 0.18.2 Connection.onclose → handleReconnection) — genuine
  * abnormal/network drops. Every other code is a punitive or deliberate close
  * that must tear down immediately: WITH_ERROR 4002 (rate-limit / malformed-
  * message kick — verified as the code core passes onDrop from
- * #_forciblyCloseClient in @colyseus/core 0.17.44 Room.ts), SERVER_SHUTDOWN,
+ * #_forciblyCloseClient in @colyseus/core 0.18.13 Room.mjs:1432), SERVER_SHUTDOWN,
  * FAILED_TO_RECONNECT, etc. (CONSENTED 4000 never reaches onDrop — core routes
  * it straight to onLeave). Referenced by name off the CloseCode enum re-exported
  * from 'colyseus'.
@@ -245,7 +245,9 @@ interface PingState {
 
 // Colyseus 0.17 changed the Room generic from `Room<State>` to
 // `Room<{ state: State }>` (the parameter is now a RoomOptions bag carrying
-// state/metadata/client types), so `this.state` types as ArenaState again.
+// state/metadata/client types — @colyseus/core 0.18.13 Room.d.ts:49 declares
+// `RoomOptions`, :128 declares `Room<T extends RoomOptions = RoomOptions>`),
+// so `this.state` types as ArenaState again.
 export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = CONFIG.map.playerCap;
   autoDispose = true;
@@ -474,7 +476,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    *
    * WHY `humans` IS PUBLISHED AT ALL — the driver's own `clients` count is not
    * this room's population, it is its SEAT LEDGER, and it over-reports in two
-   * ways that both land on the front page (verified in @colyseus/core 0.17.44
+   * ways that both land on the front page (verified in @colyseus/core 0.18.13
    * Room.mjs):
    *
    *   1. `#_decrementClientCount()` runs inside `#_onAfterLeave`, which for a
@@ -491,9 +493,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * reserved-but-unjoined seat is never in it. So the count published here is
    * the number of humans actually connected to this room, right now.
    *
-   * Both keys are written together as ONE object every time. setMetadata
-   * shallow-merges, so a partial write would be safe — but writing the pair
-   * keeps "what this room publishes" readable in one place.
+   * Both keys are written together as ONE object every time, and since
+   * Colyseus 0.18 that is a CORRECTNESS requirement rather than a tidiness
+   * one: `setMetadata` REPLACES the whole metadata object outright
+   * (`this._listing.metadata = meta`, @colyseus/core 0.18.13 Room.mjs:663-669)
+   * where 0.17 shallow-merged into it. A partial write is therefore a SILENT
+   * WIPE of every key it omits — so `publishListing` writes every key of
+   * ArenaListingMeta on every call, and colyseus018.test.ts pins that.
    *
    * The catch is load-bearing, not decoration: a bare `void` on an async call
    * makes any failure an UNHANDLED REJECTION that fails the whole test file
@@ -538,7 +544,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // Locking does NOT interfere with the seats the queue is about to reserve:
     // _reserveSeat checks maxClients and never consults `locked`, and the join
     // path consumes a reservation without testing it either. Verified against
-    // @colyseus/core 0.17.10.
+    // @colyseus/core 0.18.13 (Room.mjs:1302-1304 — the only gate is
+    // hasReachedMaxClients()).
     //
     // In production this is defence in depth — ArenaRoom.onAuth already refuses
     // every direct join without HC_DEV_OPTIONS — but it makes the guarantee
@@ -557,7 +564,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // participants from world.ships and checkWin() runs in that SAME update(),
     // so a roster holding only the human latches an instant victory, and any
     // bot arriving after that snapshot sinks unrecorded (recordSink refuses ids
-    // outside it). Building here — before setSimulationInterval below — is what
+    // outside it). Building here — before setTimestep below — is what
     // makes "before activate" structural rather than a race.
     if (sanitized.solo) this.buildBotFleet();
 
@@ -568,8 +575,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     //
     // FREE at create time: setMetadata skips its driver.persist while
     // `_internalState` is CREATING, and core only flips that to CREATED after
-    // onCreate returns (@colyseus/core 0.17.44 MatchMaker.mjs:298). It mutates
-    // `_listing` in place, and the create-time `driver.persist(listing, true)`
+    // onCreate returns (@colyseus/core 0.18.13 MatchMaker.mjs:307). It assigns
+    // `_listing.metadata` in place on the live listing, and the create-time
+    // `driver.persist(listing, true)`
     // that runs right after onCreate carries the metadata with it. So this
     // costs zero extra driver writes — one write, as before.
     this.mode = sanitized.solo ? 'soloVsAi' : 'standard';
@@ -579,7 +587,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.onMessage(MSG.spend, (client: Client, raw: unknown) => this.onSpendMessage(client, raw));
     this.onMessage(MSG.ping, (client: Client, raw: unknown) => this.onPongMessage(client, raw));
 
-    this.setSimulationInterval((dt) => this.update(dt), INTERVAL_MS);
+    this.setTimestep((dt) => this.update(dt), INTERVAL_MS);
     // D1 RTT loop: ping every connected client on the room clock. The 'p'
     // channel rides the room-wide transport guard only (never the input store).
     this.clock.setInterval(() => this.sendPings(), CONFIG.net.pingIntervalMs);
@@ -976,7 +984,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
   /**
    * Resume door (Story 6.7). Core calls this INSTEAD OF onJoin on the
-   * reconnection branch (verified in @colyseus/core 0.17.44 Room.mjs:693-701 —
+   * reconnection branch (verified in @colyseus/core 0.18.13 Room.mjs:1063-1090 —
    * `isWaitingReconnection` short-circuits the onJoin path entirely), so the
    * seat, the ship, the roster row, the hue and the input store all still exist
    * and NOTHING here may re-create any of them: a second `world.addShip` would
@@ -1010,7 +1018,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * JOINING-deadline kick (story 0.3, deferred-work pickup). Core pushes the
    * client into `this.clients` BEFORE onJoin runs, and the client stays
    * ClientState.JOINING until its JOIN_ROOM ack arrives over the wire
-   * (verified in @colyseus/core 0.17 Room._onJoin → _onMessage) — so a client
+   * (verified in @colyseus/core 0.18.13 Room._onJoin → _onMessage) — so a client
    * that never completes the handshake holds a roster slot and an unbounded
    * `_enqueuedMessages` buffer forever. Arm an unconditional per-client
    * deadline and decide at FIRE time (race-free: a client that reached JOINED
@@ -1055,8 +1063,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * clears the input store) as a visible, huntable participant that still
    * counts in the win check. Everyone else falls through to immediate teardown.
    *
-   * Teardown ordering, verified against the installed @colyseus/core 0.17
-   * Room.ts (_onLeave → #_onAfterLeave):
+   * Teardown ordering, verified against the installed @colyseus/core 0.18.13
+   * Room.mjs (_onLeave :1442 → #_onAfterLeave :1472):
    * - 'teardown': we do NOTHING here — core always invokes onLeave right
    *   after an onDrop that set up no reconnection.
    * - 'hold': core defers; on grace expiry / rejection / room dispose it
@@ -1114,9 +1122,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
           this.armJoiningDeadline(newClient);
         })
         // Finding F3: defensive — the deferred REJECTS on grace expiry / room
-        // dispose. Core routes that into onLeave → teardown (Room.ts _onLeave,
-        // ~1750), and @colyseus/core 0.17.44 already attaches its own internal
-        // rejection handler, so the installed version never leaks an
+        // dispose. Core routes that into onLeave → teardown (Room.mjs
+        // _onLeave :1442), and @colyseus/core 0.18.13 already attaches its own
+        // internal rejection handler, so the installed version never leaks an
         // unhandledRejection. This catch is belt-and-suspenders against a
         // future core patch dropping that guarantee, and also swallows the
         // rejection on the promise reference we retain via .then() above.

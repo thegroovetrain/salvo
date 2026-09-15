@@ -257,7 +257,7 @@ export function metricsPayload(): MetricsPayload {
   };
 }
 
-// --- HTTP endpoint (Colyseus 0.17 typed route) -------------------------------
+// --- HTTP endpoint (Colyseus 0.18 typed route) -------------------------------
 
 /** GET /metrics — process-local operability snapshot as JSON. */
 export const metricsEndpoint = createEndpoint(

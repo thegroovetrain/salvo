@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-09-14 (interstitial cycle 133, 0.17.133: CLAUDE.md rewritten to best-practice size + hook-enforced edit moratorium; long-form archived to docs/; PV 49; spec-claude-md-rewrite.md). Before that 2026-09-14 (planning: gds-sprint-planning for E8/E9 — epic-8 The Deck 21 stories + epic-9 The Account 11 stories added as backlog, retros optional; 0 story files exist for either; every epic 0-7 status preserved byte-for-byte; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-create-epics-and-stories for E8/E9 — epics.md extended in place, Epic 8 The Deck 21 stories + Epic 9 The Account 11 stories, validated PASS; gds-sprint-planning next; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-ux v3 pass for E8/E9 surfaces — DESIGN.md/EXPERIENCE.md updated, 3 mocks promoted, 4-lens validation; epics run for E8/E9 next; last build cycle 132, 0.17.132). Before that 2026-09-10 (planning: gds-game-architecture deck amendment for E8 / upgrades v3 — game-architecture.md D19–D31; D25 + D28 need an E8 home before stories 5/12/13/15; last build cycle 132, 0.17.132)
+# last_updated: 2026-09-14 (build: cycle 134, 0.17.134 — Story 8-0 Colyseus 0.18 upgrade landed, PV 49->50, epic-8 amendments 1-4; next: 8-1). Before that 2026-09-14 (interstitial cycle 133, 0.17.133: CLAUDE.md rewritten to best-practice size + hook-enforced edit moratorium; long-form archived to docs/; PV 49; spec-claude-md-rewrite.md). Before that 2026-09-14 (planning: gds-sprint-planning for E8/E9 — epic-8 The Deck 21 stories + epic-9 The Account 11 stories added as backlog, retros optional; 0 story files exist for either; every epic 0-7 status preserved byte-for-byte; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-create-epics-and-stories for E8/E9 — epics.md extended in place, Epic 8 The Deck 21 stories + Epic 9 The Account 11 stories, validated PASS; gds-sprint-planning next; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-ux v3 pass for E8/E9 surfaces — DESIGN.md/EXPERIENCE.md updated, 3 mocks promoted, 4-lens validation; epics run for E8/E9 next; last build cycle 132, 0.17.132). Before that 2026-09-10 (planning: gds-game-architecture deck amendment for E8 / upgrades v3 — game-architecture.md D19–D31; D25 + D28 need an E8 home before stories 5/12/13/15; last build cycle 132, 0.17.132)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -144,6 +144,7 @@
 #   2026-09-11 (planning, no cycle) gds-ux v3 PASS — E8/E9 UX surfaces designed (bottom-centre HUD bar, 5-row refit card, countdown REDRAW, results LOADOUT, merged Ship & Deck screen, per-copy collection, named decks); PV unchanged at 49; ux-designs/…/.decision-log.md + validation-report.md
 #   cycle 132 (0.17.132) HOME COMMUNITY LINKS — DISCORD + REDDIT in the underplay row, env-templated (VITE_DISCORD_INVITE/VITE_SUBREDDIT), absence-gated, values left unset — no amendment; PV 49; spec-home-community-links.md
 #   cycle 133 (0.17.133) CLAUDE.md REWRITE — 302→74 lines per official Claude Code guidance, long-form moved verbatim to docs/codebase-map.md + docs/key-decisions.md + docs/deploy.md, PreToolUse hook freezes the file (.claude/hooks/protect-claude-md.sh), project-context.md stale facts corrected — no amendment; PV 49; spec-claude-md-rewrite.md
+#   cycle 134 (0.17.134) STORY 8-0 COLYSEUS 0.18 UPGRADE — core 0.18.13 / schema 5.0.32 / sdk 0.18.2 both sides, setTimestep, auth/database/admin unmounted deps, postgres+drizzle-kit deferred to 9.1; epic-8 amendments 1-4; PV 49->50; spec-8-0-colyseus-0-18-upgrade.md
 # NOTE (2026-08-21, Story 7-6, Eric ruling F3): cycles 120/121 were AUTHORED on branches stamped
 # 0.17.110 / 0.17.111 / epic-7 amendments 29-30 and RENUMBERED at merge (PR #184 -> 0.17.120,
 # PR #187 -> 0.17.121, amendments 32-33; verified against the VERSION file at each merge commit).
@@ -260,8 +261,8 @@ development_status:
   epic-7-retrospective: done  # 2026-08-27 epic-7-retro-2026-08-27.md
 
   # epic-8: The Deck (GDD E8 — upgrades v3 + catalog v3; 21 stories in build order, Eric-approved 2026-09-11)
-  epic-8: backlog
-  8-0-colyseus-0-18-upgrade: backlog  # floor story
+  epic-8: in-progress
+  8-0-colyseus-0-18-upgrade: done  # 2026-09-14 cycle 134, 0.17.134, PV 49->50, epic-8 amendments 1-4; spec-8-0-colyseus-0-18-upgrade.md
   8-1-the-card-model-and-catalog-engine: backlog
   8-2-legal-decks-default-decks-and-the-door: backlog
   8-3-the-draw: backlog

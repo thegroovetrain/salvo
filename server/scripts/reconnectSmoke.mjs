@@ -294,10 +294,21 @@ async function main() {
     const realToken = a.room.reconnectionToken;
     assert(typeof realToken === 'string' && realToken.includes(':'), 'no reconnectionToken exposed');
     a.room.reconnection.enabled = false;
-    // UNDOCUMENTED SDK INTERNAL (pinned to @colyseus/sdk 0.17.43): reaching into
-    // room.connection.transport.ws is the only way to simulate an abnormal
-    // socket drop (1006) — room.leave() would be a consented 4000 that skips
-    // onDrop. Revisit if the SDK's transport shape changes on upgrade.
+    // UNDOCUMENTED SDK INTERNAL (re-pinned to @colyseus/sdk 0.18.2, Story 8.0):
+    // reaching into room.connection.transport.ws is the only way to simulate an
+    // abnormal socket drop (1006) — room.leave() would be a consented 4000 that
+    // skips onDrop. The whole chain SURVIVED the 0.17.43 -> 0.18.2 upgrade
+    // unchanged, verified against the installed build:
+    //   sdk/build/Room.mjs:24            `reconnectionToken` field
+    //   sdk/build/Room.mjs:485           `this.reconnectionToken = roomId:token`
+    //   sdk/build/Room.mjs:115           `this.connection = new Connection(...)`
+    //   sdk/build/Connection.mjs:24,35   `transport` field <- WebSocketTransport
+    //   sdk/build/transport/WebSocketTransport.mjs:15,51  `ws` field
+    //   sdk/build/Reconnection.mjs:11    `enabled: true` (the flag cleared above)
+    // `terminate()` exists only on the Node `ws` package's socket
+    // (WebSocketTransport.mjs:7,10 — `globalThis.WebSocket || NodeWebSocket`),
+    // which is why the close() fallback below stays. Revisit if the SDK's
+    // transport shape changes on the next upgrade.
     const ws = a.room.connection.transport.ws;
     if (typeof ws.terminate === 'function') ws.terminate();
     else ws.close();

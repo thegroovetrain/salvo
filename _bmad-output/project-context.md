@@ -28,7 +28,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 ## Technology Stack & Versions
 
 - **Engine:** Custom browser engine — no Unity/Unreal/Godot. TypeScript monorepo (npm workspaces), Node v22.
-- **Workspaces (strict layering):** `shared` (pure deterministic sim, zero deps) → `server` (Colyseus 0.17, @colyseus/schema 4.x, @colyseus/tools, Express 4) and `client` (PixiJS 8.19, @colyseus/sdk 0.17, Vite 6).
+- **Workspaces (strict layering):** `shared` (pure deterministic sim, zero deps) → `server` (Colyseus 0.18, @colyseus/schema 5.x, @colyseus/tools, Express 4) and `client` (PixiJS 8.19, @colyseus/sdk 0.18, Vite 6).
 - **Language/tooling:** TypeScript ~5.7, ESLint 10 + typescript-eslint (complexity ≤ 10 enforced), Vitest (2.x shared/server, 4.x client + jsdom), tsx for server dev.
 - **Version:** frozen at `0.17.X` until all epics complete; X = landed build cycles, +1 per cycle (Eric ruling 2026-08-01). `VERSION` + root `package.json`, single-sourced into the client by Vite.
 - **Deploy:** Render, two environments from one `render.yaml` (a Blueprint with autoSync ON): `hullcracker` from `main` = production https://hullcracker.io/; `hullcracker-dev` from `development` = staging. Feature work branches from `development`, is QA'd on the staging host, and only then merges to `main`.
@@ -37,11 +37,11 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 ### Engine & Architecture Rules
 
-- The "engine" is three strictly layered workspaces: `shared` (pure deterministic sim) → `server` (Colyseus 0.17) and `client` (PixiJS 8). `shared` imports from neither side, ever.
+- The "engine" is three strictly layered workspaces: `shared` (pure deterministic sim) → `server` (Colyseus 0.18) and `client` (PixiJS 8). `shared` imports from neither side, ever.
 - Both sides run the SAME shared sim functions (`stepShip`, `stepShell`, `generateMap`, zone math) at the same fixed 50ms dt. Any behavior change to the simulation goes in `shared/` — never fork logic per side, or prediction desyncs.
 - `effectiveStats()` (`shared/src/sim/stats.ts`) is the ONLY legal path from (ship class + upgrade counts) to any derived stat. Never re-derive an upgraded value ad hoc, on either side.
 - `CONFIG` (`shared/src/constants.ts`) is the single source of truth for every gameplay tunable. Client-only feel knobs live in `CLIENT_CONFIG` (`client/src/config.ts`); promote a value to shared CONFIG the moment it becomes gameplay-load-bearing.
-- `PROTOCOL_VERSION` (`shared/src/index.ts`, currently 49) must be bumped on ANY wire-contract break (`shared/src/types.ts`).
+- `PROTOCOL_VERSION` (`shared/src/index.ts`, currently 50) must be bumped on ANY wire-contract break (`shared/src/types.ts`).
 - Colyseus schema syncs the roster (`ArenaState`/`PlayerMeta`), the map seed/radius, the revealed zone rings, `matchPhase` and `bountyId` — nothing PER-SHIP spatial. All spatial state travels in per-client frames. Never add per-ship spatial fields to the schema.
 - `game/world.ts` and `game/match.ts` keep ZERO Colyseus imports; `ArenaRoom` stays a thin adapter. This is what keeps the sim unit-testable.
 - No `Math.random()` or `Date.now()` in sim code — all randomness is seeded `mulberry32` streams; the map rebuilds deterministically from `mapSeed` (islands never travel on the wire); `World` owns the single server clock.

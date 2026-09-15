@@ -151,6 +151,9 @@ describe('boarding gate — the countdown waits for the last loader (amendment 8
     // A seat the matchmaker has already expired is never going to be consumed,
     // so a shorter grace would abandon captains who could still legitimately
     // arrive. Pinned so the constant cannot drift under that floor.
+    // Re-verified for Colyseus 0.18 (Story 8.0): the default is still
+    // `Number(process.env.COLYSEUS_SEAT_RESERVATION_TIME || 15)` seconds —
+    // @colyseus/core 0.18.13 build/Room.mjs:43.
     expect(BOARDING_GRACE_MS).toBeGreaterThan(15_000);
   });
 });

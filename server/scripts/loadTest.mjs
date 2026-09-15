@@ -94,13 +94,15 @@
 // harness that tried to pass the digest as a room option would be silently
 // refused.
 //
-// The SDK does support this from Node, without a shim and without a dependency:
+// The SDK does support this from Node, without a shim and without a dependency
+// (RE-PINNED to @colyseus/sdk 0.18.2, Story 8.0 — behaviour identical to
+// 0.17.43, only the line numbers moved):
 // `new Client(endpoint, { headers })` stores them as the HTTP client's base
-// headers (`@colyseus/sdk/build/Client.mjs:73-75`), `executeRequest` merges base
+// headers (`@colyseus/sdk/build/Client.mjs:74-76`), `executeRequest` merges base
 // headers UNDER the per-request `Accept`/`Content-Type`
-// (`HTTP.mjs:141-143`) so `cookie` survives into the matchmake POST, and the
-// same header bag is forwarded to the websocket handshake
-// (`Client.mjs:145` → `room.connect(..., this.http.options.headers)`). Node's
+// (`HTTP.mjs:141-143`, unmoved) so `cookie` survives into the matchmake POST,
+// and the same header bag is forwarded to the websocket handshake
+// (`Client.mjs:149` → `room.connect(..., this.http.options.headers)`). Node's
 // `fetch` (undici) does NOT enforce the browser's forbidden-header list, so a
 // `Cookie` header set this way really is sent — verified against a local
 // `http.createServer` before this script was written.

@@ -22,10 +22,10 @@ interface FakeRoom {
   sent: Array<{ type: string; msg: unknown }>;
   fire: (type: string, msg: unknown) => void;
   /**
-   * A RECONNECT ACK, in the SDK's real order (@colyseus/sdk 0.17.43
+   * A RECONNECT ACK, in the SDK's real order (@colyseus/sdk 0.18.2
    * `build/Room.mjs`): `onReconnect.invoke()` runs its handlers SYNCHRONOUSLY
-   * (`:241`, via `EventEmitter.invoke`'s `forEach`) and the rotated token is
-   * assigned on the NEXT LINE (`:243`). Modelling that order is the whole point
+   * (`:483`, via `EventEmitter.invoke`'s `forEach`) and the rotated token is
+   * assigned on the NEXT LINE (`:485`). Modelling that order is the whole point
    * — a handler that reads `reconnectionToken` directly sees the OLD value, and
    * only a continuation scheduled out of it sees the new one.
    */
@@ -680,7 +680,7 @@ describe('the resume token store (net/resumeToken.ts)', () => {
 
   it('reads a MALFORMED stored value as absent rather than handing it to the SDK', () => {
     // `Client.reconnect()` splits on ':' and THROWS on anything that is not
-    // `roomId:token` (@colyseus/sdk 0.17.43 build/Client.mjs), so a corrupt key
+    // `roomId:token` (@colyseus/sdk 0.18.2 build/Client.mjs:131-134), so a corrupt key
     // must land on the home screen, never as an exception on the boot path.
     for (const junk of ['', 'no-colon', ':', 'roomonly:', ':tokenonly']) {
       sessionStorage.setItem(RESUME_TOKEN_KEY, junk);
@@ -729,9 +729,9 @@ describe('connect — persisting the reconnection token (Story 6.7)', () => {
     // a refresh inside it fast-fails on a dead token, which is the half-resume
     // double fault R9 exists to prevent.
     //
-    // Verified against @colyseus/sdk 0.17.43 `build/Room.mjs`: the JOIN_ROOM
-    // handler calls `onReconnect.invoke()` (`:241`) and assigns the rotated
-    // token on the NEXT LINE (`:243`), both synchronous. So the handler itself
+    // Verified against @colyseus/sdk 0.18.2 `build/Room.mjs`: the JOIN_ROOM
+    // handler calls `onReconnect.invoke()` (`:483`) and assigns the rotated
+    // token on the NEXT LINE (`:485`), both synchronous. So the handler itself
     // must NOT read the token — a microtask scheduled out of it must.
     await connectAndWelcome();
     let insideHandler: string | null = null;

@@ -3,6 +3,16 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  50: COLYSEUS 0.18 (Story 8.0, 2026-09-14) — the framework floor moves
+ *  `@colyseus/core` 0.17.44 → 0.18.13, `@colyseus/schema` 4.0.27 → 5.0.32 and
+ *  `@colyseus/sdk` 0.17.43 → 0.18.2. TWO transport-level breaks, neither of
+ *  them a change to any message SHAPE this file declares: the schema 5 encoder
+ *  re-lays out the roster state patches, and the 0.18 JOIN_ROOM handshake
+ *  changes the join payload layout. A 0.17 client fails the handshake BEFORE
+ *  `protocolVersionError` can answer it, so server and client must deploy
+ *  together; the bump is still made because the encoder break is a genuine
+ *  wire break and the join gate must refuse a 49. No `InputMsg`, `FrameMsg`,
+ *  `GameEvent`, schema field, or CONFIG value moved.
  *  49: THE BROADSIDE'S ZERO-OVERLAP ARC LADDER (Eric rulings 2026-08-24 +
  *  2026-08-27) — `CONFIG.broadside.turretMountSpreadDeg` becomes a PER-RUNG
  *  ARRAY ([28, 25, 22.5, 15, 6]) where it was the scalar 28, and `traverseDeg`
@@ -550,7 +560,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 49;
+export const PROTOCOL_VERSION = 50;
 
 // Tunables
 export * from './constants.js';
