@@ -2,10 +2,11 @@
 title: 'Story 8.1: The Card Model and Catalog Engine'
 type: 'feature'
 created: '2026-09-15'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'effb4474a3f4741af0e8995b58bce51bc9ba8bb9'
+final_revision: 'FINAL_REV'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   [
     '{project-root}/_bmad-output/project-context.md',
@@ -97,15 +98,15 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `epic-8-context-amendments.md` + `epic-8-context.md` -- record rulings 5–8 (interim state, legacy ids, LINE_IDS, interim refit UI) -- durable home first
-- [ ] `shared/src/sim/catalog.ts` + `constants.ts` + `loadout.ts` -- the catalog module, widened `EquipmentId`, `CONFIG.catalog`/`CONFIG.deck` -- foundation
-- [ ] `shared/src/sim/stats.ts` + `boons.ts` + `hooks.ts` -- total `equipment` record with `tier`, generated whitelist, reload step + floor in the clamp, `effectiveStats(cls, cards)`, deletions, validator add+mult rule -- the firewall
-- [ ] `shared/src/sim/deck.ts` + `types.ts` + `index.ts` -- interim `buildDeck`, weight-by-copies draw, `OwnShip.cards`, PV 51, barrel -- wire contract
-- [ ] `shared/src/__tests__/*` -- re-pin identities (29/114/caps/stub set), permutation property, reload step, floor, validator, empty registry, two-homes parity -- `npm test -w shared` green
-- [ ] `server/src/game/{world,frames,equipment/index}.ts` + `ai/*` + `scripts/batchsim/*` + `scripts/rl/features.ts` + server tests -- consume the new model; registry ids; bots weight by kind -- `npm test -w server` green
-- [ ] `client/src/**` + client tests -- `cards`, kind-word meta row, v3 copy, no rarity/category -- `npm test -w client` green
-- [ ] `VERSION`/`package.json`/`CHANGELOG.md`/both trackers/`deferred-work.md` -- cycle 135, 0.17.135, PV 51, amendments 5–8; close the three moot ledger entries -- tracker discipline
-- [ ] `npm run check` green; headless `matchSmoke`/`combatSmoke`/`weaponsSmoke` over real sockets -- the gate
+- [x] `epic-8-context-amendments.md` + `epic-8-context.md` -- record rulings 5–8 (interim state, legacy ids, LINE_IDS, interim refit UI) -- durable home first
+- [x] `shared/src/sim/catalog.ts` + `constants.ts` + `loadout.ts` -- the catalog module, widened `EquipmentId`, `CONFIG.catalog`/`CONFIG.deck` -- foundation
+- [x] `shared/src/sim/stats.ts` + `boons.ts` + `hooks.ts` -- total `equipment` record with `tier`, generated whitelist, reload step + floor in the clamp, `effectiveStats(cls, cards)`, deletions, validator add+mult rule -- the firewall
+- [x] `shared/src/sim/deck.ts` + `types.ts` + `index.ts` -- interim `buildDeck`, weight-by-copies draw, `OwnShip.cards`, PV 51, barrel -- wire contract
+- [x] `shared/src/__tests__/*` -- re-pin identities (29/114/caps/stub set), permutation property, reload step, floor, validator, empty registry, two-homes parity -- `npm test -w shared` green
+- [x] `server/src/game/{world,frames,equipment/index}.ts` + `ai/*` + `scripts/batchsim/*` + `scripts/rl/features.ts` + server tests -- consume the new model; registry ids; bots weight by kind -- `npm test -w server` green
+- [x] `client/src/**` + client tests -- `cards`, kind-word meta row, v3 copy, no rarity/category -- `npm test -w client` green
+- [x] `VERSION`/`package.json`/`CHANGELOG.md`/both trackers/`deferred-work.md` -- cycle 135, 0.17.135, PV 51, amendments 5–8; close the three moot ledger entries -- tracker discipline
+- [x] `npm run check` green; headless `matchSmoke`/`combatSmoke`/`weaponsSmoke` over real sockets -- the gate
 
 **Acceptance Criteria:**
 - Given the catalog module, when `validateCatalog(CATALOG)` runs, then it passes, `LINE_IDS.length === 29`, every line has `tiers.length === cap`, total cards = 114, and a test catalog with add+mult on one path is refused.
@@ -153,3 +154,17 @@ warnings: [oversized]
 - `npm run check` -- expected: exit 0
 - `grep -rn "levelsSinceRare\|slotReplace\|BoonRarity\|BOON_CATALOG\|isAcquisitionDef\|consumeAcquisition\|EQUIPMENT_CATEGORY\|UNIVERSAL_CATEGORIES\|\.boons\b" shared/src server/src client/src` -- expected: no matches
 - `HC_DEV_OPTIONS=1 PORT=<free> node server/scripts/matchSmoke.mjs` (+ `combatSmoke`, `weaponsSmoke`) -- expected: pass over real sockets
+
+## Auto Run Result
+
+**Status:** done (2026-09-15, build cycle **135**, version **0.17.135**, PV 50 → 51).
+
+**Summary:** The boon engine is replaced by a catalog engine. `shared/src/sim/catalog.ts` is THE catalog: 29 `LINE_IDS` (Eric ruling, amendment 7), 114 cards, `{ id, kind, cap, tiers[], appliesTo?, stub? }` authored through `ladder()` / `weapon()` / `addon()` / `consumable()`, deep-frozen, validated at module load. `effectiveStats(cls, cards)` folds tiers order-independently (permutation property test over every class; validator refuses add + mult on one path, duplicate tier targets, multi-target ladders, equipment without a slot fill, live add-ons on dead equipment); `EffectiveStats.equipment` is a TOTAL record over the widened 15-id `EquipmentId` with `tier`; `BOON_STAT_PATHS` is generated from it with the derived absences pinned; the reload step `base × round3(1 − 0.05 × (tier − 1)) × cooldownScale` (floored at 0.1) and the single fractional floor live in `clampStats`. Rarity, categories, acquisition cards, `slotReplace`, the subdeck walk and `levelsSinceRare` are deleted; `HOOK_REGISTRY` is pinned empty. `OwnShip.boons` → `cards`. Interim state (amendment 5): every line whose mechanism exists is live (5 ladders + deck-gun family with catalog-v3 numbers, `heavyTorpedo` / `navalMines` / `broadside` / `starShells` fills, 4 live add-ons); 13 lines are `stub: true` and never dealt; a hull spawns holding copy 1 of each weapon it already carries and the interim deck deals the rest (52 / 51 / 52 cards for TB / BS / ML). `torpedo` → `heavyTorpedo` at catalog-v3 R17's 65 u/s, `mine` → `navalMines` (amendment 6). The interim refit card shows the kind word in neutral colour with an `n/cap` count (amendment 8); equipment faces print the reload `current → next`. Bots weight v3 lines by kind through a documented v2 → v3 alias table.
+
+**Files changed:** shared — `sim/catalog.ts` (new), `sim/effects.ts` (new), `sim/stats.ts`, `sim/boons.ts`, `sim/deck.ts`, `sim/offers.ts`, `sim/loadout.ts`, `sim/arcs.ts`, `sim/hooks.ts`, `sim/wake.ts`, `types.ts`, `constants.ts` (`CONFIG.deck`, `CONFIG.catalog`, torpedo 65), `index.ts` (PV 51, barrel), 12 test files (+ `catalog.test.ts`); server — `game/world.ts` (`applyCard`, carried seed, `EMPTY_DECK`), `game/frames.ts` (`cards`), `game/signals.ts`, `game/equipment/*` (Partial registry keyed by v3 ids, stub pin), `game/ai/*` (kind-weighted spending, alias table, `Partial` tactics), `scripts/batchsim/*`, `scripts/rl/*`, 27 test files + golden snapshot; client — `ui/boonCopy.ts` (29 names, kind labels, truthful copy), `ui/upgradeMenu.ts`, `ui/refitCardFit.ts`, `ui/results.ts`, `render/hotbar.ts`, `render/equipmentInfo.ts`, `render/equipmentIcons.ts`, `render/wake.ts`, `audio/tones.ts`, `net/roomBindings.ts`, `main.ts`, `config.ts`, 28 test files; `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, both trackers, `deferred-work.md` (2 resolved by obsolescence, 9 new), `epic-8-context.md`, `epic-8-context-amendments.md` (5–8).
+
+**Review findings breakdown:** Blind Hunter + Edge Case Hunter (session model) + Codex (`gpt-5.6-sol`, both hunters and Codex verdict fix-first). 8 patches applied with fail-first regression tests (1 high: the dead spawn card, found by all three; 4 medium; 3 low), 3 deferred (ledgered), 0 rejected, 0 intent gaps, 0 bad-spec loopbacks. Follow-up review recommended: the carried-weapon seed changes the spawn `cards` contents and per-hull deck sizes, and the validator/freeze/guard changes are broad.
+
+**Verification performed:** `npm run check` exit 0 on the final tree — lint 0 errors (3 pre-existing max-lines warnings), tsc clean ×3, **791 / 1757 / 3261** tests, `check:hooks` green; zero-card stats snapshot byte-identical to the pre-change engine after the key rename; headless `matchSmoke`, `combatSmoke`, `weaponsSmoke` pass over real sockets on self-booted servers (matchSmoke's documented storm-timing flake hit once and passed on re-run; combatSmoke needs a fresh server, ledgered); no `boons` left on the wire (grep); `server/src/game/**` still imports zero Colyseus.
+
+**Residual risks / Eric's veto list:** (1) the carried-weapon spawn seed is an orchestrator ruling (Design Notes), not Eric's; (2) `CONFIG.torpedo.speed` 60 → 65 follows amendment 6 + catalog-v3 R17 and supersedes the 2026-08-04 "torp speed fixed at 60" note — a max-SPEED boosted TB now TIES the fish (owner immunity makes self-hit impossible; Eric accepted this posture in v3 per note 19); (3) the extra-slot no-op persists until 8.2/8.5; (4) `STAT_LINES` labels 'Turning' / 'Gun damage' and the equipment reload row are agent copy; (5) SUPERCAVITATING TORPEDO does not fit the card/hotbar widths (exemption pinned, 8.6/8.13); (6) the in-browser match on staging is Eric's post-merge step.
