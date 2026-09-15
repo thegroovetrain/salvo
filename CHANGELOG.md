@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.17.135] - 2026-09-15
+
+### Changed
+- **The card model and catalog engine (Story 8.1)** — `shared/src/sim/catalog.ts` is now THE catalog: 29 lines / 114 cards, with 13 stub lines reserved for weapons and consumables that later stories (8.12-8.16) build out. `effectiveStats(cls, cards)` folds every catalog tier onto a ship's base stats order-independently (a permutation property test proves it, and a validator refuses to mix add and multiply on one stat path). `EffectiveStats.equipment` is now a total record keyed by the widened `EquipmentId`, and every row carries its own `tier`. A new equipment reload step (−5% per tier, composed before the existing RELOAD ladder) and a fractional-step floor both live in `clampStats`. Rarity, categories, acquisition cards, `slotReplace`, and the old subdeck walk are all deleted — `OwnShip.boons` is renamed `OwnShip.cards`. The wire protocol is new (v51). The interim deck is every buildable line at its cap (Eric ruling, epic-8 amendment 5), the shipped torpedo and mine become `heavyTorpedo` and `navalMines` (amendment 6; the heavy torpedo's base speed also moves 60 → 65 u/s per catalog-v3 R17, Eric 2026-09-15), the interim refit card shows a neutral-colored kind word (amendment 8), and bots weight the new v3 equipment lines by kind through a v2→v3 alias table.
+
 ## [0.17.134] - 2026-09-14
 
 ### Changed

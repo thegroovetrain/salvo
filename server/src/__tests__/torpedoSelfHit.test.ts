@@ -2,7 +2,7 @@
 // owner — gun shells, torpedoes, AND mines. This retires the old timed self-hit
 // grace entirely in favor of permanent owner exclusion in the hit-test path.
 // The original HULLCRACKER_NOTES bug (a full-speed torpedo boat re-catching its
-// own fish, torpedoBoat maxSpeed 45 now stackable past torpedo speed 60 via
+// own fish, torpedoBoat maxSpeed 45 now stackable past torpedo speed (65, catalog-v3 R17) via
 // maxSpeed upgrades) is now impossible BY LAW rather than by margin+grace
 // tuning. spawnClearance and bow/stern-clear spawn offsets are KEPT for clean
 // spawn geometry (they still prevent degenerate spawn overlap with OTHER
@@ -35,16 +35,17 @@ function bareWorld(seed = 11, opts?: WorldOptions): World {
 }
 
 /** An INJECTED overdrive catalog: the production SPEED ladder caps at 4 copies
- *  (45 + 4x2.5 = 55 < the 60 u/s fish — a max-stacked hull cannot outrun its
- *  own torpedo, by guardrail design). The outrun geometry the margin+grace fix
- *  depended on therefore needs a line production does not have, so the test
- *  injects an 8-rung SPEED ladder rather than overdriving past a real cap. */
+ *  (45 + 4x2.5 = 55 < the 65 u/s fish, catalog-v3 R17 — a max-stacked hull
+ *  cannot outrun its own torpedo, by guardrail design). The outrun geometry
+ *  the margin+grace fix depended on therefore needs a line production does
+ *  not have, so the test injects a 9-rung SPEED ladder rather than
+ *  overdriving past a real cap. */
 const OVERDRIVE: Catalog = {
   speed: {
     id: 'speed',
     kind: 'ladder',
-    cap: 8,
-    tiers: new Array(8).fill([{ kind: 'stat', path: 'kinematics.maxSpeed', add: 2.5 }]),
+    cap: 9,
+    tiers: new Array(9).fill([{ kind: 'stat', path: 'kinematics.maxSpeed', add: 2.5 }]),
   } as unknown as CatalogLine,
 };
 
@@ -94,7 +95,7 @@ describe('torpedo spawn clearance (root-cause fix)', () => {
 // ---------- integration: the owner's exact full-throttle bug -----------------
 
 describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
-  /** Throttle a torpedo boat (fastest class: maxSpeed 45 vs torpedo speed 60)
+  /** Throttle a torpedo boat (fastest class: maxSpeed 45 vs torpedo speed 65, catalog-v3 R17)
    *  to max speed, fire a bow torpedo at `aim`, then run 5 more seconds and
    *  return every dmg event observed. */
   function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord } {
@@ -136,15 +137,16 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
   });
 
   it('straight ahead with the hull OVERDRIVEN past the fish — firer STILL takes no damage', () => {
-    // Catalog v3 caps SPEED at 4 copies (45 + 4x2.5 = 55 < 60 — a max-stacked
-    // hull cannot outrun its own base fish, by guardrail design). To keep the
-    // outrun geometry the old margin+grace fix depended on PINNED, the world
-    // runs against the INJECTED 8-rung ladder above: 45 + 8x2.5 = 65 > 60.
+    // Catalog v3 caps SPEED at 4 copies (45 + 4x2.5 = 55 < 65 — a max-stacked
+    // hull cannot outrun its own base fish, by guardrail design; catalog-v3
+    // R17 puts the fish at 65 u/s). To keep the outrun geometry the old
+    // margin+grace fix depended on PINNED, the world runs against the
+    // INJECTED 9-rung ladder above: 45 + 9x2.5 = 67.5 > 65.
     // Permanent owner immunity makes a self-hit impossible regardless.
-    expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + 2.5 * 8).toBeGreaterThan(
+    expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + 2.5 * 9).toBeGreaterThan(
       CONFIG.torpedo.speed,
     );
-    const { dmgs, ship } = runFullThrottleShot(0, 8);
+    const { dmgs, ship } = runFullThrottleShot(0, 9);
     expect(ship.stats.kinematics.maxSpeed).toBeGreaterThan(CONFIG.torpedo.speed);
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);

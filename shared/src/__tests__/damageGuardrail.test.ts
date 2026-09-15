@@ -316,33 +316,29 @@ describe('torpedo chase/dodge guardrail (classes AND drones)', () => {
     }
   });
 
-  it('a base torpedo outruns a base-BOOSTED Torpedo Boat (45 + 10 = 55 < 60)', () => {
+  it('a base torpedo outruns a base-BOOSTED Torpedo Boat (45 + 10 = 55 < 65)', () => {
     expect(CONFIG.torpedo.speed).toBeGreaterThan(
       CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + CONFIG.speedBoost.speedBonus,
     );
   });
 
-  // FLIPPED PIN, AND THE FLIP IS THE POINT (Story 8.1). The MAX-STACK clause
-  // used to hold because TORPEDO I-IV added +5 u/s per card (60 -> 80) against
-  // a max-stacked hull's 75. Catalog v3 replaces that ladder with the heavy
-  // torpedo's own tiers II-V (R17: 65 u/s at tier I, 75 at tier V) and Story
-  // 8.1 authors those tiers EMPTY, so THIS CYCLE the fish has no ladder at all
-  // while the SPEED ladder still has its four cards. The clause is therefore
-  // OPEN by exactly 5 u/s, and it is recorded here rather than deleted.
-  it('THE MAX-STACK CLAUSE IS OPEN THIS CYCLE — a max-SPEED boosted Torpedo Boat (65) outruns the 60 u/s fish', () => {
+  // RE-PINNED (Story 8.1, then Eric's 2026-09-15 ruling landed the base speed
+  // itself). CONFIG.torpedo.speed IS catalog v3's HEAVY TORPEDO Tier I speed
+  // (catalog-v3 R17: 65 u/s), so a max-SPEED-boosted Torpedo Boat now TIES the
+  // base fish exactly (65 = 65) instead of being outrun by it. Catalog-v3 note
+  // 19 (Eric 2026-09-11, epics.md AR49) explicitly accepts a boosted TB
+  // matching/outrunning torpedoes in v3, and no-friendly-fire is structural
+  // from Story 8.4 — own ordnance never damages own hull — so a hull that
+  // catches its own fish is not a self-damage hazard. This pin is the CURRENT
+  // fact; it moves again if Story 8.13 lands the heavy torpedo's own tiers
+  // II-V or R9's Shift-boost retune.
+  it('a max-SPEED boosted Torpedo Boat (65) TIES the 65 u/s heavy torpedo (catalog-v3 R17)', () => {
     const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.speed.cap).fill('speed'));
     const maxAchievableHull = s.kinematics.maxSpeed + s.equipment.speedBoost.speedBonus;
     expect(s.kinematics.maxSpeed).toBe(55); // 45 + 2.5 x 4 (catalog-v3 R10)
     expect(maxAchievableHull).toBe(65); // + the shipped flat +10 boost
-    expect(s.equipment.heavyTorpedo.speed).toBe(60); // no ladder authored yet
-    expect(maxAchievableHull).toBeGreaterThan(s.equipment.heavyTorpedo.speed);
-    // WHAT CLOSES IT, and the numbers Story 8.13 must land on: R17's tier I is
-    // 65 u/s (already a tie) and tier V is 75, while R9 retunes the Shift boost
-    // to +25 % of hull max speed (55 x 1.25 = 68.75 on a max-SPEED hull). Both
-    // halves have to move together, so this pin is deliberately written as the
-    // CURRENT fact — it fails loudly the moment either lands, which is when the
-    // clause should be re-argued rather than quietly restored.
-    expect(maxAchievableHull - s.equipment.heavyTorpedo.speed).toBe(5);
+    expect(s.equipment.heavyTorpedo.speed).toBe(65); // catalog-v3 R17 Tier I; no ladder authored yet
+    expect(maxAchievableHull).toBe(s.equipment.heavyTorpedo.speed);
     // The BASE clauses above are untouched and still hold: a base fish outruns
     // every hull and a base-boosted Torpedo Boat.
     expect(Math.max(...droneSpeeds)).toBeLessThan(CONFIG.torpedo.speed);

@@ -142,8 +142,9 @@ export const CONFIG = {
    * The speed change DISCHARGES the rescale epics.md:1090 has owed since Story
    * 1.6 (2026-07-21): the small drone at 46 u/s was the FASTEST HULL AFLOAT,
    * ahead of the Torpedo Boat's 45. At 40 it sits below every player class,
-   * medium at 35 ties the Battleship, and CONFIG.torpedo.speed (60) still
-   * outruns everything — the damageGuardrail pin holds.
+   * medium at 35 ties the Battleship, and CONFIG.torpedo.speed (65 as of
+   * catalog-v3 R17, Eric 2026-09-15) still outruns everything — the
+   * damageGuardrail pin holds.
    *
    * `reverseSpeed`/`accel`/`decel` scale PROPORTIONALLY with maxSpeed;
    * `turnRate`/`steerageSpeed` deliberately DO NOT MOVE, so agility stays a
@@ -1000,8 +1001,9 @@ export const CONFIG = {
     // alternative of raising it to hold the torpedo track near its old
     // absolute 360u and declined, because that would put a fish's tell above
     // any ship's and break the one-model-one-ratio shape. So the torpedo
-    // shrinks with everything else: 2.75s at the fixed 60 u/s torpedo speed =
-    // 165u of one-cell-wide ribbon (was 6s / 360u), still the LONGEST track
+    // shrinks with everything else: 2.75s at the fixed torpedo speed (65 u/s
+    // as of catalog-v3 R17, Eric 2026-09-15) = 178.75u of one-cell-wide
+    // ribbon (was 6s / 360u; 165u at the pre-R17 60 u/s speed), still the LONGEST track
     // in the game per second of travel because the fish is the fastest thing
     // afloat. Findable if you happen to be watching that stretch of water,
     // easy to miss — which is the ruled reading. The FISH
@@ -1157,7 +1159,15 @@ export const CONFIG = {
     // can never re-catch its own fish; pinned by damageGuardrail.test. Also a
     // deliberate balance change: torps are harder to dodge (owner call,
     // 2026-07-14 self-hit fix session).
-    speed: 60, // u/s
+    // RETUNED 60 -> 65 (catalog-v3 R17, Eric 2026-09-15, epic-8 amendment 6): the
+    // shipped torpedo module IS catalog v3's HEAVY TORPEDO, whose Tier I speed
+    // R17 authors at 65 u/s. A max-SPEED-boosted Torpedo Boat now TIES the base
+    // fish (65 = 65) rather than being outrun by it; catalog-v3 note 19 (Eric
+    // 2026-09-11, epics.md AR49) accepts a boosted TB matching/outrunning
+    // torpedoes in v3, and no-friendly-fire is structural from Story 8.4, so a
+    // hull that catches its own fish is not a self-damage hazard. See
+    // damageGuardrail.test.ts for the re-pinned guardrail.
+    speed: 65, // u/s
     // hp. RETUNED 55 → 70 (Eric ruling 2026-08-04, the weapon balance pass): a
     // heavier fish on a much longer commitment cycle. HEAVY WARHEAD ×5 was
     // simultaneously cut to +1/card so the ladder topped at 75 — strictly under

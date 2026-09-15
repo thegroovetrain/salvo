@@ -179,10 +179,10 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
     });
   });
 
-  it('the shipped numbers did not move in the rename: torpedo/mine bases are exactly as before', () => {
+  it('the shipped numbers did not move in the rename except speed (catalog-v3 R17, Eric 2026-09-15): torpedo/mine bases', () => {
     const eq = effectiveStats(BASE).equipment;
     expect([eq.heavyTorpedo.reloadMs, eq.heavyTorpedo.speed, eq.heavyTorpedo.damage, eq.heavyTorpedo.maxAmmo])
-      .toEqual([30000, 60, 50, 1]);
+      .toEqual([30000, 65, 50, 1]);
     expect([eq.navalMines.reloadMs, eq.navalMines.damage, eq.navalMines.blastRadius, eq.navalMines.triggerRadius])
       .toEqual([15000, 55, 48, 32]);
     // The captive chassis: 144u trip / 32u blast at base (catalog-v3 R25).
