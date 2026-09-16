@@ -1837,7 +1837,14 @@ export class World {
     // without damage (amendment 19). The copy matters: `hullPoly` is a reused
     // per-ship scratch array.
     this.targetsGen += 1;
-    this.sunkThisTick.push({ id, kind: 'hull', poly: ship.hullPoly.map((v) => ({ x: v.x, y: v.y })) });
+    // The silhouette is transformed FRESH into its own array rather than copied
+    // off `hullPoly`: that scratch is only current once this tick's collector
+    // has run, and a storm sink lands before it.
+    this.sunkThisTick.push({
+      id,
+      kind: 'hull',
+      poly: transformPolygon(hullSilhouette(ship.hullId), ship.state.x, ship.state.y, ship.state.heading),
+    });
     ship.hp = 0;
     // WHAT SINK-ENTRY DELIBERATELY DOES **NOT** ZERO (Story 5.2 — each kept
     // field is a decision, not an omission; founderSinking zeroes them all at
