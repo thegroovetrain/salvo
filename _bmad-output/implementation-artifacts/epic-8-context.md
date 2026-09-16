@@ -95,3 +95,4 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 17. **A mine is a point target for a shell** (Eric 2026-09-15): a shell path within the shell's own radius of the mine centre detonates it; bursts cover the centre; no new size number.
 18. **A mine blast chains into any armed non-captive mine in range regardless of owner** (Eric 2026-09-15); supersedes the same-owner chain condition; captives neither receive nor propagate.
 19. **A burst over a hull that sank this tick marks `hc` for the mark only, no damage** (Eric 2026-09-15), resolving `deferred-work.md:590`; the star shell keeps its geometric-victim exclusion.
+20. **A mine is never a collision subject for a shell in flight; only the burst at the clicked point sets one off** (Eric 2026-09-16, verbatim in the amendments file); supersedes amendment 17 in full.
