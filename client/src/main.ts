@@ -582,10 +582,12 @@ interface Game {
   /** mouse.clickCount at the last SIM TICK — the new-click edge that consumes a
    *  primed skillshot (distinct from prevClickCount, which the render loop owns). */
   lastTickClick: number;
-  /** mouse.releaseCount at the last SIM TICK — the RELEASE edge that pays the
-   *  prime's owed auto-revert (Story 8.5, UX-DR42: the revert is the release,
-   *  never the press). Its own counter beside lastTickClick, because a hold can
-   *  span any number of ticks and the two edges are genuinely independent. */
+  /** mouse.releasedClickSeq at the last SIM TICK — the RELEASE edge that pays
+   *  the prime's owed auto-revert (Story 8.5, UX-DR42: the revert is the
+   *  release, never the press). Its own edge beside lastTickClick, because a
+   *  hold can span any number of ticks and the two edges are genuinely
+   *  independent; it carries the released CLICK'S seq rather than a count, so a
+   *  release can only pay for the click it actually closed. */
   lastTickRelease: number;
   /** Own ship class — the localStorage guess, corrected by the first server frame. */
   ownClass: ShipClassId;
@@ -3466,9 +3468,21 @@ function ownFireWeapon(g: Game): OwnFire {
   return g.ownFire.claim(g.clock.serverNow());
 }
 
+/**
+ * ARM the revert for `clickSeq` — and pay it IMMEDIATELY when the mouse already
+ * reports that very click released (the ordinary fast tap: pointerdown and
+ * pointerup inside one 50ms tick). The release edge ran earlier in this tick,
+ * before the debt existed, so this is the one place that tap can be settled.
+ */
+function armPrimeRevert(g: Game, clickSeq: number): void {
+  g.keyboard.armReleaseRevert(clickSeq);
+  if (g.mouse.releasedClickSeq === clickSeq) g.keyboard.consumeReleaseRevert(clickSeq);
+}
+
 function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: number, fireSeq: number): void {
-  const newClick = g.mouse.clickCount !== g.lastTickClick;
-  g.lastTickClick = g.mouse.clickCount;
+  const clickSeq = g.mouse.clickCount;
+  const newClick = clickSeq !== g.lastTickClick;
+  g.lastTickClick = clickSeq;
   if (!newClick) return;
   const p = clickPrediction(g, primedSlot, aim, aimDist);
   latchOwnFire(g, primedSlot, p);
@@ -3479,7 +3493,7 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: n
   // (consumePrimeOnRelease below): a held trigger must keep its prime for the
   // whole hold, which is what Story 8.14's machine gun is built on. A
   // predicted-DENIED click arms nothing and keeps its prime, exactly as before.
-  if (shouldConsumePrime(p.alive, primedSlot, p.loaded, p.inArc)) g.keyboard.armReleaseRevert();
+  if (shouldConsumePrime(p.alive, primedSlot, p.loaded, p.inArc)) armPrimeRevert(g, clickSeq);
   // Story 1.10 exactly-one-feedback (weapon clicks): a click predicted DENIED
   // (reloading / out of the bow arc) fires its feedback NOW — the denial tone
   // here plus renderFiring's existing red pulse — and marks its
@@ -3496,41 +3510,28 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: n
 
 /**
  * THE RELEASE EDGE (Story 8.5, UX-DR42: *"firing auto-reverts on RELEASE, never
- * on press"*). Polled once per sim tick beside the click edge: a new button-0
- * pointerup pays whatever revert the matching pointerdown armed.
+ * on press"*). Polled once per sim tick — FIRST, before this tick's fire input
+ * reads the primed slot: a hold that has ended pays whatever revert its own
+ * pointerdown armed, so the weapon the next click fires is already the reverted
+ * one. Run after the press edge instead (as it first shipped) and a fast
+ * double-click — up(A) and down(B) inside one 50ms tick — builds B's input off
+ * the still-primed weapon and fires the torpedo twice.
+ *
+ * The edge is the RELEASED CLICK'S SEQUENCE NUMBER, not a release count, and
+ * the keyboard pays only when that seq is the one that owes the debt: a second
+ * pointer's release, or a release with no shot behind it, pays nothing. A blur
+ * or a pointercancel ends the hold in the adapter, so a lost pointerup cannot
+ * leave a latch standing either.
  *
  * The keyboard owns the latch, not this function, so "a weapon key or a hotbar
  * click in between wins" is true by construction — both go through
- * `slotAction`, which clears it. A release with nothing armed (a click on DOM
- * chrome, a denied shot, a bare drag) is a no-op, and the prime stays where the
- * captain put it.
+ * `slotAction`, which clears it.
  */
 function consumePrimeOnRelease(g: Game): void {
-  const newRelease = g.mouse.releaseCount !== g.lastTickRelease;
-  g.lastTickRelease = g.mouse.releaseCount;
-  if (!newRelease) return;
-  g.keyboard.consumeReleaseRevert();
-}
-
-/**
- * THE PRIME'S TWO POINTER EDGES for this sim tick, in the only order they can
- * be read in: the pointerdown first (which fires, latches the own-fire
- * correlation and may ARM the revert), then the pointerup (which pays it).
- *
- * The order is load-bearing rather than tidy: an ordinary fast click puts the
- * press AND its release inside one 50ms tick, and the release must still find
- * the arm the press just set — otherwise a quick tap would keep its prime
- * forever while a slow one reverted.
- */
-function tickPrimeEdges(
-  g: Game,
-  primedSlot: number,
-  aim: number,
-  aimDist: number,
-  fireSeq: number,
-): void {
-  consumePrimeOnFire(g, primedSlot, aim, aimDist, fireSeq);
-  consumePrimeOnRelease(g);
+  const releasedSeq = g.mouse.releasedClickSeq;
+  if (releasedSeq === g.lastTickRelease) return;
+  g.lastTickRelease = releasedSeq;
+  g.keyboard.consumeReleaseRevert(releasedSeq);
 }
 
 /**
@@ -4250,6 +4251,20 @@ function advanceCameraFrame(g: Game, frameDt: number): void {
   g.mapChart.update(g.camera.zoom);
 }
 
+/**
+ * THIS TICK'S WORLD AIM: the bearing and the aim-point distance from the own
+ * ship to the cursor (InputMsg.aim / aimDist). Hoisted out of simTick only to
+ * keep that body inside its line budget — the math is the same pure pair
+ * (worldAim / worldAimDist) over the same one camera unprojection.
+ */
+function tickAim(g: Game): { aim: number; aimDist: number } {
+  const cursor = g.camera.screenToWorld(g.mouse.screenPos);
+  return {
+    aim: worldAim(g.lastOwn.x, g.lastOwn.y, cursor),
+    aimDist: worldAimDist(g.lastOwn.x, g.lastOwn.y, cursor),
+  };
+}
+
 function makeCallbacks(g: Game): LoopCallbacks {
   // Story 1.13: hoist the per-contact nameplate frame — camera + pad are stable
   // and nameOf closes over g, so build it ONCE and reuse it every render frame
@@ -4264,12 +4279,15 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // `spectates()` is `isSunk`-based, so the window stays fogged and keeps
       // `you`), so helm, aim and trigger keep riding the wire all the way down.
       if (g.state.spectating) return;
-      const cursor = g.camera.screenToWorld(g.mouse.screenPos);
-      const aim = worldAim(g.lastOwn.x, g.lastOwn.y, cursor);
-      const aimDist = worldAimDist(g.lastOwn.x, g.lastOwn.y, cursor);
-      // The wire slot is the primed slot AT click time — sample it before any
-      // prime consumption below, so a fireable skillshot click still sends its
-      // slot even if this same tick reverts the prime back to the gun.
+      const { aim, aimDist } = tickAim(g);
+      // THE RELEASE EDGE RUNS FIRST, before the wire slot is read: a hold that
+      // ended pays its revert now, so a click arriving in this same tick is
+      // built against the weapon the player actually has primed (a fast
+      // double-click after a torpedo shot fires the GUN, not a second torpedo).
+      consumePrimeOnRelease(g);
+      // The wire slot is the primed slot AT click time — sampled before the
+      // PRESS edge below, so a fireable skillshot click still sends its slot
+      // even when its own release reverts the prime later in this same tick.
       const primedSlot = g.keyboard.primedSlot;
       // Drain exactly ONE queued ability press onto this tick's wire counters
       // (FINDING A): the server fires one ability per tick, so multiple presses
@@ -4285,7 +4303,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
         actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
         actSlot: g.keyboard.actSlot,
       });
-      tickPrimeEdges(g, primedSlot, aim, aimDist, input.fireSeq);
+      consumePrimeOnFire(g, primedSlot, aim, aimDist, input.fireSeq);
       // This tick's server-time estimate rides into the pending ring so a later
       // replay re-evaluates the boost gate at the identical per-tick time.
       if (g.state.mode === 'predict') g.predictor.localTick(input, g.clock.serverNow());

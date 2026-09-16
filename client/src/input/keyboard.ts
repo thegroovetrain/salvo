@@ -388,8 +388,15 @@ export class KeyboardInput {
    * "any prime change in between clears it" has to be true of EVERY prime
    * change, and `slotAction` + `revertToGun` are the only two writers of
    * `primed` there are. A latch living anywhere else would have to be told.
+   *
+   * IT NAMES ITS CLICK (Story 8.5 review fix): the value is the SEQUENCE NUMBER
+   * of the click that owes the revert (null = nothing owed), and only that
+   * click's own release may pay it. A bare boolean could be paid by any release
+   * at all — a second pointer's, or the one belonging to the previous click
+   * inside the same 50ms tick — which is how a fast double-click after a
+   * torpedo shot fired the torpedo a second time.
    */
-  private releaseRevertArmed = false;
+  private releaseRevertSeq: number | null = null;
   /** The binding table: code → handler. Built once; onDown dispatches through
    *  it (a hit is preventDefault-ed, a miss is left native). */
   private readonly bindings: ReadonlyMap<string, (e: KeyboardEvent) => void>;
@@ -582,7 +589,7 @@ export class KeyboardInput {
     // THE KEY WINS (Story 8.5, ruling 9): a prime change between a fireable
     // pointerdown and its pointerup cancels the owed release-revert, so the
     // slot the captain just chose is the one still primed when they let go.
-    this.releaseRevertArmed = false;
+    this.releaseRevertSeq = null;
   }
 
   /**
@@ -795,31 +802,42 @@ export class KeyboardInput {
    */
   revertToGun(): void {
     this.primed = SLOT_GUN;
-    this.releaseRevertArmed = false;
+    this.releaseRevertSeq = null;
   }
 
   /**
    * A click the client predicts WILL FIRE landed on a primed weapon: the revert
-   * is now OWED, at the matching pointerup. Arming twice is idempotent, and a
-   * denied click arms nothing at all (its caller doesn't call this), so the
+   * is now OWED, and only the release of THIS click (`clickSeq`, the mouse's
+   * cumulative click counter at that pointerdown) may pay it. Re-arming with
+   * the same seq is idempotent; a later click simply replaces the debt, since
+   * an unpaid older one can no longer belong to anything the player is holding.
+   * A denied click arms nothing at all (its caller doesn't call this), so the
    * prime survives a denial exactly as it always has.
    */
-  armReleaseRevert(): void {
-    this.releaseRevertArmed = true;
+  armReleaseRevert(clickSeq: number): void {
+    this.releaseRevertSeq = clickSeq;
   }
 
   /**
-   * The matching pointerup arrived: pay the owed revert, if one is still owed.
-   * A no-op when nothing was armed (a release with no shot behind it) and when
-   * a weapon key or a hotbar click cleared the latch in between — the key wins.
+   * A HOLD ENDED, for the click numbered `releasedClickSeq`: pay the owed
+   * revert if that is the very click that owes it. A no-op when nothing was
+   * armed (a release with no shot behind it), when a weapon key or a hotbar
+   * click cleared the latch in between (the key wins), and — the review fix —
+   * when the release belongs to some OTHER click: another pointer's, or the
+   * previous click's inside the same tick.
    */
-  consumeReleaseRevert(): void {
-    if (!this.releaseRevertArmed) return;
+  consumeReleaseRevert(releasedClickSeq: number): void {
+    if (this.releaseRevertSeq !== releasedClickSeq) return;
     this.revertToGun();
   }
 
   /** Is a release-revert still owed? (tests/debug — main.ts never branches on it.) */
   get releaseRevertPending(): boolean {
-    return this.releaseRevertArmed;
+    return this.releaseRevertSeq !== null;
+  }
+
+  /** The click sequence number that owes the revert (null = none) — tests/debug. */
+  get releaseRevertClickSeq(): number | null {
+    return this.releaseRevertSeq;
   }
 }

@@ -10,7 +10,8 @@
 //
 // THREE LAYERS, PINNED SEPARATELY, because the bug this guards against can be
 // reintroduced at any one of them:
-//   1. input/mouse.ts    — the release EDGE exists and counts button-0 pointerups;
+//   1. input/mouse.ts    — the release EDGE exists, and each release names the
+//      CLICK it closed (pointer-paired, blur/pointercancel included);
 //   2. input/keyboard.ts — arm/consume semantics, and "any prime change wins";
 //   3. client/src/main.ts — the WIRING: the pointerdown site arms rather than
 //      reverts, and a separate release poll pays it.
@@ -38,9 +39,14 @@ const ALL_FITTED = (slot: number): boolean => slot >= 1 && slot <= WEAPON_SLOTS[
 
 /** Dispatch a pointer-ish event ON `el` (bubbles to the window listener with
  *  e.target === el — the browser's canvas-click shape). jsdom has no
- *  PointerEvent, so MouseEvent stands in, exactly as mouse.test.ts does it. */
-function fire(el: EventTarget, type: string, init: MouseEventInit = {}): void {
-  el.dispatchEvent(new MouseEvent(type, { bubbles: true, ...init }));
+ *  PointerEvent, so MouseEvent stands in, exactly as mouse.test.ts does it —
+ *  with `pointerId` grafted on when a test needs to tell two pointers apart
+ *  (jsdom's MouseEvent constructor drops the field, so it is defined by hand). */
+function fire(el: EventTarget, type: string, init: MouseEventInit & { pointerId?: number } = {}): void {
+  const { pointerId, ...rest } = init;
+  const e = new MouseEvent(type, { bubbles: true, ...rest });
+  if (pointerId !== undefined) Object.defineProperty(e, 'pointerId', { value: pointerId });
+  el.dispatchEvent(e);
 }
 
 function withMouse(run: (m: MouseInput, canvas: HTMLElement) => void): void {
@@ -111,16 +117,20 @@ describe('MouseInput.releaseCount — the click counter\'s twin', () => {
 // --- layer 2: the two adapters driven together, as main.ts drives them -------
 
 describe('the press/release pair over a real click (mouse + keyboard)', () => {
-  /** main.ts's per-tick order, verbatim (tickPrimeEdges): the pointerdown's
-   *  verdict first — arming when it predicts FIREABLE — then the release poll. */
+  /** main.ts's per-tick order, verbatim: the RELEASE edge first (paying the
+   *  debt of whichever click's hold has ended), then the pointerdown's verdict
+   *  — arming when it predicts FIREABLE, and settling on the spot a tap whose
+   *  release already landed inside this same tick. */
   function tick(m: MouseInput, kb: KeyboardInput, state: { click: number; release: number }, fireable: boolean): void {
+    if (m.releasedClickSeq !== state.release) {
+      state.release = m.releasedClickSeq;
+      kb.consumeReleaseRevert(state.release);
+    }
     if (m.clickCount !== state.click) {
       state.click = m.clickCount;
-      if (fireable) kb.armReleaseRevert();
-    }
-    if (m.releaseCount !== state.release) {
-      state.release = m.releaseCount;
-      kb.consumeReleaseRevert();
+      if (!fireable) return;
+      kb.armReleaseRevert(m.clickCount);
+      if (m.releasedClickSeq === m.clickCount) kb.consumeReleaseRevert(m.clickCount);
     }
   }
 
@@ -220,22 +230,36 @@ describe('main.ts wires the revert to the RELEASE, not the press', () => {
     // — the fire input and the D1 fire-time stamp are built around it.
     const fire = bodyOf('consumePrimeOnFire');
     expect(fire).toContain('shouldConsumePrime(');
-    expect(fire).toContain('armReleaseRevert()');
+    expect(fire).toContain('armPrimeRevert(g, clickSeq)');
     expect(fire).not.toContain('revertToGun()');
   });
 
-  it('a SEPARATE release poll pays the debt, off the mouse\'s release counter', () => {
-    const release = bodyOf('consumePrimeOnRelease');
-    expect(release).toContain('releaseCount');
-    expect(release).toContain('consumeReleaseRevert()');
+  it('the arm NAMES ITS CLICK, and settles a tap released inside the same tick', () => {
+    const arm = bodyOf('armPrimeRevert');
+    expect(arm).toContain('armReleaseRevert(clickSeq)');
+    expect(arm).toContain('releasedClickSeq === clickSeq');
+    expect(arm).toContain('consumeReleaseRevert(clickSeq)');
   });
 
-  it('both edges run in one tick, press first (so a fast click still reverts)', () => {
-    const edges = bodyOf('tickPrimeEdges');
-    expect(edges.indexOf('consumePrimeOnFire')).toBeGreaterThan(-1);
-    expect(edges.indexOf('consumePrimeOnRelease')).toBeGreaterThan(
-      edges.indexOf('consumePrimeOnFire'),
-    );
+  it('a SEPARATE release poll pays the debt, off the RELEASED CLICK\'S seq', () => {
+    // Not a release COUNT: the seq is what makes "this release belongs to that
+    // click" decidable, and every one of the three defects above turned on it.
+    const release = bodyOf('consumePrimeOnRelease');
+    expect(release).toContain('releasedClickSeq');
+    expect(release).toContain('consumeReleaseRevert(releasedSeq)');
+    expect(release).not.toContain('releaseCount');
+  });
+
+  it('the tick runs RELEASE → wire slot → PRESS (a fast double-click fires the gun)', () => {
+    // THE ORDER IS THE FIX. With the press edge first, up(A) and down(B) inside
+    // one 50ms tick built B's input off the weapon A had just spent.
+    const tick = bodyOf('makeCallbacks');
+    const release = tick.indexOf('consumePrimeOnRelease(g)');
+    const wireSlot = tick.indexOf('const primedSlot = g.keyboard.primedSlot');
+    const press = tick.indexOf('consumePrimeOnFire(g,');
+    expect(release).toBeGreaterThan(-1);
+    expect(wireSlot).toBeGreaterThan(release);
+    expect(press).toBeGreaterThan(wireSlot);
   });
 
   it('the HARD boundaries still revert outright (they end a life, not a hold)', () => {
@@ -243,5 +267,200 @@ describe('main.ts wires the revert to the RELEASE, not the press', () => {
     // debts: a prime owed at release would otherwise fire into the next life.
     expect(MAIN_TS).toContain('resetPrime: () => g.keyboard.revertToGun()');
     expect(bodyOf('tickSinkingWindow')).toContain('revertToGun()');
+  });
+});
+
+// --- the review fix: a release belongs to the CLICK it closes ----------------
+//
+// Three defects the counter-only shape carried, all fixed by pairing each
+// release with its click's sequence number (and by running the release edge
+// BEFORE the tick's fire input is built):
+//
+//   1. WITHIN-TICK ORDER WAS LOST. A pointerup of click A and the pointerdown of
+//      click B land in the same 50ms tick; the tick built B's input off the
+//      still-primed weapon and only then paid A's release, so an ordinary fast
+//      double-click after a torpedo shot fired the TORPEDO twice.
+//   2. A LOST POINTERUP LEFT A STALE LATCH. A window blur mid-hold (or a
+//      pointercancel from touch/pen) never counted as a release, and the debt
+//      sat there for the next unrelated pointerup to pay.
+//   3. A DIFFERENT POINTER'S RELEASE PAID IT. Pointer A holds a fireable click,
+//      pointer B lets go on some chrome, and B's up reverted A's prime.
+
+describe('MouseInput pairs each release with the click it closes', () => {
+  it('reports the RELEASED CLICK\'S seq, not a bare count', () => {
+    withMouse((m, canvas) => {
+      expect(m.releasedClickSeq).toBe(0); // 0 = nothing has been let go of yet
+      fire(canvas, 'pointerdown', { button: 0 });
+      expect(m.releasedClickSeq).toBe(0); // …still held
+      fire(canvas, 'pointerup', { button: 0 });
+      expect(m.releasedClickSeq).toBe(1); // click #1 is the one that ended
+      fire(canvas, 'pointerdown', { button: 0 });
+      fire(canvas, 'pointerup', { button: 0 });
+      expect(m.releasedClickSeq).toBe(2);
+    });
+  });
+
+  it('a DIFFERENT pointer\'s release never closes the active hold (defect 3)', () => {
+    withMouse((m, canvas) => {
+      const chrome = document.createElement('button');
+      document.body.appendChild(chrome);
+      fire(canvas, 'pointerdown', { button: 0, pointerId: 1 });
+      fire(chrome, 'pointerup', { button: 0, pointerId: 2 });
+      expect(m.releasedClickSeq).toBe(0); // pointer 2 does not speak for pointer 1
+      fire(chrome, 'pointerup', { button: 0, pointerId: 1 });
+      expect(m.releasedClickSeq).toBe(1); // …its OWN pointer does, wherever it lands
+      chrome.remove();
+    });
+  });
+
+  it('a window BLUR ends the hold — the lost pointerup case (defect 2)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0 });
+      window.dispatchEvent(new Event('blur'));
+      expect(m.releasedClickSeq).toBe(1);
+    });
+  });
+
+  it('POINTERCANCEL (touch/pen) ends the hold too (defect 2)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0, pointerId: 7 });
+      fire(canvas, 'pointercancel', { pointerId: 7 });
+      expect(m.releasedClickSeq).toBe(1);
+    });
+  });
+
+  it('a SWALLOWED press (DOM chrome) never becomes a hold, so its up closes nothing', () => {
+    withMouse((m) => {
+      const chrome = document.createElement('button');
+      document.body.appendChild(chrome);
+      fire(chrome, 'pointerdown', { button: 0 }); // not the canvas: no click, no hold
+      fire(chrome, 'pointerup', { button: 0 });
+      expect(m.clickCount).toBe(0);
+      expect(m.releasedClickSeq).toBe(0);
+      chrome.remove();
+    });
+  });
+});
+
+describe('the tick, in main.ts\'s order: release edge → wire slot → press edge', () => {
+  /**
+   * main.ts's simTick, modelled exactly (and pinned to the source by the scan
+   * at the bottom of this file): the RELEASE edge runs FIRST, then the wire
+   * slot is read for this tick's fire input, then the PRESS edge arms — paying
+   * at once if the mouse already reports this very click released (the
+   * down-and-up-inside-one-tick tap). Returns the slot the input carried.
+   */
+  function tick(
+    m: MouseInput,
+    kb: KeyboardInput,
+    seen: { click: number; release: number },
+    fireable: boolean,
+  ): number {
+    const released = m.releasedClickSeq;
+    if (released !== seen.release) {
+      seen.release = released;
+      kb.consumeReleaseRevert(released);
+    }
+    const wireSlot = kb.primedSlot; // `const primedSlot = g.keyboard.primedSlot`
+    const clickSeq = m.clickCount;
+    if (clickSeq !== seen.click) {
+      seen.click = clickSeq;
+      if (fireable) {
+        kb.armReleaseRevert(clickSeq);
+        if (m.releasedClickSeq === clickSeq) kb.consumeReleaseRevert(clickSeq);
+      }
+    }
+    return wireSlot;
+  }
+
+  function primed(): KeyboardInput {
+    const kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
+    kb.attach();
+    kb.slotAction(Q); // the torpedo is primed
+    return kb;
+  }
+
+  it('up(A) then down(B) in ONE tick: B is the GUN\'S click, not a second torpedo (defect 1)', () => {
+    withMouse((m, canvas) => {
+      const kb = primed();
+      const seen = { click: 0, release: 0 };
+      fire(canvas, 'pointerdown', { button: 0 }); // click A, on the torpedo
+      expect(tick(m, kb, seen, true)).toBe(Q); // …which is what A's input carries
+      fire(canvas, 'pointerup', { button: 0 }); // A ends…
+      fire(canvas, 'pointerdown', { button: 0 }); // …and B begins, same 50ms window
+      expect(tick(m, kb, seen, true)).toBe(SLOT_GUN); // B fires the GUN
+      expect(kb.primedSlot).toBe(SLOT_GUN);
+      kb.detach();
+    });
+  });
+
+  it('a press and its release inside one tick still revert (the fast tap, unchanged)', () => {
+    withMouse((m, canvas) => {
+      const kb = primed();
+      const seen = { click: 0, release: 0 };
+      fire(canvas, 'pointerdown', { button: 0 });
+      fire(canvas, 'pointerup', { button: 0 });
+      expect(tick(m, kb, seen, true)).toBe(Q); // the shot still went out on the torpedo…
+      expect(kb.primedSlot).toBe(SLOT_GUN); // …and the release paid, same tick
+      kb.detach();
+    });
+  });
+
+  it('pointer 2\'s release does not pay pointer 1\'s debt (defect 3, end to end)', () => {
+    withMouse((m, canvas) => {
+      const kb = primed();
+      const seen = { click: 0, release: 0 };
+      fire(canvas, 'pointerdown', { button: 0, pointerId: 1 });
+      tick(m, kb, seen, true);
+      fire(canvas, 'pointerup', { button: 0, pointerId: 2 });
+      tick(m, kb, seen, true);
+      expect(kb.primedSlot).toBe(Q); // pointer 1 is still holding the trigger
+      fire(canvas, 'pointerup', { button: 0, pointerId: 1 });
+      tick(m, kb, seen, true);
+      expect(kb.primedSlot).toBe(SLOT_GUN);
+      kb.detach();
+    });
+  });
+
+  it('BLUR mid-hold pays the debt — no stale latch survives it (defect 2)', () => {
+    withMouse((m, canvas) => {
+      const kb = primed();
+      const seen = { click: 0, release: 0 };
+      fire(canvas, 'pointerdown', { button: 0 });
+      tick(m, kb, seen, true);
+      window.dispatchEvent(new Event('blur')); // alt-tab mid-hold
+      tick(m, kb, seen, true);
+      expect(kb.primedSlot).toBe(SLOT_GUN);
+      kb.detach();
+    });
+  });
+
+  it('POINTERCANCEL mid-hold pays it too (defect 2)', () => {
+    withMouse((m, canvas) => {
+      const kb = primed();
+      const seen = { click: 0, release: 0 };
+      fire(canvas, 'pointerdown', { button: 0, pointerId: 7 });
+      tick(m, kb, seen, true);
+      fire(canvas, 'pointercancel', { pointerId: 7 });
+      tick(m, kb, seen, true);
+      expect(kb.primedSlot).toBe(SLOT_GUN);
+      kb.detach();
+    });
+  });
+
+  it('a DENIED click arms nothing, and no later release can pay for it', () => {
+    withMouse((m, canvas) => {
+      const kb = primed();
+      const seen = { click: 0, release: 0 };
+      fire(canvas, 'pointerdown', { button: 0 });
+      tick(m, kb, seen, false); // predicted denied: reloading / out of arc
+      fire(canvas, 'pointerup', { button: 0 });
+      tick(m, kb, seen, false);
+      expect(kb.primedSlot).toBe(Q);
+      fire(canvas, 'pointerup', { button: 0 }); // a stray up with no click behind it
+      tick(m, kb, seen, false);
+      expect(kb.primedSlot).toBe(Q); // …pays nothing either
+      kb.detach();
+    });
   });
 });

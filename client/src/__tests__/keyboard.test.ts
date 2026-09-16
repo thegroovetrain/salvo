@@ -1206,30 +1206,49 @@ describe('KeyboardInput — the release-deferred prime revert (UX-DR42)', () => 
     kb.attach();
     press('KeyE');
     expect(kb.primedSlot).toBe(E_SLOT);
-    kb.armReleaseRevert(); // the pointerdown predicted FIREABLE
+    kb.armReleaseRevert(1); // the pointerdown of click #1 predicted FIREABLE
     expect(kb.primedSlot).toBe(E_SLOT); // …and the prime is STILL showing
     expect(kb.releaseRevertPending).toBe(true);
-    kb.consumeReleaseRevert(); // the matching pointerup
+    expect(kb.releaseRevertClickSeq).toBe(1);
+    kb.consumeReleaseRevert(1); // that click's own pointerup
     expect(kb.primedSlot).toBe(SLOT_GUN);
     expect(kb.releaseRevertPending).toBe(false);
+  });
+
+  it('THE DEBT NAMES ITS CLICK: another click\'s release pays nothing', () => {
+    // The review fix. A bare boolean was payable by ANY release — the previous
+    // click's, arriving in the same 50ms tick as this one's press (a fast
+    // double-click), or a second pointer's. Only click #2's own release settles
+    // click #2.
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
+    kb.attach();
+    press('KeyE');
+    kb.armReleaseRevert(2);
+    kb.consumeReleaseRevert(1); // the PREVIOUS click's hold ending
+    expect(kb.primedSlot).toBe(E_SLOT); // …is not this click's release
+    expect(kb.releaseRevertPending).toBe(true);
+    kb.consumeReleaseRevert(3); // nor is a later one
+    expect(kb.primedSlot).toBe(E_SLOT);
+    kb.consumeReleaseRevert(2);
+    expect(kb.primedSlot).toBe(SLOT_GUN);
   });
 
   it('A KEY PRESSED MID-HOLD WINS: the switched prime survives the release', () => {
     kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
     kb.attach();
     press('KeyQ');
-    kb.armReleaseRevert(); // pointerdown on the Q weapon
+    kb.armReleaseRevert(1); // pointerdown on the Q weapon
     press('KeyE'); // …switched mid-hold
     expect(kb.releaseRevertPending).toBe(false); // the debt is cancelled
-    kb.consumeReleaseRevert(); // pointerup
+    kb.consumeReleaseRevert(1); // pointerup
     expect(kb.primedSlot).toBe(E_SLOT); // still E — the key won
   });
 
   it('a hotbar CLICK mid-hold cancels it too (clicks are keys — amendment 11)', () => {
     kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
-    kb.armReleaseRevert();
+    kb.armReleaseRevert(1);
     kb.slotAction(R_SLOT);
-    kb.consumeReleaseRevert();
+    kb.consumeReleaseRevert(1);
     expect(kb.primedSlot).toBe(R_SLOT);
   });
 
@@ -1237,7 +1256,7 @@ describe('KeyboardInput — the release-deferred prime revert (UX-DR42)', () => 
     kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
     kb.attach();
     press('KeyQ');
-    kb.consumeReleaseRevert(); // the denied click armed nothing
+    kb.consumeReleaseRevert(1); // the denied click armed nothing
     expect(kb.primedSlot).toBe(TORP);
   });
 
@@ -1245,12 +1264,12 @@ describe('KeyboardInput — the release-deferred prime revert (UX-DR42)', () => 
     kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
     kb.attach();
     press('KeyQ');
-    kb.armReleaseRevert();
-    kb.armReleaseRevert();
-    kb.consumeReleaseRevert();
+    kb.armReleaseRevert(1);
+    kb.armReleaseRevert(1);
+    kb.consumeReleaseRevert(1);
     expect(kb.primedSlot).toBe(SLOT_GUN);
     press('KeyE'); // a fresh prime, with no stale debt behind it
-    kb.consumeReleaseRevert();
+    kb.consumeReleaseRevert(1);
     expect(kb.primedSlot).toBe(E_SLOT);
   });
 
@@ -1261,11 +1280,12 @@ describe('KeyboardInput — the release-deferred prime revert (UX-DR42)', () => 
     kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
     kb.attach();
     press('KeyQ');
-    kb.armReleaseRevert();
+    kb.armReleaseRevert(1);
     kb.revertToGun();
     expect(kb.releaseRevertPending).toBe(false);
+    expect(kb.releaseRevertClickSeq).toBeNull();
     press('KeyE');
-    kb.consumeReleaseRevert();
+    kb.consumeReleaseRevert(1);
     expect(kb.primedSlot).toBe(E_SLOT);
   });
 });
