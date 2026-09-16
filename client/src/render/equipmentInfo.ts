@@ -25,10 +25,20 @@ import {
   type EquipmentId,
 } from '@salvo/shared';
 
-/** Slot → bound key glyph (amendment 10): the gun is KEYLESS (always selected —
- *  its chip renders as a ghost that keeps the row alignment), Q/E are the two
- *  class specials, R the pickup/extra slot. Top-to-bottom Gun – Q – E – R. */
-export const SLOT_KEY_GLYPHS: readonly string[] = ['', 'Q', 'E', 'R'];
+/**
+ * Slot → bound key glyph, in slot order. Story 8.5's nine-slot spine:
+ * Gun · ⇧ · Q · E · R · 1 · 2 · 3 · 4, top-to-bottom.
+ *
+ * The GUN is KEYLESS (always selected — its chip renders as a ghost that keeps
+ * the row alignment). Slot 1 is the BOOST and its glyph is `⇧` (U+21E7, the
+ * platform-conventional Shift mark — Eric ruling 2026-09-16, epic-8 amendment
+ * 29: the 22px mono chip holds exactly one glyph, so a SHIFT word chip was
+ * rejected). Slots 2-4 are the three generic weapon slots; slots 5-8 are the
+ * consumable belt, whose digits are REFIT-ONLY until Story 8.7 wires the rack
+ * (amendment 27) — the chips are drawn now because the row they label exists
+ * now, and a labelled row the player cannot yet use is Story 8.6's problem.
+ */
+export const SLOT_KEY_GLYPHS: readonly string[] = ['', '⇧', 'Q', 'E', 'R', '1', '2', '3', '4'];
 
 /**
  * Display name per equipment id. The seven BUILT ids keep their shipped names
@@ -97,7 +107,9 @@ export function equipmentDescription(stats: EffectiveStats, id: EquipmentId): st
 
 /** The label a slot's tooltip uses for how the equipment is operated: the gun is
  *  keyless and permanently selected, weapons switch-to on their key, abilities
- *  activate immediately. Weapon-vs-ability comes ONLY from EQUIPMENT_IS_WEAPON. */
+ *  activate immediately. Weapon-vs-ability comes ONLY from EQUIPMENT_IS_WEAPON,
+ *  and the key comes ONLY from SLOT_KEY_GLYPHS — so the boost in slot 1 reads
+ *  `ABILITY · ⇧ · ACTIVATES` without this function knowing what a boost is. */
 export function interactionLine(slot: number, id: EquipmentId): string {
   if (slot === SLOT_GUN) return 'WEAPON · ALWAYS SELECTED';
   const key = SLOT_KEY_GLYPHS[slot] ?? '';

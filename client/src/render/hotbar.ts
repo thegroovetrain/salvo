@@ -1,5 +1,16 @@
-// THE hotbar (Story 2.2) — four square slots stacked bottom-left, top-to-bottom
-// Gun (keyless) – Q – E – R (amendment 10), rendered in Pixi over the water.
+// THE hotbar (Story 2.2) — square slots stacked bottom-left, rendered in Pixi
+// over the water. Story 8.5 grew the stack from four rows to NINE, in the
+// loadout's own fixed-role order: Gun (keyless) – ⇧ (boost) – Q – E – R – 1 – 2
+// – 3 – 4, where 1-4 are the consumable BELT (empty all of 8.5; Story 8.7
+// stocks it and 8.6 gives it its frame).
+//
+// THE GEOMETRY IS DELIBERATELY UNTOUCHED (epic-8 amendment 25, Eric verbatim:
+// *"Ignore it entirely. The next story fixes the HUD."*). Nine rows at the
+// shipped 62px slot / 14px gap make a 670px column that overruns the 614px
+// floor viewport, so `hotbarLayout` can return a NEGATIVE `stackTop` and the top
+// rows can clip. That is accepted for one story: Story 8.6 replaces this
+// bottom-left stack with the bottom-centre HUD bar (UX-DR40), and tightening a
+// pitch that is about to be deleted would be work spent twice.
 // Story 2.3 grew the geometry (slot / key chip / label column / tooltip) to fit
 // the ratified ~1.6x type lift, de-greyed the row text to phosphor data + white
 // names, and gated the ACTIVATED pop + glow amplitude on the motion setting.
@@ -27,7 +38,11 @@
 //               persistent breathing phosphor outline (≥2s cycle, capped by
 //               settings.pulseCapHz) + an `ACTIVE ns` countdown in the
 //               quick-info line. Outranks cooling; the cool track still draws
-//   empty       1px DASHED slate .45, `+` glyph, "— awaiting refit —"
+//   empty       1px DASHED slate .45 + a centred `—` glyph, and NO WORDS
+//               (UX-DR41, Story 8.5: the old offer LABEL is RETIRED — the
+//                empty IS the state. It is the 0:00 state of all seven
+//                unfitted slots and of a depleted belt slot. The retired
+//                string is grep-pinned out of this module in hotbar.test.ts.)
 //   denied      1px→2px denied-red edge pulse + red icon flash — never silence
 //
 // Selection is the CLIENT's primed slot (gun whenever nothing is primed) — the
@@ -53,7 +68,7 @@ import type { ScreenPoint } from '../input/mouse.js';
 import { tracePerimeter, traceDashed } from '../util/poly.js';
 import { boonEffectLine, boonName } from '../ui/boonCopy.js';
 import { monoWrapLines } from '../ui/refitCardFit.js';
-import { drawEquipmentIcon, drawPlusGlyph } from './equipmentIcons.js';
+import { drawEquipmentIcon, drawDashGlyph } from './equipmentIcons.js';
 import { KEY_CHIP_STYLE, drawKeyChipBox, keyChipGlyphColor } from './keyChip.js';
 import {
   SLOT_KEY_GLYPHS,
@@ -68,9 +83,6 @@ const C = CLIENT_CONFIG.colors;
 const H = CLIENT_CONFIG.hotbar;
 const MONO = CLIENT_CONFIG.type.mono;
 const DISPLAY = CLIENT_CONFIG.type.display;
-
-/** The empty (offer) slot's label — DESIGN.md Components · Hotbar Slot. */
-export const EMPTY_SLOT_LABEL = '— awaiting refit —';
 
 // --- pure core: per-slot state -------------------------------------------------
 
@@ -306,7 +318,7 @@ export interface HotbarView {
   nowSec?: number;
 }
 
-/** Pure: the four row view models, in slot order (Gun – Q – E – R). */
+/** Pure: every row's view model, in slot order (Gun – ⇧ – Q – E – R – 1-4). */
 export function slotViewModels(view: HotbarView): SlotViewModel[] {
   return Array.from({ length: SLOT_COUNT }, (_, slot) => slotViewModel(view, slot));
 }
@@ -324,12 +336,20 @@ export function coolFraction(reloadMsLeft: number, reloadMs: number): number {
   return Math.min(1, Math.max(0, 1 - reloadMsLeft / reloadMs));
 }
 
-/** The unfitted (offer) slot's row: dashed box, `+` glyph, awaiting-refit label. */
+/**
+ * The unfitted slot's row: a dashed box with a centred `—` and NOTHING in the
+ * label column (UX-DR41, Story 8.5). Both text fields are EMPTY strings rather
+ * than absent, so the row model stays total and `updateRowText` clears whatever
+ * the row used to say when a weapon is lost — and so the retired offer label
+ * cannot come back by omission.
+ *
+ * The key chip is NOT emptied with the words: an empty Q still says Q, which is
+ * the whole point of denying its key (amendment 26). `degraded: false` is
+ * explicit rather than omitted for the same totality reason: an unfitted slot
+ * holds nothing to deny, so it can never carry a budget verdict.
+ */
 function emptySlotModel(slot: number, keyGlyph: string): SlotViewModel {
-  // `degraded: false` is explicit rather than omitted: an unfitted slot holds
-  // nothing to deny, so it can never carry a budget verdict, and a total model
-  // keeps the flag from reading `undefined` on exactly one row.
-  return { slot, id: null, state: 'empty', selected: false, chamfer: false, keyGlyph, name: EMPTY_SLOT_LABEL, quickInfo: '', badge: null, coolFrac: 0, fitFlash: false, boonCount: 0, degraded: false };
+  return { slot, id: null, state: 'empty', selected: false, chamfer: false, keyGlyph, name: '', quickInfo: '', badge: null, coolFrac: 0, fitFlash: false, boonCount: 0, degraded: false };
 }
 
 /**
@@ -616,6 +636,13 @@ export interface HotbarLayout {
  * Pure: the whole stack laid out from the viewport height (bottom-left anchor;
  * width is irrelevant — nothing is right-aligned). Called per frame from the
  * screen size, the same idiom as Hud.update — no resize listener.
+ *
+ * ANCHORED AT THE FOOT, AND ONLY AT THE FOOT: the stack's bottom edge sits
+ * `H.bottom` above the viewport floor and the rows grow UPWARD from there. With
+ * nine rows (Story 8.5) that is 670px of column, so on a short viewport
+ * `stackTop` goes NEGATIVE and the top rows clip off the screen. Deliberate and
+ * ruled (epic-8 amendment 25): no clamping, no scaling, no second column —
+ * Story 8.6's bottom-centre bar replaces this geometry outright.
  */
 export function hotbarLayout(screenH: number): HotbarLayout {
   const stackHeight = SLOT_COUNT * H.slot + (SLOT_COUNT - 1) * H.gap;
@@ -1301,7 +1328,7 @@ export class Hotbar {
     const cx = box.x + box.size / 2;
     const cy = box.y + box.size / 2;
     const style = { width: 1.5, color: skin.icon, alpha: skin.iconAlpha };
-    if (m.id === null) drawPlusGlyph(this.gfx, cx, cy, H.icon * 0.5, style);
+    if (m.id === null) drawDashGlyph(this.gfx, cx, cy, H.icon * 0.5, style);
     else drawEquipmentIcon(this.gfx, m.id, cx, cy, H.icon, style);
   }
 

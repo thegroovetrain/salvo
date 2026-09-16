@@ -19,6 +19,15 @@
 // whose position lands on a HOTBAR SLOT is that slot's key-equivalent action
 // and is swallowed here, so a click on the hotbar can never fire the gun at the
 // water beneath it (amendment 11).
+//
+// Story 8.5 adds the RELEASE EDGE beside the click counter, in the same shape:
+// a cumulative button-0 POINTERUP counter that main.ts polls per tick, which is
+// where the prime's auto-revert now happens (UX-DR42: "firing auto-reverts on
+// RELEASE, never on press"). It is deliberately NOT canvas-target-only and NOT
+// lockout-gated, unlike the click it closes: a press that began on the water is
+// over the moment the button comes up, wherever the pointer has since travelled
+// and whatever surface has since opened. Gating it would strand a prime armed
+// for a trigger the player has already let go of.
 
 /** A screen-space point (px). */
 export interface ScreenPoint {
@@ -47,6 +56,7 @@ export class MouseInput {
   private readonly pos: ScreenPoint = { x: 0, y: 0 };
   private clicks = 0;
   private clickT = 0;
+  private releases = 0;
   private canvas: EventTarget | null = null;
   /**
    * Is the pointer currently INSIDE the window? Deliberately separate from
@@ -111,6 +121,13 @@ export class MouseInput {
     this.clickT = this.nowServer();
   };
 
+  /** A button-0 RELEASE — the edge that closes a hold. Counted anywhere (see
+   *  the file header): the button is up, so any hold it began is over. */
+  private readonly onUp = (e: PointerEvent): void => {
+    if (e.button !== 0) return;
+    this.releases += 1;
+  };
+
   private readonly onContextMenu = (e: Event): void => {
     e.preventDefault();
   };
@@ -123,6 +140,7 @@ export class MouseInput {
     this.canvas = canvas;
     window.addEventListener('pointermove', this.onMove);
     window.addEventListener('pointerdown', this.onDown);
+    window.addEventListener('pointerup', this.onUp);
     window.addEventListener('pointerout', this.onOut);
     window.addEventListener('blur', this.onBlur);
     canvas.addEventListener('contextmenu', this.onContextMenu);
@@ -132,6 +150,7 @@ export class MouseInput {
   detach(): void {
     window.removeEventListener('pointermove', this.onMove);
     window.removeEventListener('pointerdown', this.onDown);
+    window.removeEventListener('pointerup', this.onUp);
     window.removeEventListener('pointerout', this.onOut);
     window.removeEventListener('blur', this.onBlur);
     this.canvas?.removeEventListener('contextmenu', this.onContextMenu);
@@ -161,5 +180,15 @@ export class MouseInput {
    */
   get lastClickT(): number {
     return this.clickT;
+  }
+
+  /**
+   * Cumulative button-0 RELEASES since boot — the click counter's twin, polled
+   * the same way (main.ts diffs it once per tick). Drives the prime's
+   * auto-revert on release (UX-DR42); nothing else reads it, and nothing rides
+   * the wire on it.
+   */
+  get releaseCount(): number {
+    return this.releases;
   }
 }

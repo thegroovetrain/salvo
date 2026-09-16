@@ -36,11 +36,17 @@ export function primeFireable(primedSlot: number, loaded: boolean, inArc: boolea
 }
 
 /**
- * Pure: should a fired click CONSUME the prime this tick? Only when the own ship
- * is ALIVE and the click predicts fireable (primeFireable). A dead / not-yet-
- * spawned ship never consumes: death independently reverts the prime to the gun
+ * Pure: should a fired click CONSUME the prime? Only when the own ship is ALIVE
+ * and the click predicts fireable (primeFireable). A dead / not-yet-spawned
+ * ship never consumes: death independently reverts the prime to the gun
  * (roomBindings handleSunk → resetPrime), so consuming here would at best be
  * redundant and, on the death tick, would act on an already-stale slot.
+ *
+ * "THIS TICK" IS NO LONGER WHEN IT HAPPENS (Story 8.5, UX-DR42). The predicate
+ * is still evaluated at the POINTERDOWN tick — that is where the fire input and
+ * its D1 fire-time stamp are built, and nothing about the shot moved — but a
+ * `true` here now ARMS the revert, which main.ts pays at the matching
+ * pointerup. A held trigger therefore keeps its prime for the whole hold.
  */
 export function shouldConsumePrime(
   alive: boolean,

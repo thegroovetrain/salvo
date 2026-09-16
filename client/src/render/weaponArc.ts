@@ -4,8 +4,9 @@
 // gate off shared `inArc`.
 //
 // Keyed by the fitted EQUIPMENT ID (Story 1.7), NOT the loadout slot index: the
-// slot-index == equipment coupling died when the fit went per-hull (BB slot 1 is
-// the broadside, TB slot 1 is the torpedo), so a slot-number branch would light the
+// slot-index == equipment coupling died when the fit went per-hull, and Story
+// 8.5 buried it for good — the three weapon slots are GENERIC, so whatever a
+// captain drew sits in whichever of Q/E/R was empty first, and a slot-number branch would light the
 // wrong marker. As of Story 1.10 the classification DERIVES from the shared
 // arcFor descriptor (sim/arcs.ts — the single arc-shape source both sides
 // consume), so the rendered arc and the server's enforced arc can never
@@ -47,7 +48,7 @@ import {
  *   mirrored aim-gated wedges at `heading ± offset`. A click inside EITHER is
  *   legal and fires THAT side (R2.2); a click in neither — the bow and stern
  *   dead zones — is denied exactly like a `sector` miss.
- * - `none`    — the `none` descriptor (the speed boost) or the empty slot: not
+ * - `none`    — the `none` descriptor (the speed boost) or an empty slot: not
  *   an aimed weapon, no marker, no reticle.
  */
 export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'none';
@@ -55,7 +56,7 @@ export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'none';
 /** Pure: classify a fitted equipment id (or null empty slot) by firing-arc
  *  kind — a straight projection of the shared arcFor descriptor. */
 export function fireArcKind(id: EquipmentId | null): FireArcKind {
-  if (id === null) return 'none'; // empty slot 3 / defensive null
+  if (id === null) return 'none'; // an unfitted weapon slot / defensive null
   const arc = arcFor(id);
   if (arc.kind === 'full') return 'gunLike'; // gun / starShells
   if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / mine + buoy rear arc
