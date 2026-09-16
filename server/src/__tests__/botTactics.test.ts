@@ -1436,8 +1436,8 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   it('PREPARED LAY stops at the reserve; the REACTIVE lay still fires there (adds, never removes)', () => {
     const w = openWorld(419);
     const port = fakePort(w);
-    // At the reserve, idle: no prepared lay — the headroom under maxLive is
-    // being kept for the reactive occasions.
+    // At the reserve, idle: no prepared lay — the reserve is the bot's own
+    // restraint on seeding water with nobody in sight.
     const idle = mkBot(w, 'mineLayer', 0, 0, 0);
     const idleMind = mkMind('trapper'); // no contacts -> reposition
     viewWithOwnMines(idleMind, CONFIG.bots.preparedMineReserve);
@@ -1457,32 +1457,31 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(fleeing, fleeingMind, port).fireSlot).toBe(slotOf(fleeing, 'navalMines'));
   });
 
-  it('NO LAY AT maxLive: a bot never evicts its own oldest mine — reactive and captive included', () => {
+  // FLIPPED, NOT DELETED (Story 8.4, FR57/AR48). This case used to prove the
+  // FIELD-CHURN BOUND: with the board at `maxLive` a bot refused every lay,
+  // because `addMine` would have silently evicted the oldest trap of the field
+  // it was fleeing toward. Story 8.4 deleted the cap and the eviction, so the
+  // refusal has nothing left to protect and `mineFieldFull` is gone. The pin
+  // now asserts the new rule — a big board never refuses a lay — so the
+  // behaviour stays covered in the direction it actually runs.
+  it('NO CAP REFUSAL: a huge own field never blocks a lay — reactive and captive alike', () => {
     const w = openWorld(420);
     const port = fakePort(w);
-    const cap = CONFIG.mine.maxLive;
-    // Withdrawing — the strongest reactive occasion there is — with a full
-    // board: the lay is refused, because addMine would silently evict the
-    // oldest trap of the very field this hull is fleeing toward.
+    const big = 99; // far past every cap the game used to carry
+    // Withdrawing — the strongest reactive occasion there is — with a board of
+    // 99 own mines: the lay fires.
     const flee = mkBot(w, 'mineLayer', 0, 0, 0);
     flee.hp = flee.stats.maxHp * 0.1;
     const fleeMind = mkMind('trapper');
-    viewWithOwnMines(fleeMind, cap);
-    expect(COMBAT_BRAIN.decide(flee, fleeMind, port).fireSlot).not.toBe(slotOf(flee, 'navalMines'));
-    // Same bound on the captive branch.
+    viewWithOwnMines(fleeMind, big);
+    expect(COMBAT_BRAIN.decide(flee, fleeMind, port).fireSlot).toBe(slotOf(flee, 'navalMines'));
+    // Same on the captive branch.
     const capFull = mkBot(w, 'mineLayer', 0, 0, 0);
     capFull.stats.equipment.navalMines.captive = true;
     capFull.hp = capFull.stats.maxHp * 0.1;
     const capFullMind = mkMind('trapper');
-    viewWithOwnMines(capFullMind, cap);
-    expect(COMBAT_BRAIN.decide(capFull, capFullMind, port).fireSlot).not.toBe(slotOf(capFull, 'navalMines'));
-    // One slot of headroom back (the reactive room the reserve guarantees):
-    // the withdrawal lay returns.
-    const room = mkBot(w, 'mineLayer', 0, 0, 0);
-    room.hp = room.stats.maxHp * 0.1;
-    const roomMind = mkMind('trapper');
-    viewWithOwnMines(roomMind, cap - 1);
-    expect(COMBAT_BRAIN.decide(room, roomMind, port).fireSlot).toBe(slotOf(room, 'navalMines'));
+    viewWithOwnMines(capFullMind, big);
+    expect(COMBAT_BRAIN.decide(capFull, capFullMind, port).fireSlot).toBe(slotOf(capFull, 'navalMines'));
   });
 
   // The rung means "how choked is the pattern", not "how wide is a designed

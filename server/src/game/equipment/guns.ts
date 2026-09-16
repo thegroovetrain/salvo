@@ -209,6 +209,7 @@ function fireGunShells(
         targetY: center.y + off.y,
         burstRadius: gun.burstRadius,
         contactDamage: gun.contactDamage,
+        hits: CONFIG.gun.hits, // AR44 target mask
       }),
     );
   }

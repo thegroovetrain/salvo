@@ -34,6 +34,7 @@ describe('makeBallistic', () => {
       targetY: null,
       burstRadius: 0,
       contactDamage: 55,
+      hits: CONFIG.torpedo.hits,
     });
     const off = hullClearOffset(ship, 2);
     expect(s.ownerId).toBe('a');
@@ -72,6 +73,7 @@ describe('makeBallistic', () => {
       targetY: null,
       burstRadius: 0,
       contactDamage: 55,
+      hits: CONFIG.torpedo.hits,
     };
     const withoutClearance = makeBallistic('t0', ship, 0, 0, params);
     const withClearance = makeBallistic('t1', ship, 0, 0, { ...params, spawnClearance: 6 });
@@ -97,6 +99,7 @@ describe('makeBallistic', () => {
       targetY: null,
       burstRadius: 0,
       contactDamage: CONFIG.gun.contactDamage,
+      hits: CONFIG.gun.hits,
     };
     const omitted = makeBallistic('s0', ship, 0, 0, params);
     const explicitZero = makeBallistic('s1', ship, 0, 0, { ...params, spawnClearance: 0 });

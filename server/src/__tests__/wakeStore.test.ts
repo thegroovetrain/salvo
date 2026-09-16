@@ -89,7 +89,7 @@ describe('world — wake ribbon store (Story 4.12)', () => {
       id: 'fish', ownerId: 'a', x: 300, y: 0,
       vx: CONFIG.torpedo.speed, vy: 0, distLeft: 90, bornAt: w.now, kind: 'torp',
       damage: CONFIG.torpedo.damage, hitRadius: CONFIG.torpedo.hitRadius,
-      targetX: null, targetY: null, burstRadius: 0, contactDamage: CONFIG.torpedo.damage,
+      targetX: null, targetY: null, burstRadius: 0, contactDamage: CONFIG.torpedo.damage, hits: CONFIG.torpedo.hits,
     });
     // 90u at 60 u/s = 30 ticks; run half of it and the ribbon exists.
     for (let i = 0; i < 15; i++) w.step();

@@ -143,6 +143,7 @@ function fireBroadside(
         // early deals what it would have dealt at its burst (R2.4 names ONE
         // damage figure), so contactDamage is the same 20.
         contactDamage: bs.damage,
+        hits: CONFIG.broadside.hits, // AR44 target mask
       }),
     );
   });

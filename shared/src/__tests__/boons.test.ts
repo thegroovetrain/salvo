@@ -149,7 +149,9 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
   });
 
   it('EQUIPMENT_INT_FIELDS names the integer stats the clamp floors once', () => {
-    expect([...EQUIPMENT_INT_FIELDS]).toEqual(['maxAmmo', 'maxLive', 'barrels', 'turrets']);
+    // `maxLive` LEFT this list with the mine caps themselves (Story 8.4,
+    // FR57/AR48) — the pin is updated, not deleted.
+    expect([...EQUIPMENT_INT_FIELDS]).toEqual(['maxAmmo', 'barrels', 'turrets']);
   });
 
   it('DOCTRINE_MODES is keyed by EquipmentId and carries only verbs a v3 add-on grants', () => {

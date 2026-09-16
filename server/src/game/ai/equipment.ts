@@ -437,18 +437,14 @@ function captiveMineWant(ctx: TacticContext): boolean {
   return distTo(ctx.sit, t) <= CONFIG.mine.placeRange * mult;
 }
 
-/**
- * THE FIELD-CHURN BOUND (Eric ruling 2026-08-20, cycle 111): EVERY lay —
- * prepared and reactive alike — is refused with the bot's own board at
- * `stats.equipment.navalMines.maxLive`. This closes a shipped defect: `addMine`
- * (game/equipment/mines.ts) SILENTLY EVICTS the owner's oldest mine at the
- * cap, so an uncounted lay churns the field the bot just built. The count is
- * read from the bot's own perception view (`ownLiveMines`) — the same data a
- * human client receives — never from a world collection.
- */
-function mineFieldFull(ctx: TacticContext): boolean {
-  return ownLiveMines(ctx.mind) >= ctx.sit.stats.equipment.navalMines.maxLive;
-}
+// THE FIELD-CHURN BOUND IS RETIRED (Story 8.4, FR57/AR48). It existed for one
+// reason — `addMine` SILENTLY EVICTED the owner's oldest mine at
+// `stats.equipment.navalMines.maxLive`, so an uncounted lay churned the field
+// the bot had just built — and Story 8.4 deleted every mine cap and every
+// eviction branch. There is nothing left to churn, so `mineFieldFull` is gone
+// and a bot lays whenever its tactic and its reload allow. NOTHING ELSE in bot
+// policy changes: the prepared occasion and every reactive occasion run exactly
+// as before, and `ownLiveMines` survives as the prepared-lay reserve's count.
 
 /** The postures in which a PREPARED lay is allowed: the bot is safe — nothing
  *  is being fought or fled — so a round spent seeding the water costs it no
@@ -469,8 +465,9 @@ const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm'];
  * first hostile into range and so works with NOBODY following — which is
  * precisely why it suits a hull that is hanging back — so holding the
  * doctrine opens the prepared occasion at mere NEUTRAL appetite. The reserve
- * (kept under `maxLive`) is what keeps headroom so a reactive lay always has
- * a round's worth of room; the profile still only says how eager it is.
+ * (which used to keep headroom under the now-deleted `maxLive`) is simply how
+ * much water a bot seeds with nobody in sight; the profile still only says how
+ * eager it is.
  *
  * PREPARED ADDS AN OCCASION, IT NEVER REMOVES ONE (epic-7 amendment 29, the
  * rule five defects produced): every reactive lay below still fires exactly
@@ -511,13 +508,12 @@ function reactiveMineWant(ctx: TacticContext): boolean {
 }
 
 /**
- * Does this bot want a mine in the water now? The churn bound refuses first
- * (no lay of any kind may evict), the prepared occasion ADDS next, and the
- * reactive occasions — the shipped behaviour, captive branch included — run
- * exactly as before.
+ * Does this bot want a mine in the water now? The prepared occasion ADDS first
+ * and the reactive occasions — the shipped behaviour, captive branch included —
+ * run exactly as before. Since Story 8.4 nothing refuses a lay on board count:
+ * mines have no cap and a lay can no longer evict a laid trap.
  */
 function mineWant(ctx: TacticContext): boolean {
-  if (mineFieldFull(ctx)) return false;
   if (preparedMineWant(ctx)) return true;
   if (ctx.sit.stats.equipment.navalMines.captive) return captiveMineWant(ctx);
   return reactiveMineWant(ctx);

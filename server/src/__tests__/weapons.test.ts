@@ -16,7 +16,7 @@ import {
   type BlipEvent,
   type FrameMsg,
   type InputMsg,
-  type HullTarget,
+  type Target,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -140,8 +140,11 @@ describe('A4 CONFIG constants', () => {
   it('torpedoes carry their own collision value (no longer gun-borrowed)', () => {
     expect(CONFIG.torpedo.hitRadius).toBe(2);
   });
-  it('the global mine cap lives on CONFIG.mine', () => {
-    expect(CONFIG.mine.globalCap).toBe(60);
+  // RETIRED (Story 8.4, FR57/AR48): there is no global mine cap any more — the
+  // pin is inverted so `globalCap` can never quietly come back.
+  it('MINES HAVE NO CAPS: neither a per-player nor a room ceiling exists', () => {
+    expect('globalCap' in CONFIG.mine).toBe(false);
+    expect('maxLive' in CONFIG.mine).toBe(false);
   });
 });
 
@@ -177,8 +180,8 @@ describe('torpedoes — infinite range + map-edge splash (A3)', () => {
 
 describe('mines — arm delay, silhouette trigger, owner immunity', () => {
   // World-posed torpedoBoat silhouette (length 100: bow +50 / stern -50).
-  function hull(id: string, x: number, y: number, heading: number): HullTarget {
-    return { id, poly: transformPolygon(hullSilhouette('torpedoBoat'), x, y, heading) };
+  function hull(id: string, x: number, y: number, heading: number): Target {
+    return { id, kind: 'hull', poly: transformPolygon(hullSilhouette('torpedoBoat'), x, y, heading) };
   }
   function mineAt(ownerId: string, x: number, y: number, armedAt: number): Map<string, MineState> {
     const m = new Map<string, MineState>();
@@ -213,23 +216,27 @@ describe('mines — arm delay, silhouette trigger, owner immunity', () => {
   });
 });
 
-describe('mines — per-player cap despawns the oldest', () => {
-  it('a 6th drop (base cap 5) silently despawns the player’s oldest mine', () => {
+// REWRITTEN TO THE NEW RULE (Story 8.4, FR57/AR48). The two cases here used to
+// prove the per-player cap and its silent oldest-eviction; both are DELETED, so
+// the block now proves the opposite — nothing is ever evicted — rather than
+// disappearing, which would leave the old behaviour unpinned in either
+// direction.
+describe('mines — NO CAP: a laid mine stays laid', () => {
+  it('a sixth, a sixtieth and a hundredth drop all stay live; nothing is evicted', () => {
     const mines = new Map<string, MineState>();
-    for (let i = 1; i <= CONFIG.mine.maxLive; i++) addMine(mines, 'a', i, 0, 0, `m${i}`);
-    expect(mines.size).toBe(CONFIG.mine.maxLive); // 5 live (Story 1.8 base cap)
-    addMine(mines, 'a', 99, 0, 0, 'm6'); // the 6th
-    expect(mines.size).toBe(CONFIG.mine.maxLive); // still capped
-    expect(mines.has('m1')).toBe(false); // oldest gone — silently (no boom)
-    expect(mines.has('m6')).toBe(true); // newest kept
+    for (let i = 1; i <= 100; i++) addMine(mines, 'a', i, 0, 0, `m${i}`);
+    expect(mines.size).toBe(100);
+    expect(mines.has('m1')).toBe(true); // the OLDEST is still on the water
+    expect(mines.has('m6')).toBe(true); // past the retired per-player cap of 5
+    expect(mines.has('m100')).toBe(true); // past the retired room ceiling of 60
   });
 
-  it('the cap is per-player (another owner is unaffected)', () => {
+  it('one owner\'s field never disturbs another\'s', () => {
     const mines = new Map<string, MineState>();
-    for (let i = 1; i <= CONFIG.mine.maxLive; i++) addMine(mines, 'a', i, 0, 0, `a${i}`);
+    for (let i = 1; i <= 10; i++) addMine(mines, 'a', i, 0, 0, `a${i}`);
     addMine(mines, 'b', 1, 0, 0, 'b1');
-    expect(mines.has('a1')).toBe(true); // a still at cap, b's drop didn't evict it
-    expect(mines.size).toBe(CONFIG.mine.maxLive + 1);
+    expect(mines.has('a1')).toBe(true);
+    expect(mines.size).toBe(11);
   });
 });
 
@@ -331,30 +338,38 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
 
   it('mineBlastVictims: silhouette-in-radius membership, owner excluded (the shared burstVictims rule)', () => {
     const mine: MineState = { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 };
-    const hull = (id: string, x: number, y: number): HullTarget => ({
+    const hull = (id: string, x: number, y: number): Target => ({
       id,
+      kind: 'hull',
       poly: transformPolygon(hullSilhouette('torpedoBoat'), x, y, HALF_PI),
     });
     // Hull edge within 48 (center 90: stern at y=40, 40 ≤ 48); owner's own hull
     // ON the mine excluded; a hull whose closest point is beyond 48 excluded.
-    expect(mineBlastVictims(mine, [hull('in', 0, 90), hull('o', 0, 0), hull('out', 0, 110)])).toEqual(['in']);
+    // Story 8.4: mineBlastVictims returns TARGETS (the caller dispatches on kind).
+    expect(
+      mineBlastVictims(mine, [hull('in', 0, 90), hull('o', 0, 0), hull('out', 0, 110)]).map((t) => t.id),
+    ).toEqual(['in']);
   });
 
-  // Story 2.8 (amendment 46) DELIBERATELY FLIPS the 1.8 no-chain pins below:
-  // a detonation now cascades to the SAME OWNER's other ARMED mines whose
-  // centers lie within its blast radius; enemy and unarmed mines never chain.
+  // Story 2.8 (amendment 46) flipped the 1.8 no-chain pins; Story 8.4
+  // (Eric ruling 2026-09-15, epic-8 amendment 18) flips the OWNERSHIP half of
+  // them in turn: a detonation now cascades into EVERY ARMED non-captive mine
+  // in blast range, WHOEVER LAID IT. Unarmed mines still never chain, and a
+  // captive field neither receives nor propagates (R2.18).
 
-  it('SAME-OWNER CHAIN: a trip cascades to the owner’s other ARMED mine in blast range; an enemy’s unarmed mine survives', () => {
+  it('CHAIN: a trip cascades to another ARMED mine in blast range; an unarmed mine survives', () => {
     const { w } = minefield();
     // 45u from m1: inside m1's 48u blast, OUTSIDE the tripping hull's reach —
     // pre-2.8 this survived ("blast ≠ trigger"); the chain now takes it.
     w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0 });
-    w.mines.set('m3', { id: 'm3', ownerId: 'x', x: -20, y: 0, armedAt: 999_999 }); // someone else's, unarmed
+    w.mines.set('m3', { id: 'm3', ownerId: 'x', x: -20, y: 0, armedAt: 999_999 }); // someone else's, UNARMED
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
     b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips only m1
     w.step();
     expect(w.mines.has('m2')).toBe(false); // chained same-tick
-    expect(w.mines.has('m3')).toBe(true); // enemy mines never sympathize (and it is unarmed)
+    // m3 survives on the ARM delay alone now — amendment 18 deleted the
+    // same-owner condition, so ownership is no longer what saves it.
+    expect(w.mines.has('m3')).toBe(true);
     expect(w.mines.size).toBe(1);
     // The chained mine's boom carries NO victim id (only the tripped mine's does).
     const booms = w.tickEvents.filter((e) => e.k === 'boom');
@@ -364,11 +379,15 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     ]);
   });
 
-  it('the chain CASCADES down a daisy line (bounded by the visited set) but never crosses owners or arms', () => {
+  // FLIPPED, NOT DELETED (Story 8.4, amendment 18). The old version of this
+  // case asserted `mEnemy` SURVIVED — "the chain never crosses owners". Eric
+  // ruled the opposite on 2026-09-15: a minefield is water, not property, so a
+  // blast sets off everything armed in range. Only the ARM delay still saves a
+  // mine (and the captive carve-out, pinned separately below).
+  it('the chain CASCADES down a daisy line (bounded by the visited set) ACROSS OWNERS, but never into an arming mine', () => {
     const { w } = minefield();
     // m1 (0,0) → m2 at 45u → m3 at 90u (inside m2's blast, outside m1's) —
-    // three same-owner armed mines detonate in ONE tick. An ENEMY armed mine
-    // inside the chain's blasts survives, as does an UNARMED own mine.
+    // and an ENEMY armed mine at 70u, which amendment 18 now takes with them.
     w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0 });
     w.mines.set('m3', { id: 'm3', ownerId: 'o', x: 0, y: -90, armedAt: 0 });
     w.mines.set('mEnemy', { id: 'mEnemy', ownerId: 'x', x: 0, y: -70, armedAt: 0 });
@@ -378,13 +397,13 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     w.step();
     expect(w.mines.has('m2')).toBe(false);
     expect(w.mines.has('m3')).toBe(false);
-    expect(w.mines.has('mEnemy')).toBe(true); // enemy mines never chain
-    expect(w.mines.has('mCold')).toBe(true); // unarmed mines never chain
-    expect(w.mines.size).toBe(2);
+    expect(w.mines.has('mEnemy')).toBe(false); // amendment 18: chains cross owners
+    expect(w.mines.has('mCold')).toBe(true); // an arming mine is still immune
+    expect(w.mines.size).toBe(1);
   });
 });
 
-describe('mines — owner gun-burst detonation (armed-only, owner-only, no cascade)', () => {
+describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 16)', () => {
   /** ML `a` at the origin with an enemy `b` parked near a remote minefield:
    *  b's hull (y ∈ [35..55]) is OUTSIDE the gun's 30u burst at (300,0) but
    *  INSIDE the mine's 48u blast — any damage b takes is the MINE's. */
@@ -429,11 +448,17 @@ describe('mines — owner gun-burst detonation (armed-only, owner-only, no casca
     expect(w.mines.has('m1')).toBe(true); // immune while unarmed
   });
 
-  it('an ENEMY’s burst never detonates the owner’s mines', () => {
+  // FLIPPED, NOT DELETED (Story 8.4, Eric ruling 2026-09-15, amendment 16).
+  // The old version of this case asserted that only the mine's OWN owner could
+  // set it off with a burst — the shipped click-your-own-minefield rule. Eric
+  // ruled that a shell or burst detonates ANY armed non-captive mine, so the
+  // pin now proves the opposite, and the ONE thing that still saves a mine
+  // (the arm delay) keeps its own case above.
+  it('ANY burst detonates ANY armed mine — an enemy field included (amendment 16)', () => {
     const { w } = board();
     w.mines.set('m1', { id: 'm1', ownerId: 'x', x: 300, y: 0, armedAt: 0 }); // someone ELSE's armed mine
     shootAt(w, 300); // a's burst covers it
-    expect(w.mines.has('m1')).toBe(true); // only the OWNER's bursts detonate
+    expect(w.mines.has('m1')).toBe(false);
   });
 
   // A CAPTIVE MINE CANNOT BE SELF-DETONATED (Story 7-5 wave 2, R2.18 — Eric
@@ -607,6 +632,7 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
       targetY: null,
       burstRadius: 0,
       contactDamage: CONFIG.torpedo.damage,
+      hits: CONFIG.torpedo.hits,
     });
     windowAround(a, 0); // beam across bearing 0 (toward x+)
     const blips = blipsOf(buildFrame(w, 'a'));

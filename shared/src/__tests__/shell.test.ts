@@ -4,7 +4,7 @@ import {
   stepShell,
   type ShellOutcome,
   type ShellState,
-  type HullTarget,
+  type Target,
   type ShellContext,
 } from '../sim/shell.js';
 import { hullSilhouette, transformPolygon } from '../sim/silhouette.js';
@@ -23,15 +23,15 @@ const BIG_R = 100000;
 
 /** Build a ShellContext, defaulting to an empty, effectively-boundless world. */
 function ctx(o: Partial<ShellContext> = {}): ShellContext {
-  return { islands: [], hulls: [] as HullTarget[], now: 1000, dt: DT, mapRadius: BIG_R, ...o };
+  return { islands: [], targets: [] as Target[], now: 1000, dt: DT, mapRadius: BIG_R, ...o };
 }
 
 /** A silhouette-polygon hull target at a world pose. droneMedium (100×30
  *  chevron) by default: at heading π/2 its flat starboard side is the vertical
  *  segment x = poseX − 15 spanning y ∈ [poseY − 45, poseY + 15] — a clean
  *  broadside across a +x shell path. */
-function hullAt(x: number, y: number, heading: number, id = 'victim', hullId: HullId = 'droneMedium'): HullTarget {
-  return { id, poly: transformPolygon(hullSilhouette(hullId), x, y, heading) };
+function hullAt(x: number, y: number, heading: number, id = 'victim', hullId: HullId = 'droneMedium'): Target {
+  return { id, kind: 'hull', poly: transformPolygon(hullSilhouette(hullId), x, y, heading) };
 }
 
 /**
@@ -72,6 +72,7 @@ function shell(overrides: Partial<ShellState> = {}): ShellState {
     targetY: null,
     burstRadius: 0,
     contactDamage: CONFIG.gun.damage,
+    hits: CONFIG.gun.hits,
     ...overrides,
   };
 }
@@ -214,7 +215,7 @@ describe('stepShell — swept hull collision (silhouette polygon)', () => {
   it('hits a hull the shell sweeps into this tick', () => {
     // Broadside at x = 5; one tick of travel (6.5u) crosses it.
     const s = shell();
-    const out = stepShell(s, ctx({ hulls: [hullAt(20, 0, Math.PI / 2)] }));
+    const out = stepShell(s, ctx({ targets: [hullAt(20, 0, Math.PI / 2)] }));
     expect(out.kind).toBe('hitShip');
     if (out.kind === 'hitShip') expect(out.victimId).toBe('victim');
   });
@@ -223,21 +224,21 @@ describe('stepShell — swept hull collision (silhouette polygon)', () => {
     // Shell placed so a full max-speed tick would straddle the hull side.
     const travel = CONFIG.gun.shellSpeed * DT;
     const s = shell({ x: 5 - travel * 0.5 });
-    const out = stepShell(s, ctx({ hulls: [hullAt(20, 0, Math.PI / 2)] }));
+    const out = stepShell(s, ctx({ targets: [hullAt(20, 0, Math.PI / 2)] }));
     expect(out.kind).toBe('hitShip');
   });
 });
 
 describe('stepShell — permanent owner immunity (Eric ruling 2026-07-19)', () => {
   // Owner hull surrounding the shell spawn point (shell starts inside it).
-  const ownerHull = (): HullTarget => hullAt(6, 0, Math.PI / 2, 'owner');
+  const ownerHull = (): Target => hullAt(6, 0, Math.PI / 2, 'owner');
 
   it('never hits its firer — not at spawn, not ever (no timed grace)', () => {
     // Same overlap the old grace test used, sampled far past any old grace
     // window: a permanently-immune owner still never registers a hit.
     for (const now of [0, 100, 5000, 1e9]) {
       const s = shell({ bornAt: 0 });
-      const out = stepShell(s, ctx({ hulls: [ownerHull()], now }));
+      const out = stepShell(s, ctx({ targets: [ownerHull()], now }));
       expect(out.kind).toBe('travel');
     }
   });
@@ -245,7 +246,7 @@ describe('stepShell — permanent owner immunity (Eric ruling 2026-07-19)', () =
   it('still hits a NON-owner hull it overlaps', () => {
     const s = shell({ bornAt: 0 });
     const enemyHull = hullAt(6, 0, Math.PI / 2, 'enemy');
-    const out = stepShell(s, ctx({ hulls: [enemyHull], now: 5000 }));
+    const out = stepShell(s, ctx({ targets: [enemyHull], now: 5000 }));
     expect(out.kind).toBe('hitShip');
     if (out.kind === 'hitShip') expect(out.victimId).toBe('enemy');
   });
@@ -275,14 +276,14 @@ describe('stepShell — parameterized for torpedoes (no tunnel at torp speed)', 
 
   it('a torpedo hits a hull it sweeps into, honoring its own collision radius', () => {
     // Broadside at x = 7; the torp's tick travel (3.5u from x=4) reaches it.
-    const out = stepShell(torp({ x: 4 }), ctx({ hulls: [hullAt(22, 0, Math.PI / 2)], dt: TORP_DT }));
+    const out = stepShell(torp({ x: 4 }), ctx({ targets: [hullAt(22, 0, Math.PI / 2)], dt: TORP_DT }));
     expect(out.kind).toBe('hitShip');
     if (out.kind === 'hitShip') expect(out.victimId).toBe('victim');
   });
 
   it('never hits its own firer regardless of elapsed time (permanent immunity)', () => {
     const own = torp({ bornAt: 0 });
-    const out = stepShell(own, ctx({ hulls: [hullAt(6, 0, Math.PI / 2, 'owner')], now: 1e9, dt: TORP_DT }));
+    const out = stepShell(own, ctx({ targets: [hullAt(6, 0, Math.PI / 2, 'owner')], now: 1e9, dt: TORP_DT }));
     expect(out.kind).toBe('travel');
   });
 
@@ -290,10 +291,10 @@ describe('stepShell — parameterized for torpedoes (no tunnel at torp speed)', 
     const farX = 1200; // beyond the retired 700u torpedo range
     const h = hullAt(farX, 0, Math.PI / 2);
     const t = torp({ x: 0, y: 0 });
-    let out = stepShell(t, ctx({ hulls: [h], dt: TORP_DT }));
+    let out = stepShell(t, ctx({ targets: [h], dt: TORP_DT }));
     let ticks = 1;
     while (out.kind === 'travel' && ticks < 2000) {
-      out = stepShell(t, ctx({ hulls: [h], dt: TORP_DT }));
+      out = stepShell(t, ctx({ targets: [h], dt: TORP_DT }));
       ticks++;
     }
     expect(out.kind).toBe('hitShip');
@@ -311,7 +312,7 @@ describe('stepShell — per-hull silhouette thresholds', () => {
     const graze = (hullId: HullId, victim: string) =>
       stepShell(
         shell({ x: -3, y: 17.5 }),
-        ctx({ hulls: [{ id: victim, poly: transformPolygon(hullSilhouette(hullId), 0, 0, 0) }] }),
+        ctx({ targets: [{ id: victim, kind: 'hull', poly: transformPolygon(hullSilhouette(hullId), 0, 0, 0) }] }),
       );
     const wide = graze('battleship', 'bb');
     expect(wide.kind).toBe('hitShip');
@@ -323,7 +324,7 @@ describe('stepShell — per-hull silhouette thresholds', () => {
     // ML at origin heading 0: the stern cavity opens at x = −44, walls at
     // y = ±3.5. A torpedo running up the centerline stops between the prongs
     // without coming within hitRadius of any hull edge.
-    const h: HullTarget = { id: 'ml', poly: transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0) };
+    const h: Target = { id: 'ml', kind: 'hull', poly: transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0) };
     const t: ShellState = {
       ...shell({ x: -70, y: 0, vx: CONFIG.torpedo.speed, vy: 0 }),
       kind: 'torp',
@@ -331,8 +332,8 @@ describe('stepShell — per-hull silhouette thresholds', () => {
       hitRadius: CONFIG.torpedo.hitRadius,
       distLeft: 26, // expires at x = −44, in the cavity mouth
     };
-    let out = stepShell(t, ctx({ hulls: [h] }));
-    while (out.kind === 'travel') out = stepShell(t, ctx({ hulls: [h] }));
+    let out = stepShell(t, ctx({ targets: [h] }));
+    while (out.kind === 'travel') out = stepShell(t, ctx({ targets: [h] }));
     expect(out.kind).toBe('expired'); // ran out of range INSIDE the notch — no hit
     if (out.kind === 'expired') expect(out.x).toBeCloseTo(-44, 6);
   });
@@ -344,8 +345,8 @@ describe('stepShell — earliest hit wins', () => {
     const h = hullAt(22, 0, Math.PI / 2); // broadside at x = 7, behind the island
     const s = shell({ x: 0 });
     // Move until something resolves.
-    let out = stepShell(s, ctx({ islands: [island], hulls: [h] }));
-    while (out.kind === 'travel') out = stepShell(s, ctx({ islands: [island], hulls: [h] }));
+    let out = stepShell(s, ctx({ islands: [island], targets: [h] }));
+    while (out.kind === 'travel') out = stepShell(s, ctx({ islands: [island], targets: [h] }));
     expect(out.kind).toBe('hitIsland');
   });
 });
@@ -390,7 +391,7 @@ describe('stepShell — targeted shell bursts at the clicked point', () => {
 describe('stepShell — bodyblock (early interception) vs proximity exception', () => {
   it('an interceptor FAR from the target takes a contact hit — no burst, shell stops', () => {
     const blocker = hullAt(150, 0, Math.PI / 2, 'blocker'); // near side x = 135, target 300
-    const out = stepToOutcome(gunShell(300), ctx({ hulls: [blocker] }));
+    const out = stepToOutcome(gunShell(300), ctx({ targets: [blocker] }));
     expect(out.kind).toBe('hitShip');
     if (out.kind === 'hitShip') {
       expect(out.victimId).toBe('blocker');
@@ -401,7 +402,7 @@ describe('stepShell — bodyblock (early interception) vs proximity exception', 
   it('an interceptor already INSIDE the would-be blast = full burst, centered on the TARGET', () => {
     // Hull at (310, 0): its near side (x = 295) intercepts the shell early, and
     // the target (300, 0) lies INSIDE the hull → burst membership → full burst.
-    const out = stepToOutcome(gunShell(300), ctx({ hulls: [hullAt(310, 0, Math.PI / 2, 'blocker')] }));
+    const out = stepToOutcome(gunShell(300), ctx({ targets: [hullAt(310, 0, Math.PI / 2, 'blocker')] }));
     expect(out).toEqual({ kind: 'burst', x: 300, y: 0 }); // NOT the impact point (~293)
   });
 
@@ -411,14 +412,14 @@ describe('stepShell — bodyblock (early interception) vs proximity exception', 
     // x ≈ 213, far from the target — but its bow edge passes ~10.8u from
     // (300, 0), INSIDE the 15u blast, and the target itself is outside the
     // polygon. Blast membership is about the ENTITY, not the impact point.
-    const out = stepToOutcome(gunShell(300), ctx({ hulls: [hullAt(260, 16, 0, 'blocker')] }));
+    const out = stepToOutcome(gunShell(300), ctx({ targets: [hullAt(260, 16, 0, 'blocker')] }));
     expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
   });
 
   it('the SAME grazing shape shifted outside the blast radius takes the contact hit instead', () => {
     // Same construction at (240, 16): closest silhouette point to the target
     // is the bow shoulder region ~18.9u away — outside the 15u blast.
-    const out = stepToOutcome(gunShell(300), ctx({ hulls: [hullAt(240, 16, 0, 'blocker')] }));
+    const out = stepToOutcome(gunShell(300), ctx({ targets: [hullAt(240, 16, 0, 'blocker')] }));
     expect(out.kind).toBe('hitShip');
     if (out.kind === 'hitShip') {
       expect(out.victimId).toBe('blocker');
@@ -427,7 +428,7 @@ describe('stepShell — bodyblock (early interception) vs proximity exception', 
   });
 
   it('the owner hull never intercepts its own targeted shell (permanent immunity)', () => {
-    const out = stepToOutcome(gunShell(300), ctx({ hulls: [hullAt(150, 0, Math.PI / 2, 'owner')] }));
+    const out = stepToOutcome(gunShell(300), ctx({ targets: [hullAt(150, 0, Math.PI / 2, 'owner')] }));
     expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
   });
 });
@@ -456,12 +457,15 @@ describe('stepShell — island interception of a targeted shell', () => {
 describe('burstVictims — blast membership (silhouette within burstRadius, owner excluded)', () => {
   const R = CONFIG.gun.burstRadius;
   const center = { x: 300, y: 0 };
+  /** Story 8.4: burstVictims returns TARGETS (the caller dispatches on kind).
+   *  These membership cases care only about WHICH, so they read the ids off. */
+  const ids = (ts: readonly Target[]): string[] => ts.map((t) => t.id);
 
   it('includes hulls containing or grazing the blast, excludes hulls beyond it', () => {
     const inside = hullAt(310, 0, Math.PI / 2, 'inside'); // center lies inside this hull
     const grazing = hullAt(328, 0, Math.PI / 2, 'grazing'); // silhouette 13u away (< 15)
     const outside = hullAt(400, 0, Math.PI / 2, 'outside'); // far beyond the blast
-    expect(burstVictims(center, R, [inside, grazing, outside], 'owner')).toEqual([
+    expect(ids(burstVictims(center, R, [inside, grazing, outside], 'owner'))).toEqual([
       'inside',
       'grazing',
     ]);
@@ -470,17 +474,119 @@ describe('burstVictims — blast membership (silhouette within burstRadius, owne
   it('NEVER includes the owner, even standing on the burst center (owner immunity)', () => {
     const ownHull = hullAt(300, 0, Math.PI / 2, 'owner');
     const enemy = hullAt(310, 0, Math.PI / 2, 'enemy');
-    expect(burstVictims(center, R, [ownHull, enemy], 'owner')).toEqual(['enemy']);
+    expect(ids(burstVictims(center, R, [ownHull, enemy], 'owner'))).toEqual(['enemy']);
   });
 
   it('radius 0 catches only hulls the center point is actually inside', () => {
     const containing = hullAt(310, 0, Math.PI / 2, 'containing');
     const nearby = hullAt(328, 0, Math.PI / 2, 'nearby'); // 13u away — misses at radius 0
-    expect(burstVictims(center, 0, [containing, nearby], 'owner')).toEqual(['containing']);
+    expect(ids(burstVictims(center, 0, [containing, nearby], 'owner'))).toEqual(['containing']);
   });
 
   it('returns empty over open water', () => {
     expect(burstVictims(center, R, [], 'owner')).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STORY 8.4 — KINDS, AND THE MINE'S BURST-ONLY POINT (amendments 16/18/20; AR44)
+// ---------------------------------------------------------------------------
+
+/** A MINE as the collector builds it: a one-vertex (degenerate) polygon at the
+ *  mine centre. That polygon is BURST GEOMETRY ONLY (amendment 20) — no
+ *  mine-size number exists, and nothing in flight is ever resolved against it. */
+function mineAt(x: number, y: number, id = 'm1'): Target {
+  return { id, kind: 'mine', poly: [{ x, y }] };
+}
+
+describe('stepShell — a mine is NEVER a collision subject in flight (amendment 20)', () => {
+  // Eric, 2026-09-16: "If I did not DIRECTLY click on the mine, then UNDER NO
+  // CIRCUMSTANCES WHATSOEVER SHOULD IT BLOCK A SHOT, REGISTER A HIT OR MISS, OR
+  // GIVE ANY INDICATION WHATSOEVER TO THE SHOOTER THAT ANYTHING MIGHT BE THERE."
+  // The World already builds a mine-free sweep list; these pin the same rule in
+  // the pure function, so neither half alone can bring the contact path back.
+
+  it('a gun shell flying straight over a mine CENTRE bursts at its own aim point, unaffected', () => {
+    const dead = mineAt(300, 0); // dead centre of the path, not merely grazing
+    const out = stepToOutcome(gunShell(600), ctx({ targets: [dead] }));
+    expect(out).toEqual({ kind: 'burst', x: 600, y: 0 });
+  });
+
+  it('the outcome is IDENTICAL to the same shot over empty water', () => {
+    const overMine = stepToOutcome(gunShell(600), ctx({ targets: [mineAt(300, 0)] }));
+    const overWater = stepToOutcome(gunShell(600), ctx({ targets: [] }));
+    expect(overMine).toEqual(overWater);
+  });
+
+  it('a CONTACT-ONLY projectile (torpedo rule) runs past a mine centre and expires at range', () => {
+    expect(stepToOutcome(shell(), ctx({ targets: [mineAt(300, 0)] })).kind).toBe('expired');
+  });
+
+  it("the OWNER'S own mine is untouched in flight too — the rule is about the KIND, not the owner", () => {
+    const own: Target = { id: 'owner', kind: 'mine', poly: [{ x: 300, y: 0 }] };
+    expect(stepToOutcome(shell(), ctx({ targets: [own] })).kind).toBe('expired');
+  });
+
+  it('a mine inside the would-be BLAST never triggers the proximity exception early', () => {
+    // A HULL there bursts the shell at the target point from wherever it was
+    // intercepted; a mine must not even be looked at, so the shell simply flies
+    // the whole way and bursts on arrival.
+    const inBlast = mineAt(600 - CONFIG.gun.burstRadius + 1, 0);
+    expect(stepToOutcome(gunShell(600), ctx({ targets: [inBlast] }))).toEqual({
+      kind: 'burst', x: 600, y: 0,
+    });
+  });
+
+  it("the owner's own HULL is still never hit, at any range", () => {
+    const own = hullAt(300, 0, Math.PI / 2, 'owner');
+    expect(stepToOutcome(shell(), ctx({ targets: [own] })).kind).toBe('expired');
+  });
+
+  it('an ACOUSTIC HOMING fish never locks onto a mine (no steer, no lock)', () => {
+    const fish = shell({
+      homing: { turnRate: 5, acquireRange: 1000 },
+      targetX: null, targetY: null, burstRadius: 0,
+    });
+    stepShell(fish, ctx({ targets: [mineAt(300, 200)] }));
+    expect(fish.homing!.targetId).toBeUndefined();
+    expect(fish.vy).toBe(0); // dead straight: nothing to steer toward
+  });
+});
+
+describe('burstVictims — kinds (Story 8.4)', () => {
+  it('a burst covers a mine when the radius reaches its CENTRE — the ONE gunfire path to a mine (amendment 20)', () => {
+    const center = { x: 300, y: 0 };
+    const near = mineAt(300 + CONFIG.gun.burstRadius - 1, 0, 'near');
+    const far = mineAt(300 + CONFIG.gun.burstRadius + 1, 0, 'far');
+    const hull = hullAt(310, 0, Math.PI / 2, 'enemy');
+    const out = burstVictims(center, CONFIG.gun.burstRadius, [hull, near, far], 'owner');
+    expect(out.map((t) => [t.id, t.kind])).toEqual([
+      ['enemy', 'hull'],
+      ['near', 'mine'],
+    ]);
+  });
+
+  it("includes the OWNER'S own mines but never the owner's own hull (your burst sets off your own field)", () => {
+    const center = { x: 0, y: 0 };
+    const ownHull = hullAt(0, 0, 0, 'owner');
+    const ownMine: Target = { id: 'owner', kind: 'mine', poly: [{ x: 0, y: 0 }] };
+    expect(burstVictims(center, 10, [ownHull, ownMine], 'owner').map((t) => t.kind)).toEqual(['mine']);
+  });
+});
+
+describe('CONFIG ordnance masks (AR44)', () => {
+  it('the six shipped rows declare exactly the ruled masks; no stub row exists', () => {
+    expect(CONFIG.gun.hits).toEqual(['hull', 'mine', 'decoy']);
+    expect(CONFIG.broadside.hits).toEqual(['hull', 'mine', 'decoy']);
+    expect(CONFIG.radarBuoy.hits).toEqual(['hull', 'mine', 'decoy']);
+    expect(CONFIG.torpedo.hits).toEqual(['hull', 'decoy']);
+    expect(CONFIG.starShells.hits).toEqual(['hull', 'decoy']); // illumination detonates nothing
+    expect(CONFIG.mine.hits).toEqual(['hull']); // the TRIP mask
+    // STUB lines get no row until their own story (missile, machine gun, flak,
+    // monitor, light/supercav torpedo): an undeclared mask fails loudly.
+    for (const row of ['missile', 'machineGun', 'flak', 'monitor', 'lightTorpedo', 'supercavTorpedo']) {
+      expect(row in CONFIG).toBe(false);
+    }
   });
 });
 
@@ -520,7 +626,7 @@ describe('stepShell — homing torpedo steering', () => {
   it('steers toward a hull in acquire range by AT MOST turnRate·dt, speed unchanged', () => {
     const t = homingTorp();
     const before = Math.atan2(t.vy, t.vx);
-    stepShell(t, ctx({ hulls: [hullAt(80, 50, 0, 'prey')] })); // well off-axis, in range
+    stepShell(t, ctx({ targets: [hullAt(80, 50, 0, 'prey')] })); // well off-axis, in range
     const after = Math.atan2(t.vy, t.vx);
     const maxTurn = CONFIG.torpedo.homingTurnRate * DT;
     expect(after - before).toBeGreaterThan(0); // turned toward +y
@@ -531,7 +637,7 @@ describe('stepShell — homing torpedo steering', () => {
 
   it('ignores hulls beyond acquireRange: flies dead straight, no lock', () => {
     const t = homingTorp();
-    stepShell(t, ctx({ hulls: [hullAt(500, 500, 0, 'far')] }));
+    stepShell(t, ctx({ targets: [hullAt(500, 500, 0, 'far')] }));
     expect(t.vy).toBe(0);
     expect(t.vx).toBeCloseTo(CONFIG.torpedo.speed, 9);
     expect(t.homing!.targetId).toBeUndefined();
@@ -539,7 +645,7 @@ describe('stepShell — homing torpedo steering', () => {
 
   it('never homes on its OWNER (and decoys are structurally absent from ctx.hulls)', () => {
     const t = homingTorp();
-    stepShell(t, ctx({ hulls: [hullAt(80, 40, 0, 'owner')] }));
+    stepShell(t, ctx({ targets: [hullAt(80, 40, 0, 'owner')] }));
     expect(t.vy).toBe(0);
     expect(t.homing!.targetId).toBeUndefined();
   });
@@ -547,7 +653,7 @@ describe('stepShell — homing torpedo steering', () => {
   it('re-acquires the NEAREST hull each tick', () => {
     const t = homingTorp();
     // Nearer hull below the axis, farther one above: steer must go -y.
-    stepShell(t, ctx({ hulls: [hullAt(90, 45, 0, 'farther'), hullAt(50, -25, 0, 'nearer')] }));
+    stepShell(t, ctx({ targets: [hullAt(90, 45, 0, 'farther'), hullAt(50, -25, 0, 'nearer')] }));
     expect(t.homing!.targetId).toBe('nearer');
     expect(t.vy).toBeLessThan(0);
   });
@@ -555,10 +661,10 @@ describe('stepShell — homing torpedo steering', () => {
   it('curves onto an off-axis hull over many ticks and hits it (the doctrine pay-off)', () => {
     const t = homingTorp();
     const prey = hullAt(150, 60, 0, 'prey');
-    let out = stepShell(t, ctx({ hulls: [prey] }));
+    let out = stepShell(t, ctx({ targets: [prey] }));
     let ticks = 1;
     while (out.kind === 'travel' && ticks < 400) {
-      out = stepShell(t, ctx({ hulls: [prey] }));
+      out = stepShell(t, ctx({ targets: [prey] }));
       ticks += 1;
     }
     expect(out.kind).toBe('hitShip');
@@ -569,10 +675,10 @@ describe('stepShell — homing torpedo steering', () => {
     const t = homingTorp();
     delete t.homing;
     const prey = hullAt(150, 60, 0, 'prey');
-    let out = stepShell(t, ctx({ hulls: [prey], mapRadius: 400 }));
+    let out = stepShell(t, ctx({ targets: [prey], mapRadius: 400 }));
     let ticks = 1;
     while (out.kind === 'travel' && ticks < 400) {
-      out = stepShell(t, ctx({ hulls: [prey], mapRadius: 400 }));
+      out = stepShell(t, ctx({ targets: [prey], mapRadius: 400 }));
       ticks += 1;
     }
     expect(out.kind).toBe('expired'); // splashed at the map edge, never hit

@@ -63,6 +63,15 @@ export interface MetricsPayload {
   tick: { p50: number; p95: number; max: number; samples: number };
   messages: { ratePerSec: number; total: number };
   deck: { exhausted: number };
+  /**
+   * World-shaped gauges (Story 8.4). `minesLivePeak` is the process-wide
+   * HIGH-WATER MARK of live mines across every room, fed once per sim step by
+   * the arena adapter. It exists because Story 8.4 deleted every mine cap, so
+   * "how much water actually ends up covered" stopped having an answer in
+   * CONFIG and has to be measured. COUNT ONLY — no owner, no position, nothing
+   * an ops endpoint could turn into a wallhack.
+   */
+  world: { minesLivePeak: number };
 }
 
 interface MessageBucket {
@@ -124,6 +133,10 @@ let retiredMessageTotal = 0;
  *  "Exhausted" means an EMPTY DRAW — nothing left to offer — which on any
  *  door-admitted deck coincides with an empty pool. */
 let deckExhaustedTotal = 0;
+
+/** Process-wide high-water mark of live mines (Story 8.4). Survives room
+ *  dispose — a peak is a fact about the process, not about a room. */
+let minesLivePeak = 0;
 /** Monotonic second the module first recorded anything; null until first record. */
 let firstRecordSec: number | null = null;
 
@@ -204,11 +217,22 @@ export function recordDeckExhausted(): void {
   deckExhaustedTotal += 1;
 }
 
+/**
+ * Record one room's live-mine count for this sim step (Story 8.4). Keeps the
+ * MAXIMUM ever seen in this process — the number that tells an operator what an
+ * uncapped minefield actually costs. Called by the arena adapter after each
+ * `world.step()`; a room disposing never lowers it.
+ */
+export function recordMinesLive(count: number): void {
+  if (count > minesLivePeak) minesLivePeak = count;
+}
+
 /** Test-only: clear all registered rooms, retired totals, and first-record mark. */
 export function resetMetrics(): void {
   registry.clear();
   retiredMessageTotal = 0;
   deckExhaustedTotal = 0;
+  minesLivePeak = 0;
   firstRecordSec = null;
 }
 
@@ -281,6 +305,7 @@ export function metricsPayload(): MetricsPayload {
       total: totalMessages(),
     },
     deck: { exhausted: deckExhaustedTotal },
+    world: { minesLivePeak },
   };
 }
 

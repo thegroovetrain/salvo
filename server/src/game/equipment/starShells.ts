@@ -59,6 +59,7 @@ function fireStarShell(
     targetY: target.y,
     burstRadius: litRadius, // the burst IS the lit circle
     contactDamage: 0, // interception does 0 — and still lights (World.resolveShell)
+    hits: CONFIG.starShells.hits, // AR44 target mask
     lit: { radius: litRadius, durationMs: stars.litDurationMs },
   });
   return { shell, denial: null };

@@ -74,6 +74,51 @@ export default tseslint.config(
     },
   },
   {
+    // THE DAMAGE GATE'S FENCE (Story 8.4, AR47 / placement rule 12): hull hp is
+    // decremented in EXACTLY ONE place, `World.applyDamage` in
+    // server/src/game/world.ts. Everywhere else in the server an `x.hp -=` is a
+    // defect of the same class as a spatial emit outside frames.ts — it routes
+    // around no-friendly-fire, the shield, the assist ledger, the sink check
+    // and the `dmg` event all at once.
+    //
+    // A COMPANION GREP TEST (damageGate.test.ts) pins the other half: that
+    // world.ts itself contains exactly one such decrement and that
+    // applyStorm/hitShip/burnShip contain none. The two are complementary — the
+    // lint rule cannot be scoped INSIDE a file, and a grep cannot see the other
+    // 60 server files.
+    //
+    // `buoy.hp -=` in world.ts is the one non-hull decrement and is allowed by
+    // the same file exception (a buoy is not a ship: no XP, no feed line, no
+    // dmg event, and it never enters the gate).
+    files: ['server/src/**/*.ts'],
+    ignores: ['server/src/game/world.ts'],
+    rules: {
+      // FOUR SPELLINGS OF THE SAME DEFECT (Story 8.4 review, P6). `-=` was the
+      // only one the fence caught, so `hp--`, `hp = hp - n` and `hp += -n` all
+      // walked straight past it. A fence with three known holes is worse than
+      // no fence: it certifies what it never checked.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "AssignmentExpression[operator='-='] > MemberExpression.left[property.name='hp']",
+          message: 'Hull hp is decremented ONLY by World.applyDamage (game/world.ts) — the damage gate (Story 8.4, AR47). Route the damage through it.',
+        },
+        {
+          selector: "UpdateExpression[operator='--'] > MemberExpression[property.name='hp']",
+          message: 'Hull hp is decremented ONLY by World.applyDamage (game/world.ts) — the damage gate (Story 8.4, AR47). `hp--` is an `hp -=` in disguise.',
+        },
+        {
+          selector: "AssignmentExpression[operator='='][left.property.name='hp'][right.type='BinaryExpression'][right.operator='-']",
+          message: 'Hull hp is decremented ONLY by World.applyDamage (game/world.ts) — the damage gate (Story 8.4, AR47). `hp = hp - n` is an `hp -=` in disguise.',
+        },
+        {
+          selector: "AssignmentExpression[operator='+='][left.property.name='hp'][right.type='UnaryExpression'][right.operator='-']",
+          message: 'Hull hp is decremented ONLY by World.applyDamage (game/world.ts) — the damage gate (Story 8.4, AR47). `hp += -n` is an `hp -=` in disguise.',
+        },
+      ],
+    },
+  },
+  {
     ignores: ['**/dist/**', '**/node_modules/**', '**/*.js', '**/__tests__/**', '.claude/**', '.gstack/**'],
   },
 );

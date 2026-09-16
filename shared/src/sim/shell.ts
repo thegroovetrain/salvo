@@ -18,6 +18,15 @@
 //     not contact + burst). Early island contact stops the shell dead — no
 //     damage, no burst — unless the island COASTLINE is within the blast radius
 //     of the target (plain distance query, no LOS inside the small burst).
+//   - A MINE IS NEVER A COLLISION SUBJECT FOR A PROJECTILE IN FLIGHT
+//     (amendment 20, Eric 2026-09-16): a shell whose path crosses a mine on
+//     its way to the clicked point flies on exactly as if the mine were not
+//     there — it does not stop, the mine does not detonate, and NOTHING is
+//     emitted to the shooter. Gunfire sets a mine off only through the BURST
+//     at the clicked point covering the mine's centre (burstVictims). The
+//     sweep below skips `mine` targets outright and the server's collector
+//     already hands a shell a mine-free sweep list: both halves are
+//     deliberate, so neither side alone can reintroduce the contact path.
 //   - Torpedo (contact-only: no target, burstRadius 0): today's behavior
 //     byte-for-byte — first non-owner contact hits for full damage
 //     (contactDamage = damage), islands stop it, it runs until impact/edge.
@@ -75,6 +84,17 @@ export interface ShellState {
   burstRadius: number; // u — blast radius around the target point (0 = contact-only)
   contactDamage: number; // hp to an early interceptor outside the blast (= damage for contact-only)
   /**
+   * SERVER-INTERNAL ordnance TARGET MASK (Story 8.4, AR44) — the kinds this
+   * projectile may collide with, copied off its own `CONFIG.<ordnance>.hits`
+   * row at launch. stepShell NEVER reads it: it is what the World hands to
+   * `hitTargets(mask)` to build `ctx.targets` for this shell, so the mask is a
+   * per-projectile hit-rule parameter exactly like `burstRadius` (the Story 1.4
+   * seam) rather than a branch in the collector. NEVER on the wire (the
+   * ballistic wire shape stays {k,id,x,y,vx,vy,t} — the `lit`/`noAggro`
+   * posture).
+   */
+  hits: readonly TargetKind[];
+  /**
    * SERVER-INTERNAL star-shell tag (Story 1.7): when set, a BURST of this
    * shell also spawns a lit zone of `radius` for `durationMs` (World.
    * resolveBurst). Absent on every other projectile; stepShell never reads it.
@@ -120,19 +140,46 @@ export interface ShellState {
 }
 
 /**
- * A hull to test shells against: its silhouette polygon transformed to the
- * ship's world pose this tick (see silhouette.ts transformPolygon — callers
- * cache the transformed verts per tick).
+ * WHAT KIND OF THING an ordnance target is (Story 8.4, AR44). The four kinds
+ * are the whole vocabulary of the single collector (`World.hitTargets`), and
+ * every ordnance row declares which of them its projectiles may touch through
+ * `CONFIG.<ordnance>.hits`:
+ *   - `hull`    — an afloat ship silhouette.
+ *   - `mine`    — a laid mine, a BURST-ONLY point target (amendment 20): it is
+ *                 NEVER swept against, so nothing in flight can touch it; the
+ *                 one-vertex polygon exists purely so burstVictims can ask
+ *                 "does the burst radius cover the mine's centre?" through the
+ *                 same point-to-polygon primitive every other kind uses.
+ *   - `decoy`   — a dropped decoy-class object (the RADAR BUOY's square is the
+ *                 interim occupant until Story 8.15 lands the decoy store).
+ *   - `ordnance`— a projectile in flight; EMPTY until flak ships (Story 8.14).
+ * Pure geometry: shared knows nothing about owners' doctrine, drones or the
+ * damage gate — the OUTCOME of touching a kind lives entirely in world.ts.
  */
-export interface HullTarget {
+export type TargetKind = 'hull' | 'mine' | 'decoy' | 'ordnance';
+
+/**
+ * Something to test ordnance against: a world-space polygon plus the id the
+ * server resolves the outcome from. A hull's polygon is its silhouette
+ * transformed to this tick's pose (see silhouette.ts transformPolygon —
+ * callers cache the transformed verts per tick); a mine's polygon is the
+ * DEGENERATE one-vertex `[centre]`, which every polygon primitive here already
+ * handles (segSegClosest treats an equal-endpoint segment as a point), so a
+ * point target needs no second code path. That polygon is BURST GEOMETRY ONLY
+ * (amendment 20): the swept collision never reads a mine's poly at all.
+ */
+export interface Target {
   id: string;
-  poly: readonly Vec2[]; // world-space silhouette verts
+  kind: TargetKind;
+  poly: readonly Vec2[]; // world-space verts (length 1 = a point target)
 }
 
 /** Everything stepShell needs about the world this tick. */
 export interface ShellContext {
   islands: readonly Island[];
-  hulls: readonly HullTarget[];
+  /** This tick's collision subjects for THIS projectile — already filtered to
+   *  the projectile's own `hits` mask by the caller (World.hitTargets). */
+  targets: readonly Target[];
   now: number; // ms — server time this tick
   dt: number; // s — fixed step
   mapRadius: number; // u — water disk radius; a projectile splashes at this edge
@@ -177,16 +224,27 @@ function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Island[]): Hit | n
   return best;
 }
 
-/** Earliest hull hit along p0->p1; the firer is permanently immune. Null = no
- *  hit. */
-function earliestHull(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
+/**
+ * Earliest TARGET hit along p0->p1. Two kinds are structurally immune. The
+ * firer's own HULL (NO FRIENDLY FIRE, Eric 2026-09-11) — and only its HULL,
+ * which is why the test is on the kind rather than on ship and mine ids never
+ * colliding. And EVERY MINE, whoever laid it (amendment 20, Eric 2026-09-16:
+ * if the shooter did not DIRECTLY click on the mine, nothing about it may
+ * block the shot, register a hit or a miss, or tell the shooter anything at
+ * all) — gunfire reaches a mine only through burstVictims at the clicked
+ * point. The World already builds this list without mines; the kind check
+ * below keeps the rule true of the pure function on its own.
+ * Null = no hit.
+ */
+function earliestTarget(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
   let best: Hit | null = null;
-  for (const hull of ctx.hulls) {
-    if (hull.id === shell.ownerId) continue; // own weapon never damages the owner
-    // Silhouette polygon dilated by this projectile's own radius.
-    const frac = segPolygonHit(p0, p1, hull.poly, shell.hitRadius);
+  for (const t of ctx.targets) {
+    if (t.kind === 'mine') continue; // never in flight — burst-only (amendment 20)
+    if (t.kind === 'hull' && t.id === shell.ownerId) continue; // own weapon never damages the owner
+    // Target polygon dilated by this projectile's own radius.
+    const frac = segPolygonHit(p0, p1, t.poly, shell.hitRadius);
     if (frac === null) continue;
-    if (best === null || frac < best.frac) best = { frac, victimId: hull.id, poly: hull.poly };
+    if (best === null || frac < best.frac) best = { frac, victimId: t.id, poly: t.poly };
   }
   return best;
 }
@@ -218,6 +276,8 @@ function polyInBlast(center: Vec2, radius: number, poly: readonly Vec2[]): boole
  * target point? Hulls use the burst-membership predicate; islands use the same
  * shape of test against the COASTLINE (islandDistance — signed, negative when
  * the target sits on the land itself). Always false for point-less projectiles.
+ * A MINE can never reach here: earliestTarget refuses the kind (amendment 20),
+ * so the proximity exception has no mine case to answer.
  */
 function interceptedInBlast(shell: ShellState, hit: Hit): boolean {
   if (shell.targetX === null || shell.targetY === null) return false;
@@ -270,14 +330,15 @@ function steerHoming(shell: ShellState, ctx: ShellContext): void {
   let best: Vec2 | null = null;
   let bestId: string | undefined;
   let bestD = homing.acquireRange;
-  for (const hull of ctx.hulls) {
-    if (hull.id === shell.ownerId) continue; // never homes on the owner
-    const c = polyCentroid(hull.poly);
+  for (const t of ctx.targets) {
+    if (t.kind === 'mine') continue; // a fish never locks a mine (amendment 20)
+    if (t.kind === 'hull' && t.id === shell.ownerId) continue; // never homes on the owner
+    const c = polyCentroid(t.poly);
     const d = Math.hypot(c.x - shell.x, c.y - shell.y);
     if (d <= bestD) {
       bestD = d;
       best = c;
-      bestId = hull.id;
+      bestId = t.id;
     }
   }
   homing.targetId = bestId;
@@ -328,7 +389,7 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
 
   const p1: Vec2 = { x: p0.x + ux * moveDist, y: p0.y + uy * moveDist };
 
-  const obstacle = earlier(earliestIsland(p0, p1, ctx.islands), earliestHull(shell, p0, p1, ctx));
+  const obstacle = earlier(earliestIsland(p0, p1, ctx.islands), earliestTarget(shell, p0, p1, ctx));
   const hit = earlier(obstacle, earliestEdge(p0, p1, ctx.mapRadius));
   if (hit) {
     const ix = p0.x + ux * moveDist * hit.frac;
@@ -353,23 +414,32 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
 }
 
 /**
- * Resolve the victims of a burst at `center`: every hull whose silhouette
- * polygon is within `radius` of the center (point-to-polygon distance, 0 when
- * the center is inside the hull) — the SAME predicate the interception
- * proximity exception uses. The owner is excluded (permanent owner immunity).
- * Pure; the server applies the shell's `damage` to each returned id (one
- * victim-private dmg event per victim, no double-dipping with contact damage).
+ * Resolve the victims of a burst at `center`: every TARGET whose polygon is
+ * within `radius` of the center (point-to-polygon distance, 0 when the center
+ * is inside the polygon) — the SAME predicate the interception proximity
+ * exception uses, and for a mine's one-vertex polygon it reduces to "the burst
+ * radius covers the mine centre". THIS IS THE ONLY WAY GUNFIRE TOUCHES A MINE
+ * (amendment 20): the burst sits at the point the shooter CLICKED, so setting
+ * off a mine is always the shooter's own doing, never a by-product of a shell
+ * passing overhead on its way somewhere else.
+ * The owner's own HULL is excluded (permanent owner immunity); the owner's own
+ * MINES are NOT (FR57 / amendment 16 — your burst sets off your own field).
+ *
+ * Returns the TARGETS, not ids: the caller dispatches on `kind` (a hull takes
+ * damage through the gate, a mine detonates, a decoy takes its own outcome),
+ * and a bare id would force it to re-guess which store the id came from.
+ * Pure; every outcome lives in world.ts.
  */
 export function burstVictims(
   center: Vec2,
   radius: number,
-  hulls: readonly HullTarget[],
+  targets: readonly Target[],
   ownerId: string,
-): string[] {
-  const victims: string[] = [];
-  for (const hull of hulls) {
-    if (hull.id === ownerId) continue; // own weapon never damages the owner
-    if (polyInBlast(center, radius, hull.poly)) victims.push(hull.id);
+): Target[] {
+  const victims: Target[] = [];
+  for (const t of targets) {
+    if (t.kind === 'hull' && t.id === ownerId) continue; // own weapon never damages the OWNER'S HULL
+    if (polyInBlast(center, radius, t.poly)) victims.push(t);
   }
   return victims;
 }

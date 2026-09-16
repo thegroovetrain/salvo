@@ -495,7 +495,7 @@ describe('radar buoy — destructible by ordinary weapons, paying nothing (R2.7)
       id: 's1', ownerId: 'k', x: 60, y: 20, vx: CONFIG.gun.shellSpeed, vy: 0,
       distLeft: 40, bornAt: w.now, kind: 'shell', damage: 10,
       hitRadius: CONFIG.gun.shellRadius, targetX: 100, targetY: 20,
-      burstRadius: CONFIG.gun.burstRadius, contactDamage: CONFIG.gun.contactDamage,
+      burstRadius: CONFIG.gun.burstRadius, contactDamage: CONFIG.gun.contactDamage, hits: CONFIG.gun.hits,
     });
     const xp0 = k.xpMs + k.level * CONFIG.xp.levelMs;
     w.step();

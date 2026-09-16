@@ -208,13 +208,14 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     expect(forager.bandMaxFrac).toBeLessThanOrEqual(1);
   });
 
-  it('the prepared-lay reserve keeps reactive headroom under the board cap', () => {
-    // preparedMineReserve bounds the PREPARED lays; maxLive bounds every lay.
-    // The gap between them is the room a reactive lay is guaranteed: a full
-    // 2-deep rack of reactive drops on top of a fully-prepared field must
-    // never reach addMine's silent oldest-mine eviction.
+  // REWRITTEN (Story 8.4, FR57/AR48): the old half of this pin —
+  // `preparedMineReserve + mine.maxAmmo <= mine.maxLive` — measured headroom
+  // under a board cap that no longer exists. Nothing is ever evicted now, so
+  // the reserve is a pure restraint dial and all that remains to pin is that
+  // it is a real, positive bound on unprompted seeding.
+  it('the prepared-lay reserve is a positive restraint dial (there is no board cap left)', () => {
     expect(CONFIG.bots.preparedMineReserve).toBeGreaterThan(0);
-    expect(CONFIG.bots.preparedMineReserve + CONFIG.mine.maxAmmo).toBeLessThanOrEqual(CONFIG.mine.maxLive);
+    expect('maxLive' in CONFIG.mine).toBe(false);
   });
 
   it('the appetite table is the ONLY weapon word a profile carries, and every entry is positive', () => {

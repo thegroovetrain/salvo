@@ -387,10 +387,10 @@ export function tracksOf(mind: BotMind): BotTrack[] {
  * perception view's `mines` through the `own` flag, the SAME data a human
  * client in this seat receives (the mine signal row always discloses the
  * owner's own mines, at any range, so this is a true board count — no port
- * change, no perception widening). Consumed by the mine tactic's lay bounds
- * (ai/equipment.ts): `addMine` silently EVICTS the owner's oldest mine at
- * `stats.equipment.navalMines.maxLive`, so a bot that lays without counting churns the field
- * it just built. A null view (never observed — a frozen boarding room, or a
+ * change, no perception widening). Consumed by the PREPARED-lay reserve in
+ * ai/equipment.ts and nothing else since Story 8.4 deleted the mine caps (and
+ * with them the churn bound this count used to serve: nothing evicts any more).
+ * A null view (never observed — a frozen boarding room, or a
  * hand-built test) reads as an empty board, matching tactics.ts's
  * `avoidMines` fail-open reading of the same array.
  */

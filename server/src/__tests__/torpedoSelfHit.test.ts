@@ -176,6 +176,7 @@ describe('own weapons never damage the owner (gun / torpedo / mine)', () => {
       targetY: null,
       burstRadius: 0,
       contactDamage: kind === 'torp' ? CONFIG.torpedo.damage : CONFIG.gun.contactDamage,
+      hits: kind === 'torp' ? CONFIG.torpedo.hits : CONFIG.gun.hits,
     };
     w.shells.set(s.id, s);
   }
