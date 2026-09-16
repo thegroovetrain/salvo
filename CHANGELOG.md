@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.18.3] - 2026-09-15
+
+### Changed
+- **The draw (Story 8.3)** — every level offers four different cards drawn from what is left in your deck, weighted only by how many copies of each line remain; passing on a card puts it straight back at full weight for the next level (the deck reshuffles after every draw, it never has to run out first). A line you already hold at its cap is never offered. When the deck really is empty a level still banks but no cards are offered and no TAB cue shows. The server logs each ship's deck exhaustion once and `/metrics` counts it. No draw-pile counter anywhere and nothing new on the wire (protocol stays v51). The old rarity/pity-era ledger threads are closed. Epic-8 amendments 13–15 record three Eric rulings: the draw model is confirmed, an exhausted deck still banks with no options, and a correction of record on the level heal (handed to Story 8.8).
+
 ## [0.18.2] - 2026-09-15
 
 ### Changed

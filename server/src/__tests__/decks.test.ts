@@ -101,6 +101,23 @@ function fieldsOf(line: string): Record<string, unknown> {
 const TB = DEFAULT_DECKS.torpedoBoat;
 const ML = DEFAULT_DECKS.mineLayer;
 
+/**
+ * Recursively walk every plain object/array nested in `value` and report
+ * whether any of them carries an OWN KEY that exactly matches one of
+ * `forbidden` (case-sensitive) — the same key-vs-value distinction the
+ * perception.test.ts frame invariant makes, applied here to the welcome
+ * payload. A forbidden word occurring only as a VALUE never trips this.
+ */
+function hasForbiddenKey(value: unknown, forbidden: readonly string[]): boolean {
+  if (Array.isArray(value)) return value.some((entry) => hasForbiddenKey(entry, forbidden));
+  if (value === null || typeof value !== 'object') return false;
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    if (forbidden.includes(key)) return true;
+    if (hasForbiddenKey(nested, forbidden)) return true;
+  }
+  return false;
+}
+
 /** The refusal, as `expect(...).toThrow` cannot check the code. */
 function expectRefusal(fn: () => void, rule: string, sessionId: string): void {
   let caught: unknown = null;
@@ -291,7 +308,7 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     expect(room.world.ships.get('s1')!.deckList).toBe(TB);
   });
 
-  it('the welcome carries no deck, deckList or deckId key — its `config.deck` is the two public rule dials and nothing else', () => {
+  it('the welcome carries no deck-shaped key — its `config.deck` is the two public rule dials and nothing else', () => {
     const room = arenaDoor();
     const c = arenaClient('s1');
     joinArena(room, c, { cls: 'torpedoBoat' });
@@ -304,10 +321,18 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     // exactly those two dials, so a contents/id/owned field can never hide
     // inside it.
     expect(payload.config.deck).toEqual({ size: CONFIG.deck.size, maxEquipmentLines: CONFIG.deck.maxEquipmentLines });
-    // Everything OUTSIDE the config snapshot: no deck-shaped key at all.
-    const text = JSON.stringify({ ...payload, config: undefined });
-    for (const key of ['"deck"', '"deckList"', '"deckId"']) expect(text).not.toContain(key);
-    for (const key of ['"deckList"', '"deckId"']) expect(JSON.stringify(payload)).not.toContain(key);
+    // Everything OUTSIDE the config snapshot: no deck-shaped key at all. The
+    // last four are the DRAW-PILE COUNTER family (Story 8.3) — Eric deleted the
+    // draw-pile counter on 2026-09-10/11, so "how many cards are left" is
+    // server-private like the pool itself and has no wire-side consumer to ride
+    // for. `config` is spliced out for this scan and ONLY for it, because
+    // `config.deck` (the two public rule dials, asserted above) is the one
+    // legitimate `deck` key on this message. A recursive KEY walk (see
+    // `hasForbiddenKey`), not a serialized-text scan, so a value that merely
+    // spells one of these words can never false-positive.
+    const family = ['deckLeft', 'deckSize', 'pool', 'remaining'];
+    expect(hasForbiddenKey({ ...payload, config: undefined }, ['deck', 'deckList', 'deckId', ...family])).toBe(false);
+    expect(hasForbiddenKey(payload, ['deckList', 'deckId', ...family])).toBe(false);
   });
 });
 

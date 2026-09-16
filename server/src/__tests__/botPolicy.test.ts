@@ -13,7 +13,9 @@
 //   * THE REACTION DELAY gates action on a freshly acquired track — the E2
 //     competence knob, in one place;
 //   * THE HEAL THRESHOLD outranks buying cards, and works with no offer;
-//   * A RESOLVED EXCLUSIVE is demoted, or the policy ping-pongs a doctrine;
+//   * A LINE THE BOT ALREADY HOLDS is demoted when re-buying it is a no-op,
+//     and NEVER when it is a ladder meant to be climbed (the exclusivity
+//     half this bullet used to name died with `exclusiveWith` in 7-5 wave 2);
 //   * FORAGER AND TRAPPER GENUINELY DISAGREE about PROP-FOULING MINES — the
 //     proof that profiles change what a bot wants rather than how good it is.
 

@@ -41,7 +41,7 @@ import {
   type MatchTimings,
 } from '../game/match.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
-import { registerRoom, type RoomMetricsHandle } from '../metrics.js';
+import { recordDeckExhausted, registerRoom, type RoomMetricsHandle } from '../metrics.js';
 import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
@@ -444,6 +444,18 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * a dev option: nothing needs to pin rolls (smokes assert ring structure,
    * not specific offsets). Split out of onCreate so tests can pin that the
    * world actually receives caller-supplied seed material.
+   *
+   * onDeckExhausted (Story 8.3): the adapter half of the World's exhaustion
+   * seam — a ship record's card pool ran dry ("exhausted" means an EMPTY
+   * DRAW, which on any door-admitted deck coincides with an empty pool), so
+   * say so ONCE in the process gauge and once in the room's log. The metric
+   * is recorded FIRST, the log line second: a throwing logger transport can
+   * then never lose the count. `this.log` is read INSIDE the arrow, not
+   * captured: buildWorld runs before initOperability binds the room logger, so
+   * a captured reference would be the unbound module default and every line
+   * would lose its roomId/matchId. Read live, the bound logger supplies both,
+   * which is how the AC's `{ matchId, shipId }` fields ride a one-field call.
+   * SHIP ID ONLY — never the deck, its contents or its depth.
    */
   private buildWorld(seed: number, sanitized: SanitizedRoomOptions): World {
     const zoneCfg = sanitized.zoneOverride ?? CONFIG.zone;
@@ -454,6 +466,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     return new World(seed, CONFIG.map.playerCap, zoneCfg, {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
+      onDeckExhausted: (shipId: string) => {
+        recordDeckExhausted();
+        this.log.info('deck.exhausted', { shipId });
+      },
     });
   }
 

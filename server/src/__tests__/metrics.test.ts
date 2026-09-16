@@ -37,6 +37,7 @@ import {
   resetMetrics,
   metricsPayload,
   metricsEndpoint,
+  recordDeckExhausted,
   nearestRank,
   computeTickPercentiles,
   round2,
@@ -264,7 +265,40 @@ describe('metricsPayload counts', () => {
       players: 0,
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
+      deck: { exhausted: 0 },
     });
+  });
+});
+
+// Story 8.3 — the deck-exhaustion counter. A COUNT AND NOTHING ELSE: the gauge
+// says how many ship records ran their pool dry since process start, never
+// whose or of what. It is module-level rather than per-room ON PURPOSE, so a
+// room disposing cannot erase an exhaustion that already happened.
+describe('deck.exhausted counter', () => {
+  it('starts at zero and counts each report', () => {
+    expect(metricsPayload().deck.exhausted).toBe(0);
+    recordDeckExhausted();
+    expect(metricsPayload().deck.exhausted).toBe(1);
+    recordDeckExhausted();
+    recordDeckExhausted();
+    expect(metricsPayload().deck.exhausted).toBe(3);
+  });
+
+  it('survives the room that reported it unregistering (the messages.total posture)', () => {
+    const room = registerRoom('a');
+    recordDeckExhausted();
+    room.unregister();
+    expect(metricsPayload().deck.exhausted).toBe(1);
+    // ...and a brand-new room does not reset it either.
+    registerRoom('b');
+    expect(metricsPayload().deck.exhausted).toBe(1);
+  });
+
+  it('resetMetrics() zeroes it', () => {
+    recordDeckExhausted();
+    expect(metricsPayload().deck.exhausted).toBe(1);
+    resetMetrics();
+    expect(metricsPayload().deck.exhausted).toBe(0);
   });
 });
 
