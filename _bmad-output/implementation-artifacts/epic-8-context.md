@@ -105,3 +105,4 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 27. **Digits `1`–`4` with the refit window closed stay inert until 8.7** (Eric 2026-09-16).
 28. **How-to-Play is not touched in 8.5** (Eric 2026-09-16); its stale EQUIPMENT lines wait for 8.20.
 29. **The interim Shift key chip shows the `⇧` arrow** (Eric 2026-09-16); 8.6 restyles the bar.
+30. **A click on an empty belt row is silent until 8.7** (Eric 2026-09-16); the empty denial applies to the weapon row only.

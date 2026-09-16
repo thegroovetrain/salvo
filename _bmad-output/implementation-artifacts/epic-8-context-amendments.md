@@ -77,3 +77,5 @@ Format: numbered, dated, source-attributed. "Supersedes" names the exact plannin
 28. **HOW-TO-PLAY IS NOT TOUCHED IN 8.5.** Eric ruling 2026-09-16 (AskUserQuestion). Its EQUIPMENT lines (Q/E "class weapons and gear", R "pick up at sea", no Shift) stay as written, knowingly stale, until Story 8.20's re-cut. Rejected: a minimal update of the lines that become false.
 
 29. **THE INTERIM SHIFT KEY CHIP SHOWS THE `⇧` ARROW (U+21E7).** Eric ruling 2026-09-16 (AskUserQuestion, recommended option). The 22 px mono chip holds one glyph; the mock names the chip "Shift" without fixing one. Rejected: a wider SHIFT word chip; the letter S. Story 8.6 restyles the bar.
+
+30. **A CLICK ON AN EMPTY BELT ROW IS SILENT UNTIL STORY 8.7.** Eric ruling 2026-09-16 (AskUserQuestion, recommended option). Key and click on one belt row behave the same way — nothing — until 8.7 wires the belt; the client-side empty denial (amendment 26) applies to the WEAPON row (Q/E/R) only. Rejected: belt clicks denying while the digits stay inert.

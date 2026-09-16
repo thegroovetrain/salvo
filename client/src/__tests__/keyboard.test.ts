@@ -1171,16 +1171,18 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
 
   it('DENIES on an unfitted slot, and FAILS CLOSED with no fitted hook wired', () => {
     // A click on a slot IS its key (amendment 11), so Story 8.5's client-side
-    // empty denial reaches it the same way — including on the BELT rows (5-8),
-    // which are empty for all of this story and whose digits are still
-    // refit-only (amendment 27). Nothing is primed and nothing is sent.
+    // empty denial reaches it the same way on the WEAPON row. The BELT rows
+    // (5-8) are empty for all of this story and their digits are still
+    // refit-only (amendment 27), so a belt CLICK is silent too (Eric
+    // 2026-09-16, amendment 30) — key and click on one row behave the same.
+    // Nothing is primed and nothing is sent either way.
     const denied: number[] = [];
     const fitted = (slot: number): boolean => ALL_FITTED(slot) && slot !== R_SLOT;
     kb = new KeyboardInput({ isSlotFitted: fitted, onEmptySlotDenied: (s) => denied.push(s) });
     kb.slotAction(R_SLOT); // an empty weapon slot
-    kb.slotAction(8); // an empty BELT slot
+    kb.slotAction(8); // an empty BELT slot — silent until 8.7
     expect(kb.primedSlot).toBe(SLOT_GUN);
-    expect(denied).toEqual([R_SLOT, 8]);
+    expect(denied).toEqual([R_SLOT]);
     const bare = new KeyboardInput();
     bare.slotAction(TORP);
     expect(bare.primedSlot).toBe(SLOT_GUN);

@@ -566,10 +566,12 @@ export class KeyboardInput {
   slotAction(slot: number): void {
     if (this.suspended()) return;
     if (this.hooks.isSlotFitted?.(slot) !== true) {
-      // Story 8.5 (amendment 26): an EMPTY slot is no longer silent — it denies
-      // on the client. Reached only AFTER the suspension check, so the lock
-      // keeps winning silently.
-      this.hooks.onEmptySlotDenied?.(slot);
+      // Story 8.5 (amendment 26): an EMPTY WEAPON slot is no longer silent — it
+      // denies on the client. Reached only AFTER the suspension check, so the
+      // lock keeps winning silently. The BELT rows (5-8) stay silent until
+      // Story 8.7 stocks them (Eric 2026-09-16, amendment 30) — a belt click
+      // and its digit behave the same way: nothing.
+      if ((WEAPON_SLOTS as readonly number[]).includes(slot)) this.hooks.onEmptySlotDenied?.(slot);
       return;
     }
     if (this.hooks.isAbilitySlot?.(slot) === true) {
