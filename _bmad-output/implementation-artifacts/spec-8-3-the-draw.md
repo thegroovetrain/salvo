@@ -119,7 +119,7 @@ warnings: [oversized]
 - **Why the guard is structurally idle today:** a legal deck holds ≤ cap copies of a line; `buildDeckState` removes one copy per carried id; so pool + held ≤ cap at spawn and every fit moves one copy from pool to held. The guard exists for the AC's letter and for future paths (dev overrides, Epic 9 decks with a carried line absent from the list — the Battleship's `broadside` today: held 1, pool 0, still ≤ cap).
 - **Why a callback, not a pending event:** `pending` events are wire-bound (six declared exceptions, frames.ts); exhaustion is ops-private. A `WorldOptions` callback keeps `world.ts` Colyseus-free and lets the harness ignore it.
 - **Exhaustion arithmetic (pin as a table):** drawable per hull today 23 (40 − 16 stub − 1 carried); terminal state after exactly 23 FITS (heals and passes cost no cards); a full match yields roughly 25 levels at most, so it is reachable only by a captain who fits every level and never heals. Rising toward 39 when 8.7–8.15 flip stubs.
-- `held` example: `drawOffer(deck, rng, CATALOG, { held: ['armor','armor','armor'] })` with `armor` cap 3 → `armor` excluded even if the pool still lists it.
+- `held` example: `drawOffer(deck, rng, CATALOG, { held: ['armor','armor','armor','armor'] })` with `armor` cap 4 (the real catalog cap; the matrix row's "cap 3" is illustrative) → `armor` excluded even if the pool still lists it.
 
 ## Verification
 

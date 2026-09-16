@@ -11,7 +11,12 @@
 //   (3) consumeCard — the FIT, the deck's one and only outflow;
 //   (4) a full-economy replay property with NO PITY anywhere in it: no line
 //       ever exceeds its copy count, the deck visibly thins, same seed = same
-//       economy.
+//       economy;
+//   (5) the AT-CAP GUARD (Story 8.3): `drawOffer(..., { held })` never offers a
+//       line the SHIP already holds at `cap`, spends no rng value on it, and is
+//       byte-identical to the unguarded draw when `held` is absent or empty —
+//       plus the STRUCTURAL PIN that a legal default deck and its spawn seed
+//       can never trip the guard in the first place.
 //
 // RETIRED with rarity (Story 8.1): the per-hull subdeck composition matrix,
 // `consumeAcquisition` and the acquisition purge, and the soft-pity escalation
@@ -35,12 +40,17 @@ import {
   catalogCardCount,
   consumeCard,
   drawOffer,
+  effectiveStats,
+  hullEnvelope,
   isStubLine,
+  lineForEquipment,
+  loadoutFor,
   mulberry32,
   type Catalog,
   type CatalogLine,
   type DeckState,
   type LineId,
+  type Rng,
   type ShipClassId,
 } from '../index.js';
 
@@ -231,6 +241,145 @@ describe('drawOffer — distinct lines, weight by copies remaining, determinism'
     const deck: DeckState = { cards: ['a', 'junk', 'constructor'] as unknown as LineId[] };
     for (let i = 0; i < 50; i += 1) expect(drawOffer(deck, mulberry32(i), cat).offer).toEqual(['a']);
     expect(deck.cards).toHaveLength(3);
+  });
+});
+
+// A POOL WITH ONE `armor` COPY LEFT and exactly four other lines — so a healthy
+// hand is still four cards once `armor` is guarded out.
+const ARMOR_POOL: DeckState = {
+  cards: ['armor', 'speed', 'speed', 'turning', 'turning', 'reload', 'reload', 'radarSweep'],
+};
+
+/** `held` at `armor`'s REAL cap, read from the catalog rather than written as a
+ *  literal (it is 4 today; the pin must not rot when a tier is added). */
+const armorAtCap = (): LineId[] => new Array<LineId>(CATALOG.armor.cap).fill('armor');
+
+/** A mulberry32 that counts how many times the draw reached for a value. */
+function countingRng(seed: number): { rng: Rng; calls: () => number } {
+  const inner = mulberry32(seed);
+  let n = 0;
+  const rng: Rng = {
+    next: () => {
+      n += 1;
+      return inner.next();
+    },
+    float: (min, max) => inner.float(min, max),
+    int: (min, max) => inner.int(min, max),
+    pick: (arr) => inner.pick(arr),
+  };
+  return { rng, calls: () => n };
+}
+
+describe('drawOffer — the AT-CAP guard (Story 8.3): a dead pick is never offered', () => {
+  it('never offers a line the SHIP holds at cap, over 200 seeds, and takes nothing out of the pool', () => {
+    const held = armorAtCap();
+    for (let seed = 0; seed < 200; seed += 1) {
+      const { deck, offer } = drawOffer(ARMOR_POOL, mulberry32(seed), CATALOG, { held });
+      expect(offer, `seed ${seed}`).not.toContain('armor');
+      expect(offer, `seed ${seed}`).toHaveLength(CONFIG.offer.size); // the other lines still fill the hand
+      expect(new Set(offer).size, `seed ${seed}`).toBe(offer.length);
+      expect(deck, `seed ${seed}`).toBe(ARMOR_POOL); // a draw is a READ — same reference
+    }
+    expect(tally(ARMOR_POOL.cards).get('armor')).toBe(1); // the copy is still sitting in the pool
+    // ...and the guard is doing real work: UNGUARDED, that copy does get offered.
+    const unguarded = Array.from({ length: 200 }, (_, s) => drawOffer(ARMOR_POOL, mulberry32(s), CATALOG).offer);
+    expect(unguarded.some((offer) => offer.includes('armor'))).toBe(true);
+  });
+
+  it('a line held BELOW its cap is still offered (the rule is ≥ cap, not "held at all")', () => {
+    const held: LineId[] = new Array<LineId>(CATALOG.armor.cap - 1).fill('armor');
+    const offers = Array.from(
+      { length: 200 },
+      (_, s) => drawOffer(ARMOR_POOL, mulberry32(s), CATALOG, { held }).offer,
+    );
+    expect(offers.some((offer) => offer.includes('armor'))).toBe(true);
+  });
+
+  it('an at-cap line costs ZERO rng values — exactly one next() per OFFERED line', () => {
+    const two: DeckState = { cards: ['armor', 'speed', 'speed'] };
+    const open = countingRng(5);
+    expect(drawOffer(two, open.rng, CATALOG).offer).toHaveLength(2);
+    expect(open.calls()).toBe(2);
+    const guarded = countingRng(5);
+    expect(drawOffer(two, guarded.rng, CATALOG, { held: armorAtCap() }).offer).toEqual(['speed']);
+    expect(guarded.calls()).toBe(1); // the excluded line never reached the wheel
+  });
+
+  it('`held` ORDER is irrelevant, and the same seed gives the identical offer', () => {
+    const pool: DeckState = { cards: ['armor', 'armor', 'speed', 'speed', 'turning', 'reload', 'reload'] };
+    const held: LineId[] = ['speed', 'reload', 'speed', 'speed', 'reload', 'speed']; // speed ×4 = cap
+    const shuffled: LineId[] = ['reload', 'speed', 'speed', 'reload', 'speed', 'speed'];
+    const offer = drawOffer(pool, mulberry32(4242), CATALOG, { held }).offer;
+    expect(offer).not.toContain('speed');
+    expect(offer).toContain('reload'); // reload at 2 of cap 5 is untouched by the guard
+    expect(drawOffer(pool, mulberry32(4242), CATALOG, { held: shuffled }).offer).toEqual(offer);
+    expect(drawOffer(pool, mulberry32(4242), CATALOG, { held }).offer).toEqual(offer);
+  });
+
+  it('an id the catalog does not know is IGNORED in `held` — no throw, no effect', () => {
+    const junk = ['nope', 'constructor', '__proto__'] as unknown as LineId[];
+    const base = drawOffer(ARMOR_POOL, mulberry32(11), CATALOG).offer;
+    expect(drawOffer(ARMOR_POOL, mulberry32(11), CATALOG, { held: junk }).offer).toEqual(base);
+    expect(drawOffer(ARMOR_POOL, mulberry32(11), CATALOG, { held: [...junk, ...armorAtCap()] }).offer)
+      .not.toContain('armor');
+  });
+
+  it('no `held` at all, `{}` and an EMPTY `held` draw byte-identically (every existing caller unchanged)', () => {
+    const deck = tbPool();
+    const base = drawOffer(deck, mulberry32(8), CATALOG).offer;
+    expect(drawOffer(deck, mulberry32(8), CATALOG, {}).offer).toEqual(base);
+    expect(drawOffer(deck, mulberry32(8), CATALOG, { held: [] }).offer).toEqual(base);
+    // ...and so does the STREAM POSITION: one next() per offered line either way.
+    const bare = countingRng(8);
+    drawOffer(deck, bare.rng, CATALOG);
+    const empty = countingRng(8);
+    drawOffer(deck, empty.rng, CATALOG, { held: [] });
+    expect(empty.calls()).toBe(bare.calls());
+    expect(bare.calls()).toBe(CONFIG.offer.size);
+  });
+});
+
+describe('the at-cap guard is structurally IDLE on a legal deck (Story 8.3 pin)', () => {
+  /** The spawn seed derived the way the SERVER derives it (World.carriedLines,
+   *  mirrored by server/scripts/batchsim/deckSim.ts carriedLinesFor): copy 1 of
+   *  every non-stub equipment line the hull's fresh fit already carries. */
+  function carriedFor(hull: ShipClassId): LineId[] {
+    const out: LineId[] = [];
+    for (const slot of loadoutFor(hull, effectiveStats(hullEnvelope(hull)))) {
+      if (slot.equipmentId === null) continue;
+      const line = lineForEquipment(slot.equipmentId);
+      if (line !== undefined && line.stub !== true) out.push(line.id);
+    }
+    return out;
+  }
+
+  it('the CARRIED table above is the seed the server actually deals', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      expect([...carriedFor(hull)].sort(), hull).toEqual([...CARRIED[hull]].sort());
+    }
+  });
+
+  it('pool copies + held copies ≤ cap for EVERY line of EVERY hull at spawn — the guard can never bite', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      const carried = carriedFor(hull);
+      const pool = tally(buildDeckState(DEFAULT_DECKS[hull], carried).cards);
+      const held = tally(carried);
+      for (const id of LINE_IDS) {
+        const total = (pool.get(id) ?? 0) + (held.get(id) ?? 0);
+        expect(total, `${hull}:${id}`).toBeLessThanOrEqual(CATALOG[id].cap);
+      }
+    }
+  });
+
+  it('a spawn draw with `held = carried` is identical to one with no `held`, over 100 seeds and all three hulls', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      const carried = carriedFor(hull);
+      const deck = buildDeckState(DEFAULT_DECKS[hull], carried);
+      for (let seed = 0; seed < 100; seed += 1) {
+        const guarded = drawOffer(deck, mulberry32(seed), CATALOG, { held: carried }).offer;
+        expect(guarded, `${hull}:${seed}`).toEqual(drawOffer(deck, mulberry32(seed), CATALOG).offer);
+      }
+    }
   });
 });
 

@@ -4,6 +4,13 @@
 // offer TYPE lives here: the FRONT level's drawn line ids, materialized once
 // and held server-side (ShipRecord.offer) so reopening the refit window can
 // NEVER reroll (FR19).
+//
+// AN OFFER NEVER SHOWS A LINE THE SHIP IS ALREADY AT CAP ON (Story 8.3): the
+// draw takes the ship's fitted cards as `opts.held` and drops any line held at
+// its `cap` before weighting, so a dead pick can never reach this shape. And
+// because the draw only READS the pool (sim/deck.ts), a line passed over at one
+// level is back at full weight the next — that IS "reshuffle after every draw"
+// (Eric ruling 2026-09-15, epic-8 amendment 13).
 
 import type { LineId } from './catalog.js';
 

@@ -25,6 +25,19 @@
 // server-side), so `cap` stays the exact stack cap with no scrub and no reroll.
 // THE DECK HAS NO INFLOW AT ALL: cards only ever leave.
 //
+// THIS READ-ONLY DRAW *IS* "RESHUFFLE AFTER EVERY DRAW" (Eric ruling
+// 2026-09-15, epic-8 amendment 13). Drawing "fairly from what is left in the
+// deck" does NOT require the deck to run out before an unchosen card can come
+// back: because the draw only reads, a line passed over at level 1 is back in
+// the hat at FULL weight at level 2. There is no exhaust-then-reshuffle cycle
+// to build, and no card is ever set aside.
+//
+// THE AT-CAP GUARD (Story 8.3): a line the SHIP already holds at its `cap` is
+// dropped from the candidate set BEFORE any weighting — it is never offered and
+// never costs an rng value. The caller names what the ship holds with
+// `drawOffer(deck, rng, catalog, { held: ship.cards })`; omit it and the draw is
+// byte-identical to one with no guard at all.
+//
 // WHAT CATALOG V3 DELETED HERE. Rarity, categories, the universal/subdeck walk,
 // acquisition cards and `consumeAcquisition`, and the SOFT PITY escalation
 // (`levelsSinceRare`, CONFIG.deck.rareWeight*) — v3 has no rarity tier to
@@ -149,6 +162,35 @@ function removeCopies(cards: readonly LineId[], picked: readonly LineId[]): Line
 }
 
 /**
+ * What the SHIP already holds, for the at-cap guard.
+ *
+ * `held` is the ship's FITTED card ids, ONE ENTRY PER COPY — the same shape as
+ * `ShipRecord.cards`, so the server passes `{ held: ship.cards }` straight
+ * through. Omitted (or empty) means "guard nothing".
+ */
+export interface DrawOpts {
+  readonly held?: readonly LineId[];
+}
+
+/**
+ * The lines the ship is AT CAP on: `held` copies ≥ the line's `cap`. Computed
+ * ONCE per draw and fed to `pickLine` as exclusions, so an at-cap line is gone
+ * before any weighting — never offered, never worth an rng value.
+ *
+ * FAIL-CLOSED: an id the catalog does not know is ignored (lineCounts skips
+ * it), never a throw. A line held BELOW its cap is not excluded — it still
+ * draws at its copies-remaining weight like any other.
+ */
+function atCapLines(held: readonly LineId[], catalog: Catalog): Set<LineId> {
+  const out = new Set<LineId>();
+  for (const [id, n] of lineCounts(held, catalog)) {
+    const line = catalog[id];
+    if (line !== undefined && n >= line.cap) out.add(id);
+  }
+  return out;
+}
+
+/**
  * Draw one level's offer: up to CONFIG.offer.size DIFFERENT card lines,
  * weighted at line level by COPIES REMAINING IN THE DECK.
  *
@@ -158,14 +200,21 @@ function removeCopies(cards: readonly LineId[], picked: readonly LineId[]): Line
  * An empty (or thin) deck draws a short or empty offer — NEVER throws (the
  * server materializes no offer for an empty draw). A STUB line can never be
  * offered, because `buildDeckState` never deals one.
+ *
+ * THE AT-CAP GUARD: `opts.held` names the ship's fitted copies; a line it holds
+ * at `cap` is excluded BEFORE weighting, so it never appears in an offer and
+ * costs no rng value. `held` order does not matter. With `held` absent or empty
+ * the draw is byte-identical to the unguarded one — same offer, same stream
+ * position (exactly ONE rng.next() per OFFERED line, guard or no guard).
  */
 export function drawOffer(
   deck: DeckState,
   rng: Rng,
   catalog: Catalog = CATALOG,
+  opts: DrawOpts = {},
 ): { deck: DeckState; offer: LineId[] } {
   const counts = lineCounts(deck.cards, catalog);
-  const taken = new Set<LineId>();
+  const taken = atCapLines(opts.held ?? [], catalog);
   const offer: LineId[] = [];
   for (let i = 0; i < CONFIG.offer.size; i += 1) {
     const id = pickLine(counts, rng, taken);
