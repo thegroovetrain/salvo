@@ -1207,6 +1207,22 @@ describe('empty deck — the level banks, no hand materializes, and exhaustion i
     expect(a.offer).toBeNull();
     expect(onDeckExhausted).toHaveBeenCalledTimes(1);
   });
+
+  it('a THROWING exhaustion callback never escapes the tick: the level still banks, the latch is set, no pt, and world.step() does not throw', () => {
+    const onDeckExhausted = vi.fn(() => {
+      throw new Error('boom');
+    });
+    const w = bareWorld(1, { catalog: { dry: ladderLine('dry') }, onDeckExhausted });
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, []);
+    a.state.speed = 0;
+    w.grantXp(a, 1);
+    expect(() => w.step()).not.toThrow();
+    expect(a.bankedLevels).toBe(1);
+    expect(a.offer).toBeNull();
+    expect(ptsOf(w.tickEvents)).toEqual([]);
+    expect(a.deckExhausted).toBe(true);
+    expect(onDeckExhausted).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------- the at-cap guard -------------------------------------------------

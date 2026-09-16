@@ -446,8 +446,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * world actually receives caller-supplied seed material.
    *
    * onDeckExhausted (Story 8.3): the adapter half of the World's exhaustion
-   * seam — a ship record's card pool ran dry, so say so ONCE in the room's log
-   * and once in the process gauge. `this.log` is read INSIDE the arrow, not
+   * seam — a ship record's card pool ran dry ("exhausted" means an EMPTY
+   * DRAW, which on any door-admitted deck coincides with an empty pool), so
+   * say so ONCE in the process gauge and once in the room's log. The metric
+   * is recorded FIRST, the log line second: a throwing logger transport can
+   * then never lose the count. `this.log` is read INSIDE the arrow, not
    * captured: buildWorld runs before initOperability binds the room logger, so
    * a captured reference would be the unbound module default and every line
    * would lose its roomId/matchId. Read live, the bound logger supplies both,
@@ -464,8 +467,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
       onDeckExhausted: (shipId: string) => {
-        this.log.info('deck.exhausted', { shipId });
         recordDeckExhausted();
+        this.log.info('deck.exhausted', { shipId });
       },
     });
   }

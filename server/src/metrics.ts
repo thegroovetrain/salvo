@@ -120,7 +120,9 @@ const registry = new Map<string, RoomMetrics>();
 let retiredMessageTotal = 0;
 /** Ship records that have run their deck dry, process-wide since start (Story
  *  8.3). Module-level ON PURPOSE: exhaustion outlives the room it happened in,
- *  so it must not sit in the per-room registry that dispose clears. */
+ *  so it must not sit in the per-room registry that dispose clears.
+ *  "Exhausted" means an EMPTY DRAW — nothing left to offer — which on any
+ *  door-admitted deck coincides with an empty pool. */
 let deckExhaustedTotal = 0;
 /** Monotonic second the module first recorded anything; null until first record. */
 let firstRecordSec: number | null = null;

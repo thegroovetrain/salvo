@@ -2,7 +2,7 @@
 title: 'Story 8.3: The Draw'
 type: 'feature'
 created: '2026-09-15'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'b18fba6'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -92,15 +92,15 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `epic-8-context-amendments.md` + `epic-8-context.md` -- record rulings 13–15 -- durable home first
-- [ ] `shared/src/sim/deck.ts` + `offers.ts` + `deck.test.ts` -- `opts.held` at-cap guard, pins (guard, structural default-deck pin, rng consumption, determinism) -- `npm test -w shared` green
-- [ ] `server/src/game/world.ts` + `upgrades.test.ts` -- `deckExhausted` flag, `onDeckExhausted` once, `held` passed, empty-draw block retitled and extended, redeploy pin -- `npm test -w server` green
-- [ ] `server/src/metrics.ts` + `metrics.test.ts` -- `recordDeckExhausted`, payload `deck.exhausted`, reset -- counter proven
-- [ ] `server/src/rooms/ArenaRoom.ts` + an arena test -- adapter: log line + metric bump -- proves the seam end to end
-- [ ] `server/src/__tests__/{perception,frames}.test.ts` + a client test -- wire pin (no `deckLeft` family) + no draw-pile counter symbol -- AC 4
-- [ ] retired-dial audit (`deck.test.ts:165`, `upgrades.test.ts:541`, `batchSim.test.ts:1299`, `botPolicy.test.ts:16`, `deckSim.ts`/`controls.ts` headers) -- retire or strip per the Always rule -- AC 5
-- [ ] `VERSION`/`package.json`/lock/`CHANGELOG.md`/both trackers/`deferred-work.md` -- cycle 138, 0.18.3, PV 51 unchanged, amendments 13–15, `:302`/`:459`/`:1459` closure stamps, `:982` re-derivation stamp, `:1995` resolved, one 8.8 heal-record entry -- tracker discipline
-- [ ] `npm run check` green; headless `soloSmoke` + `matchSmoke` over real sockets on a scratch port -- the gate
+- [x] `epic-8-context-amendments.md` + `epic-8-context.md` -- record rulings 13–15 -- durable home first
+- [x] `shared/src/sim/deck.ts` + `offers.ts` + `deck.test.ts` -- `opts.held` at-cap guard, pins (guard, structural default-deck pin, rng consumption, determinism) -- `npm test -w shared` green
+- [x] `server/src/game/world.ts` + `upgrades.test.ts` -- `deckExhausted` flag, `onDeckExhausted` once, `held` passed, empty-draw block retitled and extended, redeploy pin -- `npm test -w server` green
+- [x] `server/src/metrics.ts` + `metrics.test.ts` -- `recordDeckExhausted`, payload `deck.exhausted`, reset -- counter proven
+- [x] `server/src/rooms/ArenaRoom.ts` + an arena test -- adapter: log line + metric bump -- proves the seam end to end
+- [x] `server/src/__tests__/{perception,frames}.test.ts` + a client test -- wire pin (no `deckLeft` family) + no draw-pile counter symbol -- AC 4
+- [x] retired-dial audit (`deck.test.ts:165`, `upgrades.test.ts:541`, `batchSim.test.ts:1299`, `botPolicy.test.ts:16`, `deckSim.ts`/`controls.ts` headers) -- retire or strip per the Always rule -- AC 5
+- [x] `VERSION`/`package.json`/lock/`CHANGELOG.md`/both trackers/`deferred-work.md` -- cycle 138, 0.18.3, PV 51 unchanged, amendments 13–15, `:302`/`:459`/`:1459` closure stamps, `:982` re-derivation stamp, `:1995` resolved, one 8.8 heal-record entry -- tracker discipline
+- [x] `npm run check` green; headless `soloSmoke` + `matchSmoke` over real sockets on a scratch port -- the gate
 
 **Acceptance Criteria:**
 - Given a pool and a ship holding a line at its cap, when the offer is drawn, then that line is never offered, the other lines are weighted by copies remaining only, and the pool is unchanged.
@@ -113,6 +113,22 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-15 — Review pass (Blind Hunter + Edge Case Hunter at session model, plus Codex `gpt-5.6-sol` cross-model review — verdicts: Blind Hunter build-on-it, Edge Case Hunter build-on-it, Codex fix-first; findings applied in this pass)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 1, low 3)
+- defer: 1: (high 0, medium 0, low 1)
+- reject: 2: (high 0, medium 0, low 2)
+- addressed_findings:
+  - `[medium]` `[patch]` (Codex CONFIRMED + Edge Case Hunter) a throwing exhaustion callback escaped `materializeOffer` into the tick (a `tick.error`, room abort at tolerance 1) and, with the latch already set, lost that ship's `/metrics` count forever → `reportExhaustion` wraps the callback (an ops seam may never abort a sim step); the arena counts BEFORE it logs so a throwing transport cannot lose the count; two fail-first tests (world step does not throw + latch/bank intact; counter bumped when the bound logger throws)
+  - `[low]` `[patch]` (Codex + Edge Case Hunter, false-negative/false-positive halves) the forbidden-key wire pins scanned serialized JSON for `"pool"`/`"remaining"` substrings, mistaking VALUES for keys → both pins walk `Object.keys` recursively and match exact key names; helper self-checked (`{ note: 'pool' }` passes, `{ pool: 1 }` fails)
+  - `[low]` `[patch]` (Blind Hunter + Edge Case Hunter, both) the latch keys off an EMPTY DRAW while the log name, the record doc and the metrics doc said "pool dry" — coincident on every door-admitted deck (pool + held ≤ cap, pinned) → one sentence in each doc states the exact meaning; no code change (the AC's own words are "an empty draw")
+  - `[low]` `[patch]` (Blind Hunter) the client no-counter pin covered `deckLeft` only → now `deckLeft` and `deckSize` (`pool`/`remaining` are legitimate client words: the object pool)
+- deferred (ledgered in `deferred-work.md`): the batch-sim deck economy draws unguarded and un-seeded while production passes `held = ship.cards` — identical outcomes only while the guard is idle
+- rejected: the `ladderLine` test helper sharing one tier array (read-only effects, harmless); the client file walk skipping symlinked directories (none exist; the `> 20 files` guard catches an empty tree)
+- agreement picture: Codex and the Edge Case Hunter both raised the throwing-callback seam (Codex as the fix-first item); both Fable reviewers raised the empty-draw-vs-empty-pool wording; Codex alone raised the key-vs-value pin (verified real as a false-positive path); Blind Hunter alone raised the client-pin breadth and the harness drift
+- traced clean by all three: rng-stream position and offer order for every legal deck (the guard is provably idle: `checkDeck` caps list copies, `buildDeckState` removes carried copies, `settleSpend` consumes before it fits), the latch across `redeployShip`/`respawn`/sandbox, the lazy `this.log` read vs `onCreate` order, the `ship.cards` cast (fail-closed on unknown ids), the `/metrics` shape change (its only reader, `metricsSmoke.mjs`, tolerates additive keys), PV 51 unchanged, golden frames unchanged
 
 ## Design Notes
 

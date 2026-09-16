@@ -469,7 +469,9 @@ export interface ShipRecord {
    * A THIN DRAW IS NOT EXHAUSTION. One, two or three cards still materialize
    * an offer; only a ZERO-length draw latches this. Fleet hulls hold the
    * frozen EMPTY_DECK and never draw at all (addXpMs fail-closes on them
-   * before a level can bank), so they never reach the latch.
+   * before a level can bank), so they never reach the latch. "Exhausted"
+   * means an EMPTY DRAW — nothing left to offer — which on any door-admitted
+   * deck coincides with an empty pool.
    *
    * SERVER-PRIVATE, like `deck` and `deckList`: never on the wire.
    */
@@ -2186,11 +2188,18 @@ export class World {
    *  materializeOffer so the latch-then-tell order is one readable statement
    *  and the draw path keeps its low branch count. A caller that supplied no
    *  reporter still latches — the flag is World state, the report is the
-   *  adapter's. */
+   *  adapter's. "Exhausted" means an EMPTY DRAW — nothing left to offer —
+   *  which on any door-admitted deck coincides with an empty pool. The latch
+   *  is set BEFORE the callback runs, and the callback is wrapped: a throwing
+   *  diagnostic is an ops-layer bug, never a reason to fail the sim tick. */
   private reportExhaustion(ship: ShipRecord): void {
     if (ship.deckExhausted) return;
     ship.deckExhausted = true;
-    this.onDeckExhausted?.(ship.id);
+    try {
+      this.onDeckExhausted?.(ship.id);
+    } catch {
+      /* ops-only seam: a diagnostic may never abort a sim step */
+    }
   }
 
   /**

@@ -2015,3 +2015,8 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   status: OPEN — hand to Story 8.8 (heal is a card); an Eric ruling is needed there
   summary: Eric believes the per-level 10% heal was replaced by 1%/s of missing hp out of combat after 30 s without damage; `development` carries the per-level version. Story 8.8's "check which version is live" clause must resolve it WITH Eric — do not build either version unasked.
   evidence: `shared/src/constants.ts` `CONFIG.damageControl.levelMissingPct` / `levelRegenMs`; AskUserQuestion answer 2026-09-15; epics.md Story 8.8 AC.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-3-the-draw.md`
+  status: OPEN — pre-existing harness drift, made visible by the at-cap guard; a five-minute fix for any harness cycle
+  summary: THE BATCH-SIM DECK ECONOMY DRAWS UNGUARDED WHILE PRODUCTION PASSES `held = ship.cards`. `server/scripts/batchsim/deckSim.ts` calls `drawOffer` with no `held`, starts its `fitted` list at `[]` with no carried seed, and its `cappedLines` therefore undercounts the carried copy. Outcomes match production today only because the at-cap guard is provably idle on every door-admitted deck (pool + held ≤ cap for every line — pinned in `shared/src/__tests__/deck.test.ts`); the day a deck can violate that invariant (an Epic 9 account deck, a harness `--set` that grants cards without consuming) the harness and the server will draw differently. Fix: seed `fitted` from the hull's carried lines and pass `{ held: fitted }` to `drawOffer`.
+  evidence: Blind Hunter plausible finding, review gate 2026-09-15; `deckSim.ts` `runDeckSim` draw call and `cappedLines`; `server/src/game/world.ts` `materializeOffer`.

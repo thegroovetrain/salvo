@@ -101,6 +101,25 @@ describe('ArenaRoom.buildWorld — the deck-exhaustion adapter', () => {
     expect(metricsPayload().deck.exhausted).toBe(2);
   });
 
+  it('the counter is bumped even when the bound logger throws', () => {
+    const room = bareRoom();
+    const world = room.buildWorld(4, {});
+    const log = stubLogger();
+    log.info.mockImplementation(() => {
+      throw new Error('logger transport down');
+    });
+    room.log = log;
+
+    const a = world.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, []);
+    a.state.speed = 0;
+    world.grantXp(a, 1);
+    expect(() => world.step()).not.toThrow();
+
+    expect(a.bankedLevels).toBe(1);
+    expect(a.deckExhausted).toBe(true);
+    expect(metricsPayload().deck.exhausted).toBe(1);
+  });
+
   it('a HEALTHY deck reports nothing: the default deck draws a full hand', () => {
     const room = bareRoom();
     const world = room.buildWorld(3, {});
