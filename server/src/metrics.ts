@@ -19,6 +19,14 @@
 //     anything, floor >= 1)), so a lone burst in an idle minute reports its true
 //     per-second average, not the burst size. `total` is since process start and
 //     survives room unregistration (retired rooms' counts are folded forward).
+//   - deck.exhausted (Story 8.3): how many ship records have run their card
+//     pool dry, process-wide since start. A COUNT AND NOTHING ELSE — never a
+//     deck's contents, its depth, or whose it was; `/metrics` is an ops gauge,
+//     and deck composition is server-private (perception.test.ts pins it off
+//     the wire). Counted once per record by World's exhaustion latch, so it
+//     tracks captains-who-ran-dry, not levels drawn against an empty pool. Like
+//     `messages.total` it survives room unregistration, because it is a
+//     module-level counter rather than per-room state.
 //
 // No third-party libs, no Prometheus format, no auth — JSON body only.
 //
@@ -54,6 +62,7 @@ export interface MetricsPayload {
   players: number;
   tick: { p50: number; p95: number; max: number; samples: number };
   messages: { ratePerSec: number; total: number };
+  deck: { exhausted: number };
 }
 
 interface MessageBucket {
@@ -109,6 +118,10 @@ const registry = new Map<string, RoomMetrics>();
 
 /** Messages from rooms that have since unregistered, kept in the since-start total. */
 let retiredMessageTotal = 0;
+/** Ship records that have run their deck dry, process-wide since start (Story
+ *  8.3). Module-level ON PURPOSE: exhaustion outlives the room it happened in,
+ *  so it must not sit in the per-room registry that dispose clears. */
+let deckExhaustedTotal = 0;
 /** Monotonic second the module first recorded anything; null until first record. */
 let firstRecordSec: number | null = null;
 
@@ -179,10 +192,21 @@ export function registerRoom(roomId: string): RoomMetricsHandle {
   };
 }
 
+/**
+ * Record ONE ship record running its card pool dry (Story 8.3). The arena
+ * adapter calls this from the World's `onDeckExhausted` seam, alongside the
+ * `deck.exhausted` log line. No arguments: the ship id belongs in the log, not
+ * in a process gauge.
+ */
+export function recordDeckExhausted(): void {
+  deckExhaustedTotal += 1;
+}
+
 /** Test-only: clear all registered rooms, retired totals, and first-record mark. */
 export function resetMetrics(): void {
   registry.clear();
   retiredMessageTotal = 0;
+  deckExhaustedTotal = 0;
   firstRecordSec = null;
 }
 
@@ -254,6 +278,7 @@ export function metricsPayload(): MetricsPayload {
       ratePerSec: ratePerSec(nowSeconds()),
       total: totalMessages(),
     },
+    deck: { exhausted: deckExhaustedTotal },
   };
 }
 

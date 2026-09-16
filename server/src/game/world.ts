@@ -253,6 +253,21 @@ export interface WorldOptions {
    * room.
    */
   pseudonymSeed?: number;
+  /**
+   * THE DECK-EXHAUSTION SEAM (Story 8.3): called ONCE per ShipRecord, the
+   * first time a level's draw comes back EMPTY (materializeOffer). The World
+   * reports the fact and says nothing about it — it holds no logger and no
+   * Colyseus import, exactly as it holds no entropy source (the zoneSeeds
+   * posture: the CALLER supplies what belongs to the adapter). ArenaRoom
+   * supplies the room's bound logger + the process metrics counter; the
+   * harness and unit tests omit it entirely, and an absent callback is not an
+   * error — the flag still latches.
+   *
+   * NOT a `pending` event: pending events are wire-bound (frames.ts, six
+   * declared exceptions) and exhaustion is ops-private — nothing about a
+   * deck's contents or its depth may reach a client.
+   */
+  onDeckExhausted?: (shipId: string) => void;
 }
 
 /** The equipment id fitted in `loadout[slotIndex]`, or null when the slot is
@@ -443,6 +458,22 @@ export interface ShipRecord {
    * OwnShip.offer surfaces. Dropped by redeployShip and by a heal spend.
    */
   offer: BoonOffer | null;
+  /**
+   * THE ONCE-EVER EXHAUSTION LATCH (Story 8.3): set the first time a level's
+   * draw comes back EMPTY, and NEVER cleared — not by a spend, not by
+   * redeployShip (which rebuilds the pool from `deckList`), not by a respawn.
+   * Once per RECORD, ever, because its only job is to make the
+   * `WorldOptions.onDeckExhausted` report fire exactly once: an ops line per
+   * captain who ran a deck dry, never a line per level thereafter.
+   *
+   * A THIN DRAW IS NOT EXHAUSTION. One, two or three cards still materialize
+   * an offer; only a ZERO-length draw latches this. Fleet hulls hold the
+   * frozen EMPTY_DECK and never draw at all (addXpMs fail-closes on them
+   * before a level can bank), so they never reach the latch.
+   *
+   * SERVER-PRIVATE, like `deck` and `deckList`: never on the wire.
+   */
+  deckExhausted: boolean;
   /**
    * XP accumulator in INTEGER MILLISECONDS toward the next level (Story 2.6),
    * always in [0, CONFIG.xp.levelMs). Integer ms — never a float fraction — so
@@ -1007,6 +1038,10 @@ export class World {
    * ring seeds → rings) reproducibility rides on it.
    */
   private readonly zoneSeeds: readonly number[] | undefined;
+
+  /** Caller-supplied deck-exhaustion reporter (WorldOptions.onDeckExhausted —
+   *  the adapter seam; undefined in the harness and in unit tests). */
+  private readonly onDeckExhausted: ((shipId: string) => void) | undefined;
   /** Events queued since the last completed step (joins, sinks, respawns). */
   private pending: GameEvent[] = [];
   /** Events belonging to the most recently completed tick (read by frames). */
@@ -1071,6 +1106,7 @@ export class World {
     this.spawnPhase = mulberry32((seed ^ 0xb5297a4d) >>> 0).float(0, Math.PI * 2);
     this.zoneCfg = zoneCfg;
     this.zoneSeeds = opts.zoneSeeds;
+    this.onDeckExhausted = opts.onDeckExhausted;
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
     this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
@@ -1327,7 +1363,7 @@ export class World {
       // the game, and gets a deck like any other.
       deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeckState(deckList, carried, this.catalog),
       deckList, deckRng: this.deckRngFor(this.joinSeq++),
-      bankedLevels: 0, offer: null,
+      bankedLevels: 0, offer: null, deckExhausted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [...carried],
       cardBehaviors: NO_BEHAVIORS,
@@ -2051,10 +2087,12 @@ export class World {
    *
    * The self-private `pt` event fires whenever there IS a front offer after
    * materializing — i.e. on every level against a healthy deck. The one case
-   * that stays silent is a DEGENERATE EMPTY DRAW (deck yielded nothing): the
-   * level is still banked, but an offer-less level must not advertise
-   * TAB-to-refit (the ratified rule, preserved). Reopening the refit window can
-   * never reroll — the front offer is drawn once and frozen (FR19).
+   * that stays silent is an EMPTY DRAW (the deck yielded nothing): the level is
+   * still banked, but an offer-less level must not advertise TAB-to-refit.
+   * THAT IS THE RULE ITSELF, not a degenerate fallback — Eric ruling
+   * 2026-09-15, epic-8 amendment 14: "an exhausted deck presents no options,
+   * but the level still banks". Reopening the refit window can never reroll —
+   * the front offer is drawn once and frozen (FR19).
    */
   private grantPoint(killer: ShipRecord): void {
     killer.bankedLevels += 1;
@@ -2120,15 +2158,39 @@ export class World {
    * bugfix). Fires ONLY when a level is banked and no offer is materialized, so
    * exactly one draw happens per level over that level's lifetime.
    *
-   * DEGENERATE EMPTY DRAW: `offer` stays null and the bank stays put — the
-   * queue never deadlocks (spendPoint's HEAL_CHOICE is still spendable, a card
-   * pick is refused), and the next level simply retries the draw.
+   * THE AT-CAP GUARD (Story 8.3): the ship's fitted cards ride in as
+   * `opts.held`, so a line this hull already holds at its `cap` is dropped
+   * before weighting and can never occupy a slot in the hand. Structurally
+   * idle against a legal deck (pool + held <= cap at spawn, and every fit moves
+   * one copy from pool to held), which is exactly why it is cheap to keep.
+   *
+   * EMPTY DRAW: `offer` stays null and the bank stays put — the queue never
+   * deadlocks (spendPoint's HEAL_CHOICE is still spendable, a card pick is
+   * refused), and the next level simply retries the draw. The FIRST empty draw
+   * also latches `deckExhausted` and reports it ONCE (see the latch's doc).
    */
   private materializeOffer(ship: ShipRecord): void {
     if (ship.bankedLevels <= 0 || ship.offer !== null) return;
-    const { deck, offer } = drawOffer(ship.deck, ship.deckRng, this.catalog);
+    // `cards` is widened to string[] on the record (it may hold ids from an
+    // INJECTED test catalog that the shipped LineId union does not name); the
+    // guard is fail-closed on an id its catalog does not know, so the narrow
+    // is safe by the callee's own contract rather than by this assertion.
+    const held = ship.cards as readonly LineId[];
+    const { deck, offer } = drawOffer(ship.deck, ship.deckRng, this.catalog, { held });
     ship.deck = deck; // NON-CONSUMING: a draw is a read; the same state back
     if (offer.length > 0) ship.offer = offer;
+    else this.reportExhaustion(ship);
+  }
+
+  /** The once-ever exhaustion report (Story 8.3). Split out of
+   *  materializeOffer so the latch-then-tell order is one readable statement
+   *  and the draw path keeps its low branch count. A caller that supplied no
+   *  reporter still latches — the flag is World state, the report is the
+   *  adapter's. */
+  private reportExhaustion(ship: ShipRecord): void {
+    if (ship.deckExhausted) return;
+    ship.deckExhausted = true;
+    this.onDeckExhausted?.(ship.id);
   }
 
   /**

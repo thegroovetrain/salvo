@@ -15,8 +15,9 @@
 // whose `exclusiveWith` rival was held returned the rival's card). Story 7-5
 // wave 2 DELETED exclusivity outright (R2.6 — the cannon pair was its last
 // user), so nothing ever re-enters a deck: a card leaves at the FIT and never
-// comes back. That also retires this harness's stopping rule, which existed
-// only to stop degenerate doctrine ping-pong; a deck now simply empties.
+// comes back. THE STOPPING RULE IS THEREFORE JUST "THE POOL IS EMPTY" (Story
+// 8.3, deferred-work :302 closed by deletion) — there is no rival floor and
+// nothing left to ping-pong.
 // The lazy-draw bugfix had already retired the other two models (the
 // amendment-43 scrub and its scrubbed-to-empty drop, and the banked-offer
 // FIFO): a DRAW takes nothing out of the deck and only the FIT does.
@@ -98,8 +99,8 @@ export interface DeckSimSpec {
 export interface DeckAggregate {
   economies: number;
   totalDraws: number;
-  /** Draws each economy played before hitting the harness stopping rule
-   *  (empty-or-rivals-only; see the module header — production never stops). */
+  /** Draws each economy played before hitting the harness stopping rule: the
+   *  POOL IS EMPTY (see the module header — production never stops). */
   drawsPlayed: Summary;
   /** Fraction of economies that reached the harness stopping rule: an EMPTY
    *  deck. This is a MODELING stop, not a production one (module header). */
@@ -117,9 +118,10 @@ export interface DeckAggregate {
   lineOffersByClass: Record<string, Record<string, number>>;
   hands: number;
   handsByClass: Record<string, number>;
-  /** Mean cards remaining AFTER draw k and its immediate spend — give-backs
-   *  (losing-option returns + doctrine-rival returns) included, since the spend
-   *  resolves inside the same step (k = 1..DEPLETION_MAX, 5-step rows). */
+  /** Mean cards remaining AFTER draw k and its immediate spend. There are no
+   *  give-backs of any kind any more (the draw is a read; only the FIT removes
+   *  a card — Story 8.3), so the spend resolves inside the same step
+   *  (k = 1..DEPLETION_MAX, 5-step rows). */
   depletion: { draw: number; meanRemaining: number; n: number }[];
 }
 

@@ -1804,6 +1804,22 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
 
 // ---------- THE INVARIANT (property-style over random worlds) ----------------
 
+/**
+ * KEYS NO FRAME MAY CARRY, deck edition (Story 8.2 + Story 8.3). The first
+ * three are the server-private deck itself; the last four are the DRAW-PILE
+ * COUNTER family — `deckLeft`, `deckSize`, `pool`, `remaining`. Eric deleted
+ * the draw-pile counter on 2026-09-10/11 ("if the player can infer it, do not
+ * propose it"), so there is nothing for a field like that to feed: a count of
+ * what is left is deck state, it is server-private like the pool itself, and a
+ * field with no consumer may not ride along "for later". Quoted, so a LINE ID
+ * riding `offer`/`cards` as a VALUE can never false-positive.
+ *
+ * CONFIG.deck is deliberately NOT in tension with this: `config` rides the
+ * WELCOME, not a frame, and the welcome's own pin (decks.test.ts) exempts
+ * `config.deck` — the two public rule dials — while scanning everything else.
+ */
+const DECK_FORBIDDEN_KEYS = ['"deck"', '"deckList"', '"deckId"', '"deckLeft"', '"deckSize"', '"pool"', '"remaining"'] as const;
+
 /** Assert one frame leaks nothing beyond the observer's vision. */
 function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   const me = w.ships.get(viewerId)!;
@@ -1828,14 +1844,18 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // spectator passthrough — fails here even if no verifier knows about it.
   const withoutYou = { ...f, you: undefined };
   expect(JSON.stringify(withoutYou)).not.toContain('repairHp');
-  // THE DECK NEVER RIDES THE WIRE (Story 8.2, epic-8 Anti-cheat): the
-  // server-private pool (`deck`), the frozen list (`deckList`) and the deck
-  // id (`deckId`) may appear as a KEY nowhere in ANY frame — `you` included,
-  // because `you.cards` and `you.offer` are the only card-shaped fields a
-  // captain may see. Key-shaped scan (with the quotes), because the deck-gun
-  // family's LINE IDS legitimately ride `offer`/`cards` as VALUES.
+  // THE DECK NEVER RIDES THE WIRE (Story 8.2, epic-8 Anti-cheat; extended by
+  // Story 8.3): the server-private pool (`deck`), the frozen list (`deckList`)
+  // and the deck id (`deckId`) may appear as a KEY nowhere in ANY frame — `you`
+  // included, because `you.cards` and `you.offer` are the only card-shaped
+  // fields a captain may see. Key-shaped scan (with the quotes), because the
+  // deck-gun family's LINE IDS legitimately ride `offer`/`cards` as VALUES.
   const wholeFrame = JSON.stringify(f);
-  for (const key of ['"deck"', '"deckList"', '"deckId"']) expect(wholeFrame).not.toContain(key);
+  for (const key of DECK_FORBIDDEN_KEYS) expect(wholeFrame).not.toContain(key);
+  // ...and the hand is never bigger than the dial that sizes it (Story 8.3: a
+  // thin or empty deck draws SHORT, never long, and an empty draw materializes
+  // no offer at all — which reaches the wire as `offer: []`).
+  if (f.you) expect(f.you.offer.length).toBeLessThanOrEqual(CONFIG.offer.size);
   for (const c of f.contacts) {
     const target = w.ships.get(c.id)!;
     expect(target).toBeDefined();

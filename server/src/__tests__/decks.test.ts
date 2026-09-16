@@ -291,7 +291,7 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     expect(room.world.ships.get('s1')!.deckList).toBe(TB);
   });
 
-  it('the welcome carries no deck, deckList or deckId key — its `config.deck` is the two public rule dials and nothing else', () => {
+  it('the welcome carries no deck-shaped key — its `config.deck` is the two public rule dials and nothing else', () => {
     const room = arenaDoor();
     const c = arenaClient('s1');
     joinArena(room, c, { cls: 'torpedoBoat' });
@@ -304,10 +304,17 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     // exactly those two dials, so a contents/id/owned field can never hide
     // inside it.
     expect(payload.config.deck).toEqual({ size: CONFIG.deck.size, maxEquipmentLines: CONFIG.deck.maxEquipmentLines });
-    // Everything OUTSIDE the config snapshot: no deck-shaped key at all.
+    // Everything OUTSIDE the config snapshot: no deck-shaped key at all. The
+    // last four are the DRAW-PILE COUNTER family (Story 8.3) — Eric deleted the
+    // draw-pile counter on 2026-09-10/11, so "how many cards are left" is
+    // server-private like the pool itself and has no wire-side consumer to ride
+    // for. `config` is spliced out for this scan and ONLY for it, because
+    // `config.deck` (the two public rule dials, asserted above) is the one
+    // legitimate `deck` key on this message.
+    const family = ['"deckLeft"', '"deckSize"', '"pool"', '"remaining"'];
     const text = JSON.stringify({ ...payload, config: undefined });
-    for (const key of ['"deck"', '"deckList"', '"deckId"']) expect(text).not.toContain(key);
-    for (const key of ['"deckList"', '"deckId"']) expect(JSON.stringify(payload)).not.toContain(key);
+    for (const key of ['"deck"', '"deckList"', '"deckId"', ...family]) expect(text).not.toContain(key);
+    for (const key of ['"deckList"', '"deckId"', ...family]) expect(JSON.stringify(payload)).not.toContain(key);
   });
 });
 
