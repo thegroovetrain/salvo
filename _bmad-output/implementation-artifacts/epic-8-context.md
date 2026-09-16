@@ -96,3 +96,12 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 18. **A mine blast chains into any armed non-captive mine in range regardless of owner** (Eric 2026-09-15); supersedes the same-owner chain condition; captives neither receive nor propagate.
 19. **A burst over a hull that sank this tick marks `hc` for the mark only, no damage** (Eric 2026-09-15), resolving `deferred-work.md:590`; the star shell keeps its geometric-victim exclusion.
 20. **A mine is never a collision subject for a shell in flight; only the burst at the clicked point sets one off** (Eric 2026-09-16, verbatim in the amendments file); supersedes amendment 17 in full.
+21. **Interim spawn seed** (Eric 2026-09-16): `loadoutFor()` is identical for every hull, but until 8.10 the spawn applies today's card-backed class weapons as cards (TB `heavyTorpedo`; BS `broadside` + `starShells`; ML `navalMines`), the deck losing those copies as today. 8.10 removes the seed.
+22. **The radar buoy goes dark from 8.5 until 8.15 deletes it** (Eric 2026-09-16); module and tests stay.
+23. **Every hull gets the boost in slot 1 now at the shipped `speedBoost` numbers** (Eric 2026-09-16); 8.9 renames and re-tunes it.
+24. **PvE fleet drones are environment: the deck gun and nothing else, by the least-work path** (Eric 2026-09-16, both statements verbatim in the amendments file); the spawn's existing fleet branch hands them a gun-only slot array; no drone-specific tests or pins.
+25. **The interim hotbar keeps today's pitch and may clip on small viewports** (Eric 2026-09-16: *"Ignore it entirely. The next story fixes the HUD."*).
+26. **A key on an empty slot is denied on the client only** (Eric 2026-09-16); no wire denial reason; the start-line lock still wins silently.
+27. **Digits `1`–`4` with the refit window closed stay inert until 8.7** (Eric 2026-09-16).
+28. **How-to-Play is not touched in 8.5** (Eric 2026-09-16); its stale EQUIPMENT lines wait for 8.20.
+29. **The interim Shift key chip shows the `⇧` arrow** (Eric 2026-09-16); 8.6 restyles the bar.
