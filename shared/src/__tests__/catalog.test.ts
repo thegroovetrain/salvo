@@ -16,6 +16,7 @@ import {
   DEFAULT_OWNED,
   LINE_IDS,
   SHIP_CLASS_IDS,
+  SPAWN_SEED,
   catalogCardCount,
   deckFromCounts,
   effectiveStats,
@@ -395,6 +396,41 @@ describe('DEFAULT_DECKS — amendment 10, count for count', () => {
     expect(DEFAULT_OWNED.has('armor')).toBe(true);
     expect(() => owned.clear()).toThrow('DEFAULT_OWNED is immutable');
     expect(DEFAULT_OWNED.size).toBe(LINE_IDS.length - UNHOMED.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SPAWN_SEED — the INTERIM table Story 8.10 deletes (epic-8 amendment 21).
+// ---------------------------------------------------------------------------
+describe('SPAWN_SEED — the interim spawn seed (Story 8.5, amendment 21)', () => {
+  it('keys are exactly the three PICKABLE hulls — no drone hull is seeded (amendment 24)', () => {
+    expect(Object.keys(SPAWN_SEED).sort()).toEqual([...SHIP_CLASS_IDS].sort());
+    for (const hull of SHIP_CLASS_IDS) expect(SPAWN_SEED[hull], hull).toBeDefined();
+  });
+
+  it('is today\u2019s shipped class fit, line for line', () => {
+    expect(SPAWN_SEED.torpedoBoat).toEqual(['heavyTorpedo']);
+    expect(SPAWN_SEED.battleship).toEqual(['broadside', 'starShells']);
+    expect(SPAWN_SEED.mineLayer).toEqual(['navalMines']);
+  });
+
+  it('every seeded id is a LIVE (non-stub) EQUIPMENT line of the catalog', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      for (const id of SPAWN_SEED[hull] ?? []) {
+        expect(LINE_IDS.includes(id), id).toBe(true);
+        expect(CATALOG[id].kind, id).toBe('equipment');
+        expect(isStubLine(id), id).toBe(false);
+      }
+      // ...and no hull is seeded past the three-wide weapon row on its own.
+      expect(new Set(SPAWN_SEED[hull] ?? []).size, hull).toBe((SPAWN_SEED[hull] ?? []).length);
+      expect((SPAWN_SEED[hull] ?? []).length, hull).toBeLessThanOrEqual(CONFIG.deck.maxEquipmentLines);
+    }
+  });
+
+  it('is frozen at both depths (the table and each seed list)', () => {
+    expect(Object.isFrozen(SPAWN_SEED)).toBe(true);
+    for (const hull of SHIP_CLASS_IDS) expect(Object.isFrozen(SPAWN_SEED[hull]), hull).toBe(true);
+    expect(() => { (SPAWN_SEED.torpedoBoat as LineId[]).push('navalMines'); }).toThrow();
   });
 });
 

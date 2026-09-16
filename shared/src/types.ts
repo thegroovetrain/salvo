@@ -354,12 +354,14 @@ export interface WeaponAmmo {
  * Your own ship as seen in a frame — full, unfogged. `sweep` is the current
  * radar angle (rad), used to draw the sweep wedge client-side.
  *
- * `ammo` is SLOT-ALIGNED: length SLOT_COUNT (see sim/loadout.ts), one entry
- * per loadout slot — null iff that slot is empty (mirrors the loadout
- * invariant: an empty slot carries no state). Under the universal fit that is
- * [gun, torpedo, mine, null]. maxAmmo / reloadMs are NOT on the wire — the
- * client reads them from CONFIG (and, after upgrades, from its own
- * effective-stats computation) and derives reload fractions from reloadMsLeft.
+ * `ammo` is SLOT-ALIGNED: length SLOT_COUNT — NINE since Story 8.5 (see
+ * sim/loadout.ts), one entry per loadout slot — null iff that slot is empty
+ * (mirrors the loadout invariant: an empty slot carries no state). A Torpedo
+ * Boat holding its spawn seed reads
+ * [gun, speedBoost, heavyTorpedo, null, null, null, null, null, null].
+ * maxAmmo / reloadMs are NOT on the wire — the client reads them from CONFIG
+ * (and, after upgrades, from its own effective-stats computation) and derives
+ * reload fractions from reloadMsLeft.
  */
 export interface OwnShip {
   id: string;

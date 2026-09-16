@@ -33,7 +33,7 @@ const SIGHT = 330;
  * the shooter nothing (the World strips the bit off the mask it sweeps with).
  *
  * NOT a wire contract: the client never reads `hits`, so adding these rows does
- * NOT bump PROTOCOL_VERSION (pinned at 51 by a test).
+ * NOT bump PROTOCOL_VERSION (pinned at 52 by a test).
  */
 const HITS_HULL_MINE_DECOY: readonly TargetKind[] = ['hull', 'mine', 'decoy'];
 const HITS_HULL_DECOY: readonly TargetKind[] = ['hull', 'decoy'];

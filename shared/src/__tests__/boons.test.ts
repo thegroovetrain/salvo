@@ -5,7 +5,9 @@
 //   - the five-effect vocabulary, and that `slotReplace` is gone;
 //   - home 1: `stat` effects reach EffectiveStats and nothing else, through a
 //     GENERATED whitelist whose deliberate absences are pinned;
-//   - home 2: `slotFill` mutates the one LoadoutSlot[] and nothing else;
+//   - home 2: `slotFill` mutates the one LoadoutSlot[] and nothing else —
+//     since Story 8.5 it takes the FIRST EMPTY WEAPON SLOT (2, then 3, then 4)
+//     and leaves every other slot's state object REFERENCE-IDENTICAL;
 //   - `doctrine` verbs, `behavior` hooks and `stock` (a total no-op today);
 //   - the parity property: the server's INCREMENTAL slot path and the client's
 //     REPLAYED `slotsWithCards` agree after any sequence of grants.
@@ -21,7 +23,9 @@ import {
   EQUIPMENT_IDS,
   LINE_IDS,
   NO_CARDS,
-  SLOT_EXTRA,
+  SLOT_BOOST,
+  SLOT_GUN,
+  WEAPON_SLOTS,
   applyCardStats,
   applySlotEffect,
   boonStackCount,
@@ -270,42 +274,77 @@ describe('cardCounts / boonStackCount — the copy-count spine', () => {
 
 describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])', () => {
   const stats = effectiveStats(TB);
-  const fill = (equipmentId: 'heavyTorpedo' | 'navalMines' | 'starShells'): BoonEffect =>
+  const fill = (equipmentId: 'heavyTorpedo' | 'navalMines' | 'starShells' | 'broadside'): BoonEffect =>
     ({ kind: 'slotFill', equipmentId });
+  const [W0, W1, W2] = WEAPON_SLOTS;
 
-  it('slotFill fills the EMPTY extra slot with a fresh full pool at current stats', () => {
-    const loadout = loadoutFor('battleship', stats); // no torpedo fitted
-    expect(loadout[SLOT_EXTRA].equipmentId).toBeNull();
+  it('slotFill fills the FIRST EMPTY WEAPON SLOT — 2, then 3, then 4, in fit order', () => {
+    // WAS: the single SLOT_EXTRA (3). The weapon row is three wide now, so the
+    // second and third equipment cards stop being no-ops (deferred-work :1988).
+    const loadout = loadoutFor(stats);
+    expect(loadout[W0].equipmentId).toBeNull();
     applySlotEffect(loadout, fill('heavyTorpedo'), stats);
-    expect(loadout[SLOT_EXTRA].equipmentId).toBe('heavyTorpedo');
-    expect(loadout[SLOT_EXTRA].state).toEqual({ n: equipmentMaxAmmo(stats, 'heavyTorpedo'), reloadMsLeft: 0 });
-  });
-
-  it('slotFill against an OCCUPIED extra slot is a silent no-op — existing state untouched', () => {
-    const loadout = loadoutFor('battleship', stats);
-    applySlotEffect(loadout, fill('heavyTorpedo'), stats);
-    const occupied = loadout[SLOT_EXTRA];
-    occupied.state!.n = 1;
-    occupied.state!.reloadMsLeft = 777;
-    const stateRef = occupied.state;
+    expect(loadout[W0].equipmentId).toBe('heavyTorpedo');
+    expect(loadout[W0].state).toEqual({ n: equipmentMaxAmmo(stats, 'heavyTorpedo'), reloadMsLeft: 0 });
     applySlotEffect(loadout, fill('navalMines'), stats);
-    expect(occupied.equipmentId).toBe('heavyTorpedo');
-    expect(occupied.state).toBe(stateRef);
-    expect(occupied.state).toEqual({ n: 1, reloadMsLeft: 777 });
+    expect(loadout[W1].equipmentId).toBe('navalMines');
+    applySlotEffect(loadout, fill('starShells'), stats);
+    expect(loadout[W2].equipmentId).toBe('starShells');
+    expect(loadout.map((s) => s.equipmentId)).toEqual([
+      'gun', 'speedBoost', 'heavyTorpedo', 'navalMines', 'starShells', null, null, null, null,
+    ]);
   });
 
-  it('slotFill of equipment ALREADY fitted is a no-op (the duplicate guard)', () => {
-    const loadout = loadoutFor('torpedoBoat', stats); // heavyTorpedo already in slot 1
+  it('A FILL TOUCHES ITS TARGET SLOT AND NOTHING ELSE — every other state object is REFERENCE-IDENTICAL', () => {
+    // THE identity pin: "fitting a weapon never touches another slot's timer"
+    // is a statement about object identity, not about equal numbers. Live
+    // timers make it bite — an implementation that rebuilds the array (or
+    // re-freshens a pool) fails here while a toEqual would pass.
+    const loadout = loadoutFor(stats);
     applySlotEffect(loadout, fill('heavyTorpedo'), stats);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'heavyTorpedo', 'speedBoost', null]);
-    expect(loadout[SLOT_EXTRA].state).toBeNull();
+    loadout[SLOT_GUN].state!.reloadMsLeft = 321;
+    loadout[SLOT_BOOST].state!.n = 0;
+    loadout[W0].state!.reloadMsLeft = 4242;
+    const slotRefs = [...loadout];
+    const stateRefs = loadout.map((s) => s.state);
+    applySlotEffect(loadout, fill('navalMines'), stats);
+    loadout.forEach((slot, i) => {
+      expect(slot, `slot ${i}`).toBe(slotRefs[i]); // the ARRAY is mutated in place
+      if (i !== W1) expect(slot.state, `slot ${i} state`).toBe(stateRefs[i]);
+    });
+    expect(loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 321 });
+    expect(loadout[SLOT_BOOST].state!.n).toBe(0);
+    expect(loadout[W0].state).toEqual({ n: equipmentMaxAmmo(stats, 'heavyTorpedo'), reloadMsLeft: 4242 });
+  });
+
+  it('a FULL weapon row is a silent no-op — the loadout is untouched, nothing spills into the belt', () => {
+    const loadout = loadoutFor(stats);
+    for (const e of [fill('heavyTorpedo'), fill('navalMines'), fill('starShells')]) {
+      applySlotEffect(loadout, e, stats);
+    }
+    const before = loadout.map((s) => s.equipmentId);
+    const stateRefs = loadout.map((s) => s.state);
+    applySlotEffect(loadout, fill('broadside'), stats);
+    expect(loadout.map((s) => s.equipmentId)).toEqual(before);
+    loadout.forEach((s, i) => expect(s.state, `slot ${i}`).toBe(stateRefs[i]));
+  });
+
+  it('slotFill of equipment ALREADY fitted is a no-op (the duplicate guard, over ANY slot)', () => {
+    const loadout = loadoutFor(stats);
+    applySlotEffect(loadout, fill('heavyTorpedo'), stats);
+    const stateRef = loadout[W0].state;
+    loadout[W0].state!.n = 1;
+    applySlotEffect(loadout, fill('heavyTorpedo'), stats);
+    expect(loadout[W0].state).toBe(stateRef);
+    expect(loadout[W0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // never re-freshened
+    expect(loadout[W1].equipmentId).toBeNull(); // and it did NOT land in the next slot
     // An UNfitted id still fills normally (the guard is duplicate-only).
     applySlotEffect(loadout, fill('navalMines'), stats);
-    expect(loadout[SLOT_EXTRA].equipmentId).toBe('navalMines');
+    expect(loadout[W1].equipmentId).toBe('navalMines');
   });
 
   it('stat, behavior, doctrine AND stock effects are structural no-ops in the slot home', () => {
-    const loadout = loadoutFor('torpedoBoat', stats);
+    const loadout = loadoutFor(stats);
     const slotRefs = [...loadout];
     const stateRefs = loadout.map((s) => s.state);
     const effects: BoonEffect[] = [
@@ -320,7 +359,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
   });
 
   it('`slotReplace` IS DELETED: an untyped one moves nothing (no catalog-v3 line swaps equipment)', () => {
-    const loadout = loadoutFor('torpedoBoat', stats);
+    const loadout = loadoutFor(stats);
     const before = loadout.map((s) => s.equipmentId);
     applySlotEffect(loadout, { kind: 'slotReplace', from: 'heavyTorpedo', to: 'navalMines' } as unknown as BoonEffect, stats);
     expect(loadout.map((s) => s.equipmentId)).toEqual(before);
@@ -335,7 +374,7 @@ describe('two homes — a card may touch stats and slots, NOTHING else, each via
   it('a stat-only card leaves the loadout REFERENCE-EQUAL through the slot path', () => {
     const l = line('t', { kind: 'stat', path: 'kinematics.maxSpeed', mult: 1.1 });
     const stats = foldOne(TB, l);
-    const base = loadoutFor('torpedoBoat', stats);
+    const base = loadoutFor(stats);
     const slotRefs = [...base];
     for (const e of l.tiers[0]) applySlotEffect(base, e, stats);
     base.forEach((s, i) => expect(s).toBe(slotRefs[i]));
@@ -387,7 +426,7 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
   function serverIncremental(cls: ShipClassId, cards: readonly LineId[]): LoadoutSlot[] {
     const held: LineId[] = [];
     let stats = effectiveStats(CONFIG.shipClasses[cls]);
-    const loadout = loadoutFor(cls, stats);
+    const loadout = loadoutFor(stats);
     for (const id of cards) {
       held.push(id);
       stats = effectiveStats(CONFIG.shipClasses[cls], held);
@@ -405,7 +444,7 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
       const n = rng.int(0, 6);
       const cards = Array.from({ length: n }, () => rng.pick(POOL));
       const server = serverIncremental(cls, cards).map((s) => s.equipmentId);
-      const client = slotsWithCards(cls, effectiveStats(CONFIG.shipClasses[cls], cards), cards)
+      const client = slotsWithCards(effectiveStats(CONFIG.shipClasses[cls], cards), cards)
         .map((s) => s.equipmentId);
       expect(client, cards.join('+')).toEqual(server);
     }
@@ -413,28 +452,40 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
 
   it('slotsWithCards at zero cards equals plain loadoutFor (byte-identical baseline)', () => {
     const stats = effectiveStats(TB);
-    expect(slotsWithCards('torpedoBoat', stats, [])).toEqual(loadoutFor('torpedoBoat', stats));
+    expect(slotsWithCards(stats, [])).toEqual(loadoutFor(stats));
+    // ...and the fleet flag rides through to the gun-only drone fit (a drone
+    // holds no cards at all — EMPTY_DECK_LIST — so this IS its whole loadout).
+    expect(slotsWithCards(stats, [], CATALOG, true)).toEqual(loadoutFor(stats, true));
+    expect(slotsWithCards(stats, [], CATALOG, true)[SLOT_BOOST])
+      .toEqual({ equipmentId: null, state: null });
   });
 
   it('a capacity ladder + an equipment fit compose: turret pool 2 beside a fresh fill', () => {
     const cards: LineId[] = ['deckGunTurret', 'navalMines'];
     const stats = effectiveStats(BS, cards);
-    const loadout = slotsWithCards('battleship', stats, cards);
-    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'broadside', 'starShells', 'navalMines']);
+    const loadout = slotsWithCards(stats, cards);
+    expect(loadout.map((s) => s.equipmentId)).toEqual([
+      'gun', 'speedBoost', 'navalMines', null, null, null, null, null, null,
+    ]);
     expect(loadout[0].state).toEqual({ n: 2, reloadMsLeft: 0 }); // DECK GUN TURRET pool
-    expect(loadout[SLOT_EXTRA].state).toEqual({ n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 });
+    expect(loadout[WEAPON_SLOTS[0]].state).toEqual({ n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 });
   });
 
-  it('THE EXTRA SLOT IS FIRST-FIT: the replay follows FIT order, where the stat fold does not', () => {
-    // One extra slot, two equipment cards — which one a captain ends up
-    // carrying is a fact about the order they took the cards in. The stats,
+  it('THE WEAPON ROW IS FIRST-EMPTY-FIRST: the replay follows FIT order, where the stat fold does not', () => {
+    // Three weapon slots, two equipment cards — WHICH weapon sits in Q and
+    // which in E is a fact about the order they took the cards in. The stats,
     // meanwhile, are identical either way: that asymmetry is the contract.
+    // (Before Story 8.5 the same asymmetry decided which single card landed at
+    // all; now both land, in order.)
     const cards: LineId[] = ['navalMines', 'heavyTorpedo'];
     const reversed: LineId[] = ['heavyTorpedo', 'navalMines'];
     const stats = effectiveStats(BS, cards);
     expect(effectiveStats(BS, reversed)).toEqual(stats);
-    expect(slotsWithCards('battleship', stats, cards)[SLOT_EXTRA].equipmentId).toBe('navalMines');
-    expect(slotsWithCards('battleship', stats, reversed)[SLOT_EXTRA].equipmentId).toBe('heavyTorpedo');
+    const [Q, E] = WEAPON_SLOTS;
+    expect(slotsWithCards(stats, cards)[Q].equipmentId).toBe('navalMines');
+    expect(slotsWithCards(stats, cards)[E].equipmentId).toBe('heavyTorpedo');
+    expect(slotsWithCards(stats, reversed)[Q].equipmentId).toBe('heavyTorpedo');
+    expect(slotsWithCards(stats, reversed)[E].equipmentId).toBe('navalMines');
   });
 });
 
@@ -450,18 +501,22 @@ describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
   const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
 
   it('slotsWithCards over a stub id leaves the loadout exactly loadoutFor', () => {
-    expect(slotsWithCards('torpedoBoat', stats, ['lightTorpedo'])).toEqual(loadoutFor('torpedoBoat', stats));
-    expect(slotsWithCards('battleship', stats, ['captiveMines', 'monitor', 'flak']))
-      .toEqual(loadoutFor('battleship', stats));
+    expect(slotsWithCards(stats, ['lightTorpedo'])).toEqual(loadoutFor(stats));
+    expect(slotsWithCards(stats, ['captiveMines', 'monitor', 'flak'])).toEqual(loadoutFor(stats));
   });
 
   it('...and a LIVE line still fills it, so the guard is about stubs alone', () => {
-    expect(slotsWithCards('battleship', stats, ['navalMines'])[SLOT_EXTRA].equipmentId).toBe('navalMines');
+    expect(slotsWithCards(stats, ['navalMines'])[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
+  });
+
+  it('a stub NEVER consumes a weapon slot — a live line behind it still takes slot 2', () => {
+    // The stub is skipped, not "fitted then ignored": the row does not shift.
+    expect(slotsWithCards(stats, ['lightTorpedo', 'navalMines'])[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
   });
 
   it('applySlotEffect itself refuses a stub fill', () => {
-    const loadout = loadoutFor('torpedoBoat', stats);
+    const loadout = loadoutFor(stats);
     applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'missile' }, stats);
-    expect(loadout[SLOT_EXTRA].equipmentId).toBeNull();
+    for (const i of WEAPON_SLOTS) expect(loadout[i].equipmentId).toBeNull();
   });
 });

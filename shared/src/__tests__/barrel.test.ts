@@ -9,6 +9,10 @@ import {
   fleetLevels,
   MSG,
   SLOT_COUNT,
+  SLOT_BOOST,
+  WEAPON_SLOTS,
+  CONSUMABLE_SLOTS,
+  SPAWN_SEED,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
@@ -237,7 +241,13 @@ describe('shared barrel', () => {
     // re-shaped onto one total `equipment` record, and CONFIG.deck/CONFIG.catalog
     // moving in the welcome snapshot. Both sides resolve card ids fail-closed,
     // so a stale client would silently mis-simulate every build it was dealt.
-    expect(PROTOCOL_VERSION).toBe(51);
+    // 51 -> 52: NINE SLOTS (Story 8.5). The loadout becomes one flat
+    // nine-slot array with fixed roles (gun, boost, three weapons, four
+    // consumables), identical for every captain hull, so `OwnShip.ammo`
+    // widens from 4 slot-aligned entries to 9 and `InputMsg.slot`/`actSlot`
+    // widen to 0..8. No field is added, removed or renamed: a stale client
+    // would read a nine-entry `ammo` through a four-slot hotbar.
+    expect(PROTOCOL_VERSION).toBe(52);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -257,7 +267,7 @@ describe('shared barrel', () => {
   it('re-exports config, wire tags, and functions', () => {
     expect(CONFIG.tick.simDtMs).toBe(50);
     expect(MSG.input).toBe('i');
-    expect(SLOT_COUNT).toBe(4);
+    expect(SLOT_COUNT).toBe(9); // Story 8.5: was 4 (gun, two specials, one extra)
     expect(typeof mapRadius).toBe('function');
     expect(typeof stepShip).toBe('function');
     expect(typeof generateMap).toBe('function');
@@ -374,6 +384,18 @@ describe('shared barrel', () => {
     // The return-grammar echo-size primitive (radar realism cycle, PV 26).
     expect(typeof perpendicularExtent).toBe('function');
     expect(CONFIG.drones.medium.hp).toBe(60); // RETUNED 100 -> 75 -> 60 (epic-6 amendment 24)
+  });
+
+  it('re-exports the NINE-SLOT grammar and the interim spawn seed (Story 8.5)', () => {
+    expect(SLOT_BOOST).toBe(1);
+    expect(WEAPON_SLOTS).toEqual([2, 3, 4]);
+    expect(CONSUMABLE_SLOTS).toEqual([5, 6, 7, 8]);
+    expect(SPAWN_SEED.torpedoBoat).toEqual(['heavyTorpedo']);
+    expect(SPAWN_SEED.battleship).toEqual(['broadside', 'starShells']);
+    expect(SPAWN_SEED.mineLayer).toEqual(['navalMines']);
+    // The per-hull fit died with the extra slot (Story 8.5).
+    const ns = shared as Record<string, unknown>;
+    for (const gone of ['SLOT_EXTRA', 'specialsFor']) expect(ns[gone], gone).toBeUndefined();
   });
 
   it('re-exports the loadout + kinematics-fold systems (boost AND the 2.8 slow)', () => {
