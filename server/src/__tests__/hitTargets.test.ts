@@ -10,8 +10,10 @@
 //   * the memo (per tick, per mask, mask order irrelevant) and its two
 //     invalidations — a SINK and a CONSUMED MINE;
 //   * the four kinds, including `ordnance` pinned EMPTY until flak (8.14);
-//   * amendments 16-18 (shoot any armed mine, chains cross owners, captives and
-//     arming mines immune both ways) end to end through a real World;
+//   * amendments 16/18/20 (a BURST at the clicked point sets off any armed
+//     mine whoever laid it, chains cross owners, captives and arming mines are
+//     immune, and a shell IN FLIGHT never touches a mine at all) end to end
+//     through a real World;
 //   * amendment 19 (a burst over a hull sunk this tick marks `hc`, not `sp`)
 //     and the star shell's surviving exclusion;
 //   * `deferred-work.md:594` — a later shell of one click passes THROUGH a
@@ -29,6 +31,7 @@ import {
   type TargetKind,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
 
 const SLOT_GUN = 0;
@@ -156,7 +159,7 @@ describe('hitTargets — the four kinds', () => {
     expect(t.poly).toEqual([{ x: 120, y: -30 }]);
   });
 
-  it('`mine` OMITS a still-arming mine and a captive layer\'s mine — a shell must fly ON, not stop', () => {
+  it('`mine` OMITS a still-arming mine and a captive layer\'s mine — a burst must not set them off', () => {
     const w = bareWorld();
     const layer = place(w, 'cap', 800, 800, 0, 'mineLayer');
     layer.stats.equipment.navalMines.captive = true;
@@ -204,71 +207,148 @@ describe('hitTargets — the four kinds', () => {
 // AMENDMENTS 16-18 — shooting mines, end to end
 // ---------------------------------------------------------------------------
 
-describe('shooting a mine (amendments 16-18)', () => {
+describe('gunfire and mines (amendments 16/18/20)', () => {
   /** The shooter alone at the origin, gun pointing +x. */
-  function board(): World {
-    const w = bareWorld(21);
+  function board(seed = 21): World {
+    const w = bareWorld(seed);
     place(w, 'a', 0, 0, 0, 'mineLayer');
     return w;
   }
 
-  it("a shell that PASSES OVER an enemy's armed mine detonates it — the mine's blast, at the mine", () => {
-    const w = board();
-    mine(w, 'm1', 'x', 200, 0); // an ENEMY mine, short of the click point
+  /** Fire the gun at (dist, 0) over a board carrying `mines`, and record the
+   *  SHOOTER'S OWN FRAME EVENTS for every tick of the shot's life. Events, not
+   *  contacts: a mine inside the detect ring legitimately paints as a contact,
+   *  and amendment 20 is about what the SHOT tells you, not about what you can
+   *  already see. */
+  function fireAndRecord(
+    dist: number,
+    mines: readonly (readonly [string, string, number, number])[],
+    seed = 21,
+  ): { frames: GameEvent[][]; w: World } {
+    const w = board(seed);
+    for (const [id, owner, x, y] of mines) mine(w, id, owner, x, y);
+    w.submitInput('a', {
+      seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist,
+      slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
+    });
+    const frames: GameEvent[][] = [];
+    for (let i = 0; i < 40; i += 1) {
+      w.step();
+      frames.push(buildFrame(w, 'a').events as GameEvent[]);
+    }
+    return { frames, w };
+  }
+
+  const flat = (frames: GameEvent[][]): GameEvent[] => frames.flat();
+
+  // -------------------------------------------------------------------------
+  // AMENDMENT 20 — a shell in flight never touches a mine (Eric 2026-09-16)
+  // -------------------------------------------------------------------------
+
+  it('(a) an armed ENEMY mine squarely on the path, OUTSIDE sight: the shell flies on and bursts at the clicked point', () => {
+    // 400u is past both the 3/8 detect rung and the true-sight bubble, so the
+    // shooter has no sanctioned knowledge of this mine at all.
+    expect(CONFIG.vision.detect).toBeLessThan(400);
+    expect(CONFIG.vision.sight).toBeLessThan(400);
+    const shot = fireAndRecord(600, [['m1', 'x', 400, 0]]);
+    expect(shot.w.mines.has('m1')).toBe(true); // never detonated
+    const burst = flat(shot.frames).find((e) => e.k === 'burst');
+    expect(burst).toMatchObject({ k: 'burst', x: 600, y: 0 }); // reached the aim point
+  });
+
+  it('(a) and the shooter\'s event stream is BYTE-IDENTICAL to the same shot over empty water', () => {
+    // THE RULING, as an equality: "under no circumstances whatsoever should it
+    // block a shot, register a hit or miss, or give any indication whatsoever
+    // to the shooter that anything might be there." Anything the mine changed
+    // — an earlier boom, a missing burst, an `hc`, a moved `sp` — shows up
+    // here as a diff.
+    const withMine = fireAndRecord(600, [['m1', 'x', 400, 0]]);
+    const cleanWater = fireAndRecord(600, []);
+    expect(withMine.frames).toEqual(cleanWater.frames);
+  });
+
+  it('(b) the same holds with the mine INSIDE the shooter\'s sight — seeing it changes nothing about the shot', () => {
+    expect(CONFIG.vision.detect).toBeGreaterThan(200);
+    const withMine = fireAndRecord(600, [['m1', 'x', 200, 0]]);
+    const cleanWater = fireAndRecord(600, []);
+    expect(withMine.w.mines.has('m1')).toBe(true);
+    expect(withMine.frames).toEqual(cleanWater.frames);
+  });
+
+  it('(b) the shooter\'s OWN armed mine on the path is equally untouched', () => {
+    const withMine = fireAndRecord(600, [['m1', 'a', 300, 0]]);
+    const cleanWater = fireAndRecord(600, []);
+    expect(withMine.w.mines.has('m1')).toBe(true);
+    expect(withMine.frames).toEqual(cleanWater.frames);
+  });
+
+  it('(b) a mine inside the would-be BLAST but short of the aim point never bursts the shell early', () => {
+    // The interception proximity exception (a target inside the would-be blast
+    // bursts the shell for full damage) must have no mine case either.
+    const near = 600 - CONFIG.gun.burstRadius + 1;
+    const withMine = fireAndRecord(600, [['m1', 'x', near, 0]]);
+    const cleanWater = fireAndRecord(600, []);
+    expect(withMine.w.mines.has('m1')).toBe(false); // the BURST at 600 covers it
+    // The mine dies to the burst at the clicked point — not to contact — so the
+    // shooter's own marks are the clean-water ones up to the mine's own boom.
+    const marks = flat(withMine.frames).filter((e) => e.k === 'hc' || e.k === 'sp');
+    const cleanMarks = flat(cleanWater.frames).filter((e) => e.k === 'hc' || e.k === 'sp');
+    expect(marks).toEqual(cleanMarks);
+  });
+
+  // -------------------------------------------------------------------------
+  // AMENDMENTS 16/18 — the BURST at the clicked point is the one trigger
+  // -------------------------------------------------------------------------
+
+  it('(c) a burst whose radius covers a mine CENTRE detonates it — any owner, the mine\'s own blast at the mine', () => {
+    const w = board(22);
+    mine(w, 'm1', 'x', 600, 0); // an ENEMY mine, AT the clicked point
     shootAt(w, 'a', 600);
     expect(w.mines.has('m1')).toBe(false);
     const boom = w.tickEvents.find((e): e is BoomEvent => e.k === 'boom' && e.id === 'm1');
-    expect(boom).toEqual({ k: 'boom', id: 'm1', x: 200, y: 0 }); // at the MINE
+    expect(boom).toEqual({ k: 'boom', id: 'm1', x: 600, y: 0 }); // at the MINE
   });
 
-  it('the shell is CONSUMED by the mine: it never reaches its own burst point', () => {
-    const w = board();
-    mine(w, 'm1', 'x', 200, 0);
-    shootAt(w, 'a', 600);
-    expect(w.tickEvents.some((e) => e.k === 'burst')).toBe(false);
-    expect(w.shells.size).toBe(0);
-  });
-
-  it("the shooter's OWN armed mine is set off by the shooter's own shell (the one pinned exception)", () => {
-    const w = board();
-    mine(w, 'm1', 'a', 200, 0);
+  it('(c) the shooter\'s OWN mine is set off by the shooter\'s own burst (the one pinned owner-immunity exception)', () => {
+    const w = board(23);
+    mine(w, 'm1', 'a', 600, 0);
     shootAt(w, 'a', 600);
     expect(w.mines.has('m1')).toBe(false);
   });
 
-  it('a STILL-ARMING mine is not set off, and does not stop the shell either', () => {
-    const w = board();
-    mine(w, 'm1', 'x', 200, 0, 999_999);
-    shootAt(w, 'a', 600);
-    expect(w.mines.has('m1')).toBe(true);
-    expect(w.tickEvents.some((e) => e.k === 'burst')).toBe(true); // it flew on and burst
-  });
-
-  it("a CAPTIVE layer's mine is not set off, and does not stop the shell either (R2.18)", () => {
-    const w = board();
+  it('(c) the detonation CHAINS ACROSS OWNERS in the same tick (amendment 18), skipping captives and arming mines', () => {
+    const w = board(24);
     const layer = place(w, 'cap', 900, 900, 0, 'mineLayer');
     layer.stats.equipment.navalMines.captive = true;
-    mine(w, 'm1', 'cap', 200, 0);
-    shootAt(w, 'a', 600);
-    expect(w.mines.has('m1')).toBe(true);
-    expect(w.tickEvents.some((e) => e.k === 'burst')).toBe(true);
-  });
-
-  it('a detonation CHAINS ACROSS OWNERS in the same tick (amendment 18), skipping captives and arming mines', () => {
-    const w = board();
-    const layer = place(w, 'cap', 900, 900, 0, 'mineLayer');
-    layer.stats.equipment.navalMines.captive = true;
-    mine(w, 'shot', 'x', 200, 0); // the one the shell hits
-    mine(w, 'mine-mine', 'a', 200, 40); // MINE within the 48u blast — a DIFFERENT owner
-    mine(w, 'third', 'y', 200, 80); // chained off the second, a THIRD owner
-    mine(w, 'cold', 'x', 200, 120, 999_999); // still arming — immune
-    mine(w, 'captive', 'cap', 200, 45); // captive — immune, and propagates nothing
+    mine(w, 'shot', 'x', 600, 0); // the one the BURST covers
+    mine(w, 'mine-mine', 'a', 600, 40); // within the 48u blast — a DIFFERENT owner
+    mine(w, 'third', 'y', 600, 80); // chained off the second, a THIRD owner
+    mine(w, 'cold', 'x', 600, 120, 999_999); // still arming — immune
+    mine(w, 'captive', 'cap', 600, 45); // captive — immune, and propagates nothing
     shootAt(w, 'a', 600);
     expect(w.mines.has('shot')).toBe(false);
     expect(w.mines.has('mine-mine')).toBe(false);
     expect(w.mines.has('third')).toBe(false);
     expect(w.mines.has('cold')).toBe(true);
     expect(w.mines.has('captive')).toBe(true);
+  });
+
+  it('(d) a STILL-ARMING mine under the burst is not set off, and the shell still bursts', () => {
+    const w = board(25);
+    mine(w, 'm1', 'x', 600, 0, 999_999);
+    shootAt(w, 'a', 600);
+    expect(w.mines.has('m1')).toBe(true);
+    expect(w.tickEvents.some((e) => e.k === 'burst')).toBe(true);
+  });
+
+  it('(d) a CAPTIVE layer\'s mine under the burst is not set off either (R2.18)', () => {
+    const w = board(26);
+    const layer = place(w, 'cap', 900, 900, 0, 'mineLayer');
+    layer.stats.equipment.navalMines.captive = true;
+    mine(w, 'm1', 'cap', 600, 0);
+    shootAt(w, 'a', 600);
+    expect(w.mines.has('m1')).toBe(true);
+    expect(w.tickEvents.some((e) => e.k === 'burst')).toBe(true);
   });
 
   it('a STAR SHELL detonates nothing: illumination is not minefield clearing (AR44 mask)', () => {
@@ -399,48 +479,19 @@ describe('the 500-live-mine performance pin (NFR23)', () => {
 // THE REVIEW PATCHES (Story 8.4 review, 2026-09-16)
 // ---------------------------------------------------------------------------
 
-describe('P1 — a shell consumed by a MINE emits no mark to the shooter', () => {
-  // A hull is a DISCLOSED entity, so an `hc` within shellRadius of one tells
-  // the shooter nothing the sight/radar channels do not already sanction. A
-  // MINE is disclosed only inside the detect ring: a self-private mark within
-  // shellRadius of an UNSEEN mine would be an unsanctioned detection channel —
-  // walk your shells across the water and read the marks to map a minefield you
-  // were never shown. Same class as the star-shell rule in resolveBurst.
-  const shooterMarks = (w: World): GameEvent[] =>
-    w.tickEvents.filter((e) => (e.k === 'hc' || e.k === 'sp') && e.id === 'a');
-
-  it('an armed enemy mine on the shell path yields NO `hc` and NO `sp`', () => {
-    const w = bareWorld(41);
-    place(w, 'a', 0, 0, 0, 'mineLayer');
-    mine(w, 'm1', 'x', 200, 0);
-    shootAt(w, 'a', 600);
-    expect(w.mines.has('m1')).toBe(false); // it DID detonate
-    expect(w.tickEvents.some((e) => e.k === 'boom' && e.id === 's1')).toBe(true); // the shell still booms
-    expect(shooterMarks(w)).toEqual([]);
-  });
-
-  it("a HULL contact still yields `hc` — the disclosed entity keeps today's mark", () => {
-    const w = bareWorld(42);
-    place(w, 'a', 0, 0, 0, 'mineLayer');
-    place(w, 'b', 200, 0);
-    shootAt(w, 'a', 600);
-    expect(shooterMarks(w).map((e) => e.k)).toEqual(['hc']);
-  });
-
-  it('a BURST covering only a mine is unchanged: it still resolves as `sp`', () => {
-    const w = bareWorld(43);
-    place(w, 'a', 0, 0, 0, 'mineLayer');
-    mine(w, 'm1', 'x', 600, 0);
-    shootAt(w, 'a', 600);
-    expect(w.mines.has('m1')).toBe(false);
-    expect(shooterMarks(w).some((e) => e.k === 'hc')).toBe(false);
-  });
-});
+// P1 IS RETIRED BY AMENDMENT 20 (Eric 2026-09-16). It pinned the marks a
+// MINE-CONSUMED shell may emit (none) — and there is no mine-consumed shell any
+// more: a shell never collides with a mine at all. The stronger rule that
+// replaces it is the byte-identical event-stream comparison in "gunfire and
+// mines" above, which allows no emission of ANY kind, not just no `hc`/`sp`.
 
 describe('P2 — the interception dispatches by KIND, not by store membership', () => {
   it('a HULL whose id equals a live mine id takes contact damage; the mine is untouched', () => {
     // Ids live in different namespaces but NOTHING enforces that. Under the old
-    // `this.mines.get(id)` dispatch the collision resolved as the MINE.
+    // `this.mines.get(id)` dispatch the collision resolved as the MINE. The
+    // in-flight half of that defect is now structurally impossible (amendment
+    // 20 keeps mines out of the sweep entirely); the KIND dispatch survives
+    // because hull-vs-decoy still turns on it.
     const w = bareWorld(44);
     place(w, 'a', 0, 0, 0, 'mineLayer');
     const b = place(w, 'collide', 200, 0);

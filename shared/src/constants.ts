@@ -26,6 +26,12 @@ const SIGHT = 330;
  * gets NO row until its own story — an undeclared mask is a loud failure, a
  * defaulted one is a silent wrong answer.
  *
+ * `mine` IN A MASK IS BURST-ONLY (amendment 20, Eric 2026-09-16). It says the
+ * weapon's BURST, at the point the shooter clicked, can set a mine off. It
+ * never means a projectile in flight may touch one: a shell passing over a
+ * mine on its way somewhere else does not stop, does not set it off and tells
+ * the shooter nothing (the World strips the bit off the mask it sweeps with).
+ *
  * NOT a wire contract: the client never reads `hits`, so adding these rows does
  * NOT bump PROTOCOL_VERSION (pinned at 51 by a test).
  */
@@ -1120,8 +1126,9 @@ export const CONFIG = {
    */
   gun: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
-    // AR44: the gun family hits hulls, MINES (amendments 16/17 — any armed
-    // non-captive mine, yours included) and decoys.
+    // AR44: the gun family hits hulls, decoys and — WITH ITS BURST ONLY
+    // (amendments 16/20) — any armed non-captive MINE the burst at the clicked
+    // point covers, yours included. A shell in flight never touches a mine.
     hits: HITS_HULL_MINE_DECOY,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
@@ -1315,8 +1322,8 @@ export const CONFIG = {
     //
     // AR44: a mine TRIPS on hulls only — a decoy, a buoy or another mine
     // sailing into its ring is not a hull and must not set it off (remote
-    // minefield clearing is a mechanic nobody ruled on; shooting the mine is
-    // the sanctioned way, amendment 16).
+    // minefield clearing is a mechanic nobody ruled on; CLICKING ON the mine,
+    // so that your burst covers it, is the sanctioned way — amendments 16/20).
     hits: HITS_HULL,
     // --- PROP-FOULING MINES doctrine. Victims of a fouling blast are slowed
     // (self-private you.slowedUntil; sim/slow.ts slowedKinematics — composition
@@ -1403,7 +1410,8 @@ export const CONFIG = {
   broadside: {
     // deg — bearing of each sector's CENTER off the bow (±): the beams.
     arcOffsetDeg: 90,
-    // AR44: gun family — hulls, mines, decoys (the gun's own mask).
+    // AR44: gun family — hulls, decoys, and mines by BURST only (the gun's own
+    // mask; amendment 20).
     hits: HITS_HULL_MINE_DECOY,
     // deg — half-width of each beam sector about its center.
     arcHalfArcDeg: 60,
@@ -1607,7 +1615,7 @@ export const CONFIG = {
   radarBuoy: {
     radarRange: 330, // u — the buoy's OWN radar reach (flat; never observer-scaled)
     // AR44: the GUN BUOY's shells are ordinary gun-pattern shells, so they
-    // carry the gun's mask.
+    // carry the gun's mask (mines by BURST only — amendment 20).
     hits: HITS_HULL_MINE_DECOY,
     sweepRpm: 15, // rev/min — its own sweep; FIXED (R2.20 moved BUOY I-IV to durationMs; no card writes it)
     durationMs: 20000, // ms — lifetime before natural expiry

@@ -489,47 +489,72 @@ describe('burstVictims — blast membership (silhouette within burstRadius, owne
 });
 
 // ---------------------------------------------------------------------------
-// STORY 8.4 — POINT TARGETS AND KINDS (amendments 16-18; AR44)
+// STORY 8.4 — KINDS, AND THE MINE'S BURST-ONLY POINT (amendments 16/18/20; AR44)
 // ---------------------------------------------------------------------------
 
 /** A MINE as the collector builds it: a one-vertex (degenerate) polygon at the
- *  mine centre. No mine-size number exists — amendment 17 makes the SHELL's own
- *  radius the whole hit rule. */
+ *  mine centre. That polygon is BURST GEOMETRY ONLY (amendment 20) — no
+ *  mine-size number exists, and nothing in flight is ever resolved against it. */
 function mineAt(x: number, y: number, id = 'm1'): Target {
   return { id, kind: 'mine', poly: [{ x, y }] };
 }
 
-describe('stepShell — a mine is a POINT target (amendment 17)', () => {
-  it("a shell whose path passes within its own hitRadius of a mine centre hits it", () => {
-    // The shell flies +x along y = 0 from the origin; hitRadius is 2u.
-    const grazing = mineAt(300, CONFIG.gun.shellRadius - 0.5);
-    const out = stepToOutcome(shell({ hits: CONFIG.gun.hits }), ctx({ targets: [grazing] }));
-    expect(out.kind).toBe('hitShip');
-    if (out.kind === 'hitShip') expect(out.victimId).toBe('m1');
+describe('stepShell — a mine is NEVER a collision subject in flight (amendment 20)', () => {
+  // Eric, 2026-09-16: "If I did not DIRECTLY click on the mine, then UNDER NO
+  // CIRCUMSTANCES WHATSOEVER SHOULD IT BLOCK A SHOT, REGISTER A HIT OR MISS, OR
+  // GIVE ANY INDICATION WHATSOEVER TO THE SHOOTER THAT ANYTHING MIGHT BE THERE."
+  // The World already builds a mine-free sweep list; these pin the same rule in
+  // the pure function, so neither half alone can bring the contact path back.
+
+  it('a gun shell flying straight over a mine CENTRE bursts at its own aim point, unaffected', () => {
+    const dead = mineAt(300, 0); // dead centre of the path, not merely grazing
+    const out = stepToOutcome(gunShell(600), ctx({ targets: [dead] }));
+    expect(out).toEqual({ kind: 'burst', x: 600, y: 0 });
   });
 
-  it('a mine just outside the shell radius is missed — the shell flies on', () => {
-    const clear = mineAt(300, CONFIG.gun.shellRadius + 0.5);
-    expect(stepToOutcome(shell(), ctx({ targets: [clear] })).kind).toBe('expired');
+  it('the outcome is IDENTICAL to the same shot over empty water', () => {
+    const overMine = stepToOutcome(gunShell(600), ctx({ targets: [mineAt(300, 0)] }));
+    const overWater = stepToOutcome(gunShell(600), ctx({ targets: [] }));
+    expect(overMine).toEqual(overWater);
   });
 
-  it("the OWNER'S OWN mine is hittable by the owner's own shell (the one pinned exception to owner immunity)", () => {
-    // Owner immunity keys on kind 'hull': a mine carrying the shooter's own id
-    // is still a legal target (FR57 / amendment 16).
+  it('a CONTACT-ONLY projectile (torpedo rule) runs past a mine centre and expires at range', () => {
+    expect(stepToOutcome(shell(), ctx({ targets: [mineAt(300, 0)] })).kind).toBe('expired');
+  });
+
+  it("the OWNER'S own mine is untouched in flight too — the rule is about the KIND, not the owner", () => {
     const own: Target = { id: 'owner', kind: 'mine', poly: [{ x: 300, y: 0 }] };
-    const out = stepToOutcome(shell(), ctx({ targets: [own] }));
-    expect(out.kind).toBe('hitShip');
-    if (out.kind === 'hitShip') expect(out.victimId).toBe('owner');
+    expect(stepToOutcome(shell(), ctx({ targets: [own] })).kind).toBe('expired');
+  });
+
+  it('a mine inside the would-be BLAST never triggers the proximity exception early', () => {
+    // A HULL there bursts the shell at the target point from wherever it was
+    // intercepted; a mine must not even be looked at, so the shell simply flies
+    // the whole way and bursts on arrival.
+    const inBlast = mineAt(600 - CONFIG.gun.burstRadius + 1, 0);
+    expect(stepToOutcome(gunShell(600), ctx({ targets: [inBlast] }))).toEqual({
+      kind: 'burst', x: 600, y: 0,
+    });
   });
 
   it("the owner's own HULL is still never hit, at any range", () => {
     const own = hullAt(300, 0, Math.PI / 2, 'owner');
     expect(stepToOutcome(shell(), ctx({ targets: [own] })).kind).toBe('expired');
   });
+
+  it('an ACOUSTIC HOMING fish never locks onto a mine (no steer, no lock)', () => {
+    const fish = shell({
+      homing: { turnRate: 5, acquireRange: 1000 },
+      targetX: null, targetY: null, burstRadius: 0,
+    });
+    stepShell(fish, ctx({ targets: [mineAt(300, 200)] }));
+    expect(fish.homing!.targetId).toBeUndefined();
+    expect(fish.vy).toBe(0); // dead straight: nothing to steer toward
+  });
 });
 
 describe('burstVictims — kinds (Story 8.4)', () => {
-  it('a burst covers a mine when the radius reaches its CENTRE, and reports the kind', () => {
+  it('a burst covers a mine when the radius reaches its CENTRE — the ONE gunfire path to a mine (amendment 20)', () => {
     const center = { x: 300, y: 0 };
     const near = mineAt(300 + CONFIG.gun.burstRadius - 1, 0, 'near');
     const far = mineAt(300 + CONFIG.gun.burstRadius + 1, 0, 'far');
@@ -541,7 +566,7 @@ describe('burstVictims — kinds (Story 8.4)', () => {
     ]);
   });
 
-  it("includes the OWNER'S own mines but never the owner's own hull", () => {
+  it("includes the OWNER'S own mines but never the owner's own hull (your burst sets off your own field)", () => {
     const center = { x: 0, y: 0 };
     const ownHull = hullAt(0, 0, 0, 'owner');
     const ownMine: Target = { id: 'owner', kind: 'mine', poly: [{ x: 0, y: 0 }] };

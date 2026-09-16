@@ -18,6 +18,15 @@
 //     not contact + burst). Early island contact stops the shell dead — no
 //     damage, no burst — unless the island COASTLINE is within the blast radius
 //     of the target (plain distance query, no LOS inside the small burst).
+//   - A MINE IS NEVER A COLLISION SUBJECT FOR A PROJECTILE IN FLIGHT
+//     (amendment 20, Eric 2026-09-16): a shell whose path crosses a mine on
+//     its way to the clicked point flies on exactly as if the mine were not
+//     there — it does not stop, the mine does not detonate, and NOTHING is
+//     emitted to the shooter. Gunfire sets a mine off only through the BURST
+//     at the clicked point covering the mine's centre (burstVictims). The
+//     sweep below skips `mine` targets outright and the server's collector
+//     already hands a shell a mine-free sweep list: both halves are
+//     deliberate, so neither side alone can reintroduce the contact path.
 //   - Torpedo (contact-only: no target, burstRadius 0): today's behavior
 //     byte-for-byte — first non-owner contact hits for full damage
 //     (contactDamage = damage), islands stop it, it runs until impact/edge.
@@ -136,10 +145,11 @@ export interface ShellState {
  * every ordnance row declares which of them its projectiles may touch through
  * `CONFIG.<ordnance>.hits`:
  *   - `hull`    — an afloat ship silhouette.
- *   - `mine`    — a laid mine, a POINT target (amendment 17: a shell detonates
- *                 it when its path passes within the SHELL's own radius of the
- *                 mine centre, which is exactly what a one-vertex polygon
- *                 means to segPolygonHit / pointPolygonDistance).
+ *   - `mine`    — a laid mine, a BURST-ONLY point target (amendment 20): it is
+ *                 NEVER swept against, so nothing in flight can touch it; the
+ *                 one-vertex polygon exists purely so burstVictims can ask
+ *                 "does the burst radius cover the mine's centre?" through the
+ *                 same point-to-polygon primitive every other kind uses.
  *   - `decoy`   — a dropped decoy-class object (the RADAR BUOY's square is the
  *                 interim occupant until Story 8.15 lands the decoy store).
  *   - `ordnance`— a projectile in flight; EMPTY until flak ships (Story 8.14).
@@ -155,7 +165,8 @@ export type TargetKind = 'hull' | 'mine' | 'decoy' | 'ordnance';
  * callers cache the transformed verts per tick); a mine's polygon is the
  * DEGENERATE one-vertex `[centre]`, which every polygon primitive here already
  * handles (segSegClosest treats an equal-endpoint segment as a point), so a
- * point target needs no second code path.
+ * point target needs no second code path. That polygon is BURST GEOMETRY ONLY
+ * (amendment 20): the swept collision never reads a mine's poly at all.
  */
 export interface Target {
   id: string;
@@ -214,20 +225,23 @@ function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Island[]): Hit | n
 }
 
 /**
- * Earliest TARGET hit along p0->p1. The firer's own HULL is permanently immune
- * (NO FRIENDLY FIRE, Eric 2026-09-11) — and ONLY its hull: the owner's own
- * MINES are deliberately hittable by the owner's own shells, the one pinned
- * exception to owner immunity (FR57 / amendment 16), and the kind test is what
- * states that here rather than relying on ship and mine ids never colliding.
+ * Earliest TARGET hit along p0->p1. Two kinds are structurally immune. The
+ * firer's own HULL (NO FRIENDLY FIRE, Eric 2026-09-11) — and only its HULL,
+ * which is why the test is on the kind rather than on ship and mine ids never
+ * colliding. And EVERY MINE, whoever laid it (amendment 20, Eric 2026-09-16:
+ * if the shooter did not DIRECTLY click on the mine, nothing about it may
+ * block the shot, register a hit or a miss, or tell the shooter anything at
+ * all) — gunfire reaches a mine only through burstVictims at the clicked
+ * point. The World already builds this list without mines; the kind check
+ * below keeps the rule true of the pure function on its own.
  * Null = no hit.
  */
 function earliestTarget(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
   let best: Hit | null = null;
   for (const t of ctx.targets) {
+    if (t.kind === 'mine') continue; // never in flight — burst-only (amendment 20)
     if (t.kind === 'hull' && t.id === shell.ownerId) continue; // own weapon never damages the owner
-    // Target polygon dilated by this projectile's own radius. For a mine the
-    // polygon is a single point, so this reduces to "the path passed within
-    // shellRadius of the mine centre" — amendment 17, no new number.
+    // Target polygon dilated by this projectile's own radius.
     const frac = segPolygonHit(p0, p1, t.poly, shell.hitRadius);
     if (frac === null) continue;
     if (best === null || frac < best.frac) best = { frac, victimId: t.id, poly: t.poly };
@@ -262,6 +276,8 @@ function polyInBlast(center: Vec2, radius: number, poly: readonly Vec2[]): boole
  * target point? Hulls use the burst-membership predicate; islands use the same
  * shape of test against the COASTLINE (islandDistance — signed, negative when
  * the target sits on the land itself). Always false for point-less projectiles.
+ * A MINE can never reach here: earliestTarget refuses the kind (amendment 20),
+ * so the proximity exception has no mine case to answer.
  */
 function interceptedInBlast(shell: ShellState, hit: Hit): boolean {
   if (shell.targetX === null || shell.targetY === null) return false;
@@ -315,6 +331,7 @@ function steerHoming(shell: ShellState, ctx: ShellContext): void {
   let bestId: string | undefined;
   let bestD = homing.acquireRange;
   for (const t of ctx.targets) {
+    if (t.kind === 'mine') continue; // a fish never locks a mine (amendment 20)
     if (t.kind === 'hull' && t.id === shell.ownerId) continue; // never homes on the owner
     const c = polyCentroid(t.poly);
     const d = Math.hypot(c.x - shell.x, c.y - shell.y);
@@ -401,9 +418,12 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
  * within `radius` of the center (point-to-polygon distance, 0 when the center
  * is inside the polygon) — the SAME predicate the interception proximity
  * exception uses, and for a mine's one-vertex polygon it reduces to "the burst
- * radius covers the mine centre" (amendment 17, the unchanged burst rule).
+ * radius covers the mine centre". THIS IS THE ONLY WAY GUNFIRE TOUCHES A MINE
+ * (amendment 20): the burst sits at the point the shooter CLICKED, so setting
+ * off a mine is always the shooter's own doing, never a by-product of a shell
+ * passing overhead on its way somewhere else.
  * The owner's own HULL is excluded (permanent owner immunity); the owner's own
- * MINES are NOT (FR57 / amendment 16 — your shells set off your own field).
+ * MINES are NOT (FR57 / amendment 16 — your burst sets off your own field).
  *
  * Returns the TARGETS, not ids: the caller dispatches on `kind` (a hull takes
  * damage through the gate, a mine detonates, a decoy takes its own outcome),

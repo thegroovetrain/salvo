@@ -850,6 +850,30 @@ export type HitTargets = (mask: readonly TargetKind[]) => readonly Target[];
 const MINE_BLAST_HITS: readonly TargetKind[] = ['hull', 'decoy'];
 
 /**
+ * THE SWEEP MASK (amendment 20, Eric 2026-09-16) — a projectile's own `hits`
+ * row with `mine` taken out. A mine is NEVER a collision subject for anything
+ * in flight: *"if I did not DIRECTLY click on the mine, then under no
+ * circumstances whatsoever should it block a shot, register a hit or miss, or
+ * give any indication whatsoever to the shooter that anything might be there"*.
+ * So every sweep runs against this mask and only the BURST at the clicked point
+ * runs against the full one.
+ *
+ * Memoized by the ROW OBJECT (the `CONFIG.<ordnance>.hits` arrays are frozen
+ * module constants, so there are three of them for the whole game), and a mask
+ * with no `mine` bit is returned UNCHANGED — same array, so `hitTargets` hands
+ * back the same memoized list by identity and a torpedo or a flare pays nothing
+ * at all for this rule.
+ */
+const SWEEP_MASKS = new WeakMap<readonly TargetKind[], readonly TargetKind[]>();
+function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
+  const memo = SWEEP_MASKS.get(hits);
+  if (memo !== undefined) return memo;
+  const sweep = hits.includes('mine') ? hits.filter((k) => k !== 'mine') : hits;
+  SWEEP_MASKS.set(hits, sweep);
+  return sweep;
+}
+
+/**
  * WHAT DEALT THE DAMAGE (Story 8.4, AR47). The exact list AR47 names, and the
  * ONLY thing `applyDamage` branches on: 'burn' takes the windowed DoT report,
  * 'storm' emits no `dmg` and skips the assist ledger, everything else takes the
@@ -2808,20 +2832,24 @@ export class World {
    * defects rather than inheriting them: a later shell of the same multi-barrel
    * click no longer collides with a hull the first shell just sank
    * (`deferred-work.md:594`), and the per-tick hull snapshot is no longer stale
-   * across a mid-tick kill (`:249`). Mine deletion bumps it too, so a shell
-   * cannot be consumed by a mine an earlier detonation already took off the
-   * water. What stays deliberately stale is a list a caller is ALREADY holding
-   * — a mine blast resolves against the list captured before it fired, with a
+   * across a mid-tick kill (`:249`). Mine deletion bumps it too, so a second
+   * burst of the same click can never resolve against a mine an earlier cascade
+   * already took off the water. What stays deliberately stale is a list a
+   * caller is ALREADY holding — a mine blast resolves against the list
+   * captured before it fired, with a
    * per-victim liveness re-check (amendment 5).
    *
    * THE KINDS:
    *   hull     — afloat silhouettes (a sinking hull is not a collision subject).
    *   mine     — every DETONABLE mine as a POINT: armed, and not a captive
-   *              layer's. The arm delay and the R2.18 captive carve-out are
-   *              applied HERE rather than at the outcome so that "a captive or
-   *              still-arming mine is untouched and the shell FLIES ON" is
-   *              true: a mine that cannot be set off must not be able to stop
-   *              a shell either.
+   *              layer's. BURST-ONLY (amendment 20): this kind is asked for by
+   *              the burst resolution, never by a sweep — stepShells strips the
+   *              `mine` bit off every projectile's mask before it collects the
+   *              list stepShell flies against, so NO mine, detonable or not, can
+   *              stop, slow or report a shell passing overhead. The arm delay
+   *              and the R2.18 captive carve-out are applied HERE rather than at
+   *              the outcome, so a mine that reaches an outcome is by
+   *              construction detonable.
    *   decoy    — the RADAR BUOY's frozen square, the INTERIM occupant of this
    *              kind until Story 8.15 deletes the buoy and lands the decoy
    *              store. Outcomes for a buoy are byte-identical to before
@@ -2855,13 +2883,14 @@ export class World {
     }
   }
 
-  /** Every DETONABLE mine as a POINT target (amendments 16-18): armed, and not
-   *  laid by a captive layer. A mine's polygon is the single vertex at its
-   *  centre, so the shared segment test reduces to "the path passed within the
-   *  SHELL's own radius of the centre" — amendment 17, no new number. */
+  /** Every DETONABLE mine as a POINT target (amendments 16/18/20): armed, and
+   *  not laid by a captive layer. A mine's polygon is the single vertex at its
+   *  centre, which is BURST geometry: burstVictims reduces to "does the burst
+   *  radius cover the mine's centre?". Nothing in flight is ever resolved
+   *  against this list (amendment 20). */
   private collectMines(out: Target[]): void {
     for (const mine of this.mines.values()) {
-      if (this.now < mine.armedAt) continue; // still arming — a shell flies on
+      if (this.now < mine.armedAt) continue; // still arming — a burst passes over it
       if (this.laysCaptiveMines(mine.ownerId)) continue; // R2.18 — never set off
       out.push({ id: mine.id, kind: 'mine', poly: [{ x: mine.x, y: mine.y }] });
     }
@@ -3407,6 +3436,19 @@ export class World {
     return landOnly ?? { x: 0, y: 0 };
   }
 
+  /** FLEET SHIPS NEVER DAMAGE EACH OTHER (Story 5.6, amendment 36). The
+   *  amendment names burstVictims, but the exclusion is applied one level UP —
+   *  a fleet-owned shell simply does not see a friendly hull as a collision
+   *  subject at all. Excluding only at the burst leaves a friendly hull
+   *  INTERCEPTING the shell (contactDamage, and the shell stops dead), which is
+   *  the same rule broken by a different path: nine hulls inside a 400u spread
+   *  block each other's line constantly. Built only when a fleet shell is in
+   *  flight; a captain's shell gets the shared memoized list by reference. */
+  private fleetFiltered(targets: readonly Target[], ownerId: string): readonly Target[] {
+    if (!this.isFleetHull(ownerId)) return targets;
+    return targets.filter((t) => t.kind !== 'hull' || !this.isFleetHull(t.id));
+  }
+
   /** Advance every live ballistic; spent ones emit a boom (+ damage on a hit).
    *  THE one spent-shell path: remove it from flight, drop every observer's
    *  seen-memory, resolve its outcome into events/damage. The D1 back-dated
@@ -3420,22 +3462,20 @@ export class World {
       // hulls and decoys; a star shell detonates nothing. The mask rides the
       // projectile (`ShellState.hits`, copied off its CONFIG row at launch), so
       // this loop never branches on which weapon fired.
-      const all = hitTargets(shell.hits);
-      // FLEET SHIPS NEVER DAMAGE EACH OTHER (Story 5.6, amendment 36). The
-      // amendment names burstVictims, but the exclusion is applied one level
-      // UP — a fleet-owned shell simply does not see a friendly hull as a
-      // collision subject at all. Excluding only at the burst leaves a
-      // friendly hull INTERCEPTING the shell (contactDamage, and the shell
-      // stops dead), which is the same rule broken by a different path: nine
-      // hulls inside a 400u spread block each other's line constantly. One
-      // filtered snapshot per tick, built only when a fleet shell is in
-      // flight; captain shells keep the shared snapshot by reference.
-      const targets = this.isFleetHull(shell.ownerId)
-        ? all.filter((t) => t.kind !== 'hull' || !this.isFleetHull(t.id))
-        : all;
+      //
+      // TWO LISTS, AND THE DIFFERENCE BETWEEN THEM IS THE WHOLE OF AMENDMENT
+      // 20 (Eric 2026-09-16). `burstSet` is the full mask — what the BURST at
+      // the clicked point resolves against, mines included. `sweepSet` is the
+      // same mask MINUS `mine`, and it is the only list stepShell ever sees, so
+      // a shell in flight cannot collide with, stop on, or in any way notice a
+      // mine it merely flies over. For a mask with no `mine` bit the two are
+      // the same memoized array by identity (sweepMask returns the row
+      // unchanged), so nothing is built or filtered twice for a torpedo.
+      const burstSet = this.fleetFiltered(hitTargets(shell.hits), shell.ownerId);
+      const sweepSet = this.fleetFiltered(hitTargets(sweepMask(shell.hits)), shell.ownerId);
       const outcome = stepShell(shell, {
         islands: this.map.islands,
-        targets,
+        targets: sweepSet,
         now: this.now,
         dt,
         mapRadius: this.map.radius,
@@ -3450,7 +3490,7 @@ export class World {
       this.forgetBallistic(id);
       // The spent fish's water outlives it (amendment 200) — detach, never drop.
       this.orphanTorpWake(id);
-      this.resolveShell(shell, outcome, targets);
+      this.resolveShell(shell, outcome, burstSet);
     }
   }
 
@@ -4002,32 +4042,27 @@ export class World {
       this.emitSplash(shell, outcome.x, outcome.y);
       return;
     }
-    // WHAT THE SHELL TOUCHED IS DECIDED FIRST (Story 8.4 review, P1/P2): the
+    // WHAT THE SHELL TOUCHED IS DECIDED FIRST (Story 8.4 review, P2): the
     // kind comes off the very target list this shell was resolved against, so
     // every branch below — and every branch of resolveInterception — dispatches
     // on the KIND rather than on which store happens to hold the id.
     const kind = World.targetKindOf(hulls, outcome.victimId);
     this.pending.push({ k: 'boom', id: shell.id, hit: outcome.victimId, x: outcome.x, y: outcome.y });
-    // A MINE CONTACT EMITS NO MARK TO THE SHOOTER (orchestrator ruling,
-    // 2026-09-16): no `hc` here, and no `sp` either — the mine branch of
-    // resolveInterception returns before any splash could be routed. A HULL is
-    // a DISCLOSED entity: an `hc` within shellRadius of one tells the shooter
-    // nothing the sight/radar channels do not already sanction. A MINE is
-    // disclosed only inside the detect ring, so a self-private hit mark within
-    // shellRadius of an UNSEEN mine would be an unsanctioned detection channel
-    // — walk your shells across the water and read the marks to map a minefield
-    // you were never shown. That is exactly the class the star-shell comment in
-    // resolveBurst forbids ("a flare lobbed into fog would answer 'is a hull
-    // within burstRadius of this point?'"), and it is forbidden here for the
-    // same reason. The shell's `boom` still fires (its `hit` is stripped by the
-    // row's materialize, as before) and the MINE's own detonation announces
-    // itself through the ordinary sight-gated channels.
+    // A MINE CAN NEVER BE THE VICTIM HERE (amendment 20, Eric 2026-09-16):
+    // the sweep list stepShell resolved against had no `mine` in it at all, so
+    // there is no mine case to special-case and no mine-consumed shell to emit
+    // (or withhold) a mark for. A shell that flies over a mine is, to every
+    // channel the shooter has, a shell that flew over open water. Do NOT
+    // reintroduce a mine branch below: the reason is the same class the
+    // star-shell comment in resolveBurst names — a self-private mark near an
+    // UNSEEN mine would let a captain walk shells across the water and read
+    // the marks to map a minefield he was never shown.
     //
-    // Early interception on anything else = a victim RESOLVED (Story 4.3,
-    // amendments 17/18): one Hit Call at the impact point, all ordnance —
-    // deliberately NOT derived from dmg emission, so the weapons-safe ready
-    // room still calls hits (hitShip early-returns on !damageEnabled).
-    if (kind !== 'mine') this.emitHitCall(shell.ownerId, outcome.x, outcome.y);
+    // An early interception = a victim RESOLVED (Story 4.3, epic-4 amendments
+    // 17/18): one Hit Call at the impact point, all ordnance — deliberately
+    // NOT derived from dmg emission, so the weapons-safe ready room still calls
+    // hits (hitShip early-returns on !damageEnabled).
+    this.emitHitCall(shell.ownerId, outcome.x, outcome.y);
     this.resolveInterception(shell, outcome, hulls, kind);
   }
 
@@ -4043,11 +4078,12 @@ export class World {
   }
 
   /**
-   * What an early interception DOES, once its boom (and, for everything but a
-   * mine, its Hit Call) is out — split from resolveShell for the complexity
-   * bound; the order of the branches below is unchanged. Reached only for
-   * outcome kind 'hitShip'. `kind` is the victim's TARGET KIND, decided by the
-   * caller off the resolved target list (Story 8.4 review, P2).
+   * What an early interception DOES, once its boom and its Hit Call are out —
+   * split from resolveShell for the complexity bound; the order of the branches
+   * below is unchanged. Reached only for outcome kind 'hitShip'. `kind` is the
+   * victim's TARGET KIND, decided by the caller off the resolved target list
+   * (Story 8.4 review, P2) — never `mine`, which is not a collision subject for
+   * anything in flight (amendment 20).
    */
   private resolveInterception(
     shell: ShellState,
@@ -4055,24 +4091,6 @@ export class World {
     hulls: readonly Target[],
     kind: TargetKind | undefined,
   ): void {
-    // SHOOTING A MINE SETS IT OFF (FR57 / Eric ruling 2026-09-15, amendments
-    // 16-17): the shell's path came within its own radius of the mine's centre,
-    // so the MINE detonates at ITS OWN position with ITS OWN blast — the
-    // owner's numbers, the owner's prop fouling, chaining into every armed
-    // non-captive mine in range whoever laid it — and the SHELL IS CONSUMED
-    // (it never bursts of its own; the mine's blast is the effect). Any armed
-    // mine qualifies, yours included; a captive or still-arming mine never
-    // reaches this branch at all, because the collector does not offer it as a
-    // target and the shell simply flies on.
-    //
-    // PERCEPTION-BLIND, deliberately (Eric: *"you can see"* is descriptive):
-    // nothing here asks whether the shooter could see the mine. It also emits
-    // NOTHING to the shooter — no `hc` above, and the return below means no
-    // `sp` either (see resolveShell's ruling comment).
-    if (kind === 'mine') {
-      this.detonateShotMine(outcome.victimId);
-      return;
-    }
     // A DAMAGELESS flare still lights where it stopped (Story 2.8, amendment
     // 39): an intercepted star shell spawns its zone at the interception point.
     if (shell.lit) this.spawnLitZone(shell, outcome);
@@ -4083,7 +4101,8 @@ export class World {
     // contact damage to the hull it touched. The struck hull is inside its own
     // blast by construction, so there is no double-dip to guard: this branch
     // RETURNS rather than falling through to the contact hit below. The one Hit
-    // Call for this resolution was already emitted above (amendment 17), which
+    // Call for this resolution was already emitted above (EPIC-4 amendment 17,
+    // the Hit Call — not epic-8's, which amendment 20 retired), which
     // is why applyMineBlast deliberately does not emit one.
     if (contactBlastRadius(shell) > 0) {
       this.applyMineBlast(outcome, shell.ownerId, hulls);
@@ -4179,11 +4198,14 @@ export class World {
     if (resolved > 0) this.emitHitCall(shell.ownerId, at.x, at.y);
     else this.emitSplash(shell, at.x, at.y);
     // A burst DETONATES every armed non-captive mine whose centre it covers,
-    // whoever laid it (amendments 16/18). Mines are never counted in
-    // `resolved`: the hit call is about what the SHELL connected with, and a
-    // sprung trap announces itself to its own layer through blastMine's `hc`.
+    // whoever laid it (amendments 16/18) — and since amendment 20 this is the
+    // ONLY way gunfire ever touches a mine. The burst sits at the point the
+    // shooter CLICKED, so the trigger is always his own doing. Mines are never
+    // counted in `resolved`: the hit call is about what the SHELL connected
+    // with, and a sprung trap announces itself to its own layer through
+    // blastMine's `hc`.
     for (const t of victims) {
-      if (t.kind === 'mine') this.detonateShotMine(t.id);
+      if (t.kind === 'mine') this.detonateBurstMine(t.id);
     }
   }
 
@@ -4225,11 +4247,14 @@ export class World {
   }
 
   /**
-   * A SHELL OR BURST SETS OFF ONE MINE (FR57 / AR44; Eric rulings 2026-09-15,
-   * amendments 16-18). Reached ONLY for a target the collector handed back
-   * with `kind === 'mine'` (Story 8.4 review, P2) — the dispatch is the KIND's,
-   * never "did the mine store happen to hold this id", which a hull sharing an
-   * id with a live mine used to answer wrongly.
+   * A BURST SETS OFF ONE MINE (FR57 / AR44; Eric rulings 2026-09-15 and
+   * 2026-09-16, amendments 16/18/20). THE one gunfire→mine path: reached only
+   * from resolveBurst, for a target burstVictims found within the burst radius
+   * of the point the shooter CLICKED. A shell in flight has no route here at
+   * all — it never sweeps against a mine (amendment 20). The dispatch is the
+   * KIND's (Story 8.4 review, P2), never "did the mine store happen to hold
+   * this id", which a hull sharing an id with a live mine used to answer
+   * wrongly.
    *
    * THIS REPLACES `detonateMinesInBurst`, the old click-your-own-minefield
    * path, and with it the two gates that made a minefield the layer's private
@@ -4245,7 +4270,7 @@ export class World {
    * OWNER's numbers — the shooter's weapon contributes nothing but the trigger
    * — and it CASCADES through detonateMine's visited set in the same tick.
    */
-  private detonateShotMine(id: string): void {
+  private detonateBurstMine(id: string): void {
     const mine = this.mines.get(id);
     if (mine === undefined) return; // consume-first re-check, not a policy
     this.detonateMine(mine, this.hitTargets(MINE_BLAST_HITS));
@@ -4723,10 +4748,11 @@ export class World {
    */
   private preStepShell(shell: ShellState): void {
     // The back-dated sweep sees exactly what the ordinary sweep sees — the
-    // shell's OWN mask through the one collector (Story 8.4). It still resolves
-    // no outcomes: a terminal result defers to next tick's sweep, so a mine the
-    // pre-step stops on is detonated there, once, by the one path.
-    const hulls = this.hitTargets(shell.hits);
+    // shell's OWN mask through the one collector (Story 8.4), MINUS mines
+    // (amendment 20): a back-dated shell flies over a mine exactly as a
+    // live-stepped one does. It still resolves no outcomes: a terminal result
+    // defers to next tick's sweep.
+    const hulls = this.hitTargets(sweepMask(shell.hits));
     let remainingMs = this.now - shell.bornAt;
     while (remainingMs > 0) {
       const dtMs = Math.min(remainingMs, CONFIG.tick.simDtMs);
