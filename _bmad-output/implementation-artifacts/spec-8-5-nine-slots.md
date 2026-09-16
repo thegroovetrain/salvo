@@ -2,10 +2,10 @@
 title: 'Story 8.5: Nine Slots'
 type: 'feature'
 created: '2026-09-16'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '7d1dd5b'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   [
     '{project-root}/_bmad-output/project-context.md',
@@ -102,16 +102,16 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/sim/loadout.ts` + `boons.ts` + `catalog.ts` + `index.ts` + `types.ts` -- nine-slot spine, first-empty fill, `SPAWN_SEED`, PV 52 -- `npm run build -w shared`
-- [ ] `shared/src/__tests__/{loadout,boons,catalog,barrel,stats}.test.ts` -- rewrites + the legal-deck property + the seed tripwire -- `npm test -w shared`
-- [ ] `server/src/game/world.ts` + `drones.ts` + `equipment/index.ts` docs -- seed-driven spawn/redeploy, fleet branch, doc rewrites -- server build
-- [ ] `server/src/__tests__/*` (ruling 14) + golden snapshot re-record -- every moved line explained -- `npm test -w server`
-- [ ] `server/scripts/{matchSmoke,weaponsSmoke}.mjs` + `scripts/batchsim/controls.ts` -- slot literals -- smokes pass
-- [ ] `client/src/input/keyboard.ts` + `main.ts` + `input/mouse.ts` -- Q/E/R → 2/3/4, Shift tap, empty denial, release revert -- `keyboard.test.ts` + new revert test
-- [ ] `client/src/render/{hotbar,equipmentInfo,hud,weaponArc}.ts` -- nine rows, `⇧` chip, dashed-empty no words, replay signature -- `hotbar.test.ts`
-- [ ] `client/src/__tests__/*` -- bindings, hotbar, PV pins -- `npm test -w client`
-- [ ] `VERSION`/`package.json`/lock/`CHANGELOG.md`/both trackers/`deferred-work.md` -- cycle 140, 0.18.5, PV 52, amendments 21–28, stamps `:116 :119 :1988` + new section -- tracker discipline
-- [ ] `npm run check` green; `soloSmoke`, `matchSmoke`, `weaponsSmoke` on a scratch port -- the gate
+- [x] `shared/src/sim/loadout.ts` + `boons.ts` + `catalog.ts` + `index.ts` + `types.ts` -- nine-slot spine, first-empty fill, `SPAWN_SEED`, PV 52 -- `npm run build -w shared`
+- [x] `shared/src/__tests__/{loadout,boons,catalog,barrel,stats}.test.ts` -- rewrites + the legal-deck property + the seed tripwire -- `npm test -w shared`
+- [x] `server/src/game/world.ts` + `drones.ts` + `equipment/index.ts` docs -- seed-driven spawn/redeploy, fleet branch, doc rewrites -- server build
+- [x] `server/src/__tests__/*` (ruling 14) + golden snapshot re-record -- every moved line explained -- `npm test -w server`
+- [x] `server/scripts/{matchSmoke,weaponsSmoke}.mjs` + `scripts/batchsim/controls.ts` -- slot literals -- smokes pass
+- [x] `client/src/input/keyboard.ts` + `main.ts` + `input/mouse.ts` -- Q/E/R → 2/3/4, Shift tap, empty denial, release revert -- `keyboard.test.ts` + new revert test
+- [x] `client/src/render/{hotbar,equipmentInfo,hud,weaponArc}.ts` -- nine rows, `⇧` chip, dashed-empty no words, replay signature -- `hotbar.test.ts`
+- [x] `client/src/__tests__/*` -- bindings, hotbar, PV pins -- `npm test -w client`
+- [x] `VERSION`/`package.json`/lock/`CHANGELOG.md`/both trackers/`deferred-work.md` -- cycle 140, 0.18.5, PV 52, amendments 21–28, stamps `:116 :119 :1988` + new section -- tracker discipline
+- [x] `npm run check` green; `soloSmoke`, `matchSmoke`, `weaponsSmoke` on a scratch port -- the gate
 
 **Acceptance Criteria:**
 - Given any captain hull, when spawned, then its loadout is gun · speedBoost · seed weapon(s) · empties to nine, identical in shape across hulls, and `ammo` is length 9.
@@ -125,7 +125,40 @@ warnings: [oversized]
 
 ## Spec Change Log
 
+## Auto Run Result
+
+**Status:** done (2026-09-16, build cycle **140**, version **0.18.5**, PV 51 → **52**).
+
+**Summary:** The loadout is ONE flat nine-slot array with fixed roles — gun · Shift boost · Q/E/R weapon slots · 1–4 belt — identical for every captain hull at 0:00 (`loadoutFor(stats, fleet)`; `specialsFor`/`SLOT_EXTRA` deleted); a `slotFill` takes the FIRST EMPTY weapon slot and touches no other slot's state object (pinned by identity); a legal deck can never overflow the row (250 random legal decks, property-tested). Until Story 8.10's countdown offer, a hull spawns with today's card-backed class weapons replayed AS CARDS from `SPAWN_SEED` (TB heavy torpedo in Q; BS broadside in Q, star shells in E; ML naval mines in Q) through the same `slotsWithCards` the client replays, so the deck loses those copies exactly as before (23/23/23 drawable) and no event or toast fires. Every captain hull now carries the boost in slot 1 at the shipped `speedBoost` numbers; fleet drones hold the gun and eight empties through the spawn's existing fleet branch. The wire `ammo` array is nine long (PV 52); no new wire field, no new denial reason, no seventh anti-cheat exception. Client: Q/E/R → slots 2/3/4, Shift (either code) is a tap on slot 1 through the existing ability FIFO, a weapon key or click on an EMPTY weapon slot flashes the client denial and sends nothing (belt rows silent, amendment 30), the prime reverts to the gun on pointerUP paired to its own click, and the hotbar shows nine rows in the old bottom-left column (may clip on short viewports — Eric: the next story fixes the HUD). The radar buoy is unreachable in play until 8.15 deletes it.
+
+**Eric rulings taken in-session (epic-8 amendments 21–30):** 21 spawn seed of today's card-backed weapons; 22 radar buoy dark until 8.15; 23 boost on every hull now at today's numbers; 24 drones are environment — gun only by the least-work path (Eric, verbatim in the amendments file); 25 the interim hotbar keeps its pitch and may clip (*"Ignore it entirely. The next story fixes the HUD."*); 26 empty-slot denial is client-only; 27 digits stay refit-only; 28 How-to-Play untouched; 29 the `⇧` Shift chip; 30 a click on an empty belt row is silent. Plus two review-time rulings: keep Shift on keydown as specified (the chord finding rejected), and ledger the seed-plus-legal-deck overflow with no code.
+
+**Orchestrator rulings, as implemented (Eric's veto list):** all fifteen spec rulings taken as written, with four recorded readings. (1) The spawn seed is filtered through the World's own catalog (`seedFor`: catalog-carried, non-stub) so `cards` and the loadout can never disagree in a test World with an injected catalog — identity in production. (2) Three golden-snapshot lines outside ruling 12's four buckets moved: `denied[].slot` echoes of the scenario's own re-pointed input literals (1 → 2 for out-of-arc/blocked, 2 → 1 for no-ammo) — explained, accepted. (3) `scripts/rl/env.ts` (the research harness) still binds only slots 0–3, so its agent cannot reach R and its slot-1 bin is inert on the fire channel — left untouched because widening the action space invalidates saved policies; not gameplay. (4) `SPAWN_SEED` is `Readonly<Partial<Record<HullId, …>>>` because `HullId` includes the drone hulls; the three-key totality is pinned by test instead of the compiler.
+
+**Files changed (70, +3343/−1017):** shared — `sim/loadout.ts`, `sim/boons.ts`, `sim/catalog.ts` (`SPAWN_SEED`), `index.ts` (PV 52), `types.ts`, `constants.ts` (comment), tests (`loadout`, `boons`, `catalog`, `barrel`, `deck`, `radarRaster`, NEW `nineSlots`). Server — `game/world.ts` (seed-driven `addShip`/`redeployShip`/`respawn`, `seedFor`, `carriedLines` deleted), `game/drones.ts`, `game/equipment/index.ts`, `game/ai/tactics.ts` (comment), `scripts/{matchSmoke,weaponsSmoke}.mjs`, `scripts/batchsim/{deckSim,controls}.ts`, 26 test files + the golden snapshot (119 lines: ammo width, pool order, the Battleship's new boost pool, the three echo lines). Client — `input/{keyboard,mouse}.ts`, `main.ts`, `render/{hotbar,equipmentInfo,equipmentIcons,hud,weaponArc}.ts`, `sim/inputSampler.ts` (doc), tests (`keyboard`, `hotbar`, `weaponArc`, `inputSampler`, `ordnanceMasksAreServerOnly`, NEW `primeRelease`). Root — `VERSION`/`package.json`/lock (0.18.5), `CHANGELOG.md`, both trackers, `deferred-work.md` (stamps `:116 :119 :1988`, one new section, two review-time entries), `epic-8-context.md` + amendments 21–30, this spec.
+
+**Verification performed:** `npm run check` exit 0 after wave 2 — lint 0 errors (3 pre-existing `max-lines-per-function` warnings), tsc clean ×3, **862 / 1892 / 3302** tests, `check:hooks` green; after the review patch the client re-verified at **3315** (tsc clean, lint 0 errors) and a final full gate is recorded below. Fail-first: shared 3 mutations (identity pin, spill-into-belt, wrong target slot → 1 / 1 / 9 failures); server (fleet flag dropped → the drone pin fails; boost removed → 13 boost tests fail); client (revert moved back to pointerdown → 1; arm reverting immediately → 2; empty hook removed → 3); review patch 10 of 11 new tests fail-first. Golden frames: re-recorded once, 119 of 123 lines moved, every one classified (ammo 4 → 9; pools re-indexed; the Battleship's added boost pool; the three `denied[].slot` echoes). Headless probe (deleted): a real World after spawn AND the match-start redeploy holds gun · speedBoost · heavyTorpedo in Q, and a click on slot 2 launches a fish that hits for `CONFIG.torpedo.damage`. Smokes on scratch ports (2567/5173 never touched): `soloSmoke` PASSED (PV gate reads "server expects v52"); `weaponsSmoke` PASSED on a quiet machine — *torpedo: B sank; hits=7*, *A held 6 own mines live at once (7 laid)*, ambush boom — after two failed attempts that were the orchestrator's own doing (one aimed at the default port with no server, one against a stale server under full CPU load from the reviewers); `matchSmoke` PASSED on the fifth attempt (*weapons safe: 1 boom on B, zero hp lost*; *B sunk by A*; *winner=ALPHA, 1 kill, 300dmg*; both clients disconnected cleanly) after one attempt killed by the orchestrator's own cleanup, one timeout under full CPU load, and two quiet-machine failures at two DIFFERENT ledgered flake points (the step-4 storm race and the step-2 ready-room miss — both pre-existing since the 0.16 baseline and catalog v3's 50-damage fish; ledgered again this cycle with the arithmetic). Final gate after the review patch: `npm run check` exit 0 — **862 / 1892 / 3315**, lint 0 errors, `check:hooks` green.
+
+**Process notes (for the next agent):** the worktree guard refuses any shell line that names a git write target or a computed path — use the Edit tool for spec edits and plain heredoc appends. A cleanup step of mine pattern-killed server processes too broadly and took down my own gate run and match smoke (exit 144); nothing of Eric's was listening. The `gds-workflow-status.yaml` `next_expected` value carries a leaked `'\''` shell-escape from cycles 129/131 that makes the file invalid YAML — pre-existing, not edited.
+
+**Follow-up review recommended: true** — the release-revert latch was restructured around event ordering at the review gate (three fixes across `mouse.ts`/`keyboard.ts`/`main.ts`), and the fire input is now built after the release edge; a second pair of eyes on that ordering before Story 8.14's held stream builds on it is worth the cost.
+
+**Residual risks / Eric's veto list:** (1) the four orchestrator readings above; (2) Battleship and Mine Layer bots now boost on disengage (ledgered) — a balance-harness question; (3) the `⇧` glyph renders through per-glyph font fallback and was not eyeballed — one look on staging; (4) the interim hotbar clips at the 614 px floor viewport and reaches the top at 768 px (ruled); (5) the seed tripwire fires the day 8.14 un-stubs `missile`/`monitor` unless 8.10 has removed the seed (ledgered); (6) the seed-plus-custom-deck overflow is dev-only today (ledgered); (7) the RL harness's action bins are under-wide (recorded, untouched).
+
 ## Review Triage Log
+
+### 2026-09-16 — Review pass (Blind Hunter + Edge Case Hunter at session model, plus Codex `gpt-5.6-sol` cross-model review — verdicts: Blind Hunter fix-first (narrow), Edge Case Hunter build-on-it, Codex fix-first; findings applied in this pass)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 1, low 2)
+- defer: 2: (high 0, medium 1, low 1)
+- reject: 5: (high 0, medium 0, low 5)
+- addressed_findings:
+  - `[medium]` `[patch]` the release-deferred prime revert lost within-tick ORDER: a pointerup of click A and the pointerdown of click B inside one 50 ms tick built B's fire input with the weapon still primed and paid A's release afterwards, so an ordinary fast double-click after a torpedo shot fired (or was denied as) the torpedo again (Blind Hunter F1 CONFIRMED, Edge Case Hunter 1 CONFIRMED) — the release edge now runs BEFORE the fire input reads `primedSlot`, and an arm whose click the mouse already reports released is paid at once; fail-first 4 + 1
+  - `[low]` `[patch]` a lost pointerup (window blur mid-hold, touch/pen `pointercancel`) left the latch armed to be paid by the NEXT unrelated release (Blind Hunter P1, Edge Case Hunter 2, Codex 2) — blur and `pointercancel` end the active hold; fail-first 4
+  - `[low]` `[patch]` a second pointer's release paid the first pointer's latch (Codex 2 PLAUSIBLE) — `MouseInput` records the active hold's `pointerId` and click seq, `armReleaseRevert(clickSeq)` / `consumeReleaseRevert(releasedClickSeq)` pay only on an exact match; fail-first 3
+  - deferred (ledger): a door-legal deck plus the interim spawn seed can hold four weapon lines (all three reviewers; dev-only `deckOverride` today; Eric 2026-09-16: "ledger it, no code"); Battleship and Mine Layer BOTS now boost on disengage as a consequence of amendment 23 (Blind Hunter P2, Edge Case Hunter note) — on Eric's veto list
+  - rejected: the Shift keydown of a Shift+Tab chord also boosts (Blind Hunter F2, Edge Case Hunter 6) — Eric 2026-09-16: *"WTF is this Shift+Tab bs dude? That's not a thing in this game. Keep the spec"*; a one-frame pre-first-frame empty denial at boot (Blind Hunter P4, cosmetic); `seedFor` filtering the catalog but not the server module registry (Edge Case Hunter 4, identity in production); malformed/short loadouts treated as occupied (Edge Case Hunter 5, no production writer); the ability FIFO cap at 9 (Edge Case Hunter, already ledgered at `:119`)
 
 ## Design Notes
 
