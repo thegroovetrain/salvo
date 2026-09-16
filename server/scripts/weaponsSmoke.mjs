@@ -9,13 +9,17 @@
 //   2. Torpedo never blips: B collects every torpedo id it is shown (via `torp`
 //      events entering its sight) and every radar blip id — asserts the sets are
 //      DISJOINT (a torpedo can never appear on the scope).
-//   3. Mine visibility + oldest-despawn: B — the MINE LAYER (mines are its
+//   3. Mine visibility + NO EVICTION: B — the MINE LAYER (mines are its
 //      click-aimed rear-arc slot 1 as of Story 2.8) — holds station clicking
 //      drops astern while A loiters within detect range but outside trigger
 //      range. Asserts A never sees an enemy mine beyond DETECT range (Story
 //      4.9: the 3/8 rung, 0.75 × sight — the truesight bar is retired; no
-//      radar/fog leak), never sees more than maxLive of B's mines at once,
-//      yet sees >maxLive distinct ids over time (oldest-despawn proven).
+//      radar/fog leak), and that SIX laid mines are SIX LIVE mines at one
+//      moment — counted on A's OWN board, which a captain always sees in full
+//      at any range, so the no-eviction pin carries no geometry. Story 8.4
+//      (FR57/AR48) deleted every mine cap: the old assertion here — "never more
+//      than maxLive at once, yet more than maxLive distinct ids over time" —
+//      was the oldest-despawn proof, and the behaviour it proved is gone.
 //   4. Mine ambush: A sails onto a live armed mine — asserts 55 damage + a
 //      boom, and that A first saw that mine only from within detect range.
 //
@@ -27,6 +31,10 @@
 //   node server/scripts/weaponsSmoke.mjs
 import { Client } from '@colyseus/sdk';
 import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap } from '@salvo/shared';
+
+// How many of A's mines must be LIVE AT ONCE for the no-eviction pin to bite:
+// one past the per-player cap of 5 that Story 8.4 deleted.
+const NO_EVICTION_MINES = 6;
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const SIGHT = CONFIG.vision.sight;
@@ -66,7 +74,9 @@ async function joinClient(name, cls = 'torpedoBoat') {
     // Mine-visibility trackers (updated every frame):
     mineLeakBeyondDetect: 0, // enemy mine seen at dist > detect (must stay 0 — Story 4.9)
     maxConcurrentEnemy: 0, // most of A's mines seen at once
+    maxConcurrentOwn: 0, // most of THIS ship's OWN mines live at once (Story 8.4)
     distinctEnemy: new Set(),
+    distinctOwn: new Set(),
     firstSeenDist: new Map(), // mineId -> distance at first sighting
     islands: [], // rebuilt from the welcome — arms islandAvoid
   };
@@ -91,12 +101,25 @@ function onFrame(ctx, f) {
   trackEnemyMines(ctx);
 }
 
-/** Update mine-visibility invariants from this frame's mine list. */
+/** Update mine-visibility invariants from this frame's mine list.
+ *
+ *  TWO TALLIES, for two different jobs. The ENEMY tally is the FOG pin: what B
+ *  can see of A's field, and at what range. The OWN tally is the NO-EVICTION
+ *  pin (Story 8.4): the mine signal row always discloses a captain's OWN mines
+ *  at any range, so A's own count is a true board count with no geometry in it
+ *  — which is exactly what "six laid, six live" needs. Counting A's field
+ *  through B's eyes instead would measure the drifting layer's spread against
+ *  the detect ring, not the store. */
 function trackEnemyMines(ctx) {
   if (!ctx.you) return;
   let concurrent = 0;
+  let own = 0;
   for (const m of ctx.mines) {
-    if (m.own) continue;
+    if (m.own) {
+      own++;
+      ctx.distinctOwn.add(m.id);
+      continue;
+    }
     concurrent++;
     ctx.distinctEnemy.add(m.id);
     const d = dist(ctx.you, m);
@@ -104,6 +127,7 @@ function trackEnemyMines(ctx) {
     if (d > DETECT + 1) ctx.mineLeakBeyondDetect++;
   }
   if (concurrent > ctx.maxConcurrentEnemy) ctx.maxConcurrentEnemy = concurrent;
+  if (own > ctx.maxConcurrentOwn) ctx.maxConcurrentOwn = own;
 }
 
 function control(ctx) {
@@ -245,26 +269,42 @@ async function minePhase(a, b, log) {
   b.maxConcurrentEnemy = 0;
   b.distinctEnemy.clear();
   b.firstSeenDist.clear();
+  a.maxConcurrentOwn = 0;
+  a.distinctOwn.clear();
   // A holds station dropping mines; B loiters within detect range (Story 4.9:
   // the 120u trail sits well inside the 247.5u rung), outside trigger.
   // B's loiter point TRAILS A (recomputed every tick): even at minimum
   // steerageway A drifts ~4.6 u/s, so a fixed point drops out of detect range
-  // of the later drops and the distinct-id count stalls below maxLive+1.
+  // of the later drops and the concurrent count never reaches six.
   await pilotUntil([a, b], () => {
     a.goal = { mode: 'dropMines' };
     b.goal = { mode: 'hold', target: a.you ? { x: a.you.x, y: a.you.y + 120 } : null };
-  // Budget WIDENED 90s -> 150s with the detect bar (Story 4.9): under the old
-  // 330u gate the trailing observer counted drops from the phase's first tick;
-  // under 247.5u it only counts them once the trail closes inside
-  // detect − dropDistance (~157u), which costs the first ~25s of the window.
-  }, () => b.distinctEnemy.size > CONFIG.mine.maxLive, 150000, 'A drop >maxLive mines');
+  // Budget 150s -> 200s (Story 8.4): the pin now waits for SIX mines to be LIVE
+  // AT ONCE rather than for six distinct ids to have been seen over time, and
+  // with a 2-deep rack on a 15s reload the sixth drop cannot land before ~60s
+  // of arming and reloading even in the best case. B's trailing loiter is still
+  // recomputed every tick — it is what keeps the FOG half of this phase honest,
+  // even though the no-eviction half no longer depends on it.
+  }, () => a.maxConcurrentOwn >= NO_EVICTION_MINES, 200000, `A hold ${NO_EVICTION_MINES} mines live at once`);
   log.push(
-    `mines: B saw ${b.distinctEnemy.size} distinct A-mines, max ${b.maxConcurrentEnemy} at once, ` +
+    `mines: A held ${a.maxConcurrentOwn} own mines live at once (${a.distinctOwn.size} laid); ` +
+      `B saw ${b.distinctEnemy.size} distinct A-mines, max ${b.maxConcurrentEnemy} at once, ` +
       `leaksBeyondDetect=${b.mineLeakBeyondDetect}`,
   );
   assert(b.mineLeakBeyondDetect === 0, 'B saw an enemy mine beyond detect range (radar/fog leak — Story 4.9 bar)');
-  assert(b.maxConcurrentEnemy <= CONFIG.mine.maxLive, `B saw > maxLive (${b.maxConcurrentEnemy}) mines at once`);
-  assert(b.distinctEnemy.size > CONFIG.mine.maxLive, 'never observed a 4th mine / oldest-despawn');
+  // NO EVICTION (Story 8.4, FR57/AR48): SIX LAID, SIX LIVE. Under the retired
+  // per-player cap of 5 the sixth drop silently despawned the owner's oldest,
+  // so this count could never have exceeded 5 — which is exactly what makes it
+  // the right pin, and why it replaced the old "never more than maxLive at
+  // once, yet more distinct ids over time" oldest-despawn proof.
+  assert(
+    a.maxConcurrentOwn >= NO_EVICTION_MINES,
+    `A never held ${NO_EVICTION_MINES} of its own mines at once (max ${a.maxConcurrentOwn}) — eviction may be back`,
+  );
+  assert(
+    a.distinctOwn.size === a.maxConcurrentOwn,
+    `A laid ${a.distinctOwn.size} mines but never held more than ${a.maxConcurrentOwn} at once — something despawned one`,
+  );
 }
 
 async function ambushPhase(a, b, log) {

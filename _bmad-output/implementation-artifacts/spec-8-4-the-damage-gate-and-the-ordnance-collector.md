@@ -2,7 +2,7 @@
 title: 'Story 8.4: The Damage Gate and the Ordnance Collector'
 type: 'refactor'
 created: '2026-09-15'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '21bafd9'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -95,17 +95,17 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/sim/shell.ts` + `shared/src/index.ts` + `shared/src/__tests__/shell.test.ts` -- `Target`/`TargetKind`, point-target hit, `burstVictims` over kinds (owner hull skipped only) -- `npm run build -w shared && npm test -w shared`
-- [ ] `shared/src/constants.ts` + `stats.ts` + `effects.ts` + shared tests -- `hits` rows; delete `maxLive`/`globalCap` and the stat path -- shared green
-- [ ] `server/src/game/world.ts` -- `applyDamage` gate + `DamageSource` + `shield` field; three writers routed; aggro stays at callers -- `damageGate.test.ts`
-- [ ] `server/src/game/world.ts` -- `hitTargets` memo on `StepContext`, invalidation on sink, `sunkThisTick`, buoy as interim `decoy`, shells/bursts/torps read masks, shot-mine outcome, chains any owner, amendment 19 `hc` -- `hitTargets.test.ts`
-- [ ] `server/src/game/equipment/mines.ts` + `ai/equipment.ts` + `ai/utility.ts` + `world.ts` drop closure -- caps deleted -- weapons/bot tests updated or retired
-- [ ] `server/src/metrics.ts` + `ArenaRoom.ts` + `metrics.test.ts` -- `world.minesLivePeak` -- counter proven
-- [ ] `eslint.config.js` + grep pin test -- exactly one `victim.hp -=` -- `npm run lint`
-- [ ] perf pin test (500 mines) -- < 50 ms best-of-5 -- number recorded
-- [ ] `server/scripts/weaponsSmoke.mjs` -- no-eviction assertion -- smoke passes
-- [ ] `VERSION`/`package.json`/lock/`CHANGELOG.md`/both trackers/`deferred-work.md` -- cycle 139, 0.18.4, PV 51, amendments 16–19, ledger stamps `:249 :496 :564 :590 :594` -- tracker discipline
-- [ ] `npm run check` green; `soloSmoke`, `matchSmoke`, `weaponsSmoke` on a scratch port -- the gate
+- [x] `shared/src/sim/shell.ts` + `shared/src/index.ts` + `shared/src/__tests__/shell.test.ts` -- `Target`/`TargetKind`, point-target hit, `burstVictims` over kinds (owner hull skipped only) -- `npm run build -w shared && npm test -w shared`
+- [x] `shared/src/constants.ts` + `stats.ts` + `effects.ts` + shared tests -- `hits` rows; delete `maxLive`/`globalCap` and the stat path -- shared green
+- [x] `server/src/game/world.ts` -- `applyDamage` gate + `DamageSource` + `shield` field; three writers routed; aggro stays at callers -- `damageGate.test.ts`
+- [x] `server/src/game/world.ts` -- `hitTargets` memo on `StepContext`, invalidation on sink, `sunkThisTick`, buoy as interim `decoy`, shells/bursts/torps read masks, shot-mine outcome, chains any owner, amendment 19 `hc` -- `hitTargets.test.ts`
+- [x] `server/src/game/equipment/mines.ts` + `ai/equipment.ts` + `ai/utility.ts` + `world.ts` drop closure -- caps deleted -- weapons/bot tests updated or retired
+- [x] `server/src/metrics.ts` + `ArenaRoom.ts` + `metrics.test.ts` -- `world.minesLivePeak` -- counter proven
+- [x] `eslint.config.js` + grep pin test -- exactly one `victim.hp -=` -- `npm run lint`
+- [x] perf pin test (500 mines) -- < 50 ms best-of-5 -- number recorded
+- [x] `server/scripts/weaponsSmoke.mjs` -- no-eviction assertion -- smoke passes
+- [x] `VERSION`/`package.json`/lock/`CHANGELOG.md`/both trackers/`deferred-work.md` -- cycle 139, 0.18.4, PV 51, amendments 16–19, ledger stamps `:249 :496 :564 :590 :594` -- tracker discipline
+- [x] `npm run check` green; `soloSmoke`, `matchSmoke`, `weaponsSmoke` on a scratch port -- the gate
 
 **Acceptance Criteria:**
 - Given `world.ts`, when read as text, then exactly one `victim.hp -=` exists, inside `applyDamage`, and ESLint refuses an `hp -=` in any other server file.
@@ -120,6 +120,20 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+## Auto Run Result
+
+**Status:** done (2026-09-15, build cycle **139**, version **0.18.4**, PV 51 unchanged).
+
+**Summary:** Two chokepoints replaced eight ad-hoc paths, and four Eric rulings landed on top of them. ONE `applyDamage(victim, amount, src, byId)` in `world.ts` is now the only `victim.hp -=` in the game, with the fixed inner order (a) friendly-fire refusal for EVERY `DamageSource` → (b) `damageEnabled` + `isSinking` → (c) `absorbShield` → (d) overkill clamp + the one hp write → (e) assist ledger (skipped for `'storm'`) → (f)(g) `reportDamage` (burn → the DoT window bucket, storm → nothing, everything else → the immediate `dmg`, then the sink). `applyStorm`/`hitShip`/`burnShip` survive as named seats; aggro stays at `hitShip` where the caller knows `fromMine`. ONE `hitTargets(mask)` is now the only way an ordnance step finds anything: memoized per tick per sorted mask, invalidated by `sinkShip` AND by every mine consumed, over kinds `hull` / `mine` (a POINT target, armed and non-captive only) / `decoy` (the radar buoy, interim) / `ordnance` (empty, pinned). `aliveHulls()`, `withBuoyTargets()` and `detonateMinesInBurst()` are gone; every weapon declares its kinds in `CONFIG.<ordnance>.hits` and carries the mask on `ShellState.hits`. Amendments 16-18: a shell within its own radius of an armed non-captive mine, or a burst covering one, detonates it whoever laid it, the shell is consumed, and the blast chains across owners through the existing visited set; captive and still-arming mines are excluded IN THE COLLECTOR so the shell flies on rather than dying on a mine it cannot set off. Amendment 19: `sunkThisTick` holds each wreck's silhouette (transformed fresh at sink, not copied off the reused scratch) and `wrecksInBurst` counts it for the `hc`/`sp` mark only, inside the `damage > 0` branch so the star shell keeps its exclusion. Every mine cap is deleted — `maxLive`, `globalCap`, the stat path, both eviction branches, `ownMineCount`, `oldestOwnMine` and the bot's `mineFieldFull` refusal — and `/metrics` gains `world.minesLivePeak` to measure what the cap used to bound. No wire change: PV stays 51, pinned by a client grep test that no client source reads `.hits` or names `TargetKind`.
+
+**Orchestrator rulings, as implemented (Eric's veto list):** all twelve taken as written, with three recorded readings. (1) The `dmg` event carries the NOMINAL post-shield amount, not `dealt` — the ruling's `{ amount: dealt }` contradicted its own "as today", and parity won (golden frames). (2) `CONFIG.mine.hits` is the TRIP mask (`['hull']`) as ruled; the mine BLAST's target set is a separate named `MINE_BLAST_HITS = ['hull','decoy']` in `world.ts`, since the ruling gives mines one row and a blast needs a different set from a trip. (3) The collector is owned by the `World` (cleared in the tick prologue, so its first build still lands at `stepShells`) and reached by rows through `StepContext.hitTargets`, which is what makes the memo and its invalidation directly testable. Also of record: `starShells` losing the `mine` bit is a deliberate behaviour change under ruling 4 — a flare used to detonate the firer's own armed mines through the owner-only self-detonation path amendment 16 replaced.
+
+**Files changed:** shared — `sim/shell.ts` (`Target`/`TargetKind`, `ShellState.hits`, point targets, `burstVictims` → `Target[]`), `constants.ts` (six `hits` rows; `mine.maxLive`/`globalCap` deleted), `sim/stats.ts`, `sim/effects.ts`, tests (`shell`, `barrel`, `boons`, `stats`). Server — `game/world.ts` (the gate, `DamageSource`, `ShipRecord.shield`, the collector, `consumeMine`, `detonateShotMine`, `wrecksInBurst`, `resolveInterception`, `mineCount`), `game/equipment/{ballistics,guns,broadside,starShells,torpedoes,mines,radarBuoy}.ts`, `game/ai/{equipment,utility}.ts`, `metrics.ts`, `rooms/ArenaRoom.ts`, `scripts/weaponsSmoke.mjs`, tests (NEW `damageGate.test.ts`, `hitTargets.test.ts`; updated `weapons`, `botPolicy`, `botTactics`, `upgrades`, `metrics` + ten files whose shell literals gained `hits`). Client — NEW `__tests__/ordnanceMasksAreServerOnly.test.ts`. Root — `eslint.config.js`. Docs — `VERSION`/`package.json`/lock (0.18.4), `CHANGELOG.md`, both trackers, `deferred-work.md` (5 stamps + 5 new entries), this spec.
+
+**Verification performed:** `npm run check` exit 0 — lint 0 errors (3 pre-existing `max-lines-per-function` warnings), tsc clean x3, **844 / 1871 / 3269** tests, `check:hooks` 266/0. `goldenFrames.test.ts` passed UNCHANGED (no snapshot line moved, so no amendment had to explain one). The ESLint restriction was proved by planting `x.hp -= 1` in `server/src/game/match.ts` (fired with the gate's message), then removed. Fail-first proved by removing gate steps (a) and (c) — 6 failures — and by removing the sink invalidation plus the amendment-19 count — 3 failures; both reverted. PERF PIN: 20 hulls + 500 armed mines through `stepMines` + `hitTargets(['hull','mine','decoy'])` + one full `resolveBurst`, **best of 5 = 1.922 ms** against the 50 ms budget (Darwin 25.4.0 / Node 22, dev machine, under vitest — ledgered as a dev number, not a production one). Headless smokes on a self-booted scratch server (`PORT=2597`, killed afterwards; 2567 and 5173 never touched): `soloSmoke` PASSED first attempt, and `/metrics` served `world:{minesLivePeak:0}` live. `matchSmoke` took four attempts — two HUNG and one aborted on a port collision left by the first hang, all three under a caller-side timeout shorter than the script's own 240 s "A sinking B" budget; given its full budget it PASSED (winner ALPHA, both captains, clean disposal). Both failure modes are the ledgered pre-existing flake; the lesson worth recording is that this smoke needs more than 300 s of wall clock. `weaponsSmoke` failed its first run on the NEW assertion and the ASSERTION was wrong, not the code: counting "six live at once" through the OBSERVER's eyes measures the drifting layer's spread against the detect ring, not the store. Re-pinned on A's OWN board (a captain always sees its own mines at any range) and it passed: *"A held 6 own mines live at once (6 laid)"* — a number that was impossible under the retired cap of 5.
+
+**Residual risks / Eric's veto list:** (1) the three orchestrator readings above (the `dmg` amount, the separate blast mask, the World-owned memo); (2) a star shell no longer detonates the firer's own mines — ruled, but it is a real change to a shipped behaviour; (3) a shot mine draws two booms at nearly the same point (ledgered as a client-side presentation nit; suppressing either would break an older invariant); (4) bot mine policy was NOT retuned for a capless world — `preparedMineReserve` (3) is now a bare restraint dial, a balance question for a harness cycle; (5) the perf number is a dev-machine measurement and staging cannot produce a better one (starter plan); (6) the `ordnance` kind, the `decoy` store and `ship.shield` are built-but-empty seats for Stories 8.14/8.15, each with AR44/AR47 rules recorded in the ledger that are NOT implemented here.
 
 ## Design Notes
 
