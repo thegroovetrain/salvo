@@ -1715,6 +1715,171 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE HUD BAR (Story 8.6) — the ONE bottom-centre cluster that replaces the
+   * three corners (bottom-left hotbar stack, bottom-right vitals cluster,
+   * bottom-left XP rail). Direction B "TRISTRAM", ratified by Eric 2026-09-11.
+   *
+   * SOURCE: `mockups/hud-composite-3.html`, read literally. Epic-8 amendment 31
+   * — every size on the bar is THE MOCK'S: the July 1.6x micro lift (epic-2
+   * amendment 15) does NOT apply to the bar's surfaces, which is why `slot` is
+   * 54 here against `hotbar.slot`'s 62 and `type.chip` is 9 against the
+   * `type.registers.hudMicro` 14. Epic-8 amendment 32 lifts the HP globe from
+   * the mock's 96 to the helm globe's 104, so ONE `globe` number serves both.
+   *
+   * Anatomy of the 768 px bar, left to right:
+   *   HP globe 104 | 16 | Gun Shift Q E R (5 x 54, 8 gaps) | 16 |
+   *   framed belt 1-4 (8 + 4 x 44 + 3 x 6 + 8) | 16 | helm globe 104
+   * with the XP strip's 24 px row 8 px beneath the 104 px main row.
+   *
+   * LOGICAL UNITS: main.ts already divides the screen by the UI scale, so every
+   * number here is pre-scale. The one exception is the 9 px type register,
+   * which `render/hudBar.ts`'s `microScale()` counter-scales at 90% so no mono
+   * glyph ever renders under 9 px (DESIGN.md: "the 90% setting scales geometry
+   * and exempts the micro type tier").
+   *
+   * Colors are NOT here — every stroke/fill reads a `colors` token at an alpha
+   * (UX-DR76: Story 8.6 mints no new token).
+   */
+  hudBar: {
+    /** Px from the viewport floor to the bar's bottom edge (mock `.B-hud`
+     *  `bottom: 18px`). */
+    floor: 18,
+    /** Globe diameter (px) — BOTH globes, epic-8 amendment 32. The mock draws
+     *  the HP globe at 96 and the helm at 104; Eric lifted them to one size. */
+    globe: 104,
+    /** The bar's one horizontal gap (mock `.B-main { gap: 16px }`): globe to
+     *  slots, slots to belt, belt to globe. */
+    globeGap: 16,
+    /** Weapon slot square (px) and the gap between them (mock `.slot`,
+     *  `.B-slots { gap: 8px }`). */
+    slot: 54,
+    slotGap: 8,
+    /** Consumable belt square (px) and its tighter gap (mock `.belt .slot`,
+     *  `.belt { gap: 6px }`). */
+    beltSlot: 44,
+    beltGap: 6,
+    /** Belt frame padding (mock `.belt { padding: 8px 8px 6px }`). The frame
+     *  ENCLOSES the key chips, exactly as the mock's `.belt > .sw` column does,
+     *  so `bottom` is measured under the chip, not under the square. */
+    beltPad: { top: 8, side: 8, bottom: 6 },
+    /** Key chip (mock `.kc`): 16 px tall, 16 px minimum width, 3 px of padding
+     *  each side of the glyph, and 5 px under its square (mock `.sw { gap: 5px }`). */
+    chipH: 16,
+    chipMinW: 16,
+    chipPadX: 3,
+    chipGap: 5,
+    /** Icon linework box (px) in a weapon square / a belt square (mock
+     *  `.slot > svg` 28, `.belt .slot > svg` 22). */
+    icon: 28,
+    beltIcon: 22,
+    /** Ammo badge square (px) and its top-right overhang on both axes — the
+     *  belt's badge rides 1 px tighter (mock `.badge`, `.belt .badge`). */
+    badge: 16,
+    badgeOverhang: 7,
+    beltBadgeOverhang: 6,
+    /** XP STRIP. `stripGap` is the main row to strip row gap (mock `.B-xp
+     *  { margin-top: 8px }`); `strip` the track's own height (mock `.B-xp
+     *  .hbar.xp { height: 4px }`); `stripRowH` the row the strip's items are
+     *  centred in (the 24 px bank chip is its tallest member); `stripItemGap`
+     *  the LV/track/tail gap (mock `.B-xp { gap: 10px }`); `bankChip` the
+     *  banked-level chip (mock `.B-bank .bank { width: 24px }`); `cueGap` the
+     *  chip to `TAB TO REFIT` gap (mock `.B-bank { gap: 8px }`). */
+    stripGap: 8,
+    strip: 4,
+    stripRowH: 24,
+    stripItemGap: 10,
+    bankChip: 24,
+    cueGap: 8,
+    /** Alpha the TWO dim groups (the five weapon slots, the framed belt) drop
+     *  to while the refit window is open or the start line is held — mock
+     *  `.B-hud.dim .B-slots, .B-hud.dim .belt { opacity: .38 }`. The globes and
+     *  the XP strip deliberately stay at 1. */
+    dimAlpha: 0.38,
+    /** Hairline width (px) — every 1 px rule on the bar (frames, rings, chip
+     *  boxes, the strip's border). */
+    lineW: 1,
+    /** Globe bed alpha over the water — mock `rgba(3,6,5,.7)` on `cardScrim`. */
+    globeBedAlpha: 0.7,
+    /** Waterline rule width (px) across an HP globe's fill. */
+    waterline: 1.5,
+    /**
+     * THE BAR'S TYPE SIZES, in px. These live HERE and not in `type.registers`
+     * deliberately (ruling 11): the ramp's micro registers carry the 1.6x lift
+     * and the bar does not (amendment 31), so putting the bar's 9 px on the
+     * ramp would either break the ramp's pin or re-lift the bar.
+     */
+    type: {
+      /** Key chip glyph (`Shift`, `Q`, `1`) — mock `.kc { font: 9px mono }`. */
+      chip: 9,
+      /** Tier numeral in a square's bottom-right — mock `.tier { font: 600 9px }`. */
+      tier: 9,
+      /** `LV n` at the strip's head — mock `.B-xp .lv { font: 600 11px }`. */
+      lv: 11,
+      /** The cooldown wipe's centred seconds numeral — mock `.cd { font: 600 18px }`. */
+      wipe: 18,
+      /** HP globe readout: `212` value, ` /250` max, `HULL` label (mock
+       *  `.globe .gt b` 18 / `.globe .gt em` 10 / `.globe .gt` 9). */
+      hull: 18,
+      hullMax: 10,
+      hullLabel: 9,
+      /** Helm globe readout: `271°` value over its `HDG` caption. */
+      hdg: 15,
+      hdgLabel: 9,
+      /** `18 KTS` and the W/S/A/D helm key letters. */
+      kts: 9,
+      helmKey: 9,
+      /** `TAB TO REFIT` at the strip's tail — mock `.cue { font: 9px }`. */
+      cue: 9,
+    },
+    /**
+     * THE HELM TELEGRAPH TICK ARC over the helm globe's crown. Nine detents at
+     * `-arcDeg + stepDeg * i` (i 0..8), 0 deg = 12 o'clock, positive clockwise:
+     * astern LEFT, ahead RIGHT, exactly as the mock draws it.
+     */
+    tick: {
+      arcDeg: 70,
+      stepDeg: 17.5,
+      /** Tick length (px), and the longer STOP tick at i = 4. */
+      len: 6,
+      stopLen: 9,
+      /** The ORDERED detent's hollow rung (px) — the SHAPE channel against the
+       *  solid amber actual-speed needle. */
+      rungW: 7,
+      rungH: 10,
+      /** Actual-speed needle width (px). */
+      needleW: 2,
+    },
+    /** Rudder track along the helm globe's floor: a 48 px hairline with the
+     *  amber position tick riding it. */
+    rudder: { track: 48, tickW: 2, tickH: 8 },
+    /**
+     * THE COOLDOWN WIPE (ruling 3) — the mock's `.cd` conic gradient, rebuilt
+     * as an angle-uniform polygon (render/cooldownWipe.ts). A perimeter-
+     * fraction sweep would run faster along the sides than through the corners
+     * and read as a different clock, so the sweep is sampled BY ANGLE.
+     */
+    wipe: {
+      /** Interior scrim over the whole cooling square — mock `.slot.cool
+       *  { background: rgba(3,6,5,.55) }` on `cardScrim`. */
+      scrimAlpha: 0.55,
+      /** The dark (not-yet-elapsed) region — mock `.cd`'s `rgba(3,6,5,.86)`. */
+      darkAlpha: 0.86,
+      /** The dimmed icon under the wipe — mock `.slot.cool > svg { opacity: .4 }`. */
+      iconAlpha: 0.4,
+      /** Angular sampling step (deg) of the dark polygon's perimeter run. Every
+       *  crossed CORNER is emitted exactly on top of this, so the silhouette
+       *  survives at any step. */
+      sampleDeg: 5,
+      /** The numeral's drop shadow — mock `.cd { text-shadow: 0 0 6px #000 }`,
+       *  i.e. Pixi `dropShadow` at blur 6, alpha 1, distance 0. */
+      shadowBlur: 6,
+      /** Below this many ms left the numeral reads TENTHS (`1.2`); at or above
+       *  it, whole seconds rounded UP (`7`). */
+      tenthsBelowMs: 2000,
+    },
+  },
+
+  /**
    * THE REFIT BAND (Story 2.7) — the four-card offer row (UX-DR14 geometry,
    * TAB semantics per amendment 1). Pure chrome/feel knobs: the gameplay-
    * authoritative card COUNT lives in shared `CONFIG.offer.size` (it bounds the
