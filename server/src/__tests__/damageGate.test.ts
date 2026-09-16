@@ -133,8 +133,43 @@ describe('applyDamage — (c) the shield (Story 8.15 arms it; the gate READS it)
     const w = bareWorld();
     expect(place(w, 'a').shield).toBeNull();
     // The whole point of the field landing in 8.4: the gate is the one reader,
-    // so a grant path added later cannot end up with a second absorber.
-    expect(WORLD_SRC.match(/\.shield = /g) ?? []).toHaveLength(2); // both are expiries inside absorbShield
+    // so a grant path added later cannot end up with a second absorber. EVERY
+    // write in world.ts assigns `null` — two expiries inside absorbShield plus
+    // the three LIFE BOUNDARIES (sinkShip, redeployShip, respawn) that P5
+    // added, so a fresh life can never inherit an open block. Nothing GRANTS
+    // one until Story 8.15.
+    const writes = WORLD_SRC.match(/\.shield = .*/g) ?? [];
+    expect(writes).toHaveLength(5);
+    for (const w2 of writes) expect(w2).toBe('.shield = null;');
+  });
+
+  it('DIES AT EVERY LIFE BOUNDARY: sinkShip, redeployShip and respawn all null it (P5)', () => {
+    // An absorbing pool is economy, and a fresh life inherits no economy. The
+    // reset is written while nothing GRANTS a shield precisely because the
+    // boundary becomes invisible once Story 8.15 arms it.
+    const inner = (w: World): {
+      redeployShip(ship: ShipRecord, placed: { x: number; y: number }[], hold?: boolean): void;
+      respawn(ship: ShipRecord): void;
+    } => w as never;
+
+    const sunk = bareWorld();
+    const s = place(sunk, 'a');
+    s.shield = { hpLeft: 40, until: sunk.now + 5000 };
+    sunk.sinkShip('a', 'b');
+    expect(s.shield).toBeNull();
+
+    const red = bareWorld();
+    const r = place(red, 'a');
+    r.shield = { hpLeft: 40, until: red.now + 5000 };
+    inner(red).redeployShip(r, [{ x: 0, y: 0 }]);
+    expect(r.shield).toBeNull();
+
+    const res = bareWorld();
+    const p = place(res, 'a');
+    res.sinkShip('a', 'b');
+    p.shield = { hpLeft: 40, until: res.now + 5000 }; // granted mid-death window
+    inner(res).respawn(p);
+    expect(p.shield).toBeNull();
   });
 
   it('absorbs first, and a partly-absorbed hit puts only the REMAINDER on the hull', () => {

@@ -93,11 +93,27 @@ export default tseslint.config(
     files: ['server/src/**/*.ts'],
     ignores: ['server/src/game/world.ts'],
     rules: {
+      // FOUR SPELLINGS OF THE SAME DEFECT (Story 8.4 review, P6). `-=` was the
+      // only one the fence caught, so `hp--`, `hp = hp - n` and `hp += -n` all
+      // walked straight past it. A fence with three known holes is worse than
+      // no fence: it certifies what it never checked.
       'no-restricted-syntax': [
         'error',
         {
           selector: "AssignmentExpression[operator='-='] > MemberExpression.left[property.name='hp']",
           message: 'Hull hp is decremented ONLY by World.applyDamage (game/world.ts) — the damage gate (Story 8.4, AR47). Route the damage through it.',
+        },
+        {
+          selector: "UpdateExpression[operator='--'] > MemberExpression[property.name='hp']",
+          message: 'Hull hp is decremented ONLY by World.applyDamage (game/world.ts) — the damage gate (Story 8.4, AR47). `hp--` is an `hp -=` in disguise.',
+        },
+        {
+          selector: "AssignmentExpression[operator='='][left.property.name='hp'][right.type='BinaryExpression'][right.operator='-']",
+          message: 'Hull hp is decremented ONLY by World.applyDamage (game/world.ts) — the damage gate (Story 8.4, AR47). `hp = hp - n` is an `hp -=` in disguise.',
+        },
+        {
+          selector: "AssignmentExpression[operator='+='][left.property.name='hp'][right.type='UnaryExpression'][right.operator='-']",
+          message: 'Hull hp is decremented ONLY by World.applyDamage (game/world.ts) — the damage gate (Story 8.4, AR47). `hp += -n` is an `hp -=` in disguise.',
         },
       ],
     },

@@ -340,7 +340,23 @@ describe('a hull sunk THIS tick (amendment 19, :594)', () => {
 // ---------------------------------------------------------------------------
 
 describe('the 500-live-mine performance pin (NFR23)', () => {
-  it('checkMineTriggers + hitTargets + one full resolveBurst stay well inside the 50 ms tick', () => {
+  type PerfInner = {
+    stepMines(hitTargets: (m: readonly TargetKind[]) => readonly Target[]): void;
+    resolveBurst(shell: unknown, at: { x: number; y: number }, hulls: readonly Target[]): void;
+    hitTargets(mask: readonly TargetKind[]): readonly Target[];
+  };
+
+  /** A FRESH field for EVERY timed run (Story 8.4 review, P9). The old shape
+   *  built ONE world outside the loop and timed it five times — and a timed run
+   *  MUTATES it: `stepMines` trips, `resolveBurst` detonates, and a cascade can
+   *  take mines off the water for good, so runs 2-5 would time a thinner field
+   *  than run 1 and the best-of-5 would report the cheapest, not the worst.
+   *  (Measured: with THIS fixture's geometry nothing actually detonates — the
+   *  hulls sit clear of every trigger ring and the burst point is 240u from the
+   *  nearest mine — so the old number was not wrong. It was unguarded: any
+   *  future nudge to the layout would have quietly hollowed the pin out.) The
+   *  rebuild happens here, OUTSIDE the clock, and the count is asserted below. */
+  function perfField(): PerfInner {
     const w = bareWorld(31);
     for (let i = 0; i < 20; i += 1) {
       place(w, `s${i}`, -1200 + i * 120, 600);
@@ -348,11 +364,10 @@ describe('the 500-live-mine performance pin (NFR23)', () => {
     for (let i = 0; i < 500; i += 1) {
       mine(w, `m${i}`, `s${i % 20}`, -1000 + (i % 50) * 40, -600 + Math.floor(i / 50) * 40);
     }
-    const inner = w as unknown as {
-      stepMines(hitTargets: (m: readonly TargetKind[]) => readonly Target[]): void;
-      resolveBurst(shell: unknown, at: { x: number; y: number }, hulls: readonly Target[]): void;
-      hitTargets(mask: readonly TargetKind[]): readonly Target[];
-    };
+    return w as unknown as PerfInner;
+  }
+
+  it('checkMineTriggers + hitTargets + one full resolveBurst stay well inside the 50 ms tick', () => {
     const shell = {
       id: 'perf', ownerId: 's0', x: 0, y: 0, vx: 0, vy: 0, distLeft: 0, bornAt: 0,
       kind: 'shell', damage: CONFIG.gun.damage, hitRadius: CONFIG.gun.shellRadius,
@@ -360,17 +375,184 @@ describe('the 500-live-mine performance pin (NFR23)', () => {
       contactDamage: CONFIG.gun.contactDamage, hits: CONFIG.gun.hits,
     };
     let best = Infinity;
+    let mines = 0;
     for (let run = 0; run < 5; run += 1) {
+      const inner = perfField(); // built OUTSIDE the clock — a fresh 500 every run
+      mines = inner.hitTargets(['mine']).length;
       const t0 = performance.now();
       inner.stepMines((mask) => inner.hitTargets(mask));
       const targets = inner.hitTargets(CONFIG.gun.hits);
       inner.resolveBurst(shell, { x: 0, y: 0 }, targets);
       best = Math.min(best, performance.now() - t0);
     }
-    // Measured 2026-09-15 on the dev machine (Darwin 25.4, Node 22): the best
-    // of 5 runs lands around a millisecond, two orders under the budget. The
-    // number is recorded in this cycle's spec; the ASSERTION is the tick budget.
+    // Every run really did see the full field.
+    expect(mines).toBe(500);
+    // Re-measured 2026-09-16 on the dev machine (Darwin 25.4, Node 22) with the
+    // per-run rebuild: the number is recorded in this cycle's spec; the
+    // ASSERTION is the tick budget.
     if (process.env.HC_PERF_LOG) console.log(`mine-perf best-of-5: ${best.toFixed(3)} ms`);
     expect(best).toBeLessThan(50);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE REVIEW PATCHES (Story 8.4 review, 2026-09-16)
+// ---------------------------------------------------------------------------
+
+describe('P1 — a shell consumed by a MINE emits no mark to the shooter', () => {
+  // A hull is a DISCLOSED entity, so an `hc` within shellRadius of one tells
+  // the shooter nothing the sight/radar channels do not already sanction. A
+  // MINE is disclosed only inside the detect ring: a self-private mark within
+  // shellRadius of an UNSEEN mine would be an unsanctioned detection channel —
+  // walk your shells across the water and read the marks to map a minefield you
+  // were never shown. Same class as the star-shell rule in resolveBurst.
+  const shooterMarks = (w: World): GameEvent[] =>
+    w.tickEvents.filter((e) => (e.k === 'hc' || e.k === 'sp') && e.id === 'a');
+
+  it('an armed enemy mine on the shell path yields NO `hc` and NO `sp`', () => {
+    const w = bareWorld(41);
+    place(w, 'a', 0, 0, 0, 'mineLayer');
+    mine(w, 'm1', 'x', 200, 0);
+    shootAt(w, 'a', 600);
+    expect(w.mines.has('m1')).toBe(false); // it DID detonate
+    expect(w.tickEvents.some((e) => e.k === 'boom' && e.id === 's1')).toBe(true); // the shell still booms
+    expect(shooterMarks(w)).toEqual([]);
+  });
+
+  it("a HULL contact still yields `hc` — the disclosed entity keeps today's mark", () => {
+    const w = bareWorld(42);
+    place(w, 'a', 0, 0, 0, 'mineLayer');
+    place(w, 'b', 200, 0);
+    shootAt(w, 'a', 600);
+    expect(shooterMarks(w).map((e) => e.k)).toEqual(['hc']);
+  });
+
+  it('a BURST covering only a mine is unchanged: it still resolves as `sp`', () => {
+    const w = bareWorld(43);
+    place(w, 'a', 0, 0, 0, 'mineLayer');
+    mine(w, 'm1', 'x', 600, 0);
+    shootAt(w, 'a', 600);
+    expect(w.mines.has('m1')).toBe(false);
+    expect(shooterMarks(w).some((e) => e.k === 'hc')).toBe(false);
+  });
+});
+
+describe('P2 — the interception dispatches by KIND, not by store membership', () => {
+  it('a HULL whose id equals a live mine id takes contact damage; the mine is untouched', () => {
+    // Ids live in different namespaces but NOTHING enforces that. Under the old
+    // `this.mines.get(id)` dispatch the collision resolved as the MINE.
+    const w = bareWorld(44);
+    place(w, 'a', 0, 0, 0, 'mineLayer');
+    const b = place(w, 'collide', 200, 0);
+    mine(w, 'collide', 'x', 4000, 4000); // same id, parked far away
+    const hp0 = b.hp;
+    shootAt(w, 'a', 600);
+    expect(b.hp).toBeLessThan(hp0); // the HULL took the hit
+    expect(w.mines.has('collide')).toBe(true); // the mine never detonated
+  });
+});
+
+describe('P3 — a destroyed or expired buoy invalidates the memo THE SAME TICK', () => {
+  /** A buoy on the +x axis with a hand-set hp. */
+  function buoy(w: World, id: string, ownerId: string, x: number, hp: number, until = w.now + 20000): void {
+    w.buoys.set(id, {
+      id, ownerId, x, y: 0,
+      poly: [{ x: x - 6, y: -6 }, { x: x + 6, y: -6 }, { x: x + 6, y: 6 }, { x: x - 6, y: 6 }],
+      hp, until, radarRange: 330, sweepAngle: 0, prevSweepAngle: 0, sweepTotalRad: 0,
+      jamSeed: 1, jamEpoch: 0, jamFakes: [], gunReloadMsLeft: 0,
+    } as never);
+  }
+
+  it('a buoy DESTROYED by fire is gone from the next list built the same tick', () => {
+    const w = bareWorld(45);
+    buoy(w, 'b1', 'x', 200, 1); // one point of hp: the first hit destroys it
+    expect(ids(w.hitTargets(['decoy']))).toEqual(['b1']);
+    const inner = w as unknown as { hitBuoy(id: string, amount: number): boolean };
+    expect(inner.hitBuoy('b1', 50)).toBe(true);
+    expect(w.buoys.has('b1')).toBe(false);
+    // WITHOUT the generation bump this is the stale memo, and the second shell
+    // of the click dies on a square that is not on the water any more.
+    expect(ids(w.hitTargets(['decoy']))).toEqual([]);
+  });
+
+  it('a buoy that EXPIRES in tickBuoys retires the memo too', () => {
+    const w = bareWorld(46);
+    buoy(w, 'b1', 'x', 200, 50, w.now + 1); // lapses on the next tick
+    expect(ids(w.hitTargets(['decoy']))).toEqual(['b1']);
+    const inner = w as unknown as { tickBuoys(dtMs: number): void };
+    w.now += 50;
+    inner.tickBuoys(50);
+    expect(w.buoys.has('b1')).toBe(false);
+    expect(ids(w.hitTargets(['decoy']))).toEqual([]);
+  });
+
+  it('two shells in one tick: the first kills the buoy, the second is NOT consumed by it', () => {
+    const w = bareWorld(47);
+    const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+    buoy(w, 'b1', 'x', 300, 1);
+    const inner = w as unknown as {
+      resolveShell(shell: unknown, outcome: unknown, hulls: readonly Target[]): void;
+      hitTargets(mask: readonly TargetKind[]): readonly Target[];
+      pending: GameEvent[];
+    };
+    const shellAt = (id: string): unknown => ({
+      id, ownerId: a.id, x: 300, y: 0, vx: 0, vy: 0, distLeft: 0, bornAt: w.now,
+      kind: 'shell', damage: CONFIG.gun.damage, hitRadius: CONFIG.gun.shellRadius,
+      targetX: 300, targetY: 0, burstRadius: CONFIG.gun.burstRadius,
+      contactDamage: CONFIG.gun.contactDamage, hits: CONFIG.gun.hits,
+    });
+    const hit = { kind: 'hitShip', victimId: 'b1', x: 300, y: 0 };
+    inner.resolveShell(shellAt('s1'), hit, inner.hitTargets(CONFIG.gun.hits));
+    expect(w.buoys.has('b1')).toBe(false);
+    // The SECOND shell asks the collector again — and must be offered nothing,
+    // so its own resolution can never name the dead square at all.
+    expect(ids(inner.hitTargets(CONFIG.gun.hits))).not.toContain('b1');
+  });
+});
+
+describe('P4 — the per-tick state is cleared in the PROLOGUE', () => {
+  it('a sinkShip BETWEEN ticks does not survive as a "sank this tick" wreck', () => {
+    // match.ts leave-scuttle sinks a hull outside any step. With the clears in
+    // the EPILOGUE that wreck was still in `sunkThisTick` for the whole of the
+    // NEXT tick, so a burst resolved inside that tick minted an `hc` for a hull
+    // that sank before the tick began — amendment 19 says THIS tick.
+    const w = bareWorld(48);
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 600, 0);
+    w.sinkShip(b.id, a.id); // OUTSIDE a step, exactly as leave-scuttle does
+    // A shell already in flight, one tick short of its target point. The wreck
+    // is no collision subject (the sink invalidated the collector), so this
+    // BURSTS at 600,0 — right on top of it — inside the very next step().
+    w.shells.set('s9', {
+      id: 's9', ownerId: a.id, x: 580, y: 0, vx: 600, vy: 0, distLeft: 400, bornAt: w.now,
+      kind: 'shell', damage: CONFIG.gun.damage, hitRadius: CONFIG.gun.shellRadius,
+      targetX: 600, targetY: 0, burstRadius: CONFIG.gun.burstRadius,
+      contactDamage: CONFIG.gun.contactDamage, hits: CONFIG.gun.hits,
+    } as never);
+    w.step(); // the NEXT tick: stepShells resolves the burst inside it
+    expect(w.tickEvents.some((e) => e.k === 'burst')).toBe(true); // it really burst
+    const marks = w.tickEvents.filter((e) => e.k === 'hc' || e.k === 'sp');
+    expect(marks.map((e) => e.k)).toEqual(['sp']); // fall of shot, NOT a hit call
+  });
+
+});
+
+describe('P8 — wrecksInBurst honours the fleet friendly filter', () => {
+  it('a FLEET-owned burst never counts a friendly fleet wreck as a geometric victim', () => {
+    // A fleet shell does not see a friendly fleet hull as a collision subject at
+    // all (stepShells filter, amendment 36). Counting one here would let the
+    // wreck list re-admit through the back door what the damage path refuses.
+    const w = bareWorld(49);
+    w.addShip('fleetA', 'F1', 'fleet', 'torpedoBoat', undefined, { x: 0, y: 0 }, []);
+    const f2 = w.addShip('fleetB', 'F2', 'fleet', 'torpedoBoat', undefined, { x: 300, y: 0 }, []);
+    f2.state = { x: 300, y: 0, heading: 0, speed: 0 };
+    w.sinkShip('fleetB', undefined);
+    const inner = w as unknown as {
+      wrecksInBurst(at: { x: number; y: number }, radius: number, ownerId: string): number;
+    };
+    expect(inner.wrecksInBurst({ x: 300, y: 0 }, CONFIG.gun.burstRadius, 'fleetA')).toBe(0);
+    // A CAPTAIN burst over the same wreck still counts it (amendment 19).
+    place(w, 'a', -900, 0);
+    expect(inner.wrecksInBurst({ x: 300, y: 0 }, CONFIG.gun.burstRadius, 'a')).toBe(1);
   });
 });

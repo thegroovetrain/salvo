@@ -703,6 +703,13 @@ export interface ShipRecord {
    * `dealt = 0` (AR47). It absorbs from EVERY DamageSource, storm and burn
    * included (Eric). A second shield REPLACES rather than stacks (Eric
    * 2026-09-11) — that rule belongs to whatever grants one, not here.
+   *
+   * IT DIES AT EVERY LIFE BOUNDARY (Story 8.4 review, P5): sinkShip,
+   * redeployShip and respawn all reset it to `null`, so a fresh life can never
+   * inherit an open block. The reset is written NOW, while nothing grants a
+   * shield, precisely because the boundary is invisible once 8.15 arms it — the
+   * DAMAGE CONTROL pool's rule, verbatim: the economy is what a sinking captain
+   * loses.
    */
   shield: { hpLeft: number; until: number } | null;
   /**
@@ -923,18 +930,32 @@ export class World {
   private botSeq = 0;
   /**
    * THE COLLECTOR'S PER-TICK MEMO (Story 8.4, AR44), keyed by sorted mask.
-   * Cleared in the tick prologue; entries carry the generation they were built
-   * at so a sink or a mine deletion retires them without a second pass.
+   * Cleared in the tick PROLOGUE (step(), beside the clock advance); entries
+   * carry the generation they were built at so a sink, a mine deletion or a
+   * buoy deletion retires them without a second pass.
    */
   private readonly tickTargets = new Map<string, { gen: number; list: Target[] }>();
-  /** Bumped by sinkShip and by every mine consumed — see hitTargets(). */
+  /**
+   * THE COLLECTOR'S GENERATION. Every writer that takes a target OFF the water
+   * — or puts one on it — bumps this, and a memoized list built at an older
+   * generation is rebuilt on the next ask. The complete writer list:
+   *   sinkShip     — the wreck leaves every list from that instant.
+   *   consumeMine  — the one mine-deletion path (detonation, captive launch).
+   *   spawnMine    — a new mine is not a target YET (still arming), but the
+   *                  store changed and a memo must not outlive it.
+   *   consumeBuoy  — the one buoy-deletion path (destroyed, expired).
+   * Nothing else writes it; adding a fifth writer means adding it here.
+   */
   private targetsGen = 0;
   /**
    * HULLS THAT SANK THIS TICK, with their silhouettes COPIED at sink time
    * (amendment 19). They are not collision subjects any more — the collector
    * excludes them the instant the generation bumps — but a burst covering one
    * still counts it as a GEOMETRIC victim for the hit-call mark: `hc`, no
-   * damage, no assist. Cleared in the tick prologue.
+   * damage, no assist. Cleared in the tick PROLOGUE, which is what makes "this
+   * tick" literally true: sinkShip is reachable BETWEEN ticks (match.ts's
+   * leave-scuttle, a directed test), and clearing at the end of a step instead
+   * would carry such a wreck into the following tick.
    */
   private sunkThisTick: Target[] = [];
   /** How many rows of CONFIG.fleet.waves have already been enqueued. */
@@ -1759,6 +1780,8 @@ export class World {
     // pool would drain entirely into the maxHp clamp — but the wire field would
     // still tick down on a brand-new match's HUD (the boostUntil rule).
     World.clearRepair(ship);
+    // ...nor a SHIELD BLOCK (Story 8.4 review, P5 — the clearRepair rule).
+    ship.shield = null;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
     // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
@@ -1869,6 +1892,9 @@ export class World {
     // gate), and nothing may trickle hp back onto a hull already at 0. The FREE
     // per-level channel dies on the same rule and at the same instant.
     World.clearRepair(ship);
+    // ...and so does the SHIELD BLOCK, on the same rule (Story 8.4 review, P5):
+    // an absorbing pool is economy, and a sinking captain loses their economy.
+    ship.shield = null;
     ship.deaths += 1;
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     this.creditKill(ship, by, victimHeldBounty);
@@ -2709,6 +2735,18 @@ export class World {
     // frame boundary, not an insertable position — it stays outside STEP_ORDER.
     this.tick += 1;
     this.now += dtMs;
+    // The ordnance collector's memo and the wreck list are PER-TICK state, so
+    // they are cleared HERE, with the clock advance, not in the epilogue (Story
+    // 8.4 review, P4). The epilogue looked equivalent — nothing between two
+    // steps reads them — but sinkShip is reachable from OUTSIDE a step
+    // (match.ts's leave-scuttle, a directed test), and an epilogue clear let
+    // such a wreck survive into the NEXT tick as a "sank this tick" geometric
+    // victim, minting an `hc` for a hull that sank before the tick began. The
+    // collector's FIRST build of the tick still lands at stepShells, exactly
+    // where the old ctx.hulls() snapshot was taken: nothing before that row
+    // asks for targets.
+    this.tickTargets.clear();
+    this.sunkThisTick = [];
     const ctx = this.stepContext(dtMs);
 
     for (const row of World.STEP_ORDER) row.run(this, ctx);
@@ -2725,11 +2763,6 @@ export class World {
     // Muzzle-flash dedupe (Story 4.3) resets with the tick's other per-tick
     // state: next tick's first gun-family spawn per owner flashes again.
     this.mzOwnersThisTick.clear();
-    // The ordnance collector's memo and this tick's wreck list (Story 8.4):
-    // clearing here is what makes the collector's FIRST build of the tick land
-    // at stepShells, exactly where the old ctx.hulls() snapshot was taken.
-    this.tickTargets.clear();
-    this.sunkThisTick = [];
   }
 
   /**
@@ -3969,24 +4002,58 @@ export class World {
       this.emitSplash(shell, outcome.x, outcome.y);
       return;
     }
+    // WHAT THE SHELL TOUCHED IS DECIDED FIRST (Story 8.4 review, P1/P2): the
+    // kind comes off the very target list this shell was resolved against, so
+    // every branch below — and every branch of resolveInterception — dispatches
+    // on the KIND rather than on which store happens to hold the id.
+    const kind = World.targetKindOf(hulls, outcome.victimId);
     this.pending.push({ k: 'boom', id: shell.id, hit: outcome.victimId, x: outcome.x, y: outcome.y });
-    // Early interception = a victim RESOLVED (Story 4.3, amendments 17/18):
-    // one Hit Call at the impact point, all ordnance — deliberately NOT
-    // derived from dmg emission, so the weapons-safe ready room still calls
-    // hits (hitShip early-returns on !damageEnabled).
-    this.emitHitCall(shell.ownerId, outcome.x, outcome.y);
-    this.resolveInterception(shell, outcome, hulls);
+    // A MINE CONTACT EMITS NO MARK TO THE SHOOTER (orchestrator ruling,
+    // 2026-09-16): no `hc` here, and no `sp` either — the mine branch of
+    // resolveInterception returns before any splash could be routed. A HULL is
+    // a DISCLOSED entity: an `hc` within shellRadius of one tells the shooter
+    // nothing the sight/radar channels do not already sanction. A MINE is
+    // disclosed only inside the detect ring, so a self-private hit mark within
+    // shellRadius of an UNSEEN mine would be an unsanctioned detection channel
+    // — walk your shells across the water and read the marks to map a minefield
+    // you were never shown. That is exactly the class the star-shell comment in
+    // resolveBurst forbids ("a flare lobbed into fog would answer 'is a hull
+    // within burstRadius of this point?'"), and it is forbidden here for the
+    // same reason. The shell's `boom` still fires (its `hit` is stripped by the
+    // row's materialize, as before) and the MINE's own detonation announces
+    // itself through the ordinary sight-gated channels.
+    //
+    // Early interception on anything else = a victim RESOLVED (Story 4.3,
+    // amendments 17/18): one Hit Call at the impact point, all ordnance —
+    // deliberately NOT derived from dmg emission, so the weapons-safe ready
+    // room still calls hits (hitShip early-returns on !damageEnabled).
+    if (kind !== 'mine') this.emitHitCall(shell.ownerId, outcome.x, outcome.y);
+    this.resolveInterception(shell, outcome, hulls, kind);
+  }
+
+  /** The KIND of the target `id` names, read off the list the shell was
+   *  resolved against (Story 8.4 review, P2). Store membership is NOT a kind
+   *  test: ids live in different namespaces but nothing enforces that, and a
+   *  hull whose id collided with a live mine's used to detonate the mine
+   *  instead of taking its hit. `undefined` means the collision named something
+   *  no longer in the list — a caller-side defence, never expected. */
+  private static targetKindOf(targets: readonly Target[], id: string): TargetKind | undefined {
+    for (const t of targets) if (t.id === id) return t.kind;
+    return undefined;
   }
 
   /**
-   * What an early interception DOES, once its boom and its Hit Call are out
-   * (split from resolveShell for the complexity bound; the order of the
-   * branches below is unchanged). Reached only for outcome kind 'hitShip'.
+   * What an early interception DOES, once its boom (and, for everything but a
+   * mine, its Hit Call) is out — split from resolveShell for the complexity
+   * bound; the order of the branches below is unchanged. Reached only for
+   * outcome kind 'hitShip'. `kind` is the victim's TARGET KIND, decided by the
+   * caller off the resolved target list (Story 8.4 review, P2).
    */
   private resolveInterception(
     shell: ShellState,
     outcome: { victimId: string; x: number; y: number },
     hulls: readonly Target[],
+    kind: TargetKind | undefined,
   ): void {
     // SHOOTING A MINE SETS IT OFF (FR57 / Eric ruling 2026-09-15, amendments
     // 16-17): the shell's path came within its own radius of the mine's centre,
@@ -3999,8 +4066,13 @@ export class World {
     // target and the shell simply flies on.
     //
     // PERCEPTION-BLIND, deliberately (Eric: *"you can see"* is descriptive):
-    // nothing here asks whether the shooter could see the mine.
-    if (this.detonateShotMine(outcome.victimId)) return;
+    // nothing here asks whether the shooter could see the mine. It also emits
+    // NOTHING to the shooter — no `hc` above, and the return below means no
+    // `sp` either (see resolveShell's ruling comment).
+    if (kind === 'mine') {
+      this.detonateShotMine(outcome.victimId);
+      return;
+    }
     // A DAMAGELESS flare still lights where it stopped (Story 2.8, amendment
     // 39): an intercepted star shell spawns its zone at the interception point.
     if (shell.lit) this.spawnLitZone(shell, outcome);
@@ -4018,15 +4090,16 @@ export class World {
       return;
     }
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
-    const victim = this.ships.get(outcome.victimId);
-    if (!victim) {
+    if (kind === 'decoy') {
       // A RADAR BUOY intercepted the shot (R2.7): it takes the interceptor's
       // contactDamage exactly as a hull would (the `hc` above already told
       // the shooter something connected). No XP, no feed line (hitBuoy).
+      // Selected by KIND, not by "the ships map had no such id" (P2).
       this.hitBuoy(outcome.victimId, shell.contactDamage);
       return;
     }
-    if (!isAfloat(victim.lifecycle)) return;
+    const victim = this.ships.get(outcome.victimId);
+    if (!victim || !isAfloat(victim.lifecycle)) return;
     // EVERY SHELL THAT CONNECTS DEALS DAMAGE (Eric ruling 2026-08-05): a later
     // shell of the same multi-barrel click gets no discount here — it is its
     // own shell, and it connected. The one-hit-kill law governs a single SHELL,
@@ -4134,11 +4207,18 @@ export class World {
   /** AMENDMENT 19's geometric victims: hulls that sank THIS tick whose
    *  silhouette the burst covers. Counted for the `hc`/`sp` decision only —
    *  no damage, no assist, no event of their own. The owner's own wreck is
-   *  excluded on the same owner-immunity rule every other path uses. */
+   *  excluded on the same owner-immunity rule every other path uses, and so is
+   *  a FRIENDLY FLEET wreck (Story 8.4 review, P8): a fleet-owned shell never
+   *  sees a friendly fleet hull as a collision subject at all (stepShells'
+   *  filter, amendment 36), so counting one as a geometric victim here would
+   *  let the wreck list re-admit through the back door exactly the hull the
+   *  damage path structurally refuses. */
   private wrecksInBurst(at: Vec2, radius: number, ownerId: string): number {
+    const friendlyFleet = this.isFleetHull(ownerId);
     let n = 0;
     for (const wreck of this.sunkThisTick) {
       if (wreck.id === ownerId) continue;
+      if (friendlyFleet && this.isFleetHull(wreck.id)) continue;
       if (pointPolygonDistance(at, wreck.poly) <= radius) n += 1;
     }
     return n;
@@ -4146,8 +4226,10 @@ export class World {
 
   /**
    * A SHELL OR BURST SETS OFF ONE MINE (FR57 / AR44; Eric rulings 2026-09-15,
-   * amendments 16-18). Returns true when `id` named a mine that detonated —
-   * which is also the caller's "the shell is consumed here" answer.
+   * amendments 16-18). Reached ONLY for a target the collector handed back
+   * with `kind === 'mine'` (Story 8.4 review, P2) — the dispatch is the KIND's,
+   * never "did the mine store happen to hold this id", which a hull sharing an
+   * id with a live mine used to answer wrongly.
    *
    * THIS REPLACES `detonateMinesInBurst`, the old click-your-own-minefield
    * path, and with it the two gates that made a minefield the layer's private
@@ -4163,11 +4245,10 @@ export class World {
    * OWNER's numbers — the shooter's weapon contributes nothing but the trigger
    * — and it CASCADES through detonateMine's visited set in the same tick.
    */
-  private detonateShotMine(id: string): boolean {
+  private detonateShotMine(id: string): void {
     const mine = this.mines.get(id);
-    if (mine === undefined) return false;
+    if (mine === undefined) return; // consume-first re-check, not a policy
     this.detonateMine(mine, this.hitTargets(MINE_BLAST_HITS));
-    return true;
   }
 
   /** Spawn a lit zone where a star shell stopped (burst point, or the
@@ -4694,7 +4775,7 @@ export class World {
   private tickBuoys(dtMs: number): void {
     for (const buoy of this.buoys.values()) {
       if (this.now >= buoy.until) {
-        this.buoys.delete(buoy.id); // silent expiry — no XP, no event (R2.7)
+        this.consumeBuoy(buoy.id); // silent expiry — no XP, no event (R2.7)
         continue;
       }
       this.advanceBuoySweep(buoy, dtMs);
@@ -4866,7 +4947,22 @@ export class World {
     if (buoy === undefined) return false;
     if (!this.damageEnabled) return true; // resolved, but target practice breaks nothing
     buoy.hp -= amount;
-    if (buoy.hp <= 0) this.buoys.delete(buoy.id);
+    if (buoy.hp <= 0) this.consumeBuoy(buoy.id);
+    return true;
+  }
+
+  /**
+   * TAKE ONE BUOY OFF THE WATER (Story 8.4 review, P3) — the single deletion
+   * path (destroyed by fire, natural expiry), the `consumeMine` sibling. It
+   * bumps the collector's generation for the same reason: a buoy occupies the
+   * `decoy` kind, so a memoized target list built earlier THIS TICK would still
+   * offer a dead square as a collision subject, and the second shell of a
+   * multi-barrel click would die on a buoy the first one already destroyed.
+   * Returns false when it was already gone.
+   */
+  private consumeBuoy(id: string): boolean {
+    if (!this.buoys.delete(id)) return false;
+    this.targetsGen += 1;
     return true;
   }
 
@@ -5022,6 +5118,9 @@ export class World {
     // for directed callers).
     ship.boostUntil = 0;
     World.clearRepair(ship);
+    // ...nor a SHIELD BLOCK (Story 8.4 review, P5; sinkShip already nulled it,
+    // kept symmetric here for directed callers).
+    ship.shield = null;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
     // ...nor a previous life's contributors: creditKill already cleared the

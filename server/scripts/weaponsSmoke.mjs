@@ -297,13 +297,15 @@ async function minePhase(a, b, log) {
   // so this count could never have exceeded 5 — which is exactly what makes it
   // the right pin, and why it replaced the old "never more than maxLive at
   // once, yet more distinct ids over time" oldest-despawn proof.
+  //
+  // "SIX LIVE AT ONCE" IS THE WHOLE PIN, and deliberately the only one: a
+  // `distinctOwn.size === maxConcurrentOwn` equality alongside it would demand
+  // that NOTHING ever left the water, which a legitimately TRIPPED mine (B
+  // drifting onto one, a chain off an ambush) breaks without any eviction being
+  // involved. The high-water mark is what eviction could never produce.
   assert(
     a.maxConcurrentOwn >= NO_EVICTION_MINES,
     `A never held ${NO_EVICTION_MINES} of its own mines at once (max ${a.maxConcurrentOwn}) — eviction may be back`,
-  );
-  assert(
-    a.distinctOwn.size === a.maxConcurrentOwn,
-    `A laid ${a.distinctOwn.size} mines but never held more than ${a.maxConcurrentOwn} at once — something despawned one`,
   );
 }
 
