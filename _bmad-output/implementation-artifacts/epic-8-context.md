@@ -106,3 +106,8 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 28. **How-to-Play is not touched in 8.5** (Eric 2026-09-16); its stale EQUIPMENT lines wait for 8.20.
 29. **The interim Shift key chip shows the `⇧` arrow** (Eric 2026-09-16); 8.6 restyles the bar.
 30. **A click on an empty belt row is silent until 8.7** (Eric 2026-09-16); the empty denial applies to the weapon row only.
+31. **The bar is built at the ratified mock's exact pixel values** (Eric 2026-09-16); the July 1.6× micro-type lift (epic-2 amendment 15) does not apply to the hud-bar's surfaces; UI scale is the remedy.
+32. **Both globes are 104 px** (Eric 2026-09-16); supersedes UX-DR46's 96 px HP globe and UX-DR47's 132 px helm assumption; 8.7's refit-row seat derives from a 104 px globe.
+33. **The Shift key chip shows the word `Shift`** in the mock's 16 px-high widening chip family (Eric 2026-09-16); supersedes amendment 29's interim `⇧`.
+34. **The ACTIVE running-boost state survives on the bar** (Eric 2026-09-16): breathing outline + seconds-left as the wipe's centred numeral, no overlay; then the wipe.
+35. **The HP globe carries the pending-heal band** (Eric 2026-09-16): `repairHp` as a dimmer band above the waterline at `railPendingAlpha`.

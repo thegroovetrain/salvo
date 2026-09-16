@@ -1,0 +1,149 @@
+---
+title: 'Story 8.6: The HUD Bar'
+type: 'feature'
+created: '2026-09-16'
+status: 'in-progress'
+baseline_revision: 'e771cc1'
+review_loop_iteration: 0
+followup_review_recommended: false
+context:
+  [
+    '{project-root}/_bmad-output/project-context.md',
+    '{project-root}/_bmad-output/implementation-artifacts/epic-8-context.md',
+    '{project-root}/_bmad-output/implementation-artifacts/epic-8-context-amendments.md',
+    '{project-root}/_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md',
+    '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/mockups/hud-composite-3.html',
+  ]
+warnings: [oversized]
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** The in-match HUD is three corners — a nine-row bottom-left hotbar that clips on short viewports (amendment 25), a bottom-right own-vitals cluster (HP rail, HDG/KTS, telegraph ladder, rudder gauge) and a bottom-left XP rail with the bank chip — and players told Eric it is "not very good or intuitive… the XP and HP bars shoved off to the side are a bit weird to read." Story 8.7's belt and card row need a bar to hang from.
+
+**Approach:** ONE bottom-centre Pixi cluster (Direction B "TRISTRAM", Eric 2026-09-11 *"YES THIS IS PERFECT!"*), built at the ratified mock's exact pixel values: HP globe · gun (ghost chip) · `Shift` · Q E R · framed belt 1–4 · helm globe, an XP strip full-width beneath; the cooldown WIPE replaces the perimeter track; the label column, chamfer, XP rail, HP rail and telegraph cluster are DELETED (machinery, not just text). Client-only, no wire change, no PV bump. Five Eric rulings taken in-session (epic-8 amendments 31–35): mock-literal sizes, both globes 104 px, the word `Shift` on the chip, the ACTIVE running-boost state survives, the HP globe carries the pending-heal band.
+
+## Boundaries & Constraints
+
+**Always:**
+
+- **Eric rulings (epic-8 amendments 31–35, written and re-applied to `epic-8-context.md`):** (31) every size on the bar is the mock's — the July 1.6× micro lift (epic-2 amendment 15) does not apply to the bar's surfaces; (32) BOTH globes 104 px (r 52); (33) the Shift chip reads `Shift` in the mock's 16 px-high widening chip family, the gun chip is a ghost; (34) ACTIVE survives: breathing outline + seconds-left as the wipe's centred numeral with no overlay, precedence `denied > activated > active > cooling`; (35) `repairHp` paints as a dimmer band above the live waterline at `railPendingAlpha` 0.32.
+- **Orchestrator rulings (Eric's veto list; record them in the Auto Run Result):**
+  1. **Geometry spine — `client/src/render/hudBar.ts` `hudBarLayout(screenW, screenH): HudBarLayout`, pure, in LOGICAL units** (main.ts already divides by the UI scale — `hudWidth/hudHeight`). Numbers from the mock, held in a NEW `CLIENT_CONFIG.hudBar` block: `floor: 18` (bar bottom above the viewport floor), `globe: 104`, `globeGap: 16` (globe↔slots and slots↔belt and belt↔globe), `slot: 54`, `slotGap: 8`, `beltSlot: 44`, `beltGap: 6`, `beltPad: { top: 8, side: 8, bottom: 6 }`, `chipH: 16`, `chipMinW: 16`, `chipPadX: 3`, `chipGap: 5` (square→chip), `icon: 28`, `beltIcon: 22`, `badge: 16`, `badgeOverhang: 7`, `beltBadgeOverhang: 6`, `stripGap: 8` (main row → strip), `strip: 4`, `stripRowH: 24`, `stripItemGap: 10`, `bankChip: 24`, `cueGap: 8`, `dimAlpha: 0.38`, `type: { chip: 9, tier: 9, lv: 11, wipe: 18, hull: 18, hullMax: 10, hullLabel: 9, hdg: 15, hdgLabel: 9, kts: 9, helmKey: 9, cue: 9 }`, `tick: { arcDeg: 70, stepDeg: 17.5, len: 6, stopLen: 9, rungW: 7, rungH: 10, needleW: 2 }`, `rudder: { track: 48, tickW: 2, tickH: 8 }`, `waterline: 1.5`. Derived: bar width `104+16+(5·54+4·8)+16+(8+4·44+3·6+8)+16+104 = 768`; main row height 104; strip row 24; bar height `104+8+24 = 136`; bar bottom `screenH−18`, left `round((screenW−768)/2)`. The slot column (square 54 + 5 + chip 16 = 75) and the belt frame (8+44+5+16+6 = 79 tall, 210 wide — the frame ENCLOSES the chips, as the mock's `.belt > .sw` does) are each vertically centred on the 104 main row. Layout shape: `{ bar: Rect; hpGlobe: Circle; helmGlobe: Circle; squares: Rect[9] (index = loadout slot); chips: { cx, y }[9]; belt: Rect; strip: { track: Rect; lvX; chip: Rect; cueX; rowY }; dimGroups: Rect[2] }`. A test pins every number above against the mock and pins `bar.w === 768`, `bar.y + bar.h === screenH − 18`, centring at 1366 and 1280, and that the bar fits the 1280×614 floor with the row top at `614−154 = 460`.
+  2. **The 9 px floor at 90 % UI scale** (DESIGN.md: *"the 90 % setting scales geometry and exempts the micro type tier"*): the HUD root scales as one container, so a 9 px Text would render at 8.1 px. ONE helper `microScale(uiScale): number` (= `1/uiScale` when `uiScale < 1`, else 1) in `hudBar.ts`; every Text whose configured size is 9 px (chips, tier numerals, helm key letters, HDG label, KTS, cue) gets `text.scale.set(microScale)` about its own anchor; nothing else counter-scales. `HudBar.update` receives `uiScale` (from `g.uiScale`). Pinned: at 90 % the rendered chip glyph is ≥ 9 px and still fits its 14.4 px box (container-fit law, epic-2 amendment 47); at 100/125 % `microScale === 1`.
+  3. **Cooldown wipe — `client/src/render/cooldownWipe.ts`:** a pure `wipePolygon(elapsedFrac, half): PolyPoint[]` returns the DARK region — the square's centre plus the perimeter run from angle `360·elapsed` (clockwise from 12 o'clock) to 360°, ANGLE-uniform like CSS `conic-gradient` (a new `squareRayPoint(thetaDeg, half)` in `util/poly.ts` gives the perimeter point on a ray; sample every 5° plus the corners crossed); `elapsed = 1 − reloadMsLeft/reloadMs` (`reloadFraction` in hud.ts stays the one source). Drawn per cooling slot: interior fill `cardScrim` α .55 over the whole square, icon alpha 0.4, the dark polygon `cardScrim` α .86, and the numeral — 18 px/600 mono tabular, `textPrimary`, a 6 px black drop shadow (Pixi `dropShadow` blur 6, alpha 1, distance 0), centred; format `wipeLabel(msLeft)`: tenths (`1.2`) under 2000 ms, else whole seconds rounded UP (`7`). Pinned: e=0 → the polygon covers the whole square; e=0.25 → the top-right quadrant is clear and the rest dark; e=1 → empty polygon; label `1999 → "2.0"`, `1950 → "2.0"`, `1200 → "1.2"`, `6100 → "7"`, `0 → ""`. The perimeter TRACK (`trackWidth`, `tracePerimeter` call in the hotbar) and the quick-info readout are DELETED; the 8.5-era hotbar `cooling` skin keeps only its outline colour.
+  4. **Slot row — `client/src/render/hotbar.ts` is RE-CUT, not rewritten:** keep every pure state function (`slotState`, `slotFlags`, `slotDegraded`, `slotSkin`, `breathedSkin`, `degradedSkin`, the hover/tooltip core, `slotAtPoint` over the new rects) and the `Hotbar` class name; delete `hotbarLayout`/`HotbarLayout`, the name/quick-info label column, `H.chamfer`/`slotOutline`'s cut, `H.left/bottom/gutter/keyGap/labelGap/labelWidth/nameTop/infoTop/trackWidth`, `EMPTY_SLOT_LABEL` remnants. `Hotbar.update(view, layout: HudBarLayout, cursor, nowMs, uiScale)` draws squares 0–4 at 54 and 5–8 at 44 (belt icons 22) from `layout.squares`, the key chip centred 5 px BELOW each square: `SLOT_KEY_GLYPHS = ['', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4']` (equipmentInfo.ts), 9 px mono `textMuted` on a 1 px `textMuted` α .55 box, 16 px tall, width `max(16, textW + 6)`; the gun's chip is a GHOST (drawn, transparent border and text, keeps alignment); the selected slot's chip fills `amber` with `void` text 600 weight; a denied slot's chip goes `denied`. States per UX-DR41 with the mock's numbers: idle `silver` α .28 outline; ready weapon `phosphor` α .4 + 10 px glow; ready Shift `phosphor` α .65 + 14 px glow; selected `amber` outline + 16 px glow + inset wash α .12; cooling = the wipe (ruling 3); ACTIVE (ruling 34) = breathing `phosphor` outline (`ACTIVE_PULSE_HZ` unchanged) + `activeMsLeft` as the wipe's centred numeral, NO overlay, icon at full alpha; activated ≤ 80 ms pop unchanged; empty 1 px DASHED `textMuted` α .45 + `—` glyph (existing `drawDashGlyph`); denied 2 px `denied` edge + red icon flash unchanged. Tier numeral: 9 px/600 mono bottom-right (`right 4, bottom 2`), colour from the ABSOLUTE ramp `[phosphor, info, stormReadout, denied, amber]` by the fitted line's tier (`cardTier` = copies of that line in `cards`, already derivable — reuse the helper the refit card uses or add `lineTier(cards, lineId)` in `equipmentInfo.ts`), drawn ABOVE the wipe; belt slots show no tier. Ammo badge on weapon squares storing > 1: 16 px, `phosphor` digit on `cardScrim`, 1 px `phosphor` α .5 border, top-right −7 px; belt badges −6 px `×n` (belt is empty all story — the code path exists, nothing renders). The tooltip (`tooltipModel/tooltipPlacement`) anchors ABOVE the hovered square and keeps today's 320 px panel (UX-DR48's 236 px re-cut is 8.7's).
+  5. **Belt frame:** ONE 1 px `silver` α .2 rectangle from `layout.belt` around squares 5–8 and their chips; drawn by the Hotbar (it owns the slot surface). Dim group 2.
+  6. **HP globe — `client/src/render/hpGlobe.ts` (new; the rail's pure functions MOVE here from hud.ts: `hullHeaderValue`, `hpColor`, `railPulsing`, `railCritical`, `railAmberChannel`, `railFraction`, `railSig`, `repairFraction`, `hullPulseHz`, `advancePulsePhase`, `hullFillAlpha`, `hullFillHeld`; `attention.ts` re-imports `railCritical` from here and its comments say "HP globe"):** r 52 (104 px); bed `cardScrim` α .7 (mock `rgba(3,6,5,.7)`), ring 1 px `silver` α .28, plus an outer 1 px ring whose colour follows the HP RAMP (`hpColor`: phosphor ≥ 50 %, amber < 50 %, damageMarker < 25 %, thresholds from `CONFIG.damageBands`) at α .35; fill = the circular segment below the waterline at `hp/maxHp` height, ramp colour α .28 breathing by `hullFillAlpha` (pulse ~0.5 Hz below 50 % to the 1.1 Hz cap, held under Tier hold as today); waterline 1.5 px ramp colour at full alpha; the PENDING band (35) = the segment between the live waterline and `(hp+repairHp)/maxHp`, ramp colour α .32; readout centred: `HULL` 9 px `textSecondary` above, `n` 18 px/600 `textPrimary`, ` /max` 10 px `textSecondary` (the mock's `HULL 212 /250` stack — label / value+max on one baseline). A pure `circleSegmentBelow(r, waterY)` polygon helper lives in `render/globe.ts` beside `drawGlobeBed(g, c, r, ...)` so both globes share the bed/ring code. The shielded readout (UX-DR46, `info`) is 8.15's — NOT built; leave a one-line comment.
+  7. **Helm globe — `client/src/render/helmGlobe.ts` (new; `DETENT_LABELS`, `detentIndexOf`, `detentLabel`, `rudderTickCenter`, `speedLadderFraction`, the helm glyph fade (`HelmGlyphStore`, `glyphKey`, `glyphFadeCount/Sec`) MOVE here from hud.ts):** same bed/ring as the HP globe; the 9-detent telegraph as a TICK ARC over the crown — ticks at `−70 + 17.5·i` degrees (i 0..8, 0° = 12 o'clock, astern LEFT / ahead RIGHT as the mock draws it), 6 px long `silver` α .45, the STOP tick (i 4) 9 px `silver` α .7; the ORDERED detent as a hollow 7×10 `phosphor` 1 px rect centred on its tick radius; the ACTUAL speed as a solid 2 px `amber` needle from the centre region (r 2 → r 31) with a 8×7 arrowhead, at angle `±70·(speed/maxSpeed)` (sign by direction; `speedLadderFraction` supplies the fraction — boosted speed may exceed 70° only up to the arc's end: clamp); readouts inside: `HDG 271°` 15 px/600 `textPrimary` at cy+2 with `HDG` 9 px `textSecondary` beneath, `18 KTS` 9 px (`textPrimary` value, `textSecondary` suffix) below that; rudder track along the floor: 48 px `silver` α .35 hairline at cy+36 with a centre mark 6 px `silver` α .55 and the 2×8 `amber` position tick from `rudderTickCenter`; key letters 9 px `textSecondary`: `S` at (cx−39, cy−20), `W` at (cx+39, cy−20), `A` at (cx−35, cy+39), `D` at (cx+35, cy+39) — fading exactly as today (3 successful inputs per pair, permanent, `hullcracker.helm` localStorage key untouched — epic-2 amendment 26).
+  8. **XP strip — `client/src/render/xpStrip.ts` REPLACES `xpRail.ts` (file deleted; the chip state machine `XpChipState / nextChipState / chipBreathing / chipAlpha / chipDimKeyframe / chipHeld / CHIP_PULSE_HZ` and `xpFillFraction`, `levelTag`, `chipLabel`, `cueLine` MOVE over unchanged; `xpRailLayout` deleted):** row `layout.strip` — `LV n` 11 px/600 mono `phosphor` at the head (`LV 0` renders — `levelTag(0) === 'LV 0'`), the track from `lvX + textW + 10` to the tail group: 4 px tall, `phosphor` α .06 fill in a 1 px `phosphor` α .25 border, the fill `phosphor` α 1 with a 6 px glow (`GlowFilter`-free: a second 1 px stroke at α .45 — no filters on the HUD); the tail group (only when `pts > 0`): the bank chip 24×24, 1 px `phosphor` α .65 outline, `cardScrim` α .6 bed, 11 px/600 count, breathing per the moved state machine, then 8 px, then the cue `TAB TO REFIT` 9 px mono `textSecondary` `.14em` — `cueLine(pts, refitable)` returns `'TAB TO REFIT'` (the `LEVEL UP — ` prefix is dropped ONLY on the strip; the toast twin in `ui/upgradeToast.ts` is untouched) and `''` when `!refitable` (epic-2 amendment 73 stands). Hidden entirely at `pts === 0`; the track always draws while the bar shows.
+  9. **Composition — `class HudBar` in `hudBar.ts`:** one `Container` on `stage.layers.hud` owning `hpGlobe`, `hotbar`, `helmGlobe`, `xpStrip`; `update(view: HudBarView, screenW, screenH, cursor, nowSec, nowMs, uiScale)` lays out once per resize (`layout` getter for main.ts's click gate — `slotAt(p)` forwards to `Hotbar.slotAtPoint`), forwards to the four children, and applies `dim`: ONLY the two `dimGroups` (slot row + belt, i.e. the Hotbar's root) go to α .38 — globes and strip stay at 1 — under `combatLocked(g)` (refit open OR the held start line; one predicate, one treatment — extends UX-DR53's refit rule to the start line, veto item). `hide()` hides everything.
+  10. **main.ts wiring:** `g.hud: Hud` keeps the chrome bar, `IN STORM` warning, match/countdown text, victim tells, the SUNK overlay and the spectate banner; its vitals-cluster members, `vitalsLayout`, `VitalsLayout`, `CLUSTER_CONTENT_BOTTOM`, `setInstrumentsVisible`, `buildReadouts/buildLadderLabels/buildHelmChips/updateHpRail` are DELETED. `IN STORM` and the tells re-anchor CENTRED above the bar (`stormWarn` at `bar.y − V.stormAbove`, tells stacked above it at `tellGap`; `tellAbove` measured from the bar top) — `Hud.update` takes `barTop: number`. `g.hotbar`/`g.xpRail` are replaced by `g.hudBar`; construction at main.ts:2600–2602; the alive path calls `g.hudBar.update(...)` where `g.hud.update / updateHotbar / updateXpRail` were (:3057–3069); `updateHotbar`'s view assembly becomes `hudBarView(g, status, nowMs)` producing `{ slots: HotbarView, hp: { hp, repairHp, maxHp, alive, sinking }, helm: { pose, axes, maxSpeed, boostActive }, xp: XpView, refitable, dim, uiScale }`. **Gating (veto item):** the WHOLE bar shows while `conning(status)` — the XP strip included through the sinking window (the cue is already suppressed by `refitable`, so no lie is told) — and dies at founder with `g.hotbar.hide()`'s call sites (:3853, :4005, and `hideTransient` :3858 → `hudBar.hide()`); the reveal keeps chrome bar + kill feed (`updateSpectate` unchanged minus the instruments). `g.xpRail.rearm()` (:873, Tab re-arms the chip) → `g.hudBar.rearmBank()`. `frameAttention` reads `railCritical` from `hpGlobe.ts`; nothing else in the tier maths changes.
+  11. **Tokens:** NO new colour token (UX-DR76). Every bar colour is an existing `CLIENT_CONFIG.colors` key at an alpha; `tokens.test.ts`'s literal scan must stay green — no hex/rgba literals outside `config.ts`. Text sizes live in `hudBar.type`, not in the `TYPE` ramp (the ramp pin is untouched).
+  12. **Twins & tiers:** `twinMap.ts` rows re-pointed: `heal` → `'the HP globe's fill and readout climbing, the pending band draining into it (render/hpGlobe)'`, `point` → `'the banked-level chip + the "TAB TO REFIT" cue at the XP strip's tail (render/xpStrip)'`; `denied` row names `render/hotbar` still. `attention.ts` comments: Tier 1 = the HP GLOBE's crimson pulse, Tier 3 = bank chip / toasts / XP strip. `AmberChannel` `'hpRail'` → `'hpGlobe'`.
+  13. **DESIGN.md (the AC's own instruction, minimal — the `_bmad-output/.../DESIGN.md` only):** `components:` — `hud-bar`, `hp-globe`, `helm-globe`, `belt-slot`, `cooldown-wipe`, `xp-strip` rows in the Components table lose "not built" and gain `BUILT 2026-09-16 (Story 8.6)`; `hp-globe.size` and `helm-globe.size` read `104px (Eric 2026-09-16, epic-8 amendment 32)`; the retired keys `xp-rail`, `hp-rail`, `damage-control-rail`, `telegraph-cluster` are confirmed ABSENT from the frontmatter map (the 2026-09-11 comment line stands as the record); the Shapes › activated-ability strike-through gains `— token removed 2026-09-16 (Story 8.6)`; the Hotbar Slot row's `Ready (Shift boost)` `[ASSUMPTION]` is stamped with amendment 34 (ACTIVE survives). Nothing else in DESIGN.md or EXPERIENCE.md moves.
+  14. **Version 0.18.5 → 0.18.6** (cycle 141: `VERSION`, root `package.json` + lock), one-line stamps in BOTH trackers (`sprint-status.yaml` header + index line + `8-6-the-hud-bar: done`, `gds-workflow-status.yaml` `next_expected`), `CHANGELOG.md` in plain words, `deferred-work.md`: stamp `:964` (the hotbar-through-the-window look is now the BAR-through-the-window, still owed a human eye), `:1966` (the label column is deleted — the name-fit exemption is moot; the tooltip fit stands), `:2084` (RESOLVED by 8.6), `:587` (the bar lays out in logical units — the band defect is not inherited), `:210` (ACTIVE carried to the bar, amendment 34); one NEW Story 8.6 section: the start-line dim reading, the strip-through-sinking reading, the S-left/W-right crown reading, the microScale mechanism, "verified by eye" NOT done in-cycle (no browser tooling in the worktree; Eric's look on staging), the shield readout deferred to 8.15, the tooltip re-cut deferred to 8.7.
+  15. **Tests to move (never silently deleted):** `hotbar.test.ts` (geometry block → `hudBar.test.ts`; state/skin/tooltip blocks stay; new: chip glyphs incl. `Shift`, ghost gun chip, wipe on cooling, ACTIVE numeral without overlay, tier numeral colours on the absolute ramp, belt frame rect, dashed empties, no label text anywhere on the bar), `hud.test.ts` (vitals pins → `hpGlobe.test.ts` + `helmGlobe.test.ts`: segment polygon at 0/50/100 %, pending band bounds, ramp colours, pulse cap, tick angles, ordered/actual mapping incl. astern sign and the boosted clamp, rudder tick, glyph fade persistence; chrome-bar and match-text pins stay in hud.test.ts), `xpRail.test.ts` → `xpStrip.test.ts` (cue `'TAB TO REFIT'` / `''`, `LV 0`, chip hidden at 0, state machine unchanged), new `cooldownWipe.test.ts`, `hudBar.test.ts` (layout numbers, centring, floor fit, `microScale`, dim groups only, `slotAt` over squares 0–8), `twinMap.test.ts` (still exhaustive), `attention.test.ts` (import path), `tokens.test.ts` (unchanged pins — must be green), `fitCheck.test.ts`/`tooltipFit.test.ts` (drop the label-column cases, keep tooltip), `sinkingWindow.test.ts`/`revealFraming.test.ts`/`spectate.test.ts` (behavioural — green unchanged), `keyboard.test.ts`/`primeRelease.test.ts` (untouched — no input change), `upgradeMenu.test.ts` (untouched — `bandTopFrac` is 8.7's).
+- Parity: NO gameplay change — every input binding, denial, prime/revert, boost number and attention tier stays byte-identical; the only behaviour changes are visual placement and the two gating readings (start-line dim on slot groups only; strip visible through sinking).
+- Process: this worktree only; no dev server in Eric's checkout (you may boot your own on scratch ports and must kill only your own PID); halt on any error; no in-game copy beyond the ratified `TAB TO REFIT`; never touch `CLAUDE.md`, How-to-Play, `README.md`; commit and push continuously, ONE PR at the end; Fable usage minimised — Opus implements, Sonnet does mechanical/doc work, Fable orchestrates and triages only (Eric's instruction for this run).
+
+**Block If:**
+
+- A colour the mock uses cannot be expressed as an existing token at an alpha (a new token would be needed).
+- Any 9 px register cannot satisfy the container-fit law at 90 % after `microScale` (a chip or globe label overflows its box).
+- The bar cannot fit the 1280×614 logical floor without moving the chrome bar or kill feed.
+- A wire field or `PROTOCOL_VERSION` change turns out to be needed (e.g. a readout that needs data the client does not have).
+- The pending-heal band or the ACTIVE numeral needs a value not already on `OwnStatus`.
+
+**Never:**
+
+- Build the belt's stock/fire path, the refit card v3, the 236 px tooltip re-cut, the bar-relative refit row, the greyed card, the digit grace, the countdown REDRAW, the shielded readout, the shield ring, the LOADOUT results block, the held-fire drain (8.7 / 8.10 / 8.14 / 8.15 / 8.19).
+- Change any key binding, the empty-slot denial (26/30), the digits' refit-only meaning (27), the boost numbers (23), or anything server-side.
+- Keep the label column, the chamfer, the perimeter track, the XP rail, the HP rail or the telegraph cluster alive under a flag — they are deleted.
+- Mint a colour token, add a type register to `TYPE`, or use a Pixi filter on the HUD layer.
+- Draw any word on a HUD element other than `HULL`, `HDG`, `KTS`, `LV n`, `TAB TO REFIT`, the key glyphs and the detent readouts already ratified.
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|--------------|---------------------------|----------------|
+| 1366×768, 100 % | alive, full hp, LV 3, 1 banked | Bar 768 wide centred at x 299, bottom at 750, top at 614; strip shows `LV 3`, track 62 % (from `xpFillFraction`), chip `1` + `TAB TO REFIT` | none |
+| 1280×614 floor, 100 % | any | Bar fits: top 460, no overlap with the chrome bar (y 24) | none |
+| 90 % UI scale | any | Geometry ×0.9; 9 px texts counter-scaled to 9 px rendered; chip glyph fits its 14.4 px box | none |
+| Gun mid-reload | `ammo[0].reloadMsLeft 1200 / 5000` | Slot 0: interior .55, icon .4, dark wedge from 273.6° to 360°, numeral `1.2`; tier numeral (if any) above the wipe | none |
+| Shift running | `activeMsLeft 4300`, `boostActive` | Slot 1 breathing phosphor outline, centred `5`, no overlay; helm needle past the ordered rung up to the arc end | none |
+| Shift reloading | `ammo[1].reloadMsLeft 7000 / 18000` | Slot 1 wipe at 61 % clear, numeral `7` | none |
+| Empty weapon slot R | `loadout[4] === null` | Dashed `textMuted` .45 outline + `—`, chip `R`, no tier, no words | none |
+| Belt at 0:00 | slots 5–8 null | Four dashed 44 px squares inside one silver .2 frame with chips `1 2 3 4` | none |
+| HP 212/250 | `hp 212 maxHp 250 repairHp 0` | Fill to 84.8 % of the diameter, phosphor .28, waterline, readout `HULL 212 /250`, no pulse | none |
+| HP 40/250 healing | `hp 40 repairHp 25` | damageMarker ramp; fill to 16 %, pending band 16→26 % at .32; pulse at the 1.1 Hz cap | none |
+| Refit window open | `modalOpen` | Slot row + belt at .38; globes and strip at 1; helm live | none |
+| Held start line | `atStartLine` | Same dim as refit (veto item); `LV 0` rendered; strip empty; chip hidden | none |
+| Sinking window | `alive false, sinking true` | Whole bar visible; cue `''` (not refitable); slots still route clicks | none |
+| Founder / reveal | `!conning` | Bar hidden; chrome bar + kill feed persist; spectate banner | none |
+| Resize | `screenW/H` change | Layout recomputed once; nothing cached across sizes | none |
+
+</intent-contract>
+
+## Code Map
+
+- `client/src/config.ts:1657-1715 (hotbar), 2024-2127 (vitals), 2128-2140 (xpRail)` -- add `hudBar` block; prune `hotbar` to `icon/badge/dimAlpha/tooltip` + ACTIVE knobs; prune `vitals` to the ramp/pulse/glyph knobs the globes use; delete `xpRail`
+- `client/src/render/hudBar.ts` (NEW) -- `hudBarLayout`, `microScale`, `HudBar` composition, `HudBarView`
+- `client/src/render/cooldownWipe.ts` (NEW), `client/src/util/poly.ts` -- wipe polygon + `squareRayPoint`, `wipeLabel`
+- `client/src/render/globe.ts` (NEW) -- `circleSegmentBelow`, `drawGlobeBed`
+- `client/src/render/hpGlobe.ts` (NEW) ← `render/hud.ts:280-482` pure rail functions + `updateHpRail`
+- `client/src/render/helmGlobe.ts` (NEW) ← `render/hud.ts:95-172, 739-760` detent/rudder/glyph code
+- `client/src/render/xpStrip.ts` (NEW) ← `render/xpRail.ts` (deleted)
+- `client/src/render/hotbar.ts:44-131, 246-360, 438-700, 1107, 1157-1481` -- re-cut per ruling 4; `render/equipmentInfo.ts:41` glyphs; `equipmentIcons.ts` belt icon size
+- `client/src/render/hud.ts` -- keep chrome bar / match text / storm / tells / overlay / banner; delete the cluster; `update(..., barTop)`
+- `client/src/render/attention.ts:47,75` -- import + channel rename; `client/src/audio/twinMap.ts:38-46` -- rows
+- `client/src/main.ts:873, 2600-2602, 3053-3090, 3132-3184, 3275, 3853-3858, 4005-4006, 4176, 4193-4207` -- composition, view, gating, clicks
+- Tests: `client/src/__tests__/{hotbar,hud,xpRail→xpStrip,attention,twinMap,fitCheck,tooltipFit}.test.ts`, NEW `hudBar/cooldownWipe/hpGlobe/helmGlobe.test.ts`
+- Docs: `DESIGN.md` (ruling 13), `VERSION`, `package.json` + lock, `CHANGELOG.md`, both trackers, `deferred-work.md`, `epic-8-context.md` + amendments (31–35 written), this spec
+
+## Tasks & Acceptance
+
+**Execution:**
+- [ ] `client/src/config.ts` + `render/hudBar.ts` + `render/cooldownWipe.ts` + `render/globe.ts` + `util/poly.ts` -- the geometry spine, wipe polygon, globe helpers, `microScale` (rulings 1–3, 6-helpers) with `hudBar/cooldownWipe.test.ts` -- `npm test -w client -- hudBar cooldownWipe`
+- [ ] `client/src/render/hotbar.ts` + `equipmentInfo.ts` + `equipmentIcons.ts` -- slot row + belt frame re-cut (rulings 4–5) -- `hotbar.test.ts`
+- [ ] `client/src/render/hpGlobe.ts` + `helmGlobe.ts` + `hud.ts` (trim) + `attention.ts` -- the two globes (rulings 6–7, 12) -- `hpGlobe/helmGlobe/hud/attention.test.ts`
+- [ ] `client/src/render/xpStrip.ts` (− `xpRail.ts`) + `audio/twinMap.ts` -- the strip (rulings 8, 12) -- `xpStrip/twinMap.test.ts`
+- [ ] `client/src/main.ts` + `render/hudBar.ts` (composition) -- wiring, gating, dim, clicks, spectate (rulings 9–10) -- `npm run check`
+- [ ] `DESIGN.md` + `VERSION`/`package.json`/lock/`CHANGELOG.md`/both trackers/`deferred-work.md` -- ruling 13–14 -- tracker discipline
+- [ ] `npm run check` green; own dev server on scratch ports boots and serves the bundle (no eye check possible — record it)
+
+**Acceptance Criteria:**
+- Given any viewport ≥ 1280×614 logical, when alive, then ONE 768 px bar is centred 18 px above the floor with nothing bottom-left and nothing on the right edge, and the chrome bar and kill feed are unchanged.
+- Given the nine loadout slots, then squares render Gun · Shift · Q · E · R (54) and a framed belt 1–4 (44) with chips centred below, `Shift` spelled out, the gun chip a ghost, empties dashed with `—` and no words.
+- Given a cooling slot, then a clockwise-uncovering dark wedge and a centred seconds numeral (tenths under 2 s) replace the perimeter track; the tier numeral draws above it.
+- Given the boost running, then the Shift slot breathes and shows seconds left without an overlay; then it cools with the wipe.
+- Given own hp and repairHp, then the HP globe's fill, waterline, pending band, readout and pulse follow the rail's ramp and cap byte-for-byte.
+- Given helm state, then the helm globe shows HDG/KTS inside, nine ticks over the crown with a hollow ordered rung and a solid amber needle, the rudder tick on a 48 px floor track, and W/S/A/D letters that fade as before.
+- Given banked levels, then `LV n` heads the strip, the fill grows left→right, and the 24 px chip + `TAB TO REFIT` appear at the tail only when a refit can be taken.
+- Given the refit window or the held start line, then only the slot groups dim to 38 %; given the sinking window the bar persists; given founder the bar is gone while the chrome bar and kill feed remain.
+- Given 90 % UI scale, then no rendered mono type is under 9 px and every 9 px register fits its box.
+- Given `npm run check`, then lint, tsc ×3 and every test pass; `tokens.test.ts` and `twinMap.test.ts` are green; PV is still 52.
+
+## Spec Change Log
+
+## Review Triage Log
+
+## Design Notes
+
+- **Why re-cut the hotbar instead of a new slot module:** its state derivation, skins, denial budget coupling and tooltip core are the ratified grammar and are covered by ~1100 test lines; only geometry and two draw calls change.
+- **Why the wipe is angle-uniform:** the mock is a CSS `conic-gradient`, which sweeps by angle; a perimeter-fraction sweep would run faster along the sides than through the corners and read as a different clock.
+- **Why `microScale` and not a second HUD layer:** the whole HUD scales as one container today; counter-scaling the six 9 px registers is the smallest change that honours "geometry scales, micro type does not".
+- **Why the strip stays through sinking:** the bar is one object and the cue is already gated on `refitable`; splitting the bar's visibility by member would re-create the three-corner problem in code.
+
+## Verification
+
+**Commands:**
+- `npm test -w client` -- expected: green; new tests present (`hudBar`, `cooldownWipe`, `hpGlobe`, `helmGlobe`, `xpStrip`)
+- `npm run lint` -- expected: 0 errors (complexity ≤ 10)
+- `npm run check` -- expected: exit 0; PV 52 pins unchanged
+- `PORT=<free> npm run dev -w server` + `npm run dev -w client -- --port <free>` -- expected: boots, bundle serves; kill own PIDs
+
+**Manual checks (if no CLI):**
+- Eric's eye on staging: the bar at 1366×768 and at the 614 px floor, the wipe on the gun, Shift running then cooling, the globes, the strip; the bar through the sinking window and gone at the reveal (ledger `:964`).
