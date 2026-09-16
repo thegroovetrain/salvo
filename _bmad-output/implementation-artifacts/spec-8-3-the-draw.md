@@ -2,7 +2,7 @@
 title: 'Story 8.3: The Draw'
 type: 'feature'
 created: '2026-09-15'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'b18fba6'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -129,6 +129,20 @@ warnings: [oversized]
 - rejected: the `ladderLine` test helper sharing one tier array (read-only effects, harmless); the client file walk skipping symlinked directories (none exist; the `> 20 files` guard catches an empty tree)
 - agreement picture: Codex and the Edge Case Hunter both raised the throwing-callback seam (Codex as the fix-first item); both Fable reviewers raised the empty-draw-vs-empty-pool wording; Codex alone raised the key-vs-value pin (verified real as a false-positive path); Blind Hunter alone raised the client-pin breadth and the harness drift
 - traced clean by all three: rng-stream position and offer order for every legal deck (the guard is provably idle: `checkDeck` caps list copies, `buildDeckState` removes carried copies, `settleSpend` consumes before it fits), the latch across `redeployShip`/`respawn`/sandbox, the lazy `this.log` read vs `onCreate` order, the `ship.cards` cast (fail-closed on unknown ids), the `/metrics` shape change (its only reader, `metricsSmoke.mjs`, tolerates additive keys), PV 51 unchanged, golden frames unchanged
+
+## Auto Run Result
+
+**Status:** done (2026-09-15, build cycle **138**, version **0.18.3**, PV 51 unchanged).
+
+**Summary:** The draw is confirmed, pinned and completed rather than rebuilt. Eric's reminder ("fairly from what is left" = the deck reshuffles after every draw, no exhaustion needed) is exactly the shipped model — a draw READS the pool at full weight and only a FIT removes one card — and is now amendment 13. New: `drawOffer(deck, rng, catalog, { held })` never offers a line the ship already holds at its catalog cap (an at-cap line is dropped before weighting and costs no rng value); the guard is provably idle on every door-admitted deck (pool + held ≤ cap per line, pinned over all three hulls and 100 seeds), so golden frames and the batch ledger are byte-identical. An exhausted deck presents no options but the level still banks (amendment 14): `ShipRecord.deckExhausted` latches ONCE per record on the first empty draw and `WorldOptions.onDeckExhausted` fires once (wrapped at the sim boundary — a diagnostic can never abort a tick); `ArenaRoom` counts `recordDeckExhausted()` first and then logs `deck.exhausted { shipId }` through the bound room logger (roomId/matchId ride the binding); `/metrics` gains `deck.exhausted` (count only). No `pt` on an empty draw, no TAB cue, no draw-pile counter, nothing new on the wire: the wire pins now walk keys (`deck`, `deckList`, `deckId`, `deckLeft`, `deckSize`, `pool`, `remaining`) across every frame and the welcome, and a client test forbids `deckLeft`/`deckSize` symbols. The 40-card exhaustion margin is re-derived (23 fits today, rising toward 39) and the pity-era ledger threads (`:302`, `:459`, `:1459`) are closed by deletion; the level-heal correction of record (amendment 15: `development` carries the 10 %-per-level heal, not the 1 %/s out-of-combat regen Eric expected) is handed to Story 8.8 in the ledger.
+
+**Files changed:** shared — `sim/deck.ts` (`DrawOpts`, `atCapLines`, at-cap exclusion), `sim/offers.ts` (comment), `__tests__/deck.test.ts` (9 pins); server — `game/world.ts` (`onDeckExhausted`, `deckExhausted`, `reportExhaustion`, `held` passed), `rooms/ArenaRoom.ts` (adapter callback), `metrics.ts` (`recordDeckExhausted`, `deck.exhausted`), `scripts/batchsim/deckSim.ts` (prose), tests (`deckExhausted` new, `upgrades`, `metrics`, `perception`, `decks`, `botPolicy` comment); client — `__tests__/noDrawPileCounter.test.ts` (new); docs — `VERSION`/`package.json`/lock (0.18.3), `CHANGELOG.md`, both trackers, `deferred-work.md` (5 stamps + 2 new entries), `epic-8-context.md`, `epic-8-context-amendments.md` (13–15), this spec.
+
+**Review findings breakdown:** Blind Hunter + Edge Case Hunter (session model) + Codex `gpt-5.6-sol`. 4 patches applied with fail-first tests (1 medium: the throwing-callback seam, raised by Codex as fix-first and by the Edge Case Hunter; 3 low), 1 deferred (harness unguarded draw), 2 rejected, 0 intent gaps, 0 bad-spec loopbacks. Follow-up review not recommended: the patches are localized (a try/catch at one seam, an ordering swap, test-shape fixes, doc sentences).
+
+**Verification performed:** `npm run check` exit 0 on the final tree — lint 0 errors (3 pre-existing max-lines warnings), tsc clean ×3, **837 / 1824 / 3265** tests, `check:hooks` 266/0; batch-sim tsconfig type-checks except the ledgered pre-existing `encounterSpan.ts` error; headless `soloSmoke` passed over real sockets on a self-booted server; `matchSmoke` passed on the 8.3 tree (second attempt; the first hit the ledgered pre-existing step-2 "no torpedo struck B" map-geometry flake) — the same script on a scratch copy of the b18fba6 BASELINE took three attempts (one hang, one port collision from that hang, then pass), so both failure modes and the hang are pre-existing, not 8.3's. No stray listeners left.
+
+**Residual risks / Eric's veto list:** (1) the callback-plus-counter shape of the exhaustion seam and the `deck: { exhausted }` metrics field name are orchestrator rulings; (2) "exhausted" is defined as an EMPTY DRAW (the AC's words), which coincides with an empty pool on every legal deck — if Epic 9 ever admits a deck violating pool + held ≤ cap, the log would fire on a non-empty pool; (3) the exhausted level is spendable only on the menu heal the client cannot reach (`:982`, open until 8.8); (4) the level-heal correction of record is an Eric decision parked for 8.8 (amendment 15); (5) the in-browser match on staging is Eric's post-merge step.
 
 ## Design Notes
 
