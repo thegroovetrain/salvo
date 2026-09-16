@@ -108,6 +108,12 @@ describe('fleet hulls — inputs are the only interface', () => {
   it('never activates an ability or honks — actSeq/actSlot/hornSeq are structurally constant', () => {
     const w = bareWorld(7);
     const f1 = fleetShip(w, 'f1', 'large', 0, 0);
+    // THE STRUCTURAL REASON, restated for the nine-slot loadout (Story 8.5):
+    // a fleet hull fits the GUN IN SLOT 0 AND EIGHT EMPTIES — no boost in
+    // slot 1 (amendment 24), so there is no ability for a press to reach.
+    expect(f1.loadout.map((s) => s.equipmentId)).toEqual([
+      'gun', null, null, null, null, null, null, null, null,
+    ]);
     captain(w, 'cap', 100, 0);
     shellHit(w, f1, 'cap'); // aggro it, so the hull is in its BUSIEST state
     for (let t = 0; t < 50; t++) {

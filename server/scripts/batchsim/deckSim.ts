@@ -50,11 +50,8 @@ import {
   SHIP_CLASS_IDS,
   buildDeckState,
   drawOffer,
-  effectiveStats,
-  hullEnvelope,
-  lineForEquipment,
-  loadoutFor,
   mulberry32,
+  SPAWN_SEED,
   consumeCard,
   type DeckState,
   type LineId,
@@ -63,19 +60,14 @@ import {
 } from '@salvo/shared';
 
 /**
- * THE CARRIED SEED of a hull's fresh fit (Story 8.1 review gate; mirrors
- * World.carriedLines): copy 1 of every non-stub equipment line whose weapon
- * the class fit already carries. The deck-only economy has no World, so it
- * derives the seed the same way the World does — from the class loadout.
+ * THE SPAWN SEED a hull starts holding (Story 8.5): the catalog's `SPAWN_SEED`
+ * table, which is the SAME list `World.addShip` seeds `ship.cards` with. There
+ * is no per-hull fit to read it off any more — every captain spawns with the
+ * identical nine-slot loadout, so the seed had to become authored data, and
+ * the deck-only economy reads that data directly.
  */
-export function carriedLinesFor(cls: ShipClassId): LineId[] {
-  const out: LineId[] = [];
-  for (const slot of loadoutFor(cls, effectiveStats(hullEnvelope(cls)))) {
-    if (slot.equipmentId === null) continue;
-    const line = lineForEquipment(slot.equipmentId);
-    if (line !== undefined && line.stub !== true) out.push(line.id);
-  }
-  return out;
+export function carriedLinesFor(cls: ShipClassId): readonly LineId[] {
+  return SPAWN_SEED[cls] ?? [];
 }
 
 /** A hull's fresh drawable pool: its DEFAULT deck less stubs less its seed —

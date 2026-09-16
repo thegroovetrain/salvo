@@ -21,6 +21,16 @@ import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 
+// NINE FIXED-ROLE SLOTS (Story 8.5): every captain spawns [gun, speedBoost,
+// <spawn-seed weapons>, ...]. The seed lands its lines in the WEAPON row
+// (2, 3, 4) in seed order, so a hull's FIRST class weapon (TB heavyTorpedo,
+// ML navalMines, BS broadside) is slot 2 and the Battleship's SECOND
+// (starShells) is slot 3.
+/** The first weapon slot (Q): the TB's torpedo, the ML's mine rack. */
+const SLOT_SEED_1 = 2;
+/** The second weapon slot (E): the Battleship's star shells. */
+const SLOT_SEED_2 = 3;
+
 /**
  * THE MINE BLAST LADDER, AS AN INJECTED TEST CATALOG (Story 8.1).
  *
@@ -109,7 +119,7 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
     w.applyCard(a, 'acousticHoming');
     expect(a.stats.equipment.heavyTorpedo.homing).toBe(true);
     const b = place(w, 'b', 320, 80); // off the track; within 120u of it mid-flight
-    setInput(a, { aim: 0, aimDist: 0, slot: 1, fireSeq: 1, seq: 2 });
+    setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     return { w, a, b };
   }
 
@@ -126,7 +136,7 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
     const control = bareWorld();
     const ca = place(control, 'a', 0, 0); // NO doctrine
     place(control, 'b', 320, 80);
-    setInput(ca, { aim: 0, aimDist: 0, slot: 1, fireSeq: 1, seq: 2 });
+    setInput(ca, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     let controlVy = 0;
     for (let i = 0; i < 200; i++) {
       control.step();
@@ -149,7 +159,7 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
     w.applyCard(a, 'acousticHoming');
     const prey = place(w, 'b', 300, 110); // acquired, but inside the fish's turn radius
     prey.hp = 1e9; // survive any glancing contact — this is about the FISH dying
-    setInput(a, { aim: 0, aimDist: 0, slot: 1, fireSeq: 1, seq: 2 });
+    setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
 
     let travelled = 0;
     let prev: { x: number; y: number } | null = null;
@@ -177,13 +187,13 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'acousticHoming');
-    setInput(a, { aim: 0, aimDist: 0, slot: 1, fireSeq: 1, seq: 2 });
+    setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     w.step();
     expect([...w.shells.values()][0].distLeft).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
 
     const control = bareWorld();
     const ca = place(control, 'a', 0, 0); // no doctrine
-    setInput(ca, { aim: 0, aimDist: 0, slot: 1, fireSeq: 1, seq: 2 });
+    setInput(ca, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     control.step();
     expect([...control.shells.values()][0].distLeft).toBe(Number.POSITIVE_INFINITY);
   });
@@ -261,7 +271,7 @@ describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0);
       for (const id of boons) w.applyCard(a, id);
-      setInput(a, { aim: 0, aimDist: 400, slot: 1, fireSeq: 1, seq: 2 });
+      setInput(a, { aim: 0, aimDist: 400, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
       w.step();
       const [torp] = [...w.shells.values()];
       expect(torp.kind).toBe('torp');
@@ -276,7 +286,7 @@ describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
     const a = place(w, 'a', 0, 0);
     const bystander = place(w, 'by', 200, 50); // would have been inside the old 60u command blast
     const blocker = place(w, 'blocker', 500, 0); // dead on the track, past the click
-    setInput(a, { aim: 0, aimDist: 200, slot: 1, fireSeq: 1, seq: 2 });
+    setInput(a, { aim: 0, aimDist: 200, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     const seen: GameEvent[] = [];
     for (let i = 0; i < 200 && blocker.hp === blocker.stats.maxHp; i++) {
       w.step();
@@ -597,7 +607,7 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
     w.applyCard(a, 'phosphorShells');
-    setInput(a, { aim: 0, aimDist: 400, slot: 2, fireSeq: 1, seq: 2 });
+    setInput(a, { aim: 0, aimDist: 400, slot: SLOT_SEED_2, fireSeq: 1, seq: 2 });
     for (let i = 0; i < 60 && w.litZones.size === 0; i++) w.step();
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];
@@ -807,7 +817,7 @@ describe('PHOSPHOR + DAZZLE stack on one star shell', () => {
 
   it('the fired flare stamps BOTH verbs on its zone, at the phosphor-shrunk radius', () => {
     const { w, a } = bothStars(['phosphorShells', 'dazzleShells']);
-    setInput(a, { aim: 0, aimDist: 400, slot: 2, fireSeq: 1, seq: 2 });
+    setInput(a, { aim: 0, aimDist: 400, slot: SLOT_SEED_2, fireSeq: 1, seq: 2 });
     for (let i = 0; i < 60 && w.litZones.size === 0; i++) w.step();
     const zone = [...w.litZones.values()][0];
     expect(zone.phosphor).toBe(true);

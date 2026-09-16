@@ -56,8 +56,8 @@ describe('sanitizeInput — validation table', () => {
     ['string fireSeq', { ...valid(), fireSeq: '3' }],
     ['boolean fireSeq (old wire shape)', { ...valid(), fireSeq: true }],
     ['string aimDist', { ...valid(), aimDist: '240' }],
-    ['slot out of range (7)', { ...valid(), slot: 7 }],
-    ['slot just past the last index', { ...valid(), slot: 4 }],
+    ['slot out of range (12)', { ...valid(), slot: 12 }],
+    ['slot just past the last index', { ...valid(), slot: 9 }], // Story 8.5: nine slots, so 8 is the last
     ['negative slot', { ...valid(), slot: -1 }],
     ['fractional slot', { ...valid(), slot: 1.5 }],
     ['NaN slot', { ...valid(), slot: NaN }],
@@ -79,8 +79,8 @@ describe('sanitizeInput — validation table', () => {
     ['string actSeq', { ...valid(), actSeq: '5' }],
     ['boolean actSeq', { ...valid(), actSeq: true }],
     ['missing actSlot', { ...valid(), actSlot: undefined }],
-    ['actSlot out of range (7)', { ...valid(), actSlot: 7 }],
-    ['actSlot just past the last index', { ...valid(), actSlot: 4 }],
+    ['actSlot out of range (12)', { ...valid(), actSlot: 12 }],
+    ['actSlot just past the last index', { ...valid(), actSlot: 9 }], // Story 8.5: nine slots, so 8 is the last
     ['negative actSlot', { ...valid(), actSlot: -1 }],
     ['fractional actSlot', { ...valid(), actSlot: 1.5 }],
     ['NaN actSlot', { ...valid(), actSlot: NaN }],

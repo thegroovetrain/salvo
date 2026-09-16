@@ -7,18 +7,20 @@
 // a fixed seed or scripted input.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CONFIG, SLOT_BOOST, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
 const DT = CONFIG.tick.simDtMs;
 const BOOST = CONFIG.speedBoost;
 const TB_MAX = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed; // 45
-/** Slot the Torpedo Boat fits speedBoost into (Story 1.6). */
-const SLOT_BOOST = 2;
-/** Slot the Torpedo Boat fits its torpedo (a WEAPON) into — the actSeq
- *  weapon-wall subject (mines flipped to the ability channel in Story 1.8). */
-const SLOT_TORPEDO = 1;
+// SLOT_BOOST is now SHARED (= 1): since Story 8.5 the boost sits in the same
+// fixed slot on EVERY captain hull (amendment 23), so this file no longer
+// authors its own constant.
+/** Slot the Torpedo Boat's spawn-seeded torpedo (a WEAPON) lands in — the
+ *  first WEAPON slot (Q, index 2) — the actSeq weapon-wall subject (mines
+ *  flipped to the ability channel in Story 1.8). */
+const SLOT_TORPEDO = 2;
 
 // ---------- construction helpers ---------------------------------------------
 
@@ -58,7 +60,7 @@ describe('speed-boost CONFIG invariant', () => {
 
 // ---------- activate-ready: consume + open the window + raise the cap ---------
 
-describe('activate a ready boost (Torpedo Boat, slot 2)', () => {
+describe('activate a ready boost (Torpedo Boat, slot 1)', () => {
   it('consumes the single charge, opens the 6s window, and starts the reload', () => {
     const w = bareWorld();
     const a = place(w, 'a');
@@ -139,7 +141,7 @@ describe('a dead ship cannot activate', () => {
 // ---------- actSeq targets abilities ONLY (weapon / empty slots inert) --------
 
 describe('actSeq is inert on a weapon or empty slot', () => {
-  it('a weapon slot (TB slot 1 = torpedo): actSeq advance launches NO fish and opens NO window', () => {
+  it('a weapon slot (TB slot 2 = torpedo): actSeq advance launches NO fish and opens NO window', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     expect(a.loadout[SLOT_TORPEDO].equipmentId).toBe('heavyTorpedo');
@@ -159,13 +161,56 @@ describe('actSeq is inert on a weapon or empty slot', () => {
     expect(w.shells.size).toBe(0); // no shell — actSeq never fires a weapon
   });
 
-  it('the empty extra slot (3): actSeq advance is inert (no dereference, no state change)', () => {
+  it('an empty WEAPON slot (3): actSeq advance is inert (no dereference, no state change)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     expect(a.loadout[3]).toEqual({ equipmentId: null, state: null });
     pressActivate(w, 'a', 1, 1, 3);
     w.step();
     expect(a.boostUntil).toBe(0);
+  });
+
+  it('an empty BELT slot (8, the last index): actSeq advance is inert', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    expect(a.loadout[8]).toEqual({ equipmentId: null, state: null });
+    pressActivate(w, 'a', 1, 1, 8);
+    w.step();
+    expect(a.boostUntil).toBe(0);
+    expect(a.lastActSeq).toBe(1); // consumed, then inert
+  });
+});
+
+// ---------- EVERY captain hull boosts (Story 8.5, amendment 23) --------------
+
+describe('the boost is no longer a Torpedo Boat privilege (amendment 23)', () => {
+  // Before Story 8.5 the boost was a per-hull fit: only the Torpedo Boat
+  // carried it. The nine-slot loadout fits it in slot 1 on every captain, at
+  // the Torpedo Boat's SHIPPED numbers — same 6 s window, same 18 s reload.
+  it.each(['battleship', 'mineLayer', 'torpedoBoat'] as const)(
+    'a %s fits speedBoost in slot 1 and boosts with the shipped numbers',
+    (hull) => {
+      const w = bareWorld();
+      const a = place(w, 'a', hull);
+      expect(a.loadout[SLOT_BOOST].equipmentId).toBe('speedBoost');
+      expect(a.loadout[SLOT_BOOST].state).toEqual({ n: BOOST.maxAmmo, reloadMsLeft: 0 });
+      pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+      w.step();
+      expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
+      expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: BOOST.reloadMs });
+      expect(BOOST.reloadMs).toBe(18000); // the shipped 18 s, byte-identical across hulls
+    },
+  );
+
+  it('a Battleship at full throttle climbs past its own un-boosted cap', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 'battleship');
+    const cap = CONFIG.shipClasses.battleship.kinematics.maxSpeed;
+    a.state.speed = cap;
+    pressActivate(w, 'a', 1, 1, SLOT_BOOST, 1); // full ahead + activate
+    for (let i = 0; i < 40; i++) w.step();
+    expect(a.boostUntil).toBeGreaterThan(w.now);
+    expect(a.state.speed).toBeGreaterThan(cap + 1);
   });
 });
 
@@ -254,7 +299,7 @@ describe('the actSeq gate is monotonic', () => {
 // ---------- the click channel dispatches weapons ONLY ------------------------
 
 describe('a click never activates an ability (fireControl weapon wall)', () => {
-  it('a forged click on the boost slot (TB slot 2) is inert: no activation, charge intact, no lastFireT', () => {
+  it('a forged click on the boost slot (slot 1) is inert: no activation, charge intact, no lastFireT', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     // A click (fireSeq advance) naming the ability slot — abilities activate via

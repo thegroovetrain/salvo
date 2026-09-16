@@ -28,7 +28,13 @@ import { flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
 
 const TAU = Math.PI * 2;
 const CELL = CONFIG.vision.radarCellU;
-const SLOT_BUOY = 2; // the Mine Layer fit: [gun, mine, radarBuoy, empty]
+// THE RADAR BUOY IS NO LONGER FITTED BY ANY HULL (Story 8.5, epic-8 amendment
+// 22): the Mine Layer's spawn seed is `navalMines` alone, and no card reaches
+// the buoy either. The MODULE, its CONFIG row and everything this suite pins
+// about its behaviour are untouched — only the route into a slot is gone — so
+// the fixture HAND-FITS it into the second weapon slot (E), which is exactly
+// what `applySlotEffect` would have written.
+const SLOT_BUOY = 3;
 
 /** Islands cleared AND the raster flattened (the perception.test idiom). */
 function bareWorld(seed = 7): World {
@@ -47,6 +53,13 @@ function place(w: World, id: string, x: number, y: number, heading = 0, cls: Shi
   rec.state.speed = 0;
   rec.sweepAngle = 0;
   rec.prevSweepAngle = 0;
+  // Hand-fit the buoy on the hull that drops it (amendment 22 — see SLOT_BUOY).
+  if (cls === 'mineLayer') {
+    rec.loadout[SLOT_BUOY] = {
+      equipmentId: 'radarBuoy',
+      state: { n: rec.stats.equipment.radarBuoy.maxAmmo, reloadMsLeft: 0 },
+    };
+  }
   return rec;
 }
 

@@ -19,6 +19,7 @@ import {
   CONFIG,
   DEFAULT_DECKS,
   HEAL_CHOICE,
+  SLOT_BOOST,
   founderDeadline,
   isAfloat,
   isSinking,
@@ -34,6 +35,10 @@ import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { Match, type MatchHooks } from '../game/match.js';
 import { flatRaster } from './islandFixture.js';
+
+/** The first WEAPON slot (Q) — where Story 8.5's spawn seed lands a hull's
+ *  class weapon (the TB's torpedo, the ML's mine rack). */
+const SLOT_WEAPON = 2;
 
 const DT = CONFIG.tick.simDtMs;
 const WINDOW = CONFIG.ship.sinkingWindowMs;
@@ -156,12 +161,12 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
 
   it('a live speedBoost COMPOSES with the decel (amendment 10): the cap is the boosted max, not the rated one', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0); // TB: slot 2 = speedBoost
+    const a = place(w, 'a', 0, 0); // slot 1 = speedBoost on every captain (Story 8.5)
     a.state.speed = a.stats.kinematics.maxSpeed;
     w.respawnEnabled = false;
     w.sinkShip('a');
     // Activate the boost WHILE SINKING — the fitment criterion admits it.
-    w.submitInput('a', input(1, { throttle: 1, actSeq: 1, actSlot: 2 }));
+    w.submitInput('a', input(1, { throttle: 1, actSeq: 1, actSlot: SLOT_BOOST }));
     w.step();
     expect(a.boostUntil).toBeGreaterThan(w.now); // the doomed surge opened
     stepN(w, 19); // t = +1000ms into the window
@@ -207,12 +212,17 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
 // ---------- weapons, equipment and the horn (activation seam) ----------------
 
 describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn', () => {
-  it('all seven registry rows activate while sinking — the gate never answers dead', () => {
+  it('every FITTED registry row activates while sinking — the gate never answers dead', () => {
     const w = bareWorld();
+    // The NINE-SLOT fit (Story 8.5): gun, the universal boost, then the spawn
+    // seed's weapons. The RADAR BUOY has left the Mine Layer with the per-hull
+    // fit (amendment 22) — its own module is still pinned in radarBuoy.test.ts
+    // — so this sweep now covers six of the seven rows, and the Battleship's
+    // two-line seed covers the fourth slot.
     const fits: [ShipClassId, string[]][] = [
-      ['torpedoBoat', ['gun', 'heavyTorpedo', 'speedBoost']],
-      ['battleship', ['gun', 'broadside', 'starShells']],
-      ['mineLayer', ['gun', 'navalMines', 'radarBuoy']],
+      ['torpedoBoat', ['gun', 'speedBoost', 'heavyTorpedo']],
+      ['battleship', ['gun', 'speedBoost', 'broadside', 'starShells']],
+      ['mineLayer', ['gun', 'speedBoost', 'navalMines']],
     ];
     for (const [cls, expected] of fits) {
       const ship = place(w, `s-${cls}`, 0, 0, cls);
@@ -253,9 +263,9 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     place(w, 'a', 0, 0); // TB torpedo: forward arc only
     w.respawnEnabled = false;
     w.sinkShip('a');
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 300 })); // astern
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 300 })); // astern
     w.step();
-    expect(w.denialsFor('a')).toEqual([{ slot: 1, reason: 'out-of-arc', seq: 1 }]);
+    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 1 }]);
   });
 
   it('the firing window closes on exactly the founder tick', () => {

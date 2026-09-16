@@ -165,18 +165,19 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 50 and admits 51', () => {
-  it('PROTOCOL_VERSION is 51', () => {
-    // Story 8.1 bumped 50 -> 51: catalog v3 is wire contract (the line ids ride
-    // the offer) and `OwnShip.boons` became `OwnShip.cards`.
-    expect(PROTOCOL_VERSION).toBe(51);
+describe('the PV join gate refuses 51 and admits 52', () => {
+  it('PROTOCOL_VERSION is 52', () => {
+    // Story 8.5 bumped 51 -> 52: the loadout went to NINE slots, so
+    // `OwnShip.ammo` widened from 4 entries to 9 and every slot index on the
+    // input channel moved with it.
+    expect(PROTOCOL_VERSION).toBe(52);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 50 is the one that matters: a client built one story before this one
-    // speaks v2 card ids and reads `you.boons`.
+    // 51 is the one that matters: a client built one story before this one
+    // sends Q on slot 1 and reads a 4-entry `ammo`.
+    expect(protocolVersionError(51)).toMatch(/refresh/i);
     expect(protocolVersionError(50)).toMatch(/refresh/i);
-    expect(protocolVersionError(49)).toMatch(/refresh/i);
   });
 
   it('refuses a missing pv', () => {
@@ -184,12 +185,12 @@ describe('the PV join gate refuses 50 and admits 51', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(52)).toMatch(/refresh/i);
+    expect(protocolVersionError(53)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(51)).toBeNull();
+    expect(protocolVersionError(52)).toBeNull();
   });
 });
 

@@ -15,8 +15,9 @@
 // (Eric ruling 2026-08-14), so that guarantee is DELIBERATELY REPLACED rather
 // than quietly edited. What survives of it, and what now stands in its place:
 //   * `actSeq: 0` / `actSlot: 0` — still constant. Fleet ships fit no ability
-//     (loadout.ts gives them [gun, empty, empty, empty]), so they can never
-//     activate one. Structural, not policy.
+//     (Story 8.5: loadout.ts gives them the GUN IN SLOT 0 AND EIGHT EMPTIES —
+//     no boost, no weapons, no consumables), so they can never activate one.
+//     Structural, not policy.
 //   * `hornSeq: 0` — still constant; World's fleet-hull gate backstops it.
 //   * `fireSeq` — NOW ADVANCES, but only through `wantsShot()`, which is the
 //     single place in this file that can pull a trigger. It requires an
@@ -69,6 +70,7 @@ import {
   islandDistance,
   mulberry32,
   nearestCoastPoint,
+  SLOT_GUN,
   wrapAngle,
   type DroneSizeId,
   type InputMsg,
@@ -334,7 +336,7 @@ export class FleetController {
       aim: shot?.aim ?? 0,
       fireSeq: mind.fireSeq,
       aimDist: shot?.aimDist ?? 0,
-      slot: 0, // the gun, and the only weapon a fleet hull fits
+      slot: SLOT_GUN, // the gun, and the only weapon a fleet hull fits
       fireT: 0, // no-claim sentinel: a server-driven shooter never back-dates
       actSeq: 0, // structurally inert — fleet hulls fit no ability
       actSlot: 0,
@@ -476,7 +478,7 @@ export class FleetController {
    */
   private wantsShot(ship: ShipRecord, mind: FleetMind): { aim: number; aimDist: number } | null {
     if (mind.targetId === null) return null;
-    const slot = ship.loadout[0];
+    const slot = ship.loadout[SLOT_GUN];
     if (!slot.state || slot.state.n <= 0 || slot.state.reloadMsLeft > 0) return null;
     const target = this.world.ships.get(mind.targetId);
     if (!target || !isAfloat(target.lifecycle)) return null;

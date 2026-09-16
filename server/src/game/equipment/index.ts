@@ -1,9 +1,12 @@
 // Equipment registry + the Equipment interface (Story 1.2). Every fitted
 // system — the weapons (guns / torpedoes / mines / broadside), non-weapon
 // specials from stories 1.6+ — implements one interface over a ship's loadout
-// SLOT. The click's InputMsg.slot names the slot it activates (0 = the gun,
-// the permanently-selected default; a primed skillshot click carries its
-// slot — the server keeps NO priming state); the World routes each consumed
+// SLOT. Since Story 8.5 a loadout is NINE FIXED-ROLE SLOTS — [gun, boost,
+// weapon ×3, consumable ×4] — identical for every captain hull, with the
+// weapon row filled by cards. The click's InputMsg.slot names the slot it
+// activates (0 = the gun, the permanently-selected default; 1 = the boost on
+// every captain; a primed skillshot click carries its slot — the server keeps
+// NO priming state); the World routes each consumed
 // click (one activation per fireSeq increment) to that slot's row through the
 // single sinking-activation gate (world.ts), but EVERY fitted slot's equipment
 // ticks every tick regardless of selection (so a weapon reloads while another
@@ -163,11 +166,14 @@ export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deep
 });
 
 /**
- * SLOT-ALIGNED ammo for OwnShip.ammo: length SLOT_COUNT, one entry per loadout
- * slot in slot order — null iff that slot is empty (mirrors the LoadoutSlot
- * invariant: state is null iff equipmentId is null), else a FRESH
- * {n, reloadMsLeft} copy of the slot's live pool. maxAmmo/reloadMs are NOT on
- * the wire — the client derives them from its own effective-stats computation.
+ * SLOT-ALIGNED ammo for OwnShip.ammo: length SLOT_COUNT (NINE since Story
+ * 8.5), one entry per loadout slot in slot order — null iff that slot is empty
+ * (mirrors the LoadoutSlot invariant: state is null iff equipmentId is null),
+ * else a FRESH {n, reloadMsLeft} copy of the slot's live pool. It maps over
+ * the loadout, so the widening from four slots to nine cost it no edit; the
+ * empty weapon and consumable slots simply ride as `null`. maxAmmo/reloadMs
+ * are NOT on the wire — the client derives them from its own effective-stats
+ * computation, and the equipment id per slot by replaying `OwnShip.cards`.
  */
 export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
   return ship.loadout.map((slot) =>

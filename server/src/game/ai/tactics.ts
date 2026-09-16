@@ -85,7 +85,8 @@
 // ONE WEAPON PER TICK, THROUGH THE EQUIPMENT AXIS (Eric ruling 2026-08-20):
 // chooseShot iterates the bot's ACTUAL FITTED SLOTS through EQUIPMENT_TACTICS
 // (ai/equipment.ts) — never a hull-keyed weapon ladder — so an equipment
-// ACQUIRED into the extra slot works exactly like a native fit. Ordering
+// ACQUIRED into the WEAPON ROW (Story 8.5) works exactly like a seeded fit —
+// there is no native per-hull fit left for it to differ from. Ordering
 // comes from the ship profile's APPETITE table (gun lowest: the fallback);
 // the placement class (flare / mine / buoy) is resolved ABOVE the
 // target === null guard, because siting a sensor buoy is most valuable when

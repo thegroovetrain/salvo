@@ -11,7 +11,7 @@
 // must be rejected at matchmake time after the 16→17 bump (Story 2.9).
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, PROTOCOL_VERSION, type InputMsg } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { protocolVersionError } from '../rooms/roomOptions.js';
@@ -26,6 +26,13 @@ function bareWorld(seed = 7): World {
   w.map.heightRaster = flatRaster();
   return w;
 }
+
+// NINE FIXED-ROLE SLOTS (Story 8.5): every captain spawns [gun, speedBoost,
+// <seed weapons>, ...]. A hull's class weapon (the TB's torpedo, the ML's
+// mine rack) is seeded into the FIRST weapon slot, and the boost has its own
+// fixed slot on every hull.
+/** The first WEAPON slot (Q) — the seeded torpedo / mine rack. */
+const SLOT_WEAPON = 2;
 
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(
@@ -66,12 +73,12 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0); // TB, bow along +x
     place(w, 'b', 100, 0);
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI })); // dead astern — far outside ±30°
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI })); // dead astern — far outside ±30°
     w.step();
     const fa = buildFrame(w, 'a');
-    expect(fa.denied).toEqual([{ slot: 1, reason: 'out-of-arc', seq: 1 }]);
+    expect(fa.denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 1 }]);
     // Denied presses spend NOTHING: the round is kept and no reload started.
-    expect(a.loadout[1].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.loadout[SLOT_WEAPON].state).toEqual({ n: 1, reloadMsLeft: 0 });
     // SELF-PRIVATE: the other captain's frame is byte-free of the channel.
     expect('denied' in buildFrame(w, 'b')).toBe(false);
   });
@@ -92,27 +99,27 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
 
   it("no-ammo: a within-RTT ability double press denies {'no-ammo'} keyed on the press's actSeq", () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0); // TB: slot 2 = speedBoost (1 charge)
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: 2, hornSeq: 0 }));
+    const a = place(w, 'a', 0, 0); // TB: slot 1 = speedBoost (1 charge) on every captain
+    w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0 }));
     w.step(); // press 1 activates (charge 1 → 0)
     expect(a.boostUntil).toBeGreaterThan(0);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
-    w.submitInput('a', input(2, { actSeq: 2, actSlot: 2, hornSeq: 0 }));
+    w.submitInput('a', input(2, { actSeq: 2, actSlot: SLOT_BOOST, hornSeq: 0 }));
     w.step(); // press 2, pool empty — silently swallowed before 1.10
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 2, reason: 'no-ammo', seq: 2 }]);
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
   });
 
   it("blocked (island): a MINE click onto a rock (Story 2.8 aimed placement) denies {'blocked'} and consumes NOTHING", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // heading 0 ⇒ rear sector centers on π
     w.map.islands.push(circleIsland(-60, 0, 20)); // the rock the click lands on
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 60 }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 60 }));
     w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'blocked', seq: 1 }]);
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'blocked', seq: 1 }]);
     // Charge AND reload untouched — the previously wasted charge is kept. The
     // rack is 2-deep at base since the 2026-08-04 balance pass, so "untouched"
     // means BOTH drops still aboard.
-    expect(a.loadout[1].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    expect(a.loadout[SLOT_WEAPON].state).toEqual({ n: 2, reloadMsLeft: 0 });
     expect(w.mines.size).toBe(0);
   });
 
@@ -128,22 +135,22 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     // Facing map-inward (heading π → bow along −x), the rear sector centers on
     // +x — a click 60u astern from 30u inside the rim lands past the edge.
     const a = place(w, 'a', w.map.radius - 30, 0, Math.PI, 'mineLayer');
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: 0, aimDist: 60 }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: 0, aimDist: 60 }));
     w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'blocked', seq: 1 }]);
-    expect(a.loadout[1].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'blocked', seq: 1 }]);
+    expect(a.loadout[SLOT_WEAPON].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
   });
 
   it("out-of-arc: a mine click at the BOW (or past placeRange) denies {'out-of-arc'} (Story 2.8 rear placement arc)", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'mineLayer');
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: 0, aimDist: 40 })); // bow click — outside the rear sector
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: 0, aimDist: 40 })); // bow click — outside the rear sector
     w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'out-of-arc', seq: 1 }]);
-    w.submitInput('a', input(2, { fireSeq: 2, slot: 1, aim: Math.PI, aimDist: CONFIG.mine.placeRange + 50 }));
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 1 }]);
+    w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: Math.PI, aimDist: CONFIG.mine.placeRange + 50 }));
     w.step();
-    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'out-of-arc', seq: 2 }]);
-    expect(a.loadout[1].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 2 }]);
+    expect(a.loadout[SLOT_WEAPON].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
     expect(w.mines.size).toBe(0);
   });
 });
@@ -152,7 +159,7 @@ describe('denial channel — lifecycle + privacy edges', () => {
   it('a denial lives exactly one tick (the next frame is byte-free again)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI }));
     w.step();
     expect(buildFrame(w, 'a').denied).toHaveLength(1);
     w.step(); // no new press — the stored fireSeq reads as "no new click"
@@ -162,7 +169,7 @@ describe('denial channel — lifecycle + privacy edges', () => {
   it('a spectator frame NEVER carries the channel, even when a denial exists this tick', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI }));
     w.step();
     expect(w.denialsFor('a')).toHaveLength(1); // the denial IS pending this tick
     // The finished-phase (spectator) build of the SAME observer omits it: the
@@ -176,7 +183,7 @@ describe('denial channel — lifecycle + privacy edges', () => {
     d.state.x = 0;
     d.state.y = 0;
     d.state.heading = 0;
-    w.submitInput('d1', input(1, { fireSeq: 1, slot: 1, aim: Math.PI })); // astern — would deny
+    w.submitInput('d1', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI })); // astern — would deny
     w.step();
     expect(w.denialsFor('d1')).toBeUndefined();
   });
@@ -196,9 +203,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 50→51 bump (PV 51: catalog v3 — the card LINE ids ride the offer and `OwnShip.boons` became `OwnShip.cards`) is enforced at matchmake', () => {
-  it('rejects pv-50 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(51);
+describe('pv join gate — the 51→52 bump (PV 52: NINE loadout slots — `OwnShip.ammo` widened to 9 and every input slot index moved) is enforced at matchmake', () => {
+  it('rejects pv-51 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(52);
+    expect(protocolVersionError(51)).toMatch(/refresh/);
     expect(protocolVersionError(50)).toMatch(/refresh/);
     expect(protocolVersionError(49)).toMatch(/refresh/);
     expect(protocolVersionError(48)).toMatch(/refresh/);
@@ -222,7 +230,7 @@ describe('blocked-drop geometry sanity (Story 2.8: clicked mine placement)', () 
     const w = bareWorld();
     place(w, 'a', 0, 0, 0, 'mineLayer');
     w.map.islands.push(circleIsland(200, 200, 40)); // a rock nowhere near the click
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 60 }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(w.mines.size).toBe(1);
     expect('denied' in buildFrame(w, 'a')).toBe(false);

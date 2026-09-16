@@ -30,12 +30,13 @@ import {
 } from '../game/equipment/index.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 
-// Slot indices under the universal fit (loadout order: gun / torpedo / mine).
+// NINE FIXED-ROLE SLOTS (Story 8.5): [gun, boost, weapon x3, consumable x4] on
+// every captain. A hull's class weapon is no longer hardware — it arrives as
+// the SPAWN SEED's card and lands in the FIRST weapon slot (2): the Torpedo
+// Boat's `heavyTorpedo` and the Mine Layer's `navalMines` both sit there.
 const SLOT_GUN = 0;
-const SLOT_TORPEDO = 1;
-const SLOT_MINE = 2;
-// The Mine Layer fits its mine in SLOT 1 (Story 1.8: [gun, mine, radarBuoy]).
-const SLOT_MINE_ML = 1;
+const SLOT_TORPEDO = 2;
+const SLOT_MINE_ML = 2;
 
 const HALF_PI = Math.PI / 2;
 let idSeq = 0;
@@ -243,7 +244,7 @@ describe('mines — NO CAP: a laid mine stays laid', () => {
 describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-arc click, blast trip)', () => {
   it('a click-placed mine lands AT the clicked point, arms, then sinks an enemy that sails onto it — the nearby OWNER takes 0', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []); // mine at slot 1 ([gun, mine, radarBuoy])
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []); // mine at weapon slot 2 (Story 8.5 spawn seed)
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Mines are an aimed WEAPON (amendment 45): a click astern places one.
     a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
@@ -554,7 +555,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 
   it('one CLICK places exactly one mine (fireSeq — Story 2.8 aimed weapon), even applied past the drop cooldown; a second click places another', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []); // mine at slot 1 ([gun, mine, radarBuoy])
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []); // mine at weapon slot 2 (Story 8.5 spawn seed)
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     // Under hold-to-fire this input would re-place every reload; a click must not.
@@ -579,7 +580,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 });
 
 describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
-  it('mirrors the ship pools as a defensive copy, null for the empty extra slot', () => {
+  it('mirrors the ship pools as a defensive copy, null for every empty slot', () => {
     const w = bareWorld();
     const ship = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
     ship.loadout[0].state = { n: 1, reloadMsLeft: 1200 };
@@ -590,7 +591,8 @@ describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
       { n: 1, reloadMsLeft: 1200 },
       { n: 0, reloadMsLeft: 6000 },
       { n: 0, reloadMsLeft: 8000 },
-      null, // empty extra slot rides the wire as null (slot alignment)
+      // The six empty slots ride the wire as null (slot alignment, length 9).
+      null, null, null, null, null, null,
     ]);
     // A copy, not the live pool objects (mutating the wire must not affect state).
     expect(wire[0]).not.toBe(ship.loadout[0].state);
