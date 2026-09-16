@@ -29,8 +29,7 @@ import {
 } from '../ui/upgradeMenu.js';
 import { refitStripInnerBox, refitStripMetrics } from '../ui/refitCardFit.js';
 import { boonFitToastLine, boonKindLabel, boonName, boonTooltipText } from '../ui/boonCopy.js';
-import { vitalsLayout } from '../render/hud.js';
-import { hotbarLayout } from '../render/hotbar.js';
+import { hudBarLayout } from '../render/hudBar.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { settings } from '../settings/store.js';
 import { FLASH_ELEMENTS, type FlashBudget, type FlashVerdict } from '../render/flashBudget.js';
@@ -297,30 +296,29 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     expect(refitStripInnerBox().h).toBe(R.stripHeight - 2 * (R.stripPadY + 1));
   });
 
-  // DELIBERATE PIN, NOT AN ASPIRATION. The ratified UX-DR14 row (924px) and the
-  // ratified below-center band (~58%) are geometrically OVER-CONSTRAINED against
-  // the bottom-left hotbar (Story 2.2) and the bottom-right vitals cluster
-  // (Story 2.4): at 1366×768 the hotbar occupies y ≥ 445 and the cluster y ≥ 490,
-  // so ANY card row with a readable height in the below-center band must overlap
-  // the two corners. That is accepted by design — the hotbar dims to 38% and slot
-  // input is suspended for exactly the window the band is open — but it is pinned
-  // here so a future geometry change (a narrower row, a shorter card, a moved
-  // corner) is a CONSCIOUS break rather than a silent regression. What must never
-  // regress is the two INNER cards, which stay clear of both clusters at the
-  // 1366×768 floor, and the own-hull keep-out above.
-  it('overlaps only the two DIMMED corner clusters, never the inner cards (1366x768)', () => {
+  // DELIBERATE PIN, NOT AN ASPIRATION — RESTATED for Story 8.6's ONE bar.
+  //
+  // The two corner clusters this pin used to measure (the bottom-left hotbar of
+  // Story 2.2, the bottom-right vitals cluster of Story 2.4) are DELETED: the
+  // loadout surface is now a single 768px bar centred above the viewport floor
+  // (render/hudBar.ts). The over-constraint that produced the original overlap
+  // survives the move unchanged — the ratified UX-DR14 row is 924px wide and the
+  // band sits below centre, so a readable card row still reaches the bar — and so
+  // does the rule that makes it acceptable: the bar's two slot groups drop to 38%
+  // and slot input is suspended for exactly the window the band is open. The
+  // bar-relative refit row that would remove the overlap outright is Story 8.7's.
+  //
+  // It is pinned here, as before, so a future geometry change is a CONSCIOUS
+  // break rather than a silent regression.
+  it('overlaps the HUD bar it dims, and stays clear of the chrome bar (1366x768)', () => {
     const L = refitBandLayout(1366, 768);
-    const vitals = vitalsLayout(1366, 768).cluster;
-    const hotbar = hotbarLayout(768).rows.map((r) => r.row);
-    const hitsHotbar = (c: RefitBox): boolean => hotbar.some((r) => overlaps(c, r));
-    // Outer cards: the accepted overlap (documented above).
-    expect(hitsHotbar(L.cards[0])).toBe(true);
-    expect(overlaps(L.cards[3], vitals)).toBe(true);
-    // Inner cards: clear of BOTH clusters — the property that must hold.
-    for (const i of [1, 2]) {
-      expect(hitsHotbar(L.cards[i]), `card ${i} vs hotbar`).toBe(false);
-      expect(overlaps(L.cards[i], vitals), `card ${i} vs vitals`).toBe(false);
-    }
+    const hud = hudBarLayout(1366, 768);
+    // The accepted overlap: the band reaches the bar, and specifically the slot
+    // groups that dim for it.
+    expect(overlaps(L.band, hud.bar)).toBe(true);
+    expect(hud.dimGroups.some((g) => overlaps(L.cards[0], g))).toBe(true);
+    // ...and it never climbs into the top-centre match register.
+    expect(L.band.y).toBeGreaterThan(CLIENT_CONFIG.chromeBar.y + CLIENT_CONFIG.chromeBar.fontSize);
   });
 });
 

@@ -11,9 +11,14 @@
 //     copy count, both rival doctrines' worst case),
 //   • the GUN slot with the shipwide INTEL/SHIP lines it hosts on top,
 //   • every ship class (class stats move the printed values)
-// — and asserts the modelled panel fits the floor viewport, that what survives
-// is still a useful list (the fix may not be "trim everything"), and that the
-// `◆n` quick-info compression stays inside the hotbar's label column.
+// — and asserts the modelled panel fits the floor viewport and that what
+// survives is still a useful list (the fix may not be "trim everything").
+//
+// STORY 8.6 took the LABEL COLUMN with the bottom-left stack, so the quick-info
+// compression suite that used to close this file is gone with the box it was
+// measured against (deferred-work ledger :1966). The tooltip is now the ONLY
+// place a slot's name, interaction line and build are read, which makes this
+// file's own pins the whole of the container-fit story for the surface.
 
 import { describe, expect, it } from 'vitest';
 import {
@@ -28,18 +33,15 @@ import {
   SHIP_DIVIDER_ROW,
   TOOLTIP_MAX_PANEL_H,
   boonRows,
-  quickInfoLine,
   slotBoonIds,
   tooltipInnerWidth,
   tooltipMetrics,
   tooltipModel,
 } from '../render/hotbar.js';
-import { cardEquipmentIds, equipmentInfo, isShipwideCard } from '../render/equipmentInfo.js';
+import { cardEquipmentIds, isShipwideCard } from '../render/equipmentInfo.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import { boonName } from '../ui/boonCopy.js';
-import { CLIENT_CONFIG } from '../config.js';
 
-const H = CLIENT_CONFIG.hotbar;
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 const LINES = Object.values(CATALOG);
 const EQUIPMENT_IDS = [...SHARED_EQUIPMENT_IDS];
@@ -214,39 +216,5 @@ describe('the laws that constrain the fix', () => {
       }
     }
     expect(tooWide).toEqual([]);
-  });
-});
-
-describe('the ◆n quick-info compression fits the label column', () => {
-  it('stays inside the hotbar label width for every slot, build and window', () => {
-    const over: string[] = [];
-    for (const c of CASES) {
-      const stats = statsFor(c);
-      const info = equipmentInfo(stats, c.id);
-      // Worst case per row: a live reload countdown AND — for the two pieces of
-      // equipment that HAVE a window — that window at its longest fitted
-      // duration, both on the line at once. The `◆n` accrued mark is GONE
-      // (Eric ruling 2026-09-15, amendment 8), so the label column no longer
-      // spends glyphs on it.
-      const window = { speedBoost: stats.equipment.speedBoost.durationMs, radarBuoy: stats.equipment.radarBuoy.durationMs }[
-        c.id as 'speedBoost' | 'radarBuoy'
-      ];
-      for (const active of [0, window ?? 0]) {
-        const line = quickInfoLine(info, info.reloadMs, active);
-        const w = monoTextWidth(line, 16, 0.8);
-        if (w > H.labelWidth) over.push(`${c.label}: "${line}" ${w.toFixed(1)}px > ${H.labelWidth}px`);
-      }
-    }
-    expect(over).toEqual([]);
-  });
-
-  // THE PER-SLOT `◆n` MARK IS DELETED (Eric ruling 2026-09-15, amendment 8).
-  // It counted a slot's CATEGORY, and catalog v3 has no categories; the tooltip
-  // still lists the build, which is where the information really lived.
-  it('spends no glyphs on an accrued count — the quick-info line is DMG/CD only', () => {
-    const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, WHOLE_CATALOG);
-    const info = equipmentInfo(stats, 'gun');
-    expect(quickInfoLine(info, 0)).not.toContain('◆');
-    expect(quickInfoLine(info, 0, 5000)).not.toContain('◆');
   });
 });

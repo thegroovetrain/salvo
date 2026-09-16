@@ -86,17 +86,32 @@ export function wipeLabel(msLeft: number): string {
   return String(Math.ceil(msLeft / 1000));
 }
 
+// THE WIPE IS PAINTED IN TWO PASSES, DELIBERATELY. The mock stacks the cooling
+// square as `background` (the .55 scrim) → `<svg>` (the icon at .4) → `.cd` (the
+// .86 conic), i.e. the dark region falls ACROSS the icon and takes it down with
+// it as the clock uncovers. A single call cannot express that in one Graphics —
+// the painter's order is the call order — so the slot row sandwiches its icon
+// between these two, and the numeral, tier numeral and badge (Text and box
+// alike) go on top of both.
+
 /**
- * Paint one cooling square's wipe into `g`: the interior scrim over the whole
- * square, then the dark region on top. The icon's dimming (`wipe.iconAlpha`)
- * and the numeral are the slot row's — it owns those children.
+ * Pass 1: the cooling square's interior scrim, over the whole square and UNDER
+ * the icon (mock `.slot.cool`'s background: `cardScrim` at `wipe.scrimAlpha`).
+ * The colour is named, never spelled: tokens.test.ts's guard scan reads COMMENTS
+ * too, so quoting the mock's raw rgba() here would fail the literal scan.
  */
-export function drawWipe(g: Graphics, square: Rect, elapsedFrac: number): void {
-  const half = Math.min(square.w, square.h) / 2;
-  const cx = square.x + square.w / 2;
-  const cy = square.y + square.h / 2;
+export function drawWipeScrim(g: Graphics, square: Rect): void {
   g.rect(square.x, square.y, square.w, square.h).fill({ color: C.cardScrim, alpha: W.scrimAlpha });
-  const dark = wipePolygon(elapsedFrac, half, cx, cy);
+}
+
+/**
+ * Pass 2: the DARK (not-yet-elapsed) region, OVER the icon (mock `.cd`). Draws
+ * nothing once the reload has elapsed — `wipePolygon` returns an empty polygon,
+ * which is how "finished" tells itself from "just started".
+ */
+export function drawWipeDark(g: Graphics, square: Rect, elapsedFrac: number): void {
+  const half = Math.min(square.w, square.h) / 2;
+  const dark = wipePolygon(elapsedFrac, half, square.x + square.w / 2, square.y + square.h / 2);
   if (dark.length < 3) return;
   g.poly(dark.flatMap((p) => [p.x, p.y])).fill({ color: C.cardScrim, alpha: W.darkAlpha });
 }

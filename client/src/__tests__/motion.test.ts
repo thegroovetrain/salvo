@@ -7,7 +7,7 @@ import { ShakeDriver, shakeMagnitude } from '../render/shake.js';
 import { vignetteAlpha } from '../render/zone.js';
 import { effectPeakAlpha, isJuiceEffect } from '../render/effects.js';
 import { slotFlags, slotSkin, type HotbarView } from '../render/hotbar.js';
-import { hullFillAlpha, hullPulseHz } from '../render/hud.js';
+import { hullFillAlpha, hullPulseHz } from '../render/hpGlobe.js';
 import { motionIntensity, motionScaled } from '../settings/store.js';
 import { hullLook } from '../render/ships.js';
 import { CLIENT_CONFIG } from '../config.js';
