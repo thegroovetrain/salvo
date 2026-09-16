@@ -15,6 +15,7 @@ import {
   hullClearOffset as sharedHullClearOffset,
   muzzleSpawn as sharedMuzzleSpawn,
   type ShellState,
+  type TargetKind,
   type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
@@ -62,6 +63,10 @@ export interface BallisticParams {
   targetY: number | null; // u
   burstRadius: number; // u — blast radius around the target point (0 = contact-only)
   contactDamage: number; // hp to an early interceptor outside the blast
+  /** The ordnance TARGET MASK (Story 8.4, AR44), always the firing row's own
+   *  `CONFIG.<ordnance>.hits`. REQUIRED like every other hit-rule field, so a
+   *  new weapon cannot silently borrow the gun's answer or default to hulls. */
+  hits: readonly TargetKind[];
   /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
    *  zone (see ShellState.lit). Only fireStarShell sets it; never on the wire. */
   lit?: { radius: number; durationMs: number };
@@ -100,6 +105,7 @@ export function makeBallistic(
     targetY: p.targetY,
     burstRadius: p.burstRadius,
     contactDamage: p.contactDamage,
+    hits: p.hits,
   };
   // The optional doctrine tags are set only when the caller carries one (never
   // an explicit `undefined` key — the shape stays clean for plain projectiles).

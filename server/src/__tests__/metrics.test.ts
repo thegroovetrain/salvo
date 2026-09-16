@@ -38,6 +38,7 @@ import {
   metricsPayload,
   metricsEndpoint,
   recordDeckExhausted,
+  recordMinesLive,
   nearestRank,
   computeTickPercentiles,
   round2,
@@ -266,7 +267,40 @@ describe('metricsPayload counts', () => {
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
       deck: { exhausted: 0 },
+      world: { minesLivePeak: 0 },
     });
+  });
+});
+
+// Story 8.4 — the live-mine high-water mark. Story 8.4 deleted every mine cap
+// (FR57/AR48), so "how much water an uncapped minefield actually covers" stopped
+// having an answer in CONFIG and has to be measured. A COUNT AND NOTHING ELSE:
+// no owner, no position, nothing an ops endpoint could turn into a wallhack.
+describe('world.minesLivePeak gauge', () => {
+  it('starts at zero and keeps the MAXIMUM, never the latest', () => {
+    expect(metricsPayload().world.minesLivePeak).toBe(0);
+    recordMinesLive(7);
+    expect(metricsPayload().world.minesLivePeak).toBe(7);
+    recordMinesLive(61); // past every cap the game used to carry
+    expect(metricsPayload().world.minesLivePeak).toBe(61);
+    recordMinesLive(2); // a cascade cleared the water — the PEAK does not fall
+    expect(metricsPayload().world.minesLivePeak).toBe(61);
+  });
+
+  it('is process-wide: it survives a room dispose and a fresh room', () => {
+    const room = registerRoom('a');
+    recordMinesLive(12);
+    room.unregister();
+    expect(metricsPayload().world.minesLivePeak).toBe(12);
+    registerRoom('b');
+    expect(metricsPayload().world.minesLivePeak).toBe(12);
+  });
+
+  it('resetMetrics() zeroes it', () => {
+    recordMinesLive(5);
+    expect(metricsPayload().world.minesLivePeak).toBe(5);
+    resetMetrics();
+    expect(metricsPayload().world.minesLivePeak).toBe(0);
   });
 });
 

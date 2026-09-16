@@ -364,6 +364,7 @@ function injectShell(
     targetY: targeted ? y + Math.sin(dir) * distLeft : null,
     burstRadius: targeted ? CONFIG.gun.burstRadius : 0,
     contactDamage: targeted ? CONFIG.gun.contactDamage : CONFIG.gun.damage,
+    hits: kind === 'torp' ? CONFIG.torpedo.hits : CONFIG.gun.hits,
   });
 }
 

@@ -85,6 +85,7 @@ function hit(w: World, by: string, victim: ShipRecord, damage: number, id = `s${
     targetY: null,
     burstRadius: 0,
     contactDamage: damage,
+    hits: CONFIG.gun.hits,
   });
   for (let t = 0; t < 8 && w.shells.size > 0; t++) w.step();
 }

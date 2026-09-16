@@ -10,7 +10,7 @@
 //
 // This module owns the buoy's WORLD-STATE SHAPE (BuoyState), its placement
 // row (the mine's click-placed rear-sector pattern, verbatim — R2.7), its
-// collision silhouette (a small square HullTarget the World merges into the
+// collision silhouette (a small square decoy-kind Target the collector emits into the
 // ballistic/blast target list so "destructible by anything that damages a
 // ship" is literally the same code path a ship takes), and the JAMMING
 // SCATTER — the deterministic per-(buoy, sweep-revolution) fake-return set.
@@ -31,7 +31,7 @@ import {
   wrapAngle,
   wrapPositive,
   type HullId,
-  type HullTarget,
+  type Target,
   type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
@@ -100,7 +100,7 @@ export interface BuoyState {
    *  is in reach, armed to the owner's effective gunReloadMs on each shot. */
   gunReloadMsLeft: number;
   /** World-space collision silhouette (frozen at drop — the buoy never
-   *  moves), merged into the ballistic/blast HullTarget list by the World. */
+   *  moves), emitted as the `decoy` kind by the World's collector. */
   poly: readonly Vec2[];
 }
 
@@ -115,9 +115,11 @@ export function buoySilhouette(x: number, y: number): readonly Vec2[] {
   ];
 }
 
-/** The buoy as a ballistic/blast target (HullTarget) — id + frozen square. */
-export function buoyTarget(b: BuoyState): HullTarget {
-  return { id: b.id, poly: b.poly };
+/** The buoy as an ordnance target — id + frozen square, carrying the DECOY
+ *  kind (Story 8.4, AR44): the radar buoy is the interim occupant of that kind
+ *  until Story 8.15 deletes the buoy and lands the real decoy store. */
+export function buoyTarget(b: BuoyState): Target {
+  return { id: b.id, kind: 'decoy', poly: b.poly };
 }
 
 /**

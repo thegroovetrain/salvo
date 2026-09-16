@@ -41,7 +41,7 @@ import {
   type MatchTimings,
 } from '../game/match.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
-import { recordDeckExhausted, registerRoom, type RoomMetricsHandle } from '../metrics.js';
+import { recordDeckExhausted, recordMinesLive, registerRoom, type RoomMetricsHandle } from '../metrics.js';
 import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
@@ -1293,6 +1293,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const start = performance.now();
     try {
       this.world.step(SIM_DT_MS);
+      // The uncapped minefield's only bound is measurement (Story 8.4): report
+      // this room's live-mine count so `/metrics` can hold its process-wide
+      // peak. A count, nothing else — and read right after the step, so a
+      // cascade that cleared the water is already reflected.
+      recordMinesLive(this.world.mineCount);
       this.match?.update();
       this.observeMatchActivation();
       this.afterStep();

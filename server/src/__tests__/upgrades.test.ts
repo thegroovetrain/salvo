@@ -1610,17 +1610,16 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(Object.keys(ev!).sort()).toEqual(['id', 'k', 't', 'vx', 'vy', 'x', 'y']);
   });
 
-  // `mineMax` is DELETED in wave 1, so the "a fit keeps one more mine live"
-  // half of this pin is RETIRED. `mine.maxLive` is still a whitelisted stat
-  // path with no card behind it (the established shape), so what survives is
-  // that the cap is read off the OWNER'S EFFECTIVE STATS rather than CONFIG —
-  // asserted against `a.stats.equipment.navalMines.maxLive`, not the constant.
-  it("mine maxLive comes from the OWNER's effective stats (no card writes it any more)", () => {
+  // RETIRED AND REPURPOSED (Story 8.4, FR57/AR48). `mineMax` died in wave 1 and
+  // `mine.maxLive` — the stat path this case last measured — is now DELETED
+  // outright along with every mine cap. What the end-to-end drop loop still
+  // earns its keep proving is the OPPOSITE fact: every drop stays on the water.
+  it('NO CAP: every mine a Mine Layer drops stays live (no eviction, no ceiling)', () => {
     const SLOT_MINE_ML = 1; // ML fit: [gun, navalMines, radarBuoy, empty]
     const dropMines = (drops: number): number => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0, 0, 'mineLayer');
-      expect(a.stats.equipment.navalMines.maxLive).toBe(CONFIG.mine.maxLive);
+      expect('maxLive' in a.stats.equipment.navalMines).toBe(false);
       w.step();
       for (let i = 0; i < drops; i++) {
         a.loadout[SLOT_MINE_ML].state = { n: 1, reloadMsLeft: 0 }; // skip the reload wait
@@ -1633,8 +1632,8 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
       }
       return w.mines.size;
     };
-    const drops = CONFIG.mine.maxLive + 2; // enough to overflow the cap
-    expect(dropMines(drops)).toBe(CONFIG.mine.maxLive); // cap holds: oldest evicted
+    const drops = 12; // well past the retired per-player cap of 5
+    expect(dropMines(drops)).toBe(drops); // every one of them still on the water
     expect(Object.hasOwn(CATALOG, 'mineMax')).toBe(false);
   });
 

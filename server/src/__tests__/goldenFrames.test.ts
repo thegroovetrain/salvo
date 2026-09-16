@@ -239,6 +239,7 @@ function injectShell(
     targetY: null,
     burstRadius: 0,
     contactDamage: CONFIG.gun.damage,
+    hits: CONFIG.gun.hits,
   });
 }
 

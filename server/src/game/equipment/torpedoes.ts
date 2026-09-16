@@ -80,6 +80,7 @@ function launchTorpedo(
     targetY: null,
     burstRadius: 0,
     contactDamage: t.damage,
+    hits: CONFIG.torpedo.hits, // AR44 target mask
     ...(t.homing
       ? { homing: { turnRate: CONFIG.torpedo.homingTurnRate, acquireRange: CONFIG.torpedo.homingAcquireRange } }
       : {}),

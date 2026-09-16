@@ -11,15 +11,19 @@
 // every non-owner hull silhouette within the owner's effective blastRadius
 // takes the owner's effective damage (mineBlastVictims below — the owner is
 // ALWAYS excluded, the universal AoE convention), with one boom at the mine
-// point; same-owner chains cascade in the World (amendment 46). Max `maxLive`
-// live mines per player (dropping past the cap despawns that player's OLDEST
-// silently — no boom); a defensive global cap bounds total growth. Mines never
+// point; chains cascade in the World into every armed non-captive mine in
+// range WHOEVER LAID IT (amendment 18, superseding amendment 46's same-owner
+// rule). MINES HAVE NO CAP AT ALL (Story 8.4, FR57/AR48): the per-player
+// `maxLive` board cap with its silent oldest-eviction and the defensive global
+// cap are both DELETED — a mine exists until it is triggered or destroyed, and
+// shooting one is the sanctioned way to clear it (amendment 16). Mines never
 // radar-paint; their per-observer visibility is contact-like (the `mine`
 // signal row).
 //
 // CAPTIVE MINES (Story 7-5 wave 2, R2.12-R2.14) change the TRIP and what
-// follows it, and nothing else: the same drop, the same 3000ms arm delay, the
-// same `maxLive` board cap. A captive mine NEVER detonates on contact — it
+// follows it, and nothing else: the same drop, the same 3000ms arm delay. A
+// captive mine is ALSO immune to shells, bursts and chains (R2.18, re-affirmed
+// by amendment 16). A captive mine NEVER detonates on contact — it
 // trips only on a HOSTILE (R2.13: an enemy captain or bot, or a fleet drone
 // whose CURRENT acquired target is the layer; a neutral drone may sail straight
 // over it) and answers by LAUNCHING its one torpedo, expending itself. The
@@ -39,7 +43,7 @@ import {
   transformPolygon,
   wrapAngle,
   type Island,
-  type HullTarget,
+  type Target,
   type ShellState,
   type Vec2,
 } from '@salvo/shared';
@@ -99,26 +103,15 @@ const CONFIG_TRIP_RULES: MineTripRules = {
   hostile: () => true,
 };
 
-/** Count a player's currently-live mines. */
-function ownMineCount(mines: Map<string, MineState>, ownerId: string): number {
-  let n = 0;
-  for (const m of mines.values()) if (m.ownerId === ownerId) n++;
-  return n;
-}
-
-/** First (oldest, by insertion order) mine owned by `ownerId`, or undefined. */
-function oldestOwnMine(mines: Map<string, MineState>, ownerId: string): string | undefined {
-  for (const [id, m] of mines) if (m.ownerId === ownerId) return id;
-  return undefined;
-}
-
 /**
- * Add a mine to the world store, enforcing the per-player cap (despawn the
- * player's oldest, silently) and the defensive global cap (despawn the globally
- * oldest). `maxLive` is the OWNER'S effective live-mine cap (Stage D: the
- * maxMines upgrade) — the World threads it in from the owner's cached stats,
- * so this stays a pure store operation. Returns the new mine. Exported for
- * tests + the World drop closure.
+ * Add a mine to the world store. NO CAP OF ANY KIND (Story 8.4, FR57/AR48):
+ * `ownMineCount`, `oldestOwnMine`, the per-player `maxLive` eviction branch,
+ * the `globalCap` eviction branch and the `maxLive` parameter are all DELETED.
+ * A mine now exists until it is triggered or destroyed, so a laid trap is never
+ * silently taken off the water by the act of laying another one. The only
+ * bound left is pools x reloads; the 500-live-mine perf pin is what holds that
+ * honest, not a ceiling. Returns the new mine. Exported for tests + the World
+ * drop closure.
  */
 export function addMine(
   mines: Map<string, MineState>,
@@ -127,16 +120,7 @@ export function addMine(
   y: number,
   now: number,
   id: string,
-  maxLive: number = CONFIG.mine.maxLive,
 ): MineState {
-  if (ownMineCount(mines, ownerId) >= maxLive) {
-    const oldest = oldestOwnMine(mines, ownerId);
-    if (oldest !== undefined) mines.delete(oldest);
-  }
-  if (mines.size >= CONFIG.mine.globalCap) {
-    const first = mines.keys().next().value;
-    if (first !== undefined) mines.delete(first);
-  }
   const mine: MineState = { id, ownerId, x, y, armedAt: now + CONFIG.mine.armDelay };
   mines.set(id, mine);
   return mine;
@@ -182,7 +166,7 @@ export function dropBlocked(p: Vec2, islands: readonly Island[], mapRadius: numb
  */
 function firstTripper(
   mine: MineState,
-  hulls: readonly HullTarget[],
+  hulls: readonly Target[],
   radius: number,
   hostile: ((victimId: string) => boolean) | null,
 ): string | null {
@@ -205,7 +189,7 @@ function firstTripper(
  */
 export function checkMineTriggers(
   mines: Map<string, MineState>,
-  hulls: readonly HullTarget[],
+  hulls: readonly Target[],
   now: number,
   rules: MineTripRules = CONFIG_TRIP_RULES,
 ): MineTrigger[] {
@@ -236,9 +220,9 @@ export function checkMineTriggers(
  */
 export function mineBlastVictims(
   mine: { x: number; y: number; ownerId: string },
-  hulls: readonly HullTarget[],
+  hulls: readonly Target[],
   blastRadius: number = CONFIG.mine.blastRadius,
-): string[] {
+): Target[] {
   return burstVictims(mine, blastRadius, hulls, mine.ownerId);
 }
 
@@ -274,6 +258,9 @@ export function captiveTorpedo(
   return {
     id,
     ownerId: mine.ownerId,
+    // AR44: the captive's fish is a TORPEDO — hulls and decoys. It runs under
+    // a minefield exactly as a launched torpedo does.
+    hits: CONFIG.torpedo.hits,
     x: mine.x,
     y: mine.y,
     vx: Math.cos(dir) * CONFIG.torpedo.speed,
@@ -301,9 +288,9 @@ export function contactBlastRadius(shell: ShellState): number {
 
 /** The world-space hull target for a ship pose (test/inspection convenience —
  *  the sim itself builds targets in World.aliveHulls with per-ship scratch). */
-export function hullFor(ship: ShipRecord): HullTarget {
+export function hullFor(ship: ShipRecord): Target {
   const s = ship.state;
-  return { id: ship.id, poly: transformPolygon(hullSilhouette(ship.hullId), s.x, s.y, s.heading) };
+  return { id: ship.id, kind: 'hull', poly: transformPolygon(hullSilhouette(ship.hullId), s.x, s.y, s.heading) };
 }
 
 /** The mine Equipment row — a click-aimed WEAPON as of Story 2.8 (amendment
@@ -314,7 +301,7 @@ export function hullFor(ship: ShipRecord): HullTarget {
  *  CONFIG.mine.placeRange — either miss is 'out-of-arc' (the aim-denial
  *  channel, per the amendment ruling); a clicked point inside a rock / off the
  *  water is 'blocked' (Story 1.10); an empty pool is 'no-ammo'. The drop ammo
- *  pool is distinct from the live-mine board cap (stats.equipment.navalMines.maxLive) that
+ *  pool is the ONLY mine bound since Story 8.4 deleted the live-board cap, and
  *  addMine enforces. Pool size + reload come from the ship's cached effective
  *  stats. Slot state is non-null by the loadout invariant (see index.ts). */
 export const mineEquipment: Equipment = {

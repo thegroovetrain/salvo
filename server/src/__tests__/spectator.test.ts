@@ -88,6 +88,7 @@ function injectShell(w: World, id: string, ownerId: string, x: number, y: number
     targetY: null,
     burstRadius: 0,
     contactDamage: CONFIG.gun.damage, // contact-only injection: legacy full-damage hit
+    hits: CONFIG.gun.hits,
   });
 }
 

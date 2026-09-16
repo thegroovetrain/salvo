@@ -86,6 +86,7 @@ function makeShell(overrides: Partial<ShellState> = {}): ShellState {
     targetY: null,
     burstRadius: 0,
     contactDamage: 10,
+    hits: CONFIG.gun.hits,
     ...overrides,
   };
 }
