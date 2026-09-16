@@ -396,6 +396,7 @@ describe('shared barrel', () => {
 
   it('CONFIG.broadside carries the barrage block; its range stays DERIVED at the 5/8 rung', () => {
     expect(CONFIG.broadside).toEqual({
+      hits: ['hull', 'mine', 'decoy'], // AR44 gun-family mask (Story 8.4)
       arcOffsetDeg: 90,
       arcHalfArcDeg: 60,
       shellSpeed: 500,
@@ -441,6 +442,7 @@ describe('shared barrel', () => {
 
   it('CONFIG.radarBuoy carries the buoy\'s OWN sensor set (Story 7-5 wave 2)', () => {
     expect(CONFIG.radarBuoy).toEqual({
+      hits: ['hull', 'mine', 'decoy'], // AR44 — the gun buoy fires gun-pattern shells
       radarRange: 330,
       sweepRpm: 15,
       durationMs: 20000,
@@ -464,6 +466,8 @@ describe('shared barrel', () => {
 
   it('CONFIG.starShells: DAMAGELESS (amendment 39) + the incendiary/dazzle doctrine fields', () => {
     expect(CONFIG.starShells).toEqual({
+      // AR44 (Story 8.4): NO 'mine' bit — illumination detonates nothing.
+      hits: ['hull', 'decoy'],
       arc: 'full',
       shellSpeed: 500,
       maxAmmo: 1,
@@ -485,7 +489,12 @@ describe('shared barrel', () => {
     expect(CONFIG.mine.triggerRadius).toBe(32);
     expect(CONFIG.mine.blastRadius).toBe(48);
     expect(CONFIG.mine.blastRadius).toBeGreaterThan(CONFIG.mine.triggerRadius);
-    expect(CONFIG.mine.maxLive).toBe(5);
+    // RETIRED (Story 8.4, FR57/AR48): `CONFIG.mine.maxLive` and
+    // `CONFIG.mine.globalCap` are DELETED — mines have no cap at all. The pin
+    // is inverted so the fields can never quietly come back.
+    expect('maxLive' in CONFIG.mine).toBe(false);
+    expect('globalCap' in CONFIG.mine).toBe(false);
+    expect(CONFIG.mine.hits).toEqual(['hull']);
     expect(CONFIG.mine.damage).toBe(55); // RETUNED 45 -> 55 (Eric ruling 2026-08-04)
     // The placement leash (Eric ruling 2026-08-02): 90u put the drop point
     // inside your own wake; 150u lets a Mine Layer actually seed water.

@@ -5,12 +5,33 @@
 //
 // Angle helpers below keep mount/arc definitions readable in degrees.
 
+import type { TargetKind } from './sim/shell.js';
+
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 // u — base true-sight radius (Eric ruling 2026-07-23). Star shells derive
 // their lit-zone radius from this as a structural ratio (SIGHT / 2) so the
 // two retune together; see CONFIG.vision.sight and CONFIG.starShells.litRadius.
 const SIGHT = 330;
+
+/**
+ * THE ORDNANCE TARGET MASKS (Story 8.4, AR44). Every ordnance row declares,
+ * right here in the single source of truth, which KINDS of thing its
+ * projectiles may touch; the World's one collector (`hitTargets(mask)`) builds
+ * the list and an ordnance step never enumerates world entities itself.
+ *
+ * They are named by CONTENT rather than by weapon so the same list is shared
+ * by every row that wants it and a reader can see at a glance which rows agree.
+ * A STUB weapon (missile, machine gun, flak, monitor, light/supercav torpedo)
+ * gets NO row until its own story — an undeclared mask is a loud failure, a
+ * defaulted one is a silent wrong answer.
+ *
+ * NOT a wire contract: the client never reads `hits`, so adding these rows does
+ * NOT bump PROTOCOL_VERSION (pinned at 51 by a test).
+ */
+const HITS_HULL_MINE_DECOY: readonly TargetKind[] = ['hull', 'mine', 'decoy'];
+const HITS_HULL_DECOY: readonly TargetKind[] = ['hull', 'decoy'];
+const HITS_HULL: readonly TargetKind[] = ['hull'];
 
 export const CONFIG = {
   /**
@@ -389,12 +410,13 @@ export const CONFIG = {
      * Own-live-mine count below which a bot may lay a PREPARED mine — seeded
      * with NO target while the posture is safe (Eric ruling 2026-08-20,
      * cycle 111: the ML *"wants certain things… you just have to be lined up
-     * well and prepare"*). This is the headroom kept under `mine.maxLive`
-     * (5) so a REACTIVE lay always has room: `addMine` silently EVICTS the
-     * owner's oldest mine at the cap, so an unbounded prepared lay every
-     * reload would churn the very field it just built. 3 = maxLive − the
-     * 2-deep drop pool (mine.maxAmmo), so even a full rack of reactive
-     * drops on top of a fully-prepared field never evicts a laid trap.
+     * well and prepare"*). It WAS the headroom kept under `mine.maxLive` (5),
+     * whose silent oldest-eviction meant an unbounded prepared lay every reload
+     * churned the very field the bot had just built. Story 8.4 DELETED every
+     * mine cap (FR57/AR48), so nothing is ever evicted any more and this is now
+     * purely a restraint dial: it bounds how much water a bot seeds with no
+     * target in sight, and 3 (the old maxLive 5 minus the 2-deep drop pool)
+     * is kept as the shipped value rather than retuned by an implementer.
      * Consumed by server ai/equipment.ts (the prepared-lay gate) and nothing
      * else — bot policy, never a combat constant.
      */
@@ -1098,6 +1120,9 @@ export const CONFIG = {
    */
   gun: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
+    // AR44: the gun family hits hulls, MINES (amendments 16/17 — any armed
+    // non-captive mine, yours included) and decoys.
+    hits: HITS_HULL_MINE_DECOY,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
     // AFT TURRET boon (gunTurret) may raise the pool to 2 via the whitelisted
@@ -1152,6 +1177,9 @@ export const CONFIG = {
    */
   torpedo: {
     offset: deg(0), // bow-centered — RATIFIED class-era sector (Eric 2026-07-23; see sim/arcs.ts)
+    // AR44: a torpedo hits hulls and decoys — it runs UNDER a minefield and
+    // never sets one off.
+    hits: HITS_HULL_DECOY,
     halfArc: deg(30), // +/-30deg launch arc
     // u/s — must outrun every hull, classes AND drones (after Eric's 2026-07-21
     // rescale droneSmall at 46 is the fastest afloat, and a boosted Torpedo Boat
@@ -1270,18 +1298,26 @@ export const CONFIG = {
     // (Eric ruling 2026-08-04, weapon balance pass): a Mine Layer could not lay
     // a FIELD with a one-deep rack. This is a BASE change with no new
     // machinery — the same shared pool path torpedoTube already exercises for a
-    // 2-deep pool — and deliberately NOT a new catalog card. `maxLive` (5) is
-    // untouched and remains a distinct cap (see below).
+    // 2-deep pool — and deliberately NOT a new catalog card. Since Story 8.4
+    // the drop pool is the ONLY mine bound: no live-board cap exists (below).
     maxAmmo: 2,
     // ms — reload between drops. RETUNED 8000 → 15000 (Eric ruling 2026-08-04,
     // weapon balance pass): the rack got deeper, so each round costs more. A
     // max shipCooldown build (5 copies, cooldownScale 0.5) lands it at 7.5s.
     reloadMs: 15000,
-    // maxLive is DISTINCT from the ammo pool: the drop pool caps how many you
-    // can drop before reloading; maxLive caps how many stay LIVE on the board at
-    // once (oldest evicted past it). Separate stat, separate upgrade later.
-    maxLive: 5, // max simultaneous live mines per player
-    globalCap: 60, // defensive ceiling on total live mines across all players
+    // MINES HAVE NO CAP (Story 8.4, FR57/AR48). `maxLive` (the per-player live
+    // board cap, with its silent oldest-eviction) and `globalCap` (the room
+    // ceiling) are DELETED, along with the `maxLive` stat path: a mine now
+    // exists until it is triggered or destroyed, and the only bound on the
+    // water is pools × reloads. Do not reintroduce a ceiling here — the answer
+    // to a crowded ocean is the perf pin (500 live mines inside the 50 ms
+    // tick), not a cap that silently deletes a captain's laid trap.
+    //
+    // AR44: a mine TRIPS on hulls only — a decoy, a buoy or another mine
+    // sailing into its ring is not a hull and must not set it off (remote
+    // minefield clearing is a mechanic nobody ruled on; shooting the mine is
+    // the sanctioned way, amendment 16).
+    hits: HITS_HULL,
     // --- PROP-FOULING MINES doctrine. Victims of a fouling blast are slowed
     // (self-private you.slowedUntil; sim/slow.ts slowedKinematics — composition
     // pinned boosted → slowed → hooks).
@@ -1367,6 +1403,8 @@ export const CONFIG = {
   broadside: {
     // deg — bearing of each sector's CENTER off the bow (±): the beams.
     arcOffsetDeg: 90,
+    // AR44: gun family — hulls, mines, decoys (the gun's own mask).
+    hits: HITS_HULL_MINE_DECOY,
     // deg — half-width of each beam sector about its center.
     arcHalfArcDeg: 60,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
@@ -1497,6 +1535,13 @@ export const CONFIG = {
    */
   starShells: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
+    // AR44: ILLUMINATION DETONATES NOTHING. The flare is a gun-family shell
+    // that deliberately does NOT carry the gun's mine bit: a damageless star
+    // shell bursting over a minefield leaves it standing, so lighting the water
+    // can never double as remote minefield clearing. (Before Story 8.4 a flare
+    // burst DID set off the firer's own armed mines, through the owner-only
+    // self-detonation path that amendment 16 replaced.)
+    hits: HITS_HULL_DECOY,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between flares
@@ -1561,6 +1606,9 @@ export const CONFIG = {
    */
   radarBuoy: {
     radarRange: 330, // u — the buoy's OWN radar reach (flat; never observer-scaled)
+    // AR44: the GUN BUOY's shells are ordinary gun-pattern shells, so they
+    // carry the gun's mask.
+    hits: HITS_HULL_MINE_DECOY,
     sweepRpm: 15, // rev/min — its own sweep; FIXED (R2.20 moved BUOY I-IV to durationMs; no card writes it)
     durationMs: 20000, // ms — lifetime before natural expiry
     hp: 50, // hp — destructible by anything that damages a ship

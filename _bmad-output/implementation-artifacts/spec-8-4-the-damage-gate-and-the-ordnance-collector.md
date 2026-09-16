@@ -2,7 +2,7 @@
 title: 'Story 8.4: The Damage Gate and the Ordnance Collector'
 type: 'refactor'
 created: '2026-09-15'
-status: 'ready-for-dev'
+status: 'in-progress'
 baseline_revision: '21bafd9'
 review_loop_iteration: 0
 followup_review_recommended: false

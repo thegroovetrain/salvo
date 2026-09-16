@@ -69,8 +69,8 @@ export const EQUIPMENT_STAT_FIELDS = {
   lightTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
   heavyTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
   supercavTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
-  navalMines: ['reloadMs', 'maxAmmo', 'maxLive', 'damage', 'blastRadius'],
-  captiveMines: ['reloadMs', 'maxAmmo', 'maxLive', 'damage', 'blastRadius'],
+  navalMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius'],
+  captiveMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius'],
   missile: ['reloadMs', 'maxAmmo', 'damage'],
   machineGun: ['reloadMs', 'maxAmmo', 'damage'],
   flak: ['reloadMs', 'maxAmmo', 'damage'],
@@ -87,9 +87,10 @@ export const EQUIPMENT_STAT_FIELDS = {
  * these (+0.5 tubes); the fold accumulates the float and sim/stats.ts
  * clampStats floors ONCE, so nothing appears until the fraction completes a
  * whole. `spreadRung` is absent deliberately: it rounds through
- * clampSpreadRung against its authored ladder.
+ * clampSpreadRung against its authored ladder. `maxLive` left this list with
+ * the mine caps themselves (Story 8.4, FR57/AR48).
  */
-export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'maxLive', 'barrels', 'turrets'];
+export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 'turrets'];
 
 /**
  * The top-level (non-equipment) stat paths. `sightRange` and `sweepPeriodMs`

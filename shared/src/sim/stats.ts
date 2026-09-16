@@ -114,7 +114,8 @@ export interface EffectiveTorpedo extends EquipmentRowCommon {
 }
 
 export interface EffectiveMine extends EquipmentRowCommon {
-  maxLive: number; // max simultaneous live mines on the board
+  // `maxLive` is DELETED (Story 8.4, FR57/AR48): mines have no per-player live
+  // board cap and no room ceiling, so there is no such stat to derive.
   damage: number; // hp per blast victim
   blastRadius: number; // u — full damage to every non-owner hull within it
   triggerRadius: number; // u — detonation proximity (DERIVED from blastRadius)
@@ -353,7 +354,6 @@ function mineRow(reloadMs: number, maxAmmo: number, captive: boolean): Effective
     tier: 1,
     reloadMs,
     maxAmmo,
-    maxLive: CONFIG.mine.maxLive,
     damage: CONFIG.mine.damage,
     blastRadius: CONFIG.mine.blastRadius,
     triggerRadius: CONFIG.mine.triggerRadius,
