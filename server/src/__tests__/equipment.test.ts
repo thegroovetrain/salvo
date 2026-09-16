@@ -20,9 +20,11 @@ import {
   CATALOG,
   EQUIPMENT_IS_WEAPON,
   LINE_IDS,
+  CONSUMABLE_SLOTS,
+  SLOT_BOOST,
   SLOT_COUNT,
-  SLOT_EXTRA,
   SLOT_GUN,
+  WEAPON_SLOTS,
   equipmentMaxAmmo,
   isStubLine,
   tierTargetOf,
@@ -32,23 +34,31 @@ import { World, type ShipRecord } from '../game/world.js';
 import { EQUIPMENT, slotAmmo, type Equipment } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
-// THE FIXTURE MOVED TO REAL SHIP CLASSES (Story 5.6, epic-5 amendment 34).
-// This suite was built on `droneMedium` because the drone hulls were the last
-// carriers of the universal [gun, torpedo, mine, empty] fit; PvE fleet hulls
-// now fit [gun, empty, empty, empty], so that fit no longer exists anywhere
-// and the suite runs on the two hulls that actually carry these weapons:
-//   MINE LAYER   [gun, mine, radarBuoy, empty]  — the gun/mine/empty-slot cases
-//   TORPEDO BOAT [gun, torpedo, speedBoost, empty] — the torpedo cases
-// Every slot index below is named per hull rather than assumed universal.
-/** Mine Layer fit, by slot. */
-const ML_IDS = ['gun', 'navalMines', 'radarBuoy'] as const;
-/** Torpedo Boat fit, by slot. */
-const TB_IDS = ['gun', 'heavyTorpedo', 'speedBoost'] as const;
-/** Mine Layer slot indices. */
-const SLOT_MINE = 1;
-const SLOT_BUOY = 2;
-/** Torpedo Boat slot index. */
-const SLOT_TORPEDO = 1;
+// THE FIXTURE IS NINE FIXED-ROLE SLOTS (Story 8.5). There is no per-hull fit
+// left to name: EVERY captain spawns [gun, speedBoost, <seed weapons>, ...] and
+// the rest of the nine are empty. What still differs per hull is the SPAWN
+// SEED (sim/catalog.ts), which lands its weapons in the weapon row (2, 3, 4)
+// first-empty-first:
+//   MINE LAYER   [gun, speedBoost, navalMines,   empty x6]
+//   TORPEDO BOAT [gun, speedBoost, heavyTorpedo, empty x6]
+// THE RADAR BUOY IS NO LONGER FITTED ON ANY HULL (epic-8 amendment 22): no
+// card and no seed reaches it, so the cases that exercise its module fit it
+// BY HAND into a free weapon slot (fitBuoy below). The module, its CONFIG row
+// and its behaviour pins all stay exactly as shipped.
+/** Mine Layer fit, in slot order (the rest of the nine are empty). */
+const ML_IDS = ['gun', 'speedBoost', 'navalMines'] as const;
+/** Torpedo Boat fit, in slot order. */
+const TB_IDS = ['gun', 'speedBoost', 'heavyTorpedo'] as const;
+/** The first WEAPON slot (Q) — where each hull's single seeded weapon lands. */
+const SLOT_MINE = WEAPON_SLOTS[0];
+const SLOT_TORPEDO = WEAPON_SLOTS[0];
+/** The SECOND weapon slot (E) — free on every hull, so it is where the tests
+ *  hand-fit the radar buoy (amendment 22: nothing fits it in play). */
+const SLOT_BUOY = WEAPON_SLOTS[1];
+/** An EMPTY weapon slot on every hull today (R): the empty-slot subject. */
+const SLOT_EMPTY_WEAPON = WEAPON_SLOTS[2];
+/** The first BELT slot - empty all of Story 8.5 (8.7 builds the rack). */
+const SLOT_BELT = CONSUMABLE_SLOTS[0];
 
 // ---------- construction helpers ---------------------------------------------
 
@@ -60,9 +70,9 @@ function bareWorld(seed = 7): World {
 }
 
 /** Add a MINE LAYER and pin it to the origin at a known heading (speed 0) —
- *  the suite's default fixture: [gun, mine, radarBuoy, empty] covers a 360°
- *  weapon, an aimed weapon with a rear placement sector, an ability, and the
- *  empty extra slot in one hull. The role stays 'captain' so the
+ *  the suite's default fixture: [gun, speedBoost, navalMines, empty x6] covers
+ *  a 360-degree weapon, an aimed weapon with a rear placement sector, an
+ *  ability, and six empty slots in one hull. The role stays 'captain' so the
  *  FleetController never overwrites the scripted inputs. */
 function place(w: World, id: string, heading = 0): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', 'mineLayer', undefined, undefined, []);
@@ -70,8 +80,8 @@ function place(w: World, id: string, heading = 0): ShipRecord {
   return rec;
 }
 
-/** The TORPEDO BOAT sibling: [gun, torpedo, speedBoost, empty] — the only fit
- *  that carries a torpedo, so every bow-arc case runs on this hull. */
+/** The TORPEDO BOAT sibling: [gun, speedBoost, heavyTorpedo, empty x6] — the
+ *  only SEED that carries a torpedo, so every bow-arc case runs on this hull. */
 function placeTb(w: World, id: string, heading = 0): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, []);
   rec.state = { x: 0, y: 0, heading, speed: 0 };
@@ -83,17 +93,31 @@ function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
   ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...patch };
 }
 
-/** Assert a ship carries its fresh per-hull fit: the three named ids at full
- *  pool and an idle timer, with the extra slot empty. `ids` is passed rather
+/** HAND-FIT THE RADAR BUOY into the second weapon slot (E). Since epic-8
+ *  amendment 22 no hull's spawn seed and no card fits the buoy, so the only
+ *  way to exercise its live module is to write the slot directly — exactly
+ *  what `applySlotEffect` would have written. The module's behaviour pins are
+ *  unchanged; only the route into the slot is. */
+function fitBuoy(ship: ShipRecord): void {
+  ship.loadout[SLOT_BUOY] = {
+    equipmentId: 'radarBuoy',
+    state: { n: equipmentMaxAmmo(ship.stats, 'radarBuoy'), reloadMsLeft: 0 },
+  };
+}
+
+/** Assert a ship carries its fresh nine-slot fit: the named ids at full pool
+ *  and an idle timer, with EVERY remaining slot empty. `ids` is passed rather
  *  than assumed, so a hull's fit is pinned HERE and not inherited. */
 function expectFreshLoadout(ship: ShipRecord, ids: readonly ['gun', ...string[]]): void {
-  expect(ship.loadout).toHaveLength(SLOT_COUNT);
-  for (let i = 0; i < SLOT_EXTRA; i++) {
+  expect(ship.loadout).toHaveLength(SLOT_COUNT); // nine since Story 8.5
+  for (let i = 0; i < ids.length; i++) {
     expect(ship.loadout[i].equipmentId).toBe(ids[i]);
     const id = ids[i] as Parameters<typeof equipmentMaxAmmo>[1];
     expect(ship.loadout[i].state).toEqual({ n: equipmentMaxAmmo(ship.stats, id), reloadMsLeft: 0 });
   }
-  expect(ship.loadout[SLOT_EXTRA]).toEqual({ equipmentId: null, state: null });
+  for (let i = ids.length; i < SLOT_COUNT; i++) {
+    expect(ship.loadout[i]).toEqual({ equipmentId: null, state: null });
+  }
 }
 
 // ---------- 1. registry / interface conformance ------------------------------
@@ -249,8 +273,10 @@ describe('denial reasons — derived through the gate without changing effects',
   it('the radarBuoy denies out-of-arc on a bow click, keeping the charge; an astern click places it', () => {
     const w = bareWorld();
     const ml = place(w, 'ml');
+    fitBuoy(ml); // amendment 22: nothing fits the buoy in play any more
     expect(ml.loadout[SLOT_BUOY].equipmentId).toBe('radarBuoy');
     // Default aim (bow, heading 0): outside the rear sector -> out-of-arc.
+    setInput(ml, { aim: 0, aimDist: 60, slot: SLOT_BUOY });
     expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'out-of-arc' });
     // Astern but past the shared placeRange: same aim-denial channel.
     setInput(ml, { aim: Math.PI, aimDist: CONFIG.mine.placeRange + 1, slot: SLOT_BUOY });
@@ -273,7 +299,7 @@ describe('denial reasons — derived through the gate without changing effects',
 describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 2.8 flip of the 1.8 pin)', () => {
   it('a fireSeq CLICK astern places a mine at the clicked point; an actSeq press on the slot is inert', () => {
     const w = bareWorld();
-    const ship = place(w, 'a'); // ML fit: mine at slot 1; heading 0 ⇒ astern = π
+    const ship = place(w, 'a'); // ML fit: mine at weapon slot 2; heading 0 => astern = pi
     // CLICK (weapon channel): places at the clicked point.
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     w.step();
@@ -295,14 +321,30 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
 // ---------- 3. empty-slot safety ---------------------------------------------
 
 describe('empty-slot safety — the gate answers before any dereference', () => {
-  it('slot 3 (empty extra) denies empty-slot without crashing', () => {
+  it('an empty WEAPON slot (4, R) denies empty-slot without crashing', () => {
     const w = bareWorld();
-    const ship = place(w, 'a');
-    expect(ship.loadout[SLOT_EXTRA]).toEqual({ equipmentId: null, state: null });
-    expect(w.sinkingActivationGate(ship, SLOT_EXTRA)).toEqual({
+    const ship = placeTb(w, 'a'); // TB seed fills only slot 2, so 3 and 4 are empty
+    expect(ship.loadout[SLOT_EMPTY_WEAPON]).toEqual({ equipmentId: null, state: null });
+    expect(w.sinkingActivationGate(ship, SLOT_EMPTY_WEAPON)).toEqual({
       ok: false,
       reason: 'empty-slot',
     });
+  });
+
+  it('an empty BELT slot (5) denies empty-slot without crashing (the rack is Story 8.7)', () => {
+    const w = bareWorld();
+    const ship = place(w, 'a');
+    expect(ship.loadout[SLOT_BELT]).toEqual({ equipmentId: null, state: null });
+    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({
+      ok: false,
+      reason: 'empty-slot',
+    });
+  });
+
+  it('the index one past the last slot (9) denies empty-slot without crashing', () => {
+    const w = bareWorld();
+    const ship = place(w, 'a');
+    expect(w.sinkingActivationGate(ship, SLOT_COUNT)).toEqual({ ok: false, reason: 'empty-slot' });
   });
 
   it('an out-of-range slot index denies empty-slot without crashing', () => {
@@ -331,6 +373,7 @@ describe('FR5 — a deselected slot still reloads every tick', () => {
   it('with the gun selected, the reloading MINE and BUOY slots both advance', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
+    fitBuoy(ship); // amendment 22 — hand-fitted; the tick behaviour it pins is unchanged
     setInput(ship, { slot: SLOT_GUN }); // gun slot named; fireSeq 0 => no activation
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
     ship.loadout[SLOT_BUOY].state = { n: 0, reloadMsLeft: CONFIG.radarBuoy.reloadMs };
@@ -349,14 +392,15 @@ describe('FR5 — a deselected slot still reloads every tick', () => {
   });
 });
 
-// ---------- 4b. the empty extra slot is never ticked --------------------------
+// ---------- 4b. the empty slots are never ticked ------------------------------
 
-describe('the empty extra slot is never ticked', () => {
-  it('behavioral: a full-loadout ship steps many ticks with slot 3 empty, world stays healthy while 0–2 reload', () => {
+describe('the empty slots are never ticked', () => {
+  it('behavioral: a ship steps many ticks with SIX empty slots, world stays healthy while the fitted ones reload', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
+    fitBuoy(ship); // a fourth fitted slot, so the loop has more than the seed to do
     setInput(ship, { slot: SLOT_GUN }); // no click (fireSeq 0)
-    // Drain the three fitted slots so their reload timers must tick down.
+    // Drain the fitted slots so their reload timers must tick down.
     ship.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: CONFIG.gun.reloadMs };
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
     ship.loadout[SLOT_BUOY].state = { n: 0, reloadMsLeft: CONFIG.radarBuoy.reloadMs };
@@ -364,8 +408,10 @@ describe('the empty extra slot is never ticked', () => {
     expect(() => {
       for (let i = 0; i < N; i++) w.step();
     }).not.toThrow();
-    // Empty slot untouched — no state materialized, nothing to have ticked.
-    expect(ship.loadout[SLOT_EXTRA]).toEqual({ equipmentId: null, state: null });
+    // EVERY empty slot untouched — no state materialized, nothing to tick.
+    for (const i of [SLOT_EMPTY_WEAPON, ...CONSUMABLE_SLOTS]) {
+      expect(ship.loadout[i]).toEqual({ equipmentId: null, state: null });
+    }
     // The fitted slots DID reload-tick (proves the loop ran, and skips only 3).
     expect(ship.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs - N * DT);
     expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - N * DT);
@@ -473,10 +519,45 @@ describe('the sinking-activation gate is the sole dispatch path to activate()', 
 // ---------- 6. loadout init / respawn / redeploy parity -----------------------
 
 describe('loadout init parity — addShip / respawn / redeploy', () => {
-  it('addShip produces a full idle loadout matching equipmentMaxAmmo, slot 3 empty', () => {
+  it('addShip produces a full idle loadout matching equipmentMaxAmmo, the rest of the nine empty', () => {
     const w = bareWorld();
     expectFreshLoadout(place(w, 'a'), ML_IDS);
     expectFreshLoadout(placeTb(w, 'tb'), TB_IDS);
+  });
+
+  // THE SHAPE IS UNIVERSAL (Story 8.5): slots 0 and 1 hold the SAME equipment
+  // on every captain hull, and only the seeded weapon row differs.
+  it('every captain hull spawns the same shape: gun in 0, boost in 1, seed in the weapon row', () => {
+    const w = bareWorld();
+    const hulls = [
+      ['torpedoBoat', ['heavyTorpedo']],
+      ['battleship', ['broadside', 'starShells']],
+      ['mineLayer', ['navalMines']],
+    ] as const;
+    for (const [hull, seed] of hulls) {
+      const ship = w.addShip(hull, hull, 'captain', hull, undefined, undefined, []);
+      expect(ship.loadout).toHaveLength(SLOT_COUNT);
+      expect(ship.loadout[SLOT_GUN].equipmentId).toBe('gun');
+      expect(ship.loadout[SLOT_BOOST].equipmentId).toBe('speedBoost');
+      expect(WEAPON_SLOTS.map((i) => ship.loadout[i].equipmentId)).toEqual([
+        ...seed,
+        ...Array<null>(WEAPON_SLOTS.length - seed.length).fill(null),
+      ]);
+      for (const i of CONSUMABLE_SLOTS) expect(ship.loadout[i]).toEqual({ equipmentId: null, state: null });
+      expect(ship.cards).toEqual([...seed]); // the seed rides as CARDS, so the deck owes their copy 1
+      expect(slotAmmo(ship)).toHaveLength(SLOT_COUNT);
+    }
+  });
+
+  it('a FLEET hull spawns gun-only: eight empties, no boost (amendment 24)', () => {
+    const w = bareWorld();
+    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined, []);
+    expect(d.loadout).toHaveLength(SLOT_COUNT);
+    expect(d.loadout[SLOT_GUN].equipmentId).toBe('gun');
+    for (let i = 1; i < SLOT_COUNT; i++) {
+      expect(d.loadout[i]).toEqual({ equipmentId: null, state: null });
+    }
+    expect(d.cards).toEqual([]);
   });
 
   it('respawn (waiting-phase) rebuilds the full loadout from stats', () => {
@@ -495,8 +576,17 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: 500 }; // dirty it, prove the rebuild
+    fitBuoy(ship); // a hand-fitted slot the rebuild must clear — the seed is the only source
     w.resetForMatchStart();
     expectFreshLoadout(ship, ML_IDS);
+  });
+
+  it('a FLEET hull keeps its gun-only fit through a redeploy (the fleet flag is load-bearing)', () => {
+    const w = bareWorld();
+    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined, []);
+    w.resetForMatchStart();
+    expect(d.loadout[SLOT_BOOST]).toEqual({ equipmentId: null, state: null }); // no boost grown
+    for (let i = 1; i < SLOT_COUNT; i++) expect(d.loadout[i].equipmentId).toBeNull();
   });
 });
 
@@ -505,12 +595,13 @@ describe('slotAmmo — slot-aligned fresh wire copies, not live pool references'
     const w = bareWorld();
     const ship = place(w, 'a');
     const wire = slotAmmo(ship);
-    expect(wire).toHaveLength(SLOT_COUNT); // slot-aligned: one entry per loadout slot
-    for (let i = 0; i < SLOT_EXTRA; i++) {
+    expect(wire).toHaveLength(SLOT_COUNT); // slot-aligned: one entry per loadout slot (NINE)
+    for (let i = 0; i < ML_IDS.length; i++) {
       expect(wire[i]).not.toBe(ship.loadout[i].state); // a fresh copy, not the live pool object
       expect(Object.keys(wire[i]!)).toEqual(['n', 'reloadMsLeft']); // key order pinned for the wire
       expect(wire[i]).toEqual(ship.loadout[i].state); // same values
     }
-    expect(wire[SLOT_EXTRA]).toBeNull(); // empty slot => null (never a zero pool)
+    // Every empty slot => null (never a zero pool).
+    for (let i = ML_IDS.length; i < SLOT_COUNT; i++) expect(wire[i]).toBeNull();
   });
 });

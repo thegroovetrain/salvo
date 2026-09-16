@@ -1,14 +1,27 @@
 // Slot-based equipment loadout — the shared spine every fitted system builds
-// on (Story 1.2). A ship's loadout IS its equipment runtime: 4 slots (gun,
-// two specials, one extra), each either empty or holding one equipment id +
-// its state. The fit is per-hull (Stories 1.6–1.8): the Torpedo Boat carries
-// [gun, heavyTorpedo, speedBoost, empty], the Battleship carries
-// [gun, broadside, starShells, empty], the Mine Layer carries
-// [gun, navalMines, radarBuoy, empty] (Story 7-5 wave 2), while every drone keeps the
-// universal fit [gun, heavyTorpedo, navalMines, empty]. speedBoost is the ONLY non-weapon
-// (instant-activation) special left. Pure, zero I/O.
+// on (Story 1.2, re-cut in Story 8.5). A ship's loadout IS its equipment
+// runtime: NINE FIXED-ROLE SLOTS, identical for every captain hull —
+// [gun, boost, weapon, weapon, weapon, consumable ×4] — each either empty or
+// holding one equipment id + its state.
+//
+// THE PER-HULL FIT IS GONE (Story 8.5, epic-8 amendments 21–24). There is no
+// `specialsFor` and no `SLOT_EXTRA`: every captain sails with the SAME shape,
+// and class identity lives in the DECK (the cards a hull draws), not in the
+// hardware. A hull's shipped class weapons are seeded at spawn AS CARDS
+// (`SPAWN_SEED` in sim/catalog.ts) until Story 8.10's level-zero offer
+// replaces that seed, and they land in the weapon row like any other card.
+//
+// Slot 1 holds the LEGACY `speedBoost` module on every captain — the boost
+// stopped being a Torpedo Boat privilege here (amendment 23) at its shipped
+// numbers; Story 8.9 renames the id to the universal `boost`.
+//
+// PvE FLEET HULLS FIT THE GUN AND NOTHING ELSE (epic-5 amendment 34, epic-8
+// amendment 24): Eric's ruling is "each has a gun to defend itself", singular.
+// They used to inherit a universal torpedo + mine fit — loaded tubes they
+// could never use, with both reload timers ticking forever.
+//
+// Pure, zero I/O.
 
-import type { HullId } from '../constants.js';
 import type { EffectiveStats } from './stats.js';
 
 /**
@@ -107,25 +120,31 @@ export interface LoadoutSlot {
   state: EquipmentState | null;
 }
 
-/** Total slots in a loadout: gun, two specials, one extra. */
-export const SLOT_COUNT = 4;
+/** Total slots in a loadout: gun, boost, three weapons, four consumables. */
+export const SLOT_COUNT = 9;
 
 /** Slot index of the gun — the permanently-selected default weapon. */
 export const SLOT_GUN = 0;
 
-/** Slot index of the extra slot (empty in the universal fit today). */
-export const SLOT_EXTRA = 3;
+/** Slot index of the boost — the universal Shift ability (amendment 23). */
+export const SLOT_BOOST = 1;
+
+/** The three WEAPON slots (Q/E/R), in fill order: a `slotFill` card takes the
+ *  first of these that is still empty (sim/boons.ts applySlotEffect). */
+export const WEAPON_SLOTS = [2, 3, 4] as const;
+
+/** The four CONSUMABLE slots (the `1`–`4` belt). Empty all of Story 8.5 —
+ *  Story 8.7 builds the rack that stocks them. */
+export const CONSUMABLE_SLOTS = [5, 6, 7, 8] as const;
 
 /** The role a slot plays in the grammar. */
-export type SlotRole = 'gun' | 'special' | 'extra';
+export type SlotRole = 'gun' | 'boost' | 'weapon' | 'consumable';
 
-/** Slot-role grammar, in slot order (index = slot index). */
-export const SLOT_ROLES: readonly [SlotRole, SlotRole, SlotRole, SlotRole] = [
-  'gun',
-  'special',
-  'special',
-  'extra',
-];
+/** Slot-role grammar, in slot order (index = slot index). Fixed for every
+ *  hull: the roles are the grammar, the contents are the build. */
+export const SLOT_ROLES: readonly [
+  SlotRole, SlotRole, SlotRole, SlotRole, SlotRole, SlotRole, SlotRole, SlotRole, SlotRole,
+] = ['gun', 'boost', 'weapon', 'weapon', 'weapon', 'consumable', 'consumable', 'consumable', 'consumable'];
 
 /** The effective pool size for a piece of equipment — a record lookup since
  *  Story 8.1 made `EffectiveStats.equipment` TOTAL over EquipmentId. */
@@ -139,37 +158,26 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
   return stats.equipment[id].reloadMs;
 }
 
-/** The two specials (slots 1–2) each hull id fits: heavyTorpedo + speedBoost for the
- *  Torpedo Boat (1.6), broadside + starShells for the Battleship (7-5 wave 2),
- *  navalMines + radarBuoy for the Mine Layer (7-5 wave 2).
- *
- *  PvE FLEET HULLS FIT NOTHING (Story 5.6, epic-5 amendment 34). They used to
- *  fall through this function's catch-all and inherit the universal
- *  heavy torpedo + naval mine — so every drone afloat carried loaded tubes and a mine rack
- *  it could never use, with both reload timers ticking every tick forever.
- *  Eric's ruling is *"each has a gun to defend itself"*, singular, so the
- *  specials are gone and the gun in slot 0 is the whole fit. */
-function specialsFor(hullId: HullId): [EquipmentId | null, EquipmentId | null] {
-  if (hullId === 'torpedoBoat') return ['heavyTorpedo', 'speedBoost'];
-  if (hullId === 'battleship') return ['broadside', 'starShells'];
-  if (hullId === 'mineLayer') return ['navalMines', 'radarBuoy'];
-  return [null, null]; // PvE fleet hulls: gun only
-}
-
 /**
- * The loadout a given hull id spawns with (per-hull, Stories 1.6–1.8, 5.6). The
- * Torpedo Boat fits [gun, heavyTorpedo, speedBoost, empty]; the Battleship fits
- * [gun, broadside, starShells, empty]; the Mine Layer fits
- * [gun, navalMines, radarBuoy, empty] (Story 7-5 wave 2); a PvE fleet hull fits
- * [gun, empty, empty, empty] (Story 5.6). Fitted slots start with a full
- * pool and an idle reload timer — exactly matching server
- * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics.
+ * The loadout a ship spawns with — THE SAME NINE-SLOT SHAPE FOR EVERY CAPTAIN
+ * HULL (Story 8.5). A captain fits the gun in slot 0 and the boost in slot 1,
+ * both with a full pool and an idle reload timer (exactly the server's
+ * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics); slots 2–8 start empty
+ * and are filled by CARDS (the spawn seed first, then the offers).
+ *
+ * `fleet === true` is the PvE drone fit: the gun in slot 0 and eight empties,
+ * nothing else (epic-5 amendment 34, epic-8 amendment 24).
+ *
+ * No hull parameter: which weapons a hull ends up carrying is a fact about its
+ * deck and its picks, never about its hardware.
  */
-export function loadoutFor(hullId: HullId, stats: EffectiveStats): LoadoutSlot[] {
-  const slot = (equipmentId: EquipmentId | null): LoadoutSlot =>
-    equipmentId === null
-      ? { equipmentId: null, state: null }
-      : { equipmentId, state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 } };
-  const [slotOne, slotTwo] = specialsFor(hullId);
-  return [slot('gun'), slot(slotOne), slot(slotTwo), slot(null)];
+export function loadoutFor(stats: EffectiveStats, fleet = false): LoadoutSlot[] {
+  const fitted = (equipmentId: EquipmentId): LoadoutSlot => ({
+    equipmentId,
+    state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 },
+  });
+  const out: LoadoutSlot[] = [fitted('gun')];
+  if (!fleet) out.push(fitted('speedBoost'));
+  while (out.length < SLOT_COUNT) out.push({ equipmentId: null, state: null });
+  return out;
 }

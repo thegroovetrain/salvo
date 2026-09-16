@@ -19,6 +19,30 @@
 // whose position lands on a HOTBAR SLOT is that slot's key-equivalent action
 // and is swallowed here, so a click on the hotbar can never fire the gun at the
 // water beneath it (amendment 11).
+//
+// Story 8.5 adds the RELEASE EDGE beside the click counter, where the prime's
+// auto-revert now happens (UX-DR42: "firing auto-reverts on RELEASE, never on
+// press"). It is deliberately NOT canvas-target-only and NOT lockout-gated,
+// unlike the click it closes: a press that began on the water is over the
+// moment the button comes up, wherever the pointer has since travelled and
+// whatever surface has since opened. Gating it would strand a prime armed for a
+// trigger the player has already let go of.
+//
+// THE RELEASE NAMES ITS CLICK (Story 8.5 review fix). A bare release COUNTER
+// could not say WHICH hold had ended, and three defects lived in that gap:
+//   * a pointerup of click A and the pointerdown of click B inside one 50ms
+//     tick were indistinguishable from "B is still held", so the tick paid A's
+//     release against B's press and the wrong weapon fired;
+//   * a hold whose pointerup never arrived (window blur mid-hold, or a
+//     pointercancel from touch/pen) left the debt standing for the next
+//     unrelated release to pay;
+//   * a SECOND pointer's release closed the first pointer's hold.
+// So the adapter tracks the ACTIVE HOLD — the pointerId that pressed and the
+// click sequence number it opened — and publishes `releasedClickSeq`: the seq
+// of the last click whose hold ENDED. A release from another pointerId is not
+// that hold and is ignored; a blur or a pointercancel for the active pointer
+// IS (the button may never come back up, and the click has already fired).
+// `releaseCount` survives as the raw button-0 tally; nothing branches on it.
 
 /** A screen-space point (px). */
 export interface ScreenPoint {
@@ -43,10 +67,30 @@ export function worldAimDist(ox: number, oy: number, target: ScreenPoint): numbe
   return Math.hypot(target.x - ox, target.y - oy);
 }
 
+/**
+ * jsdom's MouseEvent stand-in (and any synthetic event) carries no pointerId;
+ * one synthetic id then stands for "the only pointer there is", which is
+ * exactly the single-mouse case every desktop player is in.
+ */
+const LONE_POINTER_ID = -1;
+
+function pointerIdOf(e: PointerEvent): number {
+  return Number.isFinite(e.pointerId) ? e.pointerId : LONE_POINTER_ID;
+}
+
 export class MouseInput {
   private readonly pos: ScreenPoint = { x: 0, y: 0 };
   private clicks = 0;
   private clickT = 0;
+  private releases = 0;
+  /** The pointerId currently holding the trigger (null = no hold open). Only a
+   *  release from THIS pointer — or a blur, which ends every hold — closes it. */
+  private activePointerId: number | null = null;
+  /** The click sequence number that open hold belongs to (`clicks` at its press). */
+  private activeClickSeq = 0;
+  /** Sequence number of the last click whose hold ENDED; 0 = none yet (clicks
+   *  are numbered from 1). Monotonic, so main.ts polls it as an edge. */
+  private releasedSeq = 0;
   private canvas: EventTarget | null = null;
   /**
    * Is the pointer currently INSIDE the window? Deliberately separate from
@@ -94,6 +138,9 @@ export class MouseInput {
 
   private readonly onBlur = (): void => {
     this.inside = false;
+    // The window lost focus mid-hold: the pointerup will land somewhere we
+    // never hear, so the hold ends HERE rather than standing forever.
+    this.endHold(null);
   };
 
   private readonly onDown = (e: PointerEvent): void => {
@@ -106,10 +153,44 @@ export class MouseInput {
     this.inside = true;
     if (this.onSlotPress({ x: e.clientX, y: e.clientY })) return;
     this.clicks += 1;
+    // This press opens a HOLD, owned by this pointer and named by this click's
+    // sequence number: only its own end (pointerup/pointercancel from the same
+    // pointerId, or a blur) may close it.
+    this.activePointerId = pointerIdOf(e);
+    this.activeClickSeq = this.clicks;
     // Stamp the honest fire instant at pointerdown (not sample time): a click
     // can sit up to a tick in the sampler before it ships. Feeds InputMsg.fireT.
     this.clickT = this.nowServer();
   };
+
+  /** A button-0 RELEASE — the edge that closes a hold. Counted anywhere (see
+   *  the file header): the button is up, so any hold it began is over. It
+   *  closes the OPEN hold only when it is that hold's own pointer. */
+  private readonly onUp = (e: PointerEvent): void => {
+    if (e.button !== 0) return;
+    this.releases += 1;
+    this.endHold(pointerIdOf(e));
+  };
+
+  /** The OS took the pointer away (touch/pen gesture, pointer capture loss): no
+   *  pointerup is coming, so this is the hold's end. No button check — a
+   *  pointercancel carries no meaningful button. */
+  private readonly onCancel = (e: PointerEvent): void => {
+    this.endHold(pointerIdOf(e));
+  };
+
+  /**
+   * Close the open hold and publish its click's sequence number. `pointerId`
+   * null means "every hold ends" (a window blur — the button may come back up
+   * with the page unfocused and never reach us); a non-null id must BE the
+   * holding pointer, so a second pointer's release is not this hold's end.
+   */
+  private endHold(pointerId: number | null): void {
+    if (this.activePointerId === null) return;
+    if (pointerId !== null && pointerId !== this.activePointerId) return;
+    this.releasedSeq = this.activeClickSeq;
+    this.activePointerId = null;
+  }
 
   private readonly onContextMenu = (e: Event): void => {
     e.preventDefault();
@@ -123,6 +204,8 @@ export class MouseInput {
     this.canvas = canvas;
     window.addEventListener('pointermove', this.onMove);
     window.addEventListener('pointerdown', this.onDown);
+    window.addEventListener('pointerup', this.onUp);
+    window.addEventListener('pointercancel', this.onCancel);
     window.addEventListener('pointerout', this.onOut);
     window.addEventListener('blur', this.onBlur);
     canvas.addEventListener('contextmenu', this.onContextMenu);
@@ -132,6 +215,8 @@ export class MouseInput {
   detach(): void {
     window.removeEventListener('pointermove', this.onMove);
     window.removeEventListener('pointerdown', this.onDown);
+    window.removeEventListener('pointerup', this.onUp);
+    window.removeEventListener('pointercancel', this.onCancel);
     window.removeEventListener('pointerout', this.onOut);
     window.removeEventListener('blur', this.onBlur);
     this.canvas?.removeEventListener('contextmenu', this.onContextMenu);
@@ -161,5 +246,24 @@ export class MouseInput {
    */
   get lastClickT(): number {
     return this.clickT;
+  }
+
+  /**
+   * Cumulative button-0 RELEASES since boot — the raw tally, kept for
+   * diagnostics and for the adapter's own tests. NOT the revert's driver:
+   * `releasedClickSeq` is, because a count cannot say which hold ended.
+   */
+  get releaseCount(): number {
+    return this.releases;
+  }
+
+  /**
+   * Sequence number of the last CLICK whose hold ended (0 before any). This is
+   * the prime's release edge: main.ts diffs it once per tick and pays the debt
+   * the matching press armed, so a release can only ever revert the prime of
+   * the click it actually closed. Nothing rides the wire on it.
+   */
+  get releasedClickSeq(): number {
+    return this.releasedSeq;
   }
 }

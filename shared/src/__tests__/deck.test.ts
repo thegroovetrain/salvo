@@ -43,8 +43,7 @@ import {
   effectiveStats,
   hullEnvelope,
   isStubLine,
-  lineForEquipment,
-  loadoutFor,
+  SPAWN_SEED,
   mulberry32,
   type Catalog,
   type CatalogLine,
@@ -340,22 +339,28 @@ describe('drawOffer — the AT-CAP guard (Story 8.3): a dead pick is never offer
 });
 
 describe('the at-cap guard is structurally IDLE on a legal deck (Story 8.3 pin)', () => {
-  /** The spawn seed derived the way the SERVER derives it (World.carriedLines,
-   *  mirrored by server/scripts/batchsim/deckSim.ts carriedLinesFor): copy 1 of
-   *  every non-stub equipment line the hull's fresh fit already carries. */
-  function carriedFor(hull: ShipClassId): LineId[] {
-    const out: LineId[] = [];
-    for (const slot of loadoutFor(hull, effectiveStats(hullEnvelope(hull)))) {
-      if (slot.equipmentId === null) continue;
-      const line = lineForEquipment(slot.equipmentId);
-      if (line !== undefined && line.stub !== true) out.push(line.id);
-    }
-    return out;
+  /** The spawn seed the way the SERVER now derives it (Story 8.5): the AUTHORED
+   *  `SPAWN_SEED` table, not a read-back of the fitted loadout. The loadout is
+   *  hull-agnostic since 8.5 (gun + boost + seven empties), so there is no
+   *  per-hull fit left to derive a seed from — World.carriedLines is gone and
+   *  this table is the one source. Story 8.10 deletes it. */
+  function carriedFor(hull: ShipClassId): readonly LineId[] {
+    return SPAWN_SEED[hull] ?? [];
   }
 
   it('the CARRIED table above is the seed the server actually deals', () => {
     for (const hull of SHIP_CLASS_IDS) {
       expect([...carriedFor(hull)].sort(), hull).toEqual([...CARRIED[hull]].sort());
+    }
+  });
+
+  it('the seed is STAT-NEUTRAL: holding it changes no effective stat on any hull', () => {
+    // Why the seed needs no `applyCard`, no event and no toast: tier I of an
+    // equipment line IS the bare weapon, so the seeded captain's numbers are
+    // byte-identical to an unseeded one's.
+    for (const hull of SHIP_CLASS_IDS) {
+      expect(effectiveStats(hullEnvelope(hull), carriedFor(hull)), hull)
+        .toEqual(effectiveStats(hullEnvelope(hull)));
     }
   });
 

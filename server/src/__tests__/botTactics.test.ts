@@ -100,6 +100,19 @@ function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading = 0)
   rec.state.y = y;
   rec.state.heading = heading;
   rec.state.speed = rec.stats.kinematics.maxSpeed * 0.5;
+  // THE RADAR BUOY, HAND-FITTED ON THE MINE LAYER (Story 8.5, epic-8
+  // amendment 22). It used to arrive with the Mine Layer's per-hull fit; the
+  // nine-slot loadout seeds `navalMines` alone and NOTHING fits the buoy any
+  // more. The MODULE and the brain's buoy policy are untouched, and the
+  // policy is what this suite pins — so the fixture writes the slot directly,
+  // exactly as `applySlotEffect` would have, and every buoy case below keeps
+  // its subject. When Story 8.15 deletes the buoy, these cases go with it.
+  if (hullId === 'mineLayer') {
+    rec.loadout[3] = {
+      equipmentId: 'radarBuoy',
+      state: { n: rec.stats.equipment.radarBuoy.maxAmmo, reloadMsLeft: 0 },
+    };
+  }
   return rec;
 }
 
@@ -978,12 +991,16 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const raider = mkMind('raider');
     plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'speedBoost'));
-    // A withdrawing MINE LAYER presses nothing — it has no ability fitted.
+    // A withdrawing MINE LAYER NOW BOOSTS TOO (Story 8.5, epic-8 amendment
+    // 23: the boost stopped being a Torpedo Boat privilege and is fitted in
+    // slot 1 on every captain hull). Before this story it pressed nothing,
+    // because it had no ability fitted at all — the policy never changed, the
+    // hardware did.
     const ml = mkBot(w, 'mineLayer', 0, 0, 0);
     ml.hp = ml.stats.maxHp * 0.1;
     const trapper = mkMind('trapper');
     plot(trapper, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).toBeNull();
+    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).toBe(slotOf(ml, 'speedBoost'));
     // Healthy: no ability spent.
     const healthy = mkBot(w, 'torpedoBoat', 0, 0, 0);
     expect(COMBAT_BRAIN.decide(healthy, raider, port).actSlot).toBeNull();

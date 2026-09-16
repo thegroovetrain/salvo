@@ -722,11 +722,14 @@ describe('World fire control — one shot per click (fireSeq), single-shot pool'
 // ---------- D1: back-dated fire (story 1.5 — firing under latency) --------------
 
 const DT_MS = CONFIG.tick.simDtMs;
-const SLOT_TORPEDO = 1;
-/** The Mine Layer's mine slot (Story 1.8 fit: [gun, mine, radarBuoy, empty]). */
-const SLOT_MINE_ML = 1;
+// NINE FIXED-ROLE SLOTS (Story 8.5): a hull's class weapon arrives as its
+// SPAWN SEED's card and lands in the FIRST weapon slot (2) — the Torpedo
+// Boat's torpedo and the Mine Layer's mine rack alike.
+const SLOT_TORPEDO = 2;
+/** The Mine Layer's mine slot — the same first weapon slot. */
+const SLOT_MINE_ML = 2;
 
-/** A slot-1/2 click input (torpedo/mine are direction-only; aimDist ignored). */
+/** A weapon-slot click input (torpedo/mine are direction-only; aimDist ignored). */
 const slotInput = (slot: number, fireSeq = 1, seq = 1, fireT = 0) =>
   ({ seq, throttle: 0, rudder: 0, aim: 0, fireSeq, aimDist: 0, slot, fireT, actSeq: 0, actSlot: 0, hornSeq: 0 });
 
@@ -899,7 +902,7 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     // The 2.8 flip of the 1.8 no-compensation pin: mines ride the CLICK
     // channel again, so the D1-validated fire time is the placement time and
     // the 3s arm delay counts from it.
-    const { w, a } = armed(7, 'mineLayer'); // slot 1 = mine ([gun, mine, radarBuoy])
+    const { w, a } = armed(7, 'mineLayer'); // weapon slot 2 = mine (Story 8.5 spawn seed)
     for (let i = 0; i < 40; i++) w.step(); // give the clock room to back-date into
     w.setRtt('a', 80); // allowance = min(80+30, 150) = 110
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };

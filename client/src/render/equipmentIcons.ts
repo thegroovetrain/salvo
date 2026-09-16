@@ -112,11 +112,19 @@ const GLYPHS: Partial<Record<EquipmentId, Glyph>> = {
   radarBuoy,
 };
 
-/** The empty (offer) slot's centered `+` — the same linework family. */
-export function drawPlusGlyph(g: Graphics, cx: number, cy: number, size: number, style: StrokeInput): void {
+/**
+ * The EMPTY slot's centred `—` (an em-dash rule), drawn in the same linework
+ * family as every equipment glyph.
+ *
+ * IT REPLACED A `+` IN STORY 8.5 (UX-DR41). The plus said "add something here",
+ * which was fair when exactly one slot was fillable and a refit was always
+ * pending; with seven empty slots at 0:00 it read as seven invitations. The
+ * ruled empty state is a dashed outline and a dash — *"the empty IS the state"*
+ * — with no words beside it.
+ */
+export function drawDashGlyph(g: Graphics, cx: number, cy: number, size: number, style: StrokeInput): void {
   const r = size / 2;
   g.moveTo(cx - r, cy).lineTo(cx + r, cy);
-  g.moveTo(cx, cy - r).lineTo(cx, cy + r);
   g.stroke(style);
 }
 

@@ -1,6 +1,7 @@
-// The hotbar's PURE CORE (Story 2.2) — the whole ratified contract, tested
-// without instantiating Pixi (the class is a thin shell over these functions):
-// slot order Gun–Q–E–R, the state grammar and its precedence, the ability
+// The hotbar's PURE CORE (Story 2.2, re-cut in Story 8.5) — the whole ratified
+// contract, tested without instantiating Pixi (the class is a thin shell over
+// these functions):
+// slot order Gun–⇧–Q–E–R–1–2–3–4, the state grammar and its precedence, the ability
 // chamfer, the >1-pool ammo badge, quick-info strings (incl. the live cooling
 // countdown), the hit-test that both hover and the click gate consult, the
 // key-equivalent click routing (amendment 11), the tooltip model (keyless gun
@@ -10,13 +11,31 @@
 // 51): the eighth ACTIVE state (amendment 48) with its breathing outline and
 // countdown, the fit flash, the `◆n` compression, and the tooltip's accrued
 // list. The container-fit half of that lives in __tests__/tooltipFit.test.ts.
+//
+// STORY 8.5 GREW THE STACK TO NINE ROWS on the shared nine-slot spine — gun,
+// the ⇧ boost, three GENERIC weapon slots and the four-slot consumable belt —
+// and retired the empty slot's words: UX-DR41's empty state is a dashed outline
+// and a centred `—` glyph, NOTHING else ("the empty IS the state"). What a hull
+// carries is no longer a fact about the hull: the per-hull fit is gone, and the
+// fits these suites drive come from the interim SPAWN_SEED applied as CARDS
+// (epic-8 amendment 21), exactly as main.ts's slotIdsFor derives them. The
+// GEOMETRY is deliberately untouched and may clip (amendment 25) — Story 8.6's
+// bottom-centre bar replaces it.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   CATALOG,
   CONFIG,
+  SLOT_BOOST,
+  SLOT_COUNT,
+  SLOT_GUN,
+  SPAWN_SEED,
+  WEAPON_SLOTS,
   effectiveStats,
-  loadoutFor,
+  slotsWithCards,
   type EffectiveStats,
   type EquipmentId,
   type ShipClassId,
@@ -25,7 +44,6 @@ import {
 import {
   ACTIVE_PULSE_AMP,
   ACTIVE_PULSE_HZ,
-  EMPTY_SLOT_LABEL,
   NO_HOVER,
   SHIP_DIVIDER_ROW,
   TIP_TYPE,
@@ -93,8 +111,31 @@ function statsFor(cls: ShipClassId, boons: Partial<Record<string, number>> = {})
   return effectiveStats(CONFIG.shipClasses[cls], ids);
 }
 
+/** The three weapon slots by their keys — Q, E, R (slots 2, 3, 4). */
+const [Q, E, R] = WEAPON_SLOTS;
+
+/**
+ * The slot ids a hull sails with at 0:00 — main.ts's slotIdsFor, verbatim.
+ * Story 8.5: the base fit is hull-free (gun + boost + seven empties) and the
+ * class weapons arrive as the interim SPAWN_SEED cards, landing in the first
+ * empty WEAPON slot. So a Torpedo Boat's torpedo is in Q, and a Battleship's
+ * broadside and star shells are in Q and E.
+ */
 function idsFor(cls: ShipClassId, stats: EffectiveStats): (EquipmentId | null)[] {
-  return loadoutFor(cls, stats).map((s) => s.equipmentId);
+  return slotsWithCards(stats, SPAWN_SEED[cls] ?? []).map((s) => s.equipmentId);
+}
+
+/** A full-length per-slot array of `v` — the shape every HotbarView field takes. */
+function nine<T>(v: T): T[] {
+  return Array.from({ length: SLOT_COUNT }, () => v);
+}
+
+/** `nine(v)` with named slots overridden — keeps the suites readable now that
+ *  seven of the nine entries are the same "nothing here" value. */
+function at<T>(v: T, over: Record<number, T>): T[] {
+  const out = nine(v);
+  for (const [slot, value] of Object.entries(over)) out[Number(slot)] = value;
+  return out;
 }
 
 /** A live hotbar view: full pools, nothing cooling, gun selected, no flags. */
@@ -108,30 +149,88 @@ function viewFor(cls: ShipClassId, over: Partial<HotbarView> = {}): HotbarView {
     loadout,
     ammo,
     stats,
-    primedSlot: 0,
-    denied: [false, false, false, false],
-    activated: [false, false, false, false],
+    primedSlot: SLOT_GUN,
+    denied: nine(false),
+    activated: nine(false),
     dim: false,
     ...over,
   };
 }
 
-describe('slot order — Gun (keyless) / Q / E / R, top to bottom (amendment 10)', () => {
-  it('is four slots with the gun on top and no key of its own', () => {
-    expect(SLOT_KEY_GLYPHS).toEqual(['', 'Q', 'E', 'R']);
+describe('slot order — Gun (keyless) / ⇧ / Q / E / R / 1-4, top to bottom (Story 8.5)', () => {
+  it('is NINE rows with the gun on top and no key of its own', () => {
+    expect(SLOT_KEY_GLYPHS).toEqual(['', '⇧', 'Q', 'E', 'R', '1', '2', '3', '4']);
+    expect(SLOT_KEY_GLYPHS).toHaveLength(SLOT_COUNT);
     const rows = slotViewModels(viewFor('torpedoBoat'));
-    expect(rows.map((r) => r.keyGlyph)).toEqual(['', 'Q', 'E', 'R']);
-    expect(rows.map((r) => r.id)).toEqual(['gun', 'heavyTorpedo', 'speedBoost', null]);
+    expect(rows).toHaveLength(SLOT_COUNT);
+    expect(rows.map((r) => r.keyGlyph)).toEqual(['', '⇧', 'Q', 'E', 'R', '1', '2', '3', '4']);
+    expect(rows.map((r) => r.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
-  it('names each hull its own fit; slot 3 reads the awaiting-refit label', () => {
+  it('the ⇧ chip is U+21E7, and the GUN alone stays keyless (amendment 29)', () => {
+    expect(SLOT_KEY_GLYPHS[SLOT_BOOST]).toBe('\u21e7');
+    expect(SLOT_KEY_GLYPHS[SLOT_GUN]).toBe(''); // the ghost chip keeps the alignment
+    expect(SLOT_KEY_GLYPHS.filter((g) => g === '')).toHaveLength(1);
+  });
+
+  it('EVERY captain hull carries the same shape: gun, boost, seed weapons, empties', () => {
+    // The per-hull fit is gone (Story 8.5). What differs between hulls is what
+    // their CARDS put in the weapon row — here, the interim spawn seed.
+    expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.id)).toEqual(
+      ['gun', 'speedBoost', 'heavyTorpedo', null, null, null, null, null, null],
+    );
+    expect(slotViewModels(viewFor('battleship')).map((r) => r.id)).toEqual(
+      ['gun', 'speedBoost', 'broadside', 'starShells', null, null, null, null, null],
+    );
+    // AMENDMENT 22: the Mine Layer lost the radar buoy — no card and no seed
+    // reaches it, so E stays empty until Story 8.15 deletes the module.
+    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(
+      ['gun', 'speedBoost', 'navalMines', null, null, null, null, null, null],
+    );
+  });
+
+  it('names the fitted rows and gives the EMPTY ones NO WORDS AT ALL (UX-DR41)', () => {
+    // PIN FLIPPED (Story 8.5). The empty row used to read "— awaiting refit —".
+    // That label is RETIRED: the empty state is a 1px dashed slate outline and a
+    // centred `—` glyph, and nothing else. With seven empty rows at 0:00 the old
+    // label was seven lines of the same sentence down the left of the screen.
     expect(slotViewModels(viewFor('battleship')).map((r) => r.name)).toEqual([
       'Deck Gun',
+      'Speed Boost',
       'Broadside Barrage',
       'Star Shells',
-      EMPTY_SLOT_LABEL,
+      '', '', '', '', '',
     ]);
-    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(['gun', 'navalMines', 'radarBuoy', null]);
+    const empties = slotViewModels(viewFor('battleship')).filter((r) => r.id === null);
+    expect(empties).toHaveLength(5);
+    for (const row of empties) {
+      expect(row.state).toBe('empty');
+      expect(row.name).toBe('');
+      expect(row.quickInfo).toBe(''); // no DMG/CD line either
+      expect(row.badge).toBeNull();
+      expect(row.keyGlyph).not.toBe(''); // …but the KEY is still labelled
+    }
+  });
+
+  it('the BELT rows (5-8) are the SAME dashed-empty state — no frame yet (Story 8.6)', () => {
+    const rows = slotViewModels(viewFor('torpedoBoat'));
+    for (const slot of [5, 6, 7, 8]) {
+      expect(rows[slot].state, String(slot)).toBe('empty');
+      expect(rows[slot].id, String(slot)).toBeNull();
+      expect(rows[slot].name, String(slot)).toBe('');
+    }
+    expect(slotSkin('empty').dashed).toBe(true);
+  });
+
+  it('the retired label is GONE FROM THE MODULE, not merely unused', () => {
+    // A grep pin, because an unused export is exactly how a retired string comes
+    // back: someone finds it and wires it up again.
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../render/hotbar.ts'),
+      'utf8',
+    );
+    expect(src).not.toContain('awaiting refit');
+    expect(src).not.toContain('EMPTY_SLOT_LABEL');
   });
 });
 
@@ -156,16 +255,16 @@ describe('the seven-state grammar + its precedence', () => {
     expect(slotState('gun', NONE, false, true, true)).toBe('selected');
   });
 
-  it('an UNFITTED slot short-circuits everything (R is inert — no flag can reach it)', () => {
+  it('an UNFITTED slot short-circuits everything (it holds nothing to deny or cool)', () => {
     expect(slotState(null, { denied: true, activated: true }, true, true, true)).toBe('empty');
   });
 
   it('keeps SELECTED as its own channel so a selected+cooling slot still reads selected', () => {
     const rows = slotViewModels(
-      viewFor('torpedoBoat', { primedSlot: 0, ammo: [{ n: 0, reloadMsLeft: 1200 }, null, null, null] }),
+      viewFor('torpedoBoat', { primedSlot: SLOT_GUN, ammo: at(null, { [SLOT_GUN]: { n: 0, reloadMsLeft: 1200 } }) }),
     );
-    expect(rows[0].state).toBe('cooling'); // the box shows the conic track
-    expect(rows[0].selected).toBe(true); // ...and the chip/name stay amber (dual-coding)
+    expect(rows[SLOT_GUN].state).toBe('cooling'); // the box shows the conic track
+    expect(rows[SLOT_GUN].selected).toBe(true); // ...and the chip/name stay amber (dual-coding)
   });
 
   it('COOLING is availability, not timer state — a pool with a round left reads READY', () => {
@@ -180,12 +279,16 @@ describe('the seven-state grammar + its precedence', () => {
       ...viewFor('torpedoBoat'),
       stats,
       loadout: idsFor('torpedoBoat', stats),
-      ammo: [{ n: 1, reloadMsLeft: 0 }, { n: 1, reloadMsLeft: 4000 }, { n: 1, reloadMsLeft: 0 }, null],
+      ammo: at(null, {
+        [SLOT_GUN]: { n: 1, reloadMsLeft: 0 },
+        [SLOT_BOOST]: { n: 1, reloadMsLeft: 0 },
+        [Q]: { n: 1, reloadMsLeft: 4000 },
+      }),
     });
-    expect(rows[1].state).toBe('readyWeapon');
-    expect(rows[1].coolFrac).toBe(0); // no conic track while a round is available
-    expect(rows[1].badge).toBe('1'); // the badge carries the availability instead
-    expect(rows[1].quickInfo).toContain(`CD ${fmtSeconds(CONFIG.torpedo.reloadMs)}`); // full CD, not a countdown
+    expect(rows[Q].state).toBe('readyWeapon');
+    expect(rows[Q].coolFrac).toBe(0); // no conic track while a round is available
+    expect(rows[Q].badge).toBe('1'); // the badge carries the availability instead
+    expect(rows[Q].quickInfo).toContain(`CD ${fmtSeconds(CONFIG.torpedo.reloadMs)}`); // full CD, not a countdown
   });
 
   it('drives each state from a distinct DESIGN.md token recipe (no literals)', () => {
@@ -204,15 +307,16 @@ describe('the seven-state grammar + its precedence', () => {
 });
 
 describe('the chamfer is an ABILITY shape mark — weapons never carry it', () => {
-  it('cuts only the ability rows of each hull', () => {
-    // The TB's E slot is the speed boost — the game's ONLY remaining ability.
-    expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.chamfer)).toEqual([false, false, true, false]);
-    expect(slotViewModels(viewFor('battleship')).map((r) => r.chamfer)).toEqual([false, false, false, false]);
-    // PIN FLIPPED (Story 2.8, amendment 45): the ML's Q slot holds the MINE, a
-    // click-aimed weapon — no chamfer. PIN FLIPPED AGAIN (Story 7-5 wave 2,
-    // R2.7): its E slot now holds the click-placed RADAR BUOY, so the Mine Layer
-    // carries NO chamfered row at all.
-    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.chamfer)).toEqual([false, false, false, false]);
+  it('cuts the ⇧ BOOST row on every hull, and no other (amendment 23)', () => {
+    // Story 8.5 seated the boost in slot 1 on EVERY captain, so the one
+    // chamfered row is the same row on all three hulls — where it used to be a
+    // Torpedo Boat privilege. Nothing in the weapon row ever cuts: the mine
+    // (Story 2.8, amendment 45) and the radar buoy (7-5 wave 2, R2.7) are both
+    // click-aimed WEAPONS, and an empty slot has nothing to mark.
+    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+      expect(slotViewModels(viewFor(cls)).map((r) => r.chamfer), cls)
+        .toEqual(at(false, { [SLOT_BOOST]: true }));
+    }
   });
 });
 
@@ -232,8 +336,8 @@ function twoTubes(cls: ShipClassId): EffectiveStats {
 }
 
 describe('ammo badge — only on pools LARGER than one round', () => {
-  it('shows nothing at base (gun 1, torpedo 1, boost 1)', () => {
-    expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.badge)).toEqual([null, null, null, null]);
+  it('shows nothing at base (gun 1, boost 1, torpedo 1)', () => {
+    expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.badge)).toEqual(nine(null));
   });
 
   it('appears once the tube pool grows, and counts the LIVE pool', () => {
@@ -243,20 +347,27 @@ describe('ammo badge — only on pools LARGER than one round', () => {
       ...viewFor('torpedoBoat'),
       stats,
       loadout,
-      ammo: [{ n: 1, reloadMsLeft: 0 }, { n: 2, reloadMsLeft: 0 }, { n: 1, reloadMsLeft: 0 }, null],
+      ammo: at(null, {
+        [SLOT_GUN]: { n: 1, reloadMsLeft: 0 },
+        [SLOT_BOOST]: { n: 1, reloadMsLeft: 0 },
+        [Q]: { n: 2, reloadMsLeft: 0 },
+      }),
     };
     expect(equipmentInfo(stats, 'heavyTorpedo').maxAmmo).toBe(2); // the upgrade landed
-    expect(slotViewModels(view).map((r) => r.badge)).toEqual([null, '2', null, null]);
-    const fired = slotViewModels({ ...view, ammo: [view.ammo[0], { n: 1, reloadMsLeft: 4000 }, view.ammo[2], null] });
-    expect(fired[1].badge).toBe('1'); // counts down on fire, back up on reload completion
+    expect(slotViewModels(view).map((r) => r.badge)).toEqual(at(null, { [Q]: '2' }));
+    const fired = slotViewModels({
+      ...view,
+      ammo: view.ammo.map((a, i) => (i === Q ? { n: 1, reloadMsLeft: 4000 } : a)),
+    });
+    expect(fired[Q].badge).toBe('1'); // counts down on fire, back up on reload completion
   });
 
   it('renders NO badge when the ammo entry is missing (never a fabricated "0")', () => {
     const stats = twoTubes('torpedoBoat');
     expect(badgeText(equipmentInfo(stats, 'heavyTorpedo'), null)).toBeNull();
     expect(badgeText(equipmentInfo(stats, 'heavyTorpedo'), { n: 0, reloadMsLeft: 1 })).toBe('0'); // a REAL empty pool does read 0
-    const rows = slotViewModels({ ...viewFor('torpedoBoat'), stats, loadout: idsFor('torpedoBoat', stats), ammo: [null, null, null, null] });
-    expect(rows.map((r) => r.badge)).toEqual([null, null, null, null]);
+    const rows = slotViewModels({ ...viewFor('torpedoBoat'), stats, loadout: idsFor('torpedoBoat', stats), ammo: nine(null) });
+    expect(rows.map((r) => r.badge)).toEqual(nine(null));
   });
 });
 
@@ -330,37 +441,60 @@ describe('quick-info line (amendment 13) — real values, live countdown', () =>
     expect(coolFraction(0, 3000)).toBe(0);
     expect(coolFraction(1500, 3000)).toBeCloseTo(0.5, 9);
     const rows = slotViewModels(
-      viewFor('torpedoBoat', { ammo: [{ n: 0, reloadMsLeft: 9000 }, null, null, null] }),
+      viewFor('torpedoBoat', { ammo: at(null, { [SLOT_GUN]: { n: 0, reloadMsLeft: 9000 } }) }),
     );
-    expect(rows[0].state).toBe('cooling'); // ...still cooling, so the dim ring is still drawn
-    expect(rows[0].coolFrac).toBe(0);
+    expect(rows[SLOT_GUN].state).toBe('cooling'); // ...still cooling, so the dim ring is still drawn
+    expect(rows[SLOT_GUN].coolFrac).toBe(0);
   });
 
   it('ticks on EVERY slot regardless of which one is selected', () => {
     const rows = slotViewModels(
       viewFor('torpedoBoat', {
-        primedSlot: 0, // the GUN is selected...
-        ammo: [{ n: 1, reloadMsLeft: 0 }, { n: 0, reloadMsLeft: 11900 }, { n: 1, reloadMsLeft: 0 }, null],
+        primedSlot: SLOT_GUN, // the GUN is selected...
+        ammo: at(null, {
+          [SLOT_GUN]: { n: 1, reloadMsLeft: 0 },
+          [SLOT_BOOST]: { n: 1, reloadMsLeft: 0 },
+          [Q]: { n: 0, reloadMsLeft: 11900 },
+        }),
       }),
     );
-    expect(rows[1].state).toBe('cooling'); // ...the unselected torpedo still cools
-    expect(rows[1].quickInfo).toContain('CD 11.9s');
-    expect(rows[1].coolFrac).toBeGreaterThan(0);
-    expect(rows[1].coolFrac).toBeLessThan(1);
+    expect(rows[Q].state).toBe('cooling'); // ...the unselected torpedo still cools
+    expect(rows[Q].quickInfo).toContain('CD 11.9s');
+    expect(rows[Q].coolFrac).toBeGreaterThan(0);
+    expect(rows[Q].coolFrac).toBeLessThan(1);
   });
 });
 
 describe('layout + slotAtPoint — the hit-test behind hover AND the click gate', () => {
   const layout = hotbarLayout(768);
 
-  it('stacks four 54px slots bottom-left with the ratified gaps and gutter', () => {
-    expect(layout.rows).toHaveLength(4);
-    expect(layout.stackHeight).toBe(4 * H.slot + 3 * H.gap);
+  it('stacks NINE slots bottom-left at the SHIPPED pitch, gaps and gutter', () => {
+    expect(layout.rows).toHaveLength(SLOT_COUNT);
+    expect(layout.stackHeight).toBe(SLOT_COUNT * H.slot + (SLOT_COUNT - 1) * H.gap);
+    // THE FOOT IS THE ANCHOR, and it still is: the stack's bottom edge sits
+    // H.bottom above the viewport floor and the rows grow upward from there.
     expect(layout.stackTop + layout.stackHeight).toBe(768 - H.bottom);
     expect(layout.rows[0].keyX).toBe(H.left);
     expect(layout.rows[0].box.x).toBe(H.left + H.keyChip + H.keyGap);
     expect(layout.rows[1].box.y - layout.rows[0].box.y).toBe(H.slot + H.gap);
     expect(layout.gutterX).toBe(H.left - H.gutter); // reserved dead space (2.6's XP rail)
+    // The PITCH is untouched by Story 8.5 (amendment 25, Eric: "Ignore it
+    // entirely. The next story fixes the HUD.").
+    expect(H.slot).toBe(62);
+    expect(H.gap).toBe(14);
+  });
+
+  it('CLIPS on a short viewport, and that is the ruling — no clamp, no scaling', () => {
+    // Nine rows at 62/14 make a 670px column. The 1280x614 floor viewport cannot
+    // hold it, so `stackTop` goes NEGATIVE and the top rows run off the screen.
+    // Accepted for exactly one story (epic-8 amendment 25): Story 8.6's
+    // bottom-centre bar (UX-DR40) replaces this geometry outright, and
+    // tightening a pitch that is about to be deleted is work spent twice.
+    const floor = hotbarLayout(614);
+    expect(floor.stackHeight).toBeGreaterThan(614);
+    expect(floor.stackTop).toBeLessThan(0);
+    // …and the foot pin holds even there: the anchor never moved.
+    expect(floor.stackTop + floor.stackHeight).toBe(614 - H.bottom);
   });
 
   it('hits the WHOLE row — key chip, slot square, badge overhang, label column', () => {
@@ -394,7 +528,7 @@ describe('layout + slotAtPoint — the hit-test behind hover AND the click gate'
 
   it('a HIDDEN hotbar (null layout) routes nothing — every press falls through', () => {
     const c = { x: layout.rows[0].box.x + 5, y: layout.rows[0].box.y + 5 };
-    expect(slotAtPoint(c, layout)).toBe(0);
+    expect(slotAtPoint(c, layout)).toBe(SLOT_GUN);
     expect(slotAtPoint(c, null)).toBeNull();
   });
 });
@@ -448,22 +582,26 @@ describe('tooltip model — name, interaction class, description, and NO boons',
   });
 
   it('labels a weapon slot SWITCH-TO and an ability slot ACTIVATES, with its key', () => {
-    expect(tooltipModel(1, 'heavyTorpedo', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
-    expect(tooltipModel(2, 'speedBoost', stats)?.interaction).toBe('ABILITY · E · ACTIVATES');
+    expect(tooltipModel(Q, 'heavyTorpedo', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
+    expect(tooltipModel(E, 'starShells', stats)?.interaction).toBe('WEAPON · E · SWITCH-TO');
+    // Story 8.5: the boost's key is ⇧, and the line reads it out of
+    // SLOT_KEY_GLYPHS — interactionLine knows nothing about what a boost is.
+    expect(tooltipModel(SLOT_BOOST, 'speedBoost', stats)?.interaction).toBe('ABILITY · ⇧ · ACTIVATES');
     // PIN FLIPPED (Story 2.8, amendment 45): the mine primes on its slot key
     // and places on a click, exactly like the torpedo.
-    expect(interactionLine(3, 'navalMines')).toBe('WEAPON · R · SWITCH-TO');
-    expect(tooltipModel(1, 'navalMines', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
+    expect(interactionLine(R, 'navalMines')).toBe('WEAPON · R · SWITCH-TO');
+    expect(tooltipModel(Q, 'navalMines', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
   });
 
   it('renders boons as ABSENCE — the list is empty, so no divider and no rows are drawn', () => {
     for (const id of ['gun', 'heavyTorpedo', 'navalMines', 'speedBoost', 'broadside', 'starShells', 'radarBuoy'] as const) {
-      expect(tooltipModel(1, id, stats)?.boons).toEqual([]);
+      expect(tooltipModel(Q, id, stats)?.boons).toEqual([]);
     }
   });
 
-  it('has nothing to describe for an unfitted slot', () => {
-    expect(tooltipModel(3, null, stats)).toBeNull();
+  it('has nothing to describe for an unfitted slot — weapon row or belt', () => {
+    expect(tooltipModel(R, null, stats)).toBeNull();
+    expect(tooltipModel(8, null, stats)).toBeNull(); // a belt slot, empty all story
   });
 });
 
@@ -572,10 +710,14 @@ describe('label column fit (amendment 47)', () => {
   // 8.13 rather than shortened here. The exemption is exact so it cannot grow.
   const WIDE_NAME_EXEMPT: readonly EquipmentId[] = ['supercavTorpedo'];
 
-  it('NO fittable slot name, including the empty-slot label, is wider than the column', () => {
+  it('NO fittable slot name is wider than the column (the empty row has none)', () => {
+    // Story 8.5 deleted the empty row's label outright (UX-DR41), so the widest
+    // thing the column can ever hold is a fitted equipment NAME.
     const ids = (Object.keys(EQUIPMENT_NAME) as EquipmentId[]).filter((id) => !WIDE_NAME_EXEMPT.includes(id));
-    const names = [...ids.map((id) => EQUIPMENT_NAME[id]), EMPTY_SLOT_LABEL];
-    for (const n of names) expect(monoW(n, 20, 0.3)).toBeLessThanOrEqual(H.labelWidth);
+    for (const id of ids) expect(monoW(EQUIPMENT_NAME[id], 20, 0.3), id).toBeLessThanOrEqual(H.labelWidth);
+    // …and the empty row measures zero, because it says nothing.
+    const empty = slotViewModels(viewFor('torpedoBoat'))[R];
+    expect(monoW(empty.name, 20, 0.3)).toBe(0);
   });
 
   it('the wide-name exemption cannot rot — each id on it really is too wide', () => {
@@ -599,11 +741,32 @@ describe('the EIGHTH state: ACTIVE while an ability window runs (amendment 48)',
   const NONE = { denied: false, activated: false };
 
   it('enters ACTIVE from a running window, and leaves it when the window ends', () => {
-    const base = viewFor('torpedoBoat'); // slot 2 = speedBoost
-    const running = slotViewModels({ ...base, activeMsLeft: [0, 0, 3000, 0] });
-    expect(running[2].state).toBe('active');
-    const ended = slotViewModels({ ...base, activeMsLeft: [0, 0, 0, 0] });
-    expect(ended[2].state).toBe('readyAbility');
+    const base = viewFor('torpedoBoat'); // SLOT_BOOST = speedBoost
+    const running = slotViewModels({ ...base, activeMsLeft: at(0, { [SLOT_BOOST]: 3000 }) });
+    expect(running[SLOT_BOOST].state).toBe('active');
+    const ended = slotViewModels({ ...base, activeMsLeft: nine(0) });
+    expect(ended[SLOT_BOOST].state).toBe('readyAbility');
+  });
+
+  it('the ⇧ BOOST row wears the ability grammar on EVERY hull (amendment 23)', () => {
+    // readyAbility → activated → active → cooling, the same four skins the
+    // Torpedo Boat's boost has always worn — now on the Battleship and the Mine
+    // Layer too, because slot 1 holds the same module on all of them.
+    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+      const base = viewFor(cls);
+      expect(slotViewModels(base)[SLOT_BOOST].id, cls).toBe('speedBoost');
+      expect(slotViewModels(base)[SLOT_BOOST].state, cls).toBe('readyAbility');
+      const popped = slotViewModels({ ...base, activated: at(false, { [SLOT_BOOST]: true }) });
+      expect(popped[SLOT_BOOST].state, cls).toBe('activated');
+      const running = slotViewModels({ ...base, activeMsLeft: at(0, { [SLOT_BOOST]: 4000 }) });
+      expect(running[SLOT_BOOST].state, cls).toBe('active');
+      expect(running[SLOT_BOOST].quickInfo, cls).toContain('ACTIVE');
+      const cooling = slotViewModels({
+        ...base,
+        ammo: at(null, { [SLOT_BOOST]: { n: 0, reloadMsLeft: 9000 } }),
+      });
+      expect(cooling[SLOT_BOOST].state, cls).toBe('cooling');
+    }
   });
 
   it('outranks COOLING — a decoy floats while its rack reloads — but not denied/activated', () => {
@@ -611,12 +774,18 @@ describe('the EIGHTH state: ACTIVE while an ability window runs (amendment 48)',
     expect(slotState('radarBuoy', NONE, true, true, false, true)).toBe('active');
     expect(slotState('radarBuoy', { ...NONE, denied: true }, true, false, false, true)).toBe('denied');
     expect(slotState('radarBuoy', { ...NONE, activated: true }, true, false, false, true)).toBe('activated');
-    // ...and the conic cool track keeps its fraction, so nothing is lost.
-    const view = viewFor('mineLayer', {
-      ammo: [null, null, { n: 0, reloadMsLeft: 5000 }, null],
-      activeMsLeft: [0, 0, 20_000, 0],
-    });
-    const decoy = slotViewModels(view)[2];
+    // ...and the conic cool track keeps its fraction, so nothing is lost. The
+    // buoy is DARK since Story 8.5 (amendment 22) — no card or seed fits it —
+    // so the row is built by hand here rather than read off a hull's fit; the
+    // coexistence this pins is a property of the STATE machine, not of the fit.
+    const base = viewFor('mineLayer');
+    const view: HotbarView = {
+      ...base,
+      loadout: base.loadout.map((id, i) => (i === E ? 'radarBuoy' : id)),
+      ammo: at(null, { [E]: { n: 0, reloadMsLeft: 5000 } }),
+      activeMsLeft: at(0, { [E]: 20_000 }),
+    };
+    const decoy = slotViewModels(view)[E];
     expect(decoy.state).toBe('active');
     expect(decoy.coolFrac).toBeGreaterThan(0);
   });
@@ -666,22 +835,23 @@ describe('the EIGHTH state: ACTIVE while an ability window runs (amendment 48)',
 
 describe('the FIT flash — the slot-side visible change (amendment 51)', () => {
   it('flashes only the slot whose family took the boon', () => {
-    const rows = slotViewModels(viewFor('torpedoBoat', { fit: [false, true, false, false] }));
-    expect(rows.map((r) => r.fitFlash)).toEqual([false, true, false, false]);
+    const rows = slotViewModels(viewFor('torpedoBoat', { fit: at(false, { [Q]: true }) }));
+    expect(rows.map((r) => r.fitFlash)).toEqual(at(false, { [Q]: true }));
   });
 
   it('is suppressed at motion=off (the toast + tooltip row carry it statically)', () => {
-    const on = slotViewModels(viewFor('torpedoBoat', { fit: [true, false, false, false], motion: 'reduced' }));
-    const off = slotViewModels(viewFor('torpedoBoat', { fit: [true, false, false, false], motion: 'off' }));
-    expect(on[0].fitFlash).toBe(true);
-    expect(off[0].fitFlash).toBe(false);
+    const fit = at(false, { [SLOT_GUN]: true });
+    const on = slotViewModels(viewFor('torpedoBoat', { fit, motion: 'reduced' }));
+    const off = slotViewModels(viewFor('torpedoBoat', { fit, motion: 'off' }));
+    expect(on[SLOT_GUN].fitFlash).toBe(true);
+    expect(off[SLOT_GUN].fitFlash).toBe(false);
   });
 
   it('routes a fitted CARD to its slot, and a shipwide ladder to no slot at all', () => {
-    const loadout = idsFor('mineLayer', statsFor('mineLayer')); // gun / mine / radarBuoy / null
-    expect(slotForCard(loadout, 'deckGunBarrel')).toBe(0);
-    expect(slotForCard(loadout, 'navalMines')).toBe(1);
-    expect(slotForCard(loadout, 'foulingMines')).toBe(1);
+    const loadout = idsFor('mineLayer', statsFor('mineLayer')); // gun / boost / mine / empties
+    expect(slotForCard(loadout, 'deckGunBarrel')).toBe(SLOT_GUN);
+    expect(slotForCard(loadout, 'navalMines')).toBe(Q);
+    expect(slotForCard(loadout, 'foulingMines')).toBe(Q);
     expect(slotForCard(loadout, 'radarSweep')).toBeNull();
     expect(slotForCard(loadout, 'armor')).toBeNull();
     // A card for kit this hull does not carry owns no slot either (rank-wide).
@@ -693,9 +863,9 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
   it('counts the cards addressing this slot, and nothing on an unfitted-for slot', () => {
     const cards = ['deckGunBarrel', 'deckGunBarrel', 'heavyTorpedo'];
     const rows = slotViewModels(viewFor('torpedoBoat', { cards }));
-    expect(rows[0].boonCount).toBe(2); // gun
-    expect(rows[1].boonCount).toBe(1); // heavy torpedo
-    expect(rows[2].boonCount).toBe(0); // boost
+    expect(rows[SLOT_GUN].boonCount).toBe(2); // gun
+    expect(rows[Q].boonCount).toBe(1); // heavy torpedo
+    expect(rows[SLOT_BOOST].boonCount).toBe(0); // boost
     // ...and NONE of it reaches the always-visible row any more: the per-slot
     // count rode the v2 categories and left with them (Eric ruling 2026-09-15).
     for (const row of rows) expect(row.quickInfo).not.toContain('◆');
@@ -704,8 +874,8 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
   it('folds the shipwide ladders into the GUN slot only (the ship card)', () => {
     const cards = ['radarSweep', 'armor', 'reload'];
     const rows = slotViewModels(viewFor('torpedoBoat', { cards }));
-    expect(rows[0].boonCount).toBe(3);
-    expect(rows[1].boonCount).toBe(0);
+    expect(rows[SLOT_GUN].boonCount).toBe(3);
+    expect(rows[Q].boonCount).toBe(0);
     expect(slotBoonIds('heavyTorpedo', cards)).toEqual([]);
   });
 
@@ -715,7 +885,7 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
 
   it('spends no glyphs on a count — the quick-info line is DMG/CD only', () => {
     const rows = slotViewModels(viewFor('torpedoBoat', { cards: Array<string>(12).fill('deckGunBarrel') }));
-    expect(rows[0].quickInfo).not.toContain('◆');
+    expect(rows[SLOT_GUN].quickInfo).not.toContain('◆');
   });
 });
 
@@ -950,27 +1120,30 @@ describe('degradedSkin — a degraded denial keeps its whole mark', () => {
 describe('slotFlags / slotViewModels — the degrade flag is scoped to its denial', () => {
   it('rides only the slot that is actually denied', () => {
     const view = viewFor('torpedoBoat', {
-      denied: [false, true, false, false],
-      deniedDegraded: [true, true, true, true],
+      denied: at(false, { [Q]: true }),
+      deniedDegraded: nine(true),
     });
-    expect(slotViewModels(view).map((m) => m.degraded)).toEqual([false, true, false, false]);
-    expect(slotViewModels(view).map((m) => m.state === 'denied')).toEqual([false, true, false, false]);
+    expect(slotViewModels(view).map((m) => m.degraded)).toEqual(at(false, { [Q]: true }));
+    expect(slotViewModels(view).map((m) => m.state === 'denied')).toEqual(at(false, { [Q]: true }));
   });
 
   it('a denied slot with no verdict animates, exactly as it always has', () => {
-    const view = viewFor('torpedoBoat', { denied: [true, false, false, false] });
-    expect(slotFlags(view, 0)).toEqual({ denied: true, activated: false }); // untouched
-    expect(slotDegraded(view, 0, true)).toBe(false);
-    expect(slotViewModels(view)[0].degraded).toBe(false);
-    expect(slotViewModels(view)[0].state).toBe('denied'); // and it is still DENIED
+    const view = viewFor('torpedoBoat', { denied: at(false, { [SLOT_GUN]: true }) });
+    expect(slotFlags(view, SLOT_GUN)).toEqual({ denied: true, activated: false }); // untouched
+    expect(slotDegraded(view, SLOT_GUN, true)).toBe(false);
+    expect(slotViewModels(view)[SLOT_GUN].degraded).toBe(false);
+    expect(slotViewModels(view)[SLOT_GUN].state).toBe('denied'); // and it is still DENIED
   });
 
   it('a verdict can never change WHICH STATE a row is in', () => {
     // The budget degrades a mark; it never re-classifies one. A degraded denial
     // is still `denied` — same border, same icon, same precedence.
-    const view = viewFor('torpedoBoat', { denied: [true, false, false, false], deniedDegraded: [true, false, false, false] });
-    expect(slotViewModels(view)[0].state).toBe('denied');
-    expect(slotDegraded(view, 0, false)).toBe(false); // no denial, no verdict
+    const view = viewFor('torpedoBoat', {
+      denied: at(false, { [SLOT_GUN]: true }),
+      deniedDegraded: at(false, { [SLOT_GUN]: true }),
+    });
+    expect(slotViewModels(view)[SLOT_GUN].state).toBe('denied');
+    expect(slotDegraded(view, SLOT_GUN, false)).toBe(false); // no denial, no verdict
   });
 
   it('each slot carries its OWN budget key — one over-budget slot flattens no other', () => {
@@ -1000,6 +1173,6 @@ describe('fitFrameAlpha — a degraded rank-wide flash still draws its frame', (
     // that `fitFrameAlpha` is the whole of the degrade path.
     expect(FIT_PULSE_PX).toBeGreaterThan(0);
     const layout = hotbarLayout(768);
-    expect(layout.rows).toHaveLength(4);
+    expect(layout.rows).toHaveLength(SLOT_COUNT);
   });
 });

@@ -5,7 +5,7 @@
 // bank→materialize→fit cycle over the REAL production CATALOG (a draw takes
 // nothing; only the FIT thins the deck — the anti-hoarding pin below is the
 // regression this model exists for), equipment lines whose copy 1 fits the
-// weapon into the extra slot, heal-on-grant (ARMOR — the ONLY heal path),
+// weapon into the first empty weapon slot, heal-on-grant (ARMOR — the ONLY heal path),
 // top-up on raised caps (amendment 41), the EMPTY-DRAW rule (Story 8.3, epic-8
 // amendment 14: the level still banks, no hand materializes, no `pt` is
 // queued, and exhaustion is reported exactly once per record), the AT-CAP
@@ -18,9 +18,12 @@ import {
   isAfloat,
   CATALOG,
   CONFIG,
+  CONSUMABLE_SLOTS,
   DEFAULT_DECKS,
   HEAL_CHOICE,
   LINE_IDS,
+  SLOT_BOOST,
+  WEAPON_SLOTS,
   boonStackCount,
   effectiveStats,
   isStubLine,
@@ -43,10 +46,13 @@ import { flatRaster } from './islandFixture.js';
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
 const DT = CONFIG.tick.simDtMs;
+// NINE FIXED-ROLE SLOTS (Story 8.5): [gun, boost, weapon x3, consumable x4] on
+// every captain. A class weapon arrives as a SPAWN SEED card and lands in the
+// weapon row first-empty-first, so each hull's FIRST seeded weapon is slot 2.
 const SLOT_GUN = 0;
-const SLOT_TORPEDO = 1;
-/** Battleship fit [gun, broadside, starShells, empty]. */
-const SLOT_BROADSIDE = 1;
+const SLOT_TORPEDO = 2;
+/** Battleship fit [gun, speedBoost, broadside, starShells, empty x5]. */
+const SLOT_BROADSIDE = 2;
 
 /** Islands cleared AND the raster flattened (Story 4.11): real terrain must
  *  not radar-shadow a world the test built as empty water. */
@@ -918,10 +924,11 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
 // them is the fit itself, and the guarantee that an UNBUILT weapon can never
 // take the slot.
 
-describe('equipment lines — copy 1 fits the weapon into the extra slot', () => {
+describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon slot', () => {
   /** A TB holding `extraLevels` more banked levels behind a directed
-   *  navalMines front offer (the TB carries no mine, so its extra slot is the
-   *  one this fit lands in). Sails TB_WITH_MINES so the line is IN the pool. */
+   *  navalMines front offer (the TB carries no mine, so the fit lands in the
+   *  first EMPTY weapon slot — 3, since the seed holds 2). Sails
+   *  TB_WITH_MINES so the line is IN the pool. */
   function fitBoard(extraLevels = 0): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, TB_WITH_MINES);
@@ -931,10 +938,14 @@ describe('equipment lines — copy 1 fits the weapon into the extra slot', () =>
     return { w, a };
   }
 
-  it('the pick installs the equipment LOADED in the extra slot (full pool)', () => {
+  it('the pick installs the equipment LOADED in the first EMPTY weapon slot (full pool)', () => {
     const { w, a } = fitBoard();
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'heavyTorpedo', 'speedBoost', 'navalMines']);
+    // Story 8.5: the TB's seed holds slot 2, so the pick takes slot 3 (E) —
+    // first-empty-first across the weapon row, never a fixed 'extra' slot.
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual([
+      'gun', 'speedBoost', 'heavyTorpedo', 'navalMines', null, null, null, null, null,
+    ]);
     expect(a.loadout[3].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
   });
 
@@ -958,7 +969,7 @@ describe('equipment lines — copy 1 fits the weapon into the extra slot', () =>
     // Forced past the deck (a stub is never dealt) — the last line of defence.
     expect(isStubLine('machineGun')).toBe(true);
     expect(() => w.applyCard(a, 'machineGun')).not.toThrow();
-    expect(a.loadout[3].equipmentId).toBeNull(); // the extra slot is untouched
+    expect(a.loadout[3].equipmentId).toBeNull(); // the first empty weapon slot is untouched
     expect(a.stats.equipment.machineGun).toEqual(before.equipment.machineGun);
   });
 
@@ -1310,7 +1321,9 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     expect(a.level).toBe(0);
     expect(a.xpMs).toBe(0);
     expect(a.stats).toEqual(effectiveStats(a.cls));
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'heavyTorpedo', 'speedBoost', null]);
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual([
+      'gun', 'speedBoost', 'heavyTorpedo', null, null, null, null, null, null,
+    ]);
     // The fresh pool is rebuilt from the SAME frozen list (never the catalog):
     // every dealt line back at its listed count, less the re-seeded copy —
     // including the fitted mines, back at all five.
@@ -1554,7 +1567,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   it('an IDLE slot (and a slot filled by this very grant) stays at reloadMsLeft 0', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0); // nothing fired: every fitted slot is full + idle
-    w.applyCard(a, 'navalMines'); // fills the extra slot via freshSlotState
+    w.applyCard(a, 'navalMines'); // fills the first empty weapon slot via freshSlotState
     for (const slot of a.loadout) {
       if (slot.state === null) continue;
       expect(slot.state.reloadMsLeft).toBe(0);
@@ -1615,7 +1628,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   // outright along with every mine cap. What the end-to-end drop loop still
   // earns its keep proving is the OPPOSITE fact: every drop stays on the water.
   it('NO CAP: every mine a Mine Layer drops stays live (no eviction, no ceiling)', () => {
-    const SLOT_MINE_ML = 1; // ML fit: [gun, navalMines, radarBuoy, empty]
+    const SLOT_MINE_ML = 2; // ML fit: [gun, speedBoost, navalMines, empty x6]
     const dropMines = (drops: number): number => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0, 0, 'mineLayer');
@@ -1718,8 +1731,15 @@ describe('the CARRIED seed — a hull spawns holding copy 1 of its own weapons',
       // what the hull already had.
       expect(a.stats).toEqual(effectiveStats(a.cls));
       for (const id of seed) expect(a.stats.equipment[tierTargetOf(CATALOG[id])!].tier, id).toBe(1);
-      expect(a.loadout).toEqual(slotsWithCards(hull, a.stats, a.cards));
-      expect(a.loadout).toEqual(loadoutFor(hull, a.stats));
+      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards));
+      // ...and the SEED is the ONLY difference from the bare universal fit
+      // (Story 8.5): the gun and the boost are byte-identical to `loadoutFor`,
+      // and the seed's lines are exactly what filled the weapon row.
+      const bare = loadoutFor(a.stats);
+      expect(a.loadout[SLOT_GUN]).toEqual(bare[SLOT_GUN]);
+      expect(a.loadout[SLOT_BOOST]).toEqual(bare[SLOT_BOOST]);
+      expect(WEAPON_SLOTS.map((i) => a.loadout[i].equipmentId).filter((x) => x !== null)).toEqual(seed);
+      for (const i of CONSUMABLE_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
     });
   }
 

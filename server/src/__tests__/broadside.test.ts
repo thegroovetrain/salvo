@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  CATALOG,
   CONFIG,
   angleDiff,
   burstPointAlong,
@@ -28,9 +29,13 @@ import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { broadsideAim } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
-/** Battleship slot indices under the wave-2 fit [gun, broadside, starShells, empty]. */
-const SLOT_BROADSIDE = 1;
-const SLOT_EMPTY = 3;
+/** Battleship slot indices under the NINE-SLOT spawn (Story 8.5):
+ *  [gun, speedBoost, broadside, starShells, empty x5]. The class weapons are
+ *  no longer hardware — they arrive as the SPAWN SEED's cards and land in the
+ *  weapon row (2, 3, 4) in seed order. */
+const SLOT_BROADSIDE = 2;
+/** The one weapon slot the Battleship's two-line seed leaves empty. */
+const SLOT_EMPTY = 4;
 /** The 5/8 rung — the broadside's base reach (412.5u), derived, never a literal. */
 const RUNG_5_8 = CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor;
 /** A bearing squarely inside the port beam sector (heading 0 + 90°). */
@@ -53,6 +58,15 @@ const ladder = (id: string, cap: number, path: string, add: number): CatalogLine
   ({ id, kind: 'ladder', cap, tiers: new Array(cap).fill([{ kind: 'stat', path, add }]) }) as unknown as CatalogLine;
 
 const BROADSIDE_LADDERS: Catalog = {
+  // THE SPAWN SEED'S OWN LINES, carried in from production (Story 8.5): the
+  // nine-slot spawn fits a hull's class weapons by replaying `SPAWN_SEED`
+  // through THIS World's catalog, so an injected catalog that omitted them
+  // would deal this Battleship an EMPTY weapon row. Their tier I is the bare
+  // weapon (stat-neutral), so carrying them changes no number here.
+  broadside: CATALOG.broadside,
+  starShells: CATALOG.starShells,
+  heavyTorpedo: CATALOG.heavyTorpedo, // the TB's seed — the cross-hull counter-pin below
+  navalMines: CATALOG.navalMines, // ...and the ML's
   broadsideSpread: ladder('broadsideSpread', 4, 'equipment.broadside.spreadRung', 1),
   broadsideTurrets: ladder('broadsideTurrets', 2, 'equipment.broadside.turrets', 1),
   // The production DECK GUN BARREL line, carried into the injected catalog so
@@ -88,10 +102,12 @@ function polar(w: World, from: { x: number; y: number }): { bearing: number; ran
 }
 
 describe('broadside — server loadout + barrage construction', () => {
-  it('a Battleship spawns fitted [gun, broadside, starShells, empty] with full idle pools', () => {
+  it('a Battleship spawns fitted [gun, speedBoost, broadside, starShells, empty x5] with full idle pools', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    expect(bb.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'broadside', 'starShells', null]);
+    expect(bb.loadout.map((s) => s.equipmentId)).toEqual([
+      'gun', 'speedBoost', 'broadside', 'starShells', null, null, null, null, null,
+    ]);
     expect(bb.loadout[SLOT_BROADSIDE].state).toEqual({ n: CONFIG.broadside.maxAmmo, reloadMsLeft: 0 });
   });
 
@@ -429,7 +445,7 @@ describe('broadside — denials + cross-hull parity', () => {
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: false, reason: 'dead' });
   });
 
-  it('a forged click on the empty extra slot denies empty-slot; the click channel stays inert', () => {
+  it('a forged click on the empty WEAPON slot denies empty-slot; the click channel stays inert', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     expect(w.sinkingActivationGate(bb, SLOT_EMPTY)).toEqual({ ok: false, reason: 'empty-slot' });
@@ -447,15 +463,15 @@ describe('broadside — denials + cross-hull parity', () => {
     expect(bb.loadout[SLOT_BROADSIDE].state!.reloadMsLeft).toBe(CONFIG.broadside.reloadMs - DT);
   });
 
-  it('no other hull carries it: TB slot-1 is the torpedo, ML slot-1 the mine — never a broadside shell', () => {
+  it('no other hull carries it: the TB seeds a torpedo into slot 2, the ML a mine — never a broadside shell', () => {
     const w = bareWorld();
     const tb = place(w, 'tb', 'torpedoBoat', 0, 0);
-    expect(tb.loadout[1].equipmentId).toBe('heavyTorpedo');
-    setInput(tb, { aim: tb.state.heading, slot: 1 }); // over the bow — in arc
-    expect(w.sinkingActivationGate(tb, 1)).toEqual({ ok: true });
+    expect(tb.loadout[SLOT_BROADSIDE].equipmentId).toBe('heavyTorpedo'); // same slot index, other hull
+    setInput(tb, { aim: tb.state.heading, slot: SLOT_BROADSIDE }); // over the bow — in arc
+    expect(w.sinkingActivationGate(tb, SLOT_BROADSIDE)).toEqual({ ok: true });
     expect([...w.shells.values()].map((s) => s.kind)).toEqual(['torp']);
     const ml = place(w, 'ml', 'mineLayer', 0, 300);
-    expect(ml.loadout[1].equipmentId).toBe('navalMines');
+    expect(ml.loadout[SLOT_BROADSIDE].equipmentId).toBe('navalMines');
     expect(ml.loadout.map((s) => s.equipmentId)).not.toContain('broadside');
   });
 });

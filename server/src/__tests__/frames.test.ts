@@ -64,12 +64,18 @@ describe('buildFrame — shape and clock', () => {
       speed: ship.state.speed,
       hp: CONFIG.shipClasses.torpedoBoat.hp,
       alive: true,
-      // Slot-aligned ammo: length SLOT_COUNT, null for the empty extra slot.
-      // The Torpedo Boat fits speedBoost (not mine) in slot 2 (Story 1.6).
+      // Slot-aligned ammo: length SLOT_COUNT — NINE since Story 8.5, null for
+      // every empty slot. Gun in 0, the universal boost in 1, the spawn seed's
+      // heavyTorpedo in the first WEAPON slot (2), then six empties.
       ammo: [
         { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
-        { n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 },
         { n: CONFIG.speedBoost.maxAmmo, reloadMsLeft: 0 },
+        { n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 },
+        null,
+        null,
+        null,
+        null,
+        null,
         null,
       ],
       sweep: ship.sweepAngle,

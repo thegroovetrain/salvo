@@ -509,7 +509,9 @@ function scnStarShell(g: Golden): void {
   place(w, 'h', flareDist, 40, 1.1); // inside the future zone, beyond a's sight
   place(w, 'c', flareDist, -CONFIG.vision.radar); // dist to zone center = radar exactly — at radar range
   place(w, 'd', -400, 0); // dist to zone center (flareDist,0) = 810 — beyond radar
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: flareDist, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  // Story 8.5: the Battleship's seed fits `broadside` into weapon slot 2 and
+  // `starShells` into 3.
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: flareDist, slot: 3, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.step(); // consumes the click; the flare spawns and starts flying
   cap(g, w, 'a'); // launch tick: own shell reveal, no zone yet
   let zoneUp = false;
@@ -583,7 +585,7 @@ function scnMineBlast(g: Golden): void {
   const a = place(w, 'a', 0, 0, 0, 'mineLayer');
   const b = place(w, 'b', -76, 10); // hull over the future clicked point — trips it
   const c = place(w, 'c', -76, -40); // second victim: hull within the 48u blast
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.step(); // the click places the mine at the clicked point (weapon channel)
   expect(w.mines.size).toBe(1);
   cap(g, w, 'a'); // own mine view + spawns/contacts
@@ -652,7 +654,7 @@ function scnMineBurstDetonation(g: Golden): void {
  */
 function scnDenied(g: Golden): void {
   const w = bareWorld(1016);
-  place(w, 'a', 0, 0, 0); // TB: gun / torpedo / speedBoost
+  place(w, 'a', 0, 0, 0); // TB: gun / speedBoost / heavyTorpedo (Story 8.5)
   place(w, 'b', 120, 0); // sighted second captain — proves owner-only
   const m = place(w, 'm', 400, 0, 0, 'mineLayer'); // stern rack drops at (324, 0)
   w.map.islands.push(circleIsland(324, 0, 20)); // the rock behind m's stern
@@ -661,8 +663,8 @@ function scnDenied(g: Golden): void {
   // block the drop but m would now PAINT on a's radar through it.
   w.map.heightRaster = rasterFrom(700, ridgeField(324, 0, 20, 20, 255));
   // Tick 1: a clicks the torpedo dead astern; m clicks a MINE into the rock.
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
-  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.step();
   const fa1 = cap(g, w, 'a');
   const fm1 = cap(g, w, 'm');
@@ -670,20 +672,20 @@ function scnDenied(g: Golden): void {
   prove(
     g,
     'denied-out-of-arc-owner-only',
-    (fa1.denied ?? []).some((d) => d.reason === 'out-of-arc' && d.slot === 1 && d.seq === 1) &&
+    (fa1.denied ?? []).some((d) => d.reason === 'out-of-arc' && d.slot === 2 && d.seq === 1) &&
       !('denied' in fb1),
   );
-  prove(g, 'denied-blocked-mine-click', (fm1.denied ?? []).some((d) => d.reason === 'blocked' && d.slot === 1) && w.mines.size === 0);
+  prove(g, 'denied-blocked-mine-click', (fm1.denied ?? []).some((d) => d.reason === 'blocked' && d.slot === 2) && w.mines.size === 0);
   // Tick 2: a fires the gun (spends the round) + activates the boost (spends the charge).
-  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, actSlot: 2, hornSeq: 0 });
+  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, actSlot: 1, hornSeq: 0 });
   w.step();
   cap(g, w, 'a'); // no denial: the shell reveal + a clean frame
   // Tick 3: both channels re-press against their empty pools.
-  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 3, aimDist: 100, slot: 0, fireT: 0, actSeq: 2, actSlot: 2, hornSeq: 0 });
+  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 3, aimDist: 100, slot: 0, fireT: 0, actSeq: 2, actSlot: 1, hornSeq: 0 });
   w.step();
   const fa3 = cap(g, w, 'a');
   prove(g, 'denied-cooling-weapon', (fa3.denied ?? [])[0]?.reason === 'cooling' && (fa3.denied ?? [])[0]?.seq === 3);
-  prove(g, 'denied-noammo-ability', (fa3.denied ?? [])[1]?.reason === 'no-ammo' && (fa3.denied ?? [])[1]?.slot === 2);
+  prove(g, 'denied-noammo-ability', (fa3.denied ?? [])[1]?.reason === 'no-ammo' && (fa3.denied ?? [])[1]?.slot === 1);
 }
 
 /**
@@ -706,7 +708,7 @@ function scnHoming(g: Golden): void {
     s.prevSweepAngle = Math.PI; // park the beams away from the action
     s.sweepAngle = Math.PI + 1e-4;
   }
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   let cReveals = 0;
   let cUpdates = 0;
   let dBytes = 0;
@@ -806,7 +808,7 @@ function scnGunnery(g: Golden): void {
       !fo1Miss.events.some((e) => e.k === 'sp'),
   );
   // The torpedo launch — the ratified quiet weapon: no mz for anyone.
-  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.step();
   cap(g, w, 'a'); // own torp reveal, no mz
   const fo1Torp = cap(g, w, 'o1');

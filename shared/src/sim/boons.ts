@@ -7,7 +7,7 @@
 //      EffectiveStats (same fold, same firewall — HOOK_REGISTRY stays EMPTY);
 //   3. `slotFill` effects mutate ONLY the one LoadoutSlot[] structure, through
 //      applySlotEffect below — used INCREMENTALLY by the server and REPLAYED by
-//      the client over loadoutFor output;
+//      the client over loadoutFor output, taking the first empty WEAPON slot;
 //   4. `behavior(hookId, params)` executes registered hooks (sim/hooks.ts)
 //      per-tick on BOTH sides, so prediction survives;
 //   5. `stock` is IGNORED here entirely (Story 8.7 owns the consumable rack).
@@ -33,8 +33,8 @@
 // firewall's unconditional output pass). Nothing else re-derives.
 
 import type { EquipmentId, LoadoutSlot } from './loadout.js';
-import { SLOT_EXTRA, equipmentMaxAmmo, loadoutFor } from './loadout.js';
-import { CONFIG, type HullId } from '../constants.js';
+import { WEAPON_SLOTS, equipmentMaxAmmo, loadoutFor } from './loadout.js';
+import { CONFIG } from '../constants.js';
 import {
   BOON_STAT_PATH_SET,
   DOCTRINE_MODES,
@@ -223,8 +223,13 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
  * slot-mutation path of the engine, shared verbatim by the server (incremental,
  * on grant) and the client (slotsWithCards, replayed over loadoutFor output).
  * `stat`/`behavior`/`doctrine`/`stock` effects are structural no-ops here.
- * Every slot edge is a silent no-op: a fill against an occupied extra slot, and
- * a fill of equipment ALREADY fitted anywhere.
+ *
+ * THE FILL RULE (Story 8.5): a `slotFill` takes the FIRST slot in
+ * `WEAPON_SLOTS` (2, 3, 4) that is still empty, and touches NOTHING else — no
+ * other slot's state object is even re-read, let alone rewritten, so fitting a
+ * weapon can never disturb another slot's reload timer (pinned by identity in
+ * boons.test.ts). Three silent no-ops, each leaving the loadout untouched: a
+ * STUB line, equipment ALREADY fitted anywhere, and a full weapon row.
  *
  * `slotReplace` is DELETED (Story 8.1) — no catalog-v3 line swaps one piece of
  * equipment for another, so the branch and its degenerate-self-replace guard
@@ -245,36 +250,44 @@ export function applySlotEffect(
   // line stops being guarded the moment its `stub` flag comes off.
   const line = lineForEquipment(effect.equipmentId, catalog);
   if (line?.stub === true) return;
-  const slot = loadout[SLOT_EXTRA];
-  if (slot === undefined || slot.equipmentId !== null) return; // occupied (or malformed): no-op
   if (loadout.some((s) => s.equipmentId === effect.equipmentId)) return; // already fitted: no-op
-  slot.equipmentId = effect.equipmentId;
-  slot.state = freshSlotState(stats, effect.equipmentId);
+  for (const i of WEAPON_SLOTS) {
+    const slot = loadout[i];
+    if (slot === undefined || slot.equipmentId !== null) continue; // occupied (or malformed)
+    slot.equipmentId = effect.equipmentId;
+    slot.state = freshSlotState(stats, effect.equipmentId);
+    return;
+  }
+  // Every weapon slot is full: a silent no-op, loadout untouched. A LEGAL deck
+  // can never reach this (deck rule `equipmentLines` caps a deck at three
+  // equipment lines, and three is exactly the row's width) — property-pinned
+  // over random legal decks in nineSlots.test.ts.
 }
 
 /**
- * The client-side loadout derivation (ONE derivation, both sides): the hull's
- * base loadoutFor fit with every held card's slot effects replayed over it.
+ * The client-side loadout derivation (ONE derivation, both sides): the
+ * universal nine-slot loadoutFor fit with every held card's slot effects
+ * replayed over it, IN FIT ORDER. `fleet` selects the gun-only drone fit.
  *
  * THIS REPLAY IS IN FIT ORDER, NOT FOLD ORDER, and that is the one place the
- * two diverge on purpose. There is a SINGLE extra slot, so when two equipment
- * cards are fitted only the FIRST one lands — which equipment a captain ends up
- * carrying is a fact about the order they took the cards in, not about the
- * catalog. The server applies each grant as it happens, so the client must
- * replay `OwnShip.cards` (which rides the wire IN FIT ORDER) the same way, or
- * the two would disagree about the extra slot. Property-pinned in
- * boons.test.ts. Stats, by contrast, are order-INDEPENDENT by construction.
+ * two diverge on purpose. The weapon row fills FIRST-EMPTY-FIRST, so WHICH
+ * weapon sits in Q, E and R is a fact about the order a captain took the
+ * cards in, not about the catalog. The server applies each grant as it
+ * happens, so the client must replay `OwnShip.cards` (which rides the wire IN
+ * FIT ORDER) the same way, or the two would disagree about the row.
+ * Property-pinned in boons.test.ts. Stats, by contrast, are order-INDEPENDENT
+ * by construction.
  *
  * Pool STATE here is the fresh full-pool baseline (the live counts ride
  * OwnShip.ammo, slot-aligned).
  */
 export function slotsWithCards(
-  hullId: HullId,
   stats: EffectiveStats,
   cards: readonly string[],
   catalog: Catalog = CATALOG,
+  fleet = false,
 ): LoadoutSlot[] {
-  const loadout = loadoutFor(hullId, stats);
+  const loadout = loadoutFor(stats, fleet);
   const seen = new Map<string, number>();
   for (const id of cards) {
     if (!Object.hasOwn(catalog, id)) continue;

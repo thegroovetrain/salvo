@@ -3,6 +3,13 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  52 (Story 8.5): OwnShip.ammo widened from 4 to 9 slot-aligned entries
+ *  (nine fixed-role slots). The loadout is now ONE flat nine-slot array —
+ *  gun, boost, three weapons, four consumables — identical for every captain
+ *  hull, so the per-hull fit and the single extra slot are gone and
+ *  `InputMsg.slot`/`actSlot` widen with SLOT_COUNT to 0..8. No wire field is
+ *  added, removed or renamed: a stale client would read a nine-entry `ammo`
+ *  through a four-slot hotbar, and this join gate is the only guard.
  *  51: 2026-09-15 Story 8.1 — CATALOG V3 AND THE CARD MODEL. The 28-line v2
  *  boon catalog is replaced wholesale by the 29-line / 114-card catalog v3
  *  (new shared sim/catalog.ts + sim/effects.ts), and CATALOG CONTENT IS WIRE
@@ -575,7 +582,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 51;
+export const PROTOCOL_VERSION = 52;
 
 // Tunables
 export * from './constants.js';

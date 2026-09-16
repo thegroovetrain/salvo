@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  CATALOG,
   CONFIG,
   hullSilhouette,
   pointPolygonDistance,
@@ -24,8 +25,9 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 
-/** Torpedo slot index under the universal fit (loadout slot 1). */
-const SLOT_TORPEDO = 1;
+/** Torpedo slot index: the FIRST weapon slot (Q), where the Torpedo Boat's
+ *  spawn seed lands `heavyTorpedo` since Story 8.5's nine-slot loadout. */
+const SLOT_TORPEDO = 2;
 import { fireTorpedo } from '../game/equipment/torpedoes.js';
 
 function bareWorld(seed = 11, opts?: WorldOptions): World {
@@ -41,6 +43,12 @@ function bareWorld(seed = 11, opts?: WorldOptions): World {
  *  not have, so the test injects a 9-rung SPEED ladder rather than
  *  overdriving past a real cap. */
 const OVERDRIVE: Catalog = {
+  // The TB's SPAWN SEED line (Story 8.5), carried in from production: the
+  // nine-slot spawn fits a hull's class weapon by replaying `SPAWN_SEED`
+  // through THIS World's catalog, so an injected catalog without it would
+  // spawn a torpedo boat with no torpedo. Tier I is the bare weapon, so it
+  // moves no number here.
+  heavyTorpedo: CATALOG.heavyTorpedo,
   speed: {
     id: 'speed',
     kind: 'ladder',

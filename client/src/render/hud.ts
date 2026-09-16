@@ -186,8 +186,9 @@ export interface OwnStatus {
    *  else — the authoritative hull number is still `hp`, which the pool pays
    *  into every server tick. */
   repairHp: number;
-  // Slot-aligned pool count + reload timer (OwnShip.ammo): length SLOT_COUNT,
-  // null for an empty slot (the extra slot 3 today).
+  // Slot-aligned pool count + reload timer (OwnShip.ammo): length SLOT_COUNT
+  // (NINE since Story 8.5), null for an empty slot — which at 0:00 is seven of
+  // the nine: the three weapon slots and the whole consumable belt.
   ammo: (WeaponAmmo | null)[];
   primedSlot: number; // primed loadout slot (0 = gun) — client-local, immediate
   alive: boolean;
@@ -207,8 +208,9 @@ export interface OwnStatus {
    *  ladder, ammo pool sizes, reload durations, damage) read from here (Stage
    *  D; boons are the whole stat input as of Story 2.8). */
   stats: EffectiveStats;
-  /** Slot-aligned equipment ids of the OWN loadout (loadoutFor(you.cls) —
-   *  Story 1.6); null = an unfitted slot. Read by the firing UX and passed
+  /** Slot-aligned equipment ids of the OWN loadout (main.ts's slotIdsFor — the
+   *  hull-free `loadoutFor(stats)` with the fitted cards replayed over it since
+   *  Story 8.5); null = an unfitted slot. Read by the firing UX and passed
    *  through to the HOTBAR (render/hotbar.ts owns the loadout surface as of
    *  Story 2.2). Ammo VALUES still come from the server via `ammo`. */
   loadout: readonly (EquipmentId | null)[];

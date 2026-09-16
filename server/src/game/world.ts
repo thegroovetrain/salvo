@@ -41,9 +41,9 @@ import {
   isAfloat,
   isSinking,
   isSunk,
-  lineForEquipment,
-  loadoutFor,
   slotsWithCards,
+  isStubLine,
+  SPAWN_SEED,
   hullEnvelope,
   hullSilhouette,
   pointPolygonDistance,
@@ -766,12 +766,22 @@ export interface ShipRecord {
    */
   torpDirs: Map<string, number>;
   /**
-   * The ship's equipment loadout — 4 slots (gun / special / special / extra;
-   * shared/src/sim/loadout.ts), each empty or one equipment id + its runtime
-   * state (pool + reload timer, equipment/ammo.ts). THE one equipment
-   * structure (replaces the old WeaponAmmo[] — no parallel ammo store);
-   * input.slot names the slot a click activates. Reset to the full default
-   * loadout on spawn/respawn/redeploy.
+   * The ship's equipment loadout — NINE FIXED-ROLE SLOTS (Story 8.5,
+   * shared/src/sim/loadout.ts): `[gun, boost, weapon, weapon, weapon,
+   * consumable ×4]`, the SAME shape for every captain hull, each slot either
+   * empty or holding one equipment id + its runtime state (pool + reload
+   * timer, equipment/ammo.ts).
+   *
+   * There is no per-hull fit any more: slot 0 is the gun and slot 1 the boost
+   * on every captain (amendment 23); the three WEAPON slots are filled by
+   * CARDS, first-empty-first (sim/boons.ts applySlotEffect), starting with the
+   * spawn seed (`SPAWN_SEED`, see spawnDeck); the four CONSUMABLE slots are
+   * empty until Story 8.7 builds the belt. A FLEET hull fits the gun and
+   * nothing else (amendment 24).
+   *
+   * THE one equipment structure (replaces the old WeaponAmmo[] — no parallel
+   * ammo store); `input.slot` names the slot a click activates. Rebuilt from
+   * the ship's cards on spawn/respawn/redeploy.
    */
   loadout: LoadoutSlot[];
   /**
@@ -1444,12 +1454,19 @@ export class World {
     const heading = Math.atan2(-p.y, -p.x);
     const cls = hullEnvelope(hullId);
     const stats = effectiveStats(cls);
-    // Per-hull loadout (Story 1.6): the class fit, or the universal drone fit.
-    const loadout = loadoutFor(hullId, stats);
-    // THE SPAWN SEED (see carriedLines): the card lines this fit already holds.
-    // `stats` above needs no recompute — the seed is stat-neutral by
-    // construction (tier I IS the bare weapon), which the spawn tests pin.
-    const { carried, deckList } = World.spawnDeck(role, loadout, deck, this.catalog);
+    // THE SPAWN SEED (Story 8.5, see seedFor/spawnDeck): the card lines this
+    // hull starts holding — its shipped class weapons, authored in the catalog
+    // rather than read off a per-hull fit (there is no per-hull fit any more).
+    // A fleet hull is seeded with nothing and fits the gun alone. `carried` IS
+    // that seed: the deck withholds copy 1 of each of its lines.
+    const { carried, deckList } = World.spawnDeck(role, this.seedFor(role, hullId), deck);
+    // The loadout IS the universal nine-slot fit with the seed replayed over
+    // it through the SHARED fill rule — never `applyCard`: the seed emits no
+    // event and no toast. The FLEET flag is load-bearing (without it a drone
+    // would grow a boost in slot 1). `stats` above needs no recompute — the
+    // seed is stat-neutral by construction (tier I IS the bare weapon), which
+    // the spawn tests pin.
+    const loadout = slotsWithCards(stats, carried, this.catalog, roleIsFleetHull({ role }));
     const rec: ShipRecord = {
       id,
       name,
@@ -1642,12 +1659,33 @@ export class World {
    * nothing, and neither does a STUB line — the deck deals it no copies, so
    * there is none to hold back.
    */
+  /**
+   * THE SPAWN SEED for a hull, READ THROUGH THIS WORLD'S CATALOG (Story 8.5):
+   * the shipped class weapons a captain starts holding as cards (`SPAWN_SEED`
+   * in sim/catalog.ts). A FLEET hull is seeded with nothing (epic-8 amendment
+   * 24).
+   *
+   * The catalog filter is the one thing that survives the deleted
+   * `carriedLines` fit-scan: a line this World's catalog does not carry, or
+   * carries as a STUB, seeds NOTHING. The deck deals it no copies, so there
+   * would be none to hold back, and `applySlotEffect` refuses to fit a stub
+   * anyway — without the filter such a hull would ride with a card in `cards`
+   * that nothing in its loadout or stats reflects. Production always passes
+   * the full CATALOG, where every seed line is real and non-stub, so this is
+   * identity there; it is the injected-catalog test Worlds it keeps honest.
+   */
+  private seedFor(role: ShipRole, hullId: HullId): readonly LineId[] {
+    if (roleIsFleetHull({ role })) return EMPTY_DECK_LIST;
+    const seed = SPAWN_SEED[hullId];
+    if (seed === undefined) return EMPTY_DECK_LIST;
+    return seed.filter((id) => Object.hasOwn(this.catalog, id) && !isStubLine(id, this.catalog));
+  }
+
   private static spawnDeck(
     role: ShipRole,
-    loadout: LoadoutSlot[],
+    seed: readonly LineId[],
     deck: readonly LineId[],
-    catalog: Catalog,
-  ): { carried: LineId[]; deckList: readonly LineId[] } {
+  ): { carried: readonly LineId[]; deckList: readonly LineId[] } {
     // THE SPAWN'S TWO DECK INPUTS (Story 8.2): the carried seed (below) and
     // the FROZEN LIST the record stores. Frozen once, at the edge: the default
     // decks arrive frozen (the shared identity, no copy); a dev override
@@ -1655,19 +1693,9 @@ export class World {
     // what the door admitted. A fleet hull gets no list whatever was passed
     // (epic-8 amendment 12: drones stay gun-only).
     return {
-      carried: World.carriedLines(loadout, catalog),
+      carried: seed,
       deckList: roleIsFleetHull({ role }) ? EMPTY_DECK_LIST : frozenList(deck),
     };
-  }
-
-  private static carriedLines(loadout: LoadoutSlot[], catalog: Catalog): LineId[] {
-    const out: LineId[] = [];
-    for (const slot of loadout) {
-      if (slot.equipmentId === null) continue;
-      const line = lineForEquipment(slot.equipmentId, catalog);
-      if (line !== undefined && line.stub !== true) out.push(line.id);
-    }
-    return out;
   }
 
   /** Remove a ship entirely (client left). Its wake is water, not a ship
@@ -1784,7 +1812,8 @@ export class World {
     // fresh build — respawn() below, waiting-phase only, preserves. "Wiped"
     // means back to the SPAWN SEED (see carriedLines), which is what a fresh
     // build is: copy 1 of every line this hull's own weapons stand for.
-    const carried = World.carriedLines(loadoutFor(ship.hullId, effectiveStats(ship.cls)), this.catalog);
+    const fleet = roleIsFleetHull(ship);
+    const carried = this.seedFor(ship.role, ship.hullId);
     ship.cards = [...carried];
     ship.cardBehaviors = NO_BEHAVIORS;
     ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
@@ -1818,13 +1847,16 @@ export class World {
     // this tick).
     ship.seenBallistics.clear();
     ship.torpDirs.clear();
-    ship.loadout = loadoutFor(ship.hullId, ship.stats);
+    // The fresh fit is the universal nine-slot loadout with the SAME seed
+    // replayed over it — the fleet flag is load-bearing (without it a drone
+    // would grow a boost in slot 1).
+    ship.loadout = slotsWithCards(ship.stats, carried, this.catalog, fleet);
     // THE DECK is rebuilt over the FRESH fit (Story 2.8) FROM THE FROZEN LIST
     // (Story 8.2 — never from the catalog): a fresh match means a fresh pool
     // — but the deck STREAM is deliberately NOT reseeded (ship.deckRng
     // persists), so a player's whole-session draw sequence stays a pure
     // function of (mapSeed, join ordinal, draw count). Drones keep EMPTY_DECK.
-    ship.deck = roleIsFleetHull(ship)
+    ship.deck = fleet
       ? EMPTY_DECK
       : buildDeckState(ship.deckList, carried, this.catalog);
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
@@ -5169,7 +5201,7 @@ export class World {
     // loadout re-derives with their slot effects replayed — the SAME shared
     // derivation the client runs (slotsWithCards ≡ loadoutFor at zero cards,
     // and over the spawn SEED alone, byte-identical).
-    ship.loadout = slotsWithCards(ship.hullId, ship.stats, ship.cards, this.catalog);
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship));
     // The respawn TELEPORTS the hull (Story 4.12, amendment 200): the old
     // life's water detaches into the orphan store — where it keeps disclosing
     // and ageing out, a fading track with nothing attached — and the new life

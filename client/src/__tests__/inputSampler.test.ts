@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MSG, type InputMsg } from '@salvo/shared';
+import { MSG, SLOT_GUN, WEAPON_SLOTS, type InputMsg } from '@salvo/shared';
 import {
   InputSampler,
   abilityPressDenied,
@@ -61,14 +61,16 @@ describe('primeFireable — client-predicted prime consumption', () => {
     expect(primeFireable(1, false, false)).toBe(false);
   });
 
-  it('consumes the Battleship cannon (slot 1) + star shells (slot 2) primes (Story 1.7)', () => {
-    // The gun is universally slot 0, so the slot-0 gun exemption holds on every
-    // hull; the BB's two skillshots live at slots 1 & 2 and consume when fired.
-    // Their in-arc gate is 360° (fed by weaponArcHit(id) at the call site), so a
-    // loaded fire always reads fireable regardless of bearing.
-    expect(primeFireable(0, true, true)).toBe(false); // BB gun — never a prime
-    expect(primeFireable(1, true, true)).toBe(true); // cannon fires → revert to gun
-    expect(primeFireable(2, true, true)).toBe(true); // star shells fire → revert to gun
+  it('consumes the Battleship broadside + star shells primes (Story 1.7)', () => {
+    // The gun is universally SLOT_GUN, so the slot-0 exemption holds on every
+    // hull; the BB's two skillshots land in its first two WEAPON slots (Q and E
+    // — slots 2 and 3 since Story 8.5's nine-slot re-cut) and consume when
+    // fired. Their in-arc gate is 360° (fed by weaponArcHit(id) at the call
+    // site), so a loaded fire always reads fireable regardless of bearing.
+    const [Q, E] = WEAPON_SLOTS;
+    expect(primeFireable(SLOT_GUN, true, true)).toBe(false); // BB gun — never a prime
+    expect(primeFireable(Q, true, true)).toBe(true); // broadside fires → revert to gun
+    expect(primeFireable(E, true, true)).toBe(true); // star shells fire → revert to gun
   });
 });
 
@@ -286,14 +288,15 @@ describe('ability activation reaches the wire one-per-input (KeyboardInput + Inp
     const kb = new KeyboardInput({ isSlotFitted: () => true, isAbilitySlot: () => true });
     kb.attach();
     const sampler = new InputSampler(() => undefined);
-    press('KeyQ'); // slot 1 (mine)
-    press('KeyE'); // slot 2 (decoy) — same 50ms window, before any sample
+    const [Q, E] = WEAPON_SLOTS; // slots 2 and 3 since Story 8.5
+    press('KeyQ'); // weapon slot Q
+    press('KeyE'); // weapon slot E — same 50ms window, before any sample
     const a = tick(kb, sampler);
     const b = tick(kb, sampler);
     const c = tick(kb, sampler);
-    expect([a.actSeq, a.actSlot]).toEqual([1, 1]); // first press this input
-    expect([b.actSeq, b.actSlot]).toEqual([2, 2]); // second press the next input — NOT collapsed
-    expect([c.actSeq, c.actSlot]).toEqual([2, 2]); // nothing new — the counter simply repeats
+    expect([a.actSeq, a.actSlot]).toEqual([1, Q]); // first press this input
+    expect([b.actSeq, b.actSlot]).toEqual([2, E]); // second press the next input — NOT collapsed
+    expect([c.actSeq, c.actSlot]).toEqual([2, E]); // nothing new — the counter simply repeats
     kb.detach();
   });
 

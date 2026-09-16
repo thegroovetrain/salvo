@@ -1,33 +1,56 @@
-// The in-match keyboard chokepoint (Story 2.1 — the fixed v1 Q/E/R scheme):
-// pure helpers (rudderFrom/panAxesFrom/nextPrimedSlot/slotHoldsAbility/
+// The in-match keyboard chokepoint (Story 2.1, re-cut in Story 8.5): pure
+// helpers (rudderFrom/panAxesFrom/nextPrimedSlot/slotHoldsAbility/
 // textEntryFocused) plus the KeyboardInput adapter driven through real window
 // keydown/keyup events (jsdom). Pins the ruled behavior: weapon switch-to /
 // same-key revert, ability FIFO + capped-press denied feedback, refit-or-
 // nothing digits, modal suspension of slot keys, the text-entry guard, and
 // preventDefault hygiene for every bound key (TAB + Space included) while
 // modifier chords stay native.
+//
+// STORY 8.5 MOVED THE SCHEME ONTO THE NINE-SLOT SPINE:
+//   • Q/E/R address the three GENERIC weapon slots 2/3/4 (WEAPON_SLOTS), not
+//     "the two class specials plus the pickup" — every one of them is EMPTY at
+//     0:00 and is filled by a card;
+//   • SHIFT is slot 1's (the boost's) key, as a TAP — the boost stopped being a
+//     Torpedo Boat privilege (epic-8 amendment 23);
+//   • a weapon key or a hotbar click on an EMPTY slot DENIES on the client
+//     (onEmptySlotDenied — amendment 26), where it used to be silent, and the
+//     combat lock still wins SILENTLY over that denial;
+//   • the prime's auto-revert is now owed at the pointer RELEASE (UX-DR42) —
+//     armReleaseRevert / consumeReleaseRevert, and any prime change clears it;
+//   • the digits are UNTOUCHED (amendment 27 — the belt cannot be stocked
+//     before Story 8.7, so 1-4 stay refit-only).
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { HEAL_CHOICE, SLOT_GUN } from '@salvo/shared';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { HEAL_CHOICE, SLOT_BOOST, SLOT_GUN, WEAPON_SLOTS, type EquipmentId } from '@salvo/shared';
 import {
   rudderFrom,
   panAxesFrom,
   nextPrimedSlot,
   slotHoldsAbility,
   textEntryFocused,
+  BOOST_KEY_CODES,
   SLOT_KEY_CODES,
   REFIT_DIGIT_CODES,
   KeyboardInput,
   type KeyboardHooks,
 } from '../input/keyboard.js';
 
-const TORP = 1;
-const BOOST = 2;
+/** The three weapon slots by their keys — Q, E, R (slots 2, 3, 4). */
+const [Q_SLOT, E_SLOT, R_SLOT] = WEAPON_SLOTS;
+/** A Torpedo Boat's seeded torpedo lands in the FIRST empty weapon slot: Q. */
+const TORP = Q_SLOT;
+/** The boost's slot — slot 1 on every captain hull (amendment 23). */
+const BOOST = SLOT_BOOST;
 
-/** A fully-fitted loadout (slots 1–3 all hold equipment). The fitted hook FAILS
- *  CLOSED, so every suite that exercises priming/activation must wire it — a
- *  bare KeyboardInput has no fitted slots at all (Story 2.1 review fix). */
-const ALL_FITTED = (slot: number): boolean => slot >= 1 && slot <= 3;
+/** A fully-fitted loadout: the boost plus all three weapon slots. The fitted
+ *  hook FAILS CLOSED, so every suite that exercises priming/activation must wire
+ *  it — a bare KeyboardInput has no fitted slots at all (Story 2.1 review fix).
+ *  The consumable belt (5-8) stays empty: Story 8.7 stocks it. */
+const ALL_FITTED = (slot: number): boolean => slot >= SLOT_BOOST && slot <= R_SLOT;
 
 describe('rudderFrom (held A/D)', () => {
   it('is zero with no keys', () => {
@@ -61,9 +84,19 @@ describe('panAxesFrom (spectator held-WASD, both axes)', () => {
 });
 
 describe('the ratified binding tables', () => {
-  it('Q/E/R map to loadout slots 1/2/3 — the gun (slot 0) has NO key', () => {
-    expect(SLOT_KEY_CODES).toEqual({ KeyQ: 1, KeyE: 2, KeyR: 3 });
+  it('Q/E/R map to the three WEAPON slots 2/3/4 — the gun (slot 0) has NO key', () => {
+    expect(SLOT_KEY_CODES).toEqual({ KeyQ: 2, KeyE: 3, KeyR: 4 });
+    // …and they are exactly WEAPON_SLOTS, in order: the key table reads the
+    // shared tuple rather than re-typing literals, so a future re-cut of the
+    // slot grammar moves the keys with it instead of silently desyncing.
+    expect(Object.values(SLOT_KEY_CODES)).toEqual([...WEAPON_SLOTS]);
     expect(Object.values(SLOT_KEY_CODES)).not.toContain(SLOT_GUN);
+    expect(Object.values(SLOT_KEY_CODES)).not.toContain(SLOT_BOOST);
+  });
+
+  it('BOTH shift keys address slot 1 — the boost, on every captain hull', () => {
+    expect([...BOOST_KEY_CODES]).toEqual(['ShiftLeft', 'ShiftRight']);
+    expect(SLOT_BOOST).toBe(1);
   });
 
   it('digits 1–4 (top row + numpad) map to refit-card picks 0..3', () => {
@@ -89,50 +122,65 @@ describe('the ratified binding tables', () => {
 describe('nextPrimedSlot — switch-to / same-key revert', () => {
   it('priming a fresh weapon slot from the gun switches to that slot', () => {
     expect(nextPrimedSlot(SLOT_GUN, TORP)).toBe(TORP);
-    expect(nextPrimedSlot(SLOT_GUN, 2)).toBe(2);
+    expect(nextPrimedSlot(SLOT_GUN, E_SLOT)).toBe(E_SLOT);
   });
 
   it('pressing the SAME primed key again reverts to the gun (amendment 5)', () => {
     expect(nextPrimedSlot(TORP, TORP)).toBe(SLOT_GUN);
-    expect(nextPrimedSlot(2, 2)).toBe(SLOT_GUN);
+    expect(nextPrimedSlot(E_SLOT, E_SLOT)).toBe(SLOT_GUN);
   });
 
   it('switching directly between two primed slots swaps (no intermediate revert)', () => {
-    expect(nextPrimedSlot(TORP, 2)).toBe(2);
-    expect(nextPrimedSlot(2, TORP)).toBe(TORP);
+    expect(nextPrimedSlot(TORP, E_SLOT)).toBe(E_SLOT);
+    expect(nextPrimedSlot(E_SLOT, TORP)).toBe(TORP);
   });
 });
 
 describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
-  const TB_SLOTS = ['gun', 'heavyTorpedo', 'speedBoost', null] as const; // Torpedo Boat
-  const BB_SLOTS = ['gun', 'broadside', 'starShells', null] as const; // Battleship (both specials weapons)
-  // Mine Layer: as of Story 2.8 (amendment 45) the MINE is a click-aimed
-  // weapon, so only the decoy rack (slot 2) is still an ability here.
-  const ML_SLOTS = ['gun', 'navalMines', 'radarBuoy', null] as const;
+  /** A nine-slot array: gun, boost, three weapon slots, the four-slot belt. */
+  const nine = (...weapons: (string | null)[]): readonly (EquipmentId | null)[] =>
+    ['gun', 'speedBoost', ...weapons, null, null, null, null, null].slice(0, 9) as (EquipmentId | null)[];
+
+  // Story 8.5: every captain has the SAME shape. What differs is what their
+  // seed/cards put in the weapon row — the Torpedo Boat's heavy torpedo, the
+  // Battleship's broadside + star shells, the Mine Layer's mine.
+  const TB_SLOTS = nine('heavyTorpedo');
+  const BB_SLOTS = nine('broadside', 'starShells');
+  const ML_SLOTS = nine('navalMines');
 
   it('is true only for a slot holding EQUIPMENT_IS_WEAPON:false equipment', () => {
-    expect(slotHoldsAbility(TB_SLOTS, 2)).toBe(true); // speedBoost
-    expect(slotHoldsAbility(TB_SLOTS, 0)).toBe(false); // gun
-    expect(slotHoldsAbility(TB_SLOTS, 1)).toBe(false); // torpedo
-    expect(slotHoldsAbility(BB_SLOTS, 1)).toBe(false); // the broadside is a weapon
-    expect(slotHoldsAbility(BB_SLOTS, 2)).toBe(false); // star shells is a weapon
+    expect(slotHoldsAbility(TB_SLOTS, SLOT_BOOST)).toBe(true); // speedBoost
+    expect(slotHoldsAbility(TB_SLOTS, SLOT_GUN)).toBe(false); // gun
+    expect(slotHoldsAbility(TB_SLOTS, Q_SLOT)).toBe(false); // torpedo
+    expect(slotHoldsAbility(BB_SLOTS, Q_SLOT)).toBe(false); // the broadside is a weapon
+    expect(slotHoldsAbility(BB_SLOTS, E_SLOT)).toBe(false); // star shells is a weapon
   });
 
-  it('PIN FLIPPED AGAIN: BOTH ML specials are WEAPONS — nothing on the ML activates', () => {
-    // Story 2.8, amendment 45: the mine primes on Q and places on a click
+  it('EVERY captain hull now answers true at SLOT_BOOST (amendment 23)', () => {
+    // The boost stopped being a Torpedo Boat privilege in Story 8.5: slot 1
+    // holds the same `speedBoost` module at the same numbers on all three
+    // hulls, so a Battleship and a Mine Layer activate on Shift exactly as the
+    // TB always did.
+    for (const slots of [TB_SLOTS, BB_SLOTS, ML_SLOTS]) {
+      expect(slotHoldsAbility(slots, SLOT_BOOST)).toBe(true);
+    }
+  });
+
+  it('PIN HELD: NO WEAPON SLOT activates — the mine and the buoy both prime', () => {
+    // Story 2.8, amendment 45: the mine primes on its key and places on a click
     // inside its rear arc. Story 7-5 wave 2 (R2.7) did the same to the RADAR
-    // BUOY that replaced the decoy rack — it is click-placed in the mine's own
-    // rear sector — so the Mine Layer now carries NO instant-activation slot at
-    // all, and the speed boost is the game's only remaining ability.
-    expect(slotHoldsAbility(ML_SLOTS, 1)).toBe(false);
-    expect(slotHoldsAbility(ML_SLOTS, 2)).toBe(false);
-    expect(slotHoldsAbility(ML_SLOTS, 0)).toBe(false); // gun stays a weapon
-    expect(slotHoldsAbility(['gun', 'speedBoost', null, null], 1)).toBe(true);
+    // BUOY that replaced the decoy rack. Story 8.5 (amendment 22) then took the
+    // buoy out of every fit — it is named here as a bare id because no hull can
+    // carry it any more, and the split it declares is still the pin.
+    expect(slotHoldsAbility(ML_SLOTS, Q_SLOT)).toBe(false);
+    expect(slotHoldsAbility(nine('radarBuoy'), Q_SLOT)).toBe(false);
+    expect(slotHoldsAbility(ML_SLOTS, SLOT_GUN)).toBe(false); // gun stays a weapon
   });
 
   it('is false for empty and out-of-range slots', () => {
-    expect(slotHoldsAbility(TB_SLOTS, 3)).toBe(false); // empty extra slot
-    expect(slotHoldsAbility(TB_SLOTS, 7)).toBe(false); // out of range
+    expect(slotHoldsAbility(TB_SLOTS, E_SLOT)).toBe(false); // an empty weapon slot
+    expect(slotHoldsAbility(TB_SLOTS, 8)).toBe(false); // an empty belt slot
+    expect(slotHoldsAbility(TB_SLOTS, 12)).toBe(false); // out of range
   });
 });
 
@@ -245,7 +293,7 @@ describe('KeyboardInput — Q/E/R weapon switch-to (prime toggle)', () => {
   let kb: KeyboardInput | undefined;
   afterEach(() => kb?.detach());
 
-  it('Q primes slot 1; the same key again reverts to the gun', () => {
+  it('Q primes weapon slot 2; the same key again reverts to the gun', () => {
     kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
     kb.attach();
     expect(kb.primedSlot).toBe(SLOT_GUN);
@@ -255,13 +303,15 @@ describe('KeyboardInput — Q/E/R weapon switch-to (prime toggle)', () => {
     expect(kb.primedSlot).toBe(SLOT_GUN);
   });
 
-  it('switching Q → E swaps the prime directly (BB: both specials weapons)', () => {
+  it('switching Q → E swaps the prime directly (two weapons in the row)', () => {
     kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
     kb.attach();
     press('KeyQ');
-    expect(kb.primedSlot).toBe(1);
+    expect(kb.primedSlot).toBe(Q_SLOT);
     press('KeyE');
-    expect(kb.primedSlot).toBe(2);
+    expect(kb.primedSlot).toBe(E_SLOT);
+    press('KeyR');
+    expect(kb.primedSlot).toBe(R_SLOT);
   });
 
   it('the prime survives clearKeys, and revertToGun() clears it (fireable click)', () => {
@@ -282,12 +332,69 @@ describe('KeyboardInput — Q/E/R weapon switch-to (prime toggle)', () => {
     expect(kb.primedSlot).toBe(TORP);
   });
 
-  it('an UNFITTED slot key is inert — R with an empty slot 3 primes nothing', () => {
-    kb = new KeyboardInput({ isSlotFitted: (slot) => slot >= 1 && slot !== 3 });
+  // PIN FLIPPED (Story 8.5, epic-8 amendment 26). An unfitted slot key used to
+  // be SILENT. With seven of the nine slots empty at 0:00, silence reads as a
+  // broken key, so the client now denies: the slot's pulse and the denied tone,
+  // and NOTHING on the wire (the server's own 'empty-slot' case stays
+  // server-internal — a fair client cannot reach it any more).
+  it('an UNFITTED weapon key primes nothing and DENIES on the client', () => {
+    const denied: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: (slot) => slot >= SLOT_BOOST && slot !== R_SLOT,
+      onEmptySlotDenied: (slot) => denied.push(slot),
+    });
     kb.attach();
     const prevented = press('KeyR');
     expect(prevented).toBe(true); // still a bound key — default prevented
-    expect(kb.primedSlot).toBe(SLOT_GUN); // but nothing primed, no feedback
+    expect(kb.primedSlot).toBe(SLOT_GUN); // …nothing primed…
+    expect(kb.pendingActivationCount).toBe(0); // …nothing queued…
+    expect(denied).toEqual([R_SLOT]); // …but the slot flashes DENIED
+  });
+
+  it('a FITTED weapon key never fires the empty-slot denial', () => {
+    const denied: number[] = [];
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED, onEmptySlotDenied: (s) => denied.push(s) });
+    kb.attach();
+    press('KeyQ');
+    press('KeyE');
+    expect(denied).toEqual([]);
+  });
+
+  it('THE LOCK WINS SILENTLY over the empty-slot denial (amendment 26)', () => {
+    // "Locked must read as LOCKED, never as DENIED" — the start-line lockout is
+    // specified feedback-free, so it is checked FIRST and an empty slot pressed
+    // against a held trigger produces no pulse and no tone at all.
+    const denied: number[] = [];
+    let held = true;
+    kb = new KeyboardInput({
+      isSlotFitted: () => false,
+      isCombatLocked: () => held,
+      onEmptySlotDenied: (slot) => denied.push(slot),
+    });
+    kb.attach();
+    press('KeyR');
+    expect(denied).toEqual([]);
+    // The refit modal swallows it the same way…
+    kb.detach();
+    kb = new KeyboardInput({
+      isSlotFitted: () => false,
+      isModalOpen: () => true,
+      onEmptySlotDenied: (slot) => denied.push(slot),
+    });
+    kb.attach();
+    press('KeyR');
+    expect(denied).toEqual([]);
+    // …and once the match goes live the very same press DOES deny.
+    held = false;
+    kb.detach();
+    kb = new KeyboardInput({
+      isSlotFitted: () => false,
+      isCombatLocked: () => held,
+      onEmptySlotDenied: (slot) => denied.push(slot),
+    });
+    kb.attach();
+    press('KeyR');
+    expect(denied).toEqual([R_SLOT]);
   });
 
   it('digits NEVER prime a slot (the old digit slot-priming is dead — amendment 3)', () => {
@@ -304,69 +411,100 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
   let kb: KeyboardInput | undefined;
   afterEach(() => kb?.detach());
 
-  /** A TB-shaped predicate: slot 2 (E) holds the speedBoost ability. */
-  const tbAbilitySlot = (slot: number): boolean => slot === 2;
+  /** The shipped split since Story 8.5: slot 1 (Shift) holds the boost, and it
+   *  is the ONLY ability on any hull. */
+  const boostAbilitySlot = (slot: number): boolean => slot === BOOST;
 
   it('an ability press QUEUES; the wire counter advances only on consumeActivation', () => {
     const presses: number[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
-      isAbilitySlot: tbAbilitySlot,
+      isAbilitySlot: boostAbilitySlot,
       onAbility: (slot) => presses.push(slot),
     });
     kb.attach();
     expect(kb.actSeq).toBe(0); // the 0 sentinel before any press
-    press('KeyE');
-    expect(presses).toEqual([2]);
+    press('ShiftLeft');
+    expect(presses).toEqual([BOOST]);
     expect(kb.pendingActivationCount).toBe(1);
     expect(kb.actSeq).toBe(0);
     kb.consumeActivation(); // one input built → drain one press
     expect(kb.actSeq).toBe(1);
-    expect(kb.actSlot).toBe(2);
+    expect(kb.actSlot).toBe(BOOST);
     expect(kb.pendingActivationCount).toBe(0);
     expect(kb.primedSlot).toBe(SLOT_GUN); // NEVER primes
+  });
+
+  it('EITHER shift key boosts — left and right are the same slot 1 action', () => {
+    const presses: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: ALL_FITTED,
+      isAbilitySlot: boostAbilitySlot,
+      onAbility: (slot) => presses.push(slot),
+    });
+    kb.attach();
+    expect(press('ShiftLeft')).toBe(true); // bound → prevented
+    expect(press('ShiftRight')).toBe(true);
+    expect(presses).toEqual([BOOST, BOOST]);
+  });
+
+  it('a HELD shift is ONE press — OS auto-repeat never machine-guns the boost', () => {
+    const presses: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: ALL_FITTED,
+      isAbilitySlot: boostAbilitySlot,
+      onAbility: (slot) => presses.push(slot),
+    });
+    kb.attach();
+    press('ShiftLeft');
+    press('ShiftLeft', { repeat: true });
+    press('ShiftLeft', { repeat: true });
+    expect(presses).toEqual([BOOST]); // the whole hold is one tap
+    press('ShiftLeft'); // a fresh press edge boosts again
+    expect(presses).toEqual([BOOST, BOOST]);
   });
 
   it('onAbility carries the actSeq the press WILL ride (consumedCount + queue depth)', () => {
     const rides: number[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
-      isAbilitySlot: tbAbilitySlot,
+      isAbilitySlot: boostAbilitySlot,
       onAbility: (_slot, actSeq) => rides.push(actSeq),
     });
     kb.attach();
-    press('KeyE'); // first queued → will ride actSeq 1
-    press('KeyE'); // second queued behind it → will ride actSeq 2
+    press('ShiftLeft'); // first queued → will ride actSeq 1
+    press('ShiftRight'); // second queued behind it → will ride actSeq 2
     expect(rides).toEqual([1, 2]);
   });
 
-  it('PIN FLIPPED AGAIN: BOTH ML keys PRIME — neither queues an activation', () => {
+  it('PIN HELD: the mine and the buoy PRIME — neither queues an activation', () => {
     // Story 2.8, amendment 45 moved the mine out of the activation FIFO onto the
-    // prime path; Story 7-5 wave 2 (R2.7) moved the RADAR BUOY there too. Q and
-    // E both prime now, and the FIFO stays empty for this hull. (The speed boost
-    // still activates — the E-activates half of this pin lives on there, in the
-    // sibling test below.)
+    // prime path; Story 7-5 wave 2 (R2.7) moved the RADAR BUOY there too. Both
+    // prime, and the FIFO stays empty for a hull carrying them. (The speed boost
+    // still activates — on Shift, in the sibling tests above.)
     const presses: number[] = [];
+    const weaponRow: readonly (EquipmentId | null)[] =
+      ['gun', 'speedBoost', 'navalMines', 'radarBuoy', null, null, null, null, null];
     kb = new KeyboardInput({
-      isSlotFitted: (slot) => slot === 1 || slot === 2,
-      isAbilitySlot: (slot) => slotHoldsAbility(['gun', 'navalMines', 'radarBuoy', null], slot),
+      isSlotFitted: (slot) => weaponRow[slot] != null,
+      isAbilitySlot: (slot) => slotHoldsAbility(weaponRow, slot),
       onAbility: (slot) => presses.push(slot),
     });
     kb.attach();
-    press('KeyQ'); // mine — slot 1: a WEAPON prime
-    expect(kb.primedSlot).toBe(1);
+    press('KeyQ'); // mine — a WEAPON prime
+    expect(kb.primedSlot).toBe(Q_SLOT);
     expect(kb.pendingActivationCount).toBe(0);
-    press('KeyE'); // radar buoy — slot 2: a WEAPON prime as of wave 2
+    press('KeyE'); // radar buoy — a WEAPON prime as of wave 2
     expect(presses).toEqual([]);
     expect(kb.pendingActivationCount).toBe(0);
-    expect(kb.primedSlot).toBe(2);
+    expect(kb.primedSlot).toBe(E_SLOT);
   });
 
   it('an activation press never disturbs an existing weapon prime', () => {
-    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED, isAbilitySlot: tbAbilitySlot });
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED, isAbilitySlot: boostAbilitySlot });
     kb.attach();
-    press('KeyQ'); // prime the torpedo (slot 1, a weapon on the TB)
-    press('KeyE'); // boost activation — queued, independent of the prime
+    press('KeyQ'); // prime the torpedo in Q
+    press('ShiftLeft'); // boost activation — queued, independent of the prime
     expect(kb.primedSlot).toBe(TORP);
     kb.consumeActivation();
     expect(kb.actSeq).toBe(1);
@@ -376,69 +514,74 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     const presses: number[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
-      isAbilitySlot: tbAbilitySlot,
+      isAbilitySlot: boostAbilitySlot,
       onAbility: (slot) => presses.push(slot),
     });
     kb.attach();
-    press('KeyE');
-    press('KeyE');
-    expect(presses).toEqual([2, 2]);
+    press('ShiftLeft');
+    press('ShiftLeft');
+    expect(presses).toEqual([BOOST, BOOST]);
     kb.consumeActivation();
     kb.consumeActivation();
     expect(kb.actSeq).toBe(2);
   });
 
   it('consumeActivation is a no-op with an empty queue (repeats the counters)', () => {
-    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED, isAbilitySlot: tbAbilitySlot });
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED, isAbilitySlot: boostAbilitySlot });
     kb.attach();
-    press('KeyE');
+    press('ShiftLeft');
     kb.consumeActivation();
     expect(kb.actSeq).toBe(1);
     kb.consumeActivation(); // nothing queued
     expect(kb.actSeq).toBe(1); // unchanged
-    expect(kb.actSlot).toBe(2);
+    expect(kb.actSlot).toBe(BOOST);
   });
 
-  it('the FIFO caps at 4 — the 5th same-window press gets DENIED FEEDBACK, never silence', () => {
+  it('the FIFO caps at SLOT_COUNT (9) — the 10th same-window press gets DENIED FEEDBACK', () => {
+    // The cap simply follows the slot count, which Story 8.5 moved 4 → 9. It is
+    // still only reachable by MASHING: nine presses inside ONE 50ms sample
+    // window. Over-cap presses are dropped WITH feedback, never in silence.
     const presses: number[] = [];
     const capped: number[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
-      isAbilitySlot: tbAbilitySlot,
+      isAbilitySlot: boostAbilitySlot,
       onAbility: (slot) => presses.push(slot),
       onAbilityCapped: (slot) => capped.push(slot),
     });
     kb.attach();
-    for (let i = 0; i < 7; i++) press('KeyE'); // 7 presses in one window
-    expect(kb.pendingActivationCount).toBe(4); // capped
-    expect(presses).toHaveLength(4); // over-cap presses never reach onAbility
-    expect(capped).toEqual([2, 2, 2]); // …but EACH fires the denied-feedback hook (Story 2.1)
+    for (let i = 0; i < 12; i++) press('ShiftLeft'); // 12 presses in one window
+    expect(kb.pendingActivationCount).toBe(9); // capped
+    expect(presses).toHaveLength(9); // over-cap presses never reach onAbility
+    expect(capped).toEqual([BOOST, BOOST, BOOST]); // …but EACH fires the denied hook
   });
 
   it('clearActivations drops the pending queue but LEAVES the consumed counters monotonic', () => {
-    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED, isAbilitySlot: tbAbilitySlot });
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED, isAbilitySlot: boostAbilitySlot });
     kb.attach();
-    press('KeyE');
+    press('ShiftLeft');
     kb.consumeActivation(); // actSeq 1
-    press('KeyE');
-    press('KeyE');
+    press('ShiftLeft');
+    press('ShiftLeft');
     expect(kb.pendingActivationCount).toBe(2);
     kb.clearActivations(); // death / respawn / reconnect boundary
     expect(kb.pendingActivationCount).toBe(0);
     expect(kb.actSeq).toBe(1); // NOT reset — mirrors the server's un-reset lastActSeq
-    press('KeyE');
+    press('ShiftLeft');
     kb.consumeActivation();
     expect(kb.actSeq).toBe(2);
   });
 
-  it('on a WEAPON-special loadout (BB) the same keys PRIME and actSeq stays 0', () => {
+  it('on an all-weapon row the weapon keys PRIME and actSeq stays 0', () => {
+    const weaponRow: readonly (EquipmentId | null)[] =
+      ['gun', 'speedBoost', 'broadside', 'starShells', null, null, null, null, null];
     kb = new KeyboardInput({
-      isSlotFitted: (slot) => slot === 1 || slot === 2,
-      isAbilitySlot: (slot) => slotHoldsAbility(['gun', 'broadside', 'starShells', null], slot),
+      isSlotFitted: (slot) => weaponRow[slot] != null,
+      isAbilitySlot: (slot) => slotHoldsAbility(weaponRow, slot),
     });
     kb.attach();
     press('KeyE');
-    expect(kb.primedSlot).toBe(2); // star shells — primes like a weapon
+    expect(kb.primedSlot).toBe(E_SLOT); // star shells — primes like a weapon
     expect(kb.actSeq).toBe(0); // the sentinel never advances
     expect(kb.actSlot).toBe(0);
   });
@@ -446,11 +589,13 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
   it('FAILS CLOSED without the fitted hook: a bare construction primes NOTHING', () => {
     // The hook is the only source of truth for what is fitted. Absent it, no
     // slot beyond the gun counts as fitted — a future construction site that
-    // forgets to wire it gets inert slot keys, never the ruled-away "R primes
-    // an empty slot" behavior.
+    // forgets to wire it gets inert slot keys (and, since Story 8.5, a denial
+    // the app may or may not have wired), never the ruled-away "R primes an
+    // empty slot" behavior. SHIFT fails closed the same way and stays SILENT:
+    // the only hull with an empty slot 1 is a PvE drone, which has no keyboard.
     kb = new KeyboardInput();
     kb.attach();
-    for (const code of ['KeyQ', 'KeyE', 'KeyR']) {
+    for (const code of ['KeyQ', 'KeyE', 'KeyR', 'ShiftLeft', 'ShiftRight']) {
       expect(press(code), code).toBe(true); // bound → still prevented
     }
     expect(kb.primedSlot).toBe(SLOT_GUN);
@@ -474,11 +619,23 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
   });
 
   it('SHIFT+TAB is inert — the browser reverse focus-cycle never toggles the refit modal', () => {
+    // STORY 8.5 MADE SHIFT AN ACTION KEY AND THIS PIN STILL HOLDS: the
+    // shiftKey+Tab special case is evaluated BEFORE the binding lookup, so the
+    // Tab event is prevented and takes no action exactly as it always did. (The
+    // preceding ShiftLeft keydown is a separate event and boosts on its own —
+    // that is the ruling, not a regression.)
     let toggles = 0;
-    kb = new KeyboardInput({ onRefitToggle: () => (toggles += 1) });
+    const presses: number[] = [];
+    kb = new KeyboardInput({
+      onRefitToggle: () => (toggles += 1),
+      isSlotFitted: ALL_FITTED,
+      isAbilitySlot: (slot) => slot === BOOST,
+      onAbility: (slot) => presses.push(slot),
+    });
     kb.attach();
     expect(press('Tab', { shiftKey: true })).toBe(true); // prevented: focus stays on the canvas
     expect(toggles).toBe(0); // …but NO action
+    expect(presses).toEqual([]); // …and Shift+Tab is not a boost either
     press('Tab'); // plain TAB still toggles
     expect(toggles).toBe(1);
   });
@@ -539,24 +696,30 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     expect(picks).toEqual([HEAL_CHOICE]);
   });
 
-  it('slot keys (Q/E/R) are SUSPENDED while the modal is open — full combat lockout', () => {
+  it('slot keys (Q/E/R AND Shift) are SUSPENDED while the modal is open', () => {
+    // UX-DR42, verbatim: "Q/E/R/Shift are suspended while the refit window is
+    // open" — full combat lockout, feedback-free.
     const pressed: number[] = [];
     let open = true;
     kb = new KeyboardInput({
       isModalOpen: () => open,
       isSlotFitted: ALL_FITTED,
-      isAbilitySlot: (slot) => slot === 2,
+      isAbilitySlot: (slot) => slot === BOOST,
       onAbility: (slot) => pressed.push(slot),
     });
     kb.attach();
     expect(press('KeyQ')).toBe(true); // still prevented (bound key)…
     expect(press('KeyE')).toBe(true);
+    expect(press('ShiftLeft')).toBe(true);
+    expect(press('ShiftRight')).toBe(true);
     expect(kb.primedSlot).toBe(SLOT_GUN); // …but no prime
     expect(pressed).toEqual([]); // …and no ability queue
     expect(kb.pendingActivationCount).toBe(0);
     open = false; // modal closed → keys live again
     press('KeyQ');
-    expect(kb.primedSlot).toBe(1);
+    expect(kb.primedSlot).toBe(Q_SLOT);
+    press('ShiftLeft');
+    expect(pressed).toEqual([BOOST]);
   });
 
   it('helm keys stay LIVE while the modal is open (the sim never pauses)', () => {
@@ -567,24 +730,27 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     expect(kb.axes()).toEqual({ throttle: 0.25, rudder: 1 });
   });
 
-  it('slot keys are SUSPENDED by the non-modal combat lockout too (Story 6.1 start line)', () => {
+  it('slot keys AND Shift are SUSPENDED by the non-modal combat lockout (Story 6.1 start line)', () => {
     const pressed: number[] = [];
     let held = true;
     kb = new KeyboardInput({
       isCombatLocked: () => held,
       isSlotFitted: ALL_FITTED,
-      isAbilitySlot: (slot) => slot === 2,
+      isAbilitySlot: (slot) => slot === BOOST,
       onAbility: (slot) => pressed.push(slot),
     });
     kb.attach();
     expect(press('KeyQ')).toBe(true); // still prevented (bound key)…
     expect(press('KeyR')).toBe(true);
+    expect(press('ShiftLeft')).toBe(true);
     expect(kb.primedSlot).toBe(SLOT_GUN); // …but no prime
     expect(pressed).toEqual([]); // …and no ability queue — nothing rides an input
     expect(kb.pendingActivationCount).toBe(0);
     held = false; // the match went live → keys live again
     press('KeyQ');
-    expect(kb.primedSlot).toBe(1);
+    expect(kb.primedSlot).toBe(Q_SLOT);
+    press('ShiftRight');
+    expect(pressed).toEqual([BOOST]);
   });
 
   it('F SURVIVES the combat lockout — the horn is neither movement, weapons nor radar', () => {
@@ -637,7 +803,7 @@ describe('KeyboardInput — the FOCUSED-OVERLAY rule (Story 2.3)', () => {
   it('suppresses ALL sim keys — helm INCLUDED, unlike the refit modal', () => {
     const { kb: k, log } = overlayKb();
     kb = k;
-    for (const code of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'Digit1', 'KeyX', 'KeyZ', 'KeyP']) {
+    for (const code of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'ShiftLeft', 'ShiftRight', 'Digit1', 'KeyX', 'KeyZ', 'KeyP']) {
       expect(press(code), code).toBe(true); // still preventDefault-ed: focus can't escape
     }
     expect(log).toEqual([]);
@@ -723,12 +889,12 @@ describe('KeyboardInput — chokepoint hygiene', () => {
     document.body.replaceChildren(); // drop any focused fixture
   });
 
-  it('preventDefaults EVERY bound key — W/A/S/D, arrows, Q/E/R, F, Space, digits, TAB, ESC, ENTER, Z/X/M/P', () => {
+  it('preventDefaults EVERY bound key — W/A/S/D, arrows, Q/E/R, Shift, F, Space, digits, TAB, ESC, ENTER, Z/X/M/P', () => {
     kb = new KeyboardInput();
     kb.attach();
     for (const code of [
       'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-      'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'Space', 'Digit1', 'Digit4', 'Numpad2',
+      'KeyQ', 'KeyE', 'KeyR', 'ShiftLeft', 'ShiftRight', 'KeyF', 'Space', 'Digit1', 'Digit4', 'Numpad2',
       'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyZ', 'KeyX', 'KeyM', 'KeyP',
     ]) {
       expect(press(code), code).toBe(true);
@@ -946,7 +1112,7 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
   let kb: KeyboardInput | undefined;
   afterEach(() => kb?.detach());
 
-  const tbAbilitySlot = (slot: number): boolean => slot === BOOST;
+  const boostAbilitySlot = (slot: number): boolean => slot === BOOST;
 
   it('a weapon slot toggles the prime, exactly like its key', () => {
     kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
@@ -957,7 +1123,7 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
   });
 
   it('the GUN slot (which no key addresses) selects the gun', () => {
-    kb = new KeyboardInput({ isSlotFitted: (slot) => slot <= 3 });
+    kb = new KeyboardInput({ isSlotFitted: (slot) => slot <= R_SLOT });
     kb.slotAction(TORP);
     expect(kb.primedSlot).toBe(TORP);
     kb.slotAction(SLOT_GUN);
@@ -968,7 +1134,7 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
     const presses: number[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
-      isAbilitySlot: tbAbilitySlot,
+      isAbilitySlot: boostAbilitySlot,
       onAbility: (slot) => presses.push(slot),
     });
     kb.slotAction(BOOST);
@@ -981,11 +1147,11 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
     const capped: number[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
-      isAbilitySlot: tbAbilitySlot,
+      isAbilitySlot: boostAbilitySlot,
       onAbilityCapped: (slot) => capped.push(slot),
     });
-    for (let i = 0; i < 5; i++) kb.slotAction(BOOST); // SLOT_COUNT (4) fit, the 5th is capped
-    expect(kb.pendingActivationCount).toBe(4);
+    for (let i = 0; i < 10; i++) kb.slotAction(BOOST); // SLOT_COUNT (9) fit, the 10th is capped
+    expect(kb.pendingActivationCount).toBe(9);
     expect(capped).toEqual([BOOST]);
   });
 
@@ -993,7 +1159,7 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
     const presses: number[] = [];
     kb = new KeyboardInput({
       isSlotFitted: ALL_FITTED,
-      isAbilitySlot: tbAbilitySlot,
+      isAbilitySlot: boostAbilitySlot,
       isModalOpen: () => true,
       onAbility: (slot) => presses.push(slot),
     });
@@ -1003,12 +1169,171 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
     expect(presses).toEqual([]);
   });
 
-  it('is inert on an unfitted slot, and FAILS CLOSED with no fitted hook wired', () => {
-    kb = new KeyboardInput({ isSlotFitted: (slot) => slot !== 3 });
-    kb.slotAction(3); // the empty extra slot
+  it('DENIES on an unfitted slot, and FAILS CLOSED with no fitted hook wired', () => {
+    // A click on a slot IS its key (amendment 11), so Story 8.5's client-side
+    // empty denial reaches it the same way on the WEAPON row. The BELT rows
+    // (5-8) are empty for all of this story and their digits are still
+    // refit-only (amendment 27), so a belt CLICK is silent too (Eric
+    // 2026-09-16, amendment 30) — key and click on one row behave the same.
+    // Nothing is primed and nothing is sent either way.
+    const denied: number[] = [];
+    const fitted = (slot: number): boolean => ALL_FITTED(slot) && slot !== R_SLOT;
+    kb = new KeyboardInput({ isSlotFitted: fitted, onEmptySlotDenied: (s) => denied.push(s) });
+    kb.slotAction(R_SLOT); // an empty weapon slot
+    kb.slotAction(8); // an empty BELT slot — silent until 8.7
     expect(kb.primedSlot).toBe(SLOT_GUN);
+    expect(denied).toEqual([R_SLOT]);
     const bare = new KeyboardInput();
     bare.slotAction(TORP);
     expect(bare.primedSlot).toBe(SLOT_GUN);
+  });
+});
+
+// --- Story 8.5, ruling 9 / UX-DR42: the prime reverts on RELEASE, not press ---
+//
+// main.ts still DECIDES at pointerdown (shouldConsumePrime, where the fire input
+// and its D1 fire-time stamp are built) but now only ARMS the revert; the
+// matching pointerup pays it. A held trigger therefore keeps its prime for the
+// whole hold — which is what Story 8.14's machine gun is built on — and any
+// prime change in between cancels the debt, because the key wins.
+
+describe('KeyboardInput — the release-deferred prime revert (UX-DR42)', () => {
+  let kb: KeyboardInput | undefined;
+  afterEach(() => kb?.detach());
+
+  it('arming does NOT revert: the prime survives the pointerdown and dies on the release', () => {
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
+    kb.attach();
+    press('KeyE');
+    expect(kb.primedSlot).toBe(E_SLOT);
+    kb.armReleaseRevert(1); // the pointerdown of click #1 predicted FIREABLE
+    expect(kb.primedSlot).toBe(E_SLOT); // …and the prime is STILL showing
+    expect(kb.releaseRevertPending).toBe(true);
+    expect(kb.releaseRevertClickSeq).toBe(1);
+    kb.consumeReleaseRevert(1); // that click's own pointerup
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+    expect(kb.releaseRevertPending).toBe(false);
+  });
+
+  it('THE DEBT NAMES ITS CLICK: another click\'s release pays nothing', () => {
+    // The review fix. A bare boolean was payable by ANY release — the previous
+    // click's, arriving in the same 50ms tick as this one's press (a fast
+    // double-click), or a second pointer's. Only click #2's own release settles
+    // click #2.
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
+    kb.attach();
+    press('KeyE');
+    kb.armReleaseRevert(2);
+    kb.consumeReleaseRevert(1); // the PREVIOUS click's hold ending
+    expect(kb.primedSlot).toBe(E_SLOT); // …is not this click's release
+    expect(kb.releaseRevertPending).toBe(true);
+    kb.consumeReleaseRevert(3); // nor is a later one
+    expect(kb.primedSlot).toBe(E_SLOT);
+    kb.consumeReleaseRevert(2);
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+  });
+
+  it('A KEY PRESSED MID-HOLD WINS: the switched prime survives the release', () => {
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
+    kb.attach();
+    press('KeyQ');
+    kb.armReleaseRevert(1); // pointerdown on the Q weapon
+    press('KeyE'); // …switched mid-hold
+    expect(kb.releaseRevertPending).toBe(false); // the debt is cancelled
+    kb.consumeReleaseRevert(1); // pointerup
+    expect(kb.primedSlot).toBe(E_SLOT); // still E — the key won
+  });
+
+  it('a hotbar CLICK mid-hold cancels it too (clicks are keys — amendment 11)', () => {
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
+    kb.armReleaseRevert(1);
+    kb.slotAction(R_SLOT);
+    kb.consumeReleaseRevert(1);
+    expect(kb.primedSlot).toBe(R_SLOT);
+  });
+
+  it('a release with nothing armed is a no-op — a DENIED click keeps its prime', () => {
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
+    kb.attach();
+    press('KeyQ');
+    kb.consumeReleaseRevert(1); // the denied click armed nothing
+    expect(kb.primedSlot).toBe(TORP);
+  });
+
+  it('arming is idempotent, and one release pays at most one debt', () => {
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
+    kb.attach();
+    press('KeyQ');
+    kb.armReleaseRevert(1);
+    kb.armReleaseRevert(1);
+    kb.consumeReleaseRevert(1);
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+    press('KeyE'); // a fresh prime, with no stale debt behind it
+    kb.consumeReleaseRevert(1);
+    expect(kb.primedSlot).toBe(E_SLOT);
+  });
+
+  it('revertToGun (the hard boundaries) clears the debt as well as the prime', () => {
+    // The sinking window's hygiene and the room's resetPrime still revert
+    // outright: those end a LIFE, not a trigger pull, and must not leave a debt
+    // behind to fire into the next one.
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
+    kb.attach();
+    press('KeyQ');
+    kb.armReleaseRevert(1);
+    kb.revertToGun();
+    expect(kb.releaseRevertPending).toBe(false);
+    expect(kb.releaseRevertClickSeq).toBeNull();
+    press('KeyE');
+    kb.consumeReleaseRevert(1);
+    expect(kb.primedSlot).toBe(E_SLOT);
+  });
+});
+
+// --- the hook's ONLY consumer: main.ts's feedback wiring ---------------------
+//
+// `onEmptySlotDenied` is feedback and nothing else — no wire, no state — so a
+// chokepoint that fires it into a hook nobody wired would pass every behavioural
+// test above and be silently dead in the game. main.ts is the composition root
+// and cannot be instantiated under jsdom, but WHICH cue it routes the hook to is
+// decidable from the source text, which is the idiom this client already uses
+// for facts that only exist at the wiring seam (ordnanceMasksAreServerOnly,
+// noDrawPileCounter).
+
+describe('main.ts routes the empty-slot denial to the SHIPPED denied grammar', () => {
+  const MAIN_TS = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'),
+    'utf8',
+  );
+
+  it('wires the hook at all — the pulse and the tone have a consumer', () => {
+    expect(MAIN_TS).toContain('onEmptySlotDenied:');
+  });
+
+  it('reuses the existing per-slot denied flash + budgeted tone, inventing nothing', () => {
+    // amendment 26: "the slot flashes its denied pulse and the denied tone
+    // plays". Both come from `flashSlotDenied`, the helper the FIFO-full drop
+    // already used — an empty Q and a cooling Q are the same sentence to the
+    // player, and a second mark for it would be a second thing to learn.
+    const hook = MAIN_TS.slice(MAIN_TS.indexOf('onEmptySlotDenied:'));
+    expect(hook.slice(0, 200)).toContain('flashSlotDenied(g, slot)');
+    const helper = MAIN_TS.slice(MAIN_TS.indexOf('function flashSlotDenied('));
+    expect(helper.slice(0, 400)).toContain('abilityDeniedPress[slot] = true');
+    expect(helper.slice(0, 400)).toContain('playDenied(g)');
+    // …behind the SAME no-twin guard every other client-side denial carries: a
+    // tone with no hotbar to flash into is a cue with no twin.
+    expect(helper.slice(0, 400)).toContain('deniedFeedbackHasNoTwin(');
+  });
+
+  it('sends NOTHING — the denial never reaches the wire (amendment 26)', () => {
+    // CLIENT-ONLY BY RULING. No input is sampled, no sequence counter moves and
+    // no dedup key is marked (there is no server echo this could ever be
+    // deduped against — the server's own empty-slot case is unreachable to a
+    // fair client, which is why no DenialReason was added to the wire).
+    const hook = MAIN_TS.slice(MAIN_TS.indexOf('onEmptySlotDenied:'));
+    const body = hook.slice(0, 200);
+    for (const forbidden of ['sampler', 'send', 'markPredicted', 'actSeq', 'fireSeq']) {
+      expect(body, forbidden).not.toContain(forbidden);
+    }
   });
 });

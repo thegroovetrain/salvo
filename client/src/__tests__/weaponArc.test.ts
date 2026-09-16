@@ -1,15 +1,18 @@
 // Firing-arc + range helpers (render/weaponArc.ts) — shared by firing.ts's
 // marker rendering and deniedFire.ts's own-fire denial via main.ts. Keyed by the
-// fitted EQUIPMENT ID (Story 1.7), NOT the loadout slot index: slot identity is
-// now hull-dependent (BB slot 1 = broadside, TB slot 1 = torpedo), so a
-// slot-number branch would light the wrong marker. The gun family
+// fitted EQUIPMENT ID (Story 1.7), NOT the loadout slot index: slot identity
+// was hull-dependent, and since Story 8.5's nine-slot spine it is CARD-
+// dependent — the three weapon slots are generic, so whatever a captain drew
+// sits in whichever of Q/E/R was empty first. A slot-number branch would light
+// the wrong marker. The gun family
 // (gun/starShells) is 360°; the torpedo has a bow arc; the MINE and (Story 7-5
 // wave 2) the RADAR BUOY have a rear placement arc; the BROADSIDE BARRAGE has
 // TWIN mirrored beam sectors.
 //
 // The TB torpedo case is the byte-identical regression pin: its bow-arc behavior
-// must NOT drift as the branch grows more shapes. loadoutFor is the
-// authoritative id→slot map, so we derive the ids the same way main.ts does.
+// must NOT drift as the branch grows more shapes. `slotsWithCards` over the
+// interim SPAWN_SEED is the authoritative id→slot map, so we derive the ids the
+// same way main.ts's slotIdsFor does.
 //
 // STORY 7-5 WAVE 2 RETIRED the `stern-drop` pins wholesale: that shape is
 // deleted from sim/arcs.ts with the decoy buoy that was its only user, so
@@ -23,7 +26,9 @@ import {
   arcFor,
   effectiveStats,
   gunReachU as sharedGunReachU,
-  loadoutFor,
+  SPAWN_SEED,
+  WEAPON_SLOTS,
+  slotsWithCards,
   pointInLitZone as sharedPointInLitZone,
 } from '@salvo/shared';
 import type { Catalog, CatalogLine, EquipmentId } from '@salvo/shared';
@@ -39,11 +44,20 @@ import {
 } from '../render/weaponArc.js';
 import { ownActiveZones } from '../render/litZones.js';
 
-/** The fitted equipment id at a slot for a hull (the client's slotIdsFor path). */
+/**
+ * The fitted equipment id at a slot for a hull — the client's slotIdsFor path,
+ * verbatim. STORY 8.5 re-cut the base fit: it no longer takes a hull, so what a
+ * hull carries comes from its CARDS. At 0:00 those are the interim SPAWN_SEED
+ * lines (epic-8 amendment 21 — today's class weapons, applied as cards), which
+ * land in the first empty WEAPON slot, i.e. from slot 2 (Q) upward.
+ */
 function idAt(cls: 'torpedoBoat' | 'battleship' | 'mineLayer', slot: number): EquipmentId | null {
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
-  return loadoutFor(cls, stats)[slot].equipmentId;
+  return slotsWithCards(stats, SPAWN_SEED[cls] ?? [])[slot].equipmentId;
 }
+
+/** The three WEAPON slots, by name — Q, E, R (shared WEAPON_SLOTS). */
+const [Q, E] = WEAPON_SLOTS;
 
 describe('fireArcKind — equipment-id → firing-arc class', () => {
   it('classes the gun FAMILY (gun/starShells) as 360° gunLike', () => {
@@ -83,10 +97,11 @@ describe('weaponArcHit — gun family (360°)', () => {
     expect(weaponArcHit(0, 0, 'starShells')).toBe(true);
     expect(weaponArcHit(0, Math.PI, 'starShells')).toBe(true); // dead astern
     expect(weaponArcHit(1.2, -2.9, 'starShells')).toBe(true);
-    // And the BB's real fitted slots 1 & 2 (the whole point) — slot 1 is the
-    // BROADSIDE now, which is NOT 360° and gets its own suite below.
-    expect(idAt('battleship', 1)).toBe('broadside');
-    expect(idAt('battleship', 2)).toBe('starShells');
+    // And the BB's real fitted slots (the whole point) — its seed fills Q with
+    // the BROADSIDE, which is NOT 360° and gets its own suite below, and E with
+    // the star shells.
+    expect(idAt('battleship', Q)).toBe('broadside');
+    expect(idAt('battleship', E)).toBe('starShells');
   });
 });
 
@@ -192,19 +207,21 @@ describe('weaponArcHit — torpedo bow arc', () => {
 
 describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', () => {
   // The id-driven branch must reproduce the TB's bow-arc torpedo behavior
-  // (TB slot 1 = torpedo). The Mine Layer fits [gun, mine, radarBuoy, empty] —
-  // BOTH specials are click-placed rear-sector ids since Story 7-5 wave 2. We
-  // drive weaponArcHit through the REAL fitted ids.
+  // (TB's Q = torpedo). The Mine Layer's seed fills Q with the mine; the RADAR
+  // BUOY has gone DARK (epic-8 amendment 22 — no card and no seed reaches it,
+  // so no hull carries it in play), and the arc suite below drives it as a bare
+  // id, which is what `weaponArcHit` actually takes.
   const halfArc = CONFIG.torpedo.halfArc;
 
-  it('TB slot 1 is the torpedo; ML slot 1 is the mine and slot 2 the buoy rack', () => {
-    expect(idAt('torpedoBoat', 1)).toBe('heavyTorpedo');
-    expect(idAt('mineLayer', 1)).toBe('navalMines');
-    expect(idAt('mineLayer', 2)).toBe('radarBuoy');
+  it('the TB seed fills Q with the torpedo; the ML seed fills Q with the mine', () => {
+    expect(idAt('torpedoBoat', Q)).toBe('heavyTorpedo');
+    expect(idAt('mineLayer', Q)).toBe('navalMines');
+    // AMENDMENT 22: nothing fits the buoy any more — E stays empty on the ML.
+    expect(idAt('mineLayer', E)).toBeNull();
   });
 
   it('the TB torpedo gates on the bow arc exactly as before', () => {
-    const torp = idAt('torpedoBoat', 1);
+    const torp = idAt('torpedoBoat', Q);
     expect(weaponArcHit(0, 0, torp)).toBe(true);
     expect(weaponArcHit(0, halfArc, torp)).toBe(true);
     expect(weaponArcHit(0, halfArc + 0.01, torp)).toBe(false);
@@ -212,17 +229,22 @@ describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', 
   });
 
   it('BOTH ML specials are AIMED rear-sector ids (wave 2 flipped the buoy)', () => {
-    // PIN FLIPPED (Story 2.8): slot 1 used to classify `none` alongside slot 2.
-    // PIN FLIPPED AGAIN (Story 7-5 wave 2): so does slot 2 now — the radar buoy
-    // is click-placed in the mine's own rear sector, and the stern-drop shape
-    // that made it "never in arc at any bearing" is deleted.
+    // PIN FLIPPED (Story 2.8): the mine used to classify `none` alongside the
+    // buoy. PIN FLIPPED AGAIN (Story 7-5 wave 2): so does the buoy — it is
+    // click-placed in the mine's own rear sector, and the stern-drop shape that
+    // made it "never in arc at any bearing" is deleted.
+    //
+    // STORY 8.5 DROPPED THE SLOT LOOKUP, NOT THE PIN (epic-8 amendment 22): the
+    // buoy is unreachable in play, so there is no fitted slot to read it out of
+    // — the module, its arc and this behaviour all stay until Story 8.15
+    // deletes them. The ids are named directly, which is what weaponArcHit
+    // takes anyway.
     const rear = arcFor('navalMines');
     if (rear.kind !== 'sector') throw new Error('mine must declare a sector');
-    for (const slot of [1, 2]) {
-      const id = idAt('mineLayer', slot);
-      expect(fireArcKind(id), String(slot)).toBe('sector');
-      expect(weaponArcHit(0, rear.offset, id), String(slot)).toBe(true);
-      expect(weaponArcHit(0, 0, id), String(slot)).toBe(false); // dead ahead
+    for (const id of ['navalMines', 'radarBuoy'] as const) {
+      expect(fireArcKind(id), id).toBe('sector');
+      expect(weaponArcHit(0, rear.offset, id), id).toBe(true);
+      expect(weaponArcHit(0, 0, id), id).toBe(false); // dead ahead
     }
   });
 });

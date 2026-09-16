@@ -143,10 +143,12 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
     expect(ofKind(w.tickEvents, 'mz')).toHaveLength(2); // dedupe is per owner, never global
   });
 
-  it("the BROADSIDE (battleship slot 1) flashes PER SHELL — R2.5's declared opt-out from the per-owner dedupe", () => {
+  it("the BROADSIDE (battleship weapon slot 2) flashes PER SHELL — R2.5's declared opt-out from the per-owner dedupe", () => {
     const w = bareWorld();
     place(w, 'a', 0, 0, 0, 'battleship');
-    fire(w, 'a', 1, Math.PI / 2, 300); // abeam — inside the port beam sector
+    // Story 8.5: the Battleship's seed fits `broadside` into the first WEAPON
+    // slot (2) — the class fit that used to put it in slot 1 is gone.
+    fire(w, 'a', 2, Math.PI / 2, 300); // abeam — inside the port beam sector
     w.step();
     expect([...w.shells.values()][0]?.kind).toBe('shell'); // still the gun-family wire kind
     // Story 7-5 wave 2 (Eric A2): a barrage is N independent shells, so it is
@@ -159,7 +161,7 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
   it('a torpedo launch emits NO mz — the ratified quiet weapon (amendment 20)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    fire(w, 'a', 1, 0, 0); // TB slot 1: the bow torpedo, dead ahead
+    fire(w, 'a', 2, 0, 0); // TB weapon slot 2: the seeded bow torpedo, dead ahead
     w.step();
     expect([...w.shells.values()][0]?.kind).toBe('torp'); // the launch really happened
     expect(ofKind(w.tickEvents, 'mz')).toHaveLength(0);

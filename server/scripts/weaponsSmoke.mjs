@@ -10,7 +10,7 @@
 //      events entering its sight) and every radar blip id — asserts the sets are
 //      DISJOINT (a torpedo can never appear on the scope).
 //   3. Mine visibility + NO EVICTION: B — the MINE LAYER (mines are its
-//      click-aimed rear-arc slot 1 as of Story 2.8) — holds station clicking
+//      click-aimed rear-arc weapon slot 2 as of Story 8.5) — holds station clicking
 //      drops astern while A loiters within detect range but outside trigger
 //      range. Asserts A never sees an enemy mine beyond DETECT range (Story
 //      4.9: the 3/8 rung, 0.75 × sight — the truesight bar is retired; no
@@ -191,18 +191,18 @@ function engageTorp(ctx, inp, target) {
   const range = dist(ctx.you, target);
   inp.throttle = range > 110 ? 0.6 : range > 60 ? 0.15 : 0; // close, keep steerageway, never scrum
   inp.aim = brg;
-  inp.slot = 1; // torpedoes
+  inp.slot = 2; // torpedoes — the first WEAPON slot (Q), where the spawn seed fits heavyTorpedo (Story 8.5)
   // Click every tick while the tube bears — the reload paces launches.
   if (Math.abs(angleDiff(brg, ctx.you.heading)) < CONFIG.torpedo.halfArc) inp.fireSeq = ++ctx.fireSeq;
 }
 
 /** Hold station (light steerage) and CLICK mine drops astern — the Story 2.8
- *  aimed rear-arc placement (mine layer slot 1): aim dead astern, well inside
+ *  aimed rear-arc placement (mine layer weapon slot 2): aim dead astern, well inside
  *  placeRange, so every click is a legal placement. */
 function dropMines(ctx, inp) {
   if (!ctx.you) return;
   inp.throttle = 0.12; // just enough steerageway to hold a heading
-  inp.slot = 1; // the mine layer's mine slot (gun / mine / radarBuoy fit)
+  inp.slot = 2; // the mine layer's mine slot — the first WEAPON slot (Q), where SPAWN_SEED fits navalMines (Story 8.5; the radar buoy is no longer fitted on any hull — amendment 22)
   inp.aim = ctx.you.heading + Math.PI; // dead astern — center of the placement arc
   inp.aimDist = CONFIG.mine.placeRange * 0.6; // comfortably inside placeRange
   inp.fireSeq = ++ctx.fireSeq; // click every tick; the 8s drop cooldown paces it
