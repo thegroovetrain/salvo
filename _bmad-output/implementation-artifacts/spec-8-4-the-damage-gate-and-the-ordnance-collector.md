@@ -5,7 +5,7 @@ created: '2026-09-15'
 status: 'done'
 baseline_revision: '21bafd9'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   [
     '{project-root}/_bmad-output/project-context.md',
@@ -121,6 +121,25 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-09-16 — Review pass (Blind Hunter + Edge Case Hunter at session model, plus Codex `gpt-5.6-sol` cross-model review — verdicts: Blind Hunter fix-first (narrowly), Edge Case Hunter build-on-it, Codex fix-first; findings applied in this pass)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 9: (high 0, medium 3, low 6)
+- defer: 5: (high 0, medium 2, low 3)
+- reject: 4: (high 0, medium 0, low 4)
+- addressed_findings:
+  - `[medium]` `[patch]` P1 — a shell consumed by an unseen MINE handed the shooter a self-private `hc` at the mine's position (flagged by BOTH Codex and the Blind Hunter; orchestrator ruling: a mine-consumed shell emits neither `hc` nor `sp`; burst path unchanged) — `resolveShell` reads the kind before emitting; fail-first 1
+  - `[medium]` `[patch]` P3 — a destroyed/expired radar buoy stayed in the collector memo for the rest of the tick and could consume a second shell/torpedo of the same click (Edge Case Hunter, CONFIRMED) — one `consumeBuoy` bumps the generation; fail-first 3
+  - `[medium]` `[patch]` P4 — memo and `sunkThisTick` were cleared in the tick epilogue, so a between-tick `sinkShip` (leave-scuttle) survived a whole tick as a "sank this tick" wreck (Blind Hunter CONFIRMED comment-vs-code; Edge Case Hunter) — cleared in the prologue, docs corrected; fail-first 1
+  - `[low]` `[patch]` P2 — the shell resolver dispatched by store membership, not the target's kind (Codex, Edge Case Hunter) — kind-based dispatch; fail-first 1
+  - `[low]` `[patch]` P5 — `ship.shield` never reset at sink/redeploy/respawn (Blind Hunter) — three resets; fail-first 2
+  - `[low]` `[patch]` P6 — the lint fence saw only `-=` (Blind Hunter, Edge Case Hunter) — `--`, `= x.hp - n`, `+= -n` selectors added, each proved to fire once
+  - `[low]` `[patch]` P7 — `weaponsSmoke` equality assertion would fail on a legitimately tripped mine (both hunters) — `>= 6` only; smoke passed
+  - `[low]` `[patch]` P8 — `wrecksInBurst` ignored the fleet friendly filter (both hunters) — filter applied; fail-first 1
+  - `[low]` `[patch]` P9 — the perf pin shared one world across its five runs (Codex CONFIRMED; premise measured false by the patch agent, guard kept) — fresh world per run, `expect(mines).toBe(500)`
+  - deferred (ledger): kill/assist credit for a shot mine goes to the layer (Blind Hunter D); drones clear minefields + bots lay per reload as ruling consequences (I ii/iii) and the gun buoy's own-field parity (Edge Case Hunter); shield-seat notes for 8.15 (amount-0 `dmg`, nominal tally); the perf pin's narrowness (F); a pre-existing `generateMap` seed throw surfaced by the gate run
+  - rejected: `bankDot` with an undefined owner (no caller); `spawnMine` generation bump "for no reason" (harmless, doc now names it); orphaned captive fields becoming shootable (pre-existing trip-rule fallback); two booms per shot mine (already ledgered, entry re-worded)
+
 ## Auto Run Result
 
 **Status:** done (2026-09-15, build cycle **139**, version **0.18.4**, PV 51 unchanged).
@@ -132,6 +151,10 @@ warnings: [oversized]
 **Files changed:** shared — `sim/shell.ts` (`Target`/`TargetKind`, `ShellState.hits`, point targets, `burstVictims` → `Target[]`), `constants.ts` (six `hits` rows; `mine.maxLive`/`globalCap` deleted), `sim/stats.ts`, `sim/effects.ts`, tests (`shell`, `barrel`, `boons`, `stats`). Server — `game/world.ts` (the gate, `DamageSource`, `ShipRecord.shield`, the collector, `consumeMine`, `detonateShotMine`, `wrecksInBurst`, `resolveInterception`, `mineCount`), `game/equipment/{ballistics,guns,broadside,starShells,torpedoes,mines,radarBuoy}.ts`, `game/ai/{equipment,utility}.ts`, `metrics.ts`, `rooms/ArenaRoom.ts`, `scripts/weaponsSmoke.mjs`, tests (NEW `damageGate.test.ts`, `hitTargets.test.ts`; updated `weapons`, `botPolicy`, `botTactics`, `upgrades`, `metrics` + ten files whose shell literals gained `hits`). Client — NEW `__tests__/ordnanceMasksAreServerOnly.test.ts`. Root — `eslint.config.js`. Docs — `VERSION`/`package.json`/lock (0.18.4), `CHANGELOG.md`, both trackers, `deferred-work.md` (5 stamps + 5 new entries), this spec.
 
 **Verification performed:** `npm run check` exit 0 — lint 0 errors (3 pre-existing `max-lines-per-function` warnings), tsc clean x3, **844 / 1871 / 3269** tests, `check:hooks` 266/0. `goldenFrames.test.ts` passed UNCHANGED (no snapshot line moved, so no amendment had to explain one). The ESLint restriction was proved by planting `x.hp -= 1` in `server/src/game/match.ts` (fired with the gate's message), then removed. Fail-first proved by removing gate steps (a) and (c) — 6 failures — and by removing the sink invalidation plus the amendment-19 count — 3 failures; both reverted. PERF PIN: 20 hulls + 500 armed mines through `stepMines` + `hitTargets(['hull','mine','decoy'])` + one full `resolveBurst`, **best of 5 = 1.922 ms** against the 50 ms budget (Darwin 25.4.0 / Node 22, dev machine, under vitest — ledgered as a dev number, not a production one). Headless smokes on a self-booted scratch server (`PORT=2597`, killed afterwards; 2567 and 5173 never touched): `soloSmoke` PASSED first attempt, and `/metrics` served `world:{minesLivePeak:0}` live. `matchSmoke` took four attempts — two HUNG and one aborted on a port collision left by the first hang, all three under a caller-side timeout shorter than the script's own 240 s "A sinking B" budget; given its full budget it PASSED (winner ALPHA, both captains, clean disposal). Both failure modes are the ledgered pre-existing flake; the lesson worth recording is that this smoke needs more than 300 s of wall clock. `weaponsSmoke` failed its first run on the NEW assertion and the ASSERTION was wrong, not the code: counting "six live at once" through the OBSERVER's eyes measures the drifting layer's spread against the detect ring, not the store. Re-pinned on A's OWN board (a captain always sees its own mines at any range) and it passed: *"A held 6 own mines live at once (6 laid)"* — a number that was impossible under the retired cap of 5.
+
+**Review pass (2026-09-16):** nine patches landed in `2cca7a8` (three medium, six low; every behavioural one with a fail-first test); 5 deferred to the ledger, 4 rejected, 0 intent gaps, 0 bad-spec loopbacks. Final gate after patches on the orchestrator's own rerun: `npm run check` — **844 / 1881 / 3269**, lint 0 errors, golden frames unchanged, PV 51. One independent gate run hit a pre-existing random-seed `generateMap` throw in `liveness.test.ts`, reproduced deterministically for that seed with `sim/map.ts` untouched and ledgered; the file passes on rerun (91/91). Follow-up review recommended: the fog patch changes the `hc`/`sp` grammar for one case and the shell resolver was restructured around target kind.
+
+**Orchestrator rulings added at review (Eric's veto list, continued):** (13) a shell consumed by a mine emits NO `hc` and NO `sp` — a mine is disclosed only inside the detect ring, so a self-private hit mark at an unseen mine would be a detection channel; the mine's own boom stays sight-gated; a burst that covers only a mine still resolves `sp`. (14) Kill and assist credit for a shot mine stay with the LAYER, not the shooter (ledgered for veto). (15) Drones' shells detonate any armed mine and bots lay one mine per reload with no cap — consequences of the rulings, not retuned here.
 
 **Residual risks / Eric's veto list:** (1) the three orchestrator readings above (the `dmg` amount, the separate blast mask, the World-owned memo); (2) a star shell no longer detonates the firer's own mines — ruled, but it is a real change to a shipped behaviour; (3) a shot mine draws two booms at nearly the same point (ledgered as a client-side presentation nit; suppressing either would break an older invariant); (4) bot mine policy was NOT retuned for a capless world — `preparedMineReserve` (3) is now a bare restraint dial, a balance question for a harness cycle; (5) the perf number is a dev-machine measurement and staging cannot produce a better one (starter plan); (6) the `ordnance` kind, the `decoy` store and `ship.shield` are built-but-empty seats for Stories 8.14/8.15, each with AR44/AR47 rules recorded in the ledger that are NOT implemented here.
 
