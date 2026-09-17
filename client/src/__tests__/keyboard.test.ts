@@ -1200,6 +1200,107 @@ describe('refitCloseStamp — the close edge, over the real refit band', () => {
   });
 });
 
+// THE EDGE IS OBSERVED AT THE EVENT, NOT AT THE NEXT FRAME (review patch P3).
+//
+// TAB and ESC hide the window SYNCHRONOUSLY inside a keydown handler, but the
+// stamp that arms the grace was written only by the next render frame's band
+// sync. Between the two — same task turn, no rAF — a digit read a window that
+// was already closed and a grace that had not started yet, and fell straight
+// through onto the belt. The fix is that `watchRefitWindow` is idempotent and
+// is ALSO run at the top of the grace hook (so the close edge is seen at the
+// digit's OWN keydown) and at the top of the per-tick input build (so a held
+// mouse stream cannot contribute one more sample after an open).
+describe('the close edge is seen at the DIGIT\'s keydown, with no frame between (P3)', () => {
+  let kb: KeyboardInput | undefined;
+  afterEach(() => kb?.detach());
+  beforeEach(() => document.body.replaceChildren());
+
+  const GRACE = CLIENT_CONFIG.refit.closeGraceMs;
+
+  const you = (): OwnShip => ({
+    id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
+    ammo: [], sweep: 0, cls: 'torpedoBoat', pts: 1,
+    offer: ['radarSweep', 'armor', 'deckGunBarrel', 'navalMines'],
+    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
+  });
+  const view = (): OfferView => offerView(you(), false, false, false) as OfferView;
+
+  /** main.ts's wiring, in its exact shape: ONE idempotent watcher, run by the
+   *  per-frame band sync AND by the grace hook itself. `now` is the shared
+   *  clock both of them read. */
+  function wired(menu: UpgradeMenu) {
+    const clock = { now: 1000 };
+    let prevOpen = false;
+    let closedAt = -Infinity;
+    const watch = (): void => {
+      const open = menu.visible;
+      closedAt = refitCloseStamp(prevOpen, open, clock.now, closedAt);
+      prevOpen = open;
+    };
+    const fired: number[] = [];
+    const picks: number[] = [];
+    kb?.detach();
+    kb = new KeyboardInput({
+      isModalOpen: () => menu.visible,
+      isRefitGrace: () => { watch(); return refitGraceActive(clock.now, closedAt, GRACE); },
+      isSlotFitted: () => true,
+      isAbilitySlot: () => true,
+      onAbility: (slot) => fired.push(slot),
+      onRefitPick: (c) => picks.push(c),
+    });
+    kb.attach();
+    return { clock, watch, fired, picks };
+  }
+
+  it('TAB closes and the very next digit, same task turn, is SWALLOWED', () => {
+    const menu = new UpgradeMenu(() => {});
+    const w = wired(menu);
+    menu.toggle(view()); // TAB — open
+    w.watch(); // one frame with the window up
+    menu.toggle(view()); // TAB — close, inside the keydown handler
+    // NO FRAME RUNS HERE. The digit arrives in the same task turn.
+    expect(press('Digit1')).toBe(true); // still prevented
+    expect(w.fired).toEqual([]);
+    expect(w.picks).toEqual([]);
+    expect(kb!.pendingActivationCount).toBe(0);
+  });
+
+  it('ESC closes and the very next digit, same task turn, is SWALLOWED', () => {
+    const menu = new UpgradeMenu(() => {});
+    const w = wired(menu);
+    menu.toggle(view());
+    w.watch();
+    menu.hide(); // ESC — main.ts's handleEscape path, synchronous
+    press('Digit1');
+    expect(w.fired).toEqual([]);
+  });
+
+  it('...and the same key fires once the 400 ms grace lapses', () => {
+    const menu = new UpgradeMenu(() => {});
+    const w = wired(menu);
+    menu.toggle(view());
+    w.watch();
+    menu.toggle(view()); // close at t = 1000
+    press('Digit1');
+    expect(w.fired).toEqual([]);
+    w.clock.now = 1000 + GRACE - 1;
+    press('Digit1');
+    expect(w.fired).toEqual([]);
+    w.clock.now = 1000 + GRACE; // the edge itself FIRES
+    press('Digit1');
+    expect(w.fired).toEqual([BELT_1]);
+  });
+
+  it('a digit while the window is still OPEN picks, and never reaches the belt', () => {
+    const menu = new UpgradeMenu(() => {});
+    const w = wired(menu);
+    menu.toggle(view());
+    press('Digit1');
+    expect(w.picks).toEqual([0]);
+    expect(w.fired).toEqual([]);
+  });
+});
+
 describe('KeyboardInput — the FOCUSED-OVERLAY rule (Story 2.3)', () => {
   let kb: KeyboardInput | undefined;
   afterEach(() => kb?.detach());
@@ -1831,6 +1932,17 @@ describe('main.ts wires ONE refit-visibility watcher (rulings 8 + 9)', () => {
     // …and the queued presses are NOT dropped with the stream: an already-armed
     // ability press is a press (ruling 9, verbatim).
     expect(watcherBody).not.toContain('clearActivations');
+  });
+
+  // P3: the watcher is idempotent, so the two sites that must NOT wait for the
+  // next frame run it themselves — the grace hook (the digit's own keydown) and
+  // the per-tick input build (before the mouse hold is sampled).
+  it('runs the watcher from the grace hook AND from the per-tick input build', () => {
+    const hook = MAIN_TS.slice(MAIN_TS.indexOf('isRefitGrace:'), MAIN_TS.indexOf('isRefitGrace:') + 400);
+    expect(hook).toContain('watchRefitWindow(');
+    const tick = MAIN_TS.slice(MAIN_TS.indexOf('simTick: () => {'));
+    const build = tick.slice(0, tick.indexOf('g.sampler.sample('));
+    expect(build).toContain('watchRefitWindow(g)');
   });
 
   it('feeds the chokepoint the grace off CLIENT_CONFIG.refit.closeGraceMs', () => {

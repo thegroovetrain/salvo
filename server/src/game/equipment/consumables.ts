@@ -7,10 +7,17 @@
 //   tick      — a NO-OP. `tickReload` is never called on a belt slot, which is
 //               what keeps `reloadMsLeft` 0 for the stack's whole life (and the
 //               client's cooldown wipe off the belt square).
-//   activate  — spend ONE copy (`n -= 1`), then run the line's EFFECT. An empty
-//               or already-cleared stack answers 'no-ammo' exactly as a dry
-//               weapon does; `consume()` is never called either (it would arm a
-//               reload).
+//   activate  — run the line's EFFECT, and spend ONE copy (`n -= 1`) only if it
+//               SUCCEEDED. An empty or already-cleared stack answers 'no-ammo'
+//               exactly as a dry weapon does; `consume()` is never called
+//               either (it would arm a reload).
+//
+// ONE SPEND LAW (review patch P2): a copy leaves the stack and a copy leaves
+// `ship.cards` on the SAME condition — `result.ok` — because the gate runs
+// `spendStock` only on success. Decrementing before the effect would break that
+// pair on every denial: an `{ n: 0 }` zombie stack whose card is still held,
+// handed straight back by the next respawn replay. A DENIED effect therefore
+// costs NOTHING and the copy is still there to try again with.
 //
 // WHAT THIS MODULE DOES NOT DO: remove the spent copy from `ship.cards` and
 // clear a stack that hit zero. Both live in World.sinkingActivationGate — the
@@ -39,10 +46,10 @@ export interface ConsumableRow extends Equipment {
 }
 
 /**
- * WHAT A COPY DOES when it is spent. Runs AFTER the copy has been taken off
- * the stack, so an effect that fails still costs the copy — the same grammar
- * the weapons use (a round leaves the pool before the shell is placed). The
- * line's own story writes it; 8.7 ships none.
+ * WHAT A COPY DOES when it is spent. Runs while the copy is still ON the stack
+ * (`slot.state.n` counts it), and the copy is taken only if the effect answers
+ * `ok` — see ONE SPEND LAW above. The line's own story writes it; 8.7 ships
+ * none.
  */
 export type ConsumableEffect = (ctx: ActivationContext, slot: LoadoutSlot) => ActivationResult;
 
@@ -67,8 +74,11 @@ export function consumableRow(id: ConsumableId, effect: ConsumableEffect): Consu
       // fail-closed backstop for both, and the honest answer for a directed
       // caller that drives a hand-built stack down to nothing.
       if (state === null || state.n <= 0) return { ok: false, reason: 'no-ammo' };
-      state.n -= 1;
-      return effect(ctx, slot);
+      const result = effect(ctx, slot);
+      // THE ONE SPEND: on success only, and in lockstep with the gate's removal
+      // of the copy from `ship.cards`.
+      if (result.ok) state.n -= 1;
+      return result;
     },
   };
 }

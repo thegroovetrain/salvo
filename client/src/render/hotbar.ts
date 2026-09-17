@@ -874,12 +874,35 @@ interface SlotText {
 }
 
 /** The memoized tooltip model + the inputs it was built from (see cachedModel). */
-interface TooltipCache {
+export interface TooltipCache {
   slot: number;
   id: SlotItemId | null;
   stats: EffectiveStats;
   boons: readonly string[];
+  /** The slot's OWN pool count — what a belt slot's `×n` prints (P5). */
+  n: number;
   model: TooltipModel | null;
+}
+
+/**
+ * Pure: is a cached tooltip model still the answer for these inputs?
+ *
+ * THE STOCK IS ONE OF THEM (review patch P5). It was left out on the argument
+ * that a consumable's count only moves when `cards` does — but the count the
+ * panel prints is read off `view.ammo[slot].n`, which is the SERVER's live pool
+ * and moves on its own schedule. A held hover then reads a stale `×n` for as
+ * long as the pointer rests there. Cheap to key on, impossible to reason wrong.
+ */
+export function tipCacheHit(
+  c: TooltipCache | null,
+  slot: number,
+  id: SlotItemId | null,
+  stats: EffectiveStats,
+  boons: readonly string[],
+  n: number,
+): boolean {
+  if (c === null) return false;
+  return c.slot === slot && c.id === id && c.stats === stats && c.n === n && sameBoonList(c.boons, boons);
 }
 
 /** One shared empty list, so a build with nothing fitted keeps a stable identity
@@ -1234,23 +1257,21 @@ export class Hotbar {
    * line per accrued row and then runs the fit search — which re-measures the
    * whole panel once per row it has to drop — and a held hover asks for the same
    * answer every frame for as long as the pointer rests there. The key is the
-   * three inputs the model is a function of: the slot's equipment, the accrued
+   * four inputs the model is a function of: the slot's equipment, the accrued
    * list (by identity, falling back to length + last id for a caller that
-   * rebuilds the array each frame), and the effective stats the effect lines
-   * read (swapped as a whole object by applyOwnStats, so identity is exact).
+   * rebuilds the array each frame), the effective stats the effect lines read
+   * (swapped as a whole object by applyOwnStats, so identity is exact), and the
+   * slot's own pool count, which is what a belt slot's `×n` prints (P5).
    */
   private cachedModel(slot: number, id: SlotItemId | null, view: HotbarView): TooltipModel | null {
     const boons = view.cards ?? EMPTY_BOONS;
+    const n = view.ammo[slot]?.n ?? 0;
     const c = this.tipCache;
-    if (c && c.slot === slot && c.id === id && c.stats === view.stats && sameBoonList(c.boons, boons)) {
-      return c.model;
-    }
+    if (c !== null && tipCacheHit(c, slot, id, view.stats, boons, n)) return c.model;
     // The belt's STOCK rides the interaction line (ruling 13), so the model's
-    // inputs gain the slot's own pool count — which is already in the cache key
-    // by construction, since a stock change moves `cards` (a used copy leaves
-    // the list) and `cards` is one of the three keys above.
-    const model = tooltipModel(slot, id, view.stats, boons, view.ammo[slot]?.n ?? 0);
-    this.tipCache = { slot, id, stats: view.stats, boons, model };
+    // inputs include the slot's own pool count — and so does the key above.
+    const model = tooltipModel(slot, id, view.stats, boons, n);
+    this.tipCache = { slot, id, stats: view.stats, boons, n, model };
     return model;
   }
 

@@ -58,6 +58,7 @@ import { hudBarLayout } from '../render/hudBar.js';
 import { UI_SCALE_VAR } from './theme.js';
 import {
   FOOT_BOX_PAD,
+  FOOT_BOX_GROWTH,
   MICRO_VAR,
   REFIT_TYPE,
   cardNameSize,
@@ -1109,7 +1110,7 @@ const ROW_CSS_LINE = [
   'align-items:baseline',
   'border-bottom-width:1px',
   'border-bottom-style:solid',
-  'padding:0 1px',
+  `padding:0 ${T.rowPadX}px`,
   'overflow:hidden',
 ].join(';');
 
@@ -1156,6 +1157,7 @@ const ROW_ARROW_CSS = `color:${MUTED};margin:0 ${T.arrowMargin}px`;
 /** The FOOT — mock `.foot`: 14px tall, 9px mono at `.24em`, blank unless the
  *  card is refused. */
 const FOOT_CSS = [
+  'box-sizing:border-box', // the declared height IS the box (refitCardFit measures it)
   `height:${R.footH}px`,
   `margin-top:${T.footGap}px`,
   'font-weight:600',
@@ -1322,7 +1324,7 @@ function footEl(greyed: boolean): HTMLDivElement {
   el.style.borderStyle = 'solid';
   el.style.borderColor = FOOT_BOX_EDGE;
   el.style.padding = `0 ${FOOT_BOX_PAD}px`;
-  el.style.height = `${R.footH + 2}px`; // the box is 16px where the bare word is 14
+  el.style.height = `${R.footH + FOOT_BOX_GROWTH}px`; // 16px boxed where the bare word is 14
   return el;
 }
 
@@ -1360,12 +1362,13 @@ interface RefitTipEls {
 /** Pure: the hover panel's model for one card — the name over its explanation,
  *  plus the CONSUMABLE shape line (ruling 13) where the catalog resolves. An
  *  unresolvable id still gets a panel, which is the fail-open this surface has
- *  always had. */
+ *  always had. The card's OWN stack feeds the shape line's `×n` (review patch
+ *  P7), so the hover and the belt square can never print different counts. */
 function tipModelFor(copy: OfferCard): RefitTooltipModel {
   const line = Object.hasOwn(CATALOG, copy.id) ? CATALOG[copy.id] : undefined;
   return line === undefined
     ? { name: copy.name, body: copy.tooltip }
-    : refitTooltipModel(line, copy.name, copy.tooltip);
+    : refitTooltipModel(line, copy.name, copy.tooltip, copy.stack);
 }
 
 /** Fill the one hover panel from a model. The SHAPE row is REMOVED rather than

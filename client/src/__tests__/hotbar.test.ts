@@ -40,6 +40,7 @@ import { fileURLToPath } from 'node:url';
 import {
   CATALOG,
   CONFIG,
+  CONSUMABLE_SLOTS,
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
@@ -77,6 +78,7 @@ import {
   isBeltSlot,
   isCooling,
   slotAtPoint,
+  tipCacheHit,
   slotDegraded,
   slotFlags,
   slotNumeral,
@@ -86,6 +88,7 @@ import {
   tierColor,
   tierNumeral,
   type HotbarView,
+  type TooltipCache,
 } from '../render/hotbar.js';
 // THE TOOLTIP CORE MOVED in Story 8.7 (ruling 13): `render/slotTooltip.ts` owns
 // the hover dwell, the accrued rows, the container-fit model and the placement.
@@ -1026,6 +1029,51 @@ function paint(view: HotbarView, uiScale = 1) {
 
 const sameRect = (r: number[], box: { x: number; y: number; w: number; h: number }): boolean =>
   r[0] === box.x && r[1] === box.y && r[2] === box.w && r[3] === box.h;
+
+// THE TOOLTIP MEMO MUST SEE THE STOCK (review patch P5). The panel's model is
+// rebuilt only when its inputs move, and the belt's `×n` is one of them — but
+// the key held slot, id, stats and `cards` only. `cards` and the stack count
+// normally move together, so the memo looked safe; it is not, because the
+// count the panel PRINTS is read off `view.ammo[slot].n`, which the server can
+// move on its own (and does, the instant a use lands before the frame that
+// carries the shortened `cards`). A stale key then pins the panel at the old
+// count for as long as the pointer rests there.
+describe('the tooltip memo keys on the slot\'s own stock (P5)', () => {
+  const BELT_1 = CONSUMABLE_SLOTS[0];
+  const stats = statsFor('torpedoBoat');
+  const cards = ['hullRepair', 'hullRepair'];
+  const cached = (n: number): TooltipCache => ({
+    slot: BELT_1, id: 'hullRepair', stats, boons: cards, n,
+    model: tooltipModel(BELT_1, 'hullRepair', stats, cards, n),
+  });
+
+  it('MISSES when only the stock moved — same slot, id, stats and cards array', () => {
+    const c = cached(2);
+    expect(tipCacheHit(c, BELT_1, 'hullRepair', stats, cards, 2)).toBe(true);
+    expect(tipCacheHit(c, BELT_1, 'hullRepair', stats, cards, 1)).toBe(false);
+  });
+
+  it('...so the rebuilt model reads ×1 where the stale one still said ×2', () => {
+    expect(cached(2).model?.interaction).toBe('CONSUMABLE · 1 · KEY FIRES · ×2');
+    expect(cached(1).model?.interaction).toBe('CONSUMABLE · 1 · KEY FIRES · ×1');
+  });
+
+  it('still misses on every other input, and hits on none of them changing', () => {
+    const c = cached(2);
+    expect(tipCacheHit(null, BELT_1, 'hullRepair', stats, cards, 2)).toBe(false);
+    expect(tipCacheHit(c, BELT_1 + 1, 'hullRepair', stats, cards, 2)).toBe(false);
+    expect(tipCacheHit(c, BELT_1, 'smokeScreen', stats, cards, 2)).toBe(false);
+    expect(tipCacheHit(c, BELT_1, 'hullRepair', statsFor('mineLayer'), cards, 2)).toBe(false);
+    expect(tipCacheHit(c, BELT_1, 'hullRepair', stats, ['hullRepair'], 2)).toBe(false);
+  });
+
+  it('is the ONE key the hover memo reads (source pin: no second comparison)', () => {
+    const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../render/hotbar.ts'), 'utf8');
+    const body = src.slice(src.indexOf('private cachedModel('));
+    expect(body.slice(0, 700)).toContain('tipCacheHit(');
+    expect(body.slice(0, 700)).toContain('boons, n, model');
+  });
+});
 
 describe('the belt FRAME (ruling 5)', () => {
   it('draws ONE silver .2 hairline at exactly the layout\'s belt rect', () => {

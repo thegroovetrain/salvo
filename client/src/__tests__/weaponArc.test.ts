@@ -41,6 +41,7 @@ import {
   pointInLitZone,
   sectorOutline,
   twinSectorSide,
+  clickInArc,
   weaponArcHit,
   weaponRangeHit,
   weaponRangeU,
@@ -88,6 +89,37 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
   it('classes the instant ability + the empty slot as none (not an aimed weapon)', () => {
     expect(fireArcKind('speedBoost')).toBe('none');
     expect(fireArcKind(null)).toBe('none');
+  });
+});
+
+// THE CLICK GATE OVER A SLOT'S CONTENT (review patch P8).
+//
+// A click-placed CONSUMABLE — the decoy buoy, Story 8.15 — is an `isWeapon`
+// item with NO equipment row, so the arc table and the range table know nothing
+// about it. Asking them produced `inArc: false`, which made the client paint a
+// predicted DENIED pulse, keep the prime and dedupe away the server's answer,
+// while the server cheerfully placed the buoy. The client TRUSTS THE SERVER'S
+// ARC for one: no sector test, no range clamp, prime consumed like any weapon.
+describe('clickInArc — a click-placed consumable trusts the server (P8)', () => {
+  it('is TRUE for an isWeapon consumable at any bearing and any distance', () => {
+    for (const aim of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      expect(clickInArc(0, aim, 99_999, 'decoyBuoy'), String(aim)).toBe(true);
+    }
+  });
+
+  it('is FALSE for a KEY-FIRES consumable — a click on an ability fires nothing', () => {
+    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const) {
+      expect(clickInArc(0, 0, 10, id), id).toBe(false);
+    }
+  });
+
+  it('leaves EQUIPMENT exactly as it was — both tables still gate it', () => {
+    expect(clickInArc(0, 0, 10, 'gun')).toBe(true);
+    expect(clickInArc(0, 0, 10, 'heavyTorpedo')).toBe(weaponArcHit(0, 0, 'heavyTorpedo'));
+    expect(clickInArc(0, Math.PI, 10, 'navalMines')).toBe(true);
+    // ...the mine's placement leash included.
+    expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange + 1, 'navalMines')).toBe(false);
+    expect(clickInArc(0, 0, 10, null)).toBe(false);
   });
 });
 

@@ -77,6 +77,11 @@ export const REFIT_TYPE = {
   footGap: 2,
   /** The in-row arrow's horizontal margin (px) — mock `.rw .v .ar { margin:0 4px }`. */
   arrowMargin: 4,
+  /** One stat row's OWN side padding (px) — mock `.rw { padding: 0 1px }`. It is
+   *  in the model because it is real: a row's label and value share the inner
+   *  box MINUS this, on both sides (review patch P6). ui/upgradeMenu.ts reads
+   *  the same constant, so the two cannot drift. */
+  rowPadX: 1,
   /** The `cur → next` tier numerals' offset from the last rung (mock `.tl`). */
   tierGap: 8,
   /** Card border width (px) — inside the border-box, so it eats inner space. */
@@ -207,17 +212,28 @@ export function widestToken(text: string, fontPx: number, letterSpacingPx = 0): 
  * The card's INNER content box (px) — the fixed card minus its ASYMMETRIC
  * padding and its 1px border on every side (box-sizing: border-box).
  *
- * The WIDTH the ratified face is specified against is the mock's own
- * `216 − 2×12 = 192`; the 1px border is carried in `boxW` below for the marks
- * that really do have to clear it, and the 192 is what the spec's row/name
- * budgets are quoted in. Both are exported so a failure names the number the
- * reader is holding.
+ * THE MODEL MEASURES WHAT THE DOM RENDERS (review patch P6). The mock quotes
+ * the width as `216 − 2×12 = 192`, and that is the number the ratified face was
+ * SPECIFIED in — but the card declares `box-sizing: border-box` with a 1px
+ * edge, so the body it stretches to is 190, and a model quoting 192 hands out
+ * two pixels the render does not have. The height always carried the border;
+ * the width now does too, and the two axes are finally derived the same way.
  */
 export function refitCardInnerBox(): { w: number; h: number } {
   return {
-    w: R.card - 2 * R.pad.side,
+    w: R.card - 2 * R.pad.side - 2 * REFIT_TYPE.border,
     h: R.cardHeight - R.pad.top - R.pad.bottom - 2 * REFIT_TYPE.border,
   };
+}
+
+/**
+ * The width (px) ONE STAT ROW's label and value actually share — the inner box
+ * minus the row's own `padding: 0 1px` (review patch P6). Every other mark on
+ * the face sits directly in the inner box; only the rows pay this, and they pay
+ * it on both sides.
+ */
+export function refitCardRowBox(): number {
+  return refitCardInnerBox().w - 2 * REFIT_TYPE.rowPadX;
 }
 
 /**
@@ -329,6 +345,12 @@ export function refitStripMetrics(copy: RefitStripCopy): RefitStripMetrics {
 /** The mock's `.rc.grey .foot { padding: 0 8px }` — the reason word's box. */
 export const FOOT_BOX_PAD = 8;
 
+/** How much TALLER the boxed reason word is than the bare 14px foot — the
+ *  `footH + 2` ui/upgradeMenu.ts renders a greyed card's foot at. Declared here
+ *  so the model that spends the 2px and the DOM that draws them read one
+ *  number (review patch P6). */
+export const FOOT_BOX_GROWTH = 2;
+
 /** The in-row / in-ladder arrow glyph, declared once so the model and the DOM
  *  cannot disagree about what a row actually prints. */
 export const ARROW = '→';
@@ -366,6 +388,9 @@ export interface RefitCardCopy {
 export interface RefitCardMetrics {
   innerW: number;
   innerH: number;
+  /** The width a stat row's label + value share — innerW minus the row's own
+   *  `0 1px` padding (review patch P6). */
+  rowBoxW: number;
   /** The size `cardNameSize` picked, and the width the name renders at. */
   nameSize: number;
   nameWidth: number;
@@ -384,7 +409,8 @@ export interface RefitCardMetrics {
   height: number;
   /** height − innerH: ≤ 0 is a fitting card, > 0 is an amendment-47 violation. */
   overflow: number;
-  /** The widest single mark − innerW: ≤ 0 fits the box on the horizontal axis. */
+  /** The worst overrun of any mark past the box it renders in — the rows
+   *  against `rowBoxW`, everything else against `innerW`. ≤ 0 fits. */
   overflowX: number;
   /** The counter-scaled LABEL's line box − the mock's 17px row (amendment 43).
    *  ≤ 0 is a glyph that still fits the row it was lifted inside. */
@@ -445,11 +471,19 @@ export function refitCardMetrics(card: RefitCardCopy, uiScale = 1): RefitCardMet
     T.kindGap + lineBox(R.kindSize, T.lineHeight) +
     T.ladderGap + R.ladderH +
     T.rowsGap + R.rowCount * R.rowH +
-    T.footGap + R.footH;
-  const widest = Math.max(nameWidth, widestRow, kindWidth, footWidth, ladderWidth);
+    // A REASON WORD IS BOXED, AND A BOX IS TALLER (review patch P6): the foot
+    // renders at `footH + 2` the moment it carries `SLOTS FULL`, which is the
+    // only state that prints one.
+    T.footGap + (card.foot === '' ? R.footH : R.footH + FOOT_BOX_GROWTH);
+  // The rows are the one block with padding of their own, so they are measured
+  // against their OWN box; every other mark clears the inner box directly.
+  const rowBoxW = refitCardRowBox();
+  const widest = Math.max(nameWidth, kindWidth, footWidth, ladderWidth);
   return {
-    innerW, innerH, nameSize, nameWidth, widestRow, ladderWidth, kindWidth, footWidth,
-    height, overflow: height - innerH, overflowX: widest - innerW,
+    innerW, innerH, rowBoxW, nameSize, nameWidth, widestRow, ladderWidth, kindWidth, footWidth,
+    height,
+    overflow: height - innerH,
+    overflowX: Math.max(widest - innerW, widestRow - rowBoxW),
     // THE VERTICAL HALF OF AMENDMENT 43: the 17px row and the 14px foot box are
     // the mock's geometry and do NOT grow with the counter-scale, so the lifted
     // glyph has to still fit them. Both registers declare `line-height:1.2` in

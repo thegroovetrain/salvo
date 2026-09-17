@@ -49,7 +49,7 @@ import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './re
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX, type BroadsideArcs } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
-import { weaponArcHit, weaponRangeHit, weaponReachU } from './render/weaponArc.js';
+import { clickInArc, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
@@ -890,10 +890,19 @@ function watchRefitWindow(g: Game): void {
   g.refitWasOpen = open;
 }
 
-/** True while the refit window's close grace still swallows the digits (Story
- *  8.7, ruling 8) — the `resultsKeysArmed` shape, on the other side of its
- *  comparison: the grace is `[closedAt, closedAt + closeGraceMs)`, so a digit
- *  at the edge itself fires. */
+/**
+ * True while the refit window's close grace still swallows the digits (Story
+ * 8.7, ruling 8) — the `resultsKeysArmed` shape, on the other side of its
+ * comparison: the grace is `[closedAt, closedAt + closeGraceMs)`, so a digit at
+ * the edge itself fires.
+ *
+ * ITS CALLER OBSERVES THE EDGE FIRST (review patch P3). TAB and ESC hide the
+ * window SYNCHRONOUSLY inside their own keydown handlers, so a digit pressed in
+ * that same task turn — before any rAF — used to see a window already closed
+ * and a grace not yet stamped, and fell straight through onto the belt. The
+ * chokepoint's hook therefore runs `watchRefitWindow` before asking this, which
+ * is safe because the watcher is idempotent and the render frame still runs it.
+ */
 function refitInGrace(g: Game | null): boolean {
   return g !== null && refitGraceActive(performance.now(), g.refitClosedAt, CLIENT_CONFIG.refit.closeGraceMs);
 }
@@ -2310,7 +2319,9 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     // key when the window goes away. For the grace it is swallowed — prevented,
     // but neither picking nor firing. One watcher (watchRefitWindow) stamps the
     // close; this only asks how long ago it was.
-    isRefitGrace: () => refitInGrace(getG()),
+    // The close edge is observed HERE, at the digit's own keydown (P3) — see
+    // refitInGrace; the watcher is idempotent, so this costs nothing.
+    isRefitGrace: () => { const g = getG(); if (g !== null) watchRefitWindow(g); return refitInGrace(g); },
     // ...and the SLOT KEYS alone also suspend at the held start line (Story
     // 6.1, amendment 8). Its own hook rather than a wider `isModalOpen`,
     // because the FOGHORN must survive the lock: Eric named movement, weapons
@@ -2815,6 +2826,13 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[]): voi
   // from here — derived via the SAME shared slot-effect replay the server
   // applies incrementally (slotsWithCards), so slot ids agree by construction.
   g.ownSlots = slotIdsFor(stats, cards);
+  // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). The belt empties itself:
+  // the last copy of a stocked line is spent and the square goes back to
+  // dashed. A prime left standing on it would swallow every click that follows
+  // — the wire carries a slot holding nothing, the server denies it, and the
+  // player has no way to see why. The gun is slot 0 and is never null, so this
+  // is a no-op for every fit that does not take a primed slot away.
+  if ((g.ownSlots[g.keyboard.primedSlot] ?? null) === null) g.keyboard.revertToGun();
   // Boost numbers ride the same stats swap (CONFIG pass-through today).
   g.predictor.setBoostStats(stats.equipment.speedBoost.speedBonus, stats.equipment.speedBoost.durationMs);
   // Behavior-boon hooks ride it too (Story 2.5): the predictor folds these
@@ -3421,7 +3439,7 @@ function renderFiring(
   // pool count + reload from the server-authoritative slot-aligned ammo array.
   // `ready` for the denied-fire gate is "the slot has a round" (ammo.n > 0); the
   // firing behavior keys off the fitted equipment ID (gun-family is 360° so
-  // weaponArcHit is always true for it), never on a slot-index literal.
+  // clickInArc is always true for it), never on a slot-index literal.
   const slot = g.keyboard.primedSlot;
   const a = status.ammo[slot] ?? null;
   const hasAmmo = !!a && a.n > 0;
@@ -3444,9 +3462,13 @@ function renderFiring(
   // dedup marking (→ later server denial double-pulses), or vice versa.
   // Both halves of the aim gate: the bearing arc AND (for the mine alone) the
   // placement reach — the server denies either the same way, so the predicted
-  // denial must too or an out-of-range mine click flashes nothing.
+  // denial must too or an out-of-range mine click flashes nothing. THE SAME
+  // PREDICATE the sim-tick prediction uses (review patch P8), over the slot's
+  // RAW content: these two must agree exactly, or the red pulse and the
+  // denial-dedup marking come apart — and for a click-placed consumable they
+  // came apart the same way, a predicted denial over a shot the server takes.
   const aimDist = Math.hypot(cursor.x - pose.x, cursor.y - pose.y);
-  const inArc = weaponArcHit(predictedHeading(g), aim, primedId) && weaponRangeHit(aimDist, primedId);
+  const inArc = clickInArc(predictedHeading(g), aim, aimDist, g.ownSlots[slot] ?? null);
   // Predicted denial (a fresh click that can't fire) OR an unmatched SERVER
   // weapon denial (Story 1.10 one-shot latch, consumed here) drives the same
   // rate-limited red pulse — the late server case replaces total silence.
@@ -3574,7 +3596,6 @@ function clickPrediction(
 ): { alive: boolean; loaded: boolean; inArc: boolean } {
   const you = g.state.net.you;
   const a = you?.ammo[primedSlot] ?? null;
-  const id = ownWeaponAt(g, primedSlot);
   return {
     // Story 5.2: WIDENED through the sinking window — a click from a sinking
     // hull genuinely fires (the server's gate re-opens for it), so it must also
@@ -3585,8 +3606,11 @@ function clickPrediction(
     loaded: !!a && a.n > 0,
     // The mine's placement reach is part of its aim gate (Story 2.8): an
     // out-of-range click is refused server-side with nothing consumed, so it
-    // must KEEP the prime here rather than revert to the gun.
-    inArc: weaponArcHit(predictedHeading(g), aim, id) && weaponRangeHit(aimDist, id),
+    // must KEEP the prime here rather than revert to the gun. A CLICK-PLACED
+    // CONSUMABLE has no client geometry at all and trusts the server (P8) —
+    // both readings live in `clickInArc`, over the slot's raw content rather
+    // than the equipment-only narrowing.
+    inArc: clickInArc(predictedHeading(g), aim, aimDist, g.ownSlots[primedSlot] ?? null),
   };
 }
 
@@ -4440,6 +4464,11 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // sinking captain is emphatically not spectating (frames.ts's
       // `spectates()` is `isSunk`-based, so the window stays fogged and keeps
       // `you`), so helm, aim and trigger keep riding the wire all the way down.
+      // The window's edges, observed BEFORE this tick's mouse hold is sampled
+      // (review patch P3): a stream that was live when the refit opened could
+      // otherwise contribute one more sample before the next render frame ran
+      // `endHolds()`. Idempotent — the render frame still runs it too.
+      watchRefitWindow(g);
       if (g.state.spectating) return;
       const { aim, aimDist } = tickAim(g);
       // THE RELEASE EDGE RUNS FIRST, before the wire slot is read: a hold that

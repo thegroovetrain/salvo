@@ -262,6 +262,32 @@ describe('main.ts wires the revert to the RELEASE, not the press', () => {
     expect(press).toBeGreaterThan(wireSlot);
   });
 
+  // P8: the two halves of a click-placed consumable's prime. The prediction
+  // trusts the server's arc through the ONE shared predicate, and a prime on a
+  // slot that has just emptied (the last copy spent) falls back to the gun
+  // instead of leaving dead clicks on a square that holds nothing.
+  it('predicts the click through clickInArc, not the raw arc + range pair', () => {
+    // `bodyOf` cannot be used here: the signature's return-type literal is the
+    // first brace it would find. The declaration window is enough.
+    const at = MAIN_TS.indexOf('function clickPrediction(');
+    expect(at).toBeGreaterThan(-1);
+    const decl = MAIN_TS.slice(at, MAIN_TS.indexOf('function latchOwnFire('));
+    expect(decl).toContain('clickInArc(');
+    expect(decl).not.toContain('weaponArcHit(');
+    expect(decl).not.toContain('weaponRangeHit(');
+    // ...and main.ts no longer imports either raw table: one predicate, one call.
+    expect(MAIN_TS).not.toContain('weaponRangeHit,');
+  });
+
+  it('reverts to the gun when the PRIMED slot empties under a stats apply', () => {
+    const apply = bodyOf('applyOwnStats');
+    const at = apply.indexOf('g.ownSlots = slotIdsFor(');
+    expect(at).toBeGreaterThan(-1);
+    const after = apply.slice(at);
+    expect(after).toContain('revertToGun()');
+    expect(after).toContain('primedSlot');
+  });
+
   it('the HARD boundaries still revert outright (they end a life, not a hold)', () => {
     // The sinking window's hygiene and the room's resetPrime must not become
     // debts: a prime owed at release would otherwise fire into the next life.

@@ -23,6 +23,9 @@
 // and this pin re-measures with it.
 
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { CATALOG, CONFIG, type CatalogLine, type ShipClassId } from '@salvo/shared';
 import { boonName, boonKindLabel, boonTooltipText, cardTierLabel } from '../ui/boonCopy.js';
 import {
@@ -514,24 +517,45 @@ describe('the panel is anchored on the band\'s own geometry', () => {
 // flip rather than a plumbing job.
 describe('the hover panel\'s consumable shape line', () => {
   it('adds the line for a CONSUMABLE and for nothing else', () => {
-    const instant = refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', 'body');
+    const instant = refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', 'body', 0);
     expect(instant.interaction).toBe('CONSUMABLE · 1 · KEY FIRES · ×1');
-    const clicked = refitTooltipModel({ id: 'decoyBuoy', kind: 'consumable' }, 'DECOY BUOY', 'body');
+    const clicked = refitTooltipModel({ id: 'decoyBuoy', kind: 'consumable' }, 'DECOY BUOY', 'body', 0);
     expect(clicked.interaction).toBe('CONSUMABLE · 1 · KEY PRIMES · CLICK FIRES · ×1');
     for (const line of [
       { id: 'radarSweep', kind: 'ladder' },
       { id: 'heavyTorpedo', kind: 'equipment' },
       { id: 'acousticHoming', kind: 'addon' },
     ]) {
-      expect(refitTooltipModel(line, 'N', 'body').interaction, line.id).toBeUndefined();
+      expect(refitTooltipModel(line, 'N', 'body', 0).interaction, line.id).toBeUndefined();
     }
+  });
+
+  // THE COUNT IS THE REAL ONE (review patch P7). The panel used to print a
+  // hard-coded `×1` whatever the captain was carrying, so a hover over a second
+  // copy said `×1` while the belt square beside it said `×2`. The hover is on a
+  // card ABOUT TO BE STOCKED, so the number it shows is what the belt WILL read
+  // once the card is taken — copies held + this one — which is the same reading
+  // the face's ladder and its stat rows already use (they preview the copy
+  // being offered, never the one already held).
+  it('prints the stock the belt will read AFTER the pick: held + 1', () => {
+    const at = (held: number): string | undefined =>
+      refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', 'body', held).interaction;
+    expect(at(0)).toBe('CONSUMABLE · 1 · KEY FIRES · ×1');
+    expect(at(1)).toBe('CONSUMABLE · 1 · KEY FIRES · ×2');
+    expect(at(2)).toBe('CONSUMABLE · 1 · KEY FIRES · ×3');
+  });
+
+  it('is fed the card\'s OWN stack by the band, never a literal', () => {
+    const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../ui/upgradeMenu.ts'), 'utf8');
+    const fn = src.slice(src.indexOf('function tipModelFor('));
+    expect(fn.slice(0, 400)).toContain('copy.stack');
   });
 
   it('costs the panel its own row, and nothing when there is no line', () => {
     const CONTAINER = 400;
     const bare = refitTooltipMetrics({ name: 'HULL REPAIR', body: 'body' }, CONTAINER);
     const withLine = refitTooltipMetrics(
-      refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', 'body'),
+      refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', 'body', 0),
       CONTAINER,
     );
     expect(bare.interactionLines).toBe(0);
@@ -542,7 +566,7 @@ describe('the hover panel\'s consumable shape line', () => {
   it('fits inside the panel, at its shipped width (amendment 42)', () => {
     expect(REFIT_TIP.width).toBe(300);
     for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy']) {
-      const model = refitTooltipModel({ id, kind: 'consumable' }, boonName(id), boonTooltipText(id));
+      const model = refitTooltipModel({ id, kind: 'consumable' }, boonName(id), boonTooltipText(id), 4);
       expect(refitTooltipWidestToken(model), id).toBeLessThanOrEqual(refitTooltipInnerWidth());
       expect(refitTooltipMetrics(model, CONTAINER_H).overflow, id).toBeLessThanOrEqual(0);
     }

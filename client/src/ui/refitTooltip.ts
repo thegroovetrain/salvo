@@ -186,18 +186,27 @@ export function refitTooltipWidestToken(model: RefitTooltipModel): number {
  * A CONSUMABLE card gains the interaction line the belt's slot tooltip prints;
  * every other kind is the name over its explanation, exactly as it shipped.
  *
- * `slotKey` is the digit the line would answer to once it is stocked. It is the
- * FIRST belt key here rather than a resolved slot, because a card has not been
- * picked yet and therefore has no slot — what the panel teaches is the SHAPE
- * (`KEY FIRES` vs `KEY PRIMES · CLICK FIRES`), not which square it will land in.
+ * The KEY is the FIRST belt key rather than a resolved slot, because a card has
+ * not been picked yet and therefore has no slot — what the panel teaches is the
+ * SHAPE (`KEY FIRES` vs `KEY PRIMES · CLICK FIRES`), not which square it will
+ * land in.
+ *
+ * THE STOCK IS THE REAL ONE (review patch P7). It was a hard-coded `×1`, so a
+ * hover over a line already carried twice disagreed with the belt square beside
+ * it. `copiesHeld` is the card's own stack, and the number printed is
+ * `copiesHeld + 1`: the hover is on a card ABOUT TO BE STOCKED, so it reads
+ * what the belt WILL say once it is taken — the same tense the face's ladder
+ * and stat rows are already in (they preview the copy being offered).
  */
 export function refitTooltipModel(
   line: { id: string; kind: string },
   name: string,
   body: string,
+  copiesHeld: number,
 ): RefitTooltipModel {
   if (line.kind !== 'consumable' || !isConsumableId(line.id)) return { name, body };
-  return { name, body, interaction: interactionLine(CONSUMABLE_SLOTS[0], line.id, [], 1) };
+  const stock = Math.max(0, Math.trunc(copiesHeld)) + 1;
+  return { name, body, interaction: interactionLine(CONSUMABLE_SLOTS[0], line.id, [], stock) };
 }
 
 /**

@@ -31,6 +31,7 @@ import {
   isStubLine,
   tierTargetOf,
   type InputMsg,
+  type Catalog,
   type LoadoutSlot,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
@@ -258,10 +259,10 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     expect(slot.state).toEqual({ n: 2, reloadMsLeft: 0 });
   });
 
-  it('activate spends ONE copy and then runs the line effect (the copy is gone before the effect)', () => {
+  it('activate runs the line effect FIRST and spends the copy only on success', () => {
     const seen: number[] = [];
     const row = consumableRow('hullRepair', (_ctx, slot) => {
-      seen.push(slot.state!.n); // the decrement already happened
+      seen.push(slot.state!.n); // the copy is still on the stack while the effect runs
       return { ok: true };
     });
     const slot = stack(2);
@@ -269,7 +270,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     expect(slot.state).toEqual({ n: 1, reloadMsLeft: 0 }); // ...and NO reload armed
     expect(row.activate(CTX, slot)).toEqual({ ok: true });
     expect(slot.state).toEqual({ n: 0, reloadMsLeft: 0 });
-    expect(seen).toEqual([1, 0]);
+    expect(seen).toEqual([2, 1]);
   });
 
   it('an EMPTY or cleared stack denies no-ammo, runs no effect, and changes nothing', () => {
@@ -284,11 +285,19 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     expect(ran).toBe(0);
   });
 
-  it('a FAILED effect still costs the copy — the weapons grammar (the round leaves the pool first)', () => {
+  // ONE SPEND LAW (Story 8.7 review patch P2). A copy leaves the stack and a
+  // copy leaves `ship.cards` on the SAME condition — `result.ok` — and nowhere
+  // else. The gate only runs `spendStock` on success, so a decrement here on a
+  // denial would leave an `{ n: 0 }` zombie stack whose card is still held and
+  // is handed back on the next respawn replay. A denied effect is a no-event.
+  it('a DENIED effect costs nothing: n, cards and the slot are untouched', () => {
     const row = consumableRow('hullRepair', () => ({ ok: false, reason: 'blocked' }));
     const slot = stack(1);
     expect(row.activate(CTX, slot)).toEqual({ ok: false, reason: 'blocked' });
-    expect(slot.state).toEqual({ n: 0, reloadMsLeft: 0 });
+    expect(slot.state).toEqual({ n: 1, reloadMsLeft: 0 });
+    // ...and it stays free to retry, as many times as it is denied.
+    expect(row.activate(CTX, slot)).toEqual({ ok: false, reason: 'blocked' });
+    expect(slot.state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 
   it('buildConsumableRegistry deep-freezes: the map AND every row inside it', () => {
@@ -348,10 +357,18 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
   // proves the spies are live.
   it('neither tickReload nor consume is EVER called for a belt slot (spied, through the real tick + gate)', () => {
     const row = consumableRow('hullRepair', () => ({ ok: true }));
-    const w = bareWorld(7, { consumables: buildConsumableRegistry([row]) });
+    // A REAL stack, backed by REAL cards: since review patch P1 the belt is
+    // re-derived from `ship.cards` after every spend, so a hand-planted slot
+    // with no card behind it would simply vanish. The production catalog with
+    // HULL REPAIR's `stub` flag lifted is the smallest way to hold two copies.
+    const { stub: _stub, ...hullRepairLive } = CATALOG.hullRepair;
+    const catalog: Catalog = { ...CATALOG, hullRepair: hullRepairLive };
+    const w = bareWorld(7, { consumables: buildConsumableRegistry([row]), catalog });
     const ship = place(w, 'a');
-    const belt = stack(2);
-    ship.loadout[SLOT_BELT] = belt;
+    w.applyCard(ship, 'hullRepair');
+    w.applyCard(ship, 'hullRepair');
+    const belt = ship.loadout[SLOT_BELT];
+    expect(belt.state).toEqual({ n: 2, reloadMsLeft: 0 });
     const beltState = belt.state;
     const tickSpy = vi.spyOn(ammo, 'tickReload');
     const consumeSpy = vi.spyOn(ammo, 'consume');

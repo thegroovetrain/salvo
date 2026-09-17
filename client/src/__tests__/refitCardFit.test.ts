@@ -43,6 +43,7 @@ import {
   ladderRowWidth,
   monoWrapLines,
   refitCardInnerBox,
+  refitCardRowBox,
   refitCardMetrics,
   statRowWidth,
   type RefitCardCopy,
@@ -122,10 +123,18 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });
 
-  it('measures the mock\'s own box: 216 × 226, inner 192 wide', () => {
+  // THE MODEL MEASURES WHAT THE DOM RENDERS (review patch P6). The mock quotes
+  // `216 − 2×12 = 192`, but the card is a BORDER-BOX with a 1px edge, so the
+  // body it stretches is 190 — and each stat row spends another `0 1px` of its
+  // own, leaving 188 for a label beside its value. Two numbers, both of them
+  // real, neither of them 192.
+  it('measures the mock\'s own box: 216 × 226, inner 190 wide, rows 188', () => {
     expect(R.card).toBe(216);
     expect(R.cardHeight).toBe(226);
-    expect(refitCardInnerBox().w).toBe(192);
+    expect(refitCardInnerBox().w).toBe(R.card - 2 * R.pad.side - 2 * REFIT_TYPE.border);
+    expect(refitCardInnerBox().w).toBe(190);
+    expect(refitCardRowBox()).toBe(refitCardInnerBox().w - 2 * REFIT_TYPE.rowPadX);
+    expect(refitCardRowBox()).toBe(188);
   });
 
   it('renders EVERY card at the same height, inside its inner box, with headroom', () => {
@@ -139,7 +148,7 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     expect(inner.h - h).toBeGreaterThanOrEqual(2);
   });
 
-  it('NO mark on any card is wider than the 192px inner box', () => {
+  it('NO mark on any card is wider than the box it renders in', () => {
     const over = FACES.map(({ label, face }) => ({ label, m: refitCardMetrics(face) }))
       .filter((r) => r.m.overflowX > 0)
       .map((r) => `${r.label}: widest mark overruns by ${r.m.overflowX.toFixed(1)}px`);
@@ -148,7 +157,7 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
 });
 
 describe('the NAME — one line, at 15px or the mock\'s own .cn.long step', () => {
-  it('fits every catalog name inside 192px at the size the face picks for it', () => {
+  it('fits every catalog name inside the inner box at the size the face picks for it', () => {
     const inner = refitCardInnerBox().w;
     const tooWide = LINE_IDS
       .map((id) => boonName(id))
@@ -159,7 +168,7 @@ describe('the NAME — one line, at 15px or the mock\'s own .cn.long step', () =
   it('takes the 12.5px step ONLY where 15px genuinely does not fit', () => {
     const long = LINE_IDS.map((id) => boonName(id)).filter((n) => cardNameSize(n) === R.nameSizeLong);
     // SUPERCAVITATING TORPEDO is the one name catalog v3 authors that cannot sit
-    // on a 192px line at 15px. If a second one appears, it is deliberate and
+    // on the inner line at 15px. If a second one appears, it is deliberate and
     // this list is where it gets recorded.
     expect(long).toEqual(['SUPERCAVITATING TORPEDO']);
     // ...and it really is too wide at 15px, so the exemption cannot rot.
@@ -177,9 +186,9 @@ describe('the NAME — one line, at 15px or the mock\'s own .cn.long step', () =
   });
 });
 
-describe('the ROWS — every label fits beside its value inside 192px', () => {
-  it('leaves no row overrunning the inner box, in any presentation state', () => {
-    const inner = refitCardInnerBox().w;
+describe('the ROWS — every label fits beside its value inside the 188px row box', () => {
+  it('leaves no row overrunning its own padded box, in any presentation state', () => {
+    const inner = refitCardRowBox();
     const over: string[] = [];
     for (const { label, face } of FACES) {
       for (const row of face.rows) {
@@ -229,6 +238,16 @@ describe('the LADDER row and the FOOT', () => {
     const m = refitCardMetrics(GREYED_FACE);
     expect(m.footWidth).toBeGreaterThan(0);
     expect(m.footWidth).toBeLessThanOrEqual(m.innerW);
+  });
+
+  // The BOXED foot is 2px taller than the bare word (ui/upgradeMenu's
+  // `footH + 2`), and the model has to spend those 2px or it reports a fitting
+  // card that renders 2px long (review patch P6).
+  it('measures the greyed foot at its BOXED height, and the card still fits', () => {
+    const blank: RefitCardCopy = { ...GREYED_FACE, foot: '' };
+    const m = refitCardMetrics(GREYED_FACE);
+    expect(m.height - refitCardMetrics(blank).height).toBe(2);
+    expect(m.overflow).toBeLessThanOrEqual(0);
   });
 });
 

@@ -27,6 +27,7 @@ import {
   boonStackCount,
   buildDeckState,
   canStock,
+  CONSUMABLE_SLOTS,
   burstVictims,
   consumeCard,
   drawOffer,
@@ -2437,14 +2438,9 @@ export class World {
     // `this.catalog['constructor']` with Object.prototype.constructor —
     // not undefined, and with no `tiers` to iterate.
     const line = Object.hasOwn(this.catalog, lineId) ? this.catalog[lineId] : undefined;
-    // A STUB LINE IS REFUSED OUTRIGHT, before the push: its mechanism does not
-    // exist, so fitting it buys nothing — and the id would then ride the wire
-    // in `cards`, where the client's replay and this world's own respawn
-    // replay would both try to derive a loadout from it. The shared fold
-    // refuses the fill too (sim/boons.ts applySlotEffect); this keeps the id
-    // out of the build in the first place. Unreachable in play: a stub is
-    // never dealt into a deck.
-    if (line?.stub === true) return;
+    // THE TWO PRE-PUSH REFUSALS — a stub line, and a consumable the belt has no
+    // room for. See `refusesCard`.
+    if (this.refusesCard(ship, line, lineId)) return;
     ship.cards.push(lineId);
     const prevStats = this.refoldCards(ship);
     if (line?.healOnGrant === true && isAfloat(ship.lifecycle)) {
@@ -2459,6 +2455,33 @@ export class World {
     // A speed card raises the true attainable top speed the wake ring was
     // provisioned for (Story 4.12) — upsize in place, live samples preserved.
     this.reprovisionWake(ship);
+  }
+
+  /**
+   * THE TWO REASONS A COPY NEVER ENTERS `ship.cards` — checked together,
+   * BEFORE the push, because the push is what puts an id on the wire.
+   *
+   *   • A STUB LINE: its mechanism does not exist, so fitting it buys nothing —
+   *     and the id would then ride in `cards`, where the client's replay and
+   *     this world's own respawn replay would both try to derive a loadout from
+   *     it. The shared fold refuses the fill too (sim/boons.ts applySlotEffect);
+   *     this keeps the id out of the build in the first place.
+   *   • A CONSUMABLE WITH NOWHERE TO GO (Story 8.7 review patch P4): the belt
+   *     is full of four other lines. `applySlotEffect`'s full-belt branch is a
+   *     SILENT no-op, so without this a directed grant (spawn seeding, a
+   *     directed deck, the bot port, a test) would leave a copy in `cards` that
+   *     no slot holds — and the client's replay would conjure a stack the
+   *     server does not have. The SAME shared predicate the client greys the
+   *     card with; `spendCard` keeps its own earlier check because it must
+   *     refuse before the offer moves.
+   *
+   * Both are unreachable through a legal deal: a stub is never dealt, and
+   * `spendCard` refuses a full belt one step earlier.
+   */
+  private refusesCard(ship: ShipRecord, line: CatalogLine | undefined, lineId: string): boolean {
+    if (line?.stub === true) return true;
+    if (line?.kind !== 'consumable' || !isConsumableId(lineId)) return false;
+    return !canStock(ship.loadout.map((s) => s.equipmentId), lineId);
   }
 
   /**
@@ -4736,7 +4759,7 @@ export class World {
     // so "the copy leaves `cards` and a spent stack clears" has exactly one
     // home and no row mutates its own slot. Only a SUCCESSFUL activation spends
     // a copy: the row already denied a dry stack without touching it.
-    if (result.ok && isConsumableId(id)) this.spendStock(ship, slot, id);
+    if (result.ok && isConsumableId(id)) this.spendStock(ship, id);
     return result;
   }
 
@@ -4759,16 +4782,41 @@ export class World {
    *
    * RESPAWN AND REDEPLOY REBUILD FROM `cards`, so a used copy is never restored.
    */
-  private spendStock(ship: ShipRecord, slot: LoadoutSlot, lineId: ConsumableId): void {
+  private spendStock(ship: ShipRecord, lineId: ConsumableId): void {
     const at = ship.cards.lastIndexOf(lineId);
     if (at >= 0) ship.cards.splice(at, 1);
     this.refoldCards(ship);
-    // THE SAME TICK the last copy is spent, the slot empties: `slotAmmo` then
-    // reports null for it and the client's square goes dashed. The LoadoutSlot
-    // invariant is restored in one step — state is null iff equipmentId is.
-    if (slot.state !== null && slot.state.n <= 0) {
-      slot.equipmentId = null;
-      slot.state = null;
+    this.rebuildBelt(ship);
+  }
+
+  /**
+   * THE BELT IS ALWAYS THE REPLAY (Story 8.7 review patch P1) — slots 5–8 are
+   * re-derived from `slotsWithCards(stats, cards)` after every spend, and the
+   * weapon row (0–4) is not touched.
+   *
+   * WHY IT CANNOT BE AN IN-PLACE CLEAR: the client never sees `loadout`. It
+   * replays `OwnShip.cards` through the same shared fold, which packs the belt
+   * LEFT TO RIGHT in fit order. Emptying a spent stack where it sits leaves the
+   * server on `[null, B, C, D]` while the client re-packs to `[B, C, D, null]`
+   * — and from that tick on, key 2 names a different line on each side. Taking
+   * the whole belt from the replay makes the two agree by construction rather
+   * than by argument, for the clear AND for every stack count.
+   *
+   * LOSSLESS: a belt slot carries copies held and a `reloadMsLeft` that is 0
+   * for its whole life (a stack never reloads), and both are a pure function of
+   * `cards` — there is no live state here to lose. A WEAPON slot's timers and
+   * pool are NOT, which is exactly why slots 0–4 are left alone. Slots are
+   * mutated in place rather than replaced so a caller still holding the
+   * LoadoutSlot it activated sees the truth.
+   */
+  private rebuildBelt(ship: ShipRecord): void {
+    const replay = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship));
+    for (const i of CONSUMABLE_SLOTS) {
+      const live = ship.loadout[i];
+      const want = replay[i];
+      if (live === undefined || want === undefined) continue;
+      live.equipmentId = want.equipmentId;
+      live.state = want.state;
     }
   }
 
