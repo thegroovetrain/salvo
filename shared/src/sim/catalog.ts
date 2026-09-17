@@ -259,7 +259,11 @@ export const CATALOG: Catalog = deepFreezeRows({
   // AND the Shift boost cooldown; consumables have no reload.
   reload: ladder('reload', 5, [statEffect('cooldownScale', { add: -0.05 })]),
   // --- the deck-gun family --------------------------------------------------
-  // DECK GUN (R14): +1.25 damage per tier, 4 tiers (15 → 20). The OTHER half of
+  // DECK GUN (R14): +1.25 damage per tier, 4 tiers, FLOORED once after the fold
+  // (effects.ts EQUIPMENT_INT_FIELDS) so the gun deals Eric's whole-number
+  // scale 15 → 16 → 17 → 18 → 20 — never 16.25 / 17.5 / 18.75 (epic-8
+  // amendment 39: catalog-v3 R14's "Eric wrote it rounded" was the error; his
+  // integers ARE the scale). The OTHER half of
   // the line — −5 % own reload per tier — is NOT an effect: it is derived from
   // `equipment.gun.tier` in clampStats, exactly as every equipment line's step
   // is, so there is one reload derivation in the engine rather than two.

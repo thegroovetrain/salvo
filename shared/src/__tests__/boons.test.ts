@@ -154,8 +154,10 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
 
   it('EQUIPMENT_INT_FIELDS names the integer stats the clamp floors once', () => {
     // `maxLive` LEFT this list with the mine caps themselves (Story 8.4,
-    // FR57/AR48) — the pin is updated, not deleted.
-    expect([...EQUIPMENT_INT_FIELDS]).toEqual(['maxAmmo', 'barrels', 'turrets']);
+    // FR57/AR48); `damage` and `contactDamage` JOINED it on 2026-09-17 (epic-8
+    // amendment 39 — a shell never deals a fractional hit point). The pin is
+    // updated, not deleted.
+    expect([...EQUIPMENT_INT_FIELDS]).toEqual(['maxAmmo', 'barrels', 'turrets', 'damage', 'contactDamage']);
   });
 
   it('DOCTRINE_MODES is keyed by EquipmentId and carries only verbs a v3 add-on grants', () => {

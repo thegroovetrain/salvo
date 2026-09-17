@@ -90,7 +90,11 @@ export const EQUIPMENT_STAT_FIELDS = {
  * clampSpreadRung against its authored ladder. `maxLive` left this list with
  * the mine caps themselves (Story 8.4, FR57/AR48).
  */
-export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 'turrets'];
+// `damage` and `contactDamage` are integers too (Eric 2026-09-17, epic-8
+// amendment 39): a shell NEVER deals a fractional hit point. The deck-gun
+// ladder accumulates +1.25 per tier and the floor lands it on Eric's own scale
+// 15 → 16 → 17 → 18 → 20.
+export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 'turrets', 'damage', 'contactDamage'];
 
 /**
  * The top-level (non-equipment) stat paths. `sightRange` and `sweepPeriodMs`

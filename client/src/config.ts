@@ -2173,8 +2173,12 @@ export const CLIENT_CONFIG = {
      *  bottom-right cluster, via 8.6's short-lived HUD-bar anchor, to the chrome
      *  — the one place no tooltip, card or bar reaches). Story 2.6 deleted the
      *  amber "PTS ×N — TAB" prompt that used to share the column (amendment 33 —
-     *  the economy moved to its own surface): one line, one offset. */
-    stormAbove: 24,
+     *  the economy moved to its own surface): one line, one offset.
+     *  54, not 24, since 2026-09-17: the DOM banner ("GOING DOWN WITH THE
+     *  SHIP!", RECONNECTING…) now sits under the chrome bar too — 8 px gap +
+     *  its ~38 px box (20 px type + 8 px padding + border) + 8 px — so a
+     *  sinking captain inside the storm reads both lines, stacked. */
+    stormAbove: 54,
     /** DAMAGE CONTROL's incoming-HP band (cycle 46): the still-draining regen
      *  pool (`OwnShip.repairHp`) painted as a dimmed segment sitting directly
      *  ON TOP of the live fill, in the fill's own color. Dual-coded by
