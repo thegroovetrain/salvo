@@ -1328,7 +1328,15 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   // boon (handleFrame applies it before the events fan out), so the occurrence
   // count IS the fitted position — 1 for a first fit, 3 for the third HEAVY
   // SHELLS. A defensive 0 (no `you`) floors to the ladder's first name.
-  pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon)));
+  //
+  // THE VERB FOLLOWS THE KIND (Story 8.7, ruling 14): a consumable is STOCKED,
+  // not FITTED — nothing about the hull changed, a copy went onto the belt. The
+  // line is resolved once, here, and serves both the toast's verb and the cue's
+  // weight below; an unknown id falls through to the FITTED default.
+  const line = Object.hasOwn(CATALOG, e.boon) ? CATALOG[e.boon] : undefined;
+  pushUpgradeToast(
+    boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon), line?.kind),
+  );
   // STORY 2.9, re-keyed in 8.1 — the fit is no longer one generic two-note for
   // every line: the cue is WEIGHTED BY KIND (fitTone) and the flash lands on the
   // slot holding the equipment the card ADDRESSES. Both read off the shared
@@ -1337,7 +1345,6 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   // without a cue. The KIND picks the cue's weight and transposes it (fitDetune,
   // in cents), so a ladder rung and a weapon fit are audibly different events
   // without becoming different cues.
-  const line = Object.hasOwn(CATALOG, e.boon) ? CATALOG[e.boon] : undefined;
   deps.audio.play(fitTone(line?.kind), { detune: fitDetune(line?.kind ?? '') });
   deps.onBoonFitted(e.boon);
   deps.onSpendAck();

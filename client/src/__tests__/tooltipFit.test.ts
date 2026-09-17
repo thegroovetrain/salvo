@@ -29,6 +29,10 @@ import {
   type EquipmentId,
   type ShipClassId,
 } from '@salvo/shared';
+// THE TOOLTIP CORE MOVED in Story 8.7 (ruling 13): `render/slotTooltip.ts` owns
+// the model, the fit arithmetic and the placement; `render/hotbar.ts` keeps the
+// squares and the Pixi shell that paints both. The pins are re-pointed, not
+// rewritten — the panel's width, type and notch are untouched (amendment 42).
 import {
   SHIP_DIVIDER_ROW,
   TOOLTIP_MAX_PANEL_H,
@@ -37,7 +41,14 @@ import {
   tooltipInnerWidth,
   tooltipMetrics,
   tooltipModel,
-} from '../render/hotbar.js';
+  headingHeight,
+  interactionLines,
+  TIP_TYPE,
+  type TooltipBoonRow,
+} from '../render/slotTooltip.js';
+
+/** The heading rows' shared line box (px) — the panel's own register. */
+const TIP_TYPE_HEAD = TIP_TYPE.headLineHeight;
 import { cardEquipmentIds, isShipwideCard } from '../render/equipmentInfo.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import { boonName } from '../ui/boonCopy.js';
@@ -106,13 +117,33 @@ describe('slot tooltip container fit (amendment 47)', () => {
     expect(over).toEqual([]);
   });
 
-  it('keeps the two heading rows at ONE line each (the height model assumes it)', () => {
+  // THE NAME still owns ONE line — it is the panel's heading and a wrapped name
+  // would read as two headings. The INTERACTION row no longer does: Story 8.7
+  // (ruling 13) put a weapon's TIER and a belt slot's whole activation shape on
+  // it, and epic-8 amendment 42 freezes the panel's width and type, so the row
+  // WRAPS and the height model measures the wrap. What is pinned is that the
+  // model and the render agree — which is the amendment-47 property, not "one
+  // line" — and that no row needs more than two.
+  it('keeps the NAME on one line, and MODELS however many the interaction row takes', () => {
     const inner = tooltipInnerWidth();
     for (const c of CASES) {
       const m = modelFor(c);
       expect(monoTextWidth(m.name, 17, 1.1), m.name).toBeLessThanOrEqual(inner);
-      expect(monoTextWidth(m.interaction, 14, 1.6), m.interaction).toBeLessThanOrEqual(inner);
+      const lines = interactionLines(m.interaction);
+      expect(lines, m.interaction).toBeGreaterThanOrEqual(1);
+      expect(lines, m.interaction).toBeLessThanOrEqual(2);
+      expect(tooltipMetrics(m).interactionLines, m.interaction).toBe(lines);
+      // The modelled heading block is exactly what the row costs.
+      expect(headingHeight(m.interaction), m.interaction).toBe(TIP_TYPE_HEAD * (1 + lines));
     }
+  });
+
+  it('grows the panel by exactly one line box when the interaction row wraps', () => {
+    const one = { name: 'X', interaction: 'WEAPON · Q', description: '', boons: [] };
+    const two = { name: 'X', interaction: 'WEAPON · Q · SWITCH-TO · TIER V', description: '', boons: [] };
+    expect(interactionLines(one.interaction)).toBe(1);
+    expect(interactionLines(two.interaction)).toBe(2);
+    expect(tooltipMetrics(two).height - tooltipMetrics(one).height).toBe(TIP_TYPE_HEAD);
   });
 
   it('leaves real headroom on the worst panel — the pin is not on the boundary', () => {

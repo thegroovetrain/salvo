@@ -262,6 +262,32 @@ describe('main.ts wires the revert to the RELEASE, not the press', () => {
     expect(press).toBeGreaterThan(wireSlot);
   });
 
+  // P8: the two halves of a click-placed consumable's prime. The prediction
+  // trusts the server's arc through the ONE shared predicate, and a prime on a
+  // slot that has just emptied (the last copy spent) falls back to the gun
+  // instead of leaving dead clicks on a square that holds nothing.
+  it('predicts the click through clickInArc, not the raw arc + range pair', () => {
+    // `bodyOf` cannot be used here: the signature's return-type literal is the
+    // first brace it would find. The declaration window is enough.
+    const at = MAIN_TS.indexOf('function clickPrediction(');
+    expect(at).toBeGreaterThan(-1);
+    const decl = MAIN_TS.slice(at, MAIN_TS.indexOf('function latchOwnFire('));
+    expect(decl).toContain('clickInArc(');
+    expect(decl).not.toContain('weaponArcHit(');
+    expect(decl).not.toContain('weaponRangeHit(');
+    // ...and main.ts no longer imports either raw table: one predicate, one call.
+    expect(MAIN_TS).not.toContain('weaponRangeHit,');
+  });
+
+  it('reverts to the gun when the PRIMED slot empties under a stats apply', () => {
+    const apply = bodyOf('applyOwnStats');
+    const at = apply.indexOf('g.ownSlots = slotIdsFor(');
+    expect(at).toBeGreaterThan(-1);
+    const after = apply.slice(at);
+    expect(after).toContain('revertToGun()');
+    expect(after).toContain('primedSlot');
+  });
+
   it('the HARD boundaries still revert outright (they end a life, not a hold)', () => {
     // The sinking window's hygiene and the room's resetPrime must not become
     // debts: a prime owed at release would otherwise fire into the next life.
@@ -460,6 +486,69 @@ describe('the tick, in main.ts\'s order: release edge → wire slot → press ed
       fire(canvas, 'pointerup', { button: 0 }); // a stray up with no click behind it
       tick(m, kb, seen, false);
       expect(kb.primedSlot).toBe(Q); // …pays nothing either
+      kb.detach();
+    });
+  });
+
+  // --- Story 8.7, ruling 9: the refit window ends the stream -----------------
+  //
+  // The window is a full combat lockout, but the lockout only ever gated the
+  // PRESS. A hold that was already running kept its debt standing behind the
+  // window — and the pointerup that would have paid it might land after the
+  // player has closed the window, switched weapons, or died. main.ts's
+  // visibility watcher calls `endHolds()` on the OPEN edge; from the tick's
+  // point of view that is simply the hold ending, which is exactly right.
+
+  it('opening the refit window ends the hold and PAYS the owed revert', () => {
+    withMouse((m, canvas) => {
+      const kb = primed();
+      const seen = { click: 0, release: 0 };
+      fire(canvas, 'pointerdown', { button: 0 });
+      expect(tick(m, kb, seen, true)).toBe(Q); // the shot goes out, the debt is armed
+      expect(kb.releaseRevertPending).toBe(true);
+      m.endHolds(); // TAB — the watcher's false→true edge
+      tick(m, kb, seen, true);
+      expect(kb.primedSlot).toBe(SLOT_GUN); // the stream is over, the prime reverted
+      expect(kb.releaseRevertPending).toBe(false);
+      kb.detach();
+    });
+  });
+
+  it('the stream does not RESUME when the window closes without a fresh press', () => {
+    withMouse((m, canvas) => {
+      const kb = primed();
+      const seen = { click: 0, release: 0 };
+      fire(canvas, 'pointerdown', { button: 0 });
+      tick(m, kb, seen, true);
+      m.endHolds(); // the window opened…
+      tick(m, kb, seen, true);
+      const clicks = m.clickCount;
+      // …the player closes it still holding the button, and ticks on. A held
+      // button that never came up is not a new press: the counter stands still.
+      tick(m, kb, seen, true);
+      tick(m, kb, seen, true);
+      expect(m.clickCount).toBe(clicks);
+      // The late pointerup closes nothing and pays nothing.
+      fire(canvas, 'pointerup', { button: 0 });
+      kb.slotAction(Q); // re-prime after the revert above
+      tick(m, kb, seen, true);
+      expect(kb.primedSlot).toBe(Q);
+      kb.detach();
+    });
+  });
+
+  it('an already-QUEUED ability press survives the open — a press is a press', () => {
+    withMouse((m, canvas) => {
+      const kb = new KeyboardInput({ isSlotFitted: ALL_FITTED, isAbilitySlot: (s) => s === 1 });
+      kb.attach();
+      kb.slotAction(1); // the boost — queued, not yet consumed onto the wire
+      fire(canvas, 'pointerdown', { button: 0 });
+      expect(kb.pendingActivationCount).toBe(1);
+      m.endHolds(); // the window opens over it
+      expect(kb.pendingActivationCount).toBe(1); // the queue is NOT cleared
+      kb.consumeActivation();
+      expect(kb.actSeq).toBe(1); // …and it still rides an input
+      expect(kb.actSlot).toBe(1);
       kb.detach();
     });
   });

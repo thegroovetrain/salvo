@@ -3,31 +3,31 @@
 // may extend past its box such that it covers, or can be covered by, another
 // part of the UX").
 //
-// The refit card is a FIXED box (216 × 236) holding WRAPPING mono text whose
-// length is data-driven (the line name, the kind word and copy count, a lineage
-// handrail, and rules text that prints live current→next values).
-// That combination — fixed height + wrapping content — is exactly the shape that
-// silently overflows, which is what it did on the live site for the exclusive
-// doctrine cards.
+// STORY 8.7 RE-CUT IT WHOLESALE. The card is no longer a fixed box holding
+// WRAPPING prose: the ratified face (`hud-composite-3.html` `.rc`, epic-8
+// amendment 31) is a 216×226 STAT BLOCK whose every text mark is `nowrap` —
+// an uppercase name, a KIND word, two tier numerals, and five label/value rows.
+// That turns the vertical axis into arithmetic a child could do (the rows are a
+// fixed 17px grid) and moves the whole risk onto the HORIZONTAL axis: a mark
+// wider than the 192px inner box would paint out through the card's side.
 //
-// So the card's height is COMPUTABLE, and this module computes it. Everything
-// here is pure arithmetic over the copy strings; ui/upgradeMenu.ts builds its
-// CSS from the very same REFIT_TYPE register, so the model and the DOM can never
-// drift. The permanent pin lives in __tests__/refitCardFit.test.ts, which walks
-// every CATALOG line at every stack position in its worst-case presentation
-// state and fails if any card exceeds its inner box.
+// So this module now answers two questions and no others:
+//   • `cardNameSize(name)` — does the name fit the inner box at the mock's 15px,
+//     or does it take the mock's own `.cn.long` 12.5px step? ONE decision, made
+//     here, rendered by ui/upgradeMenu.ts, pinned over every catalog name by
+//     __tests__/refitCardFit.test.ts.
+//   • `refitCardMetrics(card)` — does every row's label + value pair fit one
+//     192px line, and does the whole stack fit the 226px box?
 //
 // WHY THE MATH IS EXACT (and not a guess):
-//   • MONO type. Every glyph on the card advances by the same width, so a line's
-//     width is chars × advance and wrap points are countable.
-//   • EXPLICIT line-heights. The card's text elements declare their line-height
-//     from this register rather than inheriting `normal` (which is a font metric
-//     the model could not know), so lines × fontPx × lineHeight IS the rendered
-//     block height.
-//   • CONSERVATIVE wrapping. Lines are broken on WHITESPACE only. Browsers also
-//     break after hyphens (and, with `overflow-wrap:anywhere`, anywhere), which
-//     can only pack MORE per line — so the model's line count is an upper bound
-//     on the rendered one, never an under-count.
+//   • MONO type. Every glyph on the card's mono marks advances by the same
+//     width, so a line's width is chars × advance. The NAME is the one sans mark
+//     and it is measured with the same mono model deliberately: 0.605em is an
+//     UPPER bound for the declared display face, whose average advance sits well
+//     under 0.6em, so a name that fits the model fits the render.
+//   • FIXED line boxes. Every row's height is declared in CLIENT_CONFIG.refit
+//     (the mock's own numbers) rather than inherited from `normal`, so the
+//     modelled height IS the rendered height.
 
 import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -45,29 +45,122 @@ const R = CLIENT_CONFIG.refit;
 export const MONO_ADVANCE_EM = 0.605;
 
 /**
- * The card's type register — letter-spacings, line-heights, the inter-row gap
- * and the border. ui/upgradeMenu.ts interpolates these values straight into its
- * CSS strings and this module measures with them, so there is ONE source of
- * truth for the card's text metrics. (The font SIZES stay in CLIENT_CONFIG.refit
- * with the rest of the band's geometry.)
+ * The card's type register — the letter-spacings, line boxes and border the mock
+ * declares as `em` values, resolved to px HERE so ui/upgradeMenu.ts can splice
+ * them into its CSS and this module can measure with the very same numbers.
+ * ONE source of truth for the card's text metrics; the font SIZES themselves
+ * live in CLIENT_CONFIG.refit with the rest of the face's geometry.
+ *
+ * Every tracking below is `size × the mock's em value`:
+ *   name `.02em` · kind `.2em` · tier `.14em` · label `.14em` · value `.04em`
+ *   · foot `.24em` · key chip `0`.
  */
 export const REFIT_TYPE = {
-  /** Letter-spacing (px) per card row. */
-  categoryLetterSpacing: 1,
-  kindLetterSpacing: 1,
-  nameLetterSpacing: 1,
-  lineageLetterSpacing: 2,
-  descriptionLetterSpacing: 0,
-  /** Line-height MULTIPLIER for every card row except the rules text. */
+  /** Letter-spacing (px) per card mark, from the mock's `em` values. */
+  nameLetterSpacing: R.nameSize * 0.02,
+  nameLetterSpacingLong: R.nameSizeLong * 0.02,
+  kindLetterSpacing: R.kindSize * 0.2,
+  tierLetterSpacing: R.tierSize * 0.14,
+  labelLetterSpacing: R.labelSize * 0.14,
+  valueLetterSpacing: R.valueSize * 0.04,
+  footLetterSpacing: R.footSize * 0.24,
+  /** The name's declared line box, as a MULTIPLIER (mock `15px/1.15`). */
+  nameLineHeight: 1.15,
+  /** Line-height MULTIPLIER for every other single-line mark on the card. */
   lineHeight: 1.2,
-  /** The rules text runs a touch looser — it is the only multi-line paragraph. */
-  descLineHeight: 1.25,
-  /** Flex `gap` (px) between the card's rows. 6 → 5 under amendment 47: the
-   *  three px bought back is the fit margin the worst exclusive card runs on. */
-  rowGap: 5,
+  /** The mock's vertical seams, top-down: icon→name, name→kind, kind→ladder,
+   *  ladder→rows, rows→foot (`margin-top` on each of those blocks). */
+  nameGap: 4,
+  kindGap: 2,
+  ladderGap: 4,
+  rowsGap: 6,
+  footGap: 2,
+  /** The in-row arrow's horizontal margin (px) — mock `.rw .v .ar { margin:0 4px }`. */
+  arrowMargin: 4,
+  /** One stat row's OWN side padding (px) — mock `.rw { padding: 0 1px }`. It is
+   *  in the model because it is real: a row's label and value share the inner
+   *  box MINUS this, on both sides (review patch P6). ui/upgradeMenu.ts reads
+   *  the same constant, so the two cannot drift. */
+  rowPadX: 1,
+  /** The `cur → next` tier numerals' offset from the last rung (mock `.tl`). */
+  tierGap: 8,
   /** Card border width (px) — inside the border-box, so it eats inner space. */
   border: 1,
+  /** The strip rail's own tracking — unchanged, and deliberately not one of the
+   *  card's: the DAMAGE CONTROL rail is Story 8.8's to delete, not to re-cut. */
+  categoryLetterSpacing: 1,
 } as const;
+
+// --- THE 9 PX FLOOR, ON A DOM SURFACE (epic-8 amendment 43) --------------------
+//
+// Eric 2026-09-17: "Text *MUST* be readable." The refit band is DOM chrome
+// scaled as ONE block by `--hc-ui-scale` (ui/upgradeMenu.ts `PANEL_CSS`), so at
+// the 90% tier the two registers the ratified face seats ON the mono floor —
+// the stat-row LABELS and the reason-word FOOT, both 9 px — drew at 8.1 px.
+// Nothing on any surface renders under the floor, at any tier.
+
+/** The custom property the band publishes the counter-scale through. Declared
+ *  HERE, beside the law, so the CSS that reads it and the model that measures
+ *  it cannot drift apart. */
+export const MICRO_VAR = '--hc-micro';
+
+/**
+ * Pure: the factor a floor-seated DOM register must divide its size by so it
+ * still RENDERS at the floor — the DOM TWIN of the HUD bar's Pixi `microScale`
+ * (`render/hudBar.ts`, Story 8.6 ruling 2), whose law this copies exactly:
+ * `1 / uiScale` below 1, otherwise 1.
+ *
+ * DELIBERATELY NOT IMPORTED FROM THE BAR. `hudBar.ts` imports `pixi.js`, and
+ * this module is pure arithmetic over plain numbers that the fit suite runs
+ * without a renderer; there is no shared home for the law today, and inventing
+ * one for two call sites would cost more than the six lines it saved. If a
+ * third surface needs it, THAT is when it moves — and `hudBar.microScale` is
+ * the definition of record either way.
+ *
+ * ONLY below 1: at 100% and 125% the scale is already at or above the floor and
+ * the type rides the geometry, so this returns exactly 1 and no register moves.
+ */
+export function domMicroScale(uiScale: number): number {
+  return Number.isFinite(uiScale) && uiScale > 0 && uiScale < 1 ? 1 / uiScale : 1;
+}
+
+/** Every type size the refit card declares, by mark — the set the floor pin
+ *  walks. Registers at or under `monoFloorPx` counter-scale; the rest ride the
+ *  geometry untouched. */
+export const REFIT_REGISTERS = {
+  name: R.nameSize,
+  nameLong: R.nameSizeLong,
+  kind: R.kindSize,
+  tier: R.tierSize,
+  label: R.labelSize,
+  value: R.valueSize,
+  foot: R.footSize,
+  keyChip: R.keyChipSize,
+  strip: R.stripFontSize,
+} as const;
+
+/**
+ * Pure: the font-size a register is SET at, in the band's own (pre-scale)
+ * logical units — the counter-scaled size for a mark on the floor, the declared
+ * size for everything above it. This is the number the CSS `calc()` produces
+ * and the number every width in this module is measured with, which is what
+ * keeps the model and the render the same arithmetic.
+ */
+export function cardRegisterSize(sizePx: number, uiScale = 1): number {
+  return sizePx <= CLIENT_CONFIG.settings.monoFloorPx ? sizePx * domMicroScale(uiScale) : sizePx;
+}
+
+/** Pure: the px the PLAYER actually sees — the logical size times the UI scale
+ *  the whole band is drawn at. Never below `monoFloorPx`, which is the ruling. */
+export function cardRenderedPx(sizePx: number, uiScale = 1): number {
+  return cardRegisterSize(sizePx, uiScale) * uiScale;
+}
+
+/** The multiplier a register's size AND its tracking both take (every width on
+ *  a mono mark is linear in both, so ONE factor moves the whole mark). */
+function microFactor(sizePx: number, uiScale: number): number {
+  return cardRegisterSize(sizePx, uiScale) / sizePx;
+}
 
 /** Advance width (px) of one glyph at a size + letter-spacing. */
 export function monoCharWidth(fontPx: number, letterSpacingPx = 0): number {
@@ -115,11 +208,60 @@ export function widestToken(text: string, fontPx: number, letterSpacingPx = 0): 
   return widest;
 }
 
-/** The card's INNER content box (px) — the fixed card minus its padding on both
- *  sides and its 1px border on both sides (box-sizing: border-box). */
+/**
+ * The card's INNER content box (px) — the fixed card minus its ASYMMETRIC
+ * padding and its 1px border on every side (box-sizing: border-box).
+ *
+ * THE MODEL MEASURES WHAT THE DOM RENDERS (review patch P6). The mock quotes
+ * the width as `216 − 2×12 = 192`, and that is the number the ratified face was
+ * SPECIFIED in — but the card declares `box-sizing: border-box` with a 1px
+ * edge, so the body it stretches to is 190, and a model quoting 192 hands out
+ * two pixels the render does not have. The height always carried the border;
+ * the width now does too, and the two axes are finally derived the same way.
+ */
 export function refitCardInnerBox(): { w: number; h: number } {
-  const chrome = 2 * (R.pad + REFIT_TYPE.border);
-  return { w: R.card - chrome, h: R.cardHeight - chrome };
+  return {
+    w: R.card - 2 * R.pad.side - 2 * REFIT_TYPE.border,
+    h: R.cardHeight - R.pad.top - R.pad.bottom - 2 * REFIT_TYPE.border,
+  };
+}
+
+/**
+ * The width (px) ONE STAT ROW's label and value actually share — the inner box
+ * minus the row's own `padding: 0 1px` (review patch P6). Every other mark on
+ * the face sits directly in the inner box; only the rows pay this, and they pay
+ * it on both sides.
+ */
+export function refitCardRowBox(): number {
+  return refitCardInnerBox().w - 2 * REFIT_TYPE.rowPadX;
+}
+
+/**
+ * Pure: the type size the NAME renders at — the mock's 15px `.cn`, or its own
+ * `.cn.long` 12.5px step when the measured name does not fit the 192px inner
+ * box on ONE line (the name is `nowrap`, so there is no third option).
+ *
+ * THE ONE DECISION, made once: ui/upgradeMenu.ts renders whatever this returns
+ * and __tests__/refitCardFit.test.ts walks every catalog name through it, so a
+ * 30th line cannot ship a name that paints out through the card's side.
+ */
+export function cardNameSize(name: string): number {
+  const inner = refitCardInnerBox().w;
+  const at15 = monoTextWidth(name, R.nameSize, REFIT_TYPE.nameLetterSpacing);
+  return at15 <= inner ? R.nameSize : R.nameSizeLong;
+}
+
+/** Pure: the letter-spacing that goes with `cardNameSize`'s answer. */
+export function cardNameTracking(name: string): number {
+  return cardNameSize(name) === R.nameSize
+    ? REFIT_TYPE.nameLetterSpacing
+    : REFIT_TYPE.nameLetterSpacingLong;
+}
+
+/** Pure: the rendered width (px) of a name at the size this module picked for
+ *  it — the horizontal half of the law, in one call. */
+export function cardNameWidth(name: string): number {
+  return monoTextWidth(name, cardNameSize(name), cardNameTracking(name));
 }
 
 // --- THE DAMAGE CONTROL STRIP (cycle 46) ---------------------------------------
@@ -197,75 +339,163 @@ export function refitStripMetrics(copy: RefitStripCopy): RefitStripMetrics {
   return { innerW, innerH, contentWidth, contentHeight, overflowX: contentWidth - innerW, overflowY: contentHeight - innerH };
 }
 
+
+// --- THE RATIFIED CARD FACE (Story 8.7, ruling 11) -----------------------------
+
+/** The mock's `.rc.grey .foot { padding: 0 8px }` — the reason word's box. */
+export const FOOT_BOX_PAD = 8;
+
+/** How much TALLER the boxed reason word is than the bare 14px foot — the
+ *  `footH + 2` ui/upgradeMenu.ts renders a greyed card's foot at. Declared here
+ *  so the model that spends the 2px and the DOM that draws them read one
+ *  number (review patch P6). */
+export const FOOT_BOX_GROWTH = 2;
+
+/** The in-row / in-ladder arrow glyph, declared once so the model and the DOM
+ *  cannot disagree about what a row actually prints. */
+export const ARROW = '→';
+
+/** ONE stat row of the ratified face: a label, the value the build has NOW
+ *  (null on an absolute row — a weapon's first copy prints no `before`), and
+ *  the value this card would produce. Structurally `boonCopy.CardStatRow`,
+ *  restated here so the math module depends on nothing but strings. */
+export interface RefitStatRow {
+  label: string;
+  cur: string | null;
+  next: string;
+}
+
 /** The copy a card face carries — structurally the ui/upgradeMenu OfferCard,
  *  restated here so the math module depends on nothing but strings. */
 export interface RefitCardCopy {
-  /** The KIND word (WEAPON / UPGRADE / ADD-ON / CONSUMABLE) — the meta row's
-   *  left mark. CONSUMABLE is the widest, so it sets this row's worst case. */
+  /** The KIND word (WEAPON / UPGRADE / ADD-ON / CONSUMABLE) — the mock's `.ck`.
+   *  CONSUMABLE is the widest, so it sets that mark's worst case. */
   kind: string;
-  /** The copy count, "n/cap" — the meta row's right mark, always built. */
-  count: string;
   name: string;
-  lineage: string | null;
-  description: string;
+  /** The `cur → next` tier numerals beside the ladder, or null for a line with
+   *  no ladder at all (a consumable or an add-on). */
+  tier: string | null;
+  /** The line's ladder length — how many rungs the row draws. */
+  cap: number;
+  /** Up to `rowCount` stat rows; the remainder render blank. */
+  rows: readonly RefitStatRow[];
+  /** The foot's reason word — '' on every card but a refused one. */
+  foot: string;
 }
 
-/** Everything the fit pin asserts on, plus the intermediate line counts that
- *  make a failure diagnosable ("the rules text wrapped to 9 lines"). */
+/** Everything the fit pin asserts on, plus the intermediates that make a
+ *  failure diagnosable ("MAX HULL beside 1136.9 → 1307.4 is 204px of 192"). */
 export interface RefitCardMetrics {
   innerW: number;
   innerH: number;
-  /** Kind word + gap + copy count on the meta row: it must fit ONE line (the
-   *  row is a flex pair — kind left, count hard right — and wrapping it both
-   *  eats vertical rhythm and reads as broken). */
-  metaWidth: number;
-  metaLines: number;
-  nameLines: number;
-  descLines: number;
-  /** Total rendered content height (px). */
+  /** The width a stat row's label + value share — innerW minus the row's own
+   *  `0 1px` padding (review patch P6). */
+  rowBoxW: number;
+  /** The size `cardNameSize` picked, and the width the name renders at. */
+  nameSize: number;
+  nameWidth: number;
+  /** The widest label+value pair across the card's rows (px). */
+  widestRow: number;
+  /** The whole ladder row's width (px), 0 when there is no ladder. */
+  ladderWidth: number;
+  /** The KIND word's width (px). */
+  kindWidth: number;
+  /** The foot word's width (px), its box included when it is a reason word. */
+  footWidth: number;
+  /** Total rendered content height (px) — a CONSTANT across the catalog, since
+   *  every mark on the ratified face is `nowrap` and every block has a declared
+   *  height. Computed rather than asserted, so a moved mock number moves the
+   *  pin with it. */
   height: number;
   /** height − innerH: ≤ 0 is a fitting card, > 0 is an amendment-47 violation. */
   overflow: number;
+  /** The worst overrun of any mark past the box it renders in — the rows
+   *  against `rowBoxW`, everything else against `innerW`. ≤ 0 fits. */
+  overflowX: number;
+  /** The counter-scaled LABEL's line box − the mock's 17px row (amendment 43).
+   *  ≤ 0 is a glyph that still fits the row it was lifted inside. */
+  labelBoxOverflow: number;
+  /** The counter-scaled FOOT's line box − the mock's 14px foot box. */
+  footBoxOverflow: number;
 }
 
-/** Rendered height (px) of ONE line box: the declared line-height, ROUNDED UP.
- *  Browsers lay a line box out on whole pixels, so a 15px row at 1.25 occupies
- *  19px, not 18.75 — five of those is the 1.25px that would otherwise hide
- *  inside the model and spend the card's whole fit margin. */
-function lineBox(fontPx: number, lh: number): number {
-  return Math.ceil(fontPx * lh);
+/** Pure: one stat row's rendered width (px) — label, then the value cell, which
+ *  is `next` alone on an absolute row and `cur → next` with the mock's 4px
+ *  arrow margins on a diff row. The row is `justify-content: space-between`, so
+ *  its two ends only collide once their sum passes the inner box.
+ *
+ *  `uiScale` is the live UI-scale tier: the LABEL is a floor-seated register, so
+ *  at 90% it is counter-scaled (amendment 43) and spends ~11% more of the line
+ *  than its declared 9px would — which is exactly why the fit walk re-runs at
+ *  every tier instead of once. */
+export function statRowWidth(row: RefitStatRow, uiScale = 1): number {
+  const f = microFactor(R.labelSize, uiScale);
+  const label = monoTextWidth(row.label, R.labelSize * f, REFIT_TYPE.labelLetterSpacing * f);
+  const value = monoTextWidth(row.next, R.valueSize, REFIT_TYPE.valueLetterSpacing);
+  if (row.cur === null) return label + value;
+  const cur = monoTextWidth(row.cur, R.valueSize, REFIT_TYPE.valueLetterSpacing);
+  const arrow = monoTextWidth(ARROW, R.valueSize, REFIT_TYPE.valueLetterSpacing) + 2 * REFIT_TYPE.arrowMargin;
+  return label + cur + arrow + value;
 }
 
-/** Rendered height (px) of one wrapped text row. */
-function rowHeight(text: string, fontPx: number, ls: number, boxW: number, lh: number): number {
-  return monoWrapLines(text, fontPx, ls, boxW) * lineBox(fontPx, lh);
+/** Pure: the whole LADDER row's width (px) — `cap` rungs at `rungW` with
+ *  `ladderGap` between them, plus the `cur → next` numerals at their own
+ *  `tierGap` offset. 0 for a line with no ladder. */
+export function ladderRowWidth(cap: number, tier: string | null): number {
+  if (tier === null) return 0;
+  const rungs = cap * R.rungW + Math.max(0, cap - 1) * R.ladderGap;
+  return rungs + REFIT_TYPE.tierGap + monoTextWidth(tier, R.tierSize, REFIT_TYPE.tierLetterSpacing);
 }
 
 /**
- * Pure: the rendered height of a card face's content, against its fixed inner
- * box. Mirrors makeCard()'s DOM exactly — meta row, ladder name, optional
- * lineage handrail, optional doctrine REPLACES line, rules text, with the flex
- * row gap between every pair. The description span is always built (even when
- * empty), so it always contributes its gap.
+ * Pure: the ratified face measured against its fixed inner box. Mirrors
+ * makeCard()'s DOM exactly, top-down — icon box · name · KIND word · ladder row
+ * · the five-row grid · foot — with the mock's own `margin-top` seam between
+ * each pair.
  */
-export function refitCardMetrics(card: RefitCardCopy): RefitCardMetrics {
+export function refitCardMetrics(card: RefitCardCopy, uiScale = 1): RefitCardMetrics {
   const T = REFIT_TYPE;
   const { w: innerW, h: innerH } = refitCardInnerBox();
-  // BOTH meta marks are unconditional since catalog v3 (Story 8.1): every line
-  // has a kind and a copy count, so the old "a plain common builds no tier span"
-  // branch is gone with the rarity axis.
-  const countW = R.metaGap + monoTextWidth(card.count, R.kindSize, T.kindLetterSpacing);
-  const metaWidth = monoTextWidth(card.kind, R.kindSize, T.kindLetterSpacing) + countW;
-  const metaLines = Math.max(1, Math.ceil(metaWidth / innerW));
-  const nameLines = monoWrapLines(card.name, R.nameSize, T.nameLetterSpacing, innerW);
-  const descLines = monoWrapLines(card.description, R.descSize, T.descriptionLetterSpacing, innerW);
-  const lineageH = card.lineage ? rowHeight(card.lineage, R.lineageSize, T.lineageLetterSpacing, innerW, T.lineHeight) : 0;
-  const rows = 3 + (card.lineage ? 1 : 0); // meta + name + rules text always
+  const nameSize = cardNameSize(card.name);
+  const nameWidth = cardNameWidth(card.name);
+  const widestRow = card.rows.reduce((w, r) => Math.max(w, statRowWidth(r, uiScale)), 0);
+  const ladderWidth = ladderRowWidth(card.cap, card.tier);
+  const kindWidth = monoTextWidth(card.kind, R.kindSize, T.kindLetterSpacing);
+  const footF = microFactor(R.footSize, uiScale);
+  const footWidth = card.foot === ''
+    ? 0
+    : monoTextWidth(card.foot, R.footSize * footF, T.footLetterSpacing * footF) + 2 * FOOT_BOX_PAD + 2 * T.border;
   const height =
-    metaLines * lineBox(R.kindSize, T.lineHeight) +
-    nameLines * lineBox(R.nameSize, T.lineHeight) +
-    lineageH +
-    descLines * lineBox(R.descSize, T.descLineHeight) +
-    (rows - 1) * T.rowGap;
-  return { innerW, innerH, metaWidth, metaLines, nameLines, descLines, height, overflow: height - innerH };
+    R.iconBox +
+    T.nameGap + lineBox(nameSize, T.nameLineHeight) +
+    T.kindGap + lineBox(R.kindSize, T.lineHeight) +
+    T.ladderGap + R.ladderH +
+    T.rowsGap + R.rowCount * R.rowH +
+    // A REASON WORD IS BOXED, AND A BOX IS TALLER (review patch P6): the foot
+    // renders at `footH + 2` the moment it carries `SLOTS FULL`, which is the
+    // only state that prints one.
+    T.footGap + (card.foot === '' ? R.footH : R.footH + FOOT_BOX_GROWTH);
+  // The rows are the one block with padding of their own, so they are measured
+  // against their OWN box; every other mark clears the inner box directly.
+  const rowBoxW = refitCardRowBox();
+  const widest = Math.max(nameWidth, kindWidth, footWidth, ladderWidth);
+  return {
+    innerW, innerH, rowBoxW, nameSize, nameWidth, widestRow, ladderWidth, kindWidth, footWidth,
+    height,
+    overflow: height - innerH,
+    overflowX: Math.max(widest - innerW, widestRow - rowBoxW),
+    // THE VERTICAL HALF OF AMENDMENT 43: the 17px row and the 14px foot box are
+    // the mock's geometry and do NOT grow with the counter-scale, so the lifted
+    // glyph has to still fit them. Both registers declare `line-height:1.2` in
+    // ui/upgradeMenu.ts, which is what makes this arithmetic the render.
+    labelBoxOverflow: lineBox(cardRegisterSize(R.labelSize, uiScale), T.lineHeight) - R.rowH,
+    footBoxOverflow: lineBox(cardRegisterSize(R.footSize, uiScale), T.lineHeight) - R.footH,
+  };
+}
+
+/** Rendered height (px) of ONE line box: the declared line-height, ROUNDED UP.
+ *  Browsers lay a line box out on whole pixels, so a 15px name at 1.15 occupies
+ *  18px, not 17.25 — and five of those quarter-pixels is the fit margin. */
+function lineBox(fontPx: number, lh: number): number {
+  return Math.ceil(fontPx * lh);
 }

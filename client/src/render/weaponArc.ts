@@ -27,12 +27,15 @@ import {
   arcFor,
   gunReachU,
   inArc,
+  isConsumableId,
+  isWeaponItem,
   pointInLitZone,
   twinSectorSide,
   wrapAngle,
   type EffectiveStats,
   type EquipmentId,
   type LitCircle,
+  type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
 
@@ -214,6 +217,27 @@ export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean
   // or a long buoy click silently consumes the prime for a drop it will deny.
   if (id !== 'navalMines' && id !== 'radarBuoy') return true;
   return aimDist <= CONFIG.mine.placeRange;
+}
+
+/**
+ * THE CLICK GATE over a slot's CONTENT — the one predicate main.ts's click
+ * prediction asks (review patch P8).
+ *
+ * A click-placed CONSUMABLE (the decoy buoy, Story 8.15) is an `isWeapon` item
+ * with no equipment row, so `arcFor` and the placement leash know nothing about
+ * it and both answer "no". That answer is worse than useless here: the client
+ * would paint a predicted DENIED pulse, keep the prime and suppress the
+ * server's real verdict, while the server placed the buoy. There is no client
+ * geometry for a consumable and there is not going to be one, so the client
+ * TRUSTS THE SERVER'S ARC for it — no sector test, no range clamp, and the
+ * prime is consumed exactly as a normal weapon click consumes it.
+ *
+ * A KEY-FIRES consumable answers false: a click on an ability square fires
+ * nothing on either side.
+ */
+export function clickInArc(heading: number, aim: number, aimDist: number, id: SlotItemId | null): boolean {
+  if (id !== null && isConsumableId(id)) return isWeaponItem(id);
+  return weaponArcHit(heading, aim, id) && weaponRangeHit(aimDist, id);
 }
 
 

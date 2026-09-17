@@ -11,22 +11,24 @@ import type { Ticker } from 'pixi.js';
 import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
-  EQUIPMENT_IS_WEAPON,
   HEAL_CHOICE,
   MSG,
   NO_CARDS,
   cardBehaviors,
   effectiveStats,
-  equipmentMaxAmmo,
   equipmentReloadMs,
   hullSilhouette,
+  isConsumableId,
   isOutside,
+  isWeaponItem,
+  slotMaxAmmo,
   slotsWithCards,
   SLOT_COUNT,
   type Island,
   type DeniedView,
   type EffectiveStats,
   type EquipmentId,
+  type SlotItemId,
   type GameMap,
   type HullId,
   type OwnShip,
@@ -47,7 +49,7 @@ import { DRONE_PLATE_TEXT, NameplateLayer, latchPlate, plateScreenY } from './re
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX, type BroadsideArcs } from './render/firing.js';
 import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
-import { weaponArcHit, weaponRangeHit, weaponReachU } from './render/weaponArc.js';
+import { clickInArc, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
@@ -73,7 +75,14 @@ import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
 import type { ToneFloor } from './render/gunneryFeed.js';
 import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
-import { KeyboardInput, slotHoldsAbility, type Axes, type KeyboardHooks } from './input/keyboard.js';
+import {
+  KeyboardInput,
+  refitCloseStamp,
+  refitGraceActive,
+  slotHoldsAbility,
+  type Axes,
+  type KeyboardHooks,
+} from './input/keyboard.js';
 import {
   UpgradeMenu,
   canLatchSpend,
@@ -616,7 +625,19 @@ interface Game {
    * split (slotHoldsAbility), the HUD chip row, and the pre-frame ammo
    * fallback. Recomputed with ownStats on the ownStatsChanged seam.
    */
-  ownSlots: readonly (EquipmentId | null)[];
+  ownSlots: readonly (SlotItemId | null)[];
+  /**
+   * performance.now() when the refit window last CLOSED (-Infinity until it
+   * ever has — so a fresh match is never inside the grace). For
+   * CLIENT_CONFIG.refit.closeGraceMs afterwards the digits `1`-`4` are inert:
+   * they mean two different things either side of that close (pick a card /
+   * fire a belt square), and the key that spent the last banked level is still
+   * held when the window goes away (Story 8.7, ruling 8).
+   */
+  refitClosedAt: number;
+  /** The refit window's visibility on the PREVIOUS render frame — the other
+   *  half of the one watcher that owns both of its edges (`watchRefitWindow`). */
+  refitWasOpen: boolean;
 }
 
 /** Toggle predict <-> interp (A/B comparison per the plan). Key: P. */
@@ -652,7 +673,7 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
  * replay is the only thing that can answer "what is in slot 3". The `fleet`
  * flag is not passed either — the client is only ever a captain.
  */
-function slotIdsFor(stats: EffectiveStats, cards: readonly string[]): (EquipmentId | null)[] {
+function slotIdsFor(stats: EffectiveStats, cards: readonly string[]): (SlotItemId | null)[] {
   return slotsWithCards(stats, cards).map((s) => s.equipmentId);
 }
 
@@ -665,10 +686,14 @@ function slotIdsFor(stats: EffectiveStats, cards: readonly string[]): (Equipment
 function ownAmmo(
   you: OwnShip | null,
   stats: EffectiveStats,
-  slots: readonly (EquipmentId | null)[],
+  slots: readonly (SlotItemId | null)[],
 ): (WeaponAmmo | null)[] {
+  // `slotMaxAmmo` (Story 8.7, ruling 16) routes EITHER kind of slot content: a
+  // consumable's pool is its catalog `cap`, an equipment's is its stats row.
+  // Never `equipmentMaxAmmo` directly any more — that record is keyed by
+  // EquipmentId and a belt slot's id is not in it.
   return (
-    you?.ammo ?? slots.map((id) => (id === null ? null : { n: equipmentMaxAmmo(stats, id), reloadMsLeft: 0 }))
+    you?.ammo ?? slots.map((id) => (id === null ? null : { n: slotMaxAmmo(stats, id), reloadMsLeft: 0 }))
   );
 }
 
@@ -829,11 +854,57 @@ function updateSpendLatch(g: Game): number | null {
  *      outlives the window (a TAB close, or the you-gone force-hide in (2)),
  *      and pulsing a hidden band paints nothing while consuming the 300ms
  *      same-source floor, swallowing the next honest denial.
+ *
+ * Step 4 is the WINDOW'S OWN EDGES (Story 8.7, rulings 8-9) — read after (2),
+ * so the auto-close that happens inside it is seen on this very frame.
  */
 function syncRefitBand(g: Game): void {
   const deniedCard = updateSpendLatch(g);
   g.upgradeMenu.update(currentOfferView(g));
+  watchRefitWindow(g);
   if (deniedCard !== null && g.upgradeMenu.visible) g.upgradeMenu.pulseDenied(deniedCard);
+}
+
+/**
+ * THE ONE WATCHER over the refit window's visibility, and it is one on purpose:
+ * the window closes by FIVE different paths (TAB, ESC, the last spend emptying
+ * the bank, entering spectate, the you-gone force-hide) and opens by two, but
+ * all of them move the SAME boolean — so watching that boolean once covers
+ * every path, present and future, while a stamp written at each close site
+ * would be five places to forget.
+ *
+ * The two edges carry the two rulings:
+ *   • CLOSED (true → false): stamp `refitClosedAt`, which arms the digits'
+ *     inert grace (ruling 8 — the key that picked the last card must not fall
+ *     through onto the belt);
+ *   • OPENED (false → true): end every live mouse HOLD (ruling 9). The modal's
+ *     lockout already drops new presses, but a stream that was already running
+ *     kept its hold — and the prime-revert it owes — open behind the window.
+ *     The QUEUED ability presses are deliberately left alone: an already-queued
+ *     press is a press, and it still rides its input.
+ */
+function watchRefitWindow(g: Game): void {
+  const open = g.upgradeMenu.visible;
+  if (open && !g.refitWasOpen) g.mouse.endHolds();
+  g.refitClosedAt = refitCloseStamp(g.refitWasOpen, open, performance.now(), g.refitClosedAt);
+  g.refitWasOpen = open;
+}
+
+/**
+ * True while the refit window's close grace still swallows the digits (Story
+ * 8.7, ruling 8) — the `resultsKeysArmed` shape, on the other side of its
+ * comparison: the grace is `[closedAt, closedAt + closeGraceMs)`, so a digit at
+ * the edge itself fires.
+ *
+ * ITS CALLER OBSERVES THE EDGE FIRST (review patch P3). TAB and ESC hide the
+ * window SYNCHRONOUSLY inside their own keydown handlers, so a digit pressed in
+ * that same task turn — before any rAF — used to see a window already closed
+ * and a grace not yet stamped, and fell straight through onto the belt. The
+ * chokepoint's hook therefore runs `watchRefitWindow` before asking this, which
+ * is safe because the watcher is idempotent and the render frame still runs it.
+ */
+function refitInGrace(g: Game | null): boolean {
+  return g !== null && refitGraceActive(performance.now(), g.refitClosedAt, CLIENT_CONFIG.refit.closeGraceMs);
 }
 
 /**
@@ -851,6 +922,11 @@ function currentOfferView(g: Game): OfferView | null {
     g.state.spectating,
     g.spendInFlight !== null,
     isSinkingNow(g.state.net.you, g.clock.serverNow(), g.state.spectating),
+    // The REPLAYED slot ids (Story 8.7, ruling 10): what `canStock` reads to
+    // decide whether an offered consumable can reach the belt at all. The same
+    // shared predicate the server runs in `spendCard`, over ids derived the
+    // same way, so a greyed card and a server refusal cannot disagree.
+    g.ownSlots,
   );
 }
 
@@ -903,6 +979,14 @@ function handleRefitPick(g: Game, choice: number): void {
     return;
   }
   if (choice >= view.options.length) return;
+  // A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 / UX-DR52). The belt is
+  // full and this consumable has nowhere to go — the server would refuse it as
+  // a silent no-op — so the client refuses it first, with no MSG.spend, no
+  // spend latch and NO denied pulse. The refusal is already on screen (the card
+  // is dim, its chip dashed, its foot reads SLOTS FULL); a pulse would be the
+  // game shouting a fact the player is looking at, and a latch would spend 1.5s
+  // waiting for a reply that is never coming.
+  if (view.options[choice]?.greyed) return;
   trySpend(g, choice);
 }
 
@@ -2166,7 +2250,8 @@ function flashSlotDenied(g: Game, slot: number): void {
  * the brief construction gap). P and M fold in here (the old ad-hoc window
  * listener is gone); TAB/ESC/digits drive the refit modal; X/Z step the alive
  * zoom; Q/E/R (weapon slots 2-4 since Story 8.5) and Shift (the boost, slot 1)
- * consult the own loadout — weapon-vs-ability via EQUIPMENT_IS_WEAPON only —
+ * consult the own loadout — weapon-vs-ability via `isWeaponItem` only (Story
+ * 8.7, ruling 1: a belt slot's content may be a CONSUMABLE line id) —
  * and a weapon key on an EMPTY slot DENIES on the client (onEmptySlotDenied).
  */
 function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
@@ -2227,6 +2312,16 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     // the refit modal as ever, plus (Story 2.3) the settings overlay and the
     // results modal, which are focused overlays.
     isModalOpen: () => modalOpen(getG()),
+    // THE DIGITS' DEAD ZONE (Story 8.7, ruling 8). `1`-`4` pick a card with the
+    // window open and fire a BELT square with it closed, so the frames right
+    // after a close are the one place those two meanings can collide: the
+    // captain who spends their last banked level on `1` is still holding that
+    // key when the window goes away. For the grace it is swallowed — prevented,
+    // but neither picking nor firing. One watcher (watchRefitWindow) stamps the
+    // close; this only asks how long ago it was.
+    // The close edge is observed HERE, at the digit's own keydown (P3) — see
+    // refitInGrace; the watcher is idempotent, so this costs nothing.
+    isRefitGrace: () => { const g = getG(); if (g !== null) watchRefitWindow(g); return refitInGrace(g); },
     // ...and the SLOT KEYS alone also suspend at the held start line (Story
     // 6.1, amendment 8). Its own hook rather than a wider `isModalOpen`,
     // because the FOGHORN must survive the lock: Eric named movement, weapons
@@ -2631,6 +2726,7 @@ function buildGame(
     prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS),
+    refitClosedAt: -Infinity, refitWasOpen: false,
   };
   gRef = g;
   armWorldFlashBudget(g, camera, flashBudget);
@@ -2730,6 +2826,13 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[]): voi
   // from here — derived via the SAME shared slot-effect replay the server
   // applies incrementally (slotsWithCards), so slot ids agree by construction.
   g.ownSlots = slotIdsFor(stats, cards);
+  // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). The belt empties itself:
+  // the last copy of a stocked line is spent and the square goes back to
+  // dashed. A prime left standing on it would swallow every click that follows
+  // — the wire carries a slot holding nothing, the server denies it, and the
+  // player has no way to see why. The gun is slot 0 and is never null, so this
+  // is a no-op for every fit that does not take a primed slot away.
+  if ((g.ownSlots[g.keyboard.primedSlot] ?? null) === null) g.keyboard.revertToGun();
   // Boost numbers ride the same stats swap (CONFIG pass-through today).
   g.predictor.setBoostStats(stats.equipment.speedBoost.speedBonus, stats.equipment.speedBoost.durationMs);
   // Behavior-boon hooks ride it too (Story 2.5): the predictor folds these
@@ -3164,7 +3267,10 @@ function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeI
 function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
   return g.abilityFlash.map((flash, slot) => {
     const id = status.loadout[slot] ?? null;
-    const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
+    // `isWeaponItem` over the SlotItemId (Story 8.7, ruling 1), never an
+    // EquipmentId-keyed index: a belt slot holds a consumable line id, and the
+    // click-placed one (the decoy, 8.15) is a weapon on this very split.
+    const isWeapon = id !== null && isWeaponItem(id);
     return flash || (isWeapon && slot === status.primedSlot && g.deniedFlash);
   });
 }
@@ -3180,7 +3286,7 @@ function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
 function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
   return g.abilityDegraded.map((degraded, slot) => {
     const id = status.loadout[slot] ?? null;
-    const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
+    const isWeapon = id !== null && isWeaponItem(id); // the SlotItemId split — see hotbarDenied
     return degraded || (isWeapon && slot === status.primedSlot && g.deniedDegraded);
   });
 }
@@ -3333,14 +3439,22 @@ function renderFiring(
   // pool count + reload from the server-authoritative slot-aligned ammo array.
   // `ready` for the denied-fire gate is "the slot has a round" (ammo.n > 0); the
   // firing behavior keys off the fitted equipment ID (gun-family is 360° so
-  // weaponArcHit is always true for it), never on a slot-index literal.
+  // clickInArc is always true for it), never on a slot-index literal.
   const slot = g.keyboard.primedSlot;
   const a = status.ammo[slot] ?? null;
   const hasAmmo = !!a && a.n > 0;
   // EFFECTIVE reload duration (per-weapon reload upgrades) from the OWN
   // loadout's slot id — a primed slot always holds a weapon (the ability path
   // never primes), so the null branch is defensive only.
-  const primedId = status.loadout[slot] ?? null;
+  //
+  // NARROWED through `ownWeaponAt` (Story 8.7, ruling 1), never cast: a primed
+  // BELT slot holds a CONSUMABLE line id, which has no row in any of the six
+  // EquipmentId-keyed surfaces below. It answers null here, so a primed
+  // consumable draws no arc, no range clamp, no reload numeral and no aim
+  // preview — the client has no geometry for it. The CLICK is untouched: it
+  // still travels on `input.slot`, and the server owns the decoy's arc (8.15).
+  // Inert today — every consumable is a stub and the belt ships empty.
+  const primedId = ownWeaponAt(g, slot);
   const reloadFrac = a && primedId !== null ? reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, primedId)) : 0;
   // Gate on the PREDICTED heading, the same source clickPrediction/consumePrimeOnFire
   // read — NOT the alpha-interpolated pose.heading. At a sector boundary while
@@ -3348,9 +3462,13 @@ function renderFiring(
   // dedup marking (→ later server denial double-pulses), or vice versa.
   // Both halves of the aim gate: the bearing arc AND (for the mine alone) the
   // placement reach — the server denies either the same way, so the predicted
-  // denial must too or an out-of-range mine click flashes nothing.
+  // denial must too or an out-of-range mine click flashes nothing. THE SAME
+  // PREDICATE the sim-tick prediction uses (review patch P8), over the slot's
+  // RAW content: these two must agree exactly, or the red pulse and the
+  // denial-dedup marking come apart — and for a click-placed consumable they
+  // came apart the same way, a predicted denial over a shot the server takes.
   const aimDist = Math.hypot(cursor.x - pose.x, cursor.y - pose.y);
-  const inArc = weaponArcHit(predictedHeading(g), aim, primedId) && weaponRangeHit(aimDist, primedId);
+  const inArc = clickInArc(predictedHeading(g), aim, aimDist, g.ownSlots[slot] ?? null);
   // Predicted denial (a fresh click that can't fire) OR an unmatched SERVER
   // weapon denial (Story 1.10 one-shot latch, consumed here) drives the same
   // rate-limited red pulse — the late server case replaces total silence.
@@ -3478,7 +3596,6 @@ function clickPrediction(
 ): { alive: boolean; loaded: boolean; inArc: boolean } {
   const you = g.state.net.you;
   const a = you?.ammo[primedSlot] ?? null;
-  const id = g.ownSlots[primedSlot] ?? null;
   return {
     // Story 5.2: WIDENED through the sinking window — a click from a sinking
     // hull genuinely fires (the server's gate re-opens for it), so it must also
@@ -3489,8 +3606,11 @@ function clickPrediction(
     loaded: !!a && a.n > 0,
     // The mine's placement reach is part of its aim gate (Story 2.8): an
     // out-of-range click is refused server-side with nothing consumed, so it
-    // must KEEP the prime here rather than revert to the gun.
-    inArc: weaponArcHit(predictedHeading(g), aim, id) && weaponRangeHit(aimDist, id),
+    // must KEEP the prime here rather than revert to the gun. A CLICK-PLACED
+    // CONSUMABLE has no client geometry at all and trusts the server (P8) —
+    // both readings live in `clickInArc`, over the slot's raw content rather
+    // than the equipment-only narrowing.
+    inArc: clickInArc(predictedHeading(g), aim, aimDist, g.ownSlots[primedSlot] ?? null),
   };
 }
 
@@ -3502,9 +3622,26 @@ function clickPrediction(
  * up. Ability slots never reach here — the wire click is a weapon click.
  */
 function latchOwnFire(g: Game, primedSlot: number, p: { alive: boolean; loaded: boolean; inArc: boolean }): void {
-  const id = g.ownSlots[primedSlot] ?? null;
+  const id = ownWeaponAt(g, primedSlot);
   if (!p.alive || !p.loaded || !p.inArc || id === null) return;
   g.ownFire.latch(id, g.clock.serverNow());
+}
+
+/**
+ * The EQUIPMENT in a slot, or null — THE narrowing seam for every reader that
+ * indexes an `EquipmentId`-keyed record with a slot's content (Story 8.7,
+ * ruling 1). A belt slot holds a CONSUMABLE line id, which is not in the arc
+ * table, the range table or the own-fire latch, so it narrows to null here
+ * rather than being cast into a record that has no row for it.
+ *
+ * NOT a "can this fire" predicate: a click-placed consumable (the DECOY BUOY,
+ * Story 8.15) is a weapon on the ability/click split and still has no equipment
+ * row. What this answers is strictly "is this slot's content something the
+ * equipment tables know about".
+ */
+function ownWeaponAt(g: Game, slot: number): EquipmentId | null {
+  const id = g.ownSlots[slot] ?? null;
+  return id === null || isConsumableId(id) ? null : id;
 }
 
 /**
@@ -3604,13 +3741,15 @@ function handleServerDenial(g: Game, d: DeniedView): void {
   if (!g.denialDedup.serverDenied(d.slot, d.seq)) return; // predicted echo — already fed back
   playDenied(g);
   g.abilityDeniedPress[d.slot] = true; // per-slot chip flash (any slot as of 1.10)
+  // `isWeaponItem` (ruling 1), not `EQUIPMENT_IS_WEAPON`: a belt slot's content
+  // is a consumable line id, which that record has no row for.
   const id = g.ownSlots[d.slot] ?? null;
   // Only pulse the arc/reticle when the DENIED slot is the one currently primed
   // — renderFiring pulses whatever slot is primed at render time, so a torpedo
   // denial arriving ~RTT late (prime already consumed, reverted to gun) would
   // otherwise flash the GUN's reticle. The per-slot chip flash + tone above are
   // already slot-correct; the arc pulse is the only slot-sensitive piece.
-  if (id !== null && EQUIPMENT_IS_WEAPON[id] && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
+  if (id !== null && isWeaponItem(id) && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
 }
 
 /**
@@ -4325,6 +4464,11 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // sinking captain is emphatically not spectating (frames.ts's
       // `spectates()` is `isSunk`-based, so the window stays fogged and keeps
       // `you`), so helm, aim and trigger keep riding the wire all the way down.
+      // The window's edges, observed BEFORE this tick's mouse hold is sampled
+      // (review patch P3): a stream that was live when the refit opened could
+      // otherwise contribute one more sample before the next render frame ran
+      // `endHolds()`. Idempotent — the render frame still runs it too.
+      watchRefitWindow(g);
       if (g.state.spectating) return;
       const { aim, aimDist } = tickAim(g);
       // THE RELEASE EDGE RUNS FIRST, before the wire slot is read: a hold that

@@ -1867,27 +1867,35 @@ export const CLIENT_CONFIG = {
    * measure it (never CSS).
    */
   refit: {
-    /** Card width (px) — the ratified 216 (UX-DR14). */
+    /** Card width (px) — the ratified 216 (UX-DR14), and the mock's `.rc` width. */
     card: 216,
     /**
-     * Card height (px). GROWN 156 → 236 in Story 2.8, knowingly: the card face
-     * gained the rarity tag, the lineage handrail, the doctrine-swap line and a
-     * rules-text contract that prints live current→next values, and amendment
-     * 40 RATIFIES the resulting floor-viewport overlap outright ("cards render
-     * above the dimmed chrome and may grow modestly taller. No band lift, no
-     * card shrink"). Holds the top-down anatomy: key chip / category + rarity
-     * row (14px) / ladder name (20px, up to two lines) / lineage (12px) /
-     * replaces (12px) / rules text (17px, up to five lines). The ceiling is the
-     * 1280×614 logical floor: the band now hangs off the HUD bar (`barGap`), so
-     * the room a taller card may spend is whatever sits above that seam, and the
-     * geometry suite pins it.
+     * Card height (px) — 236 → 226, the RATIFIED FACE (Story 8.7, ruling 11).
+     *
+     * The interim 236 held a prose anatomy (rarity tag, lineage handrail, a
+     * wrapping rules paragraph). The ratified card in `hud-composite-3.html`
+     * (`.rc`, :160) is a FIVE-ROW STAT BLOCK at a fixed 216×226, and epic-8
+     * amendment 31 binds us to the mock's own numbers rather than to the July
+     * micro-lift: key chip / 40px icon box / uppercase name / cap-rung ladder /
+     * KIND word / five 17px rows / 14px foot, in that order, and nothing else.
+     *
+     * The band anchor is UNCHANGED (amendment 36): the stack still hangs its
+     * LOWEST edge `barGap` above the HUD bar's top, so a shorter card simply
+     * leaves more clear water above the band — which is what `refitTooltip`'s
+     * amendment-37 above/below decision spends.
      */
-    cardHeight: 236,
+    cardHeight: 226,
     /** Gap (px) between cards. Four 216s + three 20s = a 924px row that never
      *  wraps at the 1366×768 floor or the 1280×614 logical floor (125% tier). */
     gap: 20,
-    /** Card inner padding (px). */
-    pad: 14,
+    /**
+     * Card inner padding (px) — the mock's `padding: 10px 12px 8px`. ASYMMETRIC
+     * by design: the top pays for the overhanging key chip, the bottom is tight
+     * because the foot row is the last mark and carries its own height.
+     *
+     * The INNER WIDTH the fit model measures against is `card − 2 × side` = 192.
+     */
+    pad: { top: 10, side: 12, bottom: 8 },
     /**
      * Band anchor: the seam (px) between the band's LOWEST edge and the HUD
      * bar's top edge (epic-8 amendment 36, UX-DR53's "row bottom = hud-bar top
@@ -1906,41 +1914,80 @@ export const CLIENT_CONFIG = {
     pip: 8,
     pipGap: 6,
     pipsAbove: 18,
-    /** Key-chip square (px) — ONE family with the hotbar/helm chips (22). It
-     *  OVERHANGS the card's top-left corner by half its size. */
+    /** Key-chip square (px) — the mock's `.rc .kc.big`, 22×22, which is also the
+     *  ONE key-chip family size (hotbar / helm / card digits). It OVERHANGS the
+     *  card's top-left corner by `keyChipOffset`. */
     keyChip: 22,
-    /** Type sizes (px) — the amendment-15 lift applied to the card anatomy
-     *  (the stale 9px category / 11.5px description registers are superseded).
-     *  Story 2.8 adds the rarity tag and the lineage handrail: both are
-     *  SUBORDINATE marks (they annotate the name, they are not the name), so
-     *  they sit a step below the category tag while staying clear of the 9px
-     *  mono accessibility floor at every UI-scale tier.
-     *
-     *  AMENDMENT 47 (the container-fit law) trimmed two of these. The rules
-     *  text went 17 → 15: at 17px a 186px inner box holds only 18 mono
-     *  characters per line, which put every doctrine card 50–97px PAST the card
-     *  bottom on the live site. 15px is a deliberate step ABOVE amendment 15's
-     *  14px legibility floor, not a crash back to micro-type — the copy was cut
-     *  first (boonCopy.ts) and the size second, in that ratified order. The
-     *  meta tag went 12 → 11 so the widest meta row fits ONE line inside 186px;
-     *  11px still clears the 9px mono floor at the 90% tier (9.9px). Both are
-     *  pinned by __tests__/refitCardFit.test.ts. */
-    categorySize: 14,
-    nameSize: 20,
-    descSize: 15,
-    /** The META ROW's type size — the KIND word and the copy count beside it
-     *  (Story 8.1 renamed this from `raritySize`; the value is unchanged, and
-     *  so is the amendment-47 fit it was cut to). The widest kind word is
-     *  CONSUMABLE. */
-    kindSize: 11,
-    lineageSize: 12,
-    /** Gap (px) between the kind word and the copy count on the meta row.
-     *  8 → 6 with the amendment-47 meta-row fit (see kindSize above). */
-    metaGap: 6,
+    /** The chip's overhang (px) past the card's top and left edges (mock
+     *  `top:-8;left:-8`). NOT half the chip any more: the ratified chip sits
+     *  proud of the corner rather than centred on it. */
+    keyChipOffset: 8,
+    /** The digit's own type size (px) inside that chip — mock `font-size:11px`. */
+    keyChipSize: 11,
+
+    // --- THE RATIFIED FACE, top-down (mock `.rc`, :160-191) -------------------
+
+    /** The icon box (px) and the glyph inside it — mock `.ci` 40×40 with a 24px
+     *  `<svg>`. A line with no glyph draws the box EMPTY (ruling 11): ladders,
+     *  add-ons and consumables have no linework in 8.7 and none is invented. */
+    iconBox: 40,
+    iconGlyph: 24,
+    /** The line name — mock `.cn { font: 600 15px/1.15 var(--sans) }`, uppercase,
+     *  `nowrap`. `nameSizeLong` is the mock's `.cn.long` step for the one name
+     *  too wide for the 192px inner box at 15px; ui/refitCardFit.ts decides
+     *  which applies, and the fit suite walks every catalog name through it. */
+    nameSize: 15,
+    nameSizeLong: 12.5,
+    /** The KIND word — mock `.ck { font: 10px var(--mono); letter-spacing:.2em }`. */
+    kindSize: 10,
+    /** The LADDER row: its fixed height, the gap between rungs and one rung's
+     *  box (mock `.ladder` / `.ladder i`). The row is rendered EMPTY (but still
+     *  16px tall) for a consumable or an add-on, so the five rows below it sit
+     *  at the same baseline on every card in the row. */
+    ladderH: 16,
+    ladderGap: 3,
+    rungW: 14,
+    rungH: 7,
+    /** The `cur → next` tier numerals beside the ladder — mock `.tl`. */
+    tierSize: 12,
+    /** The five stat rows — mock `.rows { grid-template-rows: repeat(5,17px) }`
+     *  with a `.rw` label/value pair per row. FIVE ALWAYS: a line with fewer
+     *  rows renders the remainder blank, which is what keeps the foot on one
+     *  baseline across the row. */
+    rowH: 17,
+    rowCount: 5,
+    labelSize: 9,
+    valueSize: 11,
+    /** The FOOT — mock `.foot`, 14px tall, blank unless the card is greyed
+     *  (where it carries the boxed `SLOTS FULL` reason word). */
+    footH: 14,
+    footSize: 9,
     /** Dashed ghost edge behind the row when more offers are queued (px). */
     ghostOffset: 6,
     /** Alpha the cards dim to while a spend is in flight (locked). */
     lockedAlpha: 0.38,
+    /**
+     * Alpha a REFUSED card dims to (Story 8.7, ruling 10) — the mock's
+     * `.rc.grey { opacity:.55 }`. DELIBERATELY ABOVE `lockedAlpha`: a locked
+     * card is transiently inert (a spend is in flight and every card dims), a
+     * GREYED one is a standing refusal the player must still be able to READ —
+     * its name, its rows and its boxed `SLOTS FULL` foot are the whole point.
+     * Dual-coded: the dim is never the only channel (dashed key chip + the
+     * reason word carry it in glyphs).
+     */
+    greyedAlpha: 0.55,
+    /**
+     * ms — the INERT GRACE after the refit window closes by ANY path (Story
+     * 8.7, ruling 8). The digits `1`-`4` mean two different things either side
+     * of that close (pick a card / fire a belt slot), and a player who spends
+     * their last level with `1` is still holding the key when the window goes
+     * away. For this long afterwards a digit is swallowed: nothing is sent,
+     * nothing is primed. Matches the `results.keyGraceMs` precedent.
+     *
+     * Declared HERE, in this cycle, although the keyboard wave is what reads it
+     * — one config edit per block, never two.
+     */
+    closeGraceMs: 400,
     /** Denied edge pulse on the PICKED card: the ratified 80ms one-shot with a
      *  300ms same-source floor (the deniedFire grammar, reused verbatim). */
     deniedPulseMs: 80,

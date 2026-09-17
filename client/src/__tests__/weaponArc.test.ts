@@ -20,23 +20,28 @@
 // asserted — the radar buoy is a placement SECTOR like the mine.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   CATALOG,
   CONFIG,
   arcFor,
   effectiveStats,
+  isConsumableId,
   gunReachU as sharedGunReachU,
   SPAWN_SEED,
   WEAPON_SLOTS,
   slotsWithCards,
   pointInLitZone as sharedPointInLitZone,
 } from '@salvo/shared';
-import type { Catalog, CatalogLine, EquipmentId } from '@salvo/shared';
+import type { Catalog, CatalogLine, EquipmentId, SlotItemId } from '@salvo/shared';
 import {
   fireArcKind,
   pointInLitZone,
   sectorOutline,
   twinSectorSide,
+  clickInArc,
   weaponArcHit,
   weaponRangeHit,
   weaponRangeU,
@@ -53,7 +58,9 @@ import { ownActiveZones } from '../render/litZones.js';
  */
 function idAt(cls: 'torpedoBoat' | 'battleship' | 'mineLayer', slot: number): EquipmentId | null {
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
-  return slotsWithCards(stats, SPAWN_SEED[cls] ?? [])[slot].equipmentId;
+  const id = slotsWithCards(stats, SPAWN_SEED[cls] ?? [])[slot].equipmentId;
+  // A slot's content is a `SlotItemId` since Story 8.7 — narrowed, never cast.
+  return id === null || isConsumableId(id) ? null : id;
 }
 
 /** The three WEAPON slots, by name — Q, E, R (shared WEAPON_SLOTS). */
@@ -82,6 +89,37 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
   it('classes the instant ability + the empty slot as none (not an aimed weapon)', () => {
     expect(fireArcKind('speedBoost')).toBe('none');
     expect(fireArcKind(null)).toBe('none');
+  });
+});
+
+// THE CLICK GATE OVER A SLOT'S CONTENT (review patch P8).
+//
+// A click-placed CONSUMABLE — the decoy buoy, Story 8.15 — is an `isWeapon`
+// item with NO equipment row, so the arc table and the range table know nothing
+// about it. Asking them produced `inArc: false`, which made the client paint a
+// predicted DENIED pulse, keep the prime and dedupe away the server's answer,
+// while the server cheerfully placed the buoy. The client TRUSTS THE SERVER'S
+// ARC for one: no sector test, no range clamp, prime consumed like any weapon.
+describe('clickInArc — a click-placed consumable trusts the server (P8)', () => {
+  it('is TRUE for an isWeapon consumable at any bearing and any distance', () => {
+    for (const aim of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      expect(clickInArc(0, aim, 99_999, 'decoyBuoy'), String(aim)).toBe(true);
+    }
+  });
+
+  it('is FALSE for a KEY-FIRES consumable — a click on an ability fires nothing', () => {
+    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const) {
+      expect(clickInArc(0, 0, 10, id), id).toBe(false);
+    }
+  });
+
+  it('leaves EQUIPMENT exactly as it was — both tables still gate it', () => {
+    expect(clickInArc(0, 0, 10, 'gun')).toBe(true);
+    expect(clickInArc(0, 0, 10, 'heavyTorpedo')).toBe(weaponArcHit(0, 0, 'heavyTorpedo'));
+    expect(clickInArc(0, Math.PI, 10, 'navalMines')).toBe(true);
+    // ...the mine's placement leash included.
+    expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange + 1, 'navalMines')).toBe(false);
+    expect(clickInArc(0, 0, 10, null)).toBe(false);
   });
 });
 
@@ -580,5 +618,52 @@ describe('the click-placed pair share ONE placement leash (Eric 2026-08-20)', ()
     if (m.kind !== 'sector' || b.kind !== 'sector') throw new Error('both must be sectors');
     expect(b.offset).toBe(m.offset);
     expect(b.halfArc).toBe(m.halfArc);
+  });
+});
+
+// THE NARROWING SEAM for the firing path (Story 8.7, ruling 1). Since the belt
+// landed, a slot holds a `SlotItemId` — equipment OR a consumable line — while
+// every weapon-geometry helper in this module is keyed by `EquipmentId`. A
+// primed slot holding a consumable therefore has NO weapon geometry on the
+// client: no arc, no range, no reload readout, no aim preview. The click itself
+// is untouched and still travels to the server on `input.slot` (the decoy
+// buoy's arc is the server's in Story 8.15).
+//
+// Behaviourally inert today — every consumable is a stub and the belt ships
+// empty — so what is pinned is the TYPE-LEVEL discipline: narrow, never cast.
+describe('a primed BELT slot narrows out of the weapon tables (Story 8.7, ruling 1)', () => {
+  /** main.ts's `ownWeaponAt` body, verbatim — the guard, not a cast. */
+  const weaponIdOf = (id: SlotItemId | null): EquipmentId | null =>
+    id === null || isConsumableId(id) ? null : id;
+
+  it('a consumable id narrows to null; an equipment id passes through unchanged', () => {
+    expect(weaponIdOf('hullRepair')).toBeNull();
+    // ...INCLUDING the click-placed one: `decoyBuoy` is a weapon on the
+    // ability/click split (CONSUMABLE_IS_WEAPON) and still has no equipment row,
+    // so it narrows here exactly like the four instant lines do.
+    expect(weaponIdOf('decoyBuoy')).toBeNull();
+    expect(weaponIdOf('heavyTorpedo')).toBe('heavyTorpedo');
+    expect(weaponIdOf('gun')).toBe('gun');
+    expect(weaponIdOf(null)).toBeNull();
+  });
+
+  it('...so the geometry surfaces answer the empty-slot way for it', () => {
+    expect(fireArcKind(weaponIdOf('decoyBuoy'))).toBe('none');
+    expect(weaponArcHit(0, 0, weaponIdOf('decoyBuoy'))).toBe(false);
+    // ...while the equipment that shares the slot row is untouched.
+    expect(fireArcKind(weaponIdOf('heavyTorpedo'))).toBe('sector');
+    expect(weaponArcHit(0, 0, weaponIdOf('heavyTorpedo'))).toBe(true);
+  });
+
+  it('main.ts ROUTES the primed slot through that helper, and casts nowhere', () => {
+    // A grep pin, because the tempting fix here is one `as EquipmentId` in the
+    // firing path — which compiles, and hands an EquipmentId-keyed record a key
+    // it has no row for.
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'),
+      'utf8',
+    );
+    expect(src).toContain('const primedId = ownWeaponAt(g, slot);');
+    expect(src).not.toContain('as EquipmentId');
   });
 });

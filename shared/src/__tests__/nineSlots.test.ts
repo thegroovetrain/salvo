@@ -22,6 +22,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  CONSUMABLE_IDS,
   DEFAULT_DECKS,
   LINE_IDS,
   SHIP_CLASS_IDS,
@@ -31,14 +32,20 @@ import {
   SLOT_BOOST,
   SLOT_GUN,
   applySlotEffect,
+  canStock,
   checkDeck,
   effectiveStats,
   hullEnvelope,
   isStubLine,
   loadoutFor,
   mulberry32,
+  slotsWithCards,
+  type Catalog,
+  type CatalogLine,
+  type ConsumableId,
   type EquipmentId,
   type LineId,
+  type LoadoutSlot,
   type Rng,
 } from '../index.js';
 
@@ -155,5 +162,110 @@ describe('THE SEED TRIPWIRE — the spawn seed and a deck’s equipment share on
     const drawable = DEFAULT_DECKS[hull].filter((id) => CATALOG[id].kind === 'equipment' && !isStubLine(id));
     const union = new Set<LineId>([...seed, ...drawable]);
     expect(union.size, `${hull}: ${[...union].join('+')}`).toBeLessThanOrEqual(WEAPON_SLOTS.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE RACK PROPERTY (Story 8.7). The belt's fill rule is the weapon row's
+// sibling — held-line-first, then first-empty — and it has to hold over any
+// legal deck taken in any order. The production catalog CANNOT exercise it
+// (all five consumable lines are stubs and stay that way, epic-8 amendment 41),
+// so the property runs on the production catalog with those five UN-STUBBED:
+// exactly the catalog Story 8.8 onward ships, one flag at a time.
+// ---------------------------------------------------------------------------
+
+/** The production catalog, consumables un-stubbed — nothing else changed. */
+const LIVE_BELT: Catalog = (() => {
+  const rows: Record<string, CatalogLine> = { ...CATALOG };
+  for (const id of CONSUMABLE_IDS) {
+    const { stub: _stub, ...rest } = CATALOG[id];
+    rows[id] = rest;
+  }
+  return rows;
+})();
+
+/** The consumable lines of a hand, in FIT ORDER, first occurrence only. */
+function consumableOrder(cards: readonly LineId[]): ConsumableId[] {
+  const out: ConsumableId[] = [];
+  for (const id of cards) {
+    if (!(CONSUMABLE_IDS as readonly string[]).includes(id)) continue;
+    if (!out.includes(id as ConsumableId)) out.push(id as ConsumableId);
+  }
+  return out;
+}
+
+/** `[id:n, ...]` for the four belt slots, sorted — the permutation-invariant
+ *  shape (WHICH slot a line lands in is a fact about pick order, the multiset
+ *  of stacks is not). */
+const beltMultiset = (loadout: readonly LoadoutSlot[]): string[] =>
+  CONSUMABLE_SLOTS.map((i) => `${String(loadout[i].equipmentId)}:${loadout[i].state?.n ?? 0}`).sort();
+
+describe('THE RACK PROPERTY — the belt over random legal decks and random pick orders', () => {
+  it('over 200 random legal decks: one slot per line, n = copies held, canStock ≡ held ∨ empty, and the multiset is permutation-invariant', () => {
+    const rng = mulberry32(0x8_7_be17);
+    const stats = effectiveStats(hullEnvelope('torpedoBoat'));
+    for (let trial = 0; trial < 200; trial += 1) {
+      const { cards } = randomLegalDeck(rng);
+      const label = `trial ${trial}`;
+      const loadout = slotsWithCards(stats, cards, LIVE_BELT);
+      const belt = CONSUMABLE_SLOTS.map((i) => loadout[i]);
+      const held = belt.map((s) => s.equipmentId).filter((id) => id !== null);
+
+      // 1. THE BELT NEVER HOLDS TWO SLOTS OF ONE LINE.
+      expect(new Set(held).size, label).toBe(held.length);
+
+      // 2. The belt holds the FIRST FOUR DISTINCT consumable lines, in fit
+      //    order — the fifth and beyond are silent no-ops.
+      const order = consumableOrder(cards);
+      expect(held, label).toEqual(order.slice(0, CONSUMABLE_SLOTS.length));
+
+      // 3. n PER SLOT IS COPIES HELD (capped by the line), and a stack never
+      //    carries a reload.
+      const copies = new Map<string, number>();
+      for (const id of cards) copies.set(id, (copies.get(id) ?? 0) + 1);
+      for (const slot of belt) {
+        if (slot.equipmentId === null) {
+          expect(slot.state, label).toBeNull();
+          continue;
+        }
+        const id = slot.equipmentId;
+        const n = Math.min(copies.get(id) ?? 0, LIVE_BELT[id].cap);
+        expect(slot.state, `${label}:${id}`).toEqual({ n, reloadMsLeft: 0 });
+      }
+
+      // 4. canStock IS EXACTLY "held ∨ an empty belt slot".
+      const slotIds = loadout.map((s) => s.equipmentId);
+      const hasEmpty = held.length < CONSUMABLE_SLOTS.length;
+      for (const id of CONSUMABLE_IDS) {
+        expect(canStock(slotIds, id), `${label}:${id}`).toBe(held.includes(id) || hasEmpty);
+      }
+
+      // 5. THE WEAPON ROW IS UNTOUCHED BY THE RACK: slots 0–4 are byte-identical
+      //    to the same hand folded through the production catalog, whose belt
+      //    stays empty (amendment 41).
+      const production = slotsWithCards(stats, cards, CATALOG);
+      expect(loadout.slice(0, CONSUMABLE_SLOTS[0]), label).toEqual(production.slice(0, CONSUMABLE_SLOTS[0]));
+      for (const i of CONSUMABLE_SLOTS) {
+        expect(production[i], `${label}:production belt ${i}`).toEqual({ equipmentId: null, state: null });
+      }
+
+      // 6. PERMUTATION INVARIANCE. Re-taking the same cards in another order
+      //    moves WHICH slot holds what only while the belt has room to spare;
+      //    the multiset of stacks is invariant whenever the hand's consumable
+      //    lines fit the belt, and a full belt stays full either way.
+      const other = slotsWithCards(stats, shuffled(rng, cards), LIVE_BELT);
+      if (order.length <= CONSUMABLE_SLOTS.length) {
+        expect(beltMultiset(other), label).toEqual(beltMultiset(loadout));
+      } else {
+        const otherHeld = CONSUMABLE_SLOTS.map((i) => other[i].equipmentId).filter((id) => id !== null);
+        expect(otherHeld, label).toHaveLength(CONSUMABLE_SLOTS.length);
+        for (const id of otherHeld) expect(order, label).toContain(id);
+      }
+    }
+  });
+
+  it('the belt is exactly as wide as the number of lines a hand can stock at once (4 == 4)', () => {
+    expect(CONSUMABLE_SLOTS).toHaveLength(4);
+    expect(CONSUMABLE_IDS.length).toBeGreaterThan(CONSUMABLE_SLOTS.length); // five lines, four slots: refusals are real
   });
 });

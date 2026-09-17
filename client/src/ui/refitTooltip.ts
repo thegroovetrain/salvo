@@ -37,7 +37,9 @@
 // and `__tests__/refitTooltipFit.test.ts` governs this panel against ITS own
 // container. Two boxes, two pins, one law.
 
+import { CONSUMABLE_SLOTS, isConsumableId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { interactionLine } from '../render/equipmentInfo.js';
 import { monoWrapLines, widestToken } from './refitCardFit.js';
 
 const R = CLIENT_CONFIG.refit;
@@ -103,18 +105,35 @@ export function refitTooltipMaxPanelH(bandTopY: number): number {
   return Math.max(0, bandTopY - REFIT_TIP.gap - REFIT_TIP.margin);
 }
 
-/** What the panel renders: the hovered card's ladder name over its explanation.
- *  Nothing else — the category, rarity and `current → next` are ON THE FACE the
- *  pointer is already sitting on, and repeating them here would spend the
- *  panel's budget saying what the player can see. */
+/**
+ * What the panel renders: the hovered card's name over its explanation.
+ * Nothing else — the KIND word, the ladder and the `current → next` rows are ON
+ * THE FACE the pointer is already sitting on, and repeating them here would
+ * spend the panel's budget saying what the player can see.
+ *
+ * ONE EXCEPTION, STORY 8.7 (ruling 13): a CONSUMABLE card carries the same
+ * INTERACTION LINE the belt's slot tooltip does, above the explanation. The
+ * activation shape (`KEY FIRES` vs `KEY PRIMES · CLICK FIRES`) is the one thing
+ * about a consumable a player cannot read off the face — UX-DR50 keeps verbs
+ * and sentences off the card outright — and the card is where they meet the
+ * line for the first time, before there is a belt square to hover.
+ *
+ * Dormant in 8.7: every consumable is still a stub (amendment 41), so no
+ * consumable card is ever offered. The path is built and unit-tested so Story
+ * 8.8 finds it working.
+ */
 export interface RefitTooltipModel {
   name: string;
   body: string;
+  /** The consumable's shape line, or '' for every other kind. */
+  interaction?: string;
 }
 
 export interface RefitTooltipMetrics {
   innerW: number;
   nameLines: number;
+  /** The consumable interaction row's wrapped lines; 0 when there is none. */
+  interactionLines: number;
   bodyLines: number;
   /** Total rendered panel height (px), padding and borders included. */
   height: number;
@@ -139,12 +158,17 @@ function lineBox(fontPx: number, lh: number): number {
 export function refitTooltipMetrics(model: RefitTooltipModel, containerH: number): RefitTooltipMetrics {
   const innerW = refitTooltipInnerWidth();
   const nameLines = monoWrapLines(model.name, REFIT_TIP.nameSize, REFIT_TIP.nameLetterSpacing, innerW);
+  const interaction = model.interaction ?? '';
+  const interactionLines = monoWrapLines(interaction, REFIT_TIP.nameSize, REFIT_TIP.nameLetterSpacing, innerW);
   const bodyLines = monoWrapLines(model.body, REFIT_TIP.bodySize, REFIT_TIP.bodyLetterSpacing, innerW);
+  const row = (n: number, size: number, lh: number): number =>
+    n > 0 ? REFIT_TIP.rowGap + n * lineBox(size, lh) : 0;
   const height =
     2 * (REFIT_TIP.pad + REFIT_TIP.border) +
     nameLines * lineBox(REFIT_TIP.nameSize, REFIT_TIP.nameLineHeight) +
-    (bodyLines > 0 ? REFIT_TIP.rowGap + bodyLines * lineBox(REFIT_TIP.bodySize, REFIT_TIP.bodyLineHeight) : 0);
-  return { innerW, nameLines, bodyLines, height, overflow: height - containerH };
+    row(interactionLines, REFIT_TIP.nameSize, REFIT_TIP.nameLineHeight) +
+    row(bodyLines, REFIT_TIP.bodySize, REFIT_TIP.bodyLineHeight);
+  return { innerW, nameLines, interactionLines, bodyLines, height, overflow: height - containerH };
 }
 
 /** Widest unbreakable token (px) across both rows — the horizontal half of the
@@ -152,8 +176,37 @@ export function refitTooltipMetrics(model: RefitTooltipModel, containerH: number
 export function refitTooltipWidestToken(model: RefitTooltipModel): number {
   return Math.max(
     widestToken(model.name, REFIT_TIP.nameSize, REFIT_TIP.nameLetterSpacing),
+    widestToken(model.interaction ?? '', REFIT_TIP.nameSize, REFIT_TIP.nameLetterSpacing),
     widestToken(model.body, REFIT_TIP.bodySize, REFIT_TIP.bodyLetterSpacing),
   );
+}
+
+/**
+ * Pure: the hover panel's model for one offered line (Story 8.7, ruling 13).
+ * A CONSUMABLE card gains the interaction line the belt's slot tooltip prints;
+ * every other kind is the name over its explanation, exactly as it shipped.
+ *
+ * The KEY is the FIRST belt key rather than a resolved slot, because a card has
+ * not been picked yet and therefore has no slot — what the panel teaches is the
+ * SHAPE (`KEY FIRES` vs `KEY PRIMES · CLICK FIRES`), not which square it will
+ * land in.
+ *
+ * THE STOCK IS THE REAL ONE (review patch P7). It was a hard-coded `×1`, so a
+ * hover over a line already carried twice disagreed with the belt square beside
+ * it. `copiesHeld` is the card's own stack, and the number printed is
+ * `copiesHeld + 1`: the hover is on a card ABOUT TO BE STOCKED, so it reads
+ * what the belt WILL say once it is taken — the same tense the face's ladder
+ * and stat rows are already in (they preview the copy being offered).
+ */
+export function refitTooltipModel(
+  line: { id: string; kind: string },
+  name: string,
+  body: string,
+  copiesHeld: number,
+): RefitTooltipModel {
+  if (line.kind !== 'consumable' || !isConsumableId(line.id)) return { name, body };
+  const stock = Math.max(0, Math.trunc(copiesHeld)) + 1;
+  return { name, body, interaction: interactionLine(CONSUMABLE_SLOTS[0], line.id, [], stock) };
 }
 
 /**

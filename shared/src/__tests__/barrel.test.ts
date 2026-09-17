@@ -35,6 +35,13 @@ import {
   loadoutFor,
   boostedKinematics,
   slowedKinematics,
+  CONSUMABLE_IDS,
+  CONSUMABLE_IS_WEAPON,
+  canStock,
+  isConsumableId,
+  isWeaponItem,
+  slotMaxAmmo,
+  stockSlotFor,
   EQUIPMENT_IS_WEAPON,
   BOON_STAT_PATHS,
   CATALOG,
@@ -63,6 +70,7 @@ import {
   slotsWithCards,
   validateCatalog,
   validateLine,
+  type SlotItemId,
 } from '../index.js';
 
 describe('shared barrel', () => {
@@ -414,6 +422,30 @@ describe('shared barrel', () => {
     expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost', 'speedBoost']);
     expect(EQUIPMENT_IS_WEAPON.navalMines).toBe(true); // aimed rear-arc placement (2.8, a45)
     expect(EQUIPMENT_IS_WEAPON.radarBuoy).toBe(true); // click-placed (7-5 w2)
+  });
+
+  it('the BELT surface (Story 8.7): the rack predicate, the slot-item guard and the two split tables', () => {
+    // Story 8.7 adds the consumable half of the slot vocabulary. It is a
+    // WIRE-NEUTRAL addition — PROTOCOL_VERSION stays 52 (no new field, no
+    // catalog content change; every consumable line is still a stub, epic-8
+    // amendment 41) — but both sides import these names, so the barrel pins
+    // them here.
+    expect(typeof canStock).toBe('function');
+    expect(typeof stockSlotFor).toBe('function');
+    expect(typeof isConsumableId).toBe('function');
+    expect(typeof isWeaponItem).toBe('function');
+    expect(typeof slotMaxAmmo).toBe('function');
+    expect(Object.keys(CONSUMABLE_IS_WEAPON)).toEqual([...CONSUMABLE_IDS]);
+    // THE TWO ID SPACES STAY DISJOINT: EquipmentId is never widened, so every
+    // EquipmentId-keyed record (EQUIPMENT_IS_WEAPON, EQUIPMENT_STAT_FIELDS,
+    // the server rows, the glyphs) stays honest and each read of one narrows
+    // through the guard.
+    for (const id of CONSUMABLE_IDS) expect((EQUIPMENT_IDS as readonly string[]).includes(id), id).toBe(false);
+    for (const id of EQUIPMENT_IDS) expect(isConsumableId(id), id).toBe(false);
+    // The belt predicate reads the four consumable slots and nothing else.
+    const empty: (SlotItemId | null)[] = ['gun', 'speedBoost', null, null, null, null, null, null, null];
+    expect(canStock(empty, 'hullRepair')).toBe(true);
+    expect(stockSlotFor(empty, 'hullRepair')).toBe(CONSUMABLE_SLOTS[0]);
   });
 
   it('CONFIG.broadside carries the barrage block; its range stays DERIVED at the 5/8 rung', () => {

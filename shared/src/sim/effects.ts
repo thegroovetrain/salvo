@@ -12,8 +12,10 @@
 //   3. `doctrine` — set one per-equipment VERB boolean (verbs stack);
 //   4. `behavior` — run a registered shared hook per tick (HOOK_REGISTRY is
 //                   empty and stays empty);
-//   5. `stock`    — put one copy of a CONSUMABLE in its rack. Story 8.7 wires
-//                   it; THE FOLD IGNORES IT ENTIRELY today.
+//   5. `stock`    — put one copy of a CONSUMABLE in its rack: the belt slot
+//                   that already holds the line, else the first empty one
+//                   (Story 8.7, sim/boons.ts applySlotEffect). The STAT fold
+//                   still ignores it entirely — a stack moves no number.
 // `slotReplace` is DELETED (Story 8.1): nothing in catalog v3 swaps one piece
 // of equipment for another — equipment lines fit, they never replace.
 
@@ -26,9 +28,16 @@ import type { HookParams } from './hooks.js';
 export type BoonId = string;
 
 /**
- * The five launch CONSUMABLES (catalog-v3 §4). They are NOT slot equipment —
- * they fire off the `1`–`4` rail out of a rack — so they have their own id
- * space and never appear in `EquipmentId`.
+ * The five launch CONSUMABLES (catalog-v3 §4). They are NOT slot EQUIPMENT —
+ * they fire off the `1`–`4` rail as stacks of copies, with no module, no stats
+ * row and no reload — so they keep their OWN id space and never appear in
+ * `EquipmentId`.
+ *
+ * Since Story 8.7 a copy does hold a SLOT: one of the four BELT slots
+ * (`CONSUMABLE_SLOTS`, sim/loadout.ts), which is why a slot's content is typed
+ * `SlotItemId = EquipmentId | ConsumableId`. That union is the ONLY place the
+ * two spaces meet: no EquipmentId-keyed record ever gains a consumable key, and
+ * every read of one narrows through `isConsumableId` first.
  */
 export const CONSUMABLE_IDS = [
   'hullRepair',
@@ -213,9 +222,9 @@ export interface BoonDoctrineEffect {
 
 /**
  * Put ONE copy of a consumable in its rack (catalog-v3 §4 — consumables are
- * cap-5 lines and every copy stocks one use). Story 8.7 owns the rack; THE
- * STAT FOLD IGNORES `stock` ENTIRELY, which is why a consumable line can ship
- * today without touching a single derived number.
+ * cap-5 lines and every copy stocks one use). Story 8.7 built the rack in
+ * sim/boons.ts `applySlotEffect`; THE STAT FOLD IGNORES `stock` ENTIRELY, which
+ * is why a consumable line can ship without touching a single derived number.
  */
 export interface BoonStockEffect {
   kind: 'stock';

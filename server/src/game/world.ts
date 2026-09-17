@@ -16,7 +16,6 @@
 import {
   CATALOG,
   CONFIG,
-  EQUIPMENT_IS_WEAPON,
   HEAL_CHOICE,
   HOOK_REGISTRY,
   LIFECYCLE_ALIVE,
@@ -27,6 +26,8 @@ import {
   boostedKinematics,
   boonStackCount,
   buildDeckState,
+  canStock,
+  CONSUMABLE_SLOTS,
   burstVictims,
   consumeCard,
   drawOffer,
@@ -39,10 +40,12 @@ import {
   hasFoundered,
   hookKinematics,
   isAfloat,
+  isConsumableId,
   isSinking,
   isSunk,
   slotsWithCards,
   isStubLine,
+  isWeaponItem,
   SPAWN_SEED,
   hullEnvelope,
   hullSilhouette,
@@ -76,7 +79,7 @@ import {
   type DeniedView,
   type DenialReason,
   type EffectiveStats,
-  type EquipmentId,
+  type ConsumableId,
   type HookRegistry,
   type GameEvent,
   type GameMap,
@@ -88,6 +91,7 @@ import {
   type InputMsg,
   type LitCircle,
   type LoadoutSlot,
+  type SlotItemId,
   type Rng,
   type ShellOutcome,
   type ShellState,
@@ -104,6 +108,7 @@ import {
 } from '@salvo/shared';
 import {
   BUOY_SIZE_U,
+  CONSUMABLES,
   EQUIPMENT,
   addBuoy,
   addMine,
@@ -113,10 +118,12 @@ import {
   contactBlastRadius,
   mineBlastVictims,
   scatterJamFakes,
+  slotRow,
   type ActivationContext,
   type ActivationDenial,
   type ActivationResult,
   type BuoyState,
+  type ConsumableRegistry,
   type MineState,
   type MineTripRules,
 } from './equipment/index.js';
@@ -232,6 +239,16 @@ export interface WorldOptions {
   hookRegistry?: HookRegistry;
   catalog?: Catalog;
   /**
+   * THE CONSUMABLE-ROW SEAM (Story 8.7), beside `catalog` and for the same
+   * reason. Production ships the EMPTY `CONSUMABLES` registry — every
+   * consumable line is still `stub`, so nothing can be stocked and the belt is
+   * unreachable in play (Eric ruling 2026-09-17, epic-8 amendment 41) — while
+   * tests inject a non-stub catalog AND the rows that back it, and drive the
+   * whole stock/use/clear mechanism end to end. Story 8.8 ships the first real
+   * row; nothing else here changes when it does.
+   */
+  consumables?: ConsumableRegistry;
+  /**
    * PER-RING seed material of the SERVER-PRIVATE zone ring streams (Story
    * 3.1, amendment 10 + review FIX 2): one uint32 per rolled ring
    * (zoneSeeds[i] → ring i+1), each seeding an INDEPENDENT stream so a
@@ -272,11 +289,13 @@ export interface WorldOptions {
   onDeckExhausted?: (shipId: string) => void;
 }
 
-/** The equipment id fitted in `loadout[slotIndex]`, or null when the slot is
+/** The item id fitted in `loadout[slotIndex]`, or null when the slot is
  *  empty or the index is out of range. Shared by the two dispatch channels so
- *  each routes only its OWN equipment kind: fireControl (clicks) dispatches
- *  weapons, activationControl (actSeq) dispatches abilities. */
-function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): EquipmentId | null {
+ *  each routes only its OWN kind: fireControl (clicks) dispatches weapons,
+ *  activationControl (actSeq) dispatches abilities — a split both read off the
+ *  shared `isWeaponItem`, which answers for a CONSUMABLE line as readily as for
+ *  a piece of equipment (Story 8.7). Hence `SlotItemId`, not `EquipmentId`. */
+function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): SlotItemId | null {
   const slot = loadout[slotIndex];
   return slot ? slot.equipmentId : null;
 }
@@ -1185,6 +1204,10 @@ export class World {
   /** The card catalog applyCard resolves ids against (injectable — tests;
    *  production defaults to the shared CATALOG). */
   private readonly catalog: Catalog;
+  /** The CONSUMABLE rows a belt slot's content resolves against (injectable —
+   *  tests; production defaults to the EMPTY shared CONSUMABLES, amendment
+   *  41). Every lookup goes through `slotRow`, never this field directly. */
+  private readonly consumables: ConsumableRegistry;
 
   /**
    * THE MATCH'S ONE SPAWN LATTICE (Eric ruling 2026-08-16). Every placement
@@ -1221,6 +1244,7 @@ export class World {
   ) {
     this.hookRegistry = opts.hookRegistry ?? HOOK_REGISTRY;
     this.catalog = opts.catalog ?? CATALOG;
+    this.consumables = opts.consumables ?? CONSUMABLES;
     this.playerCap = playerCap;
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
@@ -2414,18 +2438,11 @@ export class World {
     // `this.catalog['constructor']` with Object.prototype.constructor —
     // not undefined, and with no `tiers` to iterate.
     const line = Object.hasOwn(this.catalog, lineId) ? this.catalog[lineId] : undefined;
-    // A STUB LINE IS REFUSED OUTRIGHT, before the push: its mechanism does not
-    // exist, so fitting it buys nothing — and the id would then ride the wire
-    // in `cards`, where the client's replay and this world's own respawn
-    // replay would both try to derive a loadout from it. The shared fold
-    // refuses the fill too (sim/boons.ts applySlotEffect); this keeps the id
-    // out of the build in the first place. Unreachable in play: a stub is
-    // never dealt into a deck.
-    if (line?.stub === true) return;
+    // THE TWO PRE-PUSH REFUSALS — a stub line, and a consumable the belt has no
+    // room for. See `refusesCard`.
+    if (this.refusesCard(ship, line, lineId)) return;
     ship.cards.push(lineId);
-    ship.cardBehaviors = cardBehaviors(ship.cards, this.catalog);
-    const prevStats = ship.stats;
-    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
+    const prevStats = this.refoldCards(ship);
     if (line?.healOnGrant === true && isAfloat(ship.lifecycle)) {
       const delta = Math.max(0, ship.stats.maxHp - prevStats.maxHp);
       ship.hp = Math.min(ship.hp + delta, ship.stats.maxHp);
@@ -2440,11 +2457,61 @@ export class World {
     this.reprovisionWake(ship);
   }
 
+  /**
+   * THE TWO REASONS A COPY NEVER ENTERS `ship.cards` — checked together,
+   * BEFORE the push, because the push is what puts an id on the wire.
+   *
+   *   • A STUB LINE: its mechanism does not exist, so fitting it buys nothing —
+   *     and the id would then ride in `cards`, where the client's replay and
+   *     this world's own respawn replay would both try to derive a loadout from
+   *     it. The shared fold refuses the fill too (sim/boons.ts applySlotEffect);
+   *     this keeps the id out of the build in the first place.
+   *   • A CONSUMABLE WITH NOWHERE TO GO (Story 8.7 review patch P4): the belt
+   *     is full of four other lines. `applySlotEffect`'s full-belt branch is a
+   *     SILENT no-op, so without this a directed grant (spawn seeding, a
+   *     directed deck, the bot port, a test) would leave a copy in `cards` that
+   *     no slot holds — and the client's replay would conjure a stack the
+   *     server does not have. The SAME shared predicate the client greys the
+   *     card with; `spendCard` keeps its own earlier check because it must
+   *     refuse before the offer moves.
+   *
+   * Both are unreachable through a legal deal: a stub is never dealt, and
+   * `spendCard` refuses a full belt one step earlier.
+   */
+  private refusesCard(ship: ShipRecord, line: CatalogLine | undefined, lineId: string): boolean {
+    if (line?.stub === true) return true;
+    if (line?.kind !== 'consumable' || !isConsumableId(lineId)) return false;
+    return !canStock(ship.loadout.map((s) => s.equipmentId), lineId);
+  }
+
+  /**
+   * RE-DERIVE EVERYTHING THAT HANGS OFF `ship.cards`, and answer with the stats
+   * that were live before. The ONE place the held-card fold is re-run, shared
+   * by the two edits that move the card multiset: `applyCard` (a copy is
+   * pushed) and `spendStock` (a consumable copy is spent and leaves, Story 8.7
+   * ruling 4). Both need the same pair re-computed in the same order, and
+   * `prevStats` is what the pool/timer reconciliation compares against.
+   */
+  private refoldCards(ship: ShipRecord): EffectiveStats {
+    ship.cardBehaviors = cardBehaviors(ship.cards, this.catalog);
+    const prevStats = ship.stats;
+    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
+    return prevStats;
+  }
+
   /** THIS COPY's slot effects, applied incrementally to the live loadout (home
    *  2 of applyCard — see there). The copy index is how many copies of the line
    *  the ship holds AFTER the push, so `tiers[copy - 1]` is its step. The
    *  EQUIPMENT-registry gate is belt-and-braces beside the shared catalog's
-   *  stub guard: an id with no built module can never be dispatched. */
+   *  stub guard: an id with no built module can never be dispatched.
+   *
+   *  THE GATE IS `slotFill`-ONLY, DELIBERATELY (Story 8.7 ruling 3). A `stock`
+   *  effect reaches `applySlotEffect` WITHOUT a registry check: a consumable
+   *  stack is inert cargo — it holds copies and does nothing per tick — so it
+   *  is legal to carry a line whose ROW is not built yet, and the shared fold's
+   *  own `stub` gate is what decides whether a line may be stocked at all.
+   *  Firing one still fails closed: the sinking-activation gate resolves a belt
+   *  slot through `slotRow` and answers 'empty-slot' when no row exists. */
   private applyGrantSlots(ship: ShipRecord, line: CatalogLine, lineId: string): void {
     for (const effect of line.tiers[boonStackCount(ship.cards, lineId) - 1] ?? []) {
       if (effect.kind === 'slotFill' && !Object.hasOwn(EQUIPMENT, effect.equipmentId)) continue;
@@ -2464,6 +2531,11 @@ export class World {
     for (const slot of ship.loadout) {
       const id = slot.equipmentId;
       if (id === null || slot.state === null) continue;
+      // A BELT SLOT IS NOT A POOL (Story 8.7): a consumable stack's `n` is
+      // COPIES HELD, which only a card or a use may move — no stats row exists
+      // to read a cap off, and the narrowing guard is what keeps the read below
+      // honest instead of a cast.
+      if (isConsumableId(id)) continue;
       const cap = equipmentMaxAmmo(ship.stats, id);
       if (cap > equipmentMaxAmmo(prevStats, id)) slot.state.n = cap;
       slot.state.n = Math.min(slot.state.n, cap);
@@ -2499,6 +2571,10 @@ export class World {
     for (const slot of ship.loadout) {
       const id = slot.equipmentId;
       if (id === null || slot.state === null) continue;
+      // A STACK NEVER RELOADS (Story 8.7): `reloadMsLeft` is 0 for its whole
+      // life, so the `left <= 0` guard below would skip it anyway — the
+      // narrowing guard is what makes the equipmentReloadMs reads type-honest.
+      if (isConsumableId(id)) continue;
       const left = slot.state.reloadMsLeft;
       if (left <= 0) continue; // idle slot: nothing in flight
       const oldMs = equipmentReloadMs(prevStats, id);
@@ -2564,6 +2640,20 @@ export class World {
   private spendCard(ship: ShipRecord, choice: number): boolean {
     const front = ship.offer;
     if (front === null || choice < 0 || choice >= front.length) return false;
+    // THE FULL-BELT REFUSAL (Story 8.7 ruling 3), BEFORE anything is consumed:
+    // a consumable copy with nowhere to go is refused outright rather than
+    // stocked into nothing. `canStock` is the SAME shared predicate the client
+    // greys the card with (`SLOTS FULL`), over the same replayed slot ids, so
+    // the two can never disagree about whether a pick is legal — and because
+    // this returns here, the level stays banked, the deck is untouched, no `bn`
+    // is queued and the next frame's offer is the SAME array, byte for byte.
+    // Both halves of the test matter: a line the fold can actually put in the
+    // belt is one whose kind is `consumable` AND whose id names a consumable
+    // (a `stock` effect can carry no other id), so nothing else is gated here.
+    const lineId = front[choice];
+    const line = this.catalog[lineId];
+    if (line?.kind === 'consumable' && isConsumableId(lineId)
+      && !canStock(ship.loadout.map((s) => s.equipmentId), lineId)) return false;
     ship.offer = null;
     ship.bankedLevels -= 1;
     this.settleSpend(ship, front, choice);
@@ -4450,9 +4540,11 @@ export class World {
   private fireControl(dtMs: number): void {
     for (const ship of this.ships.values()) {
       for (const slot of ship.loadout) {
-        // Fail-closed dispatch (Story 8.1): the registry is PARTIAL over the
-        // widened EquipmentId, so an id with no built module ticks nothing.
-        if (slot.equipmentId !== null) EQUIPMENT[slot.equipmentId]?.tick(ship, slot, dtMs);
+        // Fail-closed dispatch (Story 8.1): both registries are PARTIAL over
+        // their id space, so an id with no built row ticks nothing. `slotRow`
+        // (Story 8.7) is what routes a BELT slot's consumable id to the
+        // consumable registry — whose rows tick nothing by construction.
+        slotRow(slot.equipmentId, this.consumables)?.tick(ship, slot, dtMs);
       }
       for (const intent of ship.tickIntents) this.consumeClick(ship, intent);
       this.consumeClick(ship, ship.input);
@@ -4479,7 +4571,11 @@ export class World {
     // the wrong channel. An out-of-range/empty slot is inert here too (it was
     // an 'empty-slot' gate denial before — same no-op, no lastFireT).
     const id = fittedEquipment(ship.loadout, input.slot);
-    if (id === null || !EQUIPMENT_IS_WEAPON[id]) return;
+    // `isWeaponItem` (Story 8.7), not the equipment-only map: a CONSUMABLE can
+    // be click-aimed too (the DECOY BUOY is), and this wall must answer for
+    // whatever the slot holds — the ONE predicate the client's prime/activate
+    // fork reads as well.
+    if (id === null || !isWeaponItem(id)) return;
     // D1: validate the click's claimed fire time BEFORE activation. The clamp
     // is the trust boundary (never earlier than now - min(RTT+jitter, ceiling),
     // never before the previous ACCEPTED fire time).
@@ -4556,7 +4652,10 @@ export class World {
     // state change), so a forged actSeq on a gun/torpedo slot fires nothing —
     // the mirror of fireControl's weapon-only wall.
     const id = fittedEquipment(ship.loadout, input.actSlot);
-    if (id === null || EQUIPMENT_IS_WEAPON[id]) return;
+    // The mirror of consumeClick's wall, over the same shared predicate: a
+    // KEY-FIRES consumable in a belt slot (5–8) rides this channel exactly as
+    // the boost does, and an `isWeapon` one is inert here.
+    if (id === null || isWeaponItem(id)) return;
     const result = this.withInput(ship, input, () => this.sinkingActivationGate(ship, input.actSlot));
     // A refused press becomes a SELF-PRIVATE wire denial (Story 1.10) keyed
     // on the press's actSeq — this is what makes the within-RTT double
@@ -4643,12 +4742,82 @@ export class World {
     if (!this.weaponsEnabled) return { ok: false, reason: 'frozen' };
     if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) return { ok: false, reason: 'dead' };
     const slot = ship.loadout[slotIndex];
-    if (!slot || slot.equipmentId === null) return { ok: false, reason: 'empty-slot' };
-    const row = EQUIPMENT[slot.equipmentId];
+    if (!slot) return { ok: false, reason: 'empty-slot' };
+    const id = slot.equipmentId;
+    if (id === null) return { ok: false, reason: 'empty-slot' };
+    // Story 8.7: `slotRow` resolves EITHER registry — equipment for slots 0–4,
+    // the consumable rows for the belt — so a belt press dispatches here and
+    // nowhere else.
+    const row = slotRow(id, this.consumables);
     // Fail-closed (Story 8.1): an id with no built module answers exactly as an
     // empty slot does — applyCard never fits one, so this is unreachable in play.
+    // A consumable whose row is not built yet (all five today, amendment 41)
+    // lands here too, which is what keeps an empty registry safe.
     if (row === undefined) return { ok: false, reason: 'empty-slot' };
-    return row.activate(this.activationContext(ship, fireT), slot);
+    const result = row.activate(this.activationContext(ship, fireT), slot);
+    // THE USE (Story 8.7 ruling 4) — here, at the ONE call path to activate(),
+    // so "the copy leaves `cards` and a spent stack clears" has exactly one
+    // home and no row mutates its own slot. Only a SUCCESSFUL activation spends
+    // a copy: the row already denied a dry stack without touching it.
+    if (result.ok && isConsumableId(id)) this.spendStock(ship, id);
+    return result;
+  }
+
+  /**
+   * ONE COPY OF `lineId` LEAVES THE BUILD, and a stack that hit zero clears its
+   * slot — the after-half of a successful consumable activation (ruling 4).
+   *
+   * WHY `cards` AND NOT A NEW WIRE FIELD: the client rebuilds every slot's
+   * contents by REPLAYING `OwnShip.cards`, which is already on the wire. If a
+   * use only decremented `n` here, the replay would restock the copy on every
+   * respawn and disagree with `ammo` after a refresh. Removing the copy makes
+   * `cards` the single truth for both `equipmentId` and `n`, on both sides, with
+   * nothing added to the protocol. The LAST occurrence goes so the fit ORDER of
+   * the remaining copies is the order they were taken in.
+   *
+   * The re-fold is the same one `applyCard` runs after a push. Consumables carry
+   * no stat effects, so in practice nothing moves (pinned) — but the fold is run
+   * rather than assumed, because "a card left `cards`" is exactly the event
+   * `effectiveStats` and `cardBehaviors` are derived from.
+   *
+   * RESPAWN AND REDEPLOY REBUILD FROM `cards`, so a used copy is never restored.
+   */
+  private spendStock(ship: ShipRecord, lineId: ConsumableId): void {
+    const at = ship.cards.lastIndexOf(lineId);
+    if (at >= 0) ship.cards.splice(at, 1);
+    this.refoldCards(ship);
+    this.rebuildBelt(ship);
+  }
+
+  /**
+   * THE BELT IS ALWAYS THE REPLAY (Story 8.7 review patch P1) — slots 5–8 are
+   * re-derived from `slotsWithCards(stats, cards)` after every spend, and the
+   * weapon row (0–4) is not touched.
+   *
+   * WHY IT CANNOT BE AN IN-PLACE CLEAR: the client never sees `loadout`. It
+   * replays `OwnShip.cards` through the same shared fold, which packs the belt
+   * LEFT TO RIGHT in fit order. Emptying a spent stack where it sits leaves the
+   * server on `[null, B, C, D]` while the client re-packs to `[B, C, D, null]`
+   * — and from that tick on, key 2 names a different line on each side. Taking
+   * the whole belt from the replay makes the two agree by construction rather
+   * than by argument, for the clear AND for every stack count.
+   *
+   * LOSSLESS: a belt slot carries copies held and a `reloadMsLeft` that is 0
+   * for its whole life (a stack never reloads), and both are a pure function of
+   * `cards` — there is no live state here to lose. A WEAPON slot's timers and
+   * pool are NOT, which is exactly why slots 0–4 are left alone. Slots are
+   * mutated in place rather than replaced so a caller still holding the
+   * LoadoutSlot it activated sees the truth.
+   */
+  private rebuildBelt(ship: ShipRecord): void {
+    const replay = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship));
+    for (const i of CONSUMABLE_SLOTS) {
+      const live = ship.loadout[i];
+      const want = replay[i];
+      if (live === undefined || want === undefined) continue;
+      live.equipmentId = want.equipmentId;
+      live.state = want.state;
+    }
   }
 
   /** The capabilities equipment needs to activate for this ship this tick.

@@ -99,6 +99,7 @@ import {
   CONFIG,
   angleDiff,
   bearing,
+  isConsumableId,
   nearestCoastPoint,
   wrapAngle,
   type EffectiveStats,
@@ -227,7 +228,12 @@ function rankedSlots(self: BotSelf, profile: BotProfile): RankedSlot[] {
   const out: RankedSlot[] = [];
   for (let i = 0; i < self.loadout.length; i += 1) {
     const id = self.loadout[i].equipmentId;
-    if (id === null) continue;
+    // THE BELT IS NOT A BOT'S BUSINESS IN 8.7 (amendment 41: nothing is
+    // stockable in play). A consumable id is skipped through the shared
+    // narrowing guard — never a cast — so the EQUIPMENT_TACTICS lookup below
+    // stays keyed by EquipmentId and gains no fake rows. The story that gives
+    // bots a belt gives it its own tactic axis.
+    if (id === null || isConsumableId(id)) continue;
     out.push({ slot: i, id, appetite: appetiteFor(profile, id) });
   }
   out.sort((a, b) => b.appetite - a.appetite || a.slot - b.slot);
@@ -315,7 +321,8 @@ export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[]
   const out: number[] = [];
   for (let i = 0; i < self.loadout.length; i += 1) {
     const id = self.loadout[i].equipmentId;
-    if (id === null || !slotReady(self, i)) continue;
+    // Same guard as rankedSlots: a belt slot contributes no shot reach.
+    if (id === null || isConsumableId(id) || !slotReady(self, i)) continue;
     const tactic = EQUIPMENT_TACTICS[id];
     if (tactic?.kind === 'shot') out.push(tactic.reachU(stats));
   }

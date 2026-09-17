@@ -26,9 +26,11 @@ import {
   boonEffectLine,
   boonFitToastLine,
   boonKindLabel,
-  boonLineageLine,
   boonName,
   boonTooltipText,
+  cardStatRows,
+  cardTierLabel,
+  cardTierSteps,
 } from '../ui/boonCopy.js';
 
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
@@ -68,12 +70,14 @@ describe('coverage — every catalog line has a name and a kind word', () => {
     expect(boonName('acousticHoming')).toBe('ACOUSTIC HOMING');
   });
 
-  it('names the LINE, not the rung — the handrail carries the position', () => {
+  it('names the LINE, not the rung — the tier numerals carry the position', () => {
     // The v2 ladders (HULL I..IV) are gone with the v2 catalog: the sheet gives
     // one name per line, so `stack` no longer selects anything.
     expect(boonName('armor', 0)).toBe(boonName('armor', 3));
-    expect(boonLineageLine(CATALOG.armor, 0)).toBe('I/IV');
-    expect(boonLineageLine(CATALOG.armor, 3)).toBe('IV/IV');
+    // Story 8.7 retired `boonLineageLine`'s "II/V" handrail: the ratified face
+    // DRAWS the ladder, so what the numerals say is the STEP this card buys.
+    expect(cardTierLabel(CATALOG.armor, 0)).toBe('I → II');
+    expect(cardTierLabel(CATALOG.armor, 3)).toBe('IV → V');
   });
 
   it('fails OPEN on an unknown id/kind (a readable fallback, never an empty card)', () => {
@@ -142,7 +146,9 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
       expect(boonKindLabel(line.kind), line.id).not.toBe('');
       expect(boonDescription(line, TB), line.id).toBe('');
       expect(boonTooltipText(line.id), line.id).toBe('');
-      expect(boonLineageLine(line, 0), line.id).toBe(line.cap > 1 ? `I/${line.cap === 5 ? 'V' : 'IV'}` : null);
+      // A STUB line prints no rows on the ratified face either — there is no
+      // built module whose numbers could be read (Story 8.7, ruling 12).
+      expect(cardStatRows(line, 0, TB), line.id).toEqual([]);
     }
   });
 
@@ -274,22 +280,45 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
   });
 });
 
-describe('lineage handrail', () => {
-  it('marks the position a card would take out of its line\'s cap', () => {
-    expect(boonLineageLine(CATALOG.reload, 0)).toBe('I/V');
-    expect(boonLineageLine(CATALOG.reload, 1)).toBe('II/V');
-    expect(boonLineageLine(CATALOG.armor, 3)).toBe('IV/IV');
-    expect(boonLineageLine(CATALOG.deckGunBarrel, 1)).toBe('II/II');
+// THE TIER NUMERALS (Story 8.7, ruling 11 / UX-DR51) — what replaced the
+// "II/V" handrail. The ladder itself is drawn on the face, so these say the
+// STEP the card buys, which the rungs cannot.
+describe('cardTierLabel — the step, not the position', () => {
+  it('reads a BASE-TIER line as a step from what the hull already has', () => {
+    // A hull sails with armor / speed / turning / a deck gun fitted, so the
+    // first card of one of those is I → II rather than the purchase of a Tier I.
+    expect(cardTierLabel(CATALOG.armor, 0)).toBe('I → II');
+    expect(cardTierLabel(CATALOG.speed, 0)).toBe('I → II');
+    expect(cardTierLabel(CATALOG.turning, 0)).toBe('I → II');
+    expect(cardTierLabel(CATALOG.deckGun, 0)).toBe('I → II');
+    expect(cardTierLabel(CATALOG.armor, 2)).toBe('III → IV');
   });
 
-  it('shows NOTHING for a single-copy line (there is no lineage to hold)', () => {
-    expect(boonLineageLine(CATALOG.deckGunTurret, 0)).toBeNull();
-    expect(boonLineageLine(CATALOG.acousticHoming, 0)).toBeNull();
-    expect(boonLineageLine(CATALOG.foulingMines, 0)).toBeNull();
+  it('reads every OTHER ladder and every weapon as a bare I on its first copy', () => {
+    expect(cardTierLabel(CATALOG.radarSweep, 0)).toBe('I');
+    expect(cardTierLabel(CATALOG.reload, 0)).toBe('I');
+    expect(cardTierLabel(CATALOG.deckGunTurret, 0)).toBe('I');
+    expect(cardTierLabel(CATALOG.heavyTorpedo, 0)).toBe('I');
   });
 
-  it('clamps a full stack to the last position rather than overflowing', () => {
-    expect(boonLineageLine(CATALOG.reload, 9)).toBe('V/V');
+  it('and as a step from the copy held once there is one', () => {
+    expect(cardTierLabel(CATALOG.heavyTorpedo, 1)).toBe('I → II');
+    expect(cardTierLabel(CATALOG.reload, 1)).toBe('I → II');
+    expect(cardTierLabel(CATALOG.radarSweep, 4)).toBe('IV → V');
+  });
+
+  it('shows NO ladder at all for a consumable or an add-on', () => {
+    expect(cardTierLabel(CATALOG.hullRepair, 0)).toBeNull();
+    expect(cardTierLabel(CATALOG.decoyBuoy, 0)).toBeNull();
+    expect(cardTierLabel(CATALOG.acousticHoming, 0)).toBeNull();
+    expect(cardTierLabel(CATALOG.foulingMines, 0)).toBeNull();
+  });
+
+  it('carries the same step as NUMBERS, so the DOM can tint each numeral', () => {
+    expect(cardTierSteps(CATALOG.armor, 0)).toEqual({ cur: 1, next: 2 });
+    expect(cardTierSteps(CATALOG.radarSweep, 0)).toEqual({ cur: 1, next: null });
+    expect(cardTierSteps(CATALOG.heavyTorpedo, 2)).toEqual({ cur: 2, next: 3 });
+    expect(cardTierSteps(CATALOG.hullRepair, 0)).toBeNull();
   });
 });
 
@@ -306,6 +335,22 @@ describe('the fitted toast', () => {
 
   it('fails open on an unknown id', () => {
     expect(boonFitToastLine('someFutureCard', 1)).toBe('◆ Some Future Card FITTED');
+  });
+
+  // STORY 8.7, RULING 14 (UX-DR48's "consumable stocked"). Nothing about the
+  // hull changed when a consumable lands — a copy went onto the belt — so the
+  // verb has to say so or the toast claims a fit that never happened.
+  it('says STOCKED for a consumable line, and FITTED for every other kind', () => {
+    expect(boonFitToastLine('hullRepair', 1, 'consumable')).toBe('◆ HULL REPAIR STOCKED');
+    expect(boonFitToastLine('decoyBuoy', 2, 'consumable')).toBe('◆ DECOY BUOY STOCKED');
+    expect(boonFitToastLine('reload', 1, 'ladder')).toBe('◆ RELOAD FITTED');
+    expect(boonFitToastLine('heavyTorpedo', 1, 'equipment')).toBe('◆ HEAVY TORPEDO FITTED');
+    expect(boonFitToastLine('acousticHoming', 1, 'addon')).toBe('◆ ACOUSTIC HOMING FITTED');
+  });
+
+  it('keeps the pre-8.7 default when no kind is passed or the kind is unknown', () => {
+    expect(boonFitToastLine('hullRepair', 1)).toBe('◆ HULL REPAIR FITTED');
+    expect(boonFitToastLine('hullRepair', 1, 'someFutureKind')).toBe('◆ HULL REPAIR FITTED');
   });
 });
 

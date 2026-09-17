@@ -25,7 +25,7 @@
 // `amberPulseWinner`, so the two can never disagree about which amber wins.
 
 import { Container, Text } from 'pixi.js';
-import type { EffectiveStats, EquipmentId, ShipClassId, WeaponAmmo } from '@salvo/shared';
+import type { EffectiveStats, ShipClassId, SlotItemId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
 // The Tier-1 hold easing is the storm vignette's, imported rather than
@@ -96,7 +96,7 @@ export interface OwnStatus {
    *  Story 8.5); null = an unfitted slot. Read by the firing UX and passed
    *  through to the HOTBAR (render/hotbar.ts owns the loadout surface). Ammo
    *  VALUES still come from the server via `ammo`. */
-  loadout: readonly (EquipmentId | null)[];
+  loadout: readonly (SlotItemId | null)[];
   /** The own speed boost is currently active (serverNow < boostUntil estimate):
    *  drives the boosted speed-needle cap on the helm globe's telegraph arc. */
   boostActive: boolean;

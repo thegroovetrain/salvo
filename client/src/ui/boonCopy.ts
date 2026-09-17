@@ -56,12 +56,15 @@
 import {
   CATALOG,
   CONFIG,
+  EQUIPMENT_STAT_FIELDS,
   LINE_IDS,
   effectiveStats,
   isStubLine,
   tierTargetOf,
+  type BoonStatPath,
   type CatalogLine,
   type EffectiveStats,
+  type EquipmentId,
   type LineId,
   type LineKind,
   type ShipClassId,
@@ -176,12 +179,38 @@ function pct(v: number): string {
   return `${num(v * 100)}%`;
 }
 
-/** One headline stat of a stat line: what to call it, where to read it and how
- *  to print it. */
+/**
+ * One headline stat of a stat line: what to call it, WHICH STAT PATH it reads
+ * and how to print it.
+ *
+ * STORY 8.7 replaced the `read` closure with the `path` itself. The ratified
+ * card face prints a ROW PER STAT EFFECT rather than one headline sentence, and
+ * a card's effects are authored as paths (`equipment.gun.damage`) — so the
+ * label table has to be keyed the same way, or the face and this module would
+ * be two different answers to "what do you call this number". `readStatPath`
+ * below is the one reader both surfaces go through.
+ */
 interface StatLine {
   label: string;
-  read: (s: EffectiveStats) => number;
+  /** The EffectiveStats path this row reads — the same string the catalog's
+   *  `stat` effects address, so `STAT_LABELS` can be generated from it. */
+  path: BoonStatPath;
   fmt?: (v: number) => string;
+}
+
+/**
+ * Pure: read a dotted stat path off an EffectiveStats. Fail-open to 0 on a path
+ * that does not resolve — a card printing `0` is a visible defect, whereas a
+ * throw from inside the refit band's per-frame render is a permanent freeze
+ * (the cycle-91 lesson, applied to the reader rather than the class table).
+ */
+function readStatPath(stats: EffectiveStats, path: string): number {
+  let cur: unknown = stats;
+  for (const seg of path.split('.')) {
+    if (typeof cur !== 'object' || cur === null) return 0;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return typeof cur === 'number' ? cur : 0;
 }
 
 /** Seconds to one decimal — "30.0 s". The equipment rows' own format: a
@@ -213,7 +242,7 @@ function equipmentStatLines(): Partial<Record<LineId, StatLine>> {
     if (line.kind !== 'equipment' || isStubLine(id)) continue;
     const target = tierTargetOf(line);
     if (target === undefined) continue;
-    out[id] = { label: 'Reload', read: (s) => s.equipment[target].reloadMs, fmt: secs };
+    out[id] = { label: 'Reload', path: `equipment.${target}.reloadMs` as BoonStatPath, fmt: secs };
   }
   return out;
 }
@@ -231,23 +260,36 @@ function equipmentStatLines(): Partial<Record<LineId, StatLine>> {
  */
 const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   ...equipmentStatLines(),
-  armor: { label: 'Max hull', read: (s) => s.maxHp }, // <- shipHull
-  speed: { label: 'Top speed', read: (s) => s.kinematics.maxSpeed }, // <- shipSpeed
-  turning: { label: 'Turning', read: (s) => s.kinematics.turnRate },
+  armor: { label: 'Max hull', path: 'maxHp' }, // <- shipHull
+  speed: { label: 'Top speed', path: 'kinematics.maxSpeed' }, // <- shipSpeed
+  turning: { label: 'Turning', path: 'kinematics.turnRate' },
   // <- intelSweep
-  radarSweep: { label: 'Radar sweep', read: (s) => s.sweepRpm, fmt: (v) => `${num(v)} RPM` },
+  radarSweep: { label: 'Radar sweep', path: 'sweepRpm', fmt: (v) => `${num(v)} RPM` },
   // <- shipCooldown. The ONE global cooldown lever: `cooldownScale` multiplies
   // every equipment's reload post-fold, so this row reads the scalar itself
   // rather than any single weapon — printed as a percentage of base so
   // 100% → 95% reads downward.
-  reload: { label: 'All cooldowns', read: (s) => s.cooldownScale, fmt: pct },
+  reload: { label: 'All cooldowns', path: 'cooldownScale', fmt: pct },
   // The DECK GUN ladder moves two numbers (damage here, its own reload derived
   // from the tier in clampStats) and the face prints ONE, exactly as the v2
   // broadside SPREAD line did: damage is the number the player watches change.
-  deckGun: { label: 'Gun damage', read: (s) => s.equipment.gun.damage },
-  deckGunTurret: { label: 'Gun rounds ready', read: (s) => s.equipment.gun.maxAmmo }, // <- gunTurret
-  deckGunBarrel: { label: 'Shells per shot', read: (s) => s.equipment.gun.barrels }, // <- gunBarrel
+  deckGun: { label: 'Gun damage', path: 'equipment.gun.damage' },
+  deckGunTurret: { label: 'Gun rounds ready', path: 'equipment.gun.maxAmmo' }, // <- gunTurret
+  deckGunBarrel: { label: 'Shells per shot', path: 'equipment.gun.barrels' }, // <- gunBarrel
 };
+
+/**
+ * THE ROW LABELS, keyed by STAT PATH and GENERATED from the table above (Story
+ * 8.7, ruling 12): every word the card face prints in a row's left column is
+ * the SAME word the hover panel and the slot tooltip already use for that
+ * number, uppercased for the 9px mono register. Generated rather than retyped
+ * so a relabelled stat cannot end up with two names.
+ */
+const STAT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.values(STAT_LINES)
+    .filter((l): l is StatLine => l !== undefined)
+    .map((l) => [l.path as string, l.label.toUpperCase()]),
+);
 
 /**
  * The VERB cards' HOLDING line — the compact "what this line is doing for you
@@ -348,7 +390,7 @@ function statSentence(id: string, line: StatLine, you: BoonPreviewShip): string 
   const before = effectiveStats(spec, you.cards);
   const after = effectiveStats(spec, [...you.cards, id]);
   const fmt = line.fmt ?? num;
-  return `${line.label}: ${fmt(line.read(before))} → ${fmt(line.read(after))}.`;
+  return `${line.label}: ${fmt(readStatPath(before, line.path))} → ${fmt(readStatPath(after, line.path))}.`;
 }
 
 /**
@@ -401,20 +443,60 @@ export function boonEffectLine(id: string, stats: EffectiveStats): string {
   const line = STAT_LINES[id as LineId];
   if (line === undefined) return '';
   const fmt = line.fmt ?? num;
-  return `${line.label}: ${fmt(line.read(stats))}`;
+  return `${line.label}: ${fmt(readStatPath(stats, line.path))}`;
+}
+
+// --- THE TIER NUMERALS (Story 8.7, ruling 11 / UX-DR51) ------------------------
+//
+// `boonLineageLine`'s "II/V" handrail is RETIRED with the interim face: the
+// ratified card draws the ladder itself (one rung per copy the line has), so a
+// numeral saying "two of five" would be the third time the same fact is stated.
+// What the numerals carry instead is the STEP this card buys — `cur → next` —
+// which is the one thing the rungs cannot say.
+
+/**
+ * THE FOUR BASE-TIER LINES (UX-DR51). A hull sails with armor, speed, turning
+ * and a deck gun already fitted, so its FIRST card of one of those ladders is
+ * the step from what it has to the next rung — `I → II` — rather than the
+ * acquisition of a Tier I it already owns. Every other ladder, and every weapon
+ * line, starts from nothing: its first copy IS Tier I and reads as the bare
+ * numeral, with the `cur → next` step appearing only from the second copy on.
+ */
+const BASE_TIER_LINES: ReadonlySet<string> = new Set(['armor', 'speed', 'turning', 'deckGun']);
+
+/** The step a card buys, as NUMBERS — so the DOM can tint each numeral on the
+ *  absolute ladder ramp without re-parsing "III → IV" back apart. `next` is
+ *  null on a first copy that is itself Tier I (the bare-numeral case). */
+export interface CardTierStep {
+  cur: number;
+  next: number | null;
 }
 
 /**
- * Pure: the LINEAGE marker for a multi-copy line — "II/V", the position this
- * card would take (held occurrences + 1) out of the line's `cap` (Sally's
- * ratified handrail). A single-copy line has no lineage and returns null; the
- * position is clamped so a full stack still reads "V/V".
+ * Pure: the tier step for a line at `copiesHeld` copies, or null for a line
+ * with NO LADDER at all — a consumable (you carry copies, you do not climb) or
+ * an add-on (a verb is fitted once and has no rungs). The card renders an empty
+ * ladder row for those, so every card in the offer keeps one baseline.
  */
-export function boonLineageLine(line: CatalogLine, stack: number): string | null {
-  if (line.cap <= 1) return null;
-  const pos = Math.min(line.cap, Math.max(1, Math.trunc(stack) + 1));
-  return `${roman(pos)}/${roman(line.cap)}`;
+export function cardTierSteps(line: CatalogLine, copiesHeld: number): CardTierStep | null {
+  if (line.kind === 'consumable' || line.kind === 'addon') return null;
+  const k = Math.max(0, Math.trunc(copiesHeld));
+  if (BASE_TIER_LINES.has(line.id)) return { cur: k + 1, next: k + 2 };
+  if (k === 0) return { cur: 1, next: null };
+  return { cur: k, next: k + 1 };
 }
+
+/** Pure: those numerals as the card prints them — `III → IV`, or `I` alone on a
+ *  first copy, or null for a consumable / add-on. Replaces `boonLineageLine`. */
+export function cardTierLabel(line: CatalogLine, copiesHeld: number): string | null {
+  const step = cardTierSteps(line, copiesHeld);
+  if (step === null) return null;
+  return step.next === null ? roman(step.cur) : `${roman(step.cur)} ${TIER_ARROW} ${roman(step.next)}`;
+}
+
+/** The arrow between the two numerals, declared once (the fit model measures the
+ *  same glyph). */
+export const TIER_ARROW = '→';
 
 /** 1..10 as Roman numerals (catalog copies never exceed a handful; anything
  *  beyond the table falls back to the digits, fail-open). */
@@ -423,12 +505,205 @@ function roman(n: number): string {
   return ROMAN[n - 1] ?? String(n);
 }
 
-/** Pure: the "card fitted" toast line (UX-DR23 self-events-only surface, the
- *  pointToastLine sibling). Diamond glyph = the accrued-card marker the hotbar
- *  tooltip uses, so the toast and the build readout share one mark. */
-export function boonFitToastLine(id: string, stack = 1): string {
-  return `◆ ${boonName(id, Math.max(0, stack - 1))} FITTED`;
+/**
+ * Pure: the "card fitted" toast line (UX-DR23 self-events-only surface, the
+ * pointToastLine sibling). Diamond glyph = the accrued-card marker the hotbar
+ * tooltip uses, so the toast and the build readout share one mark.
+ *
+ * A CONSUMABLE IS STOCKED, NOT FITTED (Story 8.7, ruling 14 — UX-DR48's
+ * "consumable stocked"). Nothing about the hull changed: a copy went onto the
+ * belt, and the verb has to say so or the toast claims a fit that never
+ * happened. `kind` is the line's catalog kind, passed by the caller that
+ * already has the resolved line (net/roomBindings.ts); an absent or unknown
+ * kind reads as the FITTED default, which is what every pre-8.7 caller gets.
+ */
+export function boonFitToastLine(id: string, stack = 1, kind?: string): string {
+  const verb = kind === 'consumable' ? 'STOCKED' : 'FITTED';
+  return `◆ ${boonName(id, Math.max(0, stack - 1))} ${verb}`;
 }
 
 /** Every authored line id (test seam — the name/kind pins walk this). */
 export const COPY_LINE_IDS: readonly string[] = LINE_IDS;
+
+// --- THE FIVE STAT ROWS (Story 8.7, ruling 12) ---------------------------------
+//
+// The ratified card face (mock `.rc .rows`) is a fixed grid of five 17px rows,
+// each a LABEL and a VALUE. It replaces `boonDescription` ON THE FACE —
+// `boonDescription` stays, unchanged, as the hover panel's one sentence — and it
+// is the only place a number reaches the card, which is what keeps the card and
+// the firewall in step: every value below comes out of `effectiveStats`.
+//
+// FEWER THAN FIVE IS NORMAL. A ladder moves one number; a weapon's first copy
+// prints its whole table; an add-on moves none at all. The DOM renders the
+// remainder BLANK rather than compacting, so the KIND word and the foot sit on
+// one baseline across all four cards in the row.
+
+/** The card's row cap — the mock's five-row grid. A line with more numbers than
+ *  that prints its first five, in the table's own order. */
+export const CARD_STAT_ROWS = 5;
+
+/** ONE row of the face: a label, the value the build has NOW (null on an
+ *  ABSOLUTE row — a weapon's first copy has no `before` to print), and the value
+ *  this card would produce. */
+export interface CardStatRow {
+  label: string;
+  cur: string | null;
+  next: string;
+}
+
+/**
+ * THE FIELD WORDS — what the face calls an equipment row's own stat fields
+ * (`EQUIPMENT_STAT_FIELDS`). PARTIAL on purpose: the entries below are the words
+ * the ruling names, and everything else falls through `fieldWord`'s humanizer,
+ * which de-camelCases the field and drops a trailing `Ms`. That fail-open is
+ * what lets Stories 8.13-8.16 land a new weapon row without a copy edit here —
+ * and, being derived from the field name Eric's own sheet authored, it invents
+ * no vocabulary.
+ */
+const FIELD_WORDS: Readonly<Record<string, string>> = {
+  reloadMs: 'RELOAD',
+  maxAmmo: 'ROUNDS',
+  damage: 'DAMAGE',
+  contactDamage: 'CONTACT DMG',
+  burstRadius: 'BURST RADIUS',
+  blastRadius: 'BLAST RADIUS',
+  triggerRadius: 'TRIGGER RADIUS',
+  speed: 'SPEED',
+  barrels: 'SHELLS PER SHOT',
+  speedBonus: 'BOOST',
+  durationMs: 'DURATION',
+  spreadRung: 'SPREAD',
+};
+
+/** Pure: a field's row label — the table above, else the humanized field name
+ *  uppercased (`litDurationMs` reads LIT DURATION). */
+function fieldWord(field: string): string {
+  if (Object.hasOwn(FIELD_WORDS, field)) return FIELD_WORDS[field];
+  return humanize(field.replace(/Ms$/, '')).toUpperCase();
+}
+
+/** Pure: a field's printer. A `*Ms` field is a duration and prints as seconds
+ *  ("30.0 s"); everything else takes `num`, which prints an integer AS an
+ *  integer — epic-8 amendment 39's rule, applied to every row on the face. */
+function fieldFmt(field: string): (v: number) => string {
+  return /Ms$/.test(field) ? secs : num;
+}
+
+/** Pure: a stat PATH's row label — a ladder path takes the word its `STAT_LINES`
+ *  entry already uses, an equipment path takes its field word. */
+function statPathLabel(path: string): string {
+  if (Object.hasOwn(STAT_LABELS, path)) return STAT_LABELS[path];
+  return fieldWord(path.split('.').pop() ?? path);
+}
+
+/** Pure: a stat PATH's printer — the authored `fmt` where one exists (RPM, the
+ *  cooldown percentage, a weapon's seconds), else the field's own. */
+function statPathFmt(path: string): (v: number) => string {
+  for (const line of Object.values(STAT_LINES)) {
+    if (line !== undefined && line.path === path && line.fmt !== undefined) return line.fmt;
+  }
+  return fieldFmt(path.split('.').pop() ?? path);
+}
+
+/** Pure: one `current to next` row for a stat path, read off the two folds. */
+function diffRow(path: string, before: EffectiveStats, after: EffectiveStats): CardStatRow {
+  const fmt = statPathFmt(path);
+  return { label: statPathLabel(path), cur: fmt(readStatPath(before, path)), next: fmt(readStatPath(after, path)) };
+}
+
+/**
+ * Pure: a LADDER line's rows — one per `stat` effect in the tier this card
+ * WOULD apply (`tiers[copiesHeld]`, clamped to the last authored rung), valued
+ * through the live preview diff. Every shipped ladder authors exactly one stat
+ * effect per rung, so this is one row today; it is written per-effect because
+ * the catalog shape permits more and a two-number rung must not silently print
+ * only one of them.
+ */
+function ladderRows(
+  line: CatalogLine,
+  copiesHeld: number,
+  before: EffectiveStats,
+  after: EffectiveStats,
+): CardStatRow[] {
+  const k = Math.min(Math.max(0, Math.trunc(copiesHeld)), line.tiers.length - 1);
+  const rows: CardStatRow[] = [];
+  for (const e of line.tiers[k] ?? []) {
+    if (e.kind === 'stat') rows.push(diffRow(e.path, before, after));
+  }
+  return rows;
+}
+
+/** Pure: one ABSOLUTE row of an equipment's own table (no `before`, no arrow). */
+function absoluteRow(target: EquipmentId, field: string, stats: EffectiveStats): CardStatRow {
+  return {
+    label: fieldWord(field),
+    cur: null,
+    next: fieldFmt(field)(readStatPath(stats, `equipment.${target}.${field}`)),
+  };
+}
+
+/**
+ * Pure: a WEAPON line's rows.
+ *
+ * COPY 1 IS THE FIT, and a fit moves no number — what it buys is the weapon, so
+ * the card prints that weapon's whole table ABSOLUTELY (`cur` null, no arrow),
+ * in `EQUIPMENT_STAT_FIELDS` order. The MINE rows add a derived `TRIGGER RADIUS`
+ * immediately after `BLAST RADIUS` (UX-DR50's "separate rows"): the trip ring is
+ * not stat-addressable — `clampStats` derives it from the blast — so it has no
+ * field of its own and would otherwise never reach the player at all.
+ *
+ * COPY 2 AND UP is a TIER, and a tier is a 5% cut to that weapon's own reload
+ * (derived in sim/stats.ts, not authored as an effect), so the card prints that
+ * one step exactly as a ladder prints its own.
+ */
+function weaponRows(
+  line: CatalogLine,
+  copiesHeld: number,
+  before: EffectiveStats,
+  after: EffectiveStats,
+): CardStatRow[] {
+  const target = tierTargetOf(line);
+  if (target === undefined) return [];
+  if (copiesHeld > 0) {
+    const stat = STAT_LINES[line.id];
+    return stat === undefined ? [] : [diffRow(stat.path, before, after)];
+  }
+  const row = after.equipment[target] as unknown as Record<string, unknown>;
+  const rows: CardStatRow[] = [];
+  for (const field of EQUIPMENT_STAT_FIELDS[target] as readonly string[]) {
+    rows.push(absoluteRow(target, field, after));
+    if (field === 'blastRadius' && typeof row.triggerRadius === 'number') {
+      rows.push(absoluteRow(target, 'triggerRadius', after));
+    }
+  }
+  return rows;
+}
+
+/**
+ * Pure: the rows the card face prints for one offered line, against the
+ * PLAYER'S OWN BUILD — at most `CARD_STAT_ROWS`, and legitimately EMPTY for a
+ * line that moves no number:
+ *
+ *   - an ADD-ON bolts on a verb (its holding line stays in the hover panel);
+ *   - a CONSUMABLE is a stack, and all five are stubs in 8.7 anyway;
+ *   - a STUB line has no built module whose numbers could be read.
+ *
+ * FAIL-OPEN on the class table, exactly as `statSentence` is and for the same
+ * reason: this runs every frame the band is open, and an unresolvable hull must
+ * print nothing rather than throw from inside the ticker.
+ */
+export function cardStatRows(
+  line: CatalogLine,
+  copiesHeld: number,
+  you: BoonPreviewShip,
+): readonly CardStatRow[] {
+  if (isStubLine(line.id) || line.kind === 'addon' || line.kind === 'consumable') return [];
+  if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return [];
+  const spec = CONFIG.shipClasses[you.cls];
+  const before = effectiveStats(spec, you.cards);
+  const after = effectiveStats(spec, [...you.cards, line.id]);
+  const rows = line.kind === 'equipment'
+    ? weaponRows(line, copiesHeld, before, after)
+    : ladderRows(line, copiesHeld, before, after);
+  return rows.slice(0, CARD_STAT_ROWS);
+}

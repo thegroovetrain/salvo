@@ -120,6 +120,7 @@ Story 1.10 (spec-1-10-firing-arcs-for-the-class-era.md) made denial authoritativ
   status: STAMPED 2026-09-16 (Story 8.5, cycle 140) — re-derived for nine slots: the FIFO cap is SLOT_COUNT = 9 presses per 50 ms sample (was 4); only one ability slot (the Shift boost) exists until 8.7 stocks the belt, so the silent drop at cap is reachable only by mashing; still open.
   summary: Keyboard ability FIFO cap (SLOT_COUNT) silently drops a further same-window press — it never queues, never reaches the wire, and produces no denial feedback (pre-existing from the 1.8 dual-press queue).
   evidence: Edge Case Hunter traced activateAbility's early return at pendingActs.length >= SLOT_COUNT (client/src/input/keyboard.ts); requires mashing 5+ ability presses inside one 50 ms sample — extreme edge, but formally violates never-silence.
+  resolution: Story 8.7: belt presses are now reachable through the same FIFO; still open.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-11-design-tokens-typography.md`
   summary: DESIGN.md frontmatter carries a self-inconsistent card-scrim annotation — hex '#030605' (rgb 3,6,5) vs its inline comment "rendered as rgba(3,7,5,.9)" — needing Eric's one-character doc ruling (hex was treated as authoritative and shipped verbatim).
   evidence: Both review hunters independently flagged it; #030605 decodes to rgb(3,6,5), so the comment's 7 is a typo in one direction or the hex in the other; client tokens pin 0x030605 until the doc rules.
@@ -1968,6 +1969,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   summary: `SUPERCAVITATING TORPEDO` (the catalog-v3 line name) DOES NOT FIT the refit card's 186px inner box or the hotbar's 268px label column at any of the type sizes those layouts use elsewhere. It is pinned as a declared exemption in `client/src/__tests__/refitCardFit.test.ts` and `client/src/__tests__/hotbar.test.ts` rather than silently overflowing or truncating. Stories 8.6 (refit UI) and 8.13 (the supercavitating torpedo content) need either a shorter display name from Eric or a type-size step for long names before the exemption can be closed.
   evidence: `client/src/__tests__/refitCardFit.test.ts`, `client/src/__tests__/hotbar.test.ts` exemption pins, Story 8.1 wave 2.
   resolution: PARTLY MOOT 2026-09-17 (Story 8.6) — the hotbar's label column (and the whole per-slot name field it belonged to) is DELETED outright in the HUD bar re-cut, so the 268px label-column half of this exemption is moot; the bar draws no slot names at all. The refit card's 186px inner-box fit STANDS — that card face is untouched until Story 8.7 — so this entry stays open for the card-fit half only.
+  resolution: RE-CUT 2026-09-17 (Story 8.7) — the face is the fixed five-row 216×226 card; refitCardFit re-cut wholesale.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
   status: OPEN — interim home, by design; closes incrementally
@@ -2123,12 +2125,15 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
   summary: TWO SURFACES DEFERRED PAST 8.6, NAMED SO THEY ARE NOT RE-DISCOVERED COLD. The shielded `HULL 312/250` readout and its shield ring (UX-DR46) are deferred to Story 8.15 — `hpGlobe.ts` carries a one-line comment at the spot instead of a stub. The 236px slot-tooltip re-cut (UX-DR48) and the bar-relative REDRAW button seat are Story 8.7's — today's tooltip keeps its existing 320px panel and placement logic, anchored above the hovered square.
   evidence: spec-8-6-the-hud-bar.md ruling 4 (tooltip), ruling 6 (shielded readout comment), "Never" list.
+  resolution: content re-cut 2026-09-17 (Story 8.7, amendment 42: widths kept at 320/300).
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
   summary: THE REFIT TOOLTIP OPENS DOWNWARD OVER THE CARD ROW ON SHORT VIEWPORTS (amendment 37) — measured at 45 of 114 catalog tooltip panels at the 1280×614 floor, where the water above the bar-relative band is only 130px but the tallest panel is 261px tall. This is an interim placement rule, not the final one; Story 8.7's 236px slot-tooltip re-cut (UX-DR48) should aim to fit every panel above the band rather than carry this fallback forward.
   evidence: amendment 37; spec-8-6-the-hud-bar.md ruling 4.
+  resolution: STANDS as the placement rule (amendment 42, Story 8.7).
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
   summary: TWO FILES SIT OVER THE ~500 LOC SOFT CAP AFTER THE RE-CUT: `client/src/render/hotbar.ts` at roughly 1570 LOC and `client/src/render/hud.ts` at 557 LOC. Neither was split this cycle (the spec re-cuts `hotbar.ts` in place rather than rewriting it, to keep its ~1100 test lines of ratified state-derivation grammar intact). The tooltip core inside `hotbar.ts` (roughly 450 LOC: `tooltipModel`/`tooltipPlacement` and their supporting formatters) is the natural split candidate, and Story 8.7 is already re-cutting that same tooltip (UX-DR48), so the split and the re-cut should happen together rather than as two separate churns of the same code.
   evidence: `wc -l client/src/render/hotbar.ts client/src/render/hud.ts`; CLAUDE.md "~500 LOC per file is a soft cap; exceed only when cohesive."
+  resolution: tooltip core split into render/slotTooltip.ts 2026-09-17 (Story 8.7).
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
   summary: `CLIENT_CONFIG.xpRail` KEEPS ITS NAME WHILE FEEDING THE NEW XP STRIP. The config block that drives `xpStrip.ts` (track colours, chip breathing timings, the state machine constants moved over unchanged from `xpRail.ts`) is still named `xpRail` in `client/src/config.ts`; renaming it to `xpStrip` would touch every pin that reads it for zero behavioural change, so the name was left as a known mismatch rather than churned for cosmetics.
   evidence: `client/src/config.ts` `hudBar`/`xpRail` blocks; spec-8-6-the-hud-bar.md Code Map (`config.ts` line ranges).
@@ -2140,7 +2145,59 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
   summary: A BELT BADGE READING `×10` OR MORE CANNOT FIT ITS 16 PX BOX at the ruled 10 px mono size (`×10` measures ~18 px; the badge does not counter-scale by ruling). Dormant this cycle — the belt is empty until Story 8.7 stocks it and the catalog caps are ≤ 5 today — but 8.7's `canStock`/stack work should decide whether the badge widens with its text (the weapon badge already does via `min-width`) before a two-digit stock can exist.
   evidence: Blind Hunter finding 6 at the 8.6 review gate; `client/src/render/hotbar.ts` `BADGE_STYLE`, `CLIENT_CONFIG.hudBar.badge` 16.
+  resolution: CLOSED 2026-09-17 (Story 8.7): the belt badge widens with its text like the weapon badge; caps ≤ 5 so two digits never occur.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
   summary: THE SLOT ROW ALLOCATES PER FRAME — nine slot view models, per-slot point/flat arrays for the outline and glow rings, one polygon (plus a Set of angles) per COOLING slot for the wipe, a spread copy of the hotbar view in `HudBar.update`, and the denied/degraded arrays in `main.ts`'s view builder. The view-model and outline-array pattern is pre-existing (the 2.2 hotbar did the same each frame and cleared its Graphics per frame); the wipe polygon and the view spread are new. Codex flagged GC pressure as PLAUSIBLE at 60–120 Hz; nothing was measured. Not optimised at the gate — measure first (the perf-gate harness), then pool the fixed nine models and the polygon buffers if it shows.
   evidence: `client/src/render/hudBar.ts` `update`, `client/src/render/hotbar.ts` `slotViewModels` / `drawSlot`, `client/src/render/cooldownWipe.ts` `wipePolygon`; project-context.md performance rule ("avoid fresh allocations inside render-loop code paths").
+
+## 2026-09-17 — Story 8.7 (consumable slots + refit card v3)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: A USED CONSUMABLE COPY LEAVES `cards` ON ACTIVATION, RATHER THAN ONLY DECREMENTING THE SLOT'S STACK COUNT, SO THE CLIENT'S OWN REPLAY AND THE SERVER AGREE WITH NO NEW WIRE FIELD. This was the design reading behind ruling 4, on Eric's veto list: since the client rebuilds every slot's contents by replaying `cards`, a use that only decremented `n` server-side would restock on the next respawn/reconnect replay and disagree with the wire `ammo` array after a refresh; removing the spent copy from `cards` makes it the single source of truth for both `equipmentId` and stack count.
+  evidence: spec-8-7 ruling 4; Design Notes "Why a used copy leaves cards"; `World.sinkingActivationGate`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE CLIENT-SIDE EMPTY-SLOT KEY DENIAL NOW APPLIES TO THE BELT AS WELL AS THE WEAPON ROW — completing amendment 26's grammar (an orchestrator reading, veto item, ruling 7). Pressing a digit on an empty belt slot with the refit window closed now produces the same denied pulse + tone as an empty Q/E/R press, with nothing sent to the server.
+  evidence: spec-8-7 ruling 7; `client/src/input/keyboard.ts` `slotAction`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE POST-REFIT-CLOSE DIGIT GRACE IS 400 MS (`CLIENT_CONFIG.refit.closeGraceMs`) — an implementer dial, not an Eric ruling, chosen to match the existing `results.keyGraceMs` precedent elsewhere in the client config. Within the grace window after any close (Tab, ESC, last spend, spectate, `update(null)`), a belt digit is inert and consumes the keypress without queuing or priming anything.
+  evidence: spec-8-7 ruling 8; `client/src/config.ts` `refit.closeGraceMs`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: ADD-ON CARDS PRINT NO STAT ROWS IN 8.7 — a verb moves no number, so `cardStatRows` returns an empty list for an add-on line and its five-row face renders blank. The holding line (what the add-on actually does) stays in the hover panel's prose, never on the face itself.
+  evidence: spec-8-7 ruling 12 ("add-ons: NO rows in 8.7... veto item").
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE CONSUMABLE REGISTRY SHIPS EMPTY BEHIND A `buildConsumableRegistry` SEAM — production calls it with `[]` (amendment 41), so every consumable stub stays set and the belt is unreachable on staging. Story 8.8 adds the first row (`hullRepair`) and flips its stub flag; the factory and the `World` test seam (`opts.consumables`) already exist so that story is one row and one flag flip, not new plumbing.
+  evidence: spec-8-7 ruling 5; Design Notes "Why the registry ships empty".
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE ICON GAP — LADDERS, ADD-ONS AND CONSUMABLES HAVE NO GLYPH. The refit card's 40px icon box and the belt square both draw a shared glyph source (`equipmentIcons.ts`) when a line has one; lines with no glyph today (ladders, add-ons, and every consumable since none is dealt) draw an empty outlined box — pinned as no-crash, no placeholder word — until the icon pass UX-DR50 names glyphs for them.
+  evidence: spec-8-7 ruling 11, ruling 15.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: "VERIFIED BY EYE" WAS NOT DONE IN-CYCLE — no browser tooling exists in this worktree, so verification is `npm run check` (lint, tsc ×3, all tests) rather than a screenshot. Eric's look on staging is the acceptance gate for the five-row card face (a ladder, a weapon fit and an add-on), the greyed `SLOTS FULL` state (unreachable until 8.8 stocks a real consumable), the two-meaning digits, and the slot tooltip's tier/stock line.
+  evidence: spec-8-7 Verification "Manual checks (if no CLI)".
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: TEXT MUST BE READABLE (Eric 2026-09-17, epic-8 amendment 43) — the refit card's 9 px registers (stat-row labels, the reason-word foot) counter-scale at the 90 % UI tier through a DOM twin of the bar's `microScale` (`domMicroScale`, a `--hc-micro` custom property on the band), so nothing renders under `settings.monoFloorPx`; the 9 px floor now binds the RENDERED size on every DOM surface (8.10 REDRAW, 8.19 LOADOUT, Epic 9 must honour it).
+  evidence: amendment 43; refitCardFit.test.ts floor pin at the 0.9 tier; the card is DOM because CLAUDE.md lists the refit window as DOM chrome.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE SHARED `applyStock` IS FAIL-OPEN ON A LINE ID THE CATALOG DOES NOT DECLARE (mirrors `slotFill`'s posture; the production catalog declares all five consumables, so it is inert) — a server test (`boons.test.ts` `omni` card) relies on it; if a later story wants stock fail-CLOSED on an unknown id it is a one-line shared change plus that test's fixture.
+  evidence: wave-2A report; shared/src/sim/boons.ts `applyStock` stub gate.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: A PRIMED BELT SLOT HAS NO CLIENT WEAPON GEOMETRY IN 8.7 — an `isWeapon` consumable (the decoy shape, Story 8.15) narrows to `null` for arc/range/reload/aim preview on the client; the click still reaches the server through `input.slot`. Story 8.15 owns the decoy's arc preview.
+  evidence: main.ts firing-path narrowing (post-wave-3 clean-up); CONSUMABLE_IS_WEAPON.decoyBuoy === true.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE SLOT TOOLTIP'S INTERACTION ROW NOW WRAPS — the ratified content (`WEAPON · Q · SWITCH-TO · TIER V`, `CONSUMABLE · 1 · KEY PRIMES · CLICK FIRES · ×2`) exceeds one 320 px line, so the row word-wraps and the heading height feeds the fit chain; the boon-row trim absorbs the extra line from the same budget. Amendment 42 kept widths and type; this is the one arithmetic change in the fit chain (veto item).
+  evidence: tooltipFit.test.ts "grows the panel by exactly one line box"; wave-2B deviation 1.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE BELT IS ALWAYS THE REPLAY — after every consumable use the server rebuilds belt slots 5–8 from `slotsWithCards(cards)` (in place; weapon slots keep their timers), because the client re-packs the belt leftward from `cards` while an in-place clear left a hole (review finding, both models; reproduced). Spec-8-7 ruling 4's "clear the slot in the gate" is superseded by this rebuild; property-pinned over random stock/use sequences (upgrades.test.ts).
+  evidence: Blind Hunter 1 + Codex 1 (CONFIRMED); the P1 patch; `rebuildBelt` in world.ts.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: ONE SPEND LAW — a DENIED consumable effect costs nothing (n, cards and the slot untouched); only a successful activation decrements n and removes the copy from cards. Story 8.8/8.15/8.16 effects that can deny (heal at full hp, blocked decoy drop) rely on this.
+  evidence: all three reviewers (CONFIRMED); the P2 patch; equipment.test.ts pin flipped.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: BOT RE-PICKS A REFUSED CONSUMABLE FOREVER (deferred to 8.18) — `spending.ts` has no `canStock` awareness; on a full belt the bot's pure decision re-picks the same refused card every tick and its level is stuck. Dormant (consumables stub). Story 8.18 (bots sail decks) adds the shared `canStock` skip to the bot spend policy; amendment 44 names it.
+  evidence: Edge Case Hunter 5 / Blind Hunter 5 (PLAUSIBLE, traced); botDriver.ts:344 re-calls spendPoint each tick.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE CARD HOVER'S STOCK READS `held + 1` — the hover sits on a card about to be stocked, so it prints what the belt will read once the card is taken (the same tense as the face's ladder and stat rows); the belt tooltip prints the live `ammo[slot].n`. Veto item.
+  evidence: P7 patch reading; refitTooltipFit.test.ts pin.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: STORY 8.10 MUST PUT THE OPENING FLOW TO ERIC EXPLICITLY BEFORE BUILDING IT — UX-DR54's "ratified as rendered 2026-09-11" auto-open + REDRAW stamp is the planning pass's own claim; Eric did not recall discussing an auto-open (2026-09-17) and accepted it only as the level-zero countdown case (amendment 45). Ask, do not assume.
+  evidence: Eric 2026-09-17 in the 8.7 run; memory rule "artifacts contain assumptions".

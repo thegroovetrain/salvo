@@ -48,10 +48,9 @@
 
 import { CONFIG, type HullId, type ShipClassId } from '../constants.js';
 import type { EquipmentId } from './loadout.js';
-import { EQUIPMENT_IDS } from './loadout.js';
+import { EQUIPMENT_IDS, isConsumableId } from './loadout.js';
 import {
   BOON_STAT_PATH_SET,
-  CONSUMABLE_IDS,
   DOCTRINE_MODES,
   doctrineEffect,
   statEffect,
@@ -415,7 +414,9 @@ export function lineForEquipment(eq: EquipmentId, catalog: Catalog = CATALOG): C
 // ---------------------------------------------------------------------------
 
 const EQUIPMENT_ID_SET: ReadonlySet<string> = new Set(EQUIPMENT_IDS);
-const CONSUMABLE_ID_SET: ReadonlySet<string> = new Set(CONSUMABLE_IDS);
+// The consumable membership test is `isConsumableId` (sim/loadout.ts, Story
+// 8.7) — the ONE guard every reader of a slot's content already narrows
+// through, over the same CONSUMABLE_IDS list. No second set here.
 const LINE_KINDS: readonly string[] = ['equipment', 'ladder', 'addon', 'consumable'];
 
 /** Problems with one STAT effect. */
@@ -450,7 +451,7 @@ function validateEffect(e: BoonEffect, tag: string): string[] {
   }
   if (e.kind === 'doctrine') return validateDoctrineEffect(e, tag);
   if (e.kind === 'stock') {
-    return CONSUMABLE_ID_SET.has(e.equipmentId) ? [] : [`${tag}: stock of unknown consumable '${e.equipmentId}'`];
+    return isConsumableId(e.equipmentId) ? [] : [`${tag}: stock of unknown consumable '${e.equipmentId}'`];
   }
   if (e.kind === 'behavior') return validateBehaviorEffect(e, tag);
   return [`${tag}: unknown effect kind`];

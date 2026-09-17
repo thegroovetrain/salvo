@@ -8,7 +8,8 @@
 //   - home 2: `slotFill` mutates the one LoadoutSlot[] and nothing else —
 //     since Story 8.5 it takes the FIRST EMPTY WEAPON SLOT (2, then 3, then 4)
 //     and leaves every other slot's state object REFERENCE-IDENTICAL;
-//   - `doctrine` verbs, `behavior` hooks and `stock` (a total no-op today);
+//   - `doctrine` verbs, `behavior` hooks, and `stock` — which since Story 8.7
+//     fills the four-wide BELT (its own section at the foot of this file);
 //   - the parity property: the server's INCREMENTAL slot path and the client's
 //     REPLAYED `slotsWithCards` agree after any sequence of grants.
 
@@ -17,6 +18,8 @@ import {
   BOON_STAT_PATHS,
   CATALOG,
   CONFIG,
+  CONSUMABLE_IDS,
+  CONSUMABLE_SLOTS,
   DOCTRINE_MODES,
   EQUIPMENT_INT_FIELDS,
   EQUIPMENT_STAT_FIELDS,
@@ -29,6 +32,7 @@ import {
   applyCardStats,
   applySlotEffect,
   boonStackCount,
+  canStock,
   cardBehaviors,
   cardCounts,
   effectiveStats,
@@ -36,13 +40,17 @@ import {
   loadoutFor,
   mulberry32,
   slotsWithCards,
+  stockSlotFor,
+  validateLine,
   type BoonEffect,
   type Catalog,
   type CatalogLine,
+  type ConsumableId,
   type EffectiveStats,
   type LineId,
   type LoadoutSlot,
   type ShipClassId,
+  type SlotItemId,
 } from '../index.js';
 
 const TB = CONFIG.shipClasses.torpedoBoat;
@@ -345,7 +353,11 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
     expect(loadout[W1].equipmentId).toBe('navalMines');
   });
 
-  it('stat, behavior, doctrine AND stock effects are structural no-ops in the slot home', () => {
+  it('stat, behavior and doctrine effects are structural no-ops in the slot home (and a STUB stock with them)', () => {
+    // `stock` moved home in Story 8.7 — it fills the BELT now. It is still a
+    // no-op HERE because every production consumable line is a stub (epic-8
+    // amendment 41) and the stub gate refuses it; the live rack is exercised
+    // against a non-stub test catalog at the foot of this file.
     const loadout = loadoutFor(stats);
     const slotRefs = [...loadout];
     const stateRefs = loadout.map((s) => s.state);
@@ -520,5 +532,210 @@ describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
     const loadout = loadoutFor(stats);
     applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'missile' }, stats);
     for (const i of WEAPON_SLOTS) expect(loadout[i].equipmentId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE RACK (Story 8.7) — `stock` stops being a no-op. A consumable copy goes
+// into the FOUR-WIDE BELT (slots 5–8): the slot that already holds the line if
+// there is one, else the first empty belt slot, else nowhere (a silent no-op,
+// which the server's spendCard refuses BEFORE it mutates anything and the
+// client greys as `SLOTS FULL`). A stack is `{ n: copiesHeld, reloadMsLeft: 0 }`
+// — it never reloads — and `slotsWithCards` needs no new code to replay it:
+// k copies replayed IS n = k.
+//
+// EVERY PRODUCTION CONSUMABLE IS STILL A STUB (epic-8 amendment 41), so these
+// tests run on an injected NON-STUB catalog; the production pin (the belt stays
+// empty in play) is asserted below and in nineSlots.test.ts.
+// ---------------------------------------------------------------------------
+
+describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', () => {
+  const stats = effectiveStats(TB);
+  const [B0, B1, B2, B3] = CONSUMABLE_SLOTS;
+
+  /** The private `consumable()` helper of sim/catalog.ts, minus its hard-wired
+   *  `stub: true` — the shape is identical (cap copies, one `stock` per copy,
+   *  a fresh effect object per tier) and `validateLine` is asserted clean. */
+  const consumableLine = (id: ConsumableId, opts: { stub?: true; cap?: number } = {}): CatalogLine => {
+    const cap = opts.cap ?? 5;
+    const tiers = Array.from({ length: cap }, () => [{ kind: 'stock', equipmentId: id }] as readonly BoonEffect[]);
+    const l: CatalogLine = { id: id as LineId, kind: 'consumable', cap, tiers };
+    return opts.stub === undefined ? l : { ...l, stub: opts.stub };
+  };
+
+  /** All five lines, NONE of them a stub — the catalog Story 8.8 onward ships. */
+  const BELT: Catalog = catalogOf(...CONSUMABLE_IDS.map((id) => consumableLine(id)));
+  const stock = (id: ConsumableId): BoonEffect => ({ kind: 'stock', equipmentId: id });
+  const beltIds = (loadout: LoadoutSlot[]): (SlotItemId | null)[] => CONSUMABLE_SLOTS.map((i) => loadout[i].equipmentId);
+  const fill = (equipmentId: 'heavyTorpedo' | 'navalMines' | 'starShells'): BoonEffect =>
+    ({ kind: 'slotFill', equipmentId });
+
+  /** Slot ids for a loadout whose belt holds `held` — gun, boost and a weapon
+   *  row in front of it, exactly as the wire mirror hands them over. */
+  const beltFrom = (held: (ConsumableId | null)[]): (SlotItemId | null)[] =>
+    ['gun', 'speedBoost', 'heavyTorpedo', null, null, ...held];
+
+  it('the test lines are LEGAL catalog lines (the helper is the shipped shape, un-stubbed)', () => {
+    for (const id of CONSUMABLE_IDS) expect(validateLine(consumableLine(id)), id).toEqual([]);
+    expect(CATALOG[CONSUMABLE_IDS[0]].stub).toBe(true); // ...and production stays stubbed (amendment 41)
+  });
+
+  // --- the predicate ------------------------------------------------------
+
+  it('an EMPTY belt takes any line in the FIRST belt slot', () => {
+    const ids = beltFrom([null, null, null, null]);
+    expect(stockSlotFor(ids, 'hullRepair')).toBe(B0);
+    expect(canStock(ids, 'hullRepair')).toBe(true);
+  });
+
+  it('a HELD line wins over an EARLIER empty slot (held first, then first-empty)', () => {
+    const ids = beltFrom([null, null, 'hullRepair', null]);
+    expect(stockSlotFor(ids, 'hullRepair')).toBe(B2); // NOT B0, which is empty and earlier
+    expect(stockSlotFor(ids, 'chaff')).toBe(B0);
+  });
+
+  it('a FULL belt REFUSES a new line — null, and canStock false', () => {
+    const ids = beltFrom(['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']);
+    expect(stockSlotFor(ids, 'decoyBuoy')).toBeNull();
+    expect(canStock(ids, 'decoyBuoy')).toBe(false);
+  });
+
+  it('a FULL belt still takes a line it ALREADY HOLDS, in that line’s own slot', () => {
+    const ids = beltFrom(['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']);
+    expect(stockSlotFor(ids, 'smokeScreen')).toBe(B2);
+    expect(canStock(ids, 'smokeScreen')).toBe(true);
+  });
+
+  it('canStock is EXACTLY "the belt holds it ∨ a belt slot is empty", over every arrangement', () => {
+    const arrangements: (ConsumableId | null)[][] = [
+      [null, null, null, null],
+      ['hullRepair', null, null, null],
+      ['hullRepair', 'chaff', null, null],
+      ['hullRepair', 'chaff', 'smokeScreen', null],
+      ['hullRepair', 'chaff', 'smokeScreen', 'shieldBlock'],
+    ];
+    for (const held of arrangements) {
+      const ids = beltFrom(held);
+      const empty = held.some((x) => x === null);
+      for (const id of CONSUMABLE_IDS) {
+        const label = `${id} over ${held.join(',')}`;
+        expect(canStock(ids, id), label).toBe(held.includes(id) || empty);
+        expect(canStock(ids, id), label).toBe(stockSlotFor(ids, id) !== null);
+      }
+    }
+  });
+
+  it('only the BELT is ever answered: a weapon slot index is never returned, and a short array is fail-closed', () => {
+    const ids = beltFrom([null, null, null, null]);
+    for (const id of CONSUMABLE_IDS) {
+      const slot = stockSlotFor(ids, id);
+      expect(slot === null || (CONSUMABLE_SLOTS as readonly number[]).includes(slot), id).toBe(true);
+    }
+    expect(stockSlotFor([], 'hullRepair')).toBeNull(); // malformed: no belt to read
+    expect(canStock(['gun', 'speedBoost', null, null, null], 'hullRepair')).toBe(false);
+  });
+
+  // --- the fold -----------------------------------------------------------
+
+  it('the FIRST copy fills belt slot 5 with { n: 1, reloadMsLeft: 0 } and touches nothing else', () => {
+    const loadout = loadoutFor(stats);
+    const slotRefs = [...loadout];
+    const stateRefs = loadout.map((s) => s.state);
+    applySlotEffect(loadout, stock('hullRepair'), stats, BELT);
+    expect(loadout[B0].equipmentId).toBe('hullRepair');
+    expect(loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    loadout.forEach((slot, i) => {
+      expect(slot, `slot ${i}`).toBe(slotRefs[i]);
+      if (i !== B0) expect(slot.state, `slot ${i} state`).toBe(stateRefs[i]);
+    });
+    expect(beltIds(loadout)).toEqual(['hullRepair', null, null, null]);
+  });
+
+  it('the SECOND copy INCREMENTS n in the held slot — same state object, no second slot', () => {
+    const loadout = loadoutFor(stats);
+    applySlotEffect(loadout, stock('hullRepair'), stats, BELT);
+    const stateRef = loadout[B0].state;
+    applySlotEffect(loadout, stock('hullRepair'), stats, BELT);
+    expect(loadout[B0].state).toBe(stateRef); // mutated in place, never re-built
+    expect(loadout[B0].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    expect(beltIds(loadout)).toEqual(['hullRepair', null, null, null]);
+  });
+
+  it('FOUR lines fill 5, 6, 7, 8 in fit order', () => {
+    const loadout = loadoutFor(stats);
+    for (const id of ['chaff', 'hullRepair', 'decoyBuoy', 'smokeScreen'] as ConsumableId[]) {
+      applySlotEffect(loadout, stock(id), stats, BELT);
+    }
+    expect(beltIds(loadout)).toEqual(['chaff', 'hullRepair', 'decoyBuoy', 'smokeScreen']);
+    for (const i of CONSUMABLE_SLOTS) expect(loadout[i].state, `slot ${i}`).toEqual({ n: 1, reloadMsLeft: 0 });
+  });
+
+  it('a FIFTH line is a SILENT no-op — the loadout is byte-identical and every state object is the same one', () => {
+    const loadout = loadoutFor(stats);
+    for (const id of ['chaff', 'hullRepair', 'decoyBuoy', 'smokeScreen'] as ConsumableId[]) {
+      applySlotEffect(loadout, stock(id), stats, BELT);
+    }
+    const before = JSON.parse(JSON.stringify(loadout)) as LoadoutSlot[];
+    const stateRefs = loadout.map((s) => s.state);
+    applySlotEffect(loadout, stock('shieldBlock'), stats, BELT);
+    expect(loadout).toEqual(before);
+    loadout.forEach((s, i) => expect(s.state, `slot ${i}`).toBe(stateRefs[i]));
+  });
+
+  it('a STUB consumable line is REFUSED — the same gate `slotFill` uses, catalog-driven', () => {
+    const loadout = loadoutFor(stats);
+    const stubbed = catalogOf(consumableLine('hullRepair', { stub: true }));
+    applySlotEffect(loadout, stock('hullRepair'), stats, stubbed);
+    expect(beltIds(loadout)).toEqual([null, null, null, null]);
+    // ...and the PRODUCTION catalog stubs all five (amendment 41): the belt is
+    // unreachable in play after 8.7.
+    for (const id of CONSUMABLE_IDS) applySlotEffect(loadout, stock(id), stats, CATALOG);
+    expect(beltIds(loadout)).toEqual([null, null, null, null]);
+  });
+
+  it('a stock NEVER touches the gun, the boost or the weapon row — even with the row full', () => {
+    const loadout = loadoutFor(stats);
+    for (const e of [fill('heavyTorpedo'), fill('navalMines'), fill('starShells')]) applySlotEffect(loadout, e, stats);
+    const head = loadout.slice(0, B0);
+    const headIds = head.map((s) => s.equipmentId);
+    const headStates = head.map((s) => s.state);
+    for (const id of CONSUMABLE_IDS) applySlotEffect(loadout, stock(id), stats, BELT);
+    expect(loadout.slice(0, B0).map((s) => s.equipmentId)).toEqual(headIds);
+    loadout.slice(0, B0).forEach((s, i) => expect(s.state, `slot ${i}`).toBe(headStates[i]));
+    expect(beltIds(loadout)).toEqual(['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']); // the 5th refused
+    expect(loadout[B3].equipmentId).toBe('chaff');
+  });
+
+  it('...and a slotFill never spills into the belt while a stack sits there', () => {
+    const loadout = loadoutFor(stats);
+    applySlotEffect(loadout, stock('hullRepair'), stats, BELT);
+    for (const e of [fill('heavyTorpedo'), fill('navalMines'), fill('starShells')]) applySlotEffect(loadout, e, stats);
+    applySlotEffect(loadout, fill('heavyTorpedo'), stats); // duplicate, and the row is full anyway
+    expect(beltIds(loadout)).toEqual(['hullRepair', null, null, null]);
+    expect(loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 });
+  });
+
+  // --- the replay ---------------------------------------------------------
+
+  it('slotsWithCards REPLAYS the rack with no code of its own: k copies ⇒ n = k (capped at the line cap)', () => {
+    for (let k = 1; k <= 7; k += 1) {
+      const cards = new Array<string>(k).fill('hullRepair');
+      const loadout = slotsWithCards(stats, cards, BELT);
+      expect(loadout[B0].equipmentId, `k=${k}`).toBe('hullRepair');
+      expect(loadout[B0].state, `k=${k}`).toEqual({ n: Math.min(k, BELT.hullRepair.cap), reloadMsLeft: 0 });
+      expect(beltIds(loadout).filter((id) => id !== null), `k=${k}`).toHaveLength(1);
+    }
+  });
+
+  it('the replay agrees with the INCREMENTAL path over a mixed hand, in fit order', () => {
+    const cards = ['chaff', 'hullRepair', 'chaff', 'decoyBuoy', 'hullRepair', 'chaff'];
+    const replayed = slotsWithCards(stats, cards, BELT);
+    const incremental = loadoutFor(stats);
+    for (const id of cards) applySlotEffect(incremental, stock(id as ConsumableId), stats, BELT);
+    expect(replayed).toEqual(incremental);
+    expect(beltIds(replayed)).toEqual(['chaff', 'hullRepair', 'decoyBuoy', null]);
+    expect(replayed[B0].state).toEqual({ n: 3, reloadMsLeft: 0 });
+    expect(replayed[B1].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    expect(replayed[B2].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 });
