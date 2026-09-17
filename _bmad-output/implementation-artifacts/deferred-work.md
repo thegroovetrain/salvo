@@ -2186,3 +2186,18 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
   summary: THE SLOT TOOLTIP'S INTERACTION ROW NOW WRAPS — the ratified content (`WEAPON · Q · SWITCH-TO · TIER V`, `CONSUMABLE · 1 · KEY PRIMES · CLICK FIRES · ×2`) exceeds one 320 px line, so the row word-wraps and the heading height feeds the fit chain; the boon-row trim absorbs the extra line from the same budget. Amendment 42 kept widths and type; this is the one arithmetic change in the fit chain (veto item).
   evidence: tooltipFit.test.ts "grows the panel by exactly one line box"; wave-2B deviation 1.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE BELT IS ALWAYS THE REPLAY — after every consumable use the server rebuilds belt slots 5–8 from `slotsWithCards(cards)` (in place; weapon slots keep their timers), because the client re-packs the belt leftward from `cards` while an in-place clear left a hole (review finding, both models; reproduced). Spec-8-7 ruling 4's "clear the slot in the gate" is superseded by this rebuild; property-pinned over random stock/use sequences (upgrades.test.ts).
+  evidence: Blind Hunter 1 + Codex 1 (CONFIRMED); the P1 patch; `rebuildBelt` in world.ts.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: ONE SPEND LAW — a DENIED consumable effect costs nothing (n, cards and the slot untouched); only a successful activation decrements n and removes the copy from cards. Story 8.8/8.15/8.16 effects that can deny (heal at full hp, blocked decoy drop) rely on this.
+  evidence: all three reviewers (CONFIRMED); the P2 patch; equipment.test.ts pin flipped.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: BOT RE-PICKS A REFUSED CONSUMABLE FOREVER (deferred to 8.18) — `spending.ts` has no `canStock` awareness; on a full belt the bot's pure decision re-picks the same refused card every tick and its level is stuck. Dormant (consumables stub). Story 8.18 (bots sail decks) adds the shared `canStock` skip to the bot spend policy; amendment 44 names it.
+  evidence: Edge Case Hunter 5 / Blind Hunter 5 (PLAUSIBLE, traced); botDriver.ts:344 re-calls spendPoint each tick.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE CARD HOVER'S STOCK READS `held + 1` — the hover sits on a card about to be stocked, so it prints what the belt will read once the card is taken (the same tense as the face's ladder and stat rows); the belt tooltip prints the live `ammo[slot].n`. Veto item.
+  evidence: P7 patch reading; refitTooltipFit.test.ts pin.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: STORY 8.10 MUST PUT THE OPENING FLOW TO ERIC EXPLICITLY BEFORE BUILDING IT — UX-DR54's "ratified as rendered 2026-09-11" auto-open + REDRAW stamp is the planning pass's own claim; Eric did not recall discussing an auto-open (2026-09-17) and accepted it only as the level-zero countdown case (amendment 45). Ask, do not assume.
+  evidence: Eric 2026-09-17 in the 8.7 run; memory rule "artifacts contain assumptions".
