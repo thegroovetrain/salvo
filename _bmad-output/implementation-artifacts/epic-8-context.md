@@ -111,3 +111,4 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 33. **The Shift key chip shows the word `Shift`** in the mock's 16 px-high widening chip family (Eric 2026-09-16); supersedes amendment 29's interim `⇧`.
 34. **The ACTIVE running-boost state survives on the bar** (Eric 2026-09-16): breathing outline + seconds-left as the wipe's centred numeral, no overlay; then the wipe.
 35. **The HP globe carries the pending-heal band** (Eric 2026-09-16): `repairHp` as a dimmer band above the waterline at `railPendingAlpha`.
+36. **The refit band lifts to bar-relative placement in 8.6** (Eric 2026-09-17): the whole band (cards + the DAMAGE CONTROL strip) sits 8 px above the bar's top, keep-out waived, logical units; `bandTopFrac` retired; 8.7 only re-sizes the cards.
