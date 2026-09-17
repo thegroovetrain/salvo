@@ -5,7 +5,7 @@ created: '2026-09-16'
 status: 'in-review'
 baseline_revision: 'e771cc1'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   [
     '{project-root}/_bmad-output/project-context.md',
@@ -106,13 +106,13 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `client/src/config.ts` + `render/hudBar.ts` + `render/cooldownWipe.ts` + `render/globe.ts` + `util/poly.ts` -- the geometry spine, wipe polygon, globe helpers, `microScale` (rulings 1–3, 6-helpers) with `hudBar/cooldownWipe.test.ts` -- `npm test -w client -- hudBar cooldownWipe`
-- [ ] `client/src/render/hotbar.ts` + `equipmentInfo.ts` + `equipmentIcons.ts` -- slot row + belt frame re-cut (rulings 4–5) -- `hotbar.test.ts`
-- [ ] `client/src/render/hpGlobe.ts` + `helmGlobe.ts` + `hud.ts` (trim) + `attention.ts` -- the two globes (rulings 6–7, 12) -- `hpGlobe/helmGlobe/hud/attention.test.ts`
-- [ ] `client/src/render/xpStrip.ts` (− `xpRail.ts`) + `audio/twinMap.ts` -- the strip (rulings 8, 12) -- `xpStrip/twinMap.test.ts`
-- [ ] `client/src/main.ts` + `render/hudBar.ts` (composition) -- wiring, gating, dim, clicks, spectate (rulings 9–10) -- `npm run check`
-- [ ] `DESIGN.md` + `VERSION`/`package.json`/lock/`CHANGELOG.md`/both trackers/`deferred-work.md` -- ruling 13–14 -- tracker discipline
-- [ ] `npm run check` green; own dev server on scratch ports boots and serves the bundle (no eye check possible — record it)
+- [x] `client/src/config.ts` + `render/hudBar.ts` + `render/cooldownWipe.ts` + `render/globe.ts` + `util/poly.ts` -- the geometry spine, wipe polygon, globe helpers, `microScale` (rulings 1–3, 6-helpers) with `hudBar/cooldownWipe.test.ts` -- `npm test -w client -- hudBar cooldownWipe`
+- [x] `client/src/render/hotbar.ts` + `equipmentInfo.ts` + `equipmentIcons.ts` -- slot row + belt frame re-cut (rulings 4–5) -- `hotbar.test.ts`
+- [x] `client/src/render/hpGlobe.ts` + `helmGlobe.ts` + `hud.ts` (trim) + `attention.ts` -- the two globes (rulings 6–7, 12) -- `hpGlobe/helmGlobe/hud/attention.test.ts`
+- [x] `client/src/render/xpStrip.ts` (− `xpRail.ts`) + `audio/twinMap.ts` -- the strip (rulings 8, 12) -- `xpStrip/twinMap.test.ts`
+- [x] `client/src/main.ts` + `render/hudBar.ts` (composition) -- wiring, gating, dim, clicks, spectate (rulings 9–10) -- `npm run check`
+- [x] `DESIGN.md` + `VERSION`/`package.json`/lock/`CHANGELOG.md`/both trackers/`deferred-work.md` -- ruling 13–14 -- tracker discipline
+- [x] `npm run check` green; own dev server on scratch ports boots and serves the bundle (no eye check possible — record it)
 
 **Acceptance Criteria:**
 - Given any viewport ≥ 1280×614 logical, when alive, then ONE 768 px bar is centred 18 px above the floor with nothing bottom-left and nothing on the right edge, and the chrome bar and kill feed are unchanged.
@@ -127,6 +127,26 @@ warnings: [oversized]
 - Given `npm run check`, then lint, tsc ×3 and every test pass; `tokens.test.ts` and `twinMap.test.ts` are green; PV is still 52.
 
 ## Spec Change Log
+
+## Auto Run Result
+
+**Status:** done (2026-09-17, build cycle **141**, version **0.18.6**, PROTOCOL_VERSION **52 unchanged** — client-only).
+
+**Summary:** The three-corner in-match HUD is gone. ONE bottom-centre Pixi bar, 768 px wide and 18 px above the floor, holds the HP globe · deck gun (ghost chip) · `Shift` · Q E R · the framed belt 1–4 · the helm globe, with the XP strip full-width beneath — every size the ratified mock's own (amendment 31), both globes 104 px (32), the word `Shift` on its chip (33). Cooling slots wear the clockwise dark WIPE with a centred seconds numeral (tenths under 2 s); the running boost keeps its ACTIVE breathing outline with the seconds shown as that same numeral (34); tier numerals ride the absolute loot ramp above the wipe; empties are dashed with `—` and no slot carries a word. The HP globe's fill rises from the floor on the rail's colour ramp and pulse cap with the pending-heal band above the waterline (35) and `HULL n /max` centred; the helm globe carries HDG/KTS inside, the nine-detent telegraph as a tick arc over the crown (hollow ordered rung, solid amber needle), the rudder track on its floor and the fading W/S/A/D letters. The XP strip reads `LV n` at its head (`LV 0` renders) and the 24 px bank chip + `TAB TO REFIT` at its tail only when a refit can actually be taken. The XP rail, HP rail, telegraph cluster, label column, chamfer and perimeter track are deleted, not flagged. The refit card band now hangs 8 px above the bar in logical units (36) and its hover tooltip drops over the row when the water above is short (37); `IN STORM` and the victim tells live under the chrome bar (38). Only the slot groups dim under the refit window and the held start line; the whole bar persists through the sinking window and dies at founder; chrome bar and kill feed are untouched.
+
+**Eric rulings taken in-session (epic-8 amendments 31–38):** 31 mock-literal sizes (the July 1.6× micro lift does not apply to the bar); 32 both globes 104 px; 33 `Shift` spelled out; 34 ACTIVE survives; 35 the pending-heal band on the globe; 36 the refit band lifts bar-relative now; 37 the refit tooltip fits above else drops over the row; 38 `IN STORM` + tells under the chrome bar. Process instruction for this run: Eric asked that subagents be routed by task complexity to minimise Fable usage — Opus implemented, Sonnet did the docs, and (after Eric's clarification) the two review hunters ran on Fable as step-04 requires, with Codex as the cross-model check.
+
+**Orchestrator rulings, as implemented (Eric's veto list):** all fifteen spec rulings taken as written, with these readings: (1) under the held start line the same "slot groups only" dim applies as under the refit window (one predicate, one treatment); (2) the XP strip stays visible through the sinking window as part of the bar — its cue is gated on `refitable`, which since the review gate ALSO requires `!sinking` (the spec's ruling 10 wrongly assumed the offer was already cleared at sink-entry; the code and the ledger are corrected, the intent contract is left as written and this note is the correction of record); (3) the helm globe's crown letters read S left / W right as the mock draws them; (4) 9 px registers counter-scale by `1/uiScale` at 90 % (`microScale`) and the 10 px badge digit does not; (5) the bank chip renders a bare count (`1`, not `▲1`) per the mock; (6) the wipe's dark polygon draws OVER the icon as the mock's CSS does; (7) the two glow alphas took the mock's values (.2 / .4); (8) `HudBar.hideTransient()` hides all four members but keeps the chip's decay state; (9) the `CLIENT_CONFIG.xpRail` block keeps its name while feeding the strip.
+
+**Files changed (46, +7352/−4310; client 35 files):** NEW `client/src/render/{hudBar,cooldownWipe,globe,hpGlobe,helmGlobe,xpStrip}.ts`; re-cut `render/hotbar.ts` (slot row + belt frame, chips, wipe, ACTIVE numeral, tier numerals, contiguous hit column, room-above tooltip budget), `render/hud.ts` (1242 → ~560 LOC: chrome bar, match text, satellites under the chrome bar, overlay, spectate), `render/attention.ts` (`hpGlobe` channel), `render/equipmentInfo.ts` (`Shift` glyph, `lineTier`), `audio/twinMap.ts` (rows re-pointed), `ui/upgradeMenu.ts` (bar-relative band in logical units, tooltip fit-above-else-down, re-place on resize), `util/poly.ts` (`squareRayPoint`), `main.ts` (one `HudBar`, gating, clicks, view builders), `config.ts` (`hudBar` block; dead `hotbar`/`vitals`/`xpRail` keys pruned; `refit.barGap` replaces `bandTopFrac`); DELETED `render/xpRail.ts`. Tests: NEW `hudBar/cooldownWipe/globe/hpGlobe/helmGlobe/xpStrip.test.ts`, rewritten `hotbar/hud/upgradeMenu/refitTooltipFit/tooltipFit/attention/tokens.test.ts`. Root/docs: `VERSION`, `package.json` + lock (0.18.6), `CHANGELOG.md`, both trackers, `DESIGN.md` (six BUILT stamps, 104 px globes, chamfer token removed, amendments 34/36/37 clauses), `deferred-work.md` (five stamps, one Story 8.6 section, three review deferrals), `epic-8-context.md` + amendments 31–38, this spec.
+
+**Review findings breakdown:** 7 patches applied (4 medium, 3 low — each with a fail-first regression test), 3 deferred to the ledger, 5 rejected; see the triage log. Cross-model picture: both Fable hunters flagged the tooltip-over-bar defect and the covered satellites; Blind Hunter alone found the sinking-window cue lie (confirmed by reading the server); Codex's one "confirmed" finding was a misread of unchanged baseline code and its allocation note is ledgered.
+
+**Verification performed:** `npm run check` exit 0 at every wave and after the review patches — lint 0 errors (3 pre-existing `max-lines-per-function` warnings), tsc clean ×3, **862 / 1892 / 3419** tests (client was 3315 at baseline: +104), `check:hooks` green. Fail-first evidence recorded per wave (layout pins, chip glyphs, wipe numeral, astern sign, pending clamp, dim-only-slots, layout cache, band seam, tooltip flip, all seven review patches). Boot smoke on scratch ports 2599/5599: server `/liveness` 200, client `/` 200, the served bundle carries the bar wiring; PIDs killed, 2567/5173 never touched. **NOT done: any human look.** No browser tooling exists in the worktree, so the bar has never been seen — Eric's look on staging is the acceptance (ledgered): the bar at 1366×768 and the 614 floor, the gun's wipe, Shift running then cooling, both globes, the strip, the refit band 8 px above the bar and its tooltip flip, `IN STORM` under the chrome bar, the bar through the sinking window and gone at the reveal.
+
+**Follow-up review recommended: true** — the gate patched seven findings including the tooltip budget, the slot hit region and the satellite anchors, all player-visible layout changes made after the hunters ran; and the whole surface is unverified by eye.
+
+**Residual risks / Eric's veto list:** (1) the nine orchestrator readings above; (2) `hotbar.ts` ~1570 LOC and `hud.ts` ~560 over the soft cap (the tooltip core is 8.7's split candidate); (3) the refit tooltip drops over the row for 45 of 114 panels at the 614 floor until 8.7's re-cut; (4) the shielded `HULL 312/250` readout is 8.15's; (5) the three ledgered review deferrals (heading `360°`, `×10` belt badge, per-frame allocations); (6) the stale `0.17.X` version line in the frozen `CLAUDE.md` is still there (not edited, as ruled).
 
 ## Review Triage Log
 
