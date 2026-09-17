@@ -51,8 +51,16 @@ import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
+import { hudBarLayout } from '../render/hudBar.js';
+import { UI_SCALE_VAR } from './theme.js';
 import { REFIT_TYPE } from './refitCardFit.js';
-import { REFIT_TIP, refitTooltipLeft, refitTooltipMaxPanelH } from './refitTooltip.js';
+import {
+  REFIT_TIP,
+  refitTooltipLeft,
+  refitTooltipMaxPanelH,
+  refitTooltipMetrics,
+  type RefitTooltipModel,
+} from './refitTooltip.js';
 import {
   boonDescription,
   boonKindLabel,
@@ -192,7 +200,8 @@ export interface RefitBandLayout {
    * property the geometry suite pins.
    */
   strip: RefitBox;
-  /** The whole band (pips + row + rail) — what the keep-out checks measure. */
+  /** The whole band (pips + row + rail). Its BOTTOM edge is the anchored one:
+   *  `barGap` above the HUD bar's top (epic-8 amendment 36). */
   band: RefitBox;
 }
 
@@ -204,36 +213,36 @@ export interface RefitBandLayout {
 const CARD_SLOTS = CONFIG.offer.size;
 
 /**
- * Pure: the band laid out for a (logical) viewport. The row is a FIXED 924px
- * (four 216s + three 20s) and is horizontally CENTERED; the top edge sits at
- * `bandTopFrac` of the viewport height. Deliberately independent of the offer's
- * actual length: slot k always occupies the same box, so a short offer (a small
- * catalog) leaves a gap rather than re-centering the digits under the player.
+ * Pure: the band laid out for a LOGICAL viewport — the same units the HUD bar
+ * is laid out in (`hudBarLayout`), i.e. screen px ÷ the UI-scale factor.
  *
- * The row NEVER wraps and never re-flows — at a viewport too narrow to hold 924
- * the row would clip, which is why the layout tests pin both ratified floors
- * (1366×768 at 100%, and the 1280×614 logical floor of the ≥1600px-gated 125%
- * tier).
+ * EPIC-8 AMENDMENT 36 (Eric, 2026-09-17) replaced the old viewport-fraction
+ * anchor (`bandTopFrac`) with UX-DR53's placement rule: the band's LOWEST edge
+ * — the DAMAGE CONTROL strip's bottom while that strip exists, the card row's
+ * bottom after Story 8.8 removes it — sits `barGap` (8px) above the HUD bar's
+ * top edge. The below-centre own-hull keep-out is WAIVED by the same ruling, so
+ * the band's top may now climb above the screen centre. Laying out in the bar's
+ * own units is what retires the physical-anchor / CSS-scale mismatch the
+ * cycle-47 review ledgered: see `place()`.
  *
- * CYCLE 46 added the DAMAGE CONTROL rail below the row and NOTHING else: the
- * row and the cards come out byte-identical, and only `band.h` grows (by
- * `stripGap + stripHeight`) to keep covering everything the band paints.
- *
- * CYCLE 47 (Eric amendment 65) grew the rail from a 16px seam to a 40px
- * choosable button and paid for it by LIFTING the anchor — `bandTopFrac` 0.58 →
- * 0.534 — rather than by touching the row. The row, the cards, the gaps and the
- * pip offset are all still byte-identical; only where the whole band sits moved.
- * That anchor is now wedged between two hard constraints at the 1280×614 floor
- * (below-center keep-out above, container-fit law below) with five pixels of
- * total slack — see CLIENT_CONFIG.refit.bandTopFrac for the arithmetic, and the
- * geometry suite for the pins that make a future drift fail loudly.
+ * The row is a FIXED 924px (four 216s + three 20s) and is horizontally CENTERED,
+ * deliberately independent of the offer's actual length: slot k always occupies
+ * the same box, so a short offer (a small catalog) leaves a gap rather than
+ * re-centering the digits under the player. It NEVER wraps and never re-flows —
+ * at a viewport too narrow to hold 924 the row would clip, which is why the
+ * layout tests pin both ratified floors (1366×768 at 100%, and the 1280×614
+ * logical floor of the ≥1600px-gated 125% tier).
  */
 export function refitBandLayout(screenW: number, screenH: number, cards = CARD_SLOTS): RefitBandLayout {
   const rowW = cards * R.card + (cards - 1) * R.gap;
   const x = Math.round((screenW - rowW) / 2);
-  const y = Math.round(screenH * R.bandTopFrac);
+  // Top-down: pips, card row, seam, DAMAGE CONTROL strip — and the whole stack
+  // hangs from its BOTTOM, `barGap` clear of the bar.
+  const bandH = R.pipsAbove + R.cardHeight + R.stripGap + R.stripHeight;
+  const bandY = hudBarLayout(screenW, screenH).bar.y - R.barGap - bandH;
+  const y = bandY + R.pipsAbove;
   const row = { x, y, w: rowW, h: R.cardHeight };
-  const pips = { x, y: y - R.pipsAbove, w: rowW, h: R.pip };
+  const pips = { x, y: bandY, w: rowW, h: R.pip };
   const strip = { x, y: row.y + row.h + R.stripGap, w: rowW, h: R.stripHeight };
   return {
     row,
@@ -245,8 +254,59 @@ export function refitBandLayout(screenW: number, screenH: number, cards = CARD_S
     })),
     pips,
     strip,
-    band: { x, y: pips.y, w: rowW, h: strip.y + strip.h - pips.y },
+    band: { x, y: bandY, w: rowW, h: bandH },
   };
+}
+
+/**
+ * The live UI-scale FACTOR, read back from the custom property `ui/theme.ts`
+ * writes (`setUiScaleVar(scaleFactor(effectiveScale(...)))`). Read rather than
+ * recomputed on purpose: the tier logic — including the width gate that can
+ * demote a stored 125% — lives in ONE place (`settings/store.ts`), and the var
+ * is what the panel's own `scale()` actually uses, so the anchor and the
+ * contents cannot disagree. Absent or malformed (a test DOM, an early frame)
+ * reads as 1, which is exactly what the CSS fallback renders at.
+ */
+function uiScaleFactor(root: HTMLElement = document.documentElement): number {
+  const raw = Number.parseFloat(root.style.getPropertyValue(UI_SCALE_VAR));
+  return Number.isFinite(raw) && raw > 0 ? raw : 1;
+}
+
+/** Where the hover tooltip opens, and the cap it opens under. */
+export interface RefitTipPlacement {
+  /** true = the ratified placement, bottom edge `gap` above the band's top.
+   *  false = opening DOWNWARD from the band's top edge, over the card row. */
+  above: boolean;
+  /** The panel's rendered height (px) — independent of which way it opens. */
+  height: number;
+  /** The CSS `max-height` cap (px) at this placement. */
+  maxH: number;
+}
+
+/**
+ * Pure: which way the hover tooltip opens (EPIC-8 AMENDMENT 37, Eric
+ * 2026-09-17).
+ *
+ * Amendment 36 hung the band off the HUD bar, which at short viewports leaves
+ * far less clear water above it than the tallest catalog explanation needs —
+ * 130px against 261px at the 1280×614 logical floor. Rather than clip the copy
+ * (information lost) or pull Story 8.7's 236px re-cut forward, the panel FLIPS:
+ * it opens above the band whenever it fits there, exactly as before, and
+ * otherwise opens from the band's TOP EDGE downward, covering part of the card
+ * row it describes.
+ *
+ * The downward cap is the band's OWN height, which is what keeps the ruling's
+ * other half — never over the bar. The band's bottom edge is `barGap` above the
+ * bar by construction, so a panel that cannot outgrow the band cannot reach it.
+ * Nothing in the shipped catalog comes close (261 of 300), so `overflow:hidden`
+ * stays what it has always been: belt and braces, never the fix.
+ */
+export function refitTooltipPlacement(model: RefitTooltipModel, band: RefitBox): RefitTipPlacement {
+  const water = refitTooltipMaxPanelH(band.y);
+  const height = refitTooltipMetrics(model, water).height;
+  return height <= water
+    ? { above: true, height, maxH: water }
+    : { above: false, height, maxH: band.h };
 }
 
 // --- pure core: the spend view -------------------------------------------------
@@ -692,18 +752,20 @@ const CARD_LOCKED_CSS = `${CARD_CSS};opacity:${R.lockedAlpha};cursor:default`;
 // One panel, built once with the band and re-filled per hover — never one per
 // card, so the pointer moving along the row cannot leave a trail of panels.
 //
-// It hangs off the PANEL rather than the row, with `bottom: calc(100% + gap)`:
-// the panel's own box starts at the queue pips, so that one declaration pins the
-// tooltip's BOTTOM edge `gap` above the band's top edge without anybody having
-// to know the tooltip's height. It grows upward from there, into the clear water
-// above the band, which is exactly the container ui/refitTooltip.ts models.
+// It hangs off the PANEL rather than the row: the panel's own box starts at the
+// queue pips, so `bottom: calc(100% + gap)` pins the tooltip's BOTTOM edge `gap`
+// above the band's top edge without anybody having to know the tooltip's height,
+// and it grows upward from there into the clear water ui/refitTooltip.ts models.
+//
+// SINCE AMENDMENT 37 that is one of TWO placements: a panel too tall for the
+// water opens DOWNWARD from the same edge (`top: 0`) over the card row instead.
+// `showTip` sets whichever applies, so neither edge is declared here.
 //
 // `pointer-events:none` is load-bearing: the panel overhangs the cards' hover
 // targets, and a panel that took the pointer would make its own card's
 // `mouseleave` fire and flicker it out from under the cursor.
 const TIP_CSS = [
   'position:absolute',
-  `bottom:calc(100% + ${REFIT_TIP.gap}px)`,
   `width:${REFIT_TIP.width}px`,
   `padding:${REFIT_TIP.pad}px`,
   'box-sizing:border-box',
@@ -1149,13 +1211,30 @@ export class UpgradeMenu {
     tip.name.textContent = copy.name;
     tip.body.textContent = copy.tooltip;
     tip.root.style.left = `${refitTooltipLeft(index!, this.rowWidth())}px`;
+    this.placeTip(tip.root, { name: copy.name, body: copy.tooltip });
     tip.root.style.display = 'flex';
+  }
+
+  /**
+   * The panel's VERTICAL placement (epic-8 amendment 37): above the band while
+   * it fits in the water there, otherwise downward from the band's top edge over
+   * the card row. `bottom: calc(100% + gap)` is the above placement — the
+   * panel's own box starts at the queue pips, so that one declaration pins the
+   * tooltip `gap` above the band — and `top: 0` is the downward one. Exactly one
+   * of the two is ever set; the other is explicitly cleared, because the panel
+   * is re-filled rather than rebuilt and would otherwise keep the last hover's.
+   */
+  private placeTip(root: HTMLElement, model: RefitTooltipModel): void {
+    const p = refitTooltipPlacement(model, this.bandLayout().band);
+    root.style.bottom = p.above ? `calc(100% + ${REFIT_TIP.gap}px)` : 'auto';
+    root.style.top = p.above ? 'auto' : '0px';
+    root.style.maxHeight = `${p.maxH}px`;
   }
 
   /** The laid-out card row's width — the ONE place the tooltip's horizontal
    *  clamp reads it from, derived exactly as `refitBandLayout` derives it. */
   private rowWidth(): number {
-    return refitBandLayout(window.innerWidth, window.innerHeight).row.w;
+    return this.bandLayout().row.w;
   }
 
   /** Hover/focus arm — suppressed while the denied edge is lit on the rail, so
@@ -1317,17 +1396,33 @@ export class UpgradeMenu {
     if (this.deniedChoice !== null && this.deniedChoice >= 0) this.deniedChoice = null;
   }
 
-  /** Position the band from the pure layout (never from CSS guesses), and hand
-   *  the hover tooltip the container the same layout leaves above the band. */
+  /**
+   * Position the band from the pure layout (never from CSS guesses), and hand
+   * the hover tooltip the container the same layout leaves above the band.
+   *
+   * SCALE-AWARE SINCE STORY 8.6 (epic-8 amendment 36), which closes the
+   * physical-anchor / CSS-scale mismatch the cycle-47 review ledgered BY
+   * CONSTRUCTION. The band is laid out in LOGICAL units (screen px ÷ the UI
+   * scale — the same units `hudBarLayout` uses), and only the finished anchor
+   * is converted back to CSS px. `PANEL_CSS` scales the panel by
+   * `--hc-ui-scale` about `transform-origin: top center`, so writing
+   * `band.y × s` to `top` puts the panel's rendered bottom at
+   * `(band.y + band.h) × s` = `(bar.y − barGap) × s` — exactly `barGap` scaled
+   * pixels above the bar, which is itself drawn from the same logical layout
+   * scaled by the same factor. The two can no longer drift at any tier.
+   */
   private place(): void {
-    const layout = refitBandLayout(window.innerWidth, window.innerHeight);
-    this.ensurePanel().style.top = `${layout.band.y}px`;
-    // The tooltip grows UPWARD from a bottom edge pinned above the band, so its
-    // container is the clear water between the band's top and the viewport's
-    // margin. The cap is belt-and-braces (the fit pin in refitTooltipFit is the
-    // fix): it guarantees an unforeseen state still cannot lay text over the
-    // queue pips or run off the top of the screen. `band.y` IS the pips' top.
-    if (this.tip) this.tip.root.style.maxHeight = `${refitTooltipMaxPanelH(layout.band.y)}px`;
+    this.ensurePanel().style.top = `${this.bandLayout().band.y * uiScaleFactor()}px`;
+    // The tooltip's own cap is NOT set here: which way it opens depends on the
+    // hovered card's copy (amendment 37), so it is decided per hover in showTip.
+  }
+
+  /** The band as the panel's own (LOGICAL) coordinate space sees it — the ONE
+   *  place the DOM converts the viewport into the units `refitBandLayout` and
+   *  `hudBarLayout` both work in. */
+  private bandLayout(): RefitBandLayout {
+    const s = uiScaleFactor();
+    return refitBandLayout(window.innerWidth / s, window.innerHeight / s);
   }
 
   /** TAB toggle: open with this view, or close if already open. */

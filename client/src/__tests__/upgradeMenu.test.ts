@@ -30,8 +30,9 @@ import {
 import { refitStripInnerBox, refitStripMetrics } from '../ui/refitCardFit.js';
 import { boonFitToastLine, boonKindLabel, boonName, boonTooltipText } from '../ui/boonCopy.js';
 import { hudBarLayout } from '../render/hudBar.js';
+import { setUiScaleVar } from '../ui/theme.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { settings } from '../settings/store.js';
+import { scaleTierEnabled, settings } from '../settings/store.js';
 import { FLASH_ELEMENTS, type FlashBudget, type FlashVerdict } from '../render/flashBudget.js';
 
 const R = CLIENT_CONFIG.refit;
@@ -99,14 +100,21 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
       expect(Math.abs(L.row.x - (w - L.row.x - L.row.w))).toBeLessThanOrEqual(1);
     });
 
-    it(`sits BELOW center — own hull at screen center stays clear at ${name}`, () => {
-      // The band's ~58% top edge is the keep-out proxy for the listening ring
-      // (UX-DR18, Epic 4/6 — it does not exist yet). The honest constraint the
-      // geometry can actually be held to today is "the own hull at screen
-      // center is never occluded", and that is what this pins.
+    it(`hangs exactly barGap above the HUD bar's top edge at ${name}`, () => {
+      // EPIC-8 AMENDMENT 36 (Eric, 2026-09-17) replaced the viewport-fraction
+      // anchor with UX-DR53's rule — row bottom = hud-bar top − 8px — applied to
+      // the band's LOWEST edge while the DAMAGE CONTROL strip still hangs under
+      // the row (Story 8.8 deletes it). The below-centre own-hull keep-out is
+      // WAIVED by the same ruling, so the old `band.y > h/2` pin is gone; what
+      // replaces it is the property that actually matters now.
       const L = refitBandLayout(w, h);
-      expect(L.band.y).toBeGreaterThan(h / 2);
-      expect(L.row.y).toBe(Math.round(h * R.bandTopFrac));
+      const bar = hudBarLayout(w, h).bar;
+      expect(L.strip.y + L.strip.h).toBe(L.band.y + L.band.h); // the strip IS the lowest edge
+      expect(L.band.y + L.band.h).toBe(bar.y - R.barGap);
+      expect(overlaps(L.band, bar)).toBe(false);
+      // Waived is not unbounded: the band may now start above the screen centre
+      // but never off the top of the screen.
+      expect(L.band.y).toBeGreaterThanOrEqual(0);
     });
 
     it(`keeps the pip strip above the cards, left-aligned with the row at ${name}`, () => {
@@ -163,76 +171,82 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
         expect(L.cards[i].x - (L.cards[i - 1].x + 216), name).toBe(20);
       }
       // The row still derives from ONE anchor and the pips still hang a fixed
-      // offset above it. CYCLE 47 moved that anchor (0.58 → 0.534) to buy the
-      // rail its room — deliberately, by Eric ruling (amendment 65), which
-      // reopened amendment 40's "no band lift" for exactly this. What the pin
-      // above protects is unchanged and is the point: the row's SHAPE is
-      // untouchable, its POSITION was the only thing that moved.
-      expect(L.row.y, name).toBe(Math.round(h * R.bandTopFrac));
+      // offset above it. STORY 8.6 (epic-8 amendment 36) moved that anchor for
+      // the second time — from a viewport fraction to the HUD bar's top edge —
+      // and, as in cycle 47, only the POSITION moved: the row's SHAPE is
+      // untouchable and is what the pin above protects.
+      expect(L.row.y, name).toBe(L.band.y + R.pipsAbove);
       expect(L.pips.y, name).toBe(L.row.y - R.pipsAbove);
     }
   });
 
-  // THE FIVE-PIXEL BAND (cycle 47). The lifted anchor is wedged between two hard
-  // constraints at the 1280×614 logical floor, and the whole geometry lives or
-  // dies on both margins staying non-negative:
+  // THE ANCHORED EDGE, TO THE PIXEL (Story 8.6, epic-8 amendment 36). The band
+  // no longer floats at a fraction of the viewport between two opposing
+  // constraints — it HANGS off the HUD bar, so there is exactly one number to
+  // pin and it is an equality rather than a pair of inequalities:
   //
-  //   above — the own-hull keep-out:  band.y > h/2
-  //   below — the container-fit law:  strip bottom ≤ h
+  //   band bottom (the DAMAGE CONTROL strip's) === hudBarLayout().bar.y − barGap
   //
-  // At that floor there are exactly five pixels of slack between them, so this
-  // is pinned with the ACTUAL numbers rather than only as an inequality: a
-  // future card-height, pip-offset, rail-height or anchor change that eats the
-  // margin fails HERE, in arithmetic, instead of clipping off the bottom of
-  // someone's laptop screen. The 1366×768 floor is comfortable and is pinned
-  // alongside so the two are never accidentally tuned apart.
-  it('keeps both floor margins non-negative at the lifted anchor', () => {
+  // The own-hull keep-out that boxed the old anchor in from above is WAIVED by
+  // the same ruling, and the container-fit law from below is now satisfied BY
+  // CONSTRUCTION (the bar is itself `floor` px off the viewport edge). What can
+  // still go wrong is the band running off the TOP of a short viewport, so that
+  // is pinned too, with the actual numbers.
+  it('seats the band exactly barGap above the bar at both ratified floors', () => {
     const cases = [
-      { name: '1366x768 @100%', w: 1366, h: 768 },
-      { name: '1280x614 (125% logical floor)', w: 1280, h: 614 },
+      { name: '1366x768 @100%', w: 1366, h: 768, barTop: 614, bandBottom: 606 },
+      { name: '1280x614 (125% logical floor)', w: 1280, h: 614, barTop: 460, bandBottom: 452 },
     ];
-    for (const { name, w, h } of cases) {
+    for (const { name, w, h, barTop, bandBottom } of cases) {
       const L = refitBandLayout(w, h);
-      const keepOut = L.band.y - h / 2; // > 0 or the band covers the own hull
-      const bottom = h - (L.strip.y + L.strip.h); // ≥ 0 or the rail clips off
-      expect(keepOut, `${name}: band ${-keepOut}px over the own-hull keep-out`).toBeGreaterThan(0);
-      expect(bottom, `${name}: rail ${-bottom}px past the bottom edge`).toBeGreaterThanOrEqual(0);
+      expect(hudBarLayout(w, h).bar.y, name).toBe(barTop);
+      expect(L.band.y + L.band.h, name).toBe(bandBottom);
+      expect(L.strip.y + L.strip.h, name).toBe(bandBottom);
+      expect(L.band.y, `${name}: band ${-L.band.y}px off the top of the screen`).toBeGreaterThanOrEqual(0);
+      expect(L.band.y + L.band.h, name).toBeLessThanOrEqual(h);
     }
-    // The floor case, to the pixel — 3px clear above, 4px clear below.
+    // The floor case, to the pixel: a 300px band (18 pips + 236 card + 6 seam +
+    // 40 rail) ending at 452 starts at 152 — above the 307 screen centre, which
+    // is what "the keep-out is waived" means in numbers.
     const F = refitBandLayout(1280, 614);
-    expect(F.row.y).toBe(328);
-    expect(F.band.y).toBe(310); // 3px clear of the 307 keep-out
-    expect(F.strip.y).toBe(570);
-    expect(F.strip.y + F.strip.h).toBe(610); // 4px clear of the 614 edge
+    expect(F.band.h).toBe(R.pipsAbove + R.cardHeight + R.stripGap + R.stripHeight);
+    expect(F.band.h).toBe(300);
+    expect(F.band.y).toBe(152);
+    expect(F.row.y).toBe(170);
+    expect(F.strip.y).toBe(412);
   });
 
-  // THE SCALED-TIER FIT — the case the logical-floor pins above CANNOT see, and
-  // the one that actually caught a real clip during the cycle-47 review.
+  // THE SCALED-TIER FIT — the case the logical-floor pins above cannot see, and
+  // the one that caught a real clip during the cycle-47 review.
   //
-  // `place()` anchors the band from `window.innerHeight` in PHYSICAL pixels,
-  // but the panel's contents are scaled by `--hc-ui-scale` about `top center`.
-  // So at the 125% tier the band's real footprint is 1.25 × its laid-out height
-  // hanging off an UNSCALED anchor — which is NOT what refitBandLayout(w/1.25,
-  // h/1.25) models. The tier's own gate is width-only (`scaleGateWidthPx` 1600),
-  // so a 1600×768 viewport can select 125% and is the binding case.
-  //
-  // This mismatch is a pre-existing defect (ledgered). What is pinned here is
-  // the consequence that must stay legal regardless: the band, at every
-  // committed scale tier, still ends inside the viewport.
-  it('keeps the scaled band inside the viewport at every UI-scale tier', () => {
-    const H = R.pipsAbove + R.cardHeight + R.stripGap + R.stripHeight;
+  // THE MISMATCH IT USED TO DOCUMENT IS GONE. `place()` anchored the band from
+  // `window.innerHeight` in PHYSICAL px while the panel's contents were scaled
+  // by `--hc-ui-scale` about `top center`, so the band's real footprint was
+  // `scale x` its laid-out height hanging off an UNSCALED anchor. Story 8.6 lays
+  // the band out in LOGICAL units (physical / the factor, the same units the bar
+  // uses) and writes `band.y * factor` to `top`, which retires the defect the
+  // cycle-47 review ledgered. This pin is re-derived on that anchor: at every
+  // selectable tier the band still ends inside the viewport, still clears the
+  // bar by exactly `barGap`, and still starts on screen.
+  it('keeps the scaled band inside the viewport, clear of the bar, at every UI-scale tier', () => {
     for (const { w, h } of [
+      { w: 1366, h: 768 },
+      { w: 1280, h: 614 },
       { w: 1600, h: 768 }, // the binding case — 125% is reachable here
-      { w: 1600, h: 900 },
       { w: 1920, h: 1080 },
-      { w: 1366, h: 768 }, // 125% gated off below 1600 wide, but 90%/100% apply
     ]) {
-      const top = refitBandLayout(w, h).band.y;
       for (const tier of CLIENT_CONFIG.settings.scaleTiers) {
-        const scale = tier / 100;
-        if (scale > 1 && w < CLIENT_CONFIG.settings.scaleGateWidthPx) continue; // tier disabled
-        const bottom = top + H * scale;
-        expect(bottom, `${w}x${h} @${tier}%: band ${(bottom - h).toFixed(1)}px past the bottom`).toBeLessThanOrEqual(h);
+        if (!scaleTierEnabled(tier, w)) continue; // gated off at this width
+        const f = tier / 100;
+        const label = `${w}x${h} @${tier}%`;
+        const L = refitBandLayout(w / f, h / f);
+        const bar = hudBarLayout(w / f, h / f).bar;
+        expect(L.band.y + L.band.h, label).toBeCloseTo(bar.y - R.barGap, 6);
+        expect(overlaps(L.band, bar), label).toBe(false);
+        // What the DOM actually renders: the logical box scaled about its top.
+        const bottom = (L.band.y + L.band.h) * f;
+        expect(bottom, `${label}: band ${(bottom - h).toFixed(1)}px past the bottom`).toBeLessThanOrEqual(h);
+        expect(L.band.y * f, `${label}: band ${(-L.band.y * f).toFixed(1)}px off the top`).toBeGreaterThanOrEqual(0);
       }
     }
   });
@@ -296,28 +310,28 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     expect(refitStripInnerBox().h).toBe(R.stripHeight - 2 * (R.stripPadY + 1));
   });
 
-  // DELIBERATE PIN, NOT AN ASPIRATION — RESTATED for Story 8.6's ONE bar.
+  // THE OVERLAP IS GONE — the pin that used to ratify it now forbids it.
   //
-  // The two corner clusters this pin used to measure (the bottom-left hotbar of
-  // Story 2.2, the bottom-right vitals cluster of Story 2.4) are DELETED: the
-  // loadout surface is now a single 768px bar centred above the viewport floor
-  // (render/hudBar.ts). The over-constraint that produced the original overlap
-  // survives the move unchanged — the ratified UX-DR14 row is 924px wide and the
-  // band sits below centre, so a readable card row still reaches the bar — and so
-  // does the rule that makes it acceptable: the bar's two slot groups drop to 38%
-  // and slot input is suspended for exactly the window the band is open. The
-  // bar-relative refit row that would remove the overlap outright is Story 8.7's.
-  //
-  // It is pinned here, as before, so a future geometry change is a CONSCIOUS
-  // break rather than a silent regression.
-  it('overlaps the HUD bar it dims, and stays clear of the chrome bar (1366x768)', () => {
+  // For six epics a 924px card row sitting at a fraction of the viewport height
+  // reached into whatever the HUD had parked at the bottom of the screen, and
+  // the rule that made it acceptable was the combat lockout: the surface under
+  // the cards dims to 38% and stops taking input for exactly the window the band
+  // is open. Story 8.6 replaced the three corner clusters with ONE 768px bar and
+  // Eric ruled (epic-8 amendment 36) that the band hangs off it instead — so the
+  // overlap is not merely tolerated now, it cannot happen, at any viewport or
+  // scale tier. The dim stays: it is what tells the player the slots are inert,
+  // and it is no longer load-bearing for legibility.
+  it('clears the HUD bar it dims by exactly barGap, and stays clear of the chrome bar (1366x768)', () => {
     const L = refitBandLayout(1366, 768);
     const hud = hudBarLayout(1366, 768);
-    // The accepted overlap: the band reaches the bar, and specifically the slot
-    // groups that dim for it.
-    expect(overlaps(L.band, hud.bar)).toBe(true);
-    expect(hud.dimGroups.some((g) => overlaps(L.cards[0], g))).toBe(true);
-    // ...and it never climbs into the top-centre match register.
+    expect(overlaps(L.band, hud.bar)).toBe(false);
+    expect(L.band.y + L.band.h).toBe(hud.bar.y - R.barGap);
+    // Nothing the band paints reaches the dimmed slot groups any more — the
+    // outer cards were what used to sit on them.
+    for (const card of L.cards) {
+      for (const g of hud.dimGroups) expect(overlaps(card, g)).toBe(false);
+    }
+    // ...and it still never climbs into the top-centre match register.
     expect(L.band.y).toBeGreaterThan(CLIENT_CONFIG.chromeBar.y + CLIENT_CONFIG.chromeBar.fontSize);
   });
 });
@@ -695,6 +709,33 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(panel.style.top).toBe(`${expected}px`);
     expect(panel.style.zIndex).toBe('1000');
     expect(panel.style.transform).toContain('scale(var(--hc-ui-scale, 1))');
+  });
+
+  // THE ANCHOR SCALES WITH THE CONTENTS (Story 8.6, epic-8 amendment 36) — the
+  // pre-existing defect the cycle-47 review ledgered, closed by construction.
+  //
+  // `place()` lays the band out in LOGICAL units (physical / the live
+  // `--hc-ui-scale` factor, exactly the units `hudBarLayout` works in) and then
+  // converts ONLY the finished anchor back to CSS px. Because `PANEL_CSS` scales
+  // about `transform-origin: top center`, writing `band.y * factor` to `top`
+  // puts the rendered BOTTOM at `(band.y + band.h) * factor` = `(bar.y - barGap)
+  // * factor` — the same `barGap` seam the Pixi bar is drawn with, at any tier.
+  it('scales the band anchor with its contents, landing barGap above the scaled bar', () => {
+    const menu = new UpgradeMenu(() => {});
+    for (const factor of [0.9, 1, 1.25]) {
+      setUiScaleVar(factor);
+      menu.update(view()); // re-places while open
+      if (!menu.visible) menu.toggle(view());
+      const panel = document.getElementById('upgrade-menu')!;
+      const logical = refitBandLayout(window.innerWidth / factor, window.innerHeight / factor);
+      const bar = hudBarLayout(window.innerWidth / factor, window.innerHeight / factor).bar;
+      expect(panel.style.top, `@${factor}`).toBe(`${logical.band.y * factor}px`);
+      // The arithmetic the comment above claims, checked rather than asserted.
+      const renderedBottom = Number.parseFloat(panel.style.top) + logical.band.h * factor;
+      expect(renderedBottom, `@${factor}`).toBeCloseTo((bar.y - CLIENT_CONFIG.refit.barGap) * factor, 6);
+      expect(renderedBottom, `@${factor}`).toBeLessThanOrEqual(window.innerHeight);
+    }
+    setUiScaleVar(1);
   });
 
   // AMENDMENT 36 — stay open through the queue: a successful spend live-swaps

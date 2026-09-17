@@ -442,10 +442,6 @@ export function tierColor(tier: number): number {
   return TIER_COLORS[Math.min(Math.max(tier, 1), TIER_COLORS.length) - 1];
 }
 
-/** The tier numeral's inset from the square's bottom-right corner (mock
- *  `.tier { bottom: 2px; right: 4px }`). */
-const TIER_INSET = { right: 4, bottom: 2 } as const;
-
 // --- pure core: the KEY CHIP -----------------------------------------------------
 
 /**
@@ -1069,11 +1065,11 @@ export function tooltipPlacement(square: Rect, panelH: number, screenW: number, 
 const CHIP_STYLE = { fontFamily: MONO, fontSize: B.type.chip, fill: C.textMuted, letterSpacing: 0 } as const;
 /** Tier numeral — mock `.tier { font: 600 9px var(--mono); letter-spacing: .04em }`. */
 const TIER_STYLE = { fontFamily: MONO, fontSize: B.type.tier, fontWeight: '600', fill: C.phosphor, letterSpacing: B.type.tier * 0.04 } as const;
-/** Ammo badge digit. The mock sets 10px; the bar's type block declares no badge
- *  register, so the digit rides the 9px micro tier with the chips and tier
- *  numerals (and counter-scales with them). A `hudBar.type.badge` would be the
- *  honest home — flagged for the config wave. */
-const BADGE_STYLE = { fontFamily: MONO, fontSize: B.type.chip, fill: C.phosphor, letterSpacing: 0 } as const;
+/** Ammo badge digit — mock `.badge { font: 600 10px var(--mono) }`, its own
+ *  register in the bar's type block. NOT one of the 9px ones: 10 x 0.9 = 9
+ *  clears the mono floor unaided, so it does not counter-scale (`microScale`
+ *  covers the 9px registers ONLY — ruling 2). */
+const BADGE_STYLE = { fontFamily: MONO, fontSize: B.type.badge, fill: C.phosphor, letterSpacing: 0 } as const;
 /** The cooldown/ACTIVE numeral — mock `.cd { font: 600 18px var(--mono) }` with
  *  its `text-shadow: 0 0 6px` black halo, which is what keeps the numeral
  *  legible over BOTH the cleared and the darkened halves of the wipe. The halo
@@ -1406,7 +1402,7 @@ export class Hotbar {
     this.setFill(t, tierColor(m.tier));
     t.alpha = dimAlphaFor(m);
     t.scale.set(this.micro);
-    t.position.set(square.x + square.w - TIER_INSET.right, square.y + square.h - TIER_INSET.bottom);
+    t.position.set(square.x + square.w - B.tierInset.right, square.y + square.h - B.tierInset.bottom);
     this.setText(t, text, m.slot * 4);
   }
 
@@ -1421,7 +1417,7 @@ export class Hotbar {
     this.gfx.rect(b.x, b.y, b.w, b.h).fill({ color: C.cardScrim, alpha: 0.95 });
     this.gfx.rect(b.x, b.y, b.w, b.h).stroke({ width: B.lineW, color: C.phosphor, alpha: 0.5 });
     t.alpha = dimAlphaFor(m);
-    t.scale.set(this.micro);
+    t.scale.set(1); // a 10px register: it clears the mono floor without help
     t.position.set(b.x + b.w / 2, b.y + b.h / 2);
     this.setText(t, m.badge, m.slot * 4 + 1);
   }

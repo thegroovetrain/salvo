@@ -1878,8 +1878,9 @@ export const CLIENT_CONFIG = {
      * card shrink"). Holds the top-down anatomy: key chip / category + rarity
      * row (14px) / ladder name (20px, up to two lines) / lineage (12px) /
      * replaces (12px) / rules text (17px, up to five lines). The ceiling is the
-     * 1280×614 logical floor: bandTopFrac 0.58 leaves 258px before the viewport
-     * edge, and the geometry suite pins it.
+     * 1280×614 logical floor: the band now hangs off the HUD bar (`barGap`), so
+     * the room a taller card may spend is whatever sits above that seam, and the
+     * geometry suite pins it.
      */
     cardHeight: 236,
     /** Gap (px) between cards. Four 216s + three 20s = a 924px row that never
@@ -1888,36 +1889,19 @@ export const CLIENT_CONFIG = {
     /** Card inner padding (px). */
     pad: 14,
     /**
-     * Band anchor: the row's TOP edge as a fraction of viewport height. The
-     * BELOW-CENTER keep-out proxy — the listening ring (UX-DR18) does not exist
-     * yet (Epic 4/6, and 4.1 is deferred), so the honest constraint today is
-     * "own hull at screen center stays clear". When the ring ships, this
-     * fraction becomes the ring's outer-radius contract and moves with it.
+     * Band anchor: the seam (px) between the band's LOWEST edge and the HUD
+     * bar's top edge (epic-8 amendment 36, UX-DR53's "row bottom = hud-bar top
+     * − 8 px"). The band is no longer anchored to a fraction of the viewport:
+     * it hangs off `hudBarLayout().bar.y`, in the same LOGICAL units the bar
+     * uses, so the two surfaces can never overlap however the viewport or the
+     * UI-scale tier moves.
      *
-     * LIFTED 0.58 → 0.534 in cycle 47 by Eric ruling (amendment 67), which
-     * REOPENED amendment 40's "no band lift" specifically to buy the DAMAGE
-     * CONTROL rail the room to be legible. The value is not a taste call — it is
-     * the only band the hard constraints leave at the 1280×614 logical floor,
-     * where the band is boxed on BOTH sides:
-     *
-     *   below-center keep-out   row.y - pipsAbove > 614/2   →  row.y > 325
-     *   container-fit law       row.y + cardHeight + stripGap + stripHeight
-     *                                                ≤ 614  →  row.y ≤ 332
-     *
-     * Seven pixels of total slack. 0.534 lands row.y at 328 (round(614×0.534)),
-     * leaving 3px clear of the keep-out and 4px clear of the screen edge. A
-     * 236px card row plus a genuinely legible rail simply near-fills a 614px
-     * viewport — which is exactly why cycle 46 squeezed the rail instead, that
-     * option having been closed to it.
-     *
-     * A THIRD constraint binds from outside this arithmetic: the band is
-     * anchored in PHYSICAL px while its contents are CSS-scaled, so the 125%
-     * tier at a 1600×768 viewport is tighter than the logical-floor math
-     * suggests. That constraint is what set `stripGap` to 6 rather than 8 —
-     * see that knob. All three margins are pinned by the geometry suite, so a
-     * future drift fails loudly rather than clipping on someone's laptop.
+     * The band's lowest edge is the DAMAGE CONTROL strip's bottom while that
+     * strip exists (Story 8.8 deletes it); after that it is the card row's.
+     * The old below-centre own-hull keep-out is WAIVED by the same amendment,
+     * so the band's top may now sit above the screen centre.
      */
-    bandTopFrac: 0.534,
+    barGap: 8,
     /** Queue pips: 8px squares, gap, and the pip row's baseline above the cards. */
     pip: 8,
     pipGap: 6,
@@ -1977,7 +1961,8 @@ export const CLIENT_CONFIG = {
      * with the binding requirement that the rail be *"big enough to actually
      * register as 'this is something I can choose' on all viewports."*
      *
-     * The room came from lifting the band (see `bandTopFrac`) — Eric's own pick,
+     * The room came from lifting the band (the old `bandTopFrac`, superseded by
+     * amendment 36's `barGap`) — Eric's own pick,
      * and the ONLY lever available, since the row is untouchable (four 216px
      * cards / 20px gaps / 924px / `CONFIG.offer.size` 4) and shrinking a card or
      * spending a card slot on heal were both declined. With 48px under the row
@@ -2014,9 +1999,11 @@ export const CLIENT_CONFIG = {
      * past the screen, an amendment-47 violation. 6px lands it at 767 of 768.
      * The two px come out of the seam rather than the rail because the rail's
      * height, chip, type and padding are the whole point of the retune. The
-     * anchor↔scale mismatch itself is a PRE-EXISTING defect, ledgered — this
-     * value keeps the shipped geometry legal in the meantime, and the scaled
-     * case is now pinned so it can never silently regress again.
+     * anchor↔scale mismatch itself is a PRE-EXISTING defect, ledgered. STORY 8.6
+     * (amendment 36) RETIRED IT: `place()` now lays the band out in logical
+     * units and scales the anchor with the contents, so the seam no longer pays
+     * for a scale error. The value stays 6 — Story 8.8 deletes this strip
+     * outright, and re-tuning a seam on its way out buys nothing.
      */
     stripGap: 6,
     /** The rail's key chip (px) — the ONE key-chip family, at family size. */

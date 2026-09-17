@@ -657,7 +657,7 @@ describe('the squares\' small type fits its boxes (amendment 47)', () => {
     for (const id of Object.keys(EQUIPMENT_NAME) as EquipmentId[]) {
       for (const n of [0, 1, 2, 9]) {
         const t = badgeText(equipmentInfo(stats, id), { n, reloadMsLeft: 0 });
-        if (t !== null) expect(monoW(t, B.type.chip), `${id}/${n}`).toBeLessThanOrEqual(B.badge);
+        if (t !== null) expect(monoW(t, B.type.badge), `${id}/${n}`).toBeLessThanOrEqual(B.badge);
       }
     }
   });

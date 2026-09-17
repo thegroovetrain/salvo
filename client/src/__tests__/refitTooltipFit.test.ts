@@ -18,8 +18,9 @@
 // and no longer.
 //
 // The container is derived from `refitBandLayout` rather than restated, so the
-// band anchor (`bandTopFrac`) and the tooltip's budget can never drift apart:
-// lift the band and this pin re-measures with it.
+// band anchor (since Story 8.6: `barGap` off the HUD bar's top edge, epic-8
+// amendment 36) and the tooltip's budget can never drift apart: lift the band
+// and this pin re-measures with it.
 
 import { describe, expect, it } from 'vitest';
 import { CATALOG, CONFIG, type CatalogLine, type ShipClassId } from '@salvo/shared';
@@ -34,7 +35,18 @@ import {
   refitTooltipWidestToken,
   type RefitTooltipModel,
 } from '../ui/refitTooltip.js';
-import { LINEAGE_TIERS, UpgradeMenu, lineageTint, offerView, refitBandLayout, type OfferView } from '../ui/upgradeMenu.js';
+import {
+  LINEAGE_TIERS,
+  UpgradeMenu,
+  lineageTint,
+  offerView,
+  refitBandLayout,
+  refitTooltipPlacement,
+  type OfferView,
+} from '../ui/upgradeMenu.js';
+import { hudBarLayout } from '../render/hudBar.js';
+import { setUiScaleVar } from '../ui/theme.js';
+import { scaleTierEnabled } from '../settings/store.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const R = CLIENT_CONFIG.refit;
@@ -43,7 +55,9 @@ const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
 /** The floor viewport's own band, and the container it leaves above itself.
  *  1280 is the logical width of the ≥1600px-gated 125% UI-scale tier; the
- *  height is what boxes the band in from both sides (see `bandTopFrac`). */
+ *  height is the shortest logical box the HUD is ever laid out into, and since
+ *  Story 8.6 it is what sets the band's own top edge (the band hangs off the
+ *  HUD bar — see `CLIENT_CONFIG.refit.barGap`). */
 const FLOOR_BAND = refitBandLayout(1280, REFIT_TIP_FLOOR_VIEWPORT_H);
 const CONTAINER_H = refitTooltipMaxPanelH(FLOOR_BAND.band.y);
 
@@ -72,26 +86,76 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     expect(PANELS.length).toBe(LINES.reduce((n, d) => n + d.cap, 0));
   });
 
-  it('leaves a real container above the band at the logical floor', () => {
-    // The band's top edge IS the queue pips; a panel that grew past it would
-    // cover another part of the UX, which is the half of amendment 47 that is
-    // about neighbours rather than about a box.
-    expect(FLOOR_BAND.band.y).toBeGreaterThan(0);
-    expect(CONTAINER_H).toBeGreaterThan(200);
+  // AMENDMENT 37 (Eric, 2026-09-17) — THE PANEL FLIPS RATHER THAN CLIPS.
+  //
+  // Amendment 36 hung the band off the HUD bar, and at the logical floor that
+  // leaves 130px of water above it against a tallest panel of 261px: 45 of the
+  // catalog's 114 panels would have been cut off at the top. Eric's ruling keeps
+  // the ratified above-the-band placement wherever it fits and opens the rest
+  // DOWNWARD from the band's top edge, over the card row they describe — never
+  // over the bar, never clipped. So the pin is no longer "everything fits above";
+  // it is "everything fits SOMEWHERE, and the somewhere is one of exactly two".
+  it('opens every panel ABOVE at 1366x768 — the flip is a short-viewport rule', () => {
+    const band = refitBandLayout(1366, 768).band;
+    const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, band).above).map((p) => p.label);
+    expect(down).toEqual([]);
+    expect(refitTooltipMaxPanelH(band.y)).toBe(284);
   });
 
-  it('NO panel renders taller than that container, at any stack position', () => {
-    const over = PANELS.map(({ label, model }) => ({ label, m: refitTooltipMetrics(model, CONTAINER_H) }))
-      .filter((r) => r.m.overflow > 0)
-      .map((r) => `${r.label}: ${r.m.height}px > ${CONTAINER_H}px (${r.m.bodyLines} body lines)`);
-    expect(over).toEqual([]);
+  it('flips exactly the panels the floor has no water for, and counts them', () => {
+    // The floor's own numbers, documented rather than implied: whoever changes
+    // the band, the bar or the copy moves this split and has to look here.
+    expect(CONTAINER_H).toBe(130);
+    const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, FLOOR_BAND.band).above);
+    expect(PANELS).toHaveLength(114);
+    expect(down).toHaveLength(45);
+    expect(PANELS.length - down.length).toBe(69);
+    // The split IS the water line — nothing else decides it.
+    for (const { label, model } of PANELS) {
+      const p = refitTooltipPlacement(model, FLOOR_BAND.band);
+      expect(p.above, label).toBe(p.height <= CONTAINER_H);
+      expect(p.maxH, label).toBe(p.above ? CONTAINER_H : FLOOR_BAND.band.h);
+    }
   });
 
-  it('leaves real headroom on the worst panel — the pin is not on the boundary', () => {
+  it('NO panel is CLIPPED — at either ratified floor, at every enabled tier', () => {
+    const viewports = [
+      { w: 1366, h: 768 },
+      { w: 1280, h: 614 },
+      { w: 1600, h: 768 },
+      { w: 1920, h: 1080 },
+    ];
+    const clipped: string[] = [];
+    for (const { w, h } of viewports) {
+      for (const tier of CLIENT_CONFIG.settings.scaleTiers) {
+        if (!scaleTierEnabled(tier, w)) continue;
+        const f = tier / 100;
+        const band = refitBandLayout(w / f, h / f).band;
+        const barTop = hudBarLayout(w / f, h / f).bar.y;
+        for (const { label, model } of PANELS) {
+          const p = refitTooltipPlacement(model, band);
+          const where = `${w}x${h}@${tier}% ${label} (${p.above ? 'above' : 'down'})`;
+          if (p.height > p.maxH) clipped.push(`${where}: ${p.height}px > ${p.maxH}px`);
+          // ...and the panel's own box stays in its half: above, clear of the
+          // viewport's top margin; down, clear of the bar.
+          const top = p.above ? band.y - REFIT_TIP.gap - p.height : band.y;
+          const bottom = p.above ? band.y - REFIT_TIP.gap : band.y + p.height;
+          if (top < 0) clipped.push(`${where}: ${-top}px off the top`);
+          if (bottom > barTop - R.barGap) clipped.push(`${where}: ${bottom - (barTop - R.barGap)}px into the bar`);
+        }
+      }
+    }
+    expect(clipped).toEqual([]);
+  });
+
+  it('leaves real headroom in BOTH placements — neither pin is on the boundary', () => {
     const worst = Math.max(...PANELS.map(({ model }) => refitTooltipMetrics(model, CONTAINER_H).height));
-    expect(worst).toBeLessThanOrEqual(CONTAINER_H);
-    // Documents the budget: whoever spends the last of it has to look here.
-    expect(CONTAINER_H - worst).toBeGreaterThanOrEqual(2);
+    expect(worst).toBe(261);
+    // Above, at the comfortable floor: the water still out-measures the panel.
+    expect(refitTooltipMaxPanelH(refitBandLayout(1366, 768).band.y) - worst).toBeGreaterThanOrEqual(2);
+    // Down, everywhere: the cap is the band's own height, which is fixed, so this
+    // margin is the one a future card-height or copy change spends.
+    expect(FLOOR_BAND.band.h - worst).toBeGreaterThanOrEqual(2);
   });
 
   it('never carries a token wider than the panel, so nothing paints out its side', () => {
@@ -232,6 +296,36 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
     expect(tip().style.pointerEvents).toBe('none');
     menu.hide();
     document.body.replaceChildren();
+  });
+
+  // AMENDMENT 37 REACHES THE DOM. The rule is pure (refitTooltipPlacement) but
+  // it is worth nothing if the two placements are not actually written, so both
+  // are taken here on the SAME card. The UI-scale tier is the lever: jsdom's
+  // 1024x768 window is 768 logical px at 100% (284px of water — `foulingMines`
+  // fits above at 198px) and 614.4 at the 125% tier (130px — it does not).
+  it('writes the ABOVE placement when the water is deep enough, DOWN when it is not', () => {
+    const TALL = OFFER.indexOf('foulingMines');
+    const model = { name: boonName(OFFER[TALL], 0), body: boonTooltipText(OFFER[TALL]) };
+    // Measured first, asserted after — a failed expectation inside the loop
+    // would strand an open band in the document and poison every later DOM test.
+    const seen = [1, 1.25].map((factor) => {
+      setUiScaleVar(factor);
+      const { menu, cards } = open();
+      cards[TALL].dispatchEvent(new MouseEvent('mouseenter'));
+      const { top, bottom, maxHeight } = tip().style;
+      menu.hide();
+      document.body.replaceChildren();
+      const band = refitBandLayout(window.innerWidth / factor, window.innerHeight / factor).band;
+      return { factor, band, css: { top, bottom, maxHeight }, p: refitTooltipPlacement(model, band) };
+    });
+    setUiScaleVar(1);
+    for (const { factor, band, css, p } of seen) {
+      const above = factor === 1;
+      expect(p.above, `@${factor}`).toBe(above);
+      expect(css.top, `@${factor}`).toBe(above ? 'auto' : '0px');
+      expect(css.bottom, `@${factor}`).toBe(above ? `calc(100% + ${REFIT_TIP.gap}px)` : 'auto');
+      expect(css.maxHeight, `@${factor}`).toBe(`${above ? refitTooltipMaxPanelH(band.y) : band.h}px`);
+    }
   });
 });
 
