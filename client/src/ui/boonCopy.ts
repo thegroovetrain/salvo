@@ -362,6 +362,12 @@ const BOON_EXPLAIN: Readonly<Partial<Record<LineId, string>>> = {
     'Your lit circles catch fire. A slightly smaller ring inside each one burns every hull but yours at 5 hp a second for as long as the flare lasts. It stacks with DAZZLE SHELLS — one flare can do both.',
   dazzleShells:
     'Your lit circles dazzle. Any hull but yours standing in one has its own true sight cut in half while it stays there: it can still be seen, it just cannot see. It stacks with PHOSPHOR SHELLS.',
+  // --- the consumables whose mechanisms exist today --------------------------
+  // HULL REPAIR is the first live one (Story 8.8). The AMOUNTS are deliberately
+  // absent from the prose: the card face prints them as rows, live from CONFIG,
+  // and a number written twice is a number that can disagree with itself.
+  hullRepair:
+    'Stock it in your belt and fire it with that square\'s number key: part of the repair lands at once and the rest trickles in over the next few seconds. Each copy is one use, and a full hull refuses the press.',
 };
 
 /** The player state a card's live values are computed against. */
@@ -680,13 +686,48 @@ function weaponRows(
 }
 
 /**
+ * A CONSUMABLE'S ROWS (Story 8.8). A consumable moves no stat on the hull — it
+ * is a stack you fire — so there is no preview diff to read and no `cur` to
+ * print: every row below is ABSOLUTE (`cur` null, no arrow), exactly as a
+ * weapon's first copy prints its own table.
+ *
+ * The numbers come out of `CONFIG` and are NEVER hardcoded, so a retune of the
+ * ruling moves the card's own copy with it — the rule the retired DAMAGE
+ * CONTROL rail's readout followed, kept.
+ *
+ * ONE ENTRY TODAY. HULL REPAIR is the first live consumable (amendment 41
+ * flipped its stub in this story); the other four are still stubs, are never
+ * dealt, and get no rows.
+ */
+function hullRepairRows(): CardStatRow[] {
+  const h = CONFIG.hullRepair;
+  return [
+    // The instant half: `instantHp` the moment the copy fires, clamped to maxHp.
+    { label: 'INSTANT', cur: null, next: `+${num(h.instantHp)} HP` },
+    // The pooled half: `regenHp` paid over `regenMs` (epic-8 amendment 51 — the
+    // shipped pool is 50 hp over 5 s; the "5 hp/s" in R13/FR47 is a stale
+    // figure). Printed as the AMOUNT over its TIME rather than as a rate,
+    // because the amount is what stacks: pools ADD, the rate never changes.
+    { label: 'OVER TIME', cur: null, next: `+${num(h.regenHp)} HP / ${num(h.regenMs / 1000)} S` },
+  ];
+}
+
+/** The rows each LIVE consumable line prints. A line with no entry (all four
+ *  remaining stubs) prints none, which is the honest answer for a mechanism
+ *  that does not exist yet. */
+const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = {
+  hullRepair: hullRepairRows,
+};
+
+/**
  * Pure: the rows the card face prints for one offered line, against the
  * PLAYER'S OWN BUILD — at most `CARD_STAT_ROWS`, and legitimately EMPTY for a
  * line that moves no number:
  *
  *   - an ADD-ON bolts on a verb (its holding line stays in the hover panel);
- *   - a CONSUMABLE is a stack, and all five are stubs in 8.7 anyway;
- *   - a STUB line has no built module whose numbers could be read.
+ *   - a STUB line has no built module whose numbers could be read;
+ *   - a CONSUMABLE that is still a stub (four of the five) has no mechanism to
+ *     describe — the LIVE ones print `CONSUMABLE_ROWS` above instead.
  *
  * FAIL-OPEN on the class table, exactly as `statSentence` is and for the same
  * reason: this runs every frame the band is open, and an unresolvable hull must
@@ -697,7 +738,10 @@ export function cardStatRows(
   copiesHeld: number,
   you: BoonPreviewShip,
 ): readonly CardStatRow[] {
-  if (isStubLine(line.id) || line.kind === 'addon' || line.kind === 'consumable') return [];
+  // A CONSUMABLE IS ANSWERED FIRST and never reaches the preview fold below: it
+  // fits nothing, so `effectiveStats` with its id appended moves no number.
+  if (line.kind === 'consumable') return CONSUMABLE_ROWS[line.id as LineId]?.() ?? [];
+  if (isStubLine(line.id) || line.kind === 'addon') return [];
   if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return [];
   const spec = CONFIG.shipClasses[you.cls];
   const before = effectiveStats(spec, you.cards);

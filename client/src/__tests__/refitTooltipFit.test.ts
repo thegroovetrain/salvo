@@ -95,33 +95,44 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
   // Amendment 36 hung the band off the HUD bar, and at the logical floor that
   // left 130px of water above it against a tallest panel of 261px: 45 of the
   // catalog's 114 panels would have been cut off at the top. STORY 8.7's 236 ->
-  // 226 card re-cut hands 10px of that back (140px of water now), which moves
-  // the split without changing the rule — the numbers below are re-taken, and
-  // the panel's own width and type are untouched (epic-8 amendment 42). Eric's ruling keeps
-  // the ratified above-the-band placement wherever it fits and opens the rest
-  // DOWNWARD from the band's top edge, over the card row they describe — never
-  // over the bar, never clipped. So the pin is no longer "everything fits above";
-  // it is "everything fits SOMEWHERE, and the somewhere is one of exactly two".
+  // 226 card re-cut handed 10px of that back, and STORY 8.8 hands back 46 more
+  // (the DAMAGE CONTROL rail plus its seam), which moves the split BOTH ways
+  // without changing the rule: more water above, and a shorter band to open
+  // downward into. The panel's own width and type are untouched (epic-8
+  // amendment 42). Eric's ruling keeps the ratified above-the-band placement
+  // wherever it fits and opens the rest DOWNWARD from the band's top edge, over
+  // the card row they describe — never over the bar, never clipped. So the pin
+  // is no longer "everything fits above"; it is "everything fits SOMEWHERE, and
+  // the somewhere is one of exactly two".
   it('opens every panel ABOVE at 1366x768 — the flip is a short-viewport rule', () => {
     const band = refitBandLayout(1366, 768).band;
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, band).above).map((p) => p.label);
     expect(down).toEqual([]);
-    expect(refitTooltipMaxPanelH(band.y)).toBe(294);
+    expect(refitTooltipMaxPanelH(band.y)).toBe(340);
   });
 
   it('flips exactly the panels the floor has no water for, and counts them', () => {
     // The floor's own numbers, documented rather than implied: whoever changes
     // the band, the bar or the copy moves this split and has to look here.
-    expect(CONTAINER_H).toBe(140);
+    expect(CONTAINER_H).toBe(186);
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, FLOOR_BAND.band).above);
     expect(PANELS).toHaveLength(114);
-    expect(down).toHaveLength(45);
-    expect(PANELS.length - down.length).toBe(69);
+    // 45 at 8.7. Story 8.8 moved it BOTH ways and netted +1: 46px more water
+    // above lifts several panels back over the line, while HULL REPAIR's new
+    // explanation (amendment 50's one-line description) adds three tall panels
+    // of its own.
+    expect(down).toHaveLength(46);
+    expect(PANELS.length - down.length).toBe(68);
     // The split IS the water line — nothing else decides it.
     for (const { label, model } of PANELS) {
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);
       expect(p.above, label).toBe(p.height <= CONTAINER_H);
-      expect(p.maxH, label).toBe(p.above ? CONTAINER_H : FLOOR_BAND.band.h);
+      // DOWN: the budget is the band's own height, and a panel that outgrows it
+      // slides up by the shortfall rather than clipping (Story 8.8 — see
+      // RefitTipPlacement.offset). `maxH` follows the lift, so it is never a
+      // clip for anything the shipped catalog can produce.
+      expect(p.maxH, label).toBe(p.above ? CONTAINER_H : FLOOR_BAND.band.h + p.offset);
+      expect(p.offset, label).toBe(p.above ? 0 : Math.max(0, p.height - FLOOR_BAND.band.h));
     }
   });
 
@@ -145,8 +156,8 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
           if (p.height > p.maxH) clipped.push(`${where}: ${p.height}px > ${p.maxH}px`);
           // ...and the panel's own box stays in its half: above, clear of the
           // viewport's top margin; down, clear of the bar.
-          const top = p.above ? band.y - REFIT_TIP.gap - p.height : band.y;
-          const bottom = p.above ? band.y - REFIT_TIP.gap : band.y + p.height;
+          const top = p.above ? band.y - REFIT_TIP.gap - p.height : band.y - p.offset;
+          const bottom = p.above ? band.y - REFIT_TIP.gap : band.y - p.offset + p.height;
           if (top < 0) clipped.push(`${where}: ${-top}px off the top`);
           if (bottom > barTop - R.barGap) clipped.push(`${where}: ${bottom - (barTop - R.barGap)}px into the bar`);
         }
@@ -160,9 +171,14 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     expect(worst).toBe(261);
     // Above, at the comfortable floor: the water still out-measures the panel.
     expect(refitTooltipMaxPanelH(refitBandLayout(1366, 768).band.y) - worst).toBeGreaterThanOrEqual(2);
-    // Down, everywhere: the cap is the band's own height, which is fixed, so this
-    // margin is the one a future card-height or copy change spends.
-    expect(FLOOR_BAND.band.h - worst).toBeGreaterThanOrEqual(2);
+    // DOWN, at the floor: the band is 244px since Story 8.8 deleted the rail, so
+    // the tallest panel no longer fits inside it and takes the amendment-37
+    // slide-up instead. What has to hold is that the lift lands the panel in
+    // real water — its top stays on screen with room to spare, and its bottom
+    // still seats `barGap` above the bar.
+    const lift = Math.max(0, worst - FLOOR_BAND.band.h);
+    expect(lift).toBe(17);
+    expect(FLOOR_BAND.band.y - lift).toBeGreaterThanOrEqual(2);
   });
 
   it('never carries a token wider than the panel, so nothing paints out its side', () => {
@@ -211,7 +227,8 @@ describe('the laws that constrain the fix', () => {
   const NO_EXPLANATION: readonly string[] = [
     'turning', 'deckGun',
     'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
-    'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
+    // `hullRepair` left this list in Story 8.8 — its mechanism is built now.
+    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
   ];
 
   it('keeps the WRITTEN explanations genuinely explanatory — past the old card budget', () => {
@@ -568,7 +585,12 @@ describe('the hover panel\'s consumable shape line', () => {
     for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy']) {
       const model = refitTooltipModel({ id, kind: 'consumable' }, boonName(id), boonTooltipText(id), 4);
       expect(refitTooltipWidestToken(model), id).toBeLessThanOrEqual(refitTooltipInnerWidth());
-      expect(refitTooltipMetrics(model, CONTAINER_H).overflow, id).toBeLessThanOrEqual(0);
+      // VERTICALLY the panel is measured against the placement it would take,
+      // not against the above-the-band water alone: HULL REPAIR has real prose
+      // since Story 8.8, so at the floor it flips DOWN exactly like the tall
+      // weapon panels do. The amendment-47 claim is that it fits SOMEWHERE.
+      const p = refitTooltipPlacement(model, FLOOR_BAND.band);
+      expect(p.height, id).toBeLessThanOrEqual(p.maxH);
     }
   });
 

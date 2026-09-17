@@ -11,7 +11,6 @@ import type { Ticker } from 'pixi.js';
 import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
-  HEAL_CHOICE,
   MSG,
   NO_CARDS,
   cardBehaviors,
@@ -77,6 +76,7 @@ import type { ToneFloor } from './render/gunneryFeed.js';
 import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
 import {
   KeyboardInput,
+  beltPressDenied,
   refitCloseStamp,
   refitGraceActive,
   slotHoldsAbility,
@@ -581,7 +581,7 @@ interface Game {
   wasHpFrac: number | null;
   /**
    * ...and THE STINGS' 300ms same-source floor (review gate, audio/hpSting.ts).
-   * The edge alone is not a bound: DAMAGE CONTROL regen pays into `hp` every
+   * The edge alone is not a bound: a repair pays into `hp` every
    * server tick while incoming fire subtracts, so a hull held around 50% crosses
    * the band downward over and over. Deliberately NOT reset on spectate — the
    * floor is a property of the MIX, not of a life, and the world cues' floors
@@ -718,10 +718,13 @@ function ownStatus(g: Game): OwnStatus {
   const stats = g.ownStats;
   return {
     hp: you?.hp ?? stats.maxHp,
-    // DAMAGE CONTROL's still-draining regen pool (cycle 46). Self-private and
-    // server-authoritative — it rides `you` and is read VERBATIM, never
-    // predicted: the pool pays out on the server's wall clock and `hp` already
-    // self-syncs every frame, so the HUD's only job is to show what is coming.
+    // HULL REPAIR's still-draining paid pool — the ONE thing `repairHp` carries
+    // since Story 8.8 (the free per-level heal's pool is deleted; the
+    // out-of-combat regen pays straight into `hp` and has no pool at all).
+    // Self-private and server-authoritative — it rides `you` and is read
+    // VERBATIM, never predicted: the pool pays out on the server's wall clock
+    // and `hp` already self-syncs every frame, so the HUD's only job is to show
+    // what is coming.
     repairHp: you?.repairHp ?? 0,
     ammo: ownAmmo(you, stats, g.ownSlots),
     cls: you?.cls ?? g.ownClass,
@@ -953,7 +956,7 @@ function handleRefitToggle(g: Game): void {
 }
 
 /**
- * A digit 1–5 pressed WHILE the modal is open (the chokepoint enforces the
+ * A digit 1–4 pressed WHILE the modal is open (the chokepoint enforces the
  * refit-or-nothing rule; digit meaning was evaluated against modal state at
  * its own keydown): pick card `choice` and spend. The window STAYS OPEN
  * (amendment 36 — it rides the queue; the last spend closes it by emptying the
@@ -966,19 +969,10 @@ function handleRefitPick(g: Game, choice: number): void {
   if (!g.upgradeMenu.visible) return;
   const view = currentOfferView(g);
   if (!view || view.locked) return;
-  // DIGIT 5 — the DAMAGE CONTROL rail. It is addressed by the reserved negative
-  // sentinel, so it deliberately skips the card-index bound below. A pick the
-  // server WOULD refuse (full hp, sunk hull) is refused HERE too, with the same
-  // 80ms denied edge pulse a rejected card gets: the client-side guard is the
-  // server's own fail-closed rule mirrored, and without it the refusal would
-  // have to come back as a 1.5s latch timeout — an eternity for what will be
-  // the most-mashed key in the band (mashing 5 at full hp is routine).
-  if (choice === HEAL_CHOICE) {
-    if (view.heal.state === 'armed') trySpend(g, choice);
-    else g.upgradeMenu.pulseDenied(choice);
-    return;
-  }
-  if (choice >= view.options.length) return;
+  // EVERY CHOICE IS AN OFFER INDEX (Story 8.8). The DAMAGE CONTROL rail and its
+  // reserved negative sentinel are gone — healing is a card you stock and fire
+  // from the belt — so the bound below is the whole of the addressing rule.
+  if (choice < 0 || choice >= view.options.length) return;
   // A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 / UX-DR52). The belt is
   // full and this consumable has nowhere to go — the server would refuse it as
   // a silent no-op — so the client refuses it first, with no MSG.spend, no
@@ -2245,6 +2239,24 @@ function flashSlotDenied(g: Game, slot: number): void {
 }
 
 /**
+ * Would this belt press be refused by a rule the client already holds (Story
+ * 8.8 — today only a HULL REPAIR square at full hull or on a sinking hull)?
+ * The hull's OWN numbers: `ownStats.maxHp` is the effectiveStats fold the HP
+ * globe reads, and `sinking` is the same third-state predicate every control
+ * gate uses. A null Game (the brief construction gap) refuses nothing.
+ */
+function beltPressRefused(g: Game | null, slot: number): boolean {
+  if (g === null) return false;
+  const you = g.state.net.you;
+  return beltPressDenied(
+    g.ownSlots[slot] ?? null,
+    you?.hp ?? 0,
+    g.ownStats.maxHp,
+    isSinkingNow(you, g.clock.serverNow(), g.state.spectating),
+  );
+}
+
+/**
  * THE chokepoint's hook table (Story 2.1) — every in-match key action routed
  * over the late-bound Game (`getG` is the gRef late-binding — null only during
  * the brief construction gap). P and M fold in here (the old ad-hoc window
@@ -2258,6 +2270,15 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
   const withG = (fn: (g: Game) => void) => (): void => {
     const g = getG();
     if (g) fn(g);
+  };
+  /** The ONE per-slot refusal mark — a denied chip flash + the denial tone. The
+   *  three refusals below all speak it: a press against the full FIFO, an EMPTY
+   *  square, and (Story 8.8) a stocked square the client already knows is
+   *  blocked. A player should learn one mark for "that key did nothing", not
+   *  three. */
+  const denySlot = (slot: number): void => {
+    const g = getG();
+    if (g) flashSlotDenied(g, slot);
   };
   return {
     // Each throttle detent step clicks the telegraph — pitch distinguishes
@@ -2284,27 +2305,20 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       if (g) handleAbilityPress(g, slot, actSeq);
     },
     // A press against the full FIFO is DROPPED WITH FEEDBACK (Story 2.1 closes
-    // the silent-drop debt): the pressed slot's denied chip flash + the denial
-    // tone — the same grammar as a predicted denial. No dedup marking: the
-    // press never rides an input, so no server echo can ever arrive for it.
-    onAbilityCapped: (slot) => {
-      const g = getG();
-      if (g) flashSlotDenied(g, slot);
-    },
+    // the silent-drop debt). No dedup marking: the press never rides an input,
+    // so no server echo can ever arrive for it.
+    onAbilityCapped: denySlot,
     // A WEAPON key (or a hotbar click) on an EMPTY slot — Story 8.5, epic-8
     // amendment 26. CLIENT-ONLY BY RULING: the pulse and the tone play, and
     // NOTHING is sent. The server's `'empty-slot'` denial stays server-internal
     // (a fair client can no longer reach it), so no wire denial reason was
-    // added and there is nothing to dedup against — like the capped press, this
-    // denial has no server echo that could ever arrive.
-    //
-    // It reuses the EXISTING per-slot denied grammar rather than inventing a
-    // visual: an empty Q and a cooling Q are both "that key did nothing just
-    // now", and the player should not have to learn two marks for it.
-    onEmptySlotDenied: (slot) => {
-      const g = getG();
-      if (g) flashSlotDenied(g, slot);
-    },
+    // added and there is nothing to dedup against.
+    onEmptySlotDenied: denySlot,
+    // A STOCKED square the client already knows the server would refuse — and
+    // it says so in the SAME grammar an empty one uses (see beltPressRefused):
+    // one pulse, one tone, nothing on the wire.
+    isPressDenied: (slot) => beltPressRefused(getG(), slot),
+    onPressDenied: denySlot,
     // F — the foghorn (Story 4.5). The chokepoint has already edge-gated the
     // press and applied the refit-modal suspension; everything else is here.
     onFoghorn: withG(handleFoghornPress),
@@ -2511,10 +2525,10 @@ function handleFoghornPress(g: Game): void {
 }
 
 /**
- * The UpgradeMenu's click callback (cards AND the DAMAGE CONTROL rail): same
- * late-binding as keyboardHooks (gRef isn't assigned until after the Game object
- * literal below), routed through handleRefitPick so a CLICK IS KEY-EQUIVALENT BY
- * CONSTRUCTION — the same FINDING A latch, the same heal guard, the same denied
+ * The UpgradeMenu's card-click callback: same late-binding as keyboardHooks
+ * (gRef isn't assigned until after the Game object literal below), routed
+ * through handleRefitPick so a CLICK IS KEY-EQUIVALENT BY CONSTRUCTION — the
+ * same FINDING A latch, the same greyed-card refusal, the same denied
  * pulse — and, like a digit pick, a click LEAVES THE WINDOW OPEN (amendment 36).
  * The gun can never fire off it: MouseInput only counts canvas-target clicks,
  * and the modal lockout holds besides.
@@ -3910,7 +3924,7 @@ function updateZone(
  * without inventing a continuous-audio class).
  *
  * IT IS FLOORED like every world cue (review gate): an edge is not a bound while
- * DAMAGE CONTROL regen and incoming fire trade a hull back and forth across a
+ * a repair and incoming fire trade a hull back and forth across a
  * threshold. `nowMs` is the frame's ONE timestamp, the same instant every other
  * cue in this frame is measured against. The remembered fraction is stored
  * whether or not the cue was voiced — a refused sting is silent, never deferred

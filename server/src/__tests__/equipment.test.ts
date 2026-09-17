@@ -36,6 +36,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import * as ammo from '../game/equipment/ammo.js';
+import { hullRepairRow } from '../game/equipment/consumables/hullRepair.js';
 import {
   CONSUMABLES,
   EQUIPMENT,
@@ -225,9 +226,10 @@ describe('EQUIPMENT registry — interface conformance', () => {
 // A consumable is not a module: it is a STACK of copies in a belt slot (5-8),
 // each copy one use, with NO reload EVER (catalog-v3 R40). The row below is
 // the equipment row with its reload machinery removed, and these pins are what
-// say so — including the PRODUCTION pin that the registry ships EMPTY (Eric
-// ruling 2026-09-17, epic-8 amendment 41: every consumable line is still a
-// stub, so the belt is unreachable in play until Story 8.8).
+// say so — including the PRODUCTION pin that the registry holds exactly the
+// lines whose effects are BUILT: since Story 8.8 that is HULL REPAIR and
+// nothing else (the other four stay `stub`, so they are still undealable and
+// unstockable in play).
 
 describe('consumable rows — the belt half of the Equipment interface (Story 8.7)', () => {
   /** A stack as `applyStock` writes one: n copies, and a timer that is 0 for
@@ -314,18 +316,23 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     }).toThrow();
   });
 
-  // THE AMENDMENT-41 PIN. Story 8.8 flips `hullRepair` and adds its row; until
-  // then nothing is drawable and nothing is stockable in play.
-  it('the PRODUCTION consumable registry is EMPTY (epic-8 amendment 41)', () => {
-    expect(Object.keys(CONSUMABLES)).toEqual([]);
+  // THE PRODUCTION PIN. Story 8.8 flipped `hullRepair` and added its row; the
+  // other four consumable lines are still stubs, so nothing else is drawable
+  // and nothing else is stockable in play.
+  it('the PRODUCTION consumable registry holds exactly HULL REPAIR', () => {
+    expect(Object.keys(CONSUMABLES)).toEqual(['hullRepair']);
     expect(Object.isFrozen(CONSUMABLES)).toBe(true);
-    for (const id of CONSUMABLE_IDS) expect(CONSUMABLES[id], id).toBeUndefined();
+    expect(Object.isFrozen(CONSUMABLES.hullRepair)).toBe(true);
+    for (const id of CONSUMABLE_IDS) {
+      if (id === 'hullRepair') continue;
+      expect(CONSUMABLES[id], id).toBeUndefined();
+    }
   });
 
   // The `slotFill` totality pin's sibling (see section 1): every NON-STUB
-  // consumable line must have a row, every STUB one must have none. VACUOUS on
-  // the non-stub half today — all five are stubs — which is exactly the state
-  // amendment 41 ratified, and the pin tightens by itself when 8.8 flips one.
+  // consumable line must have a row, every STUB one must have none. Live on
+  // both halves since Story 8.8 — exactly one line is built, and the pin
+  // tightens by itself the day another is.
   it('every NON-STUB consumable line has a row; every STUB one has none', () => {
     let nonStub = 0;
     for (const id of CONSUMABLE_IDS) {
@@ -333,7 +340,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
       expect(Object.hasOwn(CONSUMABLES, id), id).toBe(!isStubLine(id));
       if (!isStubLine(id)) nonStub += 1;
     }
-    expect(nonStub).toBe(0); // amendment 41: all five stay stubbed in 8.7
+    expect(nonStub).toBe(1); // Story 8.8: HULL REPAIR, and only it
   });
 
   it('slotRow routes BOTH id spaces, and fails closed on null / an unbuilt id', () => {
@@ -346,8 +353,9 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     // consumable ids -> the injected registry, NEVER EQUIPMENT
     expect(slotRow('hullRepair', reg)).toBe(row);
     expect(slotRow('chaff', reg)).toBeUndefined();
-    // ...and production resolves NOTHING for the belt (amendment 41)
-    expect(slotRow('hullRepair')).toBeUndefined();
+    // ...and production resolves HULL REPAIR alone for the belt (Story 8.8)
+    expect(slotRow('hullRepair')).toBe(hullRepairRow);
+    expect(slotRow('chaff')).toBeUndefined();
     expect(slotRow(null, reg)).toBeUndefined();
   });
 
@@ -359,11 +367,10 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     const row = consumableRow('hullRepair', () => ({ ok: true }));
     // A REAL stack, backed by REAL cards: since review patch P1 the belt is
     // re-derived from `ship.cards` after every spend, so a hand-planted slot
-    // with no card behind it would simply vanish. The production catalog with
-    // HULL REPAIR's `stub` flag lifted is the smallest way to hold two copies.
-    const { stub: _stub, ...hullRepairLive } = CATALOG.hullRepair;
-    const catalog: Catalog = { ...CATALOG, hullRepair: hullRepairLive };
-    const w = bareWorld(7, { consumables: buildConsumableRegistry([row]), catalog });
+    // with no card behind it would simply vanish. HULL REPAIR is a live
+    // catalog line since Story 8.8, so the production catalog holds two copies
+    // as it stands; only the ROW is injected, to keep the effect a spy.
+    const w = bareWorld(7, { consumables: buildConsumableRegistry([row]) });
     const ship = place(w, 'a');
     w.applyCard(ship, 'hullRepair');
     w.applyCard(ship, 'hullRepair');
@@ -386,6 +393,108 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
       tickSpy.mockRestore();
       consumeSpy.mockRestore();
     }
+  });
+});
+
+// ---------- 1c. HULL REPAIR, the first live consumable (Story 8.8) ------------
+
+// The paid heal's body, unchanged, under a new trigger: a CARD you stock and
+// FIRE instead of an always-available `5` key. What these pins are actually
+// about is the two guards and the ONE SPEND LAW around them — a denied press
+// must cost nothing, because the copy is the scarce thing now.
+
+describe('HULL REPAIR — the first live consumable line (Story 8.8)', () => {
+  const HR = CONFIG.hullRepair;
+
+  /** A captain holding `n` HULL REPAIR copies in the first belt slot, hurt by
+   *  `missing` hp. Everything real: production catalog, production registry. */
+  function healer(w: World, id = 'a', n = 1, missing = 100): ShipRecord {
+    const ship = place(w, id);
+    for (let i = 0; i < n; i += 1) w.applyCard(ship, 'hullRepair');
+    ship.hp = ship.stats.maxHp - missing;
+    return ship;
+  }
+
+  const healEvents = (w: World, id: string): unknown[] =>
+    (w as unknown as { pending: { k: string; id: string }[] }).pending.filter((e) => e.k === 'heal' && e.id === id);
+
+  it('stocks from a card into the belt, and the production row is what fires', () => {
+    const w = bareWorld();
+    const ship = healer(w, 'a', 2);
+    expect(ship.loadout[SLOT_BELT].equipmentId).toBe('hullRepair');
+    expect(ship.loadout[SLOT_BELT].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    expect(slotRow('hullRepair')).toBe(hullRepairRow);
+  });
+
+  it('a damaged afloat hull: +instantHp now, +regenHp pooled, a `heal` cue, n-1, one copy leaves `cards`', () => {
+    const w = bareWorld();
+    const ship = healer(w, 'a', 2, 100);
+    const before = ship.hp;
+    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: true });
+    expect(ship.hp).toBe(before + HR.instantHp);
+    expect(ship.repairHp).toBe(HR.regenHp);
+    expect(healEvents(w, 'a')).toHaveLength(1);
+    expect(ship.loadout[SLOT_BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(ship.cards.filter((c) => c === 'hullRepair')).toHaveLength(1);
+  });
+
+  it('the pool pays out at the fixed rate and stacks by DURATION, never by rate', () => {
+    const w = bareWorld();
+    const ship = healer(w, 'a', 2, 300);
+    w.sinkingActivationGate(ship, SLOT_BELT);
+    w.sinkingActivationGate(ship, SLOT_BELT);
+    expect(ship.repairHp).toBe(HR.regenHp * 2); // pools ADD...
+    const hpBefore = ship.hp;
+    w.step(DT);
+    // ...and the RATE is unchanged: one regenMs' worth of pool per regenMs.
+    expect(ship.hp - hpBefore).toBeCloseTo((HR.regenHp / HR.regenMs) * DT, 9);
+  });
+
+  it('a FULL hull is refused `blocked` and NOTHING is spent (ONE SPEND LAW)', () => {
+    const w = bareWorld();
+    const ship = healer(w, 'a', 1, 0);
+    expect(ship.hp).toBe(ship.stats.maxHp);
+    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: false, reason: 'blocked' });
+    expect(ship.loadout[SLOT_BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(ship.cards.filter((c) => c === 'hullRepair')).toHaveLength(1);
+    expect(ship.repairHp).toBe(0);
+    expect(healEvents(w, 'a')).toHaveLength(0);
+  });
+
+  it('a SINKING hull is refused by the ROW — the gate passes it through (amendment 10)', () => {
+    const w = bareWorld();
+    const ship = healer(w, 'a', 1, 100);
+    ship.hp = 0;
+    (w as unknown as { sinkShip(id: string, by?: string): void }).sinkShip('a', undefined);
+    expect(isAfloat(ship.lifecycle)).toBe(false);
+    ship.hp = ship.stats.maxHp - 100; // directed, so "full hull" is not what refuses it
+    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: false, reason: 'blocked' });
+    expect(ship.loadout[SLOT_BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(ship.repairHp).toBe(0);
+  });
+
+  it('a FULLY CLOSED zone does not refuse it — heals stay legal in the collapse (FR47)', () => {
+    const w = bareWorld();
+    const ship = healer(w, 'a', 1, 100);
+    // The collapse bites through the damage gate; nothing about it reads a
+    // repair, and the row holds no zone term at all.
+    const before = ship.hp;
+    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: true });
+    expect(ship.hp).toBe(before + HR.instantHp);
+  });
+
+  it('the last copy clears the belt slot, and a press after that answers empty-slot', () => {
+    const w = bareWorld();
+    const ship = healer(w, 'a', 1, 200);
+    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: true });
+    expect(ship.loadout[SLOT_BELT]).toEqual({ equipmentId: null, state: null });
+    expect(ship.cards).not.toContain('hullRepair');
+    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: false, reason: 'empty-slot' });
+  });
+
+  it('it rides the ABILITY channel, never the weapon one', () => {
+    expect(hullRepairRow.isWeapon).toBe(false);
+    expect(CONSUMABLE_IS_WEAPON.hullRepair).toBe(false);
   });
 });
 

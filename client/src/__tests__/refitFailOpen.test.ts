@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { CATALOG, CONFIG, effectiveStats, type OwnShip } from '@salvo/shared';
 import { boonDescription, boonTooltipText } from '../ui/boonCopy.js';
-import { healView } from '../ui/upgradeMenu.js';
+import { beltPressDenied } from '../input/keyboard.js';
 import { makeOffer } from '../ui/results.js';
 
 const KNOWN = { cls: 'torpedoBoat', cards: [] as string[] };
@@ -126,26 +126,37 @@ describe('results LAST OFFER — an unresolvable boon id drops its card, never t
   });
 });
 
-describe('healView — an unresolvable hull never claims FULL', () => {
-  const base = { alive: true, hp: 50, cls: 'torpedoBoat', cards: [] } as unknown as OwnShip;
+describe('beltPressDenied — an unresolvable hull never claims FULL', () => {
+  // STORY 8.8 moved the "is my hull already full?" guard off the deleted DAMAGE
+  // CONTROL rail and onto the BELT: a stocked HULL REPAIR square pre-denies its
+  // own press at full hull, so the same fail-open rule has to hold here — an
+  // unknown hull must NOT be told it is full.
 
   // The boundary, not a trivially-large number (review gate): `hp >= maxHp` is
   // the comparison under test, so exercise it AT the cap and one below it. A
   // `hp: 10_000` control would survive an inverted comparison.
-  it('is inert at exactly full health and armed one point below (the control)', () => {
+  it('denies at exactly full health and allows one point below (the control)', () => {
     const maxHp = effectiveStats(CONFIG.shipClasses['torpedoBoat'], []).maxHp;
-    const exactly = { ...base, hp: maxHp } as unknown as OwnShip;
-    const oneBelow = { ...base, hp: maxHp - 1 } as unknown as OwnShip;
-    expect(healView(exactly, false).state).toBe('inert');
-    expect(healView(oneBelow, false).state).toBe('armed');
+    expect(beltPressDenied('hullRepair', maxHp, maxHp, false)).toBe(true);
+    expect(beltPressDenied('hullRepair', maxHp - 1, maxHp, false)).toBe(false);
   });
 
-  it('leaves the rail ARMED for an unknown hull rather than throwing or claiming full', () => {
-    const skewed = { ...base, cls: 'notAHull', hp: 10_000 } as unknown as OwnShip;
-    expect(() => healView(skewed, false)).not.toThrow();
+  it('lets the press THROUGH for an unresolvable hull rather than claiming full', () => {
     // The conservative direction is deliberate: falsely reporting FULL would
-    // deny a player a heal they need, which is worse than offering a redundant
-    // one. An unidentifiable hull therefore keeps the rail available.
-    expect(healView(skewed, false).state).toBe('armed');
+    // deny a player a heal they need, which is worse than sending a press the
+    // server refuses. A hull whose maxHp cannot be derived is never denied here.
+    for (const maxHp of [Number.NaN, Number.POSITIVE_INFINITY, 0, -1]) {
+      expect(beltPressDenied('hullRepair', 10_000, maxHp, false)).toBe(false);
+    }
+  });
+
+  it('never denies a square that does not hold HULL REPAIR', () => {
+    const maxHp = effectiveStats(CONFIG.shipClasses['torpedoBoat'], []).maxHp;
+    expect(beltPressDenied('smokeScreen', maxHp, maxHp, true)).toBe(false);
+    expect(beltPressDenied(null, maxHp, maxHp, true)).toBe(false);
+  });
+
+  it('denies a sinking hull whatever its hp reads', () => {
+    expect(beltPressDenied('hullRepair', 1, 350, true)).toBe(true);
   });
 });

@@ -4,7 +4,7 @@
 // Most of this suite MOVED here verbatim from hud.test.ts when the 6px vertical
 // HP rail became a 104px globe: the bands, the header value, the accelerating
 // pulse and its 1.1 Hz ceiling, the integrated phase, the redraw signature,
-// DAMAGE CONTROL's incoming band, the amber-corollary inputs and the eased hold
+// the paid pool's incoming band, the amber-corollary inputs and the eased hold
 // are all the SAME behaviour under the same names, and these pins are what
 // prove the move did not change any of it.
 //

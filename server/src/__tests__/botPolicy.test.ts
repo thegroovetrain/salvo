@@ -673,13 +673,30 @@ describe('ai/spending — the card policy', () => {
     expect(chooseSpend(profileOf('raider'), spendState())).toBeNull();
   });
 
-  it('below the heal fraction it heals — even with no offer materialized', () => {
+  // THE HEAL LEFT THE SPEND POLICY (Story 8.8, epic-8 amendments 46 + 49).
+  // `healHpFrac` now gates FIRING a stocked HULL REPAIR from the belt, not
+  // buying one with a level, so a hurt bot spends exactly like a healthy one
+  // and NEVER returns a negative — which matters because World.spendPoint
+  // refuses every negative as malformed now.
+  it('a hurt hull no longer diverts the spend — and never returns a negative', () => {
     const raider = profileOf('raider');
     const hurt = raider.healHpFrac * 100 - 1;
-    expect(chooseSpend(raider, spendState({ hp: hurt, offer: null }))).toBe(-1); // HEAL_CHOICE
-    expect(chooseSpend(raider, spendState({ hp: hurt, offer: ['acousticHoming'] }))).toBe(-1);
-    // At the threshold exactly, it builds.
+    expect(chooseSpend(raider, spendState({ hp: hurt, offer: null }))).toBeNull();
+    expect(chooseSpend(raider, spendState({ hp: hurt, offer: ['acousticHoming'] }))).toBe(0);
+    // ...the same pick a healthy hull makes out of the same hand.
+    expect(chooseSpend(raider, spendState({ hp: 100, offer: ['acousticHoming'] }))).toBe(0);
     expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['deckGunBarrel'] }))).toBe(0);
+  });
+
+  it('no profile, at any hp, ever returns a negative choice', () => {
+    for (const row of [...Object.values(BOT_PROFILES), ...Object.values(TEST_PROFILES)]) {
+      const id = row.id;
+      for (const hp of [1, 10, 50, 99, 100]) {
+        const got = chooseSpend(row, spendState({ hp, offer: ['deckGunBarrel', 'armor'] }), undefined, mulberry32(5));
+        expect(got, `${id}@${hp}`).not.toBeNull();
+        expect(got!, `${id}@${hp}`).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
 
   it('picks the profile\'s highest-weighted line out of the offered hand', () => {
@@ -1029,13 +1046,13 @@ describe('ai/spending — random mode (wave 4)', () => {
     expect(seen.size).toBe(offer.length);
   });
 
-  it('the heal rule fires BY RULE for a random profile — never randomized', () => {
+  it('a hurt random profile picks a card like any other — the heal branch is gone', () => {
     const row = profileOf('randomTorpedoBoat');
     const hurt = row.healHpFrac * 100 - 1;
     const rng = mulberry32(7);
-    expect(chooseSpend(row, spendState({ hp: hurt, offer: ['deckGunBarrel'] }), undefined, rng)).toBe(-1);
-    // And the heal branch drew NOTHING: the next card pick replays as draw #1.
-    expect(chooseSpend(row, spendState({ offer: ['a1', 'a2'] }), undefined, rng))
+    // The hurt call is an ordinary randomized pick now, so it DOES draw — and
+    // it draws #1 off this seed, exactly as a healthy call would.
+    expect(chooseSpend(row, spendState({ hp: hurt, offer: ['deckGunBarrel', 'armor'] }), undefined, rng))
       .toBe(mulberry32(7).int(0, 1));
   });
 

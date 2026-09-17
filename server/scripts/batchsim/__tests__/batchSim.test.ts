@@ -771,10 +771,13 @@ describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2,
     w.map.islands.length = 0;
     const rec = w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, control.deck);
     expect(rec.deckList).toBe(PACIFIST_DECK);
-    // Drawable today: the three stub consumables stay in the list but not the
-    // pool; a TB carries no line the pacifist deck holds, so nothing is seeded out.
-    expect(rec.deck.cards).toHaveLength(29);
-    for (const id of rec.deck.cards) expect(CATALOG[id].kind).toBe('ladder');
+    // Drawable today: the STUB consumables stay in the list but not the pool,
+    // while HULL REPAIR's five copies ARE drawable since Story 8.8 un-stubbed
+    // it (29 -> 34); a TB carries no line the pacifist deck holds, so nothing
+    // is seeded out.
+    expect(rec.deck.cards).toHaveLength(34);
+    expect(rec.deck.cards.filter((id) => id === 'hullRepair')).toHaveLength(5);
+    for (const id of rec.deck.cards) expect(['ladder', 'consumable']).toContain(CATALOG[id].kind);
   });
 
   it('bots in the harness lobby sail their hull\'s DEFAULT deck', () => {
@@ -782,7 +785,9 @@ describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2,
     w.map.islands.length = 0;
     const rec = w.addBot(undefined, undefined, (h) => DEFAULT_DECKS[h]);
     expect(rec.deckList).toBe(DEFAULT_DECKS[rec.hullId as keyof typeof DEFAULT_DECKS]);
-    expect(rec.deck.cards).toHaveLength(23);
+    // 23 -> 26 in Story 8.8: HULL REPAIR stopped being a stub and its three
+    // per-hull copies (epic-8 amendment 10) became drawable.
+    expect(rec.deck.cards).toHaveLength(26);
   });
 });
 

@@ -112,6 +112,53 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
   });
 });
 
+// --- THE FIRST LIVE CONSUMABLE (Story 8.8) -------------------------------------
+//
+// HULL REPAIR is the one consumable with a mechanism behind it, and a consumable
+// fits nothing: there is no preview diff to read, so both its rows are ABSOLUTE
+// (`cur` null, no arrow) exactly like a weapon's first copy. The numbers come
+// out of CONFIG and are NEVER hardcoded on the face — this suite writes the real
+// catalog numbers out so a retune of the ruling becomes visible HERE.
+
+describe('cardStatRows — HULL REPAIR, the first live consumable', () => {
+  it('prints the two rows the card face carries, in order, with no arrow', () => {
+    const rows = cardStatRows(CATALOG.hullRepair, 0, TB);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({ label: 'INSTANT', cur: null, next: '+50 HP' });
+    // Epic-8 amendment 51: the shipped pool pays 50 hp over 5 s. It is printed
+    // as the AMOUNT over its TIME, never as a rate — the "5 hp/s" in R13/FR47 is
+    // a stale figure, and pools ADD rather than accelerate.
+    expect(rows[1]).toEqual({ label: 'OVER TIME', cur: null, next: '+50 HP / 5 S' });
+    expect(rows[1].next).not.toContain('/S');
+    for (const r of rows) expect(r.cur, r.label).toBeNull();
+  });
+
+  it('reads every number off CONFIG.hullRepair, never a literal', () => {
+    const h = CONFIG.hullRepair;
+    const rows = cardStatRows(CATALOG.hullRepair, 0, TB);
+    expect(rows[0].next).toContain(String(h.instantHp));
+    expect(rows[1].next).toContain(String(h.regenHp));
+    expect(rows[1].next).toContain(String(h.regenMs / 1000));
+  });
+
+  it('prints the SAME two rows on every hull and at every copy held', () => {
+    const base = cardStatRows(CATALOG.hullRepair, 0, TB);
+    for (const cls of Object.keys(CONFIG.shipClasses)) {
+      for (let k = 0; k < CATALOG.hullRepair.cap; k += 1) {
+        const rows = cardStatRows(CATALOG.hullRepair, k, {
+          cls: cls as never,
+          cards: Array<string>(k).fill('hullRepair'),
+        });
+        expect(rows, `${cls}@${k}`).toEqual(base);
+      }
+    }
+  });
+
+  it('fits the five-row grid with room to spare', () => {
+    expect(cardStatRows(CATALOG.hullRepair, 0, TB).length).toBeLessThanOrEqual(CARD_STAT_ROWS);
+  });
+});
+
 describe('cardStatRows — the lines that legitimately print NOTHING', () => {
   it('gives an ADD-ON no rows: a verb moves no number', () => {
     expect(cardStatRows(CATALOG.acousticHoming, 0, TB)).toEqual([]);
@@ -120,9 +167,10 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     expect(cardStatRows(CATALOG.phosphorShells, 0, TB)).toEqual([]);
   });
 
-  it('gives a CONSUMABLE no rows (all five are stubs in 8.7 anyway)', () => {
-    expect(cardStatRows(CATALOG.hullRepair, 0, TB)).toEqual([]);
-    expect(cardStatRows(CATALOG.decoyBuoy, 0, TB)).toEqual([]);
+  it('gives a STILL-STUB CONSUMABLE no rows (four of the five, after 8.8)', () => {
+    for (const id of ['shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy'] as const) {
+      expect(cardStatRows(CATALOG[id], 0, TB), id).toEqual([]);
+    }
   });
 
   it('gives a STUB line no rows — there is no built module to read', () => {

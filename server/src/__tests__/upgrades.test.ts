@@ -20,7 +20,6 @@ import {
   CONFIG,
   CONSUMABLE_SLOTS,
   DEFAULT_DECKS,
-  HEAL_CHOICE,
   LINE_IDS,
   SLOT_BOOST,
   WEAPON_SLOTS,
@@ -187,9 +186,10 @@ describe('deck composition — the DEFAULT deck through the World (Story 8.2)', 
       expect(rec.deckList).toBe(DEFAULT_DECKS[hull]);
       expect(rec.deckList).toHaveLength(CONFIG.deck.size);
       expect(Object.isFrozen(rec.deckList)).toBe(true);
-      // The POOL is the list less stubs less the carried copies: 23 today.
+      // The POOL is the list less stubs less the carried copies: 26 today
+      // (Story 8.8 un-stubbed HULL REPAIR, 3 copies per hull: 23 -> 26).
       expect(rec.deck.cards).toHaveLength(deckSizeFor(hull));
-      expect(deckSizeFor(hull)).toBe(23);
+      expect(deckSizeFor(hull)).toBe(26);
       const listed = new Map<string, number>();
       for (const id of rec.deckList) listed.set(id, (listed.get(id) ?? 0) + 1);
       for (const id of LINE_IDS) {
@@ -580,8 +580,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     expect(draws()).toBe(1);
     expect(w.spendPoint('a', 0)).toBe(true); // consumes a level, draws the next
     expect(draws()).toBe(2);
-    a.hp -= 40;
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true); // a heal draws the next too
+    expect(w.spendPoint('a', 0)).toBe(true); // ...and so does the next pick
     expect(draws()).toBe(3);
     grant(2); // both deferred behind the live hand
     expect(draws()).toBe(3);
@@ -603,13 +602,13 @@ describe('spendPoint — validation table', () => {
   it('rejects every malformed choice, leaving the queue untouched', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.hp -= 40; // DAMAGE gone, so a -1 rejection can only be the SENTINEL check
+    a.hp -= 40; // damaged, so a -1 rejection is the BOUND and nothing else
     bank(w, a, 1);
     const before = front(a);
-    // -1 left this list on 2026-08-04: it is now HEAL_CHOICE, the one reserved
-    // negative. EVERY other negative stays malformed — that is the whole point
-    // of a reserved sentinel over "any negative means heal".
-    for (const junk of [-2, -99, 4, 99, 1.5, NaN, Infinity, '0', 'heal', null, undefined, {}]) {
+    // -1 IS BACK ON THIS LIST (Story 8.8). It was the reserved HEAL_CHOICE
+    // sentinel from 2026-08-04 until healing became a card; now every negative
+    // is out of the offer bound and malformed again, with no special case.
+    for (const junk of [-1, -2, -99, 4, 99, 1.5, NaN, Infinity, '0', 'heal', null, undefined, {}]) {
       expect(w.spendPoint('a', junk)).toBe(false);
     }
     expect(a.bankedLevels).toBe(1);
@@ -660,163 +659,163 @@ describe('spendPoint — validation table', () => {
   });
 });
 
-// ---------- DAMAGE CONTROL (the always-available heal spend) ------------------
+// ---------- HULL REPAIR (the paid heal, now a CARD) --------------------------
 //
-// The spec's I/O & Edge-Case Matrix, row for row. The strip is NOT a card: it
-// is never drawn, never in the deck, never in OwnShip.offer — it is addressed
-// by the reserved negative wire sentinel HEAL_CHOICE (-1) alone.
+// The spec's I/O & Edge-Case Matrix, row for row. Since Story 8.8 the heal is
+// NOT an always-available menu spend addressed by a reserved wire sentinel: it
+// is a consumable LINE you draw, stock in a belt slot, and fire. The BODY is
+// unchanged (instant + pool at a fixed rate), so every payout, overflow,
+// stacking and lifecycle pin below is the shipped one under its new trigger.
+// The card economy around it — the two guards, the one spend, the copy leaving
+// `cards` — is pinned beside the row in equipment.test.ts.
 
 const HEALS_OF = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'heal');
-const DC = CONFIG.damageControl;
-/** hp per 50ms tick at the fixed regen rate (25hp / 5000ms = 5 hp/s). */
-const REGEN_PER_TICK = (DC.regenHp / DC.regenMs) * DT;
+const HR = CONFIG.hullRepair;
+/** The first belt slot — where a stocked HULL REPAIR lands. */
+const SLOT_BELT = CONSUMABLE_SLOTS[0];
+/** hp per 50ms tick at the fixed regen rate (50hp / 5000ms = 10 hp/s). */
+const REGEN_PER_TICK = (HR.regenHp / HR.regenMs) * DT;
 
-describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
-  it('happy path: 25 instant + a 25hp pool, ONE level consumed, self-private heal event', () => {
+describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Story 8.8)', () => {
+  /** Stock `n` copies in the belt and hurt the hull by `missing`. */
+  function stock(w: World, a: ShipRecord, n = 1, missing = 0): void {
+    for (let i = 0; i < n; i += 1) w.applyCard(a, 'hullRepair');
+    if (missing > 0) a.hp = a.stats.maxHp - missing;
+  }
+  /** Fire the belt slot through the ONE activation path. */
+  const press = (w: World, a: ShipRecord): unknown => w.sinkingActivationGate(a, SLOT_BELT);
+
+  it('happy path: instant hp + a pool, ONE copy consumed, self-private heal event', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0); // hull-to-hull neighbour: sighted, and told nothing
-    bank(w, a, 1);
-    a.hp = a.stats.maxHp - 75;
+    stock(w, a, 2, 75);
     const hpBefore = a.hp;
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    expect(a.hp).toBe(hpBefore + DC.instantHp);
-    expect(a.repairHp).toBe(DC.regenHp);
-    expect(a.bankedLevels).toBe(0); // exactly one level consumed
-    expect(a.offer).toBeNull(); // ...and its hand is dropped, not stored
+    expect(press(w, a)).toEqual({ ok: true });
+    expect(a.hp).toBe(hpBefore + HR.instantHp);
+    expect(a.repairHp).toBe(HR.regenHp);
+    expect(a.loadout[SLOT_BELT].state).toEqual({ n: 1, reloadMsLeft: 0 }); // exactly one copy
     w.step();
     expect(HEALS_OF(buildFrame(w, 'a').events)).toEqual([{ k: 'heal', id: 'a' }]);
     expect(HEALS_OF(buildFrame(w, 'b').events)).toEqual([]); // healer-private
   });
 
-  it('the deck is not touched AT ALL by a heal — no card leaves it (unlike a card pick)', () => {
+  it('the LEVEL economy is untouched: a heal costs no banked level and drops no hand', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    bank(w, a, 2); // a second level so the next hand materializes off the same deck
-    a.hp -= 50;
-    const offer = front(a);
+    bank(w, a, 2);
+    stock(w, a, 1, 50);
+    const offerBefore = front(a);
     const deckBefore = [...a.deck.cards];
-    const copiesBefore = offer.map((id) => copiesInDeck(a, id));
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    // Under the lazy model nothing ever left the pool, so a heal returns
-    // nothing and the multiset is BYTE-IDENTICAL — the offer is just dropped.
+    expect(press(w, a)).toEqual({ ok: true });
+    // Firing a consumable is not a spend: the bank, the live hand and the pool
+    // are all exactly where they were. (Buying the CARD cost the level, once.)
+    expect(a.bankedLevels).toBe(2);
+    expect(front(a)).toEqual(offerBefore);
     expect(a.deck.cards).toEqual(deckBefore);
-    offer.forEach((id, i) => expect(copiesInDeck(a, id)).toBe(copiesBefore[i]));
-    expect(a.cards).toEqual(TB_SEED); // nothing was fitted
-    expect(front(a)).toHaveLength(CONFIG.offer.size); // the next level's hand is up
   });
 
   it('the pool pays out exactly regenHp over regenMs at the FIXED rate, then stops', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    bank(w, a, 1);
-    a.hp = a.stats.maxHp - 100;
-    w.spendPoint('a', HEAL_CHOICE);
+    stock(w, a, 1, 100);
+    press(w, a);
     const hpAfterInstant = a.hp;
-    const ticks = DC.regenMs / DT;
+    const ticks = HR.regenMs / DT;
     for (let i = 0; i < ticks; i++) w.step();
-    expect(a.hp).toBeCloseTo(hpAfterInstant + DC.regenHp, 6);
+    expect(a.hp).toBeCloseTo(hpAfterInstant + HR.regenHp, 6);
     expect(a.repairHp).toBeCloseTo(0, 9);
     const settled = a.hp;
     for (let i = 0; i < 20; i++) w.step(); // a drained pool never pays again
     expect(a.hp).toBe(settled);
   });
 
-  it('POOLS ADD, the rate never changes: a second heal mid-drain extends, never steepens', () => {
+  it('POOLS ADD, the rate never changes: a second copy mid-drain extends, never steepens', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    bank(w, a, 2);
-    a.hp = a.stats.maxHp - 150;
-    w.spendPoint('a', HEAL_CHOICE);
-    // Drain to exactly 15hp remaining (10hp paid = 2s), then heal again.
+    stock(w, a, 2, 150);
+    press(w, a);
+    // Drain 10hp of the pool (the rate's own units), then fire the second copy.
     const ticks = Math.round(10 / REGEN_PER_TICK);
     for (let i = 0; i < ticks; i++) w.step();
-    // Pool after draining 10hp: regenHp - 10. DERIVED, not a literal, because
-    // balance cycle 1 doubled regenHp 25 -> 50 (and with it the rate, 5 -> 10
-    // hp/s) in step with hull hp — a hard-coded 15 pinned the old amount.
-    expect(a.repairHp).toBeCloseTo(DC.regenHp - 10, 6);
+    expect(a.repairHp).toBeCloseTo(HR.regenHp - 10, 6);
     const hpAtSecondHeal = a.hp;
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    expect(a.repairHp).toBeCloseTo(DC.regenHp - 10 + DC.regenHp, 6);
+    expect(press(w, a)).toEqual({ ok: true });
+    expect(a.repairHp).toBeCloseTo(HR.regenHp - 10 + HR.regenHp, 6);
     // THE RATE PIN: the very next tick pays ONE pool's worth of rate, NOT two.
-    // This is the invariant the doubling did NOT touch — pools ADD, never
-    // ACCELERATE — and it is why the rate change is safe.
+    // Pools ADD, never ACCELERATE — the ratified anti-flask rule.
     w.step();
-    expect(a.hp).toBeCloseTo(hpAtSecondHeal + DC.instantHp + REGEN_PER_TICK, 9);
-    expect(a.hp).not.toBeCloseTo(hpAtSecondHeal + DC.instantHp + 2 * REGEN_PER_TICK, 9);
+    expect(a.hp).toBeCloseTo(hpAtSecondHeal + HR.instantHp + REGEN_PER_TICK, 9);
+    expect(a.hp).not.toBeCloseTo(hpAtSecondHeal + HR.instantHp + 2 * REGEN_PER_TICK, 9);
   });
 
-  it('FULL HP is rejected fail-closed: the level stays banked, the pool untouched, no event', () => {
+  it('FULL HP is rejected fail-closed: the copy stays stocked, the pool untouched, no event', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    bank(w, a, 1);
+    stock(w, a, 1);
     expect(a.hp).toBe(a.stats.maxHp);
-    const offerBefore = front(a);
-    const deckBefore = a.deck.cards.length;
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
-    expect(a.bankedLevels).toBe(1);
-    expect(front(a)).toEqual(offerBefore); // the SAME hand, never rerolled
-    expect(a.deck.cards).toHaveLength(deckBefore);
+    expect(press(w, a)).toEqual({ ok: false, reason: 'blocked' });
+    expect(a.loadout[SLOT_BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.cards).toContain('hullRepair');
     expect(a.repairHp).toBe(0);
     w.step();
     expect(HEALS_OF(buildFrame(w, 'a').events)).toEqual([]);
   });
 
-  it('a DEAD hull is rejected — the level stays banked for the next life', () => {
+  it('a DEAD hull is rejected — the copy is still aboard for the next life', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    bank(w, a, 1);
-    a.hp -= 50;
+    stock(w, a, 1, 50);
     w.respawnEnabled = false;
     w.sinkShip('a');
     expect(isAfloat(a.lifecycle)).toBe(false);
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
-    expect(a.bankedLevels).toBe(1); // banked, unlike a CARD pick which is legal dead
+    expect(press(w, a)).toEqual({ ok: false, reason: 'blocked' });
+    expect(a.cards).toContain('hullRepair');
     expect(a.repairHp).toBe(0);
     expect(a.hp).toBe(0);
   });
 
-  it('NO banked levels is rejected by the existing empty-queue guard', () => {
+  it('NO stocked copy is refused by the gate before any row runs', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.hp -= 50; // damaged and alive — only the empty bank can refuse it
-    expect(a.bankedLevels).toBe(0);
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
-    expect(w.spendPoint('ghost', HEAL_CHOICE)).toBe(false);
+    a.hp -= 50; // damaged and alive — only the empty belt can refuse it
+    expect(a.loadout[SLOT_BELT]).toEqual({ equipmentId: null, state: null });
+    expect(press(w, a)).toEqual({ ok: false, reason: 'empty-slot' });
     expect(a.repairHp).toBe(0);
   });
 
   it('OVERFLOW IS LOST, not banked: healing at maxHp-1 wastes the instant AND the pool', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    bank(w, a, 1);
-    a.hp = a.stats.maxHp - 1; // damaged enough to pass the guard, by exactly 1hp
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    expect(a.hp).toBe(a.stats.maxHp); // 24 of the 25 instant clamped away
-    expect(a.repairHp).toBe(DC.regenHp); // the pool still exists...
+    stock(w, a, 1, 1); // damaged enough to pass the guard, by exactly 1hp
+    expect(press(w, a)).toEqual({ ok: true });
+    expect(a.hp).toBe(a.stats.maxHp); // all but 1 of the instant clamped away
+    expect(a.repairHp).toBe(HR.regenHp); // the pool still exists...
     // ...and drains on the WALL CLOCK against a full bar, delivering nothing.
-    for (let i = 0; i < DC.regenMs / DT; i++) w.step();
+    for (let i = 0; i < HR.regenMs / DT; i++) w.step();
     expect(a.repairHp).toBeCloseTo(0, 9);
     expect(a.hp).toBe(a.stats.maxHp);
   });
 
-  it('STORM OVERLAP nets +1 hp/s: 5 hp/s regen against the 4 dps bite, both independent', () => {
+  it('STORM OVERLAP nets positive: the pool out-paces the bite, both independent', () => {
     // A collapsed timeline (1ms beats) so the terminal ring is live in one step;
     // the hull sits far outside it and bleeds stormDps for the pool's whole life.
     const w = new World(3, CONFIG.match.fillTo, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 1 });
     w.map.islands.length = 0;
     const a = place(w, 'a', w.map.radius * 0.8, 0);
     w.startZone();
-    bank(w, a, 1);
-    a.hp = a.stats.maxHp - 100;
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
+    stock(w, a, 1, 100);
+    expect(press(w, a)).toEqual({ ok: true });
     const hpAfterInstant = a.hp;
     const stormPerTick = CONFIG.zone.stormDps * (DT / 1000);
-    const ticks = DC.regenMs / DT;
+    const ticks = HR.regenMs / DT;
     for (let i = 0; i < ticks; i++) w.step();
     expect(a.repairHp).toBeCloseTo(0, 9);
-    // Net over the pool's life = regenHp - stormDps*regenMs: +25 - 20 = +5hp.
-    expect(a.hp).toBeCloseTo(hpAfterInstant + DC.regenHp - stormPerTick * ticks, 6);
+    // Net over the pool's life = regenHp - stormDps*regenMs. The storm bite
+    // also stamps `lastDamagedAt` every tick, so the OUT-OF-COMBAT regen
+    // (amendment 47) contributes exactly nothing here — this is the paid pool
+    // against the storm and nothing else.
+    expect(a.hp).toBeCloseTo(hpAfterInstant + HR.regenHp - stormPerTick * ticks, 6);
     expect(a.hp).toBeGreaterThan(hpAfterInstant); // the pool out-paces the storm
     // ...and once it drains, the storm has the hull to itself again.
     const afterPool = a.hp;
@@ -827,9 +826,8 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
   it('SINKING mid-drain zeroes the pool — nothing carries through the death gap', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    bank(w, a, 1);
-    a.hp = a.stats.maxHp - 100;
-    w.spendPoint('a', HEAL_CHOICE);
+    stock(w, a, 1, 100);
+    press(w, a);
     for (let i = 0; i < 4; i++) w.step();
     expect(a.repairHp).toBeGreaterThan(0);
     w.respawnEnabled = false;
@@ -843,40 +841,39 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
   it('a RESPAWN and a match-boundary REDEPLOY each clear the pool (the boostUntil sites)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    bank(w, a, 2);
-    a.hp = a.stats.maxHp - 100;
-    w.spendPoint('a', HEAL_CHOICE);
-    expect(a.repairHp).toBe(DC.regenHp);
+    stock(w, a, 2, 100);
+    press(w, a);
+    expect(a.repairHp).toBe(HR.regenHp);
     w.sinkShip('a'); // respawnEnabled (waiting phase) — zeroed here...
     // Story 5.2: revive lands on the founder tick (window > respawn delay).
     const ticks = Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 2;
     for (let i = 0; i < ticks; i++) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.repairHp).toBe(0); // ...and again on the way back
+    // The un-fired copy came back with the build (respawn replays `cards`).
     a.hp = a.stats.maxHp - 100;
-    w.spendPoint('a', HEAL_CHOICE);
-    expect(a.repairHp).toBe(DC.regenHp);
+    expect(press(w, a)).toEqual({ ok: true });
+    expect(a.repairHp).toBe(HR.regenHp);
     w.resetForMatchStart();
     expect(a.repairHp).toBe(0);
   });
 
-  it('the heal NEVER routes through applyBoon: no fit, no stat recompute, no reload rescale', () => {
+  it('the heal NEVER routes through applyBoon: no boon fit, no reload rescale, no free round', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    bank(w, a, 1);
-    a.hp -= 50;
+    stock(w, a, 1, 50);
     const statsBefore = a.stats;
-    const cardsBefore = a.cards;
     // Put a round in flight so a stray rescaleReloadTimers would be visible.
     fire(a, 1, SLOT_GUN, 300);
     w.step();
     const reloadBefore = a.loadout[SLOT_GUN].state!.reloadMsLeft;
     const ammoBefore = a.loadout[SLOT_GUN].state!.n;
     expect(reloadBefore).toBeGreaterThan(0);
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    expect(a.cards).toEqual(TB_SEED);
-    expect(a.stats).toBe(statsBefore); // the SAME object — never recomputed
-    expect(a.cards).toBe(cardsBefore);
+    expect(press(w, a)).toEqual({ ok: true });
+    // The spend re-FOLDS `cards` (the copy left the build), but a consumable
+    // carries no stat effect, so every derived stat is byte-identical — an
+    // EQUAL fold, not the same object, which is exactly the 8.7 contract.
+    expect(a.stats).toEqual(statsBefore);
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(reloadBefore); // byte-identical
     expect(a.loadout[SLOT_GUN].state!.n).toBe(ammoBefore); // no free round
   });
@@ -885,9 +882,8 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0); // mutual sight
-    bank(w, a, 1);
-    a.hp -= 60;
-    w.spendPoint('a', HEAL_CHOICE);
+    stock(w, a, 1, 60);
+    press(w, a);
     w.step();
     const fa = buildFrame(w, 'a');
     expect(fa.you!.repairHp).toBe(a.repairHp);
@@ -905,16 +901,23 @@ describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
     expect(JSON.stringify(spec)).not.toContain('repairHp');
   });
 
-  it('the strip is NOT a card: heal never appears in the deck, the catalog, or an offer', () => {
+  it('the heal IS a card now: `hullRepair` is drawable, and no OTHER repair line exists', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     bank(w, a, 3);
-    expect(CONFIG.offer.size).toBe(4); // untouched by DAMAGE CONTROL
-    for (const id of a.deck.cards) expect(id).not.toMatch(/heal|repair|damageControl/i);
+    expect(CONFIG.offer.size).toBe(4);
+    // THE INVERSION OF THE OLD PIN. Until Story 8.8 this asserted that NO deck
+    // card matched /heal|repair/ — the strip was addressed by a wire sentinel
+    // and was never a card. Now `hullRepair` is exactly that card and must be
+    // in the pool; what must still be absent is the retired RAIL, i.e. any
+    // `damageControl`-shaped line.
+    expect(a.deck.cards).toContain('hullRepair');
+    for (const id of a.deck.cards) expect(id).not.toMatch(/damageControl/i);
+    for (const id of a.deck.cards) expect(Object.hasOwn(CATALOG, id)).toBe(true);
     const hand = front(a);
     expect(hand).toHaveLength(4);
     for (const id of hand) expect(Object.hasOwn(CATALOG, id)).toBe(true);
-    expect(buildFrame(w, 'a').you!.offer).toHaveLength(4); // the strip never rides `offer`
+    expect(buildFrame(w, 'a').you!.offer).toHaveLength(4);
   });
 });
 
@@ -1114,17 +1117,16 @@ describe('empty deck — the level banks, no hand materializes, and exhaustion i
     const f = buildFrame(w, 'a');
     expect(f.you!.pts).toBe(1); // the level is still banked...
     expect(f.you!.offer).toEqual([]); // ...with no hand behind it
-    // The offer-less level refuses a CARD pick and never deadlocks: it is still
-    // spendable as a heal, and a later level simply retries the draw.
+    // The offer-less level refuses a CARD pick and simply STAYS BANKED: there
+    // is nothing else to spend it on since Story 8.8 retired the heal strip,
+    // and a later level retries the draw. That is a hold, not a deadlock.
     expect(w.spendPoint('a', 0)).toBe(false);
-    a.hp -= 40;
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    expect(a.bankedLevels).toBe(0);
+    expect(a.bankedLevels).toBe(1);
     // ...and a fresh level against the empty deck emits NO pt (the ratified
-    // offer-less-level rule).
+    // offer-less-level rule) — it simply banks on top of the one already held.
     w.grantXp(a, 1);
     w.step();
-    expect(a.bankedLevels).toBe(1);
+    expect(a.bankedLevels).toBe(2);
     expect(a.offer).toBeNull();
     expect(ptsOf(w.tickEvents)).toEqual([]);
   });
@@ -1162,13 +1164,11 @@ describe('empty deck — the level banks, no hand materializes, and exhaustion i
     expect(ptsOf(w.tickEvents)).toEqual([]);
     expect(onDeckExhausted).toHaveBeenCalledTimes(1);
 
-    // An offer-less banked level is still SPENDABLE on the menu heal, and a
-    // card pick against an empty hand is refused (the no-deadlock rule).
+    // An offer-less banked level buys NOTHING (Story 8.8 retired the menu
+    // heal): a card pick against an empty hand is refused and the bank holds.
     expect(w.spendPoint('a', 0)).toBe(false);
     expect(w.spendPoint('a', 3)).toBe(false);
-    a.hp -= 40;
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    expect(a.bankedLevels).toBe(1);
+    expect(a.bankedLevels).toBe(2);
     expect(onDeckExhausted).toHaveBeenCalledTimes(1);
   });
 
@@ -1711,13 +1711,14 @@ describe('STUB lines can never be fitted (server gate + shared replay)', () => {
 // card: `slotFill` no-ops against equipment already fitted, so a Torpedo Boat
 // could spend a whole level on HEAVY TORPEDO and get nothing at all.
 describe('the CARRIED seed — a hull spawns holding copy 1 of its own weapons', () => {
-  // Sizes (Story 8.2): 40 − 16 stub cards − the ONE carried copy the default
-  // deck holds = 23 for every hull; the Battleship's `broadside` is carried
-  // but not in its deck, so it holds 0 copies rather than −1.
+  // Sizes (Story 8.2; Story 8.8): 40 − 13 stub cards − the ONE carried copy the
+  // default deck holds = 26 for every hull; the Battleship's `broadside` is
+  // carried but not in its deck, so it holds 0 copies rather than −1. It was
+  // 23 until 8.8 un-stubbed HULL REPAIR's three per-hull copies.
   const SEEDS: [ShipClassId, string[], number][] = [
-    ['torpedoBoat', ['heavyTorpedo'], 23],
-    ['battleship', ['broadside', 'starShells'], 23],
-    ['mineLayer', ['navalMines'], 23],
+    ['torpedoBoat', ['heavyTorpedo'], 26],
+    ['battleship', ['broadside', 'starShells'], 26],
+    ['mineLayer', ['navalMines'], 26],
   ];
 
   for (const [hull, seed, size] of SEEDS) {
@@ -1762,7 +1763,7 @@ describe('the CARRIED seed — a hull spawns holding copy 1 of its own weapons',
     w.applyCard(a, 'armor');
     w.resetForMatchStart();
     expect(a.cards).toEqual(['broadside', 'starShells']);
-    expect(a.deck.cards).toHaveLength(23);
+    expect(a.deck.cards).toHaveLength(26);
     expect(a.stats).toEqual(effectiveStats(a.cls));
   });
 
@@ -2175,10 +2176,13 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     expect('denied' in buildFrame(w, 'a')).toBe(false);
   });
 
-  it('a belt slot whose line has NO row fails closed at the gate (the production state, amendment 41)', () => {
-    const w = bareWorld(1, { catalog: BELT_CATALOG }); // production CONSUMABLES: empty
-    const a = placeBelt(w, 'a', deckOf('hullRepair'));
-    w.applyCard(a, 'hullRepair');
+  it('a belt slot whose line has NO row fails closed at the gate', () => {
+    // Story 8.8 gave HULL REPAIR a row, so the UNBUILT subject is one of the
+    // four lines still waiting for its story. The injected catalog un-stubs it
+    // so it can be stocked at all; production CONSUMABLES has no row for it.
+    const w = bareWorld(1, { catalog: BELT_CATALOG });
+    const a = placeBelt(w, 'a', deckOf('chaff'));
+    w.applyCard(a, 'chaff');
     expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // stocked...
     expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: false, reason: 'empty-slot' }); // ...but inert
     expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // nothing spent

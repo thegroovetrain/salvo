@@ -16,7 +16,6 @@
 import {
   CATALOG,
   CONFIG,
-  HEAL_CHOICE,
   HOOK_REGISTRY,
   LIFECYCLE_ALIVE,
   applyGroundingDamp,
@@ -662,42 +661,40 @@ export interface ShipRecord {
    */
   boostUntil: number;
   /**
-   * hp — the REMAINING DAMAGE CONTROL regen pool (Eric rulings 2026-08-04);
-   * 0 = nothing draining. Written ONLY by the heal branch of spendPoint
-   * (`repairHp += CONFIG.damageControl.regenHp` — pools ADD, the rate never
-   * changes) and drained by tickRepairs at the fixed
-   * regenHp/regenMs (5 hp/s) WALL-CLOCK rate; mirrored onto OwnShip.repairHp
-   * (owner-only) by frames.ts. RESET to 0 on spawn/sink/respawn/redeploy
-   * exactly where boostUntil resets — a pool must never survive the death gap.
+   * hp — the REMAINING PAID HULL REPAIR pool (Eric rulings 2026-08-04; the
+   * spend became a CARD in Story 8.8); 0 = nothing draining. Written ONLY by
+   * World.applyRepair — the `ctx.applyRepair` capability HULL REPAIR's row
+   * calls (`repairHp += CONFIG.hullRepair.regenHp` — pools ADD, the rate never
+   * changes) — and drained by tickRepairs at the fixed regenHp/regenMs
+   * WALL-CLOCK rate (50 hp over 5 s as shipped, amendment 51); mirrored onto
+   * OwnShip.repairHp (owner-only) by frames.ts. RESET to 0 on
+   * spawn/sink/respawn/redeploy exactly where boostUntil resets — a pool must
+   * never survive the death gap.
+   *
+   * THE ONLY REPAIR POOL. The free per-level channel (`levelRepairHp` /
+   * `levelRepairRate`) is GONE: epic-8 amendment 46 replaced the per-level
+   * auto-heal with out-of-combat regen, which pays straight into `hp` and
+   * needs no pool at all (see tickRepairs).
    */
   repairHp: number;
   /**
-   * hp — the FREE per-level auto-heal's OWN pool
-   * (CONFIG.damageControl.levelMissingPct), kept SEPARATE from `repairHp`
-   * because it drains at its own rate. The paid pool has ONE global rate by
-   * design (the anti-flask rule), and a pool cannot carry two rates: merging
-   * them would either speed this trickle up or slow the paid heal down, and
-   * both are the wrong answer. Written only by grantLevelHeal, drained only by
-   * tickRepairs' second channel.
+   * ms — server-clock time this hull last took LANDED damage (epic-8 amendment
+   * 47). Stamped by applyDamage's step (d) on every source that actually
+   * removed hp (`dealt > 0` — shells, torpedoes, mines, burn ticks, storm
+   * bites); a blow fully eaten by a SHIELD BLOCK does not count. Storm and burn
+   * both route through the one gate, so "the storm resets the clock" is
+   * structural rather than a second rule.
    *
-   * Same lifecycle as `repairHp` in every respect: zeroed on sink, on redeploy,
-   * and on respawn (all three through World.clearRepair). Mirrored to the
-   * client SUMMED into OwnShip.repairHp, so the HUD's pending-repair readout
-   * stays honest with no wire change.
-   */
-  levelRepairHp: number;
-  /**
-   * hp/ms — the free channel's drain rate, recomputed on every grant as
-   * `levelRepairHp / CONFIG.damageControl.levelRegenMs`. 0 = nothing draining.
+   * READ BY ONE THING: the out-of-combat regen in tickRepairs
+   * (`now - lastDamagedAt >= CONFIG.regen.outOfCombatMs`). SERVER-PRIVATE —
+   * never on the wire.
    *
-   * DELIVERY BY DURATION, not at a fixed hp/s: the grant's AMOUNT varies with
-   * how hurt the hull is while the ruled window is fixed at 5 s, and a fixed
-   * rate cannot land a variable amount in a fixed time. This is the deliberate,
-   * evidence-documented departure from the anti-flask rule, and it is CONFINED
-   * TO THIS CHANNEL — the paid pool's fixed regenHp/regenMs rate is untouched
-   * and pinned.
+   * SET TO `now` AT SPAWN, RESPAWN AND REDEPLOY, not to 0: a fresh life waits
+   * the full window like everyone else. It costs nothing (the hull is full, so
+   * the regen has nothing to do) and it means a hull that respawns mid-fight
+   * cannot start trickling the instant it appears.
    */
-  levelRepairRate: number;
+  lastDamagedAt: number;
   /**
    * ms — server time the PROP-FOULING slow on this ship ends (Story 2.8);
    * 0 = not slowed. Written by detonateMine when a propFouling owner's blast
@@ -1538,10 +1535,13 @@ export class World {
       lastActSeq: 0,
       // Foghorn (Story 4.5): fresh counter + cooldown, join-time variant.
       lastHornSeq: 0, nextHonkAt: 0, horn,
-      // A fresh hull carries no open windows — boost, DAMAGE CONTROL pool
+      // A fresh hull carries no open windows — boost, HULL REPAIR pool
       // (2026-08-04), prop-fouling slow, dazzle — the same four zeroed together
       // at every other life boundary (sinkShip / respawn / redeployShip).
-      boostUntil: 0, repairHp: 0, levelRepairHp: 0, levelRepairRate: 0, slowedUntil: 0, dazzledUntil: 0, shield: null,
+      // ...and it waits the full out-of-combat window before it regens
+      // (amendment 47): `lastDamagedAt` is `now`, never 0 — the hull is full
+      // here anyway, so the wait costs nothing.
+      boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, dazzledUntil: 0, shield: null,
 
       rttMs: null,
       lastFireT: 0,
@@ -1853,10 +1853,14 @@ export class World {
     ship.landContact = false;
     // A fresh life never inherits an open boost window — nor a slow or dazzle.
     ship.boostUntil = 0;
-    // ...nor a DAMAGE CONTROL pool: hp is already full here, so a surviving
+    // ...nor a HULL REPAIR pool: hp is already full here, so a surviving
     // pool would drain entirely into the maxHp clamp — but the wire field would
     // still tick down on a brand-new match's HUD (the boostUntil rule).
     World.clearRepair(ship);
+    // ...nor a stale combat clock: a fresh life waits the full out-of-combat
+    // window (amendment 47), so a hull redeployed straight out of a fight
+    // cannot start regenerating on the start line.
+    ship.lastDamagedAt = this.now;
     // ...nor a SHIELD BLOCK (Story 8.4 review, P5 — the clearRepair rule).
     ship.shield = null;
     ship.slowedUntil = 0;
@@ -1966,11 +1970,11 @@ export class World {
     //     dying captain's own fog hole). Neither can be REFRESHED while
     //     sinking (mine blasts and zone effects gate on isAfloat), so both
     //     expire naturally within the window.
-    // The DAMAGE CONTROL pool DOES die at entry (2026-08-04 rule, unchanged):
+    // The HULL REPAIR pool DOES die at entry (2026-08-04 rule, unchanged):
     // the economy is what a sinking captain loses (amendment 10 — "once
     // sinking, you're done"), tickRepairs would never tick it anyway (afloat
-    // gate), and nothing may trickle hp back onto a hull already at 0. The FREE
-    // per-level channel dies on the same rule and at the same instant.
+    // gate), and nothing may trickle hp back onto a hull already at 0. The
+    // out-of-combat regen is refused on exactly the same afloat gate.
     World.clearRepair(ship);
     // ...and so does the SHIELD BLOCK, on the same rule (Story 8.4 review, P5):
     // an absorbing pool is economy, and a sinking captain loses their economy.
@@ -2287,61 +2291,8 @@ export class World {
    */
   private grantPoint(killer: ShipRecord): void {
     killer.bankedLevels += 1;
-    this.grantLevelHeal(killer);
     this.materializeOffer(killer);
     if (killer.offer !== null) this.pending.push({ k: 'pt', id: killer.id });
-  }
-
-  /**
-   * THE FREE PER-LEVEL AUTO-HEAL (CONFIG.damageControl.levelMissingPct).
-   *
-   * Earning a level patches 10 % of the hull's MISSING hp at no cost, IN
-   * ADDITION to the refit-menu heal, which is untouched. It costs no banked
-   * level, drops no offer, and touches no deck — so the strategic heal spend
-   * keeps working exactly as it does today, and only the routine chip-damage
-   * tax moves off the card budget (measured: 58.7 % of every level earned was
-   * going to a heal rather than an upgrade).
-   *
-   * Sits in grantPoint rather than addXpMs so it fires ONCE PER LEVEL BANKED —
-   * including each crossing when one grant banks several at once — and inherits
-   * grantPoint's callers for free. A fleet hull never reaches here: addXpMs
-   * fail-closes on it before the bank loop runs.
-   *
-   * INTO THE POOL, NOT THE BAR. Feeding a pool rather than `hp` is what makes
-   * this a TRICKLE the enemy can out-damage instead of a free instant top-up,
-   * so it pays for chip damage between fights without answering burst damage —
-   * which is the menu heal's job and the decision Eric wants preserved.
-   *
-   * A SINKING OR SUNK HULL GETS NOTHING. The "no hp comes back" rule of the
-   * sinking window (amendment 10) governs here exactly as it governs spendHeal,
-   * and a hull CAN still cross a level while sinking — its shells keep
-   * resolving and kill credit is not alive-gated — so this guard is REACHABLE
-   * rather than defensive.
-   *
-   * A FULL HULL GETS NOTHING AND NO CUE: 10 % of zero missing is zero, and the
-   * `heal` event must not fire for a heal that did not happen. (This is why the
-   * cue lives after the amount, not before it.)
-   */
-  private grantLevelHeal(ship: ShipRecord): void {
-    if (!isAfloat(ship.lifecycle)) return;
-    const dc = CONFIG.damageControl;
-    // THE CHANNEL'S THIRD OFF SENTINEL, same family as assistWindowMs=0: a zero
-    // duration means OFF, never instant. Without this guard a zeroed
-    // levelRegenMs still accrues into levelRepairHp at a drain rate of 0 — a
-    // pool that never empties and permanently inflates the wire's summed
-    // repairHp.
-    if (!(dc.levelMissingPct > 0) || !(dc.levelRegenMs > 0)) return;
-    const add = (ship.stats.maxHp - ship.hp) * dc.levelMissingPct;
-    if (!(add > 0)) return;
-    ship.levelRepairHp += add;
-    // DELIVERY BY DURATION: rate recomputed against the WHOLE pool, so the pool
-    // empties exactly one levelRegenMs after the most recent level rather than
-    // running longer for each one. See ShipRecord.levelRepairRate.
-    ship.levelRepairRate = dc.levelRegenMs > 0 ? ship.levelRepairHp / dc.levelRegenMs : 0;
-    // The existing self-private cue, reused: the client already plays the heal
-    // tone and shows the hp rail's pending segment, so the free heal has full
-    // feedback with ZERO client change.
-    this.pending.push({ k: 'heal', id: ship.id });
   }
 
   /**
@@ -2355,9 +2306,8 @@ export class World {
    * idle against a legal deck (pool + held <= cap at spawn, and every fit moves
    * one copy from pool to held), which is exactly why it is cheap to keep.
    *
-   * EMPTY DRAW: `offer` stays null and the bank stays put — the queue never
-   * deadlocks (spendPoint's HEAL_CHOICE is still spendable, a card pick is
-   * refused), and the next level simply retries the draw. The FIRST empty draw
+   * EMPTY DRAW: `offer` stays null and the bank stays put — the card pick is
+   * refused and the next level simply retries the draw. The FIRST empty draw
    * also latches `deckExhausted` and reports it ONCE (see the latch's doc).
    */
   private materializeOffer(ship: ShipRecord): void {
@@ -2600,19 +2550,19 @@ export class World {
    * directed applyBoon (tests, future scripted grants) must stay event-free —
    * "a spend happened" is a property of this path only.
    *
-   * DAMAGE CONTROL (Eric rulings 2026-08-04): the accept set widens by exactly
-   * ONE reserved value — `HEAL_CHOICE` (-1), the always-available heal strip.
-   * It is a NEGATIVE sentinel deliberately (a positive one would collide the
-   * day CONFIG.offer.size moves), so the ordinary bound stays `0 ≤ choice <
-   * front.length` and every other negative (-2, -99) is still malformed. The
-   * heal is NOT a card and never reaches applyBoon.
+   * THE ACCEPT SET IS THE OFFER AND NOTHING ELSE (Story 8.8). The reserved
+   * negative sentinel `HEAL_CHOICE` (-1) that used to buy an instant heal is
+   * GONE end to end — healing is a CARD now (HULL REPAIR, stocked in a belt
+   * slot and fired from it), so the bound is simply `0 ≤ choice <
+   * front.length` and EVERY negative, -1 included, is malformed and refused by
+   * spendCard's own bound.
    */
   spendPoint(id: string, rawChoice: unknown): boolean {
     const ship = this.ships.get(id);
     if (!ship || ship.bankedLevels <= 0) return false;
     // THE REFIT IS CLOSED WHILE SINKING (Story 5.2, amendment 10 — "once
-    // sinking, you're done"): card picks AND the HEAL_CHOICE spend are refused
-    // outright — a clean denial (false), never a throw; the bank and its
+    // sinking, you're done"): a card pick is refused outright — a clean
+    // denial (false), never a throw; the bank and its
     // front hand stay untouched, so the level is still there for the next life.
     // Deliberately NOT routed through sinkingActivationGate: the economy never
     // went near it, and this is the actual policy that gate's amendment names.
@@ -2620,15 +2570,13 @@ export class World {
     // persist across waiting-phase respawns), sinking alone shops nothing.
     if (isSinking(ship.lifecycle)) return false;
     if (typeof rawChoice !== 'number' || !Number.isInteger(rawChoice)) return false;
-    if (rawChoice === HEAL_CHOICE) return this.spendHeal(ship);
     return this.spendCard(ship, rawChoice);
   }
 
   /**
    * The CARD half of a spend, split from spendPoint (complexity budget). A card
    * pick needs a MATERIALIZED front offer — a degenerate offer-less level has
-   * nothing to fit, so the pick is refused (the level stays banked and the heal
-   * strip stays live).
+   * nothing to fit, so the pick is refused and the level stays banked.
    *
    * THE ORDER HERE IS LOAD-BEARING (the lazy-draw bugfix): consume the LEVEL
    * first (drop the offer, decrement the bank), then settle the fit (which
@@ -2658,43 +2606,6 @@ export class World {
     ship.bankedLevels -= 1;
     this.settleSpend(ship, front, choice);
     this.materializeOffer(ship);
-    return true;
-  }
-
-  /**
-   * The DAMAGE CONTROL spend (Eric rulings 2026-08-04) — a sibling of
-   * settleSpend, never a path into applyBoon: the heal is not a boon, so it
-   * must not run grant-time effects, reconcilePools, or rescaleReloadTimers.
-   *
-   * FAIL-CLOSED, checked BEFORE anything is consumed: a dead hull or one
-   * already at full effective hp is REJECTED with the queue and the pool
-   * completely untouched — the level stays banked (the client renders the strip
-   * inert + a denied pulse). This is the one asymmetry with a card pick, which
-   * is legal while dead because a build persists across the death gap; a heal
-   * cannot, because tickRepairs only ticks living hulls and sinkShip zeroes the
-   * pool. (A SINKING hull never reaches this method — spendPoint refuses the
-   * whole spend first, amendment 10 — but the isAfloat guard here would refuse
-   * it anyway: belt and braces on the "no hp comes back" rule.)
-   *
-   * On success exactly ONE level is consumed and the front offer is DROPPED —
-   * unlike a card pick, which takes its chosen card out of the deck. The deck
-   * is not touched AT ALL (under the lazy-draw model nothing ever left it), so
-   * a heal costs progression time and nothing else: the cards you passed on are
-   * all still in the pool for the next hand. A card pick is the only thing that
-   * thins the deck. Requires only a BANKED LEVEL — a degenerate offer-less
-   * level can still be healed with.
-   */
-  private spendHeal(ship: ShipRecord): boolean {
-    if (!isAfloat(ship.lifecycle) || ship.hp >= ship.stats.maxHp) return false;
-    ship.offer = null;
-    ship.bankedLevels -= 1;
-    const dc = CONFIG.damageControl;
-    ship.hp = Math.min(ship.hp + dc.instantHp, ship.stats.maxHp);
-    // Pools ADD, the RATE never changes (the ratified anti-flask rule): a second
-    // heal makes the drain run twice as LONG, never twice as fast.
-    ship.repairHp += dc.regenHp;
-    this.pending.push({ k: 'heal', id: ship.id });
-    this.materializeOffer(ship); // the NEXT banked level surfaces its hand now
     return true;
   }
 
@@ -3308,60 +3219,90 @@ export class World {
   }
 
   /**
-   * DAMAGE CONTROL regen (Eric rulings 2026-08-04) — applyStorm's structural
-   * INVERSE: per-tick fractional hp against the same float, clamped, with NO
-   * per-tick event (that would spam ~20/s; the owner already receives live
-   * `hp` AND `repairHp` on every frame via OwnShip, so the HUD stays exact).
+   * THE TWO WAYS HP COMES BACK (Eric rulings 2026-08-04; re-cut by epic-8
+   * amendments 46-48) — applyStorm's structural INVERSE: per-tick fractional hp
+   * against the same float, clamped, with NO per-tick event (that would spam
+   * ~20/s; the owner already receives live `hp` AND `repairHp` on every frame
+   * via OwnShip, so the HUD stays exact).
    *
-   * The pool drains on the WALL CLOCK at the fixed rate regenHp/regenMs
-   * (5 hp/s): `repairHp` decrements by the elapsed budget WHETHER OR NOT the hp
-   * lands. Overflow past maxHp is therefore LOST, not banked — the ruled
-   * behavior (a full-bar hull burns its pool for nothing), and the reason the
-   * spend itself is guarded at full hp. Pools ADD but the rate NEVER changes,
-   * so two heals run 10s at 5 hp/s rather than 5s at 10 hp/s: that property
-   * lives entirely in `repairHp += regenHp` at spend time, not here.
+   *   1. THE PAID POOL (`repairHp`) — what a fired HULL REPAIR copy bought.
+   *      It drains on the WALL CLOCK at the fixed rate regenHp/regenMs:
+   *      `repairHp` decrements by the elapsed budget WHETHER OR NOT the hp
+   *      lands. Overflow past maxHp is therefore LOST, not banked — the ruled
+   *      behavior (a full-bar hull burns its pool for nothing), and the reason
+   *      the row itself refuses to fire at full hp. Pools ADD but the rate
+   *      NEVER changes, so two copies run 10 s at 10 hp/s rather than 5 s at
+   *      20 hp/s: that property lives entirely in `repairHp += regenHp` at
+   *      apply time, not here.
    *
-   * Only LIVING hulls tick — a wreck's pool is already zeroed by sinkShip, so
-   * the afloat gate is belt-and-braces against a directed caller.
+   *   2. THE OUT-OF-COMBAT REGEN (amendment 46) — REPLACES the free per-level
+   *      auto-heal that used to be this method's second channel, and it is
+   *      deliberately NOT a pool: `CONFIG.regen.missingPctPerS` of the hull's
+   *      MISSING hp per second, paid straight into `hp`, once
+   *      `CONFIG.regen.outOfCombatMs` have passed since `lastDamagedAt`. No
+   *      pool, no rate field, no `heal` cue (a continuous trickle would loop
+   *      the tone), no pending band. Healing is paced by DISENGAGING now, not
+   *      by the economy.
    *
-   * TWO INDEPENDENT CHANNELS since 2026-08-23, drained side by side through one
-   * payRepair: the PAID pool above at its fixed rate, and the FREE per-level
-   * pool at its own `levelRepairRate` (pool ÷ levelRegenMs, set on grant). They
-   * do not interact — a level heal landing on top of a menu heal changes
-   * neither pool's rate, and each empties on its own clock.
+   * IT SITS IN THIS METHOD'S EXISTING STEP_ORDER SLOT rather than taking a new
+   * one: it replaces the level pool's drain at the same pinned position — dead
+   * LAST among the hp movers, after every damage source — so `stepOrder.test`
+   * keeps its name list unchanged.
+   *
+   * Only AFLOAT hulls tick either way — a wreck's pool is already zeroed by
+   * sinkShip, so the afloat gate is belt-and-braces for the paid pool and the
+   * actual rule for the regen ("no hp comes back to a hull in the sinking
+   * window", amendment 10).
+   *
+   * A PvE FLEET HULL NEVER REGENS (amendment 48): a drone is environment and
+   * keeps the damage it takes, so a disengaged one never comes back to full.
+   * The paid pool is not role-gated because a drone can never own one (it holds
+   * no cards).
    */
   private tickRepairs(dtMs: number): void {
-    const dc = CONFIG.damageControl;
-    const budget = (dc.regenHp / dc.regenMs) * dtMs;
+    const hr = CONFIG.hullRepair;
+    const budget = (hr.regenHp / hr.regenMs) * dtMs;
+    // The clock a hull must be older than to be "out of combat" this tick.
+    const idleSince = this.now - CONFIG.regen.outOfCombatMs;
     for (const ship of this.ships.values()) {
       if (!isAfloat(ship.lifecycle)) continue;
-      if (ship.repairHp > 0) World.payRepair(ship, budget, false);
-      if (ship.levelRepairHp > 0 && ship.levelRepairRate > 0) World.payRepair(ship, ship.levelRepairRate * dtMs, true);
+      if (ship.repairHp > 0) World.payRepair(ship, budget);
+      if (!roleIsFleetHull(ship) && ship.lastDamagedAt <= idleSince) World.tickRegen(ship, dtMs);
     }
   }
 
-  /** Drain ONE repair channel by its own wall-clock budget. The pool decrements
-   *  WHETHER OR NOT the hp lands, so overflow past maxHp is lost rather than
-   *  banked — the ruled behavior, and identical for both channels. */
-  private static payRepair(ship: ShipRecord, budget: number, level: boolean): void {
-    const pool = level ? ship.levelRepairHp : ship.repairHp;
-    const paid = Math.min(budget, pool);
-    if (level) {
-      ship.levelRepairHp -= paid;
-      // An emptied pool drops its rate, so a later grant is never paid out at a
-      // stale one (the rate is always recomputed against the whole pool).
-      if (ship.levelRepairHp <= 0) ship.levelRepairRate = 0;
-    } else ship.repairHp -= paid;
+  /** Drain the PAID pool by its wall-clock budget. The pool decrements WHETHER
+   *  OR NOT the hp lands, so overflow past maxHp is lost rather than banked —
+   *  the ruled behavior. */
+  private static payRepair(ship: ShipRecord, budget: number): void {
+    const paid = Math.min(budget, ship.repairHp);
+    ship.repairHp -= paid;
     ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);
   }
 
-  /** Zero BOTH repair channels and the free channel's rate. ONE helper for the
-   *  three sites that end a hull's repair state (sink, redeploy, respawn), so a
-   *  future channel cannot be added to one of them and forgotten in the others. */
+  /**
+   * ONE TICK OF THE OUT-OF-COMBAT REGEN for a hull the caller has already found
+   * eligible (afloat, not a drone, past the window). Split out of tickRepairs
+   * for the complexity budget.
+   *
+   * THE SNAP TO FULL is not a rounding convenience: 1 % of MISSING is
+   * asymptotic and never reaches zero missing on its own, so without it HULL
+   * REPAIR's "full hull" refusal would be unreachable after any regen and the
+   * globe would read 349.9 forever. Under 1 hp missing, the hull is full.
+   */
+  private static tickRegen(ship: ShipRecord, dtMs: number): void {
+    const maxHp = ship.stats.maxHp;
+    const missing = maxHp - ship.hp;
+    if (missing <= 0) return;
+    if (missing < 1) ship.hp = maxHp;
+    else ship.hp += missing * CONFIG.regen.missingPctPerS * (dtMs / 1000);
+  }
+
+  /** Zero the repair pool. ONE helper for the three sites that end a hull's
+   *  repair state (sink, redeploy, respawn), so a future channel cannot be
+   *  added to one of them and forgotten in the others. */
   private static clearRepair(ship: ShipRecord): void {
     ship.repairHp = 0;
-    ship.levelRepairHp = 0;
-    ship.levelRepairRate = 0;
   }
 
   // `aliveHulls()` is GONE (Story 8.4): the one place hull silhouettes are
@@ -3943,7 +3884,8 @@ export class World {
    *       keeps its own `zoneStartT` gate at its caller.
    *   (c) THE SHIELD absorbs first, from every source (AR47, Eric). Always a
    *       no-op today — nothing sets `ship.shield` until Story 8.15.
-   *   (d) The overkill clamp and the ONE hp write. `dealt` is read BEFORE the
+   *   (d) The overkill clamp, the ONE hp write, and the COMBAT CLOCK stamp
+   *       (amendment 47 — one hook for every damage source, storm included). `dealt` is read BEFORE the
    *       write (Eric 2026-08-22: *"if i do 50 damage to someone with 1 HP
    *       left, i get 1 damage worth of XP"*), and the write subtracts `dealt`
    *       rather than the nominal amount, so hp floors at 0 instead of dipping
@@ -3967,6 +3909,12 @@ export class World {
     const net = this.absorbShield(victim, amount); // (c)
     const dealt = Math.max(0, Math.min(net, victim.hp)); // (d) overkill clamp, read BEFORE the write
     victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME
+    // (d) THE COMBAT CLOCK (amendment 47): every source that actually removed
+    // hp — shell, torpedo, mine, burn tick, STORM bite — resets the
+    // out-of-combat regen's 30 s wait, because every one of them passes through
+    // here. A blow fully eaten by a SHIELD BLOCK leaves `dealt` 0 and does NOT
+    // count as taking damage; dealing damage never counts at all.
+    if (dealt > 0) victim.lastDamagedAt = this.now;
     if (src !== 'storm' && byId !== undefined) this.creditDamage(byId, victim.id, net, dealt); // (e)
     this.reportDamage(victim, net, src, byId); // (f)+(g)
   }
@@ -4718,9 +4666,13 @@ export class World {
    * criteria for usability" — so all seven registry rows (gun, torpedo, mine,
    * broadside, starShells, speedBoost, radarBuoy) activate while SINKING exactly
    * as when alive, and a future row is in by default rather than needing a
-   * ruling. What a sinking captain loses is the ECONOMY — the upgrade menu,
-   * picks and the heal — which never routed through this gate at all (that
-   * block lives in spendPoint: "once sinking, you're done"). Only a hull
+   * ruling. What a sinking captain loses is the ECONOMY — the upgrade menu
+   * and its card picks — which never routed through this gate at all (that
+   * block lives in spendPoint: "once sinking, you're done"). A stocked HULL
+   * REPAIR is the deliberate edge of the fitment rule: the press DOES reach its
+   * row here, and the ROW refuses it (no hp ever comes back to a hull in the
+   * window), so the "afloat-only" rule has one home rather than a gate special
+   * case. Only a hull
    * whose life is OVER is refused ('dead'): defense-in-depth on a public seam
    * (fireControl/activationControl already skip the sunk). An empty or
    * out-of-range slot is answered here (empty-slot denial, no dereference) so
@@ -4839,7 +4791,33 @@ export class World {
       // R2.15 — keyed on the ACTIVATING ship, which is what makes the star-shell
       // gun reach OWN-FLARES-ONLY: a row cannot ask about anyone else's zones.
       ownLitZones: () => this.ownLiveLitZones(ship.id),
+      // Story 8.8 — HULL REPAIR's whole body, World-owned: the clamped instant
+      // hp, the paid pool, and the self-private `heal` cue. Keyed on the
+      // ACTIVATING ship, so a row can never repair anyone else.
+      applyRepair: (instantHp, regenHp) => this.applyRepair(ship, instantHp, regenHp),
     };
+  }
+
+  /**
+   * THE PAID REPAIR (Eric rulings 2026-08-04; the trigger became a CARD in
+   * Story 8.8) — reached ONLY through `ActivationContext.applyRepair`, i.e.
+   * only from HULL REPAIR's row, which owns the afloat / full-hull guards.
+   *
+   * `instantHp` lands now, clamped to maxHp; `regenHp` is ADDED to the pool.
+   * POOLS ADD, THE RATE NEVER CHANGES (the ratified anti-flask rule): a second
+   * copy makes the drain run twice as LONG, never twice as fast — which is
+   * exactly why this is a `+=` and there is no rate field to recompute.
+   *
+   * The `heal` cue is queued HERE rather than in the row, for the same reason
+   * `bn` is queued in spendPoint rather than inside applyBoon: the pending
+   * queue is World state, and a directed repair must not be event-free by
+   * accident. It is SELF-PRIVATE (signals.ts) and carries no amount — an
+   * observer can never learn that a hull is repairing.
+   */
+  private applyRepair(ship: ShipRecord, instantHp: number, regenHp: number): void {
+    ship.hp = Math.min(ship.hp + instantHp, ship.stats.maxHp);
+    ship.repairHp += regenHp;
+    this.pending.push({ k: 'heal', id: ship.id });
   }
 
   /**
@@ -5341,10 +5319,13 @@ export class World {
     // in the active match phase the dead spectate instead of respawning.
     this.recomputeBounty();
     // A fresh life never inherits an open boost window — nor a slow, a dazzle,
-    // or a DAMAGE CONTROL pool (sinkShip already zeroed them; kept symmetric
+    // or a HULL REPAIR pool (sinkShip already zeroed them; kept symmetric
     // for directed callers).
     ship.boostUntil = 0;
     World.clearRepair(ship);
+    // ...nor the dead life's combat clock: the returning hull waits the full
+    // out-of-combat window before it regens (amendment 47).
+    ship.lastDamagedAt = this.now;
     // ...nor a SHIELD BLOCK (Story 8.4 review, P5; sinkShip already nulled it,
     // kept symmetric here for directed callers).
     ship.shield = null;

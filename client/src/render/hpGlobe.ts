@@ -168,8 +168,9 @@ export function railSig(frac: number, pending = 0): string {
 }
 
 /**
- * Pure: DAMAGE CONTROL's INCOMING band as a fraction of the bowl (cycle 46). It
- * is what the still-draining regen pool (`OwnShip.repairHp`) can actually
+ * Pure: HULL REPAIR's INCOMING band as a fraction of the bowl (cycle 46; the
+ * pool is the HULL REPAIR card's since Story 8.8). It
+ * is what the still-draining paid pool (`OwnShip.repairHp`) can actually
  * deliver, so it is CLIPPED at the crown exactly as the server clamps the payout
  * at maxHp — a pool draining against a nearly-full hull shows only the part that
  * will land. Zero whenever there is no pool, no hull, or no room to heal into.
@@ -316,7 +317,8 @@ function flatten(pts: readonly PolyPoint[], c: Circle): number[] {
 export interface HpGlobeInput {
   hp: number;
   maxHp: number;
-  /** hp — DAMAGE CONTROL's still-draining regen pool (`OwnShip.repairHp`). */
+  /** hp — HULL REPAIR's still-draining paid pool (`OwnShip.repairHp`). The
+   *  out-of-combat regen has no pool and never paints a band. */
   repairHp: number;
   alive: boolean;
   /** Inside the five-second sinking window (Story 5.2's third state). */

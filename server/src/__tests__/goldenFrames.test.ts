@@ -22,8 +22,8 @@ import {
   isAfloat,
   transitionLifecycle,
   CONFIG,
+  CONSUMABLE_SLOTS,
   DEFAULT_DECKS,
-  HEAL_CHOICE,
   coverageHas,
   wrapPositive,
   type BallisticEvent,
@@ -844,22 +844,20 @@ function scnGunnery(g: Golden): void {
  * `gunnery-miss-own-splash`. */
 
 /**
- * DAMAGE CONTROL on the wire (Eric rulings 2026-08-04): `a` banks a level,
- * takes damage, and spends the heal. Its own frame carries the self-private
- * `heal` event and a live `you.repairHp`; `b` — a sighted neighbour hull-to-
- * hull with it — gets NEITHER, and the string `repairHp` appears nowhere in
- * b's serialized frame. A later frame proves the pool visibly drains on the
- * wire without any further event.
+ * HULL REPAIR on the wire (Eric rulings 2026-08-04; a CARD since Story 8.8):
+ * `a` takes damage and FIRES a stocked HULL REPAIR copy off its belt. Its own
+ * frame carries the self-private `heal` event and a live `you.repairHp`; `b` —
+ * a sighted neighbour hull-to-hull with it — gets NEITHER, and the string
+ * `repairHp` appears nowhere in b's serialized frame. A later frame proves the
+ * pool visibly drains on the wire without any further event.
  */
 function scnHeal(g: Golden): void {
   const w = bareWorld(1021);
   const a = place(w, 'a', 0, 0);
   place(w, 'b', 60, 0); // hull-to-hull: fully sighted, and still told nothing
-  place(w, 'z', 900, 900); // far away; sunk to bank `a` a level
-  w.sinkShip('z', 'a');
   a.hp -= 60;
-  a.offer = ['deckGunBarrel', 'reload', 'radarSweep', 'speed']; // fixed hand (content-stable)
-  expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
+  w.applyCard(a, 'hullRepair');
+  expect(w.sinkingActivationGate(a, CONSUMABLE_SLOTS[0])).toEqual({ ok: true });
   w.step();
   const fa = cap(g, w, 'a');
   const fb = cap(g, w, 'b');

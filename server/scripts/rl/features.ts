@@ -11,7 +11,7 @@
 // FEATURE_VERSION so a stale learner fails loudly instead of training on
 // scrambled inputs.
 
-import { CATALOG, CONFIG, HEAL_CHOICE, type GameEvent } from '@salvo/shared';
+import { CATALOG, CONFIG, type GameEvent } from '@salvo/shared';
 import type { ShipRecord, World } from '../../src/game/world.js';
 import type { PerceptionView } from '../../src/game/perception.js';
 
@@ -223,4 +223,3 @@ function writeBuild(out: Float32Array, at: number, me: ShipRecord): number {
   return at + CARD_IDS.length;
 }
 
-export { HEAL_CHOICE };

@@ -3,18 +3,22 @@
 // D2: the heal rule).
 //
 // PURE POLICY, ZERO AUTHORITY. Nothing here calls World. `chooseSpend()`
-// returns a `spendChoice` — an offer index, HEAL_CHOICE (-1), or null for "not
-// this tick" — and the driver is the only thing that turns that into the one
+// returns a `spendChoice` — an offer index, or null for "not this tick" — and
+// the driver is the only thing that turns that into the one
 // `world.spendPoint(botId, choice)` call per bot per tick, through the same
-// public entry point a human client's SpendMsg lands on.
+// public entry point a human client's SpendMsg lands on. IT NEVER RETURNS A
+// NEGATIVE: the reserved -1 heal sentinel left the wire in Story 8.8.
+//
+// THE HEAL IS NOT A SPEND ANY MORE (epic-8 amendments 46 + 49). Healing is a
+// CARD a bot draws, stocks in its belt and FIRES — so `healHpFrac` now gates
+// the belt press in ai/equipment.ts (CONSUMABLE_TACTICS), not this policy. A
+// hurt bot still scores a HULL REPAIR card at the ordinary consumable kind
+// base, deliberately: Story 8.18 owns retuning the scorer.
 //
 // THE SCORING, in order:
 //   1. Nothing banked → null. No offer materialized → null (a degenerate
-//      offer-less level still leaves the heal strip live, which is why the
-//      heal test comes first).
-//   2. hp/maxHp below the profile's healHpFrac → HEAL_CHOICE. A bot that
-//      keeps buying cards while sinking is a bot that dies with a full hand.
-//   3. Otherwise every offered LINE is scored: the profile's re-keyed per-line
+//      offer-less level has nothing to buy at all now).
+//   2. Every offered LINE is scored: the profile's re-keyed per-line
 //      override if it names that line, else its re-keyed category base, else
 //      the line's KIND base, else a low default. Ties break on offer index —
 //      deterministic, no rng (a `spend: 'random'` test profile is the only
@@ -78,7 +82,6 @@
 import {
   CATALOG,
   CONFIG,
-  HEAL_CHOICE,
   boonStackCount,
   type Catalog,
   type CatalogLine,
@@ -285,20 +288,16 @@ function bestOfferIndex(profile: BotProfile, s: BotSpendState, catalog: Catalog)
 }
 
 /**
- * THE SPEND DECISION: an offer index, HEAL_CHOICE, or null for no spend this
- * tick. Pure — no World, no clock, no rng. The driver acts on it.
- *
- * The heal test precedes the offer test deliberately: HEAL_CHOICE is spendable
- * with no materialized offer at all (World.spendPoint routes it before the
- * card path), so a hurt bot holding a degenerate offer-less level still gets
- * its damage control.
+ * THE SPEND DECISION: an offer index, or null for no spend this tick. NEVER
+ * negative (Story 8.8: the reserved -1 heal sentinel is gone from the wire, and
+ * World.spendPoint refuses every negative as malformed). Pure — no World, no
+ * clock, no rng. The driver acts on it.
  *
  * `rng` (Story 7-6 wave 4) is consumed ONLY by a `spend: 'random'` test
  * profile's uniform offer pick — the WEIGHTED path never touches it (a
  * weighted spend with an rng in hand is byte-identical to one without), so
  * every in-game profile's spend stays pure and rng-free exactly as shipped.
- * The heal rule above fires BEFORE the mode fork in both modes (ruled: the
- * card pick alone is randomized). A random profile handed no rng — only
+ * A random profile handed no rng — only
  * reachable from a hand-built test call, never from the driver, which always
  * threads the mind's spendRng — falls through to the weighted scorer rather
  * than inventing a fixed pick.
@@ -310,7 +309,6 @@ export function chooseSpend(
   rng?: Rng,
 ): number | null {
   if (s.bankedLevels <= 0) return null;
-  if (s.maxHp > 0 && s.hp / s.maxHp < profile.healHpFrac) return HEAL_CHOICE;
   if (s.offer === null || s.offer.length === 0) return null;
   if (profile.spend === 'random' && rng !== undefined) return rng.int(0, s.offer.length - 1);
   return bestOfferIndex(profile, s, catalog);

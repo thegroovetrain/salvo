@@ -58,15 +58,35 @@ describe('how-to-play copy', () => {
     }
   });
 
-  // The 2026-08-23 assist-split + auto-heal economy (CONFIG.xp.assistWindowMs
-  // / killerShare, CONFIG.damageControl.levelMissingPct): pins that BOTH new
-  // UPGRADING paragraphs survive, so a later edit cannot silently delete
-  // either one.
-  it('teaches the assist split and the auto-heal', () => {
+  // The 2026-08-23 assist split (CONFIG.xp.assistWindowMs / killerShare) and —
+  // since Story 8.8 (epic-8 amendment 46) — the OUT-OF-COMBAT REGEN that
+  // replaced the free per-level heal: pins that BOTH UPGRADING paragraphs
+  // survive, so a later edit cannot silently delete either one.
+  it('teaches the assist split and the out-of-combat regen', () => {
     const upgrading = HOWTO_SECTIONS.find((s) => s.heading === 'UPGRADING');
     const paragraphs = upgrading?.paragraphs ?? [];
     expect(paragraphs.some((p) => p.includes('A kill is shared'))).toBe(true);
-    expect(paragraphs.some((p) => p.includes('patches part of your missing hull'))).toBe(true);
+    expect(paragraphs.some((p) => p.includes('your hull slowly mends on its own'))).toBe(true);
+    // ...and it names the two halves of the rule Eric ruled: the wait, and what
+    // resets it.
+    const regen = paragraphs.find((p) => p.includes('your hull slowly mends on its own')) ?? '';
+    expect(regen).toContain('thirty seconds');
+    expect(regen).toContain('storm');
+  });
+
+  // STORY 8.8: healing is a CARD now. The UPGRADING copy must say so, and must
+  // no longer teach the deleted DAMAGE CONTROL level spend or its `5` key.
+  it('teaches HULL REPAIR as a card, and teaches no DAMAGE CONTROL spend', () => {
+    const upgrading = HOWTO_SECTIONS.find((s) => s.heading === 'UPGRADING');
+    const paragraphs = upgrading?.paragraphs ?? [];
+    expect(paragraphs.some((p) => p.includes('HULL REPAIR is a card too'))).toBe(true);
+    for (const section of HOWTO_SECTIONS) {
+      for (const p of section.paragraphs ?? []) expect(p.toUpperCase()).not.toContain('DAMAGE CONTROL');
+      for (const row of section.keys ?? []) {
+        expect(row.action.toUpperCase(), row.keys.join('/')).not.toContain('DAMAGE CONTROL');
+        expect(row.keys, section.heading).not.toContain('5');
+      }
+    }
   });
 
   // The netcode debug toggle ships to players but is a developer affordance, and

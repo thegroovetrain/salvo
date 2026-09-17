@@ -11,7 +11,7 @@
 // must be rejected at matchmake time after the 16→17 bump (Story 2.9).
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
+import { CONFIG, CONSUMABLE_SLOTS, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { protocolVersionError } from '../rooms/roomOptions.js';
@@ -109,6 +109,29 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
   });
 
+  it("blocked (full hull): a HULL REPAIR belt press at full hp denies {'blocked'} and spends no copy", () => {
+    // Story 8.8, on the ABILITY channel rather than the weapon one: the row's
+    // own refusal (not a gate refusal) has to reach the wire, because the
+    // client pre-denies the same case locally and the two must agree.
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.applyCard(a, 'hullRepair');
+    const belt = CONSUMABLE_SLOTS[0];
+    expect(a.hp).toBe(a.stats.maxHp);
+    w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
+    w.step();
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: belt, reason: 'blocked', seq: 1 }]);
+    // ONE SPEND LAW: the copy is still on the stack and still in the build.
+    expect(a.loadout[belt].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.cards).toContain('hullRepair');
+    // ...and hurt, the same press succeeds silently.
+    a.hp = a.stats.maxHp - 100;
+    w.submitInput('a', input(2, { actSeq: 2, actSlot: belt }));
+    w.step();
+    expect('denied' in buildFrame(w, 'a')).toBe(false);
+    expect(a.repairHp).toBe(CONFIG.hullRepair.regenHp);
+  });
+
   it("blocked (island): a MINE click onto a rock (Story 2.8 aimed placement) denies {'blocked'} and consumes NOTHING", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // heading 0 ⇒ rear sector centers on π
@@ -203,9 +226,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 51→52 bump (PV 52: NINE loadout slots — `OwnShip.ammo` widened to 9 and every input slot index moved) is enforced at matchmake', () => {
-  it('rejects pv-51 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(52);
+describe('pv join gate — the 52→53 bump (PV 53: `SpendMsg.choice` lost its -1 heal sentinel and HULL REPAIR stopped being a stub) is enforced at matchmake', () => {
+  it('rejects pv-52 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(53);
+    expect(protocolVersionError(52)).toMatch(/refresh/);
     expect(protocolVersionError(51)).toMatch(/refresh/);
     expect(protocolVersionError(50)).toMatch(/refresh/);
     expect(protocolVersionError(49)).toMatch(/refresh/);

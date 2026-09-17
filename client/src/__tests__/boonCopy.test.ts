@@ -133,14 +133,16 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
     expect(boonDescription(CATALOG.heavyTorpedo, TB)).toBe('Reload: 30.0 s → 30.0 s.');
   });
 
-  // THE STUB PIN (Eric ruling 2026-09-15, amendment 5): thirteen lines are
-  // authored in full shape with no mechanism behind them. They are excluded from
-  // every deck, so they can never be offered — but the card view must still
-  // render them FAIL-OPEN rather than throwing or going blank, because the
-  // catalog is wire contract and a stale client could see one.
+  // THE STUB PIN (Eric ruling 2026-09-15, amendment 5): lines authored in full
+  // shape with no mechanism behind them. They are excluded from every deck, so
+  // they can never be offered — but the card view must still render them
+  // FAIL-OPEN rather than throwing or going blank, because the catalog is wire
+  // contract and a stale client could see one. THIRTEEN at 8.7; TWELVE since
+  // Story 8.8 flipped `hullRepair`'s stub, which is the number to move as each
+  // content story lands.
   it('renders every STUB line fail-open: a name, a kind word, no explanation', () => {
     const stubs = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.stub === true);
-    expect(stubs).toHaveLength(13);
+    expect(stubs).toHaveLength(12);
     for (const line of stubs) {
       expect(boonName(line.id), line.id).toBe(boonName(line.id).toUpperCase());
       expect(boonKindLabel(line.kind), line.id).not.toBe('');
@@ -219,7 +221,9 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
   const NO_EXPLANATION: readonly string[] = [
     'turning', 'deckGun', // new in v3: no v2 line whose text could be carried over
     'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
-    'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
+    // `hullRepair` left this list in Story 8.8 — the first consumable with a
+    // mechanism to explain.
+    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
   ];
 
   it('writes a real explanation for every line whose mechanism exists', () => {

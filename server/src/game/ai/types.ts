@@ -153,9 +153,9 @@ export interface BotWorldPort {
    *  setter). Returns false when the message was dropped. */
   submitInput(id: string, raw: unknown): boolean;
   /** THE ONE ECONOMY PATH: consume a banked level through the public spend
-   *  entry point (a card index, or HEAL_CHOICE). At most one call per bot
-   *  per tick; false is non-fatal. Driven by ai/spending.ts's doctrine-
-   *  weighted pick policy + the healHpFrac rule. */
+   *  entry point (a card index — never a negative since Story 8.8). At most
+   *  one call per bot per tick; false is non-fatal. Driven by ai/spending.ts's
+   *  doctrine-weighted pick policy. */
   spendPoint(id: string, rawChoice: unknown): boolean;
 }
 
@@ -334,8 +334,9 @@ export interface BotDecision {
   /** Loadout slot to activate (ability press), or null. A non-null value
    *  advances the mind's actSeq exactly once. */
   actSlot: number | null;
-  /** Spend a banked level: an offer index, HEAL_CHOICE, or null for no spend.
-   *  Only ever non-null on a deliberation tick (the decision cadence). */
+  /** Spend a banked level: an offer index, or null for no spend. Never
+   *  negative (Story 8.8 retired the -1 heal sentinel). Only ever non-null on
+   *  a deliberation tick (the decision cadence). */
   spendChoice: number | null;
 }
 

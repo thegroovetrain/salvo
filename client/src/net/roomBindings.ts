@@ -1246,10 +1246,11 @@ function handleHitCall(e: HitCallEvent, f: FrameMsg, deps: RoomBindingDeps, s: B
 }
 
 /** Self-private reward events: the banked level, the fitted boon, and (cycle
- *  44) the DAMAGE CONTROL heal. (The 'heal' row left the wire with the
- *  interregnum REPAIR spend — Story 2.1, PV 12 — and comes back at PV 23 as the
- *  always-available rail's confirmation; the killer-private 'upg' grant left
- *  with the legacy upgrade strip — Story 2.8, PV 16.) */
+ *  44) the heal. (The 'heal' row left the wire with the interregnum REPAIR
+ *  spend — Story 2.1, PV 12 — came back at PV 23 as the DAMAGE CONTROL rail's
+ *  confirmation, and since Story 8.8 confirms a HULL REPAIR copy fired out of
+ *  the belt; the killer-private 'upg' grant left with the legacy upgrade strip
+ *  — Story 2.8, PV 16.) */
 function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   switch (e.k) {
     case 'pt': handlePoint(e, f, deps); return;

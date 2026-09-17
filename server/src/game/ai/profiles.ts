@@ -99,8 +99,9 @@ export interface BotProfile {
    *  CONFIG.bots.disengageHpFrac; overridden where the profile's identity
    *  demands it (bulwark trades far longer, raider leaves far earlier). */
   disengageHpFrac: number;
-  /** hp fraction below which a banked level buys DAMAGE CONTROL instead of a
-   *  card. Defaults to CONFIG.bots.healHpFrac. */
+  /** hp fraction below which this bot FIRES a stocked HULL REPAIR from its
+   *  belt (epic-8 amendment 49 — it gated the retired -1 heal spend until
+   *  Story 8.8). Defaults to CONFIG.bots.healHpFrac. */
   healHpFrac: number;
   /**
    * THE APPETITE TABLE (Eric ruling 2026-08-20) — how PROACTIVELY this
@@ -176,7 +177,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     bandMaxFrac: 0.4,
     targetWeights: { captain: 1.2, fleet: 0.9, damaged: 1.0, isolated: 0.4 },
     disengageHpFrac: 0.22, // trades far longer than any other profile
-    healHpFrac: 0.6, // and tops off sooner, because HP IS its plan
+    healHpFrac: 0.6, // and repairs sooner, because HP IS its plan
     // Bulwark CARRIES star shells and now genuinely uses them — reluctantly
     // (above neutral, below eager: it waits for a plot to go properly cold
     // before spending a 20s flare). The old usesStarShells: false was the
@@ -224,7 +225,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // (C3: clear fleet groups for the level lead, avoid captains early).
     targetWeights: { captain: 0.5, fleet: 2.0, damaged: 0.8, isolated: 0.6 },
     disengageHpFrac: 0.55, // the EARLIEST break-off in the game — see above
-    healHpFrac: 0.6, // and tops off early: boons are its plan, hp buys them
+    healHpFrac: 0.6, // and repairs early: boons are its plan, hp buys the time
     // A farmer, not a layer: the mine sits barely above neutral (reactive —
     // it answers a closing chaser, not trapper's standing plan; holding the
     // CAPTIVE doctrine opens the prepared lay at this tier, but that lives

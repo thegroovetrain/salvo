@@ -7,19 +7,14 @@
 // release predicate + its new outcome classifier. jsdom.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CATALOG, CONFIG, HEAL_CHOICE, effectiveStats, type OwnShip } from '@salvo/shared';
+import { CATALOG, CONFIG, type OwnShip } from '@salvo/shared';
 import {
-  HEAL_LABEL,
-  HEAL_STATUS_FULL,
-  HEAL_STATUS_SUNK,
   SLOTS_FULL,
   SPEND_LATCH_TIMEOUT_MS,
   UpgradeMenu,
   canLatchSpend,
   cardGreyed,
   frontOfferSignature,
-  healReadout,
-  healView,
   offerView,
   refitBandLayout,
   spendLatchReleased,
@@ -29,7 +24,7 @@ import {
   type RefitBox,
   type SpendLatch,
 } from '../ui/upgradeMenu.js';
-import { MICRO_VAR, domMicroScale, refitStripInnerBox, refitStripMetrics } from '../ui/refitCardFit.js';
+import { MICRO_VAR, domMicroScale } from '../ui/refitCardFit.js';
 import {
   boonFitToastLine,
   boonKindLabel,
@@ -60,12 +55,6 @@ function ownShip(over: Partial<OwnShip> = {}): OwnShip {
     ...over,
   };
 }
-
-/** The own hull's max HP through the SAME derivation the strip uses (the
- *  shared effectiveStats firewall) — never a literal, so a class retune can
- *  never leave these tests asserting a stale full-hull number. */
-const maxHpOf = (cls: OwnShip['cls'], boons: readonly string[] = []): number =>
-  effectiveStats(CONFIG.shipClasses[cls], [...boons]).maxHp;
 
 // --- band geometry --------------------------------------------------------------
 //
@@ -113,13 +102,14 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     it(`hangs exactly barGap above the HUD bar's top edge at ${name}`, () => {
       // EPIC-8 AMENDMENT 36 (Eric, 2026-09-17) replaced the viewport-fraction
       // anchor with UX-DR53's rule — row bottom = hud-bar top − 8px — applied to
-      // the band's LOWEST edge while the DAMAGE CONTROL strip still hangs under
-      // the row (Story 8.8 deletes it). The below-centre own-hull keep-out is
-      // WAIVED by the same ruling, so the old `band.y > h/2` pin is gone; what
-      // replaces it is the property that actually matters now.
+      // the band's LOWEST edge. Story 8.8 deleted the DAMAGE CONTROL strip that
+      // used to hang under the row, so that edge is THE CARD ROW'S BOTTOM. The
+      // below-centre own-hull keep-out is WAIVED by the same ruling, so the old
+      // `band.y > h/2` pin is gone; what replaces it is the property that
+      // actually matters now.
       const L = refitBandLayout(w, h);
       const bar = hudBarLayout(w, h).bar;
-      expect(L.strip.y + L.strip.h).toBe(L.band.y + L.band.h); // the strip IS the lowest edge
+      expect(L.row.y + L.row.h).toBe(L.band.y + L.band.h); // the CARD ROW is the lowest edge
       expect(L.band.y + L.band.h).toBe(bar.y - R.barGap);
       expect(overlaps(L.band, bar)).toBe(false);
       // Waived is not unbounded: the band may now start above the screen centre
@@ -157,14 +147,14 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     }
   });
 
-  // --- THE DAMAGE CONTROL RAIL (cycle 46) --------------------------------------
+  // --- THE UNTOUCHABLE ROW -----------------------------------------------------
   //
-  // THE REGRESSION PIN THAT MATTERS MOST. The heal is a SIBLING of the row, not
-  // a fifth card: the four cards stay 216px, the gaps stay 20px, the row stays
-  // exactly 924px, and CONFIG.offer.size stays 4 — with the rail present. A
-  // five-card row would be 1160px, leaving 60px of margin at the 1280×614
+  // THE REGRESSION PIN THAT MATTERS MOST. The four cards stay 216px, the gaps
+  // stay 20px, the row stays exactly 924px, and CONFIG.offer.size stays 4 —
+  // through the cycle-46 rail's whole life and through Story 8.8's deletion of
+  // it. A five-card row would be 1160px, leaving 60px of margin at the 1280×614
   // logical floor and superseding the ratified UX-DR14 geometry outright.
-  it('leaves the four-card row BYTE-IDENTICAL with the rail present (the untouchable row)', () => {
+  it('leaves the four-card row BYTE-IDENTICAL (the untouchable row)', () => {
     for (const { name, w, h } of FLOORS) {
       const L = refitBandLayout(w, h);
       expect(CONFIG.offer.size, name).toBe(4);
@@ -195,7 +185,7 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
   // constraints — it HANGS off the HUD bar, so there is exactly one number to
   // pin and it is an equality rather than a pair of inequalities:
   //
-  //   band bottom (the DAMAGE CONTROL strip's) === hudBarLayout().bar.y − barGap
+  //   band bottom (the CARD ROW's, since Story 8.8) === hudBarLayout().bar.y − barGap
   //
   // The own-hull keep-out that boxed the old anchor in from above is WAIVED by
   // the same ruling, and the container-fit law from below is now satisfied BY
@@ -211,21 +201,22 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
       const L = refitBandLayout(w, h);
       expect(hudBarLayout(w, h).bar.y, name).toBe(barTop);
       expect(L.band.y + L.band.h, name).toBe(bandBottom);
-      expect(L.strip.y + L.strip.h, name).toBe(bandBottom);
+      expect(L.row.y + L.row.h, name).toBe(bandBottom);
       expect(L.band.y, `${name}: band ${-L.band.y}px off the top of the screen`).toBeGreaterThanOrEqual(0);
       expect(L.band.y + L.band.h, name).toBeLessThanOrEqual(h);
     }
-    // The floor case, to the pixel. STORY 8.7 re-cut the CARD from 236 to the
-    // ratified 226, so the band is 290px (18 pips + 226 card + 6 seam + 40
-    // rail): ending at 452 it now starts at 162 rather than 152. The ANCHOR is
-    // unchanged (amendment 36) — a shorter card simply leaves more clear water
-    // above the band, which is what the tooltip's amendment-37 flip spends.
+    // The floor case, to the pixel. STORY 8.8 DELETED THE RAIL AND ITS SEAM, so
+    // the band is 244px (18 pips + 226 card) rather than 290: ending at 452 it
+    // now starts at 208 rather than 162, and the card row's own bottom IS the
+    // anchored edge. The ANCHOR is unchanged (amendment 36) — a shorter band
+    // simply leaves more clear water above it, which is what the tooltip's
+    // amendment-37 flip spends.
     const F = refitBandLayout(1280, 614);
-    expect(F.band.h).toBe(R.pipsAbove + R.cardHeight + R.stripGap + R.stripHeight);
-    expect(F.band.h).toBe(290);
-    expect(F.band.y).toBe(162);
-    expect(F.row.y).toBe(180);
-    expect(F.strip.y).toBe(412);
+    expect(F.band.h).toBe(R.pipsAbove + R.cardHeight);
+    expect(F.band.h).toBe(244);
+    expect(F.band.y).toBe(208);
+    expect(F.row.y).toBe(226);
+    expect(F.row.y + F.row.h).toBe(452);
   });
 
   // THE SCALED-TIER FIT — the case the logical-floor pins above cannot see, and
@@ -261,65 +252,6 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
         expect(L.band.y * f, `${label}: band ${(-L.band.y * f).toFixed(1)}px off the top`).toBeGreaterThanOrEqual(0);
       }
     }
-  });
-
-  // The rail must READ as choosable, which is a type-and-padding property, not a
-  // box-size one (Eric, cycle 47: "big enough to actually register as 'this is
-  // something I can choose' on all viewports"). These are the three marks that
-  // were below the line in cycle 46.
-  it('carries card-grade type, the family key chip, and real vertical padding', () => {
-    expect(R.stripFontSize, 'below amendment 15 legibility floor').toBeGreaterThanOrEqual(14);
-    expect(R.stripFontSize * 0.9, 'below the 9px mono floor at the 90% tier').toBeGreaterThanOrEqual(9);
-    expect(R.stripKeyChip, 'not the ONE key-chip family size').toBe(R.keyChip);
-    expect(R.stripPadY, 'the rail has no vertical padding').toBeGreaterThan(0);
-    // The chip is the tallest mark, so it — plus its padding and borders — IS
-    // the rail height. A mismatch here means the box and its contents disagree.
-    expect(R.stripHeight).toBe(R.stripKeyChip + 2 * R.stripPadY + 2);
-  });
-
-  it('hangs the rail BELOW the row, exactly as wide, never overlapping a card', () => {
-    const L = refitBandLayout(1366, 768);
-    expect(L.strip.y).toBe(L.row.y + L.row.h + R.stripGap);
-    expect(L.strip.y).toBeGreaterThanOrEqual(L.row.y + L.row.h); // strictly below
-    expect(L.strip.x).toBe(L.row.x);
-    expect(L.strip.w).toBe(L.row.w);
-    expect(L.strip.h).toBe(R.stripHeight);
-    for (const c of L.cards) expect(overlaps(L.strip, c)).toBe(false);
-    // The band now covers the rail too — the keep-out checks measure the whole
-    // thing, so nothing can be laid out over a strip the band forgot to declare.
-    expect(L.band.y + L.band.h).toBe(L.strip.y + L.strip.h);
-  });
-
-  // THE CONTAINER-FIT LAW (amendment 47) at both ratified floors. In cycle 46
-  // this was the constraint the rail's whole geometry was DERIVED from — the
-  // card row ended 22px above the 1280×614 viewport edge and the rail had to
-  // live in that 22px, which is what produced the 16px seam Eric rejected on
-  // sight. Cycle 47 inverted the dependency: the rail is a ruled 40px and the
-  // band anchor absorbs the cost, so this check is now a GUARD on the anchor
-  // rather than the derivation of the rail.
-  for (const { name, w, h } of FLOORS) {
-    it(`fits the rail inside the viewport with nothing clipped at ${name}`, () => {
-      const L = refitBandLayout(w, h);
-      expect(L.strip.y + L.strip.h, `${name}: rail clipped off the bottom`).toBeLessThanOrEqual(h);
-      expect(L.band.y + L.band.h, `${name}: band clipped off the bottom`).toBeLessThanOrEqual(h);
-      expect(L.strip.x, name).toBeGreaterThanOrEqual(0);
-      expect(L.strip.x + L.strip.w, name).toBeLessThanOrEqual(w);
-    });
-  }
-
-  it('fits every mark INSIDE the rail box (the horizontal half of the law)', () => {
-    // Measured from the live copy, which prints CONFIG.damageControl's own
-    // numbers — a retune of the ruling moves the string and this pin with it.
-    const worst = { key: '5', label: HEAL_LABEL, readout: healReadout(), status: HEAL_STATUS_FULL };
-    const m = refitStripMetrics(worst);
-    expect(m.overflowX, `rail content overflows by ${m.overflowX}px`).toBeLessThanOrEqual(0);
-    expect(m.overflowY, `rail content is ${m.overflowY}px taller than its box`).toBeLessThanOrEqual(0);
-    expect(refitStripInnerBox().w).toBeLessThan(924); // the box is the ROW's, minus chrome
-    // The inner box must SUBTRACT the vertical padding, not just the borders.
-    // Without this the model reports a comfortable −16px overflowY on a rail
-    // whose marks actually sit in the padding — a false pass, which is exactly
-    // the failure mode a fit model exists to prevent.
-    expect(refitStripInnerBox().h).toBe(R.stripHeight - 2 * (R.stripPadY + 1));
   });
 
   // THE OVERLAP IS GONE — the pin that used to ratify it now forbids it.
@@ -502,75 +434,6 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   });
 });
 
-// --- healView: the DAMAGE CONTROL rail's pure state ------------------------------
-
-describe('healView — the rail is ARMED only where the server would honor the pick', () => {
-  it('is ARMED on a damaged, living hull, with no status word', () => {
-    const h = healView(ownShip({ hp: 80 }), false);
-    expect(h.state).toBe('armed');
-    expect(h.status).toBe(''); // the ABSENCE of a word is the armed channel
-    expect(h.label).toBe('DAMAGE CONTROL');
-  });
-
-  it('is INERT at exactly full HP — the server rejects it and banks the level', () => {
-    const full = maxHpOf('torpedoBoat');
-    expect(healView(ownShip({ hp: full }), false).state).toBe('inert');
-    expect(healView(ownShip({ hp: full }), false).status).toBe(HEAL_STATUS_FULL);
-    // ...and one point below full is still spendable (the guard is `>=`, and
-    // an overflowing heal is ruled to waste the remainder, not to be refused).
-    expect(healView(ownShip({ hp: full - 1 }), false).state).toBe('armed');
-  });
-
-  it('reads full HP through effectiveStats — a fitted hull line MOVES the threshold', () => {
-    const cards = ['armor', 'armor'];
-    const base = maxHpOf('torpedoBoat');
-    const grown = maxHpOf('torpedoBoat', cards);
-    expect(grown).toBeGreaterThan(base); // the card ladder really does move it
-    // At the BASE max with a grown hull the ship is damaged: armed, not inert.
-    expect(healView(ownShip({ hp: base, cards }), false).state).toBe('armed');
-    expect(healView(ownShip({ hp: grown, cards }), false).state).toBe('inert');
-  });
-
-  it('is INERT on a dead hull, and with no own ship at all', () => {
-    expect(healView(ownShip({ alive: false, hp: 0 }), false).state).toBe('inert');
-    expect(healView(ownShip({ alive: false, hp: 0 }), false).status).toBe(HEAL_STATUS_SUNK);
-    expect(healView(null, false).state).toBe('inert');
-    expect(healView(undefined, false).state).toBe('inert');
-  });
-
-  it('is INERT while a spend is in flight — transient, so it names no reason', () => {
-    const h = healView(ownShip({ hp: 80 }), true);
-    expect(h.state).toBe('inert');
-    expect(h.status).toBe('');
-  });
-
-  it('prints the amounts from CONFIG.damageControl, never a hardcoded 25/25/5', () => {
-    const dc = CONFIG.damageControl;
-    const line = healReadout();
-    // Cycle 47 moved the voice from a stat line to a sentence (Eric: "Restores
-    // 25 HP now and 25 HP/5s or something") — the pin is that the NUMBERS still
-    // come from config, which is what a retune of the ruling has to keep moving.
-    expect(line).toBe(`RESTORES ${dc.instantHp} HP NOW AND ${dc.regenHp} HP OVER ${dc.regenMs / 1000}S`);
-    expect(line).toContain(`${dc.instantHp} HP`);
-    expect(line).toContain(`${dc.regenHp} HP`);
-    expect(line).toContain(`${dc.regenMs / 1000}S`);
-  });
-
-  it('never echoes the shipHull ladder\'s vocabulary in its label', () => {
-    // "HULL" belongs to the +maxHp card line; the rail must not borrow it.
-    expect(HEAL_LABEL).toBe('DAMAGE CONTROL');
-    expect(HEAL_LABEL).not.toContain('HULL');
-  });
-
-  it('rides offerView as a SIBLING of the cards, never as a fifth option', () => {
-    const v = offerView(ownShip({ hp: 80 }), false, false, false);
-    expect(v?.options).toHaveLength(CONFIG.offer.size);
-    expect(v?.options.map((o) => o.id)).toEqual(OFFER); // no heal entry among them
-    expect(v?.heal.state).toBe('armed');
-    expect(offerView(ownShip({ hp: maxHpOf('torpedoBoat') }), false, false, false)?.heal.state).toBe('inert');
-  });
-});
-
 // --- DOM adapter -----------------------------------------------------------------
 
 describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
@@ -596,17 +459,14 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     }));
 
   const view = (over: Partial<OfferView> = {}): OfferView => ({
-    pts: 1, options: cardsOf(OFFER), locked: false, heal: healView(ownShip(), false), ...over,
+    pts: 1, options: cardsOf(OFFER), locked: false, ...over,
   });
 
-  /** The CARDS — scoped to the row, deliberately. The DAMAGE CONTROL rail is a
-   *  button too, and it is the band's SIBLING of the row, not a member of it:
-   *  a query that swept it up with the cards would be the very conflation the
-   *  strip exists to avoid. */
+  /** The CARDS — scoped to the row, deliberately: the panel also holds the pip
+   *  strip and the one hover tooltip, neither of which is a card. */
   function cards(): HTMLButtonElement[] {
     return [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
   }
-  const strip = (): HTMLButtonElement => document.getElementById('refit-damage-control') as HTMLButtonElement;
   function pips(): HTMLElement[] {
     const strip = document.querySelector('#upgrade-menu > div');
     return [...(strip?.children ?? [])] as HTMLElement[];
@@ -980,108 +840,6 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(cards()[1].style.borderColor).toBe('var(--hc-denied)');
   });
 
-  // --- THE DAMAGE CONTROL RAIL, in the DOM ------------------------------------
-
-  it('renders ONE rail below the row — never a fifth card in it', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    expect(cards()).toHaveLength(4);
-    expect(document.querySelectorAll('#refit-damage-control')).toHaveLength(1);
-    // The rail is the PANEL's third child (pips, row, rail) — outside the row.
-    // Story 7-5 wave 2 (R2.17) adds a FOURTH: the one hover tooltip, built with
-    // the panel and never rebuilt, deliberately last so it paints over the row.
-    const panel = document.getElementById('upgrade-menu')!;
-    expect(panel.children).toHaveLength(4);
-    expect(panel.children[2]).toBe(strip());
-    expect(panel.children[3]?.id).toBe('refit-card-tooltip');
-    expect(strip().parentElement).toBe(panel);
-    expect(strip().textContent).toContain(HEAL_LABEL);
-    expect(strip().textContent).toContain(healReadout());
-    expect((strip().firstElementChild as HTMLElement).textContent).toBe('5'); // the key chip
-  });
-
-  it('routes a rail click to HEAL_CHOICE — the same path digit 5 takes', () => {
-    const spends: number[] = [];
-    const menu = new UpgradeMenu((c) => spends.push(c));
-    menu.toggle(view());
-    strip().click();
-    expect(spends).toEqual([HEAL_CHOICE]);
-    expect(HEAL_CHOICE).toBe(-1); // never an index into the offer
-  });
-
-  it('the rail never retains focus: mousedown is prevented and click blurs', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    const el = strip();
-    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
-    expect(el.dispatchEvent(down)).toBe(false); // preventDefault — focus never taken
-    el.focus();
-    el.click();
-    expect(document.activeElement).not.toBe(el);
-  });
-
-  it('renders INERT dual-coded: dimmed AND disabled AND carrying the reason word', () => {
-    const spends: number[] = [];
-    const menu = new UpgradeMenu((c) => spends.push(c));
-    menu.toggle(view({ heal: healView(ownShip({ hp: maxHpOf('torpedoBoat') }), false) }));
-    expect(strip().disabled).toBe(true);
-    expect(strip().style.opacity).toBe(String(R.lockedAlpha));
-    expect(strip().textContent).toContain(HEAL_STATUS_FULL); // never hue alone
-    strip().click();
-    expect(spends).toEqual([]); // a disabled rail fires nothing
-  });
-
-  it('live-swaps between armed and inert without rebuilding the rail', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    const el = strip();
-    expect(el.disabled).toBe(false);
-    menu.update(view({ heal: healView(ownShip({ alive: false, hp: 0 }), false) }));
-    expect(strip()).toBe(el); // the same node — the rail is never drawn or discarded
-    expect(el.disabled).toBe(true);
-    expect(el.textContent).toContain(HEAL_STATUS_SUNK);
-    menu.update(view());
-    expect(el.disabled).toBe(false);
-    expect(el.textContent).not.toContain(HEAL_STATUS_SUNK);
-  });
-
-  it('arms amber on hover and drops back on leave (the card grammar, one line high)', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    strip().dispatchEvent(new MouseEvent('mouseenter'));
-    expect(strip().style.borderColor).toBe('var(--hc-amber)');
-    expect(strip().style.boxShadow).toContain('var(--hc-amber)');
-    strip().dispatchEvent(new MouseEvent('mouseleave'));
-    expect(strip().style.borderColor).toBe('var(--hc-hairline)');
-  });
-
-  it('fires the SAME 80ms denied pulse on the rail for a rejected heal', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    menu.pulseDenied(HEAL_CHOICE, 1000);
-    expect(menu.deniedActive(1000)).toBe(true);
-    expect(strip().style.borderColor).toBe('var(--hc-denied)');
-    expect(cards()[0].style.borderColor).not.toBe('var(--hc-denied)'); // cards untouched
-    expect(menu.deniedActive(1000 + R.deniedPulseMs)).toBe(false);
-  });
-
-  it('a lit rail pulse survives a card-row rebuild (the rail outlives every offer)', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view({ pts: 2 }));
-    menu.pulseDenied(HEAL_CHOICE, 1000);
-    menu.update(view({ pts: 1, options: cardsOf(OFFER_B) }));
-    expect(menu.deniedActive(1000)).toBe(true);
-    expect(strip().style.borderColor).toBe('var(--hc-denied)');
-  });
-
-  it('a hover cannot paint a lit rail refusal away mid-pulse', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    menu.pulseDenied(HEAL_CHOICE, 1000);
-    strip().dispatchEvent(new MouseEvent('mouseenter'));
-    expect(strip().style.borderColor).toBe('var(--hc-denied)');
-  });
-
   it('closing the band drops a LIT denied edge (a reopened band starts at rest)', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view());
@@ -1099,7 +857,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   // survives every existing gate (shown, motion, the 300ms same-source floor).
   // A 'degrade' verdict must never delete the mark: the border still snaps to
   // the denied color for the pulse's full life; only the box-shadow glow drops
-  // to its flat rest value ('none', same vocabulary as paintCard/paintStrip).
+  // to its flat rest value ('none', same vocabulary as paintCard).
 
   describe('the flash-budget claim on pulseDenied', () => {
     const fakeBudget = (verdict: FlashVerdict): FlashBudget => ({
@@ -1131,14 +889,6 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       expect(menu.deniedActive(1000)).toBe(true); // still counts as lit
       expect(cards()[2].style.borderColor).toBe('var(--hc-denied)'); // still marked denied
       expect(cards()[2].style.boxShadow).toBe('none'); // the flat state: no glow
-    });
-
-    it('a DEGRADED denial still marks the DAMAGE CONTROL RAIL the same way', () => {
-      const menu = new UpgradeMenu(() => {}, fakeBudget('degrade'));
-      menu.toggle(view());
-      menu.pulseDenied(HEAL_CHOICE, 1000);
-      expect(strip().style.borderColor).toBe('var(--hc-denied)');
-      expect(strip().style.boxShadow).toBe('none');
     });
 
     it('under-budget (animate) renders the full glow — byte-identical to today', () => {

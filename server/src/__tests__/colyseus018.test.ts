@@ -165,19 +165,19 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 51 and admits 52', () => {
-  it('PROTOCOL_VERSION is 52', () => {
-    // Story 8.5 bumped 51 -> 52: the loadout went to NINE slots, so
-    // `OwnShip.ammo` widened from 4 entries to 9 and every slot index on the
-    // input channel moved with it.
-    expect(PROTOCOL_VERSION).toBe(52);
+describe('the PV join gate refuses 52 and admits 53', () => {
+  it('PROTOCOL_VERSION is 53', () => {
+    // Story 8.8 bumped 52 -> 53: `SpendMsg.choice` lost its reserved -1 heal
+    // sentinel (HEAL_CHOICE) and the boon catalog changed content (HULL REPAIR
+    // stopped being a stub), both of which are wire contract.
+    expect(PROTOCOL_VERSION).toBe(53);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 51 is the one that matters: a client built one story before this one
-    // sends Q on slot 1 and reads a 4-entry `ammo`.
+    // 52 is the one that matters: a client built one story before this one
+    // still has a `5` key that sends choice -1.
+    expect(protocolVersionError(52)).toMatch(/refresh/i);
     expect(protocolVersionError(51)).toMatch(/refresh/i);
-    expect(protocolVersionError(50)).toMatch(/refresh/i);
   });
 
   it('refuses a missing pv', () => {
@@ -185,12 +185,12 @@ describe('the PV join gate refuses 51 and admits 52', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(53)).toMatch(/refresh/i);
+    expect(protocolVersionError(54)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(52)).toBeNull();
+    expect(protocolVersionError(53)).toBeNull();
   });
 });
 

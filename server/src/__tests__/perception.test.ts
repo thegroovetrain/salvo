@@ -37,7 +37,7 @@ import {
   isSinking,
   CATALOG,
   CONFIG,
-  HEAL_CHOICE,
+  CONSUMABLE_SLOTS,
   HORN_IDS,
   bearing,
   coverageHas,
@@ -1857,12 +1857,13 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   if (f.you) {
     expect(f.you.lvl).toBe(me.level);
     expect(f.you.xp).toBeCloseTo(me.xpMs / CONFIG.xp.levelMs, 12);
-    // DAMAGE CONTROL (2026-08-04): the regen pool is self-private on the
-    // boostUntil terms — the OBSERVER'S OWN value on `you`, and nothing else's.
-    // BOTH CHANNELS since 2026-08-23 (the free per-level auto-heal got its own
-    // pool): the field means "hp still owed", which is the sum. The privacy
-    // claim is unchanged and is what the structural pin below still enforces.
-    expect(f.you.repairHp).toBe(me.repairHp + me.levelRepairHp);
+    // HULL REPAIR (2026-08-04; a CARD since Story 8.8): the paid regen pool is
+    // self-private on the boostUntil terms — the OBSERVER'S OWN value on `you`,
+    // and nothing else's. The free per-level channel that used to be summed in
+    // here is gone (epic-8 amendment 46); the out-of-combat regen that replaced
+    // it has no pool at all. The privacy claim is unchanged and is what the
+    // structural pin below still enforces.
+    expect(f.you.repairHp).toBe(me.repairHp);
   }
   // THE STRUCTURAL PIN: `repairHp` may exist NOWHERE in a frame except `you`,
   // and the string must be absent entirely from any frame that has no `you`
@@ -3429,16 +3430,17 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             hornSeq: tick === 1 || rng.float(0, 1) < 0.3 ? tick : 0,
           });
         }
-        // DAMAGE CONTROL (2026-08-04): drive REAL heal spends through the fuzz
-        // so the self-private `heal` row and the repairHp pin are exercised
-        // rather than vacuous — ~25% of ticks a random hull takes a scratch,
-        // banks a level, and converts it. (The spend fails closed on a full or
-        // dead hull; either outcome is a legal world state to verify.)
+        // HULL REPAIR (a CARD since Story 8.8): drive REAL heals through the
+        // fuzz so the self-private `heal` row and the repairHp pin are
+        // exercised rather than vacuous — ~25% of ticks a random hull takes a
+        // scratch, stocks a copy and fires it from the belt. (The row fails
+        // closed on a full or non-afloat hull; either outcome is a legal world
+        // state to verify.)
         if (rng.float(0, 1) < 0.25) {
           const patient = w.ships.get(ids[rng.int(0, ids.length - 1)])!;
           patient.hp = Math.max(1, patient.hp - rng.float(10, 60));
-          w.grantXp(patient, 1);
-          w.spendPoint(patient.id, HEAL_CHOICE);
+          w.applyCard(patient, 'hullRepair');
+          w.sinkingActivationGate(patient, CONSUMABLE_SLOTS[0]);
         }
         w.step();
         // Build each observer's frame exactly once per tick (wire semantics).

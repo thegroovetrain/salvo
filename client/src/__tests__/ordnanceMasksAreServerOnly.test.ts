@@ -62,13 +62,14 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     expect(offenders).toEqual([]);
   });
 
-  // Story 8.5 MOVED THIS NUMBER, and moved it for a reason this pin is happy
-  // with: the nine-slot re-cut widened `OwnShip.ammo` from four entries to nine,
-  // which is a wire-contract change and bumped PROTOCOL_VERSION 51 → 52. The
-  // ordnance MASK is still server-only — that is what the three scans above
-  // assert, and they are the substance of this file. This line only witnesses
-  // that a bump, when it happens, happens deliberately.
-  it('PROTOCOL_VERSION is 52 — bumped by Story 8.5s nine-slot ammo array, not by masks', () => {
-    expect(PROTOCOL_VERSION).toBe(52);
+  // TWO STORIES HAVE MOVED THIS NUMBER, each for a reason this pin is happy
+  // with: Story 8.5's nine-slot re-cut widened `OwnShip.ammo` from four entries
+  // to nine (51 → 52), and Story 8.8 deleted the `HEAL_CHOICE` wire sentinel and
+  // made `hullRepair` a dealable catalog line (52 → 53). The ordnance MASK is
+  // still server-only — that is what the three scans above assert, and they are
+  // the substance of this file. This line only witnesses that a bump, when it
+  // happens, happens deliberately.
+  it('PROTOCOL_VERSION is 53 — bumped by Story 8.8s heal-is-a-card wire cut, not by masks', () => {
+    expect(PROTOCOL_VERSION).toBe(53);
   });
 });

@@ -211,10 +211,18 @@ describe('the interaction line carries a BELT slot\'s SHAPE and STOCK (ruling 13
     expect(slotBoonIds('hullRepair', ['hullRepair', 'armor'])).toEqual([]);
   });
 
-  it('shows no explanation while every consumable is a stub (amendment 41)', () => {
-    // The mechanism is built; the CONTENT is Story 8.8's. An unwritten
-    // explanation fails open to '' exactly as it does for an unbuilt weapon.
-    expect(tooltipModel(BELT_1, 'hullRepair', STATS, [], 1)?.description).toBe('');
+  it('carries the LIVE consumable\'s explanation, and none for a stub', () => {
+    // STORY 8.8 wrote HULL REPAIR's line — the first consumable with a
+    // mechanism to explain. The other four are still stubs, and an unwritten
+    // explanation still fails open to '' exactly as it does for an unbuilt
+    // weapon (amendment 41).
+    const live = tooltipModel(BELT_1, 'hullRepair', STATS, [], 1)?.description ?? '';
+    expect(live.length).toBeGreaterThan(0);
+    expect(live).toContain('number key');
+    // ...and it carries NO amounts: the card face prints those, live from
+    // CONFIG, and a number written twice can disagree with itself.
+    expect(live).not.toMatch(/\d/);
+    expect(tooltipModel(BELT_1, 'smokeScreen', STATS, [], 1)?.description).toBe('');
   });
 });
 

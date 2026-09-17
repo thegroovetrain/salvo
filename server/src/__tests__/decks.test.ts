@@ -37,6 +37,7 @@ import {
   MSG,
   SHIP_CLASS_IDS,
   checkDeck,
+  isStubLine,
   mulberry32,
   type LineId,
   type Rng,
@@ -206,12 +207,12 @@ function joinArena(room: ArenaDoor, client: ArenaClient, options: Record<string,
 }
 
 describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct join)', () => {
-  it('loads the hull\'s default deck itself, stores it on the record, and deals 23 drawable cards', () => {
+  it('loads the hull\'s default deck itself, stores it on the record, and deals 26 drawable cards', () => {
     const room = arenaDoor();
     joinArena(room, arenaClient('s1'), { cls: 'mineLayer' });
     const rec = room.world.ships.get('s1')!;
     expect(rec.deckList).toBe(ML);
-    expect(rec.deck.cards).toHaveLength(23);
+    expect(rec.deck.cards).toHaveLength(26);
     expect(room.state.players.has('s1')).toBe(true);
     expect(lines('warn deck.illegal')).toEqual([]);
     expect(fieldsOf(lines('info client.join')[0])).toMatchObject({ sessionId: 's1', deckSource: 'door' });
@@ -344,7 +345,9 @@ describe('the arena door — a queue-seated captain (client.auth.deck)', () => {
     joinArena(room, arenaClient('s1', { deck: ML }), { cls: 'torpedoBoat' });
     const rec = room.world.ships.get('s1')!;
     expect(rec.deckList).toBe(ML);
-    expect(rec.deck.cards).toHaveLength(ML.filter((id) => !['captiveMines', 'flak', 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'].includes(id)).length);
+    // The pool is the list less STUB lines, read from the shared predicate
+    // rather than a hand-kept id list (Story 8.8 un-stubbed `hullRepair`).
+    expect(rec.deck.cards).toHaveLength(ML.filter((id) => !isStubLine(id)).length);
     expect(fieldsOf(lines('info client.join')[0])).toMatchObject({ sessionId: 's1', deckSource: 'seat' });
   });
 
