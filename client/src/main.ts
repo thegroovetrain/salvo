@@ -60,11 +60,14 @@ import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
 import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
 import { createFlashBudget, FLASH_ELEMENTS, hotbarSlotKey, type FlashBudget } from './render/flashBudget.js';
-import { Hud, conning, railFraction, reloadFraction, type OwnStatus } from './render/hud.js';
+import { Hud, conning, reloadFraction, type OwnStatus } from './render/hud.js';
+import { hpGlobeHoldsLit, railFraction } from './render/hpGlobe.js';
+import { detentIndexOf, type HelmGlobeInput } from './render/helmGlobe.js';
+import { HudBar, type HudBarView } from './render/hudBar.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
-import { Hotbar, type HotbarView } from './render/hotbar.js';
+import { type HotbarView } from './render/hotbar.js';
 import { slotForCard } from './render/equipmentInfo.js';
-import { XpRail, type XpView } from './render/xpRail.js';
+import { type XpView } from './render/xpStrip.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
@@ -247,15 +250,14 @@ interface Game {
   nextHonkAt: number;
   zone: Zone;
   hud: Hud;
-  /** The bottom-left hotbar (render/hotbar.ts, Story 2.2) — the loadout surface:
-   *  four slots (Gun / Q / E / R), the full state grammar, hover tooltip, and
-   *  key-equivalent slot clicks. Rendered only while alive in-match. */
-  hotbar: Hotbar;
-  /** The bottom-left ECONOMY SATELLITES (render/xpRail.ts, Story 2.6): the XP
-   *  rail + LV tag in the hotbar's reserved gutter, the banked-level chip, and
-   *  the "LEVEL UP — TAB TO REFIT" cue line. Render-only (it routes no click)
-   *  and, like the hotbar, shown only while conning a live ship. */
-  xpRail: XpRail;
+  /**
+   * THE HUD BAR (render/hudBar.ts, Story 8.6) — the ONE bottom-centre cluster
+   * that replaced the three corners: the HP globe, the nine-slot row with its
+   * framed consumable belt (the loadout surface, its full state grammar, hover
+   * tooltip and key-equivalent slot clicks), the helm globe and the XP strip
+   * with its banked-level chip. Shown only while conning a hull in-match.
+   */
+  hudBar: HudBar;
   /** The TAB-toggled refit modal (ui/upgradeMenu.ts) — DOM; while open the
    *  game is under full combat lockout (Story 2.1) but the sim never pauses. */
   upgradeMenu: UpgradeMenu;
@@ -870,7 +872,7 @@ function handleRefitToggle(g: Game): void {
   }
   // Opening the refit window re-arms the banked-level chip's breath (amendment
   // 1's binding replacing the old SPACE touch); closing it deliberately does not.
-  if (!g.upgradeMenu.visible) g.xpRail.rearm();
+  if (!g.upgradeMenu.visible) g.hudBar.rearmBank();
   g.upgradeMenu.toggle(view);
 }
 
@@ -2598,8 +2600,7 @@ function buildGame(
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
-    hotbar: new Hotbar(stage.layers.hud),
-    xpRail: new XpRail(stage.layers.hud),
+    hudBar: new HudBar(stage.layers.hud),
     upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef), flashBudget),
     settingsOverlay,
     score: freshScore(),
@@ -3047,47 +3048,123 @@ function renderOwn(
   renderFiring(g, pose, status, aim, cursor, ownZones, nowMs);
   // ONE attention read per frame, taken AFTER renderFiring drove the denied
   // pulses and shared by every consumer (the chrome bar's amber ring segment and
-  // the HP rail here, the storm vignette back in renderAlive, the XP bank chip
+  // the HP globe here, the storm vignette back in renderAlive, the XP bank chip
   // below): two reads — or one taken before the pulses were driven — could
   // disagree inside a single frame.
   const attn = frameAttention(g, status, inStorm, bar.ring.urgent, nowMs);
   bar.tier1 = attn.tier1;
   // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
-  // storm vignette's pulse rides (the HP rail breathes on it).
-  g.hud.update(pose, helmAxes(g), status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000);
-  updateHotbar(g, status, nowMs);
-  // TIER 3: the bank chip freezes at its dim keyframe under ANY higher tier —
-  // Tier 2 alone included, so a healthy hull sailing in the storm settles it
-  // (amendment 243). `nowMs` is the frame's monotonic clock, for the ease.
+  // storm vignette's pulse rides (the HP globe breathes on it).
   //
-  // STILL `status.alive`, DELIBERATELY (Story 5.2, amendment 10): the XP rail
-  // is an ECONOMY surface — banked levels you could spend — and the economy is
-  // exactly what a sinking captain loses ("once sinking, you're done"). It
-  // closes with the refit at sink-entry rather than lingering as an affordance
-  // that leads nowhere. `alive` is already false through the window, so this
-  // line needs no change; it is called out because it looks like an omission.
-  updateXpRail(g, status.alive, now / 1000, attn.freeze, nowMs);
+  // THE BAR GOES FIRST (Story 8.6, ruling 10), and not for taste: `Hud.update`
+  // hangs IN STORM and the victim tells off `barTop`, so the bar has to have
+  // laid itself out for this viewport before the satellites are placed against
+  // it. One frame of stale anchor is exactly what this ordering prevents.
+  updateHudBar(g, status, pose, bar.ring.urgent, attn.freeze, now / 1000, nowMs);
+  g.hud.update(status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000, g.hudBar.barTop);
   return attn.tier1;
 }
 
 /**
- * The economy satellites (Story 2.6): fed VERBATIM from the server's own-ship
- * fields — `lvl`/`xp`/`pts` are self-private and server-authoritative, and
- * nothing here predicts or interpolates them. Shown on exactly the hotbar's
- * terms: alive, in-match, with a live `you` (death / spectate / the forceSnap
- * pose gap hide it, so the satellites never describe a hull that is gone).
+ * THE HUD BAR, one call (Story 8.6). It shows while the player is CONNING a
+ * hull in-match — the held start line and the dev/sandbox ready room included
+ * (dimmed at the line, see `dim` in the view) and, Story 5.2, the WHOLE sinking
+ * window: amendment 10 keeps every fitted slot activatable all the way down, so
+ * the surface those slots live on stays on screen. It dies with the hull at
+ * FOUNDER (spectate / reveal) and on return to port.
+ *
+ * THE XP STRIP RIDES WITH IT through the sinking window, which is a CHANGE from
+ * the old bottom-left rail's `status.alive` gate (ruling 10, Eric's veto item):
+ * the bar is ONE object, and splitting its visibility by member is exactly how
+ * the three corners drifted apart. No promise is broken by that — `refitable`
+ * is already false once the refit closes at sink-entry, so the cue line is
+ * empty and the strip reports a bank without offering a TAB that opens nothing.
+ *
+ * Called after renderFiring so this frame's denied pulse is resolved.
  */
-function updateXpRail(g: Game, alive: boolean, nowSec: number, freeze: boolean, nowMs: number): void {
-  const you = g.state.net.you;
-  if (!alive || !you || g.state.spectating) {
-    g.xpRail.hide();
+function updateHudBar(
+  g: Game,
+  status: OwnStatus,
+  pose: RenderPose,
+  ringUrgent: boolean,
+  freeze: boolean,
+  nowSec: number,
+  nowMs: number,
+): void {
+  if (!conning(status)) {
+    g.hudBar.hide();
     return;
   }
+  // Hover reads the pointer ONLY while it is inside the window (the aim path
+  // keeps using the last known position regardless — see MouseInput).
+  // Hover + hit-test run in the HUD's own (scaled) coordinate space, so the raw
+  // screen cursor is divided by the same factor the root container multiplies by.
+  const cursor = g.mouse.pointerInside ? hudPoint(g, g.mouse.screenPos) : null;
+  const view = hudBarView(g, status, pose, ringUrgent, freeze);
+  g.hudBar.update(view, hudWidth(g), hudHeight(g), cursor, nowSec, nowMs, g.uiScale);
+}
+
+/** THE BAR'S WHOLE FRAME, assembled in ONE place: the four members' inputs
+ *  derived here and nowhere else, so render/hudBar.ts stays a composer and
+ *  never re-interprets own-ship state. */
+function hudBarView(g: Game, status: OwnStatus, pose: RenderPose, ringUrgent: boolean, freeze: boolean): HudBarView {
+  return {
+    slots: hotbarView(g, status),
+    hp: {
+      hp: status.hp,
+      maxHp: status.stats.maxHp,
+      repairHp: status.repairHp,
+      alive: status.alive,
+      sinking: status.sinking,
+    },
+    // THE AMBER COROLLARY's globe half. The fraction comes from `railFraction`
+    // — the same derivation the seam's Tier-1 read and the chrome bar's own
+    // resolution take — so the corollary and the tier can never disagree about
+    // which band the hull is in.
+    hpHold: hpGlobeHoldsLit(railFraction(status.hp, status.stats.maxHp), ringUrgent),
+    helm: helmGlobeView(g, status, pose),
+    xp: xpStripView(g),
+    freeze,
+    // Any suspending surface: the two slot groups dim to 38%, keys AND clicks
+    // off. Story 6.1 folds the held start line in through the same lockout the
+    // modal uses, so the fit stays legible at the line — you can read what you
+    // are sailing with — while reading unmistakably as not-yet-yours. The
+    // globes and the strip deliberately stay at full (ruling 9).
+    dim: combatLocked(g),
+  };
+}
+
+/** The helm globe's inputs, derived exactly as the retired telegraph cluster
+ *  derived them: the ORDERED detent off the helm axes' throttle (the dead-helm
+ *  `HELD_AXES` at the start line included), the ACTUAL signed speed off the
+ *  predicted pose, and the ladder's denominators off `EffectiveStats` — the
+ *  boost's cap is applied inside the globe by the ONE shared speed mutator. */
+function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeInput {
+  const axes = helmAxes(g);
+  return {
+    headingRad: pose.heading,
+    speed: pose.speed,
+    orderedDetent: detentIndexOf(axes.throttle),
+    rudder: axes.rudder,
+    kin: status.stats.kinematics,
+    speedBonus: status.stats.equipment.speedBoost.speedBonus,
+    boostActive: status.boostActive,
+  };
+}
+
+/**
+ * The XP strip's inputs: fed VERBATIM from the server's own-ship fields —
+ * `lvl`/`xp`/`pts` are self-private and server-authoritative, and nothing here
+ * predicts or interpolates them. A missing `you` (the pre-first-frame gap)
+ * reads as an empty economy rather than hiding a member of the bar.
+ */
+function xpStripView(g: Game): XpView {
+  const you = g.state.net.you;
   // `refitable` mirrors offerView's own gate: a banked level whose front offer
   // is empty (degenerate exhausted deck) cannot open the band, so the cue must
   // not tell the player to press TAB (the chip still reports the bank).
-  const view: XpView = { lvl: you.lvl, xp: you.xp, pts: you.pts, refitable: you.offer.length > 0 };
-  g.xpRail.update(view, hudHeight(g), nowSec, freeze, nowMs);
+  if (!you) return { lvl: 0, xp: 0, pts: 0, refitable: false };
+  return { lvl: you.lvl, xp: you.xp, pts: you.pts, refitable: you.offer.length > 0 };
 }
 
 /**
@@ -3121,20 +3198,13 @@ function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
 }
 
 /**
- * The hotbar renders while the player is CONNING a hull in-match (the held
- * start line and the dev/sandbox ready room included — dimmed at the line, see
- * `dim` below — and, Story 5.2, the whole sinking
- * window: amendment 10 keeps every fitted slot activatable all the way down, so
- * the surface those slots live on has to stay on screen). It dies with the hull
- * at FOUNDER (spectate / reveal) and on return to port. Called after
- * renderFiring so this frame's denied pulse is resolved.
+ * The slot row's half of the bar's frame (the nine squares, the belt frame, the
+ * key chips, the wipe and the tooltip). `dim` is set here for shape's sake and
+ * OVERWRITTEN by the HudBar from the bar-wide `dim` — one predicate, applied
+ * once, to the exactly-two groups that carry it (ruling 9).
  */
-function updateHotbar(g: Game, status: OwnStatus, nowMs: number): void {
-  if (!conning(status)) {
-    g.hotbar.hide();
-    return;
-  }
-  const view: HotbarView = {
+function hotbarView(g: Game, status: OwnStatus): HotbarView {
+  return {
     loadout: status.loadout,
     ammo: status.ammo,
     stats: status.stats,
@@ -3142,12 +3212,9 @@ function updateHotbar(g: Game, status: OwnStatus, nowMs: number): void {
     denied: hotbarDenied(g, status),
     deniedDegraded: hotbarDeniedDegraded(g, status),
     activated: g.activatedFlash,
-    // Any suspending surface: dim to 38%, keys AND clicks off. Story 6.1 folds
-    // the held start line in through the same lockout the modal uses, so the
-    // fit stays legible at the line — you can read what you are sailing with —
-    // while reading unmistakably as not-yet-yours. Dim-not-grey is the shipped
-    // "this slot cannot act" register (hotbar amendment 16); no new one is
-    // invented, and no slot flashes DENIED, because no press gets through.
+    // Dim-not-grey is the shipped "this slot cannot act" register (hotbar
+    // amendment 16); no new one is invented, and no slot flashes DENIED,
+    // because no press gets through.
     dim: combatLocked(g),
     motion: settings.current.motion, // gates the ACTIVATED/FIT pops + amplitudes
     // Story 2.9 — the build, felt on the slot: the accrued list + `◆n` marks
@@ -3161,12 +3228,6 @@ function updateHotbar(g: Game, status: OwnStatus, nowMs: number): void {
     fitFrameDegraded: g.fitFrameDegraded,
     nowSec: g.clock.serverNow() / 1000,
   };
-  // Hover reads the pointer ONLY while it is inside the window (the aim path
-  // keeps using the last known position regardless — see MouseInput).
-  // Hover + hit-test run in the HUD's own (scaled) coordinate space, so the raw
-  // screen cursor is divided by the same factor the root container multiplies by.
-  const cursor = g.mouse.pointerInside ? hudPoint(g, g.mouse.screenPos) : null;
-  g.hotbar.update(view, hudWidth(g), hudHeight(g), cursor, nowMs); // the frame's ONE timestamp
 }
 
 /**
@@ -3181,7 +3242,7 @@ function updateHotbar(g: Game, status: OwnStatus, nowMs: number): void {
  */
 function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
   if (!g) return false;
-  const slot = g.hotbar.slotAt(hudPoint(g, p));
+  const slot = g.hudBar.slotAt(hudPoint(g, p));
   if (slot === null) return false;
   g.keyboard.slotAction(slot);
   return true;
@@ -3850,12 +3911,11 @@ function renderAlive(
     tier1 = ownTier1(g, status, nowMs);
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
-    g.hotbar.hide(); // no frame renders here — the hotbar must not linger, nor route clicks
-    // The economy satellites follow the hotbar's visibility exactly — but this
-    // gap is TRANSIENT (the pose returns next frame), so the chip's breathing
+    // No frame renders here — the bar must not linger, nor route clicks. This
+    // gap is TRANSIENT (the pose returns next frame), so the XP chip's breathing
     // state survives it: a full hide() would reset it and re-arm a decayed
     // chip's 10s window off a gap the player never saw (see hideTransient).
-    g.xpRail.hideTransient();
+    g.hudBar.hideTransient();
   }
   updateZone(g, zv, inStorm, tier1, now, nowMs);
   // AHEAD OF THE RADAR ON PURPOSE (amendment 89): the seam between the radar's
@@ -4002,8 +4062,7 @@ function enterSpectateVisuals(g: Game): void {
   }
   g.firing.hide();
   g.aimPreview.hide(); // nothing is aimed from a sunk hull
-  g.hotbar.hide(); // the loadout surface dies with the hull (Story 2.2)
-  g.xpRail.hide(); // ...and so do the economy satellites (Story 2.6)
+  g.hudBar.hide(); // the whole bar dies with the hull at FOUNDER (Story 8.6)
   g.upgradeMenu.hide(); // the refit modal never lingers into spectate
   // Hand the zoom to the spectate factor: the alive user zoom resets to the
   // base framing so the spectate wheel path behaves exactly as it always has.

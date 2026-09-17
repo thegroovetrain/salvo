@@ -24,12 +24,20 @@
 // function of (screenW, screenH) and nothing else, which is what lets the tests
 // pin the whole bar against the mock without instantiating Pixi.
 //
-// This module is the geometry SPINE only. The `HudBar` container class that
-// composes the globes, the slot row and the strip is Story 8.6's later wave and
-// lands here beside these functions.
+// The `HudBar` container class that composes the globes, the slot row and the
+// strip lives at the FOOT of this file, beside the geometry it lays out with.
+// Its four children import `microScale` back out of here, which is a module
+// cycle by construction and a safe one: `microScale` is a function DECLARATION,
+// so it is initialised at instantiation time, before any module body runs.
 
+import { Container } from 'pixi.js';
 import { CONSUMABLE_SLOTS, SLOT_COUNT } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import type { ScreenPoint } from '../input/mouse.js';
+import { HpGlobe, type HpGlobeInput } from './hpGlobe.js';
+import { HelmGlobe, type HelmGlobeInput } from './helmGlobe.js';
+import { XpStrip, type XpView } from './xpStrip.js';
+import { Hotbar, type HotbarView } from './hotbar.js';
 
 const B = CLIENT_CONFIG.hudBar;
 
@@ -213,4 +221,158 @@ function stripLayout(bar: Rect): StripLayout {
  */
 export function microScale(uiScale: number): number {
   return Number.isFinite(uiScale) && uiScale > 0 && uiScale < 1 ? 1 / uiScale : 1;
+}
+
+// --- THE BAR ITSELF ---------------------------------------------------------
+
+/**
+ * Everything ONE frame of the bar needs, assembled at main.ts's composition
+ * seam (`hudBarView`) and never re-derived here: this class is a COMPOSER, not
+ * a second place where own-ship state is interpreted.
+ *
+ * `dim` is the one field the bar itself acts on (ruling 9): while the refit
+ * window is open OR the start line is held, the TWO dim groups — the five
+ * weapon squares and the framed belt, which together are exactly the Hotbar's
+ * root — drop to `hudBar.dimAlpha`. The globes and the strip stay at full: a
+ * suspended trigger is not a reason to stop being able to read your hull, your
+ * heading or your bank.
+ */
+export interface HudBarView {
+  /** The slot row + belt (render/hotbar.ts). Its own `dim` is overwritten. */
+  slots: HotbarView;
+  hp: HpGlobeInput;
+  /** The amber corollary's verdict for the HP channel (`hpGlobeHoldsLit`). */
+  hpHold: boolean;
+  helm: HelmGlobeInput;
+  xp: XpView;
+  /** A higher attention tier is active: the bank chip holds at its DIM keyframe. */
+  freeze: boolean;
+  /** `combatLocked(g)` — the refit window is open or the start line is held. */
+  dim: boolean;
+}
+
+/**
+ * THE HUD BAR (Story 8.6, ruling 9) — one Container on the HUD layer owning the
+ * four surfaces that used to be three corners: the HP globe, the slot row (with
+ * its belt frame), the helm globe and the XP strip.
+ *
+ * It owns exactly three things and delegates everything else:
+ *   1. the LAYOUT, recomputed only when the viewport moves (`hudBarLayout` is
+ *      pure, so a cache keyed on w/h is the whole invalidation rule);
+ *   2. VISIBILITY as ONE object — the bar shows while the player is conning a
+ *      hull and is gone at founder, rather than each member deciding for itself
+ *      (which is how the three corners drifted apart in the first place);
+ *   3. the DIM, which it applies by handing the Hotbar its `dim` flag and by
+ *      touching nothing else.
+ *
+ * No own-ship interpretation lives here: every number arrives on `HudBarView`.
+ */
+export class HudBar {
+  private readonly root = new Container();
+  readonly hpGlobe: HpGlobe;
+  readonly helmGlobe: HelmGlobe;
+  readonly xpStrip: XpStrip;
+  readonly hotbar: Hotbar;
+  /** The layout this bar last computed, and the viewport it was computed for.
+   *  Kept across `hide()`: it is pure geometry, not a statement about whether
+   *  anything is on screen (the CLICK gate is the Hotbar's own cache, which
+   *  hide() does drop). */
+  private cached: HudBarLayout | null = null;
+  private cachedW = -1;
+  private cachedH = -1;
+
+  constructor(hudLayer: Container) {
+    hudLayer.addChild(this.root);
+    // Child order IS draw order: the Hotbar goes on LAST because its hover
+    // tooltip is its own child and must paint over the globes it reaches across.
+    this.hpGlobe = new HpGlobe(this.root);
+    this.helmGlobe = new HelmGlobe(this.root);
+    this.xpStrip = new XpStrip(this.root);
+    this.hotbar = new Hotbar(this.root);
+  }
+
+  /**
+   * One frame. `screenW`/`screenH` are LOGICAL (already divided by the UI
+   * scale); `cursor` is the pointer in that same space, or null when it is
+   * outside the window; `nowSec` is the server-clock estimate in seconds (the
+   * clock every breath on the bar rides) and `nowMs` the frame's monotonic one.
+   */
+  update(
+    view: HudBarView,
+    screenW: number,
+    screenH: number,
+    cursor: ScreenPoint | null,
+    nowSec: number,
+    nowMs: number,
+    uiScale: number,
+  ): void {
+    this.root.visible = true;
+    const layout = this.layoutFor(screenW, screenH);
+    this.hotbar.update({ ...view.slots, dim: view.dim }, layout, cursor, nowMs, uiScale);
+    this.hpGlobe.update(view.hp, layout.hpGlobe, nowSec, view.hpHold, uiScale);
+    this.helmGlobe.update(view.helm, layout.helmGlobe, nowSec, uiScale);
+    this.xpStrip.update(view.xp, layout.strip, nowSec, view.freeze, nowMs, uiScale);
+  }
+
+  /** The layout for this viewport, recomputed ONLY when the viewport moved. */
+  private layoutFor(screenW: number, screenH: number): HudBarLayout {
+    if (this.cached === null || screenW !== this.cachedW || screenH !== this.cachedH) {
+      this.cached = hudBarLayout(screenW, screenH);
+      this.cachedW = screenW;
+      this.cachedH = screenH;
+    }
+    return this.cached;
+  }
+
+  /**
+   * The bar is GONE (founder, spectate, the reveal, return to port). Every
+   * member is hidden and the chip's breath state is dropped with it, so the
+   * next life starts cold.
+   */
+  hide(): void {
+    this.root.visible = false;
+    this.hotbar.hide(); // also drops the click layout: a hidden bar routes nothing
+    this.hpGlobe.hide();
+    this.helmGlobe.hide();
+    this.xpStrip.hide();
+  }
+
+  /**
+   * The bar is hidden for a TRANSIENT frame gap (the forceSnap/pose gap behind
+   * a respawn or the P netcode toggle): visually identical to `hide()`, but the
+   * XP chip's breath state SURVIVES it. A full hide there would make the very
+   * next frame look like a new bank and re-arm a decayed chip's window off a
+   * gap the player never saw (see XpStrip.hideTransient).
+   */
+  hideTransient(): void {
+    this.root.visible = false;
+    this.hotbar.hide();
+    this.hpGlobe.hide();
+    this.helmGlobe.hide();
+    this.xpStrip.hideTransient();
+  }
+
+  /** The refit window opened (TAB): re-arm the banked-level chip's breath. */
+  rearmBank(): void {
+    this.xpStrip.rearm();
+  }
+
+  /** The slot under a screen point (HUD space), or null — the click gate. */
+  slotAt(p: ScreenPoint): number | null {
+    return this.hotbar.slotAt(p);
+  }
+
+  /** The layout this bar last computed; null before the first frame. */
+  get layout(): HudBarLayout | null {
+    return this.cached;
+  }
+
+  /**
+   * The bar's TOP edge — what `Hud.update` hangs the satellite column (IN STORM
+   * and the victim tells) off. 0 before the first layout, which only a caller
+   * that never rendered the bar can see.
+   */
+  get barTop(): number {
+    return this.cached === null ? 0 : this.cached.bar.y;
+  }
 }

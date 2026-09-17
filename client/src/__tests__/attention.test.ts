@@ -207,11 +207,11 @@ describe('amberPulseWinner — the amber corollary', () => {
   });
 
   it('follows the ranked list in config, not a hard-coded order', () => {
-    // The config list is still spelled with the PRE-8.6 key for the HP channel
-    // (`hpRail`); render/attention.ts normalises it to the shipped `hpGlobe`
-    // name, so exactly one spelling reaches the rest of the client while the
+    // ONE spelling, end to end: Story 8.6's config pass re-spelled the HP
+    // channel `hpRail` -> `hpGlobe` with the surface it names, so the rank keys
+    // ARE the channel names and no normalisation step stands between them. The
     // RANK itself stays a config value rather than a hard-coded order.
-    expect(CLIENT_CONFIG.attention.amberRank).toEqual(['ring', 'hpRail']);
+    expect(CLIENT_CONFIG.attention.amberRank).toEqual(['ring', 'hpGlobe']);
     expect(amberPulseWinner({ ring: false, hpGlobe: true })).toBe('hpGlobe');
   });
 

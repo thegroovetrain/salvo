@@ -77,20 +77,11 @@ export interface Tier2Input {
  *
  * Story 8.6 renamed the HP channel `hpRail` -> `hpGlobe` with the surface it
  * names: the 6 px vertical rail is deleted and the hull now reads as a bowl of
- * water at the HUD bar's left end (render/hpGlobe.ts). The CONFIG key is still
- * spelled `hpRail` — the rank list is a config value and config.ts belongs to
- * 8.6's own config pass — so `rankChannel` below normalises it, and exactly ONE
- * spelling reaches the rest of the client.
+ * water at the HUD bar's left end (render/hpGlobe.ts). The CONFIG list was
+ * re-spelled in the same story, so the rank keys ARE these names — no
+ * normalisation step stands between the two.
  */
-export type AmberChannel = 'ring' | 'hpGlobe';
-
-/** The spellings the ranked config list can carry. */
-type RankKey = (typeof CLIENT_CONFIG.attention.amberRank)[number];
-
-/** Pure: a ranked config key -> the channel it names. */
-function rankChannel(key: RankKey): AmberChannel {
-  return key === 'ring' ? 'ring' : 'hpGlobe';
-}
+export type AmberChannel = (typeof CLIENT_CONFIG.attention.amberRank)[number];
 
 /**
  * Pure: is any Tier-1 (threat) channel animating right now?
@@ -149,8 +140,7 @@ export function freezeAtDimKeyframe(tier1: boolean, tier2: boolean): boolean {
  * here" at the climax, which is the corollary's stated purpose.
  */
 export function amberPulseWinner(active: Record<AmberChannel, boolean>): AmberChannel | null {
-  for (const key of CLIENT_CONFIG.attention.amberRank) {
-    const channel = rankChannel(key);
+  for (const channel of CLIENT_CONFIG.attention.amberRank) {
     if (active[channel]) return channel;
   }
   return null;

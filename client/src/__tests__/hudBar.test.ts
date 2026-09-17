@@ -5,18 +5,27 @@
 // the bar's surfaces), with the one ruled change that BOTH globes are 104 px
 // (amendment 32; the mock draws the HP globe at 96 and the helm at 104).
 //
-// Two kinds of assertion live here and they are deliberately separate:
+// Three kinds of assertion live here and they are deliberately separate:
 //   (a) the CONFIG block IS the mock — one literal per key, so a retune has to
 //       be a decision rather than a drift;
 //   (b) the LAYOUT composes those numbers correctly — the 768 px derivation,
 //       the floor anchor, the centring, the two centred columns, the belt frame
-//       enclosing its chips, and the exactly-two dim groups.
+//       enclosing its chips, and the exactly-two dim groups;
+//   (c) the COMPOSITION — `class HudBar`, which owns the layout cache, the one
+//       dim, visibility as ONE object, and the two forwards main.ts needs.
 //
-// The layout is pure, so nothing below instantiates Pixi.
+// (a) and (b) are pure and instantiate no Pixi; (c) builds the real containers
+// under jsdom (no renderer is ever created, exactly as the globe/strip suites
+// do it).
 
 import { describe, it, expect } from 'vitest';
+import { Container } from 'pixi.js';
+import { CONFIG, SLOT_COUNT, SLOT_GUN, SPAWN_SEED, effectiveStats, slotsWithCards } from '@salvo/shared';
+import type { EquipmentId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { HUD_BAR_WIDTH, hudBarLayout, microScale } from '../render/hudBar.js';
+import { HUD_BAR_WIDTH, HudBar, hudBarLayout, microScale, type HudBarView } from '../render/hudBar.js';
+import { equipmentInfo } from '../render/equipmentInfo.js';
+import type { HotbarView } from '../render/hotbar.js';
 
 const B = CLIENT_CONFIG.hudBar;
 
@@ -74,6 +83,7 @@ describe('(a) CLIENT_CONFIG.hudBar IS the mock — every number, one literal eac
     expect(B.type).toEqual({
       chip: 9,
       tier: 9,
+      badge: 10, // .badge — a count, a px above the chips (wave 3 close-out)
       lv: 11,
       wipe: 18,
       hull: 18,
@@ -96,6 +106,10 @@ describe('(a) CLIENT_CONFIG.hudBar IS the mock — every number, one literal eac
     // Nine detents span the arc exactly, end to end: -70 .. +70 in 17.5 steps.
     expect(-B.tick.arcDeg + 8 * B.tick.stepDeg).toBe(B.tick.arcDeg);
     expect(B.rudder).toEqual({ track: 48, tickW: 2, tickH: 8 });
+  });
+
+  it('pins the tier numeral\u2019s corner inset (.tier { right: 4px; bottom: 2px })', () => {
+    expect(B.tierInset).toEqual({ right: 4, bottom: 2 });
   });
 
   it('pins the cooldown wipe skin', () => {
@@ -328,5 +342,161 @@ describe('microScale — the 9px floor at 90% UI scale', () => {
     expect(microScale(0)).toBe(1);
     expect(microScale(-1)).toBe(1);
     expect(microScale(Number.NaN)).toBe(1);
+  });
+});
+
+// --- (c) the COMPOSITION: `class HudBar`, the bar as ONE object -----------------
+//
+// Ruling 9: one Container owning the HP globe, the slot row, the helm globe and
+// the XP strip. What is pinned here is exactly what the class DECIDES — the
+// layout cache, the one dim it applies, visibility as a whole, and the two
+// forwards main.ts depends on (`slotAt` for the click gate, `barTop` for the
+// satellite column). Everything each member DRAWS is its own suite's business.
+
+const CLS = 'torpedoBoat' as const;
+const STATS = effectiveStats(CONFIG.shipClasses[CLS]);
+const LOADOUT: (EquipmentId | null)[] = slotsWithCards(STATS, SPAWN_SEED[CLS] ?? []).map((s) => s.equipmentId);
+const AMMO: (WeaponAmmo | null)[] = LOADOUT.map((id) =>
+  id === null ? null : { n: equipmentInfo(STATS, id).maxAmmo, reloadMsLeft: 0 },
+);
+
+function nine<T>(v: T): T[] {
+  return Array.from({ length: SLOT_COUNT }, () => v);
+}
+
+function slotsView(): HotbarView {
+  return {
+    loadout: LOADOUT,
+    ammo: AMMO,
+    stats: STATS,
+    primedSlot: SLOT_GUN,
+    denied: nine(false),
+    activated: nine(false),
+    dim: false, // deliberately false: the HudBar is what must overwrite it
+  };
+}
+
+function barView(over: Partial<HudBarView> = {}): HudBarView {
+  return {
+    slots: slotsView(),
+    hp: { hp: 212, maxHp: 250, repairHp: 0, alive: true, sinking: false },
+    hpHold: false,
+    helm: {
+      headingRad: 0,
+      speed: 4,
+      orderedDetent: 6,
+      rudder: 0,
+      kin: STATS.kinematics,
+      speedBonus: STATS.equipment.speedBoost.speedBonus,
+      boostActive: false,
+    },
+    xp: { lvl: 3, xp: 0.62, pts: 1, refitable: true },
+    freeze: false,
+    dim: false,
+    ...over,
+  };
+}
+
+/** The bar, plus the four member roots in the order they were parented — HP
+ *  globe, helm globe, XP strip, slot row (the Hotbar goes on LAST so its
+ *  tooltip paints over the globes it reaches across). */
+function build(): { bar: HudBar; root: Container; members: Container[] } {
+  const layer = new Container();
+  const bar = new HudBar(layer);
+  const root = layer.children[0] as Container;
+  return { bar, root, members: root.children as Container[] };
+}
+
+describe('(c) HudBar — one container, four members', () => {
+  it('constructs under jsdom and parents every member to its own root', () => {
+    const { root, members } = build();
+    expect(root.children.length).toBe(4);
+    for (const m of members) expect(m).toBeInstanceOf(Container);
+  });
+
+  it('renders a frame and lays the bar out at the viewport it was given', () => {
+    const { bar } = build();
+    bar.update(barView(), REF_W, REF_H, null, 10, 10_000, 1);
+    expect(bar.layout).toEqual(hudBarLayout(REF_W, REF_H));
+    expect(bar.layout?.bar.w).toBe(HUD_BAR_WIDTH);
+  });
+
+  it('DIMS ONLY THE SLOT ROW: the globes and the strip stay at full (ruling 9)', () => {
+    const { bar, members } = build();
+    const [hp, helm, strip, slots] = members;
+    bar.update(barView({ dim: true }), REF_W, REF_H, null, 10, 10_000, 1);
+    expect(slots.alpha).toBe(B.dimAlpha);
+    expect(hp.alpha).toBe(1);
+    expect(helm.alpha).toBe(1);
+    expect(strip.alpha).toBe(1);
+    // ...and the dim is the BAR's word, not the slot view's: the view handed in
+    // carries `slots.dim === false` and is overwritten either way.
+    bar.update(barView({ dim: false }), REF_W, REF_H, null, 11, 11_000, 1);
+    expect(slots.alpha).toBe(1);
+  });
+
+  it('recomputes the layout ONLY when the viewport moves', () => {
+    const { bar } = build();
+    bar.update(barView(), REF_W, REF_H, null, 10, 10_000, 1);
+    const first = bar.layout;
+    bar.update(barView(), REF_W, REF_H, null, 11, 11_000, 1);
+    expect(bar.layout).toBe(first); // the SAME object — nothing recomputed
+    bar.update(barView(), FLOOR_W, FLOOR_H, null, 12, 12_000, 1);
+    expect(bar.layout).not.toBe(first);
+    expect(bar.layout).toEqual(hudBarLayout(FLOOR_W, FLOOR_H)); // nothing cached across sizes
+  });
+
+  it('hides ALL FOUR members together — the bar is one object (founder)', () => {
+    const { bar, root, members } = build();
+    bar.update(barView(), REF_W, REF_H, null, 10, 10_000, 1);
+    for (const m of members) expect(m.visible).toBe(true);
+    bar.hide();
+    expect(root.visible).toBe(false);
+    for (const m of members) expect(m.visible).toBe(false);
+  });
+
+  it('a TRANSIENT hide (the pose gap) takes the whole bar down, and it comes back', () => {
+    const { bar, root, members } = build();
+    bar.update(barView(), REF_W, REF_H, null, 10, 10_000, 1);
+    bar.hideTransient();
+    expect(root.visible).toBe(false);
+    for (const m of members) expect(m.visible).toBe(false);
+    bar.update(barView(), REF_W, REF_H, null, 11, 11_000, 1); // the pose returns
+    expect(root.visible).toBe(true);
+  });
+
+  it('forwards slotAt to the slot row, and a HIDDEN bar routes no click', () => {
+    const { bar } = build();
+    bar.update(barView(), REF_W, REF_H, null, 10, 10_000, 1);
+    const layout = hudBarLayout(REF_W, REF_H);
+    for (const slot of [0, 4, 5, 8]) {
+      const sq = layout.squares[slot];
+      expect(bar.slotAt({ x: sq.x + sq.w / 2, y: sq.y + sq.h / 2 })).toBe(slot);
+    }
+    expect(bar.slotAt({ x: layout.bar.x - 40, y: layout.bar.y })).toBe(null); // off the bar
+    bar.hide();
+    expect(bar.slotAt({ x: layout.squares[0].x + 2, y: layout.squares[0].y + 2 })).toBe(null);
+  });
+
+  it('exposes barTop — the satellite column hangs off the bar, not the viewport', () => {
+    const { bar } = build();
+    expect(bar.barTop).toBe(0); // nothing laid out yet
+    bar.update(barView(), REF_W, REF_H, null, 10, 10_000, 1);
+    expect(bar.barTop).toBe(hudBarLayout(REF_W, REF_H).bar.y);
+    // It SURVIVES a hide: the anchor is pure geometry, and the chrome that hangs
+    // off it (IN STORM, the victim tells) must not jump to the top of the screen
+    // on the frame the bar goes away.
+    bar.hide();
+    expect(bar.barTop).toBe(hudBarLayout(REF_W, REF_H).bar.y);
+  });
+
+  it('re-arms the bank chip through the bar (TAB opens the refit window)', () => {
+    const { bar } = build();
+    bar.update(barView({ xp: { lvl: 1, xp: 0, pts: 1, refitable: true } }), REF_W, REF_H, null, 0, 0, 1);
+    bar.update(barView({ xp: { lvl: 1, xp: 0.5, pts: 1, refitable: true } }), REF_W, REF_H, null, 30, 30_000, 1);
+    expect(bar.xpStrip.chipState.armedAt).toBe(0); // decayed, still armed at 0
+    bar.rearmBank();
+    bar.update(barView({ xp: { lvl: 1, xp: 0.5, pts: 1, refitable: true } }), REF_W, REF_H, null, 30, 30_000, 1);
+    expect(bar.xpStrip.chipState.armedAt).toBe(30);
   });
 });
