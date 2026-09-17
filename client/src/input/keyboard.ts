@@ -31,13 +31,19 @@
 //                  cannot machine-gun it), suspended with Q/E/R while the refit
 //                  modal is open and swallowed by a focused overlay
 //   TAB            toggles the refit modal (main.ts owns open/close policy)
-//   1–4            pick a refit card ONLY while the modal is open
-//                  (refit-or-nothing; meaning evaluated at its own keydown).
-//                  UNCHANGED in Story 8.5 (epic-8 amendment 27): the belt
-//                  (slots 5–8) cannot be stocked before Story 8.7, so the
-//                  digits keep their refit-only meaning
+//   1–4            TWO MEANINGS, decided at the keydown itself (Story 8.7,
+//                  ruling 7 — this retires epic-8 amendments 27 and 30, which
+//                  held only while the belt could not be stocked): with the
+//                  refit window OPEN they pick a card; with it CLOSED they are
+//                  the four BELT slots' keys (shared CONSUMABLE_SLOTS), acting
+//                  through the very same slotAction the weapon keys use. In
+//                  between sits the CLOSE GRACE (ruling 8): for a few hundred
+//                  ms after the window closes by ANY path a digit is swallowed,
+//                  so the key that spent the last banked level cannot fall
+//                  through onto the belt
 //   5              spend on DAMAGE CONTROL (the always-available heal rail —
-//                  HEAL_CHOICE), under the exact same modal-only rule
+//                  HEAL_CHOICE), under the exact same modal-only rule — the
+//                  belt has four squares, so 5 stays bound-inert when closed
 //   ESC            closes the TOPMOST open surface (results modal / refit modal
 //                  / settings overlay) and, with nothing open, toggles settings
 //                  — the uniform law (Story 2.3, amendment 23). Never leaves the
@@ -53,17 +59,19 @@
 // switches to (primes) that slot; the same key again reverts to the gun;
 // firing auto-reverts (main.ts consumePrimeOnFire — a predicted-denied click
 // keeps the prime). Ability slots activate instantly through the actSeq FIFO
-// queue and never prime. Weapon-vs-ability comes ONLY from EQUIPMENT_IS_WEAPON
-// (the isAbilitySlot hook), never a slot literal or hull id.
+// queue and never prime. Weapon-vs-ability comes ONLY from `isWeaponItem` (the
+// isAbilitySlot hook) — the ONE shared predicate over either kind of slot
+// content, equipment or consumable — never a slot literal or hull id.
 
 import {
-  EQUIPMENT_IS_WEAPON,
+  CONSUMABLE_SLOTS,
   HEAL_CHOICE,
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
   WEAPON_SLOTS,
-  type EquipmentId,
+  isWeaponItem,
+  type SlotItemId,
 } from '@salvo/shared';
 import {
   Telegraph,
@@ -122,10 +130,10 @@ export const BOOST_KEY_CODES: readonly string[] = ['ShiftLeft', 'ShiftRight'];
  * wire sentinel `HEAL_CHOICE` (-1) rather than an index — a positive sentinel
  * would collide with a real card the moment `CONFIG.offer.size` moved.
  *
- * Every one of them means a refit pick ONLY while the refit modal is open;
- * refit-or-nothing otherwise (amendment 3). Digit 5 joins that rule verbatim:
- * it is bound (and therefore preventDefault-ed) at all times, and acts at none
- * but the modal.
+ * This is the OPEN-WINDOW meaning of the digits, and the only meaning `5` has
+ * ever had: it is bound (and therefore preventDefault-ed) at all times, and
+ * acts at none but the modal. `1`-`4` gained their second, CLOSED-window
+ * meaning in Story 8.7 — see BELT_KEY_CODES.
  */
 export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit1: 0, Numpad1: 0,
@@ -134,6 +142,34 @@ export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit4: 3, Numpad4: 3,
   Digit5: HEAL_CHOICE, Numpad5: HEAL_CHOICE,
 };
+
+/**
+ * THE SECOND MEANING (Story 8.7, ruling 7): digit key → the BELT slot it fires
+ * while the refit window is CLOSED. Four keys for four squares, read out of the
+ * shared `CONSUMABLE_SLOTS` tuple rather than re-typed as literals — the same
+ * rule SLOT_KEY_CODES follows, so a re-cut of the slot grammar moves the keys
+ * with it. `5` is deliberately absent: the belt has four squares, and the fifth
+ * key belongs to the DAMAGE CONTROL rail alone.
+ *
+ * Epic-8 amendments 27 ("1-4 stay refit-only") and 30 ("a belt press is
+ * silent") are RETIRED by this table: both were true only while nothing could
+ * enter the belt.
+ */
+export const BELT_KEY_CODES: Record<string, number> = {
+  Digit1: CONSUMABLE_SLOTS[0], Numpad1: CONSUMABLE_SLOTS[0],
+  Digit2: CONSUMABLE_SLOTS[1], Numpad2: CONSUMABLE_SLOTS[1],
+  Digit3: CONSUMABLE_SLOTS[2], Numpad3: CONSUMABLE_SLOTS[2],
+  Digit4: CONSUMABLE_SLOTS[3], Numpad4: CONSUMABLE_SLOTS[3],
+};
+
+/**
+ * The slots whose EMPTY press DENIES on the client — the two rows a card fills:
+ * the weapon row (Story 8.5, epic-8 amendment 26) and, since Story 8.7, the
+ * BELT. The gun is never empty and slot 1 is empty only on a PvE drone
+ * (amendment 24), which no keyboard is attached to, so a denial on either could
+ * only ever be a construction-gap artefact.
+ */
+const DENIABLE_SLOTS: ReadonlySet<number> = new Set<number>([...WEAPON_SLOTS, ...CONSUMABLE_SLOTS]);
 
 /**
  * The only keys that still act while a focused overlay is up (Story 2.3): the
@@ -171,19 +207,51 @@ export function panAxesFrom(keys: Set<string>): Axes {
 
 /**
  * Pure: does `slot` of the own loadout hold instant-activation ABILITY
- * equipment (`EQUIPMENT_IS_WEAPON[id] === false`)? The `speedBoost` — which
+ * content (`isWeaponItem(id) === false`)? The `speedBoost` — which
  * Story 8.5 seated in SLOT_BOOST on EVERY captain hull (epic-8 amendment 23) —
  * is the ONLY one left that answers true. Weapons and empty/out-of-range slots return
  * false (they prime / do nothing) — as of Story 2.8 (amendment 45) the MINE is
  * one of them, and as of Story 7-5 wave 2 (R2.7) so is the RADAR BUOY that
  * replaced the decoy rack: both place on a click inside the rear arc, exactly
  * like the torpedo launches inside its bow arc. The single weapon/ability split
- * source is the shared map; main.ts closes this over the own loadout
+ * source is the shared `isWeaponItem`; main.ts closes this over the own loadout
  * (slotsWithBoons) for the isAbilitySlot hook.
+ *
+ * SINCE STORY 8.7 A SLOT MAY HOLD A CONSUMABLE (`SlotItemId` — the belt's
+ * content), and the same one predicate answers for both id spaces: a stack that
+ * is not `isWeapon` ACTIVATES off the `1`-`4` rail, while the decoy shape (the
+ * one aimed consumable) PRIMES, exactly as the mine and the buoy do. No cast
+ * and no second table — that is what `isWeaponItem` exists for.
  */
-export function slotHoldsAbility(slotIds: readonly (EquipmentId | null)[], slot: number): boolean {
+export function slotHoldsAbility(slotIds: readonly (SlotItemId | null)[], slot: number): boolean {
   const id = slotIds[slot] ?? null;
-  return id !== null && !EQUIPMENT_IS_WEAPON[id];
+  return id !== null && !isWeaponItem(id);
+}
+
+/**
+ * Pure: is a digit still inside the refit window's CLOSE GRACE (Story 8.7,
+ * ruling 8)? The interval is HALF-OPEN — `[closedAt, closedAt + graceMs)` — so
+ * a digit AT the edge fires, mirroring `resultsKeysArmed`'s `>=` on the other
+ * side of the same shape. `closedAt = -Infinity` (no window has ever closed)
+ * answers false, which is why main.ts seeds it there.
+ *
+ * The STATE lives in main.ts (it owns the clock and the window); the RULE lives
+ * here, beside the keys it governs, and is what the `isRefitGrace` hook returns.
+ */
+export function refitGraceActive(nowMs: number, closedAt: number, graceMs: number): boolean {
+  return nowMs - closedAt < graceMs;
+}
+
+/**
+ * Pure: the refit window's `closedAt` stamp after a frame that saw `open`,
+ * given the previous frame's `prevOpen`. The TRUE→FALSE edge — and only it —
+ * stamps: every close path (TAB, ESC, the last spend's update(null), spectate,
+ * the you-gone force-hide) goes through the window's own visibility, so one
+ * watcher over that boolean covers all of them and no close site has to
+ * remember to stamp for itself.
+ */
+export function refitCloseStamp(prevOpen: boolean, open: boolean, nowMs: number, closedAt: number): number {
+  return prevOpen && !open ? nowMs : closedAt;
 }
 
 /**
@@ -307,6 +375,23 @@ export interface KeyboardHooks {
   /** Is the refit modal open? While true: Q/E/R/Shift/F are suspended and
    *  digits pick cards; helm/zoom/M/P stay live (UX-DR42). */
   isModalOpen?: () => boolean;
+  /**
+   * Is a digit still inside the refit window's CLOSE GRACE (Story 8.7, ruling
+   * 8)? While true a digit `1`-`4` is INERT: it is still preventDefault-ed (the
+   * key is bound either way and focus must never escape the canvas), but it
+   * neither picks nor reaches the belt.
+   *
+   * The reason is the two meanings sharing one key: a captain who spends their
+   * last banked level on `1` closes the window with that very press, and is
+   * still holding the key a frame later. Without the grace the key-up-less
+   * remainder of that press would fall through onto belt slot 5 and fire it.
+   *
+   * FAILS OPEN, unlike `isSlotFitted`: no hook means "no window has ever closed
+   * here", which is the truth in every harness that drives the belt directly.
+   * main.ts owns the stamp (one watcher on the window's visibility) and the
+   * clock; this only asks.
+   */
+  isRefitGrace?: () => boolean;
   /**
    * Is a COMBAT LOCKOUT in force that is NOT a modal (Story 6.1, epic-6
    * amendment 8: the held start line)? While true the slot keys — and the
@@ -575,10 +660,14 @@ export class KeyboardInput {
     if (this.hooks.isSlotFitted?.(slot) !== true) {
       // Story 8.5 (amendment 26): an EMPTY WEAPON slot is no longer silent — it
       // denies on the client. Reached only AFTER the suspension check, so the
-      // lock keeps winning silently. The BELT rows (5-8) stay silent until
-      // Story 8.7 stocks them (Eric 2026-09-16, amendment 30) — a belt click
-      // and its digit behave the same way: nothing.
-      if ((WEAPON_SLOTS as readonly number[]).includes(slot)) this.hooks.onEmptySlotDenied?.(slot);
+      // lock keeps winning silently.
+      //
+      // STORY 8.7 COMPLETED THAT GRAMMAR ON THE BELT (ruling 7, retiring
+      // amendment 30's silence): the belt squares were mute only because
+      // nothing could enter them, and now a card can. An empty square is the
+      // same sentence as an empty Q — a pulse and a tone, NOTHING on the wire —
+      // and a belt click says it identically, since it is this very entry.
+      if (DENIABLE_SLOTS.has(slot)) this.hooks.onEmptySlotDenied?.(slot);
       return;
     }
     if (this.hooks.isAbilitySlot?.(slot) === true) {
@@ -625,14 +714,31 @@ export class KeyboardInput {
     this.hooks.onFoghorn?.();
   }
 
-  /** Digits 1–5: a refit pick while the modal is open — a card (1–4) or the
-   *  DAMAGE CONTROL rail (5 → HEAL_CHOICE); refit-or-nothing otherwise (the old
-   *  digit slot-priming and closed-window spend are dead — amendment 3).
-   *  Meaning is evaluated against modal state at THIS keydown. */
+  /**
+   * Digits 1–5, and they mean TWO different things (Story 8.7, ruling 7). The
+   * meaning is read against the window's state AT THIS KEYDOWN — never at the
+   * key-up, never at sample time:
+   *   • window OPEN → a refit pick: a card (1–4) or the DAMAGE CONTROL rail
+   *     (5 → HEAL_CHOICE). A GREYED card's digit is swallowed downstream by
+   *     main.ts's handleRefitPick (ruling 10), not here — the chokepoint does
+   *     not know what is on the cards;
+   *   • window CLOSED → the BELT: 1–4 are slots 5–8 through the very same
+   *     `slotAction` a hotbar click and the weapon keys use, and 5 is
+   *     bound-inert (there is no fifth square). Inside the CLOSE GRACE the key
+   *     does not act at all — see `isRefitGrace`.
+   * The old digit slot-priming of the WEAPON row stays dead (amendment 3): no
+   * digit addresses slots 2–4 in either meaning.
+   */
   private readonly handleDigitKey = (e: KeyboardEvent): void => {
     if (e.repeat) return;
-    if (this.hooks.isModalOpen?.() !== true) return;
-    this.hooks.onRefitPick?.(REFIT_DIGIT_CODES[e.code]);
+    if (this.hooks.isModalOpen?.() === true) {
+      this.hooks.onRefitPick?.(REFIT_DIGIT_CODES[e.code]);
+      return;
+    }
+    const beltSlot = BELT_KEY_CODES[e.code];
+    if (beltSlot === undefined) return; // digit 5 with the window closed: inert
+    if (this.hooks.isRefitGrace?.() === true) return;
+    this.slotAction(beltSlot);
   };
 
   /**

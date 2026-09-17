@@ -463,4 +463,67 @@ describe('the tick, in main.ts\'s order: release edge → wire slot → press ed
       kb.detach();
     });
   });
+
+  // --- Story 8.7, ruling 9: the refit window ends the stream -----------------
+  //
+  // The window is a full combat lockout, but the lockout only ever gated the
+  // PRESS. A hold that was already running kept its debt standing behind the
+  // window — and the pointerup that would have paid it might land after the
+  // player has closed the window, switched weapons, or died. main.ts's
+  // visibility watcher calls `endHolds()` on the OPEN edge; from the tick's
+  // point of view that is simply the hold ending, which is exactly right.
+
+  it('opening the refit window ends the hold and PAYS the owed revert', () => {
+    withMouse((m, canvas) => {
+      const kb = primed();
+      const seen = { click: 0, release: 0 };
+      fire(canvas, 'pointerdown', { button: 0 });
+      expect(tick(m, kb, seen, true)).toBe(Q); // the shot goes out, the debt is armed
+      expect(kb.releaseRevertPending).toBe(true);
+      m.endHolds(); // TAB — the watcher's false→true edge
+      tick(m, kb, seen, true);
+      expect(kb.primedSlot).toBe(SLOT_GUN); // the stream is over, the prime reverted
+      expect(kb.releaseRevertPending).toBe(false);
+      kb.detach();
+    });
+  });
+
+  it('the stream does not RESUME when the window closes without a fresh press', () => {
+    withMouse((m, canvas) => {
+      const kb = primed();
+      const seen = { click: 0, release: 0 };
+      fire(canvas, 'pointerdown', { button: 0 });
+      tick(m, kb, seen, true);
+      m.endHolds(); // the window opened…
+      tick(m, kb, seen, true);
+      const clicks = m.clickCount;
+      // …the player closes it still holding the button, and ticks on. A held
+      // button that never came up is not a new press: the counter stands still.
+      tick(m, kb, seen, true);
+      tick(m, kb, seen, true);
+      expect(m.clickCount).toBe(clicks);
+      // The late pointerup closes nothing and pays nothing.
+      fire(canvas, 'pointerup', { button: 0 });
+      kb.slotAction(Q); // re-prime after the revert above
+      tick(m, kb, seen, true);
+      expect(kb.primedSlot).toBe(Q);
+      kb.detach();
+    });
+  });
+
+  it('an already-QUEUED ability press survives the open — a press is a press', () => {
+    withMouse((m, canvas) => {
+      const kb = new KeyboardInput({ isSlotFitted: ALL_FITTED, isAbilitySlot: (s) => s === 1 });
+      kb.attach();
+      kb.slotAction(1); // the boost — queued, not yet consumed onto the wire
+      fire(canvas, 'pointerdown', { button: 0 });
+      expect(kb.pendingActivationCount).toBe(1);
+      m.endHolds(); // the window opens over it
+      expect(kb.pendingActivationCount).toBe(1); // the queue is NOT cleared
+      kb.consumeActivation();
+      expect(kb.actSeq).toBe(1); // …and it still rides an input
+      expect(kb.actSlot).toBe(1);
+      kb.detach();
+    });
+  });
 });

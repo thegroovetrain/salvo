@@ -76,7 +76,14 @@ import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
 import type { ToneFloor } from './render/gunneryFeed.js';
 import { deniedFeedbackHasNoTwin, deniedToneFloor } from './audio/deniedCue.js';
-import { KeyboardInput, slotHoldsAbility, type Axes, type KeyboardHooks } from './input/keyboard.js';
+import {
+  KeyboardInput,
+  refitCloseStamp,
+  refitGraceActive,
+  slotHoldsAbility,
+  type Axes,
+  type KeyboardHooks,
+} from './input/keyboard.js';
 import {
   UpgradeMenu,
   canLatchSpend,
@@ -620,6 +627,18 @@ interface Game {
    * fallback. Recomputed with ownStats on the ownStatsChanged seam.
    */
   ownSlots: readonly (SlotItemId | null)[];
+  /**
+   * performance.now() when the refit window last CLOSED (-Infinity until it
+   * ever has — so a fresh match is never inside the grace). For
+   * CLIENT_CONFIG.refit.closeGraceMs afterwards the digits `1`-`4` are inert:
+   * they mean two different things either side of that close (pick a card /
+   * fire a belt square), and the key that spent the last banked level is still
+   * held when the window goes away (Story 8.7, ruling 8).
+   */
+  refitClosedAt: number;
+  /** The refit window's visibility on the PREVIOUS render frame — the other
+   *  half of the one watcher that owns both of its edges (`watchRefitWindow`). */
+  refitWasOpen: boolean;
 }
 
 /** Toggle predict <-> interp (A/B comparison per the plan). Key: P. */
@@ -836,11 +855,48 @@ function updateSpendLatch(g: Game): number | null {
  *      outlives the window (a TAB close, or the you-gone force-hide in (2)),
  *      and pulsing a hidden band paints nothing while consuming the 300ms
  *      same-source floor, swallowing the next honest denial.
+ *
+ * Step 4 is the WINDOW'S OWN EDGES (Story 8.7, rulings 8-9) — read after (2),
+ * so the auto-close that happens inside it is seen on this very frame.
  */
 function syncRefitBand(g: Game): void {
   const deniedCard = updateSpendLatch(g);
   g.upgradeMenu.update(currentOfferView(g));
+  watchRefitWindow(g);
   if (deniedCard !== null && g.upgradeMenu.visible) g.upgradeMenu.pulseDenied(deniedCard);
+}
+
+/**
+ * THE ONE WATCHER over the refit window's visibility, and it is one on purpose:
+ * the window closes by FIVE different paths (TAB, ESC, the last spend emptying
+ * the bank, entering spectate, the you-gone force-hide) and opens by two, but
+ * all of them move the SAME boolean — so watching that boolean once covers
+ * every path, present and future, while a stamp written at each close site
+ * would be five places to forget.
+ *
+ * The two edges carry the two rulings:
+ *   • CLOSED (true → false): stamp `refitClosedAt`, which arms the digits'
+ *     inert grace (ruling 8 — the key that picked the last card must not fall
+ *     through onto the belt);
+ *   • OPENED (false → true): end every live mouse HOLD (ruling 9). The modal's
+ *     lockout already drops new presses, but a stream that was already running
+ *     kept its hold — and the prime-revert it owes — open behind the window.
+ *     The QUEUED ability presses are deliberately left alone: an already-queued
+ *     press is a press, and it still rides its input.
+ */
+function watchRefitWindow(g: Game): void {
+  const open = g.upgradeMenu.visible;
+  if (open && !g.refitWasOpen) g.mouse.endHolds();
+  g.refitClosedAt = refitCloseStamp(g.refitWasOpen, open, performance.now(), g.refitClosedAt);
+  g.refitWasOpen = open;
+}
+
+/** True while the refit window's close grace still swallows the digits (Story
+ *  8.7, ruling 8) — the `resultsKeysArmed` shape, on the other side of its
+ *  comparison: the grace is `[closedAt, closedAt + closeGraceMs)`, so a digit
+ *  at the edge itself fires. */
+function refitInGrace(g: Game | null): boolean {
+  return g !== null && refitGraceActive(performance.now(), g.refitClosedAt, CLIENT_CONFIG.refit.closeGraceMs);
 }
 
 /**
@@ -2247,6 +2303,14 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     // the refit modal as ever, plus (Story 2.3) the settings overlay and the
     // results modal, which are focused overlays.
     isModalOpen: () => modalOpen(getG()),
+    // THE DIGITS' DEAD ZONE (Story 8.7, ruling 8). `1`-`4` pick a card with the
+    // window open and fire a BELT square with it closed, so the frames right
+    // after a close are the one place those two meanings can collide: the
+    // captain who spends their last banked level on `1` is still holding that
+    // key when the window goes away. For the grace it is swallowed — prevented,
+    // but neither picking nor firing. One watcher (watchRefitWindow) stamps the
+    // close; this only asks how long ago it was.
+    isRefitGrace: () => refitInGrace(getG()),
     // ...and the SLOT KEYS alone also suspend at the held start line (Story
     // 6.1, amendment 8). Its own hook rather than a wider `isModalOpen`,
     // because the FOGHORN must survive the lock: Eric named movement, weapons
@@ -2651,6 +2715,7 @@ function buildGame(
     prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS),
+    refitClosedAt: -Infinity, refitWasOpen: false,
   };
   gRef = g;
   armWorldFlashBudget(g, camera, flashBudget);

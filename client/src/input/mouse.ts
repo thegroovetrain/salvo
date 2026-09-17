@@ -43,6 +43,11 @@
 // that hold and is ignored; a blur or a pointercancel for the active pointer
 // IS (the button may never come back up, and the click has already fired).
 // `releaseCount` survives as the raw button-0 tally; nothing branches on it.
+//
+// Story 8.7 (ruling 9) adds the OTHER way a hold can end: `endHolds()`, which
+// main.ts calls when the refit window OPENS. The window's lockout has always
+// dropped new presses; this is what closes a stream that was already running
+// when it opened, so no hold — and no prime-revert debt — outlives the window.
 
 /** A screen-space point (px). */
 export interface ScreenPoint {
@@ -190,6 +195,27 @@ export class MouseInput {
     if (pointerId !== null && pointerId !== this.activePointerId) return;
     this.releasedSeq = this.activeClickSeq;
     this.activePointerId = null;
+  }
+
+  /**
+   * END EVERY LIVE HOLD, exactly as a pointerup would (Story 8.7, ruling 9).
+   * Called by main.ts's refit-visibility watcher on the window's OPEN edge: the
+   * refit modal is a full combat lockout, but the lockout only ever gated the
+   * PRESS — a stream already running kept its hold open behind the window, and
+   * the pointerup that ends it might land after the player has closed the
+   * window, switched weapons or died, paying an owed prime-revert into a
+   * trigger they are no longer pulling.
+   *
+   * It publishes the hold's own click sequence number, so main.ts's release
+   * poll pays exactly the debt that click armed — the same edge, from a
+   * different cause, which is why it reuses `endHold` rather than inventing a
+   * second ending. Counters are untouched: no click is counted, no button-0
+   * release is tallied (none happened), and the cursor position is left alone.
+   * The keyboard's QUEUED activation presses are deliberately NOT cleared by
+   * the caller: an already-queued press is a press.
+   */
+  endHolds(): void {
+    this.endHold(null);
   }
 
   private readonly onContextMenu = (e: Event): void => {
