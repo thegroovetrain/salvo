@@ -13,7 +13,10 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  CATALOG,
   CONFIG,
+  CONSUMABLE_IDS,
+  CONSUMABLE_IS_WEAPON,
   HULL_IDS,
   SHIP_CLASS_IDS,
   SLOT_COUNT,
@@ -28,10 +31,17 @@ import {
   equipmentMaxAmmo,
   equipmentReloadMs,
   hullEnvelope,
+  isConsumableId,
+  isWeaponItem,
   loadoutFor,
+  slotMaxAmmo,
+  type Catalog,
+  type CatalogLine,
   type EffectiveStats,
   type HullId,
+  type LineId,
   type LoadoutSlot,
+  type SlotItemId,
 } from '../index.js';
 
 /** Fresh effective stats for any hull id at zero boons. */
@@ -241,5 +251,95 @@ describe('LoadoutSlot invariant — state is null iff equipmentId is null', () =
         }
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE BELT'S CONTENT TYPE (Story 8.7, orchestrator ruling 1). A slot holds a
+// `SlotItemId` — an EquipmentId (slots 0–4) or a ConsumableId (the 1–4 belt).
+// The two id spaces stay DISJOINT: every EquipmentId-keyed record
+// (EQUIPMENT_IS_WEAPON, EQUIPMENT_STAT_FIELDS, the server's rows, the glyph
+// table) would have to carry a lie for a stack if EquipmentId widened, so the
+// union lives at the ONE place that holds either — the slot — and every read
+// of an EquipmentId-keyed record narrows through `isConsumableId` first.
+// ---------------------------------------------------------------------------
+
+describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => {
+  it('the two id spaces never overlap: no consumable id is an EquipmentId and vice versa', () => {
+    const equipment = new Set<string>(EQUIPMENT_IDS);
+    for (const id of CONSUMABLE_IDS) expect(equipment.has(id), id).toBe(false);
+    const consumables = new Set<string>(CONSUMABLE_IDS);
+    for (const id of EQUIPMENT_IDS) expect(consumables.has(id), id).toBe(false);
+    expect(CONSUMABLE_IDS).toHaveLength(5);
+  });
+
+  it('a LoadoutSlot may hold either kind — a weapon slot an EquipmentId, a belt slot a ConsumableId', () => {
+    // Type-level pin as much as a runtime one: this file type-checks in the
+    // gate, so a narrowed `equipmentId: EquipmentId | null` fails to compile.
+    const weapon: LoadoutSlot = { equipmentId: 'heavyTorpedo', state: { n: 2, reloadMsLeft: 0 } };
+    const belt: LoadoutSlot = { equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 } };
+    const ids: (SlotItemId | null)[] = [weapon.equipmentId, belt.equipmentId, null];
+    expect(ids).toEqual(['heavyTorpedo', 'hullRepair', null]);
+    // A STACK NEVER RELOADS (ruling 2): its reloadMsLeft is 0 forever.
+    expect(belt.state?.reloadMsLeft).toBe(0);
+  });
+
+  it('isConsumableId is the ONE guard: true for the five, false for every EquipmentId and for junk', () => {
+    for (const id of CONSUMABLE_IDS) expect(isConsumableId(id), id).toBe(true);
+    for (const id of EQUIPMENT_IDS) expect(isConsumableId(id), id).toBe(false);
+    for (const junk of ['', 'nope', 'constructor', 'toString', 'hullrepair', 'HullRepair']) {
+      expect(isConsumableId(junk), junk).toBe(false);
+    }
+  });
+});
+
+describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation channels read', () => {
+  it('is the exact table: only the DECOY BUOY is click-aimed (D21)', () => {
+    expect(CONSUMABLE_IS_WEAPON).toEqual({
+      hullRepair: false,
+      shieldBlock: false,
+      smokeScreen: false,
+      chaff: false,
+      decoyBuoy: true, // click-placed like the buoy it replaces (catalog-v3 R1)
+    });
+    expect(Object.keys(CONSUMABLE_IS_WEAPON)).toEqual([...CONSUMABLE_IDS]);
+    for (const value of Object.values(CONSUMABLE_IS_WEAPON)) expect(typeof value).toBe('boolean');
+  });
+
+  it('isWeaponItem agrees with EQUIPMENT_IS_WEAPON over every EquipmentId', () => {
+    for (const id of EQUIPMENT_IDS) expect(isWeaponItem(id), id).toBe(EQUIPMENT_IS_WEAPON[id]);
+  });
+
+  it('isWeaponItem agrees with CONSUMABLE_IS_WEAPON over every ConsumableId', () => {
+    for (const id of CONSUMABLE_IDS) expect(isWeaponItem(id), id).toBe(CONSUMABLE_IS_WEAPON[id]);
+    expect(CONSUMABLE_IDS.filter((id) => isWeaponItem(id))).toEqual(['decoyBuoy']);
+  });
+});
+
+describe('slotMaxAmmo — a stack is capped by its LINE, a weapon by its stats row', () => {
+  const stats = statsFor('torpedoBoat');
+
+  it('routes every EquipmentId to equipmentMaxAmmo, unchanged', () => {
+    for (const id of EQUIPMENT_IDS) expect(slotMaxAmmo(stats, id), id).toBe(equipmentMaxAmmo(stats, id));
+  });
+
+  it('routes every ConsumableId to its catalog line CAP (five copies, five uses)', () => {
+    for (const id of CONSUMABLE_IDS) {
+      expect(slotMaxAmmo(stats, id), id).toBe(CATALOG[id].cap);
+      expect(slotMaxAmmo(stats, id), id).toBe(5);
+    }
+  });
+
+  it('reads the INJECTED catalog, and an unknown consumable line caps at 0 (fail-closed)', () => {
+    const short: CatalogLine = {
+      id: 'hullRepair' as LineId,
+      kind: 'consumable',
+      cap: 2,
+      tiers: [[{ kind: 'stock', equipmentId: 'hullRepair' }], [{ kind: 'stock', equipmentId: 'hullRepair' }]],
+    };
+    const cat: Catalog = { hullRepair: short };
+    expect(slotMaxAmmo(stats, 'hullRepair', cat)).toBe(2);
+    expect(slotMaxAmmo(stats, 'chaff', cat)).toBe(0); // no line in this catalog
+    expect(slotMaxAmmo(stats, 'gun', cat)).toBe(equipmentMaxAmmo(stats, 'gun')); // equipment ignores it
   });
 });

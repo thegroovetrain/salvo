@@ -22,6 +22,7 @@
 //
 // Pure, zero I/O.
 
+import { CONSUMABLE_IDS, type ConsumableId } from './effects.js';
 import type { EffectiveStats } from './stats.js';
 
 /**
@@ -94,6 +95,54 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   radarBuoy: true,
 };
 
+/**
+ * WHAT A SLOT MAY HOLD (Story 8.7): a piece of EQUIPMENT (slots 0–4) or a
+ * CONSUMABLE line (the four belt slots). The two id spaces stay DISJOINT —
+ * `EquipmentId` is never widened — because five records are keyed by
+ * EquipmentId (`EquipmentRows`, `EQUIPMENT_STAT_FIELDS`, `EQUIPMENT_IS_WEAPON`,
+ * the server's equipment registry, the client's glyph table) and every
+ * consumable entry in them would be a lie: a stack has no stat row, no reload
+ * and no module. The union lives at the ONE place that holds either — the slot
+ * — which forces a narrowing guard (`isConsumableId`) at each read instead of
+ * a cast.
+ */
+export type SlotItemId = EquipmentId | ConsumableId;
+
+/**
+ * The consumable half of the weapon/ability split (D21) — the same law
+ * `EQUIPMENT_IS_WEAPON` states for equipment: true iff the consumable is AIMED
+ * and fired at a clicked point, false iff it is an instant activation off the
+ * `1`–`4` rail. Only the DECOY BUOY is click-placed (catalog-v3 R1, the buoy it
+ * replaces was too). Compile-forced to cover every ConsumableId.
+ */
+export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
+  hullRepair: false,
+  shieldBlock: false,
+  smokeScreen: false,
+  chaff: false,
+  decoyBuoy: true,
+};
+
+/** Membership over the ONE consumable id list (sim/effects.ts) — never a second
+ *  copy of it. */
+const CONSUMABLE_ITEM_SET: ReadonlySet<string> = new Set(CONSUMABLE_IDS);
+
+/**
+ * THE narrowing guard. Every site that reads an EquipmentId-keyed record with a
+ * slot's content runs this first; the `false` branch narrows to `EquipmentId`
+ * because the two unions are disjoint, so no cast is ever needed.
+ */
+export function isConsumableId(id: string): id is ConsumableId {
+  return CONSUMABLE_ITEM_SET.has(id);
+}
+
+/** The weapon/ability split over EITHER kind of slot content — the ONE
+ *  predicate both dispatch channels (the aimed fireSeq path and the instant
+ *  actSeq path) call, on the server and on the client. */
+export function isWeaponItem(id: SlotItemId): boolean {
+  return isConsumableId(id) ? CONSUMABLE_IS_WEAPON[id] : EQUIPMENT_IS_WEAPON[id];
+}
+
 /** Every EquipmentId, in declaration order — the totality spine the equipment
  *  stat record and the catalog's slotFill validation both key on. */
 export const EQUIPMENT_IDS: readonly EquipmentId[] = Object.freeze(
@@ -105,6 +154,11 @@ export const EQUIPMENT_IDS: readonly EquipmentId[] = Object.freeze(
  * single `reloadMsLeft` timer. Structurally identical to the wire `WeaponAmmo`
  * shape today (so wire derivation from slot state is identity), but defined
  * fresh here — loadout state is a shared-sim concept, not the wire contract.
+ *
+ * A CONSUMABLE STACK (Story 8.7) uses the same shape with `n` = COPIES HELD and
+ * `reloadMsLeft` 0 FOREVER: a stack never reloads (catalog-v3 R40 — every copy
+ * of the line is one use, and the only way to get another is another card), so
+ * the server's reload tick and the client's cooldown wipe both skip the belt.
  */
 export interface EquipmentState {
   n: number; // charges/rounds ready (0 = empty)
@@ -114,9 +168,15 @@ export interface EquipmentState {
 /**
  * One loadout slot. INVARIANT: `state` is null iff `equipmentId` is null — an
  * empty slot carries no state to dereference; a fitted slot always has state.
+ *
+ * `equipmentId` holds a `SlotItemId`: an EquipmentId in the gun, boost and
+ * weapon slots (0–4), and a CONSUMABLE line id in a BELT slot (5–8, Story 8.7).
+ * The FIELD NAME is unchanged — it rides every mirror, view model and test on
+ * both sides — but a reader that indexes an EquipmentId-keyed record with it
+ * must narrow through `isConsumableId` first (never a cast).
  */
 export interface LoadoutSlot {
-  equipmentId: EquipmentId | null;
+  equipmentId: SlotItemId | null;
   state: EquipmentState | null;
 }
 
@@ -147,7 +207,9 @@ export const SLOT_ROLES: readonly [
 ] = ['gun', 'boost', 'weapon', 'weapon', 'weapon', 'consumable', 'consumable', 'consumable', 'consumable'];
 
 /** The effective pool size for a piece of equipment — a record lookup since
- *  Story 8.1 made `EffectiveStats.equipment` TOTAL over EquipmentId. */
+ *  Story 8.1 made `EffectiveStats.equipment` TOTAL over EquipmentId. A SLOT's
+ *  content may be a consumable instead, which has no stats row: `slotMaxAmmo`
+ *  (sim/boons.ts) routes either kind and is what slot-facing code calls. */
 export function equipmentMaxAmmo(stats: EffectiveStats, id: EquipmentId): number {
   return stats.equipment[id].maxAmmo;
 }
