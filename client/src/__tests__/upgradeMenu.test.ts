@@ -29,7 +29,7 @@ import {
   type RefitBox,
   type SpendLatch,
 } from '../ui/upgradeMenu.js';
-import { refitStripInnerBox, refitStripMetrics } from '../ui/refitCardFit.js';
+import { MICRO_VAR, domMicroScale, refitStripInnerBox, refitStripMetrics } from '../ui/refitCardFit.js';
 import {
   boonFitToastLine,
   boonKindLabel,
@@ -797,6 +797,54 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       expect(renderedBottom, `@${factor}`).toBeLessThanOrEqual(window.innerHeight);
     }
     setUiScaleVar(1);
+  });
+
+  // TEXT MUST BE READABLE (epic-8 amendment 43). The band scales as ONE block,
+  // so `place()` publishes the DOM twin of the bar's `microScale` as a custom
+  // property on the band's root, and the two registers seated on the 9px mono
+  // floor — the stat-row LABELS and the reason-word FOOT — divide their size by
+  // the UI scale through it. Everything above the floor rides the geometry and
+  // must NOT reference the property at all.
+  it('publishes --hc-micro on the band root, at the bar\'s own law', () => {
+    const menu = new UpgradeMenu(() => {});
+    for (const factor of [0.9, 1, 1.25]) {
+      setUiScaleVar(factor);
+      if (!menu.visible) menu.toggle(view());
+      else menu.update(view()); // re-places while open
+      const panel = document.getElementById('upgrade-menu')!;
+      const micro = Number.parseFloat(panel.style.getPropertyValue(MICRO_VAR));
+      expect(micro, `@${factor}`).toBeCloseTo(domMicroScale(factor), 12);
+    }
+    setUiScaleVar(1);
+    menu.hide();
+  });
+
+  it('counter-scales the LABEL and the FOOT through it, and nothing else', () => {
+    const menu = new UpgradeMenu(() => {});
+    const you = ownShip({ offer: ['decoyBuoy', 'radarSweep'] });
+    const belt = [null, null, null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const;
+    menu.toggle(offerView(you, false, false, false, belt)!);
+    // The REFUSED card (decoyBuoy) is the one that prints a foot; the live card
+    // beside it (radarSweep) is the one that prints a stat row.
+    const foot = (cards()[0].lastElementChild as HTMLElement).lastElementChild as HTMLElement;
+    const body = cards()[1].lastElementChild as HTMLElement;
+    const [icon, name, ladder, kind, grid] = [...body.children] as HTMLElement[];
+    const label = grid.children[0].firstElementChild as HTMLElement;
+    const value = grid.children[0].lastElementChild as HTMLElement;
+    // The two registers ON the floor divide their size (and their tracking).
+    for (const [what, el] of [['label', label], ['foot', foot]] as const) {
+      expect(el.style.fontSize, what).toContain(`var(${MICRO_VAR}`);
+      expect(el.style.letterSpacing, what).toContain(`var(${MICRO_VAR}`);
+    }
+    expect(foot.textContent).toBe(SLOTS_FULL); // the foot really is printing
+    expect(label.textContent).not.toBe('');    // ...and so is the label
+    // ...and every register above the floor is untouched by it.
+    const chip = cards()[1].firstElementChild as HTMLElement;
+    for (const [what, el] of [['name', name], ['kind', kind], ['value', value], ['chip', chip],
+      ['icon', icon], ['ladder', ladder]] as const) {
+      expect(el.style.cssText, what).not.toContain(MICRO_VAR);
+    }
+    menu.hide();
   });
 
   // AMENDMENT 36 — stay open through the queue: a successful spend live-swaps

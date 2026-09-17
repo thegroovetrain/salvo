@@ -86,6 +86,77 @@ export const REFIT_TYPE = {
   categoryLetterSpacing: 1,
 } as const;
 
+// --- THE 9 PX FLOOR, ON A DOM SURFACE (epic-8 amendment 43) --------------------
+//
+// Eric 2026-09-17: "Text *MUST* be readable." The refit band is DOM chrome
+// scaled as ONE block by `--hc-ui-scale` (ui/upgradeMenu.ts `PANEL_CSS`), so at
+// the 90% tier the two registers the ratified face seats ON the mono floor —
+// the stat-row LABELS and the reason-word FOOT, both 9 px — drew at 8.1 px.
+// Nothing on any surface renders under the floor, at any tier.
+
+/** The custom property the band publishes the counter-scale through. Declared
+ *  HERE, beside the law, so the CSS that reads it and the model that measures
+ *  it cannot drift apart. */
+export const MICRO_VAR = '--hc-micro';
+
+/**
+ * Pure: the factor a floor-seated DOM register must divide its size by so it
+ * still RENDERS at the floor — the DOM TWIN of the HUD bar's Pixi `microScale`
+ * (`render/hudBar.ts`, Story 8.6 ruling 2), whose law this copies exactly:
+ * `1 / uiScale` below 1, otherwise 1.
+ *
+ * DELIBERATELY NOT IMPORTED FROM THE BAR. `hudBar.ts` imports `pixi.js`, and
+ * this module is pure arithmetic over plain numbers that the fit suite runs
+ * without a renderer; there is no shared home for the law today, and inventing
+ * one for two call sites would cost more than the six lines it saved. If a
+ * third surface needs it, THAT is when it moves — and `hudBar.microScale` is
+ * the definition of record either way.
+ *
+ * ONLY below 1: at 100% and 125% the scale is already at or above the floor and
+ * the type rides the geometry, so this returns exactly 1 and no register moves.
+ */
+export function domMicroScale(uiScale: number): number {
+  return Number.isFinite(uiScale) && uiScale > 0 && uiScale < 1 ? 1 / uiScale : 1;
+}
+
+/** Every type size the refit card declares, by mark — the set the floor pin
+ *  walks. Registers at or under `monoFloorPx` counter-scale; the rest ride the
+ *  geometry untouched. */
+export const REFIT_REGISTERS = {
+  name: R.nameSize,
+  nameLong: R.nameSizeLong,
+  kind: R.kindSize,
+  tier: R.tierSize,
+  label: R.labelSize,
+  value: R.valueSize,
+  foot: R.footSize,
+  keyChip: R.keyChipSize,
+  strip: R.stripFontSize,
+} as const;
+
+/**
+ * Pure: the font-size a register is SET at, in the band's own (pre-scale)
+ * logical units — the counter-scaled size for a mark on the floor, the declared
+ * size for everything above it. This is the number the CSS `calc()` produces
+ * and the number every width in this module is measured with, which is what
+ * keeps the model and the render the same arithmetic.
+ */
+export function cardRegisterSize(sizePx: number, uiScale = 1): number {
+  return sizePx <= CLIENT_CONFIG.settings.monoFloorPx ? sizePx * domMicroScale(uiScale) : sizePx;
+}
+
+/** Pure: the px the PLAYER actually sees — the logical size times the UI scale
+ *  the whole band is drawn at. Never below `monoFloorPx`, which is the ruling. */
+export function cardRenderedPx(sizePx: number, uiScale = 1): number {
+  return cardRegisterSize(sizePx, uiScale) * uiScale;
+}
+
+/** The multiplier a register's size AND its tracking both take (every width on
+ *  a mono mark is linear in both, so ONE factor moves the whole mark). */
+function microFactor(sizePx: number, uiScale: number): number {
+  return cardRegisterSize(sizePx, uiScale) / sizePx;
+}
+
 /** Advance width (px) of one glyph at a size + letter-spacing. */
 export function monoCharWidth(fontPx: number, letterSpacingPx = 0): number {
   return fontPx * MONO_ADVANCE_EM + letterSpacingPx;
@@ -315,14 +386,25 @@ export interface RefitCardMetrics {
   overflow: number;
   /** The widest single mark − innerW: ≤ 0 fits the box on the horizontal axis. */
   overflowX: number;
+  /** The counter-scaled LABEL's line box − the mock's 17px row (amendment 43).
+   *  ≤ 0 is a glyph that still fits the row it was lifted inside. */
+  labelBoxOverflow: number;
+  /** The counter-scaled FOOT's line box − the mock's 14px foot box. */
+  footBoxOverflow: number;
 }
 
 /** Pure: one stat row's rendered width (px) — label, then the value cell, which
  *  is `next` alone on an absolute row and `cur → next` with the mock's 4px
  *  arrow margins on a diff row. The row is `justify-content: space-between`, so
- *  its two ends only collide once their sum passes the inner box. */
-export function statRowWidth(row: RefitStatRow): number {
-  const label = monoTextWidth(row.label, R.labelSize, REFIT_TYPE.labelLetterSpacing);
+ *  its two ends only collide once their sum passes the inner box.
+ *
+ *  `uiScale` is the live UI-scale tier: the LABEL is a floor-seated register, so
+ *  at 90% it is counter-scaled (amendment 43) and spends ~11% more of the line
+ *  than its declared 9px would — which is exactly why the fit walk re-runs at
+ *  every tier instead of once. */
+export function statRowWidth(row: RefitStatRow, uiScale = 1): number {
+  const f = microFactor(R.labelSize, uiScale);
+  const label = monoTextWidth(row.label, R.labelSize * f, REFIT_TYPE.labelLetterSpacing * f);
   const value = monoTextWidth(row.next, R.valueSize, REFIT_TYPE.valueLetterSpacing);
   if (row.cur === null) return label + value;
   const cur = monoTextWidth(row.cur, R.valueSize, REFIT_TYPE.valueLetterSpacing);
@@ -345,17 +427,18 @@ export function ladderRowWidth(cap: number, tier: string | null): number {
  * · the five-row grid · foot — with the mock's own `margin-top` seam between
  * each pair.
  */
-export function refitCardMetrics(card: RefitCardCopy): RefitCardMetrics {
+export function refitCardMetrics(card: RefitCardCopy, uiScale = 1): RefitCardMetrics {
   const T = REFIT_TYPE;
   const { w: innerW, h: innerH } = refitCardInnerBox();
   const nameSize = cardNameSize(card.name);
   const nameWidth = cardNameWidth(card.name);
-  const widestRow = card.rows.reduce((w, r) => Math.max(w, statRowWidth(r)), 0);
+  const widestRow = card.rows.reduce((w, r) => Math.max(w, statRowWidth(r, uiScale)), 0);
   const ladderWidth = ladderRowWidth(card.cap, card.tier);
   const kindWidth = monoTextWidth(card.kind, R.kindSize, T.kindLetterSpacing);
+  const footF = microFactor(R.footSize, uiScale);
   const footWidth = card.foot === ''
     ? 0
-    : monoTextWidth(card.foot, R.footSize, T.footLetterSpacing) + 2 * FOOT_BOX_PAD + 2 * T.border;
+    : monoTextWidth(card.foot, R.footSize * footF, T.footLetterSpacing * footF) + 2 * FOOT_BOX_PAD + 2 * T.border;
   const height =
     R.iconBox +
     T.nameGap + lineBox(nameSize, T.nameLineHeight) +
@@ -367,6 +450,12 @@ export function refitCardMetrics(card: RefitCardCopy): RefitCardMetrics {
   return {
     innerW, innerH, nameSize, nameWidth, widestRow, ladderWidth, kindWidth, footWidth,
     height, overflow: height - innerH, overflowX: widest - innerW,
+    // THE VERTICAL HALF OF AMENDMENT 43: the 17px row and the 14px foot box are
+    // the mock's geometry and do NOT grow with the counter-scale, so the lifted
+    // glyph has to still fit them. Both registers declare `line-height:1.2` in
+    // ui/upgradeMenu.ts, which is what makes this arithmetic the render.
+    labelBoxOverflow: lineBox(cardRegisterSize(R.labelSize, uiScale), T.lineHeight) - R.rowH,
+    footBoxOverflow: lineBox(cardRegisterSize(R.footSize, uiScale), T.lineHeight) - R.footH,
   };
 }
 

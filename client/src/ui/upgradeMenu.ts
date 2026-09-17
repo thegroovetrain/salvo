@@ -56,7 +56,14 @@ import { motionIntensity, settings } from '../settings/store.js';
 import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
 import { hudBarLayout } from '../render/hudBar.js';
 import { UI_SCALE_VAR } from './theme.js';
-import { FOOT_BOX_PAD, REFIT_TYPE, cardNameSize, cardNameTracking } from './refitCardFit.js';
+import {
+  FOOT_BOX_PAD,
+  MICRO_VAR,
+  REFIT_TYPE,
+  cardNameSize,
+  cardNameTracking,
+  domMicroScale,
+} from './refitCardFit.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
 import {
   REFIT_TIP,
@@ -1106,10 +1113,27 @@ const ROW_CSS_LINE = [
   'overflow:hidden',
 ].join(';');
 
-/** A row's LABEL — mock `.rw .l { font: 9px mono; .14em }`. */
+// THE TWO FLOOR-SEATED REGISTERS (epic-8 amendment 43, Eric 2026-09-17: "Text
+// *MUST* be readable"). The band scales as ONE block, so a 9px mark drew at
+// 8.1px at the 90% tier. Both marks below divide their size AND their tracking
+// by `--hc-micro` — the DOM twin of the bar's Pixi counter-scale, published on
+// the band's root by `place()` — so the rendered glyph never goes under the
+// floor. LONGHANDS, not the `font:` shorthand, for the same reason as the
+// borders above — a `var()` inside a shorthand is a whole-declaration gamble on
+// the parser — and because the shorthand would reset `line-height` to `normal`,
+// which is a font metric no pure model can know: the explicit 1.2 is what makes
+// refitCardFit's box arithmetic the render rather than a guess.
+// Nothing else on the card references the property: every other register is
+// already above the floor and rides the geometry (amendment 31's mock literal).
+const MICRO_SIZE = (px: number): string => `calc(${px}px * var(${MICRO_VAR}, 1))`;
+
+/** A row's LABEL — mock `.rw .l { font: 9px mono; .14em }`, counter-scaled. */
 const ROW_LABEL_CSS = [
-  `font:400 ${R.labelSize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.labelLetterSpacing}px`,
+  'font-weight:400',
+  `font-size:${MICRO_SIZE(R.labelSize)}`,
+  'font-family:var(--hc-font-mono)',
+  `line-height:${T.lineHeight}`,
+  `letter-spacing:${MICRO_SIZE(T.labelLetterSpacing)}`,
   'text-transform:uppercase',
   `color:${META}`,
   'white-space:nowrap',
@@ -1134,8 +1158,11 @@ const ROW_ARROW_CSS = `color:${MUTED};margin:0 ${T.arrowMargin}px`;
 const FOOT_CSS = [
   `height:${R.footH}px`,
   `margin-top:${T.footGap}px`,
-  `font:600 ${R.footSize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.footLetterSpacing}px`,
+  'font-weight:600',
+  `font-size:${MICRO_SIZE(R.footSize)}`,
+  'font-family:var(--hc-font-mono)',
+  `line-height:${T.lineHeight}`,
+  `letter-spacing:${MICRO_SIZE(T.footLetterSpacing)}`,
   'text-transform:uppercase',
   `color:${META}`,
   'white-space:nowrap',
@@ -1757,7 +1784,14 @@ export class UpgradeMenu {
    * scaled by the same factor. The two can no longer drift at any tier.
    */
   private place(): void {
-    this.ensurePanel().style.top = `${this.bandLayout().band.y * uiScaleFactor()}px`;
+    const s = uiScaleFactor();
+    const panel = this.ensurePanel();
+    // AMENDMENT 43, published once per placement: the band's floor-seated
+    // registers (the row labels, the reason-word foot) read this property and
+    // divide their size by it, so a 9px mark still renders at 9px when the
+    // whole band is drawn at 90%. Above 1 it is exactly 1 and nothing moves.
+    panel.style.setProperty(MICRO_VAR, String(domMicroScale(s)));
+    panel.style.top = `${this.bandLayout().band.y * s}px`;
     // WHICH WAY AN OPEN TIP OPENS IS RE-DECIDED HERE TOO (review gate, cycle
     // 141). The above/below choice depends on the hovered card's copy AND on the
     // water above the band, and the band moves whenever the viewport does —

@@ -34,9 +34,12 @@ import {
 } from '../ui/boonCopy.js';
 import {
   MONO_ADVANCE_EM,
+  REFIT_REGISTERS,
   REFIT_TYPE,
   cardNameSize,
   cardNameWidth,
+  cardRenderedPx,
+  domMicroScale,
   ladderRowWidth,
   monoWrapLines,
   refitCardInnerBox,
@@ -105,6 +108,11 @@ function everyFace(): FaceCase[] {
 }
 
 const FACES = everyFace();
+
+/** The one face that prints a FOOT: a consumable the belt has no room for. */
+const GREYED_FACE: RefitCardCopy = {
+  kind: 'CONSUMABLE', name: 'HULL REPAIR', tier: null, cap: 1, rows: [], foot: SLOTS_FULL,
+};
 
 describe('the ratified face is a FIXED box, and its content is a constant', () => {
   it('covers every offerable line at every rung, on every class, both extremes', () => {
@@ -218,7 +226,7 @@ describe('the LADDER row and the FOOT', () => {
   });
 
   it('fits the boxed SLOTS FULL reason word', () => {
-    const m = refitCardMetrics({ kind: 'CONSUMABLE', name: 'HULL REPAIR', tier: null, cap: 1, rows: [], foot: SLOTS_FULL });
+    const m = refitCardMetrics(GREYED_FACE);
     expect(m.footWidth).toBeGreaterThan(0);
     expect(m.footWidth).toBeLessThanOrEqual(m.innerW);
   });
@@ -323,5 +331,82 @@ describe('the wrap math itself', () => {
   it('hard-breaks a single token wider than the box (what overflow-wrap:anywhere does)', () => {
     expect(monoWrapLines('1234567890123456789012345', 15, 0, 186)).toBe(2);
     expect(monoWrapLines('x '.repeat(0) + 'y'.repeat(61), 15, 0, 186)).toBe(4);
+  });
+});
+
+// THE 9px FLOOR IS A FLOOR ON THE RENDERED SIZE (epic-8 amendment 43, Eric
+// 2026-09-17: "Text *MUST* be readable").
+//
+// The band is DOM scaled as ONE block by `--hc-ui-scale`, so at the 90% tier
+// every mark on the card drew at 0.9x — and the two registers the ratified face
+// seats ON the mono floor (the stat-row LABELS and the reason-word FOOT, both
+// 9px) came out at 8.1px. `domMicroScale` is the DOM twin of the HUD bar's Pixi
+// `microScale` (Story 8.6, ruling 2): a register at or under the floor divides
+// its size by the scale, so the rendered glyph is never smaller than 9px — and
+// the container-fit law (epic-4 amendment 47) is re-checked with the
+// counter-scaled size, because the mock's 17px row and 14px foot box do NOT
+// grow with it.
+describe('the 9px mono floor at every UI tier (amendment 43)', () => {
+  const FLOOR = CLIENT_CONFIG.settings.monoFloorPx;
+  const TIERS = CLIENT_CONFIG.settings.scaleTiers.map((pct) => pct / 100);
+
+  it('is the bar\'s own law, on a DOM surface', () => {
+    expect(TIERS).toEqual([0.9, 1, 1.25]);
+    expect(domMicroScale(0.9)).toBeCloseTo(1 / 0.9, 12);
+    expect(domMicroScale(1)).toBe(1);
+    expect(domMicroScale(1.25)).toBe(1);
+    // Garbage reads as "no counter-scale" — the same fallback uiScaleFactor has.
+    expect(domMicroScale(0)).toBe(1);
+    expect(domMicroScale(-1)).toBe(1);
+    expect(domMicroScale(Number.NaN)).toBe(1);
+  });
+
+  it('counter-scales EVERY register seated on the floor, and ONLY those', () => {
+    const micro = Object.entries(REFIT_REGISTERS).filter(([, px]) => px <= FLOOR).map(([k]) => k);
+    // The ratified face seats exactly two marks on the floor. A third one
+    // arriving is a decision, and this is where it gets recorded.
+    expect(micro.sort()).toEqual(['foot', 'label']);
+    for (const [name, px] of Object.entries(REFIT_REGISTERS)) {
+      for (const tier of TIERS) {
+        const rendered = cardRenderedPx(px, tier);
+        if (px <= FLOOR) expect(rendered, `${name}@${tier}`).toBeGreaterThanOrEqual(FLOOR - 1e-9);
+        // Above the floor the type rides the geometry, untouched.
+        else expect(rendered, `${name}@${tier}`).toBeCloseTo(px * tier, 12);
+      }
+    }
+  });
+
+  it('keeps the counter-scaled glyph INSIDE the mock\'s 17px row and 14px foot', () => {
+    const over: string[] = [];
+    for (const tier of TIERS) {
+      const m = refitCardMetrics(GREYED_FACE, tier);
+      if (m.labelBoxOverflow > 0) over.push(`label@${tier} overruns the row by ${m.labelBoxOverflow}px`);
+      if (m.footBoxOverflow > 0) over.push(`foot@${tier} overruns its box by ${m.footBoxOverflow}px`);
+    }
+    expect(over).toEqual([]);
+  });
+
+  it('still fits every card inside 192px with the labels counter-scaled', () => {
+    const inner = refitCardInnerBox().w;
+    const over: string[] = [];
+    for (const tier of TIERS) {
+      for (const { label, face } of FACES) {
+        for (const row of face.rows) {
+          const w = statRowWidth(row, tier);
+          if (w > inner) over.push(`@${tier} ${label} "${row.label}": ${w.toFixed(1)}px > ${inner}px`);
+        }
+        const m = refitCardMetrics(face, tier);
+        if (m.overflowX > 0) over.push(`@${tier} ${label}: widest mark overruns by ${m.overflowX.toFixed(1)}px`);
+      }
+    }
+    expect(over).toEqual([]);
+  });
+
+  it('still fits the boxed SLOTS FULL foot at the counter-scaled size', () => {
+    for (const tier of TIERS) {
+      const m = refitCardMetrics(GREYED_FACE, tier);
+      expect(m.footWidth, `@${tier}`).toBeGreaterThan(0);
+      expect(m.footWidth, `@${tier}`).toBeLessThanOrEqual(m.innerW);
+    }
   });
 });
