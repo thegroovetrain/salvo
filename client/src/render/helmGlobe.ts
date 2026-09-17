@@ -163,8 +163,11 @@ const HDG_LABEL_STYLE = {
   fill: C.textSecondary,
   letterSpacing: 2,
 } as const;
-const KTS_STYLE = { fontFamily: MONO, fontSize: B.type.kts, fill: C.textPrimary, letterSpacing: 1.5 } as const;
-const KTS_UNIT_STYLE = { fontFamily: MONO, fontSize: B.type.kts, fill: C.textSecondary, letterSpacing: 1.5 } as const;
+/** The KTS pair's TYPE REGISTER — the size and tracking both Texts render at,
+ *  in one place so the placement (and its pin) can measure what is drawn. */
+export const KTS_TYPE = { size: B.type.kts, tracking: 1.5 } as const;
+const KTS_STYLE = { fontFamily: MONO, fontSize: KTS_TYPE.size, fill: C.textPrimary, letterSpacing: KTS_TYPE.tracking } as const;
+const KTS_UNIT_STYLE = { fontFamily: MONO, fontSize: KTS_TYPE.size, fill: C.textSecondary, letterSpacing: KTS_TYPE.tracking } as const;
 const LETTER_STYLE = { fontFamily: MONO, fontSize: B.type.helmKey, fill: C.textSecondary } as const;
 
 /** Pure: a globe-local point at radius `rad` on the arc angle `deg`. */
@@ -212,6 +215,26 @@ export interface HelmGlobeInput {
  * detent, the rudder, the displayed speed or the globe's own geometry moves —
  * the readouts and the coach marks are Texts that diff their own strings.
  */
+/**
+ * Pure: where the `18.0` value and its `KTS` unit seat, so the PAIR stays
+ * centred on the globe's centre line.
+ *
+ * `micro` is `microScale(uiScale)` — the counter-scale the 9px register takes at
+ * the 90% UI tier so no mono glyph renders under the floor. The measured widths
+ * are the type's own; the RENDERED widths are those times `micro`, and it is the
+ * rendered ones the centring has to be done in. (Review gate, cycle 141: the
+ * pair was counter-scaled but placed off the unscaled widths, so at 90% it sat
+ * ~2px left of the globe's centre while every other readout on the bar stayed
+ * put.) `KTS_GAP` is spacing, not type, so it is deliberately left unscaled —
+ * the same rule the key chips' padding follows.
+ */
+export function ktsPairLayout(cx: number, value: string, micro = 1): { valueX: number; unitX: number } {
+  const vw = monoTextWidth(value, KTS_TYPE.size, KTS_TYPE.tracking) * micro;
+  const uw = monoTextWidth('KTS', KTS_TYPE.size, KTS_TYPE.tracking) * micro;
+  const valueX = cx - (vw + KTS_GAP + uw) / 2;
+  return { valueX, unitX: valueX + vw + KTS_GAP };
+}
+
 export class HelmGlobe {
   private readonly root = new Container();
   private readonly gfx = new Graphics();
@@ -376,21 +399,19 @@ export class HelmGlobe {
       this.ktsValue.text = spd;
       this.lastSpeed = spd;
     }
-    this.place(c);
+    this.place(c, micro);
   }
 
   /** Position every Text on the globe. Widths come from the MONO MODEL
    *  (ui/refitCardFit.ts) rather than `Text.width`: the bar's type is one
    *  monospaced stack, so the model is exact, and reading a Text's bounds would
    *  force a canvas measure on every knot of speed. */
-  private place(c: Circle): void {
+  private place(c: Circle, micro: number): void {
     this.hdgValue.position.set(c.cx, c.cy + HDG_DY);
     this.hdgLabel.position.set(c.cx, c.cy + HDG_LABEL_DY);
-    const vw = monoTextWidth(this.ktsValue.text, KTS_STYLE.fontSize, KTS_STYLE.letterSpacing);
-    const uw = monoTextWidth(this.ktsUnit.text, KTS_UNIT_STYLE.fontSize, KTS_UNIT_STYLE.letterSpacing);
-    const x = c.cx - (vw + KTS_GAP + uw) / 2;
-    this.ktsValue.position.set(x, c.cy + KTS_DY);
-    this.ktsUnit.position.set(x + vw + KTS_GAP, c.cy + KTS_DY);
+    const kts = ktsPairLayout(c.cx, this.ktsValue.text, micro);
+    this.ktsValue.position.set(kts.valueX, c.cy + KTS_DY);
+    this.ktsUnit.position.set(kts.unitX, c.cy + KTS_DY);
     for (const pair of ['ws', 'ad'] as const) this.pairs[pair].position.set(c.cx, c.cy);
     for (const letter of HELM_LETTERS) {
       const t = this.pairs[letter.pair].children.find((ch) => ch.label === letter.glyph);

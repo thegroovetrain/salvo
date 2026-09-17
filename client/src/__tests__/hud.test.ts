@@ -118,39 +118,44 @@ describe('ability denied feedback — a cooling press drives the EXISTING pulse 
   });
 });
 
-// --- STORY 8.6: THE SATELLITE COLUMN ------------------------------------------
+// --- STORY 8.6 / EPIC-8 AMENDMENT 38: THE SATELLITE COLUMN --------------------
 //
 // `IN STORM` and the victim tells used to hang off the bottom-right cluster's
-// top edge. The cluster is gone; the column now hangs off the HUD BAR's top edge
-// and is CENTRED on the screen. The two offsets (`stormAbove`, `tellAbove`)
-// survive verbatim — only what they are measured FROM changed.
+// top edge, and then (8.6's first cut) off the HUD BAR's. Both were reachable by
+// something else: a slot tooltip covers the space over the bar on every hover,
+// and the open refit band hides it behind the DAMAGE CONTROL strip. Amendment 38
+// moved the column UNDER the top-centre chrome bar, where nothing else renders.
+// `stormAbove` survives verbatim; only what it is measured FROM changed, and the
+// tells flipped to stacking DOWNWARD from the storm line at `tellGap`.
 
-describe('the satellite column anchors on the bar, centred', () => {
-  it('puts IN STORM `stormAbove` over the bar top, on the screen centre line', () => {
-    const at = stormWarnAnchor(FLOOR.w, BAR_TOP);
+describe('the satellite column hangs under the CHROME BAR, centred', () => {
+  /** The chrome bar row's bottom edge: its segments are top-anchored at
+   *  `chromeBar.y` (hud.ts layoutChromeBar), so one row of type below that. */
+  const CHROME_BOTTOM = CLIENT_CONFIG.chromeBar.y + CLIENT_CONFIG.chromeBar.fontSize;
+
+  it('puts IN STORM `stormAbove` UNDER the chrome bar, on the screen centre line', () => {
+    const at = stormWarnAnchor(FLOOR.w);
     expect(at.x).toBe(FLOOR.w / 2);
-    expect(BAR_TOP - at.y).toBe(V.stormAbove);
-    expect(at.y).toBeGreaterThan(0); // still on screen at the floor viewport
+    expect(at.y - CHROME_BOTTOM).toBe(V.stormAbove);
+    expect(at.y).toBeGreaterThan(CHROME_BOTTOM); // below the bar, never over it
+    expect(at.y).toBeLessThan(120); // and still in the top-centre band
   });
 
-  it('stacks the tells ABOVE it, in the same column', () => {
-    const storm = stormWarnAnchor(FLOOR.w, BAR_TOP);
-    const tells = tellAnchor(FLOOR.w, BAR_TOP);
+  it('stacks the tells BELOW it, in the same column, growing downward', () => {
+    const storm = stormWarnAnchor(FLOOR.w);
+    const tells = tellAnchor(FLOOR.w);
     expect(tells.x).toBe(storm.x);
-    expect(tells.y).toBeLessThan(storm.y);
-    expect(BAR_TOP - tells.y).toBe(V.tellAbove);
-    // Two stacked tells still clear the storm line and stay on screen.
-    const highest = tells.y - V.tellGap;
-    expect(highest).toBeLessThan(storm.y);
-    expect(highest).toBeGreaterThan(0);
+    expect(tells.y).toBeGreaterThan(storm.y); // below the storm line now
+    // A second tell goes one `tellGap` FURTHER DOWN, never back up over IN STORM.
+    expect(tells.y + V.tellGap).toBeGreaterThan(tells.y);
   });
 
-  it('tracks the bar on a short viewport (the 1280x614 logical floor)', () => {
-    const shortBar = hudBarLayout(1280, 614).bar.y;
-    const at = stormWarnAnchor(1280, shortBar);
-    expect(at.x).toBe(640);
-    expect(shortBar - at.y).toBe(V.stormAbove);
-    expect(at.y).toBeGreaterThan(CLIENT_CONFIG.chromeBar.y); // clear of the chrome bar
+  it('does not move with the bar — the column is viewport-width only', () => {
+    // The anchors take NO bar edge any more (amendment 38): a short viewport
+    // moves the HUD bar up, and the satellite column stays put under the chrome.
+    expect(stormWarnAnchor(1280)).toEqual({ x: 640, y: stormWarnAnchor(FLOOR.w).y });
+    expect(tellAnchor(1280)).toEqual({ x: 640, y: tellAnchor(FLOOR.w).y });
+    expect(hudBarLayout(1280, 614).bar.y).not.toBe(BAR_TOP); // the bar DID move
   });
 });
 
@@ -201,7 +206,7 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
   const RING = chromeBarSegments(bar()).findIndex((s) => s.pulsed);
 
   const drive = (hud: Hud, v: ChromeBarView, nowSec: number): void =>
-    hud.update(status, false, v, MATCH, FLOOR.w, FLOOR.h, nowSec, BAR_TOP);
+    hud.update(status, false, v, MATCH, FLOOR.w, FLOOR.h, nowSec);
 
   afterEach(() => settings.reset());
 
@@ -331,7 +336,7 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
     const seen = new Set<string>();
     let t = 0;
     for (let i = 0; i < 70; i++) {
-      hud.update(wounded, false, urgent, MATCH, FLOOR.w, FLOOR.h, (t += 0.016), BAR_TOP);
+      hud.update(wounded, false, urgent, MATCH, FLOOR.w, FLOOR.h, (t += 0.016));
       seen.add(hud.chromeBarAlpha(RING).toFixed(3));
     }
     expect(seen.size).toBeGreaterThan(5); // the ring is still breathing
@@ -369,7 +374,7 @@ describe('tellLine / tellSeconds — the dual-coded victim status line', () => {
 
 describe('Hud — the tells and the storm warning on a live frame', () => {
   const draw = (hud: Hud, status: OwnStatus, inStorm = false): void =>
-    hud.update(status, inStorm, QUIET, MATCH, FLOOR.w, FLOOR.h, 10, BAR_TOP);
+    hud.update(status, inStorm, QUIET, MATCH, FLOOR.w, FLOOR.h, 10);
 
   it('shows nothing at all while unafflicted', () => {
     const hud = new Hud(new Container());
@@ -387,16 +392,16 @@ describe('Hud — the tells and the storm warning on a live frame', () => {
     expect([hud.tellText(0), hud.tellText(1)]).toEqual(['SLOWED 2s', 'DAZZLED 4s']);
   });
 
-  it('a single running tell takes the BOTTOM slot — the column never shows a hole', () => {
+  it('a single running tell takes the TOP slot — the column never shows a hole', () => {
     const hud = new Hud(new Container());
     draw(hud, ownStatus({ slowedMsLeft: 2000 }));
     const slowedOnly = hud.tellPosition(0);
-    expect(slowedOnly).toEqual(tellAnchor(FLOOR.w, BAR_TOP));
+    expect(slowedOnly).toEqual(tellAnchor(FLOOR.w));
     draw(hud, ownStatus({ dazzledMsLeft: 2000 }));
     expect(hud.tellPosition(1)).toEqual(slowedOnly);
     draw(hud, ownStatus({ slowedMsLeft: 2000, dazzledMsLeft: 2000 }));
     expect(hud.tellPosition(0)).toEqual(slowedOnly);
-    expect(hud.tellPosition(1)?.y).toBe((slowedOnly?.y ?? 0) - V.tellGap);
+    expect(hud.tellPosition(1)?.y).toBe((slowedOnly?.y ?? 0) + V.tellGap);
   });
 
   it('keeps the tells through the SINKING window and clears them on a dead hull', () => {
@@ -422,7 +427,7 @@ describe('Hud — the tells and the storm warning on a live frame', () => {
     draw(hud, ownStatus());
     expect(hud.stormPosition()).toBeNull();
     draw(hud, ownStatus(), true);
-    expect(hud.stormPosition()).toEqual(stormWarnAnchor(FLOOR.w, BAR_TOP));
+    expect(hud.stormPosition()).toEqual(stormWarnAnchor(FLOOR.w));
     hud.updateSpectate(QUIET, MATCH, FLOOR.w, FLOOR.h, 'SPECTATING', 0);
     expect(hud.stormPosition()).toBeNull();
   });

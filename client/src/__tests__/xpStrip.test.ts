@@ -34,6 +34,7 @@ import {
   levelTag,
   nextChipState,
   xpFillFraction,
+  xpStripView,
   type XpChipState,
   type XpView,
 } from '../render/xpStrip.js';
@@ -517,5 +518,35 @@ describe('XpStrip — the freeze on the real instrument', () => {
     ms += 16;
     strip.update(v, STRIP, ms / 1000, false, ms);
     expect(strip.chipFillAlpha).toBeCloseTo(X.chipAlpha, 9); // a fresh window, unfrozen
+  });
+});
+
+// --- THE SINKING WINDOW'S CUE (review gate, cycle 141) -------------------------
+//
+// The strip rides the bar all the way down the sinking window (ruling 10), and
+// the server does NOT clear `you.offer` at sink-entry — the front offer is still
+// on the wire while the hull goes under. `refitable` therefore has to read the
+// THIRD STATE as well as the offer, or a captain who dies with a banked level
+// spends five seconds being told to press a TAB that opens nothing (the refit is
+// inert from sink-entry, sim/sinkingWindow.ts).
+describe('xpStripView — the TAB cue is withheld once the hull is sinking', () => {
+  const you = { lvl: 4, xp: 0.5, pts: 1, offer: ['armor'] };
+
+  it('is refitable while the hull is ALIVE with a front offer banked', () => {
+    expect(xpStripView(you, false)).toEqual({ lvl: 4, xp: 0.5, pts: 1, refitable: true });
+  });
+
+  it('is NOT refitable during the sinking window, offer or no offer', () => {
+    expect(xpStripView(you, true).refitable).toBe(false);
+    expect(xpStripView(you, true).pts).toBe(1); // the chip still reports the bank
+    expect(xpStripView({ ...you, offer: [] }, true).refitable).toBe(false);
+  });
+
+  it('reads an EMPTY offer as un-refitable, sinking or not (the exhausted deck)', () => {
+    expect(xpStripView({ ...you, offer: [] }, false).refitable).toBe(false);
+  });
+
+  it('reads a missing own ship as an empty economy', () => {
+    expect(xpStripView(null, false)).toEqual({ lvl: 0, xp: 0, pts: 0, refitable: false });
   });
 });

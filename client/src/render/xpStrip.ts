@@ -113,13 +113,37 @@ export interface XpView {
   /**
    * Whether the banked level can ACTUALLY be refitted right now — i.e. a front
    * offer is materialized (`you.offer.length > 0`), the same predicate
-   * `offerView` uses to decide the band may open. Since the lazy-draw bugfix a
-   * level always banks, so `pts > 0` with an EMPTY offer is a legitimate state
-   * (a degenerate exhausted deck), and the cue must not promise a TAB that
-   * opens nothing. The CHIP still shows the bank — the level is genuinely
-   * earned — but the instruction is withheld until it is actionable.
+   * `offerView` uses to decide the band may open, AND the hull is not inside its
+   * sinking window (the refit is inert from sink-entry, and the SERVER does not
+   * clear `you.offer` there — the offer is still on the wire all the way down).
+   * Since the lazy-draw bugfix a level always banks, so `pts > 0` with an EMPTY
+   * offer is a legitimate state (a degenerate exhausted deck), and the cue must
+   * not promise a TAB that opens nothing. The CHIP still shows the bank — the
+   * level is genuinely earned — but the instruction is withheld until it is
+   * actionable.
    */
   refitable: boolean;
+}
+
+/** The own-ship economy fields the view is derived FROM, exactly as the wire
+ *  delivers them on `you` (shared `OwnShip`). */
+export interface XpOwn {
+  lvl: number;
+  xp: number;
+  pts: number;
+  /** The FRONT offer's card line ids — empty when nothing was drawn. */
+  offer: readonly string[];
+}
+
+/**
+ * Pure: the strip's whole frame, off the server's own-ship fields VERBATIM —
+ * `lvl`/`xp`/`pts` are self-private and authoritative, and nothing here predicts
+ * or interpolates them. A missing `you` (the pre-first-frame gap) reads as an
+ * empty economy rather than hiding a member of the bar.
+ */
+export function xpStripView(you: XpOwn | null, sinking: boolean): XpView {
+  if (!you) return { lvl: 0, xp: 0, pts: 0, refitable: false };
+  return { lvl: you.lvl, xp: you.xp, pts: you.pts, refitable: you.offer.length > 0 && !sinking };
 }
 
 /** Pure: the track's fill fraction — the server's `xp`, clamped defensively. */

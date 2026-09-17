@@ -231,7 +231,7 @@ describe('the laws that constrain the fix', () => {
 describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   const OFFER = ['acousticHoming', 'radarSweep', 'armor', 'foulingMines'];
 
-  function open(): { menu: UpgradeMenu; cards: HTMLButtonElement[] } {
+  function open(): { menu: UpgradeMenu; cards: HTMLButtonElement[]; view: OfferView } {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
       cls: 'torpedoBoat' as const, pts: 1, offer: OFFER, boostUntil: 0,
@@ -241,7 +241,13 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view);
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
-    return { menu, cards };
+    return { menu, cards, view };
+  }
+
+  /** A real viewport resize, as jsdom can express one. */
+  function resizeTo(w: number, h: number): void {
+    Object.defineProperty(window, 'innerWidth', { value: w, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: h, configurable: true });
   }
 
   const tip = (): HTMLElement => document.getElementById('refit-card-tooltip') as HTMLElement;
@@ -296,6 +302,31 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
     expect(tip().style.pointerEvents).toBe('none');
     menu.hide();
     document.body.replaceChildren();
+  });
+
+  // REVIEW GATE, CYCLE 141: the above/below decision went STALE on a resize.
+  // `placeTip` ran only inside `showTip`, so a window that shrank while the
+  // pointer sat on a card left the panel opening upward into water that was no
+  // longer there — clipped at the top, which is the exact outcome amendment 37
+  // exists to prevent. The per-frame `place()` now re-decides for the open tip.
+  it('re-decides an OPEN tip\'s placement when the viewport resizes under it', () => {
+    const TALL = OFFER.indexOf('foulingMines');
+    const before = { w: window.innerWidth, h: window.innerHeight };
+    const { menu, cards, view } = open();
+    cards[TALL].dispatchEvent(new MouseEvent('mouseenter'));
+    const opened = { top: tip().style.top, bottom: tip().style.bottom };
+    resizeTo(1280, 614); // the 125% logical floor: 130px of water, a 198px panel
+    menu.update(view); // the per-frame refresh, which is how a resize reaches the band
+    const resized = { top: tip().style.top, bottom: tip().style.bottom, maxHeight: tip().style.maxHeight };
+    const band = refitBandLayout(1280, 614).band;
+    resizeTo(before.w, before.h);
+    menu.hide();
+    document.body.replaceChildren();
+    expect(opened.top).toBe('auto'); // it opened ABOVE, where it fitted
+    expect(opened.bottom).toBe(`calc(100% + ${REFIT_TIP.gap}px)`);
+    expect(resized.top).toBe('0px'); // ...and flipped DOWN when the water went away
+    expect(resized.bottom).toBe('auto');
+    expect(resized.maxHeight).toBe(`${band.h}px`);
   });
 
   // AMENDMENT 37 REACHES THE DOM. The rule is pure (refitTooltipPlacement) but

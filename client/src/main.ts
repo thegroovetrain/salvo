@@ -67,7 +67,7 @@ import { HudBar, type HudBarView } from './render/hudBar.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { type HotbarView } from './render/hotbar.js';
 import { slotForCard } from './render/equipmentInfo.js';
-import { type XpView } from './render/xpStrip.js';
+import { xpStripView } from './render/xpStrip.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
@@ -3056,12 +3056,13 @@ function renderOwn(
   // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
   // storm vignette's pulse rides (the HP globe breathes on it).
   //
-  // THE BAR GOES FIRST (Story 8.6, ruling 10), and not for taste: `Hud.update`
-  // hangs IN STORM and the victim tells off `barTop`, so the bar has to have
-  // laid itself out for this viewport before the satellites are placed against
-  // it. One frame of stale anchor is exactly what this ordering prevents.
+  // THE BAR GOES FIRST (Story 8.6, ruling 10): the bar is the surface the
+  // player's eye is on, and it is laid out before the chrome that frames it.
+  // It no longer FEEDS the chrome — epic-8 amendment 38 re-hung IN STORM and the
+  // victim tells under the chrome bar, which hud.ts lays out itself, so no bar
+  // edge crosses this seam any more.
   updateHudBar(g, status, pose, bar.ring.urgent, attn.freeze, now / 1000, nowMs);
-  g.hud.update(status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000, g.hudBar.barTop);
+  g.hud.update(status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000);
   return attn.tier1;
 }
 
@@ -3077,8 +3078,10 @@ function renderOwn(
  * the old bottom-left rail's `status.alive` gate (ruling 10, Eric's veto item):
  * the bar is ONE object, and splitting its visibility by member is exactly how
  * the three corners drifted apart. No promise is broken by that — `refitable`
- * is already false once the refit closes at sink-entry, so the cue line is
- * empty and the strip reports a bank without offering a TAB that opens nothing.
+ * requires `!sinking` as well as a materialized front offer (the server leaves
+ * `you.offer` standing at sink-entry, so the offer alone would still read as
+ * refitable), which empties the cue line: the strip reports the bank without
+ * offering a TAB that opens nothing.
  *
  * Called after renderFiring so this frame's denied pulse is resolved.
  */
@@ -3123,7 +3126,7 @@ function hudBarView(g: Game, status: OwnStatus, pose: RenderPose, ringUrgent: bo
     // which band the hull is in.
     hpHold: hpGlobeHoldsLit(railFraction(status.hp, status.stats.maxHp), ringUrgent),
     helm: helmGlobeView(g, status, pose),
-    xp: xpStripView(g),
+    xp: xpStripView(g.state.net.you ?? null, status.sinking),
     freeze,
     // Any suspending surface: the two slot groups dim to 38%, keys AND clicks
     // off. Story 6.1 folds the held start line in through the same lockout the
@@ -3150,21 +3153,6 @@ function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeI
     speedBonus: status.stats.equipment.speedBoost.speedBonus,
     boostActive: status.boostActive,
   };
-}
-
-/**
- * The XP strip's inputs: fed VERBATIM from the server's own-ship fields —
- * `lvl`/`xp`/`pts` are self-private and server-authoritative, and nothing here
- * predicts or interpolates them. A missing `you` (the pre-first-frame gap)
- * reads as an empty economy rather than hiding a member of the bar.
- */
-function xpStripView(g: Game): XpView {
-  const you = g.state.net.you;
-  // `refitable` mirrors offerView's own gate: a banked level whose front offer
-  // is empty (degenerate exhausted deck) cannot open the band, so the cue must
-  // not tell the player to press TAB (the chip still reports the bank).
-  if (!you) return { lvl: 0, xp: 0, pts: 0, refitable: false };
-  return { lvl: you.lvl, xp: you.xp, pts: you.pts, refitable: you.offer.length > 0 };
 }
 
 /**

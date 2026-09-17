@@ -93,6 +93,7 @@ import {
   tierNumeral,
   tooltipModel,
   tooltipPlacement,
+  tooltipFrame,
   tooltipRenderGeom,
   trimmedBoonRows,
   type HotbarView,
@@ -491,6 +492,41 @@ describe('the bar\'s rects — what the row draws on, and what it swallows', () 
     expect(layout.squares[0].y - badgeRect(layout, 0).y).toBe(B.badgeOverhang);
   });
 
+  // --- REVIEW GATE, CYCLE 141 -------------------------------------------------
+
+  it('is CONTIGUOUS from the square down to the chip — the 5px seam is not water', () => {
+    // The square, the `chipGap` seam under it and the key chip are ONE control.
+    // The seam used to fall through: a click 3px under a square went past the
+    // hit-test and FIRED the gun at the water behind the bar, which is the one
+    // thing the amendment-11 footprint exists to prevent.
+    for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
+      const sq = layout.squares[slot];
+      const chip = layout.chips[slot];
+      expect(chip.y - (sq.y + sq.h), String(slot)).toBe(B.chipGap); // the seam is real
+      for (let dy = 1; dy <= B.chipGap; dy += 1) {
+        expect(slotAtPoint({ x: chip.cx, y: sq.y + sq.h + dy }, layout), `${slot} +${dy}`).toBe(slot);
+      }
+      // ...and the whole column, square top to chip bottom, still answers.
+      expect(slotAtPoint({ x: sq.x + 1, y: chip.y + B.chipH - 1 }, layout), String(slot)).toBe(slot);
+      // Below the chip is water again — the XP strip's row routes no clicks.
+      expect(slotAtPoint({ x: chip.cx, y: chip.y + B.chipH + 1 }, layout), String(slot)).toBeNull();
+    }
+  });
+
+  it('gives a belt square its OWN left-edge column back from the neighbour\'s badge', () => {
+    // `beltBadgeOverhang` (6) is exactly the belt gap (6), so slot 5's badge ends
+    // ON slot 6's left edge. With an inclusive rect tested before the next
+    // square, a press on that column's top 10px routed to slot 5 — the wrong
+    // weapon, from a pixel that is visibly inside slot 6.
+    const six = layout.squares[6];
+    const five = badgeRect(layout, 5);
+    expect(five.x + five.w).toBe(six.x); // the edges really do coincide
+    expect(slotAtPoint({ x: six.x, y: six.y }, layout)).toBe(6);
+    expect(slotAtPoint({ x: six.x, y: six.y + 1 }, layout)).toBe(6);
+    // The badge still owns everything of its own that is not another square.
+    expect(slotAtPoint({ x: five.x + five.w - 1, y: five.y + 1 }, layout)).toBe(5);
+  });
+
   it('leaves the gaps, the belt\'s padding and open water as WATER', () => {
     const a = layout.squares[0];
     const b = layout.squares[1];
@@ -628,6 +664,52 @@ describe('tooltip placement — ABOVE the hovered square, never off the screen',
     expect(p.x).toBeGreaterThanOrEqual(H.tooltip.margin);
     expect(p.x + H.tooltip.width).toBeLessThanOrEqual(700 - H.tooltip.margin);
     expect(p.notchX).toBeLessThanOrEqual(p.x + H.tooltip.width);
+  });
+});
+
+// --- REVIEW GATE, CYCLE 141: THE PANEL NEVER REACHES THE BAR -------------------
+//
+// `tooltipRenderGeom` trimmed the panel against the SCREEN (`screenH - 2*margin`)
+// and `tooltipPlacement` then clamped it to the top margin — so at the 1280x614
+// floor the tallest build's 570px panel was placed at y 8 and ran to 578, over
+// the hovered square, all nine slots and both globes. The budget the trim spends
+// is the ROOM ABOVE THE SQUARE, not the room on the screen.
+
+describe('the slot tooltip never paints over the bar it points at', () => {
+  const stats = statsFor('torpedoBoat');
+  /** The tallest panel in the game: the gun slot holding every gun + shipwide
+   *  line it can (the same build the amendment-47 walk uses). */
+  const tallest = tooltipModel(
+    0,
+    'gun',
+    stats,
+    Object.values(CATALOG)
+      .filter((d) => d.kind === 'ladder')
+      .flatMap((d) => Array<string>(d.cap).fill(d.id)),
+  )!;
+
+  it('fits between the top margin and the square it hangs over, on EVERY slot at the 1280x614 floor', () => {
+    const layout = hudBarLayout(1280, 614);
+    const screenH = layout.bar.y + layout.bar.h + B.floor;
+    for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
+      const sq = layout.squares[slot];
+      const { geom, place } = tooltipFrame(tallest, 0, sq, 1280, screenH);
+      expect(place.y, `slot ${slot} top`).toBeGreaterThanOrEqual(H.tooltip.margin);
+      expect(place.y + geom.panelH, `slot ${slot} bottom`).toBeLessThanOrEqual(sq.y - H.tooltip.gap);
+      // The notch still tips down at the square: the panel shrank, it did not move.
+      expect(place.notchX, `slot ${slot} notch`).toBeGreaterThanOrEqual(place.x);
+      expect(place.notchX, `slot ${slot} notch`).toBeLessThanOrEqual(place.x + H.tooltip.width);
+    }
+  });
+
+  it('spends the lost height on the `+n MORE` trim, never on dropping the count', () => {
+    const layout = hudBarLayout(1280, 614);
+    const screenH = layout.bar.y + layout.bar.h + B.floor;
+    const { geom } = tooltipFrame(tallest, 0, layout.squares[0], 1280, screenH);
+    const all = tallest.boons.filter((r) => !r.divider).length;
+    const shown = geom.boons.filter((r) => !r.divider).length;
+    expect(shown).toBeLessThan(all); // it really did have to trim here
+    expect(shown + markerCount(geom.boons)).toBe(all);
   });
 });
 
@@ -962,7 +1044,7 @@ describe('trimmedBoonRows — the +n MORE marker counts BOONS, not furniture', (
   });
 });
 
-describe('tooltipRenderGeom — the model reconciled with the real screen', () => {
+describe('tooltipRenderGeom — the model reconciled with the room it has', () => {
   const stats = statsFor('torpedoBoat');
   /** The gun slot holding every gun + shipwide line it can (the tallest panel). */
   const maxedGunBuild = Object.values(CATALOG)
@@ -987,28 +1069,31 @@ describe('tooltipRenderGeom — the model reconciled with the real screen', () =
     expect(under.panelH).toBe(tooltipRenderGeom(model, 0, 1080).panelH);
   });
 
-  it('re-trims against a viewport SHORTER than the design floor', () => {
+  it('re-trims against a SPACE shorter than the design floor', () => {
+    // The third argument is the ROOM ABOVE THE HOVERED SQUARE (review gate,
+    // cycle 141) — it used to be the viewport height, which is a budget the
+    // panel does not actually get to spend, since it hangs above the square.
     const model = tooltipModel(0, 'gun', stats, maxedGunBuild)!;
     const roomy = tooltipRenderGeom(model, 0, 1080);
-    const cramped = tooltipRenderGeom(model, 0, 420);
+    const cramped = tooltipRenderGeom(model, 0, 404);
     expect(roomy.panelH).toBeLessThanOrEqual(TOOLTIP_MAX_PANEL_H);
-    // 420px of screen is well under the 614px floor the model was fitted to:
-    // rows come off until the panel fits the screen it is actually on. It used
-    // to read 500px; cycle 119's INTEL RANGE deletion took a whole LINE out of
-    // the gun+shipwide build, and the shorter panel now fits 500px without
-    // dropping a row — so the pin moved to a viewport where trimming still
-    // bites rather than asserting a trim that no longer has to happen.
+    // 404px of room is well under the 602px the model was fitted to: rows come
+    // off until the panel fits the space it is actually in. It used to read
+    // 500px; cycle 119's INTEL RANGE deletion took a whole LINE out of the
+    // gun+shipwide build, and the shorter panel now fits 500px without dropping
+    // a row — so the pin moved to a budget where trimming still bites rather
+    // than asserting a trim that no longer has to happen.
     expect(cramped.boons.length).toBeLessThan(roomy.boons.length);
-    expect(cramped.panelH).toBeLessThanOrEqual(420 - 2 * H.tooltip.margin);
+    expect(cramped.panelH).toBeLessThanOrEqual(404);
   });
 
   it('still accounts for every accrued line it dropped, at any viewport', () => {
     const model = tooltipModel(0, 'gun', stats, maxedGunBuild)!;
     const all = boonRows('gun', maxedGunBuild, stats).filter((r) => !r.divider).length;
-    for (const screenH of [1080, 700, 500, 420]) {
-      const geom = tooltipRenderGeom(model, 0, screenH);
+    for (const room of [1080, 700, 500, 404]) {
+      const geom = tooltipRenderGeom(model, 0, room);
       const shown = geom.boons.filter((r) => !r.divider).length;
-      expect(shown + markerCount(geom.boons), `${screenH}px`).toBe(all);
+      expect(shown + markerCount(geom.boons), `${room}px`).toBe(all);
     }
   });
 

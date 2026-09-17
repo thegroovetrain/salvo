@@ -368,9 +368,14 @@ export class HudBar {
   }
 
   /**
-   * The bar's TOP edge — what `Hud.update` hangs the satellite column (IN STORM
-   * and the victim tells) off. 0 before the first layout, which only a caller
-   * that never rendered the bar can see.
+   * The bar's TOP edge, as the last laid-out frame resolved it. 0 before the
+   * first layout, which only a caller that never rendered the bar can see.
+   *
+   * It used to feed `Hud.update`'s satellite column; epic-8 amendment 38 moved
+   * IN STORM and the victim tells under the CHROME bar, so nothing consumes this
+   * today. It stays as the bar's one published geometry seam (and its pin) —
+   * anything that needs to seat itself against the bar reads it here rather than
+   * re-deriving the layout.
    */
   get barTop(): number {
     return this.cached === null ? 0 : this.cached.bar.y;

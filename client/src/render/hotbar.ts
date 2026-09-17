@@ -657,8 +657,25 @@ function inRect(p: ScreenPoint, r: Rect): boolean {
 }
 
 /**
- * Pure: the slot whose SQUARE, KEY CHIP or AMMO BADGE contains a screen point,
- * or null.
+ * Pure: a slot's CONTIGUOUS column — its square, the `chipGap` seam under it and
+ * its key chip, as ONE rect at the square's width.
+ *
+ * ONE rect and not two (review gate, cycle 141): tested as a square plus a
+ * separate chip row, the 5px seam between them was WATER, so a click 3px under a
+ * square fell straight through the bar and fired the gun — the precise failure
+ * the amendment-11 footprint exists to prevent. Nothing about the drawn surface
+ * changed; the seam is simply part of the control it has always looked like part
+ * of.
+ */
+function slotColumn(layout: HudBarLayout, slot: number): Rect {
+  const sq = layout.squares[slot];
+  const chip = layout.chips[slot];
+  return { x: sq.x, y: sq.y, w: sq.w, h: chip.y + B.chipH - sq.y };
+}
+
+/**
+ * Pure: the slot whose COLUMN (square + seam + key chip) or AMMO BADGE contains
+ * a screen point, or null.
  *
  * THE hit-test behind both the hover tooltip and the click gate (amendment 11):
  * the chip and the badge are part of the control, exactly as the whole ROW was
@@ -674,16 +691,22 @@ function inRect(p: ScreenPoint, r: Rect): boolean {
  * chip is never wider than its square, so this region contains the chip and
  * nothing else.
  *
+ * TWO PASSES, SQUARES FIRST (review gate, cycle 141). `beltBadgeOverhang` is
+ * exactly the belt gap, so slot 5's badge ends ON slot 6's left edge, and rects
+ * are inclusive on both edges: a single pass in slot order gave the previous
+ * slot's badge the top 10px of its neighbour's own left-edge column. A press
+ * inside a square now always belongs to that square, and a badge only ever wins
+ * the overhang — which is the part of it that hangs over water.
+ *
  * A null layout (the bar is hidden — death, spectate, the forceSnap pose gap)
  * hits nothing: a hidden bar routes no clicks.
  */
 export function slotAtPoint(p: ScreenPoint, layout: HudBarLayout | null): number | null {
   if (layout === null) return null;
   for (let slot = 0; slot < layout.squares.length; slot += 1) {
-    const sq = layout.squares[slot];
-    if (inRect(p, sq)) return slot;
-    const chip = layout.chips[slot];
-    if (inRect(p, { x: sq.x, y: chip.y, w: sq.w, h: B.chipH })) return slot;
+    if (inRect(p, slotColumn(layout, slot))) return slot;
+  }
+  for (let slot = 0; slot < layout.squares.length; slot += 1) {
     if (inRect(p, badgeRect(layout, slot))) return slot;
   }
   return null;
@@ -905,7 +928,7 @@ function boonBlockLines(rows: readonly TooltipBoonRow[], innerW: number): number
  * Pure: the modelled height of a tooltip panel, against its container. `maxPanelH`
  * is the budget `overflow` is measured against — the design floor by default, and
  * the REAL viewport's allowance when the render clamps against a screen shorter
- * than the floor (drawTooltip / tooltipRenderGeom).
+ * than the room above the hovered square (drawTooltip / tooltipRenderGeom).
  */
 export function tooltipMetrics(model: TooltipModel, maxPanelH = TOOLTIP_MAX_PANEL_H): TooltipMetrics {
   const T = TIP_TYPE;
@@ -994,17 +1017,26 @@ export interface TooltipRenderGeom {
  *    model predicted. The boons block is placed below the LARGER of the two and
  *    the panel grows by the difference, so the description can never run under
  *    the build list.
- *  • `screenH`: the viewport is shorter than TOOLTIP_FLOOR_VIEWPORT_H (a small
- *    window, a high UI scale). The panel is clamped to what the REAL screen
- *    allows and the rows are re-trimmed against that smaller budget — the same
- *    `+n MORE` grammar, just tighter — rather than running off the bottom.
+ *  • `roomAboveH`: the clear water ABOVE the hovered square is shorter than the
+ *    design floor's allowance (a small window, a high UI scale, a belt square
+ *    that sits lower than the weapon row). The panel is clamped to what that
+ *    space allows and the rows are re-trimmed against the smaller budget — the
+ *    same `+n MORE` grammar, just tighter.
+ *
+ *    THE ROOM ABOVE, NOT THE SCREEN (review gate, cycle 141). This used to be
+ *    `screenH - 2*margin`, which at the 1280x614 floor let the tallest build
+ *    model a 570px panel that `tooltipPlacement` then clamped to the top margin
+ *    — painting straight over the hovered square, the other eight slots and both
+ *    globes. The panel hangs ABOVE the square by construction, so the square's
+ *    own clearance is the only budget that can keep that promise, and the screen
+ *    clamp is subsumed by it (the bar is `floor` px off the viewport's edge).
  *
  * Growth from measurement is taken out of the row budget FIRST, so the two fixes
- * cannot fight: whatever the description costs, the panel still fits the screen.
+ * cannot fight: whatever the description costs, the panel still fits its space.
  */
-export function tooltipRenderGeom(model: TooltipModel, measuredDescH: number, screenH: number): TooltipRenderGeom {
+export function tooltipRenderGeom(model: TooltipModel, measuredDescH: number, roomAboveH: number): TooltipRenderGeom {
   const T = TIP_TYPE;
-  const maxPanelH = Math.min(TOOLTIP_MAX_PANEL_H, screenH - 2 * H.tooltip.margin);
+  const maxPanelH = Math.min(TOOLTIP_MAX_PANEL_H, roomAboveH);
   const modelledDescH = tooltipMetrics(model).descLines * T.descLineHeight;
   const excess = Math.max(0, measuredDescH - modelledDescH);
   const budget = maxPanelH - excess;
@@ -1035,8 +1067,14 @@ export interface TooltipPlacement {
  * could flank it right and sit over open water. The bar is CENTRED at the foot
  * of the screen: a flanking panel would cover the globes or the belt — i.e. the
  * HUD would hide the HUD — while the space directly above the bar is empty by
- * construction (nothing else renders there, and the storm warning and victim
- * tells stack ABOVE the panel's own worst-case height).
+ * construction. Nothing else renders there: epic-8 amendment 38 moved the storm
+ * warning and the victim tells UNDER the top-centre chrome bar precisely because
+ * this panel reaches across that space on every hover.
+ *
+ * THE CLAMPS ARE BELT AND BRACES, NOT THE FIT (review gate, cycle 141): the
+ * panel is trimmed to the room above the square before it gets here
+ * (`tooltipFrame`), so the top clamp can no longer pull a too-tall panel down
+ * over the square it points at.
  *
  * `gap` is measured from the SQUARE, not from the chip, so the panel's foot
  * reads as pointing at the thing it describes.
@@ -1050,6 +1088,28 @@ export function tooltipPlacement(square: Rect, panelH: number, screenW: number, 
   const y = Math.min(maxY, Math.max(t.margin, square.y - t.gap - panelH));
   const notchX = Math.min(x + t.width - t.notch - 2, Math.max(x + t.notch + 2, cx));
   return { x, y, notchX };
+}
+
+/**
+ * Pure: ONE frame's whole tooltip — the geometry and the placement, composed in
+ * the same order the renderer needs them (the placement needs `panelH`, which
+ * the geometry resolves). The Pixi shell does nothing else to them, which is
+ * what makes the pair testable without a canvas.
+ */
+export function tooltipFrame(
+  model: TooltipModel,
+  measuredDescH: number,
+  square: Rect,
+  screenW: number,
+  screenH: number,
+): { geom: TooltipRenderGeom; place: TooltipPlacement } {
+  // THE HEIGHT BUDGET IS THE ROOM ABOVE THE SQUARE (review gate, cycle 141) —
+  // the clear water between the top margin and the panel's own `gap` over the
+  // thing it points at. Trimming against the SCREEN instead let the tallest
+  // build model a panel taller than that space and land on the bar.
+  const roomAbove = square.y - H.tooltip.gap - H.tooltip.margin;
+  const geom = tooltipRenderGeom(model, measuredDescH, roomAbove);
+  return { geom, place: tooltipPlacement(square, geom.panelH, screenW, screenH) };
 }
 
 // --- Pixi shell -----------------------------------------------------------------
@@ -1562,10 +1622,9 @@ export class Hotbar {
     // The description's text must be assigned BEFORE it is measured: the height
     // this reads is the one Pixi just wrapped, not last frame's.
     this.setText(this.tipDesc, model.description, 102);
-    const geom = tooltipRenderGeom(model, this.tipDesc.height, screen.h);
+    const { geom, place } = tooltipFrame(model, this.tipDesc.height, layout.squares[slot], screen.w, screen.h);
     this.setText(this.tipBoons, boonBlockText(geom.boons), 103);
     this.tipBoons.visible = geom.boons.length > 0;
-    const place = tooltipPlacement(layout.squares[slot], geom.panelH, screen.w, screen.h);
     const x = place.x + t.pad;
     this.tipName.position.set(x, place.y + t.pad);
     this.tipInteraction.position.set(x, place.y + t.pad + T.headLineHeight + T.nameGap);

@@ -1075,6 +1075,11 @@ export class UpgradeMenu {
    *  hover — never one per card, so a pointer running along the row cannot
    *  leave a trail of panels behind it. */
   private tip: RefitTipEls | null = null;
+  /** The copy the OPEN tip is showing, or null when no tip is up. Kept so the
+   *  per-frame `place()` can re-run the amendment-37 above/below decision after
+   *  a viewport change — the decision is a function of the band's geometry, and
+   *  the band moves under a stationary pointer (review gate, cycle 141). */
+  private tipModel: RefitTooltipModel | null = null;
   /** The last rendered view — the tooltip's copy source. Kept as state rather
    *  than stamped onto the DOM: the panel shows ONE card's explanation at a
    *  time, and re-reading it from the view keeps the cards free of copy. */
@@ -1206,12 +1211,15 @@ export class UpgradeMenu {
     const copy = index === null ? null : this.view?.options[index] ?? null;
     if (!card || !copy || copy.tooltip === '') {
       tip.root.style.display = 'none';
+      this.tipModel = null;
       return;
     }
+    const model: RefitTooltipModel = { name: copy.name, body: copy.tooltip };
     tip.name.textContent = copy.name;
     tip.body.textContent = copy.tooltip;
     tip.root.style.left = `${refitTooltipLeft(index!, this.rowWidth())}px`;
-    this.placeTip(tip.root, { name: copy.name, body: copy.tooltip });
+    this.tipModel = model;
+    this.placeTip(tip.root, model);
     tip.root.style.display = 'flex';
   }
 
@@ -1413,8 +1421,13 @@ export class UpgradeMenu {
    */
   private place(): void {
     this.ensurePanel().style.top = `${this.bandLayout().band.y * uiScaleFactor()}px`;
-    // The tooltip's own cap is NOT set here: which way it opens depends on the
-    // hovered card's copy (amendment 37), so it is decided per hover in showTip.
+    // WHICH WAY AN OPEN TIP OPENS IS RE-DECIDED HERE TOO (review gate, cycle
+    // 141). The above/below choice depends on the hovered card's copy AND on the
+    // water above the band, and the band moves whenever the viewport does —
+    // under a pointer that never left the card, so no hover ever fires to fix
+    // it. Deciding it only in `showTip` left the panel opening upward into water
+    // that was no longer there. The copy still comes from the hover.
+    if (this.tipModel && this.tip) this.placeTip(this.tip.root, this.tipModel);
   }
 
   /** The band as the panel's own (LOGICAL) coordinate space sees it — the ONE

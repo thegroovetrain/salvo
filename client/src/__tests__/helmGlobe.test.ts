@@ -20,12 +20,15 @@ import {
   detentIndexOf,
   detentLabel,
   detentTickAngle,
+  ktsPairLayout,
+  KTS_TYPE,
   needleAngle,
   rudderTickCenter,
   speedLadderFraction,
   type HelmGlobeInput,
 } from '../render/helmGlobe.js';
-import { hudBarLayout, type Circle } from '../render/hudBar.js';
+import { hudBarLayout, microScale, type Circle } from '../render/hudBar.js';
+import { monoTextWidth } from '../ui/refitCardFit.js';
 import {
   HELM_PAIRS,
   HelmGlyphStore,
@@ -596,5 +599,45 @@ describe('HelmGlobe shell — a live frame and the coach-mark fade', () => {
     expect(layer.children[0].visible).toBe(false);
     globe.update(input(), GLOBE, 2, 1);
     expect(layer.children[0].visible).toBe(true);
+  });
+});
+
+// --- REVIEW GATE, CYCLE 141: THE KTS PAIR AT THE 90% TIER ----------------------
+//
+// The two KTS Texts COUNTER-SCALE by microScale(uiScale) so the 9px mono
+// register never renders under its floor — but they were positioned from the
+// UNSCALED mono widths, so at the 90% setting the rendered pair was wider than
+// the box it was centred in and drifted off the globe's centre line. Every other
+// counter-scaled readout on the bar multiplies its measured width by the same
+// factor; this one now does too.
+
+describe('the KTS pair stays centred on the globe at every UI tier', () => {
+  const width = (t: string, micro: number): number => monoTextWidth(t, KTS_TYPE.size, KTS_TYPE.tracking) * micro;
+  /** Where the pair's rendered ink actually starts and ends. */
+  const span = (value: string, micro: number): { left: number; right: number } => {
+    const p = ktsPairLayout(GLOBE.cx, value, micro);
+    return { left: p.valueX, right: p.unitX + width('KTS', micro) };
+  };
+
+  it('centres the RENDERED pair at the 90% tier, within half a pixel', () => {
+    const micro = microScale(0.9);
+    expect(micro).toBeGreaterThan(1); // the 9px register really is counter-scaled
+    for (const value of ['0.0', '9.9', '18.0', '104.5']) {
+      const { left, right } = span(value, micro);
+      expect(Math.abs((left + right) / 2 - GLOBE.cx), value).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it('is unchanged at 100% and 125%, where there is no counter-scale', () => {
+    for (const uiScale of [1, 1.25]) {
+      const { left, right } = span('18.0', microScale(uiScale));
+      expect(Math.abs((left + right) / 2 - GLOBE.cx), String(uiScale)).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it('keeps the gap between the value and its unit, and never overlaps them', () => {
+    const micro = microScale(0.9);
+    const p = ktsPairLayout(GLOBE.cx, '18.0', micro);
+    expect(p.unitX - p.valueX).toBeGreaterThan(width('18.0', micro)); // a real gap
   });
 });

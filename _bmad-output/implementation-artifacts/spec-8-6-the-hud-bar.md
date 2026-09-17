@@ -130,6 +130,23 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-09-17 — Review pass (Blind Hunter + Edge Case Hunter at session model, plus Codex `gpt-5.6-sol` cross-model review — verdicts: Blind Hunter fix-first, Edge Case Hunter fix-first, Codex fix-first; findings applied in this pass)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 4, low 3)
+- defer: 3: (high 0, medium 0, low 3)
+- reject: 5: (high 0, medium 0, low 5)
+- addressed_findings:
+  - `[medium]` `[patch]` `TAB TO REFIT` and the lit bank chip stayed on through the 5 s sinking window because the server never clears the offer at sink-entry, while Tab does nothing there (Blind Hunter 1 CONFIRMED) — `refitable` now also requires `!sinking`; the spec's "already suppressed" reading in ruling 10 was wrong and the ledger sentence is corrected
+  - `[medium]` `[patch]` the slot tooltip painted over the hovered square, all nine slots and both globes at the 1280×614 floor for a maxed build (Blind Hunter 2, Edge Case Hunter 2, both CONFIRMED) — the panel's height budget is now the room above the square, so the existing `+n MORE` trim engages
+  - `[medium]` `[patch]` any slot hover covered the `IN STORM` line and the victim tells, and the open refit band hid them behind the DAMAGE CONTROL strip (Blind Hunter 3 + 4, Edge Case Hunter 1, CONFIRMED) — Eric ruling 2026-09-17 (amendment 38): both move under the top-centre chrome bar
+  - `[medium]` `[patch]` a click in the 5 px gap between a square and its key chip fell through to the water and fired (Edge Case Hunter 3 PLAUSIBLE, traced) — the slot's hit region is contiguous from square top to chip bottom
+  - `[low]` `[patch]` the refit tooltip's above/below decision went stale on resize (Edge Case Hunter 4) — re-placed on resize while open
+  - `[low]` `[patch]` the helm `KTS` pair was placed with unscaled widths at 90 % (Blind Hunter 5) — placement multiplies by `micro`
+  - `[low]` `[patch]` the belt badge's inclusive right edge routed the next slot's left-edge column to the previous slot (Edge Case Hunter 8) — edge made exclusive
+  - deferred (ledger): the heading readout prints `360°` for headings in [359.5°, 360°) — pre-existing, moved verbatim from the cluster (Edge Case Hunter 5); a belt `×10` badge cannot fit its 16 px box — dormant until 8.7 stocks the belt (Blind Hunter 6); the slot row and the wipe allocate per frame (nine view models, point arrays, one wipe polygon per cooling slot) — the view-model pattern is pre-existing, the wipe adds a little; measure before optimising (Codex 2)
+  - rejected: an "out-of-scope own-hull settle change" at main.ts:3037 — the line is byte-identical to the baseline, Codex misread the diff context (Codex 1); viewports below the 1280×614 design floor leave the band and bar unguarded (Edge Case Hunter 6 — below the floor by design, as the old hotbar was); `wipeLabel` reads `0.0` for the last 1–49 ms (Edge Case Hunter 7 — pinned grammar); the helm globe redraws every frame under way (Blind Hunter 7 — ~15 primitives, the old cluster did the same); the tooltip's old "flanking" placement as a baseline for comparison (implicit in Blind Hunter 2 — the v3 tooltip is 8.7's)
+
 ## Design Notes
 
 - **Why re-cut the hotbar instead of a new slot module:** its state derivation, skins, denial budget coupling and tooltip core are the ratified grammar and are covered by ~1100 test lines; only geometry and two draw calls change.

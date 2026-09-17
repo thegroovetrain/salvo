@@ -2160,18 +2160,20 @@ export const CLIENT_CONFIG = {
    * new name: the hull ramp and its pulse envelope (render/hpGlobe.ts), the
    * pending-heal band's alpha (epic-8 amendment 35), the helm-glyph fade
    * (amendment 26, render/helmGlyphs.ts), and the SATELLITE column — the
-   * viewport margin, IN STORM and the victim tells, which Story 8.6 re-anchored
-   * from the cluster's top edge to the bar's (render/hud.ts `barTop`).
+   * viewport margin, IN STORM and the victim tells, which epic-8 amendment 38
+   * re-anchored from the cluster's top edge to the CHROME bar's bottom edge
+   * (render/hud.ts `stormWarnAnchor`).
    * Colors are NOT here — every stroke reads a `colors` token.
    */
   vitals: {
     /** Gap (px) from the viewport's right / bottom edges. */
     margin: 24,
-    /** IN STORM baseline, px above the HUD BAR's top edge (Story 8.6 re-anchored
-     *  the satellite column from the retired cluster to the bar, and centred it).
-     *  Story 2.6 deleted the amber "PTS ×N — TAB" prompt that used to sit
-     *  between them (amendment 33 — the economy moved to its own surface), so
-     *  the warning reflows down into the freed slot: one line, one offset. */
+    /** IN STORM's top edge, px BELOW the top-centre chrome bar's bottom edge
+     *  (epic-8 amendment 38 re-anchored the satellite column from the retired
+     *  bottom-right cluster, via 8.6's short-lived HUD-bar anchor, to the chrome
+     *  — the one place no tooltip, card or bar reaches). Story 2.6 deleted the
+     *  amber "PTS ×N — TAB" prompt that used to share the column (amendment 33 —
+     *  the economy moved to its own surface): one line, one offset. */
     stormAbove: 24,
     /** DAMAGE CONTROL's incoming-HP band (cycle 46): the still-draining regen
      *  pool (`OwnShip.repairHp`) painted as a dimmed segment sitting directly
@@ -2213,12 +2215,13 @@ export const CLIENT_CONFIG = {
     glyphFadeCount: 3,
     glyphFadeSec: 0.6,
     glyphKey: 'hullcracker.helm',
-    /** VICTIM TELLS (Story 2.9): the SLOWED / DAZZLED status lines stacked above
-     *  the HUD BAR, sharing the IN STORM satellite column. `tellAbove` is the
-     *  FIRST tell's baseline in px above the BAR's top edge — one satellite
-     *  slot above IN STORM (stormAbove) — and `tellGap` stacks any second line
-     *  above the first. `tellSize` is the mono size the fit pin measures. */
-    tellAbove: 48,
+    /** VICTIM TELLS (Story 2.9): the SLOWED / DAZZLED status lines stacked UNDER
+     *  IN STORM, sharing its satellite column (epic-8 amendment 38 — the column
+     *  hangs off the CHROME BAR now, and the tells grow downward from the storm
+     *  line rather than upward toward it). `tellGap` is both the storm-line-to-
+     *  first-tell gap and the gap between the two tells; the retired `tellAbove`
+     *  measured the old upward stack off the HUD bar's top edge and is gone with
+     *  it. `tellSize` is the mono size the fit pin measures. */
     tellGap: 22,
     tellSize: 16,
     tellSpacing: 1.5,

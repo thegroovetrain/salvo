@@ -161,26 +161,37 @@ const SPECTATE_STYLE = { fontFamily: MONO, fontSize: 28, fill: AMBER, letterSpac
 export const TELL_STYLE = { fontFamily: MONO, fontSize: V.tellSize, fill: GREEN, letterSpacing: V.tellSpacing } as const;
 
 /**
- * Pure: where the `IN STORM` warning's BOTTOM edge sits — centred on the
- * screen, `vitals.stormAbove` above the HUD bar's top edge.
- *
- * Story 8.6 moved the satellite column out of the (deleted) bottom-right corner
- * and onto the bar's own centre line. The two offsets (`stormAbove`,
- * `tellAbove`) survive verbatim; only what they are measured FROM changed, from
- * the cluster's top edge to the bar's.
+ * The BR chrome bar row's BOTTOM edge, in logical px. The row's segments are
+ * TOP-anchored (`anchor.set(0, 0)`) and positioned at `chromeBar.y` by
+ * `layoutChromeBar`, so the row ends one line of its own type below that. The
+ * satellite column hangs off this number.
  */
-export function stormWarnAnchor(screenW: number, barTop: number): { x: number; y: number } {
-  return { x: screenW / 2, y: barTop - V.stormAbove };
+const CHROME_BAR_BOTTOM = CB.y + CB.fontSize;
+
+/**
+ * Pure: where the `IN STORM` warning's TOP edge sits — centred on the screen,
+ * `vitals.stormAbove` BELOW the chrome bar's bottom edge.
+ *
+ * EPIC-8 AMENDMENT 38. Story 8.6's first cut hung the satellite column off the
+ * HUD bar's top edge; the review gate found that space is exactly where a slot
+ * tooltip opens on every hover, and where the open refit band's DAMAGE CONTROL
+ * strip sits. The column moved under the top-centre chrome bar, which nothing
+ * else reaches. `stormAbove` survives verbatim — only what it is measured FROM
+ * changed, and the direction with it.
+ */
+export function stormWarnAnchor(screenW: number): { x: number; y: number } {
+  return { x: screenW / 2, y: CHROME_BAR_BOTTOM + V.stormAbove };
 }
 
 /**
- * Pure: the BOTTOM tell slot — the baseline of the first victim tell, one
- * satellite line above `IN STORM`. Further tells stack UPWARD from here at
- * `vitals.tellGap`, so a single running window always sits in this slot and the
- * column never shows a hole where the other tell would have been.
+ * Pure: the TOP tell slot — the top edge of the first victim tell, one satellite
+ * line BELOW `IN STORM` (amendment 38 flipped the stack downward). Further tells
+ * stack DOWNWARD from here at `vitals.tellGap`, so a single running window
+ * always sits in this slot and the column never shows a hole where the other
+ * tell would have been.
  */
-export function tellAnchor(screenW: number, barTop: number): { x: number; y: number } {
-  return { x: screenW / 2, y: barTop - V.tellAbove };
+export function tellAnchor(screenW: number): { x: number; y: number } {
+  return { x: screenW / 2, y: stormWarnAnchor(screenW).y + STORM_STYLE.fontSize + V.tellGap };
 }
 
 /**
@@ -236,7 +247,7 @@ export class Hud {
     this.barSegs = this.buildChromeBar();
     this.lastBarFill = this.barSegs.map(() => GREEN);
     this.stormWarn = new Text({ text: 'IN STORM', style: STORM_STYLE });
-    this.stormWarn.anchor.set(0.5, 1); // centred on the bar, hanging above it
+    this.stormWarn.anchor.set(0.5, 0); // centred, hanging UNDER the chrome bar
     this.stormWarn.visible = false;
     hudLayer.addChild(this.stormWarn);
     this.matchLine = new Text({ text: '', style: MATCH_LINE_STYLE });
@@ -254,7 +265,7 @@ export class Hud {
     hudLayer.addChild(this.matchLine, this.matchTag, this.countdownBig, this.spectateBanner);
     this.tells = TELL_LABELS.map(() => {
       const t = new Text({ text: '', style: TELL_STYLE });
-      t.anchor.set(0.5, 1); // centred, stacking upward from a baseline
+      t.anchor.set(0.5, 0); // centred, stacking downward from a top edge
       t.visible = false;
       hudLayer.addChild(t);
       return t;
@@ -301,12 +312,13 @@ export class Hud {
     this.countdownBig.position.set(screenW / 2, screenH * 0.35);
   }
 
-  /** The "IN STORM" warning, centred above the HUD bar (Story 8.6 — it moved
-   *  with the vitals out of the corner). Story 3.3 took the top-center storm
-   *  LINE out of here: the chrome bar's ring segment carries that now. */
-  private drawStormWarn(inStorm: boolean, screenW: number, barTop: number): void {
+  /** The "IN STORM" warning, centred UNDER the chrome bar (epic-8 amendment 38
+   *  — it moved out of the corner with the vitals, then off the HUD bar's top
+   *  edge). Story 3.3 took the top-center storm LINE out of here: the chrome
+   *  bar's ring segment carries that now. */
+  private drawStormWarn(inStorm: boolean, screenW: number): void {
     this.stormWarn.visible = inStorm;
-    const at = stormWarnAnchor(screenW, barTop);
+    const at = stormWarnAnchor(screenW);
     this.stormWarn.position.set(at.x, at.y);
   }
 
@@ -415,7 +427,8 @@ export class Hud {
 
   /**
    * The victim tells (Story 2.9): one short status line per running enemy-
-   * doctrine window, stacked upward from the bottom tell slot. A window that is
+   * doctrine window, stacked DOWNWARD from the top tell slot under IN STORM
+   * (epic-8 amendment 38 flipped the direction with the column). A window that is
    * not running renders NOTHING (no placeholder, no dimmed ghost) and the
    * remaining line closes up into the bottom slot, so the column never carries a
    * hole. Hidden wholesale on a dead hull — a sunk ship is not fouled.
@@ -424,8 +437,8 @@ export class Hud {
    * steering and still shooting, so a live foul or dazzle is still shaping what
    * the captain can do with their last five seconds.
    */
-  private drawTells(status: OwnStatus, screenW: number, barTop: number): void {
-    const at = tellAnchor(screenW, barTop);
+  private drawTells(status: OwnStatus, screenW: number): void {
+    const at = tellAnchor(screenW);
     const windows = [status.slowedMsLeft, status.dazzledMsLeft];
     let slot = 0;
     for (let i = 0; i < this.tells.length; i++) {
@@ -437,7 +450,7 @@ export class Hud {
       }
       t.visible = line !== '';
       if (!t.visible) continue;
-      t.position.set(at.x, at.y - slot * V.tellGap);
+      t.position.set(at.x, at.y + slot * V.tellGap);
       slot++;
     }
   }
@@ -472,9 +485,9 @@ export class Hud {
   /**
    * Update the screen chrome (conning a live ship). Call each render frame.
    * `nowSec` is the server-clock estimate in SECONDS (main.ts renderAlive's
-   * `now / 1000`, the same clock zone.ts's vignette pulse rides); `barTop` is
-   * the HUD bar's top edge in the same LOGICAL space as `screenW`/`screenH` —
-   * the satellite column (IN STORM + the tells) hangs off it.
+   * `now / 1000`, the same clock zone.ts's vignette pulse rides). The satellite
+   * column (IN STORM + the tells) hangs off the CHROME BAR (amendment 38), which
+   * this module lays out itself — no bar edge is passed in any more.
    */
   update(
     status: OwnStatus,
@@ -484,7 +497,6 @@ export class Hud {
     screenW: number,
     screenH: number,
     nowSec: number,
-    barTop: number,
   ): void {
     this.spectateBanner.visible = false;
     // THE AMBER COROLLARY for the ring, resolved ONCE for the frame. The HP
@@ -495,8 +507,8 @@ export class Hud {
     const frac = railFraction(status.hp, status.stats.maxHp);
     const amber = amberPulseWinner({ ring: bar.ring.urgent, hpGlobe: railAmberChannel(frac) });
     this.updateOverlay(status, screenW, screenH);
-    this.drawTells(status, screenW, barTop);
-    this.drawStormWarn(inStorm, screenW, barTop);
+    this.drawTells(status, screenW);
+    this.drawStormWarn(inStorm, screenW);
     this.drawChromeBar(bar, screenW, nowSec, amber === 'ring');
     this.drawMatch(match, screenW, screenH);
   }

@@ -350,8 +350,9 @@ describe('microScale — the 9px floor at 90% UI scale', () => {
 // Ruling 9: one Container owning the HP globe, the slot row, the helm globe and
 // the XP strip. What is pinned here is exactly what the class DECIDES — the
 // layout cache, the one dim it applies, visibility as a whole, and the two
-// forwards main.ts depends on (`slotAt` for the click gate, `barTop` for the
-// satellite column). Everything each member DRAWS is its own suite's business.
+// forwards it publishes (`slotAt`, which main.ts's click gate depends on, and
+// `barTop`, the bar's own top edge). Everything each member DRAWS is its own
+// suite's business.
 
 const CLS = 'torpedoBoat' as const;
 const STATS = effectiveStats(CONFIG.shipClasses[CLS]);
@@ -478,14 +479,15 @@ describe('(c) HudBar — one container, four members', () => {
     expect(bar.slotAt({ x: layout.squares[0].x + 2, y: layout.squares[0].y + 2 })).toBe(null);
   });
 
-  it('exposes barTop — the satellite column hangs off the bar, not the viewport', () => {
+  it('exposes barTop — the bar publishes its own top edge, laid out or hidden', () => {
     const { bar } = build();
     expect(bar.barTop).toBe(0); // nothing laid out yet
     bar.update(barView(), REF_W, REF_H, null, 10, 10_000, 1);
     expect(bar.barTop).toBe(hudBarLayout(REF_W, REF_H).bar.y);
-    // It SURVIVES a hide: the anchor is pure geometry, and the chrome that hangs
-    // off it (IN STORM, the victim tells) must not jump to the top of the screen
-    // on the frame the bar goes away.
+    // It SURVIVES a hide: the edge is pure geometry, so anything seated against
+    // the bar keeps its seat on the frame the bar goes away rather than jumping.
+    // (The satellite column no longer reads it — epic-8 amendment 38 re-hung
+    // IN STORM and the tells under the chrome bar.)
     bar.hide();
     expect(bar.barTop).toBe(hudBarLayout(REF_W, REF_H).bar.y);
   });
