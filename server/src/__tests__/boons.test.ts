@@ -21,7 +21,9 @@ import {
   SLOT_GUN,
   WEAPON_SLOTS,
   effectiveStats,
+  CONSUMABLE_SLOTS,
   equipmentMaxAmmo,
+  isConsumableId,
   type Catalog,
   type CatalogLine,
   type HookRegistry,
@@ -75,8 +77,9 @@ const STAT_CARD = line('ironPlating', [{ kind: 'stat', path: 'maxHp', add: 40 }]
 const FILL_CARD = line('bolterRack', [{ kind: 'slotFill', equipmentId: 'navalMines' }]);
 
 /** ONE line carrying FOUR effect kinds at once (the story's acceptance shape):
- *  a stat, a slot fill, a behavior hook and a consumable stock (which the fold
- *  deliberately ignores until Story 8.7 wires the rack). */
+ *  a stat, a slot fill, a behavior hook and a consumable stock — which STOPPED
+ *  being ignored in Story 8.7: the `stock` now lands a one-copy stack in the
+ *  first belt slot, and the assertions below say so. */
 const OMNI_CARD = line('omni', [
   // `radarRange`, not `sightRange`: truesight became DERIVED at the Intel
   // Range merge and left BOON_STAT_PATHS, so a sight-addressing line no longer
@@ -286,9 +289,15 @@ describe('World.applyCard — two homes, nothing else', () => {
     // The whole point of the merge: truesight is the 4/8 rung, so it MOVED with
     // radar through the one derivation rather than needing its own card.
     expect(a.stats.sightRange).toBeCloseTo((CONFIG.vision.radar * 1.25) / 2, 9);
-    // Home 2 — slots: the fill landed in the one structure.
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'speedBoost', 'radarBuoy'));
+    // Home 2 — slots: BOTH slot effects landed in the one structure, each in
+    // its own row (Story 8.7). The `slotFill` took the first WEAPON slot; the
+    // `stock` took the first BELT slot as a fresh one-copy stack that never
+    // reloads. Neither can reach the other's row.
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual([
+      'gun', 'speedBoost', 'radarBuoy', null, null, 'hullRepair', null, null, null,
+    ]);
     expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.radarBuoy.maxAmmo, reloadMsLeft: 0 });
+    expect(a.loadout[CONSUMABLE_SLOTS[0]].state).toEqual({ n: 1, reloadMsLeft: 0 });
     // Hooks — the behavior effect executes on the real tick (outruns control).
     a.input.throttle = 1;
     c.input.throttle = 1;
@@ -324,9 +333,11 @@ describe('World.applyCard — two homes, nothing else', () => {
     w.applyCard(a, 'crampedMagazine'); // cap 4 -> 2
     expect(a.stats.equipment.heavyTorpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 1);
     expect(a.loadout[SLOT_FILL].state!.n).toBe(2); // clamped, never above the cap
-    // The invariant holds for EVERY fitted slot, not just the moved one.
+    // The invariant holds for EVERY fitted slot, not just the moved one — and
+    // a BELT slot is skipped through the shared narrowing guard (Story 8.7: a
+    // consumable stack has no stats row and no cap to clamp to).
     for (const slot of a.loadout) {
-      if (slot.equipmentId === null) continue;
+      if (slot.equipmentId === null || isConsumableId(slot.equipmentId)) continue;
       expect(slot.state!.n).toBeLessThanOrEqual(equipmentMaxAmmo(a.stats, slot.equipmentId));
     }
   });

@@ -18,14 +18,17 @@
 // exposed to rows through the narrow ActivationContext capabilities.
 
 import {
+  isConsumableId,
   type EquipmentId,
   type Island,
   type LitCircle,
   type LoadoutSlot,
   type ShellState,
+  type SlotItemId,
   type WeaponAmmo,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
+import { CONSUMABLES, type ConsumableRegistry } from './consumables.js';
 import { gunEquipment } from './guns.js';
 import { torpedoEquipment } from './torpedoes.js';
 import { mineEquipment } from './mines.js';
@@ -123,7 +126,15 @@ export type ActivationResult = { ok: true } | { ok: false; reason: ActivationDen
  *  rows via slot.state!) asserts non-null. A violation crashes loudly rather
  *  than improvising a zero pool or silently skipping. */
 export interface Equipment {
-  readonly id: EquipmentId;
+  /**
+   * WHAT THIS ROW IS FITTED AS — a `SlotItemId` since Story 8.7, because a
+   * slot may hold a CONSUMABLE line as well as a piece of equipment and both
+   * kinds are dispatched through this one interface (`slotRow` below resolves
+   * either). The EQUIPMENT registry stays keyed by `EquipmentId` and the
+   * consumable registry (equipment/consumables.ts) by `ConsumableId` — the two
+   * id spaces are disjoint and neither record gains a fake row.
+   */
+  readonly id: SlotItemId;
   /** True for systems that launch ordnance (all three today); non-weapon
    *  specials (smoke, boost, …) arrive in stories 1.6+ with false. */
   readonly isWeapon: boolean;
@@ -181,7 +192,41 @@ export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
   );
 }
 
+/**
+ * THE ONE LOOKUP FOR A SLOT'S CONTENT (Story 8.7). A slot holds a `SlotItemId`
+ * — equipment in slots 0–4, a CONSUMABLE line in the belt (5–8) — and the two
+ * live in SEPARATE registries, each total over nothing and partial over its own
+ * id space. This narrows through the shared guard (never a cast) and answers
+ * with whichever row owns the id, or `undefined` when nothing is built for it.
+ *
+ * Every dispatch site reads through here — the per-slot tick loop, the two
+ * activation channels' walls and the sinking-activation gate — so an id with no
+ * module behind it fails closed at ALL of them, exactly as an unbuilt weapon
+ * already did. `consumables` is the World's injected registry (production ships
+ * EMPTY, epic-8 amendment 41); the default keeps directed callers honest.
+ *
+ * IT LIVES HERE, NOT IN consumables.ts, for one mechanical reason: it needs
+ * `EQUIPMENT`, and consumables.ts imports this module for the `Equipment`
+ * interface — TYPES ONLY, which erase, so there is no runtime import cycle. A
+ * value import back the other way would create one.
+ */
+export function slotRow(
+  id: SlotItemId | null,
+  consumables: ConsumableRegistry = CONSUMABLES,
+): Equipment | undefined {
+  if (id === null) return undefined;
+  return isConsumableId(id) ? consumables[id] : EQUIPMENT[id];
+}
+
 export { freshAmmo, tickReload, consume } from './ammo.js';
+export {
+  CONSUMABLES,
+  buildConsumableRegistry,
+  consumableRow,
+  type ConsumableEffect,
+  type ConsumableRegistry,
+  type ConsumableRow,
+} from './consumables.js';
 export { boostEquipment } from './boost.js';
 export {
   BUOY_SIZE_U,
