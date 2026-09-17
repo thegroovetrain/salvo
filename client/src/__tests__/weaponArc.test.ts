@@ -20,6 +20,9 @@
 // asserted — the radar buoy is a placement SECTOR like the mine.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   CATALOG,
   CONFIG,
@@ -32,7 +35,7 @@ import {
   slotsWithCards,
   pointInLitZone as sharedPointInLitZone,
 } from '@salvo/shared';
-import type { Catalog, CatalogLine, EquipmentId } from '@salvo/shared';
+import type { Catalog, CatalogLine, EquipmentId, SlotItemId } from '@salvo/shared';
 import {
   fireArcKind,
   pointInLitZone,
@@ -583,5 +586,52 @@ describe('the click-placed pair share ONE placement leash (Eric 2026-08-20)', ()
     if (m.kind !== 'sector' || b.kind !== 'sector') throw new Error('both must be sectors');
     expect(b.offset).toBe(m.offset);
     expect(b.halfArc).toBe(m.halfArc);
+  });
+});
+
+// THE NARROWING SEAM for the firing path (Story 8.7, ruling 1). Since the belt
+// landed, a slot holds a `SlotItemId` — equipment OR a consumable line — while
+// every weapon-geometry helper in this module is keyed by `EquipmentId`. A
+// primed slot holding a consumable therefore has NO weapon geometry on the
+// client: no arc, no range, no reload readout, no aim preview. The click itself
+// is untouched and still travels to the server on `input.slot` (the decoy
+// buoy's arc is the server's in Story 8.15).
+//
+// Behaviourally inert today — every consumable is a stub and the belt ships
+// empty — so what is pinned is the TYPE-LEVEL discipline: narrow, never cast.
+describe('a primed BELT slot narrows out of the weapon tables (Story 8.7, ruling 1)', () => {
+  /** main.ts's `ownWeaponAt` body, verbatim — the guard, not a cast. */
+  const weaponIdOf = (id: SlotItemId | null): EquipmentId | null =>
+    id === null || isConsumableId(id) ? null : id;
+
+  it('a consumable id narrows to null; an equipment id passes through unchanged', () => {
+    expect(weaponIdOf('hullRepair')).toBeNull();
+    // ...INCLUDING the click-placed one: `decoyBuoy` is a weapon on the
+    // ability/click split (CONSUMABLE_IS_WEAPON) and still has no equipment row,
+    // so it narrows here exactly like the four instant lines do.
+    expect(weaponIdOf('decoyBuoy')).toBeNull();
+    expect(weaponIdOf('heavyTorpedo')).toBe('heavyTorpedo');
+    expect(weaponIdOf('gun')).toBe('gun');
+    expect(weaponIdOf(null)).toBeNull();
+  });
+
+  it('...so the geometry surfaces answer the empty-slot way for it', () => {
+    expect(fireArcKind(weaponIdOf('decoyBuoy'))).toBe('none');
+    expect(weaponArcHit(0, 0, weaponIdOf('decoyBuoy'))).toBe(false);
+    // ...while the equipment that shares the slot row is untouched.
+    expect(fireArcKind(weaponIdOf('heavyTorpedo'))).toBe('sector');
+    expect(weaponArcHit(0, 0, weaponIdOf('heavyTorpedo'))).toBe(true);
+  });
+
+  it('main.ts ROUTES the primed slot through that helper, and casts nowhere', () => {
+    // A grep pin, because the tempting fix here is one `as EquipmentId` in the
+    // firing path — which compiles, and hands an EquipmentId-keyed record a key
+    // it has no row for.
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'),
+      'utf8',
+    );
+    expect(src).toContain('const primedId = ownWeaponAt(g, slot);');
+    expect(src).not.toContain('as EquipmentId');
   });
 });

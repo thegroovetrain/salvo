@@ -11,7 +11,6 @@ import type { Ticker } from 'pixi.js';
 import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
-  EQUIPMENT_IS_WEAPON,
   HEAL_CHOICE,
   MSG,
   NO_CARDS,
@@ -2242,7 +2241,8 @@ function flashSlotDenied(g: Game, slot: number): void {
  * the brief construction gap). P and M fold in here (the old ad-hoc window
  * listener is gone); TAB/ESC/digits drive the refit modal; X/Z step the alive
  * zoom; Q/E/R (weapon slots 2-4 since Story 8.5) and Shift (the boost, slot 1)
- * consult the own loadout — weapon-vs-ability via EQUIPMENT_IS_WEAPON only —
+ * consult the own loadout — weapon-vs-ability via `isWeaponItem` only (Story
+ * 8.7, ruling 1: a belt slot's content may be a CONSUMABLE line id) —
  * and a weapon key on an EMPTY slot DENIES on the client (onEmptySlotDenied).
  */
 function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
@@ -3249,7 +3249,10 @@ function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeI
 function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
   return g.abilityFlash.map((flash, slot) => {
     const id = status.loadout[slot] ?? null;
-    const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
+    // `isWeaponItem` over the SlotItemId (Story 8.7, ruling 1), never an
+    // EquipmentId-keyed index: a belt slot holds a consumable line id, and the
+    // click-placed one (the decoy, 8.15) is a weapon on this very split.
+    const isWeapon = id !== null && isWeaponItem(id);
     return flash || (isWeapon && slot === status.primedSlot && g.deniedFlash);
   });
 }
@@ -3265,7 +3268,7 @@ function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
 function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
   return g.abilityDegraded.map((degraded, slot) => {
     const id = status.loadout[slot] ?? null;
-    const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
+    const isWeapon = id !== null && isWeaponItem(id); // the SlotItemId split — see hotbarDenied
     return degraded || (isWeapon && slot === status.primedSlot && g.deniedDegraded);
   });
 }
@@ -3425,7 +3428,15 @@ function renderFiring(
   // EFFECTIVE reload duration (per-weapon reload upgrades) from the OWN
   // loadout's slot id — a primed slot always holds a weapon (the ability path
   // never primes), so the null branch is defensive only.
-  const primedId = status.loadout[slot] ?? null;
+  //
+  // NARROWED through `ownWeaponAt` (Story 8.7, ruling 1), never cast: a primed
+  // BELT slot holds a CONSUMABLE line id, which has no row in any of the six
+  // EquipmentId-keyed surfaces below. It answers null here, so a primed
+  // consumable draws no arc, no range clamp, no reload numeral and no aim
+  // preview — the client has no geometry for it. The CLICK is untouched: it
+  // still travels on `input.slot`, and the server owns the decoy's arc (8.15).
+  // Inert today — every consumable is a stub and the belt ships empty.
+  const primedId = ownWeaponAt(g, slot);
   const reloadFrac = a && primedId !== null ? reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, primedId)) : 0;
   // Gate on the PREDICTED heading, the same source clickPrediction/consumePrimeOnFire
   // read — NOT the alpha-interpolated pose.heading. At a sector boundary while

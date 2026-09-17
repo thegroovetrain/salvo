@@ -2174,3 +2174,15 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
   summary: "VERIFIED BY EYE" WAS NOT DONE IN-CYCLE — no browser tooling exists in this worktree, so verification is `npm run check` (lint, tsc ×3, all tests) rather than a screenshot. Eric's look on staging is the acceptance gate for the five-row card face (a ladder, a weapon fit and an add-on), the greyed `SLOTS FULL` state (unreachable until 8.8 stocks a real consumable), the two-meaning digits, and the slot tooltip's tier/stock line.
   evidence: spec-8-7 Verification "Manual checks (if no CLI)".
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: TEXT MUST BE READABLE (Eric 2026-09-17, epic-8 amendment 43) — the refit card's 9 px registers (stat-row labels, the reason-word foot) counter-scale at the 90 % UI tier through a DOM twin of the bar's `microScale` (`domMicroScale`, a `--hc-micro` custom property on the band), so nothing renders under `settings.monoFloorPx`; the 9 px floor now binds the RENDERED size on every DOM surface (8.10 REDRAW, 8.19 LOADOUT, Epic 9 must honour it).
+  evidence: amendment 43; refitCardFit.test.ts floor pin at the 0.9 tier; the card is DOM because CLAUDE.md lists the refit window as DOM chrome.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE SHARED `applyStock` IS FAIL-OPEN ON A LINE ID THE CATALOG DOES NOT DECLARE (mirrors `slotFill`'s posture; the production catalog declares all five consumables, so it is inert) — a server test (`boons.test.ts` `omni` card) relies on it; if a later story wants stock fail-CLOSED on an unknown id it is a one-line shared change plus that test's fixture.
+  evidence: wave-2A report; shared/src/sim/boons.ts `applyStock` stub gate.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: A PRIMED BELT SLOT HAS NO CLIENT WEAPON GEOMETRY IN 8.7 — an `isWeapon` consumable (the decoy shape, Story 8.15) narrows to `null` for arc/range/reload/aim preview on the client; the click still reaches the server through `input.slot`. Story 8.15 owns the decoy's arc preview.
+  evidence: main.ts firing-path narrowing (post-wave-3 clean-up); CONSUMABLE_IS_WEAPON.decoyBuoy === true.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE SLOT TOOLTIP'S INTERACTION ROW NOW WRAPS — the ratified content (`WEAPON · Q · SWITCH-TO · TIER V`, `CONSUMABLE · 1 · KEY PRIMES · CLICK FIRES · ×2`) exceeds one 320 px line, so the row word-wraps and the heading height feeds the fit chain; the boon-row trim absorbs the extra line from the same budget. Amendment 42 kept widths and type; this is the one arithmetic change in the fit chain (veto item).
+  evidence: tooltipFit.test.ts "grows the panel by exactly one line box"; wave-2B deviation 1.
