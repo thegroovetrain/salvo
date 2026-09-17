@@ -2,8 +2,9 @@
 title: 'Story 8.6: The HUD Bar'
 type: 'feature'
 created: '2026-09-16'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'e771cc1'
+final_revision: '8e66f71'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
