@@ -290,10 +290,12 @@ describe('effectiveStats — the five universal ladders (catalog-v3 §4)', () =>
 });
 
 describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
-  it('DECK GUN (R14): +1.25 damage per tier — 15 -> 16.25 -> 17.5 -> 18.75 -> 20', () => {
-    const damage = [15, 16.25, 17.5, 18.75, 20];
+  it('DECK GUN (R14, amendment 39): +1.25 per tier FLOORED — 15 -> 16 -> 17 -> 18 -> 20, never a fraction', () => {
+    const damage = [15, 16, 17, 18, 20];
     damage.forEach((d, n) => {
-      expect(effectiveStats(BASE, stack('deckGun', n)).equipment.gun.damage, `${n} copies`).toBeCloseTo(d, 9);
+      const got = effectiveStats(BASE, stack('deckGun', n)).equipment.gun.damage;
+      expect(got, `${n} copies`).toBe(d);
+      expect(Number.isInteger(got), `${n} copies is a whole number`).toBe(true);
     });
     expect(CATALOG.deckGun.cap).toBe(4);
   });

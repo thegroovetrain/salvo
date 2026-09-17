@@ -114,3 +114,5 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 36. **The refit band lifts to bar-relative placement in 8.6** (Eric 2026-09-17): the whole band (cards + the DAMAGE CONTROL strip) sits 8 px above the bar's top, keep-out waived, logical units; `bandTopFrac` retired; 8.7 only re-sizes the cards.
 37. **The refit tooltip fits above the card when it can, else opens downward over the card row** (Eric 2026-09-17); never over the bar, never clipped; 8.7 re-cuts the panel.
 38. **`IN STORM` and the victim tells stack under the top-centre chrome bar** (Eric 2026-09-17); never covered by a tooltip, card or the bar.
+39. **Damage is always a whole number** (Eric 2026-09-17): `damage`/`contactDamage` are floored after the fold; the deck gun reads 15 → 16 → 17 → 18 → 20; catalog-v3 R14's fractional reading was the error.
+40. **The GOING DOWN banner sits under the chrome bar** (Eric 2026-09-17), with IN STORM and the tells stacked beneath it.
