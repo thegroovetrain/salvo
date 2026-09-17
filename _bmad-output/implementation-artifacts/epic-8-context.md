@@ -113,3 +113,4 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 35. **The HP globe carries the pending-heal band** (Eric 2026-09-16): `repairHp` as a dimmer band above the waterline at `railPendingAlpha`.
 36. **The refit band lifts to bar-relative placement in 8.6** (Eric 2026-09-17): the whole band (cards + the DAMAGE CONTROL strip) sits 8 px above the bar's top, keep-out waived, logical units; `bandTopFrac` retired; 8.7 only re-sizes the cards.
 37. **The refit tooltip fits above the card when it can, else opens downward over the card row** (Eric 2026-09-17); never over the bar, never clipped; 8.7 re-cuts the panel.
+38. **`IN STORM` and the victim tells stack under the top-centre chrome bar** (Eric 2026-09-17); never covered by a tooltip, card or the bar.
