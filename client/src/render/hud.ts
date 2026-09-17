@@ -1,52 +1,38 @@
-// Own-vitals HUD — screen-space instrument readout (hudRoot). Story 2.4 restyles
-// the bottom-right cluster into the Eric-confirmed v2-composite anatomy
-// (mockups/hud-composite-2.html, as amended 24–27):
+// SCREEN-SPACE HUD CHROME — everything the match draws on the glass that is NOT
+// the bottom-centre HUD bar.
 //
-//   HULL n/n                              ← mono header, dim-phosphor caption
-//   ┌ helm block ───────────────┐ ┃       ← ┃ = the vertical HP rail on the
-//   │ HDG 025    AHEAD  [W]     │ ┃         body's RIGHT edge (6px, dim
-//   │ 14.2 KTS   ═ FULL         │ ┃         phosphor track, bottom-up fill,
-//   │ RUDDER     ▭ ¾   ← hollow │ ┃         phosphor/amber/damageMarker bands,
-//   │ [A]──┼──[D]  ▶ ½  ← solid │ ┃         breathing below 50%)
-//   │            ASTERN [S]     │ ┃
-//   └───────────────────────────┘ ┃
+// Story 8.6 emptied this module of the bottom-right own-vitals cluster it was
+// built around: the HP rail, the HDG/KTS readouts, the telegraph ladder, the
+// rudder gauge and the helm key chips all moved into the two globes at the ends
+// of the new bar (render/hpGlobe.ts, render/helmGlobe.ts), and `vitalsLayout`
+// went with them. The cluster is DELETED, not flagged off.
 //
-// Register: AFTERIMAGE — floating linework only. The old HP bar's filled `panel`
-// backing is gone with the bar itself; nothing in the cluster sits on a filled
-// rectangle, and every corner is 0-radius. Ordered-vs-actual on the telegraph is
-// SHAPE-coded (hollow phosphor rung outline vs solid amber needle), never color
-// alone. Micro labels are DIM PHOSPHOR (amendment 25) — grey text is gone.
+// What lives here is the chrome that was never part of the cluster and still
+// outlives — or overlays — the hull:
 //
-// Text strings are diffed before assignment (Pixi re-rasterizes on `.text`), the
-// telegraph Graphics redraws only on a state change, and the HP pulse rides an
-// ALPHA on its own Graphics so the breathing never forces a redraw.
+//   • THE BR CHROME BAR (Story 3.3) — `n AFLOAT · n KILLS · T+mm:ss · <ring>`,
+//     composed in ui/chromeBar.ts, drawn from BOTH update paths because it is a
+//     member of the ratified reveal-HUD SURVIVOR set;
+//   • the match-phase lines and the big countdown numeral;
+//   • the `IN STORM` warning and the victim tells (SLOWED / DAZZLED), which as
+//     of 8.6 are CENTRED above the bar rather than stacked over a corner;
+//   • the centre-screen SUNK — RESPAWNING overlay and the spectate banner.
 //
-// The module also owns the screen's other screen-space text layers: the
-// match-phase lines, the IN STORM warning, the spectate banner — and, as of
-// Story 3.3, the BR CHROME BAR (`n AFLOAT · n KILLS · T+mm:ss · <ring>`), the
-// top-center match register composed in ui/chromeBar.ts. Those layers live on
-// `hudLayer` rather than the cluster root, which is what lets the chrome bar
-// outlive the hull the vitals die with.
+// THE ATTENTION SEAM. This module still owns ONE amber channel — the chrome
+// bar's ring segment — so the amber corollary is resolved HERE for it, with the
+// seam's own ranked resolver. The HP channel's half of the corollary moved with
+// the globe (`hpGlobeHoldsLit` in render/hpGlobe.ts); both call the SAME
+// `amberPulseWinner`, so the two can never disagree about which amber wins.
 
-import { Container, Graphics, Text, type TextStyleOptions } from 'pixi.js';
-import type { EffectiveStats, ShipState, EquipmentId, ShipClassId, WeaponAmmo } from '@salvo/shared';
-import { boostedKinematics, wrapPositive } from '@salvo/shared';
+import { Container, Text } from 'pixi.js';
+import type { EffectiveStats, EquipmentId, ShipClassId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { motionAllowed, motionScaled, settings } from '../settings/store.js';
-import { KEY_CHIP_SIZE, KEY_CHIP_STYLE, drawKeyChipBox } from './keyChip.js';
-import { glyphFadeAlpha, helmGlyphs, type HelmGlyphStore, type HelmPair } from './helmGlyphs.js';
+import { motionScaled, settings } from '../settings/store.js';
 // The Tier-1 hold easing is the storm vignette's, imported rather than
-// re-derived: amendment 16's hold is ONE behavior with one time constant shape,
-// and a second implementation of it would be a second thing to keep in step.
+// re-derived: amendment 16's hold is ONE behavior with one time constant shape.
 import { easeHold } from './zone.js';
-// THE ATTENTION SEAM. This module owns BOTH amber channels — the chrome bar's
-// ring segment and the HP rail — so the amber corollary is resolved HERE, with
-// the seam's own ranked resolver, rather than being re-decided by two call
-// sites. (attention.ts imports `railCritical` back out of this module: the
-// cycle is benign, since neither module calls the other at load time, and it is
-// the price of amendment 16's rule that the OWNING module exports the
-// predicate.)
 import { amberPulseWinner, holdAtLitKeyframe } from './attention.js';
+import { railAmberChannel, railFraction } from './hpGlobe.js';
 import {
   CHROME_BAR_SEGMENTS,
   RING_PULSE_AMP,
@@ -57,13 +43,6 @@ import {
   type ChromeBarView,
   type ChromeSegment,
 } from '../ui/chromeBar.js';
-
-/** Kinematics subset the speed ladder needs (ahead/astern denominators). */
-interface LadderKin {
-  maxSpeed: number;
-  reverseSpeed: number;
-}
-import type { Axes } from '../input/keyboard.js';
 import type { MatchUx } from '../ui/phase.js';
 
 const C = CLIENT_CONFIG.colors;
@@ -71,109 +50,13 @@ const V = CLIENT_CONFIG.vitals;
 const CB = CLIENT_CONFIG.chromeBar;
 const GREEN = C.phosphor;
 const AMBER = C.amber;
-const DIM = C.textMuted;
 // Storm readout accent: the `storm` fill is below the graphic-contrast
 // threshold, so text/readout uses `storm-readout` (brighter, not more saturated —
 // DESIGN.md storm color note).
 const STORM_PURPLE = C.stormReadout;
-// Story 2.3 (amendment 17): load-bearing HUD TEXT is de-greyed to CIC phosphor —
-// `DIM` survives only as decorative LINEWORK (ladder spine, rungs, rudder track).
-// An un-selected ladder rung dims the phosphor via the Text's alpha instead of
-// switching color, so the highlight grammar reads without any grey text.
-const TEXT_DIM_ALPHA = 0.55;
-// Geist Mono per DESIGN.md — the single mono stack (sizes carry the ratified
-// ~1.6x legibility lift; nothing here renders below the 14px micro floor).
+// Geist Mono per DESIGN.md — the single mono stack.
 const MONO = CLIENT_CONFIG.type.mono;
 const MARGIN = V.margin;
-
-// --- cluster local frame -------------------------------------------------------
-// EVERY offset below is root-local, with the origin at the cluster's TOP-LEFT
-// corner (vitalsLayout resolves that corner in screen space). The UI-scale seam
-// composes for free: the hud layer is scaled, and vitalsLayout receives the
-// pre-divided LOGICAL viewport.
-const HEADER_Y = 12; // header row's vertical center
-const READ_RIGHT = 150; // right edge of the readout column (HDG/KTS/rudder)
-const HDG_Y = 42; // HDG row center
-const KTS_Y = 74; // KTS row center
-const RUD_LABEL_Y = 106; // RUDDER micro label center
-const RUD_Y = 124; // rudder track center
-const RUD_X = READ_RIGHT - V.rudderTrack; // 40 — track's left end
-const TG_X = 200; // telegraph rung bars start here
-const RUNG_W = 28; // rung tick length
-const RUNG_GAP = 20; // vertical px between the nine detents
-const LADDER_TOP = 58; // y of the full-ahead rung (index 8)
-const LADDER_BOTTOM = LADDER_TOP + 8 * RUNG_GAP; // full astern (index 0)
-const LABEL_X = TG_X + RUNG_W + 8; // rung labels sit right of the ticks
-const CAP_GAP = 12; // AHEAD/ASTERN captions' clearance from the end rungs
-// W/S key chips sit in the channel between the readout column and the ladder,
-// level with the two end rungs (clear of the needle, which starts at TG_X-15).
-const CHIP_X = TG_X - 45;
-const RAIL_TOP = V.headerH; // the rail climbs the BODY, not the header
-
-const RUNG_STYLE = { fontFamily: MONO, fontSize: 18, fill: GREEN, letterSpacing: 0.5 } as const;
-/** Micro captions — dim PHOSPHOR at `labelAlpha`, never grey (amendment 25). */
-const MICRO_STYLE = { fontFamily: MONO, fontSize: 14, fill: GREEN, letterSpacing: 1.5 } as const;
-const CAP_STYLE = { fontFamily: MONO, fontSize: 16, fill: GREEN, letterSpacing: 1.5 } as const;
-/** HDG/KTS values — 22px tabular mono PHOSPHOR (amendment 24; the mock's white
- *  values are superseded). Geist Mono is monospaced, so figures are tabular. */
-const DATA_STYLE = { fontFamily: MONO, fontSize: CLIENT_CONFIG.type.registers.hudReadout.size, fill: GREEN } as const;
-const HEAD_STYLE = { fontFamily: MONO, fontSize: 18, fill: GREEN, letterSpacing: 1 } as const;
-
-/** Compact rung labels, index 0 (full astern) → 8 (full ahead). */
-export const DETENT_LABELS = ['FULL', '¾', '½', '¼', 'STOP', '¼', '½', '¾', 'FULL'] as const;
-
-/** Pure: detent index [0,8] for a throttle order value in [-1,1] (0.25 steps, STOP=4). */
-export function detentIndexOf(throttle: number): number {
-  const i = Math.round(throttle * 4) + 4;
-  return i < 0 ? 0 : i > 8 ? 8 : i;
-}
-
-/** Pure: the compact ladder label for a detent index (clamped). */
-export function detentLabel(index: number): string {
-  const i = index < 0 ? 0 : index > 8 ? 8 : index;
-  return DETENT_LABELS[i];
-}
-
-/** Pure: screen y for a detent rung index (0 astern at the bottom, 8 ahead at the top). */
-export function rungY(index: number): number {
-  return LADDER_BOTTOM - index * RUNG_GAP;
-}
-
-/**
- * Pure: the x CENTER of the rudder position tick for a rudder axis in [-1,1],
- * clamped so the tick AND its halo stay inside the track. `inset` is half the
- * tick width plus the halo bleed: at full deflection the raw center sits exactly
- * on the track end, which would hang the glow (and half the tick) off it.
- */
-export function rudderTickCenter(rudder: number, trackX: number, trackW: number, inset: number): number {
-  const r = rudder < -1 ? -1 : rudder > 1 ? 1 : rudder;
-  const raw = trackX + trackW / 2 + (r * trackW) / 2;
-  const lo = trackX + inset;
-  const hi = trackX + trackW - inset;
-  return raw < lo ? lo : raw > hi ? hi : raw;
-}
-
-/** Half the rudder tick's painted footprint (core + halo) — the clamp inset. */
-const RUD_TICK_INSET = V.rudderTickW / 2 + V.rudderTickHaloPx;
-
-/** The lowest root-local y the cluster PAINTS: the ASTERN caption's line box
- *  under the ladder (its center + ~half a line at CAP_STYLE's size). `V.height`
- *  must contain this — the declared box is what the layout tests measure, so an
- *  under-measured height would prove a no-overlap property about a false edge.
- *  Pinned by hud.test.ts. */
-export const CLUSTER_CONTENT_BOTTOM = LADDER_BOTTOM + CAP_GAP + 8 + CAP_STYLE.fontSize * 0.62;
-
-/**
- * Pure: the ship's ACTUAL speed mapped onto the telegraph's [-1,1] axis for the
- * needle — ahead scales on maxSpeed, astern on reverseSpeed. The gap between
- * this needle and the ordered rung is the ship converging on the ordered speed
- * (the naval feel: the setting is instant, the hull is not).
- */
-export function speedLadderFraction(speed: number, kin: LadderKin): number {
-  const denom = speed >= 0 ? kin.maxSpeed : kin.reverseSpeed;
-  const f = denom > 0 ? speed / denom : 0;
-  return f < -1 ? -1 : f > 1 ? 1 : f;
-}
 
 const OVERLAY_STYLE = { fontFamily: MONO, fontSize: 38, fill: AMBER, letterSpacing: 2 } as const;
 
@@ -182,9 +65,9 @@ export interface OwnStatus {
   hp: number;
   /** hp — DAMAGE CONTROL's still-draining regen pool (`OwnShip.repairHp`, cycle
    *  44); 0 = nothing incoming. Self-private and read verbatim off the server
-   *  frame, never predicted. Drives the HP rail's incoming band and nothing
-   *  else — the authoritative hull number is still `hp`, which the pool pays
-   *  into every server tick. */
+   *  frame, never predicted. Drives the HP GLOBE's pending-heal band (epic-8
+   *  amendment 35) and nothing else — the authoritative hull number is still
+   *  `hp`, which the pool pays into every server tick. */
   repairHp: number;
   // Slot-aligned pool count + reload timer (OwnShip.ammo): length SLOT_COUNT
   // (NINE since Story 8.5), null for an empty slot — which at 0:00 is seven of
@@ -211,11 +94,11 @@ export interface OwnStatus {
   /** Slot-aligned equipment ids of the OWN loadout (main.ts's slotIdsFor — the
    *  hull-free `loadoutFor(stats)` with the fitted cards replayed over it since
    *  Story 8.5); null = an unfitted slot. Read by the firing UX and passed
-   *  through to the HOTBAR (render/hotbar.ts owns the loadout surface as of
-   *  Story 2.2). Ammo VALUES still come from the server via `ammo`. */
+   *  through to the HOTBAR (render/hotbar.ts owns the loadout surface). Ammo
+   *  VALUES still come from the server via `ammo`. */
   loadout: readonly (EquipmentId | null)[];
   /** The own speed boost is currently active (serverNow < boostUntil estimate):
-   *  drives the boosted speed-needle cap on the telegraph ladder. */
+   *  drives the boosted speed-needle cap on the helm globe's telegraph arc. */
   boostActive: boolean;
   /** ms remaining on the PROP-FOULING slow window (`you.slowedUntil` vs the
    *  server clock; 0 = not fouled) — Story 2.9's victim tell. */
@@ -229,21 +112,20 @@ export interface OwnStatus {
  * window (Story 5.2's third state)? THE gate every teardown that used to read
  * `!status.alive` should consult instead, so "the controls are live" is decided
  * in one place rather than re-spelled at each seam. Deliberately NOT the same
- * question as `alive`: the economy surfaces (the XP rail, the refit) key on
- * `alive` and correctly close at sink-entry.
+ * question as `alive`: the economy surfaces key on `alive` and correctly close
+ * at sink-entry.
  */
 export function conning(status: Pick<OwnStatus, 'alive' | 'sinking'>): boolean {
   return status.alive || status.sinking;
 }
 
-/** The two victim tells, top-down in the order they stack above the cluster. */
+/** The two victim tells, top-down in the order they stack above the bar. */
 const TELL_LABELS = ['SLOWED', 'DAZZLED'] as const;
 
 /**
  * Pure: WHOLE remaining seconds of a victim window, floored at 1 so a live
  * window never reads "0s" (the hotbar's fmtWindow rule, restated here rather
- * than reached for across the render boundary — the hotbar owns the slot
- * surface, the HUD owns the vitals).
+ * than reached for across the render boundary).
  */
 export function tellSeconds(ms: number): number {
   return Math.max(1, Math.ceil(ms / 1000));
@@ -263,24 +145,8 @@ export function tellLine(label: string, msLeft: number): string {
 
 /** The longest a tell line can ever get — the fit pin's input. Windows are
  *  short (a few seconds), but the pin measures a deliberately absurd one so a
- *  future duration boon cannot quietly push the line out of the cluster. */
+ *  future duration boon cannot quietly push the line out of its column. */
 export const TELL_FIT_MAX_MS = 99_000;
-
-/**
- * Pure: the HP header's value text — `72/100`, with `HULL` as its own caption.
- *
- * The displayed hp is FLOORED, then floored again at 1 while any hull remains:
- *   • floor, not round, so the number never disagrees with the rail's band —
- *     49.6 hp reads `49` beside an amber rail rather than a phosphor-looking
- *     `50` (the band uses the exact fraction);
- *   • but a LIVE hull never reads `0`: storm damage leaves fractions (0.4 hp is
- *     still afloat), and `HULL 0/100` on a ship that is still fighting is a lie.
- *     Only a genuinely sunk hull (hp ≤ 0) reads zero.
- */
-export function hullHeaderValue(hp: number, maxHp: number): string {
-  const shown = hp <= 0 ? 0 : Math.max(1, Math.floor(hp));
-  return `${shown}/${Math.round(maxHp)}`;
-}
 
 const STORM_STYLE = { fontFamily: MONO, fontSize: 19, fill: STORM_PURPLE, letterSpacing: 2 } as const;
 /** The BR chrome bar's row style (Story 3.3). Per-segment FILL and ALPHA are
@@ -290,194 +156,49 @@ const MATCH_LINE_STYLE = { fontFamily: MONO, fontSize: 22, fill: GREEN, letterSp
 const MATCH_TAG_STYLE = { fontFamily: MONO, fontSize: 18, fill: GREEN, letterSpacing: 3 } as const;
 const COUNTDOWN_STYLE = { fontFamily: MONO, fontSize: 112, fill: GREEN, letterSpacing: 4 } as const;
 const SPECTATE_STYLE = { fontFamily: MONO, fontSize: 28, fill: AMBER, letterSpacing: 3 } as const;
-/** Victim tells (Story 2.9) — the vitals cluster's own register: phosphor data
- *  caps in the one mono stack, never grey and never a color-only mark. */
+/** Victim tells (Story 2.9) — phosphor data caps in the one mono stack, never
+ *  grey and never a color-only mark. */
 export const TELL_STYLE = { fontFamily: MONO, fontSize: V.tellSize, fill: GREEN, letterSpacing: V.tellSpacing } as const;
 
-function pad3(n: number): string {
-  return Math.round(n).toString().padStart(3, '0');
-}
-
 /**
- * Pure: HP rail fill color by remaining fraction (UX-DR15 + amendment 27's
- * bands). The thresholds are EXCLUSIVE lower bounds for the better color:
- * exactly 50% still reads phosphor, exactly 25% still reads amber. `damage`
- * crimson is retired here — the critical band is the brighter `damageMarker`,
- * which survives against the void at 6px wide.
+ * The BR chrome bar row's BOTTOM edge, in logical px. The row's segments are
+ * TOP-anchored (`anchor.set(0, 0)`) and positioned at `chromeBar.y` by
+ * `layoutChromeBar`, so the row ends one line of its own type below that. The
+ * satellite column hangs off this number.
  */
-export function hpColor(frac: number): number {
-  if (frac >= V.amberBelow) return GREEN;
-  if (frac >= V.criticalBelow) return AMBER;
-  return C.damageMarker;
-}
-
-/** Pure: does the rail BREATHE at this fraction? (The pulse gate is the exact
- *  fraction — the same test hullFillAlpha applies.) */
-export function railPulsing(frac: number): boolean {
-  return frac < V.amberBelow;
-}
+const CHROME_BAR_BOTTOM = CB.y + CB.fontSize;
 
 /**
- * Pure: is the rail in its CRITICAL (crimson `damageMarker`) band? THE TIER-1
- * GATE — render/attention.ts composes this, never a threshold of its own
- * (amendment 16's rule: the owning module exports the predicate).
+ * Pure: where the `IN STORM` warning's TOP edge sits — centred on the screen,
+ * `vitals.stormAbove` BELOW the chrome bar's bottom edge.
  *
- * Amendment 239: the attention table's Tier-1 HP channel is `<25%`, which is
- * exactly this band; 25-50% is the AMBER WARNING band, and a warning is not a
- * threat. The rail's own display grammar does NOT move — it still breathes below
- * 50% (`railPulsing`, untouched) at the same ramp and in the same colors. Only
- * WHEN the rail claims the threat tier changed.
- *
- * The bound is EXCLUSIVE, matching `hpColor`'s convention exactly: a fraction of
- * exactly `criticalBelow` still reads amber and is NOT critical.
+ * EPIC-8 AMENDMENT 38. Story 8.6's first cut hung the satellite column off the
+ * HUD bar's top edge; the review gate found that space is exactly where a slot
+ * tooltip opens on every hover, and where the open refit band's DAMAGE CONTROL
+ * strip sits. The column moved under the top-centre chrome bar, which nothing
+ * else reaches. `stormAbove` survives verbatim — only what it is measured FROM
+ * changed, and the direction with it.
  */
-export function railCritical(frac: number): boolean {
-  return frac < V.criticalBelow;
+export function stormWarnAnchor(screenW: number): { x: number; y: number } {
+  return { x: screenW / 2, y: CHROME_BAR_BOTTOM + V.stormAbove };
 }
 
 /**
- * Pure: is the rail an AMBER CHANNEL this frame — breathing (below 50%) but not
- * yet crimson (at or above 25%)? THE AMBER COROLLARY's rail input, composed from
- * the two gates above rather than from a third threshold: `railPulsing` says it
- * is animating and `railCritical` says it has left the amber band for the
- * critical one, and the corollary's subject is exactly the difference.
- *
- * Below 25% this goes FALSE, which is the whole point: a crimson rail is not a
- * lesser amber that could lose a ranking — it is the Tier-1 threat channel, and
- * the corollary has nothing to say about it (attention.ts's tier table).
+ * Pure: the TOP tell slot — the top edge of the first victim tell, one satellite
+ * line BELOW `IN STORM` (amendment 38 flipped the stack downward). Further tells
+ * stack DOWNWARD from here at `vitals.tellGap`, so a single running window
+ * always sits in this slot and the column never shows a hole where the other
+ * tell would have been.
  */
-export function railAmberChannel(frac: number): boolean {
-  return railPulsing(frac) && !railCritical(frac);
-}
-
-/**
- * Pure: the rail's remaining fraction, clamped to [0,1] — THE one derivation
- * both the rail's own draw and the attention seam's HP input read, so the band
- * the player sees and the tier the seam computes can never be taken off two
- * different numbers. A missing/zero denominator reads 0 here; NULL-vs-ZERO is
- * the CALLER's distinction (Tier1Input.hpFrac is nullable precisely because a
- * hull that does not exist is not a hull at 0%).
- */
-export function railFraction(hp: number, maxHp: number): number {
-  return maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
-}
-
-/**
- * Pure: the rail geometry's redraw signature. The fraction is quantized (0.001
- * of the bar — finer than a pixel at this height), but the BAND and the PULSE
- * GATE are carried exactly: quantizing alone would let 0.4996 share a signature
- * with 0.5 and keep drawing a phosphor rail while the (exact-fraction) pulse
- * gate had already started breathing it — a pulsing "healthy" rail. Any color or
- * gate transition forces the redraw.
- */
-export function railSig(frac: number, pending = 0): string {
-  return `${frac.toFixed(3)}|${hpColor(frac)}|${railPulsing(frac) ? 1 : 0}|${pending.toFixed(3)}`;
-}
-
-/**
- * Pure: the DAMAGE CONTROL rail's INCOMING band, as a fraction of the bar
- * (cycle 46). It is what the still-draining regen pool (`OwnShip.repairHp`)
- * can actually deliver, so it is CLIPPED at the top of the bar exactly as the
- * server clamps the payout at maxHp — a pool draining against a nearly-full
- * hull shows only the part that will land, never a band hanging off the end.
- * Zero whenever there is no pool, no hull, or no room left to heal into.
- */
-export function repairFraction(hp: number, repairHp: number, maxHp: number): number {
-  if (maxHp <= 0 || repairHp <= 0) return 0;
-  const filled = Math.max(0, Math.min(1, hp / maxHp));
-  return Math.max(0, Math.min(1 - filled, repairHp / maxHp));
-}
-
-/**
- * Pure: the HP rail's breathing RATE (Hz) at a remaining fraction — a linear
- * ramp from `pulseMinHz` (0.5) at 50% hull to the shared photosensitivity
- * ceiling (`settings.pulseCapHz`, 1.1) at `pulseFloorFrac` (10%) and below.
- * CLAMPED at both ends: no input can produce a rate above the ceiling, which is
- * the accessibility floor's hard promise.
- *
- * This is the rate alone. WHETHER the rail breathes is a separate question
- * (only below 50% — see hullFillAlpha), so the ramp stays a total function.
- */
-export function hullPulseHz(frac: number): number {
-  const f = Math.min(V.amberBelow, Math.max(V.pulseFloorFrac, frac));
-  const t = (V.amberBelow - f) / (V.amberBelow - V.pulseFloorFrac);
-  return V.pulseMinHz + t * (CLIENT_CONFIG.settings.pulseCapHz - V.pulseMinHz);
-}
-
-/** Largest frame gap (s) the pulse integrator will advance across. A backgrounded
- *  tab or a hitching frame must not jump the phase by a wild amount. */
-const MAX_PULSE_DT = 0.5;
-
-/**
- * Pure: advance the breathing pulse's PHASE (radians) by one frame.
- *
- * The phase is INTEGRATED, never computed from absolute time. `sin(t · hz)` looks
- * equivalent only while `hz` is constant: the moment the rate changes (and it
- * changes every time the hull does — storm damage ticks the fraction 20×/s), the
- * phase of an absolute-time formula jumps by `t · Δhz · 2π`, which at a few
- * minutes of match time is effectively a random re-roll every tick. That is a
- * strobe — in exactly the burning-in-the-storm case the 1.1 Hz ceiling exists to
- * prevent. Integrating keeps the wave continuous through any rate change, so the
- * cap on the RATE is also a cap on how fast the alpha can move.
- *
- * `dt` is clamped to [0, MAX_PULSE_DT]; the phase is wrapped to keep float
- * precision from degrading over a long match. Above the band the phase HOLDS AT
- * ZERO (the rail is flat there anyway), so the first breath after a hull drops
- * through 50% starts from sin(0) = the base alpha — the pulse fades in from the
- * steady rail instead of snapping to wherever a free-running phase had drifted.
- */
-export function advancePulsePhase(phase: number, frac: number, dt: number): number {
-  if (!railPulsing(frac)) return 0;
-  const step = Math.min(MAX_PULSE_DT, Math.max(0, dt));
-  return (phase + hullPulseHz(frac) * step * Math.PI * 2) % (Math.PI * 2);
-}
-
-/**
- * Pure: the HP rail fill's alpha at a given pulse PHASE — the opacity-breathing
- * pulse, in the storm vignette's exact shape (zone.ts vignetteAlpha).
- *
- * MOTION-GATED: `amp` is the motion-scaled amplitude — halved at `reduced`, zero
- * at `off`, where the rail holds its steady BASE alpha. The base is
- * INFORMATION: the fill, its color band, and its height are fully present at
- * every motion level; only the breathing is motion. At or above 50% hull there
- * is no pulse at all (the gate is the exact fraction, not the phase).
- */
-export function hullFillAlpha(frac: number, phase: number, amp: number = V.pulseAmp): number {
-  if (frac >= V.amberBelow) return V.railFillAlpha;
-  return V.railFillAlpha + amp * Math.sin(phase);
-}
-
-/** Clamp to [0,1] (a blend factor, or a caller's degenerate input). */
-function clamp01(v: number): number {
-  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
-}
-
-/**
- * Pure: the rail fill's alpha actually drawn — the breathing value and its LIT
- * keyframe mixed by an eased `hold` blend (0 = breathing, 1 = fully held lit).
- *
- * THE AMBER COROLLARY's loser-side draw. When the ring wins the amber ranking
- * the rail does not simply stop moving — a hard stop is itself a luminance step,
- * the exact thing this story exists to prevent — so the caller eases the blend
- * with the vignette's own `easeHold` (240ms) and the rail SWELLS to its lit
- * keyframe and holds there. The keyframe is `sin(φ)=1`, i.e. the top of the very
- * same wave `hullFillAlpha` draws, so a held rail is never DIMMER than a
- * breathing one and the fill's information (height, band color) never moves.
- *
- * Two no-ops by construction: at or above 50% hull there is no pulse, and at
- * motion=off (amp 0) both endpoints are `railFillAlpha` — so the hold can never
- * introduce motion at a level that asked for none.
- */
-export function hullFillHeld(frac: number, phase: number, amp: number, hold: number): number {
-  const breathing = hullFillAlpha(frac, phase, amp);
-  const lit = hullFillAlpha(frac, Math.PI / 2, amp);
-  return breathing + (lit - breathing) * clamp01(hold);
+export function tellAnchor(screenW: number): { x: number; y: number } {
+  return { x: screenW / 2, y: stormWarnAnchor(screenW).y + STORM_STYLE.fontSize + V.tellGap };
 }
 
 /**
  * Reload progress in [0,1] for a weapon with `reloadMsLeft` remaining of a
  * `reloadMs` cycle: 0 when idle (no reload running) or just started, → 1 as the
- * next round nears. Shared by the HUD reload line and the firing arc sweep-back.
+ * next round nears. THE one source for the cooldown wipe (render/cooldownWipe.ts)
+ * and the firing arc's sweep-back.
  */
 export function reloadFraction(reloadMsLeft: number, reloadMs: number): number {
   if (reloadMsLeft <= 0 || reloadMs <= 0) return 0;
@@ -485,94 +206,12 @@ export function reloadFraction(reloadMsLeft: number, reloadMs: number): number {
   return f < 0 ? 0 : f > 1 ? 1 : f;
 }
 
-// --- bottom-right own-vitals stack --------------------------------------------
-// The corner is laid out from the viewport's bottom-right corner:
-//   cluster   the header + helm body, MARGIN from the right/bottom edges
-//   hp rail   a 6px column ABUTTING the cluster body's right edge (the two
-//             boxes touch and never overlap — the rail is the body's edge)
-//   IN STORM  above the cluster's top edge
-//
-// Story 2.6 (amendment 33) deleted the amber "PTS ×N — TAB" prompt that used to
-// sit between the cluster and IN STORM: the whole economy readout — XP rail, LV
-// tag, banked-level chip, cue line — now lives bottom-LEFT in the hotbar's
-// reserved gutter (render/xpRail.ts). The warning reflowed into the freed slot.
-
-/** A screen-space box (px). */
-interface HudBox {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-/** The whole bottom-right own-vitals stack, as pure geometry. */
-export interface VitalsLayout {
-  /** The vertical HP rail — cluster-local as of Story 2.4 (it abuts
-   *  `cluster`'s right edge rather than floating below it as the old bar did). */
-  hp: HudBox;
-  /** Origin of the cluster's local frame: its TOP-LEFT corner. */
-  root: { x: number; y: number };
-  /** The cluster body's screen box (header + helm block, rail EXCLUDED). */
-  cluster: HudBox;
-  storm: { x: number; y: number };
-  /** BOTTOM tell slot (Story 2.9): the baseline of the first victim tell, one
-   *  satellite line above IN STORM. Further tells stack UPWARD from here at
-   *  `V.tellGap`, so a single running window always sits in this slot — the
-   *  column never shows a hole where the other tell would have been. */
-  tells: { x: number; y: number };
-}
-
-/**
- * Pure: the bottom-right vitals stack for a (logical) viewport. Everything the
- * cluster occupies is expressed here — pinned by hud.test.ts at the 1366×768
- * floor: right half only, no overlap, clear of the bottom-left hotbar, and
- * translational under a viewport change.
- */
-export function vitalsLayout(screenW: number, screenH: number): VitalsLayout {
-  const root = { x: screenW - MARGIN - (V.width + V.railWidth), y: screenH - MARGIN - V.height };
-  const cluster = { x: root.x, y: root.y, w: V.width, h: V.height };
-  return {
-    hp: { x: root.x + V.width, y: root.y + RAIL_TOP, w: V.railWidth, h: V.height - RAIL_TOP },
-    root,
-    cluster,
-    storm: { x: root.x, y: root.y - V.stormAbove },
-    tells: { x: root.x, y: root.y - V.tellAbove },
-  };
-}
-
-/** One helm key-chip glyph: its pair, its box position, and its glyph. */
-interface HelmChip {
-  pair: HelmPair;
-  x: number;
-  y: number;
-  glyph: string;
-}
-
-/** The four helm chips at the gauge extremes: W/S level with the ladder's end
- *  rungs, A/D at the rudder track's ends (root-local, centered on the feature). */
-const HELM_CHIPS: readonly HelmChip[] = [
-  { pair: 'ws', x: CHIP_X, y: LADDER_TOP - KEY_CHIP_SIZE / 2, glyph: 'W' },
-  { pair: 'ws', x: CHIP_X, y: LADDER_BOTTOM - KEY_CHIP_SIZE / 2, glyph: 'S' },
-  { pair: 'ad', x: RUD_X - 8 - KEY_CHIP_SIZE, y: RUD_Y - KEY_CHIP_SIZE / 2, glyph: 'A' },
-  { pair: 'ad', x: READ_RIGHT + 8, y: RUD_Y - KEY_CHIP_SIZE / 2, glyph: 'D' },
-];
-
 export class Hud {
-  private readonly root = new Container();
-  private readonly gauges = new Graphics(); // telegraph + rudder linework
-  private readonly railTrack = new Graphics(); // dim rail track (static geometry)
-  private readonly railFill = new Graphics(); // the fill — its ALPHA breathes
-  private readonly helmPairs: Record<HelmPair, Container>;
-  private readonly hullValue: Text;
-  private readonly headingLabel: Text;
-  private readonly speedLabel: Text;
   private readonly overlay: Text;
-  private readonly rungLabels: Text[];
   /** THE BR CHROME BAR (Story 3.3): one Text per composed segment, created once
-   *  and reused. They parent to `hudLayer`, NEVER to `this.root` — the root's
-   *  visibility is the instruments kill switch, and the bar is a member of the
-   *  ratified reveal-HUD SURVIVOR set (it outlives the hull, all the way to
-   *  return to port). */
+   *  and reused. They parent to `hudLayer` and are a member of the ratified
+   *  reveal-HUD SURVIVOR set — they outlive the hull, all the way to return to
+   *  port. */
   private readonly barSegs: Text[];
   private readonly stormWarn: Text;
   private readonly matchLine: Text;
@@ -582,13 +221,6 @@ export class Hud {
   /** The victim tells, index-aligned with TELL_LABELS (SLOWED, DAZZLED). */
   private readonly tells: Text[];
   private readonly lastTells: string[];
-  private lastHeading = '';
-  private lastSpeed = '';
-  private lastHull = '';
-  /** Cheap-redraw guards for the telegraph ladder Graphics + label highlight. */
-  private lastGaugeSig = '';
-  private lastDetent = -1;
-  private lastRailSig = '';
   private lastOverlay = '';
   /** Chrome-bar re-layout guard: the composed strings + the viewport width. The
    *  row is only re-measured when one of them moves (the T+ segment ticks once a
@@ -598,7 +230,7 @@ export class Hud {
   private readonly lastBarFill: number[];
   /** INTEGRATED ring-pulse phase + the eased Tier-1 hold blend, and the clock
    *  they were last advanced at. The bar draws from BOTH update paths, so this
-   *  is its own clock rather than the rail's (which only ticks while alive). */
+   *  is its own clock rather than the hull's (which only ticks while alive). */
   private ringPhase = 0;
   private ringHold = 0;
   private lastBarSec: number | null = null;
@@ -606,41 +238,8 @@ export class Hud {
   private lastMatchTag = '';
   private lastCountdown = '';
   private lastSpectateBanner = '';
-  /** Per-pair fade clock: the second a pair CROSSES into faded during this
-   *  session. Null means "not faded" OR "already faded when we booted" — a
-   *  reload must show the chips gone, not replay the fade (glyphFadeAlpha). */
-  private readonly fadeStart: Record<HelmPair, number | null> = { ws: null, ad: null };
-  private readonly wasFaded: Record<HelmPair, boolean>;
-  /** Are the live-ship instruments currently shown? A hidden→visible edge
-   *  re-snapshots the fade state (see seedFadedWhileHidden). */
-  private instrumentsShown = false;
-  /** INTEGRATED pulse phase (radians) + the clock it was last advanced at. The
-   *  phase is accumulated per frame rather than derived from absolute time, so a
-   *  changing hull fraction can never jump it (see advancePulsePhase). */
-  private pulsePhase = 0;
-  private lastPulseSec: number | null = null;
-  /** The eased AMBER-COROLLARY hold blend for the rail (0 = breathing, 1 = held
-   *  at its lit keyframe because the ring outranked it). Its own blend, not the
-   *  bar's: the two ambers are held for different reasons and can never be held
-   *  at the same time (the winner never holds). */
-  private railHold = 0;
 
-  constructor(
-    private readonly hudLayer: Container,
-    /** The helm-glyph fade progress this HUD reads. Defaults to THE process-wide
-     *  store; injectable so tests can drive a fade without touching it. */
-    private readonly glyphs: HelmGlyphStore = helmGlyphs,
-  ) {
-    hudLayer.addChild(this.root);
-    this.root.addChild(this.railTrack, this.railFill, this.gauges);
-    this.hullValue = this.buildHeader();
-    this.headingLabel = new Text({ text: '', style: DATA_STYLE });
-    this.speedLabel = new Text({ text: '', style: DATA_STYLE });
-    this.buildReadouts();
-    this.rungLabels = this.buildLadderLabels();
-    this.helmPairs = { ws: new Container(), ad: new Container() };
-    this.buildHelmChips();
-    this.wasFaded = { ws: this.glyphs.faded('ws'), ad: this.glyphs.faded('ad') };
+  constructor(private readonly hudLayer: Container) {
     this.overlay = new Text({ text: '', style: OVERLAY_STYLE });
     this.overlay.anchor.set(0.5);
     this.overlay.visible = false;
@@ -648,6 +247,7 @@ export class Hud {
     this.barSegs = this.buildChromeBar();
     this.lastBarFill = this.barSegs.map(() => GREEN);
     this.stormWarn = new Text({ text: 'IN STORM', style: STORM_STYLE });
+    this.stormWarn.anchor.set(0.5, 0); // centred, hanging UNDER the chrome bar
     this.stormWarn.visible = false;
     hudLayer.addChild(this.stormWarn);
     this.matchLine = new Text({ text: '', style: MATCH_LINE_STYLE });
@@ -665,7 +265,7 @@ export class Hud {
     hudLayer.addChild(this.matchLine, this.matchTag, this.countdownBig, this.spectateBanner);
     this.tells = TELL_LABELS.map(() => {
       const t = new Text({ text: '', style: TELL_STYLE });
-      t.anchor.set(0, 1); // stack upward from a baseline
+      t.anchor.set(0.5, 0); // centred, stacking downward from a top edge
       t.visible = false;
       hudLayer.addChild(t);
       return t;
@@ -675,8 +275,7 @@ export class Hud {
 
   /** The chrome bar's fixed Text pool (Story 3.3) — one per composed segment,
    *  created ONCE here and reused forever (nothing in the bar allocates per
-   *  frame). They parent to `hudLayer`, deliberately NOT to `this.root`: the
-   *  root is the instruments kill switch, and the bar outlives the hull. */
+   *  frame). */
   private buildChromeBar(): Text[] {
     return Array.from({ length: CHROME_BAR_SEGMENTS }, () => {
       const t = new Text({ text: '', style: { ...BAR_STYLE, fill: GREEN } });
@@ -685,71 +284,6 @@ export class Hud {
       this.hudLayer.addChild(t);
       return t;
     });
-  }
-
-  /** A dim-phosphor micro caption (never grey — amendment 25). */
-  private micro(text: string, x: number, y: number, anchorX: number, style: TextStyleOptions = MICRO_STYLE): Text {
-    const t = new Text({ text, style });
-    t.anchor.set(anchorX, 0.5);
-    t.alpha = V.labelAlpha;
-    t.position.set(x, y);
-    this.root.addChild(t);
-    return t;
-  }
-
-  /** `HULL 72/100` — dim caption + phosphor value, right-aligned over the body. */
-  private buildHeader(): Text {
-    this.micro('HULL', V.width - 130, HEADER_Y, 0);
-    const value = new Text({ text: '', style: HEAD_STYLE });
-    value.anchor.set(1, 0.5);
-    value.position.set(V.width, HEADER_Y);
-    this.root.addChild(value);
-    return value;
-  }
-
-  /** HDG/KTS readouts + the rudder gauge's micro label, right-aligned. */
-  private buildReadouts(): void {
-    this.micro('HDG', READ_RIGHT - 58, HDG_Y, 1);
-    this.headingLabel.anchor.set(1, 0.5);
-    this.headingLabel.position.set(READ_RIGHT, HDG_Y);
-    this.speedLabel.anchor.set(1, 0.5);
-    this.speedLabel.position.set(READ_RIGHT - 42, KTS_Y);
-    this.micro('KTS', READ_RIGHT - 36, KTS_Y, 0);
-    this.micro('RUDDER', READ_RIGHT, RUD_LABEL_Y, 1);
-    this.root.addChild(this.headingLabel, this.speedLabel);
-  }
-
-  /** Nine rung labels + the AHEAD/ASTERN captions (created once). */
-  private buildLadderLabels(): Text[] {
-    const labels = DETENT_LABELS.map((t, i) => {
-      const label = new Text({ text: t, style: RUNG_STYLE });
-      label.alpha = TEXT_DIM_ALPHA; // updateTelegraph brightens the ordered rung
-      label.anchor.set(0, 0.5);
-      label.position.set(LABEL_X, rungY(i));
-      this.root.addChild(label);
-      return label;
-    });
-    this.micro('AHEAD', TG_X, LADDER_TOP - CAP_GAP - 8, 0, CAP_STYLE);
-    this.micro('ASTERN', TG_X, LADDER_BOTTOM + CAP_GAP + 8, 0, CAP_STYLE);
-    return labels;
-  }
-
-  /** The four helm key glyphs, in the ONE shared chip family (render/keyChip.ts).
-   *  Each pair lives in its own container so the pair fades as a unit. */
-  private buildHelmChips(): void {
-    for (const pair of ['ws', 'ad'] as const) {
-      const group = this.helmPairs[pair];
-      const gfx = new Graphics();
-      group.addChild(gfx);
-      for (const chip of HELM_CHIPS.filter((c) => c.pair === pair)) {
-        drawKeyChipBox(gfx, chip.x, chip.y, false);
-        const glyph = new Text({ text: chip.glyph, style: KEY_CHIP_STYLE });
-        glyph.anchor.set(0.5);
-        glyph.position.set(chip.x + KEY_CHIP_SIZE / 2, chip.y + KEY_CHIP_SIZE / 2);
-        group.addChild(glyph);
-      }
-      this.root.addChild(group);
-    }
   }
 
   /**
@@ -778,49 +312,23 @@ export class Hud {
     this.countdownBig.position.set(screenW / 2, screenH * 0.35);
   }
 
-  /** Hide/show the live-ship instrument cluster (hidden while spectating). The
-   *  HP rail rides inside the cluster root now, so it dies with the hull too.
-   *  A hidden→visible edge re-snapshots the glyph fade: the animation only ever
-   *  plays for a pair that crossed while it was ON SCREEN. */
-  private setInstrumentsVisible(visible: boolean): void {
-    if (visible && !this.instrumentsShown) this.seedFadedWhileHidden();
-    this.instrumentsShown = visible;
-    this.root.visible = visible;
-  }
-
-  /**
-   * Adopt the store's CURRENT fade state without animating — the same snapshot
-   * the constructor takes, re-taken whenever the instruments come back. A pair
-   * whose 3rd input landed just before death (or while spectating) has already
-   * faded as far as the player is concerned; replaying the fade-out on the next
-   * live frame would be a ghost of a chip they already retired.
-   */
-  private seedFadedWhileHidden(): void {
-    for (const pair of ['ws', 'ad'] as const) {
-      if (this.glyphs.faded(pair)) this.wasFaded[pair] = true; // fadeStart stays null → instantly gone
-    }
-  }
-
-  /** The "IN STORM" warning at the head of the bottom-RIGHT vitals stack
-   *  (amendment 12 — it moved with the cluster). Story 3.3 took the top-center
-   *  storm LINE out of here: the interim `STORM m:ss` register is retired and
-   *  the chrome bar's ring segment carries that information now. */
-  private drawStormWarn(inStorm: boolean, screenW: number, screenH: number): void {
+  /** The "IN STORM" warning, centred UNDER the chrome bar (epic-8 amendment 38
+   *  — it moved out of the corner with the vitals, then off the HUD bar's top
+   *  edge). Story 3.3 took the top-center storm LINE out of here: the chrome
+   *  bar's ring segment carries that now. */
+  private drawStormWarn(inStorm: boolean, screenW: number): void {
     this.stormWarn.visible = inStorm;
-    const storm = vitalsLayout(screenW, screenH).storm;
-    this.stormWarn.position.set(storm.x, storm.y);
+    const at = stormWarnAnchor(screenW);
+    this.stormWarn.position.set(at.x, at.y);
   }
 
   /**
    * THE BR CHROME BAR (Story 3.3) — `n AFLOAT · n KILLS · T+mm:ss · <ring>` on
    * one centered mono row at the top of the screen.
    *
-   * Drawn from BOTH update paths (alive and spectating) onto `hudLayer`, so it
-   * survives the hull exactly as the ratified reveal-HUD survivor set requires.
-   * Composition is ui/chromeBar.ts's; this only assigns, positions and breathes.
-   *
-   * `nowSec` is the server-clock estimate in seconds — the same clock the HP
-   * rail's pulse rides.
+   * Drawn from BOTH update paths (alive and spectating), so it survives the hull
+   * exactly as the ratified reveal-HUD survivor set requires. Composition is
+   * ui/chromeBar.ts's; this only assigns, positions and breathes.
    */
   private drawChromeBar(bar: ChromeBarView, screenW: number, nowSec: number, ringPulses: boolean): void {
     const dt = this.lastBarSec === null ? 0 : nowSec - this.lastBarSec;
@@ -852,14 +360,13 @@ export class Hud {
     // never a literal byte in the source: the segment texts carry spaces (and
     // the separator is literally ' · '), so joining on anything printable could
     // let two different segment lists sign identically and skip a real redraw.
-    const sig = `${segs.map((s) => s.text).join('\u0000')}|${screenW}`;
+    const sig = `${segs.map((s) => s.text).join(' ')}|${screenW}`;
     if (sig === this.lastBarSig) return;
     this.lastBarSig = sig;
     // The pool is FIXED (CHROME_BAR_SEGMENTS, pinned against the composer by
     // chromeBar.test.ts) — bound both loops by it as well as by the composed
     // list, so a future composer that emitted an extra segment would drop it
-    // rather than throw on every frame. (The loop above already covers the
-    // short side via its undefined guard.)
+    // rather than throw on every frame.
     const n = Math.min(segs.length, this.barSegs.length);
     for (let i = 0; i < n; i++) this.barSegs[i].text = segs[i].text;
     const at = chromeBarLayout(segs, screenW);
@@ -872,13 +379,13 @@ export class Hud {
    * lit keyframe, and a motion-scaled amplitude — at `off` the amplitude is zero
    * and the segment simply holds amber and lit, information intact.
    *
-   * `ringPulses` is the AMBER COROLLARY's verdict for this segment (resolved in
-   * update()/updateSpectate() by `amberPulseWinner`), not the raw urgency flag.
-   * Under the shipped rank the ring outranks the rail, so a ring inside its
-   * window ALWAYS wins and the two are the same boolean — which is exactly why
-   * there is no eased loser-path here: the ring can never lose, so building one
-   * would be dead code with no way to test it. If a future channel ever outranks
-   * the ring, THIS is the line that has to grow the rail's `hullFillHeld` blend.
+   * `ringPulses` is the AMBER COROLLARY's verdict for this segment, not the raw
+   * urgency flag. Under the shipped rank the ring outranks the HP channel, so a
+   * ring inside its window ALWAYS wins and the two are the same boolean — which
+   * is exactly why there is no eased loser-path here: the ring can never lose,
+   * so building one would be dead code with no way to test it. If a future
+   * channel ever outranks the ring, THIS is the line that has to grow the HP
+   * globe's `hullFillHeld` blend.
    */
   private breatheRing(
     bar: ChromeBarView,
@@ -920,7 +427,8 @@ export class Hud {
 
   /**
    * The victim tells (Story 2.9): one short status line per running enemy-
-   * doctrine window, stacked upward from the bottom tell slot. A window that is
+   * doctrine window, stacked DOWNWARD from the top tell slot under IN STORM
+   * (epic-8 amendment 38 flipped the direction with the column). A window that is
    * not running renders NOTHING (no placeholder, no dimmed ghost) and the
    * remaining line closes up into the bottom slot, so the column never carries a
    * hole. Hidden wholesale on a dead hull — a sunk ship is not fouled.
@@ -929,8 +437,8 @@ export class Hud {
    * steering and still shooting, so a live foul or dazzle is still shaping what
    * the captain can do with their last five seconds.
    */
-  private drawTells(status: OwnStatus, screenW: number, screenH: number): void {
-    const at = vitalsLayout(screenW, screenH).tells;
+  private drawTells(status: OwnStatus, screenW: number): void {
+    const at = tellAnchor(screenW);
     const windows = [status.slowedMsLeft, status.dazzledMsLeft];
     let slot = 0;
     for (let i = 0; i < this.tells.length; i++) {
@@ -942,7 +450,7 @@ export class Hud {
       }
       t.visible = line !== '';
       if (!t.visible) continue;
-      t.position.set(at.x, at.y - slot * V.tellGap);
+      t.position.set(at.x, at.y + slot * V.tellGap);
       slot++;
     }
   }
@@ -950,184 +458,6 @@ export class Hud {
   /** Drop both tells (spectating / returning to port — no hull to afflict). */
   private hideTells(): void {
     for (const t of this.tells) t.visible = false;
-  }
-
-  private layout(screenW: number, screenH: number): void {
-    const root = vitalsLayout(screenW, screenH).root;
-    this.root.position.set(root.x, root.y);
-  }
-
-  /**
-   * Telegraph ladder + rudder gauge. `index` is the ordered detent (the HOLLOW
-   * phosphor rung outline — the shape channel), `speed` drives the SOLID amber
-   * needle. Only called when the detent, rudder, or displayed speed changes
-   * (see updateTelegraph) — the Graphics is otherwise left untouched.
-   */
-  private drawTelegraph(index: number, rudder: number, speed: number, kin: LadderKin): void {
-    const g = this.gauges;
-    g.clear();
-    for (let i = 0; i < 9; i++) {
-      const y = rungY(i);
-      const len = i === 0 || i === 4 || i === 8 ? RUNG_W : RUNG_W - 6;
-      g.moveTo(TG_X, y).lineTo(TG_X + len, y).stroke({ width: 1, color: DIM, alpha: 0.5 });
-    }
-    // ORDERED: a hollow 1px phosphor rung outline + a soft bloom ring.
-    const oy = rungY(index);
-    const ox = TG_X + (RUNG_W - V.orderedW) / 2;
-    g.rect(ox, oy - V.orderedH / 2, V.orderedW, V.orderedH).stroke({ width: 1, color: GREEN, alpha: 1 });
-    g.rect(ox - 1.5, oy - V.orderedH / 2 - 1.5, V.orderedW + 3, V.orderedH + 3)
-      .stroke({ width: 1, color: GREEN, alpha: 0.28 });
-    // ACTUAL: a solid amber pointer needle — never color alone.
-    const ny = LADDER_BOTTOM - ((speedLadderFraction(speed, kin) + 1) / 2) * (8 * RUNG_GAP);
-    g.moveTo(TG_X - 15, ny - 5).lineTo(TG_X - 6, ny).lineTo(TG_X - 15, ny + 5).fill({ color: AMBER, alpha: 0.95 });
-    g.rect(TG_X - 8, ny - 1, RUNG_W + 6, 2).fill({ color: AMBER, alpha: 0.95 });
-    this.drawRudder(rudder);
-  }
-
-  /** 110px hairline track, a center detent mark, and the AMBER position tick
-   *  (the old green tick is retired — amber is the "actual" channel). The tick's
-   *  center is clamped so its halo never overhangs the track at full deflection. */
-  private drawRudder(rudder: number): void {
-    const g = this.gauges;
-    const halo = V.rudderTickHaloPx;
-    const mid = RUD_X + V.rudderTrack / 2;
-    g.moveTo(RUD_X, RUD_Y).lineTo(RUD_X + V.rudderTrack, RUD_Y).stroke({ width: 1, color: DIM, alpha: 0.5 });
-    g.moveTo(mid, RUD_Y - 3).lineTo(mid, RUD_Y + 3).stroke({ width: 1, color: C.silver, alpha: 0.5 });
-    const x = rudderTickCenter(rudder, RUD_X, V.rudderTrack, RUD_TICK_INSET) - V.rudderTickW / 2;
-    g.rect(x, RUD_Y - V.rudderTickH / 2, V.rudderTickW, V.rudderTickH).fill({ color: AMBER, alpha: 1 });
-    g.rect(x - halo, RUD_Y - V.rudderTickH / 2 - halo, V.rudderTickW + halo * 2, V.rudderTickH + halo * 2)
-      .fill({ color: AMBER, alpha: 0.25 });
-  }
-
-  /**
-   * Redraw the telegraph only when the ordered detent, rudder, or displayed
-   * speed (0.1kt buckets, matching the KTS readout) changes; brighten the
-   * ordered rung's label on a detent change. The HP pulse deliberately does NOT
-   * feed this signature — it rides railFill.alpha instead, so a breathing rail
-   * never forces a ladder redraw.
-   */
-  private updateTelegraph(axes: Axes, speed: number, kin: LadderKin): void {
-    const index = detentIndexOf(axes.throttle);
-    if (index !== this.lastDetent) {
-      for (let i = 0; i < this.rungLabels.length; i++) {
-        this.rungLabels[i].alpha = i === index ? 1 : TEXT_DIM_ALPHA;
-      }
-      this.lastDetent = index;
-    }
-    const sig = `${index}|${axes.rudder}|${speed.toFixed(1)}|${kin.maxSpeed}|${kin.reverseSpeed}`;
-    if (sig === this.lastGaugeSig) return;
-    this.lastGaugeSig = sig;
-    this.drawTelegraph(index, axes.rudder, speed, kin);
-  }
-
-  /**
-   * The vertical HP rail on the body's right edge: a dim phosphor track with a
-   * bottom-up fill = hp/maxHp in the threshold color. Geometry redraws whenever
-   * the rail SIGNATURE changes — the fraction at 0.001 granularity plus the band
-   * and the pulse gate (railSig). That guard is NOT "only on a color change":
-   * under continuous damage (a storm dot drains ~0.002 of the bar per tick) the
-   * fraction moves every tick and the rail redraws every tick; the signature's
-   * job is to skip the redraw while the hull is STEADY and, crucially, to never
-   * skip one across a band/gate transition. The breathing pulse is a per-frame
-   * ALPHA on the fill Graphics
-   * (motion-gated — the base alpha is information and holds at `off`), driven by
-   * an integrated phase so a changing hull fraction never jumps the wave.
-   */
-  private updateHpRail(status: OwnStatus, nowSec: number, frac: number, holdAmber: boolean): void {
-    const maxHp = status.stats.maxHp;
-    const pending = repairFraction(status.hp, status.repairHp, maxHp);
-    const sig = railSig(frac, pending);
-    if (sig !== this.lastRailSig) {
-      this.lastRailSig = sig;
-      this.drawRail(frac, pending);
-    }
-    const dt = this.lastPulseSec === null ? 0 : nowSec - this.lastPulseSec;
-    this.lastPulseSec = nowSec;
-    this.pulsePhase = advancePulsePhase(this.pulsePhase, frac, dt);
-    // The AMBER COROLLARY's hold is EASED, never snapped (the vignette's own
-    // 240ms τ, via easeHold's default) — a rail that stopped dead at the lit
-    // keyframe would be the luminance step the tier table exists to remove.
-    this.railHold = easeHold(this.railHold, holdAmber ? 1 : 0, Math.max(0, dt) * 1000);
-    const amp = motionScaled(V.pulseAmp, settings.current.motion);
-    this.railFill.alpha = hullFillHeld(frac, this.pulsePhase, amp, this.railHold);
-    const hull = hullHeaderValue(status.hp, maxHp);
-    if (hull !== this.lastHull) {
-      this.hullValue.text = hull;
-      this.lastHull = hull;
-    }
-  }
-
-  private drawRail(frac: number, pending = 0): void {
-    const x = V.width;
-    const h = V.height - RAIL_TOP;
-    this.railTrack.clear();
-    this.railTrack.rect(x, RAIL_TOP, V.railWidth, h).fill({ color: GREEN, alpha: V.railTrackAlpha });
-    // DAMAGE CONTROL's incoming band rides the TRACK, not the fill: the fill
-    // Graphics carries the breathing alarm alpha, and a static "coming to you"
-    // segment must not breathe with it. It sits directly above the fill line,
-    // in the fill's own color — position is the channel, hue is not.
-    if (pending > 0) {
-      const ph = h * pending;
-      this.railTrack
-        .rect(x, RAIL_TOP + h - h * frac - ph, V.railWidth, ph)
-        .fill({ color: hpColor(frac), alpha: V.railPendingAlpha });
-    }
-    const fh = h * frac;
-    const y = RAIL_TOP + h - fh;
-    const color = hpColor(frac);
-    this.railFill.clear();
-    if (fh <= 0) return; // a sunk hull shows the empty track, not a zero-height fill
-    // Bloom first, core over it — the fill's own alpha must not be muddied by
-    // the halo painted on top of it.
-    this.railFill
-      .rect(x - V.railGlowPx, y - V.railGlowPx, V.railWidth + V.railGlowPx * 2, fh + V.railGlowPx * 2)
-      .fill({ color, alpha: V.railGlowAlpha });
-    this.railFill.rect(x, y, V.railWidth, fh).fill({ color, alpha: 1 });
-  }
-
-  /**
-   * Helm key glyphs: each pair holds full alpha until its 3rd successful input,
-   * then fades out ONCE and stays gone (the counts persist). The fade itself is
-   * motion — at `off` the chips simply vanish rather than animating. Only a pair
-   * that crosses while the instruments are ON SCREEN animates (a crossing during
-   * a hidden stretch was already seeded as faded — seedFadedWhileHidden).
-   */
-  private updateHelmGlyphs(nowSec: number): void {
-    const animate = motionAllowed(settings.current.motion);
-    for (const pair of ['ws', 'ad'] as const) {
-      const faded = this.glyphs.faded(pair);
-      if (faded && !this.wasFaded[pair]) {
-        this.wasFaded[pair] = true;
-        this.fadeStart[pair] = nowSec;
-      }
-      const group = this.helmPairs[pair];
-      const alpha = glyphFadeAlpha(faded, this.fadeStart[pair], nowSec, animate);
-      group.alpha = alpha;
-      group.visible = alpha > 0;
-    }
-  }
-
-  /** Render-state seams (tests/debug): the rail fill's live breathing alpha and
-   *  a helm pair's current chip alpha, without reaching into the display list. */
-  get railFillAlpha(): number {
-    return this.railFill.alpha;
-  }
-
-  chipAlpha(pair: HelmPair): number {
-    return this.helmPairs[pair].alpha;
-  }
-
-  private updateReadouts(ship: ShipState): void {
-    const hdg = pad3((wrapPositive(ship.heading) * 180) / Math.PI);
-    if (hdg !== this.lastHeading) {
-      this.headingLabel.text = hdg;
-      this.lastHeading = hdg;
-    }
-    const spd = Math.abs(ship.speed).toFixed(1);
-    if (spd !== this.lastSpeed) {
-      this.speedLabel.text = spd;
-      this.lastSpeed = spd;
-    }
   }
 
   /**
@@ -1152,12 +482,14 @@ export class Hud {
     this.overlay.visible = true;
   }
 
-  /** Update all instruments (conning a live ship). Call each render frame.
-   *  `nowSec` is the server-clock estimate in SECONDS (main.ts renderAlive's
-   *  `now / 1000`, the same clock zone.ts's vignette pulse rides). */
+  /**
+   * Update the screen chrome (conning a live ship). Call each render frame.
+   * `nowSec` is the server-clock estimate in SECONDS (main.ts renderAlive's
+   * `now / 1000`, the same clock zone.ts's vignette pulse rides). The satellite
+   * column (IN STORM + the tells) hangs off the CHROME BAR (amendment 38), which
+   * this module lays out itself — no bar edge is passed in any more.
+   */
   update(
-    ship: ShipState,
-    axes: Axes,
     status: OwnStatus,
     inStorm: boolean,
     bar: ChromeBarView,
@@ -1166,26 +498,17 @@ export class Hud {
     screenH: number,
     nowSec: number,
   ): void {
-    this.setInstrumentsVisible(true);
     this.spectateBanner.visible = false;
-    this.layout(screenW, screenH);
-    // Speed-needle denominator: the BOOSTED cap while the boost window is
-    // active — via the one shared speed mutator, never a hand-tweaked maxSpeed.
-    const kin = boostedKinematics(status.stats.kinematics, status.stats.equipment.speedBoost.speedBonus, status.boostActive);
-    this.updateTelegraph(axes, ship.speed, kin);
-    // THE AMBER COROLLARY, resolved ONCE for the frame: this module owns both
-    // amber channels, so the ranking is decided here and each channel is then
-    // told only whether it won. The rail's fraction comes from `railFraction` —
-    // the same derivation the seam's Tier-1 read takes — so the corollary and
-    // the tier can never disagree about which band the hull is in.
+    // THE AMBER COROLLARY for the ring, resolved ONCE for the frame. The HP
+    // channel's fraction comes from `railFraction` — the same derivation the
+    // seam's Tier-1 read and the globe's own draw take — so the corollary and
+    // the tier can never disagree about which band the hull is in. The GLOBE's
+    // half of the same verdict is `hpGlobeHoldsLit`, over this same resolver.
     const frac = railFraction(status.hp, status.stats.maxHp);
-    const amber = amberPulseWinner({ ring: bar.ring.urgent, hpRail: railAmberChannel(frac) });
-    this.updateHpRail(status, nowSec, frac, railAmberChannel(frac) && amber !== 'hpRail');
-    this.updateHelmGlyphs(nowSec);
-    this.updateReadouts(ship);
+    const amber = amberPulseWinner({ ring: bar.ring.urgent, hpGlobe: railAmberChannel(frac) });
     this.updateOverlay(status, screenW, screenH);
-    this.drawTells(status, screenW, screenH);
-    this.drawStormWarn(inStorm, screenW, screenH);
+    this.drawTells(status, screenW);
+    this.drawStormWarn(inStorm, screenW);
     this.drawChromeBar(bar, screenW, nowSec, amber === 'ring');
     this.drawMatch(match, screenW, screenH);
   }
@@ -1201,16 +524,23 @@ export class Hud {
     return t?.visible ? { x: t.position.x, y: t.position.y } : null;
   }
 
+  /** Where IN STORM is drawn (test/debug seam); null while out of the storm. */
+  stormPosition(): { x: number; y: number } | null {
+    const t = this.stormWarn;
+    return t.visible ? { x: t.position.x, y: t.position.y } : null;
+  }
+
   /**
-   * Spectator frame: instruments hidden, banner + the chrome bar + phase lines.
-   * `bannerText` is computed by ui/phase.ts's spectateBannerText() from the
-   * match phase + winnerId.
+   * Spectator frame: banner + the chrome bar + phase lines. `bannerText` is
+   * computed by ui/phase.ts's spectateBannerText() from the match phase +
+   * winnerId. The HUD BAR (globes, slots, strip) is hidden by its own owner —
+   * this path only drops what lives in this module.
    *
    * The CHROME BAR renders here exactly as it does alive — that is the whole
-   * survivor-set ruling: the hotbar, the XP rail and the own vitals die with the
-   * hull, and the match readout does not. A spectator owns no Tier-1 channel
-   * (no hull to be critical, no fire control to be denied), which the caller
-   * expresses by handing over a view with `tier1: false`.
+   * survivor-set ruling: the HUD bar and the own vitals die with the hull, and
+   * the match readout does not. A spectator owns no Tier-1 channel (no hull to
+   * be critical, no fire control to be denied), which the caller expresses by
+   * handing over a view with `tier1: false`.
    */
   updateSpectate(
     bar: ChromeBarView,
@@ -1220,22 +550,20 @@ export class Hud {
     bannerText: string,
     nowSec: number,
   ): void {
-    this.setInstrumentsVisible(false);
     this.overlay.visible = false;
     this.stormWarn.visible = false;
-    this.hideTells(); // the victim tells die with the hull, like the instruments
+    this.hideTells(); // the victim tells die with the hull, like the bar
     if (bannerText !== this.lastSpectateBanner) {
       this.spectateBanner.text = bannerText;
       this.lastSpectateBanner = bannerText;
     }
     this.spectateBanner.visible = true;
     this.spectateBanner.position.set(screenW / 2, screenH * 0.16);
-    // A spectator owns no HP rail at all, so the amber set holds exactly one
+    // A spectator owns no HP globe at all, so the amber set holds exactly one
     // member and the ring wins whenever its window is open — the corollary is
     // resolved the same way here rather than by short-circuiting past it, and
-    // `hpRail: false` is a STATEMENT (there is no hull), not a stale read.
-    this.railHold = 0;
-    this.drawChromeBar(bar, screenW, nowSec, amberPulseWinner({ ring: bar.ring.urgent, hpRail: false }) === 'ring');
+    // `hpGlobe: false` is a STATEMENT (there is no hull), not a stale read.
+    this.drawChromeBar(bar, screenW, nowSec, amberPulseWinner({ ring: bar.ring.urgent, hpGlobe: false }) === 'ring');
     this.drawMatch(match, screenW, screenH);
   }
 }

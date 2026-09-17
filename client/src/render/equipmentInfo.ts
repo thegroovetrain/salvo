@@ -17,6 +17,7 @@ import {
   EQUIPMENT_IS_WEAPON,
   LINE_IDS,
   SLOT_GUN,
+  boonStackCount,
   equipmentMaxAmmo,
   equipmentReloadMs,
   tierTargetOf,
@@ -26,19 +27,23 @@ import {
 } from '@salvo/shared';
 
 /**
- * Slot → bound key glyph, in slot order. Story 8.5's nine-slot spine:
- * Gun · ⇧ · Q · E · R · 1 · 2 · 3 · 4, top-to-bottom.
+ * Slot → bound key glyph, in slot order. The nine-slot spine, left to right on
+ * the HUD bar: Gun · Shift · Q · E · R · 1 · 2 · 3 · 4.
  *
  * The GUN is KEYLESS (always selected — its chip renders as a ghost that keeps
- * the row alignment). Slot 1 is the BOOST and its glyph is `⇧` (U+21E7, the
- * platform-conventional Shift mark — Eric ruling 2026-09-16, epic-8 amendment
- * 29: the 22px mono chip holds exactly one glyph, so a SHIFT word chip was
- * rejected). Slots 2-4 are the three generic weapon slots; slots 5-8 are the
- * consumable belt, whose digits are REFIT-ONLY until Story 8.7 wires the rack
- * (amendment 27) — the chips are drawn now because the row they label exists
- * now, and a labelled row the player cannot yet use is Story 8.6's problem.
+ * the row's shared baseline). Slot 1 is the BOOST, and its chip spells the WORD
+ * `Shift` (Eric ruling 2026-09-16, epic-8 amendment 33). That REVERSES
+ * amendment 29's `⇧`, and the reason is the bar: 8.5's chip was a fixed 22px
+ * mono square that held exactly one glyph, so the word did not fit; the bar's
+ * chip is the mock's `.kc`, which WIDENS to its content (min-width 16px, 3px of
+ * padding each side), and the arrow — which players read as "up" as often as
+ * "shift" — no longer has to stand in for a key that has a name.
+ *
+ * Slots 2-4 are the three generic weapon slots; slots 5-8 are the consumable
+ * belt, whose digits are REFIT-ONLY until Story 8.7 wires the rack (amendment
+ * 27) — the chips are drawn now because the squares they label exist now.
  */
-export const SLOT_KEY_GLYPHS: readonly string[] = ['', '⇧', 'Q', 'E', 'R', '1', '2', '3', '4'];
+export const SLOT_KEY_GLYPHS: readonly string[] = ['', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4'];
 
 /**
  * Display name per equipment id. The seven BUILT ids keep their shipped names
@@ -109,7 +114,7 @@ export function equipmentDescription(stats: EffectiveStats, id: EquipmentId): st
  *  keyless and permanently selected, weapons switch-to on their key, abilities
  *  activate immediately. Weapon-vs-ability comes ONLY from EQUIPMENT_IS_WEAPON,
  *  and the key comes ONLY from SLOT_KEY_GLYPHS — so the boost in slot 1 reads
- *  `ABILITY · ⇧ · ACTIVATES` without this function knowing what a boost is. */
+ *  `ABILITY · Shift · ACTIVATES` without this function knowing what a boost is. */
 export function interactionLine(slot: number, id: EquipmentId): string {
   if (slot === SLOT_GUN) return 'WEAPON · ALWAYS SELECTED';
   const key = SLOT_KEY_GLYPHS[slot] ?? '';
@@ -171,6 +176,27 @@ export function cardEquipmentIds(id: string): readonly EquipmentId[] {
  *  ladders (or an id this build cannot resolve). */
 export function isShipwideCard(id: string): boolean {
   return cardEquipmentIds(id).length === 0;
+}
+
+/**
+ * Pure: the TIER a fitted catalog line is standing at — how many copies of it
+ * the build holds, capped by the line's own cap.
+ *
+ * THE HUD BAR'S bottom-right numeral (Story 8.6, ruling 4). A slot reads its own
+ * EQUIPMENT id as a line id, which is exactly right for catalog v3: an equipment
+ * line is keyed by the weapon it fits, so `lineTier(cards, 'heavyTorpedo')` is
+ * "how far up the torpedo's ladder this hull has climbed". The permanent deck
+ * gun has no equipment line to climb, so it reads 0 and prints no numeral —
+ * honest rather than a fabricated tier I.
+ *
+ * CAPPED, not raw: the ramp is five rungs and the caps are the catalog's, so a
+ * duplicate that the server should never have granted cannot paint a sixth
+ * colour. Fail-closed on an unknown id (0), the same discipline as slotBoonIds.
+ */
+export function lineTier(cards: readonly string[], lineId: string): number {
+  const line = (CATALOG as Record<string, CatalogLine | undefined>)[lineId];
+  if (line === undefined) return 0;
+  return Math.min(boonStackCount(cards, lineId), line.cap);
 }
 
 /**

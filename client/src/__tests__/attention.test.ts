@@ -13,11 +13,13 @@ import {
   tier1Active,
   tier2Active,
 } from '../render/attention.js';
-import { railAmberChannel, railCritical, railPulsing } from '../render/hud.js';
+import { railAmberChannel, railCritical, railPulsing } from '../render/hpGlobe.js';
 import { DeniedPulse, PULSE_DURATION_MS, pulseLiveAt } from '../render/deniedFire.js';
 import { easeHold, vignetteAlpha, vignetteHeld } from '../render/zone.js';
 import { RING_LIT_ALPHA, ringSegmentAlpha } from '../ui/chromeBar.js';
-import { XP_CHIP_IDLE, chipAlpha, chipDimKeyframe, chipHeld, nextChipState } from '../render/xpRail.js';
+// The Tier-3 chip moved to the HUD bar's XP STRIP with Story 8.6 (ruling 8) —
+// same state machine, same breath, new row.
+import { XP_CHIP_IDLE, chipAlpha, chipDimKeyframe, chipHeld, nextChipState } from '../render/xpStrip.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const V = CLIENT_CONFIG.vitals;
@@ -197,15 +199,20 @@ describe('freezeAtDimKeyframe — Tier 3 under ANY higher tier (amendment 243)',
 });
 
 describe('amberPulseWinner — the amber corollary', () => {
-  it('ranks the ring over the amber rail (the storm is what kills you)', () => {
-    expect(amberPulseWinner({ ring: true, hpRail: true })).toBe('ring');
-    expect(amberPulseWinner({ ring: true, hpRail: false })).toBe('ring');
-    expect(amberPulseWinner({ ring: false, hpRail: true })).toBe('hpRail');
-    expect(amberPulseWinner({ ring: false, hpRail: false })).toBe(null);
+  it('ranks the ring over the amber HP globe (the storm is what kills you)', () => {
+    expect(amberPulseWinner({ ring: true, hpGlobe: true })).toBe('ring');
+    expect(amberPulseWinner({ ring: true, hpGlobe: false })).toBe('ring');
+    expect(amberPulseWinner({ ring: false, hpGlobe: true })).toBe('hpGlobe');
+    expect(amberPulseWinner({ ring: false, hpGlobe: false })).toBe(null);
   });
 
   it('follows the ranked list in config, not a hard-coded order', () => {
-    expect(CLIENT_CONFIG.attention.amberRank).toEqual(['ring', 'hpRail']);
+    // ONE spelling, end to end: Story 8.6's config pass re-spelled the HP
+    // channel `hpRail` -> `hpGlobe` with the surface it names, so the rank keys
+    // ARE the channel names and no normalisation step stands between them. The
+    // RANK itself stays a config value rather than a hard-coded order.
+    expect(CLIENT_CONFIG.attention.amberRank).toEqual(['ring', 'hpGlobe']);
+    expect(amberPulseWinner({ ring: false, hpGlobe: true })).toBe('hpGlobe');
   });
 
   it('below 25% the rail leaves the amber set entirely and BOTH ambers hold lit', () => {
@@ -213,7 +220,7 @@ describe('amberPulseWinner — the amber corollary', () => {
     // At 20% the rail is crimson: it is no longer an amber channel at all, it is
     // Tier 1, under which every Tier-2 channel (the ring included) holds lit.
     const amberRail = railPulsing(0.4) && !railCritical(0.4);
-    expect(amberPulseWinner({ ring: true, hpRail: amberRail })).toBe('ring');
+    expect(amberPulseWinner({ ring: true, hpGlobe: amberRail })).toBe('ring');
     const crimson = tier1Active({ hpFrac: 0.2, deniedLive: false });
     expect(crimson).toBe(true);
     expect(holdAtLitKeyframe(crimson)).toBe(true);
@@ -331,10 +338,10 @@ describe('NULL IS NOT ZERO — a missing hull pins nothing, at any tier', () => 
 
   it('the amber corollary sees no rail either — the ring simply wins', () => {
     // `railAmberChannel` is a total function of a fraction and a spectate frame
-    // has none: hud.ts passes `hpRail: false` as a STATEMENT (there is no hull),
+    // has none: hud.ts passes `hpGlobe: false` as a STATEMENT (there is no hull),
     // never as a reading of a zero.
-    expect(amberPulseWinner({ ring: true, hpRail: false })).toBe('ring');
-    expect(amberPulseWinner({ ring: false, hpRail: false })).toBe(null);
+    expect(amberPulseWinner({ ring: true, hpGlobe: false })).toBe('ring');
+    expect(amberPulseWinner({ ring: false, hpGlobe: false })).toBe(null);
   });
 });
 
@@ -351,8 +358,8 @@ describe('the SPECTATE path never activates Tier 1', () => {
     expect(ringSegmentAlpha(Math.PI, 0.4, 0)).toBeLessThan(RING_LIT_ALPHA);
   });
 
-  it('and the amber rail is not a channel a spectator can lose', () => {
+  it('and the amber HP globe is not a channel a spectator can lose', () => {
     expect(railAmberChannel(0.4)).toBe(true); // ...on a LIVE hull
-    expect(amberPulseWinner({ ring: false, hpRail: railAmberChannel(0.4) })).toBe('hpRail');
+    expect(amberPulseWinner({ ring: false, hpGlobe: railAmberChannel(0.4) })).toBe('hpGlobe');
   });
 });

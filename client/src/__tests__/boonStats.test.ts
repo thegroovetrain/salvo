@@ -17,7 +17,7 @@ import {
 import { boonName } from '../ui/boonCopy.js';
 import { pointToastLine } from '../ui/upgradeToast.js';
 import { ownStatsChanged } from '../net/roomBindings.js';
-import { speedLadderFraction } from '../render/hud.js';
+import { speedLadderFraction } from '../render/helmGlobe.js';
 
 /** Effective stats for a class + an id → stack-count boon build. */
 function statsFor(cls: OwnShip['cls'], boons: Record<string, number> = {}) {

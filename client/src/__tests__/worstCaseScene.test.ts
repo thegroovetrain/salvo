@@ -32,7 +32,7 @@ import {
   hullPose,
 } from '../stage/worstCaseScene.js';
 import { isDroneHull } from '../render/ships.js';
-import { railCritical, railPulsing } from '../render/hud.js';
+import { railCritical, railPulsing } from '../render/hpGlobe.js';
 import { tier1Active, tier2Active, freezeAtDimKeyframe } from '../render/attention.js';
 import { barVisible, chromeBarSegments, ringReadout } from '../ui/chromeBar.js';
 import { KILL_LEADER_MARK } from '../ui/bounty.js';

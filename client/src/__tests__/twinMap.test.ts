@@ -72,18 +72,46 @@ describe('every audio cue has a visual twin', () => {
     }
   });
 
-  it('gives the HP band stings BOTH the rail and the smoke plume (amendment 49, answered)', () => {
-    // The smoke tiers and the HP rail bands are the SAME two thresholds
+  it('gives the HP band stings BOTH the globe and the smoke plume (amendment 49, answered)', () => {
+    // The smoke tiers and the HP globe's bands are the SAME two thresholds
     // (CONFIG.damageBands), so the sting at a downward crossing IS the moment
-    // your own plume starts or thickens. Naming only the rail would drop half
+    // your own plume starts or thickens. Naming only the globe would drop half
     // the twin — and own smoke really does reach its own captain (amendment 46).
     for (const id of ['hpHurt', 'hpCritical'] as const) {
       const twin = toneTwin(id);
-      expect(twin, id).toMatch(/HP rail/i);
+      expect(twin, id).toMatch(/HP globe/i);
       expect(twin, id).toMatch(/smoke|plume/i);
-      expect(twin, id).toMatch(/render\/hud/);
+      expect(twin, id).toMatch(/render\/hpGlobe/);
       expect(twin, id).toMatch(/render\/smoke/);
     }
+  });
+
+  // --- STORY 8.6: THE HUD BAR ---------------------------------------------------
+  //
+  // The three corners became one bar, and three surfaces this table pointed at
+  // ceased to exist: the bottom-left XP RAIL (now the XP strip), the bottom-right
+  // HP RAIL (now the HP globe) and the telegraph cluster (now the helm globe's
+  // tick arc). A row that still named one would send a reviewer to a deleted
+  // module — which is the exact failure the "name the surface" rule exists to
+  // prevent, so it is pinned rather than trusted.
+  it('points the ECONOMY and VITALS rows at the bar\'s own surfaces (ruling 12)', () => {
+    expect(toneTwin('point')).toContain('TAB TO REFIT');
+    expect(toneTwin('point')).toMatch(/render\/xpStrip/);
+    expect(toneTwin('point')).not.toMatch(/LEVEL UP/); // the prefix is the toast's
+    expect(toneTwin('heal')).toMatch(/pending band/i);
+    expect(toneTwin('heal')).toMatch(/render\/hpGlobe/);
+    for (const id of ['damage', 'burn'] as const) expect(toneTwin(id), id).toMatch(/hpGlobe\)/);
+    for (const id of ['telegraphUp', 'telegraphDown'] as const) {
+      expect(toneTwin(id), id).toMatch(/render\/helmGlobe/);
+    }
+    // ...and the DENIED row still names the slot surface, which survived the
+    // re-cut under its own name (ruling 12).
+    expect(toneTwin('denied')).toMatch(/hotbar/);
+  });
+
+  it('names NO retired surface — no rail, no vitals cluster, no xpRail module', () => {
+    const stale = IDS.filter((id) => /xpRail|HP rail|XP rail|vitals cluster/i.test(toneTwin(id)));
+    expect(stale).toEqual([]);
   });
 
   it('gives the FOGHORN a twin that carries a BEARING — the only thing the honk says', () => {
