@@ -350,9 +350,11 @@ describe('torpedo chase/dodge guardrail (classes AND drones)', () => {
 // THE GUARDRAIL AMENDMENT 33 FAILED TO APPLY, and the one that actually caught
 // the 6/8/10 fleet gun. A PvE kill is only a faucet if the XP it pays exceeds
 // what the damage taken COSTS TO UNDO — and undoing damage has a hard price in
-// the same currency: `damageControl` restores instantHp + regenHp (50) for one
-// banked level. So the honest test of a PvE damage profile is an EXCHANGE RATE,
-// never a dps or a time-to-kill.
+// the same currency: one HULL REPAIR copy restores instantHp + regenHp, and a
+// copy is a card, which is what a banked level buys. So the honest test of a
+// PvE damage profile is an EXCHANGE RATE, never a dps or a time-to-kill.
+// (It was a level spent directly on the heal until Story 8.8 made the heal a
+// card; the arithmetic — one level, one heal's worth of hp — is unchanged.)
 //
 // Eric's derivation, 2026-08-14: an unupgraded gun (15) needs 4 shots to sink a
 // 60hp small hull; on a 5s reload that is 20 seconds, in which the drone fires
@@ -361,7 +363,7 @@ describe('torpedo chase/dodge guardrail (classes AND drones)', () => {
 // farming correctly and winning left a captain BEHIND one who ignored the
 // fleet entirely, which is a broken faucet rather than a hard fight.
 describe('the PvE farm must PAY — damage taken costs less to repair than the kill earns', () => {
-  const HEAL_HP = CONFIG.damageControl.instantHp + CONFIG.damageControl.regenHp; // 50 per level
+  const HEAL_HP = CONFIG.hullRepair.instantHp + CONFIG.hullRepair.regenHp; // 100 per HULL REPAIR copy
   const TIERS = [
     ['small', 'droneSmall'],
     ['medium', 'droneMedium'],
@@ -397,7 +399,7 @@ describe('the PvE farm must PAY — damage taken costs less to repair than the k
     // small tier costs 0.18 levels to repair against 0.25 earned), so measuring
     // it against the CURRENT heal would make this guard vacuous — it would pass
     // no matter how weak the counterfactual was. That the guard had to be
-    // re-anchored IS the finding: doubling damageControl halved the level-cost
+    // re-anchored IS the finding: doubling the paid heal halved the level-cost
     // of PvE damage, which loosened the faucet this whole describe-block exists
     // to keep honest. Flagged for a ruling; not silently accepted.
     const PRE_DOUBLING_HEAL = 50;

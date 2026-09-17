@@ -3,7 +3,7 @@
 // Pins:
 //   (1) buildDeckState (Story 8.2, Eric rulings 2026-09-15, amendments 10-11):
 //       the frozen 40-card list MINUS every stub line MINUS one copy per
-//       carried line — 23 drawable cards for each of the three default decks
+//       carried line — 26 drawable cards for each of the three default decks
 //       with its spawn seed, and NO STUB EVER DEALT, so no stub id can reach
 //       an offer;
 //   (2) drawOffer distinctness / weight-by-copies-remaining / determinism /
@@ -109,16 +109,17 @@ describe('buildDeckState — the frozen list becomes the drawable pool (Story 8.
       const dealt = new Set(poolFor(hull).cards);
       for (const id of dealt) expect(isStubLine(id), `${hull}:${id}`).toBe(false);
     }
-    expect(NON_STUB).toHaveLength(16);
+    expect(NON_STUB).toHaveLength(17); // 16 until Story 8.8 flipped hullRepair live
   });
 
-  // THE DRAWABLE-SIZE TABLE (spec Design Notes): each default holds 16 stub
-  // cards (hullRepair 3 + shieldBlock 3 + smokeScreen 2 + chaff 2 + two stub
-  // weapon lines × 3) and the seed removes one copy → 40 − 16 − 1 = 23.
+  // THE DRAWABLE-SIZE TABLE (spec Design Notes): each default holds 13 stub
+  // cards (shieldBlock 3 + smokeScreen 2 + chaff 2 + two stub weapon lines × 3)
+  // and the seed removes one copy → 40 − 13 − 1 = 26. It was 16 stubs / 23
+  // drawable until Story 8.8 flipped HULL REPAIR's three copies live.
   it.each([
-    ['torpedoBoat', 16, 23],
-    ['mineLayer', 16, 23],
-    ['battleship', 16, 23],
+    ['torpedoBoat', 13, 26],
+    ['mineLayer', 13, 26],
+    ['battleship', 13, 26],
   ] as const)('%s: 40 cards − %i stub cards − 1 carried copy = %i drawable', (hull, stubs, drawable) => {
     const list = DEFAULT_DECKS[hull];
     expect(list).toHaveLength(CONFIG.deck.size);
@@ -448,7 +449,7 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
       const { picks, deck } = replay(seed);
       const counts = tally(picks);
       for (const [id, n] of counts) expect(n, `${seed}:${id}`).toBeLessThanOrEqual(CATALOG[id].cap);
-      expect(picks.length, `${seed}`).toBe(23); // the whole drawable pool plays out
+      expect(picks.length, `${seed}`).toBe(26); // the whole drawable pool plays out
       expect(deck.cards, `${seed}`).toEqual([]);
     }
   });

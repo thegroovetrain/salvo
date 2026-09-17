@@ -313,27 +313,19 @@ export interface PongMsg {
 }
 
 /**
- * SpendMsg.choice sentinel for the DAMAGE CONTROL heal (Eric rulings
- * 2026-08-04): EXACTLY -1 = spend the level on the always-available heal
- * strip instead of a card. Deliberately a reserved NEGATIVE value: a positive
- * sentinel (e.g. 4) would collide with a real card index the moment
- * CONFIG.offer.size moves — a negative can never alias an offer slot, since
- * card choices are 0..length-1 by construction.
- */
-export const HEAL_CHOICE = -1;
-
-/**
- * Client -> server spend ("u"): consume one banked level. `choice` is either
- * a card index — 0..N-1, bounded by the FRONT offer's actual length (see
- * OwnShip.offer / BoonOffer) — or EXACTLY `HEAL_CHOICE` (-1) for the
- * always-available DAMAGE CONTROL heal (Eric rulings 2026-08-04). EVERYTHING
- * else (out-of-range, other negatives, non-integers) is rejected with the
- * level intact. Deliberately a DISCRETE reliable message, NOT a field on the
- * per-tick InputMsg: the latest-input-wins coalescing there would silently
- * drop back-to-back spends (two quick kills → two spends).
+ * Client -> server spend ("u"): consume one banked level. `choice` is AN OFFER
+ * SLOT INDEX AND NOTHING ELSE — 0..N-1, bounded by the FRONT offer's actual
+ * length (see OwnShip.offer / BoonOffer). EVERYTHING else (out-of-range, ANY
+ * negative, non-integers) is malformed and rejected with the level intact.
+ * There is no longer a negative sentinel: the reserved -1 DAMAGE CONTROL
+ * spend left the wire in PV 53 (epic-8 amendment 46 — healing is the
+ * HULL REPAIR card, fired from a belt slot, not a level spend), so -1 is
+ * simply out of the offer bound. Deliberately a DISCRETE reliable message, NOT
+ * a field on the per-tick InputMsg: the latest-input-wins coalescing there
+ * would silently drop back-to-back spends (two quick kills → two spends).
  */
 export interface SpendMsg {
-  choice: number; // 0..N-1 = offer slot (front-offer-bounded) | HEAL_CHOICE (-1) = heal
+  choice: number; // 0..N-1 = offer slot (front-offer-bounded); any negative is malformed
 }
 
 /**
@@ -434,15 +426,14 @@ export interface OwnShip {
    */
   xp: number;
   /**
-   * hp still owed to this hull — `0` = no pool draining. Since 2026-08-23 this
-   * is the SUM of two server-side pools folded together on the wire
-   * (frames.ts: `ship.repairHp + ship.levelRepairHp`): the PAID damage-control
-   * regen pool (Eric rulings 2026-08-04) — each heal spend adds
-   * CONFIG.damageControl.regenHp here, drained at the fixed regenHp/regenMs
-   * rate (pools ADD, the rate never changes) — and the FREE per-level
-   * auto-heal pool (CONFIG.damageControl.levelMissingPct), drained at its own
-   * DURATION-based rate (`levelRepairHp / levelRegenMs`, recomputed against
-   * the whole pool on every grant). Both pools reset to 0 wherever boostUntil
+   * hp still owed to this hull — `0` = no pool draining. ONE pool since PV 53:
+   * the PAID HULL REPAIR regen pool (Eric rulings 2026-08-04, catalog-v3 R13)
+   * — each HULL REPAIR copy fired adds CONFIG.hullRepair.regenHp here, drained
+   * at the fixed regenHp/regenMs rate (pools ADD, the rate never changes). The
+   * FREE per-level auto-heal pool that used to be folded in beside it
+   * (`ship.levelRepairHp`) IS GONE: epic-8 amendment 46 replaced the per-level
+   * heal with out-of-combat regen (CONFIG.regen), which pays STRAIGHT INTO hp
+   * and never owes this field a thing. The pool resets to 0 wherever boostUntil
    * does (spawn, sink, respawn, match boundary). SELF-PRIVATE BY CONSTRUCTION
    * (the boostUntil precedent): this field rides `you` and NOTHING else — it
    * never appears on a Contact, blip, ballistic event, boom, or spectator
@@ -1104,13 +1095,16 @@ export interface BoonFitEvent {
 }
 
 /**
- * A DAMAGE CONTROL heal spent (Eric rulings 2026-08-04): marks the INSTANT
- * application at spend time. SELF-PRIVATE: `id` is the healing ship's id and
- * perception forwards the event ONLY to that observer — the same gate as
+ * A HULL REPAIR copy FIRED (catalog-v3 R13; the consumable that replaced the
+ * DAMAGE CONTROL level spend, epic-8 amendment 46): marks the INSTANT
+ * application at activation time. SELF-PRIVATE: `id` is the healing ship's id
+ * and perception forwards the event ONLY to that observer — the same gate as
  * `pt`/`bn`, so a heal never rides another observer's frame. Purely UX (tone
  * + HUD flash): the authoritative numbers self-sync every frame via
  * OwnShip.hp / OwnShip.repairHp. ANTI-CHEAT — deliberately omitted: any hp
- * amount or total, any victim id, anything derivable about another ship.
+ * amount or total, any victim id, anything derivable about another ship. The
+ * out-of-combat regen (CONFIG.regen) fires NO event at all — a continuous
+ * trickle would loop the tone.
  */
 export interface HealEvent {
   k: 'heal';

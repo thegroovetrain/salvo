@@ -408,8 +408,10 @@ export const CONFIG = {
      */
     disengageHpFrac: 0.35,
     /**
-     * Fraction of max hp below which a banked level is spent on DAMAGE CONTROL
-     * (HEAL_CHOICE) instead of a card (D2). Above it, bots always build.
+     * Fraction of max hp below which a bot PRESSES a stocked HULL REPAIR belt
+     * slot (epic-8 amendment 49). The same threshold that used to buy the
+     * always-available -1 heal spend (D2) — the heal is a card now,
+     * so it gates firing one, never the spend. Above it, bots never heal.
      */
     healHpFrac: 0.5,
     /**
@@ -1802,22 +1804,22 @@ export const CONFIG = {
   },
 
   /**
-   * DAMAGE CONTROL (Eric rulings 2026-08-04) — the always-available heal
-   * spend: a permanent strip beneath the refit band's four-card row. NOT a
-   * card: never drawn, never in the deck (BOON_CATALOG / CONFIG.deck /
-   * CONFIG.offer untouched — deck composition is byte-identical). Spending
-   * one banked level restores `instantHp` immediately (clamped to maxHp) and
-   * adds `regenHp` to a regen pool that drains at the fixed rate
-   * regenHp/regenMs (5 hp/s). Pools ADD, never accelerate: two heals run 10s
-   * at 5 hp/s, never 5s at 10 hp/s. Amounts are FLAT on every hull — no
-   * maxHp scaling, no upgrade scaling, no class variation. Every number is a
-   * DESIGN TARGET, tunable.
+   * HULL REPAIR (catalog-v3 R13; Eric rulings 2026-08-04, relocated by epic-8
+   * amendment 46) — the PAID heal, now the first LIVE consumable card rather
+   * than an always-available level spend. Firing one stocked copy restores
+   * `instantHp` immediately (clamped to maxHp) and adds `regenHp` to a regen
+   * pool that drains at the fixed rate regenHp/regenMs. Pools ADD, never
+   * accelerate: two copies run twice as long at the same rate, never twice as
+   * fast. Amounts are FLAT on every hull — no maxHp scaling, no upgrade
+   * scaling, no class variation. Every number is a DESIGN TARGET, tunable.
    *
-   * The `levelMissingPct` / `levelRegenMs` pair below is a SECOND, FREE channel
-   * (the per-level auto-heal, 2026-08-23) with its own pool and its own rate.
-   * The spend above is untouched by it in every respect.
+   * THIS BLOCK WAS THE DAMAGE-CONTROL BLOCK (renamed by epic-8 amendment 46).
+   * What left with the rename: the level spend and its reserved -1 wire
+   * sentinel (the heal is a card now) and the FREE per-level auto-heal channel,
+   * whose two dials `CONFIG.regen` below replaces. What stayed: these three
+   * numbers, byte-identical.
    */
-  damageControl: {
+  hullRepair: {
     // BALANCE CYCLE 1 (Eric ruling 2026-08-20): both 25 → 50, DOUBLED IN STEP
     // WITH HULL HP. These amounts are FLAT by ruling, so doubling hull HP without
     // them silently reprices every heal — measured: a heal fell from ~33 % of an
@@ -1825,54 +1827,48 @@ export const CONFIG = {
     // boons (Battleship boons 2.27 → 1.95 while its levels ROSE), and the
     // highest-HP hull paid most. Doubling both holds a heal at the same fraction
     // of every hull it was worth before, and boons recovered past baseline.
-    instantHp: 50, // hp restored immediately at spend time (clamped to maxHp)
-    regenHp: 50, // hp added to the regen pool per heal spend
-    regenMs: 5000, // ms — payout time of one regenHp pool (the 5 hp/s rate)
-    /**
-     * THE PER-LEVEL AUTO-HEAL (Eric ruling 2026-08-23) — the fraction of
-     * MISSING hull restored automatically, FOR FREE, each time a level is
-     * EARNED. It sits IN ADDITION TO the paid heal above, which is untouched.
-     *
-     * WHY IN ADDITION AND NOT INSTEAD. Eric likes the heal being a strategic
-     * decision; what feels bad is the SHARE of levels it eats — measured at
-     * 58.7 % of every level earned going to `HEAL_CHOICE` rather than an
-     * upgrade, a ratio that holds at ~50-59 % across every XP rate tested,
-     * because volume scales cards and heals together. Replacing the menu heal
-     * would delete the decision he wants kept; layering a free trickle under it
-     * pays for routine chip damage out of progression instead of out of the
-     * card budget. Measured with the assist split: cards/bot 3.33 → 3.59.
-     *
-     * WHY A FRACTION OF MISSING RATHER THAN A FLAT AMOUNT. A flat heal is worth
-     * the same at 90 % hp as at 5 %, and a different fraction of every hull —
-     * which is why balance cycle 1 had to double `damageControl` in step with
-     * hull HP. A missing-hull term is worth most when nearly dead, and NEEDS NO
-     * REPRICING WHEN HULL HP NEXT MOVES.
-     *
-     * It pays NOTHING to a full hull (10 % of zero missing is zero, and no heal
-     * cue fires), nothing to a sinking or sunk hull, and nothing to a fleet
-     * hull. It is tied to LEVELLING, not to a clock — Eric has ruled against a
-     * cooldown-paced global heal repeatedly, and healing paced by the economy
-     * is a different thing.
-     *
-     * 0 IS A REACHABLE OFF CONFIGURATION, not dead code: the harness measures
-     * an OFF arm via `--set damageControl.levelMissingPct=0`.
-     */
-    levelMissingPct: 0.1,
-    /**
-     * ms — payout time of the free per-level pool. It has its OWN pool and its
-     * OWN rate: `levelRepairHp / levelRegenMs`, recomputed on each grant, so
-     * the pool empties exactly one window after the most recent level.
-     *
-     * DELIVERY IS BY DURATION, which is a deliberate departure from the
-     * anti-flask rule ("pools ADD, the RATE never changes") and is CONFINED TO
-     * THIS FREE CHANNEL — the paid menu pool keeps its fixed regenHp/regenMs
-     * rate, byte-identical and pinned. A fixed hp/s cannot deliver a variable
-     * amount in a fixed time, and Eric ruled the duration ("over 5 seconds")
-     * knowingly against the shared pool's rate. Two rates cannot live in one
-     * pool, which is why this channel exists at all: the free trickle must be
-     * out-damageable while the paid heal answers an emergency.
-     */
-    levelRegenMs: 5000,
+    instantHp: 50, // hp restored the instant the copy fires (clamped to maxHp)
+    regenHp: 50, // hp added to the regen pool per HULL REPAIR copy fired
+    // ms — payout time of ONE regenHp pool. The rate is regenHp/regenMs =
+    // 0.01 hp/ms; it was ruled as 5 hp/s at regenHp 25 and doubled with the
+    // amount in balance cycle 1, so the shipped pool pays 50 hp over 5 s. The
+    // stacking law (pools ADD, the rate never changes) is what was ruled and is
+    // untouched — see hullRepair.test.ts.
+    regenMs: 5000,
+  },
+
+  /**
+   * OUT-OF-COMBAT REGEN (Eric ruling 2026-09-17 — epic-8 amendments 46-48).
+   * REPLACES the cycle-129 per-level auto-heal — the free second channel that
+   * lived inside the paid block above, with its own pool and its own
+   * duration-based rate, both dials now deleted. Healing is no longer paced by
+   * the economy but by DISENGAGING.
+   *
+   * SHAPE (amendment 46): once `outOfCombatMs` have passed since the hull last
+   * took LANDED damage, every second restores `missingPctPerS` of the hull's
+   * MISSING hp — `hp += (maxHp − hp) × 0.01` per second. Asymptotic on purpose:
+   * fast when badly hurt, slow near full, and it needs no repricing when hull
+   * HP next moves (a flat amount is worth a different fraction of every hull —
+   * the problem that forced the paid heal to double in balance cycle 1). It pays
+   * STRAIGHT INTO hp — no pool, no pending band, no `heal` cue (a continuous
+   * trickle would loop the tone) — and SNAPS to full once under 1 hp is
+   * missing, because 1 % of missing never reaches zero on its own and HULL
+   * REPAIR's "full hull" refusal must stay reachable.
+   *
+   * THE CLOCK (amendment 47): ANY hull-hp decrement that actually lands
+   * (`dealt > 0` — shells, torpedoes, mines, burn ticks, STORM bites) resets it
+   * at the damage gate. Dealing damage never does; a hit fully eaten by a
+   * future SHIELD BLOCK (`dealt` 0) is not taking damage. Consequence, stated
+   * to Eric and accepted: nobody regens inside the storm or through the
+   * sudden-death collapse, so the storm's listed rate is its net rate.
+   *
+   * WHO (amendment 48): captains and combat bots — the participants the level
+   * heal reached. A PvE FLEET DRONE NEVER REGENS (it is environment, amendments
+   * 12/24), so a disengaged drone keeps the damage it took.
+   */
+  regen: {
+    missingPctPerS: 0.01, // fraction of MISSING hull restored per second out of combat
+    outOfCombatMs: 30000, // ms since the last landed hull damage before it starts
   },
 
   /**

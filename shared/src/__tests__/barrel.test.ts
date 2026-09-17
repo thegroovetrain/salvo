@@ -93,10 +93,12 @@ describe('shared barrel', () => {
     // witnessed / credited-killer / human-victim-public — the 4th declared
     // perception exception.
     // DAMAGE CONTROL (PV 24, Eric rulings 2026-08-04): the heal returns as an
-    // always-available spend (NOT a card) — HEAL_CHOICE (-1) on
-    // SpendMsg.choice, required self-private OwnShip.repairHp, the
-    // self-private 'heal' GameEvent, and CONFIG.damageControl in the
-    // welcome config snapshot.
+    // always-available spend (NOT a card) — a reserved negative sentinel (-1)
+    // on SpendMsg.choice, required self-private OwnShip.repairHp, the
+    // self-private 'heal' GameEvent, and the paid heal's CONFIG block in the
+    // welcome config snapshot. PV 53 (Story 8.8) made the heal A CARD: the
+    // sentinel is deleted, the block is CONFIG.hullRepair, and CONFIG.regen
+    // joins it.
     // WOUNDED SMOKE (PV 25, Eric rulings 2026-08-05, amendments 40-49): the
     // new 'sm' GameEvent ({k,x,y,tier} — no identity for ANY observer, tier a
     // two-value enum) plus CONFIG.damageBands and CONFIG.smoke in the welcome
@@ -255,7 +257,15 @@ describe('shared barrel', () => {
     // widens from 4 slot-aligned entries to 9 and `InputMsg.slot`/`actSlot`
     // widen to 0..8. No field is added, removed or renamed: a stale client
     // would read a nine-entry `ammo` through a four-slot hotbar.
-    expect(PROTOCOL_VERSION).toBe(52);
+    // 52 -> 53: HEAL IS A CARD (Story 8.8). The reserved -1 heal sentinel
+    // leaves `SpendMsg.choice` (an offer index and nothing else now), and
+    // `hullRepair` loses its stub flag — catalog CONTENT, so the deal itself is
+    // the break (every default deck goes 23 -> 26 drawable cards). The paid
+    // heal's CONFIG block becomes CONFIG.hullRepair and CONFIG.regen arrives
+    // beside it in the welcome snapshot. No wire SHAPE moves: a stale client
+    // would key a rail the server no longer honours and mis-derive both heal
+    // channels.
+    expect(PROTOCOL_VERSION).toBe(53);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -334,24 +344,29 @@ describe('shared barrel', () => {
     expect(Object.keys(CONFIG.xp).sort()).toEqual(['assistWindowMs', 'droneTierLevels', 'killLevels', 'killerShare', 'levelMs']);
   });
 
-  it('carries the damage-control block — the paid heal plus the FREE per-level channel', () => {
-    // The PAID heal, unchanged by the 2026-08-23 auto-heal: 50 instant + 50
-    // into the pool = 100 hp, drained at the fixed regenHp/regenMs 10 hp/s.
-    expect(CONFIG.damageControl.instantHp).toBe(50);
-    expect(CONFIG.damageControl.regenHp).toBe(50);
-    expect(CONFIG.damageControl.regenMs).toBe(5000);
-    // THE FREE PER-LEVEL AUTO-HEAL: 10 % of MISSING hull, delivered over 5 s
-    // from its own pool at its own rate. A fraction of MISSING (not of max, not
-    // a flat amount) is the ruled shape and is what makes it need no repricing
-    // when hull HP next moves.
-    expect(CONFIG.damageControl.levelMissingPct).toBe(0.1);
-    expect(CONFIG.damageControl.levelRegenMs).toBe(5000);
-    // CONFIG.damageControl's FIRST shape pin (this block had value pins in
-    // damageControl.test.ts but never a key pin). It is the guard that a
+  it('carries the two heal blocks — the paid HULL REPAIR card plus the out-of-combat regen', () => {
+    // The PAID heal, unchanged by every move it has made (a level spend, then a
+    // card): 50 instant + 50 into the pool = 100 hp, drained at the fixed
+    // regenHp/regenMs 0.01 hp/ms.
+    expect(CONFIG.hullRepair.instantHp).toBe(50);
+    expect(CONFIG.hullRepair.regenHp).toBe(50);
+    expect(CONFIG.hullRepair.regenMs).toBe(5000);
+    // THE OUT-OF-COMBAT REGEN (epic-8 amendments 46-48, replacing the cycle-129
+    // per-level auto-heal): 1 % of MISSING hull per second, once 30 s have
+    // passed since the hull last took landed damage. A fraction of MISSING (not
+    // of max, not a flat amount) is the ruled shape and is what makes it need no
+    // repricing when hull HP next moves.
+    expect(CONFIG.regen.missingPctPerS).toBe(0.01);
+    expect(CONFIG.regen.outOfCombatMs).toBe(30000);
+    // THE SHAPE PINS. The paid block is now the paid heal and NOTHING else (the
+    // free per-level channel's two dials lived inside it and are deleted), and
+    // the regen carries no pool dial of its own — it pays straight into hp. A
     // percentage MENU heal — measured across nine variants and DEFERRED by
-    // Eric to after the upgrade-card balance pass — cannot arrive silently:
-    // healFlatPct / healMissingPct / healPoolPct would all fail by key alone.
-    expect(Object.keys(CONFIG.damageControl).sort()).toEqual(['instantHp', 'levelMissingPct', 'levelRegenMs', 'regenHp', 'regenMs']);
+    // Eric to after the upgrade-card balance pass — still cannot arrive
+    // silently: healFlatPct / healMissingPct / healPoolPct would fail by key
+    // alone.
+    expect(Object.keys(CONFIG.hullRepair).sort()).toEqual(['instantHp', 'regenHp', 'regenMs']);
+    expect(Object.keys(CONFIG.regen).sort()).toEqual(['missingPctPerS', 'outOfCombatMs']);
   });
 
   it('carries the bounty block (Story 4.6, Eric ruling 2026-08-10) — identity-only economy, no location knob', () => {
@@ -426,10 +441,10 @@ describe('shared barrel', () => {
 
   it('the BELT surface (Story 8.7): the rack predicate, the slot-item guard and the two split tables', () => {
     // Story 8.7 adds the consumable half of the slot vocabulary. It is a
-    // WIRE-NEUTRAL addition — PROTOCOL_VERSION stays 52 (no new field, no
-    // catalog content change; every consumable line is still a stub, epic-8
-    // amendment 41) — but both sides import these names, so the barrel pins
-    // them here.
+    // WIRE-NEUTRAL addition — PROTOCOL_VERSION stayed 52 at 8.7 (no new field,
+    // no catalog content change; every consumable line was still a stub then,
+    // epic-8 amendment 41; Story 8.8 flipped hullRepair live and took the
+    // bump) — but both sides import these names, so the barrel pins them here.
     expect(typeof canStock).toBe('function');
     expect(typeof stockSlotFor).toBe('function');
     expect(typeof isConsumableId).toBe('function');
@@ -595,9 +610,10 @@ describe('shared barrel', () => {
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
     expect(Object.isFrozen(NO_CARDS)).toBe(true);
-    // 13 of the 29 lines are STUBS — authored in shape, mechanism unbuilt,
-    // never dealt into a deck (Eric ruling 2026-09-15, amendment 5).
-    expect(LINE_IDS.filter((id) => isStubLine(id))).toHaveLength(13);
+    // 12 of the 29 lines are STUBS — authored in shape, mechanism unbuilt,
+    // never dealt into a deck (Eric ruling 2026-09-15, amendment 5). It was 13
+    // until Story 8.8 gave HULL REPAIR its effect.
+    expect(LINE_IDS.filter((id) => isStubLine(id))).toHaveLength(12);
     // THE GENERATED WHITELIST, and its deliberate absences (see sim/effects.ts).
     expect(BOON_STAT_PATHS.length).toBeGreaterThan(0);
     expect(Object.keys(EQUIPMENT_STAT_FIELDS).sort()).toEqual([...EQUIPMENT_IDS].sort());

@@ -2,8 +2,8 @@
 title: 'Story 8.8: Heal Is a Card'
 type: 'feature'
 created: '2026-09-17'
-status: 'ready-for-dev'
-baseline_revision: '916a702'
+status: 'in-progress'
+baseline_revision: 'beb9ed2'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -87,7 +87,7 @@ warnings: [oversized]
 
 **Acceptance Criteria:**
 - Given a default deck, when the match starts, then `hullRepair` is drawable (26 drawable cards per hull) and every other consumable is still a stub.
-- Given a stocked HULL REPAIR and a damaged afloat hull, when its digit is pressed with the window closed, then hp rises by 50 at once and 50 more over 10 s through the paid pool, the `heal` cue fires, and one copy leaves the stack and `cards`.
+- Given a stocked HULL REPAIR and a damaged afloat hull, when its digit is pressed with the window closed, then hp rises by 50 at once and 50 more over 5 s through the paid pool (amendment 51), the `heal` cue fires, and one copy leaves the stack and `cards`.
 - Given full hull or a sinking hull, when pressed, then nothing is spent and the slot shows the denied pulse + tone (client pre-denial; server `blocked` if reached).
 - Given a hull 30 s past its last landed damage, when ticked, then hp climbs by 1 % of missing per second and no `heal` event or pending band appears; a storm bite or any landed hit stops it for 30 s; a fleet drone never regens.
 - Given a bot under `healHpFrac` holding a HULL REPAIR stack, when it decides, then it presses the belt slot; `chooseSpend` never returns a negative.
