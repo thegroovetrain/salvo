@@ -46,28 +46,26 @@ import {
   SPAWN_SEED,
   WEAPON_SLOTS,
   effectiveStats,
+  isConsumableId,
   slotsWithCards,
   type EffectiveStats,
   type EquipmentId,
   type ShipClassId,
+  type SlotItemId,
   type WeaponAmmo,
 } from '@salvo/shared';
 import { Container, Graphics, Text } from 'pixi.js';
 import {
   ACTIVE_PULSE_AMP,
   ACTIVE_PULSE_HZ,
-  NO_HOVER,
-  SHIP_DIVIDER_ROW,
   TIER_COLORS,
-  TIP_TYPE,
-  TOOLTIP_MAX_PANEL_H,
   Hotbar,
   activeBreath,
   advanceBreathPhase,
   badgeRect,
   badgeText,
+  badgeWidth,
   beltBadgeText,
-  boonRows,
   breathedSkin,
   chipRect,
   chipWidth,
@@ -76,13 +74,9 @@ import {
   fitFrameAlpha,
   FIT_FRAME_ALPHA,
   FIT_PULSE_PX,
-  hoverReady,
   isBeltSlot,
   isCooling,
-  nextHover,
-  shouldShowTooltip,
   slotAtPoint,
-  slotBoonIds,
   slotDegraded,
   slotFlags,
   slotNumeral,
@@ -91,15 +85,31 @@ import {
   slotViewModels,
   tierColor,
   tierNumeral,
+  type HotbarView,
+} from '../render/hotbar.js';
+// THE TOOLTIP CORE MOVED in Story 8.7 (ruling 13): `render/slotTooltip.ts` owns
+// the hover dwell, the accrued rows, the container-fit model and the placement.
+// The pins that measure them moved with it (__tests__/slotTooltip.test.ts);
+// what this file still needs from there is what the SQUARES are tested against.
+import {
+  NO_HOVER,
+  SHIP_DIVIDER_ROW,
+  TIP_TYPE,
+  TOOLTIP_MAX_PANEL_H,
+  boonRows,
+  hoverReady,
+  nextHover,
+  shouldShowTooltip,
+  slotBoonIds,
+  tooltipFrame,
   tooltipModel,
   tooltipPlacement,
-  tooltipFrame,
   tooltipRenderGeom,
   trimmedBoonRows,
-  type HotbarView,
   type TooltipBoonRow,
-} from '../render/hotbar.js';
+} from '../render/slotTooltip.js';
 import { hudBarLayout, microScale } from '../render/hudBar.js';
+import { equipmentGlyphSvg, glyphPaths } from '../render/equipmentIcons.js';
 import { wipeLabel } from '../render/cooldownWipe.js';
 import {
   EQUIPMENT_NAME,
@@ -142,7 +152,13 @@ const [Q, E, R] = WEAPON_SLOTS;
  * broadside and star shells are in Q and E.
  */
 function idsFor(cls: ShipClassId, stats: EffectiveStats): (EquipmentId | null)[] {
-  return slotsWithCards(stats, SPAWN_SEED[cls] ?? []).map((s) => s.equipmentId);
+  // STORY 8.7 widened a slot's content to `SlotItemId`, so the replay narrows
+  // through the shared guard here exactly as main.ts's readers do. The spawn
+  // seed never stocks the belt, so this is the identity today — it is written
+  // as a narrowing rather than a cast because ruling 1 forbids the cast.
+  return slotsWithCards(stats, SPAWN_SEED[cls] ?? []).map((s) =>
+    s.equipmentId === null || isConsumableId(s.equipmentId) ? null : s.equipmentId,
+  );
 }
 
 /** A full-length per-slot array of `v` — the shape every HotbarView field takes. */
@@ -557,162 +573,6 @@ describe('the bar\'s rects — what the row draws on, and what it swallows', () 
   });
 });
 
-describe('hover dwell — the tooltip waits out a short delay', () => {
-  it('restarts the clock whenever the hovered slot changes', () => {
-    let h = nextHover(NO_HOVER, 1, 1000);
-    expect(hoverReady(h, 1000)).toBe(false);
-    expect(hoverReady(h, 1000 + H.tooltip.delayMs)).toBe(true);
-    h = nextHover(h, 2, 1200); // moved to another slot
-    expect(hoverReady(h, 1400)).toBe(false);
-    expect(hoverReady(h, 1200 + H.tooltip.delayMs)).toBe(true);
-  });
-
-  it('never shows with nothing hovered', () => {
-    expect(hoverReady(nextHover(NO_HOVER, null, 5000), 99999)).toBe(false);
-  });
-});
-
-describe('tooltip gating — dwell, pointer presence, and the modal lockout', () => {
-  const dwelled = nextHover(NO_HOVER, 1, 0);
-
-  it('shows only once the dwell elapsed, with a model to show', () => {
-    expect(shouldShowTooltip(dwelled, H.tooltip.delayMs, false, true)).toBe(true);
-    expect(shouldShowTooltip(dwelled, H.tooltip.delayMs - 1, false, true)).toBe(false);
-    expect(shouldShowTooltip(dwelled, H.tooltip.delayMs, false, false)).toBe(false); // unfitted slot
-  });
-
-  it('never shows while the refit modal holds the lockout (no ghost under the modal)', () => {
-    expect(shouldShowTooltip(dwelled, H.tooltip.delayMs, true, true)).toBe(false);
-  });
-
-  it('never shows with the pointer OUT of the window (a null cursor hovers nothing)', () => {
-    // main.ts feeds the hotbar `mouse.pointerInside ? screenPos : null`, and a
-    // null cursor resolves the hover to "no slot" — which can never be ready.
-    const gone = nextHover(dwelled, null, 10);
-    expect(hoverReady(gone, 99999)).toBe(false);
-    expect(shouldShowTooltip(gone, 99999, false, true)).toBe(false);
-  });
-});
-
-describe('tooltip model — name, interaction class, description, and NO boons', () => {
-  const stats = statsFor('torpedoBoat');
-
-  it('gives the keyless gun its always-selected interaction line', () => {
-    const t = tooltipModel(0, 'gun', stats);
-    expect(t).not.toBeNull();
-    expect(t?.name).toBe('DECK GUN');
-    expect(t?.interaction).toBe('WEAPON · ALWAYS SELECTED');
-    expect(t?.description.length).toBeGreaterThan(20);
-  });
-
-  it('labels a weapon slot SWITCH-TO and an ability slot ACTIVATES, with its key', () => {
-    expect(tooltipModel(Q, 'heavyTorpedo', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
-    expect(tooltipModel(E, 'starShells', stats)?.interaction).toBe('WEAPON · E · SWITCH-TO');
-    // The boost's key is spelled `Shift` (amendment 33), and the line reads it
-    // out of SLOT_KEY_GLYPHS — interactionLine knows nothing about a boost.
-    expect(tooltipModel(SLOT_BOOST, 'speedBoost', stats)?.interaction).toBe('ABILITY · Shift · ACTIVATES');
-    // PIN FLIPPED (Story 2.8, amendment 45): the mine primes on its slot key
-    // and places on a click, exactly like the torpedo.
-    expect(interactionLine(R, 'navalMines')).toBe('WEAPON · R · SWITCH-TO');
-    expect(tooltipModel(Q, 'navalMines', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
-  });
-
-  it('renders boons as ABSENCE — the list is empty, so no divider and no rows are drawn', () => {
-    for (const id of ['gun', 'heavyTorpedo', 'navalMines', 'speedBoost', 'broadside', 'starShells', 'radarBuoy'] as const) {
-      expect(tooltipModel(Q, id, stats)?.boons).toEqual([]);
-    }
-  });
-
-  it('has nothing to describe for an unfitted slot — weapon row or belt', () => {
-    expect(tooltipModel(R, null, stats)).toBeNull();
-    expect(tooltipModel(8, null, stats)).toBeNull(); // a belt slot, empty all story
-  });
-});
-
-describe('tooltip placement — ABOVE the hovered square, never off the screen', () => {
-  const layout = hudBarLayout(1366, 768);
-
-  it('hangs directly over the square, centred on it', () => {
-    // ABOVE, not flanking (Story 8.6). The old stack lived at the screen's left
-    // edge, so a panel could flank it over open water; the bar is CENTRED at the
-    // foot, where a flanking panel would cover the globes or the belt — the HUD
-    // hiding the HUD. The space over the bar is empty by construction.
-    const sq = layout.squares[2];
-    const p = tooltipPlacement(sq, 200, 1366, 768);
-    expect(p.y + 200).toBe(sq.y - H.tooltip.gap);
-    expect(p.x + H.tooltip.width / 2).toBeCloseTo(sq.x + sq.w / 2, 6);
-    expect(p.notchX).toBeCloseTo(sq.x + sq.w / 2, 6);
-  });
-
-  it('never covers the square it describes, on any slot', () => {
-    for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
-      const sq = layout.squares[slot];
-      const p = tooltipPlacement(sq, 220, 1366, 768);
-      expect(p.y + 220, String(slot)).toBeLessThanOrEqual(sq.y);
-    }
-  });
-
-  it('clamps a tall panel inside the top edge, keeping the notch on the panel', () => {
-    const p = tooltipPlacement(layout.squares[0], 700, 1366, 768);
-    expect(p.y).toBeGreaterThanOrEqual(H.tooltip.margin);
-    expect(p.notchX).toBeGreaterThanOrEqual(p.x);
-    expect(p.notchX).toBeLessThanOrEqual(p.x + H.tooltip.width);
-  });
-
-  it('clamps sideways rather than running off a narrow screen', () => {
-    const p = tooltipPlacement(layout.squares[8], 120, 700, 768);
-    expect(p.x).toBeGreaterThanOrEqual(H.tooltip.margin);
-    expect(p.x + H.tooltip.width).toBeLessThanOrEqual(700 - H.tooltip.margin);
-    expect(p.notchX).toBeLessThanOrEqual(p.x + H.tooltip.width);
-  });
-});
-
-// --- REVIEW GATE, CYCLE 141: THE PANEL NEVER REACHES THE BAR -------------------
-//
-// `tooltipRenderGeom` trimmed the panel against the SCREEN (`screenH - 2*margin`)
-// and `tooltipPlacement` then clamped it to the top margin — so at the 1280x614
-// floor the tallest build's 570px panel was placed at y 8 and ran to 578, over
-// the hovered square, all nine slots and both globes. The budget the trim spends
-// is the ROOM ABOVE THE SQUARE, not the room on the screen.
-
-describe('the slot tooltip never paints over the bar it points at', () => {
-  const stats = statsFor('torpedoBoat');
-  /** The tallest panel in the game: the gun slot holding every gun + shipwide
-   *  line it can (the same build the amendment-47 walk uses). */
-  const tallest = tooltipModel(
-    0,
-    'gun',
-    stats,
-    Object.values(CATALOG)
-      .filter((d) => d.kind === 'ladder')
-      .flatMap((d) => Array<string>(d.cap).fill(d.id)),
-  )!;
-
-  it('fits between the top margin and the square it hangs over, on EVERY slot at the 1280x614 floor', () => {
-    const layout = hudBarLayout(1280, 614);
-    const screenH = layout.bar.y + layout.bar.h + B.floor;
-    for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
-      const sq = layout.squares[slot];
-      const { geom, place } = tooltipFrame(tallest, 0, sq, 1280, screenH);
-      expect(place.y, `slot ${slot} top`).toBeGreaterThanOrEqual(H.tooltip.margin);
-      expect(place.y + geom.panelH, `slot ${slot} bottom`).toBeLessThanOrEqual(sq.y - H.tooltip.gap);
-      // The notch still tips down at the square: the panel shrank, it did not move.
-      expect(place.notchX, `slot ${slot} notch`).toBeGreaterThanOrEqual(place.x);
-      expect(place.notchX, `slot ${slot} notch`).toBeLessThanOrEqual(place.x + H.tooltip.width);
-    }
-  });
-
-  it('spends the lost height on the `+n MORE` trim, never on dropping the count', () => {
-    const layout = hudBarLayout(1280, 614);
-    const screenH = layout.bar.y + layout.bar.h + B.floor;
-    const { geom } = tooltipFrame(tallest, 0, layout.squares[0], 1280, screenH);
-    const all = tallest.boons.filter((r) => !r.divider).length;
-    const shown = geom.boons.filter((r) => !r.divider).length;
-    expect(shown).toBeLessThan(all); // it really did have to trim here
-    expect(shown + markerCount(geom.boons)).toBe(all);
-  });
-});
-
 // --- THE CONTAINER-FIT LAW (amendment 47) -------------------------------------
 //
 // THE LABEL COLUMN IS GONE (Story 8.6). The fixed 268px name / quick-info box —
@@ -936,171 +796,6 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
     expect(rows[SLOT_GUN].boonCount).toBe(12); // the tooltip lists every one of them
     expect(rows[SLOT_GUN].tier).toBe(0); // DECK GUN BARREL is not the gun's own line
     expect(slotNumeral(rows[SLOT_GUN])).toBe('');
-  });
-});
-
-describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => {
-  const stats = statsFor('torpedoBoat');
-
-  it('gives every held line a ◆ name row, and a live effect line where there is one', () => {
-    const t = tooltipModel(0, 'gun', stats, ['deckGunBarrel', 'deckGunTurret'])!;
-    expect(t.boons.map((r) => r.label)).toEqual(['◆ DECK GUN BARREL', '◆ DECK GUN TURRET']);
-    expect(t.boons[0].effect).toMatch(/^Shells per shot: \d/);
-    expect(t.boons[1].effect).toMatch(/^Gun rounds ready: \d/);
-  });
-
-  // PIN FLIPPED (2.9 review): the row carried a `×n` suffix beside a name that
-  // ALREADY names the rung. Every stackable ladder in the catalog is
-  // position-aware (Mk I/II/III...), so `×3` next to `Mk III` said the same
-  // thing twice — and the lines with no rung name are the single-copy ones,
-  // where there is nothing to count. The suffix is gone; the row's contract
-  // ("only when needed") is now trivially satisfied.
-  it('COLLAPSES a stack into ONE row that names the LINE — and nothing else', () => {
-    const held = ['deckGunBarrel', 'deckGunBarrel'];
-    const rows = boonRows('gun', held, statsFor('torpedoBoat', { deckGunBarrel: 2 }));
-    expect(rows).toHaveLength(1);
-    expect(rows[0].label).toBe('◆ DECK GUN BARREL');
-    expect(rows[0].label).not.toContain('×');
-  });
-
-  it('prints a doctrine row with its behavior text, not a number', () => {
-    // Catalog v3 made CAPTIVE MINES its own equipment line (R25), so the mine
-    // slot's surviving verb is FOULING MINES — and the claim under test is
-    // unchanged: a doctrine row prints BEHAVIOUR, never a stat readout.
-    const t = tooltipModel(1, 'navalMines', stats, ['foulingMines'])!;
-    expect(t.boons[0].label).toBe('◆ FOULING MINES');
-    expect(t.boons[0].effect).toContain('foul screws');
-    expect(t.boons[0].effect).not.toContain('→');
-  });
-
-  it('hosts the SHIPWIDE ladders under the — SHIP — divider, in the gun tooltip only', () => {
-    // RELOAD, RADAR SWEEP and SPEED address no equipment at all, so they belong
-    // BELOW the divider — the gun's own row here is DECK GUN BARREL, which is
-    // what puts a side on each of the separator.
-    const held = ['deckGunBarrel', 'reload', 'radarSweep', 'speed'];
-    const gun = tooltipModel(0, 'gun', stats, held)!;
-    expect(gun.boons.map((r) => r.label)).toEqual([
-      '◆ DECK GUN BARREL',
-      SHIP_DIVIDER_ROW,
-      '◆ RELOAD',
-      '◆ RADAR SWEEP',
-      '◆ SPEED',
-    ]);
-    expect(gun.boons[1].divider).toBe(true);
-    expect(gun.boons[1].effect).toBe('');
-    expect(tooltipModel(1, 'heavyTorpedo', stats, held)!.boons).toEqual([]);
-  });
-
-  it('still renders ABSENCE for a slot with nothing fitted', () => {
-    expect(tooltipModel(1, 'heavyTorpedo', stats, ['deckGunBarrel'])!.boons).toEqual([]);
-    expect(tooltipModel(1, 'heavyTorpedo', stats)!.boons).toEqual([]);
-  });
-
-  it('reports the LIVE value, so the row moves with the stack', () => {
-    const one = tooltipModel(0, 'gun', statsFor('torpedoBoat', { deckGunBarrel: 1 }), ['deckGunBarrel'])!;
-    const two = tooltipModel(0, 'gun', statsFor('torpedoBoat', { deckGunBarrel: 2 }), Array(2).fill('deckGunBarrel'))!;
-    expect(one.boons[0].effect).not.toBe(two.boons[0].effect);
-  });
-});
-
-// --- STORY 2.9 REVIEW: the tooltip tells the truth about what it CANNOT show --
-
-/** A row list shaped by hand — the trim's edge cases are shapes, not builds. */
-const row = (label: string): TooltipBoonRow => ({ label: `◆ ${label}`, effect: 'x', divider: false });
-const divider = (label = SHIP_DIVIDER_ROW): TooltipBoonRow => ({ label, effect: '', divider: true });
-/** The `+n` a marker row is claiming (0 when the list ends in a real row). */
-function markerCount(rows: readonly TooltipBoonRow[]): number {
-  return Number(/\+(\d+) MORE/.exec(rows[rows.length - 1]?.label ?? '')?.[1] ?? 0);
-}
-
-describe('trimmedBoonRows — the +n MORE marker counts BOONS, not furniture', () => {
-  it('never counts a divider as a hidden line', () => {
-    // [own, — SHIP —, ship1, ship2] cut to two: the kept divider goes (see
-    // below) and TWO real lines are hidden — not three, which is what counting
-    // the separator as a boon claimed.
-    const rows = [row('OWN'), divider(), row('SHIP1'), row('SHIP2')];
-    expect(markerCount(trimmedBoonRows(rows, 2))).toBe(2);
-  });
-
-  it('pops a kept divider that would sit directly above the marker', () => {
-    const rows = [row('OWN'), divider(), row('SHIP1'), row('SHIP2')];
-    const out = trimmedBoonRows(rows, 2);
-    expect(out.map((r) => r.label)).toEqual(['◆ OWN', '◆ +2 MORE']);
-  });
-
-  it('pops a trailing divider even when nothing is hidden', () => {
-    const rows = [row('OWN'), divider()];
-    expect(trimmedBoonRows(rows, 2).map((r) => r.label)).toEqual(['◆ OWN']);
-  });
-
-  it('FOLDS an earlier trim into its own count (a second pass never forgets)', () => {
-    const rows = [row('A'), row('B'), row('C'), row('D')];
-    const once = trimmedBoonRows(rows, 3); // A, B, C, +1 MORE
-    expect(markerCount(once)).toBe(1);
-    // Trimming THAT again (the render's viewport clamp) must fold the earlier
-    // count in: B and C plus the D the first pass already hid.
-    const twice = trimmedBoonRows(once, 1);
-    expect(twice.map((r) => r.label)).toEqual(['◆ A', '◆ +3 MORE']);
-  });
-});
-
-describe('tooltipRenderGeom — the model reconciled with the room it has', () => {
-  const stats = statsFor('torpedoBoat');
-  /** The gun slot holding every gun + shipwide line it can (the tallest panel). */
-  const maxedGunBuild = Object.values(CATALOG)
-    .filter((d) => d.kind === 'ladder')
-    .flatMap((d) => Array<string>(d.cap).fill(d.id));
-
-  it('places the boons block below the MEASURED description, never under it', () => {
-    const model = tooltipModel(0, 'gun', stats, ['deckGunBarrel', 'reload'])!;
-    const modelled = tooltipRenderGeom(model, 0, 1080);
-    // Pixi wrapped the description taller than the mono model predicted (the
-    // model is an upper bound on WIDTH, a nominal on height). The block below it
-    // has to move, or the description renders straight through the build list.
-    const measured = tooltipRenderGeom(model, 400, 1080);
-    expect(measured.boonsDy - measured.descDy).toBeGreaterThanOrEqual(400);
-    expect(measured.boonsDy).toBeGreaterThan(modelled.boonsDy);
-    expect(measured.panelH).toBeGreaterThan(modelled.panelH);
-  });
-
-  it('never shrinks below the model — the fit pin stays the authority', () => {
-    const model = tooltipModel(0, 'gun', stats, ['deckGunBarrel'])!;
-    const under = tooltipRenderGeom(model, 1, 1080); // a measurement smaller than modelled
-    expect(under.panelH).toBe(tooltipRenderGeom(model, 0, 1080).panelH);
-  });
-
-  it('re-trims against a SPACE shorter than the design floor', () => {
-    // The third argument is the ROOM ABOVE THE HOVERED SQUARE (review gate,
-    // cycle 141) — it used to be the viewport height, which is a budget the
-    // panel does not actually get to spend, since it hangs above the square.
-    const model = tooltipModel(0, 'gun', stats, maxedGunBuild)!;
-    const roomy = tooltipRenderGeom(model, 0, 1080);
-    const cramped = tooltipRenderGeom(model, 0, 404);
-    expect(roomy.panelH).toBeLessThanOrEqual(TOOLTIP_MAX_PANEL_H);
-    // 404px of room is well under the 602px the model was fitted to: rows come
-    // off until the panel fits the space it is actually in. It used to read
-    // 500px; cycle 119's INTEL RANGE deletion took a whole LINE out of the
-    // gun+shipwide build, and the shorter panel now fits 500px without dropping
-    // a row — so the pin moved to a budget where trimming still bites rather
-    // than asserting a trim that no longer has to happen.
-    expect(cramped.boons.length).toBeLessThan(roomy.boons.length);
-    expect(cramped.panelH).toBeLessThanOrEqual(404);
-  });
-
-  it('still accounts for every accrued line it dropped, at any viewport', () => {
-    const model = tooltipModel(0, 'gun', stats, maxedGunBuild)!;
-    const all = boonRows('gun', maxedGunBuild, stats).filter((r) => !r.divider).length;
-    for (const room of [1080, 700, 500, 404]) {
-      const geom = tooltipRenderGeom(model, 0, room);
-      const shown = geom.boons.filter((r) => !r.divider).length;
-      expect(shown + markerCount(geom.boons), `${room}px`).toBe(all);
-    }
-  });
-
-  it('keeps the description block where the model says it starts', () => {
-    const model = tooltipModel(0, 'gun', stats, [])!;
-    const geom = tooltipRenderGeom(model, 0, 1080);
-    expect(geom.descDy).toBe(H.tooltip.pad + TIP_TYPE.headLineHeight * 2 + TIP_TYPE.nameGap + TIP_TYPE.descGap);
   });
 });
 
@@ -1473,5 +1168,123 @@ describe('NO WORDS render on a square (UX-DR40/41)', () => {
     const { words } = paint(view);
     expect([...words].sort()).toEqual(['1', '1.2', '2', '3', '4', 'E', 'I', 'Q', 'R', 'Shift']);
     for (const name of Object.values(EQUIPMENT_NAME)) expect(words).not.toContain(name);
+  });
+});
+
+// --- THE STOCKED BELT SQUARE (Story 8.7, ruling 15) ----------------------------
+//
+// The belt is EMPTY in production all through 8.7 (amendment 41 — every
+// consumable stub stays set), so these run a consumable id through the view
+// model directly. That is the point: the square's whole grammar is pinned now
+// so Story 8.8 flips one flag and finds it drawing.
+//
+// A STACK IS NOT A MAGAZINE. Its `reloadMsLeft` is 0 forever — every copy is one
+// use and the only way to get another is another card — so the square can never
+// enter the cooling state, which means no wipe, no seconds numeral and no
+// dimmed icon. What it shows is READY, the `×n` stock badge, and the denied /
+// activated one-shots every square has.
+
+describe('a stocked BELT square', () => {
+  /** A hull with a consumable stocked in belt slot 5, `n` copies deep. */
+  function stocked(n: number, over: Partial<HotbarView> = {}): HotbarView {
+    const base = viewFor('torpedoBoat');
+    return {
+      ...base,
+      loadout: at<SlotItemId | null>(null, { ...base.loadout, 5: 'hullRepair' }) as (SlotItemId | null)[],
+      ammo: at<WeaponAmmo | null>(null, { ...base.ammo, 5: { n, reloadMsLeft: 0 } }),
+      ...over,
+    };
+  }
+
+  it('reads READY with the ×n stock badge, and never a tier', () => {
+    const row = slotViewModels(stocked(2))[5];
+    expect(row.id).toBe('hullRepair');
+    expect(row.state).toBe('readyWeapon');
+    expect(row.badge).toBe('×2');
+    expect(row.tier).toBe(0);
+    expect(slotNumeral(row)).toBe('');
+  });
+
+  it('NEVER cools — not even handed a running reload timer', () => {
+    // The shared fold pins `reloadMsLeft` at 0 for a stack; this is the client
+    // half of that promise, so a malformed frame cannot make the belt cool.
+    const row = slotViewModels(stocked(0, {
+      ammo: at<WeaponAmmo | null>(null, { 5: { n: 0, reloadMsLeft: 9000 } }),
+      loadout: at<SlotItemId | null>(null, { 5: 'hullRepair' }),
+    }))[5];
+    expect(row.state).not.toBe('cooling');
+    expect(row.coolFrac).toBe(0);
+    expect(row.reloadMsLeft).toBe(0);
+  });
+
+  it('still takes the DENIED and ACTIVATED one-shots like any other square', () => {
+    expect(slotViewModels(stocked(1, { denied: at(false, { 5: true }) }))[5].state).toBe('denied');
+    expect(slotViewModels(stocked(1, { activated: at(false, { 5: true }) }))[5].state).toBe('activated');
+  });
+
+  it('reads EMPTY when the replay says stocked but the server cleared the slot', () => {
+    // Ruling 16: belt content is the replayed id AND a live `ammo` entry. The
+    // server clears the slot the same tick a stack hits zero, so the two can
+    // only disagree for the frame in between — and `×0` would be worse than the
+    // ruled empty dash.
+    const row = slotViewModels({
+      ...viewFor('torpedoBoat'),
+      loadout: at<SlotItemId | null>(null, { 5: 'hullRepair' }),
+      ammo: nine<WeaponAmmo | null>(null),
+    })[5];
+    expect(row.state).toBe('empty');
+    expect(row.id).toBeNull();
+    expect(row.badge).toBeNull();
+  });
+
+  it('owns NO accrued rows — a consumable addresses no equipment', () => {
+    expect(slotViewModels(stocked(2, { cards: ['hullRepair', 'hullRepair'] }))[5].boonCount).toBe(0);
+  });
+
+  it('draws NO glyph: none exists in 8.7, and none is invented', () => {
+    // No crash, no word, no placeholder — the square is its outline and badge.
+    expect(glyphPaths('hullRepair')).toBeNull();
+    expect(equipmentGlyphSvg('hullRepair', 24)).toBeNull();
+    // ...while a built weapon still has its linework, from the SAME source.
+    expect(glyphPaths('heavyTorpedo')).not.toBeNull();
+    expect(equipmentGlyphSvg('heavyTorpedo', 24)?.tagName.toLowerCase()).toBe('svg');
+  });
+});
+
+describe('the ammo badge WIDENS to its content (mock `.badge`, ledger :2141)', () => {
+  it('keeps the 16px minimum for a single digit and for no badge at all', () => {
+    expect(badgeWidth(null)).toBe(CLIENT_CONFIG.hudBar.badge);
+    expect(badgeWidth('2')).toBe(CLIENT_CONFIG.hudBar.badge);
+  });
+
+  it('grows for the belt\'s two-glyph `×n` stock mark', () => {
+    expect(badgeWidth('×2')).toBeGreaterThan(CLIENT_CONFIG.hudBar.badge);
+    // ...and the box the drawer paints grows with it, anchored on the square's
+    // right edge exactly as the fixed one was.
+    const layout = hudBarLayout(1366, 768);
+    const wide = badgeRect(layout, 5, '×2');
+    const narrow = badgeRect(layout, 5);
+    expect(wide.w).toBe(badgeWidth('×2'));
+    expect(wide.x + wide.w).toBe(narrow.x + narrow.w); // same right edge
+  });
+
+  it('leaves the HIT-TEST on the layout, not on the count (the click gate is a '
+    + 'function of geometry)', () => {
+    const layout = hudBarLayout(1366, 768);
+    expect(badgeRect(layout, 5).w).toBe(CLIENT_CONFIG.hudBar.badge);
+  });
+});
+
+describe('slotForCard over a belt that holds consumables', () => {
+  it('routes a fit flash to the WEAPON slot and never to a belt square', () => {
+    const loadout: (SlotItemId | null)[] = [
+      'gun', 'speedBoost', 'heavyTorpedo', null, null, 'hullRepair', null, null, null,
+    ];
+    expect(slotForCard(loadout, 'heavyTorpedo')).toBe(2);
+    // A consumable line addresses no EQUIPMENT, so it owns no slot for the
+    // flash — it falls through to the rank-wide frame pulse, exactly as a
+    // shipwide ladder does.
+    expect(slotForCard(loadout, 'hullRepair')).toBeNull();
+    expect(slotForCard(loadout, 'armor')).toBeNull();
   });
 });

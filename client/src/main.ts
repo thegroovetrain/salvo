@@ -17,16 +17,19 @@ import {
   NO_CARDS,
   cardBehaviors,
   effectiveStats,
-  equipmentMaxAmmo,
   equipmentReloadMs,
   hullSilhouette,
+  isConsumableId,
   isOutside,
+  isWeaponItem,
+  slotMaxAmmo,
   slotsWithCards,
   SLOT_COUNT,
   type Island,
   type DeniedView,
   type EffectiveStats,
   type EquipmentId,
+  type SlotItemId,
   type GameMap,
   type HullId,
   type OwnShip,
@@ -616,7 +619,7 @@ interface Game {
    * split (slotHoldsAbility), the HUD chip row, and the pre-frame ammo
    * fallback. Recomputed with ownStats on the ownStatsChanged seam.
    */
-  ownSlots: readonly (EquipmentId | null)[];
+  ownSlots: readonly (SlotItemId | null)[];
 }
 
 /** Toggle predict <-> interp (A/B comparison per the plan). Key: P. */
@@ -652,7 +655,7 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
  * replay is the only thing that can answer "what is in slot 3". The `fleet`
  * flag is not passed either — the client is only ever a captain.
  */
-function slotIdsFor(stats: EffectiveStats, cards: readonly string[]): (EquipmentId | null)[] {
+function slotIdsFor(stats: EffectiveStats, cards: readonly string[]): (SlotItemId | null)[] {
   return slotsWithCards(stats, cards).map((s) => s.equipmentId);
 }
 
@@ -665,10 +668,14 @@ function slotIdsFor(stats: EffectiveStats, cards: readonly string[]): (Equipment
 function ownAmmo(
   you: OwnShip | null,
   stats: EffectiveStats,
-  slots: readonly (EquipmentId | null)[],
+  slots: readonly (SlotItemId | null)[],
 ): (WeaponAmmo | null)[] {
+  // `slotMaxAmmo` (Story 8.7, ruling 16) routes EITHER kind of slot content: a
+  // consumable's pool is its catalog `cap`, an equipment's is its stats row.
+  // Never `equipmentMaxAmmo` directly any more — that record is keyed by
+  // EquipmentId and a belt slot's id is not in it.
   return (
-    you?.ammo ?? slots.map((id) => (id === null ? null : { n: equipmentMaxAmmo(stats, id), reloadMsLeft: 0 }))
+    you?.ammo ?? slots.map((id) => (id === null ? null : { n: slotMaxAmmo(stats, id), reloadMsLeft: 0 }))
   );
 }
 
@@ -851,6 +858,11 @@ function currentOfferView(g: Game): OfferView | null {
     g.state.spectating,
     g.spendInFlight !== null,
     isSinkingNow(g.state.net.you, g.clock.serverNow(), g.state.spectating),
+    // The REPLAYED slot ids (Story 8.7, ruling 10): what `canStock` reads to
+    // decide whether an offered consumable can reach the belt at all. The same
+    // shared predicate the server runs in `spendCard`, over ids derived the
+    // same way, so a greyed card and a server refusal cannot disagree.
+    g.ownSlots,
   );
 }
 
@@ -903,6 +915,14 @@ function handleRefitPick(g: Game, choice: number): void {
     return;
   }
   if (choice >= view.options.length) return;
+  // A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 / UX-DR52). The belt is
+  // full and this consumable has nowhere to go — the server would refuse it as
+  // a silent no-op — so the client refuses it first, with no MSG.spend, no
+  // spend latch and NO denied pulse. The refusal is already on screen (the card
+  // is dim, its chip dashed, its foot reads SLOTS FULL); a pulse would be the
+  // game shouting a fact the player is looking at, and a latch would spend 1.5s
+  // waiting for a reply that is never coming.
+  if (view.options[choice]?.greyed) return;
   trySpend(g, choice);
 }
 
@@ -3478,7 +3498,7 @@ function clickPrediction(
 ): { alive: boolean; loaded: boolean; inArc: boolean } {
   const you = g.state.net.you;
   const a = you?.ammo[primedSlot] ?? null;
-  const id = g.ownSlots[primedSlot] ?? null;
+  const id = ownWeaponAt(g, primedSlot);
   return {
     // Story 5.2: WIDENED through the sinking window — a click from a sinking
     // hull genuinely fires (the server's gate re-opens for it), so it must also
@@ -3502,9 +3522,26 @@ function clickPrediction(
  * up. Ability slots never reach here — the wire click is a weapon click.
  */
 function latchOwnFire(g: Game, primedSlot: number, p: { alive: boolean; loaded: boolean; inArc: boolean }): void {
-  const id = g.ownSlots[primedSlot] ?? null;
+  const id = ownWeaponAt(g, primedSlot);
   if (!p.alive || !p.loaded || !p.inArc || id === null) return;
   g.ownFire.latch(id, g.clock.serverNow());
+}
+
+/**
+ * The EQUIPMENT in a slot, or null — THE narrowing seam for every reader that
+ * indexes an `EquipmentId`-keyed record with a slot's content (Story 8.7,
+ * ruling 1). A belt slot holds a CONSUMABLE line id, which is not in the arc
+ * table, the range table or the own-fire latch, so it narrows to null here
+ * rather than being cast into a record that has no row for it.
+ *
+ * NOT a "can this fire" predicate: a click-placed consumable (the DECOY BUOY,
+ * Story 8.15) is a weapon on the ability/click split and still has no equipment
+ * row. What this answers is strictly "is this slot's content something the
+ * equipment tables know about".
+ */
+function ownWeaponAt(g: Game, slot: number): EquipmentId | null {
+  const id = g.ownSlots[slot] ?? null;
+  return id === null || isConsumableId(id) ? null : id;
 }
 
 /**
@@ -3604,13 +3641,15 @@ function handleServerDenial(g: Game, d: DeniedView): void {
   if (!g.denialDedup.serverDenied(d.slot, d.seq)) return; // predicted echo — already fed back
   playDenied(g);
   g.abilityDeniedPress[d.slot] = true; // per-slot chip flash (any slot as of 1.10)
+  // `isWeaponItem` (ruling 1), not `EQUIPMENT_IS_WEAPON`: a belt slot's content
+  // is a consumable line id, which that record has no row for.
   const id = g.ownSlots[d.slot] ?? null;
   // Only pulse the arc/reticle when the DENIED slot is the one currently primed
   // — renderFiring pulses whatever slot is primed at render time, so a torpedo
   // denial arriving ~RTT late (prime already consumed, reverted to gun) would
   // otherwise flash the GUN's reticle. The per-slot chip flash + tone above are
   // already slot-correct; the arc pulse is the only slot-sensitive piece.
-  if (id !== null && EQUIPMENT_IS_WEAPON[id] && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
+  if (id !== null && isWeaponItem(id) && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
 }
 
 /**

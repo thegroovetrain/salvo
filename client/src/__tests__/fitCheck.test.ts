@@ -36,7 +36,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { FIT_KINDS, TONES, fitTone } from '../audio/tones.js';
-import { boonEffectLine, boonFitToastLine } from '../ui/boonCopy.js';
+import { CARD_STAT_ROWS, boonEffectLine, boonFitToastLine, cardStatRows, cardTierLabel } from '../ui/boonCopy.js';
 import { cardEquipmentIds, isShipwideCard, slotForCard } from '../render/equipmentInfo.js';
 import { lookForReveal } from '../render/projectiles.js';
 import { LitZones, zoneVerbs } from '../render/litZones.js';
@@ -71,14 +71,72 @@ describe('fit-check — AUDIBLE (every line has a real kind tone + kind voice)',
 // --- VISIBLE: toast -----------------------------------------------------------
 
 describe('fit-check — VISIBLE toast (every stack position prints a line)', () => {
-  it('every line has a non-empty FITTED toast at every held stack position', () => {
+  it('every line has a non-empty toast at every held stack position, in BOTH verbs', () => {
     const blank: string[] = [];
     for (const line of LINES) {
       for (let stack = 1; stack <= line.cap; stack += 1) {
+        // The kind is what picks the VERB (Story 8.7, ruling 14): a consumable
+        // is STOCKED, everything else is FITTED. Both are walked, because
+        // net/roomBindings passes the resolved kind and a missing one must
+        // still print a line.
         if (boonFitToastLine(line.id, stack).trim() === '') blank.push(`${line.id}@${stack}`);
+        if (boonFitToastLine(line.id, stack, line.kind).trim() === '') blank.push(`${line.id}@${stack}/kind`);
       }
     }
     expect(blank).toEqual([]);
+  });
+
+  it('says STOCKED for exactly the consumables, and FITTED for everything else', () => {
+    for (const line of LINES) {
+      const toast = boonFitToastLine(line.id, 1, line.kind);
+      expect(toast.endsWith(line.kind === 'consumable' ? ' STOCKED' : ' FITTED'), line.id).toBe(true);
+    }
+  });
+});
+
+// --- VISIBLE: the refit card's five rows (Story 8.7, ruling 12) -----------------
+//
+// The card FACE is a presentation channel too, and it is the one the player
+// meets FIRST — before the toast, before the tooltip. A line that prints no rows
+// is not automatically a defect (an add-on moves no number and a stub has no
+// module), but a LADDER or a WEAPON that prints none is: the whole point of the
+// re-cut face is that the numbers are on it.
+
+describe('fit-check — VISIBLE card rows (every offerable ladder/weapon prints numbers)', () => {
+  const LIVE = LINES.filter((l) => l.stub !== true);
+
+  it('every LADDER and WEAPON line yields 1-5 rows at every rung, on every class', () => {
+    const bad: string[] = [];
+    for (const line of LIVE) {
+      if (line.kind === 'addon' || line.kind === 'consumable') continue;
+      for (let k = 0; k < line.cap; k += 1) {
+        for (const cls of CLASSES) {
+          const rows = cardStatRows(line, k, { cls, cards: Array<string>(k).fill(line.id) });
+          if (rows.length < 1 || rows.length > CARD_STAT_ROWS) bad.push(`${line.id}@${k}/${cls}: ${rows.length}`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('every row it does print carries a LABEL and a VALUE — never a half-row', () => {
+    const bad: string[] = [];
+    for (const line of LIVE) {
+      for (let k = 0; k < line.cap; k += 1) {
+        for (const row of cardStatRows(line, k, { cls: 'torpedoBoat', cards: Array<string>(k).fill(line.id) })) {
+          if (row.label.trim() === '' || row.next.trim() === '') bad.push(`${line.id}@${k}: ${JSON.stringify(row)}`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('every offerable line states its TIER STEP, except the two kinds with no ladder', () => {
+    for (const line of LIVE) {
+      const label = cardTierLabel(line, 0);
+      const noLadder = line.kind === 'addon' || line.kind === 'consumable';
+      expect(label === null, line.id).toBe(noLadder);
+    }
   });
 });
 

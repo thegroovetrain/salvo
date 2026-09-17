@@ -25,6 +25,7 @@ import {
   CONFIG,
   arcFor,
   effectiveStats,
+  isConsumableId,
   gunReachU as sharedGunReachU,
   SPAWN_SEED,
   WEAPON_SLOTS,
@@ -53,7 +54,9 @@ import { ownActiveZones } from '../render/litZones.js';
  */
 function idAt(cls: 'torpedoBoat' | 'battleship' | 'mineLayer', slot: number): EquipmentId | null {
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
-  return slotsWithCards(stats, SPAWN_SEED[cls] ?? [])[slot].equipmentId;
+  const id = slotsWithCards(stats, SPAWN_SEED[cls] ?? [])[slot].equipmentId;
+  // A slot's content is a `SlotItemId` since Story 8.7 — narrowed, never cast.
+  return id === null || isConsumableId(id) ? null : id;
 }
 
 /** The three WEAPON slots, by name — Q, E, R (shared WEAPON_SLOTS). */

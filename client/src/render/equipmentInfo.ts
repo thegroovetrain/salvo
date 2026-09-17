@@ -14,16 +14,20 @@
 
 import {
   CATALOG,
+  CONSUMABLE_IS_WEAPON,
   EQUIPMENT_IS_WEAPON,
   LINE_IDS,
   SLOT_GUN,
   boonStackCount,
   equipmentMaxAmmo,
   equipmentReloadMs,
+  isConsumableId,
   tierTargetOf,
   type CatalogLine,
+  type ConsumableId,
   type EffectiveStats,
   type EquipmentId,
+  type SlotItemId,
 } from '@salvo/shared';
 
 /**
@@ -110,17 +114,81 @@ export function equipmentDescription(stats: EffectiveStats, id: EquipmentId): st
   return EQUIPMENT_DESCRIPTION[id] ?? '';
 }
 
-/** The label a slot's tooltip uses for how the equipment is operated: the gun is
- *  keyless and permanently selected, weapons switch-to on their key, abilities
- *  activate immediately. Weapon-vs-ability comes ONLY from EQUIPMENT_IS_WEAPON,
- *  and the key comes ONLY from SLOT_KEY_GLYPHS — so the boost in slot 1 reads
- *  `ABILITY · Shift · ACTIVATES` without this function knowing what a boost is. */
-export function interactionLine(slot: number, id: EquipmentId): string {
+/**
+ * The label a slot's tooltip uses for how its content is operated: the gun is
+ * keyless and permanently selected, weapons switch-to on their key, abilities
+ * activate immediately, and a BELT slot states the consumable's whole shape.
+ * Weapon-vs-ability comes ONLY from `isWeaponItem` (the one predicate both
+ * dispatch channels read), and the key comes ONLY from SLOT_KEY_GLYPHS — so the
+ * boost in slot 1 reads `ABILITY · Shift · ACTIVATES` without this function
+ * knowing what a boost is.
+ *
+ * STORY 8.7 (ruling 13) adds the two facts UX-DR43 says are learned HERE and
+ * never on the card face:
+ *
+ *   • a WEAPON slot carries its line's TIER — `WEAPON · Q · TIER II` — which is
+ *     the word behind the bar's bottom-right numeral. `cards` is the own fitted
+ *     list; without it (a caller with no build) the suffix is simply absent
+ *     rather than a fabricated Tier I.
+ *   • a BELT slot carries the consumable's ACTIVATION SHAPE and its STOCK —
+ *     `CONSUMABLE · 1 · KEY FIRES · ×2`, or `KEY PRIMES · CLICK FIRES` for the
+ *     click-placed ones (`CONSUMABLE_IS_WEAPON`). The shape is the thing a
+ *     player cannot guess, so it is stated in words, once, where they hover.
+ */
+export function interactionLine(
+  slot: number,
+  id: SlotItemId,
+  cards: readonly string[] = [],
+  stock = 0,
+): string {
   if (slot === SLOT_GUN) return 'WEAPON · ALWAYS SELECTED';
   const key = SLOT_KEY_GLYPHS[slot] ?? '';
+  if (isConsumableId(id)) return consumableLine(id, key, stock);
   return EQUIPMENT_IS_WEAPON[id]
-    ? `WEAPON · ${key} · SWITCH-TO`
+    ? `WEAPON · ${key} · SWITCH-TO${tierSuffix(id, cards)}`
     : `ABILITY · ${key} · ACTIVATES`;
+}
+
+/** ` · TIER n` for a weapon whose LINE this build has climbed, '' otherwise —
+ *  the permanent deck gun has no equipment line, and an unfitted-but-somehow-
+ *  present weapon reads 0, which prints nothing rather than a fake Tier I. */
+function tierSuffix(id: EquipmentId, cards: readonly string[]): string {
+  const lineId = lineForEquipment(id);
+  if (lineId === null) return '';
+  const tier = lineTier(cards, lineId);
+  return tier > 0 ? ` · TIER ${TIER_WORDS[Math.min(tier, TIER_WORDS.length) - 1]}` : '';
+}
+
+/** The belt's whole shape in one line (ruling 13). */
+function consumableLine(id: ConsumableId, key: string, stock: number): string {
+  const fires = CONSUMABLE_IS_WEAPON[id] ? 'KEY PRIMES · CLICK FIRES' : 'KEY FIRES';
+  return `CONSUMABLE · ${key} · ${fires} · ×${Math.max(0, Math.trunc(stock))}`;
+}
+
+/** The Roman tier words the interaction line prints — the SAME ramp the bar's
+ *  bottom-right numeral uses, so the hover and the square agree. */
+const TIER_WORDS: readonly string[] = ['I', 'II', 'III', 'IV', 'V'];
+
+/**
+ * THE CATALOG LINE THAT FITS A PIECE OF EQUIPMENT — the reverse of
+ * `tierTargetOf`. Catalog v3 keys an equipment line by the weapon it fits, so
+ * this is very nearly the identity today; it is derived rather than assumed so
+ * that a future line which fits a weapon under another name still resolves.
+ *
+ * Null for equipment NO line fits — the permanent deck gun (whose ladders are
+ * the deckGun family, which climb a slotless weapon) and the two legacy modules.
+ * Built ONCE at module load off the frozen CATALOG.
+ */
+const EQUIPMENT_LINE: ReadonlyMap<string, string> = new Map(
+  LINE_IDS.flatMap((id) => {
+    const target = tierTargetOf(CATALOG[id]);
+    return target === undefined ? [] : [[target as string, id as string] as const];
+  }),
+);
+
+/** Pure: the catalog line whose first copy FITS this equipment, or null. */
+export function lineForEquipment(id: EquipmentId): string | null {
+  return EQUIPMENT_LINE.get(id) ?? null;
 }
 
 /**
@@ -207,14 +275,17 @@ export function lineTier(cards: readonly string[], lineId: string): number {
  * THE routing behind the fit flash (amendment 51): the card lands on ITS slot.
  */
 export function slotForCard(
-  loadout: readonly (EquipmentId | null)[],
+  loadout: readonly (SlotItemId | null)[],
   cardId: string,
 ): number | null {
   const targets = cardEquipmentIds(cardId);
   if (targets.length === 0) return null;
   for (let slot = 0; slot < loadout.length; slot += 1) {
     const id = loadout[slot];
-    if (id !== null && targets.includes(id)) return slot;
+    // A BELT slot's content is a consumable line id, which `cardEquipmentIds`
+    // never yields (it lists EQUIPMENT a card addresses) — narrowed away rather
+    // than compared, so the two id spaces never meet (ruling 1).
+    if (id !== null && !isConsumableId(id) && targets.includes(id)) return slot;
   }
   return null;
 }

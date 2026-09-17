@@ -1,71 +1,63 @@
 // THE CONTAINER-FIT PIN for the refit card (amendment 47: "nothing anywhere in
 // the game may render larger than its container — no text or element may extend
 // past its box such that it covers, or can be covered by, another part of the
-// UX"). Story 2.8 shipped exclusive doctrine cards whose rules text ran 50–97px
-// PAST the card bottom on the live site; this suite is what makes that
-// unshippable from here on.
+// UX").
 //
-// It walks EVERY CATALOG line in its WORST-CASE presentation state —
-//   • every stack position 0..copies-1 (the ladder's longest rung, the lineage
-//     handrail at its widest, and the biggest current→next numbers all move
-//     with the stack),
-//   • every ship class (class stats change the printed values),
-//   • both build extremes: a bare hull (smallest numbers) AND a maximally
-//     stacked build (largest numbers — 1136.9 → 1307.4 is four more glyphs than
-//     330 → 369.6),
-// — and asserts the rendered content fits the card's inner box.
+// RE-CUT WHOLESALE IN STORY 8.7 (ruling 11). The card this suite used to guard
+// was a 216×236 box holding WRAPPING prose, and the failure it existed to stop
+// was vertical: rules text running 50–97px past the card bottom. The ratified
+// face is a 216×226 STAT BLOCK — an icon box, an uppercase name, a cap-rung
+// ladder, a KIND word, five fixed 17px rows and a foot — and EVERY text mark on
+// it is `nowrap`. That inverts the risk:
 //
-// STORY 7-5 WAVE 2 dropped the REPLACES row from the model: exclusivity is
-// deleted (R2.6), so no card can carry a fourth text line and the "rival held"
-// dimension of the sweep is retired with it. That FREES a wrapped line of the
-// fit budget rather than spending one — the headroom pin below still guards it.
+//   • VERTICALLY the card is now a constant. Nothing wraps, every block declares
+//     its height, and the sum is the same for a consumable and for a maxed
+//     ARMOR. So the height pin is one assertion with real headroom, not a walk.
+//   • HORIZONTALLY every mark is a potential overflow, because a `nowrap` line
+//     wider than the 192px inner box paints straight out through the card's
+//     side. So the WALK moved to the horizontal axis, and it covers every
+//     non-stub line × every rung × every ship class, with the name resolved
+//     through the mock's own `.cn.long` 12.5px step.
 //
-// STORY 7-5 WAVE 2 ALSO RE-AIMED THIS SUITE (R2.17 — Eric ruling 2026-08-19).
-// The card face went minimal: ladder name, lineage marker, rarity tag, and a
-// `current → next` sentence ONLY where the line moves a number. The explanation
-// moved to a hover tooltip with a container of its own
-// (__tests__/refitTooltipFit.test.ts). So amendment 47's ~90-character budget is
-// NOT relaxed — it is re-pointed at WHAT NOW SITS ON THE FACE, which is the stat
-// sentence. Two boxes, two pins, one law; this file owns the 216×236 card.
-//
-// The knock-on for the "laws that constrain the fix" block below is that its
-// "every line still prints rules text" clause CHANGED SUBJECT rather than
-// dying: a verb card printing nothing on the face is now CORRECT, so the pin
-// asks the two questions that are still failures — a stat line that has gone
-// silent, and a verb card that has crept prose back onto the face.
-//
-// It also guards the law that constrains the FIX, so a future "fix" cannot
-// simply delete its way out of a failure: amendment 15's legibility floor (the
-// rules text never crashes back below 14px).
+// The law that constrains the FIX is pinned too: the face may not buy its fit
+// back by shrinking type below the mock's ratified register (amendment 31 binds
+// us to the mock's numbers, which is what makes "just make it 8px" unavailable).
 
 import { describe, expect, it } from 'vitest';
-import { CATALOG, CONFIG, type CatalogLine, type ShipClassId } from '@salvo/shared';
+import { CATALOG, CONFIG, LINE_IDS, type CatalogLine, type ShipClassId } from '@salvo/shared';
 import {
-  boonDescription,
   boonKindLabel,
-  boonLineageLine,
   boonName,
   boonTooltipText,
+  cardStatRows,
+  cardTierLabel,
 } from '../ui/boonCopy.js';
 import {
   MONO_ADVANCE_EM,
   REFIT_TYPE,
+  cardNameSize,
+  cardNameWidth,
+  ladderRowWidth,
   monoWrapLines,
   refitCardInnerBox,
   refitCardMetrics,
-  widestToken,
+  statRowWidth,
   type RefitCardCopy,
 } from '../ui/refitCardFit.js';
-import { UpgradeMenu, offerView } from '../ui/upgradeMenu.js';
+import { SLOTS_FULL, UpgradeMenu, offerView } from '../ui/upgradeMenu.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const R = CLIENT_CONFIG.refit;
 const LINES: CatalogLine[] = Object.values(CATALOG);
+/** The lines that can actually be OFFERED today. A stub is excluded from every
+ *  deck, so its face is unreachable — and it prints no rows, which would make
+ *  the walk's row assertions vacuous rather than strict. */
+const LIVE: CatalogLine[] = LINES.filter((l) => l.stub !== true);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
 /** A maximally stacked build — EVERY line at its full copy count. Not a
- *  reachable deck state; it is the UPPER BOUND on the number of glyphs a
- *  `current → next` sentence can print, which is exactly what a fit pin wants. */
+ *  reachable deck state; it is the UPPER BOUND on the number of glyphs a row's
+ *  `cur → next` can print, which is exactly what a fit pin wants. */
 const MAXED = LINES.flatMap((d) => Array<string>(d.cap).fill(d.id));
 
 /** The fitted-card list a worst case is measured against: the line under test
@@ -75,15 +67,18 @@ function heldCards(line: CatalogLine, stack: number, maxed: boolean): string[] {
   return [...base, ...Array<string>(stack).fill(line.id)];
 }
 
-/** The card face exactly as ui/upgradeMenu.ts's toCard() builds it. */
+/** The card face exactly as ui/upgradeMenu.ts's toCard() builds it — including
+ *  the GREYED foot, whose boxed reason word is the widest thing that row can
+ *  ever hold. */
 function faceOf(line: CatalogLine, stack: number, cls: ShipClassId, maxed: boolean): RefitCardCopy {
   const cards = heldCards(line, stack, maxed);
   return {
     kind: boonKindLabel(line.kind),
-    count: `${Math.min(stack, line.cap)}/${line.cap}`,
     name: boonName(line.id, stack),
-    lineage: boonLineageLine(line, stack),
-    description: boonDescription(line, { cls, cards }),
+    tier: cardTierLabel(line, stack),
+    cap: line.cap,
+    rows: cardStatRows(line, stack, { cls, cards }),
+    foot: line.kind === 'consumable' ? SLOTS_FULL : '',
   };
 }
 
@@ -93,10 +88,10 @@ interface FaceCase {
   face: RefitCardCopy;
 }
 
-/** Every worst-case presentation state of every catalog line, labelled. */
+/** Every worst-case presentation state of every OFFERABLE catalog line. */
 function everyFace(): FaceCase[] {
   const out: FaceCase[] = [];
-  for (const def of LINES) {
+  for (const def of LIVE) {
     for (let stack = 0; stack < def.cap; stack += 1) {
       for (const cls of CLASSES) {
         for (const maxed of [false, true]) {
@@ -111,124 +106,168 @@ function everyFace(): FaceCase[] {
 
 const FACES = everyFace();
 
-describe('refit card container fit (amendment 47)', () => {
-  // Catalog v3: 29 lines / 114 physical cards (Eric's sheet, §1).
-  it('covers every catalog line at every stack position', () => {
+describe('the ratified face is a FIXED box, and its content is a constant', () => {
+  it('covers every offerable line at every rung, on every class, both extremes', () => {
+    // Catalog v3: 29 lines, 16 of them live (13 stubs stay set — amendment 41).
     expect(LINES).toHaveLength(29);
-    expect(LINES.reduce((n, d) => n + d.cap, 0)).toBe(114);
-    expect(FACES.length).toBe(LINES.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
+    expect(LIVE).toHaveLength(16);
+    expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });
 
-  it('NO card renders taller than its inner box, in any presentation state', () => {
+  it('measures the mock\'s own box: 216 × 226, inner 192 wide', () => {
+    expect(R.card).toBe(216);
+    expect(R.cardHeight).toBe(226);
+    expect(refitCardInnerBox().w).toBe(192);
+  });
+
+  it('renders EVERY card at the same height, inside its inner box, with headroom', () => {
+    const heights = new Set(FACES.map(({ face }) => refitCardMetrics(face).height));
+    // One height for the whole catalog — that is what `nowrap` + fixed rows buy.
+    expect(heights.size).toBe(1);
     const inner = refitCardInnerBox();
-    const over = FACES.map(({ label, face }) => ({ label, m: refitCardMetrics(face), face }))
-      .filter((r) => r.m.overflow > 0)
-      .map((r) => `${r.label}: ${r.m.height}px > ${inner.h}px (name ${r.m.nameLines}L, rules ${r.m.descLines}L) — "${r.face.description}"`);
+    const h = [...heights][0];
+    expect(h).toBeLessThanOrEqual(inner.h);
+    // Documents the budget: whoever spends the last of it has to look here.
+    expect(inner.h - h).toBeGreaterThanOrEqual(2);
+  });
+
+  it('NO mark on any card is wider than the 192px inner box', () => {
+    const over = FACES.map(({ label, face }) => ({ label, m: refitCardMetrics(face) }))
+      .filter((r) => r.m.overflowX > 0)
+      .map((r) => `${r.label}: widest mark overruns by ${r.m.overflowX.toFixed(1)}px`);
     expect(over).toEqual([]);
   });
+});
 
-  it('the meta row (kind word + copy count) fits ONE line on every card', () => {
-    const inner = refitCardInnerBox();
-    const wrapped = FACES.filter(({ face }) => refitCardMetrics(face).metaLines > 1).map(
-      ({ label, face }) => `${label}: ${refitCardMetrics(face).metaWidth}px > ${inner.w}px (${face.kind} + ${face.count})`,
-    );
-    expect(wrapped).toEqual([]);
-  });
-
-  // The a11y pin (Eric ruling 2026-09-15, amendment 8): the card's KIND is a
-  // WORD, never a colour — the v2 rarity tint is deleted and nothing replaced
-  // it, so this row has to carry its meaning in glyphs.
-  it('every card states its kind as a WORD, one of catalog v3\'s four', () => {
-    const WORDS = ['WEAPON', 'UPGRADE', 'ADD-ON', 'CONSUMABLE'];
-    const odd = [...new Set(FACES.map(({ face }) => face.kind))].filter((w) => !WORDS.includes(w));
-    expect(odd).toEqual([]);
-    expect([...new Set(FACES.map(({ face }) => face.kind))].sort()).toEqual([...WORDS].sort());
-  });
-
-  // ONE EXCEPTION, NAMED (Story 8.1). Catalog v3 §1's SUPERCAVITATING TORPEDO
-  // carries a 15-glyph unbreakable token that is wider than the 186px inner box
-  // at the card's 20px name size, so it is the one line whose name wraps
-  // mid-word. It does NOT overflow the card — `overflow-wrap:anywhere` breaks it
-  // and the height pin above still passes — it just reads less well than every
-  // other name. The name is Eric's own sheet copy and the real card face is
-  // Story 8.6's, so this is FLAGGED rather than solved here, and the exemption
-  // is exact so it cannot quietly grow.
-  const WIDE_NAME_EXEMPT: readonly string[] = ['supercavTorpedo'];
-
-  it('no line name carries a token too wide to fit the card, so names never mid-word break', () => {
-    const inner = refitCardInnerBox();
-    const tooWide = FACES.filter(({ id }) => !WIDE_NAME_EXEMPT.includes(id))
-      .filter(({ face }) => widestToken(face.name, R.nameSize, REFIT_TYPE.nameLetterSpacing) > inner.w)
-      .map(({ face }) => face.name);
+describe('the NAME — one line, at 15px or the mock\'s own .cn.long step', () => {
+  it('fits every catalog name inside 192px at the size the face picks for it', () => {
+    const inner = refitCardInnerBox().w;
+    const tooWide = LINE_IDS
+      .map((id) => boonName(id))
+      .filter((name) => cardNameWidth(name) > inner);
     expect(tooWide).toEqual([]);
   });
 
-  it('the wide-name exemption cannot rot — each id on it really is too wide', () => {
-    const inner = refitCardInnerBox();
-    const stale = WIDE_NAME_EXEMPT.filter(
-      (id) => widestToken(boonName(id), R.nameSize, REFIT_TYPE.nameLetterSpacing) <= inner.w,
-    );
-    expect(stale).toEqual([]);
+  it('takes the 12.5px step ONLY where 15px genuinely does not fit', () => {
+    const long = LINE_IDS.map((id) => boonName(id)).filter((n) => cardNameSize(n) === R.nameSizeLong);
+    // SUPERCAVITATING TORPEDO is the one name catalog v3 authors that cannot sit
+    // on a 192px line at 15px. If a second one appears, it is deliberate and
+    // this list is where it gets recorded.
+    expect(long).toEqual(['SUPERCAVITATING TORPEDO']);
+    // ...and it really is too wide at 15px, so the exemption cannot rot.
+    for (const name of long) {
+      expect(cardNameSize(name)).toBeLessThan(R.nameSize);
+    }
   });
 
-  it('leaves real headroom on the worst card — the pin is not sitting on the boundary', () => {
-    const inner = refitCardInnerBox();
-    const worst = Math.max(...FACES.map(({ face }) => refitCardMetrics(face).height));
-    expect(worst).toBeLessThanOrEqual(inner.h);
-    // Documents the fit budget: whoever spends the last of it has to look here.
-    expect(inner.h - worst).toBeGreaterThanOrEqual(2);
+  it('never wraps: the size decision is made instead', () => {
+    for (const name of LINE_IDS.map((id) => boonName(id))) {
+      const size = cardNameSize(name);
+      const tracking = size === R.nameSize ? REFIT_TYPE.nameLetterSpacing : REFIT_TYPE.nameLetterSpacingLong;
+      expect(monoWrapLines(name, size, tracking, refitCardInnerBox().w), name).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe('the ROWS — every label fits beside its value inside 192px', () => {
+  it('leaves no row overrunning the inner box, in any presentation state', () => {
+    const inner = refitCardInnerBox().w;
+    const over: string[] = [];
+    for (const { label, face } of FACES) {
+      for (const row of face.rows) {
+        const w = statRowWidth(row);
+        if (w > inner) over.push(`${label} "${row.label}": ${w.toFixed(1)}px > ${inner}px`);
+      }
+    }
+    expect(over).toEqual([]);
+  });
+
+  it('never asks the grid for more rows than it has', () => {
+    const over = FACES.filter(({ face }) => face.rows.length > R.rowCount).map((f) => f.label);
+    expect(over).toEqual([]);
+  });
+
+  it('gives every LADDER and WEAPON card at least one row to print', () => {
+    const silent = FACES.filter(({ id, face }) => {
+      const kind = CATALOG[id].kind;
+      return (kind === 'ladder' || kind === 'equipment') && face.rows.length === 0;
+    }).map((f) => f.label);
+    expect(silent).toEqual([]);
+  });
+});
+
+describe('the LADDER row and the FOOT', () => {
+  it('fits the widest ladder (five rungs + its numerals) inside the inner box', () => {
+    const inner = refitCardInnerBox().w;
+    const widest = Math.max(
+      ...LIVE.flatMap((line) =>
+        Array.from({ length: line.cap }, (_, k) => ladderRowWidth(line.cap, cardTierLabel(line, k))),
+      ),
+    );
+    expect(widest).toBeLessThanOrEqual(inner);
+  });
+
+  it('draws NO ladder for a consumable or an add-on — the row is empty, not absent', () => {
+    for (const line of LIVE) {
+      const blank = line.kind === 'consumable' || line.kind === 'addon';
+      expect(cardTierLabel(line, 0) === null, line.id).toBe(blank);
+      const w = ladderRowWidth(line.cap, cardTierLabel(line, 0));
+      if (blank) expect(w, line.id).toBe(0);
+      else expect(w, line.id).toBeGreaterThan(0);
+    }
+  });
+
+  it('fits the boxed SLOTS FULL reason word', () => {
+    const m = refitCardMetrics({ kind: 'CONSUMABLE', name: 'HULL REPAIR', tier: null, cap: 1, rows: [], foot: SLOTS_FULL });
+    expect(m.footWidth).toBeGreaterThan(0);
+    expect(m.footWidth).toBeLessThanOrEqual(m.innerW);
   });
 });
 
 describe('the laws that constrain the fix', () => {
-  it('keeps amendment 15 legibility: rules text never crashes back below 14px', () => {
-    expect(R.descSize).toBeGreaterThanOrEqual(14);
-    expect(R.nameSize).toBeGreaterThanOrEqual(20);
-    expect(R.categorySize).toBeGreaterThanOrEqual(14);
+  it('keeps the mock\'s ratified type register (epic-8 amendment 31)', () => {
+    // The face takes the MOCK's numbers, not the July micro lift. Shrinking any
+    // of these to buy a fit back is the deviation this pin exists to catch.
+    expect(R.nameSize).toBe(15);
+    expect(R.nameSizeLong).toBe(12.5);
+    expect(R.kindSize).toBe(10);
+    expect(R.tierSize).toBe(12);
+    expect(R.labelSize).toBe(9);
+    expect(R.valueSize).toBe(11);
+    expect(R.footSize).toBe(9);
+    expect(R.keyChipSize).toBe(11);
   });
 
-  it('keeps every card font clear of the 9px mono accessibility floor at the 90% tier', () => {
-    const smallest = Math.min(R.categorySize, R.nameSize, R.descSize, R.kindSize, R.lineageSize);
-    expect(smallest * 0.9).toBeGreaterThanOrEqual(CLIENT_CONFIG.settings.monoFloorPx);
+  it('keeps the mock\'s ratified geometry', () => {
+    expect(R.pad).toEqual({ top: 10, side: 12, bottom: 8 });
+    expect(R.keyChip).toBe(22);
+    expect(R.keyChipOffset).toBe(8);
+    expect(R.iconBox).toBe(40);
+    expect(R.iconGlyph).toBe(24);
+    expect(R.ladderH).toBe(16);
+    expect(R.rungW).toBe(14);
+    expect(R.rungH).toBe(7);
+    expect(R.ladderGap).toBe(3);
+    expect(R.rowH).toBe(17);
+    expect(R.rowCount).toBe(5);
+    expect(R.footH).toBe(14);
   });
 
-  // Keyed off the EFFECT SHAPE, not a tier: a line that only bolts on a verb or
-  // stocks a rack has no number to print, so it is exempt from the
-  // `current → next` contract and bound by the MINIMAL-face pin instead. A LIVE
-  // equipment line is NOT exempt — its copies past the first are tiers, and a
-  // tier is -5 % of that weapon's own reload, so it prints that. A STUB one has
-  // no built weapon to read.
-  const VERBS = new Set<string>(
-    LINES.filter((d) => d.kind !== 'ladder' && !(d.kind === 'equipment' && d.stub !== true)).map((d) => d.id),
-  );
-
-  it('keeps the contract: every STAT line still prints its live current → next', () => {
-    const missing = LINES.filter((d) => !VERBS.has(d.id))
-      .filter((line) => !faceOf(line, 0, 'torpedoBoat', false).description.includes('→'))
-      .map((d) => d.id);
-    expect(missing).toEqual([]);
+  it('DELETED the interim face\'s type keys with the marks they sized', () => {
+    for (const dead of ['categorySize', 'descSize', 'lineageSize', 'metaGap']) {
+      expect(R, dead).not.toHaveProperty(dead);
+    }
   });
 
-  // THE RE-AIMED HALF (R2.17). The old pin here demanded ≥60 characters of
-  // rules text off every doctrine card; that requirement is what the ruling
-  // deleted. Its replacement is the OPPOSITE failure — a verb card that has
-  // crept prose back onto the face — checked in EVERY presentation state, so a
-  // future edit cannot reintroduce the overflow this suite exists to stop.
-  it('keeps the face MINIMAL: a weapon, add-on or consumable card carries no prose', () => {
-    const talkative = FACES.filter(({ id, face }) => VERBS.has(id) && face.description !== '').map(
-      ({ label, face }) => `${label}: "${face.description}"`,
-    );
-    expect(talkative).toEqual([]);
+  it('greys a refused card ABOVE the spend-latch dim — a refusal must stay readable', () => {
+    expect(R.greyedAlpha).toBe(0.55);
+    expect(R.greyedAlpha).toBeGreaterThan(R.lockedAlpha);
   });
 
-  // ...and the explanation really did land somewhere, rather than being cut.
-  // The tooltip's OWN container pin lives in __tests__/refitTooltipFit.test.ts;
-  // this is the seam check that the two halves of R2.17 both happened.
-  // PARTIAL since catalog v3 (Story 8.1): a line whose MECHANISM is not built
-  // has nothing honest to explain, and inventing copy for a weapon nobody has
-  // played is what the naming law forbids. The pin is therefore "every line that
-  // CAN be explained is", with the exemptions named exactly so the list cannot
-  // rot — an agent who builds one of these has to delete its entry.
+  // The seam check that R2.17's split still holds: what left the face is on the
+  // hover panel. PARTIAL since catalog v3 — a line whose MECHANISM is not built
+  // has nothing honest to explain, and the exemptions are named exactly so the
+  // list cannot rot (an agent who builds one has to delete its entry).
   const NO_EXPLANATION: readonly string[] = [
     'turning', 'deckGun', // new in v3: no v2 line to carry text from
     'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
@@ -241,15 +280,15 @@ describe('the laws that constrain the fix', () => {
   });
 });
 
-describe('the belt-and-braces clip (NOT the fix — the pin above is)', () => {
-  it('hangs every text row off a clipped body, and leaves the key chip outside the clip', () => {
+describe('the belt-and-braces clip (NOT the fix — the pins above are)', () => {
+  it('hangs every mark off a clipped body, and leaves the key chip outside the clip', () => {
     const menu = new UpgradeMenu(() => {});
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
       cls: 'torpedoBoat' as const, pts: 1, offer: ['captiveMines', 'radarSweep'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
-    menu.toggle(offerView(you, false, false, false)!);
+    menu.toggle(offerView(you, false, false, false, [])!);
     const card = document.querySelector('#upgrade-menu button') as HTMLElement;
     // The chip is still the card's FIRST child (the pinned digit→slot mapping)
     // and it is NOT inside the clipped body — it overhangs the corner by design.
@@ -259,13 +298,9 @@ describe('the belt-and-braces clip (NOT the fix — the pin above is)', () => {
     expect(body.tagName).toBe('DIV');
     expect(body.style.overflow).toBe('hidden');
     expect(body.style.minHeight).toBe('0px');
-    // The card box itself is the fixed container the pin measures against.
+    // The card box itself is the fixed container the pins measure against.
     expect(card.style.height).toBe(`${R.cardHeight}px`);
     expect(card.style.boxSizing).toBe('border-box');
-    // Every text row declares the explicit line-height the model measures with.
-    const rows = [...body.children].filter((el) => el.tagName === 'SPAN') as HTMLElement[];
-    expect(rows.length).toBeGreaterThan(0);
-    for (const row of rows) expect(row.style.overflowWrap).toBe('anywhere');
     menu.hide();
     document.body.replaceChildren();
   });

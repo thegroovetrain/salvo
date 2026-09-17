@@ -20,7 +20,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, SLOT_COUNT, SLOT_GUN, SPAWN_SEED, effectiveStats, slotsWithCards } from '@salvo/shared';
+import { CONFIG, SLOT_COUNT, SLOT_GUN, SPAWN_SEED, effectiveStats, isConsumableId, slotsWithCards } from '@salvo/shared';
 import type { EquipmentId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { HUD_BAR_WIDTH, HudBar, hudBarLayout, microScale, type HudBarView } from '../render/hudBar.js';
@@ -356,7 +356,9 @@ describe('microScale — the 9px floor at 90% UI scale', () => {
 
 const CLS = 'torpedoBoat' as const;
 const STATS = effectiveStats(CONFIG.shipClasses[CLS]);
-const LOADOUT: (EquipmentId | null)[] = slotsWithCards(STATS, SPAWN_SEED[CLS] ?? []).map((s) => s.equipmentId);
+const LOADOUT: (EquipmentId | null)[] = slotsWithCards(STATS, SPAWN_SEED[CLS] ?? []).map((s) =>
+  s.equipmentId === null || isConsumableId(s.equipmentId) ? null : s.equipmentId,
+);
 const AMMO: (WeaponAmmo | null)[] = LOADOUT.map((id) =>
   id === null ? null : { n: equipmentInfo(STATS, id).maxAmmo, reloadMsLeft: 0 },
 );

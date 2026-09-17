@@ -42,10 +42,13 @@ import {
   CONFIG,
   HEAL_CHOICE,
   boonStackCount,
+  canStock,
   effectiveStats,
+  isConsumableId,
   resolveCards,
   type CatalogLine,
   type OwnShip,
+  type SlotItemId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
@@ -53,20 +56,26 @@ import { motionIntensity, settings } from '../settings/store.js';
 import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
 import { hudBarLayout } from '../render/hudBar.js';
 import { UI_SCALE_VAR } from './theme.js';
-import { REFIT_TYPE } from './refitCardFit.js';
+import { FOOT_BOX_PAD, REFIT_TYPE, cardNameSize, cardNameTracking } from './refitCardFit.js';
+import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
 import {
   REFIT_TIP,
   refitTooltipLeft,
   refitTooltipMaxPanelH,
   refitTooltipMetrics,
+  refitTooltipModel,
   type RefitTooltipModel,
 } from './refitTooltip.js';
 import {
-  boonDescription,
+  TIER_ARROW,
   boonKindLabel,
-  boonLineageLine,
   boonName,
   boonTooltipText,
+  cardStatRows,
+  cardTierLabel,
+  cardTierSteps,
+  type CardStatRow,
+  type CardTierStep,
 } from './boonCopy.js';
 
 const PANEL_ID = 'upgrade-menu';
@@ -93,6 +102,12 @@ const AMBER = 'var(--hc-amber)';
 const PHOSPHOR = 'var(--hc-phosphor)';
 const DENIED = 'var(--hc-denied)';
 const HAIRLINE = 'var(--hc-hairline)';
+/** The mock's `--t3` (muted text): the in-row arrow, the tier arrow, and the
+ *  greyed key chip's dashed edge. */
+const MUTED = 'var(--hc-text-muted)';
+/** The greyed foot's word — `silver` at FULL alpha, so the reason still reads
+ *  through the card's own dim (mock `.rc.grey .foot`). */
+const SILVER = 'var(--hc-silver)';
 /**
  * THE META ROW IS NEUTRAL (Eric ruling 2026-09-15, amendment 8). The v2 RARE /
  * EXCLUSIVE tag colours are DELETED with the rarity axis itself: catalog v3 has
@@ -311,35 +326,52 @@ export function refitTooltipPlacement(model: RefitTooltipModel, band: RefitBox):
 
 // --- pure core: the spend view -------------------------------------------------
 
-/** One resolved card: its catalog def plus every line of copy the DOM renders
- *  (Story 2.8's card anatomy — name by stack position, rarity tier, lineage
- *  handrail, doctrine-swap line, and rules text with LIVE values). */
+/**
+ * One resolved card, as the RATIFIED FACE renders it (Story 8.7, ruling 11 —
+ * `hud-composite-3.html` `.rc`): an icon box, the line's name, the cap-rung
+ * ladder with its `cur → next` numerals, the KIND word, up to five stat rows
+ * and a foot. NO description span, NO lineage handrail, NO copy count — those
+ * three fields went with the interim face they belonged to.
+ */
 export interface OfferCard {
   id: string;
-  /** The KIND word (WEAPON / UPGRADE / ADD-ON / CONSUMABLE) — the meta row's
-   *  left mark, and the a11y channel that carries what colour no longer does. */
+  /** The KIND word (WEAPON / UPGRADE / ADD-ON / CONSUMABLE) — the mock's `.ck`,
+   *  and the a11y channel that carries what colour no longer does. */
   kind: string;
-  /** The copy count, "n/cap" — how many of this line the build already holds
-   *  out of how many the catalog authors. Neutral, never tinted. */
-  count: string;
-  /** The ladder name at this card's stack position. */
+  /** The line's name, uppercase (the face's one display-face mark). */
   name: string;
-  /** Lineage handrail for a multi-copy line ("II/V"), null for a single. */
-  lineage: string | null;
-  /** THE FACE'S ONE TEXT ROW (R2.17): a stat line's live `current → next`
-   *  sentence, and '' for a verb or acquisition card — whose face is the ladder
-   *  name and the tags alone. An empty string here is expected, not a fault. */
-  description: string;
+  /** The `cur → next` tier numerals, or null for a line with no ladder (a
+   *  consumable or an add-on), whose ladder row renders EMPTY but still 16px
+   *  tall so every card in the row keeps one baseline. */
+  tier: string | null;
+  /** The same step as NUMBERS, so each numeral can be tinted on the absolute
+   *  ladder ramp without re-parsing "III → IV" back apart. Null with `tier`. */
+  tierStep: CardTierStep | null;
+  /** Up to five live stat rows (ruling 12). Fewer is normal; an add-on has
+   *  none at all and its five rows render blank. */
+  rows: readonly CardStatRow[];
   /** The HOVER-ONLY explanation (R2.17) — what the card actually does, in plain
    *  terms. Never rendered on the face; the band's hover panel shows it. */
   tooltip: string;
+  /**
+   * THE REFUSAL (Story 8.7, ruling 10). A consumable the belt cannot take —
+   * four distinct lines already stocked and this is a fifth — is greyed BEFORE
+   * the press: `SLOTS FULL` in the foot, a dashed key chip, the face at
+   * `greyedAlpha`, and its digit and its click both send nothing. The predicate
+   * is the SHARED `canStock`, over the same replayed slot ids the server folds,
+   * so the client cannot grey a card the server would have taken (or take one
+   * the server would refuse).
+   */
+  greyed: boolean;
   /** How many of this line the player already holds, and how many the line has
-   *  in total. Carried so the lineage handrail can tint by ladder POSITION
-   *  (Eric's colour ruling — see `lineageTint`) without the DOM layer having to
-   *  re-parse "III/V" back into numbers. */
+   *  in total — the ladder's rung count and its filled prefix. */
   stack: number;
   cap: number;
 }
+
+/** The foot's one word today: the belt is full and this consumable has nowhere
+ *  to go. Ratified copy (UX-DR52) — the card's non-colour refusal channel. */
+export const SLOTS_FULL = 'SLOTS FULL';
 
 // --- pure core: the DAMAGE CONTROL rail ----------------------------------------
 
@@ -466,7 +498,13 @@ export interface OfferView {
  * through must go inert (digit picks included, since currentOfferView() also
  * returns null) rather than silently misfire.
  */
-export function offerView(you: OwnShip | null, spectating: boolean, locked: boolean, sinking: boolean): OfferView | null {
+export function offerView(
+  you: OwnShip | null,
+  spectating: boolean,
+  locked: boolean,
+  sinking: boolean,
+  ownSlots: readonly (SlotItemId | null)[] = [],
+): OfferView | null {
   // ONCE SINKING, YOU'RE DONE (Story 5.2, amendment 10). A sinking hull keeps
   // every weapon, every ability and the foghorn — what it loses is the ECONOMY:
   // the refit window, the picks and the DAMAGE CONTROL heal.
@@ -484,7 +522,25 @@ export function offerView(you: OwnShip | null, spectating: boolean, locked: bool
   if (!you || spectating || sinking || you.pts === 0 || you.offer.length === 0) return null;
   const lines = resolveCards(you.offer, CATALOG);
   if (lines.length !== you.offer.length) return null; // fail-closed: row k == server slot k
-  return { pts: you.pts, options: lines.map((line) => toCard(line, you)), locked, heal: healView(you, locked) };
+  return {
+    pts: you.pts,
+    options: lines.map((line) => toCard(line, you, ownSlots)),
+    locked,
+    heal: healView(you, locked),
+  };
+}
+
+/**
+ * Pure: is this offered line REFUSED by the belt (ruling 10)? Only a consumable
+ * can be — every other kind lands on the hull or on a weapon slot, neither of
+ * which can be full — and the answer comes from the SHARED `canStock` over the
+ * replayed slot ids, which is byte-for-byte what `world.spendCard` evaluates
+ * before it mutates anything. Two evaluations of one function, so the greyed
+ * face and the server's refusal can never disagree.
+ */
+export function cardGreyed(line: CatalogLine, ownSlots: readonly (SlotItemId | null)[]): boolean {
+  if (line.kind !== 'consumable' || !isConsumableId(line.id)) return false;
+  return !canStock(ownSlots, line.id);
 }
 
 /**
@@ -495,16 +551,17 @@ export function offerView(you: OwnShip | null, spectating: boolean, locked: bool
  * effectiveStats preview diff). Everything here is pure — `you` is read, never
  * touched.
  */
-function toCard(line: CatalogLine, you: OwnShip): OfferCard {
+function toCard(line: CatalogLine, you: OwnShip, ownSlots: readonly (SlotItemId | null)[]): OfferCard {
   const stack = boonStackCount(you.cards, line.id);
   return {
     id: line.id,
     kind: boonKindLabel(line.kind),
-    count: `${Math.min(stack, line.cap)}/${line.cap}`,
     name: boonName(line.id, stack),
-    lineage: boonLineageLine(line, stack),
-    description: boonDescription(line, you),
+    tier: cardTierLabel(line, stack),
+    tierStep: cardTierSteps(line, stack),
+    rows: cardStatRows(line, stack, you),
     tooltip: boonTooltipText(line.id),
+    greyed: cardGreyed(line, ownSlots),
     stack,
     cap: line.cap,
   };
@@ -697,37 +754,49 @@ const GHOST_CSS = [
   'z-index:-1',
 ].join(';');
 
-/** One card: square corners, hairline edge, no filled panel bed. The card itself
- *  keeps `overflow` visible because the digit key chip deliberately OVERHANGS
- *  its top-left corner; the clip lives one level in, on the body (below). */
+/**
+ * One card — the mock's `.rc` VERBATIM (epic-8 amendment 31): a fixed 216×226
+ * box, square corners, a silver hairline edge over the panel bed, asymmetric
+ * `10px 12px 8px` padding, and a CENTRED column. The card keeps `overflow`
+ * visible because the digit key chip deliberately overhangs its top-left
+ * corner; the clip lives one level in, on the body (below).
+ *
+ * TEXT IS CENTRED NOW, not left-aligned: every mark on the ratified face is a
+ * single `nowrap` line whose width is data-driven, and a centred column is what
+ * makes four cards of different name lengths read as one row.
+ */
 const CARD_CSS = [
   'position:relative',
   `width:${R.card}px`,
   `height:${R.cardHeight}px`,
-  `padding:${R.pad}px`,
+  `padding:${R.pad.top}px ${R.pad.side}px ${R.pad.bottom}px`,
   'box-sizing:border-box',
   'border-width:1px',
   'border-style:solid',
   'border-radius:0', // square corners (DESIGN.md CIC chrome)
   'display:flex',
   'flex-direction:column',
-  'align-items:flex-start',
-  'text-align:left',
+  'align-items:center',
+  'text-align:center',
   'cursor:pointer',
   'pointer-events:auto',
   'flex:none',
 ].join(';');
 
 /**
- * The card BODY — every text row, clipped to the card's inner box.
+ * The card BODY — every mark below the key chip, clipped to the card's inner box.
  *
  * `overflow:hidden` here is the amendment-47 BELT AND BRACES, not the fix: the
- * fix is the copy/type budget that ui/refitCardFit.ts models and
+ * fix is the type/width budget that ui/refitCardFit.ts models and
  * __tests__/refitCardFit.test.ts pins, so no card ever WANTS to paint outside
  * this box. The clip is what guarantees an unforeseen state (a future catalog
  * line, a font fallback wider than the model's 0.605em advance, a browser that
  * rounds line boxes up) still cannot lay text over the neighbouring card or the
  * dimmed corner clusters the band renders above (amendment 40).
+ *
+ * NO FLEX `gap`: the ratified face declares a DIFFERENT `margin-top` per block
+ * (the mock's 4 / 4 / 2 / 6 / 2), so each child owns its own seam and the DOM
+ * matches `refitCardMetrics` exactly.
  *
  * `min-height:0` is load-bearing: a flex item's default `min-height:auto` is its
  * CONTENT height, which would let an over-long body stretch the card instead of
@@ -736,8 +805,7 @@ const CARD_CSS = [
 const CARD_BODY_CSS = [
   'display:flex',
   'flex-direction:column',
-  'align-items:flex-start',
-  `gap:${T.rowGap}px`,
+  'align-items:center',
   'align-self:stretch',
   'flex:1 1 auto',
   'min-height:0',
@@ -793,6 +861,17 @@ const TIP_NAME_CSS = [
   'overflow-wrap:anywhere',
 ].join(';');
 
+/** The CONSUMABLE shape line (Story 8.7, ruling 13) — the same grammar the belt's
+ *  slot tooltip prints, in the AMBER interaction register that panel uses, so a
+ *  player meets one vocabulary for "how does this fire" and not two. */
+const TIP_INTERACTION_CSS = [
+  `font:400 ${REFIT_TIP.nameSize}px var(--hc-font-mono)`,
+  `letter-spacing:${REFIT_TIP.nameLetterSpacing}px`,
+  `line-height:${REFIT_TIP.nameLineHeight}`,
+  `color:${AMBER}`,
+  'overflow-wrap:anywhere',
+].join(';');
+
 /** The explanation paragraph — data, so phosphor rather than grey (amendment
  *  16), at the card description's own opacity so the two read as one voice. */
 const TIP_BODY_CSS = [
@@ -804,21 +883,29 @@ const TIP_BODY_CSS = [
   'overflow-wrap:anywhere',
 ].join(';');
 
-/** The mono key-chip glyph (the ONE key-chip family — hotbar slots and helm
- *  glyphs render the same treatment): a bordered digit OVERHANGING the card's
- *  top-left corner by half its size, riding currentColor so the card's
- *  rest/armed state cascades into it. */
+/**
+ * The mono key-chip glyph — the mock's `.rc .kc.big`: a 22px bordered digit
+ * sitting PROUD of the card's top-left corner by 8px (not centred on it, as the
+ * interim face had it), on the `void` bed so the card's own edge does not read
+ * through it, in 11px mono at the secondary-text token with a silver hairline.
+ *
+ * It rides its OWN colours rather than `currentColor` because the ratified chip
+ * is deliberately quieter than the name beside it; `paintCard` flips the whole
+ * chip to amber on arm, exactly as the mock's `.rc.armed .kc.big` does.
+ */
 const KEY_CHIP_CSS = [
   'position:absolute',
-  `left:-${R.keyChip / 2}px`,
-  `top:-${R.keyChip / 2}px`,
+  `left:-${R.keyChipOffset}px`,
+  `top:-${R.keyChipOffset}px`,
   `width:${R.keyChip}px`,
   `height:${R.keyChip}px`,
   'display:flex',
   'align-items:center',
   'justify-content:center',
-  'border:1px solid currentColor',
-  `font:400 ${R.categorySize}px var(--hc-font-mono)`,
+  'border-width:1px',
+  'border-style:solid',
+  `font:400 ${R.keyChipSize}px var(--hc-font-mono)`,
+  'letter-spacing:0',
   'flex:none',
 ].join(';');
 
@@ -888,97 +975,192 @@ const STRIP_READOUT_CSS = `${STRIP_TEXT_CSS};color:${PHOSPHOR};opacity:0.85`;
 /** The reason word, hard right — the rail's non-color state channel. */
 const STRIP_STATUS_CSS = `${STRIP_TEXT_CSS};margin-left:auto;color:${PHOSPHOR};opacity:0.7`;
 
-/** Every text row declares an EXPLICIT line-height and `overflow-wrap:anywhere`
- *  (amendment 47): the line-height makes the fit model exact rather than
- *  font-dependent, and the wrap rule means even a token wider than the 186px
- *  inner box breaks instead of painting out through the card's side. */
-const TEXT_ROW = [`line-height:${T.lineHeight}`, 'overflow-wrap:anywhere'].join(';');
+// --- THE RATIFIED CARD FACE (Story 8.7, ruling 11) -----------------------------
+//
+// Every declaration below is the mock's `.rc` block read literally
+// (`hud-composite-3.html`:160-191, epic-8 amendment 31), with two translations
+// and no third:
+//
+//   • the mock's `em` trackings are resolved to px in REFIT_TYPE, so the fit
+//     model and the DOM measure the same numbers;
+//   • every colour is a `var(--hc-*)` token, and every ALPHA on a token is
+//     composed through `cssRgba` from the numeric token in config.ts — the
+//     module's existing pattern (see TIP_BED / TIP_EDGE). `color-mix` is not
+//     available to us and a raw literal fails the token guard, which scans
+//     comments too.
 
+/** The icon box's edge — the mock's `silver` hairline at .28 — and the same
+ *  silver at .4 for the key chip's. */
+const ICON_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.28);
+const CHIP_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.4);
+/** The armed icon box's edge — mock `.rc.armed .ci`, the `amber` token at .6. */
+const ICON_EDGE_ARMED = cssRgba(CLIENT_CONFIG.colors.amber, 0.6);
+/** A row's bottom hairline — the EXISTING `hairline` token, which IS the colour
+ *  the mock writes there, at full weight. No new token (ruling 11). */
+const ROW_RULE = cssRgba(CLIENT_CONFIG.colors.hairline, 0.95);
+/** The greyed foot's box — `1px` `textSecondary` at .5 (mock `.rc.grey .foot`). */
+const FOOT_BOX_EDGE = cssRgba(CLIENT_CONFIG.colors.textSecondary, 0.5);
+/** An unreached rung — mock `.ladder i.off { opacity:.35 }`. */
+const RUNG_OFF_ALPHA = 0.35;
+/** The NEXT rung's glow radius (px) — mock `box-shadow: 0 0 8px`. */
+const RUNG_GLOW_PX = 8;
+
+/** The icon box — mock `.ci`: a 40px square with a silver hairline, holding a
+ *  24px glyph in phosphor. EMPTY for every line with no linework (ruling 11). */
+const ICON_BOX_CSS = [
+  `width:${R.iconBox}px`,
+  `height:${R.iconBox}px`,
+  'flex:none',
+  'box-sizing:border-box',
+  'border-width:1px',
+  'border-style:solid',
+  'border-radius:0',
+  'display:flex',
+  'align-items:center',
+  'justify-content:center',
+  `color:${PHOSPHOR}`,
+].join(';');
+
+/**
+ * The line NAME — mock `.cn { font: 600 15px/1.15 var(--sans) }`, uppercase,
+ * `.02em`, and `nowrap`.
+ *
+ * SANS, NOT MONO: this is the one display-face mark on the card, and it is the
+ * mark the eye lands on first. The SIZE is decided per name by
+ * `refitCardFit.cardNameSize` (the mock's own `.cn.long` 12.5px step), so the
+ * declaration below carries everything except the size and its tracking.
+ */
+const NAME_CSS = [
+  `color:${REST}`,
+  `line-height:${T.nameLineHeight}`,
+  'text-transform:uppercase',
+  'white-space:nowrap',
+  `margin-top:${T.nameGap}px`,
+].join(';');
+
+/** The KIND word — mock `.ck { font: 10px var(--mono); letter-spacing:.2em }`. */
 const KIND_CSS = [
-  `font:600 ${R.kindSize}px var(--hc-font-mono)`,
+  `font:400 ${R.kindSize}px var(--hc-font-mono)`,
   `letter-spacing:${T.kindLetterSpacing}px`,
+  `line-height:${T.lineHeight}`,
   'text-transform:uppercase',
   `color:${META}`,
-  'white-space:nowrap', // the kind word is one token and never wraps
-  TEXT_ROW,
+  'white-space:nowrap',
+  `margin-top:${T.kindGap}px`,
 ].join(';');
 
-// The ladder names are AUTHORED in their final case (amendment 42's canon —
-// "HEAVY SHELLS Mk III"), so there is deliberately NO text-transform here: an
-// uppercase transform would print "MK III" and break the period-authentic mark.
-// `--hc-white` is a UTILITY-only token that theme.ts never projects, so the old
-// `color:var(--hc-white)` here (and in paintCard) resolved to nothing and the
-// name silently inherited the card's currentColor — fixed to the real rest
-// token, which is what it was always meant to be.
-const NAME_CSS = [
-  `font:600 ${R.nameSize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.nameLetterSpacing}px`,
-  `color:${REST}`,
-  TEXT_ROW,
-].join(';');
-
-/** The meta line: the KIND word at rest, the copy count hard right. Both
- *  neutral — this row carries no state and no tier. */
-const META_ROW_CSS = [
+/** The LADDER row — mock `.ladder`: a fixed 16px row of `cap` rungs with the
+ *  `cur → next` numerals beside them. Rendered EMPTY (but still 16px) for a
+ *  consumable or an add-on, so every card in the row keeps one baseline. */
+const LADDER_CSS = [
+  `height:${R.ladderH}px`,
+  `margin-top:${T.ladderGap}px`,
   'display:flex',
-  'flex-direction:row',
+  `gap:${R.ladderGap}px`,
+  'align-items:center',
+  'justify-content:center',
+  'flex:none',
+].join(';');
+
+/** One rung — mock `.ladder i { width:14px; height:7px; border:1px solid }`,
+ *  coloured by its ABSOLUTE position on the loot-tier ramp. */
+const RUNG_CSS = [
+  `width:${R.rungW}px`,
+  `height:${R.rungH}px`,
+  'box-sizing:border-box',
+  'border-width:1px',
+  'border-style:solid',
+  'border-radius:0',
+  'display:block',
+  'flex:none',
+].join(';');
+
+/** The `cur → next` numerals — mock `.tl { font: 600 12px mono; .14em }`. */
+const TIER_LABEL_CSS = [
+  `font:600 ${R.tierSize}px var(--hc-font-mono)`,
+  `letter-spacing:${T.tierLetterSpacing}px`,
+  `margin-left:${T.tierGap}px`,
+  'white-space:nowrap',
+].join(';');
+
+/** The arrow between the numerals — mock `.rc .arr { color: var(--t3) }`. */
+const TIER_ARROW_CSS = [`color:${MUTED}`, 'font-weight:400', `margin:0 ${T.arrowMargin - 1}px`].join(';');
+
+/** The five-row grid — mock `.rows { display:grid; grid-template-rows: repeat(5,17px) }`. */
+const ROWS_CSS = [
+  'width:100%',
+  `margin-top:${T.rowsGap}px`,
+  'display:grid',
+  `grid-template-rows:repeat(${R.rowCount}, ${R.rowH}px)`,
+  'flex:none',
+].join(';');
+
+/** One row — mock `.rw`: label hard left, value hard right, a hairline under. */
+const ROW_CSS_LINE = [
+  'display:flex',
+  'justify-content:space-between',
   'align-items:baseline',
-  `gap:${R.metaGap}px`,
-  'align-self:stretch',
+  'border-bottom-width:1px',
+  'border-bottom-style:solid',
+  'padding:0 1px',
+  'overflow:hidden',
 ].join(';');
 
-const COUNT_CSS = [
-  `font:600 ${R.kindSize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.kindLetterSpacing}px`,
+/** A row's LABEL — mock `.rw .l { font: 9px mono; .14em }`. */
+const ROW_LABEL_CSS = [
+  `font:400 ${R.labelSize}px var(--hc-font-mono)`,
+  `letter-spacing:${T.labelLetterSpacing}px`,
+  'text-transform:uppercase',
   `color:${META}`,
-  'margin-left:auto', // the count sits at the card's outer edge, opposite the kind
-  'white-space:nowrap', // the count is one token; the kind word yields first
-  TEXT_ROW,
+  'white-space:nowrap',
 ].join(';');
 
-/** The lineage handrail ("II/V") — Sally's ratified marker that ARMOR BELT
- *  continues REINFORCED HULL. Dim-not-grey (amendment 16): phosphor at reduced
- *  opacity, never a grey. */
-const LINEAGE_CSS = [
-  `font:400 ${R.lineageSize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.lineageLetterSpacing}px`,
-  `color:${PHOSPHOR}`,
-  // The flat 0.7 is gone: `lineageEl` writes a per-rung opacity over this (Eric's
-  // ladder-position colour ruling). The declaration stays as the fallback for
-  // any future consumer that renders a handrail without a known stack.
-  'opacity:0.7',
-  TEXT_ROW,
+/** A row's VALUE — mock `.rw .v { font: 11px mono; .04em; tabular }`. */
+const ROW_VALUE_CSS = [
+  `font:400 ${R.valueSize}px var(--hc-font-mono)`,
+  `letter-spacing:${T.valueLetterSpacing}px`,
+  `color:${REST}`,
+  'font-variant-numeric:tabular-nums',
+  'white-space:nowrap',
 ].join(';');
 
-/** Phosphor, NOT grey (amendment 16): the description is data, and grey text is
- *  retired for load-bearing copy everywhere. */
-const DESC_CSS = [
-  `font:400 ${R.descSize}px var(--hc-font-mono)`,
-  `line-height:${T.descLineHeight}`,
-  `color:${PHOSPHOR}`,
-  'opacity:0.85',
-  'overflow-wrap:anywhere',
+/** The NEXT value inside that cell — mock `.rw .v .nx { color: var(--ph) }`. */
+const ROW_NEXT_CSS = `color:${PHOSPHOR}`;
+/** The in-row arrow — mock `.rw .v .ar { color: var(--t3); margin: 0 4px }`. */
+const ROW_ARROW_CSS = `color:${MUTED};margin:0 ${T.arrowMargin}px`;
+
+/** The FOOT — mock `.foot`: 14px tall, 9px mono at `.24em`, blank unless the
+ *  card is refused. */
+const FOOT_CSS = [
+  `height:${R.footH}px`,
+  `margin-top:${T.footGap}px`,
+  `font:600 ${R.footSize}px var(--hc-font-mono)`,
+  `letter-spacing:${T.footLetterSpacing}px`,
+  'text-transform:uppercase',
+  `color:${META}`,
+  'white-space:nowrap',
+  'display:flex',
+  'align-items:center',
+  'justify-content:center',
+  'flex:none',
 ].join(';');
 
-/** The armed (hover/focus) treatment: amber edge + glow, amber chip + name —
- *  the hotbar's SELECTED grammar, one family. The META ROW stays NEUTRAL through
- *  the arm: the kind word and the copy count are facts about the card, not
- *  states of the pointer, and amendment 8 rules that row colourless. */
+/**
+ * The armed (hover/focus) treatment — mock `.rc.armed`: amber edge + glow, amber
+ * key chip on the void bed, amber name and amber icon box. The KIND word, the
+ * rows and the ladder stay put through the arm: they are facts about the card,
+ * not states of the pointer.
+ */
 function paintCard(card: RefitCardEls, armed: boolean): void {
   const c = armed ? AMBER : REST;
   card.root.style.borderColor = armed ? AMBER : HAIRLINE;
   card.root.style.boxShadow = armed ? `0 0 8px ${AMBER}` : 'none';
-  card.root.style.color = c; // the key chip rides currentColor
-  card.kind.style.color = META;
   card.name.style.color = c;
-}
-
-/** The copy-count span ("2/5"), hard right and neutral. */
-function countEl(count: string): HTMLSpanElement {
-  const el = document.createElement('span');
-  el.style.cssText = COUNT_CSS;
-  el.textContent = count;
-  return el;
+  card.icon.style.color = c;
+  card.icon.style.borderColor = armed ? ICON_EDGE_ARMED : ICON_EDGE;
+  card.chip.style.borderColor = armed ? AMBER : card.greyed ? MUTED : CHIP_EDGE;
+  card.chip.style.color = armed ? AMBER : card.greyed ? MUTED : META;
+  card.kind.style.color = META;
 }
 
 /** One plain text line at a prepared style. */
@@ -989,37 +1171,184 @@ function lineEl(css: string, text: string): HTMLSpanElement {
   return el;
 }
 
-/** The lineage handrail ("III/V"), tinted by LADDER POSITION — Eric's colour
- *  ruling, carried on the loot-tier ramp (see `lineageTint`). The numeral
- *  itself is the non-colour channel, so the tint is a fast read and never the
- *  only one. */
-function lineageEl(text: string, stack: number, copies: number): HTMLSpanElement {
-  const el = lineEl(LINEAGE_CSS, text);
-  el.style.color = lineageTint(stack, copies);
+/** The 40px icon box, holding the line's glyph when one exists. An unbuilt
+ *  weapon, a ladder, an add-on and every consumable leave it EMPTY — no
+ *  placeholder, no word, no invented art (ruling 11). */
+function iconBoxEl(id: string): HTMLDivElement {
+  const box = document.createElement('div');
+  box.style.cssText = ICON_BOX_CSS;
+  box.style.borderColor = ICON_EDGE;
+  const svg = equipmentGlyphSvg(id, R.iconGlyph);
+  if (svg !== null) box.appendChild(svg);
+  return box;
+}
+
+/** The line NAME at the size `refitCardFit` picked for it (15px, or the mock's
+ *  `.cn.long` 12.5px step for the one name too wide for the 192px inner box). */
+function nameEl(name: string): HTMLSpanElement {
+  const el = lineEl(NAME_CSS, name);
+  el.style.font = `600 ${cardNameSize(name)}px var(--hc-font-display)`;
+  el.style.letterSpacing = `${cardNameTracking(name)}px`;
   return el;
 }
 
-/** The render memo's per-card component: every line the face actually shows,
- *  so a copy change with an unchanged id still repaints (see render()). This
- *  SUBSUMES stack changes — a line fitted to a new rung moves its name,
- *  lineage, and current→next numbers, all of which are in here — so no
- *  separate build/stack signature is needed alongside it. */
-function cardSignature(card: OfferCard): string {
-  return [card.id, card.kind, card.count, card.name, card.lineage ?? '', card.description, card.tooltip].join('~');
+/**
+ * The LADDER row: one rung per copy the line carries, filled up to the copies
+ * held, with the NEXT rung filled AND glowing in its own colour and the rest at
+ * `.35`. Beside them, the `cur → next` numerals on the same absolute ramp.
+ *
+ * A line with no ladder (a consumable, an add-on) gets the row and nothing in
+ * it — 16px of deliberate emptiness, so the KIND word, the five rows and the
+ * foot sit on one baseline across all four cards.
+ */
+function ladderEl(card: OfferCard): HTMLDivElement {
+  const row = document.createElement('div');
+  row.style.cssText = LADDER_CSS;
+  if (card.tierStep === null) return row;
+  for (let i = 0; i < card.cap; i += 1) row.appendChild(rungEl(i, card.stack));
+  row.appendChild(tierLabelEl(card.tierStep));
+  return row;
 }
 
-/** The DOM handles of one built card. */
+/** One rung, tinted by its ABSOLUTE position on the loot-tier ramp. */
+function rungEl(index: number, held: number): HTMLElement {
+  const rung = document.createElement('i');
+  rung.style.cssText = RUNG_CSS;
+  const tint = LINEAGE_TIERS[Math.min(index, LINEAGE_TIERS.length - 1)];
+  rung.style.borderColor = tint;
+  if (index < held) rung.style.backgroundColor = tint;
+  else if (index === held) {
+    rung.style.backgroundColor = tint;
+    rung.style.boxShadow = `0 0 ${RUNG_GLOW_PX}px ${tint}`;
+  } else rung.style.opacity = String(RUNG_OFF_ALPHA);
+  return rung;
+}
+
+/** The `cur → next` numerals, each tinted by the tier it names. */
+function tierLabelEl(step: CardTierStep): HTMLSpanElement {
+  const el = document.createElement('span');
+  el.style.cssText = TIER_LABEL_CSS;
+  el.appendChild(numeralEl(step.cur));
+  if (step.next === null) return el;
+  el.appendChild(lineEl(TIER_ARROW_CSS, TIER_ARROW));
+  el.appendChild(numeralEl(step.next));
+  return el;
+}
+
+/** One Roman numeral at its tier's colour on the absolute ramp. */
+function numeralEl(tier: number): HTMLSpanElement {
+  const el = lineEl('', ROMAN_TIERS[Math.min(Math.max(tier, 1), ROMAN_TIERS.length) - 1] ?? String(tier));
+  el.style.color = LINEAGE_TIERS[Math.min(Math.max(tier, 1), LINEAGE_TIERS.length) - 1];
+  return el;
+}
+
+/** The Roman numerals the ladder prints. Longer than any catalog cap, so the
+ *  clamp above is belt and braces rather than the rule. */
+const ROMAN_TIERS: readonly string[] = ['I', 'II', 'III', 'IV', 'V'];
+
+/** The five-row grid: one row per stat the card moves, blank rows after. */
+function rowsEl(rows: readonly CardStatRow[]): HTMLDivElement {
+  const grid = document.createElement('div');
+  grid.style.cssText = ROWS_CSS;
+  for (let i = 0; i < R.rowCount; i += 1) grid.appendChild(statRowEl(rows[i]));
+  return grid;
+}
+
+/** One row — label left, value right — or an EMPTY ruled row past the end of
+ *  the card's stats (the mock's own `<div class="rw"></div>`). */
+function statRowEl(row: CardStatRow | undefined): HTMLDivElement {
+  const el = document.createElement('div');
+  el.style.cssText = ROW_CSS_LINE;
+  el.style.borderBottomColor = ROW_RULE;
+  if (row === undefined) return el;
+  el.appendChild(lineEl(ROW_LABEL_CSS, row.label));
+  el.appendChild(valueEl(row));
+  return el;
+}
+
+/** A row's value cell: `next` alone on an absolute row, `cur → next` on a diff
+ *  row with the NEXT value in phosphor (the mock's `.nx`). */
+function valueEl(row: CardStatRow): HTMLSpanElement {
+  const cell = document.createElement('span');
+  cell.style.cssText = ROW_VALUE_CSS;
+  if (row.cur !== null) {
+    cell.appendChild(lineEl('', row.cur));
+    cell.appendChild(lineEl(ROW_ARROW_CSS, TIER_ARROW));
+  }
+  cell.appendChild(lineEl(ROW_NEXT_CSS, row.next));
+  return cell;
+}
+
+/**
+ * The foot: blank on every card but a REFUSED one, where it carries the boxed
+ * `SLOTS FULL` reason word (mock `.rc.grey .foot`) in `silver` at FULL alpha, so
+ * it still reads through the card's own `greyedAlpha` dim. The dim is never the
+ * refusal's only channel — that is the whole point of the word and the box.
+ */
+function footEl(greyed: boolean): HTMLDivElement {
+  const el = document.createElement('div');
+  el.style.cssText = FOOT_CSS;
+  if (!greyed) return el;
+  el.textContent = SLOTS_FULL;
+  el.style.color = SILVER;
+  el.style.borderWidth = '1px';
+  el.style.borderStyle = 'solid';
+  el.style.borderColor = FOOT_BOX_EDGE;
+  el.style.padding = `0 ${FOOT_BOX_PAD}px`;
+  el.style.height = `${R.footH + 2}px`; // the box is 16px where the bare word is 14
+  return el;
+}
+
+/** The render memo's per-card component: every mark the face actually shows, so
+ *  a copy change with an unchanged id still repaints (see render()). This
+ *  SUBSUMES stack changes — a line fitted to a new rung moves its ladder, its
+ *  numerals and its current→next numbers, all of which are in here. */
+function cardSignature(card: OfferCard): string {
+  const rows = card.rows.map((r) => `${r.label}=${r.cur ?? ''}>${r.next}`).join('|');
+  return [card.id, card.kind, card.name, card.tier ?? '', card.stack, card.cap, rows, card.tooltip, card.greyed ? 'g' : ''].join('~');
+}
+
+/** The DOM handles of one built card — the marks `paintCard` repaints on arm. */
 interface RefitCardEls {
   root: HTMLButtonElement;
+  chip: HTMLSpanElement;
+  icon: HTMLDivElement;
   kind: HTMLSpanElement;
   name: HTMLSpanElement;
+  /** Carried so the arm/rest repaint can restore a GREYED chip's own colours
+   *  rather than the resting ones (the refusal outlives a hover). */
+  greyed: boolean;
 }
 
 /** The DOM handles of the hover tooltip (built once with the panel). */
 interface RefitTipEls {
   root: HTMLDivElement;
   name: HTMLSpanElement;
+  /** The CONSUMABLE shape line (Story 8.7, ruling 13) — hidden on every other
+   *  kind, so it spends no vertical rhythm where there is nothing to say. */
+  interaction: HTMLSpanElement;
   body: HTMLSpanElement;
+}
+
+/** Pure: the hover panel's model for one card — the name over its explanation,
+ *  plus the CONSUMABLE shape line (ruling 13) where the catalog resolves. An
+ *  unresolvable id still gets a panel, which is the fail-open this surface has
+ *  always had. */
+function tipModelFor(copy: OfferCard): RefitTooltipModel {
+  const line = Object.hasOwn(CATALOG, copy.id) ? CATALOG[copy.id] : undefined;
+  return line === undefined
+    ? { name: copy.name, body: copy.tooltip }
+    : refitTooltipModel(line, copy.name, copy.tooltip);
+}
+
+/** Fill the one hover panel from a model. The SHAPE row is REMOVED rather than
+ *  left blank on the kinds that have none, so it spends no vertical rhythm on
+ *  information that is not there. */
+function fillTip(tip: RefitTipEls, model: RefitTooltipModel, body: string): void {
+  tip.name.textContent = model.name;
+  tip.interaction.textContent = model.interaction ?? '';
+  tip.interaction.style.display = model.interaction ? 'block' : 'none';
+  tip.body.textContent = body;
 }
 
 /** The DOM handles of the DAMAGE CONTROL rail (built once, never rebuilt — it
@@ -1186,10 +1515,13 @@ export class UpgradeMenu {
     root.style.borderColor = TIP_EDGE;
     const name = document.createElement('span');
     name.style.cssText = TIP_NAME_CSS;
+    const interaction = document.createElement('span');
+    interaction.style.cssText = TIP_INTERACTION_CSS;
+    interaction.style.display = 'none';
     const body = document.createElement('span');
     body.style.cssText = TIP_BODY_CSS;
-    root.append(name, body);
-    return { root, name, body };
+    root.append(name, interaction, body);
+    return { root, name, interaction, body };
   }
 
   /**
@@ -1214,9 +1546,8 @@ export class UpgradeMenu {
       this.tipModel = null;
       return;
     }
-    const model: RefitTooltipModel = { name: copy.name, body: copy.tooltip };
-    tip.name.textContent = copy.name;
-    tip.body.textContent = copy.tooltip;
+    const model = tipModelFor(copy);
+    fillTip(tip, model, copy.tooltip);
     tip.root.style.left = `${refitTooltipLeft(index!, this.rowWidth())}px`;
     this.tipModel = model;
     this.placeTip(tip.root, model);
@@ -1288,33 +1619,33 @@ export class UpgradeMenu {
     btn.style.backgroundColor = 'var(--hc-panel)';
     const chip = document.createElement('span');
     chip.style.cssText = KEY_CHIP_CSS;
-    chip.style.backgroundColor = 'var(--hc-panel)'; // opaque under the overhang
+    // The mock's `.rc .kc.big { background: var(--void) }` — opaque under the
+    // overhang, and deliberately the VOID rather than the panel bed, so the
+    // chip reads as sitting proud of the card rather than cut out of it.
+    chip.style.backgroundColor = 'var(--hc-void)';
     chip.textContent = `${choice + 1}`;
     btn.appendChild(chip); // FIRST child, always — pinned DOM order
-    const kind = document.createElement('span');
-    kind.style.cssText = KIND_CSS;
-    kind.textContent = card.kind;
-    const meta = document.createElement('div');
-    meta.style.cssText = META_ROW_CSS;
-    meta.appendChild(kind);
-    meta.appendChild(countEl(card.count));
-    const name = document.createElement('span');
-    name.style.cssText = NAME_CSS;
-    name.textContent = card.name;
-    const desc = document.createElement('span');
-    desc.style.cssText = DESC_CSS;
-    desc.textContent = card.description;
-    // Every text row hangs off the CLIPPED body, never off the button itself:
-    // the button has to keep `overflow` visible for the overhanging key chip,
-    // so the amendment-47 clip lives exactly one level in (CARD_BODY_CSS). The
+    const icon = iconBoxEl(card.id);
+    const name = nameEl(card.name);
+    const kind = lineEl(KIND_CSS, card.kind);
+    // Every mark hangs off the CLIPPED body, never off the button itself: the
+    // button has to keep `overflow` visible for the overhanging key chip, so
+    // the amendment-47 clip lives exactly one level in (CARD_BODY_CSS). The
     // chip stays the button's FIRST child — the pinned digit-to-slot mapping.
     const body = document.createElement('div');
     body.style.cssText = CARD_BODY_CSS;
-    body.append(meta, name);
-    if (card.lineage) body.appendChild(lineageEl(card.lineage, card.stack, card.cap));
-    body.appendChild(desc);
+    body.append(icon, name, ladderEl(card), kind, rowsEl(card.rows), footEl(card.greyed));
     btn.appendChild(body);
-    const els: RefitCardEls = { root: btn, kind, name };
+    const els: RefitCardEls = { root: btn, chip, icon, kind, name, greyed: card.greyed };
+    if (card.greyed) {
+      // The DASHED chip is the refusal's glyph channel and rides through
+      // everything. The DIM is only applied while the card is otherwise live:
+      // the spend-latch dim is ROW-WIDE and darker (`lockedAlpha`), and a
+      // greyed card inside a locked row must read as locked like its
+      // neighbours rather than as the brightest thing on screen.
+      chip.style.borderStyle = 'dashed';
+      if (enabled) btn.style.opacity = String(R.greyedAlpha);
+    }
     paintCard(els, false);
     // Focus hygiene (full-lockout modal): never acquire focus on click —
     // a focus-retaining card would (a) let Space/Enter re-trigger the spend
@@ -1324,7 +1655,7 @@ export class UpgradeMenu {
       btn.disabled = true; // real disabled state, not just opacity — keyboard/AT see it too
       return els;
     }
-    this.wireCard(els, choice);
+    this.wireCard(els, choice, card.greyed);
     return els;
   }
 
@@ -1334,7 +1665,7 @@ export class UpgradeMenu {
    * keyboard path exists precisely so an experienced player can skip the
    * reading). The two pairs stay asymmetric on purpose, and a pin asserts it.
    */
-  private wireCard(els: RefitCardEls, choice: number): void {
+  private wireCard(els: RefitCardEls, choice: number, greyed: boolean): void {
     const btn = els.root;
     btn.addEventListener('mouseenter', () => {
       paintCard(els, true);
@@ -1348,6 +1679,12 @@ export class UpgradeMenu {
     btn.addEventListener('blur', () => paintCard(els, false));
     btn.addEventListener('click', () => {
       btn.blur(); // belt-and-braces with the mousedown preventDefault above
+      // A GREYED card sends NOTHING (ruling 10, UX-DR52): no spend, no latch,
+      // no denied pulse. The refusal was already stated — the card is dim, its
+      // chip is dashed and its foot reads SLOTS FULL — so a pulse would be the
+      // game shouting a fact the player is looking at. The hover panel still
+      // works, because reading a card you cannot take is legitimate.
+      if (greyed) return;
       this.onSpend(choice);
     });
   }
