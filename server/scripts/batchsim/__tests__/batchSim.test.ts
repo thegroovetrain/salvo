@@ -444,18 +444,21 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(reload).toBeGreaterThanOrEqual(duration); // the shipped pair is legal
 
     // Direction 1: shorten the reload under the window. 1 ms clears the
-    // per-leaf reload floor (1), so ONLY the cross-key check can catch it.
+    // per-leaf reload floor (1), so ONLY the cross-key check can catch it. The
+    // check runs through the REAL fold at a maxed RELOAD ladder (Story 8.9
+    // review): 1 * 0.75 (five RELOAD copies) = 0.75.
     expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(TunableError);
     expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(
-      /'boost\.reloadMs' must be >= 'boost\.durationMs' \(got 1 < 10000\)/,
+      /'boost\.reloadMs' × the RELOAD ladder at cap must stay >= 'boost\.durationMs' \(raw 1 -> 0\.75 live at five RELOAD copies < 10000\)/,
     );
-    expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(/permanently-active boost/);
+    expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(/cooling pool/);
 
     // Direction 2: lengthen the window past the reload. Same relation, the
-    // other leaf — which is exactly why the check is on the pair.
+    // other leaf — which is exactly why the check is on the pair. Reload
+    // stays at its shipped 25000, which folds to 18750 at the RELOAD cap.
     expect(() => applyOverrides({}, { 'boost.durationMs': 60000 })).toThrow(TunableError);
     expect(() => applyOverrides({}, { 'boost.durationMs': 60000 })).toThrow(
-      /'boost\.reloadMs' must be >= 'boost\.durationMs' \(got 25000 < 60000\)/,
+      /'boost\.reloadMs' × the RELOAD ladder at cap must stay >= 'boost\.durationMs' \(raw 25000 -> 18750 live at five RELOAD copies < 60000\)/,
     );
 
     // ALL-OR-NOTHING: the invariant fires from INSIDE the try, so every key the
@@ -463,20 +466,70 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // and the next sweep variant cannot run on a poisoned CONFIG.
     const gunDamage = CONFIG.gun.damage;
     expect(() => applyOverrides({}, { 'gun.damage': 999, 'boost.durationMs': 60000 })).toThrow(
-      /must be >= 'boost\.durationMs'/,
+      /must stay >= 'boost\.durationMs'/,
     );
     expect(CONFIG.gun.damage).toBe(gunDamage);
     expect(CONFIG.boost.durationMs).toBe(duration);
     expect(CONFIG.boost.reloadMs).toBe(reload);
 
     // A LEGAL pair still applies and still restores — the invariant refuses a
-    // relation, not the family.
-    const restore = applyOverrides({}, { 'boost.durationMs': 5000, 'boost.reloadMs': 5000 });
-    expect(CONFIG.boost.durationMs).toBe(5000);
-    expect(CONFIG.boost.reloadMs).toBe(5000);
+    // relation, not the family. 4000 * 0.75 (five RELOAD copies) = 3000, so
+    // this pair is legal through the real fold, not merely raw-legal.
+    const restore = applyOverrides({}, { 'boost.durationMs': 3000, 'boost.reloadMs': 4000 });
+    expect(CONFIG.boost.durationMs).toBe(3000);
+    expect(CONFIG.boost.reloadMs).toBe(4000);
     restore();
     expect(CONFIG.boost.durationMs).toBe(duration);
     expect(CONFIG.boost.reloadMs).toBe(reload);
+  });
+
+  // -------------------------------------------------------------------------
+  // Story 8.9 REVIEW (Edge Case Hunter): the invariant above compares the RAW
+  // reloadMs/durationMs pair, but the LIVE reload is scaled by the RELOAD
+  // ladder's cooldownScale (cap 5 copies -> 0.75, floored at 0.1 in
+  // clampStats). `--tune boost.reloadMs=12000` clears the raw pair
+  // (12000 >= 10000) but a five-RELOAD deck folds it to 9000ms < the 10000ms
+  // window — a permanently re-tappable boost the raw-only check missed.
+  // -------------------------------------------------------------------------
+  it('REFUSES boost.reloadMs that is raw-legal but live-illegal at a maxed RELOAD ladder', () => {
+    const reload = CONFIG.boost.reloadMs; // 25000
+    const duration = CONFIG.boost.durationMs; // 10000
+
+    // 12000 >= 10000 raw, but 12000 * 0.75 (5 RELOAD copies, the cap) = 9000.
+    expect(() => applyOverrides({}, { 'boost.reloadMs': 12000 })).toThrow(TunableError);
+    expect(() => applyOverrides({}, { 'boost.reloadMs': 12000 })).toThrow(
+      /raw 12000 .* 9000 live at five RELOAD copies < 10000/,
+    );
+    expect(CONFIG.boost.reloadMs).toBe(reload);
+
+    // 13334 * 0.75 = 10000.5 >= 10000: legal at the cap, so it must pass.
+    const restore = applyOverrides({}, { 'boost.reloadMs': 13334 });
+    expect(CONFIG.boost.reloadMs).toBe(13334);
+    restore();
+    expect(CONFIG.boost.reloadMs).toBe(reload);
+    expect(CONFIG.boost.durationMs).toBe(duration);
+  });
+
+  // -------------------------------------------------------------------------
+  // Story 8.9 REVIEW (Edge Case Hunter): the boost is a ONE-CHARGE pool by
+  // design (epic-8 amendment 54). A second charge lets a mid-window tap
+  // re-stamp `boostUntil` and extend the active window indefinitely,
+  // regardless of how the reload/duration relation is tuned — a hazard the
+  // reload-vs-duration check cannot see because it never looks at maxAmmo.
+  // -------------------------------------------------------------------------
+  it('REFUSES boost.maxAmmo != 1: a second charge makes the window extendable', () => {
+    expect(() => applyOverrides({}, { 'boost.maxAmmo': 2 })).toThrow(TunableError);
+    expect(() => applyOverrides({}, { 'boost.maxAmmo': 2 })).toThrow(
+      /'boost\.maxAmmo' must be exactly 1 \(got 2\)/,
+    );
+    expect(CONFIG.boost.maxAmmo).toBe(1);
+
+    const restore = applyOverrides({}, { 'boost.maxAmmo': 1 });
+    expect(CONFIG.boost.maxAmmo).toBe(1);
+    restore();
+
+    expect(() => applyOverrides({}, { 'boost.maxAmmo': 0 })).toThrow(TunableError);
+    expect(() => applyOverrides({}, { 'boost.maxAmmo': 0 })).toThrow(/'boost\.maxAmmo' must be exactly 1/);
   });
 
   it('keeps boost.* on the --tune surface ONLY: --set cannot reach it (the boundary is unchanged)', () => {

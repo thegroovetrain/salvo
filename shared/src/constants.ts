@@ -1384,12 +1384,14 @@ export const CONFIG = {
    *
    * `reloadMs` ≥ `durationMs` is a DESIGN INVARIANT — an active window always
    * implies a cooling pool, so re-activation while active is impossible by
-   * construction — and it is now ENFORCED: the batch-sim override validator
-   * throws a `TunableError` naming the relation on any `--set`/`--tune` that
-   * breaks it. `reloadMs` takes `cooldownScale` through the ONE multiply in
-   * clampStats like every equipment row (catalog-v3 R40), so a maxed RELOAD
-   * ladder (0.75) gives 18.75 s. Every number is a DESIGN TARGET the harness
-   * tunes (`--set`/`--tune boost.*`).
+   * construction — and it is now ENFORCED by the batch-sim override validator
+   * on the finished CONFIG (`--tune boost.*`; `--set` never reaches `boost.*`
+   * — it is refused at the family gate), through the real fold at a maxed
+   * RELOAD ladder, with `maxAmmo` pinned to 1. `reloadMs` takes
+   * `cooldownScale` through the ONE multiply in clampStats like every
+   * equipment row (catalog-v3 R40), so a maxed RELOAD ladder (0.75) gives
+   * 18.75 s. Every number is a DESIGN TARGET the harness tunes (`--tune
+   * boost.*`).
    */
   boost: {
     factor: 0.25, // fraction of the POST-FOLD forward maxSpeed added while active

@@ -48,8 +48,10 @@ describe('CONFIG.boost — Eric ruling 2026-09-18 (amendment 54)', () => {
 
   it('honours `reloadMs >= durationMs` — an active window ALWAYS implies a cooling pool', () => {
     // The design invariant that makes re-activation while active impossible by
-    // construction. The batch-sim override validator enforces it against
-    // `--set`/`--tune` (server); this pin is the authored side of it.
+    // construction. The batch-sim override validator enforces it on the
+    // finished CONFIG against `--tune` (server) — `--set` never reaches
+    // `boost.*`, it is refused at the family gate; this pin is the authored
+    // side of it.
     expect(CONFIG.boost.reloadMs).toBeGreaterThanOrEqual(CONFIG.boost.durationMs);
   });
 });

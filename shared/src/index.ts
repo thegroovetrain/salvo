@@ -9,11 +9,13 @@
  *  set and the total equipment stat record both change shape. With it:
  *  `CONFIG.speedBoost` (+10 u/s flat, 6 s, 18 s) is deleted and a new
  *  `CONFIG.boost` ({ factor 0.25, durationMs 10000, maxAmmo 1, reloadMs 25000 })
- *  rides the welcome config snapshot, where the client READS it — its
- *  prediction, its helm globe and its wake ring provisioning all derive the
- *  boosted cap as `maxSpeed × 1.25` — so a stale client would predict the
- *  wrong cap and desync on every boost. The bonus is PROPORTIONAL to the
- *  post-fold max speed (the SPEED ladder is inside it), so `EffectiveBoost`
+ *  is added. The client reads its own BUNDLED `CONFIG.boost` — not the welcome
+ *  config snapshot, which nothing on the client consumes — in its prediction,
+ *  its helm globe and its wake ring provisioning, all deriving the boosted cap
+ *  as `maxSpeed × 1.25`; so a PV-53 client would predict a +10 u/s / 6 s window
+ *  against a server running +25% / 10 s and desync on every boost, and the
+ *  bump is the join gate that refuses that mismatch. The bonus is PROPORTIONAL
+ *  to the post-fold max speed (the SPEED ladder is inside it), so `EffectiveBoost`
  *  loses its flat `speedBonus` field. No wire SHAPE changes:
  *  `OwnShip.boostUntil` is byte-identical and the `ammo` array stays nine long;
  *  the perception exception count stays at SIX.

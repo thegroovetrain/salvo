@@ -25,7 +25,7 @@
 // walks any dotted path, array indices included). map.baseRadius joins for the
 // 3.1 map-radius × ring evidence sweeps (amendment 7).
 
-import { CONFIG } from '@salvo/shared';
+import { CATALOG, CONFIG, effectiveStats } from '@salvo/shared';
 
 /** Unknown / non-tunable / non-numeric --set key — main prints and exits 2. */
 export class TunableError extends Error {}
@@ -327,17 +327,50 @@ export function validateTuneValue(key: string, value: number): void {
  * the family gate before any write (pinned) — but the check runs on the
  * finished CONFIG after BOTH surfaces have written, so it is surface-blind.
  *
- * deferred-work: the harness has no general cross-key mechanism — this is the
- * first and (Story 8.9) only such relation, and a second one should turn this
+ * Story 8.9 REVIEW (Edge Case Hunter): the check above compared the RAW pair,
+ * but the LIVE reload a match ever ticks against is `reloadMs *
+ * cooldownScale`, and `cooldownScale` is moved by the RELOAD ladder (catalog-v3
+ * R12: −5%/tier, cap 5 copies -> 0.75, floored at 0.1 in clampStats) — the same
+ * fold every equipment reload takes (shared/src/sim/stats.ts clampStats).
+ * `--tune boost.reloadMs=12000` cleared the raw check (12000 >= 10000) while a
+ * five-RELOAD deck folds it to 9000ms < the 10000ms window — the exact
+ * permanently-re-tappable state the raw check exists to forbid, just reached
+ * one card-count away. So the relation is now checked through the REAL fold,
+ * at the worst case the ladder can reach: `effectiveStats()` on a class with
+ * RELOAD stacked to `CATALOG.reload.cap` copies, which is CONFIG-live so a
+ * tuned `boost.reloadMs`/`boost.durationMs` is exactly what gets folded. The
+ * class chosen (torpedoBoat) is arbitrary — the boost row carries no
+ * per-class numbers (see boostRow) — so any class would fold identically.
+ *
+ * `boost.maxAmmo` (Story 8.9 REVIEW, Edge Case Hunter): the reload/duration
+ * relation assumes a single charge. A second charge lets a mid-window tap
+ * re-stamp `boostUntil` and extend the active window indefinitely no matter
+ * how reload and duration relate, so `maxAmmo` is pinned to exactly 1 here
+ * rather than folded into the reload/duration arithmetic.
+ *
+ * deferred-work: the harness has no general cross-key mechanism — these are
+ * the only such relations (Story 8.9), and a third one should turn this
  * helper into a table rather than growing another `if`.
  */
 function validateCrossKeyInvariants(): void {
-  const { reloadMs, durationMs } = CONFIG.boost;
-  if (reloadMs < durationMs) {
+  const { durationMs, maxAmmo } = CONFIG.boost;
+  if (maxAmmo !== 1) {
     throw new TunableError(
-      `'boost.reloadMs' must be >= 'boost.durationMs' (got ${reloadMs} < ${durationMs}): ` +
-        'an active window must always imply a cooling pool — a permanently-active boost is a ' +
-        'state the design forbids',
+      `'boost.maxAmmo' must be exactly 1 (got ${maxAmmo}): the Shift boost is a single-charge pool ` +
+        "— a second charge makes the active window extendable by a mid-window tap, which 'reload >= " +
+        "duration' cannot prevent",
+    );
+  }
+  const rawReloadMs = CONFIG.boost.reloadMs;
+  const maxedReloadMs = effectiveStats(
+    CONFIG.shipClasses.torpedoBoat,
+    Array.from({ length: CATALOG.reload.cap }, () => 'reload'),
+  ).equipment.boost.reloadMs;
+  if (maxedReloadMs < durationMs) {
+    throw new TunableError(
+      `'boost.reloadMs' × the RELOAD ladder at cap must stay >= 'boost.durationMs' (raw ${rawReloadMs} ` +
+        `-> ${maxedReloadMs} live at five RELOAD copies < ${durationMs}): an active window must ` +
+        'always imply a cooling pool',
     );
   }
 }

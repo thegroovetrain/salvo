@@ -103,6 +103,21 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-09-18 — Review pass (Blind Hunter + Edge Case Hunter on Fable, plus Codex `gpt-5.6-sol` cross-model review — verdicts: all three build-on-it; Codex found no defect and traced all six seeds clean; every patch below is a single-model finding verified by the orchestrator against the code)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5: (high 0, medium 0, low 5)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 6: (high 0, medium 0, low 6)
+- addressed_findings:
+  - `[low]` `[patch]` P1 — the cross-key `--tune` invariant compared the RAW `boost.reloadMs` to the window, but the live reload is scaled by the RELOAD ladder (0.75 at cap), so `--tune boost.reloadMs=12000` passed and a five-RELOAD deck reloaded in 9 s inside a 10 s window (Edge Case Hunter, CONFIRMED, harness-only). Now checked through the real fold at a maxed RELOAD deck; fail-first pinned both sides of the bound.
+  - `[low]` `[patch]` P2 — `--tune boost.maxAmmo=2` passed every validator and a second charge makes the window extendable by a mid-window tap (Edge Case Hunter, CONFIRMED, harness-only). The validator pins `boost.maxAmmo === 1`; fail-first pinned.
+  - `[low]` `[patch]` P3 — the re-derived `weaponsSmoke.mjs` header named the wrong client for the ambush phase (Blind Hunter, CONFIRMED). Header line corrected to the code's roles.
+  - `[low]` `[patch]` P4 — the `CONFIG.boost` doc, a test comment and amendment 54's parenthetical claimed `--set` reaches `boost.*`; it never does (refused at the family gate, pinned). Reworded. Consequence: the spec's I/O-matrix row "`--set boost.reloadMs=1` → the invariant's `TunableError`" is met by a DIFFERENT `TunableError` (family gate), which is safer; the intent-contract row is left as written and this note records the deviation.
+  - `[low]` `[patch]` P5 — the PV-54 changelog said the client reads `CONFIG.boost` off the welcome snapshot; the client reads its bundled CONFIG (Blind Hunter, CONFIRMED). Sentence corrected; the bump itself stands.
+  - deferred (ledger): `EQUIPMENT_STAT_FIELDS.boost` still whitelists `durationMs`/`maxAmmo` as card-addressable paths (a tooltip consumer makes narrowing a design call); an observer's contact wake ring is provisioned off the envelope max (45) and now holds ~65 % of a boosted capped TB's tail.
+  - rejected: the class-card ruling "has no durable home" (amendment 58 landed in the docs wave the reviewer could not see); ledger entries "still open" and EXPERIENCE.md "still says 20 s" (same docs wave); `maxDots` budget off the base envelope (a documented backstop, practically unreachable); archived `docs/` loadout prose (archived by rule); the `torpedoSelfHit` 9-rung stress pin (cosmetic).
+
 ## Design Notes
 
 - **Why the factor lives inside `boostedKinematics`:** the two call sites (server `stepShips`, client prediction/replay) plus the helm globe must produce the same double; one function taking `(kin, factor, active)` and computing `kin.maxSpeed + kin.maxSpeed * factor` is the desync firewall for the boost, and it is where "post-fold" is guaranteed because the input IS the folded kinematics.

@@ -25,9 +25,16 @@
 //      (FR57/AR48) deleted every mine cap: the old assertion here — "never more
 //      than maxLive at once, yet more than maxLive distinct ids over time" —
 //      was the oldest-despawn proof, and the behaviour it proved is gone.
-//   4. Mine ambush: B sails onto a live armed A-mine — asserts a CONFIG.mine.damage
-//      hp drop (55 today) + a boom, and that B first saw every A-mine only from
-//      within detect range.
+//   4. Mine ambush: A (the Torpedo Boat) sails onto a live armed mine laid by
+//      B (the Mine Layer) — asserts a CONFIG.mine.damage hp drop (55 today) +
+//      a boom, and that A first saw every B-mine only from within detect
+//      range. main() calls `ambushPhase(b, a, log)` (a role swap, same as
+//      minePhase above), so INSIDE the function the parameter names are
+//      swapped from what they name outside it: the function's own `a` is
+//      real client B (idled — the mine owner, holding station) and its own
+//      `b` is real client A (the one sailing onto the mine and taking the
+//      hit) — the log line `ambush: B.hp 250->195 boom=true` therefore
+//      reports real client A's hp, not real client B's.
 //
 // Run against a booted server (tsx server/src/index.ts + shared/dist built),
 // with HC_DEV_OPTIONS=1 in ITS env — this smoke's sandbox matchOverride +
