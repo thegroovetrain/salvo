@@ -2,9 +2,9 @@
 title: 'Story 8.11: The Match Consumable Pool'
 type: 'feature'
 created: '2026-09-18'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
-baseline_revision: '4412b60'
+baseline_revision: 'c115efc'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/project-context.md'

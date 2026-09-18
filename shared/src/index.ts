@@ -3,6 +3,20 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  55 — UNCHANGED by Story 8.11 (THE MATCH CONSUMABLE POOL, Eric ruling
+ *  2026-09-18, epic-8 amendment 67). The story adds `sim/pool.ts`
+ *  (`rollMatchPool` / `sanitizePool` / `consumableLines`) and a new
+ *  `CONFIG.pool` ({ size: 10 }), and the server appends one hidden 10-card
+ *  consumable pool to every captain's and bot's deck (40 authored + 10 = 50).
+ *  NOTHING OF IT RIDES: the pool is never on a frame, in the welcome, in the
+ *  schema or in a log line (the room logs `match.pool { count }` and nothing
+ *  else), no wire SHAPE is added or removed, no event kind exists and the
+ *  perception exception count stays at SIX. `CONFIG.pool.size` does ride
+ *  inside the welcome's CONFIG snapshot like every other block, but THE CLIENT
+ *  READS NO POOL FIELD — it predicts nothing from it — so there is no stale
+ *  client that could mis-sim against it. Catalog CONTENT is unchanged (no stub
+ *  flag flips), so the "catalog content is wire contract" convention (13) is
+ *  not engaged either. Hence: no bump.
  *  55 (Story 8.10): THE OPENING (Eric rulings 2026-09-18, epic-8 amendments
  *  59–63). Two breaks, both in the spend economy's opening move.
  *  (1) `MULLIGAN_CHOICE` (-2) JOINS `SpendMsg.choice`: the negative sentinel
@@ -666,6 +680,7 @@ export * from './sim/slow.js';
 export * from './sim/offers.js';
 export * from './sim/deck.js';
 export * from './sim/deckRules.js';
+export * from './sim/pool.js';
 export * from './sim/collision.js';
 export * from './sim/silhouette.js';
 export * from './sim/radarRaster.js';

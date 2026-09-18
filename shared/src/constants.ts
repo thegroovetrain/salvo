@@ -1672,11 +1672,34 @@ export const CONFIG = {
    *
    * NOT the deck AT QUEUE: catalog-v3 R4 shuffles a hidden 10-card match
    * consumable pool into every deck, so a queued deck is 40 + 10 = 50. That
-   * pool is Story 8.11's, not a dial here.
+   * pool is `CONFIG.pool` below (Story 8.11), not a dial here.
    */
   deck: {
     size: 40, // authored cards per deck (catalog-v3 §1 — every starter sums to 40)
     maxEquipmentLines: 3, // equipment lines per deck (catalog-v3 §1 arithmetic: "all at the ≤ 3 cap")
+  },
+
+  /**
+   * THE MATCH CONSUMABLE POOL (Story 8.11 — catalog-v3 R4/R44, FR43). ERIC'S
+   * NUMBER, NOT A BALANCE DIAL: every match rolls this many consumable cards,
+   * HIDDEN, and the SAME rolled list is appended to every captain's and every
+   * bot's deck — so a captain may always assume "there might be more heals and
+   * shields out there" without ever knowing how many of which.
+   *
+   * WHERE IT LANDS: the server appends the pool at the one deck-build site,
+   * AFTER the door's `checkDeck` legality check — `checkDeck` still reads the
+   * AUTHORED 40 alone (`CONFIG.deck.size`), and the seat ends up with 50. Each
+   * consumable line is drawn ≤ ITS OWN `cap` WITHIN the pool (R44); a deck may
+   * therefore hold authored + pool copies BEYOND that cap, and the copies past
+   * it are dead by design (the at-cap guard in sim/deck.ts never offers a line
+   * the ship already holds at cap).
+   *
+   * The SIZE is public knowledge (it rides inside the welcome's CONFIG
+   * snapshot like every other block); the COMPOSITION never leaves the server
+   * — not on a frame, not in the welcome, not in a log line (count only).
+   */
+  pool: {
+    size: 10, // consumable cards rolled per match (catalog-v3 R4 — Eric's number, never a dial)
   },
 
   /**
