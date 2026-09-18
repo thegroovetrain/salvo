@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.9] - 2026-09-18
+
+### Changed
+- **The Shift boost is universal now (Story 8.9)** — every hull gets the same boost off the same key, no card involved. Holding Shift used to add a flat +10 speed for 6 seconds on an 18-second cooldown; now it adds 25% of your ship's current top speed (so SPEED cards make the boost bigger too — a Torpedo Boat with all four SPEED cards boosts all the way to 68.75) for 10 seconds, on a 25-second cooldown. The RELOAD ladder still shortens that cooldown like it does for every other piece of equipment (18.75 s at five copies). Reverse speed is untouched. Shift is a tap — holding it down only fires once — and it does nothing while the refit window (Tab) is open, same as the weapon keys. The old `speedBoost` equipment and its config block are gone for good.
+- **Class-select cards** no longer list `E: SPEED BOOST` on the Torpedo Boat or `E: RADAR BUOY` on the Mine Layer — the boost is the same on every hull now so the card (which only sells what's different) drops it, and the radar buoy has been unreachable since Story 8.5.
+- **Under the hood:** one shared function, `boostedKinematics(kin, factor, active)`, does the boost math identically on both the server and the client, so prediction and the authoritative sim never disagree. The bonus is never baked into a ship's rated stats, so bots still read the un-boosted cap when deciding what to do. The batch-sim balance tool now refuses a boost cooldown shorter than the boost's own duration — that would mean a boost that's always on. The tests that used to pin "torpedoes always outrun the ship that fired them" are retired: the actual safety rule is that your own weapons can never hurt you (no friendly fire), and a fully-upgraded, boosted Torpedo Boat can now in fact outrun its own heavy torpedo.
+- **Network protocol** bumps to v54 (the client reads the new boost numbers). Older clients are refused at the door.
+
 ## [0.18.8] - 2026-09-17
 
 ### Changed
