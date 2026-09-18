@@ -2,8 +2,9 @@
 title: 'Story 8.8: Heal Is a Card'
 type: 'feature'
 created: '2026-09-17'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'beb9ed2'
+final_revision: 'PENDING'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -79,11 +80,11 @@ warnings: [oversized]
 
 **Execution:**
 - [x] amendments 46–50 → `epic-8-context-amendments.md` + `epic-8-context.md` -- durable home first
-- [ ] `shared/` (constants, types, index, catalog, tests) -- CONFIG split + regen block, `HEAL_CHOICE` gone, stub flip, PV 53, pins -- `npm test -w shared && npm run build -w shared`
-- [ ] `server/` (hullRepair row, context capability, world regen/clock/deletions, frames, ai tactic, scripts, tests) -- `npm test -w server`; regen tests: 30 s wait, 1 %/s shape, snap, storm reset, drone exclusion; heal tests: afloat-only, full-hp blocked, collapse allowed, bot press
-- [ ] `client/` (keyboard, main, upgradeMenu, refitCardFit, config, boonCopy, equipmentInfo, twinMap, settings, copy, tests) -- rail deleted, digit table 1–4, pre-denials, card rows -- `npm test -w client`; `tokens`/`fitCheck` green
-- [ ] docs + version + trackers + ledger -- tracker discipline (one-line stamps)
-- [ ] `npm run check` green; own server + client boot on scratch ports; PIDs killed
+- [x] `shared/` (constants, types, index, catalog, tests) -- CONFIG split + regen block, `HEAL_CHOICE` gone, stub flip, PV 53, pins -- `npm test -w shared && npm run build -w shared`
+- [x] `server/` (hullRepair row, context capability, world regen/clock/deletions, frames, ai tactic, scripts, tests) -- `npm test -w server`; regen tests: 30 s wait, 1 %/s shape, snap, storm reset, drone exclusion; heal tests: afloat-only, full-hp blocked, collapse allowed, bot press
+- [x] `client/` (keyboard, main, upgradeMenu, refitCardFit, config, boonCopy, equipmentInfo, twinMap, settings, copy, tests) -- rail deleted, digit table 1–4, pre-denials, card rows -- `npm test -w client`; `tokens`/`fitCheck` green
+- [x] docs + version + trackers + ledger -- tracker discipline (one-line stamps)
+- [x] `npm run check` green; own server + client boot on scratch ports; PIDs killed
 
 **Acceptance Criteria:**
 - Given a default deck, when the match starts, then `hullRepair` is drawable (26 drawable cards per hull) and every other consumable is still a stub.
@@ -99,12 +100,40 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-09-17 — Review pass (Blind Hunter + Edge Case Hunter on Fable, plus Codex `gpt-5.6-sol` cross-model review — verdicts: Blind Hunter build-on-it, Edge Case Hunter build-on-it, Codex fix-first; all three patched in this pass)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 1, low 2)
+- defer: 4: (high 0, medium 0, low 4)
+- reject: 3: (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[medium]` `[patch]` P1 — "full hull" had two definitions (the row refused only at exactly max; the regen snapped under 1 hp missing), so a fractional storm/burn gap could cost a whole card for < 1 hp (both Fable hunters). Eric ruled (amendment 53): one shared `hullIsFull` (missing < 1) for the row, the regen snap and the client pre-denial; fail-first tests on all three sides.
+  - `[low]` `[patch]` P2 — the regen credited the tick ending exactly on the 30 s mark (Codex, verified): the whole tick must lie past the wait; regen.test boundary pins flipped fail-first.
+  - `[low]` `[patch]` P3 — the bot's heal trigger ignored its own draining pool and fired while sinking (Edge Case Hunter + Blind Hunter 3): `want` now reads (hp + repairHp)/maxHp and requires afloat; fail-first pins.
+  - deferred (ledger): RL agents draw heals they cannot fire; How-to-Play regen sentence hardcodes the two dials; an exhausted deck's banked levels have no sink; two pre-existing script tsc errors.
+  - rejected: Codex 1 (boost ranks above repair — both fire, one deliberation tick apart; no gameplay effect); Blind Hunter 2 (bot re-picks an unstockable consumable — already ledgered by 8.7, amendment 44, owner 8.18); archived docs/codebase-map still describe the 5 key (archived by rule).
+
+## Auto Run Result
+
+**Status: done** (cycle 143, 0.18.8, PROTOCOL_VERSION 52 → 53, epic-8 amendments 46–53).
+
+**Implemented:** HULL REPAIR is the first live consumable (`server/src/game/equipment/consumables/hullRepair.ts` + `row.ts`), fired through the one activation gate via `ctx.applyRepair`, afloat-only, `blocked` when under 1 hp is missing (shared `hullIsFull`, amendment 53), allowed during the collapse; `HEAL_CHOICE`, `spendHeal`, `grantLevelHeal`, the `5` key and the DAMAGE CONTROL rail deleted end to end; `CONFIG.damageControl` → `CONFIG.hullRepair` + `CONFIG.regen`; out-of-combat regen (1 %/s of missing after 30 s wholly past the last landed damage, storm resets, drones excluded) in `tickRepairs`' slot; `lastDamagedAt` stamped at the damage gate; bots press a stocked HULL REPAIR via `CONSUMABLE_TACTICS` (pool-aware, afloat-only); belt pre-denial on the client; HULL REPAIR card rows; Settings/How-to-Play lines per amendment 50; refit band 46 px shorter with the tall-tooltip slide (amendment 52).
+
+**Files:** shared (constants, types, index, catalog, deck, hull, 12 tests), server (world, frames, equipment/index, consumables + row + hullRepair, ai/equipment, tactics, spending, types, profiles, batchsim overrides, rl env/features, 16 tests incl. new regen.test.ts, levelHeal.test.ts deleted, golden snapshot regenerated for the deck-composition change), client (upgradeMenu, refitCardFit, boonCopy, settings, config, main, keyboard, how-to-play copy, twinMap, tones, hpSting, hpGlobe, roomBindings, 16 tests), docs (VERSION/package.json/lock 0.18.8, CHANGELOG, both trackers, deferred-work, DESIGN.md, epic-8 context + amendments 46–53).
+
+**Review:** 3 patches applied (P1 full-hull predicate, P2 30 s boundary, P3 bot trigger), 4 deferred to the ledger, 3 rejected. Blind Hunter and Edge Case Hunter: build-on-it; Codex: fix-first (its boundary finding patched, its ordering finding rejected). `followup_review_recommended: false` — three localized fixes, each fail-first pinned.
+
+**Verification:** `npm run check` exit 0 twice (before and after patches): lint 0 errors (3 pre-existing warnings), tsc ×3 clean, tests 901 shared / 1936 server / 3545 client, hooks 266; server booted on :2599 and Vite on :5299 (both 200), PIDs killed. No browser look in-cycle — Eric's staging pass is the acceptance gate for the card face, the belt press and the regen feel.
+
+**Residual risks:** the regen's feel (1 %/s geometric) has no playtest yet; bots now fire heals one deliberation tick at a time (pool-aware); an exhausted deck's banked levels have no sink (ledgered); the How-to-Play regen sentence hardcodes the two dials (ledgered).
+
 ## Design Notes
 
 - **Why `ctx.applyRepair` and not hp writes in the row:** repairs must stay World-owned increase paths and the `heal` event needs the pending queue; the row keeps only its two guards, so the "afloat-only" rule has one home the gate cannot bypass.
 - **Why the regen is the second channel in `tickRepairs`' slot, not a new STEP_ORDER entry:** it replaces the level pool's drain at the same pinned position (after every damage source); `stepOrder.test` keeps its name list stable.
 - **Why the client pre-denies:** amendment 26's precedent (empty-slot denial is client-only) and the old rail's mirrored guard — a mashed heal key at full hull must not spend a 1.5 s latch on a refusal the client already knows.
 - **Why `blocked`:** the existing wire reason for "the action cannot happen here, nothing consumed" (a stern drop ashore); no new `DenialReason`.
+- **Why "full" is under 1 hp missing everywhere (amendment 53):** weapon damage is whole (amendment 39) so only storm bites and burn ticks leave a fraction; the regen closes MISSING geometrically and would take minutes to reach the exact max, during which a press bought nothing. One shared predicate keeps the row, the snap and the client pre-denial in agreement.
 - **Why the snap-to-full:** 1 % of missing never reaches zero on its own; without the snap HULL REPAIR's "full hull" refusal is unreachable after any regen and the globe reads 349.9 forever.
 
 ## Verification

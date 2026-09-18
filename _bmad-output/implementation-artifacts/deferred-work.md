@@ -1693,7 +1693,7 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: epic-7 amendment 23 ("THE DECOY ROLE IS GONE"); epic-7 amendment 25 (jamming's false blips and why they are not impersonation); the GDD's deferred-expansion blueprint.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-6-design-and-doc-reconciliation.md`
-  status: POINTER, not a new entry — CONFIRMED STILL OPEN 2026-08-21 (cycle 126)
+  status: RESOLVED 2026-09-17 (Story 8.8, cycle 143) — heals stay ALLOWED during the collapse (Eric 2026-09-11, FR47); the bound is the card itself (3 authored copies per deck, catalog cap 5, up to 5 more from the 8.11 pool; 100 hp each) and nobody regens inside the storm (amendment 47), so the NFR6 ceiling arithmetic is pinned in shared/src/__tests__/hullRepair.test.ts. Was: POINTER, not a new entry — CONFIRMED STILL OPEN 2026-08-21 (cycle 126)
   summary: WHETHER A HEAL STAYS SPENDABLE DURING THE SUDDEN-DEATH COLLAPSE IS STILL UNRULED. This is PRE-EXISTING, filed 2026-08-14 with the cycle-82 sudden-death entry above ("Also unresolved in the same family: whether a heal should be spendable DURING the collapse at all, since `bankedLevels` is uncapped and hoarded heals are what set the true worst case") — recorded here only so the 7-6 pass does not read as having missed it, and deliberately NOT duplicated. Re-verified: nothing has ruled on it, and cycle 122 made it MORE load-bearing, not less — `damageControl` instant+regen doubled 25 -> 50 each, so a banked heal is now worth ~100 hp and ~25 s of collapse survival rather than ~12.5 s. It is one of the nine calls in the "BATCH the nine small Eric calls" action item in `sprint-status.yaml`.
   evidence: the 2026-08-14 sudden-death ledger entry above; epic-3 amendment 30's worst-case correction; `batch-sim-evidence-2026-08-20.md` (the cycle-122 damageControl doubling).
 
@@ -1897,7 +1897,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: D24, D26, D29 cost paragraphs.
 
 - source_spec: `_bmad-output/game-architecture.md` (Deck amendment, Configuration)
-  status: OPEN — GDD open note 14, unchanged by this pass
+  status: RESOLVED 2026-09-17 (Story 8.8, cycle 143, epic-8 amendment 46) — the per-level auto-heal is DELETED, replaced by out-of-combat regen (1 % of missing hull per second after 30 s since the last landed damage); GDD note 14 closes. Was: OPEN — GDD open note 14, unchanged by this pass
   summary: The free per-level auto-heal (cycle 129) stays built and its fields stay under `CONFIG.damageControl` while the paid heal's numbers move to `hullRepair`. Its fate is the balance pass's call once bots sail v3 decks; nothing here deletes or keeps it by decision.
   evidence: gdd.md open note 14; `server/src/game/world.ts` `grantLevelHeal`.
 
@@ -2024,7 +2024,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 ## 2026-09-15 — Story 8.3 The Draw (cycle 138): threads for later stories
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-3-the-draw.md`
-  status: OPEN — hand to Story 8.8 (heal is a card); an Eric ruling is needed there
+  status: RESOLVED 2026-09-17 (Story 8.8, cycle 143, epic-8 amendments 46-48) — Eric ruled for his recollection: the per-level version is deleted and the out-of-combat regen is built (1 %/s of missing after 30 s; any landed damage incl. storm resets; captains and bots only). Was: OPEN — hand to Story 8.8 (heal is a card); an Eric ruling is needed there
   summary: Eric believes the per-level 10% heal was replaced by 1%/s of missing hp out of combat after 30 s without damage; `development` carries the per-level version. Story 8.8's "check which version is live" clause must resolve it WITH Eric — do not build either version unasked.
   evidence: `shared/src/constants.ts` `CONFIG.damageControl.levelMissingPct` / `levelRegenMs`; AskUserQuestion answer 2026-09-15; epics.md Story 8.8 AC.
 
@@ -2201,3 +2201,22 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
   summary: STORY 8.10 MUST PUT THE OPENING FLOW TO ERIC EXPLICITLY BEFORE BUILDING IT — UX-DR54's "ratified as rendered 2026-09-11" auto-open + REDRAW stamp is the planning pass's own claim; Eric did not recall discussing an auto-open (2026-09-17) and accepted it only as the level-zero countdown case (amendment 45). Ask, do not assume.
   evidence: Eric 2026-09-17 in the 8.7 run; memory rule "artifacts contain assumptions".
+
+## 2026-09-17 — Story 8.8 Heal Is a Card (cycle 143): threads for later stories
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
+  status: OPEN — Story 8.18 (bots sail decks) or the next RL harness pass
+  summary: RL AGENTS DRAW HULL REPAIR CARDS THEY CAN NEVER FIRE — `server/scripts/rl/env.ts` autoSpend picks uniformly over the front offer (which now holds `hullRepair`) and the RL action space has no belt press, so those levels are dead for RL runs; batchsim bots are unaffected (they use the tactic table and the 8.8 consumable row).
+  evidence: Blind Hunter finding 4 (PLAUSIBLE-low, harness only); rl/env.ts autoSpend after the heal branch was removed.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
+  status: OPEN — Story 8.20 (How-to-Play re-cut)
+  summary: THE HOW-TO-PLAY REGEN SENTENCE HARDCODES "THIRTY SECONDS" AND "EVERY SECOND" while `regen.` is on the batchsim --tune surface; a retune of `CONFIG.regen.outOfCombatMs` / `missingPctPerS` silently strands the copy (the HULL REPAIR card face reads CONFIG live, this sentence does not). Amendment 50 fixed only the lines that became false; 8.20 owns the re-cut and should derive or restate them.
+  evidence: Blind Hunter finding 5; client/src/how-to-play/copy.ts UPGRADING paragraph; howToPlay.test.ts pin.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
+  status: OPEN — consequence of amendments 14 + 46, recorded for the balance pass
+  summary: AN EXHAUSTED DECK'S BANKED LEVELS NOW HAVE NO SINK AT ALL — amendment 14 kept an offer-less level spendable only through the menu heal "until 8.8 makes heal a card"; with the rail gone a banked level on an empty draw buys nothing and simply stays banked (upgrades.test.ts re-cut from "still spendable as a heal" to "stays banked"). Not a deadlock (nothing waits on it), but the level is inert; whether it should buy anything is a design question for the draw-economy review once decks fill out.
+  evidence: server wave report; upgrades.test.ts offer-less-level cases; amendment 14's wording.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
+  status: OPEN — pre-existing, outside the gate; five-minute fixes for any harness cycle
+  summary: TWO MORE STANDING SCRIPT TSC ERRORS beside the ledgered `encounterSpan.ts:98`: `server/scripts/batchsim/balanceProbe.ts:50` (`Target.kind` missing) and `server/scripts/rl/env.ts:290` (`EQUIPMENT_IS_WEAPON[id]` indexed by `SlotItemId` since Story 8.7's widening). Neither tsconfig is in `npm run check`; 8.8 proved both pre-existing by compiling HEAD's files in place.
+  evidence: server wave report (tsc on the two script tsconfigs on the 8.8 tree and at the 8.7 merge commit).
