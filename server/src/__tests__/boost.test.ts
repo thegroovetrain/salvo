@@ -12,7 +12,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
 const DT = CONFIG.tick.simDtMs;
-const BOOST = CONFIG.speedBoost;
+const BOOST = CONFIG.boost;
 const TB_MAX = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed; // 45
 // SLOT_BOOST is now SHARED (= 1): since Story 8.5 the boost sits in the same
 // fixed slot on EVERY captain hull (amendment 23), so this file no longer
@@ -49,10 +49,12 @@ function pressActivate(w: World, id: string, seq: number, actSeq: number, actSlo
 
 // ---------- structural invariant ---------------------------------------------
 
-describe('speed-boost CONFIG invariant', () => {
+describe('boost CONFIG invariant', () => {
   it('reload >= duration, so an active window ALWAYS implies a cooling pool', () => {
     // This is what makes "re-activate while active" impossible by construction:
-    // the charge cannot have reloaded before the window closes.
+    // the charge cannot have reloaded before the window closes. Since Story 8.9
+    // the batch-sim harness enforces the same relation on the --tune surface
+    // (batchsim/overrides.ts validateCrossKeyInvariants).
     expect(BOOST.reloadMs).toBeGreaterThanOrEqual(BOOST.durationMs);
     expect(BOOST.maxAmmo).toBe(1); // single charge
   });
@@ -61,10 +63,10 @@ describe('speed-boost CONFIG invariant', () => {
 // ---------- activate-ready: consume + open the window + raise the cap ---------
 
 describe('activate a ready boost (Torpedo Boat, slot 1)', () => {
-  it('consumes the single charge, opens the 6s window, and starts the reload', () => {
+  it('consumes the single charge, opens the 10s window, and starts the reload', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    expect(a.loadout[SLOT_BOOST].equipmentId).toBe('speedBoost');
+    expect(a.loadout[SLOT_BOOST].equipmentId).toBe('boost');
     pressActivate(w, 'a', 1, 1, SLOT_BOOST);
     w.step(); // applyInputs -> ... -> activationControl fires the boost
     expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
@@ -72,15 +74,17 @@ describe('activate a ready boost (Torpedo Boat, slot 1)', () => {
     expect(a.lastActSeq).toBe(1);
   });
 
-  it('raises the forward maxSpeed cap by +speedBonus: a full-throttle TB climbs past 45 toward 55', () => {
+  it('raises the forward maxSpeed cap by +25% of the ladder-raised max: a full-throttle TB climbs past 45 toward 56.25', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     a.state.speed = TB_MAX; // already at the un-boosted cap
     pressActivate(w, 'a', 1, 1, SLOT_BOOST, 1); // full ahead + activate
-    for (let i = 0; i < 40; i++) w.step(); // 2s: well inside the 6s window
+    for (let i = 0; i < 40; i++) w.step(); // 2s: well inside the 10s window
     expect(a.boostUntil).toBeGreaterThan(w.now); // still active
     expect(a.state.speed).toBeGreaterThan(TB_MAX + 1); // provably above the base cap
-    expect(a.state.speed).toBeLessThanOrEqual(TB_MAX + BOOST.speedBonus + 1e-6); // never past 55
+    // Amendment 55: the bonus is CONFIG.boost.factor x the POST-FOLD max, so an
+    // un-carded TB caps at 45 + 45 x 0.25 = 56.25, never a flat +10 u/s.
+    expect(a.state.speed).toBeLessThanOrEqual(TB_MAX + TB_MAX * BOOST.factor + 1e-6);
   });
 
   it('an un-boosted full-throttle twin caps at the base 45 (control)', () => {
@@ -91,6 +95,86 @@ describe('activate a ready boost (Torpedo Boat, slot 1)', () => {
     for (let i = 0; i < 40; i++) w.step();
     expect(b.boostUntil).toBe(0);
     expect(b.state.speed).toBeLessThanOrEqual(TB_MAX + 1e-6);
+  });
+});
+
+// ---------- Story 8.9: THE SHIFT BOOST, end to end through submitInput -------
+
+describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
+  /** Run `n` ticks. */
+  const run = (w: World, n: number): void => {
+    for (let i = 0; i < n; i++) w.step();
+  };
+  /** Deal `count` copies of one upgrade line onto a live record. */
+  const stack = (w: World, s: ShipRecord, lineId: string, count: number): void => {
+    for (let i = 0; i < count; i++) w.applyCard(s, lineId);
+  };
+
+  it('a slot-1 tap opens a 10 s window on a 25 s reload, and the RATED cap never moves', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    expect(a.loadout[SLOT_BOOST].equipmentId).toBe('boost');
+    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    w.step();
+    expect(a.boostUntil).toBe(w.now + 10000); // amendment 54: 10 s
+    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: 25000 }); // amendment 54: 25 s
+    // THE BOTS' RATED READ IS UNTOUCHED (amendment 55): the bonus is layered
+    // per tick by the shared hook and is NEVER folded into EffectiveStats, so
+    // ai/utility.ts's max(rated, actual) deadband still reads the class cap.
+    expect(a.stats.kinematics.maxSpeed).toBe(45);
+  });
+
+  it('the boosted forward cap is 56.25 un-carded and 68.75 with four SPEED cards', () => {
+    // BASE: 45 + 45 x 0.25.
+    const w = bareWorld();
+    const a = place(w, 'a');
+    a.state.speed = TB_MAX;
+    pressActivate(w, 'a', 1, 1, SLOT_BOOST, 1); // full ahead + tap
+    run(w, 100); // 5 s — inside the 10 s window, long past the accel ramp
+    expect(a.boostUntil).toBeGreaterThan(w.now);
+    expect(a.stats.kinematics.maxSpeed).toBe(45); // rated, un-carded
+    expect(a.state.speed).toBeCloseTo(56.25, 6);
+
+    // LADDER-RAISED: four SPEED copies lift the rated cap to 55, and the
+    // BONUS GROWS WITH IT — 55 + 55 x 0.25 = 68.75, not 55 + a flat 10.
+    const w2 = bareWorld();
+    const b = place(w2, 'b');
+    stack(w2, b, 'speed', 4); // catalog-v3 cap on the SPEED line
+    expect(b.stats.kinematics.maxSpeed).toBe(55); // rated read STILL rated
+    b.state.speed = 55;
+    pressActivate(w2, 'b', 1, 1, SLOT_BOOST, 1);
+    run(w2, 100);
+    expect(b.boostUntil).toBeGreaterThan(w2.now);
+    expect(b.state.speed).toBeCloseTo(68.75, 6);
+  });
+
+  it('a second tap INSIDE the window is no-ammo — the charge is in the 25 s pool', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    w.step();
+    const opened = a.boostUntil;
+    run(w, 20); // 1 s into the 10 s window
+    expect(a.boostUntil).toBeGreaterThan(w.now); // still active
+    pressActivate(w, 'a', 2, 2, SLOT_BOOST); // TAP AGAIN through the real path
+    w.step();
+    expect(a.boostUntil).toBe(opened); // window NOT extended, NOT restarted
+    expect(w.sinkingActivationGate(a, SLOT_BOOST)).toEqual({ ok: false, reason: 'no-ammo' });
+  });
+
+  it('five RELOAD cards shorten the pool to 18750 ms and leave the 10 s window alone', () => {
+    // R40: the reload rides the ONE cooldownScale multiply in clampStats like
+    // every equipment row — 25000 x 0.75. The DURATION is not a reload and no
+    // card addresses it.
+    const w = bareWorld();
+    const a = place(w, 'a');
+    stack(w, a, 'reload', 5); // the 5-copy cap: additive -0.05/card => 0.75
+    expect(a.stats.equipment.boost.reloadMs).toBe(18750);
+    expect(a.stats.equipment.boost.durationMs).toBe(10000);
+    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    w.step();
+    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: 18750 });
+    expect(a.boostUntil).toBe(w.now + 10000);
   });
 });
 
@@ -186,19 +270,22 @@ describe('actSeq is inert on a weapon or empty slot', () => {
 describe('the boost is no longer a Torpedo Boat privilege (amendment 23)', () => {
   // Before Story 8.5 the boost was a per-hull fit: only the Torpedo Boat
   // carried it. The nine-slot loadout fits it in slot 1 on every captain, at
-  // the Torpedo Boat's SHIPPED numbers — same 6 s window, same 18 s reload.
+  // the SAME numbers — since Story 8.9 (amendment 54) a 10 s window on a 25 s
+  // reload (the pre-8.9 6 s / 18 s pair is RETIRED: Eric ruling 2026-09-18,
+  // "Build as-written, except 25s reload").
   it.each(['battleship', 'mineLayer', 'torpedoBoat'] as const)(
-    'a %s fits speedBoost in slot 1 and boosts with the shipped numbers',
+    'a %s fits boost in slot 1 and boosts with the shipped numbers',
     (hull) => {
       const w = bareWorld();
       const a = place(w, 'a', hull);
-      expect(a.loadout[SLOT_BOOST].equipmentId).toBe('speedBoost');
+      expect(a.loadout[SLOT_BOOST].equipmentId).toBe('boost');
       expect(a.loadout[SLOT_BOOST].state).toEqual({ n: BOOST.maxAmmo, reloadMsLeft: 0 });
       pressActivate(w, 'a', 1, 1, SLOT_BOOST);
       w.step();
       expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
       expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: BOOST.reloadMs });
-      expect(BOOST.reloadMs).toBe(18000); // the shipped 18 s, byte-identical across hulls
+      expect(BOOST.durationMs).toBe(10000); // the amendment-54 10 s window
+      expect(BOOST.reloadMs).toBe(25000); // the amendment-54 25 s reload, byte-identical across hulls
     },
   );
 
@@ -326,7 +413,7 @@ describe('death during boost — Story 5.2 supersedes the 1.6 instant close', ()
     w.respawnEnabled = false;
     w.sinkShip('a'); // killed while boosting
     expect(isAfloat(a.lifecycle)).toBe(false);
-    // Amendment 10 admits speedBoost while sinking, so an OPEN window must
+    // Amendment 10 admits the boost while sinking, so an OPEN window must
     // SURVIVE sink-entry and keep composing with the decel cap (the doomed
     // surge). The old "no active-boost chrome on a dead ship" concern does not
     // apply at entry: the owner's frame still carries `you` and advertises the

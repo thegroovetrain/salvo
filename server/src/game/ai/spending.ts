@@ -48,7 +48,7 @@
 //   starShells → starShells, dazzleShells, phosphorShells
 //   intel      → radarSweep
 //   radarBuoy  → decoyBuoy            (R1: the buoy becomes the consumable)
-//   speedBoost → (nothing — Story 8.9 makes the boost a universal ability,
+//   boost      → (nothing — Story 8.9 makes the boost a universal ability,
 //                 so no v3 card addresses it and the base is simply unused)
 //
 //   LINE OVERRIDE                     → v3 line
@@ -143,7 +143,7 @@ export const CATEGORY_LINES: Readonly<Record<string, readonly string[]>> = Objec
   starShells: ['starShells', 'dazzleShells', 'phosphorShells'],
   intel: ['radarSweep'],
   radarBuoy: ['decoyBuoy'],
-  speedBoost: [], // Story 8.9: the boost becomes a universal ability, not a card
+  boost: [], // Story 8.9: the boost is a universal ability, not a card
 });
 
 /** v2 LINE-override key → the v3 line it now names (see the header table).

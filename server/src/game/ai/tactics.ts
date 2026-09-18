@@ -587,9 +587,12 @@ function postureBearing(
  * is the SPEED BOOST. `chooseAct` spends the boost on `disengage`, precisely
  * the posture that runs at the rim, and the ability raises the hull's cap in
  * the WORLD without touching `EffectiveStats.kinematics`; a `raider` therefore
- * makes 57 u/s against a rated 45 and covers 27% more water than a rated
- * lookahead budgets for. Measured: with the rated figure alone, 15 of 19
- * residual crossings were boosted raiders. `max()` and not the live speed
+ * makes 56.25 u/s against a rated 45 — Story 8.9 pays +25 % of the
+ * ladder-raised cap for 10 s on a 25 s reload, so the gap only WIDENS as SPEED
+ * cards land — and covers ~25% more water than a rated lookahead budgets for.
+ * Measured (under the pre-8.9 flat +10 u/s boost, when the same gap was 57 vs
+ * 45): with the rated figure alone, 15 of 19 residual crossings were boosted
+ * raiders. `max()` and not the live speed
  * outright, because a hull loafing at 10 u/s can still accelerate, and
  * shrinking the horizon to match a momentary throttle would hand the storm
  * back the head start this whole constraint exists to deny.
@@ -605,7 +608,8 @@ function ringLookaheadU(stats: EffectiveStats, speed: number): number {
  * Until now the storm appeared in the bot's steering in exactly one shape: an
  * OVERRIDE, once the hull was already wet. Nothing capped how far a chosen
  * heading could travel, so `disengage`'s pure reciprocal-of-the-bearing flee
- * (`postureBearing`) ran a boosted raider at 55 u/s in a straight line into
+ * (`postureBearing`) ran a boosted raider at 55 u/s (the pre-8.9 flat boost;
+ * 56.25 and rising with SPEED cards since) in a straight line into
  * the storm whenever the enemy happened to lie inward of it. 8 of the 10
  * measured exits taken while the ring was NOT even closing were `disengage`.
  *

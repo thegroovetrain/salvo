@@ -50,7 +50,7 @@ export function isTunableKey(key: string): boolean {
 // cannon outright with the BROADSIDE BARRAGE. Shipping `cannon.` verbatim would
 // pass this family gate and then die on the CONFIG walk, while the battleship's
 // actual main weapon stayed unreachable — so the dead family is dropped and the
-// three live blocks the doc predates (broadside, speedBoost, radarBuoy) are in.
+// three live blocks the doc predates (broadside, boost, radarBuoy) are in.
 // Keep this list in step with the top-level equipment blocks of CONFIG.
 const TUNE_FAMILIES = [
   'gun.',
@@ -58,7 +58,7 @@ const TUNE_FAMILIES = [
   'torpedo.',
   'mine.',
   'starShells.',
-  'speedBoost.',
+  'boost.',
   'radarBuoy.',
   'shipClasses.',
   // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
@@ -306,6 +306,43 @@ export function validateTuneValue(key: string, value: number): void {
 }
 
 /**
+ * CROSS-KEY INVARIANTS — relations between two CONFIG leaves, checked ONCE on
+ * the FINISHED CONFIG rather than per key.
+ *
+ * `--set` and `--tune` each validate their leaves INDEPENDENTLY (family gate,
+ * finiteness, per-leaf floor), which is all a single leaf can be judged on. An
+ * invariant that RELATES two leaves cannot be judged that way: whichever key is
+ * written first is legal on its own, and the pair only becomes illegal once
+ * both are in. So the relation is checked after every write, from inside the
+ * all-or-nothing try — a violation rolls the whole apply back and no match ever
+ * runs on the bad pair.
+ *
+ * `boost.reloadMs >= boost.durationMs` (Story 8.9, epic-8 amendment 54): the
+ * boost is a 1-charge pool, so a reload shorter than the window means the
+ * charge is back before the window closes and the boost is PERMANENTLY active
+ * — a state the design forbids. Either leaf can break it (`--tune
+ * boost.reloadMs=1` shortens the reload, `--tune boost.durationMs=60000`
+ * lengthens the window), hence the check on the pair rather than on either.
+ * `boost.*` lives on the `--tune` combat surface only — `--set` refuses it at
+ * the family gate before any write (pinned) — but the check runs on the
+ * finished CONFIG after BOTH surfaces have written, so it is surface-blind.
+ *
+ * deferred-work: the harness has no general cross-key mechanism — this is the
+ * first and (Story 8.9) only such relation, and a second one should turn this
+ * helper into a table rather than growing another `if`.
+ */
+function validateCrossKeyInvariants(): void {
+  const { reloadMs, durationMs } = CONFIG.boost;
+  if (reloadMs < durationMs) {
+    throw new TunableError(
+      `'boost.reloadMs' must be >= 'boost.durationMs' (got ${reloadMs} < ${durationMs}): ` +
+        'an active window must always imply a cooling pool — a permanently-active boost is a ' +
+        'state the design forbids',
+    );
+  }
+}
+
+/**
  * Apply a set of overrides by structured mutation; returns a restore closure
  * that puts every original value back (reverse order). Call BEFORE constructing
  * any World — CONFIG reads are live, so already-running sims must not exist.
@@ -338,6 +375,9 @@ export function applyOverrides(
   try {
     for (const key of Object.keys(set)) write(key, set[key], false);
     for (const key of Object.keys(tune)) write(key, tune[key], true);
+    // Relations between leaves, on the FINISHED CONFIG — inside the try, so a
+    // violation rolls every write back exactly like a bad leaf does.
+    validateCrossKeyInvariants();
   } catch (err) {
     rollback();
     throw err;

@@ -145,12 +145,20 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
   });
 
   it('straight ahead with the hull OVERDRIVEN past the fish — firer STILL takes no damage', () => {
-    // Catalog v3 caps SPEED at 4 copies (45 + 4x2.5 = 55 < 65 — a max-stacked
-    // hull cannot outrun its own base fish, by guardrail design; catalog-v3
-    // R17 puts the fish at 65 u/s). To keep the outrun geometry the old
-    // margin+grace fix depended on PINNED, the world runs against the
-    // INJECTED 9-rung ladder above: 45 + 9x2.5 = 67.5 > 65.
-    // Permanent owner immunity makes a self-hit impossible regardless.
+    // FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, AR49; Story 8.9,
+    // amendment 55). "A torpedo outruns every hull" is no longer a requirement
+    // the catalog has to satisfy: a SPEED-capped Torpedo Boat with the boost
+    // open now makes 68.75 u/s (55 + 25 %) against the 65 u/s fish and OUTRUNS
+    // it — and that is ALLOWED, because the safety property is no longer a
+    // speed inequality but PERMANENT OWNER IMMUNITY (Story 8.4: own ordnance
+    // can never damage its owner's hull, under any geometry).
+    //
+    // The numbers below are FACTS, not law, and 8.13 may move them: catalog v3
+    // caps SPEED at 4 copies (45 + 4x2.5 = 55 u/s un-boosted), so the INJECTED
+    // 9-rung ladder above (45 + 9x2.5 = 67.5 > 65) is no longer NEEDED to reach
+    // the outrun geometry — the boost gets there on the shipped ladder. It
+    // stays as a STRESS PIN: the most extreme overtake the harness can build,
+    // held against the immunity rule rather than against a speed budget.
     expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + 2.5 * 9).toBeGreaterThan(
       CONFIG.torpedo.speed,
     );

@@ -654,7 +654,7 @@ function scnMineBurstDetonation(g: Golden): void {
  */
 function scnDenied(g: Golden): void {
   const w = bareWorld(1016);
-  place(w, 'a', 0, 0, 0); // TB: gun / speedBoost / heavyTorpedo (Story 8.5)
+  place(w, 'a', 0, 0, 0); // TB: gun / boost / heavyTorpedo (Story 8.5)
   place(w, 'b', 120, 0); // sighted second captain — proves owner-only
   const m = place(w, 'm', 400, 0, 0, 'mineLayer'); // stern rack drops at (324, 0)
   w.map.islands.push(circleIsland(324, 0, 20)); // the rock behind m's stern

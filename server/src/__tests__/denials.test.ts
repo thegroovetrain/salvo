@@ -27,7 +27,7 @@ function bareWorld(seed = 7): World {
   return w;
 }
 
-// NINE FIXED-ROLE SLOTS (Story 8.5): every captain spawns [gun, speedBoost,
+// NINE FIXED-ROLE SLOTS (Story 8.5): every captain spawns [gun, boost,
 // <seed weapons>, ...]. A hull's class weapon (the TB's torpedo, the ML's
 // mine rack) is seeded into the FIRST weapon slot, and the boost has its own
 // fixed slot on every hull.
@@ -99,7 +99,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
 
   it("no-ammo: a within-RTT ability double press denies {'no-ammo'} keyed on the press's actSeq", () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0); // TB: slot 1 = speedBoost (1 charge) on every captain
+    const a = place(w, 'a', 0, 0); // TB: slot 1 = boost (1 charge) on every captain
     w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0 }));
     w.step(); // press 1 activates (charge 1 → 0)
     expect(a.boostUntil).toBeGreaterThan(0);
@@ -264,9 +264,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 52→53 bump (PV 53: `SpendMsg.choice` lost its -1 heal sentinel and HULL REPAIR stopped being a stub) is enforced at matchmake', () => {
-  it('rejects pv-52 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(53);
+describe('pv join gate — the 53→54 bump (PV 54: the `speedBoost` equipment id is deleted, `boost` is fitted on every captain, and the client reads CONFIG.boost) is enforced at matchmake', () => {
+  it('rejects pv-53 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(54);
+    expect(protocolVersionError(53)).toMatch(/refresh/);
     expect(protocolVersionError(52)).toMatch(/refresh/);
     expect(protocolVersionError(51)).toMatch(/refresh/);
     expect(protocolVersionError(50)).toMatch(/refresh/);

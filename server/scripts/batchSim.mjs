@@ -54,7 +54,7 @@ if (process.env.HC_DEV_OPTIONS !== '1') {
 }
 
 // SECOND GATE: --tune edits COMBAT numbers (gun/broadside/torpedo/mine/
-// starShells/speedBoost/radarBuoy/shipClasses), not harness dials, so it
+// starShells/boost/radarBuoy/shipClasses), not harness dials, so it
 // carries its own env var on top of the dev gate above. Scanned off argv here —
 // args.ts stays pure over argv and reads no process.env — and re-checked in
 // batchsim/main.ts, which a direct tsx invocation can reach without passing
@@ -63,7 +63,7 @@ if (process.argv.includes('--tune') && process.env.HC_BALANCE !== '1') {
   console.error(
     'batchSim: refusing --tune without HC_BALANCE=1 — --tune mutates COMBAT ' +
       'CONFIG (gun.*, broadside.*, torpedo.*, mine.*, starShells.*, ' +
-      'speedBoost.*, radarBuoy.*, shipClasses.*), ' +
+      'boost.*, radarBuoy.*, shipClasses.*), ' +
       'a separate surface from the --set/--sweep harness dials.\n' +
       'Run: HC_DEV_OPTIONS=1 HC_BALANCE=1 node server/scripts/batchSim.mjs --tune key=value [options]',
   );

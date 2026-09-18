@@ -116,7 +116,7 @@ export interface BotProfile {
    * Consumers (every entry has at least one — the deleted-`aggression` rule):
    * the slot ORDERING in tactics.ts (all entries) and each tactic's want()
    * PROACTIVITY gate against equipment.ts's APPETITE_NEUTRAL (1) /
-   * APPETITE_EAGER (2) thresholds (mine, starShells, radarBuoy, speedBoost).
+   * APPETITE_EAGER (2) thresholds (mine, starShells, radarBuoy, boost).
    * Unlisted equipment resolves to the neutral base (gun deliberately lowest:
    * the fallback weapon is tried last). Values are eagerness, NEVER ranges —
    * ranges stay fractions of the bot's own stats in the tactics.
@@ -150,7 +150,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     healHpFrac: DEFAULT_HEAL,
     // The opener weapon leads every tick; boost is spent eagerly on the way
     // out (the old usesBoost: true, now a number the ordering also reads).
-    appetite: { heavyTorpedo: 2.5, speedBoost: 2.0 },
+    appetite: { heavyTorpedo: 2.5, boost: 2.0 },
   },
   duelist: {
     id: 'duelist',
@@ -166,7 +166,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     healHpFrac: DEFAULT_HEAL,
     // Gun-led by BAND, not by ordering: the tube is still tried first when a
     // credible opening exists (mid appetite), and the boost breaks a bad fight.
-    appetite: { heavyTorpedo: 1.5, speedBoost: 1.5 },
+    appetite: { heavyTorpedo: 1.5, boost: 1.5 },
   },
   bulwark: {
     id: 'bulwark',
@@ -277,7 +277,7 @@ const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.fre
   gun: 2.0,
   heavyTorpedo: 2.2,
   navalMines: 2.2,
-  speedBoost: 2.2,
+  boost: 2.2,
   broadside: 2.2,
   starShells: 2.2,
   radarBuoy: 2.2,

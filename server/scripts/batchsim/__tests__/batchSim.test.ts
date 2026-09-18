@@ -285,7 +285,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
-      /gun\.\*, broadside\.\*, torpedo\.\*, mine\.\*, starShells\.\*, speedBoost\.\*, radarBuoy\.\*, shipClasses\.\*/,
+      /gun\.\*, broadside\.\*, torpedo\.\*, mine\.\*, starShells\.\*, boost\.\*, radarBuoy\.\*, shipClasses\.\*/,
     );
     expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
   });
@@ -428,6 +428,67 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     }
     // ...and the deck dials are untouched by the refused apply.
     expect(CONFIG.deck.size).toBe(40);
+  });
+
+  // -------------------------------------------------------------------------
+  // CROSS-KEY INVARIANT (Story 8.9, epic-8 amendment 54): boost.reloadMs must
+  // never fall below boost.durationMs. The boost is a ONE-CHARGE pool, so a
+  // reload shorter than the window hands the charge back before the window
+  // closes — a permanently-active boost, which the design forbids. Per-leaf
+  // validation cannot catch it: each leaf is legal alone and only the PAIR is
+  // illegal, so the check runs once on the finished CONFIG.
+  // -------------------------------------------------------------------------
+  it('REFUSES boost.reloadMs < boost.durationMs from EITHER direction, after every key is written', () => {
+    const reload = CONFIG.boost.reloadMs;
+    const duration = CONFIG.boost.durationMs;
+    expect(reload).toBeGreaterThanOrEqual(duration); // the shipped pair is legal
+
+    // Direction 1: shorten the reload under the window. 1 ms clears the
+    // per-leaf reload floor (1), so ONLY the cross-key check can catch it.
+    expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(TunableError);
+    expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(
+      /'boost\.reloadMs' must be >= 'boost\.durationMs' \(got 1 < 10000\)/,
+    );
+    expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(/permanently-active boost/);
+
+    // Direction 2: lengthen the window past the reload. Same relation, the
+    // other leaf — which is exactly why the check is on the pair.
+    expect(() => applyOverrides({}, { 'boost.durationMs': 60000 })).toThrow(TunableError);
+    expect(() => applyOverrides({}, { 'boost.durationMs': 60000 })).toThrow(
+      /'boost\.reloadMs' must be >= 'boost\.durationMs' \(got 25000 < 60000\)/,
+    );
+
+    // ALL-OR-NOTHING: the invariant fires from INSIDE the try, so every key the
+    // apply already wrote — including ones from other families — is rolled back
+    // and the next sweep variant cannot run on a poisoned CONFIG.
+    const gunDamage = CONFIG.gun.damage;
+    expect(() => applyOverrides({}, { 'gun.damage': 999, 'boost.durationMs': 60000 })).toThrow(
+      /must be >= 'boost\.durationMs'/,
+    );
+    expect(CONFIG.gun.damage).toBe(gunDamage);
+    expect(CONFIG.boost.durationMs).toBe(duration);
+    expect(CONFIG.boost.reloadMs).toBe(reload);
+
+    // A LEGAL pair still applies and still restores — the invariant refuses a
+    // relation, not the family.
+    const restore = applyOverrides({}, { 'boost.durationMs': 5000, 'boost.reloadMs': 5000 });
+    expect(CONFIG.boost.durationMs).toBe(5000);
+    expect(CONFIG.boost.reloadMs).toBe(5000);
+    restore();
+    expect(CONFIG.boost.durationMs).toBe(duration);
+    expect(CONFIG.boost.reloadMs).toBe(reload);
+  });
+
+  it('keeps boost.* on the --tune surface ONLY: --set cannot reach it (the boundary is unchanged)', () => {
+    // The cross-key invariant lives at the END of applyOverrides and so covers
+    // whichever surface wrote the leaf; boost.* itself is a COMBAT block, so it
+    // is reachable on --tune and refused on --set exactly like gun.*.
+    expect(() => parseArgs(['--set', 'boost.reloadMs=1'])).toThrow(TunableError);
+    expect(() => parseArgs(['--set', 'boost.reloadMs=1'])).toThrow(/not a tunable dial/);
+    expect(isTunableKey('boost.reloadMs')).toBe(false);
+    const restore = applyOverrides({}, { 'boost.factor': 0.5 });
+    expect(CONFIG.boost.factor).toBe(0.5);
+    restore();
   });
 
   it('leaves the --set/--sweep whitelist BYTE-IDENTICAL: gun.* is still refused there', () => {

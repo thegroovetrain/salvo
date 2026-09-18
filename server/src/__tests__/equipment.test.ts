@@ -50,20 +50,20 @@ import {
 
 const DT = CONFIG.tick.simDtMs;
 // THE FIXTURE IS NINE FIXED-ROLE SLOTS (Story 8.5). There is no per-hull fit
-// left to name: EVERY captain spawns [gun, speedBoost, <seed weapons>, ...] and
+// left to name: EVERY captain spawns [gun, boost, <seed weapons>, ...] and
 // the rest of the nine are empty. What still differs per hull is the SPAWN
 // SEED (sim/catalog.ts), which lands its weapons in the weapon row (2, 3, 4)
 // first-empty-first:
-//   MINE LAYER   [gun, speedBoost, navalMines,   empty x6]
-//   TORPEDO BOAT [gun, speedBoost, heavyTorpedo, empty x6]
+//   MINE LAYER   [gun, boost, navalMines,   empty x6]
+//   TORPEDO BOAT [gun, boost, heavyTorpedo, empty x6]
 // THE RADAR BUOY IS NO LONGER FITTED ON ANY HULL (epic-8 amendment 22): no
 // card and no seed reaches it, so the cases that exercise its module fit it
 // BY HAND into a free weapon slot (fitBuoy below). The module, its CONFIG row
 // and its behaviour pins all stay exactly as shipped.
 /** Mine Layer fit, in slot order (the rest of the nine are empty). */
-const ML_IDS = ['gun', 'speedBoost', 'navalMines'] as const;
+const ML_IDS = ['gun', 'boost', 'navalMines'] as const;
 /** Torpedo Boat fit, in slot order. */
-const TB_IDS = ['gun', 'speedBoost', 'heavyTorpedo'] as const;
+const TB_IDS = ['gun', 'boost', 'heavyTorpedo'] as const;
 /** The first WEAPON slot (Q) — where each hull's single seeded weapon lands. */
 const SLOT_MINE = WEAPON_SLOTS[0];
 const SLOT_TORPEDO = WEAPON_SLOTS[0];
@@ -87,7 +87,7 @@ function bareWorld(seed = 7, opts?: WorldOptions): World {
 }
 
 /** Add a MINE LAYER and pin it to the origin at a known heading (speed 0) —
- *  the suite's default fixture: [gun, speedBoost, navalMines, empty x6] covers
+ *  the suite's default fixture: [gun, boost, navalMines, empty x6] covers
  *  a 360-degree weapon, an aimed weapon with a rear placement sector, an
  *  ability, and six empty slots in one hull. The role stays 'captain' so the
  *  FleetController never overwrites the scripted inputs. */
@@ -97,7 +97,7 @@ function place(w: World, id: string, heading = 0): ShipRecord {
   return rec;
 }
 
-/** The TORPEDO BOAT sibling: [gun, speedBoost, heavyTorpedo, empty x6] — the
+/** The TORPEDO BOAT sibling: [gun, boost, heavyTorpedo, empty x6] — the
  *  only SEED that carries a torpedo, so every bow-arc case runs on this hull. */
 function placeTb(w: World, id: string, heading = 0): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, []);
@@ -149,14 +149,14 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly gun / heavyTorpedo / navalMines / speedBoost / broadside / starShells / radarBuoy', () => {
+  it('holds exactly gun / heavyTorpedo / navalMines / boost / broadside / starShells / radarBuoy', () => {
     expect(Object.keys(EQUIPMENT).sort()).toEqual([
+      'boost',
       'broadside',
       'gun',
       'heavyTorpedo',
       'navalMines',
       'radarBuoy',
-      'speedBoost',
       'starShells',
     ]);
   });
@@ -180,7 +180,7 @@ describe('EQUIPMENT registry — interface conformance', () => {
     // The gun and the speed boost are slotless/base fits — no line fills them,
     // and they are exactly the registry rows no `slotFill` target names.
     expect(Object.hasOwn(EQUIPMENT, 'gun')).toBe(true);
-    expect(Object.hasOwn(EQUIPMENT, 'speedBoost')).toBe(true);
+    expect(Object.hasOwn(EQUIPMENT, 'boost')).toBe(true);
   });
 
   // Content-level, NOT conformance: the weapon/ability split rides the shared
@@ -188,7 +188,7 @@ describe('EQUIPMENT registry — interface conformance', () => {
   // AND (as of Story 2.8, amendment 45) the mine are aimed-click weapons, and
   // since Story 7-5 wave 2 so is the RADAR BUOY (click-placed in the mine's
   // rear sector, R2.7 — where the decoy buoy it replaced was an un-aimed
-  // stern-drop ability). speedBoost (1.6) is the ONLY non-weapon left.
+  // stern-drop ability). boost (1.6) is the ONLY non-weapon left.
   it('each row mirrors the shared EQUIPMENT_IS_WEAPON split', () => {
     for (const [id, row] of Object.entries(EQUIPMENT)) {
       expect(row!.isWeapon).toBe(EQUIPMENT_IS_WEAPON[id as keyof typeof EQUIPMENT_IS_WEAPON]);
@@ -198,7 +198,7 @@ describe('EQUIPMENT registry — interface conformance', () => {
     // Story 2.8 (amendment 45) DELIBERATELY FLIPS the 1.8 ability pin: the mine
     // is a click-aimed weapon again (rear placement arc + placeRange).
     expect(EQUIPMENT.navalMines!.isWeapon).toBe(true);
-    expect(EQUIPMENT.speedBoost!.isWeapon).toBe(false);
+    expect(EQUIPMENT.boost!.isWeapon).toBe(false);
     expect(EQUIPMENT.broadside!.isWeapon).toBe(true); // Story 7-5 wave 2
     expect(EQUIPMENT.starShells!.isWeapon).toBe(true); // Story 1.7
     expect(EQUIPMENT.radarBuoy!.isWeapon).toBe(true); // Story 7-5 wave 2 (R2.7): click-placed
@@ -348,7 +348,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     const reg = buildConsumableRegistry([row]);
     // equipment ids -> EQUIPMENT (the consumable registry is never consulted)
     expect(slotRow('gun', reg)).toBe(EQUIPMENT.gun);
-    expect(slotRow('speedBoost', reg)).toBe(EQUIPMENT.speedBoost);
+    expect(slotRow('boost', reg)).toBe(EQUIPMENT.boost);
     expect(slotRow('lightTorpedo', reg)).toBeUndefined(); // authored, unbuilt (Story 8.13)
     // consumable ids -> the injected registry, NEVER EQUIPMENT
     expect(slotRow('hullRepair', reg)).toBe(row);
@@ -835,7 +835,7 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
       const ship = w.addShip(hull, hull, 'captain', hull, undefined, undefined, []);
       expect(ship.loadout).toHaveLength(SLOT_COUNT);
       expect(ship.loadout[SLOT_GUN].equipmentId).toBe('gun');
-      expect(ship.loadout[SLOT_BOOST].equipmentId).toBe('speedBoost');
+      expect(ship.loadout[SLOT_BOOST].equipmentId).toBe('boost');
       expect(WEAPON_SLOTS.map((i) => ship.loadout[i].equipmentId)).toEqual([
         ...seed,
         ...Array<null>(WEAPON_SLOTS.length - seed.length).fill(null),

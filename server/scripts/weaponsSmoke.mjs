@@ -1,16 +1,21 @@
 // Weapons smoke: two live @colyseus/sdk clients against a running dev server,
 // exercising torpedoes + mines end to end.
-//   1. Torpedo kill: A (torpedo boat) faces B (mine layer, 150hp since the
-//      2026-08-03 hp-ladder move) bow-on and holds fire until B sinks — THREE
-//      70-dmg fish across ~30s reloads (3×70 = 210 > 150 HP; the smoke clicks
-//      every tick, so the fish count follows the hp automatically). Asserts
-//      70-damage hits, the kill on the roster. Damage/reload retuned 55/12s ->
-//      70/30s by the 2026-08-04 weapon balance pass.
+//   1. Torpedo kill: A (torpedo boat) faces B (mine layer) bow-on and holds
+//      fire until B sinks. The arithmetic is READ FROM CONFIG, never pinned
+//      here: at the numbers shipping today that is SIX 50-dmg fish
+//      (CONFIG.torpedo.damage) against a 300 hp Mine Layer
+//      (CONFIG.shipClasses.mineLayer.hp) across ~30 s reloads
+//      (CONFIG.torpedo.reloadMs) — 6x50 = 300 >= 300 hp. The smoke clicks every
+//      tick, so the fish count follows the hp and the damage automatically; the
+//      only thing tuning moves is the PATIENCE budget below. Asserts at least
+//      one hit at exactly CONFIG.torpedo.damage and the kill on the roster.
 //   2. Torpedo never blips: B collects every torpedo id it is shown (via `torp`
 //      events entering its sight) and every radar blip id — asserts the sets are
 //      DISJOINT (a torpedo can never appear on the scope).
-//   3. Mine visibility + NO EVICTION: B — the MINE LAYER (mines are its
-//      click-aimed rear-arc weapon slot 2 as of Story 8.5) — holds station clicking
+//   3. Mine visibility + NO EVICTION: B — the MINE LAYER, whose spawn seed fits
+//      `navalMines` in the FIRST WEAPON SLOT (Q, inp.slot = 2) under the Story
+//      8.5 nine-slot fixed roles [gun, boost, <seed weapon>, ...]; mines are
+//      CLICK-FIRED into the rear placement arc, not an ability — holds station clicking
 //      drops astern while A loiters within detect range but outside trigger
 //      range. Asserts A never sees an enemy mine beyond DETECT range (Story
 //      4.9: the 3/8 rung, 0.75 × sight — the truesight bar is retired; no
@@ -20,8 +25,9 @@
 //      (FR57/AR48) deleted every mine cap: the old assertion here — "never more
 //      than maxLive at once, yet more than maxLive distinct ids over time" —
 //      was the oldest-despawn proof, and the behaviour it proved is gone.
-//   4. Mine ambush: A sails onto a live armed mine — asserts 55 damage + a
-//      boom, and that A first saw that mine only from within detect range.
+//   4. Mine ambush: B sails onto a live armed A-mine — asserts a CONFIG.mine.damage
+//      hp drop (55 today) + a boom, and that B first saw every A-mine only from
+//      within detect range.
 //
 // Run against a booted server (tsx server/src/index.ts + shared/dist built),
 // with HC_DEV_OPTIONS=1 in ITS env — this smoke's sandbox matchOverride +
@@ -191,21 +197,30 @@ function engageTorp(ctx, inp, target) {
   const range = dist(ctx.you, target);
   inp.throttle = range > 110 ? 0.6 : range > 60 ? 0.15 : 0; // close, keep steerageway, never scrum
   inp.aim = brg;
-  inp.slot = 2; // torpedoes — the first WEAPON slot (Q), where the spawn seed fits heavyTorpedo (Story 8.5)
+  // Slot 2 = the FIRST WEAPON slot (Q) in the Story 8.5 nine-slot fixed roles
+  // [gun, boost, <seed weapon>, ...]: slot 0 is the deck gun, slot 1 is the
+  // universal Shift BOOST ability (Story 8.9), and the Torpedo Boat's spawn
+  // seed fits `heavyTorpedo` here.
+  inp.slot = 2;
   // Click every tick while the tube bears — the reload paces launches.
   if (Math.abs(angleDiff(brg, ctx.you.heading)) < CONFIG.torpedo.halfArc) inp.fireSeq = ++ctx.fireSeq;
 }
 
 /** Hold station (light steerage) and CLICK mine drops astern — the Story 2.8
- *  aimed rear-arc placement (mine layer weapon slot 2): aim dead astern, well inside
- *  placeRange, so every click is a legal placement. */
+ *  aimed rear-arc placement: `navalMines` is a CLICK-FIRED WEAPON, so this goes
+ *  down the fireSeq channel, not the actSeq ability one. Aim dead astern, well
+ *  inside placeRange, so every click is a legal placement. */
 function dropMines(ctx, inp) {
   if (!ctx.you) return;
   inp.throttle = 0.12; // just enough steerageway to hold a heading
-  inp.slot = 2; // the mine layer's mine slot — the first WEAPON slot (Q), where SPAWN_SEED fits navalMines (Story 8.5; the radar buoy is no longer fitted on any hull — amendment 22)
+  // Slot 2 = the FIRST WEAPON slot (Q) in the Story 8.5 nine-slot fixed roles
+  // [gun, boost, <seed weapon>, ...], where the Mine Layer's spawn seed fits
+  // `navalMines` (the radar buoy is no longer fitted on any hull — amendment
+  // 22); slot 1 is the universal Shift BOOST ability (Story 8.9).
+  inp.slot = 2;
   inp.aim = ctx.you.heading + Math.PI; // dead astern — center of the placement arc
   inp.aimDist = CONFIG.mine.placeRange * 0.6; // comfortably inside placeRange
-  inp.fireSeq = ++ctx.fireSeq; // click every tick; the 8s drop cooldown paces it
+  inp.fireSeq = ++ctx.fireSeq; // click every tick; CONFIG.mine.reloadMs (15s today) paces it
 }
 
 function roster(room, id) {
@@ -244,15 +259,18 @@ async function torpedoPhase(a, b, log) {
     a.goal = { mode: 'engageTorp', target: b.you };
     b.goal = { mode: 'hold', target: b.you }; // hold roughly still as a target
     // Budget WIDENED 120s -> 240s (2026-08-04 balance pass): the reload went
-    // 12s -> 30s. B is the 150hp mineLayer, so a kill still needs THREE 70-dmg
-    // fish (2x70 = 140 < 150) across ~65s of cadence, where three 55-dmg fish
-    // used to span ~26s — and every MISS now costs a full 30s reload instead of
-    // 12s. At 120s this phase had ~1 spare fish; 240s restores a real miss
-    // margin. The assertion is unchanged: only the patience is.
+    // 12s -> 30s and every MISS now costs a full 30s reload instead of 12s.
+    // At today's numbers B is the 300 hp mineLayer and the fish do 50, so the
+    // kill needs SIX hits (5x50 = 250 < 300) across ~150s of cadence — the 240s
+    // budget leaves a real, if thin, miss margin. If a future balance pass
+    // raises hull hp or drops torpedo damage, WIDEN THIS BUDGET rather than
+    // loosening the assertion, which is unchanged and reads CONFIG.
   }, () => roster(a.room, b.room.sessionId)?.deaths >= 1, 240000, 'torpedo kill');
   const hits = b.dmg.slice(dmg0).filter((d) => d.amount === CONFIG.torpedo.damage);
-  log.push(`torpedo: B sank; 70-dmg hits=${hits.length} kills=${roster(a.room, a.room.sessionId).kills}`);
-  assert(hits.length >= 1, 'no 70-damage torpedo hit recorded on B');
+  log.push(
+    `torpedo: B sank; ${CONFIG.torpedo.damage}-dmg hits=${hits.length} kills=${roster(a.room, a.room.sessionId).kills}`,
+  );
+  assert(hits.length >= 1, `no ${CONFIG.torpedo.damage}-damage torpedo hit recorded on B`);
   // Torpedoes must NEVER appear as radar blips.
   assert(b.torpIds.size > 0, 'B never saw a torpedo (test would be vacuous)');
   for (const id of b.torpIds) assert(!b.blipIds.has(id), `torpedo ${id} appeared as a radar blip!`);

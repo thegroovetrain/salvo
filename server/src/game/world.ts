@@ -421,7 +421,8 @@ export interface ShipRecord {
    * growing and ages out in place while the record survives for the
    * spectate/respawn window. Capacity is
    * provisioned from the TRUE attainable top speed — effective kinematics
-   * maxSpeed + the boost speedBonus, via effectiveStats(), the sole
+   * maxSpeed with an open boost window folded in by the shared hook, off
+   * effectiveStats(), the sole
    * derivation path — and re-provisioned by applyBoon when a speed card
    * raises it (an under-provisioned ring silently drops the oldest tail).
    * SERVER-PRIVATE: never on the wire — only gated per-segment coverage
@@ -655,7 +656,7 @@ export interface ShipRecord {
   horn: HornId;
   /**
    * ms — server-clock time the active speed-boost window ends (Story 1.6);
-   * 0 = inactive. Written ONLY by the speedBoost Equipment row's activate();
+   * 0 = inactive. Written ONLY by the `boost` Equipment row's activate();
    * read by stepShips (now < boostUntil => boosted kinematics cap) and mirrored
    * onto OwnShip.boostUntil (owner-only) by frames.ts. RESET to 0 on spawn/
    * respawn/redeploy so a fresh life never inherits a still-open window.
@@ -1680,7 +1681,7 @@ export class World {
    * It is STAT- AND FIT-NEUTRAL by construction: tier I is the row's base
    * numbers and its ×1.00 reload, which is exactly what an unfitted line
    * already reads, and a `slotFill` of already-fitted equipment is a no-op.
-   * Equipment no card fits (`gun`, `speedBoost`, `radarBuoy`) contributes
+   * Equipment no card fits (`gun`, `boost`, `radarBuoy`) contributes
    * nothing, and neither does a STUB line — the deck deals it no copies, so
    * there is none to hold back.
    */
@@ -1959,7 +1960,7 @@ export class World {
     // the window's end):
     //   - state.speed — the ritardando IS the window: the hull keeps its way
     //     and decays through the shared sim/sinking.ts cap in stepShips.
-    //   - boostUntil — amendment 10 admits speedBoost while sinking (the
+    //   - boostUntil — amendment 10 admits the boost while sinking (the
     //     doomed surge), so an OPEN boost window must survive sink-entry and
     //     keep composing with the decel cap; zeroing it here would kill a
     //     live surge the ruling explicitly allows. The old "no active-boost
@@ -3025,9 +3026,11 @@ export class World {
       p.heading = ship.state.heading;
       // THE one place boost enters kinematics (Story 1.6): while the window is
       // open (now < boostUntil) the shared helper raises the forward maxSpeed cap
-      // by stats.equipment.speedBoost.speedBonus; the hull accelerates toward it at class accel
-      // and decays back at class decel on expiry. Client prediction/replay call
-      // the identical helper, so a boosting hull stays in lockstep.
+      // by CONFIG.boost.factor (+25 %) of the POST-FOLD max speed — so the SPEED
+      // ladder is inside the bonus (Story 8.9, amendment 55) — and the hull
+      // accelerates toward it at class accel and decays back at class decel on
+      // expiry. Client prediction/replay call the identical helper with the same
+      // factor, so a boosting hull stays in lockstep.
       // Story 2.5: boon behavior hooks fold in AFTER the bespoke boost —
       // hookKinematics(boostedKinematics(...)) — the documented composition
       // order the client Predictor.tickKin mirrors exactly. Zero behaviors
@@ -3035,7 +3038,7 @@ export class World {
       // unchanged, so the pre-boon tick is byte-identical.
       const boosted = boostedKinematics(
         ship.stats.kinematics,
-        ship.stats.equipment.speedBoost.speedBonus,
+        CONFIG.boost.factor,
         this.now < ship.boostUntil,
       );
       // PINNED COMPOSITION ORDER (server AND predictor, byte-identical —
@@ -3049,7 +3052,7 @@ export class World {
       // THE RITARDANDO (Story 5.2): the shared linear speed cap, applied
       // right after stepShip exactly where prediction.ts applies it — and
       // fed the POST-boost/slow PER-TICK max (kin.maxSpeed), NEVER the rated
-      // class max: amendment 10 admits speedBoost while sinking, and a
+      // class max: amendment 10 admits the boost while sinking, and a
       // rated-max ramp would silently cap the surge out of existence. A live
       // boost lifts the ceiling the ramp scales (bonus × remaining), a slow
       // lowers it, and either way the cap is exactly 0 at the founder
@@ -3099,10 +3102,13 @@ export class World {
   }
 
   /** A hull's TRUE attainable top speed for wake-ring provisioning (Story
-   *  4.12): the effective kinematics cap plus the boost window's speedBonus —
-   *  both off effectiveStats(), the sole derivation path. Never raw CONFIG. */
+   *  4.12): the effective kinematics cap with an OPEN boost window folded in —
+   *  through the SAME shared hook stepShips and the client predictor use (Story
+   *  8.9), never a hand-written multiply, so the server's provisioning and the
+   *  client's ring budget land on the identical double. The kinematics come off
+   *  effectiveStats(), the sole derivation path. Never raw CONFIG for the cap. */
   private static wakeTopSpeed(stats: EffectiveStats): number {
-    return stats.kinematics.maxSpeed + stats.equipment.speedBoost.speedBonus;
+    return boostedKinematics(stats.kinematics, CONFIG.boost.factor, true).maxSpeed;
   }
 
   /**
@@ -4524,7 +4530,7 @@ export class World {
     if ((!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || !clicked) return;
     // The CLICK channel dispatches WEAPONS ONLY — the mirror of
     // activationControl's ability wall (Story 1.6). A forged click naming an
-    // ability or empty slot (e.g. a TB's speedBoost in slot 2) is silently
+    // ability or empty slot (e.g. a captain's `boost` in slot 1) is silently
     // inert: abilities activate via actSeq, and letting a click reach
     // boostEquipment.activate would burn the charge AND stamp lastFireT off
     // the wrong channel. An out-of-range/empty slot is inert here too (it was
@@ -4605,7 +4611,7 @@ export class World {
     ship.lastActSeq = Math.max(ship.lastActSeq, input.actSeq);
     // Afloat OR SINKING (Story 5.2 weapons seam, amendments 10/15): abilities
     // meet the fitment criterion — "it is in a ship equipment slot" — so
-    // speedBoost's doomed surge and the decoy drop stay live while sinking.
+    // the boost's doomed surge and the decoy drop stay live while sinking.
     if ((!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) || !activated) return;
     // actSeq targets ABILITIES only: a weapon or empty slot is a no-op (no
     // state change), so a forged actSeq on a gun/torpedo slot fires nothing —
@@ -4675,7 +4681,7 @@ export class World {
    * carried since Epic 1): NO RESTRICTION AT THE GATE. The ratified criterion
    * is FITMENT, not category — "it is in a ship equipment slot so it meets
    * criteria for usability" — so all seven registry rows (gun, torpedo, mine,
-   * broadside, starShells, speedBoost, radarBuoy) activate while SINKING exactly
+   * broadside, starShells, boost, radarBuoy) activate while SINKING exactly
    * as when alive, and a future row is in by default rather than needing a
    * ruling. What a sinking captain loses is the ECONOMY — the upgrade menu
    * and its card picks — which never routed through this gate at all (that

@@ -139,8 +139,10 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   gun: 0.5,
   // Story 8.1 widened EquipmentId to the fifteen catalog-v3 ids. This record
   // stays TOTAL — the compile-time forcing function that a new weapon cannot
-  // land without an appetite — so the seven unbuilt weapons and the `boost`
-  // placeholder carry the neutral base until their stories give them tactics.
+  // land without an appetite — so the unbuilt weapons carry the neutral base
+  // until their stories give them tactics. `boost` is BUILT (Story 8.9: the
+  // universal slot-1 ability); its base stays neutral and each profile that
+  // wants it eagerly overrides here (see profiles.ts `appetite`).
   boost: APPETITE_NEUTRAL,
   lightTorpedo: APPETITE_NEUTRAL,
   heavyTorpedo: APPETITE_NEUTRAL,
@@ -151,7 +153,6 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   machineGun: APPETITE_NEUTRAL,
   flak: APPETITE_NEUTRAL,
   monitor: APPETITE_NEUTRAL,
-  speedBoost: APPETITE_NEUTRAL,
   broadside: APPETITE_NEUTRAL,
   starShells: APPETITE_NEUTRAL,
   radarBuoy: APPETITE_NEUTRAL,
@@ -739,15 +740,16 @@ const radarBuoyTactic: EquipmentTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// SPEED BOOST — the one ability: spent opening range on the way out.
+// THE BOOST — the one ability: spent opening range on the way out. Story 8.9
+// made it universal on slot 1 (+25 % of the ladder-raised cap for 10 s, 25 s
+// reload), so every captain hull carries this tactic, not just the fast ones.
 // ---------------------------------------------------------------------------
 
-const speedBoostTactic: EquipmentTactic = {
-  id: 'speedBoost',
+const boostTactic: EquipmentTactic = {
+  id: 'boost',
   kind: 'ability',
   reachU: () => 0,
-  want: (ctx) =>
-    ctx.posture === 'disengage' && appetiteFor(ctx.sit.profile, 'speedBoost') >= APPETITE_NEUTRAL,
+  want: (ctx) => ctx.posture === 'disengage' && appetiteFor(ctx.sit.profile, 'boost') >= APPETITE_NEUTRAL,
   solve: () => null,
 };
 
@@ -768,7 +770,7 @@ export const EQUIPMENT_TACTICS: Readonly<Partial<Record<EquipmentId, EquipmentTa
   gun: gunTactic,
   heavyTorpedo: torpedoTactic,
   navalMines: mineTactic,
-  speedBoost: speedBoostTactic,
+  boost: boostTactic,
   broadside: broadsideTactic,
   starShells: starShellsTactic,
   radarBuoy: radarBuoyTactic,

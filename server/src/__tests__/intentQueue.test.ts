@@ -191,7 +191,7 @@ describe('activationControl — two ability presses landing in ONE tick both eva
 
   it('a coalesced double press on an empty pool: the first fires, the second gets ITS denial', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0); // TB: slot 2 = speedBoost (1 charge)
+    const a = place(w, 'a', 0, 0, 0); // TB: slot 1 = boost (1 charge) — Story 8.5 fixed roles
     w.step();
     w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0 }));
     w.submitInput('a', input(2, { actSeq: 2, actSlot: SLOT_BOOST, hornSeq: 0 }));
@@ -270,7 +270,7 @@ describe('intent-queue lifecycle discipline', () => {
 describe('a burst of accepted inputs inside ONE tick: every press is evaluated', () => {
   it('6 same-tick ability presses on a 1-charge pool: 1 activation + 5 wire denials = 6', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0); // TB: slot 2 = speedBoost, ONE charge
+    const a = place(w, 'a', 0, 0, 0); // TB: slot 1 = boost, ONE charge — Story 8.5 fixed roles
     w.step();
     // Six valid inputs land between ticks (strictly increasing seq, actSeq
     // advancing on each) — well inside the 40/s rate cap, so ALL are accepted.

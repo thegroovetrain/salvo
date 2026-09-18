@@ -159,9 +159,9 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
     expect(a.state.heading).not.toBe(headingAtSink); // the rudder still bit while making way
   });
 
-  it('a live speedBoost COMPOSES with the decel (amendment 10): the cap is the boosted max, not the rated one', () => {
+  it('a live boost COMPOSES with the decel (amendment 10): the cap is the boosted max, not the rated one', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0); // slot 1 = speedBoost on every captain (Story 8.5)
+    const a = place(w, 'a', 0, 0); // slot 1 = boost on every captain (Story 8.5)
     a.state.speed = a.stats.kinematics.maxSpeed;
     w.respawnEnabled = false;
     w.sinkShip('a');
@@ -220,9 +220,9 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     // — so this sweep now covers six of the seven rows, and the Battleship's
     // two-line seed covers the fourth slot.
     const fits: [ShipClassId, string[]][] = [
-      ['torpedoBoat', ['gun', 'speedBoost', 'heavyTorpedo']],
-      ['battleship', ['gun', 'speedBoost', 'broadside', 'starShells']],
-      ['mineLayer', ['gun', 'speedBoost', 'navalMines']],
+      ['torpedoBoat', ['gun', 'boost', 'heavyTorpedo']],
+      ['battleship', ['gun', 'boost', 'broadside', 'starShells']],
+      ['mineLayer', ['gun', 'boost', 'navalMines']],
     ];
     for (const [cls, expected] of fits) {
       const ship = place(w, `s-${cls}`, 0, 0, cls);

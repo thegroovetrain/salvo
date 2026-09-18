@@ -21,7 +21,7 @@ import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 
-// NINE FIXED-ROLE SLOTS (Story 8.5): every captain spawns [gun, speedBoost,
+// NINE FIXED-ROLE SLOTS (Story 8.5): every captain spawns [gun, boost,
 // <spawn-seed weapons>, ...]. The seed lands its lines in the WEAPON row
 // (2, 3, 4) in seed order, so a hull's FIRST class weapon (TB heavyTorpedo,
 // ML navalMines, BS broadside) is slot 2 and the Battleship's SECOND
@@ -548,14 +548,17 @@ describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full dama
     expect(b.state.speed).toBeCloseTo(b.stats.kinematics.maxSpeed, 1);
   });
 
-  it('an active BOOST composes boosted→slowed: the fouled cap is (max + bonus) × factor', () => {
+  it('an active BOOST composes boosted→slowed: the fouled cap is (max × 1.25) × foulFactor', () => {
     const { w, b } = foulBoard();
     w.step();
     b.boostUntil = Number.MAX_SAFE_INTEGER; // hold the boost window open
     b.slowedUntil = Number.MAX_SAFE_INTEGER; // hold the slow too — isolate the composition
     b.input.throttle = 1;
     for (let i = 0; i < 100; i++) w.step();
-    const expected = (b.stats.kinematics.maxSpeed + b.stats.equipment.speedBoost.speedBonus) * CONFIG.mine.foulFactor;
+    // Amendment 55: the boost bonus is CONFIG.boost.factor x the POST-FOLD max
+    // (the one shared boostedKinematics hook), NOT a flat per-row speedBonus.
+    const boostedMax = b.stats.kinematics.maxSpeed + b.stats.kinematics.maxSpeed * CONFIG.boost.factor;
+    const expected = boostedMax * CONFIG.mine.foulFactor;
     expect(b.state.speed).toBeCloseTo(expected, 1);
   });
 

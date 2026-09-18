@@ -69,7 +69,7 @@ describe('buildFrame — shape and clock', () => {
       // heavyTorpedo in the first WEAPON slot (2), then six empties.
       ammo: [
         { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
-        { n: CONFIG.speedBoost.maxAmmo, reloadMsLeft: 0 },
+        { n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 },
         { n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 },
         null,
         null,
