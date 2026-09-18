@@ -93,10 +93,10 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] amendments 59–63 → both homes -- done at plan time
-- [ ] `shared/` (offers, deck guarantee, catalog seed deletion, index PV 55, tests) -- `npm test -w shared && npm run build -w shared`
-- [ ] `server/` (world grant/mulligan/preserve, match hook, roomOptions, metrics, ArenaRoom wiring, batchsim seed, tests, opening smoke) -- `npm test -w server`; run the smoke against an own server on a scratch port, kill own PID
-- [ ] `client/` (auto-open, footer + REDRAW, silent pt, class cards, tests) -- `npm test -w client`; `grep -rn SPAWN_SEED shared/src server/src client/src server/scripts` returns nothing
+- [x] amendments 59–63 → both homes -- done at plan time
+- [x] `shared/` (offers, deck guarantee, catalog seed deletion, index PV 55, tests) -- `npm test -w shared && npm run build -w shared`
+- [x] `server/` (world grant/mulligan/preserve, match hook, roomOptions, metrics, ArenaRoom wiring, batchsim seed, tests, opening smoke) -- `npm test -w server`; run the smoke against an own server on a scratch port, kill own PID
+- [x] `client/` (auto-open, footer + REDRAW, silent pt, class cards, tests) -- `npm test -w client`; `grep -rn SPAWN_SEED shared/src server/src client/src server/scripts` returns nothing
 - [ ] docs + version + trackers + ledger -- one-line tracker stamps
 - [ ] `npm run check` green; own server + client boot on scratch ports; PIDs killed
 
