@@ -6,7 +6,7 @@
 // payload, and the post-results disconnect.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, DEFAULT_DECKS, MULLIGAN_CHOICE, type ResultsMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_DECKS, MULLIGAN_CHOICE, effectiveStats, type ResultsMsg, type ShipClassId } from '@salvo/shared';
 import { NO_DECK, World } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { isFleetHull } from '../game/participants.js';
@@ -337,7 +337,11 @@ describe('match — the opening at the countdown', () => {
     expect(w.tickEvents.filter((e) => e.k === 'pt').map((e) => e.id).sort()).toEqual(['a', 'b', 'bot-1']);
   });
 
-  it('a countdown that CANCELS back to waiting shuts the redraw and never re-grants', () => {
+  // THE LATCH IS PER SHIP, NOT PER MATCH (Story 8.10 review, P2). A match-wide
+  // flag answered only half of this: it stopped the veteran double-banking,
+  // but it also starved the NEWCOMER, who would have stood on the start line
+  // at LV 0 with an empty bank and no hand while everyone else refits.
+  it('a countdown that CANCELS and re-arms banks nothing more for the veterans and a full opening for the newcomer', () => {
     const ctx = opening(['a', 'b']);
     const a = ctx.w.ships.get('a')!;
     expect(a.bankedLevels).toBe(1);
@@ -345,14 +349,90 @@ describe('match — the opening at the countdown', () => {
     expect(ctx.m.phase).toBe('waiting');
     expect(ctx.w.countdownOpen).toBe(false);
     // The level and the hand STAY — the room is still pre-live and the hand
-    // was never spent — and a re-arm banks nothing more (the once-per-match
-    // latch), so the opening cannot be farmed by cycling the roster.
+    // was never spent.
     expect(a.bankedLevels).toBe(1);
-    ctx.w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    const hand = a.offer;
+
+    const c = ctx.w.addShip('c', 'C', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
     ctx.m.notifyRosterChanged();
+
     expect(ctx.m.phase).toBe('countdown');
-    expect(a.bankedLevels).toBe(1);
     expect(ctx.w.countdownOpen).toBe(true);
+    // The veteran banks NOTHING more — the opening cannot be farmed by cycling
+    // the roster — and does not redraw either.
+    expect(a.bankedLevels).toBe(1);
+    expect(a.offer).toBe(hand);
+    // ...while the captain who arrived during the stand-down gets the opening.
+    expect(c.bankedLevels).toBe(1);
+    expect(c.level).toBe(0);
+    expect(c.offer).toHaveLength(CONFIG.offer.size);
+  });
+
+  it('a hull that JOINS while the countdown is already open gets the opening on the spot', () => {
+    const ctx = opening(['a', 'b']);
+    expect(ctx.w.countdownOpen).toBe(true);
+    // A bot the room tops up with mid-countdown, and a reconnecting captain:
+    // both are participants and both must arrive holding a hand.
+    const ai = ctx.w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    const late = ctx.w.addShip('c', 'C', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    for (const s of [ai, late]) {
+      expect(s.bankedLevels, s.id).toBe(1);
+      expect(s.level, s.id).toBe(0);
+      expect(s.offer, s.id).toHaveLength(CONFIG.offer.size);
+    }
+    // ...exactly once: the arming that follows the roster change re-sweeps
+    // every hull and the per-ship latch refuses a second bank.
+    ctx.m.notifyRosterChanged();
+    expect(ai.bankedLevels).toBe(1);
+    expect(late.bankedLevels).toBe(1);
+    // A PvE hull is still excluded, mid-countdown as at the arm (amendment 63e).
+    const drone = ctx.w.addShip('fleet-1', 'FLEET', 'fleet', 'droneSmall', undefined, undefined, []);
+    expect(drone.bankedLevels).toBe(0);
+    expect(drone.offer).toBeNull();
+    expect(drone.deckExhausted).toBe(false);
+  });
+
+  // THE HARNESS SHAPE (Story 8.10 review, P1). The batch-sim runner
+  // (server/scripts/batchsim/runner.ts) and the RL env (server/scripts/rl/
+  // env.ts) both build a `Match` with NO `expectedCaptains`, so `boardingRoom`
+  // is false and the activation used to take the WIPE path — they measured an
+  // opening production never plays. The preservation is unconditional now, so
+  // this room behaves exactly like a boarding room's economy.
+  it('a room with NO expectedCaptains (the batch-sim / RL shape) carries the countdown economy too', () => {
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const rec = recorder();
+    const m = new Match(w, TIMINGS, rec.hooks); // no expectedCaptains: NOT a boarding room
+    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    m.notifyRosterChanged();
+    const ai = w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    m.notifyRosterChanged(); // both captains aboard: the countdown arms here
+    const ctx: Ctx = { w, m, ...rec };
+    expect(m.phase).toBe('countdown');
+    expect(ai.bankedLevels).toBe(1);
+
+    // The bot spends its opening level on the guaranteed card, through the one
+    // wire path its policy uses.
+    const picked = ai.offer![0];
+    expect(w.spendPoint('bot-1', 0)).toBe(true);
+    expect(ai.bankedLevels).toBe(0);
+    const pool = [...ai.deck.cards]; // one copy already consumed by the fit
+    const fitted = ai.loadout.filter((s) => s.equipmentId !== null).length;
+
+    activate(ctx);
+
+    // THE CARD IS ABOARD at 0:00, the level it cost stays spent, and the deck
+    // is not re-dealt under it.
+    expect(ai.cards).toEqual([picked]);
+    expect(ai.bankedLevels).toBe(0);
+    expect(ai.stats).toEqual(effectiveStats(ai.cls, [picked]));
+    expect(ai.loadout.filter((s) => s.equipmentId !== null)).toHaveLength(fitted);
+    expect(ai.deck.cards).toEqual(pool);
+    // ...on a fresh clock, and the hull itself is still reset.
+    expect(ai.loadout.every((s) => s.state === null || s.state.reloadMsLeft === 0)).toBe(true);
+    expect(ai.hp).toBe(ai.stats.maxHp);
+    expect(ai.xpMs).toBe(0);
   });
 
   it('activation shuts the redraw FIRST and keeps the countdown economy', () => {

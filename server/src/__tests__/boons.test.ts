@@ -7,7 +7,8 @@
 // control world); applyCard touches exactly the two homes on a live
 // ShipRecord (stats only via effectiveStats, slots only in the one loadout —
 // untouched slots keep live ammo/reload state, no event queued, no other ship
-// field moves); redeployShip wipes the build while respawn preserves it; and
+// field moves); redeployShip and respawn BOTH preserve the build (Story 8.10
+// review, P1 — the redeploy wipe is retired); and
 // the wire stays SELF-PRIVATE: cards ride `you` only, never a Contact or
 // spectator frame.
 //
@@ -404,10 +405,10 @@ describe('World.applyCard — two homes, nothing else', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Lifecycle: redeploy wipes, respawn preserves.
+// Lifecycle: redeploy PRESERVES (Story 8.10 review, P1), respawn preserves.
 // ---------------------------------------------------------------------------
 
-describe('lifecycle — redeployShip wipes the build, respawn preserves it', () => {
+describe('lifecycle — redeployShip and respawn both preserve the build', () => {
   it('respawn (waiting phase) PRESERVES the build: stats keep the fold, the loadout re-derives WITH slot effects', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -426,17 +427,26 @@ describe('lifecycle — redeployShip wipes the build, respawn preserves it', () 
     expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('redeployShip (the match boundary) WIPES the build with the level bank — fresh match, fresh build', () => {
+  // THE TRUTH FLIPPED (Story 8.10 review, P1): the activation redeploy used to
+  // wipe the build on every room without `holdStartLine`. It now PRESERVES the
+  // card economy on every path — the countdown grant is the only pre-active
+  // economy a room can hold, and wiping it wiped the feature — so a redeploy
+  // is a fresh HULL over the SAME build: hp/loadout are rebuilt from the kept
+  // cards (a fresh reload clock), and the fold is still live.
+  it('redeployShip (the match boundary) PRESERVES the build and rebuilds the fit over it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'ironPlating');
     w.applyCard(a, 'bolterRack');
     w.resetForMatchStart();
-    expect(a.cards).toEqual([]);
-    expect(a.stats).toEqual(effectiveStats(a.cls, [], TEST_CATALOG));
-    expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost'));
-    // And the per-tick fold is back on the identity path (no stale behaviors).
+    expect(a.cards).toEqual(['ironPlating', 'bolterRack']);
+    expect(a.stats).toEqual(effectiveStats(a.cls, ['ironPlating', 'bolterRack'], TEST_CATALOG));
+    expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp, card fold included
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost', 'navalMines'));
+    // ...and the per-tick fold is rebuilt, not stale: these two cards carry no
+    // kinematics hook, so the hull still runs the identity path against a
+    // card-less control (the behaviors cache was re-derived, not carried
+    // over as a foreign array).
     a.input.throttle = 1;
     const control = bareWorld(1, {});
     const c = place(control, 'a', a.state.x, a.state.y);

@@ -880,13 +880,14 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
     const ship = place(w, 'a');
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: 500 }; // dirty it, prove the rebuild
     fitBuoy(ship); // a hand-fitted slot the rebuild must clear — no card backs it
-    // THE SANDBOX REDEPLOY WIPES THE BUILD (Story 8.10 keeps the economy only
-    // under the start-line hold): the rack card goes with it, so the rebuilt
-    // fit is the bare [gun, boost, empty x7] — and re-fitting the card puts
-    // the suite's standard loadout back.
+    // THE REDEPLOY PRESERVES THE BUILD ON EVERY PATH (Story 8.10 review, P1 —
+    // the old sandbox-only wipe is retired): the rack CARD survives, so the
+    // rebuilt fit is the suite's standard loadout straight away, with fresh
+    // pools and no reload in flight. The hand-fitted buoy, which no card
+    // backs, is what the rebuild drops — that is the whole point of rebuilding
+    // the loadout from the cards rather than keeping the array.
     w.resetForMatchStart();
-    expect(ship.cards).toEqual([]);
-    fitClassWeapons(w, ship);
+    expect(ship.cards).toEqual(['navalMines']);
     expectFreshLoadout(ship, ML_IDS);
   });
 

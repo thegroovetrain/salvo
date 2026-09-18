@@ -235,6 +235,31 @@ describe('mulligan — the one free redraw at the start line', () => {
     expect(a.mulliganed).toBe(false);
   });
 
+  // THE SINKING GUARD IS INSIDE `mulligan()`, NOT ONLY AT THE WIRE (Story 8.10
+  // review, P6). `spendPoint` refuses a sinking hull before it ever reads the
+  // sentinel, so the wire was covered — but `Match`'s dev `autoMulligan` arm
+  // calls `world.mulligan(ship)` DIRECTLY, and a countdown can hold a sinking
+  // hull (a dev room's waiting phase is live water and Story 5.2's five-second
+  // window straddles the arming). Guarding the shared function is the fix.
+  it('a SINKING captain is refused by `mulligan()` itself — the direct (dev-arm) path', () => {
+    const onMulligan = vi.fn();
+    const w = bareWorld(4, { onMulligan });
+    const a = captain(w, 'a');
+    openCountdown(w);
+    w.grantOpening();
+    w.step();
+    const hand = a.offer;
+    w.sinkShip('a');
+
+    expect(w.mulligan(a)).toBe(false);
+
+    expect(a.offer).toBe(hand); // the SAME array object — byte for byte
+    expect(a.mulliganed).toBe(false); // ...and the free redraw is NOT burned
+    expect(onMulligan).not.toHaveBeenCalled();
+    w.step();
+    expect(ptIds(w)).toEqual([]);
+  });
+
   it('EVERY OTHER malformed choice is still refused, and still mutates nothing', () => {
     const { w, a } = atTheStartLine();
     const hand = a.offer;
@@ -358,17 +383,32 @@ describe('the countdown economy through the activation redeploy (amendment 63b)'
     expect(a.mulliganed).toBe(true);
   });
 
-  it('the DEV/SANDBOX redeploy still wipes the lot, `mulliganed` included', () => {
+  // THE TRUTH FLIPPED (Story 8.10 review, P1). This case used to pin the
+  // opposite — that a redeploy WITHOUT the start-line hold wiped bank, hand,
+  // cards, deck and `mulliganed`. The split is retired: `hold` governs
+  // placement only, and the countdown economy is preserved in EVERY room.
+  // It has to be. The batch-sim runner and the RL env both build a `Match`
+  // with no `expectedCaptains`, so they took the wipe path and measured an
+  // opening production never plays; and with pre-active xp and damage
+  // disabled by `applyPolicy`, the opening grant is the only pre-active
+  // economy there is — wiping it wipes the feature.
+  it('the DEV/SANDBOX (non-hold) redeploy preserves the SAME economy, `mulliganed` included', () => {
     const { w, a } = heldStartLine();
     expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
     const deckList = a.deckList;
+    const hand = a.offer;
+    const pool = [...a.deck.cards];
+    a.hp = 3;
     w.resetForMatchStart(); // no hold — the ready room's fresh match
-    expect(a.bankedLevels).toBe(0);
-    expect(a.offer).toBeNull();
-    expect(a.cards).toEqual([]);
-    expect(a.mulliganed).toBe(false);
+    expect(a.bankedLevels).toBe(1);
+    expect(a.offer).toBe(hand); // the same array, not a redraw
+    expect(a.mulliganed).toBe(true); // the redraw stays spent
     expect(a.deckList).toBe(deckList); // the frozen list never moves
-    expect(a.deck.cards.length).toBeGreaterThan(0);
+    expect(a.deck.cards).toEqual(pool); // ...and the pool is not rebuilt under it
+    // ...while the HULL is still reset exactly as before.
+    expect(a.hp).toBe(a.stats.maxHp);
+    expect(a.level).toBe(0);
+    expect(a.xpMs).toBe(0);
   });
 });
 
@@ -464,32 +504,25 @@ describe('the dev spawn fit — fitOverride, captains only, paid out of the deck
     expect(copies(a, 'heavyTorpedo')).toBe(0);
   });
 
-  it('SURVIVES the dev/sandbox redeploy, which wipes everything else', () => {
-    // This is the whole reason `devFit` lives on the record: matchSmoke's
-    // dev-door room and weaponsSmoke's sandbox both take the WIPE path at the
-    // countdown->active boundary, and a torpedo lost there puts the smokes
-    // straight back to clicking an empty Q slot.
+  // THE FIT IS APPLIED AT SPAWN AND NEVER AGAIN (Story 8.10 review, P1). It
+  // used to be RE-APPLIED by the non-hold redeploy, because that path wiped
+  // the build and matchSmoke / weaponsSmoke would have lost their torpedo at
+  // the countdown->active boundary. Now every redeploy preserves `cards`, so
+  // the fit rides along by itself and a second application would DOUBLE it.
+  // Both paths are pinned, because both are a smoke's real boundary.
+  it.each([
+    ['held (boarding) activation', true],
+    ['dev/sandbox (non-hold) activation', false],
+  ])('is KEPT, not re-applied, across the %s', (_label, hold) => {
     const w = bareWorld();
     const a = fitted(w, 'a', ['heavyTorpedo']);
     w.grantOpening();
-    w.resetForMatchStart(); // no hold — the ready room's fresh match
-    expect(a.bankedLevels).toBe(0); // the economy is still wiped...
-    expect(a.offer).toBeNull();
-    expect(a.cards).toEqual(['heavyTorpedo']); // ...but the dev fit is re-applied
-    expect(slotIds(a)[2]).toBe('heavyTorpedo');
-    // paid for again, out of the rebuilt pool
-    expect(copies(a, 'heavyTorpedo')).toBe(copies(captain(w, 'bare'), 'heavyTorpedo') - 1);
-    expect(a.hp).toBe(a.stats.maxHp);
-  });
-
-  it('is KEPT, not re-applied, across the held (boarding) activation', () => {
-    const w = bareWorld();
-    const a = fitted(w, 'a', ['heavyTorpedo']);
     const left = copies(a, 'heavyTorpedo');
-    w.resetForMatchStart(true); // the hold preserves the build outright
+    w.resetForMatchStart(hold);
     expect(a.cards).toEqual(['heavyTorpedo']); // exactly one copy — never doubled
-    expect(copies(a, 'heavyTorpedo')).toBe(left);
+    expect(copies(a, 'heavyTorpedo')).toBe(left); // ...and it is not paid for twice
     expect(slotIds(a)[2]).toBe('heavyTorpedo');
+    expect(a.hp).toBe(a.stats.maxHp);
   });
 
   it('an EMPTY fit is the shipped spawn, byte for byte — production is untouched', () => {

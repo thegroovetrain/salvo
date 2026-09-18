@@ -1047,6 +1047,38 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       expect(redrawBtn()!.style.color).not.toBe('var(--hc-amber)');
     });
 
+    // THE ROW'S LOCK REACHES THE BUTTON (the 8.10 review, P5). A spend in
+    // flight disables and dims every card; a REDRAW that stayed bright and
+    // clickable inside that locked row invited a second send the latch drops
+    // on the floor, with no feedback and no pulse.
+    it('is DISABLED and dimmed exactly like the cards while the row is locked', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(redrawBtn()!.disabled).toBe(false);
+
+      menu.update(view({ redraw: 'unspent', locked: true }));
+
+      expect(redrawBtn()!.disabled).toBe(true);
+      expect(redrawBtn()!.style.cursor).toBe('default');
+      expect(redrawBtn()!.style.opacity).toBe(String(R.lockedAlpha)); // the cards' own dim
+      for (const c of cards()) expect(c.disabled).toBe(true); // ...the same treatment
+      // The PIP is untouched: it reports whether the free redraw is still there
+      // to spend, which a momentary lock does not change.
+      expect(pip().style.backgroundColor).toBe('transparent');
+
+      menu.update(view({ redraw: 'unspent' })); // the latch released
+      expect(redrawBtn()!.disabled).toBe(false);
+      expect(redrawBtn()!.style.cursor).toBe('pointer');
+      expect(redrawBtn()!.style.opacity).toBe('1');
+    });
+
+    it('stays disabled when a SPENT redraw is also locked, with the pip still filled', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'spent', locked: true }));
+      expect(redrawBtn()!.disabled).toBe(true);
+      expect(pip().style.backgroundColor).toBe('var(--hc-amber)');
+    });
+
     it('takes the amber denied pulse on a refused redraw, and drops it back', () => {
       const menu = new UpgradeMenu(() => {}, undefined, () => {});
       menu.toggle(view({ redraw: 'unspent' }));
@@ -1145,6 +1177,32 @@ describe('mulliganLanded — the redraw ack rule (amendment 60)', () => {
 
   it('is only ever about a MULLIGAN latch — a card pick never fills the pip', () => {
     expect(mulliganLanded(latch({ choice: 2 }), you({ offer: [...OFFER_B] }), soon)).toBe(false);
+  });
+
+  // THE BANK MUST NOT MOVE (the 8.10 review, P4). `spendOutcome` calls a pts
+  // DROP a success, because for a card pick it is one. A redraw that cost a
+  // level did not land — it is a pick the server processed, or a desync — and
+  // filling the pip on it would swallow the evidence and eat the free redraw.
+  it('does NOT land when the BANK DROPPED, even though the latch released', () => {
+    // The signature is unchanged, so the only release clause is `pts <`.
+    expect(mulliganLanded(latch(), you({ pts: 0 }), soon)).toBe(false);
+  });
+
+  it('does not land on a bank drop that ALSO changed the offer', () => {
+    expect(mulliganLanded(latch(), you({ pts: 0, offer: [...OFFER_B] }), soon)).toBe(false);
+  });
+
+  it('lands on a changed SIGNATURE at an unchanged bank, the redraw\'s one real signal', () => {
+    expect(mulliganLanded(latch(), you({ pts: 1, offer: [...OFFER_B] }), soon)).toBe(true);
+  });
+
+  it('a server RECEIPT still outranks the inference, as it does for a pick', () => {
+    expect(mulliganLanded(latch({ acked: true }), you(), soon)).toBe(true);
+  });
+
+  it('a vanished own ship is never an ack', () => {
+    expect(mulliganLanded(latch(), null, soon)).toBe(false);
+    expect(mulliganLanded(latch(), undefined, late)).toBe(false);
   });
 });
 

@@ -678,24 +678,36 @@ export function spendOutcome(
 /**
  * Pure: did the MULLIGAN in flight LAND (Story 8.10, amendment 60)?
  *
- * A redraw is acked by the FRONT OFFER CHANGING at an unchanged bank: the
- * server queues `pt` for it, never `bn` (so `latch.acked` never flips), and
- * `pts` does not move (the level is still banked — the redraw costs nothing).
- * That is precisely clause (c) of `spendLatchReleased`, so this reads
- * `spendOutcome` rather than re-deriving it: the two can never disagree about
- * what "landed" means, and the mulligan simply has ONE of the three release
- * clauses available to it instead of three.
+ * A redraw is acked by the FRONT OFFER CHANGING at an UNCHANGED bank: the
+ * server queues `pt` for it, never `bn`, and `pts` does not move (the level is
+ * still banked — the redraw costs nothing). Both halves are asserted here.
  *
- * A redraw that rolls a BYTE-IDENTICAL offer is therefore invisible and times
- * out as 'failed' (the denied pulse on the button, the pip still hollow) — the
- * same accepted corner every other spend has when nothing observable moves.
+ * WHY THIS IS STRICTER THAN `spendOutcome` (the 8.10 review, P4). That
+ * function calls a `pts` DROP a success, because for a card pick it is one. A
+ * redraw that cost the player a level did not land — it is something else
+ * entirely (a pick the server processed, a desync) — and reporting it as an
+ * ack would fill the pip and swallow the evidence. So the pip fills only on
+ * the signal a redraw actually produces, and anything else runs out the latch
+ * and fires the denied pulse. It still shares `spendLatchReleased`, so the two
+ * can never disagree about WHEN the latch clears — only about why.
+ *
+ * `latch.acked` (a `bn` receipt) is kept as an accepting clause: an explicit
+ * server receipt outranks every inference, exactly as it does in
+ * `spendOutcome`.
+ *
+ * A redraw that rolls a BYTE-IDENTICAL offer is invisible and times out as
+ * 'failed' (the denied pulse on the button, the pip still hollow) — the same
+ * accepted corner every other spend has when nothing observable moves.
  */
 export function mulliganLanded(
   latch: SpendLatch,
   you: { pts: number; offer: string[] } | null | undefined,
   nowMs: number,
 ): boolean {
-  return latch.choice === MULLIGAN_CHOICE && spendOutcome(latch, you, nowMs) === 'success';
+  if (latch.choice !== MULLIGAN_CHOICE) return false;
+  if (!spendLatchReleased(latch, you, nowMs) || !you) return false;
+  if (you.pts !== latch.pts) return false; // a redraw NEVER moves the bank
+  return latch.acked || frontOfferSignature(you) !== latch.offerSig;
 }
 
 // --- DOM ------------------------------------------------------------------------
@@ -823,6 +835,26 @@ const REDRAW_PIP_CSS = [
   'display:block',
   'flex:none',
 ].join(';');
+
+/**
+ * Paint the REDRAW control for its two independent dims — the one place they
+ * compose (Story 8.10, amendment 60; the 8.10 review, P5).
+ *
+ * `spent` is PERMANENT for the match: the free redraw is gone, the label drops
+ * to `.55` amber and the pip FILLS (the dual coding the greyed card uses).
+ * `locked` is MOMENTARY: a spend is in flight, so the button takes the cards'
+ * exact locked treatment — a real `disabled` (keyboard and assistive tech see
+ * it, not just the eye), `lockedAlpha`, `cursor:default` — and the pip does NOT
+ * move, because a momentary lock says nothing about whether the redraw is
+ * still there to spend.
+ */
+function paintRedraw(btn: HTMLButtonElement, pip: HTMLElement, spent: boolean, locked: boolean): void {
+  btn.disabled = spent || locked;
+  btn.style.cursor = btn.disabled ? 'default' : 'pointer';
+  btn.style.opacity = locked ? String(R.lockedAlpha) : '1';
+  btn.style.color = spent ? cssRgba(CLIENT_CONFIG.colors.amber, REDRAW_SPENT_ALPHA) : AMBER;
+  pip.style.backgroundColor = spent ? AMBER : 'transparent';
+}
 
 /**
  * One card — the mock's `.rc` VERBATIM (epic-8 amendment 31): a fixed 216×226
@@ -1513,19 +1545,24 @@ export class UpgradeMenu {
 
   /** Paint the footer for this view's redraw state — hidden, the live button
    *  with a hollow pip, or the spent button: inert, its label at `.55` amber
-   *  and its pip FILLED at full alpha (the dual coding the greyed card uses). */
-  private renderFooter(state: RedrawState): void {
+   *  and its pip FILLED at full alpha (the dual coding the greyed card uses).
+   *
+   *  `locked` IS THE ROW'S LOCK, MIRRORED (the 8.10 review, P5). While a spend
+   *  is in flight every card is `disabled` and dimmed to `lockedAlpha`; a
+   *  REDRAW that stayed bright and clickable inside that row invited a second
+   *  send the latch would drop on the floor, with no feedback and no pulse.
+   *  The button takes the cards' exact treatment — real `disabled` (so the
+   *  keyboard and assistive tech see it, not just the eye), `lockedAlpha`,
+   *  `cursor:default`. The PIP is untouched: it reports whether the one free
+   *  redraw is still there to spend, which a momentary lock does not change. */
+  private renderFooter(state: RedrawState, locked: boolean): void {
     const footer = this.footerEl;
     const btn = this.redrawEl;
     const pip = this.redrawPip;
     if (!footer || !btn || !pip) return;
     footer.style.display = state === 'hidden' ? 'none' : 'flex';
     if (state === 'hidden') return;
-    const spent = state === 'spent';
-    btn.disabled = spent;
-    btn.style.cursor = spent ? 'default' : 'pointer';
-    btn.style.color = spent ? cssRgba(CLIENT_CONFIG.colors.amber, REDRAW_SPENT_ALPHA) : AMBER;
-    pip.style.backgroundColor = spent ? AMBER : 'transparent';
+    paintRedraw(btn, pip, state === 'spent', locked);
   }
 
   /**
@@ -1722,7 +1759,7 @@ export class UpgradeMenu {
     const sig = `${view.pts}|${view.options.map(cardSignature).join(',')}|${view.locked ? 1 : 0}|${view.redraw}`;
     if (sig === this.sig) return;
     this.sig = sig;
-    this.renderFooter(view.redraw);
+    this.renderFooter(view.redraw, view.locked);
     // A rebuilt row destroys the buttons the pointer was over, so no mouseleave
     // can ever arrive for them: drop the tooltip with them or it strands, still
     // showing the offer that just left.

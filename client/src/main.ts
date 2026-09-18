@@ -136,7 +136,7 @@ import {
 import { startLivenessPoll, type LivenessPoll } from './net/liveness.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
-import { heldAtStartLine, matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
+import { epochLatchReset, heldAtStartLine, matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { barVisible, ringReadout, type BountyHolder, type ChromeBarView } from './ui/chromeBar.js';
 import { bountyClaimLine, bountyToastLine, bountyTransition } from './ui/bounty.js';
 import { fleetSizeName, pushKillLine } from './ui/killFeed.js';
@@ -1246,20 +1246,30 @@ const HELD_AXES: Axes = { throttle: 0, rudder: 0 };
  * helm during boarding must not have those presses cash in as an engine order
  * the instant the gun goes, having never seen them acknowledged on the ladder.
  * Idempotent with the server's own spawn event, which calls the same function.
+ *
+ * LATCHES: the refit window's one auto-open and the one free redraw (Story
+ * 8.10) ride the SAME edge — see `epochLatchReset` in ui/phase.ts for why that
+ * is the only edge any of the four belong on.
  */
 function updateMatchEpoch(g: Game): void {
   const phase = publicState(g).matchPhase ?? 'waiting';
-  if (phase === g.scorePhase) return;
+  const prev = g.scorePhase;
+  if (phase === prev) return;
   g.scorePhase = phase;
-  // THE OPENING'S TWO LATCHES (Story 8.10, amendments 59-60) reset on EVERY
-  // phase edge, not only the → ACTIVE one: the window's one auto-open and the
-  // one free redraw are per MATCH, and a room that cycles back to `waiting`
-  // for the next match must arrive with both armed again.
-  g.autoOpenedEpoch = false;
-  g.mulliganUsed = false;
-  if (phase !== 'active') return;
+  if (!epochLatchReset(prev, phase)) return;
   g.score = freshScore();
   resetOwnOrders(g);
+  // THE OPENING'S TWO LATCHES (Story 8.10, amendments 59-60; the 8.10 review,
+  // P3) reset HERE, on the same edge as the score — not on every phase edge.
+  // The window's one auto-open and the one free redraw are per MATCH, and a
+  // new match's countdown can only ever follow the previous match's live edge
+  // (active → finished → waiting → countdown), so this arms both in time for
+  // the next start line; a fresh `Game` per join arms them at join. Resetting
+  // on every edge re-armed the auto-open on the `countdown → waiting` edge of
+  // a CANCELLED countdown, and the window flung itself open again at the
+  // re-arm. See ui/phase.ts `epochLatchReset`.
+  g.autoOpenedEpoch = false;
+  g.mulliganUsed = false;
 }
 
 /** Roster name lookup (Story 1.13): the synced callsign or null — NEVER a

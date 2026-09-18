@@ -419,8 +419,6 @@ export class Match {
    *  so it strictly bounds every window it could ever wait on. Past it the
    *  finish fires regardless of lifecycle state. */
   private finishDeadline = 0;
-  /** THE OPENING'S ONCE-PER-MATCH LATCH (Story 8.10) — see grantOpening(). */
-  private openingGranted = false;
   /** DEV smoke arm armed for the next tick (MatchTimings.autoMulligan). */
   private autoMulliganPending = false;
 
@@ -462,8 +460,10 @@ export class Match {
       this.countdownEndT = 0;
       // The start line stands down with the countdown (Story 8.10): no
       // mulligan while the room waits. The banked level and the hand STAY —
-      // the room is still pre-live, and a re-arm grants nothing more
-      // (grantOpening's latch).
+      // the room is still pre-live, and a re-arm grants nothing more to a hull
+      // that already holds its opening (World's per-ship `openingGranted`),
+      // while a captain who joins during the wait gets one at their own
+      // re-arm.
       this.world.countdownOpen = false;
       this.autoMulliganPending = false;
       this.applyPolicy();
@@ -642,30 +642,17 @@ export class Match {
     // flag — it holds no Match reference — and every participant banks its
     // level-zero offer BEFORE the policy and the lock, so the very first
     // countdown frame a client receives already carries `pts 1 / lvl 0 /
-    // offer[4]`.
+    // offer[4]`. Called on EVERY arming: `World.grantOpening()` is idempotent
+    // per hull (the 8.10 review, P2), so a countdown that cancelled back to
+    // `waiting` and re-armed banks nothing extra for the hulls that stayed and
+    // a full opening for whoever joined in between.
     this.world.countdownOpen = true;
-    this.grantOpening();
+    this.world.grantOpening();
     this.applyPolicy();
     this.hooks.lock();
     // The dev smoke arm redraws on the NEXT tick, not this one (see
     // MatchTimings.autoMulligan): a smoke must be able to see offer A first.
     this.autoMulliganPending = this.timings.autoMulligan === true;
-  }
-
-  /**
-   * The level-zero grant, ONCE PER MATCH. `startCountdown` can legitimately
-   * run twice — a countdown that cancels back to `waiting` (a captain left)
-   * and later re-arms — and a second `world.grantOpening()` would bank a
-   * SECOND level rather than redraw the hand the captain still holds. The
-   * latch is cleared only when the match ACTIVATES, so the whole
-   * countdown→waiting→countdown cycle grants exactly one level; a ship that
-   * keeps its banked level across the cancel is correct — it is still
-   * pre-live, and its hand was never spent.
-   */
-  private grantOpening(): void {
-    if (this.openingGranted) return;
-    this.openingGranted = true;
-    this.world.grantOpening();
   }
 
   /**
@@ -698,8 +685,6 @@ export class Match {
     // redraw a hand on live water.
     this.world.countdownOpen = false;
     this.autoMulliganPending = false;
-    // ...and the once-per-match grant latch clears with the match it guarded.
-    this.openingGranted = false;
     this.world.resetForMatchStart(this.boardingRoom);
     this.world.startZone(this.world.now);
     this.phase = 'active';

@@ -1221,23 +1221,21 @@ describe('empty deck — the level banks, no hand materializes, and exhaustion i
     expect(a.deckExhausted).toBe(true);
     expect(onDeckExhausted).toHaveBeenCalledTimes(1);
 
-    // The match boundary rebuilds `deck` from `deckList` (never the catalog) —
-    // the pool is full again, the LATCH is not part of the rebuild.
+    // THE MATCH BOUNDARY NO LONGER REBUILDS THE POOL (Story 8.10 review, P1):
+    // the whole card economy crosses it, so the dry deck stays dry and the
+    // banked level stays banked. The LATCH was never part of any rebuild and
+    // still is not — which is the thing this case exists to pin.
     w.resetForMatchStart();
     a.state.speed = 0;
-    expect(a.deck.cards).toEqual(['lastShell']);
-    expect(a.bankedLevels).toBe(0);
+    expect(a.deck.cards).toEqual([]);
+    expect(a.bankedLevels).toBe(1);
     expect(a.deckExhausted).toBe(true);
     expect(onDeckExhausted).toHaveBeenCalledTimes(1);
 
-    // ...so running the SAME record dry a second time is silent.
+    // ...so banking against the SAME dry record again is silent.
     w.grantXp(a, 1);
     w.step();
-    expect(front(a)).toEqual(['lastShell']);
-    expect(w.spendPoint('a', 0)).toBe(true);
-    w.grantXp(a, 1);
-    w.step();
-    expect(a.bankedLevels).toBe(1);
+    expect(a.bankedLevels).toBe(2);
     expect(a.offer).toBeNull();
     expect(onDeckExhausted).toHaveBeenCalledTimes(1);
   });
@@ -1324,7 +1322,11 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     expect(a.xpMs).toBeGreaterThanOrEqual(xpBefore);
   });
 
-  it('redeployShip (match start) WIPES the build AND rebuilds the deck over the fresh fit', () => {
+  // THE TRUTH FLIPPED (Story 8.10 review, P1): a redeploy is a fresh HULL over
+  // the SAME build now, on every path — `hold` governs placement only, and the
+  // countdown economy must reach live water in every room (the batch-sim
+  // runner and the RL env build a Match without `expectedCaptains`).
+  it('redeployShip (match start) PRESERVES the build, the bank, the hand and the deck', () => {
     const w = bareWorld();
     // TB_WITH_MINES: the TB default holds no unfitted non-stub equipment line,
     // so the board adds NAVAL MINES to have a fit that diverges the deck.
@@ -1337,24 +1339,31 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     w.spendPoint('a', 0);
     bank(w, a, 2);
     expect(copiesInDeck(a, 'navalMines')).toBe(CATALOG['navalMines'].cap - 1);
+    const bankBeforeReset = a.bankedLevels;
+    const handBeforeReset = a.offer;
+    const poolBeforeReset = [...a.deck.cards];
     w.resetForMatchStart();
-    expect(a.cards).toEqual(NO_SEED);
-    expect(a.bankedLevels).toBe(0);
-    expect(a.offer).toBeNull();
+    expect(a.cards).toEqual(['navalMines']);
+    expect(a.bankedLevels).toBe(bankBeforeReset);
+    expect(a.offer).toBe(handBeforeReset); // the same array, never redrawn
+    // XP is the ONE thing that still dies at the boundary (Story 2.6).
     expect(a.level).toBe(0);
     expect(a.xpMs).toBe(0);
-    expect(a.stats).toEqual(effectiveStats(a.cls));
+    expect(a.stats).toEqual(effectiveStats(a.cls, ['navalMines']));
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', null, null, null, null, null, null, null,
+      'gun', 'boost', 'navalMines', null, null, null, null, null, null,
     ]);
-    // The fresh pool is rebuilt from the SAME frozen list (never the catalog):
-    // every dealt line back at its listed count — WHOLE, since Story 8.10
-    // holds nothing back — including the fitted mines, back at all five.
+    // ...on a FRESH clock: the loadout is REBUILT from the kept cards, so no
+    // pool is short and nothing is reloading.
+    for (const slot of a.loadout) {
+      if (slot.state === null) continue;
+      expect(slot.state.reloadMsLeft).toBe(0);
+    }
+    // The pool is NOT rebuilt: the copy the fit consumed stays consumed.
     expect(a.deckList).toEqual(TB_WITH_MINES);
-    expect(copiesInDeck(a, 'navalMines')).toBe(CATALOG['navalMines'].cap);
-    expect(copiesInDeck(a, 'armor')).toBe(3);
-    expect(copiesInDeck(a, 'heavyTorpedo')).toBe(3);
-    expect(a.deck.cards).toHaveLength(deckSizeFor() + CATALOG['navalMines'].cap);
+    expect(a.deck.cards).toEqual(poolBeforeReset);
+    expect(copiesInDeck(a, 'navalMines')).toBe(CATALOG['navalMines'].cap - 1);
+    expect(a.deck.cards).toHaveLength(deckSizeFor() + CATALOG['navalMines'].cap - 1);
   });
 });
 
@@ -1795,17 +1804,26 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
     expect(a.stats.equipment.heavyTorpedo.reloadMs).toBeCloseTo(before * 0.95, 6);
   });
 
-  it('redeployShip (no hold) wipes back to NOTHING and rebuilds the whole pool', () => {
+  // THE SPAWN still holds nothing — but a REDEPLOY no longer returns a hull to
+  // the spawn state (Story 8.10 review, P1): it keeps the build on every path.
+  it('redeployShip (no hold) KEEPS the build; only a fresh ADDSHIP holds nothing', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
     w.applyCard(a, 'broadside');
     w.applyCard(a, 'armor');
+    const pool = [...a.deck.cards];
     w.resetForMatchStart();
-    expect(a.cards).toEqual([]);
-    expect(a.mulliganed).toBe(false);
-    expect(a.deck.cards).toHaveLength(27);
-    expect(a.stats).toEqual(effectiveStats(a.cls));
-    expect(a.loadout).toEqual(loadoutFor(a.stats));
+    expect(a.cards).toEqual(['broadside', 'armor']);
+    expect(a.deck.cards).toEqual(pool); // two copies still spent
+    expect(a.stats).toEqual(effectiveStats(a.cls, ['broadside', 'armor']));
+    expect(a.loadout[WEAPON_SLOTS[0]].equipmentId).toBe('broadside');
+    // A hull that JOINS, by contrast, still comes up with nothing at all.
+    const fresh = place(w, 'fresh', 0, 0, 0, 'battleship');
+    expect(fresh.cards).toEqual([]);
+    expect(fresh.mulliganed).toBe(false);
+    expect(fresh.deck.cards).toHaveLength(27);
+    expect(fresh.stats).toEqual(effectiveStats(fresh.cls));
+    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats));
   });
 
   it('DRONES still get NO deck, and now no cards to speak of either', () => {
