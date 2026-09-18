@@ -221,15 +221,15 @@ describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-4, left to right'
     // The per-hull fit is gone (Story 8.5). What differs between hulls is what
     // their CARDS put in the weapon row — here, the interim spawn seed.
     expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.id)).toEqual(
-      ['gun', 'speedBoost', 'heavyTorpedo', null, null, null, null, null, null],
+      ['gun', 'boost', 'heavyTorpedo', null, null, null, null, null, null],
     );
     expect(slotViewModels(viewFor('battleship')).map((r) => r.id)).toEqual(
-      ['gun', 'speedBoost', 'broadside', 'starShells', null, null, null, null, null],
+      ['gun', 'boost', 'broadside', 'starShells', null, null, null, null, null],
     );
     // AMENDMENT 22: the Mine Layer lost the radar buoy — no card and no seed
     // reaches it, so E stays empty until Story 8.15 deletes the module.
     expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(
-      ['gun', 'speedBoost', 'navalMines', null, null, null, null, null, null],
+      ['gun', 'boost', 'navalMines', null, null, null, null, null, null],
     );
   });
 
@@ -286,11 +286,11 @@ describe('the seven-state grammar + its precedence', () => {
   it('maps every state', () => {
     expect(slotState(null, NONE, false, false, false)).toBe('empty');
     expect(slotState('heavyTorpedo', { ...NONE, denied: true }, false, false, true)).toBe('denied');
-    expect(slotState('speedBoost', { ...NONE, activated: true }, false, false, false)).toBe('activated');
+    expect(slotState('boost', { ...NONE, activated: true }, false, false, false)).toBe('activated');
     expect(slotState('heavyTorpedo', NONE, true, false, true)).toBe('cooling');
     expect(slotState('gun', NONE, false, true, true)).toBe('selected');
     expect(slotState('heavyTorpedo', NONE, false, false, true)).toBe('readyWeapon');
-    expect(slotState('speedBoost', NONE, false, false, false)).toBe('readyAbility');
+    expect(slotState('boost', NONE, false, false, false)).toBe('readyAbility');
   });
 
   it('resolves denied > activated > cooling > selected > ready', () => {
@@ -646,7 +646,7 @@ describe('the EIGHTH state: ACTIVE while an ability window runs (amendment 48)',
   const NONE = { denied: false, activated: false };
 
   it('enters ACTIVE from a running window, and leaves it when the window ends', () => {
-    const base = viewFor('torpedoBoat'); // SLOT_BOOST = speedBoost
+    const base = viewFor('torpedoBoat'); // SLOT_BOOST = boost
     const running = slotViewModels({ ...base, activeMsLeft: at(0, { [SLOT_BOOST]: 3000 }) });
     expect(running[SLOT_BOOST].state).toBe('active');
     const ended = slotViewModels({ ...base, activeMsLeft: nine(0) });
@@ -659,7 +659,7 @@ describe('the EIGHTH state: ACTIVE while an ability window runs (amendment 48)',
     // Layer too, because slot 1 holds the same module on all of them.
     for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
       const base = viewFor(cls);
-      expect(slotViewModels(base)[SLOT_BOOST].id, cls).toBe('speedBoost');
+      expect(slotViewModels(base)[SLOT_BOOST].id, cls).toBe('boost');
       expect(slotViewModels(base)[SLOT_BOOST].state, cls).toBe('readyAbility');
       const popped = slotViewModels({ ...base, activated: at(false, { [SLOT_BOOST]: true }) });
       expect(popped[SLOT_BOOST].state, cls).toBe('activated');
@@ -1326,7 +1326,7 @@ describe('the ammo badge WIDENS to its content (mock `.badge`, ledger :2141)', (
 describe('slotForCard over a belt that holds consumables', () => {
   it('routes a fit flash to the WEAPON slot and never to a belt square', () => {
     const loadout: (SlotItemId | null)[] = [
-      'gun', 'speedBoost', 'heavyTorpedo', null, null, 'hullRepair', null, null, null,
+      'gun', 'boost', 'heavyTorpedo', null, null, 'hullRepair', null, null, null,
     ];
     expect(slotForCard(loadout, 'heavyTorpedo')).toBe(2);
     // A consumable line addresses no EQUIPMENT, so it owns no slot for the

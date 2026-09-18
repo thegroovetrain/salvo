@@ -139,7 +139,7 @@ describe('HUD denominators react to effective stats', () => {
     const base = effectiveStats(TB);
     const drilled = statsFor('torpedoBoat', { reload: 1 });
     expect(drilled.cooldownScale).toBe(0.95);
-    for (const id of ['gun', 'broadside', 'heavyTorpedo', 'navalMines', 'starShells', 'speedBoost', 'radarBuoy'] as const) {
+    for (const id of ['gun', 'broadside', 'heavyTorpedo', 'navalMines', 'starShells', 'boost', 'radarBuoy'] as const) {
       expect(equipmentReloadMs(drilled, id), id).toBe(equipmentReloadMs(base, id) * 0.95);
     }
     // ...and nothing that is not a cooldown moves with it.

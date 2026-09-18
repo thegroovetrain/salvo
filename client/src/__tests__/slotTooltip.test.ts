@@ -172,7 +172,7 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
   });
 
   it('leaves the ABILITY grammar untouched — an ability has no tier to print', () => {
-    expect(interactionLine(1, 'speedBoost', ['armor'])).toBe('ABILITY · Shift · ACTIVATES');
+    expect(interactionLine(1, 'boost', ['armor'])).toBe('ABILITY · Shift · ACTIVATES');
   });
 
   it('reaches the tooltip model, not just the helper', () => {
@@ -326,7 +326,7 @@ describe('tooltip model — name, interaction class, description, and NO boons',
     expect(tooltipModel(E, 'starShells', stats)?.interaction).toBe('WEAPON · E · SWITCH-TO');
     // The boost's key is spelled `Shift` (amendment 33), and the line reads it
     // out of SLOT_KEY_GLYPHS — interactionLine knows nothing about a boost.
-    expect(tooltipModel(SLOT_BOOST, 'speedBoost', stats)?.interaction).toBe('ABILITY · Shift · ACTIVATES');
+    expect(tooltipModel(SLOT_BOOST, 'boost', stats)?.interaction).toBe('ABILITY · Shift · ACTIVATES');
     // PIN FLIPPED (Story 2.8, amendment 45): the mine primes on its slot key
     // and places on a click, exactly like the torpedo.
     expect(interactionLine(R, 'navalMines')).toBe('WEAPON · R · SWITCH-TO');
@@ -334,7 +334,7 @@ describe('tooltip model — name, interaction class, description, and NO boons',
   });
 
   it('renders boons as ABSENCE — the list is empty, so no divider and no rows are drawn', () => {
-    for (const id of ['gun', 'heavyTorpedo', 'navalMines', 'speedBoost', 'broadside', 'starShells', 'radarBuoy'] as const) {
+    for (const id of ['gun', 'heavyTorpedo', 'navalMines', 'boost', 'broadside', 'starShells', 'radarBuoy'] as const) {
       expect(tooltipModel(Q, id, stats)?.boons).toEqual([]);
     }
   });

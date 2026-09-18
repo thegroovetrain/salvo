@@ -65,7 +65,7 @@ import {
   type Vec2,
   type WakeRibbon,
 } from '@salvo/shared';
-import { FASTEST_HULL_SPEED } from '../config.js';
+import { FASTEST_BOOSTED_HULL_SPEED } from '../config.js';
 import { CONTACT_STALE_MS } from './contacts.js';
 import { buildWakeStamp, type CellStamp, type WakeSegmentCover } from './radarField.js';
 import type { ReturnModelOpts } from './radarHeatmap.js';
@@ -84,8 +84,9 @@ export type WakeSourceKind = HullId | 'torp';
 
 /** One visible source, as the wake layer needs it: pose, kind and the tint its
  *  foam carries. `maxSpeedU` provisions the ring buffer — pass the source's
- *  TRUE attainable top speed when it is known (own ship: `kinematics.maxSpeed +
- *  boost.speedBonus`, mirroring `World.wakeTopSpeed`); omitted, the class
+ *  TRUE attainable top speed when it is known (own ship:
+ *  `boostedKinematics(kinematics, CONFIG.boost.factor, true).maxSpeed`,
+ *  mirroring `World.wakeTopSpeed`); omitted, the class
  *  envelope is used and a boosted hull loses a little tail early, which is the
  *  shared model's documented graceful degradation. A `'torp'` source ignores it
  *  entirely — `createTorpWake` provisions off the fixed `CONFIG.torpedo.speed`,
@@ -369,20 +370,23 @@ export const WAKE_STAMP_REBUILD_MS = CONFIG.vision.wakeLifeMs / WAKE_AGE_BUCKETS
  *
  * `FASTEST_HULL_SPEED` alone is the wrong number for a bound that has to hold
  * at every instant of a match, and it was wrong TWICE over: it is the
- * base-kinematics maximum, so it misses the boost bonus (a boosted Torpedo Boat
- * runs 45 + 10 = 55 u/s), and since the torpedo became a wake source in its own
- * right it misses the fish entirely (a fixed 65 u/s, catalog-v3 R17). Every other derivation in
- * this cycle already uses the true attainable figure (`World.wakeTopSpeed`,
- * `wakeHulls`' own-ship `maxSpeedU`), so this is the one place that was left
- * behind — and the floor below CITED the guarantee it was failing to deliver.
+ * base-kinematics maximum, so it misses the boost (which since Story 8.9 is
+ * +25 % OF THE POST-FOLD CAP, so a SPEED-capped Torpedo Boat runs 55 × 1.25 =
+ * 68.75 u/s — epic-8 amendment 55), and since the torpedo became a wake source
+ * in its own right it misses the fish entirely (a fixed 65 u/s, catalog-v3
+ * R17). Every other derivation in this cycle already uses the true attainable
+ * figure (`World.wakeTopSpeed`, `wakeHulls`' own-ship `maxSpeedU`), so this is
+ * the one place that was left behind — and the floor below CITED the guarantee
+ * it was failing to deliver.
  *
- * It is an upper bound rather than an exact maximum: no hull exceeds the
- * fastest envelope and boost adds at most `speedBonus`, so the sum can only
- * over-state (drones cannot boost). Over-stating shortens the floor, which
- * fails toward correctness.
+ * `FASTEST_BOOSTED_HULL_SPEED` is the MAXIMUM ACHIEVABLE hull speed, derived in
+ * client/config.ts through `effectiveStats` (a capped SPEED deck) and the one
+ * shared `boostedKinematics` hook — NOT a base speed plus a flat bonus, which
+ * would now UNDER-state the bound (the proportional boost grows with the
+ * ladder) and under-provision every ring this number sizes.
  */
 export const FASTEST_AFLOAT_SPEED = Math.max(
-  FASTEST_HULL_SPEED + CONFIG.speedBoost.speedBonus,
+  FASTEST_BOOSTED_HULL_SPEED,
   CONFIG.torpedo.speed,
 );
 

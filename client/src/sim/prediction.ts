@@ -11,7 +11,7 @@
 // so authoritative state converges immediately while the picture stays smooth.
 //
 // Speed boost (Story 1.6): every tick — local AND replayed — derives its
-// kinematics through the shared boostedKinematics(kin, bonus, active) hook,
+// kinematics through the shared boostedKinematics(kin, factor, active) hook,
 // the identical per-tick rule the server's stepShips applies. Each pending
 // input records its own server-time estimate + actSeq, so replays re-make the
 // exact boost decisions the original ticks made; see boostActiveAt for the
@@ -159,10 +159,13 @@ export class Predictor {
   private ready = false;
   /** Reused transform scratch for resolveShipPose (allocation-light replay). */
   private readonly scratch: Vec2[] = [];
-  /** Effective boost numbers (effectiveStats().boost pass-through; CONFIG at zero upgrades). */
-  private boost: { bonus: number; durationMs: number } = {
-    bonus: CONFIG.speedBoost.speedBonus,
-    durationMs: CONFIG.speedBoost.durationMs,
+  /** Effective boost numbers (effectiveStats().boost pass-through; CONFIG at zero
+   *  upgrades). `factor` is a FRACTION of the post-fold forward cap, never a flat
+   *  u/s add (Story 8.9, epic-8 amendment 55): the SPEED ladder is inside the
+   *  bonus because the shared hook multiplies the kinematics it is handed. */
+  private boost: { factor: number; durationMs: number } = {
+    factor: CONFIG.boost.factor,
+    durationMs: CONFIG.boost.durationMs,
   };
   /** Authoritative boost-window end (you.boostUntil from the latest server frame; 0 = inactive). */
   private authBoostUntil = 0;
@@ -237,9 +240,11 @@ export class Predictor {
     if (snap) this.forceSnap();
   }
 
-  /** Swap the effective boost numbers alongside setClassConfig (applyOwnStats seam). */
-  setBoostStats(bonus: number, durationMs: number): void {
-    this.boost = { bonus, durationMs };
+  /** Swap the effective boost numbers alongside setClassConfig (applyOwnStats
+   *  seam). `factor` is `CONFIG.boost.factor` (0.25) — a proportion of the
+   *  post-fold cap, NOT a u/s bonus; no card addresses it (amendment 55). */
+  setBoostStats(factor: number, durationMs: number): void {
+    this.boost = { factor, durationMs };
   }
 
   /**
@@ -446,7 +451,7 @@ export class Predictor {
    * `kin.maxSpeed` is the PER-TICK EFFECTIVE forward max — post
    * boostedKinematics/slowedKinematics/hookKinematics — and that is
    * DELIBERATELY UNLIKE the RATED max resolveCollisions passes to
-   * applyGroundingDamp. Amendment 10 admits speedBoost while sinking knowing it
+   * applyGroundingDamp. Amendment 10 admits the boost while sinking knowing it
    * fights the ritardando, so the boost must raise the CEILING the ramp scales
    * (a doomed surge the hull can accelerate into) rather than be refused; the
    * cap still reaches exactly 0 at the deadline either way. sinking.ts's header
@@ -468,7 +473,7 @@ export class Predictor {
    *
    *   hookKinematics(
    *     slowedKinematics(
-   *       boostedKinematics(kinematics, bonus, t < boostUntil),
+   *       boostedKinematics(kinematics, factor, t < boostUntil),
    *       CONFIG.mine.foulFactor, t < slowedUntil),
    *     behaviors, registry)
    *
@@ -479,7 +484,7 @@ export class Predictor {
    * keeps a replay across a slow window self-consistent.
    */
   private tickKin(t: number, seq: number): ShipConfig {
-    const boosted = boostedKinematics(this.kin, this.boost.bonus, this.boostActiveAt(t, seq));
+    const boosted = boostedKinematics(this.kin, this.boost.factor, this.boostActiveAt(t, seq));
     const slowed = slowedKinematics(boosted, CONFIG.mine.foulFactor, this.slowActiveAt(t));
     return hookKinematics(slowed, this.behaviors, this.hookRegistry);
   }

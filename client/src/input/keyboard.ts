@@ -119,8 +119,34 @@ export const SLOT_KEY_CODES: Record<string, number> = {
   KeyR: WEAPON_SLOTS[2],
 };
 
-/** The two physical SHIFT keys — slot 1's (the boost's) activation key, bound
- *  as a TAP. Both codes act identically: a captain boosts with either hand. */
+/**
+ * THE TWO PHYSICAL SHIFT KEYS — slot 1's (the boost's) activation key. This is
+ * the code-side INPUT-CAPTURE RULE for the boost (Story 8.9, epic-8 amendments
+ * 56-57; Eric 2026-09-11 and 2026-09-18). Nothing below is a preference; each
+ * line is a ruling that already holds in the code, written down so the next
+ * agent does not re-derive it or "fix" it:
+ *
+ *  • SHIFT IS A TAP, on the KEYDOWN EDGE, and BOTH codes act identically — a
+ *    captain boosts with either hand. There is no hold semantics: the window is
+ *    `CONFIG.boost.durationMs` long from the press and the key is irrelevant
+ *    after it.
+ *  • OS AUTO-REPEAT IS DROPPED by `edge()` (`e.repeat === true` never fires the
+ *    action), so a Shift held for three seconds is exactly ONE press — the same
+ *    rule F and the refit digits obey.
+ *  • THE WINDOWS STICKY KEYS PROMPT on five Shift taps in a row is a KNOWN OS
+ *    hazard and is ACCEPTED WITH NO MITIGATION (Eric 2026-09-11). Do not add a
+ *    tap counter, a rebind offer or a warning: the browser cannot suppress the
+ *    OS dialog and every workaround costs the boost its key.
+ *  • THE BOOST IS SUSPENDED WHILE THE REFIT WINDOW IS OPEN, and under the
+ *    start-line combat lock, exactly like Q/E/R (amendment 56 — Eric: "I can't
+ *    use my equipment (like boost) while I have the upgrade window open").
+ *    `boostAction`'s `suspended()` guard IS that design, not an accident.
+ *  • SHIFT+TAB IS NOT A DESIGNED COMBINATION (amendment 57 — Eric: "Shift is
+ *    boost, Tab is ability window"). `onDown` preventDefaults the chord for
+ *    browser hygiene (focus must not escape the canvas) and does NOTHING
+ *    further; a Shift press fires the boost on its own keydown edge whatever
+ *    key follows. Nothing is built or tested for the chord, deliberately.
+ */
 export const BOOST_KEY_CODES: readonly string[] = ['ShiftLeft', 'ShiftRight'];
 
 /**
@@ -241,7 +267,7 @@ export function panAxesFrom(keys: Set<string>): Axes {
 
 /**
  * Pure: does `slot` of the own loadout hold instant-activation ABILITY
- * content (`isWeaponItem(id) === false`)? The `speedBoost` — which
+ * content (`isWeaponItem(id) === false`)? The `boost` — which
  * Story 8.5 seated in SLOT_BOOST on EVERY captain hull (epic-8 amendment 23) —
  * is the ONLY one left that answers true. Weapons and empty/out-of-range slots return
  * false (they prime / do nothing) — as of Story 2.8 (amendment 45) the MINE is

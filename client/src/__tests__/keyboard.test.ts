@@ -192,11 +192,11 @@ describe('nextPrimedSlot — switch-to / same-key revert', () => {
 describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
   /** A nine-slot array: gun, boost, three weapon slots, the four-slot belt. */
   const nine = (...weapons: (string | null)[]): readonly (SlotItemId | null)[] =>
-    ['gun', 'speedBoost', ...weapons, null, null, null, null, null].slice(0, 9) as (SlotItemId | null)[];
+    ['gun', 'boost', ...weapons, null, null, null, null, null].slice(0, 9) as (SlotItemId | null)[];
   /** The same spine with the BELT stocked: slot content is a `SlotItemId`, so a
    *  belt square holds a CONSUMABLE id and the split must still answer. */
   const withBelt = (...belt: (SlotItemId | null)[]): readonly (SlotItemId | null)[] =>
-    ['gun', 'speedBoost', null, null, null, ...belt, null, null, null].slice(0, 9) as (SlotItemId | null)[];
+    ['gun', 'boost', null, null, null, ...belt, null, null, null].slice(0, 9) as (SlotItemId | null)[];
 
   // Story 8.5: every captain has the SAME shape. What differs is what their
   // seed/cards put in the weapon row — the Torpedo Boat's heavy torpedo, the
@@ -206,7 +206,7 @@ describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
   const ML_SLOTS = nine('navalMines');
 
   it('is true only for a slot holding EQUIPMENT_IS_WEAPON:false equipment', () => {
-    expect(slotHoldsAbility(TB_SLOTS, SLOT_BOOST)).toBe(true); // speedBoost
+    expect(slotHoldsAbility(TB_SLOTS, SLOT_BOOST)).toBe(true); // boost
     expect(slotHoldsAbility(TB_SLOTS, SLOT_GUN)).toBe(false); // gun
     expect(slotHoldsAbility(TB_SLOTS, Q_SLOT)).toBe(false); // torpedo
     expect(slotHoldsAbility(BB_SLOTS, Q_SLOT)).toBe(false); // the broadside is a weapon
@@ -215,7 +215,7 @@ describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
 
   it('EVERY captain hull now answers true at SLOT_BOOST (amendment 23)', () => {
     // The boost stopped being a Torpedo Boat privilege in Story 8.5: slot 1
-    // holds the same `speedBoost` module at the same numbers on all three
+    // holds the same `boost` module at the same numbers on all three
     // hulls, so a Battleship and a Mine Layer activate on Shift exactly as the
     // TB always did.
     for (const slots of [TB_SLOTS, BB_SLOTS, ML_SLOTS]) {
@@ -561,7 +561,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     // still activates — on Shift, in the sibling tests above.)
     const presses: number[] = [];
     const weaponRow: readonly (SlotItemId | null)[] =
-      ['gun', 'speedBoost', 'navalMines', 'radarBuoy', null, null, null, null, null];
+      ['gun', 'boost', 'navalMines', 'radarBuoy', null, null, null, null, null];
     kb = new KeyboardInput({
       isSlotFitted: (slot) => weaponRow[slot] != null,
       isAbilitySlot: (slot) => slotHoldsAbility(weaponRow, slot),
@@ -651,7 +651,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
 
   it('on an all-weapon row the weapon keys PRIME and actSeq stays 0', () => {
     const weaponRow: readonly (SlotItemId | null)[] =
-      ['gun', 'speedBoost', 'broadside', 'starShells', null, null, null, null, null];
+      ['gun', 'boost', 'broadside', 'starShells', null, null, null, null, null];
     kb = new KeyboardInput({
       isSlotFitted: (slot) => weaponRow[slot] != null,
       isAbilitySlot: (slot) => slotHoldsAbility(weaponRow, slot),

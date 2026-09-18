@@ -13,6 +13,7 @@ import {
   CONFIG,
   MSG,
   NO_CARDS,
+  boostedKinematics,
   cardBehaviors,
   effectiveStats,
   equipmentReloadMs,
@@ -2418,7 +2419,7 @@ function overlayFocused(g: Game | null): boolean {
  *    denied pulse (the existing deniedFire grammar, chips-only — never silence,
  *    never the weapon-arc/reticle visuals: nothing is aimed). Per-slot so a
  *    denied press never flashes another slot's chip;
- *  - predicted READY → per equipment: speedBoost opens the predictor's optimistic
+ *  - predicted READY → per equipment: the boost opens the predictor's optimistic
  *    boost window at the current server-clock estimate so the speed-up doesn't
  *    wait a round trip (the authoritative you.boostUntil overwrites it once
  *    acked; the predictor ignores a second press while pending, so a stale-ammo
@@ -2464,7 +2465,7 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   // `actSeq` is the value THIS press will ride once the keyboard drains it onto
   // an input (it may sit behind other queued presses); the optimistic boost
   // window keys its clear-on-ack on exactly that counter, not the live count.
-  if (id === 'speedBoost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
+  if (id === 'boost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
   // A click-placed buoy has no press-time cue: its placement tone rides the buoy
   // reconcile's own-spawn hook (the mine precedent), so it fires on the confirmed
   // OWN buoy and never on a truesighted enemy buoy.
@@ -2610,8 +2611,8 @@ function latchFitFlash(g: Game, cardId: string): void {
  */
 function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
-  const until = { speedBoost: boostUntilNow(g), radarBuoy: g.buoys.ownUntil() };
-  return status.loadout.map((id) => (id === 'speedBoost' || id === 'radarBuoy' ? Math.max(0, until[id] - now) : 0));
+  const until = { boost: boostUntilNow(g), radarBuoy: g.buoys.ownUntil() };
+  return status.loadout.map((id) => (id === 'boost' || id === 'radarBuoy' ? Math.max(0, until[id] - now) : 0));
 }
 
 /**
@@ -2847,8 +2848,11 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[]): voi
   // player has no way to see why. The gun is slot 0 and is never null, so this
   // is a no-op for every fit that does not take a primed slot away.
   if ((g.ownSlots[g.keyboard.primedSlot] ?? null) === null) g.keyboard.revertToGun();
-  // Boost numbers ride the same stats swap (CONFIG pass-through today).
-  g.predictor.setBoostStats(stats.equipment.speedBoost.speedBonus, stats.equipment.speedBoost.durationMs);
+  // Boost numbers ride the same stats swap: the DURATION off the stats row (it
+  // is a whitelisted stat path), the FACTOR straight off CONFIG — the +25 % is a
+  // proportion of the post-fold cap and no card addresses it (amendment 55), so
+  // it never sat in the row.
+  g.predictor.setBoostStats(CONFIG.boost.factor, stats.equipment.boost.durationMs);
   // Behavior-boon hooks ride it too (Story 2.5): the predictor folds these
   // per tick in the SAME boost-then-hooks order the server steps with.
   g.predictor.setBoons(cardBehaviors(cards));
@@ -3086,8 +3090,10 @@ function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
       cls: g.ownClass,
       color: hullStyle(g.ownHueIndex).stroke,
       // Mirrors the server's `World.wakeTopSpeed` so the two ring buffers are
-      // provisioned alike; a boost card lengthens both or neither.
-      maxSpeedU: own.kinematics.maxSpeed + own.equipment.speedBoost.speedBonus,
+      // provisioned alike; through the ONE shared hook, so the proportional
+      // boost (amendment 55) is read off the post-fold cap on both sides and a
+      // SPEED card lengthens both rings or neither.
+      maxSpeedU: boostedKinematics(own.kinematics, CONFIG.boost.factor, true).maxSpeed,
     });
   }
   const at = now - CLIENT_CONFIG.net.interpDelayMs;
@@ -3267,7 +3273,7 @@ function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeI
     orderedDetent: detentIndexOf(axes.throttle),
     rudder: axes.rudder,
     kin: status.stats.kinematics,
-    speedBonus: status.stats.equipment.speedBoost.speedBonus,
+    boostFactor: CONFIG.boost.factor,
     boostActive: status.boostActive,
   };
 }

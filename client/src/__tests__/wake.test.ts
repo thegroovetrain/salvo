@@ -27,11 +27,14 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Container } from 'pixi.js';
 import {
+  CATALOG,
   CONFIG,
   WAKE_AGE_BUCKETS,
+  boostedKinematics,
   createShipWake,
   appendWakeSample,
   eachWakeSegment,
+  effectiveStats,
   hullEnvelope,
   islandFromPolygon,
   paintSegmentCoverage,
@@ -39,7 +42,7 @@ import {
   type HullId,
   type Island,
 } from '@salvo/shared';
-import { CLIENT_CONFIG, FASTEST_HULL_SPEED } from '../config.js';
+import { CLIENT_CONFIG, FASTEST_BOOSTED_HULL_SPEED, FASTEST_HULL_SPEED } from '../config.js';
 import { Effects, chopHalfWidthU, chopOutline, type ChopPoint } from '../render/effects.js';
 import {
   FASTEST_AFLOAT_SPEED,
@@ -626,18 +629,33 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
   // nothing can have moved by more than the lattice can express while the floor
   // holds. That was FALSE at the shipped derivation: it used
   // `FASTEST_HULL_SPEED`, the BASE kinematics maximum, so a boosted Torpedo Boat
-  // (55 u/s) and a torpedo (65 u/s, catalog-v3 R17 — a wake source in its own right since P10)
+  // and a torpedo (65 u/s, catalog-v3 R17 — a wake source in its own right since P10)
   // both crossed a 9u cell INSIDE the 200ms floor. The property, not the number:
   // no source may cross a lattice cell faster than the floor.
+  //
+  // STORY 8.9 RAISED THE CEILING AGAIN, and this time the old shape of the sum
+  // was the bug: the boost became +25 % OF THE POST-FOLD CAP (epic-8 amendment
+  // 55), so the SPEED ladder is INSIDE the bonus and the fastest thing afloat is
+  // a SPEED-capped Torpedo Boat at 55 x 1.25 = 68.75 u/s — faster than the fish.
+  // `FASTEST_HULL_SPEED + <a flat bonus>` (45 + 10 = 55) would under-provision
+  // every ring this bound sizes and put the floor back above a cell crossing.
   it('the rebuild floor is shorter than a lattice-cell crossing for EVERY source, boost and fish included', () => {
     const cellCrossMs = (speed: number): number => (CONFIG.vision.radarCellU / speed) * 1000;
     expect(WAKE_STAMP_MIN_MS).toBeCloseTo(cellCrossMs(FASTEST_AFLOAT_SPEED), 9);
-    const boostedHull = FASTEST_HULL_SPEED + CONFIG.speedBoost.speedBonus;
-    for (const speed of [FASTEST_HULL_SPEED, boostedHull, CONFIG.torpedo.speed]) {
+    // The MAXIMUM ACHIEVABLE hull, derived the way the sim derives it: a capped
+    // SPEED deck through effectiveStats, the boost through the one shared hook.
+    const cappedDeck = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
+    const cappedTb = effectiveStats(CONFIG.shipClasses.torpedoBoat, cappedDeck).kinematics;
+    const cappedBoosted = boostedKinematics(cappedTb, CONFIG.boost.factor, true).maxSpeed;
+    expect(cappedBoosted).toBeCloseTo(68.75, 9);
+    expect(FASTEST_BOOSTED_HULL_SPEED).toBeCloseTo(cappedBoosted, 9);
+    for (const speed of [FASTEST_HULL_SPEED, cappedBoosted, CONFIG.torpedo.speed]) {
       expect(WAKE_STAMP_MIN_MS, `a source at ${speed} u/s`).toBeLessThanOrEqual(cellCrossMs(speed) + 1e-9);
     }
-    // And it is a TRUE attainable bound, not the base envelope's.
+    // And it is a TRUE attainable bound, not the base envelope's — nor the base
+    // envelope plus a flat add, which the proportional boost has now outrun.
     expect(FASTEST_AFLOAT_SPEED).toBeGreaterThan(FASTEST_HULL_SPEED);
+    expect(FASTEST_AFLOAT_SPEED).toBeGreaterThanOrEqual(cappedBoosted);
   });
 
   // P6 — THE SIGHT RADIUS IS PART OF THE KEY. A dazzle onset/end moves

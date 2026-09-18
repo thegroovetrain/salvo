@@ -87,7 +87,7 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
   });
 
   it('classes the instant ability + the empty slot as none (not an aimed weapon)', () => {
-    expect(fireArcKind('speedBoost')).toBe('none');
+    expect(fireArcKind('boost')).toBe('none');
     expect(fireArcKind(null)).toBe('none');
   });
 });
@@ -192,7 +192,7 @@ describe('weaponArcHit + twinSectorSide — the broadside beams', () => {
 
 describe('weaponArcHit — instant abilities / empty slot', () => {
   it('is FALSE for the ability and the empty slot (not a weapon, never in arc)', () => {
-    expect(weaponArcHit(0, 0, 'speedBoost')).toBe(false);
+    expect(weaponArcHit(0, 0, 'boost')).toBe(false);
     expect(weaponArcHit(0, 0, null)).toBe(false); // empty slot 3 / defensive null
   });
 });
@@ -510,7 +510,7 @@ describe('weaponRangeHit — the CLICK-PLACED ids\' hard placement-reach denial 
   });
 
   it('never gates any OTHER id on distance — they clamp or run on, they do not deny', () => {
-    for (const id of ['gun', 'broadside', 'starShells', 'heavyTorpedo', 'speedBoost'] as const) {
+    for (const id of ['gun', 'broadside', 'starShells', 'heavyTorpedo', 'boost'] as const) {
       expect(weaponRangeHit(1e6, id), id).toBe(true);
     }
     expect(weaponRangeHit(1e6, null)).toBe(true);
@@ -520,7 +520,7 @@ describe('weaponRangeHit — the CLICK-PLACED ids\' hard placement-reach denial 
 // --- Story 1.10: classification derives from the shared arcFor descriptor ----
 
 describe('weaponArc — arcFor single-source (Story 1.10)', () => {
-  const ALL_IDS: EquipmentId[] = ['gun', 'heavyTorpedo', 'navalMines', 'speedBoost', 'broadside', 'starShells', 'radarBuoy'];
+  const ALL_IDS: EquipmentId[] = ['gun', 'heavyTorpedo', 'navalMines', 'boost', 'broadside', 'starShells', 'radarBuoy'];
 
   it('fireArcKind is a straight projection of the shared descriptor for every id', () => {
     const PROJECTION: Record<string, string> = {

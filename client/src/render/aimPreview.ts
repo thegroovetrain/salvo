@@ -479,7 +479,7 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   if (inp.id === 'heavyTorpedo') return torpedoPreview(inp);
   if (inp.id === 'navalMines') return minePreview(inp);
   if (inp.id === 'radarBuoy') return buoyPreview(inp);
-  return EMPTY; // speedBoost — an instant ability aims nothing
+  return EMPTY; // boost — an instant ability aims nothing
 }
 
 /**

@@ -102,7 +102,7 @@ describe('TONES — spec table completeness', () => {
 });
 
 describe('fireTone — weapon -> own-fire tone mapping', () => {
-  // The speedBoost ability never fires: fireTone is typed to the weapon subset
+  // The boost ability never fires: fireTone is typed to the weapon subset
   // of EquipmentId (Story 1.6), so an ability id can't even reach it.
   it('maps every firing weapon to its distinct tone', () => {
     expect(fireTone('gun')).toBe('fireGun');

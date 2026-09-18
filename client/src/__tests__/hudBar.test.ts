@@ -390,7 +390,7 @@ function barView(over: Partial<HudBarView> = {}): HudBarView {
       orderedDetent: 6,
       rudder: 0,
       kin: STATS.kinematics,
-      speedBonus: STATS.equipment.speedBoost.speedBonus,
+      boostFactor: CONFIG.boost.factor,
       boostActive: false,
     },
     xp: { lvl: 3, xp: 0.62, pts: 1, refitable: true },

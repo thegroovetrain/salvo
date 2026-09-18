@@ -377,7 +377,7 @@ export function telegraphTone(dir: number): ToneId {
 
 /** Equipment with a discrete own-fire/placement cue routed through fireTone. The
  *  instant abilities that have NO such cue here are excluded at the type level:
- *  speedBoost (a pure speed window) and radarBuoy (its placement cue is played
+ *  boost (a pure speed window) and radarBuoy (its placement cue is played
  *  as 'placeBuoy' from the buoy reconcile own-spawn hook, not via fireTone).
  *  The MINE stays included even though it is now an ability (Story 1.8) — its
  *  'fireMine' drop cue still fires, via the Mines reconcile own-spawn hook
@@ -386,7 +386,7 @@ type FiringEquipmentId = Extract<EquipmentId, 'gun' | 'heavyTorpedo' | 'navalMin
 
 /** TOTAL over the five ids that HAVE a cue. Story 8.1 widened `EquipmentId` to
  *  catalog v3's thirteen weapons plus two legacy ids, so the old
- *  `Exclude<..., 'speedBoost' | 'radarBuoy'>` would now demand a cue for eight
+ *  `Exclude<..., 'boost' | 'radarBuoy'>` would now demand a cue for eight
  *  weapons that have no module to fire - the union names the five that do. */
 const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   gun: 'fireGun',

@@ -576,7 +576,10 @@ const FIELD_WORDS: Readonly<Record<string, string>> = {
   triggerRadius: 'TRIGGER RADIUS',
   speed: 'SPEED',
   barrels: 'SHELLS PER SHOT',
-  speedBonus: 'BOOST',
+  // `speedBonus` had a row here until Story 8.9: the boost's bonus became a
+  // PROPORTION of the post-fold cap (epic-8 amendment 55), so it left
+  // `EQUIPMENT_STAT_FIELDS` entirely and no card can address it. A word for a
+  // field no row carries is a label that can never print.
   durationMs: 'DURATION',
   spreadRung: 'SPREAD',
 };
