@@ -92,9 +92,9 @@ warnings: [oversized]
 
 **Execution:**
 - [x] amendment 67 → both homes -- done at plan time
-- [ ] `shared/` (constants, pool.ts, barrel, tests incl. the measurement) -- `npm test -w shared && npm run build -w shared`
-- [ ] `server/` (world, roomOptions, ArenaRoom, harness/RL/deckSim, tests, smoke) -- `npm test -w server`; smoke on a scratch port, own PID killed
-- [ ] docs + version + trackers + ledger -- one-line tracker stamps; measured table recorded
+- [x] `shared/` (constants, pool.ts, barrel, tests incl. the measurement) -- `npm test -w shared && npm run build -w shared`
+- [x] `server/` (world, roomOptions, ArenaRoom, harness/RL/deckSim, tests, smoke) -- `npm test -w server`; smoke on a scratch port, own PID killed
+- [x] docs + version + trackers + ledger -- one-line tracker stamps; measured table recorded
 - [ ] `npm run check` green
 
 **Acceptance Criteria:**
