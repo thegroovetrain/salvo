@@ -1,6 +1,6 @@
 // Pins the ratified beta class table and the drone/fleet envelope table. The
 // HULL HP DOUBLED in balance cycle 1 (Eric ruling 2026-08-20): TB 125→250,
-// BS 175→350, ML 150→300, alongside CONFIG.damageControl 25→50 (flat amounts
+// BS 175→350, ML 150→300, alongside the paid heal's 25→50 (flat amounts
 // that would otherwise be silently repriced) and the client's toughness pip
 // ladder 100/25→200/50 (which preserves the 2/3/4 readout). The doubling is
 // PROPORTIONAL by design — a flat +100 was measured first and rejected because

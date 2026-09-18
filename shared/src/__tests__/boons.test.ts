@@ -354,10 +354,11 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
   });
 
   it('stat, behavior and doctrine effects are structural no-ops in the slot home (and a STUB stock with them)', () => {
-    // `stock` moved home in Story 8.7 — it fills the BELT now. It is still a
-    // no-op HERE because every production consumable line is a stub (epic-8
-    // amendment 41) and the stub gate refuses it; the live rack is exercised
-    // against a non-stub test catalog at the foot of this file.
+    // `stock` moved home in Story 8.7 — it fills the BELT now. The one used
+    // here is SHIELD BLOCK, still a stub (epic-8 amendment 41), so the stub
+    // gate refuses it and it stays a no-op; HULL REPAIR went live in Story 8.8
+    // and would fill a belt slot. The live rack is exercised against a non-stub
+    // test catalog at the foot of this file.
     const loadout = loadoutFor(stats);
     const slotRefs = [...loadout];
     const stateRefs = loadout.map((s) => s.state);
@@ -365,7 +366,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
       { kind: 'stat', path: 'maxHp', add: 1 },
       { kind: 'behavior', hookId: 'x', params: {} },
       { kind: 'doctrine', weapon: 'heavyTorpedo', mode: 'homing' },
-      { kind: 'stock', equipmentId: 'hullRepair' },
+      { kind: 'stock', equipmentId: 'shieldBlock' },
     ];
     for (const e of effects) applySlotEffect(loadout, e, stats);
     expect(loadout.map((s) => s)).toEqual(slotRefs);
@@ -544,9 +545,11 @@ describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
 // — it never reloads — and `slotsWithCards` needs no new code to replay it:
 // k copies replayed IS n = k.
 //
-// EVERY PRODUCTION CONSUMABLE IS STILL A STUB (epic-8 amendment 41), so these
-// tests run on an injected NON-STUB catalog; the production pin (the belt stays
-// empty in play) is asserted below and in nineSlots.test.ts.
+// FOUR OF THE FIVE PRODUCTION CONSUMABLES ARE STILL STUBS (epic-8 amendment 41;
+// HULL REPAIR went live in Story 8.8), so these tests run on an injected
+// ALL-NON-STUB catalog to exercise the fold over every line; the production pin
+// (only HULL REPAIR reaches the belt in play) is asserted below and in
+// nineSlots.test.ts.
 // ---------------------------------------------------------------------------
 
 describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', () => {
@@ -577,7 +580,11 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
 
   it('the test lines are LEGAL catalog lines (the helper is the shipped shape, un-stubbed)', () => {
     for (const id of CONSUMABLE_IDS) expect(validateLine(consumableLine(id)), id).toEqual([]);
-    expect(CATALOG[CONSUMABLE_IDS[0]].stub).toBe(true); // ...and production stays stubbed (amendment 41)
+    // ...and production ships exactly ONE live line: HULL REPAIR (Story 8.8).
+    expect(CATALOG.hullRepair.stub).toBe(undefined);
+    for (const id of CONSUMABLE_IDS) {
+      if (id !== 'hullRepair') expect(CATALOG[id].stub, id).toBe(true); // amendment 41
+    }
   });
 
   // --- the predicate ------------------------------------------------------
@@ -687,10 +694,10 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
     const stubbed = catalogOf(consumableLine('hullRepair', { stub: true }));
     applySlotEffect(loadout, stock('hullRepair'), stats, stubbed);
     expect(beltIds(loadout)).toEqual([null, null, null, null]);
-    // ...and the PRODUCTION catalog stubs all five (amendment 41): the belt is
-    // unreachable in play after 8.7.
+    // ...and the PRODUCTION catalog still stubs FOUR of the five (amendment 41):
+    // swept over every line, only HULL REPAIR reaches the belt.
     for (const id of CONSUMABLE_IDS) applySlotEffect(loadout, stock(id), stats, CATALOG);
-    expect(beltIds(loadout)).toEqual([null, null, null, null]);
+    expect(beltIds(loadout)).toEqual(['hullRepair', null, null, null]);
   });
 
   it('a stock NEVER touches the gun, the boost or the weapon row — even with the row full', () => {

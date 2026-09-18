@@ -342,31 +342,24 @@ describe('the collapse group — the whole map is storm at closure', () => {
     expect(rec.hp).toBe(CONFIG.shipClasses.battleship.hp); // full HP into the collapse
     const sunkS = CONFIG.shipClasses.battleship.hp / CONFIG.zone.stormDps;
     expect(sunkS).toBeLessThanOrEqual(90); // was 45 pre-doubling — see the note above
-    // THE FREE PER-LEVEL AUTO-HEAL LENGTHENS THE TAIL (2026-08-23). A hull dying
-    // out here keeps earning PASSIVE levels, and each one patches
-    // levelMissingPct of its MISSING hull into a free pool. The guarantee is
-    // intact and for a structural reason rather than a measured one: the heal
-    // is a bounded fraction of a bounded hull earned at a bounded rate, while
-    // the storm is unbounded and constant — so the geometry still terminates
-    // every match with no damage ramp. Only the worst case moves, MEASURED here
-    // at 91.95s against the 87.5s of pure storm (exactly the one level this hull
-    // earns while dying).
+    // NOTHING LENGTHENS THE TAIL ANY MORE (Story 8.8, epic-8 amendments 46 +
+    // 47). The free per-level auto-heal that used to patch levelMissingPct of
+    // this hull's MISSING hp on every level it earned while dying is GONE, and
+    // the OUT-OF-COMBAT REGEN that replaced it cannot run here for a structural
+    // reason: every storm bite goes through the one damage gate and stamps
+    // `lastDamagedAt`, so a hull being bitten every tick is never 30 s out of
+    // combat. NOBODY REGENS IN THE STORM — the consequence Eric was told about
+    // and accepted when he ruled amendment 47.
     //
-    // The bound is DERIVED, not pinned to that measurement: at most one level
-    // per levelMs over the sink, plus one for the fraction already in flight,
-    // each worth at most levelMissingPct of the full hull. A SHORT FIXED-POINT
-    // ITERATION, not a single pass off `sunkS` alone: the extended tail earns
-    // MORE levels than the bare storm-only sink duration would suggest, and the
-    // bound must account for levels earned over ITS OWN extended tail, not just
-    // over the un-healed sink. Computing `freeLevels` from `sunkS` alone is
-    // self-consistent only by coincidence of the shipped constants — a retune
-    // of levelMissingPct/stormDps/levelMs could under-bound it silently. Four
-    // iterations converge well past the precision this bound needs.
-    let boundS = sunkS;
-    for (let i = 0; i < 4; i++) {
-      const freeLevels = Math.ceil((boundS * 1000) / CONFIG.xp.levelMs) + 1;
-      boundS = sunkS + (freeLevels * CONFIG.damageControl.levelMissingPct * CONFIG.shipClasses.battleship.hp) / CONFIG.zone.stormDps;
-    }
+    // So the bound is the PURE STORM SINK again, with no iteration and no free
+    // pool in it: 350 hp at 4 dps = 87.5 s. (That is still past NFR6's "inside
+    // ~15:00" worst case by the balance-cycle-1 hull doubling, which is the
+    // Eric ruling this test has been awaiting since 2026-08-23 and does not
+    // presume here.)
+    // ...plus ONE TICK of granularity: the storm bites in 50 ms steps, so the
+    // hull crosses 0 on the first tick at or after the exact 87.5 s, never
+    // before it.
+    const boundS = sunkS + CONFIG.tick.simDtMs / 1000;
     const budgetTicks = Math.ceil((boundS * 1000 + 1000) / CONFIG.tick.simDtMs);
     let ticks = 0;
     while (isAfloat(rec.lifecycle) && ticks < budgetTicks) {

@@ -3,6 +3,22 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  53 (Story 8.8): THE HEAL SENTINEL LEAVES `SpendMsg`; HULL REPAIR BECOMES A
+ *  LIVE CATALOG LINE. `SpendMsg.choice` is an offer slot index and nothing
+ *  else — the reserved -1 DAMAGE CONTROL sentinel (the exported constant is
+ *  deleted outright) is gone, so a -1 from a stale client is simply malformed
+ *  and dropped. With it: `hullRepair` loses its `stub` flag and so becomes
+ *  DEALT (catalog content IS wire contract, the convention from 13 — every
+ *  default deck goes 23 → 26 drawable cards), and the CONFIG snapshot's old
+ *  damage-control block splits into `CONFIG.hullRepair` (the paid heal's
+ *  instantHp/regenHp/regenMs, unchanged) plus a new
+ *  `CONFIG.regen` (missingPctPerS/outOfCombatMs — the out-of-combat regen that
+ *  replaces the free per-level auto-heal, epic-8 amendments 46-48). No wire
+ *  SHAPE is added or removed: `OwnShip.repairHp` stays required (now the paid
+ *  pool alone) and `heal` stays the self-private {k,id} event with no amount,
+ *  so the perception exception count stays at SIX. A stale client would read a
+ *  heal it cannot stock, key a rail the server no longer honours and mis-derive
+ *  both heal channels — this join gate is the only guard.
  *  52 (Story 8.5): OwnShip.ammo widened from 4 to 9 slot-aligned entries
  *  (nine fixed-role slots). The loadout is now ONE flat nine-slot array —
  *  gun, boost, three weapons, four consumables — identical for every captain
@@ -63,9 +79,10 @@
  *  (`sp`, `hc`, `mz`, `sunk`, `sm`, `fh`). Purely additive to the payload, but
  *  a wire SHAPE change on a row every client decodes, so it is a join gate.
  *  47: BALANCE CYCLE 1 (Eric rulings 2026-08-20/21) — nine combat tunables move
- *  together: hull hp DOUBLES (TB 125→250, BS 175→350, ML 150→300),
- *  `damageControl` instant/regen double with it (25→50 each, because those
- *  amounts are FLAT by ruling and would otherwise be silently repriced), the
+ *  together: hull hp DOUBLES (TB 125→250, BS 175→350, ML 150→300), the PAID
+ *  HEAL's instant/regen amounts double with it (25→50 each, because those
+ *  amounts are FLAT by ruling and would otherwise be silently repriced — that
+ *  block is `CONFIG.hullRepair` since 53), the
  *  BROADSIDE goes 3×20 on a 30s cooldown → 4×15 on 18s (base alpha unchanged at
  *  60, maxed 100→90, fired 1.67× as often), and `torpedo.damage` 70→50.
  *  NO wire SHAPE changes — this is a join gate, not a serializer break: every
@@ -423,13 +440,13 @@
  *  24: DAMAGE CONTROL (Eric rulings 2026-08-04) — the heal spend returns as
  *  an ALWAYS-AVAILABLE spend, NOT a card: nothing enters BOON_CATALOG and
  *  deck composition is byte-identical (CONFIG.offer.size stays 4).
- *  `SpendMsg.choice` gains the reserved NEGATIVE sentinel HEAL_CHOICE (-1;
- *  card picks stay 0..front-offer-length-1, everything else rejected);
- *  OwnShip gains required self-private `repairHp` (remaining regen pool, hp
- *  — rides `you` and nothing else, the boostUntil precedent); new
- *  self-private `heal` GameEvent ({k,id} — the instant application at spend
- *  time, the pt/bn gate); new CONFIG.damageControl block
- *  (instantHp/regenHp/regenMs) rides the welcome config snapshot.
+ *  `SpendMsg.choice` gains a reserved NEGATIVE heal sentinel (-1; card picks
+ *  stay 0..front-offer-length-1, everything else rejected); OwnShip gains
+ *  required self-private `repairHp` (remaining regen pool, hp — rides `you`
+ *  and nothing else, the boostUntil precedent); new self-private `heal`
+ *  GameEvent ({k,id} — the instant application at spend time, the pt/bn gate);
+ *  a new CONFIG block for the paid heal (instantHp/regenHp/regenMs — renamed
+ *  `CONFIG.hullRepair` in 53) rides the welcome config snapshot.
  *  23: the public register (global kill feed) — SunkEvent gains an optional
  *  per-observer `seen?: true` flag, stamped by the sunk row's materialize()
  *  when the observer legitimately witnessed the wreck (sight+LOS / owned lit
@@ -540,9 +557,9 @@
  *  (unknown = silently dropped), so a stale client would silently ignore a
  *  boon or hook the server is simulating; this join gate is the only guard.
  *  12: the new input scheme (Story 2.1) — the interregnum REPAIR/heal spend is
- *  deleted end-to-end (Eric ruling 2026-07-24 "1-4 cards, no repair"):
- *  HEAL_CHOICE and the self-private 'heal' GameEvent leave the wire contract
- *  (SpendMsg.choice is 0..2 only); CONFIG.upgradePoints (healHp) is removed
+ *  deleted end-to-end (Eric ruling 2026-07-24 "1-4 cards, no repair"): the
+ *  negative heal sentinel and the self-private 'heal' GameEvent leave the wire
+ *  contract (SpendMsg.choice is 0..2 only); CONFIG.upgradePoints (healHp) is removed
  *  from the welcome config snapshot.
  *  11: Regatta Hoist personal colors (Story 1.12) — the roster schema gains
  *  PlayerMeta.color (uint8 hue index 0–19, 255 = drone/no-hue sentinel);
@@ -582,7 +599,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 52;
+export const PROTOCOL_VERSION = 53;
 
 // Tunables
 export * from './constants.js';
@@ -598,6 +615,7 @@ export * from './math/rng.js';
 
 // Simulation
 export * from './sim/ship.js';
+export * from './sim/hull.js';
 export * from './sim/lifecycle.js';
 export * from './sim/sinking.js';
 export * from './sim/stats.js';

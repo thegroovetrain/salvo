@@ -44,7 +44,7 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   fitRare: 'the ◆ FITTED toast + the slot fit flash + the new tooltip row (ui/upgradeToast, render/hotbar)',
   fitExclusive: 'the ◆ FITTED toast + the slot fit flash + the new tooltip row, plus the doctrine\'s on-water identity (ui/upgradeToast, render/hotbar)',
   heal:
-    'the HP globe\'s fill and readout climbing, the pending band draining into it (render/hpGlobe)',
+    'the HP globe\'s fill and readout climbing, the pending band draining into it, and the belt square\'s count dropping by one (render/hpGlobe, render/hotbar)',
   burn: 'the burning zone under your hull + the HP globe\'s fill dropping on the HUD bar (render/litZones, hpGlobe)',
   hitCall:
     'the Hit Call bloom at the impact point, drawn above the fog so a connection you cannot see still shows (render/effects)',

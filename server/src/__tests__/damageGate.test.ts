@@ -15,8 +15,10 @@
 //     scoped inside one.
 //
 // Also here: the hp-INCREASE whitelist (AR47's "payRepair is the only regen
-// path", read as a pinned list of the other legitimate `hp =` sites), and
-// `tickRepairs`' weapons-safe-room decision (`deferred-work.md:564`).
+// path", read as a pinned list of the legitimate `hp =` sites — since Story
+// 8.8 that list is payRepair, tickRegen and applyRepair plus the life-boundary
+// resets), and `tickRepairs`' weapons-safe-room decision
+// (`deferred-work.md:564`).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -317,7 +319,7 @@ describe('the grep pin — exactly one hull-hp decrement', () => {
 });
 
 describe('the hp-INCREASE whitelist (AR47 read as "the only REGEN path")', () => {
-  it('every `ship.hp =` / `+=` in world.ts is one of the five pinned sites', () => {
+  it('every `ship.hp =` / `+=` in world.ts is one of the pinned sites', () => {
     const code = WORLD_SRC.split('\n')
       .map((l) => l.trim())
       .filter((l) => !l.startsWith('*') && !l.startsWith('//'))
@@ -330,10 +332,17 @@ describe('the hp-INCREASE whitelist (AR47 read as "the only REGEN path")', () =>
       // applyCard — heal-on-grant, then the post-fold clamp to the new maxHp.
       'ship.hp = Math.min(ship.hp + delta, ship.stats.maxHp);',
       'ship.hp = Math.min(ship.hp, ship.stats.maxHp);',
-      // spendHeal — the instant menu heal (Story 8.8 owns its future).
-      'ship.hp = Math.min(ship.hp + dc.instantHp, ship.stats.maxHp);',
-      // payRepair — THE regen path, both damage-control channels.
+      // payRepair — the PAID HULL REPAIR pool's drain.
       'ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);',
+      // tickRegen — the OUT-OF-COMBAT regen (amendment 46): the snap to full
+      // on the SHARED full-hull predicate (amendment 53 — under 1 hp missing,
+      // the same word the HULL REPAIR row refuses on), then the
+      // 1 %-of-missing-per-second trickle.
+      'if (hullIsFull(ship.hp, maxHp)) ship.hp = maxHp;',
+      'else ship.hp += missing * CONFIG.regen.missingPctPerS * (dtMs / 1000);',
+      // applyRepair — HULL REPAIR's instant half, reached ONLY through
+      // ActivationContext.applyRepair (Story 8.8).
+      'ship.hp = Math.min(ship.hp + instantHp, ship.stats.maxHp);',
       // respawn — the second full reset.
       'ship.hp = ship.stats.maxHp;',
     ]);
@@ -359,8 +368,9 @@ describe('tickRepairs stays UN-gated on damageEnabled (Story 8.4 decision, ledge
     // It heals. That is the pinned decision, not an oversight: nothing can
     // damage a hull while damageEnabled is false (the gate's own step (b)), so
     // an open pool in the ready room can only be one a captain paid for
-    // BEFORE the phase changed, and gating this would put a phase read on a
-    // regen path Story 8.8 is about to rewrite.
+    // BEFORE the phase changed, and gating it would put a phase read on the
+    // one repair path. (The OUT-OF-COMBAT regen reaches the same room on the
+    // same reasoning — nothing there can have hurt anyone.)
     expect(a.hp).toBeGreaterThan(a.stats.maxHp - 20);
     expect(a.repairHp).toBeLessThan(20);
   });

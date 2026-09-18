@@ -33,6 +33,7 @@ import {
   cardTierLabel,
 } from '../ui/boonCopy.js';
 import {
+  FOOT_BOX_GROWTH,
   MONO_ADVANCE_EM,
   REFIT_REGISTERS,
   REFIT_TYPE,
@@ -117,9 +118,11 @@ const GREYED_FACE: RefitCardCopy = {
 
 describe('the ratified face is a FIXED box, and its content is a constant', () => {
   it('covers every offerable line at every rung, on every class, both extremes', () => {
-    // Catalog v3: 29 lines, 16 of them live (13 stubs stay set — amendment 41).
+    // Catalog v3: 29 lines. SIXTEEN were live at 8.7 (13 stubs, amendment 41);
+    // Story 8.8 flipped `hullRepair`'s stub, so it is SEVENTEEN against twelve.
     expect(LINES).toHaveLength(29);
-    expect(LIVE).toHaveLength(16);
+    expect(LIVE).toHaveLength(17);
+    expect(LIVE.some((l) => l.id === 'hullRepair')).toBe(true);
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });
 
@@ -137,15 +140,33 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     expect(refitCardRowBox()).toBe(188);
   });
 
-  it('renders EVERY card at the same height, inside its inner box, with headroom', () => {
-    const heights = new Set(FACES.map(({ face }) => refitCardMetrics(face).height));
-    // One height for the whole catalog — that is what `nowrap` + fixed rows buy.
-    expect(heights.size).toBe(1);
+  it('renders EVERY card at one of TWO heights — the boxed foot is the only step', () => {
+    const heightsOf = (footed: boolean): Set<number> =>
+      new Set(
+        FACES.filter(({ face }) => (face.foot !== '') === footed)
+          .map(({ face }) => refitCardMetrics(face).height),
+      );
+    // `nowrap` + fixed row heights make the face a CONSTANT — one height for
+    // every card that prints no foot, and one for every card that can print the
+    // boxed SLOTS FULL reason word, which is FOOT_BOX_GROWTH taller (review
+    // patch P6). Only a CONSUMABLE can be refused, and Story 8.8 put the first
+    // live one in the offer, so both branches are now reachable.
+    const bare = heightsOf(false);
+    const footed = heightsOf(true);
+    expect(bare.size).toBe(1);
+    expect(footed.size).toBe(1);
+    expect([...footed][0] - [...bare][0]).toBe(FOOT_BOX_GROWTH);
     const inner = refitCardInnerBox();
-    const h = [...heights][0];
-    expect(h).toBeLessThanOrEqual(inner.h);
-    // Documents the budget: whoever spends the last of it has to look here.
-    expect(inner.h - h).toBeGreaterThanOrEqual(2);
+    const tallest = Math.max([...bare][0], [...footed][0]);
+    expect(tallest).toBeLessThanOrEqual(inner.h);
+    // DOCUMENTS THE BUDGET, and it is not the same on both branches: a bare
+    // face leaves 2px+, a GREYED one spends FOOT_BOX_GROWTH of that and leaves
+    // whatever remains. Both fit, and whoever spends the last of it has to look
+    // here. (The greyed height was always this tall — GREYED_FACE has measured
+    // it since 8.7 — but Story 8.8 is what made it reachable from a real
+    // offer, since only a consumable can be refused and only now is one dealt.)
+    expect(inner.h - [...bare][0]).toBeGreaterThanOrEqual(2);
+    expect(inner.h - [...footed][0]).toBeGreaterThanOrEqual(1);
   });
 
   it('NO mark on any card is wider than the box it renders in', () => {
@@ -298,7 +319,8 @@ describe('the laws that constrain the fix', () => {
   const NO_EXPLANATION: readonly string[] = [
     'turning', 'deckGun', // new in v3: no v2 line to carry text from
     'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
-    'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
+    // `hullRepair` left this list in Story 8.8 — its mechanism is built now.
+    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
   ];
 
   it('keeps the contract: what left the face is on the hover tooltip, for every built line', () => {
@@ -419,6 +441,26 @@ describe('the 9px mono floor at every UI tier (amendment 43)', () => {
       }
     }
     expect(over).toEqual([]);
+  });
+
+  // STORY 8.8's TWO NEW ROWS, named explicitly. They are inside the FACES walk
+  // above (hullRepair is LIVE now), but the story's own requirement is that the
+  // heal card's rows fit AT EVERY TIER, so the pin says so rather than relying
+  // on a reader spotting them inside a 500-case sweep.
+  it('fits HULL REPAIR\'s INSTANT / OVER TIME rows at every tier', () => {
+    const face = FACES.find(({ id }) => id === 'hullRepair')!.face;
+    expect(face.rows.map((r) => r.label)).toEqual(['INSTANT', 'OVER TIME']);
+    const rowBox = refitCardRowBox();
+    for (const tier of TIERS) {
+      for (const row of face.rows) {
+        const w = statRowWidth(row, tier);
+        expect(w, `${row.label}@${tier}: ${w.toFixed(1)}px of ${rowBox}px`).toBeLessThanOrEqual(rowBox);
+      }
+      const m = refitCardMetrics(face, tier);
+      expect(m.overflowX, `hullRepair@${tier}`).toBeLessThanOrEqual(0);
+      expect(m.overflow, `hullRepair@${tier}`).toBeLessThanOrEqual(0);
+      expect(m.labelBoxOverflow, `hullRepair label@${tier}`).toBeLessThanOrEqual(0);
+    }
   });
 
   it('still fits the boxed SLOTS FULL foot at the counter-scaled size', () => {

@@ -48,12 +48,16 @@ import {
   bearing,
   blockedWater,
   inArc,
+  isAfloat,
+  isConsumableId,
   sectorArcFor,
   twinSectorArcFor,
   wrapAngle,
+  type ConsumableId,
   type EffectiveStats,
   type EquipmentId,
   type Rng,
+  type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
 import type { BotMind, BotPosture, BotSelf, BotWorldPort } from './types.js';
@@ -188,9 +192,17 @@ export interface TacticContext {
   slot: number;
 }
 
-/** One equipment's bot tactic — the weapon axis. */
-export interface EquipmentTactic {
-  readonly id: EquipmentId;
+/**
+ * ONE SLOT ITEM'S BOT TACTIC — the shape both axes share. A fitted slot may
+ * hold a piece of EQUIPMENT (slots 0-4) or a CONSUMABLE stack (the belt, 5-8),
+ * the two id spaces are disjoint, and each has its OWN registry keyed by its
+ * OWN id (`EQUIPMENT_TACTICS` / `CONSUMABLE_TACTICS`) so neither record ever
+ * grows a fake row. `tacticFor` is the one lookup that spans them, narrowing
+ * through the shared guard rather than a cast — exactly the two-registry
+ * discipline `slotRow` uses on the server side.
+ */
+export interface SlotTactic {
+  readonly id: SlotItemId;
   readonly kind: TacticKind;
   /** u — the effective COMMITTED reach at these stats (the band pull's input;
    *  0 = never pulls). For a shot weapon this is the range it is genuinely
@@ -202,6 +214,17 @@ export interface EquipmentTactic {
   /** The legal shot, or null (an arc/range/water/doctrine refusal — nothing
    *  consumed). Ability rows always return null. */
   solve(ctx: TacticContext): Shot | null;
+}
+
+/** One equipment's bot tactic — the weapon axis. */
+export interface EquipmentTactic extends SlotTactic {
+  readonly id: EquipmentId;
+}
+
+/** One consumable line's bot tactic — the BELT axis (epic-8 amendment 49).
+ *  Same shape, narrower id. */
+export interface ConsumableTactic extends SlotTactic {
+  readonly id: ConsumableId;
 }
 
 // ---------------------------------------------------------------------------
@@ -750,3 +773,77 @@ export const EQUIPMENT_TACTICS: Readonly<Partial<Record<EquipmentId, EquipmentTa
   starShells: starShellsTactic,
   radarBuoy: radarBuoyTactic,
 });
+
+// ---------------------------------------------------------------------------
+// THE BELT AXIS (epic-8 amendment 49) — ONE ROW, DELIBERATELY.
+//
+// `HEAL_CHOICE` left the bot spend policy with the wire in Story 8.8, so
+// without this a bot could draw and stock HULL REPAIR cards and never fire one
+// until Story 8.18 builds the real consumable tactic table. The rule is the
+// SAME threshold that used to buy the `5` key: a bot presses its stocked stack
+// when its hull is under the profile's `healHpFrac`. Nothing else — no
+// posture term, no appetite tier, no target read.
+//
+// STORY 8.18 STILL OWNS THE TABLE and may replace this row outright; it also
+// retunes the spend SCORER, which is untouched here (a hurt bot still scores a
+// HULL REPAIR card at the consumable kind base, not above it — ruled).
+// ---------------------------------------------------------------------------
+
+const hullRepairTactic: ConsumableTactic = {
+  id: 'hullRepair',
+  kind: 'ability',
+  // Never pulls the engagement band: healing is not a reach.
+  reachU: () => 0,
+  // TWO THINGS THE BARE `hp / maxHp` READ GETS WRONG, both fixed at the review
+  // gate rather than by retuning anything:
+  //
+  //   * THE PAID POOL IS HP ALREADY BOUGHT. `repairHp` is the last copy's
+  //     second 50 hp, landing over 5 s. Reading `hp` alone reads the hull
+  //     mid-payment, so a bot that fires at 120/350 sees 170 on the next tick
+  //     and fires again for hp already on its way — a three-deep stack gone
+  //     inside one pool's lifetime. Counting the pool asks the only question
+  //     worth asking: where will this hull BE?
+  //   * A SINKING HULL IS THE HUNGRIEST OF ALL. It reads 0/350 and the row
+  //     would press every tick, at a slot the server always refuses (no hp
+  //     comes back in the window — amendment 10). The driver drops non-afloat
+  //     bots before they decide; this is the tactic's own guard, so a caller
+  //     that reaches the brain another way cannot resurrect the behaviour.
+  //
+  // No new number and no new profile field: the threshold is still the
+  // profile's existing `healHpFrac` (amendment 49's "minimal" rule).
+  want: (ctx) =>
+    isAfloat(ctx.self.lifecycle) &&
+    ctx.sit.maxHp > 0 &&
+    (ctx.sit.hp + ctx.self.repairHp) / ctx.sit.maxHp < ctx.sit.profile.healHpFrac,
+  // Abilities ride the actSeq channel and solve no shot.
+  solve: () => null,
+};
+
+/** The consumable half of the tactic registry — PARTIAL over ConsumableId,
+ *  exactly as EQUIPMENT_TACTICS is partial over EquipmentId. A line with no row
+ *  here is simply unknown to bots, and the slot is skipped fail-closed. */
+export const CONSUMABLE_TACTICS: Readonly<Partial<Record<ConsumableId, ConsumableTactic>>> = deepFreezeRows({
+  hullRepair: hullRepairTactic,
+});
+
+/** A profile says nothing about consumables today (amendment 49 ships the
+ *  minimal rule and no new tuning), so every belt line sits at the SAME neutral
+ *  base an unlisted equipment would — which is what keeps the ranking stable
+ *  and the tie-break on slot index. Story 8.18 is where a belt appetite, if it
+ *  is ever wanted, would land. */
+function consumableAppetite(_id: ConsumableId): number {
+  return APPETITE_NEUTRAL;
+}
+
+/** How eager this profile is about whatever a slot holds — the one resolver
+ *  `rankedSlots` reads, spanning both id spaces through the shared guard. */
+export function slotAppetite(profile: BotProfile, id: SlotItemId): number {
+  return isConsumableId(id) ? consumableAppetite(id) : appetiteFor(profile, id);
+}
+
+/** THE ONE TACTIC LOOKUP FOR A FITTED SLOT — `slotRow`'s bot-side twin.
+ *  Narrows through the shared guard (never a cast) and answers with whichever
+ *  registry owns the id, or `undefined` when neither does. */
+export function tacticFor(id: SlotItemId): SlotTactic | undefined {
+  return isConsumableId(id) ? CONSUMABLE_TACTICS[id] : EQUIPMENT_TACTICS[id];
+}

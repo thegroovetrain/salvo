@@ -1,109 +1,36 @@
-// THE BELT'S ROWS (Story 8.7) — the consumable half of the Equipment
-// interface. A CONSUMABLE is not a module: it is a STACK of copies sitting in
-// one of the four belt slots (5–8), each copy one use, with NO reload ever
-// (catalog-v3 R40 — the only way to get another copy is another card). So a
-// consumable row is the equipment row with its reload machinery removed:
+// THE BELT'S PRODUCTION REGISTRY (Story 8.7; first row filled in Story 8.8).
 //
-//   tick      — a NO-OP. `tickReload` is never called on a belt slot, which is
-//               what keeps `reloadMsLeft` 0 for the stack's whole life (and the
-//               client's cooldown wipe off the belt square).
-//   activate  — run the line's EFFECT, and spend ONE copy (`n -= 1`) only if it
-//               SUCCEEDED. An empty or already-cleared stack answers 'no-ammo'
-//               exactly as a dry weapon does; `consume()` is never called
-//               either (it would arm a reload).
+// A CONSUMABLE is not a module: it is a STACK of copies sitting in one of the
+// four belt slots (5–8), each copy one use, with NO reload ever. The mechanics
+// of a row — the no-op tick, the activate-then-spend order and the ONE SPEND
+// LAW — live in `consumables/row.ts`, one level down, so that a row module can
+// import the factory without importing the registry that imports it. Each
+// LINE's own effect lives beside it in `consumables/<lineId>.ts`.
 //
-// ONE SPEND LAW (review patch P2): a copy leaves the stack and a copy leaves
-// `ship.cards` on the SAME condition — `result.ok` — because the gate runs
-// `spendStock` only on success. Decrementing before the effect would break that
-// pair on every denial: an `{ n: 0 }` zombie stack whose card is still held,
-// handed straight back by the next respawn replay. A DENIED effect therefore
-// costs NOTHING and the copy is still there to try again with.
+// THE REGISTRY HOLDS EXACTLY ONE ROW TODAY: HULL REPAIR (Story 8.8, epic-8
+// amendments 46 + 51). The other four consumable lines are still `stub` in the
+// catalog, so no copy of them can be dealt, picked or stocked — and because the
+// registry is PARTIAL, even a forged belt press naming one finds no row and
+// fails closed at the gate. The invariant that keeps the two halves honest is
+// pinned in equipment.test.ts: every NON-STUB consumable has a row here and
+// every STUB one has none.
 //
-// WHAT THIS MODULE DOES NOT DO: remove the spent copy from `ship.cards` and
-// clear a stack that hit zero. Both live in World.sinkingActivationGate — the
-// ONE call path to activate() — so "the copy leaves the deck-held build and the
-// slot empties in the SAME tick" has exactly one home and no row mutates its
-// own slot (spec ruling 4).
-//
-// THE PRODUCTION REGISTRY SHIPS EMPTY (Eric ruling 2026-09-17, epic-8
-// amendment 41): all five consumable lines are still `stub`, nothing is
-// drawable, and the belt is unreachable in play until Story 8.8 flips
-// HULL REPAIR. The factory and the World's `opts.consumables` seam exist so
-// that story adds ONE row and ONE flag flip with no plumbing.
-//
-// Pure adapter, like every other row: no World reference, no CONFIG read, no
-// I/O. `slotRow` (equipment/index.ts) is what resolves an id to either registry.
+// Pure adapter, like every other row module: no World reference and no I/O.
+// `slotRow` (equipment/index.ts) is what resolves an id to either registry.
 
-import { CONSUMABLE_IS_WEAPON, type ConsumableId, type LoadoutSlot } from '@salvo/shared';
-import type { ShipRecord } from '../world.js';
-import type { ActivationContext, ActivationResult, Equipment } from './index.js';
+import { hullRepairRow } from './consumables/hullRepair.js';
+import { buildConsumableRegistry, type ConsumableRegistry } from './consumables/row.js';
 
-/** One consumable's Equipment row. Narrower than `Equipment` in exactly one
- *  place — its `id` is a ConsumableId — which is what makes the registry below
- *  keyable by ConsumableId without a cast. */
-export interface ConsumableRow extends Equipment {
-  readonly id: ConsumableId;
-}
+export {
+  buildConsumableRegistry,
+  consumableRow,
+  type ConsumableEffect,
+  type ConsumableRegistry,
+  type ConsumableRow,
+} from './consumables/row.js';
 
 /**
- * WHAT A COPY DOES when it is spent. Runs while the copy is still ON the stack
- * (`slot.state.n` counts it), and the copy is taken only if the effect answers
- * `ok` — see ONE SPEND LAW above. The line's own story writes it; 8.7 ships
- * none.
+ * THE PRODUCTION REGISTRY — HULL REPAIR and nothing else, pinned by
+ * equipment.test.ts against the catalog's `stub` flags.
  */
-export type ConsumableEffect = (ctx: ActivationContext, slot: LoadoutSlot) => ActivationResult;
-
-/**
- * Build one consumable's row. The weapon/ability split is READ from the shared
- * single source (`CONSUMABLE_IS_WEAPON`, sim/loadout.ts) — never a literal —
- * so the row and the two dispatch channels (`isWeaponItem`) can never disagree
- * about which channel a line rides.
- */
-export function consumableRow(id: ConsumableId, effect: ConsumableEffect): ConsumableRow {
-  return {
-    id,
-    isWeapon: CONSUMABLE_IS_WEAPON[id],
-    // A STACK NEVER RELOADS. Deliberately empty rather than absent: every
-    // fitted slot is ticked every tick (fireControl walks the whole loadout),
-    // and this row is what that walk finds on a belt slot.
-    tick(_ship: ShipRecord, _slot: LoadoutSlot, _dtMs: number): void {},
-    activate(ctx: ActivationContext, slot: LoadoutSlot): ActivationResult {
-      const state = slot.state;
-      // A cleared slot never reaches here (the gate answers 'empty-slot'
-      // first) and a zero stack is cleared the tick it empties — this is the
-      // fail-closed backstop for both, and the honest answer for a directed
-      // caller that drives a hand-built stack down to nothing.
-      if (state === null || state.n <= 0) return { ok: false, reason: 'no-ammo' };
-      const result = effect(ctx, slot);
-      // THE ONE SPEND: on success only, and in lockstep with the gate's removal
-      // of the copy from `ship.cards`.
-      if (result.ok) state.n -= 1;
-      return result;
-    },
-  };
-}
-
-/** The consumable half of the dispatch registry — PARTIAL over ConsumableId,
- *  exactly as `EQUIPMENT` is partial over EquipmentId: it holds only the lines
- *  whose effects are BUILT. */
-export type ConsumableRegistry = Readonly<Partial<Record<ConsumableId, ConsumableRow>>>;
-
-/**
- * Freeze a registry AND every row in it — the `EQUIPMENT` / `SIGNAL_REGISTRY`
- * discipline: a shallow freeze on the map alone would leave rows mutable.
- * Keyed by each row's own `id`, so a registry can never hold a row under the
- * wrong key.
- */
-export function buildConsumableRegistry(rows: readonly ConsumableRow[]): ConsumableRegistry {
-  const out: Partial<Record<ConsumableId, ConsumableRow>> = {};
-  for (const row of rows) out[row.id] = Object.freeze(row);
-  return Object.freeze(out);
-}
-
-/**
- * THE PRODUCTION REGISTRY — EMPTY, and pinned empty by equipment.test.ts
- * (epic-8 amendment 41). Every consumable line is still `stub`, so no copy can
- * be dealt, picked or stocked; an empty registry means that even a forged
- * belt press finds no row and fails closed at the gate.
- */
-export const CONSUMABLES: ConsumableRegistry = buildConsumableRegistry([]);
+export const CONSUMABLES: ConsumableRegistry = buildConsumableRegistry([hullRepairRow]);

@@ -525,6 +525,12 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     const identity = effectiveStats(BASE);
     for (const id of LINE_IDS) {
       if (isStubLine(id)) continue;
+      // A CONSUMABLE IS EXEMPT BY DESIGN, not by omission: its copies carry a
+      // `stock` effect, which fills a BELT SLOT and addresses no stat at all —
+      // pinned two tests down. HULL REPAIR is the first live one (Story 8.8),
+      // so this loop stopped being "non-stub ⇒ moves a number" the day a
+      // consumable became dealable.
+      if (CATALOG[id].kind === 'consumable') continue;
       const folded = effectiveStats(BASE, stack(id, CATALOG[id].cap));
       expect(changed(identity, folded), id).not.toEqual([]);
     }

@@ -1904,8 +1904,9 @@ export const CLIENT_CONFIG = {
      * uses, so the two surfaces can never overlap however the viewport or the
      * UI-scale tier moves.
      *
-     * The band's lowest edge is the DAMAGE CONTROL strip's bottom while that
-     * strip exists (Story 8.8 deletes it); after that it is the card row's.
+     * The band's lowest edge is THE CARD ROW'S BOTTOM: Story 8.8 deleted the
+     * DAMAGE CONTROL strip that used to hang under it, so the row is the last
+     * thing in the band and the 8 px seat is measured off it.
      * The old below-centre own-hull keep-out is WAIVED by the same amendment,
      * so the band's top may now sit above the screen centre.
      */
@@ -1992,79 +1993,6 @@ export const CLIENT_CONFIG = {
      *  300ms same-source floor (the deniedFire grammar, reused verbatim). */
     deniedPulseMs: 80,
     deniedFloorMs: 300,
-
-    /**
-     * THE DAMAGE CONTROL STRIP (cycle 46) — the always-present heal spend, a
-     * SIBLING of the card row rather than a member of it: never drawn, never
-     * exhausted, never in `OwnShip.offer`, and addressed by the reserved
-     * negative wire sentinel (`HEAL_CHOICE`), never by an offer index.
-     *
-     * A RAIL, AND NOW AN ACTUALLY CHOOSABLE ONE. Cycle 46 derived this geometry
-     * from the 22px the card row left under itself at the 1280×614 logical
-     * floor, and the result was a 16px seam at the 10px HUD-micro tier with a
-     * shrunken 14px chip and ZERO vertical padding. It shipped flagged as
-     * unratified draft, and Eric ruled on sight (amendment 68): *"its just plain
-     * fucking tiny and hard to read/see. It doesn't even have any padding!"*,
-     * with the binding requirement that the rail be *"big enough to actually
-     * register as 'this is something I can choose' on all viewports."*
-     *
-     * The room came from lifting the band (the old `bandTopFrac`, superseded by
-     * amendment 36's `barGap`) — Eric's own pick,
-     * and the ONLY lever available, since the row is untouchable (four 216px
-     * cards / 20px gaps / 924px / `CONFIG.offer.size` 4) and shrinking a card or
-     * spending a card slot on heal were both declined. With 48px under the row
-     * instead of 22px, every cycle-46 compromise is retired:
-     *
-     *   • the key chip returns to the ONE 22px family (hotbar / helm / card
-     *     digits) — "a 22px chip cannot fit a 16px rail" was true of a 16px rail
-     *     and is moot at 40px, so the DESIGN.md "proportional below" carve-out
-     *     the ledger flagged dies with this cycle;
-     *   • type clears amendment 15's 14px legibility floor with a step to spare
-     *     (16px — the rail is a peer of the whole ROW, not of a card's category
-     *     tag, and the fit model says the widest copy spends only ~705 of 894
-     *     available px, so the larger register costs nothing on either axis);
-     *   • the rail gets real vertical padding, which is what makes it read as a
-     *     pressable thing rather than a seam.
-     *
-     * The container-fit law (amendment 47) still governs both axes and is still
-     * proven by arithmetic in ui/refitCardFit.ts, not by hope.
-     */
-    /** Rail height (px) — the strip's whole box, borders included. 22px chip +
-     *  2×`stripPadY` + 2×1px border = 40, so the chip sets the height. */
-    stripHeight: 40,
-    /**
-     * Seam (px) between the card row's bottom edge and the rail's top edge.
-     * 2 → 6: at 2px the rail read as part of the row's own border rather than
-     * as a separate, pressable sibling.
-     *
-     * WHY 6 AND NOT THE `spacing.sm` 8 IT WANTS TO BE. The band is positioned
-     * in PHYSICAL px (`place()` reads `window.innerHeight`) but its contents
-     * are CSS-scaled by `--hc-ui-scale`, so at the 125% tier the band's real
-     * footprint is 1.25 × its laid-out height while its anchor is not scaled.
-     * At a 1600×768 viewport — the 125% tier's own gate is width-only, so that
-     * viewport can select it — an 8px seam puts the rail's bottom edge 1.5px
-     * past the screen, an amendment-47 violation. 6px lands it at 767 of 768.
-     * The two px come out of the seam rather than the rail because the rail's
-     * height, chip, type and padding are the whole point of the retune. The
-     * anchor↔scale mismatch itself is a PRE-EXISTING defect, ledgered. STORY 8.6
-     * (amendment 36) RETIRED IT: `place()` now lays the band out in logical
-     * units and scales the anchor with the contents, so the seam no longer pays
-     * for a scale error. The value stays 6 — Story 8.8 deletes this strip
-     * outright, and re-tuning a seam on its way out buys nothing.
-     */
-    stripGap: 6,
-    /** The rail's key chip (px) — the ONE key-chip family, at family size. */
-    stripKeyChip: 22,
-    /** Type size (px) for every mark on the rail. Above amendment 15's 14px
-     *  floor, and 16×0.9 = 14.4 clears the 9px mono floor at the 90% tier. */
-    stripFontSize: 16,
-    /** Inner padding (px) at the rail's left/right ends. */
-    stripPad: 14,
-    /** Inner padding (px) at the rail's top/bottom — the knob cycle 46 did not
-     *  have room to have at all (`padding: 0 8px`). */
-    stripPadY: 8,
-    /** Gap (px) between the rail's columns (chip · label · readout · status). */
-    stripColGap: 14,
   },
 
   /**
@@ -2226,8 +2154,9 @@ export const CLIENT_CONFIG = {
      *  its ~38 px box (20 px type + 8 px padding + border) + 8 px — so a
      *  sinking captain inside the storm reads both lines, stacked. */
     stormAbove: 54,
-    /** DAMAGE CONTROL's incoming-HP band (cycle 46): the still-draining regen
-     *  pool (`OwnShip.repairHp`) painted as a dimmed segment sitting directly
+    /** HULL REPAIR's incoming-HP band (cycle 46; the pool is the HULL REPAIR
+     *  card's since Story 8.8): the still-draining paid pool
+     *  (`OwnShip.repairHp`) painted as a dimmed segment sitting directly
      *  ON TOP of the live fill, in the fill's own color. Dual-coded by
      *  POSITION + geometry (a distinct band above the fill line), never by hue
      *  alone, and deliberately STATIC — it adds no new pulse to a rail whose

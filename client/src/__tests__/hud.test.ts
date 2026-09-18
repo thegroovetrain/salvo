@@ -123,7 +123,8 @@ describe('ability denied feedback — a cooling press drives the EXISTING pulse 
 // `IN STORM` and the victim tells used to hang off the bottom-right cluster's
 // top edge, and then (8.6's first cut) off the HUD BAR's. Both were reachable by
 // something else: a slot tooltip covers the space over the bar on every hover,
-// and the open refit band hides it behind the DAMAGE CONTROL strip. Amendment 38
+// and the open refit band hid it behind the DAMAGE CONTROL strip of the day
+// (Story 8.8 has since deleted that strip). Amendment 38
 // moved the column UNDER the top-centre chrome bar, where nothing else renders.
 // `stormAbove` survives verbatim; only what it is measured FROM changed, and the
 // tells flipped to stacking DOWNWARD from the storm line at `tellGap`.

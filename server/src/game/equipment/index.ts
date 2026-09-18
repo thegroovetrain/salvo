@@ -88,6 +88,21 @@ export interface ActivationContext {
    * asks, pays nothing to build the list.
    */
   ownLitZones: () => readonly LitCircle[];
+  /**
+   * THE REPAIR CAPABILITY (Story 8.8) — HULL REPAIR's whole body, World-owned.
+   * `instantHp` lands on the hull at once (clamped to maxHp); `regenHp` is
+   * ADDED to the ship's paid repair pool, which drains at the one fixed
+   * regenHp/regenMs rate (pools ADD, the rate never changes — the ratified
+   * anti-flask rule: a second copy makes the drain run twice as LONG, never
+   * twice as fast). The self-private `heal` cue is queued here too.
+   *
+   * IT IS A CAPABILITY, NOT AN hp WRITE THE ROW COULD MAKE ITSELF: every
+   * hp-INCREASE path in the World is whitelisted by the Story 8.4 gate pins,
+   * and the cue needs the pending queue. The row keeps only its guards — which
+   * is why "afloat-only" has exactly one home (equipment/consumables/
+   * hullRepair.ts) that the sinking-activation gate cannot bypass.
+   */
+  applyRepair: (instantHp: number, regenHp: number) => void;
 }
 
 /** Per-spawn options for `ActivationContext.spawnBallistic`. */
@@ -202,8 +217,9 @@ export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
  * Every dispatch site reads through here — the per-slot tick loop, the two
  * activation channels' walls and the sinking-activation gate — so an id with no
  * module behind it fails closed at ALL of them, exactly as an unbuilt weapon
- * already did. `consumables` is the World's injected registry (production ships
- * EMPTY, epic-8 amendment 41); the default keeps directed callers honest.
+ * already did. `consumables` is the World's injected registry (production holds
+ * HULL REPAIR alone since Story 8.8; the other four lines are still `stub`);
+ * the default keeps directed callers honest.
  *
  * IT LIVES HERE, NOT IN consumables.ts, for one mechanical reason: it needs
  * `EQUIPMENT`, and consumables.ts imports this module for the `Equipment`

@@ -210,13 +210,16 @@ function addon(id: LineId, appliesTo: readonly DoctrineWeapon[], mode: string, s
   return stub === undefined ? line : { ...line, stub };
 }
 
-/** A cap-5 consumable: every copy stocks one use. Always a stub today — the
- *  rack itself is Story 8.7. */
-function consumable(id: LineId & ConsumableId): CatalogLine {
+/** A cap-5 consumable: every copy stocks one use. `stub` marks a consumable
+ *  whose EFFECT does not exist yet — the belt itself is built (Story 8.7) and
+ *  HULL REPAIR's effect landed with Story 8.8, so the flag is now passed
+ *  line-by-line exactly as `weapon()`/`addon()` pass it. */
+function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
   const stock: BoonStockEffect = { kind: 'stock', equipmentId: id };
   // A fresh tier array AND a fresh effect object per copy (see `ladder`).
   const tiers = Array.from({ length: 5 }, () => [{ ...stock }] as readonly BoonEffect[]);
-  return { id, kind: 'consumable', cap: 5, tiers, stub: true };
+  const line: CatalogLine = { id, kind: 'consumable', cap: 5, tiers };
+  return stub === undefined ? line : { ...line, stub };
 }
 
 /**
@@ -287,12 +290,14 @@ export const CATALOG: Catalog = deepFreezeRows({
   broadside: weapon('broadside', 'broadside'), // R35 — shipped
   starShells: weapon('starShells', 'starShells'), // R31 — shipped
   // --- the five consumables (R13, R36–R39) ----------------------------------
-  // All stubs: the rack, the `1`–`4` rail and every effect are Story 8.7.
-  hullRepair: consumable('hullRepair'),
-  shieldBlock: consumable('shieldBlock'),
-  smokeScreen: consumable('smokeScreen'),
-  chaff: consumable('chaff'),
-  decoyBuoy: consumable('decoyBuoy'),
+  // The belt and the `1`–`4` keys are built (Story 8.7). HULL REPAIR (R13) is
+  // the first LIVE line — its effect is Story 8.8's — so it is the one that is
+  // DEALT; the other four are still stubs until their effects land.
+  hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
+  shieldBlock: consumable('shieldBlock', true),
+  smokeScreen: consumable('smokeScreen', true),
+  chaff: consumable('chaff', true),
+  decoyBuoy: consumable('decoyBuoy', true),
   // --- the five add-ons ------------------------------------------------------
   // ACOUSTIC HOMING (R22): one card homes EVERY torpedo you carry — light and
   // heavy, never the supercavitating straight-runner.

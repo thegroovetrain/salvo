@@ -40,10 +40,9 @@
 //                  between sits the CLOSE GRACE (ruling 8): for a few hundred
 //                  ms after the window closes by ANY path a digit is swallowed,
 //                  so the key that spent the last banked level cannot fall
-//                  through onto the belt
-//   5              spend on DAMAGE CONTROL (the always-available heal rail —
-//                  HEAL_CHOICE), under the exact same modal-only rule — the
-//                  belt has four squares, so 5 stays bound-inert when closed
+//                  through onto the belt. They are the ONLY digits bound:
+//                  Story 8.8 deleted the DAMAGE CONTROL rail, so 5 is unbound
+//                  and inert in both meanings
 //   ESC            closes the TOPMOST open surface (results modal / refit modal
 //                  / settings overlay) and, with nothing open, toggles settings
 //                  — the uniform law (Story 2.3, amendment 23). Never leaves the
@@ -65,11 +64,11 @@
 
 import {
   CONSUMABLE_SLOTS,
-  HEAL_CHOICE,
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
   WEAPON_SLOTS,
+  hullIsFull,
   isWeaponItem,
   type SlotItemId,
 } from '@salvo/shared';
@@ -125,22 +124,21 @@ export const SLOT_KEY_CODES: Record<string, number> = {
 export const BOOST_KEY_CODES: readonly string[] = ['ShiftLeft', 'ShiftRight'];
 
 /**
- * Digit key → the refit choice it sends (top row + numpad). 1–4 are card
- * indices 0..3; 5 is the DAMAGE CONTROL rail, which rides the reserved NEGATIVE
- * wire sentinel `HEAL_CHOICE` (-1) rather than an index — a positive sentinel
- * would collide with a real card the moment `CONFIG.offer.size` moved.
+ * Digit key → the refit choice it sends (top row + numpad): card indices 0..3,
+ * and nothing else. EVERY choice on the wire is an offer index now — Story 8.8
+ * deleted the DAMAGE CONTROL rail and with it the reserved negative sentinel
+ * `HEAL_CHOICE` (-1) that `5` used to carry, so `Digit5`/`Numpad5` are UNBOUND:
+ * they are not preventDefault-ed, they pick nothing, and they reach no belt
+ * square (the belt has four).
  *
- * This is the OPEN-WINDOW meaning of the digits, and the only meaning `5` has
- * ever had: it is bound (and therefore preventDefault-ed) at all times, and
- * acts at none but the modal. `1`-`4` gained their second, CLOSED-window
- * meaning in Story 8.7 — see BELT_KEY_CODES.
+ * This is the OPEN-WINDOW meaning of the digits; `1`-`4` gained their second,
+ * CLOSED-window meaning in Story 8.7 — see BELT_KEY_CODES.
  */
 export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit1: 0, Numpad1: 0,
   Digit2: 1, Numpad2: 1,
   Digit3: 2, Numpad3: 2,
   Digit4: 3, Numpad4: 3,
-  Digit5: HEAL_CHOICE, Numpad5: HEAL_CHOICE,
 };
 
 /**
@@ -148,8 +146,8 @@ export const REFIT_DIGIT_CODES: Record<string, number> = {
  * while the refit window is CLOSED. Four keys for four squares, read out of the
  * shared `CONSUMABLE_SLOTS` tuple rather than re-typed as literals — the same
  * rule SLOT_KEY_CODES follows, so a re-cut of the slot grammar moves the keys
- * with it. `5` is deliberately absent: the belt has four squares, and the fifth
- * key belongs to the DAMAGE CONTROL rail alone.
+ * with it. `5` is deliberately absent: the belt has four squares, and since
+ * Story 8.8 the fifth key has nothing to address in either meaning.
  *
  * Epic-8 amendments 27 ("1-4 stay refit-only") and 30 ("a belt press is
  * silent") are RETIRED by this table: both were true only while nothing could
@@ -170,6 +168,42 @@ export const BELT_KEY_CODES: Record<string, number> = {
  * only ever be a construction-gap artefact.
  */
 const DENIABLE_SLOTS: ReadonlySet<number> = new Set<number>([...WEAPON_SLOTS, ...CONSUMABLE_SLOTS]);
+
+/**
+ * Pure: would a press on this STOCKED belt square be refused by the server for
+ * a reason the client already knows (Story 8.8)? Today there is exactly one:
+ * HULL REPAIR, whose row refuses `'blocked'` on a hull that is already full or
+ * already sinking.
+ *
+ * IT IS THE AMENDMENT-26 PRECEDENT, one square along. An empty square denies on
+ * the client because the server's refusal would tell the player nothing they
+ * cannot see; a heal at full hull is the same sentence, and it is the one the
+ * player will press most often by accident. Without this the refusal would come
+ * back as a server denial a whole round trip later — and HULL REPAIR is exactly
+ * the key that gets mashed. The server still refuses independently: this NEVER
+ * grants anything, it only declines to send.
+ *
+ * "FULL" IS THE SHARED PREDICATE (`hullIsFull`, epic-8 amendment 53): under
+ * 1 hp missing. It must be the server row's own word, or a press this lets
+ * through at 349.6 of 350 comes straight back as `blocked` — the round trip
+ * this function exists to avoid.
+ *
+ * FAILS OPEN on the hull: a non-finite or absent `maxHp` (a pre-first-frame
+ * gap, an unresolvable class) returns false, so an unknown hull gets its press
+ * SENT rather than denied a heal it may badly need — the same way the old rail
+ * refused to claim FULL on a guess. The shared predicate is read only AFTER
+ * that resolvability check, so `NaN`/`Infinity` never reach it.
+ */
+export function beltPressDenied(
+  item: SlotItemId | null | undefined,
+  hp: number,
+  maxHp: number,
+  sinking: boolean,
+): boolean {
+  if (item !== 'hullRepair') return false;
+  if (sinking) return true;
+  return Number.isFinite(maxHp) && maxHp > 0 && hullIsFull(hp, maxHp);
+}
 
 /**
  * The only keys that still act while a focused overlay is up (Story 2.3): the
@@ -354,6 +388,20 @@ export interface KeyboardHooks {
    * tone. Locked must read as LOCKED, never as DENIED.
    */
   onEmptySlotDenied?: (slot: number) => void;
+  /**
+   * Is a press on this FITTED slot refused by a rule the client already knows
+   * (Story 8.8 — `beltPressDenied`: a HULL REPAIR square on a full or sinking
+   * hull)? True → `onPressDenied` fires and NOTHING is sent. Read only AFTER
+   * the suspension and fitted checks, so the combat lock keeps winning silently
+   * and an empty square still reads as empty. FAILS OPEN (no hook = never
+   * denied): a construction site that forgets to wire it sends the press and
+   * takes the server's word, which is the safe direction.
+   */
+  isPressDenied?: (slot: number) => boolean;
+  /** A press `isPressDenied` refused: main.ts plays the SAME per-slot denied
+   *  pulse + tone an empty square gets (one mark for "that key did nothing just
+   *  now"), and nothing rides an input. */
+  onPressDenied?: (slot: number) => void;
   /** A genuine ability-activation press edge was QUEUED (not yet consumed),
    *  with the actSeq it WILL ride once drained — main.ts predicts the verdict
    *  for feedback. */
@@ -418,8 +466,7 @@ export interface KeyboardHooks {
   /** TAB — toggle the refit modal (main.ts owns the only-with-a-banked-point
    *  open rule and pick/TAB/ESC close rules). */
   onRefitToggle?: () => void;
-  /** Digit 1–5 while the modal is open — pick card `choice` (0-based), or
-   *  HEAL_CHOICE (-1) for the DAMAGE CONTROL rail. */
+  /** Digit 1–4 while the modal is open — pick card `choice` (0-based). */
   onRefitPick?: (choice: number) => void;
   /** ESC — close the topmost surface (in-match: the refit modal; on the results
    *  screen main.ts routes it to RETURN TO PORT — UX-DR27). */
@@ -647,6 +694,34 @@ export class KeyboardInput {
   };
 
   /**
+   * THE CLIENT'S TWO REFUSALS, in order — true means the press stops here and
+   * nothing rides an input. Both are reached only AFTER `suspended()`, so the
+   * combat lock keeps winning SILENTLY (locked must read as locked, never as
+   * denied); both speak in the same per-slot grammar (a pulse and a tone).
+   *
+   *   • EMPTY (Story 8.5, amendment 26; completed on the belt by Story 8.7's
+   *     ruling 7, retiring amendment 30's silence). The belt squares were mute
+   *     only because nothing could enter them, and now a card can. An empty
+   *     square is the same sentence as an empty Q, and a belt CLICK says it
+   *     identically, since it is this very entry.
+   *   • BLOCKED (Story 8.8): a STOCKED square whose press the client already
+   *     knows the server would refuse — a HULL REPAIR at full hull or on a
+   *     sinking hull. See `beltPressDenied`.
+   *
+   * Split out of `slotAction` for the complexity ceiling, and it reads better
+   * for it: one function is "what a press does", the other "when it does not".
+   */
+  private pressRefused(slot: number): boolean {
+    if (this.hooks.isSlotFitted?.(slot) !== true) {
+      if (DENIABLE_SLOTS.has(slot)) this.hooks.onEmptySlotDenied?.(slot);
+      return true;
+    }
+    if (this.hooks.isPressDenied?.(slot) !== true) return false;
+    this.hooks.onPressDenied?.(slot);
+    return true;
+  }
+
+  /**
    * THE slot-action entry point — everything a slot key does, addressable by
    * slot index. Story 2.2 (amendment 11) routes hotbar CLICKS through here so a
    * click is key-EQUIVALENT by construction: the same modal suspension, the
@@ -657,19 +732,7 @@ export class KeyboardInput {
    */
   slotAction(slot: number): void {
     if (this.suspended()) return;
-    if (this.hooks.isSlotFitted?.(slot) !== true) {
-      // Story 8.5 (amendment 26): an EMPTY WEAPON slot is no longer silent — it
-      // denies on the client. Reached only AFTER the suspension check, so the
-      // lock keeps winning silently.
-      //
-      // STORY 8.7 COMPLETED THAT GRAMMAR ON THE BELT (ruling 7, retiring
-      // amendment 30's silence): the belt squares were mute only because
-      // nothing could enter them, and now a card can. An empty square is the
-      // same sentence as an empty Q — a pulse and a tone, NOTHING on the wire —
-      // and a belt click says it identically, since it is this very entry.
-      if (DENIABLE_SLOTS.has(slot)) this.hooks.onEmptySlotDenied?.(slot);
-      return;
-    }
+    if (this.pressRefused(slot)) return;
     if (this.hooks.isAbilitySlot?.(slot) === true) {
       this.activateAbility(slot);
       return;
@@ -715,19 +778,18 @@ export class KeyboardInput {
   }
 
   /**
-   * Digits 1–5, and they mean TWO different things (Story 8.7, ruling 7). The
+   * Digits 1–4, and they mean TWO different things (Story 8.7, ruling 7). The
    * meaning is read against the window's state AT THIS KEYDOWN — never at the
    * key-up, never at sample time:
-   *   • window OPEN → a refit pick: a card (1–4) or the DAMAGE CONTROL rail
-   *     (5 → HEAL_CHOICE). A GREYED card's digit is swallowed downstream by
-   *     main.ts's handleRefitPick (ruling 10), not here — the chokepoint does
-   *     not know what is on the cards;
+   *   • window OPEN → a refit pick (1–4 → card 0..3). A GREYED card's digit is
+   *     swallowed downstream by main.ts's handleRefitPick (ruling 10), not here
+   *     — the chokepoint does not know what is on the cards;
    *   • window CLOSED → the BELT: 1–4 are slots 5–8 through the very same
-   *     `slotAction` a hotbar click and the weapon keys use, and 5 is
-   *     bound-inert (there is no fifth square). Inside the CLOSE GRACE the key
-   *     does not act at all — see `isRefitGrace`.
+   *     `slotAction` a hotbar click and the weapon keys use. Inside the CLOSE
+   *     GRACE the key does not act at all — see `isRefitGrace`.
    * The old digit slot-priming of the WEAPON row stays dead (amendment 3): no
-   * digit addresses slots 2–4 in either meaning.
+   * digit addresses slots 2–4 in either meaning, and `5` addresses nothing at
+   * all since Story 8.8 deleted the DAMAGE CONTROL rail.
    */
   private readonly handleDigitKey = (e: KeyboardEvent): void => {
     if (e.repeat) return;

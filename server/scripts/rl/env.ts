@@ -23,7 +23,6 @@ import {
   CONFIG,
   DEFAULT_DECKS,
   EQUIPMENT_IS_WEAPON,
-  HEAL_CHOICE,
   mulberry32,
   zoneClosedAtMs,
   zoneGroups,
@@ -202,17 +201,15 @@ export class HullcrackerEnv {
     });
   }
 
-  /** Randomized build assignment (see module header): heal under 40%, else a
-   *  uniform card off the front offer. One spend per agent per tick, exactly
-   *  the public path a SpendMsg lands on. */
+  /** Randomized build assignment (see module header): a uniform card off the
+   *  front offer. One spend per agent per tick, exactly the public path a
+   *  SpendMsg lands on. The old "heal under 40%" arm is GONE with the -1
+   *  sentinel (Story 8.8): an RL agent spends a level on CARDS and nothing
+   *  else — healing is a HULL REPAIR copy it fires from the belt. */
   private autoSpend(world: World): void {
     for (const agent of this.agents) {
       const me = world.ships.get(agent.id);
       if (me === undefined || me.bankedLevels <= 0) continue;
-      if (me.stats.maxHp > 0 && me.hp / me.stats.maxHp < 0.4) {
-        world.spendPoint(agent.id, HEAL_CHOICE);
-        continue;
-      }
       const offer = me.offer;
       if (offer === null || offer.length === 0) continue;
       world.spendPoint(agent.id, agent.spendRng.int(0, offer.length - 1));

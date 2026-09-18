@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.8] - 2026-09-17
+
+### Changed
+- **Heal is a card (Story 8.8)** — the `5` key and the always-available DAMAGE CONTROL strip under the refit cards are gone. Healing is now the HULL REPAIR card: it sits in your deck (three copies per hull), you pick it like any other card, it stocks into a belt slot, and you fire it with that slot's number key while the refit window is closed. One copy restores 50 hull at once and 50 more over the next 5 seconds. It only works while you are afloat and not already full (under 1 hull missing counts as full, so a stray storm bite can never cost you a card); a refused press flashes the slot and spends nothing. Heals during the final collapse stay allowed; the card supply is the limit.
+- **Out-of-combat repair replaces the free per-level heal** — the "10% of missing hull each level" trickle is deleted. Instead, thirty seconds after the last hit you took, your hull mends on its own: 1% of whatever is missing comes back every second, fast when badly hurt and slower near full. Any damage that lands, the storm included, stops it for another thirty seconds, so nobody heals inside the storm. Captains and bots only; PvE fleet drones never repair.
+- **Bots** press a stocked HULL REPAIR when their hull (counting repair already on the way) drops under their existing heal threshold. The full bot tactic table is still Story 8.18's.
+- **Copy** — the Settings key list now reads `1 – 4` with both meanings (pick a card / fire a belt slot), and How-to-Play's two sentences about DAMAGE CONTROL now describe the card and the out-of-combat repair. Nothing else in How-to-Play changes until its re-cut.
+- **Refit band** — with the strip gone the band is 46 px shorter and ends at the card row, still 8 px above the HUD bar. A hover panel too tall for the band now slides up by the difference instead of clipping. The HULL REPAIR card face shows its two numbers as stat rows.
+- **Network protocol** bumps to v53 (the heal sentinel leaves the spend message; the catalog gains a live line). Older clients are refused at the door.
+
 ## [0.18.7] - 2026-09-17
 
 ### Changed

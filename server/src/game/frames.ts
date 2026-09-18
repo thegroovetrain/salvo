@@ -69,18 +69,18 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // a Contact, blip, ballistic event, boom, or spectator payload. An enemy
     // observer reads a boosting hull only through its observed kinematics.
     boostUntil: ship.boostUntil,
-    // hp — the REMAINING DAMAGE CONTROL regen pool (Eric rulings 2026-08-04);
+    // hp — the REMAINING PAID HULL REPAIR pool (Eric rulings 2026-08-04);
     // 0 = nothing draining. OWNER-ONLY on exactly the boostUntil terms: it
     // rides `you` and NOTHING else — never a Contact, blip, ballistic event,
     // boom, or spectator payload. An enemy observer can never learn that a hull
     // is repairing; it reads only the hp it can actually see change. REQUIRED
     // (not optional like slowedUntil/dazzledUntil): the client's strip renders
     // the pool every frame, so a dropped key would read as "pool gone".
-    // BOTH repair channels, SUMMED: the paid pool and the free per-level
-    // trickle. The field means "hp still owed to this hull", which is true of
-    // the sum; splitting it would need a wire change to say something the
-    // player cannot act on differently — neither pool can be spent or cancelled.
-    repairHp: ship.repairHp + ship.levelRepairHp,
+    // THE PAID POOL ALONE since Story 8.8 (epic-8 amendment 46): the free
+    // per-level channel this used to be summed with is gone, and the
+    // out-of-combat regen that replaced it has no pool — it pays straight into
+    // `hp`, which the owner already receives every frame.
+    repairHp: ship.repairHp,
     // Fitted card LINE ids in fit order (Story 8.1 — catalog v3 renamed the
     // field from `boons`), defensive copy. SELF-PRIVATE like upg/boostUntil:
     // rides `you` and NOTHING else — never a Contact, blip, ballistic event,

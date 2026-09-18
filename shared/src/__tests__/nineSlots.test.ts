@@ -168,10 +168,11 @@ describe('THE SEED TRIPWIRE — the spawn seed and a deck’s equipment share on
 // ---------------------------------------------------------------------------
 // THE RACK PROPERTY (Story 8.7). The belt's fill rule is the weapon row's
 // sibling — held-line-first, then first-empty — and it has to hold over any
-// legal deck taken in any order. The production catalog CANNOT exercise it
-// (all five consumable lines are stubs and stay that way, epic-8 amendment 41),
-// so the property runs on the production catalog with those five UN-STUBBED:
-// exactly the catalog Story 8.8 onward ships, one flag at a time.
+// legal deck taken in any order. The production catalog cannot exercise it on
+// its own (HULL REPAIR is the one live line since Story 8.8; the other four are
+// still stubs, epic-8 amendment 41), so the property runs on the production
+// catalog with all five UN-STUBBED: exactly the catalog the remaining
+// consumable stories ship, one flag at a time.
 // ---------------------------------------------------------------------------
 
 /** The production catalog, consumables un-stubbed — nothing else changed. */
@@ -242,12 +243,14 @@ describe('THE RACK PROPERTY — the belt over random legal decks and random pick
 
       // 5. THE WEAPON ROW IS UNTOUCHED BY THE RACK: slots 0–4 are byte-identical
       //    to the same hand folded through the production catalog, whose belt
-      //    stays empty (amendment 41).
+      //    takes the hand's LIVE consumable lines only — today HULL REPAIR
+      //    alone (Story 8.8; the other four are still stubs, amendment 41).
       const production = slotsWithCards(stats, cards, CATALOG);
       expect(loadout.slice(0, CONSUMABLE_SLOTS[0]), label).toEqual(production.slice(0, CONSUMABLE_SLOTS[0]));
-      for (const i of CONSUMABLE_SLOTS) {
-        expect(production[i], `${label}:production belt ${i}`).toEqual({ equipmentId: null, state: null });
-      }
+      const live = order.filter((id) => CATALOG[id].stub !== true).slice(0, CONSUMABLE_SLOTS.length);
+      const productionBelt = CONSUMABLE_SLOTS.map((i) => production[i].equipmentId);
+      expect(productionBelt, `${label}:production belt`)
+        .toEqual([...live, ...new Array<null>(CONSUMABLE_SLOTS.length - live.length).fill(null)]);
 
       // 6. PERMUTATION INVARIANCE. Re-taking the same cards in another order
       //    moves WHICH slot holds what only while the belt has room to spare;

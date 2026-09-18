@@ -18,7 +18,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   DEFAULT_DECKS,
-  HEAL_CHOICE,
+  CONSUMABLE_SLOTS,
   SLOT_BOOST,
   founderDeadline,
   isAfloat,
@@ -284,18 +284,23 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
 // ---------- the refit is closed (amendment 10) --------------------------------
 
 describe('refit closed — "once sinking, you\'re done"', () => {
-  it('card picks and the heal are both refused while sinking; the bank survives for the next life', () => {
+  it('card picks are refused while sinking, and a stocked HULL REPAIR refuses too; the bank survives', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.grantXp(a, 1); // bank one level
     expect(a.bankedLevels).toBe(1);
-    a.hp -= 50; // a heal would have something to restore
+    w.applyCard(a, 'hullRepair'); // a heal to press, stocked before the sink
+    a.hp -= 50; // ...and something for it to restore
     w.respawnEnabled = false;
     w.sinkShip('a');
     expect(w.spendPoint('a', 0)).toBe(false); // card pick: clean denial
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false); // heal: clean denial
+    // The BELT is not the refit: the press reaches its row through the
+    // activation gate (amendment 10's fitment rule), and the ROW refuses it
+    // — 'blocked', nothing spent (Story 8.8).
+    a.hp = a.stats.maxHp - 50; // so "full hull" is not what refuses it
+    expect(w.sinkingActivationGate(a, CONSUMABLE_SLOTS[0])).toEqual({ ok: false, reason: 'blocked' });
     expect(a.bankedLevels).toBe(1); // bank and queue untouched
-    expect(a.cards).toEqual(['heavyTorpedo']); // the spawn seed alone: nothing was fitted
+    expect(a.cards).toEqual(['heavyTorpedo', 'hullRepair']); // the seed + the un-spent heal copy
     expect(a.repairHp).toBe(0);
     // Once FOUNDERED, dead spending resumes (builds persist across respawns).
     w.step(WINDOW);

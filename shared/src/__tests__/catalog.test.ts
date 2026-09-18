@@ -2,7 +2,7 @@
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
 // Pinned here: 29 lines / 114 cards with the exact per-line caps and kinds of
-// `catalog-v3.md` §1; `tiers.length === cap` on every line; the 13-line stub
+// `catalog-v3.md` §1; `tiers.length === cap` on every line; the 12-line stub
 // set; the validator's rules, including its refusal of a stat path that takes
 // `add` from one line and `mult` from another; and a seeded permutation
 // property — ≥200 shuffles of random legal multisets over all three classes,
@@ -54,7 +54,7 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   monitor: { cap: 5, kind: 'equipment', stub: true },
   broadside: { cap: 5, kind: 'equipment', stub: false },
   starShells: { cap: 5, kind: 'equipment', stub: false },
-  hullRepair: { cap: 5, kind: 'consumable', stub: true },
+  hullRepair: { cap: 5, kind: 'consumable', stub: false }, // LIVE since Story 8.8 (R13)
   shieldBlock: { cap: 5, kind: 'consumable', stub: true },
   smokeScreen: { cap: 5, kind: 'consumable', stub: true },
   chaff: { cap: 5, kind: 'consumable', stub: true },
@@ -66,10 +66,11 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   phosphorShells: { cap: 1, kind: 'addon', stub: false },
 };
 
-/** The 13 stub ids (Eric ruling 2026-09-15, amendment 5). */
+/** The 12 stub ids (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
+ *  built HULL REPAIR's effect and made it the first dealt consumable. */
 const STUB_IDS: readonly LineId[] = [
   'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
-  'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
+  'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
 ];
 
 describe('catalog v3 identity', () => {
@@ -91,7 +92,7 @@ describe('catalog v3 identity', () => {
     for (const id of LINE_IDS) expect(CATALOG[id].tiers.length).toBe(CATALOG[id].cap);
   });
 
-  it('pins the 13-line stub set exactly', () => {
+  it('pins the 12-line stub set exactly', () => {
     expect(LINE_IDS.filter((id) => isStubLine(id)).sort()).toEqual([...STUB_IDS].sort());
     expect(isStubLine('nope')).toBe(false);
   });

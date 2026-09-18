@@ -24,8 +24,9 @@
 // and their coverage is not deleted — each becomes the TWO-MEANING pin:
 //   • `1`-`4` mean a refit PICK while the window is open and a BELT slot
 //     (CONSUMABLE_SLOTS) while it is closed, decided at the keydown itself;
-//   • `5` keeps its one meaning (the DAMAGE CONTROL rail) and is bound-inert
-//     with the window closed — the belt has four squares, not five;
+//   • `5` is UNBOUND since Story 8.8 deleted the DAMAGE CONTROL rail it used
+//     to spend a level on — it picks nothing, reaches no belt square (the belt
+//     has four, not five), and is not even preventDefault-ed;
 //   • a digit inside the CLOSE GRACE is inert (still prevented): the player who
 //     spent their last level on `1` is still holding the key when the window
 //     goes away, and that key must not fire the belt;
@@ -40,7 +41,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CONSUMABLE_SLOTS,
-  HEAL_CHOICE,
   SLOT_BOOST,
   SLOT_GUN,
   WEAPON_SLOTS,
@@ -157,16 +157,18 @@ describe('the ratified binding tables', () => {
     }
   });
 
-  // DAMAGE CONTROL (cycle 46): digit 5 is the always-available heal, addressed
-  // by the reserved NEGATIVE wire sentinel rather than an index — a positive
-  // one would collide with a real card the moment CONFIG.offer.size moved.
-  it('digit 5 (top row + numpad) maps to HEAL_CHOICE, never to an offer index', () => {
-    expect(REFIT_DIGIT_CODES.Digit5).toBe(HEAL_CHOICE);
-    expect(REFIT_DIGIT_CODES.Numpad5).toBe(HEAL_CHOICE);
-    expect(HEAL_CHOICE).toBeLessThan(0);
+  // STORY 8.8 UNBOUND DIGIT 5 ENTIRELY. Cycle 46 gave it the DAMAGE CONTROL
+  // rail through a reserved NEGATIVE wire sentinel (HEAL_CHOICE, -1); the rail
+  // and the sentinel are both deleted — healing is a card you stock and fire
+  // from the belt — so `5` is in NEITHER table, is not preventDefault-ed, and
+  // EVERY choice on the wire is a non-negative offer index.
+  it('digit 5 is UNBOUND — it is in no digit table, and no choice is negative', () => {
+    expect(REFIT_DIGIT_CODES.Digit5).toBeUndefined();
+    expect(REFIT_DIGIT_CODES.Numpad5).toBeUndefined();
     for (const [code, choice] of Object.entries(REFIT_DIGIT_CODES)) {
-      if (code !== 'Digit5' && code !== 'Numpad5') expect(choice, code).toBeGreaterThanOrEqual(0);
+      expect(choice, code).toBeGreaterThanOrEqual(0);
     }
+    expect(Object.keys(REFIT_DIGIT_CODES)).toHaveLength(8); // 1-4, top row + numpad
   });
 });
 
@@ -762,28 +764,20 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     expect(picks).toEqual([0, 2, 3]); // …and nothing new was picked
   });
 
-  it('digit 5 is refit-or-nothing too: the heal only ever fires INSIDE the modal', () => {
+  it('digit 5 is INERT and NOT EVEN BOUND, either side of the modal (Story 8.8)', () => {
     const picks: number[] = [];
     let open = false;
     kb = new KeyboardInput({ isModalOpen: () => open, onRefitPick: (c) => picks.push(c) });
     kb.attach();
-    // Bound (so it is prevented — focus can never escape the canvas) but inert.
-    expect(press('Digit5')).toBe(true);
-    expect(press('Numpad5')).toBe(true);
+    // Not prevented any more: the chokepoint has no handler for it at all, so
+    // the browser keeps the key — there is nothing left for `5` to escape into.
+    expect(press('Digit5')).toBe(false);
+    expect(press('Numpad5')).toBe(false);
     expect(picks).toEqual([]);
     open = true;
-    press('Digit5');
-    press('Numpad5');
-    expect(picks).toEqual([HEAL_CHOICE, HEAL_CHOICE]);
-  });
-
-  it('digit 5 fires once per physical press — OS auto-repeat never re-spends', () => {
-    const picks: number[] = [];
-    kb = new KeyboardInput({ isModalOpen: () => true, onRefitPick: (c) => picks.push(c) });
-    kb.attach();
-    press('Digit5');
-    press('Digit5', { repeat: true });
-    expect(picks).toEqual([HEAL_CHOICE]);
+    expect(press('Digit5')).toBe(false);
+    expect(press('Numpad5')).toBe(false);
+    expect(picks).toEqual([]);
   });
 
   it('slot keys (Q/E/R AND Shift) are SUSPENDED while the modal is open', () => {
@@ -948,6 +942,85 @@ describe('KeyboardInput — the BELT row (digits 1-4 with the window closed)', (
     expect(kb.actSeq).toBe(0);
   });
 
+  // --- STORY 8.8: THE BLOCKED PRESS ON A *STOCKED* SQUARE ---------------------
+  //
+  // amendment 26's precedent, one square along. A HULL REPAIR stack on a hull
+  // that is already full (or already sinking) is a press the server will refuse
+  // with `blocked`, and the client knows both facts — so it refuses first, in
+  // the same grammar, and sends nothing. The PREDICATE lives in
+  // `beltPressDenied` (see refitFailOpen.test.ts); this is the chokepoint half.
+  it('a STOCKED square the client knows is BLOCKED denies without sending', () => {
+    const denied: number[] = [];
+    const fired: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: BELT_FITTED,
+      isAbilitySlot: () => true,
+      isPressDenied: (slot) => slot === BELT_1,
+      onPressDenied: (slot) => denied.push(slot),
+      onAbility: (slot) => fired.push(slot),
+    });
+    kb.attach();
+    press('Digit1'); // the blocked square
+    press('Digit2'); // its neighbour, which is not
+    expect(denied).toEqual([BELT_1]);
+    expect(fired).toEqual([BELT_2]);
+    expect(kb.pendingActivationCount).toBe(1); // only the neighbour queued
+    expect(kb.actSeq).toBe(0); // nothing consumed onto the wire by the refusal
+  });
+
+  it('a hotbar CLICK on a blocked square is the SAME refusal as its digit', () => {
+    const denied: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: BELT_FITTED,
+      isAbilitySlot: () => true,
+      isPressDenied: () => true,
+      onPressDenied: (slot) => denied.push(slot),
+    });
+    kb.attach();
+    kb.slotAction(BELT_4); // amendment 11's law: a click is this very entry
+    expect(denied).toEqual([BELT_4]);
+  });
+
+  it('an EMPTY square reads as EMPTY, never as blocked — the order is fixed', () => {
+    const empty: number[] = [];
+    const blocked: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: () => false,
+      isPressDenied: () => true, // would refuse too, but never gets the chance
+      onEmptySlotDenied: (slot) => empty.push(slot),
+      onPressDenied: (slot) => blocked.push(slot),
+    });
+    kb.attach();
+    press('Digit1');
+    expect(empty).toEqual([BELT_1]);
+    expect(blocked).toEqual([]);
+  });
+
+  it('the LOCK still wins SILENTLY over the blocked press too', () => {
+    const denied: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: BELT_FITTED,
+      isCombatLocked: () => true,
+      isPressDenied: () => true,
+      onPressDenied: (slot) => denied.push(slot),
+    });
+    kb.attach();
+    press('Digit1');
+    expect(denied).toEqual([]); // locked must read as LOCKED, never as denied
+  });
+
+  it('FAILS OPEN with no isPressDenied hook — every press goes through', () => {
+    const fired: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: BELT_FITTED,
+      isAbilitySlot: () => true,
+      onAbility: (slot) => fired.push(slot),
+    });
+    kb.attach();
+    press('Digit1');
+    expect(fired).toEqual([BELT_1]);
+  });
+
   it('the LOCK and the OPEN WINDOW still win silently over the belt denial', () => {
     const denied: number[] = [];
     kb = new KeyboardInput({
@@ -988,7 +1061,7 @@ describe('KeyboardInput — the BELT row (digits 1-4 with the window closed)', (
     expect(fired).toEqual([BELT_1]);
   });
 
-  it('digit 5 stays bound-INERT with the window closed (the belt has no fifth square)', () => {
+  it('digit 5 stays INERT with the window closed (the belt has no fifth square)', () => {
     const denied: number[] = [];
     const picks: number[] = [];
     kb = new KeyboardInput({
@@ -998,8 +1071,8 @@ describe('KeyboardInput — the BELT row (digits 1-4 with the window closed)', (
       onEmptySlotDenied: (slot) => denied.push(slot),
     });
     kb.attach();
-    expect(press('Digit5')).toBe(true); // prevented…
-    expect(press('Numpad5')).toBe(true);
+    expect(press('Digit5')).toBe(false); // unbound since Story 8.8…
+    expect(press('Numpad5')).toBe(false);
     expect(picks).toEqual([]); // …and inert: no pick…
     expect(denied).toEqual([]); // …no denial…
     expect(kb.pendingActivationCount).toBe(0); // …and no belt press
@@ -1080,8 +1153,8 @@ describe('the refit CLOSE GRACE (ruling 8) — the digits\' dead zone', () => {
     });
     kb.attach();
     press('Digit1');
-    press('Digit5');
-    expect(picks).toEqual([0, HEAL_CHOICE]);
+    press('Digit5'); // unbound: it can neither pick nor be swallowed
+    expect(picks).toEqual([0]);
   });
 
   it('leaves digit 5 inert either side of it', () => {
@@ -1096,7 +1169,7 @@ describe('the refit CLOSE GRACE (ruling 8) — the digits\' dead zone', () => {
         onEmptySlotDenied: (s) => denied.push(s),
       });
       kb.attach();
-      expect(press('Digit5')).toBe(true);
+      expect(press('Digit5')).toBe(false);
     }
     expect(picks).toEqual([]);
     expect(denied).toEqual([]);
@@ -1872,8 +1945,16 @@ describe('main.ts routes the empty-slot denial to the SHIPPED denied grammar', (
     // plays". Both come from `flashSlotDenied`, the helper the FIFO-full drop
     // already used — an empty Q and a cooling Q are the same sentence to the
     // player, and a second mark for it would be a second thing to learn.
-    const hook = MAIN_TS.slice(MAIN_TS.indexOf('onEmptySlotDenied:'));
-    expect(hook.slice(0, 200)).toContain('flashSlotDenied(g, slot)');
+    //
+    // STORY 8.8 gave the three refusals ONE named consumer (`denySlot`) rather
+    // than three copies of the same three lines — the capped press, the empty
+    // square and the blocked HULL REPAIR square. That is the law getting
+    // STRONGER, not weaker: they cannot drift apart now.
+    expect(MAIN_TS).toContain('onEmptySlotDenied: denySlot');
+    expect(MAIN_TS).toContain('onAbilityCapped: denySlot');
+    expect(MAIN_TS).toContain('onPressDenied: denySlot');
+    const deny = MAIN_TS.slice(MAIN_TS.indexOf('const denySlot ='));
+    expect(deny.slice(0, 200)).toContain('flashSlotDenied(g, slot)');
     const helper = MAIN_TS.slice(MAIN_TS.indexOf('function flashSlotDenied('));
     expect(helper.slice(0, 400)).toContain('abilityDeniedPress[slot] = true');
     expect(helper.slice(0, 400)).toContain('playDenied(g)');
@@ -1887,8 +1968,7 @@ describe('main.ts routes the empty-slot denial to the SHIPPED denied grammar', (
     // no dedup key is marked (there is no server echo this could ever be
     // deduped against — the server's own empty-slot case is unreachable to a
     // fair client, which is why no DenialReason was added to the wire).
-    const hook = MAIN_TS.slice(MAIN_TS.indexOf('onEmptySlotDenied:'));
-    const body = hook.slice(0, 200);
+    const body = MAIN_TS.slice(MAIN_TS.indexOf('const denySlot ='), MAIN_TS.indexOf('const denySlot =') + 200);
     for (const forbidden of ['sampler', 'send', 'markPredicted', 'actSeq', 'fireSeq']) {
       expect(body, forbidden).not.toContain(forbidden);
     }

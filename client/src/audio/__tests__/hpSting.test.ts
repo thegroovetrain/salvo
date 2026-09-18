@@ -81,7 +81,7 @@ describe('hpStingCue — fraction pair to cue id, delegating to hpBandEdge', () 
 // --- THE STINGS' BOUND (review gate) ----------------------------------------
 //
 // The stings shipped unbounded on the reasoning that an edge cannot repeat. It
-// can: DAMAGE CONTROL regen pays into `hp` every server tick while incoming fire
+// can: a repair pays into `hp` every server tick while incoming fire
 // subtracts, so a hull held around a band crosses it downward again and again.
 // The bound is the RATIFIED 300ms same-source floor every world cue already
 // uses — no new constant (amendment 37), and no hysteresis margin, which is a

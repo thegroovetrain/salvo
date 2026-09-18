@@ -83,8 +83,9 @@
 // tail one — see wantsRearQuarter().
 //
 // ONE WEAPON PER TICK, THROUGH THE EQUIPMENT AXIS (Eric ruling 2026-08-20):
-// chooseShot iterates the bot's ACTUAL FITTED SLOTS through EQUIPMENT_TACTICS
-// (ai/equipment.ts) — never a hull-keyed weapon ladder — so an equipment
+// chooseShot iterates the bot's ACTUAL FITTED SLOTS through `tacticFor` — the
+// EQUIPMENT_TACTICS / CONSUMABLE_TACTICS pair in ai/equipment.ts — never a
+// hull-keyed weapon ladder — so an equipment
 // ACQUIRED into the WEAPON ROW (Story 8.5) works exactly like a seeded fit —
 // there is no native per-hull fit left for it to differ from. Ordering
 // comes from the ship profile's APPETITE table (gun lowest: the fallback);
@@ -103,15 +104,15 @@ import {
   nearestCoastPoint,
   wrapAngle,
   type EffectiveStats,
-  type EquipmentId,
   type Island,
   type ShipState,
+  type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
 import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
-import { EQUIPMENT_TACTICS, appetiteFor, type Shot, type TacticContext } from './equipment.js';
+import { EQUIPMENT_TACTICS, slotAppetite, tacticFor, type Shot, type TacticContext } from './equipment.js';
 import {
   choosePosture,
   foldView,
@@ -207,14 +208,15 @@ export function spendStateOf(self: BotSelf): BotSpendState {
 
 // ---------------------------------------------------------------------------
 // WEAPONS — the EQUIPMENT AXIS. Every weapon's want/solve/reach lives with
-// the weapon in ai/equipment.ts (EQUIPMENT_TACTICS); this file only walks the
-// bot's ACTUAL FITTED SLOTS through that registry, in appetite order.
+// the weapon in ai/equipment.ts (EQUIPMENT_TACTICS, and CONSUMABLE_TACTICS for
+// the belt); this file only walks the bot's ACTUAL FITTED SLOTS through those
+// registries, in appetite order.
 // ---------------------------------------------------------------------------
 
 /** One fitted slot, ranked by the profile's appetite for what it holds. */
 interface RankedSlot {
   slot: number;
-  id: EquipmentId;
+  id: SlotItemId;
   appetite: number;
 }
 
@@ -223,18 +225,20 @@ interface RankedSlot {
  * descending, slot index as the deterministic tie-break. Capability is read
  * from the LOADOUT, never from the hull — an acquired R-slot weapon ranks
  * exactly like a native fit.
+ *
+ * THE BELT IS ADMITTED since Story 8.8 (epic-8 amendment 49): a stocked
+ * consumable is a fitted slot like any other, ranked by `slotAppetite` (which
+ * spans both id spaces) and resolved by `tacticFor` at each pass. Every belt
+ * line sits at the neutral base today, so a consumable ties with an unlisted
+ * weapon and the slot index breaks it — the belt is always to the right, so
+ * nothing the bot already reached for moves.
  */
 function rankedSlots(self: BotSelf, profile: BotProfile): RankedSlot[] {
   const out: RankedSlot[] = [];
   for (let i = 0; i < self.loadout.length; i += 1) {
     const id = self.loadout[i].equipmentId;
-    // THE BELT IS NOT A BOT'S BUSINESS IN 8.7 (amendment 41: nothing is
-    // stockable in play). A consumable id is skipped through the shared
-    // narrowing guard — never a cast — so the EQUIPMENT_TACTICS lookup below
-    // stays keyed by EquipmentId and gains no fake rows. The story that gives
-    // bots a belt gives it its own tactic axis.
-    if (id === null || isConsumableId(id)) continue;
-    out.push({ slot: i, id, appetite: appetiteFor(profile, id) });
+    if (id === null) continue;
+    out.push({ slot: i, id, appetite: slotAppetite(profile, id) });
   }
   out.sort((a, b) => b.appetite - a.appetite || a.slot - b.slot);
   return out;
@@ -256,7 +260,7 @@ function firePass(
   base: TacticContext,
 ): Shot | null {
   for (const r of ranked) {
-    const tactic = EQUIPMENT_TACTICS[r.id];
+    const tactic = tacticFor(r.id);
     if (tactic === undefined || tactic.kind !== kind) continue;
     if (!slotReady(base.self, r.slot)) continue;
     const ctx: TacticContext = { ...base, slot: r.slot };
@@ -291,9 +295,10 @@ function chooseShot(
 }
 
 /**
- * The ability press, if any: the 'ability' rows of the same registry (the
- * speed boost — spent opening range on the way out). Abilities ride the
- * actSeq channel, so this composes with a shot in the same tick.
+ * The ability press, if any: the 'ability' rows of EITHER registry — the speed
+ * boost (spent opening range on the way out) and, since Story 8.8, a stocked
+ * HULL REPAIR stack (pressed under the profile's healHpFrac). Abilities ride
+ * the actSeq channel, so this composes with a shot in the same tick.
  */
 function chooseAct(
   self: BotSelf,
@@ -304,7 +309,7 @@ function chooseAct(
   posture: BotPosture,
 ): number | null {
   for (const r of rankedSlots(self, sit.profile)) {
-    const tactic = EQUIPMENT_TACTICS[r.id];
+    const tactic = tacticFor(r.id);
     if (tactic === undefined || tactic.kind !== 'ability') continue;
     if (!slotReady(self, r.slot)) continue;
     if (tactic.want({ self, mind, sit, port, target, posture, slot: r.slot })) return r.slot;
@@ -321,7 +326,8 @@ export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[]
   const out: number[] = [];
   for (let i = 0; i < self.loadout.length; i += 1) {
     const id = self.loadout[i].equipmentId;
-    // Same guard as rankedSlots: a belt slot contributes no shot reach.
+    // A belt slot contributes no shot reach (no consumable line is a 'shot'
+    // tactic), and the guard keeps this lookup keyed by EquipmentId.
     if (id === null || isConsumableId(id) || !slotReady(self, i)) continue;
     const tactic = EQUIPMENT_TACTICS[id];
     if (tactic?.kind === 'shot') out.push(tactic.reachU(stats));

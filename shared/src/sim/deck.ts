@@ -15,8 +15,9 @@
 //     line IS the bare weapon and a hull that spawns with that weapon is
 //     already holding it. Dealing it anyway deals a card whose `slotFill`
 //     no-ops against its own fitted weapon — a whole level spent on nothing.
-// Today that leaves 23 drawable cards per hull (40 − 16 stub cards − 1
-// carried copy; pinned in deck.test.ts).
+// Today that leaves 26 drawable cards per hull (40 − 13 stub cards − 1
+// carried copy; pinned in deck.test.ts). It was 23 until Story 8.8 flipped
+// HULL REPAIR's three copies live.
 //
 // THE DRAW DOES NOT TAKE CARDS OUT (the lazy-draw bugfix): drawOffer only READS
 // the pool — every drawn line stays in the deck, and exactly ONE card leaves it

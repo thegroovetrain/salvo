@@ -1239,7 +1239,8 @@ describe('bindRoom reward toasts', () => {
     expect(toastLines()).toEqual(['◆ RELOAD FITTED']);
   });
 
-  // DAMAGE CONTROL (cycle 46): the `heal` row is a pure self-private
+  // THE HEAL (cycle 46; a HULL REPAIR copy since Story 8.8): the `heal` row is
+  // a pure self-private
   // CONFIRMATION — one tone, no toast, no numbers. Every authoritative value
   // (the new hp, the pool still draining) self-syncs on `you` every frame, and
   // the visual twin is the HP rail's jump plus its incoming band.
