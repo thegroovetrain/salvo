@@ -114,6 +114,22 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-09-18 — Review pass (Blind Hunter + Edge Case Hunter on Fable, plus Codex `gpt-5.6-sol` cross-model review — verdicts: Blind fix-first on one item, Edge build-on-it, Codex fix-first; agreement: all three flagged the cancel-and-re-arm latch desync; Codex alone raised the loose mulligan ack (confirmed by the orchestrator); Blind alone found the harness parity gap (confirmed by the orchestrator against `batchsim/runner.ts` and `rl/env.ts`))
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 1, medium 2, low 3)
+- defer: 3: (high 0, medium 1, low 2)
+- reject: 3: (low 3)
+- addressed_findings:
+  - `[high]` `[patch]` The batch-sim harness and the RL env build a non-boarding `Match`, so activation wiped the countdown economy they had just granted and the balance tool measured a different opening than production (Blind Hunter #1) — preservation is now unconditional on activation (amendment 66); the dev-fit re-apply is gone with it.
+  - `[medium]` `[patch]` `Match.openingGranted` was a match-wide latch, so a countdown that cancels to waiting and re-arms granted nothing to a replacement captain (Codex #1, Edge #2, Blind #2) — the latch is per ship, `grantOpening` runs on every countdown entry and at a mid-countdown spawn.
+  - `[medium]` `[patch]` The client reset `autoOpenedEpoch`/`mulliganUsed` on every phase edge while the server preserved `mulliganed` and the offer across a cancel, so REDRAW came back hollow and the window re-opened (Codex #2, Edge #2, Blind #2) — both latches reset only on the edge into `active`.
+  - `[low]` `[patch]` `mulliganLanded` accepted a points drop as an ack (Codex #3) — strict rule: offer signature changed at unchanged `pts`.
+  - `[low]` `[patch]` REDRAW ignored `view.locked` while a spend was in flight (Edge #4) — disabled and dimmed like the cards.
+  - `[low]` `[patch]` The dev auto-mulligan arm redrew a sinking leaver's hand (Edge #5) — `World.mulligan` refuses a sinking hull.
+- deferred (ledgered): a hollow pip after a reconnect, a >1.5 s ack or a byte-identical redraw (Edge #1, Blind #3/#4 — the "client infers the ack" design; a wire `mulliganed` flag would close it); a mulligan honoured inside the last tick of the countdown can toast on live water (Blind #5); a dev `matchOverride.countdownMs <= 0` collapses the countdown inside one tick and drops the grant cue (Edge #3).
+- rejected: auto-open latch when the window is already open at the countdown edge (dev-only, needs a farmed level); the class-select seam that left with the weapon rows (spec: the rows go); real level-ups silenced during a dev room's waiting phase (as asked, no production XP pre-active).
+
 ## Design Notes
 
 - **Why the phase reaches `World` as a flag, not a `Match` import:** `world.ts` and `match.ts` are both Colyseus-free but `world` must not depend on `match` (the sim is unit-tested bare). `Match` already owns the transitions; setting `world.countdownOpen` at `startCountdown()`/`activate()` keeps the mulligan guard testable without a `Match`.

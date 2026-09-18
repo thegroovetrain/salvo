@@ -2253,3 +2253,15 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-9-the-shift-boost-universal.md`
   summary: An OBSERVER's wake ring for a contact is provisioned off the class envelope max (TB 45) because `wakeHulls` never passes `maxSpeedU` for contacts (their cards are private), so a SPEED-capped boosted enemy Torpedo Boat at 68.75 u/s now keeps only ~65 % of its tail in the observer's ring (pre-8.9: 45/55 ≈ 82 %); the `wake.ts` doc still calls this "loses a little tail early". Visual only, but the boosted wake is a tell the design leans on — either provision contacts off `FASTEST_BOOSTED_HULL_SPEED` (memory cost per contact ring) or accept and re-word.
   evidence: Blind Hunter at the 8.9 gate; `client/src/render/wake.ts:130-132`, `client/src/main.ts:3102-3108`; `client/src/config.ts` `FASTEST_BOOSTED_HULL_SPEED` = 68.75.
+
+## 2026-09-18 — Story 8.10 review gate (cycle 145): three findings deferred
+
+- source_spec: `spec-8-10-the-opening.md`
+  summary: THE REDRAW PIP CAN STAY HOLLOW AFTER THE SERVER HAS SPENT THE MULLIGAN — the client infers the ack from the front offer's signature changing at unchanged `pts`; a reconnect mid-countdown (fresh `Game`, `mulliganUsed false`), an ack landing after the 1.5 s spend-latch timeout, or a byte-identical redraw (~1 in 1000 with today's two usable lines per deck) leaves a live REDRAW whose every press is a server no-op with a denied pulse. Cosmetic, self-corrects at the live edge. The clean fix is `mulliganed` on the `you` wire row — a wire addition nobody asked for; do not add it without a ruling.
+  evidence: Edge Case Hunter #1, Blind Hunter #3/#4 at the 8.10 gate; `client/src/ui/upgradeMenu.ts` `mulliganLanded`, `server/src/game/world.ts` `mulligan()`.
+- source_spec: `spec-8-10-the-opening.md`
+  summary: A MULLIGAN HONOURED INSIDE THE LAST TICK OF THE COUNTDOWN CAN TOAST `LEVEL UP — TAB TO REFIT` ON LIVE WATER — the redraw's `pt` rides the frame built after the same tick's activation, and if Colyseus flushes the `matchPhase` patch first the client reads `active` and `handlePoint` is no longer silenced. Needs a press within ~50 ms of 0:00.
+  evidence: Blind Hunter #5; `server/src/rooms/ArenaRoom.ts` tick order, `client/src/net/roomBindings.ts` `handlePoint`.
+- source_spec: `spec-8-10-the-opening.md`
+  summary: A DEV `matchOverride.countdownMs <= 0` (with `joinWindowMs <= 0`) ARMS AND ACTIVATES INSIDE ONE `update()`, so the opening's `pt` is wiped by `resetForMatchStart`'s pending clear and clients never observe `countdown` (no auto-open). No clamp exists in `roomOptions.ts`; the grant itself survives (amendment 66). Dev override only.
+  evidence: Edge Case Hunter #3; `server/src/game/match.ts` `update()` arm-then-activate path.
