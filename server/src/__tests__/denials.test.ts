@@ -132,6 +132,44 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     expect(a.repairHp).toBe(CONFIG.hullRepair.regenHp);
   });
 
+  it("blocked (a FRACTION off full): 0.4 hp missing is still FULL — amendment 53's one definition", () => {
+    // Storm bites and burn ticks land FRACTIONAL damage (amendment 39 made
+    // WEAPON damage whole, and nothing else), and the out-of-combat regen
+    // closes MISSING geometrically — so a hull parks at 349.6 of 350 and the
+    // globe reads 349. Refusing only at EXACTLY max would spend a whole scarce
+    // copy (100 hp of authored heal) for 0.4 hp. `hullIsFull` is the shared
+    // predicate; this is the row's half of it.
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.applyCard(a, 'hullRepair');
+    const belt = CONSUMABLE_SLOTS[0];
+    a.hp = a.stats.maxHp - 0.4;
+    w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
+    w.step();
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: belt, reason: 'blocked', seq: 1 }]);
+    // NOTHING spent: the copy, the build entry, the pool and the cue.
+    expect(a.loadout[belt].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.cards).toContain('hullRepair');
+    expect(a.repairHp).toBe(0);
+    expect(w.tickEvents.some((e) => e.k === 'heal')).toBe(false);
+    expect(a.hp).toBe(a.stats.maxHp - 0.4);
+  });
+
+  it('...and a WHOLE point missing is NOT full — that press goes through', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.applyCard(a, 'hullRepair');
+    const belt = CONSUMABLE_SLOTS[0];
+    a.hp = a.stats.maxHp - 1;
+    w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
+    w.step();
+    expect('denied' in buildFrame(w, 'a')).toBe(false);
+    expect(a.repairHp).toBe(CONFIG.hullRepair.regenHp);
+    // The last copy left, so the belt is rebuilt and the slot empties.
+    expect(a.cards).not.toContain('hullRepair');
+    expect(a.loadout[belt].state).toBeNull();
+  });
+
   it("blocked (island): a MINE click onto a rock (Story 2.8 aimed placement) denies {'blocked'} and consumes NOTHING", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // heading 0 ⇒ rear sector centers on π

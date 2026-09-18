@@ -18,6 +18,7 @@ import {
   DEFAULT_DECKS,
   SHIP_CLASS_IDS,
   effectiveStats,
+  hullIsFull,
   isStubLine,
 } from '../index.js';
 
@@ -157,5 +158,30 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
 describe('the four-card draw is untouched (regression pin)', () => {
   it('CONFIG.offer.size is still 4 — this cycle must not have thinned the draw', () => {
     expect(CONFIG.offer.size).toBe(4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hullIsFull — THE ONE DEFINITION OF "FULL HULL" (epic-8 amendment 53).
+//
+// Storm bites and burn ticks land FRACTIONAL damage while weapon damage is
+// whole (amendment 39), and the out-of-combat regen closes MISSING
+// geometrically, so a hull sits at 349.x of 350 for minutes. `hp >= maxHp` as
+// the test would spend a whole scarce HULL REPAIR copy for under 1 hp. Under
+// 1 hp missing IS full: the row refuses on it, the regen snaps on it, and the
+// client's belt pre-denial mirrors it — one predicate, three callers.
+// ---------------------------------------------------------------------------
+describe('hullIsFull — under 1 hp missing is FULL (amendment 53)', () => {
+  it('349.0 of 350 is NOT full — a whole point of weapon damage is worth a copy', () => {
+    expect(hullIsFull(349, 350)).toBe(false);
+  });
+
+  it('349.01 of 350 IS full — the fractional remainder a storm bite leaves', () => {
+    expect(hullIsFull(349.01, 350)).toBe(true);
+  });
+
+  it('exactly full is full, and an overshoot is too', () => {
+    expect(hullIsFull(350, 350)).toBe(true);
+    expect(hullIsFull(350.5, 350)).toBe(true);
   });
 });

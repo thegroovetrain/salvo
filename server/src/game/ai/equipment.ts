@@ -48,6 +48,7 @@ import {
   bearing,
   blockedWater,
   inArc,
+  isAfloat,
   isConsumableId,
   sectorArcFor,
   twinSectorArcFor,
@@ -793,7 +794,27 @@ const hullRepairTactic: ConsumableTactic = {
   kind: 'ability',
   // Never pulls the engagement band: healing is not a reach.
   reachU: () => 0,
-  want: (ctx) => ctx.sit.maxHp > 0 && ctx.sit.hp / ctx.sit.maxHp < ctx.sit.profile.healHpFrac,
+  // TWO THINGS THE BARE `hp / maxHp` READ GETS WRONG, both fixed at the review
+  // gate rather than by retuning anything:
+  //
+  //   * THE PAID POOL IS HP ALREADY BOUGHT. `repairHp` is the last copy's
+  //     second 50 hp, landing over 5 s. Reading `hp` alone reads the hull
+  //     mid-payment, so a bot that fires at 120/350 sees 170 on the next tick
+  //     and fires again for hp already on its way — a three-deep stack gone
+  //     inside one pool's lifetime. Counting the pool asks the only question
+  //     worth asking: where will this hull BE?
+  //   * A SINKING HULL IS THE HUNGRIEST OF ALL. It reads 0/350 and the row
+  //     would press every tick, at a slot the server always refuses (no hp
+  //     comes back in the window — amendment 10). The driver drops non-afloat
+  //     bots before they decide; this is the tactic's own guard, so a caller
+  //     that reaches the brain another way cannot resurrect the behaviour.
+  //
+  // No new number and no new profile field: the threshold is still the
+  // profile's existing `healHpFrac` (amendment 49's "minimal" rule).
+  want: (ctx) =>
+    isAfloat(ctx.self.lifecycle) &&
+    ctx.sit.maxHp > 0 &&
+    (ctx.sit.hp + ctx.self.repairHp) / ctx.sit.maxHp < ctx.sit.profile.healHpFrac,
   // Abilities ride the actSeq channel and solve no shot.
   solve: () => null,
 };

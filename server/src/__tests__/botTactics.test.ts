@@ -28,7 +28,9 @@ import {
   nearestCoastPoint,
   sectorArcFor,
   SHIP_CLASS_IDS,
+  SLOT_BOOST,
   stepShip,
+  transitionLifecycle,
   wrapAngle,
   type HullId,
   type Island,
@@ -1027,6 +1029,54 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const full = mkBot(w, 'torpedoBoat', 0, 0, 0);
     w.applyCard(full, 'hullRepair');
     expect(COMBAT_BRAIN.decide(full, mkMind('duelist'), port).actSlot).toBeNull();
+  });
+
+  it('does NOT press a second copy while the first one\'s pool is still draining in', () => {
+    // THE PAID POOL IS HP ALREADY BOUGHT (`repairHp`, 50 hp landing over 5 s).
+    // Reading the bare `hp` is reading the hull mid-payment: a bulwark that
+    // fires at 120/350 is at 170 with 50 more coming — 220 of 350, over its
+    // own 0.6 threshold — and would otherwise burn its whole stack inside one
+    // pool's lifetime, which is exactly the scarcity the card model exists for.
+    const w = openWorld(214);
+    const port = fakePort(w);
+    const bot = mkBot(w, 'battleship', 0, 0, 0);
+    for (let i = 0; i < 3; i += 1) w.applyCard(bot, 'hullRepair');
+    const belt = slotOf(bot, 'hullRepair');
+    expect(belt).toBeGreaterThanOrEqual(0);
+
+    // Mid-payment: the instant 50 has landed, the pooled 50 has not.
+    bot.hp = 170;
+    bot.repairHp = CONFIG.hullRepair.regenHp;
+    expect(bot.hp / bot.stats.maxHp).toBeLessThan(profileOf('bulwark').healHpFrac); // the bare read still says "heal"
+    expect(COMBAT_BRAIN.decide(bot, mkMind('bulwark'), port).actSlot).toBeNull();
+
+    // THE CONTROL: the same hull with nothing draining in does press. Only the
+    // pool separates the two, so an inverted read cannot pass both.
+    bot.repairHp = 0;
+    expect(COMBAT_BRAIN.decide(bot, mkMind('bulwark'), port).actSlot).toBe(belt);
+  });
+
+  it('a SINKING bot never presses its belt, however low its hull reads', () => {
+    // The driver already drops non-afloat bots before they decide, so this is
+    // the row's own guard — the same one the server's HULL REPAIR row keeps
+    // (amendment 10: no hp comes back to a hull in the window). Without it the
+    // tactic's only test is `hp / maxHp`, which a sinking hull passes most of
+    // all, and any future caller that reaches a brain without the driver's
+    // afloat check would have the bot mashing a key the row always refuses.
+    const w = openWorld(215);
+    const port = fakePort(w);
+    const dying = mkBot(w, 'battleship', 0, 0, 0);
+    w.applyCard(dying, 'hullRepair');
+    const belt = slotOf(dying, 'hullRepair');
+    dying.hp = 0;
+    dying.lifecycle = transitionLifecycle(dying.lifecycle, 'sink', port.now);
+    expect(isAfloat(dying.lifecycle)).toBe(false);
+    expect(belt).toBeGreaterThanOrEqual(0);
+    // The BOOST is drained so it cannot answer first and mask the belt: a
+    // hull at 0 hp is disengaging, and the boost outranks the belt on slot
+    // index. With it dry, the belt slot is the only ability left to press.
+    dying.loadout[SLOT_BOOST].state = { n: 0, reloadMsLeft: 4000 };
+    expect(COMBAT_BRAIN.decide(dying, mkMind('bulwark'), port).actSlot).toBeNull();
   });
 
   it('...and a hurt bot with an EMPTY belt reaches for its boost, never a belt slot', () => {

@@ -68,6 +68,7 @@ import {
   SLOT_COUNT,
   SLOT_GUN,
   WEAPON_SLOTS,
+  hullIsFull,
   isWeaponItem,
   type SlotItemId,
 } from '@salvo/shared';
@@ -182,10 +183,16 @@ const DENIABLE_SLOTS: ReadonlySet<number> = new Set<number>([...WEAPON_SLOTS, ..
  * the key that gets mashed. The server still refuses independently: this NEVER
  * grants anything, it only declines to send.
  *
+ * "FULL" IS THE SHARED PREDICATE (`hullIsFull`, epic-8 amendment 53): under
+ * 1 hp missing. It must be the server row's own word, or a press this lets
+ * through at 349.6 of 350 comes straight back as `blocked` — the round trip
+ * this function exists to avoid.
+ *
  * FAILS OPEN on the hull: a non-finite or absent `maxHp` (a pre-first-frame
  * gap, an unresolvable class) returns false, so an unknown hull gets its press
  * SENT rather than denied a heal it may badly need — the same way the old rail
- * refused to claim FULL on a guess.
+ * refused to claim FULL on a guess. The shared predicate is read only AFTER
+ * that resolvability check, so `NaN`/`Infinity` never reach it.
  */
 export function beltPressDenied(
   item: SlotItemId | null | undefined,
@@ -195,7 +202,7 @@ export function beltPressDenied(
 ): boolean {
   if (item !== 'hullRepair') return false;
   if (sinking) return true;
-  return Number.isFinite(maxHp) && maxHp > 0 && hp >= maxHp;
+  return Number.isFinite(maxHp) && maxHp > 0 && hullIsFull(hp, maxHp);
 }
 
 /**

@@ -615,6 +615,7 @@ export * from './math/rng.js';
 
 // Simulation
 export * from './sim/ship.js';
+export * from './sim/hull.js';
 export * from './sim/lifecycle.js';
 export * from './sim/sinking.js';
 export * from './sim/stats.js';

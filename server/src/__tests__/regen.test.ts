@@ -76,13 +76,27 @@ describe('the 30 s wait', () => {
     expect(a.hp).toBe(before);
   });
 
-  it('...and starts on the tick the window closes', () => {
+  // THE WAIT IS EXCLUSIVE OF THE TICK THAT ENDS ON IT (review gate, 2026-09-17).
+  // A tick is a 50 ms SPAN, `now` its END: the tick that ends at exactly
+  // `lastDamagedAt + 30000` covers (29950, 30000], which is still inside the
+  // wait. Crediting it would pay a full tick's regen for time spent waiting —
+  // the whole tick has to lie past the window before any of it is regen time.
+  it('the tick that ENDS exactly on the 30 s mark credits NOTHING — its span is still inside the wait', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     a.hp = a.stats.maxHp * 0.5;
     const before = a.hp;
     run(w, REGEN.outOfCombatMs);
-    expect(a.hp).toBeGreaterThan(before);
+    expect(a.hp).toBe(before);
+  });
+
+  it('...and the NEXT tick — the first lying WHOLLY past the wait — credits exactly one tick', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    a.hp = a.stats.maxHp * 0.5;
+    const missing0 = a.stats.maxHp - a.hp;
+    run(w, REGEN.outOfCombatMs + DT);
+    expect(a.stats.maxHp - a.hp).toBeCloseTo(missingAfter(missing0, 1), 6);
   });
 
   it('a hull spawns with its clock at `now`, not at 0 — a fresh life waits too', () => {
@@ -100,11 +114,12 @@ describe('the shape — 1 % of MISSING per second', () => {
     const maxHp = a.stats.maxHp;
     a.hp = maxHp * 0.4;
     const missing0 = maxHp - a.hp;
-    run(w, REGEN.outOfCombatMs); // the first regen tick lands ON this boundary
+    run(w, REGEN.outOfCombatMs); // the boundary tick itself credits NOTHING
     const ticks = 10 * TICKS_PER_S;
     run(w, 10_000);
-    // +1: the boundary tick itself regens.
-    expect(maxHp - a.hp).toBeCloseTo(missingAfter(missing0, ticks + 1), 6);
+    // Exactly the ten seconds of ticks that lie wholly past the wait, and no
+    // boundary freebie.
+    expect(maxHp - a.hp).toBeCloseTo(missingAfter(missing0, ticks), 6);
   });
 
   it('is a fraction of MISSING, not of MAX: the same hull heals FASTER when hurt worse', () => {
@@ -113,7 +128,7 @@ describe('the shape — 1 % of MISSING per second', () => {
       const a = place(w, 'a');
       a.hp = a.stats.maxHp * hpFrac;
       const before = a.hp;
-      run(w, REGEN.outOfCombatMs);
+      run(w, REGEN.outOfCombatMs + DT); // the FIRST crediting tick
       return a.hp - before;
     };
     expect(rate(0.2)).toBeGreaterThan(rate(0.8));
@@ -123,7 +138,7 @@ describe('the shape — 1 % of MISSING per second', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     a.hp = a.stats.maxHp - 0.5;
-    run(w, REGEN.outOfCombatMs);
+    run(w, REGEN.outOfCombatMs + DT); // the first crediting tick snaps it
     expect(a.hp).toBe(a.stats.maxHp);
   });
 

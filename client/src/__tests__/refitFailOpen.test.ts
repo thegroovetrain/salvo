@@ -141,6 +141,16 @@ describe('beltPressDenied — an unresolvable hull never claims FULL', () => {
     expect(beltPressDenied('hullRepair', maxHp - 1, maxHp, false)).toBe(false);
   });
 
+  it('mirrors amendment 53: under 1 hp missing IS full, a whole point missing is not', () => {
+    // The client's pre-denial and the server row must agree on the WORD "full",
+    // or a press the client lets through comes back `blocked` (a wasted round
+    // trip and a denied pulse a beat late). Both now read the shared
+    // `hullIsFull` — under 1 hp missing is full, which is exactly where a
+    // fractional storm bite or the geometric regen parks a hull.
+    expect(beltPressDenied('hullRepair', 349.5, 350, false)).toBe(true);
+    expect(beltPressDenied('hullRepair', 349, 350, false)).toBe(false);
+  });
+
   it('lets the press THROUGH for an unresolvable hull rather than claiming full', () => {
     // The conservative direction is deliberate: falsely reporting FULL would
     // deny a player a heal they need, which is worse than sending a press the

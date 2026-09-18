@@ -31,7 +31,7 @@
 // them), and the self-private `heal` cue needs the pending queue. The row keeps
 // only its two guards.
 
-import { CONFIG, isAfloat, type LoadoutSlot } from '@salvo/shared';
+import { CONFIG, hullIsFull, isAfloat, type LoadoutSlot } from '@salvo/shared';
 import type { ActivationContext, ActivationResult } from '../index.js';
 import { consumableRow, type ConsumableRow } from './row.js';
 
@@ -43,8 +43,12 @@ function hullRepairEffect(ctx: ActivationContext, _slot: LoadoutSlot): Activatio
   // gate passes a sinking hull's presses straight to this row.
   if (!isAfloat(ship.lifecycle)) return { ok: false, reason: 'blocked' };
   // A FULL HULL BUYS NOTHING and pays nothing: the pool would drain into the
-  // maxHp clamp and the copy would be gone for it.
-  if (ship.hp >= ship.stats.maxHp) return { ok: false, reason: 'blocked' };
+  // maxHp clamp and the copy would be gone for it. "Full" is the SHARED
+  // predicate (epic-8 amendment 53 — under 1 hp missing), never an exact-max
+  // test: fractional storm/burn damage and the geometric regen park a hull at
+  // 349.x of 350, and a scarce copy must not go for 0.4 hp. The regen's snap
+  // and the client's pre-denial read the very same function.
+  if (hullIsFull(ship.hp, ship.stats.maxHp)) return { ok: false, reason: 'blocked' };
   ctx.applyRepair(CONFIG.hullRepair.instantHp, CONFIG.hullRepair.regenHp);
   return { ok: true };
 }

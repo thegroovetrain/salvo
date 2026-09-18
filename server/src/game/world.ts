@@ -38,6 +38,7 @@ import {
   generateMap,
   hasFoundered,
   hookKinematics,
+  hullIsFull,
   isAfloat,
   isConsumableId,
   isSinking,
@@ -3239,7 +3240,9 @@ export class World {
    *      auto-heal that used to be this method's second channel, and it is
    *      deliberately NOT a pool: `CONFIG.regen.missingPctPerS` of the hull's
    *      MISSING hp per second, paid straight into `hp`, once
-   *      `CONFIG.regen.outOfCombatMs` have passed since `lastDamagedAt`. No
+   *      `CONFIG.regen.outOfCombatMs` have WHOLLY passed since
+   *      `lastDamagedAt` — the tick that merely ENDS on the 30 s mark is still
+   *      a tick of the wait and credits nothing (see `idleSince` below). No
    *      pool, no rate field, no `heal` cue (a continuous trickle would loop
    *      the tone), no pending band. Healing is paced by DISENGAGING now, not
    *      by the economy.
@@ -3262,8 +3265,13 @@ export class World {
   private tickRepairs(dtMs: number): void {
     const hr = CONFIG.hullRepair;
     const budget = (hr.regenHp / hr.regenMs) * dtMs;
-    // The clock a hull must be older than to be "out of combat" this tick.
-    const idleSince = this.now - CONFIG.regen.outOfCombatMs;
+    // THE WAIT IS EXCLUSIVE OF THE TICK THAT ENDS ON IT. A tick is a SPAN and
+    // `now` is its END, so the tick ending at exactly
+    // `lastDamagedAt + outOfCombatMs` covers (now − dtMs, now] — time still
+    // inside the wait. Crediting it would pay a full tick of regen for waiting.
+    // The WHOLE tick must lie past the window, so the stamp is compared against
+    // the tick's START (`now − dtMs`), not its end.
+    const idleSince = this.now - dtMs - CONFIG.regen.outOfCombatMs;
     for (const ship of this.ships.values()) {
       if (!isAfloat(ship.lifecycle)) continue;
       if (ship.repairHp > 0) World.payRepair(ship, budget);
@@ -3288,13 +3296,16 @@ export class World {
    * THE SNAP TO FULL is not a rounding convenience: 1 % of MISSING is
    * asymptotic and never reaches zero missing on its own, so without it HULL
    * REPAIR's "full hull" refusal would be unreachable after any regen and the
-   * globe would read 349.9 forever. Under 1 hp missing, the hull is full.
+   * globe would read 349.9 forever. It snaps on the SHARED `hullIsFull`
+   * (epic-8 amendment 53) — the same predicate the HULL REPAIR row refuses on
+   * and the client's belt pre-denial mirrors, so "full" has exactly one
+   * definition and this snap can never drift away from that refusal.
    */
   private static tickRegen(ship: ShipRecord, dtMs: number): void {
     const maxHp = ship.stats.maxHp;
     const missing = maxHp - ship.hp;
     if (missing <= 0) return;
-    if (missing < 1) ship.hp = maxHp;
+    if (hullIsFull(ship.hp, maxHp)) ship.hp = maxHp;
     else ship.hp += missing * CONFIG.regen.missingPctPerS * (dtMs / 1000);
   }
 

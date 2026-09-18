@@ -34,6 +34,7 @@ import type {
   BoonOffer,
   EffectiveStats,
   LoadoutSlot,
+  ShipLifecycle,
   ShipState,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
@@ -88,6 +89,29 @@ export type BotEngageGate = 'always' | 'endgame';
 export interface BotSelf {
   readonly state: ShipState;
   readonly hp: number;
+  /**
+   * This hull's LIFE STATE. A human client is told the same thing about its
+   * own ship (`OwnShip.alive`, projected from isAfloat, plus the self-private
+   * `sinkingUntil` deadline), so the self-read stays inside its charter.
+   *
+   * Read by the HULL REPAIR belt tactic (Story 8.8): no hp ever comes back to
+   * a hull in the sinking window (amendment 10), and a tactic whose only test
+   * is `hp / maxHp` is at its MOST eager exactly there. The driver already
+   * drops non-afloat bots before they decide, so this is the row's own guard —
+   * the twin of the one the server's consumable row keeps — and not a
+   * substitute for it.
+   */
+  readonly lifecycle: ShipLifecycle;
+  /**
+   * The paid HULL REPAIR pool still draining into this hull — hp ALREADY
+   * BOUGHT, delivered over `CONFIG.hullRepair.regenMs`. The owner's client is
+   * sent exactly this (`OwnShip.repairHp`) and draws it as the pending band.
+   *
+   * A heal tactic that reads `hp` alone reads a hull mid-payment and fires
+   * again for hp that is already on its way, emptying a stack inside one
+   * pool's lifetime.
+   */
+  readonly repairHp: number;
   readonly stats: EffectiveStats;
   readonly loadout: readonly LoadoutSlot[];
   /** The sim's own "this hull is pressing into LAND" bit (map-edge press is

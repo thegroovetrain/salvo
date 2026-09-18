@@ -27,6 +27,7 @@ import {
   segCircleHit,
   HULL_IDS,
   hullEnvelope,
+  hullIsFull,
   hullSilhouette,
   transformPolygon,
   segPolygonHit,
@@ -407,6 +408,15 @@ describe('shared barrel', () => {
     // The return-grammar echo-size primitive (radar realism cycle, PV 26).
     expect(typeof perpendicularExtent).toBe('function');
     expect(CONFIG.drones.medium.hp).toBe(60); // RETUNED 100 -> 75 -> 60 (epic-6 amendment 24)
+  });
+
+  it('re-exports `hullIsFull` — the ONE definition of a full hull (amendment 53)', () => {
+    // Three callers across two workspaces read it (the HULL REPAIR row's
+    // refusal, the out-of-combat regen's snap, the client's belt pre-denial),
+    // so it has to be on the barrel or one of them re-derives it.
+    expect(typeof hullIsFull).toBe('function');
+    expect(hullIsFull(349, 350)).toBe(false);
+    expect(hullIsFull(349.5, 350)).toBe(true);
   });
 
   it('re-exports the NINE-SLOT grammar and the interim spawn seed (Story 8.5)', () => {
