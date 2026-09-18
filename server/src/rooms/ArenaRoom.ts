@@ -41,7 +41,14 @@ import {
   type MatchTimings,
 } from '../game/match.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
-import { recordDeckExhausted, recordMinesLive, registerRoom, type RoomMetricsHandle } from '../metrics.js';
+import {
+  recordDeckExhausted,
+  recordDeckMulligan,
+  recordDeckPick,
+  recordMinesLive,
+  registerRoom,
+  type RoomMetricsHandle,
+} from '../metrics.js';
 import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
@@ -470,6 +477,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
         recordDeckExhausted();
         this.log.info('deck.exhausted', { shipId });
       },
+      // The two Story 8.10 economy seams are COUNTERS ONLY (no log line per
+      // pick — a busy room would write one every few seconds): `/metrics`
+      // answers how much shopping and how many redraws a process saw.
+      onDeckPick: () => recordDeckPick(),
+      onMulligan: () => recordDeckMulligan(),
     });
   }
 
@@ -731,14 +743,23 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       countdownMs: override?.countdownMs ?? base.countdownMs,
       resultsMs: override?.resultsMs ?? base.resultsMs,
       joinWindowMs: override?.joinWindowMs ?? base.joinWindowMs,
-      // ONE human is the whole cohort in a Solo vs AI room (Story 6.5), so the
-      // countdown must arm at one. minHumans is a PEOPLE count and stays one:
-      // the nineteen bots are participants, never humans, and never advance it.
-      // A dev matchOverride still wins, so no smoke's timings moved.
-      minHumans: override?.minHumans ?? (sanitized.solo ? 1 : undefined),
+      minHumans: ArenaRoom.minHumansFor(sanitized),
       expectedCaptains: sanitized.expectedCaptains,
       boardingGraceMs: base.boardingGraceMs,
+      // DEV ONLY (Story 8.10): sanitizeRoomOptions has already stripped the
+      // whole override without HC_DEV_OPTIONS=1, so this is undefined in
+      // production and the Match's arm stays dead.
+      autoMulligan: override?.mulligan,
     };
+  }
+
+  /** ONE human is the whole cohort in a Solo vs AI room (Story 6.5), so the
+   *  countdown must arm at one. minHumans is a PEOPLE count and stays one: the
+   *  nineteen bots are participants, never humans, and never advance it. A dev
+   *  matchOverride still wins, so no smoke's timings moved. (Split out of
+   *  timings() for the complexity budget — Story 8.10 added a field.) */
+  private static minHumansFor(sanitized: SanitizedRoomOptions): number | undefined {
+    return sanitized.matchOverride?.minHumans ?? (sanitized.solo ? 1 : undefined);
   }
 
   /** The Match state machine's side effects, implemented on the room. */

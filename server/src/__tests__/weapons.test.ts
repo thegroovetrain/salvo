@@ -19,6 +19,7 @@ import {
   type Target,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 import {
   addMine,
@@ -54,6 +55,11 @@ function bareWorld(seed = 3): World {
 /** Place a ship at an exact pose with a torpedo-firing input over the bow. */
 function torpShip(w: World, id: string, x: number, y: number, heading: number): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
+  // THE TUBES ARE A CARD NOW (Story 8.10, amendment 62): the interim spawn
+  // seed is deleted and a hull comes up with gun + Shift and an EMPTY weapon
+  // row, so this fixture fits the torpedo explicitly through the same
+  // applyCard path a real pick takes. Every case below keeps its subject.
+  fitClassWeapons(w, rec);
   rec.state = { x, y, heading, speed: 0 };
   const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
   rec.input = input;
@@ -244,7 +250,8 @@ describe('mines — NO CAP: a laid mine stays laid', () => {
 describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-arc click, blast trip)', () => {
   it('a click-placed mine lands AT the clicked point, arms, then sinks an enemy that sails onto it — the nearby OWNER takes 0', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []); // mine at weapon slot 2 (Story 8.5 spawn seed)
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []);
+    fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Mines are an aimed WEAPON (amendment 45): a click astern places one.
     a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
@@ -543,6 +550,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
   it('one click launches exactly one torpedo over 20 ticks of the same input', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
+    fitClassWeapons(w, a); // the tubes are a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     let torps = 0;
@@ -555,7 +563,8 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 
   it('one CLICK places exactly one mine (fireSeq — Story 2.8 aimed weapon), even applied past the drop cooldown; a second click places another', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []); // mine at weapon slot 2 (Story 8.5 spawn seed)
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []);
+    fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     // Under hold-to-fire this input would re-place every reload; a click must not.
@@ -570,6 +579,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
   it('a PRESS (actSeq) on the ML mine slot is inert — mines JOINED the fire-control channel (Story 2.8 flip of the 1.8 pin)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []);
+    fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 40, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML, hornSeq: 0 });
     w.step();

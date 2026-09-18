@@ -62,7 +62,14 @@ export interface MetricsPayload {
   players: number;
   tick: { p50: number; p95: number; max: number; samples: number };
   messages: { ratePerSec: number; total: number };
-  deck: { exhausted: number };
+  /**
+   * THE DECK ECONOMY, AS COUNTS (Story 8.3 + 8.10). `exhausted` is records
+   * that ran their pool dry; `picks` is successful card fits; `mulligans` is
+   * honoured countdown redraws (FR48). Counts ONLY — never a line id, never a
+   * ship id: an ops endpoint may learn how much shopping happened, never what
+   * anybody bought.
+   */
+  deck: { exhausted: number; picks: number; mulligans: number };
   /**
    * World-shaped gauges (Story 8.4). `minesLivePeak` is the process-wide
    * HIGH-WATER MARK of live mines across every room, fed once per sim step by
@@ -133,6 +140,15 @@ let retiredMessageTotal = 0;
  *  "Exhausted" means an EMPTY DRAW — nothing left to offer — which on any
  *  door-admitted deck coincides with an empty pool. */
 let deckExhaustedTotal = 0;
+/** Cards FITTED through a successful spend, process-wide since start (Story
+ *  8.10). Module-level for the deckExhaustedTotal reason: a pick outlives the
+ *  room it happened in. */
+let deckPicksTotal = 0;
+/** HONOURED countdown redraws, process-wide since start (Story 8.10, FR48).
+ *  A refused press (second redraw, live phase, no offer) counts nowhere — the
+ *  number answers "how often is the opening thrown back", not "how often is
+ *  the button pressed". */
+let deckMulligansTotal = 0;
 
 /** Process-wide high-water mark of live mines (Story 8.4). Survives room
  *  dispose — a peak is a fact about the process, not about a room. */
@@ -218,6 +234,23 @@ export function recordDeckExhausted(): void {
 }
 
 /**
+ * Record ONE successful card pick (Story 8.10). The arena adapter calls this
+ * from the World's `onDeckPick` seam. No arguments, for the recordDeckExhausted
+ * reason: the identity belongs in a log line, not in a process gauge.
+ */
+export function recordDeckPick(): void {
+  deckPicksTotal += 1;
+}
+
+/**
+ * Record ONE honoured countdown mulligan (Story 8.10, FR48). Fired from the
+ * World's `onMulligan` seam — refusals never reach it.
+ */
+export function recordDeckMulligan(): void {
+  deckMulligansTotal += 1;
+}
+
+/**
  * Record one room's live-mine count for this sim step (Story 8.4). Keeps the
  * MAXIMUM ever seen in this process — the number that tells an operator what an
  * uncapped minefield actually costs. Called by the arena adapter after each
@@ -232,6 +265,8 @@ export function resetMetrics(): void {
   registry.clear();
   retiredMessageTotal = 0;
   deckExhaustedTotal = 0;
+  deckPicksTotal = 0;
+  deckMulligansTotal = 0;
   minesLivePeak = 0;
   firstRecordSec = null;
 }
@@ -304,7 +339,7 @@ export function metricsPayload(): MetricsPayload {
       ratePerSec: ratePerSec(nowSeconds()),
       total: totalMessages(),
     },
-    deck: { exhausted: deckExhaustedTotal },
+    deck: { exhausted: deckExhaustedTotal, picks: deckPicksTotal, mulligans: deckMulligansTotal },
     world: { minesLivePeak },
   };
 }

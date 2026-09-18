@@ -467,23 +467,30 @@ describe('the held start line — a boarding captain starts where they boarded',
     expect(activateAndDrainSpawns(ctx)).toEqual([]);
   });
 
-  it('still runs the whole rest of the reset — only the placement is held', () => {
+  it('still runs the whole rest of the reset — the placement AND the card economy are held', () => {
     const ctx = setup({ expectedCaptains: 2 });
     join(ctx, 'a');
     join(ctx, 'b');
     const a = ctx.w.ships.get('a')!;
-    // Damage/spend the hull mid-boarding so a skipped reset would be visible.
+    // Damage/dirty the hull mid-boarding so a skipped reset would be visible.
     a.hp = 3;
     a.loadout[0]!.state!.n = 0;
     a.loadout[0]!.state!.reloadMsLeft = 4321;
-    a.bankedLevels = 7;
     a.xpMs = 99_999;
     a.level = 4;
+    // THE COUNTDOWN ECONOMY (Story 8.10, amendment 63b): the start line hands
+    // every captain a banked level and a hand, and a card taken there must be
+    // ABOARD when the water goes live — so the hold preserves the bank, the
+    // offer, the cards and the deck while resetting everything else. (The
+    // level-zero grant already banked one; this stands a bigger number on it.)
+    a.bankedLevels = 7;
+    const offer = a.offer;
     activateAndDrainSpawns(ctx);
     expect(a.hp).toBe(a.stats.maxHp);
     expect(a.loadout[0]!.state!.n).toBe(a.stats.equipment.gun.maxAmmo);
     expect(a.loadout[0]!.state!.reloadMsLeft).toBe(0);
-    expect(a.bankedLevels).toBe(0);
+    expect(a.bankedLevels).toBe(7); // PRESERVED under the hold
+    expect(a.offer).toBe(offer); // ...and the same hand, byte for byte
     expect(a.level).toBe(0);
     // xpMs was wiped to 0 and has since accrued the ONE post-activation tick
     // this helper steps to publish the event window (xpEnabled is live now).

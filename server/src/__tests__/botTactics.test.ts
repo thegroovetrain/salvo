@@ -38,6 +38,7 @@ import {
 } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import { NO_DECK, World, type ShipRecord } from '../game/world.js';
+import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, approachPoint, readyShotReaches } from '../game/ai/tactics.js';
 import { engagementBand, profileOf } from '../game/ai/profiles.js';
 import { pullBand } from '../game/ai/utility.js';
@@ -98,14 +99,18 @@ function mkMind(profile: BotProfileId, seed = 7): BotMind {
  *  the collision push-out (the island-specific tests clear nothing). */
 function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading = 0): ShipRecord {
   const rec = w.addShip(`b-${w.ships.size + 1}`, 'TESTER', 'bot', hullId, undefined, { x, y }, []);
+  // THE CLASS WEAPON IS A CARD (Story 8.10, amendment 62): a hull spawns with
+  // gun + Shift and an EMPTY weapon row, so this fixture fits the tube / the
+  // barrage / the rack explicitly — every weapon-policy case below is about
+  // what the brain DOES with the weapon, not about how it arrived.
+  fitClassWeapons(w, rec);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
   rec.state.speed = rec.stats.kinematics.maxSpeed * 0.5;
   // THE RADAR BUOY, HAND-FITTED ON THE MINE LAYER (Story 8.5, epic-8
-  // amendment 22). It used to arrive with the Mine Layer's per-hull fit; the
-  // nine-slot loadout seeds `navalMines` alone and NOTHING fits the buoy any
-  // more. The MODULE and the brain's buoy policy are untouched, and the
+  // amendment 22). It used to arrive with the Mine Layer's per-hull fit;
+  // NOTHING fits the buoy any more — no card names it. The MODULE and the brain's buoy policy are untouched, and the
   // policy is what this suite pins — so the fixture writes the slot directly,
   // exactly as `applySlotEffect` would have, and every buoy case below keeps
   // its subject. When Story 8.15 deletes the buoy, these cases go with it.

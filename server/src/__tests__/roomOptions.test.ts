@@ -15,7 +15,7 @@ import {
   type RoomOptions,
 } from '../rooms/roomOptions.js';
 
-const MATCH_OVERRIDE = { sandbox: true, minHumans: 1, countdownMs: 1, resultsMs: 1, joinWindowMs: 0 };
+const MATCH_OVERRIDE = { sandbox: true, minHumans: 1, countdownMs: 1, resultsMs: 1, joinWindowMs: 0, mulligan: true };
 const ZONE_OVERRIDE = { beatMs: 1000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0.5, terminalSightFactor: 1 };
 
 describe('sanitizeRoomOptions — devEnabled=false (production default)', () => {
@@ -50,6 +50,15 @@ describe('sanitizeRoomOptions — devEnabled=false (production default)', () => 
     const options: RoomOptions = { matchOverride: { minHumans: 9999, resultsMs: 1e9 } };
     const { sanitized } = sanitizeRoomOptions(options, false);
     expect(sanitized.matchOverride).toBeUndefined();
+  });
+
+  it('the Story 8.10 smoke arm {mulligan:true} is stripped with the rest', () => {
+    // It makes the ROOM redraw every captain's opening hand — a dev tool for
+    // the headless smoke, never something a production client may ask for.
+    const options: RoomOptions = { matchOverride: { mulligan: true } };
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions(options, false);
+    expect(sanitized.matchOverride).toBeUndefined();
+    expect(rejectedKeys).toEqual(['matchOverride']);
   });
 
   it('no rejection noise when the caller passed neither override', () => {

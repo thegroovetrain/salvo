@@ -6,10 +6,11 @@
 // payload, and the post-results disconnect.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, type ResultsMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_DECKS, MULLIGAN_CHOICE, type ResultsMsg, type ShipClassId } from '@salvo/shared';
 import { NO_DECK, World } from '../game/world.js';
-import { Match, type MatchHooks } from '../game/match.js';
+import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { isFleetHull } from '../game/participants.js';
+import { fitClassWeapons } from './classWeapons.js';
 
 const DT = CONFIG.tick.simDtMs;
 // Ticks in one full sinking window. Since the amendment-17 REVERSAL (Eric veto
@@ -104,9 +105,15 @@ function injectShell(ctx: Ctx, id: string, ownerId: string, x: number, y: number
   });
 }
 
-/** The Mine Layer's mine rack: the FIRST weapon slot (Q) since Story 8.5's
- *  nine-slot loadout seeds `navalMines` there. */
+/** The Mine Layer's mine rack: the FIRST weapon slot (Q). Story 8.10 deleted
+ *  the spawn seed that used to put it there, so the mine fixtures fit the
+ *  card themselves (fitRack) — the slot is the same one. */
 const SLOT_MINE_ML = 2;
+
+/** Fit a hull's class weapon card, the way a countdown pick would. */
+function fitRack(ctx: Ctx, id: string): void {
+  fitClassWeapons(ctx.w, ctx.w.ships.get(id)!);
+}
 
 function fire(ctx: Ctx, id: string, slot: 0 | 1 | 2, seq: number): void {
   // seq doubles as the click counter: every call is one fresh click.
@@ -166,7 +173,8 @@ describe('match — waiting phase (ready room)', () => {
   });
 
   it('allows mine drops (no phase lockout — resetForMatchStart clears the field at activation instead)', () => {
-    const ctx = setup(['a'], 'mineLayer'); // mine at weapon slot 2 (Story 8.5 spawn seed)
+    const ctx = setup(['a'], 'mineLayer');
+    fitRack(ctx, 'a'); // the rack is a CARD since Story 8.10 — fitted into slot 2
     mineClick(ctx, 'a', SLOT_MINE_ML, 1); // Story 2.8: mines are an aimed WEAPON — a rear-arc click
     step(ctx);
     expect(ctx.w.mines.size).toBe(1);
@@ -258,15 +266,143 @@ describe('match — countdown', () => {
       expect(ship.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
       expect(isAfloat(ship.lifecycle)).toBe(true);
       expect(Math.hypot(ship.state.x, ship.state.y)).toBeCloseTo(ctx.w.map.spawnRing, 6);
-      // Full pools on every FITTED slot (0-2 on a TB: gun, boost, the seeded
-      // torpedo; 3-8 are empty since Story 8.5's nine-slot loadout).
-      expect(ship.loadout.slice(0, 3).every((s) => s.state!.n > 0 && s.state!.reloadMsLeft === 0)).toBe(true);
+      // Full pools on every FITTED slot (0-1 on a fresh TB: gun and the Shift
+      // boost; 2-8 are empty — Story 8.10 deleted the spawn seed, so the
+      // weapon row is bare until a card fills it).
+      expect(ship.loadout.slice(0, 2).every((s) => s.state!.n > 0 && s.state!.reloadMsLeft === 0)).toBe(true);
+      expect(ship.loadout.slice(2).every((s) => s.equipmentId === null)).toBe(true);
       expect(ship.seenBallistics.size).toBe(0);
     }
     // The redeploy emits spawn events (clients snap camera/prediction).
     step(ctx);
     const spawns = ctx.w.tickEvents.filter((e) => e.k === 'spawn').map((e) => e.id);
     expect(spawns.sort()).toEqual(['a', 'b']);
+  });
+});
+
+// THE OPENING (Story 8.10, FR48, epic-8 amendments 59-63). The countdown is
+// where the card economy now starts: arming it grants every participant one
+// banked level and a guaranteed hand, and the activation redeploy of a
+// QUEUE-FORMED room (expectedCaptains set — the held start line, which is also
+// every Solo vs AI room) carries that economy onto live water. The redraw
+// itself is pinned in mulligan.test.ts; this suite owns the two transitions.
+describe('match — the opening at the countdown', () => {
+  /** A boarding room (held start line) on REAL decks, so the grant can draw. */
+  function opening(ids: string[], timings: MatchTimings = { ...TIMINGS, expectedCaptains: ids.length }): Ctx {
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const rec = recorder();
+    const m = new Match(w, timings, rec.hooks);
+    for (const id of ids) {
+      w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+      m.notifyRosterChanged();
+    }
+    return { w, m, ...rec };
+  }
+
+  it('arming the countdown banks ONE level and a four-card hand for every participant', () => {
+    // Build the room BEFORE the arm so the bot and the fleet hull are aboard
+    // when the grant runs: the AI captain is a participant and must get one;
+    // the PvE hull must get nothing at all.
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const rec = recorder();
+    const m = new Match(w, { ...TIMINGS, expectedCaptains: 2 }, rec.hooks);
+    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    m.notifyRosterChanged();
+    const ai = w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    const drone = w.addShip('fleet-1', 'FLEET', 'fleet', 'droneSmall', undefined, undefined, []);
+    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    m.notifyRosterChanged(); // both captains aboard: the countdown arms here
+    const ctx: Ctx = { w, m, ...rec };
+
+    expect(m.phase).toBe('countdown');
+    for (const id of ['a', 'b', 'bot-1']) {
+      const s = w.ships.get(id)!;
+      expect(s.bankedLevels, id).toBe(1);
+      expect(s.level, id).toBe(0);
+      expect(s.xpMs, id).toBe(0);
+      expect(s.offer, id).toHaveLength(CONFIG.offer.size);
+    }
+    expect(ai.bankedLevels).toBe(1);
+    // A PvE fleet hull holds the frozen empty deck: no bank, no hand, and
+    // critically NO exhaustion latch (amendment 63e).
+    expect(drone.bankedLevels).toBe(0);
+    expect(drone.offer).toBeNull();
+    expect(drone.deckExhausted).toBe(false);
+    // ...and the countdown flag is what the sim reads for the redraw.
+    expect(w.countdownOpen).toBe(true);
+    // The grant's `pt` rides the next frame (the pending->events swap).
+    step(ctx);
+    expect(w.tickEvents.filter((e) => e.k === 'pt').map((e) => e.id).sort()).toEqual(['a', 'b', 'bot-1']);
+  });
+
+  it('a countdown that CANCELS back to waiting shuts the redraw and never re-grants', () => {
+    const ctx = opening(['a', 'b']);
+    const a = ctx.w.ships.get('a')!;
+    expect(a.bankedLevels).toBe(1);
+    ctx.m.onPlayerLeave('b'); // below minHumans: countdown -> waiting
+    expect(ctx.m.phase).toBe('waiting');
+    expect(ctx.w.countdownOpen).toBe(false);
+    // The level and the hand STAY — the room is still pre-live and the hand
+    // was never spent — and a re-arm banks nothing more (the once-per-match
+    // latch), so the opening cannot be farmed by cycling the roster.
+    expect(a.bankedLevels).toBe(1);
+    ctx.w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    ctx.m.notifyRosterChanged();
+    expect(ctx.m.phase).toBe('countdown');
+    expect(a.bankedLevels).toBe(1);
+    expect(ctx.w.countdownOpen).toBe(true);
+  });
+
+  it('activation shuts the redraw FIRST and keeps the countdown economy', () => {
+    const ctx = opening(['a', 'b']);
+    const a = ctx.w.ships.get('a')!;
+    // Take the guaranteed first card at the start line, exactly as a captain
+    // does when the window auto-opens.
+    const picked = a.offer![0];
+    expect(ctx.w.spendPoint('a', 0)).toBe(true);
+    expect(a.bankedLevels).toBe(0);
+    const b = ctx.w.ships.get('b')!;
+    const heldHand = b.offer;
+    a.hp = 11;
+
+    activate(ctx);
+
+    expect(ctx.w.countdownOpen).toBe(false);
+    // The card is ABOARD at 0:00 — fitted, on a fresh clock — and hp is reset.
+    expect(a.cards).toContain(picked);
+    expect(a.loadout.some((s) => s.equipmentId === picked)).toBe(true);
+    expect(a.loadout.every((s) => s.state === null || s.state.reloadMsLeft === 0)).toBe(true);
+    expect(a.hp).toBe(a.stats.maxHp);
+    // ...and the captain who took nothing still HOLDS the same hand.
+    expect(b.offer).toBe(heldHand);
+    expect(b.bankedLevels).toBe(1);
+  });
+
+  it('the DEV smoke arm (autoMulligan) redraws every captain on the next tick', () => {
+    const ctx = opening(['a', 'b'], { ...TIMINGS, countdownMs: 10_000, expectedCaptains: 2, autoMulligan: true });
+    const a = ctx.w.ships.get('a')!;
+    const handA = [...a.offer!];
+    step(ctx); // the first update() after startCountdown
+    expect([...a.offer!]).not.toEqual(handA);
+    expect(a.mulliganed).toBe(true);
+    // ...once only: the captain's own sentinel afterwards is the no-op.
+    const handB = a.offer;
+    expect(ctx.w.spendPoint('a', MULLIGAN_CHOICE)).toBe(false);
+    expect(a.offer).toBe(handB);
+    step(ctx);
+    expect(a.offer).toBe(handB);
+  });
+
+  it('without the arm nothing redraws itself', () => {
+    const ctx = opening(['a', 'b'], { ...TIMINGS, countdownMs: 10_000, expectedCaptains: 2 });
+    const a = ctx.w.ships.get('a')!;
+    const hand = a.offer;
+    step(ctx);
+    step(ctx);
+    expect(a.offer).toBe(hand);
+    expect(a.mulliganed).toBe(false);
   });
 });
 
@@ -363,8 +499,12 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
 
 describe('match — active phase', () => {
   it('re-enables mine drops', () => {
-    const ctx = setup(['a', 'b'], 'mineLayer'); // mine at weapon slot 2 (Story 8.5 spawn seed)
+    const ctx = setup(['a', 'b'], 'mineLayer');
     activate(ctx);
+    // AFTER the activation: this is the dev/sandbox room (no expectedCaptains),
+    // whose redeploy still WIPES the build — so the rack card is fitted on the
+    // live water, exactly where a real pick would land it.
+    fitRack(ctx, 'a');
     mineClick(ctx, 'a', SLOT_MINE_ML, 1); // Story 2.8: mines are an aimed WEAPON — a rear-arc click
     step(ctx);
     expect(ctx.w.mines.size).toBe(1);

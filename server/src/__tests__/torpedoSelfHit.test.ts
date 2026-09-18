@@ -24,6 +24,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
+import { fitClassWeapons } from './classWeapons.js';
 
 /** Torpedo slot index: the FIRST weapon slot (Q), where the Torpedo Boat's
  *  spawn seed lands `heavyTorpedo` since Story 8.5's nine-slot loadout. */
@@ -43,11 +44,12 @@ function bareWorld(seed = 11, opts?: WorldOptions): World {
  *  not have, so the test injects a 9-rung SPEED ladder rather than
  *  overdriving past a real cap. */
 const OVERDRIVE: Catalog = {
-  // The TB's SPAWN SEED line (Story 8.5), carried in from production: the
-  // nine-slot spawn fits a hull's class weapon by replaying `SPAWN_SEED`
-  // through THIS World's catalog, so an injected catalog without it would
-  // spawn a torpedo boat with no torpedo. Tier I is the bare weapon, so it
-  // moves no number here.
+  // The TB's CLASS WEAPON line, carried in from production: the fixture below
+  // fits it as a CARD (Story 8.10 deleted the interim spawn seed, so a hull
+  // comes up with an empty weapon row), and applyCard resolves ids against
+  // THIS World's catalog — an injected catalog without the line would leave
+  // the torpedo boat with no torpedo. Tier I is the bare weapon, so carrying
+  // it moves no number here.
   heavyTorpedo: CATALOG.heavyTorpedo,
   speed: {
     id: 'speed',
@@ -67,6 +69,11 @@ function place(
   classId: ShipClassId = 'torpedoBoat',
 ): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', classId, undefined, undefined, []);
+  // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
+  // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
+  // weapon row, so this fixture fits it explicitly through the same applyCard
+  // path a real pick takes. Every case below keeps its subject.
+  fitClassWeapons(w, rec);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }

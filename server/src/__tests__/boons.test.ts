@@ -38,12 +38,12 @@ const DT = CONFIG.tick.simDtMs;
 // the same shape on every captain hull. `SLOT_EXTRA` is gone with the old
 // four-slot loadout.
 //
-// THE SPAWN SEED IS CATALOG-READ, so it is EMPTY in this suite: the World's
-// spawn reads SPAWN_SEED through its OWN catalog, and TEST_CATALOG (injected
-// below, deliberately content-free) carries none of the shipped weapon lines.
-// So the fixture spawns [gun, boost, empty x7] and this suite's one
-// slotFill card lands in the FIRST weapon slot. That is exactly the
-// content-independence these pins are built on.
+// NOTHING IS FITTED AT SPAWN (Story 8.10, epic-8 amendment 62): the interim
+// spawn seed is deleted outright, so every hull comes up [gun, boost, empty x7]
+// and this suite's one slotFill card lands in the FIRST weapon slot. It read
+// the same way before, for a different reason (TEST_CATALOG, injected below,
+// is deliberately content-free and carried none of the shipped weapon lines),
+// which is exactly the content-independence these pins are built on.
 /** Where this suite's one slotFill card lands on the fixture. */
 const SLOT_FILL = WEAPON_SLOTS[0];
 /** The full nine-slot id list: the fitted ids in slot order, then nulls. */

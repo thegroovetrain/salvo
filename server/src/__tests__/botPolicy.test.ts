@@ -23,6 +23,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  MULLIGAN_CHOICE,
   SHIP_CLASS_IDS,
   effectiveStats,
   hullEnvelope,
@@ -688,13 +689,31 @@ describe('ai/spending — the card policy', () => {
     expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['deckGunBarrel'] }))).toBe(0);
   });
 
-  it('no profile, at any hp, ever returns a negative choice', () => {
+  // ...AND THE MULLIGAN NEVER REACHES THE BOTS (Story 8.10, amendment 60).
+  // Story 8.10 re-opened exactly one negative on the spend channel —
+  // MULLIGAN_CHOICE (-2), the countdown redraw — and it is a HUMAN captain's
+  // button: World.mulligan refuses any other role outright. This pin is the
+  // other half of that guarantee: the policy cannot even ask.
+  it('no profile, at any hp, on any hand or seed, ever returns a negative choice', () => {
+    const hands = [
+      ['deckGunBarrel', 'armor'],
+      ['hullRepair', 'reload', 'speed', 'armor'],
+      ['heavyTorpedo', 'navalMines', 'broadside', 'starShells'],
+      ['armor'],
+    ];
     for (const row of [...Object.values(BOT_PROFILES), ...Object.values(TEST_PROFILES)]) {
       const id = row.id;
       for (const hp of [1, 10, 50, 99, 100]) {
-        const got = chooseSpend(row, spendState({ hp, offer: ['deckGunBarrel', 'armor'] }), undefined, mulberry32(5));
-        expect(got, `${id}@${hp}`).not.toBeNull();
-        expect(got!, `${id}@${hp}`).toBeGreaterThanOrEqual(0);
+        for (const [h, offer] of hands.entries()) {
+          for (let seed = 1; seed <= 8; seed += 1) {
+            const where = `${id}@${hp}/hand${h}/seed${seed}`;
+            const got = chooseSpend(row, spendState({ hp, offer }), undefined, mulberry32(seed));
+            expect(got, where).not.toBeNull();
+            expect(got!, where).toBeGreaterThanOrEqual(0);
+            expect(got!, where).not.toBe(MULLIGAN_CHOICE);
+            expect(got!, where).toBeLessThan(offer.length); // ...and always a real index
+          }
+        }
       }
     }
   });

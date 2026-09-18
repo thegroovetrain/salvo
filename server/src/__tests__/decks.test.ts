@@ -207,12 +207,14 @@ function joinArena(room: ArenaDoor, client: ArenaClient, options: Record<string,
 }
 
 describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct join)', () => {
-  it('loads the hull\'s default deck itself, stores it on the record, and deals 26 drawable cards', () => {
+  it('loads the hull\'s default deck itself, stores it on the record, and deals 27 drawable cards', () => {
     const room = arenaDoor();
     joinArena(room, arenaClient('s1'), { cls: 'mineLayer' });
     const rec = room.world.ships.get('s1')!;
     expect(rec.deckList).toBe(ML);
-    expect(rec.deck.cards).toHaveLength(26);
+    // 27 since Story 8.10: the list less its stubs, with nothing held back —
+    // the spawn seed that used to withhold copy 1 of a class line is deleted.
+    expect(rec.deck.cards).toHaveLength(27);
     expect(room.state.players.has('s1')).toBe(true);
     expect(lines('warn deck.illegal')).toEqual([]);
     expect(fieldsOf(lines('info client.join')[0])).toMatchObject({ sessionId: 's1', deckSource: 'door' });

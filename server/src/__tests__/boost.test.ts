@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { isAfloat, CONFIG, SLOT_BOOST, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -33,6 +34,11 @@ function bareWorld(seed = 21): World {
 /** Add a ship at the origin at a known heading (speed 0). */
 function place(w: World, id: string, hull: ShipClassId = 'torpedoBoat', heading = 0): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
+  // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
+  // weapon row, so this fixture fits it explicitly through the same applyCard
+  // path a real pick takes. Every case below keeps its subject.
+  fitClassWeapons(w, rec);
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
 }

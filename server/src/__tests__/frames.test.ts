@@ -65,12 +65,13 @@ describe('buildFrame — shape and clock', () => {
       hp: CONFIG.shipClasses.torpedoBoat.hp,
       alive: true,
       // Slot-aligned ammo: length SLOT_COUNT — NINE since Story 8.5, null for
-      // every empty slot. Gun in 0, the universal boost in 1, the spawn seed's
-      // heavyTorpedo in the first WEAPON slot (2), then six empties.
+      // every empty slot. Gun in 0, the universal boost in 1, and SEVEN
+      // empties since Story 8.10 deleted the spawn seed: a fresh hull's
+      // weapon row is bare until its first card.
       ammo: [
         { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
         { n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 },
-        { n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 },
+        null,
         null,
         null,
         null,
@@ -89,9 +90,9 @@ describe('buildFrame — shape and clock', () => {
       // on the boostUntil terms. REQUIRED (never omitted), so a pool-less hull
       // still carries an explicit 0 rather than a missing key.
       repairHp: 0,
-      // Fitted card LINE ids — self-private (Story 8.1). A Torpedo Boat
-      // SPAWNS holding copy 1 of its own weapon's line (the carried seed).
-      cards: ['heavyTorpedo'],
+      // Fitted card LINE ids — self-private (Story 8.1). EMPTY at spawn since
+      // Story 8.10: nothing is held until the captain takes a card.
+      cards: [],
       // Story 2.6, self-private too: levels completed + progress toward the
       // next as a 0..1 fraction of CONFIG.xp.levelMs. One 50ms step of passive
       // accrual has already landed (the world defaults to the active policy).

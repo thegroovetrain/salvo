@@ -38,6 +38,8 @@ import {
   metricsPayload,
   metricsEndpoint,
   recordDeckExhausted,
+  recordDeckMulligan,
+  recordDeckPick,
   recordMinesLive,
   nearestRank,
   computeTickPercentiles,
@@ -266,7 +268,7 @@ describe('metricsPayload counts', () => {
       players: 0,
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
-      deck: { exhausted: 0 },
+      deck: { exhausted: 0, picks: 0, mulligans: 0 },
       world: { minesLivePeak: 0 },
     });
   });
@@ -333,6 +335,40 @@ describe('deck.exhausted counter', () => {
     expect(metricsPayload().deck.exhausted).toBe(1);
     resetMetrics();
     expect(metricsPayload().deck.exhausted).toBe(0);
+  });
+});
+
+// Story 8.10 — the two economy counters beside it, on identical terms: COUNTS
+// AND NOTHING ELSE (no ship id, no line id), module-level so a room dispose
+// cannot erase what happened, and zeroed only by resetMetrics.
+describe('deck.picks / deck.mulligans counters', () => {
+  it('start at zero and count each report independently', () => {
+    expect(metricsPayload().deck.picks).toBe(0);
+    expect(metricsPayload().deck.mulligans).toBe(0);
+    recordDeckPick();
+    recordDeckPick();
+    recordDeckMulligan();
+    expect(metricsPayload().deck.picks).toBe(2);
+    expect(metricsPayload().deck.mulligans).toBe(1);
+    expect(metricsPayload().deck.exhausted).toBe(0); // three separate gauges
+  });
+
+  it('survive the room that reported them unregistering', () => {
+    const room = registerRoom('a');
+    recordDeckPick();
+    recordDeckMulligan();
+    room.unregister();
+    registerRoom('b');
+    expect(metricsPayload().deck.picks).toBe(1);
+    expect(metricsPayload().deck.mulligans).toBe(1);
+  });
+
+  it('resetMetrics() zeroes both', () => {
+    recordDeckPick();
+    recordDeckMulligan();
+    resetMetrics();
+    expect(metricsPayload().deck.picks).toBe(0);
+    expect(metricsPayload().deck.mulligans).toBe(0);
   });
 });
 

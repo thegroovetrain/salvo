@@ -213,6 +213,15 @@ export interface MatchOverride {
   joinWindowMs?: number;
   /** DEV: humans needed to start the countdown (e.g. 1 for a solo drone smoke). */
   minHumans?: number;
+  /**
+   * DEV SMOKE ARM (Story 8.10): the room performs the level-zero MULLIGAN for
+   * every captain on the first tick after the countdown arms, so a headless
+   * smoke can watch offer A become offer B without racing its own socket. It
+   * rides into the Match as `MatchTimings.autoMulligan`. Dev-gated like every
+   * other field here — the whole matchOverride is stripped without
+   * HC_DEV_OPTIONS=1, so production can never reach it.
+   */
+  mulligan?: boolean;
   sandbox?: boolean;
 }
 
