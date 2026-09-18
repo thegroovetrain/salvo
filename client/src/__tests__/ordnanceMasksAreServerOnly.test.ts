@@ -62,16 +62,19 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     expect(offenders).toEqual([]);
   });
 
-  // THREE STORIES HAVE MOVED THIS NUMBER, each for a reason this pin is happy
+  // FOUR STORIES HAVE MOVED THIS NUMBER, each for a reason this pin is happy
   // with: Story 8.5's nine-slot re-cut widened `OwnShip.ammo` from four entries
   // to nine (51 → 52), Story 8.8 deleted the `HEAL_CHOICE` wire sentinel and
   // made `hullRepair` a dealable catalog line (52 → 53), and Story 8.9 deleted
   // the `speedBoost` equipment id and re-cut `CONFIG.boost`, which the CLIENT
-  // READS to derive the boosted cap (53 → 54, epic-8 amendments 54-55). The
-  // ordnance MASK is still server-only — that is what the three scans above
-  // assert, and they are the substance of this file. This line only witnesses
-  // that a bump, when it happens, happens deliberately.
-  it('PROTOCOL_VERSION is 54 — bumped by Story 8.9s boost re-cut, not by masks', () => {
-    expect(PROTOCOL_VERSION).toBe(54);
+  // READS to derive the boosted cap (53 → 54, epic-8 amendments 54-55), and
+  // Story 8.10 re-opened ONE negative on `SpendMsg.choice` — `MULLIGAN_CHOICE`
+  // (-2), the countdown redraw — while deleting the interim spawn seed
+  // (54 → 55, epic-8 amendment 60). The ordnance MASK is still server-only —
+  // that is what the three scans above assert, and they are the substance of
+  // this file. This line only witnesses that a bump, when it happens, happens
+  // deliberately.
+  it('PROTOCOL_VERSION is 55 — bumped by Story 8.10s redraw sentinel, not by masks', () => {
+    expect(PROTOCOL_VERSION).toBe(55);
   });
 });

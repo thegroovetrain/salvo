@@ -1939,6 +1939,21 @@ export const CLIENT_CONFIG = {
     pip: 8,
     pipGap: 6,
     pipsAbove: 18,
+    /**
+     * THE COUNTDOWN FOOTER (Story 8.10, epic-8 amendments 60 + 63a) — the seam
+     * above the one `REDRAW` button and the button's own height. They exist
+     * ONLY while `matchPhase === 'countdown'`: the band grows by their sum
+     * (14 + 30 = 44px, `REDRAW_FOOTER_PX` in ui/upgradeMenu.ts) and its BOTTOM
+     * stays `barGap` above the HUD bar, so the 44px is a DELTA taken off the
+     * top — the card row's top moves 380 → 336 at 1366×768. (Amendment 63a:
+     * UX-DR54 / DESIGN.md's 388 → 344 absolutes forgot the 8px bar gap; the
+     * lift is what is ratified, not the numbers.) The button's register is the
+     * ratified mock's `.redraw`: 30px tall, `0 18px` padding, 12px mono — above
+     * the 9px readable floor, so it rides the geometry and never reads
+     * `--hc-micro`.
+     */
+    redrawGap: 14,
+    redrawHeight: 30,
     /** Key-chip square (px) — the mock's `.rc .kc.big`, 22×22, which is also the
      *  ONE key-chip family size (hotbar / helm / card digits). It OVERHANGS the
      *  card's top-left corner by `keyChipOffset`. */

@@ -280,6 +280,20 @@ export interface RoomBindingDeps {
    */
   onSpendAck: () => void;
   /**
+   * Is the local hull HELD AT THE START LINE this instant (`waiting` /
+   * `countdown`)? A function, not a value: the match plane is POLLED off the
+   * room schema every frame, and a captured boolean would answer for the frame
+   * the bindings were built in.
+   *
+   * ONE consumer, Story 8.10 (amendment 61): the countdown's level-zero grant
+   * arrives as an ordinary self-private `pt`, and the toast + tone are
+   * SUPPRESSED for it — the window opening itself is the cue. Optional so every
+   * pre-8.10 construction site (and the suites) keeps the live behaviour by
+   * omission, which is the fail-open direction: a missing dep means a toast,
+   * never a silence nobody asked for.
+   */
+  heldAtStartLine?: () => boolean;
+  /**
    * A card just landed, with its LINE ID (Story 2.9, re-keyed in 8.1): main.ts
    * latches the fit flash on the slot holding the equipment that line addresses
    * — or, for a shipwide ladder that no slot owns, on the whole hotbar frame
@@ -1305,6 +1319,13 @@ export function frameIsDeadOrSpectating(f: FrameMsg): boolean {
 function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
   if (frameIsDeadOrSpectating(f)) return;
+  // AMENDMENT 61: the OPENING's grant is SILENT. At the start line the level is
+  // banked by the match itself, not earned, and the refit window opens itself
+  // on it — so a toast telling the captain to press TAB, and the ping under it,
+  // would both narrate a surface that is already on screen. The XP strip's own
+  // `TAB TO REFIT` cue is untouched (it is true copy, and Tab does open it).
+  // Live `pt` is byte-for-byte unchanged.
+  if (deps.heldAtStartLine?.() === true) return;
   pushUpgradeToast(pointToastLine());
   deps.audio.play('point');
 }
