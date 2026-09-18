@@ -12,7 +12,7 @@ import {
   SLOT_BOOST,
   WEAPON_SLOTS,
   CONSUMABLE_SLOTS,
-  SPAWN_SEED,
+  MULLIGAN_CHOICE,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
@@ -65,6 +65,7 @@ import {
   catalogCardCount,
   consumeCard,
   drawOffer,
+  usableLines,
   hookKinematics,
   isStubLine,
   resolveCards,
@@ -266,7 +267,23 @@ describe('shared barrel', () => {
     // beside it in the welcome snapshot. No wire SHAPE moves: a stale client
     // would key a rail the server no longer honours and mis-derive both heal
     // channels.
-    expect(PROTOCOL_VERSION).toBe(54);
+    // 53 -> 54: THE SHIFT BOOST, UNIVERSAL (Story 8.9). The legacy
+    // `speedBoost` equipment id dies into the v3 `boost` in slot 1 on every
+    // captain hull, and CONFIG.speedBoost becomes CONFIG.boost (+25 % of the
+    // post-fold max speed for 10 s on a 25 s reload).
+    // 54 -> 55: THE OPENING (Story 8.10). `MULLIGAN_CHOICE` (-2) joins
+    // `SpendMsg.choice` — the negative sentinel channel PV 53 closed is
+    // re-opened for exactly this one value, the countdown REDRAW — and
+    // the interim spawn seed is DELETED, so no hull sails with class weapons
+    // and the
+    // first weapon is a card off the level-zero offer granted at countdown
+    // start. Catalog CONTENT is wire contract and this one is a DESYNC class:
+    // a stale client would replay its own loadout with seed weapons the server
+    // never fitted (and would read `lvl 0 / pts 1 / offer[4]` as an ordinary
+    // level, with no REDRAW to press). Every default deck goes 26 -> 27
+    // drawable cards. No wire SHAPE moves and the perception exception count
+    // stays at SIX.
+    expect(PROTOCOL_VERSION).toBe(55);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -419,16 +436,29 @@ describe('shared barrel', () => {
     expect(hullIsFull(349.5, 350)).toBe(true);
   });
 
-  it('re-exports the NINE-SLOT grammar and the interim spawn seed (Story 8.5)', () => {
+  it('re-exports the NINE-SLOT grammar — and the interim spawn seed is GONE (Story 8.10)', () => {
     expect(SLOT_BOOST).toBe(1);
     expect(WEAPON_SLOTS).toEqual([2, 3, 4]);
     expect(CONSUMABLE_SLOTS).toEqual([5, 6, 7, 8]);
-    expect(SPAWN_SEED.torpedoBoat).toEqual(['heavyTorpedo']);
-    expect(SPAWN_SEED.battleship).toEqual(['broadside', 'starShells']);
-    expect(SPAWN_SEED.mineLayer).toEqual(['navalMines']);
-    // The per-hull fit died with the extra slot (Story 8.5).
+    // The per-hull fit died with the extra slot (Story 8.5)...
     const ns = shared as Record<string, unknown>;
     for (const gone of ['SLOT_EXTRA', 'specialsFor']) expect(ns[gone], gone).toBeUndefined();
+    // ...and the interim SPAWN-SEED TABLE died with the level-zero offer
+    // (Story 8.10, epic-8 amendment 62): every hull sails with the gun and
+    // Shift only, and its first weapon is a CARD off the opening offer. Its
+    // name is gone from the whole repo, so the pin is the grep, not an
+    // `toBeUndefined` on an identifier no source may write any more.
+  });
+
+  it('re-exports MULLIGAN_CHOICE — the one legal negative on the spend channel (Story 8.10)', () => {
+    expect(MULLIGAN_CHOICE).toBe(-2);
+    // A NEGATIVE INTEGER STRICTLY BELOW -1, and outside every offer slot: -1
+    // stays malformed (the DAMAGE CONTROL sentinel left the wire at PV 53,
+    // epic-8 amendment 46) and no offer index can ever collide with it.
+    expect(Number.isInteger(MULLIGAN_CHOICE)).toBe(true);
+    expect(MULLIGAN_CHOICE).toBeLessThan(-1);
+    expect(MULLIGAN_CHOICE >= 0 && MULLIGAN_CHOICE < CONFIG.offer.size).toBe(false);
+    expect(typeof usableLines).toBe('function'); // the guarantee's one shared helper
   });
 
   it('re-exports the loadout + kinematics-fold systems (boost AND the 2.8 slow)', () => {

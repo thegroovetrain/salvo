@@ -46,7 +46,7 @@
 // wire and both sides resolve them FAIL-CLOSED (unknown id silently dropped) —
 // the PV join gate is the only desync guard.
 
-import { CONFIG, type HullId, type ShipClassId } from '../constants.js';
+import { CONFIG, type ShipClassId } from '../constants.js';
 import type { EquipmentId } from './loadout.js';
 import { EQUIPMENT_IDS, isConsumableId } from './loadout.js';
 import {
@@ -717,29 +717,6 @@ export const DEFAULT_DECKS: Readonly<Record<ShipClassId, readonly LineId[]>> = O
   torpedoBoat: deckFromCounts({ ...UNIVERSAL_COUNTS, lightTorpedo: 3, heavyTorpedo: 3, machineGun: 3, acousticHoming: 1 }),
   mineLayer: deckFromCounts({ ...UNIVERSAL_COUNTS, navalMines: 3, captiveMines: 3, flak: 3, foulingMines: 1 }),
   battleship: deckFromCounts({ ...UNIVERSAL_COUNTS, missile: 3, monitor: 3, starShells: 3, dazzleShells: 1 }),
-});
-
-/**
- * THE INTERIM SPAWN SEED (Eric 2026-09-16, epic-8 amendment 21): the card
- * lines a hull already SAILS WITH at 0:00, applied as cards over the universal
- * nine-slot fit — today's class weapons, kept exactly as they shipped now that
- * the loadout itself is hull-agnostic (sim/loadout.ts). The seed is
- * STAT-NEUTRAL by construction (tier I of an equipment line IS the bare
- * weapon), so a seeded captain's numbers are byte-identical to today's, and
- * the deck loses those copies exactly as the old carried seed did.
- *
- * STORY 8.10 DELETES THIS TABLE. Its level-zero offer — the captain PICKS a
- * first weapon — replaces the seed outright; this is the one line to remove.
- *
- * Typed over `HullId` (not `ShipClassId`) so a spawn holding a plain hull id
- * can index it directly: a PvE fleet hull is simply absent (`undefined` — the
- * drones are gun-only, amendment 24). The three-key totality is pinned in
- * catalog.test.ts.
- */
-export const SPAWN_SEED: Readonly<Partial<Record<HullId, readonly LineId[]>>> = Object.freeze({
-  torpedoBoat: Object.freeze(['heavyTorpedo'] as const),
-  battleship: Object.freeze(['broadside', 'starShells'] as const),
-  mineLayer: Object.freeze(['navalMines'] as const),
 });
 
 /**

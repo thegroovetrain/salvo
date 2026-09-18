@@ -20,3 +20,24 @@ import type { LineId } from './catalog.js';
  *
  *  LINE IDS ARE THE ONLY IDS ON THE WIRE (Story 8.1). */
 export type BoonOffer = readonly LineId[];
+
+/**
+ * THE ONE LEGAL NEGATIVE ON THE SPEND CHANNEL: the countdown REDRAW.
+ *
+ * `SpendMsg.choice === MULLIGAN_CHOICE` asks the server to throw the FRONT
+ * offer back and draw another one — THE ONE ASSERTED EXCEPTION to FR19's
+ * "reopening the refit window can never reroll" (FR48, Eric ruling 2026-09-18,
+ * epic-8 amendment 60). It is not a general reroll: the server honours it only
+ * while the match is in COUNTDOWN, only for a captain that holds an offer, and
+ * only ONCE per ship per match. Every other arrival — a second press, a press
+ * after the water goes live, a bot, a hull with no offer — is a silent no-op
+ * that leaves the offer byte-identical.
+ *
+ * WHY A NEGATIVE AT ALL. The negative sentinel channel was CLOSED at PV 53,
+ * when the -1 DAMAGE CONTROL spend left the wire (epic-8 amendment 46 —
+ * healing is the HULL REPAIR card, not a level spend), and -1 STAYS OUT: it is
+ * simply malformed. -2 re-opens the channel for exactly this one value, so the
+ * redraw needs no new message kind and no new field (PROTOCOL_VERSION 55).
+ * Offer slots are 0..N-1, so no legal index can ever collide with it.
+ */
+export const MULLIGAN_CHOICE = -2 as const;

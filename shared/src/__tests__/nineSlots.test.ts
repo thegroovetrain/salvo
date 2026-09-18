@@ -11,10 +11,9 @@
 //      because 3 ≤ 3 — if either number ever moves alone, this fails LOUDLY
 //      rather than dropping a card silently in play.
 //
-//   2. THE SEED TRIPWIRE. The interim SPAWN_SEED (amendment 21) is fitted
-//      BEFORE any drawn card, so a hull's seed and its deck's drawable
-//      equipment lines share the same three-wide row. Their union must stay
-//      within it.
+//   THE SEED TRIPWIRE IS RETIRED (Story 8.10): the interim spawn-seed table is
+//   deleted, so a hull's weapon row holds nothing but the cards it is dealt and
+//   the legal-deck property above is the whole claim.
 //
 // Pure, zero I/O. Seeded PRNG (mulberry32), so a failure is reproducible.
 
@@ -26,7 +25,6 @@ import {
   DEFAULT_DECKS,
   LINE_IDS,
   SHIP_CLASS_IDS,
-  SPAWN_SEED,
   WEAPON_SLOTS,
   CONSUMABLE_SLOTS,
   SLOT_BOOST,
@@ -146,22 +144,6 @@ describe('THE LEGAL-DECK PROPERTY — a legal deck can never out-card the weapon
 
   it('the row is exactly as wide as the deck rule is deep (3 == 3) — the reason the property holds', () => {
     expect(WEAPON_SLOTS).toHaveLength(CONFIG.deck.maxEquipmentLines);
-  });
-});
-
-describe('THE SEED TRIPWIRE — the spawn seed and a deck’s equipment share one three-wide row', () => {
-  // THIS TEST IS MEANT TO FIRE. Story 8.14 un-stubs `missile` and `monitor`,
-  // which are two of the Battleship's three deck equipment lines; with its
-  // `broadside` + `starShells` seed that is a union of FOUR, one more than the
-  // row holds, and the last card dealt would be silently unfittable. Story
-  // 8.10 removes SPAWN_SEED entirely (the level-zero offer replaces it), which
-  // is the intended fix — if 8.14 lands first, this is the conversation to
-  // have with Eric, not a number to edit.
-  it.each([...SHIP_CLASS_IDS])('%s: |seed ∪ drawable equipment lines| <= the weapon row', (hull) => {
-    const seed = SPAWN_SEED[hull] ?? [];
-    const drawable = DEFAULT_DECKS[hull].filter((id) => CATALOG[id].kind === 'equipment' && !isStubLine(id));
-    const union = new Set<LineId>([...seed, ...drawable]);
-    expect(union.size, `${hull}: ${[...union].join('+')}`).toBeLessThanOrEqual(WEAPON_SLOTS.length);
   });
 });
 

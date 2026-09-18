@@ -15,9 +15,12 @@
 //     line IS the bare weapon and a hull that spawns with that weapon is
 //     already holding it. Dealing it anyway deals a card whose `slotFill`
 //     no-ops against its own fitted weapon — a whole level spent on nothing.
-// Today that leaves 26 drawable cards per hull (40 − 13 stub cards − 1
-// carried copy; pinned in deck.test.ts). It was 23 until Story 8.8 flipped
-// HULL REPAIR's three copies live.
+// NOTHING IS CARRIED ANY MORE (Story 8.10): the interim spawn-seed table is
+// deleted and every hull spawns with the gun and the Shift boost only, so the
+// server builds every pool with `carried = []` and the parameter survives for
+// the day a hull sails with a weapon again. Today that leaves 27 drawable
+// cards per hull (40 − 13 stub cards; pinned in deck.test.ts). It was 26 with
+// the seed, and 23 until Story 8.8 flipped HULL REPAIR's three copies live.
 //
 // THE DRAW DOES NOT TAKE CARDS OUT (the lazy-draw bugfix): drawOffer only READS
 // the pool — every drawn line stays in the deck, and exactly ONE card leaves it
@@ -52,7 +55,7 @@
 
 import { CONFIG } from '../constants.js';
 import type { Rng } from '../math/rng.js';
-import { CATALOG, type Catalog, type LineId } from './catalog.js';
+import { boonStackCount, CATALOG, type Catalog, type LineId } from './catalog.js';
 
 /**
  * One player's deck: the multiset of card LINE ids still in the pool (one entry
@@ -81,9 +84,10 @@ export interface DeckState {
  * does not know is dropped (the door refused it already; nothing drawable may
  * ride on an unknown id). Never negative, never throws.
  *
- * Sizes for the three default decks with their spawn seeds: TB 23 (carried
- * `heavyTorpedo`), ML 23 (`navalMines`), BS 23 (`starShells`; `broadside` is
- * carried but not in the deck).
+ * Sizes for the three default decks as the server builds them TODAY (Story
+ * 8.10 deleted the spawn seed, so `carried` is empty for every hull): 27 each.
+ * With a seed of one equipment line it would be 26 — the parameter is kept
+ * against the day a hull sails with a weapon again.
  */
 export function buildDeckState(
   deckList: readonly LineId[],
@@ -171,6 +175,21 @@ function removeCopies(cards: readonly LineId[], picked: readonly LineId[]): Line
  */
 export interface DrawOpts {
   readonly held?: readonly LineId[];
+
+  /**
+   * THE LEVEL-ZERO USABLE-CARD GUARANTEE (Story 8.10, FR48) — and it is passed
+   * at LEVEL ZERO ONLY, NEVER for a later level. The opening offer at the start
+   * line is the captain's first weapon, so the first card must be something the
+   * ship can actually USE: the draw picks card 0 uniformly over `usableLines`
+   * (a consumable line, or an equipment line the ship holds no copy of) and
+   * fills the rest by the ordinary copies-weight.
+   *
+   * VACUOUS, NEVER A REROLL: with no usable line in the pool (a ladders-only
+   * deck) the draw is byte-identical to the plain one for the same rng state —
+   * same offer, same stream position. The rng cost is exactly one `rng.next()`
+   * per OFFERED line either way.
+   */
+  readonly guarantee?: boolean;
 }
 
 /**
@@ -192,6 +211,57 @@ function atCapLines(held: readonly LineId[], catalog: Catalog): Set<LineId> {
 }
 
 /**
+ * THE USABLE LINES of a deck: the distinct drawable lines, in CATALOG order,
+ * that would give the ship something it can USE right now —
+ *
+ *   - every `consumable` line (a copy stocks a rack the ship can fire), and
+ *   - every `equipment` line the ship holds NO copy of, whose next tier is
+ *     therefore tier I: the bare weapon itself.
+ *
+ * An `equipment` line the ship already holds is excluded because its next copy
+ * is a tier bump on a weapon already aboard, not a new verb; `ladder` and
+ * `addon` lines are excluded because a stat step or a bolt-on verb is not
+ * something a bare hull can put to sea with. A line the ship holds AT CAP is
+ * never usable (it is not offerable at all).
+ *
+ * Pure and order-stable: the result is in CATALOG key order, so the same deck
+ * and the same hold always give the same list — which is what makes the
+ * uniform first pick of the guaranteed draw deterministic.
+ */
+export function usableLines(
+  deck: DeckState,
+  held: readonly LineId[],
+  catalog: Catalog = CATALOG,
+): LineId[] {
+  const atCap = atCapLines(held, catalog);
+  const out: LineId[] = [];
+  for (const [id, count] of lineCounts(deck.cards, catalog)) {
+    if (count <= 0 || atCap.has(id)) continue;
+    const line = catalog[id];
+    if (line === undefined) continue;
+    const usable = line.kind === 'consumable'
+      || (line.kind === 'equipment' && boonStackCount(held, id) === 0);
+    if (usable) out.push(id);
+  }
+  return out;
+}
+
+/** The guaranteed FIRST card: one uniform pick over `usableLines`, costing
+ *  exactly ONE rng.next(). Undefined — and NO rng value spent — when nothing is
+ *  usable, which is what keeps the guarantee vacuous instead of a reroll. */
+function pickUsable(
+  deck: DeckState,
+  held: readonly LineId[],
+  catalog: Catalog,
+  rng: Rng,
+): LineId | undefined {
+  const usable = usableLines(deck, held, catalog);
+  if (usable.length === 0) return undefined;
+  const i = Math.min(Math.floor(rng.next() * usable.length), usable.length - 1); // clamp: float dust
+  return usable[i];
+}
+
+/**
  * Draw one level's offer: up to CONFIG.offer.size DIFFERENT card lines,
  * weighted at line level by COPIES REMAINING IN THE DECK.
  *
@@ -207,6 +277,12 @@ function atCapLines(held: readonly LineId[], catalog: Catalog): Set<LineId> {
  * costs no rng value. `held` order does not matter. With `held` absent or empty
  * the draw is byte-identical to the unguarded one — same offer, same stream
  * position (exactly ONE rng.next() per OFFERED line, guard or no guard).
+ *
+ * THE LEVEL-ZERO GUARANTEE (Story 8.10): with `opts.guarantee`, card 0 is drawn
+ * UNIFORMLY over `usableLines` (one rng.next()) and the remaining
+ * `CONFIG.offer.size − 1` come from the ordinary copies-weight with that line
+ * excluded like any drawn one. With nothing usable the guarantee does nothing
+ * at all — same offer, same stream position as the plain draw. See DrawOpts.
  */
 export function drawOffer(
   deck: DeckState,
@@ -215,9 +291,15 @@ export function drawOffer(
   opts: DrawOpts = {},
 ): { deck: DeckState; offer: LineId[] } {
   const counts = lineCounts(deck.cards, catalog);
-  const taken = atCapLines(opts.held ?? [], catalog);
+  const held = opts.held ?? [];
+  const taken = atCapLines(held, catalog);
   const offer: LineId[] = [];
-  for (let i = 0; i < CONFIG.offer.size; i += 1) {
+  const first = opts.guarantee === true ? pickUsable(deck, held, catalog, rng) : undefined;
+  if (first !== undefined) {
+    offer.push(first);
+    taken.add(first);
+  }
+  for (let i = offer.length; i < CONFIG.offer.size; i += 1) {
     const id = pickLine(counts, rng, taken);
     if (id === undefined) break;
     offer.push(id);

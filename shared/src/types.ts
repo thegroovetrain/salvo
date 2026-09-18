@@ -314,18 +314,22 @@ export interface PongMsg {
 
 /**
  * Client -> server spend ("u"): consume one banked level. `choice` is AN OFFER
- * SLOT INDEX AND NOTHING ELSE — 0..N-1, bounded by the FRONT offer's actual
- * length (see OwnShip.offer / BoonOffer). EVERYTHING else (out-of-range, ANY
- * negative, non-integers) is malformed and rejected with the level intact.
- * There is no longer a negative sentinel: the reserved -1 DAMAGE CONTROL
- * spend left the wire in PV 53 (epic-8 amendment 46 — healing is the
- * HULL REPAIR card, fired from a belt slot, not a level spend), so -1 is
- * simply out of the offer bound. Deliberately a DISCRETE reliable message, NOT
- * a field on the per-tick InputMsg: the latest-input-wins coalescing there
- * would silently drop back-to-back spends (two quick kills → two spends).
+ * SLOT INDEX — 0..N-1, bounded by the FRONT offer's actual length (see
+ * OwnShip.offer / BoonOffer) — OR the ONE sentinel `MULLIGAN_CHOICE` (-2,
+ * sim/offers.ts): THE COUNTDOWN REDRAW, which spends no level and throws the
+ * level-zero offer back for one fresh draw (Story 8.10, FR48, epic-8
+ * amendment 60 — honoured once per ship, countdown only). EVERYTHING else
+ * (out-of-range, every OTHER negative, non-integers) is malformed and rejected
+ * with the level intact. In particular -1 stays malformed: the reserved -1
+ * DAMAGE CONTROL spend left the wire in PV 53 (epic-8 amendment 46 — healing
+ * is the HULL REPAIR card, fired from a belt slot, not a level spend) and -2
+ * re-opens the negative channel for exactly one value, not for -1.
+ * Deliberately a DISCRETE reliable message, NOT a field on the per-tick
+ * InputMsg: the latest-input-wins coalescing there would silently drop
+ * back-to-back spends (two quick kills → two spends).
  */
 export interface SpendMsg {
-  choice: number; // 0..N-1 = offer slot (front-offer-bounded); any negative is malformed
+  choice: number; // 0..N-1 = offer slot; MULLIGAN_CHOICE (-2) = the countdown redraw; every other negative is malformed
 }
 
 /**
