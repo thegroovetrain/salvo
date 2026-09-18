@@ -2,10 +2,10 @@
 title: 'Story 8.10: The Opening'
 type: 'feature'
 created: '2026-09-18'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '2fe8148da26434cf730d8b559385e39f2b68c5a4'
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-8-context-amendments.md'
@@ -129,6 +129,20 @@ warnings: [oversized]
   - `[low]` `[patch]` The dev auto-mulligan arm redrew a sinking leaver's hand (Edge #5) — `World.mulligan` refuses a sinking hull.
 - deferred (ledgered): a hollow pip after a reconnect, a >1.5 s ack or a byte-identical redraw (Edge #1, Blind #3/#4 — the "client infers the ack" design; a wire `mulliganed` flag would close it); a mulligan honoured inside the last tick of the countdown can toast on live water (Blind #5); a dev `matchOverride.countdownMs <= 0` collapses the countdown inside one tick and drops the grant cue (Edge #3).
 - rejected: auto-open latch when the window is already open at the countdown edge (dev-only, needs a farmed level); the class-select seam that left with the weapon rows (spec: the rows go); real level-ups silenced during a dev room's waiting phase (as asked, no production XP pre-active).
+
+## Auto Run Result
+
+**Status:** done — branch `worktree-dev-auto-8-10-the-opening`, cycle 145, version 0.18.10, PROTOCOL_VERSION 54→55, epic-8 amendments 59–66.
+
+**Summary.** Every hull spawns with the deck gun and Shift only (`SPAWN_SEED` deleted, drawable pool 26→27). `Match.startCountdown()` grants level zero to every participant through the per-ship-latched `World.grantOpening()` before locking; `drawOffer`'s `guarantee` makes the first card usable (vacuous on ladder-only decks, one rng call per offered line). `SpendMsg.choice === MULLIGAN_CHOICE (-2)` redraws once during the countdown for captains with an offer; every other sentinel arrival is a byte-identical no-op. The activation redeploy preserves the countdown economy in every room (amendment 66). Client: the refit window auto-opens once per match epoch on the level-zero offer through the Tab path; a 44 px footer seats one REDRAW (amber register, hollow→filled pip) during the countdown only; the mulligan acks on the changed front offer at unchanged points; `pt` is silent at the start line; class-select cards drop their weapon rows. Dev arms: `matchOverride.mulligan`, `fitOverride` (amendment 65); `/metrics` `deck.picks` / `deck.mulligans`; `openingSmoke.mjs`.
+
+**Files changed** (by wave; see the Code Map): shared — `sim/offers.ts` (sentinel), `sim/deck.ts` (guarantee, `usableLines`), `sim/catalog.ts` (seed deleted), `types.ts` (SpendMsg doc), `index.ts` (PV 55), tests. server — `game/world.ts` (grant, mulligan, `countdownOpen`, `redeployEconomy`, `fitCard`, `applyDevFit`, `openingGranted`/`mulliganed`/`devFit` on the record), `game/match.ts` (grant on every arm, auto-mulligan arm, cancel clears `countdownOpen`), `rooms/roomOptions.ts` + `deckDoor.ts` + `ArenaRoom.ts` + `StandardQueueRoom.ts` (`fitOverride`, metrics wiring, `autoMulligan` timing), `metrics.ts`, `scripts/batchsim/deckSim.ts`, `scripts/openingSmoke.mjs` (new), `matchSmoke.mjs` / `weaponsSmoke.mjs` (pre-fit), tests incl. new `mulligan.test.ts` + `classWeapons.ts` fixture. client — `ui/upgradeMenu.ts` (footer, REDRAW, `shouldAutoOpen`, `mulliganLanded`, layout footer), `main.ts` (auto-open, `tryMulligan`, `currentOfferView`, epoch reset), `ui/phase.ts` (`epochLatchReset`), `net/roomBindings.ts` (silent `pt`), `ui/classSelect.ts`, `config.ts` (redraw geometry), tests. Docs — `VERSION`, `package.json`+lock, `CHANGELOG.md`, both trackers, `deferred-work.md`, `EXPERIENCE.md`, `DESIGN.md`, amendments 59–66 in both homes.
+
+**Review findings.** Patches applied: 6 (1 high — harness parity; 2 medium — per-ship grant latch, client latch reset edge; 3 low — strict ack, REDRAW locked state, sinking mulligan). Deferred: 3 (hollow pip after reconnect/late ack/identical redraw; last-tick mulligan toast; dev zero-length countdown). Rejected: 3. Agreement: all three reviewers flagged the cancel/re-arm desync; the harness gap was Blind-only and orchestrator-confirmed; the loose ack was Codex-only and orchestrator-confirmed.
+
+**Verification.** `npm run check` exit 0 after the patches: shared 913, server 1997, client 3583, hooks 266; ESLint 0 errors (3 pre-existing `max-lines-per-function` warnings in `main.ts`/`classSelect.ts`); tsc clean ×3; Vite build ok. Smokes on scratch ports (own PIDs killed): `openingSmoke.mjs` PASS (grant → redraw → refused second → economy through activation → live refusal → pick; armed-room phase PASS), `matchSmoke.mjs` PASS attempt 1, `weaponsSmoke.mjs` PASS.
+
+**Residual risks / notes for Eric.** (1) With today's stub set each default deck has exactly two usable lines (its one shipped weapon or HULL REPAIR), so about half of openings guarantee a heal and roughly a third of first offers carry no weapon at all — a fact of the catalog's un-stubbing order (8.13/8.14), not of the draw; ledgered. (2) The Boundaries line "`mulliganed` is reset … by the sandbox respawn path" inside the intent contract is superseded by amendment 66 (reset at `addShip` only); left verbatim per the review rules. (3) `gds-workflow-status.yaml` has a pre-existing YAML parse error at the `next_expected` value (a shell-escape artifact from an older stamp) — not introduced here, not fixed. (4) Manual QA on staging is the gate: countdown auto-open, REDRAW once, pick fitted at 0:00, class cards without weapon rows.
 
 ## Design Notes
 
