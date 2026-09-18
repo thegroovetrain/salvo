@@ -40,6 +40,7 @@
 import {
   CATALOG,
   CONFIG,
+  MULLIGAN_CHOICE,
   boonStackCount,
   canStock,
   isConsumableId,
@@ -209,11 +210,27 @@ export interface RefitBandLayout {
   cards: RefitBox[];
   /** The queue-pip strip, left-aligned with the row, above the cards. */
   pips: RefitBox;
-  /** The whole band (pips + row). Its BOTTOM edge — the card row's bottom since
-   *  Story 8.8 deleted the DAMAGE CONTROL rail — is the anchored one: `barGap`
+  /**
+   * The COUNTDOWN FOOTER's seat — the `REDRAW` button's box (Story 8.10,
+   * amendments 60 + 63a). Degenerate (`h: 0`, seated exactly on the card row's
+   * bottom) whenever `footerPx` is 0, which is every phase but `countdown`.
+   */
+  footer: RefitBox;
+  /** The whole band (pips + row + the countdown footer). Its BOTTOM edge — the
+   *  card row's bottom since Story 8.8 deleted the DAMAGE CONTROL rail, the
+   *  REDRAW button's during the countdown — is the anchored one: `barGap`
    *  above the HUD bar's top (epic-8 amendment 36). */
   band: RefitBox;
 }
+
+/**
+ * The countdown footer's height (px): the 14px seam plus the 30px `REDRAW`
+ * button (epic-8 amendment 63a). Passed to `refitBandLayout` as `footerPx`
+ * ONLY while the match is in `countdown` — the band's bottom is anchored, so
+ * the whole 44px comes off the TOP and the card row lifts by exactly this much
+ * (380 → 336 at 1366×768).
+ */
+export const REDRAW_FOOTER_PX = R.redrawGap + R.redrawHeight;
 
 /** The band's card count — the ratified four (UX-DR14), DERIVED from the wire
  *  contract (`CONFIG.offer.size`) rather than re-stated as a literal, so the
@@ -243,18 +260,27 @@ const CARD_SLOTS = CONFIG.offer.size;
  * layout tests pin both ratified floors (1366×768 at 100%, and the 1280×614
  * logical floor of the ≥1600px-gated 125% tier).
  */
-export function refitBandLayout(screenW: number, screenH: number, cards = CARD_SLOTS): RefitBandLayout {
+export function refitBandLayout(
+  screenW: number,
+  screenH: number,
+  cards = CARD_SLOTS,
+  footerPx = 0,
+): RefitBandLayout {
   const rowW = cards * R.card + (cards - 1) * R.gap;
   const x = Math.round((screenW - rowW) / 2);
-  // Top-down: pips, card row — and the whole stack hangs from its BOTTOM (the
-  // card row's own bottom since Story 8.8), `barGap` clear of the bar.
-  const bandH = R.pipsAbove + R.cardHeight;
+  // Top-down: pips, card row, and (countdown only) the REDRAW footer — and the
+  // whole stack hangs from its BOTTOM (the card row's own bottom since Story
+  // 8.8, the button's while the footer stands), `barGap` clear of the bar. The
+  // footer is therefore a LIFT, never a drop: see REDRAW_FOOTER_PX.
+  const bandH = R.pipsAbove + R.cardHeight + footerPx;
   const bandY = hudBarLayout(screenW, screenH).bar.y - R.barGap - bandH;
   const y = bandY + R.pipsAbove;
   const row = { x, y, w: rowW, h: R.cardHeight };
   const pips = { x, y: bandY, w: rowW, h: R.pip };
+  const footerH = footerPx > 0 ? R.redrawHeight : 0;
   return {
     row,
+    footer: { x, y: y + R.cardHeight + (footerPx - footerH), w: rowW, h: footerH },
     cards: Array.from({ length: cards }, (_, i) => ({
       x: x + i * (R.card + R.gap),
       y,
@@ -399,7 +425,24 @@ export interface OfferView {
    * timeout clears it; digit picks are gated on the same flag.
    */
   locked: boolean;
+  /**
+   * THE ONE FREE REDRAW (Story 8.10, epic-8 amendment 60) — `hidden` off the
+   * start line (the button is not in the DOM at all), `unspent` while the
+   * countdown's level-zero offer may still be thrown back, `spent` once the
+   * server acked the mulligan (the button stays, inert, with its pip filled:
+   * the answer to "can I redraw again?" must be on screen, not absent).
+   *
+   * PHASE IS THE CALLER'S FACT, not this function's: `offerView()` is a pure
+   * projection of `you` and knows nothing about the match plane, so it always
+   * returns `hidden` and main.ts's `currentOfferView()` sets the real state
+   * from the polled `matchPhase` + its own `mulliganUsed` latch — the same
+   * shape `locked` already has.
+   */
+  redraw: RedrawState;
 }
+
+/** The REDRAW button's three states (see OfferView.redraw). */
+export type RedrawState = 'hidden' | 'unspent' | 'spent';
 
 /**
  * Pure: the current spend view, or null when there is nothing to show — no own
@@ -448,7 +491,23 @@ export function offerView(
     pts: you.pts,
     options: lines.map((line) => toCard(line, you, ownSlots)),
     locked,
+    // Phase-agnostic by construction (see OfferView.redraw): the caller owns it.
+    redraw: 'hidden',
   };
+}
+
+/**
+ * Pure: may the refit window OPEN ITSELF this frame (Story 8.10, amendment 59)?
+ *
+ * The window opens once per match epoch, on the first frame that carries a
+ * level-zero offer while the match is in `countdown`. The latch is "not yet
+ * THIS epoch", never a numeric rise, which is exactly what makes a reconnect
+ * mid-countdown (whose very first frame already reads `pts 1`) open too — and
+ * what makes a player who closed it with Tab stay closed, because main.ts sets
+ * the latch on the attempt, not on the result.
+ */
+export function shouldAutoOpen(s: { latched: boolean; phase: string; visible: boolean; hasOffer: boolean }): boolean {
+  return !s.latched && s.phase === 'countdown' && !s.visible && s.hasOffer;
 }
 
 /**
@@ -616,6 +675,41 @@ export function spendOutcome(
   return you.pts < latch.pts || frontOfferSignature(you) !== latch.offerSig ? 'success' : 'failed';
 }
 
+/**
+ * Pure: did the MULLIGAN in flight LAND (Story 8.10, amendment 60)?
+ *
+ * A redraw is acked by the FRONT OFFER CHANGING at an UNCHANGED bank: the
+ * server queues `pt` for it, never `bn`, and `pts` does not move (the level is
+ * still banked — the redraw costs nothing). Both halves are asserted here.
+ *
+ * WHY THIS IS STRICTER THAN `spendOutcome` (the 8.10 review, P4). That
+ * function calls a `pts` DROP a success, because for a card pick it is one. A
+ * redraw that cost the player a level did not land — it is something else
+ * entirely (a pick the server processed, a desync) — and reporting it as an
+ * ack would fill the pip and swallow the evidence. So the pip fills only on
+ * the signal a redraw actually produces, and anything else runs out the latch
+ * and fires the denied pulse. It still shares `spendLatchReleased`, so the two
+ * can never disagree about WHEN the latch clears — only about why.
+ *
+ * `latch.acked` (a `bn` receipt) is kept as an accepting clause: an explicit
+ * server receipt outranks every inference, exactly as it does in
+ * `spendOutcome`.
+ *
+ * A redraw that rolls a BYTE-IDENTICAL offer is invisible and times out as
+ * 'failed' (the denied pulse on the button, the pip still hollow) — the same
+ * accepted corner every other spend has when nothing observable moves.
+ */
+export function mulliganLanded(
+  latch: SpendLatch,
+  you: { pts: number; offer: string[] } | null | undefined,
+  nowMs: number,
+): boolean {
+  if (latch.choice !== MULLIGAN_CHOICE) return false;
+  if (!spendLatchReleased(latch, you, nowMs) || !you) return false;
+  if (you.pts !== latch.pts) return false; // a redraw NEVER moves the bank
+  return latch.acked || frontOfferSignature(you) !== latch.offerSig;
+}
+
 // --- DOM ------------------------------------------------------------------------
 
 // The panel carries NO flex `gap`: the pips sit `pipsAbove` over the row and own
@@ -673,6 +767,94 @@ const GHOST_CSS = [
   'pointer-events:none',
   'z-index:-1',
 ].join(';');
+
+/**
+ * THE COUNTDOWN FOOTER (Story 8.10, amendment 60) — the seam under the row that
+ * holds the one `REDRAW` button, centred on the row and present ONLY while the
+ * match is in `countdown`. It stretches to the panel's width (the row's, the
+ * panel's widest child) so `justify-content:center` centres the button under
+ * the row rather than under its own content box, and it takes NO pointer
+ * events: only the button inside it does, exactly like the cards.
+ */
+const FOOTER_CSS = [
+  'display:flex',
+  'justify-content:center',
+  'align-self:stretch',
+  `margin-top:${R.redrawGap}px`,
+  `height:${R.redrawHeight}px`,
+  'pointer-events:none',
+].join(';');
+
+/**
+ * The `REDRAW` button — the ratified mock's `.redraw` and DESIGN.md's Primary
+ * Button register: transparent bed, 1px amber hairline, radius 8, 12px mono at
+ * `.18em`, 30px tall on `0 18px` padding, with the amber bloom. 12px is well
+ * above the 9px readable floor (amendment 43), so it rides the band's geometry
+ * and deliberately does NOT reference `--hc-micro`.
+ */
+const REDRAW_CSS = [
+  'display:inline-flex',
+  'align-items:center',
+  'gap:10px',
+  `height:${R.redrawHeight}px`,
+  'padding:0 18px',
+  'box-sizing:border-box',
+  'background-color:transparent', // outline + glow, NEVER a filled slab
+  'border-width:1px',
+  'border-style:solid',
+  `border-radius:${CLIENT_CONFIG.results.controlRadius}px`,
+  `font:600 12px var(--hc-font-mono)`,
+  'letter-spacing:.18em',
+  'text-transform:uppercase',
+  'white-space:nowrap',
+  'cursor:pointer',
+  'pointer-events:auto',
+  `box-shadow:0 0 18px ${cssRgba(CLIENT_CONFIG.colors.amber, 0.28)}`,
+].join(';');
+
+/** The button's own id — the stable handle for tests and the denied pulse. */
+const REDRAW_ID = 'refit-redraw';
+
+/** The ratified word, and the ONLY copy the footer carries (amendment 60 — no
+ *  explanation, no tooltip, no title attribute; 8.20 owns How-to-Play). */
+export const REDRAW_WORD = 'REDRAW';
+
+/** The SPENT button's label alpha. The PIP stays at full alpha: the fill is the
+ *  glyph channel that says "gone", and dimming it too would hide the answer. */
+const REDRAW_SPENT_ALPHA = 0.55;
+
+/** The "once" pip beside the word (mock `.redraw i`): an 8px amber CIRCLE,
+ *  hollow while the redraw is unspent, filled once it is gone. Dual-coded with
+ *  the button's own disabled/dimmed label, never hue alone. */
+const REDRAW_PIP_CSS = [
+  `width:${R.pip}px`,
+  `height:${R.pip}px`,
+  'border-width:1px',
+  'border-style:solid',
+  'border-radius:50%',
+  'display:block',
+  'flex:none',
+].join(';');
+
+/**
+ * Paint the REDRAW control for its two independent dims — the one place they
+ * compose (Story 8.10, amendment 60; the 8.10 review, P5).
+ *
+ * `spent` is PERMANENT for the match: the free redraw is gone, the label drops
+ * to `.55` amber and the pip FILLS (the dual coding the greyed card uses).
+ * `locked` is MOMENTARY: a spend is in flight, so the button takes the cards'
+ * exact locked treatment — a real `disabled` (keyboard and assistive tech see
+ * it, not just the eye), `lockedAlpha`, `cursor:default` — and the pip does NOT
+ * move, because a momentary lock says nothing about whether the redraw is
+ * still there to spend.
+ */
+function paintRedraw(btn: HTMLButtonElement, pip: HTMLElement, spent: boolean, locked: boolean): void {
+  btn.disabled = spent || locked;
+  btn.style.cursor = btn.disabled ? 'default' : 'pointer';
+  btn.style.opacity = locked ? String(R.lockedAlpha) : '1';
+  btn.style.color = spent ? cssRgba(CLIENT_CONFIG.colors.amber, REDRAW_SPENT_ALPHA) : AMBER;
+  pip.style.backgroundColor = spent ? AMBER : 'transparent';
+}
 
 /**
  * One card — the mock's `.rc` VERBATIM (epic-8 amendment 31): a fixed 216×226
@@ -1251,6 +1433,11 @@ export class UpgradeMenu {
   private pipsEl: HTMLDivElement | null = null;
   private rowEl: HTMLDivElement | null = null;
   private ghostEl: HTMLDivElement | null = null;
+  /** The countdown footer and the REDRAW button inside it (Story 8.10) — built
+   *  once with the panel, shown/hidden and repainted per `view.redraw`. */
+  private footerEl: HTMLDivElement | null = null;
+  private redrawEl: HTMLButtonElement | null = null;
+  private redrawPip: HTMLElement | null = null;
   private cards: RefitCardEls[] = [];
   /** The ONE hover tooltip (R2.17), built with the panel and re-filled per
    *  hover — never one per card, so a pointer running along the row cannot
@@ -1277,6 +1464,10 @@ export class UpgradeMenu {
   constructor(
     private readonly onSpend: (choice: number) => void,
     private readonly budget?: FlashBudget,
+    /** The REDRAW press (Story 8.10) — main.ts's `tryMulligan`. Optional, and
+     *  absent it the button simply sends nothing: every existing construction
+     *  site (and every test) predates the countdown footer. */
+    private readonly onRedraw?: () => void,
   ) {}
 
   get visible(): boolean {
@@ -1297,18 +1488,81 @@ export class UpgradeMenu {
     ghost.style.borderColor = PHOSPHOR;
     ghost.style.display = 'none';
     row.appendChild(ghost);
+    const footer = this.makeFooter();
     this.tip = this.makeTip();
-    // The tooltip is the panel's LAST child so it paints over the cards, and it
-    // is a sibling of the row rather than a member of it: `render()` rebuilds
-    // the row's children wholesale, and a tooltip inside it would be destroyed
-    // on every offer swap.
-    panel.append(pips, row, this.tip.root);
+    // DOM ORDER IS PINNED: pips, row, countdown footer, tooltip. The tooltip is
+    // the panel's LAST child so it paints over the cards, and it is a sibling
+    // of the row rather than a member of it: `render()` rebuilds the row's
+    // children wholesale, and a tooltip inside it would be destroyed on every
+    // offer swap. The REDRAW footer sits AFTER the row and OUTSIDE it for the
+    // mirror-image reason — the row is exactly the four cards, and the button
+    // is neither a card nor a fifth pick (amendment 60).
+    panel.append(pips, row, footer, this.tip.root);
     document.body.appendChild(panel);
     this.panel = panel;
     this.pipsEl = pips;
     this.rowEl = row;
     this.ghostEl = ghost;
+    this.footerEl = footer;
     return panel;
+  }
+
+  /**
+   * The countdown footer, built ONCE with the band and hidden until a view
+   * arrives with `redraw !== 'hidden'` (Story 8.10, amendment 60). One button,
+   * one pip, no tooltip, no title attribute and no copy but the ratified word:
+   * the whole surface is `REDRAW` plus the once-pip that says whether it is
+   * still there to spend.
+   */
+  private makeFooter(): HTMLDivElement {
+    const footer = document.createElement('div');
+    footer.style.cssText = FOOTER_CSS;
+    footer.style.display = 'none';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = REDRAW_ID;
+    btn.style.cssText = REDRAW_CSS;
+    btn.style.borderColor = AMBER;
+    btn.style.color = AMBER;
+    btn.appendChild(document.createTextNode(REDRAW_WORD));
+    const pip = document.createElement('i');
+    pip.style.cssText = REDRAW_PIP_CSS;
+    pip.style.borderColor = AMBER;
+    btn.appendChild(pip);
+    // Focus hygiene, verbatim from the cards: a focus-retaining control would
+    // let a later Space/Enter re-fire it AND would trip the keyboard
+    // chokepoint's text-entry guard mid-battle.
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('click', () => {
+      btn.blur();
+      this.onRedraw?.();
+    });
+    footer.appendChild(btn);
+    this.redrawEl = btn;
+    this.redrawPip = pip;
+    return footer;
+  }
+
+  /** Paint the footer for this view's redraw state — hidden, the live button
+   *  with a hollow pip, or the spent button: inert, its label at `.55` amber
+   *  and its pip FILLED at full alpha (the dual coding the greyed card uses).
+   *
+   *  `locked` IS THE ROW'S LOCK, MIRRORED (the 8.10 review, P5). While a spend
+   *  is in flight every card is `disabled` and dimmed to `lockedAlpha`; a
+   *  REDRAW that stayed bright and clickable inside that row invited a second
+   *  send the latch would drop on the floor, with no feedback and no pulse.
+   *  The button takes the cards' exact treatment — real `disabled` (so the
+   *  keyboard and assistive tech see it, not just the eye), `lockedAlpha`,
+   *  `cursor:default`. The PIP is untouched: it reports whether the one free
+   *  redraw is still there to spend, which a momentary lock does not change. */
+  private renderFooter(state: RedrawState, locked: boolean): void {
+    const footer = this.footerEl;
+    const btn = this.redrawEl;
+    const pip = this.redrawPip;
+    if (!footer || !btn || !pip) return;
+    footer.style.display = state === 'hidden' ? 'none' : 'flex';
+    if (state === 'hidden') return;
+    paintRedraw(btn, pip, state === 'spent', locked);
   }
 
   /**
@@ -1499,9 +1753,13 @@ export class UpgradeMenu {
   private render(view: OfferView): void {
     this.ensurePanel();
     this.view = view;
-    const sig = `${view.pts}|${view.options.map(cardSignature).join(',')}|${view.locked ? 1 : 0}`;
+    // `redraw` rides the signature (Story 8.10): the footer appears, fills its
+    // pip and goes inert without any card changing, and a diff that could not
+    // see it would leave a live REDRAW on live water.
+    const sig = `${view.pts}|${view.options.map(cardSignature).join(',')}|${view.locked ? 1 : 0}|${view.redraw}`;
     if (sig === this.sig) return;
     this.sig = sig;
+    this.renderFooter(view.redraw, view.locked);
     // A rebuilt row destroys the buttons the pointer was over, so no mouseleave
     // can ever arrive for them: drop the tooltip with them or it strands, still
     // showing the offer that just left.
@@ -1517,7 +1775,10 @@ export class UpgradeMenu {
     this.cards = view.options.map((card, i) => this.makeCard(card, i, !view.locked));
     for (const c of this.cards) row.appendChild(c.root);
     // A fresh ROW never inherits the last row's pulse: the buttons the pulse was
-    // painted on no longer exist.
+    // painted on no longer exist. The REDRAW button DOES survive a rebuild, so
+    // a lit one is repainted rather than merely forgotten (its pending clear
+    // no-ops once the register is dropped, which would strand it red).
+    if (this.deniedChoice === MULLIGAN_CHOICE) this.restRedraw();
     this.deniedChoice = null;
   }
 
@@ -1559,7 +1820,12 @@ export class UpgradeMenu {
    *  `hudBarLayout` both work in. */
   private bandLayout(): RefitBandLayout {
     const s = uiScaleFactor();
-    return refitBandLayout(window.innerWidth / s, window.innerHeight / s);
+    // The countdown footer is part of the band's HEIGHT, and the band hangs
+    // from its bottom — so the 44px it adds is what LIFTS the card row while
+    // the REDRAW button stands (amendment 63a), and the row drops straight back
+    // the frame the water goes live.
+    const footerPx = this.view !== null && this.view.redraw !== 'hidden' ? REDRAW_FOOTER_PX : 0;
+    return refitBandLayout(window.innerWidth / s, window.innerHeight / s, CARD_SLOTS, footerPx);
   }
 
   /** TAB toggle: open with this view, or close if already open. */
@@ -1627,10 +1893,11 @@ export class UpgradeMenu {
     setTimeout(() => this.clearDenied(choice), R.deniedPulseMs);
   }
 
-  /** The element a pick's denied pulse paints: the card in that offer slot.
-   *  Every choice is an offer index now — the reserved negative sentinel left
-   *  the wire with the DAMAGE CONTROL rail (Story 8.8). */
+  /** The element a pick's denied pulse paints: the card in that offer slot —
+   *  or, for the ONE negative the wire carries again (`MULLIGAN_CHOICE`, Story
+   *  8.10), the REDRAW button itself. Every other choice is an offer index. */
   private deniedTarget(choice: number): HTMLElement | null {
+    if (choice === MULLIGAN_CHOICE) return this.redrawEl;
     return this.cards[choice]?.root ?? null;
   }
 
@@ -1639,8 +1906,21 @@ export class UpgradeMenu {
     if (this.deniedChoice !== choice) return;
     this.deniedChoice = null;
     this.deniedUntil = -Infinity;
+    if (choice === MULLIGAN_CHOICE) {
+      this.restRedraw();
+      return;
+    }
     const card = this.cards[choice];
     if (card) paintCard(card, false);
+  }
+
+  /** The REDRAW button's resting edge — its amber hairline and its bloom, the
+   *  two marks the denied pulse overwrites. */
+  private restRedraw(): void {
+    const btn = this.redrawEl;
+    if (!btn) return;
+    btn.style.borderColor = AMBER;
+    btn.style.boxShadow = `0 0 18px ${cssRgba(CLIENT_CONFIG.colors.amber, 0.28)}`;
   }
 
   /** True while the denied pulse is lit (test/observation seam). */

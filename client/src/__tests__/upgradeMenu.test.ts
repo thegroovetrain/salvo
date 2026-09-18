@@ -7,16 +7,20 @@
 // release predicate + its new outcome classifier. jsdom.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CATALOG, CONFIG, type OwnShip } from '@salvo/shared';
+import { CATALOG, CONFIG, MULLIGAN_CHOICE, type OwnShip } from '@salvo/shared';
 import {
+  REDRAW_FOOTER_PX,
+  REDRAW_WORD,
   SLOTS_FULL,
   SPEND_LATCH_TIMEOUT_MS,
   UpgradeMenu,
   canLatchSpend,
   cardGreyed,
   frontOfferSignature,
+  mulliganLanded,
   offerView,
   refitBandLayout,
+  shouldAutoOpen,
   spendLatchReleased,
   spendOutcome,
   type OfferCard,
@@ -217,6 +221,56 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     expect(F.band.y).toBe(208);
     expect(F.row.y).toBe(226);
     expect(F.row.y + F.row.h).toBe(452);
+  });
+
+  // --- THE COUNTDOWN FOOTER (Story 8.10, epic-8 amendments 60 + 63a) ----------
+  //
+  // THE 44px IS A DELTA, NOT A PAIR OF ABSOLUTES. The band's BOTTOM is anchored
+  // (`barGap` above the bar) and the footer is the band's last block, so every
+  // pixel it adds comes off the TOP: the card row LIFTS by exactly the footer's
+  // height and the bar never moves. UX-DR54 / DESIGN.md's 388 → 344 pair forgot
+  // the 8px bar gap; the measured numbers are 380 → 336 at 1366×768, and the
+  // ratified fact is the lift between them.
+  it('lifts the card row by exactly the footer and leaves the anchored edge alone', () => {
+    const live = refitBandLayout(1366, 768);
+    const countdown = refitBandLayout(1366, 768, CONFIG.offer.size, REDRAW_FOOTER_PX);
+    expect(REDRAW_FOOTER_PX).toBe(44);
+    expect(live.row.y).toBe(380);
+    expect(countdown.row.y).toBe(336);
+    expect(live.row.y - countdown.row.y).toBe(REDRAW_FOOTER_PX);
+    // The one edge that must NOT move, in either state.
+    expect(live.band.y + live.band.h).toBe(606);
+    expect(countdown.band.y + countdown.band.h).toBe(606);
+    expect(hudBarLayout(1366, 768).bar.y - R.barGap).toBe(606);
+    // The row itself is untouchable: same shape, same width, one baseline.
+    expect(countdown.row.w).toBe(live.row.w);
+    expect(countdown.row.h).toBe(live.row.h);
+    expect(countdown.cards.map((c) => c.x)).toEqual(live.cards.map((c) => c.x));
+  });
+
+  it('seats the REDRAW button in the gap under the row, flush with the band\'s bottom', () => {
+    const L = refitBandLayout(1366, 768, CONFIG.offer.size, REDRAW_FOOTER_PX);
+    expect(L.footer.h).toBe(R.redrawHeight);
+    expect(L.footer.y).toBe(L.row.y + L.row.h + R.redrawGap);
+    expect(L.footer.y + L.footer.h).toBe(L.band.y + L.band.h); // the anchored edge
+    expect(L.footer.x).toBe(L.row.x);
+    expect(R.redrawGap + R.redrawHeight).toBe(REDRAW_FOOTER_PX);
+  });
+
+  it('is DEGENERATE with no footer — nothing hangs under the row off the start line', () => {
+    const L = refitBandLayout(1366, 768);
+    expect(L.footer.h).toBe(0);
+    expect(L.footer.y).toBe(L.row.y + L.row.h);
+    expect(L.band.h).toBe(R.pipsAbove + R.cardHeight);
+  });
+
+  it('still fits both ratified floors with the footer standing', () => {
+    for (const { name, w, h } of FLOORS) {
+      const L = refitBandLayout(w, h, CONFIG.offer.size, REDRAW_FOOTER_PX);
+      expect(L.band.y, `${name}: band ${-L.band.y}px off the top`).toBeGreaterThanOrEqual(0);
+      expect(L.band.y + L.band.h, name).toBeLessThanOrEqual(h);
+      expect(overlaps(L.band, hudBarLayout(w, h).bar), name).toBe(false);
+    }
   });
 
   // THE SCALED-TIER FIT — the case the logical-floor pins above cannot see, and
@@ -459,7 +513,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     }));
 
   const view = (over: Partial<OfferView> = {}): OfferView => ({
-    pts: 1, options: cardsOf(OFFER), locked: false, ...over,
+    pts: 1, options: cardsOf(OFFER), locked: false, redraw: 'hidden', ...over,
   });
 
   /** The CARDS — scoped to the row, deliberately: the panel also holds the pip
@@ -935,6 +989,220 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
         settings.reset();
       }
     });
+  });
+
+  // --- THE COUNTDOWN FOOTER (Story 8.10, epic-8 amendment 60) -------------------
+  //
+  // ONE button under the row, countdown only, with the "once" pip beside the
+  // word. It is NOT a fifth card: it lives in its own block AFTER the row, so
+  // the row stays exactly the four cards every digit and every existing pin
+  // addresses.
+  describe('the REDRAW button', () => {
+    const redrawBtn = (): HTMLButtonElement | null =>
+      document.getElementById('refit-redraw') as HTMLButtonElement | null;
+    const footer = (): HTMLElement => document.querySelector('#upgrade-menu > div:nth-child(3)') as HTMLElement;
+    const pip = (): HTMLElement => redrawBtn()!.querySelector('i') as HTMLElement;
+
+    it('is ABSENT from the band off the start line, and present during the countdown', () => {
+      const menu = new UpgradeMenu(() => {});
+      menu.toggle(view()); // redraw: 'hidden' — live water
+      expect(footer().style.display).toBe('none');
+      menu.update(view({ redraw: 'unspent' }));
+      expect(footer().style.display).toBe('flex');
+      expect(redrawBtn()!.textContent).toBe(REDRAW_WORD);
+    });
+
+    it('leaves the ROW at exactly four card buttons (it is not a fifth pick)', () => {
+      const spends: number[] = [];
+      const menu = new UpgradeMenu((c) => spends.push(c));
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(cards()).toHaveLength(4); // the positional selector still counts 4
+      expect(pips()).toHaveLength(1);
+      expect(redrawBtn()!.parentElement).not.toBe(cards()[0].parentElement);
+      redrawBtn()!.click();
+      expect(spends).toEqual([]); // a REDRAW is never a card spend
+    });
+
+    it('routes its click to the onRedraw hook, once per press, and never keeps focus', () => {
+      let presses = 0;
+      const menu = new UpgradeMenu(() => {}, undefined, () => (presses += 1));
+      menu.toggle(view({ redraw: 'unspent' }));
+      redrawBtn()!.click();
+      expect(presses).toBe(1);
+      expect(document.activeElement).not.toBe(redrawBtn());
+    });
+
+    it('draws the pip HOLLOW while unspent and FILLED once spent, and goes inert', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(pip().style.backgroundColor).toBe('transparent');
+      expect(redrawBtn()!.disabled).toBe(false);
+      menu.update(view({ redraw: 'spent' }));
+      // Dual-coded: the pip FILLS (at full alpha — it is the answer) while the
+      // label dims and the control really is disabled, not merely dimmed.
+      expect(pip().style.backgroundColor).toBe('var(--hc-amber)');
+      expect(pip().style.borderColor).toBe('var(--hc-amber)');
+      expect(redrawBtn()!.disabled).toBe(true);
+      expect(redrawBtn()!.style.cursor).toBe('default');
+      expect(redrawBtn()!.style.color).not.toBe('var(--hc-amber)');
+    });
+
+    // THE ROW'S LOCK REACHES THE BUTTON (the 8.10 review, P5). A spend in
+    // flight disables and dims every card; a REDRAW that stayed bright and
+    // clickable inside that locked row invited a second send the latch drops
+    // on the floor, with no feedback and no pulse.
+    it('is DISABLED and dimmed exactly like the cards while the row is locked', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(redrawBtn()!.disabled).toBe(false);
+
+      menu.update(view({ redraw: 'unspent', locked: true }));
+
+      expect(redrawBtn()!.disabled).toBe(true);
+      expect(redrawBtn()!.style.cursor).toBe('default');
+      expect(redrawBtn()!.style.opacity).toBe(String(R.lockedAlpha)); // the cards' own dim
+      for (const c of cards()) expect(c.disabled).toBe(true); // ...the same treatment
+      // The PIP is untouched: it reports whether the free redraw is still there
+      // to spend, which a momentary lock does not change.
+      expect(pip().style.backgroundColor).toBe('transparent');
+
+      menu.update(view({ redraw: 'unspent' })); // the latch released
+      expect(redrawBtn()!.disabled).toBe(false);
+      expect(redrawBtn()!.style.cursor).toBe('pointer');
+      expect(redrawBtn()!.style.opacity).toBe('1');
+    });
+
+    it('stays disabled when a SPENT redraw is also locked, with the pip still filled', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'spent', locked: true }));
+      expect(redrawBtn()!.disabled).toBe(true);
+      expect(pip().style.backgroundColor).toBe('var(--hc-amber)');
+    });
+
+    it('takes the amber denied pulse on a refused redraw, and drops it back', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      menu.pulseDenied(MULLIGAN_CHOICE, 1000);
+      expect(menu.deniedActive(1000)).toBe(true);
+      expect(redrawBtn()!.style.borderColor).toBe('var(--hc-denied)');
+      menu.hide(); // the close drops every lit edge (cards and button alike)
+      expect(redrawBtn()!.style.borderColor).toBe('var(--hc-amber)');
+    });
+
+    it('rides the GEOMETRY, never the 9px floor: no --hc-micro anywhere on it', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      // 12px mono is well clear of the readable floor (amendment 43), so the
+      // footer must not counter-scale — only the LABEL and the FOOT do.
+      expect(footer().style.cssText).not.toContain(MICRO_VAR);
+      expect(redrawBtn()!.style.cssText).not.toContain(MICRO_VAR);
+      expect(pip().style.cssText).not.toContain(MICRO_VAR);
+      // 12px, read off the SHORTHAND (jsdom keeps `style.font` verbatim but
+      // does not decompose a var()-carrying shorthand into `style.fontSize`) —
+      // and the shorthand is what the mock and every other register here use.
+      expect(redrawBtn()!.style.font).toBe('600 12px var(--hc-font-mono)');
+      expect(redrawBtn()!.style.letterSpacing).toBe('0.18em');
+    });
+
+    it('GOES when the water goes live, with the window still open (the row drops back)', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(footer().style.display).toBe('flex');
+      menu.update(view({ redraw: 'hidden' })); // countdown → active, window untouched
+      expect(menu.visible).toBe(true);
+      expect(footer().style.display).toBe('none');
+    });
+
+    it('TAB takes it with the window (the footer lives INSIDE the panel)', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(footer().closest('#upgrade-menu')).not.toBeNull();
+      menu.toggle(view({ redraw: 'unspent' })); // TAB again — closes
+      expect(menu.visible).toBe(false);
+      expect(document.getElementById('upgrade-menu')!.style.display).toBe('none');
+      menu.toggle(view({ redraw: 'unspent' })); // ...and TAB brings it back
+      expect(menu.visible).toBe(true);
+      expect(footer().style.display).toBe('flex');
+    });
+  });
+});
+
+// --- THE OPENING's two pure rules (Story 8.10) ----------------------------------
+
+describe('shouldAutoOpen — the window opens itself once per match (amendment 59)', () => {
+  const at = (over: Partial<Parameters<typeof shouldAutoOpen>[0]> = {}) =>
+    shouldAutoOpen({ latched: false, phase: 'countdown', visible: false, hasOffer: true, ...over });
+
+  it('opens on the first countdown frame that carries an offer', () => {
+    expect(at()).toBe(true);
+  });
+
+  it('never opens twice: the latch is "not yet THIS match", not a numeric rise', () => {
+    expect(at({ latched: true })).toBe(false);
+  });
+
+  it('opens for a RECONNECT whose very first frame already reads pts 1', () => {
+    // There is no edge to see — the offer is simply there — which is exactly
+    // why the rule is a latch over the epoch and not a rise over `pts`.
+    expect(at({ latched: false })).toBe(true);
+  });
+
+  it('never opens off the countdown, over an open window, or with nothing to show', () => {
+    expect(at({ phase: 'waiting' })).toBe(false);
+    expect(at({ phase: 'active' })).toBe(false);
+    expect(at({ visible: true })).toBe(false);
+    expect(at({ hasOffer: false })).toBe(false);
+  });
+});
+
+describe('mulliganLanded — the redraw ack rule (amendment 60)', () => {
+  const latch = (over: Partial<SpendLatch> = {}): SpendLatch => ({
+    pts: 1, offerSig: OFFER.join(','), at: 1000, choice: MULLIGAN_CHOICE, acked: false, ...over,
+  });
+  const you = (over: Partial<Pick<OwnShip, 'pts' | 'offer'>> = {}) => ({ pts: 1, offer: [...OFFER], ...over });
+  const soon = 1000 + SPEND_LATCH_TIMEOUT_MS / 2;
+  const late = 1000 + SPEND_LATCH_TIMEOUT_MS + 1;
+
+  it('lands when the FRONT OFFER changes at an unchanged bank (the redraw costs nothing)', () => {
+    expect(mulliganLanded(latch(), you({ offer: [...OFFER_B] }), soon)).toBe(true);
+  });
+
+  it('is still PENDING while the offer has not moved', () => {
+    expect(mulliganLanded(latch(), you(), soon)).toBe(false);
+  });
+
+  it('does NOT land on the timeout — nothing moved, so the redraw was refused', () => {
+    expect(mulliganLanded(latch(), you(), late)).toBe(false);
+  });
+
+  it('is only ever about a MULLIGAN latch — a card pick never fills the pip', () => {
+    expect(mulliganLanded(latch({ choice: 2 }), you({ offer: [...OFFER_B] }), soon)).toBe(false);
+  });
+
+  // THE BANK MUST NOT MOVE (the 8.10 review, P4). `spendOutcome` calls a pts
+  // DROP a success, because for a card pick it is one. A redraw that cost a
+  // level did not land — it is a pick the server processed, or a desync — and
+  // filling the pip on it would swallow the evidence and eat the free redraw.
+  it('does NOT land when the BANK DROPPED, even though the latch released', () => {
+    // The signature is unchanged, so the only release clause is `pts <`.
+    expect(mulliganLanded(latch(), you({ pts: 0 }), soon)).toBe(false);
+  });
+
+  it('does not land on a bank drop that ALSO changed the offer', () => {
+    expect(mulliganLanded(latch(), you({ pts: 0, offer: [...OFFER_B] }), soon)).toBe(false);
+  });
+
+  it('lands on a changed SIGNATURE at an unchanged bank, the redraw\'s one real signal', () => {
+    expect(mulliganLanded(latch(), you({ pts: 1, offer: [...OFFER_B] }), soon)).toBe(true);
+  });
+
+  it('a server RECEIPT still outranks the inference, as it does for a pick', () => {
+    expect(mulliganLanded(latch({ acked: true }), you(), soon)).toBe(true);
+  });
+
+  it('a vanished own ship is never an ack', () => {
+    expect(mulliganLanded(latch(), null, soon)).toBe(false);
+    expect(mulliganLanded(latch(), undefined, late)).toBe(false);
   });
 });
 

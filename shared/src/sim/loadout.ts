@@ -7,9 +7,11 @@
 // THE PER-HULL FIT IS GONE (Story 8.5, epic-8 amendments 21–24). There is no
 // `specialsFor` and no `SLOT_EXTRA`: every captain sails with the SAME shape,
 // and class identity lives in the DECK (the cards a hull draws), not in the
-// hardware. A hull's shipped class weapons are seeded at spawn AS CARDS
-// (`SPAWN_SEED` in sim/catalog.ts) until Story 8.10's level-zero offer
-// replaces that seed, and they land in the weapon row like any other card.
+// hardware. THE INTERIM SPAWN SEED IS GONE TOO (Story 8.10, amendment 62):
+// every hull now spawns with THE GUN AND THE SHIFT BOOST ONLY, and the weapon
+// row starts empty. The captain's first weapon comes from the LEVEL-ZERO OFFER
+// granted at countdown start — the opening — and lands in the row as a card
+// like every card after it.
 //
 // Slot 1 holds the `boost` module on every captain — THE SHIFT BOOST, a
 // universal ability no card can address (Story 8.9, epic-8 amendments 54–55).
@@ -224,7 +226,8 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
  * HULL (Story 8.5). A captain fits the gun in slot 0 and the boost in slot 1,
  * both with a full pool and an idle reload timer (exactly the server's
  * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics); slots 2–8 start empty
- * and are filled by CARDS (the spawn seed first, then the offers).
+ * and are filled by CARDS — the level-zero offer at the start line first
+ * (Story 8.10), then every offer after it.
  *
  * `fleet === true` is the PvE drone fit: the gun in slot 0 and eight empties,
  * nothing else (epic-5 amendment 34, epic-8 amendment 24).

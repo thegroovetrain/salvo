@@ -3,9 +3,10 @@
 // Pins:
 //   (1) buildDeckState (Story 8.2, Eric rulings 2026-09-15, amendments 10-11):
 //       the frozen 40-card list MINUS every stub line MINUS one copy per
-//       carried line — 26 drawable cards for each of the three default decks
-//       with its spawn seed, and NO STUB EVER DEALT, so no stub id can reach
-//       an offer;
+//       carried line — 27 drawable cards for each of the three default decks
+//       now that NOTHING is carried (Story 8.10 deleted the spawn seed, so the
+//       server builds every pool with `carried = []`), and NO STUB EVER DEALT,
+//       so no stub id can reach an offer;
 //   (2) drawOffer distinctness / weight-by-copies-remaining / determinism /
 //       empty-and-thin-deck fail-safety, and that a draw is NON-CONSUMING;
 //   (3) consumeCard — the FIT, the deck's one and only outflow;
@@ -15,8 +16,15 @@
 //   (5) the AT-CAP GUARD (Story 8.3): `drawOffer(..., { held })` never offers a
 //       line the SHIP already holds at `cap`, spends no rng value on it, and is
 //       byte-identical to the unguarded draw when `held` is absent or empty —
-//       plus the STRUCTURAL PIN that a legal default deck and its spawn seed
-//       can never trip the guard in the first place.
+//       plus the STRUCTURAL PIN that a legal default deck can never trip the
+//       guard at spawn, where the captain holds no cards at all;
+//   (6) THE LEVEL-ZERO GUARANTEE (Story 8.10, FR48): `{ guarantee: true }` puts
+//       a USABLE card (a consumable, or the tier I of an equipment line the
+//       ship has none of) in slot 0, costs exactly one rng.next() like any
+//       other offered line, is deterministic, and is VACUOUS — byte-identical
+//       to the plain draw, stream position included — when the pool holds
+//       nothing usable. That last pin is what keeps the guarantee from ever
+//       becoming a reroll.
 //
 // RETIRED with rarity (Story 8.1): the per-hull subdeck composition matrix,
 // `consumeAcquisition` and the acquisition purge, and the soft-pity escalation
@@ -43,8 +51,8 @@ import {
   effectiveStats,
   hullEnvelope,
   isStubLine,
-  SPAWN_SEED,
   mulberry32,
+  usableLines,
   type Catalog,
   type CatalogLine,
   type DeckState,
@@ -77,17 +85,10 @@ const testLine = (id: string, cap = 5, stub?: true): CatalogLine => ({
 
 const NON_STUB = LINE_IDS.filter((id) => !isStubLine(id));
 
-/** THE SPAWN SEED per hull (Story 8.1 review gate): copy 1 of every equipment
- *  line whose weapon the hull already carries. The Battleship's `broadside` is
- *  carried but NOT in its default deck, so it removes nothing. */
-const CARRIED: Record<ShipClassId, readonly LineId[]> = {
-  torpedoBoat: ['heavyTorpedo'],
-  battleship: ['broadside', 'starShells'],
-  mineLayer: ['navalMines'],
-};
-
-/** A hull's drawable pool: its default deck less stubs less its seed. */
-const poolFor = (hull: ShipClassId): DeckState => buildDeckState(DEFAULT_DECKS[hull], CARRIED[hull]);
+/** A hull's drawable pool AS THE SERVER BUILDS IT since Story 8.10: its default
+ *  deck less stubs, and nothing carried — every hull spawns with the gun and
+ *  the Shift boost only, so no copy is owed to a weapon already aboard. */
+const poolFor = (hull: ShipClassId): DeckState => buildDeckState(DEFAULT_DECKS[hull]);
 
 /** The Torpedo Boat's pool — the fixture the draw/consume/replay pins use. */
 const tbPool = (): DeckState => poolFor('torpedoBoat');
@@ -114,13 +115,14 @@ describe('buildDeckState — the frozen list becomes the drawable pool (Story 8.
 
   // THE DRAWABLE-SIZE TABLE (spec Design Notes): each default holds 13 stub
   // cards (shieldBlock 3 + smokeScreen 2 + chaff 2 + two stub weapon lines × 3)
-  // and the seed removes one copy → 40 − 13 − 1 = 26. It was 16 stubs / 23
-  // drawable until Story 8.8 flipped HULL REPAIR's three copies live.
+  // and NOTHING is carried out of it → 40 − 13 = 27. It was 26 while the
+  // interim spawn seed took one equipment copy out at spawn (Story 8.10
+  // deleted that table), and 23 until Story 8.8 flipped HULL REPAIR live.
   it.each([
-    ['torpedoBoat', 13, 26],
-    ['mineLayer', 13, 26],
-    ['battleship', 13, 26],
-  ] as const)('%s: 40 cards − %i stub cards − 1 carried copy = %i drawable', (hull, stubs, drawable) => {
+    ['torpedoBoat', 13, 27],
+    ['mineLayer', 13, 27],
+    ['battleship', 13, 27],
+  ] as const)('%s: 40 cards − %i stub cards − 0 carried copies = %i drawable', (hull, stubs, drawable) => {
     const list = DEFAULT_DECKS[hull];
     expect(list).toHaveLength(CONFIG.deck.size);
     expect(list.filter((id) => isStubLine(id))).toHaveLength(stubs);
@@ -339,37 +341,143 @@ describe('drawOffer — the AT-CAP guard (Story 8.3): a dead pick is never offer
   });
 });
 
-describe('the at-cap guard is structurally IDLE on a legal deck (Story 8.3 pin)', () => {
-  /** The spawn seed the way the SERVER now derives it (Story 8.5): the AUTHORED
-   *  `SPAWN_SEED` table, not a read-back of the fitted loadout. The loadout is
-   *  hull-agnostic since 8.5 (gun + boost + seven empties), so there is no
-   *  per-hull fit left to derive a seed from — World.carriedLines is gone and
-   *  this table is the one source. Story 8.10 deletes it. */
-  function carriedFor(hull: ShipClassId): readonly LineId[] {
-    return SPAWN_SEED[hull] ?? [];
-  }
+describe('drawOffer — THE LEVEL-ZERO GUARANTEE (Story 8.10): the opening hand can be sailed', () => {
+  /** Is this line something a BARE hull could actually put to sea with? */
+  const isUsableKind = (id: LineId, held: readonly LineId[]): boolean =>
+    CATALOG[id].kind === 'consumable'
+    || (CATALOG[id].kind === 'equipment' && !held.includes(id));
 
-  it('the CARRIED table above is the seed the server actually deals', () => {
-    for (const hull of SHIP_CLASS_IDS) {
-      expect([...carriedFor(hull)].sort(), hull).toEqual([...CARRIED[hull]].sort());
+  it('usableLines is exactly the consumables + the UNFITTED equipment lines of the pool, in CATALOG order', () => {
+    const deck = tbPool();
+    const usable = usableLines(deck, []);
+    expect(usable.length).toBeGreaterThan(0);
+    for (const id of usable) expect(isUsableKind(id, []), id).toBe(true);
+    // Distinct, and in CATALOG key order — that order is what makes the
+    // uniform first pick reproducible.
+    expect([...new Set(usable)]).toEqual(usable);
+    expect(usable).toEqual(LINE_IDS.filter((id) => usable.includes(id)));
+    // ...and it leaves nothing out: every consumable/equipment line in the pool.
+    const inPool = LINE_IDS.filter((id) => deck.cards.includes(id) && isUsableKind(id, []));
+    expect(usable).toEqual(inPool);
+    // A ladder or an add-on is never usable — a stat step is not a first weapon.
+    for (const id of LINE_IDS) {
+      if (CATALOG[id].kind === 'ladder' || CATALOG[id].kind === 'addon') expect(usable).not.toContain(id);
     }
   });
 
-  it('the seed is STAT-NEUTRAL: holding it changes no effective stat on any hull', () => {
-    // Why the seed needs no `applyCard`, no event and no toast: tier I of an
-    // equipment line IS the bare weapon, so the seeded captain's numbers are
-    // byte-identical to an unseeded one's.
+  it('a line held AT CAP is never usable (it is not offerable at all)', () => {
+    const deck = tbPool();
+    const held = new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair');
+    expect(usableLines(deck, [])).toContain('hullRepair'); // the consumable IS usable bare...
+    expect(usableLines(deck, held)).not.toContain('hullRepair'); // ...and gone once the rack is capped
+  });
+
+  it('the FIRST card of a guaranteed draw is USABLE, over 200 seeds — four distinct lines, none at cap', () => {
+    const deck = tbPool();
+    const usable = usableLines(deck, []);
+    for (let seed = 0; seed < 200; seed += 1) {
+      const { offer } = drawOffer(deck, mulberry32(seed), CATALOG, { guarantee: true, held: [] });
+      expect(usable, `seed ${seed}`).toContain(offer[0]);
+      expect(offer, `seed ${seed}`).toHaveLength(CONFIG.offer.size);
+      expect(new Set(offer).size, `seed ${seed}`).toBe(offer.length);
+      for (const id of offer) expect(CATALOG[id].cap, `seed ${seed}:${id}`).toBeGreaterThan(0);
+    }
+    // ...and the guarantee is doing real work: UNGUARDED, a ladder-only hand happens.
+    const plain = Array.from({ length: 200 }, (_, s) => drawOffer(deck, mulberry32(s), CATALOG).offer);
+    expect(plain.some((offer) => !usable.includes(offer[0]))).toBe(true);
+  });
+
+  it('never guarantees an equipment line the ship ALREADY HOLDS (its next copy is a tier bump, not a weapon)', () => {
+    const deck = tbPool();
+    const held: LineId[] = ['heavyTorpedo']; // one live equipment line of the TB deck, fitted
+    const usable = usableLines(deck, held);
+    expect(usable).not.toContain('heavyTorpedo');
+    expect(usableLines(deck, [])).toContain('heavyTorpedo'); // ...it WAS usable while unfitted
+    for (let seed = 0; seed < 200; seed += 1) {
+      const { offer } = drawOffer(deck, mulberry32(seed), CATALOG, { guarantee: true, held });
+      expect(offer[0], `seed ${seed}`).not.toBe('heavyTorpedo');
+      expect(usable, `seed ${seed}`).toContain(offer[0]);
+    }
+  });
+
+  it('IS VACUOUS on a ladders-only deck — same offer AND same stream position as the plain draw (never a reroll)', () => {
+    const cat = catalogOf([testLine('l1'), testLine('l2'), testLine('l3'), testLine('l4'), testLine('l5')]);
+    const ladders: DeckState = { cards: ['l1', 'l1', 'l2', 'l2', 'l3', 'l4', 'l5'] as unknown as LineId[] };
+    expect(usableLines(ladders, [], cat)).toEqual([]);
+    for (let seed = 0; seed < 50; seed += 1) {
+      const guaranteed = countingRng(seed);
+      const plain = countingRng(seed);
+      const a = drawOffer(ladders, guaranteed.rng, cat, { guarantee: true });
+      const b = drawOffer(ladders, plain.rng, cat);
+      expect(a.offer, `seed ${seed}`).toEqual(b.offer);
+      expect(guaranteed.calls(), `seed ${seed}`).toBe(plain.calls());
+    }
+  });
+
+  it('is DETERMINISTIC: the same seed gives the same guaranteed offer', () => {
+    const deck = tbPool();
+    const once = drawOffer(deck, mulberry32(4242), CATALOG, { guarantee: true }).offer;
+    expect(drawOffer(deck, mulberry32(4242), CATALOG, { guarantee: true }).offer).toEqual(once);
+    // ...and it is NOT the plain draw off the same seed (the first card moved).
+    expect(drawOffer(deck, mulberry32(4242), CATALOG).offer).not.toEqual(once);
+  });
+
+  it('costs exactly ONE rng.next() per OFFERED line — the guaranteed card included', () => {
+    const deck = tbPool();
+    const counted = countingRng(9);
+    const { offer } = drawOffer(deck, counted.rng, CATALOG, { guarantee: true });
+    expect(offer).toHaveLength(CONFIG.offer.size);
+    expect(counted.calls()).toBe(offer.length);
+    // A THIN pool spends one per line it could fill, and no more.
+    const cat = catalogOf([
+      { id: 'w' as unknown as LineId, kind: 'equipment', cap: 5, tiers: [[], [], [], [], []] },
+      testLine('l', 2),
+    ]);
+    const thin: DeckState = { cards: ['w', 'l', 'l'] as unknown as LineId[] };
+    const thinCount = countingRng(3);
+    const thinOffer = drawOffer(thin, thinCount.rng, cat, { guarantee: true }).offer;
+    expect(thinOffer).toHaveLength(2);
+    expect(thinOffer[0]).toBe('w' as unknown as LineId); // the only usable line
+    expect(thinCount.calls()).toBe(2);
+  });
+
+  it('a draw is still a READ: the guaranteed draw takes nothing out of the pool', () => {
+    const deck = tbPool();
+    const { deck: after } = drawOffer(deck, mulberry32(77), CATALOG, { guarantee: true });
+    expect(after).toBe(deck);
+  });
+
+  it('the guarantee RESPECTS the at-cap guard: a capped line is neither guaranteed nor offered', () => {
+    const held = [...new Array<LineId>(CATALOG.armor.cap).fill('armor'), 'heavyTorpedo' as LineId];
+    const deck = tbPool();
+    for (let seed = 0; seed < 100; seed += 1) {
+      const { offer } = drawOffer(deck, mulberry32(seed), CATALOG, { guarantee: true, held });
+      expect(offer, `seed ${seed}`).not.toContain('armor');
+    }
+  });
+});
+
+describe('the at-cap guard is structurally IDLE on a legal deck (Story 8.3 pin)', () => {
+  /** WHAT A CAPTAIN HOLDS AT SPAWN, since Story 8.10 deleted the interim
+   *  spawn-seed table: nothing. The loadout is hull-agnostic (gun + boost +
+   *  seven
+   *  empties) and the first weapon arrives as a CARD from the level-zero offer,
+   *  so there is no seed left to guard against. */
+  const SPAWN_HELD: readonly LineId[] = [];
+
+  it('a fresh captain holds NO cards, so spawn stats are the bare hull envelope', () => {
+    // What the deleted seed used to have to prove by being stat-neutral: with
+    // nothing fitted there is nothing to be neutral about.
     for (const hull of SHIP_CLASS_IDS) {
-      expect(effectiveStats(hullEnvelope(hull), carriedFor(hull)), hull)
+      expect(effectiveStats(hullEnvelope(hull), SPAWN_HELD), hull)
         .toEqual(effectiveStats(hullEnvelope(hull)));
     }
   });
 
   it('pool copies + held copies ≤ cap for EVERY line of EVERY hull at spawn — the guard can never bite', () => {
     for (const hull of SHIP_CLASS_IDS) {
-      const carried = carriedFor(hull);
-      const pool = tally(buildDeckState(DEFAULT_DECKS[hull], carried).cards);
-      const held = tally(carried);
+      const pool = tally(buildDeckState(DEFAULT_DECKS[hull], SPAWN_HELD).cards);
+      const held = tally(SPAWN_HELD);
       for (const id of LINE_IDS) {
         const total = (pool.get(id) ?? 0) + (held.get(id) ?? 0);
         expect(total, `${hull}:${id}`).toBeLessThanOrEqual(CATALOG[id].cap);
@@ -377,12 +485,11 @@ describe('the at-cap guard is structurally IDLE on a legal deck (Story 8.3 pin)'
     }
   });
 
-  it('a spawn draw with `held = carried` is identical to one with no `held`, over 100 seeds and all three hulls', () => {
+  it('a spawn draw with `held = what the hull holds` is identical to one with no `held`, over 100 seeds and all three hulls', () => {
     for (const hull of SHIP_CLASS_IDS) {
-      const carried = carriedFor(hull);
-      const deck = buildDeckState(DEFAULT_DECKS[hull], carried);
+      const deck = buildDeckState(DEFAULT_DECKS[hull], SPAWN_HELD);
       for (let seed = 0; seed < 100; seed += 1) {
-        const guarded = drawOffer(deck, mulberry32(seed), CATALOG, { held: carried }).offer;
+        const guarded = drawOffer(deck, mulberry32(seed), CATALOG, { held: SPAWN_HELD }).offer;
         expect(guarded, `${hull}:${seed}`).toEqual(drawOffer(deck, mulberry32(seed), CATALOG).offer);
       }
     }
@@ -449,7 +556,7 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
       const { picks, deck } = replay(seed);
       const counts = tally(picks);
       for (const [id, n] of counts) expect(n, `${seed}:${id}`).toBeLessThanOrEqual(CATALOG[id].cap);
-      expect(picks.length, `${seed}`).toBe(26); // the whole drawable pool plays out
+      expect(picks.length, `${seed}`).toBe(27); // the whole drawable pool plays out
       expect(deck.cards, `${seed}`).toEqual([]);
     }
   });

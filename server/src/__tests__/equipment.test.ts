@@ -35,6 +35,7 @@ import {
   type LoadoutSlot,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
+import { fitClassWeapons } from './classWeapons.js';
 import * as ammo from '../game/equipment/ammo.js';
 import { hullRepairRow } from '../game/equipment/consumables/hullRepair.js';
 import {
@@ -86,21 +87,29 @@ function bareWorld(seed = 7, opts?: WorldOptions): World {
   return w;
 }
 
-/** Add a MINE LAYER and pin it to the origin at a known heading (speed 0) —
- *  the suite's default fixture: [gun, boost, navalMines, empty x6] covers
- *  a 360-degree weapon, an aimed weapon with a rear placement sector, an
- *  ability, and six empty slots in one hull. The role stays 'captain' so the
- *  FleetController never overwrites the scripted inputs. */
+/** Add a MINE LAYER, FIT ITS RACK AS A CARD, and pin it to the origin at a
+ *  known heading (speed 0) — the suite's default fixture: [gun, boost,
+ *  navalMines, empty x6] covers a 360-degree weapon, an aimed weapon with a
+ *  rear placement sector, an ability, and six empty slots in one hull. The
+ *  role stays 'captain' so the FleetController never overwrites the scripted
+ *  inputs.
+ *
+ *  THE RACK IS A CARD NOW (Story 8.10, amendment 62): the interim spawn seed
+ *  is deleted, so the fixture fits it explicitly through the same applyCard
+ *  path a real pick takes. Every dispatch, arc, pool and reload case below
+ *  keeps its subject; only how the weapon got aboard changed. */
 function place(w: World, id: string, heading = 0): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', 'mineLayer', undefined, undefined, []);
+  fitClassWeapons(w, rec);
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
 }
 
-/** The TORPEDO BOAT sibling: [gun, boost, heavyTorpedo, empty x6] — the
- *  only SEED that carries a torpedo, so every bow-arc case runs on this hull. */
+/** The TORPEDO BOAT sibling: [gun, boost, heavyTorpedo, empty x6], its tube
+ *  fitted as a card for the same reason — every bow-arc case runs on it. */
 function placeTb(w: World, id: string, heading = 0): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, []);
+  fitClassWeapons(w, rec);
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
 }
@@ -822,26 +831,23 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
     expectFreshLoadout(placeTb(w, 'tb'), TB_IDS);
   });
 
-  // THE SHAPE IS UNIVERSAL (Story 8.5): slots 0 and 1 hold the SAME equipment
-  // on every captain hull, and only the seeded weapon row differs.
-  it('every captain hull spawns the same shape: gun in 0, boost in 1, seed in the weapon row', () => {
+  // THE SHAPE IS UNIVERSAL AND NOW IDENTICAL (Story 8.5 + 8.10): slots 0 and 1
+  // hold the same equipment on every captain hull and the weapon row starts
+  // EMPTY on all three — the spawn seed that used to differentiate them is
+  // deleted (amendment 62), so at spawn only the DECK tells the hulls apart.
+  it('every captain hull spawns the same shape: gun in 0, boost in 1, an EMPTY weapon row', () => {
     const w = bareWorld();
-    const hulls = [
-      ['torpedoBoat', ['heavyTorpedo']],
-      ['battleship', ['broadside', 'starShells']],
-      ['mineLayer', ['navalMines']],
-    ] as const;
-    for (const [hull, seed] of hulls) {
+    const hulls = ['torpedoBoat', 'battleship', 'mineLayer'] as const;
+    for (const hull of hulls) {
       const ship = w.addShip(hull, hull, 'captain', hull, undefined, undefined, []);
       expect(ship.loadout).toHaveLength(SLOT_COUNT);
       expect(ship.loadout[SLOT_GUN].equipmentId).toBe('gun');
       expect(ship.loadout[SLOT_BOOST].equipmentId).toBe('boost');
-      expect(WEAPON_SLOTS.map((i) => ship.loadout[i].equipmentId)).toEqual([
-        ...seed,
-        ...Array<null>(WEAPON_SLOTS.length - seed.length).fill(null),
-      ]);
+      expect(WEAPON_SLOTS.map((i) => ship.loadout[i].equipmentId)).toEqual(
+        Array<null>(WEAPON_SLOTS.length).fill(null),
+      );
       for (const i of CONSUMABLE_SLOTS) expect(ship.loadout[i]).toEqual({ equipmentId: null, state: null });
-      expect(ship.cards).toEqual([...seed]); // the seed rides as CARDS, so the deck owes their copy 1
+      expect(ship.cards).toEqual([]); // nothing is held at spawn any more
       expect(slotAmmo(ship)).toHaveLength(SLOT_COUNT);
     }
   });
@@ -873,8 +879,15 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: 500 }; // dirty it, prove the rebuild
-    fitBuoy(ship); // a hand-fitted slot the rebuild must clear — the seed is the only source
+    fitBuoy(ship); // a hand-fitted slot the rebuild must clear — no card backs it
+    // THE REDEPLOY PRESERVES THE BUILD ON EVERY PATH (Story 8.10 review, P1 —
+    // the old sandbox-only wipe is retired): the rack CARD survives, so the
+    // rebuilt fit is the suite's standard loadout straight away, with fresh
+    // pools and no reload in flight. The hand-fitted buoy, which no card
+    // backs, is what the rebuild drops — that is the whole point of rebuilding
+    // the loadout from the cards rather than keeping the array.
     w.resetForMatchStart();
+    expect(ship.cards).toEqual(['navalMines']);
     expectFreshLoadout(ship, ML_IDS);
   });
 

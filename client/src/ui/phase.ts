@@ -41,6 +41,32 @@ export function heldAtStartLine(phase: string): boolean {
   return phase === 'waiting' || phase === 'countdown';
 }
 
+/**
+ * THE MATCH EPOCH EDGE (Story 8.10 review, P3) — true on the edge INTO
+ * `active` and on nothing else.
+ *
+ * One match epoch begins when the water goes live. `main.ts`'s
+ * `updateMatchEpoch` hangs four resets on it: the personal score, the helm's
+ * held orders, the refit window's one auto-open and the one free redraw. They
+ * ALL belong on the same edge.
+ *
+ * WHY NOT "EVERY PHASE EDGE" (which the two opening latches used to take). A
+ * new match's countdown can only ever follow the previous match's live edge —
+ * active → finished → waiting → countdown — so resetting on the `-> active`
+ * edge alone still arms both latches in time for the next start line, and a
+ * fresh `Game` per join arms them at join. Resetting on EVERY edge instead
+ * re-armed the auto-open on the `countdown -> waiting` edge of a countdown
+ * that cancelled, so the window would fling itself open a SECOND time at the
+ * re-arm, over whatever the captain was doing.
+ *
+ * Pure and total: `prev` is the phase the client last saw, `phase` the one it
+ * sees now. Called only when they differ, but it answers correctly when they
+ * do not.
+ */
+export function epochLatchReset(prev: string, phase: string): boolean {
+  return phase === 'active' && prev !== 'active';
+}
+
 /** Seconds (ceil, floored at 0) until a server-time deadline. */
 export function secondsUntil(deadlineT: number, serverNow: number): number {
   return Math.max(0, Math.ceil((deadlineT - serverNow) / 1000));

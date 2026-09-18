@@ -29,6 +29,18 @@
 //
 // matchOverride is a dev tool — the real client never sets it.
 //
+// THE TORPEDO IS PRE-FITTED (Story 8.10, epic-8 amendment 65). FR48 deleted
+// the interim spawn seed, so every hull now spawns holding the deck gun and
+// the Shift boost ONLY and its first weapon arrives as a CARD from the
+// level-zero countdown offer. This smoke's whole choreography is torpedoes in
+// slot 2 (Q) — step 2's suppressed ready-room impact, step 4's kill — so it
+// asks for the fish explicitly through the DEV-ONLY `fitOverride` join option
+// (honoured only under HC_DEV_OPTIONS=1, which this script sets for the server
+// it boots). Gambling on the countdown draw instead was the rejected option.
+// The fit survives the activation redeploy: this is a dev-door room (no
+// expectedCaptains), so its countdown->active boundary takes the WIPE path and
+// redeployEconomy re-applies the dev fit there.
+//
 // SCOPE SINCE STORY 6.1 — THIS SMOKE COVERS THE DEV DOOR. A production client
 // never reaches the arena this way any more: it queues into StandardQueueRoom
 // and arrives on a seat reservation (see queueSmoke.mjs, which proves that
@@ -185,7 +197,11 @@ function killServerHard(proc) {
 
 async function joinClient(name) {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE });
+  // Every client here is a Torpedo Boat (the default class), so every one asks
+  // for the Torpedo Boat's weapon line — `heavyTorpedo`, the deck's only
+  // non-stub weapon, which lands in slot 2 (Q) exactly where the deleted spawn
+  // seed used to put it.
+  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, fitOverride: ['heavyTorpedo'], matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE });
   const ctx = {
     name, room, welcome: null, you: null, seq: 0, fireSeq: 0, fireAt: null,
     frames: 0, specFrames: 0, specWithYou: 0, specContactIds: new Set(),

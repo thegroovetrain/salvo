@@ -18,6 +18,7 @@ import {
   isAfloat,
   CATALOG,
   CONFIG,
+  MULLIGAN_CHOICE,
   CONSUMABLE_SLOTS,
   DEFAULT_DECKS,
   LINE_IDS,
@@ -44,6 +45,7 @@ import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildConsumableRegistry, consumableRow, slotAmmo } from '../game/equipment/index.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
+import { fitClassWeapons } from './classWeapons.js';
 
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
@@ -139,40 +141,29 @@ const ballisticsOf = (f: FrameMsg) =>
  *  deleted — no deck, offer, or catalog may ever hold one again. */
 const DEAD_RELOAD_IDS = ['gunReload', 'cannonReload', 'torpedoReload', 'mineReload', 'boostReload', 'starReload', 'decoyReload'];
 
-/** THE SPAWN SEED per hull: copy 1 of every equipment line whose weapon the
- *  hull already carries. The hull HOLDS these, so the pool deals one copy
- *  fewer of each — where the deck carries the line at all (the Battleship's
- *  `broadside` is carried but NOT in its default deck, so nothing is removed
- *  for it). */
-const SEED_FOR: Record<string, string[]> = {
-  torpedoBoat: ['heavyTorpedo'],
-  battleship: ['broadside', 'starShells'],
-  mineLayer: ['navalMines'],
-};
-/** The seed `place()` hands a default (torpedoBoat) fixture. */
-const TB_SEED = SEED_FOR.torpedoBoat;
-/** Copies of `id` in a fresh torpedoBoat POOL: its default-deck count less
- *  the one copy the seed holds (Story 8.2 — the pool is dealt from the list,
- *  so `CATALOG[id].cap` is no longer the number a line starts at). */
+/** NOTHING IS HELD AT SPAWN ANY MORE (Story 8.10, FR48, epic-8 amendment 62):
+ *  the interim spawn seed — copy 1 of each of a hull's class weapons — is
+ *  deleted, so every captain comes up with an EMPTY `cards` list, a gun and the
+ *  Shift boost, and the whole list (less stubs) in its pool. The first weapon
+ *  is the one taken from the level-zero offer the countdown grants. */
+const NO_SEED: readonly string[] = [];
+/** Copies of `id` in a fresh torpedoBoat POOL: its default-deck count, whole —
+ *  nothing is withheld now that nothing is carried (Story 8.2 + 8.10). */
 const poolCopies = (id: string): number =>
-  DEFAULT_DECKS.torpedoBoat.filter((x) => x === id).length - (TB_SEED.includes(id) ? 1 : 0);
+  DEFAULT_DECKS.torpedoBoat.filter((x) => x === id).length;
 /** A DIRECTED board list for the extra-slot fits: the TB default plus every
  *  copy of NAVAL MINES. Not a legal deck (46 cards, four equipment lines) —
  *  the World checks no legality (the door does), and the TB's own default
  *  holds no unfitted, non-stub equipment line to fit, so the fixture adds
  *  one on purpose. */
 const TB_WITH_MINES: readonly LineId[] = [...DEFAULT_DECKS.torpedoBoat, ...new Array<LineId>(CATALOG.navalMines.cap).fill('navalMines')];
-/** THE DRAWABLE POOL SIZE for a hull (Story 8.2, amendment 11): its 40-card
- *  DEFAULT deck less every stub card less the carried copies the deck
- *  actually holds. Derived from the ruling's list rather than restated, so
- *  the number moves with the stub flags (8.7–8.15 flip them) and the PIN is
- *  the RULE — and pinned at 23 for all three today. */
-const deckSizeFor = (hull: ShipClassId = 'torpedoBoat'): number => {
-  const list = DEFAULT_DECKS[hull];
-  const dealt = list.filter((id) => !isStubLine(id)).length;
-  const held = SEED_FOR[hull].filter((id) => list.includes(id as (typeof list)[number])).length;
-  return dealt - held;
-};
+/** THE DRAWABLE POOL SIZE for a hull (Story 8.2, amendment 11; Story 8.10):
+ *  its 40-card DEFAULT deck less every stub card — and nothing else, now that
+ *  the spawn holds no carried copy back. Derived from the ruling's list rather
+ *  than restated, so the number moves with the stub flags (8.7–8.15 flip them)
+ *  and the PIN is the RULE — and pinned at 27 for all three today. */
+const deckSizeFor = (hull: ShipClassId = 'torpedoBoat'): number =>
+  DEFAULT_DECKS[hull].filter((id) => !isStubLine(id)).length;
 
 describe('deck composition — the DEFAULT deck through the World (Story 8.2)', () => {
   const HULLS: ShipClassId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
@@ -186,18 +177,18 @@ describe('deck composition — the DEFAULT deck through the World (Story 8.2)', 
       expect(rec.deckList).toBe(DEFAULT_DECKS[hull]);
       expect(rec.deckList).toHaveLength(CONFIG.deck.size);
       expect(Object.isFrozen(rec.deckList)).toBe(true);
-      // The POOL is the list less stubs less the carried copies: 26 today
-      // (Story 8.8 un-stubbed HULL REPAIR, 3 copies per hull: 23 -> 26).
+      // The POOL is the list less stubs: 27 today (Story 8.8 un-stubbed HULL
+      // REPAIR, 3 copies per hull: 23 -> 26; Story 8.10 deleted the one
+      // carried copy each hull used to hold back: 26 -> 27).
       expect(rec.deck.cards).toHaveLength(deckSizeFor(hull));
-      expect(deckSizeFor(hull)).toBe(26);
+      expect(deckSizeFor(hull)).toBe(27);
       const listed = new Map<string, number>();
       for (const id of rec.deckList) listed.set(id, (listed.get(id) ?? 0) + 1);
       for (const id of LINE_IDS) {
         // A STUB line is authored but unbuilt: it can never be dealt, which is
-        // the single point at which "authored" becomes "unofferable". A CARRIED
-        // line is dealt one short: the hull already holds copy 1 (the weapon).
-        const seeded = SEED_FOR[hull].includes(id) && listed.has(id) ? 1 : 0;
-        expect(copiesInDeck(rec, id), id).toBe(isStubLine(id) ? 0 : (listed.get(id) ?? 0) - seeded);
+        // the single point at which "authored" becomes "unofferable". Every
+        // other line is dealt WHOLE — Story 8.10 deleted the carried copy.
+        expect(copiesInDeck(rec, id), id).toBe(isStubLine(id) ? 0 : (listed.get(id) ?? 0));
       }
       // The deck-gun family and the global RELOAD ladder are universal
       // (amendment 10's 30 shared cards), and no per-equipment reload line
@@ -212,14 +203,13 @@ describe('deck composition — the DEFAULT deck through the World (Story 8.2)', 
     });
   }
 
-  it('the hulls spawn holding their carried seed, and the seed + the pool + the stubs is the whole list', () => {
+  it('the hulls spawn holding NOTHING, and the pool + the stubs is the whole list', () => {
     for (const hull of HULLS) {
       const w = bareWorld();
       const rec = place(w, 'a', 0, 0, 0, hull);
-      expect(rec.cards).toEqual(SEED_FOR[hull]);
+      expect(rec.cards).toEqual(NO_SEED);
       const stubs = rec.deckList.filter((id) => isStubLine(id)).length;
-      const heldInDeck = SEED_FOR[hull].filter((id) => rec.deckList.includes(id as (typeof rec.deckList)[number])).length;
-      expect(rec.deck.cards.length + stubs + heldInDeck).toBe(CONFIG.deck.size);
+      expect(rec.deck.cards.length + stubs).toBe(CONFIG.deck.size);
     }
   });
 
@@ -275,7 +265,7 @@ describe('point earn — who banks one (deck-drawn offers)', () => {
     expect(a.deck.cards).toHaveLength(deckBefore); // the DRAW takes nothing out
     expect(a.level).toBe(1);
     // Earning applies NOTHING: the build and cached stats are the zero-card identity.
-    expect(a.cards).toEqual(TB_SEED);
+    expect(a.cards).toEqual(NO_SEED);
     expect(a.stats).toEqual(effectiveStats(a.cls));
     // Exactly one pt event, visible ONLY to the killer.
     expect(ptsOf(buildFrame(w, 'a').events)).toEqual([{ k: 'pt', id: 'a' }]);
@@ -409,7 +399,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     // Spend it through the public wire entry point, exactly as a client does.
     const pick = hand[2];
     expect(w.spendPoint('a', 2)).toBe(true);
-    expect(a.cards).toEqual([...TB_SEED, pick]);
+    expect(a.cards).toEqual([pick]);
     // THE TIER LANDS: the fold is the whole build, so the cached stats equal a
     // fresh effectiveStats over the id list — and the picked line's own tier
     // target (where it has one) has advanced off its base rung.
@@ -439,7 +429,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     const first = front(a);
     const pick = first[2];
     expect(w.spendPoint('a', 2)).toBe(true);
-    expect(a.cards).toEqual([...TB_SEED, pick]);
+    expect(a.cards).toEqual([pick]);
     expect(a.bankedLevels).toBe(2);
     const second = front(a); // a FRESH hand, drawn now that this level reached the front
     expect(second).toHaveLength(CONFIG.offer.size);
@@ -448,6 +438,11 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     expect(f.you!.offer).toEqual(second);
   });
 
+  // THE ONE EXCEPTION IS THE COUNTDOWN MULLIGAN (Story 8.10, FR48, epic-8
+  // amendment 60): a hand is drawn once and frozen for its whole life, and the
+  // single thing that can ever replace it is the free redraw at the start
+  // line — gated on `World.countdownOpen`, which only `Match` ever opens. The
+  // sibling test below proves the gate, and mulligan.test.ts owns the matrix.
   it('the front offer is reroll-proof: identical across consecutive frames with no spend', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -458,6 +453,30 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     expect([...buildFrame(w, 'a').you!.offer]).toEqual(before);
     expect(a.bankedLevels).toBe(1);
     expect(front(a)).toEqual(before); // ...and the server-side hand is the frozen one
+  });
+
+  it('...and the mulligan changes the hand ONLY while the countdown is open', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 1);
+    const before = front(a);
+    const held = a.offer;
+    // LIVE WATER (the default): the sentinel is refused and the hand is the
+    // SAME ARRAY, not merely an equal one.
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(false);
+    expect(a.offer).toBe(held);
+    expect(a.mulliganed).toBe(false);
+    // THE START LINE: the one legal reroll in the game.
+    w.countdownOpen = true;
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(true);
+    expect(a.offer).not.toBe(held);
+    expect(front(a)).not.toEqual(before);
+    expect(a.mulliganed).toBe(true);
+    expect(a.bankedLevels).toBe(1); // a redraw spends no level
+    // ...and it is the ONE redraw: a second press changes nothing at all.
+    const second = a.offer;
+    expect(w.spendPoint('a', MULLIGAN_CHOICE)).toBe(false);
+    expect(a.offer).toBe(second);
   });
 
   // THE ANTI-REGRESSION PIN (the lazy-draw bugfix). Under the old model each
@@ -488,7 +507,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
       spendPlainCard(w, a);
       expect(a.bankedLevels).toBe(i - 1);
     }
-    expect(a.cards).toHaveLength(20 + TB_SEED.length);
+    expect(a.cards).toHaveLength(20);
     expect(a.deck.cards).toHaveLength(buildSize - 20); // exactly the 20 FITTED cards
   });
 
@@ -546,7 +565,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
       fits += 2;
       expect(a.deck.cards).toHaveLength(buildSize - fits);
     }
-    expect(a.cards).toHaveLength(fits + TB_SEED.length);
+    expect(a.cards).toHaveLength(fits);
   });
 
   // SOFT PITY IS DELETED with rarity (Story 8.1), and `levelsSinceRare` with
@@ -613,7 +632,7 @@ describe('spendPoint — validation table', () => {
     }
     expect(a.bankedLevels).toBe(1);
     expect(front(a)).toEqual(before);
-    expect(a.cards).toEqual(TB_SEED);
+    expect(a.cards).toEqual(NO_SEED);
     expect(a.repairHp).toBe(0); // no near-miss ever primed the pool
   });
 
@@ -625,7 +644,7 @@ describe('spendPoint — validation table', () => {
     const pick = front(a)[1];
     expect(w.spendPoint('a', 1)).toBe(true);
     w.step();
-    expect(a.cards).toEqual([...TB_SEED, pick]);
+    expect(a.cards).toEqual([pick]);
     expect(a.stats).toEqual(effectiveStats(a.cls, a.cards));
     expect(bnsOf(buildFrame(w, 'a').events)).toEqual([{ k: 'bn', id: 'a', boon: pick }]);
     expect(bnsOf(buildFrame(w, 'b').events)).toEqual([]); // spender-private
@@ -638,7 +657,7 @@ describe('spendPoint — validation table', () => {
     expect(front(a)).toHaveLength(4);
     const pick = front(a)[3];
     expect(w.spendPoint('a', 3)).toBe(true);
-    expect(a.cards).toEqual([...TB_SEED, pick]);
+    expect(a.cards).toEqual([pick]);
   });
 
   it('levels ARE spendable while dead (builds persist across respawn)', () => {
@@ -653,7 +672,7 @@ describe('spendPoint — validation table', () => {
     expect(isAfloat(a.lifecycle)).toBe(false);
     const pick = front(a)[0];
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.cards).toEqual([...TB_SEED, pick]);
+    expect(a.cards).toEqual([pick]);
     expect(a.bankedLevels).toBe(0);
     expect(a.offer).toBeNull();
   });
@@ -947,12 +966,13 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
   it('the pick installs the equipment LOADED in the first EMPTY weapon slot (full pool)', () => {
     const { w, a } = fitBoard();
     expect(w.spendPoint('a', 0)).toBe(true);
-    // Story 8.5: the TB's seed holds slot 2, so the pick takes slot 3 (E) —
-    // first-empty-first across the weapon row, never a fixed 'extra' slot.
+    // Story 8.5 + 8.10: the weapon row starts EMPTY (no spawn seed), so the
+    // pick takes slot 2 (Q) — first-empty-first across the row, never a fixed
+    // 'extra' slot.
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'heavyTorpedo', 'navalMines', null, null, null, null, null,
+      'gun', 'boost', 'navalMines', null, null, null, null, null, null,
     ]);
-    expect(a.loadout[3].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
+    expect(a.loadout[2].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
   });
 
   it('the line stays in the deck at cap − 1 and its later copies are its TIERS, not another fit', () => {
@@ -1201,23 +1221,21 @@ describe('empty deck — the level banks, no hand materializes, and exhaustion i
     expect(a.deckExhausted).toBe(true);
     expect(onDeckExhausted).toHaveBeenCalledTimes(1);
 
-    // The match boundary rebuilds `deck` from `deckList` (never the catalog) —
-    // the pool is full again, the LATCH is not part of the rebuild.
+    // THE MATCH BOUNDARY NO LONGER REBUILDS THE POOL (Story 8.10 review, P1):
+    // the whole card economy crosses it, so the dry deck stays dry and the
+    // banked level stays banked. The LATCH was never part of any rebuild and
+    // still is not — which is the thing this case exists to pin.
     w.resetForMatchStart();
     a.state.speed = 0;
-    expect(a.deck.cards).toEqual(['lastShell']);
-    expect(a.bankedLevels).toBe(0);
+    expect(a.deck.cards).toEqual([]);
+    expect(a.bankedLevels).toBe(1);
     expect(a.deckExhausted).toBe(true);
     expect(onDeckExhausted).toHaveBeenCalledTimes(1);
 
-    // ...so running the SAME record dry a second time is silent.
+    // ...so banking against the SAME dry record again is silent.
     w.grantXp(a, 1);
     w.step();
-    expect(front(a)).toEqual(['lastShell']);
-    expect(w.spendPoint('a', 0)).toBe(true);
-    w.grantXp(a, 1);
-    w.step();
-    expect(a.bankedLevels).toBe(1);
+    expect(a.bankedLevels).toBe(2);
     expect(a.offer).toBeNull();
     expect(onDeckExhausted).toHaveBeenCalledTimes(1);
   });
@@ -1293,7 +1311,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     // Story 5.2: the revive waits on the founder tick (window > respawn delay).
     for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 1; i++) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true);
-    expect(a.cards).toEqual([...TB_SEED, 'armor', 'armor']);
+    expect(a.cards).toEqual(['armor', 'armor']);
     expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 50);
     expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp
     expect(a.deck.cards).toEqual(deckBefore);
@@ -1304,7 +1322,11 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     expect(a.xpMs).toBeGreaterThanOrEqual(xpBefore);
   });
 
-  it('redeployShip (match start) WIPES the build AND rebuilds the deck over the fresh fit', () => {
+  // THE TRUTH FLIPPED (Story 8.10 review, P1): a redeploy is a fresh HULL over
+  // the SAME build now, on every path — `hold` governs placement only, and the
+  // countdown economy must reach live water in every room (the batch-sim
+  // runner and the RL env build a Match without `expectedCaptains`).
+  it('redeployShip (match start) PRESERVES the build, the bank, the hand and the deck', () => {
     const w = bareWorld();
     // TB_WITH_MINES: the TB default holds no unfitted non-stub equipment line,
     // so the board adds NAVAL MINES to have a fit that diverges the deck.
@@ -1317,24 +1339,31 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     w.spendPoint('a', 0);
     bank(w, a, 2);
     expect(copiesInDeck(a, 'navalMines')).toBe(CATALOG['navalMines'].cap - 1);
+    const bankBeforeReset = a.bankedLevels;
+    const handBeforeReset = a.offer;
+    const poolBeforeReset = [...a.deck.cards];
     w.resetForMatchStart();
-    expect(a.cards).toEqual(TB_SEED);
-    expect(a.bankedLevels).toBe(0);
-    expect(a.offer).toBeNull();
+    expect(a.cards).toEqual(['navalMines']);
+    expect(a.bankedLevels).toBe(bankBeforeReset);
+    expect(a.offer).toBe(handBeforeReset); // the same array, never redrawn
+    // XP is the ONE thing that still dies at the boundary (Story 2.6).
     expect(a.level).toBe(0);
     expect(a.xpMs).toBe(0);
-    expect(a.stats).toEqual(effectiveStats(a.cls));
+    expect(a.stats).toEqual(effectiveStats(a.cls, ['navalMines']));
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'heavyTorpedo', null, null, null, null, null, null,
+      'gun', 'boost', 'navalMines', null, null, null, null, null, null,
     ]);
-    // The fresh pool is rebuilt from the SAME frozen list (never the catalog):
-    // every dealt line back at its listed count, less the re-seeded copy —
-    // including the fitted mines, back at all five.
+    // ...on a FRESH clock: the loadout is REBUILT from the kept cards, so no
+    // pool is short and nothing is reloading.
+    for (const slot of a.loadout) {
+      if (slot.state === null) continue;
+      expect(slot.state.reloadMsLeft).toBe(0);
+    }
+    // The pool is NOT rebuilt: the copy the fit consumed stays consumed.
     expect(a.deckList).toEqual(TB_WITH_MINES);
-    expect(copiesInDeck(a, 'navalMines')).toBe(CATALOG['navalMines'].cap);
-    expect(copiesInDeck(a, 'armor')).toBe(3);
-    expect(copiesInDeck(a, 'heavyTorpedo')).toBe(2);
-    expect(a.deck.cards).toHaveLength(deckSizeFor() + CATALOG['navalMines'].cap);
+    expect(a.deck.cards).toEqual(poolBeforeReset);
+    expect(copiesInDeck(a, 'navalMines')).toBe(CATALOG['navalMines'].cap - 1);
+    expect(a.deck.cards).toHaveLength(deckSizeFor() + CATALOG['navalMines'].cap - 1);
   });
 });
 
@@ -1410,7 +1439,11 @@ describe('per-observer sweep (intelSweep)', () => {
 describe('effective weapon stats in the fire path (catalog ladders)', () => {
   it('RELOAD: ONE card shortens EVERY equipment — a consumed gun AND torpedo round both start the SCALED reload', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0); // TB fit: [gun, boost, heavyTorpedo, empty x6]
+    const a = place(w, 'a', 0, 0);
+    // THE TUBES ARE A CARD NOW (Story 8.10): the spawn seed is gone, so this
+    // fire-path fixture fits the TB's torpedo explicitly — [gun, boost,
+    // heavyTorpedo, empty x6], exactly the fit it used to come up with.
+    fitClassWeapons(w, a);
     stack(w, a, 'reload', 5); // the 5-copy cap: additive −0.05/card => 0.75
     // Additive-linear, never 0.95^5 (=0.7738). clampStats rounds the
     // accumulated scale to 3 decimals before the multiplies (shared/src/sim/
@@ -1436,7 +1469,8 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
 
   it('RELOAD: the BROADSIDE reads the same global scale (18s -> 13.5s) off the Battleship fit', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 0, 0, 0, 'battleship'); // [gun, broadside, starShells, empty]
+    const bb = place(w, 'a', 0, 0, 0, 'battleship');
+    fitClassWeapons(w, bb); // the class cards, fitted explicitly (Story 8.10)
     stack(w, bb, 'reload', 5);
     expect(bb.stats.equipment.broadside.reloadMs).toBe(13500); // 18000 base -> 13500
     fire(bb, 1, SLOT_BROADSIDE, 300, Math.PI / 2); // abeam — inside the beam sector
@@ -1615,6 +1649,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   it('the launched fish rides the EFFECTIVE torpedo speed, and ONLY vx/vy carry it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
+    fitClassWeapons(w, a); // the tubes are a card (Story 8.10)
     w.step(); // flush the join spawn
     a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
     w.step();
@@ -1635,6 +1670,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const dropMines = (drops: number): number => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+      fitClassWeapons(w, a); // the rack is a card (Story 8.10)
       expect('maxLive' in a.stats.equipment.navalMines).toBe(false);
       w.step();
       for (let i = 0; i < drops; i++) {
@@ -1710,46 +1746,57 @@ describe('STUB lines can never be fitted (server gate + shared replay)', () => {
 // copy 1. Before this, the deck dealt that copy anyway and the pick was a dead
 // card: `slotFill` no-ops against equipment already fitted, so a Torpedo Boat
 // could spend a whole level on HEAVY TORPEDO and get nothing at all.
-describe('the CARRIED seed — a hull spawns holding copy 1 of its own weapons', () => {
-  // Sizes (Story 8.2; Story 8.8): 40 − 13 stub cards − the ONE carried copy the
-  // default deck holds = 26 for every hull; the Battleship's `broadside` is
-  // carried but not in its deck, so it holds 0 copies rather than −1. It was
-  // 23 until 8.8 un-stubbed HULL REPAIR's three per-hull copies.
-  const SEEDS: [ShipClassId, string[], number][] = [
-    ['torpedoBoat', ['heavyTorpedo'], 26],
-    ['battleship', ['broadside', 'starShells'], 26],
-    ['mineLayer', ['navalMines'], 26],
+describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.10)', () => {
+  // THE INTERIM SPAWN SEED IS DELETED (FR48, epic-8 amendment 62). Every hull
+  // used to come up holding copy 1 of each of its class weapons, which fitted
+  // the weapon and made the deck deal one copy fewer of the line. Now nothing
+  // is held, nothing is fitted past the universal [gun, boost], and the whole
+  // list (less its 13 stub cards) is dealt: 27 for every hull.
+  const HULLS: [ShipClassId, string[]][] = [
+    ['torpedoBoat', ['heavyTorpedo']],
+    ['battleship', ['broadside', 'starShells']],
+    ['mineLayer', ['navalMines']],
   ];
 
-  for (const [hull, seed, size] of SEEDS) {
-    it(`${hull} spawns with cards ${JSON.stringify(seed)} and a ${size}-card pool`, () => {
+  for (const [hull, formerSeed] of HULLS) {
+    it(`${hull} spawns with NO cards, a 27-card pool, and ${JSON.stringify(formerSeed)} still in the deck`, () => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0, 0, hull);
-      expect(a.cards).toEqual(seed);
-      expect(a.deck.cards).toHaveLength(size);
-      for (const id of seed) {
-        const inDeck = DEFAULT_DECKS[hull].filter((x) => x === id).length;
-        expect(copiesInDeck(a, id), id).toBe(Math.max(0, inDeck - 1));
+      expect(a.cards).toEqual([]);
+      expect(a.deck.cards).toHaveLength(27);
+      expect(deckSizeFor(hull)).toBe(27);
+      // The line the hull used to hold is dealt WHOLE now — every copy the
+      // list carries is in the pool, drawable like any other card.
+      for (const id of formerSeed) {
+        expect(copiesInDeck(a, id), id).toBe(DEFAULT_DECKS[hull].filter((x) => x === id).length);
       }
-      // The seed is STAT- and FIT-NEUTRAL: tier I is the bare weapon, which is
-      // what the hull already had.
+      // ...and the fit is the bare universal loadout, byte for byte: gun,
+      // Shift boost, seven empty slots. `loadoutFor` IS the spawn now.
       expect(a.stats).toEqual(effectiveStats(a.cls));
-      for (const id of seed) expect(a.stats.equipment[tierTargetOf(CATALOG[id])!].tier, id).toBe(1);
+      expect(a.loadout).toEqual(loadoutFor(a.stats));
       expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards));
-      // ...and the SEED is the ONLY difference from the bare universal fit
-      // (Story 8.5): the gun and the boost are byte-identical to `loadoutFor`,
-      // and the seed's lines are exactly what filled the weapon row.
-      const bare = loadoutFor(a.stats);
-      expect(a.loadout[SLOT_GUN]).toEqual(bare[SLOT_GUN]);
-      expect(a.loadout[SLOT_BOOST]).toEqual(bare[SLOT_BOOST]);
-      expect(WEAPON_SLOTS.map((i) => a.loadout[i].equipmentId).filter((x) => x !== null)).toEqual(seed);
+      for (const i of WEAPON_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
       for (const i of CONSUMABLE_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
+      expect(a.loadout[SLOT_GUN].equipmentId).toBe('gun');
+      expect(a.loadout[SLOT_BOOST].equipmentId).toBe('boost');
     });
   }
+
+  it('the FIRST copy of a class line is the bare weapon, fitted into slot 2 (Q)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.applyCard(a, 'heavyTorpedo');
+    expect(a.cards).toEqual(['heavyTorpedo']);
+    expect(a.loadout[WEAPON_SLOTS[0]].equipmentId).toBe('heavyTorpedo');
+    expect(a.stats.equipment.heavyTorpedo.tier).toBe(1);
+    // Tier I is the bare weapon (catalog-v3 §4), so copy 1 moves no number.
+    expect(a.stats).toEqual(effectiveStats(a.cls, ['heavyTorpedo']));
+  });
 
   it('the NEXT copy is tier II — a real -5% reload step, not a wasted fit', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
+    w.applyCard(a, 'heavyTorpedo');
     const before = a.stats.equipment.heavyTorpedo.reloadMs;
     w.applyCard(a, 'heavyTorpedo');
     expect(a.cards).toEqual(['heavyTorpedo', 'heavyTorpedo']);
@@ -1757,20 +1804,35 @@ describe('the CARRIED seed — a hull spawns holding copy 1 of its own weapons',
     expect(a.stats.equipment.heavyTorpedo.reloadMs).toBeCloseTo(before * 0.95, 6);
   });
 
-  it('redeployShip re-seeds the SAME cards and the same short deck', () => {
+  // THE SPAWN still holds nothing — but a REDEPLOY no longer returns a hull to
+  // the spawn state (Story 8.10 review, P1): it keeps the build on every path.
+  it('redeployShip (no hold) KEEPS the build; only a fresh ADDSHIP holds nothing', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
+    w.applyCard(a, 'broadside');
     w.applyCard(a, 'armor');
+    const pool = [...a.deck.cards];
     w.resetForMatchStart();
-    expect(a.cards).toEqual(['broadside', 'starShells']);
-    expect(a.deck.cards).toHaveLength(26);
-    expect(a.stats).toEqual(effectiveStats(a.cls));
+    expect(a.cards).toEqual(['broadside', 'armor']);
+    expect(a.deck.cards).toEqual(pool); // two copies still spent
+    expect(a.stats).toEqual(effectiveStats(a.cls, ['broadside', 'armor']));
+    expect(a.loadout[WEAPON_SLOTS[0]].equipmentId).toBe('broadside');
+    // A hull that JOINS, by contrast, still comes up with nothing at all.
+    const fresh = place(w, 'fresh', 0, 0, 0, 'battleship');
+    expect(fresh.cards).toEqual([]);
+    expect(fresh.mulliganed).toBe(false);
+    expect(fresh.deck.cards).toHaveLength(27);
+    expect(fresh.stats).toEqual(effectiveStats(fresh.cls));
+    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats));
   });
 
-  it('DRONES still get NO deck, seeded cards or not', () => {
+  it('DRONES still get NO deck, and now no cards to speak of either', () => {
     const w = bareWorld();
     const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []);
     expect(d.deck.cards).toEqual([]);
+    expect(d.cards).toEqual([]);
+    // A fleet hull fits the GUN ALONE — never the Shift boost (amendment 24).
+    expect(d.loadout.map((x) => x.equipmentId)).toEqual(['gun', null, null, null, null, null, null, null, null]);
   });
 });
 

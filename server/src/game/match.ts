@@ -105,6 +105,17 @@ export interface MatchTimings {
   expectedCaptains?: number;
   /** Boarding backstop (see BOARDING_GRACE_MS). Overridable for tests. */
   boardingGraceMs?: number;
+  /**
+   * DEV SMOKE ARM (Story 8.10, from `matchOverride.mulligan`, HC_DEV_OPTIONS
+   * only): perform the level-zero MULLIGAN for every captain on the first
+   * update() tick after the countdown arms, through the very same
+   * `world.mulligan()` the wire uses. A headless smoke then sees offer A on
+   * its first countdown frame and offer B on the next WITHOUT sending
+   * anything, and the captain's own later sentinel is the no-op it should be
+   * (the one redraw is spent). Never set in production — `sanitizeRoomOptions`
+   * strips the whole matchOverride without the dev env.
+   */
+  autoMulligan?: boolean;
 }
 
 export function defaultTimings(): MatchTimings {
@@ -408,6 +419,8 @@ export class Match {
    *  so it strictly bounds every window it could ever wait on. Past it the
    *  finish fires regardless of lifecycle state. */
   private finishDeadline = 0;
+  /** DEV smoke arm armed for the next tick (MatchTimings.autoMulligan). */
+  private autoMulliganPending = false;
 
   constructor(
     private readonly world: World,
@@ -445,6 +458,14 @@ export class Match {
     } else if (this.phase === 'countdown' && !enough) {
       this.phase = 'waiting';
       this.countdownEndT = 0;
+      // The start line stands down with the countdown (Story 8.10): no
+      // mulligan while the room waits. The banked level and the hand STAY —
+      // the room is still pre-live, and a re-arm grants nothing more to a hull
+      // that already holds its opening (World's per-ship `openingGranted`),
+      // while a captain who joins during the wait gets one at their own
+      // re-arm.
+      this.world.countdownOpen = false;
+      this.autoMulliganPending = false;
       this.applyPolicy();
       // A QUEUE-FORMED room is never unlocked (Eric ruling 2026-08-15: "No more
       // late arrivals"). Its cohort was fixed the moment the queue formed it, so
@@ -580,6 +601,7 @@ export class Match {
   /** Advance the state machine one tick. Call right after world.step(). */
   update(): void {
     this.reapDeparted(); // scuttled leavers whose window ran out (Story 6.7)
+    this.tickAutoMulligan(); // DEV smoke arm only — a no-op on every other path
     // THE BOARDING BACKSTOP'S CLOCK (amendment 8). boardingReady() turns true
     // on its own timer with no roster event to announce it, so a waiting
     // boarding room re-runs the one gate that arms. Confined to queue-formed
@@ -616,8 +638,36 @@ export class Match {
   private startCountdown(): void {
     this.phase = 'countdown';
     this.countdownEndT = this.world.now + this.timings.countdownMs;
+    // THE OPENING (Story 8.10, FR48): the sim learns the phase through ONE
+    // flag — it holds no Match reference — and every participant banks its
+    // level-zero offer BEFORE the policy and the lock, so the very first
+    // countdown frame a client receives already carries `pts 1 / lvl 0 /
+    // offer[4]`. Called on EVERY arming: `World.grantOpening()` is idempotent
+    // per hull (the 8.10 review, P2), so a countdown that cancelled back to
+    // `waiting` and re-armed banks nothing extra for the hulls that stayed and
+    // a full opening for whoever joined in between.
+    this.world.countdownOpen = true;
+    this.world.grantOpening();
     this.applyPolicy();
     this.hooks.lock();
+    // The dev smoke arm redraws on the NEXT tick, not this one (see
+    // MatchTimings.autoMulligan): a smoke must be able to see offer A first.
+    this.autoMulliganPending = this.timings.autoMulligan === true;
+  }
+
+  /**
+   * The dev smoke arm (MatchTimings.autoMulligan), run unconditionally from
+   * update() so the state machine's own branch count does not move. Fires at
+   * most once per countdown: the first tick after the arm, for every captain,
+   * through the public wire path. A bot is deliberately skipped — bots never
+   * redraw (amendment 60).
+   */
+  private tickAutoMulligan(): void {
+    if (!this.autoMulliganPending) return;
+    this.autoMulliganPending = false;
+    for (const s of this.world.ships.values()) {
+      if (s.role === 'captain') this.world.mulligan(s);
+    }
   }
 
   /** Countdown end → active. Field reset, THEN the storm anchors — which is
@@ -630,6 +680,11 @@ export class Match {
    *  the shipped re-roll, which is load-bearing there — captains really sail
    *  away and fire during its waiting phase. */
   private activate(): void {
+    // THE START LINE IS GONE FIRST (Story 8.10): the mulligan window shuts
+    // before anything else moves, so nothing inside this transition can
+    // redraw a hand on live water.
+    this.world.countdownOpen = false;
+    this.autoMulliganPending = false;
     this.world.resetForMatchStart(this.boardingRoom);
     this.world.startZone(this.world.now);
     this.phase = 'active';

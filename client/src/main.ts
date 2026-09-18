@@ -12,6 +12,7 @@ import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
   MSG,
+  MULLIGAN_CHOICE,
   NO_CARDS,
   boostedKinematics,
   cardBehaviors,
@@ -88,9 +89,12 @@ import {
   UpgradeMenu,
   canLatchSpend,
   frontOfferSignature,
+  mulliganLanded,
   offerView,
+  shouldAutoOpen,
   spendOutcome,
   type OfferView,
+  type RedrawState,
   type SpendLatch,
 } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
@@ -132,7 +136,7 @@ import {
 import { startLivenessPoll, type LivenessPoll } from './net/liveness.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
-import { heldAtStartLine, matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
+import { epochLatchReset, heldAtStartLine, matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { barVisible, ringReadout, type BountyHolder, type ChromeBarView } from './ui/chromeBar.js';
 import { bountyClaimLine, bountyToastLine, bountyTransition } from './ui/bounty.js';
 import { fleetSizeName, pushKillLine } from './ui/killFeed.js';
@@ -639,6 +643,23 @@ interface Game {
   /** The refit window's visibility on the PREVIOUS render frame — the other
    *  half of the one watcher that owns both of its edges (`watchRefitWindow`). */
   refitWasOpen: boolean;
+  /**
+   * THE ONE FREE REDRAW, already spent this match (Story 8.10, amendment 60).
+   * Set when the mulligan in flight is acked (the front offer changed at an
+   * unchanged bank — `mulliganLanded`), cleared on every match-phase edge and
+   * fresh at every join. The server is the authority; this is only what the
+   * button's pip draws, and a client that guessed wrong self-corrects at the
+   * next phase edge.
+   */
+  mulliganUsed: boolean;
+  /**
+   * The refit window has already opened ITSELF this match epoch (amendment 59)
+   * — a latch, never a numeric rise, so a reconnect mid-countdown still opens
+   * and a player who closed it with Tab is never re-opened. Set on the ATTEMPT:
+   * if `handleRefitToggle` refuses (another surface is up), that is the one
+   * attempt this epoch gets.
+   */
+  autoOpenedEpoch: boolean;
 }
 
 /** Toggle predict <-> interp (A/B comparison per the plan). Key: P. */
@@ -794,11 +815,33 @@ function windowLeft(until: number | undefined, now: number): number {
 function trySpend(g: Game, choice: number): void {
   const you = g.state.net.you;
   if (!canLatchSpend(g.spendInFlight, you)) return;
+  sendLatchedSpend(g, choice);
+}
+
+/** Send one spend and latch it. `choice` rides the latch so a FAILED outcome
+ *  can pulse exactly the control the player pressed (amendment 36's denied
+ *  register — a card, or since Story 8.10 the REDRAW button). `acked` flips
+ *  true if the server's self-private `bn` fitted event arrives first. */
+function sendLatchedSpend(g: Game, choice: number): void {
+  const you = g.state.net.you;
   g.room.send(MSG.spend, { choice });
-  // `choice` rides the latch so a FAILED outcome can pulse exactly the card the
-  // player picked (amendment 36's denied register). `acked` flips true if the
-  // server's self-private `bn` fitted event for this spend arrives first.
   g.spendInFlight = { pts: you?.pts ?? 0, offerSig: frontOfferSignature(you), at: performance.now(), choice, acked: false };
+}
+
+/**
+ * THE ONE FREE REDRAW (Story 8.10, amendment 60): throw the level-zero offer
+ * back and draw another, once, while the match is in countdown.
+ *
+ * Gated on the VIEW's own `unspent` — which already carries the phase, the
+ * offer's existence and the spent latch — and then on the very same spend latch
+ * a card pick uses, because the server processes both through `spendPoint` and
+ * two in flight at once would race each other's offer. The sentinel travels as
+ * `SpendMsg.choice`, the one negative the wire carries again (PV 55).
+ */
+function tryMulligan(g: Game): void {
+  if (currentOfferView(g)?.redraw !== 'unspent') return;
+  if (!canLatchSpend(g.spendInFlight, g.state.net.you)) return;
+  sendLatchedSpend(g, MULLIGAN_CHOICE);
 }
 
 /**
@@ -840,8 +883,14 @@ function markSpendAcked(g: Game): void {
 function updateSpendLatch(g: Game): number | null {
   const inFlight = g.spendInFlight;
   if (!inFlight) return null;
-  const outcome = spendOutcome(inFlight, g.state.net.you, performance.now());
+  const now = performance.now();
+  const outcome = spendOutcome(inFlight, g.state.net.you, now);
   if (outcome === 'pending') return null;
+  // A MULLIGAN's ack is the front offer changing at an unchanged bank (Story
+  // 8.10 — the server queues `pt`, never `bn`), which is exactly what
+  // `mulliganLanded` reads off the same classification: the pip fills here and
+  // nowhere else, so it can never contradict the latch.
+  if (mulliganLanded(inFlight, g.state.net.you, now)) g.mulliganUsed = true;
   g.spendInFlight = null;
   return outcome === 'failed' ? inFlight.choice : null;
 }
@@ -864,9 +913,37 @@ function updateSpendLatch(g: Game): number | null {
  */
 function syncRefitBand(g: Game): void {
   const deniedCard = updateSpendLatch(g);
+  tryAutoOpenRefit(g); // step 1b (Story 8.10): the window may open ITSELF here
   g.upgradeMenu.update(currentOfferView(g));
   watchRefitWindow(g);
   if (deniedCard !== null && g.upgradeMenu.visible) g.upgradeMenu.pulseDenied(deniedCard);
+}
+
+/**
+ * THE WINDOW OPENS ITSELF, ONCE PER MATCH (Story 8.10, amendment 59): the first
+ * frame that carries the countdown's level-zero offer with the window closed
+ * opens it, and nothing after that does.
+ *
+ * It goes through `handleRefitToggle` — the very path TAB takes — so the
+ * surface-stacking guard (never over settings or results) and the bank chip's
+ * re-arm are shared rather than re-stated here. The latch is set on the ATTEMPT:
+ * if the toggle refuses because another surface is up, that was this epoch's
+ * one attempt, which is the conservative direction (a window that keeps trying
+ * would fight the surface the player is actually reading).
+ *
+ * Read BEFORE the per-frame `update()`, so the window it opens renders this
+ * frame rather than one behind.
+ */
+function tryAutoOpenRefit(g: Game): void {
+  const open = shouldAutoOpen({
+    latched: g.autoOpenedEpoch,
+    phase: publicState(g).matchPhase ?? 'waiting',
+    visible: g.upgradeMenu.visible,
+    hasOffer: currentOfferView(g) !== null,
+  });
+  if (!open) return;
+  g.autoOpenedEpoch = true;
+  handleRefitToggle(g);
 }
 
 /**
@@ -921,6 +998,24 @@ function refitInGrace(g: Game | null): boolean {
  * the refit's state through here.
  */
 function currentOfferView(g: Game): OfferView | null {
+  const view = baseOfferView(g);
+  return view === null ? view : { ...view, redraw: redrawState(g) };
+}
+
+/**
+ * The REDRAW button's state this frame (Story 8.10, amendment 60) — the one
+ * seam where the MATCH PLANE reaches the refit view. `offerView()` is a pure
+ * projection of `you` and must stay phase-agnostic, so the countdown-only rule
+ * lives here beside every other read of the polled schema.
+ */
+function redrawState(g: Game): RedrawState {
+  if ((publicState(g).matchPhase ?? 'waiting') !== 'countdown') return 'hidden';
+  return g.mulliganUsed ? 'spent' : 'unspent';
+}
+
+/** The phase-free half of `currentOfferView` — everything that is a fact about
+ *  `you` alone. */
+function baseOfferView(g: Game): OfferView | null {
   return offerView(
     g.state.net.you,
     g.state.spectating,
@@ -1151,14 +1246,30 @@ const HELD_AXES: Axes = { throttle: 0, rudder: 0 };
  * helm during boarding must not have those presses cash in as an engine order
  * the instant the gun goes, having never seen them acknowledged on the ladder.
  * Idempotent with the server's own spawn event, which calls the same function.
+ *
+ * LATCHES: the refit window's one auto-open and the one free redraw (Story
+ * 8.10) ride the SAME edge — see `epochLatchReset` in ui/phase.ts for why that
+ * is the only edge any of the four belong on.
  */
 function updateMatchEpoch(g: Game): void {
   const phase = publicState(g).matchPhase ?? 'waiting';
-  if (phase === g.scorePhase) return;
+  const prev = g.scorePhase;
+  if (phase === prev) return;
   g.scorePhase = phase;
-  if (phase !== 'active') return;
+  if (!epochLatchReset(prev, phase)) return;
   g.score = freshScore();
   resetOwnOrders(g);
+  // THE OPENING'S TWO LATCHES (Story 8.10, amendments 59-60; the 8.10 review,
+  // P3) reset HERE, on the same edge as the score — not on every phase edge.
+  // The window's one auto-open and the one free redraw are per MATCH, and a
+  // new match's countdown can only ever follow the previous match's live edge
+  // (active → finished → waiting → countdown), so this arms both in time for
+  // the next start line; a fresh `Game` per join arms them at join. Resetting
+  // on every edge re-armed the auto-open on the `countdown → waiting` edge of
+  // a CANCELLED countdown, and the window flung itself open again at the
+  // re-arm. See ui/phase.ts `epochLatchReset`.
+  g.autoOpenedEpoch = false;
+  g.mulliganUsed = false;
 }
 
 /** Roster name lookup (Story 1.13): the synced callsign or null — NEVER a
@@ -2542,6 +2653,16 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
   };
 }
 
+/** The REDRAW button's press (Story 8.10) — the same late-bound shape as
+ *  `onSpendClick`: the deps are read at press time, never captured at
+ *  construction. */
+function onRedrawClick(getG: () => Game | null): () => void {
+  return () => {
+    const g = getG();
+    if (g) tryMulligan(g);
+  };
+}
+
 /** Fresh per-slot denied-feedback state (Story 1.6/1.8): one latch +
  *  rate-limited pulse + flash per loadout slot, so two special slots (the ML's
  *  mine + radarBuoy) never share a pulse/flash. Fed by predicted ability-press
@@ -2711,7 +2832,9 @@ function buildGame(
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
     hudBar: new HudBar(stage.layers.hud),
-    upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef), flashBudget),
+    // The third hook is the countdown footer's REDRAW press (Story 8.10),
+    // late-bound over gRef exactly like the card click beside it.
+    upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef), flashBudget, onRedrawClick(() => gRef)),
     settingsOverlay,
     score: freshScore(),
     scorePhase: 'waiting',
@@ -2742,6 +2865,10 @@ function buildGame(
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS),
     refitClosedAt: -Infinity, refitWasOpen: false,
+    // Story 8.10: both are per-MATCH latches, and a fresh Game is built per
+    // join — so a join is already a reset, and `updateMatchEpoch` owns every
+    // later one.
+    mulliganUsed: false, autoOpenedEpoch: false,
   };
   gRef = g;
   armWorldFlashBudget(g, camera, flashBudget);
@@ -2986,6 +3113,10 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // the latch in flight so it releases as a SUCCESS even when a same-frame
     // passive bank + an identical re-roll hide every other landing signal.
     onSpendAck: () => markSpendAcked(g),
+    // Story 8.10 (amendment 61): the countdown grant's `pt` is silent — no
+    // toast, no tone — because the window opens itself on it. Read per event
+    // off the polled plane through the same `atStartLine` every other lock uses.
+    heldAtStartLine: () => atStartLine(g),
     // Story 2.9: the fitted boon's CATEGORY decides which slot flashes (amendment
     // 51 — the visible change is slot-side). A shipwide INTEL/SHIP line owns no
     // slot, so the whole stack takes one rank-wide pulse instead.

@@ -11,8 +11,9 @@
 //
 // The TB torpedo case is the byte-identical regression pin: its bow-arc behavior
 // must NOT drift as the branch grows more shapes. `slotsWithCards` over the
-// interim SPAWN_SEED is the authoritative id→slot map, so we derive the ids the
-// same way main.ts's slotIdsFor does.
+// hull's FITTED CARDS is the authoritative id→slot map, so we derive the ids
+// the same way main.ts's slotIdsFor does — Story 8.10 deleted the interim spawn
+// seed that used to supply them, so the lists are this suite's own fixture.
 //
 // STORY 7-5 WAVE 2 RETIRED the `stern-drop` pins wholesale: that shape is
 // deleted from sim/arcs.ts with the decoy buoy that was its only user, so
@@ -30,7 +31,6 @@ import {
   effectiveStats,
   isConsumableId,
   gunReachU as sharedGunReachU,
-  SPAWN_SEED,
   WEAPON_SLOTS,
   slotsWithCards,
   pointInLitZone as sharedPointInLitZone,
@@ -50,15 +50,26 @@ import {
 import { ownActiveZones } from '../render/litZones.js';
 
 /**
+ * THE FIXTURE (Story 8.10): the class weapons each hull is FITTED with for
+ * these arc pins. They used to arrive from the interim spawn seed; that table
+ * is deleted (a hull spawns with the gun and Shift alone), and what these pins
+ * are about is the ARC of a fitted weapon, not who fitted it.
+ */
+const FITTED: Record<'torpedoBoat' | 'battleship' | 'mineLayer', readonly string[]> = {
+  torpedoBoat: ['heavyTorpedo'],
+  battleship: ['broadside', 'starShells'],
+  mineLayer: ['navalMines'],
+};
+
+/**
  * The fitted equipment id at a slot for a hull — the client's slotIdsFor path,
  * verbatim. STORY 8.5 re-cut the base fit: it no longer takes a hull, so what a
- * hull carries comes from its CARDS. At 0:00 those are the interim SPAWN_SEED
- * lines (epic-8 amendment 21 — today's class weapons, applied as cards), which
- * land in the first empty WEAPON slot, i.e. from slot 2 (Q) upward.
+ * hull carries comes from its CARDS, which land in the first empty WEAPON slot,
+ * i.e. from slot 2 (Q) upward.
  */
 function idAt(cls: 'torpedoBoat' | 'battleship' | 'mineLayer', slot: number): EquipmentId | null {
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
-  const id = slotsWithCards(stats, SPAWN_SEED[cls] ?? [])[slot].equipmentId;
+  const id = slotsWithCards(stats, FITTED[cls])[slot].equipmentId;
   // A slot's content is a `SlotItemId` since Story 8.7 — narrowed, never cast.
   return id === null || isConsumableId(id) ? null : id;
 }

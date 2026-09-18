@@ -2085,6 +2085,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
   summary: THE SPAWN-SEED TRIPWIRE: `shared/src/__tests__/nineSlots.test.ts` pins `|SPAWN_SEED[hull] ∪ non-stub equipment lines of DEFAULT_DECKS[hull]| ≤ 3`; the Battleship's seed (`broadside`, `starShells`) plus its deck's `missile`/`monitor` makes 4 the day Story 8.14 un-stubs them — the intended fix is Story 8.10 deleting `SPAWN_SEED`, never editing the number.
+  resolution: RESOLVED 2026-09-18 (Story 8.10, cycle 145) — `SPAWN_SEED` is deleted outright; every hull spawns with the gun and Shift only, so the tripwire's premise (a seed line plus deck lines totalling 4) is gone and the pinning test was deleted with it.
   evidence: amendment 21; 8.10 precedes 8.14 in the epic order.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
   summary: The interim hotbar clips on short viewports: nine rows at the 62/14 pitch are a 670 px column; at the 614 px floor viewport the top rows are off-screen and at 768 px the stack top sits at 72 px. Accepted by Eric (amendment 25, "Ignore it entirely. The next story fixes the HUD."); Story 8.6 replaces the geometry.
@@ -2098,6 +2099,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: the word does not fit the chip.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
   summary: A DECK THAT IS LEGAL AT THE DOOR CAN, TOGETHER WITH THE INTERIM SPAWN SEED, HOLD FOUR WEAPON LINES — `checkDeck` caps a deck at three equipment lines without counting `SPAWN_SEED[hull]`, so a deck built WITHOUT its hull's seed lines (today reachable only through the dev-only `deckOverride` under `HC_DEV_OPTIONS=1`; every `DEFAULT_DECK` is pinned safe by the `nineSlots.test.ts` tripwire) spawns with the seed in Q(/E) and its fourth distinct weapon card is consumed on pick but fits nothing (`applySlotEffect`'s full-row no-op has no refusal signal; the client's fit flash still fires). Eric ruling 2026-09-16: LEDGER IT, NO CODE — unreachable in production until decks become editable (Epic 9), by which point Story 8.10 has deleted the seed. If a deck editor ever lands BEFORE 8.10, the fix shape is: the door counts the hull's seed lines toward the three-line cap.
+  resolution: RESOLVED 2026-09-18 (Story 8.10, cycle 145) — `SPAWN_SEED` no longer exists, so a fitted-but-unspawned fourth weapon line can no longer arise this way; a deck's three-equipment-line cap is now the whole story at spawn.
   evidence: Flagged by all three 8.5 reviewers (Codex `gpt-5.6-sol` CONFIRMED, Edge Case Hunter CONFIRMED dev-gated, Blind Hunter P3); `shared/src/sim/deckRules.ts` `equipmentLineCount`, `server/src/rooms/deckDoor.ts:47`, `shared/src/sim/boons.ts` `applySlotEffect`, `shared/src/__tests__/nineSlots.test.ts` (default decks + seed ≤ 3).
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
   status: STAMPED 2026-09-18 (Story 8.9, cycle 144) — the burst every BS/ML bot withdrawal carries is now +25 % of the ladder-raised cap for 10 s on a 25 s reload (was +10 u/s, 6 s, 18 s); tactic and appetite keys renamed speedBoost → boost with NO retune; still an unmeasured balance shift for the harness.
@@ -2202,6 +2204,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: P7 patch reading; refitTooltipFit.test.ts pin.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
   summary: STORY 8.10 MUST PUT THE OPENING FLOW TO ERIC EXPLICITLY BEFORE BUILDING IT — UX-DR54's "ratified as rendered 2026-09-11" auto-open + REDRAW stamp is the planning pass's own claim; Eric did not recall discussing an auto-open (2026-09-17) and accepted it only as the level-zero countdown case (amendment 45). Ask, do not assume.
+  resolution: RESOLVED 2026-09-18 (Story 8.10, cycle 145) — asked via AskUserQuestion; Eric ruled both the auto-open (amendment 59) and the REDRAW mechanism (amendment 60) as designed, plus the silent grant (amendment 61) and the class-select card cut (amendment 62); built as ruled.
   evidence: Eric 2026-09-17 in the 8.7 run; memory rule "artifacts contain assumptions".
 
 ## 2026-09-17 — Story 8.8 Heal Is a Card (cycle 143): threads for later stories
@@ -2229,6 +2232,36 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-9-the-shift-boost-universal.md`
   summary: `EQUIPMENT_STAT_FIELDS.boost` still whitelists `durationMs` and `maxAmmo` as card-addressable stat paths (`shared/src/sim/effects.ts`) although no card may ever touch the Shift boost (amendment 54) and the cross-key harness invariant's whole premise is `maxAmmo === 1`; a future catalog line targeting `equipment.boost.maxAmmo` would validate and silently void "an active window always implies a cooling pool". Narrowing the whitelist changes what the slot tooltip prints for slot 1 (it reads the same whitelist), so this is a small design call, not a patch — the `--tune` half is closed (the validator pins `maxAmmo === 1`).
   evidence: Blind Hunter at the 8.9 gate; `effects.ts` `boost: ['durationMs','maxAmmo','reloadMs']`; `client/src/render/slotTooltip.ts` stat rows come off the whitelist; no shipped line targets any `boost.*` path.
+
+## 2026-09-18 — Story 8.10 The Opening (cycle 145): ledgered consequences
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-10-the-opening.md`
+  summary: THE LEVEL-ZERO GUARANTEE IS A COIN FLIP TODAY — with the current stub set each hull's default deck has exactly two usable lines at spawn (Torpedo Boat: `heavyTorpedo` or `hullRepair`; Mine Layer: `navalMines` or `hullRepair`; Battleship: `starShells` or `hullRepair`), so roughly half of countdown openings guarantee HULL REPAIR rather than a weapon. Not a defect — the guarantee's contract (`drawOffer`'s `usableLines`) is satisfied exactly as designed — but a fact QA and any early balance read should know going in; it widens toward an even spread across more outcomes as Stories 8.12-8.16 un-stub the remaining weapon and consumable lines.
+  evidence: `shared/src/sim/catalog.ts` `DEFAULT_DECKS` non-stub equipment lines per hull; `shared/src/sim/deck.ts` `usableLines`; amendment 63(a) note on the same stub set.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-10-the-opening.md`
+  summary: THE COUNTDOWN'S 44 PX TALLER BAND SHRINKS THE HOVER TOOLTIP'S CLEAR WATER ABOVE THE ROW — the row top is 336 px (not 380) while `phase === 'countdown'`, so the amendment-37 "flip the tooltip down when it doesn't fit above" branch is reachable sooner, at a shorter viewport than the live 380 px case; a downward-flipped tooltip is inside the countdown footer's own box and could paint over the REDRAW button's seat. Not ruled — a display-order/z-index question for whoever next touches the tooltip or the footer.
+  evidence: `client/src/ui/upgradeMenu.ts` `refitBandLayout`/tooltip-flip logic; amendment 63(a) (row top 336 px during countdown).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-10-the-opening.md`
+  summary: A REDRAW PRESS WHILE A CARD SPEND IS IN FLIGHT IS SILENTLY DROPPED — the spend latch guard rejects the click with no pulse of any kind on the REDRAW button itself (the four cards dim as they already do mid-spend, but the button gives no feedback that its own press did nothing). Cosmetic; the mulligan is not lost, the player just has to press it again once the latch frees.
+  evidence: `client/src/main.ts` `tryMulligan`/spend-latch guard (shared with the ordinary card-pick latch).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-10-the-opening.md`
+  summary: THE REFIT WINDOW'S AUTO-OPEN LATCH IS SET ON THE ATTEMPT, NOT ON SUCCESS — if another surface (settings, the results modal) is blocking the Tab path on the exact frame the level-zero offer arrives, the window never auto-opens for that match; Tab still opens it manually. Narrow window (surfaces rarely block the very first countdown frame) but real.
+  evidence: `client/src/main.ts` auto-open latch (`heldAtStartLine` + `handleRefitToggle`'s surface-stacking guard), set unconditionally on the attempted open rather than on `handleRefitToggle`'s own success return.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-10-the-opening.md`
+  summary: `matchSmoke.mjs` AND `weaponsSmoke.mjs` NOW DEPEND ON THE DEV-ONLY `fitOverride` ROOM OPTION for their torpedo/mines — deleting `SPAWN_SEED` left both scripts firing an empty Q slot; amendment 65's `fitOverride` (`HC_DEV_OPTIONS=1` only, captains only, pre-fits listed line ids through the ordinary card path at spawn) restores their old behaviour. Anyone editing either smoke should know the torpedo/mines in Q come from `fitOverride`, not the countdown draw.
+  evidence: amendment 65; `server/src/rooms/roomOptions.ts` `fitOverride`; `server/scripts/matchSmoke.mjs`, `server/scripts/weaponsSmoke.mjs`.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-9-the-shift-boost-universal.md`
   summary: An OBSERVER's wake ring for a contact is provisioned off the class envelope max (TB 45) because `wakeHulls` never passes `maxSpeedU` for contacts (their cards are private), so a SPEED-capped boosted enemy Torpedo Boat at 68.75 u/s now keeps only ~65 % of its tail in the observer's ring (pre-8.9: 45/55 ≈ 82 %); the `wake.ts` doc still calls this "loses a little tail early". Visual only, but the boosted wake is a tell the design leans on — either provision contacts off `FASTEST_BOOSTED_HULL_SPEED` (memory cost per contact ring) or accept and re-word.
   evidence: Blind Hunter at the 8.9 gate; `client/src/render/wake.ts:130-132`, `client/src/main.ts:3102-3108`; `client/src/config.ts` `FASTEST_BOOSTED_HULL_SPEED` = 68.75.
+
+## 2026-09-18 — Story 8.10 review gate (cycle 145): three findings deferred
+
+- source_spec: `spec-8-10-the-opening.md`
+  summary: THE REDRAW PIP CAN STAY HOLLOW AFTER THE SERVER HAS SPENT THE MULLIGAN — the client infers the ack from the front offer's signature changing at unchanged `pts`; a reconnect mid-countdown (fresh `Game`, `mulliganUsed false`), an ack landing after the 1.5 s spend-latch timeout, or a byte-identical redraw (~1 in 1000 with today's two usable lines per deck) leaves a live REDRAW whose every press is a server no-op with a denied pulse. Cosmetic, self-corrects at the live edge. The clean fix is `mulliganed` on the `you` wire row — a wire addition nobody asked for; do not add it without a ruling.
+  evidence: Edge Case Hunter #1, Blind Hunter #3/#4 at the 8.10 gate; `client/src/ui/upgradeMenu.ts` `mulliganLanded`, `server/src/game/world.ts` `mulligan()`.
+- source_spec: `spec-8-10-the-opening.md`
+  summary: A MULLIGAN HONOURED INSIDE THE LAST TICK OF THE COUNTDOWN CAN TOAST `LEVEL UP — TAB TO REFIT` ON LIVE WATER — the redraw's `pt` rides the frame built after the same tick's activation, and if Colyseus flushes the `matchPhase` patch first the client reads `active` and `handlePoint` is no longer silenced. Needs a press within ~50 ms of 0:00.
+  evidence: Blind Hunter #5; `server/src/rooms/ArenaRoom.ts` tick order, `client/src/net/roomBindings.ts` `handlePoint`.
+- source_spec: `spec-8-10-the-opening.md`
+  summary: A DEV `matchOverride.countdownMs <= 0` (with `joinWindowMs <= 0`) ARMS AND ACTIVATES INSIDE ONE `update()`, so the opening's `pt` is wiped by `resetForMatchStart`'s pending clear and clients never observe `countdown` (no auto-open). No clamp exists in `roomOptions.ts`; the grant itself survives (amendment 66). Dev override only.
+  evidence: Edge Case Hunter #3; `server/src/game/match.ts` `update()` arm-then-activate path.

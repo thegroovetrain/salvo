@@ -17,8 +17,10 @@
 // empty slot's words: UX-DR41's empty state is a dashed outline and a centred
 // `—` glyph, NOTHING else ("the empty IS the state"). What a hull carries is no
 // longer a fact about the hull: the per-hull fit is gone, and the fits these
-// suites drive come from the interim SPAWN_SEED applied as CARDS (epic-8
-// amendment 21), exactly as main.ts's slotIdsFor derives them.
+// suites drive come from CARDS, exactly as main.ts's slotIdsFor derives them.
+// STORY 8.10 DELETED the interim spawn seed (every hull spawns with the gun and
+// Shift alone now), so the per-hull weapon lists are THIS SUITE'S OWN fixture —
+// written out rather than imported from a table that no longer ships.
 //
 // STORY 8.6 MOVED THE WHOLE THING onto the bottom-centre bar. What changed here:
 //   • the geometry block is gone — `hudBarLayout` (render/hudBar.ts) owns every
@@ -44,7 +46,6 @@ import {
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
-  SPAWN_SEED,
   WEAPON_SLOTS,
   effectiveStats,
   isConsumableId,
@@ -148,18 +149,31 @@ function statsFor(cls: ShipClassId, boons: Partial<Record<string, number>> = {})
 const [Q, E, R] = WEAPON_SLOTS;
 
 /**
- * The slot ids a hull sails with at 0:00 — main.ts's slotIdsFor, verbatim.
- * Story 8.5: the base fit is hull-free (gun + boost + seven empties) and the
- * class weapons arrive as the interim SPAWN_SEED cards, landing in the first
- * empty WEAPON slot. So a Torpedo Boat's torpedo is in Q, and a Battleship's
- * broadside and star shells are in Q and E.
+ * THE FIXTURE (Story 8.10): the class weapons this suite fits, per hull. Until
+ * 8.10 these came from the interim spawn seed, which is deleted (nothing from
+ * the deck is aboard at spawn any more), so the suite states them itself —
+ * what is pinned below is the ROW's behaviour with a weapon in Q (and, for the
+ * Battleship, in Q and E), not who put it there.
+ */
+const FITTED: Record<ShipClassId, readonly string[]> = {
+  torpedoBoat: ['heavyTorpedo'],
+  battleship: ['broadside', 'starShells'],
+  mineLayer: ['navalMines'],
+};
+
+/**
+ * The slot ids a hull sails with once those cards are aboard — main.ts's
+ * slotIdsFor, verbatim. Story 8.5: the base fit is hull-free (gun + boost +
+ * seven empties) and weapons arrive as CARDS, landing in the first empty WEAPON
+ * slot. So a Torpedo Boat's torpedo is in Q, and a Battleship's broadside and
+ * star shells are in Q and E.
  */
 function idsFor(cls: ShipClassId, stats: EffectiveStats): (EquipmentId | null)[] {
   // STORY 8.7 widened a slot's content to `SlotItemId`, so the replay narrows
-  // through the shared guard here exactly as main.ts's readers do. The spawn
-  // seed never stocks the belt, so this is the identity today — it is written
-  // as a narrowing rather than a cast because ruling 1 forbids the cast.
-  return slotsWithCards(stats, SPAWN_SEED[cls] ?? []).map((s) =>
+  // through the shared guard here exactly as main.ts's readers do. These cards
+  // never stock the belt, so this is the identity today — it is written as a
+  // narrowing rather than a cast because ruling 1 forbids the cast.
+  return slotsWithCards(stats, FITTED[cls]).map((s) =>
     s.equipmentId === null || isConsumableId(s.equipmentId) ? null : s.equipmentId,
   );
 }
@@ -217,17 +231,17 @@ describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-4, left to right'
     expect(SLOT_KEY_GLYPHS.filter((g) => g === '')).toHaveLength(1);
   });
 
-  it('EVERY captain hull carries the same shape: gun, boost, seed weapons, empties', () => {
+  it('EVERY captain hull carries the same shape: gun, boost, fitted weapons, empties', () => {
     // The per-hull fit is gone (Story 8.5). What differs between hulls is what
-    // their CARDS put in the weapon row — here, the interim spawn seed.
+    // their CARDS put in the weapon row — here, this suite's own fixture.
     expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.id)).toEqual(
       ['gun', 'boost', 'heavyTorpedo', null, null, null, null, null, null],
     );
     expect(slotViewModels(viewFor('battleship')).map((r) => r.id)).toEqual(
       ['gun', 'boost', 'broadside', 'starShells', null, null, null, null, null],
     );
-    // AMENDMENT 22: the Mine Layer lost the radar buoy — no card and no seed
-    // reaches it, so E stays empty until Story 8.15 deletes the module.
+    // AMENDMENT 22: the Mine Layer lost the radar buoy — no card reaches it,
+    // so E stays empty until Story 8.15 deletes the module.
     expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(
       ['gun', 'boost', 'navalMines', null, null, null, null, null, null],
     );

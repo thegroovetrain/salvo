@@ -165,20 +165,20 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 53 and admits 54', () => {
-  it('PROTOCOL_VERSION is 54', () => {
-    // Story 8.9 bumped 53 -> 54: the equipment id set changed (`speedBoost` is
-    // deleted, `boost` is fitted on every captain) and the client now READS
-    // `CONFIG.boost` (the factor its predictor and helm globe scale by), both
-    // of which are wire contract.
-    expect(PROTOCOL_VERSION).toBe(54);
+describe('the PV join gate refuses 54 and admits 55', () => {
+  it('PROTOCOL_VERSION is 55', () => {
+    // Story 8.10 bumped 54 -> 55: `MULLIGAN_CHOICE` (-2) re-opens the negative
+    // sentinel channel on `SpendMsg.choice`, and the spawn seed is deleted so
+    // a hull's opening state (empty weapon row, LV 0 with a banked level) is
+    // not what a PV-54 client draws. Both are wire contract.
+    expect(PROTOCOL_VERSION).toBe(55);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 53 is the one that matters: a client built one story before this one
-    // predicts the boost as a flat +10 u/s off a CONFIG block that is gone.
+    // 54 is the one that matters: a client built one story before this one
+    // renders a weapon row it no longer has and cannot ask for a redraw.
+    expect(protocolVersionError(54)).toMatch(/refresh/i);
     expect(protocolVersionError(53)).toMatch(/refresh/i);
-    expect(protocolVersionError(52)).toMatch(/refresh/i);
   });
 
   it('refuses a missing pv', () => {
@@ -186,12 +186,12 @@ describe('the PV join gate refuses 53 and admits 54', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(55)).toMatch(/refresh/i);
+    expect(protocolVersionError(56)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(54)).toBeNull();
+    expect(protocolVersionError(55)).toBeNull();
   });
 });
 

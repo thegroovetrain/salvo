@@ -899,9 +899,10 @@ describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2,
     w.map.islands.length = 0;
     const rec = w.addBot(undefined, undefined, (h) => DEFAULT_DECKS[h]);
     expect(rec.deckList).toBe(DEFAULT_DECKS[rec.hullId as keyof typeof DEFAULT_DECKS]);
-    // 23 -> 26 in Story 8.8: HULL REPAIR stopped being a stub and its three
-    // per-hull copies (epic-8 amendment 10) became drawable.
-    expect(rec.deck.cards).toHaveLength(26);
+    // 23 -> 26 in Story 8.8 (HULL REPAIR stopped being a stub and its three
+    // per-hull copies became drawable, epic-8 amendment 10); 26 -> 27 in Story
+    // 8.10 (the spawn seed that withheld copy 1 of a class line is deleted).
+    expect(rec.deck.cards).toHaveLength(27);
   });
 });
 
@@ -945,7 +946,12 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
     // fires" must not read as "never acts". FAIL-PROOF for a control that
     // stopped calling world.spendPoint when the hunt plumbing came out.
     const w = new World(7, CONFIG.match.fillTo);
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, []);
+    // A REAL DECK, not the empty list: Story 8.10 deleted the spawn seed, so a
+    // deckless hull holds nothing AND can draw nothing — the assertion below
+    // would pass or fail on the seed rather than on the spend. With the hull's
+    // default deck the control's spend has a hand to take from, which is what
+    // this pin is actually about.
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
     const cap = w.ships.get('cap-1')!;
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
     w.grantXp(cap, 3);

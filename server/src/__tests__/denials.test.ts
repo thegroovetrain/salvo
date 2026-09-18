@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG, CONSUMABLE_SLOTS, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 import { protocolVersionError } from '../rooms/roomOptions.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
@@ -44,6 +45,11 @@ function place(
   hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
 ): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
+  // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
+  // weapon row, so this fixture fits it explicitly through the same applyCard
+  // path a real pick takes. Every case below keeps its subject.
+  fitClassWeapons(w, rec);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -264,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 53→54 bump (PV 54: the `speedBoost` equipment id is deleted, `boost` is fitted on every captain, and the client reads CONFIG.boost) is enforced at matchmake', () => {
-  it('rejects pv-53 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(54);
+describe('pv join gate — the 54→55 bump (PV 55: MULLIGAN_CHOICE (-2) joins SpendMsg.choice and the spawn seed is deleted, so a PV-54 client would mis-read the opening) is enforced at matchmake', () => {
+  it('rejects pv-54 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(55);
+    expect(protocolVersionError(54)).toMatch(/refresh/);
     expect(protocolVersionError(53)).toMatch(/refresh/);
     expect(protocolVersionError(52)).toMatch(/refresh/);
     expect(protocolVersionError(51)).toMatch(/refresh/);

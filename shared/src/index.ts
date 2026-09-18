@@ -3,6 +3,26 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  55 (Story 8.10): THE OPENING (Eric rulings 2026-09-18, epic-8 amendments
+ *  59–63). Two breaks, both in the spend economy's opening move.
+ *  (1) `MULLIGAN_CHOICE` (-2) JOINS `SpendMsg.choice`: the negative sentinel
+ *  channel that PV 53 closed ("an offer slot index and nothing else") is
+ *  deliberately re-opened for exactly this one value — the countdown REDRAW,
+ *  honoured once per ship while the match is in countdown and a silent no-op
+ *  otherwise (-1 stays malformed). With it, a captain is granted a LEVEL-ZERO
+ *  offer at countdown start: a stale client reads `lvl 0 / pts 1 / offer[4]`
+ *  as an ordinary level, has no REDRAW to press and cannot send the sentinel,
+ *  so it plays the opening the server is not running.
+ *  (2) THE INTERIM SPAWN SEED IS DELETED: no hull sails with class weapons
+ *  any more (gun + Shift only), and the first weapon is a CARD taken from
+ *  that level-zero offer. Catalog CONTENT is wire contract (the convention
+ *  from 13), and this is a DESYNC class, not a cosmetic one: a stale client
+ *  replays its own loadout from the ship's card list plus a seed table the
+ *  server no longer fits, so it would fit weapons that are not aboard —
+ *  wrong slots, wrong pools, wrong prediction. Every default deck also goes
+ *  26 → 27 drawable cards, because nothing is carried out of it at spawn.
+ *  No wire SHAPE is added or removed, no new event kind exists, the
+ *  perception exception count stays at SIX, and no CONFIG value changes.
  *  54 (Story 8.9): THE SHIFT BOOST, UNIVERSAL (Eric rulings 2026-09-18, epic-8
  *  amendments 54–57). The legacy `speedBoost` equipment id is GONE and the v3
  *  `boost` id (slot 1 on every captain hull) IS the boost — the `EquipmentId`
@@ -615,7 +635,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 54;
+export const PROTOCOL_VERSION = 55;
 
 // Tunables
 export * from './constants.js';

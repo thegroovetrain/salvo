@@ -1101,7 +1101,7 @@ function rewardFrame(event: unknown, own: { alive: boolean; cards?: string[] } |
   };
 }
 
-function setupToasts(spectating = false) {
+function setupToasts(spectating = false, held = false) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
   const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
@@ -1138,6 +1138,10 @@ function setupToasts(spectating = false) {
     onSunkObserved: vi.fn(),
     onSpendAck,
     onBoonFitted,
+    // Story 8.10 (amendment 61): the start-line read the `pt` handler consults.
+    // Default false = live water, which is the pre-8.10 behaviour every other
+    // pin in this file is taken against.
+    heldAtStartLine: () => held,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
   return { sink, play, onSpendAck, onBoonFitted };
@@ -1166,6 +1170,39 @@ describe('bindRoom reward toasts', () => {
     sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
     expect(toastLines()).toEqual(['▲ LEVEL UP — TAB TO REFIT']);
     expect(play).toHaveBeenCalledWith('point');
+  });
+
+  // THE OPENING'S GRANT IS SILENT (Story 8.10, epic-8 amendment 61). The
+  // countdown banks a level for everyone through an ordinary self-private `pt`,
+  // and the refit window opens ITSELF on it — so the toast telling the captain
+  // to press TAB, and the ping under it, would both narrate a surface already
+  // on screen. The XP strip's own `TAB TO REFIT` cue is untouched: it is true
+  // copy, and this suppression is the event's, not the strip's.
+  it('a `pt` at the START LINE is SILENT — no toast, no tone (amendment 61)', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts(false, true);
+    sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
+    expect(toastLines()).toEqual([]);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('...and a `pt` on LIVE water still toasts and pings, byte for byte', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts(false, false);
+    sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
+    expect(toastLines()).toEqual(['▲ LEVEL UP — TAB TO REFIT']);
+    expect(play).toHaveBeenCalledWith('point');
+  });
+
+  it('the start line silences the LEVEL only — a fitted card still confirms', () => {
+    // The countdown is a legal place to SPEND (that is the whole point of the
+    // opening), and the fit's own confirmation is the player's own action
+    // answering back — never suppressed.
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts(false, true);
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: true, cards: ['reload'] }));
+    expect(toastLines()).toEqual(['◆ RELOAD FITTED']);
+    expect(play).toHaveBeenCalled();
   });
 
   it('a SPECTATING captain gets NO level-up toast and NO tone (amendment 37)', () => {

@@ -44,9 +44,9 @@ import {
   isSinking,
   isSunk,
   slotsWithCards,
-  isStubLine,
   isWeaponItem,
-  SPAWN_SEED,
+  loadoutFor,
+  MULLIGAN_CHOICE,
   hullEnvelope,
   hullSilhouette,
   pointPolygonDistance,
@@ -190,6 +190,11 @@ const EMPTY_DECK: DeckState = Object.freeze({ cards: Object.freeze([]) as readon
  *  enters through the door's loader, server/src/game/decks.ts). */
 const EMPTY_DECK_LIST: readonly LineId[] = Object.freeze([]);
 
+/** The frozen empty DEV SPAWN FIT (Story 8.10, epic-8 amendment 65) — what
+ *  every hull in production, every bot and every fleet hull carries, so the
+ *  no-fit case is one shared allocation-free identity. */
+const EMPTY_FIT: readonly string[] = Object.freeze([]);
+
 /** How a bot spawn resolves its deck from the hull it was dealt or rolled
  *  (Story 8.2). REQUIRED at every call site — see `addBot`. */
 export type DeckResolver = (hull: ShipClassId) => readonly LineId[];
@@ -287,6 +292,19 @@ export interface WorldOptions {
    * deck's contents or its depth may reach a client.
    */
   onDeckExhausted?: (shipId: string) => void;
+  /**
+   * THE CARD-PICK SEAM (Story 8.10): called once per SUCCESSFUL `spendCard` —
+   * a level spent, a card fitted. Ops telemetry only (`/metrics` deck.picks),
+   * the onDeckExhausted posture exactly: ship id and nothing else, never a
+   * line id, never a `pending` event. Absent in the harness and unit tests.
+   */
+  onDeckPick?: (shipId: string) => void;
+  /**
+   * THE MULLIGAN SEAM (Story 8.10, FR48): called once per HONOURED countdown
+   * redraw (`World.mulligan`). Same posture as the two above — a count for
+   * `/metrics` deck.mulligans, nothing about the hand that was thrown away.
+   */
+  onMulligan?: (shipId: string) => void;
 }
 
 /** The item id fitted in `loadout[slotIndex]`, or null when the slot is
@@ -436,8 +454,8 @@ export interface ShipRecord {
    * loadout's carried seed). Every offer is DRAWN from it WITHOUT taking
    * anything out (materializeOffer); exactly ONE card leaves when a pick is
    * FITTED (settleSpend's consumeCard). SERVER-PRIVATE: never on the wire
-   * (the drawn offer ids are). Rebuilt by redeployShip (fresh match = fresh
-   * pool over the same frozen list), PRESERVED by respawn (waiting-phase
+   * (the drawn offer ids are). PRESERVED by redeployShip (Story 8.10: the
+   * countdown's draws must not come back) and by respawn (waiting-phase
    * deaths keep the build). Drones hold the frozen EMPTY_DECK and never draw
    * (pinned).
    */
@@ -453,12 +471,27 @@ export interface ShipRecord {
    */
   deckList: readonly LineId[];
   /**
+   * THE DEV SPAWN FIT (Story 8.10, epic-8 amendment 65) — the line ids a
+   * DEV-ONLY `fitOverride` room option asked this hull to come up holding,
+   * already dev-gated and shape-sanitized at the door. EMPTY on every
+   * production path and on every bot / fleet hull: `fitOverride` is stripped
+   * without HC_DEV_OPTIONS=1, the queue never forwards it, and addShip keeps
+   * it only for a `captain`. Applied ONCE, at spawn (`enrolShip` →
+   * `applyDevFit`), and never again: since the 8.10 review the activation
+   * redeploy preserves `cards`, so the smokes' torpedo survives the
+   * countdown→active boundary by itself and a second application would DOUBLE
+   * the fit. The list stays on the record as the record of what was asked.
+   * SERVER-PRIVATE: never on the wire.
+   */
+  devFit: readonly string[];
+  /**
    * This ship's PRIVATE deck stream (Story 2.8): mulberry32 decorrelated from
    * mapgen/spawn/drone streams by its own golden constant XOR a stable per-ship
    * JOIN ORDINAL (World.joinSeq — assigned once in addShip and never reused),
    * so join/leave churn elsewhere can never shift this player's draws. The
-   * stream PERSISTS across redeployShip (the deck is rebuilt, the rng is not
-   * reseeded): determinism is (mapSeed, join ordinal, draw sequence).
+   * stream PERSISTS across redeployShip (which since Story 8.10 preserves the
+   * deck too, and never reseeded the stream on any path): determinism is
+   * (mapSeed, join ordinal, draw sequence).
    */
   deckRng: Rng;
   /**
@@ -466,7 +499,8 @@ export interface ShipRecord {
    * SINGLE SOURCE OF TRUTH for the level bank (OwnShip.pts mirrors it). Levels
    * behind the front one carry NO cards — a level is drawn for only when it
    * reaches the front (`offer` below), so banking can never drain the deck.
-   * Wiped by redeployShip (a fresh match = fresh build).
+   * PRESERVED by redeployShip since Story 8.10 — the level the countdown
+   * granted is the one the captain spends on live water.
    */
   bankedLevels: number;
   /**
@@ -477,13 +511,15 @@ export interface ShipRecord {
    * spent: reopening the refit window can never reroll it (FR19). Its cards
    * are STILL IN THE DECK — only the fitted pick is ever consumed — so a
    * passed-on line is drawable again on the very next level. This is the field
-   * OwnShip.offer surfaces. Dropped by redeployShip and by a heal spend.
+   * OwnShip.offer surfaces. Dropped by a spend; PRESERVED by redeployShip
+   * since Story 8.10 (a hand held at 0:00 is still held at 0:01).
    */
   offer: BoonOffer | null;
   /**
    * THE ONCE-EVER EXHAUSTION LATCH (Story 8.3): set the first time a level's
    * draw comes back EMPTY, and NEVER cleared — not by a spend, not by
-   * redeployShip (which rebuilds the pool from `deckList`), not by a respawn.
+   * redeployShip (which since Story 8.10 preserves the pool), not by a
+   * respawn.
    * Once per RECORD, ever, because its only job is to make the
    * `WorldOptions.onDeckExhausted` report fire exactly once: an ops line per
    * captain who ran a deck dry, never a line per level thereafter.
@@ -498,6 +534,38 @@ export interface ShipRecord {
    * SERVER-PRIVATE, like `deck` and `deckList`: never on the wire.
    */
   deckExhausted: boolean;
+  /**
+   * THE ONE FREE COUNTDOWN REDRAW, SPENT (Story 8.10, FR48, epic-8 amendment
+   * 60): false until this ship's captain throws the level-zero offer back
+   * (`World.mulligan`), true forever after — for THIS MATCH. A second press,
+   * a press after 0:00 and a press by anything that is not a human captain
+   * are all silent no-ops that leave the offer byte-identical.
+   *
+   * PER MATCH, NOT PER LIFE: set false at addShip and nowhere else. The
+   * activation redeploy PRESERVES it along with the rest of the countdown
+   * economy, in EVERY room (amendment 63b, made unconditional by the 8.10
+   * review) — the redraw was spent on the offer the hull still holds at 0:00,
+   * so it must not come back. A waiting-phase respawn never touches it
+   * either. The record lives exactly one match, so nothing has to clear it.
+   */
+  mulliganed: boolean;
+  /**
+   * THE OPENING GRANT, TAKEN (Story 8.10, FR48; the 8.10 review, P2): false
+   * until this hull has been handed its level-zero level by
+   * `World.grantOpening()`, true forever after. PER RECORD, never cleared —
+   * a record lives exactly one match.
+   *
+   * WHY THE LATCH IS PER SHIP AND NOT PER MATCH. `Match.startCountdown()` can
+   * legitimately run more than once (a countdown that cancels back to
+   * `waiting` because a captain left, then re-arms), and a hull that was in
+   * the room for the first arming must not bank a SECOND level for the second
+   * — while a captain or bot who joined in between MUST get its first. One
+   * match-wide flag answers only the first half; this one answers both, and
+   * it is also what lets `addShip` grant a hull that arrives mid-countdown.
+   *
+   * SERVER-PRIVATE: never on the wire (the banked level it produces is).
+   */
+  openingGranted: boolean;
   /**
    * XP accumulator in INTEGER MILLISECONDS toward the next level (Story 2.6),
    * always in [0, CONFIG.xp.levelMs). Integer ms — never a float fraction — so
@@ -792,10 +860,11 @@ export interface ShipRecord {
    *
    * There is no per-hull fit any more: slot 0 is the gun and slot 1 the boost
    * on every captain (amendment 23); the three WEAPON slots are filled by
-   * CARDS, first-empty-first (sim/boons.ts applySlotEffect), starting with the
-   * spawn seed (`SPAWN_SEED`, see spawnDeck); the four CONSUMABLE slots are
-   * empty until Story 8.7 builds the belt. A FLEET hull fits the gun and
-   * nothing else (amendment 24).
+   * CARDS, first-empty-first (sim/boons.ts applySlotEffect), and they start
+   * EMPTY — Story 8.10 deleted the interim spawn seed (amendment 62), so the
+   * first weapon aboard is the one the captain takes from the level-zero
+   * offer. The four CONSUMABLE slots fill from the belt (Story 8.7). A FLEET
+   * hull fits the gun and nothing else (amendment 24).
    *
    * THE one equipment structure (replaces the old WeaponAmmo[] — no parallel
    * ammo store); `input.slot` names the slot a click activates. Rebuilt from
@@ -1184,6 +1253,24 @@ export class World {
   /** Caller-supplied deck-exhaustion reporter (WorldOptions.onDeckExhausted —
    *  the adapter seam; undefined in the harness and in unit tests). */
   private readonly onDeckExhausted: ((shipId: string) => void) | undefined;
+  /** Caller-supplied card-pick reporter (WorldOptions.onDeckPick). */
+  private readonly onDeckPick: ((shipId: string) => void) | undefined;
+  /** Caller-supplied mulligan reporter (WorldOptions.onMulligan). */
+  private readonly onMulligan: ((shipId: string) => void) | undefined;
+  /**
+   * IS THE START-LINE COUNTDOWN OPEN — the ONLY thing this sim knows about the
+   * match phase, and it exists for exactly one job: gating the level-zero
+   * MULLIGAN (Story 8.10, FR48).
+   *
+   * WRITTEN BY `Match` and by nothing else: true at `startCountdown()`, false
+   * at `activate()` and on the cancel back to `waiting`. It is a FLAG rather
+   * than a `Match` import because `world.ts` must not depend on `match.ts` —
+   * the sim is unit-tested bare, with no state machine in the room — while
+   * `match.ts` already owns every transition. A standalone World leaves it
+   * false, so `mulligan()` fail-closes there unless a test opens it
+   * deliberately.
+   */
+  countdownOpen = false;
   /** Events queued since the last completed step (joins, sinks, respawns). */
   private pending: GameEvent[] = [];
   /** Events belonging to the most recently completed tick (read by frames). */
@@ -1254,6 +1341,8 @@ export class World {
     this.zoneCfg = zoneCfg;
     this.zoneSeeds = opts.zoneSeeds;
     this.onDeckExhausted = opts.onDeckExhausted;
+    this.onDeckPick = opts.onDeckPick;
+    this.onMulligan = opts.onMulligan;
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
     this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
@@ -1471,25 +1560,28 @@ export class World {
    *  on: `deck` is REQUIRED, so a caller with none says `[]` out loud and an
    *  unlisted caller is a tsc error rather than a hull that silently sails an
    *  empty pool. A fleet hull gets the empty list whatever is passed
-   *  (amendment 12: drones stay gun-only). */
-  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, deck: readonly LineId[]): ShipRecord {
+   *  (amendment 12: drones stay gun-only).
+   *
+   *  `fit` (Story 8.10, amendment 65) is the DEV-ONLY spawn fit — the ids a
+   *  smoke's `fitOverride` asked this hull to come up holding. It defaults to
+   *  NOTHING, which is every production join and every existing caller, and it
+   *  is honoured for a CAPTAIN only (see spawnFit / applyDevFit). */
+  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, deck: readonly LineId[], fit: readonly string[] = []): ShipRecord {
     const p = at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase);
     const heading = Math.atan2(-p.y, -p.x);
     const cls = hullEnvelope(hullId);
     const stats = effectiveStats(cls);
-    // THE SPAWN SEED (Story 8.5, see seedFor/spawnDeck): the card lines this
-    // hull starts holding — its shipped class weapons, authored in the catalog
-    // rather than read off a per-hull fit (there is no per-hull fit any more).
-    // A fleet hull is seeded with nothing and fits the gun alone. `carried` IS
-    // that seed: the deck withholds copy 1 of each of its lines.
-    const { carried, deckList } = World.spawnDeck(role, this.seedFor(role, hullId), deck);
-    // The loadout IS the universal nine-slot fit with the seed replayed over
-    // it through the SHARED fill rule — never `applyCard`: the seed emits no
-    // event and no toast. The FLEET flag is load-bearing (without it a drone
-    // would grow a boost in slot 1). `stats` above needs no recompute — the
-    // seed is stat-neutral by construction (tier I IS the bare weapon), which
-    // the spawn tests pin.
-    const loadout = slotsWithCards(stats, carried, this.catalog, roleIsFleetHull({ role }));
+    // NO SPAWN SEED ANY MORE (Story 8.10, FR48, epic-8 amendment 62): the
+    // interim spawn seed — the shipped class weapons a hull used to start
+    // holding as cards — is DELETED. Every hull spawns holding NOTHING, so
+    // the whole frozen list (less stubs) is dealt into the pool and the first
+    // weapon arrives as a CARD from the level-zero offer the countdown grants
+    // (grantOpening). A fleet hull still gets no list at all (amendment 12).
+    const deckList = World.spawnList(role, deck);
+    // The fit is the universal nine-slot loadout and nothing else: gun +
+    // Shift boost for a captain or a bot, the GUN ALONE for a fleet hull
+    // (amendment 24) — the weapon row and the belt start empty.
+    const loadout = loadoutFor(stats, roleIsFleetHull({ role }));
     const rec: ShipRecord = {
       id,
       name,
@@ -1515,11 +1607,11 @@ export class World {
       // fresh fit; fleet hulls never get one (pinned). ECONOMY, so it keys on
       // the FLEET reading — an AI captain (6.4) is a participant that plays
       // the game, and gets a deck like any other.
-      deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeckState(deckList, carried, this.catalog),
-      deckList, deckRng: this.deckRngFor(this.joinSeq++),
-      bankedLevels: 0, offer: null, deckExhausted: false,
+      deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeckState(deckList, EMPTY_DECK_LIST, this.catalog),
+      deckList, devFit: World.spawnFit(role, fit), deckRng: this.deckRngFor(this.joinSeq++),
+      bankedLevels: 0, offer: null, deckExhausted: false, mulliganed: false, openingGranted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
-      cards: [...carried],
+      cards: [],
       cardBehaviors: NO_BEHAVIORS,
       stats,
       state: { x: p.x, y: p.y, heading, speed: 0 },
@@ -1563,13 +1655,33 @@ export class World {
       deaths: 0,
       damageDealt: 0,
     };
-    this.ships.set(id, rec);
-    this.pseudonymFor(id); // eager track id (R3) — see pseudonymFor / trackIds
-    // NOT registered with the FleetController here (Story 5.6): a fleet hull's
-    // registration carries its fleet id and its constant formation station,
-    // which only the wave spawner knows. spawnFleet() is the ONE registrar.
-    this.pending.push({ k: 'spawn', id, x: p.x, y: p.y });
+    this.enrolShip(rec, p);
     return rec;
+  }
+
+  /** The new record's LAST three steps, split out of addShip (line budget):
+   *  into the ship table, the dev spawn fit, the eager track id, the public
+   *  `spawn` event.
+   *
+   *  NOT registered with the FleetController here (Story 5.6): a fleet hull's
+   *  registration carries its fleet id and its constant formation station,
+   *  which only the wave spawner knows. spawnFleet() is the ONE registrar. */
+  private enrolShip(rec: ShipRecord, p: Vec2): void {
+    this.ships.set(rec.id, rec);
+    // THE DEV SPAWN FIT (Story 8.10, amendment 65), applied over the just-built
+    // deck and loadout exactly as a pick would — and a no-op for every hull
+    // that was not handed one, which is all of production.
+    this.applyDevFit(rec);
+    this.pseudonymFor(rec.id); // eager track id (R3) — see pseudonymFor / trackIds
+    this.pending.push({ k: 'spawn', id: rec.id, x: p.x, y: p.y });
+    // A HULL THAT ARRIVES MID-COUNTDOWN STILL GETS THE OPENING (Story 8.10;
+    // the 8.10 review, P2). `grantOpening()` fired at startCountdown, before
+    // this record existed, so without this line a captain who reconnects — or
+    // a bot the room tops up with — would stand on the start line at LV 0 with
+    // an empty bank and no hand while everyone else refits. AFTER the spawn
+    // event, so the `pt` never precedes the hull it belongs to; guarded by the
+    // same per-ship latch, so it can never double with the sweep.
+    if (this.countdownOpen) this.grantOpeningTo(rec);
   }
 
   /**
@@ -1660,68 +1772,65 @@ export class World {
    * XOR a fresh golden constant (the mapgen/spawn/upgrade/drone stream idiom —
    * 0x165667b1 is unused by any other stream) XOR the join ordinal scrambled by
    * Math.imul with the 32-bit golden ratio, so consecutive ordinals land on
-   * well-separated seeds. Deterministic per (mapSeed, ordinal); never reseeded
-   * (redeployShip rebuilds the deck, not the stream).
+   * well-separated seeds. Deterministic per (mapSeed, ordinal); never
+   * reseeded on any path.
    */
   private deckRngFor(ordinal: number): Rng {
     return mulberry32((this.seed ^ 0x165667b1 ^ Math.imul(ordinal, 0x9e3779b9)) >>> 0);
   }
 
   /**
-   * THE CARRIED LINES of a fit, in slot order — the spawn SEED and
-   * `buildDeckState`'s `carried` input in one list.
+   * THE SPAWN'S ONE DECK INPUT (Story 8.2, re-cut in Story 8.10): the FROZEN
+   * LIST the record stores. Frozen once, at the edge: the default decks arrive
+   * frozen (the shared identity, no copy); a dev override arrives as a fresh
+   * array and is frozen here so no later code can mutate what the door
+   * admitted. A fleet hull gets no list whatever was passed (epic-8 amendment
+   * 12: drones stay gun-only).
    *
-   * Copy 1 of an equipment line IS the bare weapon (catalog-v3 §4), so a hull
-   * that spawns with that weapon fitted is, by the catalog's own reading,
-   * already HOLDING copy 1 of its line. Seeding `ship.cards` with these ids is
-   * what makes the deck's next copy the line's TIER II — a real −5 % reload
-   * step — instead of a second tier I whose `slotFill` no-ops against the
-   * weapon it would fit, costing a whole level for nothing.
-   *
-   * It is STAT- AND FIT-NEUTRAL by construction: tier I is the row's base
-   * numbers and its ×1.00 reload, which is exactly what an unfitted line
-   * already reads, and a `slotFill` of already-fitted equipment is a no-op.
-   * Equipment no card fits (`gun`, `boost`, `radarBuoy`) contributes
-   * nothing, and neither does a STUB line — the deck deals it no copies, so
-   * there is none to hold back.
+   * THE SECOND INPUT IS GONE. Until Story 8.10 this also returned a `carried`
+   * seed — the interim class weapons a hull spawned holding, which the pool
+   * dealt one copy fewer of. FR48 deleted that seed outright (amendment 62):
+   * nothing is held at spawn, so the pool is simply the list less its stubs
+   * and `buildDeckState` withholds nothing.
    */
-  /**
-   * THE SPAWN SEED for a hull, READ THROUGH THIS WORLD'S CATALOG (Story 8.5):
-   * the shipped class weapons a captain starts holding as cards (`SPAWN_SEED`
-   * in sim/catalog.ts). A FLEET hull is seeded with nothing (epic-8 amendment
-   * 24).
-   *
-   * The catalog filter is the one thing that survives the deleted
-   * `carriedLines` fit-scan: a line this World's catalog does not carry, or
-   * carries as a STUB, seeds NOTHING. The deck deals it no copies, so there
-   * would be none to hold back, and `applySlotEffect` refuses to fit a stub
-   * anyway — without the filter such a hull would ride with a card in `cards`
-   * that nothing in its loadout or stats reflects. Production always passes
-   * the full CATALOG, where every seed line is real and non-stub, so this is
-   * identity there; it is the injected-catalog test Worlds it keeps honest.
-   */
-  private seedFor(role: ShipRole, hullId: HullId): readonly LineId[] {
-    if (roleIsFleetHull({ role })) return EMPTY_DECK_LIST;
-    const seed = SPAWN_SEED[hullId];
-    if (seed === undefined) return EMPTY_DECK_LIST;
-    return seed.filter((id) => Object.hasOwn(this.catalog, id) && !isStubLine(id, this.catalog));
+  private static spawnList(role: ShipRole, deck: readonly LineId[]): readonly LineId[] {
+    return roleIsFleetHull({ role }) ? EMPTY_DECK_LIST : frozenList(deck);
   }
 
-  private static spawnDeck(
-    role: ShipRole,
-    seed: readonly LineId[],
-    deck: readonly LineId[],
-  ): { carried: readonly LineId[]; deckList: readonly LineId[] } {
-    // THE SPAWN'S TWO DECK INPUTS (Story 8.2): the carried seed (below) and
-    // the FROZEN LIST the record stores. Frozen once, at the edge: the default
-    // decks arrive frozen (the shared identity, no copy); a dev override
-    // arrives as a fresh array and is frozen here so no later code can mutate
-    // what the door admitted. A fleet hull gets no list whatever was passed
-    // (epic-8 amendment 12: drones stay gun-only).
-    return {
-      carried: seed,
-      deckList: roleIsFleetHull({ role }) ? EMPTY_DECK_LIST : frozenList(deck),
-    };
+  /**
+   * THE DEV SPAWN FIT, kept on the record (Story 8.10, epic-8 amendment 65).
+   * CAPTAINS ONLY — never a bot, never a fleet hull: Eric's ruling names the
+   * captain, and a bot that came up pre-fitted would quietly change bot-vs-bot
+   * balance in the one environment (a dev room) where a smoke is watching. The
+   * list is frozen so nothing downstream can mutate what the door admitted.
+   */
+  private static spawnFit(role: ShipRole, fit: readonly string[]): readonly string[] {
+    if (role !== 'captain' || fit.length === 0) return EMPTY_FIT;
+    return Object.freeze([...fit]);
+  }
+
+  /**
+   * APPLY THE DEV SPAWN FIT — the whole of amendment 65's behaviour, and a
+   * NO-OP for every hull whose `devFit` is empty (all of production).
+   *
+   * Each id is fitted exactly as a PICK would fit it: one copy leaves the
+   * drawable pool and `applyCard` does the rest (the fold, the slot effects,
+   * the pools, the timers, the wake) — MINUS the self-private `bn` event,
+   * which belongs to the spend path alone (`fitCard` is the shared half; see
+   * settleSpend). Nothing is queued here: a spawn is not a spend.
+   *
+   * THE POOL IS THE FILTER. `ship.deck.cards` already excludes unknown ids and
+   * stub lines (buildDeckState's `isDealable`) and holds only what this hull's
+   * own frozen list carries, so "the deck has a copy" is the one test that
+   * covers all three of the ruling's drops — unknown, stub, not in the deck —
+   * and it also bounds the whole thing at the deck's real copy counts: a smoke
+   * cannot fit six torpedoes out of a deck holding three.
+   */
+  private applyDevFit(ship: ShipRecord): void {
+    for (const id of ship.devFit) {
+      if (!(ship.deck.cards as readonly string[]).includes(id)) continue;
+      this.fitCard(ship, id as LineId);
+    }
   }
 
   /** Remove a ship entirely (client left). Its wake is water, not a ship
@@ -1751,14 +1860,21 @@ export class World {
    * `holdStartLine` (Eric ruling 2026-08-16) is the QUEUE-FORMED room's answer
    * and defaults FALSE so the dev/sandbox ready room — where captains really
    * sail, fire and drain pools for the whole waiting phase, and the re-roll is
-   * what returns them to the ring — stays byte-identical. See redeployShip for
-   * exactly which three mutations the hold skips and why nothing else moves.
+   * what returns them to the ring — keeps that re-roll. It governs PLACEMENT
+   * ONLY: since the 8.10 review the card economy is preserved on both paths
+   * (redeployEconomy). See redeployShip for exactly which three mutations the
+   * hold skips and why nothing else moves.
    */
   resetForMatchStart(holdStartLine = false): void {
     this.shells.clear();
     this.mines.clear();
     this.buoys.clear(); // practice-field buoys never relay into the real match (mines precedent)
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
+    // The pending queue is dropped at the boundary as it always was. The
+    // COUNTDOWN's own `pt` (the level-zero grant, Story 8.10) is never in it
+    // here: the grant fires at startCountdown, a whole countdown earlier, and
+    // World.step's epilogue swapped it into `events` on the very next tick
+    // (amendment 63d). A countdown is >= 1 tick on every path that has one.
     this.pending = [];
     // The throne dies at the match boundary (Story 4.6): redeployShip below
     // zeroes every hull's `kills`, so the vacated throne cannot be re-claimed
@@ -1776,10 +1892,11 @@ export class World {
   }
 
   /** Fresh-match state for one hull: ring placement, full hp, full ammo pools.
-   *  THE BUILD IS WIPED: a redeploy is the countdown→active match boundary, and
-   *  a fresh match means a fresh build — anything farmed in the practice-room
-   *  waiting phase (drone kills) must not carry a head start into the real
-   *  match. (respawn() below, waiting-phase only, PRESERVES the build.)
+   *  THE BUILD IS PRESERVED ON EVERY PATH (Story 8.10, amendment 63b, made
+   *  unconditional by the 8.10 review): the countdown economy is the only
+   *  pre-active economy any room can hold, so there is nothing to wipe — see
+   *  redeployEconomy, which owns the rule and the reasoning.
+   *  (respawn() below, waiting-phase only, PRESERVES the build too.)
    *
    *  `holdStartLine` (Eric ruling 2026-08-16) — a QUEUE-FORMED (boarding) room
    *  places its captains on the ring at addShip during boarding and SHOWS them
@@ -1823,27 +1940,12 @@ export class World {
       ship.sweepAngle = wrapPositive(ship.state.heading);
       ship.prevSweepAngle = ship.sweepAngle;
     }
-    ship.bankedLevels = 0;
-    ship.offer = null;
-    // XP progress dies with the build (Story 2.6): the countdown→active
-    // boundary is a fresh match, so nothing farmed in the ready room (a drone
-    // kill's XP, or waiting-phase seconds) carries a head start into it.
-    // respawn() below, waiting-phase only, PRESERVES both.
-    ship.xpMs = 0;
-    ship.level = 0;
-    // ...and so does the assist ledger: a fresh match's kill value must never
-    // be split with someone who damaged this hull in the ready room.
+    // THE ECONOMY: PRESERVED on every path (Story 8.10, amendment 63b, made
+    // unconditional by the 8.10 review) — see redeployEconomy.
+    this.redeployEconomy(ship);
+    // ...and the assist ledger dies either way: a fresh match's kill value must
+    // never be split with someone who damaged this hull in the ready room.
     ship.damageFrom.clear();
-    // Boons are wiped WITH the level bank (Story 2.5): the match boundary means a
-    // fresh build — respawn() below, waiting-phase only, preserves. "Wiped"
-    // means back to the SPAWN SEED (see carriedLines), which is what a fresh
-    // build is: copy 1 of every line this hull's own weapons stand for.
-    const fleet = roleIsFleetHull(ship);
-    const carried = this.seedFor(ship.role, ship.hullId);
-    ship.cards = [...carried];
-    ship.cardBehaviors = NO_BEHAVIORS;
-    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
-    ship.hp = ship.stats.maxHp;
     // The match-start `redeploy` edge (Story 5.1, amendment 3): legal from ANY
     // state — the common case is `alive -> alive` (a hull that never died being
     // reset at the countdown->active boundary).
@@ -1877,18 +1979,6 @@ export class World {
     // this tick).
     ship.seenBallistics.clear();
     ship.torpDirs.clear();
-    // The fresh fit is the universal nine-slot loadout with the SAME seed
-    // replayed over it — the fleet flag is load-bearing (without it a drone
-    // would grow a boost in slot 1).
-    ship.loadout = slotsWithCards(ship.stats, carried, this.catalog, fleet);
-    // THE DECK is rebuilt over the FRESH fit (Story 2.8) FROM THE FROZEN LIST
-    // (Story 8.2 — never from the catalog): a fresh match means a fresh pool
-    // — but the deck STREAM is deliberately NOT reseeded (ship.deckRng
-    // persists), so a player's whole-session draw sequence stays a pure
-    // function of (mapSeed, join ordinal, draw count). Drones keep EMPTY_DECK.
-    ship.deck = fleet
-      ? EMPTY_DECK
-      : buildDeckState(ship.deckList, carried, this.catalog);
     ship.kills = 0; // the tally AND the bounty ruler (one field since 5.6)
     ship.pveKills = {}; // ...and its telemetry sibling (amendment 44), same boundary
     ship.deaths = 0;
@@ -1903,6 +1993,58 @@ export class World {
     if (holdStartLine) return;
     this.detachWake(ship);
     this.pending.push({ k: 'spawn', id: ship.id, x: ship.state.x, y: ship.state.y });
+  }
+
+  /**
+   * THE CARD ECONOMY AT THE MATCH BOUNDARY — the one place the countdown's
+   * bank, hand, build, deck and redraw cross into the live match (Story 8.10,
+   * epic-8 amendment 63b; made UNCONDITIONAL by the 8.10 review, P1).
+   *
+   * EVERYTHING THE COUNTDOWN HANDED THE CAPTAIN STAYS, IN EVERY ROOM: the
+   * banked level, the front offer, the fitted cards and their behaviours, the
+   * drawable deck and its stream, the spent-redraw flag. FR48's whole promise
+   * is that there is something to DO at the start line, so a card taken
+   * during the countdown must be aboard when the water goes live — and a held
+   * offer must still be held.
+   *
+   * WHY `hold` NO LONGER SPLITS THIS. The wipe used to be the shipped
+   * behaviour of the dev/sandbox ready room, on the reasoning that its
+   * captains really sail, fire and farm through the waiting phase and must not
+   * carry that head start into the real match. Since 8.10 there is no head
+   * start to carry: `Match.applyPolicy` leaves xp and damage disabled until
+   * `active`, so the ONLY pre-active economy any room can hold is the opening
+   * grant itself — and wiping that is wiping the feature. Keeping the split
+   * also meant the two harnesses that build a `Match` WITHOUT
+   * `expectedCaptains` — the batch-sim runner (`server/scripts/batchsim/
+   * runner.ts`) and the RL env (`server/scripts/rl/env.ts`) — took the wipe
+   * path and therefore measured an opening PRODUCTION NEVER PLAYS. One rule
+   * now, for boarding rooms, dev rooms and harnesses alike.
+   *
+   * `hold` still governs exactly what it governed before this story, one
+   * level up in `redeployShip`: the position/heading re-roll, the wake detach
+   * and the `spawn` event.
+   *
+   * THE LOADOUT IS REBUILT from the preserved cards rather than kept, so the
+   * weapon a captain fitted at -0:07 starts the match with a FRESH clock
+   * (full pool, no reload in flight) like every other slot. The dev spawn fit
+   * (`applyDevFit`, amendment 65) rides along inside those preserved cards and
+   * is therefore applied at spawn ONLY — re-applying it here would double it.
+   *
+   * XP DIES ON EVERY PATH. `xpMs`/`level` are already 0 at a real start line
+   * (xpEnabled is false until activate), so zeroing them costs the preserved
+   * economy nothing and keeps the sandbox path honest. The level-zero grant
+   * deliberately does NOT advance `level`, so it survives this untouched.
+   */
+  private redeployEconomy(ship: ShipRecord): void {
+    // XP progress dies with the build (Story 2.6), on every path.
+    ship.xpMs = 0;
+    ship.level = 0;
+    ship.stats = effectiveStats(ship.cls, ship.cards, this.catalog);
+    // The fit is the nine-slot loadout with THIS hull's PRESERVED cards
+    // replayed over it through the SHARED fill rule. The fleet flag is
+    // load-bearing (without it a drone would grow a boost in slot 1).
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship));
+    ship.hp = ship.stats.maxHp;
   }
 
   /**
@@ -2291,10 +2433,93 @@ export class World {
    * but the level still banks". Reopening the refit window can never reroll —
    * the front offer is drawn once and frozen (FR19).
    */
-  private grantPoint(killer: ShipRecord): void {
+  private grantPoint(killer: ShipRecord, guarantee = false): void {
     killer.bankedLevels += 1;
-    this.materializeOffer(killer);
+    this.materializeOffer(killer, guarantee);
     if (killer.offer !== null) this.pending.push({ k: 'pt', id: killer.id });
+  }
+
+  /**
+   * THE LEVEL-ZERO GRANT — THE OPENING (Story 8.10, FR48, epic-8 amendments
+   * 59-63). Called by `Match.startCountdown()` and by nothing else: every
+   * PARTICIPANT (a human captain or an AI captain — `role !== 'fleet'`) banks
+   * ONE level and draws its hand with the USABLE-CARD GUARANTEE, so the first
+   * offer of a match can never be four ladders on a hull with no weapon.
+   *
+   * `level` does NOT move. The captain is at LV 0 with one banked level and a
+   * full hand — which is exactly what the HUD bar already renders (`LV 0`,
+   * chip 1, empty strip) with no change to the bar at all. `xpMs` is 0 here
+   * by construction (xpEnabled is false before `active`).
+   *
+   * FLEET HULLS ARE EXCLUDED BY THE GUARD, NOT BY LUCK (amendment 63e): a
+   * drone holds the frozen EMPTY_DECK, so granting it a level would draw
+   * nothing, latch `deckExhausted` and fire the ops report for every hull in
+   * the wave. `isParticipant` is the one reading that means "plays the game".
+   *
+   * IDEMPOTENT PER HULL (the 8.10 review, P2): each record carries its own
+   * `openingGranted` latch, so calling this on every `startCountdown()` —
+   * including the second one after a countdown cancelled back to `waiting` —
+   * banks exactly one level per hull, while a captain or bot who joined
+   * BETWEEN the two armings still gets its own. Without the per-ship latch a
+   * match-wide one either double-banked the veterans or starved the newcomer.
+   *
+   * The `pt` each grant queues reaches its client one tick later, in the
+   * ordinary pending→events swap (amendment 63d).
+   */
+  grantOpening(): void {
+    for (const ship of this.ships.values()) this.grantOpeningTo(ship);
+  }
+
+  /**
+   * One hull's level-zero grant, behind the two guards every caller needs:
+   * PARTICIPANTS ONLY (amendment 63e — a drone holds the frozen EMPTY_DECK,
+   * so granting it a level would draw nothing, latch `deckExhausted` and fire
+   * the ops report for every hull in the wave) and ONCE PER RECORD.
+   */
+  private grantOpeningTo(ship: ShipRecord): void {
+    if (!roleIsParticipant(ship) || ship.openingGranted) return;
+    ship.openingGranted = true;
+    this.grantPoint(ship, true);
+  }
+
+  /**
+   * THE ONE FREE COUNTDOWN REDRAW (Story 8.10, FR48, epic-8 amendment 60):
+   * throw the level-zero hand back and draw another, with the same guarantee,
+   * from the SAME deck state — the offer was never consumed, so nothing has
+   * left the pool and nothing is given back.
+   *
+   * HONOURED IFF all five hold: the countdown is open (`Match` owns the
+   * flag), the hull is a HUMAN CAPTAIN (a bot never sends the sentinel — its
+   * policy cannot return a negative, pinned — and a fleet hull has no offer
+   * anyway), it is NOT SINKING, this ship has not already redrawn, and it
+   * HOLDS a hand. Anything else returns false BEFORE any mutation, so the
+   * next frame's offer is the same array, byte for byte (the 8.7 full-belt
+   * refusal pattern).
+   *
+   * THE SINKING GUARD LIVES HERE, NOT ONLY AT THE WIRE (the 8.10 review, P6).
+   * `spendPoint` already refuses a sinking hull, so the wire path was covered
+   * — but `Match`'s dev `autoMulligan` arm calls this directly, and a
+   * countdown CAN hold a sinking hull (a dev/sandbox room's waiting phase is
+   * live water, and Story 5.2's five-second window straddles the arming).
+   * Guarding the one function every caller shares is the chokepoint; the
+   * check in `spendPoint` is now redundant and kept.
+   *
+   * Public because two callers need it: `spendPoint` (the wire, via
+   * MULLIGAN_CHOICE) and `Match`'s dev-gated `autoMulligan` smoke arm.
+   */
+  mulligan(ship: ShipRecord): boolean {
+    if (!this.countdownOpen || ship.role !== 'captain' || isSinking(ship.lifecycle)) return false;
+    if (ship.mulliganed || ship.offer === null) return false;
+    ship.mulliganed = true;
+    ship.offer = null; // dropped, NOT spent: bankedLevels does not move
+    this.materializeOffer(ship, true);
+    if (ship.offer !== null) this.pending.push({ k: 'pt', id: ship.id });
+    try {
+      this.onMulligan?.(ship.id);
+    } catch {
+      /* ops-only seam: a diagnostic may never abort a sim step */
+    }
+    return true;
   }
 
   /**
@@ -2311,15 +2536,21 @@ export class World {
    * EMPTY DRAW: `offer` stays null and the bank stays put — the card pick is
    * refused and the next level simply retries the draw. The FIRST empty draw
    * also latches `deckExhausted` and reports it ONCE (see the latch's doc).
+   *
+   * `guarantee` (Story 8.10) is passed by the LEVEL-ZERO paths ONLY —
+   * grantOpening and mulligan — and rides straight through to `drawOffer`,
+   * where it makes card 0 a line this hull can actually USE. Every ordinary
+   * level leaves it false: the guarantee is the opening's promise, not the
+   * economy's.
    */
-  private materializeOffer(ship: ShipRecord): void {
+  private materializeOffer(ship: ShipRecord, guarantee = false): void {
     if (ship.bankedLevels <= 0 || ship.offer !== null) return;
     // `cards` is widened to string[] on the record (it may hold ids from an
     // INJECTED test catalog that the shipped LineId union does not name); the
     // guard is fail-closed on an id its catalog does not know, so the narrow
     // is safe by the callee's own contract rather than by this assertion.
     const held = ship.cards as readonly LineId[];
-    const { deck, offer } = drawOffer(ship.deck, ship.deckRng, this.catalog, { held });
+    const { deck, offer } = drawOffer(ship.deck, ship.deckRng, this.catalog, { held, guarantee });
     ship.deck = deck; // NON-CONSUMING: a draw is a read; the same state back
     if (offer.length > 0) ship.offer = offer;
     else this.reportExhaustion(ship);
@@ -2552,12 +2783,13 @@ export class World {
    * directed applyBoon (tests, future scripted grants) must stay event-free —
    * "a spend happened" is a property of this path only.
    *
-   * THE ACCEPT SET IS THE OFFER AND NOTHING ELSE (Story 8.8). The reserved
-   * negative sentinel `HEAL_CHOICE` (-1) that used to buy an instant heal is
-   * GONE end to end — healing is a CARD now (HULL REPAIR, stocked in a belt
-   * slot and fired from it), so the bound is simply `0 ≤ choice <
-   * front.length` and EVERY negative, -1 included, is malformed and refused by
-   * spendCard's own bound.
+   * THE ACCEPT SET IS THE OFFER PLUS ONE SENTINEL (Story 8.8, re-opened by
+   * Story 8.10). The reserved `HEAL_CHOICE` (-1) that used to buy an instant
+   * heal is GONE end to end — healing is a CARD now (HULL REPAIR, stocked in a
+   * belt slot and fired from it). `MULLIGAN_CHOICE` (-2) is the ONE negative
+   * the channel accepts again (amendment 60): the countdown redraw, which
+   * spends no level. Every other negative, -1 included, is malformed and
+   * refused by spendCard's own bound.
    */
   spendPoint(id: string, rawChoice: unknown): boolean {
     const ship = this.ships.get(id);
@@ -2572,6 +2804,11 @@ export class World {
     // persist across waiting-phase respawns), sinking alone shops nothing.
     if (isSinking(ship.lifecycle)) return false;
     if (typeof rawChoice !== 'number' || !Number.isInteger(rawChoice)) return false;
+    // THE ONE LEGAL NEGATIVE (Story 8.10, amendment 60): MULLIGAN_CHOICE (-2)
+    // is not an offer index at all — it asks for the countdown redraw, which
+    // spends no level and fits no card. Every OTHER negative is still
+    // malformed and falls through to spendCard's own bound.
+    if (rawChoice === MULLIGAN_CHOICE) return this.mulligan(ship);
     return this.spendCard(ship, rawChoice);
   }
 
@@ -2608,7 +2845,20 @@ export class World {
     ship.bankedLevels -= 1;
     this.settleSpend(ship, front, choice);
     this.materializeOffer(ship);
+    this.reportPick(ship);
     return true;
+  }
+
+  /** The ops-only card-pick report (Story 8.10) — `/metrics` deck.picks. Split
+   *  out for the same reason reportExhaustion is: the callback is wrapped, so a
+   *  throwing diagnostic is never a reason to fail a spend that already
+   *  landed. A caller that supplied no reporter does nothing at all. */
+  private reportPick(ship: ShipRecord): void {
+    try {
+      this.onDeckPick?.(ship.id);
+    } catch {
+      /* ops-only seam: a diagnostic may never abort a sim step */
+    }
   }
 
   /** The spend's application half: take the CHOSEN card out of the deck, fit
@@ -2620,13 +2870,24 @@ export class World {
    *  there is no post-fit deck bookkeeping left to run. */
   private settleSpend(ship: ShipRecord, front: BoonOffer, choice: number): void {
     const card = front[choice];
-    // THE DECK's one and only outflow (the lazy-draw bugfix): the CHOSEN card
-    // leaves the pool. The unchosen cards need no give-back — they never left —
-    // so the deck thins over a match by exactly the cards FITTED, and a
-    // passed-on line is at full copies for the very next draw.
+    this.fitCard(ship, card);
+    this.pending.push({ k: 'bn', id: ship.id, boon: card });
+  }
+
+  /** PAY FOR A CARD AND FIT IT — the event-free half of a spend, shared with
+   *  the dev spawn fit (Story 8.10, amendment 65: `applyDevFit`).
+   *
+   *  THE DECK's one and only outflow (the lazy-draw bugfix): the CHOSEN card
+   *  leaves the pool. The unchosen cards need no give-back — they never left —
+   *  so the deck thins over a match by exactly the cards FITTED, and a
+   *  passed-on line is at full copies for the very next draw.
+   *
+   *  The `bn` event stays with the CALLER, deliberately: "a spend happened" is
+   *  a property of the wire path only, and a spawn-time fit must queue
+   *  nothing. */
+  private fitCard(ship: ShipRecord, card: LineId): void {
     ship.deck = consumeCard(ship.deck, card);
     this.applyCard(ship, card);
-    this.pending.push({ k: 'bn', id: ship.id, boon: card });
   }
 
   /**

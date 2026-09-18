@@ -26,6 +26,7 @@ import {
   type InputMsg,
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
+import { fitClassWeapons } from './classWeapons.js';
 import { broadsideAim } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -58,14 +59,14 @@ const ladder = (id: string, cap: number, path: string, add: number): CatalogLine
   ({ id, kind: 'ladder', cap, tiers: new Array(cap).fill([{ kind: 'stat', path, add }]) }) as unknown as CatalogLine;
 
 const BROADSIDE_LADDERS: Catalog = {
-  // THE SPAWN SEED'S OWN LINES, carried in from production (Story 8.5): the
-  // nine-slot spawn fits a hull's class weapons by replaying `SPAWN_SEED`
-  // through THIS World's catalog, so an injected catalog that omitted them
-  // would deal this Battleship an EMPTY weapon row. Their tier I is the bare
-  // weapon (stat-neutral), so carrying them changes no number here.
+  // THE CLASS WEAPON LINES, carried in from production (Story 8.5; re-read in
+  // 8.10): nothing is fitted at spawn any more, so this suite's `place()` fits
+  // them as CARDS — which it can only do if this injected catalog carries the
+  // lines. Their tier I is the bare weapon (stat-neutral), so carrying them
+  // changes no number here.
   broadside: CATALOG.broadside,
   starShells: CATALOG.starShells,
-  heavyTorpedo: CATALOG.heavyTorpedo, // the TB's seed — the cross-hull counter-pin below
+  heavyTorpedo: CATALOG.heavyTorpedo, // the TB's card — the cross-hull counter-pin below
   navalMines: CATALOG.navalMines, // ...and the ML's
   broadsideSpread: ladder('broadsideSpread', 4, 'equipment.broadside.spreadRung', 1),
   broadsideTurrets: ladder('broadsideTurrets', 2, 'equipment.broadside.turrets', 1),
@@ -81,9 +82,15 @@ function bareWorld(seed = 7, opts: WorldOptions = { catalog: BROADSIDE_LADDERS }
   return w;
 }
 
-/** Add a ship of `hull` and teleport it to an exact pose (speed 0). */
+/** Add a ship of `hull`, FIT ITS CLASS WEAPON(S) as cards, and teleport it to
+ *  an exact pose (speed 0). Story 8.10 deleted the interim spawn seed — a hull
+ *  comes up with gun + Shift and an EMPTY weapon row — so every fixture in
+ *  this suite fits the broadside (and the Battleship's star shells) explicitly,
+ *  through the same applyCard path a real pick takes. Nothing about the arcs,
+ *  the pools or the barrage below changed; only how the guns got aboard. */
 function place(w: World, id: string, hull: 'battleship' | 'torpedoBoat' | 'mineLayer', x: number, y: number, heading = 0): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  fitClassWeapons(w, rec);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
@@ -102,7 +109,7 @@ function polar(w: World, from: { x: number; y: number }): { bearing: number; ran
 }
 
 describe('broadside — server loadout + barrage construction', () => {
-  it('a Battleship spawns fitted [gun, boost, broadside, starShells, empty x5] with full idle pools', () => {
+  it('a Battleship with both class cards fitted reads [gun, boost, broadside, starShells, empty x5], full idle pools', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     expect(bb.loadout.map((s) => s.equipmentId)).toEqual([

@@ -4,7 +4,8 @@
 // ghost card on a horizontal scroll rail, each card carrying the four
 // differences that matter: hull silhouette (the shared polygon via
 // util/silhouetteSvg), three real-value pip scales (util/pips against
-// absolute anchors), and the two special-slot loadout rows. The footer is the
+// absolute anchors). The weapon-row block is EMPTY on every card since Story
+// 8.10 (amendment 62 — no hull spawns with a class weapon any more). The footer is the
 // ONLY home for the Color Hoist (the duplicate home picker is retired) and
 // carries CONFIRM SELECTION — which saves the class and returns to port. It
 // never deploys: PLAY is the single launch path.
@@ -46,25 +47,26 @@ interface LoadoutRow {
 }
 
 /**
- * Long-form loadout rows — the two class specials only. Eric ruling
- * 2026-07-24: NO fantasy tagline and NO universal-GUN row on the cards (both
- * were mock-era content he rejected); the gun is a given on every hull, the
- * card sells what differs. Row labels are the keys the interim spawn seed
- * (epic-8 amendment 21) fits each line to: Q/E = the first two WEAPON slots.
+ * Long-form loadout rows — EMPTY FOR EVERY HULL since Story 8.10 (Eric ruling
+ * 2026-09-18, epic-8 amendment 62, which supersedes amendment 58's "the Q rows
+ * stand"). The table is kept, rather than deleted with its rows, because the
+ * card's anatomy is unchanged and Epic 9's per-hull lines land straight back
+ * into it.
  *
- * Story 8.9 (Eric rulings 2026-09-18): the Torpedo Boat's `E: SPEED BOOST`
- * row and the Mine Layer's `E: RADAR BUOY` row are DELETED — the boost is a
- * universal `Shift` ability on every hull (amendment 54, not a class special)
- * and the buoy has been unreachable since Story 8.5 (amendment 22). No Shift
- * row is added: the card sells what differs, and the boost no longer does.
+ * WHY THERE IS NOTHING TO LIST: the interim spawn seed is gone, so every hull
+ * now spawns with the deck gun and the universal `Shift` boost and NOTHING
+ * else — `Q: TORPEDO TUBES`, `Q: BROADSIDE BARRAGE` / `E: STAR SHELLS` and
+ * `Q: PROXIMITY MINES` all described weapons the hull no longer carries at 0:00.
+ * Eric ruling 2026-07-24 stands over the whole surface: NO fantasy tagline and
+ * NO universal-GUN row — "the card sells what differs", and at spawn the only
+ * thing that differs is the deck. The three stat pips carry the card alone, and
+ * `buildLoadout` renders NOTHING for an empty row list (no seam, no rule, no
+ * empty box).
  */
 const LOADOUT: Record<ShipClassId, readonly LoadoutRow[]> = {
-  torpedoBoat: [{ key: 'Q', value: 'TORPEDO TUBES' }],
-  battleship: [
-    { key: 'Q', value: 'BROADSIDE BARRAGE' },
-    { key: 'E', value: 'STAR SHELLS' },
-  ],
-  mineLayer: [{ key: 'Q', value: 'PROXIMITY MINES' }],
+  torpedoBoat: [],
+  battleship: [],
+  mineLayer: [],
 };
 
 /** Register label sitting to the LEFT of the footer swatch row. */
@@ -89,8 +91,8 @@ export interface CardViewModel {
 /**
  * The card's data per class: name, zero-padded key (index+1), the three
  * real-value pips (util/pips against the objective anchor ladders — TB 4/2/4,
- * BS 2/4/2, ML 3/3/3), and the two special-slot loadout rows. Pure — the DOM
- * builder + tests consume it.
+ * BS 2/4/2, ML 3/3/3), and the loadout rows — which are EMPTY for every hull
+ * since Story 8.10 (amendment 62). Pure — the DOM builder + tests consume it.
  */
 /**
  * The pip grid's LABEL COLUMN (px) and the label's own letter-spacing (em) —
@@ -439,7 +441,11 @@ function buildPips(vm: CardViewModel): { el: HTMLElement; rows: HTMLElement[][] 
   return { el: grid, rows };
 }
 
-function buildLoadout(vm: CardViewModel): HTMLElement {
+/** The loadout block, or NULL when the hull lists no rows (amendment 62): an
+ *  empty wrap would still paint its 12px seam and its hairline rule above
+ *  nothing, which reads as a block that failed to load. */
+function buildLoadout(vm: CardViewModel): HTMLElement | null {
+  if (vm.loadout.length === 0) return null;
   const wrap = document.createElement('div');
   wrap.style.cssText =
     'margin-top:12px;border-top:1px solid var(--hc-hairline);padding-top:11px;' +
@@ -481,7 +487,8 @@ function buildCard(vm: CardViewModel, onSelect: (cls: ShipClassId) => void): Car
   const head = buildCardHead(vm);
   const pips = buildPips(vm);
   const pickRow = buildPickButton();
-  root.append(head, silbox, pips.el, buildLoadout(vm), pickRow);
+  const loadout = buildLoadout(vm);
+  root.append(head, silbox, pips.el, ...(loadout ? [loadout] : []), pickRow);
   root.addEventListener('click', () => onSelect(vm.cls));
   return {
     cls: vm.cls,

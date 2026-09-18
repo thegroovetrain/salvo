@@ -104,23 +104,16 @@ describe('cardViewModel — pips, keys, loadout', () => {
     expect('fantasy' in cardViewModel('torpedoBoat')).toBe(false);
   });
 
-  it('carries only the class-special rows the interim seed fits (Q/E) — no GUN row, no Shift row, no dark buoy (Eric rulings 2026-07-24, 2026-09-18)', () => {
-    // Story 8.9: the Torpedo Boat's `E: SPEED BOOST` row is gone — the boost
-    // is a universal Shift ability on every hull (epic-8 amendment 54), so it
-    // no longer differs between hulls and the card does not sell it.
-    expect(cardViewModel('torpedoBoat').loadout).toEqual([{ key: 'Q', value: 'TORPEDO TUBES' }]);
-    expect(cardViewModel('battleship').loadout).toEqual([
-      // Story 7-5: the cannon is DELETED and the broadside replaces it in the
-      // Battleship's Q slot. This card was still advertising LONG-RANGE CANNON
-      // to every player picking a hull — a live player-facing lie, caught only
-      // because an agent read the class-select copy while renaming the buoy.
-      { key: 'Q', value: 'BROADSIDE BARRAGE' },
-      { key: 'E', value: 'STAR SHELLS' },
-    ]);
-    // Story 8.9: the Mine Layer's `E: RADAR BUOY` row is gone too — no hull
-    // has been able to reach the buoy since Story 8.5 (amendment 22) and 8.15
-    // deletes the module; the card advertised a dark slot.
-    expect(cardViewModel('mineLayer').loadout).toEqual([{ key: 'Q', value: 'PROXIMITY MINES' }]);
+  it('carries NO weapon rows at all — every hull\'s loadout table is empty (Eric ruling 2026-09-18, amendment 62)', () => {
+    // STORY 8.10 EMPTIED THE TABLE. The interim spawn seed is deleted, so no
+    // hull sails with a class weapon at 0:00: `Q: TORPEDO TUBES`,
+    // `Q: BROADSIDE BARRAGE` / `E: STAR SHELLS` and `Q: PROXIMITY MINES` each
+    // described equipment the hull does not have. The card sells what differs,
+    // and at spawn only the DECK differs — which the three pips already carry.
+    // (Amendment 62 supersedes 58's "the Q rows stand under the interim seed".)
+    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+      expect(cardViewModel(cls).loadout, cls).toEqual([]);
+    }
   });
 
   it('names classes with their two-word display labels', () => {
@@ -409,6 +402,26 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     press('Enter');
     expect(onConfirm).toHaveBeenCalledWith('battleship');
     expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
+  // AMENDMENT 62 (Story 8.10): the weapon-row BLOCK is not merely empty — it is
+  // not built at all. An empty wrap would still paint its 12px seam and its
+  // hairline rule above nothing, which reads as a block that failed to load.
+  // Pinned on the card's own child count and on the words themselves, so a
+  // later story cannot quietly re-advertise a weapon no hull carries.
+  it('builds NO loadout block and prints no weapon row on any card', () => {
+    open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')] as HTMLElement[];
+    expect(cards).toHaveLength(3);
+    for (const card of cards) {
+      // head, silhouette box, pip grid, pick-button row — and nothing between
+      // the pips and the button.
+      expect(card.children).toHaveLength(4);
+      for (const word of ['TORPEDO TUBES', 'BROADSIDE BARRAGE', 'STAR SHELLS', 'PROXIMITY MINES']) {
+        expect(card.textContent, word).not.toContain(word);
+      }
+    }
   });
 
   // RE-TAKEN pin (was "SET SAIL picks the highlight AND deploys in one press"):

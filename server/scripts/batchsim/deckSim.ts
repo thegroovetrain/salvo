@@ -51,7 +51,6 @@ import {
   buildDeckState,
   drawOffer,
   mulberry32,
-  SPAWN_SEED,
   consumeCard,
   type DeckState,
   type LineId,
@@ -60,14 +59,16 @@ import {
 } from '@salvo/shared';
 
 /**
- * THE SPAWN SEED a hull starts holding (Story 8.5): the catalog's `SPAWN_SEED`
- * table, which is the SAME list `World.addShip` seeds `ship.cards` with. There
- * is no per-hull fit to read it off any more — every captain spawns with the
- * identical nine-slot loadout, so the seed had to become authored data, and
- * the deck-only economy reads that data directly.
+ * WHAT A HULL STARTS HOLDING: NOTHING (Story 8.10, FR48, epic-8 amendment 62).
+ * The interim spawn seed — the class weapons a captain used to start with as
+ * cards — is deleted, so `World.addShip` seeds `ship.cards` with the empty
+ * list and the whole pool is dealt from the frozen deck list. The helper
+ * stands (rather than being inlined at its two call sites) because it is the
+ * harness's ONE statement of the spawn-holdings rule, and the day a hull holds
+ * something again there is one line to change.
  */
-export function carriedLinesFor(cls: ShipClassId): readonly LineId[] {
-  return SPAWN_SEED[cls] ?? [];
+export function carriedLinesFor(_cls: ShipClassId): readonly LineId[] {
+  return [];
 }
 
 /** A hull's fresh drawable pool: its DEFAULT deck less stubs less its seed —

@@ -41,7 +41,14 @@ import {
   type MatchTimings,
 } from '../game/match.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
-import { recordDeckExhausted, recordMinesLive, registerRoom, type RoomMetricsHandle } from '../metrics.js';
+import {
+  recordDeckExhausted,
+  recordDeckMulligan,
+  recordDeckPick,
+  recordMinesLive,
+  registerRoom,
+  type RoomMetricsHandle,
+} from '../metrics.js';
 import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
@@ -470,6 +477,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
         recordDeckExhausted();
         this.log.info('deck.exhausted', { shipId });
       },
+      // The two Story 8.10 economy seams are COUNTERS ONLY (no log line per
+      // pick — a busy room would write one every few seconds): `/metrics`
+      // answers how much shopping and how many redraws a process saw.
+      onDeckPick: () => recordDeckPick(),
+      onMulligan: () => recordDeckMulligan(),
     });
   }
 
@@ -731,14 +743,23 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       countdownMs: override?.countdownMs ?? base.countdownMs,
       resultsMs: override?.resultsMs ?? base.resultsMs,
       joinWindowMs: override?.joinWindowMs ?? base.joinWindowMs,
-      // ONE human is the whole cohort in a Solo vs AI room (Story 6.5), so the
-      // countdown must arm at one. minHumans is a PEOPLE count and stays one:
-      // the nineteen bots are participants, never humans, and never advance it.
-      // A dev matchOverride still wins, so no smoke's timings moved.
-      minHumans: override?.minHumans ?? (sanitized.solo ? 1 : undefined),
+      minHumans: ArenaRoom.minHumansFor(sanitized),
       expectedCaptains: sanitized.expectedCaptains,
       boardingGraceMs: base.boardingGraceMs,
+      // DEV ONLY (Story 8.10): sanitizeRoomOptions has already stripped the
+      // whole override without HC_DEV_OPTIONS=1, so this is undefined in
+      // production and the Match's arm stays dead.
+      autoMulligan: override?.mulligan,
     };
+  }
+
+  /** ONE human is the whole cohort in a Solo vs AI room (Story 6.5), so the
+   *  countdown must arm at one. minHumans is a PEOPLE count and stays one: the
+   *  nineteen bots are participants, never humans, and never advance it. A dev
+   *  matchOverride still wins, so no smoke's timings moved. (Split out of
+   *  timings() for the complexity budget — Story 8.10 added a field.) */
+  private static minHumansFor(sanitized: SanitizedRoomOptions): number | undefined {
+    return sanitized.matchOverride?.minHumans ?? (sanitized.solo ? 1 : undefined);
   }
 
   /** The Match state machine's side effects, implemented on the room. */
@@ -962,7 +983,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // THE DECK (Story 8.2) — resolved BEFORE anything is spawned or written,
     // because a refusal THROWS: core then tears down just this client with
     // nothing of it in the world or the roster to undo.
-    const { deck, source: deckSource } = this.resolveJoinDeck(client, options, classId);
+    const { deck, fit: devFit, source: deckSource } = this.resolveJoinDeck(client, options, classId);
     // THE JOIN ORDINAL IS ROOM STATE, so it is bumped only once the join can
     // no longer be refused. Incrementing it first BURNED an ordinal on every
     // refusal: the next nameless captain came aboard as CAPTAIN-2 with no
@@ -984,7 +1005,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // 13): the socket is the proof. Fleet hulls are world content spawned by
     // World itself and never reach this door; Story 6.4's AI captains will not
     // either.
-    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, deck);
+    // `devFit` (Story 8.10, amendment 65) is EMPTY on every production path —
+    // the dev gate strips `fitOverride` and the queue never forwards it — so
+    // this is the shipped spawn unless a smoke asked for a pre-fitted weapon.
+    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, deck, devFit);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the
@@ -1034,17 +1058,20 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     client: Client,
     options: JoinOptions,
     hull: ShipClassId,
-  ): { deck: readonly LineId[]; source: 'seat' | 'door' } {
+  ): { deck: readonly LineId[]; fit: readonly string[]; source: 'seat' | 'door' } {
     const auth: unknown = client.auth;
     const fromSeat: unknown = typeof auth === 'object' && auth !== null ? (auth as { deck?: unknown }).deck : undefined;
     if (fromSeat === undefined) {
       const devEnabled = process.env.HC_DEV_OPTIONS === '1';
-      return { deck: admitDeck(options, hull, devEnabled, this.log, client.sessionId), source: 'door' };
+      const admitted = admitDeck(options, hull, devEnabled, this.log, client.sessionId);
+      return { ...admitted, source: 'door' };
     }
     if (Object.hasOwn(options, 'deck')) throw deckRefusal(this.log, 'clientSupplied', client.sessionId);
     // A seat value that is not a list has no size — checkDeck says 'size'.
     const list: readonly LineId[] = Array.isArray(fromSeat) ? (fromSeat as readonly LineId[]) : [];
-    return { deck: checkAtDoor(list, this.log, client.sessionId), source: 'seat' };
+    // NO DEV FIT ON THE SEAT PATH (amendment 65): the queue never forwards
+    // `fitOverride`, so a queue-formed captain spawns holding nothing, always.
+    return { deck: checkAtDoor(list, this.log, client.sessionId), fit: [], source: 'seat' };
   }
 
   /**

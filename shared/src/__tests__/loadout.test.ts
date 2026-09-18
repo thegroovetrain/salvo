@@ -6,7 +6,8 @@
 // THE PER-HULL FIT IS RETIRED (Stories 1.6–1.8 / 7-5 wave 2 are superseded):
 // every CAPTAIN hull now fits exactly [gun, boost, empty ×7] — the boost
 // stopped being a Torpedo Boat privilege (amendment 23) and the class weapons
-// arrive as CARDS from the spawn seed (SPAWN_SEED, catalog.ts). A PvE fleet
+// arrive as CARDS: since Story 8.10 deleted the interim spawn seed, the first
+// of them comes off the LEVEL-ZERO OFFER at countdown start. A PvE fleet
 // hull fits [gun, empty ×8] (Story 5.6, amendment 34). Also pins the
 // EQUIPMENT_IS_WEAPON split — the single source server rows and the client
 // activation path read. Pure, zero I/O.
@@ -134,8 +135,8 @@ describe('loadoutFor — THE UNIVERSAL NINE-SLOT FIT (Story 8.5)', () => {
   // RETIRED with the per-hull rule: the three "the Torpedo Boat fits
   // [gun, heavyTorpedo, boost, empty]" / Battleship / Mine Layer cases,
   // and "the specials match the per-hull rule on every PICKABLE class". There
-  // is no per-hull fit left to pin — the class weapons arrive as spawn-seed
-  // CARDS (SPAWN_SEED), whose landing slots are pinned in nineSlots.test.ts.
+  // is no per-hull fit left to pin — the class weapons arrive as CARDS off the
+  // offers, whose landing slots are pinned in nineSlots.test.ts.
   it('every CAPTAIN hull gets the IDENTICAL shape and ids: [gun, boost, empty ×7]', () => {
     for (const id of SHIP_CLASS_IDS) {
       const loadout = loadoutFor(statsFor(id));

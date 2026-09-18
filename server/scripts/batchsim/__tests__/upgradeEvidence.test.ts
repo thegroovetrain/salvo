@@ -35,8 +35,9 @@ describe('botMetrics — builds, picks, offers, placement', () => {
     expect(s.picks).toHaveLength(1);
     expect(s.picks[0].id).toBe('intelSweep'); // the CARD, not the spender
     expect(s.picks[0].s).toBeGreaterThan(0); // stamped in sim-seconds
-    // The build mirror agrees — over the SPAWN SEED the hull already holds.
-    expect(s.boons).toEqual(['heavyTorpedo', 'intelSweep']);
+    // The build mirror agrees — and it is the pick ALONE now: Story 8.10
+    // deleted the spawn seed, so a hull holds nothing until it picks.
+    expect(s.boons).toEqual(['intelSweep']);
   });
 
   it('counts an offer hand ONCE across the ticks it sits open (reference diff)', () => {
