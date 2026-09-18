@@ -2030,7 +2030,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: `shared/src/constants.ts` `CONFIG.damageControl.levelMissingPct` / `levelRegenMs`; AskUserQuestion answer 2026-09-15; epics.md Story 8.8 AC.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-3-the-draw.md`
-  status: OPEN — pre-existing harness drift, made visible by the at-cap guard; a five-minute fix for any harness cycle
+  status: RESOLVED 2026-09-18 by Story 8.11 (cycle 146, epic-8 amendment 68b) — the match pool is the first thing that pushes a line past its cap, so the guard is LIVE and the drift became a real divergence; `deckSim.ts` now rolls a pool per economy and calls `drawOffer(st.deck, rng, CATALOG, { held: st.fitted })`, pinned by a guard-live discriminator in `batchSim.test.ts`.
   summary: THE BATCH-SIM DECK ECONOMY DRAWS UNGUARDED WHILE PRODUCTION PASSES `held = ship.cards`. `server/scripts/batchsim/deckSim.ts` calls `drawOffer` with no `held`, starts its `fitted` list at `[]` with no carried seed, and its `cappedLines` therefore undercounts the carried copy. Outcomes match production today only because the at-cap guard is provably idle on every door-admitted deck (pool + held ≤ cap for every line — pinned in `shared/src/__tests__/deck.test.ts`); the day a deck can violate that invariant (an Epic 9 account deck, a harness `--set` that grants cards without consuming) the harness and the server will draw differently. Fix: seed `fitted` from the hull's carried lines and pass `{ held: fitted }` to `drawOffer`.
   evidence: Blind Hunter plausible finding, review gate 2026-09-15; `deckSim.ts` `runDeckSim` draw call and `cappedLines`; `server/src/game/world.ts` `materializeOffer`.
 
@@ -2265,3 +2265,31 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `spec-8-10-the-opening.md`
   summary: A DEV `matchOverride.countdownMs <= 0` (with `joinWindowMs <= 0`) ARMS AND ACTIVATES INSIDE ONE `update()`, so the opening's `pt` is wiped by `resetForMatchStart`'s pending clear and clients never observe `countdown` (no auto-open). No clamp exists in `roomOptions.ts`; the grant itself survives (amendment 66). Dev override only.
   evidence: Edge Case Hunter #3; `server/src/game/match.ts` `update()` arm-then-activate path.
+
+## 2026-09-18 — Story 8.11 The Match Consumable Pool (cycle 146): ledgered consequences
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  status: OPEN BY DESIGN — a fact for QA and 8.18's balance read, not a defect (wording corrected at the review gate, amendment 69)
+  summary: POOL COPIES PAST A LINE'S CAP ARE GATED BEHIND USE, AND "EXHAUSTED" CAN NOW MEAN "ONLY CAP-HELD LINES REMAIN". R44 bounds the cap WITHIN the pool alone, so a hull can sail 3 authored + up to 5 pool HULL REPAIR (8 > stock cap 5); while it holds five, the at-cap guard (Story 8.3, idle until now) never offers the line; a fired copy leaves `cards` (8.7) and the line reopens, so the copies past the cap are supply behind use, not dead cards. Consequence: an empty draw — which latches `deckExhausted` and fires the `deck.exhausted` log/metric once per ship — now also happens for a deck whose only remaining copies are of a line held at cap; the next level retries and succeeds after a use, but the latch/metric has already counted it. Nothing to fix; 8.18's harness bars must read `deck.exhausted` with this in mind.
+  evidence: epic-8 amendments 68(b), 69; `server/src/game/world.ts` `spendStock` / `materializeOffer` / `reportExhaustion`; `shared/src/__tests__/deck.test.ts` "the guard is LIVE" pins.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  status: OPEN — hand to Story 8.18 (the bar is SET here, measured for real there)
+  summary: THE 50-CARD ONE-COPY APPEARANCE RATE AND OFFER-SIZE MATH, RE-MEASURED (FR59): unstubbed catalog, 2000 seeded economies per hull, uniform pick per level — `deckGunTurret` seen in an offer by pick 8/12/15/20 in 56.1/73.4/81.0/90.5 % (TB), 53.6/71.0/79.3/89.6 % (BS), 52.3/69.5/80.3/90.0 % (ML); first offer under four lines at mean level ≈ 46.0 (fewer than four distinct drawable lines OR the rest held at cap). The forge's 40-card figures (66/82/90/97 % at 8/12/15/20) are superseded. These are a UNIFORM-PICK, NEVER-USE read (amendment 69: no consumable is ever fired, so a consumable line fitted to cap stays closed for the rest of the economy — a pessimistic floor for consumables, exact for equipment/ladder lines), not a bot-policy read: 8.18 re-measures with the full harness, where bots fire consumables, and pins the bar there.
+  evidence: `shared/src/__tests__/poolMeasure.test.ts` (prints the table); epic-8 amendment 68(a).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  status: OPEN — untouched here; GDD open note 20(a)/(b) still awaits Eric
+  summary: THE POOL'S TWO UNRULED EDGES ARE NOT DECIDED BY 8.11: (a) whether results/match history ever reveal the pool after the match (8.19's `MatchRecord.pool` is the only persistence path and does not exist yet — nothing in this story records the pool anywhere but the room log's count); (b) the pool deals consumables an account has not unlocked (a preview, not power — Epic 9). Both remain facilitator readings.
+  evidence: gdd.md open note 20; `deferred-work.md` D22 entry above; no `MatchRecord` in the repo at cycle 146.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  status: OPEN — interim, closes itself when 8.15/8.16 flip the stub flags
+  summary: THE POOL IS FOUR-FIFTHS INERT ON STAGING UNTIL THE CONSUMABLE STORIES LAND: rolled from all five lines (amendment 67) but only HULL REPAIR copies are dealable today, so a match adds 0–5 extra heals per hull (≈ 2 on average) and nothing else visible. QA should not read "I never saw a shield from the pool" as a defect.
+  evidence: epic-8 amendments 41, 67; `shared/src/sim/catalog.ts` stub flags; `server/src/__tests__/decks.test.ts` `poolDealable` helper.
+
+## 2026-09-18 — Story 8.11 review gate (cycle 146): two findings deferred
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  summary: SERVER TESTS THAT BUILD A REAL `ArenaRoom` WITHOUT `poolOverride` NOW SAIL A RANDOM POOL — `abandon`, `colyseus018`, `joiningGuard`, `liveness`, `operability`, `regatta`, `rateLimit`, `rtt`, `solo`, `reconnect`, `zoneSeeds` all construct rooms with no pool pin; none asserts on offers or deck depth today, so nothing flakes, but the suite has a latent `Math.random` dependency: a future room-level pin on an offer's contents or a deck length that forgets `poolOverride: []` (the `deckExhausted.test.ts` pattern) will flake at 0–5 HULL REPAIR per run.
+  evidence: Blind Hunter P3 at the 8.11 gate; grep of `server/src/__tests__` for `new ArenaRoom(` without `poolOverride`; `server/src/__tests__/deckExhausted.test.ts` shows the fix pattern.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  summary: `shared/src/__tests__/poolMeasure.test.ts` RUNS 6,000 FULL ECONOMIES (≈2.3 s) AND PRINTS A TABLE ON EVERY `npm test -w shared` — it is a measurement, not a regression pin (its header says so); the cost and stdout noise ride every gate run. If it grows or the gate slows, move it behind an env flag like the batch sims and keep only the loose structural assertions in the default run.
+  evidence: Blind Hunter P8 at the 8.11 gate; the test's wall time in the wave-1 report (2.30 s).

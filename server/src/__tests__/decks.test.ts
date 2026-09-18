@@ -185,6 +185,18 @@ function arenaClient(id: string, auth?: unknown): ArenaClient {
   return c;
 }
 
+/**
+ * THE MATCH POOL'S DEALABLE COPIES (Story 8.11): how many cards this World's
+ * hidden pool actually ADDS to a captain's or a bot's deck. Not ten — the pool
+ * rolls all five consumable lines (amendment 67) and four of them are still
+ * `stub`, so `buildDeckState` withholds those copies exactly as it withholds
+ * the authored decks' stubs. Read from the shared predicate rather than a
+ * hand-kept id list, so it stays right the day a stub flag flips.
+ */
+function poolDealable(w: World): number {
+  return w.pool.filter((id) => !isStubLine(id)).length;
+}
+
 /** Bare arena with a real (islandless) World — the operability joinRoom idiom. */
 function arenaDoor(): ArenaDoor {
   const room = new ArenaRoom() as unknown as ArenaDoor;
@@ -214,7 +226,11 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     expect(rec.deckList).toBe(ML);
     // 27 since Story 8.10: the list less its stubs, with nothing held back —
     // the spawn seed that used to withhold copy 1 of a class line is deleted.
-    expect(rec.deck.cards).toHaveLength(27);
+    // PLUS THE MATCH POOL since 8.11: the room's one hidden list of consumable
+    // cards is appended to every captain's deck, so the depth is 27 + the
+    // pool's dealable copies. `deckList` is untouched — still the authored 40.
+    expect(rec.deck.cards).toHaveLength(27 + poolDealable(room.world));
+    expect(rec.deckList).toHaveLength(CONFIG.deck.size);
     expect(room.state.players.has('s1')).toBe(true);
     expect(lines('warn deck.illegal')).toEqual([]);
     expect(fieldsOf(lines('info client.join')[0])).toMatchObject({ sessionId: 's1', deckSource: 'door' });
@@ -308,7 +324,8 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     const rec = room.world.ships.get('s1')!;
     expect(rec.cards).toEqual(['navalMines']);
     expect(rec.loadout[2].equipmentId).toBe('navalMines');
-    expect(rec.deck.cards).toHaveLength(26); // the 27-card pool, one copy paid
+    // The 27-card authored pool + the match pool, one copy paid for the fit.
+    expect(rec.deck.cards).toHaveLength(26 + poolDealable(room.world));
     expect(lines('warn deck.devOptionsRejected')).toEqual([]);
   });
 
@@ -321,7 +338,7 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     expect(rec.devFit).toEqual([]);
     expect(rec.cards).toEqual([]);
     expect(rec.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'boost', null, null, null, null, null, null, null]);
-    expect(rec.deck.cards).toHaveLength(27); // nothing was paid for
+    expect(rec.deck.cards).toHaveLength(27 + poolDealable(room.world)); // nothing was paid for
     const dropped = lines('warn deck.devOptionsRejected');
     expect(dropped).toHaveLength(1);
     expect(fieldsOf(dropped[0])).toMatchObject({ rejected: ['fitOverride'] });
@@ -347,7 +364,7 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     joinArena(room, c, { cls: 'torpedoBoat' });
     const welcome = c.send.mock.calls.find((call) => call[0] === MSG.welcome)!;
     expect(welcome).toBeDefined();
-    const payload = welcome[1] as { config: { deck: unknown } } & Record<string, unknown>;
+    const payload = welcome[1] as { config: { deck: unknown; pool: unknown } } & Record<string, unknown>;
     // The welcome ships the CONFIG snapshot, whose `deck` block (since 8.1)
     // is the two rule numbers every client may know — the SAME numbers the
     // pre-queue gate will read in Epic 9. It is not deck state: pinned to
@@ -363,9 +380,19 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     // legitimate `deck` key on this message. A recursive KEY walk (see
     // `hasForbiddenKey`), not a serialized-text scan, so a value that merely
     // spells one of these words can never false-positive.
+    // THE POOL'S SIZE IS PUBLIC, ITS COMPOSITION IS NOT (Story 8.11). Ten is a
+    // number every player may know — "a match deals ten consumables" is how the
+    // mode reads — and it rides inside the CONFIG snapshot like every other
+    // block. WHICH ten is server-private (NFR20): it is not here, it is on no
+    // frame, and no log line ever names an id. Pinned to exactly the one dial,
+    // so a composition/count/remaining field can never hide inside it.
+    expect(payload.config.pool).toEqual({ size: CONFIG.pool.size });
     const family = ['deckLeft', 'deckSize', 'pool', 'remaining'];
     expect(hasForbiddenKey({ ...payload, config: undefined }, ['deck', 'deckList', 'deckId', ...family])).toBe(false);
-    expect(hasForbiddenKey(payload, ['deckList', 'deckId', ...family])).toBe(false);
+    // ...and INSIDE the config snapshot, `deck` and `pool` are the ONLY two
+    // keys of the family allowed — both pinned to their exact public shape
+    // above. Nothing else of it may hide in there.
+    expect(hasForbiddenKey(payload.config, ['deckList', 'deckId', 'deckLeft', 'deckSize', 'remaining'])).toBe(false);
   });
 });
 
@@ -379,7 +406,7 @@ describe('the arena door — a queue-seated captain (client.auth.deck)', () => {
     expect(rec.deckList).toBe(ML);
     // The pool is the list less STUB lines, read from the shared predicate
     // rather than a hand-kept id list (Story 8.8 un-stubbed `hullRepair`).
-    expect(rec.deck.cards).toHaveLength(ML.filter((id) => !isStubLine(id)).length);
+    expect(rec.deck.cards).toHaveLength(ML.filter((id) => !isStubLine(id)).length + poolDealable(room.world));
     expect(fieldsOf(lines('info client.join')[0])).toMatchObject({ sessionId: 's1', deckSource: 'seat' });
   });
 

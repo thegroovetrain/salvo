@@ -126,6 +126,83 @@ describe('sanitizeRoomOptions — devEnabled=true (HC_DEV_OPTIONS=1, smokes/test
   });
 });
 
+// --- poolOverride (Story 8.11) ----------------------------------------------
+// THE MATCH CONSUMABLE POOL's dev arm, and the one dev id list that is a ROOM
+// option rather than a seat option: the pool belongs to the room (one roll, one
+// list, every captain and bot in the match gets the same one), so it is
+// sanitized HERE, by the same `admitDevIdList` that gates deckOverride /
+// fitOverride — same gate, same bounds, same reporting. Production never sees
+// it. Ids are NOT filtered here: the World's `sanitizePool` is what refuses a
+// non-consumable line, which is what makes "a pool can never add an equipment
+// line to a deck" structural rather than a sanitizer promise.
+
+describe('sanitizeRoomOptions — poolOverride (the dev match pool)', () => {
+  const POOL = ['hullRepair', 'hullRepair', 'chaff'];
+
+  it('is DROPPED and reported without HC_DEV_OPTIONS, whatever its shape', () => {
+    const out = sanitizeRoomOptions({ poolOverride: POOL }, false);
+    expect(out.sanitized.poolOverride).toBeUndefined();
+    expect(out.rejectedKeys).toEqual(['poolOverride']);
+    expect(sanitizeRoomOptions({ poolOverride: 'junk' as unknown as string[] }, false).rejectedKeys)
+      .toEqual(['poolOverride']);
+  });
+
+  it('is honoured under devEnabled as a FRESH array, ids unfiltered (the World judges them)', () => {
+    const list = [...POOL, 'nope', 'armor'];
+    const out = sanitizeRoomOptions({ poolOverride: list }, true);
+    expect(out.sanitized.poolOverride).toEqual(list);
+    expect(out.sanitized.poolOverride).not.toBe(list);
+    expect(out.rejectedKeys).toEqual([]);
+  });
+
+  it('DROPS AND REPORTS a malformed shape, on the deckOverride bounds', () => {
+    const bad: unknown[] = [
+      'hullRepair',
+      { 0: 'hullRepair' },
+      null,
+      ['hullRepair', 7],
+      new Array<string>(DECK_OVERRIDE_MAX + 1).fill('hullRepair'),
+      ['x'.repeat(DECK_ID_MAX + 1)],
+    ];
+    for (const v of bad) {
+      const out = sanitizeRoomOptions({ poolOverride: v as string[] }, true);
+      expect(out.sanitized.poolOverride, JSON.stringify(v)?.slice(0, 40)).toBeUndefined();
+      // Malformed drops are reported EVEN WITH THE GATE OPEN — a smoke that
+      // mistyped its pool must not sail a rolled one with nothing in the log.
+      expect(out.rejectedKeys, JSON.stringify(v)?.slice(0, 40)).toEqual(['poolOverride']);
+    }
+    // ...and the bounds themselves are inclusive (reused from deckOverride).
+    expect(sanitizeRoomOptions({ poolOverride: new Array<string>(DECK_OVERRIDE_MAX).fill('hullRepair') }, true)
+      .sanitized.poolOverride).toHaveLength(DECK_OVERRIDE_MAX);
+    expect(sanitizeRoomOptions({ poolOverride: ['x'.repeat(DECK_ID_MAX)] }, true).sanitized.poolOverride)
+      .toEqual(['x'.repeat(DECK_ID_MAX)]);
+  });
+
+  it('an EMPTY list is honoured — the pool is a list, and the empty one is a legal ask', () => {
+    expect(sanitizeRoomOptions({ poolOverride: [] }, true).sanitized.poolOverride).toEqual([]);
+  });
+
+  it('no rejection noise when the caller passed no override', () => {
+    expect(sanitizeRoomOptions({}, true).rejectedKeys).toEqual([]);
+    expect(sanitizeRoomOptions({}, false).rejectedKeys).toEqual([]);
+  });
+
+  it('is reported LAST of the room keys when a hostile payload carries all four', () => {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions(
+      { matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE, mapSeed: 7, poolOverride: POOL },
+      false,
+    );
+    expect(sanitized).toEqual({});
+    expect(rejectedKeys).toEqual(['matchOverride', 'zoneOverride', 'mapSeed', 'poolOverride']);
+  });
+
+  it('is a ROOM key, not a seat key: sanitizeDeckOptions never looks at it', () => {
+    const out = sanitizeDeckOptions({ poolOverride: POOL } as JoinOptions, true);
+    expect(out.rejectedKeys).toEqual([]);
+    expect(out).toEqual({ clientDeck: false, rejectedKeys: [] });
+  });
+});
+
 
 // --- callsign hardening (Story 2.3 — deferred-work 127/130) ------------------
 

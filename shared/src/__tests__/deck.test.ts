@@ -16,8 +16,15 @@
 //   (5) the AT-CAP GUARD (Story 8.3): `drawOffer(..., { held })` never offers a
 //       line the SHIP already holds at `cap`, spends no rng value on it, and is
 //       byte-identical to the unguarded draw when `held` is absent or empty —
-//       plus the STRUCTURAL PIN that a legal default deck can never trip the
-//       guard at spawn, where the captain holds no cards at all;
+//       plus the STRUCTURAL PIN that the AUTHORED deck alone can never trip the
+//       guard at spawn, where the captain holds no cards at all, AND (Story
+//       8.11) that the appended match pool DOES: authored + pool copies run a
+//       line past its cap, and a ship HOLDING `cap` copies is never offered the
+//       line again. Those copies WAIT in the deck rather than die: on the
+//       server a used consumable copy leaves `ship.cards` (World.spendStock,
+//       Story 8.7), which reopens the line. This pure test can only prove the
+//       CLOSED half — `held` is an argument here, and nothing fires a card;
+//       the reopen is pinned at World level in server upgrades.test.ts;
 //   (6) THE LEVEL-ZERO GUARANTEE (Story 8.10, FR48): `{ guarantee: true }` puts
 //       a USABLE card (a consumable, or the tier I of an equipment line the
 //       ship has none of) in slot 0, costs exactly one rng.next() like any
@@ -457,7 +464,7 @@ describe('drawOffer — THE LEVEL-ZERO GUARANTEE (Story 8.10): the opening hand 
   });
 });
 
-describe('the at-cap guard is structurally IDLE on a legal deck (Story 8.3 pin)', () => {
+describe('the at-cap guard: IDLE on the AUTHORED deck (8.3), LIVE once the pool is appended (8.11)', () => {
   /** WHAT A CAPTAIN HOLDS AT SPAWN, since Story 8.10 deleted the interim
    *  spawn-seed table: nothing. The loadout is hull-agnostic (gun + boost +
    *  seven
@@ -474,7 +481,9 @@ describe('the at-cap guard is structurally IDLE on a legal deck (Story 8.3 pin)'
     }
   });
 
-  it('pool copies + held copies ≤ cap for EVERY line of EVERY hull at spawn — the guard can never bite', () => {
+  it('AUTHORED-DECK pool copies + held copies ≤ cap for EVERY line of EVERY hull at spawn', () => {
+    // True of the door-admitted 40 ALONE — and only of them. Story 8.11's match
+    // pool is appended AFTER this and deliberately breaks it (next pin).
     for (const hull of SHIP_CLASS_IDS) {
       const pool = tally(buildDeckState(DEFAULT_DECKS[hull], SPAWN_HELD).cards);
       const held = tally(SPAWN_HELD);
@@ -482,6 +491,34 @@ describe('the at-cap guard is structurally IDLE on a legal deck (Story 8.3 pin)'
         const total = (pool.get(id) ?? 0) + (held.get(id) ?? 0);
         expect(total, `${hull}:${id}`).toBeLessThanOrEqual(CATALOG[id].cap);
       }
+    }
+  });
+
+  /** A MATCH POOL as Story 8.11 rolls one — five HULL REPAIR copies is a legal
+   *  roll (each line ≤ its own cap WITHIN the pool, R44). */
+  const HEAVY_POOL: readonly LineId[] = new Array<LineId>(5).fill('hullRepair');
+
+  it('THE GUARD IS LIVE FROM 8.11: the appended pool pushes a line PAST its cap in the deck', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      const deck = buildDeckState([...DEFAULT_DECKS[hull], ...HEAVY_POOL]);
+      const copies = tally(deck.cards).get('hullRepair') ?? 0;
+      expect(copies, hull).toBe(3 + 5); // 3 authored (amendment 10) + 5 pooled
+      expect(copies, hull).toBeGreaterThan(CATALOG.hullRepair.cap); // 8 > 5
+      expect(deck.cards).toHaveLength(27 + 5); // every pool copy is dealable (hullRepair is live)
+    }
+  });
+
+  it('...and a ship AT CAP is never offered the line, however many copies the deck still holds', () => {
+    const atCap: readonly LineId[] = new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair');
+    for (const hull of SHIP_CLASS_IDS) {
+      const deck = buildDeckState([...DEFAULT_DECKS[hull], ...HEAVY_POOL]);
+      let drewSomethingElse = false;
+      for (let seed = 0; seed < 100; seed += 1) {
+        const { offer } = drawOffer(deck, mulberry32(seed), CATALOG, { held: atCap });
+        expect(offer, `${hull}:${seed}`).not.toContain('hullRepair');
+        if (offer.length > 0) drewSomethingElse = true;
+      }
+      expect(drewSomethingElse, hull).toBe(true); // the deck still deals — only that line is closed
     }
   });
 

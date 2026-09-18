@@ -137,8 +137,9 @@ let retiredMessageTotal = 0;
 /** Ship records that have run their deck dry, process-wide since start (Story
  *  8.3). Module-level ON PURPOSE: exhaustion outlives the room it happened in,
  *  so it must not sit in the per-room registry that dispose clears.
- *  "Exhausted" means an EMPTY DRAW — nothing left to offer — which on any
- *  door-admitted deck coincides with an empty pool. */
+ *  "Exhausted" means an EMPTY DRAW — nothing left to OFFER: since Story 8.11's
+ *  match pool that is an empty deck OR a deck holding only lines the hull is
+ *  already at cap on (firing a consumable reopens those). */
 let deckExhaustedTotal = 0;
 /** Cards FITTED through a successful spend, process-wide since start (Story
  *  8.10). Module-level for the deckExhaustedTotal reason: a pick outlives the

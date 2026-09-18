@@ -51,6 +51,8 @@ import {
   hullSilhouette,
   pointPolygonDistance,
   mulberry32,
+  rollMatchPool,
+  sanitizePool,
   resolveShipPose,
   slowedKinematics,
   stepShell,
@@ -278,6 +280,32 @@ export interface WorldOptions {
    */
   pseudonymSeed?: number;
   /**
+   * Seed material of the SERVER-PRIVATE MATCH-POOL stream (Story 8.11, FR43 —
+   * the zoneSeeds/pseudonymSeed posture, for the same reason). The match's one
+   * hidden list of CONFIG.pool.size consumable cards is rolled ONCE in the
+   * constructor off this seed alone: ArenaRoom passes fresh per-room entropy
+   * (adapter-layer, never in game/), the batch-sim harness and the RL env
+   * derive it from the match seed server-side so a run key stays reproducible
+   * without leaking anything. Omitted => a TEST-ONLY fixed derivation of the
+   * map seed with its own decorrelation constant (0x3c6ef372, unused by any
+   * other stream here — see the spawnPhase doc for the roster) — fine for
+   * standalone Worlds (unit tests, sandbox smokes), NEVER acceptable for a
+   * production room: mapSeed RIDES THE WELCOME, so a pool derived from it
+   * would be brute-forceable by any client that can read its own map.
+   */
+  poolSeed?: number;
+  /**
+   * AN EXPLICIT MATCH POOL, which WINS over the roll (Story 8.11): the dev
+   * `poolOverride` a headless smoke asks for, or a test fixture — `[]` above
+   * all, which is how every deck-DEPTH pin in this suite stays about the
+   * AUTHORED deck. Passed through `sanitizePool` on the way in, so only
+   * catalog lines of kind `consumable` survive (unknown ids and equipment are
+   * dropped silently); order and duplicates are kept and there is NO size
+   * clamp — an override is a deliberate hand-built list. Undefined (every
+   * production room) means "roll one".
+   */
+  pool?: readonly LineId[];
+  /**
    * THE DECK-EXHAUSTION SEAM (Story 8.3): called ONCE per ShipRecord, the
    * first time a level's draw comes back EMPTY (materializeOffer). The World
    * reports the fact and says nothing about it — it holds no logger and no
@@ -450,8 +478,27 @@ export interface ShipRecord {
   /**
    * THE DECK (Story 2.8, amendment 38): this player's card multiset — the
    * universal lines + carried-equipment subdecks + absent-equipment
-   * acquisitions (sim/deck.ts buildDeckState over `deckList` and the FRESH
-   * loadout's carried seed). Every offer is DRAWN from it WITHOUT taking
+   * acquisitions.
+   *
+   * SINCE STORY 8.11 THE DRAWABLE MULTISET IS THE AUTHORED LIST PLUS THE MATCH
+   * POOL: `dealDeck` builds it from `[...deckList, ...world.pool]`, so a
+   * captain sails 40 authored cards + the match's 10 consumables (less every
+   * stub on either side, which `buildDeckState`'s `isDealable` withholds — the
+   * only place that judgement is made). `deckList` itself is untouched: it
+   * stays the authored 40 the door checked, and the pool lives once on the
+   * World. A line may therefore hold MORE copies than its cap (HULL REPAIR
+   * 3 + 5 = 8 against a cap of 5), and drawOffer's at-cap guard — idle until
+   * this story — now bites.
+   *
+   * THOSE EXTRA COPIES ARE NOT DEAD, THEY ARE GATED BEHIND USE. The guard only
+   * refuses to OFFER a line the hull holds at `cap`; a pool can only hold
+   * CONSUMABLES, and a used consumable copy LEAVES `cards` (`spendStock`,
+   * Story 8.7). So the moment a captain fires one of five stocked HULL REPAIR
+   * the line reopens and the deck's remaining copies are drawable again. That
+   * is exactly the "there might be more heals out there" the pool promises:
+   * extra supply behind the trigger, never an offer past the cap.
+   *
+   * Every offer is DRAWN from it WITHOUT taking
    * anything out (materializeOffer); exactly ONE card leaves when a pick is
    * FITTED (settleSpend's consumeCard). SERVER-PRIVATE: never on the wire
    * (the drawn offer ids are). PRESERVED by redeployShip (Story 8.10: the
@@ -527,9 +574,14 @@ export interface ShipRecord {
    * A THIN DRAW IS NOT EXHAUSTION. One, two or three cards still materialize
    * an offer; only a ZERO-length draw latches this. Fleet hulls hold the
    * frozen EMPTY_DECK and never draw at all (addXpMs fail-closes on them
-   * before a level can bank), so they never reach the latch. "Exhausted"
-   * means an EMPTY DRAW — nothing left to offer — which on any door-admitted
-   * deck coincides with an empty pool.
+   * before a level can bank), so they never reach the latch. "Exhausted" means
+   * an EMPTY DRAW — nothing left to OFFER — which since the match pool (Story
+   * 8.11) means one of two things: the deck is empty, OR every copy still in
+   * it is of a line this hull already holds at its `cap`. The second is
+   * RECOVERABLE — firing a consumable drops a copy out of `cards`
+   * (`spendStock`) and reopens the line, and the next level's retry then draws
+   * a real hand. The latch does not care which it was: it fires once, on the
+   * FIRST empty draw, and never again.
    *
    * SERVER-PRIVATE, like `deck` and `deckList`: never on the wire.
    */
@@ -1296,6 +1348,25 @@ export class World {
   private readonly consumables: ConsumableRegistry;
 
   /**
+   * THE MATCH CONSUMABLE POOL (Story 8.11, catalog-v3 R4/R44, FR43): the ONE
+   * hidden list of consumable cards this match deals, appended to every
+   * captain's and every bot's deck (40 authored + 10 = 50 at the seat) and to
+   * no fleet hull's. Rolled ONCE here, in the constructor, before any ship can
+   * exist — so every participant, whenever they board, gets the SAME list.
+   *
+   * IT LIVES ON THE WORLD AND NOT ON THE RECORD: one roll, one list, one
+   * source of truth. A per-ship copy would be a second thing to keep in step
+   * and a second thing to hide. The seat only ever CONCATENATES (see dealDeck).
+   *
+   * HIDDEN MEANS HIDDEN (NFR20): the composition never rides a frame, the
+   * welcome, the schema, `/metrics` or the results, and no log line ever names
+   * an id — ArenaRoom logs `match.pool { count }` and nothing else. Only the
+   * SIZE is public, and only because it rides inside the welcome's CONFIG
+   * snapshot like every other block.
+   */
+  readonly pool: readonly LineId[];
+
+  /**
    * THE MATCH'S ONE SPAWN LATTICE (Eric ruling 2026-08-16). Every placement
    * edge — addShip, redeployShip, respawn — passes this to pickSpawn, so all
    * hulls come off a SINGLE rotated ring of `SPAWN_CANDIDATES` slots instead of
@@ -1331,6 +1402,9 @@ export class World {
     this.hookRegistry = opts.hookRegistry ?? HOOK_REGISTRY;
     this.catalog = opts.catalog ?? CATALOG;
     this.consumables = opts.consumables ?? CONSUMABLES;
+    // THE MATCH POOL (Story 8.11) — resolved HERE, once, after the catalog and
+    // before any ship can be added. See World.matchPool for the roll itself.
+    this.pool = World.matchPool(this.catalog, seed, opts);
     this.playerCap = playerCap;
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
@@ -1607,7 +1681,7 @@ export class World {
       // fresh fit; fleet hulls never get one (pinned). ECONOMY, so it keys on
       // the FLEET reading — an AI captain (6.4) is a participant that plays
       // the game, and gets a deck like any other.
-      deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeckState(deckList, EMPTY_DECK_LIST, this.catalog),
+      deck: this.dealDeck(role, deckList),
       deckList, devFit: World.spawnFit(role, fit), deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null, deckExhausted: false, mulliganed: false, openingGranted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
@@ -1798,6 +1872,55 @@ export class World {
   }
 
   /**
+   * THE MATCH'S ONE POOL, resolved at construction (Story 8.11). An EXPLICIT
+   * list — the dev `poolOverride` or a test fixture — WINS, after
+   * `sanitizePool` strips everything that is not a catalog consumable line;
+   * otherwise the pool is ROLLED on its OWN stream off the caller's private
+   * seed material. Never a draw off `this.rng`: the spawn stream must not
+   * shift with anything the pool does (the spawnPhase reasoning), and one
+   * value read once wants a stream it cannot desynchronize from.
+   *
+   * The fallback seed is the TEST-ONLY map-seed derivation with its own
+   * decorrelation constant (0x3c6ef372 — unused by any other stream here; see
+   * the spawnPhase doc for the roster in use). A production room passes
+   * `poolSeed`, because mapSeed rides the welcome (see WorldOptions.poolSeed).
+   *
+   * Static, and taking what it needs as arguments, because it runs mid-
+   * constructor: `this` is not yet whole.
+   */
+  private static matchPool(catalog: Catalog, seed: number, opts: WorldOptions): readonly LineId[] {
+    if (opts.pool !== undefined) return sanitizePool(opts.pool, catalog);
+    return rollMatchPool(mulberry32((opts.poolSeed ?? (seed ^ 0x3c6ef372)) >>> 0), catalog, CONFIG.pool);
+  }
+
+  /**
+   * THE ONE PLACE A DECK IS DEALT (Story 8.11). Every drawable multiset in the
+   * World is built here and nowhere else: the AUTHORED list the door admitted
+   * PLUS this match's consumable pool, in that order, through the shared
+   * `buildDeckState` (which is also the single point at which "authored but
+   * unbuilt" becomes "unofferable" — stub pool copies join the multiset and
+   * are never dealt, exactly as amendment 11 ruled for the authored decks).
+   *
+   * A FLEET HULL GETS THE FROZEN EMPTY DECK and never the pool (amendments
+   * 12/24: drones stay gun-only and never draw).
+   *
+   * THE POOL IS APPENDED ONCE, AT SPAWN. `redeployShip` PRESERVES the deck
+   * (Story 8.10) rather than rebuilding it, so nothing re-appends the pool on
+   * the countdown->active edge, on respawn or on reconnect. If a second
+   * deck-build edge is ever needed it comes through here, so that stays true.
+   *
+   * THE MULTISET MAY EXCEED A LINE'S CAP, and that is supply, not waste: the
+   * at-cap guard never OFFERS a line the hull holds at `cap`, but a pool holds
+   * consumables only and a USED consumable copy leaves `cards` (`spendStock`,
+   * Story 8.7), which reopens the line and makes the remaining copies drawable
+   * again. See the `ShipRecord.deck` doc for the whole reading.
+   */
+  private dealDeck(role: ShipRole, deckList: readonly LineId[]): DeckState {
+    if (roleIsFleetHull({ role })) return EMPTY_DECK;
+    return buildDeckState([...deckList, ...this.pool], EMPTY_DECK_LIST, this.catalog);
+  }
+
+  /**
    * THE DEV SPAWN FIT, kept on the record (Story 8.10, epic-8 amendment 65).
    * CAPTAINS ONLY — never a bot, never a fleet hull: Eric's ruling names the
    * captain, and a bot that came up pre-fitted would quietly change bot-vs-bot
@@ -1819,16 +1942,27 @@ export class World {
    * which belongs to the spend path alone (`fitCard` is the shared half; see
    * settleSpend). Nothing is queued here: a spawn is not a spend.
    *
-   * THE POOL IS THE FILTER. `ship.deck.cards` already excludes unknown ids and
+   * THE DECK IS THE FILTER. `ship.deck.cards` already excludes unknown ids and
    * stub lines (buildDeckState's `isDealable`) and holds only what this hull's
    * own frozen list carries, so "the deck has a copy" is the one test that
    * covers all three of the ruling's drops — unknown, stub, not in the deck —
-   * and it also bounds the whole thing at the deck's real copy counts: a smoke
-   * cannot fit six torpedoes out of a deck holding three.
+   * and for EQUIPMENT and LADDER lines it still bounds the whole thing at the
+   * deck's real copy counts: a smoke cannot fit six torpedoes out of a deck
+   * holding three (an authored deck never carries a line past its cap).
+   *
+   * AND THE CAP IS THE SECOND BOUND (Story 8.11 review). The match pool broke
+   * "the deck bounds the copy count" for CONSUMABLES — the only lines a pool
+   * holds: a deck can carry 3 authored + 5 pooled HULL REPAIR against a cap of
+   * 5, and a dev fit walking that list unguarded would stack EIGHT, a build no
+   * pick, draw or offer could ever produce (drawOffer's at-cap guard sees to
+   * that). So a line already held at its `cap` is skipped here too. The id is
+   * known to the catalog by construction — it came out of `deck.cards`, which
+   * buildDeckState built from catalog lines — so the lookup cannot miss.
    */
   private applyDevFit(ship: ShipRecord): void {
     for (const id of ship.devFit) {
       if (!(ship.deck.cards as readonly string[]).includes(id)) continue;
+      if (boonStackCount(ship.cards, id) >= this.catalog[id].cap) continue;
       this.fitCard(ship, id as LineId);
     }
   }
@@ -2531,7 +2665,11 @@ export class World {
    * `opts.held`, so a line this hull already holds at its `cap` is dropped
    * before weighting and can never occupy a slot in the hand. Structurally
    * idle against a legal deck (pool + held <= cap at spawn, and every fit moves
-   * one copy from pool to held), which is exactly why it is cheap to keep.
+   * one copy from pool to held) UNTIL Story 8.11's match pool, which can push a
+   * consumable line past its cap; the guard is LIVE from then on. It is a
+   * GATE, not a bin: `held` shrinks when a consumable is fired (`spendStock`),
+   * so a line it closed reopens and the copies behind it come back into the
+   * draw.
    *
    * EMPTY DRAW: `offer` stays null and the bank stays put — the card pick is
    * refused and the next level simply retries the draw. The FIRST empty draw
@@ -2560,8 +2698,9 @@ export class World {
    *  materializeOffer so the latch-then-tell order is one readable statement
    *  and the draw path keeps its low branch count. A caller that supplied no
    *  reporter still latches — the flag is World state, the report is the
-   *  adapter's. "Exhausted" means an EMPTY DRAW — nothing left to offer —
-   *  which on any door-admitted deck coincides with an empty pool. The latch
+   *  adapter's. "Exhausted" means an EMPTY DRAW — nothing left to OFFER: the
+   *  deck is empty, or every copy left is of a line this hull holds at its
+   *  `cap` (a use frees that second one — see the latch's doc). The latch
    *  is set BEFORE the callback runs, and the callback is wrapped: a throwing
    *  diagnostic is an ops-layer bug, never a reason to fail the sim tick. */
   private reportExhaustion(ship: ShipRecord): void {

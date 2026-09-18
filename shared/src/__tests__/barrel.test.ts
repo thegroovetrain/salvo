@@ -64,7 +64,10 @@ import {
   cardCounts,
   catalogCardCount,
   consumeCard,
+  consumableLines,
   drawOffer,
+  rollMatchPool,
+  sanitizePool,
   usableLines,
   hookKinematics,
   isStubLine,
@@ -283,6 +286,11 @@ describe('shared barrel', () => {
     // level, with no REDRAW to press). Every default deck goes 26 -> 27
     // drawable cards. No wire SHAPE moves and the perception exception count
     // stays at SIX.
+    // UNCHANGED BY STORY 8.11 (the match consumable pool): nothing of the pool
+    // rides — not a frame, not the welcome, not the schema, not a log line
+    // (count only) — and although `CONFIG.pool.size` travels inside the welcome
+    // CONFIG snapshot, the client reads no pool field and predicts nothing from
+    // it, so there is no stale client to gate out.
     expect(PROTOCOL_VERSION).toBe(55);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
@@ -703,6 +711,12 @@ describe('shared barrel', () => {
     for (const fn of [buildDeckState, drawOffer, consumeCard]) {
       expect(typeof fn).toBe('function');
     }
+    // THE MATCH CONSUMABLE POOL (Story 8.11, catalog-v3 R4/R44): the pure roll
+    // the server appends to every captain's and bot's deck, plus the sanitizer
+    // every explicit pool (the dev override, a test fixture) comes through.
+    for (const fn of [rollMatchPool, sanitizePool, consumableLines]) {
+      expect(typeof fn).toBe('function');
+    }
     // Story 8.2: the interim `buildDeck` is gone — the pool is built from a
     // frozen list — and the legality engine + the default decks are exported.
     expect((shared as Record<string, unknown>).buildDeck).toBeUndefined();
@@ -726,6 +740,10 @@ describe('shared barrel', () => {
     // the AUTHORED-deck rules (AR52), read by checkDeck at the door since
     // Story 8.2, and CONFIG.catalog carries the one engine dial the fold needs.
     expect(CONFIG.deck).toEqual({ size: 40, maxEquipmentLines: 3 });
+    // ...and CONFIG.deck is the AUTHORED size ALONE: Story 8.11's hidden match
+    // pool is its own block (Eric's number, not a dial), appended AFTER the
+    // door's legality check, so a seat ends up with 40 + 10 = 50.
+    expect(CONFIG.pool).toEqual({ size: 10 });
     expect(CONFIG.catalog).toEqual({ reloadStepPerTier: 0.05 });
     expect(CONFIG.offer.size).toBe(4); // four cards, four DIFFERENT lines
     expect(MSG.spend).toBe('u');

@@ -42,6 +42,13 @@ function bareRoom(): BareRoom {
   return new ArenaRoom() as unknown as BareRoom;
 }
 
+/** 8.11: an EMPTY match pool through the room's own dev seam. Exhaustion is
+ *  about a deck with nothing drawable left, and the pool would otherwise
+ *  append up to ten consumable cards (the dealable ones — HULL REPAIR today)
+ *  to every deck here, including the deliberately-empty ones. The pool is
+ *  tested in matchPool.test.ts. */
+const EMPTY_POOL = { poolOverride: [] as readonly string[] };
+
 /** A capturing stand-in for the room's bound logger. */
 function stubLogger(): Logger & { info: ReturnType<typeof vi.fn> } {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -55,7 +62,7 @@ describe('ArenaRoom.buildWorld — the deck-exhaustion adapter', () => {
   it('logs deck.exhausted { shipId } through the logger bound AFTER buildWorld, and bumps /metrics — exactly once per record', () => {
     const room = bareRoom();
     // The real world the room would sail, built by the real method.
-    const world = room.buildWorld(1, {});
+    const world = room.buildWorld(1, EMPTY_POOL);
     // initOperability's rebinding, reproduced in onCreate's own order.
     const log = stubLogger();
     room.log = log;
@@ -84,7 +91,7 @@ describe('ArenaRoom.buildWorld — the deck-exhaustion adapter', () => {
 
   it('counts a SECOND captain separately — the latch is per record, not per room', () => {
     const room = bareRoom();
-    const world = room.buildWorld(2, {});
+    const world = room.buildWorld(2, EMPTY_POOL);
     const log = stubLogger();
     room.log = log;
 
@@ -103,7 +110,7 @@ describe('ArenaRoom.buildWorld — the deck-exhaustion adapter', () => {
 
   it('the counter is bumped even when the bound logger throws', () => {
     const room = bareRoom();
-    const world = room.buildWorld(4, {});
+    const world = room.buildWorld(4, EMPTY_POOL);
     const log = stubLogger();
     log.info.mockImplementation(() => {
       throw new Error('logger transport down');
@@ -122,7 +129,7 @@ describe('ArenaRoom.buildWorld — the deck-exhaustion adapter', () => {
 
   it('a HEALTHY deck reports nothing: the default deck draws a full hand', () => {
     const room = bareRoom();
-    const world = room.buildWorld(3, {});
+    const world = room.buildWorld(3, EMPTY_POOL);
     const log = stubLogger();
     room.log = log;
 
