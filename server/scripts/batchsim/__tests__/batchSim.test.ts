@@ -34,8 +34,8 @@ import { pickSpendChoice } from '../spendPolicy.js';
 import { Match } from '../../../src/game/match.js';
 import { MatchCollector, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
 import { buildAggregate, renderBatchReport } from '../report.js';
-import { runDeckSim } from '../deckSim.js';
-import { mulberry32 } from '@salvo/shared';
+import { defaultPoolFor, runDeckSim } from '../deckSim.js';
+import { mulberry32, rollMatchPool } from '@salvo/shared';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 
 describe('args — CLI parsing', () => {
@@ -428,6 +428,26 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     }
     // ...and the deck dials are untouched by the refused apply.
     expect(CONFIG.deck.size).toBe(40);
+  });
+
+  it('REFUSES pool.* on every surface — ten is a DESIGN number, not a dial (Story 8.11)', () => {
+    // The sibling refusal with the OPPOSITE reason to deck.*: `CONFIG.pool.size`
+    // is NOT inert (the pool is rolled at World construction, so an override
+    // would reach it) — it is refused because the size of the hidden hand a
+    // match deals is Eric's number (catalog-v3 R4), and a run that changed it
+    // would quietly measure an economy the game does not deal.
+    for (const key of ['pool.size']) {
+      expect(() => parseArgs(['--set', `${key}=3`]), key).toThrow(TunableError);
+      expect(() => parseArgs(['--set', `${key}=3`]), key).toThrow(/DESIGN number/);
+      expect(() => parseArgs(['--sweep', `${key}=3,5`]), key).toThrow(TunableError);
+      expect(() => parseArgs(['--tune', `${key}=3`]), key).toThrow(/DESIGN number/);
+      expect(() => validateTunableKey(key), key).toThrow(/DESIGN number/);
+      expect(isTunableKey(key), key).toBe(false);
+      expect(() => applyOverrides({ [key]: 3 }), key).toThrow(TunableError);
+      expect(() => applyOverrides({}, { [key]: 3 }), key).toThrow(TunableError);
+    }
+    // ...and the pool dial is untouched by every refused apply.
+    expect(CONFIG.pool.size).toBe(10);
   });
 
   // -------------------------------------------------------------------------
@@ -881,7 +901,9 @@ describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2,
   it('the pacifist control SAILS it: the runner hands the control\'s deck to the World', () => {
     const control = CONTROL_REGISTRY.pacifist('cap-1', 1);
     expect(control.deck).toBe(PACIFIST_DECK);
-    const w = new World(1);
+    // 8.11: an EMPTY match pool — this pin is about the AUTHORED deck the
+    // control sails; the pool is tested in server/src/__tests__/matchPool.test.ts.
+    const w = new World(1, CONFIG.map.playerCap, CONFIG.zone, { pool: [] });
     w.map.islands.length = 0;
     const rec = w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, control.deck);
     expect(rec.deckList).toBe(PACIFIST_DECK);
@@ -895,7 +917,8 @@ describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2,
   });
 
   it('bots in the harness lobby sail their hull\'s DEFAULT deck', () => {
-    const w = new World(2);
+    // 8.11: an EMPTY match pool — the AUTHORED default deck is what this pins.
+    const w = new World(2, CONFIG.map.playerCap, CONFIG.zone, { pool: [] });
     w.map.islands.length = 0;
     const rec = w.addBot(undefined, undefined, (h) => DEFAULT_DECKS[h]);
     expect(rec.deckList).toBe(DEFAULT_DECKS[rec.hullId as keyof typeof DEFAULT_DECKS]);
@@ -1391,6 +1414,40 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
   });
 });
 
+describe('deck-only mode — the match pool and the live guard (Story 8.11)', () => {
+  it('an economy sails the AUTHORED deck PLUS the match pool, stub copies withheld', () => {
+    // The harness's one statement of what a captain sails, and it must agree
+    // with World.dealDeck: `[...DEFAULT_DECKS[cls], ...pool]` through the same
+    // buildDeckState, which withholds every stub on either side.
+    expect(defaultPoolFor('torpedoBoat').cards).toHaveLength(27);
+    expect(defaultPoolFor('torpedoBoat', ['hullRepair', 'hullRepair']).cards).toHaveLength(29);
+    // CHAFF is still a stub (amendment 67: the pool rolls all five consumable
+    // lines and buildDeckState is the ONE place that withholds the unbuilt).
+    expect(defaultPoolFor('torpedoBoat', ['chaff', 'chaff']).cards).toHaveLength(27);
+  });
+
+  it('two economies on DIFFERENT streams roll different pools', () => {
+    // One pool per simulated match, off the economy's own rng — the same
+    // relationship a room has with its poolSeed.
+    const a = rollMatchPool(mulberry32(1), CATALOG, CONFIG.pool);
+    const b = rollMatchPool(mulberry32(2), CATALOG, CONFIG.pool);
+    expect(a).toHaveLength(CONFIG.pool.size);
+    expect(b).not.toEqual(a);
+  });
+
+  it('draws GUARDED, exactly as the server does: over-cap pool copies go DEAD', () => {
+    // THE DISCRIMINATING PIN for `drawOffer(deck, rng, CATALOG, { held })`.
+    // Unguarded, every economy would drain its deck to zero and the
+    // exhaustion rate would be exactly 1 (it was, before this story). With the
+    // guard live, an economy that has fitted `cap` copies of a line is never
+    // offered it again, so some economies END with cards still in the deck —
+    // the dead copies R44 rules dead.
+    const a = runDeckSim({ seed: 7, draws: 3000 });
+    expect(a.deckExhaustedRate).toBeLessThan(1);
+    expect(a.drawsPlayed.max).toBeLessThan(300); // still no backstop endings
+  });
+});
+
 describe('deck-only mode', () => {
   it('is deterministic per seed and structurally sound', () => {
     const a = runDeckSim({ seed: 7, draws: 3000 });
@@ -1400,7 +1457,16 @@ describe('deck-only mode', () => {
     expect(a.economies).toBeGreaterThan(10);
     // Economies terminate for real (not via the 300-draw backstop).
     expect(a.drawsPlayed.max).toBeLessThan(300);
-    expect(a.deckExhaustedRate).toBe(1);
+    // NO LONGER ALWAYS AN EMPTY DECK (Story 8.11). Each economy now plays the
+    // authored deck PLUS a match pool, so a line can hold more copies than its
+    // cap — and those copies are DEAD BY DESIGN (R44): once the economy has
+    // fitted `cap` of a line the at-cap guard never offers it again, so the
+    // economy ends on an EMPTY OFFER with cards still in the deck. Both
+    // terminal states are honest stops; what must stay true is that every
+    // economy terminates without the 300-draw backstop (pinned above) and that
+    // the empty-deck ending is still the common one.
+    expect(a.deckExhaustedRate).toBeGreaterThan(0.5);
+    expect(a.deckExhaustedRate).toBeLessThanOrEqual(1);
     // Every economy that ran contributed at least one draw to the total.
     expect(a.drawsPlayed.mean * a.economies).toBeCloseTo(a.totalDraws, 6);
     // Fail-proof for the determinism pin: a different seed diverges.

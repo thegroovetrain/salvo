@@ -25,6 +25,13 @@
 // (spendPolicy.pickSpendChoice) — one spend per level, immediately after the
 // draw, exactly like a captain who refits as soon as TAB glows.
 //
+// ONE ECONOMY IS ONE SIMULATED MATCH (Story 8.11): it rolls its own MATCH
+// CONSUMABLE POOL off its own stream and plays the class's default deck PLUS
+// that pool, which is what a captain actually sails since 8.11 — and it draws
+// with `{ held }` and the catalog, exactly as World.materializeOffer does,
+// because the pool is the first thing that can push a line's copies past its
+// cap and the at-cap guard is therefore LIVE.
+//
 // One "economy" = one class's deck played level-by-level until exhausted.
 // Classes round-robin per economy; `draws` is the TOTAL draw budget across
 // economies (the last economy always plays out fully — determinism over exact
@@ -46,11 +53,13 @@
 
 import {
   CATALOG,
+  CONFIG,
   DEFAULT_DECKS,
   SHIP_CLASS_IDS,
   buildDeckState,
   drawOffer,
   mulberry32,
+  rollMatchPool,
   consumeCard,
   type DeckState,
   type LineId,
@@ -71,10 +80,13 @@ export function carriedLinesFor(_cls: ShipClassId): readonly LineId[] {
   return [];
 }
 
-/** A hull's fresh drawable pool: its DEFAULT deck less stubs less its seed —
- *  exactly what `World.addShip` deals for a captain at the door (Story 8.2). */
-export function defaultPoolFor(cls: ShipClassId): DeckState {
-  return buildDeckState(DEFAULT_DECKS[cls], carriedLinesFor(cls));
+/** A hull's fresh drawable pool: its DEFAULT deck PLUS this match's consumable
+ *  pool, less stubs less its seed — exactly what `World.dealDeck` builds for a
+ *  captain at the door (Story 8.2, extended by Story 8.11). The pool is the
+ *  MATCH's, so it is passed in rather than rolled here: one roll per simulated
+ *  match, identical for every hull in it, as the server does it. */
+export function defaultPoolFor(cls: ShipClassId, pool: readonly LineId[] = []): DeckState {
+  return buildDeckState([...DEFAULT_DECKS[cls], ...pool], carriedLinesFor(cls));
 }
 import { pickSpendChoice } from './spendPolicy.js';
 import { mixSeed, summarize, tally, type Summary } from './stats.js';
@@ -168,7 +180,11 @@ function spendFront(st: EconomyState, front: readonly string[], rng: Rng): strin
 }
 
 /** THE HARNESS STOPPING RULE: the deck is EMPTY. No card can return to a deck,
- *  so an empty deck is the only terminal state. */
+ *  so an empty deck is one terminal state — and since Story 8.11 it is no
+ *  longer the ONLY one: the match pool can push a line's copies past its cap,
+ *  and once the economy has fitted `cap` of that line the guard never offers
+ *  it again, so an economy can also end on an EMPTY OFFER with dead copies
+ *  still in the deck (playOneDraw's false). `emptied` distinguishes the two. */
 const deckExhausted = (st: EconomyState): boolean => st.deck.cards.length === 0;
 
 /** One level's draw + immediate spend; false = deck could not draw (done).
@@ -181,7 +197,14 @@ function playOneDraw(
   ledger: LineLedger,
   cls: ShipClassId,
 ): boolean {
-  const r = drawOffer(st.deck, rng);
+  // DRAW EXACTLY AS THE SERVER DRAWS (Story 8.11): the catalog and the ship's
+  // HELD cards, so the at-cap guard bites here too. It is not optional any
+  // more — the match pool can push a line's copies PAST its cap (HULL REPAIR
+  // 3 + 5 = 8 against a cap of 5), and those copies are dead by design (R44).
+  // An unguarded harness draw would offer them and measure an economy the
+  // server does not run (deferred-work "THE BATCH-SIM DECK ECONOMY DRAWS
+  // UNGUARDED", closed here).
+  const r = drawOffer(st.deck, rng, CATALOG, { held: st.fitted });
   st.deck = r.deck;
   if (r.offer.length === 0) return false; // nothing drawable: a level banks nothing
   stats.draws = draw;
@@ -194,10 +217,15 @@ function playOneDraw(
 
 /** Play one full economy. */
 function playEconomy(cls: ShipClassId, rng: Rng, ledger: LineLedger): EconomyStats {
-  // Each class plays its own DEFAULT deck (Story 8.2): 23 drawable cards
-  // today, so an economy exhausts in ~23 draws and the per-class ledger
-  // columns are real per-hull evidence.
-  const st: EconomyState = { deck: defaultPoolFor(cls), fitted: [] };
+  // Each class plays its own DEFAULT deck (Story 8.2) PLUS one match pool
+  // (Story 8.11): 27 authored dealable cards today plus the pool's DEALABLE
+  // copies (four of the five consumable lines are still stubs, so most pool
+  // cards are withheld by buildDeckState until 8.15/8.16), and an economy
+  // exhausts in that many draws. The pool is rolled ONCE here, off the
+  // economy's own stream and BEFORE the deck is built, because one economy IS
+  // one simulated match — the server rolls it once per World, never per ship.
+  const pool = rollMatchPool(rng, CATALOG, CONFIG.pool);
+  const st: EconomyState = { deck: defaultPoolFor(cls, pool), fitted: [] };
   const stats: EconomyStats = { draws: 0, emptied: false, remainingByDraw: [], cappedLines: 0 };
   for (let draw = 1; draw <= ECONOMY_DRAW_CAP; draw += 1) {
     if (deckExhausted(st)) break;

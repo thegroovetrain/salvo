@@ -55,6 +55,12 @@ const COUNTDOWN_MS = 1000;
  *  ring index; captains use 0x100 + i — keep this band outside any
  *  roster-sized range). */
 const ZONE_SEED_ORDINAL = 0x7a0e;
+/** mixSeed ordinal for a match's CONSUMABLE-POOL seed (Story 8.11) — one
+ *  value, deliberately OUTSIDE the zone band (`0x7a0e + i`) and the captain
+ *  band (`0x100 + i`), so the pool roll is part of the reproducible run key
+ *  without perturbing any other stream. Server-side derivation only: nothing
+ *  here rides a wire, so deriving from the match seed leaks nothing. */
+const POOL_SEED_ORDINAL = 0x7b00;
 
 export interface RunSpec {
   seed: number;
@@ -409,7 +415,13 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   // (byte-identical reruns). Server-side only — nothing rides a wire, so the
   // derivation leaks nothing.
   const zoneSeeds = Array.from({ length: zoneGroups(CONFIG.zone) }, (_, i) => mixSeed(matchSeed, ZONE_SEED_ORDINAL + i));
-  const world = new World(matchSeed, playerCap, CONFIG.zone, { zoneSeeds });
+  // poolSeed: the match's consumable pool (Story 8.11) is rolled inside the
+  // World off this seed alone — production rooms pass fresh room entropy, the
+  // harness derives it so a rerun deals the same pool.
+  const world = new World(matchSeed, playerCap, CONFIG.zone, {
+    zoneSeeds,
+    poolSeed: mixSeed(matchSeed, POOL_SEED_ORDINAL),
+  });
   const timings: MatchTimings = {
     countdownMs: COUNTDOWN_MS,
     resultsMs: CONFIG.match.resultsSeconds * 1000,

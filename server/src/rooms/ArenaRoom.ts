@@ -419,6 +419,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.world = this.buildWorld(seed, sanitized);
 
     this.initOperability(rejectedKeys);
+    // The match pool exists from the World's constructor on; say so ONCE, now
+    // that the logger is bound and carries roomId/matchId. COUNT ONLY — the
+    // composition is server-private (NFR20) and no id may ever reach a log.
+    this.log.info('match.pool', { count: this.world.pool.length });
 
     // Core attaches its dispose handling only after onCreate returns — a
     // throw below would otherwise strand the metrics registration forever
@@ -467,12 +471,24 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private buildWorld(seed: number, sanitized: SanitizedRoomOptions): World {
     const zoneCfg = sanitized.zoneOverride ?? CONFIG.zone;
     const zoneSeeds = Array.from({ length: zoneGroups(zoneCfg) }, () => (Math.random() * 0xffffffff) >>> 0);
+    // The dev poolOverride is a SHAPE-checked list of arbitrary strings; the
+    // World's own sanitizePool is what turns it into real consumable line ids
+    // (unknown and equipment ids dropped), so this cast asserts nothing the
+    // World does not immediately re-check.
+    const pool = sanitized.poolOverride as readonly LineId[] | undefined;
     // The pseudonym seed is fresh per-room adapter entropy (the zoneSeeds
     // posture): track ids must never be derivable from the client-known
     // mapSeed.
     return new World(seed, CONFIG.map.playerCap, zoneCfg, {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
+      // The match pool's seed is fresh per-room adapter entropy too (Story
+      // 8.11, the zoneSeeds posture): mapSeed rides the welcome, so a pool
+      // derived from it would be brute-forceable by any client that can read
+      // its own map. `pool` (dev-only, HC_DEV_OPTIONS-gated) pins the list
+      // instead for a headless smoke; undefined on every production room.
+      poolSeed: (Math.random() * 0xffffffff) >>> 0,
+      pool,
       onDeckExhausted: (shipId: string) => {
         recordDeckExhausted();
         this.log.info('deck.exhausted', { shipId });

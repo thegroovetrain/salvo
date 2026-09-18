@@ -61,7 +61,11 @@ const SLOT_BROADSIDE = 2;
 /** Islands cleared AND the raster flattened (Story 4.11): real terrain must
  *  not radar-shadow a world the test built as empty water. */
 function bareWorld(seed = 1, opts?: WorldOptions): World {
-  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
+  // 8.11: the MATCH CONSUMABLE POOL is tested in matchPool.test.ts (and by the
+  // guard-live pin at the bottom of this file); every deck-DEPTH and offer pin
+  // here is about the AUTHORED deck, so this factory deals an EMPTY pool
+  // unless the test explicitly asks for one.
+  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, { pool: [], ...opts });
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;
@@ -2261,5 +2265,56 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
     for (let i = 0; i < 20; i++) w.step();
     expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
+  });
+});
+
+// ---------- the at-cap guard is LIVE (Story 8.11) ----------------------------
+//
+// Until the match pool existed, every door-admitted deck held each line at or
+// under its catalog cap, so `drawOffer`'s at-cap guard was provably IDLE: a
+// ship could never hold `cap` copies of a line the deck still had copies of.
+// The pool is the first thing that can push a line's copies PAST its cap (HULL
+// REPAIR: three authored + five pooled = eight, against a cap of five), and
+// R44 rules those copies DEAD BY DESIGN — a ship holding `cap` is never
+// offered the line again, however many copies the deck still carries. This is
+// the pin that says so at World level, and the reason the batch-sim deck
+// economy now draws with `{ held }` too.
+
+describe('the at-cap guard with a match pool (Story 8.11)', () => {
+  const FIVE_REPAIRS: readonly LineId[] = ['hullRepair', 'hullRepair', 'hullRepair', 'hullRepair', 'hullRepair'];
+
+  it('a captain holding CAP copies is never offered the line again, with copies still in the deck', () => {
+    const w = bareWorld(5, { pool: FIVE_REPAIRS });
+    const a = place(w, 'a', 0, 0);
+    // Three authored + five pooled: the deck is over cap, which is the state
+    // only the pool can produce.
+    expect(copiesInDeck(a, 'hullRepair')).toBe(poolCopies('hullRepair') + FIVE_REPAIRS.length);
+    expect(copiesInDeck(a, 'hullRepair')).toBeGreaterThan(CATALOG.hullRepair.cap);
+    // Fit the line to its cap through the real grant seam.
+    stack(w, a, 'hullRepair', CATALOG.hullRepair.cap);
+    expect(boonStackCount(a.cards, 'hullRepair')).toBe(CATALOG.hullRepair.cap);
+    // Now draw hand after hand: the line is dead, the deck still holds it.
+    for (let i = 0; i < 12; i += 1) {
+      bank(w, a, 1);
+      w.step();
+      expect(front(a)).not.toContain('hullRepair');
+      expect(w.spendPoint(a.id, 0)).toBe(true);
+    }
+    expect(copiesInDeck(a, 'hullRepair')).toBeGreaterThan(0); // dead, not consumed
+  });
+
+  it('...and BELOW the cap the pooled copies are ordinary cards: the line is still offered', () => {
+    // The discriminating negative — without it the pin above would pass on a
+    // World that simply never offers HULL REPAIR at all.
+    const w = bareWorld(5, { pool: FIVE_REPAIRS });
+    const a = place(w, 'a', 0, 0);
+    let offered = false;
+    for (let i = 0; i < 12 && !offered; i += 1) {
+      bank(w, a, 1);
+      w.step();
+      offered = front(a).includes('hullRepair');
+      expect(w.spendPoint(a.id, 0)).toBe(true);
+    }
+    expect(offered).toBe(true);
   });
 });

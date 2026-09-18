@@ -12,6 +12,11 @@
 // path like gun.damage — is rejected with a clear error, so the harness can
 // never quietly become a general balance-editing backdoor.
 //
+// `pool.*` (Story 8.11) is refused on EVERY surface for a DIFFERENT reason —
+// not inertness (the pool IS rolled at World construction, so an override would
+// reach it) but DESIGN: ten is Eric's number, the size of the hidden hand every
+// match deals, and a harness may not quietly measure some other game.
+//
 // `deck.*` WAS on that list and is now REFUSED (Story 8.2 review): since the
 // decks became real, `CONFIG.deck.size` no longer builds anything at run time
 // — DEFAULT_DECKS and PACIFIST_DECK are expanded ONCE at module load, before
@@ -134,17 +139,35 @@ function assertNotBaked(key: string): void {
   );
 }
 
+/** Refuse `pool.*` (Story 8.11) — the sibling of assertNotBaked with the
+ *  OPPOSITE reason, which is why it is its own function and its own message.
+ *  `CONFIG.pool.size` is NOT inert: the pool is rolled at World construction,
+ *  so a run-time override WOULD reach it. It is refused because ten is ERIC'S
+ *  NUMBER (catalog-v3 R4) — the size of the hidden hand every match deals, a
+ *  design decision and not a balance dial. Accepting it would let a harness
+ *  run quietly measure an economy the game does not have. */
+function assertNotDesignFixed(key: string): void {
+  if (!key.startsWith('pool.')) return;
+  throw new TunableError(
+    `'${key}' is not a tunable dial: the MATCH CONSUMABLE POOL size is a DESIGN number ` +
+      '(Eric ruling, catalog-v3 R4), not a balance dial — a run that changed it would measure ' +
+      'an economy the game does not deal. Change CONFIG.pool in shared/ if the design changes.',
+  );
+}
+
 /** The family gate, split out of resolveLeaf so the --set rejection message
  *  stays byte-identical to the one shipped before --tune existed. */
 function assertKeyAllowed(key: string, allowTune: boolean): void {
   if (allowTune) {
     assertNotDerived(key);
+    assertNotDesignFixed(key);
     if (isTuneKey(key)) return;
     throw new TunableError(
       `'${key}' is not an equipment dial (allowed: ${TUNE_FAMILIES.map((f) => `${f}*`).join(', ')})`,
     );
   }
   assertNotBaked(key);
+  assertNotDesignFixed(key);
   if (isTunableKey(key)) return;
   throw new TunableError(
     `'${key}' is not a tunable dial (allowed: xp.*, offer.size, match.fillTo, map.baseRadius, zone.*)`,

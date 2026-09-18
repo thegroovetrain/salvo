@@ -206,11 +206,15 @@ export function sanitizeDeckOptions(options: JoinOptions, devEnabled: boolean): 
  * A DROP IS ALWAYS REPORTED — the silent half of this used to be the malformed
  * case, which then sailed the default with nothing in the log to say the
  * override had been thrown away.
+ *
+ * Shared by the SEAT options (deckOverride/fitOverride, sanitizeDeckOptions)
+ * and the ROOM's one id list (poolOverride, sanitizeRoomOptions): same gate,
+ * same shape bounds, same reporting, whichever side of the door it arrives on.
  */
 function admitDevIdList(
   raw: readonly string[] | undefined,
   devEnabled: boolean,
-  key: 'deckOverride' | 'fitOverride',
+  key: 'deckOverride' | 'fitOverride' | 'poolOverride',
   rejectedKeys: string[],
 ): readonly string[] | undefined {
   if (raw === undefined) return undefined;
@@ -303,12 +307,29 @@ export interface RoomOptions extends JoinOptions {
    * sanitizeExpectedCaptains.
    */
   expectedCaptains?: number;
+  /**
+   * DEV TOOL for smokes/tests only (Story 8.11): pin this match's CONSUMABLE
+   * POOL to an exact list instead of rolling one, so a headless smoke can
+   * assert a deterministic pool. A ROOM option and not a join option — unlike
+   * `deckOverride`/`fitOverride`, the pool belongs to the ROOM, not the seat:
+   * one list, rolled once, identical for every captain and bot in the match.
+   * Gated by sanitizeRoomOptions exactly like matchOverride (HC_DEV_OPTIONS=1
+   * only) AND shape-sanitized even when dev is enabled (admitDevIdList); the
+   * World then drops anything that is not a catalog CONSUMABLE line
+   * (sanitizePool), so this can never smuggle an equipment line into a deck.
+   * Production never honours it: without the env the key is dropped and
+   * reported in `rejectedKeys`.
+   */
+  poolOverride?: readonly string[];
 }
 
 export interface SanitizedRoomOptions {
   matchOverride?: MatchOverride;
   zoneOverride?: ZoneTimeline;
   mapSeed?: number;
+  /** Dev-only explicit match pool (Story 8.11) — shape-sanitized here, id-
+   *  filtered by the World's sanitizePool; undefined = roll one. */
+  poolOverride?: readonly string[];
   /** Clamped group size from the queue; undefined = no boarding expectation
    *  (a directly-created dev/smoke arena). */
   expectedCaptains?: number;
@@ -342,22 +363,29 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
   // door. Safety is structural rather than environmental: the flag only ever
   // reaches a room the asker just created for itself (see JoinOptions.solo).
   const solo = sanitizeSolo(options.solo);
+  // poolOverride (Story 8.11) goes through admitDevIdList rather than the
+  // pass-it-through treatment matchOverride gets, so a MALFORMED shape is
+  // dropped AND reported even with the gate open — the deckOverride posture.
+  const rejectedKeys: string[] = [];
   if (devEnabled) {
     return {
       sanitized: {
         matchOverride: options.matchOverride,
         zoneOverride: options.zoneOverride,
         mapSeed: sanitizeMapSeed(options.mapSeed),
+        poolOverride: admitDevIdList(options.poolOverride, true, 'poolOverride', rejectedKeys),
         expectedCaptains,
         solo,
       },
-      rejectedKeys: [],
+      rejectedKeys,
     };
   }
-  const rejectedKeys: string[] = [];
   if (options.matchOverride !== undefined) rejectedKeys.push('matchOverride');
   if (options.zoneOverride !== undefined) rejectedKeys.push('zoneOverride');
   if (options.mapSeed !== undefined) rejectedKeys.push('mapSeed');
+  // Reported LAST of the room keys, and only when present (admitDevIdList's
+  // absent-means-silent rule) — the gate is closed, so the list is dropped.
+  admitDevIdList(options.poolOverride, false, 'poolOverride', rejectedKeys);
   return { sanitized: { expectedCaptains, solo }, rejectedKeys };
 }
 

@@ -1819,6 +1819,14 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
  * CONFIG.deck is deliberately NOT in tension with this: `config` rides the
  * WELCOME, not a frame, and the welcome's own pin (decks.test.ts) exempts
  * `config.deck` — the two public rule dials — while scanning everything else.
+ *
+ * NEITHER IS CONFIG.pool (Story 8.11), on exactly the same terms: the MATCH
+ * CONSUMABLE POOL's SIZE is public — "a match deals ten consumables" is how
+ * the mode reads, and it rides inside the same welcome CONFIG snapshot — while
+ * its COMPOSITION is server-private and appears nowhere at all. `config.pool`
+ * is therefore exempt in the welcome pin (decks.test.ts, pinned to the one
+ * dial) and `pool` stays forbidden as a KEY on every frame, which is what this
+ * list enforces.
  */
 const DECK_FORBIDDEN_KEYS = ['deck', 'deckList', 'deckId', 'deckLeft', 'deckSize', 'pool', 'remaining'] as const;
 

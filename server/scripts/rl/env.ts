@@ -40,6 +40,9 @@ export const DEFAULT_DECISION_TICKS = 5; // 250ms between decisions
 const COUNTDOWN_MS = 1000;
 const ENDGAME_SLACK_MS = 600000;
 const ZONE_SEED_ORDINAL = 0x7a0e;
+/** Match-pool seed ordinal (Story 8.11) — the runner's constant, same reason:
+ *  the pool is part of the reproducible episode, derived server-side. */
+const POOL_SEED_ORDINAL = 0x7b00;
 const SPEND_STREAM_K = 0x51ed;
 
 /** Integer action bins, decoded server-side (see decode()). */
@@ -110,7 +113,10 @@ export class HullcrackerEnv {
     const botCount = opts.bots ?? 0;
     const playerCap = Math.max(CONFIG.map.playerCap, opts.agents + botCount);
     const zoneSeeds = Array.from({ length: zoneGroups(CONFIG.zone) }, (_, i) => mixSeed(seed, ZONE_SEED_ORDINAL + i));
-    const world = new World(seed, playerCap, CONFIG.zone, { zoneSeeds });
+    const world = new World(seed, playerCap, CONFIG.zone, {
+      zoneSeeds,
+      poolSeed: mixSeed(seed, POOL_SEED_ORDINAL),
+    });
     const timings: MatchTimings = {
       countdownMs: COUNTDOWN_MS,
       resultsMs: CONFIG.match.resultsSeconds * 1000,

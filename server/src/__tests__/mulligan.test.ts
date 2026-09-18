@@ -26,7 +26,10 @@ import { flatRaster } from './islandFixture.js';
 
 /** Islands cleared and the raster flattened — no terrain in an economy test. */
 function bareWorld(seed = 4, opts = {}): World {
-  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
+  // 8.11: the MATCH CONSUMABLE POOL is tested in matchPool.test.ts; the offers
+  // and deck depths pinned here are about the AUTHORED deck, so this factory
+  // deals an EMPTY pool unless a test asks for one.
+  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, { pool: [], ...opts });
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;
