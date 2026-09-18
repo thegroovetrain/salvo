@@ -20,7 +20,7 @@
 // read), so the deck is untouched and the bank still reads 1.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, CATALOG, DEFAULT_DECKS, MULLIGAN_CHOICE, isStubLine, type LineId } from '@salvo/shared';
+import { CONFIG, CATALOG, DEFAULT_DECKS, MULLIGAN_CHOICE, boonStackCount, isStubLine, type LineId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -505,6 +505,21 @@ describe('the dev spawn fit — fitOverride, captains only, paid out of the deck
     const a = fitted(w, 'a', new Array<string>(held + 2).fill('heavyTorpedo'));
     expect(a.cards).toHaveLength(held);
     expect(copies(a, 'heavyTorpedo')).toBe(0);
+  });
+
+  it('cannot fit PAST a line\'s CAP, however deep the match pool stacked it (Story 8.11)', () => {
+    // 8.11 broke the old "the deck alone is the bound" guarantee — for
+    // CONSUMABLES only, which is all a pool can hold. A match pool of five
+    // HULL REPAIR puts 3 authored + 5 pooled = EIGHT copies in the deck against
+    // a cap of 5, and a dev fit walks its list without ever asking the catalog:
+    // unguarded, this captain comes up holding all eight (a stack no pick, no
+    // draw and no offer could ever build). The cap is now the second bound.
+    const w = bareWorld(4, { pool: new Array<LineId>(5).fill('hullRepair') });
+    const bare = captain(w, 'bare');
+    expect(copies(bare, 'hullRepair')).toBe(8); // the deck really does hold eight
+    const a = fitted(w, 'a', new Array<string>(8).fill('hullRepair'));
+    expect(boonStackCount(a.cards, 'hullRepair')).toBe(CATALOG.hullRepair.cap);
+    expect(copies(a, 'hullRepair')).toBe(3); // the copies the guard refused to spend
   });
 
   // THE FIT IS APPLIED AT SPAWN AND NEVER AGAIN (Story 8.10 review, P1). It

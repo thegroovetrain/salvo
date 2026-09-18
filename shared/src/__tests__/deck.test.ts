@@ -19,8 +19,12 @@
 //       plus the STRUCTURAL PIN that the AUTHORED deck alone can never trip the
 //       guard at spawn, where the captain holds no cards at all, AND (Story
 //       8.11) that the appended match pool DOES: authored + pool copies run a
-//       line past its cap, and the copies beyond it are dead by design (R44) —
-//       a ship holding `cap` copies is never offered the line again;
+//       line past its cap, and a ship HOLDING `cap` copies is never offered the
+//       line again. Those copies WAIT in the deck rather than die: on the
+//       server a used consumable copy leaves `ship.cards` (World.spendStock,
+//       Story 8.7), which reopens the line. This pure test can only prove the
+//       CLOSED half — `held` is an argument here, and nothing fires a card;
+//       the reopen is pinned at World level in server upgrades.test.ts;
 //   (6) THE LEVEL-ZERO GUARANTEE (Story 8.10, FR48): `{ guarantee: true }` puts
 //       a USABLE card (a consumable, or the tier I of an equipment line the
 //       ship has none of) in slot 0, costs exactly one rng.next() like any
@@ -504,7 +508,7 @@ describe('the at-cap guard: IDLE on the AUTHORED deck (8.3), LIVE once the pool 
     }
   });
 
-  it('...and the copies beyond the cap are DEAD BY DESIGN: a ship at cap is never offered the line', () => {
+  it('...and a ship AT CAP is never offered the line, however many copies the deck still holds', () => {
     const atCap: readonly LineId[] = new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair');
     for (const hull of SHIP_CLASS_IDS) {
       const deck = buildDeckState([...DEFAULT_DECKS[hull], ...HEAVY_POOL]);

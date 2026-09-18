@@ -2,7 +2,7 @@
 title: 'Story 8.11: The Match Consumable Pool'
 type: 'feature'
 created: '2026-09-18'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 baseline_revision: 'c115efc'
 followup_review_recommended: false
@@ -109,6 +109,39 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-18 — Review pass (Blind Hunter + Edge Case Hunter on Fable, plus Codex `gpt-5.6-sol` cross-model review — verdicts: Blind fix-first on the record / build-on-it on the code, Edge build-on-it, Codex build-on-it; agreement: Codex and both hunters independently flagged the deck-only economy's stopping-rule wording; Blind alone found the "dead by design" contradiction with `spendStock`, confirmed by the orchestrator; Edge alone found the dev-fit cap hole and the two stub-state harness pins, both confirmed)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 9: (high 1, medium 1, low 7)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 8: (low 8)
+- addressed_findings:
+  - `[high]` `[patch]` The cycle's record (amendment 68(b), CHANGELOG, `CONFIG.pool` / `pool.ts` / `world.ts` docs, the ledger entry) said pool copies past a cap are "dead by design", but `World.spendStock` removes a used consumable from `cards` so the at-cap guard reopens the line after a use (Blind C1) — corrected everywhere; amendment 69 records the supersession; no code change.
+  - `[medium]` `[patch]` The batch-sim deck economy and the measurement test never fire a consumable, so a line fitted to cap stays closed for the whole economy while production reopens it (Blind C2) — the never-use model is now stated in `deckSim.ts`, `report.ts`, `poolMeasure.test.ts`, amendment 69 and the ledger; 68(a)'s numbers are labelled a floor for consumables and 8.18's bar is routed to the full harness.
+  - `[low]` `[patch]` The deck-only report still said an economy ends only on an empty deck (Codex #1, Blind C2, Edge #2) — reworded to the empty-draw rule with the cap-held case named.
+  - `[low]` `[patch]` `applyDevFit` filtered only on "the deck has a copy", so a dev `fitOverride` could stack HULL REPAIR to 8 against cap 5 once the pool was in the deck (Edge #1) — cap guard added, fail-first test proven.
+  - `[low]` `[patch]` `reportExhaustion` and `buildWorld` docs said an empty draw "coincides with an empty pool" (Edge #2) — rewritten to the empty-deck-or-only-cap-held reading.
+  - `[low]` `[patch]` `match.pool` was logged before `finishCreate` could throw, leaving a line for a room that never existed (Edge #3) — logged after a successful create.
+  - `[low]` `[patch]` Two harness pins encoded today's stub state (`27` with two chaff; `deckExhaustedRate > 0.5`) and would fail when 8.15 un-stubs chaff (Edge #4) — expectation computed from `isStubLine`; the rate pin relaxed to `> 0` with the `< 1` discriminator kept.
+  - `[low]` `[patch]` The measurement's exhaustion bound was `≤ 50` against a loop that legitimately records 51, passing only because enough economies stop early (Edge #5) — bound is `dealable + 1`; the "1st-short" caption now names both causes (Blind P1).
+  - `[low]` `[patch]` The reopen-after-use behaviour that amendment 69 rests on was asserted by no test (patch agent's recommendation, accepted) — a World-level pin now stacks HULL REPAIR to cap from an over-cap deck, proves the line is closed, fires one through the real belt channel, and proves the line is offered again while copies remain (fails when nothing fires); `metrics.ts`'s `deckExhaustedTotal` doc and the shared deck test's wording carried the same stale sentence and were re-cut.
+- deferred (ledgered): server room tests without `poolOverride` now sail a random pool — a latent `Math.random` dependency for any future offer/depth pin (Blind P3); `poolMeasure.test.ts` costs ≈2.3 s and prints a table on every shared test run (Blind P8).
+- rejected: `Math.random` as the seed source is the accepted zoneSeeds/pseudonym posture (Blind P2); clean traces of the welcome/frames/metrics/results, the single deal site and the sanitizer branches (Blind P4–P6); the two-rooms-differ pin being probabilistic at a collision rate that is astronomically small (Blind P7); `poolSeed: NaN`, a fractional `cfg.size` and a 256-copy dev override are unreachable or dev-only and documented (Edge #6–#8).
+
+## Auto Run Result
+
+**Status:** done — branch `worktree-dev-auto-8-11-the-match-consumable-pool`, cycle 146, version 0.18.11, PROTOCOL_VERSION unchanged at 55, epic-8 amendments 67–69.
+
+**Summary.** Every arena room rolls ten hidden consumable cards once, at creation, from room-private adapter entropy (`rollMatchPool` in `shared/src/sim/pool.ts`: uniform per card over the five consumable lines, each ≤ its cap within the pool, stubs included per amendment 67), and `World.dealDeck` appends the identical set to every captain's and bot's deck at the one deck-build edge after the door's `checkDeck` (40 authored + 10 = 50; stub copies undealt; fleet hulls none). The composition never reaches the wire (welcome carries only `config.pool.size`; frames untouched); the room logs `match.pool { count }` once after a successful create. `CONFIG.pool = { size: 10 }` is Eric's number and the batch-sim CLI refuses it. A dev-only `poolOverride` room option (consumable-only by `sanitizePool`) and `poolSmoke.mjs` exist; the harness, the RL env and the pure deck economy roll a pool per match, and the economy draws with `held` (ledger `:2034` closed). The at-cap guard is live for the first time: a line held at cap is never offered until a fired copy leaves `cards` and reopens it (amendment 69 — pool copies past a cap are gated behind use, not dead). The 50-card economy was measured under a stated never-use model (amendment 68a).
+
+**Files changed** (see the Code Map): shared — `constants.ts` (`CONFIG.pool`), `sim/pool.ts` (new), `index.ts` (export + changelog), tests (`pool.test.ts`, `poolMeasure.test.ts` new; `deck.test.ts`, `barrel.test.ts`). server — `game/world.ts` (`poolSeed`/`pool` options, `matchPool`, `dealDeck`, `applyDevFit` cap guard, docs), `rooms/roomOptions.ts` (`poolOverride`), `rooms/ArenaRoom.ts` (seed + log), `metrics.ts` (doc), `scripts/batchsim/{runner,deckSim,overrides,report}.ts`, `scripts/rl/env.ts`, `scripts/poolSmoke.mjs` (new), tests (`matchPool.test.ts` new; `decks`, `upgrades`, `mulligan`, `deckExhausted`, `roomOptions`, `perception`, `batchSim`). Docs — `VERSION`, `package.json`+lock, `CHANGELOG.md`, both trackers, `deferred-work.md`, amendments 67–69 in both homes.
+
+**Review findings.** Patches applied: 10 (1 high — the "dead by design" record corrected to gated-behind-use, amendment 69; 1 medium — the never-use model stated for the harness and the measurement; 8 low — report wording, dev-fit cap guard with fail-first proof, exhaustion docs, log placement, two stub-state harness pins, measurement bound and caption, the reopen pin). Deferred: 2 (latent random pool in un-pinned room tests; measurement cost on every shared run). Rejected: 8. Agreement: Codex and both hunters flagged the stopping-rule wording; the record contradiction was Blind-only and orchestrator-confirmed against `spendStock`; the dev-fit hole and the stub-state pins were Edge-only and confirmed.
+
+**Verification.** `npm run check` exit 0 after the patches: shared 936, server 2027, client 3583, hooks 266; ESLint 0 errors (3 pre-existing client `max-lines-per-function` warnings); tsc clean ×3. Smokes on scratch ports, own PIDs killed: `poolSmoke.mjs` PASS (port 2613), `openingSmoke.mjs` PASS (2611). Measurement table (never-use model, unstubbed catalog, 2000 economies per hull): one-copy line seen by pick 8/12/15/20 — TB 56.1/73.4/81.0/90.5 %, BS 53.6/71.0/79.3/89.6 %, ML 52.3/69.5/80.3/90.0 %; first short offer ≈ level 46.0; empty draw ≈ level 49.7.
+
+**Residual risks / notes for Eric.** (1) On staging the pool is four-fifths inert until 8.15/8.16 flip the consumable stubs: expect 0–5 extra HULL REPAIR per hull (≈ 2), nothing else visible. (2) `deck.exhausted` (log + `/metrics`) now also counts a deck whose only remaining copies are of a line held at cap — a use reopens it, but the once-per-ship latch has already fired. (3) The harness's deck-only numbers are a floor for consumables (it never fires one); 8.18 sets the real bar from the full harness. (4) GDD open note 20 (results reveal; unlocked-vs-dealt) is untouched. (5) Manual QA on staging is the gate: Solo vs AI, take HULL REPAIR to five, fire one, see it offered again later.
 
 ## Design Notes
 

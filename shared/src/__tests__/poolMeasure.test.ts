@@ -8,8 +8,10 @@
 //       offer by pick 8 / 12 / 15 / 20. A one-copy card nobody is ever offered
 //       is a card that is not in the game.
 //   (b) THE OFFER-SIZE MATH — the level at which an offer first holds fewer
-//       than `CONFIG.offer.size` lines (the distinct drawable lines have run
-//       below four), and the level at which the draw first comes back EMPTY.
+//       than `CONFIG.offer.size` lines (fewer than four DRAWABLE lines remain:
+//       either the deck is down to under four distinct lines, or the rest are
+//       lines this captain already holds at cap and the guard will not offer),
+//       and the level at which the draw first comes back EMPTY.
 //
 // HOW IT IS MEASURED, and why each choice:
 //   - AN UNSTUBBED COPY OF THE CATALOG. Four of the five consumables are still
@@ -20,9 +22,17 @@
 //   - A UNIFORM PICK PER LEVEL. No bot policy, no human preference — the
 //     neutral captain. A policy would measure the policy.
 //   - `{ held }` ON EVERY DRAW, because the at-cap guard is LIVE from this
-//     story: the pool can push a line past its cap and the copies beyond it are
-//     dead by design (R44). A draw without `held` would measure an economy the
-//     server does not run.
+//     story: the pool can push a line past its cap, and the guard will not
+//     offer a line the captain already holds at cap. A draw without `held`
+//     would measure an economy the server does not run.
+//   - THE NEVER-USE MODEL, and this is the one caveat on every number below: a
+//     card here is fitted and never FIRED, so nothing ever leaves `held`. In
+//     production a used consumable copy leaves the ship's cards (Story 8.7),
+//     which REOPENS the line and puts its remaining copies back in the draw —
+//     so a consumable fitted to cap stays closed here while production reopens
+//     it on use. Equipment and ladder lines are exact either way (their copies
+//     never leave `cards` in production either). Read the consumable side of
+//     the table as a PESSIMISTIC FLOOR, never as a ceiling.
 //
 // THE ASSERTIONS ARE LOOSE ON PURPOSE. The table is EVIDENCE, recorded in the
 // spec's run result and the ledger; pinning a rate to three decimals would
@@ -148,9 +158,11 @@ describe('THE 50-CARD ECONOMY, MEASURED (Story 8.11 — the bar Story 8.18 measu
       [
         `\nTHE 50-CARD ECONOMY — ${String(N)} seeded economies per hull, uniform pick per level,`,
         `unstubbed catalog, pool ${String(CONFIG.pool.size)}, offer ${String(CONFIG.offer.size)}.`,
+        'NEVER-USE MODEL — a consumable fitted to cap stays closed; production reopens it on use.',
         `Columns: share of economies in which ${ONE_COPY} (1 copy, cap 1) appeared in an`,
-        'offer by pick 8/12/15/20; mean level an offer first held < 4 lines; mean level the',
-        'draw first came back empty; mean dealable deck size.',
+        'offer by pick 8/12/15/20; mean level an offer first held < 4 DRAWABLE lines (under four',
+        'distinct lines left, or the rest held at cap); mean level the draw first came back',
+        'empty; mean dealable deck size.',
         head,
         ...lines,
         '',
@@ -171,7 +183,10 @@ describe('THE 50-CARD ECONOMY, MEASURED (Story 8.11 — the bar Story 8.18 measu
       // A 50-card deck cannot run short of four DISTINCT lines in the opening
       // levels (it holds well over four), nor outlive its own cards.
       expect(r.firstShort, r.cls).toBeGreaterThan(CONFIG.offer.size);
-      expect(r.exhausted, r.cls).toBeLessThanOrEqual(CONFIG.deck.size + CONFIG.pool.size);
+      // The empty draw lands at level `dealable + 1` for an economy that never
+      // closed a line (50 picks, then nothing left), and EARLIER for one that
+      // did — so `dealable + 1` is the real bound on the mean, not `dealable`.
+      expect(r.exhausted, r.cls).toBeLessThanOrEqual(r.dealable + 1);
     }
   });
 });

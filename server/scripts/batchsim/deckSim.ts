@@ -15,9 +15,10 @@
 // whose `exclusiveWith` rival was held returned the rival's card). Story 7-5
 // wave 2 DELETED exclusivity outright (R2.6 — the cannon pair was its last
 // user), so nothing ever re-enters a deck: a card leaves at the FIT and never
-// comes back. THE STOPPING RULE IS THEREFORE JUST "THE POOL IS EMPTY" (Story
-// 8.3, deferred-work :302 closed by deletion) — there is no rival floor and
-// nothing left to ping-pong.
+// comes back (Story 8.3, deferred-work :302 closed by deletion) — there is no
+// rival floor and nothing left to ping-pong. THE STOPPING RULE IS THEREFORE AN
+// EMPTY DRAW, which since the match pool is no longer the same thing as an
+// empty deck (see `deckExhausted` and the never-use model below).
 // The lazy-draw bugfix had already retired the other two models (the
 // amendment-43 scrub and its scrubbed-to-empty drop, and the banked-offer
 // FIFO): a DRAW takes nothing out of the deck and only the FIT does.
@@ -28,9 +29,23 @@
 // ONE ECONOMY IS ONE SIMULATED MATCH (Story 8.11): it rolls its own MATCH
 // CONSUMABLE POOL off its own stream and plays the class's default deck PLUS
 // that pool, which is what a captain actually sails since 8.11 — and it draws
-// with `{ held }` and the catalog, exactly as World.materializeOffer does,
-// because the pool is the first thing that can push a line's copies past its
-// cap and the at-cap guard is therefore LIVE.
+// with `{ held }` and the catalog, because the pool is the first thing that
+// can push a line's copies past its cap and the at-cap guard is therefore
+// LIVE.
+//
+// ===== THE NEVER-USE MODEL (read every consumable number through it) ========
+// THIS ECONOMY NEVER FIRES A CONSUMABLE. It draws, it fits, and nothing ever
+// leaves `fitted` again. The `held` SEMANTICS are exactly those of
+// World.materializeOffer — the same `drawOffer(deck, rng, CATALOG, { held })`
+// call, the same guard. The `held` LIFECYCLE is NOT: in production a USED
+// consumable copy leaves the ship's `cards` (World.spendStock, Story 8.7),
+// which REOPENS the line and puts the deck's remaining copies back in the
+// draw. Here a consumable line fitted to its cap stays closed for the rest of
+// the economy. EQUIPMENT and LADDER lines are exact either way — a copy of
+// those never leaves `cards` in production either — so only CONSUMABLE numbers
+// carry the caveat, and they carry it as a PESSIMISTIC FLOOR: real
+// reachability for heals and shields is at least this good, never worse.
+// ============================================================================
 //
 // One "economy" = one class's deck played level-by-level until exhausted.
 // Classes round-robin per economy; `draws` is the TOTAL draw budget across
@@ -40,9 +55,12 @@
 // ===== THE STOPPING RULE IS A MODELING CHOICE (evidence honesty) =============
 // PRODUCTION HAS NO ECONOMY TERMINATION. Levels keep coming as long as the
 // match runs; only the MATCH ends, not the deck. This harness therefore
-// imposes its own stop: an economy ends when the deck is EMPTY
-// (deckExhausted below), with ECONOMY_DRAW_CAP as a backstop. That is a
-// deliberate model, not a claim about the server. It is sound for the
+// imposes its own stop: an economy ends on an EMPTY DRAW — the deck is empty,
+// OR (since the match pool) every copy left is of a line already fitted to its
+// cap, which under the NEVER-USE MODEL above can never reopen here — with
+// ECONOMY_DRAW_CAP as a backstop. `emptied` (deckExhausted below) tells the
+// two endings apart. That is a deliberate model, not a claim about the
+// server. It is sound for the
 // comparative question it was built to answer, because EVERY variant runs
 // under the SAME rule, so cross-variant deltas are apples-to-apples; and the
 // batch mode (real World + Match) corroborates without any stopping rule.
@@ -183,8 +201,11 @@ function spendFront(st: EconomyState, front: readonly string[], rng: Rng): strin
  *  so an empty deck is one terminal state — and since Story 8.11 it is no
  *  longer the ONLY one: the match pool can push a line's copies past its cap,
  *  and once the economy has fitted `cap` of that line the guard never offers
- *  it again, so an economy can also end on an EMPTY OFFER with dead copies
- *  still in the deck (playOneDraw's false). `emptied` distinguishes the two. */
+ *  it again, so an economy can also end on an EMPTY OFFER with cap-held copies
+ *  still in the deck (playOneDraw's false). `emptied` distinguishes the two.
+ *  IN PRODUCTION that second ending is RECOVERABLE — firing the consumable
+ *  drops a copy out of `cards` and reopens the line — but this economy never
+ *  fires one (the never-use model in the header), so here it is terminal. */
 const deckExhausted = (st: EconomyState): boolean => st.deck.cards.length === 0;
 
 /** One level's draw + immediate spend; false = deck could not draw (done).
@@ -197,13 +218,15 @@ function playOneDraw(
   ledger: LineLedger,
   cls: ShipClassId,
 ): boolean {
-  // DRAW EXACTLY AS THE SERVER DRAWS (Story 8.11): the catalog and the ship's
-  // HELD cards, so the at-cap guard bites here too. It is not optional any
-  // more — the match pool can push a line's copies PAST its cap (HULL REPAIR
-  // 3 + 5 = 8 against a cap of 5), and those copies are dead by design (R44).
-  // An unguarded harness draw would offer them and measure an economy the
-  // server does not run (deferred-work "THE BATCH-SIM DECK ECONOMY DRAWS
-  // UNGUARDED", closed here).
+  // DRAW WITH THE SERVER'S GUARD (Story 8.11): the catalog and the ship's HELD
+  // cards, so the at-cap guard bites here too. It is not optional any more —
+  // the match pool can push a line's copies PAST its cap (HULL REPAIR 3 + 5 =
+  // 8 against a cap of 5). An unguarded harness draw would offer them and
+  // measure an economy the server does not run (deferred-work "THE BATCH-SIM
+  // DECK ECONOMY DRAWS UNGUARDED", closed here). The guard's SEMANTICS are
+  // World.materializeOffer's exactly; `held`'s LIFECYCLE is not — nothing is
+  // ever fired here, so a consumable line fitted to cap stays closed for the
+  // rest of the economy while production reopens it on use (never-use model).
   const r = drawOffer(st.deck, rng, CATALOG, { held: st.fitted });
   st.deck = r.deck;
   if (r.offer.length === 0) return false; // nothing drawable: a level banks nothing

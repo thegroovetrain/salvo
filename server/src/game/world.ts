@@ -487,8 +487,16 @@ export interface ShipRecord {
    * only place that judgement is made). `deckList` itself is untouched: it
    * stays the authored 40 the door checked, and the pool lives once on the
    * World. A line may therefore hold MORE copies than its cap (HULL REPAIR
-   * 3 + 5 = 8 against a cap of 5) and the copies past the cap are dead by
-   * design (R44) — drawOffer's at-cap guard, idle until this story, now bites.
+   * 3 + 5 = 8 against a cap of 5), and drawOffer's at-cap guard — idle until
+   * this story — now bites.
+   *
+   * THOSE EXTRA COPIES ARE NOT DEAD, THEY ARE GATED BEHIND USE. The guard only
+   * refuses to OFFER a line the hull holds at `cap`; a pool can only hold
+   * CONSUMABLES, and a used consumable copy LEAVES `cards` (`spendStock`,
+   * Story 8.7). So the moment a captain fires one of five stocked HULL REPAIR
+   * the line reopens and the deck's remaining copies are drawable again. That
+   * is exactly the "there might be more heals out there" the pool promises:
+   * extra supply behind the trigger, never an offer past the cap.
    *
    * Every offer is DRAWN from it WITHOUT taking
    * anything out (materializeOffer); exactly ONE card leaves when a pick is
@@ -566,9 +574,14 @@ export interface ShipRecord {
    * A THIN DRAW IS NOT EXHAUSTION. One, two or three cards still materialize
    * an offer; only a ZERO-length draw latches this. Fleet hulls hold the
    * frozen EMPTY_DECK and never draw at all (addXpMs fail-closes on them
-   * before a level can bank), so they never reach the latch. "Exhausted"
-   * means an EMPTY DRAW — nothing left to offer — which on any door-admitted
-   * deck coincides with an empty pool.
+   * before a level can bank), so they never reach the latch. "Exhausted" means
+   * an EMPTY DRAW — nothing left to OFFER — which since the match pool (Story
+   * 8.11) means one of two things: the deck is empty, OR every copy still in
+   * it is of a line this hull already holds at its `cap`. The second is
+   * RECOVERABLE — firing a consumable drops a copy out of `cards`
+   * (`spendStock`) and reopens the line, and the next level's retry then draws
+   * a real hand. The latch does not care which it was: it fires once, on the
+   * FIRST empty draw, and never again.
    *
    * SERVER-PRIVATE, like `deck` and `deckList`: never on the wire.
    */
@@ -1895,6 +1908,12 @@ export class World {
    * (Story 8.10) rather than rebuilding it, so nothing re-appends the pool on
    * the countdown->active edge, on respawn or on reconnect. If a second
    * deck-build edge is ever needed it comes through here, so that stays true.
+   *
+   * THE MULTISET MAY EXCEED A LINE'S CAP, and that is supply, not waste: the
+   * at-cap guard never OFFERS a line the hull holds at `cap`, but a pool holds
+   * consumables only and a USED consumable copy leaves `cards` (`spendStock`,
+   * Story 8.7), which reopens the line and makes the remaining copies drawable
+   * again. See the `ShipRecord.deck` doc for the whole reading.
    */
   private dealDeck(role: ShipRole, deckList: readonly LineId[]): DeckState {
     if (roleIsFleetHull({ role })) return EMPTY_DECK;
@@ -1923,16 +1942,27 @@ export class World {
    * which belongs to the spend path alone (`fitCard` is the shared half; see
    * settleSpend). Nothing is queued here: a spawn is not a spend.
    *
-   * THE POOL IS THE FILTER. `ship.deck.cards` already excludes unknown ids and
+   * THE DECK IS THE FILTER. `ship.deck.cards` already excludes unknown ids and
    * stub lines (buildDeckState's `isDealable`) and holds only what this hull's
    * own frozen list carries, so "the deck has a copy" is the one test that
    * covers all three of the ruling's drops — unknown, stub, not in the deck —
-   * and it also bounds the whole thing at the deck's real copy counts: a smoke
-   * cannot fit six torpedoes out of a deck holding three.
+   * and for EQUIPMENT and LADDER lines it still bounds the whole thing at the
+   * deck's real copy counts: a smoke cannot fit six torpedoes out of a deck
+   * holding three (an authored deck never carries a line past its cap).
+   *
+   * AND THE CAP IS THE SECOND BOUND (Story 8.11 review). The match pool broke
+   * "the deck bounds the copy count" for CONSUMABLES — the only lines a pool
+   * holds: a deck can carry 3 authored + 5 pooled HULL REPAIR against a cap of
+   * 5, and a dev fit walking that list unguarded would stack EIGHT, a build no
+   * pick, draw or offer could ever produce (drawOffer's at-cap guard sees to
+   * that). So a line already held at its `cap` is skipped here too. The id is
+   * known to the catalog by construction — it came out of `deck.cards`, which
+   * buildDeckState built from catalog lines — so the lookup cannot miss.
    */
   private applyDevFit(ship: ShipRecord): void {
     for (const id of ship.devFit) {
       if (!(ship.deck.cards as readonly string[]).includes(id)) continue;
+      if (boonStackCount(ship.cards, id) >= this.catalog[id].cap) continue;
       this.fitCard(ship, id as LineId);
     }
   }
@@ -2635,7 +2665,11 @@ export class World {
    * `opts.held`, so a line this hull already holds at its `cap` is dropped
    * before weighting and can never occupy a slot in the hand. Structurally
    * idle against a legal deck (pool + held <= cap at spawn, and every fit moves
-   * one copy from pool to held), which is exactly why it is cheap to keep.
+   * one copy from pool to held) UNTIL Story 8.11's match pool, which can push a
+   * consumable line past its cap; the guard is LIVE from then on. It is a
+   * GATE, not a bin: `held` shrinks when a consumable is fired (`spendStock`),
+   * so a line it closed reopens and the copies behind it come back into the
+   * draw.
    *
    * EMPTY DRAW: `offer` stays null and the bank stays put — the card pick is
    * refused and the next level simply retries the draw. The FIRST empty draw
@@ -2664,8 +2698,9 @@ export class World {
    *  materializeOffer so the latch-then-tell order is one readable statement
    *  and the draw path keeps its low branch count. A caller that supplied no
    *  reporter still latches — the flag is World state, the report is the
-   *  adapter's. "Exhausted" means an EMPTY DRAW — nothing left to offer —
-   *  which on any door-admitted deck coincides with an empty pool. The latch
+   *  adapter's. "Exhausted" means an EMPTY DRAW — nothing left to OFFER: the
+   *  deck is empty, or every copy left is of a line this hull holds at its
+   *  `cap` (a use frees that second one — see the latch's doc). The latch
    *  is set BEFORE the callback runs, and the callback is wrapped: a throwing
    *  diagnostic is an ops-layer bug, never a reason to fail the sim tick. */
   private reportExhaustion(ship: ShipRecord): void {

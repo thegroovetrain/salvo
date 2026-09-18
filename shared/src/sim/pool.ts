@@ -33,10 +33,16 @@
 // THE AT-CAP GUARD IS LIVE FROM THIS STORY ON. Until now every door-admitted
 // deck held each line at or under its cap, so the guard in `drawOffer` was
 // provably idle. With the pool appended a deck may hold authored + pool copies
-// BEYOND a line's cap (HULL REPAIR 3 + 5 = 8 against a cap of 5), and the
-// copies past the cap are DEAD BY DESIGN (R44): a ship holding `cap` copies is
-// never offered the line again, however many copies the deck still has. Every
-// draw — server, harness and RL alike — must therefore pass `{ held }`.
+// BEYOND a line's cap (HULL REPAIR 3 + 5 = 8 against a cap of 5). Every draw —
+// server, harness and RL alike — must therefore pass `{ held }`.
+//
+// AND THOSE EXTRA COPIES ARE NOT DEAD — THEY ARE GATED BEHIND USE. The guard
+// only refuses to OFFER a line the ship currently HOLDS at cap. A pool holds
+// CONSUMABLES and nothing else, and a used consumable copy LEAVES the ship's
+// cards (`World.spendStock`, Story 8.7), so the moment a captain fires one of
+// five stocked HULL REPAIR the line reopens and the deck's remaining copies
+// are drawable again. That is the mechanic the pool was bought for: extra
+// supply behind the trigger — never an offer past the cap.
 
 import { CONFIG } from '../constants.js';
 import type { Rng } from '../math/rng.js';

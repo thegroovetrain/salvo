@@ -234,9 +234,17 @@ function captainEconomyLines(agg: BatchAggregate): string[] {
 export function renderDeckReport(label: string, agg: DeckAggregate): string[] {
   const lines: string[] = [];
   lines.push(`== DECK-ONLY ${label} ==`);
-  lines.push('stopping rule (harness model, NOT production): an economy ends when the deck is');
-  lines.push('EMPTY. Production has no economy termination — levels keep coming while the match');
-  lines.push('runs. All variants share this rule, so cross-variant deltas are comparable;');
+  lines.push('stopping rule (harness model, NOT production): an economy ends on an EMPTY DRAW —');
+  lines.push('the deck is empty, OR (Story 8.11, the match pool) only copies of lines already fitted');
+  lines.push('to their cap remain, which the at-cap guard never offers. "decks empty at stop" tells');
+  lines.push('the two apart: a rate below 100% is the share of economies that stopped on an empty');
+  lines.push('OFFER with cap-held copies still in the deck.');
+  lines.push('NEVER-USE MODEL: this economy fits cards and never FIRES one, so a consumable line');
+  lines.push('fitted to its cap stays closed for the rest of the run — production reopens it on');
+  lines.push('use (a spent copy leaves the ship\'s cards), so consumable reachability here is a');
+  lines.push('PESSIMISTIC FLOOR. Equipment/ladder lines are exact (those copies never leave in');
+  lines.push('production either). Production has no economy termination — levels keep coming while');
+  lines.push('the match runs. All variants share this rule, so cross-variant deltas are comparable;');
   lines.push('per-economy totals are model numbers.');
   lines.push(`economies: ${agg.economies} | total draws: ${agg.totalDraws}`);
   lines.push(`draws played per economy: ${fmtSummary(agg.drawsPlayed)} | decks empty at stop: ${pct(agg.deckExhaustedRate)}`);

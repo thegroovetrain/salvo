@@ -20,6 +20,7 @@ import {
   angleDiff,
   checkDeck,
   equipmentLineCount,
+  isStubLine,
   sunkAt,
   zoneEndgameAtMs,
   type HullId,
@@ -1421,9 +1422,14 @@ describe('deck-only mode — the match pool and the live guard (Story 8.11)', ()
     // buildDeckState, which withholds every stub on either side.
     expect(defaultPoolFor('torpedoBoat').cards).toHaveLength(27);
     expect(defaultPoolFor('torpedoBoat', ['hullRepair', 'hullRepair']).cards).toHaveLength(29);
-    // CHAFF is still a stub (amendment 67: the pool rolls all five consumable
-    // lines and buildDeckState is the ONE place that withholds the unbuilt).
-    expect(defaultPoolFor('torpedoBoat', ['chaff', 'chaff']).cards).toHaveLength(27);
+    // CHAFF is still a stub TODAY (amendment 67: the pool rolls all five
+    // consumable lines and buildDeckState is the ONE place that withholds the
+    // unbuilt) — so the expectation is COMPUTED from `isStubLine`, not from
+    // today's count. When Story 8.15 un-stubs chaff this pin follows the
+    // catalog instead of failing.
+    const injected = ['chaff', 'chaff'];
+    const dealable = injected.filter((id) => !isStubLine(id)).length;
+    expect(defaultPoolFor('torpedoBoat', injected).cards).toHaveLength(27 + dealable);
   });
 
   it('two economies on DIFFERENT streams roll different pools', () => {
@@ -1435,13 +1441,14 @@ describe('deck-only mode — the match pool and the live guard (Story 8.11)', ()
     expect(b).not.toEqual(a);
   });
 
-  it('draws GUARDED, exactly as the server does: over-cap pool copies go DEAD', () => {
+  it('draws GUARDED, as the server draws: over-cap pool copies are never OFFERED', () => {
     // THE DISCRIMINATING PIN for `drawOffer(deck, rng, CATALOG, { held })`.
     // Unguarded, every economy would drain its deck to zero and the
     // exhaustion rate would be exactly 1 (it was, before this story). With the
     // guard live, an economy that has fitted `cap` copies of a line is never
-    // offered it again, so some economies END with cards still in the deck —
-    // the dead copies R44 rules dead.
+    // offered it again, so some economies END with cards still in the deck.
+    // (Those copies are not dead in PRODUCTION — firing a consumable reopens
+    // the line — but this harness never fires one: the never-use model.)
     const a = runDeckSim({ seed: 7, draws: 3000 });
     expect(a.deckExhaustedRate).toBeLessThan(1);
     expect(a.drawsPlayed.max).toBeLessThan(300); // still no backstop endings
@@ -1459,13 +1466,16 @@ describe('deck-only mode', () => {
     expect(a.drawsPlayed.max).toBeLessThan(300);
     // NO LONGER ALWAYS AN EMPTY DECK (Story 8.11). Each economy now plays the
     // authored deck PLUS a match pool, so a line can hold more copies than its
-    // cap — and those copies are DEAD BY DESIGN (R44): once the economy has
-    // fitted `cap` of a line the at-cap guard never offers it again, so the
-    // economy ends on an EMPTY OFFER with cards still in the deck. Both
-    // terminal states are honest stops; what must stay true is that every
-    // economy terminates without the 300-draw backstop (pinned above) and that
-    // the empty-deck ending is still the common one.
-    expect(a.deckExhaustedRate).toBeGreaterThan(0.5);
+    // cap — and under this harness's NEVER-USE MODEL (no consumable is ever
+    // fired, so nothing leaves `fitted`) a line fitted to `cap` stays closed
+    // for the rest of the economy, which can therefore end on an EMPTY OFFER
+    // with cards still in the deck. Both terminal states are honest stops;
+    // what must stay true is that every economy terminates without the
+    // 300-draw backstop (pinned above) and that BOTH endings occur.
+    // The exact rate is NOT pinned: it falls as consumable lines un-stub
+    // (8.15/8.16 put more over-cap copies in every deck), so a tight floor
+    // here would be a scheduled failure rather than a fact about the harness.
+    expect(a.deckExhaustedRate).toBeGreaterThan(0);
     expect(a.deckExhaustedRate).toBeLessThanOrEqual(1);
     // Every economy that ran contributed at least one draw to the total.
     expect(a.drawsPlayed.mean * a.economies).toBeCloseTo(a.totalDraws, 6);

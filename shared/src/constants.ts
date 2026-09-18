@@ -1690,9 +1690,12 @@ export const CONFIG = {
    * AFTER the door's `checkDeck` legality check — `checkDeck` still reads the
    * AUTHORED 40 alone (`CONFIG.deck.size`), and the seat ends up with 50. Each
    * consumable line is drawn ≤ ITS OWN `cap` WITHIN the pool (R44); a deck may
-   * therefore hold authored + pool copies BEYOND that cap, and the copies past
-   * it are dead by design (the at-cap guard in sim/deck.ts never offers a line
-   * the ship already holds at cap).
+   * therefore hold authored + pool copies BEYOND that cap. Those extra copies
+   * are NOT dead — they are GATED BEHIND USE: the at-cap guard in sim/deck.ts
+   * never OFFERS a line the ship currently holds at cap, and a used consumable
+   * copy leaves the ship's cards (Story 8.7), so firing one reopens the line
+   * and the remaining copies come back into the draw. Extra supply behind the
+   * trigger, never an offer past the cap.
    *
    * The SIZE is public knowledge (it rides inside the welcome's CONFIG
    * snapshot like every other block); the COMPOSITION never leaves the server

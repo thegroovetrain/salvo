@@ -2274,11 +2274,13 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
 // under its catalog cap, so `drawOffer`'s at-cap guard was provably IDLE: a
 // ship could never hold `cap` copies of a line the deck still had copies of.
 // The pool is the first thing that can push a line's copies PAST its cap (HULL
-// REPAIR: three authored + five pooled = eight, against a cap of five), and
-// R44 rules those copies DEAD BY DESIGN — a ship holding `cap` is never
-// offered the line again, however many copies the deck still carries. This is
-// the pin that says so at World level, and the reason the batch-sim deck
-// economy now draws with `{ held }` too.
+// REPAIR: three authored + five pooled = eight, against a cap of five). A ship
+// HOLDING `cap` is never offered the line again, however many copies the deck
+// still carries — but those copies are not dead, they are GATED BEHIND USE: a
+// pool holds consumables only, and firing one drops a copy out of `cards`
+// (`spendStock`, Story 8.7), which reopens the line and puts the rest back in
+// the draw. This is the pin that says so at World level, and the reason the
+// batch-sim deck economy now draws with `{ held }` too.
 
 describe('the at-cap guard with a match pool (Story 8.11)', () => {
   const FIVE_REPAIRS: readonly LineId[] = ['hullRepair', 'hullRepair', 'hullRepair', 'hullRepair', 'hullRepair'];
@@ -2293,14 +2295,62 @@ describe('the at-cap guard with a match pool (Story 8.11)', () => {
     // Fit the line to its cap through the real grant seam.
     stack(w, a, 'hullRepair', CATALOG.hullRepair.cap);
     expect(boonStackCount(a.cards, 'hullRepair')).toBe(CATALOG.hullRepair.cap);
-    // Now draw hand after hand: the line is dead, the deck still holds it.
+    // Now draw hand after hand: the line is CLOSED while the stack is full,
+    // and the deck still holds it (firing one would reopen it — not here).
     for (let i = 0; i < 12; i += 1) {
       bank(w, a, 1);
       w.step();
       expect(front(a)).not.toContain('hullRepair');
       expect(w.spendPoint(a.id, 0)).toBe(true);
     }
-    expect(copiesInDeck(a, 'hullRepair')).toBeGreaterThan(0); // dead, not consumed
+    expect(copiesInDeck(a, 'hullRepair')).toBeGreaterThan(0); // withheld, not consumed
+  });
+
+  it('...and a USE REOPENS the line: the over-cap copies were waiting, not dead (8.7 + 8.11)', () => {
+    // THE CORRECTION THIS PIN EXISTS FOR. "Copies past the cap are dead" is
+    // FALSE for consumables, which is all a pool can hold: `World.spendStock`
+    // (Story 8.7) removes a USED copy from `ship.cards`, and `cards` is what
+    // rides in as `held`. So firing one of five stocked HULL REPAIR REOPENS the
+    // line and the deck's remaining copies are drawable again — the "there
+    // might be more heals out there" the pool was bought for.
+    const w = bareWorld(5, { pool: FIVE_REPAIRS });
+    const a = place(w, 'a', 0, 0);
+    stack(w, a, 'hullRepair', CATALOG.hullRepair.cap);
+    expect(a.loadout[SLOT_BELT]).toEqual({ equipmentId: 'hullRepair', state: { n: 5, reloadMsLeft: 0 } });
+    expect(copiesInDeck(a, 'hullRepair')).toBeGreaterThan(0); // the pooled copies are still there
+
+    // CLOSED while the stack is full (the first pin, in miniature).
+    for (let i = 0; i < 4; i += 1) {
+      bank(w, a, 1);
+      w.step();
+      expect(front(a)).not.toContain('hullRepair');
+      expect(w.spendPoint(a.id, 0)).toBe(true);
+    }
+
+    // FIRE ONE, through the REAL wire entry point: the ability channel, the
+    // shipped HULL REPAIR row, and a hull that is actually hurt (the row
+    // refuses a full hull and would then consume nothing — amendment 53).
+    a.hp = a.stats.maxHp - 100;
+    w.submitInput('a', {
+      seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0,
+      slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_BELT, hornSeq: 0,
+    });
+    w.step();
+    expect(boonStackCount(a.cards, 'hullRepair')).toBe(CATALOG.hullRepair.cap - 1); // spendStock took one
+    expect(a.loadout[SLOT_BELT].state).toEqual({ n: 4, reloadMsLeft: 0 });
+
+    // ...and now the guard lets it through again, out of copies that never
+    // left the deck. FAIL-PROOF against "it was offered because the deck ran
+    // thin": the deck still holds the line when the offer comes back.
+    let reoffered = false;
+    for (let i = 0; i < 20 && !reoffered; i += 1) {
+      bank(w, a, 1);
+      w.step();
+      reoffered = front(a).includes('hullRepair');
+      if (!reoffered) expect(w.spendPoint(a.id, 0)).toBe(true);
+    }
+    expect(reoffered).toBe(true);
+    expect(copiesInDeck(a, 'hullRepair')).toBeGreaterThan(0);
   });
 
   it('...and BELOW the cap the pooled copies are ordinary cards: the line is still offered', () => {

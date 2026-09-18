@@ -419,16 +419,19 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.world = this.buildWorld(seed, sanitized);
 
     this.initOperability(rejectedKeys);
-    // The match pool exists from the World's constructor on; say so ONCE, now
-    // that the logger is bound and carries roomId/matchId. COUNT ONLY — the
-    // composition is server-private (NFR20) and no id may ever reach a log.
-    this.log.info('match.pool', { count: this.world.pool.length });
 
     // Core attaches its dispose handling only after onCreate returns — a
     // throw below would otherwise strand the metrics registration forever
     // (no onDispose ever runs for a room that failed to create).
     try {
       this.finishCreate(sanitized, seed);
+      // The match pool exists from the World's constructor on; say so ONCE,
+      // here — after the logger is bound (so the line carries roomId/matchId)
+      // AND after creation has actually SUCCEEDED, so a room that threw its
+      // way out of onCreate never leaves a `match.pool` line behind for a
+      // match that will never be played. COUNT ONLY — the composition is
+      // server-private (NFR20) and no id may ever reach a log.
+      this.log.info('match.pool', { count: this.world.pool.length });
     } catch (err) {
       this.metrics?.unregister();
       this.metrics = null;
@@ -457,9 +460,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * world actually receives caller-supplied seed material.
    *
    * onDeckExhausted (Story 8.3): the adapter half of the World's exhaustion
-   * seam — a ship record's card pool ran dry ("exhausted" means an EMPTY
-   * DRAW, which on any door-admitted deck coincides with an empty pool), so
-   * say so ONCE in the process gauge and once in the room's log. The metric
+   * seam — a ship record's card economy ran dry ("exhausted" means an EMPTY
+   * DRAW: the deck is empty, or every copy left is of a line the hull already
+   * holds at its cap, which the at-cap guard will not offer; firing a
+   * consumable reopens that second case, and the latch fires once either way),
+   * so say so ONCE in the process gauge and once in the room's log. The metric
    * is recorded FIRST, the log line second: a throwing logger transport can
    * then never lose the count. `this.log` is read INSIDE the arrow, not
    * captured: buildWorld runs before initOperability binds the room logger, so
