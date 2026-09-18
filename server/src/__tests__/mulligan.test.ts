@@ -371,3 +371,135 @@ describe('the countdown economy through the activation redeploy (amendment 63b)'
     expect(a.deck.cards.length).toBeGreaterThan(0);
   });
 });
+
+// ---------- the DEV spawn fit (amendment 65) ---------------------------------
+//
+// FR48 deleted the interim spawn seed, which left the two WEAPON smokes
+// (matchSmoke, weaponsSmoke) clicking an empty Q slot. Eric's fix is a
+// DEV-ONLY `fitOverride` room option: the door hands the World a list of line
+// ids and the CAPTAIN comes up holding them, each paid for out of its own deck
+// exactly as a pick would pay. Production never sees it — the dev gate strips
+// the option and the queue never forwards it — so every assertion below is
+// about a list the World was explicitly handed.
+
+/** A captain handed a dev spawn fit at `addShip` (what the dev door does). */
+function fitted(
+  w: World,
+  id: string,
+  fit: readonly string[],
+  hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
+): ShipRecord {
+  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, DEFAULT_DECKS[hull], fit);
+}
+
+const slotIds = (rec: ShipRecord): (string | null)[] => rec.loadout.map((s) => s.equipmentId);
+const copies = (rec: ShipRecord, id: string): number => rec.deck.cards.filter((c) => c === id).length;
+
+describe('the dev spawn fit — fitOverride, captains only, paid out of the deck', () => {
+  it('a captain comes up holding the line in slot 2, with the deck one copy shorter', () => {
+    const w = bareWorld();
+    const bare = captain(w, 'bare');
+    const a = fitted(w, 'a', ['heavyTorpedo']);
+    expect(a.cards).toEqual(['heavyTorpedo']);
+    expect(slotIds(a)).toEqual(['gun', 'boost', 'heavyTorpedo', null, null, null, null, null, null]);
+    // A fit is a real fit: the slot arrives LOADED, like any pick (amendment 41).
+    expect(a.loadout[2].state).toEqual({ n: a.stats.equipment.heavyTorpedo.maxAmmo, reloadMsLeft: 0 });
+    // ...and it was PAID FOR out of this hull's own pool, not conjured.
+    expect(copies(a, 'heavyTorpedo')).toBe(copies(bare, 'heavyTorpedo') - 1);
+    expect(a.deck.cards).toHaveLength(bare.deck.cards.length - 1);
+    // No `bn` on the wire: a spawn is not a spend.
+    w.step();
+    expect(w.tickEvents.filter((e) => e.k === 'bn')).toEqual([]);
+  });
+
+  it('fits SEVERAL lines, in the order given, each paying its own copy', () => {
+    const w = bareWorld();
+    const bare = captain(w, 'bare');
+    // A weapon and a LADDER: the weapon takes slot 2, the ladder only moves
+    // stats — both are ordinary card fits, and both cost the deck a copy.
+    const a = fitted(w, 'a', ['heavyTorpedo', 'armor']);
+    expect(a.cards).toEqual(['heavyTorpedo', 'armor']);
+    expect(slotIds(a)[2]).toBe('heavyTorpedo');
+    expect(a.stats.maxHp).toBeGreaterThan(bare.stats.maxHp);
+    expect(a.hp).toBe(a.stats.maxHp); // ARMOR heals its own maxHp delta (healOnGrant)
+    expect(a.deck.cards).toHaveLength(bare.deck.cards.length - 2);
+  });
+
+  it('a hull\'s OWN deck is the bound: the Battleship never gets the Torpedo Boat\'s fish', () => {
+    const w = bareWorld();
+    // `broadside` and `heavyTorpedo` are real, built lines — neither is in the
+    // Battleship's default deck, so neither can be paid for. `starShells` is.
+    const b = fitted(w, 'b', ['broadside', 'heavyTorpedo', 'starShells'], 'battleship');
+    expect(b.cards).toEqual(['starShells']);
+    expect(slotIds(b)[2]).toBe('starShells');
+  });
+
+  it('NEVER a bot and NEVER a fleet hull — the same option buys them nothing', () => {
+    const w = bareWorld();
+    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat, ['heavyTorpedo']);
+    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined, [], ['heavyTorpedo']);
+    for (const s of [ai, drone]) {
+      expect(s.devFit, s.id).toEqual([]);
+      expect(s.cards, s.id).toEqual([]);
+    }
+    expect(slotIds(ai)).toEqual(['gun', 'boost', null, null, null, null, null, null, null]);
+    expect(slotIds(drone)[1]).toBeNull(); // a drone never even grows a boost
+  });
+
+  it('DROPS an unknown id, a STUB line and a line this hull\'s deck does not carry', () => {
+    const w = bareWorld();
+    // 'nope' is not in the catalog; 'lightTorpedo' is a STUB in the TB list (so
+    // it was never dealt into the pool); 'navalMines' is a real, built line the
+    // Torpedo Boat's deck simply does not hold.
+    const a = fitted(w, 'a', ['nope', 'lightTorpedo', 'navalMines', 'heavyTorpedo']);
+    expect(a.cards).toEqual(['heavyTorpedo']); // only the one the deck could pay for
+    expect(slotIds(a)[2]).toBe('heavyTorpedo');
+  });
+
+  it('cannot fit more copies than the deck holds — the pool is the bound', () => {
+    const w = bareWorld();
+    const held = copies(captain(w, 'bare'), 'heavyTorpedo'); // 3 in the shipped TB deck
+    const a = fitted(w, 'a', new Array<string>(held + 2).fill('heavyTorpedo'));
+    expect(a.cards).toHaveLength(held);
+    expect(copies(a, 'heavyTorpedo')).toBe(0);
+  });
+
+  it('SURVIVES the dev/sandbox redeploy, which wipes everything else', () => {
+    // This is the whole reason `devFit` lives on the record: matchSmoke's
+    // dev-door room and weaponsSmoke's sandbox both take the WIPE path at the
+    // countdown->active boundary, and a torpedo lost there puts the smokes
+    // straight back to clicking an empty Q slot.
+    const w = bareWorld();
+    const a = fitted(w, 'a', ['heavyTorpedo']);
+    w.grantOpening();
+    w.resetForMatchStart(); // no hold — the ready room's fresh match
+    expect(a.bankedLevels).toBe(0); // the economy is still wiped...
+    expect(a.offer).toBeNull();
+    expect(a.cards).toEqual(['heavyTorpedo']); // ...but the dev fit is re-applied
+    expect(slotIds(a)[2]).toBe('heavyTorpedo');
+    // paid for again, out of the rebuilt pool
+    expect(copies(a, 'heavyTorpedo')).toBe(copies(captain(w, 'bare'), 'heavyTorpedo') - 1);
+    expect(a.hp).toBe(a.stats.maxHp);
+  });
+
+  it('is KEPT, not re-applied, across the held (boarding) activation', () => {
+    const w = bareWorld();
+    const a = fitted(w, 'a', ['heavyTorpedo']);
+    const left = copies(a, 'heavyTorpedo');
+    w.resetForMatchStart(true); // the hold preserves the build outright
+    expect(a.cards).toEqual(['heavyTorpedo']); // exactly one copy — never doubled
+    expect(copies(a, 'heavyTorpedo')).toBe(left);
+    expect(slotIds(a)[2]).toBe('heavyTorpedo');
+  });
+
+  it('an EMPTY fit is the shipped spawn, byte for byte — production is untouched', () => {
+    const w = bareWorld();
+    const a = captain(w, 'a');
+    const b = fitted(w, 'b', []);
+    expect(a.devFit).toEqual([]);
+    expect(b.devFit).toEqual([]);
+    expect(b.cards).toEqual([]);
+    expect(slotIds(b)).toEqual(slotIds(a));
+    expect(b.deck.cards).toEqual(a.deck.cards);
+  });
+});

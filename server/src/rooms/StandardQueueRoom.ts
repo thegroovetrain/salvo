@@ -216,7 +216,10 @@ export class StandardQueueRoom extends Room {
     // just that client, and onLeave finds nothing to splice — the pool is
     // untouched. The frozen list rides the seat reservation's `auth`.
     const arenaOptions = sanitizeArenaOptions(options);
-    const deck = admitDeck(
+    // ONLY THE DECK travels: the dev spawn fit (`fitOverride`, amendment 65)
+    // is a direct-door smoke arm and is deliberately NOT written into the seat
+    // reservation — a queued captain can never reach it.
+    const { deck } = admitDeck(
       options,
       sanitizeClassId(options.cls),
       process.env.HC_DEV_OPTIONS === '1',

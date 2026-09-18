@@ -50,15 +50,26 @@ export function checkAtDoor(deck: readonly string[], log: Logger, sessionId: str
   return deck as readonly LineId[];
 }
 
+/** What the door admits for one captain: the frozen deck, and the DEV spawn
+ *  fit that rides beside it (Story 8.10, amendment 65 — empty on every
+ *  production path, because `fitOverride` is stripped without the dev gate
+ *  and the queue never forwards it). */
+export interface AdmittedDeck {
+  deck: readonly LineId[];
+  /** Dev-only, already dev-gated and shape-sanitized; the ids themselves are
+   *  the World's to judge (it drops any its deck cannot pay for). */
+  fit: readonly string[];
+}
+
 /**
  * Admit a captain's deck from raw join options. Throws the refusal
  * ServerError; returns the frozen list to store on the record / in the seat.
  *
  *   1. a client `deck` key → refuse `clientSupplied` (any value);
- *   2. a `deckOverride` the sanitizer dropped — the dev gate was closed, or
- *      the shape was malformed → logged, never honoured (the default is used:
- *      that is a DROP of a dev knob, reported in the log, not a silent
- *      substitution of a chosen deck);
+ *   2. a `deckOverride`/`fitOverride` the sanitizer dropped — the dev gate was
+ *      closed, or the shape was malformed → logged, never honoured (the
+ *      default is used: that is a DROP of a dev knob, reported in the log, not
+ *      a silent substitution of a chosen deck);
  *   3. the list = the honoured override, else `loadDeckFor(null, deckId, hull)`
  *      (no account module: the hull's default);
  *   4. `checkDeck` against DEFAULT_OWNED → refuse on the first failing rule.
@@ -69,10 +80,10 @@ export function admitDeck(
   devEnabled: boolean,
   log: Logger,
   sessionId: string,
-): readonly LineId[] {
+): AdmittedDeck {
   const deckOpts = sanitizeDeckOptions(options, devEnabled);
   if (deckOpts.rejectedKeys.length > 0) log.warn('deck.devOptionsRejected', { rejected: deckOpts.rejectedKeys });
   if (deckOpts.clientDeck) throw deckRefusal(log, 'clientSupplied', sessionId);
   const deck = deckOpts.deckOverride ?? loadDeckFor(null, deckOpts.deckId, hull);
-  return checkAtDoor(deck, log, sessionId);
+  return { deck: checkAtDoor(deck, log, sessionId), fit: deckOpts.fitOverride ?? [] };
 }

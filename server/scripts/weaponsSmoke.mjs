@@ -12,9 +12,9 @@
 //   2. Torpedo never blips: B collects every torpedo id it is shown (via `torp`
 //      events entering its sight) and every radar blip id — asserts the sets are
 //      DISJOINT (a torpedo can never appear on the scope).
-//   3. Mine visibility + NO EVICTION: B — the MINE LAYER, whose spawn seed fits
-//      `navalMines` in the FIRST WEAPON SLOT (Q, inp.slot = 2) under the Story
-//      8.5 nine-slot fixed roles [gun, boost, <seed weapon>, ...]; mines are
+//   3. Mine visibility + NO EVICTION: B — the MINE LAYER, whose DEV SPAWN FIT
+//      puts `navalMines` in the FIRST WEAPON SLOT (Q, inp.slot = 2) under the
+//      Story 8.5 nine-slot fixed roles [gun, boost, <fitted weapon>, ...]; mines are
 //      CLICK-FIRED into the rear placement arc, not an ability — holds station clicking
 //      drops astern while A loiters within detect range but outside trigger
 //      range. Asserts A never sees an enemy mine beyond DETECT range (Story
@@ -36,9 +36,18 @@
 //      hit) — the log line `ambush: B.hp 250->195 boom=true` therefore
 //      reports real client A's hp, not real client B's.
 //
+// THE WEAPONS ARE PRE-FITTED (Story 8.10, epic-8 amendment 65). FR48 deleted
+// the interim spawn seed: every hull now spawns holding the deck gun and the
+// Shift boost ONLY, and its first weapon arrives as a CARD from the level-zero
+// countdown offer — which this smoke's SANDBOX room does not even have (no
+// Match, so no countdown and no grant). Both clients therefore ask for their
+// class weapon explicitly through the DEV-ONLY `fitOverride` join option: A the
+// Torpedo Boat's `heavyTorpedo`, B the Mine Layer's `navalMines`, each landing
+// in slot 2 (Q) exactly where the deleted seed used to put it.
+//
 // Run against a booted server (tsx server/src/index.ts + shared/dist built),
 // with HC_DEV_OPTIONS=1 in ITS env — this smoke's sandbox matchOverride +
-// zoneOverride are otherwise stripped by the room (see
+// zoneOverride + fitOverride are otherwise stripped by the room (see
 // server/src/rooms/roomOptions.ts):
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/weaponsSmoke.mjs
@@ -67,9 +76,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // minutes out, so the whole choreography runs on the full-map ring.
 const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
 
+/** Each hull's own non-stub weapon line — the DEV SPAWN FIT this smoke asks
+ *  for (amendment 65). It must be a line the hull's DEFAULT DECK carries: the
+ *  fit is paid for out of that pool, and an id the pool cannot pay for is
+ *  silently dropped. */
+const CLASS_WEAPON = { torpedoBoat: 'heavyTorpedo', mineLayer: 'navalMines', battleship: 'starShells' };
+
 async function joinClient(name, cls = 'torpedoBoat') {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, cls, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
+  const fitOverride = [CLASS_WEAPON[cls]];
+  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, cls, fitOverride, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
   const ctx = {
     name,
     room,
@@ -205,9 +221,9 @@ function engageTorp(ctx, inp, target) {
   inp.throttle = range > 110 ? 0.6 : range > 60 ? 0.15 : 0; // close, keep steerageway, never scrum
   inp.aim = brg;
   // Slot 2 = the FIRST WEAPON slot (Q) in the Story 8.5 nine-slot fixed roles
-  // [gun, boost, <seed weapon>, ...]: slot 0 is the deck gun, slot 1 is the
-  // universal Shift BOOST ability (Story 8.9), and the Torpedo Boat's spawn
-  // seed fits `heavyTorpedo` here.
+  // [gun, boost, <fitted weapon>, ...]: slot 0 is the deck gun, slot 1 is the
+  // universal Shift BOOST ability (Story 8.9), and this smoke's DEV SPAWN FIT
+  // (amendment 65) puts the Torpedo Boat's `heavyTorpedo` here.
   inp.slot = 2;
   // Click every tick while the tube bears — the reload paces launches.
   if (Math.abs(angleDiff(brg, ctx.you.heading)) < CONFIG.torpedo.halfArc) inp.fireSeq = ++ctx.fireSeq;
@@ -221,9 +237,10 @@ function dropMines(ctx, inp) {
   if (!ctx.you) return;
   inp.throttle = 0.12; // just enough steerageway to hold a heading
   // Slot 2 = the FIRST WEAPON slot (Q) in the Story 8.5 nine-slot fixed roles
-  // [gun, boost, <seed weapon>, ...], where the Mine Layer's spawn seed fits
-  // `navalMines` (the radar buoy is no longer fitted on any hull — amendment
-  // 22); slot 1 is the universal Shift BOOST ability (Story 8.9).
+  // [gun, boost, <fitted weapon>, ...], where this smoke's DEV SPAWN FIT
+  // (amendment 65) puts the Mine Layer's `navalMines` (the radar buoy is no
+  // longer fitted on any hull — amendment 22); slot 1 is the universal Shift
+  // BOOST ability (Story 8.9).
   inp.slot = 2;
   inp.aim = ctx.you.heading + Math.PI; // dead astern — center of the placement arc
   inp.aimDist = CONFIG.mine.placeRange * 0.6; // comfortably inside placeRange

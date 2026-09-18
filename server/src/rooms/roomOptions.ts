@@ -89,6 +89,20 @@ export interface JoinOptions {
    */
   deckOverride?: readonly string[];
   /**
+   * DEV SMOKE ARM for tests/smokes only (Story 8.10, epic-8 amendment 65) —
+   * the real client NEVER sets it, and production never sees it. A list of
+   * card LINE ids the World pre-fits at the CAPTAIN's spawn, each consuming
+   * one copy from the hull's own deck exactly as a pick does. It exists
+   * because FR48 deleted the interim spawn seed: a hull now spawns holding
+   * NOTHING, which left the two weapon smokes (matchSmoke, weaponsSmoke)
+   * clicking an empty Q slot. Honoured ONLY under HC_DEV_OPTIONS=1 (the
+   * deckOverride precedent); otherwise dropped, reported in `rejectedKeys`
+   * and logged once (`deck.devOptionsRejected`). SHAPE-sanitized when
+   * honoured (the same bounds deckOverride uses) but the IDS are NOT
+   * filtered here: the World drops an id its deck cannot pay for.
+   */
+  fitOverride?: readonly string[];
+  /**
    * NEVER ACCEPTED. A client may not supply deck CONTENTS (epic-8 Anti-cheat:
    * "the option sanitizer rejects a `deck` key at both doors"): the presence of
    * the key — any value, even `undefined` — makes the door REFUSE the join
@@ -105,10 +119,15 @@ export interface DeckOptions {
   /** A dev override, shape-sanitized but NOT id-filtered (the door's
    *  `checkDeck` judges the ids); present ONLY when devEnabled honoured it. */
   deckOverride?: readonly string[];
+  /** A dev SPAWN FIT list (amendment 65), shape-sanitized but NOT id-filtered
+   *  (the World judges the ids against the hull's own deck); present ONLY
+   *  when devEnabled honoured it. */
+  fitOverride?: readonly string[];
   /** The `deck` key was present — the door must refuse (clientSupplied). */
   clientDeck: boolean;
   /** Keys DROPPED — the dev gate was closed, or the shape was malformed:
-   *  `['deckOverride']` or empty. The door logs them once. */
+   *  any of `['deckOverride', 'fitOverride']`, in that order, or empty. The
+   *  door logs them once. */
   rejectedKeys: string[];
 }
 
@@ -143,6 +162,10 @@ const OVERRIDE_ID_MAX = DECK_ID_MAX;
  * through verbatim and `checkDeck` judges them, so an unknown id is REFUSED as
  * `unowned` end to end. The list is copied, so nothing downstream aliases the
  * raw join options.
+ *
+ * SHARED BY BOTH DEV ID LISTS since Story 8.10: `fitOverride` (amendment 65)
+ * wants exactly this shape check and exactly this "the ids are somebody
+ * else's problem" posture — the World drops a fit id its deck cannot pay for.
  */
 function sanitizeDeckOverride(v: unknown): readonly string[] | undefined {
   if (!Array.isArray(v) || v.length > DECK_OVERRIDE_MAX) return undefined;
@@ -162,19 +185,38 @@ function sanitizeDeckOverride(v: unknown): readonly string[] | undefined {
  *   - `deckOverride` → honoured (shape-sanitized, ids NOT filtered) only under
  *     devEnabled; dropped and pushed to `rejectedKeys` for the door to log
  *     once when the gate is closed OR the shape is malformed.
+ *   - `fitOverride` (Story 8.10, amendment 65) → the SAME treatment, the same
+ *     shape, the same bounds; reported after `deckOverride` when both drop.
  */
 export function sanitizeDeckOptions(options: JoinOptions, devEnabled: boolean): DeckOptions {
   const out: DeckOptions = { clientDeck: Object.hasOwn(options, 'deck'), rejectedKeys: [] };
   const deckId = sanitizeDeckId(options.deckId);
   if (deckId !== undefined) out.deckId = deckId;
-  if (options.deckOverride === undefined) return out;
-  const override = devEnabled ? sanitizeDeckOverride(options.deckOverride) : undefined;
-  // A DROP IS ALWAYS REPORTED — gate closed or shape malformed. The silent
-  // half of this used to be the malformed case, which then sailed the default
-  // with nothing in the log to say the override had been thrown away.
-  if (override === undefined) out.rejectedKeys.push('deckOverride');
-  else out.deckOverride = override;
+  const deckOverride = admitDevIdList(options.deckOverride, devEnabled, 'deckOverride', out.rejectedKeys);
+  if (deckOverride !== undefined) out.deckOverride = deckOverride;
+  const fitOverride = admitDevIdList(options.fitOverride, devEnabled, 'fitOverride', out.rejectedKeys);
+  if (fitOverride !== undefined) out.fitOverride = fitOverride;
   return out;
+}
+
+/**
+ * ONE dev id-list option, gated and reported: absent → nothing at all (no
+ * rejection noise); present but the gate is closed OR the shape is malformed →
+ * `undefined` and the key pushed onto `rejectedKeys` for the door to log once.
+ * A DROP IS ALWAYS REPORTED — the silent half of this used to be the malformed
+ * case, which then sailed the default with nothing in the log to say the
+ * override had been thrown away.
+ */
+function admitDevIdList(
+  raw: readonly string[] | undefined,
+  devEnabled: boolean,
+  key: 'deckOverride' | 'fitOverride',
+  rejectedKeys: string[],
+): readonly string[] | undefined {
+  if (raw === undefined) return undefined;
+  const list = devEnabled ? sanitizeDeckOverride(raw) : undefined;
+  if (list === undefined) rejectedKeys.push(key);
+  return list;
 }
 
 /**

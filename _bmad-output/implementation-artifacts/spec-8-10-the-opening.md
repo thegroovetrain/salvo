@@ -2,7 +2,7 @@
 title: 'Story 8.10: The Opening'
 type: 'feature'
 created: '2026-09-18'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 baseline_revision: '2fe8148da26434cf730d8b559385e39f2b68c5a4'
 followup_review_recommended: false
@@ -97,8 +97,8 @@ warnings: [oversized]
 - [x] `shared/` (offers, deck guarantee, catalog seed deletion, index PV 55, tests) -- `npm test -w shared && npm run build -w shared`
 - [x] `server/` (world grant/mulligan/preserve, match hook, roomOptions, metrics, ArenaRoom wiring, batchsim seed, tests, opening smoke) -- `npm test -w server`; run the smoke against an own server on a scratch port, kill own PID
 - [x] `client/` (auto-open, footer + REDRAW, silent pt, class cards, tests) -- `npm test -w client`; `grep -rn SPAWN_SEED shared/src server/src client/src server/scripts` returns nothing
-- [ ] docs + version + trackers + ledger -- one-line tracker stamps
-- [ ] `npm run check` green; own server + client boot on scratch ports; PIDs killed
+- [x] docs + version + trackers + ledger -- one-line tracker stamps
+- [x] `npm run check` green; own server + client boot on scratch ports; PIDs killed
 
 **Acceptance Criteria:**
 - Given a queue-formed room entering countdown, when the first countdown frame arrives, then every captain reads `LV 0`, bank chip 1, an empty strip, Gun · Shift · seven dashed squares, and the refit window is open with four cards and one hollow-pip `REDRAW` under a row whose top is 336 px at 1366×768; the tag reads `ALL STATIONS LOCKED`; no toast, no tone.

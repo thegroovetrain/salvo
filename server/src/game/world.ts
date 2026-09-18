@@ -190,6 +190,11 @@ const EMPTY_DECK: DeckState = Object.freeze({ cards: Object.freeze([]) as readon
  *  enters through the door's loader, server/src/game/decks.ts). */
 const EMPTY_DECK_LIST: readonly LineId[] = Object.freeze([]);
 
+/** The frozen empty DEV SPAWN FIT (Story 8.10, epic-8 amendment 65) — what
+ *  every hull in production, every bot and every fleet hull carries, so the
+ *  no-fit case is one shared allocation-free identity. */
+const EMPTY_FIT: readonly string[] = Object.freeze([]);
+
 /** How a bot spawn resolves its deck from the hull it was dealt or rolled
  *  (Story 8.2). REQUIRED at every call site — see `addBot`. */
 export type DeckResolver = (hull: ShipClassId) => readonly LineId[];
@@ -465,6 +470,19 @@ export interface ShipRecord {
    * Fleet hulls hold the empty list.
    */
   deckList: readonly LineId[];
+  /**
+   * THE DEV SPAWN FIT (Story 8.10, epic-8 amendment 65) — the line ids a
+   * DEV-ONLY `fitOverride` room option asked this hull to come up holding,
+   * already dev-gated and shape-sanitized at the door. EMPTY on every
+   * production path and on every bot / fleet hull: `fitOverride` is stripped
+   * without HC_DEV_OPTIONS=1, the queue never forwards it, and addShip keeps
+   * it only for a `captain`. Kept on the record (rather than applied and
+   * forgotten) because the dev/sandbox redeploy WIPES the build — the two
+   * weapon smokes would lose their torpedo at the countdown→active boundary —
+   * so redeployEconomy re-applies it on the non-hold path. SERVER-PRIVATE:
+   * never on the wire.
+   */
+  devFit: readonly string[];
   /**
    * This ship's PRIVATE deck stream (Story 2.8): mulberry32 decorrelated from
    * mapgen/spawn/drone streams by its own golden constant XOR a stable per-ship
@@ -1520,8 +1538,13 @@ export class World {
    *  on: `deck` is REQUIRED, so a caller with none says `[]` out loud and an
    *  unlisted caller is a tsc error rather than a hull that silently sails an
    *  empty pool. A fleet hull gets the empty list whatever is passed
-   *  (amendment 12: drones stay gun-only). */
-  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, deck: readonly LineId[]): ShipRecord {
+   *  (amendment 12: drones stay gun-only).
+   *
+   *  `fit` (Story 8.10, amendment 65) is the DEV-ONLY spawn fit — the ids a
+   *  smoke's `fitOverride` asked this hull to come up holding. It defaults to
+   *  NOTHING, which is every production join and every existing caller, and it
+   *  is honoured for a CAPTAIN only (see spawnFit / applyDevFit). */
+  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, deck: readonly LineId[], fit: readonly string[] = []): ShipRecord {
     const p = at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase);
     const heading = Math.atan2(-p.y, -p.x);
     const cls = hullEnvelope(hullId);
@@ -1563,7 +1586,7 @@ export class World {
       // the FLEET reading — an AI captain (6.4) is a participant that plays
       // the game, and gets a deck like any other.
       deck: roleIsFleetHull({ role }) ? EMPTY_DECK : buildDeckState(deckList, EMPTY_DECK_LIST, this.catalog),
-      deckList, deckRng: this.deckRngFor(this.joinSeq++),
+      deckList, devFit: World.spawnFit(role, fit), deckRng: this.deckRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null, deckExhausted: false, mulliganed: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [],
@@ -1610,13 +1633,25 @@ export class World {
       deaths: 0,
       damageDealt: 0,
     };
-    this.ships.set(id, rec);
-    this.pseudonymFor(id); // eager track id (R3) — see pseudonymFor / trackIds
-    // NOT registered with the FleetController here (Story 5.6): a fleet hull's
-    // registration carries its fleet id and its constant formation station,
-    // which only the wave spawner knows. spawnFleet() is the ONE registrar.
-    this.pending.push({ k: 'spawn', id, x: p.x, y: p.y });
+    this.enrolShip(rec, p);
     return rec;
+  }
+
+  /** The new record's LAST three steps, split out of addShip (line budget):
+   *  into the ship table, the dev spawn fit, the eager track id, the public
+   *  `spawn` event.
+   *
+   *  NOT registered with the FleetController here (Story 5.6): a fleet hull's
+   *  registration carries its fleet id and its constant formation station,
+   *  which only the wave spawner knows. spawnFleet() is the ONE registrar. */
+  private enrolShip(rec: ShipRecord, p: Vec2): void {
+    this.ships.set(rec.id, rec);
+    // THE DEV SPAWN FIT (Story 8.10, amendment 65), applied over the just-built
+    // deck and loadout exactly as a pick would — and a no-op for every hull
+    // that was not handed one, which is all of production.
+    this.applyDevFit(rec);
+    this.pseudonymFor(rec.id); // eager track id (R3) — see pseudonymFor / trackIds
+    this.pending.push({ k: 'spawn', id: rec.id, x: p.x, y: p.y });
   }
 
   /**
@@ -1730,6 +1765,42 @@ export class World {
    */
   private static spawnList(role: ShipRole, deck: readonly LineId[]): readonly LineId[] {
     return roleIsFleetHull({ role }) ? EMPTY_DECK_LIST : frozenList(deck);
+  }
+
+  /**
+   * THE DEV SPAWN FIT, kept on the record (Story 8.10, epic-8 amendment 65).
+   * CAPTAINS ONLY — never a bot, never a fleet hull: Eric's ruling names the
+   * captain, and a bot that came up pre-fitted would quietly change bot-vs-bot
+   * balance in the one environment (a dev room) where a smoke is watching. The
+   * list is frozen so nothing downstream can mutate what the door admitted.
+   */
+  private static spawnFit(role: ShipRole, fit: readonly string[]): readonly string[] {
+    if (role !== 'captain' || fit.length === 0) return EMPTY_FIT;
+    return Object.freeze([...fit]);
+  }
+
+  /**
+   * APPLY THE DEV SPAWN FIT — the whole of amendment 65's behaviour, and a
+   * NO-OP for every hull whose `devFit` is empty (all of production).
+   *
+   * Each id is fitted exactly as a PICK would fit it: one copy leaves the
+   * drawable pool and `applyCard` does the rest (the fold, the slot effects,
+   * the pools, the timers, the wake) — MINUS the self-private `bn` event,
+   * which belongs to the spend path alone (`fitCard` is the shared half; see
+   * settleSpend). Nothing is queued here: a spawn is not a spend.
+   *
+   * THE POOL IS THE FILTER. `ship.deck.cards` already excludes unknown ids and
+   * stub lines (buildDeckState's `isDealable`) and holds only what this hull's
+   * own frozen list carries, so "the deck has a copy" is the one test that
+   * covers all three of the ruling's drops — unknown, stub, not in the deck —
+   * and it also bounds the whole thing at the deck's real copy counts: a smoke
+   * cannot fit six torpedoes out of a deck holding three.
+   */
+  private applyDevFit(ship: ShipRecord): void {
+    for (const id of ship.devFit) {
+      if (!(ship.deck.cards as readonly string[]).includes(id)) continue;
+      this.fitCard(ship, id as LineId);
+    }
   }
 
   /** Remove a ship entirely (client left). Its wake is water, not a ship
@@ -1945,6 +2016,14 @@ export class World {
     // it a drone would grow a boost in slot 1).
     ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, fleet);
     ship.hp = ship.stats.maxHp;
+    // THE DEV SPAWN FIT SURVIVES THE WIPE (Story 8.10, amendment 65). The wipe
+    // path is exactly where the two weapon smokes live — matchSmoke's dev-door
+    // room and weaponsSmoke's sandbox — so a pre-fitted torpedo that vanished
+    // at the countdown→active boundary would put them right back to clicking
+    // an empty Q slot. Re-applied LAST, over the rebuilt deck/stats/loadout,
+    // so it is byte-for-byte the spawn-time fit; under the hold the cards were
+    // preserved and it is already aboard. Inert in production (`devFit` empty).
+    if (!hold) this.applyDevFit(ship);
   }
 
   /**
@@ -2749,13 +2828,24 @@ export class World {
    *  there is no post-fit deck bookkeeping left to run. */
   private settleSpend(ship: ShipRecord, front: BoonOffer, choice: number): void {
     const card = front[choice];
-    // THE DECK's one and only outflow (the lazy-draw bugfix): the CHOSEN card
-    // leaves the pool. The unchosen cards need no give-back — they never left —
-    // so the deck thins over a match by exactly the cards FITTED, and a
-    // passed-on line is at full copies for the very next draw.
+    this.fitCard(ship, card);
+    this.pending.push({ k: 'bn', id: ship.id, boon: card });
+  }
+
+  /** PAY FOR A CARD AND FIT IT — the event-free half of a spend, shared with
+   *  the dev spawn fit (Story 8.10, amendment 65: `applyDevFit`).
+   *
+   *  THE DECK's one and only outflow (the lazy-draw bugfix): the CHOSEN card
+   *  leaves the pool. The unchosen cards need no give-back — they never left —
+   *  so the deck thins over a match by exactly the cards FITTED, and a
+   *  passed-on line is at full copies for the very next draw.
+   *
+   *  The `bn` event stays with the CALLER, deliberately: "a spend happened" is
+   *  a property of the wire path only, and a spawn-time fit must queue
+   *  nothing. */
+  private fitCard(ship: ShipRecord, card: LineId): void {
     ship.deck = consumeCard(ship.deck, card);
     this.applyCard(ship, card);
-    this.pending.push({ k: 'bn', id: ship.id, boon: card });
   }
 
   /**

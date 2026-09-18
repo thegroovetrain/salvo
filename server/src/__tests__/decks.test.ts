@@ -297,6 +297,36 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     }
   });
 
+  it('honours a dev fitOverride under HC_DEV_OPTIONS=1 — the captain spawns holding it', () => {
+    // Story 8.10, amendment 65: the dev spawn fit, end to end through the real
+    // onJoin. FR48 deleted the interim spawn seed, so this is the ONLY way a
+    // hull comes up with a weapon in slot 2 — and it is a smoke arm, not a
+    // gameplay path.
+    process.env.HC_DEV_OPTIONS = '1';
+    const room = arenaDoor();
+    joinArena(room, arenaClient('s1'), { cls: 'mineLayer', fitOverride: ['navalMines'] });
+    const rec = room.world.ships.get('s1')!;
+    expect(rec.cards).toEqual(['navalMines']);
+    expect(rec.loadout[2].equipmentId).toBe('navalMines');
+    expect(rec.deck.cards).toHaveLength(26); // the 27-card pool, one copy paid
+    expect(lines('warn deck.devOptionsRejected')).toEqual([]);
+  });
+
+  it('DROPS a fitOverride without HC_DEV_OPTIONS — it NEVER reaches the world', () => {
+    // The production pin: with the gate closed the option is stripped at the
+    // door and the hull spawns holding NOTHING, exactly as FR48 ruled.
+    const room = arenaDoor();
+    joinArena(room, arenaClient('s1'), { cls: 'mineLayer', fitOverride: ['navalMines'] });
+    const rec = room.world.ships.get('s1')!;
+    expect(rec.devFit).toEqual([]);
+    expect(rec.cards).toEqual([]);
+    expect(rec.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'boost', null, null, null, null, null, null, null]);
+    expect(rec.deck.cards).toHaveLength(27); // nothing was paid for
+    const dropped = lines('warn deck.devOptionsRejected');
+    expect(dropped).toHaveLength(1);
+    expect(fieldsOf(dropped[0])).toMatchObject({ rejected: ['fitOverride'] });
+  });
+
   it('a REFUSED join burns nothing: the next nameless captain is still CAPTAIN-1', () => {
     const room = arenaDoor();
     expectRefusal(() => joinArena(room, arenaClient('s1'), { deck: [...TB] }), 'clientSupplied', 's1');
