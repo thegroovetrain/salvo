@@ -66,7 +66,7 @@ export function sinkingRemaining(sinceMs: number, nowMs: number): number {
  * The speed a sinking hull may still make at `nowMs`: `maxSpeed` scaled by the
  * remaining window fraction. `maxSpeed` is the PER-TICK effective forward max
  * (post boost/slow folds — see the header: this is where amendment 10's
- * composition lives), so a live speedBoost raises this cap and a prop-fouling
+ * composition lives), so a live Shift boost raises this cap and a prop-fouling
  * slow lowers it, and either way it is exactly 0 at the founder deadline.
  */
 export function sinkingSpeedCap(maxSpeed: number, sinceMs: number, nowMs: number): number {

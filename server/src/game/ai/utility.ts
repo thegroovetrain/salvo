@@ -96,8 +96,9 @@ export interface BotSituation {
   /** u/s — the hull's CURRENT signed speed, straight off its own ShipState.
    *  A self-read of the bot's own hull, the same category as `hp`, and it
    *  discloses nothing. It exists for exactly one reason: `EffectiveStats`
-   *  does NOT carry the speed boost (World.stepShips raises the per-tick cap
-   *  outside it), so `ringDeadband` cannot size a boosted hull's turn radius
+   *  does NOT carry the speed boost (World.stepShips layers the +25 % of the
+   *  ladder-raised cap per tick, outside the stat block — Story 8.9), so
+   *  `ringDeadband` cannot size a boosted hull's turn radius
    *  without it. See ringDeadband. */
   speed: number;
   profile: BotProfile;
@@ -558,7 +559,8 @@ export function selectTarget(mind: BotMind, sit: BotSituation): BotTrack | null 
  *
  * THE SPEED IS THE GREATER OF RATED AND ACTUAL, for the same reason
  * `ringLookaheadU` takes it and NOT for free: THE SPEED BOOST IS NOT IN
- * `EffectiveStats`. `World.stepShips` raises the per-tick `maxSpeed` cap
+ * `EffectiveStats`. `World.stepShips` raises the per-tick `maxSpeed` cap by
+ * +25 % of the ladder-raised cap for 10 s on a 25 s reload (Story 8.9),
  * outside the stat block entirely, so a boosted hull turns through a WIDER
  * circle than its rated stats describe — and `chooseAct` spends the boost on
  * `disengage`, which is precisely the posture that runs at the rim. Sizing the

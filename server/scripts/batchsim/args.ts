@@ -101,7 +101,7 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      (repeatable; repeats form a cartesian variant grid)
   --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:
                      gun.*, broadside.*, torpedo.*, mine.*, starShells.*,
-                     speedBoost.*, radarBuoy.*, shipClasses.*. Requires
+                     boost.*, radarBuoy.*, shipClasses.*. Requires
                      HC_BALANCE=1 as well as HC_DEV_OPTIONS=1 — this edits
                      combat numbers, not harness dials. Not sweepable (one
                      labelled arm per candidate)

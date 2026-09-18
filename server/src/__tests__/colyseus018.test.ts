@@ -165,19 +165,20 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 52 and admits 53', () => {
-  it('PROTOCOL_VERSION is 53', () => {
-    // Story 8.8 bumped 52 -> 53: `SpendMsg.choice` lost its reserved -1 heal
-    // sentinel (HEAL_CHOICE) and the boon catalog changed content (HULL REPAIR
-    // stopped being a stub), both of which are wire contract.
-    expect(PROTOCOL_VERSION).toBe(53);
+describe('the PV join gate refuses 53 and admits 54', () => {
+  it('PROTOCOL_VERSION is 54', () => {
+    // Story 8.9 bumped 53 -> 54: the equipment id set changed (`speedBoost` is
+    // deleted, `boost` is fitted on every captain) and the client now READS
+    // `CONFIG.boost` (the factor its predictor and helm globe scale by), both
+    // of which are wire contract.
+    expect(PROTOCOL_VERSION).toBe(54);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 52 is the one that matters: a client built one story before this one
-    // still has a `5` key that sends choice -1.
+    // 53 is the one that matters: a client built one story before this one
+    // predicts the boost as a flat +10 u/s off a CONFIG block that is gone.
+    expect(protocolVersionError(53)).toMatch(/refresh/i);
     expect(protocolVersionError(52)).toMatch(/refresh/i);
-    expect(protocolVersionError(51)).toMatch(/refresh/i);
   });
 
   it('refuses a missing pv', () => {
@@ -185,12 +186,12 @@ describe('the PV join gate refuses 52 and admits 53', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(54)).toMatch(/refresh/i);
+    expect(protocolVersionError(55)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(53)).toBeNull();
+    expect(protocolVersionError(54)).toBeNull();
   });
 });
 

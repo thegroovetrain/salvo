@@ -136,7 +136,7 @@ describe('THE LEGAL-DECK PROPERTY — a legal deck can never out-card the weapon
       // ...and the fill never left the weapon row: gun, boost and the belt are
       // exactly as loadoutFor built them.
       expect(loadout[SLOT_GUN].equipmentId, label).toBe('gun');
-      expect(loadout[SLOT_BOOST].equipmentId, label).toBe('speedBoost');
+      expect(loadout[SLOT_BOOST].equipmentId, label).toBe('boost');
       for (const i of CONSUMABLE_SLOTS) {
         expect(loadout[i], `${label}:belt ${i}`).toEqual({ equipmentId: null, state: null });
       }

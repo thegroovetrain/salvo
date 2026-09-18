@@ -55,7 +55,7 @@ interface Ctx extends Recorder {
 
 /** Bare world (no islands) + match with fast timings; ships joined in order.
  *  `hull` picks the class for every joined ship — default torpedoBoat, but mine
- *  tests pass 'mineLayer' so slot 2 fits a mine (the TB carries speedBoost there,
+ *  tests pass 'mineLayer' so slot 2 fits a mine (the TB carries boost there,
  *  Story 1.6). */
 function setup(ids: string[], hull: ShipClassId = 'torpedoBoat', timings = TIMINGS): Ctx {
   const w = new World(1);

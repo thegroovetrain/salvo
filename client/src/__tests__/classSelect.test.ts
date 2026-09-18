@@ -104,11 +104,11 @@ describe('cardViewModel — pips, keys, loadout', () => {
     expect('fantasy' in cardViewModel('torpedoBoat')).toBe(false);
   });
 
-  it('carries the two special-slot rows labeled by their future keys Q/E — no GUN row (Eric rulings 2026-07-24)', () => {
-    expect(cardViewModel('torpedoBoat').loadout).toEqual([
-      { key: 'Q', value: 'TORPEDO TUBES' },
-      { key: 'E', value: 'SPEED BOOST' },
-    ]);
+  it('carries only the class-special rows the interim seed fits (Q/E) — no GUN row, no Shift row, no dark buoy (Eric rulings 2026-07-24, 2026-09-18)', () => {
+    // Story 8.9: the Torpedo Boat's `E: SPEED BOOST` row is gone — the boost
+    // is a universal Shift ability on every hull (epic-8 amendment 54), so it
+    // no longer differs between hulls and the card does not sell it.
+    expect(cardViewModel('torpedoBoat').loadout).toEqual([{ key: 'Q', value: 'TORPEDO TUBES' }]);
     expect(cardViewModel('battleship').loadout).toEqual([
       // Story 7-5: the cannon is DELETED and the broadside replaces it in the
       // Battleship's Q slot. This card was still advertising LONG-RANGE CANNON
@@ -117,10 +117,10 @@ describe('cardViewModel — pips, keys, loadout', () => {
       { key: 'Q', value: 'BROADSIDE BARRAGE' },
       { key: 'E', value: 'STAR SHELLS' },
     ]);
-    expect(cardViewModel('mineLayer').loadout).toEqual([
-      { key: 'Q', value: 'PROXIMITY MINES' },
-      { key: 'E', value: 'RADAR BUOY' },
-    ]);
+    // Story 8.9: the Mine Layer's `E: RADAR BUOY` row is gone too — no hull
+    // has been able to reach the buoy since Story 8.5 (amendment 22) and 8.15
+    // deletes the module; the card advertised a dark slot.
+    expect(cardViewModel('mineLayer').loadout).toEqual([{ key: 'Q', value: 'PROXIMITY MINES' }]);
   });
 
   it('names classes with their two-word display labels', () => {

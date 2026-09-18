@@ -202,8 +202,11 @@ export interface HelmGlobeInput {
   /** BASE ladder denominators (`EffectiveStats.kinematics`) — the whole
    *  `ShipConfig`, because the boost's one shared mutator takes it whole. */
   kin: ShipConfig;
-  /** The speed boost's bonus (`EffectiveStats.equipment.speedBoost.speedBonus`). */
-  speedBonus: number;
+  /** The boost's PROPORTION of the forward cap (`CONFIG.boost.factor`, 0.25) —
+   *  a fraction the shared hook multiplies `kin.maxSpeed` by, never a flat u/s
+   *  add (Story 8.9, epic-8 amendment 55). Read straight off CONFIG: no card
+   *  addresses it, so it is not a stats row. */
+  boostFactor: number;
   /** The boost window is open — the needle's denominator is the BOOSTED cap,
    *  via the one shared speed mutator and never a hand-tweaked maxSpeed. */
   boostActive: boolean;
@@ -295,7 +298,7 @@ export class HelmGlobe {
     if (!this.shown) this.seedFadedWhileHidden();
     this.shown = true;
     this.root.visible = true;
-    const kin = boostedKinematics(input.kin, input.speedBonus, input.boostActive);
+    const kin = boostedKinematics(input.kin, input.boostFactor, input.boostActive);
     const sig = `${input.orderedDetent}|${input.rudder}|${input.speed.toFixed(1)}|${kin.maxSpeed}|${kin.reverseSpeed}|${c.cx}|${c.cy}|${c.r}`;
     if (sig !== this.lastSig) {
       this.lastSig = sig;

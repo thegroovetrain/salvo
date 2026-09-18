@@ -266,7 +266,7 @@ describe('shared barrel', () => {
     // beside it in the welcome snapshot. No wire SHAPE moves: a stale client
     // would key a rail the server no longer honours and mis-derive both heal
     // channels.
-    expect(PROTOCOL_VERSION).toBe(53);
+    expect(PROTOCOL_VERSION).toBe(54);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -435,7 +435,11 @@ describe('shared barrel', () => {
     expect(typeof loadoutFor).toBe('function');
     expect(typeof boostedKinematics).toBe('function');
     expect(typeof slowedKinematics).toBe('function');
-    expect(CONFIG.speedBoost).toEqual({ speedBonus: 10, durationMs: 6000, maxAmmo: 1, reloadMs: 18000 });
+    // THE SHIFT BOOST (Story 8.9, epic-8 amendment 54 — Eric verbatim: "Build
+    // as-written, except 25s reload"). The legacy flat `CONFIG.speedBoost`
+    // block is DELETED; `factor` is a FRACTION of the post-fold max speed.
+    expect(CONFIG.boost).toEqual({ factor: 0.25, durationMs: 10000, maxAmmo: 1, reloadMs: 25000 });
+    expect((CONFIG as Record<string, unknown>).speedBoost).toBeUndefined();
   });
 
   it('EQUIPMENT_IS_WEAPON: mine FLIPPED to a click-aimed weapon (Story 2.8, amendment 45)', () => {
@@ -443,8 +447,10 @@ describe('shared barrel', () => {
     // renamed heavyTorpedo/navalMines. The per-id pins live in loadout.test.ts;
     // here the barrel pins TOTALITY and the split's shape.
     expect(Object.keys(EQUIPMENT_IS_WEAPON)).toEqual([...EQUIPMENT_IDS]);
-    expect(EQUIPMENT_IDS).toHaveLength(15);
-    expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost', 'speedBoost']);
+    // 15 -> 14 (Story 8.9): the legacy flat-bonus boost id is gone and the v3
+    // `boost` id IS the Shift boost — the one non-weapon left.
+    expect(EQUIPMENT_IDS).toHaveLength(14);
+    expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost']);
     expect(EQUIPMENT_IS_WEAPON.navalMines).toBe(true); // aimed rear-arc placement (2.8, a45)
     expect(EQUIPMENT_IS_WEAPON.radarBuoy).toBe(true); // click-placed (7-5 w2)
   });
@@ -468,7 +474,7 @@ describe('shared barrel', () => {
     for (const id of CONSUMABLE_IDS) expect((EQUIPMENT_IDS as readonly string[]).includes(id), id).toBe(false);
     for (const id of EQUIPMENT_IDS) expect(isConsumableId(id), id).toBe(false);
     // The belt predicate reads the four consumable slots and nothing else.
-    const empty: (SlotItemId | null)[] = ['gun', 'speedBoost', null, null, null, null, null, null, null];
+    const empty: (SlotItemId | null)[] = ['gun', 'boost', null, null, null, null, null, null, null];
     expect(canStock(empty, 'hullRepair')).toBe(true);
     expect(stockSlotFor(empty, 'hullRepair')).toBe(CONSUMABLE_SLOTS[0]);
   });

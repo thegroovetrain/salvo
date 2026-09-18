@@ -77,7 +77,7 @@ const torpedo: GlyphPaths = [
 const mine: GlyphPaths = [circle(0, 0, 0.52), ...spokes(8, () => 0.52, () => 0.92)];
 
 /** Speed boost: a double chevron. */
-const speedBoost: GlyphPaths = [-0.5, 0.05].map((dx) => path([dx, -0.7], [dx + 0.55, 0], [dx, 0.7]));
+const boost: GlyphPaths = [-0.5, 0.05].map((dx) => path([dx, -0.7], [dx + 0.55, 0], [dx, 0.7]));
 
 /** Broadside barrage: twin barrels over a turret block. */
 const broadside: GlyphPaths = [
@@ -111,7 +111,7 @@ const radarBuoy: GlyphPaths = [
 
 /**
  * The glyph table. PARTIAL over `EquipmentId` since Story 8.1 widened that type
- * to catalog v3's thirteen weapons plus the two legacy ids: the eight ids whose
+ * to catalog v3's thirteen weapons plus the legacy ids: the seven ids whose
  * MODULES do not exist yet (Stories 8.13-8.16) get no glyph, because drawing
  * linework for a weapon nobody has played would be inventing art.
  */
@@ -119,7 +119,7 @@ const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
   gun,
   heavyTorpedo: torpedo,
   navalMines: mine,
-  speedBoost,
+  boost,
   broadside,
   starShells,
   radarBuoy,

@@ -51,21 +51,22 @@ export const SLOT_KEY_GLYPHS: readonly string[] = ['', 'Shift', 'Q', 'E', 'R', '
 
 /**
  * Display name per equipment id. The seven BUILT ids keep their shipped names
- * verbatim (Story 8.1 renamed ids, never copy); the eight ids catalog v3 widened
+ * verbatim (Story 8.1 renamed ids, never copy — the boost's legacy id was
+ * deleted in Story 8.9 and its name came across to `boost` unchanged); the seven
+ * ids catalog v3 widened
  * `EquipmentId` with carry their catalog-v3 §1 sheet name and nothing else —
  * no description, no glyph, no tone, because their modules do not exist yet
  * (Stories 8.13-8.16) and their catalog lines are stubs excluded from every deck.
  */
 export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   gun: 'Deck Gun',
+  boost: 'Speed Boost',
   heavyTorpedo: 'Torpedoes',
   navalMines: 'Mines',
-  speedBoost: 'Speed Boost',
   broadside: 'Broadside Barrage',
   starShells: 'Star Shells',
   radarBuoy: 'Radar Buoy',
   // --- catalog-v3 §1 names for the ids no module answers to yet --------------
-  boost: 'Speed Boost',
   lightTorpedo: 'Light Torpedo',
   supercavTorpedo: 'Supercavitating Torpedo',
   captiveMines: 'Captive Mines',
@@ -85,7 +86,7 @@ export const EQUIPMENT_DESCRIPTION: Partial<Record<EquipmentId, string>> = {
   gun: 'The deck gun you always have. It flies to the clicked point and bursts there, hitting every hull inside the blast.',
   heavyTorpedo: 'A bow-launched fish that runs flat and straight until it finds a hull. Slow to reload, brutal on contact.',
   navalMines: 'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then takes the whole blast out of whoever found it.',
-  speedBoost: 'Opens the throttle past its stops for a short burst of extra speed. Nothing else changes — you just leave sooner.',
+  boost: 'Opens the throttle past its stops for a short burst of extra speed. Nothing else changes — you just leave sooner.',
   broadside: 'Every turret on the aimed beam fires at once. The shells fan out to either side of the point you clicked, every one of them running to that same range.',
   starShells: 'An illumination round. Where it bursts, a wide circle of ocean lights up for everyone — including the hulls in it.',
   radarBuoy: 'Drops an anchored buoy that runs its own radar sweep and relays what it finds back to you.',
@@ -310,14 +311,13 @@ export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number 
     gun: e.gun.damage,
     heavyTorpedo: e.heavyTorpedo.damage,
     navalMines: e.navalMines.damage,
-    speedBoost: null,
+    boost: null,
     broadside: e.broadside.damage,
     starShells: null,
     radarBuoy: null,
     // The widened ids carry real rows (catalog-v3 §4 base numbers, sim/stats.ts
     // STUB_ROWS) even though no module fires them yet, so the table stays TOTAL
     // and reads the same one place every other number comes from.
-    boost: null,
     lightTorpedo: e.lightTorpedo.damage,
     supercavTorpedo: e.supercavTorpedo.damage,
     captiveMines: e.captiveMines.damage,

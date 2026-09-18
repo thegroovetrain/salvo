@@ -28,7 +28,7 @@ import type { EquipmentId } from './loadout.js';
  *                   whose sector contains the click is the side that fires
  *                   (R2.2); a click in NEITHER sector — the bow and stern dead
  *                   zones — is denied out-of-arc, exactly like a `sector` miss.
- * - `none`        — nothing spatial is aimed or placed (speedBoost).
+ * - `none`        — nothing spatial is aimed or placed (the Shift boost).
  *
  * THE `stern-drop` SHAPE IS DELETED (Story 7-5 wave 2): the decoy buoy was its
  * only user, and the radar buoy replacing it is click-placed in the mine's rear
@@ -78,10 +78,9 @@ export function arcFor(id: EquipmentId): ArcShape {
 }
 
 /**
- * THE SEVEN UNBUILT v3 WEAPONS (Story 8.1), the v3 `boost` placeholder and the
- * legacy `speedBoost` ability declare NO aimed arc. For the boosts that is the
- * shipped answer (an instant activation aims nothing); for the seven it is the
- * honest one: no module aims them, and their catalog lines are STUBS that can
+ * THE SEVEN UNBUILT v3 WEAPONS (Story 8.1) and the SHIFT BOOST declare NO aimed
+ * arc. For the boost that is the shipped answer (an instant activation aims
+ * nothing — Story 8.9); for the seven it is the honest one: no module aims them, and their catalog lines are STUBS that can
  * never be dealt, so no loadout can hold one. Their arcs are already RULED and
  * each lands with its module — catalog-v3 §4: LIGHT TORPEDO twin sector both
  * beams ±45° about 90°, SUPERCAVITATING bow ±15°, MISSILE bow ±50°, MACHINE GUN
@@ -93,7 +92,7 @@ export function arcFor(id: EquipmentId): ArcShape {
  * assignable to it, so it cannot reach this default without declaring an arc.
  */
 function unbuiltArc(
-  _id: 'boost' | 'speedBoost' | 'lightTorpedo' | 'supercavTorpedo' | 'missile' | 'machineGun' | 'flak' | 'monitor',
+  _id: 'boost' | 'lightTorpedo' | 'supercavTorpedo' | 'missile' | 'machineGun' | 'flak' | 'monitor',
 ): ArcShape {
   return { kind: 'none' };
 }

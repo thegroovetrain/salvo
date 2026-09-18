@@ -55,9 +55,13 @@ describe('world — wake ribbon store (Story 4.12)', () => {
   it('provisions the ring from the TRUE attainable top speed — class max PLUS the boost bonus (never base kinematics alone)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    // torpedoBoat 45 u/s + speedBoost 10 u/s = 55: capacity must cover the
-    // boosted hull, or a boost run would silently drop the oldest tail.
-    expect(a.wake.cap).toBe(wakeCapacity(55, 5_500));
+    // torpedoBoat 45 u/s + 25 % of it = 56.25 (Story 8.9, amendment 55: the
+    // boost pays a PROPORTION of the post-fold max, retiring the flat +10 u/s
+    // that made this 55): capacity must cover the boosted hull, or a boost run
+    // would silently drop the oldest tail. wakeTopSpeed derives it through the
+    // SAME shared boostedKinematics hook the client's ring budget uses.
+    expect(a.wake.cap).toBe(wakeCapacity(45 + 45 * CONFIG.boost.factor, 5_500));
+    expect(45 + 45 * CONFIG.boost.factor).toBe(56.25);
     expect(a.wake.cap).toBeGreaterThan(wakeCapacity(45, 5_500));
   });
 

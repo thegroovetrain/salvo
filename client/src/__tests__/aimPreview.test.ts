@@ -174,7 +174,7 @@ describe('computeAimPreview — nothing is previewed that cannot be fired', () =
     // The speed boost aims nothing and the empty slot holds nothing. The RADAR
     // BUOY is NOT here any more: it is click-placed, so it previews its drop
     // (see the buoy suite below).
-    expect(computeAimPreview(input({ id: 'speedBoost' }))).toEqual({ lines: [], bursts: [], place: null, band: null });
+    expect(computeAimPreview(input({ id: 'boost' }))).toEqual({ lines: [], bursts: [], place: null, band: null });
     expect(computeAimPreview(input({ id: null }))).toEqual({ lines: [], bursts: [], place: null, band: null });
   });
 });

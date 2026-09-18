@@ -41,7 +41,7 @@ const DT = CONFIG.tick.simDtMs;
 // THE SPAWN SEED IS CATALOG-READ, so it is EMPTY in this suite: the World's
 // spawn reads SPAWN_SEED through its OWN catalog, and TEST_CATALOG (injected
 // below, deliberately content-free) carries none of the shipped weapon lines.
-// So the fixture spawns [gun, speedBoost, empty x7] and this suite's one
+// So the fixture spawns [gun, boost, empty x7] and this suite's one
 // slotFill card lands in the FIRST weapon slot. That is exactly the
 // content-independence these pins are built on.
 /** Where this suite's one slotFill card lands on the fixture. */
@@ -211,8 +211,11 @@ describe('behavior card — the kinematics hook executes in the REAL world tick'
     a.input.throttle = 1;
     a.boostUntil = Number.MAX_SAFE_INTEGER; // hold the bespoke boost window open
     for (let i = 0; i < 200; i++) w.step();
-    const expected =
-      CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + CONFIG.speedBoost.speedBonus + 20;
+    // Story 8.9 / amendment 55: the boost pays a PROPORTION of the post-fold
+    // max (factor x maxSpeed), not a flat u/s; the hook's +20 still lands on
+    // top, additively, because it composes AFTER.
+    const tbMax = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
+    const expected = tbMax + tbMax * CONFIG.boost.factor + 20;
     expect(a.state.speed).toBeCloseTo(expected, 6);
   });
 });
@@ -279,7 +282,7 @@ describe('World.applyCard — two homes, nothing else', () => {
   it('ONE card carrying FOUR effect kinds: stats via effectiveStats, slots in the one loadout, behavior per-tick, nothing else (story AC)', () => {
     const w = bareWorld(3);
     const control = bareWorld(3);
-    const a = place(w, 'a', 0, 0); // TB under TEST_CATALOG: [gun, speedBoost, empty x7]
+    const a = place(w, 'a', 0, 0); // TB under TEST_CATALOG: [gun, boost, empty x7]
     const c = place(control, 'a', 0, 0);
     a.hp = 42;
     w.applyCard(a, 'omni');
@@ -294,7 +297,7 @@ describe('World.applyCard — two homes, nothing else', () => {
     // `stock` took the first BELT slot as a fresh one-copy stack that never
     // reloads. Neither can reach the other's row.
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'speedBoost', 'radarBuoy', null, null, 'hullRepair', null, null, null,
+      'gun', 'boost', 'radarBuoy', null, null, 'hullRepair', null, null, null,
     ]);
     expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.radarBuoy.maxAmmo, reloadMsLeft: 0 });
     expect(a.loadout[CONSUMABLE_SLOTS[0]].state).toEqual({ n: 1, reloadMsLeft: 0 });
@@ -320,12 +323,12 @@ describe('World.applyCard — two homes, nothing else', () => {
     expect(a.cards).toEqual(['noSuchBoon']);
     expect(a.stats).toEqual(statsBefore);
     expect(ammoStates(a)).toEqual(ammoBefore);
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'speedBoost'));
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost'));
   });
 
   it('a cap-LOWERING stat card clamps the live pool DOWN to the new cap', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0); // TB under TEST_CATALOG: [gun, speedBoost, empty x7]
+    const a = place(w, 'a', 0, 0); // TB under TEST_CATALOG: [gun, boost, empty x7]
     fitWeapon(a, 'heavyTorpedo');
     w.applyCard(a, 'deepMagazine'); // torpedo cap 1 -> 4
     expect(a.stats.equipment.heavyTorpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 3);
@@ -381,7 +384,7 @@ describe('World.applyCard — two homes, nothing else', () => {
     expect(a.cards).toEqual(['constructor', 'toString', 'hasOwnProperty', 'valueOf']);
     expect(a.stats).toEqual(statsBefore);
     expect(ammoStates(a)).toEqual(ammoBefore);
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'speedBoost'));
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost'));
   });
 
   it('REPEATED ids stack by occurrence up to the line CAP: copy 2 of a cap-2 line folds its tier, copy 3 buys nothing', () => {
@@ -419,7 +422,7 @@ describe('lifecycle — redeployShip wipes the build, respawn preserves it', () 
     expect(a.cards).toEqual(['ironPlating', 'bolterRack']);
     expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 40);
     expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp, card fold included
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'speedBoost', 'navalMines'));
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost', 'navalMines'));
     expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
   });
 
@@ -432,7 +435,7 @@ describe('lifecycle — redeployShip wipes the build, respawn preserves it', () 
     expect(a.cards).toEqual([]);
     expect(a.stats).toEqual(effectiveStats(a.cls, [], TEST_CATALOG));
     expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'speedBoost'));
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost'));
     // And the per-tick fold is back on the identity path (no stale behaviors).
     a.input.throttle = 1;
     const control = bareWorld(1, {});

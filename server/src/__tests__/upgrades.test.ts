@@ -53,7 +53,7 @@ const DT = CONFIG.tick.simDtMs;
 // weapon row first-empty-first, so each hull's FIRST seeded weapon is slot 2.
 const SLOT_GUN = 0;
 const SLOT_TORPEDO = 2;
-/** Battleship fit [gun, speedBoost, broadside, starShells, empty x5]. */
+/** Battleship fit [gun, boost, broadside, starShells, empty x5]. */
 const SLOT_BROADSIDE = 2;
 
 /** Islands cleared AND the raster flattened (Story 4.11): real terrain must
@@ -950,7 +950,7 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
     // Story 8.5: the TB's seed holds slot 2, so the pick takes slot 3 (E) —
     // first-empty-first across the weapon row, never a fixed 'extra' slot.
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'speedBoost', 'heavyTorpedo', 'navalMines', null, null, null, null, null,
+      'gun', 'boost', 'heavyTorpedo', 'navalMines', null, null, null, null, null,
     ]);
     expect(a.loadout[3].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
   });
@@ -1325,7 +1325,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     expect(a.xpMs).toBe(0);
     expect(a.stats).toEqual(effectiveStats(a.cls));
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'speedBoost', 'heavyTorpedo', null, null, null, null, null, null,
+      'gun', 'boost', 'heavyTorpedo', null, null, null, null, null, null,
     ]);
     // The fresh pool is rebuilt from the SAME frozen list (never the catalog):
     // every dealt line back at its listed count, less the re-seeded copy —
@@ -1410,7 +1410,7 @@ describe('per-observer sweep (intelSweep)', () => {
 describe('effective weapon stats in the fire path (catalog ladders)', () => {
   it('RELOAD: ONE card shortens EVERY equipment — a consumed gun AND torpedo round both start the SCALED reload', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0); // TB fit: [gun, heavyTorpedo, speedBoost, empty]
+    const a = place(w, 'a', 0, 0); // TB fit: [gun, boost, heavyTorpedo, empty x6]
     stack(w, a, 'reload', 5); // the 5-copy cap: additive −0.05/card => 0.75
     // Additive-linear, never 0.95^5 (=0.7738). clampStats rounds the
     // accumulated scale to 3 decimals before the multiplies (shared/src/sim/
@@ -1631,7 +1631,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   // outright along with every mine cap. What the end-to-end drop loop still
   // earns its keep proving is the OPPOSITE fact: every drop stays on the water.
   it('NO CAP: every mine a Mine Layer drops stays live (no eviction, no ceiling)', () => {
-    const SLOT_MINE_ML = 2; // ML fit: [gun, speedBoost, navalMines, empty x6]
+    const SLOT_MINE_ML = 2; // ML fit: [gun, boost, navalMines, empty x6]
     const dropMines = (drops: number): number => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0, 0, 'mineLayer');

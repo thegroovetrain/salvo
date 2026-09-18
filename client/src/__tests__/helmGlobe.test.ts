@@ -12,7 +12,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, boostedKinematics, effectiveStats } from '@salvo/shared';
+import { CATALOG, CONFIG, boostedKinematics, effectiveStats } from '@salvo/shared';
 import {
   DETENT_LABELS,
   HELM_LETTER_OFFSETS,
@@ -136,7 +136,9 @@ describe('speedLadderFraction — ACTUAL speed on the [-1,1] telegraph axis', ()
 
 describe('needleAngle — the solid amber pointer on the arc', () => {
   const KIN = CONFIG.shipClasses.torpedoBoat.kinematics;
-  const BONUS = CONFIG.speedBoost.speedBonus;
+  const FACTOR = CONFIG.boost.factor;
+  /** The boosted forward cap, through the ONE shared hook (never a flat add). */
+  const BOOSTED_CAP = boostedKinematics(KIN, FACTOR, true).maxSpeed;
 
   it('sits at STOP at rest and reaches the arc ends at full order', () => {
     expect(needleAngle(0, KIN)).toBe(0);
@@ -153,17 +155,42 @@ describe('needleAngle — the solid amber pointer on the arc', () => {
   });
 
   it('CLAMPS at the arc`s end under boost — a boosted hull never swings off it', () => {
-    const boosted = boostedKinematics(KIN, BONUS, true);
+    const boosted = boostedKinematics(KIN, FACTOR, true);
     // On the BASE denominators a boosted hull is over the cap: pinned at +70.
-    expect(needleAngle(KIN.maxSpeed + BONUS, KIN)).toBe(T.arcDeg);
+    expect(needleAngle(BOOSTED_CAP, KIN)).toBe(T.arcDeg);
     // ...and on the boosted denominators it reads the full arc exactly, with the
     // unboosted cap now short of the end (the boost is visible as headroom).
-    expect(needleAngle(KIN.maxSpeed + BONUS, boosted)).toBeCloseTo(T.arcDeg, 9);
+    expect(needleAngle(BOOSTED_CAP, boosted)).toBeCloseTo(T.arcDeg, 9);
     expect(needleAngle(KIN.maxSpeed, boosted)).toBeLessThan(T.arcDeg);
-    expect(boostedKinematics(KIN, BONUS, false)).toBe(KIN); // inactive: same object
+    expect(boostedKinematics(KIN, FACTOR, false)).toBe(KIN); // inactive: same object
     for (const speed of [1e6, -1e6]) {
       expect(Math.abs(needleAngle(speed, boosted))).toBeLessThanOrEqual(T.arcDeg);
     }
+  });
+
+  it('the boost denominator is a PROPORTION of the post-fold cap (amendment 55)', () => {
+    // STORY 8.9 — `HelmGlobeInput.boostFactor` is a FRACTION (0.25), not the
+    // retired flat u/s bonus, and the globe hands it STRAIGHT to the shared
+    // hook. The rename is the whole pin: passing a u/s number where a factor is
+    // expected type-checks (both are `number`) and silently draws a 10x cap
+    // (45 + 45 x 10 = 495 u/s), so the needle would sit frozen near STOP for a
+    // whole match with nothing in the types to catch it.
+    expect(FACTOR).toBeLessThan(1); // a proportion, never a speed
+    expect(BOOSTED_CAP).toBeCloseTo(KIN.maxSpeed * 1.25, 9);
+    expect(BOOSTED_CAP).toBeCloseTo(56.25, 9); // base TB, epic-8 amendment 55
+
+    // ...and the SPEED LADDER IS INSIDE THE BONUS, because the hook's input is
+    // the POST-FOLD kinematics: a SPEED-capped Torpedo Boat's globe runs to
+    // 68.75, not to 55 + a flat add.
+    const cappedDeck = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
+    const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, cappedDeck).kinematics;
+    const cappedBoosted = boostedKinematics(capped, FACTOR, true);
+    expect(capped.maxSpeed).toBeCloseTo(55, 9);
+    expect(cappedBoosted.maxSpeed).toBeCloseTo(68.75, 9);
+    // The needle reads off THOSE denominators: full arc at 68.75, short of the
+    // end at the base hull's boosted cap.
+    expect(needleAngle(68.75, cappedBoosted)).toBeCloseTo(T.arcDeg, 9);
+    expect(needleAngle(BOOSTED_CAP, cappedBoosted)).toBeLessThan(T.arcDeg);
   });
 
   // I/O matrix "Shape code": ORDERED and ACTUAL are two independent channels.
@@ -532,7 +559,7 @@ describe('HelmGlobe shell — a live frame and the coach-mark fade', () => {
       orderedDetent: 6,
       rudder: -0.5,
       kin: stats.kinematics,
-      speedBonus: stats.equipment.speedBoost.speedBonus,
+      boostFactor: CONFIG.boost.factor,
       boostActive: false,
       ...over,
     };

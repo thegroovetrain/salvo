@@ -13,7 +13,7 @@
 //     ruling 2026-08-27) — exactly the side containing the aim lights.
 //     The gun FAMILY (gun / star shells) draws NO arc sector: it is 360° and
 //     fires to the clicked point (Eric ruling 2026-07-21), so a wedge would lie.
-//     The remaining instant ability (speedBoost) never primes and draws no
+//     The remaining instant ability (the boost) never primes and draws no
 //     marker at all.
 //   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
 //     because gun range (radar range, 660u) exceeds sight range (330u): aiming
@@ -211,7 +211,7 @@ export class FiringUX {
     // Only an AIM-GATED weapon draws a wedge — the torpedo's bow arc and the
     // mine's rear placement arc (Story 2.8), or the broadside's twin beams
     // (Story 7-5 wave 2). The gun family is 360° (no wedge) and the remaining
-    // ability (speedBoost) draws no marker.
+    // ability (the boost) draws no marker.
     if (kind === 'sector' && id !== null) this.drawSectorArc(id, aim, pose.heading, ammo, denied);
     if (kind === 'twin' && id !== null) this.drawTwinArcs(id, aim, pose.heading, ammo, denied, broadside);
     this.drawReticle(pose, aim, id, ammo.hasAmmo, cursor);

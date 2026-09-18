@@ -4,7 +4,7 @@
 // match what the server writes on spawn/respawn/redeploy.
 //
 // THE PER-HULL FIT IS RETIRED (Stories 1.6–1.8 / 7-5 wave 2 are superseded):
-// every CAPTAIN hull now fits exactly [gun, speedBoost, empty ×7] — the boost
+// every CAPTAIN hull now fits exactly [gun, boost, empty ×7] — the boost
 // stopped being a Torpedo Boat privilege (amendment 23) and the class weapons
 // arrive as CARDS from the spawn seed (SPAWN_SEED, catalog.ts). A PvE fleet
 // hull fits [gun, empty ×8] (Story 5.6, amendment 34). Also pins the
@@ -101,10 +101,12 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
     // WIDENED to catalog v3 (Story 8.1): the shipped torpedo/mine keep their
     // behaviour under their v3 names, the seven unbuilt v3 weapons declare
     // themselves aimed weapons ahead of their modules (8.13/8.14), and the v3
-    // `boost` placeholder joins `speedBoost` as a non-aimed activation.
+    // `boost` id is a non-aimed activation. Story 8.9 made it THE Shift boost
+    // (universal, slot 1, no card can address it) and deleted the legacy
+    // flat-bonus id beside it — one non-weapon left, not two.
     expect(EQUIPMENT_IS_WEAPON).toEqual({
       gun: true,
-      boost: false, // Story 8.9 builds the Shift ability
+      boost: false, // Story 8.9: THE Shift boost — universal instant activation
       lightTorpedo: true,
       heavyTorpedo: true,
       supercavTorpedo: true,
@@ -116,7 +118,6 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
       monitor: true,
       broadside: true, // Story 7-5 wave 2: prime-then-click twin-sector barrage
       starShells: true, // Story 1.7: prime-then-click lit-zone flare
-      speedBoost: false,
       radarBuoy: true, // Story 7-5 wave 2: click-placed in the mine's rear sector
     });
     expect(Object.keys(EQUIPMENT_IS_WEAPON)).toEqual([...EQUIPMENT_IDS]);
@@ -131,15 +132,15 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
 
 describe('loadoutFor — THE UNIVERSAL NINE-SLOT FIT (Story 8.5)', () => {
   // RETIRED with the per-hull rule: the three "the Torpedo Boat fits
-  // [gun, heavyTorpedo, speedBoost, empty]" / Battleship / Mine Layer cases,
+  // [gun, heavyTorpedo, boost, empty]" / Battleship / Mine Layer cases,
   // and "the specials match the per-hull rule on every PICKABLE class". There
   // is no per-hull fit left to pin — the class weapons arrive as spawn-seed
   // CARDS (SPAWN_SEED), whose landing slots are pinned in nineSlots.test.ts.
-  it('every CAPTAIN hull gets the IDENTICAL shape and ids: [gun, speedBoost, empty ×7]', () => {
+  it('every CAPTAIN hull gets the IDENTICAL shape and ids: [gun, boost, empty ×7]', () => {
     for (const id of SHIP_CLASS_IDS) {
       const loadout = loadoutFor(statsFor(id));
       expect(loadout.map((s) => s.equipmentId), id).toEqual([
-        'gun', 'speedBoost', null, null, null, null, null, null, null,
+        'gun', 'boost', null, null, null, null, null, null, null,
       ]);
     }
   });
@@ -150,14 +151,14 @@ describe('loadoutFor — THE UNIVERSAL NINE-SLOT FIT (Story 8.5)', () => {
       const loadout = loadoutFor(stats);
       expect(loadout[SLOT_GUN].state, id).toEqual({ n: equipmentMaxAmmo(stats, 'gun'), reloadMsLeft: 0 });
       expect(loadout[SLOT_GUN].state, id).toEqual({ n: 1, reloadMsLeft: 0 }); // single-shot gun pool
-      expect(loadout[SLOT_BOOST].state, id).toEqual({ n: equipmentMaxAmmo(stats, 'speedBoost'), reloadMsLeft: 0 });
-      expect(loadout[SLOT_BOOST].state, id).toEqual({ n: CONFIG.speedBoost.maxAmmo, reloadMsLeft: 0 });
+      expect(loadout[SLOT_BOOST].state, id).toEqual({ n: equipmentMaxAmmo(stats, 'boost'), reloadMsLeft: 0 });
+      expect(loadout[SLOT_BOOST].state, id).toEqual({ n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 });
     }
   });
 
   it('EVERY captain hull boosts now (amendment 23 — it was a Torpedo Boat privilege)', () => {
     for (const id of SHIP_CLASS_IDS) {
-      expect(loadoutFor(statsFor(id))[SLOT_BOOST].equipmentId, id).toBe('speedBoost');
+      expect(loadoutFor(statsFor(id))[SLOT_BOOST].equipmentId, id).toBe('boost');
     }
   });
 
@@ -202,13 +203,13 @@ describe('loadoutFor — THE UNIVERSAL NINE-SLOT FIT (Story 8.5)', () => {
   });
 });
 
-describe('equipmentMaxAmmo / equipmentReloadMs cover speedBoost (from stats.boost)', () => {
-  it('speedBoost pool + reload come from CONFIG.speedBoost', () => {
+describe('equipmentMaxAmmo / equipmentReloadMs cover the Shift boost (from stats.boost)', () => {
+  it('the boost pool + reload come from CONFIG.boost (Story 8.9)', () => {
     const stats = statsFor('torpedoBoat');
-    expect(equipmentMaxAmmo(stats, 'speedBoost')).toBe(stats.equipment.speedBoost.maxAmmo);
-    expect(equipmentMaxAmmo(stats, 'speedBoost')).toBe(CONFIG.speedBoost.maxAmmo);
-    expect(equipmentReloadMs(stats, 'speedBoost')).toBe(stats.equipment.speedBoost.reloadMs);
-    expect(equipmentReloadMs(stats, 'speedBoost')).toBe(CONFIG.speedBoost.reloadMs);
+    expect(equipmentMaxAmmo(stats, 'boost')).toBe(stats.equipment.boost.maxAmmo);
+    expect(equipmentMaxAmmo(stats, 'boost')).toBe(CONFIG.boost.maxAmmo);
+    expect(equipmentReloadMs(stats, 'boost')).toBe(stats.equipment.boost.reloadMs);
+    expect(equipmentReloadMs(stats, 'boost')).toBe(CONFIG.boost.reloadMs);
   });
 });
 

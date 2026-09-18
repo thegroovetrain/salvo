@@ -440,16 +440,44 @@ describe('Predictor lifecycle', () => {
 
 // --- Story 1.6: speed boost — per-tick parity with the server's boostedKinematics gate ---
 
-describe('Predictor speed boost (Story 1.6)', () => {
-  const BOOST = CONFIG.speedBoost;
+describe('Predictor speed boost (Story 1.6, re-cut proportional in Story 8.9)', () => {
+  const BOOST = CONFIG.boost;
+  /** The BOOSTED forward cap — through the one shared hook, NEVER `max + bonus`:
+   *  since Story 8.9 the boost is `CONFIG.boost.factor` (0.25) OF the post-fold
+   *  cap (epic-8 amendment 55), so a base Torpedo Boat tops out at 56.25. A flat
+   *  reading would type-check and predict a cap the server never uses. */
+  const BOOSTED_MAX = boostedKinematics(TB.kinematics, BOOST.factor, true).maxSpeed;
   const T0 = 500_000; // arbitrary server-clock anchor (ms)
   const tickT = (seq: number): number => T0 + seq * CONFIG.tick.simDtMs;
 
   /** Reference server tick: the IDENTICAL per-tick rule world.stepShips applies —
-   *  boostedKinematics(kin, bonus, now < boostUntil), the one shared speed mutator. */
+   *  boostedKinematics(kin, factor, now < boostUntil), the one shared speed mutator. */
   function serverBoostStep(s: ShipState, inp: InputMsg, t: number, boostUntil: number): void {
-    stepShip(s, inp, boostedKinematics(TB.kinematics, BOOST.speedBonus, t < boostUntil), DT);
+    stepShip(s, inp, boostedKinematics(TB.kinematics, BOOST.factor, t < boostUntil), DT);
   }
+
+  it('the predicted cap is the PROPORTIONAL one the server uses (amendment 55)', () => {
+    // THE PIN THE RENAME EXISTS FOR: `Predictor.setBoostStats` takes a FACTOR.
+    // Feeding it the retired flat bonus type-checks (both are `number`) and
+    // predicts `max + max x bonus` — a 10x cap the server never reaches, so
+    // every boosted tick would reconcile-snap. The predicted cap is pinned
+    // against the SHARED hook, not against a written-down number.
+    expect(BOOST.factor).toBeLessThan(1); // a proportion, never a u/s speed
+    expect(BOOSTED_MAX).toBeCloseTo(TB.kinematics.maxSpeed * 1.25, 9);
+    expect(BOOSTED_MAX).toBeCloseTo(56.25, 9); // base TB, epic-8 amendment 55
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const boostUntil = T0 + 10 * BOOST.durationMs; // held open for the whole run
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), boostUntil }, 0);
+    const server: ShipState = { ...spawn };
+    for (let seq = 1; seq <= 200; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverBoostStep(server, inp, tickT(seq), boostUntil);
+    }
+    expect(p.predicted.speed).toBeCloseTo(BOOSTED_MAX, 6); // reaches the shared cap
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9); // and the server's, exactly
+  });
 
   it('raises the cap for exactly the in-window ticks; replay across lagged reconciles (incl. expiry mid-replay) matches an uninterrupted sim; expiry decays at class decel', () => {
     // Window opens at T0 (the first frame already carries boostUntil), so every
@@ -481,11 +509,11 @@ describe('Predictor speed boost (Story 1.6)', () => {
         // The first tick at t === boostUntil is already OUT of the window
         // (strict t < boostUntil): the cap is base again and the hull sheds
         // speed at the CLASS decel (stepShip's own braking — no special decay).
-        const expected = TB.kinematics.maxSpeed + BOOST.speedBonus - TB.kinematics.decel * DT;
+        const expected = BOOSTED_MAX - TB.kinematics.decel * DT;
         expect(p.predicted.speed).toBeCloseTo(expected, 9);
       }
     }
-    expect(peak).toBeCloseTo(TB.kinematics.maxSpeed + BOOST.speedBonus, 6); // the boosted cap was reached
+    expect(peak).toBeCloseTo(BOOSTED_MAX, 6); // the boosted cap was reached
     expect(p.predicted.speed).toBeCloseTo(TB.kinematics.maxSpeed, 6); // and decayed back to base
     expect(p.predicted.x).toBeCloseTo(server.x, 9); // full-run positional parity
   });
@@ -594,7 +622,7 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
 
   /** Reference server tick — world.stepShips' exact composition. */
   function serverSlowStep(s: ShipState, inp: InputMsg, t: number, boostUntil: number, slowedUntil: number): void {
-    const boosted = boostedKinematics(TB.kinematics, CONFIG.speedBoost.speedBonus, t < boostUntil);
+    const boosted = boostedKinematics(TB.kinematics, CONFIG.boost.factor, t < boostUntil);
     const slowed = slowedKinematics(boosted, FOUL, t < slowedUntil);
     stepShip(s, inp, slowed, DT);
   }
@@ -663,7 +691,7 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
       history[seq] = { ...server };
       if (seq % 5 === 0) p.onServerState({ ...kin(history[seq - 3]), boostUntil, slowedUntil }, seq - 3);
     }
-    const composed = (TB.kinematics.maxSpeed + CONFIG.speedBoost.speedBonus) * FOUL;
+    const composed = boostedKinematics(TB.kinematics, CONFIG.boost.factor, true).maxSpeed * FOUL;
     expect(p.predicted.speed).toBeCloseTo(composed, 6);
     expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
   });
@@ -694,7 +722,7 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
 // is untouched and only the next tick's start speed moves); it is derived
 // purely from (since, now), so a replay across a lagged ack re-makes the exact
 // same decision; it scales the PER-TICK EFFECTIVE max, so amendment 10's
-// speedBoost genuinely lifts it (a doomed surge) instead of being refused; and
+// the boost genuinely lifts it (a doomed surge) instead of being refused; and
 // it reaches exactly 0 on the founder tick.
 
 describe('Predictor sinking window (Story 5.2)', () => {
@@ -709,7 +737,7 @@ describe('Predictor sinking window (Story 5.2)', () => {
    *  with the shared decel folded in against THIS tick's effective kinematics,
    *  then the shared collision/grounding pass the predictor also runs. */
   function serverSinkStep(s: ShipState, inp: InputMsg, t: number, boostUntil = 0): void {
-    const kinT = boostedKinematics(TB.kinematics, CONFIG.speedBoost.speedBonus, t < boostUntil);
+    const kinT = boostedKinematics(TB.kinematics, CONFIG.boost.factor, t < boostUntil);
     const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
     stepShip(s, inp, kinT, DT);
     applySinkingDecel(s, kinT.maxSpeed, SINCE, t);
@@ -781,7 +809,7 @@ describe('Predictor sinking window (Story 5.2)', () => {
     expect(boosted.predicted.speed).toBeGreaterThan(plain.predicted.speed);
     const remaining = 1 - (tickT(half) - SINCE) / CONFIG.ship.sinkingWindowMs;
     expect(boosted.predicted.speed).toBeCloseTo(
-      (TB.kinematics.maxSpeed + CONFIG.speedBoost.speedBonus) * remaining,
+      boostedKinematics(TB.kinematics, CONFIG.boost.factor, true).maxSpeed * remaining,
       6,
     );
   });
@@ -810,7 +838,7 @@ describe('Predictor behavior boons (Story 2.5)', () => {
 
   /** Injected TEST registry (the production HOOK_REGISTRY ships empty —
    *  amendment 29): a multiplier hook, order-sensitive against the additive
-   *  boost bonus, so the composition order is provable. */
+   *  boost, so the composition order is exercised end to end. */
   const REGISTRY: HookRegistry = {
     surge: {
       kind: 'kinematics',
@@ -820,10 +848,10 @@ describe('Predictor behavior boons (Story 2.5)', () => {
   const BEHAVIORS = [{ hookId: 'surge', params: { factor: 1.2 } }];
 
   /** Reference server tick: the IDENTICAL per-tick composition world.stepShips
-   *  applies — hookKinematics(boostedKinematics(kin, bonus, active), behaviors,
+   *  applies — hookKinematics(boostedKinematics(kin, factor, active), behaviors,
    *  registry): boost FIRST, hooks AFTER. */
   function serverHookStep(s: ShipState, inp: InputMsg, t: number, boostUntil: number): void {
-    const boosted = boostedKinematics(TB.kinematics, CONFIG.speedBoost.speedBonus, t < boostUntil);
+    const boosted = boostedKinematics(TB.kinematics, CONFIG.boost.factor, t < boostUntil);
     stepShip(s, inp, hookKinematics(boosted, BEHAVIORS, REGISTRY), DT);
   }
 
@@ -872,11 +900,23 @@ describe('Predictor behavior boons (Story 2.5)', () => {
         expect(p.visualErrorMagnitude).toBeLessThan(1e-9);
       }
     }
-    // Hooks-after-boost: the multiplier scales the RAISED cap. A flipped
-    // composition would read base*factor + bonus — a different number.
-    const hooksAfter = (TB.kinematics.maxSpeed + CONFIG.speedBoost.speedBonus) * 1.2;
-    const flipped = TB.kinematics.maxSpeed * 1.2 + CONFIG.speedBoost.speedBonus;
-    expect(hooksAfter).not.toBeCloseTo(flipped, 6); // the order is observable
+    // Hooks-after-boost: the multiplier scales the RAISED cap.
+    const boostFactor = CONFIG.boost.factor;
+    const hooksAfter = boostedKinematics(TB.kinematics, boostFactor, true).maxSpeed * 1.2;
+    // THE TWO FOLDS NOW COMMUTE (Story 8.9, mirroring shared/slow.test.ts): the
+    // boost became a PROPORTION of the post-fold cap (epic-8 amendment 55) and
+    // this hook is a multiplier, so hooks-after-boost and boost-after-hooks land
+    // on the same double — while the boost was a flat +10 u/s they did not. The
+    // PINNED ORDER (boosted -> slowed -> hooks) is still the cross-side
+    // contract: the server and the predictor must execute the SAME sequence,
+    // and any non-proportional fold added to the chain makes it observable
+    // again. It is simply no longer observable HERE.
+    const flipped = boostedKinematics(
+      hookKinematics(TB.kinematics, BEHAVIORS, REGISTRY),
+      boostFactor,
+      true,
+    ).maxSpeed;
+    expect(hooksAfter).toBeCloseTo(flipped, 6);
     expect(p.predicted.speed).toBeCloseTo(hooksAfter, 6);
     expect(p.predicted.x).toBeCloseTo(server.x, 9); // full positional parity
   });

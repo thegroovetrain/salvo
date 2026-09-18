@@ -153,13 +153,16 @@ export interface EffectiveStarShells extends EquipmentRowCommon {
 }
 
 /**
- * The activated speed boost's effective numbers. The additive `speedBonus` is
- * layered per-tick via sim/boost.ts boostedKinematics — never folded into
- * kinematics here. Two ids share this row type: the LEGACY `speedBoost`
- * equipment (shipped numbers) and the v3 `boost` placeholder (Story 8.9).
+ * THE SHIFT BOOST's effective numbers (Story 8.9) — the pool, the reload and
+ * the active window, and NOTHING about the speed. There is no speed field
+ * because the bonus is PROPORTIONAL and no card can address it: it is
+ * `CONFIG.boost.factor × kinematics.maxSpeed`, layered per tick by
+ * sim/boost.ts `boostedKinematics` and NEVER folded into `kinematics` — the
+ * bots' `max(rated, actual)` deadband reads `kinematics.maxSpeed` as the RATED
+ * cap (epic-8 amendment 55). `reloadMs` sits in the row so the ONE
+ * `cooldownScale` multiply in clampStats reaches it (catalog-v3 R40).
  */
 export interface EffectiveBoost extends EquipmentRowCommon {
-  speedBonus: number; // u/s added to the forward maxSpeed cap while active
   durationMs: number; // ms — active window per activation
 }
 
@@ -213,7 +216,6 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
   monitor: EffectiveOrdnanceGun;
   broadside: EffectiveBroadside;
   starShells: EffectiveStarShells;
-  speedBoost: EffectiveBoost;
   radarBuoy: EffectiveRadarBuoy;
 }
 
@@ -263,14 +265,9 @@ const STUB_ROWS = {
   // clampStats out of the SAME CONFIG.mine.blastRadius, so it is not restated
   // here.
   captiveMines: { reloadMs: 20000, maxAmmo: 1 },
-  // SHIFT BOOST (R9/R40): 10 s active, 20 s reload, both `[D]`. Its speed
-  // bonus is "+25 % of the hull's max speed" — a PROPORTIONAL model this flat
-  // u/s field cannot express — so `speedBonus` stays 0 and Story 8.9 authors
-  // it. Nothing fits `boost` today (it is not slot equipment), so the zero row
-  // is unreachable rather than wrong. Its reload IS scaled by the global
-  // RELOAD ladder (R40 puts the Shift cooldown in scope): 20 s → 15 s at the
-  // cap, exactly as §4 states.
-  boost: { reloadMs: 20000, maxAmmo: 0, durationMs: 10000, speedBonus: 0 },
+  // THE SHIFT BOOST IS NOT A STUB (Story 8.9): it is live equipment in slot 1
+  // on every captain hull and its row is built from `CONFIG.boost` in
+  // baseEquipment, like the gun. Nothing is authored here.
 } as const;
 
 /** deg -> rad (CONFIG.broadside's two ladders are authored in degrees).
@@ -367,15 +364,16 @@ function ordnanceGunRow(src: { reloadMs: number; maxAmmo: number; damage: number
   return { tier: 1, reloadMs: src.reloadMs, maxAmmo: src.maxAmmo, damage: src.damage };
 }
 
-/** A speed-boost row (the legacy `speedBoost` equipment and the v3 `boost`
- *  placeholder share the shape). */
-function boostRow(src: { reloadMs: number; maxAmmo: number; durationMs: number; speedBonus: number }): EffectiveBoost {
+/** THE SHIFT BOOST's row (Story 8.9) — pool, reload and window straight out of
+ *  `CONFIG.boost`. `factor` is deliberately absent: the bonus is proportional
+ *  and no card addresses it, so it is read from CONFIG at the one hook
+ *  (sim/boost.ts) rather than carried here (epic-8 amendment 55). */
+function boostRow(src: { reloadMs: number; maxAmmo: number; durationMs: number }): EffectiveBoost {
   return {
     tier: 1,
     reloadMs: src.reloadMs,
     maxAmmo: src.maxAmmo,
     durationMs: src.durationMs,
-    speedBonus: src.speedBonus,
   };
 }
 
@@ -443,7 +441,9 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' 
 function baseEquipment(cls: ShipClass): EquipmentRows {
   return {
     gun: gunRow(cls),
-    boost: boostRow(STUB_ROWS.boost),
+    // THE SHIFT BOOST (Story 8.9): live equipment, `CONFIG.boost` verbatim —
+    // the reload then takes `cooldownScale` in clampStats like every row.
+    boost: boostRow(CONFIG.boost),
     lightTorpedo: torpedoRow(STUB_ROWS.lightTorpedo),
     // THE LEGACY RENAME: `heavyTorpedo` IS the shipped torpedo, CONFIG.torpedo
     // verbatim — including catalog-v3 R17's 65 u/s tier-I speed, which Story
@@ -458,12 +458,6 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
     machineGun: ordnanceGunRow(STUB_ROWS.machineGun),
     flak: ordnanceGunRow(STUB_ROWS.flak),
     monitor: ordnanceGunRow(STUB_ROWS.monitor),
-    speedBoost: boostRow({
-      reloadMs: CONFIG.speedBoost.reloadMs,
-      maxAmmo: CONFIG.speedBoost.maxAmmo,
-      durationMs: CONFIG.speedBoost.durationMs,
-      speedBonus: CONFIG.speedBoost.speedBonus,
-    }),
     ...shippedSkillshotRows(),
   };
 }

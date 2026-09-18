@@ -992,7 +992,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     tb.hp = tb.stats.maxHp * 0.1; // below raider's 0.5 -> disengage
     const raider = mkMind('raider');
     plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'speedBoost'));
+    expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'boost'));
     // A withdrawing MINE LAYER NOW BOOSTS TOO (Story 8.5, epic-8 amendment
     // 23: the boost stopped being a Torpedo Boat privilege and is fitted in
     // slot 1 on every captain hull). Before this story it pressed nothing,
@@ -1002,7 +1002,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     ml.hp = ml.stats.maxHp * 0.1;
     const trapper = mkMind('trapper');
     plot(trapper, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).toBe(slotOf(ml, 'speedBoost'));
+    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).toBe(slotOf(ml, 'boost'));
     // Healthy: no ability spent.
     const healthy = mkBot(w, 'torpedoBoat', 0, 0, 0);
     expect(COMBAT_BRAIN.decide(healthy, raider, port).actSlot).toBeNull();
@@ -1087,7 +1087,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     expect(slotOf(bare, 'hullRepair')).toBe(-1);
     // The withdrawal boost is the only ability it can press: a want() with no
     // fitted slot behind it is never even asked (rankedSlots walks the LOADOUT).
-    expect(COMBAT_BRAIN.decide(bare, mkMind('bulwark'), port).actSlot).toBe(slotOf(bare, 'speedBoost'));
+    expect(COMBAT_BRAIN.decide(bare, mkMind('bulwark'), port).actSlot).toBe(slotOf(bare, 'boost'));
   });
 
   it('the BROADSIDE is not spent on a plot that has gone dark (the `live` gate is a real gate)', () => {

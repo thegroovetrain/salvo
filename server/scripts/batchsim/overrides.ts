@@ -25,7 +25,7 @@
 // walks any dotted path, array indices included). map.baseRadius joins for the
 // 3.1 map-radius × ring evidence sweeps (amendment 7).
 
-import { CONFIG } from '@salvo/shared';
+import { CATALOG, CONFIG, effectiveStats } from '@salvo/shared';
 
 /** Unknown / non-tunable / non-numeric --set key — main prints and exits 2. */
 export class TunableError extends Error {}
@@ -50,7 +50,7 @@ export function isTunableKey(key: string): boolean {
 // cannon outright with the BROADSIDE BARRAGE. Shipping `cannon.` verbatim would
 // pass this family gate and then die on the CONFIG walk, while the battleship's
 // actual main weapon stayed unreachable — so the dead family is dropped and the
-// three live blocks the doc predates (broadside, speedBoost, radarBuoy) are in.
+// three live blocks the doc predates (broadside, boost, radarBuoy) are in.
 // Keep this list in step with the top-level equipment blocks of CONFIG.
 const TUNE_FAMILIES = [
   'gun.',
@@ -58,7 +58,7 @@ const TUNE_FAMILIES = [
   'torpedo.',
   'mine.',
   'starShells.',
-  'speedBoost.',
+  'boost.',
   'radarBuoy.',
   'shipClasses.',
   // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
@@ -306,6 +306,76 @@ export function validateTuneValue(key: string, value: number): void {
 }
 
 /**
+ * CROSS-KEY INVARIANTS — relations between two CONFIG leaves, checked ONCE on
+ * the FINISHED CONFIG rather than per key.
+ *
+ * `--set` and `--tune` each validate their leaves INDEPENDENTLY (family gate,
+ * finiteness, per-leaf floor), which is all a single leaf can be judged on. An
+ * invariant that RELATES two leaves cannot be judged that way: whichever key is
+ * written first is legal on its own, and the pair only becomes illegal once
+ * both are in. So the relation is checked after every write, from inside the
+ * all-or-nothing try — a violation rolls the whole apply back and no match ever
+ * runs on the bad pair.
+ *
+ * `boost.reloadMs >= boost.durationMs` (Story 8.9, epic-8 amendment 54): the
+ * boost is a 1-charge pool, so a reload shorter than the window means the
+ * charge is back before the window closes and the boost is PERMANENTLY active
+ * — a state the design forbids. Either leaf can break it (`--tune
+ * boost.reloadMs=1` shortens the reload, `--tune boost.durationMs=60000`
+ * lengthens the window), hence the check on the pair rather than on either.
+ * `boost.*` lives on the `--tune` combat surface only — `--set` refuses it at
+ * the family gate before any write (pinned) — but the check runs on the
+ * finished CONFIG after BOTH surfaces have written, so it is surface-blind.
+ *
+ * Story 8.9 REVIEW (Edge Case Hunter): the check above compared the RAW pair,
+ * but the LIVE reload a match ever ticks against is `reloadMs *
+ * cooldownScale`, and `cooldownScale` is moved by the RELOAD ladder (catalog-v3
+ * R12: −5%/tier, cap 5 copies -> 0.75, floored at 0.1 in clampStats) — the same
+ * fold every equipment reload takes (shared/src/sim/stats.ts clampStats).
+ * `--tune boost.reloadMs=12000` cleared the raw check (12000 >= 10000) while a
+ * five-RELOAD deck folds it to 9000ms < the 10000ms window — the exact
+ * permanently-re-tappable state the raw check exists to forbid, just reached
+ * one card-count away. So the relation is now checked through the REAL fold,
+ * at the worst case the ladder can reach: `effectiveStats()` on a class with
+ * RELOAD stacked to `CATALOG.reload.cap` copies, which is CONFIG-live so a
+ * tuned `boost.reloadMs`/`boost.durationMs` is exactly what gets folded. The
+ * class chosen (torpedoBoat) is arbitrary — the boost row carries no
+ * per-class numbers (see boostRow) — so any class would fold identically.
+ *
+ * `boost.maxAmmo` (Story 8.9 REVIEW, Edge Case Hunter): the reload/duration
+ * relation assumes a single charge. A second charge lets a mid-window tap
+ * re-stamp `boostUntil` and extend the active window indefinitely no matter
+ * how reload and duration relate, so `maxAmmo` is pinned to exactly 1 here
+ * rather than folded into the reload/duration arithmetic.
+ *
+ * deferred-work: the harness has no general cross-key mechanism — these are
+ * the only such relations (Story 8.9), and a third one should turn this
+ * helper into a table rather than growing another `if`.
+ */
+function validateCrossKeyInvariants(): void {
+  const { durationMs, maxAmmo } = CONFIG.boost;
+  if (maxAmmo !== 1) {
+    throw new TunableError(
+      `'boost.maxAmmo' must be exactly 1 (got ${maxAmmo}): the Shift boost is a single-charge pool ` +
+        "— a second charge makes the active window extendable by a mid-window tap, which 'reload >= " +
+        "duration' cannot prevent",
+    );
+  }
+  const rawReloadMs = CONFIG.boost.reloadMs;
+  const maxedReloadMs = effectiveStats(
+    CONFIG.shipClasses.torpedoBoat,
+    Array.from({ length: CATALOG.reload.cap }, () => 'reload'),
+  ).equipment.boost.reloadMs;
+  if (maxedReloadMs < durationMs) {
+    throw new TunableError(
+      `'boost.reloadMs' × the RELOAD ladder at cap must stay >= 'boost.durationMs' (raw ${rawReloadMs} ` +
+        `-> ${maxedReloadMs} live at five RELOAD copies < ${durationMs}): an active window must ` +
+        'always imply a cooling pool',
+    );
+  }
+}
+
+/**
  * Apply a set of overrides by structured mutation; returns a restore closure
  * that puts every original value back (reverse order). Call BEFORE constructing
  * any World — CONFIG reads are live, so already-running sims must not exist.
@@ -338,6 +408,9 @@ export function applyOverrides(
   try {
     for (const key of Object.keys(set)) write(key, set[key], false);
     for (const key of Object.keys(tune)) write(key, tune[key], true);
+    // Relations between leaves, on the FINISHED CONFIG — inside the try, so a
+    // violation rolls every write back exactly like a bad leaf does.
+    validateCrossKeyInvariants();
   } catch (err) {
     rollback();
     throw err;

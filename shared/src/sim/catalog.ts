@@ -396,8 +396,7 @@ export function tierTargetOf(line: CatalogLine): EquipmentId | undefined {
  * The EQUIPMENT LINE that fits a piece of equipment — the inverse of
  * `tierTargetOf` over the `equipment` lines, and the ONE place the
  * (EquipmentId -> LineId) mapping is derived. Undefined for a piece of
- * equipment no card fits (`gun`, `boost`, and the two legacy ids
- * `speedBoost`/`radarBuoy`).
+ * equipment no card fits (`gun`, `boost`, and the legacy `radarBuoy`).
  *
  * It is what lets the spawn seed know which cards a hull is ALREADY holding,
  * and what lets the shared slot fold refuse to fit a STUB weapon, without

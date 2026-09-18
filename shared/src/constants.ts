@@ -623,7 +623,7 @@ export const CONFIG = {
       // TB raider — torpedo opener at credible range, then boost out. Buys
       // tubes/homing/speed to make the one opener count, and hull last.
       raider: {
-        cat: { torpedoes: 2.2, ship: 2.0, guns: 1.5, speedBoost: 1.8, intel: 1.5 },
+        cat: { torpedoes: 2.2, ship: 2.0, guns: 1.5, boost: 1.8, intel: 1.5 },
         lines: {
           torpedoTube: 2.5, torpedoHoming: 3.0, torpedoSpeed: 2.2, shipSpeed: 2.2, shipCooldown: 2.0, shipHull: 1.2,
           // Acquisitions, ranked: a striker wants more strike (flares to
@@ -634,7 +634,7 @@ export const CONFIG = {
       // TB duelist — rear-quarter turn-fight, guns through the 30s torpedo
       // reload. Guns and the global cooldown lever come first.
       duelist: {
-        cat: { guns: 2.4, ship: 2.2, torpedoes: 1.4, speedBoost: 1.6, intel: 1.3 },
+        cat: { guns: 2.4, ship: 2.2, torpedoes: 1.4, boost: 1.6, intel: 1.3 },
         lines: {
           gunBarrel: 2.6, gunTurret: 2.2, shipCooldown: 2.4, shipSpeed: 2.2, shipHull: 1.6, torpedoHoming: 2.0,
           // Acquisitions: knife-range tools first — a beam fan and a dazzle
@@ -1190,20 +1190,21 @@ export const CONFIG = {
     // never sets one off.
     hits: HITS_HULL_DECOY,
     halfArc: deg(30), // +/-30deg launch arc
-    // u/s — must outrun every hull, classes AND drones (after Eric's 2026-07-21
-    // rescale droneSmall at 46 is the fastest afloat, and a boosted Torpedo Boat
-    // tops out at 55 = 45 + CONFIG.speedBoost.speedBonus) so a full-speed firer
-    // can never re-catch its own fish; pinned by damageGuardrail.test. Also a
+    // u/s — FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, epics.md AR49; epic-8
+    // amendment 55): nothing requires a torpedo to outrun every hull any more.
+    // What 65 buys today is a FACT, not a requirement — the base fish still
+    // outruns every BASE hull and drone (droneSmall at 46 is the fastest afloat
+    // un-boosted; the fastest BASE boosted hull is 56.25). A SPEED-capped
+    // Torpedo Boat under the Shift boost runs 68.75 u/s (55 x 1.25,
+    // CONFIG.boost.factor) and OUTRUNS its own fish: allowed, because own
+    // ordnance never damages the own hull (Story 8.4, no friendly fire), so a
+    // firer that re-catches its own torpedo is not a self-damage hazard. Also a
     // deliberate balance change: torps are harder to dodge (owner call,
     // 2026-07-14 self-hit fix session).
     // RETUNED 60 -> 65 (catalog-v3 R17, Eric 2026-09-15, epic-8 amendment 6): the
     // shipped torpedo module IS catalog v3's HEAVY TORPEDO, whose Tier I speed
-    // R17 authors at 65 u/s. A max-SPEED-boosted Torpedo Boat now TIES the base
-    // fish (65 = 65) rather than being outrun by it; catalog-v3 note 19 (Eric
-    // 2026-09-11, epics.md AR49) accepts a boosted TB matching/outrunning
-    // torpedoes in v3, and no-friendly-fire is structural from Story 8.4, so a
-    // hull that catches its own fish is not a self-damage hazard. See
-    // damageGuardrail.test.ts for the re-pinned guardrail.
+    // R17 authors at 65 u/s. See damageGuardrail.test.ts for the re-pinned
+    // facts.
     speed: 65, // u/s
     // hp. RETUNED 55 → 70 (Eric ruling 2026-08-04, the weapon balance pass): a
     // heavier fish on a much longer commitment cycle. HEAVY WARHEAD ×5 was
@@ -1363,21 +1364,40 @@ export const CONFIG = {
   },
 
   /**
-   * Speed boost (Torpedo Boat slot 2, Story 1.6): an ACTIVATED ABILITY, not a
-   * weapon — it fires nothing and emits nothing spatial. One press consumes its
-   * single charge and opens a `durationMs` window during which the FORWARD
-   * maxSpeed cap rises by `speedBonus` (reverseSpeed untouched); the hull
-   * accelerates toward the raised cap at class accel and decays back at class
-   * decel on expiry (see sim/boost.ts). `reloadMs` ≥ `durationMs` by design, so
-   * an active window always implies a cooling pool — re-activation while active
-   * is impossible by construction. No legacy upgrade touches it. Every number
-   * is a DESIGN TARGET, tunable.
+   * THE SHIFT BOOST (Story 8.9) — an ACTIVATED ABILITY, not a weapon: it fires
+   * nothing and emits nothing spatial. It is UNIVERSAL, sitting in slot 1 on
+   * every captain hull, and NO CARD EVER TOUCHES IT — there is no boost line,
+   * no tier and no stat path a card can address (Eric ruling 2026-09-18,
+   * epic-8 amendments 54–55, verbatim: *"Build as-written, except 25s
+   * reload."*). One press consumes its single charge and opens a `durationMs`
+   * window.
+   *
+   * `factor` is the FRACTION OF THE POST-FOLD forward maxSpeed added while the
+   * window is open, so the SPEED ladder is INSIDE the bonus (amendment 55):
+   * a capped Torpedo Boat goes 55 → 68.75, Mine Layer 50 → 62.5, Battleship
+   * 45 → 56.25; at base 45/40/35 → 56.25/50/43.75. FORWARD CAP ONLY —
+   * `reverseSpeed`, accel, decel, turn rate and steerage are untouched, so the
+   * hull accelerates toward the raised cap at class accel and decays back at
+   * class decel on expiry. The bonus is layered per tick by the one shared hook
+   * (sim/boost.ts `boostedKinematics`, called by the server's stepShips AND the
+   * client's predictor) and is NEVER folded into `EffectiveStats.kinematics`.
+   *
+   * `reloadMs` ≥ `durationMs` is a DESIGN INVARIANT — an active window always
+   * implies a cooling pool, so re-activation while active is impossible by
+   * construction — and it is now ENFORCED by the batch-sim override validator
+   * on the finished CONFIG (`--tune boost.*`; `--set` never reaches `boost.*`
+   * — it is refused at the family gate), through the real fold at a maxed
+   * RELOAD ladder, with `maxAmmo` pinned to 1. `reloadMs` takes
+   * `cooldownScale` through the ONE multiply in clampStats like every
+   * equipment row (catalog-v3 R40), so a maxed RELOAD ladder (0.75) gives
+   * 18.75 s. Every number is a DESIGN TARGET the harness tunes (`--tune
+   * boost.*`).
    */
-  speedBoost: {
-    speedBonus: 10, // u/s added to forward maxSpeed cap while active
-    durationMs: 6000, // ms — active window opened by one activation
+  boost: {
+    factor: 0.25, // fraction of the POST-FOLD forward maxSpeed added while active
+    durationMs: 10000, // ms — active window opened by one activation
     maxAmmo: 1, // single charge in the pool
-    reloadMs: 18000, // ms — cooldown between activations
+    reloadMs: 25000, // ms — cooldown between activations (≥ durationMs, enforced)
   },
 
   /**

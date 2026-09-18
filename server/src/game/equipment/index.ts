@@ -185,7 +185,7 @@ export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deep
   gun: gunEquipment,
   heavyTorpedo: torpedoEquipment, // Story 8.1: the shipped torpedo under its v3 id
   navalMines: mineEquipment, // Story 8.1: the shipped mine under its v3 id
-  speedBoost: boostEquipment, // Story 1.6: the first non-weapon (ability) row
+  boost: boostEquipment, // Story 1.6 / 8.9: the universal slot-1 ability (the first non-weapon row)
   broadside: broadsideEquipment, // Story 7-5 wave 2: the Battleship's twin-beam barrage (replaced the cannon)
   starShells: starShellsEquipment, // Story 1.7: the Battleship's lit-zone flare
   radarBuoy: radarBuoyEquipment, // Story 7-5 wave 2: the Mine Layer's click-placed radar relay (replaced the decoy)

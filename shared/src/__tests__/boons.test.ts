@@ -301,7 +301,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
     applySlotEffect(loadout, fill('starShells'), stats);
     expect(loadout[W2].equipmentId).toBe('starShells');
     expect(loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'speedBoost', 'heavyTorpedo', 'navalMines', 'starShells', null, null, null, null,
+      'gun', 'boost', 'heavyTorpedo', 'navalMines', 'starShells', null, null, null, null,
     ]);
   });
 
@@ -480,7 +480,7 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
     const stats = effectiveStats(BS, cards);
     const loadout = slotsWithCards(stats, cards);
     expect(loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'speedBoost', 'navalMines', null, null, null, null, null, null,
+      'gun', 'boost', 'navalMines', null, null, null, null, null, null,
     ]);
     expect(loadout[0].state).toEqual({ n: 2, reloadMsLeft: 0 }); // DECK GUN TURRET pool
     expect(loadout[WEAPON_SLOTS[0]].state).toEqual({ n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 });
@@ -576,7 +576,7 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
   /** Slot ids for a loadout whose belt holds `held` — gun, boost and a weapon
    *  row in front of it, exactly as the wire mirror hands them over. */
   const beltFrom = (held: (ConsumableId | null)[]): (SlotItemId | null)[] =>
-    ['gun', 'speedBoost', 'heavyTorpedo', null, null, ...held];
+    ['gun', 'boost', 'heavyTorpedo', null, null, ...held];
 
   it('the test lines are LEGAL catalog lines (the helper is the shipped shape, un-stubbed)', () => {
     for (const id of CONSUMABLE_IDS) expect(validateLine(consumableLine(id)), id).toEqual([]);
@@ -639,7 +639,7 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
       expect(slot === null || (CONSUMABLE_SLOTS as readonly number[]).includes(slot), id).toBe(true);
     }
     expect(stockSlotFor([], 'hullRepair')).toBeNull(); // malformed: no belt to read
-    expect(canStock(['gun', 'speedBoost', null, null, null], 'hullRepair')).toBe(false);
+    expect(canStock(['gun', 'boost', null, null, null], 'hullRepair')).toBe(false);
   });
 
   // --- the fold -----------------------------------------------------------

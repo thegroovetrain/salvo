@@ -30,7 +30,7 @@ import { broadsideAim } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
 /** Battleship slot indices under the NINE-SLOT spawn (Story 8.5):
- *  [gun, speedBoost, broadside, starShells, empty x5]. The class weapons are
+ *  [gun, boost, broadside, starShells, empty x5]. The class weapons are
  *  no longer hardware — they arrive as the SPAWN SEED's cards and land in the
  *  weapon row (2, 3, 4) in seed order. */
 const SLOT_BROADSIDE = 2;
@@ -102,11 +102,11 @@ function polar(w: World, from: { x: number; y: number }): { bearing: number; ran
 }
 
 describe('broadside — server loadout + barrage construction', () => {
-  it('a Battleship spawns fitted [gun, speedBoost, broadside, starShells, empty x5] with full idle pools', () => {
+  it('a Battleship spawns fitted [gun, boost, broadside, starShells, empty x5] with full idle pools', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     expect(bb.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'speedBoost', 'broadside', 'starShells', null, null, null, null, null,
+      'gun', 'boost', 'broadside', 'starShells', null, null, null, null, null,
     ]);
     expect(bb.loadout[SLOT_BROADSIDE].state).toEqual({ n: CONFIG.broadside.maxAmmo, reloadMsLeft: 0 });
   });

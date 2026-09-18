@@ -18,7 +18,7 @@ import { flatRaster } from './islandFixture.js';
 const DT = CONFIG.tick.simDtMs;
 const LIT_R = CONFIG.starShells.litRadius;
 /** Battleship slot index under the NINE-SLOT spawn (Story 8.5):
- *  [gun, speedBoost, broadside, starShells, empty x5] — the spawn seed fits
+ *  [gun, boost, broadside, starShells, empty x5] — the spawn seed fits
  *  `broadside` then `starShells` into the weapon row, so the flare is slot 3. */
 const SLOT_STAR = 3;
 
@@ -251,10 +251,10 @@ describe('star shells — denials', () => {
     // EVERY captain (amendment 23), so the subject is the boost slot itself.
     const w = bareWorld();
     const tb = place(w, 'tb', 'torpedoBoat', 0, 0);
-    expect(tb.loadout[SLOT_BOOST].equipmentId).toBe('speedBoost');
+    expect(tb.loadout[SLOT_BOOST].equipmentId).toBe('boost');
     w.submitInput('tb', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: SLOT_BOOST, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     w.step();
     expect(tb.boostUntil).toBe(0); // the click never reached the ability row
-    expect(tb.loadout[SLOT_BOOST].state).toEqual({ n: CONFIG.speedBoost.maxAmmo, reloadMsLeft: 0 });
+    expect(tb.loadout[SLOT_BOOST].state).toEqual({ n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 });
   });
 });

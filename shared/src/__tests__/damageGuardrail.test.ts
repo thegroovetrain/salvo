@@ -1,8 +1,10 @@
 // Balance guardrails (HULLCRACKER_NOTES "PROBLEMS SO FAR"): no single hit may
 // ever kill an undamaged PLAYER-PILOTED hull — extended to MAX-STACKED
 // catalog ladders (Story 2.8: every damage ladder, fully stacked to its copy
-// cap, stays under the lightest CLASS hull on the water) — and a torpedo must
-// always outrun every hull, drones included. The TTK & Objective Pip
+// cap, stays under the lightest CLASS hull on the water). THE TORPEDO OUTRUN
+// LAW IS GONE (Story 8.9 — see the speed describe at the bottom): FR7's "a
+// torpedo must always outrun every hull" was retired by Eric on 2026-09-11
+// (AR49), and what stands there now is a record of the current speeds. The TTK & Objective Pip
 // Rebalance (Eric ruling 2026-08-03) moved class hp onto the toughness ladder
 // (TB 70→125, ML 105→150, BS 150→175), then DOUBLED again in balance cycle 1
 // (TB 250, ML 300, BS 350) — which only widens every margin below.
@@ -32,6 +34,7 @@ import {
   DRONE_SIZE_IDS,
   LINE_IDS,
   SHIP_CLASS_IDS,
+  boostedKinematics,
   effectiveStats,
   type EffectiveStats,
   type LineId,
@@ -305,43 +308,43 @@ describe('star-shell tell guardrail', () => {
   });
 });
 
-describe('torpedo chase/dodge guardrail (classes AND drones)', () => {
-  it('a base torpedo outruns the fastest hull', () => {
+// THE OUTRUN LAW IS RETIRED (Story 8.9). FR7's "a torpedo must always outrun
+// every hull" stopped being a requirement on 2026-09-11 (Eric, epics.md AR49;
+// re-stated in epic-8 amendment 55 when the Shift boost went proportional).
+// What these pins record now are CURRENT FACTS, free to move when Story 8.13
+// authors the heavy torpedo's tiers or a hull is retuned — NOT a law a future
+// change must obey. THE SAFETY PROPERTY that replaced it is structural: own
+// ordnance never damages the own hull (Story 8.4, no friendly fire), so a firer
+// that re-catches its own fish takes nothing for it.
+describe('torpedo vs hull speeds — CURRENT FACTS, no longer a law (FR7 retired)', () => {
+  it('the base heavy torpedo (65) still outruns every BASE hull and drone — a current fact, not a requirement', () => {
     expect(CONFIG.torpedo.speed).toBeGreaterThan(maxHullSpeed);
-  });
-
-  it('a base torpedo outruns every ship class and every drone individually', () => {
     for (const speed of [...classSpeeds, ...droneSpeeds]) {
       expect(CONFIG.torpedo.speed).toBeGreaterThan(speed);
     }
   });
 
-  it('a base torpedo outruns a base-BOOSTED Torpedo Boat (45 + 10 = 55 < 65)', () => {
-    expect(CONFIG.torpedo.speed).toBeGreaterThan(
-      CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + CONFIG.speedBoost.speedBonus,
-    );
+  it('...and outruns every BASE hull under the Shift boost too (the fastest is the TB at 56.25)', () => {
+    for (const c of SHIP_CLASS_IDS) {
+      const boosted = boostedKinematics(CONFIG.shipClasses[c].kinematics, CONFIG.boost.factor, true);
+      expect(CONFIG.torpedo.speed, c).toBeGreaterThan(boosted.maxSpeed);
+    }
+    // 45/40/35 x 1.25 = 56.25 / 50 / 43.75 (epic-8 amendment 55).
+    const base = (c: 'torpedoBoat' | 'mineLayer' | 'battleship'): number =>
+      boostedKinematics(CONFIG.shipClasses[c].kinematics, CONFIG.boost.factor, true).maxSpeed;
+    expect([base('torpedoBoat'), base('mineLayer'), base('battleship')]).toEqual([56.25, 50, 43.75]);
   });
 
-  // RE-PINNED (Story 8.1, then Eric's 2026-09-15 ruling landed the base speed
-  // itself). CONFIG.torpedo.speed IS catalog v3's HEAVY TORPEDO Tier I speed
-  // (catalog-v3 R17: 65 u/s), so a max-SPEED-boosted Torpedo Boat now TIES the
-  // base fish exactly (65 = 65) instead of being outrun by it. Catalog-v3 note
-  // 19 (Eric 2026-09-11, epics.md AR49) explicitly accepts a boosted TB
-  // matching/outrunning torpedoes in v3, and no-friendly-fire is structural
-  // from Story 8.4 — own ordnance never damages own hull — so a hull that
-  // catches its own fish is not a self-damage hazard. This pin is the CURRENT
-  // fact; it moves again if Story 8.13 lands the heavy torpedo's own tiers
-  // II-V or R9's Shift-boost retune.
-  it('a max-SPEED boosted Torpedo Boat (65) TIES the 65 u/s heavy torpedo (catalog-v3 R17)', () => {
+  it('a SPEED-capped boosted Torpedo Boat (68.75) OUTRUNS the 65 u/s heavy torpedo — ALLOWED', () => {
+    // ALLOWED, and deliberately so: FR7's outrun law is retired (Eric
+    // 2026-09-11, AR49; epic-8 amendment 55), and no friendly fire (Story 8.4)
+    // is the safety property that makes catching your own fish harmless.
     const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.speed.cap).fill('speed'));
-    const maxAchievableHull = s.kinematics.maxSpeed + s.equipment.speedBoost.speedBonus;
     expect(s.kinematics.maxSpeed).toBe(55); // 45 + 2.5 x 4 (catalog-v3 R10)
-    expect(maxAchievableHull).toBe(65); // + the shipped flat +10 boost
+    const maxAchievableHull = boostedKinematics(s.kinematics, CONFIG.boost.factor, true).maxSpeed;
+    expect(maxAchievableHull).toBe(68.75); // 55 x 1.25 — the SPEED ladder is inside the bonus
     expect(s.equipment.heavyTorpedo.speed).toBe(65); // catalog-v3 R17 Tier I; no ladder authored yet
-    expect(maxAchievableHull).toBe(s.equipment.heavyTorpedo.speed);
-    // The BASE clauses above are untouched and still hold: a base fish outruns
-    // every hull and a base-boosted Torpedo Boat.
-    expect(Math.max(...droneSpeeds)).toBeLessThan(CONFIG.torpedo.speed);
+    expect(maxAchievableHull).toBeGreaterThan(s.equipment.heavyTorpedo.speed);
   });
 });
 

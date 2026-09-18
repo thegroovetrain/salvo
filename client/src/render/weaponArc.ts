@@ -15,7 +15,7 @@
 // declares its bow `sector` and — as of Story 2.8 (amendment 45) — the MINE and
 // (Story 7-5 wave 2) the RADAR BUOY declare their rear placement `sector`; the
 // BROADSIDE BARRAGE declares `twin-sector`, two mirrored beam sectors at
-// `heading ± 90°` each 60° wide; the speedBoost aims nothing (`none`). Callers
+// `heading ± 90°` each 60° wide; the boost aims nothing (`none`). Callers
 // derive the id from the own loadout (main.ts's slotIdsFor / shared loadoutFor).
 //
 // STORY 7-5 WAVE 2 RETIRED the `stern-drop` branch: the decoy buoy was that
@@ -64,7 +64,7 @@ export function fireArcKind(id: EquipmentId | null): FireArcKind {
   if (arc.kind === 'full') return 'gunLike'; // gun / starShells
   if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / mine + buoy rear arc
   if (arc.kind === 'twin-sector') return 'twin'; // broadside beams
-  return 'none'; // none (speedBoost)
+  return 'none'; // none (boost)
 }
 
 /**

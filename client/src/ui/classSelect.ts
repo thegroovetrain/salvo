@@ -49,22 +49,22 @@ interface LoadoutRow {
  * Long-form loadout rows — the two class specials only. Eric ruling
  * 2026-07-24: NO fantasy tagline and NO universal-GUN row on the cards (both
  * were mock-era content he rejected); the gun is a given on every hull, the
- * card sells what differs. Row labels are the slots' future keys Q/E (the
- * ruled Epic-2 mapping: Q/E = the two class-special slots).
+ * card sells what differs. Row labels are the keys the interim spawn seed
+ * (epic-8 amendment 21) fits each line to: Q/E = the first two WEAPON slots.
+ *
+ * Story 8.9 (Eric rulings 2026-09-18): the Torpedo Boat's `E: SPEED BOOST`
+ * row and the Mine Layer's `E: RADAR BUOY` row are DELETED — the boost is a
+ * universal `Shift` ability on every hull (amendment 54, not a class special)
+ * and the buoy has been unreachable since Story 8.5 (amendment 22). No Shift
+ * row is added: the card sells what differs, and the boost no longer does.
  */
 const LOADOUT: Record<ShipClassId, readonly LoadoutRow[]> = {
-  torpedoBoat: [
-    { key: 'Q', value: 'TORPEDO TUBES' },
-    { key: 'E', value: 'SPEED BOOST' },
-  ],
+  torpedoBoat: [{ key: 'Q', value: 'TORPEDO TUBES' }],
   battleship: [
     { key: 'Q', value: 'BROADSIDE BARRAGE' },
     { key: 'E', value: 'STAR SHELLS' },
   ],
-  mineLayer: [
-    { key: 'Q', value: 'PROXIMITY MINES' },
-    { key: 'E', value: 'RADAR BUOY' },
-  ],
+  mineLayer: [{ key: 'Q', value: 'PROXIMITY MINES' }],
 };
 
 /** Register label sitting to the LEFT of the footer swatch row. */

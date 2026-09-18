@@ -82,8 +82,8 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect((arc.offset + arc.halfArc) / (Math.PI / 180)).toBeCloseTo(150, 9); // far edge
   });
 
-  it('the speed boost aims nothing (none)', () => {
-    expect(arcFor('speedBoost')).toEqual({ kind: 'none' });
+  it('the Shift boost aims nothing (none)', () => {
+    expect(arcFor('boost')).toEqual({ kind: 'none' });
   });
 
   it('covers every EquipmentId (a new id cannot ship without an arc shape)', () => {
@@ -116,7 +116,7 @@ describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine/buoy rear arc
   });
 
   it('THROWS on any non-sector id (a CONFIG/arcs authoring error, loud at load)', () => {
-    for (const id of ['gun', 'broadside', 'starShells', 'speedBoost'] as const) {
+    for (const id of ['gun', 'broadside', 'starShells', 'boost'] as const) {
       expect(() => sectorArcFor(id)).toThrow(/must be a sector/);
     }
   });
@@ -132,7 +132,7 @@ describe('twinSectorArcFor — narrow-or-throw (the broadside beam accessor)', (
   });
 
   it('THROWS on every other id — including the plain SECTOR weapons', () => {
-    for (const id of ['gun', 'starShells', 'heavyTorpedo', 'navalMines', 'radarBuoy', 'speedBoost'] as const) {
+    for (const id of ['gun', 'starShells', 'heavyTorpedo', 'navalMines', 'radarBuoy', 'boost'] as const) {
       expect(() => twinSectorArcFor(id)).toThrow(/must be a twin-sector/);
     }
   });
