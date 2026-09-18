@@ -2,7 +2,7 @@
 title: 'Story 8.9: The Shift Boost, Universal'
 type: 'feature'
 created: '2026-09-18'
-status: 'in-review'
+status: 'done'
 baseline_revision: '9390103'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -83,11 +83,11 @@ warnings: [oversized]
 
 **Execution:**
 - [x] amendments 54–57 → `epic-8-context-amendments.md` + `epic-8-context.md` -- durable home first
-- [ ] `shared/` (constants, boost, loadout, stats, effects, arcs, catalog comment, index, tests) -- `speedBoost` gone, `CONFIG.boost` live, proportional hook, PV 54, outrun pins retired -- `npm test -w shared && npm run build -w shared`
-- [ ] `server/` (equipment/boost + index, world, ai renames, batchsim overrides invariant, tests) -- `npm test -w server`; run `weaponsSmoke.mjs` against an own server (`HC_DEV_OPTIONS=1`, scratch port), kill own PID
-- [ ] `client/` (keyboard comment, prediction, main, helmGlobe, wake, equipmentInfo, tests) -- `npm test -w client`; `grep -rn speedBoost shared/src server/src client/src server/scripts` returns nothing
-- [ ] docs + version + trackers + ledger -- one-line tracker stamps; EXPERIENCE.md minimal
-- [ ] `npm run check` green; own server + client boot on scratch ports; PIDs killed
+- [x] `shared/` (constants, boost, loadout, stats, effects, arcs, catalog comment, index, tests) -- `speedBoost` gone, `CONFIG.boost` live, proportional hook, PV 54, outrun pins retired -- `npm test -w shared && npm run build -w shared`
+- [x] `server/` (equipment/boost + index, world, ai renames, batchsim overrides invariant, tests) -- `npm test -w server`; run `weaponsSmoke.mjs` against an own server (`HC_DEV_OPTIONS=1`, scratch port), kill own PID
+- [x] `client/` (keyboard comment, prediction, main, helmGlobe, wake, equipmentInfo, tests) -- `npm test -w client`; `grep -rn speedBoost shared/src server/src client/src server/scripts` returns nothing
+- [x] docs + version + trackers + ledger -- one-line tracker stamps; EXPERIENCE.md minimal
+- [x] `npm run check` green; own server + client boot on scratch ports; PIDs killed
 
 **Acceptance Criteria:**
 - Given any captain hull at 0:00, when Shift is tapped, then slot 1 (`boost`) activates for 10 s, the cap rises to `maxSpeed × 1.25` on both sides (prediction matches the server), and the slot shows ACTIVE then a 25 s wipe.
@@ -117,6 +117,22 @@ warnings: [oversized]
   - `[low]` `[patch]` P5 — the PV-54 changelog said the client reads `CONFIG.boost` off the welcome snapshot; the client reads its bundled CONFIG (Blind Hunter, CONFIRMED). Sentence corrected; the bump itself stands.
   - deferred (ledger): `EQUIPMENT_STAT_FIELDS.boost` still whitelists `durationMs`/`maxAmmo` as card-addressable paths (a tooltip consumer makes narrowing a design call); an observer's contact wake ring is provisioned off the envelope max (45) and now holds ~65 % of a boosted capped TB's tail.
   - rejected: the class-card ruling "has no durable home" (amendment 58 landed in the docs wave the reviewer could not see); ledger entries "still open" and EXPERIENCE.md "still says 20 s" (same docs wave); `maxDots` budget off the base envelope (a documented backstop, practically unreachable); archived `docs/` loadout prose (archived by rule); the `torpedoSelfHit` 9-rung stress pin (cosmetic).
+
+## Auto Run Result
+
+**Status: done** (cycle 144, 0.18.9, PROTOCOL_VERSION 53 → 54, epic-8 amendments 54–58).
+
+**Implemented:** the Shift boost is one universal ability in slot 1 on every captain hull (`boost` id; the legacy `speedBoost` equipment, its id and `CONFIG.speedBoost` deleted). `CONFIG.boost { factor 0.25, durationMs 10000, maxAmmo 1, reloadMs 25000 }` (Eric: R9 as written except a 25 s reload, amendment 54). The bonus is `factor × the POST-FOLD forward maxSpeed`, computed inside the one shared `boostedKinematics(kin, factor, active)` on the server step, the client predictor, the helm globe and both sides' wake provisioning, never folded into `EffectiveStats.kinematics` (amendment 55: capped Torpedo Boat 68.75, Mine Layer 62.5, Battleship 56.25). The reload rides the one `cooldownScale` multiply (18.75 s at a maxed RELOAD ladder). Shift stays a keydown tap on both codes, auto-repeat dropped, suspended under the refit window (amendment 56); Shift+Tab is undesigned by ruling (amendment 57), the keyboard comment is now the code-side input-capture rule. The batch-sim override validator enforces `boost.reloadMs × RELOAD-cap scale ≥ boost.durationMs` and `boost.maxAmmo === 1` on the finished CONFIG inside the all-or-nothing apply. FR7's outrun-law pins are retired for no-friendly-fire (own ordnance never hurts the owner). Bot tactic/appetite keys renamed with no retune. `weaponsSmoke.mjs` header re-derived and all four phases proven live. Class-select cards drop the stale `E: SPEED BOOST` and `E: RADAR BUOY` rows (amendment 58).
+
+**Files:** shared (constants, boost, loadout, stats, effects, arcs, catalog, sinking, types, index, 11 tests), server (equipment/boost + index, world, ai equipment/profiles/spending/tactics/utility, batchsim overrides + args/main + batchSim.mjs, weaponsSmoke, 20 tests incl. new end-to-end boost describe and two invariant pins, golden snapshot moved by exactly the amendment-54 numbers), client (prediction, main, helmGlobe, wake, config, equipmentInfo, equipmentIcons, boonCopy, keyboard, classSelect, five prose renames, 16 tests), docs (VERSION/package.json/lock 0.18.9, CHANGELOG, both trackers, deferred-work, EXPERIENCE.md, epic-8 context + amendments 54–58).
+
+**Review:** 5 patches applied (P1 invariant through the real fold, P2 `maxAmmo` pin, P3 smoke header, P4 `--set` claim, P5 PV changelog sentence), 2 deferred to the ledger, 6 rejected. Blind Hunter, Edge Case Hunter and Codex `gpt-5.6-sol`: all build-on-it; Codex found no defect. `followup_review_recommended: false` — five low-consequence localized fixes, the two behavioural ones harness-only and fail-first pinned.
+
+**Verification:** `npm run check` exit 0 twice (before and after the patches): lint 0 errors (3 pre-existing warnings), tsc ×3 clean, tests 911 shared / 1944 server / 3547 client, hooks 266. `weaponsSmoke.mjs` against an own server on :2699 (seed 530969477): torpedo kill (6 × 50 dmg), no torpedo blips, six mines live at once, ambush 250 → 195 with a boom; own PID killed. Vite booted on :5299 (200), PID killed. No browser look in-cycle — Eric's staging pass is the acceptance gate for the feel of the 25 % / 10 s / 25 s boost.
+
+**Deviation of record:** the I/O-matrix row "`--set boost.reloadMs=1` → the invariant's `TunableError`" is met by a different `TunableError`: `boost.*` is `--tune`-only and `--set` is refused at the family gate before any write (pinned). Safer than specified; the intent-contract row is left as written.
+
+**Residual risks:** the boost's feel at +25 % / 10 s / 25 s has no playtest yet (numbers are Eric's, still `[DRAFT]` for the harness); BS/ML bots now boost on disengage with a bigger burst than the sims were tuned on (ledgered); the boost/slow composition order is no longer observable in the sim (ledgered); `EQUIPMENT_STAT_FIELDS.boost` still whitelists `durationMs`/`maxAmmo` (ledgered); an observer's contact wake ring holds ~65 % of a boosted capped TB's tail (ledgered).
 
 ## Design Notes
 
