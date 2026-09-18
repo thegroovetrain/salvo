@@ -74,7 +74,7 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  */
 export const EQUIPMENT_STAT_FIELDS = {
   gun: ['reloadMs', 'maxAmmo', 'damage', 'contactDamage', 'burstRadius', 'barrels'],
-  boost: ['speedBonus', 'durationMs', 'maxAmmo', 'reloadMs'],
+  boost: ['durationMs', 'maxAmmo', 'reloadMs'],
   lightTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
   heavyTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
   supercavTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
@@ -86,7 +86,6 @@ export const EQUIPMENT_STAT_FIELDS = {
   monitor: ['reloadMs', 'maxAmmo', 'damage'],
   broadside: ['reloadMs', 'maxAmmo', 'damage', 'burstRadius', 'turrets', 'spreadRung'],
   starShells: ['reloadMs', 'maxAmmo', 'litRadius', 'litDurationMs'],
-  speedBoost: ['speedBonus', 'durationMs', 'maxAmmo', 'reloadMs'],
   radarBuoy: ['reloadMs', 'maxAmmo', 'durationMs', 'radarRange', 'sweepRpm', 'hp', 'gunDamage', 'gunReloadMs'],
 } as const satisfies Record<EquipmentId, readonly string[]>;
 

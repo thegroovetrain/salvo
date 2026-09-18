@@ -63,20 +63,27 @@ describe('slowedKinematics — active scales BOTH speed caps', () => {
 });
 
 describe('composition order — boosted → slowed (the pinned fold order)', () => {
-  it('slow applies OVER the boosted cap: (max + bonus) × factor', () => {
+  it('slow applies OVER the boosted cap: (max + max × factor) × slowFactor', () => {
     const kin = tbKinematics();
-    const bonus = CONFIG.speedBoost.speedBonus;
-    const folded = slowedKinematics(boostedKinematics(kin, bonus, true), FACTOR, true);
-    expect(folded.maxSpeed).toBeCloseTo((kin.maxSpeed + bonus) * FACTOR, 9);
+    // Story 8.9: the boost is PROPORTIONAL — `CONFIG.boost.factor` of the
+    // post-fold max, not a flat u/s (epic-8 amendment 55).
+    const f = CONFIG.boost.factor;
+    const folded = slowedKinematics(boostedKinematics(kin, f, true), FACTOR, true);
+    expect(folded.maxSpeed).toBeCloseTo((kin.maxSpeed + kin.maxSpeed * f) * FACTOR, 9);
     // The reverse cap never saw the boost but IS slowed.
     expect(folded.reverseSpeed).toBeCloseTo(kin.reverseSpeed * FACTOR, 9);
-    // The order is load-bearing: slow-then-boost would differ.
-    const wrongOrder = boostedKinematics(slowedKinematics(kin, FACTOR, true), bonus, true);
-    expect(wrongOrder.maxSpeed).not.toBeCloseTo(folded.maxSpeed, 9);
+    // THE TWO FOLDS NOW COMMUTE (Story 8.9): a proportional boost and a
+    // proportional slow are both multiplications, so slow-then-boost lands on
+    // the same number — it did NOT while the boost was a flat +10 u/s. The
+    // pinned order is still the contract (server and predictor must execute
+    // the SAME sequence, and a future non-proportional fold in the chain would
+    // make it load-bearing again); it is simply no longer observable here.
+    const flipped = boostedKinematics(slowedKinematics(kin, FACTOR, true), f, true);
+    expect(flipped.maxSpeed).toBeCloseTo(folded.maxSpeed, 9);
   });
 
   it('both inactive: the whole fold is the input reference (allocation-free tick)', () => {
     const kin = tbKinematics();
-    expect(slowedKinematics(boostedKinematics(kin, CONFIG.speedBoost.speedBonus, false), FACTOR, false)).toBe(kin);
+    expect(slowedKinematics(boostedKinematics(kin, CONFIG.boost.factor, false), FACTOR, false)).toBe(kin);
   });
 });

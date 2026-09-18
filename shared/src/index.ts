@@ -3,6 +3,20 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  54 (Story 8.9): THE SHIFT BOOST, UNIVERSAL (Eric rulings 2026-09-18, epic-8
+ *  amendments 54–57). The legacy `speedBoost` equipment id is GONE and the v3
+ *  `boost` id (slot 1 on every captain hull) IS the boost — the `EquipmentId`
+ *  set and the total equipment stat record both change shape. With it:
+ *  `CONFIG.speedBoost` (+10 u/s flat, 6 s, 18 s) is deleted and a new
+ *  `CONFIG.boost` ({ factor 0.25, durationMs 10000, maxAmmo 1, reloadMs 25000 })
+ *  rides the welcome config snapshot, where the client READS it — its
+ *  prediction, its helm globe and its wake ring provisioning all derive the
+ *  boosted cap as `maxSpeed × 1.25` — so a stale client would predict the
+ *  wrong cap and desync on every boost. The bonus is PROPORTIONAL to the
+ *  post-fold max speed (the SPEED ladder is inside it), so `EffectiveBoost`
+ *  loses its flat `speedBonus` field. No wire SHAPE changes:
+ *  `OwnShip.boostUntil` is byte-identical and the `ammo` array stays nine long;
+ *  the perception exception count stays at SIX.
  *  53 (Story 8.8): THE HEAL SENTINEL LEAVES `SpendMsg`; HULL REPAIR BECOMES A
  *  LIVE CATALOG LINE. `SpendMsg.choice` is an offer slot index and nothing
  *  else — the reserved -1 DAMAGE CONTROL sentinel (the exported constant is
@@ -599,7 +613,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 53;
+export const PROTOCOL_VERSION = 54;
 
 // Tunables
 export * from './constants.js';

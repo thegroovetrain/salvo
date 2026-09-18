@@ -11,9 +11,10 @@
 // (`SPAWN_SEED` in sim/catalog.ts) until Story 8.10's level-zero offer
 // replaces that seed, and they land in the weapon row like any other card.
 //
-// Slot 1 holds the LEGACY `speedBoost` module on every captain — the boost
-// stopped being a Torpedo Boat privilege here (amendment 23) at its shipped
-// numbers; Story 8.9 renames the id to the universal `boost`.
+// Slot 1 holds the `boost` module on every captain — THE SHIFT BOOST, a
+// universal ability no card can address (Story 8.9, epic-8 amendments 54–55).
+// The boost stopped being a Torpedo Boat privilege in Story 8.5 (amendment 23);
+// 8.9 deleted the legacy flat-bonus id it wore until then.
 //
 // PvE FLEET HULLS FIT THE GUN AND NOTHING ELSE (epic-5 amendment 34, epic-8
 // amendment 24): Eric's ruling is "each has a gun to defend itself", singular.
@@ -35,11 +36,11 @@ import type { EffectiveStats } from './stats.js';
  * light/supercavitating torpedoes and the captive mine as NEW modules beside
  * them).
  *
- * `speedBoost` and `radarBuoy` survive as LEGACY ids with live modules and no
- * card behind them: Story 8.9 turns the boost into the universal Shift ability
- * (which is what the v3 `boost` id is reserved for) and Story 8.15 deletes the
- * radar buoy in favour of the DECOY BUOY consumable (catalog-v3 R1). Until
- * then their rows keep their shipped numbers so the fit is unchanged.
+ * `radarBuoy` is the ONE legacy id left with a live module and no card behind
+ * it: Story 8.15 deletes it in favour of the DECOY BUOY consumable (catalog-v3
+ * R1), and until then its row keeps its shipped numbers so the fit is
+ * unchanged. The legacy flat-bonus boost id is GONE (Story 8.9): the v3
+ * `boost` id IS the Shift boost, universal in slot 1 on every captain hull.
  */
 export type EquipmentId =
   | 'gun'
@@ -55,7 +56,6 @@ export type EquipmentId =
   | 'monitor'
   | 'broadside'
   | 'starShells'
-  | 'speedBoost'
   | 'radarBuoy';
 
 /**
@@ -68,8 +68,8 @@ export type EquipmentId =
  */
 export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   gun: true,
-  // Story 8.9 builds the Shift boost; the row exists so the equipment record
-  // stays TOTAL over EquipmentId. Not fittable, not aimed.
+  // THE SHIFT BOOST (Story 8.9) — universal ability, slot 1 on every captain
+  // hull: an instant activation off the Shift edge, aimed at nothing.
   boost: false,
   lightTorpedo: true,
   // Story 2.8 (amendment 45) and the v3 rename: the mine is a click-aimed
@@ -89,7 +89,6 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // denied out-of-arc.
   broadside: true,
   starShells: true, // Story 1.7: prime-then-click skillshot (spawns a lit zone at burst)
-  speedBoost: false, // legacy instant-activation ability (Story 8.9 replaces it)
   // Story 7-5 wave 2 (R2.7): the RADAR BUOY is CLICK-PLACED like the mine — it
   // shares the mine's rear sector and placeRange — so it is a WEAPON.
   radarBuoy: true,
@@ -239,7 +238,7 @@ export function loadoutFor(stats: EffectiveStats, fleet = false): LoadoutSlot[] 
     state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 },
   });
   const out: LoadoutSlot[] = [fitted('gun')];
-  if (!fleet) out.push(fitted('speedBoost'));
+  if (!fleet) out.push(fitted('boost'));
   while (out.length < SLOT_COUNT) out.push({ equipmentId: null, state: null });
   return out;
 }

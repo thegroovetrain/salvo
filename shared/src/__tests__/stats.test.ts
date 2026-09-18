@@ -88,10 +88,16 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           burstRadius: CONFIG.gun.burstRadius,
           barrels: 1,
         },
-        // The v3 SHIFT BOOST placeholder (Story 8.9): 10 s / 20 s from
-        // catalog-v3 §4 `[D]`, a zero speed bonus because the sheet's "+25 % of
-        // hull max speed" is proportional and this field is flat u/s.
-        boost: { tier: 1, reloadMs: 20000, maxAmmo: 0, durationMs: 10000, speedBonus: 0 },
+        // THE SHIFT BOOST (Story 8.9, epic-8 amendments 54–55): live equipment
+        // in slot 1 on every captain hull, `CONFIG.boost` verbatim. NO speed
+        // field — the bonus is `CONFIG.boost.factor × kinematics.maxSpeed`,
+        // layered per tick by sim/boost.ts and never folded in here.
+        boost: {
+          tier: 1,
+          reloadMs: CONFIG.boost.reloadMs,
+          maxAmmo: CONFIG.boost.maxAmmo,
+          durationMs: CONFIG.boost.durationMs,
+        },
         lightTorpedo: { tier: 1, reloadMs: 25000, maxAmmo: 1, speed: 45, damage: 40, homing: false },
         // THE LEGACY RENAME — byte-identical to the shipped `torpedo` block.
         heavyTorpedo: {
@@ -152,13 +158,6 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           litDurationMs: CONFIG.starShells.litDurationMs,
           phosphor: false,
           dazzle: false,
-        },
-        speedBoost: {
-          tier: 1,
-          reloadMs: CONFIG.speedBoost.reloadMs,
-          maxAmmo: CONFIG.speedBoost.maxAmmo,
-          durationMs: CONFIG.speedBoost.durationMs,
-          speedBonus: CONFIG.speedBoost.speedBonus,
         },
         radarBuoy: {
           tier: 1,
@@ -262,9 +261,10 @@ describe('effectiveStats — the five universal ladders (catalog-v3 §4)', () =>
     for (const id of EQUIPMENT_IDS) {
       expect(capped.equipment[id].reloadMs, id).toBeCloseTo(base.equipment[id].reloadMs * 0.75, 9);
     }
-    // R40: the Shift boost cooldown is in scope — 20 s -> 15 s at the cap
-    // (catalog-v3 §4's own arithmetic).
-    expect(capped.equipment.boost.reloadMs).toBe(15000);
+    // R40: the Shift boost cooldown is in scope — 25 s -> 18.75 s at the cap.
+    // Story 8.9 (epic-8 amendment 54) authored the reload at 25 s, superseding
+    // the 20 s / 15 s pair catalog-v3 §4 quotes.
+    expect(capped.equipment.boost.reloadMs).toBe(18750);
     expect(capped.equipment.gun.reloadMs).toBe(3750);
   });
 

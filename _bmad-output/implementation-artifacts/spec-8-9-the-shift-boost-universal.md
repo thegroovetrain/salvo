@@ -2,8 +2,8 @@
 title: 'Story 8.9: The Shift Boost, Universal'
 type: 'feature'
 created: '2026-09-18'
-status: 'ready-for-dev'
-baseline_revision: '290c97f'
+status: 'in-progress'
+baseline_revision: '9390103'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
