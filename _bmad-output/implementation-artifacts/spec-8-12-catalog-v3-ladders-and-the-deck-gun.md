@@ -2,9 +2,10 @@
 title: 'Story 8.12: Catalog v3 — Ladders and the Deck Gun'
 type: 'feature'
 created: '2026-09-18'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: 'c78b0b5'
+final_revision: '8794b34'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -97,6 +98,22 @@ warnings: [oversized]
   - `[low]` `[patch]` record corrected: the drawn numerals were already clamped to five, only the tier-step LABEL string carried `VI` (CHANGELOG, amendment 73)
   - `[low]` `[patch]` ledger: gds tracker's pre-existing YAML escape defect (cycle 131) and the gun tooltip's 4 px fit slack deferred with evidence
 - rejected: spec status `in-review` vs trackers `done` (finalize sets `done`); `interactionLine` positional-arg ergonomics (type-checked); the `NO WORDS` pin now admitting `I` (counts still pinned)
+
+## Auto Run Result
+
+Status: done (cycle 147, 0.18.12; PROTOCOL_VERSION 55 unchanged; epic-8 amendments 70–73)
+
+**Summary.** Story 8.12 landed as a verify-and-pin cycle: every numeric clause of its AC was already live and pinned from Story 8.1 (amendment 73). Eric's three rulings (AskUserQuestion, 2026-09-18): the HUD gun square and its tooltip SHOW the deck gun's tier (70); `Turning` / `Gun damage` are ratified labels (71); the `cooldownScale` floor literal stays 0.1, 0.75 being the reachable floor by construction (72). Code: the gun square and slot-tooltip header read `stats.equipment.gun.tier` off the shared fold (`I` at spawn → `V` at four cards, clamped); the refit card's tier-step label is cap-clamped to the five-rung ramp so `VI` is unwritable; no number, stub flag, CONFIG block or wire shape moved.
+
+**Files.** `client/src/ui/boonCopy.ts` (ceiling clamp, finite guard, `RAMP_RUNGS`); `client/src/render/equipmentInfo.ts` (`slotTier`, `tierSuffix` gun guard, comment corrections); `client/src/render/hotbar.ts` (square reads `slotTier`); `client/src/render/slotTooltip.ts` (stats threaded to `interactionLine`); client tests `boonCopy` / `hotbar` / `slotTooltip` (+8 tests, 3583 → 3591); `shared/src/index.ts` (PV 55 NO-BUMP header entry); `VERSION` / `package.json` / lock 0.18.12; `CHANGELOG.md`; both trackers; `deferred-work.md` (`:1455` barrel spacing RESOLVED-AS-RULED, `:1992` labels RESOLVED, 8.12 section + two review-gate defers); amendments 70–73 in both homes.
+
+**Review.** Blind Hunter + Edge Case Hunter (Fable) + Codex `gpt-5.6-sol`: all build-on-it, no confirmed runtime defect. 6 low patches applied (fail-first proven where a guard changed), 2 deferred (gds tracker's pre-existing YAML escape defect from cycle 131; the gun tooltip's 4 px fit slack at the 1280×614 floor), 3 rejected.
+
+**Follow-up review recommended:** false — six localized low-consequence fixes, none touching behaviour reachable in play.
+
+**Verification.** `npm run check` exit 0 twice (after implementation: shared 936 / server 2027 / client 3588 / hooks 266; after patches: client 3591). Fail-first proofs: clamp, gun-square routing, tooltip thread-through, no-stats gun guard, ramp clamp. No server booted (client-only change).
+
+**Residual risk.** The gun slot's tooltip header now wraps to two lines on every hull (`WEAPON · ALWAYS SELECTED · TIER n`), the same wrap weapons at tier II+ already use; fit is measured, not assumed, with 4 px slack at the floor. Staging QA: gun square shows `I` at spawn and climbs with DECK GUN cards; a DECK GUN card reads `I → II`.
 
 ## Design Notes
 
