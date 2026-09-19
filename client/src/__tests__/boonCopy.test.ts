@@ -324,6 +324,49 @@ describe('cardTierLabel — the step, not the position', () => {
     expect(cardTierSteps(CATALOG.heavyTorpedo, 2)).toEqual({ cur: 2, next: 3 });
     expect(cardTierSteps(CATALOG.hullRepair, 0)).toBeNull();
   });
+
+  // STORY 8.12 — THE CEILING. The ramp is five rungs (UX-DR51) and the caps are
+  // authored to land on it, so the top of a ladder must read as the bare rung it
+  // is standing on: there is no sixth rung to sell. A base-tier line's ceiling is
+  // `cap + 1` (the hull already sails at I and every card steps above it); every
+  // other line's is the cap itself.
+  it('stops at the TOP RUNG — a card at the cap sells no step', () => {
+    expect(cardTierLabel(CATALOG.armor, 4)).toBe('V');
+    expect(cardTierLabel(CATALOG.speed, 4)).toBe('V');
+    expect(cardTierLabel(CATALOG.turning, 4)).toBe('V');
+    expect(cardTierLabel(CATALOG.deckGun, 4)).toBe('V');
+    expect(cardTierLabel(CATALOG.radarSweep, 5)).toBe('V');
+    // A ONE-RUNG ladder is at its ceiling the moment it is held: the TURRET is
+    // fitted once and has nowhere to climb.
+    expect(cardTierLabel(CATALOG.deckGunTurret, 1)).toBe('I');
+    expect(cardTierSteps(CATALOG.armor, 4)).toEqual({ cur: 5, next: null });
+    expect(cardTierSteps(CATALOG.radarSweep, 5)).toEqual({ cur: 5, next: null });
+  });
+
+  it('never prints a SIXTH rung — on any ladder, at any count the wire can carry', () => {
+    // Property-style: walk every line that has a ladder at all, from empty to
+    // three copies past its cap (an over-stack the server should never grant),
+    // and assert no label ever reaches VI — neither side of the arrow.
+    for (const line of Object.values(CATALOG)) {
+      for (let held = 0; held <= line.cap + 3; held += 1) {
+        const label = cardTierLabel(line, held);
+        if (label === null) continue;
+        expect(label, `${line.id} @ ${held}`).not.toContain('VI');
+        const step = cardTierSteps(line, held)!;
+        expect(step.cur, `${line.id} @ ${held}`).toBeLessThanOrEqual(5);
+        expect(step.next ?? 0, `${line.id} @ ${held}`).toBeLessThanOrEqual(5);
+      }
+    }
+  });
+
+  it('moves NOTHING below the ceiling — every step is what it was', () => {
+    expect(cardTierLabel(CATALOG.armor, 3)).toBe('IV → V');
+    expect(cardTierLabel(CATALOG.armor, 2)).toBe('III → IV');
+    expect(cardTierLabel(CATALOG.radarSweep, 4)).toBe('IV → V');
+    expect(cardTierLabel(CATALOG.heavyTorpedo, 4)).toBe('IV → V');
+    expect(cardTierSteps(CATALOG.armor, 2)).toEqual({ cur: 3, next: 4 });
+    expect(cardTierSteps(CATALOG.deckGunTurret, 0)).toEqual({ cur: 1, next: null });
+  });
 });
 
 describe('the fitted toast', () => {

@@ -131,6 +131,13 @@ export function equipmentDescription(stats: EffectiveStats, id: EquipmentId): st
  *     the word behind the bar's bottom-right numeral. `cards` is the own fitted
  *     list; without it (a caller with no build) the suffix is simply absent
  *     rather than a fabricated Tier I.
+ *
+ *     STORY 8.12 (epic-8 amendment 70) puts the DECK GUN on that same line.
+ *     The deck gun is a BASE-TIER line: a hull sails with it already fitted, so
+ *     TIER I is the truth at spawn, not a fabrication — and the number is not
+ *     ours to invent, it is `stats.equipment.gun.tier`, the server's own fold
+ *     of `1 + DECK GUN copies` (`slotTier`). A caller with no stats prints no
+ *     suffix, because the fold is the only place that number lives.
  *   • a BELT slot carries the consumable's ACTIVATION SHAPE and its STOCK —
  *     `CONSUMABLE · 1 · KEY FIRES · ×2`, or `KEY PRIMES · CLICK FIRES` for the
  *     click-placed ones (`CONSUMABLE_IS_WEAPON`). The shape is the thing a
@@ -141,8 +148,9 @@ export function interactionLine(
   id: SlotItemId,
   cards: readonly string[] = [],
   stock = 0,
+  stats?: EffectiveStats,
 ): string {
-  if (slot === SLOT_GUN) return 'WEAPON · ALWAYS SELECTED';
+  if (slot === SLOT_GUN) return `WEAPON · ALWAYS SELECTED${gunTierSuffix(id, cards, stats)}`;
   const key = SLOT_KEY_GLYPHS[slot] ?? '';
   if (isConsumableId(id)) return consumableLine(id, key, stock);
   return EQUIPMENT_IS_WEAPON[id]
@@ -150,14 +158,21 @@ export function interactionLine(
     : `ABILITY · ${key} · ACTIVATES`;
 }
 
-/** ` · TIER n` for a weapon whose LINE this build has climbed, '' otherwise —
- *  the permanent deck gun has no equipment line, and an unfitted-but-somehow-
- *  present weapon reads 0, which prints nothing rather than a fake Tier I. */
-function tierSuffix(id: EquipmentId, cards: readonly string[]): string {
-  const lineId = lineForEquipment(id);
-  if (lineId === null) return '';
-  const tier = lineTier(cards, lineId);
+/** ` · TIER n` for a slot standing on a rung, '' otherwise — an unfitted-but-
+ *  somehow-present weapon reads 0, which prints nothing rather than a fake
+ *  Tier I. With `stats` the number is `slotTier`'s (so the deck gun reads its
+ *  own fold); without them only a line-keyed weapon can answer. */
+function tierSuffix(id: EquipmentId, cards: readonly string[], stats?: EffectiveStats): string {
+  const tier = stats === undefined ? lineTier(cards, lineForEquipment(id) ?? id) : slotTier(stats, cards, id);
   return tier > 0 ? ` · TIER ${TIER_WORDS[Math.min(tier, TIER_WORDS.length) - 1]}` : '';
+}
+
+/** The GUN slot's suffix. The deck gun's rung lives ONLY in the fold, so a
+ *  caller without stats — or a belt id handed to the top slot, which cannot
+ *  happen — prints nothing rather than guessing from the card list. */
+function gunTierSuffix(id: SlotItemId, cards: readonly string[], stats?: EffectiveStats): string {
+  if (stats === undefined || isConsumableId(id)) return '';
+  return tierSuffix(id, cards, stats);
 }
 
 /** The belt's whole shape in one line (ruling 13). */
@@ -251,12 +266,13 @@ export function isShipwideCard(id: string): boolean {
  * Pure: the TIER a fitted catalog line is standing at — how many copies of it
  * the build holds, capped by the line's own cap.
  *
- * THE HUD BAR'S bottom-right numeral (Story 8.6, ruling 4). A slot reads its own
- * EQUIPMENT id as a line id, which is exactly right for catalog v3: an equipment
- * line is keyed by the weapon it fits, so `lineTier(cards, 'heavyTorpedo')` is
- * "how far up the torpedo's ladder this hull has climbed". The permanent deck
- * gun has no equipment line to climb, so it reads 0 and prints no numeral —
- * honest rather than a fabricated tier I.
+ * THE HUD BAR'S bottom-right numeral (Story 8.6, ruling 4) for every slot but
+ * the gun. A slot reads its own EQUIPMENT id as a line id, which is exactly
+ * right for catalog v3: an equipment line is keyed by the weapon it fits, so
+ * `lineTier(cards, 'heavyTorpedo')` is "how far up the torpedo's ladder this
+ * hull has climbed". The permanent deck gun is NOT one of these — it climbs the
+ * slotless DECK GUN ladder, whose rung is `1 + copies`, so `slotTier` answers
+ * for it off the fold rather than off any lookup here.
  *
  * CAPPED, not raw: the ramp is five rungs and the caps are the catalog's, so a
  * duplicate that the server should never have granted cannot paint a sixth
@@ -266,6 +282,34 @@ export function lineTier(cards: readonly string[], lineId: string): number {
   const line = (CATALOG as Record<string, CatalogLine | undefined>)[lineId];
   if (line === undefined) return 0;
   return Math.min(boonStackCount(cards, lineId), line.cap);
+}
+
+/** The permanent deck gun's equipment id — the one row `slotTier` reads off the
+ *  fold instead of off a catalog line. */
+const GUN_EQUIPMENT_ID: EquipmentId = 'gun';
+
+/**
+ * Pure: the TIER A SQUARE PRINTS — the one number the bar's numeral and the
+ * slot tooltip's ` · TIER n` both read (Story 8.12, epic-8 amendment 70).
+ *
+ * THE DECK GUN IS A BASE-TIER LINE. A hull sails with it fitted, so tier I is
+ * what it HAS at spawn and the square owes the player that numeral — the old
+ * silence was the honest reading of a slot with no line, not of this one. The
+ * rung is `stats.equipment.gun.tier`, which `applyLineTier` wrote as
+ * `1 + DECK GUN copies`: the SAME number the reload step is priced off, so the
+ * bar cannot drift from the sim. Re-deriving `1 + copies` here would be a
+ * second copy of the rule and the place a drift would start.
+ *
+ * Clamped to the ramp's five words: the fold already caps the copies, and this
+ * is the fail-closed second stop, so nothing can paint a sixth rung.
+ *
+ * Every other id is `lineTier` exactly as the bar has always computed it —
+ * keyed by the line that fits the equipment, which for catalog v3 is the id
+ * itself.
+ */
+export function slotTier(stats: EffectiveStats, cards: readonly string[], id: EquipmentId): number {
+  if (id === GUN_EQUIPMENT_ID) return Math.min(stats.equipment.gun.tier, TIER_WORDS.length);
+  return lineTier(cards, lineForEquipment(id) ?? id);
 }
 
 /**

@@ -487,9 +487,26 @@ export interface CardTierStep {
 export function cardTierSteps(line: CatalogLine, copiesHeld: number): CardTierStep | null {
   if (line.kind === 'consumable' || line.kind === 'addon') return null;
   const k = Math.max(0, Math.trunc(copiesHeld));
-  if (BASE_TIER_LINES.has(line.id)) return { cur: k + 1, next: k + 2 };
-  if (k === 0) return { cur: 1, next: null };
-  return { cur: k, next: k + 1 };
+  const base = BASE_TIER_LINES.has(line.id);
+  const ceiling = tierCeiling(line, base);
+  const cur = Math.min(base ? k + 1 : Math.max(1, k), ceiling);
+  if (!base && k === 0) return { cur, next: null };
+  return { cur, next: cur < ceiling ? cur + 1 : null };
+}
+
+/**
+ * THE TOP RUNG a line's numerals may ever print (Story 8.12). The ramp is FIVE
+ * rungs and no more (UX-DR51), and the caps are authored to land on it: a
+ * base-tier line's ceiling is `cap + 1`, because the hull already sails at rung
+ * I and every card is a step above it, while every other line's ceiling is the
+ * cap itself, its first copy BEING rung I.
+ *
+ * At the ceiling the card prints the bare numeral — there is no next rung to
+ * sell, so `V → VI` is not merely unreachable in play, it is unwritable. Below
+ * the ceiling nothing moves: every label is what it was before this story.
+ */
+function tierCeiling(line: CatalogLine, base: boolean): number {
+  return base ? line.cap + 1 : line.cap;
 }
 
 /** Pure: those numerals as the card prints them — `III → IV`, or `I` alone on a

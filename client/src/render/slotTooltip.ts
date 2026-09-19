@@ -202,7 +202,7 @@ export function tooltipModel(
   const info = equipmentInfo(stats, id);
   const full: TooltipModel = {
     name: info.name.toUpperCase(),
-    interaction: interactionLine(slot, id, cards),
+    interaction: interactionLine(slot, id, cards, 0, stats),
     description: info.description,
     boons: boonRows(id, cards, stats),
   };

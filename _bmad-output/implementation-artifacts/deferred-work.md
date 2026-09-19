@@ -1451,7 +1451,7 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: `server/src/game/world.ts` `scatterJamFakes` call site; `shared/src/constants.ts:1389` `jamFakes: 10`. Story 7-5 wave 2 review gate.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — design question, not a defect; measured and safe either way
+  status: RESOLVED-AS-RULED 2026-09-18 (Story 8.12, cycle 147) — the 8.12 AC carries Eric's 2026-09-11 ruling "kept as shipped": BARREL is +1 parallel barrel at 12u, a damage upgrade that forgives aim error; the spacing does not change.
   summary: `barrelSpacingU` 12u IS SMALLER THAN THE 15u BURST RADIUS, SO BARREL IS A DAMAGE MULTIPLIER RATHER THAN A PATTERN. The three burst circles always overlap, so any hull covering the clicked point is inside all three and a maxed 3-barrel click is a single 45 hp hit that forgives ~10–15u of aim error. Measured, not inferred: `maxGunOnlyTick` is exactly 45.0 on EVERY hull type across three campaigns, and 168 full-health 45 hp small drones were killed by one such click in the `endgame` campaign. **The class-hull guardrail is untouched** — 0 one-tick-from-full class kills in 940 — and the deletions moved the ceiling the safe way (max click fell from 72 % of a Torpedo Boat to 36 %). The question is Eric's: if BARREL is meant to read as a visible spread (his words: *"fires +1 bullet at once… in parallel lines"*) the spacing must exceed the 30u burst DIAMETER; if it is meant to be a damage upgrade that forgives aim error, 12u is already correct.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Q4 + Q5 (`balanceProbe.ts` BARREL PARALLEL TRACKS block). Story 7-5 evidence pass, 2026-08-19.
 
@@ -1988,7 +1988,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: observed during Story 8.1 verification — fails against a warm server, passes against a fresh boot.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
-  status: OPEN — agent-chosen placeholder, awaiting Eric's word
+  status: RESOLVED 2026-09-18 (Story 8.12, cycle 147) — Eric ratified both labels (epic-8 amendment 71).
   summary: CLIENT `STAT_LINES` LABELS `turning` → 'Turning' AND `deckGun` → 'Gun damage' ARE AGENT-CHOSEN MINIMAL LABELS, not copy Eric has reviewed. They were picked to be unambiguous and short enough to fit the existing stat-line layout, but per the no-in-game-copy-unasked rule they should be confirmed (or replaced) by Eric before being treated as final UI text.
   evidence: client `STAT_LINES` table, Story 8.1 wave 2.
 
@@ -2293,3 +2293,14 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
   summary: `shared/src/__tests__/poolMeasure.test.ts` RUNS 6,000 FULL ECONOMIES (≈2.3 s) AND PRINTS A TABLE ON EVERY `npm test -w shared` — it is a measurement, not a regression pin (its header says so); the cost and stdout noise ride every gate run. If it grows or the gate slows, move it behind an env flag like the batch sims and keep only the loose structural assertions in the default run.
   evidence: Blind Hunter P8 at the 8.11 gate; the test's wall time in the wave-1 report (2.30 s).
+
+## 2026-09-18 — Story 8.12 Catalog v3: Ladders and the Deck Gun (cycle 147): ledgered consequences
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-12-catalog-v3-ladders-and-the-deck-gun.md`
+  status: OPEN — record for 8.13–8.16 readers
+  summary: THE 8.12 AC WAS PRE-SATISFIED BY STORY 8.1 — every numeric clause was live and pinned from cycle 135 (amendment 73); the content stories 8.13–8.16 fill equipment tiers II–V only and must not re-author the five ladders or the deck-gun family; the AC's `deferred-work.md:463` citation for the cycle-42 proportional in-flight rescale rule resolves to the entry now at `:471`.
+  evidence: amendment 5, amendment 73, `shared/src/__tests__/stats.test.ts` (RELOAD table, DECK GUN damage `[15,16,17,18,20]`, 60 % composition), `server/src/__tests__/upgrades.test.ts` (tier-grant rescale; ARMOR heals the delta).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-12-catalog-v3-ladders-and-the-deck-gun.md`
+  status: OPEN — the icon gap stays with UX-DR50
+  summary: THE GUN SQUARE NOW CARRIES A TIER NUMERAL BUT LADDERS STILL HAVE NO GLYPH — the 8.7 icon-gap entry above is untouched by 8.12; the DECK GUN card face prints its damage row only while the line also moves its own reload (amendment 71 keeps that, the v2 broadside-SPREAD precedent).
+  evidence: amendments 70–71; `client/src/ui/boonCopy.ts` STAT_LINES comment.

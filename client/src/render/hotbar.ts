@@ -72,7 +72,7 @@ import { monoTextWidth } from '../ui/refitCardFit.js';
 import { drawEquipmentIcon, drawDashGlyph } from './equipmentIcons.js';
 import { drawWipeDark, drawWipeScrim, wipeLabel } from './cooldownWipe.js';
 import { microScale, type HudBarLayout, type Rect } from './hudBar.js';
-import { SLOT_KEY_GLYPHS, equipmentInfo, lineTier, type EquipmentInfo } from './equipmentInfo.js';
+import { SLOT_KEY_GLYPHS, equipmentInfo, slotTier, type EquipmentInfo } from './equipmentInfo.js';
 // THE TOOLTIP CORE MOVED OUT in Story 8.7 (ruling 13): `render/slotTooltip.ts`
 // owns the hover dwell, the accrued rows, the container-fit model and the
 // placement. This file keeps the SQUARES and the Pixi shell that paints both.
@@ -371,7 +371,7 @@ function equipmentMarks(
   return {
     state: slotState(id, flags, cooling, selected, info.isWeapon, active),
     badge: belt ? beltBadgeText(ammo) : badgeText(info, ammo),
-    tier: belt ? 0 : lineTier(view.cards ?? [], id),
+    tier: belt ? 0 : slotTier(view.stats, view.cards ?? [], id),
     coolFrac: coolFraction(left, info.reloadMs),
     reloadMsLeft: left,
   };
