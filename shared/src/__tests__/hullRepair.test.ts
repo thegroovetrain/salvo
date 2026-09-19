@@ -92,12 +92,14 @@ describe('CONFIG.regen — the out-of-combat regen (Eric ruling 2026-09-17, amen
   });
 });
 
-describe('HULL REPAIR is the first LIVE consumable; the other four are still stubs', () => {
-  it('hullRepair is dealt and every other consumable is not', () => {
-    expect(isStubLine('hullRepair')).toBe(false);
+describe('HULL REPAIR is a LIVE consumable; four of the seven are still stubs', () => {
+  it('hullRepair is dealt, and so is the SUPERCAV TORPEDO — the rest are not', () => {
+    // Story 8.13 made SUPERCAV TORPEDO the second live consumable line (Eric
+    // ruling 2026-09-19, epic-8 amendment 74) and added one more stub,
+    // DEPTH CHARGE (amendment 83).
+    const LIVE: readonly string[] = ['hullRepair', 'supercavTorpedo'];
     for (const id of CONSUMABLE_IDS) {
-      if (id === 'hullRepair') continue;
-      expect(isStubLine(id), id).toBe(true);
+      expect(isStubLine(id), id).toBe(!LIVE.includes(id));
     }
   });
 });

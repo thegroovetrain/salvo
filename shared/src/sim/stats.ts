@@ -18,9 +18,10 @@
 // Bases: the ship class for hull-ish stats (hp, kinematics); CONFIG.vision for
 // radar/sweep/sight; the per-equipment CONFIG blocks for everything else
 // (gun-family RANGE bases on CONFIG.vision.radar — range = radar range, Eric
-// ruling 2026-07-21). The seven UNBUILT v3 equipments take their tier-I rows
-// from catalog-v3 §4 (see STUB_ROWS below); their modules land in Stories
-// 8.13–8.16 and promote those numbers into CONFIG blocks of their own.
+// ruling 2026-07-21). The four STILL-UNBUILT v3 equipments take their tier-I
+// rows from catalog-v3 §4 (see STUB_ROWS below); their modules land in Story
+// 8.14 and promote those numbers into CONFIG blocks of their own, exactly as
+// Story 8.13 did for the light torpedo and the captive/fouling mines.
 //
 // rangeU fields are DERIVED, not independently stat-addressable (brainstorm
 // 2026-07-30: Radar Range quietly buffs gun/blast-torp reach too — Intel is a
@@ -32,8 +33,8 @@
 //
 // Defensive clamps + derivations (all inside this firewall, nowhere else):
 //   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling);
-//   - mine trip ring / blast radius derived from the folded blastRadius and
-//     the CAPTIVE flag;
+//   - the mine ring derivations (deriveMineRings): a CONTACT mine's trip ring
+//     from its folded blastRadius, the CAPTIVE's from its TIER;
 //   - gun.barrels clamped to 1..3 integer;
 //   - EVERY integer equipment field (tubes/turrets/barrels/pools) FLOORED
 //     ONCE here, after a fold that accumulated it as a float — catalog-v3 R17's
@@ -107,28 +108,51 @@ export interface EffectiveBroadside extends EquipmentRowCommon {
 // stacks with another add-on on the same weapon (phosphor AND dazzle) instead
 // of the second silently erasing the first.
 
+/**
+ * A TORPEDO LINE's effective numbers — the LIGHT and HEAVY fish (the
+ * supercavitating one left for the consumable id space, epic-8 amendment 74,
+ * and carries no row at all).
+ *
+ * `homingTurnRate` REPLACED the `homing` boolean on 2026-09-19 (Eric ruling,
+ * amendment 80): ACOUSTIC HOMING is deleted and homing is a TIER STAT — 0
+ * rad/s at tier I, +0.125 per tier, 0.5 at tier V. ZERO IS THE STRAIGHT-RUNNER
+ * (no steering, no `torpU` update, no die-distance); anything above zero
+ * steers under `CONFIG.torpedo`'s shared acquire/die/update rules.
+ */
 export interface EffectiveTorpedo extends EquipmentRowCommon {
   speed: number; // u/s — launch speed
   damage: number; // hp per contact hit
-  homing: boolean; // ACOUSTIC HOMING verb — false unless the add-on is held
+  homingTurnRate: number; // rad/s — 0 = a straight-runner (the tier-I base)
 }
 
+/**
+ * A MINE LINE's effective numbers, shared by the THREE mine kinds — naval,
+ * captive and fouling.
+ *
+ * THE KIND IS THE ROW IDENTITY (epic-8 amendments 76/81), never a flag: the
+ * `captive` and `propFouling` booleans are DELETED, because `captiveMines` and
+ * `foulingMines` are their own lines and every reader keys off which row (and,
+ * on the water, which `MineKind`) it is holding.
+ *
+ * TWO FIELDS ARE KIND-SPECIFIC, and the rows that do not own one carry the
+ * INERT IDENTITY rather than a lie (the `EffectiveRadarBuoy` precedent: a row
+ * is TOTAL over the type and says so):
+ *   - `homingTurnRate` is the CAPTIVE fish's (amendment 82: 0 → 0.3 rad/s
+ *     across the five rungs); naval and fouling launch nothing and sit at 0,
+ *     which is exactly "does not steer";
+ *   - `slowFactor` is the FOULING mine's (amendment 81: 0.75 → 0.55); naval
+ *     and captive sit at 1, which is exactly "does not slow". ONE, NOT ZERO —
+ *     a stray read of zero would stop a hull dead, and every whitelisted stat
+ *     is a strictly positive scalar by law (sim/boons.ts applyStatEffect).
+ */
 export interface EffectiveMine extends EquipmentRowCommon {
   // `maxLive` is DELETED (Story 8.4, FR57/AR48): mines have no per-player live
   // board cap and no room ceiling, so there is no such stat to derive.
   damage: number; // hp per blast victim
   blastRadius: number; // u — full damage to every non-owner hull within it
-  triggerRadius: number; // u — detonation proximity (DERIVED from blastRadius)
-  propFouling: boolean; // FOULING MINES verb — false unless held
-  /**
-   * THE CAPTIVE CHASSIS. Catalog v3 (R25) made CAPTIVE MINES its OWN equipment
-   * line rather than a doctrine on the naval mine, so this is no longer a card
-   * verb: it is a property of the `captiveMines` row, true at base and false on
-   * `navalMines`. It still drives the same derivation in clampStats — the two
-   * radii swap and the trip ring triples (144u trip / 32u blast at base) — so
-   * the plumbing did not move, only what sets it.
-   */
-  captive: boolean;
+  triggerRadius: number; // u — detonation proximity (DERIVED — see deriveMineRings)
+  homingTurnRate: number; // rad/s — the CAPTIVE fish's steering; 0 elsewhere
+  slowFactor: number; // × both speed caps on a FOULING victim; 1 elsewhere
 }
 
 /** The HORIZONTAL MISSILE (catalog-v3 R29) — Story 8.14 builds the module. */
@@ -207,9 +231,9 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
   boost: EffectiveBoost;
   lightTorpedo: EffectiveTorpedo;
   heavyTorpedo: EffectiveTorpedo;
-  supercavTorpedo: EffectiveTorpedo;
   navalMines: EffectiveMine;
   captiveMines: EffectiveMine;
+  foulingMines: EffectiveMine;
   missile: EffectiveMissile;
   machineGun: EffectiveOrdnanceGun;
   flak: EffectiveOrdnanceGun;
@@ -235,20 +259,20 @@ export interface EffectiveStats {
 }
 
 /**
- * TIER-I BASE ROWS FOR THE SEVEN UNBUILT EQUIPMENTS, transcribed from
+ * TIER-I BASE ROWS FOR THE FOUR REMAINING UNBUILT EQUIPMENTS, transcribed from
  * catalog-v3 §4 — nothing here is invented, and every `[D]` cell is Eric's
  * own [DRAFT] tag carried through verbatim. These are NOT CONFIG blocks yet:
- * no module reads them, so promoting them would put seven blocks of
- * harness-untuned draft numbers into the gameplay source of truth. Stories
- * 8.13–8.16 each promote their own line's row into a real CONFIG block when
- * the weapon lands.
+ * no module reads them, so promoting them would put blocks of harness-untuned
+ * draft numbers into the gameplay source of truth. Each of Stories 8.13–8.16
+ * promotes its own lines' rows into real CONFIG blocks when the weapon lands.
+ *
+ * STORY 8.13 EMPTIED THREE OF THE SEVEN. `lightTorpedo` and `captiveMines`
+ * have CONFIG blocks of their own now (`CONFIG.lightTorpedo`,
+ * `CONFIG.captiveMines`), and `supercavTorpedo` has no row at all — it became
+ * a CONSUMABLE (epic-8 amendment 74), and consumables carry no stat row. The
+ * four left are Story 8.14's.
  */
 const STUB_ROWS = {
-  // LIGHT TORPEDO (R18): twin sector both beams ±45° about 90°, 45 u/s,
-  // 40 dmg, 1 tube, 25 s.
-  lightTorpedo: { reloadMs: 25000, maxAmmo: 1, speed: 45, damage: 40 },
-  // SUPERCAVITATING TORPEDO (R19): bow ±15°, 195 u/s, 50 dmg, 1 fish, 45 s.
-  supercavTorpedo: { reloadMs: 45000, maxAmmo: 1, speed: 195, damage: 50 },
   // HORIZONTAL MISSILE (R29): bow ±50°, 250 u/s, 40 dmg, 1 missile, 30 s.
   missile: { reloadMs: 30000, maxAmmo: 1, damage: 40 },
   // MACHINE GUN (R20/R21): 4 dmg/shell, 15 s reload, one pool of fire. Every
@@ -259,12 +283,6 @@ const STUB_ROWS = {
   flak: { reloadMs: 8000, maxAmmo: 1, damage: 10 },
   // MONITOR GUN (R30): bow ±10°, arcing, 75 dmg, NO burst, 1 shell, 50 s.
   monitor: { reloadMs: 50000, maxAmmo: 1, damage: 75 },
-  // CAPTIVE MINES (R25): the mine chassis on a longer clock — one un-upgraded
-  // fish at mine damage (55) and mine blast radius; pool 1, 20 s, both `[D]`.
-  // The 144u trip / 32u blast pair is DERIVED by the `captive` flag in
-  // clampStats out of the SAME CONFIG.mine.blastRadius, so it is not restated
-  // here.
-  captiveMines: { reloadMs: 20000, maxAmmo: 1 },
   // THE SHIFT BOOST IS NOT A STUB (Story 8.9): it is live equipment in slot 1
   // on every captain hull and its row is built from `CONFIG.boost` in
   // baseEquipment, like the gun. Nothing is authored here.
@@ -328,34 +346,70 @@ export function broadsideMountSpread(rung: number): number {
 }
 
 /**
- * u — a mine's TRIP RING for a folded blast radius, under the CAPTIVE chassis.
- * An ordinary mine trips at a fixed fraction of its blast; a CAPTIVE mine swaps
- * the two rings and triples the trip (catalog-v3 R25), so its trigger is the
- * folded blast × `captiveTriggerFactor`. Pure and linear in `blastRadius`,
- * which is what makes mine-line card ORDER irrelevant. Shared by clampStats and
- * sim/boons.ts — the only two sites.
+ * u — the TRIP RING of a CONTACT mine (naval or fouling) for a folded blast
+ * radius: a fixed fraction of the blast (Eric ruling 2026-08-16), so a
+ * blast-widening card carries the trip ring out with it. ONE fraction for both
+ * kinds — `CONFIG.mine.triggerFactor` — so the two can never drift apart.
+ *
+ * Pure, linear and IDEMPOTENT in `blastRadius`, which is what makes mine-line
+ * card ORDER irrelevant and what lets both re-pin homes call it. The captive
+ * mine does NOT come through here: its trip ring is derived from its TIER
+ * (`captiveTriggerRadius` below, epic-8 amendment 84d).
  */
-export function mineTriggerRadius(blastRadius: number, captive: boolean): number {
-  return blastRadius * (captive ? CONFIG.mine.captiveTriggerFactor : CONFIG.mine.triggerFactor);
+export function mineTriggerRadius(blastRadius: number): number {
+  return blastRadius * CONFIG.mine.triggerFactor;
 }
 
-/** A torpedo row at CONFIG-or-stub base (three ids share the shape). */
+/**
+ * u — the CAPTIVE mine's TRIP RING at a 1-based tier: 144 u at tier I, stepping
+ * ×1.1 per rung to 210.8 u at tier V (catalog-v3 R25 as amended by epic-8
+ * amendment 84d). It reads the TIER, not the blast radius, for two reasons:
+ * trigger radii are deliberately off the stat whitelist, and the captive's
+ * 32 u burst is FIXED — the line's tiers grow the reach of the trap, never the
+ * size of the bang.
+ *
+ * A non-finite or sub-1 tier clamps to the tier-I ring rather than producing a
+ * NaN trip ring on a live mine (the `clampSpreadRung` law).
+ */
+export function captiveTriggerRadius(tier: number): number {
+  const steps = Number.isFinite(tier) ? Math.max(0, tier - 1) : 0;
+  return CONFIG.captiveMines.triggerRadius * CONFIG.captiveMines.triggerStepPerTier ** steps;
+}
+
+/** A torpedo row at CONFIG base. `homingTurnRate` starts at ZERO on EVERY
+ *  line — a tier-I fish is a straight-runner, and the lines' tiers II–V buy
+ *  the steering (epic-8 amendment 80). */
 function torpedoRow(src: { reloadMs: number; maxAmmo: number; speed: number; damage: number }): EffectiveTorpedo {
-  return { tier: 1, reloadMs: src.reloadMs, maxAmmo: src.maxAmmo, speed: src.speed, damage: src.damage, homing: false };
-}
-
-/** A mine row on the shipped chassis. `captive` is the chassis flag, not a
- *  card verb (catalog-v3 R25). */
-function mineRow(reloadMs: number, maxAmmo: number, captive: boolean): EffectiveMine {
   return {
     tier: 1,
-    reloadMs,
-    maxAmmo,
-    damage: CONFIG.mine.damage,
-    blastRadius: CONFIG.mine.blastRadius,
-    triggerRadius: CONFIG.mine.triggerRadius,
-    propFouling: false,
-    captive,
+    reloadMs: src.reloadMs,
+    maxAmmo: src.maxAmmo,
+    speed: src.speed,
+    damage: src.damage,
+    homingTurnRate: 0,
+  };
+}
+
+/** One of the three MINE rows at CONFIG base. The kind-specific fields default
+ *  to their INERT identities and the owning row overrides its own (see
+ *  `EffectiveMine`): homing 0 = does not steer, slow 1 = does not slow. */
+function mineRow(src: {
+  reloadMs: number;
+  maxAmmo: number;
+  damage: number;
+  blastRadius: number;
+  triggerRadius: number;
+  slowFactor?: number;
+}): EffectiveMine {
+  return {
+    tier: 1,
+    reloadMs: src.reloadMs,
+    maxAmmo: src.maxAmmo,
+    damage: src.damage,
+    blastRadius: src.blastRadius,
+    triggerRadius: src.triggerRadius,
+    homingTurnRate: 0,
+    slowFactor: src.slowFactor ?? 1,
   };
 }
 
@@ -444,16 +498,40 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
     // THE SHIFT BOOST (Story 8.9): live equipment, `CONFIG.boost` verbatim —
     // the reload then takes `cooldownScale` in clampStats like every row.
     boost: boostRow(CONFIG.boost),
-    lightTorpedo: torpedoRow(STUB_ROWS.lightTorpedo),
+    // LIGHT TORPEDO (catalog-v3 R18) — its own CONFIG block since Story 8.13.
+    lightTorpedo: torpedoRow(CONFIG.lightTorpedo),
     // THE LEGACY RENAME: `heavyTorpedo` IS the shipped torpedo, CONFIG.torpedo
     // verbatim — including catalog-v3 R17's 65 u/s tier-I speed, which Story
-    // 8.1 landed in CONFIG itself (epic-8 amendment 6). The line's tiers II-V
-    // are still Story 8.13's to author.
+    // 8.1 landed in CONFIG itself (epic-8 amendment 6).
     heavyTorpedo: torpedoRow(CONFIG.torpedo),
-    supercavTorpedo: torpedoRow(STUB_ROWS.supercavTorpedo),
-    // ...and `navalMines` IS the shipped mine, CONFIG.mine verbatim.
-    navalMines: mineRow(CONFIG.mine.reloadMs, CONFIG.mine.maxAmmo, false),
-    captiveMines: mineRow(STUB_ROWS.captiveMines.reloadMs, STUB_ROWS.captiveMines.maxAmmo, true),
+    // ...and `navalMines` IS the shipped mine, CONFIG.mine verbatim. It NO
+    // LONGER FOULS (amendment 81), so its `slowFactor` is the inert 1.
+    navalMines: mineRow({
+      reloadMs: CONFIG.mine.reloadMs,
+      maxAmmo: CONFIG.mine.maxAmmo,
+      damage: CONFIG.mine.damage,
+      blastRadius: CONFIG.mine.blastRadius,
+      triggerRadius: CONFIG.mine.triggerRadius,
+    }),
+    // CAPTIVE MINES (R25) — its OWN ring pair: the 144 u TRIP ring is the big
+    // one and the fish's 32 u burst is the small one (amendment 84d).
+    captiveMines: mineRow({
+      reloadMs: CONFIG.captiveMines.reloadMs,
+      maxAmmo: CONFIG.captiveMines.maxAmmo,
+      damage: CONFIG.captiveMines.damage,
+      blastRadius: CONFIG.captiveMines.blastRadius,
+      triggerRadius: CONFIG.captiveMines.triggerRadius,
+    }),
+    // FOULING MINES (amendment 81) — the naval chassis with a bigger, weaker
+    // blast and the victim slow the naval mine gave up.
+    foulingMines: mineRow({
+      reloadMs: CONFIG.foulingMines.reloadMs,
+      maxAmmo: CONFIG.foulingMines.maxAmmo,
+      damage: CONFIG.foulingMines.damage,
+      blastRadius: CONFIG.foulingMines.blastRadius,
+      triggerRadius: mineTriggerRadius(CONFIG.foulingMines.blastRadius),
+      slowFactor: CONFIG.foulingMines.slowFactor,
+    }),
     missile: { tier: 1, ...STUB_ROWS.missile, homing: false },
     machineGun: ordnanceGunRow(STUB_ROWS.machineGun),
     flak: ordnanceGunRow(STUB_ROWS.flak),
@@ -524,13 +602,27 @@ function floorIntegerFields(rows: EquipmentRows): void {
   }
 }
 
-/** The mine chassis derivations, for BOTH mine rows (see mineTriggerRadius).
- *  The blast rewrite is NON-idempotent — it consumes the value it overwrites —
- *  so it lives in clampStats ALONE, which runs exactly once per call. */
-function deriveMineRings(mine: EffectiveMine): void {
-  const blast = mine.blastRadius;
-  mine.triggerRadius = mineTriggerRadius(blast, mine.captive);
-  if (mine.captive) mine.blastRadius = blast * CONFIG.mine.triggerFactor;
+/**
+ * THE MINE RING DERIVATIONS, for all THREE mine rows — the one home for "what
+ * radii does this kind actually have".
+ *
+ * A CONTACT mine (naval, fouling) trips at a fixed fraction of its own folded
+ * blast, so a blast card carries the trip ring out with it. The CAPTIVE mine
+ * does neither: its trip ring steps off its TIER and its burst is pinned at
+ * `CONFIG.captiveMines.blastRadius` (epic-8 amendment 84d).
+ *
+ * IT IS NOW FULLY IDEMPOTENT, which is why it may run in BOTH re-pin homes
+ * (this is called from `clampStats` and from sim/boons.ts `rePinDerived`).
+ * The old captive "swap and triple" CONSUMED the blast radius it overwrote and
+ * so had to live in clampStats alone; nothing here reads a value it writes.
+ */
+export function deriveMineRings(eq: EquipmentRows): void {
+  eq.navalMines.triggerRadius = mineTriggerRadius(eq.navalMines.blastRadius);
+  eq.foulingMines.triggerRadius = mineTriggerRadius(eq.foulingMines.blastRadius);
+  // The captive's burst NEVER steps — re-pinned from CONFIG so no injected or
+  // future line can grow it by the back door.
+  eq.captiveMines.blastRadius = CONFIG.captiveMines.blastRadius;
+  eq.captiveMines.triggerRadius = captiveTriggerRadius(eq.captiveMines.tier);
 }
 
 /** The post-fold defensive clamps + derivations (see the header). Mutates in
@@ -555,8 +647,7 @@ function clampStats(stats: EffectiveStats): void {
   // never stat-addressable. At zero cards it is byte-identical to the old
   // CONFIG.vision.sight seed, because CONFIG.vision.radar IS SIGHT*2.
   stats.sightRange = stats.radarRange / 2;
-  deriveMineRings(eq.navalMines);
-  deriveMineRings(eq.captiveMines);
+  deriveMineRings(eq);
   floorIntegerFields(eq);
   eq.gun.barrels = Math.min(3, Math.max(1, eq.gun.barrels));
   // THE global cooldown scale, applied ONCE, post-fold, to every equipment.

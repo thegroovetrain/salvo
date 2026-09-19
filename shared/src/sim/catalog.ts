@@ -1,7 +1,13 @@
 // THE CATALOG (Story 8.1) — catalog v3, Eric's authored sheet
-// (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data.
-// 29 card LINES / 114 physical cards: 11 equipment lines (55), 5 universal
-// ladders (22), the deck-gun family (7), 5 add-ons (5), 5 consumables (25).
+// (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
+// as amended by Eric's rulings (epic-8 amendments).
+// 29 card LINES / 122 physical cards: 11 equipment lines (55), 5 universal
+// ladders (22), the deck-gun family (7), 3 add-ons (3), 7 consumables (35).
+//
+// THE COUNT MOVED 114 -> 122 IN STORY 8.13 (amendments 74/80/81/83), purely by
+// re-cutting KINDS: ACOUSTIC HOMING (a 1-card add-on) is deleted, DEPTH CHARGE
+// (a 5-card consumable) joins, SUPERCAV TORPEDO moves equipment -> consumable
+// (still 5) and FOULING MINES moves add-on -> equipment (1 -> 5).
 //
 // A LINE is `{ id, kind, cap, tiers[] }`. `cap` is BOTH the physical copy count
 // and the number of tiers, pinned equal by validateCatalog: holding copy k
@@ -15,10 +21,13 @@
 //
 // WHAT 8.1 AUTHORS AND WHAT IT DOES NOT. The five universal ladders and the
 // deck-gun family carry REAL content, because they replace shipped v2 lines.
-// Every equipment line carries copy 1 (`slotFill`) and FOUR EMPTY TIERS —
-// Stories 8.12–8.16 fill them from catalog-v3 §4, and the −5 %/tier reload step
-// is NOT one of those effects (it is derived from the tier in
-// sim/stats.ts clampStats, see there). Consumables stock and nothing else.
+// Every equipment line carries copy 1 (`slotFill`); its FOUR UPGRADE TIERS are
+// filled by the story that builds the weapon, from catalog-v3 §4. Story 8.13
+// filled the five torpedo/mine ladders (`tieredWeapon` below); the gun family
+// is 8.14's and the broadside/star shells 8.16's, so those stay empty. The
+// −5 %/tier reload step is NEVER one of those effects — it is derived from the
+// tier in sim/stats.ts clampStats, see there. Consumables stock and nothing
+// else.
 //
 // STUB LINES (`stub: true`) are lines whose MECHANISM does not exist yet. They
 // are authored in full shape so the catalog is complete and the ids are final,
@@ -64,10 +73,19 @@ import {
 } from './effects.js';
 
 /**
- * THE 29 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7).
- * This order IS the fold order and the default decks' composition order
- * (`deckFromCounts` expands in it), so it is part of the determinism contract
- * — never re-sort it.
+ * THE 29 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
+ * amended by amendments 80/83 on 2026-09-19). This order IS the fold order and
+ * the default decks' composition order (`deckFromCounts` expands in it), so it
+ * is part of the determinism contract — never re-sort it.
+ *
+ * STORY 8.13 SWAPPED EXACTLY ONE ID AND MOVED NOTHING. `acousticHoming` is
+ * deleted (homing became a tier stat) and `depthCharge` joins; the count stays
+ * 29. TWO LINES CHANGED KIND WITHOUT CHANGING SLOT — `supercavTorpedo` became
+ * a `consumable` and `foulingMines` became `equipment` — and they KEEP the
+ * positions they hold below, because this list's order is the contract and a
+ * re-sort would silently re-cut every default deck's composition order. The
+ * section headings therefore describe where a line SITS, not what kind it is;
+ * the kind is in CATALOG.
  */
 export const LINE_IDS = [
   // --- the five universal ladders (catalog-v3 §4) --------------------------
@@ -80,10 +98,10 @@ export const LINE_IDS = [
   'deckGun',
   'deckGunTurret',
   'deckGunBarrel',
-  // --- the eleven equipment lines ------------------------------------------
+  // --- the eleven equipment lines (+ one consumable that kept its slot) -----
   'lightTorpedo',
   'heavyTorpedo',
-  'supercavTorpedo',
+  'supercavTorpedo', // a CONSUMABLE since amendment 74 — slot locked, kind changed
   'navalMines',
   'captiveMines',
   'missile',
@@ -92,14 +110,21 @@ export const LINE_IDS = [
   'monitor',
   'broadside',
   'starShells',
-  // --- the five consumables -------------------------------------------------
+  // --- the consumables ------------------------------------------------------
+  // (plus `supercavTorpedo` above, which KEPT ITS SLOT in this list when its
+  // kind changed — see the note on the eleven-equipment block.)
   'hullRepair',
   'shieldBlock',
   'smokeScreen',
   'chaff',
   'decoyBuoy',
-  // --- the five add-ons -----------------------------------------------------
-  'acousticHoming',
+  // DEPTH CHARGE takes ACOUSTIC HOMING's place in the 29 (Eric ruling
+  // 2026-09-19, epic-8 amendments 80/83): a new STUB consumable, and the Mine
+  // Layer's 40th default card.
+  'depthCharge',
+  // --- the add-ons ----------------------------------------------------------
+  // (`foulingMines` sits here too — same reason: its slot is locked, its KIND
+  // changed to `equipment` in Story 8.13.)
   'foulingMines',
   'heatSeeking',
   'dazzleShells',
@@ -193,14 +218,37 @@ function ladder(
 }
 
 /**
- * An equipment line: copy 1 fits `equipmentId` (tier I = the bare weapon,
- * catalog-v3 §4 standing rule); tiers II–V are EMPTY until Stories 8.12–8.16
- * author them. `stub` marks a weapon whose module does not exist yet.
+ * An equipment line with NO authored ladder: copy 1 fits `equipmentId` (tier I
+ * = the bare weapon, catalog-v3 §4 standing rule) and tiers II–V are EMPTY
+ * until the line's own story authors them. `stub` marks a weapon whose module
+ * does not exist yet.
  */
 function weapon(id: LineId, equipmentId: EquipmentId, stub?: true): CatalogLine {
   const tiers: readonly BoonEffect[][] = [[{ kind: 'slotFill', equipmentId }], [], [], [], []];
   const line: CatalogLine = { id, kind: 'equipment', cap: 5, tiers };
   return stub === undefined ? line : { ...line, stub };
+}
+
+/**
+ * An equipment line WITH its ladder: copy 1 fits the weapon and tiers II–V
+ * each apply `step` — which is exactly how catalog-v3 §4 writes an equipment
+ * row ("Tiers II–V, each: …"), so the sheet's one line is one line here.
+ *
+ * THE RELOAD STEP IS NOT IN `step` AND NEVER WILL BE. Every equipment line
+ * drops −5 % of its own base reload per tier, and that is DERIVED from the
+ * row's tier in sim/stats.ts `reloadTierScale` — one derivation in the engine
+ * rather than the same effect restated on four tiers of five lines.
+ *
+ * A FRESH ARRAY PER TIER (the `ladder` law, and for the same reason); the
+ * effect objects themselves are shared and deep-frozen, like a ladder's.
+ */
+function tieredWeapon(id: LineId, equipmentId: EquipmentId, step: readonly BoonEffect[]): CatalogLine {
+  const slotFill: BoonEffect = { kind: 'slotFill', equipmentId };
+  const tiers: readonly (readonly BoonEffect[])[] = [
+    [slotFill],
+    ...Array.from({ length: 4 }, () => [...step] as readonly BoonEffect[]),
+  ];
+  return { id, kind: 'equipment', cap: 5, tiers };
 }
 
 /** A one-copy add-on: one `doctrine` verb per equipment it applies to. */
@@ -235,8 +283,9 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *                  reload half is DERIVED from the tier in clampStats.
  *   DECK GUN TURRET R15 — pool 1 → 2, one copy.
  *   DECK GUN BARREL R16 — +1 barrel per copy, two copies.
- *   ACOUSTIC HOMING R22 · FOULING MINES R28 · HEAT SEEKING R32 ·
- *   DAZZLE / PHOSPHOR SHELLS R33.
+ *   HEAT SEEKING R32 · DAZZLE / PHOSPHOR SHELLS R33.
+ *   LIGHT TORPEDO R18 · HEAVY TORPEDO R17 · NAVAL MINES R23/R24 ·
+ *   CAPTIVE MINES R25 · FOULING MINES R28 (as amended) — Story 8.13.
  */
 export const CATALOG: Catalog = deepFreezeRows({
   // --- the five universal ladders ------------------------------------------
@@ -276,37 +325,83 @@ export const CATALOG: Catalog = deepFreezeRows({
   // DECK GUN BARREL (R16): +1 barrel per copy, two copies (1 → 3 parallel
   // shells 12u apart, full damage each).
   deckGunBarrel: ladder('deckGunBarrel', 2, [statEffect('equipment.gun.barrels', { add: 1 })]),
-  // --- the eleven equipment lines -------------------------------------------
-  // Copy 1 fits the weapon; tiers II–V are EMPTY this cycle (8.12–8.16).
-  lightTorpedo: weapon('lightTorpedo', 'lightTorpedo', true), // R18 — module is Story 8.13
-  heavyTorpedo: weapon('heavyTorpedo', 'heavyTorpedo'), // R17 — the shipped torpedo, renamed
-  supercavTorpedo: weapon('supercavTorpedo', 'supercavTorpedo', true), // R19 — Story 8.13
-  navalMines: weapon('navalMines', 'navalMines'), // R23 — the shipped mine, renamed
-  captiveMines: weapon('captiveMines', 'captiveMines', true), // R25 — Story 8.13
+  // --- the eleven equipment lines (+ supercavTorpedo, which kept its slot) ---
+  // Copy 1 fits the weapon. The TORPEDO AND MINE ladders below are Story
+  // 8.13's (catalog-v3 §4 as amended by Eric's 2026-09-19 rulings, epic-8
+  // amendments 74/77/80/81/82); the gun family's are Story 8.14's and the
+  // broadside/star-shell ones Story 8.16's, so those tiers are still empty.
+  //
+  // LIGHT TORPEDO (R18): tiers II–V each +5 damage, +2.5 u/s, +0.5 tubes and
+  // +0.125 rad/s of homing — 60 dmg / 55 u/s / 3 tubes / 0.5 rad/s at V, on a
+  // 20 s reload. HOMING IS A TIER STAT, NOT A CARD (amendment 80).
+  lightTorpedo: tieredWeapon('lightTorpedo', 'lightTorpedo', [
+    statEffect('equipment.lightTorpedo.damage', { add: 5 }),
+    statEffect('equipment.lightTorpedo.speed', { add: 2.5 }),
+    statEffect('equipment.lightTorpedo.maxAmmo', { add: 0.5 }),
+    statEffect('equipment.lightTorpedo.homingTurnRate', { add: 0.125 }),
+  ]),
+  // HEAVY TORPEDO (R17): the shipped torpedo, renamed — the SAME four steps on
+  // its own paths: 70 dmg / 75 u/s / 3 tubes / 0.5 rad/s at V, 24 s reload.
+  heavyTorpedo: tieredWeapon('heavyTorpedo', 'heavyTorpedo', [
+    statEffect('equipment.heavyTorpedo.damage', { add: 5 }),
+    statEffect('equipment.heavyTorpedo.speed', { add: 2.5 }),
+    statEffect('equipment.heavyTorpedo.maxAmmo', { add: 0.5 }),
+    statEffect('equipment.heavyTorpedo.homingTurnRate', { add: 0.125 }),
+  ]),
+  // SUPERCAV TORPEDO (R19 as superseded by amendment 74): a CONSUMABLE, not an
+  // equipment line — a prime-and-click belt fish with no reload and no tiers.
+  // It keeps its LINE_IDS slot (see there) and its five copies are five uses.
+  supercavTorpedo: consumable('supercavTorpedo'),
+  // NAVAL MINES (R23/R24): the shipped mine, renamed — tiers II–V each +5
+  // damage, ×1.1 blast (the 2/3 trip ring follows it) and +1 held: 75 dmg,
+  // 70.3 u blast / 46.9 u trip, 6 held, 12 s at V. IT NO LONGER FOULS
+  // (amendment 81).
+  navalMines: tieredWeapon('navalMines', 'navalMines', [
+    statEffect('equipment.navalMines.damage', { add: 5 }),
+    statEffect('equipment.navalMines.blastRadius', { mult: 1.1 }),
+    statEffect('equipment.navalMines.maxAmmo', { add: 1 }),
+  ]),
+  // CAPTIVE MINES (R25, amendments 77/82/84d): tiers II–V each +5 fish damage,
+  // +0.5 held and +0.075 rad/s of homing — 75 dmg, 3 held, 0.3 rad/s, 16 s at
+  // V. THE TRIP RING'S ×1.1 STEP IS NOT AN EFFECT: it is derived from the
+  // row's tier in sim/stats.ts (144 → 210.8 u), and the 32 u burst is fixed.
+  captiveMines: tieredWeapon('captiveMines', 'captiveMines', [
+    statEffect('equipment.captiveMines.damage', { add: 5 }),
+    statEffect('equipment.captiveMines.maxAmmo', { add: 0.5 }),
+    statEffect('equipment.captiveMines.homingTurnRate', { add: 0.075 }),
+  ]),
   missile: weapon('missile', 'missile', true), // R29 — Story 8.14
   machineGun: weapon('machineGun', 'machineGun', true), // R20/R21 — Story 8.14
   flak: weapon('flak', 'flak', true), // R26/R27 — Story 8.14
   monitor: weapon('monitor', 'monitor', true), // R30 — Story 8.14
   broadside: weapon('broadside', 'broadside'), // R35 — shipped
   starShells: weapon('starShells', 'starShells'), // R31 — shipped
-  // --- the five consumables (R13, R36–R39) ----------------------------------
-  // The belt and the `1`–`4` keys are built (Story 8.7). HULL REPAIR (R13) is
-  // the first LIVE line — its effect is Story 8.8's — so it is the one that is
-  // DEALT; the other four are still stubs until their effects land.
+  // --- the consumables (R13, R36–R39, + amendments 74/83) -------------------
+  // The belt and the `1`–`4` keys are built (Story 8.7). HULL REPAIR (R13) was
+  // the first LIVE line — its effect is Story 8.8's — and SUPERCAV TORPEDO
+  // (above) is the second; the rest are still stubs until their effects land.
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
   shieldBlock: consumable('shieldBlock', true),
   smokeScreen: consumable('smokeScreen', true),
   chaff: consumable('chaff', true),
   decoyBuoy: consumable('decoyBuoy', true),
-  // --- the five add-ons ------------------------------------------------------
-  // ACOUSTIC HOMING (R22): one card homes EVERY torpedo you carry — light and
-  // heavy, never the supercavitating straight-runner.
-  acousticHoming: addon('acousticHoming', ['lightTorpedo', 'heavyTorpedo'], 'homing'),
-  // FOULING MINES (R28): naval mines ONLY — the captive's fish is a torpedo and
-  // does not foul.
-  foulingMines: addon('foulingMines', ['navalMines'], 'propFouling'),
-  // HEAT SEEKING (R32): the acoustic-homing numbers on the missile. Stub —
-  // the missile itself is Story 8.14.
+  // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB
+  // in full shape so the id is final, and the Mine Layer's 40th default card.
+  depthCharge: consumable('depthCharge', true),
+  // --- the add-ons (+ foulingMines, which kept its slot) --------------------
+  // FOULING MINES (R28 as superseded by amendment 81): its OWN tiered
+  // EQUIPMENT line now, not an add-on — tiers II–V each ×1.1 blast (the trip
+  // ring follows), +1 held and −0.05 slow factor. Damage is FIXED at 10 and
+  // the 5 s window never moves; only the depth of the slow does (×0.55 at V).
+  // UNHOMED: it sits in no default deck.
+  foulingMines: tieredWeapon('foulingMines', 'foulingMines', [
+    statEffect('equipment.foulingMines.blastRadius', { mult: 1.1 }),
+    statEffect('equipment.foulingMines.maxAmmo', { add: 1 }),
+    statEffect('equipment.foulingMines.slowFactor', { add: -0.05 }),
+  ]),
+  // HEAT SEEKING (R32): the homing verb on the missile. Stub — the missile
+  // itself is Story 8.14, which is also where Eric rules on this card
+  // (*"I will revisit this when we get back to missiles."*, amendment 80).
   heatSeeking: addon('heatSeeking', ['missile'], 'homing', true),
   // DAZZLE (R33): enemies inside the lit zone see at ×0.5; never changes the
   // lit radius. Stacks with phosphor on one flare.
@@ -573,8 +668,8 @@ function everyStatEffect(catalog: Catalog): [CatalogLine, BoonStatEffect][] {
  *  2. NO LIVE ADD-ON ON DEAD EQUIPMENT. An add-on bolts a verb onto the
  *     equipment it names; if EVERY line it names is a stub, the card is dealt
  *     into live decks (it is not a stub itself) and buys nothing. An add-on
- *     with at least one live target is fine — ACOUSTIC HOMING names the light
- *     torpedo (stub) AND the heavy one (live), and is a real card today.
+ *     with at least one live target is fine. A STUB add-on is exempt — it is
+ *     never dealt either, so HEAT SEEKING may name the still-stub missile.
  */
 function validateCrossLine(catalog: Catalog): string[] {
   const errs: string[] = [];
@@ -707,21 +802,32 @@ const UNIVERSAL_COUNTS: DeckCounts = {
 };
 
 /**
- * THE THREE DEFAULT DECKS, keyed by hull (amendment 10): the 30 universal
- * cards plus ten per hull — three equipment lines at three copies and one
- * add-on. 40 cards each, exactly three equipment lines, every count at or
- * under cap. UNHOMED (in no default): `supercavTorpedo`, `broadside`,
- * `decoyBuoy`, `heatSeeking`, `phosphorShells`. Frozen at every depth.
+ * THE THREE DEFAULT DECKS, keyed by hull (amendment 10, re-cut for the Torpedo
+ * Boat and the Mine Layer by amendments 80 and 83): the 30 universal cards
+ * plus ten per hull — three equipment lines at three copies, then ONE last
+ * card. 40 cards each, exactly three equipment lines (so
+ * `CONFIG.deck.maxEquipmentLines` stays 3), every count at or under cap.
+ *
+ * THE FORTIETH CARD IS NO LONGER ALWAYS AN ADD-ON. The Torpedo Boat's was
+ * ACOUSTIC HOMING, which is deleted — Eric: *"Give them one supercavitating
+ * torpedo."* — and the Mine Layer's was the FOULING MINES add-on, which became
+ * its own (unhomed) equipment line — Eric: *"just stub a fucking depth
+ * charge"*, then *"WOAH. Depth charge will be a CONSUMABLE. not a line."* So
+ * both hulls now close their deck with a single CONSUMABLE copy.
+ *
+ * UNHOMED (in no default): `foulingMines`, `broadside`, `decoyBuoy`,
+ * `heatSeeking`, `phosphorShells`. Frozen at every depth.
  */
 export const DEFAULT_DECKS: Readonly<Record<ShipClassId, readonly LineId[]>> = Object.freeze({
-  torpedoBoat: deckFromCounts({ ...UNIVERSAL_COUNTS, lightTorpedo: 3, heavyTorpedo: 3, machineGun: 3, acousticHoming: 1 }),
-  mineLayer: deckFromCounts({ ...UNIVERSAL_COUNTS, navalMines: 3, captiveMines: 3, flak: 3, foulingMines: 1 }),
+  torpedoBoat: deckFromCounts({ ...UNIVERSAL_COUNTS, lightTorpedo: 3, heavyTorpedo: 3, machineGun: 3, supercavTorpedo: 1 }),
+  mineLayer: deckFromCounts({ ...UNIVERSAL_COUNTS, navalMines: 3, captiveMines: 3, flak: 3, depthCharge: 1 }),
   battleship: deckFromCounts({ ...UNIVERSAL_COUNTS, missile: 3, monitor: 3, starShells: 3, dazzleShells: 1 }),
 });
 
 /**
  * A FRESH ACCOUNT'S UNLOCKS: the union of the three default decks' line ids
- * (24 of the 29 lines). With no account module this is the `owned` set every
+ * (24 of the 29 lines — it gained `supercavTorpedo` and `depthCharge` and lost
+ * `acousticHoming` and `foulingMines` in Story 8.13; the count did not move). With no account module this is the `owned` set every
  * door checks a deck against (server/src/game/decks.ts); Epic 9's collection
  * grows it per account.
  *

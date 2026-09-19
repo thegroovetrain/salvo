@@ -98,7 +98,17 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           maxAmmo: CONFIG.boost.maxAmmo,
           durationMs: CONFIG.boost.durationMs,
         },
-        lightTorpedo: { tier: 1, reloadMs: 25000, maxAmmo: 1, speed: 45, damage: 40, homing: false },
+        // LIGHT TORPEDO (R18) — its own CONFIG block since Story 8.13.
+        // `homingTurnRate` REPLACED the `homing` boolean: homing is a TIER
+        // STAT now (epic-8 amendment 80) and tier I is a straight-runner.
+        lightTorpedo: {
+          tier: 1,
+          reloadMs: CONFIG.lightTorpedo.reloadMs,
+          maxAmmo: CONFIG.lightTorpedo.maxAmmo,
+          speed: CONFIG.lightTorpedo.speed,
+          damage: CONFIG.lightTorpedo.damage,
+          homingTurnRate: 0,
+        },
         // THE LEGACY RENAME — byte-identical to the shipped `torpedo` block.
         heavyTorpedo: {
           tier: 1,
@@ -106,10 +116,13 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           maxAmmo: CONFIG.torpedo.maxAmmo,
           speed: CONFIG.torpedo.speed,
           damage: CONFIG.torpedo.damage,
-          homing: false,
+          homingTurnRate: 0,
         },
-        supercavTorpedo: { tier: 1, reloadMs: 45000, maxAmmo: 1, speed: 195, damage: 50, homing: false },
-        // ...and byte-identical to the shipped `mine` block.
+        // `supercavTorpedo` HAS NO ROW AT ALL (amendment 74): it is a
+        // consumable now, and a consumable has no stats row, no reload and no
+        // tier. Its absence is pinned by the TOTALITY test below.
+        // ...and byte-identical to the shipped `mine` block. It NO LONGER
+        // FOULS (amendment 81), so its slowFactor is the inert 1.
         navalMines: {
           tier: 1,
           reloadMs: CONFIG.mine.reloadMs,
@@ -117,20 +130,31 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           damage: CONFIG.mine.damage,
           blastRadius: CONFIG.mine.blastRadius,
           triggerRadius: CONFIG.mine.triggerRadius,
-          propFouling: false,
-          captive: false,
+          homingTurnRate: 0,
+          slowFactor: 1,
         },
-        // The captive chassis derives 144u trip / 32u blast off the SAME
-        // CONFIG.mine.blastRadius (catalog-v3 R25).
+        // CAPTIVE MINES has its OWN ring pair now (amendment 84d): 144u trip
+        // ring, 32u fixed burst — no longer a transform of CONFIG.mine.
         captiveMines: {
           tier: 1,
-          reloadMs: 20000,
-          maxAmmo: 1,
-          damage: CONFIG.mine.damage,
-          blastRadius: CONFIG.mine.blastRadius * CONFIG.mine.triggerFactor,
-          triggerRadius: CONFIG.mine.blastRadius * CONFIG.mine.captiveTriggerFactor,
-          propFouling: false,
-          captive: true,
+          reloadMs: CONFIG.captiveMines.reloadMs,
+          maxAmmo: CONFIG.captiveMines.maxAmmo,
+          damage: CONFIG.captiveMines.damage,
+          blastRadius: CONFIG.captiveMines.blastRadius,
+          triggerRadius: CONFIG.captiveMines.triggerRadius,
+          homingTurnRate: 0,
+          slowFactor: 1,
+        },
+        // FOULING MINES (amendment 81) — its own equipment line since 8.13.
+        foulingMines: {
+          tier: 1,
+          reloadMs: CONFIG.foulingMines.reloadMs,
+          maxAmmo: CONFIG.foulingMines.maxAmmo,
+          damage: CONFIG.foulingMines.damage,
+          blastRadius: CONFIG.foulingMines.blastRadius,
+          triggerRadius: CONFIG.foulingMines.blastRadius * CONFIG.mine.triggerFactor,
+          homingTurnRate: 0,
+          slowFactor: CONFIG.foulingMines.slowFactor,
         },
         missile: { tier: 1, reloadMs: 30000, maxAmmo: 1, damage: 40, homing: false },
         machineGun: { tier: 1, reloadMs: 15000, maxAmmo: 1, damage: 4 },
@@ -182,8 +206,37 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
       .toEqual([30000, 65, 50, 1]);
     expect([eq.navalMines.reloadMs, eq.navalMines.damage, eq.navalMines.blastRadius, eq.navalMines.triggerRadius])
       .toEqual([15000, 55, 48, 32]);
-    // The captive chassis: 144u trip / 32u blast at base (catalog-v3 R25).
+    // The captive rings: 144u trip / 32u blast at base (catalog-v3 R25) — now
+    // its OWN CONFIG pair rather than a transform (amendment 84d).
     expect([eq.captiveMines.triggerRadius, eq.captiveMines.blastRadius]).toEqual([144, 32]);
+  });
+
+  it('the STORY 8.13 tier-I rows come from their own CONFIG blocks, not STUB_ROWS', () => {
+    const eq = effectiveStats(BASE).equipment;
+    // LIGHT TORPEDO (R18): 45 u/s, 40 dmg, 1 tube, 25 s, straight-running.
+    expect([eq.lightTorpedo.speed, eq.lightTorpedo.damage, eq.lightTorpedo.maxAmmo, eq.lightTorpedo.reloadMs])
+      .toEqual([45, 40, 1, 25000]);
+    expect(eq.lightTorpedo.homingTurnRate).toBe(0);
+    expect(eq.heavyTorpedo.homingTurnRate).toBe(0);
+    // CAPTIVE MINES (R25, amendment 77): 1 held on a 20 s clock, 55 dmg.
+    expect([eq.captiveMines.maxAmmo, eq.captiveMines.reloadMs, eq.captiveMines.damage]).toEqual([1, 20000, 55]);
+    expect(eq.captiveMines.homingTurnRate).toBe(0);
+    // FOULING MINES (amendment 81): 10 dmg, 72 u blast, 48 u trip, 2 held,
+    // 15 s, ×0.75 victim slow.
+    expect([eq.foulingMines.damage, eq.foulingMines.blastRadius, eq.foulingMines.maxAmmo, eq.foulingMines.reloadMs])
+      .toEqual([10, 72, 2, 15000]);
+    expect(eq.foulingMines.triggerRadius).toBeCloseTo(48, 9);
+    expect(eq.foulingMines.slowFactor).toBe(0.75);
+    // The inert identities on the rows that do not own the field.
+    expect([eq.navalMines.slowFactor, eq.captiveMines.slowFactor]).toEqual([1, 1]);
+    expect([eq.navalMines.homingTurnRate, eq.foulingMines.homingTurnRate]).toEqual([0, 0]);
+  });
+
+  it('SUPERCAV TORPEDO has NO stat row — it is a consumable (amendment 74)', () => {
+    const eq = effectiveStats(BASE).equipment as unknown as Record<string, unknown>;
+    expect(eq.supercavTorpedo).toBeUndefined();
+    expect([...EQUIPMENT_IDS]).not.toContain('supercavTorpedo');
+    expect([...EQUIPMENT_IDS]).toContain('foulingMines');
   });
 
   it('the equipment record is TOTAL over EquipmentId, every row at tier 1', () => {
@@ -314,6 +367,162 @@ describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// THE FIVE TORPEDO / MINE LADDERS (Story 8.13 — catalog-v3 §4 as amended by
+// Eric's 2026-09-19 rulings, epic-8 amendments 74/77/80/81/82/84d). Pinned as
+// TABLES against the spec's I/O matrix, rung by rung, so a reader can check
+// them against the sheet without running the fold in their head.
+//
+// THREE THINGS ARE DERIVED, NOT AUTHORED, and are pinned here as such:
+//   - the −5 %/tier reload step (sim/stats.ts reloadTierScale);
+//   - the +0.5 pool steps, which accumulate as floats and FLOOR ONCE
+//     (catalog-v3 R17) — 1, 1, 2, 2, 3 across the five rungs;
+//   - the CAPTIVE mine's trip ring, which steps ×1.1 off the ROW'S TIER while
+//     its 32 u burst never moves (amendment 84d).
+// ---------------------------------------------------------------------------
+describe('STORY 8.13 — the torpedo ladders (amendments 80/84f)', () => {
+  it.each([
+    // line, [damage, speed, tubes, reloadMs, homingTurnRate] per rung 1..5
+    ['lightTorpedo', [
+      [40, 45, 1, 25000, 0],
+      [45, 47.5, 1, 23750, 0.125],
+      [50, 50, 2, 22500, 0.25],
+      [55, 52.5, 2, 21250, 0.375],
+      [60, 55, 3, 20000, 0.5],
+    ]],
+    ['heavyTorpedo', [
+      [50, 65, 1, 30000, 0],
+      [55, 67.5, 1, 28500, 0.125],
+      [60, 70, 2, 27000, 0.25],
+      [65, 72.5, 2, 25500, 0.375],
+      [70, 75, 3, 24000, 0.5],
+    ]],
+  ] as const)('%s: +5 dmg, +2.5 u/s, +0.5 tubes, +0.125 rad/s per tier', (id, table) => {
+    table.forEach(([damage, speed, tubes, reloadMs, turn], i) => {
+      const row = effectiveStats(BASE, stack(id, i + 1)).equipment[id];
+      expect(row.tier, `${id} x${i + 1}: tier`).toBe(i + 1);
+      expect(row.damage, `${id} x${i + 1}: damage`).toBe(damage);
+      expect(row.speed, `${id} x${i + 1}: speed`).toBeCloseTo(speed, 9);
+      expect(row.maxAmmo, `${id} x${i + 1}: tubes`).toBe(tubes);
+      expect(row.reloadMs, `${id} x${i + 1}: reloadMs`).toBeCloseTo(reloadMs, 6);
+      expect(row.homingTurnRate, `${id} x${i + 1}: turnRate`).toBeCloseTo(turn, 9);
+    });
+  });
+
+  it('tier I is a STRAIGHT-RUNNER on both lines — turn rate 0, and 0.5 rad/s at V', () => {
+    for (const id of ['lightTorpedo', 'heavyTorpedo'] as const) {
+      expect(effectiveStats(BASE, stack(id, 1)).equipment[id].homingTurnRate, id).toBe(0);
+      expect(effectiveStats(BASE, stack(id, 5)).equipment[id].homingTurnRate, id)
+        .toBeCloseTo(CONFIG.torpedo.homingTurnRate, 9);
+    }
+  });
+});
+
+describe('STORY 8.13 — the three mine ladders (amendments 77/81/82/84d)', () => {
+  it('NAVAL MINES: +5 dmg, x1.1 blast (trip ring follows at 2/3), +1 held', () => {
+    const table: [number, number, number, number][] = [
+      // damage, blastRadius, held, reloadMs
+      [55, 48, 2, 15000],
+      [60, 52.8, 3, 14250],
+      [65, 58.08, 4, 13500],
+      [70, 63.888, 5, 12750],
+      [75, 70.2768, 6, 12000],
+    ];
+    table.forEach(([damage, blast, held, reloadMs], i) => {
+      const row = effectiveStats(BASE, stack('navalMines', i + 1)).equipment.navalMines;
+      expect(row.damage, `x${i + 1}: damage`).toBe(damage);
+      expect(row.blastRadius, `x${i + 1}: blast`).toBeCloseTo(blast, 6);
+      expect(row.triggerRadius, `x${i + 1}: trip`).toBeCloseTo(blast * CONFIG.mine.triggerFactor, 6);
+      expect(row.maxAmmo, `x${i + 1}: held`).toBe(held);
+      expect(row.reloadMs, `x${i + 1}: reloadMs`).toBeCloseTo(reloadMs, 6);
+      // A naval mine NEVER fouls now (amendment 81) — at any tier.
+      expect(row.slowFactor, `x${i + 1}: slow`).toBe(1);
+    });
+  });
+
+  it('CAPTIVE MINES: +5 fish dmg, +0.5 held, +0.075 rad/s — and a TIER-DRIVEN trip ring on a FIXED 32u burst', () => {
+    const table: [number, number, number, number, number][] = [
+      // fish damage, held, reloadMs, homingTurnRate, triggerRadius
+      [55, 1, 20000, 0, 144],
+      [60, 1, 19000, 0.075, 158.4],
+      [65, 2, 18000, 0.15, 174.24],
+      [70, 2, 17000, 0.225, 191.664],
+      [75, 3, 16000, 0.3, 210.8304],
+    ];
+    table.forEach(([damage, held, reloadMs, turn, trip], i) => {
+      const row = effectiveStats(BASE, stack('captiveMines', i + 1)).equipment.captiveMines;
+      expect(row.damage, `x${i + 1}: damage`).toBe(damage);
+      expect(row.maxAmmo, `x${i + 1}: held`).toBe(held);
+      expect(row.reloadMs, `x${i + 1}: reloadMs`).toBeCloseTo(reloadMs, 6);
+      expect(row.homingTurnRate, `x${i + 1}: turnRate`).toBeCloseTo(turn, 9);
+      expect(row.triggerRadius, `x${i + 1}: trip`).toBeCloseTo(trip, 4);
+      // THE BURST NEVER STEPS: the line grows the reach of the trap, not the
+      // size of the bang (amendment 84d).
+      expect(row.blastRadius, `x${i + 1}: blast`).toBe(32);
+    });
+    // The matrix's headline number.
+    expect(effectiveStats(BASE, stack('captiveMines', 5)).equipment.captiveMines.triggerRadius)
+      .toBeCloseTo(210.8, 1);
+  });
+
+  it('FOULING MINES: x1.1 blast (trip follows), +1 held, -0.05 slow — damage and duration FIXED', () => {
+    const table: [number, number, number, number][] = [
+      // blastRadius, held, reloadMs, slowFactor
+      [72, 2, 15000, 0.75],
+      [79.2, 3, 14250, 0.7],
+      [87.12, 4, 13500, 0.65],
+      [95.832, 5, 12750, 0.6],
+      [105.4152, 6, 12000, 0.55],
+    ];
+    table.forEach(([blast, held, reloadMs, slow], i) => {
+      const row = effectiveStats(BASE, stack('foulingMines', i + 1)).equipment.foulingMines;
+      expect(row.blastRadius, `x${i + 1}: blast`).toBeCloseTo(blast, 6);
+      expect(row.triggerRadius, `x${i + 1}: trip`).toBeCloseTo(blast * CONFIG.mine.triggerFactor, 6);
+      expect(row.maxAmmo, `x${i + 1}: held`).toBe(held);
+      expect(row.reloadMs, `x${i + 1}: reloadMs`).toBeCloseTo(reloadMs, 6);
+      expect(row.slowFactor, `x${i + 1}: slow`).toBeCloseTo(slow, 9);
+      // DAMAGE IS FIXED AT 10 (amendment 81): "minimal damage" is the point.
+      expect(row.damage, `x${i + 1}: damage`).toBe(10);
+    });
+    // ...and so is the 5 s window — only the DEPTH of the slow tiers up.
+    expect(CONFIG.foulingMines.slowDurationMs).toBe(5000);
+  });
+
+  it('THE POOL FLOOR, on the three +0.5 lines: 1, 1, 2, 2, 3 (catalog-v3 R17)', () => {
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'captiveMines'] as const) {
+      const pools = [1, 2, 3, 4, 5].map((n) => effectiveStats(BASE, stack(id, n)).equipment[id].maxAmmo);
+      expect(pools, id).toEqual([1, 1, 2, 2, 3]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WHOLE-NUMBER DAMAGE, EVERY LINE, EVERY TIER (Eric ruling 2026-09-17, epic-8
+// amendment 39: *a shell NEVER deals a fractional hit point*). The floor is
+// `EQUIPMENT_INT_FIELDS` in sim/stats.ts clampStats, applied ONCE after the
+// fold; this is the catalog-wide sweep that proves it, so a future line
+// authoring a fractional damage step is caught the day it lands.
+// ---------------------------------------------------------------------------
+describe('THE WHOLE-NUMBER DAMAGE LAW (amendment 39), swept over the catalog', () => {
+  it('every damage field is an integer at every rung of every line, on every hull', () => {
+    for (const clsId of SHIP_CLASS_IDS) {
+      const cls = CONFIG.shipClasses[clsId];
+      for (const line of LINE_IDS) {
+        for (let n = 0; n <= CATALOG[line].cap; n += 1) {
+          const eq = effectiveStats(cls, stack(line, n)).equipment as unknown as Record<string, Record<string, number>>;
+          for (const id of EQUIPMENT_IDS) {
+            for (const field of ['damage', 'contactDamage']) {
+              const v = eq[id][field];
+              if (v === undefined) continue;
+              expect(Number.isInteger(v), `${clsId}/${line}x${n}: ${id}.${field} = ${v}`).toBe(true);
+            }
+          }
+        }
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // THE EQUIPMENT RELOAD STEP — catalog-v3 §3's STANDING RULE, §4's conventions.
 // −5 % of the weapon's OWN base per tier, additive five-point steps, composed
 // BEFORE the global RELOAD ladder. ONE formula covers the deck gun and every
@@ -363,7 +572,7 @@ describe('THE EQUIPMENT RELOAD STEP (catalog-v3 §3 standing rule)', () => {
   });
 
   it('a line with no tier target moves no tier at all (an add-on is not a rung)', () => {
-    const s = effectiveStats(BASE, ['acousticHoming', 'phosphorShells']);
+    const s = effectiveStats(BASE, ['dazzleShells', 'phosphorShells']);
     for (const id of EQUIPMENT_IDS) expect(s.equipment[id].tier, id).toBe(1);
   });
 });
@@ -399,25 +608,29 @@ describe('THE FRACTIONAL FLOOR (catalog-v3 R17 standing rule)', () => {
   });
 });
 
-describe('effectiveStats — doctrine verb folds (the five add-ons)', () => {
+describe('effectiveStats — doctrine verb folds (the three surviving add-ons)', () => {
   it('every verb is false at base; each add-on sets exactly its own', () => {
     const eq = effectiveStats(BASE).equipment;
-    expect([eq.lightTorpedo.homing, eq.heavyTorpedo.homing, eq.navalMines.propFouling, eq.missile.homing,
-      eq.starShells.phosphor, eq.starShells.dazzle]).toEqual([false, false, false, false, false, false]);
-    // ACOUSTIC HOMING (R22) homes BOTH torpedoes with one card — and never the
-    // supercavitating straight-runner.
-    const homing = effectiveStats(BASE, ['acousticHoming']).equipment;
-    expect([homing.lightTorpedo.homing, homing.heavyTorpedo.homing, homing.supercavTorpedo.homing])
-      .toEqual([true, true, false]);
-    expect(effectiveStats(BASE, ['foulingMines']).equipment.navalMines.propFouling).toBe(true);
+    expect([eq.missile.homing, eq.starShells.phosphor, eq.starShells.dazzle]).toEqual([false, false, false]);
     expect(effectiveStats(BASE, ['heatSeeking']).equipment.missile.homing).toBe(true);
     expect(effectiveStats(BASE, ['dazzleShells']).equipment.starShells.dazzle).toBe(true);
     expect(effectiveStats(BASE, ['phosphorShells']).equipment.starShells.phosphor).toBe(true);
   });
 
-  it('FOULING MINES is naval mines ONLY — the captive fish does not foul (R28)', () => {
-    const eq = effectiveStats(BASE, ['foulingMines']).equipment;
-    expect([eq.navalMines.propFouling, eq.captiveMines.propFouling]).toEqual([true, false]);
+  // THE TWO DELETED VERBS (Eric rulings 2026-09-19, epic-8 amendments 80/81).
+  // These pins are REWRITTEN, not removed: what they asserted — that ACOUSTIC
+  // HOMING homed both torpedoes and that FOULING MINES fouled naval mines only
+  // — is no longer true of the game, because both CARDS are gone. The torpedo
+  // rows carry a NUMERIC `homingTurnRate` instead, and a naval mine cannot
+  // foul at all.
+  it('no torpedo or mine row carries a doctrine verb any more', () => {
+    const eq = effectiveStats(BASE).equipment as unknown as Record<string, Record<string, unknown>>;
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines']) {
+      expect('homing' in eq[id], id).toBe(false);
+      expect('propFouling' in eq[id], id).toBe(false);
+      expect('captive' in eq[id], id).toBe(false);
+    }
+    expect(effectiveStats(BASE, ['lightTorpedo']).equipment.lightTorpedo.homingTurnRate).toBe(0);
   });
 
   it('VERBS STACK: dazzle and phosphor compose on one flare, in either pick order (R33)', () => {
@@ -430,8 +643,8 @@ describe('effectiveStats — doctrine verb folds (the five add-ons)', () => {
   it('an add-on moves ONLY its own verb flags (flatten diff)', () => {
     expect(changed(effectiveStats(BASE), effectiveStats(BASE, ['dazzleShells'])))
       .toEqual(['equipment.starShells.dazzle']);
-    expect(changed(effectiveStats(BASE), effectiveStats(BASE, ['acousticHoming'])))
-      .toEqual(['equipment.heavyTorpedo.homing', 'equipment.lightTorpedo.homing']);
+    expect(changed(effectiveStats(BASE), effectiveStats(BASE, ['phosphorShells'])))
+      .toEqual(['equipment.starShells.phosphor']);
   });
 
   it('an unknown doctrine weapon/verb in an untyped line is a fail-closed no-op', () => {
@@ -444,6 +657,8 @@ describe('effectiveStats — doctrine verb folds (the five add-ons)', () => {
           { kind: 'doctrine', weapon: 'gun', mode: 'arcing' }, // the gun carries no doctrine state
           { kind: 'doctrine', weapon: 'cannon' as EquipmentId, mode: 'ap' }, // the DELETED weapon
           { kind: 'doctrine', weapon: 'navalMines', mode: 'captive' }, // now the captive LINE, not a verb
+          { kind: 'doctrine', weapon: 'navalMines', mode: 'propFouling' }, // deleted with the add-on (amendment 81)
+          { kind: 'doctrine', weapon: 'heavyTorpedo', mode: 'homing' }, // now a TIER STAT (amendment 80)
           { kind: 'doctrine', weapon: 'radarBuoy', mode: 'jamming' }, // deleted with the buoy (R1)
           { kind: 'doctrine', weapon: 'starShells', mode: 'litRadius' }, // a real field, NOT a verb
         ]],
@@ -484,11 +699,15 @@ describe('effectiveStats — derived ranges and rings', () => {
     expect(farRadar).toBeLessThan(s.radarRange);
   });
 
-  it('a mine trip ring is DERIVED from its blast radius, on BOTH chassis', () => {
+  it('a CONTACT mine trip ring is DERIVED from its blast radius (naval AND fouling)', () => {
     const eq = effectiveStats(BASE).equipment;
     expect(eq.navalMines.triggerRadius).toBe(CONFIG.mine.triggerRadius); // 48 × 2/3 = 32 exactly
     expect(eq.navalMines.triggerRadius).toBeLessThan(eq.navalMines.blastRadius);
-    // The captive swaps them: the trip ring is the LARGER of the two.
+    // FOULING reuses the SAME fraction — one source, so the two cannot drift.
+    expect(eq.foulingMines.triggerRadius).toBeCloseTo(eq.foulingMines.blastRadius * CONFIG.mine.triggerFactor, 9);
+    expect(eq.foulingMines.triggerRadius).toBeLessThan(eq.foulingMines.blastRadius);
+    // The CAPTIVE's rings are the other way round — the trip ring is the big
+    // one — and its trip ring rides its TIER, not its blast (amendment 84d).
     expect(eq.captiveMines.triggerRadius).toBeGreaterThan(eq.captiveMines.blastRadius);
   });
 
@@ -539,7 +758,10 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
   it('an equipment line at copy 1 is the bare weapon: it FITS and moves no number', () => {
     // Copy 1 of an equipment line carries `slotFill` alone, so the stat tree is
     // byte-identical — the fit shows up in the LOADOUT (sim/boons.ts), not here.
-    for (const id of ['heavyTorpedo', 'navalMines', 'broadside', 'starShells'] as const) {
+    // TRUE OF THE LADDERED LINES TOO: the steps live on tiers II–V, so a hull
+    // holding exactly one LIGHT TORPEDO card sails the tier-I fish.
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines',
+      'broadside', 'starShells'] as const) {
       expect(effectiveStats(BASE, [id]), id).toEqual(effectiveStats(BASE));
     }
   });
@@ -552,7 +774,11 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
   });
 
   it('a consumable is a pure `stock` line: it never moves a derived number', () => {
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy'] as const) {
+    // SUPERCAV TORPEDO and DEPTH CHARGE joined the list in Story 8.13 — and
+    // supercav is the proof that the id MOVED id spaces rather than keeping a
+    // row: five copies of it move nothing at all.
+    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy',
+      'depthCharge', 'supercavTorpedo'] as const) {
       expect(effectiveStats(BASE, stack(id, 5)), id).toEqual(effectiveStats(BASE));
     }
   });

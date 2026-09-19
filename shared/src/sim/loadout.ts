@@ -35,8 +35,14 @@ import type { EffectiveStats } from './stats.js';
  *
  * THE LEGACY RENAME: the shipped `torpedo` IS `heavyTorpedo` and the shipped
  * `mine` IS `navalMines` — same module, same numbers, v3 name (8.13 adds the
- * light/supercavitating torpedoes and the captive mine as NEW modules beside
- * them).
+ * LIGHT torpedo and the CAPTIVE and FOULING mines as NEW modules beside them).
+ *
+ * STORY 8.13 SWAPPED ONE ID FOR ANOTHER (Eric rulings 2026-09-19, epic-8
+ * amendments 74/81, both locked strings kept): `supercavTorpedo` LEFT for the
+ * consumable id space — it is a prime-and-click belt fish with no reload, no
+ * tiers and therefore no stat row — and `foulingMines` ARRIVED from the add-on
+ * space, because FOULING MINES became its own tiered equipment line and the
+ * add-on card was deleted.
  *
  * `radarBuoy` is the ONE legacy id left with a live module and no card behind
  * it: Story 8.15 deletes it in favour of the DECOY BUOY consumable (catalog-v3
@@ -49,9 +55,9 @@ export type EquipmentId =
   | 'boost'
   | 'lightTorpedo'
   | 'heavyTorpedo'
-  | 'supercavTorpedo'
   | 'navalMines'
   | 'captiveMines'
+  | 'foulingMines'
   | 'missile'
   | 'machineGun'
   | 'flak'
@@ -78,9 +84,9 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // WEAPON — prime, aim within the rear arc, click places at the clicked point
   // up to placeRange.
   heavyTorpedo: true,
-  supercavTorpedo: true,
   navalMines: true,
   captiveMines: true,
+  foulingMines: true,
   missile: true,
   machineGun: true,
   flak: true,
@@ -113,8 +119,9 @@ export type SlotItemId = EquipmentId | ConsumableId;
  * The consumable half of the weapon/ability split (D21) — the same law
  * `EQUIPMENT_IS_WEAPON` states for equipment: true iff the consumable is AIMED
  * and fired at a clicked point, false iff it is an instant activation off the
- * `1`–`4` rail. Only the DECOY BUOY is click-placed (catalog-v3 R1, the buoy it
- * replaces was too). Compile-forced to cover every ConsumableId.
+ * `1`–`4` rail. TWO are click-aimed: the DECOY BUOY (catalog-v3 R1, the buoy
+ * it replaces was too) and the SUPERCAV TORPEDO (epic-8 amendment 74).
+ * Compile-forced to cover every ConsumableId.
  */
 export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
   hullRepair: false,
@@ -122,6 +129,14 @@ export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
   smokeScreen: false,
   chaff: false,
   decoyBuoy: true,
+  // DEPTH CHARGE (amendment 83) — STUB: Eric's line, mechanism a later story.
+  // Declared NON-aimed until he rules; a stub is never dealt, so nothing can
+  // reach either channel with it today.
+  depthCharge: false,
+  // SUPERCAV TORPEDO (amendment 74) — the ONE consumable that is a WEAPON in
+  // the mechanical sense besides the decoy: the digit primes, a click inside
+  // the bow ±15° sector fires one fish (`KEY PRIMES · CLICK FIRES`).
+  supercavTorpedo: true,
 };
 
 /** Membership over the ONE consumable id list (sim/effects.ts) — never a second

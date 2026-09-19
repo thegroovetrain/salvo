@@ -75,8 +75,16 @@ import {
   slotsWithCards,
   validateCatalog,
   validateLine,
+  captiveTriggerRadius,
+  mineTriggerRadius,
+  type MineKind,
+  type MineView,
   type SlotItemId,
 } from '../index.js';
+
+/** deg -> rad, the SAME association shared/src uses (`(d * PI) / 180`) — the
+ *  two round differently in the last bit, and these are exact-equality pins. */
+const deg = (d: number): number => (d * Math.PI) / 180;
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
@@ -291,7 +299,24 @@ describe('shared barrel', () => {
     // (count only) — and although `CONFIG.pool.size` travels inside the welcome
     // CONFIG snapshot, the client reads no pool field and predicts nothing from
     // it, so there is no stale client to gate out.
-    expect(PROTOCOL_VERSION).toBe(55);
+    // UNCHANGED BY STORY 8.12 (the ladders + deck gun): the story authors
+    // nothing — two CLIENT readings change and catalog content does not.
+    // 55 -> 56: CATALOG V3 — TORPEDOES AND MINES (Story 8.13, Eric rulings
+    // 2026-09-19, epic-8 amendments 74-84). Two independent breaks under one
+    // bump. (1) CATALOG CONTENT: five equipment lines gain their tiers II-V,
+    // and FOUR LINES CHANGE KIND OR EXISTENCE — `supercavTorpedo` moves to the
+    // CONSUMABLE id space (no reload, no tiers, no stat row), `foulingMines`
+    // moves the other way into `EquipmentId` as its own tiered line,
+    // `acousticHoming` is DELETED (homing is a numeric tier stat now) and a
+    // stub `depthCharge` takes its LINE_IDS place. 29 lines still; 114 -> 122
+    // physical cards; both default decks re-cut; `DEFAULT_OWNED`,
+    // `EQUIPMENT_STAT_FIELDS` and `DOCTRINE_MODES` all change shape. A stale
+    // client would fold a different catalog and fit weapons into the wrong id
+    // space. (2) `MineView` gains an optional `c` (the mine's kind), emitted
+    // ONLY when `own` is true and stripped for every other observer. No new
+    // event kind, no change to the reveal shape, and the perception exception
+    // count stays at SIX.
+    expect(PROTOCOL_VERSION).toBe(56);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -623,10 +648,13 @@ describe('shared barrel', () => {
     // inside your own wake; 150u lets a Mine Layer actually seed water.
     expect(CONFIG.mine.placeRange).toBe(150);
     expect(CONFIG.mine.placeHalfArcDeg).toBe(60);
-    // RETUNED (Eric ruling 2026-08-19, Story 7-5): 25% slower for 5s — a
-    // weaker slow held longer, and no longer paired with a damage penalty.
-    expect(CONFIG.mine.foulFactor).toBe(0.75);
-    expect(CONFIG.mine.foulDurationMs).toBe(5000);
+    // PROP FOULING LEFT CONFIG.mine (Eric ruling 2026-09-19, epic-8 amendment
+    // 81): FOULING MINES is its own tiered EQUIPMENT line now and a naval mine
+    // no longer slows anything, so `foulFactor`/`foulDurationMs` moved into
+    // `CONFIG.foulingMines` as `slowFactor`/`slowDurationMs` (same values).
+    // The pin is INVERTED so they can never quietly come back here.
+    expect('foulFactor' in CONFIG.mine).toBe(false);
+    expect('foulDurationMs' in CONFIG.mine).toBe(false);
     // RETIRED (Story 7-5 wave 2): the three creep pins — creepSpeed 14 u/s,
     // creepAcquireRange 150u, and acquire > blast. They pinned the SELF-
     // PROPELLED doctrine's tuning, and that doctrine left the game with its
@@ -634,9 +662,11 @@ describe('shared barrel', () => {
     // being adapted. Their ABSENCE is what is pinned now — a mine cannot move.
     expect((CONFIG.mine as Record<string, unknown>).creepSpeed).toBeUndefined();
     expect((CONFIG.mine as Record<string, unknown>).creepAcquireRange).toBeUndefined();
-    // CAPTIVE MINES (Story 7-5 wave 2): the swap-and-triple multiplier. Pinned
-    // here as a CONFIG value; the transform itself is pinned in stats.test.ts.
-    expect(CONFIG.mine.captiveTriggerFactor).toBe(3);
+    // THE CAPTIVE TRANSFORM LEFT TOO (epic-8 amendment 84d): CAPTIVE MINES has
+    // its own `CONFIG.captiveMines` ring pair (144 u trip / 32 u fixed burst,
+    // the trip stepping x1.1 per tier off the ROW'S TIER), so the old
+    // swap-and-triple multiplier has no consumer. Inverted pin, same reason.
+    expect('captiveTriggerFactor' in CONFIG.mine).toBe(false);
     // BARREL's parallel-track spacing (R2.16) — a LATERAL distance, replacing
     // the retired 3° angular fan step.
     expect(CONFIG.gun.barrelSpacingU).toBe(12);
@@ -644,7 +674,12 @@ describe('shared barrel', () => {
     expect((CONFIG as Record<string, unknown>).decoyBuoy).toBeUndefined();
   });
 
-  it('CONFIG.torpedo: the homing doctrine fields (command detonation retired)', () => {
+  it('CONFIG.torpedo: the family\'s shared homing fields (command detonation retired)', () => {
+    // 0.5 is now the TIER-V REFERENCE rate, not a doctrine's flat value: the
+    // ACOUSTIC HOMING card is deleted and every torpedo ROW starts at 0
+    // (Eric ruling 2026-09-19, epic-8 amendment 80). The acquire range, the
+    // die-distance and the update threshold stay SHARED by the whole family
+    // (amendment 84e), which is why they live in the heavy's block.
     expect(CONFIG.torpedo.homingTurnRate).toBe(0.5);
     expect(CONFIG.torpedo.homingAcquireRange).toBe(120);
     expect(CONFIG.torpedo.homingUpdateAngleDeg).toBe(5);
@@ -655,19 +690,123 @@ describe('shared barrel', () => {
     expect(CONFIG.torpedo.homingMaxRangeU).toBe(1300);
   });
 
+  it('CONFIG.lightTorpedo (R18): the twin-sector fish, tier-I numbers', () => {
+    expect(CONFIG.lightTorpedo).toEqual({
+      offset: deg(90), // the twin sector's centre: BOTH beams
+      halfArc: deg(45), // 90 deg dead zones fore and aft
+      speed: 45,
+      damage: 40,
+      maxAmmo: 1,
+      reloadMs: 25000,
+      hits: ['hull', 'decoy'], // AR44 — it runs UNDER a minefield
+    });
+    // NO MAX RANGE, and no chassis duplication: hit radius, spawn clearance
+    // and the homing acquire/die/update thresholds are the FAMILY's, read from
+    // CONFIG.torpedo (epic-8 amendments 84e/84f).
+    for (const k of ['hitRadius', 'spawnClearance', 'homingAcquireRange', 'homingMaxRangeU', 'rangeU']) {
+      expect(k in CONFIG.lightTorpedo, k).toBe(false);
+    }
+  });
+
+  it('CONFIG.supercavTorpedo (amendment 74): a CONSUMABLE — no reload, no pool, no tiers', () => {
+    expect(CONFIG.supercavTorpedo).toEqual({
+      offset: deg(0), // bow-centered
+      halfArc: deg(15),
+      speed: 195,
+      damage: 50,
+      hits: ['hull', 'decoy'],
+    });
+    // THE ABSENCES ARE THE RULING (Eric 2026-09-19): a consumable never
+    // reloads (catalog-v3 R40) and its copies STOCK rather than step, so R19's
+    // 45 s reload and its tiers II-V are VOID.
+    for (const k of ['reloadMs', 'maxAmmo', 'homingTurnRate']) {
+      expect(k in CONFIG.supercavTorpedo, k).toBe(false);
+    }
+  });
+
+  it('CONFIG.captiveMines (R25, amendments 77/84d): its OWN ring pair and clock', () => {
+    expect(CONFIG.captiveMines).toEqual({
+      reloadMs: 20000, // amendment 77 lifted the [DRAFT]: 20 s, NOT the naval 15 s
+      maxAmmo: 1, // ...and 1 held, NOT the naval 2
+      triggerRadius: 144, // the TRIP ring — the BIG one
+      triggerStepPerTier: 1.1, // x1.1 per tier off the ROW'S TIER -> 210.8 u at V
+      blastRadius: 32, // the fish's burst — FIXED, it never steps
+      damage: 55,
+    });
+    // The trip ring is the big one and the burst the small one — the reverse
+    // of a contact mine.
+    expect(CONFIG.captiveMines.triggerRadius).toBeGreaterThan(CONFIG.captiveMines.blastRadius);
+  });
+
+  it('CONFIG.foulingMines (amendment 81, ALL [DRAFT]): its own line, the naval mine\'s old foul', () => {
+    expect(CONFIG.foulingMines).toEqual({
+      damage: 10, // "minimal damage" — FIXED at every tier
+      blastRadius: 72, // bigger than the naval mine's 48 by design
+      slowFactor: 0.75, // the value that left CONFIG.mine verbatim
+      slowDurationMs: 5000, // ...and so did this one; the tiers deepen the FACTOR only
+      maxAmmo: 2,
+      reloadMs: 15000,
+      hits: ['hull'], // AR44 — a mine trips on hulls only
+    });
+    // ONE SOURCE FOR THE TRIP FRACTION: it reuses CONFIG.mine.triggerFactor
+    // rather than restating 2/3, so the naval and fouling rings cannot drift.
+    expect('triggerFactor' in CONFIG.foulingMines).toBe(false);
+    expect(CONFIG.foulingMines.blastRadius).toBeGreaterThan(CONFIG.mine.blastRadius);
+    // ...and the naval chassis (rear sector, leash, arm delay) is NOT copied.
+    for (const k of ['offset', 'placeHalfArcDeg', 'placeRange', 'armDelay']) {
+      expect(k in CONFIG.foulingMines, k).toBe(false);
+    }
+  });
+
+  it('re-exports the mine WIRE shape: MineKind + the own-only MineView.c (amendment 76)', () => {
+    // A TYPE-LEVEL PIN as much as a runtime one — this file type-checks in the
+    // gate, so a `MineKind` the barrel does not export, or a `c` that is not
+    // optional, fails to compile here.
+    const kinds: MineKind[] = ['naval', 'captive', 'fouling'];
+    expect(kinds).toHaveLength(3);
+    // The OWNER's marker carries the kind...
+    const own: MineView = { id: 'm1', x: 10, y: 20, own: true, by: 'ship1', c: 'captive' };
+    expect(own.c).toBe('captive');
+    // ...and EVERY OTHER OBSERVER's is the byte-identical kind-less marker it
+    // always was: the server strips the field, so an observer cannot tell the
+    // three kinds apart by sight. `c` is OPTIONAL precisely so that costs
+    // nothing on the wire.
+    const seen: MineView = { id: 'm1', x: 10, y: 20, own: false, by: 'ship1' };
+    expect(seen.c).toBeUndefined();
+    expect(Object.keys(seen)).toEqual(['id', 'x', 'y', 'own', 'by']);
+  });
+
+  it('re-exports the mine RING derivations (sim/stats.ts — the one home for both)', () => {
+    // A CONTACT mine's trip ring is a fixed fraction of its blast...
+    expect(mineTriggerRadius(CONFIG.mine.blastRadius)).toBe(CONFIG.mine.triggerRadius);
+    expect(mineTriggerRadius(72)).toBeCloseTo(48, 9);
+    // ...and the CAPTIVE's rides its TIER instead (epic-8 amendment 84d).
+    expect(captiveTriggerRadius(1)).toBe(CONFIG.captiveMines.triggerRadius);
+    expect(captiveTriggerRadius(5)).toBeCloseTo(210.8304, 4);
+    // Non-finite / sub-1 tiers clamp to the tier-I ring, never NaN.
+    for (const bad of [NaN, Infinity, -Infinity, 0, -3]) {
+      expect(Number.isFinite(captiveTriggerRadius(bad)), `${bad}`).toBe(true);
+    }
+    expect(captiveTriggerRadius(NaN)).toBe(CONFIG.captiveMines.triggerRadius);
+  });
+
   it('re-exports THE CATALOG + the card fold engine (Story 8.1, catalog v3)', () => {
-    // 28 v2 boon lines -> 29 v3 LINES / 114 physical cards (catalog-v3 §1).
+    // 28 v2 boon lines -> 29 v3 LINES. The CARD total moved 114 -> 122 in
+    // Story 8.13 purely by re-cutting kinds (epic-8 amendments 74/80/81/83):
+    // -1 acousticHoming, +5 depthCharge, foulingMines 1 -> 5, supercav 5 -> 5.
     expect(LINE_IDS).toHaveLength(29);
     expect(Object.keys(CATALOG)).toHaveLength(29);
-    expect(catalogCardCount()).toBe(114);
+    expect(catalogCardCount()).toBe(122);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
     expect(Object.isFrozen(NO_CARDS)).toBe(true);
-    // 12 of the 29 lines are STUBS — authored in shape, mechanism unbuilt,
-    // never dealt into a deck (Eric ruling 2026-09-15, amendment 5). It was 13
-    // until Story 8.8 gave HULL REPAIR its effect.
-    expect(LINE_IDS.filter((id) => isStubLine(id))).toHaveLength(12);
+    // 10 of the 29 lines are STUBS — authored in shape, mechanism unbuilt,
+    // never dealt into a deck (Eric ruling 2026-09-15, amendment 5). 13 until
+    // Story 8.8 gave HULL REPAIR its effect; 12 until Story 8.13 built the
+    // LIGHT TORPEDO, the CAPTIVE MINE and the SUPERCAV TORPEDO and added the
+    // one new stub, DEPTH CHARGE.
+    expect(LINE_IDS.filter((id) => isStubLine(id))).toHaveLength(10);
     // THE GENERATED WHITELIST, and its deliberate absences (see sim/effects.ts).
     expect(BOON_STAT_PATHS.length).toBeGreaterThan(0);
     expect(Object.keys(EQUIPMENT_STAT_FIELDS).sort()).toEqual([...EQUIPMENT_IDS].sort());
@@ -676,8 +815,17 @@ describe('shared barrel', () => {
       'equipment.gun.rangeU', 'equipment.starShells.rangeU', 'equipment.broadside.rangeU',
       'equipment.broadside.traverseRad', 'equipment.broadside.mountSpreadRad',
       'equipment.navalMines.triggerRadius', 'equipment.gun.tier',
+      // THE CAPTIVE MINE HAS NEITHER RADIUS PATH (epic-8 amendment 84d): its
+      // trip ring is derived from its TIER and its 32 u burst is fixed.
+      'equipment.captiveMines.triggerRadius', 'equipment.captiveMines.blastRadius',
+      'equipment.foulingMines.triggerRadius',
     ]) expect(BOON_STAT_PATHS, path).not.toContain(path);
-    expect(Object.keys(DOCTRINE_MODES)).toHaveLength(5);
+    // ...and `supercavTorpedo` has no paths at all — it is a CONSUMABLE now
+    // (amendment 74), so it has no stat row to address.
+    for (const path of BOON_STAT_PATHS) expect(path.startsWith('equipment.supercavTorpedo.')).toBe(false);
+    // CUT FROM FIVE ENTRIES TO TWO (amendments 80/81): the torpedoes' `homing`
+    // and the naval mine's `propFouling` went with the cards that granted them.
+    expect(Object.keys(DOCTRINE_MODES)).toHaveLength(2);
     // DELETED WITH RARITY AND THE SUBDECK WALK (Story 8.1): there is no card
     // scarcity tier, no offer category and no acquisition card left anywhere.
     for (const gone of [

@@ -3,10 +3,13 @@
 // Pins:
 //   (1) buildDeckState (Story 8.2, Eric rulings 2026-09-15, amendments 10-11):
 //       the frozen 40-card list MINUS every stub line MINUS one copy per
-//       carried line — 27 drawable cards for each of the three default decks
-//       now that NOTHING is carried (Story 8.10 deleted the spawn seed, so the
-//       server builds every pool with `carried = []`), and NO STUB EVER DEALT,
-//       so no stub id can reach an offer;
+//       carried line — 30 / 29 / 27 drawable cards for the Torpedo Boat, the
+//       Mine Layer and the Battleship now that NOTHING is carried (Story 8.10
+//       deleted the spawn seed, so the server builds every pool with
+//       `carried = []`), and NO STUB EVER DEALT, so no stub id can reach an
+//       offer. THE THREE DECKS PULLED APART IN STORY 8.13 — they were 27 each
+//       — because the TB's LIGHT TORPEDO and the ML's CAPTIVE MINES went live
+//       while the BS's missile and monitor are still Story 8.14's;
 //   (2) drawOffer distinctness / weight-by-copies-remaining / determinism /
 //       empty-and-thin-deck fail-safety, and that a draw is NON-CONSUMING;
 //   (3) consumeCard — the FIT, the deck's one and only outflow;
@@ -117,17 +120,27 @@ describe('buildDeckState — the frozen list becomes the drawable pool (Story 8.
       const dealt = new Set(poolFor(hull).cards);
       for (const id of dealt) expect(isStubLine(id), `${hull}:${id}`).toBe(false);
     }
-    expect(NON_STUB).toHaveLength(17); // 16 until Story 8.8 flipped hullRepair live
+    // 17 until Story 8.13 built the LIGHT TORPEDO, the CAPTIVE MINE and the
+    // SUPERCAV TORPEDO, added the stub DEPTH CHARGE and re-cut FOULING MINES
+    // into a live equipment line while deleting ACOUSTIC HOMING.
+    expect(NON_STUB).toHaveLength(19);
   });
 
-  // THE DRAWABLE-SIZE TABLE (spec Design Notes): each default holds 13 stub
-  // cards (shieldBlock 3 + smokeScreen 2 + chaff 2 + two stub weapon lines × 3)
-  // and NOTHING is carried out of it → 40 − 13 = 27. It was 26 while the
-  // interim spawn seed took one equipment copy out at spawn (Story 8.10
-  // deleted that table), and 23 until Story 8.8 flipped HULL REPAIR live.
+  // THE DRAWABLE-SIZE TABLE (spec Design Notes). Every default holds the same
+  // SEVEN universal stub cards (shieldBlock 3 + smokeScreen 2 + chaff 2) and
+  // nothing is carried out of it; the rest is per hull, and STORY 8.13 PULLED
+  // THE THREE DECKS APART for the first time:
+  //   - TB: + machineGun 3 = 10 stubs. Its LIGHT TORPEDO 3 went LIVE and its
+  //     40th card is a live SUPERCAV TORPEDO, so it deals the most.
+  //   - ML: + flak 3 + depthCharge 1 = 11. Its CAPTIVE MINES 3 went live but
+  //     its 40th card is now a STUB depth charge.
+  //   - BS: + missile 3 + monitor 3 = 13, untouched by this story.
+  // It was 13/13/13 -> 27 across the board before, 26 while the interim spawn
+  // seed took one equipment copy out at spawn (Story 8.10 deleted that table),
+  // and 23 until Story 8.8 flipped HULL REPAIR live.
   it.each([
-    ['torpedoBoat', 13, 27],
-    ['mineLayer', 13, 27],
+    ['torpedoBoat', 10, 30],
+    ['mineLayer', 11, 29],
     ['battleship', 13, 27],
   ] as const)('%s: 40 cards − %i stub cards − 0 carried copies = %i drawable', (hull, stubs, drawable) => {
     const list = DEFAULT_DECKS[hull];
@@ -152,7 +165,7 @@ describe('buildDeckState — the frozen list becomes the drawable pool (Story 8.
 
   it('ignores a carried line the list holds no copy of (stub, absent, junk) and removes one per repeat', () => {
     const size = buildDeckState(DEFAULT_DECKS.torpedoBoat).cards.length;
-    expect(buildDeckState(DEFAULT_DECKS.torpedoBoat, ['lightTorpedo']).cards).toHaveLength(size); // stub: never dealt
+    expect(buildDeckState(DEFAULT_DECKS.torpedoBoat, ['machineGun']).cards).toHaveLength(size); // stub: never dealt
     expect(buildDeckState(DEFAULT_DECKS.torpedoBoat, ['broadside']).cards).toHaveLength(size); // not in the deck
     expect(buildDeckState(DEFAULT_DECKS.torpedoBoat, ['nope' as LineId]).cards).toHaveLength(size);
     expect(buildDeckState(DEFAULT_DECKS.torpedoBoat, ['heavyTorpedo', 'heavyTorpedo']).cards).toHaveLength(size - 2);
@@ -185,8 +198,9 @@ describe('buildDeckState — the frozen list becomes the drawable pool (Story 8.
     expect(CONFIG.deck).toEqual({ size: 40, maxEquipmentLines: 3 });
     expect('rareWeightBase' in CONFIG.deck).toBe(false);
     expect('rareWeightPerDryLevel' in CONFIG.deck).toBe(false);
-    // The 114-card catalog is what the three 40-card decks draw on.
-    expect(catalogCardCount()).toBe(114);
+    // The 122-card catalog is what the three 40-card decks draw on (114 until
+    // Story 8.13 re-cut four lines' kinds, epic-8 amendments 74/80/81/83).
+    expect(catalogCardCount()).toBe(122);
   });
 });
 
@@ -504,7 +518,10 @@ describe('the at-cap guard: IDLE on the AUTHORED deck (8.3), LIVE once the pool 
       const copies = tally(deck.cards).get('hullRepair') ?? 0;
       expect(copies, hull).toBe(3 + 5); // 3 authored (amendment 10) + 5 pooled
       expect(copies, hull).toBeGreaterThan(CATALOG.hullRepair.cap); // 8 > 5
-      expect(deck.cards).toHaveLength(27 + 5); // every pool copy is dealable (hullRepair is live)
+      // Every pool copy is dealable (hullRepair is live), on top of whatever
+      // that hull's own 40 deals — 30 / 29 / 27 since Story 8.13.
+      const bare = buildDeckState(DEFAULT_DECKS[hull]).cards.length;
+      expect(deck.cards, hull).toHaveLength(bare + 5);
     }
   });
 
@@ -593,7 +610,10 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
       const { picks, deck } = replay(seed);
       const counts = tally(picks);
       for (const [id, n] of counts) expect(n, `${seed}:${id}`).toBeLessThanOrEqual(CATALOG[id].cap);
-      expect(picks.length, `${seed}`).toBe(27); // the whole drawable pool plays out
+      // The whole drawable pool plays out. 30 for the Torpedo Boat since
+      // Story 8.13 flipped its LIGHT TORPEDO live and gave it a live SUPERCAV
+      // TORPEDO as its 40th card (it was 27 when two of its lines were stubs).
+      expect(picks.length, `${seed}`).toBe(30);
       expect(deck.cards, `${seed}`).toEqual([]);
     }
   });

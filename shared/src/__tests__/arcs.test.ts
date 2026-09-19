@@ -14,7 +14,17 @@
 // declares.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, EQUIPMENT_IDS, arcFor, sectorArcFor, twinSectorArcFor, type EquipmentId } from '../index.js';
+import {
+  CONFIG,
+  CONSUMABLE_IDS,
+  EQUIPMENT_IDS,
+  arcFor,
+  isConsumableId,
+  sectorArcFor,
+  twinSectorArcFor,
+  twinSectorSide,
+  type EquipmentId,
+} from '../index.js';
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
@@ -50,12 +60,56 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(CONFIG.mine.placeRange).toBe(150); // the ratified placement leash (Eric 2026-08-02)
   });
 
-  it('the captive mine shares the naval mine chassis sector (catalog-v3 R25)', () => {
+  it('the captive AND fouling mines share the naval mine chassis sector (R25, amendment 81)', () => {
+    // Not merely equal-shaped: the SAME sector for all three kinds, so the
+    // placement wedges can never drift apart.
     expect(arcFor('captiveMines')).toEqual(arcFor('navalMines'));
+    expect(arcFor('foulingMines')).toEqual(arcFor('navalMines'));
   });
 
-  it('the seven UNBUILT v3 weapons and the v3 boost placeholder declare no arc yet (Story 8.1)', () => {
-    for (const id of ['boost', 'lightTorpedo', 'supercavTorpedo', 'missile', 'machineGun', 'flak', 'monitor'] as const) {
+  it('the LIGHT TORPEDO is a TWIN SECTOR: both beams, +/-45 deg about 90 deg (R18)', () => {
+    expect(arcFor('lightTorpedo')).toEqual({
+      kind: 'twin-sector',
+      offset: CONFIG.lightTorpedo.offset,
+      halfArc: CONFIG.lightTorpedo.halfArc,
+    });
+    // The ratified VALUES: the two sectors cover 45-135 deg and -45 to -135
+    // deg, leaving 90 deg dead zones dead ahead and dead astern.
+    expect(CONFIG.lightTorpedo.offset).toBeCloseTo(deg(90), 12);
+    expect(CONFIG.lightTorpedo.halfArc).toBeCloseTo(deg(45), 12);
+    const arc = twinSectorArcFor('lightTorpedo');
+    expect((arc.offset - arc.halfArc) / (Math.PI / 180)).toBeCloseTo(45, 9);
+    expect((arc.offset + arc.halfArc) / (Math.PI / 180)).toBeCloseTo(135, 9);
+    // And the side rule is the broadside's, verbatim: a click dead ahead is in
+    // NEITHER sector and is denied out-of-arc.
+    expect(twinSectorSide(0, 0, arc)).toBeNull();
+    expect(twinSectorSide(0, deg(90), arc)).toBe(1);
+    expect(twinSectorSide(0, deg(-90), arc)).toBe(-1);
+  });
+
+  it('the SUPERCAV TORPEDO is a bow sector — and it is a CONSUMABLE (amendment 74)', () => {
+    expect(arcFor('supercavTorpedo')).toEqual({
+      kind: 'sector',
+      offset: CONFIG.supercavTorpedo.offset,
+      halfArc: CONFIG.supercavTorpedo.halfArc,
+    });
+    expect(CONFIG.supercavTorpedo.offset).toBe(0);
+    expect(CONFIG.supercavTorpedo.halfArc).toBeCloseTo(deg(15), 12);
+    expect(isConsumableId('supercavTorpedo')).toBe(true);
+  });
+
+  it('EVERY OTHER consumable declares no arc — the decoy\'s is Story 8.15\'s', () => {
+    for (const id of CONSUMABLE_IDS) {
+      if (id === 'supercavTorpedo') continue;
+      expect(arcFor(id), id).toEqual({ kind: 'none' });
+    }
+  });
+
+  it('the FOUR still-unbuilt v3 weapons and the Shift boost declare no arc yet (Story 8.14)', () => {
+    // It was SEVEN until Story 8.13: the light torpedo declares its twin
+    // sector, the supercav declares its bow sector as a consumable, and
+    // fouling mines joined the mine chassis.
+    for (const id of ['boost', 'missile', 'machineGun', 'flak', 'monitor'] as const) {
       expect(arcFor(id)).toEqual({ kind: 'none' });
     }
   });
@@ -86,10 +140,15 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(arcFor('boost')).toEqual({ kind: 'none' });
   });
 
-  it('covers every EquipmentId (a new id cannot ship without an arc shape)', () => {
+  it('covers every SlotItemId (a new id cannot ship without an arc shape)', () => {
     const ids: EquipmentId[] = [...EQUIPMENT_IDS];
     for (const id of ids) {
-      expect(['full', 'sector', 'twin-sector', 'none']).toContain(arcFor(id).kind);
+      expect(['full', 'sector', 'twin-sector', 'none'], id).toContain(arcFor(id).kind);
+    }
+    // WIDENED PAST EQUIPMENT in Story 8.13 (amendment 74): the arc grammar now
+    // answers for consumables too, because one of them is click-aimed.
+    for (const id of CONSUMABLE_IDS) {
+      expect(['full', 'sector', 'twin-sector', 'none'], id).toContain(arcFor(id).kind);
     }
   });
 
@@ -101,7 +160,14 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
 });
 
 describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine/buoy rear arc)', () => {
-  it('narrows the torpedo, the mine AND the radar buoy to their sector descriptors', () => {
+  it('narrows the heavy torpedo, the supercav, the mines AND the radar buoy to their sectors', () => {
+    expect(sectorArcFor('supercavTorpedo')).toEqual({
+      kind: 'sector',
+      offset: CONFIG.supercavTorpedo.offset,
+      halfArc: CONFIG.supercavTorpedo.halfArc,
+    });
+    expect(sectorArcFor('foulingMines')).toEqual(sectorArcFor('navalMines'));
+    expect(sectorArcFor('captiveMines')).toEqual(sectorArcFor('navalMines'));
     expect(sectorArcFor('heavyTorpedo')).toEqual({
       kind: 'sector',
       offset: CONFIG.torpedo.offset,
@@ -116,23 +182,33 @@ describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine/buoy rear arc
   });
 
   it('THROWS on any non-sector id (a CONFIG/arcs authoring error, loud at load)', () => {
-    for (const id of ['gun', 'broadside', 'starShells', 'boost'] as const) {
+    for (const id of ['gun', 'broadside', 'starShells', 'boost', 'lightTorpedo', 'hullRepair'] as const) {
       expect(() => sectorArcFor(id)).toThrow(/must be a sector/);
     }
   });
 });
 
 describe('twinSectorArcFor — narrow-or-throw (the broadside beam accessor)', () => {
-  it('narrows the broadside to its twin-sector descriptor', () => {
+  it('narrows the broadside AND the light torpedo to their twin-sector descriptors', () => {
     expect(twinSectorArcFor('broadside')).toEqual({
       kind: 'twin-sector',
       offset: deg(CONFIG.broadside.arcOffsetDeg),
       halfArc: deg(CONFIG.broadside.arcHalfArcDeg),
     });
+    expect(twinSectorArcFor('lightTorpedo')).toEqual({
+      kind: 'twin-sector',
+      offset: CONFIG.lightTorpedo.offset,
+      halfArc: CONFIG.lightTorpedo.halfArc,
+    });
+    // The two twin sectors are NOT the same geometry: the light torpedo's
+    // beams are narrower (+/-45 deg vs +/-60 deg), so its dead zones are wider.
+    expect(twinSectorArcFor('lightTorpedo').halfArc)
+      .toBeLessThan(twinSectorArcFor('broadside').halfArc);
   });
 
   it('THROWS on every other id — including the plain SECTOR weapons', () => {
-    for (const id of ['gun', 'starShells', 'heavyTorpedo', 'navalMines', 'radarBuoy', 'boost'] as const) {
+    for (const id of ['gun', 'starShells', 'heavyTorpedo', 'navalMines', 'foulingMines',
+      'radarBuoy', 'boost', 'supercavTorpedo'] as const) {
       expect(() => twinSectorArcFor(id)).toThrow(/must be a twin-sector/);
     }
   });

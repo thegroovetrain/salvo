@@ -1,12 +1,19 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
-// Pinned here: 29 lines / 114 cards with the exact per-line caps and kinds of
-// `catalog-v3.md` §1; `tiers.length === cap` on every line; the 12-line stub
-// set; the validator's rules, including its refusal of a stat path that takes
-// `add` from one line and `mult` from another; and a seeded permutation
-// property — ≥200 shuffles of random legal multisets over all three classes,
-// deep-equal AND JSON-identical.
+// Pinned here: 29 lines / 122 cards with the exact per-line caps and kinds of
+// `catalog-v3.md` §1 as amended; `tiers.length === cap` on every line; the
+// 10-line stub set; the validator's rules, including its refusal of a stat
+// path that takes `add` from one line and `mult` from another; and a seeded
+// permutation property — ≥200 shuffles of random legal multisets over all
+// three classes, deep-equal AND JSON-identical.
+//
+// STORY 8.13 RE-CUT FOUR LINES' KINDS (Eric rulings 2026-09-19, epic-8
+// amendments 74/80/81/83), which is why the CARD TOTAL moved 114 -> 122
+// although the LINE count did not move: −1 (`acousticHoming`, a 1-card add-on,
+// deleted), +5 (`depthCharge`, a new 5-card consumable), +4
+// (`foulingMines` add-on 1 -> equipment 5), ±0 (`supercavTorpedo` equipment 5
+// -> consumable 5).
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -42,11 +49,12 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   deckGun: { cap: 4, kind: 'ladder', stub: false },
   deckGunTurret: { cap: 1, kind: 'ladder', stub: false },
   deckGunBarrel: { cap: 2, kind: 'ladder', stub: false },
-  lightTorpedo: { cap: 5, kind: 'equipment', stub: true },
+  lightTorpedo: { cap: 5, kind: 'equipment', stub: false }, // LIVE since 8.13 (R18)
   heavyTorpedo: { cap: 5, kind: 'equipment', stub: false },
-  supercavTorpedo: { cap: 5, kind: 'equipment', stub: true },
+  // A CONSUMABLE since 8.13 (amendment 74) — it keeps its LINE_IDS slot.
+  supercavTorpedo: { cap: 5, kind: 'consumable', stub: false },
   navalMines: { cap: 5, kind: 'equipment', stub: false },
-  captiveMines: { cap: 5, kind: 'equipment', stub: true },
+  captiveMines: { cap: 5, kind: 'equipment', stub: false }, // LIVE since 8.13 (R25)
   missile: { cap: 5, kind: 'equipment', stub: true },
   machineGun: { cap: 5, kind: 'equipment', stub: true },
   flak: { cap: 5, kind: 'equipment', stub: true },
@@ -58,18 +66,21 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   smokeScreen: { cap: 5, kind: 'consumable', stub: true },
   chaff: { cap: 5, kind: 'consumable', stub: true },
   decoyBuoy: { cap: 5, kind: 'consumable', stub: true },
-  acousticHoming: { cap: 1, kind: 'addon', stub: false },
-  foulingMines: { cap: 1, kind: 'addon', stub: false },
+  depthCharge: { cap: 5, kind: 'consumable', stub: true }, // NEW in 8.13 (amendment 83)
+  // AN EQUIPMENT LINE since 8.13 (amendment 81) — it keeps its LINE_IDS slot.
+  foulingMines: { cap: 5, kind: 'equipment', stub: false },
   heatSeeking: { cap: 1, kind: 'addon', stub: true },
   dazzleShells: { cap: 1, kind: 'addon', stub: false },
   phosphorShells: { cap: 1, kind: 'addon', stub: false },
 };
 
-/** The 12 stub ids (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
- *  built HULL REPAIR's effect and made it the first dealt consumable. */
+/** The 10 stub ids (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
+ *  built HULL REPAIR's effect, 12 until Story 8.13 built the LIGHT TORPEDO,
+ *  the CAPTIVE MINE and the SUPERCAV TORPEDO (which also stopped being an
+ *  equipment line) and added the stub DEPTH CHARGE. */
 const STUB_IDS: readonly LineId[] = [
-  'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
-  'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
+  'missile', 'machineGun', 'flak', 'monitor',
+  'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge', 'heatSeeking',
 ];
 
 describe('catalog v3 identity', () => {
@@ -84,24 +95,49 @@ describe('catalog v3 identity', () => {
       const line = CATALOG[id];
       expect({ cap: line.cap, kind: line.kind, stub: line.stub === true }).toEqual(SHEET[id]);
     }
-    expect(catalogCardCount()).toBe(114);
+    expect(catalogCardCount()).toBe(122);
   });
 
   it('has tiers.length === cap on every line', () => {
     for (const id of LINE_IDS) expect(CATALOG[id].tiers.length).toBe(CATALOG[id].cap);
   });
 
-  it('pins the 12-line stub set exactly', () => {
+  it('pins the 10-line stub set exactly', () => {
     expect(LINE_IDS.filter((id) => isStubLine(id)).sort()).toEqual([...STUB_IDS].sort());
     expect(isStubLine('nope')).toBe(false);
   });
 
-  it('gives every equipment line a copy-1 slotFill and FOUR EMPTY tiers (8.12–8.16 fill them)', () => {
+  it('gives every equipment line a copy-1 slotFill, and FOUR EMPTY tiers where the story has not landed', () => {
+    // The five lines Story 8.13 authored (their exact steps are pinned in
+    // stats.test.ts, against the numbers, not against the effect shapes).
+    const LADDERED: readonly LineId[] = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines'];
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       if (line.kind !== 'equipment') continue;
-      expect(line.tiers[0]).toEqual([{ kind: 'slotFill', equipmentId: id }]);
-      expect(line.tiers.slice(1)).toEqual([[], [], [], []]);
+      expect(line.tiers[0], id).toEqual([{ kind: 'slotFill', equipmentId: id }]);
+      if (LADDERED.includes(id)) {
+        // Tiers II–V are the SAME step, four times, each in its OWN array.
+        for (const tier of line.tiers.slice(1)) expect(tier, id).toEqual(line.tiers[1]);
+        expect(line.tiers[1]!.length, id).toBeGreaterThan(0);
+        for (const e of line.tiers[1]!) expect(e.kind, id).toBe('stat');
+      } else {
+        // broadside + star shells (8.16) and the four gun-family stubs (8.14).
+        expect(line.tiers.slice(1), id).toEqual([[], [], [], []]);
+      }
+    }
+    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'equipment')).toHaveLength(11);
+  });
+
+  it('NO equipment tier authors a reload effect — the −5 %/tier step is DERIVED', () => {
+    // catalog-v3 §3's standing rule lives in sim/stats.ts reloadTierScale, not
+    // in the sheet: one derivation in the engine, never restated on four tiers
+    // of five lines.
+    for (const id of LINE_IDS) {
+      for (const tier of CATALOG[id].tiers) {
+        for (const e of tier) {
+          if (e.kind === 'stat') expect(e.path.endsWith('.reloadMs'), `${id}:${e.path}`).toBe(false);
+        }
+      }
     }
   });
 
@@ -113,16 +149,18 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('wires each add-on to the equipment catalog-v3 §4 names', () => {
-    expect(CATALOG.acousticHoming.appliesTo).toEqual(['lightTorpedo', 'heavyTorpedo']);
-    expect(CATALOG.foulingMines.appliesTo).toEqual(['navalMines']);
+  it('wires each of the THREE surviving add-ons to the equipment catalog-v3 §4 names', () => {
+    // TWO ADD-ONS ARE GONE (Eric rulings 2026-09-19, epic-8 amendments 80/81):
+    // ACOUSTIC HOMING is deleted outright (homing became a tier stat on the
+    // torpedo lines) and FOULING MINES became its own tiered EQUIPMENT line.
+    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'addon')).toEqual([
+      'heatSeeking', 'dazzleShells', 'phosphorShells',
+    ]);
     expect(CATALOG.heatSeeking.appliesTo).toEqual(['missile']);
     expect(CATALOG.dazzleShells.appliesTo).toEqual(['starShells']);
     expect(CATALOG.phosphorShells.appliesTo).toEqual(['starShells']);
-    expect(CATALOG.acousticHoming.tiers[0]).toEqual([
-      { kind: 'doctrine', weapon: 'lightTorpedo', mode: 'homing' },
-      { kind: 'doctrine', weapon: 'heavyTorpedo', mode: 'homing' },
-    ]);
+    expect(CATALOG.heatSeeking.tiers[0]).toEqual([{ kind: 'doctrine', weapon: 'missile', mode: 'homing' }]);
+    expect((CATALOG as Record<string, unknown>).acousticHoming).toBeUndefined();
   });
 
   it('marks ARMOR as the one heal-on-grant line', () => {
@@ -218,13 +256,16 @@ describe('validateCatalog', () => {
   // Every one of them proves the PRODUCTION catalog still passes, above.
 
   it('refuses a NON-STUB add-on whose every target line is a STUB (a dead card)', () => {
+    // The rule outlived its original example: ACOUSTIC HOMING was the live
+    // add-on over a stub light torpedo, and it is deleted (amendment 80). The
+    // shape is pinned through an injected catalog instead, and production —
+    // whose only remaining add-on over a STUB line, HEAT SEEKING over the
+    // missile, is ITSELF a stub and therefore exempt — still passes.
     const bad: Catalog = {
       heavyTorpedo: { id: 'heavyTorpedo', kind: 'equipment', cap: 1, stub: true, tiers: [[{ kind: 'slotFill', equipmentId: 'heavyTorpedo' }]] },
-      acousticHoming: { id: 'acousticHoming', kind: 'addon', cap: 1, appliesTo: ['heavyTorpedo'], tiers: [[{ kind: 'doctrine', weapon: 'heavyTorpedo', mode: 'homing' }]] },
+      dazzleShells: { id: 'dazzleShells', kind: 'addon', cap: 1, appliesTo: ['heavyTorpedo'], tiers: [[{ kind: 'doctrine', weapon: 'missile', mode: 'homing' }]] },
     };
-    expect(validateCatalog(bad).join(' | ')).toContain('acousticHoming: live add-on applies only to STUB equipment');
-    // ...and the production acousticHoming is fine: it also names heavyTorpedo,
-    // which is live, even though lightTorpedo is still a stub.
+    expect(validateCatalog(bad).join(' | ')).toContain('dazzleShells: live add-on applies only to STUB equipment');
     expect(validateCatalog()).toEqual([]);
   });
 
@@ -326,15 +367,23 @@ const UNIVERSAL: Partial<Record<LineId, number>> = {
   deckGun: 2, deckGunTurret: 1, deckGunBarrel: 2,
 };
 
-/** Amendment 10's per-hull ten. */
+/** Amendment 10's per-hull ten, as re-cut for the Torpedo Boat and the Mine
+ *  Layer by Eric's 2026-09-19 rulings (epic-8 amendments 80 and 83). BOTH now
+ *  close their deck with ONE CONSUMABLE copy instead of an add-on: ACOUSTIC
+ *  HOMING is deleted (Eric: *"Give them one supercavitating torpedo."*) and
+ *  the FOULING MINES add-on became its own unhomed equipment line (Eric:
+ *  *"WOAH. Depth charge will be a CONSUMABLE. not a line."*). Every deck still
+ *  carries exactly THREE equipment lines, so `maxEquipmentLines` stays 3. */
 const PER_HULL: Record<ShipClassId, Partial<Record<LineId, number>>> = {
-  torpedoBoat: { lightTorpedo: 3, heavyTorpedo: 3, machineGun: 3, acousticHoming: 1 },
-  mineLayer: { navalMines: 3, captiveMines: 3, flak: 3, foulingMines: 1 },
+  torpedoBoat: { lightTorpedo: 3, heavyTorpedo: 3, machineGun: 3, supercavTorpedo: 1 },
+  mineLayer: { navalMines: 3, captiveMines: 3, flak: 3, depthCharge: 1 },
   battleship: { missile: 3, monitor: 3, starShells: 3, dazzleShells: 1 },
 };
 
-/** The five lines in no default deck (amendment 10). */
-const UNHOMED: readonly LineId[] = ['supercavTorpedo', 'broadside', 'decoyBuoy', 'heatSeeking', 'phosphorShells'];
+/** The five lines in no default deck. `supercavTorpedo` LEFT this list (the TB
+ *  carries one) and `foulingMines` JOINED it (amendments 80/81); the count did
+ *  not move. */
+const UNHOMED: readonly LineId[] = ['foulingMines', 'broadside', 'decoyBuoy', 'heatSeeking', 'phosphorShells'];
 
 function countsOf(ids: readonly LineId[]): Map<LineId, number> {
   const out = new Map<LineId, number>();
@@ -409,7 +458,9 @@ describe('deckFromCounts — the authoring helper refuses transcription slips at
   });
 
   it('throws on a count over the cap', () => {
-    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, acousticHoming: 2, armor: 2 })).toThrow(/acousticHoming.*cap/);
+    // dazzleShells is cap-1 (an add-on), so two copies is over cap. It replaces
+    // the deleted acousticHoming as the example (amendment 80).
+    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.battleship, dazzleShells: 2, armor: 2 })).toThrow(/dazzleShells.*cap/);
   });
 
   it('throws on a total other than CONFIG.deck.size', () => {

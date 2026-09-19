@@ -100,9 +100,12 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
     // ability channel for the fireSeq weapon channel — which leaves the speed
     // boost as the last instant activation in the game.
     // WIDENED to catalog v3 (Story 8.1): the shipped torpedo/mine keep their
-    // behaviour under their v3 names, the seven unbuilt v3 weapons declare
-    // themselves aimed weapons ahead of their modules (8.13/8.14), and the v3
-    // `boost` id is a non-aimed activation. Story 8.9 made it THE Shift boost
+    // behaviour under their v3 names, the unbuilt v3 weapons declare
+    // themselves aimed weapons ahead of their modules (8.14), and the v3
+    // `boost` id is a non-aimed activation. STORY 8.13 SWAPPED ONE FOR ONE
+    // (Eric rulings 2026-09-19, epic-8 amendments 74/81): `supercavTorpedo`
+    // LEFT for the consumable id space and `foulingMines` ARRIVED from the
+    // add-on space — the count did not move. Story 8.9 made it THE Shift boost
     // (universal, slot 1, no card can address it) and deleted the legacy
     // flat-bonus id beside it — one non-weapon left, not two.
     expect(EQUIPMENT_IS_WEAPON).toEqual({
@@ -110,9 +113,9 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
       boost: false, // Story 8.9: THE Shift boost — universal instant activation
       lightTorpedo: true,
       heavyTorpedo: true,
-      supercavTorpedo: true,
       navalMines: true, // Story 2.8: click-aimed rear-arc placement (amendment 45)
       captiveMines: true,
+      foulingMines: true, // Story 8.13: its own line now (epic-8 amendment 81)
       missile: true,
       machineGun: true,
       flak: true,
@@ -272,7 +275,9 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
     for (const id of CONSUMABLE_IDS) expect(equipment.has(id), id).toBe(false);
     const consumables = new Set<string>(CONSUMABLE_IDS);
     for (const id of EQUIPMENT_IDS) expect(consumables.has(id), id).toBe(false);
-    expect(CONSUMABLE_IDS).toHaveLength(5);
+    // FIVE until Story 8.13 (epic-8 amendments 74/83): `supercavTorpedo` moved
+    // in from the equipment space and `depthCharge` is new.
+    expect(CONSUMABLE_IDS).toHaveLength(7);
   });
 
   it('a LoadoutSlot may hold either kind — a weapon slot an EquipmentId, a belt slot a ConsumableId', () => {
@@ -286,7 +291,7 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
     expect(belt.state?.reloadMsLeft).toBe(0);
   });
 
-  it('isConsumableId is the ONE guard: true for the five, false for every EquipmentId and for junk', () => {
+  it('isConsumableId is the ONE guard: true for the seven, false for every EquipmentId and for junk', () => {
     for (const id of CONSUMABLE_IDS) expect(isConsumableId(id), id).toBe(true);
     for (const id of EQUIPMENT_IDS) expect(isConsumableId(id), id).toBe(false);
     for (const junk of ['', 'nope', 'constructor', 'toString', 'hullrepair', 'HullRepair']) {
@@ -296,13 +301,15 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
 });
 
 describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation channels read', () => {
-  it('is the exact table: only the DECOY BUOY is click-aimed (D21)', () => {
+  it('is the exact table: the DECOY BUOY and the SUPERCAV TORPEDO are click-aimed (D21)', () => {
     expect(CONSUMABLE_IS_WEAPON).toEqual({
       hullRepair: false,
       shieldBlock: false,
       smokeScreen: false,
       chaff: false,
       decoyBuoy: true, // click-placed like the buoy it replaces (catalog-v3 R1)
+      depthCharge: false, // STUB, non-aimed until Eric rules (amendment 83)
+      supercavTorpedo: true, // KEY PRIMES, CLICK FIRES — bow +/-15 deg (amendment 74)
     });
     expect(Object.keys(CONSUMABLE_IS_WEAPON)).toEqual([...CONSUMABLE_IDS]);
     for (const value of Object.values(CONSUMABLE_IS_WEAPON)) expect(typeof value).toBe('boolean');
@@ -314,7 +321,7 @@ describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation chan
 
   it('isWeaponItem agrees with CONSUMABLE_IS_WEAPON over every ConsumableId', () => {
     for (const id of CONSUMABLE_IDS) expect(isWeaponItem(id), id).toBe(CONSUMABLE_IS_WEAPON[id]);
-    expect(CONSUMABLE_IDS.filter((id) => isWeaponItem(id))).toEqual(['decoyBuoy']);
+    expect(CONSUMABLE_IDS.filter((id) => isWeaponItem(id))).toEqual(['decoyBuoy', 'supercavTorpedo']);
   });
 });
 

@@ -30,8 +30,14 @@ import {
   type Rng,
 } from '../index.js';
 
-/** The five consumable lines catalog v3 authors, in LINE_IDS order. */
-const FIVE: readonly LineId[] = ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy'];
+/** The SEVEN consumable lines catalog v3 authors, in LINE_IDS order. It was
+ *  five until Story 8.13 (Eric rulings 2026-09-19, epic-8 amendments 74/83):
+ *  `supercavTorpedo` MOVED here from the equipment id space and keeps its
+ *  LINE_IDS slot, which is why it sorts BEFORE the rest; `depthCharge` is new
+ *  and sits after the decoy. */
+const SEVEN: readonly LineId[] = [
+  'supercavTorpedo', 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge',
+];
 
 /** Count ids per line. */
 function tally(ids: readonly LineId[]): Map<LineId, number> {
@@ -73,9 +79,9 @@ function catalogOf(lines: readonly CatalogLine[]): Catalog {
 }
 
 describe('consumableLines — the candidate set (amendment 67: stubs INCLUDED)', () => {
-  it('is exactly the five consumable lines of catalog v3, in LINE_IDS order', () => {
-    expect(consumableLines()).toEqual(FIVE);
-    expect(consumableLines(CATALOG)).toEqual(FIVE);
+  it('is exactly the seven consumable lines of catalog v3, in LINE_IDS order', () => {
+    expect(consumableLines()).toEqual(SEVEN);
+    expect(consumableLines(CATALOG)).toEqual(SEVEN);
   });
 
   it('is LINE_IDS order, not catalog-key order by accident, and holds no other kind', () => {
@@ -84,7 +90,7 @@ describe('consumableLines — the candidate set (amendment 67: stubs INCLUDED)',
     for (const id of consumableLines()) expect(CATALOG[id].kind).toBe('consumable');
   });
 
-  it('INCLUDES the four stub consumables — the deck builder, not the pool, keeps them undealt', () => {
+  it('INCLUDES the stub consumables — the deck builder, not the pool, keeps them undealt', () => {
     for (const id of ['shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy'] as const) {
       expect(CATALOG[id].stub, id).toBe(true); // still stubbed at 8.11
       expect(consumableLines(), id).toContain(id);
@@ -98,11 +104,11 @@ describe('consumableLines — the candidate set (amendment 67: stubs INCLUDED)',
 });
 
 describe('rollMatchPool — the match rolls ten hidden consumable cards (R4/R44, FR43)', () => {
-  it('rolls exactly CONFIG.pool.size ids, every one of the five consumable lines', () => {
+  it('rolls exactly CONFIG.pool.size ids, every one of the seven consumable lines', () => {
     const pool = rollMatchPool(mulberry32(1));
     expect(pool).toHaveLength(CONFIG.pool.size);
     expect(CONFIG.pool.size).toBe(10);
-    for (const id of pool) expect(FIVE).toContain(id);
+    for (const id of pool) expect(SEVEN).toContain(id);
   });
 
   it('never rolls an equipment, ladder or add-on line, over 200 seeds', () => {
@@ -171,9 +177,11 @@ describe('rollMatchPool — the match rolls ten hidden consumable cards (R4/R44,
     expect(rollMatchPool(mulberry32(2), CATALOG, { size: 0 })).toEqual([]);
   });
 
-  it('with catalog v3 the early stop is UNREACHABLE at size 10 (5 lines × cap 5 = 25)', () => {
+  it('with catalog v3 the early stop is UNREACHABLE at size 10 (7 lines × cap 5 = 35)', () => {
+    // 25 until Story 8.13 took the consumable lines from five to seven (epic-8
+    // amendments 74/83), which only widens the margin.
     const capacity = consumableLines().reduce((sum, id) => sum + CATALOG[id].cap, 0);
-    expect(capacity).toBe(25);
+    expect(capacity).toBe(35);
     expect(capacity).toBeGreaterThanOrEqual(CONFIG.pool.size);
     for (let seed = 0; seed < 200; seed += 1) {
       expect(rollMatchPool(mulberry32(seed)), `seed ${seed}`).toHaveLength(CONFIG.pool.size);
@@ -187,7 +195,7 @@ describe('sanitizePool — an override can never smuggle a non-consumable line i
   });
 
   it('drops every non-consumable KIND the catalog knows', () => {
-    expect(sanitizePool(['armor', 'missile', 'acousticHoming', 'deckGunTurret'])).toEqual([]);
+    expect(sanitizePool(['armor', 'missile', 'dazzleShells', 'deckGunTurret', 'foulingMines'])).toEqual([]);
   });
 
   it('keeps DUPLICATES and applies no size clamp — an override is a deliberate list', () => {

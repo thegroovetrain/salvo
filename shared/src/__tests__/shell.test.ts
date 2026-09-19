@@ -575,17 +575,26 @@ describe('burstVictims — kinds (Story 8.4)', () => {
 });
 
 describe('CONFIG ordnance masks (AR44)', () => {
-  it('the six shipped rows declare exactly the ruled masks; no stub row exists', () => {
+  it('the TEN shipped rows declare exactly the ruled masks; no stub row exists', () => {
     expect(CONFIG.gun.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.broadside.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.radarBuoy.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.torpedo.hits).toEqual(['hull', 'decoy']);
     expect(CONFIG.starShells.hits).toEqual(['hull', 'decoy']); // illumination detonates nothing
     expect(CONFIG.mine.hits).toEqual(['hull']); // the TRIP mask
-    // STUB lines get no row until their own story (missile, machine gun, flak,
-    // monitor, light/supercav torpedo): an undeclared mask fails loudly.
-    for (const row of ['missile', 'machineGun', 'flak', 'monitor', 'lightTorpedo', 'supercavTorpedo']) {
-      expect(row in CONFIG).toBe(false);
+    // STORY 8.13's ROWS. Every torpedo runs UNDER a minefield (AR44) and every
+    // mine trips on hulls only, so the two new masks are their families'.
+    expect(CONFIG.lightTorpedo.hits).toEqual(['hull', 'decoy']);
+    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull', 'decoy']);
+    expect(CONFIG.foulingMines.hits).toEqual(['hull']);
+    // CAPTIVE MINES declares NO mask of its own and needs none: the mine never
+    // detonates on contact — it LAUNCHES a fish, which flies under the
+    // torpedo family's mask (CONFIG.torpedo.hits).
+    expect('hits' in CONFIG.captiveMines).toBe(false);
+    // The FOUR still-stub lines get no row until Story 8.14: an undeclared
+    // mask fails loudly rather than defaulting to something plausible.
+    for (const row of ['missile', 'machineGun', 'flak', 'monitor']) {
+      expect(row in CONFIG, row).toBe(false);
     }
   });
 });

@@ -53,7 +53,7 @@ import {
   broadsideMountSpread,
   broadsideTraverse,
   clampSpreadRung,
-  mineTriggerRadius,
+  deriveMineRings,
   type EffectiveStats,
 } from './stats.js';
 
@@ -168,17 +168,17 @@ function rePinDerived(stats: EffectiveStats): void {
   // THE EIGHTHS LADDER IS ONE NUMBER (Eric ruling 2026-08-16): truesight is the
   // 4/8 rung of intel range.
   stats.sightRange = stats.radarRange / 2;
-  // The mine trip ring rides the blast radius — pure and idempotent, so
-  // re-pinning it here as often as the fold likes changes nothing.
+  // EVERY MINE RING, all three kinds, through the one derivation
+  // (sim/stats.ts deriveMineRings). A contact mine's trip ring rides its blast
+  // radius; the captive's rides its TIER and its burst is pinned.
   //
-  // THE CAPTIVE CHASSIS IS DELIBERATELY NOT RE-PINNED HERE. Its derivation is
-  // the swap-and-triple pair, and the BLAST half of that pair CONSUMES the
-  // value it overwrites — so the pair is non-idempotent and has exactly ONE
-  // home, clampStats, which runs exactly once per effectiveStats() call.
-  // Re-deriving the captive trigger from an already-swapped blast would shrink
-  // it on every extra pass. Both halves are still linear in the one folded
-  // blast radius, so card ORDER still cannot matter.
-  eq.navalMines.triggerRadius = mineTriggerRadius(eq.navalMines.blastRadius, eq.navalMines.captive);
+  // IT MAY RUN HERE NOW. The captive chassis used to be excluded from this
+  // pass because its old "swap and triple" derivation CONSUMED the blast
+  // radius it overwrote — non-idempotent, so exactly one home. Story 8.13
+  // replaced that with a tier-driven trip ring and a fixed burst (epic-8
+  // amendment 84d), which reads nothing it writes, so both re-pin homes may
+  // call it and a mid-fold blast write can never leave a ring stale.
+  deriveMineRings(eq);
 }
 
 /**

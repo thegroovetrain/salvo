@@ -1,20 +1,30 @@
 // Firing-arc descriptors — THE single arc-shape source (Story 1.10). The
 // class-era geometry is RATIFIED as-is (Eric ruling 2026-07-23): the gun
-// family (gun / starShells) is 360° with no mounts and no arc; the torpedo
-// launches in a bow sector (heading + CONFIG.torpedo.offset ± halfArc); the
-// mine — a click-aimed weapon as of Story 2.8 (amendment 45) — places within a
-// REAR sector (heading + CONFIG.mine.offset ± placeHalfArcDeg), and since
-// Story 7-5 wave 2 the radar buoy is click-placed in that SAME rear sector; the
-// BROADSIDE BARRAGE fires into one of two mirrored BEAM sectors (Story 7-5
-// wave 2, R2.1 — the class-era side arcs restored verbatim); the speed boost
-// aims nothing. Both sides consume THIS function — the server's launch checks
-// and the client's arc classification (render/weaponArc.ts) — so the enforced
-// arc and the rendered arc can never diverge. Pure over CONFIG: zero I/O,
+// family (gun / starShells) is 360° with no mounts and no arc; the HEAVY
+// torpedo launches in a bow sector (heading + CONFIG.torpedo.offset ±
+// halfArc); the mine — a click-aimed weapon as of Story 2.8 (amendment 45) —
+// places within a REAR sector (heading + CONFIG.mine.offset ±
+// placeHalfArcDeg), and since Story 7-5 wave 2 the radar buoy is click-placed
+// in that SAME rear sector; the BROADSIDE BARRAGE fires into one of two
+// mirrored BEAM sectors (Story 7-5 wave 2, R2.1 — the class-era side arcs
+// restored verbatim); the speed boost aims nothing.
+//
+// STORY 8.13 WIDENED IT PAST EQUIPMENT. `arcFor` now takes a `SlotItemId`,
+// because the SUPERCAV TORPEDO is a click-aimed CONSUMABLE (epic-8 amendment
+// 74) and must be arc-checked like any other aimed weapon. With it: the LIGHT
+// TORPEDO declares a TWIN SECTOR (both beams, ±45°, catalog-v3 R18) and
+// FOULING MINES joins the rear placement sector.
+//
+// Both sides consume THIS function — the server's launch checks and the
+// client's arc classification (render/weaponArc.ts) — so the enforced arc and
+// the rendered arc can never diverge. Pure over CONFIG: zero I/O,
 // deterministic, no state.
 
 import { CONFIG } from '../constants.js';
 import { inArc, wrapAngle } from '../math/angle.js';
-import type { EquipmentId } from './loadout.js';
+import { isConsumableId } from './loadout.js';
+import type { EquipmentId, SlotItemId } from './loadout.js';
+import type { ConsumableId } from './effects.js';
 
 /**
  * One equipment id's firing-arc shape:
@@ -24,7 +34,8 @@ import type { EquipmentId } from './loadout.js';
  *                   (the torpedo's bow arc; the mine's and the radar buoy's
  *                   rear placement arc — aim outside it is DENIED).
  * - `twin-sector` — TWO MIRRORED aimed sectors at `heading ± offset`, each
- *                   `halfArc` wide (the BROADSIDE BARRAGE's beams). The side
+ *                   `halfArc` wide (the BROADSIDE BARRAGE's beams; the LIGHT
+ *                   TORPEDO's two beam tubes since 8.13). The side
  *                   whose sector contains the click is the side that fires
  *                   (R2.2); a click in NEITHER sector — the bow and stern dead
  *                   zones — is denied out-of-arc, exactly like a `sector` miss.
@@ -43,29 +54,62 @@ export type ArcShape =
   | { kind: 'none' };
 
 /** deg -> rad (CONFIG.mine.placeHalfArcDeg and CONFIG.broadside's two arc
- *  fields are authored in degrees). */
+ *  fields are authored in degrees; the torpedo blocks already hold radians). */
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 /**
- * The ratified arc shape for a fitted equipment id, derived from CONFIG only
- * (gun/starShells declare `arc: 'full'`; the heavy torpedo's sector reads
- * CONFIG.torpedo.offset/halfArc; the naval/captive mines' AND the radar buoy's rear
- * placement sector reads CONFIG.mine.offset/placeHalfArcDeg — Story 2.8
- * amendment 45, Story 7-5 wave 2 R2.7; the broadside's twin beams read
- * CONFIG.broadside.arcOffsetDeg/arcHalfArcDeg). Compile-forced to cover every
- * EquipmentId; a new id cannot ship without declaring its arc here.
+ * The ratified arc shape for ANYTHING A SLOT MAY HOLD — equipment or a
+ * CONSUMABLE (Story 8.13: the SUPERCAV TORPEDO is a click-aimed belt fish,
+ * epic-8 amendment 74, so the arc grammar had to widen past `EquipmentId`).
+ * Derived from CONFIG only, and compile-forced to cover every id: a new one
+ * cannot ship without declaring its arc here.
  */
-export function arcFor(id: EquipmentId): ArcShape {
+export function arcFor(id: SlotItemId): ArcShape {
+  return isConsumableId(id) ? consumableArc(id) : equipmentArc(id);
+}
+
+/**
+ * A CONSUMABLE's arc. Only the SUPERCAV TORPEDO aims today — the bow ±15°
+ * sector of `CONFIG.supercavTorpedo` (amendment 74) — and every other line off
+ * the `1`–`4` rail is an instant activation that aims nothing. THE DECOY
+ * BUOY'S ARC IS STORY 8.15'S: it is `CONSUMABLE_IS_WEAPON`-true and
+ * click-placed, but its module and its CONFIG block land there, and declaring
+ * a literal for it here would put an uncited number in the arc grammar.
+ */
+function consumableArc(id: ConsumableId): ArcShape {
+  if (id !== 'supercavTorpedo') return { kind: 'none' };
+  return { kind: 'sector', offset: CONFIG.supercavTorpedo.offset, halfArc: CONFIG.supercavTorpedo.halfArc };
+}
+
+/** The four ids that share the MINE's rear placement sector — the three mine
+ *  kinds plus the legacy click-placed radar buoy (Story 2.8 amendment 45,
+ *  Story 7-5 wave 2 R2.7). A type guard, so the switch below still narrows its
+ *  `default` down to the ids that genuinely declare no arc. */
+function isMineChassis(id: EquipmentId): id is 'navalMines' | 'captiveMines' | 'foulingMines' | 'radarBuoy' {
+  return id === 'navalMines' || id === 'captiveMines' || id === 'foulingMines' || id === 'radarBuoy';
+}
+
+/**
+ * A piece of EQUIPMENT's arc: gun/starShells declare `arc: 'full'` in CONFIG;
+ * the LIGHT torpedo fires into TWO mirrored beam sectors
+ * (CONFIG.lightTorpedo.offset/halfArc — ±45° about both beams, 90° dead zones
+ * fore and aft, catalog-v3 R18); the HEAVY torpedo keeps its bow sector
+ * (CONFIG.torpedo.offset/halfArc); the three MINE kinds and the radar buoy
+ * share the rear placement sector (CONFIG.mine.offset/placeHalfArcDeg); the
+ * broadside's twin beams read CONFIG.broadside.arcOffsetDeg/arcHalfArcDeg.
+ */
+function equipmentArc(id: EquipmentId): ArcShape {
+  if (isMineChassis(id)) {
+    return { kind: 'sector', offset: CONFIG.mine.offset, halfArc: deg(CONFIG.mine.placeHalfArcDeg) };
+  }
   switch (id) {
     case 'gun':
     case 'starShells':
       return { kind: CONFIG[id].arc };
+    case 'lightTorpedo':
+      return { kind: 'twin-sector', offset: CONFIG.lightTorpedo.offset, halfArc: CONFIG.lightTorpedo.halfArc };
     case 'heavyTorpedo':
       return { kind: 'sector', offset: CONFIG.torpedo.offset, halfArc: CONFIG.torpedo.halfArc };
-    case 'navalMines':
-    case 'captiveMines':
-    case 'radarBuoy':
-      return { kind: 'sector', offset: CONFIG.mine.offset, halfArc: deg(CONFIG.mine.placeHalfArcDeg) };
     case 'broadside':
       return {
         kind: 'twin-sector',
@@ -78,32 +122,34 @@ export function arcFor(id: EquipmentId): ArcShape {
 }
 
 /**
- * THE SEVEN UNBUILT v3 WEAPONS (Story 8.1) and the SHIFT BOOST declare NO aimed
- * arc. For the boost that is the shipped answer (an instant activation aims
- * nothing — Story 8.9); for the seven it is the honest one: no module aims them, and their catalog lines are STUBS that can
- * never be dealt, so no loadout can hold one. Their arcs are already RULED and
- * each lands with its module — catalog-v3 §4: LIGHT TORPEDO twin sector both
- * beams ±45° about 90°, SUPERCAVITATING bow ±15°, MISSILE bow ±50°, MACHINE GUN
- * bow ±90°, FLAK 360°, MONITOR bow ±10° (Stories 8.13/8.14). Declaring them
- * here before their CONFIG blocks exist would put six uncited literals in the
- * arc grammar.
+ * THE FOUR STILL-UNBUILT v3 WEAPONS and the SHIFT BOOST declare NO aimed arc.
+ * For the boost that is the shipped answer (an instant activation aims nothing
+ * — Story 8.9); for the four it is the honest one: no module aims them and
+ * their catalog lines are STUBS that can never be dealt, so no loadout can
+ * hold one. Their arcs are already RULED and each lands with its module —
+ * catalog-v3 §4: MISSILE bow ±50°, MACHINE GUN bow ±90°, FLAK 360°, MONITOR
+ * bow ±10° (Story 8.14). Declaring them here before their CONFIG blocks exist
+ * would put four uncited literals in the arc grammar.
+ *
+ * It shrank from seven to four in Story 8.13: the LIGHT TORPEDO declares its
+ * twin sector above, the SUPERCAV TORPEDO declares its bow sector as a
+ * consumable, and FOULING MINES joined the mine chassis.
  *
  * The narrow parameter type is the COMPILE FORCE: a new EquipmentId is not
  * assignable to it, so it cannot reach this default without declaring an arc.
  */
-function unbuiltArc(
-  _id: 'boost' | 'lightTorpedo' | 'supercavTorpedo' | 'missile' | 'machineGun' | 'flak' | 'monitor',
-): ArcShape {
+function unbuiltArc(_id: 'boost' | 'missile' | 'machineGun' | 'flak' | 'monitor'): ArcShape {
   return { kind: 'none' };
 }
 
 /**
- * The narrowed `sector` descriptor for an id DECLARED a sector (the torpedo's
- * bow arc; the mine's and radar buoy's rear placement arc). Throws on any
- * other shape — a CONFIG/arcs authoring error, failed loudly at module load
- * rather than mid-tick. Pure (a throw, never I/O).
+ * The narrowed `sector` descriptor for an id DECLARED a sector (the heavy
+ * torpedo's bow arc; the supercav's; the three mines' and the radar buoy's
+ * rear placement arc). Throws on any other shape — a CONFIG/arcs authoring
+ * error, failed loudly at module load rather than mid-tick. Pure (a throw,
+ * never I/O).
  */
-export function sectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'sector' }> {
+export function sectorArcFor(id: SlotItemId): Extract<ArcShape, { kind: 'sector' }> {
   const arc = arcFor(id);
   if (arc.kind !== 'sector') throw new Error(`'${id}' arc must be a sector (sim/arcs.ts)`);
   return arc;
@@ -111,10 +157,10 @@ export function sectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'sector
 
 /**
  * The narrowed `twin-sector` descriptor for an id DECLARED twin sectors (the
- * BROADSIDE BARRAGE's two beams). Throws on any other shape — same
- * authoring-error law as sectorArcFor.
+ * BROADSIDE BARRAGE's two beams; the LIGHT TORPEDO's two beam tubes). Throws
+ * on any other shape — same authoring-error law as sectorArcFor.
  */
-export function twinSectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'twin-sector' }> {
+export function twinSectorArcFor(id: SlotItemId): Extract<ArcShape, { kind: 'twin-sector' }> {
   const arc = arcFor(id);
   if (arc.kind !== 'twin-sector') throw new Error(`'${id}' arc must be a twin-sector (sim/arcs.ts)`);
   return arc;
