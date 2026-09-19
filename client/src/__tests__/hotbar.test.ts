@@ -122,6 +122,7 @@ import {
   interactionLine,
   lineTier,
   slotForCard,
+  slotTier,
   SLOT_KEY_GLYPHS,
 } from '../render/equipmentInfo.js';
 import { FLASH_ELEMENTS, createFlashBudget, hotbarSlotKey } from '../render/flashBudget.js';
@@ -1009,6 +1010,20 @@ describe('the tier numeral and its absolute ramp', () => {
       cards: ['heavyTorpedo', 'heavyTorpedo'],
     });
     expect(slotViewModels(torp)[Q].tier).toBe(2);
+  });
+
+  // REVIEW GATE, CYCLE 147: `gunView(9)` above proves the clamp end-to-end, but
+  // it goes through `effectiveStats`, which already caps DECK GUN copies at
+  // `CATALOG.deckGun.cap` (4) — so the fold itself can never hand `slotTier` a
+  // tier past 5, and that test alone cannot tell whether `slotTier`'s OWN
+  // `Math.min(..., TIER_WORDS.length)` is doing anything. This pins the second,
+  // fail-closed stop directly: a HAND-BUILT stats object with an impossible
+  // `equipment.gun.tier` of 9 — a shape the fold would never produce, but which
+  // `slotTier` must still refuse on its own.
+  it('clamps slotTier\'s OWN read of an impossible gun tier, independent of the fold', () => {
+    const stats = structuredClone(effectiveStats(CONFIG.shipClasses.torpedoBoat, []));
+    stats.equipment.gun.tier = 9;
+    expect(slotTier(stats, [], 'gun')).toBe(5);
   });
 
   it('never prints one on the BELT — stock is not a ladder', () => {

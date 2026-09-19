@@ -2304,3 +2304,12 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   status: OPEN — the icon gap stays with UX-DR50
   summary: THE GUN SQUARE NOW CARRIES A TIER NUMERAL BUT LADDERS STILL HAVE NO GLYPH — the 8.7 icon-gap entry above is untouched by 8.12; the DECK GUN card face prints its damage row only while the line also moves its own reload (amendment 71 keeps that, the v2 broadside-SPREAD precedent).
   evidence: amendments 70–71; `client/src/ui/boonCopy.ts` STAT_LINES comment.
+
+## 2026-09-18 — Story 8.12 review gate (cycle 147): two findings deferred
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-12-catalog-v3-ladders-and-the-deck-gun.md`
+  summary: `_bmad-output/gds-workflow-status.yaml` DOES NOT PARSE AS YAML — a `\'` apostrophe escape (shell-style) inside the cycle-131 clause of `next_expected` ("AR12's load-test leg") should be YAML's `''`; pre-existing since cycle 131, untouched by 8.12 (which only prepended clauses); harmless to every reader today because nothing parses the file, but the first tool that does will choke — a one-character fix for whoever next stamps the tracker, ideally with Eric's nod since the trackers are his.
+  evidence: `python3 -c "import yaml; yaml.safe_load(open('_bmad-output/gds-workflow-status.yaml'))"` fails at the same offset on `git show c78b0b5:_bmad-output/gds-workflow-status.yaml` (the pre-8.12 file); docs agent report, 2026-09-18.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-12-catalog-v3-ladders-and-the-deck-gun.md`
+  summary: THE GUN SLOT TOOLTIP'S FIT SLACK IS NOW 4 PX AT THE 1280×614 FLOOR — the ` · TIER n` suffix wraps the gun's interaction row to two lines on every hull (33 glyphs against a 29-glyph inner line), the fit model absorbs it by trimming boon rows (9 rows on the full ladder build), and the worst panel sits 4 px under `TOOLTIP_MAX_PANEL_H`; whoever next lengthens a tooltip row spends the last of the budget.
+  evidence: Blind Hunter scratch measurement at the 8.12 gate (`overflow = -4 px` for all three classes); `client/src/__tests__/slotTooltip.test.ts` headroom pin (≥ 2 px).

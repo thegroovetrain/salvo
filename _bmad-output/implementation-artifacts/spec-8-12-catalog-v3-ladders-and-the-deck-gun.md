@@ -83,6 +83,21 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-09-18 — Review pass (Blind Hunter + Edge Case Hunter on Fable, plus Codex `gpt-5.6-sol` cross-model review — verdicts: all three build-on-it, no confirmed runtime defect; agreement: Blind and Codex both flagged that the over-cap gun pins never exercise `slotTier`'s own clamp; Blind alone found the no-stats gun path could fall back to raw copies (guarded today) and the "VI was visible" record inaccuracy; Edge alone found the ceiling's missing absolute five-rung clamp and the NaN copies case; Codex alone flagged the spec/tracker status mismatch, which finalize closes by design)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 0, medium 0, low 6)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 3: (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[low]` `[patch]` `tierSuffix` returns '' for the gun without stats structurally (not only via `gunTierSuffix`), so the deck gun's rung is never re-derived from `deckGun` copies (one short of the fold); pinned
+  - `[low]` `[patch]` stale `EQUIPMENT_LINE` / `slotTier` comments corrected — `gun → deckGun` exists in the map but the gun's tier is the fold's
+  - `[low]` `[patch]` `tierCeiling` clamped to the five-rung ramp absolutely; `cardTierSteps` guards a non-finite copies count; both pinned
+  - `[low]` `[patch]` a hand-built `gun.tier = 9` stats pin exercises `slotTier`'s fail-closed clamp (the fold already caps copies, so the old pin never reached it)
+  - `[low]` `[patch]` record corrected: the drawn numerals were already clamped to five, only the tier-step LABEL string carried `VI` (CHANGELOG, amendment 73)
+  - `[low]` `[patch]` ledger: gds tracker's pre-existing YAML escape defect (cycle 131) and the gun tooltip's 4 px fit slack deferred with evidence
+- rejected: spec status `in-review` vs trackers `done` (finalize sets `done`); `interactionLine` positional-arg ergonomics (type-checked); the `NO WORDS` pin now admitting `I` (counts still pinned)
+
 ## Design Notes
 
 - **Why 8.12 is small:** 8.1 authored these lines for real because they REPLACE shipped v2 lines (amendment 5); the epic's content stories 8.13–8.16 fill equipment tiers II–V, which 8.1 stubbed. Re-authoring here would be churn against pinned numbers.

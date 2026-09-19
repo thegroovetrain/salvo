@@ -20,7 +20,7 @@
 // explanation) rather than breaking the card view.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, LINE_IDS, effectiveStats } from '@salvo/shared';
+import { CATALOG, CONFIG, LINE_IDS, effectiveStats, type CatalogLine } from '@salvo/shared';
 import {
   boonDescription,
   boonEffectLine,
@@ -366,6 +366,26 @@ describe('cardTierLabel — the step, not the position', () => {
     expect(cardTierLabel(CATALOG.heavyTorpedo, 4)).toBe('IV → V');
     expect(cardTierSteps(CATALOG.armor, 2)).toEqual({ cur: 3, next: 4 });
     expect(cardTierSteps(CATALOG.deckGunTurret, 0)).toEqual({ cur: 1, next: null });
+  });
+
+  // REVIEW GATE, CYCLE 147: `Math.trunc(NaN)` is `NaN`, so a non-finite
+  // `copiesHeld` used to sail through the old `Math.max(0, Math.trunc(...))`
+  // untouched and poison `cur`/`next` with NaN. Fenced to a held-nothing read.
+  it('fences a non-finite copiesHeld to held-nothing, never NaN', () => {
+    expect(cardTierSteps(CATALOG.reload, NaN)).toEqual({ cur: 1, next: null });
+  });
+
+  // REVIEW GATE, CYCLE 147: `tierCeiling` used to read `cap + 1` for a base-tier
+  // line with NO independent clamp to the five-rung ramp — so a base-tier line
+  // authored (or, defensively, injected) with `cap` at 5 would ceiling at 6 and
+  // print `V → VI`. `RAMP_RUNGS` is the second, catalog-independent stop.
+  it('never lets a base-tier line\'s ceiling exceed the five-rung ramp, whatever its cap', () => {
+    const overCapped: CatalogLine = {
+      ...CATALOG.armor,
+      cap: 5,
+      tiers: [...CATALOG.armor.tiers, CATALOG.armor.tiers[0]],
+    } as CatalogLine;
+    expect(cardTierLabel(overCapped, 4)).toBe('V');
   });
 });
 

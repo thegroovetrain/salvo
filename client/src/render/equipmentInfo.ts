@@ -158,20 +158,34 @@ export function interactionLine(
     : `ABILITY · ${key} · ACTIVATES`;
 }
 
+/** The permanent deck gun's equipment id — the one row `slotTier` (and, below,
+ *  `tierSuffix`) reads off the fold instead of off a catalog line. */
+const GUN_EQUIPMENT_ID: EquipmentId = 'gun';
+
 /** ` · TIER n` for a slot standing on a rung, '' otherwise — an unfitted-but-
  *  somehow-present weapon reads 0, which prints nothing rather than a fake
  *  Tier I. With `stats` the number is `slotTier`'s (so the deck gun reads its
- *  own fold); without them only a line-keyed weapon can answer. */
+ *  own fold); without them only a line-keyed weapon can answer.
+ *
+ *  THE GUN, WITHOUT STATS, IS REFUSED OUTRIGHT rather than falling into the
+ *  `lineTier` branch below: `lineForEquipment('gun')` resolves to `'deckGun'`
+ *  (the slotless ladder `tierTargetOf` reads off its `appliesTo`), and
+ *  `lineTier(cards, 'deckGun')` would then read the RAW deckGun copy count —
+ *  one short of the fold's `1 + copies` (`slotTier`, `sim/stats.ts`
+ *  `applyLineTier`). The fold is the only place the gun's true rung lives, so
+ *  a caller with no stats gets silence, never a plausible-looking wrong
+ *  number. */
 function tierSuffix(id: EquipmentId, cards: readonly string[], stats?: EffectiveStats): string {
+  if (id === GUN_EQUIPMENT_ID && stats === undefined) return '';
   const tier = stats === undefined ? lineTier(cards, lineForEquipment(id) ?? id) : slotTier(stats, cards, id);
   return tier > 0 ? ` · TIER ${TIER_WORDS[Math.min(tier, TIER_WORDS.length) - 1]}` : '';
 }
 
-/** The GUN slot's suffix. The deck gun's rung lives ONLY in the fold, so a
- *  caller without stats — or a belt id handed to the top slot, which cannot
- *  happen — prints nothing rather than guessing from the card list. */
+/** The GUN slot's suffix. A belt id handed to the top slot cannot happen, so
+ *  only that guard is needed here — `tierSuffix` itself now refuses the gun
+ *  without stats, so this no longer duplicates that check. */
 function gunTierSuffix(id: SlotItemId, cards: readonly string[], stats?: EffectiveStats): string {
-  if (stats === undefined || isConsumableId(id)) return '';
+  if (isConsumableId(id)) return '';
   return tierSuffix(id, cards, stats);
 }
 
@@ -191,9 +205,14 @@ const TIER_WORDS: readonly string[] = ['I', 'II', 'III', 'IV', 'V'];
  * this is very nearly the identity today; it is derived rather than assumed so
  * that a future line which fits a weapon under another name still resolves.
  *
- * Null for equipment NO line fits — the permanent deck gun (whose ladders are
- * the deckGun family, which climb a slotless weapon) and the two legacy modules.
- * Built ONCE at module load off the frozen CATALOG.
+ * Null for equipment NO line fits — the two legacy modules. THE DECK GUN
+ * ladder's `appliesTo` DOES map `gun → deckGun` here (it is a `ladder`, and
+ * `tierTargetOf` reads a ladder's `appliesTo[0]` same as any other), so
+ * `lineForEquipment('gun')` returns `'deckGun'`, not null — but that mapping
+ * is never used to ANSWER a tier for the gun, because the gun's rung is the
+ * fold's `1 + copies`, not its raw copy count (`slotTier`, and the guard in
+ * `tierSuffix` above, both refuse it explicitly rather than reading through
+ * this map). Built ONCE at module load off the frozen CATALOG.
  */
 const EQUIPMENT_LINE: ReadonlyMap<string, string> = new Map(
   LINE_IDS.flatMap((id) => {
@@ -284,10 +303,6 @@ export function lineTier(cards: readonly string[], lineId: string): number {
   return Math.min(boonStackCount(cards, lineId), line.cap);
 }
 
-/** The permanent deck gun's equipment id — the one row `slotTier` reads off the
- *  fold instead of off a catalog line. */
-const GUN_EQUIPMENT_ID: EquipmentId = 'gun';
-
 /**
  * Pure: the TIER A SQUARE PRINTS — the one number the bar's numeral and the
  * slot tooltip's ` · TIER n` both read (Story 8.12, epic-8 amendment 70).
@@ -304,8 +319,9 @@ const GUN_EQUIPMENT_ID: EquipmentId = 'gun';
  * is the fail-closed second stop, so nothing can paint a sixth rung.
  *
  * Every other id is `lineTier` exactly as the bar has always computed it —
- * keyed by the line that fits the equipment, which for catalog v3 is the id
- * itself.
+ * keyed by the line that fits the equipment, which for every line-fitted
+ * weapon is the id itself (the gun is the one id whose line, `deckGun`, is
+ * not itself — and it is answered above, off the fold).
  */
 export function slotTier(stats: EffectiveStats, cards: readonly string[], id: EquipmentId): number {
   if (id === GUN_EQUIPMENT_ID) return Math.min(stats.equipment.gun.tier, TIER_WORDS.length);

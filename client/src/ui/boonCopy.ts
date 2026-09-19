@@ -486,7 +486,11 @@ export interface CardTierStep {
  */
 export function cardTierSteps(line: CatalogLine, copiesHeld: number): CardTierStep | null {
   if (line.kind === 'consumable' || line.kind === 'addon') return null;
-  const k = Math.max(0, Math.trunc(copiesHeld));
+  // REVIEW GATE, CYCLE 147: `Math.trunc(NaN)` is `NaN`, and `Math.max(0, NaN)`
+  // is `NaN` too — so a non-finite `copiesHeld` (a caller's arithmetic slip)
+  // used to sail through untouched and poison `cur`/`next` downstream. Fenced
+  // to a held-nothing read (0) rather than propagating the NaN.
+  const k = Number.isFinite(copiesHeld) ? Math.max(0, Math.trunc(copiesHeld)) : 0;
   const base = BASE_TIER_LINES.has(line.id);
   const ceiling = tierCeiling(line, base);
   const cur = Math.min(base ? k + 1 : Math.max(1, k), ceiling);
@@ -506,7 +510,7 @@ export function cardTierSteps(line: CatalogLine, copiesHeld: number): CardTierSt
  * the ceiling nothing moves: every label is what it was before this story.
  */
 function tierCeiling(line: CatalogLine, base: boolean): number {
-  return base ? line.cap + 1 : line.cap;
+  return Math.min(base ? line.cap + 1 : line.cap, RAMP_RUNGS);
 }
 
 /** Pure: those numerals as the card prints them — `III → IV`, or `I` alone on a
@@ -520,6 +524,11 @@ export function cardTierLabel(line: CatalogLine, copiesHeld: number): string | n
 /** The arrow between the two numerals, declared once (the fit model measures the
  *  same glyph). */
 export const TIER_ARROW = '→';
+
+/** THE RAMP IS FIVE RUNGS, ABSOLUTE (UX-DR51) — a sixth is forbidden whatever a
+ *  future cap says, so `tierCeiling` clamps to this whether or not a catalog
+ *  edit ever again lets `cap + 1` (or `cap` itself) exceed it. */
+const RAMP_RUNGS = 5;
 
 /** 1..10 as Roman numerals (catalog copies never exceed a handful; anything
  *  beyond the table falls back to the digits, fail-open). */

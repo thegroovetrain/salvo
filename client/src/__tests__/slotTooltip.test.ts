@@ -173,6 +173,14 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
     // this caller cannot know it, and guessing `1 + copies` a second time is
     // exactly the drift the ruling forbids.
     expect(interactionLine(SLOT_GUN, 'gun', ['deckGun', 'deckGun'])).toBe('WEAPON · ALWAYS SELECTED');
+    // REVIEW GATE, CYCLE 147: the exact same call, WITH stats, prints the rung —
+    // pinning that the silence above is a missing-stats fact, not a missing-tier
+    // one. `lineForEquipment('gun')` resolves to `'deckGun'` (a real map entry),
+    // so without this pin a future edit could read the RAW copy count off it
+    // (2, one short of the fold's `1 + copies` = 3) and never notice.
+    expect(
+      interactionLine(SLOT_GUN, 'gun', ['deckGun', 'deckGun'], 0, effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun', 'deckGun'])),
+    ).toBe('WEAPON · ALWAYS SELECTED · TIER III');
   });
 
   // STORY 8.12, ERIC RULING 2026-09-18 (epic-8 amendment 70). The DECK GUN is a
