@@ -3,6 +3,20 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  55 — UNCHANGED by Story 8.12 (CATALOG V3 — LADDERS AND THE DECK GUN, Eric
+ *  rulings 2026-09-18, epic-8 amendments 70–73). The story authors NOTHING:
+ *  the five universal ladders and the three deck-gun lines were written at
+ *  catalog-v3's numbers by Story 8.1, and not one number, cap, stub flag, wire
+ *  SHAPE, event kind or CONFIG block moves here. What changes is two CLIENT
+ *  readings. (1) The HUD bar's gun square and its slot-tooltip header now show
+ *  the DECK GUN's rung, folded on the client from `cards` — which has ridden
+ *  the wire since PV 43 — through the same `effectiveStats` both sides run, so
+ *  the number is `equipment.gun.tier` and no new field carries it. (2) The card
+ *  face's tier step gains a CAP CLAMP, so an at-cap ladder prints the bare rung
+ *  instead of a sixth one; every below-cap label is byte-identical. Catalog
+ *  CONTENT is untouched, so the "catalog content is wire contract" convention
+ *  (13) is not engaged, and the perception exception count stays at SIX.
+ *  Hence: no bump.
  *  55 — UNCHANGED by Story 8.11 (THE MATCH CONSUMABLE POOL, Eric ruling
  *  2026-09-18, epic-8 amendment 67). The story adds `sim/pool.ts`
  *  (`rollMatchPool` / `sanitizePool` / `consumableLines`) and a new

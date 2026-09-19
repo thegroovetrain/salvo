@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.18.12] - 2026-09-18
+
+### Changed
+- **Catalog v3 — ladders and the deck gun (Story 8.12)** — this one is mostly a paper trail: the five universal upgrade ladders (ARMOR, SPEED, TURNING, RADAR SWEEP, RELOAD) and the deck-gun family (DECK GUN, TURRET, BARREL) were already built and live at their catalog-v3 numbers back in Story 8.1 (cycle 135) — the caps, the per-tier steps, the reload math, ARMOR's heal-on-grant and the card faces were never touched here. What actually changes on staging: the HUD bar's gun square and its hover tooltip now show the deck gun's tier (`I` at spawn, climbing to `V` at four DECK GUN cards) — the same number the refit card already read, the square and tooltip just didn't print it before. The refit card's tier-step label can no longer spell a sixth rung (`VI`) for a line already at its cap — the drawn numerals were already clamped to five, so only the label string carried it, and a line at its cap is never offered in the first place; it is now unwritable rather than merely unreachable. And Eric ratified three small things: the refit card's `Turning` and `Gun damage` row labels stay as written; the internal safety floor on reload-speed math stays at its current value as a guard against bad data, not a balance knob; and the record now notes plainly that this story's checklist was already satisfied by Story 8.1's work, so later catalog stories (8.13 onward) don't need to re-touch these eight lines.
+- **Network protocol** is unchanged at v55 — nothing here rides the wire; the gun tier is read from the same card data the client already has.
+
 ## [0.18.11] - 2026-09-18
 
 ### Changed

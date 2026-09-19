@@ -122,6 +122,7 @@ import {
   interactionLine,
   lineTier,
   slotForCard,
+  slotTier,
   SLOT_KEY_GLYPHS,
 } from '../render/equipmentInfo.js';
 import { FLASH_ELEMENTS, createFlashBudget, hotbarSlotKey } from '../render/flashBudget.js';
@@ -792,8 +793,8 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
     // v2 categories and left with them (Eric ruling 2026-09-15), and Story 8.6
     // took the words with the label column. What a square shows of the build is
     // the TIER numeral; the list itself lives in the tooltip.
-    expect(rows[SLOT_GUN].tier).toBe(0); // the deck gun has no equipment ladder
-    expect(rows[Q].tier).toBe(1); // ...but the torpedo's line is at copy 1
+    expect(rows[SLOT_GUN].tier).toBe(1); // the deck gun sails at rung I (amendment 70)
+    expect(rows[Q].tier).toBe(1); // ...and the torpedo's line is at copy 1
   });
 
   it('folds the shipwide ladders into the GUN slot only (the ship card)', () => {
@@ -808,10 +809,13 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
     expect(slotBoonIds('gun', ['deckGunBarrel', 'notARealBoon', 'constructor'])).toEqual(['deckGunBarrel']);
   });
 
-  it('spends no glyphs on a count — a deep gun build still prints no numeral', () => {
+  it('spends no glyphs on a count — a deep gun build prints its RUNG, never a tally', () => {
     const rows = slotViewModels(viewFor('torpedoBoat', { cards: Array<string>(12).fill('deckGunBarrel') }));
     expect(rows[SLOT_GUN].boonCount).toBe(12); // the tooltip lists every one of them
-    expect(rows[SLOT_GUN].tier).toBe(0); // DECK GUN BARREL is not the gun's own line
+    // ...and the square still shows ONE number: the rung. Twelve barrels buy no
+    // rung at all — DECK GUN BARREL is not the gun's ladder — so the numeral is
+    // the I the hull spawned with, not a 12.
+    expect(rows[SLOT_GUN].tier).toBe(1);
     expect(slotNumeral(rows[SLOT_GUN])).toBe('');
   });
 });
@@ -970,13 +974,56 @@ describe('the tier numeral and its absolute ramp', () => {
     expect([1, 2, 3, 4, 5].map(tierColor)).toEqual([C.phosphor, C.info, C.stormReadout, C.denied, C.amber]);
   });
 
-  it('prints NOTHING at tier 0 — the permanent deck gun, and every empty', () => {
+  it('prints NOTHING at tier 0 — every empty (but NEVER the deck gun)', () => {
     expect(tierNumeral(0)).toBe('');
     expect(tierNumeral(9)).toBe('');
     const rows = slotViewModels(viewFor('torpedoBoat', { cards: ['heavyTorpedo', 'heavyTorpedo'] }));
-    expect(rows[SLOT_GUN].tier).toBe(0); // the gun climbs no equipment ladder
-    expect(rows[Q].tier).toBe(2); // ...the torpedo does
+    expect(rows[SLOT_GUN].tier).toBe(1); // the gun sails at I (Story 8.12, amendment 70)
+    expect(rows[Q].tier).toBe(2); // ...the torpedo has climbed two rungs
     expect(rows[R].tier).toBe(0); // ...and an unfitted slot has none to climb
+  });
+
+  // STORY 8.12, ERIC RULING 2026-09-18 (epic-8 amendment 70). The gun square
+  // shows the DECK GUN's rung. Where every other square counts CARDS, this one
+  // reads the FOLD — `stats.equipment.gun.tier`, which the server wrote as
+  // `1 + DECK GUN copies` because the deck gun's tier I ships equipped. One
+  // number, one rule, no second copy of it on the client.
+  it('reads the DECK GUN\'s rung off the FOLD, from I at spawn up the ladder', () => {
+    const gunView = (copies: number): HotbarView => ({
+      ...viewFor('torpedoBoat'),
+      stats: statsFor('torpedoBoat', { deckGun: copies }),
+      cards: Array<string>(copies).fill('deckGun'),
+    });
+    expect(slotViewModels(gunView(0))[SLOT_GUN].tier).toBe(1); // a fresh hull IS tier I
+    expect(slotViewModels(gunView(1))[SLOT_GUN].tier).toBe(2);
+    expect(slotViewModels(gunView(4))[SLOT_GUN].tier).toBe(5); // the cap: four cards, rung V
+    // Fail-closed past the cap: a rogue over-stack cannot paint a sixth rung.
+    expect(slotViewModels(gunView(9))[SLOT_GUN].tier).toBe(5);
+    expect(CATALOG.deckGun.cap + 1).toBe(TIER_COLORS.length);
+    // ...and the numerals the square paints from those rungs stop at V.
+    expect([0, 1, 4, 9].map((n) => tierNumeral(slotViewModels(gunView(n))[SLOT_GUN].tier))).toEqual([
+      'I', 'II', 'V', 'V',
+    ]);
+    // A LINE-KEYED slot is untouched: the torpedo still counts its own cards.
+    const torp = viewFor('torpedoBoat', {
+      stats: statsFor('torpedoBoat', { heavyTorpedo: 2 }),
+      cards: ['heavyTorpedo', 'heavyTorpedo'],
+    });
+    expect(slotViewModels(torp)[Q].tier).toBe(2);
+  });
+
+  // REVIEW GATE, CYCLE 147: `gunView(9)` above proves the clamp end-to-end, but
+  // it goes through `effectiveStats`, which already caps DECK GUN copies at
+  // `CATALOG.deckGun.cap` (4) — so the fold itself can never hand `slotTier` a
+  // tier past 5, and that test alone cannot tell whether `slotTier`'s OWN
+  // `Math.min(..., TIER_WORDS.length)` is doing anything. This pins the second,
+  // fail-closed stop directly: a HAND-BUILT stats object with an impossible
+  // `equipment.gun.tier` of 9 — a shape the fold would never produce, but which
+  // `slotTier` must still refuse on its own.
+  it('clamps slotTier\'s OWN read of an impossible gun tier, independent of the fold', () => {
+    const stats = structuredClone(effectiveStats(CONFIG.shipClasses.torpedoBoat, []));
+    stats.equipment.gun.tier = 9;
+    expect(slotTier(stats, [], 'gun')).toBe(5);
   });
 
   it('never prints one on the BELT — stock is not a ladder', () => {
@@ -1219,7 +1266,9 @@ describe('the key chips on the bar', () => {
 describe('NO WORDS render on a square (UX-DR40/41)', () => {
   it('shows the key glyphs and nothing else on a live, unfitted bar', () => {
     const { words } = paint(viewFor('torpedoBoat'));
-    expect([...words].sort()).toEqual(['1', '2', '3', '4', 'E', 'Q', 'R', 'Shift']);
+    // The `I` is the gun square's RUNG, not a word (Story 8.12, amendment 70) —
+    // a fresh hull sails at tier I and the square says so.
+    expect([...words].sort()).toEqual(['1', '2', '3', '4', 'E', 'I', 'Q', 'R', 'Shift']);
   });
 
   it('adds only NUMERALS as the state asks for them — never a name', () => {
@@ -1228,7 +1277,10 @@ describe('NO WORDS render on a square (UX-DR40/41)', () => {
       ammo: at(null, { [SLOT_GUN]: { n: 0, reloadMsLeft: 1200 } }),
     });
     const { words } = paint(view);
-    expect([...words].sort()).toEqual(['1', '1.2', '2', '3', '4', 'E', 'I', 'Q', 'R', 'Shift']);
+    // Two numerals ride the gun square here and they never collide: the centred
+    // `1.2` is its cooling clock, the bottom-right `I` its rung. The `I` beside
+    // Q is the torpedo's first copy.
+    expect([...words].sort()).toEqual(['1', '1.2', '2', '3', '4', 'E', 'I', 'I', 'Q', 'R', 'Shift']);
     for (const name of Object.values(EQUIPMENT_NAME)) expect(words).not.toContain(name);
   });
 });

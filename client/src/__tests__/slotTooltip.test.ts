@@ -167,8 +167,47 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
     // Fitted but no copies recorded (a caller with no build): honest silence
     // rather than a fabricated Tier I.
     expect(interactionLine(Q, 'heavyTorpedo', [])).toBe('WEAPON · Q · SWITCH-TO');
-    // The permanent deck gun has no equipment LINE to climb.
+    // STORY 8.12 (amendment 70). The deck gun's rung lives ONLY in the fold —
+    // `stats.equipment.gun.tier` — so a caller handing over cards and no stats
+    // still gets silence here. It is not that the gun has no tier; it is that
+    // this caller cannot know it, and guessing `1 + copies` a second time is
+    // exactly the drift the ruling forbids.
     expect(interactionLine(SLOT_GUN, 'gun', ['deckGun', 'deckGun'])).toBe('WEAPON · ALWAYS SELECTED');
+    // REVIEW GATE, CYCLE 147: the exact same call, WITH stats, prints the rung —
+    // pinning that the silence above is a missing-stats fact, not a missing-tier
+    // one. `lineForEquipment('gun')` resolves to `'deckGun'` (a real map entry),
+    // so without this pin a future edit could read the RAW copy count off it
+    // (2, one short of the fold's `1 + copies` = 3) and never notice.
+    expect(
+      interactionLine(SLOT_GUN, 'gun', ['deckGun', 'deckGun'], 0, effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun', 'deckGun'])),
+    ).toBe('WEAPON · ALWAYS SELECTED · TIER III');
+  });
+
+  // STORY 8.12, ERIC RULING 2026-09-18 (epic-8 amendment 70). The DECK GUN is a
+  // BASE-TIER line: the hull sails with it fitted, so TIER I is the truth at
+  // spawn and the header owes the player that word. The numeral is the SERVER'S
+  // — `applyLineTier` wrote `1 + DECK GUN copies` onto `equipment.gun.tier`, the
+  // same number the reload step is priced off — so the bar, the header and the
+  // sim cannot disagree.
+  it('carries the DECK GUN\'s own rung on the keyless header, read off the fold', () => {
+    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat'))).toBe(
+      'WEAPON · ALWAYS SELECTED · TIER I',
+    );
+    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGun: 2 }))).toBe(
+      'WEAPON · ALWAYS SELECTED · TIER III',
+    );
+    // At the cap, and past a cap the server should never have granted: V, never VI.
+    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGun: 4 }))).toBe(
+      'WEAPON · ALWAYS SELECTED · TIER V',
+    );
+    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGun: 9 }))).toBe(
+      'WEAPON · ALWAYS SELECTED · TIER V',
+    );
+    // The gun's OWN family climbs the gun, but only the DECK GUN line is its
+    // ladder: a barrel card buys a barrel, not a rung.
+    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGunBarrel: 2 }))).toBe(
+      'WEAPON · ALWAYS SELECTED · TIER I',
+    );
   });
 
   it('leaves the ABILITY grammar untouched — an ability has no tier to print', () => {
@@ -313,11 +352,16 @@ describe('tooltip gating — dwell, pointer presence, and the modal lockout', ()
 describe('tooltip model — name, interaction class, description, and NO boons', () => {
   const stats = statsFor('torpedoBoat');
 
-  it('gives the keyless gun its always-selected interaction line', () => {
+  it('gives the keyless gun its always-selected interaction line, with its tier', () => {
     const t = tooltipModel(0, 'gun', stats);
     expect(t).not.toBeNull();
     expect(t?.name).toBe('DECK GUN');
-    expect(t?.interaction).toBe('WEAPON · ALWAYS SELECTED');
+    // STORY 8.12 (amendment 70): the model has the fold, so the header states
+    // the rung the hull is actually standing on — I at spawn.
+    expect(t?.interaction).toBe('WEAPON · ALWAYS SELECTED · TIER I');
+    expect(tooltipModel(0, 'gun', statsFor('torpedoBoat', { deckGun: 2 }))?.interaction).toBe(
+      'WEAPON · ALWAYS SELECTED · TIER III',
+    );
     expect(t?.description.length).toBeGreaterThan(20);
   });
 
@@ -589,7 +633,14 @@ describe('tooltipRenderGeom — the model reconciled with the room it has', () =
   it('keeps the description block where the model says it starts', () => {
     const model = tooltipModel(0, 'gun', stats, [])!;
     const geom = tooltipRenderGeom(model, 0, 1080);
-    expect(geom.descDy).toBe(H.tooltip.pad + TIP_TYPE.headLineHeight * 2 + TIP_TYPE.nameGap + TIP_TYPE.descGap);
+    // THREE head lines since Story 8.12: the name, and the two the gun's header
+    // wraps to now that it carries ` · TIER I`. That wrap is not new grammar —
+    // `WEAPON · Q · SWITCH-TO · TIER II` and the longest belt line have both
+    // wrapped to two since 8.7, and the geometry has always been measured, not
+    // assumed. What this pins is that the description still starts BELOW the
+    // measured head, whatever the head grew to.
+    expect(interactionLines(model.interaction)).toBe(2);
+    expect(geom.descDy).toBe(H.tooltip.pad + TIP_TYPE.headLineHeight * 3 + TIP_TYPE.nameGap + TIP_TYPE.descGap);
   });
 });
 
