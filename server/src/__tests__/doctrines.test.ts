@@ -693,12 +693,12 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
     expect(b.slowFactor).toBe(row.slowFactor); // and the factor is re-stamped, never multiplied
   });
 
-  // FAIL-FIRST REGRESSION (Story 8.13): REFRESH-NOT-STACK on the FACTOR, which
-  // is the half a clock-only pin cannot see. A victim already deep-fouled by a
-  // tier-V rack and then caught by a tier-I one must end up at the LATER
-  // mine's factor — 0.75 — not at the product (0.55 × 0.75) and not at the
-  // better of the two.
-  it('a LATER fouling OVERWRITES the factor, even when it is weaker — never multiplies, never keeps the best', () => {
+  // FAIL-FIRST REGRESSION (Story 8.13, amendment 88 — Eric 2026-09-19 "keep
+  // the strongest slow"): a victim already deep-fouled by a tier-V rack and
+  // then caught by a tier-I one KEEPS the deeper factor (0.55) — not the
+  // later 0.75, not the product (0.55 × 0.75) — while the CLOCK refreshes to
+  // the later hit. The reverse (a deeper mine after a shallow one) deepens.
+  it('a LATER WEAKER fouling keeps the STRONGEST factor and refreshes the clock — never multiplies, never lifts', () => {
     const w = bareWorld(51);
     const deep = place(w, 'deep', 600, 600, 0, 'mineLayer');
     fitTier(w, deep, 'foulingMines', 5); // tier V: ×0.55
@@ -714,8 +714,28 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
 
     lay(w, 'm-shallow', 'shallow', b.state.x, b.state.y - 10, 'fouling');
     w.step();
-    expect(b.slowFactor).toBeCloseTo(0.75, 9); // the LATER one wins outright
-    expect(b.slowedUntil).toBe(w.now + CONFIG.foulingMines.slowDurationMs);
+    expect(b.slowFactor).toBeCloseTo(0.55, 9); // the STRONGEST stands
+    expect(b.slowedUntil).toBe(w.now + CONFIG.foulingMines.slowDurationMs); // clock refreshed
+  });
+
+  it('a LATER DEEPER fouling deepens the factor; a fouling after the window lapsed lands as-is', () => {
+    const w = bareWorld(52);
+    const deep = place(w, 'deep', 600, 600, 0, 'mineLayer');
+    fitTier(w, deep, 'foulingMines', 5);
+    const shallow = place(w, 'shallow', -600, 600, 0, 'mineLayer');
+    fitTier(w, shallow, 'foulingMines', 1);
+    const b = place(w, 'b', 0, 10);
+    lay(w, 'm-shallow', 'shallow', 0, 0, 'fouling');
+    w.step();
+    expect(b.slowFactor).toBeCloseTo(0.75, 9);
+    lay(w, 'm-deep', 'deep', b.state.x, b.state.y - 10, 'fouling');
+    w.step();
+    expect(b.slowFactor).toBeCloseTo(0.55, 9); // deeper later fouling deepens
+    // Let the window lapse, then a shallow one lands at its own factor.
+    b.slowedUntil = w.now - 1;
+    lay(w, 'm-shallow-2', 'shallow', b.state.x, b.state.y - 10, 'fouling');
+    w.step();
+    expect(b.slowFactor).toBeCloseTo(0.75, 9);
   });
 
   it('the slow DEEPENS with the tier and the duration never moves (−0.05 a rung: 0.75 → 0.55)', () => {

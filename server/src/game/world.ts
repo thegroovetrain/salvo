@@ -4321,15 +4321,18 @@ export class World {
       }
       resolved += 1;
       this.hitShip(victim, damage, ownerId, true, 'mine'); // MINE: no aggro (amendment 36)
-      // FOULING (amendment 81): a fouling blast's victim is slowed — BOTH the
-      // factor and the clock REFRESHED (plain assignment), never stacked, so a
-      // second fouling overwrites the first rather than compounding it. Gated
-      // with damage (no fouling in the damage-suppressed ready room). Only the
-      // FOULING row carries a factor under 1, so this is a no-op for every
-      // other kind by construction.
+      // FOULING (amendments 81, 88): a fouling blast's victim is slowed. The
+      // clock is REFRESHED on every hit; the factor is KEEP-THE-STRONGEST —
+      // while a slow is still running, a later fouling can only deepen it
+      // (min of the active factor and the new one), never lift it (Eric
+      // 2026-09-19: "keep the strongest slow"). Never multiplied. Once the
+      // window has lapsed the new factor lands as-is. Gated with damage (no
+      // fouling in the damage-suppressed ready room). Only the FOULING row
+      // carries a factor under 1, so this is a no-op for every other kind.
       if (slowFactor < 1 && this.damageEnabled) {
+        const active = this.now < victim.slowedUntil;
+        victim.slowFactor = active ? Math.min(victim.slowFactor, slowFactor) : slowFactor;
         victim.slowedUntil = this.now + CONFIG.foulingMines.slowDurationMs;
-        victim.slowFactor = slowFactor;
       }
     }
     return { resolved, blastRadius };

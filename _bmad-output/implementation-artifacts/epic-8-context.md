@@ -163,3 +163,4 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 85. **A tier card prints every authored step (≤ 5 rows); the homing row is `HOMING`** (Eric 2026-09-19); the DECK GUN face stays as in 71.
 86. **`OwnShip.slowFactor?` rides the own-ship view, victim-private** (orchestrator 2026-09-19, inside PV 56); trapper's fouling preference is an interim tie until 8.18.
 87. **Review-gate rulings** (orchestrator 2026-09-19): the captive fish locks to its tripper (R2.13 kept under tiered homing); tier cards skip no-op `ROUNDS 1 → 1` rows; a weaker later fouling overwrites as ruled (Eric may prefer keep-strongest).
+88. **A later fouling keeps the strongest slow** (Eric 2026-09-19: *"keep the strongest slow"*): clock refreshed, factor = min(active, new), never multiplied; supersedes 87(d).

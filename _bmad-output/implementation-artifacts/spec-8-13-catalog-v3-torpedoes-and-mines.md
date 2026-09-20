@@ -124,7 +124,7 @@ warnings: [oversized]
   - `[low]` `[patch]` bot band-pull counts belt `shot` tactics; stale comment fixed (Blind F2, Edge 3)
   - `[low]` `[patch]` tier cards skip a no-op step row (`ROUNDS 1 → 1`) (Edge 1; amendment 87b)
   - `[low]` `[patch]` the mine trip scan uses each kind's own `hits` mask; `CONFIG.foulingMines.hits` is live (Blind F3)
-- deferred: rim-hugging reveal chatter + per-tick gate cost (Blind F4, Edge 6); light-torpedo lead solver vs a faster target (Edge 4); `SLOW 75%` label ambiguity (Blind F7); fouling unreachable until Epic 9 (Blind F6). Recorded as-ruled: weaker later fouling overwrites (Blind F5, amendment 87d).
+- deferred: rim-hugging reveal chatter + per-tick gate cost (Blind F4, Edge 6); light-torpedo lead solver vs a faster target (Edge 4); `SLOW 75%` label ambiguity (Blind F7); fouling unreachable until Epic 9 (Blind F6). Blind F5 (weaker later fouling overwrites) was put to Eric after the gate: keep the strongest slow (amendment 88), patched with two pins.
 
 ## Auto Run Result
 
@@ -140,7 +140,7 @@ Status: done (cycle 148, 0.18.13; PROTOCOL_VERSION 55 → 56; epic-8 amendments 
 
 **Verification.** `npm run check` exit 0 three times (after waves: 962/2055/3628; after the patch wave: 962/2057/3643; after review patches: shared 965 / server 2061 / client 3650, hooks 266). Weapons smoke against a server booted on a scratch port: all six phases OK (heavy torpedo kill, torpedo-never-blips, mines uncapped, ambush, light torpedo kill at 40 dmg, captive fish 55 with `c === 'captive'` on the own frame). Fail-first evidence recorded per patch in the commit messages and the Review Triage Log.
 
-**Residual risk / for Eric.** (1) Amendment 87b skips no-op `ROUNDS 1 → 1` rows — veto if you want the half-tube step shown. (2) A weaker later fouling overwrites a stronger active slow, as amendment 81 reads literally. (3) `SLOW 75%` may read as "slows by 75 %". (4) Per-visit reveal chatter for rim-hugging projectiles is bounded but unmeasured — watch a production smoke. (5) The fouling runtime is unreachable in play until Epic 9 unlocks the line. (6) catalog-v3.md and the GDD now disagree with amendments 74/80–83 — a doc-sync pass is owed. Staging QA: TB deals LIGHT TORPEDO and one SUPERCAV TORPEDO on the belt (prime with the digit, click inside the bow cone); ML deals CAPTIVE MINES with its own dotted trip ring; a heavy at tier II visibly homes and shows `HOMING 0 → 0.125 rad/s` on its card.
+**Residual risk / for Eric.** (1) Amendment 87b skips no-op `ROUNDS 1 → 1` rows — veto if you want the half-tube step shown. (2) RESOLVED post-gate: a later fouling keeps the strongest slow (Eric, amendment 88). (3) `SLOW 75%` may read as "slows by 75 %". (4) Per-visit reveal chatter for rim-hugging projectiles is bounded but unmeasured — watch a production smoke. (5) The fouling runtime is unreachable in play until Epic 9 unlocks the line. (6) catalog-v3.md and the GDD now disagree with amendments 74/80–83 — a doc-sync pass is owed. Staging QA: TB deals LIGHT TORPEDO and one SUPERCAV TORPEDO on the belt (prime with the digit, click inside the bow cone); ML deals CAPTIVE MINES with its own dotted trip ring; a heavy at tier II visibly homes and shows `HOMING 0 → 0.125 rad/s` on its card.
 
 ## Design Notes
 
