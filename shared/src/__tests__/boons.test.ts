@@ -131,6 +131,16 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'equipment.broadside.mountSpreadRad',
       'equipment.navalMines.triggerRadius',
       'equipment.captiveMines.triggerRadius',
+      'equipment.foulingMines.triggerRadius',
+      // THE CAPTIVE'S BURST IS FIXED (epic-8 amendment 84d): its tier steps
+      // the TRIP RING, never the 32 u bang, so there is no blast path either.
+      'equipment.captiveMines.blastRadius',
+      // ...and `supercavTorpedo` has no paths AT ALL: it became a CONSUMABLE
+      // (amendment 74), and a consumable has no stat row to address.
+      'equipment.supercavTorpedo.damage',
+      'equipment.supercavTorpedo.speed',
+      'equipment.supercavTorpedo.reloadMs',
+      'equipment.supercavTorpedo.maxAmmo',
     ];
     for (const path of absent) expect(BOON_STAT_PATHS, path).not.toContain(path);
     // `tier` is derived from the COPY COUNT, never from an effect: a card that
@@ -149,12 +159,25 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
         for (const e of tier) if (e.kind === 'stat') written.add(e.path);
       }
     }
-    // Catalog v3 authors five stat paths; the rest stand ready for 8.12–8.16.
+    // The universal ladders + the deck gun (Story 8.1) and the five torpedo /
+    // mine ladders (Story 8.13); the rest stand ready for 8.14/8.16.
     expect([...written].sort()).toEqual([
       'cooldownScale', 'equipment.gun.barrels', 'equipment.gun.damage', 'equipment.gun.maxAmmo',
       'kinematics.maxSpeed', 'kinematics.turnRate', 'maxHp', 'sweepRpm',
+      'equipment.lightTorpedo.damage', 'equipment.lightTorpedo.speed',
+      'equipment.lightTorpedo.maxAmmo', 'equipment.lightTorpedo.homingTurnRate',
+      'equipment.heavyTorpedo.damage', 'equipment.heavyTorpedo.speed',
+      'equipment.heavyTorpedo.maxAmmo', 'equipment.heavyTorpedo.homingTurnRate',
+      'equipment.navalMines.damage', 'equipment.navalMines.blastRadius', 'equipment.navalMines.maxAmmo',
+      'equipment.captiveMines.damage', 'equipment.captiveMines.maxAmmo',
+      'equipment.captiveMines.homingTurnRate',
+      'equipment.foulingMines.blastRadius', 'equipment.foulingMines.maxAmmo',
+      'equipment.foulingMines.slowFactor',
     ].sort());
-    for (const path of ['radarRange', 'equipment.heavyTorpedo.speed', 'equipment.navalMines.blastRadius']) {
+    // Still addressable in principle, still written by nothing: the FOULING
+    // mine's damage is fixed at 10 by ruling (amendment 81), and radarRange
+    // has no card at all.
+    for (const path of ['radarRange', 'equipment.foulingMines.damage', 'equipment.broadside.damage']) {
       expect(BOON_STAT_PATHS, path).toContain(path);
       expect(written.has(path), path).toBe(false);
     }
@@ -169,10 +192,12 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
   });
 
   it('DOCTRINE_MODES is keyed by EquipmentId and carries only verbs a v3 add-on grants', () => {
+    // CUT FROM FIVE ENTRIES TO TWO in Story 8.13 (Eric rulings 2026-09-19,
+    // epic-8 amendments 80/81): the CARDS that granted `homing` on the two
+    // torpedoes and `propFouling` on the naval mine are deleted, so the verbs
+    // went with them. Homing is a NUMERIC tier stat now; fouling is its own
+    // equipment line.
     expect(DOCTRINE_MODES).toEqual({
-      lightTorpedo: ['homing'],
-      heavyTorpedo: ['homing'],
-      navalMines: ['propFouling'],
       missile: ['homing'],
       starShells: ['phosphor', 'dazzle'],
     });
@@ -180,7 +205,9 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // The radar buoy's gun/jamming verbs left with the buoy (catalog-v3 R1) and
     // `captive` left because CAPTIVE MINES became its own equipment line (R25).
     expect('radarBuoy' in DOCTRINE_MODES).toBe(false);
-    expect(DOCTRINE_MODES.navalMines).not.toContain('captive');
+    expect('navalMines' in DOCTRINE_MODES).toBe(false);
+    expect('lightTorpedo' in DOCTRINE_MODES).toBe(false);
+    expect('heavyTorpedo' in DOCTRINE_MODES).toBe(false);
   });
 });
 
@@ -201,7 +228,8 @@ describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
     const s = foldOne(TB, l);
     expect(diff(effectiveStats(TB), s)).toEqual(['equipment.heavyTorpedo.speed']);
     expect(s.equipment.heavyTorpedo.speed).toBe(CONFIG.torpedo.speed + 5);
-    expect(s.equipment.lightTorpedo.speed).toBe(45); // the sibling row is untouched
+    // The sibling row is untouched — its own CONFIG block since Story 8.13.
+    expect(s.equipment.lightTorpedo.speed).toBe(CONFIG.lightTorpedo.speed);
   });
 
   it('a sweepRpm card re-derives sweepPeriodMs, and the CEILING is re-applied over the fold', () => {
@@ -365,7 +393,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
     const effects: BoonEffect[] = [
       { kind: 'stat', path: 'maxHp', add: 1 },
       { kind: 'behavior', hookId: 'x', params: {} },
-      { kind: 'doctrine', weapon: 'heavyTorpedo', mode: 'homing' },
+      { kind: 'doctrine', weapon: 'missile', mode: 'homing' },
       { kind: 'stock', equipmentId: 'shieldBlock' },
     ];
     for (const e of effects) applySlotEffect(loadout, e, stats);
@@ -516,8 +544,8 @@ describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
   const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
 
   it('slotsWithCards over a stub id leaves the loadout exactly loadoutFor', () => {
-    expect(slotsWithCards(stats, ['lightTorpedo'])).toEqual(loadoutFor(stats));
-    expect(slotsWithCards(stats, ['captiveMines', 'monitor', 'flak'])).toEqual(loadoutFor(stats));
+    expect(slotsWithCards(stats, ['missile'])).toEqual(loadoutFor(stats));
+    expect(slotsWithCards(stats, ['machineGun', 'monitor', 'flak'])).toEqual(loadoutFor(stats));
   });
 
   it('...and a LIVE line still fills it, so the guard is about stubs alone', () => {
@@ -526,7 +554,7 @@ describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
 
   it('a stub NEVER consumes a weapon slot — a live line behind it still takes slot 2', () => {
     // The stub is skipped, not "fitted then ignored": the row does not shift.
-    expect(slotsWithCards(stats, ['lightTorpedo', 'navalMines'])[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
+    expect(slotsWithCards(stats, ['machineGun', 'navalMines'])[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
   });
 
   it('applySlotEffect itself refuses a stub fill', () => {
@@ -545,11 +573,11 @@ describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
 // — it never reloads — and `slotsWithCards` needs no new code to replay it:
 // k copies replayed IS n = k.
 //
-// FOUR OF THE FIVE PRODUCTION CONSUMABLES ARE STILL STUBS (epic-8 amendment 41;
-// HULL REPAIR went live in Story 8.8), so these tests run on an injected
-// ALL-NON-STUB catalog to exercise the fold over every line; the production pin
-// (only HULL REPAIR reaches the belt in play) is asserted below and in
-// nineSlots.test.ts.
+// FIVE OF THE SEVEN PRODUCTION CONSUMABLES ARE STILL STUBS (epic-8 amendment
+// 41; HULL REPAIR went live in Story 8.8 and the SUPERCAV TORPEDO in 8.13),
+// so these tests run on an injected ALL-NON-STUB catalog to exercise the fold
+// over every line; the production pin (only those two reach the belt in play)
+// is asserted below and in nineSlots.test.ts.
 // ---------------------------------------------------------------------------
 
 describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', () => {
@@ -566,7 +594,8 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
     return opts.stub === undefined ? l : { ...l, stub: opts.stub };
   };
 
-  /** All five lines, NONE of them a stub — the catalog Story 8.8 onward ships. */
+  /** All SEVEN lines, NONE of them a stub — the catalog the later consumable
+   *  stories will ship, one stub flag at a time. */
   const BELT: Catalog = catalogOf(...CONSUMABLE_IDS.map((id) => consumableLine(id)));
   const stock = (id: ConsumableId): BoonEffect => ({ kind: 'stock', equipmentId: id });
   const beltIds = (loadout: LoadoutSlot[]): (SlotItemId | null)[] => CONSUMABLE_SLOTS.map((i) => loadout[i].equipmentId);
@@ -580,10 +609,13 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
 
   it('the test lines are LEGAL catalog lines (the helper is the shipped shape, un-stubbed)', () => {
     for (const id of CONSUMABLE_IDS) expect(validateLine(consumableLine(id)), id).toEqual([]);
-    // ...and production ships exactly ONE live line: HULL REPAIR (Story 8.8).
-    expect(CATALOG.hullRepair.stub).toBe(undefined);
+    // ...and production ships exactly TWO live lines: HULL REPAIR (Story 8.8)
+    // and SUPERCAV TORPEDO, which moved into the consumable id space in Story
+    // 8.13 with a live module behind it (epic-8 amendment 74). The other five
+    // — including the new DEPTH CHARGE stub (amendment 83) — are still stubs.
+    const LIVE: readonly string[] = ['hullRepair', 'supercavTorpedo'];
     for (const id of CONSUMABLE_IDS) {
-      if (id !== 'hullRepair') expect(CATALOG[id].stub, id).toBe(true); // amendment 41
+      expect(CATALOG[id].stub, id).toBe(LIVE.includes(id) ? undefined : true);
     }
   });
 
@@ -694,10 +726,11 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
     const stubbed = catalogOf(consumableLine('hullRepair', { stub: true }));
     applySlotEffect(loadout, stock('hullRepair'), stats, stubbed);
     expect(beltIds(loadout)).toEqual([null, null, null, null]);
-    // ...and the PRODUCTION catalog still stubs FOUR of the five (amendment 41):
-    // swept over every line, only HULL REPAIR reaches the belt.
+    // ...and the PRODUCTION catalog still stubs FIVE of the SEVEN (amendment
+    // 41, as widened by 74/83): swept over every line, only HULL REPAIR and
+    // the SUPERCAV TORPEDO reach the belt, in CONSUMABLE_IDS order.
     for (const id of CONSUMABLE_IDS) applySlotEffect(loadout, stock(id), stats, CATALOG);
-    expect(beltIds(loadout)).toEqual(['hullRepair', null, null, null]);
+    expect(beltIds(loadout)).toEqual(['hullRepair', 'supercavTorpedo', null, null]);
   });
 
   it('a stock NEVER touches the gun, the boost or the weapon row — even with the row full', () => {

@@ -219,17 +219,20 @@ function joinArena(room: ArenaDoor, client: ArenaClient, options: Record<string,
 }
 
 describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct join)', () => {
-  it('loads the hull\'s default deck itself, stores it on the record, and deals 27 drawable cards', () => {
+  it('loads the hull\'s default deck itself, stores it on the record, and deals 29 drawable cards', () => {
     const room = arenaDoor();
     joinArena(room, arenaClient('s1'), { cls: 'mineLayer' });
     const rec = room.world.ships.get('s1')!;
     expect(rec.deckList).toBe(ML);
-    // 27 since Story 8.10: the list less its stubs, with nothing held back —
-    // the spawn seed that used to withhold copy 1 of a class line is deleted.
+    // THE DEPTH IS THE LIST LESS ITS STUBS, with nothing held back since Story
+    // 8.10 (the spawn seed that used to withhold copy 1 of a class line is
+    // deleted). 27 -> 29 in Story 8.13: the CAPTIVE rack's three cards became
+    // drawable when its stub flag flipped, and the deck's 40th card is the
+    // DEPTH CHARGE stub (amendment 83), which is not.
     // PLUS THE MATCH POOL since 8.11: the room's one hidden list of consumable
-    // cards is appended to every captain's deck, so the depth is 27 + the
+    // cards is appended to every captain's deck, so the depth is 29 + the
     // pool's dealable copies. `deckList` is untouched — still the authored 40.
-    expect(rec.deck.cards).toHaveLength(27 + poolDealable(room.world));
+    expect(rec.deck.cards).toHaveLength(29 + poolDealable(room.world));
     expect(rec.deckList).toHaveLength(CONFIG.deck.size);
     expect(room.state.players.has('s1')).toBe(true);
     expect(lines('warn deck.illegal')).toEqual([]);
@@ -267,7 +270,10 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     ['size', [...TB, 'armor']],
     ['equipmentLines', [...TB.slice(1), 'navalMines']], // a fourth equipment line, owned
     ['unowned', [...TB.slice(1), 'phosphorShells']],
-    ['overCap', [...TB.slice(1), 'acousticHoming']],
+    // ACOUSTIC HOMING is DELETED (epic-8 amendment 80), so the old over-cap
+    // example now trips `unowned` first and tested nothing. DECK GUN TURRET is
+    // the natural replacement: cap 1, and the TB default already holds its one.
+    ['overCap', [...TB.slice(1), 'deckGunTurret']],
   ] as const)('REFUSES an illegal dev override (%s) and never substitutes the default', (rule, override) => {
     process.env.HC_DEV_OPTIONS = '1';
     const room = arenaDoor();
@@ -324,8 +330,8 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     const rec = room.world.ships.get('s1')!;
     expect(rec.cards).toEqual(['navalMines']);
     expect(rec.loadout[2].equipmentId).toBe('navalMines');
-    // The 27-card authored pool + the match pool, one copy paid for the fit.
-    expect(rec.deck.cards).toHaveLength(26 + poolDealable(room.world));
+    // The authored pool less its stubs + the match pool, one copy paid for the fit.
+    expect(rec.deck.cards).toHaveLength(28 + poolDealable(room.world));
     expect(lines('warn deck.devOptionsRejected')).toEqual([]);
   });
 
@@ -338,7 +344,7 @@ describe('the arena door — a captain with no seat deck (Solo vs AI, dev direct
     expect(rec.devFit).toEqual([]);
     expect(rec.cards).toEqual([]);
     expect(rec.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'boost', null, null, null, null, null, null, null]);
-    expect(rec.deck.cards).toHaveLength(27 + poolDealable(room.world)); // nothing was paid for
+    expect(rec.deck.cards).toHaveLength(29 + poolDealable(room.world)); // nothing was paid for
     const dropped = lines('warn deck.devOptionsRejected');
     expect(dropped).toHaveLength(1);
     expect(fieldsOf(dropped[0])).toMatchObject({ rejected: ['fitOverride'] });

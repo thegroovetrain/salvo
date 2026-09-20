@@ -21,6 +21,14 @@
 // STORY 7-5 WAVE 2 RETIRED the `stern-drop` branch: the decoy buoy was that
 // shape's only user, and the radar buoy replacing it is click-placed in the
 // mine's rear SECTOR. Nothing here may re-add a branch for it.
+//
+// STORY 8.13 TOOK THE ID EQUALITIES OUT. Three mine LINES now share the rear
+// placement grammar (naval/captive/fouling), the LIGHT TORPEDO declares a
+// TWIN sector on both beams, and the SUPERCAV TORPEDO — a belt CONSUMABLE —
+// declares the bow ±15° sector, so every predicate below is keyed on the
+// shared `arcFor` descriptor or on an explicit, pinned id SET, never on
+// `id === 'navalMines'` / `id === 'heavyTorpedo'`. The signatures widened from
+// `EquipmentId` to `SlotItemId` for the same reason `arcFor` did.
 
 import {
   CONFIG,
@@ -28,16 +36,63 @@ import {
   gunReachU,
   inArc,
   isConsumableId,
+  isMineEquipment,
   isWeaponItem,
   pointInLitZone,
   twinSectorSide,
   wrapAngle,
   type EffectiveStats,
-  type EquipmentId,
   type LitCircle,
   type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
+
+/**
+ * THE THREE MINE LINES (Story 8.13) — RE-EXPORTED FROM `shared/sim/arcs.ts`,
+ * where the list lives. One hull may fit naval, captive and fouling mines at
+ * once, so every id-keyed branch that used to read `'navalMines'` asks "is this
+ * A mine?" instead — the placement leash, the rear wedge's placement grammar,
+ * the own rings and the drop preview.
+ *
+ * The list, the guard and the two kind maps were briefly a CLIENT-LOCAL
+ * restatement of a shared fact, held to the shared `isMineChassis` by a
+ * cross-check pin. They are one declaration now: the rear placement sector is
+ * what makes these ids one family, so `sim/arcs.ts` is their home and both
+ * sides import them. The cross-check in __tests__/weaponArc.test.ts is kept —
+ * trivially true today, and still the thing that fails when a FOURTH mine kind
+ * declares the placement sector without joining the list.
+ */
+export {
+  MINE_EQUIPMENT_IDS,
+  isMineEquipment,
+  mineEquipmentFor,
+  mineKindOf,
+  type MineEquipmentId,
+} from '@salvo/shared';
+
+/** Pure: does this id share the mine's REAR PLACEMENT grammar — the three mine
+ *  lines plus the legacy click-placed radar buoy (R2.7)? The one predicate the
+ *  placement leash, the true-radius wedge and the amber placement tint read. */
+export function isPlacedItem(id: SlotItemId | null): boolean {
+  return isMineEquipment(id) || id === 'radarBuoy';
+}
+
+/**
+ * THE TORPEDO FAMILY — the two equipment LINES plus the belt's SUPERCAV
+ * TORPEDO (a click-aimed consumable since epic-8 amendment 74). Every fish
+ * shares the family's identity on screen: the cool-green arc, reticle and
+ * preview tint, and the torpedo glyph.
+ */
+export const TORPEDO_ITEM_IDS = ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const satisfies
+  readonly SlotItemId[];
+
+/** One of the three torpedo ids (two lines + the belt consumable). */
+export type TorpedoItemId = (typeof TORPEDO_ITEM_IDS)[number];
+
+/** Pure: is this slot content a TORPEDO of any line? */
+export function isTorpedoItem(id: SlotItemId | null): id is TorpedoItemId {
+  return id !== null && (TORPEDO_ITEM_IDS as readonly string[]).includes(id);
+}
 
 /**
  * The firing-arc behavior class of a fitted equipment id. Drives every id-keyed
@@ -56,9 +111,15 @@ import {
  */
 export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'none';
 
-/** Pure: classify a fitted equipment id (or null empty slot) by firing-arc
- *  kind — a straight projection of the shared arcFor descriptor. */
-export function fireArcKind(id: EquipmentId | null): FireArcKind {
+/** Pure: classify a fitted slot's content (or null empty slot) by firing-arc
+ *  kind — a straight projection of the shared arcFor descriptor.
+ *
+ *  IT TAKES A `SlotItemId` SINCE STORY 8.13, because `arcFor` does: the
+ *  SUPERCAV TORPEDO is a click-aimed BELT consumable (epic-8 amendment 74) and
+ *  declares the bow ±15° sector, so it must classify as a `sector` weapon and
+ *  draw its wedge like any other aimed launch. Every consumable that aims
+ *  nothing still answers `none`, exactly as before. */
+export function fireArcKind(id: SlotItemId | null): FireArcKind {
   if (id === null) return 'none'; // an unfitted weapon slot / defensive null
   const arc = arcFor(id);
   if (arc.kind === 'full') return 'gunLike'; // gun / starShells
@@ -81,7 +142,7 @@ export function fireArcKind(id: EquipmentId | null): FireArcKind {
  * is denied by the server exactly like an out-of-arc one (see weaponRangeU,
  * which supplies that ring to the firing UX).
  */
-export function weaponArcHit(heading: number, aim: number, id: EquipmentId | null): boolean {
+export function weaponArcHit(heading: number, aim: number, id: SlotItemId | null): boolean {
   if (id === null) return false;
   const arc = arcFor(id);
   if (arc.kind === 'full') return true; // 360° — never out of arc
@@ -125,10 +186,14 @@ export { twinSectorSide };
  * weapon's range (a torpedo runs to the map edge). Do NOT consult this for
  * those ids; gate on the id first, as firing.ts's markers do.
  */
-export function weaponRangeU(stats: EffectiveStats, id: EquipmentId | null): number {
+export function weaponRangeU(stats: EffectiveStats, id: SlotItemId | null): number {
   if (id === 'broadside') return stats.equipment.broadside.rangeU;
   if (id === 'starShells') return stats.equipment.starShells.rangeU;
-  if (id === 'navalMines' || id === 'radarBuoy') return CONFIG.mine.placeRange;
+  // ALL THREE MINE LINES share the ONE leash (Story 8.13) — the naval chassis
+  // is shared, not duplicated (`CONFIG.captiveMines`/`CONFIG.foulingMines` restate
+  // no placement field), so an id-equality test on `navalMines` would have given
+  // a captive or fouling drop the gun's radar-derived range.
+  if (isPlacedItem(id)) return CONFIG.mine.placeRange;
   return stats.equipment.gun.rangeU; // gun (radar-derived) — and the default
 }
 
@@ -182,7 +247,7 @@ export { pointInLitZone };
  */
 export function weaponReachU(
   stats: EffectiveStats,
-  id: EquipmentId | null,
+  id: SlotItemId | null,
   ship: Vec2,
   aim: number,
   aimDist: number,
@@ -210,12 +275,14 @@ export function weaponReachU(
  * out-of-range click would silently consume the prime (reverting to the gun)
  * for a placement the server refused.
  */
-export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean {
-  // ONE leash for both click-placed ids: server/src/game/equipment/radarBuoy.ts
+export function weaponRangeHit(aimDist: number, id: SlotItemId | null): boolean {
+  // ONE leash for every click-placed id: server/src/game/equipment/radarBuoy.ts
   // reuses CONFIG.mine.placeRange verbatim (R2.7 — "the mine's rear sector at
-  // placeRange 150u"), so the client must refuse at exactly the same distance
-  // or a long buoy click silently consumes the prime for a drop it will deny.
-  if (id !== 'navalMines' && id !== 'radarBuoy') return true;
+  // placeRange 150u") and the captive/fouling rows read the naval chassis's
+  // `placeRange` too (Story 8.13), so the client must refuse at exactly the same
+  // distance or a long placement click silently consumes the prime for a drop
+  // the server will deny.
+  if (!isPlacedItem(id)) return true;
   return aimDist <= CONFIG.mine.placeRange;
 }
 
@@ -234,9 +301,16 @@ export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean
  *
  * A KEY-FIRES consumable answers false: a click on an ability square fires
  * nothing on either side.
+ *
+ * STORY 8.13 CARVED ONE CONSUMABLE BACK OUT of that trust: the SUPERCAV
+ * TORPEDO DOES declare geometry — the bow ±15° sector of `CONFIG.supercavTorpedo`
+ * (epic-8 amendment 74) — so `arcFor` knows it and the client gates it exactly
+ * like a fitted weapon. The test is the DESCRIPTOR, not the id: anything that
+ * declares an arc is gated by it, and anything that declares `none` (the decoy
+ * buoy, 8.15) keeps trusting the server as before.
  */
 export function clickInArc(heading: number, aim: number, aimDist: number, id: SlotItemId | null): boolean {
-  if (id !== null && isConsumableId(id)) return isWeaponItem(id);
+  if (id !== null && isConsumableId(id) && arcFor(id).kind === 'none') return isWeaponItem(id);
   return weaponArcHit(heading, aim, id) && weaponRangeHit(aimDist, id);
 }
 

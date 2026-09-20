@@ -226,12 +226,27 @@ describe('the interaction line carries a BELT slot\'s SHAPE and STOCK (ruling 13
     expect(interactionLine(BELT_2, 'smokeScreen', [], 1)).toBe('CONSUMABLE · 2 · KEY FIRES · ×1');
   });
 
-  it('reads KEY PRIMES · CLICK FIRES for the click-placed one', () => {
-    // The DECOY BUOY is the only `CONSUMABLE_IS_WEAPON` line (catalog-v3 R1 /
-    // D21), and the shape is the thing a player cannot guess — so it is stated.
+  it('reads KEY PRIMES · CLICK FIRES for the click-aimed ones', () => {
+    // TWO `CONSUMABLE_IS_WEAPON` lines since Story 8.13 (catalog-v3 R1 / D21
+    // plus epic-8 amendment 74's SUPERCAV TORPEDO), and the shape is the thing
+    // a player cannot guess — so it is stated, once, where they hover.
     expect(interactionLine(BELT_1, 'decoyBuoy', [], 3)).toBe(
       'CONSUMABLE · 1 · KEY PRIMES · CLICK FIRES · ×3',
     );
+    expect(interactionLine(BELT_2, 'supercavTorpedo', [], 2)).toBe(
+      'CONSUMABLE · 2 · KEY PRIMES · CLICK FIRES · ×2',
+    );
+  });
+
+  // THE BELT'S FIRST FISH (amendment 74/75). Its name comes from the copy layer
+  // (a consumable has no equipment row to read one off), it is the SHORTENED
+  // display name Eric ruled, and the whole model is built without a stats row.
+  it('builds the SUPERCAV TORPEDO\'s model off the copy layer, under its ruled name', () => {
+    const m = tooltipModel(BELT_2, 'supercavTorpedo', STATS, [], 2);
+    expect(m?.name).toBe('SUPERCAV TORPEDO');
+    expect(m?.name).not.toContain('SUPERCAVITATING');
+    expect(m?.interaction).toBe('CONSUMABLE · 2 · KEY PRIMES · CLICK FIRES · ×2');
+    expect(m?.boons).toEqual([]);
   });
 
   it('never prints a negative or fractional stock', () => {
@@ -497,13 +512,22 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   });
 
   it('prints a doctrine row with its behavior text, not a number', () => {
-    // Catalog v3 made CAPTIVE MINES its own equipment line (R25), so the mine
-    // slot's surviving verb is FOULING MINES — and the claim under test is
-    // unchanged: a doctrine row prints BEHAVIOUR, never a stat readout.
-    const t = tooltipModel(1, 'navalMines', stats, ['foulingMines'])!;
-    expect(t.boons[0].label).toBe('◆ FOULING MINES');
-    expect(t.boons[0].effect).toContain('foul screws');
+    // STORY 8.13 TOOK BOTH MINE VERBS AWAY (epic-8 amendments 76/80/81):
+    // CAPTIVE MINES and FOULING MINES are equipment LINES now, and ACOUSTIC
+    // HOMING is deleted, so no add-on bolts onto a mine or a torpedo any more.
+    // The claim under test is unchanged and is made on a surviving verb: a
+    // doctrine row prints BEHAVIOUR, never a stat readout.
+    const t = tooltipModel(1, 'starShells', stats, ['phosphorShells'])!;
+    expect(t.boons[0].label).toBe('◆ PHOSPHOR SHELLS');
+    expect(t.boons[0].effect).toContain('burn');
     expect(t.boons[0].effect).not.toContain('→');
+  });
+
+  // ...and a mine slot's accrued rows are now its own LINE's copies, which is
+  // what replaced the verb: the tier IS the upgrade.
+  it('prints a mine slot\'s own LINE copies, with no verb row left to print', () => {
+    const t = tooltipModel(1, 'foulingMines', stats, ['foulingMines', 'foulingMines'])!;
+    expect(t.boons.map((r) => r.label)).toEqual(['◆ FOULING MINES']);
   });
 
   it('hosts the SHIPWIDE ladders under the — SHIP — divider, in the gun tooltip only', () => {

@@ -491,10 +491,11 @@ describe('the dev spawn fit — fitOverride, captains only, paid out of the deck
 
   it('DROPS an unknown id, a STUB line and a line this hull\'s deck does not carry', () => {
     const w = bareWorld();
-    // 'nope' is not in the catalog; 'lightTorpedo' is a STUB in the TB list (so
-    // it was never dealt into the pool); 'navalMines' is a real, built line the
-    // Torpedo Boat's deck simply does not hold.
-    const a = fitted(w, 'a', ['nope', 'lightTorpedo', 'navalMines', 'heavyTorpedo']);
+    // 'nope' is not in the catalog; 'machineGun' is a STUB in the TB list (so
+    // it was never dealt into the pool — LIGHT TORPEDO stood here until Story
+    // 8.13 built it); 'navalMines' is a real, built line the Torpedo Boat's
+    // deck simply does not hold.
+    const a = fitted(w, 'a', ['nope', 'machineGun', 'navalMines', 'heavyTorpedo']);
     expect(a.cards).toEqual(['heavyTorpedo']); // only the one the deck could pay for
     expect(slotIds(a)[2]).toBe('heavyTorpedo');
   });

@@ -528,7 +528,7 @@ describe('radar buoy — destructible by ordinary weapons, paying nothing (R2.7)
     const b = addBuoy(w.buoys, j, 0, 0, w.now, 'b1', 1);
     // An armed enemy mine right next to the buoy: the buoy is NOT a hull, so
     // nothing trips — both persist indefinitely.
-    w.mines.set('mine1', { id: 'mine1', ownerId: 'm', x: 10, y: 0, armedAt: 0 });
+    w.mines.set('mine1', { id: 'mine1', ownerId: 'm', x: 10, y: 0, armedAt: 0, kind: 'naval' });
     for (let t = 0; t < 40; t++) w.step();
     expect(w.mines.size).toBe(1);
     expect(w.buoys.size).toBe(1);

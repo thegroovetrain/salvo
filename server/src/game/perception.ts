@@ -41,9 +41,9 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BuoyView, type Contact, type GameEvent, type LitZoneView, type MineView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BuoyView, type Contact, type GameEvent, type LitZoneView, type MineView, type ShellState, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
-import { SIGNAL_REGISTRY, buoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
+import { SIGNAL_REGISTRY, ballisticGateOpen, buoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
 /** Everything one observer may know this tick. */
 export interface PerceptionView {
@@ -152,24 +152,56 @@ function forwardedEvents(world: World, ctx: SignalContext): GameEvent[] {
 
 /** Per-observer ballistic reveals: every live projectile is offered to its own
  *  kind's row (shell/torp — registry dispatch by `shell.kind`), which owns the
- *  exactly-once seenBallistics memory and the reveal-time wire shape. */
+ *  PER-VISIT seenBallistics memory and the reveal-time wire shape.
+ *
+ *  THE PER-VISIT MARK (Story 8.13, epic-8 amendment 78): a projectile that is
+ *  already marked for this observer but FAILS the reveal gate this tick has
+ *  LEFT the gate — its mark (and this observer's homing-direction baseline for
+ *  it) is cleared here, so a later re-entry is revealed again through the row
+ *  with current pos + velocity in the unchanged wire shape. The gate is the
+ *  row's own predicate (signals.ballisticGateOpen — ONE boolean, never a
+ *  copy), so what the row reveals and what this step clears can never
+ *  disagree. A marked projectile still inside the gate stays silent, exactly
+ *  as before; the owner's own projectiles are always inside it (owner-always),
+ *  so they are marked once at launch and never cleared. Nothing new rides the
+ *  wire and the six-exception invariant is untouched: this is a change to the
+ *  gate's MEMORY, not a channel. */
 function ballisticScan(world: World, ctx: SignalContext): BallisticEvent[] {
   const out: BallisticEvent[] = [];
   for (const shell of world.shells.values()) {
     const row = SIGNAL_REGISTRY[shell.kind];
-    if (!row.visible(ctx, shell)) continue;
+    if (!row.visible(ctx, shell)) {
+      forgetIfExited(ctx, shell);
+      continue;
+    }
     out.push(row.materialize(ctx, shell));
-    // The exactly-once reveal mark lives HERE, not in materialize (which is a
-    // pure wire-shaper). visible() guarantees ctx.me exists (fogged: always;
+    // The reveal mark lives HERE, not in materialize (which is a pure
+    // wire-shaper). visible() guarantees ctx.me exists (fogged: always;
     // spectator: it fails closed when !me), so mark immediately — same tick and
     // per-projectile order the old mutating materialize used.
     ctx.me?.seenBallistics.add(shell.id);
     // A HOMING torpedo's reveal also records its direction baseline (Story
     // 2.8): the torpU row re-emits to this observer only once the live
-    // velocity direction drifts past the threshold from THIS value.
+    // velocity direction drifts past the threshold from THIS value. A
+    // RE-reveal re-sets it, so later drift is measured from the re-reveal
+    // velocity the client just received.
     if (shell.homing !== undefined) ctx.me?.torpDirs.set(shell.id, Math.atan2(shell.vy, shell.vx));
   }
   return out;
+}
+
+/** The clear half of the per-visit mark: a projectile this observer has
+ *  already been sent, now OUTSIDE the reveal gate, is forgotten — mark and
+ *  homing baseline together (the pair forgetBallistic drops when the
+ *  projectile dies). Asked only for a projectile the row did NOT reveal this
+ *  tick, so the only marked-and-silent cases are "still inside" (keep) and
+ *  "left" (forget). */
+function forgetIfExited(ctx: SignalContext, shell: ShellState): void {
+  const me = ctx.me;
+  if (me === undefined || !me.seenBallistics.has(shell.id)) return;
+  if (ballisticGateOpen(ctx, shell)) return;
+  me.seenBallistics.delete(shell.id);
+  me.torpDirs.delete(shell.id);
 }
 
 /** Per-observer HOMING-track updates (Story 2.8): every live steering torpedo

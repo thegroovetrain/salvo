@@ -456,6 +456,13 @@ export interface OwnShip {
    */
   slowedUntil?: number;
   /**
+   * × BOTH speed caps while the fouling slow runs — the MINE OWNER's folded
+   * `slowFactor` (0.75 → 0.55 by tier, amendment 81). Omitted when 1 / not
+   * slowed, exactly as `slowedUntil` is. Victim-private: rides `you` and
+   * nothing else.
+   */
+  slowFactor?: number;
+  /**
    * ms — server-clock time the DAZZLE truesight reduction on this ship ends
    * (Story 2.8); absent/0 = not dazzled. While dazzled the server's perception
    * shrinks this ship's effective sight, and the client shrinks its own fog
@@ -1127,12 +1134,42 @@ export interface HealEvent {
  * dropper's personal hue for EVERY observer come Story 1.12, a deliberate intel
  * grant, Eric 2026-07-23; amber only when the dropper has left the roster).
  */
+/**
+ * THE THREE MINE KINDS (Story 8.13 — catalog v3 as amended by Eric's
+ * 2026-09-19 rulings). Each is its own equipment LINE with its own row, and a
+ * laid mine carries the kind of the slot that laid it: `naval` (contact burst),
+ * `captive` (moored torpedo launcher, never detonates on contact) and
+ * `fouling` (a wide, weak burst that slows). The kind IS the row identity —
+ * there is no `captive` or `propFouling` flag any more (epic-8 amendments
+ * 76/81).
+ */
+export type MineKind = 'naval' | 'captive' | 'fouling';
+
 export interface MineView {
   id: string;
   x: number; // u
   y: number; // u
   own: boolean;
   by: string; // the dropper's ship id (personal-hue + roster attribution)
+  /**
+   * THE MINE'S KIND — PRESENT ONLY ON THE OWNER'S OWN MINES (Eric ruling
+   * 2026-09-19, epic-8 amendment 76; PROTOCOL_VERSION 56).
+   *
+   * One hull may now lay naval, captive and fouling mines at once, and the
+   * OWNER's rings differ by kind (a captive draws one trip ring; the other two
+   * draw blast + trigger), so the owner needs to know which is which. NOBODY
+   * ELSE DOES: the server emits this field iff `own === true` and STRIPS it for
+   * every other observer, who receives exactly the kind-less marker they always
+   * did and cannot tell the kinds apart by sight. Rejected: the kind visible to
+   * everyone.
+   *
+   * ANTI-CHEAT: this is an own-only field on an own-only distinction, so it
+   * opens no new disclosure and adds no perception exception — the count stays
+   * at SIX. It is OPTIONAL on the wire (the established `aggro`/`phos` style):
+   * absent is the normal case, and a client that reads it off another
+   * observer's mine finds `undefined`, never a guess.
+   */
+  c?: MineKind;
 }
 
 /**

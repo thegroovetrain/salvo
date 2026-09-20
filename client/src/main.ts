@@ -2988,7 +2988,14 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[]): voi
   // earn it from observable behavior). Deliberately ABOVE the vision-change
   // early-return below: a doctrine swap moves no vision stat, so gating it on
   // one would leave the water lying about the build we just fitted.
-  g.projectiles.setOwnModes({ torpedoHoming: stats.equipment.heavyTorpedo.homing });
+  // HOMING IS A TIER STAT PER LINE since epic-8 amendment 80 (ACOUSTIC HOMING
+  // is deleted), so the own-fire art asks each fitted line whether ITS fish
+  // steers — zero at tier I, above zero from tier II. The SUPERCAV TORPEDO is
+  // absent by construction: it never homes at any build (amendment 74).
+  g.projectiles.setOwnModes({
+    lightTorpedo: stats.equipment.lightTorpedo.homingTurnRate > 0,
+    heavyTorpedo: stats.equipment.heavyTorpedo.homingTurnRate > 0,
+  });
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
     g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);
@@ -3015,25 +3022,25 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[]): voi
 }
 
 /**
- * The own-mine ring parameters for the frame timestamped `t`: EFFECTIVE
- * blast/trigger radii (the very numbers the server reads off our stats when one
+ * The own-mine ring parameters for the frame timestamped `t`: our THREE
+ * EFFECTIVE mine rows (the very numbers the server reads off our stats when one
  * of our mines trips or blasts), stamped with the FRAME's own time so the
  * arming window is measured on the clock that owns it — an estimated local
  * serverNow() charges the mine for the transport delay and holds the dim late.
- * CAPTIVE MINES (R2.12) rides through as the raw VERB FLAG, never as a radius:
- * the swap-and-triple that makes a captive mine's rings 144u/32u is derived
- * inside `effectiveStats`, so `blastRadius`/`triggerRadius` are already the
- * captive numbers by the time they are read here. What the flag decides is
- * which rings are DRAWN (render/mines.ts ownMineRings) — a captive mine never
- * detonates on contact, so it draws no blast circle about itself. The old
- * `acquire` channel is gone with the SELF-PROPELLED doctrine that fed it.
+ *
+ * ALL THREE ROWS TRAVEL, and the SPRITE picks (Story 8.13, epic-8 amendment
+ * 76): a hull may be carrying naval, captive and fouling racks at the same
+ * time, so there is no single "our blast radius" any more. Each own mine's wire
+ * view carries the kind it was laid as, and render/mines.ts reads that kind's
+ * row. Nothing is derived here — `effectiveStats` (`deriveMineRings`) already
+ * produced the captive's tier-derived trip ring and the contact kinds'
+ * 2/3-of-blast ones. The old `acquire` channel is gone with the SELF-PROPELLED
+ * doctrine that fed it.
  */
 function ownMineRingParams(g: Game, t: number): OwnMineRings {
-  const mine = g.ownStats.equipment.navalMines;
+  const e = g.ownStats.equipment;
   return {
-    blast: mine.blastRadius,
-    trigger: mine.triggerRadius,
-    captive: mine.captive,
+    rows: { naval: e.navalMines, captive: e.captiveMines, fouling: e.foulingMines },
     now: t,
   };
 }
@@ -3607,6 +3614,13 @@ function renderFiring(
   // Inert today — every consumable is a stub and the belt ships empty.
   const primedId = ownWeaponAt(g, slot);
   const reloadFrac = a && primedId !== null ? reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, primedId)) : 0;
+  // THE PRIMED SLOT'S RAW CONTENT, which may be a BELT line. Story 8.13 gave
+  // one consumable real geometry — the SUPERCAV TORPEDO's bow ±15° sector
+  // (epic-8 amendment 74) — so the arc, the reticle and the aim preview are
+  // driven from the slot item, while the ROW-keyed reads above (the reload
+  // numeral) stay on `ownWeaponAt`, because a stack has no row and never
+  // reloads. Every other consumable still declares `none` and draws nothing.
+  const primedItem = g.ownSlots[slot] ?? null;
   // Gate on the PREDICTED heading, the same source clickPrediction/consumePrimeOnFire
   // read — NOT the alpha-interpolated pose.heading. At a sector boundary while
   // turning the two disagree, so a render pulse could fire without the sim-tick
@@ -3641,18 +3655,18 @@ function renderFiring(
   // lighting — and every other id keeps its own weaponRangeU byte-for-byte. Two
   // derivations of one reach would let the marker and the burst circle disagree
   // about where the shell stops.
-  const reachU = weaponReachU(status.stats, primedId, pose, aim, aimDist, g.mapRadius, ownZones);
+  const reachU = weaponReachU(status.stats, primedItem, pose, aim, aimDist, g.mapRadius, ownZones);
   g.firing.update(
     pose,
     aim,
-    primedId,
+    primedItem,
     { hasAmmo, reloadFrac },
     cursor,
     g.deniedFlash,
     reachU, // gun: radar-derived clamp ring, lifted inside our own flare; mine: its placement reach
     broadsideArcs(g, status), // the per-turret wedge display (Eric ruling 2026-08-27)
   );
-  renderAimPreview(g, pose, aim, aimDist, status, primedId, inArc, reachU);
+  renderAimPreview(g, pose, aim, aimDist, status, primedItem, inArc, reachU);
 }
 
 /**
@@ -3696,7 +3710,7 @@ function renderAimPreview(
   aim: number,
   aimDist: number,
   status: OwnStatus,
-  primedId: EquipmentId | null,
+  primedId: SlotItemId | null,
   legal: boolean,
   gunReachU: number,
 ): void {
@@ -3773,7 +3787,11 @@ function clickPrediction(
  * up. Ability slots never reach here — the wire click is a weapon click.
  */
 function latchOwnFire(g: Game, primedSlot: number, p: { alive: boolean; loaded: boolean; inArc: boolean }): void {
-  const id = ownWeaponAt(g, primedSlot);
+  // THE SLOT'S RAW CONTENT, not `ownWeaponAt` (Story 8.13): the SUPERCAV
+  // TORPEDO is a BELT line that produces a real `torp` reveal, so it has to be
+  // claimable like any other fish. `OwnFireLatch.claim` rejects anything that
+  // is not a ballistic id, which is where a non-firing consumable stops.
+  const id = g.ownSlots[primedSlot] ?? null;
   if (!p.alive || !p.loaded || !p.inArc || id === null) return;
   g.ownFire.latch(id, g.clock.serverNow());
 }

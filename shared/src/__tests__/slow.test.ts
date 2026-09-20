@@ -7,14 +7,14 @@
 // arithmetic of that order).
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, boostedKinematics, slowedKinematics, type ShipConfig } from '../index.js';
+import { CONFIG, boostedKinematics, effectiveStats, slowedKinematics, type ShipConfig } from '../index.js';
 
 /** A representative Torpedo Boat kinematics block to slow. */
 function tbKinematics(): ShipConfig {
   return { ...CONFIG.shipClasses.torpedoBoat.kinematics };
 }
 
-const FACTOR = CONFIG.mine.foulFactor;
+const FACTOR = CONFIG.foulingMines.slowFactor;
 
 describe('slowedKinematics — inactive is an identity', () => {
   it('returns the SAME reference when inactive (allocation-free path)', () => {
@@ -53,12 +53,37 @@ describe('slowedKinematics — active scales BOTH speed caps', () => {
     expect(kin).toEqual(before);
   });
 
-  it('the ratified values: foulFactor cuts speed 25% for foulDurationMs', () => {
+  it('the ratified values: the fouling slow cuts speed 25% for slowDurationMs', () => {
     // Eric ruling 2026-08-19 (Story 7-5): *"simply slows affected ships by 25%
     // for 5 seconds"* — was 0.5 / 4000ms. The slow got WEAKER and LONGER, and
     // the doctrine stopped costing damage entirely.
-    expect(CONFIG.mine.foulFactor).toBe(0.75);
-    expect(CONFIG.mine.foulDurationMs).toBe(5000);
+    //
+    // THE PIN MOVED HOME, not value (Eric ruling 2026-09-19, epic-8 amendment
+    // 81): FOULING MINES is its own tiered EQUIPMENT line now and NAVAL MINES
+    // no longer foul, so `CONFIG.mine.foulFactor`/`foulDurationMs` became
+    // `CONFIG.foulingMines.slowFactor`/`slowDurationMs`. The tier-I numbers
+    // are unchanged; tiers II–V deepen the FACTOR by 0.05 each (×0.55 at V)
+    // and the 5 s window never moves.
+    expect(CONFIG.foulingMines.slowFactor).toBe(0.75);
+    expect(CONFIG.foulingMines.slowDurationMs).toBe(5000);
+    expect('foulFactor' in CONFIG.mine).toBe(false);
+    expect('foulDurationMs' in CONFIG.mine).toBe(false);
+  });
+
+  it('the fouling SLOW deepens by tier and the DURATION never does (amendment 81)', () => {
+    const factorAt = (n: number): number =>
+      effectiveStats(CONFIG.shipClasses.mineLayer, new Array<string>(n).fill('foulingMines'))
+        .equipment.foulingMines.slowFactor;
+    // CLOSE-TO, NOT EXACT, AND DELIBERATELY SO: an additive −0.05 ladder
+    // accumulates float dust (0.55 folds to 0.5499999999999998) and nothing
+    // rounds it, because — unlike `cooldownScale`, which feeds a 50 ms-
+    // quantized reload tick — a speed cap has no quantum for the dust to cost
+    // a step of. Both sides run the identical arithmetic, so it cannot desync.
+    for (const [n, want] of [[1, 0.75], [2, 0.7], [3, 0.65], [4, 0.6], [5, 0.55]] as const) {
+      expect(factorAt(n), `${n} copies`).toBeCloseTo(want, 9);
+    }
+    // A capped fouling mine still leaves the victim MOVING — never a full stop.
+    expect(factorAt(5)).toBeGreaterThan(0);
   });
 });
 

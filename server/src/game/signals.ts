@@ -557,10 +557,20 @@ const mineSignal: SignalSpec<MineState, MineView> = {
     );
   },
   materialize(ctx, mine) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,own,by. `by` (Story 1.12) is
-    // the dropper's ship id — roster-resolved to the dropper's personal hue for
-    // every observer (a deliberate intel grant, Eric 2026-07-23), appended LAST.
-    return { id: mine.id, x: mine.x, y: mine.y, own: mine.ownerId === ctx.observerId, by: mine.ownerId };
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,own,by[,c]. `by` (Story 1.12)
+    // is the dropper's ship id — roster-resolved to the dropper's personal hue
+    // for every observer (a deliberate intel grant, Eric 2026-07-23).
+    //
+    // `c` — THE MINE'S KIND, OWN MINES ONLY (Story 8.13, epic-8 amendment 76):
+    // the owner's rings differ by kind (captive: trip ring; naval/fouling:
+    // blast + trigger), so the owner's own view carries it, appended LAST.
+    // Every other observer gets the kind-less marker they always did — the
+    // KEY IS ABSENT, not undefined-valued (a present key would still be a
+    // structural tell to a JSON encoder that serializes `undefined` slots),
+    // hence the conditional spread. Own-only on an own-only distinction: no
+    // new disclosure, the perception exception count stays at SIX.
+    const own = mine.ownerId === ctx.observerId;
+    return { id: mine.id, x: mine.x, y: mine.y, own, by: mine.ownerId, ...(own ? { c: mine.kind } : {}) };
   },
 };
 
@@ -1265,9 +1275,47 @@ const wakeSignal: SignalSpec<WakeSubject, WakeBlipEvent> = {
 };
 
 /**
- * `shell` / `torp` — per-observer ballistic reveal, exactly once
- * (ShipRecord.seenBallistics). The OWNER always gets it at launch. Everyone
- * else gets it when the projectile FIRST becomes visible (within sight + LOS),
+ * THE BALLISTIC REVEAL GATE — "is this live projectile disclosable to this
+ * observer THIS TICK", independent of memory. THE one predicate for the two
+ * reveal rows, the torpU row AND perception.ballisticScan's per-visit clear
+ * step (Story 8.13, epic-8 amendment 78): a second hand-rolled copy of this
+ * boolean is exactly the desync class this file exists to prevent — the mark
+ * would be cleared by one rule and re-set by another.
+ *
+ *   - no record (a record-less spectator): fail-closed, never open;
+ *   - a spectator WITH a record: always open (unfogged);
+ *   - the OWNER: always open — own projectiles are revealed once at launch
+ *     and, since the gate never closes on them, never cleared, never re-sent;
+ *   - everyone else: first-sight (`shell` — SHELLS DO NOT MOVE: a shell is in
+ *     the air, truesight) / first-detect (`torp` — a wake just under the
+ *     surface, the 3/8 rung; Story 4.9, amendments 119/121) OR inside a lit
+ *     zone the observer OWNS (Story 1.7 truesight parity).
+ *
+ * Callers guard the subject shape (`'ownerId' in shell`) before asking; the
+ * gate branches on the record's own `kind`.
+ */
+export function ballisticGateOpen(ctx: SignalContext, shell: ShellState): boolean {
+  const me = ctx.me;
+  if (!me) return false;
+  if (ctx.mode === 'spectator') return true;
+  return (
+    shell.ownerId === me.id ||
+    (shell.kind === 'torp'
+      ? pointDetected(me, shell, ctx.islands, ctx.now)
+      : pointSighted(me, shell, ctx.islands, ctx.now)) ||
+    ownZoneCovers(ctx, shell)
+  );
+}
+
+/**
+ * `shell` / `torp` — per-observer ballistic reveal, ONCE PER VISIT of the gate
+ * (ShipRecord.seenBallistics — a per-visit mark since Story 8.13, epic-8
+ * amendment 78: perception.ballisticScan clears it the first tick a still-live
+ * projectile is outside the gate, so a projectile that leaves and re-enters is
+ * revealed again, in this same shape, with `t` = the re-reveal time; while it
+ * stays inside it is never re-sent — byte-identical to the old exactly-once
+ * behaviour). The OWNER always gets it at launch. Everyone
+ * else gets it when the projectile becomes visible (within sight + LOS),
  * with CURRENT pos/velocity ONLY — never a range-derivable field (no ttl /
  * distLeft). The client dead-reckons from there, so a shell fired outside your
  * bubble materializes at your sight boundary, never at its (hidden) launch
@@ -1296,18 +1344,11 @@ function ballisticSignal(kind: 'shell' | 'torp'): SignalSpec<ShellState, Ballist
       if (!('ownerId' in shell) || shell.kind !== kind) return false;
       const me = ctx.me;
       if (!me || me.seenBallistics.has(shell.id)) return false;
-      if (ctx.mode === 'spectator') return true;
-      // First-sight (shell) / first-detect (torp) OR inside an OWNED lit zone
-      // (Story 1.7 truesight parity): the exactly-once seenBallistics
-      // machinery is untouched — a zone reveal marks the id like any other,
-      // so the projectile is never re-sent.
-      return (
-        shell.ownerId === me.id ||
-        (kind === 'torp'
-          ? pointDetected(me, shell, ctx.islands, ctx.now)
-          : pointSighted(me, shell, ctx.islands, ctx.now)) ||
-        ownZoneCovers(ctx, shell)
-      );
+      // The mark is PER VISIT (Story 8.13): perception.ballisticScan clears it
+      // the first tick a still-live projectile fails THIS SAME gate, so a
+      // re-entry reveals again. One predicate, shared with the clear step —
+      // never a second copy of the boolean.
+      return ballisticGateOpen(ctx, shell);
     },
     materialize(ctx, shell) {
       // PURE wire-shaper — no mutation. Marking the projectile seen (the
@@ -1360,12 +1401,7 @@ const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
     if (!('ownerId' in shell) || shell.kind !== 'torp' || shell.homing === undefined) return false;
     const me = ctx.me;
     if (!me || !homingTrackDrifted(me, shell)) return false;
-    if (ctx.mode === 'spectator') return true;
-    return (
-      shell.ownerId === me.id ||
-      pointDetected(me, shell, ctx.islands, ctx.now) ||
-      ownZoneCovers(ctx, shell)
-    );
+    return ballisticGateOpen(ctx, shell); // a torp's gate: owner / DETECT+LOS / owned zone
   },
   materialize(ctx, shell) {
     // KEY ORDER IS LOAD-BEARING (k,id,x,y,vx,vy,t) — the BallisticEvent order.

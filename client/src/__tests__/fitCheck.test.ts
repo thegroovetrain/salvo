@@ -140,6 +140,53 @@ describe('fit-check — VISIBLE card rows (every offerable ladder/weapon prints 
   });
 });
 
+// --- STORY 8.13: THE LINES THAT WENT LIVE ---------------------------------------
+//
+// The walks above are generic, which is the point — but four lines changed
+// state in one cycle (LIGHT TORPEDO, CAPTIVE MINES and the SUPERCAV TORPEDO
+// stopped being stubs; FOULING MINES moved from the add-on space to the
+// equipment space), and naming them once makes the coverage legible to the next
+// agent instead of implied by a filter.
+
+describe('fit-check — the four lines Story 8.13 brought to life', () => {
+  const LIVE_8_13 = ['lightTorpedo', 'captiveMines', 'foulingMines', 'supercavTorpedo'] as const;
+
+  it('none of them is a stub any more, and DEPTH CHARGE still is', () => {
+    for (const id of LIVE_8_13) expect(CATALOG[id].stub, id).not.toBe(true);
+    expect(CATALOG.depthCharge.stub).toBe(true); // Eric's line, mechanism a later story
+  });
+
+  it('each is AUDIBLE, VISIBLE and routed — the same four channels every line owes', () => {
+    for (const id of LIVE_8_13) {
+      const line = CATALOG[id];
+      expect(TONES[fitTone(line.kind)], id).toBeDefined();
+      expect(FIT_KINDS.includes(line.kind), id).toBe(true);
+      expect(boonFitToastLine(id, 1, line.kind).trim(), id).not.toBe('');
+      expect(cardTierLabel(line, 0) === null, id).toBe(line.kind === 'consumable');
+    }
+  });
+
+  it('the three EQUIPMENT lines print rows and route to the slot carrying them', () => {
+    for (const id of ['lightTorpedo', 'captiveMines', 'foulingMines'] as const) {
+      const rows = cardStatRows(CATALOG[id], 0, { cls: 'mineLayer', cards: [] });
+      expect(rows.length, id).toBeGreaterThan(0);
+      expect(rows.length, id).toBeLessThanOrEqual(CARD_STAT_ROWS);
+      const loadout: (EquipmentId | null)[] = [null, id, null, null];
+      expect(slotForCard(loadout, id), id).toBe(1);
+    }
+  });
+
+  it('the SUPERCAV TORPEDO routes as a CONSUMABLE — stocked, never slot-fitted', () => {
+    expect(CATALOG.supercavTorpedo.kind).toBe('consumable');
+    expect(boonFitToastLine('supercavTorpedo', 1, 'consumable')).toContain('STOCKED');
+    // It addresses no EQUIPMENT, so it owns no weapon slot — its square is a
+    // belt square, and the stock rides the slot tooltip's interaction line.
+    expect(cardEquipmentIds('supercavTorpedo')).toEqual([]);
+    // ...and its fish never takes the homing look at any build (amendment 74).
+    expect(lookForReveal('torp', 'supercavTorpedo', { lightTorpedo: true, heavyTorpedo: true })).toBe('torp');
+  });
+});
+
 // --- VISIBLE: tooltip effect line ----------------------------------------------
 
 /**
@@ -239,16 +286,12 @@ const zoneView = (id: string, verbs: { phos?: true; daz?: true }) =>
  * per-mode rendering, and the HUD's victim tell lines.
  */
 const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
-  // ACOUSTIC HOMING: an own fish launched under the homing verb resolves to
-  // 'torpHoming' from launch (self-private identity, Wave 3).
-  acousticHoming: () => {
-    const look = lookForReveal('torp', 'heavyTorpedo', { torpedoHoming: true });
-    expect(look).toBe('torpHoming');
-  },
-  // FOULING MINES: the victim's SLOWED tell renders a real dual-coded line.
-  foulingMines: () => {
-    expect(tellLine('SLOWED', 2000)).toBe('SLOWED 2s');
-  },
+  // ACOUSTIC HOMING and the FOULING MINES add-on LEFT THIS TABLE in Story 8.13
+  // (epic-8 amendments 80/81): both cards are deleted. Homing is a TIER stat on
+  // the torpedo lines — its identity channel is pinned in projectiles.test.ts,
+  // keyed by line rather than by verb — and FOULING MINES is an equipment line,
+  // whose fit channel is the SLOT itself like every other weapon. A doctrine
+  // that no longer exists cannot be presentation-silent.
   // PHOSPHOR SHELLS: the zone carries the burn verb (not the bare flare) and
   // the burning ember breathes above zero alpha.
   phosphorShells: () => {
@@ -281,9 +324,12 @@ const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
 const PENDING_IDENTITY: readonly string[] = ['heatSeeking'];
 
 describe('fit-check — DOCTRINE IDENTITY (every doctrine line registers an on-water tell)', () => {
-  it('the catalog carries catalog v3\'s five add-on doctrine lines', () => {
+  it('the catalog carries the THREE surviving add-on doctrine lines', () => {
+    // Five until Story 8.13, when Eric deleted ACOUSTIC HOMING (homing became a
+    // tier stat) and the FOULING MINES add-on (fouling became its own equipment
+    // line) — amendments 80/81.
     expect(DOCTRINE_LINES.map((l) => l.id).sort()).toEqual(
-      ['acousticHoming', 'dazzleShells', 'foulingMines', 'heatSeeking', 'phosphorShells'],
+      ['dazzleShells', 'heatSeeking', 'phosphorShells'],
     );
   });
 

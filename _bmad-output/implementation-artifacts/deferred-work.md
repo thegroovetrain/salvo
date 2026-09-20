@@ -690,6 +690,7 @@ touch either.
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-9-the-eighths-ladder.md`
   summary: A STRAIGHT-RUNNING ENEMY TORPEDO CAN BECOME PERMANENTLY INVISIBLE, and the shorter detect ring makes it easier to reach. Ballistic reveal is exactly-once (`seenBallistics`), the cull is client-side, and only HOMING torpedoes emit a `torpU` that can resurrect a culled track. So a straight fish revealed at the detect boundary, then culled when it leaves the client's ring, is never drawn again even if the observer's own movement re-encloses it — and it can hit unseen. This existed before Story 4.9 at the wider ring; shrinking the ring to 287.5u means an observer's own speed opens and closes that gap far more often. NOT FIXED because the honest fix is a server-side re-reveal rule for ballistics that have gone out and come back, which is a perception-invariant change needing its own story and its own oracle.
   evidence: Blind adversarial hunter at the step-04 gate, traced. `server/src/game/perception.ts` (exactly-once `seenBallistics`; the `torpU` scan skips `shell.homing === undefined`), `client/src/render/projectiles.ts` (client-side cull, `spawnFromUpdate` resurrect path is homing-only).
+  status: RESOLVED 2026-09-19 (Story 8.13, epic-8 amendment 78) — per-visit reveal mark; re-entry re-reveals; pinned in perception/signals/goldenFrames
 
 ### 2026-08-07 — RESOLVED by Eric ruling (amendment 126), same day they were filed
 
@@ -1459,6 +1460,7 @@ and the next reader will again mistake a marker count for an open-work count.
   status: OPEN — ACCEPTED as shipped by Eric (R2.19); revisit only on a specific trigger
   summary: THE CAPTIVE MINE'S TORPEDO HAS NO MAX RANGE. It inherits base `CONFIG.torpedo` behaviour, which runs until impact, so a missed fish crosses the map until it hits something or reaches the rim. Eric ruled it accepted rather than an oversight — *"sounds fine to me, until I start adding torpedo max ranges or shit like that"* — so no cap was added. Ledgered as THE FIRST THING TO REVISIT if a torpedo max-range mechanic is ever introduced; whoever adds one must decide the captive fish's budget in the same change rather than letting it inherit silently.
   evidence: `plan-7-5-wave-2.md` R2.19; `server/src/game/equipment/mines.ts` captive launch (the fish is marked by `targetX === null && burstRadius > 0`). Eric ruling 2026-08-19.
+  status: CHECKED 2026-09-19 (Story 8.13, amendment 84f) — no torpedo line has a max range; only the homing die-distance bounds a fish, and only above zero turn rate; nothing inherited silently
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
   status: OPEN — orchestrator calls flagged to Eric, both shipped as defaults and both one line to flip
@@ -1964,6 +1966,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   status: OPEN — honest-home gap, structural
   summary: `CONFIG.bots.boonWeights` IS STILL AUTHORED IN V2 VOCABULARY. Story 8.1 folds the new v3 equipment lines into bot spending through an alias table in `server/src/game/ai/spending.ts` that maps old v2 keys (e.g. `torpedoSpeed`, `torpedoTube`) onto the v3 lines they now land on (e.g. `heavyTorpedo`), so bots can spend on the new catalog without CONFIG itself changing. The honest home for v3 bot weights is `CONFIG.bots.boonWeights` directly, authored in v3 line ids; fold this into the bot retune that follows the deck landing rather than carrying the alias table indefinitely.
   evidence: `server/src/game/ai/spending.ts` v2→v3 alias table and its header comment, Story 8.1 wave 2.
+  note: 2026-09-19 (Story 8.13, amendment 86) — the `torpedoHoming`/`minePropFouling` aliases are now homeless (their equipment lines are gone); the trapper profile's old fouling preference is an interim tie against captive until 8.18 authors per-line entries.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
   status: OPEN — needs an Eric ruling (a shorter name or a type step)
@@ -1971,11 +1974,13 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: `client/src/__tests__/refitCardFit.test.ts`, `client/src/__tests__/hotbar.test.ts` exemption pins, Story 8.1 wave 2.
   resolution: PARTLY MOOT 2026-09-17 (Story 8.6) — the hotbar's label column (and the whole per-slot name field it belonged to) is DELETED outright in the HUD bar re-cut, so the 268px label-column half of this exemption is moot; the bar draws no slot names at all. The refit card's 186px inner-box fit STANDS — that card face is untouched until Story 8.7 — so this entry stays open for the card-fit half only.
   resolution: RE-CUT 2026-09-17 (Story 8.7) — the face is the fixed five-row 216×226 card; refitCardFit re-cut wholesale.
+  resolution: RESOLVED 2026-09-19 (Story 8.13, amendment 75) — display name SUPERCAV TORPEDO; exemption pins retired.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
   status: OPEN — interim home, by design; closes incrementally
   summary: BASE STAT ROWS FOR THE 7 UNBUILT EQUIPMENT IDS LIVE IN A `STUB_ROWS` TABLE IN `shared/src/sim/stats.ts`, NOT IN `CONFIG`. Story 8.1 authors the catalog with 13 stub lines so `EffectiveStats.equipment` can stay a TOTAL record over `EquipmentId` from day one, but a stub's numbers are placeholders rather than ratified CONFIG values. Each content story (8.13–8.16) promotes its own row out of `STUB_ROWS` and into `CONFIG` when that weapon or consumable actually lands, rather than one story doing all seven at once.
   evidence: `shared/src/sim/stats.ts` `STUB_ROWS`, Story 8.1 wave 1.
+  resolution: PARTLY CLOSED 2026-09-19 (Story 8.13) — light torpedo, captive mines and supercav rows promoted to CONFIG; missile/machineGun/flak/monitor remain for 8.14.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
   status: OPEN — dead branch, low priority
@@ -2001,6 +2006,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   status: OPEN — hand to Story 8.13 (captive mines module)
   summary: CAPTIVE-MINE READERS ARE KEYED TO THE NAVAL ROW: `captiveMines` carries `captive: true` at base in `stats.ts`, but every reader (`world.ts` mine trip/blast rules, `ai/equipment.ts` captive tactic, `client/src/render/equipmentInfo.ts`) reads `equipment.navalMines.captive`, which is always false in production, so the captive path is dead until 8.13 re-keys every site per the equipment that laid the mine. Tests keep the path alive by poking the naval row.
   evidence: Blind Hunter finding 6, review gate 2026-09-15; `botTactics.test.ts` pokes `stats.equipment.navalMines.captive = true`.
+  status: RESOLVED 2026-09-19 (Story 8.13) — MineState.kind; every reader keyed by kind
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
   status: OPEN — Eric ruling needed with the bot retune
@@ -2313,3 +2319,67 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-12-catalog-v3-ladders-and-the-deck-gun.md`
   summary: THE GUN SLOT TOOLTIP'S FIT SLACK IS NOW 4 PX AT THE 1280×614 FLOOR — the ` · TIER n` suffix wraps the gun's interaction row to two lines on every hull (33 glyphs against a 29-glyph inner line), the fit model absorbs it by trimming boon rows (9 rows on the full ladder build), and the worst panel sits 4 px under `TOOLTIP_MAX_PANEL_H`; whoever next lengthens a tooltip row spends the last of the budget.
   evidence: Blind Hunter scratch measurement at the 8.12 gate (`overflow = -4 px` for all three classes); `client/src/__tests__/slotTooltip.test.ts` headroom pin (≥ 2 px).
+
+## 2026-09-19 — Story 8.13 (Catalog v3 — Torpedoes and Mines, cycle 148)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — a doc-sync pass is owed, not done here (Eric's minimal-edits rule)
+  summary: `catalog-v3.md` AND THE GDD NOW DISAGREE WITH THIS STORY'S RULINGS. Amendments 74/80/81/82/83 rewrote the shape of five catalog lines out from under the source documents: SUPERCAVITATING TORPEDO moved from an equipment row to a belt consumable (74); ACOUSTIC HOMING is deleted and homing is a tier stat on light/heavy torpedoes (80) and the captive fish (82); FOULING MINES left the add-on-card model for its own tiered equipment line, and naval mines no longer foul (81); DEPTH CHARGE is a new stub consumable line neither document mentions (83). Nobody edited `catalog-v3.md` or the GDD to match — Eric's minimal-edits rule says a change signal authorizes only what it rules on, not a reword of surrounding settled text — so both documents are stale until a dedicated doc-sync pass reconciles them against the amendments.
+  evidence: `_bmad-output/planning-artifacts/.../catalog-v3.md` §4 (SUPERCAVITATING TORPEDO, ACOUSTIC HOMING, FOULING MINES rows as originally authored); `gdd.md` FR53/FR54; epic-8 amendments 74, 80, 81, 82, 83.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — hand to Story 8.14 (Eric's own words: "I will revisit this when we get back to missiles")
+  summary: HEAT SEEKING ON THE MISSILE IS NOT DECIDED. Amendment 80 removed ACOUSTIC HOMING and built homing into the torpedo and captive-mine tiers instead, but explicitly left the missile's own homing mechanism (heat seeking, per catalog-v3) untouched pending Story 8.14, when the missile line itself gets built. Whoever builds 8.14 should treat homing-as-tier-stat as the established pattern to weigh against, not a foregone conclusion for missiles.
+  evidence: epic-8 amendment 80 (final sentence); catalog-v3.md missile row (unbuilt, `STUB_ROWS`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — tracked under UX-DR50, not this story's scope
+  summary: THE ICON PASS STAYS OWED. LIGHT TORPEDO, the three mine kinds and SUPERCAV TORPEDO all reuse their family's existing glyph (the torpedo icon, the mine icon) rather than getting a distinguishing icon of their own, continuing the gap UX-DR50 already tracks from earlier catalog stories. A card face and a refit-slot icon for these new lines are visually identical to their sibling lines today.
+  evidence: `client/src/render/equipmentIcons.ts`; UX-DR50 (design doc open item).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — pre-existing, unrelated to 8.13's changes, reproduced twice
+  summary: THE INVARIANT FUZZ'S BUOY JAM-FAKE ORACLE IS SEED-FRAGILE. Certain seeds consume two extra RNG draws after tick 2 and then fail `verifyBlipCompleteness` with "gated jam fake of buoy1 accounted for by its own blip: expected -1 ≥ 0" — an oracle bookkeeping bug in the fuzz harness itself, not a perception leak (the jamming-buoy fakes carve-out is unaffected). The Wave 2b implementer reproduced it twice while working this story's perception changes and confirmed by bisection that it predates 8.13 and is untouched by the re-reveal fix. Not fixed here — it is the fuzz oracle's arithmetic, not `perception.ts` or `signals.ts`.
+  evidence: Wave 2b implementer report, 2026-09-19; `server/src/__tests__/` perception invariant fuzz (buoy jam-fake accounting).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — no round added by design, float dust is expected
+  summary: THE FOULING MINE'S TIER-V SLOW FACTOR HAS FLOAT DUST. `0.75 - 0.05 * 4` folds to `0.5499999999999998` rather than an exact `0.55`, on both the server and the client (identical arithmetic, so prediction never disagrees with the authority) — pinned with `toBeCloseTo` rather than exact equality. No rounding step was added because one would diverge the two sides' derivations from `effectiveStats` in different float paths; the dust is cosmetic and never visible on a stat row (which the client formats to a fixed number of decimals).
+  evidence: `shared/src/sim/stats.ts` fouling `slowFactor` derivation; `shared/src/__tests__/stats.test.ts` tier-V fouling pin (`toBeCloseTo`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — presentation choices for Eric to ratify or retune
+  summary: TWO CARD-FACE ROW CHOICES WERE MADE BY THE IMPLEMENTER, NOT RULED BY ERIC. (1) The FOULING MINES card face drops its RELOAD row from the five-row grid to make room for `SLOW`, on the reasoning that SLOW is the line's distinguishing stat and reload is shared family furniture; every other mine/torpedo card keeps RELOAD. (2) The captive mine card's TRIGGER row is placed directly after DAMAGE, with no BLAST field shown at all (blast is fixed at 32 across every captive tier, so it never changes and was judged not worth a row); naval and fouling mines show both TRIGGER and BLAST since both move by tier. Neither layout call was put to Eric; both are one-line changes if he wants them differently.
+  evidence: `client/src/render/equipmentInfo.ts` card-row tables for `foulingMines` and `captiveMines`; amendment 85 (rows print every authored step, silent on which rows a line chooses to show).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — hand to Story 8.18
+  summary: BOTS' PER-LINE APPETITES FOR THIS STORY'S FIVE LINES ARE STILL THE INTERIM `APPETITE_FAMILY` FALLBACK, NOT AUTHORED ENTRIES. Amendment 79 shipped minimal tactics (light torpedo reuses the heavy torpedo tactic, captive/fouling mines reuse the mine tactic) rather than a full per-line tactic and weight table; the `APPETITE_FAMILY` fallback map that lets an unlisted line inherit its family's generic appetite is marked for deletion once Story 8.18 authors real per-line entries for every line, this story's five included.
+  evidence: `server/src/game/ai/equipment.ts` `APPETITE_FAMILY`; `server/src/game/ai/spending.ts`; epic-8 amendment 79, amendment 86's note on the trapper's fouling tie.
+
+### Story 8.13 review-gate defers (2026-09-19, cycle 148)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — perf/chatter, bounded; measure on a production smoke
+  summary: THE PER-VISIT REVEAL MARK (amendment 78) HAS TWO BOUNDED COSTS THE OLD PERMANENT MARK DID NOT: (1) a live enemy projectile hugging an observer's detect/sight rim, an island LOS edge or a dazzle-shrunk rim can alternate inside/outside per tick and draw one full `{k,id,x,y,vx,vy,t}` reveal per re-entry tick (geometry stays correct — the client re-anchors — but the chatter is unbounded per rim-hugging projectile); (2) `ballisticGateOpen` now runs every tick for every MARKED non-owner projectile per observer (one `losClear` raycast each), where a marked projectile used to short-circuit. Candidate fixes if either ever matters: clear only after N consecutive outside ticks, or a per-(observer, id) reveal-rate floor. Not fixed at the gate — no evidence it matters at 20 observers × live ordnance.
+  evidence: Blind Hunter F4 + Edge Case Hunter finding 6, both PLAUSIBLE, traced against `server/src/game/perception.ts` `ballisticScan`/`forgetIfExited` and `signals.ts` `ballisticGateOpen`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — bots; hand to Story 8.18
+  summary: THE LIGHT TORPEDO'S LEAD SOLVER CAN RETURN A MEANINGLESS INTERCEPT AGAINST A TARGET IT CANNOT CATCH: `ai/equipment.ts` `leadPoint` runs three fixed-point iterations with no "target faster than the fish and opening" guard, so a bot may spend a 25 s light-torpedo tube (45 u/s at tier I) on a Torpedo Boat running away at 45+ u/s. The heavy at 65 u/s never met this case. Guard shape: `if (t.speed >= fishSpeed && closingRate <= 0) return null`.
+  evidence: Edge Case Hunter finding 4 (PLAUSIBLE), traced through `solveTorpedoShot` for `lightTorpedo`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — Eric's call (copy)
+  summary: THE FOULING CARD'S `SLOW 75%` ROW IS AMBIGUOUS — it means "speed ×0.75" but reads as "slows by 75 %". Label `SLOW` was the orchestrator's minimal word (amendment 81's build); a clearer form (`SPEED ×0.75`, `SPEED 75%`) is Eric's to pick.
+  evidence: Blind Hunter F7; `client/src/ui/boonCopy.ts` `pct` under `SLOW`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — QA note, by design
+  summary: THE WHOLE FOULING RUNTIME IS UNREACHABLE IN LIVE PLAY UNTIL EPIC 9: `foulingMines` is in no default deck and `DEFAULT_OWNED` excludes it, so the server slow write, `OwnShip.slowFactor` on the wire and the predictor's `authSlowFactor` are covered by tests and smokes only. Likewise `depthCharge` is a stub in the Mine Layer's default deck (its 40th card buys nothing today — amendment 83, Eric knows).
+  evidence: Blind Hunter F6; `shared/src/sim/catalog.ts` default decks + `DEFAULT_OWNED`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — Eric's call (card copy)
+  summary: THE NO-OP ROW SKIP (amendment 87b) APPLIES TO WEAPON TIER CARDS ONLY. Applying it to pure LADDER lines made some TURNING rungs print ZERO rows (the +0.05 rad/s step disappears under the row's display rounding), a blank card and a breach of "every card has at least one row" — so ladder cards still print their one `STAT cur → next` row even when the displayed values match. Either widen the display precision for TURNING or accept the unchanged-looking row; Eric to pick.
+  evidence: review-gate patch P5 (`client/src/ui/boonCopy.ts` `ladderRows(dropUnchanged)`, `weaponRows` passes true; `cardStatRows.test.ts` law `rows.length === min(1 + changedSteps, 5)` for weapon tiers).

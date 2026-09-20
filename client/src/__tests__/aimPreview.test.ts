@@ -96,21 +96,15 @@ function broadsideStats(rung: number, turrets: number): EffectiveStats {
   };
 }
 
-/** Stats whose PRIMED mine row is the captive chassis — catalog v3 (R25) made
- *  CAPTIVE MINES its own equipment line, and its module is Story 8.13, so the
- *  captive row is handed to the preview in the primed slot's place. Every number
- *  in it is the firewall's own (clampStats' swap-and-triple), untouched here. */
-function captiveMineStats(): EffectiveStats {
-  const base = stats();
-  return { ...base, equipment: { ...base.equipment, navalMines: base.equipment.captiveMines } };
-}
 
 /** The SPREAD ladder's top rung, at the base four guns. */
 const SPREAD_CAP = CONFIG.broadside.traverseDeg.length;
 
 /** Naval-mine stats with the blast radius widened by the shipped ×1.1-per-tier
- *  compounding (catalog-v3 R24) — the ladder itself is Story 8.16's to author,
- *  and the trigger ring stays DERIVED by the firewall's own helper. */
+ *  compounding (catalog-v3 R24). The trigger ring stays DERIVED by the
+ *  firewall's own helper — ONE argument since Story 8.13, because the captive
+ *  mine no longer comes through it at all (its trip ring is derived from the
+ *  TIER instead, epic-8 amendment 84d). */
 function minesAt(cards: readonly string[], blastMult: number): EffectiveStats {
   const base = stats(...cards);
   const row = base.equipment.navalMines;
@@ -119,11 +113,7 @@ function minesAt(cards: readonly string[], blastMult: number): EffectiveStats {
     ...base,
     equipment: {
       ...base.equipment,
-      navalMines: { ...row, blastRadius, triggerRadius: mineTriggerRadius(blastRadius, row.captive) },
-      captiveMines: {
-        ...base.equipment.captiveMines,
-        blastRadius: base.equipment.captiveMines.blastRadius,
-      },
+      navalMines: { ...row, blastRadius, triggerRadius: mineTriggerRadius(blastRadius) },
     },
   };
 }
@@ -608,8 +598,11 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
     expect(l.x2).toBeCloseTo(750, 3);
   });
 
-  it('ACOUSTIC HOMING adds the acquisition band along the initial track', () => {
-    const m = computeAimPreview(input({ id: 'heavyTorpedo', stats: stats('acousticHoming') }));
+  // HOMING IS A TIER STAT (Story 8.13, epic-8 amendment 80 — ACOUSTIC HOMING is
+  // deleted): the band appears from TIER II, which is the second copy of the
+  // line, and the acquire/die numbers stay the FAMILY's shared ones.
+  it('a TIERED torpedo adds the acquisition band along the initial track', () => {
+    const m = computeAimPreview(input({ id: 'heavyTorpedo', stats: stats('heavyTorpedo', 'heavyTorpedo') }));
     expect(m.band).not.toBeNull();
     expect(m.band!.halfWidth).toBe(CONFIG.torpedo.homingAcquireRange);
     expect(m.band!.x1).toBeCloseTo(m.lines[0].x1, 9);
@@ -622,12 +615,40 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
   // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): the three commanded-
   // point pins and the command half of the no-band pin are gone with the weapon
   // behavior — there is no longer a torpedo that bursts at a clicked point.
-  it('no band on a straight-runner (only ACOUSTIC HOMING steers)', () => {
+  it('no band on a TIER-I fish — a straight-runner has no acquisition to draw', () => {
     expect(computeAimPreview(input({ id: 'heavyTorpedo' })).band).toBeNull();
+    expect(computeAimPreview(input({ id: 'lightTorpedo' })).band).toBeNull();
+    // ...and the SUPERCAV fish never steers at ANY build (amendment 74), even
+    // beside a fully tiered torpedo ladder.
+    const tiered = stats('heavyTorpedo', 'heavyTorpedo', 'lightTorpedo', 'lightTorpedo');
+    expect(computeAimPreview(input({ id: 'supercavTorpedo', stats: tiered })).band).toBeNull();
+  });
+
+  // STORY 8.13, THE FAIL-FIRST PIN: the dispatch keyed on `heavyTorpedo` alone,
+  // so priming a LIGHT TORPEDO or the belt's SUPERCAV previewed NOTHING — no
+  // track out of the tube at all — and the homing branch read the HEAVY row for
+  // whichever fish was in the water.
+  it('previews a run for EVERY torpedo id, each reading its own line', () => {
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
+      expect(computeAimPreview(input({ id })).lines, id).toHaveLength(1);
+    }
+    // The LIGHT line's own ladder buys the LIGHT fish's band, and leaves the
+    // heavy one a straight-runner.
+    const light = stats('lightTorpedo', 'lightTorpedo');
+    expect(computeAimPreview(input({ id: 'lightTorpedo', stats: light })).band).not.toBeNull();
+    expect(computeAimPreview(input({ id: 'heavyTorpedo', stats: light })).band).toBeNull();
+  });
+
+  it('keeps the TORPEDO FAMILY tint for every fish, and amber for everything else', () => {
+    const torp = previewTint('heavyTorpedo');
+    expect(previewTint('lightTorpedo')).toBe(torp);
+    expect(previewTint('supercavTorpedo')).toBe(torp);
+    expect(previewTint('navalMines')).not.toBe(torp);
   });
 
   it('no torpedo previews a point burst any more — contact only', () => {
-    expect(computeAimPreview(input({ id: 'heavyTorpedo', stats: stats('acousticHoming') })).bursts).toEqual([]);
+    expect(computeAimPreview(input({ id: 'heavyTorpedo', stats: stats('heavyTorpedo', 'heavyTorpedo') })).bursts)
+      .toEqual([]);
   });
 });
 
@@ -660,29 +681,48 @@ describe('mine placement — both rings at the drop point', () => {
   // ring the mine watches, and NOT a blast circle around the casing — a captive
   // mine never detonates on contact, so a solid ring there would promise a kill
   // it cannot deliver.
-  // CATALOG V3 MOVED THE CAPTIVE FLAG (R25): it is a property of the CAPTIVE
-  // MINES equipment row now, not a doctrine bolted onto the naval mine, and it
-  // drives exactly the same derivation in clampStats. The preview reads the row
-  // of the equipment that is PRIMED, so the captive case is previewed as the
-  // `captiveMines` slot.
+  // STORY 8.13 DELETED THE CAPTIVE FLAG (epic-8 amendments 76/81): captive
+  // mines are their own equipment LINE with their own module, so the preview is
+  // driven by WHICH LINE IS PRIMED and reads that line's own row. The old pin
+  // had to smuggle the captive row into the `navalMines` slot because no
+  // captive id could ever be primed; now it simply primes `captiveMines`.
   it('CAPTIVE: previews the 144u trip ring, not the 32u contact-blast ring', () => {
-    // The captive row is the firewall's own output (clampStats swaps the two
-    // radii and triples the trip ring off the SAME CONFIG.mine.blastRadius);
-    // it is handed to the preview as the primed mine's row, because the
-    // CAPTIVE MINES module itself is Story 8.13.
-    const s = captiveMineStats();
-    const m = computeAimPreview(input({ id: 'navalMines', stats: s, aim: 0, aimDist: 60 }));
-    expect(m.place!.captive).toBe(true);
+    const s = stats();
+    const m = computeAimPreview(input({ id: 'captiveMines', stats: s, aim: 0, aimDist: 60 }));
+    expect(m.place!.kind).toBe('captive');
     expect(m.place!.trigger).toBeCloseTo(144, 9);
     expect(m.place!.blast).toBeCloseTo(32, 9);
-    // The numbers are the firewall's, never re-derived here.
-    expect(m.place!.trigger).toBe(s.equipment.navalMines.triggerRadius);
-    expect(m.place!.blast).toBe(s.equipment.navalMines.blastRadius);
-    // ...and the transform really did invert the ordinary mine's ring pair.
+    // The numbers are the firewall's, never re-derived here — and off the
+    // CAPTIVE row, which is the whole point.
+    expect(m.place!.trigger).toBe(s.equipment.captiveMines.triggerRadius);
+    expect(m.place!.blast).toBe(s.equipment.captiveMines.blastRadius);
+    // ...and the captive's ring pair really is the inverse of a contact mine's.
     const plain = computeAimPreview(input({ id: 'navalMines', aim: 0, aimDist: 60 }));
-    expect(plain.place!.captive).toBe(false);
+    expect(plain.place!.kind).toBe('naval');
     expect(plain.place!.trigger).toBeLessThan(plain.place!.blast);
     expect(m.place!.trigger).toBeGreaterThan(m.place!.blast);
+  });
+
+  // STORY 8.13, THE FAIL-FIRST PIN. Every mine branch keyed on `navalMines`
+  // until now, so priming FOULING MINES previewed the naval mine's 48 u burst
+  // instead of its own 72 u one — and priming a captive previewed nothing at
+  // all, because the dispatch did not know the id.
+  it('FOULING: previews its OWN wider blast + derived trip ring, as a contact pair', () => {
+    const s = stats();
+    const m = computeAimPreview(input({ id: 'foulingMines', stats: s, aim: 0, aimDist: 60 }));
+    expect(m.place!.kind).toBe('fouling');
+    expect(m.place!.blast).toBe(s.equipment.foulingMines.blastRadius);
+    expect(m.place!.trigger).toBe(s.equipment.foulingMines.triggerRadius);
+    // Wider than the naval mine's, which is the line's whole shape...
+    expect(m.place!.blast).toBeGreaterThan(s.equipment.navalMines.blastRadius);
+    // ...and the trip ring is still the shared 2/3 derivation, not a new rule.
+    expect(m.place!.trigger).toBeCloseTo(m.place!.blast * (2 / 3), 9);
+  });
+
+  it('every mine LINE previews a placement — none falls through to EMPTY', () => {
+    for (const id of ['navalMines', 'captiveMines', 'foulingMines'] as const) {
+      expect(computeAimPreview(input({ id, aim: 0, aimDist: 60 })).place, id).not.toBeNull();
+    }
   });
 
   // The blast ladder that scaled these rings is Story 8.16's to author, so the

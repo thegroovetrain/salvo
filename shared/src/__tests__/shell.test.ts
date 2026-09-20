@@ -575,17 +575,26 @@ describe('burstVictims — kinds (Story 8.4)', () => {
 });
 
 describe('CONFIG ordnance masks (AR44)', () => {
-  it('the six shipped rows declare exactly the ruled masks; no stub row exists', () => {
+  it('the TEN shipped rows declare exactly the ruled masks; no stub row exists', () => {
     expect(CONFIG.gun.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.broadside.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.radarBuoy.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.torpedo.hits).toEqual(['hull', 'decoy']);
     expect(CONFIG.starShells.hits).toEqual(['hull', 'decoy']); // illumination detonates nothing
     expect(CONFIG.mine.hits).toEqual(['hull']); // the TRIP mask
-    // STUB lines get no row until their own story (missile, machine gun, flak,
-    // monitor, light/supercav torpedo): an undeclared mask fails loudly.
-    for (const row of ['missile', 'machineGun', 'flak', 'monitor', 'lightTorpedo', 'supercavTorpedo']) {
-      expect(row in CONFIG).toBe(false);
+    // STORY 8.13's ROWS. Every torpedo runs UNDER a minefield (AR44) and every
+    // mine trips on hulls only, so the two new masks are their families'.
+    expect(CONFIG.lightTorpedo.hits).toEqual(['hull', 'decoy']);
+    expect(CONFIG.supercavTorpedo.hits).toEqual(['hull', 'decoy']);
+    expect(CONFIG.foulingMines.hits).toEqual(['hull']);
+    // CAPTIVE MINES declares NO mask of its own and needs none: the mine never
+    // detonates on contact — it LAUNCHES a fish, which flies under the
+    // torpedo family's mask (CONFIG.torpedo.hits).
+    expect('hits' in CONFIG.captiveMines).toBe(false);
+    // The FOUR still-stub lines get no row until Story 8.14: an undeclared
+    // mask fails loudly rather than defaulting to something plausible.
+    for (const row of ['missile', 'machineGun', 'flak', 'monitor']) {
+      expect(row in CONFIG, row).toBe(false);
     }
   });
 });
@@ -682,5 +691,54 @@ describe('stepShell — homing torpedo steering', () => {
       ticks += 1;
     }
     expect(out.kind).toBe('expired'); // splashed at the map edge, never hit
+  });
+});
+
+// --- CYCLE-148 REVIEW GATE, P6: A LOCKED FISH HAS ONE TARGET, FOR GOOD -------
+//
+// The CAPTIVE MINE fires at the hull that tripped it AND cleared the hostile
+// gate (R2.13 — a fleet drone is a target only while it is actively hunting the
+// mine's owner). That gate is a World read; `steerHoming` is pure shared sim and
+// cannot re-run it. So an ordinary re-acquiring fish would happily abandon the
+// captain it was fired at for a neutral drone that drifted nearer — springing
+// the trap on exactly the hull the gate refused. `locked` pins the answer at
+// launch.
+describe('stepShell — a LOCKED homing torpedo (the captive mine\'s fish)', () => {
+  /** A locked fish heading +x, pinned to `targetId`. */
+  function lockedTorp(targetId: string): ShellState {
+    return homingTorp({
+      homing: {
+        turnRate: CONFIG.torpedo.homingTurnRate,
+        acquireRange: CONFIG.torpedo.homingAcquireRange,
+        targetId,
+        locked: true,
+      },
+    });
+  }
+
+  it('steers at its PINNED target even with a nearer hull alongside', () => {
+    const t = lockedTorp('prey');
+    // The pinned hull is ABOVE the axis, an interloper NEARER and BELOW it: an
+    // unlocked fish would take the interloper and turn -y.
+    stepShell(t, ctx({ targets: [hullAt(90, 45, 0, 'prey'), hullAt(50, -25, 0, 'interloper')] }));
+    expect(t.homing!.targetId).toBe('prey'); // the pin never moves
+    expect(t.vy).toBeGreaterThan(0); // ...and the fish turns toward it, not away
+  });
+
+  it('flies STRAIGHT when its pinned target is gone — it never re-acquires', () => {
+    const t = lockedTorp('prey');
+    // The pinned hull has left the target set (sunk / despawned); a hull that
+    // an unlocked fish would grab instantly sits well inside acquire range.
+    stepShell(t, ctx({ targets: [hullAt(50, -25, 0, 'interloper')] }));
+    expect(t.vy).toBe(0);
+    expect(t.vx).toBeCloseTo(CONFIG.torpedo.speed, 9);
+    expect(t.homing!.targetId).toBe('prey'); // still nobody else's fish
+  });
+
+  it('leaves the UNLOCKED fish byte-for-byte as it was — same geometry, nearest wins', () => {
+    const t = homingTorp(); // no `locked`
+    stepShell(t, ctx({ targets: [hullAt(90, 45, 0, 'farther'), hullAt(50, -25, 0, 'nearer')] }));
+    expect(t.homing!.targetId).toBe('nearer');
+    expect(t.vy).toBeLessThan(0);
   });
 });

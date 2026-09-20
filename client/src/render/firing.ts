@@ -33,11 +33,11 @@ import {
   turretMountBearings,
   turretMuzzles,
   wrapAngle,
-  type EquipmentId,
   type HullId,
+  type SlotItemId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { fireArcKind, sectorOutline, twinSectorSide, weaponArcHit } from './weaponArc.js';
+import { fireArcKind, isPlacedItem, isTorpedoItem, sectorOutline, twinSectorSide, weaponArcHit } from './weaponArc.js';
 
 const AMBER = CLIENT_CONFIG.colors.amber;
 const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torpedo bow arc (legacy tone)
@@ -56,6 +56,21 @@ const IMPACT_R = 4; // u — range-clamped impact marker ring
  *  ARE local coordinates. This is the whole reason the render can reuse the
  *  sim's geometry instead of re-deriving spacing. */
 const IDENTITY_POSE = { x: 0, y: 0, heading: 0 };
+
+/**
+ * Pure: the aim colour of one primed system — THE TORPEDO FAMILY's cool green,
+ * or aim amber for everything else.
+ *
+ * ONE ANSWER, THREE SURFACES (the sector wedge, the twin-beam outlines and the
+ * reticle), because they are one statement: "this is the system you are
+ * aiming". It keys on the FAMILY since Story 8.13 rather than on
+ * `id === 'heavyTorpedo'` — the LIGHT torpedo's twin beams and the belt's
+ * SUPERCAV bow sector are torpedoes too, and a fish that drew amber would read
+ * as gunnery.
+ */
+function weaponTint(id: SlotItemId | null): number {
+  return isTorpedoItem(id) ? TORP_TINT : AMBER;
+}
 
 export interface FiringPose {
   x: number;
@@ -196,7 +211,7 @@ export class FiringUX {
   update(
     pose: FiringPose,
     aim: number,
-    id: EquipmentId | null,
+    id: SlotItemId | null,
     ammo: FiringAmmo,
     cursor: { x: number; y: number },
     denied = false,
@@ -226,7 +241,7 @@ export class FiringUX {
    * ARC_R (its fish runs to the map edge, so a radius would be a lie).
    */
   private drawSectorArc(
-    id: EquipmentId,
+    id: SlotItemId,
     aim: number,
     heading: number,
     ammo: FiringAmmo,
@@ -246,8 +261,12 @@ export class FiringUX {
     // indicative ARC_R (72u, less than half its real 150u reach), torpedo green,
     // no boundary. That is Eric's "the buoy's targeting range indicator isn't
     // correct": it was not the buoy's range at all.
-    const placement = id === 'navalMines' || id === 'radarBuoy';
-    const tint = placement ? AMBER : TORP_TINT;
+    // ALL THREE MINE LINES place (Story 8.13), not just the naval one, and the
+    // belt's SUPERCAV TORPEDO is a LAUNCH, so the two halves are asked
+    // separately: `isPlacedItem` decides the placement grammar, `weaponTint`
+    // decides the family colour.
+    const placement = isPlacedItem(id);
+    const tint = weaponTint(id);
     const radius = placement ? this.rangeU : ARC_R;
     const color = denied ? DENIED_RED : tint;
     this.sector(t.offset, t.halfArc, color, denied || lit, ammo.reloadFrac, radius, placement);
@@ -277,7 +296,7 @@ export class FiringUX {
    * range-clamp marker and by the aim preview's per-shell burst circles.
    */
   private drawTwinArcs(
-    id: EquipmentId,
+    id: SlotItemId,
     aim: number,
     heading: number,
     ammo: FiringAmmo,
@@ -287,11 +306,15 @@ export class FiringUX {
     const t = arcFor(id);
     if (t.kind !== 'twin-sector') return; // descriptor law: only twin sectors draw a pair
     const firing = twinSectorSide(heading, aim, t);
-    const color = denied ? DENIED_RED : AMBER;
+    const color = denied ? DENIED_RED : weaponTint(id);
     for (const side of [1, -1] as const) {
       const lit = denied || (firing === side && ammo.hasAmmo);
       this.drawLegalOutline(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
-      if (bs !== null) this.drawTurretWedges(side, color, lit, bs);
+      // PER-TURRET WEDGES ARE THE BROADSIDE'S ALONE (Story 8.13): the LIGHT
+      // TORPEDO shares the twin-sector SHAPE, not the battery behind it — it
+      // fires tubes, not turrets, so drawing the barrage's gun wedges on its
+      // beams would invent a fan of shells that no fish has.
+      if (id === 'broadside' && bs !== null) this.drawTurretWedges(side, color, lit, bs);
     }
   }
 
@@ -422,7 +445,7 @@ export class FiringUX {
   private drawReticle(
     pose: FiringPose,
     aim: number,
-    id: EquipmentId | null,
+    id: SlotItemId | null,
     hasAmmo: boolean,
     cursor: { x: number; y: number },
   ): void {
@@ -440,7 +463,15 @@ export class FiringUX {
     // anyway, so both owe the player the true burst distance. The broadside is
     // the one that needs it most: its 5/8 reach is 247.5u shorter than the radar
     // horizon every other gun-family weapon runs to.
-    if (kind === 'gunLike' || kind === 'twin') this.drawRangeClampMarker(pose, aim, cursor, color);
+    //
+    // NEVER FOR A TORPEDO (Story 8.13). The LIGHT TORPEDO is the second
+    // `twin-sector` weapon in the game, and no torpedo line has a max range
+    // (epic-8 amendment 84f): `weaponRangeU` hands it the gun's radar-derived
+    // fallback purely so nothing crashes, and drawing a clamp ring at it would
+    // promise the fish stops there.
+    if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id)) {
+      this.drawRangeClampMarker(pose, aim, cursor, color);
+    }
   }
 
   /**
@@ -470,8 +501,8 @@ export class FiringUX {
   /** Reticle tint: bright when the aim is in the primed weapon's arc + has ammo.
    *  The torpedo keeps its cool-green identity; everything else (gun family, the
    *  broadside's beams, the mine's rear placement) is amber. */
-  private reticleColor(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): number {
+  private reticleColor(heading: number, aim: number, id: SlotItemId | null, hasAmmo: boolean): number {
     if (!(weaponArcHit(heading, aim, id) && hasAmmo)) return DIM;
-    return id === 'heavyTorpedo' ? TORP_TINT : AMBER;
+    return weaponTint(id);
   }
 }

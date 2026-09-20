@@ -97,8 +97,12 @@ describe('checkDeck — the four rules, one at a time', () => {
     expect(checkDeck(proto, new Set([...DEFAULT_OWNED, 'constructor']))).toEqual({ ok: false, rule: 'unowned' });
   });
 
-  it("'overCap': acousticHoming ×2 in a 40-card deck", () => {
-    const deck = swap(copyOf('torpedoBoat'), 'armor', 'acousticHoming');
+  it("'overCap': deckGunTurret ×2 in a 40-card deck (cap 1)", () => {
+    // The cap-1 example was `acousticHoming`, which Story 8.13 deleted (epic-8
+    // amendment 80); DECK GUN TURRET is the other cap-1 line every default
+    // deck already carries exactly one of.
+    const deck = swap(copyOf('torpedoBoat'), 'armor', 'deckGunTurret');
+    expect(CATALOG.deckGunTurret.cap).toBe(1);
     expect(checkDeck(deck, DEFAULT_OWNED)).toEqual({ ok: false, rule: 'overCap' });
   });
 
@@ -113,21 +117,21 @@ describe('checkDeck — the four rules, one at a time', () => {
 
 describe('checkDeck — rule ORDER is the contract (first failure reported)', () => {
   it("size beats every other rule: a 41-card deck with four equipment lines, an unowned id and an over-cap line says 'size'", () => {
-    const deck = [...DEFAULT_DECKS.torpedoBoat, 'broadside', 'phosphorShells', 'acousticHoming'] as LineId[];
+    const deck = [...DEFAULT_DECKS.torpedoBoat, 'broadside', 'phosphorShells', 'foulingMines'] as LineId[];
     expect(checkDeck(deck.slice(0, 41), DEFAULT_OWNED)).toEqual({ ok: false, rule: 'size' });
   });
 
   it("equipmentLines beats unowned and overCap", () => {
     const deck = copyOf('torpedoBoat');
     swap(deck, 'armor', 'broadside'); // 4th equipment line AND unowned
-    swap(deck, 'speed', 'acousticHoming'); // over cap
+    swap(deck, 'speed', 'deckGunTurret'); // over cap (cap 1, one already held)
     expect(checkDeck(deck, DEFAULT_OWNED)).toEqual({ ok: false, rule: 'equipmentLines' });
   });
 
   it("unowned beats overCap", () => {
     const deck = copyOf('torpedoBoat');
     swap(deck, 'armor', 'phosphorShells'); // unowned
-    swap(deck, 'speed', 'acousticHoming'); // over cap
+    swap(deck, 'speed', 'deckGunTurret'); // over cap (cap 1, one already held)
     expect(checkDeck(deck, DEFAULT_OWNED)).toEqual({ ok: false, rule: 'unowned' });
   });
 });
@@ -136,7 +140,7 @@ describe('equipmentLineCount', () => {
   it('counts DISTINCT equipment lines only — copies, add-ons, ladders and consumables never count', () => {
     expect(equipmentLineCount(DEFAULT_DECKS.torpedoBoat)).toBe(3);
     expect(equipmentLineCount(['heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo'])).toBe(1);
-    expect(equipmentLineCount(['armor', 'acousticHoming', 'hullRepair', 'deckGun'])).toBe(0);
+    expect(equipmentLineCount(['armor', 'dazzleShells', 'hullRepair', 'deckGun'])).toBe(0);
     expect(equipmentLineCount(['junk', 'constructor'])).toBe(0);
     expect(equipmentLineCount([])).toBe(0);
   });

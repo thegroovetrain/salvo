@@ -1402,8 +1402,9 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
  */
 function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   // The latch is claimed ONCE, and only for a reveal already sitting on our own
-  // hull — see the ownFireWeapon dep note (a claim consumes).
-  const near = nearOwnShip(e.x, e.y, deps);
+  // hull — see the ownFireWeapon dep note (a claim consumes) — and only for a
+  // reveal the store has never seen (`firstReveal`).
+  const near = firstReveal(e, deps) && nearOwnShip(e.x, e.y, deps);
   const claim = near ? shellClaim(deps) : null;
   const own = near ? ownShellWeapon(claim) : null;
   deps.projectiles.onShell(e, own, claim);
@@ -1473,13 +1474,51 @@ function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' {
  * the instant it visibly steers (onBallisticUpdate), like every other observer's.
  */
 function handleTorp(e: BallisticEvent, deps: RoomBindingDeps): void {
-  const near = nearOwnShip(e.x, e.y, deps);
-  const own: OwnFire = near && deps.ownFireWeapon() === 'heavyTorpedo' ? 'heavyTorpedo' : null;
+  const near = firstReveal(e, deps) && nearOwnShip(e.x, e.y, deps);
+  const own = near ? torpClaim(deps) : null;
   // A torpedo's `own` IS a genuine claim (there is no fallback on this path —
   // an unclaimed fish renders the generic straight-runner), so it doubles as
   // the burst-ring authority for a COMMAND DETONATION fish.
   deps.projectiles.onShell(e, own, own);
   if (near) deps.audio.play(fireTone('heavyTorpedo'));
+}
+
+/**
+ * Pure-ish: the GENUINE claim behind an own-looking TORPEDO reveal, or null —
+ * the `shellClaim` sibling, and it exists for the same reason: the latched
+ * click intent counts only when it agrees with the reveal's KIND.
+ *
+ * THREE IDS RIDE THE `torp` WIRE KIND since Story 8.13 — the LIGHT and HEAVY
+ * lines and the belt's SUPERCAV TORPEDO (epic-8 amendments 74/80) — and a
+ * standing GUN or MINE claim must never dress a fish. The claim CONSUMES either
+ * way (see `OwnFireLatch.claim`): the round it describes is spoken for.
+ */
+function torpClaim(deps: RoomBindingDeps): OwnFire {
+  const fired = deps.ownFireWeapon();
+  if (fired === 'lightTorpedo' || fired === 'heavyTorpedo' || fired === 'supercavTorpedo') return fired;
+  return null;
+}
+
+/**
+ * Is this the FIRST time the store has heard of this ballistic id? (cycle-148
+ * review gate, P2.)
+ *
+ * The server's ballistic memory stopped being permanent at amendment 78: a
+ * projectile that leaves an observer's reveal gate and comes back is revealed
+ * AGAIN, with current position and velocity. The own-fire correlation below is
+ * a CLICK→SHOT pairing, and a re-reveal is not a shot: an enemy fish that runs
+ * out of our bubble and circles back across our bow arrives on this path a
+ * second time, and left ungated it would consume the standing click latch
+ * (dressing itself as OUR torpedo) and sound our own fire tone for somebody
+ * else's fish. So a known id only ever RE-ANCHORS — no claim, no tone.
+ *
+ * The own side loses nothing: a re-revealed own fish is nowhere near our hull
+ * any more, and its ownership rides the claim TOMBSTONE the store already keeps
+ * (`Projectiles.onShell`), not a second claim of a latch that was spent at
+ * launch.
+ */
+function firstReveal(e: BallisticEvent, deps: RoomBindingDeps): boolean {
+  return !deps.projectiles.isKnown(e.id);
 }
 
 /** True iff (x,y) is within one hull length of the own ship specifically. */

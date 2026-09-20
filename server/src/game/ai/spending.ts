@@ -42,7 +42,7 @@
 //   CATEGORY   → v3 lines
 //   ship       → armor, speed, turning, reload
 //   guns       → deckGun, deckGunTurret, deckGunBarrel
-//   torpedoes  → lightTorpedo, heavyTorpedo, supercavTorpedo, acousticHoming
+//   torpedoes  → lightTorpedo, heavyTorpedo
 //   mines      → navalMines, captiveMines, foulingMines
 //   broadside  → broadside
 //   starShells → starShells, dazzleShells, phosphorShells
@@ -56,9 +56,7 @@
 //   intelSweep → radarSweep
 //   gunBarrel → deckGunBarrel · gunTurret → deckGunTurret
 //   torpedoTube, torpedoSpeed, acquireTorpedo → heavyTorpedo
-//   torpedoHoming → acousticHoming
 //   mineBlast, acquireMine → navalMines · mineCaptive → captiveMines
-//   minePropFouling → foulingMines
 //   broadsideTurrets, broadsideSpread, acquireBroadside → broadside
 //   starDuration, acquireStarShells → starShells · starDazzle → dazzleShells
 //   buoyDuration, acquireRadarBuoy → decoyBuoy
@@ -137,7 +135,11 @@ const KIND_BASE: Readonly<Record<LineKind, number>> = Object.freeze({
 export const CATEGORY_LINES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   ship: ['armor', 'speed', 'turning', 'reload'],
   guns: ['deckGun', 'deckGunTurret', 'deckGunBarrel'],
-  torpedoes: ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo', 'acousticHoming'],
+  // Story 8.13: ACOUSTIC HOMING is DELETED (homing became a tier stat on both
+  // lines, amendment 80) and SUPERCAV TORPEDO became a CONSUMABLE (amendment
+  // 74) — so a v2 `torpedoes` category no longer speaks for it, and it prices
+  // at the consumable KIND base like every other belt line.
+  torpedoes: ['lightTorpedo', 'heavyTorpedo'],
   mines: ['navalMines', 'captiveMines', 'foulingMines'],
   broadside: ['broadside'],
   starShells: ['starShells', 'dazzleShells', 'phosphorShells'],
@@ -159,11 +161,9 @@ export const LINE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   torpedoTube: 'heavyTorpedo',
   torpedoSpeed: 'heavyTorpedo',
   acquireTorpedo: 'heavyTorpedo',
-  torpedoHoming: 'acousticHoming',
   mineBlast: 'navalMines',
   acquireMine: 'navalMines',
   mineCaptive: 'captiveMines',
-  minePropFouling: 'foulingMines',
   broadsideTurrets: 'broadside',
   broadsideSpread: 'broadside',
   acquireBroadside: 'broadside',
@@ -182,8 +182,27 @@ export const LINE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
  *     and no v3 line grants it.
  *   - `acquireBoost` — the speed boost becomes the universal Shift ability in
  *     Story 8.9, so it is not a card at all.
+ *   - `torpedoHoming` — the ACOUSTIC HOMING add-on is DELETED (Eric ruling
+ *     2026-09-19, epic-8 amendment 80): homing is a TIER STAT on the light and
+ *     heavy lines, so the want has no single card to attach to. Re-keying it
+ *     onto one of the two lines would silently double that line's price for a
+ *     profile that actually wanted the verb on both.
+ *   - `minePropFouling` — the PROP FOULING add-on is DELETED (amendment 81)
+ *     and FOULING MINES is now a WEAPON LINE of its own, priced by the `mines`
+ *     CATEGORY like the other two racks. The v2 key was an ADD-ON's weight;
+ *     carrying it onto a whole weapon line would price a rack by what the
+ *     profile thought of a modifier.
+ *
+ * STORY 8.18 OWNS THE RETUNE. Re-authoring these tables in v3 vocabulary (at
+ * which point a profile can say what it thinks of FOULING MINES directly) is a
+ * balance pass with its own ruling, not a side effect of a content story.
  */
-export const HOMELESS_V2_LINES: ReadonlySet<string> = new Set(['buoyGun', 'acquireBoost']);
+export const HOMELESS_V2_LINES: ReadonlySet<string> = new Set([
+  'buoyGun',
+  'acquireBoost',
+  'torpedoHoming',
+  'minePropFouling',
+]);
 
 /** One profile's two-level weight table, widened for lookup. */
 interface WeightTable {

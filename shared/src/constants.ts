@@ -1225,10 +1225,19 @@ export const CONFIG = {
     // cooldownScale 0.5) lands it at 15s.
     reloadMs: 30000,
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
-    // --- ACOUSTIC HOMING doctrine (Story 2.8, exclusive boon) — DRAFT values,
-    // 2.10 tunes. A homing fish steers toward the nearest non-owner hull within
-    // acquireRange at ≤ homingTurnRate rad/s (speed unchanged; sim/shell.ts).
-    homingTurnRate: 0.5, // rad/s — max steering rate while homing
+    // --- HOMING — the family's shared fields (epic-8 amendment 84e). A homing
+    // fish steers toward the nearest non-owner hull within acquireRange at
+    // ≤ its turn rate (speed unchanged; sim/shell.ts steerHoming).
+    //
+    // HOMING IS NO LONGER A CARD (Eric ruling 2026-09-19, amendment 80): the
+    // ACOUSTIC HOMING add-on is deleted and the turn rate is a TIER STAT on
+    // the light and heavy torpedo lines — 0 at tier I, +0.125 rad/s per tier,
+    // 0.5 at tier V. So every torpedo ROW's `homingTurnRate` base is 0, and
+    // the value below is what tier V REFERENCES, not what the row starts at.
+    // The captive mine's fish tops out at 0.3 (amendment 82, its own block).
+    // At turn rate 0 the fish is a straight-runner: no steering, no `torpU`
+    // updates and no die-distance.
+    homingTurnRate: 0.5, // rad/s — the tier-V reference rate (see above)
     homingAcquireRange: 120, // u — target acquisition radius around the fish
     // deg — min velocity-direction change since last emit before the server
     // re-emits a ballistic update ('torpU') to observers (wire cadence knob).
@@ -1248,6 +1257,66 @@ export const CONFIG = {
     // owner (Eric ruling 2026-07-19: permanent owner immunity across gun /
     // torpedo / mine); the old timed selfHitGrace backstop is retired.
     spawnClearance: 6, // u
+  },
+
+  /**
+   * LIGHT TORPEDO (catalog-v3 R18) — the Torpedo Boat's fast, cheap fish, and
+   * the second member of the torpedo family (Story 8.13). It shares the HEAVY
+   * torpedo's chassis fields — `CONFIG.torpedo.hitRadius`, `spawnClearance`,
+   * `homingAcquireRange`, `homingMaxRangeU`, `homingUpdateAngleDeg` — which is
+   * why they are NOT restated here (epic-8 amendment 84e: `CONFIG.torpedo`
+   * stays the heavy's block AND the family's shared fields).
+   *
+   * THE ARC IS A TWIN SECTOR (sim/arcs.ts), not the heavy's bow cone: ±45°
+   * about BOTH beams, leaving 90°-wide dead zones fore and aft (catalog-v3
+   * R18). The side whose sector contains the click is the side that fires, the
+   * broadside's rule verbatim (`twinSectorSide`).
+   *
+   * NO MAX RANGE (catalog-v3 §4; epic-8 amendment 84f): a straight-running
+   * fish runs until impact or the map edge. Only the homing die-distance
+   * bounds one, and only once its turn rate is above zero.
+   *
+   * HOMING IS A TIER STAT, NOT A CARD (Eric ruling 2026-09-19, amendment 80):
+   * the ROW's `homingTurnRate` is 0 at tier I and the line's tiers II–V add
+   * +0.125 rad/s each, so there is no `homingTurnRate` base to author here.
+   */
+  lightTorpedo: {
+    offset: deg(90), // the twin sector's CENTER bearing — ±90° = both beams
+    halfArc: deg(45), // ±45° about each beam (90° dead zones fore and aft, R18)
+    speed: 45, // u/s — tier I (R18); tiers II–V add +2.5 each → 55 at V
+    damage: 40, // hp per contact hit — tier I (R18); +5/tier → 60 at V
+    maxAmmo: 1, // tubes — tier I (R18); +0.5/tier, FLOORED → 1,1,2,2,3
+    reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
+    // AR44: a torpedo hits hulls and decoys — it runs UNDER a minefield.
+    hits: HITS_HULL_DECOY,
+  },
+
+  /**
+   * SUPERCAV TORPEDO — a prime-and-click BELT CONSUMABLE, not an equipment
+   * line (Eric ruling 2026-09-19, epic-8 amendment 74, verbatim: *"I have
+   * decided that Supercavitating Torpedos should be a consumable item, rather
+   * than a weapon line."*). The digit primes, a click inside the bow ±15°
+   * sector fires ONE fish per copy, and the copy leaves the deck.
+   *
+   * SO IT HAS NO RELOAD AND NO TIERS. Consumables never reload (catalog-v3
+   * R40, Story 8.7) and a consumable line's copies STOCK rather than step, so
+   * catalog-v3 R19's tiers II–V and its 45 s reload are VOID — there is no
+   * `reloadMs` and no `maxAmmo` here, and `supercavTorpedo` carries no
+   * `EffectiveStats` row at all. The numbers below are read straight from
+   * CONFIG by the launch path, exactly as a consumable's numbers always are.
+   *
+   * IT NEVER HOMES (amendment 74): a straight-runner at every build, whatever
+   * the captain's torpedo tiers say — homing is a TIER stat on the light and
+   * heavy lines (amendment 80) and this line has no tiers. It shares the
+   * family's `hitRadius` / `spawnClearance` from `CONFIG.torpedo`.
+   */
+  supercavTorpedo: {
+    offset: deg(0), // bow-centered
+    halfArc: deg(15), // ±15° bow sector (amendment 74, R19's arc kept)
+    speed: 195, // u/s (amendment 74, R19's speed kept)
+    damage: 50, // hp per contact hit (amendment 74, R19's damage kept)
+    // AR44: hulls and decoys, never a mine — it runs UNDER a minefield.
+    hits: HITS_HULL_DECOY,
   },
 
   /**
@@ -1328,30 +1397,18 @@ export const CONFIG = {
     // minefield clearing is a mechanic nobody ruled on; CLICKING ON the mine,
     // so that your burst covers it, is the sanctioned way — amendments 16/20).
     hits: HITS_HULL,
-    // --- PROP-FOULING MINES doctrine. Victims of a fouling blast are slowed
-    // (self-private you.slowedUntil; sim/slow.ts slowedKinematics — composition
-    // pinned boosted → slowed → hooks).
+    // PROP FOULING LEFT THIS BLOCK (Eric ruling 2026-09-19, epic-8 amendment
+    // 81): the FOULING MINES add-on is deleted and fouling became its OWN
+    // tiered equipment line, so a NAVAL mine no longer slows anything. Its
+    // dials moved verbatim into `CONFIG.foulingMines` below (`slowFactor` /
+    // `slowDurationMs`) — do not restate them here.
     //
-    // RETUNED (Eric ruling 2026-08-19, Story 7-5): *"simply slows affected ships
-    // by 25% for 5 seconds"* — a WEAKER slow held LONGER (was 0.5 / 4000ms). It
-    // is also no longer an EXCLUSIVE and no longer trades damage: the cycle-95
-    // ruling deleted the damage penalty, and Story 7-5 made every doctrine an
-    // added verb, so this is a pure addition that STACKS with CAPTIVE MINES
-    // (whose torpedo carries the foul with it — Eric, same ruling).
-    foulFactor: 0.75, // × maxSpeed AND reverseSpeed while fouled (25% slower)
-    foulDurationMs: 5000, // ms — slow window per blast (refresh, don't stack)
-    // --- CAPTIVE MINES doctrine (Story 7-5 wave 2, `mineCaptive`) — REPLACES
-    // SELF-PROPELLED MINES outright (Eric: *"this replaces the old tracking
-    // mines with a more realistic torpedo mine"*). A captive mine NEVER
-    // detonates on contact: it holds ONE un-upgraded torpedo doing the MINE's
-    // damage at the MINE's blast radius, fired with intelligent lead at the
-    // first HOSTILE to enter its (much larger) trigger ring, and is EXPENDED on
-    // fire. THE TRANSFORM, derived post-fold in sim/stats.ts: the trigger and
-    // blast radii SWAP, then the trigger is multiplied by this factor — 144u
-    // trigger / 32u blast at base, 210.8u / 46.9u at a maxed MINES ladder. It
-    // is linear in the folded blast radius, so MINES cards apply on top and
-    // card ORDER CANNOT MATTER.
-    captiveTriggerFactor: 3,
+    // THE CAPTIVE TRANSFORM LEFT TOO (amendment 84d). `captiveTriggerFactor`
+    // (the swap-and-triple multiplier) is DELETED: CAPTIVE MINES is its own
+    // line with its own ring pair in `CONFIG.captiveMines` (144u trip / 32u
+    // blast, the trip stepping ×1.1 per tier), derived from the row's TIER
+    // rather than from this block's blast radius.
+    //
     // SELF-PROPELLED MINES IS GONE, AND SO IS ITS CREEP (Story 7-5 wave 2).
     // The card, the `mine.selfPropelled` verb, the World's creep step and the
     // client's creep tell/wake were deleted with it; `creepSpeed` (14 u/s) and
@@ -1361,6 +1418,84 @@ export const CONFIG = {
     // mine is MOORED, and the doctrine that replaced tracking attacks with a
     // launched torpedo instead. Anything re-adding a moving mine re-derives
     // these numbers rather than finding them waiting.
+  },
+
+  /**
+   * CAPTIVE MINES (catalog-v3 R25) — its OWN equipment line since catalog v3,
+   * and its own CONFIG block since Story 8.13 (it was a doctrine on the naval
+   * mine, then a STUB_ROW). A captive mine NEVER detonates on contact: it
+   * holds ONE torpedo, fires it with intelligent lead at the first HOSTILE to
+   * enter its (much larger) trip ring, and is EXPENDED on fire.
+   *
+   * THE RING PAIR IS ITS OWN, not a transform of the naval mine's (epic-8
+   * amendment 84d). The trip ring is the LARGE one and the fish's burst is the
+   * SMALL one, and the tier steps the TRIP RING only: `triggerRadius ×
+   * triggerStepPerTier^(tier − 1)` → 144 · 158.4 · 174.2 · 191.7 · 210.8 u,
+   * derived inside the stat clamp from the row's tier (no `triggerRadius` stat
+   * path is opened). `blastRadius` is FIXED at 32 u and never steps, so the
+   * fish's burst does not grow with the line.
+   *
+   * THE FISH is the heavy torpedo's hull: it runs at `CONFIG.torpedo.speed`
+   * (65 u/s base — amendment 82 leaves speed alone) and carries the CAPTIVE
+   * row's `damage`. Its homing is a TIER STAT (Eric ruling 2026-09-19,
+   * amendment 82, verbatim: *"Homing should be a Tiered stat on Captive Mines,
+   * but it should only grow to a max of 0.3 rad/s, starting at 0 and growing
+   * to that by Tier V"*), so the row's `homingTurnRate` base is 0 and the
+   * line's tiers II–V add +0.075 each.
+   *
+   * NO MAX RANGE (amendment 84f): the fish is bounded only by the homing
+   * die-distance, and only once its turn rate is above zero.
+   *
+   * `[DRAFT]` LIFTED on the pool/reload pair (Eric ruling 2026-09-19,
+   * amendment 77): 1 held and 20 s, NOT the naval numbers — tiers II–V give
+   * +0.5 held (2 at III, 3 at V) and −5 % reload (16 s at V).
+   */
+  captiveMines: {
+    reloadMs: 20000, // ms — tier I (amendment 77); −5 %/tier → 16 s at V
+    maxAmmo: 1, // held mines — tier I (amendment 77); +0.5/tier, FLOORED → 1,1,2,2,3
+    triggerRadius: 144, // u — the TRIP ring at tier I (R25)
+    triggerStepPerTier: 1.1, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
+    blastRadius: 32, // u — the fish's burst. FIXED: it never steps (amendment 84d)
+    damage: 55, // hp — the fish's warhead at tier I (R25); +5/tier → 75 at V
+    // The naval chassis is SHARED, not duplicated: the rear placement sector
+    // (`CONFIG.mine.offset` / `placeHalfArcDeg`), the 150 u leash
+    // (`placeRange`) and the 3 s `armDelay` are read from `CONFIG.mine`.
+  },
+
+  /**
+   * FOULING MINES — its OWN tiered equipment line since Eric's 2026-09-19
+   * ruling (epic-8 amendment 81, verbatim: *"I'd also like to remove the Prop
+   * Fouling Mines card and instead build out Fouling Mines as its own Tiered
+   * equipment line, which deals minimal damage with a larger trigger/blast
+   * radius and slows the enemy."*). The add-on card is deleted and NAVAL MINES
+   * NO LONGER FOUL.
+   *
+   * `[DRAFT]` — every NUMBER below is a harness dial Eric tagged draft; only
+   * the SHAPE is ratified (amendment 81, AskUserQuestion "Draft, but tiers
+   * deepen the SLOW not the duration"). Tiers II–V each: −5 % reload (derived),
+   * ×1.1 blast (the trip ring follows), +1 held, slow factor −0.05 → ×0.55 at
+   * V. DAMAGE AND DURATION ARE FIXED: 10 hp and 5 s at every tier.
+   *
+   * THE VICTIM'S SLOW is `slowFactor` × BOTH speed caps for `slowDurationMs`,
+   * REFRESH-NOT-STACK (a later fouling overwrites factor and clock, never
+   * multiplies) — sim/slow.ts `slowedKinematics`, victim-private exactly as
+   * the retired naval-mine foul was.
+   *
+   * THE TRIP RING reuses `CONFIG.mine.triggerFactor` (2/3 of blast) — ONE
+   * source for the fraction, shared with the naval mine, so the two can never
+   * drift apart. No `triggerFactor` is restated here, and neither are the
+   * naval chassis fields (rear sector, 150 u leash, 3 s arm delay), which are
+   * read from `CONFIG.mine`.
+   */
+  foulingMines: {
+    damage: 10, // hp — FIXED at every tier (amendment 81) [DRAFT]
+    blastRadius: 72, // u — tier I; ×1.1/tier → 105.4 u at V [DRAFT]
+    slowFactor: 0.75, // × maxSpeed AND reverseSpeed; −0.05/tier → 0.55 at V [DRAFT]
+    slowDurationMs: 5000, // ms — FIXED at every tier (refresh, don't stack) [DRAFT]
+    maxAmmo: 2, // held mines — tier I; +1/tier → 6 at V [DRAFT]
+    reloadMs: 15000, // ms — tier I; −5 %/tier → 12 s at V [DRAFT]
+    // AR44: a mine TRIPS on hulls only (the naval mine's rule, unchanged).
+    hits: HITS_HULL,
   },
 
   /**

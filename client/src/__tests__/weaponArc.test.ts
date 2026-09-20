@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import {
   CATALOG,
   CONFIG,
+  EQUIPMENT_IDS,
   arcFor,
   effectiveStats,
   isConsumableId,
@@ -37,7 +38,12 @@ import {
 } from '@salvo/shared';
 import type { Catalog, CatalogLine, EquipmentId, SlotItemId } from '@salvo/shared';
 import {
+  MINE_EQUIPMENT_IDS,
   fireArcKind,
+  isMineEquipment,
+  isTorpedoItem,
+  mineEquipmentFor,
+  mineKindOf,
   pointInLitZone,
   sectorOutline,
   twinSectorSide,
@@ -101,6 +107,83 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
     expect(fireArcKind('boost')).toBe('none');
     expect(fireArcKind(null)).toBe('none');
   });
+
+  // --- STORY 8.13: three mine LINES, three torpedo ids ------------------------
+  //
+  // Every predicate in this module keyed on `navalMines` / `heavyTorpedo` until
+  // now, so a captain priming CAPTIVE or FOULING MINES got the GUN's
+  // radar-derived range ring and no placement denial at all, a LIGHT TORPEDO
+  // classified as an unaimed slot, and the belt's SUPERCAV — a click-aimed
+  // consumable (epic-8 amendment 74) — was trusted blind.
+
+  it('classes ALL THREE mine lines as the rear placement SECTOR', () => {
+    for (const id of MINE_EQUIPMENT_IDS) expect(fireArcKind(id), id).toBe('sector');
+  });
+
+  it('classes the LIGHT TORPEDO as `twin` — both beams, ±45° (catalog-v3 R18)', () => {
+    expect(fireArcKind('lightTorpedo')).toBe('twin');
+    const arc = arcFor('lightTorpedo');
+    if (arc.kind !== 'twin-sector') throw new Error('the light torpedo must declare twin sectors');
+    // The beams, not the bow: dead ahead and dead astern are the dead zones.
+    expect(weaponArcHit(0, arc.offset, 'lightTorpedo')).toBe(true);
+    expect(weaponArcHit(0, -arc.offset, 'lightTorpedo')).toBe(true);
+    expect(weaponArcHit(0, 0, 'lightTorpedo')).toBe(false);
+    expect(weaponArcHit(0, Math.PI, 'lightTorpedo')).toBe(false);
+  });
+
+  it('classes the BELT\'s SUPERCAV TORPEDO as its own bow SECTOR', () => {
+    expect(fireArcKind('supercavTorpedo')).toBe('sector');
+    expect(weaponArcHit(0, 0, 'supercavTorpedo')).toBe(true);
+    expect(weaponArcHit(0, CONFIG.supercavTorpedo.halfArc + 0.001, 'supercavTorpedo')).toBe(false);
+    // ...and it is NARROWER than the heavy fish's bow arc, which is the point
+    // of a 195 u/s straight-runner.
+    expect(CONFIG.supercavTorpedo.halfArc).toBeLessThan(CONFIG.torpedo.halfArc);
+  });
+});
+
+// THE ID SETS AGAINST THE ARC GRAMMAR (Story 8.13). The mine list, its guard
+// and its two kind maps used to be a CLIENT-LOCAL restatement of a shared fact,
+// because `sim/arcs.ts` kept `isMineChassis` private; they are one declaration
+// now (shared, re-exported through render/weaponArc.ts), so the first case
+// below is trivially true.
+//
+// IT IS KEPT ANYWAY, deliberately. What it actually pins is the SECOND case:
+// every EquipmentId that declares the mine's rear placement sector must be one
+// of the three lines or the legacy buoy. That is the assertion a FOURTH mine
+// kind trips — a new line can declare the sector in `equipmentArc` without
+// anyone remembering to add it to `MINE_EQUIPMENT_IDS`, and then every
+// kind-keyed reader on both sides would silently treat it as no mine at all.
+describe('the mine + torpedo id sets agree with the SHARED arc grammar', () => {
+  it('every id it calls a MINE really does declare the mine\'s rear sector', () => {
+    const rear = arcFor('navalMines');
+    for (const id of MINE_EQUIPMENT_IDS) {
+      expect(arcFor(id), id).toEqual(rear);
+      expect(isMineEquipment(id), id).toBe(true);
+    }
+  });
+
+  it('...and every EQUIPMENT id declaring that sector is a mine or the legacy buoy', () => {
+    const rear = JSON.stringify(arcFor('navalMines'));
+    const strays = EQUIPMENT_IDS
+      .filter((id) => JSON.stringify(arcFor(id)) === rear)
+      .filter((id) => !isMineEquipment(id) && id !== 'radarBuoy');
+    expect(strays).toEqual([]);
+  });
+
+  it('maps each line to its wire KIND, and back, without a third spelling', () => {
+    for (const id of MINE_EQUIPMENT_IDS) expect(mineEquipmentFor(mineKindOf(id)), id).toBe(id);
+    expect(mineKindOf('captiveMines')).toBe('captive');
+    expect(mineKindOf('foulingMines')).toBe('fouling');
+  });
+
+  it('calls exactly the three FISH torpedoes — never a mine, never the gun', () => {
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const) {
+      expect(isTorpedoItem(id), id).toBe(true);
+    }
+    for (const id of ['gun', 'broadside', 'navalMines', 'captiveMines', null] as const) {
+      expect(isTorpedoItem(id), String(id)).toBe(false);
+    }
+  });
 });
 
 // THE CLICK GATE OVER A SLOT'S CONTENT (review patch P8).
@@ -121,6 +204,25 @@ describe('clickInArc — a click-placed consumable trusts the server (P8)', () =
   it('is FALSE for a KEY-FIRES consumable — a click on an ability fires nothing', () => {
     for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const) {
       expect(clickInArc(0, 0, 10, id), id).toBe(false);
+    }
+  });
+
+  // THE ONE CONSUMABLE THAT IS NOT TRUSTED BLIND (Story 8.13, epic-8 amendment
+  // 74): the SUPERCAV TORPEDO declares a real arc, so the client gates it like
+  // a fitted weapon. The test is the DESCRIPTOR, not the id — the decoy buoy
+  // declares `none` and keeps the blind trust above.
+  it('GATES a consumable that declares an arc, and trusts one that does not', () => {
+    expect(clickInArc(0, 0, 10, 'supercavTorpedo')).toBe(true); // dead ahead: inside ±15°
+    expect(clickInArc(0, Math.PI, 10, 'supercavTorpedo')).toBe(false); // astern: denied
+    expect(clickInArc(0, Math.PI, 99_999, 'decoyBuoy')).toBe(true); // still blind-trusted
+  });
+
+  it('gates EVERY mine line on the ONE shared leash, not just the naval rack', () => {
+    for (const id of MINE_EQUIPMENT_IDS) {
+      expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange, id), id).toBe(true);
+      expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange + 1, id), id).toBe(false);
+      expect(weaponRangeU(effectiveStats(CONFIG.shipClasses.mineLayer, []), id), id)
+        .toBe(CONFIG.mine.placeRange);
     }
   });
 

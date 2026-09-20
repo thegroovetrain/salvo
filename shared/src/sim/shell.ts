@@ -135,8 +135,18 @@ export interface ShellState {
    * claimed the opposite ("hulls only — decoys never attract it"), which was
    * written for the deleted decoy buoy and was never true of the radar buoy. Speed magnitude is never changed; expiry/range semantics
    * are untouched. `targetId` is the current lock (re-acquired every tick).
+   *
+   * `locked` PINS THAT LOCK AT LAUNCH (cycle-148 review gate, P6). A CAPTIVE
+   * MINE's fish is fired at the ONE hull that tripped the mine and the hostile
+   * gate cleared (R2.13) — so it must not re-acquire, ever: a neutral fleet
+   * drone drifting nearer would otherwise steal a trap the drone was not
+   * allowed to spring. With `locked` the fish steers at `targetId` for as long
+   * as that target is in `ctx.targets` and flies STRAIGHT once it is gone —
+   * never at somebody else. It is set only by `captiveTorpedo`; an ordinary
+   * homing torpedo leaves it unset and keeps the nearest-acquire rule above,
+   * unchanged.
    */
-  homing?: { turnRate: number; acquireRange: number; targetId?: string };
+  homing?: { turnRate: number; acquireRange: number; targetId?: string; locked?: true };
 }
 
 /**
@@ -322,11 +332,36 @@ function polyCentroid(poly: readonly Vec2[]): Vec2 {
  * (ties: the later hull in ctx.hulls order — deterministic) and rotate the
  * velocity direction toward it by at most turnRate·dt. No target in range =
  * fly straight (lock cleared).
+ *
+ * A LOCKED FISH SKIPS THE ACQUIRE ENTIRELY (cycle-148 review gate, P6, see
+ * `ShellState.homing`): it steers at the hull pinned into `targetId` at launch
+ * and at nothing else — the captive mine's victim, chosen by a gate this fish
+ * cannot re-run in flight.
  */
 function steerHoming(shell: ShellState, ctx: ShellContext): void {
   const homing = shell.homing!;
   const speed = Math.hypot(shell.vx, shell.vy);
   if (speed <= 0) return;
+  const best = homing.locked === true ? lockedCentroid(homing.targetId, ctx) : acquireNearest(shell, homing, ctx);
+  if (best === null) return;
+  const current = Math.atan2(shell.vy, shell.vx);
+  const desired = Math.atan2(best.y - shell.y, best.x - shell.x);
+  const maxTurn = homing.turnRate * ctx.dt;
+  const delta = Math.max(-maxTurn, Math.min(maxTurn, wrapAngle(desired - current)));
+  const dir = current + delta;
+  shell.vx = speed * Math.cos(dir);
+  shell.vy = speed * Math.sin(dir);
+}
+
+/** The nearest legal target's centroid within `acquireRange`, RE-ACQUIRED every
+ *  tick and recorded in `homing.targetId` — the shipped ACOUSTIC HOMING rule,
+ *  lifted out of `steerHoming` unchanged. Null (and the lock cleared) when
+ *  nothing qualifies. */
+function acquireNearest(
+  shell: ShellState,
+  homing: NonNullable<ShellState['homing']>,
+  ctx: ShellContext,
+): Vec2 | null {
   let best: Vec2 | null = null;
   let bestId: string | undefined;
   let bestD = homing.acquireRange;
@@ -342,14 +377,20 @@ function steerHoming(shell: ShellState, ctx: ShellContext): void {
     }
   }
   homing.targetId = bestId;
-  if (best === null) return;
-  const current = Math.atan2(shell.vy, shell.vx);
-  const desired = Math.atan2(best.y - shell.y, best.x - shell.x);
-  const maxTurn = homing.turnRate * ctx.dt;
-  const delta = Math.max(-maxTurn, Math.min(maxTurn, wrapAngle(desired - current)));
-  const dir = current + delta;
-  shell.vx = speed * Math.cos(dir);
-  shell.vy = speed * Math.sin(dir);
+  return best;
+}
+
+/** The PINNED target's centroid, or null when it is no longer in `ctx.targets`
+ *  (sunk, left, despawned). Null means FLY STRAIGHT — never re-acquire: the
+ *  lock was granted by the captive mine's hostile gate and nothing in flight
+ *  may widen it. The pin itself is left standing, so a target that reappears is
+ *  still this fish's one and only. */
+function lockedCentroid(targetId: string | undefined, ctx: ShellContext): Vec2 | null {
+  if (targetId === undefined) return null;
+  for (const t of ctx.targets) {
+    if (t.id === targetId) return polyCentroid(t.poly);
+  }
+  return null;
 }
 
 /** Distance from p0 to the shell's target point (Infinity for point-less). */

@@ -169,10 +169,40 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
       const s2 = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxStackFor(path));
       expect(read(s2, path), path).toBeLessThan(minHullHp);
     }
-    // THE DECK GUN IS THE ONE DAMAGE LADDER catalog v3 authors (R14, +1.25/tier).
-    // Every other damage number is its base until 8.12-8.16 fill the equipment
-    // tiers — and each of those will land under this same sweep automatically.
-    expect(damagePaths.filter((p) => maxStackFor(p).length > 0)).toEqual(['equipment.gun.damage']);
+    // THE LADDERS THAT ACTUALLY MOVE DAMAGE TODAY: the DECK GUN (R14,
+    // +1.25/tier, Story 8.1) and the FOUR Story 8.13 lines that step +5/tier.
+    // FOULING MINES is deliberately absent — its 10 hp is FIXED at every tier
+    // (epic-8 amendment 81) — and so is every 8.14/8.16 line, whose tiers are
+    // still empty. Each of those will land under this same sweep on the day it
+    // does, with no edit here.
+    expect(damagePaths.filter((p) => maxStackFor(p).length > 0).sort()).toEqual([
+      'equipment.captiveMines.damage',
+      'equipment.gun.damage',
+      'equipment.heavyTorpedo.damage',
+      'equipment.lightTorpedo.damage',
+      'equipment.navalMines.damage',
+    ]);
+  });
+
+  it('the STORY 8.13 damage endpoints all clear the 250hp floor with room to spare', () => {
+    // The four stepped lines top out at 60 / 70 / 75 / 75 — the heaviest hit
+    // in the game is still under a THIRD of the lightest class hull, so no
+    // single torpedo or mine can one-shot a captain at any build.
+    const tops: [string, number][] = [
+      ['equipment.lightTorpedo.damage', 60],
+      ['equipment.heavyTorpedo.damage', 70],
+      ['equipment.navalMines.damage', 75],
+      ['equipment.captiveMines.damage', 75],
+    ];
+    for (const [path, want] of tops) {
+      const [, id, field] = path.split('.');
+      const s2 = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxStackFor(path));
+      const got = (s2.equipment as unknown as Record<string, Record<string, number>>)[id][field];
+      expect(got, path).toBe(want);
+      expect(got, path).toBeLessThan(minHullHp);
+    }
+    // FOULING MINES trades damage for the slow: 10 hp per hit, every tier.
+    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat).equipment.foulingMines.damage).toBe(10);
   });
 
   it('the drafted ladder endpoints land where the spec ruled them', () => {
@@ -188,6 +218,9 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     expect(tb.equipment.gun.damage).toBe(CONFIG.gun.damage);
     expect(tb.equipment.heavyTorpedo.damage).toBe(CONFIG.torpedo.damage);
     expect(tb.equipment.navalMines.damage).toBe(CONFIG.mine.damage);
+    expect(tb.equipment.lightTorpedo.damage).toBe(CONFIG.lightTorpedo.damage);
+    expect(tb.equipment.captiveMines.damage).toBe(CONFIG.captiveMines.damage);
+    expect(tb.equipment.foulingMines.damage).toBe(CONFIG.foulingMines.damage);
   });
 
   it('THE LAW IS PER SHELL: a max-stacked multi-barrel CLICK may legitimately exceed the floor', () => {
@@ -281,14 +314,31 @@ describe('mine blast geometry guardrail', () => {
   // "never outgrows the blast" holds by construction at every stack rather than
   // by a ceiling that used to eat most of the 5th trigger card.
   it('the trip ring can never outgrow the blast (by derivation, not a clamp)', () => {
-    // CATALOG V3 INTERIM: no line writes `equipment.navalMines.blastRadius`
-    // until Story 8.13 authors the mine's tiers (R23/R24, x1.1 compounding), so
-    // the max stack IS the base today. The guarantee is STRUCTURAL rather than
-    // stacked — the trip ring is a fixed FRACTION of the blast — which is why
-    // it holds at every future stack too.
-    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxStackFor('equipment.navalMines.blastRadius'));
-    expect(s.equipment.navalMines.triggerRadius).toBeLessThan(s.equipment.navalMines.blastRadius);
+    // STORY 8.13 MADE THE STACK REAL: NAVAL MINES and FOULING MINES both write
+    // their own `blastRadius` (x1.1 compounding per tier, R23/R24 and epic-8
+    // amendment 81), so this now exercises a genuinely widened blast rather
+    // than the base. The guarantee stays STRUCTURAL — the trip ring is a fixed
+    // FRACTION of the blast — which is why it holds at every stack.
+    for (const id of ['navalMines', 'foulingMines'] as const) {
+      const maxed = maxStackFor(`equipment.${id}.blastRadius`);
+      expect(maxed.length, id).toBeGreaterThan(0);
+      const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxed);
+      expect(s.equipment[id].blastRadius, id).toBeGreaterThan(CONFIG[id === 'navalMines' ? 'mine' : id].blastRadius);
+      expect(s.equipment[id].triggerRadius, id).toBeLessThan(s.equipment[id].blastRadius);
+    }
     expect(CONFIG.mine.triggerFactor).toBeLessThan(1); // what makes it structural
+  });
+
+  it('the CAPTIVE mine is the deliberate exception: a BIGGER trip ring on a FIXED burst', () => {
+    // Its rings are the other way round by ruling (catalog-v3 R25) and its
+    // trip ring rides its TIER, not its blast (epic-8 amendment 84d) — so the
+    // line grows the reach of the trap while the bang stays 32 u at every rung.
+    for (const n of [1, 3, 5]) {
+      const row = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(n).fill('captiveMines'))
+        .equipment.captiveMines;
+      expect(row.blastRadius, `x${n}`).toBe(CONFIG.captiveMines.blastRadius);
+      expect(row.triggerRadius, `x${n}`).toBeGreaterThan(row.blastRadius);
+    }
   });
 });
 
@@ -343,8 +393,47 @@ describe('torpedo vs hull speeds — CURRENT FACTS, no longer a law (FR7 retired
     expect(s.kinematics.maxSpeed).toBe(55); // 45 + 2.5 x 4 (catalog-v3 R10)
     const maxAchievableHull = boostedKinematics(s.kinematics, CONFIG.boost.factor, true).maxSpeed;
     expect(maxAchievableHull).toBe(68.75); // 55 x 1.25 — the SPEED ladder is inside the bonus
-    expect(s.equipment.heavyTorpedo.speed).toBe(65); // catalog-v3 R17 Tier I; no ladder authored yet
+    expect(s.equipment.heavyTorpedo.speed).toBe(65); // catalog-v3 R17 Tier I
     expect(maxAchievableHull).toBeGreaterThan(s.equipment.heavyTorpedo.speed);
+  });
+
+  it('a MAXED heavy torpedo (75) outruns that boosted hull again — the ladder, not a law', () => {
+    // Story 8.13 gave the line +2.5 u/s per tier (catalog-v3 R17): 65 -> 75.
+    // Recorded as a FACT, exactly like the rest of this describe — FR7 is
+    // retired and nothing requires either ordering.
+    const maxed = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(5).fill('heavyTorpedo'));
+    expect(maxed.equipment.heavyTorpedo.speed).toBe(75);
+  });
+
+  it('THE LIGHT TORPEDO IS SLOWER THAN EVERY HULL — allowed, and deliberate (FR53)', () => {
+    // 45 u/s at tier I and 55 at tier V, against class hulls of 45/40/35 that
+    // boost to 56.25/50/43.75. A Torpedo Boat can outrun its own light fish at
+    // every build, which is fine on two counts: FR7's outrun law is retired
+    // (Eric 2026-09-11, AR49) and own ordnance NEVER damages the own hull
+    // (Story 8.4, no friendly fire), so re-catching your own fish is not a
+    // self-damage hazard. The light torpedo buys its arc and its cadence, not
+    // its speed.
+    const base = effectiveStats(CONFIG.shipClasses.torpedoBoat).equipment.lightTorpedo;
+    const maxed = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(5).fill('lightTorpedo'))
+      .equipment.lightTorpedo;
+    expect([base.speed, maxed.speed]).toEqual([45, 55]);
+    // At tier I it merely MATCHES the fastest base hull (the Torpedo Boat's
+    // 45) — so a TB at full ahead is never outrun by it — and a SPEED-capped,
+    // boosted TB (68.75) outruns even the maxed fish.
+    expect(base.speed).toBeLessThanOrEqual(maxHullSpeed);
+    const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.speed.cap).fill('speed'));
+    expect(boostedKinematics(capped.kinematics, CONFIG.boost.factor, true).maxSpeed)
+      .toBeGreaterThan(maxed.speed);
+    expect(maxed.speed).toBeLessThan(CONFIG.torpedo.speed); // always under the heavy's
+  });
+
+  it('the SUPERCAV consumable is the fastest thing afloat, by a wide margin (amendment 74)', () => {
+    // 195 u/s against a 45 u/s top hull: a straight-runner that trades homing
+    // and a reload for reach-in-a-hurry. It is a CONSUMABLE, so the number
+    // lives in CONFIG and no stat row carries it.
+    expect(CONFIG.supercavTorpedo.speed).toBe(195);
+    expect(CONFIG.supercavTorpedo.speed).toBeGreaterThan(maxHullSpeed);
+    expect(CONFIG.supercavTorpedo.damage).toBeLessThan(minHullHp);
   });
 });
 

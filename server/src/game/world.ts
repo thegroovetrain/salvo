@@ -93,6 +93,7 @@ import {
   type InputMsg,
   type LitCircle,
   type LoadoutSlot,
+  type MineKind,
   type SlotItemId,
   type Rng,
   type ShellOutcome,
@@ -113,10 +114,12 @@ import {
   CONSUMABLES,
   EQUIPMENT,
   addBuoy,
+  MINE_ROW_ID,
   addMine,
   buoyTarget,
   captiveTorpedo,
   checkMineTriggers,
+  configTriggerRadius,
   contactBlastRadius,
   mineBlastVictims,
   scatterJamFakes,
@@ -818,15 +821,36 @@ export interface ShipRecord {
    */
   lastDamagedAt: number;
   /**
-   * ms — server time the PROP-FOULING slow on this ship ends (Story 2.8);
-   * 0 = not slowed. Written by detonateMine when a propFouling owner's blast
-   * damages this hull (REFRESH, never stack: plain assignment of now +
-   * CONFIG.mine.foulDurationMs); read by stepShips through the shared
-   * slowedKinematics fold (pinned composition boosted → slowed → hooks) and
-   * mirrored onto OwnShip.slowedUntil (VICTIM-PRIVATE — frames.toOwnShip only,
-   * the boostUntil precedent). Reset on sink/respawn/redeploy like boostUntil.
+   * ms — server time the FOULING slow on this ship ends (Story 2.8; its source
+   * is FOULING MINES since epic-8 amendment 81 — a NAVAL mine no longer fouls
+   * anything); 0 = not slowed. Written by a fouling mine's blast (REFRESH,
+   * never stack: plain assignment of now + CONFIG.foulingMines.slowDurationMs);
+   * read by stepShips through the shared slowedKinematics fold (pinned
+   * composition boosted → slowed → hooks) and mirrored onto
+   * OwnShip.slowedUntil (VICTIM-PRIVATE — frames.toOwnShip only, the
+   * boostUntil precedent). Reset on sink/respawn/redeploy like boostUntil.
    */
   slowedUntil: number;
+  /**
+   * × BOTH speed caps while `slowedUntil` is in the future — the FOULING MINES
+   * row's folded `slowFactor` at the LAYER's tier (0.75 at I → 0.55 at V,
+   * epic-8 amendment 81). 1 = not slowed, and it is written beside every
+   * `slowedUntil = 0` reset (sink / respawn / redeploy).
+   *
+   * IT LIVES ON THE VICTIM, not read off the layer at step time, for the same
+   * reason the kind moved onto the mine: by the time the slow is ticking the
+   * layer may have sunk, left, or re-fitted away from the rack that fouled
+   * this hull. A LATER FOULING OVERWRITES BOTH — factor and clock together,
+   * REFRESH-NOT-STACK (amendment 81), never multiplied.
+   *
+   * IT CROSSES TO THE VICTIM beside the clock, as OwnShip.slowFactor (Story
+   * 8.13, epic-8 amendment 86): VICTIM-PRIVATE on the `slowedUntil` terms —
+   * frames.toOwnShip only, omitted when the hull is not slowed or the factor
+   * is the inert 1 — so the predictor scales its own caps by the factor that
+   * actually fouled it instead of assuming the tier-I 0.75 and snapping on
+   * reconcile against a deeper rack.
+   */
+  slowFactor: number;
   /**
    * THE SHIELD BLOCK's absorbing pool (Story 8.4 / AR47) — `null` on every hull
    * today and written by NOTHING: Story 8.15 (Catalog v3 — Shield, Chaff,
@@ -888,9 +912,21 @@ export interface ShipRecord {
   prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
   /**
    * Ballistic ids (shells + torpedoes) this observer has already been sent a
-   * one-time event for. Perception emits each ballistic exactly once per
-   * observer (at launch for the owner, at first sight for everyone else);
-   * entries are forgotten when the projectile is spent (see forgetBallistic).
+   * reveal for ON THIS VISIT. Perception emits each ballistic exactly once per
+   * ENTRY into this observer's reveal gate (owner-always / sight-or-detect /
+   * owned lit zone) — at launch for the owner, at first sight for everyone
+   * else.
+   *
+   * THE MARK IS PER-VISIT, NOT PERMANENT (Story 8.13, epic-8 amendment 78).
+   * `perception.ballisticScan` clears it the first tick a still-live
+   * projectile is OUTSIDE the gate, so a later re-entry re-reveals the
+   * projectile with its CURRENT position and velocity — the identical
+   * first-reveal wire shape `{k,id,x,y,vx,vy,t}`, no range-derivable field,
+   * `t` = the reveal time. A projectile that stays inside the gate is revealed
+   * exactly once, byte-identically to the pre-8.13 behaviour, because the mark
+   * is only ever cleared from outside; and the OWNER's gate never closes, so
+   * the owner is revealed its own fish once and never again. Entries are also
+   * forgotten when the projectile is spent (see forgetBallistic).
    */
   seenBallistics: Set<string>;
   /**
@@ -899,8 +935,15 @@ export interface ShipRecord {
    * at the ballistic reveal, updated on every 'torpU' emission). The torpU row
    * re-emits a steering fish to this observer only when the live direction has
    * drifted ≥ CONFIG.torpedo.homingUpdateAngleDeg from this baseline AND the
-   * fish is currently sighted (the ballistic reveal predicate). Entries are
-   * forgotten with the projectile (forgetBallistic) — no growth.
+   * fish is currently detected (the ballistic reveal predicate).
+   *
+   * AN ENTRY TRAVELS WITH THE PER-VISIT MARK ABOVE (Story 8.13, epic-8
+   * amendment 78): when `ballisticScan` drops a fish's `seenBallistics` mark
+   * on the way out of the gate it drops this baseline in the same breath, and
+   * the re-reveal on re-entry re-sets it — so later drift is measured from the
+   * velocity the client was just handed, never from a stale one it no longer
+   * has. Entries are also forgotten with the projectile (forgetBallistic) — no
+   * growth.
    */
   torpDirs: Map<string, number>;
   /**
@@ -997,6 +1040,65 @@ export type HitTargets = (mask: readonly TargetKind[]) => readonly Target[];
  * snapshot that its own deletions immediately invalidate.
  */
 const MINE_BLAST_HITS: readonly TargetKind[] = ['hull', 'decoy'];
+
+/**
+ * WHICH CONFIG ROW EACH MINE KIND TRIPS THROUGH (cycle-148 review gate, P4).
+ *
+ * The trip scan used to collect `CONFIG.mine.hits` once and scan every mine
+ * against it, whatever rack it came off — which made `CONFIG.foulingMines.hits`
+ * dead authored data, and would have shipped the fouling line's mask silently
+ * ignored the day it diverged from the naval one. The table names the ROW, and
+ * the mask is read off CONFIG at scan time, so each line's `hits` stays
+ * authored in exactly one place. The captive line authors none of its own — it
+ * trips on the naval rule (amendment 84d) — so it points at the same row.
+ *
+ * It costs nothing: `hitTargets` memoizes per mask within the tick, so the
+ * three kinds share one collection for as long as their masks agree.
+ */
+const MINE_TRIP_HITS: Readonly<Record<MineKind, 'mine' | 'foulingMines'>> = Object.freeze({
+  naval: 'mine',
+  captive: 'mine',
+  fouling: 'foulingMines',
+});
+
+/** ONE MINE'S runtime numbers (see `mineBlastParams`). `slowFactor` is 1 on
+ *  every kind but FOULING and `homingTurnRate` 0 on every kind but CAPTIVE —
+ *  the inert identities the stat rows carry, so a reader never branches. */
+interface MineBlastParams {
+  damage: number;
+  blastRadius: number;
+  slowFactor: number;
+  homingTurnRate: number;
+}
+
+/**
+ * THE VACATED-OWNER FALLBACK, per mine kind (Story 8.13). A mine whose layer
+ * has left the room keeps no dead build's TIER — it reverts to its line's
+ * CONFIG base — but it is still the KIND it was laid as: an orphaned fouling
+ * mine still fouls (at the base factor) and an orphaned captive still launches
+ * its fish. Authored here rather than inside the lookup so the three answers
+ * sit side by side and none can quietly diverge from its CONFIG block.
+ */
+const CONFIG_MINE_BLAST: Readonly<Record<MineKind, MineBlastParams>> = Object.freeze({
+  naval: Object.freeze({
+    damage: CONFIG.mine.damage,
+    blastRadius: CONFIG.mine.blastRadius,
+    slowFactor: 1, // a naval mine never fouls (amendment 81)
+    homingTurnRate: 0,
+  }),
+  captive: Object.freeze({
+    damage: CONFIG.captiveMines.damage,
+    blastRadius: CONFIG.captiveMines.blastRadius, // the fish's FIXED 32 u burst
+    slowFactor: 1,
+    homingTurnRate: 0, // tier I is a pure lead shot (amendment 82)
+  }),
+  fouling: Object.freeze({
+    damage: CONFIG.foulingMines.damage,
+    blastRadius: CONFIG.foulingMines.blastRadius,
+    slowFactor: CONFIG.foulingMines.slowFactor,
+    homingTurnRate: 0,
+  }),
+});
 
 /**
  * THE SWEEP MASK (amendment 20, Eric 2026-09-16) — a projectile's own `hits`
@@ -1709,7 +1811,7 @@ export class World {
       // ...and it waits the full out-of-combat window before it regens
       // (amendment 47): `lastDamagedAt` is `now`, never 0 — the hull is full
       // here anyway, so the wait costs nothing.
-      boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, dazzledUntil: 0, shield: null,
+      boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, dazzledUntil: 0, shield: null,
 
       rttMs: null,
       lastFireT: 0,
@@ -2102,6 +2204,7 @@ export class World {
     // ...nor a SHIELD BLOCK (Story 8.4 review, P5 — the clearRepair rule).
     ship.shield = null;
     ship.slowedUntil = 0;
+    ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
     ship.dazzledUntil = 0;
     // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
     // stale foghorn cooldown (Story 4.5).
@@ -2300,6 +2403,7 @@ export class World {
       ship.state.speed = 0;
       ship.boostUntil = 0;
       ship.slowedUntil = 0;
+      ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
       ship.dazzledUntil = 0;
     }
   }
@@ -3326,7 +3430,7 @@ export class World {
   private collectMines(out: Target[]): void {
     for (const mine of this.mines.values()) {
       if (this.now < mine.armedAt) continue; // still arming — a burst passes over it
-      if (this.laysCaptiveMines(mine.ownerId)) continue; // R2.18 — never set off
+      if (mine.kind === 'captive') continue; // R2.18 — never set off
       out.push({ id: mine.id, kind: 'mine', poly: [{ x: mine.x, y: mine.y }] });
     }
   }
@@ -3446,7 +3550,7 @@ export class World {
       // hookKinematics. The prop-fouling slow (Story 2.8) folds between the
       // bespoke boost and the hook chain; the client's Predictor.tickKin
       // mirrors this exact order from you.boostUntil/you.slowedUntil.
-      const slowed = slowedKinematics(boosted, CONFIG.mine.foulFactor, this.now < ship.slowedUntil);
+      const slowed = slowedKinematics(boosted, ship.slowFactor, this.now < ship.slowedUntil);
       const kin = hookKinematics(slowed, ship.cardBehaviors, this.hookRegistry);
       stepShip(ship.state, ship.input, kin, dt);
       // THE RITARDANDO (Story 5.2): the shared linear speed cap, applied
@@ -3983,7 +4087,8 @@ export class World {
    * time; a vacated owner falls back to the CONFIG base).
    */
   private stepMines(hitTargets: HitTargets): void {
-    // TRIPPING scans `CONFIG.mine.hits` — HULLS ONLY. A radar buoy (and, from
+    // TRIPPING scans EACH KIND'S OWN `hits` row (`MINE_TRIP_HITS`) — HULLS
+    // ONLY on all three today. A radar buoy (and, from
     // Story 8.15, a decoy) never trips a mine: it is not a hull, and remote
     // minefield clearing is a mechanic nobody ruled on — shooting the mine is
     // the sanctioned way (amendment 16). DETONATION resolves against the blast
@@ -3996,35 +4101,24 @@ export class World {
     // walking its own store to advance itself is the opposite direction. The
     // same distinction covers chainMines (one detonation propagating inside
     // the mine store) and tickBuoys.
-    const hulls = hitTargets(CONFIG.mine.hits);
-    for (const { mine, victimId, captive } of checkMineTriggers(this.mines, hulls, this.now, this.mineTripRules())) {
-      if (captive) this.launchCaptiveTorpedo(mine, victimId);
+    const hulls = (kind: MineKind): readonly Target[] => hitTargets(CONFIG[MINE_TRIP_HITS[kind]].hits);
+    for (const { mine, victimId } of checkMineTriggers(this.mines, hulls, this.now, this.mineTripRules())) {
+      if (mine.kind === 'captive') this.launchCaptiveTorpedo(mine, victimId);
       else this.detonateMine(mine, hitTargets(MINE_BLAST_HITS), victimId);
     }
   }
 
-  /** The per-owner trip policy for this tick's mines: effective trip ring, the
-   *  CAPTIVE doctrine read, and the captive-only hostile gate — each an OWNER
-   *  lookup with the vacated-owner CONFIG fallback, so an orphan mine keeps no
-   *  dead build's numbers and no dead build's doctrine. */
+  /** The per-mine trip policy for this tick: the trip ring off the OWNER's row
+   *  FOR THAT MINE'S KIND (Story 8.13 — one hull may hold all three racks, so
+   *  the kind is the mine's own, stamped at drop), with that kind's CONFIG
+   *  base as the vacated-owner fallback so an orphan keeps no dead build's
+   *  numbers; plus the captive-only hostile gate. */
   private mineTripRules(): MineTripRules {
     return {
-      triggerRadius: (ownerId) => this.ships.get(ownerId)?.stats.equipment.navalMines.triggerRadius ?? CONFIG.mine.triggerRadius,
-      captive: (ownerId) => this.laysCaptiveMines(ownerId),
+      triggerRadius: (ownerId, kind) =>
+        this.ships.get(ownerId)?.stats.equipment[MINE_ROW_ID[kind]].triggerRadius ?? configTriggerRadius(kind),
       hostile: (ownerId, victimId) => this.isCaptiveMineHostile(ownerId, victimId),
     };
-  }
-
-  /**
-   * Does this owner's field consist of CAPTIVE mines? THE single read of the
-   * doctrine, with the vacated-owner CONFIG fallback (false) every other mine
-   * lookup uses — the verb rides the OWNER's live stats, never a per-mine flag,
-   * so a layer who fits CAPTIVE MINES converts the field already on the water.
-   * Three call sites, all of them a carve-out for the same reason: the trip
-   * (launch instead of blast), the burst (R2.18), and the chain (R2.18).
-   */
-  private laysCaptiveMines(ownerId: string): boolean {
-    return this.ships.get(ownerId)?.stats.equipment.navalMines.captive ?? false;
   }
 
   /**
@@ -4061,23 +4155,40 @@ export class World {
    * fired at where the target WILL be if it holds course, computed by the same
    * lead solver the fleet gun uses (game/lead.ts). Turn and it misses.
    *
-   * It carries the OWNER's effective MINE damage and MINE blast radius — read
-   * again at detonation through the ordinary mine-blast path, which is what
-   * makes PROP FOULING ride along when the layer holds both cards (Eric A1:
-   * captive STACKS with prop fouling, and the torpedo's hit carries the foul).
-   * A vacated owner falls back to the CONFIG bases exactly as a mine blast
-   * does; a vanished VICTIM cannot happen here (the hostile gate refuses one).
+   * It carries the OWNER's effective CAPTIVE MINES damage and burst radius —
+   * read again at detonation through the ordinary mine-blast path — and, since
+   * epic-8 amendment 82, that row's `homingTurnRate`: 0 at tier I (a pure lead
+   * shot that misses if you turn) stepping to 0.3 rad/s at tier V, where the
+   * fish steers under the family's acquire/die rules. FOULING NEVER RIDES
+   * ALONG any more: it is its own line with its own mines (amendment 81), so a
+   * captive fish's hit slows nothing. A vacated owner falls back to the CONFIG
+   * bases exactly as a mine blast does; a vanished VICTIM cannot happen here
+   * (the hostile gate refuses one). The fish's homing lock is PINNED to that
+   * victim (cycle-148 review gate, P6) — see `captiveTorpedo`.
    */
   private launchCaptiveTorpedo(mine: MineState, victimId: string): void {
     if (!this.consumeMine(mine.id)) return; // already spent this tick
     const victim = this.ships.get(victimId);
     if (victim === undefined) return;
-    const { damage, blastRadius } = this.mineBlastParams(mine.ownerId);
+    const { damage, blastRadius, homingTurnRate } = this.mineBlastParams(mine.ownerId, 'captive');
     const vx = Math.cos(victim.state.heading) * victim.state.speed;
     const vy = Math.sin(victim.state.heading) * victim.state.speed;
+    // THE LEAD SOLUTION IS ALWAYS THE STRAIGHT-RUN ONE at the family speed: a
+    // steering fish CORRECTS from there, it does not aim differently.
     const led = leadIntercept(mine, victim.state, vx, vy, CONFIG.torpedo.speed);
     const dir = Math.atan2(led.y - mine.y, led.x - mine.x);
-    this.spawnBallistic(captiveTorpedo(this.nextBallisticId(), mine, dir, this.now, { damage, blastRadius }));
+    this.spawnBallistic(
+      captiveTorpedo(this.nextBallisticId(), mine, dir, this.now, {
+        damage,
+        blastRadius,
+        homingTurnRate,
+        // THE FISH IS LOCKED TO THE TRIPPING HULL (cycle-148 review gate, P6):
+        // the hostile gate (R2.13) cleared THIS victim, and nothing in flight
+        // may widen that. A steering fish that re-acquired would happily chase
+        // a neutral drone that drifted nearer.
+        targetId: victim.id,
+      }),
+    );
   }
 
   /**
@@ -4089,10 +4200,10 @@ export class World {
    * blastRadius takes the owner's effective mine damage through the hitShip
    * choke (victim-private dmg, kill credit; OWNER EXCLUDED — the universal AoE
    * convention; a VACATED owner's mine falls back to CONFIG bases, pinned).
-   * PROP-FOULING (doctrine): victims of a fouling owner's blast get
-   * slowedUntil refreshed (never stacked). CHAINS: every same-owner ARMED mine
-   * whose CENTER lies within the detonation's blast radius detonates in the
-   * same tick, cascading breadth-first with a visited set (bounded — each mine
+   * FOULING (the KIND, amendment 81): victims of a FOULING mine's blast get
+   * slowedUntil AND slowFactor refreshed (never stacked); a naval mine never
+   * fouls. CHAINS: every ARMED non-captive mine whose CENTER lies within the
+   * detonation's blast radius detonates in the same tick, cascading breadth-first with a visited set (bounded — each mine
    * detonates at most once; deletion makes re-entry impossible); enemy mines
    * NEVER sympathetically detonate.
    *
@@ -4137,16 +4248,28 @@ export class World {
     return true;
   }
 
-  /** One mine's effective blast parameters: the OWNER's stats, or the CONFIG
-   *  bases when the owner has VACATED (pinned — an orphan mine never keeps a
-   *  dead build's numbers, and never fouls). */
-  private mineBlastParams(ownerId: string): { damage: number; blastRadius: number; fouls: boolean } {
-    const owner = this.ships.get(ownerId);
-    if (owner === undefined) {
-      return { damage: CONFIG.mine.damage, blastRadius: CONFIG.mine.blastRadius, fouls: false };
-    }
-    const mine = owner.stats.equipment.navalMines;
-    return { damage: mine.damage, blastRadius: mine.blastRadius, fouls: mine.propFouling };
+  /**
+   * ONE MINE'S EFFECTIVE NUMBERS, BY THE MINE'S OWN KIND (Story 8.13): the
+   * owner's row for that kind, or that kind's CONFIG bases when the owner has
+   * VACATED — an orphan keeps no dead build's TIER, but it is still the kind
+   * it was laid as, so a vacated layer's FOULING mine still fouls at the base
+   * factor. (The pre-8.13 "an orphan never fouls" pin existed only because
+   * fouling was a CARD the orphan could no longer be holding; the kind is now
+   * the mine's own property.)
+   *
+   * The four fields are uniform across the kinds because the ROW is: a naval
+   * and a captive row carry `slowFactor` 1 (the inert identity, sim/stats.ts)
+   * and everything but the captive carries `homingTurnRate` 0.
+   */
+  private mineBlastParams(ownerId: string, kind: MineKind): MineBlastParams {
+    const row = this.ships.get(ownerId)?.stats.equipment[MINE_ROW_ID[kind]];
+    if (row === undefined) return CONFIG_MINE_BLAST[kind];
+    return {
+      damage: row.damage,
+      blastRadius: row.blastRadius,
+      slowFactor: row.slowFactor,
+      homingTurnRate: row.homingTurnRate,
+    };
   }
 
   /** One mine's blast damage + prop-fouling debuff (owner-stats-driven with
@@ -4157,30 +4280,31 @@ export class World {
    *  Victim RESOLUTION, not dmg emission (the ready-room rule); a victimless
    *  detonation sends NOTHING (mines have no fall-of-shot — amendment 16). */
   private blastMine(m: MineState, hulls: readonly Target[]): number {
-    const { resolved, blastRadius } = this.applyMineBlast(m, m.ownerId, hulls);
+    const { resolved, blastRadius } = this.applyMineBlast(m, m.ownerId, m.kind, hulls);
     if (resolved > 0) this.emitHitCall(m.ownerId, m.x, m.y);
     return blastRadius;
   }
 
   /**
-   * ONE MINE-STYLE BLAST at `at`, on `ownerId`'s effective mine numbers: full
-   * damage to every non-owner hull silhouette inside the blast (owner excluded
-   * — the universal AoE convention), plus the PROP FOULING slow when the owner
-   * holds the doctrine. Returns how many hulls it RESOLVED and the radius used.
+   * ONE MINE-STYLE BLAST at `at`, on `ownerId`'s effective numbers FOR `kind`:
+   * full damage to every non-owner hull silhouette inside the blast (owner
+   * excluded — the universal AoE convention), plus the FOULING slow when the
+   * kind is `fouling`. Returns how many hulls it RESOLVED and the radius used.
    *
    * Split out of blastMine (Story 7-5 wave 2) with the Hit Call left BEHIND on
-   * purpose: the CAPTIVE MINE's torpedo detonates through here too (R2.14 — the
-   * fish's hit carries the foul, because the foul is read off the owner's live
-   * stats at detonation exactly as a mine's is), and its `hc` is already
-   * emitted by resolveShell's interception branch. Amendment 17's "exactly one
-   * `hc` per shell resolution" is what forbids a second one here.
+   * purpose: the CAPTIVE MINE's torpedo detonates through here too (it passes
+   * `'captive'`, so the burst is the captive row's fixed 32 u and slows
+   * nothing — amendments 81/84d), and its `hc` is already emitted by
+   * resolveShell's interception branch. Amendment 17's "exactly one `hc` per
+   * shell resolution" is what forbids a second one here.
    */
   private applyMineBlast(
     at: Vec2,
     ownerId: string,
+    kind: MineKind,
     hulls: readonly Target[],
   ): { resolved: number; blastRadius: number } {
-    const { damage, blastRadius, fouls } = this.mineBlastParams(ownerId);
+    const { damage, blastRadius, slowFactor } = this.mineBlastParams(ownerId, kind);
     let resolved = 0;
     for (const t of mineBlastVictims({ x: at.x, y: at.y, ownerId }, hulls, blastRadius)) {
       const victimId = t.id;
@@ -4197,10 +4321,19 @@ export class World {
       }
       resolved += 1;
       this.hitShip(victim, damage, ownerId, true, 'mine'); // MINE: no aggro (amendment 36)
-      // PROP-FOULING: a fouling blast's victim is slowed — REFRESH (plain
-      // assignment), never stack. Gated with damage (no fouling in the
-      // damage-suppressed ready room).
-      if (fouls && this.damageEnabled) victim.slowedUntil = this.now + CONFIG.mine.foulDurationMs;
+      // FOULING (amendments 81, 88): a fouling blast's victim is slowed. The
+      // clock is REFRESHED on every hit; the factor is KEEP-THE-STRONGEST —
+      // while a slow is still running, a later fouling can only deepen it
+      // (min of the active factor and the new one), never lift it (Eric
+      // 2026-09-19: "keep the strongest slow"). Never multiplied. Once the
+      // window has lapsed the new factor lands as-is. Gated with damage (no
+      // fouling in the damage-suppressed ready room). Only the FOULING row
+      // carries a factor under 1, so this is a no-op for every other kind.
+      if (slowFactor < 1 && this.damageEnabled) {
+        const active = this.now < victim.slowedUntil;
+        victim.slowFactor = active ? Math.min(victim.slowFactor, slowFactor) : slowFactor;
+        victim.slowedUntil = this.now + CONFIG.foulingMines.slowDurationMs;
+      }
     }
     return { resolved, blastRadius };
   }
@@ -4222,10 +4355,10 @@ export class World {
    */
   private chainMines(m: MineState, blastRadius: number, visited: Set<string>, queue: MineState[]): void {
     const r2 = blastRadius * blastRadius;
-    if (this.laysCaptiveMines(m.ownerId)) return; // R2.18 — never propagates
+    if (m.kind === 'captive') return; // R2.18 — never propagates
     for (const other of this.mines.values()) {
       if (visited.has(other.id) || this.now < other.armedAt) continue;
-      if (this.laysCaptiveMines(other.ownerId)) continue; // R2.18 — never receives
+      if (other.kind === 'captive') continue; // R2.18 — never receives
       const dx = other.x - m.x;
       const dy = other.y - m.y;
       if (dx * dx + dy * dy <= r2) {
@@ -4583,16 +4716,17 @@ export class World {
     if (shell.lit) this.spawnLitZone(shell, outcome);
     // THE CAPTIVE MINE'S TORPEDO (Story 7-5 wave 2, R2.12/R2.14) — the game's
     // one CONTACT-BLAST projectile: it detonates AT ITS IMPACT POINT for the
-    // layer's MINE damage over the layer's MINE blast radius, carrying the PROP
-    // FOULING slow when the layer holds that card too, instead of dealing plain
-    // contact damage to the hull it touched. The struck hull is inside its own
+    // layer's CAPTIVE MINES damage over that row's FIXED 32 u burst, instead of
+    // dealing plain contact damage to the hull it touched. It slows NOTHING —
+    // fouling is its own line now (amendment 81) and the captive row's
+    // `slowFactor` is the inert 1. The struck hull is inside its own
     // blast by construction, so there is no double-dip to guard: this branch
     // RETURNS rather than falling through to the contact hit below. The one Hit
     // Call for this resolution was already emitted above (EPIC-4 amendment 17,
     // the Hit Call — not epic-8's, which amendment 20 retired), which
     // is why applyMineBlast deliberately does not emit one.
     if (contactBlastRadius(shell) > 0) {
-      this.applyMineBlast(outcome, shell.ownerId, hulls);
+      this.applyMineBlast(outcome, shell.ownerId, 'captive', hulls);
       return;
     }
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
@@ -5201,7 +5335,7 @@ export class World {
       islands: this.map.islands,
       mkId: () => this.nextBallisticId(),
       spawnBallistic: (shell, opts) => this.spawnBallistic(shell, opts?.perShellFlash === true),
-      dropMine: (x, y) => this.spawnMine(ship, x, y, fireT),
+      dropMine: (x, y, kind) => this.spawnMine(ship, x, y, kind, fireT),
       // R2.7 — the buoy's placement capability, the dropMine sibling. Life,
       // hp and radar set read off the OWNER's effective stats at drop.
       dropBuoy: (x, y) => this.spawnBuoy(ship, x, y, fireT),
@@ -5372,8 +5506,14 @@ export class World {
    *  activation carries the D1-compensated fire time, so `droppedAt` is that
    *  validated fireT (not necessarily `now`) and armedAt = droppedAt +
    *  armDelay. */
-  private spawnMine(owner: ShipRecord, x: number, y: number, droppedAt: number = this.now): void {
-    addMine(this.mines, owner.id, x, y, droppedAt, this.nextMineId());
+  private spawnMine(
+    owner: ShipRecord,
+    x: number,
+    y: number,
+    kind: MineKind,
+    droppedAt: number = this.now,
+  ): void {
+    addMine(this.mines, owner.id, x, y, droppedAt, this.nextMineId(), kind);
     // A newly-laid mine is not a target this tick (it is still arming), but the
     // store changed, so the collector's memo must not outlive it.
     this.targetsGen += 1;
@@ -5747,6 +5887,7 @@ export class World {
     // kept symmetric here for directed callers).
     ship.shield = null;
     ship.slowedUntil = 0;
+    ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
     ship.dazzledUntil = 0;
     // ...nor a previous life's contributors: creditKill already cleared the
     // ledger at the sink, kept symmetric here for directed callers.

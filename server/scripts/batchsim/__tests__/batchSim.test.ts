@@ -892,10 +892,15 @@ describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2,
       expect(counts.get(id)!).toBeLessThanOrEqual(CATALOG[id].cap);
     }
     expect(counts.get('decoyBuoy')).toBeUndefined(); // unhomed → unowned → never here
-    // LINE_IDS order, trimmed at 40: the cut lands inside SMOKE SCREEN today.
+    // LINE_IDS order, trimmed at 40. THE CUT MOVED in Story 8.13: SUPERCAV
+    // TORPEDO became a consumable (amendment 74) and joined DEFAULT_OWNED, so
+    // its five copies land ahead of the belt lines and push the trim up into
+    // SHIELD BLOCK — smoke and chaff are now cut entirely.
     const order = [...new Set(PACIFIST_DECK)];
     expect(order).toEqual(LINE_IDS.filter((id) => counts.has(id)));
-    expect(counts.get('smokeScreen')).toBe(1);
+    expect(counts.get('supercavTorpedo')).toBe(CATALOG.supercavTorpedo.cap);
+    expect(counts.get('shieldBlock')).toBe(1);
+    expect(counts.get('smokeScreen')).toBeUndefined();
     expect(counts.get('chaff')).toBeUndefined();
   });
 
@@ -910,9 +915,10 @@ describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2,
     expect(rec.deckList).toBe(PACIFIST_DECK);
     // Drawable today: the STUB consumables stay in the list but not the pool,
     // while HULL REPAIR's five copies ARE drawable since Story 8.8 un-stubbed
-    // it (29 -> 34); a TB carries no line the pacifist deck holds, so nothing
-    // is seeded out.
-    expect(rec.deck.cards).toHaveLength(34);
+    // it (29 -> 34) and SUPERCAV TORPEDO's five since Story 8.13 (34 -> 39,
+    // with only the single SHIELD BLOCK card left withheld); a TB carries no
+    // line the pacifist deck holds, so nothing is seeded out.
+    expect(rec.deck.cards).toHaveLength(39);
     expect(rec.deck.cards.filter((id) => id === 'hullRepair')).toHaveLength(5);
     for (const id of rec.deck.cards) expect(['ladder', 'consumable']).toContain(CATALOG[id].kind);
   });
@@ -925,8 +931,13 @@ describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2,
     expect(rec.deckList).toBe(DEFAULT_DECKS[rec.hullId as keyof typeof DEFAULT_DECKS]);
     // 23 -> 26 in Story 8.8 (HULL REPAIR stopped being a stub and its three
     // per-hull copies became drawable, epic-8 amendment 10); 26 -> 27 in Story
-    // 8.10 (the spawn seed that withheld copy 1 of a class line is deleted).
-    expect(rec.deck.cards).toHaveLength(27);
+    // 8.10 (the spawn seed that withheld copy 1 of a class line is deleted);
+    // and PER-HULL from Story 8.13 on, which un-stubbed the light torpedo, the
+    // captive rack and the supercav belt fish — TB 30, ML 29, BS still 27.
+    // `addBot` picks the hull, so the expectation follows the catalog.
+    expect(rec.deck.cards).toHaveLength(
+      DEFAULT_DECKS[rec.hullId as keyof typeof DEFAULT_DECKS].filter((id) => !CATALOG[id].stub).length,
+    );
   });
 });
 
@@ -1420,8 +1431,8 @@ describe('deck-only mode — the match pool and the live guard (Story 8.11)', ()
     // The harness's one statement of what a captain sails, and it must agree
     // with World.dealDeck: `[...DEFAULT_DECKS[cls], ...pool]` through the same
     // buildDeckState, which withholds every stub on either side.
-    expect(defaultPoolFor('torpedoBoat').cards).toHaveLength(27);
-    expect(defaultPoolFor('torpedoBoat', ['hullRepair', 'hullRepair']).cards).toHaveLength(29);
+    expect(defaultPoolFor('torpedoBoat').cards).toHaveLength(30); // 27 before Story 8.13
+    expect(defaultPoolFor('torpedoBoat', ['hullRepair', 'hullRepair']).cards).toHaveLength(32);
     // CHAFF is still a stub TODAY (amendment 67: the pool rolls all five
     // consumable lines and buildDeckState is the ONE place that withholds the
     // unbuilt) — so the expectation is COMPUTED from `isStubLine`, not from
@@ -1429,7 +1440,7 @@ describe('deck-only mode — the match pool and the live guard (Story 8.11)', ()
     // catalog instead of failing.
     const injected = ['chaff', 'chaff'];
     const dealable = injected.filter((id) => !isStubLine(id)).length;
-    expect(defaultPoolFor('torpedoBoat', injected).cards).toHaveLength(27 + dealable);
+    expect(defaultPoolFor('torpedoBoat', injected).cards).toHaveLength(30 + dealable);
   });
 
   it('two economies on DIFFERENT streams roll different pools', () => {

@@ -29,6 +29,7 @@ import {
   type SplashEvent,
   type Target,
   type TargetKind,
+  type MineKind,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -56,9 +57,20 @@ function place(
   return rec;
 }
 
-/** A mine straight into world state. Armed at time 0 unless told otherwise. */
-function mine(w: World, id: string, ownerId: string, x: number, y: number, armedAt = 0): void {
-  w.mines.set(id, { id, ownerId, x, y, armedAt });
+/** A mine straight into world state. Armed at time 0, NAVAL kind, unless told
+ *  otherwise — the kind is a per-mine fact since Story 8.13 (amendment 76), so
+ *  a captive mine is laid by asking for one, never by flipping a doctrine on
+ *  the owner's stat row. */
+function mine(
+  w: World,
+  id: string,
+  ownerId: string,
+  x: number,
+  y: number,
+  armedAt = 0,
+  kind: MineKind = 'naval',
+): void {
+  w.mines.set(id, { id, ownerId, x, y, armedAt, kind });
 }
 
 const ids = (ts: readonly Target[]): string[] => ts.map((t) => t.id);
@@ -159,14 +171,18 @@ describe('hitTargets — the four kinds', () => {
     expect(t.poly).toEqual([{ x: 120, y: -30 }]);
   });
 
-  it('`mine` OMITS a still-arming mine and a captive layer\'s mine — a burst must not set them off', () => {
+  it('`mine` OMITS a still-arming mine and a CAPTIVE mine — a burst must not set them off', () => {
     const w = bareWorld();
-    const layer = place(w, 'cap', 800, 800, 0, 'mineLayer');
-    layer.stats.equipment.navalMines.captive = true;
+    place(w, 'cap', 800, 800, 0, 'mineLayer');
     mine(w, 'armed', 'b', 100, 0);
     mine(w, 'arming', 'b', 150, 0, 999_999);
-    mine(w, 'captive', 'cap', 200, 0);
-    expect(ids(w.hitTargets(['mine']))).toEqual(['armed']);
+    // THE EXCLUSION IS BY KIND (Story 8.13): a captive mine is captive because
+    // it was LAID by the captive rack, not because its layer currently holds a
+    // doctrine — so the carve-out survives a refit and a vacated owner.
+    mine(w, 'captive', 'cap', 200, 0, 0, 'captive');
+    // A FOULING mine is an ordinary burst target: only the captive is immune.
+    mine(w, 'fouling', 'b', 250, 0, 0, 'fouling');
+    expect(ids(w.hitTargets(['mine']))).toEqual(['armed', 'fouling']);
   });
 
   it('`decoy` is the radar buoy, the interim occupant of that kind', () => {
@@ -318,19 +334,27 @@ describe('gunfire and mines (amendments 16/18/20)', () => {
 
   it('(c) the detonation CHAINS ACROSS OWNERS in the same tick (amendment 18), skipping captives and arming mines', () => {
     const w = board(24);
-    const layer = place(w, 'cap', 900, 900, 0, 'mineLayer');
-    layer.stats.equipment.navalMines.captive = true;
+    place(w, 'cap', 900, 900, 0, 'mineLayer');
     mine(w, 'shot', 'x', 600, 0); // the one the BURST covers
     mine(w, 'mine-mine', 'a', 600, 40); // within the 48u blast — a DIFFERENT owner
     mine(w, 'third', 'y', 600, 80); // chained off the second, a THIRD owner
     mine(w, 'cold', 'x', 600, 120, 999_999); // still arming — immune
-    mine(w, 'captive', 'cap', 600, 45); // captive — immune, and propagates nothing
+    mine(w, 'captive', 'cap', 600, 45, 0, 'captive'); // captive — immune, propagates nothing
     shootAt(w, 'a', 600);
     expect(w.mines.has('shot')).toBe(false);
     expect(w.mines.has('mine-mine')).toBe(false);
     expect(w.mines.has('third')).toBe(false);
     expect(w.mines.has('cold')).toBe(true);
     expect(w.mines.has('captive')).toBe(true);
+  });
+
+  it('(c2) a FOULING mine chains like a naval one — only the CAPTIVE kind is carved out', () => {
+    const w = board(27);
+    mine(w, 'shot', 'x', 600, 0); // the one the BURST covers
+    mine(w, 'foul', 'y', 600, 40, 0, 'fouling'); // inside the naval blast, a THIRD owner
+    shootAt(w, 'a', 600);
+    expect(w.mines.has('shot')).toBe(false);
+    expect(w.mines.has('foul')).toBe(false);
   });
 
   it('(d) a STILL-ARMING mine under the burst is not set off, and the shell still bursts', () => {
@@ -341,11 +365,10 @@ describe('gunfire and mines (amendments 16/18/20)', () => {
     expect(w.tickEvents.some((e) => e.k === 'burst')).toBe(true);
   });
 
-  it('(d) a CAPTIVE layer\'s mine under the burst is not set off either (R2.18)', () => {
+  it('(d) a CAPTIVE mine under the burst is not set off either (R2.18)', () => {
     const w = board(26);
-    const layer = place(w, 'cap', 900, 900, 0, 'mineLayer');
-    layer.stats.equipment.navalMines.captive = true;
-    mine(w, 'm1', 'cap', 600, 0);
+    place(w, 'cap', 900, 900, 0, 'mineLayer');
+    mine(w, 'm1', 'cap', 600, 0, 0, 'captive');
     shootAt(w, 'a', 600);
     expect(w.mines.has('m1')).toBe(true);
     expect(w.tickEvents.some((e) => e.k === 'burst')).toBe(true);
@@ -605,5 +628,50 @@ describe('P8 — wrecksInBurst honours the fleet friendly filter', () => {
     // A CAPTAIN burst over the same wreck still counts it (amendment 19).
     place(w, 'a', -900, 0);
     expect(inner.wrecksInBurst({ x: 300, y: 0 }, CONFIG.gun.burstRadius, 'a')).toBe(1);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// CYCLE-148 REVIEW GATE, P4 — EACH MINE KIND TRIPS THROUGH ITS OWN `hits` ROW
+// ---------------------------------------------------------------------------
+//
+// The trip scan collected `CONFIG.mine.hits` ONCE and scanned every armed mine
+// against that one list, whatever rack it came off. `CONFIG.foulingMines.hits`
+// was therefore authored data nothing read — and the day the fouling line's
+// mask diverges from the naval one (a fouling mine that catches a decoy's
+// screws, say) the divergence would have been silently ignored. The masks agree
+// today, so the only way to SEE the routing is to make them disagree.
+describe('the mine trip scan routes by KIND (MINE_TRIP_HITS)', () => {
+  /** One layer, and two victims each parked on top of one of their mines. */
+  function twoMines(seed: number): World {
+    const w = bareWorld(seed);
+    place(w, 'a', 0, 0); // the layer — never trips its own
+    place(w, 'b', 600, 0);
+    place(w, 'c', -600, 0);
+    mine(w, 'm-naval', 'a', 600, 0, 0, 'naval');
+    mine(w, 'm-foul', 'a', -600, 0, 0, 'fouling');
+    return w;
+  }
+
+  it('THE CONTROL: with both rows authored hull-only, both mines trip', () => {
+    const w = twoMines(71);
+    w.step();
+    expect(w.mines.has('m-naval')).toBe(false);
+    expect(w.mines.has('m-foul')).toBe(false);
+  });
+
+  it('a FOULING mine whose row collects nothing never trips — the naval one still does', () => {
+    const row = CONFIG.foulingMines as unknown as { hits: readonly TargetKind[] };
+    const saved = row.hits;
+    row.hits = []; // this line now catches nothing at all
+    try {
+      const w = twoMines(72);
+      w.step();
+      expect(w.mines.has('m-naval')).toBe(false); // the naval rack is untouched
+      expect(w.mines.has('m-foul')).toBe(true); // ...and the fouling rack is inert
+    } finally {
+      row.hits = saved;
+    }
   });
 });

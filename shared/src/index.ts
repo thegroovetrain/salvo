@@ -3,6 +3,38 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  56 (Story 8.13): CATALOG V3 — TORPEDOES AND MINES (Eric rulings
+ *  2026-09-19, epic-8 amendments 74–84). ONE bump covering two independent
+ *  breaks.
+ *  (1) CATALOG CONTENT CHANGED, and catalog content IS wire contract (the
+ *  convention from 13). Five equipment lines gained their tiers II–V (LIGHT
+ *  TORPEDO, HEAVY TORPEDO, NAVAL MINES, CAPTIVE MINES, FOULING MINES), and —
+ *  the part a stale client cannot survive — FOUR LINES CHANGED KIND OR
+ *  EXISTENCE: `supercavTorpedo` moved from the equipment id space to the
+ *  CONSUMABLE one (a prime-and-click belt fish with no reload and no tiers,
+ *  amendment 74), `foulingMines` moved the other way from add-on to EQUIPMENT
+ *  line (amendment 81), `acousticHoming` is DELETED outright because homing
+ *  became a numeric tier stat on the torpedo rows (amendment 80), and a new
+ *  stub consumable `depthCharge` takes its place in `LINE_IDS` (amendment 83).
+ *  The count stays 29 lines; the physical card total moves 114 -> 122. Both
+ *  default decks re-cut with it (TB closes on one SUPERCAV TORPEDO, ML on one
+ *  DEPTH CHARGE), `DEFAULT_OWNED` changes membership, and `EquipmentId` /
+ *  `ConsumableId` / `EQUIPMENT_STAT_FIELDS` / `DOCTRINE_MODES` all change
+ *  shape. A stale client would fold a different catalog, fit weapons into the
+ *  wrong id space and mis-derive every torpedo and mine number it predicts.
+ *  (2) `MineView` GAINS AN OPTIONAL `c` (the mine's `MineKind`), emitted ONLY
+ *  when `own` is true and stripped for every other observer (amendment 76):
+ *  one hull may now lay all three kinds and the owner's rings differ by kind,
+ *  while observers still cannot tell them apart.
+ *  (3) `OwnShip` GAINS AN OPTIONAL `slowFactor` (epic-8 amendment 86), emitted
+ *  beside `slowedUntil` on the FOULED VICTIM'S OWN FRAME and omitted when the
+ *  hull is not slowed or the factor is the inert 1. The fouling slow is per
+ *  tier now (0.75 at I → 0.55 at V, amendment 81) and the victim's own ship
+ *  carried only the WINDOW, so client prediction could assume nothing but the
+ *  tier-I 0.75 and snapped on reconcile against a deeper rack. SELF-PRIVATE by
+ *  construction, exactly like `slowedUntil` — it rides `you` and nothing else.
+ *  No new event kind exists, the reveal shape `{k,id,x,y,vx,vy,t}` gains no
+ *  field, and THE PERCEPTION EXCEPTION COUNT STAYS AT SIX.
  *  55 — UNCHANGED by Story 8.12 (CATALOG V3 — LADDERS AND THE DECK GUN, Eric
  *  rulings 2026-09-18, epic-8 amendments 70–73). The story authors NOTHING:
  *  the five universal ladders and the three deck-gun lines were written at
@@ -663,7 +695,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 55;
+export const PROTOCOL_VERSION = 56;
 
 // Tunables
 export * from './constants.js';

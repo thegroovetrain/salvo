@@ -25,7 +25,7 @@
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import { CONFIG, type MineView } from '@salvo/shared';
+import { CONFIG, type EffectiveMine, type MineKind, type MineView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
@@ -38,26 +38,30 @@ const RING_R = 10; // u (Eric 2026-07-22: the mine graphic read a bit small)
 const DOT_R = 3.5; // u
 
 /**
- * The OWNER'S live mine numbers, fed in every sync (they are effectiveStats
- * values, so a boon fitted this second must move the rings this second). The
- * server reads these same owner stats when a mine trips or blasts, so the rings
- * ARE the mine's ground truth, not a decoration of it.
+ * THE OWNER'S LIVE MINE NUMBERS, fed in every sync — the three mine ROWS
+ * themselves plus the frame clock. They are `effectiveStats` values, so a card
+ * fitted this second moves the rings this second, and the server reads these
+ * SAME owner rows when one of our mines trips or blasts: the rings ARE the
+ * mine's ground truth, not a decoration of it.
  *
- * `captive` is the CAPTIVE MINES verb (Story 7-5 wave 2, R2.12), read straight
- * off `stats.equipment.navalMines.captive`. It does NOT carry a radius of its own: the captive
- * transform (swap trigger/blast, then trigger x3) is DERIVED inside
- * effectiveStats, so `blast`/`trigger` above already arrive transformed
- * (144u/32u at base, 210.8u/46.9u at a maxed MINES ladder). Nothing here may
- * re-derive them.
+ * IT CARRIES ALL THREE ROWS, NOT ONE RADIUS PAIR (Story 8.13, epic-8
+ * amendments 76/81). One hull may now lay naval, captive and fouling mines at
+ * once, so "the owner's blast radius" is not a number any more — it is a
+ * question about WHICH mine. Each sprite answers it from the kind on its own
+ * wire view (`MineView.c`, emitted for own mines only) and reads THAT kind's
+ * row; nothing here may read `navalMines` for a captive.
  *
- * THE `acquire` CHANNEL IS DELETED. It carried the SELF-PROPELLED doctrine's
- * hunting reach, and that verb left the game with its card (R2.6), so the field
- * could only ever be null. It was NOT repurposed for the captive trip ring:
- * that ring IS `trigger` (it is literally `stats.equipment.navalMines.triggerRadius`), so a
- * second field carrying the same number would be two names for one radius —
- * exactly the drift a single derivation exists to prevent. What the channel's
- * GRAMMAR is inherited by is the line STYLE: dotted has always meant "the water
- * this mine hunts", which is precisely what a captive mine's trip ring is.
+ * THE `captive` FLAG IS GONE with the verb it named: CAPTIVE MINES is its own
+ * LINE now, so the distinction is the kind, and the kind is on the mine.
+ *
+ * THE `acquire` CHANNEL IS STILL DELETED. It carried the SELF-PROPELLED
+ * doctrine's hunting reach, and that verb left the game with its card (R2.6).
+ * It was NOT repurposed for the captive trip ring: that ring IS the captive
+ * row's own `triggerRadius`, so a second field carrying the same number would
+ * be two names for one radius — exactly the drift a single derivation exists to
+ * prevent. What the channel's GRAMMAR is inherited by is the line STYLE: dotted
+ * has always meant "the water this mine hunts", which is precisely what a
+ * captive mine's trip ring is.
  *
  * `now` is THE FRAME'S OWN TIMESTAMP (`FrameMsg.t`), not a local clock reading,
  * and that distinction is the whole accuracy of the arming dim: `armedAt` is
@@ -67,10 +71,21 @@ const DOT_R = 3.5; // u
  * the mine for the transport delay and holds the dim systematically late.
  */
 export interface OwnMineRings {
-  blast: number;
-  trigger: number;
-  captive: boolean;
+  /** The owner's effective row per mine kind — `stats.equipment.navalMines`,
+   *  `.captiveMines` and `.foulingMines`, assembled once per frame. */
+  rows: Readonly<Record<MineKind, EffectiveMine>>;
   now: number;
+}
+
+/** The kind an own mine's rings are drawn at when the wire view carries none.
+ *  A frame built by this server ALWAYS stamps `c` on an own mine (amendment
+ *  76), so this is the defensive branch only — an old/foreign frame draws the
+ *  naval pair rather than nothing, which is the pre-8.13 behaviour. */
+const DEFAULT_MINE_KIND: MineKind = 'naval';
+
+/** Pure: the kind a mine view declares, or the naval default (see above). */
+export function mineKindOfView(m: Pick<MineView, 'c'>): MineKind {
+  return m.c ?? DEFAULT_MINE_KIND;
 }
 
 /** One own-mine radius ring. STYLE, not hue, is what separates them (all three
@@ -82,29 +97,36 @@ export interface MineRing {
 }
 
 /**
- * Pure: the rings an OWN mine draws. `armed` false dims every ring by
- * `armingScale`: a mine that cannot trip yet must not draw a live trip ring.
+ * Pure: the rings an OWN mine OF THIS KIND draws. `armed` false dims every ring
+ * by `armingScale`: a mine that cannot trip yet must not draw a live trip ring.
  *
- * AN ORDINARY MINE draws two: solid blast (the killing area it detonates in)
- * and dashed trigger (what sets it off).
+ * A CONTACT MINE — naval or fouling — draws two: solid blast (the killing area
+ * it detonates in) and dashed trigger (what sets it off). The FOULING mine is a
+ * contact mine with a wider, weaker burst, so it draws the same pair; its slow
+ * is a card row, not a circle on the water.
  *
  * A CAPTIVE MINE draws exactly ONE, and the difference is a statement of fact
  * rather than a style choice (R2.12): a captive mine NEVER detonates on
  * contact, so a solid ring around the casing would promise a contact blast that
- * cannot happen — the one affordance this verb has to stop. Its `blast` is the
- * radius the LAUNCHED TORPEDO bursts in, wherever that torpedo eventually
- * connects, so it is not a circle centred on the mine at all and is not drawn
- * as one. What IS true of the water around the mine is the trip ring, and it is
- * drawn DOTTED — the acquisition grammar the retired SELF-PROPELLED ring used —
- * because that is what this ring now means: the water the mine hunts, and the
- * line the first hostile crosses to eat a torpedo.
+ * cannot happen — the one affordance this verb has to stop. Its `blastRadius`
+ * is the radius the LAUNCHED TORPEDO bursts in, wherever that torpedo
+ * eventually connects, so it is not a circle centred on the mine at all and is
+ * not drawn as one. What IS true of the water around the mine is the trip ring,
+ * and it is drawn DOTTED — the acquisition grammar the retired SELF-PROPELLED
+ * ring used — because that is what this ring now means: the water the mine
+ * hunts, and the line the first hostile crosses to eat a torpedo.
+ *
+ * THE ROW IS PICKED BY THE MINE'S OWN KIND (Story 8.13), which rides its own
+ * wire view: a captain carrying naval AND captive racks sees each field at its
+ * true radii, because each sprite asks its own row.
  */
-export function ownMineRings(p: OwnMineRings, armed: boolean): MineRing[] {
+export function ownMineRings(p: OwnMineRings, kind: MineKind, armed: boolean): MineRing[] {
   const scale = armed ? 1 : R.armingScale;
-  if (p.captive) return [{ r: p.trigger, style: 'dotted', alpha: R.triggerAlpha * scale }];
+  const row = p.rows[kind];
+  if (kind === 'captive') return [{ r: row.triggerRadius, style: 'dotted', alpha: R.triggerAlpha * scale }];
   return [
-    { r: p.blast, style: 'solid', alpha: R.blastAlpha * scale },
-    { r: p.trigger, style: 'dashed', alpha: R.triggerAlpha * scale },
+    { r: row.blastRadius, style: 'solid', alpha: R.blastAlpha * scale },
+    { r: row.triggerRadius, style: 'dashed', alpha: R.triggerAlpha * scale },
   ];
 }
 
@@ -156,6 +178,11 @@ export function reconcileMines(current: ReadonlySet<string>, incoming: readonly 
 interface MineSprite extends HueState {
   g: Graphics;
   own: boolean;
+  /** THE KIND THIS MINE WAS LAID AS (Story 8.13) — read once off the wire view
+   *  at spawn and never re-derived. It is present only on OUR own mines
+   *  (`MineView.c`, epic-8 amendment 76), so an enemy sprite carries the naval
+   *  default and never draws a ring anyway. */
+  kind: MineKind;
   /** The color the marker is currently painted in (the hue latch's resolved
    *  hue, or the amber fallback) — a recolor/ring redraw needs it without
    *  re-probing. */
@@ -222,7 +249,7 @@ export class Mines {
    *  mine just finished arming and snaps from dim to full). */
   private refreshRings(s: MineSprite, own: OwnMineRings | undefined): void {
     if (!s.own || own === undefined) return;
-    const rings = ownMineRings(own, mineArmed(s.seenAt, own.now));
+    const rings = ownMineRings(own, s.kind, mineArmed(s.seenAt, own.now));
     const key = ringsKey(rings);
     if (key === s.ringsKey) return;
     s.rings = rings;
@@ -251,13 +278,20 @@ export class Mines {
     return this.sprites.get(id)?.rings ?? [];
   }
 
+  /** The KIND a held mine was laid as (Story 8.13) — the ring tests' second
+   *  seam, so a pin can assert "this sprite read the wire's kind" without
+   *  inferring it back out of the radii. Null for an id we hold no sprite for. */
+  kindAt(id: string): MineKind | null {
+    return this.sprites.get(id)?.kind ?? null;
+  }
+
   private spawn(m: MineView, hueFor: HueFor, own: OwnMineRings | undefined, seenAt: number): void {
     const g = new Graphics();
     const { color, colored, rev } = resolveHue(m.by, hueFor);
     g.position.set(m.x, m.y);
     (m.own ? this.ownLayer : this.enemyLayer).addChild(g);
     const s: MineSprite = {
-      g, by: m.by, own: m.own, colored, rev, color,
+      g, by: m.by, own: m.own, colored, rev, color, kind: mineKindOfView(m),
       // A mine appearing after the first synced frame is one we just dropped
       // (own mines never leave our own frame list), so first-seen IS the drop
       // time — dated by the FRAME's clock, the same one `now` reads.

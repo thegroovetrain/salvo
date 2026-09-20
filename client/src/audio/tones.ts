@@ -13,7 +13,7 @@
 // for a pure rules module reading CLIENT_CONFIG. Pure of SIDE EFFECTS and of the
 // audio stack; not free of configuration.
 
-import { CONFIG, type EquipmentId, type LineKind } from '@salvo/shared';
+import { CONFIG, type LineKind, type SlotItemId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** Every distinct cue the client can play. */
@@ -382,16 +382,43 @@ export function telegraphTone(dir: number): ToneId {
  *  The MINE stays included even though it is now an ability (Story 1.8) — its
  *  'fireMine' drop cue still fires, via the Mines reconcile own-spawn hook
  *  (main.ts); the buoy's cue rides the same hook shape. */
-type FiringEquipmentId = Extract<EquipmentId, 'gun' | 'heavyTorpedo' | 'navalMines' | 'broadside' | 'starShells'>;
+type FiringEquipmentId = Extract<
+  SlotItemId,
+  | 'gun'
+  | 'broadside'
+  | 'starShells'
+  // THE TORPEDO FAMILY (Story 8.13): two LINES plus the belt's SUPERCAV
+  // TORPEDO, a click-aimed CONSUMABLE (epic-8 amendment 74) — which is why the
+  // Extract widened from `EquipmentId` to `SlotItemId`.
+  | 'lightTorpedo'
+  | 'heavyTorpedo'
+  | 'supercavTorpedo'
+  // THE THREE MINE LINES (amendments 76/81) — naval, captive and fouling all
+  // drop off the same rack and report with the same cue.
+  | 'navalMines'
+  | 'captiveMines'
+  | 'foulingMines'
+>;
 
-/** TOTAL over the five ids that HAVE a cue. Story 8.1 widened `EquipmentId` to
+/** TOTAL over the ids that HAVE a cue. Story 8.1 widened `EquipmentId` to
  *  catalog v3's thirteen weapons plus two legacy ids, so the old
- *  `Exclude<..., 'boost' | 'radarBuoy'>` would now demand a cue for eight
- *  weapons that have no module to fire - the union names the five that do. */
+ *  `Exclude<..., 'boost' | 'radarBuoy'>` would now demand a cue for weapons
+ *  that have no module to fire - the union names exactly the ones that do.
+ *
+ *  NO NEW `ToneId` (Story 8.13): every torpedo reports with the TORPEDO cue and
+ *  every mine with the MINE cue. A player cannot hear which line launched — and
+ *  should not have to: the cue says "a fish just left" / "a mine is on the
+ *  water", which is the fact the player needs, and inventing five new sounds
+ *  for five lines would be new game feel nobody asked for (the a11y twin map
+ *  pairs tones by MEANING, and these mean the same thing). */
 const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   gun: 'fireGun',
+  lightTorpedo: 'fireTorp',
   heavyTorpedo: 'fireTorp',
+  supercavTorpedo: 'fireTorp',
   navalMines: 'fireMine',
+  captiveMines: 'fireMine',
+  foulingMines: 'fireMine',
   broadside: 'fireBroadside',
   starShells: 'fireStarShells',
 };

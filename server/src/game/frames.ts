@@ -99,6 +99,15 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // not at all. slowedUntil drives the predictor's slowedKinematics fold;
     // dazzledUntil shrinks the client's own fog hole honestly.
     ...(ship.slowedUntil > now ? { slowedUntil: ship.slowedUntil } : {}),
+    // ... and, beside the window, ITS DEPTH (Story 8.13, epic-8 amendment 86):
+    // the FOULING MINES line is tiered, so the victim's caps are scaled by the
+    // LAYER's folded `slowFactor` (0.75 at tier I stepping to 0.55 at V) and
+    // the window alone no longer says how hard the hull is held. Same optional
+    // shape as the window it rides with — omitted (never `undefined`, never 1)
+    // whenever the hull is not slowed or nothing scaled it — and VICTIM-
+    // PRIVATE on exactly the same terms: it rides `you` and NOTHING else, so
+    // the master perception invariant keeps its SIX declared exceptions.
+    ...(ship.slowedUntil > now && ship.slowFactor !== 1 ? { slowFactor: ship.slowFactor } : {}),
     ...(ship.dazzledUntil > now ? { dazzledUntil: ship.dazzledUntil } : {}),
     // ms — the founder deadline while THIS hull is in the sinking window
     // (Story 5.2, amendment 16): present IFF sinking, OMITTED entirely

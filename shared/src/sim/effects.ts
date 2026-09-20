@@ -28,16 +28,25 @@ import type { HookParams } from './hooks.js';
 export type BoonId = string;
 
 /**
- * The five launch CONSUMABLES (catalog-v3 §4). They are NOT slot EQUIPMENT —
- * they fire off the `1`–`4` rail as stacks of copies, with no module, no stats
- * row and no reload — so they keep their OWN id space and never appear in
- * `EquipmentId`.
+ * The SEVEN launch CONSUMABLES (catalog-v3 §4, as amended). They are NOT slot
+ * EQUIPMENT — they fire off the `1`–`4` rail as stacks of copies, with no
+ * module, no stats row and no reload — so they keep their OWN id space and
+ * never appear in `EquipmentId`.
  *
  * Since Story 8.7 a copy does hold a SLOT: one of the four BELT slots
  * (`CONSUMABLE_SLOTS`, sim/loadout.ts), which is why a slot's content is typed
  * `SlotItemId = EquipmentId | ConsumableId`. That union is the ONLY place the
  * two spaces meet: no EquipmentId-keyed record ever gains a consumable key, and
  * every read of one narrows through `isConsumableId` first.
+ *
+ * STORY 8.13 ADDED TWO (Eric rulings 2026-09-19, epic-8 amendments 74 and 83):
+ *   - `supercavTorpedo` MOVED here out of `EquipmentId` — it is a
+ *     prime-and-click belt fish with no reload and no tiers, so its stat row,
+ *     its arc case and its appetite moved with it (amendment 74);
+ *   - `depthCharge` is NEW and STUB — Eric's line, mechanism a later story
+ *     (amendment 83) — and it is the Mine Layer's 40th default card.
+ * Both keep their locked `LINE_IDS` ids; `acousticHoming` left the catalog
+ * entirely (amendment 80).
  */
 export const CONSUMABLE_IDS = [
   'hullRepair',
@@ -45,9 +54,11 @@ export const CONSUMABLE_IDS = [
   'smokeScreen',
   'chaff',
   'decoyBuoy',
+  'depthCharge',
+  'supercavTorpedo',
 ] as const;
 
-/** One of the five consumables. */
+/** One of the seven consumables. */
 export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
 
 /**
@@ -62,8 +73,11 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  *     card addressing one would be a SECOND derivation;
  *   - `broadside.traverseRad` / `broadside.mountSpreadRad`: derived from the
  *     1-based `spreadRung`, which IS the addressable field;
- *   - every mine's `triggerRadius`: derived from the folded `blastRadius`
- *     (Eric ruling 2026-08-16);
+ *   - every mine's `triggerRadius`: derived post-fold (naval and fouling from
+ *     the folded `blastRadius` — Eric ruling 2026-08-16; the CAPTIVE's from
+ *     its row's TIER — epic-8 amendment 84d);
+ *   - `captiveMines.blastRadius`: FIXED at 32 u by ruling (amendment 84d) —
+ *     the captive's tier steps the TRIP RING, never the fish's burst;
  *   - every row's `tier`: it counts COPIES HELD (sim/boons.ts), never an
  *     effect — a card writing it would break the reload step's arithmetic;
  *   - every doctrine VERB boolean: `doctrine` effects are their only home.
@@ -75,11 +89,23 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
 export const EQUIPMENT_STAT_FIELDS = {
   gun: ['reloadMs', 'maxAmmo', 'damage', 'contactDamage', 'burstRadius', 'barrels'],
   boost: ['durationMs', 'maxAmmo', 'reloadMs'],
-  lightTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
-  heavyTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
-  supercavTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage'],
+  // The two torpedo LINES (Story 8.13). `homingTurnRate` is addressable
+  // because homing stopped being a card and became a TIER STAT (epic-8
+  // amendment 80): both lines step it +0.125/tier off a 0 base.
+  // `supercavTorpedo` LEFT this table with `EquipmentId` — it is a consumable
+  // now (amendment 74) and consumables carry no stat row.
+  lightTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage', 'homingTurnRate'],
+  heavyTorpedo: ['reloadMs', 'maxAmmo', 'speed', 'damage', 'homingTurnRate'],
   navalMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius'],
-  captiveMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius'],
+  // THE CAPTIVE ROW HAS NO RADIUS PATH AT ALL (amendment 84d): its trip ring
+  // is derived from the tier and its 32 u burst is fixed, so neither
+  // `blastRadius` nor `triggerRadius` is addressable. `homingTurnRate` is
+  // (amendment 82: 0 → 0.3 across the five rungs).
+  captiveMines: ['reloadMs', 'maxAmmo', 'damage', 'homingTurnRate'],
+  // FOULING MINES (amendment 81) — its own line now, not an add-on. `damage`
+  // is whitelisted although no tier steps it (10 hp is fixed): the table says
+  // what is addressable in principle, not what a card writes today.
+  foulingMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius', 'slowFactor'],
   missile: ['reloadMs', 'maxAmmo', 'damage'],
   machineGun: ['reloadMs', 'maxAmmo', 'damage'],
   flak: ['reloadMs', 'maxAmmo', 'damage'],
@@ -159,21 +185,24 @@ export const BOON_STAT_PATH_SET: ReadonlySet<string> = new Set(BOON_STAT_PATHS);
  * The known doctrine VERBS per equipment — the fold's fail-closed vocabulary
  * AND the authoring gate. EVERY entry names a BOOLEAN FIELD on that
  * equipment's stat row which the fold sets true; verbs STACK (a star shell may
- * be both phosphor and dazzle). Catalog v3 re-keys it onto the widened
- * EquipmentId and cuts it to the five add-ons' targets:
- *   - ACOUSTIC HOMING (R22) homes BOTH torpedoes, never the supercavitating;
- *   - FOULING MINES (R28) is naval mines ONLY — never the captive's fish;
- *   - HEAT SEEKING (R32) is the acoustic-homing numbers on the missile;
+ * be both phosphor and dazzle). Catalog v3 re-keyed it onto the widened
+ * EquipmentId; STORY 8.13 CUT IT TO THE THREE SURVIVING ADD-ONS' targets:
+ *   - HEAT SEEKING (R32) is the homing verb on the missile — Story 8.14 rules
+ *     on it (Eric: *"I will revisit this when we get back to missiles."*);
  *   - DAZZLE / PHOSPHOR SHELLS (R33) both ride the star shell and stack.
- * The radar buoy's `gun`/`jamming` verbs are GONE from the vocabulary (R1
- * deletes the buoy; no v3 line grants them), and `captive` is gone because
- * CAPTIVE MINES became its own equipment line (R25) whose row carries the flag
- * at base rather than a card setting it.
+ *
+ * TWO VERBS LEFT THE VOCABULARY on 2026-09-19 (Eric rulings, epic-8
+ * amendments 80 and 81), because the CARDS that granted them are deleted:
+ *   - `homing` on the two TORPEDOES — ACOUSTIC HOMING is gone and the turn
+ *     rate is now a NUMERIC TIER STAT (`homingTurnRate`) on each line, so
+ *     there is no boolean left to set;
+ *   - `propFouling` on NAVAL MINES — FOULING MINES is its own equipment line
+ *     now and a naval mine never fouls, so there is no verb left to grant.
+ * The radar buoy's `gun`/`jamming` verbs went with the buoy (R1), and
+ * `captive` went when CAPTIVE MINES became its own line (R25) — a mine's KIND
+ * is its ROW IDENTITY, never a flag a card writes.
  */
 export const DOCTRINE_MODES = {
-  lightTorpedo: ['homing'],
-  heavyTorpedo: ['homing'],
-  navalMines: ['propFouling'],
   missile: ['homing'],
   starShells: ['phosphor', 'dazzle'],
 } as const satisfies Partial<Record<EquipmentId, readonly string[]>>;

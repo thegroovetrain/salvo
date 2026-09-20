@@ -1241,9 +1241,26 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   /** Fit an equipment into the ship's EXTRA slot with a fresh ready pool —
    *  what an equipment line's copy 1 does, minus the card engine (not under
    *  test here). */
-  function fitExtra(rec: ShipRecord, id: 'navalMines' | 'heavyTorpedo' | 'starShells'): number {
-    rec.loadout[3] = { equipmentId: id, state: { n: 1, reloadMsLeft: 0 } };
-    return 3;
+  function fitExtra(
+    rec: ShipRecord,
+    id: 'navalMines' | 'heavyTorpedo' | 'starShells' | 'captiveMines' | 'foulingMines' | 'lightTorpedo',
+    slot = 3,
+  ): number {
+    rec.loadout[slot] = { equipmentId: id, state: { n: 1, reloadMsLeft: 0 } };
+    return slot;
+  }
+
+  /**
+   * SWAP THE HULL'S RACK for another mine line (Story 8.13). `captive` and
+   * `propFouling` were DOCTRINE FLAGS on the naval row until this cycle, so
+   * every case below used to forge one onto the bot's stats. They are separate
+   * EQUIPMENT LINES now (epic-8 amendments 76/81) — a captive layer is a layer
+   * whose RACK is the captive line — so the fixture fits the line into the
+   * class-weapon slot instead of flipping a flag that no longer exists.
+   */
+  function swapRack(rec: ShipRecord, id: 'navalMines' | 'captiveMines' | 'foulingMines'): number {
+    rec.loadout[2] = { equipmentId: id, state: { n: 1, reloadMsLeft: 0 } };
+    return 2;
   }
 
   it('NON-NATIVE PAIRING: a Battleship that acquired mines lays them (the shared tactic)', () => {
@@ -1316,17 +1333,17 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(siege3, siegeClosing, port).fireSlot).toBe(slotOf(siege3, 'navalMines'));
   });
 
-  it('mine.captive: full placeRange, proactive and arcless — and NEVER for a fleet-only target', () => {
+  it('CAPTIVE MINES: full placeRange, proactive and arcless — and NEVER for a fleet-only target', () => {
     const w = openWorld(404);
     const port = fakePort(w);
     // A hostile AHEAD (outside the rear arc): a contact mine has no play, a
     // captive mine lays anyway (its torpedo does the chasing) at FULL reach.
     const cap = mkBot(w, 'mineLayer', 0, 0, 0);
-    cap.stats.equipment.navalMines.captive = true;
+    const capRack = swapRack(cap, 'captiveMines');
     const capMind = mkMind('trapper');
     plot(capMind, track(port.now, { x: 250, y: 0, speed: 0 }));
     const d = COMBAT_BRAIN.decide(cap, capMind, port);
-    expect(d.fireSlot).toBe(slotOf(cap, 'navalMines'));
+    expect(d.fireSlot).toBe(capRack);
     expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6); // FULL reach — 144u trip ring
     const base = mkBot(w, 'mineLayer', 0, 0, 0);
     const baseMind = mkMind('trapper');
@@ -1338,11 +1355,11 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     // on disengage; a contact mine still lays (it trips on any hull).
     const fleet = { x: -150, y: 0, cls: 'droneSmall' as HullId, fleet: true };
     const capFleet = mkBot(w, 'mineLayer', 0, 0, 0);
-    capFleet.stats.equipment.navalMines.captive = true;
+    const capFleetRack = swapRack(capFleet, 'captiveMines');
     capFleet.hp = capFleet.stats.maxHp * 0.1;
     const capFleetMind = mkMind('trapper');
     plot(capFleetMind, track(port.now, fleet));
-    expect(COMBAT_BRAIN.decide(capFleet, capFleetMind, port).fireSlot).not.toBe(slotOf(capFleet, 'navalMines'));
+    expect(COMBAT_BRAIN.decide(capFleet, capFleetMind, port).fireSlot).not.toBe(capFleetRack);
     const baseFleet = mkBot(w, 'mineLayer', 0, 0, 0);
     baseFleet.hp = baseFleet.stats.maxHp * 0.1;
     const baseFleetMind = mkMind('trapper');
@@ -1350,46 +1367,75 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(baseFleet, baseFleetMind, port).fireSlot).toBe(slotOf(baseFleet, 'navalMines'));
   });
 
-  it('mine.propFouling: the trap goes down EARLIER against a closing pursuer', () => {
+  it('FOULING MINES: the trap goes down EARLIER against a closing pursuer', () => {
     const w = openWorld(405);
     const port = fakePort(w);
     // A pursuer astern at 450u, closing: outside the base 2x placeRange
     // window, inside the fouling 4x one — the slow only pays if the victim
     // runs THROUGH the field, so the fouling layer seeds the chase earlier.
+    // THE WIDENING IS THE LINE'S OWN now (epic-8 amendment 81), not a verb the
+    // naval rack could carry.
     const chase = { x: -450, y: 0, heading: 0, speed: 20 };
     const foul = mkBot(w, 'mineLayer', 0, 0, 0);
-    foul.stats.equipment.navalMines.propFouling = true;
+    const foulRack = swapRack(foul, 'foulingMines');
     const foulMind = mkMind('forager'); // NEUTRAL appetite: the reactive branch
     plot(foulMind, track(port.now, chase));
-    expect(COMBAT_BRAIN.decide(foul, foulMind, port).fireSlot).toBe(slotOf(foul, 'navalMines'));
+    expect(COMBAT_BRAIN.decide(foul, foulMind, port).fireSlot).toBe(foulRack);
     const base = mkBot(w, 'mineLayer', 0, 0, 0);
     const baseMind = mkMind('forager');
     plot(baseMind, track(port.now, chase));
     expect(COMBAT_BRAIN.decide(base, baseMind, port).fireSlot).not.toBe(slotOf(base, 'navalMines'));
   });
 
-  it('torpedo.homing: the credible-range gate widens — bounded by budget minus turn room', () => {
+  it('LIGHT TORPEDO: the heavy\'s tactic, keyed by its own id and its own row (amendment 79)', () => {
+    const w = openWorld(421);
+    const port = fakePort(w);
+    // Abeam at knife range: inside the straight-runner's credible gate AND
+    // inside the light torpedo's beam sector (the heavy's bow cone would
+    // refuse this bearing outright).
+    const beam = { x: 0, y: 180, heading: 0, speed: 0 };
+    const tb = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    const light = fitExtra(tb, 'lightTorpedo', 4);
+    const mind = mkMind('raider');
+    plot(mind, track(port.now, beam));
+    const d = COMBAT_BRAIN.decide(tb, mind, port);
+    expect(d.fireSlot).toBe(light); // the HEAVY in slot 2 cannot bear; the light can
+    expect(Math.abs(d.aim - Math.PI / 2)).toBeLessThan(Math.PI / 4); // fired abeam
+  });
+
+  it('torpedo homingTurnRate: the credible-range gate widens — bounded by budget minus turn room', () => {
     const w = openWorld(406);
     const port = fakePort(w);
     const at600 = { x: 600, y: 0, heading: 0, speed: 0 };
-    // Base fish: 600u is fiction (credible 250u) — the gun takes it instead.
+    // A STRAIGHT-RUNNING fish (tier I, rate 0): 600u is fiction (credible
+    // 250u) — the gun takes it instead.
     const base = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    expect(base.stats.equipment.heavyTorpedo.homingTurnRate).toBe(0);
     const baseMind = mkMind('raider');
     plot(baseMind, track(port.now, at600));
     expect(COMBAT_BRAIN.decide(base, baseMind, port).fireSlot).toBe(slotOf(base, 'gun'));
-    // Homing fish: 600u is inside homingMaxRangeU minus a half-turn of
-    // correction room (1300 − π·120 ≈ 923u) — the tube fires.
+    // A TOP-RUNG fish (0.5 rad/s): 600u is inside homingMaxRangeU minus a
+    // half-turn of correction room (1300 − π·130 ≈ 892u) — the tube fires.
+    // The rate is written straight onto the row, exactly where the fold puts
+    // it at tier V: the SUBJECT here is the gate, not the ladder.
     const homing = mkBot(w, 'torpedoBoat', 0, 0, 0);
-    homing.stats.equipment.heavyTorpedo.homing = true;
+    homing.stats.equipment.heavyTorpedo.homingTurnRate = CONFIG.torpedo.homingTurnRate;
     const homingMind = mkMind('raider');
     plot(homingMind, track(port.now, at600));
     expect(COMBAT_BRAIN.decide(homing, homingMind, port).fireSlot).toBe(slotOf(homing, 'heavyTorpedo'));
     // Still bounded: past the budget-minus-turn-room line the tube holds.
     const far = mkBot(w, 'torpedoBoat', 0, 0, 0);
-    far.stats.equipment.heavyTorpedo.homing = true;
+    far.stats.equipment.heavyTorpedo.homingTurnRate = CONFIG.torpedo.homingTurnRate;
     const farMind = mkMind('raider');
     plot(farMind, track(port.now, { x: 950, y: 0, heading: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(far, farMind, port).fireSlot).not.toBe(slotOf(far, 'heavyTorpedo'));
+    // A LOW rung barely widens it at all — a slow turn needs a long run-up, so
+    // the same 600u plot is still fiction at tier II (1300 − π·540 < 250).
+    const early = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    early.stats.equipment.heavyTorpedo.homingTurnRate = 0.125;
+    const earlyMind = mkMind('raider');
+    plot(earlyMind, track(port.now, at600));
+    expect(COMBAT_BRAIN.decide(early, earlyMind, port).fireSlot).toBe(slotOf(early, 'gun'));
   });
 
   it('starShells.dazzle: the flare turns OFFENSIVE — fired at a LIVE contact inside sight', () => {
@@ -1465,7 +1511,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(phos, phosMind, port).fireSlot).toBe(slotOf(phos, 'starShells'));
   });
 
-  it('mine.captive keeps the base mine UNCONDITIONAL withdrawal lay', () => {
+  it('CAPTIVE MINES keeps the base mine UNCONDITIONAL withdrawal lay', () => {
     // REGRESSION (review gate, cycle 110). `mineWant` lays astern on
     // `disengage` at any appetite and with NO target; the captive branch ran
     // its fleet/no-target refusal FIRST, so a trapper fleeing an attacker it
@@ -1475,28 +1521,32 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const w = openWorld(415);
     const port = fakePort(w);
     const cap = mkBot(w, 'mineLayer', 0, 0, 0);
-    cap.stats.equipment.navalMines.captive = true;
+    const rack = swapRack(cap, 'captiveMines');
     cap.hp = cap.stats.maxHp * 0.1; // forces `disengage`
     const capMind = mkMind('trapper'); // no target plotted at all
-    expect(COMBAT_BRAIN.decide(cap, capMind, port).fireSlot).toBe(slotOf(cap, 'navalMines'));
+    expect(COMBAT_BRAIN.decide(cap, capMind, port).fireSlot).toBe(rack);
   });
 
-  it('mine.captive + mine.propFouling still gets the WIDENED closing window', () => {
-    // REGRESSION (cross-model review, cycle 110). The two verbs stack by
-    // design, but `mineWant` hands the whole decision to the captive branch, so
-    // the fouling widening was unreachable for a holder of both: at 450u astern
-    // and closing — inside fouling's 4x placeRange, outside captive's 2x — a
-    // bot with BOTH laid nothing where fouling alone laid. Adding a card made
-    // it worse. Without the fix this fires the gun.
+  // RE-CUT, NOT DELETED (Story 8.13, epic-8 amendment 81). Cycle 110's finding
+  // was that a layer holding BOTH verbs on ONE rack lost the fouling widening,
+  // because `mineWant` handed the whole decision to the captive branch —
+  // adding a card made the bot worse. The verbs are separate LINES with
+  // separate racks now, so the cross-branch hazard is gone by construction and
+  // the widening belongs to the FOULING rack alone. The pin therefore proves
+  // the new shape: a layer carrying both racks still lays the FOULING one at
+  // 450u closing, and the captive rack is not what fires.
+  it('a layer carrying BOTH racks lays the FOULING one in the widened closing window', () => {
     const w = openWorld(416);
     const port = fakePort(w);
     const chase = { x: -450, y: 0, heading: 0, speed: 20 };
     const both = mkBot(w, 'mineLayer', 0, 0, 0);
-    both.stats.equipment.navalMines.captive = true;
-    both.stats.equipment.navalMines.propFouling = true;
+    const captiveRack = swapRack(both, 'captiveMines');
+    const foulRack = fitExtra(both, 'foulingMines', 4);
     const bothMind = mkMind('forager'); // NEUTRAL appetite: the reactive branch
     plot(bothMind, track(port.now, chase));
-    expect(COMBAT_BRAIN.decide(both, bothMind, port).fireSlot).toBe(slotOf(both, 'navalMines'));
+    const d = COMBAT_BRAIN.decide(both, bothMind, port);
+    expect(d.fireSlot).toBe(foulRack);
+    expect(d.fireSlot).not.toBe(captiveRack);
   });
 
   // THE PREPARED LAY + THE FIELD-CHURN BOUND (Eric ruling 2026-08-20, cycle
@@ -1524,11 +1574,11 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     // 144u-trip torpedo launcher works with nobody following, so it is
     // seeded while safe — the doctrine ADDS the occasion.
     const cap = mkBot(w, 'mineLayer', 0, 0, 0);
-    cap.stats.equipment.navalMines.captive = true;
+    const capRack = swapRack(cap, 'captiveMines');
     const capMind = mkMind('forager'); // no contacts -> reposition
     viewWithOwnMines(capMind, 0);
     const d = COMBAT_BRAIN.decide(cap, capMind, port);
-    expect(d.fireSlot).toBe(slotOf(cap, 'navalMines'));
+    expect(d.fireSlot).toBe(capRack);
     expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6); // captive: FULL reach
     // The same forager WITHOUT the doctrine does not lay into empty water —
     // a contact mine needs something following you — and sites its recon
@@ -1583,11 +1633,11 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(flee, fleeMind, port).fireSlot).toBe(slotOf(flee, 'navalMines'));
     // Same on the captive branch.
     const capFull = mkBot(w, 'mineLayer', 0, 0, 0);
-    capFull.stats.equipment.navalMines.captive = true;
+    const capFullRack = swapRack(capFull, 'captiveMines');
     capFull.hp = capFull.stats.maxHp * 0.1;
     const capFullMind = mkMind('trapper');
     viewWithOwnMines(capFullMind, big);
-    expect(COMBAT_BRAIN.decide(capFull, capFullMind, port).fireSlot).toBe(slotOf(capFull, 'navalMines'));
+    expect(COMBAT_BRAIN.decide(capFull, capFullMind, port).fireSlot).toBe(capFullRack);
   });
 
   // The rung means "how choked is the pattern", not "how wide is a designed
@@ -1729,6 +1779,34 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     // Tube empty: the pull is gone the moment the round is (only-while-loaded).
     rec.loadout[tube].state = { n: 0, reloadMsLeft: 30000 };
     expect(pullBand(band, readyShotReaches(rec, rec.stats))).toEqual(band);
+  });
+
+  // CYCLE-148 REVIEW GATE, P3 — THE BELT IS A SHOT SLOT NOW. `readyShotReaches`
+  // skipped every consumable on the claim that no consumable line was a 'shot'
+  // tactic; Story 8.13 put the SUPERCAV TORPEDO on the belt (epic-8 amendment
+  // 74) and made that claim false. A bot that will genuinely fire the stack was
+  // steering to a band computed as though it had only its gun.
+  it('THE BELT PULLS TOO: a ready SUPERCAV stack contributes its reach', () => {
+    const w = openWorld(416);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    // Strip the hull back to the GUN alone, so the only thing that can move the
+    // band is the belt.
+    for (let i = 0; i < rec.loadout.length; i += 1) {
+      if (rec.loadout[i].equipmentId !== 'gun') rec.loadout[i] = { equipmentId: null, state: null };
+    }
+    expect(readyShotReaches(rec, rec.stats)).toEqual([rec.stats.equipment.gun.rangeU]);
+
+    w.applyCard(rec, 'supercavTorpedo');
+    expect(slotOf(rec, 'supercavTorpedo')).toBeGreaterThanOrEqual(0);
+    const reaches = readyShotReaches(rec, rec.stats);
+    // 250 u is the straight-runner's credible reach (ai/equipment's
+    // TORPEDO_CREDIBLE_U — the supercav never homes, so the gate never widens).
+    expect(reaches).toContain(250);
+
+    // ...and it actually moves the band: a siege battleship holding a knife-
+    // range fish eases its near edge in, exactly as a fitted tube does.
+    const band = engagementBand(profileOf('siege'), rec.stats);
+    expect(pullBand(band, reaches).min).toBeCloseTo((band.min + 250) / 2, 6);
   });
 });
 
