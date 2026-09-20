@@ -160,3 +160,5 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 82. **The captive fish homes by tier 0 → 0.3 rad/s** (Eric 2026-09-19): +0.075/tier on the lead-launched fish.
 83. **DEPTH CHARGE is a stub CONSUMABLE line** (Eric 2026-09-19): ML deck = naval 3, captive 3, flak 3, depthCharge 1; three equipment lines, rule unchanged; never dealt; `LINE_IDS` stays 29.
 84. **Measured corrections for 8.13** (orchestrator 2026-09-19): mine caps already gone (8.4); id moves are supercav OUT / fouling IN; ledger cites resolve to `:1460` / `:691`; the captive trigger step is tier-derived (blast fixed 32); `CONFIG.torpedo` stays the heavy + family block; no torpedo line has a max range.
+85. **A tier card prints every authored step (≤ 5 rows); the homing row is `HOMING`** (Eric 2026-09-19); the DECK GUN face stays as in 71.
+86. **`OwnShip.slowFactor?` rides the own-ship view, victim-private** (orchestrator 2026-09-19, inside PV 56); trapper's fouling preference is an interim tie until 8.18.
