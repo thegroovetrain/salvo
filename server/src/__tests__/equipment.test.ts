@@ -158,16 +158,24 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly gun / heavyTorpedo / navalMines / boost / broadside / starShells / radarBuoy', () => {
+  it('holds exactly the TEN built rows — the seven shipped plus Story 8.13\'s three', () => {
     expect(Object.keys(EQUIPMENT).sort()).toEqual([
       'boost',
       'broadside',
+      'captiveMines', // Story 8.13
+      'foulingMines', // Story 8.13 (amendment 81)
       'gun',
       'heavyTorpedo',
+      'lightTorpedo', // Story 8.13
       'navalMines',
       'radarBuoy',
       'starShells',
     ]);
+    // Still PARTIAL, and the four unbuilt weapons are exactly the ones whose
+    // modules Stories 8.14-8.16 owe.
+    for (const id of ['missile', 'machineGun', 'flak', 'monitor'] as const) {
+      expect(Object.hasOwn(EQUIPMENT, id), id).toBe(false);
+    }
   });
 
   // THE REGISTRY/CATALOG PIN (Story 8.1). The registry is PARTIAL over the
@@ -185,7 +193,9 @@ describe('EQUIPMENT registry — interface conformance', () => {
       expect(built, `${id} -> ${target}`).toBe(!isStubLine(id));
       if (!isStubLine(id)) nonStubTargets += 1;
     }
-    expect(nonStubTargets).toBe(4); // heavyTorpedo, navalMines, broadside, starShells
+    // Story 8.13 flipped THREE more stubs and built their modules: the LIGHT
+    // TORPEDO and the CAPTIVE / FOULING mine racks. 4 -> 7.
+    expect(nonStubTargets).toBe(7);
     // The gun and the speed boost are slotless/base fits — no line fills them,
     // and they are exactly the registry rows no `slotFill` target names.
     expect(Object.hasOwn(EQUIPMENT, 'gun')).toBe(true);
@@ -204,6 +214,9 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
     expect(EQUIPMENT.gun!.isWeapon).toBe(true);
     expect(EQUIPMENT.heavyTorpedo!.isWeapon).toBe(true);
+    expect(EQUIPMENT.lightTorpedo!.isWeapon).toBe(true); // Story 8.13
+    expect(EQUIPMENT.captiveMines!.isWeapon).toBe(true); // Story 8.13
+    expect(EQUIPMENT.foulingMines!.isWeapon).toBe(true); // Story 8.13 (amendment 81)
     // Story 2.8 (amendment 45) DELIBERATELY FLIPS the 1.8 ability pin: the mine
     // is a click-aimed weapon again (rear placement arc + placeRange).
     expect(EQUIPMENT.navalMines!.isWeapon).toBe(true);
@@ -325,15 +338,22 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     }).toThrow();
   });
 
-  // THE PRODUCTION PIN. Story 8.8 flipped `hullRepair` and added its row; the
-  // other four consumable lines are still stubs, so nothing else is drawable
-  // and nothing else is stockable in play.
-  it('the PRODUCTION consumable registry holds exactly HULL REPAIR', () => {
-    expect(Object.keys(CONSUMABLES)).toEqual(['hullRepair']);
+  // THE PRODUCTION PIN. Story 8.8 flipped `hullRepair` and added its row;
+  // Story 8.13 added SUPERCAV TORPEDO, the belt's first CLICK-AIMED line
+  // (epic-8 amendment 74). The remaining consumable lines — SHIELD BLOCK,
+  // SMOKE SCREEN, CHAFF, DECOY BUOY and the DEPTH CHARGE stub — are still
+  // `stub` in the catalog, so nothing else is drawable or stockable in play,
+  // and the PARTIAL registry is what makes even a forged press fail closed.
+  it('the PRODUCTION consumable registry holds HULL REPAIR + SUPERCAV TORPEDO, and every stub line is absent', () => {
+    expect(Object.keys(CONSUMABLES).sort()).toEqual(['hullRepair', 'supercavTorpedo']);
     expect(Object.isFrozen(CONSUMABLES)).toBe(true);
     expect(Object.isFrozen(CONSUMABLES.hullRepair)).toBe(true);
+    expect(Object.isFrozen(CONSUMABLES.supercavTorpedo)).toBe(true);
+    expect(CONSUMABLES.supercavTorpedo!.isWeapon).toBe(true); // the ONE aimed row today
+    expect(CONSUMABLES.hullRepair!.isWeapon).toBe(false);
     for (const id of CONSUMABLE_IDS) {
-      if (id === 'hullRepair') continue;
+      if (id === 'hullRepair' || id === 'supercavTorpedo') continue;
+      expect(isStubLine(id), id).toBe(true); // every absent line is absent BECAUSE it is a stub
       expect(CONSUMABLES[id], id).toBeUndefined();
     }
   });
@@ -349,7 +369,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
       expect(Object.hasOwn(CONSUMABLES, id), id).toBe(!isStubLine(id));
       if (!isStubLine(id)) nonStub += 1;
     }
-    expect(nonStub).toBe(1); // Story 8.8: HULL REPAIR, and only it
+    expect(nonStub).toBe(2); // HULL REPAIR (8.8) + SUPERCAV TORPEDO (8.13)
   });
 
   it('slotRow routes BOTH id spaces, and fails closed on null / an unbuilt id', () => {
@@ -358,7 +378,8 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     // equipment ids -> EQUIPMENT (the consumable registry is never consulted)
     expect(slotRow('gun', reg)).toBe(EQUIPMENT.gun);
     expect(slotRow('boost', reg)).toBe(EQUIPMENT.boost);
-    expect(slotRow('lightTorpedo', reg)).toBeUndefined(); // authored, unbuilt (Story 8.13)
+    expect(slotRow('lightTorpedo', reg)).toBe(EQUIPMENT.lightTorpedo); // BUILT in Story 8.13
+    expect(slotRow('missile', reg)).toBeUndefined(); // authored, unbuilt (Story 8.14)
     // consumable ids -> the injected registry, NEVER EQUIPMENT
     expect(slotRow('hullRepair', reg)).toBe(row);
     expect(slotRow('chaff', reg)).toBeUndefined();

@@ -774,7 +774,12 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
     const loadout = idsFor('mineLayer', statsFor('mineLayer')); // gun / boost / mine / empties
     expect(slotForCard(loadout, 'deckGunBarrel')).toBe(SLOT_GUN);
     expect(slotForCard(loadout, 'navalMines')).toBe(Q);
-    expect(slotForCard(loadout, 'foulingMines')).toBe(Q);
+    // FOULING MINES IS ITS OWN LINE since Story 8.13 (epic-8 amendment 81), so
+    // it fits its OWN weapon and routes to the slot carrying THAT — not to the
+    // naval rack, which it used to bolt a verb onto. A hull with no fouling
+    // rack fitted therefore gets the rank-wide pulse, like any other card for
+    // kit it does not carry.
+    expect(slotForCard(loadout, 'foulingMines')).toBeNull();
     expect(slotForCard(loadout, 'radarSweep')).toBeNull();
     expect(slotForCard(loadout, 'armor')).toBeNull();
     // A card for kit this hull does not carry owns no slot either (rank-wide).
@@ -1355,13 +1360,31 @@ describe('a stocked BELT square', () => {
     expect(slotViewModels(stocked(2, { cards: ['hullRepair', 'hullRepair'] }))[5].boonCount).toBe(0);
   });
 
-  it('draws NO glyph: none exists in 8.7, and none is invented', () => {
+  it('draws NO glyph for an instant or STUB consumable, and invents none', () => {
     // No crash, no word, no placeholder — the square is its outline and badge.
     expect(glyphPaths('hullRepair')).toBeNull();
     expect(equipmentGlyphSvg('hullRepair', 24)).toBeNull();
+    // DEPTH CHARGE is a STUB (Story 8.13, epic-8 amendment 83): no mechanism,
+    // so no linework — the same blank every other stub consumable renders.
+    expect(glyphPaths('depthCharge')).toBeNull();
     // ...while a built weapon still has its linework, from the SAME source.
     expect(glyphPaths('heavyTorpedo')).not.toBeNull();
     expect(equipmentGlyphSvg('heavyTorpedo', 24)?.tagName.toLowerCase()).toBe('svg');
+  });
+
+  // STORY 8.13 — THE FAMILY GLYPHS ARE REUSED, and the icon pass (UX-DR50)
+  // stays ledgered: a light torpedo IS a torpedo and a captive or fouling mine
+  // IS a mine, so each new line takes its family's shipped linework rather than
+  // art invented here. The SUPERCAV TORPEDO is the first CONSUMABLE with a
+  // glyph at all, because it is the first with a weapon behind it.
+  it('gives every new 8.13 line its FAMILY glyph — torpedoes and mines', () => {
+    expect(glyphPaths('lightTorpedo')).toEqual(glyphPaths('heavyTorpedo'));
+    expect(glyphPaths('supercavTorpedo')).toEqual(glyphPaths('heavyTorpedo'));
+    expect(glyphPaths('captiveMines')).toEqual(glyphPaths('navalMines'));
+    expect(glyphPaths('foulingMines')).toEqual(glyphPaths('navalMines'));
+    // ...and the two families are still drawn differently from each other.
+    expect(glyphPaths('navalMines')).not.toEqual(glyphPaths('heavyTorpedo'));
+    expect(equipmentGlyphSvg('supercavTorpedo', 24)?.tagName.toLowerCase()).toBe('svg');
   });
 });
 

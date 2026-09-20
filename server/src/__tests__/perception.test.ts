@@ -63,6 +63,8 @@ import {
   type HealEvent,
   type HitCallEvent,
   type MatchPhase,
+  type MineKind,
+  type MineView,
   type PointEvent,
   type SpawnEvent,
   type SplashEvent,
@@ -368,9 +370,10 @@ function injectShell(
   });
 }
 
-/** Drop a mine directly into world state (armed by default). */
-function injectMine(w: World, id: string, ownerId: string, x: number, y: number, armedAt = 0): void {
-  w.mines.set(id, { id, ownerId, x, y, armedAt });
+/** Drop a mine directly into world state (armed by default; a NAVAL mine
+ *  unless the case says otherwise — Story 8.13 stamps the laying line's kind). */
+function injectMine(w: World, id: string, ownerId: string, x: number, y: number, armedAt = 0, kind: MineKind = 'naval'): void {
+  w.mines.set(id, { id, ownerId, x, y, armedAt, kind });
 }
 
 /** Drop a lit zone directly into world state (Story 1.7; far-future expiry). */
@@ -951,7 +954,7 @@ describe('perception — mine visibility (owner-always, else DETECT+LOS — Stor
     place(w, 'b', 0, 0); // b co-located briefly; we only read its frame's mines
     injectMine(w, 'm1', 'a', 900, 900); // owner's mine, far outside any range
     const fa = buildFrame(w, 'a');
-    expect(fa.mines).toEqual([{ id: 'm1', x: 900, y: 900, own: true, by: 'a' }]);
+    expect(fa.mines).toEqual([{ id: 'm1', x: 900, y: 900, own: true, by: 'a', c: 'naval' }]); // own view carries the kind (8.13)
     // b sits at the origin — the mine is 1273u away, far beyond radar(660).
     expect(buildFrame(w, 'b').mines).toEqual([]);
   });
@@ -1054,6 +1057,177 @@ describe('perception — torpedo DETECT gate vs shell truesight (Story 4.9: the 
     injectShell(w, 'zoned', 'b', 500, 0, 0, 400, false, 'torp'); // far beyond detect
     injectZone(w, 'z1', 'a', 500, 0);
     expect(torpsOf(buildFrame(w, 'a')).map((e) => e.id)).toEqual(['zoned']);
+  });
+});
+
+// ---------- Story 8.13: the per-visit ballistic mark (epic-8 amendment 78) ----
+//
+// The exactly-once memory became ONCE PER VISIT: an observer's mark on a live
+// projectile is cleared the first tick the projectile is OUTSIDE that
+// observer's reveal gate, so a projectile that leaves and comes back is
+// revealed again — same {k,id,x,y,vx,vy,t} shape, current pos/velocity, `t` =
+// the re-reveal time. While it stays inside, nothing is re-sent (byte-identical
+// to the old behaviour); the owner's own projectiles never leave the gate, so
+// they are revealed exactly once; spectators likewise. Every case counts the
+// events across the WHOLE run, so a duplicate anywhere fails.
+
+describe('perception — ballistic re-reveal on gate re-entry (Story 8.13, amendment 78)', () => {
+  const DETECT = SIGHT * 0.75;
+  const torpsOf = (f: FrameMsg) => f.events.filter((e): e is BallisticEvent => e.k === 'torp');
+  const ballisticsOf = (f: FrameMsg, kind: 'shell' | 'torp') => f.events.filter((e): e is BallisticEvent => e.k === kind);
+  const isBallisticEvent = (e: GameEvent): e is BallisticEvent => e.k === 'shell' || e.k === 'torp';
+
+  /** Build `n` frames for `id` and return every ballistic event of `kind`. */
+  function collect(w: World, id: string, kind: 'shell' | 'torp', n: number): BallisticEvent[] {
+    const out: BallisticEvent[] = [];
+    for (let i = 0; i < n; i++) out.push(...ballisticsOf(buildFrame(w, id), kind));
+    return out;
+  }
+
+  for (const [kind, ring] of [['torp', DETECT], ['shell', SIGHT]] as const) {
+    it(`${kind}: revealed at the ${kind === 'torp' ? 'detect' : 'sight'} ring, silent outside it, revealed AGAIN on re-entry — exactly two events over the run`, () => {
+      const w = bareWorld();
+      const a = place(w, 'a', 0, 0);
+      injectShell(w, 'p1', 'b', ring - 20, 0, 0, 900, false, kind); // inside the gate, 20u short of the ring
+      const first = collect(w, 'a', kind, 3); // inside: revealed once, then silent
+      expect(first.map((e) => e.id)).toEqual(['p1']);
+      expect(a.seenBallistics.has('p1')).toBe(true);
+      a.state.x = -60; // the observer backs off: the projectile is now 40u OUTSIDE the ring
+      expect(collect(w, 'a', kind, 3)).toEqual([]); // nothing while outside...
+      expect(a.seenBallistics.has('p1')).toBe(false); // ...and the mark is gone (per-visit)
+      a.state.x = 0; // closes again: the projectile is back inside
+      const again = collect(w, 'a', kind, 3);
+      expect(again.map((e) => e.id)).toEqual(['p1']); // ONE re-reveal, then silent again
+      const live = w.shells.get('p1')!;
+      expect(again[0]).toEqual({ k: kind, id: 'p1', x: live.x, y: live.y, vx: live.vx, vy: live.vy, t: w.now });
+      assertBallisticShape(again[0]); // the re-reveal gains no field
+      expect(Math.hypot(again[0].x - a.state.x, again[0].y - a.state.y)).toBeLessThanOrEqual(ring);
+    });
+  }
+
+  it('a running fish crosses INTO the detect ring, the observer is pulled away for a tick, then returns: two reveals, each with the fish\'s CURRENT params and t = now', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    injectShell(w, 't1', 'b', -DETECT - 30, 0, 0, 5_000, false, 'torp'); // closing +x, outside detect
+    expect(torpsOf(buildFrame(w, 'a'))).toEqual([]);
+    let reveals: BallisticEvent[] = [];
+    let ticks = 0;
+    while (reveals.length === 0 && ticks++ < 20) {
+      w.step();
+      reveals = torpsOf(buildFrame(w, 'a'));
+    }
+    expect(reveals).toHaveLength(1);
+    const firstT = reveals[0].t;
+    expect(firstT).toBe(w.now);
+    w.step();
+    expect(torpsOf(buildFrame(w, 'a'))).toEqual([]); // still inside, still marked, silent
+    a.state.x = 3_000; // yanked clear of everything for one tick: the mark is dropped
+    w.step();
+    expect(torpsOf(buildFrame(w, 'a'))).toEqual([]);
+    expect(a.seenBallistics.has('t1')).toBe(false);
+    a.state.x = 0; // and back
+    w.step();
+    const again = torpsOf(buildFrame(w, 'a'));
+    const live = w.shells.get('t1')!;
+    expect(again).toEqual([{ k: 'torp', id: 't1', x: live.x, y: live.y, vx: live.vx, vy: live.vy, t: w.now }]);
+    expect(again[0].t).toBeGreaterThan(firstT); // the re-reveal time, never the first reveal's
+    expect(Math.hypot(live.x, live.y)).toBeLessThanOrEqual(DETECT); // re-revealed INSIDE the gate
+    w.step();
+    expect(torpsOf(buildFrame(w, 'a'))).toEqual([]);
+  });
+
+  it('a projectile that never leaves the gate is revealed exactly once (the old pin, restated over many frames)', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectShell(w, 't1', 'b', 100, 0, 0, 900, false, 'torp');
+    injectShell(w, 's1', 'b', 200, 0, 0, 900, false, 'shell');
+    const seen: string[] = [];
+    for (let i = 0; i < 12; i++) seen.push(...buildFrame(w, 'a').events.filter(isBallisticEvent).map((e) => e.id));
+    expect(seen.sort()).toEqual(['s1', 't1']);
+  });
+
+  it('OWNER-ALWAYS: the owner is revealed its own fish once and never again, however far it runs and wherever the owner goes', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    injectShell(w, 'own', 'a', 900, 900, 0, 5_000, false, 'torp'); // far outside every ring
+    expect(collect(w, 'a', 'torp', 4).map((e) => e.id)).toEqual(['own']);
+    a.state.x = -2_000; // the owner moves; the fish is still the owner's
+    expect(collect(w, 'a', 'torp', 4)).toEqual([]);
+    expect(a.seenBallistics.has('own')).toBe(true); // never cleared: the owner's gate never closes
+    a.state.x = 0;
+    for (let i = 0; i < 5; i++) {
+      w.step();
+      expect(torpsOf(buildFrame(w, 'a'))).toEqual([]);
+    }
+  });
+
+  it('SPECTATOR: an unfogged spectator is revealed a projectile once, whatever moves', () => {
+    const w = bareWorld();
+    const c = place(w, 'c', 0, 0);
+    injectShell(w, 'far', 'b', 900, 900, 0, 5_000, false, 'torp');
+    const spec = (): BallisticEvent[] => torpsOf(buildFrame(w, 'c', 'finished'));
+    expect(spec().map((e) => e.id)).toEqual(['far']);
+    expect(spec()).toEqual([]);
+    c.state.x = -2_000;
+    w.step();
+    expect(spec()).toEqual([]);
+    expect(c.seenBallistics.has('far')).toBe(true); // a spectator's gate is always open — never cleared
+  });
+
+  it('the gate SHRINKING under the projectile (dazzle) is an exit too: cleared while dazzled, re-revealed when the dazzle lifts', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    injectShell(w, 't1', 'b', 200, 0, Math.PI / 2, 900, false, 'torp'); // inside 247.5, outside a dazzled 123.75
+    expect(collect(w, 'a', 'torp', 2).map((e) => e.id)).toEqual(['t1']);
+    a.dazzledUntil = w.now + 10_000;
+    expect(collect(w, 'a', 'torp', 2)).toEqual([]);
+    expect(a.seenBallistics.has('t1')).toBe(false);
+    a.dazzledUntil = 0;
+    expect(collect(w, 'a', 'torp', 2).map((e) => e.id)).toEqual(['t1']);
+  });
+
+  it('an island sliding between observer and fish is an exit too (LOS is part of the gate)', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectShell(w, 't1', 'b', 150, 0, Math.PI / 2, 900, false, 'torp');
+    expect(collect(w, 'a', 'torp', 2).map((e) => e.id)).toEqual(['t1']);
+    w.map.islands.push(circleIsland(75, 0, 30)); // the rock now blocks the line
+    expect(collect(w, 'a', 'torp', 2)).toEqual([]);
+    w.map.islands.length = 0;
+    expect(collect(w, 'a', 'torp', 2).map((e) => e.id)).toEqual(['t1']);
+  });
+
+  it('HOMING: a re-reveal re-sets the torpU baseline — later drift is measured from the RE-REVEAL velocity, not the first one', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    injectShell(w, 'h1', 'b', 150, 0, 0, 900, false, 'torp');
+    const fish = w.shells.get('h1')!;
+    fish.homing = { turnRate: 0.5, acquireRange: 120 };
+    const speed = Math.hypot(fish.vx, fish.vy);
+    const steer = (deg: number): void => {
+      fish.vx = Math.cos((deg * Math.PI) / 180) * speed;
+      fish.vy = Math.sin((deg * Math.PI) / 180) * speed;
+    };
+    const updatesOf = (f: FrameMsg) => f.events.filter((e): e is TorpedoUpdateEvent => e.k === 'torpU');
+    expect(torpsOf(buildFrame(w, 'a')).map((e) => e.id)).toEqual(['h1']); // reveal, baseline 0°
+    expect(a.torpDirs.get('h1')).toBe(0);
+    steer(4); // below the 5° threshold from 0°
+    expect(updatesOf(buildFrame(w, 'a'))).toEqual([]);
+    a.state.x = -200; // the fish (150,0) is 350u off: outside detect
+    expect(buildFrame(w, 'a').events.filter((e) => e.k === 'torp' || e.k === 'torpU')).toEqual([]);
+    expect(a.seenBallistics.has('h1')).toBe(false);
+    expect(a.torpDirs.has('h1')).toBe(false); // the baseline leaves with the mark
+    steer(30); // the fish turns hard while unseen
+    a.state.x = 0; // back inside
+    const f = buildFrame(w, 'a');
+    expect(torpsOf(f)).toEqual([{ k: 'torp', id: 'h1', x: fish.x, y: fish.y, vx: fish.vx, vy: fish.vy, t: w.now }]);
+    expect(updatesOf(f)).toEqual([]); // a reveal IS the current velocity — no update rides with it
+    expect(a.torpDirs.get('h1')).toBeCloseTo(Math.PI / 6, 12); // baseline re-set to the re-reveal heading
+    steer(33); // 3° from the re-reveal heading (33° from the FIRST — the old baseline would have fired here)
+    expect(updatesOf(buildFrame(w, 'a'))).toEqual([]);
+    steer(36); // 6° from the re-reveal heading: past the threshold
+    expect(updatesOf(buildFrame(w, 'a')).map((e) => e.id)).toEqual(['h1']);
+    expect(updatesOf(buildFrame(w, 'a'))).toEqual([]); // baseline advanced; silent again
   });
 });
 
@@ -2137,13 +2311,19 @@ function verifyBlipOrdering(w: World, f: FrameMsg): void {
 /** A mine may reach a frame only if the viewer owns it, it is DETECTED
  *  (Story 4.9: the 0.75×sight rung — strictly tighter than sighted), OR it
  *  sits inside a lit zone the viewer OWNS (Story 1.7). */
-function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean; by: string }): void {
+function verifyMine(w: World, me: ShipRecord, m: MineView): void {
   const mine = w.mines.get(m.id)!;
   expect(mine).toBeDefined();
   const own = mine.ownerId === me.id;
   expect(m.own).toBe(own);
   expect(m.by).toBe(mine.ownerId); // Story 1.12: every visible mine carries its dropper id (personal hue)
   if (!own) expect(detected(w, me, mine) || zoneCovers(w, me, mine)).toBe(true); // never radar, never merely sighted
+  // THE KIND IS OWN-ONLY (Story 8.13, epic-8 amendment 76): the `c` KEY exists
+  // on a view iff the view is the owner's — a present-but-undefined key would
+  // still be a structural tell, so this is a KEY test, not a value test — and
+  // when it exists it names the laid mine's true kind.
+  expect('c' in m).toBe(own);
+  if (own) expect(m.c).toBe(mine.kind);
 }
 
 /* RETIRED (Story 7-5 wave 2): `verifyDecoy`, the decoys-channel oracle. The
@@ -3304,10 +3484,72 @@ function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
   EVENT_VERIFIERS[e.k](w, me, e);
 }
 
+/**
+ * THE VISIT LEDGER (Story 8.13, epic-8 amendment 78) — the re-reveal oracle,
+ * INDEPENDENTLY REIMPLEMENTED: a test-local copy of each observer's
+ * per-projectile mark, driven ONLY by the reimplemented gate (owner-always /
+ * `sighted` for a shell, `detected` for a torpedo / `zoneCovers`) and by the
+ * events the frame actually carried — never by `ShipRecord.seenBallistics`.
+ * Per observer, per live projectile, per tick, in the order production
+ * builds frames:
+ *
+ *   - a reveal was emitted  ⇒ the projectile is INSIDE the gate now AND the
+ *     ledger holds no mark for it ("at most ONE reveal per boundary entry");
+ *     the ledger marks it, and if it was ever revealed before, that is a
+ *     RE-reveal (counted for the non-vacuity gate);
+ *   - no reveal, but INSIDE  ⇒ the ledger must already hold the mark (an
+ *     inside, unmarked projectile MUST reveal — a permanent mark that never
+ *     clears fails here on re-entry, and a channel that silently dies fails
+ *     here on first entry);
+ *   - no reveal, and OUTSIDE ⇒ the mark is dropped (the per-visit clear).
+ *
+ * Spectator frames (unfogged, never cleared) and non-afloat observers are not
+ * ledgered: their entry is dropped and the next fogged frame RE-SEEDS from
+ * the gate (a respawn clears production's marks wholesale, so a seed from
+ * "inside" is the only state both sides agree on). Dead projectiles leave the
+ * ledger with the world.
+ */
+class VisitLedger {
+  private readonly marks = new Map<string, Set<string>>();
+  private readonly ever = new Map<string, Set<string>>();
+  reReveals = 0;
+
+  verify(w: World, viewerId: string, f: FrameMsg): void {
+    const me = w.ships.get(viewerId)!;
+    if (f.spec === true || !isAfloat(me.lifecycle)) {
+      this.marks.delete(viewerId);
+      return;
+    }
+    const revealed = new Set(f.events.filter((e): e is BallisticEvent => e.k === 'shell' || e.k === 'torp').map((e) => e.id));
+    const seeded = this.marks.get(viewerId);
+    const marks = seeded ?? new Set<string>();
+    const ever = this.ever.get(viewerId) ?? new Set<string>();
+    for (const sh of w.shells.values()) {
+      const inside = sh.ownerId === me.id || (sh.kind === 'torp' ? detected(w, me, sh) : sighted(w, me, sh)) || zoneCovers(w, me, sh);
+      if (revealed.has(sh.id)) {
+        expect(inside).toBe(true); // never a reveal from outside the gate
+        if (seeded !== undefined) expect(marks.has(sh.id)).toBe(false); // never twice per visit
+        if (ever.has(sh.id)) this.reReveals += 1;
+        marks.add(sh.id);
+        ever.add(sh.id);
+      } else if (inside) {
+        if (seeded !== undefined) expect(marks.has(sh.id)).toBe(true); // inside + unmarked MUST reveal
+        marks.add(sh.id); // (re-seed after a gap: production holds the mark)
+      } else {
+        marks.delete(sh.id); // the per-visit clear
+      }
+    }
+    for (const id of marks) if (!w.shells.has(id)) marks.delete(id);
+    this.marks.set(viewerId, marks);
+    this.ever.set(viewerId, ever);
+  }
+}
+
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
   it('no frame ever references anything outside sight ∪ this-tick paints', () => {
     const rng = mulberry32(0x5eed_f0f0);
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
+    let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
     for (let world = 0; world < 20; world++) {
       const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone);
       const ids: string[] = [];
@@ -3405,6 +3647,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         injectWakeTrack(tw, Math.cos(ang) * rr, Math.sin(ang) * rr, rng.float(0, TAU), rng.int(2, 12), w.now, 5_000);
         w.torpWakes.set(`tw${t}`, tw);
       }
+      const ledger = new VisitLedger();
       for (let tick = 1; tick <= 6; tick++) {
         for (const id of ids) {
           w.submitInput(id, {
@@ -3456,13 +3699,28 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           const f = buildFrame(w, id);
           wkSeen += f.events.filter((e) => e.k === 'wk').length;
           verifyFrame(w, id, f);
+          ledger.verify(w, id, f);
+        }
+        // THE PER-VISIT MARK (Story 8.13, amendment 78) must be EXERCISED, not
+        // vacuous: after tick 2's frames, two random observers are DAZZLED for
+        // ticks 3-4 (their gate halves — projectiles between the dazzled and
+        // the full ring LEAVE it) and clear again on tick 5, when whatever is
+        // still live and still inside the full ring RE-ENTERS and must be
+        // revealed again. A real gameplay exit (a star shell's dazzle), not a
+        // teleport, so every other oracle stays on the same footing.
+        if (tick === 2) {
+          for (const id of [ids[0], ids[1]]) w.ships.get(id)!.dazzledUntil = w.now + 2 * DT + 1;
         }
       }
+      reReveals += ledger.reReveals;
     }
     // The wake oracle must have been EXERCISED (amendment 40's vacuity rule):
     // with 70% of hulls pre-laid with tracks across 20 worlds × 6 ticks, zero
     // disclosed segments would mean the channel silently died.
     expect(wkSeen).toBeGreaterThan(0);
+    // ...and so must the re-reveal: zero second reveals across 20 dazzled
+    // worlds would mean the per-visit mark silently reverted to permanent.
+    expect(reReveals).toBeGreaterThan(0);
   });
 });
 

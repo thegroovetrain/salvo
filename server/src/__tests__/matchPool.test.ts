@@ -88,10 +88,12 @@ describe('World.pool — what the seat gets (Story 8.11)', () => {
     const rec = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
     expect(rec.deckList).toBe(DEFAULT_DECKS.torpedoBoat);
     expect(rec.deckList).toHaveLength(CONFIG.deck.size);
-    // 27 authored dealable cards + the pool's dealable copies (CHAFF is still
-    // a stub, so it joins the multiset and is never dealt — amendment 11's
-    // rule, applied to the pool by the SAME `isDealable`).
-    expect(rec.deck.cards).toHaveLength(27 + dealable(POOL));
+    // 30 authored dealable cards — the TB list less its stubs, which Story
+    // 8.13 took from 27 by un-stubbing LIGHT TORPEDO and SUPERCAV TORPEDO —
+    // plus the pool's dealable copies (CHAFF is still a stub, so it joins the
+    // multiset and is never dealt: amendment 11's rule, applied to the pool by
+    // the SAME `isDealable`).
+    expect(rec.deck.cards).toHaveLength(30 + dealable(POOL));
     expect(rec.deck.cards.filter((id) => id === 'chaff')).toHaveLength(0);
   });
 

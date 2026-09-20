@@ -341,7 +341,7 @@ describe('finish-off attempt — damage is a no-op, the deadline never moves', (
     place(w, 'a', 0, 0);
     w.respawnEnabled = false;
     w.sinkShip('a');
-    w.mines.set('m1', { id: 'm1', ownerId: 'z', x: 10, y: 0, armedAt: 0 }); // inside any trigger ring
+    w.mines.set('m1', { id: 'm1', ownerId: 'z', x: 10, y: 0, armedAt: 0, kind: 'naval' }); // inside any trigger ring
     stepN(w, 10);
     expect(w.mines.has('m1')).toBe(true); // not a collision subject: the trap stays set
   });

@@ -17,7 +17,7 @@
 // including an enemy shell that happened to materialize on our bow — as our
 // barrage, which is exactly the misinformation the latch exists to avoid.
 
-import type { EquipmentId } from '@salvo/shared';
+import type { SlotItemId } from '@salvo/shared';
 import type { OwnFire } from '../render/projectiles.js';
 
 /**
@@ -31,15 +31,22 @@ import type { OwnFire } from '../render/projectiles.js';
  */
 export const OWN_FIRE_WINDOW_MS = 400;
 
-/** The BALLISTIC equipment ids a reveal can be attributed to — the only ids that
- *  ever produce a `shell`/`torp` event. An ability (the boost) and the CLICK-
- *  PLACED ids (the mine and the radar buoy — placed, never revealed as a track)
- *  can never leak through into a projectile's identity, so they are rejected at
- *  the claim. */
-const BALLISTIC: readonly EquipmentId[] = ['gun', 'broadside', 'heavyTorpedo', 'starShells'];
+/** The BALLISTIC ids a reveal can be attributed to — the only slot contents
+ *  that ever produce a `shell`/`torp` event. An ability (the boost), the
+ *  CLICK-PLACED ids (the three mine lines and the radar buoy — placed, never
+ *  revealed as a track) and every non-firing consumable can never leak through
+ *  into a projectile's identity, so they are rejected at the claim.
+ *
+ *  STORY 8.13 ADDED TWO FISH: the LIGHT TORPEDO (its own line) and the SUPERCAV
+ *  TORPEDO, which is a BELT consumable (epic-8 amendment 74) and is exactly why
+ *  the list is typed over `SlotItemId` rather than `EquipmentId` — a stack can
+ *  fire a torpedo now. */
+const BALLISTIC: readonly SlotItemId[] = [
+  'gun', 'broadside', 'starShells', 'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo',
+];
 
-/** Pure: is this equipment id one a `shell`/`torp` reveal could have come from? */
-export function isBallisticFire(id: EquipmentId): boolean {
+/** Pure: is this slot content one a `shell`/`torp` reveal could have come from? */
+export function isBallisticFire(id: SlotItemId): boolean {
   return BALLISTIC.includes(id);
 }
 
@@ -49,7 +56,7 @@ export function isBallisticFire(id: EquipmentId): boolean {
  * on the Game record); every rule about it is on the three methods below.
  */
 export class OwnFireLatch {
-  private held: { id: EquipmentId; t: number } | null = null;
+  private held: { id: SlotItemId; t: number } | null = null;
 
   /**
    * Latch which weapon this click fired. Only a click the client PREDICTS will
@@ -57,7 +64,7 @@ export class OwnFireLatch {
    * would leave a stale claim for the next reveal to pick up) — that gate lives
    * at the callsite, which is the only place the prediction exists.
    */
-  latch(id: EquipmentId, t: number): void {
+  latch(id: SlotItemId, t: number): void {
     this.held = { id, t };
   }
 

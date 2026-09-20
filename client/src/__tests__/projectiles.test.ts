@@ -7,6 +7,7 @@ import {
   MAX_OWN_CLAIMS,
   Projectiles,
   cullRadiusSq,
+  trackCullRadiusSq,
   lookForReveal,
   shellCulledBeyondSight,
   shellPosition,
@@ -523,10 +524,12 @@ describe('Projectiles.onBallisticUpdate — the homing-torpedo track update', ()
 // because it has no doctrine cards at all.
 
 describe('lookForReveal — who gets which identity, on what evidence', () => {
-  const stock = { torpedoHoming: false } as const;
+  // HOMING IS A TIER STAT PER LINE since Story 8.13 (epic-8 amendment 80): the
+  // modes are one flag per torpedo LINE, folded from `homingTurnRate > 0`.
+  const stock = { lightTorpedo: false, heavyTorpedo: false } as const;
 
   it('gives every OBSERVER the plain wire-kind look, whatever WE have fitted', () => {
-    const armed = { torpedoHoming: true } as const;
+    const armed = { lightTorpedo: true, heavyTorpedo: true } as const;
     // `own: null` is "not our shot" — an enemy's shell/fish. Our own doctrine
     // must not paint their ordnance: that would leak OUR build to nobody's
     // benefit and, worse, make the two indistinguishable on screen.
@@ -543,8 +546,88 @@ describe('lookForReveal — who gets which identity, on what evidence', () => {
   });
 
   it('styles an OWN homing fish from LAUNCH, and a stock own fish not at all', () => {
-    expect(lookForReveal('torp', 'heavyTorpedo', { torpedoHoming: true })).toBe('torpHoming');
+    const armed = { lightTorpedo: true, heavyTorpedo: true } as const;
+    expect(lookForReveal('torp', 'heavyTorpedo', armed)).toBe('torpHoming');
     expect(lookForReveal('torp', 'heavyTorpedo', stock)).toBe('torp');
+  });
+
+  // STORY 8.13: the two lines climb their OWN ladders, so one captain's light
+  // torpedo may steer while their heavy one does not. A single `torpedoHoming`
+  // flag could not say that — it dressed both fish off whichever line happened
+  // to be tiered.
+  it('reads the LINE that fired, not "the torpedo" — the two ladders are separate', () => {
+    const lightOnly = { lightTorpedo: true, heavyTorpedo: false } as const;
+    expect(lookForReveal('torp', 'lightTorpedo', lightOnly)).toBe('torpHoming');
+    expect(lookForReveal('torp', 'heavyTorpedo', lightOnly)).toBe('torp');
+  });
+
+  // The SUPERCAV TORPEDO is a consumable with no tiers and never homes
+  // (amendment 74) — there is no mode for it to read, at any build.
+  it('never styles the SUPERCAV fish as homing, whatever the torpedo ladders say', () => {
+    const armed = { lightTorpedo: true, heavyTorpedo: true } as const;
+    expect(lookForReveal('torp', 'supercavTorpedo', armed)).toBe('torp');
+  });
+});
+
+// --- STORY 8.13: THE RE-REVEAL (Eric ruling 2026-09-19, epic-8 amendment 78) --
+//
+// The server's exactly-once ballistic memory stopped being permanent: an
+// observer's mark is CLEARED the first tick a still-live projectile is outside
+// their reveal gate, so a straight-runner that leaves the gate and comes back is
+// revealed AGAIN with current position and velocity. That fixes a cycle-60 bug
+// (a fish revealed once at the detect ring was never spoken of again, so a
+// client that culled it had no way to get it back) — but only if THIS side
+// treats a reveal for an id it already knows as a RE-ANCHOR rather than as a
+// duplicate or as noise to drop.
+describe('a reveal for a KNOWN id re-anchors the track (amendment 78)', () => {
+  const fish = (over: Partial<BallisticEvent> = {}): BallisticEvent =>
+    ({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0, ...over });
+
+  it('re-anchors a track that is still LIVE, instead of ignoring the reveal', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell(fish());
+    // One second of dead reckoning puts it at x=60 on the launch bearing...
+    expect(p.torpWakeHulls(1000)[0].x).toBeCloseTo(60, 9);
+    // ...and then the server re-reveals it, from somewhere else entirely.
+    p.onShell(fish({ x: 200, y: 50, vx: 0, vy: 60, t: 1000 }));
+    expect(p.liveCount).toBe(1); // never a second sprite for one fish
+    const [pose] = p.torpWakeHulls(1000);
+    expect(pose.x).toBeCloseTo(200, 9);
+    expect(pose.y).toBeCloseTo(50, 9);
+    // The NEW velocity governs from here, not the launch bearing.
+    expect(p.torpWakeHulls(2000)[0].y).toBeCloseTo(110, 9);
+  });
+
+  it('re-creates a track the client already CULLED, and keeps it ours', () => {
+    const p = new Projectiles(900, new Container());
+    p.setSightRange(CONFIG.vision.sight);
+    // Our own fish, genuinely claimed at launch.
+    p.onShell(fish(), 'heavyTorpedo', 'heavyTorpedo');
+    // It runs out past even the OWN (sight-derived) ring and is culled.
+    const far = Math.sqrt(trackCullRadiusSq(CONFIG.vision.sight, false, 'torp', 'heavyTorpedo')) + 10;
+    p.onShell(fish({ id: 't1', x: far, y: 0, t: 0 })); // re-anchor it out there
+    p.render(0, { x: 0, y: 0 }, []);
+    expect(p.liveCount).toBe(0);
+    // The observer closes again and the server re-reveals it. `own` is null on
+    // this path — the reveal is nowhere near our hull, so roomBindings cannot
+    // claim it a second time — and the CLAIM TOMBSTONE is what keeps it ours.
+    const near = Math.sqrt(cullRadiusSq(CONFIG.vision.sight, 'torp')) + 20;
+    p.onShell(fish({ x: near, y: 0, t: 5000 }));
+    expect(p.liveCount).toBe(1);
+    // An ENEMY fish at that distance would be culled on the next frame (it is
+    // outside the detect-derived ring); ours is not, because the server is
+    // still correcting it.
+    p.render(5000, { x: 0, y: 0 }, []);
+    expect(p.liveCount).toBe(1);
+  });
+
+  it('...and a fish we never claimed stays an ENEMY track on re-reveal', () => {
+    const p = new Projectiles(900, new Container());
+    p.setSightRange(CONFIG.vision.sight);
+    const near = Math.sqrt(cullRadiusSq(CONFIG.vision.sight, 'torp')) + 20;
+    p.onShell(fish({ id: 'enemy', x: near, y: 0, t: 5000 }));
+    p.render(5000, { x: 0, y: 0 }, []);
+    expect(p.liveCount).toBe(0); // outside the enemy ring: dropped, as before
   });
 });
 
@@ -567,7 +650,7 @@ describe('Projectiles — the identity a live track paints with', () => {
 
   it('styles OWN ordnance off the modes fanned in from applyOwnStats', () => {
     const p = new Projectiles(900, new Container());
-    p.setOwnModes({ torpedoHoming: true });
+    p.setOwnModes({ lightTorpedo: false, heavyTorpedo: true });
     p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'broadside');
     p.onShell({ k: 'shell', id: 's2', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'gun');
     p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }, 'heavyTorpedo');
@@ -579,8 +662,8 @@ describe('Projectiles — the identity a live track paints with', () => {
   it('a doctrine swap never restyles ordnance already in the water', () => {
     const p = new Projectiles(900, new Container());
     p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }, 'heavyTorpedo');
-    expect(p.lookOf('t1')).toBe('torp'); // launched under the stock verb set
-    p.setOwnModes({ torpedoHoming: true });
+    expect(p.lookOf('t1')).toBe('torp'); // launched under the stock (tier-I) ladders
+    p.setOwnModes({ lightTorpedo: true, heavyTorpedo: true });
     expect(p.lookOf('t1')).toBe('torp'); // the fish that left the tube straight
   });
 

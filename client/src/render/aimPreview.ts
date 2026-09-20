@@ -36,14 +36,16 @@ import {
   twinSectorArcFor,
   twinSectorSide,
   type EffectiveStats,
-  type EquipmentId,
   type HullId,
   type Island,
+  type MineKind,
+  type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
 import type { OwnFire } from './projectiles.js';
+import { isMineEquipment, isTorpedoItem, mineKindOf, type MineEquipmentId } from './weaponArc.js';
 
 const P = CLIENT_CONFIG.aimPreview;
 
@@ -60,7 +62,11 @@ export interface PreviewShip {
  *  keeps the existing denied treatment, because drawing a shot the server would
  *  refuse is worse than drawing none. */
 export interface AimPreviewInput {
-  id: EquipmentId | null;
+  /** The PRIMED slot's content — a `SlotItemId` since Story 8.13, because the
+   *  SUPERCAV TORPEDO is a click-aimed BELT consumable (epic-8 amendment 74)
+   *  and previews its run exactly like the two torpedo lines. Every consumable
+   *  that aims nothing still previews nothing. */
+  id: SlotItemId | null;
   ship: PreviewShip;
   aim: number; // world bearing to the cursor
   aimDist: number; // u — clicked distance from the ship CENTRE
@@ -120,26 +126,32 @@ export interface PreviewBurst {
 }
 
 /**
- * The mine's placement preview at the clicked drop point.
+ * A mine's placement preview at the clicked drop point.
  *
- * `captive` is the CAPTIVE MINES verb (R2.12) and it changes WHAT IS DRAWN, not
- * just how: a captive mine never detonates on contact, so its `blast` is the
- * radius the launched TORPEDO bursts in — wherever that torpedo connects — and
- * is NOT a circle around the drop point. Carried on the model anyway (it is the
- * honest number for the verb, and a later tooltip may print it), but the
- * renderer draws only the trip ring for it. Both radii arrive ALREADY
- * transformed off `stats.equipment.navalMines`; nothing here re-derives the swap-and-triple.
+ * `kind` IS THE ROW IDENTITY (Story 8.13, epic-8 amendments 76/81): three mine
+ * LINES may be fitted at once, and the preview reads the radii off THAT line's
+ * own stats row — never off `navalMines` standing in for all three.
+ *
+ * It changes WHAT IS DRAWN, not just how: a `captive` mine never detonates on
+ * contact, so its `blast` is the radius the launched TORPEDO bursts in —
+ * wherever that torpedo connects — and is NOT a circle around the drop point.
+ * Carried on the model anyway (it is the honest number for the line, and a
+ * later tooltip may print it), but the renderer draws only the trip ring for
+ * it. Both radii arrive ALREADY derived by `effectiveStats`
+ * (`deriveMineRings`); nothing here re-derives a ring.
  */
 export interface PreviewPlacement {
   x: number;
   y: number;
   blast: number;
   trigger: number;
-  captive: boolean;
+  kind: MineKind;
   blocked: boolean; // inside a rock / off the water — the server refuses it
 }
 
-/** ACOUSTIC HOMING's acquisition corridor along the initial track. */
+/** A HOMING fish's acquisition corridor along the initial track (a tier stat
+ *  since epic-8 amendment 80 — drawn iff the fitted line's turn rate is
+ *  above zero). */
 export interface PreviewBand {
   x1: number;
   y1: number;
@@ -373,22 +385,46 @@ function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
 }
 
 /**
- * The torpedo family. The line starts at the REAL tube exit (torpedoSpawn — a
- * fish is not launched from the ship's centre) and runs to the first island or
- * the map edge. HOMING additionally carries its finite travel budget and the
+ * u — the FITTED turn rate of the torpedo line being previewed (rad/s), which
+ * is what decides whether this fish steers at all. Homing is a TIER STAT since
+ * epic-8 amendment 80: zero at tier I on both lines, +0.125/tier to 0.5 at V.
+ *
+ * THE SUPERCAV TORPEDO IS ALWAYS ZERO and has no row to read: it is a belt
+ * CONSUMABLE (amendment 74) with no tiers, and it never homes at any build.
+ */
+function torpedoTurnRate(stats: EffectiveStats, id: 'lightTorpedo' | 'heavyTorpedo' | 'supercavTorpedo'): number {
+  return id === 'supercavTorpedo' ? 0 : stats.equipment[id].homingTurnRate;
+}
+
+/**
+ * The torpedo family — the LIGHT and HEAVY lines and the belt's SUPERCAV fish
+ * (Story 8.13: one preview, three ids, exactly as `torpedoCore` is one spawn).
+ * The line starts at the REAL tube exit (torpedoSpawn — a fish is not launched
+ * from the ship's centre) and runs to the first island or the map edge.
+ *
+ * A HOMING fish additionally carries its finite travel budget and the
  * acquisition BAND: the straight line is only the fish's INITIAL track, and
  * drawing it alone would promise a straight run it will not make — the band is
  * the honest half of that picture (anything inside it can pull the fish over).
+ * The die-distance and the acquire band are the FAMILY's shared fields
+ * (`CONFIG.torpedo`, amendment 84e) and apply to whichever line is steering.
+ *
+ * AT TURN RATE ZERO there is no band and no budget, because a straight-runner
+ * has neither: it runs until it hits something or leaves the map (no torpedo
+ * line has a max range — amendment 84f).
  */
-function torpedoPreview(inp: AimPreviewInput): AimPreviewModel {
-  const dir = inp.aim; // legal ⇒ in the bow arc ⇒ the launch bearing IS the aim
+function torpedoPreview(inp: AimPreviewInput, id: 'lightTorpedo' | 'heavyTorpedo' | 'supercavTorpedo'): AimPreviewModel {
+  // Legal ⇒ the aim is inside this line's arc (the heavy's bow sector, the
+  // supercav's ±15°, or ONE of the light torpedo's two beam sectors), and every
+  // fish launches toward the click, so the launch bearing IS the aim.
+  const dir = inp.aim;
   const hullLength = hullEnvelope(inp.ship.cls).hull.length;
   const origin = torpedoSpawn(inp.ship, hullLength, dir);
   // A tube exit past the rim launches a fish the sim expires on the spot; the
   // map clamp below would fold its whole run into a degenerate point and draw a
   // phantom track out of the ship's nose. Preview nothing instead.
   if (outsideDisk(origin, inp.mapRadius)) return EMPTY;
-  const homing = inp.stats.equipment.heavyTorpedo.homing;
+  const homing = torpedoTurnRate(inp.stats, id) > 0;
   const run = homing ? CONFIG.torpedo.homingMaxRangeU : inp.mapRadius * 2;
   const far = { x: origin.x + Math.cos(dir) * run, y: origin.y + Math.sin(dir) * run };
   const clip = clipAtIslands(origin, clampInsideMap(origin, far, inp.mapRadius), inp.islands);
@@ -402,14 +438,16 @@ function torpedoPreview(inp: AimPreviewInput): AimPreviewModel {
 }
 
 /** Mine placement: the rings at the clicked drop point (the server places the
- *  mine AT the click). Radii are the OWNER's effective ones — the same numbers
- *  the server reads off owner stats when the mine trips — READ, never
- *  re-derived: `effectiveStats` already applied the captive swap-and-triple, so
- *  a captive build arrives here at 144u/32u (210.8u/46.9u at a maxed MINES
- *  ladder) with no arithmetic on this side of the wire. */
-function minePreview(inp: AimPreviewInput): AimPreviewModel {
+ *  mine AT the click). Radii are the OWNER's effective ones FOR THE LINE BEING
+ *  PLACED (Story 8.13 — `stats.equipment[id]`, never `navalMines` standing in
+ *  for a captive or a fouling drop): the same numbers the server reads off
+ *  owner stats when that mine trips. READ, never re-derived — `effectiveStats`
+ *  (`deriveMineRings`) already produced the captive's tier-derived 144 u trip
+ *  ring and the contact kinds' 2/3-of-blast ones. */
+function minePreview(inp: AimPreviewInput, id: MineEquipmentId): AimPreviewModel {
   const dist = Math.max(0, inp.aimDist);
   const p = { x: inp.ship.x + Math.cos(inp.aim) * dist, y: inp.ship.y + Math.sin(inp.aim) * dist };
+  const row = inp.stats.equipment[id];
   return {
     lines: [],
     bursts: [],
@@ -417,9 +455,9 @@ function minePreview(inp: AimPreviewInput): AimPreviewModel {
     place: {
       x: p.x,
       y: p.y,
-      blast: inp.stats.equipment.navalMines.blastRadius,
-      trigger: inp.stats.equipment.navalMines.triggerRadius,
-      captive: inp.stats.equipment.navalMines.captive,
+      blast: row.blastRadius,
+      trigger: row.triggerRadius,
+      kind: mineKindOf(id),
       blocked: blockedWater(p, inp.islands, inp.mapRadius),
     },
   };
@@ -476,10 +514,12 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   }
   if (inp.id === 'broadside') return broadsidePreview(inp);
   if (inp.id === 'starShells') return starShellPreview(inp);
-  if (inp.id === 'heavyTorpedo') return torpedoPreview(inp);
-  if (inp.id === 'navalMines') return minePreview(inp);
+  // THE FAMILIES, not the ids (Story 8.13): three torpedoes share one preview
+  // and three mine lines share one placement, each reading its OWN row.
+  if (isTorpedoItem(inp.id)) return torpedoPreview(inp, inp.id);
+  if (isMineEquipment(inp.id)) return minePreview(inp, inp.id);
   if (inp.id === 'radarBuoy') return buoyPreview(inp);
-  return EMPTY; // boost — an instant ability aims nothing
+  return EMPTY; // the boost and every non-aimed consumable aim nothing
 }
 
 /**
@@ -499,11 +539,12 @@ export function ownBurstRadius(stats: EffectiveStats, own: OwnFire): number | un
   return undefined; // torpedoes, star shells (lit, not blast), every non-own burst
 }
 
-/** The stroke tint for a weapon's preview: the torpedo keeps its cool-green
- *  identity (as its arc and reticle already do), everything else is aim amber.
- *  Color is decoration here — the INFORMATION is the geometry. */
-export function previewTint(id: EquipmentId | null): number {
-  return id === 'heavyTorpedo' ? CLIENT_CONFIG.colors.legacy.torpGlow : CLIENT_CONFIG.colors.amber;
+/** The stroke tint for a weapon's preview: the TORPEDO FAMILY keeps its
+ *  cool-green identity (as its arc and reticle already do) — all three fish
+ *  since Story 8.13, the belt's supercav included — and everything else is aim
+ *  amber. Color is decoration here — the INFORMATION is the geometry. */
+export function previewTint(id: SlotItemId | null): number {
+  return isTorpedoItem(id) ? CLIENT_CONFIG.colors.legacy.torpGlow : CLIENT_CONFIG.colors.amber;
 }
 
 /** Thin Pixi adapter: strokes one model per frame onto the fog-immune aim
@@ -592,13 +633,19 @@ export class AimPreview {
    * the circle they then see on the water. No solid ring is drawn, because a
    * captive mine never detonates on contact and a blast circle around the
    * casing would promise a kill it cannot deliver.
+   *
+   * FOULING (Story 8.13) takes the ORDINARY pair: it is a contact mine like the
+   * naval one — a wide, weak burst — so the two circles say exactly what they
+   * say for the naval mine. Nothing on the placement preview announces the slow;
+   * that is the card's row, not a circle.
    */
   private drawPlacement(p: PreviewPlacement, tint: number): void {
     const alpha = p.blocked ? P.blockedAlpha : P.burstAlpha;
     const g = this.g;
-    if (!p.captive) g.circle(p.x, p.y, p.blast).stroke({ width: P.burstWidth, color: tint, alpha });
-    const segs = p.captive ? P.dotSegments : P.dashSegments;
-    const duty = p.captive ? P.dotDuty : P.dashDuty;
+    const captive = p.kind === 'captive';
+    if (!captive) g.circle(p.x, p.y, p.blast).stroke({ width: P.burstWidth, color: tint, alpha });
+    const segs = captive ? P.dotSegments : P.dashSegments;
+    const duty = captive ? P.dotDuty : P.dashDuty;
     for (const [a0, a1] of dashArcs(segs, duty)) {
       g.moveTo(p.x + Math.cos(a0) * p.trigger, p.y + Math.sin(a0) * p.trigger);
       g.arc(p.x, p.y, p.trigger, a0, a1);

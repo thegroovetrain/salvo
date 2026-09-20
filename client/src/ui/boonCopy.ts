@@ -95,26 +95,41 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   deckGunTurret: 'DECK GUN TURRET',
   deckGunBarrel: 'DECK GUN BARREL',
   // --- the eleven equipment lines -------------------------------------------
+  // FOULING MINES joined them in Story 8.13 (epic-8 amendment 81 — the add-on
+  // card was deleted and the line took its place) and keeps its sheet name
+  // verbatim; SUPERCAV TORPEDO left for the consumables below (amendment 74).
   lightTorpedo: 'LIGHT TORPEDO',
   heavyTorpedo: 'HEAVY TORPEDO',
-  supercavTorpedo: 'SUPERCAVITATING TORPEDO',
   navalMines: 'NAVAL MINES',
   captiveMines: 'CAPTIVE MINES',
+  foulingMines: 'FOULING MINES',
   missile: 'HORIZONTAL MISSILE',
   machineGun: 'MACHINE GUN',
   flak: 'FLAK GUN',
   monitor: 'MONITOR GUN',
   broadside: 'BROADSIDE GUN',
   starShells: 'STAR SHELLS',
-  // --- the five consumables -------------------------------------------------
+  // --- the seven consumables ------------------------------------------------
   hullRepair: 'HULL REPAIR',
   shieldBlock: 'SHIELD BLOCK',
   smokeScreen: 'SMOKE SCREEN',
   chaff: 'CHAFF',
   decoyBuoy: 'DECOY BUOY',
-  // --- the five add-ons -----------------------------------------------------
-  acousticHoming: 'ACOUSTIC HOMING',
-  foulingMines: 'FOULING MINES',
+  // `SUPERCAV TORPEDO`, NOT `SUPERCAVITATING TORPEDO` (Eric ruling 2026-09-19,
+  // epic-8 amendment 75). The sheet's full word never fitted the refit card's
+  // name box — it was the ONE name carrying a Story 8.1 fit exemption — and
+  // Eric's answer was to shorten the NAME rather than to keep the exemption or
+  // add a type-size step. The exemption pins are retired with it
+  // (__tests__/refitCardFit.test.ts asserts the name fits at the ordinary size).
+  supercavTorpedo: 'SUPERCAV TORPEDO',
+  // DEPTH CHARGE (amendment 83) — Eric's line, stubbed: it exists so the Mine
+  // Layer's deck still sums to 40, is never dealt, and its mechanism is a later
+  // story. The NAME is his, verbatim.
+  depthCharge: 'DEPTH CHARGE',
+  // --- the three add-ons ----------------------------------------------------
+  // ACOUSTIC HOMING and the FOULING MINES add-on were DELETED on 2026-09-19
+  // (amendments 80/81): homing became a tier stat on the torpedo lines and
+  // fouling became its own equipment line, so neither card exists to name.
   heatSeeking: 'HEAT SEEKING',
   dazzleShells: 'DAZZLE SHELLS',
   phosphorShells: 'PHOSPHOR SHELLS',
@@ -297,14 +312,19 @@ const STAT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
  * under a `◆ NAME`. A verb moves no number, so `boonEffectLine` has nothing to
  * read off `EffectiveStats`; this table is what those two surfaces show instead.
  *
- * Four of catalog v3's five add-ons map straight onto a shipped v2 doctrine and
- * carry its line verbatim. HEAT SEEKING has no entry: the missile it bolts onto
- * is Story 8.14, and writing copy for a weapon nobody has played is exactly what
- * the naming law forbids. It fails open to '' like every other unwritten id.
+ * TWO OF THE THREE remaining add-ons map straight onto a shipped v2 doctrine
+ * and carry its line verbatim. HEAT SEEKING has no entry: the missile it bolts
+ * onto is Story 8.14, and writing copy for a weapon nobody has played is
+ * exactly what the naming law forbids. It fails open to '' like every other
+ * unwritten id.
+ *
+ * TWO ENTRIES LEFT IN STORY 8.13 with the cards they described (epic-8
+ * amendments 80/81): ACOUSTIC HOMING is deleted — homing is a TIER stat on the
+ * torpedo lines, and a tier's holding is its own reload row, not a verb
+ * sentence — and FOULING MINES is an equipment LINE now, so it reads its reload
+ * off `equipmentStatLines` like every other line rather than printing a verb.
  */
 const DOCTRINE_HOLDING: Readonly<Partial<Record<LineId, string>>> = {
-  acousticHoming: 'Torpedoes steer onto the nearest hull in their acquisition band.',
-  foulingMines: 'Mine blasts foul screws: 25% slower for 5 seconds.',
   phosphorShells: 'Your lit zones also burn every hull but yours inside them.',
   dazzleShells: 'Your lit zones also cut the true sight of every hull but yours.',
 };
@@ -354,10 +374,12 @@ const BOON_EXPLAIN: Readonly<Partial<Record<LineId, string>>> = {
   starShells:
     'A flare lights a circle of ocean you see into as if it were your own sight — the one way to look somewhere you are not. The first copy fits the mortar to your open slot, if you are not already carrying it; every copy after that is another tier, and each tier cuts its reload by 5%.',
   // --- the add-ons whose verbs exist today -----------------------------------
-  acousticHoming:
-    'Your torpedoes listen for hulls. Once one is inside the acquisition band the fish steers slowly onto it, correcting a near miss for you. It is a gentle turn, not a chase: hard helm still shakes it.',
-  foulingMines:
-    'Anything caught in one of your mine blasts has its screws fouled: 25% slower for 5 seconds. The damage is unchanged — what you buy is a hull that cannot run while you close on it.',
+  // ACOUSTIC HOMING's and the FOULING MINES add-on's explanations left with
+  // their cards (Story 8.13, epic-8 amendments 80/81). Neither text carries
+  // over: the homing one described a card that no longer exists (the steering
+  // is bought by TIER now), and the fouling one described a verb bolted onto
+  // the naval mine, which no longer fouls at all. FOULING MINES the LINE gets
+  // no explanation until Eric writes one — the no-in-game-copy-unasked rule.
   phosphorShells:
     'Your lit circles catch fire. A slightly smaller ring inside each one burns every hull but yours at 5 hp a second for as long as the flare lasts. It stacks with DAZZLE SHELLS — one flare can do both.',
   dazzleShells:
@@ -608,7 +630,17 @@ const FIELD_WORDS: Readonly<Record<string, string>> = {
   // field no row carries is a label that can never print.
   durationMs: 'DURATION',
   spreadRung: 'SPREAD',
+  // FOULING MINES' victim slow (Story 8.13, epic-8 amendment 81). `SLOW` rather
+  // than the humanizer's `SLOW FACTOR`: the row prints a PERCENTAGE OF SPEED
+  // (`75%`), and "factor" is the sim's word for the multiplier, not the
+  // player's word for what it does to them.
+  slowFactor: 'SLOW',
 };
+
+/** The fields whose rows print as a PERCENTAGE OF BASE rather than as a bare
+ *  number — a ×0.75 speed multiplier reads as `75%`, the same grammar the
+ *  RELOAD ladder's `All cooldowns` row already uses for `cooldownScale`. */
+const FIELD_PCT: readonly string[] = ['slowFactor'];
 
 /** Pure: a field's row label — the table above, else the humanized field name
  *  uppercased (`litDurationMs` reads LIT DURATION). */
@@ -618,9 +650,11 @@ function fieldWord(field: string): string {
 }
 
 /** Pure: a field's printer. A `*Ms` field is a duration and prints as seconds
- *  ("30.0 s"); everything else takes `num`, which prints an integer AS an
- *  integer — epic-8 amendment 39's rule, applied to every row on the face. */
+ *  ("30.0 s"); a scale field prints as a percentage of base ("75%"); everything
+ *  else takes `num`, which prints an integer AS an integer — epic-8 amendment
+ *  39's rule, applied to every row on the face. */
 function fieldFmt(field: string): (v: number) => string {
+  if (FIELD_PCT.includes(field)) return pct;
   return /Ms$/.test(field) ? secs : num;
 }
 
@@ -678,18 +712,50 @@ function absoluteRow(target: EquipmentId, field: string, stats: EffectiveStats):
 }
 
 /**
+ * THE FIELDS A WEAPON'S FIT CARD PRINTS, where that is NOT simply its whole
+ * `EQUIPMENT_STAT_FIELDS` table (Story 8.13).
+ *
+ * The face is a FIVE-row grid (`CARD_STAT_ROWS` — the mock's `.rc .rows`, and
+ * not ours to grow), and `weaponRows` slices to it. FOULING MINES is the first
+ * line whose table plus its derived trip ring comes to SIX, so something had to
+ * go, and picking it positionally would have silently dropped the LAST row —
+ * which for this line is `SLOW`, the one number that makes it a different
+ * weapon from NAVAL MINES. So the choice is made here, explicitly: the fit card
+ * drops RELOAD, which every TIER card of the line prints as its own
+ * `current → next` row anyway, and keeps the slow.
+ *
+ * One entry today. A line absent from this table prints its whole table.
+ */
+const FACE_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
+  foulingMines: ['maxAmmo', 'damage', 'blastRadius', 'slowFactor'],
+};
+
+/** Pure: the fields the fit card prints for one weapon — its override above, or
+ *  its whole stat table. */
+function faceFields(target: EquipmentId): readonly string[] {
+  return FACE_FIELDS[target] ?? (EQUIPMENT_STAT_FIELDS[target] as readonly string[]);
+}
+
+/**
  * Pure: a WEAPON line's rows.
  *
  * COPY 1 IS THE FIT, and a fit moves no number — what it buys is the weapon, so
  * the card prints that weapon's whole table ABSOLUTELY (`cur` null, no arrow),
- * in `EQUIPMENT_STAT_FIELDS` order. The MINE rows add a derived `TRIGGER RADIUS`
- * immediately after `BLAST RADIUS` (UX-DR50's "separate rows"): the trip ring is
- * not stat-addressable — `clampStats` derives it from the blast — so it has no
- * field of its own and would otherwise never reach the player at all.
+ * in `EQUIPMENT_STAT_FIELDS` order (or its `FACE_FIELDS` cut). The MINE rows add
+ * a derived `TRIGGER RADIUS` (UX-DR50's "separate rows"): the trip ring is not
+ * stat-addressable — `clampStats`/`deriveMineRings` derive it — so it has no
+ * field of its own and would otherwise never reach the player at all. It sits
+ * immediately after `BLAST RADIUS` for the two CONTACT kinds, and after
+ * `DAMAGE` for the CAPTIVE one, which has no blast field at all: its 32 u burst
+ * is fixed and its trip ring is derived from the TIER (epic-8 amendment 84d),
+ * so without this the mine's defining circle would be missing from its own
+ * card.
  *
  * COPY 2 AND UP is a TIER, and a tier is a 5% cut to that weapon's own reload
  * (derived in sim/stats.ts, not authored as an effect), so the card prints that
- * one step exactly as a ladder prints its own.
+ * one step exactly as a ladder prints its own — the v2 broadside-SPREAD
+ * precedent, re-ratified for the DECK GUN in epic-8 amendment 71: a line that
+ * moves several numbers still prints ONE row.
  */
 function weaponRows(
   line: CatalogLine,
@@ -703,15 +769,24 @@ function weaponRows(
     const stat = STAT_LINES[line.id];
     return stat === undefined ? [] : [diffRow(stat.path, before, after)];
   }
+  const fields = faceFields(target);
+  // The ROW OBJECT, not `readStatPath`: that reader fails open to 0 for a path
+  // that does not resolve, so it would answer "yes, a number" for every weapon
+  // in the game and print a trip ring on the deck gun's card.
   const row = after.equipment[target] as unknown as Record<string, unknown>;
+  const hasTrigger = typeof row.triggerRadius === 'number' && !fields.includes('triggerRadius');
   const rows: CardStatRow[] = [];
-  for (const field of EQUIPMENT_STAT_FIELDS[target] as readonly string[]) {
+  for (const field of fields) {
     rows.push(absoluteRow(target, field, after));
-    if (field === 'blastRadius' && typeof row.triggerRadius === 'number') {
-      rows.push(absoluteRow(target, 'triggerRadius', after));
-    }
+    if (hasTrigger && triggerFollows(field, fields)) rows.push(absoluteRow(target, 'triggerRadius', after));
   }
   return rows;
+}
+
+/** Pure: is `field` the row the derived TRIGGER RADIUS is printed after — the
+ *  blast radius where the line has one, else the damage (the captive mine). */
+function triggerFollows(field: string, fields: readonly string[]): boolean {
+  return fields.includes('blastRadius') ? field === 'blastRadius' : field === 'damage';
 }
 
 /**
@@ -741,11 +816,32 @@ function hullRepairRows(): CardStatRow[] {
   ];
 }
 
-/** The rows each LIVE consumable line prints. A line with no entry (all four
- *  remaining stubs) prints none, which is the honest answer for a mechanism
- *  that does not exist yet. */
+/**
+ * THE SUPERCAV TORPEDO'S ROWS (Story 8.13, epic-8 amendment 74). The second
+ * live consumable, and the first that is a WEAPON: the digit primes, a click
+ * inside the bow ±15° sector fires one fish per copy.
+ *
+ * TWO NUMBERS, BOTH STRAIGHT OFF `CONFIG` and neither hardcoded — the
+ * hullRepair rule. They are the two facts that make this fish different from
+ * every other: it is three times the speed of the heavy torpedo and it hits for
+ * 50. There is no RELOAD row because a consumable never reloads (catalog-v3
+ * R40) and no tier rows because it has no tiers, so the labels are the FIELD
+ * WORDS the equipment faces already use — no new vocabulary.
+ */
+function supercavTorpedoRows(): CardStatRow[] {
+  const t = CONFIG.supercavTorpedo;
+  return [
+    { label: fieldWord('speed'), cur: null, next: num(t.speed) },
+    { label: fieldWord('damage'), cur: null, next: num(t.damage) },
+  ];
+}
+
+/** The rows each LIVE consumable line prints. A line with no entry (the four
+ *  remaining stubs, DEPTH CHARGE included) prints none, which is the honest
+ *  answer for a mechanism that does not exist yet. */
 const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = {
   hullRepair: hullRepairRows,
+  supercavTorpedo: supercavTorpedoRows,
 };
 
 /**

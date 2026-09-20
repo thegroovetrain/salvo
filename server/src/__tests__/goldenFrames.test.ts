@@ -32,6 +32,8 @@ import {
   type GameEvent,
   type HitCallEvent,
   type MatchPhase,
+  type MineKind,
+  type MineView,
   type WakeBlipEvent,
   type WakeRibbon,
 } from '@salvo/shared';
@@ -95,6 +97,7 @@ const EXPECTED_SUBCASES = [
   'litzone-sunk-reveal',
   'litzone-thirdparty-radar-circle',
   'mine-burst-detonation',
+  'mine-kind-own-only',
   'mine-trip-blast-multivictim',
   'muzzle-flash-beyond-halo-silent',
   'muzzle-flash-inside-halo',
@@ -109,6 +112,8 @@ const EXPECTED_SUBCASES = [
   'spectator-dmg-passthrough',
   'spectator-raw-boom',
   'spectator-reveal-once',
+  'torp-re-reveal',
+  'torp-re-reveal-silent-outside',
   'torp-reveal-inside-detect',
   'torpedo-launch-no-muzzle',
   'torpu-sighted-update',
@@ -249,9 +254,10 @@ function injectShell(
   });
 }
 
-/** Drop a mine directly into world state (armed by default). */
-function injectMine(w: World, id: string, ownerId: string, x: number, y: number): void {
-  w.mines.set(id, { id, ownerId, x, y, armedAt: 0 });
+/** Drop a mine directly into world state (armed by default; a NAVAL mine
+ *  unless the scenario says otherwise — Story 8.13 stamps the laying line's kind). */
+function injectMine(w: World, id: string, ownerId: string, x: number, y: number, kind: MineKind = 'naval'): void {
+  w.mines.set(id, { id, ownerId, x, y, armedAt: 0, kind });
 }
 
 // ---------- scenarios ---------------------------------------------------------
@@ -695,20 +701,24 @@ function scnDenied(g: Golden): void {
 }
 
 /**
- * Homing-track updates (Story 2.8, 'torpU'): TB `a` holds ACOUSTIC HOMING and
- * fires past an off-axis enemy; sighted observer `c` gets the exactly-once
- * 'torp' reveal and then ≥1 'torpU' as the fish steers (the exactly-once
- * convention relaxes for updates alone), while far observer `d` never gets a
- * byte of either. Frames are captured every tick for both observers — the
- * update cadence itself (CONFIG.torpedo.homingUpdateAngleDeg over the seeded
- * steering) is pinned by the snapshot.
+ * Homing-track updates (Story 2.8, 'torpU'): TB `a` holds a TIER II heavy
+ * torpedo (Story 8.13: ACOUSTIC HOMING is deleted and homing is a TIER STAT —
+ * the class-weapon copy is tier I, a straight-runner; the SECOND `heavyTorpedo`
+ * card lifts the row to tier II, +0.125 rad/s of steering) and fires past an
+ * off-axis enemy; sighted observer `c` gets the once-per-visit 'torp' reveal
+ * and then ≥1 'torpU' as the fish steers (the reveal convention relaxes for
+ * updates alone), while far observer `d` never gets a byte of either. Frames
+ * are captured every tick for both observers — the update cadence itself
+ * (CONFIG.torpedo.homingUpdateAngleDeg over the seeded steering) is pinned by
+ * the snapshot. The tier-II fish is slow (47.5 u/s) and turns gently, so the
+ * target sits nearer than the 2.8 fixture's and the run is longer.
  */
 function scnHoming(g: Golden): void {
   const w = bareWorld(1017);
   const a = place(w, 'a', 0, 0);
-  w.applyCard(a, 'acousticHoming');
-  place(w, 'b', 320, 80); // the fish steers toward this hull mid-flight
-  const c = place(w, 'c', 250, -60); // sight covers the turning stretch
+  w.applyCard(a, 'heavyTorpedo'); // the second copy: tier II — the fish homes
+  place(w, 'b', 200, 60); // the fish acquires and steers toward this hull mid-flight
+  const c = place(w, 'c', 250, -60); // detect covers the turning stretch
   const d = place(w, 'd', -900, 0); // beyond sight of everything
   for (const s of [c, d]) {
     s.prevSweepAngle = Math.PI; // park the beams away from the action
@@ -718,7 +728,7 @@ function scnHoming(g: Golden): void {
   let cReveals = 0;
   let cUpdates = 0;
   let dBytes = 0;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 90; i++) {
     w.step();
     const fc = cap(g, w, 'c');
     cReveals += fc.events.filter((e) => e.k === 'torp').length;
@@ -732,10 +742,13 @@ function scnHoming(g: Golden): void {
 }
 
 /**
- * Debuff privacy (Story 2.8): a PROP-FOULING blast stamps the victim's
- * slowedUntil and a DAZZLE zone stamps dazzledUntil — each rides `you` on the
- * victim's own frame ONLY (the boostUntil precedent); a sighted watcher's
- * contact for the victim carries neither key.
+ * Debuff privacy (Story 2.8): a FOULING blast stamps the victim's slowedUntil
+ * and a DAZZLE zone stamps dazzledUntil — each rides `you` on the victim's own
+ * frame ONLY (the boostUntil precedent); a sighted watcher's contact for the
+ * victim carries neither key. Since Story 8.13 the fouling mine is its own
+ * LINE (`foulingMines`, equipment) and the laid mine carries `kind: 'fouling'`
+ * — the readers key off the mine's kind, and the owner's fitted row supplies
+ * the blast's numbers.
  */
 function scnDebuffs(g: Golden): void {
   const w = bareWorld(1018);
@@ -743,7 +756,7 @@ function scnDebuffs(g: Golden): void {
   w.applyCard(o, 'foulingMines');
   const b = place(w, 'b', 0, 10); // trips the fouling mine below on the first step
   place(w, 'watcher', 100, 60); // sees b as a contact
-  injectMine(w, 'fm', 'o', 0, 0);
+  injectMine(w, 'fm', 'o', 0, 0, 'fouling');
   w.litZones.set('dz', { id: 'dz', ownerId: 'o', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
   w.step(); // blast + dazzle both land on b
   const fb = cap(g, w, 'b');
@@ -963,6 +976,67 @@ function scnWake(g: Golden): void {
 
 // ---------- the fixture -------------------------------------------------------
 
+/**
+ * The straight-runner re-reveal (Story 8.13, epic-8 amendment 78): observer
+ * `b` is revealed a fish at the detect ring, the gate then SHRINKS under it
+ * (a star-shell dazzle halves b's sight for one tick — the fish, still live,
+ * is outside the dazzled 3/8 rung), and when the dazzle lifts the fish is
+ * revealed AGAIN with current pos/velocity and `t` = the re-reveal time, in
+ * the unchanged {k,id,x,y,vx,vy,t} shape. Nothing is emitted while outside.
+ * Frames captured every tick, so the snapshot pins the silent tick too.
+ */
+function scnTorpReReveal(g: Golden): void {
+  const w = bareWorld(1021);
+  const b = place(w, 'b', 0, 0); // the lone observer; `a` is a phantom owner
+  injectShell(w, 'tp', 'a', DETECT + 6, 0, Math.PI, 5_000, 'torp'); // just outside DETECT, closing -x at 25u/tick
+  cap(g, w, 'b'); // launch tick: hidden
+  w.step();
+  const first = cap(g, w, 'b'); // crosses the ring: revealed (≈228u out)
+  const one = first.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
+  b.dazzledUntil = w.now + DT + 1; // dazzled for exactly the next frame: detect collapses to 123.75
+  w.step();
+  const dazzled = cap(g, w, 'b'); // ≈203u out: OUTSIDE the dazzled rung — silent, mark cleared
+  prove(g, 'torp-re-reveal-silent-outside', !!one && !dazzled.events.some(isBallistic) && !b.seenBallistics.has('tp'));
+  w.step();
+  const again = cap(g, w, 'b'); // dazzle lifted, ≈178u out: INSIDE again — revealed again
+  const two = again.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
+  const live = w.shells.get('tp')!;
+  prove(
+    g,
+    'torp-re-reveal',
+    !!one && !!two && two.id === one.id && two.x === live.x && two.vx === live.vx && two.t === w.now && two.t > one.t &&
+      Math.hypot(two.x, two.y) <= DETECT && Object.keys(two).join() === 'k,id,x,y,vx,vy,t',
+  );
+  w.step();
+  const after = cap(g, w, 'b'); // inside and marked: silent once more
+  prove(g, 'nonowner-reveal-once', !after.events.some(isBallistic));
+}
+
+/**
+ * The own-only mine kind (Story 8.13, epic-8 amendment 76): Mine Layer `o`
+ * holds all three mine lines and has one of each kind in the water; `o`'s own
+ * frame carries `c` on every mine (naval / captive / fouling), while enemy
+ * `a`, who detects all three, receives the kind-less marker — the `c` KEY is
+ * absent from every one of its rows. Both frames are captured, so the snapshot
+ * pins the exact bytes of each.
+ */
+function scnMineKindOwnOnly(g: Golden): void {
+  const w = bareWorld(1022);
+  const o = place(w, 'o', 0, 0, 0, 'mineLayer'); // holds NAVAL MINES (class weapon)...
+  w.applyCard(o, 'captiveMines'); // ...plus the other two lines
+  w.applyCard(o, 'foulingMines');
+  place(w, 'a', 120, 0); // enemy observer: every mine below is inside its detect rung
+  const kinds: readonly MineKind[] = ['naval', 'captive', 'fouling'];
+  kinds.forEach((kind, i) => injectMine(w, `m-${kind}`, 'o', 60, (i - 1) * 30, kind));
+  const fo = cap(g, w, 'o');
+  const fa = cap(g, w, 'a');
+  const ownRows = fo.mines.filter((m) => m.own);
+  const ownCarriesKind = ownRows.length === 3 && ownRows.every((m) => 'c' in m && m.c === w.mines.get(m.id)!.kind);
+  const enemyRows = fa.mines as readonly MineView[];
+  const enemyKindless = enemyRows.length === 3 && enemyRows.every((m) => !m.own && !('c' in m) && Object.keys(m).join() === 'id,x,y,own,by');
+  prove(g, 'mine-kind-own-only', ownCarriesKind && enemyKindless);
+}
+
 /** The full scenario battery + the self-validating coverage assertions —
  *  shared verbatim by both grammar runs (R6). Returns the serialized frames
  *  for the caller's own snapshot. */
@@ -1046,4 +1120,11 @@ function runScenarios(g: Golden): void {
   // earlier scenario's rows must stay byte-identical, since no prior world
   // ever lays wake — every ship in them is placed at speed 0).
   scnWake(g);
+  // Story 8.13 additions (appended KNOWINGLY — the snapshot regenerated with
+  // PV 56: the re-reveal is a change to the ballistic gate's MEMORY, so no
+  // earlier scenario's bytes move — none of them ever carried a projectile out
+  // of a gate and back — and the own-only mine kind adds a trailing `c` to the
+  // OWNER'S mine rows only: scnMines' `own` row and scnSpectator's `sm` row).
+  scnTorpReReveal(g);
+  scnMineKindOwnOnly(g);
 }

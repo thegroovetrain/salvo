@@ -1,13 +1,21 @@
-// Torpedo fire control — the torpedo Equipment row. A single bow tube on a 12s
-// reload (owner play test 2026-07-13: two tubes fired both fish within ~2
-// ticks of one click, hiding the reload; one fish per click + a real reload is
-// the intended commitment-spike feel). The bow tube is now just the slot's
-// one-deep ammo pool (equipment/ammo.ts) — a launch consumes the round +
-// starts the reload if idle. A torpedo is just a slow, long-legged,
-// hard-hitting ballistic: it reuses the shared stepShell machinery (islands
-// block it, swept-silhouette hull hits, permanent owner immunity) via ShellState's
-// weapon-param fields. Bow arc heading±30°; aim clamped into the arc, else no
-// launch.
+// THE TWO TORPEDO EQUIPMENT LINES (Story 8.13) — HEAVY and LIGHT, one factory.
+//
+// Both are a slot pool over `torpedoCore.launchTorpedo`: a click launches one
+// fish along the click bearing, consumes a round and starts the reload if the
+// pool was full. They differ in exactly three things, all of them DATA:
+//
+//   line          arc                              CONFIG block        row
+//   heavyTorpedo  bow sector +/-30 deg             CONFIG.torpedo      equipment.heavyTorpedo
+//   lightTorpedo  TWIN beam sectors +/-45 deg      CONFIG.lightTorpedo equipment.lightTorpedo
+//
+// EACH ROW READS ITS OWN STATS. Until 8.13 this module hard-read
+// `stats.equipment.heavyTorpedo` for tubes, reload, speed and damage; with two
+// lines in the water that would have given a Torpedo Boat's light tubes the
+// heavy's numbers. The id is now the parameter and the row lookup follows it.
+//
+// HOMING IS A TIER STAT (amendment 80) and lives entirely in the core: the
+// old `.homing` doctrine read is gone from this module, and a tier-I fish of
+// either line is a straight-runner by construction.
 //
 // Torpedoes are NEVER radar-painted — structurally, because perception's paint
 // loop iterates ships only. Their per-observer reveal rides the SAME first-sight
@@ -17,109 +25,88 @@
 import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
-  inArc,
   isAfloat,
-  sectorArcFor,
-  wrapAngle,
   type EquipmentState,
   type ShellState,
+  type TargetKind,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
-import { clampToArc } from './guns.js';
 import { consume, tickReload } from './ammo.js';
-import { makeBallistic } from './ballistics.js';
+import { launchTorpedo, type TorpedoLaunchContext } from './torpedoCore.js';
 
-// The bow sector's ratified shape (Story 1.10): the shared arcFor family is
-// the single arc-shape source — the same descriptor the client's weaponArc
-// classification renders, so the enforced arc and the drawn arc can never
-// diverge (byte-identical to CONFIG.torpedo.offset/halfArc). Resolved at
-// module load; a non-sector torpedo arc is an authoring error, failed loudly
-// (sectorArcFor throws), never mid-tick.
-const BOW_SECTOR = sectorArcFor('heavyTorpedo');
+/** The two lines this module fits. */
+export type TorpedoLineId = 'heavyTorpedo' | 'lightTorpedo';
+
+/** One line's AR44 target mask, from ITS OWN CONFIG block — never another
+ *  row's answer (the BallisticParams law). */
+function hitsFor(id: TorpedoLineId): readonly TargetKind[] {
+  return id === 'lightTorpedo' ? CONFIG.lightTorpedo.hits : CONFIG.torpedo.hits;
+}
 
 /**
- * Torpedo launch against one slot pool, checks in TODAY'S order: bow arc first
- * (arc-miss does NOT spend a round), then the pool (empty denies). The denial
- * reason reports whichever check failed first; `null` means a fish launched.
- * ALWAYS direction-only: the fish runs until impact and never reads
- * input.aimDist. The ONE doctrine verb left (Story 7-5 wave 1) is
- * `stats.equipment.heavyTorpedo.homing` — ACOUSTIC HOMING launches with the per-tick steering
- * params (CONFIG.torpedo.homingTurnRate/homingAcquireRange — sim/shell.ts
- * steers toward the nearest non-owner HULL; decoys never attract it) AND a
- * finite CONFIG.torpedo.homingMaxRangeU travel budget (an orbiting fish must
- * die). COMMAND DETONATION is DELETED (Story 7-5 wave 1): there is no
- * point-detonating torpedo any more, so every fish is contact-only — no target
- * point, no blast, an interceptor takes the full torpedo damage.
+ * Launch one fish of `id` against `pool`. Checks in the shipped order — arc
+ * first (an arc miss does NOT spend a round), then the pool — with both
+ * answers coming out of the shared core. The row's OWN effective numbers are
+ * what fly: speed, damage and `homingTurnRate` (0 = a straight-runner).
  */
-function launchTorpedo(
+function fireLine(
   ship: ShipRecord,
+  id: TorpedoLineId,
   pool: EquipmentState,
+  ctx: TorpedoLaunchContext,
+): { torp: ShellState | null; denial: ActivationDenial | null } {
+  const row = ship.stats.equipment[id];
+  return launchTorpedo(ctx, ship, {
+    id,
+    row: { speed: row.speed, damage: row.damage, homingTurnRate: row.homingTurnRate },
+    hits: hitsFor(id),
+    spend: () => consume(pool, row.reloadMs),
+  });
+}
+
+/**
+ * Launch one torpedo of `id` from the slot fitting it, or null if the pool is
+ * empty or the aim is out of that line's arc. The alive + selected-slot guards
+ * are kept for direct test callers; the click gate itself lives in
+ * World.fireControl. Exported for tests (pool reload, arc gating).
+ */
+export function fireTorpedo(
+  ship: ShipRecord,
   now: number,
   mkId: () => string,
-): { torp: ShellState | null; denial: ActivationDenial | null } {
-  const center = wrapAngle(ship.state.heading + BOW_SECTOR.offset); // bow-centered
-  if (!inArc(ship.input.aim, center, BOW_SECTOR.halfArc)) return { torp: null, denial: 'out-of-arc' };
-  if (!consume(pool, ship.stats.equipment.heavyTorpedo.reloadMs)) return { torp: null, denial: 'no-ammo' }; // pool empty
-  const t = ship.stats.equipment.heavyTorpedo;
-  const dir = clampToArc(ship.input.aim, center, BOW_SECTOR.halfArc);
-  const torp = makeBallistic(mkId(), ship, dir, now, {
-    speed: t.speed, // effective launch speed (the HIGH-SPEED SETTING ladder)
-    // A3: run until impact / map edge — EXCEPT a homing fish, which carries a
-    // finite total-travel budget (Story 2.8 review, P8: a steering fish can
-    // orbit a slow target forever otherwise). Budget exhausted = a normal
-    // torpedo expiry (splash boom, no burst).
-    range: t.homing ? CONFIG.torpedo.homingMaxRangeU : Number.POSITIVE_INFINITY,
-    damage: t.damage, // effective damage (the HEAVY WARHEAD ladder) — never raw CONFIG
-    hitRadius: CONFIG.torpedo.hitRadius, // A4: own value, no longer gun.shellRadius
-    spawnClearance: CONFIG.torpedo.spawnClearance, // real spawn margin (clean spawn geometry)
-    kind: 'torp',
-    // Contact-only hit rule, always (COMMAND DETONATION deleted): no target
-    // point, no blast, an interceptor takes the full torpedo damage.
-    targetX: null,
-    targetY: null,
-    burstRadius: 0,
-    contactDamage: t.damage,
-    hits: CONFIG.torpedo.hits, // AR44 target mask
-    ...(t.homing
-      ? { homing: { turnRate: CONFIG.torpedo.homingTurnRate, acquireRange: CONFIG.torpedo.homingAcquireRange } }
-      : {}),
-  });
-  return { torp, denial: null };
-}
-
-/**
- * Launch one torpedo from the bow tube (the World routes at most one click here
- * per fireSeq increment) against the torpedo slot's pool, or null if the pool
- * is empty or the aim is out of the bow arc. The alive + selected-slot guards
- * are kept for direct test callers (re-keyed from the retired WEAPON selector
- * to the loadout slot fitting 'heavyTorpedo'); the click gate itself lives in
- * World.fireControl. Exported for tests (pool reload, arc gating). The
- * `mapRadius` parameter is GONE with COMMAND DETONATION (Story 7-5 wave 1) —
- * it only ever clamped a commanded burst point to the water disk, and a
- * direction-only fish never reads it.
- */
-export function fireTorpedo(ship: ShipRecord, now: number, mkId: () => string): ShellState | null {
-  const slotIndex = ship.loadout.findIndex((s) => s.equipmentId === 'heavyTorpedo');
+  id: TorpedoLineId = 'heavyTorpedo',
+): ShellState | null {
+  const slotIndex = ship.loadout.findIndex((s) => s.equipmentId === id);
   if (!isAfloat(ship.lifecycle) || slotIndex < 0 || ship.input.slot !== slotIndex) return null;
   // Loadout invariant: a fitted slot always has state.
-  return launchTorpedo(ship, ship.loadout[slotIndex].state!, now, mkId).torp;
+  return fireLine(ship, id, ship.loadout[slotIndex].state!, { fireT: now, mkId }).torp;
 }
 
-/** The torpedo Equipment row. Pool size + reload come from the ship's cached
- *  effective stats (Stage D upgrades). Slot state is non-null by the loadout
- *  invariant (see index.ts). */
-export const torpedoEquipment: Equipment = {
-  id: 'heavyTorpedo',
-  isWeapon: EQUIPMENT_IS_WEAPON.heavyTorpedo, // shared weapon/ability split — single source
-  tick(ship, slot, dtMs): void {
-    tickReload(slot.state!, ship.stats.equipment.heavyTorpedo.maxAmmo, ship.stats.equipment.heavyTorpedo.reloadMs, dtMs);
-  },
-  activate(ctx, slot) {
-    // bornAt = the VALIDATED fire time (D1): a back-dated fish is then
-    // pre-stepped by the World to where it belongs this tick.
-    const { torp, denial } = launchTorpedo(ctx.ship, slot.state!, ctx.fireT, ctx.mkId);
-    if (torp) ctx.spawnBallistic(torp);
-    return denial === null ? { ok: true } : { ok: false, reason: denial };
-  },
-};
+/** Build one torpedo line's Equipment row. Pool size + reload come from the
+ *  ship's cached effective stats for THAT line. Slot state is non-null by the
+ *  loadout invariant (see index.ts). */
+function torpedoLine(id: TorpedoLineId): Equipment {
+  return {
+    id,
+    isWeapon: EQUIPMENT_IS_WEAPON[id], // shared weapon/ability split — single source
+    tick(ship, slot, dtMs): void {
+      const row = ship.stats.equipment[id];
+      tickReload(slot.state!, row.maxAmmo, row.reloadMs, dtMs);
+    },
+    activate(ctx, slot) {
+      // bornAt = the VALIDATED fire time (D1): a back-dated fish is then
+      // pre-stepped by the World to where it belongs this tick.
+      const { torp, denial } = fireLine(ctx.ship, id, slot.state!, { fireT: ctx.fireT, mkId: ctx.mkId });
+      if (torp) ctx.spawnBallistic(torp);
+      return denial === null ? { ok: true } : { ok: false, reason: denial };
+    },
+  };
+}
+
+/** The HEAVY torpedo — the family's reference fish (bow sector, CONFIG.torpedo). */
+export const torpedoEquipment: Equipment = torpedoLine('heavyTorpedo');
+
+/** The LIGHT torpedo (Story 8.13, catalog-v3 R18) — the Torpedo Boat's fast,
+ *  cheap fish on TWIN beam sectors. */
+export const lightTorpedoEquipment: Equipment = torpedoLine('lightTorpedo');

@@ -6,16 +6,18 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
   SIGNAL_REGISTRY,
+  ballisticGateOpen,
   signalFor,
   type BurstSubject,
   type FoggedSignalContext,
   type SpectatorSignalContext,
 } from '../game/signals.js';
+import { observe } from '../game/perception.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 
 const SIGHT = CONFIG.vision.sight;
@@ -92,7 +94,7 @@ function makeShell(overrides: Partial<ShellState> = {}): ShellState {
 }
 
 function makeMine(overrides: Partial<MineState> = {}): MineState {
-  return { id: 'm1', ownerId: 'a', x: 0, y: 0, armedAt: 0, ...overrides };
+  return { id: 'm1', ownerId: 'a', x: 0, y: 0, armedAt: 0, kind: 'naval', ...overrides };
 }
 
 const REGISTRY_KEYS = [
@@ -244,16 +246,33 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(foggedCtx(w, me), wireShaped as never)).toBe(false);
   });
 
-  it('mine row: [id,x,y,own,by] — `by` (dropper id) appended LAST (Story 1.12)', () => {
+  it('mine row: [id,x,y,own,by,c] for the OWNER — `by` (dropper id, Story 1.12) then the own-only kind `c` LAST (Story 8.13)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const mine = makeMine({ ownerId: 'a', x: 50, y: 0 }); // owner sees it always
+    const mine = makeMine({ ownerId: 'a', x: 50, y: 0, kind: 'captive' }); // owner sees it always
     const row = SIGNAL_REGISTRY.mine; // pseudo-row: direct access (not signalFor)
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, mine)).toBe(true);
     const wire = row.materialize(ctx, mine);
-    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'own', 'by']);
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
     expect((wire as { by: string }).by).toBe('a'); // the dropper's ship id
+    expect((wire as MineView).c).toBe('captive');
+  });
+
+  it('mine row: [id,x,y,own,by] for EVERY OTHER observer — the `c` KEY is absent, not undefined-valued (Story 8.13, amendment 76)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const row = SIGNAL_REGISTRY.mine;
+    for (const kind of ['naval', 'captive', 'fouling'] as const) {
+      const mine = makeMine({ id: kind, ownerId: 'z', x: 50, y: 0, kind }); // enemy mine, inside detect
+      expect(row.visible(foggedCtx(w, a), mine)).toBe(true);
+      const wire = row.materialize(foggedCtx(w, a), mine) as MineView;
+      expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'own', 'by']); // byte-identical to the pre-8.13 marker
+      expect('c' in wire).toBe(false);
+      expect(JSON.stringify(wire)).not.toContain('"c"');
+      // The spectator path is not the owner either: kind-less there too.
+      expect('c' in (row.materialize(specCtx(w), mine) as object)).toBe(false);
+    }
   });
 
   // RETIRED (Story 7-5 wave 2): the `decoy` row's key-order pin and the two
@@ -881,6 +900,87 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
     expect(a.seenBallistics.has('t1')).toBe(false); // pure — no mutation
     a.seenBallistics.add('t1'); // the scan marks it
     expect(row.visible(ctx, torp)).toBe(false);
+  });
+});
+
+// ---------- Story 8.13: ONE gate predicate, and a mark that is per-visit -----
+
+describe('SIGNAL_REGISTRY — ballisticGateOpen is THE reveal gate (Story 8.13, amendment 78): rows and the clear step share one boolean', () => {
+  const DETECT = SIGHT * 0.75;
+
+  it('answers the torp row\'s gate: owner-always / DETECT+LOS / owned zone; spectator open; record-less spectator closed', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const ctx = foggedCtx(w, a);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'own', ownerId: 'a', kind: 'torp', x: 5_000, y: 0 }))).toBe(true);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'in', ownerId: 'z', kind: 'torp', x: DETECT, y: 0 }))).toBe(true);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'out', ownerId: 'z', kind: 'torp', x: DETECT + 0.01, y: 0 }))).toBe(false);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'sighted', ownerId: 'z', kind: 'torp', x: 300, y: 0 }))).toBe(false); // sighted ≠ detected
+    injectZone(w, 'z1', 'a', 500, 0);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'zoned', ownerId: 'z', kind: 'torp', x: 500, y: 0 }))).toBe(true);
+    w.map.islands.push(circleIsland(100, 0, 40));
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'rock', ownerId: 'z', kind: 'torp', x: 200, y: 0 }))).toBe(false); // LOS is in the gate
+    expect(ballisticGateOpen(specCtx(w), makeShell({ id: 'ghost', ownerId: 'z', kind: 'torp', x: 5_000, y: 0 }))).toBe(false); // no record: closed
+    expect(ballisticGateOpen({ ...specCtx(w), me: a }, makeShell({ id: 'spec', ownerId: 'z', kind: 'torp', x: 5_000, y: 0 }))).toBe(true);
+  });
+
+  it('branches on the record\'s own kind: a shell opens at truesight where a torpedo stays closed', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const ctx = foggedCtx(w, a);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 's', ownerId: 'z', kind: 'shell', x: SIGHT, y: 0 }))).toBe(true);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 's2', ownerId: 'z', kind: 'shell', x: SIGHT + 0.01, y: 0 }))).toBe(false);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 't', ownerId: 'z', kind: 'torp', x: SIGHT, y: 0 }))).toBe(false);
+  });
+
+  it('the rows AGREE with the gate on every probe: visible() ⇔ (unmarked ∧ gate open), for shell, torp, and — with a drifted baseline — torpU', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    injectZone(w, 'z1', 'a', 600, 0);
+    w.map.islands.push(circleIsland(150, 0, 30));
+    const ctx = foggedCtx(w, a);
+    const probes: Array<[string, number, number]> = [
+      ['a', 900, 900], ['z', DETECT, 0], ['z', DETECT + 0.01, 0], ['z', 300, 0], ['z', SIGHT, 0], ['z', SIGHT + 0.01, 0],
+      ['z', 600, 0], ['z', 610, 0], ['z', 200, 0], ['z', 200, 40], ['z', -200, 0], ['z', 0, 0],
+    ];
+    let checked = 0;
+    for (const [ownerId, x, y] of probes) {
+      for (const kind of ['shell', 'torp'] as const) {
+        const id = `${kind}-${x}-${y}-${ownerId}`;
+        const shell = makeShell({ id, ownerId, kind, x, y });
+        const gate = ballisticGateOpen(ctx, shell);
+        expect(signalFor(kind)!.visible(ctx, shell)).toBe(gate); // unmarked: the row IS the gate
+        a.seenBallistics.add(id);
+        expect(signalFor(kind)!.visible(ctx, shell)).toBe(false); // marked: silent whatever the gate says
+        if (kind === 'torp') {
+          a.torpDirs.set(id, Math.PI); // baseline far from the live +x heading: drifted
+          const homing = { ...shell, homing: { turnRate: 1, acquireRange: 120 } };
+          expect(signalFor('torpU')!.visible(ctx, homing)).toBe(gate); // updates stop exactly where the gate closes
+        }
+        checked += 1;
+      }
+    }
+    expect(checked).toBe(probes.length * 2);
+  });
+
+  it('the mark is PER VISIT: a marked projectile OUTSIDE the gate is un-marked by the scan and reveals again on re-entry; INSIDE it stays marked and silent', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const torp = makeShell({ id: 't1', ownerId: 'z', kind: 'torp', x: 200, y: 0, homing: { turnRate: 1, acquireRange: 120 } });
+    w.shells.set('t1', torp);
+    const torps = (): BallisticEvent[] => observe(w, 'a').events.filter((e): e is BallisticEvent => e.k === 'torp');
+    expect(torps().map((e) => e.id)).toEqual(['t1']); // first visit
+    expect(a.seenBallistics.has('t1')).toBe(true);
+    expect(a.torpDirs.has('t1')).toBe(true);
+    expect(torps()).toEqual([]); // inside, marked: silent, mark kept
+    expect(a.seenBallistics.has('t1')).toBe(true);
+    torp.x = 300; // sighted but NOT detected: outside the torp gate
+    expect(torps()).toEqual([]);
+    expect(a.seenBallistics.has('t1')).toBe(false); // the clear step ran
+    expect(a.torpDirs.has('t1')).toBe(false); // ...and took the homing baseline with it
+    torp.x = 200; // back inside
+    expect(torps().map((e) => e.id)).toEqual(['t1']); // second visit: revealed again, once
+    expect(torps()).toEqual([]);
   });
 });
 

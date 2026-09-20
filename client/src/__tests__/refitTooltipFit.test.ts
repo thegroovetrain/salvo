@@ -85,7 +85,10 @@ const PANELS = everyPanel();
 
 describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => {
   it('covers every catalog line at every stack position', () => {
-    // Catalog v3: 29 lines / 114 physical cards (Eric's sheet, §1).
+    // Catalog v3: 29 lines / 122 physical cards. It was 114 until Story 8.13
+    // traded two cap-1 ADD-ONS for two cap-5 lines (FOULING MINES became
+    // equipment, DEPTH CHARGE joined as a stub consumable, ACOUSTIC HOMING was
+    // deleted — epic-8 amendments 80/81/83).
     expect(LINES).toHaveLength(29);
     expect(PANELS.length).toBe(LINES.reduce((n, d) => n + d.cap, 0));
   });
@@ -116,13 +119,17 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // the band, the bar or the copy moves this split and has to look here.
     expect(CONTAINER_H).toBe(186);
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, FLOOR_BAND.band).above);
-    expect(PANELS).toHaveLength(114);
+    expect(PANELS).toHaveLength(122);
     // 45 at 8.7. Story 8.8 moved it BOTH ways and netted +1: 46px more water
     // above lifts several panels back over the line, while HULL REPAIR's new
     // explanation (amendment 50's one-line description) adds three tall panels
     // of its own.
-    expect(down).toHaveLength(46);
-    expect(PANELS.length - down.length).toBe(68);
+    // 45 at 8.7, 46 at 8.8. Story 8.13 nets −2: the two DELETED add-ons
+    // (ACOUSTIC HOMING, the FOULING MINES verb) took two tall explained panels
+    // with them, and the ten cards that replaced them carry no explanation at
+    // all, so every one of them fits above.
+    expect(down).toHaveLength(44);
+    expect(PANELS.length - down.length).toBe(78);
     // The split IS the water line — nothing else decides it.
     for (const { label, model } of PANELS) {
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);
@@ -226,9 +233,13 @@ describe('the laws that constrain the fix', () => {
   // entry, and `boonCopy.test.ts` pins the same list from the copy side.
   const NO_EXPLANATION: readonly string[] = [
     'turning', 'deckGun',
-    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
+    // The three lines Story 8.13 made LIVE still have no explanation, and
+    // neither does FOULING MINES, whose add-on text died with its card: the
+    // mechanisms exist, the WORDS are Eric's (no-in-game-copy-unasked).
+    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'foulingMines',
+    'missile', 'machineGun', 'flak', 'monitor',
     // `hullRepair` left this list in Story 8.8 — its mechanism is built now.
-    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
+    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge', 'heatSeeking',
   ];
 
   it('keeps the WRITTEN explanations genuinely explanatory — past the old card budget', () => {
@@ -253,7 +264,12 @@ describe('the laws that constrain the fix', () => {
 // the one player who does not want it.
 
 describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
-  const OFFER = ['acousticHoming', 'radarSweep', 'armor', 'foulingMines'];
+  // ACOUSTIC HOMING is deleted (Story 8.13, epic-8 amendment 80) and an offer
+  // naming a line the catalog does not carry resolves to nothing, so the row is
+  // re-cut from lines that exist. FOULING MINES stays — it is an equipment LINE
+  // now (amendment 81) rather than an add-on, which is exactly the kind of card
+  // this row wants beside a ladder and a verb.
+  const OFFER = ['phosphorShells', 'radarSweep', 'armor', 'foulingMines'];
 
   function open(): { menu: UpgradeMenu; cards: HTMLButtonElement[]; view: OfferView } {
     const you = {
@@ -334,7 +350,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   // longer there — clipped at the top, which is the exact outcome amendment 37
   // exists to prevent. The per-frame `place()` now re-decides for the open tip.
   it('re-decides an OPEN tip\'s placement when the viewport resizes under it', () => {
-    const TALL = OFFER.indexOf('foulingMines');
+    const TALL = OFFER.indexOf('phosphorShells');
     const before = { w: window.innerWidth, h: window.innerHeight };
     const { menu, cards, view } = open();
     cards[TALL].dispatchEvent(new MouseEvent('mouseenter'));
@@ -356,10 +372,12 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   // AMENDMENT 37 REACHES THE DOM. The rule is pure (refitTooltipPlacement) but
   // it is worth nothing if the two placements are not actually written, so both
   // are taken here on the SAME card. The UI-scale tier is the lever: jsdom's
-  // 1024x768 window is 768 logical px at 100% (294px of water — `foulingMines`
+  // 1024x768 window is 768 logical px at 100% (294px of water — `phosphorShells`
   // fits above at 198px) and 614.4 at the 125% tier (140px — it does not).
+  // It was `foulingMines` until Story 8.13: that line became EQUIPMENT and lost
+  // its add-on explanation, so its panel is a 43px heading and fits everywhere.
   it('writes the ABOVE placement when the water is deep enough, DOWN when it is not', () => {
-    const TALL = OFFER.indexOf('foulingMines');
+    const TALL = OFFER.indexOf('phosphorShells');
     const model = { name: boonName(OFFER[TALL], 0), body: boonTooltipText(OFFER[TALL]) };
     // Measured first, asserted after — a failed expectation inside the loop
     // would strand an open band in the document and poison every later DOM test.

@@ -117,8 +117,17 @@ const radarBuoy: GlyphPaths = [
  */
 const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
   gun,
+  // THE FAMILY GLYPHS ARE REUSED (Story 8.13, UX-DR50's icon pass stays
+  // ledgered): a light torpedo is a torpedo and a captive or fouling mine is a
+  // mine, so each new line takes its family's shipped linework rather than art
+  // invented here. The squares are already distinguished by their key, their
+  // tier numeral and their tooltip; a drawn distinction between three mines is
+  // a DESIGN decision, and it belongs to the icon pass Eric owns.
+  lightTorpedo: torpedo,
   heavyTorpedo: torpedo,
   navalMines: mine,
+  captiveMines: mine,
+  foulingMines: mine,
   boost,
   broadside,
   starShells,
@@ -126,14 +135,31 @@ const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
 };
 
 /**
- * THE one lookup, over either kind of slot content (Story 8.7, ruling 1). A
- * CONSUMABLE is narrowed away FIRST — `GLYPHS` is keyed by `EquipmentId` and a
- * consumable entry in it would be a lie — and there is no consumable linework in
- * 8.7 anyway, so a stocked belt square and a consumable card's icon box both
- * render empty. Null, never a throw: an unbuilt id has no art, not a crash.
+ * THE CONSUMABLE half of the table. EMPTY until Story 8.13, because no belt
+ * line had a weapon behind it: a stocked square and a consumable card's icon
+ * box both rendered blank, which was the honest answer for an id with no
+ * module.
+ *
+ * THE SUPERCAV TORPEDO IS THE FIRST ENTRY (epic-8 amendment 74). It is a
+ * consumable that launches a real fish, click-aimed inside a bow sector like
+ * any other torpedo, so it takes the TORPEDO FAMILY glyph for the same reason
+ * the light torpedo does. DEPTH CHARGE gets none: it is a STUB (amendment 83),
+ * never dealt, with no mechanism to draw — the same blank every other stub
+ * consumable renders.
+ */
+const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
+  supercavTorpedo: torpedo,
+};
+
+/**
+ * THE one lookup, over either kind of slot content (Story 8.7, ruling 1). The
+ * two id spaces stay DISJOINT — `GLYPHS` is keyed by `EquipmentId` and a
+ * consumable entry in it would be a lie — so a consumable is narrowed away
+ * first and answered from its own table. Null, never a throw: an unbuilt id has
+ * no art, not a crash.
  */
 export function glyphPaths(id: string): GlyphPaths | null {
-  if (isConsumableId(id)) return null;
+  if (isConsumableId(id)) return CONSUMABLE_GLYPHS[id] ?? null;
   return Object.hasOwn(GLYPHS, id) ? GLYPHS[id as EquipmentId] ?? null : null;
 }
 

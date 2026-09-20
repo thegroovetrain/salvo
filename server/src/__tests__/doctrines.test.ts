@@ -1,20 +1,32 @@
-// THE DOCTRINE VERBS on the water (Story 2.8 amendments 38/44 — the ratified
-// behavior contracts — as retooled by Story 7-5 wave 1), end-to-end through the
-// REAL fire/step seams against the production BOON_CATALOG: PLUNGING FIRE ⚔
-// ARMOR-PIERCING (cannon — THE LAST EXCLUSIVE PAIR), ACOUSTIC HOMING (torpedo,
-// incl. the 'torpU' wire rules), SELF-PROPELLED + PROP-FOULING (mines, incl.
-// the pinned boost→slow→hooks composition), PHOSPHOR + DAZZLE (star shells,
-// incl. the dazzled observer's shrunken sight) — plus the vacated-owner CONFIG
-// fallback.
+// WEAPON BEHAVIOUR on the water, end-to-end through the REAL fire/step seams
+// against the production catalog: TORPEDO HOMING (incl. the 'torpU' wire
+// rules), CAPTIVE MINES, FOULING MINES (incl. the pinned boost→slow→hooks
+// composition), PHOSPHOR + DAZZLE (star shells, incl. the dazzled observer's
+// shrunken sight) — plus the vacated-owner CONFIG fallback.
 //
-// WAVE 1 CHANGED THE SHAPE OF THIS FILE'S SUBJECT: outside the cannon, doctrine
-// stopped being an either/or `mode` and became INDEPENDENT BOOLEAN VERBS, so
-// the pairs are no longer pairs and BOTH verbs of a weapon may be held at once.
-// COMMAND DETONATION is deleted outright. See the both-verbs stacking suites
-// below, which the old enum model could not have expressed.
+// STORY 8.13 TOOK THE LAST OF THE "DOCTRINE" MODEL OUT OF THE MINES AND
+// TORPEDOES, and this file is where that shows most (Eric rulings 2026-09-19,
+// epic-8 amendments 76/80/81/82):
+//
+//   * HOMING IS A TIER STAT. ACOUSTIC HOMING is deleted; `homingTurnRate`
+//     rides the torpedo row and steps 0 → 0.5 rad/s across the five rungs, so
+//     the cases below buy TIERS instead of a card. Tier I is the straight
+//     runner every "a standard fish" control used to be.
+//   * THE MINE KIND RIDES THE MINE. `captive` and `propFouling` were flags on
+//     the NAVAL row that converted a field already on the water; CAPTIVE MINES
+//     and FOULING MINES are now their own lines and a mine's kind is STAMPED
+//     AT DROP. Nothing here forges a flag onto an owner any more; a captive
+//     mine is laid by asking for one.
+//   * FOULING IS ITS OWN WEAPON, and a naval mine NEVER fouls. Its damage is a
+//     fixed 10, its blast is wide, and its slow DEPTH (not its duration) is
+//     what the tiers buy.
+//
+// The cannon's PLUNGING FIRE / ARMOR-PIERCING pair, SELF-PROPELLED mines and
+// COMMAND DETONATION were all retired with their mechanics in earlier stories;
+// their notes survive below where the suites used to sit.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CATALOG, CONFIG, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, type Catalog, type CatalogLine, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CATALOG, CONFIG, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -32,49 +44,33 @@ const SLOT_SEED_1 = 2;
 /** The second weapon slot (E): the Battleship's star shells. */
 const SLOT_SEED_2 = 3;
 
-/**
- * THE MINE BLAST LADDER, AS AN INJECTED TEST CATALOG (Story 8.1).
- *
- * `equipment.navalMines.blastRadius` is a live, whitelisted stat the mine
- * reads every detonation, and the derived trigger ring hangs off it. What
- * catalog v3 has not authored YET is a CARD that moves it — the naval-mine
- * line's tiers II–V are empty until Story 8.13 fills them from catalog-v3 §4,
- * and inventing those numbers here is exactly what the story forbids. The
- * shipped v2 step is injected so the vacated-owner fallback keeps its subject.
- */
-const MINE_LADDERS: Catalog = Object.assign({}, CATALOG, {
-  mineBlast: {
-    id: 'mineBlast', kind: 'ladder', cap: 4,
-    tiers: new Array(4).fill([{ kind: 'stat', path: 'equipment.navalMines.blastRadius', mult: 1.1 }]),
-  } as unknown as CatalogLine,
-});
-
-function bareWorld(seed = 3, opts: WorldOptions = { catalog: MINE_LADDERS }): World {
+// THE INJECTED `mineBlast` LADDER IS DELETED (Story 8.13). It existed for one
+// cycle because `equipment.navalMines.blastRadius` was a live whitelisted stat
+// with no CARD behind it — the naval line's tiers II–V were empty and
+// inventing them in a fixture was exactly what Story 8.12 forbade. Catalog v3
+// now authors them for real (×1.1 blast per rung), so the vacated-owner pin
+// buys real copies of the real line and this file runs on the PRODUCTION
+// catalog with nothing injected.
+function bareWorld(seed = 3, opts: WorldOptions = {}): World {
   const w = new World(seed, CONFIG.map.playerCap, CONFIG.zone, opts);
   w.map.islands.length = 0;
   return w;
 }
 
 /**
- * THE CAPTIVE CHASSIS, SET DIRECTLY ON THE STAT ROW (Story 8.1).
- *
- * `captive` used to be a doctrine card on the naval mine (`mineCaptive`).
- * Catalog v3 (R25) made CAPTIVE MINES its OWN equipment line whose row carries
- * the flag at base — and that line is a STUB until Story 8.13 builds the
- * module, so NOTHING in the catalog can set the flag this cycle and the
- * doctrine vocabulary no longer has the verb. The BEHAVIOUR still ships and
- * still needs its pins (8.13 inherits them), so these tests set the flag on
- * the effective row, which is exactly where a fitted captive line would put it.
+ * FIT A LINE TO `copies` (tier `copies`), through the same `applyCard` path a
+ * real pick takes. Story 8.13's ladders are what these suites buy now: a
+ * torpedo's homing, a captive fish's homing and a fouling mine's slow depth
+ * are all TIER STATS, so a case that wants one asks for the rung.
  */
-function makeCaptive(o: ShipRecord): void {
-  const row = o.stats.equipment.navalMines;
-  row.captive = true;
-  // clampStats derives the captive radii ONCE, off the flag — so a flag set
-  // after the fold has to bring them with it. They are taken from the real
-  // `captiveMines` row rather than restated, so the swap can never drift.
-  const captiveRow = effectiveStats(o.cls).equipment.captiveMines;
-  row.blastRadius = captiveRow.blastRadius;
-  row.triggerRadius = captiveRow.triggerRadius;
+function fitTier(w: World, rec: ShipRecord, line: string, copies: number): void {
+  for (let i = 0; i < copies; i += 1) w.applyCard(rec, line);
+}
+
+/** Lay one mine of `kind` straight into world state, armed. The KIND is the
+ *  mine's own since Story 8.13 (amendment 76) — never a flag on its layer. */
+function lay(w: World, id: string, ownerId: string, x: number, y: number, kind: MineKind, armedAt = 0): void {
+  w.mines.set(id, { id, ownerId, x, y, armedAt, kind });
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
@@ -113,21 +109,59 @@ const dmgFor = (events: readonly GameEvent[], id: string) =>
 // their place; the weapon itself is pinned end-to-end in broadside.test.ts.
 
 // ---------------------------------------------------------------------------
-// TORPEDO: ACOUSTIC HOMING (homing + torpU) ⚔ COMMAND DETONATION (command)
+// TORPEDO HOMING — a TIER STAT since Story 8.13 (epic-8 amendment 80)
 // ---------------------------------------------------------------------------
+// ACOUSTIC HOMING the CARD is deleted. `homingTurnRate` now rides the torpedo
+// row: 0 rad/s at tier I (a straight runner — no steering, no `torpU`, no
+// die-distance) stepping +0.125 to 0.5 rad/s at tier V, on BOTH torpedo lines.
+// So these cases buy RUNGS instead of a card, and the "a standard fish" control
+// every one of them carried is simply a tier-I fish.
 
-describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', () => {
-  /** TB firing a fish along +x with an off-axis enemy inside acquire range of
-   *  the flight path; extra observers per test. */
+/** The COPIES that take a torpedo line to its top rung — where its turn rate
+ *  is the 0.5 rad/s the shipped ACOUSTIC HOMING doctrine used to grant, so the
+ *  geometry every case below was written against is unchanged. */
+const TORPEDO_CAP = CATALOG.heavyTorpedo.cap;
+
+describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', () => {
+  /** TB firing a TOP-RUNG fish along +x with an off-axis enemy inside acquire
+   *  range of the flight path; extra observers per test. */
   function homingBoard(): { w: World; a: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyCard(a, 'acousticHoming');
-    expect(a.stats.equipment.heavyTorpedo.homing).toBe(true);
+    fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1); // copy 1 came from the class fit
+    expect(a.stats.equipment.heavyTorpedo.homingTurnRate).toBeCloseTo(CONFIG.torpedo.homingTurnRate, 9);
     const b = place(w, 'b', 320, 80); // off the track; within 120u of it mid-flight
     setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     return { w, a, b };
   }
+
+  // FAIL-FIRST REGRESSION (Story 8.13): the rung where steering STARTS. At
+  // tier I the fish must carry NO `homing` tag at all — that structural zero
+  // is what keeps sim/shell.ts from steering it and perception from emitting a
+  // `torpU` for it — and at tier II it must carry the ROW's rate, not the
+  // family's tier-V reference value.
+  it('tier I carries NO homing tag and no die-distance; tier II carries the ROW\'s rate and the family budget', () => {
+    const w = bareWorld();
+    const one = place(w, 'a', 0, 0); // the class fit alone = tier I
+    expect(one.stats.equipment.heavyTorpedo.homingTurnRate).toBe(0);
+    setInput(one, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    w.step();
+    const straight = [...w.shells.values()][0];
+    expect(straight.homing).toBeUndefined();
+    expect(straight.distLeft).toBe(Number.POSITIVE_INFINITY);
+
+    const w2 = bareWorld(4);
+    const two = place(w2, 'a', 0, 0);
+    fitTier(w2, two, 'heavyTorpedo', 1); // tier II
+    const rate = two.stats.equipment.heavyTorpedo.homingTurnRate;
+    expect(rate).toBeCloseTo(0.125, 9);
+    expect(rate).toBeLessThan(CONFIG.torpedo.homingTurnRate); // NOT the tier-V reference
+    setInput(two, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
+    w2.step();
+    const homer = [...w2.shells.values()][0];
+    expect(homer.homing).toEqual({ turnRate: rate, acquireRange: CONFIG.torpedo.homingAcquireRange });
+    expect(homer.distLeft).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
+  });
 
   it('the fish steers off its launch bearing toward the nearest enemy hull; a standard fish never does', () => {
     const { w } = homingBoard();
@@ -162,7 +196,7 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
   it('an ORBITING homing fish expires after its travel budget instead of circling forever', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyCard(a, 'acousticHoming');
+    fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1);
     const prey = place(w, 'b', 300, 110); // acquired, but inside the fish's turn radius
     prey.hp = 1e9; // survive any glancing contact — this is about the FISH dying
     setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
@@ -189,16 +223,16 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
     expect(travelled).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
   });
 
-  it('a STANDARD fish keeps its unbounded range — the budget rides the homing doctrine alone', () => {
+  it('a STRAIGHT-RUNNING fish keeps its unbounded range — the budget rides the turn rate alone', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyCard(a, 'acousticHoming');
+    fitTier(w, a, 'heavyTorpedo', TORPEDO_CAP - 1);
     setInput(a, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     w.step();
     expect([...w.shells.values()][0].distLeft).toBeLessThanOrEqual(CONFIG.torpedo.homingMaxRangeU);
 
     const control = bareWorld();
-    const ca = place(control, 'a', 0, 0); // no doctrine
+    const ca = place(control, 'a', 0, 0); // tier I — a straight runner
     setInput(ca, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     control.step();
     expect([...control.shells.values()][0].distLeft).toBe(Number.POSITIVE_INFINITY);
@@ -273,10 +307,10 @@ describe('ACOUSTIC HOMING (torpedoHoming) — steering + the torpU wire rules', 
 // made it conditional: every fish is now contact-only, whatever the build.
 describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
   it('a fish carries no target point and no burst radius, homing or not', () => {
-    for (const boons of [[], ['acousticHoming'] as const]) {
+    for (const extraCopies of [0, TORPEDO_CAP - 1]) {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0);
-      for (const id of boons) w.applyCard(a, id);
+      fitTier(w, a, 'heavyTorpedo', extraCopies);
       setInput(a, { aim: 0, aimDist: 400, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
       w.step();
       const [torp] = [...w.shells.values()];
@@ -321,17 +355,17 @@ describe('COMMAND DETONATION is gone — every torpedo is contact-only', () => {
 // CAPTIVE MINES (mineCaptive) — Story 7-5 wave 2, R2.12-R2.14
 // ---------------------------------------------------------------------------
 describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack', () => {
-  /** A captive layer far away, its mine at the origin, and a hull sitting
-   *  INSIDE the captive blast radius (32u) so an ordinary contact detonation
-   *  would be plainly visible — the discriminating geometry. */
+  /** A captive layer far away, its CAPTIVE mine at the origin, and a hull
+   *  sitting INSIDE the fish's 32u burst so an ordinary contact detonation
+   *  would be plainly visible — the discriminating geometry. `extra` fits more
+   *  lines on the layer (the kind of the mine never follows from them). */
   function captiveBoard(extra: readonly string[] = []): { w: World; o: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    for (const id of extra) w.applyCard(o, id as 'foulingMines');
-    makeCaptive(o);
-    expect(o.stats.equipment.navalMines.captive).toBe(true);
-    const b = place(w, 'b', 0, 25); // silhouette ~15u out: inside the 32u blast
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.applyCard(o, 'captiveMines');
+    for (const id of extra) w.applyCard(o, id);
+    const b = place(w, 'b', 0, 25); // silhouette ~15u out: inside the 32u burst
+    lay(w, 'm1', 'o', 0, 0, 'captive');
     return { w, o, b };
   }
 
@@ -351,37 +385,86 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
     expect(fish[0].ownerId).toBe('o');
   });
 
-  it('the torpedo is UN-UPGRADED (base CONFIG.torpedo) and deals MINE damage at MINE blast radius', () => {
+  it('the fish runs at the FAMILY speed and deals the CAPTIVE row\'s damage at its fixed 32u burst', () => {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    makeCaptive(o);
-    // Torpedo upgrades the LAYER holds must not reach the mine's fish: it
-    // belongs to the mine, not to the tubes. Catalog v3 has no card writing
-    // `equipment.heavyTorpedo.speed` yet (Story 8.13), so the divergence is
-    // forced on the ROW the fish must not read from.
-    o.stats.equipment.heavyTorpedo.speed = CONFIG.torpedo.speed + 25;
+    // The layer's own TUBES are maxed: a torpedo tier the LAYER holds must not
+    // reach the mine's fish, because the fish belongs to the MINE (R2.12).
+    // The heavy line's tiers now move speed for real, so this is no longer a
+    // forced divergence — it is a real build.
+    fitTier(w, o, 'heavyTorpedo', CATALOG.heavyTorpedo.cap);
+    fitTier(w, o, 'captiveMines', 2); // tier II: +5 fish damage, homing on
     expect(o.stats.equipment.heavyTorpedo.speed).toBeGreaterThan(CONFIG.torpedo.speed);
+    const row = o.stats.equipment.captiveMines;
     const b = place(w, 'b', 0, 40);
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    lay(w, 'm1', 'o', 0, 0, 'captive');
     w.step();
     const fish = [...w.shells.values()][0];
-    expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(CONFIG.torpedo.speed, 6); // BASE speed
+    expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(CONFIG.torpedo.speed, 6); // FAMILY speed
     expect(fish.hitRadius).toBe(CONFIG.torpedo.hitRadius);
-    expect(fish.damage).toBe(o.stats.equipment.navalMines.damage); // MINE damage...
-    expect(fish.burstRadius).toBe(o.stats.equipment.navalMines.blastRadius); // ...at MINE blast radius
-    // It runs home and detonates for the mine's damage.
+    expect(fish.damage).toBe(row.damage); // the CAPTIVE row's warhead...
+    expect(fish.burstRadius).toBe(CONFIG.captiveMines.blastRadius); // ...at the FIXED 32u burst
+    expect(fish.burstRadius).toBe(32);
+    // The NAVAL rack the layer also carries contributes nothing at all.
+    expect(fish.damage).not.toBe(o.stats.equipment.navalMines.damage);
+    // It runs home and detonates for the captive row's damage.
     for (let i = 0; i < 40 && w.shells.size > 0; i++) w.step();
-    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.equipment.navalMines.damage, 6);
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - row.damage, 6);
+  });
+
+  // FAIL-FIRST REGRESSION (epic-8 amendment 82): the captive fish's homing is
+  // a TIER STAT of its own line, capped at 0.3 rad/s — not the torpedo
+  // family's 0.5, and not a card.
+  it('the fish is a straight-runner at tier I and HOMES from tier II, at the captive row\'s own rate', () => {
+    for (const [copies, expected] of [[1, 0], [2, 0.075], [5, 0.3]] as const) {
+      const w = bareWorld(40 + copies);
+      const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+      fitTier(w, o, 'captiveMines', copies);
+      expect(o.stats.equipment.captiveMines.homingTurnRate).toBeCloseTo(expected, 9);
+      place(w, 'b', 0, 40);
+      lay(w, 'm1', 'o', 0, 0, 'captive');
+      w.step();
+      const fish = [...w.shells.values()][0];
+      if (expected === 0) {
+        expect(fish.homing).toBeUndefined();
+        expect(fish.distLeft).toBe(Number.POSITIVE_INFINITY);
+      } else {
+        expect(fish.homing).toEqual({ turnRate: expected, acquireRange: CONFIG.torpedo.homingAcquireRange });
+        expect(fish.distLeft).toBe(CONFIG.torpedo.homingMaxRangeU);
+      }
+    }
+  });
+
+  // FAIL-FIRST REGRESSION (amendment 84d): the TRIP RING steps ×1.1 per rung
+  // and is DERIVED from the tier inside the stat clamp — while the 32u burst
+  // is fixed, so the line grows the reach of the trap and never the bang.
+  it('the trip ring at tier V is 210.8u (144 × 1.1⁴) and the burst is still 32u', () => {
+    const w = bareWorld(46);
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    fitTier(w, o, 'captiveMines', 5);
+    const row = o.stats.equipment.captiveMines;
+    expect(row.tier).toBe(5);
+    expect(row.triggerRadius).toBeCloseTo(210.8, 1);
+    expect(row.triggerRadius).toBeCloseTo(captiveTriggerRadius(5), 9);
+    expect(row.blastRadius).toBe(32);
+    // And it TRIPS out there: a hull 200u away is inside the tier-V ring and
+    // was outside the tier-I one (144u).
+    place(w, 'b', 0, 200);
+    lay(w, 'm1', 'o', 0, 0, 'captive');
+    w.step();
+    expect(w.mines.size).toBe(0);
+    expect(w.shells.size).toBe(1);
+    expect([...w.shells.values()][0].burstRadius).toBe(32);
   });
 
   it('leads a MOVING target: the fish is aimed ahead of the hull, not at it', () => {
     const w = bareWorld();
-    place(w, 'o', 600, 600, 0, 'mineLayer');
-    makeCaptive(w.ships.get('o')!);
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    w.applyCard(o, 'captiveMines');
     // A hull crossing the trip ring to port at speed, 120u up the y axis.
     const b = place(w, 'b', 0, 120, Math.PI); // bow -x
     b.state.speed = b.stats.kinematics.maxSpeed;
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    lay(w, 'm1', 'o', 0, 0, 'captive');
     w.step();
     const fish = [...w.shells.values()][0];
     // Straight AT the hull would be +y (bearing π/2). A led shot is deflected
@@ -389,29 +472,46 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
     expect(Math.atan2(fish.vy, fish.vx)).toBeGreaterThan(Math.PI / 2 + 1e-6);
   });
 
-  it('CAPTIVE + PROP FOULING: the torpedo hit carries the FOUL (Eric A1, R2.14)', () => {
+  // FLIPPED, NOT DELETED (Story 8.13, epic-8 amendment 81). The old pin said a
+  // captive fish CARRIES THE FOUL when the layer also holds PROP FOULING —
+  // true when both were doctrine verbs on ONE rack whose numbers the fish read.
+  // They are two separate WEAPON LINES now, each with its own rack and its own
+  // mines, so a captive fish fouls NOTHING even in the hands of a captain who
+  // also carries a full fouling line.
+  it('a CAPTIVE fish never fouls — not even when the layer also carries FOULING MINES', () => {
     const { w, o, b } = captiveBoard(['foulingMines']);
-    expect([o.stats.equipment.navalMines.captive, o.stats.equipment.navalMines.propFouling]).toEqual([true, true]);
-    for (let i = 0; i < 40 && b.slowedUntil === 0; i++) w.step();
-    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.equipment.navalMines.damage, 6);
-    expect(b.slowedUntil).toBe(w.now + CONFIG.mine.foulDurationMs);
-  });
-
-  it('CAPTIVE WITHOUT prop fouling never fouls (the foul rides the OTHER card, not this one)', () => {
-    const { w, b } = captiveBoard();
-    w.step(); // the mine launches
+    expect(o.stats.equipment.foulingMines.slowFactor).toBeLessThan(1); // the rack IS aboard
+    expect(o.stats.equipment.captiveMines.slowFactor).toBe(1); // the captive row's inert identity
+    w.step(); // the mine trips and LAUNCHES
     for (let i = 0; i < 40 && w.shells.size > 0; i++) w.step();
-    expect(b.hp).toBeLessThan(b.stats.maxHp); // it connected...
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.equipment.captiveMines.damage, 6); // it connected...
     expect(b.slowedUntil).toBe(0); // ...and slowed nothing
+    expect(b.slowFactor).toBe(1);
   });
 
-  it('a VACATED owner reverts the mine to an ordinary contact mine (no doctrine outlives its build)', () => {
-    const { w } = captiveBoard();
+  // FLIPPED, NOT DELETED (Story 8.13, amendment 76). The old pin said a vacated
+  // owner REVERTS its mine to an ordinary contact mine — true when `captive`
+  // was a flag on the LAYER's live stats, which a departing layer took with it.
+  // The kind is the MINE's own property now, stamped at drop, so a captive mine
+  // stays captive: it launches at the line's CONFIG base numbers. What the
+  // vacated owner still takes with it is the TIER.
+  it('a VACATED owner keeps the KIND and loses only the TIER — the orphan still launches, at CONFIG base', () => {
+    const w = bareWorld(47);
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    fitTier(w, o, 'captiveMines', 5); // tier V: 75 dmg, a homing fish
+    expect(o.stats.equipment.captiveMines.damage).toBeGreaterThan(CONFIG.captiveMines.damage);
+    const b = place(w, 'b', 0, 25);
+    lay(w, 'm1', 'o', 0, 0, 'captive');
     w.removeShip('o');
     w.step();
-    expect(w.mines.size).toBe(0);
-    expect(w.shells.size).toBe(0); // no fish
-    expect(w.tickEvents.some((e) => e.k === 'boom')).toBe(true); // it DETONATED
+    expect(w.mines.size).toBe(0); // expended LAUNCHING, not detonating
+    expect(w.tickEvents.some((e) => e.k === 'boom')).toBe(false);
+    const fish = [...w.shells.values()][0];
+    expect(fish.damage).toBe(CONFIG.captiveMines.damage); // the BASE warhead
+    expect(fish.burstRadius).toBe(CONFIG.captiveMines.blastRadius);
+    expect(fish.homing).toBeUndefined(); // ...and the base rate is zero
+    for (let i = 0; i < 40 && w.shells.size > 0; i++) w.step();
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.captiveMines.damage, 6);
   });
 });
 
@@ -419,10 +519,10 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
   function droneBoard(): { w: World; o: ShipRecord; d: ShipRecord } {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    makeCaptive(o);
+    w.applyCard(o, 'captiveMines');
     const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 40 }, []);
     w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    lay(w, 'm1', 'o', 0, 0, 'captive');
     return { w, o, d };
   }
 
@@ -456,16 +556,19 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
     expect(cap.state.y).toBeLessThan(0); // sanity: the captain is the −y one
   });
 
-  it('THE GATE IS CAPTIVE-ONLY: an ORDINARY mine still trips on a neutral drone', () => {
-    const w = bareWorld();
-    place(w, 'o', 600, 600, 0, 'mineLayer'); // no captive card
-    w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 20 }, []);
-    w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
-    w.step();
-    expect(w.mines.size).toBe(0);
-    expect(w.tickEvents.some((e) => e.k === 'boom')).toBe(true); // a real detonation
-    expect(w.shells.size).toBe(0);
+  it('THE GATE IS CAPTIVE-ONLY: a NAVAL and a FOULING mine both still trip on a neutral drone', () => {
+    for (const kind of ['naval', 'fouling'] as const) {
+      const w = bareWorld(kind === 'naval' ? 3 : 5);
+      const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+      if (kind === 'fouling') w.applyCard(o, 'foulingMines');
+      w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 20 }, []);
+      w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
+      lay(w, 'm1', 'o', 0, 0, kind);
+      w.step();
+      expect(w.mines.size, kind).toBe(0);
+      expect(w.tickEvents.some((e) => e.k === 'boom'), kind).toBe(true); // a real detonation
+      expect(w.shells.size, kind).toBe(0);
+    }
   });
 });
 
@@ -481,8 +584,8 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
     const victim = place(w, 'v', 0, 0, 0, 'battleship'); // fat enough to survive both blasts
     // Both mines are armed, both inside the OTHER's blast radius (48u), and the
     // victim's silhouette trips BOTH in the same tick.
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 20, y: 0, armedAt: 0 });
-    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: -20, y: 0, armedAt: 0 });
+    lay(w, 'm1', 'o', 20, 0, 'naval');
+    lay(w, 'm2', 'o', -20, 0, 'naval');
     w.step();
     expect(w.mines.size).toBe(0);
     const booms = w.tickEvents.filter((e) => e.k === 'boom') as { id: string }[];
@@ -496,9 +599,9 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
     const w = bareWorld();
     const o = place(w, 'o', 0, 0, 0, 'mineLayer');
     // Three mines clustered so the burst snapshot AND the chain both reach them.
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 200, y: 0, armedAt: 0 });
-    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 210, y: 0, armedAt: 0 });
-    w.mines.set('m3', { id: 'm3', ownerId: 'o', x: 220, y: 0, armedAt: 0 });
+    lay(w, 'm1', 'o', 200, 0, 'naval');
+    lay(w, 'm2', 'o', 210, 0, 'naval');
+    lay(w, 'm3', 'o', 220, 0, 'naval');
     setInput(o, { aim: 0, aimDist: 205, slot: 0, fireSeq: 1, seq: 2 }); // gun click on the cluster
     const seen: GameEvent[] = [];
     for (let i = 0; i < 60 && w.mines.size > 0; i++) {
@@ -511,51 +614,107 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
   });
 });
 
-describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full damage', () => {
-  function foulBoard(): { w: World; o: ShipRecord; b: ShipRecord } {
+describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tiered slow (amendment 81)', () => {
+  /** A fouling layer far away, `copies` deep in the line, with its FOULING
+   *  mine at the origin and a hull sitting on it. */
+  function foulBoard(copies = 1): { w: World; o: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    w.applyCard(o, 'foulingMines');
-    expect(o.stats.equipment.navalMines.propFouling).toBe(true);
+    fitTier(w, o, 'foulingMines', copies);
     const b = place(w, 'b', 0, 10); // trips the mine below on the first step
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    lay(w, 'm1', 'o', 0, 0, 'fouling');
     return { w, o, b };
   }
 
-  // THE ×0.6 TRADE IS GONE (Eric ruling 2026-08-16): PROP-FOULING no longer pays
-  // damage for the slow, so the blast lands FULL damage and the doctrine is a
-  // pure behaviour change. Also retires the pick-order dependency this multiplier
-  // created against `mineDamage`'s additive ladder.
-  it('the blast deals FULL damage (the ×0.6 trade is retired) and stamps slowedUntil (refresh, never stack)', () => {
+  // THE LINE PAYS FOR ITS SLOW IN DAMAGE, BY DESIGN (amendment 81: *"deals
+  // minimal damage with a larger trigger/blast radius and slows the enemy"*).
+  // 10 hp is FIXED at every tier and so is the 5 s window; what the rungs buy
+  // is blast, pool and the DEPTH of the slow.
+  it('the blast deals the line\'s fixed 10 damage and stamps BOTH the clock and the factor (refresh, never stack)', () => {
     const { w, o, b } = foulBoard();
     w.step();
-    expect(o.stats.equipment.navalMines.damage).toBe(CONFIG.mine.damage);
-    expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.mine.damage, 6);
-    expect(b.slowedUntil).toBe(w.now + CONFIG.mine.foulDurationMs);
+    const row = o.stats.equipment.foulingMines;
+    expect(row.damage).toBe(CONFIG.foulingMines.damage);
+    expect(row.damage).toBe(10);
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.foulingMines.damage, 6);
+    expect(b.slowedUntil).toBe(w.now + CONFIG.foulingMines.slowDurationMs);
+    expect(b.slowFactor).toBe(row.slowFactor);
     const firstUntil = b.slowedUntil;
     // A second fouling blast REFRESHES the window (plain re-stamp, no stacking).
     for (let i = 0; i < 10; i++) w.step();
-    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: b.state.x, y: b.state.y - 10, armedAt: 0 });
+    lay(w, 'm2', 'o', b.state.x, b.state.y - 10, 'fouling');
     w.step();
-    expect(b.slowedUntil).toBe(w.now + CONFIG.mine.foulDurationMs);
+    expect(b.slowedUntil).toBe(w.now + CONFIG.foulingMines.slowDurationMs);
     expect(b.slowedUntil).toBeGreaterThan(firstUntil);
+    expect(b.slowFactor).toBe(row.slowFactor); // and the factor is re-stamped, never multiplied
   });
 
-  it('a fouled hull is capped at foulFactor × maxSpeed until the window closes (boost→slow→hooks order)', () => {
-    const { w, b } = foulBoard();
-    w.step(); // the blast lands; b is fouled for 4s
+  // FAIL-FIRST REGRESSION (Story 8.13): REFRESH-NOT-STACK on the FACTOR, which
+  // is the half a clock-only pin cannot see. A victim already deep-fouled by a
+  // tier-V rack and then caught by a tier-I one must end up at the LATER
+  // mine's factor — 0.75 — not at the product (0.55 × 0.75) and not at the
+  // better of the two.
+  it('a LATER fouling OVERWRITES the factor, even when it is weaker — never multiplies, never keeps the best', () => {
+    const w = bareWorld(51);
+    const deep = place(w, 'deep', 600, 600, 0, 'mineLayer');
+    fitTier(w, deep, 'foulingMines', 5); // tier V: ×0.55
+    const shallow = place(w, 'shallow', -600, 600, 0, 'mineLayer');
+    fitTier(w, shallow, 'foulingMines', 1); // tier I: ×0.75
+    expect(deep.stats.equipment.foulingMines.slowFactor).toBeCloseTo(0.55, 9);
+    expect(shallow.stats.equipment.foulingMines.slowFactor).toBeCloseTo(0.75, 9);
+
+    const b = place(w, 'b', 0, 10);
+    lay(w, 'm-deep', 'deep', 0, 0, 'fouling');
+    w.step();
+    expect(b.slowFactor).toBeCloseTo(0.55, 9);
+
+    lay(w, 'm-shallow', 'shallow', b.state.x, b.state.y - 10, 'fouling');
+    w.step();
+    expect(b.slowFactor).toBeCloseTo(0.75, 9); // the LATER one wins outright
+    expect(b.slowedUntil).toBe(w.now + CONFIG.foulingMines.slowDurationMs);
+  });
+
+  it('the slow DEEPENS with the tier and the duration never moves (−0.05 a rung: 0.75 → 0.55)', () => {
+    for (const [copies, factor] of [[1, 0.75], [2, 0.7], [5, 0.55]] as const) {
+      const { w, o, b } = foulBoard(copies);
+      expect(o.stats.equipment.foulingMines.slowFactor).toBeCloseTo(factor, 9);
+      w.step();
+      expect(b.slowFactor).toBeCloseTo(factor, 9);
+      expect(b.slowedUntil).toBe(w.now + CONFIG.foulingMines.slowDurationMs); // FIXED 5 s
+    }
+  });
+
+  // A NAVAL MINE NO LONGER FOULS ANYTHING (amendment 81). The verb left the
+  // rack with the add-on card; this is the pin that keeps it gone.
+  it('a NAVAL mine never fouls — full naval damage, no clock, no factor', () => {
+    const w = bareWorld(52);
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    fitTier(w, o, 'foulingMines', 5); // the fouling rack IS aboard, deep
+    const b = place(w, 'b', 0, 10);
+    lay(w, 'm1', 'o', 0, 0, 'naval'); // ...but THIS mine came off the naval rack
+    w.step();
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - o.stats.equipment.navalMines.damage, 6);
+    expect(b.slowedUntil).toBe(0);
+    expect(b.slowFactor).toBe(1);
+  });
+
+  it('a fouled hull is capped at the VICTIM\'s slowFactor × maxSpeed until the window closes (boost→slow→hooks order)', () => {
+    const { w, o, b } = foulBoard();
+    const factor = o.stats.equipment.foulingMines.slowFactor;
+    w.step(); // the blast lands; b is fouled
     setInput(b, { throttle: 1 });
     b.input.throttle = 1;
     for (let i = 0; i < 60; i++) w.step(); // 3s at full throttle, well inside the window
-    expect(b.state.speed).toBeLessThanOrEqual(b.stats.kinematics.maxSpeed * CONFIG.mine.foulFactor + 1e-9);
-    expect(b.state.speed).toBeCloseTo(b.stats.kinematics.maxSpeed * CONFIG.mine.foulFactor, 1);
+    expect(b.state.speed).toBeLessThanOrEqual(b.stats.kinematics.maxSpeed * factor + 1e-9);
+    expect(b.state.speed).toBeCloseTo(b.stats.kinematics.maxSpeed * factor, 1);
     // The window expires; the hull works back up to its full cap.
-    for (let i = 0; i < Math.ceil(CONFIG.mine.foulDurationMs / DT) + 100; i++) w.step();
+    for (let i = 0; i < Math.ceil(CONFIG.foulingMines.slowDurationMs / DT) + 100; i++) w.step();
     expect(b.state.speed).toBeCloseTo(b.stats.kinematics.maxSpeed, 1);
   });
 
-  it('an active BOOST composes boosted→slowed: the fouled cap is (max × 1.25) × foulFactor', () => {
-    const { w, b } = foulBoard();
+  it('an active BOOST composes boosted→slowed: the fouled cap is (max × 1.25) × slowFactor', () => {
+    const { w, o, b } = foulBoard();
+    const factor = o.stats.equipment.foulingMines.slowFactor;
     w.step();
     b.boostUntil = Number.MAX_SAFE_INTEGER; // hold the boost window open
     b.slowedUntil = Number.MAX_SAFE_INTEGER; // hold the slow too — isolate the composition
@@ -564,8 +723,7 @@ describe('PROP-FOULING MINES (minePropFouling) — the slow debuff, at full dama
     // Amendment 55: the boost bonus is CONFIG.boost.factor x the POST-FOLD max
     // (the one shared boostedKinematics hook), NOT a flat per-row speedBonus.
     const boostedMax = b.stats.kinematics.maxSpeed + b.stats.kinematics.maxSpeed * CONFIG.boost.factor;
-    const expected = boostedMax * CONFIG.mine.foulFactor;
-    expect(b.state.speed).toBeCloseTo(expected, 1);
+    expect(b.state.speed).toBeCloseTo(boostedMax * factor, 1);
   });
 
   it('slowedUntil is VICTIM-PRIVATE: on the victim’s own frame, never on a contact', () => {
@@ -592,9 +750,11 @@ describe('vacated owner — mines fall back to CONFIG bases (pinned)', () => {
   it('a blast-booned owner leaves; the orphan mine uses the CONFIG blast ring and CONFIG damage', () => {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    for (let i = 0; i < 4; i++) w.applyCard(o, 'mineBlast'); // 48 → 48 × 1.1^4 ≈ 70.3u
+    // FOUR MORE COPIES OF THE REAL LINE (Story 8.13 authored its tiers): the
+    // class fit is copy 1, so this is tier V — 48 → 48 × 1.1^4 ≈ 70.3u.
+    fitTier(w, o, 'navalMines', 4);
     expect(o.stats.equipment.navalMines.blastRadius).toBeGreaterThan(CONFIG.mine.blastRadius);
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    lay(w, 'm1', 'o', 0, 0, 'naval');
     w.removeShip('o'); // the owner VACATES; the mine survives
     const b = place(w, 'b', 0, 10); // trips it (silhouette ~5u out)
     // Bow-on at x=110: its nearest hull point is 60u from the mine — OUTSIDE

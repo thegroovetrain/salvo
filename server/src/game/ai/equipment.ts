@@ -11,8 +11,8 @@
 // carried star shells natively while being flagged never to fire them.
 //
 // `EQUIPMENT_TACTICS` is a `Partial<Record<EquipmentId, EquipmentTactic>>` —
-// PARTIAL, deliberately, since catalog v3 widened `EquipmentId` to thirteen ids
-// whose modules do not all exist yet (Stories 8.13-8.16). So it is NOT the
+// PARTIAL, deliberately, because four catalog-v3 weapons still have no module
+// (MISSILE, MACHINE GUN, FLAK, MONITOR — Stories 8.14-8.16). So it is NOT the
 // compile-forced completeness gate the server's equipment rows are
 // (game/equipment/index.ts): a bot simply has no knowledge of a weapon with no
 // row here, and `want()` is never asked about one it cannot carry. The gate
@@ -28,9 +28,9 @@
 //
 // EVERY DOCTRINE VERB HAS EXACTLY ONE BEHAVIOURAL CONSUMER, inside its
 // equipment's tactic:
-//   mine.captive        — full-placeRange proactive lays, hostile-only victims
-//   mine.propFouling    — the trap goes down EARLIER against a closing pursuer
-//   torpedo.homing      — the credible-range gate widens (budget − turn room)
+//   captiveMines (kind) — full-placeRange proactive lays, hostile-only victims
+//   foulingMines (kind) — the trap goes down EARLIER against a closing pursuer
+//   torpedo homingTurnRate — the credible-range gate widens (budget − turn room)
 //   starShells.dazzle   — the flare turns OFFENSIVE (live contact in sight)
 //   starShells.phosphor — prefer the SLOW target; the ×0.8 lit shrink caps
 //                         how stale a sensor plot is worth lighting
@@ -52,6 +52,7 @@ import {
   isConsumableId,
   sectorArcFor,
   twinSectorArcFor,
+  twinSectorSide,
   wrapAngle,
   type ConsumableId,
   type EffectiveStats,
@@ -74,12 +75,28 @@ import type { BotProfile } from './profiles.js';
 
 const TAU = Math.PI * 2;
 
+/**
+ * THE TWO FAMILY ID UNIONS the parameterized tactics below are keyed by
+ * (Story 8.13). Declared HERE rather than imported from the server's equipment
+ * modules because `ai/` is perception-gated — it may not import
+ * `game/equipment/**` at all (the ESLint boundary, ai/types.ts) — and they are
+ * only narrowings of `EquipmentId`, so the compiler still refuses a string
+ * that is not a real line id.
+ */
+type TorpedoLineId = Extract<EquipmentId, 'heavyTorpedo' | 'lightTorpedo'>;
+type MineLineId = Extract<EquipmentId, 'navalMines' | 'captiveMines' | 'foulingMines'>;
+
 /** The torpedo's ratified bow sector, the mine's ratified astern sector (the
  *  radar buoy shares it verbatim — sectorArcFor('radarBuoy') IS the mine's
  *  descriptor, pinned in shared arcs.test.ts) and the broadside's two beam
  *  sectors — resolved ONCE at module load from the single shared arc source
  *  the equipment rows enforce with. */
 const BOW_SECTOR = sectorArcFor('heavyTorpedo');
+/** The LIGHT torpedo's TWIN beam sectors and the SUPERCAV consumable's narrow
+ *  bow cone (Story 8.13) — resolved from the same shared arc source the server
+ *  rows enforce with, so a bot never solves a shot its own weapon refuses. */
+const LIGHT_BEAMS = twinSectorArcFor('lightTorpedo');
+const SUPERCAV_SECTOR = sectorArcFor('supercavTorpedo');
 const REAR_SECTOR = sectorArcFor('navalMines');
 const BUOY_SECTOR = sectorArcFor('radarBuoy');
 const BEAM_SECTORS = twinSectorArcFor('broadside');
@@ -96,9 +113,10 @@ const MINE_DROP_FRAC = 0.5;
 /** × placeRange — how close a track must be before a mine is worth laying
  *  (proactive/eager and reactive/closing branches alike at base). */
 const MINE_NEAR_MULT = 2;
-/** × placeRange — the WIDENED laying range against a CLOSING pursuer when
- *  PROP-FOULING is held: a slow only pays if the victim runs THROUGH the
- *  field, so a fouling trapper seeds the water earlier along the chase. */
+/** × placeRange — the WIDENED laying range against a CLOSING pursuer for the
+ *  FOULING rack (epic-8 amendment 81, where it was the PROP FOULING verb on
+ *  the naval rack): a slow only pays if the victim runs THROUGH the field, so
+ *  a fouling trapper seeds the water earlier along the chase. */
 const FOUL_CLOSING_MULT = 4;
 /** ms — how stale a plot must be before an EAGER flare user lights it. Below
  *  this the contact is fresh enough to shoot at directly. */
@@ -146,9 +164,12 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   boost: APPETITE_NEUTRAL,
   lightTorpedo: APPETITE_NEUTRAL,
   heavyTorpedo: APPETITE_NEUTRAL,
-  supercavTorpedo: APPETITE_NEUTRAL,
   navalMines: APPETITE_NEUTRAL,
   captiveMines: APPETITE_NEUTRAL,
+  // FOULING MINES joined EquipmentId in Story 8.13 (amendment 81) and takes
+  // the naval rack's neutral base; SUPERCAV TORPEDO LEFT it for the consumable
+  // id space (amendment 74) and its eagerness now lives in CONSUMABLE_APPETITE.
+  foulingMines: APPETITE_NEUTRAL,
   missile: APPETITE_NEUTRAL,
   machineGun: APPETITE_NEUTRAL,
   flak: APPETITE_NEUTRAL,
@@ -158,12 +179,37 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   radarBuoy: APPETITE_NEUTRAL,
 });
 
+/**
+ * THE FAMILY FALLBACK (Story 8.13, interim — epic-8 amendment 79's "minimal
+ * tactics now, Story 8.18 owns the table"). Three lines became fittable this
+ * cycle whose behaviour the profiles already had an opinion about, under
+ * another name: CAPTIVE and FOULING mines were DOCTRINE VERBS on the naval
+ * rack (so a trapper's `navalMines: 2.6` spoke for them), and the LIGHT
+ * torpedo is the heavy's tactic keyed by its own id.
+ *
+ * Without this, a trapper handed a captive rack would drop to the NEUTRAL base
+ * and rank its signature weapon below its radar buoy — a silent behaviour
+ * REGRESSION bought by nothing. So a line with no entry of its own reads its
+ * FAMILY's entry first, which is exactly the number that used to reach it.
+ *
+ * IT IS NOT A RETUNE and adds no number: every profile table is untouched, and
+ * the day Story 8.18 authors per-line appetites those entries win outright
+ * (the profile's own entry is still read first). Delete this map then.
+ */
+const APPETITE_FAMILY: Readonly<Partial<Record<EquipmentId, EquipmentId>>> = Object.freeze({
+  lightTorpedo: 'heavyTorpedo',
+  captiveMines: 'navalMines',
+  foulingMines: 'navalMines',
+});
+
 /** How eager this profile is about one equipment id — the profile's own entry,
- *  else the neutral base. THE one resolver both consumers (the want() gates
- *  here, the slot ordering in tactics.ts) read, so an appetite entry always
- *  has at least the ordering as its consumer. */
+ *  else its FAMILY's entry (see APPETITE_FAMILY), else the neutral base. THE
+ *  one resolver both consumers (the want() gates here, the slot ordering in
+ *  tactics.ts) read, so an appetite entry always has at least the ordering as
+ *  its consumer. */
 export function appetiteFor(profile: BotProfile, id: EquipmentId): number {
-  return profile.appetite[id] ?? BASE_APPETITE[id];
+  const family = APPETITE_FAMILY[id];
+  return profile.appetite[id] ?? (family === undefined ? undefined : profile.appetite[family]) ?? BASE_APPETITE[id];
 }
 
 /** A legal shot request: one slot, one bearing, one commanded distance. */
@@ -380,42 +426,72 @@ const broadsideTactic: EquipmentTactic = {
 // ---------------------------------------------------------------------------
 
 /**
- * THE HOMING CONSUMER. A standard fish is credible only at knife range
- * (TORPEDO_CREDIBLE_U). An ACOUSTIC HOMING fish corrects its own terminal
- * error, so the gate widens — bounded by BOTH ruled quantities: the
- * `homingMaxRangeU` travel budget, less one half-turn of correction room
- * (π × turn radius, where turn radius = speed / homingTurnRate — 120u at
- * base and WORSE with speed cards, so a speed-carded fish's credible range
- * genuinely SHRINKS as its turn opens).
+ * THE HOMING CONSUMER — now a TIER STAT, not a card (epic-8 amendment 80). A
+ * straight-running fish (`homingTurnRate === 0`, every line at tier I) is
+ * credible only at knife range (TORPEDO_CREDIBLE_U). A STEERING fish corrects
+ * its own terminal error, so the gate widens — bounded by BOTH ruled
+ * quantities: the family's `homingMaxRangeU` travel budget, less one half-turn
+ * of correction room (π × turn radius, where turn radius = speed / turn rate).
+ * A LOW tier buys a SLOW turn, so an early rung's credible range is barely
+ * wider than a straight-runner's, and a speed-carded fish's turn opens and
+ * shrinks it again — the honest consequence of the geometry, and the same
+ * formula the pre-8.13 doctrine read used.
  */
-function torpedoReachU(stats: EffectiveStats): number {
-  if (!stats.equipment.heavyTorpedo.homing) return TORPEDO_CREDIBLE_U;
-  const turnRadius = stats.equipment.heavyTorpedo.speed / CONFIG.torpedo.homingTurnRate;
+function torpedoReachU(stats: EffectiveStats, id: TorpedoLineId): number {
+  const row = stats.equipment[id];
+  if (row.homingTurnRate <= 0) return TORPEDO_CREDIBLE_U;
+  const turnRadius = row.speed / row.homingTurnRate;
   return Math.max(TORPEDO_CREDIBLE_U, CONFIG.torpedo.homingMaxRangeU - Math.PI * turnRadius);
 }
 
-function torpedoSolve(ctx: TacticContext): Shot | null {
+/** Is `aim` legal for this torpedo line? The HEAVY (and the supercav belt
+ *  fish) fire into a bow SECTOR; the LIGHT fires into either BEAM and refuses
+ *  the fore/aft dead zones — the server's own arc law (equipment/
+ *  torpedoCore.ts `torpedoBearing`), read from the same shared descriptors. */
+function torpedoAimLegal(id: TorpedoLineId | 'supercavTorpedo', heading: number, aim: number): boolean {
+  if (id === 'lightTorpedo') return twinSectorSide(heading, aim, LIGHT_BEAMS) !== null;
+  const sector = id === 'supercavTorpedo' ? SUPERCAV_SECTOR : BOW_SECTOR;
+  return inArc(aim, wrapAngle(heading + sector.offset), sector.halfArc);
+}
+
+/** One torpedo shot solve, shared by both equipment lines and the supercav
+ *  belt fish: lead at THIS weapon's speed, refuse out of THIS weapon's arc
+ *  (ARC FIRST — an arc miss consumes nothing), refuse a blocked line. */
+function solveTorpedoShot(
+  ctx: TacticContext,
+  id: TorpedoLineId | 'supercavTorpedo',
+  speed: number,
+  reachU: number,
+): Shot | null {
   const t = ctx.target;
   if (t === null || t.heading === null) return null; // a return-grammar plot cannot be led
-  if (distTo(ctx.sit, t) > torpedoReachU(ctx.sit.stats)) return null;
-  const p = aimPoint(ctx.mind, ctx.sit, t, ctx.sit.stats.equipment.heavyTorpedo.speed);
+  if (distTo(ctx.sit, t) > reachU) return null;
+  const p = aimPoint(ctx.mind, ctx.sit, t, speed);
   const aim = bearing(ctx.self.state, p);
-  const center = wrapAngle(ctx.self.state.heading + BOW_SECTOR.offset);
-  if (!inArc(aim, center, BOW_SECTOR.halfArc)) return null; // ARC FIRST — an arc miss consumes nothing
+  if (!torpedoAimLegal(id, ctx.self.state.heading, aim)) return null;
   if (!shotReaches(ctx.self, ctx.sit, p)) return null;
   return { aim, aimDist: distTo(ctx.sit, t), slot: ctx.slot };
 }
 
-const torpedoTactic: EquipmentTactic = {
-  id: 'heavyTorpedo',
-  kind: 'shot',
-  reachU: torpedoReachU,
-  // Same persistence law as the broadside: a 30s tube is never spent on a
-  // track that has not persisted one sweep revolution (live truesight counts
-  // instantly — a fake can never appear inside the bubble, structurally).
-  want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
-  solve: torpedoSolve,
-};
+/** ONE TORPEDO TACTIC, built per line (epic-8 amendment 79 — the light
+ *  torpedo reuses the heavy's tactic keyed by its own id; Story 8.18 owns the
+ *  real table). Everything that differs is the row and the arc. */
+function torpedoTacticFor(id: TorpedoLineId): EquipmentTactic {
+  return {
+    id,
+    kind: 'shot',
+    reachU: (stats) => torpedoReachU(stats, id),
+    // Same persistence law as the broadside: a long-reload tube is never spent
+    // on a track that has not persisted one sweep revolution (live truesight
+    // counts instantly — a fake can never appear inside the bubble).
+    want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
+    solve: (ctx) =>
+      solveTorpedoShot(ctx, id, ctx.sit.stats.equipment[id].speed, torpedoReachU(ctx.sit.stats, id)),
+  };
+}
+
+const torpedoTactic: EquipmentTactic = torpedoTacticFor('heavyTorpedo');
+const lightTorpedoTactic: EquipmentTactic = torpedoTacticFor('lightTorpedo');
 
 // ---------------------------------------------------------------------------
 // MINE — one shared tactic; appetite is the ONLY thing trapper and siege
@@ -447,18 +523,15 @@ function captiveMineWant(ctx: TacticContext): boolean {
   // silently remove one.
   if (ctx.posture === 'disengage') return true;
   if (t === null) return false;
-  if (appetiteFor(ctx.sit.profile, 'navalMines') < APPETITE_NEUTRAL) return false;
-  // PROP-FOULING WIDENS THE CLOSING WINDOW HERE TOO (cross-model review, cycle
-  // 110). The two verbs STACK by design — the catalog says so, and the captive
-  // torpedo carries the foul — but `mineWant` hands the whole decision to this
-  // function the moment `captive` is set, so the base path's fouling widening
-  // was unreachable for a holder of BOTH. A neutral-appetite layer with both
-  // verbs, facing a pursuer closing astern at 450u, laid nothing where fouling
-  // ALONE would have laid: adding a card made the bot worse. Same class as the
-  // buoy, phosphor and captive-disengage downgrades.
-  const mult =
-    ctx.sit.stats.equipment.navalMines.propFouling && isClosing(ctx.sit, t) ? FOUL_CLOSING_MULT : MINE_NEAR_MULT;
-  return distTo(ctx.sit, t) <= CONFIG.mine.placeRange * mult;
+  if (appetiteFor(ctx.sit.profile, 'captiveMines') < APPETITE_NEUTRAL) return false;
+  // THE OLD PROP-FOULING WIDENING IS GONE FROM HERE, and it is not a
+  // regression: the two used to be DOCTRINE VERBS ON ONE RACK that stacked
+  // (a captive mine's fish carried the foul), so a holder of both needed this
+  // branch to reach the fouling range. Since amendment 81 they are two
+  // SEPARATE LINES in two separate slots with two separate racks — a fouling
+  // layer's own tactic does its own widening, and a captive mine fouls
+  // nothing — so a cross-line term here would be the flat model returning.
+  return distTo(ctx.sit, t) <= CONFIG.mine.placeRange * MINE_NEAR_MULT;
 }
 
 // THE FIELD-CHURN BOUND IS RETIRED (Story 8.4, FR57/AR48). It existed for one
@@ -497,12 +570,12 @@ const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm'];
  * rule five defects produced): every reactive lay below still fires exactly
  * as before, including with the field at the reserve.
  */
-function preparedMineWant(ctx: TacticContext): boolean {
+function preparedMineWant(ctx: TacticContext, id: MineLineId): boolean {
   if (!SAFE_LAY_POSTURES.includes(ctx.posture)) return false;
   if (ownLiveMines(ctx.mind) >= CONFIG.bots.preparedMineReserve) return false;
-  const appetite = appetiteFor(ctx.sit.profile, 'navalMines');
+  const appetite = appetiteFor(ctx.sit.profile, id);
   if (appetite >= APPETITE_EAGER) return true;
-  return ctx.sit.stats.equipment.navalMines.captive && appetite >= APPETITE_NEUTRAL;
+  return id === 'captiveMines' && appetite >= APPETITE_NEUTRAL;
 }
 
 /**
@@ -516,16 +589,18 @@ function preparedMineWant(ctx: TacticContext): boolean {
  * the slow only pays if the pursuer runs through the field, so the fouling
  * trap goes down earlier along the chase.
  */
-function reactiveMineWant(ctx: TacticContext): boolean {
+function reactiveMineWant(ctx: TacticContext, id: MineLineId): boolean {
   const { sit, target: t } = ctx;
   if (ctx.posture === 'disengage') return true;
   if (t === null) return false;
-  const appetite = appetiteFor(sit.profile, 'navalMines');
+  const appetite = appetiteFor(sit.profile, id);
   if (appetite < APPETITE_NEUTRAL) return false;
   if (!behindUs(ctx.self, sit, t)) return false;
   const d = distTo(sit, t);
   if (isClosing(sit, t)) {
-    const mult = sit.stats.equipment.navalMines.propFouling ? FOUL_CLOSING_MULT : MINE_NEAR_MULT;
+    // FOULING is the widening kind now (amendment 81), not a verb on the naval
+    // rack: a slow only pays if the pursuer runs THROUGH the field.
+    const mult = id === 'foulingMines' ? FOUL_CLOSING_MULT : MINE_NEAR_MULT;
     if (d <= CONFIG.mine.placeRange * mult) return true;
   }
   return appetite >= APPETITE_EAGER && d <= CONFIG.mine.placeRange * MINE_NEAR_MULT;
@@ -537,10 +612,10 @@ function reactiveMineWant(ctx: TacticContext): boolean {
  * run exactly as before. Since Story 8.4 nothing refuses a lay on board count:
  * mines have no cap and a lay can no longer evict a laid trap.
  */
-function mineWant(ctx: TacticContext): boolean {
-  if (preparedMineWant(ctx)) return true;
-  if (ctx.sit.stats.equipment.navalMines.captive) return captiveMineWant(ctx);
-  return reactiveMineWant(ctx);
+function mineWant(ctx: TacticContext, id: MineLineId): boolean {
+  if (preparedMineWant(ctx, id)) return true;
+  if (id === 'captiveMines') return captiveMineWant(ctx);
+  return reactiveMineWant(ctx, id);
 }
 
 /** A drop commanded DEAD ASTERN — the centre of the given ratified placement
@@ -557,21 +632,27 @@ function sectorPlacement(
   return { aim, aimDist: dropU, slot: ctx.slot };
 }
 
-const mineTactic: EquipmentTactic = {
-  id: 'navalMines',
-  kind: 'placement',
-  reachU: () => CONFIG.mine.placeRange,
-  want: mineWant,
-  // CAPTIVE lays at the FULL placeRange: a 144u trip ring is area denial, so
-  // the round goes as far out as the rack reaches; a contact mine stays at
-  // half reach, seeding the water the hull just left.
-  solve: (ctx) =>
-    sectorPlacement(
-      ctx,
-      REAR_SECTOR,
-      CONFIG.mine.placeRange * (ctx.sit.stats.equipment.navalMines.captive ? 1 : MINE_DROP_FRAC),
-    ),
-};
+/** ONE MINE TACTIC, built per line (epic-8 amendment 79 — captive and fouling
+ *  reuse the mine tactic keyed by their own ids; Story 8.18 owns the real
+ *  table). The three racks share every chassis number, so only the want
+ *  branches and the drop distance differ. */
+function mineTacticFor(id: MineLineId): EquipmentTactic {
+  return {
+    id,
+    kind: 'placement',
+    reachU: () => CONFIG.mine.placeRange,
+    want: (ctx) => mineWant(ctx, id),
+    // CAPTIVE lays at the FULL placeRange: a 144u trip ring is area denial, so
+    // the round goes as far out as the rack reaches; a contact or fouling mine
+    // stays at half reach, seeding the water the hull just left.
+    solve: (ctx) =>
+      sectorPlacement(ctx, REAR_SECTOR, CONFIG.mine.placeRange * (id === 'captiveMines' ? 1 : MINE_DROP_FRAC)),
+  };
+}
+
+const mineTactic: EquipmentTactic = mineTacticFor('navalMines');
+const captiveMineTactic: EquipmentTactic = mineTacticFor('captiveMines');
+const foulingMineTactic: EquipmentTactic = mineTacticFor('foulingMines');
 
 // ---------------------------------------------------------------------------
 // STAR SHELLS — the sensor shot, plus the two offensive doctrine verbs.
@@ -769,7 +850,10 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 export const EQUIPMENT_TACTICS: Readonly<Partial<Record<EquipmentId, EquipmentTactic>>> = deepFreezeRows({
   gun: gunTactic,
   heavyTorpedo: torpedoTactic,
+  lightTorpedo: lightTorpedoTactic,
   navalMines: mineTactic,
+  captiveMines: captiveMineTactic,
+  foulingMines: foulingMineTactic,
   boost: boostTactic,
   broadside: broadsideTactic,
   starShells: starShellsTactic,
@@ -821,20 +905,53 @@ const hullRepairTactic: ConsumableTactic = {
   solve: () => null,
 };
 
+/**
+ * SUPERCAV TORPEDO — the belt's first SHOT row (Story 8.13, epic-8 amendments
+ * 74/79: *"a bot holding SUPERCAV TORPEDO stock uses the torpedo tactic on its
+ * belt slot"*). It is the torpedo tactic with three substitutions and nothing
+ * else: the bow ±15° sector, the 195 u/s lead, and the straight-runner's
+ * credible range (it never homes, so the gate never widens). A stack has no
+ * stat row, so the speed comes from CONFIG exactly as the server's row reads
+ * it. Story 8.18 still owns the real belt table.
+ */
+const supercavTorpedoTactic: ConsumableTactic = {
+  id: 'supercavTorpedo',
+  kind: 'shot',
+  reachU: () => TORPEDO_CREDIBLE_U,
+  want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
+  solve: (ctx) =>
+    solveTorpedoShot(ctx, 'supercavTorpedo', CONFIG.supercavTorpedo.speed, TORPEDO_CREDIBLE_U),
+};
+
 /** The consumable half of the tactic registry — PARTIAL over ConsumableId,
  *  exactly as EQUIPMENT_TACTICS is partial over EquipmentId. A line with no row
  *  here is simply unknown to bots, and the slot is skipped fail-closed. */
 export const CONSUMABLE_TACTICS: Readonly<Partial<Record<ConsumableId, ConsumableTactic>>> = deepFreezeRows({
   hullRepair: hullRepairTactic,
+  supercavTorpedo: supercavTorpedoTactic,
 });
 
-/** A profile says nothing about consumables today (amendment 49 ships the
- *  minimal rule and no new tuning), so every belt line sits at the SAME neutral
- *  base an unlisted equipment would — which is what keeps the ranking stable
- *  and the tie-break on slot index. Story 8.18 is where a belt appetite, if it
- *  is ever wanted, would land. */
-function consumableAppetite(_id: ConsumableId): number {
-  return APPETITE_NEUTRAL;
+/**
+ * HOW EAGER A BOT IS ABOUT ONE BELT LINE. A profile still says nothing about
+ * consumables (amendment 49 ships the minimal rule and no new tuning), so the
+ * table is TOTAL over ConsumableId at the SAME neutral base an unlisted
+ * equipment would sit at — which keeps the ranking stable and the tie-break on
+ * slot index. It is a table rather than a constant so that SUPERCAV TORPEDO,
+ * the first belt line with a shot tactic (amendment 74), has a declared entry
+ * beside the rest; Story 8.18 is where any real belt tuning lands.
+ */
+const CONSUMABLE_APPETITE: Readonly<Record<ConsumableId, number>> = Object.freeze({
+  hullRepair: APPETITE_NEUTRAL,
+  shieldBlock: APPETITE_NEUTRAL,
+  smokeScreen: APPETITE_NEUTRAL,
+  chaff: APPETITE_NEUTRAL,
+  decoyBuoy: APPETITE_NEUTRAL,
+  depthCharge: APPETITE_NEUTRAL,
+  supercavTorpedo: APPETITE_NEUTRAL,
+});
+
+function consumableAppetite(id: ConsumableId): number {
+  return CONSUMABLE_APPETITE[id];
 }
 
 /** How eager this profile is about whatever a slot holds — the one resolver

@@ -140,15 +140,21 @@ describe('spectator frames — dead observer in the active phase', () => {
     });
   });
 
-  it('carries every mine, flagging only the observer-owned ones', () => {
+  it('carries every mine, flagging only the observer-owned ones — and the KIND rides own-only', () => {
     const w = deadObserverWorld();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 800, y: 800, armedAt: 0 });
-    w.mines.set('m2', { id: 'm2', ownerId: 'b', x: -800, y: -800, armedAt: 0 });
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 800, y: 800, armedAt: 0, kind: 'captive' });
+    w.mines.set('m2', { id: 'm2', ownerId: 'b', x: -800, y: -800, armedAt: 0, kind: 'fouling' });
     const f = buildFrame(w, 'a', 'active');
+    // A SPECTATOR IS STILL AN OWNER of the mines it laid while it was afloat,
+    // so `own` — and with it `c`, the Story 8.13 kind field (epic-8 amendment
+    // 76) — rides its own wreck's field exactly as it did in life. Someone
+    // ELSE's mine is the same kind-less marker every fogged observer gets: the
+    // key is ABSENT, not undefined, so unfogging a frame grants no kinds.
     expect(f.mines.sort((x, y) => x.id.localeCompare(y.id))).toEqual([
-      { id: 'm1', x: 800, y: 800, own: true, by: 'a' },
+      { id: 'm1', x: 800, y: 800, own: true, by: 'a', c: 'captive' },
       { id: 'm2', x: -800, y: -800, own: false, by: 'b' },
     ]);
+    expect('c' in f.mines.find((m) => m.id === 'm2')!).toBe(false);
   });
 
   // RETIRED (Story 7-5 wave 2): "carries every decoy buoy (the truth)". The

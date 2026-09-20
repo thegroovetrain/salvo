@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 54→55 bump (PV 55: MULLIGAN_CHOICE (-2) joins SpendMsg.choice and the spawn seed is deleted, so a PV-54 client would mis-read the opening) is enforced at matchmake', () => {
-  it('rejects pv-54 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(55);
+describe('pv join gate — the 55→56 bump (PV 56, Story 8.13: catalog content the client READS — five authored tier ladders, the supercav/fouling id moves — plus `MineView.c`, the own-only mine kind, so a PV-55 client would mis-read both the cards and the mine list) is enforced at matchmake', () => {
+  it('rejects pv-55 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(56);
+    expect(protocolVersionError(55)).toMatch(/refresh/);
     expect(protocolVersionError(54)).toMatch(/refresh/);
     expect(protocolVersionError(53)).toMatch(/refresh/);
     expect(protocolVersionError(52)).toMatch(/refresh/);

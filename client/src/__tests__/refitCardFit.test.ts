@@ -119,9 +119,11 @@ const GREYED_FACE: RefitCardCopy = {
 describe('the ratified face is a FIXED box, and its content is a constant', () => {
   it('covers every offerable line at every rung, on every class, both extremes', () => {
     // Catalog v3: 29 lines. SIXTEEN were live at 8.7 (13 stubs, amendment 41);
-    // Story 8.8 flipped `hullRepair`'s stub, so it is SEVENTEEN against twelve.
+    // Story 8.8 flipped `hullRepair`'s stub (seventeen); Story 8.13 flipped
+    // LIGHT TORPEDO, CAPTIVE MINES and the SUPERCAV TORPEDO and added the stub
+    // DEPTH CHARGE — NINETEEN live against ten stubs.
     expect(LINES).toHaveLength(29);
-    expect(LIVE).toHaveLength(17);
+    expect(LIVE).toHaveLength(19);
     expect(LIVE.some((l) => l.id === 'hullRepair')).toBe(true);
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });
@@ -186,16 +188,19 @@ describe('the NAME — one line, at 15px or the mock\'s own .cn.long step', () =
     expect(tooWide).toEqual([]);
   });
 
-  it('takes the 12.5px step ONLY where 15px genuinely does not fit', () => {
+  it('takes the 12.5px step NOWHERE — no shipped name needs it', () => {
     const long = LINE_IDS.map((id) => boonName(id)).filter((n) => cardNameSize(n) === R.nameSizeLong);
-    // SUPERCAVITATING TORPEDO is the one name catalog v3 authors that cannot sit
-    // on the inner line at 15px. If a second one appears, it is deliberate and
-    // this list is where it gets recorded.
-    expect(long).toEqual(['SUPERCAVITATING TORPEDO']);
-    // ...and it really is too wide at 15px, so the exemption cannot rot.
-    for (const name of long) {
-      expect(cardNameSize(name)).toBeLessThan(R.nameSize);
-    }
+    // THE EXEMPTION IS RETIRED (Story 8.13, Eric ruling 2026-09-19, epic-8
+    // amendment 75). `SUPERCAVITATING TORPEDO` was the ONE name catalog v3
+    // authored that could not sit on the inner line at 15px, and it carried a
+    // Story 8.1 fit exemption for it. Eric's answer was to shorten the NAME —
+    // it is `SUPERCAV TORPEDO` now — rather than keep the exemption or add a
+    // type-size step, so EVERY shipped name fits at the ordinary size.
+    expect(long).toEqual([]);
+    expect(cardNameSize(boonName('supercavTorpedo'))).toBe(R.nameSize);
+    expect(cardNameWidth(boonName('supercavTorpedo'))).toBeLessThanOrEqual(refitCardInnerBox().w);
+    // ...and the step itself still exists for a future long name.
+    expect(R.nameSizeLong).toBeLessThan(R.nameSize);
   });
 
   it('never wraps: the size decision is made instead', () => {
@@ -318,9 +323,14 @@ describe('the laws that constrain the fix', () => {
   // list cannot rot (an agent who builds one has to delete its entry).
   const NO_EXPLANATION: readonly string[] = [
     'turning', 'deckGun', // new in v3: no v2 line to carry text from
-    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
+    // LIVE BUT UNEXPLAINED since Story 8.13: the mechanisms exist, the WORDS
+    // are Eric's to write. FOULING MINES joined them when its add-on text died
+    // with the card (epic-8 amendment 81 — the naval mine no longer fouls, so
+    // the shipped sentence would have been a lie on two counts).
+    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'foulingMines',
+    'missile', 'machineGun', 'flak', 'monitor',
     // `hullRepair` left this list in Story 8.8 — its mechanism is built now.
-    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
+    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge', 'heatSeeking',
   ];
 
   it('keeps the contract: what left the face is on the hover tooltip, for every built line', () => {

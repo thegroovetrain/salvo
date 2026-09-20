@@ -229,13 +229,13 @@ describe('own weapons never damage the owner (gun / torpedo / mine)', () => {
   it('an armed mine under its OWN owner never triggers, but triggers under an enemy', () => {
     const w = bareWorld();
     const owner = place(w, 'a', 0, 0, 0);
-    w.mines.set('m-own', { id: 'm-own', ownerId: 'a', x: owner.state.x, y: owner.state.y, armedAt: 0 });
+    w.mines.set('m-own', { id: 'm-own', ownerId: 'a', x: owner.state.x, y: owner.state.y, armedAt: 0, kind: 'naval' });
     w.step();
     expect(owner.hp).toBe(owner.stats.maxHp); // owner never trips its own mine
     expect(w.mines.has('m-own')).toBe(true); // still live (never triggered)
 
     const enemy = place(w, 'b', 400, 0, 0);
-    w.mines.set('m-enemy', { id: 'm-enemy', ownerId: 'a', x: enemy.state.x, y: enemy.state.y, armedAt: 0 });
+    w.mines.set('m-enemy', { id: 'm-enemy', ownerId: 'a', x: enemy.state.x, y: enemy.state.y, armedAt: 0, kind: 'naval' });
     w.step();
     expect(enemy.hp).toBeLessThan(enemy.stats.maxHp); // enemies still trip owner's mine
     expect(w.mines.has('m-enemy')).toBe(false); // consumed on trigger

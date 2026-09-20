@@ -16,6 +16,7 @@ import {
   type BlipEvent,
   type FrameMsg,
   type InputMsg,
+  type MineKind,
   type Target,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
@@ -29,6 +30,7 @@ import {
   slotAmmo,
   type MineState,
 } from '../game/equipment/index.js';
+import { CONSUMABLES } from '../game/equipment/consumables.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 
 // NINE FIXED-ROLE SLOTS (Story 8.5): [gun, boost, weapon x3, consumable x4] on
@@ -132,7 +134,7 @@ describe('torpedoes — island block + ship hit', () => {
     expect(events.some((e) => e.k === 'boom' && e.hit === undefined)).toBe(true);
   });
 
-  it('a torpedo that reaches an enemy deals its 55 damage', () => {
+  it('a torpedo that reaches an enemy deals its 50 damage (CONFIG.torpedo.damage)', () => {
     const w = bareWorld();
     const a = torpShip(w, 'a', 0, 0, HALF_PI);
     a.input = { ...a.input, aim: HALF_PI };
@@ -190,9 +192,15 @@ describe('mines — arm delay, silhouette trigger, owner immunity', () => {
   function hull(id: string, x: number, y: number, heading: number): Target {
     return { id, kind: 'hull', poly: transformPolygon(hullSilhouette('torpedoBoat'), x, y, heading) };
   }
-  function mineAt(ownerId: string, x: number, y: number, armedAt: number): Map<string, MineState> {
+  function mineAt(
+    ownerId: string,
+    x: number,
+    y: number,
+    armedAt: number,
+    kind: MineKind = 'naval',
+  ): Map<string, MineState> {
     const m = new Map<string, MineState>();
-    m.set('m1', { id: 'm1', ownerId, x, y, armedAt });
+    m.set('m1', { id: 'm1', ownerId, x, y, armedAt, kind });
     return m;
   }
 
@@ -280,7 +288,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     const w = bareWorld(11);
     const o = w.addShip('o', 'O', 'captain', 'mineLayer', undefined, undefined, []);
     o.state = { x: 600, y: 600, heading: 0, speed: 0 }; // far from the blast
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval' });
     return { w, o };
   }
 
@@ -345,7 +353,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
   });
 
   it('mineBlastVictims: silhouette-in-radius membership, owner excluded (the shared burstVictims rule)', () => {
-    const mine: MineState = { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 };
+    const mine: MineState = { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval' };
     const hull = (id: string, x: number, y: number): Target => ({
       id,
       kind: 'hull',
@@ -369,8 +377,8 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     const { w } = minefield();
     // 45u from m1: inside m1's 48u blast, OUTSIDE the tripping hull's reach —
     // pre-2.8 this survived ("blast ≠ trigger"); the chain now takes it.
-    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0 });
-    w.mines.set('m3', { id: 'm3', ownerId: 'x', x: -20, y: 0, armedAt: 999_999 }); // someone else's, UNARMED
+    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0, kind: 'naval' });
+    w.mines.set('m3', { id: 'm3', ownerId: 'x', x: -20, y: 0, armedAt: 999_999, kind: 'naval' }); // someone else's, UNARMED
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
     b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips only m1
     w.step();
@@ -396,10 +404,10 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     const { w } = minefield();
     // m1 (0,0) → m2 at 45u → m3 at 90u (inside m2's blast, outside m1's) —
     // and an ENEMY armed mine at 70u, which amendment 18 now takes with them.
-    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0 });
-    w.mines.set('m3', { id: 'm3', ownerId: 'o', x: 0, y: -90, armedAt: 0 });
-    w.mines.set('mEnemy', { id: 'mEnemy', ownerId: 'x', x: 0, y: -70, armedAt: 0 });
-    w.mines.set('mCold', { id: 'mCold', ownerId: 'o', x: 0, y: -120, armedAt: 999_999 });
+    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0, kind: 'naval' });
+    w.mines.set('m3', { id: 'm3', ownerId: 'o', x: 0, y: -90, armedAt: 0, kind: 'naval' });
+    w.mines.set('mEnemy', { id: 'mEnemy', ownerId: 'x', x: 0, y: -70, armedAt: 0, kind: 'naval' });
+    w.mines.set('mCold', { id: 'mCold', ownerId: 'o', x: 0, y: -120, armedAt: 999_999, kind: 'naval' });
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
     b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips only m1
     w.step();
@@ -436,7 +444,7 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
 
   it('the owner’s burst detonates its ARMED mine under the click: mine gone, blast damages the nearby enemy', () => {
     const { w, a, b } = board();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 }); // armed, at the click point
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval' }); // armed, at the click point
     shootAt(w, 300);
     expect(w.mines.size).toBe(0); // detonated by the owner's burst
     // b's hull is outside the 30u gun burst but inside the mine's 48u blast:
@@ -451,7 +459,7 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
 
   it('an UNARMED own mine under the burst survives (armDelay keeps its anti-instant-bomb role)', () => {
     const { w } = board();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 999_999 }); // still arming
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 999_999, kind: 'naval' }); // still arming
     shootAt(w, 300);
     expect(w.mines.has('m1')).toBe(true); // immune while unarmed
   });
@@ -464,7 +472,7 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
   // (the arm delay) keeps its own case above.
   it('ANY burst detonates ANY armed mine — an enemy field included (amendment 16)', () => {
     const { w } = board();
-    w.mines.set('m1', { id: 'm1', ownerId: 'x', x: 300, y: 0, armedAt: 0 }); // someone ELSE's armed mine
+    w.mines.set('m1', { id: 'm1', ownerId: 'x', x: 300, y: 0, armedAt: 0, kind: 'naval' }); // someone ELSE's armed mine
     shootAt(w, 300); // a's burst covers it
     expect(w.mines.has('m1')).toBe(false);
   });
@@ -487,27 +495,19 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
   }
 
   /**
-   * THE CAPTIVE CHASSIS, SET DIRECTLY ON THE STAT ROW (Story 8.1). `captive`
-   * used to be a doctrine card on the naval mine (`mineCaptive`); catalog v3
-   * (R25) made CAPTIVE MINES its OWN equipment line whose row carries the flag
-   * at base — and that line is a STUB until Story 8.13 builds the module, so
-   * nothing in the catalog can set the flag this cycle. The BEHAVIOUR ships and
-   * still needs its pins (8.13 inherits them), so it is set where a fitted
-   * captive line would put it. The radii are taken from the real `captiveMines`
-   * row rather than restated: clampStats derives them ONCE, off the flag.
+   * THE CAPTIVE CHASSIS IS THE MINE'S OWN KIND NOW (Story 8.13, epic-8
+   * amendment 76). `captive` was a DOCTRINE FLAG on the naval stat row until
+   * this cycle — first a card (`mineCaptive`), then a base flag on the
+   * still-stubbed v3 line — and every pin below had to forge it onto the
+   * owner. With three racks fittable at once the owner can no longer say which
+   * kind a given mine is, so the kind is STAMPED AT DROP and a captive mine is
+   * laid simply by asking for one. `makeCaptive` is deleted with the flag it
+   * forged; the BEHAVIOUR it guarded is pinned unchanged below.
    */
-  function makeCaptive(o: ShipRecord): void {
-    const row = o.stats.equipment.navalMines;
-    row.captive = true;
-    const captiveRow = effectiveStats(o.cls).equipment.captiveMines;
-    row.blastRadius = captiveRow.blastRadius;
-    row.triggerRadius = captiveRow.triggerRadius;
-  }
 
   it('R2.18: an ARMED CAPTIVE mine under the owner’s own burst survives, un-fired', () => {
-    const { w, a } = lonely();
-    makeCaptive(a);
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 }); // armed, at the click point
+    const { w } = lonely();
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'captive' }); // armed, at the click point
     shootAt(w, 300);
     expect(w.mines.has('m1')).toBe(true); // NOT detonated — the burst passed over it
     expect(w.tickEvents.some((e) => e.k === 'boom' && e.id === 'm1')).toBe(false);
@@ -517,17 +517,16 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
 
   it('R2.18 is CAPTIVE-ONLY: the very same burst still detonates an ORDINARY mine', () => {
     const { w } = lonely(); // no captive chassis — everything else identical
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 });
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval' });
     shootAt(w, 300);
     expect(w.mines.has('m1')).toBe(false); // detonated exactly as it always has
     expect(w.tickEvents.some((e) => e.k === 'boom' && e.id === 'm1')).toBe(true);
   });
 
   it('R2.18: a CAPTIVE field never chains either — a whole cluster survives one burst', () => {
-    const { w, a } = lonely();
-    makeCaptive(a);
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 }); // under the click
-    w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0 }); // the chain neighbour
+    const { w } = lonely();
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'captive' }); // under the click
+    w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0, kind: 'captive' }); // the chain neighbour
     shootAt(w, 300);
     expect(w.mines.has('m1')).toBe(true);
     expect(w.mines.has('m2')).toBe(true);
@@ -535,11 +534,11 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
 
   it('CHAIN THROUGH THE BURST (Story 2.8 flip of the 1.8 no-cascade pin): the burst-detonated mine chains its own neighbour outside the shell burst', () => {
     const { w } = board();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 }); // under the click (30u burst)
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval' }); // under the click (30u burst)
     // 40u from m1: inside m1's 48u blast, OUTSIDE the 30u shell burst — the
     // burst never reaches it, but m1's detonation now cascades same-owner
     // (amendment 46; pre-2.8 this survived as "blast is damage-only").
-    w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0 });
+    w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0, kind: 'naval' });
     shootAt(w, 300);
     expect(w.mines.has('m1')).toBe(false); // burst-detonated
     expect(w.mines.has('m2')).toBe(false); // chained off m1's blast
@@ -656,5 +655,126 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
     expect({ gx: blips[0].gx, gy: blips[0].gy, w: blips[0].w, h: blips[0].h, bits: blips[0].bits }).toEqual(
       paintCoverage(ship.hullId, ship.state.x, ship.state.y, ship.state.heading, CONFIG.vision.radarCellU, w.now),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STORY 8.13 — THE LIGHT TORPEDO AND THE SUPERCAV CONSUMABLE
+// ---------------------------------------------------------------------------
+
+/** A captain holding `n` copies of `line`, aimed at `aim`, with the named slot
+ *  selected. Everything real: production catalog, production registry, the
+ *  same `applyCard` path a pick takes. */
+function carrier(w: World, id: string, line: string, n: number, aim: number, slot: number): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, []);
+  rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
+  for (let i = 0; i < n; i += 1) w.applyCard(rec, line);
+  rec.input = { seq: 1, throttle: 0, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
+  return rec;
+}
+
+const SLOT_WEAPON_1 = 2;
+const SLOT_BELT_1 = 5;
+
+describe('LIGHT TORPEDO — the twin beam sectors (catalog-v3 R18, Story 8.13)', () => {
+  // THE ARC IS THE WHOLE POINT OF THIS LINE. The heavy fires into a ±30° bow
+  // cone; the light fires into ±45° about EITHER BEAM, which leaves 90°-wide
+  // DEAD ZONES dead ahead and dead astern. Those dead zones are what a fixture
+  // written against the heavy would never catch.
+  it('fires ABEAM (90°) and is denied dead ahead (0°) and dead astern (180°) — nothing spent on the denial', () => {
+    const w = bareWorld(31);
+    const abeam = carrier(w, 'a', 'lightTorpedo', 1, Math.PI / 2, SLOT_WEAPON_1);
+    const fish = fireTorpedo(abeam, 0, mkId, 'lightTorpedo');
+    expect(fish).not.toBeNull();
+    expect(fish!.kind).toBe('torp');
+    expect(fish!.damage).toBe(CONFIG.lightTorpedo.damage);
+    // It heads toward the CLICK, not at some fixed side-mount bearing.
+    expect(fish!.vy).toBeCloseTo(CONFIG.lightTorpedo.speed, 6);
+    expect(fish!.vx).toBeCloseTo(0, 6);
+
+    for (const deadZone of [0, Math.PI]) {
+      const denied = carrier(w, `d${deadZone}`, 'lightTorpedo', 1, deadZone, SLOT_WEAPON_1);
+      expect(fireTorpedo(denied, 0, mkId, 'lightTorpedo')).toBeNull();
+      expect(denied.loadout[SLOT_WEAPON_1].state).toEqual({ n: 1, reloadMsLeft: 0 }); // pool untouched
+    }
+  });
+
+  // A STRAIGHT-RUNNER AT TIER I, A HOMER FROM TIER II (epic-8 amendment 80).
+  // The structural half matters more than the number: at rate 0 the fish
+  // carries NO `homing` tag at all, so sim/shell.ts never steers it, perception
+  // never emits a `torpU` for it, and it carries no die-distance.
+  it('tier I gets NO homing and infinite range; tier II DOES home, at the row\'s rate, with the family die-distance', () => {
+    const w = bareWorld(32);
+    const one = carrier(w, 'a', 'lightTorpedo', 1, Math.PI / 2, SLOT_WEAPON_1);
+    const t1 = fireTorpedo(one, 0, mkId, 'lightTorpedo')!;
+    expect(t1.homing).toBeUndefined();
+    expect(t1.distLeft).toBe(Number.POSITIVE_INFINITY);
+
+    const two = carrier(w, 'b', 'lightTorpedo', 2, Math.PI / 2, SLOT_WEAPON_1);
+    const rate = two.stats.equipment.lightTorpedo.homingTurnRate;
+    expect(rate).toBeCloseTo(0.125, 9); // the tier-II rung
+    const t2 = fireTorpedo(two, 0, mkId, 'lightTorpedo')!;
+    expect(t2.homing).toEqual({ turnRate: rate, acquireRange: CONFIG.torpedo.homingAcquireRange });
+    expect(t2.distLeft).toBe(CONFIG.torpedo.homingMaxRangeU);
+  });
+
+  it('tubes step with the tier: 1 at I and II, 2 at III (the +0.5 step, floored once)', () => {
+    const w = bareWorld(33);
+    expect(carrier(w, 'a', 'lightTorpedo', 1, 0, SLOT_WEAPON_1).stats.equipment.lightTorpedo.maxAmmo).toBe(1);
+    expect(carrier(w, 'b', 'lightTorpedo', 2, 0, SLOT_WEAPON_1).stats.equipment.lightTorpedo.maxAmmo).toBe(1);
+    expect(carrier(w, 'c', 'lightTorpedo', 3, 0, SLOT_WEAPON_1).stats.equipment.lightTorpedo.maxAmmo).toBe(2);
+  });
+
+  it('the LIGHT line reads ITS OWN row — the heavy\'s numbers never leak into it', () => {
+    const w = bareWorld(34);
+    const ship = carrier(w, 'a', 'lightTorpedo', 1, Math.PI / 2, SLOT_WEAPON_1);
+    const fish = fireTorpedo(ship, 0, mkId, 'lightTorpedo')!;
+    expect(fish.damage).toBe(CONFIG.lightTorpedo.damage);
+    expect(fish.damage).not.toBe(CONFIG.torpedo.damage);
+    expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(CONFIG.lightTorpedo.speed, 6);
+    expect(ship.loadout[SLOT_WEAPON_1].state).toEqual({ n: 0, reloadMsLeft: CONFIG.lightTorpedo.reloadMs });
+  });
+});
+
+describe('SUPERCAV TORPEDO — the belt\'s click-aimed consumable (epic-8 amendment 74)', () => {
+  it('a click inside the bow ±15° sector fires one fish, takes ONE copy off the stack and out of `cards`', () => {
+    const w = bareWorld(35);
+    const ship = carrier(w, 'a', 'supercavTorpedo', 2, 0, SLOT_BELT_1);
+    expect(ship.loadout[SLOT_BELT_1].equipmentId).toBe('supercavTorpedo');
+    expect(w.sinkingActivationGate(ship, SLOT_BELT_1)).toEqual({ ok: true });
+    const fish = [...w.shells.values()].find((sh) => sh.kind === 'torp')!;
+    expect(fish.damage).toBe(CONFIG.supercavTorpedo.damage);
+    expect(Math.hypot(fish.vx, fish.vy)).toBeCloseTo(CONFIG.supercavTorpedo.speed, 6);
+    // IT NEVER HOMES, whatever the captain's torpedo tiers say.
+    expect(fish.homing).toBeUndefined();
+    expect(fish.distLeft).toBe(Number.POSITIVE_INFINITY);
+    // ONE SPEND LAW: the copy leaves the stack AND the deck-held build together.
+    expect(ship.loadout[SLOT_BELT_1].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(ship.cards.filter((c) => c === 'supercavTorpedo')).toHaveLength(1);
+  });
+
+  // FAIL-FIRST REGRESSION (Story 8.13): an out-of-arc click on a belt weapon
+  // must cost NOTHING. The copy is the scarce thing — a consumable never
+  // reloads — so a denial that took one would be unrecoverable, and the arc
+  // check therefore runs BEFORE the row factory's spend.
+  it('a click OUTSIDE the bow sector is denied and spends NOTHING — no copy, no card', () => {
+    const w = bareWorld(36);
+    const ship = carrier(w, 'a', 'supercavTorpedo', 2, Math.PI / 2, SLOT_BELT_1); // 90° abeam
+    expect(w.sinkingActivationGate(ship, SLOT_BELT_1)).toEqual({ ok: false, reason: 'out-of-arc' });
+    expect([...w.shells.values()].some((sh) => sh.kind === 'torp')).toBe(false);
+    expect(ship.loadout[SLOT_BELT_1].state).toEqual({ n: 2, reloadMsLeft: 0 }); // stack untouched
+    expect(ship.cards.filter((c) => c === 'supercavTorpedo')).toHaveLength(2);
+  });
+
+  it('an empty stack answers no-ammo, and the row NEVER reloads (a stack is copies, not ammo)', () => {
+    const w = bareWorld(37);
+    const ship = carrier(w, 'a', 'supercavTorpedo', 1, 0, SLOT_BELT_1);
+    expect(w.sinkingActivationGate(ship, SLOT_BELT_1)).toEqual({ ok: true });
+    // The slot clears at zero (the World's gate owns that), so drive a
+    // hand-built empty stack through the row directly for the backstop.
+    const row = CONSUMABLES.supercavTorpedo!;
+    const empty = { equipmentId: 'supercavTorpedo' as const, state: { n: 0, reloadMsLeft: 0 } };
+    row.tick(ship, empty, 5000);
+    expect(empty.state.reloadMsLeft).toBe(0); // no reload, ever
   });
 });

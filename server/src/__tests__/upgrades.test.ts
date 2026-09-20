@@ -165,7 +165,9 @@ const TB_WITH_MINES: readonly LineId[] = [...DEFAULT_DECKS.torpedoBoat, ...new A
  *  its 40-card DEFAULT deck less every stub card — and nothing else, now that
  *  the spawn holds no carried copy back. Derived from the ruling's list rather
  *  than restated, so the number moves with the stub flags (8.7–8.15 flip them)
- *  and the PIN is the RULE — and pinned at 27 for all three today. */
+ *  and the PIN is the RULE. The three hulls DIVERGED in Story 8.13 — TB 30,
+ *  ML 29, BS 27 — which is the mechanism working: flipping a stub flag fills a
+ *  deck out with no code change (amendment 11). */
 const deckSizeFor = (hull: ShipClassId = 'torpedoBoat'): number =>
   DEFAULT_DECKS[hull].filter((id) => !isStubLine(id)).length;
 
@@ -181,11 +183,14 @@ describe('deck composition — the DEFAULT deck through the World (Story 8.2)', 
       expect(rec.deckList).toBe(DEFAULT_DECKS[hull]);
       expect(rec.deckList).toHaveLength(CONFIG.deck.size);
       expect(Object.isFrozen(rec.deckList)).toBe(true);
-      // The POOL is the list less stubs: 27 today (Story 8.8 un-stubbed HULL
-      // REPAIR, 3 copies per hull: 23 -> 26; Story 8.10 deleted the one
-      // carried copy each hull used to hold back: 26 -> 27).
+      // The POOL is the list less stubs. It was 27 for all three (Story 8.8
+      // un-stubbed HULL REPAIR, 3 copies per hull: 23 -> 26; Story 8.10
+      // deleted the one carried copy each hull held back: 26 -> 27); Story
+      // 8.13 un-stubbed LIGHT TORPEDO, CAPTIVE MINES and SUPERCAV TORPEDO, so
+      // the TB gained 3 and the ML 3 while the BS — whose missile, monitor and
+      // dazzle lines are all Story 8.14's — stayed where it was.
       expect(rec.deck.cards).toHaveLength(deckSizeFor(hull));
-      expect(deckSizeFor(hull)).toBe(27);
+      expect(deckSizeFor(hull)).toBe({ torpedoBoat: 30, mineLayer: 29, battleship: 27 }[hull]);
       const listed = new Map<string, number>();
       for (const id of rec.deckList) listed.set(id, (listed.get(id) ?? 0) + 1);
       for (const id of LINE_IDS) {
@@ -1724,8 +1729,8 @@ describe('STUB lines can never be fitted (server gate + shared replay)', () => {
     const cardsBefore = [...a.cards];
     const fitBefore = a.loadout.map((s) => s.equipmentId);
     const statsBefore = a.stats;
-    w.applyCard(a, 'lightTorpedo');
-    w.applyCard(a, 'monitor');
+    w.applyCard(a, 'missile'); // Story 8.13 built the light torpedo — these
+    w.applyCard(a, 'monitor'); // two are the stubs Story 8.14 still owes
     expect(a.cards).toEqual(cardsBefore);
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(fitBefore);
     expect(a.stats).toBe(statsBefore);
@@ -1734,7 +1739,7 @@ describe('STUB lines can never be fitted (server gate + shared replay)', () => {
   it('the respawn replay re-derives the SAME loadout even off a stub id in cards', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
-    a.cards.push('captiveMines'); // however it got there, it fits nothing
+    a.cards.push('flak'); // however it got there, it fits nothing
     const fitBefore = a.loadout.map((s) => s.equipmentId);
     w.sinkShip('a');
     for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 1; i++) w.step();
@@ -1755,20 +1760,27 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
   // used to come up holding copy 1 of each of its class weapons, which fitted
   // the weapon and made the deck deal one copy fewer of the line. Now nothing
   // is held, nothing is fitted past the universal [gun, boost], and the whole
-  // list (less its 13 stub cards) is dealt: 27 for every hull.
-  const HULLS: [ShipClassId, string[]][] = [
-    ['torpedoBoat', ['heavyTorpedo']],
-    ['battleship', ['broadside', 'starShells']],
-    ['mineLayer', ['navalMines']],
+  // list LESS ITS STUB CARDS is dealt.
+  //
+  // THE DEPTH IS PER-HULL SINCE STORY 8.13, and that is the point of listing it
+  // here: flipping a line's stub flag is what fills a deck out, with NO code
+  // change (amendment 11). 8.13 built the LIGHT TORPEDO and the CAPTIVE rack
+  // and made SUPERCAV TORPEDO a live consumable, so the Torpedo Boat went
+  // 27 -> 30 and the Mine Layer 27 -> 29; the Battleship's three lines are all
+  // still Story 8.14's, so it stays at 27 until they land.
+  const HULLS: [ShipClassId, string[], number][] = [
+    ['torpedoBoat', ['heavyTorpedo'], 30],
+    ['battleship', ['broadside', 'starShells'], 27],
+    ['mineLayer', ['navalMines'], 29],
   ];
 
-  for (const [hull, formerSeed] of HULLS) {
-    it(`${hull} spawns with NO cards, a 27-card pool, and ${JSON.stringify(formerSeed)} still in the deck`, () => {
+  for (const [hull, formerSeed, drawable] of HULLS) {
+    it(`${hull} spawns with NO cards, a ${drawable}-card pool, and ${JSON.stringify(formerSeed)} still in the deck`, () => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0, 0, hull);
       expect(a.cards).toEqual([]);
-      expect(a.deck.cards).toHaveLength(27);
-      expect(deckSizeFor(hull)).toBe(27);
+      expect(a.deck.cards).toHaveLength(drawable);
+      expect(deckSizeFor(hull)).toBe(drawable);
       // The line the hull used to hold is dealt WHOLE now — every copy the
       // list carries is in the pool, drawable like any other card.
       for (const id of formerSeed) {
@@ -1825,7 +1837,7 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
     const fresh = place(w, 'fresh', 0, 0, 0, 'battleship');
     expect(fresh.cards).toEqual([]);
     expect(fresh.mulliganed).toBe(false);
-    expect(fresh.deck.cards).toHaveLength(27);
+    expect(fresh.deck.cards).toHaveLength(27); // battleship: three lines still stubbed (8.14)
     expect(fresh.stats).toEqual(effectiveStats(fresh.cls));
     expect(fresh.loadout).toEqual(loadoutFor(fresh.stats));
   });

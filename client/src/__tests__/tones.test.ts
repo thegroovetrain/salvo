@@ -112,9 +112,33 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
     expect(fireTone('starShells')).toBe('fireStarShells'); // Story 1.7: BB flare pop
   });
 
-  it('covers all five weapon ids with no gaps', () => {
-    const ids = ['gun', 'heavyTorpedo', 'navalMines', 'broadside', 'starShells'] as const;
-    for (const id of ids) expect(TONES[fireTone(id)]).toBeDefined();
+  it('covers every firing id with no gaps', () => {
+    const ids = [
+      'gun', 'broadside', 'starShells',
+      'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo',
+      'navalMines', 'captiveMines', 'foulingMines',
+    ] as const;
+    for (const id of ids) expect(TONES[fireTone(id)], id).toBeDefined();
+  });
+
+  // STORY 8.13 — FOUR NEW FIRING IDS, NO NEW TONE (epic-8 amendments 74/76/81).
+  // Every torpedo reports with the TORPEDO cue and every mine with the MINE
+  // cue: the player hears "a fish left the tube" / "a mine is on the water",
+  // which is the fact they need, and five sounds for five lines would be new
+  // game feel nobody asked for. The a11y twin map pairs tones by MEANING, so
+  // adding a ToneId here would have made work there too.
+  it('gives the whole TORPEDO FAMILY one cue, and all THREE mine lines another', () => {
+    expect(fireTone('lightTorpedo')).toBe('fireTorp');
+    expect(fireTone('supercavTorpedo')).toBe('fireTorp'); // a BELT line, same cue
+    expect(fireTone('captiveMines')).toBe('fireMine');
+    expect(fireTone('foulingMines')).toBe('fireMine');
+  });
+
+  it('adds NO ToneId for them — the shipped five fire cues are still the five', () => {
+    const fireIds = Object.keys(TONES).filter((id) => id.startsWith('fire') && !id.startsWith('fit'));
+    expect(fireIds.sort()).toEqual(
+      ['fireBroadside', 'fireGun', 'fireMine', 'fireStarShells', 'fireTorp'],
+    );
   });
 
   it('the broadside report is heavier (lower start) than the gun crack; the flare is a distinct rise', () => {

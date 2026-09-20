@@ -78,12 +78,62 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
 describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () => {
   it('prints HEAVY TORPEDO absolutely, in EQUIPMENT_STAT_FIELDS order', () => {
     // No `cur`, no arrow: the first copy buys the WEAPON, not a step.
+    // HOMING joined the table in Story 8.13 (epic-8 amendment 80): it is a TIER
+    // STAT now, zero at tier I — which is exactly what "a straight-runner" is —
+    // and the row says so rather than the card staying silent about steering.
     expect(cardStatRows(CATALOG.heavyTorpedo, 0, TB)).toEqual([
       { label: 'RELOAD', cur: null, next: '30.0 s' },
       { label: 'ROUNDS', cur: null, next: '1' },
       { label: 'SPEED', cur: null, next: '65' },
       { label: 'DAMAGE', cur: null, next: '50' },
+      { label: 'HOMING TURN RATE', cur: null, next: '0' },
     ]);
+  });
+
+  // STORY 8.13 — the LIGHT TORPEDO's own table, off its own CONFIG block.
+  it('prints LIGHT TORPEDO off its OWN block, never the heavy fish\'s numbers', () => {
+    expect(cardStatRows(CATALOG.lightTorpedo, 0, TB)).toEqual([
+      { label: 'RELOAD', cur: null, next: '25.0 s' },
+      { label: 'ROUNDS', cur: null, next: '1' },
+      { label: 'SPEED', cur: null, next: '45' },
+      { label: 'DAMAGE', cur: null, next: '40' },
+      { label: 'HOMING TURN RATE', cur: null, next: '0' },
+    ]);
+  });
+
+  // THE CAPTIVE MINE'S DEFINING CIRCLE. It has no `blastRadius` FIELD at all
+  // (its 32 u burst is fixed and its trip ring is derived from the TIER —
+  // epic-8 amendment 84d), so the derived TRIGGER RADIUS row follows DAMAGE
+  // here instead of the blast. Without that, the one number that makes a
+  // captive mine a trap would never reach its own card.
+  it('gives CAPTIVE MINES its tier-derived TRIP RING and its FISH\'s damage', () => {
+    const rows = cardStatRows(CATALOG.captiveMines, 0, TB);
+    expect(rows).toEqual([
+      { label: 'RELOAD', cur: null, next: '20.0 s' },
+      { label: 'ROUNDS', cur: null, next: '1' },
+      { label: 'DAMAGE', cur: null, next: '55' },
+      { label: 'TRIGGER RADIUS', cur: null, next: '144' },
+      { label: 'HOMING TURN RATE', cur: null, next: '0' },
+    ]);
+    // No blast circle is printed, because the fish's 32 u burst is not a circle
+    // around the mine and the line never widens it.
+    expect(rows.map((r) => r.label)).not.toContain('BLAST RADIUS');
+  });
+
+  // FOULING MINES — the one line whose table plus its derived ring overflows
+  // the five-row grid, so the face drops RELOAD (every TIER card of the line
+  // prints it as a live diff) and keeps SLOW, which is the whole point of the
+  // weapon. The factor prints as a PERCENTAGE OF SPEED, never as a bare 0.75.
+  it('gives FOULING MINES the mine rows plus its SLOW, as a percentage', () => {
+    const rows = cardStatRows(CATALOG.foulingMines, 0, TB);
+    expect(rows).toEqual([
+      { label: 'ROUNDS', cur: null, next: '2' },
+      { label: 'DAMAGE', cur: null, next: '10' },
+      { label: 'BLAST RADIUS', cur: null, next: '72' },
+      { label: 'TRIGGER RADIUS', cur: null, next: '48' },
+      { label: 'SLOW', cur: null, next: '75%' },
+    ]);
+    expect(rows).toHaveLength(CARD_STAT_ROWS);
   });
 
   it('gives NAVAL MINES its derived TRIGGER RADIUS as its own row, after the blast', () => {
@@ -161,16 +211,31 @@ describe('cardStatRows — HULL REPAIR, the first live consumable', () => {
 
 describe('cardStatRows — the lines that legitimately print NOTHING', () => {
   it('gives an ADD-ON no rows: a verb moves no number', () => {
-    expect(cardStatRows(CATALOG.acousticHoming, 0, TB)).toEqual([]);
-    expect(cardStatRows(CATALOG.foulingMines, 0, TB)).toEqual([]);
+    // ACOUSTIC HOMING and the FOULING MINES add-on were DELETED in Story 8.13
+    // (epic-8 amendments 80/81) — both of those ids now print real rows or none
+    // at all for entirely different reasons, so the claim is made on the three
+    // add-ons that survive.
+    expect(cardStatRows(CATALOG.heatSeeking, 0, TB)).toEqual([]);
     expect(cardStatRows(CATALOG.dazzleShells, 0, TB)).toEqual([]);
     expect(cardStatRows(CATALOG.phosphorShells, 0, TB)).toEqual([]);
   });
 
-  it('gives a STILL-STUB CONSUMABLE no rows (four of the five, after 8.8)', () => {
-    for (const id of ['shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy'] as const) {
+  it('gives a STILL-STUB CONSUMABLE no rows (DEPTH CHARGE included)', () => {
+    for (const id of ['shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge'] as const) {
       expect(cardStatRows(CATALOG[id], 0, TB), id).toEqual([]);
     }
+  });
+
+  // THE SECOND LIVE CONSUMABLE (Story 8.13, epic-8 amendment 74) — and the
+  // first that is a weapon. Two absolute rows, both straight off CONFIG, and no
+  // reload row because a consumable never reloads.
+  it('gives SUPERCAV TORPEDO its two CONFIG rows and no reload', () => {
+    const rows = cardStatRows(CATALOG.supercavTorpedo, 0, TB);
+    expect(rows).toEqual([
+      { label: 'SPEED', cur: null, next: String(CONFIG.supercavTorpedo.speed) },
+      { label: 'DAMAGE', cur: null, next: String(CONFIG.supercavTorpedo.damage) },
+    ]);
+    expect(rows.map((r) => r.label)).not.toContain('RELOAD');
   });
 
   it('gives a STUB line no rows — there is no built module to read', () => {

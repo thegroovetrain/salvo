@@ -62,12 +62,18 @@ describe('coverage — every catalog line has a name and a kind word', () => {
     expect(boonName('armor')).toBe('ARMOR');
     expect(boonName('radarSweep')).toBe('RADAR SWEEP');
     expect(boonName('deckGunTurret')).toBe('DECK GUN TURRET');
-    expect(boonName('supercavTorpedo')).toBe('SUPERCAVITATING TORPEDO');
+    // `SUPERCAV TORPEDO`, not the sheet's `SUPERCAVITATING TORPEDO` — the ONE
+    // name Eric shortened (2026-09-19, epic-8 amendment 75) because the long
+    // form never fitted the refit card's name box. See refitCardFit.test.ts:
+    // the fit exemption it used to carry is retired with it.
+    expect(boonName('supercavTorpedo')).toBe('SUPERCAV TORPEDO');
+    expect(boonName('depthCharge')).toBe('DEPTH CHARGE');
+    expect(boonName('foulingMines')).toBe('FOULING MINES');
     expect(boonName('missile')).toBe('HORIZONTAL MISSILE');
     expect(boonName('flak')).toBe('FLAK GUN');
     expect(boonName('broadside')).toBe('BROADSIDE GUN');
     expect(boonName('decoyBuoy')).toBe('DECOY BUOY');
-    expect(boonName('acousticHoming')).toBe('ACOUSTIC HOMING');
+    expect(boonName('phosphorShells')).toBe('PHOSPHOR SHELLS');
   });
 
   it('names the LINE, not the rung — the tier numerals carry the position', () => {
@@ -109,7 +115,11 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   // the lines with no built mechanism, and the verb cards, stay silent.
   it('prints a live RELOAD diff for every LIVE equipment line', () => {
     const live = SILENT_CARDS.filter((l) => l.kind === 'equipment' && l.stub !== true);
-    expect(live.map((l) => l.id)).toEqual(['heavyTorpedo', 'navalMines', 'broadside', 'starShells']);
+    // SEVEN since Story 8.13 flipped three stubs and moved FOULING MINES in
+    // from the add-on space (epic-8 amendments 76/77/81).
+    expect(live.map((l) => l.id)).toEqual([
+      'lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'broadside', 'starShells', 'foulingMines',
+    ]);
     for (const line of live) {
       expect(boonDescription(line, TB), line.id).toMatch(/^Reload: \d+\.\d s → \d+\.\d s\.$/);
     }
@@ -118,7 +128,9 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   it('prints NOTHING for an add-on, a consumable or an unbuilt weapon', () => {
     const silent = SILENT_CARDS.filter((l) => l.kind !== 'equipment' || l.stub === true);
     expect(SILENT_CARDS).toHaveLength(21);
-    expect(silent).toHaveLength(17);
+    // 17 until Story 8.13 made LIGHT TORPEDO, CAPTIVE MINES and FOULING MINES
+    // live equipment lines that print their own reload diff.
+    expect(silent).toHaveLength(14);
     for (const line of silent) expect(boonDescription(line, TB), line.id).toBe('');
   });
 
@@ -137,12 +149,14 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   // shape with no mechanism behind them. They are excluded from every deck, so
   // they can never be offered — but the card view must still render them
   // FAIL-OPEN rather than throwing or going blank, because the catalog is wire
-  // contract and a stale client could see one. THIRTEEN at 8.7; TWELVE since
-  // Story 8.8 flipped `hullRepair`'s stub, which is the number to move as each
-  // content story lands.
+  // contract and a stale client could see one. THIRTEEN at 8.7; TWELVE once
+  // Story 8.8 flipped `hullRepair`'s stub; TEN since Story 8.13 flipped LIGHT
+  // TORPEDO, CAPTIVE MINES and the SUPERCAV TORPEDO and added the stub DEPTH
+  // CHARGE (epic-8 amendments 74/83). It is the number to move as each content
+  // story lands.
   it('renders every STUB line fail-open: a name, a kind word, no explanation', () => {
     const stubs = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.stub === true);
-    expect(stubs).toHaveLength(12);
+    expect(stubs).toHaveLength(10);
     for (const line of stubs) {
       expect(boonName(line.id), line.id).toBe(boonName(line.id).toUpperCase());
       expect(boonKindLabel(line.kind), line.id).not.toBe('');
@@ -220,10 +234,16 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
    *  agent who builds one has to delete its entry. */
   const NO_EXPLANATION: readonly string[] = [
     'turning', 'deckGun', // new in v3: no v2 line whose text could be carried over
-    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'missile', 'machineGun', 'flak', 'monitor',
+    // LIVE AS OF STORY 8.13 AND STILL UNEXPLAINED, deliberately: their
+    // mechanisms exist but their words are Eric's to write (the
+    // no-in-game-copy-unasked rule), and FOULING MINES' add-on text died with
+    // the card — it described a verb bolted onto the naval mine, which no
+    // longer fouls at all.
+    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'foulingMines',
+    'missile', 'machineGun', 'flak', 'monitor',
     // `hullRepair` left this list in Story 8.8 — the first consumable with a
     // mechanism to explain.
-    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'heatSeeking',
+    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge', 'heatSeeking',
   ];
 
   it('writes a real explanation for every line whose mechanism exists', () => {
@@ -243,8 +263,9 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
   });
 
   it('explains the behaviour change of every BUILT verb and what each weapon is', () => {
-    expect(boonTooltipText('acousticHoming')).toContain('steers');
-    expect(boonTooltipText('foulingMines')).toContain('fouled');
+    // ACOUSTIC HOMING and the FOULING MINES add-on are DELETED (Story 8.13,
+    // epic-8 amendments 80/81), so there is no verb text left to check for
+    // either: homing is bought by TIER now and fouling is its own line.
     expect(boonTooltipText('dazzleShells')).toContain('dazzle');
     expect(boonTooltipText('phosphorShells')).toContain('burns');
     expect(boonTooltipText('broadside')).toContain('open slot');
@@ -273,14 +294,17 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
     expect(boonTooltipText('dazzleShells')).toContain('stacks with PHOSPHOR SHELLS');
   });
 
-  // FOULING MINES is a PURE behaviour verb since cycle 95 deleted its damage
-  // penalty — the shipped v1 text still claimed "Mines hit softer", a lie on the
-  // card. It states the real slow now.
-  it('FOULING MINES states the real slow and claims no damage penalty', () => {
-    const text = boonTooltipText('foulingMines');
-    expect(text).toContain('25%');
-    expect(text).toContain('5 seconds');
-    expect(text).not.toMatch(/softer|less damage/i);
+  // FOULING MINES WAS AN ADD-ON until Story 8.13 (epic-8 amendment 81), and its
+  // explanation described exactly that: a verb bolted onto the naval mine's
+  // blast. It is its own tiered LINE now and the naval mine NO LONGER FOULS, so
+  // the old text would be a lie on two counts and is deleted rather than
+  // reworded. The line has no explanation at all until Eric writes one, which
+  // is why its id sits in NO_EXPLANATION above.
+  it('no explanation claims the NAVAL mine fouls anything', () => {
+    for (const id of LINE_IDS) {
+      expect(boonTooltipText(id).toLowerCase(), id).not.toContain('screws fouled');
+    }
+    expect(boonTooltipText('navalMines').toLowerCase()).not.toContain('slower');
   });
 });
 
@@ -314,8 +338,8 @@ describe('cardTierLabel — the step, not the position', () => {
   it('shows NO ladder at all for a consumable or an add-on', () => {
     expect(cardTierLabel(CATALOG.hullRepair, 0)).toBeNull();
     expect(cardTierLabel(CATALOG.decoyBuoy, 0)).toBeNull();
-    expect(cardTierLabel(CATALOG.acousticHoming, 0)).toBeNull();
-    expect(cardTierLabel(CATALOG.foulingMines, 0)).toBeNull();
+    expect(cardTierLabel(CATALOG.heatSeeking, 0)).toBeNull();
+    expect(cardTierLabel(CATALOG.dazzleShells, 0)).toBeNull();
   });
 
   it('carries the same step as NUMBERS, so the DOM can tint each numeral', () => {
@@ -412,7 +436,7 @@ describe('the fitted toast', () => {
     expect(boonFitToastLine('decoyBuoy', 2, 'consumable')).toBe('◆ DECOY BUOY STOCKED');
     expect(boonFitToastLine('reload', 1, 'ladder')).toBe('◆ RELOAD FITTED');
     expect(boonFitToastLine('heavyTorpedo', 1, 'equipment')).toBe('◆ HEAVY TORPEDO FITTED');
-    expect(boonFitToastLine('acousticHoming', 1, 'addon')).toBe('◆ ACOUSTIC HOMING FITTED');
+    expect(boonFitToastLine('dazzleShells', 1, 'addon')).toBe('◆ DAZZLE SHELLS FITTED');
   });
 
   it('keeps the pre-8.7 default when no kind is passed or the kind is unknown', () => {
@@ -446,11 +470,14 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
   // too long to ride inside a panel whose own fit pin trims accrued rows as they
   // grow. So the holding line is its own short table.
   it('is its OWN short line for a verb — not the blank face, not the long explanation', () => {
-    const holding = boonEffectLine('acousticHoming', bare);
+    // PHOSPHOR SHELLS stands in for ACOUSTIC HOMING here: that card was deleted
+    // in Story 8.13 (epic-8 amendment 80 — homing became a tier stat), and the
+    // three surviving add-ons make exactly the same claim about the split.
+    const holding = boonEffectLine('phosphorShells', bare);
     expect(holding.length).toBeGreaterThan(0);
-    expect(holding).not.toBe(boonTooltipText('acousticHoming'));
-    expect(holding.length).toBeLessThan(boonTooltipText('acousticHoming').length);
-    expect(boonDescription(CATALOG.acousticHoming, TB)).toBe('');
+    expect(holding).not.toBe(boonTooltipText('phosphorShells'));
+    expect(holding.length).toBeLessThan(boonTooltipText('phosphorShells').length);
+    expect(boonDescription(CATALOG.phosphorShells, TB)).toBe('');
   });
 
   it('fails open to \'\' for a line with neither a holding line nor a headline stat', () => {

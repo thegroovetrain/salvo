@@ -439,7 +439,7 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // the label itself is still supported and pinned in boonCopy.test.ts, and the
   // DOM row below still renders one from a hand-built card.
   it('carries the KIND word, neutral and unconditional, on every card', () => {
-    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret', 'captiveMines', 'acousticHoming'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret', 'captiveMines', 'dazzleShells'] }), false, false, false);
     expect(view?.options.map((o) => o.kind)).toEqual(['UPGRADE', 'UPGRADE', 'WEAPON', 'ADD-ON']);
   });
 
@@ -453,7 +453,7 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   });
 
   it('draws NO ladder for a consumable or an add-on — they have no rungs', () => {
-    const view = offerView(ownShip({ offer: ['hullRepair', 'acousticHoming', 'radarSweep'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['hullRepair', 'dazzleShells', 'radarSweep'] }), false, false, false);
     expect(view?.options[0].tier).toBeNull();
     expect(view?.options[0].tierStep).toBeNull();
     expect(view?.options[1].tier).toBeNull();
@@ -624,7 +624,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       options: [
         { ...cardsOf(['radarSweep'])[0], stack: 2, tier: 'II → III', tierStep: { cur: 2, next: 3 } },
         { ...cardsOf(['hullRepair'])[0] },   // consumable: no ladder at all
-        { ...cardsOf(['acousticHoming'])[0] }, // add-on: likewise
+        { ...cardsOf(['dazzleShells'])[0] }, // add-on: likewise
       ],
     }));
     const [stacked, consumable, addon] = cards();
@@ -1407,13 +1407,13 @@ describe('the greyed card — a refusal stated before the press', () => {
     expect(cardGreyed(CATALOG.decoyBuoy, ROOM_LEFT)).toBe(false);
     // No other KIND can ever be refused: a ladder lands on the hull, a weapon
     // on a weapon slot, an add-on on a verb.
-    for (const id of ['radarSweep', 'heavyTorpedo', 'acousticHoming']) {
+    for (const id of ['radarSweep', 'heavyTorpedo', 'dazzleShells']) {
       expect(cardGreyed(CATALOG[id], FULL_BELT), id).toBe(false);
     }
   });
 
   it('carries the flag onto the OfferCard, through the same shared predicate', () => {
-    const you = ownShip({ offer: ['decoyBuoy', 'hullRepair', 'radarSweep', 'acousticHoming'] });
+    const you = ownShip({ offer: ['decoyBuoy', 'hullRepair', 'radarSweep', 'dazzleShells'] });
     const view = offerView(you, false, false, false, FULL_BELT);
     expect(view?.options.map((o) => o.greyed)).toEqual([true, false, false, false]);
     // ...and with room on the belt nothing is greyed.

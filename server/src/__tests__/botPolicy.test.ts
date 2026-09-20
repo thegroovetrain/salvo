@@ -683,9 +683,9 @@ describe('ai/spending — the card policy', () => {
     const raider = profileOf('raider');
     const hurt = raider.healHpFrac * 100 - 1;
     expect(chooseSpend(raider, spendState({ hp: hurt, offer: null }))).toBeNull();
-    expect(chooseSpend(raider, spendState({ hp: hurt, offer: ['acousticHoming'] }))).toBe(0);
+    expect(chooseSpend(raider, spendState({ hp: hurt, offer: ['heavyTorpedo'] }))).toBe(0);
     // ...the same pick a healthy hull makes out of the same hand.
-    expect(chooseSpend(raider, spendState({ hp: 100, offer: ['acousticHoming'] }))).toBe(0);
+    expect(chooseSpend(raider, spendState({ hp: 100, offer: ['heavyTorpedo'] }))).toBe(0);
     expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['deckGunBarrel'] }))).toBe(0);
   });
 
@@ -719,8 +719,11 @@ describe('ai/spending — the card policy', () => {
   });
 
   it('picks the profile\'s highest-weighted line out of the offered hand', () => {
-    const offer = ['deckGunBarrel', 'acousticHoming', 'armor'];
-    expect(chooseSpend(profileOf('raider'), spendState({ offer }))).toBe(1); // torpedoHoming 3.0
+    // RE-KEYED IN STORY 8.13: `acousticHoming` is DELETED (amendment 80 — homing
+    // is a tier stat on both torpedo lines now), so the hand's torpedo slot is
+    // the HEAVY line, which raider's re-keyed `torpedoTube` 2.5 speaks for.
+    const offer = ['deckGunBarrel', 'heavyTorpedo', 'armor'];
+    expect(chooseSpend(profileOf('raider'), spendState({ offer }))).toBe(1); // torpedoTube 2.5
     expect(chooseSpend(profileOf('bulwark'), spendState({ offer }))).toBe(2); // shipHull 3.0
   });
 
@@ -834,12 +837,19 @@ describe('ai/spending — the card policy', () => {
     // staying alive should buy. Restored as a genuinely reachable want,
     // WITHOUT displacing trapper's 2.4 signature.
     //
-    // STORY 8.1 re-keys the ids only: `mineCaptive` is now the `captiveMines`
-    // LINE and `minePropFouling` the `foulingMines` line. Every NUMBER below
-    // is the shipped one, carried through the alias table unchanged.
+    // STORY 8.13 RE-CUT HOW FOULING IS PRICED. `minePropFouling` was the v2
+    // weight for the PROP FOULING ADD-ON, and Story 8.1 aliased it onto the
+    // `foulingMines` line. Amendment 81 deleted the add-on and made FOULING
+    // MINES a WEAPON LINE, so pricing a whole rack by what a profile thought
+    // of a modifier is no longer honest: the alias is retired to
+    // HOMELESS_V2_LINES and the line is priced by the `mines` CATEGORY, like
+    // the other two racks. Story 8.18 owns the real v3 retune.
+    //
+    // WHAT SURVIVES IS THE RULING (cycle 111): trapper still wants mines more
+    // than forager does, and forager still genuinely wants CAPTIVE.
     const foragerFoul = boonWeightFor('forager', 'foulingMines');
     const trapperFoul = boonWeightFor('trapper', 'foulingMines');
-    expect(trapperFoul).toBeGreaterThan(foragerFoul);
+    expect(trapperFoul).toBeGreaterThan(foragerFoul); // 2.6 (cat) vs 1.8 (cat)
 
     // Forager WANTS captive again: above its mines category base and its
     // fouling want, below its gun ladder (still a gun-led fleet-clearer).
@@ -848,14 +858,18 @@ describe('ai/spending — the card policy', () => {
     expect(foragerCaptive).toBeGreaterThan(foragerFoul);
     expect(foragerCaptive).toBeGreaterThan(1.8); // its own `mines` category base
     expect(foragerCaptive).toBeLessThan(boonWeightFor('forager', 'deckGunBarrel'));
-    // Trapper's want stays the stronger one, and fouling stays its signature.
+    // Trapper's want stays the stronger one in absolute terms...
     expect(boonWeightFor('trapper', 'captiveMines')).toBeGreaterThan(2);
     expect(boonWeightFor('trapper', 'captiveMines')).toBeGreaterThan(foragerCaptive);
-    expect(boonWeightFor('trapper', 'captiveMines')).toBeLessThan(trapperFoul);
+    // ...and its whole mines family now sits at its 2.6 category base, captive
+    // included (its own `mineCaptive` 2.4 override is BELOW that base, and the
+    // scorer takes the strongest thing the profile said about the line).
+    expect(boonWeightFor('trapper', 'captiveMines')).toBe(trapperFoul);
 
     // The pick moves with the ruling: offered captive against a merely
-    // category-weighted mine card, forager TAKES the captive line; trapper
-    // still leads with its fouling signature.
+    // category-weighted mine card, forager TAKES the captive line; for trapper
+    // the two tie at its mines base and offer index settles it (ties keep the
+    // incumbent — deterministic, rng-free).
     const offer = ['foulingMines', 'captiveMines'];
     expect(chooseSpend(profileOf('trapper'), { bankedLevels: 1, offer, cards: [], hp: 100, maxHp: 100 })).toBe(0);
     expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer, cards: [], hp: 100, maxHp: 100 })).toBe(1);
@@ -908,7 +922,7 @@ describe('ai/spending — the card policy', () => {
     expect(boonWeightFor('raider', 'broadside')).toBeGreaterThan(0);
     expect(chooseSpend(profileOf('raider'), spendState({ offer: ['notACard', 'broadside'] }))).toBe(1);
     // And a genuinely wanted card still outranks a settled pickup.
-    expect(chooseSpend(profileOf('raider'), spendState({ offer: ['broadside', 'acousticHoming'] }))).toBe(1);
+    expect(chooseSpend(profileOf('raider'), spendState({ offer: ['broadside', 'heavyTorpedo'] }))).toBe(1);
   });
 
   // RETIRED at the cycle-95 merge: "the mineDamage x minePropFouling PICK-ORDER
@@ -1039,7 +1053,7 @@ describe('ai/spending — random mode (wave 4)', () => {
   const TRAP = { float: trapRng, int: trapRng, pick: trapRng } as unknown as Parameters<typeof chooseSpend>[3];
 
   it('the WEIGHTED path never draws, and is byte-identical with or without an rng in hand', () => {
-    const offer = ['deckGunBarrel', 'acousticHoming', 'armor'];
+    const offer = ['deckGunBarrel', 'heavyTorpedo', 'armor'];
     const bare = chooseSpend(profileOf('raider'), spendState({ offer }));
     // Handing the weighted path a trap rng must neither change the answer nor
     // trigger a single draw — the shipped path is pure and rng-free.
@@ -1048,7 +1062,7 @@ describe('ai/spending — random mode (wave 4)', () => {
 
   it('a random profile picks UNIFORMLY over the offer off its own stream', () => {
     const row = profileOf('randomMineLayer');
-    const offer = ['deckGunBarrel', 'acousticHoming', 'armor', 'intelRange'];
+    const offer = ['deckGunBarrel', 'heavyTorpedo', 'armor', 'intelRange'];
     // The policy must be exactly one rng.int(0, offer.length - 1) draw: replay
     // the same seed independently and demand index equality, draw for draw.
     const rng = mulberry32(99);

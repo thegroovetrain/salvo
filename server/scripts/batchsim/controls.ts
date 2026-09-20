@@ -142,9 +142,13 @@ import { pickSpendChoice } from './spendPolicy.js';
  * control's economy spends real levels on cards that never arm a weapon slot.
  *
  * Today: armor 4 · speed 4 · turning 4 · radarSweep 5 · reload 5 · deckGun 4 ·
- * deckGunTurret 1 · deckGunBarrel 2 · hullRepair 5 · shieldBlock 5 ·
- * smokeScreen 1 = 40 (the trim lands one card into SMOKE SCREEN; chaff is
- * cut). Recomputed from the catalog, so a stub flip or a cap change moves it.
+ * deckGunTurret 1 · deckGunBarrel 2 · supercavTorpedo 5 · hullRepair 5 ·
+ * shieldBlock 1 = 40 (the trim lands one card into SHIELD BLOCK; smoke and
+ * chaff are cut). Recomputed from the catalog, so a stub flip or a cap change
+ * moves it — and Story 8.13 moved it: SUPERCAV TORPEDO became a CONSUMABLE
+ * (epic-8 amendment 74) and joined `DEFAULT_OWNED`, so five of its copies now
+ * sit here. IT IS STILL ZERO EQUIPMENT LINES, which is the whole contract: a
+ * consumable arms no weapon SLOT, and the pacifist never presses its belt.
  */
 export const PACIFIST_DECK: readonly LineId[] = Object.freeze(
   LINE_IDS.flatMap((id) => {

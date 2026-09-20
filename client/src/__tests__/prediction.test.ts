@@ -614,11 +614,20 @@ describe('Predictor speed boost (Story 1.6, re-cut proportional in Story 8.9)', 
 // Parity is sacred: these replay the exact reference server steps, including a
 // slow window that OPENS and EXPIRES mid-run under lagged acks (so every replay
 // re-makes the per-tick slow decision from each tick's OWN recorded time).
+//
+// STORY 8.13 MOVED THE NUMBERS, NOT THE MECHANISM (epic-8 amendment 81): the
+// naval mine no longer fouls at all, and FOULING MINES is its own tiered line,
+// so the factor and the duration live in `CONFIG.foulingMines`. The predictor
+// uses the line's BASE factor because the wire carries only the WINDOW
+// (`you.slowedUntil`) — the tiered factor is the ATTACKER's, and a per-victim
+// factor on `OwnShip` would be a wire change. These pins therefore hold the
+// predictor against a TIER-I fouling mine, which is the case it can predict
+// exactly.
 
 describe('Predictor prop-fouling slow (Story 2.8)', () => {
   const T0 = 500_000;
   const tickT = (seq: number): number => T0 + seq * CONFIG.tick.simDtMs;
-  const FOUL = CONFIG.mine.foulFactor;
+  const FOUL = CONFIG.foulingMines.slowFactor;
 
   /** Reference server tick — world.stepShips' exact composition. */
   function serverSlowStep(s: ShipState, inp: InputMsg, t: number, boostUntil: number, slowedUntil: number): void {
@@ -649,10 +658,10 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
     const history: ShipState[] = [{ ...spawn }];
     const p = new Predictor({ radius: MAP_R, islands: [] });
     // The mine goes off at T0: the first frame already carries the window.
-    const slowedUntil = T0 + CONFIG.mine.foulDurationMs;
+    const slowedUntil = T0 + CONFIG.foulingMines.slowDurationMs;
     p.onServerState({ ...kin(spawn), slowedUntil }, 0);
 
-    const expirySeq = CONFIG.mine.foulDurationMs / CONFIG.tick.simDtMs;
+    const expirySeq = CONFIG.foulingMines.slowDurationMs / CONFIG.tick.simDtMs;
     let trough = Infinity;
     const total = expirySeq + 40; // fouled window + 2s of recovery
     for (let seq = 1; seq <= total; seq++) {
@@ -708,6 +717,31 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
       p.localTick(inp, tickT(seq));
       serverStep(server, inp); // un-fouled reference
     }
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+
+  // STORY 8.13 — WHERE THE FACTOR NOW LIVES, AND WHAT THE WIRE DOES NOT SAY.
+  // FOULING MINES is its own tiered line (epic-8 amendment 81) and the naval
+  // mine no longer fouls at all, so the factor moved out of `CONFIG.mine`. The
+  // predictor reads the LINE'S BASE, because `you` carries the WINDOW and not
+  // the attacker's tiered factor; the reconcile covers the difference, and an
+  // exact prediction would need a per-victim factor beside `slowedUntil`.
+  it('folds the FOULING line\'s base factor — the naval mine has none to give', () => {
+    expect(CONFIG.foulingMines.slowFactor).toBe(0.75);
+    expect(CONFIG.foulingMines.slowDurationMs).toBe(5000);
+    expect(CONFIG.mine).not.toHaveProperty('foulFactor');
+    expect(CONFIG.mine).not.toHaveProperty('foulDurationMs');
+    // ...and it really is the number the predictor caps with: one fouled tick
+    // against the shared fold at that factor, to the millimetre.
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const slowedUntil = T0 + CONFIG.foulingMines.slowDurationMs;
+    p.onServerState({ ...kin(spawn), slowedUntil }, 0);
+    const server: ShipState = { ...spawn };
+    const inp = input(1, 1, 0);
+    p.localTick(inp, tickT(1));
+    serverSlowStep(server, inp, tickT(1), 0, slowedUntil);
     expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
     expect(p.predicted.x).toBeCloseTo(server.x, 9);
   });

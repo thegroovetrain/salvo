@@ -1474,12 +1474,28 @@ function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' {
  */
 function handleTorp(e: BallisticEvent, deps: RoomBindingDeps): void {
   const near = nearOwnShip(e.x, e.y, deps);
-  const own: OwnFire = near && deps.ownFireWeapon() === 'heavyTorpedo' ? 'heavyTorpedo' : null;
+  const own = near ? torpClaim(deps) : null;
   // A torpedo's `own` IS a genuine claim (there is no fallback on this path —
   // an unclaimed fish renders the generic straight-runner), so it doubles as
   // the burst-ring authority for a COMMAND DETONATION fish.
   deps.projectiles.onShell(e, own, own);
   if (near) deps.audio.play(fireTone('heavyTorpedo'));
+}
+
+/**
+ * Pure-ish: the GENUINE claim behind an own-looking TORPEDO reveal, or null —
+ * the `shellClaim` sibling, and it exists for the same reason: the latched
+ * click intent counts only when it agrees with the reveal's KIND.
+ *
+ * THREE IDS RIDE THE `torp` WIRE KIND since Story 8.13 — the LIGHT and HEAVY
+ * lines and the belt's SUPERCAV TORPEDO (epic-8 amendments 74/80) — and a
+ * standing GUN or MINE claim must never dress a fish. The claim CONSUMES either
+ * way (see `OwnFireLatch.claim`): the round it describes is spoken for.
+ */
+function torpClaim(deps: RoomBindingDeps): OwnFire {
+  const fired = deps.ownFireWeapon();
+  if (fired === 'lightTorpedo' || fired === 'heavyTorpedo' || fired === 'supercavTorpedo') return fired;
+  return null;
 }
 
 /** True iff (x,y) is within one hull length of the own ship specifically. */

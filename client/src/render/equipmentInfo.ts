@@ -66,10 +66,15 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   broadside: 'Broadside Barrage',
   starShells: 'Star Shells',
   radarBuoy: 'Radar Buoy',
-  // --- catalog-v3 §1 names for the ids no module answers to yet --------------
+  // --- catalog-v3 §1 names ---------------------------------------------------
+  // THE SUPERCAV TORPEDO LEFT THIS TABLE in Story 8.13: it is a CONSUMABLE now
+  // (epic-8 amendment 74), so its name lives where every consumable's does —
+  // the copy layer's `LINE_NAMES` (ui/boonCopy.ts), which is what a belt slot's
+  // tooltip reads. FOULING MINES arrived from the add-on space the same day
+  // (amendment 81) and takes its sheet name.
   lightTorpedo: 'Light Torpedo',
-  supercavTorpedo: 'Supercavitating Torpedo',
   captiveMines: 'Captive Mines',
+  foulingMines: 'Fouling Mines',
   missile: 'Horizontal Missile',
   machineGun: 'Machine Gun',
   flak: 'Flak Gun',
@@ -86,6 +91,15 @@ export const EQUIPMENT_DESCRIPTION: Partial<Record<EquipmentId, string>> = {
   gun: 'The deck gun you always have. It flies to the clicked point and bursts there, hitting every hull inside the blast.',
   heavyTorpedo: 'A bow-launched fish that runs flat and straight until it finds a hull. Slow to reload, brutal on contact.',
   navalMines: 'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then takes the whole blast out of whoever found it.',
+  // THE CAPTIVE MINE'S LINE (Story 7-5 wave 2, R2.12; its own id since Story
+  // 8.13). The naval line ends "takes the whole blast out of whoever found it",
+  // which is a straight statement of contact detonation — the ONE thing this
+  // line does not do. A captive mine never detonates on contact; it launches a
+  // torpedo and is expended. The rest of the sentence is unchanged,
+  // deliberately: placement, the arming wait and the silence are all still
+  // true, and rewording settled copy that a ruling did not touch is exactly
+  // what the naming law forbids.
+  captiveMines: 'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then spends itself firing one torpedo at it.',
   boost: 'Opens the throttle past its stops for a short burst of extra speed. Nothing else changes — you just leave sooner.',
   broadside: 'Every turret on the aimed beam fires at once. The shells fan out to either side of the point you clicked, every one of them running to that same range.',
   starShells: 'An illumination round. Where it bursts, a wide circle of ocean lights up for everyone — including the hulls in it.',
@@ -93,25 +107,21 @@ export const EQUIPMENT_DESCRIPTION: Partial<Record<EquipmentId, string>> = {
 };
 
 /**
- * THE MINE'S TOOLTIP UNDER CAPTIVE MINES (Story 7-5 wave 2, R2.12). The shipped
- * line ends "takes the whole blast out of whoever found it", which is a straight
- * statement of contact detonation — the ONE thing this verb deletes. A captive
- * mine never detonates on contact; it launches a torpedo and is expended. The
- * rest of the sentence is unchanged, deliberately: placement, the arming wait
- * and the silence are all still true, and rewording settled copy that a ruling
- * did not touch is exactly what the naming law forbids.
+ * The tooltip description for a fitted piece of equipment.
+ *
+ * IT NO LONGER FORKS ON A VERB (Story 8.13). Until now the MINE's line was
+ * rewritten in place when the CAPTIVE MINES card was held, because one id —
+ * `navalMines` — could be either weapon. Captive mines are their own LINE now
+ * (epic-8 amendments 76/81), so the two descriptions sit under their own ids in
+ * the table above and this is a plain lookup again; the stats argument it took
+ * only to read that verb is gone with it.
+ *
+ * LIGHT TORPEDO and FOULING MINES have NO entry, and that silence is
+ * deliberate: their mechanisms are live now, but their copy is not ours to
+ * write (the no-in-game-copy-unasked rule — Eric authors the words). They fail
+ * open to '' exactly as the unbuilt ids do.
  */
-const CAPTIVE_MINE_DESCRIPTION =
-  'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then spends itself firing one torpedo at it.';
-
-/**
- * The tooltip description for a fitted piece of equipment, against the OWNER's
- * effective stats — the one path, so a verb that changes what a weapon DOES
- * cannot leave the tooltip describing the weapon it replaced. Only the mine
- * forks today (CAPTIVE MINES); every other id reads its static line.
- */
-export function equipmentDescription(stats: EffectiveStats, id: EquipmentId): string {
-  if (id === 'navalMines' && stats.equipment.navalMines.captive) return CAPTIVE_MINE_DESCRIPTION;
+export function equipmentDescription(id: EquipmentId): string {
   return EQUIPMENT_DESCRIPTION[id] ?? '';
 }
 
@@ -378,9 +388,16 @@ export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number 
     // The widened ids carry real rows (catalog-v3 §4 base numbers, sim/stats.ts
     // STUB_ROWS) even though no module fires them yet, so the table stays TOTAL
     // and reads the same one place every other number comes from.
+    //
+    // LIGHT TORPEDO, CAPTIVE MINES and FOULING MINES are LIVE lines as of Story
+    // 8.13 and read the same way they always did. A CAPTIVE mine's number is its
+    // FISH's warhead (the mine itself never detonates), which is exactly what
+    // its row's `damage` is. THE SUPERCAV TORPEDO LEFT this table with
+    // `EquipmentId`: a consumable has no stats row at all, and its damage is
+    // read straight off `CONFIG.supercavTorpedo` by the card that prints it.
     lightTorpedo: e.lightTorpedo.damage,
-    supercavTorpedo: e.supercavTorpedo.damage,
     captiveMines: e.captiveMines.damage,
+    foulingMines: e.foulingMines.damage,
     missile: e.missile.damage,
     machineGun: e.machineGun.damage,
     flak: e.flak.damage,
@@ -409,7 +426,7 @@ export function equipmentInfo(stats: EffectiveStats, id: EquipmentId): Equipment
   return {
     id,
     name: EQUIPMENT_NAME[id],
-    description: equipmentDescription(stats, id),
+    description: equipmentDescription(id),
     isWeapon: EQUIPMENT_IS_WEAPON[id],
     damage: equipmentDamage(stats, id),
     reloadMs: equipmentReloadMs(stats, id),

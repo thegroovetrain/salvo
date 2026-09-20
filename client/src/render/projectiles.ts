@@ -87,7 +87,9 @@ const LOOKS: Record<ProjectileLookId, ProjectileLook> = {
   // Torpedo: fatter, cool steel-green core (torpedo on-water render) so a fish
   // reads distinct from a shell; glow = legacy torpedo secondary tone.
   torp: { core: C.torpedo, glow: C.legacy.torpGlow, coreR: 3.4, glowR: 8, glowAlpha: 0.22 },
-  // ACOUSTIC HOMING: a brighter, bigger head — a fish under power and steering,
+  // A HOMING FISH (a TIER stat since Story 8.13, epic-8 amendment 80 — the
+  // ACOUSTIC HOMING card is deleted): a brighter, bigger head — a fish under
+  // power and steering,
   // against the straight-runner. IT NO LONGER RUNS A TIGHTER WAKE, and that is
   // a DEVIATION OF RECORD from the shipped look rather than an oversight
   // (cycle-69 review gate, P10): the fish's trail is now the ONE shared wake
@@ -115,14 +117,24 @@ const LOOKS: Record<ProjectileLookId, ProjectileLook> = {
   },
 };
 
-/** The OWN loadout's doctrine state — the self-private half of the identity
- *  split (main.applyOwnStats fans them in, mirroring setSightRange).
+/**
+ * The OWN loadout's steering state — the self-private half of the identity
+ * split (main.applyOwnStats fans it in, mirroring setSightRange).
  *
- *  STORY 7-5 WAVE 1 turned every doctrine into an independent verb FLAG, and
- *  WAVE 2 deleted the last enum with the cannon (R2.6). ACOUSTIC HOMING is the
- *  only verb the water styles, so this is now a single boolean. */
+ * STORY 7-5 WAVE 1 turned every doctrine into an independent verb FLAG, and
+ * WAVE 2 deleted the last enum with the cannon (R2.6). STORY 8.13 deleted the
+ * VERB itself: ACOUSTIC HOMING is gone and homing is a TIER STAT on each
+ * torpedo line (epic-8 amendment 80), so this is one flag PER LINE —
+ * `homingTurnRate > 0`, folded by main.applyOwnStats — rather than one flag for
+ * "the torpedo".
+ *
+ * THE SUPERCAV TORPEDO HAS NO ENTRY, and that absence is the ruling: it is a
+ * belt consumable with no tiers that never homes at any build (amendment 74),
+ * so a flag for it could only ever be false.
+ */
 export interface OwnModes {
-  torpedoHoming: boolean;
+  lightTorpedo: boolean;
+  heavyTorpedo: boolean;
 }
 
 /** Which own weapon a `shell`/`torp` reveal came out of, when the client can
@@ -131,21 +143,38 @@ export interface OwnModes {
  *  so it is claimable — it earns its OWN report (fireStarShells) while keeping
  *  the generic shell LOOK, because a flare in flight is just a shell until it
  *  bursts. */
-export type OwnFire = 'gun' | 'broadside' | 'heavyTorpedo' | 'starShells' | null;
+export type OwnFire =
+  | 'gun'
+  | 'broadside'
+  | 'starShells'
+  // THE THREE FISH (Story 8.13): two torpedo LINES and the belt's SUPERCAV
+  // TORPEDO, a click-aimed consumable (epic-8 amendment 74). All three ride the
+  // one `torp` wire kind, so all three are claimable by the own-fire latch.
+  | 'lightTorpedo'
+  | 'heavyTorpedo'
+  | 'supercavTorpedo'
+  | null;
 
 /**
  * Pure: the look a newly-revealed track paints with.
  *
- * A torpedo is `torpHoming` from LAUNCH only when it is OUR fish and our own
- * torpedo doctrine is homing (self-private knowledge); an enemy's homing fish
- * earns the same look the moment it visibly steers (onBallisticUpdate). A shell
- * is a broadside look only when it is OUR barrage — the wire is weapon-blind for
- * ballistics and stays that way, and an own STAR SHELL (which rides the same
- * wire kind) falls through to the generic shell look on the same clause.
+ * A torpedo is `torpHoming` from LAUNCH only when it is OUR fish and THAT
+ * LINE's fitted turn rate is above zero (self-private knowledge — a tier stat
+ * since epic-8 amendment 80, so the same captain's light torpedo may steer
+ * while the heavy does not); an enemy's homing fish earns the same look the
+ * moment it visibly steers (onBallisticUpdate). The SUPERCAV TORPEDO never
+ * takes it: it has no tiers and never homes (amendment 74), which falls out of
+ * `OwnModes` having no entry for it.
+ *
+ * A shell is a broadside look only when it is OUR barrage — the wire is
+ * weapon-blind for ballistics and stays that way, and an own STAR SHELL (which
+ * rides the same wire kind) falls through to the generic shell look on the same
+ * clause.
  */
 export function lookForReveal(kind: Kind, own: OwnFire, modes: OwnModes): ProjectileLookId {
-  if (kind === 'torp') return own === 'heavyTorpedo' && modes.torpedoHoming ? 'torpHoming' : 'torp';
-  return own === 'broadside' ? 'broadside' : 'shell';
+  if (kind !== 'torp') return own === 'broadside' ? 'broadside' : 'shell';
+  const homing = own === 'lightTorpedo' || own === 'heavyTorpedo' ? modes[own] : false;
+  return homing ? 'torpHoming' : 'torp';
 }
 
 /** Extra map crossings' worth of slack on the lifetime backstop (u). */
@@ -361,7 +390,7 @@ export class Projectiles {
   /** The OWN doctrine modes, fanned in from applyOwnStats (Story 2.9) — the
    *  seam setSightRange established, for the self-private half of ordnance
    *  identity. Stock until the first authoritative `you` lands. */
-  private ownModes: OwnModes = { torpedoHoming: false };
+  private ownModes: OwnModes = { lightTorpedo: false, heavyTorpedo: false };
 
   /** Track the own ship's boon-widened sight range so reveals don't pop early.
    *  ONE plumbed value, THREE rings — the enemy-torpedo ring is `detectFactor`
@@ -455,12 +484,25 @@ export class Projectiles {
    * size a burst ring off OUR effective blast radius. Only `claimed` may.
    */
   onShell(ev: BallisticEvent, own: OwnFire = null, claimed: OwnFire = null): void {
-    if (this.live.has(ev.id)) return;
     // A GENUINE latch claim is remembered independently of the sprite, because
     // the burst that needs it arrives long after this track may be gone.
     if (claimed !== null) this.rememberClaim(ev.id, claimed);
+    const held = this.live.get(ev.id);
+    if (held !== undefined) {
+      this.reanchor(held, ev);
+      return;
+    }
+    // OWNERSHIP SURVIVES A CULL through the claim tombstone — the
+    // `spawnFromUpdate` rule, which the RE-REVEAL (amendment 78) made reachable
+    // from this path too. A re-revealed own fish is nowhere near our hull any
+    // more, so roomBindings' near-own heuristic cannot claim it a second time
+    // and hands us `null`; left at null our own resurrected fish would take the
+    // ENEMY cull ring and be dropped 82.5 u early, inside water the server is
+    // still correcting. An id we never claimed still resolves to null, so no
+    // fish is ever fabricated as ours.
+    const attributed = own ?? this.claims.get(ev.id) ?? null;
     const gfx = this.pool.acquire();
-    const look = lookForReveal(ev.k, own, this.ownModes);
+    const look = lookForReveal(ev.k, attributed, this.ownModes);
     this.paint(gfx, look);
     gfx.visible = true;
     const s: LiveShell = {
@@ -473,9 +515,46 @@ export class Projectiles {
       vy: ev.vy,
       t0: ev.t,
       expiresAt: ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy)),
-      own,
+      own: attributed,
     };
     this.live.set(ev.id, s);
+  }
+
+  /**
+   * RE-ANCHOR a track we are already holding at a fresh reveal's
+   * position/velocity/time — THE RE-REVEAL RULE (Story 8.13, Eric ruling
+   * 2026-09-19, epic-8 amendment 78).
+   *
+   * The server's exactly-once ballistic memory is no longer permanent: the mark
+   * is cleared the first tick a still-live projectile is OUTSIDE an observer's
+   * reveal gate, so a fish or shell that leaves the gate and comes back is
+   * revealed AGAIN, with current position and velocity. Two client cases, one
+   * answer:
+   *
+   *   - THE TRACK WAS CULLED while it was away (the common case — the client
+   *     drops a track the moment it leaves its cull ring). `live` no longer
+   *     holds the id, so `onShell` falls through and SPAWNS it, which is
+   *     already correct.
+   *   - THE TRACK IS STILL LIVE (the client's cull ring is the reveal ring plus
+   *     a 40 u margin, so there is a band where the server has stopped
+   *     disclosing but the sprite is still on screen dead-reckoning). The old
+   *     `if (this.live.has(id)) return` DROPPED that reveal, which is the one
+   *     case the amendment names as wrong: the client would go on extrapolating
+   *     a stale anchor while holding a fresher one in its hand.
+   *
+   * So a reveal for a known id is treated exactly as a `torpU` is: re-anchor in
+   * place, never a duplicate sprite and never ignored. The LOOK is left alone —
+   * a fish that earned `torpHoming` by visibly steering keeps it, and the
+   * reveal payload (pos + velocity + t, no range-derivable field) cannot say
+   * anything new about identity.
+   */
+  private reanchor(s: LiveShell, ev: BallisticEvent): void {
+    s.x0 = ev.x;
+    s.y0 = ev.y;
+    s.vx = ev.vx;
+    s.vy = ev.vy;
+    s.t0 = ev.t;
+    s.expiresAt = ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy));
   }
 
   /**

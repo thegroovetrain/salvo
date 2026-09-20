@@ -474,8 +474,21 @@ export class Predictor {
    *   hookKinematics(
    *     slowedKinematics(
    *       boostedKinematics(kinematics, factor, t < boostUntil),
-   *       CONFIG.mine.foulFactor, t < slowedUntil),
+   *       CONFIG.foulingMines.slowFactor, t < slowedUntil),
    *     behaviors, registry)
+   *
+   * THE SLOW FACTOR IS THE ATTACKER'S, AND THE WIRE DOES NOT CARRY IT
+   * (Story 8.13, epic-8 amendment 81). FOULING MINES is a tiered LINE now:
+   * the victim's speed caps are scaled by the MINE OWNER's folded `slowFactor`,
+   * 0.75 at tier I stepping to 0.55 at tier V. `you` carries only
+   * `slowedUntil` — the WINDOW — so the predictor uses the line's BASE factor
+   * (`CONFIG.foulingMines.slowFactor`, the tier-I number), which is exact
+   * against a tier-I fouling mine and optimistic against a tiered one. The
+   * error is bounded (0.75 vs 0.55 of the cap, for 5 s) and self-correcting:
+   * the authoritative `you` position reconciles every frame, exactly as it does
+   * for any prediction the client cannot see the inputs to. A per-victim factor
+   * beside `slowedUntil` on `OwnShip` would make it exact; that is a wire change
+   * and is not this wave's to make.
    *
    * An inactive boost/slow and zero behaviors each return their input
    * reference unchanged, so the un-boosted, un-fouled, pre-boon tick is
@@ -485,7 +498,7 @@ export class Predictor {
    */
   private tickKin(t: number, seq: number): ShipConfig {
     const boosted = boostedKinematics(this.kin, this.boost.factor, this.boostActiveAt(t, seq));
-    const slowed = slowedKinematics(boosted, CONFIG.mine.foulFactor, this.slowActiveAt(t));
+    const slowed = slowedKinematics(boosted, CONFIG.foulingMines.slowFactor, this.slowActiveAt(t));
     return hookKinematics(slowed, this.behaviors, this.hookRegistry);
   }
 

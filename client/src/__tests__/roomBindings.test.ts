@@ -1492,11 +1492,36 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
     expect(play).not.toHaveBeenCalled(); // ...and certainly no own-fire cue
   });
 
-  it('marks an own TORPEDO as ours (styled from own doctrine at launch)', () => {
+  it('marks an own TORPEDO as ours (styled from its own line at launch)', () => {
     const { sink, play, onShell } = setupWater('heavyTorpedo');
     sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'heavyTorpedo', 'heavyTorpedo');
     expect(play).toHaveBeenCalledWith('fireTorp');
+  });
+
+  // STORY 8.13 — THREE IDS RIDE THE `torp` WIRE KIND (epic-8 amendments 74/80):
+  // the LIGHT and HEAVY lines and the belt's SUPERCAV TORPEDO. The claim used to
+  // be an id equality on `heavyTorpedo`, so a light or supercav fish launched
+  // off our own bow was attributed to NOBODY — it took the enemy look and, worse,
+  // the enemy cull ring, on a fish the server keeps correcting for us.
+  it('claims an own LIGHT or SUPERCAV fish too — all three ride the `torp` kind', () => {
+    for (const fired of ['lightTorpedo', 'supercavTorpedo'] as const) {
+      const { sink, play, onShell } = setupWater(fired);
+      sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+      expect(onShell, fired).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), fired, fired);
+      expect(play, fired).toHaveBeenCalledWith('fireTorp');
+    }
+  });
+
+  it('...and a standing GUN or BROADSIDE claim still cannot dress a fish', () => {
+    // A mine claim cannot even reach here — `OwnFireLatch.claim` rejects every
+    // non-ballistic id — so the cases worth pinning are the two SHELL weapons
+    // whose claims are live and must not cross the wire-kind line.
+    for (const fired of ['gun', 'broadside'] as const) {
+      const { sink, onShell } = setupWater(fired);
+      sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+      expect(onShell, fired).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), null, null);
+    }
   });
 
   // --- 2.9 REVIEW: the latch must not dress what it did not fire --------------
@@ -2007,7 +2032,7 @@ describe('the fit cue is transposed by KIND (Story 2.9 carry-over, re-keyed in 8
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: true, cards: ['reload'] }));
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'acousticHoming' }, { alive: true, cards: ['acousticHoming'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'dazzleShells' }, { alive: true, cards: ['dazzleShells'] }));
     const [first, second] = play.mock.calls;
     expect(first[0]).toBe(second[0]); // both light → same tone id
     expect(first[1]).not.toEqual(second[1]); // ...heard as a different event

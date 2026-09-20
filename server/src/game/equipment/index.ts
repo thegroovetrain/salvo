@@ -23,6 +23,7 @@ import {
   type Island,
   type LitCircle,
   type LoadoutSlot,
+  type MineKind,
   type ShellState,
   type SlotItemId,
   type WeaponAmmo,
@@ -30,8 +31,8 @@ import {
 import type { ShipRecord } from '../world.js';
 import { CONSUMABLES, type ConsumableRegistry } from './consumables.js';
 import { gunEquipment } from './guns.js';
-import { torpedoEquipment } from './torpedoes.js';
-import { mineEquipment } from './mines.js';
+import { lightTorpedoEquipment, torpedoEquipment } from './torpedoes.js';
+import { captiveMineEquipment, foulingMineEquipment, mineEquipment } from './mines.js';
 import { boostEquipment } from './boost.js';
 import { broadsideEquipment } from './broadside.js';
 import { starShellsEquipment } from './starShells.js';
@@ -68,7 +69,11 @@ export interface ActivationContext {
    *  BROADSIDE BARRAGE emits a flash PER SHELL (Story 7-5 wave 2, R2.5), where
    *  a multi-barrel gun salvo still collapses to one. */
   spawnBallistic: (shell: ShellState, opts?: BallisticSpawnOptions) => void;
-  dropMine: (x: number, y: number) => void;
+  /** Lay a mine at an already-validated point. `kind` is the LAYING LINE's
+   *  (Story 8.13): the row knows which rack it is and stamps the mine, because
+   *  one hull may now hold all three and the owner's stats can no longer say
+   *  which kind a given mine is. */
+  dropMine: (x: number, y: number, kind: MineKind) => void;
   /** Place a RADAR BUOY at an already-validated point (Story 7-5 wave 2,
    *  R2.7) — the dropMine sibling: the row validates the rear sector /
    *  placeRange / water legality and hands the World the clicked point. */
@@ -171,9 +176,10 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
  * added at authoring time only; the World resolves a slot's equipmentId here.
  *
  * PARTIAL, NOT TOTAL (Story 8.1). Catalog v3 widened `EquipmentId` to fifteen
- * ids, seven of which name weapons whose MODULES are not built yet (Stories
- * 8.13–8.16) plus the `boost` placeholder (8.9). A total record would force
- * eight fake rows into the tick dispatch; instead the registry holds only what
+ * ids, four of which name weapons whose MODULES are not built yet (MISSILE,
+ * MACHINE GUN, FLAK and MONITOR — Stories 8.14–8.16; Story 8.13 built the
+ * light torpedo and the captive/fouling racks). A total record would force
+ * four fake rows into the tick dispatch; instead the registry holds only what
  * exists, and the invariant that keeps that safe is pinned in
  * equipment.test.ts: EVERY NON-STUB catalog `slotFill` target has a row here,
  * and every STUB target has none. World.applyCard refuses to fit an id with no
@@ -184,7 +190,10 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deepFreezeRows({
   gun: gunEquipment,
   heavyTorpedo: torpedoEquipment, // Story 8.1: the shipped torpedo under its v3 id
+  lightTorpedo: lightTorpedoEquipment, // Story 8.13: the twin-beam fish (catalog-v3 R18)
   navalMines: mineEquipment, // Story 8.1: the shipped mine under its v3 id
+  captiveMines: captiveMineEquipment, // Story 8.13: the moored torpedo launcher (R25)
+  foulingMines: foulingMineEquipment, // Story 8.13: the slowing rack (amendment 81)
   boost: boostEquipment, // Story 1.6 / 8.9: the universal slot-1 ability (the first non-weapon row)
   broadside: broadsideEquipment, // Story 7-5 wave 2: the Battleship's twin-beam barrage (replaced the cannon)
   starShells: starShellsEquipment, // Story 1.7: the Battleship's lit-zone flare
@@ -257,9 +266,20 @@ export {
 export { broadsideAim, broadsideEquipment } from './broadside.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';
-export { torpedoEquipment, fireTorpedo } from './torpedoes.js';
+export { torpedoEquipment, lightTorpedoEquipment, fireTorpedo, type TorpedoLineId } from './torpedoes.js';
+export {
+  launchTorpedo,
+  torpedoBearing,
+  type TorpedoLaunchContext,
+  type TorpedoLaunchOptions,
+  type TorpedoRow,
+} from './torpedoCore.js';
 export {
   mineEquipment,
+  captiveMineEquipment,
+  foulingMineEquipment,
+  MINE_ROW_ID,
+  configTriggerRadius,
   addMine,
   captiveTorpedo,
   checkMineTriggers,
@@ -268,6 +288,7 @@ export {
   hullFor,
   mineBlastVictims,
   minePlacePoint,
+  type MineLineId,
   type MineState,
   type MineTripRules,
   type MineTrigger,

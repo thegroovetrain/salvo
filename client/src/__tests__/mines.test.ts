@@ -1,10 +1,47 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, effectiveStats, type MineView } from '@salvo/shared';
-import { reconcileMines, mineArmed, ownMineRings, ringsKey, Mines } from '../render/mines.js';
+import {
+  CONFIG,
+  effectiveStats,
+  type EffectiveMine,
+  type MineKind,
+  type MineView,
+} from '@salvo/shared';
+import {
+  reconcileMines,
+  mineArmed,
+  mineKindOfView,
+  ownMineRings,
+  ringsKey,
+  Mines,
+  type OwnMineRings,
+} from '../render/mines.js';
 import { CLIENT_CONFIG } from '../config.js';
 
-const mine = (id: string, own = false, by = 'p1'): MineView => ({ id, x: 0, y: 0, own, by });
+/** A mine view. `c` — the OWN-ONLY kind (epic-8 amendment 76) — is set exactly
+ *  where the server would set it: on our own mines. */
+const mine = (id: string, own = false, by = 'p1', c?: MineKind): MineView =>
+  (c === undefined ? { id, x: 0, y: 0, own, by } : { id, x: 0, y: 0, own, by, c });
+
+/** A synthetic mine ROW at literal radii — the ring pins read radii, not the
+ *  rest of the row, and literal numbers keep the alpha/style claims from
+ *  agreeing with whatever CONFIG happens to hold. */
+const row = (blastRadius: number, triggerRadius: number): EffectiveMine => ({
+  tier: 1, reloadMs: 15_000, maxAmmo: 2, damage: 55,
+  blastRadius, triggerRadius, homingTurnRate: 0, slowFactor: 1,
+});
+
+/** The owner's three rows, all at the same literal radii unless overridden. */
+const params = (over: Partial<Record<MineKind, EffectiveMine>> = {}, now = 0): OwnMineRings => ({
+  rows: { naval: row(48, 32), captive: row(32, 144), fouling: row(72, 48), ...over },
+  now,
+});
+
+/** The owner's three rows as the REAL fold produces them for a Mine Layer. */
+const liveParams = (cards: readonly string[] = [], now = 0): OwnMineRings => {
+  const e = effectiveStats(CONFIG.shipClasses.mineLayer, cards).equipment;
+  return { rows: { naval: e.navalMines, captive: e.captiveMines, fouling: e.foulingMines }, now };
+};
 /** A mine at a world point. */
 const at = (id: string, x: number, y: number): MineView => ({ id, x, y, own: false, by: 'p1' });
 /** Sprite ids we currently hold. */
@@ -117,14 +154,34 @@ describe('Mines — firer-hue tint (Story 1.12) + own/enemy layer split', () => 
 // the mine is still arming. An enemy observer gets none of it.
 
 describe('ownMineRings — the owner-private radius set', () => {
-  const base = { blast: 48, trigger: 32, captive: false, now: 10_000 };
+  const base = params({}, 10_000);
 
-  it('is blast-solid + trigger-dashed for an ORDINARY mine', () => {
-    const rings = ownMineRings(base, true);
+  it('is blast-solid + trigger-dashed for a NAVAL mine', () => {
+    const rings = ownMineRings(base, 'naval', true);
     expect(rings.map((r) => [r.r, r.style])).toEqual([
       [48, 'solid'],
       [32, 'dashed'],
     ]);
+  });
+
+  // STORY 8.13 (epic-8 amendment 81): FOULING MINES is its own LINE — a contact
+  // mine with a wider, weaker burst — so it draws the naval PAIR, off its own
+  // row. The slow it applies is a card row, never a circle on the water.
+  it('is the same pair for a FOULING mine, read off the FOULING row', () => {
+    const rings = ownMineRings(base, 'fouling', true);
+    expect(rings.map((r) => [r.r, r.style])).toEqual([
+      [72, 'solid'],
+      [48, 'dashed'],
+    ]);
+  });
+
+  // THE POINT OF THE WIRE KIND (amendment 76): one hull may lay all three at
+  // once, so the same params object must answer three different ring sets.
+  it('answers per KIND from ONE params object — three fields, three answers', () => {
+    const p = params();
+    expect(ownMineRings(p, 'naval', true).map((r) => r.r)).toEqual([48, 32]);
+    expect(ownMineRings(p, 'fouling', true).map((r) => r.r)).toEqual([72, 48]);
+    expect(ownMineRings(p, 'captive', true).map((r) => r.r)).toEqual([144]);
   });
 
   // RETIRED with SELF-PROPELLED MINES (R2.6): the sparse-dotted ACQUISITION
@@ -139,41 +196,36 @@ describe('ownMineRings — the owner-private radius set', () => {
   // rings exist: a captive mine draws its wide TRIP ring and NO blast circle,
   // because it never detonates on contact and a solid ring around the casing
   // would promise a kill it cannot deliver.
-  // CATALOG V3 MOVED THE CAPTIVE FLAG (R25). It used to be a doctrine a card
-  // bolted onto the naval mine; it is now a property of the CAPTIVE MINES
-  // equipment row — true at base there, false on `navalMines` — driving exactly
-  // the same derivation in clampStats (the two radii swap and the trip ring
-  // triples). So the rings are read off the captive row.
+  // CATALOG V3 MOVED THE CAPTIVE FLAG (R25) and STORY 8.13 DELETED IT (epic-8
+  // amendments 76/81): captive mines are their own LINE, so there is no verb to
+  // read — the row IS the identity, and the mine on the water says which row it
+  // came from through its own wire kind. The trip ring is DERIVED from the
+  // line's tier inside the fold (144 u at I, ×1.1 a rung) and its 32 u burst is
+  // fixed, so the ring set READS both and re-derives neither.
   it('CAPTIVE: draws the 144u trip ring alone — no 32u contact-blast ring', () => {
     const stats = effectiveStats(CONFIG.shipClasses.mineLayer, []);
-    expect(stats.equipment.captiveMines.captive).toBe(true);
-    expect(stats.equipment.navalMines.captive).toBe(false); // the plain mine is unchanged
     expect(stats.equipment.captiveMines.triggerRadius).toBeCloseTo(144, 9);
     expect(stats.equipment.captiveMines.blastRadius).toBeCloseTo(32, 9);
-    const rings = ownMineRings(
-      { blast: stats.equipment.captiveMines.blastRadius, trigger: stats.equipment.captiveMines.triggerRadius, captive: true, now: 0 },
-      true,
-    );
+    const rings = ownMineRings(liveParams(), 'captive', true);
     expect(rings.map((r) => [r.r, r.style])).toEqual([[144, 'dotted']]);
     // ...and specifically NOT the blast radius, in any style.
     expect(rings.some((r) => r.r === stats.equipment.captiveMines.blastRadius)).toBe(false);
   });
 
-  // The blast ladder that scaled this ring is Story 8.16's to author (an
-  // equipment line's tiers II–V are empty in 8.1), so the pin drives the ring
-  // off a widened row directly. The claim is unchanged: the ring set READS the
-  // trip radius and never re-derives it.
-  it('CAPTIVE: the trip ring follows the row without re-deriving it', () => {
-    const base = effectiveStats(CONFIG.shipClasses.mineLayer, []).equipment.captiveMines;
-    const [ring] = ownMineRings(
-      { blast: base.blastRadius, trigger: 210.8, captive: true, now: 0 },
-      true,
-    );
-    expect(ring.r).toBe(210.8);
+  // THE LADDER IS LIVE as of Story 8.13 (amendment 84d): five CAPTIVE MINES
+  // copies step the trip ring ×1.1 a rung to 210.8 u while the burst stays 32 u.
+  // The ring set follows the fold without arithmetic of its own.
+  it('CAPTIVE: the trip ring follows the fold to tier V without re-deriving it', () => {
+    const maxed = Array<string>(5).fill('captiveMines');
+    const e = effectiveStats(CONFIG.shipClasses.mineLayer, maxed).equipment.captiveMines;
+    expect(e.triggerRadius).toBeCloseTo(210.8, 1);
+    expect(e.blastRadius).toBeCloseTo(32, 9);
+    const [ring] = ownMineRings(liveParams(maxed), 'captive', true);
+    expect(ring.r).toBe(e.triggerRadius);
   });
 
   it('every radius carries a DISTINCT line style — the rings never rely on hue', () => {
-    const styles = ownMineRings(base, true).map((r) => r.style);
+    const styles = ownMineRings(base, 'naval', true).map((r) => r.style);
     expect(new Set(styles).size).toBe(styles.length);
   });
 
@@ -181,18 +233,18 @@ describe('ownMineRings — the owner-private radius set', () => {
     // LITERAL alphas, deliberately: re-deriving them from CLIENT_CONFIG would
     // make this test agree with any value the config happens to hold, including
     // an armingScale of 1 that renders the arming state invisible.
-    expect(ownMineRings(base, true).map((r) => r.alpha)).toEqual([0.3, 0.34]);
-    const arming = ownMineRings(base, false).map((r) => r.alpha);
+    expect(ownMineRings(base, 'naval', true).map((r) => r.alpha)).toEqual([0.3, 0.34]);
+    const arming = ownMineRings(base, 'naval', false).map((r) => r.alpha);
     expect(arming[0]).toBeCloseTo(0.12, 9);
     expect(arming[1]).toBeCloseTo(0.136, 9);
     // ...and the arming set is unambiguously the quieter of the two.
     for (let i = 0; i < arming.length; i++) {
-      expect(arming[i]).toBeLessThan(ownMineRings(base, true)[i].alpha);
+      expect(arming[i]).toBeLessThan(ownMineRings(base, 'naval', true)[i].alpha);
     }
   });
 
-  it('tracks EFFECTIVE radii — a boon that widens the blast widens the ring', () => {
-    const wide = ownMineRings({ ...base, blast: 60 }, true);
+  it('tracks EFFECTIVE radii — a card that widens the blast widens the ring', () => {
+    const wide = ownMineRings(params({ naval: row(60, 40) }), 'naval', true);
     expect(wide[0].r).toBe(60);
   });
 });
@@ -205,19 +257,34 @@ describe('mineArmed / ringsKey — the client-inferred arming window', () => {
   });
 
   it('keys a ring set so an unchanged set never redraws, and any change does', () => {
-    const p = { blast: 48, trigger: 32, captive: false, now: 0 };
-    expect(ringsKey(ownMineRings(p, true))).toBe(ringsKey(ownMineRings(p, true)));
-    expect(ringsKey(ownMineRings(p, true))).not.toBe(ringsKey(ownMineRings(p, false)));
-    // Fitting CAPTIVE MINES mid-match rewrites the set, so the key must move —
-    // otherwise a live field keeps drawing contact-blast rings it no longer has.
-    expect(ringsKey(ownMineRings(p, true))).not.toBe(
-      ringsKey(ownMineRings({ ...p, captive: true }, true)),
-    );
+    const p = params();
+    expect(ringsKey(ownMineRings(p, 'naval', true))).toBe(ringsKey(ownMineRings(p, 'naval', true)));
+    expect(ringsKey(ownMineRings(p, 'naval', true))).not.toBe(ringsKey(ownMineRings(p, 'naval', false)));
+    // The three kinds draw three different sets off the same params, so their
+    // keys must differ — otherwise a captive laid beside a naval mine would
+    // reuse the naval sprite's geometry and draw a contact-blast ring it has not
+    // got.
+    expect(ringsKey(ownMineRings(p, 'naval', true))).not.toBe(ringsKey(ownMineRings(p, 'captive', true)));
+    expect(ringsKey(ownMineRings(p, 'naval', true))).not.toBe(ringsKey(ownMineRings(p, 'fouling', true)));
+  });
+});
+
+describe('mineKindOfView — the own-only wire kind (epic-8 amendment 76)', () => {
+  it('reads the kind the server stamped on an OWN mine', () => {
+    expect(mineKindOfView(mine('m', true, 'me', 'captive'))).toBe('captive');
+    expect(mineKindOfView(mine('m', true, 'me', 'fouling'))).toBe('fouling');
+  });
+
+  // An ENEMY's mine never carries `c` — the server strips it for every observer
+  // but the owner — and an observer's marker draws no ring at all, so the
+  // default is defensive rather than load-bearing.
+  it('falls back to naval when the field is absent (an enemy marker, an old frame)', () => {
+    expect(mineKindOfView(mine('m', false, 'foe'))).toBe('naval');
   });
 });
 
 describe('Mines — rings are drawn for OWN mines only', () => {
-  const rings = { blast: 48, trigger: 32, captive: false, now: 0 };
+  const rings = params();
 
   it('draws nothing extra when no owner stats are supplied (the pre-feature path)', () => {
     const mines = new Mines(new Container(), new Container());
@@ -280,10 +347,10 @@ describe('Mines — rings are drawn for OWN mines only', () => {
     expect(mines.ringsAt('later')[0].alpha).toBeLessThan(rejoined);
   });
 
-  it('follows a mid-life stat change (a boon fitted while the field is out)', () => {
+  it('follows a mid-life stat change (a card fitted while the field is out)', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, rings);
-    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, { ...rings, blast: 70 });
+    mines.sync([mine('m1', true, 'me', 'naval')], () => 0x00ff00, rings);
+    mines.sync([mine('m1', true, 'me', 'naval')], () => 0x00ff00, params({ naval: row(70, 47) }));
     expect(mines.ringsAt('m1')[0].r).toBe(70);
   });
 
@@ -291,5 +358,30 @@ describe('Mines — rings are drawn for OWN mines only', () => {
     const mines = new Mines(new Container(), new Container());
     mines.sync([mine('foe', false, 'them')], () => 0x00ff00, rings);
     expect(mines.ringsAt('foe')).toEqual([]);
+  });
+
+  // STORY 8.13, THE FAIL-FIRST PIN (epic-8 amendment 76). Before it, every own
+  // mine drew `stats.equipment.navalMines` — so a captive mine laid beside a
+  // naval one drew the NAVAL pair: a solid 48 u contact-blast ring around a
+  // casing that never detonates on contact, and no trip ring at all. Each
+  // sprite now reads the kind off ITS OWN wire view.
+  it('draws each own mine off ITS OWN kind — a captive never reads the naval row', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([], () => 0x00ff00, rings); // rejoin snapshot: empty water
+    mines.sync(
+      [
+        mine('n', true, 'me', 'naval'),
+        mine('c', true, 'me', 'captive'),
+        mine('f', true, 'me', 'fouling'),
+      ],
+      () => 0x00ff00,
+      params({}, CONFIG.mine.armDelay * 10),
+    );
+    expect(mines.kindAt('c')).toBe('captive');
+    // The captive draws ONE dotted trip ring at the CAPTIVE row's 144 u...
+    expect(mines.ringsAt('c').map((r) => [r.r, r.style])).toEqual([[144, 'dotted']]);
+    // ...while its neighbours draw their own pairs, off their own rows.
+    expect(mines.ringsAt('n').map((r) => r.r)).toEqual([48, 32]);
+    expect(mines.ringsAt('f').map((r) => r.r)).toEqual([72, 48]);
   });
 });
