@@ -2,7 +2,7 @@
 title: 'Story 8.13: Catalog v3 — Torpedoes and Mines'
 type: 'feature'
 created: '2026-09-19'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 baseline_revision: 'ab4f198'
 followup_review_recommended: false
