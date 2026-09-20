@@ -630,6 +630,12 @@ const FIELD_WORDS: Readonly<Record<string, string>> = {
   // field no row carries is a label that can never print.
   durationMs: 'DURATION',
   spreadRung: 'SPREAD',
+  // The torpedo lines' and the captive fish's steering, bought by TIER since
+  // Story 8.13 (epic-8 amendments 80/82). `HOMING` rather than the humanizer's
+  // `HOMING TURN RATE` (amendment 85): the row's value carries `rad/s`, which
+  // already says it is a rate, and the player's word for what it buys is that
+  // the fish homes.
+  homingTurnRate: 'HOMING',
   // FOULING MINES' victim slow (Story 8.13, epic-8 amendment 81). `SLOW` rather
   // than the humanizer's `SLOW FACTOR`: the row prints a PERCENTAGE OF SPEED
   // (`75%`), and "factor" is the sim's word for the multiplier, not the
@@ -637,10 +643,52 @@ const FIELD_WORDS: Readonly<Record<string, string>> = {
   slowFactor: 'SLOW',
 };
 
-/** The fields whose rows print as a PERCENTAGE OF BASE rather than as a bare
- *  number — a ×0.75 speed multiplier reads as `75%`, the same grammar the
- *  RELOAD ladder's `All cooldowns` row already uses for `cooldownScale`. */
-const FIELD_PCT: readonly string[] = ['slowFactor'];
+/**
+ * A turn rate to at most THREE decimals, trailing zeros trimmed. `num` rounds
+ * to one, which would print the light torpedo's first 0.125 rad/s rung as
+ * "0.1" and the captive fish's 0.075 as "0.1" too — two different ladders
+ * flattened into the same lie. BARE: the unit rides `FIELD_UNITS` below, so a
+ * `cur → next` pair prints it once.
+ */
+function rad(v: number): string {
+  return String(Math.round(v * 1000) / 1000);
+}
+
+/**
+ * THE FIELDS WITH A PRINTER OF THEIR OWN, where neither the `*Ms` seconds rule
+ * nor the bare `num` is the honest register:
+ *
+ *   - `slowFactor` prints as a PERCENTAGE OF BASE — a ×0.75 speed multiplier
+ *     reads as `75%`, the same grammar the RELOAD ladder's `All cooldowns` row
+ *     already uses for `cooldownScale`;
+ *   - `homingTurnRate` prints to three decimals (see `rad`).
+ */
+const FIELD_FMTS: Readonly<Record<string, (v: number) => string>> = {
+  slowFactor: pct,
+  homingTurnRate: rad,
+};
+
+/**
+ * THE FIELDS WHOSE ROW PRINTS ITS UNIT ONCE, on the value the card moves TO
+ * (Story 8.13, epic-8 amendment 85). `HOMING 0 → 0.125 rad/s`, never
+ * `0 rad/s → 0.125 rad/s`: repeating the unit on both halves of a rad/s pair
+ * overruns the 188px row box at the top of the ladder (`0.375 rad/s →
+ * 0.5 rad/s` is 197px — the refitCardFit walk catches it), and the arrow
+ * already says the two numbers are the same quantity. An ABSOLUTE row has only
+ * one value, so it carries the unit and a fit card still reads `HOMING
+ * 0 rad/s`.
+ *
+ * Seconds and percentages are NOT in here: their glyphs are one character and
+ * the shipped rows print them on both halves (`30.0 s → 28.5 s`, `75% → 70%`).
+ */
+const FIELD_UNITS: Readonly<Record<string, string>> = {
+  homingTurnRate: ' rad/s',
+};
+
+/** Pure: a field's trailing unit, or '' for a field that needs none. */
+function fieldUnit(field: string): string {
+  return Object.hasOwn(FIELD_UNITS, field) ? FIELD_UNITS[field] : '';
+}
 
 /** Pure: a field's row label — the table above, else the humanized field name
  *  uppercased (`litDurationMs` reads LIT DURATION). */
@@ -649,12 +697,11 @@ function fieldWord(field: string): string {
   return humanize(field.replace(/Ms$/, '')).toUpperCase();
 }
 
-/** Pure: a field's printer. A `*Ms` field is a duration and prints as seconds
- *  ("30.0 s"); a scale field prints as a percentage of base ("75%"); everything
- *  else takes `num`, which prints an integer AS an integer — epic-8 amendment
- *  39's rule, applied to every row on the face. */
+/** Pure: a field's printer — its own entry in `FIELD_FMTS` where it has one,
+ *  else the `*Ms` duration rule ("30.0 s"), else `num`, which prints an integer
+ *  AS an integer (epic-8 amendment 39's rule, applied to every row). */
 function fieldFmt(field: string): (v: number) => string {
-  if (FIELD_PCT.includes(field)) return pct;
+  if (Object.hasOwn(FIELD_FMTS, field)) return FIELD_FMTS[field];
   return /Ms$/.test(field) ? secs : num;
 }
 
@@ -674,10 +721,23 @@ function statPathFmt(path: string): (v: number) => string {
   return fieldFmt(path.split('.').pop() ?? path);
 }
 
-/** Pure: one `current to next` row for a stat path, read off the two folds. */
+/** Pure: a stat PATH's trailing unit — its field's, where the field declares
+ *  one (`FIELD_UNITS`). A ladder path whose `STAT_LINES` entry already bakes
+ *  its unit into `fmt` (RPM, the cooldown percentage) declares none here, so
+ *  nothing is ever printed twice. */
+function statPathUnit(path: string): string {
+  return fieldUnit(path.split('.').pop() ?? path);
+}
+
+/** Pure: one `current to next` row for a stat path, read off the two folds.
+ *  The unit, where the field has one, rides the NEXT value alone. */
 function diffRow(path: string, before: EffectiveStats, after: EffectiveStats): CardStatRow {
   const fmt = statPathFmt(path);
-  return { label: statPathLabel(path), cur: fmt(readStatPath(before, path)), next: fmt(readStatPath(after, path)) };
+  return {
+    label: statPathLabel(path),
+    cur: fmt(readStatPath(before, path)),
+    next: fmt(readStatPath(after, path)) + statPathUnit(path),
+  };
 }
 
 /**
@@ -707,7 +767,7 @@ function absoluteRow(target: EquipmentId, field: string, stats: EffectiveStats):
   return {
     label: fieldWord(field),
     cur: null,
-    next: fieldFmt(field)(readStatPath(stats, `equipment.${target}.${field}`)),
+    next: fieldFmt(field)(readStatPath(stats, `equipment.${target}.${field}`)) + fieldUnit(field),
   };
 }
 
@@ -751,11 +811,24 @@ function faceFields(target: EquipmentId): readonly string[] {
  * so without this the mine's defining circle would be missing from its own
  * card.
  *
- * COPY 2 AND UP is a TIER, and a tier is a 5% cut to that weapon's own reload
- * (derived in sim/stats.ts, not authored as an effect), so the card prints that
- * one step exactly as a ladder prints its own — the v2 broadside-SPREAD
- * precedent, re-ratified for the DECK GUN in epic-8 amendment 71: a line that
- * moves several numbers still prints ONE row.
+ * COPY 2 AND UP IS A TIER, AND A TIER PRINTS EVERY STEP IT BUYS (Story 8.13,
+ * epic-8 amendment 85). The reload row comes FIRST — the 5 % cut is derived in
+ * sim/stats.ts from the tier rather than authored as an effect, so it has no
+ * place in the catalog's own order — and the line's authored `stat` effects
+ * follow it in CATALOG ORDER, each through the same live preview diff a ladder
+ * uses. The five-row grid slices the result (`cardStatRows`), so the rule when
+ * a line ever authors more than four steps is: reload, then catalog order, and
+ * the FIFTH row is the last that fits.
+ *
+ * THE DECK GUN IS UNAFFECTED and stays as epic-8 amendment 71 ruled it: it is
+ * a LADDER line, so it never reaches this function at all — `ladderRows` prints
+ * its one authored damage row and its tier-derived reload cut stays silent.
+ *
+ * The single-row face this replaced was honest for the three live lines with
+ * EMPTY tiers II–V (BROADSIDE, STAR SHELLS, RADAR BUOY), which still print
+ * exactly the reload row and nothing else. It understated the five ladders 8.13
+ * authored: a tier-II LIGHT TORPEDO card said `RELOAD 25.0 s → 23.8 s` while
+ * also buying +5 damage, +2.5 u/s and the first 0.125 rad/s of homing.
  */
 function weaponRows(
   line: CatalogLine,
@@ -767,7 +840,8 @@ function weaponRows(
   if (target === undefined) return [];
   if (copiesHeld > 0) {
     const stat = STAT_LINES[line.id];
-    return stat === undefined ? [] : [diffRow(stat.path, before, after)];
+    const reload = stat === undefined ? [] : [diffRow(stat.path, before, after)];
+    return [...reload, ...ladderRows(line, copiesHeld, before, after)];
   }
   const fields = faceFields(target);
   // The ROW OBJECT, not `readStatPath`: that reader fails open to 0 for a path

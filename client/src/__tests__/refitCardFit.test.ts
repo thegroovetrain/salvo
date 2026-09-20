@@ -239,6 +239,84 @@ describe('the ROWS — every label fits beside its value inside the 188px row bo
   });
 });
 
+// THE FIVE TIERED WEAPON LINES' TIER FACES (Story 8.13, epic-8 amendment 85).
+// The face grew from ONE row to as many as five, which is exactly the change
+// that can push a `cur → next` pair out through the card's side — so the fit
+// claim is made HERE, explicitly, on top of the blanket walk above: every tier
+// II–V card of the five authored lines, measured against the real 188px row
+// box at the mock's ratified 9px label / 11px value.
+describe('the TIER faces of the five authored weapon lines fit the shipped grid', () => {
+  const TIERED = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines'] as const;
+
+  /** Every tier II–V face of the five lines, on every class, both extremes —
+   *  built the same way `everyFace` builds the blanket walk, but STACK ≥ 1, so
+   *  a line's copy-1 FIT face (five ABSOLUTE rows) cannot sneak in and make the
+   *  `cur → next` assertions below vacuous. */
+  const TIER_FACES: FaceCase[] = TIERED.flatMap((id) =>
+    Array.from({ length: CATALOG[id].cap - 1 }, (_, i) => i + 1).flatMap((stack) =>
+      CLASSES.flatMap((cls) =>
+        [false, true].map((maxed) => ({
+          id,
+          label: `${id}@${stack}/${cls}${maxed ? '/maxed' : ''}`,
+          face: faceOf(CATALOG[id], stack, cls, maxed),
+        })),
+      ),
+    ),
+  );
+
+  it('is NON-VACUOUS: every one of the five prints MORE than the old single reload row at every rung', () => {
+    const thin: string[] = [];
+    for (const id of TIERED) {
+      for (let k = 1; k < CATALOG[id].cap; k += 1) {
+        for (const cls of CLASSES) {
+          const rows = faceOf(CATALOG[id], k, cls, false).rows;
+          if (rows.length < 4) thin.push(`${id}@${k}/${cls}: ${rows.length}`);
+        }
+      }
+    }
+    expect(thin).toEqual([]);
+    expect(TIER_FACES.length).toBe(TIERED.length * 4 * CLASSES.length * 2);
+  });
+
+  it('leaves NO tier row overrunning the 188px row box, and reports the tightest one', () => {
+    const box = refitCardRowBox();
+    let worst = { label: '', w: 0 };
+    for (const { label, face } of TIER_FACES) {
+      for (const row of face.rows) {
+        const w = statRowWidth(row);
+        if (w > worst.w) worst = { label: `${label} "${row.label} ${row.cur ?? ''}→${row.next}"`, w };
+      }
+    }
+    // The widest tier row must fit with room left, and the margin is DOCUMENTED
+    // so whoever spends the last of it has to look here. (A `rad/s` unit on
+    // BOTH halves of the homing pair measured ~197px — which is why the unit
+    // rides the `next` value alone; see boonCopy's FIELD_UNITS.)
+    expect(worst.w, worst.label).toBeLessThanOrEqual(box);
+    // Measured at authoring time: the widest tier row is ~161.8px against the
+    // 188px box — 26px of headroom. The floor below is deliberately loose (a
+    // retune may move a number), but the row that spends the rest of it will
+    // trip the assertion above and land here.
+    expect(box - worst.w).toBeGreaterThanOrEqual(2);
+  });
+
+  it('never asks the grid for a sixth row, and every tier row is a `cur → next` diff', () => {
+    for (const { label, face } of TIER_FACES) {
+      expect(face.rows.length, label).toBeLessThanOrEqual(R.rowCount);
+      for (const row of face.rows) expect(row.cur, `${label} ${row.label}`).not.toBeNull();
+    }
+  });
+
+  it('buys the fit with NO type-size step — the 9px label and 11px value register is untouched', () => {
+    // Amendment 31 binds the face to the mock's numbers, so "just make it 8px"
+    // is unavailable; this is the pin that says the five-row tier face did not
+    // reach for it. (The whole register is pinned below; these are the two the
+    // rows themselves spend.)
+    expect(R.labelSize).toBe(9);
+    expect(R.valueSize).toBe(11);
+    expect(R.rowCount).toBe(5);
+  });
+});
+
 describe('the LADDER row and the FOOT', () => {
   it('fits the widest ladder (five rungs + its numerals) inside the inner box', () => {
     const inner = refitCardInnerBox().w;

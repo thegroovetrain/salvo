@@ -843,8 +843,12 @@ export interface ShipRecord {
    * this hull. A LATER FOULING OVERWRITES BOTH — factor and clock together,
    * REFRESH-NOT-STACK (amendment 81), never multiplied.
    *
-   * SERVER-PRIVATE, exactly like the clock's source value: only
-   * `slowedUntil` crosses to the victim (frames.toOwnShip).
+   * IT CROSSES TO THE VICTIM beside the clock, as OwnShip.slowFactor (Story
+   * 8.13, epic-8 amendment 86): VICTIM-PRIVATE on the `slowedUntil` terms —
+   * frames.toOwnShip only, omitted when the hull is not slowed or the factor
+   * is the inert 1 — so the predictor scales its own caps by the factor that
+   * actually fouled it instead of assuming the tier-I 0.75 and snapping on
+   * reconcile against a deeper rack.
    */
   slowFactor: number;
   /**
@@ -908,9 +912,21 @@ export interface ShipRecord {
   prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
   /**
    * Ballistic ids (shells + torpedoes) this observer has already been sent a
-   * one-time event for. Perception emits each ballistic exactly once per
-   * observer (at launch for the owner, at first sight for everyone else);
-   * entries are forgotten when the projectile is spent (see forgetBallistic).
+   * reveal for ON THIS VISIT. Perception emits each ballistic exactly once per
+   * ENTRY into this observer's reveal gate (owner-always / sight-or-detect /
+   * owned lit zone) — at launch for the owner, at first sight for everyone
+   * else.
+   *
+   * THE MARK IS PER-VISIT, NOT PERMANENT (Story 8.13, epic-8 amendment 78).
+   * `perception.ballisticScan` clears it the first tick a still-live
+   * projectile is OUTSIDE the gate, so a later re-entry re-reveals the
+   * projectile with its CURRENT position and velocity — the identical
+   * first-reveal wire shape `{k,id,x,y,vx,vy,t}`, no range-derivable field,
+   * `t` = the reveal time. A projectile that stays inside the gate is revealed
+   * exactly once, byte-identically to the pre-8.13 behaviour, because the mark
+   * is only ever cleared from outside; and the OWNER's gate never closes, so
+   * the owner is revealed its own fish once and never again. Entries are also
+   * forgotten when the projectile is spent (see forgetBallistic).
    */
   seenBallistics: Set<string>;
   /**
@@ -919,8 +935,15 @@ export interface ShipRecord {
    * at the ballistic reveal, updated on every 'torpU' emission). The torpU row
    * re-emits a steering fish to this observer only when the live direction has
    * drifted ≥ CONFIG.torpedo.homingUpdateAngleDeg from this baseline AND the
-   * fish is currently sighted (the ballistic reveal predicate). Entries are
-   * forgotten with the projectile (forgetBallistic) — no growth.
+   * fish is currently detected (the ballistic reveal predicate).
+   *
+   * AN ENTRY TRAVELS WITH THE PER-VISIT MARK ABOVE (Story 8.13, epic-8
+   * amendment 78): when `ballisticScan` drops a fish's `seenBallistics` mark
+   * on the way out of the gate it drops this baseline in the same breath, and
+   * the re-reveal on re-entry re-sets it — so later drift is measured from the
+   * velocity the client was just handed, never from a stale one it no longer
+   * has. Entries are also forgotten with the projectile (forgetBallistic) — no
+   * growth.
    */
   torpDirs: Map<string, number>;
   /**

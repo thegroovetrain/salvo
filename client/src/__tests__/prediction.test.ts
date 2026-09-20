@@ -617,12 +617,12 @@ describe('Predictor speed boost (Story 1.6, re-cut proportional in Story 8.9)', 
 //
 // STORY 8.13 MOVED THE NUMBERS, NOT THE MECHANISM (epic-8 amendment 81): the
 // naval mine no longer fouls at all, and FOULING MINES is its own tiered line,
-// so the factor and the duration live in `CONFIG.foulingMines`. The predictor
-// uses the line's BASE factor because the wire carries only the WINDOW
-// (`you.slowedUntil`) — the tiered factor is the ATTACKER's, and a per-victim
-// factor on `OwnShip` would be a wire change. These pins therefore hold the
-// predictor against a TIER-I fouling mine, which is the case it can predict
-// exactly.
+// so the factor and the duration live in `CONFIG.foulingMines`. The DEPTH of
+// the slow is tiered (0.75 at I → 0.55 at V), and amendment 86 put that number
+// on the wire beside the window as the victim-private `you.slowFactor` — so the
+// predictor no longer assumes the tier-I base against a deeper rack. The pins
+// below run at BOTH ends of the ladder: the base (no key on the frame) and a
+// tier-V 0.55.
 
 describe('Predictor prop-fouling slow (Story 2.8)', () => {
   const T0 = 500_000;
@@ -630,9 +630,16 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
   const FOUL = CONFIG.foulingMines.slowFactor;
 
   /** Reference server tick — world.stepShips' exact composition. */
-  function serverSlowStep(s: ShipState, inp: InputMsg, t: number, boostUntil: number, slowedUntil: number): void {
+  function serverSlowStep(
+    s: ShipState,
+    inp: InputMsg,
+    t: number,
+    boostUntil: number,
+    slowedUntil: number,
+    factor: number = FOUL,
+  ): void {
     const boosted = boostedKinematics(TB.kinematics, CONFIG.boost.factor, t < boostUntil);
-    const slowed = slowedKinematics(boosted, FOUL, t < slowedUntil);
+    const slowed = slowedKinematics(boosted, factor, t < slowedUntil);
     stepShip(s, inp, slowed, DT);
   }
 
@@ -721,12 +728,10 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
     expect(p.predicted.x).toBeCloseTo(server.x, 9);
   });
 
-  // STORY 8.13 — WHERE THE FACTOR NOW LIVES, AND WHAT THE WIRE DOES NOT SAY.
-  // FOULING MINES is its own tiered line (epic-8 amendment 81) and the naval
-  // mine no longer fouls at all, so the factor moved out of `CONFIG.mine`. The
-  // predictor reads the LINE'S BASE, because `you` carries the WINDOW and not
-  // the attacker's tiered factor; the reconcile covers the difference, and an
-  // exact prediction would need a per-victim factor beside `slowedUntil`.
+  // STORY 8.13 — WHERE THE FACTOR NOW LIVES. FOULING MINES is its own tiered
+  // line (epic-8 amendment 81) and the naval mine no longer fouls at all, so
+  // the factor moved out of `CONFIG.mine`. A frame with no `slowFactor` key is
+  // a hull nothing scaled, so the LINE'S BASE is what the predictor folds.
   it('folds the FOULING line\'s base factor — the naval mine has none to give', () => {
     expect(CONFIG.foulingMines.slowFactor).toBe(0.75);
     expect(CONFIG.foulingMines.slowDurationMs).toBe(5000);
@@ -742,6 +747,52 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
     const inp = input(1, 1, 0);
     p.localTick(inp, tickT(1));
     serverSlowStep(server, inp, tickT(1), 0, slowedUntil);
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+
+  // FAIL-FIRST (Story 8.13, epic-8 amendment 86). The DEPTH of the fouling is
+  // the LAYER's, and before this field the predictor could only fold the
+  // tier-I 0.75 — which over-predicts a tier-V victim's cap by 0.20 × maxSpeed
+  // for the whole five seconds and pays for it in a reconcile snap every
+  // frame. `you.slowFactor` is the wire's answer: the fold uses the number
+  // that actually fouled this hull, so the tick is exact against the server's.
+  it('a TIER-V fouling predicts at 0.55, not at the line\'s base 0.75', () => {
+    const DEEP = 0.55; // CONFIG.foulingMines.slowFactor − 0.05 × 4 (amendment 81)
+    expect(DEEP).toBeCloseTo(CONFIG.foulingMines.slowFactor - 0.05 * 4, 9);
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const slowedUntil = T0 + CONFIG.foulingMines.slowDurationMs;
+    p.onServerState({ ...kin(spawn), slowedUntil, slowFactor: DEEP }, 0);
+
+    const server: ShipState = { ...spawn };
+    const base: ShipState = { ...spawn }; // what the OLD base-factor fold would have produced
+    for (let seq = 1; seq <= 20; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverSlowStep(server, inp, tickT(seq), 0, slowedUntil, DEEP);
+      serverSlowStep(base, inp, tickT(seq), 0, slowedUntil, FOUL);
+    }
+    // Exact against the server that actually laid the mine...
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+    // ...and NON-VACUOUS: the tier-I fold is a materially different hull.
+    expect(Math.abs(base.x - server.x)).toBeGreaterThan(1);
+    expect(p.predicted.speed).not.toBeCloseTo(base.speed, 3);
+  });
+
+  it('a frame that OMITS slowFactor falls back to the base, and a re-init re-seeds it', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const slowedUntil = T0 + CONFIG.foulingMines.slowDurationMs;
+    p.onServerState({ ...kin(spawn), slowedUntil, slowFactor: 0.55 }, 0); // deep first...
+    p.onServerState({ ...kin(spawn), slowedUntil }, 0); // ...then a frame with no key
+    const server: ShipState = { ...spawn };
+    for (let seq = 1; seq <= 20; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverSlowStep(server, inp, tickT(seq), 0, slowedUntil, FOUL);
+    }
     expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
     expect(p.predicted.x).toBeCloseTo(server.x, 9);
   });

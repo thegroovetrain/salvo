@@ -26,6 +26,13 @@
  *  when `own` is true and stripped for every other observer (amendment 76):
  *  one hull may now lay all three kinds and the owner's rings differ by kind,
  *  while observers still cannot tell them apart.
+ *  (3) `OwnShip` GAINS AN OPTIONAL `slowFactor` (epic-8 amendment 86), emitted
+ *  beside `slowedUntil` on the FOULED VICTIM'S OWN FRAME and omitted when the
+ *  hull is not slowed or the factor is the inert 1. The fouling slow is per
+ *  tier now (0.75 at I → 0.55 at V, amendment 81) and the victim's own ship
+ *  carried only the WINDOW, so client prediction could assume nothing but the
+ *  tier-I 0.75 and snapped on reconcile against a deeper rack. SELF-PRIVATE by
+ *  construction, exactly like `slowedUntil` — it rides `you` and nothing else.
  *  No new event kind exists, the reveal shape `{k,id,x,y,vx,vy,t}` gains no
  *  field, and THE PERCEPTION EXCEPTION COUNT STAYS AT SIX.
  *  55 — UNCHANGED by Story 8.12 (CATALOG V3 — LADDERS AND THE DECK GUN, Eric

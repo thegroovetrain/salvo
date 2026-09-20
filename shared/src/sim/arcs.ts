@@ -25,6 +25,7 @@ import { inArc, wrapAngle } from '../math/angle.js';
 import { isConsumableId } from './loadout.js';
 import type { EquipmentId, SlotItemId } from './loadout.js';
 import type { ConsumableId } from './effects.js';
+import type { MineKind } from '../types.js';
 
 /**
  * One equipment id's firing-arc shape:
@@ -81,12 +82,67 @@ function consumableArc(id: ConsumableId): ArcShape {
   return { kind: 'sector', offset: CONFIG.supercavTorpedo.offset, halfArc: CONFIG.supercavTorpedo.halfArc };
 }
 
+/**
+ * THE THREE MINE LINES — the ONE home for the list (Story 8.13). One hull may
+ * fit naval, captive and fouling racks at once, so "is this a mine?" and "which
+ * kind does this line lay?" are asked on BOTH sides: the server keys every
+ * runtime number off the mine's kind, and the client keys the placement leash,
+ * the rear wedge, the drop preview and the own rings off the same facts. They
+ * lived in three places (this file's private chassis guard, the server's
+ * `MINE_ROW_ID`, the client's `render/weaponArc.ts` list) with a cross-check
+ * test holding them together; they live HERE now, and the cross-check survives
+ * as the guard against a fourth kind.
+ *
+ * It sits in `arcs.ts` because the rear placement sector is what makes these
+ * ids one family in the first place — `isMineChassis` below is this list plus
+ * the legacy radar buoy, which shares the arc and the leash but lays nothing.
+ */
+export const MINE_EQUIPMENT_IDS = ['navalMines', 'captiveMines', 'foulingMines'] as const satisfies
+  readonly EquipmentId[];
+
+/** One of the three mine LINES (never the radar buoy). */
+export type MineEquipmentId = (typeof MINE_EQUIPMENT_IDS)[number];
+
+/** Pure: is this slot content one of the three MINE lines? Accepts a null so
+ *  every "what is in this slot" caller can ask it directly. */
+export function isMineEquipment(id: SlotItemId | null): id is MineEquipmentId {
+  return id !== null && (MINE_EQUIPMENT_IDS as readonly string[]).includes(id);
+}
+
+/** The MINE LINE ↔ the `MineKind` a mine laid from it carries (stamped at drop
+ *  on the server, and the own-only `MineView.c` on the wire — epic-8 amendment
+ *  76). Two tiny TOTAL maps rather than a string-prefix trick, so a fourth kind
+ *  fails to compile on both sides. */
+const MINE_KIND_OF: Readonly<Record<MineEquipmentId, MineKind>> = {
+  navalMines: 'naval',
+  captiveMines: 'captive',
+  foulingMines: 'fouling',
+};
+
+const MINE_ID_OF: Readonly<Record<MineKind, MineEquipmentId>> = {
+  naval: 'navalMines',
+  captive: 'captiveMines',
+  fouling: 'foulingMines',
+};
+
+/** Pure: the kind a mine laid from this line is. */
+export function mineKindOf(id: MineEquipmentId): MineKind {
+  return MINE_KIND_OF[id];
+}
+
+/** Pure: the equipment row a mine of this kind reads its rings, its damage and
+ *  its pool off — the OWNER's own stats row for that line, never `navalMines`
+ *  standing in for all three (epic-8 amendment 76). */
+export function mineEquipmentFor(kind: MineKind): MineEquipmentId {
+  return MINE_ID_OF[kind];
+}
+
 /** The four ids that share the MINE's rear placement sector — the three mine
- *  kinds plus the legacy click-placed radar buoy (Story 2.8 amendment 45,
+ *  lines plus the legacy click-placed radar buoy (Story 2.8 amendment 45,
  *  Story 7-5 wave 2 R2.7). A type guard, so the switch below still narrows its
  *  `default` down to the ids that genuinely declare no arc. */
-function isMineChassis(id: EquipmentId): id is 'navalMines' | 'captiveMines' | 'foulingMines' | 'radarBuoy' {
-  return id === 'navalMines' || id === 'captiveMines' || id === 'foulingMines' || id === 'radarBuoy';
+function isMineChassis(id: EquipmentId): id is MineEquipmentId | 'radarBuoy' {
+  return isMineEquipment(id) || id === 'radarBuoy';
 }
 
 /**

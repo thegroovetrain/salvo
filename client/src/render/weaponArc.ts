@@ -36,76 +36,45 @@ import {
   gunReachU,
   inArc,
   isConsumableId,
+  isMineEquipment,
   isWeaponItem,
   pointInLitZone,
   twinSectorSide,
   wrapAngle,
   type EffectiveStats,
-  type EquipmentId,
   type LitCircle,
-  type MineKind,
   type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
 
 /**
- * THE THREE MINE LINES (Story 8.13). One hull may now fit naval, captive and
- * fouling mines at once, and every id-keyed branch that used to read
- * `'navalMines'` has to ask "is this A mine?" instead — the placement leash,
- * the rear wedge's placement grammar, the own rings and the drop preview.
+ * THE THREE MINE LINES (Story 8.13) — RE-EXPORTED FROM `shared/sim/arcs.ts`,
+ * where the list lives. One hull may fit naval, captive and fouling mines at
+ * once, so every id-keyed branch that used to read `'navalMines'` asks "is this
+ * A mine?" instead — the placement leash, the rear wedge's placement grammar,
+ * the own rings and the drop preview.
  *
- * IT IS A CLIENT-LOCAL RESTATEMENT of a shared fact, and deliberately a
- * CHECKED one: `sim/arcs.ts` keeps its own `isMineChassis` (the three ids plus
- * the legacy radar buoy) PRIVATE, so there is nothing to import. The pin in
- * __tests__/weaponArc.test.ts closes the loop from the other end — every id
- * here must declare the mine's rear placement sector, and every EquipmentId
- * that declares that sector must be here or be the buoy — so a fourth mine
- * kind cannot ship without joining this list.
+ * The list, the guard and the two kind maps were briefly a CLIENT-LOCAL
+ * restatement of a shared fact, held to the shared `isMineChassis` by a
+ * cross-check pin. They are one declaration now: the rear placement sector is
+ * what makes these ids one family, so `sim/arcs.ts` is their home and both
+ * sides import them. The cross-check in __tests__/weaponArc.test.ts is kept —
+ * trivially true today, and still the thing that fails when a FOURTH mine kind
+ * declares the placement sector without joining the list.
  */
-export const MINE_EQUIPMENT_IDS = ['navalMines', 'captiveMines', 'foulingMines'] as const satisfies
-  readonly EquipmentId[];
-
-/** One of the three mine LINES (never the radar buoy, which shares their arc
- *  and their leash but lays nothing). */
-export type MineEquipmentId = (typeof MINE_EQUIPMENT_IDS)[number];
-
-/** Pure: is this slot content one of the three MINE lines? */
-export function isMineEquipment(id: SlotItemId | null): id is MineEquipmentId {
-  return id !== null && (MINE_EQUIPMENT_IDS as readonly string[]).includes(id);
-}
+export {
+  MINE_EQUIPMENT_IDS,
+  isMineEquipment,
+  mineEquipmentFor,
+  mineKindOf,
+  type MineEquipmentId,
+} from '@salvo/shared';
 
 /** Pure: does this id share the mine's REAR PLACEMENT grammar — the three mine
  *  lines plus the legacy click-placed radar buoy (R2.7)? The one predicate the
  *  placement leash, the true-radius wedge and the amber placement tint read. */
 export function isPlacedItem(id: SlotItemId | null): boolean {
   return isMineEquipment(id) || id === 'radarBuoy';
-}
-
-/** The MINE LINE ↔ the `MineKind` that rides an own mine's wire view
- *  (`MineView.c`, epic-8 amendment 76). Two tiny total maps rather than a
- *  string prefix trick, so a new kind fails to compile on both sides. */
-const MINE_KIND_OF: Readonly<Record<MineEquipmentId, MineKind>> = {
-  navalMines: 'naval',
-  captiveMines: 'captive',
-  foulingMines: 'fouling',
-};
-
-const MINE_ID_OF: Readonly<Record<MineKind, MineEquipmentId>> = {
-  naval: 'navalMines',
-  captive: 'captiveMines',
-  fouling: 'foulingMines',
-};
-
-/** Pure: the wire kind an own mine laid from this line carries. */
-export function mineKindOf(id: MineEquipmentId): MineKind {
-  return MINE_KIND_OF[id];
-}
-
-/** Pure: the equipment row a mine of this kind reads its rings and its damage
- *  off — the OWNER's own stats row for that line, never `navalMines` standing
- *  in for all three (epic-8 amendment 76). */
-export function mineEquipmentFor(kind: MineKind): MineEquipmentId {
-  return MINE_ID_OF[kind];
 }
 
 /**

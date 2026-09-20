@@ -118,6 +118,13 @@ export interface ServerKinematics {
    */
   slowedUntil?: number;
   /**
+   * × BOTH speed caps while that window runs — the LAYER's folded fouling
+   * factor (OwnShip.slowFactor, Story 8.13 / epic-8 amendment 86); omitted
+   * when 1 / not slowed, in which case the predictor falls back to the line's
+   * BASE factor. Optional for the same reason as the two fields above.
+   */
+  slowFactor?: number;
+  /**
    * ms — server-clock time this SINKING hull founders (OwnShip.sinkingUntil,
    * Story 5.2); ABSENT = not sinking. Optional for the same reason as the two
    * windows above, and absent for all but five seconds of any hull's life.
@@ -175,6 +182,15 @@ export class Predictor {
    * client never predicts a mine blast, so there is no optimistic twin here.
    */
   private authSlowedUntil = 0;
+  /**
+   * The AUTHORITATIVE fouling factor for that window (you.slowFactor, Story
+   * 8.13 / epic-8 amendment 86) — the MINE OWNER's folded `slowFactor` at the
+   * tier that actually fouled this hull, 0.75 at tier I stepping to 0.55 at
+   * tier V. Seeded from `CONFIG.foulingMines.slowFactor` (the tier-I base) and
+   * re-adopted from every frame, so a frame that omits the key — not slowed,
+   * or nothing scaled — reads as the base rather than as a stale depth.
+   */
+  private authSlowFactor: number = CONFIG.foulingMines.slowFactor;
   /**
    * Authoritative SINKING-window deadline (you.sinkingUntil from the latest
    * server frame; 0 = not sinking). Authoritative-ONLY, exactly like the slow:
@@ -327,6 +343,7 @@ export class Predictor {
     // Same for the slow window: the server clears slowedUntil on death /
     // redeploy, and the next frame re-seeds it.
     this.authSlowedUntil = 0;
+    this.authSlowFactor = CONFIG.foulingMines.slowFactor;
     // ...and for the sinking window. A hard re-init is a respawn / reconnect /
     // class swap, none of which a sinking hull survives — leaving a stale
     // deadline behind would cap the NEXT life's speed to zero for the rest of
@@ -392,6 +409,10 @@ export class Predictor {
     // BEFORE the replay is what makes the replayed ticks re-make the same
     // slow decisions the original local ticks will make from here on.
     this.authSlowedUntil = you.slowedUntil ?? 0;
+    // ...and its DEPTH with it (amendment 86). A frame that omits the key is
+    // a hull that is not slowed (or one nothing scaled), so the base factor is
+    // the honest read — never the last fouling's depth held over.
+    this.authSlowFactor = you.slowFactor ?? CONFIG.foulingMines.slowFactor;
     // Adopted BEFORE the replay for the same reason the slow is: the pending
     // ticks about to be replayed will be re-stepped from here on under this
     // window, so they must re-make the same decisions the original local ticks
@@ -474,21 +495,19 @@ export class Predictor {
    *   hookKinematics(
    *     slowedKinematics(
    *       boostedKinematics(kinematics, factor, t < boostUntil),
-   *       CONFIG.foulingMines.slowFactor, t < slowedUntil),
+   *       you.slowFactor, t < slowedUntil),
    *     behaviors, registry)
    *
-   * THE SLOW FACTOR IS THE ATTACKER'S, AND THE WIRE DOES NOT CARRY IT
-   * (Story 8.13, epic-8 amendment 81). FOULING MINES is a tiered LINE now:
-   * the victim's speed caps are scaled by the MINE OWNER's folded `slowFactor`,
-   * 0.75 at tier I stepping to 0.55 at tier V. `you` carries only
-   * `slowedUntil` — the WINDOW — so the predictor uses the line's BASE factor
-   * (`CONFIG.foulingMines.slowFactor`, the tier-I number), which is exact
-   * against a tier-I fouling mine and optimistic against a tiered one. The
-   * error is bounded (0.75 vs 0.55 of the cap, for 5 s) and self-correcting:
-   * the authoritative `you` position reconciles every frame, exactly as it does
-   * for any prediction the client cannot see the inputs to. A per-victim factor
-   * beside `slowedUntil` on `OwnShip` would make it exact; that is a wire change
-   * and is not this wave's to make.
+   * THE SLOW FACTOR IS THE ATTACKER'S, AND THE WIRE NOW CARRIES IT (Story
+   * 8.13, epic-8 amendments 81 + 86). FOULING MINES is a tiered LINE: the
+   * victim's speed caps are scaled by the MINE OWNER's folded `slowFactor`,
+   * 0.75 at tier I stepping to 0.55 at tier V. `you` carries that number
+   * beside the window — VICTIM-PRIVATE, omitted when 1 / not slowed — so the
+   * predictor scales by the factor that actually fouled THIS hull and the
+   * prediction is exact at every tier, where the window alone could only
+   * assume the tier-I 0.75 and snap on reconcile against a deeper rack. A
+   * frame with no key falls back to the line's base, which is the honest read
+   * for a hull nothing fouled.
    *
    * An inactive boost/slow and zero behaviors each return their input
    * reference unchanged, so the un-boosted, un-fouled, pre-boon tick is
@@ -498,7 +517,7 @@ export class Predictor {
    */
   private tickKin(t: number, seq: number): ShipConfig {
     const boosted = boostedKinematics(this.kin, this.boost.factor, this.boostActiveAt(t, seq));
-    const slowed = slowedKinematics(boosted, CONFIG.foulingMines.slowFactor, this.slowActiveAt(t));
+    const slowed = slowedKinematics(boosted, this.authSlowFactor, this.slowActiveAt(t));
     return hookKinematics(slowed, this.behaviors, this.hookRegistry);
   }
 

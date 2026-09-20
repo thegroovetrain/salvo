@@ -2054,6 +2054,23 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // spectator passthrough — fails here even if no verifier knows about it.
   const withoutYou = { ...f, you: undefined };
   expect(JSON.stringify(withoutYou)).not.toContain('repairHp');
+  // ...AND THE FOULING DEPTH, on identical terms (Story 8.13, epic-8 amendment
+  // 86). `slowFactor` names the LAYER's tier, so it is intel about somebody
+  // else's build: it may ride the VICTIM's own ship and nowhere else — not a
+  // contact for a fouled hull, not a boom payload, not a spectator passthrough
+  // — and it may not exist at all on a frame with no `you`. Same whole-frame
+  // text scan as the pool above, so a future channel that starts carrying it
+  // fails here even if no verifier knows about it. (The window it rides with,
+  // `slowedUntil`, has been pinned victim-private since Story 2.8 in
+  // doctrines.test.ts; this is its depth.)
+  expect(JSON.stringify(withoutYou)).not.toContain('slowFactor');
+  // And when it IS on `you`, it is this observer's own record's factor and
+  // present only while the observer's own window runs.
+  if (f.you !== undefined) {
+    const slowed = me.slowedUntil > w.now && me.slowFactor !== 1;
+    expect('slowFactor' in f.you).toBe(slowed);
+    if (slowed) expect(f.you.slowFactor).toBe(me.slowFactor);
+  }
   // THE DECK NEVER RIDES THE WIRE (Story 8.2, epic-8 Anti-cheat; extended by
   // Story 8.3): the server-private pool (`deck`), the frozen list (`deckList`)
   // and the deck id (`deckId`) may appear as a KEY nowhere in ANY frame — `you`

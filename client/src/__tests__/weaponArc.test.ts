@@ -141,10 +141,18 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
   });
 });
 
-// THE ID SETS THIS MODULE RESTATES (Story 8.13). `sim/arcs.ts` keeps its own
-// `isMineChassis` PRIVATE, so the client holds its own list — and this closes
-// the loop from the other end, so a fourth mine kind cannot ship without
-// joining it.
+// THE ID SETS AGAINST THE ARC GRAMMAR (Story 8.13). The mine list, its guard
+// and its two kind maps used to be a CLIENT-LOCAL restatement of a shared fact,
+// because `sim/arcs.ts` kept `isMineChassis` private; they are one declaration
+// now (shared, re-exported through render/weaponArc.ts), so the first case
+// below is trivially true.
+//
+// IT IS KEPT ANYWAY, deliberately. What it actually pins is the SECOND case:
+// every EquipmentId that declares the mine's rear placement sector must be one
+// of the three lines or the legacy buoy. That is the assertion a FOURTH mine
+// kind trips — a new line can declare the sector in `equipmentArc` without
+// anyone remembering to add it to `MINE_EQUIPMENT_IDS`, and then every
+// kind-keyed reader on both sides would silently treat it as no mine at all.
 describe('the mine + torpedo id sets agree with the SHARED arc grammar', () => {
   it('every id it calls a MINE really does declare the mine\'s rear sector', () => {
     const rear = arcFor('navalMines');

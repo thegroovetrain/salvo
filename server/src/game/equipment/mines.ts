@@ -54,11 +54,14 @@ import {
   burstVictims,
   hullSilhouette,
   inArc,
+  mineEquipmentFor,
+  mineKindOf,
   pointPolygonDistance,
   sectorArcFor,
   transformPolygon,
   wrapAngle,
   type Island,
+  type MineEquipmentId,
   type MineKind,
   type Target,
   type ShellState,
@@ -92,15 +95,22 @@ export interface MineState {
 
 /** The three MINE LINE ids — the EquipmentId subset whose stat row is an
  *  `EffectiveMine`. Narrow on purpose: a reader indexing `stats.equipment`
- *  with one of these gets the mine row back without a cast. */
-export type MineLineId = 'navalMines' | 'captiveMines' | 'foulingMines';
+ *  with one of these gets the mine row back without a cast.
+ *
+ *  A THIN ALIAS of the shared `MineEquipmentId` since Story 8.13: the list
+ *  lives in `sim/arcs.ts` (the rear placement sector is what makes these ids
+ *  one family) and the server keeps the local name its callers already
+ *  import. */
+export type MineLineId = MineEquipmentId;
 
 /** The EQUIPMENT ROW each mine kind reads its live numbers from — the ONE
- *  mapping, so no reader re-derives it from a string. */
+ *  mapping, so no reader re-derives it from a string. A thin re-expression of
+ *  the shared `mineEquipmentFor` (Story 8.13), kept because `world.ts` reads
+ *  it as a table (`MINE_ROW_ID[kind]`) at two hot sites. */
 export const MINE_ROW_ID: Readonly<Record<MineKind, MineLineId>> = Object.freeze({
-  naval: 'navalMines',
-  captive: 'captiveMines',
-  fouling: 'foulingMines',
+  naval: mineEquipmentFor('naval'),
+  captive: mineEquipmentFor('captive'),
+  fouling: mineEquipmentFor('fouling'),
 });
 
 /** The VACATED-OWNER trip ring for one kind — the CONFIG base a mine falls
@@ -369,7 +379,8 @@ export function hullFor(ship: ShipRecord): Target {
  * restated per line (the CONFIG blocks say so). Only pool size and reload come
  * from THIS line's own effective row, and the kind is what the drop stamps.
  */
-function mineLine(id: MineLineId, kind: MineKind): Equipment {
+function mineLine(id: MineLineId): Equipment {
+  const kind = mineKindOf(id);
   return {
     id,
     isWeapon: EQUIPMENT_IS_WEAPON[id], // shared weapon/ability split — single source
@@ -394,10 +405,10 @@ function mineLine(id: MineLineId, kind: MineKind): Equipment {
 }
 
 /** NAVAL MINES — the contact rack (the shipped mine under its v3 id). */
-export const mineEquipment: Equipment = mineLine('navalMines', 'naval');
+export const mineEquipment: Equipment = mineLine('navalMines');
 
 /** CAPTIVE MINES (catalog-v3 R25) — the moored torpedo launcher. */
-export const captiveMineEquipment: Equipment = mineLine('captiveMines', 'captive');
+export const captiveMineEquipment: Equipment = mineLine('captiveMines');
 
 /** FOULING MINES (epic-8 amendment 81) — minimal damage, wide blast, a slow. */
-export const foulingMineEquipment: Equipment = mineLine('foulingMines', 'fouling');
+export const foulingMineEquipment: Equipment = mineLine('foulingMines');

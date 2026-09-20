@@ -86,7 +86,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       { label: 'ROUNDS', cur: null, next: '1' },
       { label: 'SPEED', cur: null, next: '65' },
       { label: 'DAMAGE', cur: null, next: '50' },
-      { label: 'HOMING TURN RATE', cur: null, next: '0' },
+      { label: 'HOMING', cur: null, next: '0 rad/s' },
     ]);
   });
 
@@ -97,7 +97,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       { label: 'ROUNDS', cur: null, next: '1' },
       { label: 'SPEED', cur: null, next: '45' },
       { label: 'DAMAGE', cur: null, next: '40' },
-      { label: 'HOMING TURN RATE', cur: null, next: '0' },
+      { label: 'HOMING', cur: null, next: '0 rad/s' },
     ]);
   });
 
@@ -113,7 +113,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       { label: 'ROUNDS', cur: null, next: '1' },
       { label: 'DAMAGE', cur: null, next: '55' },
       { label: 'TRIGGER RADIUS', cur: null, next: '144' },
-      { label: 'HOMING TURN RATE', cur: null, next: '0' },
+      { label: 'HOMING', cur: null, next: '0 rad/s' },
     ]);
     // No blast circle is printed, because the fish's 32 u burst is not a circle
     // around the mine and the line never widens it.
@@ -152,13 +152,167 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     expect(labels.indexOf('TRIGGER RADIUS')).toBe(labels.indexOf('BLAST RADIUS') + 1);
   });
 
-  it('prints copies 2 and up as the TIER step — that weapon\'s own reload', () => {
+  it('prints copies 2 and up as the TIER step — that weapon\'s own reload FIRST', () => {
     const rows = cardStatRows(CATALOG.heavyTorpedo, 1, held('heavyTorpedo', 1));
-    expect(rows).toHaveLength(1);
     expect(rows[0].label).toBe('RELOAD');
     expect(rows[0].cur).toBe('30.0 s');
     // A tier is a cut, so the next value is strictly smaller.
     expect(Number.parseFloat(rows[0].next)).toBeLessThan(30);
+  });
+
+  // A LINE WITH EMPTY TIERS II-V still prints exactly the reload row — the
+  // shipped single-row face, unchanged for the three lines whose ladders
+  // Story 8.13 did NOT author (BROADSIDE, STAR SHELLS, RADAR BUOY).
+  it('keeps the single RELOAD row for a line whose tiers author nothing', () => {
+    for (const id of ['broadside', 'starShells'] as const) {
+      const rows = cardStatRows(CATALOG[id], 1, held(id, 1));
+      expect(rows.map((r) => r.label), id).toEqual(['RELOAD']);
+    }
+  });
+});
+
+// --- THE TIER FACE PRINTS EVERY STEP IT BUYS (Story 8.13, amendment 85) --------
+//
+// The shipped tier face printed ONE row — the reload — by the deck-gun
+// precedent (amendment 71). That understated the five ladders this story
+// authored: a tier-II LIGHT TORPEDO card said only `RELOAD 25.0 s → 23.8 s`
+// while also buying +5 damage, +2.5 u/s and the first 0.125 rad/s of homing.
+// Eric's answer: the reload step PLUS every stat effect the tier authors, in
+// catalog order, on the existing five-row grid at the existing type sizes.
+//
+// The numbers below are the REAL catalog numbers written out, this file's rule.
+
+describe('cardStatRows — a TIER card prints its reload step AND every authored effect', () => {
+  /** Every row of `line` at `copiesHeld`, as `LABEL cur>next` strings. */
+  function face(id: string, copiesHeld: number): string[] {
+    return cardStatRows(CATALOG[id], copiesHeld, held(id, copiesHeld))
+      .map((r) => `${r.label} ${r.cur ?? ''}>${r.next}`);
+  }
+
+  // THE RULING'S OWN EXAMPLE, pinned exactly: reload first, then the catalog's
+  // own effect order (damage, speed, tubes, homing) — five rows, the whole
+  // grid, nothing dropped.
+  it('LIGHT TORPEDO II: reload, damage, speed, rounds, homing — the ruling\'s example', () => {
+    expect(cardStatRows(CATALOG.lightTorpedo, 1, held('lightTorpedo', 1))).toEqual([
+      { label: 'RELOAD', cur: '25.0 s', next: '23.8 s' },
+      { label: 'DAMAGE', cur: '40', next: '45' },
+      { label: 'SPEED', cur: '45', next: '47.5' },
+      { label: 'ROUNDS', cur: '1', next: '1' },
+      { label: 'HOMING', cur: '0', next: '0.125 rad/s' },
+    ]);
+  });
+
+  it('LIGHT TORPEDO V is the same five rows at the top of the ladder', () => {
+    expect(face('lightTorpedo', 4)).toEqual([
+      'RELOAD 21.3 s>20.0 s',
+      'DAMAGE 55>60',
+      'SPEED 52.5>55',
+      'ROUNDS 2>3',
+      'HOMING 0.375>0.5 rad/s',
+    ]);
+  });
+
+  it('HEAVY TORPEDO prints the same five rows off its own block, at II and at V', () => {
+    expect(face('heavyTorpedo', 1)).toEqual([
+      'RELOAD 30.0 s>28.5 s',
+      'DAMAGE 50>55',
+      'SPEED 65>67.5',
+      'ROUNDS 1>1',
+      'HOMING 0>0.125 rad/s',
+    ]);
+    expect(face('heavyTorpedo', 4)).toEqual([
+      'RELOAD 25.5 s>24.0 s',
+      'DAMAGE 65>70',
+      'SPEED 72.5>75',
+      'ROUNDS 2>3',
+      'HOMING 0.375>0.5 rad/s',
+    ]);
+  });
+
+  it('NAVAL MINES prints reload, damage, blast and pool — four rows, no homing', () => {
+    expect(face('navalMines', 1)).toEqual([
+      'RELOAD 15.0 s>14.3 s',
+      'DAMAGE 55>60',
+      'BLAST RADIUS 48>52.8',
+      'ROUNDS 2>3',
+    ]);
+    expect(face('navalMines', 4)).toEqual([
+      'RELOAD 12.8 s>12.0 s',
+      'DAMAGE 70>75',
+      'BLAST RADIUS 63.9>70.3',
+      'ROUNDS 5>6',
+    ]);
+  });
+
+  // The captive line buys its FISH's damage, another moored mine and the
+  // fish's steering; the trip ring grows too but is DERIVED from the tier
+  // (amendment 84d), so it is not an authored effect and gets no tier row.
+  it('CAPTIVE MINES prints reload, damage, held and homing — never its derived trip ring', () => {
+    expect(face('captiveMines', 1)).toEqual([
+      'RELOAD 20.0 s>19.0 s',
+      'DAMAGE 55>60',
+      'ROUNDS 1>1',
+      'HOMING 0>0.075 rad/s',
+    ]);
+    expect(face('captiveMines', 4)).toEqual([
+      'RELOAD 17.0 s>16.0 s',
+      'DAMAGE 70>75',
+      'ROUNDS 2>3',
+      'HOMING 0.225>0.3 rad/s',
+    ]);
+    for (let k = 1; k < CATALOG.captiveMines.cap; k += 1) {
+      expect(face('captiveMines', k).some((r) => r.startsWith('TRIGGER RADIUS'))).toBe(false);
+    }
+  });
+
+  // FOULING MINES' damage is FIXED at 10 (amendment 81), so its tier authors
+  // no damage effect and no damage row — the tier buys blast, pool and SLOW.
+  it('FOULING MINES prints reload, blast, pool and its deepening SLOW — and no damage row', () => {
+    expect(face('foulingMines', 1)).toEqual([
+      'RELOAD 15.0 s>14.3 s',
+      'BLAST RADIUS 72>79.2',
+      'ROUNDS 2>3',
+      'SLOW 75%>70%',
+    ]);
+    expect(face('foulingMines', 4)).toEqual([
+      'RELOAD 12.8 s>12.0 s',
+      'BLAST RADIUS 95.8>105.4',
+      'ROUNDS 5>6',
+      'SLOW 60%>55%',
+    ]);
+  });
+
+  // THE LAW, over every line and every rung: a tier card carries the reload
+  // row plus exactly one row per `stat` effect the tier authors, in catalog
+  // order, and the grid never overflows.
+  it('carries one row per authored stat effect, reload first, for EVERY equipment line at EVERY rung', () => {
+    for (const id of LINE_IDS) {
+      const line = CATALOG[id];
+      if (line.kind !== 'equipment' || line.stub === true) continue;
+      for (let k = 1; k < line.cap; k += 1) {
+        const authored = (line.tiers[k] ?? []).filter((e) => e.kind === 'stat').length;
+        const rows = cardStatRows(line, k, held(id, k));
+        expect(rows.length, `${id}@${k}`).toBe(Math.min(1 + authored, CARD_STAT_ROWS));
+        expect(rows[0].label, `${id}@${k}`).toBe('RELOAD');
+        for (const row of rows) expect(row.cur, `${id}@${k}`).not.toBeNull();
+      }
+    }
+  });
+
+  // THE DECK GUN FACE IS UNCHANGED (amendment 85 keeps amendment 71): it is a
+  // LADDER, not an equipment line, so it never touches the tier-card rule —
+  // one authored damage row, and its tier-derived reload cut stays silent.
+  it('leaves the DECK GUN family exactly as amendment 71 ruled it — one row', () => {
+    expect(cardStatRows(CATALOG.deckGun, 1, held('deckGun', 1))).toEqual([
+      { label: 'GUN DAMAGE', cur: '16', next: '17' },
+    ]);
+    expect(face('deckGunTurret', 0)).toEqual(['GUN ROUNDS READY 1>2']);
+    expect(face('deckGunBarrel', 1)).toEqual(['SHELLS PER SHOT 2>3']);
+    for (const id of ['deckGun', 'deckGunTurret', 'deckGunBarrel'] as const) {
+      for (let k = 0; k < CATALOG[id].cap; k += 1) {
+        expect(cardStatRows(CATALOG[id], k, held(id, k)), `${id}@${k}`).toHaveLength(1);
+      }
+    }
   });
 });
 

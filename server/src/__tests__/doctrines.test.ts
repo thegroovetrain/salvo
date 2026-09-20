@@ -738,6 +738,54 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
     expect('slowedUntil' in contact).toBe(false);
     expect(fc.you!.slowedUntil).toBeUndefined(); // c itself is not slowed — key omitted
   });
+
+  // THE DEPTH RIDES WITH THE WINDOW (Story 8.13, epic-8 amendment 86) — and on
+  // exactly the same terms. FAIL-FIRST: before the field, a tier-V victim's
+  // own frame said only "you are slowed", and the client could not tell 0.55
+  // from 0.75. KEY TESTS, not value tests: a present-but-undefined key on an
+  // observer's payload would still be a structural tell.
+  it('slowFactor rides `you` on the FOULED victim alone — the LAYER\'s tiered number, never a contact', () => {
+    const w = bareWorld(53);
+    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    fitTier(w, o, 'foulingMines', 5); // tier V: ×0.55
+    const b = place(w, 'b', 0, 10);
+    // Well outside the tier-V blast (72 × 1.1^4 ≈ 105 u) but inside sight of
+    // `b`, so the watcher is a genuine observer and never a victim.
+    const c = place(w, 'c', 0, 300);
+    lay(w, 'm1', 'o', 0, 0, 'fouling');
+    w.step();
+
+    const fb = buildFrame(w, 'b');
+    expect(fb.you!.slowFactor).toBeCloseTo(0.55, 9);
+    expect(fb.you!.slowFactor).toBe(b.slowFactor);
+    expect(fb.you!.slowFactor).toBe(o.stats.equipment.foulingMines.slowFactor);
+
+    // NOBODY ELSE, on any channel: not the watcher's own ship, not its contact
+    // for the victim, not the LAYER's frame, and not any event it carries.
+    const fc = buildFrame(w, 'c');
+    const contact = fc.contacts.find((ct) => ct.id === 'b')!;
+    expect(contact).toBeDefined();
+    expect('slowFactor' in contact).toBe(false);
+    expect('slowFactor' in fc.you!).toBe(false);
+    expect(c.slowFactor).toBe(1);
+    const fo = buildFrame(w, 'o');
+    expect('slowFactor' in fo.you!).toBe(false);
+    expect(JSON.stringify(fc.events)).not.toContain('slowFactor');
+  });
+
+  it('the key is OMITTED, never 1 and never undefined, on an un-fouled hull and once the window closes', () => {
+    const { w, b } = foulBoard();
+    // Before the blast: nothing slowed, so nothing on the wire.
+    expect('slowFactor' in buildFrame(w, 'b').you!).toBe(false);
+    w.step(); // the fouling lands
+    expect(buildFrame(w, 'b').you!.slowFactor).toBeCloseTo(0.75, 9);
+    // Run the window out: the clock and the depth leave together.
+    for (let i = 0; i < Math.ceil(CONFIG.foulingMines.slowDurationMs / DT) + 2; i++) w.step();
+    const f = buildFrame(w, 'b');
+    expect('slowedUntil' in f.you!).toBe(false);
+    expect('slowFactor' in f.you!).toBe(false);
+    expect(b.slowFactor).toBeCloseTo(0.75, 9); // the RECORD keeps it; the WIRE does not
+  });
 });
 
 // RE-KEYED IN STORY 7-5 WAVE 1. The pin was written against `mineDamage`,

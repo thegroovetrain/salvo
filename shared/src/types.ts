@@ -456,6 +456,13 @@ export interface OwnShip {
    */
   slowedUntil?: number;
   /**
+   * × BOTH speed caps while the fouling slow runs — the MINE OWNER's folded
+   * `slowFactor` (0.75 → 0.55 by tier, amendment 81). Omitted when 1 / not
+   * slowed, exactly as `slowedUntil` is. Victim-private: rides `you` and
+   * nothing else.
+   */
+  slowFactor?: number;
+  /**
    * ms — server-clock time the DAZZLE truesight reduction on this ship ends
    * (Story 2.8); absent/0 = not dazzled. While dazzled the server's perception
    * shrinks this ship's effective sight, and the client shrinks its own fog

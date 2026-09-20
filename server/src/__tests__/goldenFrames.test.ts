@@ -106,6 +106,7 @@ const EXPECTED_SUBCASES = [
   'nonowner-reveal-current-params',
   'nonowner-reveal-once',
   'shell-reveal-beyond-detect',
+  'slow-factor-victim-private',
   'slowed-victim-private',
   'soft-cover-allows-radar-blip',
   'spectator-ballistic-reveal',
@@ -767,6 +768,16 @@ function scnDebuffs(g: Golden): void {
     'slowed-victim-private',
     fb.you!.slowedUntil === b.slowedUntil && b.slowedUntil > 0 &&
       contact !== undefined && !('slowedUntil' in contact) && fw.you!.slowedUntil === undefined,
+  );
+  // THE DEPTH OF THE FOULING rides with the clock and on the same terms (Story
+  // 8.13, epic-8 amendment 86): the LAYER's tiered factor reaches the VICTIM's
+  // own ship and nothing else. A KEY test on the observer side — a
+  // present-but-undefined key would still be a structural tell.
+  prove(
+    g,
+    'slow-factor-victim-private',
+    fb.you!.slowFactor === b.slowFactor && b.slowFactor < 1 &&
+      contact !== undefined && !('slowFactor' in contact) && !('slowFactor' in fw.you!),
   );
   prove(
     g,

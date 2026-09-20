@@ -479,9 +479,18 @@ describe('ladder position is colour-coded AND dual-coded; the KIND is a word onl
     expect(cards[1].textContent).toContain('WEAPON'); // heavyTorpedo — an equipment line
     // STORY 8.7: the "n/cap" count is DELETED — the drawn ladder says the same
     // thing in rungs, and Eric's standing rule is that a readout must earn its
-    // place. Nothing on the face carries a slash any more.
-    expect(cards[0].textContent).not.toContain('/');
-    expect(cards[1].textContent).not.toContain('/');
+    // place.
+    //
+    // PINNED AS THE COUNT'S SHAPE, not as a bare slash (Story 8.13). The
+    // original assertion was `not.toContain('/')`, a proxy that was already
+    // untrue elsewhere on the face — HULL REPAIR's OVER TIME row has read
+    // `+50 HP / 5 S` since Story 8.8 — and that the HOMING row's `rad/s`
+    // (epic-8 amendment 85) now trips on the weapon faces too. What must stay
+    // gone is the COUNT: a number over a number. A unit with a solidus in it
+    // is a unit, and the two are told apart by the digits either side.
+    const COUNT = /\d\s*\/\s*\d/;
+    expect(cards[0].textContent).not.toMatch(COUNT);
+    expect(cards[1].textContent).not.toMatch(COUNT);
     menu.hide();
     document.body.replaceChildren();
   });
