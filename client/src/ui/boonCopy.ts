@@ -747,19 +747,48 @@ function diffRow(path: string, before: EffectiveStats, after: EffectiveStats): C
  * effect per rung, so this is one row today; it is written per-effect because
  * the catalog shape permits more and a two-number rung must not silently print
  * only one of them.
+ *
+ * `dropUnchanged` IS THE TIER CARD'S RULE, AND ONLY ITS (cycle-148 review gate,
+ * P5). The torpedo lines author +0.5 tubes per tier against an INTEGER pool, so
+ * the fold FLOORS tiers II and IV back to where they started and the card said
+ * `ROUNDS 1 → 1` — a row that promises the player a round it is not buying
+ * them, twice per ladder. The test is the DISPLAYED value, not the raw one, so
+ * it is exactly "the card would have shown the same number on both sides"; the
+ * half-tube is still bought and still lands, one tier later.
+ *
+ * A LADDER LINE'S OWN CARD DOES NOT TAKE THE RULE, because a ladder rung has no
+ * reload row to fall back on: `turning` at rungs II and IV prints the same
+ * number on both sides, and dropping those rows would hand the player a BLANK
+ * card rather than an honest one. Whether a ladder should say something else
+ * there is a design question nobody has ruled on — the grid law pins that no
+ * ladder is ever silent, and this keeps it true.
  */
 function ladderRows(
   line: CatalogLine,
   copiesHeld: number,
   before: EffectiveStats,
   after: EffectiveStats,
+  dropUnchanged = false,
 ): CardStatRow[] {
   const k = Math.min(Math.max(0, Math.trunc(copiesHeld)), line.tiers.length - 1);
   const rows: CardStatRow[] = [];
   for (const e of line.tiers[k] ?? []) {
-    if (e.kind === 'stat') rows.push(diffRow(e.path, before, after));
+    if (e.kind !== 'stat') continue;
+    const row = dropUnchanged ? stepRow(e.path, before, after) : diffRow(e.path, before, after);
+    if (row !== null) rows.push(row);
   }
   return rows;
+}
+
+/** Pure: the row one authored step contributes, or NULL when the two folds
+ *  print the same value (see `ladderRows`). The test is on the values BEFORE
+ *  the unit is appended — the unit rides `next` alone, so comparing the finished
+ *  strings would call every unit-bearing row "changed". A row that IS printed is
+ *  `diffRow`'s, byte for byte. */
+function stepRow(path: string, before: EffectiveStats, after: EffectiveStats): CardStatRow | null {
+  const fmt = statPathFmt(path);
+  if (fmt(readStatPath(before, path)) === fmt(readStatPath(after, path))) return null;
+  return diffRow(path, before, after);
 }
 
 /** Pure: one ABSOLUTE row of an equipment's own table (no `before`, no arrow). */
@@ -811,8 +840,10 @@ function faceFields(target: EquipmentId): readonly string[] {
  * so without this the mine's defining circle would be missing from its own
  * card.
  *
- * COPY 2 AND UP IS A TIER, AND A TIER PRINTS EVERY STEP IT BUYS (Story 8.13,
- * epic-8 amendment 85). The reload row comes FIRST — the 5 % cut is derived in
+ * COPY 2 AND UP IS A TIER, AND A TIER PRINTS EVERY STEP IT ACTUALLY BUYS (Story
+ * 8.13, epic-8 amendment 85; narrowed by the cycle-148 review gate, P5 — a step
+ * whose two folds PRINT THE SAME NUMBER gets no row, see `ladderRows`). The
+ * reload row comes FIRST — the 5 % cut is derived in
  * sim/stats.ts from the tier rather than authored as an effect, so it has no
  * place in the catalog's own order — and the line's authored `stat` effects
  * follow it in CATALOG ORDER, each through the same live preview diff a ladder
@@ -841,7 +872,7 @@ function weaponRows(
   if (copiesHeld > 0) {
     const stat = STAT_LINES[line.id];
     const reload = stat === undefined ? [] : [diffRow(stat.path, before, after)];
-    return [...reload, ...ladderRows(line, copiesHeld, before, after)];
+    return [...reload, ...ladderRows(line, copiesHeld, before, after, true)];
   }
   const fields = faceFields(target);
   // The ROW OBJECT, not `readStatPath`: that reader fails open to 0 for a path

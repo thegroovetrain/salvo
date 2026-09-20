@@ -621,6 +621,37 @@ describe('a reveal for a KNOWN id re-anchors the track (amendment 78)', () => {
     expect(p.liveCount).toBe(1);
   });
 
+  // CYCLE-148 REVIEW GATE, P1 — the re-anchor classifies like a `torpU` does.
+  // A homing fish that does its turning OUTSIDE the reveal gate comes back on a
+  // new bearing: the reveal's velocity is the same observable steer evidence
+  // `onBallisticUpdate` styles on, so it must earn the same look.
+  it('re-styles a re-revealed fish as HOMING when its heading has turned', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell(fish()); // an enemy straight-runner, due east
+    expect(p.lookOf('t1')).toBe('torp');
+    const turn = (30 * Math.PI) / 180;
+    p.onShell(fish({ x: 300, y: 0, vx: 60 * Math.cos(turn), vy: 60 * Math.sin(turn), t: 4000 }));
+    expect(p.lookOf('t1')).toBe('torpHoming');
+  });
+
+  it('leaves a re-revealed straight-runner alone (same heading, still `torp`)', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell(fish());
+    p.onShell(fish({ x: 300, y: 0, t: 4000 })); // same bearing, new anchor
+    expect(p.lookOf('t1')).toBe('torp');
+  });
+
+  // It only ever UPGRADES: an own fish styled homing at launch, or an enemy
+  // that already steered, never falls back to the straight-runner look.
+  it('never downgrades a HOMING track back to `torp` on a straight re-reveal', () => {
+    const p = new Projectiles(900, new Container());
+    p.setOwnModes({ lightTorpedo: false, heavyTorpedo: true });
+    p.onShell(fish(), 'heavyTorpedo', 'heavyTorpedo');
+    expect(p.lookOf('t1')).toBe('torpHoming');
+    p.onShell(fish({ x: 300, y: 0, t: 4000 }));
+    expect(p.lookOf('t1')).toBe('torpHoming');
+  });
+
   it('...and a fish we never claimed stays an ENEMY track on re-reveal', () => {
     const p = new Projectiles(900, new Container());
     p.setSightRange(CONFIG.vision.sight);

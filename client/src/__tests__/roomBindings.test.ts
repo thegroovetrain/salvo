@@ -1407,6 +1407,11 @@ function setupWater(
   const onShell = vi.fn();
   const trigger = vi.fn();
   const flash = vi.fn();
+  // The projectile store's "have I heard of this id?" seam (cycle-148 review
+  // gate, P2). Empty = every reveal in this harness is a FIRST reveal, which is
+  // what every pre-existing pin below assumes; a test adds an id to stand a
+  // known track (live / culled-but-claimed) up.
+  const knownIds = new Set<string>();
   const deps = {
     state: {
       net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0, litZones: [] },
@@ -1427,7 +1432,10 @@ function setupWater(
     ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
     buoys: { sync: vi.fn() },
-    projectiles: { onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(), ownFireOf: () => null },
+    projectiles: {
+      onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(),
+      ownFireOf: () => null, isKnown: (id: string) => knownIds.has(id),
+    },
     effects: { spawnEffect },
     shake: { trigger },
     audio: { play },
@@ -1449,7 +1457,7 @@ function setupWater(
     resetPrime: vi.fn(),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, play, spawnEffect, onShell, trigger, flash, deps, ownFireWeapon };
+  return { sink, play, spawnEffect, onShell, trigger, flash, deps, ownFireWeapon, knownIds };
 }
 
 describe('own-fire correlation (Story 2.9) — telling our broadside from our gun', () => {
@@ -1577,6 +1585,40 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
     expect(ownFireWeapon).not.toHaveBeenCalled();
     expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 'e1' }), null, null);
     expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 'e2' }), null, null);
+  });
+
+  // --- CYCLE-148 REVIEW GATE, P2: a RE-REVEAL is not a click ----------------
+  //
+  // Amendment 78 made the server's ballistic memory non-permanent: a projectile
+  // that leaves an observer's reveal gate and comes back is revealed AGAIN. So
+  // the same id can reach this path twice — and the second time is not a shot
+  // leaving our tube. An enemy fish circling back across our bow used to eat the
+  // standing latch (dressing itself as OUR torpedo) and sound our own fire tone.
+  it('a RE-REVEALED fish on our bow never claims the latch and never sounds our tone', () => {
+    const { sink, play, onShell, ownFireWeapon, knownIds } = setupWater('heavyTorpedo');
+    knownIds.add('t1'); // we are already tracking this fish
+    sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), null, null);
+    expect(ownFireWeapon).not.toHaveBeenCalled(); // the latch is still standing
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('...and the same gate holds for a re-revealed SHELL', () => {
+    const { sink, play, spawnEffect, onShell, ownFireWeapon, knownIds } = setupWater('broadside');
+    knownIds.add('s1');
+    sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), null, null);
+    expect(ownFireWeapon).not.toHaveBeenCalled();
+    expect(spawnEffect).not.toHaveBeenCalled();
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('a FIRST reveal on our bow still claims exactly as it did (unchanged pin)', () => {
+    const { sink, play, onShell, knownIds } = setupWater('heavyTorpedo');
+    expect(knownIds.size).toBe(0); // nothing tracked: this is a genuine launch
+    sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'heavyTorpedo', 'heavyTorpedo');
+    expect(play).toHaveBeenCalledWith('fireTorp');
   });
 
   it('gives an own STAR SHELL its own report — and the ordinary shell look', () => {

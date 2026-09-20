@@ -264,13 +264,19 @@ describe('the TIER faces of the five authored weapon lines fit the shipped grid'
     ),
   );
 
+  // THE FLOOR IS THREE, not four (cycle-148 review gate, P5). A step whose two
+  // folds print the SAME number gets no row, and the +0.5 tube/held step floors
+  // to no change at tiers II and IV — so CAPTIVE MINES, whose tier authors only
+  // damage, held and homing, legitimately prints three rows at those rungs. The
+  // point of this pin is that no tier card fell back to the old SINGLE reload
+  // row, and three is still comfortably more than one.
   it('is NON-VACUOUS: every one of the five prints MORE than the old single reload row at every rung', () => {
     const thin: string[] = [];
     for (const id of TIERED) {
       for (let k = 1; k < CATALOG[id].cap; k += 1) {
         for (const cls of CLASSES) {
           const rows = faceOf(CATALOG[id], k, cls, false).rows;
-          if (rows.length < 4) thin.push(`${id}@${k}/${cls}: ${rows.length}`);
+          if (rows.length < 3) thin.push(`${id}@${k}/${cls}: ${rows.length}`);
         }
       }
     }

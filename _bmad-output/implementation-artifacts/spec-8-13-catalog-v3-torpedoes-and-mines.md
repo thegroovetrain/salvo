@@ -110,6 +110,21 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-09-19 — Review pass (Blind Hunter + Edge Case Hunter on Fable, plus Codex `gpt-5.6-sol` cross-model review — verdicts: Blind build-on-it, Edge build-on-it, Codex fix-first on two client re-reveal findings; agreement: ALL THREE flagged the own-fire latch theft on a re-reveal; Blind + Edge both flagged the bot belt-shot reach skip; Codex alone found the re-anchored homing look; Edge alone found the captive fish re-acquiring a neutral drone and the no-op `ROUNDS 1 → 1` row; Blind alone found the dead fouling hit mask; every wire/gate/spend/fold attack came back clean from all three)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 0, medium 2, low 4)
+- defer: 4: (high 0, medium 0, low 4)
+- reject: 0
+- addressed_findings:
+  - `[medium]` `[patch]` a re-reveal of a KNOWN projectile no longer claims the own-fire latch or replays the fire tone (Codex, Blind F1, Edge 5)
+  - `[medium]` `[patch]` the captive fish locks to the hull that tripped the mine; `steerHoming` honours a pinned `targetId` (Edge 2; amendment 87a)
+  - `[low]` `[patch]` a re-anchored fish takes the observable-steering classification (Codex 1)
+  - `[low]` `[patch]` bot band-pull counts belt `shot` tactics; stale comment fixed (Blind F2, Edge 3)
+  - `[low]` `[patch]` tier cards skip a no-op step row (`ROUNDS 1 → 1`) (Edge 1; amendment 87b)
+  - `[low]` `[patch]` the mine trip scan uses each kind's own `hits` mask; `CONFIG.foulingMines.hits` is live (Blind F3)
+- deferred: rim-hugging reveal chatter + per-tick gate cost (Blind F4, Edge 6); light-torpedo lead solver vs a faster target (Edge 4); `SLOW 75%` label ambiguity (Blind F7); fouling unreachable until Epic 9 (Blind F6). Recorded as-ruled: weaker later fouling overwrites (Blind F5, amendment 87d).
+
 ## Design Notes
 
 - **Why the re-reveal is a memory change, not a channel:** the gate already answers "is this projectile disclosable to me this tick"; making the once-only mark per-visit (clear on the first out tick) lets the existing reveal row fire again on re-entry with the same shape. The old permanent mark existed to stop re-sends while inside; that behaviour is preserved because the mark is only cleared once the projectile is outside.

@@ -1780,6 +1780,34 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     rec.loadout[tube].state = { n: 0, reloadMsLeft: 30000 };
     expect(pullBand(band, readyShotReaches(rec, rec.stats))).toEqual(band);
   });
+
+  // CYCLE-148 REVIEW GATE, P3 — THE BELT IS A SHOT SLOT NOW. `readyShotReaches`
+  // skipped every consumable on the claim that no consumable line was a 'shot'
+  // tactic; Story 8.13 put the SUPERCAV TORPEDO on the belt (epic-8 amendment
+  // 74) and made that claim false. A bot that will genuinely fire the stack was
+  // steering to a band computed as though it had only its gun.
+  it('THE BELT PULLS TOO: a ready SUPERCAV stack contributes its reach', () => {
+    const w = openWorld(416);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    // Strip the hull back to the GUN alone, so the only thing that can move the
+    // band is the belt.
+    for (let i = 0; i < rec.loadout.length; i += 1) {
+      if (rec.loadout[i].equipmentId !== 'gun') rec.loadout[i] = { equipmentId: null, state: null };
+    }
+    expect(readyShotReaches(rec, rec.stats)).toEqual([rec.stats.equipment.gun.rangeU]);
+
+    w.applyCard(rec, 'supercavTorpedo');
+    expect(slotOf(rec, 'supercavTorpedo')).toBeGreaterThanOrEqual(0);
+    const reaches = readyShotReaches(rec, rec.stats);
+    // 250 u is the straight-runner's credible reach (ai/equipment's
+    // TORPEDO_CREDIBLE_U — the supercav never homes, so the gate never widens).
+    expect(reaches).toContain(250);
+
+    // ...and it actually moves the band: a siege battleship holding a knife-
+    // range fish eases its near edge in, exactly as a fitted tube does.
+    const band = engagementBand(profileOf('siege'), rec.stats);
+    expect(pullBand(band, reaches).min).toBeCloseTo((band.min + 250) / 2, 6);
+  });
 });
 
 describe('END TO END — a real World full of bots, stepped for half a match-minute', () => {

@@ -158,6 +158,18 @@ const CONFIG_TRIP_RULES: MineTripRules = {
 };
 
 /**
+ * THE TRIP SCAN'S TARGET SET, PER MINE KIND (cycle-148 review gate, P4).
+ *
+ * Every mine line authors its own `hits` mask, and one hull may hold all three
+ * racks — so the scan cannot take a single collected list and call it "the
+ * hulls". It takes a per-kind lookup instead, which the World backs with its
+ * memoized `hitTargets(mask)`: identical masks resolve to the identical array,
+ * so the three kinds cost exactly as much as the distinct masks among them (one
+ * collection today, since all three are hull-only).
+ */
+export type MineTripHulls = (kind: MineKind) => readonly Target[];
+
+/**
  * Add a mine to the world store. NO CAP OF ANY KIND (Story 8.4, FR57/AR48):
  * `ownMineCount`, `oldestOwnMine`, the per-player `maxLive` eviction branch,
  * the `globalCap` eviction branch and the `maxLive` parameter are all DELETED.
@@ -241,10 +253,14 @@ function firstTripper(
  * the CAPTIVE doctrine read and its hostile gate (R2.13). One victim per mine
  * (the first qualifying ship found). Pure — the World deletes the mine and
  * resolves the detonation or the launch.
+ *
+ * `hulls` IS PER KIND (cycle-148 review gate, P4 — see `MineTripHulls`): each
+ * mine is scanned against the target set ITS OWN row's `hits` mask collects,
+ * not against one list gathered for the naval rack.
  */
 export function checkMineTriggers(
   mines: Map<string, MineState>,
-  hulls: readonly Target[],
+  hulls: MineTripHulls,
   now: number,
   rules: MineTripRules = CONFIG_TRIP_RULES,
 ): MineTrigger[] {
@@ -253,7 +269,12 @@ export function checkMineTriggers(
     if (now < mine.armedAt) continue; // still arming
     const hostile =
       mine.kind === 'captive' ? (victimId: string) => rules.hostile(mine.ownerId, victimId) : null;
-    const victimId = firstTripper(mine, hulls, rules.triggerRadius(mine.ownerId, mine.kind), hostile);
+    const victimId = firstTripper(
+      mine,
+      hulls(mine.kind),
+      rules.triggerRadius(mine.ownerId, mine.kind),
+      hostile,
+    );
     if (victimId !== null) triggers.push({ mine, victimId });
   }
   return triggers;
@@ -296,6 +317,10 @@ export function mineBlastVictims(
  * rule, `equipment/torpedoCore.ts`, applied here by hand because this fish is
  * spawned from a mine point rather than a hull).
  *
+ * ...AND ITS LOCK IS THE TRIPPING HULL, PINNED (cycle-148 review gate, P6):
+ * `targetId` is the victim the hostile gate cleared, and `locked` stops the
+ * fish re-acquiring anybody else for the rest of its run.
+ *
  * IT IS THE GAME'S ONE CONTACT-BLAST PROJECTILE, and it says so entirely through
  * its per-projectile hit rule (the Story 1.4 seam — nothing about a projectile's
  * behaviour lives outside its ShellState): point-less (`targetX === null`, so it
@@ -317,7 +342,7 @@ export function captiveTorpedo(
   mine: MineState,
   dir: number,
   now: number,
-  p: { damage: number; blastRadius: number; homingTurnRate: number },
+  p: { damage: number; blastRadius: number; homingTurnRate: number; targetId: string },
 ): ShellState {
   const homes = p.homingTurnRate > 0;
   const shell: ShellState = {
@@ -342,7 +367,20 @@ export function captiveTorpedo(
     burstRadius: p.blastRadius,
     contactDamage: p.damage,
   };
-  if (homes) shell.homing = { turnRate: p.homingTurnRate, acquireRange: CONFIG.torpedo.homingAcquireRange };
+  // THE LOCK IS PINNED AT LAUNCH (cycle-148 review gate, P6): this fish was
+  // fired at the ONE hull that tripped the mine and cleared the hostile gate
+  // (R2.13), so it must never re-acquire. A neutral fleet drone drifting nearer
+  // mid-run would otherwise steal a trap it was never allowed to spring — and
+  // the gate cannot be re-run in flight, because `steerHoming` is pure shared
+  // sim with no idea what a drone's current aggro is. See `ShellState.homing`.
+  if (homes) {
+    shell.homing = {
+      turnRate: p.homingTurnRate,
+      acquireRange: CONFIG.torpedo.homingAcquireRange,
+      targetId: p.targetId,
+      locked: true,
+    };
+  }
   return shell;
 }
 

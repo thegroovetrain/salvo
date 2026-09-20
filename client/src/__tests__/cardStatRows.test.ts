@@ -190,15 +190,31 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   }
 
   // THE RULING'S OWN EXAMPLE, pinned exactly: reload first, then the catalog's
-  // own effect order (damage, speed, tubes, homing) — five rows, the whole
-  // grid, nothing dropped.
-  it('LIGHT TORPEDO II: reload, damage, speed, rounds, homing — the ruling\'s example', () => {
+  // own effect order (damage, speed, tubes, homing).
+  //
+  // THE TUBE ROW IS ABSENT AT TIER II, and that is the cycle-148 review gate's
+  // P5: the line authors +0.5 tubes per tier against an INTEGER pool, so the
+  // fold FLOORS tier II back to the one tube it already had. `ROUNDS 1 → 1`
+  // promised a round the card was not buying. The half-tube is still bought and
+  // still lands — at tier III, where the row appears (below).
+  it('LIGHT TORPEDO II: reload, damage, speed and homing — no ROUNDS 1 → 1', () => {
     expect(cardStatRows(CATALOG.lightTorpedo, 1, held('lightTorpedo', 1))).toEqual([
       { label: 'RELOAD', cur: '25.0 s', next: '23.8 s' },
       { label: 'DAMAGE', cur: '40', next: '45' },
       { label: 'SPEED', cur: '45', next: '47.5' },
-      { label: 'ROUNDS', cur: '1', next: '1' },
       { label: 'HOMING', cur: '0', next: '0.125 rad/s' },
+    ]);
+  });
+
+  // ...AND TIER III IS WHERE THE TUBE ACTUALLY LANDS: the two authored halves
+  // have added up to a whole round, so the row is back, and it is true.
+  it('LIGHT TORPEDO III prints the ROUNDS step the floored tier II did not buy', () => {
+    expect(face('lightTorpedo', 2)).toEqual([
+      'RELOAD 23.8 s>22.5 s',
+      'DAMAGE 45>50',
+      'SPEED 47.5>50',
+      'ROUNDS 1>2',
+      'HOMING 0.125>0.25 rad/s',
     ]);
   });
 
@@ -217,7 +233,7 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
       'RELOAD 30.0 s>28.5 s',
       'DAMAGE 50>55',
       'SPEED 65>67.5',
-      'ROUNDS 1>1',
+      // no ROUNDS row: the tier-II half-tube floors back to one (P5)
       'HOMING 0>0.125 rad/s',
     ]);
     expect(face('heavyTorpedo', 4)).toEqual([
@@ -251,7 +267,7 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
     expect(face('captiveMines', 1)).toEqual([
       'RELOAD 20.0 s>19.0 s',
       'DAMAGE 55>60',
-      'ROUNDS 1>1',
+      // no ROUNDS row: the tier-II half-mine floors back to one (P5)
       'HOMING 0>0.075 rad/s',
     ]);
     expect(face('captiveMines', 4)).toEqual([
@@ -282,22 +298,45 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
     ]);
   });
 
-  // THE LAW, over every line and every rung: a tier card carries the reload
-  // row plus exactly one row per `stat` effect the tier authors, in catalog
-  // order, and the grid never overflows.
-  it('carries one row per authored stat effect, reload first, for EVERY equipment line at EVERY rung', () => {
+  // THE LAW, over every line and every rung: a tier card carries the reload row
+  // plus exactly one row per `stat` effect the tier actually MOVES, in catalog
+  // order, and the grid never overflows. The walk is over every authored line —
+  // counting the steps that change, which is the cycle-148 P5 rule stated as a
+  // law rather than as a list of lines.
+  it('carries one row per CHANGED stat effect, reload first, for EVERY equipment line at EVERY rung', () => {
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       if (line.kind !== 'equipment' || line.stub === true) continue;
       for (let k = 1; k < line.cap; k += 1) {
-        const authored = (line.tiers[k] ?? []).filter((e) => e.kind === 'stat').length;
         const rows = cardStatRows(line, k, held(id, k));
-        expect(rows.length, `${id}@${k}`).toBe(Math.min(1 + authored, CARD_STAT_ROWS));
+        expect(rows.length, `${id}@${k}`).toBe(Math.min(1 + changedSteps(line, k), CARD_STAT_ROWS));
         expect(rows[0].label, `${id}@${k}`).toBe('RELOAD');
         for (const row of rows) expect(row.cur, `${id}@${k}`).not.toBeNull();
       }
     }
   });
+
+  /** How many of `line`'s authored stat steps at rung `k` actually MOVE the
+   *  number they address — folded straight through `effectiveStats`, never read
+   *  off the rows under test, so the law is an independent statement. */
+  function changedSteps(line: CatalogLine, k: number): number {
+    const cls = CONFIG.shipClasses.torpedoBoat;
+    const before = effectiveStats(cls, Array<string>(k).fill(line.id));
+    const after = effectiveStats(cls, Array<string>(k + 1).fill(line.id));
+    let moved = 0;
+    for (const e of line.tiers[k] ?? []) {
+      if (e.kind === 'stat' && statAt(before, e.path) !== statAt(after, e.path)) moved += 1;
+    }
+    return moved;
+  }
+
+  /** Read a dotted stat path off a fold (the test's own reader). */
+  function statAt(stats: unknown, path: string): unknown {
+    return path.split('.').reduce<unknown>(
+      (o, key) => (o === null || typeof o !== 'object' ? undefined : (o as Record<string, unknown>)[key]),
+      stats,
+    );
+  }
 
   // THE DECK GUN FACE IS UNCHANGED (amendment 85 keeps amendment 71): it is a
   // LADDER, not an equipment line, so it never touches the tier-card rule —

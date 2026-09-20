@@ -207,8 +207,8 @@ describe('mines — arm delay, silhouette trigger, owner immunity', () => {
   it('does not trigger before it arms', () => {
     const mines = mineAt('a', 0, 0, 3000);
     const enemy = [hull('b', 0, 20, HALF_PI)]; // silhouette covers the mine
-    expect(checkMineTriggers(mines, enemy, 2999)).toEqual([]);
-    expect(checkMineTriggers(mines, enemy, 3000)).toHaveLength(1);
+    expect(checkMineTriggers(mines, () => enemy, 2999)).toEqual([]);
+    expect(checkMineTriggers(mines, () => enemy, 3000)).toHaveLength(1);
   });
 
   it('triggers on the HULL silhouette, not the ship center', () => {
@@ -216,18 +216,18 @@ describe('mines — arm delay, silhouette trigger, owner immunity', () => {
     // Center 40u away (> triggerRadius 32) but the stern reaches over the mine
     // (bow +y: the 100u hull spans y in [-10, 90] — the mine sits inside it).
     const reaching = [hull('b', 0, 40, HALF_PI)];
-    const triggers = checkMineTriggers(mines, reaching, 10);
+    const triggers = checkMineTriggers(mines, () => reaching, 10);
     expect(triggers.map((t) => t.victimId)).toEqual(['b']);
     // A hull whose whole silhouette stays beyond triggerRadius does not trip it
     // (center 90: stern at y=40, 40 > 32 from the mine).
     const clear = [hull('b', 0, 90, HALF_PI)];
-    expect(checkMineTriggers(mineAt('a', 0, 0, 0), clear, 10)).toEqual([]);
+    expect(checkMineTriggers(mineAt('a', 0, 0, 0), () => clear, 10)).toEqual([]);
   });
 
   it('the owner never trips its own mine', () => {
     const mines = mineAt('a', 0, 0, 0);
     const own = [hull('a', 0, 10, HALF_PI)]; // right on top of it
-    expect(checkMineTriggers(mines, own, 10)).toEqual([]);
+    expect(checkMineTriggers(mines, () => own, 10)).toEqual([]);
   });
 });
 

@@ -630,3 +630,48 @@ describe('P8 — wrecksInBurst honours the fleet friendly filter', () => {
     expect(inner.wrecksInBurst({ x: 300, y: 0 }, CONFIG.gun.burstRadius, 'a')).toBe(1);
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// CYCLE-148 REVIEW GATE, P4 — EACH MINE KIND TRIPS THROUGH ITS OWN `hits` ROW
+// ---------------------------------------------------------------------------
+//
+// The trip scan collected `CONFIG.mine.hits` ONCE and scanned every armed mine
+// against that one list, whatever rack it came off. `CONFIG.foulingMines.hits`
+// was therefore authored data nothing read — and the day the fouling line's
+// mask diverges from the naval one (a fouling mine that catches a decoy's
+// screws, say) the divergence would have been silently ignored. The masks agree
+// today, so the only way to SEE the routing is to make them disagree.
+describe('the mine trip scan routes by KIND (MINE_TRIP_HITS)', () => {
+  /** One layer, and two victims each parked on top of one of their mines. */
+  function twoMines(seed: number): World {
+    const w = bareWorld(seed);
+    place(w, 'a', 0, 0); // the layer — never trips its own
+    place(w, 'b', 600, 0);
+    place(w, 'c', -600, 0);
+    mine(w, 'm-naval', 'a', 600, 0, 0, 'naval');
+    mine(w, 'm-foul', 'a', -600, 0, 0, 'fouling');
+    return w;
+  }
+
+  it('THE CONTROL: with both rows authored hull-only, both mines trip', () => {
+    const w = twoMines(71);
+    w.step();
+    expect(w.mines.has('m-naval')).toBe(false);
+    expect(w.mines.has('m-foul')).toBe(false);
+  });
+
+  it('a FOULING mine whose row collects nothing never trips — the naval one still does', () => {
+    const row = CONFIG.foulingMines as unknown as { hits: readonly TargetKind[] };
+    const saved = row.hits;
+    row.hits = []; // this line now catches nothing at all
+    try {
+      const w = twoMines(72);
+      w.step();
+      expect(w.mines.has('m-naval')).toBe(false); // the naval rack is untouched
+      expect(w.mines.has('m-foul')).toBe(true); // ...and the fouling rack is inert
+    } finally {
+      row.hits = saved;
+    }
+  });
+});

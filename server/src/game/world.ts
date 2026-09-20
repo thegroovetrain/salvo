@@ -1041,6 +1041,26 @@ export type HitTargets = (mask: readonly TargetKind[]) => readonly Target[];
  */
 const MINE_BLAST_HITS: readonly TargetKind[] = ['hull', 'decoy'];
 
+/**
+ * WHICH CONFIG ROW EACH MINE KIND TRIPS THROUGH (cycle-148 review gate, P4).
+ *
+ * The trip scan used to collect `CONFIG.mine.hits` once and scan every mine
+ * against it, whatever rack it came off — which made `CONFIG.foulingMines.hits`
+ * dead authored data, and would have shipped the fouling line's mask silently
+ * ignored the day it diverged from the naval one. The table names the ROW, and
+ * the mask is read off CONFIG at scan time, so each line's `hits` stays
+ * authored in exactly one place. The captive line authors none of its own — it
+ * trips on the naval rule (amendment 84d) — so it points at the same row.
+ *
+ * It costs nothing: `hitTargets` memoizes per mask within the tick, so the
+ * three kinds share one collection for as long as their masks agree.
+ */
+const MINE_TRIP_HITS: Readonly<Record<MineKind, 'mine' | 'foulingMines'>> = Object.freeze({
+  naval: 'mine',
+  captive: 'mine',
+  fouling: 'foulingMines',
+});
+
 /** ONE MINE'S runtime numbers (see `mineBlastParams`). `slowFactor` is 1 on
  *  every kind but FOULING and `homingTurnRate` 0 on every kind but CAPTIVE —
  *  the inert identities the stat rows carry, so a reader never branches. */
@@ -4067,7 +4087,8 @@ export class World {
    * time; a vacated owner falls back to the CONFIG base).
    */
   private stepMines(hitTargets: HitTargets): void {
-    // TRIPPING scans `CONFIG.mine.hits` — HULLS ONLY. A radar buoy (and, from
+    // TRIPPING scans EACH KIND'S OWN `hits` row (`MINE_TRIP_HITS`) — HULLS
+    // ONLY on all three today. A radar buoy (and, from
     // Story 8.15, a decoy) never trips a mine: it is not a hull, and remote
     // minefield clearing is a mechanic nobody ruled on — shooting the mine is
     // the sanctioned way (amendment 16). DETONATION resolves against the blast
@@ -4080,7 +4101,7 @@ export class World {
     // walking its own store to advance itself is the opposite direction. The
     // same distinction covers chainMines (one detonation propagating inside
     // the mine store) and tickBuoys.
-    const hulls = hitTargets(CONFIG.mine.hits);
+    const hulls = (kind: MineKind): readonly Target[] => hitTargets(CONFIG[MINE_TRIP_HITS[kind]].hits);
     for (const { mine, victimId } of checkMineTriggers(this.mines, hulls, this.now, this.mineTripRules())) {
       if (mine.kind === 'captive') this.launchCaptiveTorpedo(mine, victimId);
       else this.detonateMine(mine, hitTargets(MINE_BLAST_HITS), victimId);
@@ -4142,7 +4163,8 @@ export class World {
    * ALONG any more: it is its own line with its own mines (amendment 81), so a
    * captive fish's hit slows nothing. A vacated owner falls back to the CONFIG
    * bases exactly as a mine blast does; a vanished VICTIM cannot happen here
-   * (the hostile gate refuses one).
+   * (the hostile gate refuses one). The fish's homing lock is PINNED to that
+   * victim (cycle-148 review gate, P6) — see `captiveTorpedo`.
    */
   private launchCaptiveTorpedo(mine: MineState, victimId: string): void {
     if (!this.consumeMine(mine.id)) return; // already spent this tick
@@ -4156,7 +4178,16 @@ export class World {
     const led = leadIntercept(mine, victim.state, vx, vy, CONFIG.torpedo.speed);
     const dir = Math.atan2(led.y - mine.y, led.x - mine.x);
     this.spawnBallistic(
-      captiveTorpedo(this.nextBallisticId(), mine, dir, this.now, { damage, blastRadius, homingTurnRate }),
+      captiveTorpedo(this.nextBallisticId(), mine, dir, this.now, {
+        damage,
+        blastRadius,
+        homingTurnRate,
+        // THE FISH IS LOCKED TO THE TRIPPING HULL (cycle-148 review gate, P6):
+        // the hostile gate (R2.13) cleared THIS victim, and nothing in flight
+        // may widen that. A steering fish that re-acquired would happily chase
+        // a neutral drone that drifted nearer.
+        targetId: victim.id,
+      }),
     );
   }
 

@@ -323,6 +323,29 @@ interface LiveShell {
  *  for a burst that arrives seconds after launch. */
 export const MAX_OWN_CLAIMS = 32;
 
+/**
+ * The velocity-direction change (rad) at or past which a RE-REVEALED fish has
+ * observably STEERED — the same threshold the server re-emits a `torpU` at
+ * (`CONFIG.torpedo.homingUpdateAngleDeg`), so the two paths that can tell a
+ * client "this fish turned" classify on one number rather than two.
+ */
+const STEER_THRESHOLD_RAD = (CONFIG.torpedo.homingUpdateAngleDeg * Math.PI) / 180;
+
+/**
+ * Pure: has the track's heading turned observably between two velocities?
+ * Signed-angle-between (atan2 of cross/dot) so it is wrap-safe without any
+ * normalization, and a zero velocity on either side reads as "no turn" (the
+ * degenerate atan2(0, 0) = 0) rather than as a spurious steer.
+ */
+export function velocityTurned(
+  prev: { vx: number; vy: number },
+  next: { vx: number; vy: number },
+): boolean {
+  const cross = prev.vx * next.vy - prev.vy * next.vx;
+  const dot = prev.vx * next.vx + prev.vy * next.vy;
+  return Math.abs(Math.atan2(cross, dot)) >= STEER_THRESHOLD_RAD;
+}
+
 export class Projectiles {
   private readonly pool: Pool<Graphics>;
   private readonly live = new Map<string, LiveShell>();
@@ -436,6 +459,24 @@ export class Projectiles {
     return this.live.size;
   }
 
+  /**
+   * Have we EVER been told about this ballistic id? (cycle-148 review gate, P2.)
+   *
+   * True for a track we are still drawing AND for one whose sprite is long gone
+   * but whose claim tombstone we kept — the two shapes "already known" takes on
+   * this side. The caller is `roomBindings`' own-fire correlation: a RE-REVEAL
+   * (amendment 78) of a fish that happens to pass our own hull is not a shot
+   * leaving our tube, so it must not consume the click latch or sound the fire
+   * tone. Only a genuinely first reveal may.
+   *
+   * A fish the client culled and never claimed is NOT known here, and cannot
+   * be: no state survives an enemy cull by design. That case falls back to
+   * exactly the pre-patch heuristic, which is where it started.
+   */
+  isKnown(id: string): boolean {
+    return this.live.has(id) || this.claims.has(id);
+  }
+
   /** The identity a tracked projectile is currently painted with (test/debug
    *  seam — the render state machine, without reaching into the display list).
    *  Null for an id we hold no track for. */
@@ -543,12 +584,20 @@ export class Projectiles {
    *     a stale anchor while holding a fresher one in its hand.
    *
    * So a reveal for a known id is treated exactly as a `torpU` is: re-anchor in
-   * place, never a duplicate sprite and never ignored. The LOOK is left alone —
-   * a fish that earned `torpHoming` by visibly steering keeps it, and the
-   * reveal payload (pos + velocity + t, no range-derivable field) cannot say
-   * anything new about identity.
+   * place, never a duplicate sprite and never ignored.
+   *
+   * AND IT IS CLASSIFIED LIKE ONE TOO (cycle-148 review gate, P1). The reveal
+   * carries a velocity, so a fish whose heading has turned past the `torpU`
+   * threshold since the anchor we hold has STEERED where this client could see
+   * it — exactly the evidence `onBallisticUpdate` styles on, arriving down the
+   * other pipe. A homing fish that spends its turn outside the reveal gate and
+   * comes back on a new bearing would otherwise keep the straight-runner look
+   * for its whole run. The classification only ever UPGRADES: `restyle` is
+   * called with `torpHoming` alone, so a track that already earned it (or was
+   * styled homing at launch off own stats) can never fall back to `torp`.
    */
   private reanchor(s: LiveShell, ev: BallisticEvent): void {
+    if (s.kind === 'torp' && velocityTurned(s, ev)) this.restyle(s, 'torpHoming');
     s.x0 = ev.x;
     s.y0 = ev.y;
     s.vx = ev.vx;

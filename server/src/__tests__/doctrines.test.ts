@@ -429,7 +429,14 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
         expect(fish.homing).toBeUndefined();
         expect(fish.distLeft).toBe(Number.POSITIVE_INFINITY);
       } else {
-        expect(fish.homing).toEqual({ turnRate: expected, acquireRange: CONFIG.torpedo.homingAcquireRange });
+        // The LOCK is pinned at launch (cycle-148 review gate, P6): this fish
+        // is the tripping hull's and nobody else's, for its whole run.
+        expect(fish.homing).toEqual({
+          turnRate: expected,
+          acquireRange: CONFIG.torpedo.homingAcquireRange,
+          targetId: 'b',
+          locked: true,
+        });
         expect(fish.distLeft).toBe(CONFIG.torpedo.homingMaxRangeU);
       }
     }
@@ -554,6 +561,43 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
     // Aimed at the CAPTAIN (−y), not at the neutral drone (+y).
     expect(fish[0].vy).toBeLessThan(0);
     expect(cap.state.y).toBeLessThan(0); // sanity: the captain is the −y one
+  });
+
+  // CYCLE-148 REVIEW GATE, P6 — THE GATE MUST SURVIVE THE FLIGHT.
+  //
+  // R2.13 is a WORLD read (is this drone hunting me right now?) and `steerHoming`
+  // is pure shared sim, so a fish that re-acquired mid-run could only re-acquire
+  // BLIND — and would happily take a neutral drone that drifted nearer, springing
+  // the trap on the exact hull the gate had refused. The lock is pinned at launch
+  // instead: the fish steers at its victim and at nobody else.
+  it('a tier-II fish keeps steering at the HOSTILE captain past a nearer neutral drone', () => {
+    const w = bareWorld(51);
+    const o = place(w, 'o', 900, 900, 0, 'mineLayer');
+    fitTier(w, o, 'captiveMines', 2); // tier II: the first rung that steers
+    // The HOSTILE captain trips the mine from −y...
+    const cap = place(w, 'cap', 0, -60);
+    // ...and a NEUTRAL drone sits NEARER the launch point, on the far side of
+    // the fish's course and well inside the family's 120 u acquire range. An
+    // unlocked fish takes the drone — it is the nearest thing in the water.
+    const drone = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 45, y: 25 }, []);
+    drone.state = { x: 45, y: 25, heading: 0, speed: 0 };
+    w.drones.add('d', 'medium', 1, { x: 45, y: 25 }); // stationed where it stands
+    lay(w, 'm1', 'o', 0, 0, 'captive');
+    w.step();
+
+    const fish = [...w.shells.values()][0];
+    expect(fish.homing?.targetId).toBe('cap'); // the gate's answer, pinned
+    expect(fish.vy).toBeLessThan(0); // running at the captain, not the drone
+    // ...and it STAYS pinned with the drone sitting right there: the lock never
+    // widens, and the fish's course never turns back toward +y.
+    for (let i = 0; i < 40 && w.shells.size > 0; i += 1) {
+      w.step();
+      const live = [...w.shells.values()][0];
+      if (live === undefined) break;
+      expect(live.homing?.targetId).toBe('cap');
+      expect(live.vy).toBeLessThan(0);
+    }
+    expect(cap.hp).toBeLessThan(cap.stats.maxHp); // it connected with the captain
   });
 
   it('THE GATE IS CAPTIVE-ONLY: a NAVAL and a FOULING mine both still trip on a neutral drone', () => {

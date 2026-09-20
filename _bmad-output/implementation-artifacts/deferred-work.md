@@ -2356,3 +2356,30 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   status: OPEN — hand to Story 8.18
   summary: BOTS' PER-LINE APPETITES FOR THIS STORY'S FIVE LINES ARE STILL THE INTERIM `APPETITE_FAMILY` FALLBACK, NOT AUTHORED ENTRIES. Amendment 79 shipped minimal tactics (light torpedo reuses the heavy torpedo tactic, captive/fouling mines reuse the mine tactic) rather than a full per-line tactic and weight table; the `APPETITE_FAMILY` fallback map that lets an unlisted line inherit its family's generic appetite is marked for deletion once Story 8.18 authors real per-line entries for every line, this story's five included.
   evidence: `server/src/game/ai/equipment.ts` `APPETITE_FAMILY`; `server/src/game/ai/spending.ts`; epic-8 amendment 79, amendment 86's note on the trapper's fouling tie.
+
+### Story 8.13 review-gate defers (2026-09-19, cycle 148)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — perf/chatter, bounded; measure on a production smoke
+  summary: THE PER-VISIT REVEAL MARK (amendment 78) HAS TWO BOUNDED COSTS THE OLD PERMANENT MARK DID NOT: (1) a live enemy projectile hugging an observer's detect/sight rim, an island LOS edge or a dazzle-shrunk rim can alternate inside/outside per tick and draw one full `{k,id,x,y,vx,vy,t}` reveal per re-entry tick (geometry stays correct — the client re-anchors — but the chatter is unbounded per rim-hugging projectile); (2) `ballisticGateOpen` now runs every tick for every MARKED non-owner projectile per observer (one `losClear` raycast each), where a marked projectile used to short-circuit. Candidate fixes if either ever matters: clear only after N consecutive outside ticks, or a per-(observer, id) reveal-rate floor. Not fixed at the gate — no evidence it matters at 20 observers × live ordnance.
+  evidence: Blind Hunter F4 + Edge Case Hunter finding 6, both PLAUSIBLE, traced against `server/src/game/perception.ts` `ballisticScan`/`forgetIfExited` and `signals.ts` `ballisticGateOpen`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — bots; hand to Story 8.18
+  summary: THE LIGHT TORPEDO'S LEAD SOLVER CAN RETURN A MEANINGLESS INTERCEPT AGAINST A TARGET IT CANNOT CATCH: `ai/equipment.ts` `leadPoint` runs three fixed-point iterations with no "target faster than the fish and opening" guard, so a bot may spend a 25 s light-torpedo tube (45 u/s at tier I) on a Torpedo Boat running away at 45+ u/s. The heavy at 65 u/s never met this case. Guard shape: `if (t.speed >= fishSpeed && closingRate <= 0) return null`.
+  evidence: Edge Case Hunter finding 4 (PLAUSIBLE), traced through `solveTorpedoShot` for `lightTorpedo`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — Eric's call (copy)
+  summary: THE FOULING CARD'S `SLOW 75%` ROW IS AMBIGUOUS — it means "speed ×0.75" but reads as "slows by 75 %". Label `SLOW` was the orchestrator's minimal word (amendment 81's build); a clearer form (`SPEED ×0.75`, `SPEED 75%`) is Eric's to pick.
+  evidence: Blind Hunter F7; `client/src/ui/boonCopy.ts` `pct` under `SLOW`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — QA note, by design
+  summary: THE WHOLE FOULING RUNTIME IS UNREACHABLE IN LIVE PLAY UNTIL EPIC 9: `foulingMines` is in no default deck and `DEFAULT_OWNED` excludes it, so the server slow write, `OwnShip.slowFactor` on the wire and the predictor's `authSlowFactor` are covered by tests and smokes only. Likewise `depthCharge` is a stub in the Mine Layer's default deck (its 40th card buys nothing today — amendment 83, Eric knows).
+  evidence: Blind Hunter F6; `shared/src/sim/catalog.ts` default decks + `DEFAULT_OWNED`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — Eric's call (card copy)
+  summary: THE NO-OP ROW SKIP (amendment 87b) APPLIES TO WEAPON TIER CARDS ONLY. Applying it to pure LADDER lines made some TURNING rungs print ZERO rows (the +0.05 rad/s step disappears under the row's display rounding), a blank card and a breach of "every card has at least one row" — so ladder cards still print their one `STAT cur → next` row even when the displayed values match. Either widen the display precision for TURNING or accept the unchanged-looking row; Eric to pick.
+  evidence: review-gate patch P5 (`client/src/ui/boonCopy.ts` `ladderRows(dropUnchanged)`, `weaponRows` passes true; `cardStatRows.test.ts` law `rows.length === min(1 + changedSteps, 5)` for weapon tiers).

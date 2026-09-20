@@ -16,6 +16,15 @@
 // a single broadside click dressed EVERY own-looking reveal for the next 400ms —
 // including an enemy shell that happened to materialize on our bow — as our
 // barrage, which is exactly the misinformation the latch exists to avoid.
+//
+// AND ONLY A FIRST REVEAL MAY CLAIM IT (cycle-148 review gate, P2). Since
+// amendment 78 the server re-reveals a projectile that leaves an observer's
+// gate and comes back, so the same id can arrive on the reveal path more than
+// once. A re-reveal is not a click: `net/roomBindings.firstReveal` asks the
+// projectile store whether it already knows the id and, if it does, skips the
+// claim and the fire tone entirely. Without that gate an enemy fish circling
+// back across our bow would eat a standing latch — the exact misattribution the
+// one-shot rule above exists to prevent, arriving by a different door.
 
 import type { SlotItemId } from '@salvo/shared';
 import type { OwnFire } from '../render/projectiles.js';

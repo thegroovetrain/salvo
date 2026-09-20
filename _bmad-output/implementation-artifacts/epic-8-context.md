@@ -162,3 +162,4 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 84. **Measured corrections for 8.13** (orchestrator 2026-09-19): mine caps already gone (8.4); id moves are supercav OUT / fouling IN; ledger cites resolve to `:1460` / `:691`; the captive trigger step is tier-derived (blast fixed 32); `CONFIG.torpedo` stays the heavy + family block; no torpedo line has a max range.
 85. **A tier card prints every authored step (≤ 5 rows); the homing row is `HOMING`** (Eric 2026-09-19); the DECK GUN face stays as in 71.
 86. **`OwnShip.slowFactor?` rides the own-ship view, victim-private** (orchestrator 2026-09-19, inside PV 56); trapper's fouling preference is an interim tie until 8.18.
+87. **Review-gate rulings** (orchestrator 2026-09-19): the captive fish locks to its tripper (R2.13 kept under tiered homing); tier cards skip no-op `ROUNDS 1 → 1` rows; a weaker later fouling overwrites as ruled (Eric may prefer keep-strongest).

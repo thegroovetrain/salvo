@@ -100,7 +100,6 @@ import {
   CONFIG,
   angleDiff,
   bearing,
-  isConsumableId,
   nearestCoastPoint,
   wrapAngle,
   type EffectiveStats,
@@ -112,7 +111,7 @@ import {
 import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
-import { EQUIPMENT_TACTICS, slotAppetite, tacticFor, type Shot, type TacticContext } from './equipment.js';
+import { slotAppetite, tacticFor, type Shot, type TacticContext } from './equipment.js';
 import {
   choosePosture,
   foldView,
@@ -321,15 +320,23 @@ function chooseAct(
  * The READY shot-weapon reaches for the band pull: every fitted 'shot' slot
  * with rounds in the pool contributes its tactic's effective reach. Exported
  * for the band-pull tests — the "only while loaded" clause is this list.
+ *
+ * THE BELT IS IN IT (cycle-148 review gate, P3). This used to skip every
+ * consumable slot on the claim that no consumable line was a 'shot' tactic —
+ * true when it was written, and false since Story 8.13 gave the belt the
+ * SUPERCAV TORPEDO (epic-8 amendment 74). A bot holding supercav stock will
+ * genuinely shoot it (`firePass` resolves the belt through `tacticFor`), so a
+ * band pull computed without its reach steered the hull to a range its own
+ * ready weapon did not want. The lookup goes through `tacticFor`, the ONE
+ * resolver that spans both id spaces, so the registries stay the authority on
+ * what is a shot.
  */
 export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[] {
   const out: number[] = [];
   for (let i = 0; i < self.loadout.length; i += 1) {
     const id = self.loadout[i].equipmentId;
-    // A belt slot contributes no shot reach (no consumable line is a 'shot'
-    // tactic), and the guard keeps this lookup keyed by EquipmentId.
-    if (id === null || isConsumableId(id) || !slotReady(self, i)) continue;
-    const tactic = EQUIPMENT_TACTICS[id];
+    if (id === null || !slotReady(self, i)) continue;
+    const tactic = tacticFor(id);
     if (tactic?.kind === 'shot') out.push(tactic.reachU(stats));
   }
   return out;
