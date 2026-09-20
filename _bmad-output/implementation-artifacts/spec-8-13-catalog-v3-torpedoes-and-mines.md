@@ -2,10 +2,10 @@
 title: 'Story 8.13: Catalog v3 — Torpedoes and Mines'
 type: 'feature'
 created: '2026-09-19'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: 'ab4f198'
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-8-context-amendments.md'
@@ -91,13 +91,13 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] amendments 74–84 in both homes -- done at plan time
-- [ ] Wave 1 `shared/` -- ids, catalog, CONFIG blocks, stats/derivations, arcs, `MineView`, PV 56, tests -- `npm run build -w shared && npm test -w shared`
-- [ ] Wave 2a `server/` equipment + world + bots + smokes -- `npm test -w server`
-- [ ] Wave 2b `server/` perception re-reveal + invariants -- `npm test -w server`
-- [ ] Wave 3 `client/` -- `npm test -w client`
-- [ ] Wave 4 docs, version, changelog, trackers, ledger -- `npm run check` exit 0
-- [ ] weapons smoke over a booted server (own scratch port) proving TB light torpedo + ML captive mine end to end
+- [x] amendments 74–87 in both homes -- done at plan time
+- [x] Wave 1 `shared/` -- ids, catalog, CONFIG blocks, stats/derivations, arcs, `MineView`, PV 56, tests -- `npm run build -w shared && npm test -w shared`
+- [x] Wave 2a `server/` equipment + world + bots + smokes -- `npm test -w server`
+- [x] Wave 2b `server/` perception re-reveal + invariants -- `npm test -w server`
+- [x] Wave 3 `client/` -- `npm test -w client`
+- [x] Wave 4 docs, version, changelog, trackers, ledger -- `npm run check` exit 0
+- [x] weapons smoke over a booted server (own scratch port) proving TB light torpedo + ML captive mine end to end
 
 **Acceptance Criteria:**
 - Given a Torpedo Boat and a Mine Layer sailing their default decks, when every card is taken, then every line resolves to a live weapon with the tier-V numbers in the I/O matrix and no stub is ever dealt.
@@ -124,6 +124,22 @@ warnings: [oversized]
   - `[low]` `[patch]` tier cards skip a no-op step row (`ROUNDS 1 → 1`) (Edge 1; amendment 87b)
   - `[low]` `[patch]` the mine trip scan uses each kind's own `hits` mask; `CONFIG.foulingMines.hits` is live (Blind F3)
 - deferred: rim-hugging reveal chatter + per-tick gate cost (Blind F4, Edge 6); light-torpedo lead solver vs a faster target (Edge 4); `SLOW 75%` label ambiguity (Blind F7); fouling unreachable until Epic 9 (Blind F6). Recorded as-ruled: weaker later fouling overwrites (Blind F5, amendment 87d).
+
+## Auto Run Result
+
+Status: done (cycle 148, 0.18.13; PROTOCOL_VERSION 55 → 56; epic-8 amendments 74–87)
+
+**Summary.** Story 8.13 landed as re-cut by Eric's 2026-09-19 rulings. Five tier ladders are authored (LIGHT/HEAVY TORPEDO, NAVAL/CAPTIVE/FOULING MINES) with homing as a tier stat (light/heavy 0 → 0.5 rad/s, captive fish 0 → 0.3); ACOUSTIC HOMING and the FOULING MINES add-on are gone; FOULING MINES is its own equipment line with [DRAFT] numbers whose tiers deepen the slow (×0.75 → ×0.55); the SUPERCAVITATING TORPEDO is a prime-and-click belt consumable named SUPERCAV TORPEDO (in the hidden pool, one copy in the Torpedo Boat deck); DEPTH CHARGE is a stub consumable and the Mine Layer's 40th card. One `torpedoCore.ts` spawns every fish; mines are per-kind server-side with the kind on the wire for own mines only (`MineView.c`); the fouled victim's per-tier slow factor rides the own-ship view (`OwnShip.slowFactor`, victim-private); the straight-runner re-reveal is FIXED by a per-visit reveal mark behind one gate predicate (six exceptions unchanged); tier cards print every authored step with a `HOMING` row (skipping no-op rows); minimal interim bot tactics; the weapons smoke gained light-torpedo and captive-mine phases and passed against a booted server.
+
+**Files.** 100+ across `shared/` (catalog, effects, loadout, constants, stats, boons, arcs, shell, types, index, tests), `server/` (`equipment/torpedoCore.ts` NEW, `consumables/supercavTorpedo.ts` NEW, torpedoes, mines, index, consumables, world, frames, perception, signals, ai/equipment, ai/tactics, ai/spending, `scripts/weaponsSmoke.mjs`, batchsim controls, tests + golden snapshot), `client/` (weaponArc, aimPreview, firing, mines, projectiles, equipmentInfo, equipmentIcons, boonCopy, roomBindings, tones, prediction, ownFire, main, tests); `VERSION` / `package.json` / lock 0.18.13; `CHANGELOG.md`; both trackers; `deferred-work.md` (six stamps, 8.13 section, five review-gate defers); amendments 74–87 in both homes; this spec.
+
+**Review.** Blind Hunter + Edge Case Hunter (Fable) build-on-it; Codex `gpt-5.6-sol` fix-first on two client re-reveal findings. Six patches applied, every one fail-first proven (two medium: the own-fire latch theft on a re-reveal, flagged by all three; the captive fish re-acquiring a neutral drone under tiered homing — now locked to its tripper, amendment 87a). Four defers, zero rejects.
+
+**Follow-up review recommended:** true — the patch round touched shared sim steering (`steerHoming` locked-target branch) and the client's reveal attribution path; both are pinned but were reviewed only by their implementer.
+
+**Verification.** `npm run check` exit 0 three times (after waves: 962/2055/3628; after the patch wave: 962/2057/3643; after review patches: shared 965 / server 2061 / client 3650, hooks 266). Weapons smoke against a server booted on a scratch port: all six phases OK (heavy torpedo kill, torpedo-never-blips, mines uncapped, ambush, light torpedo kill at 40 dmg, captive fish 55 with `c === 'captive'` on the own frame). Fail-first evidence recorded per patch in the commit messages and the Review Triage Log.
+
+**Residual risk / for Eric.** (1) Amendment 87b skips no-op `ROUNDS 1 → 1` rows — veto if you want the half-tube step shown. (2) A weaker later fouling overwrites a stronger active slow, as amendment 81 reads literally. (3) `SLOW 75%` may read as "slows by 75 %". (4) Per-visit reveal chatter for rim-hugging projectiles is bounded but unmeasured — watch a production smoke. (5) The fouling runtime is unreachable in play until Epic 9 unlocks the line. (6) catalog-v3.md and the GDD now disagree with amendments 74/80–83 — a doc-sync pass is owed. Staging QA: TB deals LIGHT TORPEDO and one SUPERCAV TORPEDO on the belt (prime with the digit, click inside the bow cone); ML deals CAPTIVE MINES with its own dotted trip ring; a heavy at tier II visibly homes and shows `HOMING 0 → 0.125 rad/s` on its card.
 
 ## Design Notes
 
