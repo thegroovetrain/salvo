@@ -23,7 +23,7 @@ import {
   broadsideTraverse,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { arcFillStyle, turretWedges } from '../render/firing.js';
+import { arcFillStyle, turretWedges, twinBeamStyle } from '../render/firing.js';
 
 const IDENTITY = { x: 0, y: 0, heading: 0 };
 const BW = CLIENT_CONFIG.broadsideArcs;
@@ -161,5 +161,26 @@ describe('arcFillStyle — the one lit/dim/denied fill decision', () => {
     for (const c of [AMBER, DENIED, CLIENT_CONFIG.colors.legacy.torpGlow]) {
       expect(arcFillStyle(c, false).color).toBe(DIM);
     }
+  });
+});
+
+// THE TWIN-BEAM STYLE DECISION (quiet fix, Eric 2026-09-21). Story 8.13 made
+// the LIGHT TORPEDO the second `twin-sector` weapon and, correctly, kept the
+// broadside's per-turret wedges off its beams — but left NOTHING in their
+// place, so the player aimed a fish into a bare hairline outline. A torpedo's
+// beam is a FILLED sector (the heavy's bow-arc grammar, mirrored); only the
+// broadside draws outline + turret wedges. Pinned as a decision, not a draw.
+describe('twinBeamStyle — a torpedo beam is a filled sector, the broadside is outline + turrets', () => {
+  it('the LIGHT TORPEDO draws each beam as a filled sector', () => {
+    expect(twinBeamStyle('lightTorpedo')).toBe('filled-sector');
+  });
+  it('the BROADSIDE keeps its outline + per-turret wedges (Eric 2026-08-27 ruling 4)', () => {
+    expect(twinBeamStyle('broadside')).toBe('outline-turrets');
+  });
+  it('every torpedo item answers filled; every non-torpedo answers outline (no third grammar)', () => {
+    expect(twinBeamStyle('heavyTorpedo')).toBe('filled-sector');
+    expect(twinBeamStyle('supercavTorpedo')).toBe('filled-sector');
+    expect(twinBeamStyle('gun')).toBe('outline-turrets');
+    expect(twinBeamStyle(null)).toBe('outline-turrets');
   });
 });

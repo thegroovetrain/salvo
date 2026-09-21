@@ -72,6 +72,26 @@ function weaponTint(id: SlotItemId | null): number {
   return isTorpedoItem(id) ? TORP_TINT : AMBER;
 }
 
+/**
+ * Pure: HOW a `twin-sector` weapon draws each of its two beams.
+ *
+ * - `outline-turrets` — the BROADSIDE's grammar (Eric ruling 2026-08-27, ruling
+ *   4): a hairline legal boundary plus one small filled wedge per gun, because
+ *   under the zero-overlap ladder a big filled beam would promise water no gun
+ *   can reach.
+ * - `filled-sector` — a TORPEDO's grammar: the beam IS the aim-gated wedge, the
+ *   same indicative ARC_R fill the heavy torpedo's bow sector draws, mirrored on
+ *   both beams. A fish has no turret fan to draw instead, so an outline alone
+ *   leaves the player aiming into an empty green line (Eric, 2026-09-21).
+ *
+ * Exported so the decision is pinned as a decision (firingArcs.test.ts), the
+ * file's convention for everything the arcs Graphics draws.
+ */
+export type TwinBeamStyle = 'outline-turrets' | 'filled-sector';
+export function twinBeamStyle(id: SlotItemId | null): TwinBeamStyle {
+  return isTorpedoItem(id) ? 'filled-sector' : 'outline-turrets';
+}
+
 export interface FiringPose {
   x: number;
   y: number;
@@ -307,14 +327,24 @@ export class FiringUX {
     if (t.kind !== 'twin-sector') return; // descriptor law: only twin sectors draw a pair
     const firing = twinSectorSide(heading, aim, t);
     const color = denied ? DENIED_RED : weaponTint(id);
+    const style = twinBeamStyle(id);
     for (const side of [1, -1] as const) {
       const lit = denied || (firing === side && ammo.hasAmmo);
+      if (style === 'filled-sector') {
+        // A TORPEDO'S BEAM IS A FILLED WEDGE (quiet fix, Eric 2026-09-21): the
+        // LIGHT TORPEDO shares the twin-sector SHAPE with the broadside but not
+        // its battery — it fires tubes, not turrets — so each beam draws the
+        // same indicative ARC_R sector fill the heavy torpedo's bow arc draws,
+        // mirrored. Story 8.13's first cut turned the turret wedges off for it
+        // and left only the hairline outline: a beam with no fill at all.
+        this.sector(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
+        continue;
+      }
       this.drawLegalOutline(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
-      // PER-TURRET WEDGES ARE THE BROADSIDE'S ALONE (Story 8.13): the LIGHT
-      // TORPEDO shares the twin-sector SHAPE, not the battery behind it — it
-      // fires tubes, not turrets, so drawing the barrage's gun wedges on its
-      // beams would invent a fan of shells that no fish has.
-      if (id === 'broadside' && bs !== null) this.drawTurretWedges(side, color, lit, bs);
+      // PER-TURRET WEDGES ARE THE BROADSIDE'S ALONE (Story 8.13): drawing the
+      // barrage's gun wedges on a torpedo's beams would invent a fan of shells
+      // that no fish has.
+      if (bs !== null) this.drawTurretWedges(side, color, lit, bs);
     }
   }
 
