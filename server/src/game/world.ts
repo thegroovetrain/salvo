@@ -2063,7 +2063,7 @@ export class World {
     // The fit is the nine-slot loadout with THIS hull's PRESERVED cards
     // replayed over it through the SHARED fill rule. The fleet flag is
     // load-bearing (without it a drone would grow a boost in slot 1).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship));
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun);
     ship.hp = ship.stats.maxHp;
   }
 
@@ -5119,7 +5119,7 @@ export class World {
    * LoadoutSlot it activated sees the truth.
    */
   private rebuildBelt(ship: ShipRecord): void {
-    const replay = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship));
+    const replay = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun);
     for (const i of CONSUMABLE_SLOTS) {
       const live = ship.loadout[i];
       const want = replay[i];
@@ -5715,7 +5715,7 @@ export class World {
     // loadout re-derives with their slot effects replayed — the SAME shared
     // derivation the client runs (slotsWithCards ≡ loadoutFor at zero cards,
     // and over the spawn SEED alone, byte-identical).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship));
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun);
     // The respawn TELEPORTS the hull (Story 4.12, amendment 200): the old
     // life's water detaches into the orphan store — where it keeps disclosing
     // and ageing out, a fading track with nothing attached — and the new life

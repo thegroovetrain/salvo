@@ -51,7 +51,6 @@ import {
   WEAPON_SLOTS,
   effectiveStats,
   isConsumableId,
-  loadoutFor,
   slotsWithCards,
   type EffectiveStats,
   type EquipmentId,
@@ -1432,9 +1431,9 @@ describe('slotForCard over a belt that holds consumables', () => {
 
 // THE SEAT GUN IN SLOT 0 (Story 8.14, epic-8 amendments 89d/95). The gun stopped
 // being a fact about the hull and became the captain's PICK, frozen at queue and
-// carried on `OwnShip.gun`. main.ts's `slotIdsFor` therefore REPLAYS slot 0 from
-// `loadoutFor(stats, false, gun)` instead of assuming the deck gun's module, so
-// the square this row paints is the same module the server fitted.
+// carried on `OwnShip.gun`. main.ts's `slotIdsFor` therefore hands the seat's
+// gun to the shared `slotsWithCards(…, gun)` — the ONE derivation the server
+// fits and re-fits from — so the square this row paints is the module it mounted.
 //
 // All three seat guns mount the shipped `'gun'` module until Story 8.15 builds
 // the other two (`MOUNTED_GUN`), which is exactly why this pin walks all three:
@@ -1447,9 +1446,7 @@ describe("slot 0 is the SEAT'S gun, replayed as main.ts derives it", () => {
     cards: readonly string[],
     gun: GunId,
   ): (SlotItemId | null)[] {
-    const ids = slotsWithCards(stats, cards).map((s) => s.equipmentId);
-    ids[SLOT_GUN] = loadoutFor(stats, false, gun)[SLOT_GUN].equipmentId;
-    return ids;
+    return slotsWithCards(stats, cards, CATALOG, false, gun).map((s) => s.equipmentId);
   }
 
   it('walks every seat gun there is — the list is the shared one, so it cannot rot', () => {
@@ -1475,6 +1472,6 @@ describe("slot 0 is the SEAT'S gun, replayed as main.ts derives it", () => {
   it('main.ts really pins the slot from the loadout, not from a literal', () => {
     // The helper above is a copy; this is the pin that keeps the copy honest.
     const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'), 'utf8');
-    expect(src).toMatch(/ids\[SLOT_GUN\] = loadoutFor\(stats, false, gun\)\[SLOT_GUN\]\.equipmentId;/);
+    expect(src).toMatch(/slotsWithCards\(stats, cards, CATALOG, false, gun\)/);
   });
 });

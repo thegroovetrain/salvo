@@ -34,8 +34,8 @@
 // covers a mid-fold write to a path a derived number rides) and clampStats (the
 // firewall's unconditional output pass). Nothing else re-derives.
 
-import type { EquipmentId, LoadoutSlot, SlotItemId } from './loadout.js';
-import { CONSUMABLE_SLOTS, WEAPON_SLOTS, equipmentMaxAmmo, isConsumableId, loadoutFor } from './loadout.js';
+import type { EquipmentId, GunId, LoadoutSlot, SlotItemId } from './loadout.js';
+import { CONSUMABLE_SLOTS, DEFAULT_GUN, WEAPON_SLOTS, equipmentMaxAmmo, isConsumableId, loadoutFor } from './loadout.js';
 import { CONFIG } from '../constants.js';
 import {
   BOON_STAT_PATH_SET,
@@ -381,17 +381,25 @@ export function slotsWithCards(
   cards: readonly string[],
   catalog: Catalog = CATALOG,
   fleet = false,
+  gun: GunId = DEFAULT_GUN,
 ): LoadoutSlot[] {
-  const loadout = loadoutFor(stats, fleet);
+  // Slot 0 is the SEAT'S gun (Story 8.14): the same `loadoutFor` the spawn ran,
+  // so a replay on either side re-mounts what the captain picked, never a literal.
+  const loadout = loadoutFor(stats, fleet, gun);
   const seen = new Map<string, number>();
   for (const id of cards) {
-    if (!Object.hasOwn(catalog, id)) continue;
-    const line = catalog[id];
-    if (line === undefined) continue;
-    const copy = (seen.get(id) ?? 0) + 1;
-    seen.set(id, copy);
-    if (copy > line.cap) continue; // past the physical cap: buys nothing
-    for (const e of line.tiers[copy - 1] ?? []) applySlotEffect(loadout, e, stats, catalog);
+    for (const e of copyEffects(id, seen, catalog)) applySlotEffect(loadout, e, stats, catalog);
   }
   return loadout;
+}
+
+/** The effects the NEXT copy of `id` buys (empty past the cap or off-catalog); counts the copy in `seen`. */
+function copyEffects(id: string, seen: Map<string, number>, catalog: Catalog): readonly BoonEffect[] {
+  if (!Object.hasOwn(catalog, id)) return [];
+  const line = catalog[id];
+  if (line === undefined) return [];
+  const copy = (seen.get(id) ?? 0) + 1;
+  seen.set(id, copy);
+  if (copy > line.cap) return []; // past the physical cap: buys nothing
+  return line.tiers[copy - 1] ?? [];
 }

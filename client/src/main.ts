@@ -16,6 +16,7 @@ import {
   MULLIGAN_CHOICE,
   NO_CARDS,
   boostedKinematics,
+  CATALOG,
   cardBehaviors,
   effectiveStats,
   equipmentReloadMs,
@@ -23,11 +24,9 @@ import {
   isConsumableId,
   isOutside,
   isWeaponItem,
-  loadoutFor,
   slotMaxAmmo,
   slotsWithCards,
   SLOT_COUNT,
-  SLOT_GUN,
   type Island,
   type DeniedView,
   type EffectiveStats,
@@ -696,12 +695,11 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
  * `loadoutFor`.
  *
  * SLOT 0 IS REPLAYED FROM THE SEAT'S GUN (Story 8.14, epic-8 amendment 95):
- * `loadoutFor(stats, false, gun)` resolves it through the shared `MOUNTED_GUN`
- * map — exactly the derivation the server fits the slot from — rather than
- * assuming the deck gun's module here. No card addresses slot 0 (a `slotFill`
- * takes the first empty of Q/E/R), so pinning it after the replay cannot
- * overwrite anything a card put there. All three seat guns mount the shipped
- * `'gun'` module until Story 8.15 builds the other two.
+ * `slotsWithCards(…, gun)` hands the seat's gun to the shared `loadoutFor`,
+ * which resolves it through `MOUNTED_GUN` — exactly the derivation the server
+ * fits and re-fits the slot from — so neither side ever assumes the deck gun's
+ * module. All three seat guns mount the shipped `'gun'` module until Story
+ * 8.15 builds the other two.
  *
  * NO HULL ID. Story 8.5 deleted the per-hull fit: what a captain carries is a
  * fact about their PICKS, never about their hardware, so the replay is the only
@@ -713,9 +711,7 @@ function slotIdsFor(
   cards: readonly string[],
   gun: GunId = DEFAULT_GUN,
 ): (SlotItemId | null)[] {
-  const ids = slotsWithCards(stats, cards).map((s) => s.equipmentId);
-  ids[SLOT_GUN] = loadoutFor(stats, false, gun)[SLOT_GUN].equipmentId;
-  return ids;
+  return slotsWithCards(stats, cards, CATALOG, false, gun).map((s) => s.equipmentId);
 }
 
 /**
