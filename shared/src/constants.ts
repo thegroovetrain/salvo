@@ -534,8 +534,8 @@ export const CONFIG = {
      * Two levels, resolved by wave-2 ai/spending.ts as `lines[id] ?? cat[def
      * .category] ?? default`:
      *   `cat`   — the base weight for every card of a boon CATEGORY, covering
-     *             exactly the categories that profile's deck can draw (the
-     *             three universals — intel/ship/guns — plus its carried
+     *             exactly the categories that profile can be dealt (the
+     *             three universals — intel/ship/guns — plus its fitted
      *             equipment's).
      *   `lines` — per-BOON-LINE overrides (real ids from sim/boons.ts) for the
      *             handful of cards a profile wants more or less than its
@@ -1296,7 +1296,7 @@ export const CONFIG = {
    * line (Eric ruling 2026-09-19, epic-8 amendment 74, verbatim: *"I have
    * decided that Supercavitating Torpedos should be a consumable item, rather
    * than a weapon line."*). The digit primes, a click inside the bow ±15°
-   * sector fires ONE fish per copy, and the copy leaves the deck.
+   * sector fires ONE fish per copy, and the copy leaves the belt.
    *
    * SO IT HAS NO RELOAD AND NO TIERS. Consumables never reload (catalog-v3
    * R40, Story 8.7) and a consumable line's copies STOCK rather than step, so
@@ -1793,54 +1793,6 @@ export const CONFIG = {
   },
 
   /**
-   * THE AUTHORED DECK (catalog v3, Story 8.1 — AR52). `size` is the number of
-   * cards a player AUTHORS into a deck and `maxEquipmentLines` the legal cap on
-   * how many EQUIPMENT lines one deck may carry (catalog-v3 §1: every starter
-   * sums to 40 with exactly 3 equipment lines).
-   *
-   * LIVE SINCE STORY 8.2: `checkDeck` (sim/deckRules.ts) reads both at the
-   * door — a deck of any other size, or with more equipment lines than the
-   * cap, is refused before a seat is taken — and `deckFromCounts`
-   * (sim/catalog.ts) refuses an authored default whose counts do not sum to
-   * `size`. They replace the deleted soft-pity dials
-   * (`rareWeightBase`/`rareWeightPerDryLevel`) that died with rarity in 8.1.
-   *
-   * NOT the deck AT QUEUE: catalog-v3 R4 shuffles a hidden 10-card match
-   * consumable pool into every deck, so a queued deck is 40 + 10 = 50. That
-   * pool is `CONFIG.pool` below (Story 8.11), not a dial here.
-   */
-  deck: {
-    size: 40, // authored cards per deck (catalog-v3 §1 — every starter sums to 40)
-    maxEquipmentLines: 3, // equipment lines per deck (catalog-v3 §1 arithmetic: "all at the ≤ 3 cap")
-  },
-
-  /**
-   * THE MATCH CONSUMABLE POOL (Story 8.11 — catalog-v3 R4/R44, FR43). ERIC'S
-   * NUMBER, NOT A BALANCE DIAL: every match rolls this many consumable cards,
-   * HIDDEN, and the SAME rolled list is appended to every captain's and every
-   * bot's deck — so a captain may always assume "there might be more heals and
-   * shields out there" without ever knowing how many of which.
-   *
-   * WHERE IT LANDS: the server appends the pool at the one deck-build site,
-   * AFTER the door's `checkDeck` legality check — `checkDeck` still reads the
-   * AUTHORED 40 alone (`CONFIG.deck.size`), and the seat ends up with 50. Each
-   * consumable line is drawn ≤ ITS OWN `cap` WITHIN the pool (R44); a deck may
-   * therefore hold authored + pool copies BEYOND that cap. Those extra copies
-   * are NOT dead — they are GATED BEHIND USE: the at-cap guard in sim/deck.ts
-   * never OFFERS a line the ship currently holds at cap, and a used consumable
-   * copy leaves the ship's cards (Story 8.7), so firing one reopens the line
-   * and the remaining copies come back into the draw. Extra supply behind the
-   * trigger, never an offer past the cap.
-   *
-   * The SIZE is public knowledge (it rides inside the welcome's CONFIG
-   * snapshot like every other block); the COMPOSITION never leaves the server
-   * — not on a frame, not in the welcome, not in a log line (count only).
-   */
-  pool: {
-    size: 10, // consumable cards rolled per match (catalog-v3 R4 — Eric's number, never a dial)
-  },
-
-  /**
    * THE CATALOG's engine dials (Story 8.1). `reloadStepPerTier` is catalog-v3's
    * STANDING RULE (§3, from R14): every equipment line steps −5 % of its OWN
    * base reload per tier, in ADDITIVE five-point steps (100 → 95 → 90 → 85 →
@@ -1952,19 +1904,46 @@ export const CONFIG = {
   },
 
   /**
-   * OFFERS (Story 2.7) — the shape of the pre-rolled offer a banked level
-   * carries. `size` is the ratified card count: 4 DIFFERENT CARD LINES, DRAWN
-   * FROM THE PLAYER'S OWN DECK and weighted by rarity. The old "one from each
-   * of 4 distinct CATEGORIES" roll died wholesale with Story 2.8's deck model
-   * (amendment 38 — see sim/offers.ts:1-8 and sim/deck.ts `drawOffer`); the
-   * category is a card's label, not a slot in the offer. It is
-   * gameplay-authoritative (it bounds the server's accepted `SpendMsg.choice`
-   * and the client's digit picks), so it lives here and not in CLIENT_CONFIG.
-   * A deck that has run thin draws a SHORTER offer rather than throwing, and
-   * an empty draw materializes no offer at all.
+   * OFFERS (Story 2.7, re-cut for THE COMMON POOL in Story 8.14) — the shape of
+   * the pre-rolled offer a banked level carries, and the one dial pair behind
+   * the draw. It is gameplay-authoritative (it bounds the server's accepted
+   * `SpendMsg.choice` and the client's digit picks), so it lives here and not
+   * in CLIENT_CONFIG.
+   *
+   * `size` is the ratified card count: 4 DIFFERENT CARD LINES, drawn from THE
+   * COMMON POOL — every dealable catalog line, unlimited copies, bounded only
+   * by each line's `cap`, the three weapon slots and the mounted gun
+   * (sim/draw.ts). There is no deck and no match pool any more (Eric ruling
+   * 2026-09-21, epic-8 amendment 89a).
+   *
+   * THE DRAW IS TWO-STAGE (Eric ruling 2026-09-22, amendment 92): for each
+   * card, stage 1 picks the KIND — a weapon (copy 1 of an equipment line), an
+   * upgrade (a tier card, a ladder rung, the mounted gun's ladder, an add-on)
+   * or a consumable — with each kind's odds equal to its SHARE of the lines
+   * currently eligible for that ship; stage 2 picks WHICH line within that
+   * kind. So `weighting` below changes WHICH weapon is drawn and never the odds
+   * of drawing A weapon at all.
+   *
+   * THE WEIGHTING (amendment 90; named by amendment 91 — it is called
+   * WEIGHTING): each OTHER participant, human or bot, who has taken COPY 1 of
+   * an equipment line this match multiplies that line's weight for you by
+   * `factor`, never below `floor`; base weight is 1.0. Copies 2+ never move
+   * anyone's weight, the taker's own weight is untouched, and a take is
+   * PERMANENT for the match (the taker sinking restores nothing). Both numbers
+   * are `[DRAFT]` harness dials, reachable by `--tune`.
+   *
+   * THE OFFER IS NEVER EMPTY (amendment 94): consumable lines are always dealt
+   * — at their cap or with a full belt they are dealt anyway, greyed by the
+   * existing SLOTS FULL treatment, and the pick is a silent no-op until space
+   * frees. An offer is SHORTER than `size` only when fewer than `size` dealable
+   * lines exist at all; there is no exhaustion and no banked-empty branch.
    */
   offer: {
-    size: 4, // card lines per offer — drawn from the deck, all different
+    size: 4, // card lines per offer — drawn from the common pool, all different
+    weighting: {
+      factor: 0.75, // [DRAFT] weight multiplier per OTHER captain who took copy 1 (amendment 90)
+      floor: 0.25, // [DRAFT] the weight never falls below this — less likely, never impossible
+    },
   },
 
   /**

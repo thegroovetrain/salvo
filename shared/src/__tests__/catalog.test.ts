@@ -8,6 +8,13 @@
 // permutation property — ≥200 shuffles of random legal multisets over all
 // three classes, deep-equal AND JSON-identical.
 //
+// STORY 8.14 DELETED THE DECK PINS (Eric ruling 2026-09-21, epic-8 amendment
+// 89a). `DEFAULT_DECKS`, `DEFAULT_OWNED` and `deckFromCounts` no longer exist:
+// every dealable line is drawable by every captain from the common pool, so
+// there is no authored 40-card list to transcribe and no ownership set to
+// check a deck against. The card TOTAL stays 122 — it is simply Σ cap, a count
+// of authored ladder, not a supply.
+//
 // STORY 8.13 RE-CUT FOUR LINES' KINDS (Eric rulings 2026-09-19, epic-8
 // amendments 74/80/81/83), which is why the CARD TOTAL moved 114 -> 122
 // although the LINE count did not move: −1 (`acousticHoming`, a 1-card add-on,
@@ -16,17 +23,14 @@
 // -> consumable 5).
 
 import { describe, it, expect } from 'vitest';
+import * as shared from '../index.js';
 import {
   CATALOG,
   CONFIG,
-  DEFAULT_DECKS,
-  DEFAULT_OWNED,
   LINE_IDS,
   SHIP_CLASS_IDS,
   catalogCardCount,
-  deckFromCounts,
   effectiveStats,
-  equipmentLineCount,
   isStubLine,
   mulberry32,
   resolveCards,
@@ -36,7 +40,6 @@ import {
   type CatalogLine,
   type LineId,
   type LineKind,
-  type ShipClassId,
 } from '../index.js';
 
 /** catalog-v3 §1, transcribed: every line's cap and kind. */
@@ -352,139 +355,40 @@ describe('THE ORDER-INDEPENDENCE PROPERTY', () => {
 });
 
 // ---------------------------------------------------------------------------
-// THE DEFAULT DECKS (Story 8.2 — Eric ruling 2026-09-15, epic-8 amendment 10,
-// delivered as a spreadsheet). The counts below are the ruling, transcribed
-// count for count; the code is checked AGAINST them, never the other way
-// round. Every count is at or under its cap (spec Block-If: verified here),
-// each deck is 40 with exactly three equipment lines, and the five unhomed
-// lines appear in none of them.
+// THE UNHOMED LINES (Story 8.14). The three default decks are DELETED
+// (Eric ruling 2026-09-21, epic-8 amendment 89a): no card is class-locked and
+// none is brought to a match, so "which hull carries this line" is no longer a
+// fact about the catalog. What survives of the old block is the one claim that
+// still means something — THE FIVE LINES THAT WERE IN NO DEFAULT DECK ARE
+// DRAWABLE BY EVERYONE NOW, exactly like every other non-stub line.
 // ---------------------------------------------------------------------------
 
-/** Amendment 10's 30 universal cards. */
-const UNIVERSAL: Partial<Record<LineId, number>> = {
-  armor: 3, speed: 3, turning: 3, radarSweep: 3, reload: 3,
-  hullRepair: 3, shieldBlock: 3, smokeScreen: 2, chaff: 2,
-  deckGun: 2, deckGunTurret: 1, deckGunBarrel: 2,
-};
+/** The five lines that were in no default deck when decks existed. */
+const FORMERLY_UNHOMED: readonly LineId[] = ['foulingMines', 'broadside', 'decoyBuoy', 'heatSeeking', 'phosphorShells'];
 
-/** Amendment 10's per-hull ten, as re-cut for the Torpedo Boat and the Mine
- *  Layer by Eric's 2026-09-19 rulings (epic-8 amendments 80 and 83). BOTH now
- *  close their deck with ONE CONSUMABLE copy instead of an add-on: ACOUSTIC
- *  HOMING is deleted (Eric: *"Give them one supercavitating torpedo."*) and
- *  the FOULING MINES add-on became its own unhomed equipment line (Eric:
- *  *"WOAH. Depth charge will be a CONSUMABLE. not a line."*). Every deck still
- *  carries exactly THREE equipment lines, so `maxEquipmentLines` stays 3. */
-const PER_HULL: Record<ShipClassId, Partial<Record<LineId, number>>> = {
-  torpedoBoat: { lightTorpedo: 3, heavyTorpedo: 3, machineGun: 3, supercavTorpedo: 1 },
-  mineLayer: { navalMines: 3, captiveMines: 3, flak: 3, depthCharge: 1 },
-  battleship: { missile: 3, monitor: 3, starShells: 3, dazzleShells: 1 },
-};
-
-/** The five lines in no default deck. `supercavTorpedo` LEFT this list (the TB
- *  carries one) and `foulingMines` JOINED it (amendments 80/81); the count did
- *  not move. */
-const UNHOMED: readonly LineId[] = ['foulingMines', 'broadside', 'decoyBuoy', 'heatSeeking', 'phosphorShells'];
-
-function countsOf(ids: readonly LineId[]): Map<LineId, number> {
-  const out = new Map<LineId, number>();
-  for (const id of ids) out.set(id, (out.get(id) ?? 0) + 1);
-  return out;
-}
-
-describe('DEFAULT_DECKS — amendment 10, count for count', () => {
-  it.each(SHIP_CLASS_IDS)('%s: 40 cards at exactly the ruled counts, in LINE_IDS order', (hull) => {
-    const deck = DEFAULT_DECKS[hull];
-    expect(deck).toHaveLength(CONFIG.deck.size);
-    const expected = { ...UNIVERSAL, ...PER_HULL[hull] };
-    const counts = countsOf(deck);
-    for (const id of LINE_IDS) expect(counts.get(id) ?? 0, `${hull}:${id}`).toBe(expected[id] ?? 0);
-    // Composition order is LINE_IDS order — the determinism contract.
-    const order = [...new Set(deck)];
-    expect(order).toEqual(LINE_IDS.filter((id) => (expected[id] ?? 0) > 0));
-    // Thirty universal + ten per hull.
-    expect(Object.values(UNIVERSAL).reduce((a, b) => a + b, 0)).toBe(30);
-    expect(Object.values(PER_HULL[hull]).reduce((a, b) => a + b, 0)).toBe(10);
-  });
-
-  it.each(SHIP_CLASS_IDS)('%s: exactly three equipment lines, every count at or under its cap', (hull) => {
-    expect(equipmentLineCount(DEFAULT_DECKS[hull])).toBe(CONFIG.deck.maxEquipmentLines);
-    for (const [id, n] of countsOf(DEFAULT_DECKS[hull])) expect(n, `${hull}:${id}`).toBeLessThanOrEqual(CATALOG[id].cap);
-  });
-
-  it('the five UNHOMED lines appear in no default deck', () => {
-    for (const hull of SHIP_CLASS_IDS) {
-      for (const id of UNHOMED) expect(DEFAULT_DECKS[hull].includes(id), `${hull}:${id}`).toBe(false);
+describe('THE COMMON POOL — nothing is homed to a hull any more (amendment 89a)', () => {
+  it('every line the catalog knows is in LINE_IDS, and the five formerly-unhomed lines are ordinary lines', () => {
+    for (const id of FORMERLY_UNHOMED) {
+      expect(LINE_IDS.includes(id), id).toBe(true);
+      expect(CATALOG[id], id).toBeDefined();
     }
   });
 
-  it('the Battleship no longer carries HEAT SEEKING (amendment 10 vs FR56)', () => {
-    expect(DEFAULT_DECKS.battleship.includes('heatSeeking')).toBe(false);
-  });
-
-  it('DEFAULT_OWNED is the union of the three decks — 24 of the 29 lines, the unhomed five absent', () => {
-    const union = new Set<LineId>(SHIP_CLASS_IDS.flatMap((h) => [...DEFAULT_DECKS[h]]));
-    expect(DEFAULT_OWNED).toEqual(union);
-    expect(DEFAULT_OWNED.size).toBe(LINE_IDS.length - UNHOMED.length);
-    for (const id of UNHOMED) expect(DEFAULT_OWNED.has(id)).toBe(false);
-  });
-
-  it('is frozen: the record, each list, and the owned set', () => {
-    expect(Object.isFrozen(DEFAULT_DECKS)).toBe(true);
-    for (const hull of SHIP_CLASS_IDS) expect(Object.isFrozen(DEFAULT_DECKS[hull])).toBe(true);
-    expect(Object.isFrozen(DEFAULT_OWNED)).toBe(true);
-    expect(() => { (DEFAULT_DECKS.torpedoBoat as LineId[]).push('armor'); }).toThrow();
-  });
-
-  it('DEFAULT_OWNED REFUSES add/delete/clear — Object.freeze alone does not close a Set', () => {
-    // The legality authority the door checks every deck against: a mutation
-    // here would unlock (or lock out) a line for every captain in the process.
-    const owned = DEFAULT_OWNED as Set<LineId>;
-    expect(() => owned.add('phosphorShells')).toThrow('DEFAULT_OWNED is immutable');
-    expect(DEFAULT_OWNED.has('phosphorShells')).toBe(false);
-    expect(() => owned.delete('armor')).toThrow('DEFAULT_OWNED is immutable');
-    expect(DEFAULT_OWNED.has('armor')).toBe(true);
-    expect(() => owned.clear()).toThrow('DEFAULT_OWNED is immutable');
-    expect(DEFAULT_OWNED.size).toBe(LINE_IDS.length - UNHOMED.length);
-  });
-});
-
-describe('deckFromCounts — the authoring helper refuses transcription slips at load', () => {
-  it('expands counts in LINE_IDS order to a frozen 40-id list', () => {
-    const deck = deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat });
-    expect(deck).toEqual(DEFAULT_DECKS.torpedoBoat);
-    expect(Object.isFrozen(deck)).toBe(true);
-    // Key order in the counts object does not matter — LINE_IDS order wins.
-    expect(deckFromCounts({ ...PER_HULL.torpedoBoat, ...UNIVERSAL })).toEqual(DEFAULT_DECKS.torpedoBoat);
-  });
-
-  it('throws on a count over the cap', () => {
-    // dazzleShells is cap-1 (an add-on), so two copies is over cap. It replaces
-    // the deleted acousticHoming as the example (amendment 80).
-    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.battleship, dazzleShells: 2, armor: 2 })).toThrow(/dazzleShells.*cap/);
-  });
-
-  it('throws on a total other than CONFIG.deck.size', () => {
-    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, armor: 4 })).toThrow(/41 cards/);
-    expect(() => deckFromCounts({ ...UNIVERSAL })).toThrow(/30 cards/);
-  });
-
-  it('refuses a key an INJECTED catalog knows but LINE_IDS does not — the expansion walks LINE_IDS', () => {
-    // The membership test must be LINE_IDS, not the (injectable) catalog:
-    // the expansion loop walks LINE_IDS, so a count keyed outside it could
-    // never become a card and used to be dropped in silence.
-    const wider: Catalog = { ...CATALOG, phantomLine: { ...CATALOG.armor, id: 'phantomLine' as LineId } };
-    expect(() =>
-      deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, phantomLine: 3 } as Partial<Record<LineId, number>>, wider),
-    ).toThrow(/unknown line 'phantomLine'/);
-    // ...and a ZERO count for it is refused too: the key itself is the slip.
-    expect(() =>
-      deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, phantomLine: 0 } as Partial<Record<LineId, number>>, wider),
-    ).toThrow(/not in LINE_IDS/);
-  });
-
-  it('throws on an unknown line and on a non-integer or negative count', () => {
-    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, nope: 1 } as Partial<Record<LineId, number>>)).toThrow(/unknown line/);
-    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, armor: 2.5 })).toThrow(/non-negative integer/);
-    expect(() => deckFromCounts({ ...UNIVERSAL, ...PER_HULL.torpedoBoat, armor: -1 })).toThrow(/non-negative integer/);
+  it('the deck engine is gone from the barrel — no default decks, no ownership, no legality', () => {
+    const barrel = shared as Record<string, unknown>;
+    for (const name of [
+      'DEFAULT_DECKS',
+      'DEFAULT_OWNED',
+      'deckFromCounts',
+      'equipmentLineCount',
+      'checkDeck',
+      'buildDeckState',
+      'consumeCard',
+      'rollMatchPool',
+      'sanitizePool',
+      'consumableLines',
+    ]) {
+      expect(barrel[name], name).toBeUndefined();
+    }
   });
 });

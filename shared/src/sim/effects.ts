@@ -187,8 +187,8 @@ export const BOON_STAT_PATH_SET: ReadonlySet<string> = new Set(BOON_STAT_PATHS);
  * equipment's stat row which the fold sets true; verbs STACK (a star shell may
  * be both phosphor and dazzle). Catalog v3 re-keyed it onto the widened
  * EquipmentId; STORY 8.13 CUT IT TO THE THREE SURVIVING ADD-ONS' targets:
- *   - HEAT SEEKING (R32) is the homing verb on the missile — Story 8.14 rules
- *     on it (Eric: *"I will revisit this when we get back to missiles."*);
+ *   - HEAT SEEKING (R32) is the homing verb on the missile — both are CUT in
+ *     Story 8.15 (Eric ruling 2026-09-21, epic-8 amendment 89e);
  *   - DAZZLE / PHOSPHOR SHELLS (R33) both ride the star shell and stack.
  *
  * TWO VERBS LEFT THE VOCABULARY on 2026-09-19 (Eric rulings, epic-8

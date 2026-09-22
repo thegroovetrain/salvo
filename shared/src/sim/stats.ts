@@ -20,7 +20,8 @@
 // (gun-family RANGE bases on CONFIG.vision.radar — range = radar range, Eric
 // ruling 2026-07-21). The four STILL-UNBUILT v3 equipments take their tier-I
 // rows from catalog-v3 §4 (see STUB_ROWS below); their modules land in Story
-// 8.14 and promote those numbers into CONFIG blocks of their own, exactly as
+// 8.15 (missile/monitor/heatSeeking are CUT there; machine gun and flak become
+// mountable guns) and promote those numbers into CONFIG blocks, exactly as
 // Story 8.13 did for the light torpedo and the captive/fouling mines.
 //
 // rangeU fields are DERIVED, not independently stat-addressable (brainstorm
@@ -155,15 +156,17 @@ export interface EffectiveMine extends EquipmentRowCommon {
   slowFactor: number; // × both speed caps on a FOULING victim; 1 elsewhere
 }
 
-/** The HORIZONTAL MISSILE (catalog-v3 R29) — Story 8.14 builds the module. */
+/** The HORIZONTAL MISSILE (catalog-v3 R29) — CUT in Story 8.15 (Eric ruling
+ *  2026-09-21, epic-8 amendment 89e); the row stands until then. */
 export interface EffectiveMissile extends EquipmentRowCommon {
   damage: number; // hp on burst at the clicked point
   homing: boolean; // HEAT SEEKING verb (R32) — false unless held
 }
 
 /** MACHINE GUN / FLAK GUN / MONITOR GUN (catalog-v3 R20–R30) — the three
- *  unbuilt gun-family weapons. Story 8.14 builds their modules and widens
- *  these rows; today they carry only the fields the sheet states. */
+ *  unbuilt gun-family weapons. Story 8.15 settles them — MACHINE GUN and FLAK
+ *  become mountable GUNS, MONITOR is CUT (amendments 89d/e); today they carry
+ *  only the fields the sheet states. */
 export interface EffectiveOrdnanceGun extends EquipmentRowCommon {
   damage: number; // hp per hit/burst victim
 }
@@ -270,7 +273,7 @@ export interface EffectiveStats {
  * have CONFIG blocks of their own now (`CONFIG.lightTorpedo`,
  * `CONFIG.captiveMines`), and `supercavTorpedo` has no row at all — it became
  * a CONSUMABLE (epic-8 amendment 74), and consumables carry no stat row. The
- * four left are Story 8.14's.
+ * four left are Story 8.15's.
  */
 const STUB_ROWS = {
   // HORIZONTAL MISSILE (R29): bow ±50°, 250 u/s, 40 dmg, 1 missile, 30 s.

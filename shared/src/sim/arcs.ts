@@ -184,7 +184,8 @@ function equipmentArc(id: EquipmentId): ArcShape {
  * their catalog lines are STUBS that can never be dealt, so no loadout can
  * hold one. Their arcs are already RULED and each lands with its module —
  * catalog-v3 §4: MISSILE bow ±50°, MACHINE GUN bow ±90°, FLAK 360°, MONITOR
- * bow ±10° (Story 8.14). Declaring them here before their CONFIG blocks exist
+ * bow ±10° (Story 8.15, which CUTS missile and monitor — amendment 89e).
+ * Declaring them here before their CONFIG blocks exist
  * would put four uncited literals in the arc grammar.
  *
  * It shrank from seven to four in Story 8.13: the LIGHT TORPEDO declares its

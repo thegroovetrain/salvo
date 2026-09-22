@@ -1,29 +1,40 @@
-// NINE SLOTS (Story 8.5) — the two properties that tie the three moving parts
-// of the slot re-cut together: the DECK RULE (a deck holds at most
-// CONFIG.deck.maxEquipmentLines equipment lines), the FILL RULE (a `slotFill`
-// takes the first empty WEAPON_SLOT), and the WIDTH of the weapon row (three).
+// NINE SLOTS (Story 8.5, re-cut for THE COMMON POOL in Story 8.14) — the two
+// properties that tie the moving parts of the slot grammar together: the DRAW
+// RULE (a ship is never dealt copy 1 of an equipment line with all three weapon
+// slots full — sim/draw.ts), the FILL RULE (a `slotFill` takes the first empty
+// WEAPON_SLOT), and the WIDTH of the weapon row (three).
 //
-//   1. THE LEGAL-DECK PROPERTY. For any deck `checkDeck` calls legal, fitting
-//      every equipment copy it holds — in ANY order — never hits the full-row
-//      refusal, and the weapon row ends up holding exactly the deck's non-stub
-//      equipment lines. That is the load-bearing claim of the whole story: no
-//      legal build can ever be dealt a card it has no slot for. It holds
-//      because 3 ≤ 3 — if either number ever moves alone, this fails LOUDLY
-//      rather than dropping a card silently in play.
+//   1. THE REACHABLE-HAND PROPERTY. For any hand a ship can actually ACCUMULATE
+//      — at most WEAPON_SLOTS.length distinct equipment lines, every line at or
+//      under its cap — fitting every equipment copy in ANY order never hits the
+//      full-row refusal, and the weapon row ends up holding exactly the hand's
+//      non-stub equipment lines. That is the load-bearing claim of the whole
+//      story: no reachable build can ever be dealt a card it has no slot for.
+//      It holds because 3 ≤ 3 — if either number ever moves alone, this fails
+//      LOUDLY rather than dropping a card silently in play.
+//
+//   THE DECK IS GONE (Story 8.14, epic-8 amendment 89a): `checkDeck` and
+//   `CONFIG.deck` no longer exist, so the bound on distinct equipment lines is
+//   now STRUCTURAL — the weapon row's width, enforced at the draw — rather than
+//   a deck-legality rule. The generator below builds hands against that bound.
 //
 //   THE SEED TRIPWIRE IS RETIRED (Story 8.10): the interim spawn-seed table is
-//   deleted, so a hull's weapon row holds nothing but the cards it is dealt and
-//   the legal-deck property above is the whole claim.
+//   deleted, so a hull's weapon row holds nothing but the cards it is dealt.
+//
+// 2. THE SEAT'S GUN (Story 8.14, amendment 95): `loadoutFor(stats, fleet, gun)`
+//    mounts slot 0 from MOUNTED_GUN, which resolves ALL THREE seat guns to the
+//    shipped deck-gun module until Story 8.15 builds the other two.
 //
 // Pure, zero I/O. Seeded PRNG (mulberry32), so a failure is reproducible.
 
 import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
-  CONFIG,
   CONSUMABLE_IDS,
-  DEFAULT_DECKS,
+  DEFAULT_GUN,
+  GUN_IDS,
   LINE_IDS,
+  MOUNTED_GUN,
   SHIP_CLASS_IDS,
   WEAPON_SLOTS,
   CONSUMABLE_SLOTS,
@@ -31,8 +42,8 @@ import {
   SLOT_GUN,
   applySlotEffect,
   canStock,
-  checkDeck,
   effectiveStats,
+  isGunId,
   hullEnvelope,
   isStubLine,
   loadoutFor,
@@ -47,8 +58,14 @@ import {
   type Rng,
 } from '../index.js';
 
-/** Every line is owned: the ownership rules are not what this suite probes. */
-const OWNED_ALL: ReadonlySet<string> = new Set<string>(LINE_IDS);
+/** How many cards a generated hand holds — the old authored deck size, kept as
+ *  a local number so the suite still exercises a deep hand. Nothing in the sim
+ *  reads it any more (Story 8.14 deleted `CONFIG.deck`). */
+const HAND_SIZE = 40;
+
+/** The widest a hand's equipment row can ever get: the draw refuses copy 1 of a
+ *  fourth line, so a reachable hand holds at most this many distinct ones. */
+const MAX_EQUIPMENT_LINES = WEAPON_SLOTS.length;
 
 /** The eleven `equipment` lines — STUBS INCLUDED, because the DECK RULE counts
  *  them and a legal deck may be built entirely out of them. */
@@ -68,14 +85,14 @@ function shuffled<T>(rng: Rng, xs: readonly T[]): T[] {
 }
 
 /**
- * A random LEGAL deck: up to `maxEquipmentLines` distinct equipment lines at
- * random counts, padded to exactly `CONFIG.deck.size` with non-equipment lines
- * at or under their caps (two passes — a random one, then a greedy one that
- * always closes the gap, since the filler capacity is 59 against a 40-card
- * deck). Returns the cards in a RANDOM order, plus the equipment lines it used.
+ * A random REACHABLE hand: up to `MAX_EQUIPMENT_LINES` distinct equipment lines
+ * at random counts, padded to exactly `HAND_SIZE` with non-equipment lines at
+ * or under their caps (two passes — a random one, then a greedy one that always
+ * closes the gap, since the filler capacity is 59 against a 40-card hand).
+ * Returns the cards in a RANDOM order, plus the equipment lines it used.
  */
-function randomLegalDeck(rng: Rng): { cards: LineId[]; equipment: LineId[] } {
-  const equipment = shuffled(rng, EQUIPMENT_LINES).slice(0, rng.int(0, CONFIG.deck.maxEquipmentLines));
+function randomReachableHand(rng: Rng): { cards: LineId[]; equipment: LineId[] } {
+  const equipment = shuffled(rng, EQUIPMENT_LINES).slice(0, rng.int(0, MAX_EQUIPMENT_LINES));
   const cards: LineId[] = [];
   for (const id of equipment) {
     for (let i = rng.int(1, CATALOG[id].cap); i > 0; i -= 1) cards.push(id);
@@ -84,7 +101,7 @@ function randomLegalDeck(rng: Rng): { cards: LineId[]; equipment: LineId[] } {
   const taken = new Map<LineId, number>();
   for (const greedy of [false, true]) {
     for (const id of filler) {
-      const room = Math.min(CONFIG.deck.size - cards.length, CATALOG[id].cap - (taken.get(id) ?? 0));
+      const room = Math.min(HAND_SIZE - cards.length, CATALOG[id].cap - (taken.get(id) ?? 0));
       if (room <= 0) continue;
       const n = greedy ? room : rng.int(0, room);
       taken.set(id, (taken.get(id) ?? 0) + n);
@@ -94,22 +111,17 @@ function randomLegalDeck(rng: Rng): { cards: LineId[]; equipment: LineId[] } {
   return { cards: shuffled(rng, cards), equipment };
 }
 
-describe('THE LEGAL-DECK PROPERTY — a legal deck can never out-card the weapon row', () => {
-  it('over 250 random legal decks: every one passes checkDeck, no fill is refused, and the row holds exactly the non-stub equipment', () => {
+describe('THE REACHABLE-HAND PROPERTY — a reachable hand can never out-card the weapon row', () => {
+  it('over 250 random reachable hands: no fill is refused, and the row holds exactly the non-stub equipment', () => {
     const rng = mulberry32(0x9510_75);
     const stats = effectiveStats(hullEnvelope('torpedoBoat'));
-    let illegal = 0;
     for (let trial = 0; trial < 250; trial += 1) {
-      const { cards, equipment } = randomLegalDeck(rng);
+      const { cards, equipment } = randomReachableHand(rng);
       const label = `trial ${trial}`;
-      expect(cards, label).toHaveLength(CONFIG.deck.size);
-      const verdict = checkDeck(cards, OWNED_ALL, CATALOG);
-      if (!verdict.ok) {
-        illegal += 1;
-        continue; // the generator is wrong, not the fill rule — counted below
-      }
+      expect(cards, label).toHaveLength(HAND_SIZE);
+      expect(new Set(equipment).size, label).toBeLessThanOrEqual(MAX_EQUIPMENT_LINES);
 
-      // Fit every copy in the deck's RANDOM order, exactly as slotsWithCards
+      // Fit every copy in the hand's RANDOM order, exactly as slotsWithCards
       // replays it, and watch each individual fill land.
       const loadout = loadoutFor(stats);
       const copies = new Map<LineId, number>();
@@ -139,11 +151,50 @@ describe('THE LEGAL-DECK PROPERTY — a legal deck can never out-card the weapon
         expect(loadout[i], `${label}:belt ${i}`).toEqual({ equipmentId: null, state: null });
       }
     }
-    expect(illegal, 'decks the generator built that checkDeck rejected').toBe(0);
   });
 
-  it('the row is exactly as wide as the deck rule is deep (3 == 3) — the reason the property holds', () => {
-    expect(WEAPON_SLOTS).toHaveLength(CONFIG.deck.maxEquipmentLines);
+  it('the row is exactly as wide as the draw rule is deep (3 == 3) — the reason the property holds', () => {
+    expect(WEAPON_SLOTS).toHaveLength(MAX_EQUIPMENT_LINES);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE SEAT'S GUN (Story 8.14, Eric rulings 2026-09-21/22, epic-8 amendments
+// 89d/95). The gun is the captain's PICK, frozen at queue; slot 0 mounts the
+// module MOUNTED_GUN names for it. Until Story 8.15 builds the machine gun and
+// the flak gun, all three resolve to the shipped deck-gun module — pinned here
+// so the interim is a fact of record rather than a silent fallback.
+// ---------------------------------------------------------------------------
+
+describe("loadoutFor(stats, fleet, gun) — slot 0 is the SEAT'S gun", () => {
+  const stats = effectiveStats(hullEnvelope('torpedoBoat'));
+
+  it.each(GUN_IDS)('%s mounts the deck-gun module in slot 0 (amendment 95)', (gun) => {
+    expect(MOUNTED_GUN[gun]).toBe('gun');
+    const loadout = loadoutFor(stats, false, gun);
+    expect(loadout[SLOT_GUN].equipmentId).toBe('gun');
+    expect(loadout[SLOT_BOOST].equipmentId).toBe('boost');
+    expect(loadout).toHaveLength(9);
+    // ...and the three seat guns are byte-identical fits until 8.15.
+    expect(loadout).toEqual(loadoutFor(stats, false, DEFAULT_GUN));
+  });
+
+  it('the default gun is the deck gun, and the fleet fit is gun-only whatever the seat says', () => {
+    expect(DEFAULT_GUN).toBe('deckGun');
+    expect(loadoutFor(stats)).toEqual(loadoutFor(stats, false, 'deckGun'));
+    for (const gun of GUN_IDS) {
+      const drone = loadoutFor(stats, true, gun);
+      expect(drone[SLOT_GUN].equipmentId, gun).toBe('gun');
+      expect(drone[SLOT_BOOST].equipmentId, gun).toBeNull();
+      for (const i of WEAPON_SLOTS) expect(drone[i].equipmentId, gun).toBeNull();
+    }
+  });
+
+  it('isGunId is the one narrowing guard, and it fails closed', () => {
+    for (const gun of GUN_IDS) expect(isGunId(gun)).toBe(true);
+    for (const junk of ['gun', 'monitor', '', 'DECKGUN', null, undefined, 3, {}]) {
+      expect(isGunId(junk), String(junk)).toBe(false);
+    }
   });
 });
 
@@ -184,11 +235,11 @@ const beltMultiset = (loadout: readonly LoadoutSlot[]): string[] =>
   CONSUMABLE_SLOTS.map((i) => `${String(loadout[i].equipmentId)}:${loadout[i].state?.n ?? 0}`).sort();
 
 describe('THE RACK PROPERTY — the belt over random legal decks and random pick orders', () => {
-  it('over 200 random legal decks: one slot per line, n = copies held, canStock ≡ held ∨ empty, and the multiset is permutation-invariant', () => {
+  it('over 200 random reachable hands: one slot per line, n = copies held, canStock ≡ held ∨ empty, and the multiset is permutation-invariant', () => {
     const rng = mulberry32(0x8_7_be17);
     const stats = effectiveStats(hullEnvelope('torpedoBoat'));
     for (let trial = 0; trial < 200; trial += 1) {
-      const { cards } = randomLegalDeck(rng);
+      const { cards } = randomReachableHand(rng);
       const label = `trial ${trial}`;
       const loadout = slotsWithCards(stats, cards, LIVE_BELT);
       const belt = CONSUMABLE_SLOTS.map((i) => loadout[i]);
