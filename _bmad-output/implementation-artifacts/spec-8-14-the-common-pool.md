@@ -5,6 +5,7 @@ created: '2026-09-22'
 status: 'done'
 review_loop_iteration: 0
 baseline_revision: '5e27f8b'
+final_revision: '4cd6bec'
 followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
