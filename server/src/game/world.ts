@@ -24,14 +24,13 @@ import {
   cardBehaviors,
   boostedKinematics,
   boonStackCount,
-  canStock,
+  pickRefusal,
   CONSUMABLE_SLOTS,
   burstVictims,
   drawOffer,
   lineWeight,
   DEFAULT_GUN,
   MOUNTED_GUN,
-  WEAPON_SLOTS,
   DEFAULT_HORN_ID,
   effectiveStats,
   equipmentMaxAmmo,
@@ -1836,20 +1835,18 @@ export class World {
    * self-private `bn` event, which belongs to the spend path alone. Nothing is
    * queued here: a spawn is not a spend.
    *
-   * THE CATALOG AND THE CAP ARE THE WHOLE FILTER (Story 8.14). There is no deck
-   * left to pay a copy out of, so the three drops are made here, explicitly: an
-   * id the catalog does not know, a STUB line (amendment 11 — authored but
-   * unbuilt is never fittable), and a line already held at its `cap`. That last
-   * one is what stops a dev fit stacking a build no pick, draw or offer could
-   * ever produce.
+   * `applyCard` IS THE WHOLE FILTER (Story 8.14, tightened by the review's F2).
+   * There is no deck left to pay a copy out of, so every drop is `refusesCard`'s
+   * — an id the catalog does not know, a STUB line (amendment 11: authored but
+   * unbuilt is never fittable), a line already held at its `cap`, a consumable
+   * with no belt room, and copy 1 of an equipment line once Q/E/R are full. That
+   * last one is what stops a four-line `fitOverride` putting a fourth bare
+   * weapon in `cards` with no slot to live in (and recording a take for it);
+   * the cap one is what stops a dev fit stacking a build no pick, draw or offer
+   * could ever produce. Nothing is restated here: one predicate, one path.
    */
   private applyDevFit(ship: ShipRecord): void {
-    for (const id of ship.devFit) {
-      const line = Object.hasOwn(this.catalog, id) ? this.catalog[id] : undefined;
-      if (line === undefined || line.stub === true) continue;
-      if (boonStackCount(ship.cards, id) >= line.cap) continue;
-      this.applyCard(ship, id);
-    }
+    for (const id of ship.devFit) this.applyCard(ship, id);
   }
 
   /** Remove a ship entirely (client left). Its wake is water, not a ship
@@ -2577,9 +2574,12 @@ export class World {
    *     `LineId` union does not), and the callee is fail-closed on an id its
    *     catalog does not know — so the narrow rides the callee's contract, not
    *     this assertion.
-   *   - `weaponSlotOpen`: is ANY of Q/E/R still empty. That single boolean is
-   *     what makes copy 1 of a weapon eligible at all (a bare weapon needs
-   *     somewhere to go), and what closes the weapon kind once the row is full.
+   *   - `slotIds`: the nine slot contents, the same array `canStock` and
+   *     `pickRefusal` take. `sim/draw.ts` derives "is ANY of Q/E/R still empty"
+   *     from it — what makes copy 1 of a weapon eligible at all (a bare weapon
+   *     needs somewhere to go) and what closes the weapon kind once the row is
+   *     full — and the level-zero guarantee runs the full `pickRefusal` over it
+   *     so it can never hand out a card this hull could not take (review F2).
    *   - `mountedGun`: the MODULE slot 0 carries, which is exactly
    *     `MOUNTED_GUN[gun]` by `loadoutFor`'s construction — read from the seat
    *     rather than from the slot so it stays a fact about the PICK (no card
@@ -2590,7 +2590,7 @@ export class World {
   private drawShipOf(ship: ShipRecord): DrawShip {
     return {
       held: ship.cards as readonly LineId[],
-      weaponSlotOpen: WEAPON_SLOTS.some((i) => ship.loadout[i]?.equipmentId == null),
+      slotIds: ship.loadout.map((s) => s.equipmentId),
       mountedGun: MOUNTED_GUN[ship.gun],
     };
   }
@@ -2684,18 +2684,19 @@ export class World {
    * (rescaleReloadTimers). The per-tier −5 % reload step is DERIVED from the
    * tier in clampStats, so an equipment-ladder copy moves those timers too.
    *
-   * Fail-closed: an id the world's catalog cannot resolve appends (the wire
-   * mirrors it; clients drop it at resolve) but applies nothing. Public so
-   * directed tests (and the spend path) can drive it.
+   * Fail-closed: an id the world's catalog cannot resolve is REFUSED outright
+   * (8.14 review F1 — `pickRefusal` reads an id the catalog does not OWN as a
+   * stub), so nothing unresolvable ever reaches `cards` and therefore the wire.
+   * Public so directed tests (and the spend path) can drive it.
    */
   applyCard(ship: ShipRecord, lineId: string): void {
     // Own-property gate (fail-closed): a plain-object catalog answers
     // `this.catalog['constructor']` with Object.prototype.constructor —
     // not undefined, and with no `tiers` to iterate.
     const line = Object.hasOwn(this.catalog, lineId) ? this.catalog[lineId] : undefined;
-    // THE TWO PRE-PUSH REFUSALS — a stub line, and a consumable the belt has no
-    // room for. See `refusesCard`.
-    if (this.refusesCard(ship, line, lineId)) return;
+    // THE PRE-PUSH REFUSALS — a stub, a line at its cap, a consumable the belt
+    // has no room for, a bare weapon with no slot. See `refusesCard`.
+    if (this.refusesCard(ship, lineId)) return;
     const copiesBefore = boonStackCount(ship.cards, lineId);
     ship.cards.push(lineId);
     // THE TAKE (amendment 90), before anything else can throw: copy 1 of an
@@ -2717,30 +2718,36 @@ export class World {
   }
 
   /**
-   * THE TWO REASONS A COPY NEVER ENTERS `ship.cards` — checked together,
-   * BEFORE the push, because the push is what puts an id on the wire.
+   * THE REASONS A COPY NEVER ENTERS `ship.cards` — checked together, BEFORE the
+   * push, because the push is what puts an id on the wire.
    *
-   *   • A STUB LINE: its mechanism does not exist, so fitting it buys nothing —
-   *     and the id would then ride in `cards`, where the client's replay and
-   *     this world's own respawn replay would both try to derive a loadout from
-   *     it. The shared fold refuses the fill too (sim/boons.ts applySlotEffect);
-   *     this keeps the id out of the build in the first place.
+   * ONE SHARED PREDICATE (`sim/boons.pickRefusal`, Story 8.14 review F1/F2) —
+   * the same function the client greys the refit card with, the same one
+   * `spendCard` runs one step earlier (it must refuse before the offer moves),
+   * and the same one the bot scorer skips on. Its four refusals:
+   *
+   *   • A STUB LINE (or an id this world's catalog does not own): its mechanism
+   *     does not exist, so fitting it buys nothing — and the id would then ride
+   *     in `cards`, where the client's replay and this world's own respawn
+   *     replay would both try to derive a loadout from it.
+   *   • A LINE ALREADY AT ITS `cap`. The draw never offers a capped equipment,
+   *     ladder or add-on — but it DOES offer a capped consumable on purpose
+   *     (amendment 94), so without this a ship holding five HULL REPAIR could
+   *     spend a level on a sixth copy that no belt slot shows: the stack stays
+   *     at five and silently refills itself after the first use.
    *   • A CONSUMABLE WITH NOWHERE TO GO (Story 8.7 review patch P4): the belt
    *     is full of four other lines. `applySlotEffect`'s full-belt branch is a
    *     SILENT no-op, so without this a directed grant (a dev spawn fit, the
-   *     bot port, a test) would leave a copy in `cards` that
-   *     no slot holds — and the client's replay would conjure a stack the
-   *     server does not have. The SAME shared predicate the client greys the
-   *     card with; `spendCard` keeps its own earlier check because it must
-   *     refuse before the offer moves.
-   *
-   * Both are unreachable through a legal pick: a stub is never dealt, and
-   * `spendCard` refuses a full belt one step earlier.
+   *     bot port, a test) would leave a copy in `cards` that no slot holds.
+   *   • COPY 1 OF AN EQUIPMENT LINE WITH THE WEAPON ROW FULL. The draw closes
+   *     the `weapon` kind once Q/E/R are taken, but a dev `fitOverride` naming
+   *     four equipment lines, and the level-zero guarantee firing after one,
+   *     both reach `applyCard` directly — and a bare weapon in `cards` with no
+   *     slot is a take recorded for a weapon nobody carries whose tier cards
+   *     then become eligible.
    */
-  private refusesCard(ship: ShipRecord, line: CatalogLine | undefined, lineId: string): boolean {
-    if (line?.stub === true) return true;
-    if (line?.kind !== 'consumable' || !isConsumableId(lineId)) return false;
-    return !canStock(ship.loadout.map((s) => s.equipmentId), lineId);
+  private refusesCard(ship: ShipRecord, lineId: string): boolean {
+    return pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, this.catalog) !== null;
   }
 
   /**
@@ -2902,20 +2909,23 @@ export class World {
   private spendCard(ship: ShipRecord, choice: number): boolean {
     const front = ship.offer;
     if (front === null || choice < 0 || choice >= front.length) return false;
-    // THE FULL-BELT REFUSAL (Story 8.7 ruling 3), BEFORE anything is consumed:
-    // a consumable copy with nowhere to go is refused outright rather than
-    // stocked into nothing. `canStock` is the SAME shared predicate the client
-    // greys the card with (`SLOTS FULL`), over the same replayed slot ids, so
-    // the two can never disagree about whether a pick is legal — and because
-    // this returns here, the level stays banked, nothing is fitted, no `bn`
-    // is queued and the next frame's offer is the SAME array, byte for byte.
-    // Both halves of the test matter: a line the fold can actually put in the
-    // belt is one whose kind is `consumable` AND whose id names a consumable
-    // (a `stock` effect can carry no other id), so nothing else is gated here.
+    // THE PICK REFUSAL (Story 8.7 ruling 3, widened by the 8.14 review F1),
+    // BEFORE anything is consumed: a copy with nowhere to go — a full belt, a
+    // line already at its cap, a bare weapon with no weapon slot — is refused
+    // outright rather than fitted into nothing. `pickRefusal` is the SAME
+    // shared predicate the client greys the card with (`SLOTS FULL`), over the
+    // same replayed slot ids and the same held cards, so the two can never
+    // disagree about whether a pick is legal — and because this returns here,
+    // the level stays banked, nothing is fitted, no `bn` is queued and the next
+    // frame's offer is the SAME array, byte for byte.
+    //
+    // THE CAP HALF IS WHY THIS IS NOT JUST `canStock` any more: amendment 94
+    // has the draw deal a consumable AT its cap on purpose, and a line that
+    // already owns a belt slot always passes `canStock` — so a sixth HULL
+    // REPAIR used to cost a level, never reach the belt, and refill the stack
+    // from `cards` on the next use.
     const lineId = front[choice];
-    const line = this.catalog[lineId];
-    if (line?.kind === 'consumable' && isConsumableId(lineId)
-      && !canStock(ship.loadout.map((s) => s.equipmentId), lineId)) return false;
+    if (pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, this.catalog) !== null) return false;
     ship.offer = null;
     ship.bankedLevels -= 1;
     this.settleSpend(ship, front, choice);

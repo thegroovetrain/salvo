@@ -784,9 +784,45 @@ describe('ai/spending — the card policy', () => {
   });
 
   it('an all-junk hand is still SPENT — a banked level held forever is wasted', () => {
-    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['buoyDuration', 'boostSpeed'] }));
+    // Junk to THIS profile, but real lines it could take: the 8.14 review (F4)
+    // made the scorer skip cards `spendCard` would refuse, and an id outside
+    // the catalog (the v2 leftovers this pin used to use) is one of them.
+    const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['turning', 'radarSweep'] }));
     expect(idx).not.toBeNull();
     expect(idx).toBeGreaterThanOrEqual(0);
+  });
+
+  // --- THE REFUSED CARD (Story 8.14 review, F4) -----------------------------
+  // `World.spendCard` refuses a card this hull cannot take, and the offer does
+  // NOT reroll on a refusal. A scorer that keeps naming the refused card spends
+  // the same banked level into a no-op every tick, forever — so the scorer runs
+  // the same `pickRefusal` the server does and skips what it would refuse.
+
+  it('SKIPS an at-cap line and takes a card it can actually hold', () => {
+    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
+    const offer = ['hullRepair', 'armor', 'speed', 'reload'];
+    const idx = chooseSpend(profileOf('siege'), spendState({ cards: five, offer }));
+    expect(idx).not.toBeNull();
+    expect(offer[idx!]).not.toBe('hullRepair');
+  });
+
+  it('SKIPS copy 1 of a weapon with Q/E/R full, and a consumable with a full belt', () => {
+    const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
+    const idx = chooseSpend(profileOf('siege'), spendState({ slotIds: rowFull, offer: ['broadside', 'armor'] }));
+    expect(idx).toBe(1); // `broadside` is copy 1 with nowhere to go
+    const beltFull = ['gun', 'boost', null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const;
+    expect(chooseSpend(profileOf('siege'), spendState({ slotIds: beltFull, offer: ['supercavTorpedo', 'armor'] })))
+      .toBe(1);
+  });
+
+  it('DOES NOT SPEND when every card in the hand is refused — the level stays banked', () => {
+    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
+    const capped = [...five, ...new Array<string>(CATALOG.armor.cap).fill('armor')];
+    expect(chooseSpend(profileOf('siege'), spendState({ cards: capped, offer: ['hullRepair', 'armor'] })))
+      .toBeNull();
+    // ...and a RANDOM profile holds it too, rather than rolling a dead index.
+    expect(chooseSpend(profileOf('randomMineLayer'), spendState({ cards: capped, offer: ['hullRepair', 'armor'] }),
+      undefined, mulberry32(3))).toBeNull();
   });
 
   it('an unknown id never wins, and cannot crash the policy', () => {
@@ -1062,7 +1098,7 @@ describe('ai/spending — random mode (wave 4)', () => {
 
   it('a random profile picks UNIFORMLY over the offer off its own stream', () => {
     const row = profileOf('randomMineLayer');
-    const offer = ['deckGunBarrel', 'heavyTorpedo', 'armor', 'intelRange'];
+    const offer = ['deckGunBarrel', 'heavyTorpedo', 'armor', 'speed'];
     // The policy must be exactly one rng.int(0, offer.length - 1) draw: replay
     // the same seed independently and demand index equality, draw for draw.
     const rng = mulberry32(99);

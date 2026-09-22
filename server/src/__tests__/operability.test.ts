@@ -693,6 +693,50 @@ describe('the collapse requeue hook is total', () => {
 
 // --- log hygiene ------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// THE DEV-FIT DOOR ANNOUNCES WHAT IT REJECTED (Story 8.14 review, F6)
+//
+// The roomOptions contract is that a dev key that does not survive the gate is
+// LOGGED, not silently swallowed — `onCreate` has written `room.devOptionsRejected`
+// since Story 0.3. When the dev spawn fit was re-homed onto this door in 8.14 it
+// kept `sanitized` and threw `rejectedKeys` away, so a smoke that mistyped
+// `fitOverride` (or ran without HC_DEV_OPTIONS=1) watched a ship spawn bare with
+// nothing anywhere saying why.
+// ---------------------------------------------------------------------------
+
+describe('resolveDevFit — the rejected dev keys are logged', () => {
+  interface FitDoor {
+    resolveDevFit(client: { sessionId: string }, options: Record<string, unknown>): readonly string[];
+  }
+  const door = (): FitDoor => new ArenaRoom() as unknown as FitDoor;
+  const REJECTED = 'warn join.devOptionsRejected';
+
+  beforeEach(() => {
+    delete process.env.HC_DEV_OPTIONS;
+  });
+
+  it('logs ONCE, naming the key and the session, when the dev gate is closed', () => {
+    const fit = door().resolveDevFit({ sessionId: 'abc' }, { fitOverride: ['heavyTorpedo'] });
+    expect(fit).toEqual([]); // stripped, as production always strips it
+    const ls = lines(REJECTED);
+    expect(ls).toHaveLength(1);
+    expect(fieldsOf(ls[0])).toMatchObject({ rejected: ['fitOverride'], sessionId: 'abc' });
+  });
+
+  it('logs a MALFORMED fit even with the gate OPEN — the shape check is the other half', () => {
+    process.env.HC_DEV_OPTIONS = '1';
+    expect(door().resolveDevFit({ sessionId: 'def' }, { fitOverride: 'not-an-array' })).toEqual([]);
+    expect(fieldsOf(lines(REJECTED)[0])).toMatchObject({ rejected: ['fitOverride'], sessionId: 'def' });
+  });
+
+  it('says NOTHING when there is nothing to reject — an honoured fit, and no fit at all', () => {
+    process.env.HC_DEV_OPTIONS = '1';
+    expect(door().resolveDevFit({ sessionId: 'ghi' }, { fitOverride: ['heavyTorpedo'] })).toEqual(['heavyTorpedo']);
+    expect(door().resolveDevFit({ sessionId: 'jkl' }, {})).toEqual([]);
+    expect(lines(REJECTED)).toEqual([]);
+  });
+});
+
 describe('log hygiene', () => {
   it('plain ticking emits ZERO log lines (info reserved for lifecycle; debug gated off)', () => {
     // phase 'waiting' so the one-shot match.activate lifecycle line (which is

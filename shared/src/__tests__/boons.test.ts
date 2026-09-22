@@ -33,6 +33,7 @@ import {
   applySlotEffect,
   boonStackCount,
   canStock,
+  pickRefusal,
   cardBehaviors,
   cardCounts,
   effectiveStats,
@@ -777,5 +778,91 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
     expect(replayed[B0].state).toEqual({ n: 3, reloadMsLeft: 0 });
     expect(replayed[B1].state).toEqual({ n: 2, reloadMsLeft: 0 });
     expect(replayed[B2].state).toEqual({ n: 1, reloadMsLeft: 0 });
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// pickRefusal — THE ONE PICK PREDICATE (Story 8.14 review, F1/F2)
+//
+// Every "can this ship take this card" question in the engine runs through
+// this: World.refusesCard (so applyCard, the dev spawn fit and every directed
+// grant), World.spendCard (before the level is consumed), the client's greyed
+// refit card, the bot spend scorer and the batch-sim spend instrument. One
+// branch per refusal, plus the legal cases and the fail-closed edges.
+// ---------------------------------------------------------------------------
+
+describe('pickRefusal — every branch', () => {
+  /** A fresh hull's nine slots: gun, Shift, an empty weapon row, an empty belt. */
+  const OPEN_SLOTS = ['gun', 'boost', null, null, null, null, null, null, null] as const;
+  /** The same hull with Q/E/R occupied. */
+  const ROW_FULL = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
+  /** A belt holding four DISTINCT consumable lines — no room for a fifth. */
+  const BELT_FULL = [
+    'gun', 'boost', null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff',
+  ] as const;
+
+  it('null — the ordinary legal pick, every kind', () => {
+    expect(pickRefusal([], OPEN_SLOTS, 'lightTorpedo')).toBeNull(); // copy 1, row open
+    expect(pickRefusal(['lightTorpedo'], ROW_FULL, 'lightTorpedo')).toBeNull(); // a TIER card
+    expect(pickRefusal([], OPEN_SLOTS, 'armor')).toBeNull(); // a ladder
+    expect(pickRefusal([], OPEN_SLOTS, 'dazzleShells')).toBeNull(); // an add-on
+    expect(pickRefusal([], OPEN_SLOTS, 'hullRepair')).toBeNull(); // a consumable
+  });
+
+  it("'stub' — an unbuilt line, an unknown id, and a prototype key (fail closed)", () => {
+    const stubId = LINE_IDS.find((id) => CATALOG[id].stub === true);
+    expect(stubId, 'the catalog still carries at least one stub line').toBeDefined();
+    expect(pickRefusal([], OPEN_SLOTS, stubId as string)).toBe('stub');
+    expect(pickRefusal([], OPEN_SLOTS, 'notALine')).toBe('stub');
+    expect(pickRefusal([], OPEN_SLOTS, 'constructor')).toBe('stub');
+    expect(pickRefusal([], OPEN_SLOTS, '__proto__')).toBe('stub');
+  });
+
+  it("'atCap' — at the line's cap, for EVERY kind, consumables included", () => {
+    // THE BUG THIS EXISTS FOR (review F1): a consumable at its cap already owns
+    // a belt slot, so `canStock` — the old sole gate — said yes to copy 6.
+    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
+    expect(canStock(BELT_FULL, 'hullRepair')).toBe(true); // the belt would take it...
+    expect(pickRefusal(five, BELT_FULL, 'hullRepair')).toBe('atCap'); // ...the cap does not.
+    expect(pickRefusal(new Array<string>(CATALOG.armor.cap).fill('armor'), OPEN_SLOTS, 'armor')).toBe('atCap');
+    const maxTorp = new Array<string>(CATALOG.lightTorpedo.cap).fill('lightTorpedo');
+    expect(pickRefusal(maxTorp, ROW_FULL, 'lightTorpedo')).toBe('atCap');
+    // The cap is decided BEFORE the belt and the row, so a capped line reads
+    // `atCap` whatever the slots look like.
+    expect(pickRefusal(five, OPEN_SLOTS, 'hullRepair')).toBe('atCap');
+  });
+
+  it("'beltFull' — a fifth distinct consumable line, and never one the belt already holds", () => {
+    // SUPERCAV is the fifth LINE here: the four belt squares hold four others.
+    // (A stub line still refuses as `stub` first — the belt is asked only about
+    // a line that could be fitted at all, which is why this uses a live one.)
+    expect(pickRefusal([], BELT_FULL, 'supercavTorpedo')).toBe('beltFull');
+    expect(pickRefusal(['hullRepair'], BELT_FULL, 'hullRepair')).toBeNull(); // the stack deepens
+    expect(pickRefusal([], OPEN_SLOTS, 'supercavTorpedo')).toBeNull(); // room on the belt
+  });
+
+  it("'noWeaponSlot' — copy 1 of an equipment line with Q/E/R full, never a later copy", () => {
+    expect(pickRefusal([], ROW_FULL, 'starShells')).toBe('noWeaponSlot');
+    expect(pickRefusal(['starShells'], ROW_FULL, 'starShells')).toBeNull(); // tier II lands on the hull
+    // Only EQUIPMENT claims the row: a ladder, an add-on and a consumable all
+    // pass with the row full.
+    for (const id of ['armor', 'dazzleShells', 'hullRepair']) {
+      expect(pickRefusal([], ROW_FULL, id), id).toBeNull();
+    }
+  });
+
+  it('is FAIL-CLOSED on a short or malformed slot array (a missing slot is never empty)', () => {
+    expect(pickRefusal([], [], 'starShells')).toBe('noWeaponSlot');
+    expect(pickRefusal([], [], 'hullRepair')).toBe('beltFull');
+    // ...and undefined entries are not empty either.
+    expect(pickRefusal([], new Array<null>(9).fill(null).map(() => undefined) as never, 'starShells'))
+      .toBe('noWeaponSlot');
+  });
+
+  it('honours an INJECTED catalog rather than the shipped one', () => {
+    const rows = { ...CATALOG, armor: { ...CATALOG.armor, stub: true as const } };
+    expect(pickRefusal([], OPEN_SLOTS, 'armor', rows)).toBe('stub');
+    expect(pickRefusal([], OPEN_SLOTS, 'armor')).toBeNull();
   });
 });

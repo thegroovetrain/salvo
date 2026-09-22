@@ -42,8 +42,7 @@ import {
   CONFIG,
   MULLIGAN_CHOICE,
   boonStackCount,
-  canStock,
-  isConsumableId,
+  pickRefusal,
   resolveCards,
   type CatalogLine,
   type OwnShip,
@@ -393,13 +392,14 @@ export interface OfferCard {
    *  terms. Never rendered on the face; the band's hover panel shows it. */
   tooltip: string;
   /**
-   * THE REFUSAL (Story 8.7, ruling 10). A consumable the belt cannot take —
-   * four distinct lines already stocked and this is a fifth — is greyed BEFORE
-   * the press: `SLOTS FULL` in the foot, a dashed key chip, the face at
-   * `greyedAlpha`, and its digit and its click both send nothing. The predicate
-   * is the SHARED `canStock`, over the same replayed slot ids the server folds,
-   * so the client cannot grey a card the server would have taken (or take one
-   * the server would refuse).
+   * THE REFUSAL (Story 8.7, ruling 10; widened by the 8.14 review F1). A card
+   * this hull cannot take — a consumable with a full belt, a line already at
+   * its `cap`, or a bare weapon with Q/E/R full — is greyed BEFORE the press:
+   * `SLOTS FULL` in the foot, a dashed key chip, the face at `greyedAlpha`, and
+   * its digit and its click both send nothing. The predicate is the SHARED
+   * `pickRefusal`, over the same replayed slot ids and held cards the server
+   * folds, so the client cannot grey a card the server would have taken (or
+   * take one the server would refuse).
    */
   greyed: boolean;
   /** How many of this line the player already holds, and how many the line has
@@ -511,16 +511,28 @@ export function shouldAutoOpen(s: { latched: boolean; phase: string; visible: bo
 }
 
 /**
- * Pure: is this offered line REFUSED by the belt (ruling 10)? Only a consumable
- * can be — every other kind lands on the hull or on a weapon slot, neither of
- * which can be full — and the answer comes from the SHARED `canStock` over the
- * replayed slot ids, which is byte-for-byte what `world.spendCard` evaluates
- * before it mutates anything. Two evaluations of one function, so the greyed
- * face and the server's refusal can never disagree.
+ * Pure: is this offered line REFUSED (ruling 10, widened by the Story 8.14
+ * review F1)? The answer comes from the SHARED `pickRefusal` over the replayed
+ * slot ids AND the held cards, which is byte-for-byte what `world.spendCard`
+ * evaluates before it mutates anything. Two evaluations of one function, so the
+ * greyed face and the server's refusal can never disagree.
+ *
+ * THREE REFUSALS CAN REACH A DEALT CARD: a consumable the belt cannot take, a
+ * line already at its `cap` (the draw deals a capped consumable on purpose —
+ * amendment 94 — and it owns a belt slot, so `canStock` alone said yes to a
+ * sixth copy), and copy 1 of a weapon with Q/E/R full (the draw closes that
+ * kind, so it is the fail-closed twin of the server's own guard).
+ *
+ * THE FOOT WORD DOES NOT BRANCH. Every refusal shows the ratified `SLOTS FULL`
+ * (Eric's copy) — this predicate is a boolean for the face, and no new
+ * player-facing text comes with it.
  */
-export function cardGreyed(line: CatalogLine, ownSlots: readonly (SlotItemId | null)[]): boolean {
-  if (line.kind !== 'consumable' || !isConsumableId(line.id)) return false;
-  return !canStock(ownSlots, line.id);
+export function cardGreyed(
+  line: CatalogLine,
+  ownSlots: readonly (SlotItemId | null)[],
+  ownCards: readonly string[] = [],
+): boolean {
+  return pickRefusal(ownCards, ownSlots, line.id) !== null;
 }
 
 /**
@@ -541,7 +553,7 @@ function toCard(line: CatalogLine, you: OwnShip, ownSlots: readonly (SlotItemId 
     tierStep: cardTierSteps(line, stack),
     rows: cardStatRows(line, stack, you),
     tooltip: boonTooltipText(line.id),
-    greyed: cardGreyed(line, ownSlots),
+    greyed: cardGreyed(line, ownSlots, you.cards),
     stack,
     cap: line.cap,
   };

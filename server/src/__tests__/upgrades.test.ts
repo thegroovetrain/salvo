@@ -28,6 +28,7 @@ import {
   SLOT_BOOST,
   WEAPON_SLOTS,
   boonStackCount,
+  canStock,
   effectiveStats,
   isStubLine,
   loadoutFor,
@@ -154,7 +155,7 @@ const NO_SEED: readonly string[] = [];
 const eligibleFor = (ship: ShipRecord): string[] =>
   eligibleLines({
     held: ship.cards as readonly LineId[],
-    weaponSlotOpen: WEAPON_SLOTS.some((i) => ship.loadout[i].equipmentId === null),
+    slotIds: ship.loadout.map((s) => s.equipmentId),
     mountedGun: MOUNTED_GUN[ship.gun],
   }).map((e) => e.id);
 
@@ -1093,8 +1094,10 @@ describe('the offer is never empty — consumables are never filtered out (Story
     for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as LineId[]) w.applyCard(a, id);
     expect(CONSUMABLE_SLOTS.every((i) => a.loadout[i].equipmentId !== null)).toBe(true);
     // THE FIFTH LINE IS STILL ELIGIBLE — it is never filtered out of the draw.
-    expect(eligibleLines({ held: a.cards as readonly LineId[], weaponSlotOpen: true, mountedGun: 'gun' }, BELT_CATALOG)
-      .map((e) => e.id)).toContain('decoyBuoy');
+    expect(eligibleLines(
+      { held: a.cards as readonly LineId[], slotIds: a.loadout.map((s) => s.equipmentId), mountedGun: 'gun' },
+      BELT_CATALOG,
+    ).map((e) => e.id)).toContain('decoyBuoy');
     const held = [...a.cards];
     a.bankedLevels = 1;
     a.offer = ['decoyBuoy'];
@@ -1105,6 +1108,78 @@ describe('the offer is never empty — consumables are never filtered out (Story
     expect(a.cards).toEqual(held);
     expect(a.bankedLevels).toBe(1);
     expect(a.offer).toBe(offer);
+  });
+
+  // --- THE AT-CAP PICK (Story 8.14 review, F1) ------------------------------
+  // Amendment 94 deals a consumable AT ITS CAP on purpose. Until this review
+  // the only pick gate was `canStock`, and a line already holding a belt slot
+  // always passes it — so a hull with five HULL REPAIR could buy a sixth: the
+  // level was spent, `cards` grew to six, the belt stayed at n = 5, and the
+  // hidden copy refilled the stack after the first use. An unbounded heal
+  // reserve, on the REAL production catalog.
+
+  it('AT CAP, a dealt consumable is REFUSED — the level stays banked and the offer does not move', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    for (let i = 0; i < CATALOG.hullRepair.cap; i += 1) w.applyCard(a, 'hullRepair');
+    expect(a.cards).toHaveLength(CATALOG.hullRepair.cap);
+    const beltSlot = CONSUMABLE_SLOTS.find((i) => a.loadout[i].equipmentId === 'hullRepair')!;
+    expect(a.loadout[beltSlot].state!.n).toBe(CATALOG.hullRepair.cap);
+    // The belt would still TAKE a copy — the line owns a square, so `canStock`
+    // says yes. The CAP is what refuses it.
+    expect(canStock(a.loadout.map((sl) => sl.equipmentId), 'hullRepair')).toBe(true);
+
+    a.bankedLevels = 1;
+    a.offer = ['hullRepair'];
+    const offer = a.offer;
+    expect(w.spendPoint('a', 0)).toBe(false);
+    expect(a.cards).toHaveLength(CATALOG.hullRepair.cap); // no sixth copy
+    expect(a.bankedLevels).toBe(1); // the level was NOT consumed
+    expect(a.offer).toBe(offer); // byte-identical, same array
+    expect(a.loadout[beltSlot].state!.n).toBe(CATALOG.hullRepair.cap);
+  });
+
+  it('...and the same refusal holds for a capped LADDER and a capped EQUIPMENT line', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    for (let i = 0; i < CATALOG.armor.cap; i += 1) w.applyCard(a, 'armor');
+    a.bankedLevels = 1;
+    a.offer = ['armor'];
+    expect(w.spendPoint('a', 0)).toBe(false);
+    expect(boonStackCount(a.cards, 'armor')).toBe(CATALOG.armor.cap);
+    expect(a.bankedLevels).toBe(1);
+  });
+
+  // --- THE DEV FIT AND THE FULL ROW (Story 8.14 review, F2) ------------------
+
+  it('a FOUR-LINE dev fitOverride fits THREE weapons and drops the fourth — ledger included', () => {
+    const w = bareWorld();
+    // Four equipment lines, one weapon row three wide.
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN,
+      ['heavyTorpedo', 'navalMines', 'broadside', 'starShells']);
+    expect(a.cards).toEqual(['heavyTorpedo', 'navalMines', 'broadside']);
+    expect(WEAPON_SLOTS.map((i) => a.loadout[i].equipmentId)).toEqual(['heavyTorpedo', 'navalMines', 'broadside']);
+    // The dropped line left NO trace: no card, no slot, and NO TAKE recorded
+    // for a weapon nobody carries (which would have made its tier cards
+    // eligible and weighted every other captain away from it).
+    expect(a.cards).not.toContain('starShells');
+    expect(w.takes.get('starShells' as LineId)).toBeUndefined();
+    expect([...w.takes.keys()].sort()).toEqual(['broadside', 'heavyTorpedo', 'navalMines']);
+  });
+
+  it("the level-zero guarantee never hands a full-row hull a weapon it cannot fit", () => {
+    // The countdown grant (and its REDRAW) fires AFTER a dev fit has filled the
+    // row, which is the reachable path to the F2 bug: `usableLines` used to be
+    // a pure fact about the HOLD and would name copy 1 of an unheld weapon.
+    const w = bareWorld();
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN,
+      ['heavyTorpedo', 'navalMines', 'broadside']);
+    expect(WEAPON_SLOTS.every((i) => a.loadout[i].equipmentId !== null)).toBe(true);
+    w.grantOpening();
+    for (const id of front(a)) {
+      const line = CATALOG[id];
+      expect(line.kind === 'equipment' && boonStackCount(a.cards, id) === 0, id).toBe(false);
+    }
   });
 
   it('with FEWER dealable lines than the offer size the hand is SHORT, never padded, never repeated', () => {

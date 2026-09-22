@@ -80,11 +80,14 @@
 import {
   CATALOG,
   CONFIG,
+  SLOT_COUNT,
   boonStackCount,
+  pickRefusal,
   type Catalog,
   type CatalogLine,
   type LineKind,
   type Rng,
+  type SlotItemId,
 } from '@salvo/shared';
 import type { BotProfile } from './profiles.js';
 import type { AnyProfileId } from './types.js';
@@ -99,6 +102,18 @@ export interface BotSpendState {
   offer: readonly string[] | null;
   /** Card line ids already fitted, in fit order (repeats = stacks). */
   cards: readonly string[];
+  /**
+   * The bot's NINE SLOT CONTENTS (`loadout.map(s => s.equipmentId)`) — the same
+   * array the server's `pickRefusal` takes, read off the bot's own ShipRecord
+   * by the driver like everything else here (ai/ never sees a World).
+   *
+   * WHY THE SCORER NEEDS IT (Story 8.14 review, F4): `spendCard` refuses a card
+   * this hull cannot take, and the offer does NOT reroll on a refusal. A scorer
+   * that keeps naming the same refused card therefore spends the same banked
+   * level into a no-op every tick, forever. Defaulted so the many hand-built
+   * test states keep compiling as "nothing fitted, every slot empty".
+   */
+  slotIds?: readonly (SlotItemId | null)[];
   hp: number;
   maxHp: number;
 }
@@ -288,16 +303,43 @@ export function boonWeightFor(
   return KIND_BASE[line.kind] ?? UNLISTED_SCORE;
 }
 
-/** The best line in an offer under this profile's weights. Never returns -1
- *  for a non-empty offer: even an all-junk hand is spent, because a banked
- *  level held forever is a level wasted. Ties keep the incumbent, so offer
- *  index settles them — deterministic, rng-free. */
-function bestOfferIndex(profile: BotProfile, s: BotSpendState, catalog: Catalog): number {
+/**
+ * THE OFFER INDICES THIS HULL CAN ACTUALLY TAKE (Story 8.14 review, F4) — the
+ * cards `World.spendCard` would not refuse, through the one shared predicate
+ * both sides run. Everything downstream of a spend decision picks from HERE.
+ *
+ * Before this, an at-cap line scored `HELD_LINE_SCORE` and could still win the
+ * hand; with the server now refusing it (review F1) the bot re-picked the same
+ * card every tick and the banked level never moved. An empty result means the
+ * whole hand is refused, and the right answer is the human one (amendment 44):
+ * DO NOT SPEND — the level stays banked until firing a consumable frees a slot.
+ */
+function spendableIndices(s: BotSpendState, catalog: Catalog): number[] {
   const offer = s.offer ?? [];
-  let bestI = 0;
-  let bestW = -Infinity;
+  const slotIds = s.slotIds ?? EMPTY_SLOTS;
+  const out: number[] = [];
   for (let i = 0; i < offer.length; i += 1) {
-    const w = boonWeightFor(profile.id, offer[i], s.cards, catalog);
+    if (pickRefusal(s.cards, slotIds, offer[i], catalog) === null) out.push(i);
+  }
+  return out;
+}
+
+/** A hull whose slots the caller did not supply: every slot empty, which is
+ *  what a bare `BotSpendState` in a test means. */
+const EMPTY_SLOTS: readonly (SlotItemId | null)[] = Object.freeze(
+  Array.from({ length: SLOT_COUNT }, () => null),
+);
+
+/** The best SPENDABLE line in an offer under this profile's weights, or null
+ *  when every card in the hand is refused. Otherwise unchanged: even an
+ *  all-junk hand is spent, because a banked level held forever is a level
+ *  wasted. Ties keep the incumbent, so offer index settles them —
+ *  deterministic, rng-free. */
+function bestOfferIndex(profile: BotProfile, s: BotSpendState, catalog: Catalog): number | null {
+  let bestI: number | null = null;
+  let bestW = -Infinity;
+  for (const i of spendableIndices(s, catalog)) {
+    const w = boonWeightFor(profile.id, (s.offer ?? [])[i], s.cards, catalog);
     if (w > bestW) {
       bestW = w;
       bestI = i;
@@ -329,6 +371,15 @@ export function chooseSpend(
 ): number | null {
   if (s.bankedLevels <= 0) return null;
   if (s.offer === null || s.offer.length === 0) return null;
-  if (profile.spend === 'random' && rng !== undefined) return rng.int(0, s.offer.length - 1);
+  if (profile.spend === 'random' && rng !== undefined) return randomSpendable(s, catalog, rng);
   return bestOfferIndex(profile, s, catalog);
+}
+
+/** The `spend: 'random'` test profile's uniform pick, over the SPENDABLE cards
+ *  only (review F4) — byte-identical to the old `rng.int(0, offer.length - 1)`
+ *  whenever nothing in the hand is refused, which is every ordinary hand. */
+function randomSpendable(s: BotSpendState, catalog: Catalog, rng: Rng): number | null {
+  const spendable = spendableIndices(s, catalog);
+  if (spendable.length === 0) return null;
+  return spendable[rng.int(0, spendable.length - 1)];
 }

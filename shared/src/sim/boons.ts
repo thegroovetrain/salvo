@@ -48,7 +48,15 @@ import {
   type ConsumableId,
   type DoctrineWeapon,
 } from './effects.js';
-import { CATALOG, cardCounts, lineForEquipment, tierTargetOf, type Catalog, type CatalogLine } from './catalog.js';
+import {
+  CATALOG,
+  boonStackCount,
+  cardCounts,
+  lineForEquipment,
+  tierTargetOf,
+  type Catalog,
+  type CatalogLine,
+} from './catalog.js';
 import {
   broadsideMountSpread,
   broadsideTraverse,
@@ -271,6 +279,70 @@ export function stockSlotFor(slotIds: readonly (SlotItemId | null)[], lineId: Co
  */
 export function canStock(slotIds: readonly (SlotItemId | null)[], lineId: ConsumableId): boolean {
   return stockSlotFor(slotIds, lineId) !== null;
+}
+
+/**
+ * WHY A PICK IS REFUSED, or `null` when it is legal (Story 8.14 review, F1/F2).
+ *
+ * THE ONE PREDICATE behind every "can this ship take this card" question in the
+ * engine: `World.refusesCard` (and therefore `applyCard`, the dev spawn fit and
+ * every directed grant), `World.spendCard` (which returns BEFORE consuming the
+ * level, so a refused pick leaves the offer byte-identical), the client's
+ * greyed refit card, the bot spend scorer and the batch-sim spend instrument.
+ * Before it existed each of those asked only `canStock`, so a line that already
+ * OWNED a belt slot walked straight past its own `cap`: five HULL REPAIR could
+ * be followed by a sixth copy that cost a level, never reached the belt, and
+ * silently refilled the stack after the first use.
+ *
+ * The four refusals, in the order they are decided:
+ *   - `stub` — the line's mechanism is not built (amendment 11), or the id is
+ *     not an OWN PROPERTY of the catalog at all (fail closed: an unknown id and
+ *     a prototype key are both refusals, never a grant).
+ *   - `atCap` — the ship already holds `cap` copies. TRUE FOR EVERY KIND,
+ *     consumables included: the draw deals a consumable at its cap on purpose
+ *     (amendment 94), and THIS is what makes that card unpickable rather than
+ *     merely unstockable.
+ *   - `beltFull` — a consumable whose four-wide belt holds four OTHER lines.
+ *   - `noWeaponSlot` — copy 1 of an equipment line (the bare weapon) with all
+ *     three of Q/E/R occupied: it would land in `cards` with no slot to live in.
+ *
+ * Pure over plain data — the held card ids (one entry per copy) and the same
+ * replayed slot ids `canStock` takes — so both sides evaluate one function over
+ * one set of facts and can never disagree about whether a pick is legal. A
+ * short or malformed slot array is fail-closed exactly as `stockSlotFor` is: a
+ * missing slot is never "empty".
+ *
+ * NOTE the client states every one of these with the SAME ratified foot word
+ * (`SLOTS FULL`, Eric's copy) — this enum is a reason for the ENGINE, not new
+ * player-facing text.
+ */
+export type PickRefusal = 'stub' | 'atCap' | 'beltFull' | 'noWeaponSlot';
+
+export function pickRefusal(
+  held: readonly string[],
+  slotIds: readonly (SlotItemId | null)[],
+  lineId: string,
+  catalog: Catalog = CATALOG,
+): PickRefusal | null {
+  const line = Object.hasOwn(catalog, lineId) ? catalog[lineId] : undefined;
+  if (line === undefined || line.stub === true) return 'stub';
+  const copies = boonStackCount(held, lineId);
+  if (copies >= line.cap) return 'atCap';
+  if (line.kind === 'consumable') return beltRefusal(slotIds, lineId);
+  if (line.kind === 'equipment' && copies === 0) return weaponRowRefusal(slotIds);
+  return null;
+}
+
+/** The belt half of `pickRefusal`. A `consumable` LINE whose id is not a known
+ *  consumable carries no `stock` effect, so it has no belt claim to refuse. */
+function beltRefusal(slotIds: readonly (SlotItemId | null)[], lineId: string): PickRefusal | null {
+  if (!isConsumableId(lineId)) return null;
+  return canStock(slotIds, lineId) ? null : 'beltFull';
+}
+
+/** The weapon-row half of `pickRefusal`: copy 1 needs one of Q/E/R empty. */
+function weaponRowRefusal(slotIds: readonly (SlotItemId | null)[]): PickRefusal | null {
+  return WEAPON_SLOTS.some((i) => slotIds[i] === null) ? null : 'noWeaponSlot';
 }
 
 /**

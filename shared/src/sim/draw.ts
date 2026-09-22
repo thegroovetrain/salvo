@@ -18,10 +18,11 @@
 //     WEAPON, so it is eligible only while a weapon slot is open — and its
 //     kind is `weapon`. Held 1..cap-1 it is a TIER card: kind `upgrade`. At
 //     `cap` it is out (a sixth copy is not a card);
-//   - a `ladder` below its cap is an `upgrade`; a ladder that names
-//     `appliesTo` is a GUN ladder and is eligible only while that gun is the
-//     one mounted (amendment 89d — each gun's ladder is offered only while it
-//     is mounted);
+//   - a `ladder` below its cap is an `upgrade`; a ladder with a HOST equipment
+//     row — named in `appliesTo`, or addressed by its tier's `equipment.<row>.`
+//     stat path — is a GUN ladder and is eligible only while that row is the
+//     mounted gun (amendment 89d — each gun's ladder is offered only while it
+//     is mounted). See `ladderHost`;
 //   - an `addon` (cap 1, so eligible only unheld) is an `upgrade` iff a host
 //     it names is already held OR a weapon slot is still open — holding an
 //     add-on ahead of its host is allowed while the ship can still fit one;
@@ -71,7 +72,8 @@ import {
   type CatalogLine,
   type LineId,
 } from './catalog.js';
-import type { EquipmentId } from './loadout.js';
+import { WEAPON_SLOTS, type EquipmentId, type SlotItemId } from './loadout.js';
+import { pickRefusal } from './boons.js';
 
 /**
  * The three KINDS a dealt card can be (amendment 92's stage 1):
@@ -87,15 +89,29 @@ export type DrawKind = 'weapon' | 'upgrade' | 'consumable';
  * ever consulted, which is what keeps this file pure over plain data.
  *
  * `held` is the ship's fitted card ids, ONE ENTRY PER COPY (the shape of
- * `ShipRecord.cards`, passed straight through); `weaponSlotOpen` is "any of
- * Q/E/R is still empty"; `mountedGun` is the EQUIPMENT row the seat's gun
- * mounts (sim/loadout.ts MOUNTED_GUN), which is what a gun ladder's
- * `appliesTo` is matched against.
+ * `ShipRecord.cards`, passed straight through); `slotIds` is the ship's NINE
+ * SLOT CONTENTS (`loadout.map(s => s.equipmentId)` — the same array `canStock`
+ * and `pickRefusal` take); `mountedGun` is the EQUIPMENT row the seat's gun
+ * mounts (sim/loadout.ts MOUNTED_GUN), which is what a gun ladder's host is
+ * matched against.
+ *
+ * THE SLOT IDS REPLACED A `weaponSlotOpen` BOOLEAN (Story 8.14 review, F2).
+ * The draw needs the weapon row for eligibility and the level-zero guarantee
+ * needs the whole nine-slot array for `pickRefusal`; carrying both a derived
+ * boolean and the array it is derived from let the two disagree, so the array
+ * is the only input and `weaponRowOpen` below is the one derivation.
  */
 export interface DrawShip {
   readonly held: readonly LineId[];
-  readonly weaponSlotOpen: boolean;
+  readonly slotIds: readonly (SlotItemId | null)[];
   readonly mountedGun: EquipmentId;
+}
+
+/** Is ANY of Q/E/R still empty — the one derivation of "a bare weapon has
+ *  somewhere to go", fail-closed on a short array exactly like `stockSlotFor`
+ *  (a missing slot is never "empty"). */
+function weaponRowOpen(ship: DrawShip): boolean {
+  return WEAPON_SLOTS.some((i) => ship.slotIds[i] === null);
 }
 
 /** One line the ship could be dealt right now, with the kind it would be. */
@@ -139,14 +155,52 @@ function holdsHost(held: readonly LineId[], eq: EquipmentId, catalog: Catalog): 
  *  to go; every later copy is a tier bump on a weapon already aboard. */
 function equipmentKind(copies: number, ship: DrawShip): DrawKind | undefined {
   if (copies > 0) return 'upgrade';
-  return ship.weaponSlotOpen ? 'weapon' : undefined;
+  return weaponRowOpen(ship) ? 'weapon' : undefined;
 }
 
-/** A LADDER's kind: a ladder that names `appliesTo` is a GUN ladder, offered
- *  only while that gun is the mounted one (amendment 89d). */
+/** An `equipment.<row>.<field>` stat path, as a ladder's tier effects write
+ *  it — the only structural trace a slotless ladder leaves of the equipment row
+ *  it steps. */
+const EQUIPMENT_STAT_PATH = /^equipment\.([^.]+)\./;
+
+/**
+ * THE EQUIPMENT ROW A LADDER SERVES, or undefined for a UNIVERSAL ladder
+ * (Story 8.14 review, F3).
+ *
+ * Two sources, in order, and the order is load-bearing:
+ *   1. `appliesTo[0]`, when the ladder names one. That field is ALSO what
+ *      `catalog.tierTargetOf` advances the equipment TIER for, which is why
+ *      DECK GUN TURRET and DECK GUN BARREL must NOT grow one: they are gun
+ *      cards, but they are not rungs of the gun's tier ladder.
+ *   2. Otherwise the row its FIRST tier's first `stat` effect addresses —
+ *      `equipment.gun.maxAmmo` -> `gun`, `equipment.gun.barrels` -> `gun`. The
+ *      five universal ladders (ARMOR, SPEED, TURNING, RADAR SWEEP, RELOAD)
+ *      write `maxHp`, `kinematics.*`, `sweepRpm` and `cooldownScale`, none of
+ *      which is an `equipment.` path, so they stay universal.
+ *
+ * Without this, a seat that mounts anything but the deck gun (Story 8.15) is
+ * dealt DECK GUN TURRET and DECK GUN BARREL as live cards that step a module it
+ * is not carrying.
+ */
+function ladderHost(line: CatalogLine): EquipmentId | undefined {
+  const named = line.appliesTo?.[0];
+  if (named !== undefined) return named;
+  for (const e of line.tiers[0] ?? []) {
+    if (e.kind !== 'stat') continue;
+    const m = EQUIPMENT_STAT_PATH.exec(e.path);
+    if (m !== null) return m[1] as EquipmentId;
+  }
+  return undefined;
+}
+
+/** A LADDER's kind: a ladder with a HOST equipment row is a GUN ladder (today
+ *  the only hosted ladders are the deck gun's three), offered only while that
+ *  row is the mounted gun (amendment 89d); a universal ladder is always an
+ *  upgrade. */
 function ladderKind(line: CatalogLine, ship: DrawShip): DrawKind | undefined {
-  if (line.appliesTo === undefined) return 'upgrade';
-  return line.appliesTo.includes(ship.mountedGun) ? 'upgrade' : undefined;
+  const host = ladderHost(line);
+  if (host === undefined) return 'upgrade';
+  return host === ship.mountedGun ? 'upgrade' : undefined;
 }
 
 /** An ADD-ON's kind: it bolts a verb onto equipment it names, so held-ahead is
@@ -154,7 +208,7 @@ function ladderKind(line: CatalogLine, ship: DrawShip): DrawKind | undefined {
  *  and no host aboard the card would be dead, so it is not dealt. */
 function addonKind(line: CatalogLine, ship: DrawShip, catalog: Catalog): DrawKind | undefined {
   const hosted = (line.appliesTo ?? []).some((eq) => holdsHost(ship.held, eq, catalog));
-  return hosted || ship.weaponSlotOpen ? 'upgrade' : undefined;
+  return hosted || weaponRowOpen(ship) ? 'upgrade' : undefined;
 }
 
 /**
@@ -226,20 +280,27 @@ export function lineWeight(takesByOthers: number, cfg: WeightingConfig = CONFIG.
  * step or a bolt-on verb is not something a bare hull can put to sea with. A
  * line held AT CAP is never usable.
  *
- * NOTE this deliberately does NOT read `weaponSlotOpen`: at level zero the
- * whole row is empty, and keeping the function a pure fact about the HOLD is
- * what makes the guarantee's uniform pick identical to the one 8.10 shipped.
+ * IT READS THE SLOT IDS (Story 8.14 review, F2). At level zero the whole row is
+ * empty and the belt is empty, so this is still byte-identical to the pick 8.10
+ * shipped — but `grantOpening` also fires on a REDRAW after a dev spawn fit has
+ * filled the row, and there the guarantee could hand a hull copy 1 of a weapon
+ * with nowhere to put it. A line is usable only when `pickRefusal` says the
+ * ship could actually TAKE it, which is the same gate the pick itself runs. The
+ * guarantee stays uniform and unweighted over whatever survives.
  */
-export function usableLines(held: readonly LineId[], catalog: Catalog = CATALOG): LineId[] {
+export function usableLines(
+  held: readonly LineId[],
+  slotIds: readonly (SlotItemId | null)[],
+  catalog: Catalog = CATALOG,
+): LineId[] {
   const out: LineId[] = [];
   for (const key of Object.keys(catalog)) {
     if (!isDealable(key, catalog)) continue;
     const line = catalog[key];
     if (line === undefined) continue;
     const copies = boonStackCount(held, key);
-    if (copies >= line.cap) continue;
     const usable = line.kind === 'consumable' || (line.kind === 'equipment' && copies === 0);
-    if (usable) out.push(key as LineId);
+    if (usable && pickRefusal(held, slotIds, key, catalog) === null) out.push(key as LineId);
   }
   return out;
 }
@@ -247,8 +308,8 @@ export function usableLines(held: readonly LineId[], catalog: Catalog = CATALOG)
 /** The guaranteed FIRST card: one uniform pick over `usableLines`, costing
  *  exactly ONE rng.next(). Undefined — and NO rng value spent — when nothing is
  *  usable, which is what keeps the guarantee vacuous instead of a reroll. */
-function pickUsable(held: readonly LineId[], catalog: Catalog, rng: Rng): LineId | undefined {
-  const usable = usableLines(held, catalog);
+function pickUsable(ship: DrawShip, catalog: Catalog, rng: Rng): LineId | undefined {
+  const usable = usableLines(ship.held, ship.slotIds, catalog);
   if (usable.length === 0) return undefined;
   const i = Math.min(Math.floor(rng.next() * usable.length), usable.length - 1); // clamp: float dust
   return usable[i];
@@ -319,7 +380,7 @@ export function drawOffer(
   const eligible = eligibleLines(ship, catalog);
   const offer: LineId[] = [];
   const dealt = new Set<LineId>();
-  const first = opts.guarantee === true ? pickUsable(ship.held, catalog, rng) : undefined;
+  const first = opts.guarantee === true ? pickUsable(ship, catalog, rng) : undefined;
   if (first !== undefined) {
     offer.push(first);
     dealt.add(first);

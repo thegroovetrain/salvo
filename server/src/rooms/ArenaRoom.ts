@@ -965,7 +965,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // deck door and its 4402 are gone): a bad gun coerces to `deckGun` and a
     // dev fit outside HC_DEV_OPTIONS=1 is stripped.
     const gun = this.resolveJoinGun(client, options);
-    const devFit = this.resolveDevFit(options);
+    const devFit = this.resolveDevFit(client, options);
     // THE JOIN ORDINAL IS ROOM STATE, so it is bumped only once the join can
     // no longer be refused. Incrementing it first BURNED an ordinal on every
     // refusal: the next nameless captain came aboard as CAPTAIN-2 with no
@@ -1052,9 +1052,19 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * gate and the shape check, so this is the same admission every other dev
    * knob gets — and EMPTY on every production path, because the env is unset
    * and the queue never forwards the key.
+   *
+   * THE REJECTIONS ARE LOGGED (Story 8.14 review, F6), once, on the same
+   * `devOptionsRejected` event `onCreate` writes for the ROOM's options — the
+   * roomOptions contract promises a rejected dev key is announced rather than
+   * silently swallowed, and until now this door threw `rejectedKeys` away, so a
+   * smoke that mistyped `fitOverride` saw a ship spawn bare with no line saying
+   * why. `sessionId` distinguishes it from the room-create line.
    */
-  private resolveDevFit(options: JoinOptions): readonly string[] {
-    const { sanitized } = sanitizeRoomOptions(options as RoomOptions, process.env.HC_DEV_OPTIONS === '1');
+  private resolveDevFit(client: Client, options: JoinOptions): readonly string[] {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions(options as RoomOptions, process.env.HC_DEV_OPTIONS === '1');
+    if (rejectedKeys.length > 0) {
+      this.log.warn('join.devOptionsRejected', { rejected: rejectedKeys, sessionId: client.sessionId });
+    }
     return sanitized.fitOverride ?? [];
   }
 

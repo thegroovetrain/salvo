@@ -64,6 +64,7 @@ const ZONE_OVERRIDE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1,
 const KNOWN_EVENTS = new Set([
   'room.create', 'room.dispose', 'room.devOptionsRejected',
   'client.join', 'client.leave', 'client.drop', 'client.resume', 'client.joiningKick',
+  'join.devOptionsRejected',
   'match.activate', 'match.end', 'match.abort',
   'tick.error', 'tick.summary',
 ]);

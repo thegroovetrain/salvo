@@ -295,7 +295,11 @@ class PacifistControl implements CaptainControl {
     if (!ship) return;
     // Spends are legal while dead (builds persist across waiting-phase deaths);
     // drain at most one banked level per tick through the REAL spend flow.
-    if (ship.offer !== null) world.spendPoint(this.id, pickSpendChoice(ship.offer, this.rng, ship.cards));
+    if (ship.offer !== null) {
+      // null = every card in the hand is refused (review F4): hold the level.
+      const choice = pickSpendChoice(ship.offer, this.rng, ship.cards, ship.loadout.map((s) => s.equipmentId));
+      if (choice !== null) world.spendPoint(this.id, choice);
+    }
     if (!isAfloat(ship.lifecycle)) {
       // A respawn teleports the hull: carrying the pre-death pose forward would
       // read as a giant displacement (harmless) or, worse, keep a stale stuck

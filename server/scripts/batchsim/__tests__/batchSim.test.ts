@@ -776,14 +776,32 @@ describe('controls — determinism', () => {
     expect(inputStream(7, 42, 200)).not.toBe(inputStream(7, 43, 200));
   });
 
-  it('spend policy is deterministic and prefers the highest rarity', () => {
-    const offer = ['shipSpeed', 'gunBarrel', 'intelSweep', 'shipHull']; // one rare among commons
-    const picks = new Set<number>();
+  it('spend policy is deterministic and prefers the highest-ranked KIND', () => {
+    // Real catalog lines: index 1 is the EQUIPMENT (the instrument's top rank),
+    // the rest are ladders. The v2 ids this pin used to carry are not in
+    // catalog v3 at all, and since the 8.14 review (F4) the policy skips any
+    // card `World.spendCard` would refuse — an unknown id among them.
+    const offer = ['speed', 'heavyTorpedo', 'radarSweep', 'armor'];
+    const picks = new Set<number | null>();
     for (let i = 0; i < 50; i += 1) picks.add(pickSpendChoice(offer, mulberry32(i), []));
-    expect(picks.has(1)).toBe(true); // the rare gets picked
+    expect(picks.has(1)).toBe(true); // the weapon gets picked
     const a = Array.from({ length: 20 }, (_, i) => pickSpendChoice(offer, mulberry32(i), []));
     const b = Array.from({ length: 20 }, (_, i) => pickSpendChoice(offer, mulberry32(i), []));
     expect(a).toEqual(b);
+  });
+
+  // --- THE REFUSED CARD (Story 8.14 review, F4) -----------------------------
+
+  it('NEVER names a card the server would refuse, and answers null for an all-refused hand', () => {
+    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
+    const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
+    // A capped consumable and a bare weapon with no slot are both out; only
+    // the ladder is takeable, so every seed names it.
+    const offer = ['hullRepair', 'broadside', 'armor'];
+    for (let i = 0; i < 50; i += 1) expect(pickSpendChoice(offer, mulberry32(i), five, rowFull)).toBe(2);
+    // ...and with nothing takeable at all the instrument holds the level.
+    const capped = [...five, ...new Array<string>(CATALOG.armor.cap).fill('armor')];
+    expect(pickSpendChoice(['hullRepair', 'armor'], mulberry32(1), capped, rowFull)).toBeNull();
   });
 });
 

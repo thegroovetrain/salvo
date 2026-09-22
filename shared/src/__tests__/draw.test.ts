@@ -43,14 +43,25 @@ import {
   type EquipmentId,
   type LineId,
   type Rng,
+  type SlotItemId,
   type Weights,
 } from '../index.js';
 
+/** The nine slot ids of a fresh hull: the gun, the Shift, an EMPTY weapon row
+ *  (2/3/4) and an empty belt. The draw reads the row off this array — there is
+ *  no separate `weaponSlotOpen` boolean to disagree with it (review F2). */
+const ROW_OPEN: readonly (SlotItemId | null)[] = ['gun', 'boost', null, null, null, null, null, null, null];
+
+/** The same hull with all three weapon slots occupied. */
+const ROW_FULL: readonly (SlotItemId | null)[] = [
+  'gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null,
+];
+
 /** A ship with an open weapon row, holding nothing — the level-zero state. */
-const OPEN: DrawShip = { held: [], weaponSlotOpen: true, mountedGun: 'gun' };
+const OPEN: DrawShip = { held: [], slotIds: ROW_OPEN, mountedGun: 'gun' };
 
 /** The same ship with all three weapon slots full. */
-const CLOSED: DrawShip = { held: [], weaponSlotOpen: false, mountedGun: 'gun' };
+const CLOSED: DrawShip = { held: [], slotIds: ROW_FULL, mountedGun: 'gun' };
 
 /** No takes anywhere: every line at its base weight of 1.0. */
 const NO_WEIGHTS: Weights = new Map<LineId, number>();
@@ -135,14 +146,32 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(eligibleLines(capped).some((e) => e.id === 'lightTorpedo')).toBe(false);
   });
 
-  it('a GUN LADDER follows the MOUNTED gun (amendment 89d)', () => {
-    // The production deck-gun ladder names `appliesTo: ['gun']`.
+  it('THE WHOLE GUN FAMILY follows the MOUNTED gun, appliesTo or not (amendment 89d, review F3)', () => {
+    // Only DECK GUN names `appliesTo` — it is the ladder whose copies advance
+    // the gun's equipment TIER (catalog.tierTargetOf reads that same field), so
+    // TURRET and BARREL deliberately do NOT carry one. They name the row the
+    // only other way a slotless ladder can: through their tier's stat path.
     expect(CATALOG.deckGun.appliesTo).toEqual(['gun']);
-    expect(eligibleLines(OPEN).some((e) => e.id === 'deckGun')).toBe(true);
+    expect(CATALOG.deckGunTurret.appliesTo).toBeUndefined();
+    expect(CATALOG.deckGunBarrel.appliesTo).toBeUndefined();
+
+    const GUN_FAMILY = ['deckGun', 'deckGunTurret', 'deckGunBarrel'];
+    // Mounted gun is the deck gun's row: all three are dealable.
+    const mounted = eligibleLines(OPEN).map((e) => e.id);
+    for (const id of GUN_FAMILY) expect(mounted, id).toContain(id);
+
+    // A seat carrying ANY other gun (Story 8.15) is dealt none of them — before
+    // review F3, TURRET and BARREL were dealt as universal ladders and stepped
+    // a module the hull is not carrying.
     const otherGun: DrawShip = { ...OPEN, mountedGun: 'machineGun' as EquipmentId };
-    expect(eligibleLines(otherGun).some((e) => e.id === 'deckGun')).toBe(false);
-    // ...while a ladder with NO appliesTo is gun-blind.
-    expect(eligibleLines(otherGun).some((e) => e.id === 'deckGunTurret')).toBe(true);
+    const elsewhere = eligibleLines(otherGun).map((e) => e.id);
+    for (const id of GUN_FAMILY) expect(elsewhere, id).not.toContain(id);
+
+    // ...while the five UNIVERSAL ladders (no `equipment.` stat path, no
+    // appliesTo) are gun-blind and stay dealable whatever is mounted.
+    for (const id of ['armor', 'speed', 'turning', 'radarSweep', 'reload']) {
+      expect(elsewhere, id).toContain(id);
+    }
 
     // And the mirror image, on an injected catalog: a ladder that names ANOTHER
     // gun is eligible exactly when that gun is the mounted one.
@@ -316,7 +345,7 @@ describe('drawOffer — the shape of an offer', () => {
       ...new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'),
       ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
     ];
-    const ship: DrawShip = { held, weaponSlotOpen: false, mountedGun: 'gun' };
+    const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
     let cappedConsumables = 0;
     for (let seed = 0; seed < 300; seed += 1) {
       const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed));
@@ -342,7 +371,7 @@ describe('drawOffer — the shape of an offer', () => {
       ...new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'),
       ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
     ];
-    const ship: DrawShip = { held, weaponSlotOpen: false, mountedGun: 'gun' };
+    const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
     const eligible = eligibleLines(ship);
     expect(eligible.map((e) => e.id).sort()).toEqual(['hullRepair', 'supercavTorpedo']);
     for (let seed = 0; seed < 200; seed += 1) {
@@ -359,7 +388,7 @@ describe('drawOffer — the shape of an offer', () => {
       if (line.stub === true) continue;
       for (let i = 0; i < line.cap; i += 1) held.push(key as LineId);
     }
-    const ship: DrawShip = { held, weaponSlotOpen: false, mountedGun: 'gun' };
+    const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
     for (let seed = 0; seed < 100; seed += 1) {
       expect(drawOffer(ship, NO_WEIGHTS, mulberry32(seed)).length, `seed ${seed}`).toBeGreaterThan(0);
     }
@@ -378,7 +407,7 @@ describe('drawOffer — the shape of an offer', () => {
 // ---------------------------------------------------------------------------
 
 describe('the level-zero guarantee — card 0 is a USABLE card, uniformly', () => {
-  const USABLE = usableLines([]);
+  const USABLE = usableLines([], ROW_OPEN);
 
   it('usableLines is every consumable + every unheld equipment line, in CATALOG order', () => {
     const expected = Object.keys(CATALOG).filter((id) => {
@@ -387,8 +416,38 @@ describe('the level-zero guarantee — card 0 is a USABLE card, uniformly', () =
     });
     expect(USABLE).toEqual(expected);
     // A line the ship already holds is not usable; nor is one at cap.
-    expect(usableLines(['lightTorpedo'])).not.toContain('lightTorpedo');
-    expect(usableLines(new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'))).not.toContain('hullRepair');
+    expect(usableLines(['lightTorpedo'], ROW_OPEN)).not.toContain('lightTorpedo');
+    expect(usableLines(new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'), ROW_OPEN))
+      .not.toContain('hullRepair');
+  });
+
+  it('EXCLUDES a line this hull could not take — the guarantee runs pickRefusal (review F2)', () => {
+    // The level-zero guarantee also fires on the countdown REDRAW, and a dev
+    // `fitOverride` can have filled Q/E/R before then. Copy 1 of an equipment
+    // line would land in `cards` with no slot, so it is not usable there.
+    const rowFull = usableLines([], ROW_FULL);
+    for (const id of rowFull) expect(CATALOG[id].kind, id).toBe('consumable');
+    expect(rowFull).toContain('hullRepair');
+    // ...and with the row open every one of them is back.
+    expect(usableLines([], ROW_OPEN).some((id) => CATALOG[id].kind === 'equipment')).toBe(true);
+
+    // A consumable with no belt room is out for the same reason.
+    const beltFull: readonly (SlotItemId | null)[] = [
+      'gun', 'boost', null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff',
+    ];
+    expect(usableLines([], beltFull)).not.toContain('supercavTorpedo');
+    expect(usableLines([], beltFull)).toContain('hullRepair'); // the stack deepens
+  });
+
+  it('CARD 0 IS ALWAYS TAKEABLE, whatever the row and the belt look like', () => {
+    const ship: DrawShip = { held: [], slotIds: ROW_FULL, mountedGun: 'gun' };
+    for (let seed = 0; seed < 200; seed += 1) {
+      const offer = drawOffer(ship, LOPSIDED, mulberry32(seed), CATALOG, { guarantee: true });
+      for (const id of offer) {
+        expect(CATALOG[id].kind === 'equipment' && boonStackCount(ship.held, id) === 0, `seed ${seed}:${id}`)
+          .toBe(false);
+      }
+    }
   });
 
   it("card 0 is always usable, and the rest of the offer is the ordinary draw", () => {
@@ -429,8 +488,8 @@ describe('the level-zero guarantee — card 0 is a USABLE card, uniformly', () =
       if (line.stub === true || (line.kind !== 'consumable' && line.kind !== 'equipment')) continue;
       for (let i = 0; i < line.cap; i += 1) held.push(key as LineId);
     }
-    const ship: DrawShip = { held, weaponSlotOpen: false, mountedGun: 'gun' };
-    expect(usableLines(held)).toEqual([]);
+    const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
+    expect(usableLines(held, ROW_FULL)).toEqual([]);
     for (let seed = 0; seed < 200; seed += 1) {
       expect(drawOffer(ship, NO_WEIGHTS, mulberry32(seed), CATALOG, { guarantee: true }), `seed ${seed}`)
         .toEqual(drawOffer(ship, NO_WEIGHTS, mulberry32(seed)));

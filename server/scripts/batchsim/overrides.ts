@@ -292,9 +292,36 @@ function tuneFloor(key: string): number {
  *  be 0 — `gun.burstRadius=0` is what ARMOR-PIERCING already does, and a
  *  0-damage arm is a real control. */
 export function validateTuneValue(key: string, value: number): void {
+  if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   const floor = tuneFloor(key);
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
+  }
+}
+
+/**
+ * THE TWO WEIGHTING LEAVES ARE MULTIPLIERS IN (0, 1] (Story 8.14 review, F5),
+ * not merely "finite and >= 0" — the generic floor of 0 let three arms through
+ * that do not measure the mechanism amendments 90/91 describe:
+ *
+ *   - `factor = 0` (with `floor = 0`) makes EVERY taken line weigh zero, so
+ *     stage 2's cumulative walk never crosses `r` and falls through to its
+ *     float-dust fallback — the LAST candidate, every time. That is not "a
+ *     strong discount"; it is a deterministic pick dressed as a random one.
+ *   - `floor = 0` on its own is the same trap at five takers.
+ *   - `factor > 1` INVERTS the rule: a line other captains have taken becomes
+ *     MORE likely, not less, while the report header still says "weighting".
+ *
+ * A balance harness may not produce false evidence (the same argument
+ * DERIVED_TUNE_KEYS is written on), so the range is refused at the leaf. The
+ * pair relation (`floor <= factor`) cannot be judged one leaf at a time and is
+ * checked on the finished CONFIG in validateCrossKeyInvariants.
+ */
+const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.floor']);
+
+function validateUnitInterval(key: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0 || value > 1) {
+    throw new TunableError(`'${key}': expected a finite value in (0, 1], got '${value}'`);
   }
 }
 
@@ -346,6 +373,7 @@ export function validateTuneValue(key: string, value: number): void {
  * helper into a table rather than growing another `if`.
  */
 function validateCrossKeyInvariants(): void {
+  validateWeightingPair();
   const { durationMs, maxAmmo } = CONFIG.boost;
   if (maxAmmo !== 1) {
     throw new TunableError(
@@ -364,6 +392,24 @@ function validateCrossKeyInvariants(): void {
       `'boost.reloadMs' × the RELOAD ladder at cap must stay >= 'boost.durationMs' (raw ${rawReloadMs} ` +
         `-> ${maxedReloadMs} live at five RELOAD copies < ${durationMs}): an active window must ` +
         'always imply a cooling pool',
+    );
+  }
+}
+
+/**
+ * `offer.weighting.floor <= offer.weighting.factor` (Story 8.14 review, F5).
+ * `lineWeight(n) = max(floor, factor ** n)` is meant to STEP DOWN from 1.0 and
+ * settle on the floor; a floor ABOVE the factor makes the very first take jump
+ * the weight back UP to the floor and hold it there, so the dial reads as a
+ * discount and behaves as a flat constant. Either leaf alone is legal in
+ * (0, 1], so like the boost pair this is only judgeable once both are written.
+ */
+function validateWeightingPair(): void {
+  const { factor, floor } = CONFIG.offer.weighting;
+  if (floor > factor) {
+    throw new TunableError(
+      `'offer.weighting.floor' (${floor}) must stay <= 'offer.weighting.factor' (${factor}): a floor above ` +
+        'the factor turns max(floor, factor ** n) into a constant from the first take on',
     );
   }
 }
