@@ -151,7 +151,7 @@ describe('spawn ring candidate count — derived from the player cap', () => {
     const w = new World(11);
     const placed: Array<{ x: number; y: number }> = [];
     for (let i = 0; i < CONFIG.map.playerCap + 5; i++) {
-      const rec = w.addShip(`p${i}`, `P${i}`, undefined, undefined, undefined, undefined, []);
+      const rec = w.addShip(`p${i}`, `P${i}`, undefined, undefined, undefined, undefined);
       placed.push({ x: rec.state.x, y: rec.state.y });
     }
     let min = Infinity;
@@ -172,7 +172,7 @@ describe('the shared spawn lattice — the phase is per-MATCH, not per-hull', ()
       const w = new World(seed);
       const placed: Array<{ x: number; y: number }> = [];
       for (let i = 0; i < CONFIG.map.playerCap; i++) {
-        const rec = w.addShip(`p${i}`, `P${i}`, undefined, undefined, undefined, undefined, []);
+        const rec = w.addShip(`p${i}`, `P${i}`, undefined, undefined, undefined, undefined);
         placed.push({ x: rec.state.x, y: rec.state.y });
       }
       let min = Infinity;
@@ -192,7 +192,7 @@ describe('the shared spawn lattice — the phase is per-MATCH, not per-hull', ()
     const angles: number[] = [];
     for (let wave = 0; wave < 3; wave++) {
       for (let i = 0; i < 3; i++) {
-        const rec = w.addShip(`w${wave}p${i}`, `W${wave}P${i}`, undefined, undefined, undefined, undefined, []);
+        const rec = w.addShip(`w${wave}p${i}`, `W${wave}P${i}`, undefined, undefined, undefined, undefined);
         angles.push(Math.atan2(rec.state.y, rec.state.x));
       }
       for (let t = 0; t < 25; t++) w.step(); // time passes, rng gets consumed
@@ -227,7 +227,7 @@ describe('World spawn integration', () => {
   it('addShip spawns on the ring facing the map center', () => {
     for (const seed of SEEDS.slice(0, 5)) {
       const w = new World(seed);
-      const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+      const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
       const { x, y, heading } = rec.state;
       expect(Math.hypot(x, y)).toBeCloseTo(w.map.spawnRing, 6);
       // heading points from spawn toward the origin
@@ -246,7 +246,7 @@ describe('World spawn integration', () => {
     const angles = new Set<number>();
     for (const seed of SEEDS.slice(0, 8)) {
       const w = new World(seed);
-      const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+      const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
       expect(rec.sweepAngle).toBe(wrapPositive(rec.state.heading));
       expect(rec.prevSweepAngle).toBe(rec.sweepAngle);
       angles.add(rec.sweepAngle);

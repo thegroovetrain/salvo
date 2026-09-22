@@ -380,7 +380,7 @@ export const WAKE_STAMP_REBUILD_MS = CONFIG.vision.wakeLifeMs / WAKE_AGE_BUCKETS
  * it was failing to deliver.
  *
  * `FASTEST_BOOSTED_HULL_SPEED` is the MAXIMUM ACHIEVABLE hull speed, derived in
- * client/config.ts through `effectiveStats` (a capped SPEED deck) and the one
+ * client/config.ts through `effectiveStats` (a capped SPEED card stack) and the one
  * shared `boostedKinematics` hook — NOT a base speed plus a flat bonus, which
  * would now UNDER-state the bound (the proportional boost grows with the
  * ladder) and under-provision every ring this number sizes.

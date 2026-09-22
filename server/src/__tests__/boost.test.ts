@@ -33,7 +33,7 @@ function bareWorld(seed = 21): World {
 
 /** Add a ship at the origin at a known heading (speed 0). */
 function place(w: World, id: string, hull: ShipClassId = 'torpedoBoat', heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard
@@ -358,7 +358,7 @@ describe('death/respawn state reset (Story 1.6)', () => {
 describe('drones never activate an ability', () => {
   it('a drone stays un-boosted across many ticks (its actSeq is always 0)', () => {
     const w = bareWorld();
-    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined, []);
+    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined);
     d.state = { x: 0, y: 0, heading: 0, speed: 0 };
     for (let i = 0; i < 30; i++) w.step();
     expect(d.boostUntil).toBe(0);

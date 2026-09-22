@@ -3,6 +3,12 @@
 // as amended by Eric's rulings (epic-8 amendments).
 // 29 card LINES / 122 physical cards: 11 equipment lines (55), 5 universal
 // ladders (22), the deck-gun family (7), 3 add-ons (3), 7 consumables (35).
+// Those counts stand until Story 8.15 re-cuts the gun family.
+//
+// `cap` IS THE COPY CAP AND NOTHING ELSE NOW (Story 8.14, amendment 89a). The
+// "physical cards" figure is simply Σ cap: a count of how much ladder the
+// catalog authors, not a supply. THE COMMON POOL holds every dealable line with
+// UNLIMITED copies (sim/draw.ts), so nothing here is a per-player allocation.
 //
 // THE COUNT MOVED 114 -> 122 IN STORY 8.13 (amendments 74/80/81/83), purely by
 // re-cutting KINDS: ACOUSTIC HOMING (a 1-card add-on) is deleted, DEPTH CHARGE
@@ -24,38 +30,30 @@
 // Every equipment line carries copy 1 (`slotFill`); its FOUR UPGRADE TIERS are
 // filled by the story that builds the weapon, from catalog-v3 §4. Story 8.13
 // filled the five torpedo/mine ladders (`tieredWeapon` below); the gun family
-// is 8.14's and the broadside/star shells 8.16's, so those stay empty. The
+// is 8.15's and the broadside/star shells 8.16's, so those stay empty. The
 // −5 %/tier reload step is NEVER one of those effects — it is derived from the
 // tier in sim/stats.ts clampStats, see there. Consumables stock and nothing
 // else.
 //
 // STUB LINES (`stub: true`) are lines whose MECHANISM does not exist yet. They
 // are authored in full shape so the catalog is complete and the ids are final,
-// and they are EXCLUDED by `buildDeckState()` — a stub stays in a hull's frozen
-// 40-card list (Eric ruling 2026-09-15, epic-8 amendment 11) but is never dealt
-// into the drawable DeckState, so it can never be offered (amendment 5: stay
-// playable). A stub is also refused by the slot fold (sim/boons.ts) and by the
-// server's grant, so an id that reaches a card list by any other route still
-// fits nothing.
+// and they are EXCLUDED from the draw (Eric ruling 2026-09-15, epic-8
+// amendment 11): sim/draw.ts `isDealable` is the single point at which
+// "authored but unbuilt" becomes "unofferable", so a stub can never be offered
+// (amendment 5: stay playable). A stub is also refused by the slot fold
+// (sim/boons.ts) and by the server's grant, so an id that reaches a card list
+// by any other route still fits nothing.
 //
-// NO DEAD CARD IN A LIVE DECK is the rule the stub exclusion serves, and it
-// takes one more thing: a hull spawns HOLDING copy 1 of every equipment line
-// whose weapon it already carries, and `buildDeckState(list, carried)` deals
-// that copy one short (see sim/deck.ts).
-//
-// THE DEFAULT DECKS (Story 8.2, Eric ruling 2026-09-15, amendment 10) live at
-// the foot of this file: three 40-card lists, one per hull, authored as COUNTS
-// through `deckFromCounts` and expanded in LINE_IDS order. With no account
-// module they are THE deck every captain and bot sails (server/src/game/
-// decks.ts `loadDeckFor`); Epic 9 layers named decks on top. Their legality
-// against the four deck rules is checked at load in sim/deckRules.ts.
+// NO DEAD CARD IN A LIVE OFFER is the rule the stub exclusion serves, and the
+// draw's eligibility law (sim/draw.ts) is the rest of it: a line at its `cap`
+// is not offered, copy 1 of a weapon is not offered with the row full, and a
+// gun ladder is not offered unless that gun is mounted.
 //
 // CATALOG CONTENT IS WIRE CONTRACT: adding, removing or changing any entry
 // REQUIRES a PROTOCOL_VERSION bump (shared/src/index.ts). Line ids ride the
 // wire and both sides resolve them FAIL-CLOSED (unknown id silently dropped) —
 // the PV join gate is the only desync guard.
 
-import { CONFIG, type ShipClassId } from '../constants.js';
 import type { EquipmentId } from './loadout.js';
 import { EQUIPMENT_IDS, isConsumableId } from './loadout.js';
 import {
@@ -74,16 +72,15 @@ import {
 
 /**
  * THE 29 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
- * amended by amendments 80/83 on 2026-09-19). This order IS the fold order and
- * the default decks' composition order (`deckFromCounts` expands in it), so it
- * is part of the determinism contract — never re-sort it.
+ * amended by amendments 80/83 on 2026-09-19). This order IS the fold order, so
+ * it is part of the determinism contract — never re-sort it.
  *
  * STORY 8.13 SWAPPED EXACTLY ONE ID AND MOVED NOTHING. `acousticHoming` is
  * deleted (homing became a tier stat) and `depthCharge` joins; the count stays
  * 29. TWO LINES CHANGED KIND WITHOUT CHANGING SLOT — `supercavTorpedo` became
  * a `consumable` and `foulingMines` became `equipment` — and they KEEP the
  * positions they hold below, because this list's order is the contract and a
- * re-sort would silently re-cut every default deck's composition order. The
+ * re-sort would silently re-cut the fold order. The
  * section headings therefore describe where a line SITS, not what kind it is;
  * the kind is in CATALOG.
  */
@@ -152,7 +149,7 @@ export type LineKind = 'equipment' | 'ladder' | 'addon' | 'consumable';
  * - `appliesTo` — for an `addon`, the equipment it bolts onto; for the
  *   `deckGun` LADDER, the single equipment row whose TIER its copies advance
  *   (the deck gun is slotless, so it has no `slotFill` to read the target off).
- * - `stub` — the mechanism does not exist yet: never dealt by `buildDeckState()`.
+ * - `stub` — the mechanism does not exist yet: never dealt (sim/draw.ts).
  * - `healOnGrant` — the grant heals the granted maxHp delta (ARMOR only).
  */
 export interface CatalogLine {
@@ -328,7 +325,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // --- the eleven equipment lines (+ supercavTorpedo, which kept its slot) ---
   // Copy 1 fits the weapon. The TORPEDO AND MINE ladders below are Story
   // 8.13's (catalog-v3 §4 as amended by Eric's 2026-09-19 rulings, epic-8
-  // amendments 74/77/80/81/82); the gun family's are Story 8.14's and the
+  // amendments 74/77/80/81/82); the gun family's are Story 8.15's and the
   // broadside/star-shell ones Story 8.16's, so those tiers are still empty.
   //
   // LIGHT TORPEDO (R18): tiers II–V each +5 damage, +2.5 u/s, +0.5 tubes and
@@ -370,10 +367,10 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('equipment.captiveMines.maxAmmo', { add: 0.5 }),
     statEffect('equipment.captiveMines.homingTurnRate', { add: 0.075 }),
   ]),
-  missile: weapon('missile', 'missile', true), // R29 — Story 8.14
-  machineGun: weapon('machineGun', 'machineGun', true), // R20/R21 — Story 8.14
-  flak: weapon('flak', 'flak', true), // R26/R27 — Story 8.14
-  monitor: weapon('monitor', 'monitor', true), // R30 — Story 8.14
+  missile: weapon('missile', 'missile', true), // R29 — CUT in Story 8.15 (amendment 89e)
+  machineGun: weapon('machineGun', 'machineGun', true), // R20/R21 — Story 8.15 makes it a mountable GUN
+  flak: weapon('flak', 'flak', true), // R26/R27 — Story 8.15 makes it a mountable GUN
+  monitor: weapon('monitor', 'monitor', true), // R30 — CUT in Story 8.15 (amendment 89e)
   broadside: weapon('broadside', 'broadside'), // R35 — shipped
   starShells: weapon('starShells', 'starShells'), // R31 — shipped
   // --- the consumables (R13, R36–R39, + amendments 74/83) -------------------
@@ -400,7 +397,7 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('equipment.foulingMines.slowFactor', { add: -0.05 }),
   ]),
   // HEAT SEEKING (R32): the homing verb on the missile. Stub — the missile
-  // itself is Story 8.14, which is also where Eric rules on this card
+  // itself is Story 8.15, which is also where Eric rules on this card
   // (*"I will revisit this when we get back to missiles."*, amendment 80).
   heatSeeking: addon('heatSeeking', ['missile'], 'homing', true),
   // DAZZLE (R33): enemies inside the lit zone see at ×0.5; never changes the
@@ -731,128 +728,3 @@ export function catalogCardCount(catalog: Catalog = CATALOG): number {
  */
 const CATALOG_PROBLEMS = validateCatalog(CATALOG);
 if (CATALOG_PROBLEMS.length > 0) throw new Error(CATALOG_PROBLEMS.join('\n'));
-
-// ---------------------------------------------------------------------------
-// THE DEFAULT DECKS (Story 8.2 — Eric ruling 2026-09-15, epic-8 amendment 10,
-// delivered as a spreadsheet and transcribed count for count). Authored as
-// COUNTS so the file reads like the sheet; `deckFromCounts` expands them into
-// the frozen 40-id list the door freezes into a seat reservation.
-// ---------------------------------------------------------------------------
-
-/** Copies per line, the authoring shape of a deck (absent = 0). */
-export type DeckCounts = Partial<Readonly<Record<LineId, number>>>;
-
-/** LINE_IDS as a set — the membership test `deckFromCounts` expands against. */
-const LINE_ID_SET: ReadonlySet<string> = new Set<string>(LINE_IDS);
-
-/**
- * Expand a counts table into a frozen card list in LINE_IDS order. Refuses,
- * AT MODULE LOAD, a count that is not a non-negative integer, a count over the
- * line's cap, and a total other than CONFIG.deck.size — the three authoring
- * slips a spreadsheet transcription can make. (The full four-rule legality
- * check, which also needs the OWNED set, runs in sim/deckRules.ts.)
- *
- * THE UNKNOWN-KEY CHECK IS AGAINST `LINE_IDS`, NOT THE CATALOG, because the
- * EXPANSION is: the loop below walks LINE_IDS, so a count keyed by anything
- * outside it can never become a card. Checking an INJECTED catalog instead
- * (which a test may give a line LINE_IDS does not list) admitted such a key
- * and then silently dropped its copies — the deck came back short rather than
- * wrong, which is exactly the kind of quiet transcription slip this helper
- * exists to refuse.
- */
-export function deckFromCounts(counts: DeckCounts, catalog: Catalog = CATALOG): readonly LineId[] {
-  for (const id of Object.keys(counts)) {
-    if (!LINE_ID_SET.has(id)) throw new Error(`deckFromCounts: unknown line '${id}' (not in LINE_IDS)`);
-  }
-  const out: LineId[] = [];
-  for (const id of LINE_IDS) {
-    const n = checkedCount(id, counts[id] ?? 0, catalog);
-    for (let i = 0; i < n; i += 1) out.push(id);
-  }
-  if (out.length !== CONFIG.deck.size) {
-    throw new Error(`deckFromCounts: ${out.length} cards, a deck is ${CONFIG.deck.size}`);
-  }
-  return Object.freeze(out);
-}
-
-/** One authored count, validated: a non-negative integer at or under cap. */
-function checkedCount(id: LineId, n: number, catalog: Catalog): number {
-  if (!Number.isInteger(n) || n < 0) {
-    throw new Error(`deckFromCounts: ${id} count ${String(n)} is not a non-negative integer`);
-  }
-  const cap = catalog[id]?.cap ?? 0;
-  if (n > cap) throw new Error(`deckFromCounts: ${id} ×${n} exceeds its cap ${cap}`);
-  return n;
-}
-
-/** The 30 cards every default deck carries (amendment 10). */
-const UNIVERSAL_COUNTS: DeckCounts = {
-  armor: 3,
-  speed: 3,
-  turning: 3,
-  radarSweep: 3,
-  reload: 3,
-  hullRepair: 3,
-  shieldBlock: 3,
-  smokeScreen: 2,
-  chaff: 2,
-  deckGun: 2,
-  deckGunTurret: 1,
-  deckGunBarrel: 2,
-};
-
-/**
- * THE THREE DEFAULT DECKS, keyed by hull (amendment 10, re-cut for the Torpedo
- * Boat and the Mine Layer by amendments 80 and 83): the 30 universal cards
- * plus ten per hull — three equipment lines at three copies, then ONE last
- * card. 40 cards each, exactly three equipment lines (so
- * `CONFIG.deck.maxEquipmentLines` stays 3), every count at or under cap.
- *
- * THE FORTIETH CARD IS NO LONGER ALWAYS AN ADD-ON. The Torpedo Boat's was
- * ACOUSTIC HOMING, which is deleted — Eric: *"Give them one supercavitating
- * torpedo."* — and the Mine Layer's was the FOULING MINES add-on, which became
- * its own (unhomed) equipment line — Eric: *"just stub a fucking depth
- * charge"*, then *"WOAH. Depth charge will be a CONSUMABLE. not a line."* So
- * both hulls now close their deck with a single CONSUMABLE copy.
- *
- * UNHOMED (in no default): `foulingMines`, `broadside`, `decoyBuoy`,
- * `heatSeeking`, `phosphorShells`. Frozen at every depth.
- */
-export const DEFAULT_DECKS: Readonly<Record<ShipClassId, readonly LineId[]>> = Object.freeze({
-  torpedoBoat: deckFromCounts({ ...UNIVERSAL_COUNTS, lightTorpedo: 3, heavyTorpedo: 3, machineGun: 3, supercavTorpedo: 1 }),
-  mineLayer: deckFromCounts({ ...UNIVERSAL_COUNTS, navalMines: 3, captiveMines: 3, flak: 3, depthCharge: 1 }),
-  battleship: deckFromCounts({ ...UNIVERSAL_COUNTS, missile: 3, monitor: 3, starShells: 3, dazzleShells: 1 }),
-});
-
-/**
- * A FRESH ACCOUNT'S UNLOCKS: the union of the three default decks' line ids
- * (24 of the 29 lines — it gained `supercavTorpedo` and `depthCharge` and lost
- * `acousticHoming` and `foulingMines` in Story 8.13; the count did not move). With no account module this is the `owned` set every
- * door checks a deck against (server/src/game/decks.ts); Epic 9's collection
- * grows it per account.
- *
- * IMMUTABLE FOR REAL, NOT JUST BY TYPE. `ReadonlySet<LineId>` is a
- * compile-time promise and `Object.freeze` does NOT close a Set: freezing
- * locks the object's own properties, while `add`/`delete`/`clear` mutate
- * INTERNAL slots and go on working. This is the legality authority `checkDeck`
- * consults at the door, so one `DEFAULT_OWNED.add(...)` anywhere — a stray
- * line in a test, a JS caller with no types — would silently unlock a line for
- * every captain on the server for the rest of the process. The three mutators
- * are therefore replaced with throwing own properties BEFORE the freeze; every
- * read path (`has`, iteration, `size`) is untouched.
- */
-export const DEFAULT_OWNED: ReadonlySet<LineId> = sealOwnedSet(
-  new Set<LineId>(Object.values(DEFAULT_DECKS).flat()),
-);
-
-/** Replace a Set's mutators with throwers, then freeze it (see DEFAULT_OWNED). */
-function sealOwnedSet(set: Set<LineId>): ReadonlySet<LineId> {
-  const refuse = (): never => {
-    throw new Error('DEFAULT_OWNED is immutable');
-  };
-  for (const name of ['add', 'delete', 'clear'] as const) {
-    Object.defineProperty(set, name, { value: refuse, writable: false, configurable: false, enumerable: false });
-  }
-  return Object.freeze(set);
-}
-

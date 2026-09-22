@@ -10,7 +10,7 @@
 // is beyond the CaptainControl interface.
 //
 // Determinism: matchSeed = mixSeed(runSeed, matchIndex); every stream in the
-// match (map, spawns, drones, decks, controls) derives from it. No Math.random,
+// match (map, spawns, drones, draws, controls) derives from it. No Math.random,
 // no Date.now — wall-clock metadata lives in main.ts, outside the run key.
 //
 // Timings: production CONFIG.match values EXCEPT a short 1000ms countdown,
@@ -25,7 +25,6 @@
 import {
   CATALOG,
   CONFIG,
-  DEFAULT_DECKS,
   SHIP_CLASS_IDS,
   zoneClosedAtMs,
   zoneGroups,
@@ -55,12 +54,6 @@ const COUNTDOWN_MS = 1000;
  *  ring index; captains use 0x100 + i — keep this band outside any
  *  roster-sized range). */
 const ZONE_SEED_ORDINAL = 0x7a0e;
-/** mixSeed ordinal for a match's CONSUMABLE-POOL seed (Story 8.11) — one
- *  value, deliberately OUTSIDE the zone band (`0x7a0e + i`) and the captain
- *  band (`0x100 + i`), so the pool roll is part of the reproducible run key
- *  without perturbing any other stream. Server-side derivation only: nothing
- *  here rides a wire, so deriving from the match seed leaks nothing. */
-const POOL_SEED_ORDINAL = 0x7b00;
 
 export interface RunSpec {
   seed: number;
@@ -161,11 +154,10 @@ function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: num
     // battleship. On the rolled path (no forcing) a forced --bot-hull beats
     // the roster deal (args.ts refuses the ambiguous combinations), else the
     // roster policy deals as it does for captains.
-    // Bots sail the hull's DEFAULT deck (Story 8.2) — the same list the arena's
-    // loader answers with no account module; resolved after the hull is dealt
-    // or rolled inside addBot.
+    // Bots draw from the SAME common pool a captain draws from (Story 8.14)
+    // and sail the DEFAULT GUN — there is no deck to resolve any more.
     const hull = profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined;
-    ids.push(world.addBot(hull, profile, (h) => DEFAULT_DECKS[h]).id);
+    ids.push(world.addBot(hull, profile).id);
   }
   return ids;
 }
@@ -183,7 +175,6 @@ export interface CaptainSample {
   deaths: number;
   picks: number;
   boonsFitted: number;
-  deckRemaining: number;
   cappedLines: number;
   /** boonTimesS[n-1] = sim-seconds to the n-th fitted boon (null = never). */
   boonTimesS: (number | null)[];
@@ -342,7 +333,6 @@ export class MatchCollector {
       deaths: ship.deaths,
       picks: t.picks,
       boonsFitted: ship.cards.length,
-      deckRemaining: ship.deck.cards.length,
       cappedLines: cappedLineCount(ship.cards),
       boonTimesS: t.boonTimesS,
       firstDoctrineOffered: t.firstDoctrineOffered,
@@ -415,13 +405,9 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   // (byte-identical reruns). Server-side only — nothing rides a wire, so the
   // derivation leaks nothing.
   const zoneSeeds = Array.from({ length: zoneGroups(CONFIG.zone) }, (_, i) => mixSeed(matchSeed, ZONE_SEED_ORDINAL + i));
-  // poolSeed: the match's consumable pool (Story 8.11) is rolled inside the
-  // World off this seed alone — production rooms pass fresh room entropy, the
-  // harness derives it so a rerun deals the same pool.
-  const world = new World(matchSeed, playerCap, CONFIG.zone, {
-    zoneSeeds,
-    poolSeed: mixSeed(matchSeed, POOL_SEED_ORDINAL),
-  });
+  // NO POOL SEED ANY MORE (Story 8.14): the hidden match pool is retired, and
+  // a draw is a pure read of the drawing ship's own state off its own stream.
+  const world = new World(matchSeed, playerCap, CONFIG.zone, { zoneSeeds });
   const timings: MatchTimings = {
     countdownMs: COUNTDOWN_MS,
     resultsMs: CONFIG.match.resultsSeconds * 1000,
@@ -464,11 +450,10 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   for (let i = 0; i < spec.captains; i += 1) {
     const id = `cap-${i + 1}`;
     captainIds.push(id);
-    // The control declares the deck it sails (Story 8.2: the pacifist control
-    // sails PACIFIST_DECK — zero equipment lines); the runner hands it to the
-    // World exactly as a door would hand a frozen list.
+    // A control no longer declares a deck (Story 8.14): every captain draws
+    // from the one common pool and sails the DEFAULT GUN.
     const control = factory(id, mixSeed(matchSeed, 0x100 + i));
-    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', rotate(offset, i), undefined, undefined, control.deck);
+    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', rotate(offset, i), undefined, undefined);
     controls.push(control);
   }
   // THE BOT LOBBY — see buildBotLobby: there is no bot control and nothing
@@ -527,7 +512,7 @@ export function capSample(
  *  world.removeShip). The end-of-match sample must not assume presence.
  *  RULING (minimal honest option): a departed captain is RECORDED by id and
  *  EXCLUDED from the per-captain rows. The alternative — reconstructing a row
- *  from the Match participant snapshot — would emit final-level / deck /
+ *  from the Match participant snapshot — would emit final-level /
  *  boon numbers that Match never snapshots (it keeps only name/kills/damage),
  *  i.e. fabricated economy evidence. An honest omission beats an invented row;
  *  the id list keeps the omission visible. */

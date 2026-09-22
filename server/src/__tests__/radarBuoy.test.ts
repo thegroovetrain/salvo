@@ -46,7 +46,7 @@ function bareWorld(seed = 7): World {
 
 /** Add a captain and teleport it to an exact pose, beam PARKED zero-width. */
 function place(w: World, id: string, x: number, y: number, heading = 0, cls: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -444,7 +444,7 @@ describe('radar buoy — the GUN BUOY (R2.10)', () => {
     const w = bareWorld();
     const j = place(w, 'j', 2000, 2000, 0, 'mineLayer');
     addBuoy(w.buoys, j, 0, 0, w.now, 'b1', 1);
-    const drone = w.addShip('fleet-1', 'CONVOY', 'fleet', 'droneSmall', undefined, undefined, []);
+    const drone = w.addShip('fleet-1', 'CONVOY', 'fleet', 'droneSmall', undefined, undefined);
     drone.state.x = 150;
     drone.state.y = 0;
     drone.state.speed = 0;

@@ -43,6 +43,8 @@ import {
   CATALOG,
   CONFIG,
   CONSUMABLE_SLOTS,
+  GUN_IDS,
+  MOUNTED_GUN,
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
@@ -52,6 +54,7 @@ import {
   slotsWithCards,
   type EffectiveStats,
   type EquipmentId,
+  type GunId,
   type ShipClassId,
   type SlotItemId,
   type WeaponAmmo,
@@ -151,8 +154,8 @@ const [Q, E, R] = WEAPON_SLOTS;
 
 /**
  * THE FIXTURE (Story 8.10): the class weapons this suite fits, per hull. Until
- * 8.10 these came from the interim spawn seed, which is deleted (nothing from
- * the deck is aboard at spawn any more), so the suite states them itself —
+ * 8.10 these came from the interim spawn seed, which is deleted (no drawn card
+ * is aboard at spawn any more), so the suite states them itself —
  * what is pinned below is the ROW's behaviour with a weapon in Q (and, for the
  * Battleship, in Q and E), not who put it there.
  */
@@ -1423,5 +1426,52 @@ describe('slotForCard over a belt that holds consumables', () => {
     // shipwide ladder does.
     expect(slotForCard(loadout, 'hullRepair')).toBeNull();
     expect(slotForCard(loadout, 'armor')).toBeNull();
+  });
+});
+
+// THE SEAT GUN IN SLOT 0 (Story 8.14, epic-8 amendments 89d/95). The gun stopped
+// being a fact about the hull and became the captain's PICK, frozen at queue and
+// carried on `OwnShip.gun`. main.ts's `slotIdsFor` therefore hands the seat's
+// gun to the shared `slotsWithCards(…, gun)` — the ONE derivation the server
+// fits and re-fits from — so the square this row paints is the module it mounted.
+//
+// All three seat guns mount the shipped `'gun'` module until Story 8.15 builds
+// the other two (`MOUNTED_GUN`), which is exactly why this pin walks all three:
+// the day 8.15 changes two entries of that map, the row must follow without a
+// second edit here.
+describe("slot 0 is the SEAT'S gun, replayed as main.ts derives it", () => {
+  /** main.ts's `slotIdsFor`, verbatim (the gun leg included). */
+  function slotIdsFor(
+    stats: EffectiveStats,
+    cards: readonly string[],
+    gun: GunId,
+  ): (SlotItemId | null)[] {
+    return slotsWithCards(stats, cards, CATALOG, false, gun).map((s) => s.equipmentId);
+  }
+
+  it('walks every seat gun there is — the list is the shared one, so it cannot rot', () => {
+    expect([...GUN_IDS]).toEqual(['deckGun', 'machineGun', 'flak']);
+  });
+
+  for (const gun of GUN_IDS) {
+    it(`${gun} mounts equipment 'gun' in slot 0 and moves no other slot`, () => {
+      const stats = statsFor('torpedoBoat');
+      const cards = FITTED.torpedoBoat;
+      const ids = slotIdsFor(stats, cards, gun);
+      // The module, through the shared map — never a hard-coded id here.
+      expect(ids[SLOT_GUN]).toBe(MOUNTED_GUN[gun]);
+      expect(ids[SLOT_GUN]).toBe('gun'); // the interim, pinned until 8.15
+      // ...and the PICK addresses slot 0 alone: a card's slotFill takes the
+      // first empty of Q/E/R, so the rest of the row is the plain card replay.
+      const plain = slotsWithCards(stats, cards).map((s) => s.equipmentId);
+      expect(ids.slice(1)).toEqual(plain.slice(1));
+      expect(ids).toHaveLength(SLOT_COUNT);
+    });
+  }
+
+  it('main.ts really pins the slot from the loadout, not from a literal', () => {
+    // The helper above is a copy; this is the pin that keeps the copy honest.
+    const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'), 'utf8');
+    expect(src).toMatch(/slotsWithCards\(stats, cards, CATALOG, false, gun\)/);
   });
 });

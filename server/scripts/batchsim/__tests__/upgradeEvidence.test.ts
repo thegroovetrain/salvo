@@ -12,13 +12,13 @@
 // Match.placements map the death banner uses, never re-derived from lifeS.
 
 import { describe, it, expect } from 'vitest';
-import { NO_DECK, World } from '../../../src/game/world.js';
+import { World } from '../../../src/game/world.js';
 import { BotCollector } from '../botMetrics.js';
 
 describe('botMetrics — builds, picks, offers, placement', () => {
   it('records a pick with the CARD id and its sim-time, and mirrors the build', () => {
     const world = new World(21, 20);
-    const bot = world.addBot('torpedoBoat', undefined, NO_DECK);
+    const bot = world.addBot('torpedoBoat', undefined);
     const col = new BotCollector([bot.id]);
     const ship = world.ships.get(bot.id)!;
 
@@ -26,23 +26,26 @@ describe('botMetrics — builds, picks, offers, placement', () => {
     // Staged AFTER the warm-up: the bot's own brain spends a banked level it
     // sees during a step, which would drain the stage before the pin reads it.
     ship.bankedLevels = 1;
-    ship.offer = ['gunBarrel', 'shipCooldown', 'intelSweep', 'torpedoSpeed'] as never;
-    expect(world.spendPoint(bot.id, 2)).toBe(true); // intelSweep — bn fires next step
+    // REAL CATALOG LINES (8.14 review F1): `spendCard` now refuses an id the
+    // catalog does not own, so the v2 leftovers this pin used to stage with
+    // would be a no-op rather than a pick.
+    ship.offer = ['deckGunBarrel', 'reload', 'radarSweep', 'speed'] as never;
+    expect(world.spendPoint(bot.id, 2)).toBe(true); // radarSweep — bn fires next step
     world.step();
     col.observe(world, 1);
 
     const s = col.samples(world)[0];
     expect(s.picks).toHaveLength(1);
-    expect(s.picks[0].id).toBe('intelSweep'); // the CARD, not the spender
+    expect(s.picks[0].id).toBe('radarSweep'); // the CARD, not the spender
     expect(s.picks[0].s).toBeGreaterThan(0); // stamped in sim-seconds
     // The build mirror agrees — and it is the pick ALONE now: Story 8.10
     // deleted the spawn seed, so a hull holds nothing until it picks.
-    expect(s.boons).toEqual(['intelSweep']);
+    expect(s.boons).toEqual(['radarSweep']);
   });
 
   it('counts an offer hand ONCE across the ticks it sits open (reference diff)', () => {
     const world = new World(22, 20);
-    const bot = world.addBot('battleship', undefined, NO_DECK);
+    const bot = world.addBot('battleship', undefined);
     const col = new BotCollector([bot.id]);
     const ship = world.ships.get(bot.id)!;
 
@@ -66,8 +69,8 @@ describe('botMetrics — builds, picks, offers, placement', () => {
 
   it('placement comes off the passed map; absent map or row reads null', () => {
     const world = new World(23, 20);
-    const bot = world.addBot('mineLayer', undefined, NO_DECK);
-    const other = world.addBot('torpedoBoat', undefined, NO_DECK);
+    const bot = world.addBot('mineLayer', undefined);
+    const other = world.addBot('torpedoBoat', undefined);
     const col = new BotCollector([bot.id, other.id]);
     col.observe(world, 1);
 

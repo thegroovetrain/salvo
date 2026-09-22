@@ -12,14 +12,10 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
-  DEFAULT_DECKS,
-  DEFAULT_OWNED,
   LIFECYCLE_ALIVE,
-  LINE_IDS,
   SHIP_CLASS_IDS,
   angleDiff,
-  checkDeck,
-  equipmentLineCount,
+  mulberry32,
   isStubLine,
   sunkAt,
   zoneEndgameAtMs,
@@ -30,20 +26,15 @@ import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, isTunableKey, validateTunableKey } from '../overrides.js';
 import { buildBotAggregate } from '../botReport.js';
 import { mixSeed, percentile, summarize } from '../stats.js';
-import { CONTROL_REGISTRY, PACIFIST_DECK } from '../controls.js';
+import { CONTROL_REGISTRY } from '../controls.js';
 import { pickSpendChoice } from '../spendPolicy.js';
 import { Match } from '../../../src/game/match.js';
 import { MatchCollector, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
 import { buildAggregate, renderBatchReport } from '../report.js';
-import { defaultPoolFor, runDeckSim } from '../deckSim.js';
-import { mulberry32, rollMatchPool } from '@salvo/shared';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 
 describe('args — CLI parsing', () => {
   it('parses the full flag set', () => {
-    // BATCH mode carries the two balance-sim surfaces; --deck-only is asserted
-    // separately below because parseArgs now REFUSES it alongside either of
-    // them (a deck run builds no World, so both would be inert).
     const opts = parseArgs([
       '--matches', '20', '--seed', '7', '--captains', '2',
       '--set', 'xp.levelMs=45000', '--sweep', 'zone.stormDps=6,8',
@@ -57,27 +48,21 @@ describe('args — CLI parsing', () => {
     expect(opts.sweeps).toEqual([{ key: 'zone.stormDps', values: [6, 8] }]);
     expect(opts.roster).toBe('even');
     expect(opts.tune).toEqual({ 'gun.reloadMs': 4000 });
-    expect(opts.deckOnly).toBe(false);
     expect(opts.json).toBe('/tmp/x.json');
     expect(opts.quiet).toBe(true);
-
-    const deck = parseArgs(['--deck-only', '--draws', '5000', '--set', 'xp.levelMs=45000']);
-    expect(deck.deckOnly).toBe(true);
-    expect(deck.draws).toBe(5000);
   });
 
-  it('refuses --roster / --tune alongside --deck-only (both would be INERT)', () => {
-    // runDeckSim builds no World and reads no roster or combat value, so either
-    // flag would be stamped into the run key and then change nothing at all:
-    // two different run keys, byte-identical bodies. Refused, not ignored.
-    expect(() => parseArgs(['--deck-only', '--roster', 'even'])).toThrow(UsageError);
-    expect(() => parseArgs(['--deck-only', '--roster', 'even'])).toThrow(/--roster does not apply to --deck-only/);
-    expect(() => parseArgs(['--roster', 'even', '--deck-only'])).toThrow(/--roster does not apply to --deck-only/);
-    expect(() => parseArgs(['--deck-only', '--tune', 'gun.reloadMs=4000'])).toThrow(UsageError);
-    expect(() => parseArgs(['--deck-only', '--tune', 'gun.reloadMs=4000'])).toThrow(/--tune does not apply to --deck-only/);
-    // The explicit default is still legal — refusing that would break the
-    // documented no-op, and every pre-existing deck run key passes 'rolled'.
-    expect(parseArgs(['--deck-only', '--roster', 'rolled']).deckOnly).toBe(true);
+  it('--deck-only and --draws are UNKNOWN ARGUMENTS since Story 8.14', () => {
+    // The deck-economy fast mode modelled a deck, and there is none
+    // (amendment 95b). Refused as unknown flags rather than accepted and
+    // ignored, so an old invocation fails loudly instead of measuring nothing.
+    expect(() => parseArgs(['--deck-only'])).toThrow(UsageError);
+    expect(() => parseArgs(['--deck-only'])).toThrow(/unknown argument/);
+    expect(() => parseArgs(['--draws', '5000'])).toThrow(/unknown argument/);
+    // ...and --roster / --tune, which used to be refused ALONGSIDE it, are
+    // plain legal flags again.
+    expect(parseArgs(['--roster', 'even']).roster).toBe('even');
+    expect(parseArgs(['--tune', 'gun.reloadMs=4000']).tune).toEqual({ 'gun.reloadMs': 4000 });
   });
 
   it('refuses a DUPLICATE --tune key rather than silently last-winning', () => {
@@ -415,40 +400,43 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     restore();
   });
 
-  it('REFUSES deck.* on every surface — the decks are baked at module load, so it would be inert', () => {
-    // `--set deck.size=30` used to be accepted and change nothing a hull
-    // sails (DEFAULT_DECKS / PACIFIST_DECK expand at import), while making
-    // checkDeck call every baked 40-card deck illegal.
-    for (const key of ['deck.size', 'deck.maxEquipmentLines']) {
+  it('deck.* and pool.* are plain UNKNOWN keys now — the two refusals died with their dials', () => {
+    // Both CONFIG blocks are DELETED (Story 8.14, amendment 89a), so the two
+    // bespoke refusals — "baked at MODULE LOAD" for deck.*, "a DESIGN number"
+    // for pool.* — have nothing left to guard. They fail the ordinary
+    // whitelist instead, which is the correct answer for a path that no longer
+    // exists.
+    for (const key of ['deck.size', 'deck.maxEquipmentLines', 'pool.size']) {
       expect(() => parseArgs(['--set', `${key}=30`]), key).toThrow(TunableError);
-      expect(() => parseArgs(['--set', `${key}=30`]), key).toThrow(/baked at MODULE LOAD|at MODULE LOAD/);
+      expect(() => parseArgs(['--set', `${key}=30`]), key).toThrow(/not a tunable dial/);
       expect(() => parseArgs(['--sweep', `${key}=30,40`]), key).toThrow(TunableError);
-      expect(() => validateTunableKey(key), key).toThrow(/MODULE LOAD/);
+      expect(() => parseArgs(['--tune', `${key}=30`]), key).toThrow(/not an equipment dial/);
+      expect(() => validateTunableKey(key), key).toThrow(TunableError);
       expect(isTunableKey(key), key).toBe(false);
       expect(() => applyOverrides({ [key]: 30 }), key).toThrow(TunableError);
     }
-    // ...and the deck dials are untouched by the refused apply.
-    expect(CONFIG.deck.size).toBe(40);
+    expect(Object.hasOwn(CONFIG, 'deck')).toBe(false);
+    expect(Object.hasOwn(CONFIG, 'pool')).toBe(false);
   });
 
-  it('REFUSES pool.* on every surface — ten is a DESIGN number, not a dial (Story 8.11)', () => {
-    // The sibling refusal with the OPPOSITE reason to deck.*: `CONFIG.pool.size`
-    // is NOT inert (the pool is rolled at World construction, so an override
-    // would reach it) — it is refused because the size of the hidden hand a
-    // match deals is Eric's number (catalog-v3 R4), and a run that changed it
-    // would quietly measure an economy the game does not deal.
-    for (const key of ['pool.size']) {
-      expect(() => parseArgs(['--set', `${key}=3`]), key).toThrow(TunableError);
-      expect(() => parseArgs(['--set', `${key}=3`]), key).toThrow(/DESIGN number/);
-      expect(() => parseArgs(['--sweep', `${key}=3,5`]), key).toThrow(TunableError);
-      expect(() => parseArgs(['--tune', `${key}=3`]), key).toThrow(/DESIGN number/);
-      expect(() => validateTunableKey(key), key).toThrow(/DESIGN number/);
-      expect(isTunableKey(key), key).toBe(false);
-      expect(() => applyOverrides({ [key]: 3 }), key).toThrow(TunableError);
-      expect(() => applyOverrides({}, { [key]: 3 }), key).toThrow(TunableError);
+  it('THE WEIGHTING DIALS are reachable on --tune (amendments 90/91)', () => {
+    // Both weighting numbers are `[DRAFT]` and Eric expects the harness to
+    // move them, so they sit on the --tune surface (a combat-shape dial, like
+    // hullRepair) with the family prefix `offer.weighting.` — which leaves
+    // `offer.size` on the --set whitelist with its floor of 1.
+    for (const key of ['offer.weighting.factor', 'offer.weighting.floor']) {
+      expect(isTunableKey(key), key).toBe(false); // NOT on the --set surface...
+      expect(() => parseArgs(['--tune', `${key}=0.5`]), key).not.toThrow(); // ...and IS on --tune
     }
-    // ...and the pool dial is untouched by every refused apply.
-    expect(CONFIG.pool.size).toBe(10);
+    const before = { ...CONFIG.offer.weighting };
+    const restore = applyOverrides({}, { 'offer.weighting.factor': 0.5, 'offer.weighting.floor': 0.1 });
+    expect(CONFIG.offer.weighting).toEqual({ factor: 0.5, floor: 0.1 });
+    restore();
+    expect(CONFIG.offer.weighting).toEqual(before);
+    // `offer.size` keeps its own home on the --set whitelist, untouched.
+    expect(isTunableKey('offer.size')).toBe(true);
+    expect(() => validateTunableKey('offer.size')).not.toThrow();
+    expect(() => parseArgs(['--tune', 'offer.size=2'])).toThrow(/not an equipment dial/);
   });
 
   // -------------------------------------------------------------------------
@@ -756,7 +744,7 @@ describe('controls — determinism', () => {
    *  gunner this block used to drive is deleted). */
   function inputStream(worldSeed: number, controlSeed: number, ticks: number): string {
     const w = new World(worldSeed, CONFIG.match.fillTo);
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, []);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
     const control = CONTROL_REGISTRY.pacifist('cap-1', controlSeed);
     const lines: string[] = [];
     for (let t = 0; t < ticks; t += 1) {
@@ -788,14 +776,32 @@ describe('controls — determinism', () => {
     expect(inputStream(7, 42, 200)).not.toBe(inputStream(7, 43, 200));
   });
 
-  it('spend policy is deterministic and prefers the highest rarity', () => {
-    const offer = ['shipSpeed', 'gunBarrel', 'intelSweep', 'shipHull']; // one rare among commons
-    const picks = new Set<number>();
+  it('spend policy is deterministic and prefers the highest-ranked KIND', () => {
+    // Real catalog lines: index 1 is the EQUIPMENT (the instrument's top rank),
+    // the rest are ladders. The v2 ids this pin used to carry are not in
+    // catalog v3 at all, and since the 8.14 review (F4) the policy skips any
+    // card `World.spendCard` would refuse — an unknown id among them.
+    const offer = ['speed', 'heavyTorpedo', 'radarSweep', 'armor'];
+    const picks = new Set<number | null>();
     for (let i = 0; i < 50; i += 1) picks.add(pickSpendChoice(offer, mulberry32(i), []));
-    expect(picks.has(1)).toBe(true); // the rare gets picked
+    expect(picks.has(1)).toBe(true); // the weapon gets picked
     const a = Array.from({ length: 20 }, (_, i) => pickSpendChoice(offer, mulberry32(i), []));
     const b = Array.from({ length: 20 }, (_, i) => pickSpendChoice(offer, mulberry32(i), []));
     expect(a).toEqual(b);
+  });
+
+  // --- THE REFUSED CARD (Story 8.14 review, F4) -----------------------------
+
+  it('NEVER names a card the server would refuse, and answers null for an all-refused hand', () => {
+    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
+    const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
+    // A capped consumable and a bare weapon with no slot are both out; only
+    // the ladder is takeable, so every seed names it.
+    const offer = ['hullRepair', 'broadside', 'armor'];
+    for (let i = 0; i < 50; i += 1) expect(pickSpendChoice(offer, mulberry32(i), five, rowFull)).toBe(2);
+    // ...and with nothing takeable at all the instrument holds the level.
+    const capped = [...five, ...new Array<string>(CATALOG.armor.cap).fill('armor')];
+    expect(pickSpendChoice(['hullRepair', 'armor'], mulberry32(1), capped, rowFull)).toBeNull();
   });
 });
 
@@ -875,69 +881,39 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
   });
 });
 
-describe('controls — PACIFIST_DECK, the pacifist posture as a deck (Story 8.2, AR50)', () => {
-  it('is 40 cards, ZERO equipment lines, and LEGAL against a fresh account', () => {
-    expect(PACIFIST_DECK).toHaveLength(CONFIG.deck.size);
-    expect(equipmentLineCount(PACIFIST_DECK)).toBe(0);
-    expect(checkDeck(PACIFIST_DECK, DEFAULT_OWNED)).toEqual({ ok: true });
-    expect(Object.isFrozen(PACIFIST_DECK)).toBe(true);
-  });
-
-  it('is every owned ladder + the deck-gun family + every owned consumable at cap, trimmed in LINE_IDS order', () => {
-    const counts = new Map<string, number>();
-    for (const id of PACIFIST_DECK) counts.set(id, (counts.get(id) ?? 0) + 1);
-    for (const id of PACIFIST_DECK) {
-      expect(['ladder', 'consumable']).toContain(CATALOG[id].kind);
-      expect(DEFAULT_OWNED.has(id)).toBe(true);
-      expect(counts.get(id)!).toBeLessThanOrEqual(CATALOG[id].cap);
-    }
-    expect(counts.get('decoyBuoy')).toBeUndefined(); // unhomed → unowned → never here
-    // LINE_IDS order, trimmed at 40. THE CUT MOVED in Story 8.13: SUPERCAV
-    // TORPEDO became a consumable (amendment 74) and joined DEFAULT_OWNED, so
-    // its five copies land ahead of the belt lines and push the trim up into
-    // SHIELD BLOCK — smoke and chaff are now cut entirely.
-    const order = [...new Set(PACIFIST_DECK)];
-    expect(order).toEqual(LINE_IDS.filter((id) => counts.has(id)));
-    expect(counts.get('supercavTorpedo')).toBe(CATALOG.supercavTorpedo.cap);
-    expect(counts.get('shieldBlock')).toBe(1);
-    expect(counts.get('smokeScreen')).toBeUndefined();
-    expect(counts.get('chaff')).toBeUndefined();
-  });
-
-  it('the pacifist control SAILS it: the runner hands the control\'s deck to the World', () => {
+describe('controls — the pacifist posture is the SCRIPT, not a deck (Story 8.14)', () => {
+  // PACIFIST_DECK IS DELETED (amendment 95b). It was 40 cards with zero
+  // equipment lines, hand-built from a fresh account's unlocks so the control
+  // spent real levels on cards that never armed a weapon slot. With the decks
+  // retired there is nothing to build it from and nothing to hand a World: a
+  // control's pacifism is that it never targets, never aims and never fires,
+  // which the suite below pins directly.
+  it('a control declares no deck at all — the field is GONE from CaptainControl', () => {
     const control = CONTROL_REGISTRY.pacifist('cap-1', 1);
-    expect(control.deck).toBe(PACIFIST_DECK);
-    // 8.11: an EMPTY match pool — this pin is about the AUTHORED deck the
-    // control sails; the pool is tested in server/src/__tests__/matchPool.test.ts.
-    const w = new World(1, CONFIG.map.playerCap, CONFIG.zone, { pool: [] });
-    w.map.islands.length = 0;
-    const rec = w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, control.deck);
-    expect(rec.deckList).toBe(PACIFIST_DECK);
-    // Drawable today: the STUB consumables stay in the list but not the pool,
-    // while HULL REPAIR's five copies ARE drawable since Story 8.8 un-stubbed
-    // it (29 -> 34) and SUPERCAV TORPEDO's five since Story 8.13 (34 -> 39,
-    // with only the single SHIELD BLOCK card left withheld); a TB carries no
-    // line the pacifist deck holds, so nothing is seeded out.
-    expect(rec.deck.cards).toHaveLength(39);
-    expect(rec.deck.cards.filter((id) => id === 'hullRepair')).toHaveLength(5);
-    for (const id of rec.deck.cards) expect(['ladder', 'consumable']).toContain(CATALOG[id].kind);
+    expect(Object.hasOwn(control, 'deck')).toBe(false);
   });
 
-  it('bots in the harness lobby sail their hull\'s DEFAULT deck', () => {
-    // 8.11: an EMPTY match pool — the AUTHORED default deck is what this pins.
-    const w = new World(2, CONFIG.map.playerCap, CONFIG.zone, { pool: [] });
+  it('a harness captain draws from the COMMON POOL on the default gun', () => {
+    const w = new World(1, CONFIG.map.playerCap, CONFIG.zone);
     w.map.islands.length = 0;
-    const rec = w.addBot(undefined, undefined, (h) => DEFAULT_DECKS[h]);
-    expect(rec.deckList).toBe(DEFAULT_DECKS[rec.hullId as keyof typeof DEFAULT_DECKS]);
-    // 23 -> 26 in Story 8.8 (HULL REPAIR stopped being a stub and its three
-    // per-hull copies became drawable, epic-8 amendment 10); 26 -> 27 in Story
-    // 8.10 (the spawn seed that withheld copy 1 of a class line is deleted);
-    // and PER-HULL from Story 8.13 on, which un-stubbed the light torpedo, the
-    // captive rack and the supercav belt fish — TB 30, ML 29, BS still 27.
-    // `addBot` picks the hull, so the expectation follows the catalog.
-    expect(rec.deck.cards).toHaveLength(
-      DEFAULT_DECKS[rec.hullId as keyof typeof DEFAULT_DECKS].filter((id) => !CATALOG[id].stub).length,
-    );
+    const rec = w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
+    expect(rec.gun).toBe('deckGun');
+    expect(rec.cards).toEqual([]);
+    // ...and a level really does materialize a hand out of the pool.
+    w.grantXp(rec, 1);
+    expect(rec.offer).toHaveLength(CONFIG.offer.size);
+    for (const id of rec.offer!) expect(isStubLine(id), id).toBe(false);
+  });
+
+  it('bots in the harness lobby draw from the same pool, on the same terms', () => {
+    const w = new World(2, CONFIG.map.playerCap, CONFIG.zone);
+    w.map.islands.length = 0;
+    const rec = w.addBot(undefined, undefined);
+    expect(SHIP_CLASS_IDS).toContain(rec.hullId as (typeof SHIP_CLASS_IDS)[number]);
+    expect(rec.gun).toBe('deckGun');
+    expect(w.weightsFor(rec).size).toBe(0); // nothing taken yet
+    w.grantXp(rec, 1);
+    expect(rec.offer).toHaveLength(CONFIG.offer.size);
   });
 });
 
@@ -954,8 +930,8 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
     // comes from BOTS (--bots), which are pinned in server/src/__tests__.
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, []);
-    const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined, []);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
+    const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     // Park a live target right inside comfortable gun range.
     target.state.x = cap.state.x + 150;
@@ -986,7 +962,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
     // would pass or fail on the seed rather than on the spend. With the hull's
     // default deck the control's spend has a hand to take from, which is what
     // this pin is actually about.
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_DECKS.torpedoBoat);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
     w.grantXp(cap, 3);
@@ -1000,7 +976,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
   it('is deterministic per seed', () => {
     const run = (): string => {
       const w = new World(9, CONFIG.match.fillTo);
-      w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined, []);
+      w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined);
       const control = CONTROL_REGISTRY.pacifist('cap-1', 5);
       const lines: string[] = [];
       for (let t = 0; t < 150; t += 1) {
@@ -1037,7 +1013,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
   ): { throttles: number[]; rudders: number[]; headings: number[]; fireSeq: number } {
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', opts.hull ?? 'battleship', undefined, undefined, []); // slowest hull by default
+    w.addShip('cap-1', 'CAP-01', 'captain', opts.hull ?? 'battleship', undefined, undefined); // slowest hull by default
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     if (opts.islandOffsetRad !== undefined) {
@@ -1132,7 +1108,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
     // read the rudder the control answers with.
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined, []);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
@@ -1182,7 +1158,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
 
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined, []);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
@@ -1347,7 +1323,7 @@ describe('runner — at-cap classification keeps a real conclusion (review FIX 5
     const world = new World(21, 4);
     const hooks = { lock: () => {}, unlock: () => {}, broadcastResults: () => {}, requeue: () => {}, disconnect: () => {} };
     const match = new Match(world, { countdownMs: 100, resultsMs: 1000, joinWindowMs: 0, minHumans: 1 }, hooks);
-    world.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined, []);
+    world.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
     match.notifyRosterChanged();
     for (let t = 0; t < 100 && match.phase !== 'finished'; t += 1) {
       world.step();
@@ -1372,11 +1348,6 @@ describe('runner — a captain who leaves mid-match (review gate 2026-07-31)', (
       let t = 0;
       return {
         id,
-        // The wrapped control's own deck (Story 8.2): a CaptainControl
-        // DECLARES what it sails, and the runner hands exactly that to
-        // addShip — omitting it used to fall through to addShip's default
-        // and spawn the quitter with an empty pool.
-        deck: inner.deck,
         tick(world: World): void {
           t += 1;
           if (id === quitId && t >= atTick) {
@@ -1409,7 +1380,7 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
   it('aggregates a 200k-captain batch without an argument-spread RangeError', () => {
     const captain: CaptainSample = {
       id: 'cap-1', cls: 'torpedoBoat', finalLevel: 2, kills: 1, deaths: 0, picks: 2,
-      boonsFitted: 2, deckRemaining: 30, cappedLines: 0,
+      boonsFitted: 2, cappedLines: 0,
       boonTimesS: new Array<number | null>(10).fill(null),
       firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1, 2],
     };
@@ -1426,107 +1397,11 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
   });
 });
 
-describe('deck-only mode — the match pool and the live guard (Story 8.11)', () => {
-  it('an economy sails the AUTHORED deck PLUS the match pool, stub copies withheld', () => {
-    // The harness's one statement of what a captain sails, and it must agree
-    // with World.dealDeck: `[...DEFAULT_DECKS[cls], ...pool]` through the same
-    // buildDeckState, which withholds every stub on either side.
-    expect(defaultPoolFor('torpedoBoat').cards).toHaveLength(30); // 27 before Story 8.13
-    expect(defaultPoolFor('torpedoBoat', ['hullRepair', 'hullRepair']).cards).toHaveLength(32);
-    // CHAFF is still a stub TODAY (amendment 67: the pool rolls all five
-    // consumable lines and buildDeckState is the ONE place that withholds the
-    // unbuilt) — so the expectation is COMPUTED from `isStubLine`, not from
-    // today's count. When Story 8.15 un-stubs chaff this pin follows the
-    // catalog instead of failing.
-    const injected = ['chaff', 'chaff'];
-    const dealable = injected.filter((id) => !isStubLine(id)).length;
-    expect(defaultPoolFor('torpedoBoat', injected).cards).toHaveLength(30 + dealable);
-  });
-
-  it('two economies on DIFFERENT streams roll different pools', () => {
-    // One pool per simulated match, off the economy's own rng — the same
-    // relationship a room has with its poolSeed.
-    const a = rollMatchPool(mulberry32(1), CATALOG, CONFIG.pool);
-    const b = rollMatchPool(mulberry32(2), CATALOG, CONFIG.pool);
-    expect(a).toHaveLength(CONFIG.pool.size);
-    expect(b).not.toEqual(a);
-  });
-
-  it('draws GUARDED, as the server draws: over-cap pool copies are never OFFERED', () => {
-    // THE DISCRIMINATING PIN for `drawOffer(deck, rng, CATALOG, { held })`.
-    // Unguarded, every economy would drain its deck to zero and the
-    // exhaustion rate would be exactly 1 (it was, before this story). With the
-    // guard live, an economy that has fitted `cap` copies of a line is never
-    // offered it again, so some economies END with cards still in the deck.
-    // (Those copies are not dead in PRODUCTION — firing a consumable reopens
-    // the line — but this harness never fires one: the never-use model.)
-    const a = runDeckSim({ seed: 7, draws: 3000 });
-    expect(a.deckExhaustedRate).toBeLessThan(1);
-    expect(a.drawsPlayed.max).toBeLessThan(300); // still no backstop endings
-  });
-});
-
-describe('deck-only mode', () => {
-  it('is deterministic per seed and structurally sound', () => {
-    const a = runDeckSim({ seed: 7, draws: 3000 });
-    const b = runDeckSim({ seed: 7, draws: 3000 });
-    expect(b).toEqual(a);
-    expect(a.totalDraws).toBeGreaterThanOrEqual(3000);
-    expect(a.economies).toBeGreaterThan(10);
-    // Economies terminate for real (not via the 300-draw backstop).
-    expect(a.drawsPlayed.max).toBeLessThan(300);
-    // NO LONGER ALWAYS AN EMPTY DECK (Story 8.11). Each economy now plays the
-    // authored deck PLUS a match pool, so a line can hold more copies than its
-    // cap — and under this harness's NEVER-USE MODEL (no consumable is ever
-    // fired, so nothing leaves `fitted`) a line fitted to `cap` stays closed
-    // for the rest of the economy, which can therefore end on an EMPTY OFFER
-    // with cards still in the deck. Both terminal states are honest stops;
-    // what must stay true is that every economy terminates without the
-    // 300-draw backstop (pinned above) and that BOTH endings occur.
-    // The exact rate is NOT pinned: it falls as consumable lines un-stub
-    // (8.15/8.16 put more over-cap copies in every deck), so a tight floor
-    // here would be a scheduled failure rather than a fact about the harness.
-    expect(a.deckExhaustedRate).toBeGreaterThan(0);
-    expect(a.deckExhaustedRate).toBeLessThanOrEqual(1);
-    // Every economy that ran contributed at least one draw to the total.
-    expect(a.drawsPlayed.mean * a.economies).toBeCloseTo(a.totalDraws, 6);
-    // Fail-proof for the determinism pin: a different seed diverges.
-    expect(JSON.stringify(runDeckSim({ seed: 8, draws: 3000 }))).not.toBe(JSON.stringify(a));
-  });
-
-  it('refuses to spin when an economy can play no draws (zero-progress guard)', () => {
-    // Deliberately bypass the CLI floor by mutating CONFIG directly — this is
-    // the defense-in-depth layer. FAIL-PROOF: without the guard this call never
-    // returns (the budget loop only advances on draws played), so the missing
-    // fix shows up as a hung test / vitest timeout rather than a bad assertion.
-    const before = CONFIG.offer.size;
-    (CONFIG.offer as { size: number }).size = 0;
-    try {
-      expect(() => runDeckSim({ seed: 7, draws: 100 })).toThrow(/played 0 draws/);
-    } finally {
-      (CONFIG.offer as { size: number }).size = before;
-    }
-  });
-
-  // SOFT PITY IS DELETED with rarity (Story 8.1), so the `deck.rareWeight*`
-  // dials — and the pity curve they bit — are gone. What replaces the pin is
-  // the dial the draw still HAS: `offer.size` moves how much of the deck each
-  // level shows, which is now the only knob between a deck and an offer.
-  it('an offer.size override bites the draw (the surviving deck dial)', () => {
-    const base = runDeckSim({ seed: 7, draws: 4000 });
-    const restore = applyOverrides({ 'offer.size': 2 });
-    let narrow;
-    try {
-      narrow = runDeckSim({ seed: 7, draws: 4000 });
-    } finally {
-      restore();
-    }
-    // Same deck, same spend-per-level: a narrower hand changes WHICH lines get
-    // seen, never how many cards a level costs — so the per-line offer ledger
-    // must move while the economy length does not.
-    const cards = (rec: Record<string, number>): number => Object.values(rec).reduce((n, v) => n + v, 0);
-    expect(cards(narrow.lineOffers)).toBeLessThan(cards(base.lineOffers));
-    expect(JSON.stringify(narrow.lineOffers)).not.toBe(JSON.stringify(base.lineOffers));
-    expect(narrow.deckExhaustedRate).toBe(base.deckExhaustedRate);
-  });
-});
+// THE DECK-ONLY MODE IS DELETED (Story 8.14, epic-8 amendment 95b). `--deck-only`
+// built no World and no Match: it was a pure model of the DECK economy, and
+// there is no deck. Its suites — the match-pool roll, the guarded-draw pin and
+// the aggregate shape — go with it; the guard itself is pinned where it now
+// lives, in server/src/__tests__/upgrades.test.ts and shared's draw.test.ts.
+// Story 8.19 re-cuts the harness bars for the pool era. `botHarness.test.ts`
+// pins that the two flags are UNKNOWN ARGUMENTS now, which is the strongest
+// statement that they are gone.

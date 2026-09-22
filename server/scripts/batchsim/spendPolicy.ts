@@ -1,11 +1,10 @@
 // THE DETERMINISTIC SPEND POLICY — a measurement instrument, NOT canon AI.
 //
 // WHY IT LIVES IN ITS OWN MODULE (cycle 110): it used to sit in `pilots.ts`
-// beside the scripted captains, but its two consumers have different
-// lifetimes. `--deck-only` builds NO World and NO Match at all (deckSim.ts is
-// a pure deck-economy model), so the policy has to outlive the scripted
-// captains that were retired with the omniscient pilots. Nothing here reads a
-// World, a ship, or the clock — it is pure over (offer, rng, fitted).
+// beside the scripted captains, and it outlived them. Nothing here reads a
+// World, a ship, or the clock — it is pure over (offer, rng, fitted), which is
+// what let it survive the retirement of the pilots and, in Story 8.14, of the
+// deck-only mode that was its second consumer.
 //
 // THE POLICY: whenever a level is banked, spend immediately on the front offer;
 // with probability SPEND_TOP_P pick uniformly among the offer's HIGHEST-RANKED
@@ -27,7 +26,20 @@
 // Determinism: the caller owns the mulberry32 stream. No Math.random, no
 // Date.now, no ambient state.
 
-import { CATALOG, boonStackCount, type LineKind, type Rng } from '@salvo/shared';
+import {
+  CATALOG,
+  SLOT_COUNT,
+  boonStackCount,
+  pickRefusal,
+  type LineKind,
+  type Rng,
+  type SlotItemId,
+} from '@salvo/shared';
+
+/** A hull nobody described: every slot empty. The nine-null array matters —
+ *  `pickRefusal` is fail-closed on a SHORT array (a missing slot is never
+ *  "empty"), so `[]` would refuse every weapon and every consumable. */
+const EMPTY_SLOTS: readonly (SlotItemId | null)[] = Object.freeze(Array.from({ length: SLOT_COUNT }, () => null));
 
 /** Probability the spend policy takes the top-ranked line (else uniform). */
 export const SPEND_TOP_P = 0.75;
@@ -45,14 +57,31 @@ function preferenceRank(id: string, fitted: readonly string[]): number {
   return KIND_RANK[line.kind] ?? 0;
 }
 
-/** The deterministic spend policy, shared by the scripted control AND the
- *  deck-only mode. `fitted` = the ship's currently-fitted card line ids
- *  (ship.cards). */
-export function pickSpendChoice(offer: readonly string[], rng: Rng, fitted: readonly string[]): number {
-  const ranks = offer.map((id) => preferenceRank(id, fitted));
+/**
+ * The deterministic spend policy used by the scripted control. `fitted` = the
+ * ship's currently-fitted card line ids (ship.cards); `slotIds` = its nine slot
+ * contents (`loadout.map(s => s.equipmentId)`).
+ *
+ * IT ONLY EVER NAMES A CARD THE SERVER WOULD ACCEPT (Story 8.14 review, F4).
+ * `World.spendCard` refuses a card this hull cannot take and the offer does not
+ * reroll, so an instrument that keeps naming a refused index measures a match
+ * in which nobody ever spends again. Null means the whole hand is refused —
+ * the caller holds the level, exactly as a human would.
+ */
+export function pickSpendChoice(
+  offer: readonly string[],
+  rng: Rng,
+  fitted: readonly string[],
+  slotIds: readonly (SlotItemId | null)[] = EMPTY_SLOTS,
+): number | null {
+  const legal: number[] = [];
+  for (let i = 0; i < offer.length; i += 1) {
+    if (pickRefusal(fitted, slotIds, offer[i]) === null) legal.push(i);
+  }
+  if (legal.length === 0) return null;
+  const ranks = legal.map((i) => preferenceRank(offer[i], fitted));
   const best = Math.max(...ranks);
-  const top: number[] = [];
-  for (let i = 0; i < offer.length; i += 1) if (ranks[i] === best) top.push(i);
+  const top = legal.filter((_, k) => ranks[k] === best);
   if (rng.next() < SPEND_TOP_P) return top[Math.floor(rng.next() * top.length)];
-  return Math.floor(rng.next() * offer.length);
+  return legal[Math.floor(rng.next() * legal.length)];
 }

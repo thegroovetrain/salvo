@@ -35,7 +35,7 @@ function bareWorld(seed = 7): World {
 
 /** Add a ship of `hull` and teleport it to an exact pose (speed 0). */
 function place(w: World, id: string, hull: 'battleship' | 'torpedoBoat' | 'mineLayer', x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard

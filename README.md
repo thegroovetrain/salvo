@@ -51,7 +51,7 @@ npm run build          # shared → client → server
 
 ## Architecture (short version)
 
-- `shared/` — deterministic simulation math used by both sides: ship kinematics (`sim/ship.ts`), swept ballistic collision (`sim/shell.ts`), collision resolution, seeded fBm height-field map generation, radar shadows and wakes, the boon deck, the zone timeline. All pure functions over plain objects.
+- `shared/` — deterministic simulation math used by both sides: ship kinematics (`sim/ship.ts`), swept ballistic collision (`sim/shell.ts`), collision resolution, seeded fBm height-field map generation, radar shadows and wakes, the common pool, the zone timeline. All pure functions over plain objects.
 - `server/` — authoritative 20Hz fixed-tick `World` (zero Colyseus imports) wrapped by a thin `ArenaRoom`, with a `StandardQueueRoom` in front of it. All outbound state flows through one per-observer chokepoint (`game/perception.ts` → `game/frames.ts`) over the declarative signal registry (`game/signals.ts`): clients are never sent what their sight or sweep hasn't legitimately revealed, enforced by property-style invariant tests. Match lifecycle (`game/match.ts`) is a pure state machine; the PvE fleet (`game/drones.ts`) and the AI captains (`game/ai/`) drive through the same input pipeline as humans.
 - `client/` — PixiJS 8 renderer with client-side prediction (shared kinematics + reconcile-and-replay), snapshot interpolation for contacts, and a fog composite built entirely from pre-baked textures (dark overlay with a feathered sight hole, conic sweep wedge, timestamp-decayed blips). DOM is used only for chrome: home, settings, refit, results, kill feed, and the `/how-to-play` and `/privacy` pages.
 

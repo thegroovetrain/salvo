@@ -14,7 +14,7 @@
 //                   the public register's combatant clause, the intel discs a
 //                   fleet may not spawn inside.
 //   isFleetHull   — WORLD CONTENT. The PvE economy (XP tier, pveKills tally),
-//                   the boon deck, kill-feed suppression, fleet aggro,
+//                   the card economy, kill-feed suppression, fleet aggro,
 //                   greyscale nameplates.
 //
 // They stopped being the same set the moment Story 6.4 landed AI CAPTAINS, who
@@ -49,7 +49,7 @@ export interface RoleBearing {
 
 /**
  * WORLD CONTENT: a PvE fleet hull. Keys the economy and presentation rules —
- * XP tier and the `pveKills` tally, the boon deck, kill-feed suppression,
+ * XP tier and the `pveKills` tally, the card economy, kill-feed suppression,
  * fleet aggro, the greyscale nameplate. Never the match outcome.
  */
 export function isFleetHull(s: RoleBearing): boolean {

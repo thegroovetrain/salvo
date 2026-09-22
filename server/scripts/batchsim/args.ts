@@ -62,9 +62,6 @@ export interface CliOptions {
   roster: 'even' | 'rolled';
   /** Each sweep multiplies the variant grid (cartesian across repeats). */
   sweeps: SweepSpec[];
-  deckOnly: boolean;
-  /** Deck-only mode: total draw budget across simulated economies. */
-  draws: number;
   /** Include RAW per-match bot rows (builds, picks, offers, placement) in the
    *  --json envelope — the per-upgrade evidence surface. Opt-in because it
    *  multiplies the JSON size by the lobby; the deterministic stdout body is
@@ -91,17 +88,17 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      one match the per-class spread is at most 1; campaign
                      totals are exactly even when either --matches or --bots is
                      a multiple of 3, and otherwise even to within one hull per
-                     class. Not valid with --deck-only
+                     class
   --set key=value    CONFIG override, repeatable. Tunable dials ONLY:
                      xp.*, offer.size, match.fillTo, map.baseRadius,
                      zone.* (phased shape: beatMs, ringSteps.N, offsetCap,
-                     terminalSightFactor, stormDps). deck.* is REFUSED: the
-                     decks are baked at module load, so it would be inert
+                     terminalSightFactor, stormDps)
   --sweep key=v1,v2  run the full batch per value and compare side-by-side
                      (repeatable; repeats form a cartesian variant grid)
   --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:
                      gun.*, broadside.*, torpedo.*, mine.*, starShells.*,
-                     boost.*, radarBuoy.*, shipClasses.*. Requires
+                     boost.*, radarBuoy.*, shipClasses.*, offer.weighting.*.
+                     Requires
                      HC_BALANCE=1 as well as HC_DEV_OPTIONS=1 — this edits
                      combat numbers, not harness dials. Not sweepable (one
                      labelled arm per candidate)
@@ -125,8 +122,6 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      (${SHIP_CLASS_IDS.join(' | ')}); profiles still roll among
                      that hull's own rows. Mono-class arms with tuned
                      temperaments. Not valid with --bot-profile or --roster even
-  --deck-only        pure deck-economy fast mode (no World, no Match)
-  --draws N          deck-only total draw budget (default 20000)
   --raw              include raw per-match bot rows (builds, pick timing,
                      offers seen, placement) in the --json envelope
   --json PATH        also write the machine-readable report to PATH
@@ -148,8 +143,6 @@ function defaults(): CliOptions {
     tune: {},
     roster: 'rolled',
     sweeps: [],
-    deckOnly: false,
-    draws: 20000,
     raw: false,
     json: null,
     quiet: false,
@@ -235,7 +228,6 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
   '--seed': (o, v) => void (o.seed = toUint32Seed(parseCount(v, '--seed', 0))),
   '--captains': (o, v) => void (o.captains = parseCount(v, '--captains', 0)),
   '--bots': (o, v) => void (o.bots = parseCount(v, '--bots', 0)),
-  '--draws': (o, v) => void (o.draws = parseCount(v, '--draws', 1)),
   // Validated against the real registry at parse time so a typo fails fast
   // with the legal names instead of silently running the default control.
   '--control': (o, v) => {
@@ -290,7 +282,6 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
 };
 
 const BOOL_FLAGS: Record<string, (opts: CliOptions) => void> = {
-  '--deck-only': (o) => void (o.deckOnly = true),
   '--raw': (o) => void (o.raw = true),
   '--quiet': (o) => void (o.quiet = true),
   '--help': (o) => void (o.help = true),
@@ -324,30 +315,15 @@ function assertCoherent(opts: CliOptions): void {
   // An EMPTY LOBBY is a run key that can never produce evidence: with no
   // captains and no bots the match activates on its first tick against nothing
   // and every row reads zero.
-  if (!opts.deckOnly && opts.captains + opts.bots === 0) {
+  if (opts.captains + opts.bots === 0) {
     throw new UsageError('--captains 0 needs --bots N: a lobby needs at least one participant');
   }
   // A forced profile with no bots is a run key that silently measures nothing.
-  // MUST sit above the deck-only early return, or it is skipped for every
-  // ordinary run — which is the only kind of run it applies to.
   if (opts.botProfile !== null && opts.bots === 0) {
     throw new UsageError('--bot-profile needs --bots N: there is no bot to force it onto');
   }
   assertBotFlagsCoherent(opts);
   assertRawCoherent(opts);
-  if (!opts.deckOnly) return;
-  // DECK-ONLY BUILDS NO WORLD. runDeckSim simulates the draw economy alone — it
-  // reads no roster and no combat value — so both of these would be stamped
-  // into the run key and then change nothing at all: two provably different run
-  // keys producing byte-identical bodies, which is the same false-evidence
-  // failure the derived-key refusal in overrides.ts exists to prevent. Refused
-  // rather than ignored, so the operator finds out before the campaign runs.
-  if (opts.roster !== 'rolled') {
-    throw new UsageError('--roster does not apply to --deck-only: the deck economy builds no lobby (drop one of the two flags)');
-  }
-  if (Object.keys(opts.tune).length > 0) {
-    throw new UsageError('--tune does not apply to --deck-only: the deck economy reads no combat CONFIG (drop one of the two flags)');
-  }
 }
 
 /** The tuned-profile measurement flags (balance campaign, 2026-08-24): both
@@ -370,13 +346,12 @@ function assertBotFlagsCoherent(opts: CliOptions): void {
   }
 }
 
-/** RAW ROWS ARE BOT ROWS: a lobby with no bots emits none, and deck-only
- *  builds no lobby at all — either combination is a run key that silently
- *  measures nothing, the same false-evidence class assertCoherent's other
- *  refusals close. */
+/** RAW ROWS ARE BOT ROWS: a lobby with no bots emits none, which is a run key
+ *  that silently measures nothing — the same false-evidence class
+ *  assertCoherent's other refusals close. */
 function assertRawCoherent(opts: CliOptions): void {
-  if (opts.raw && (opts.deckOnly || opts.bots === 0)) {
-    throw new UsageError('--raw needs a bot lobby (--bots N, not --deck-only): raw rows are per-bot rows');
+  if (opts.raw && opts.bots === 0) {
+    throw new UsageError('--raw needs a bot lobby (--bots N): raw rows are per-bot rows');
   }
 }
 

@@ -23,9 +23,9 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, DEFAULT_DECKS, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { CATALOG, CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
 import { HOMELESS_V2_LINES, LINE_ALIASES } from '../game/ai/spending.js';
-import { NO_DECK, World } from '../game/world.js';
+import { World } from '../game/world.js';
 import { botPhase } from '../game/ai/botDriver.js';
 import { isFleetHull, isHuman, isParticipant } from '../game/participants.js';
 
@@ -40,7 +40,7 @@ function botWorld(seed: number, bots: number): { w: World; ids: string[] } {
   const ids: string[] = [];
   // Bots sail the hull's default deck (Story 8.2) — the resolver the arena
   // passes is the loader, which answers exactly this with no account module.
-  for (let i = 0; i < bots; i += 1) ids.push(w.addBot(undefined, undefined, (hull) => DEFAULT_DECKS[hull]).id);
+  for (let i = 0; i < bots; i += 1) ids.push(w.addBot(undefined, undefined).id);
   return { w, ids };
 }
 
@@ -151,15 +151,17 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
     expect(isFleetHull(rec)).toBe(false);
   });
 
-  it('ids are namespaced bot-N; class is a real ship class; the deck is real', () => {
+  it('ids are namespaced bot-N; class is a real ship class; the economy is real', () => {
     const { w, ids } = botWorld(12, 3);
     expect(ids).toEqual(['bot-1', 'bot-2', 'bot-3']);
     for (const id of ids) {
       const rec = w.ships.get(id)!;
       expect(SHIP_CLASS_IDS).toContain(rec.hullId);
-      // ECONOMY: a bot is a participant that plays the game — it draws a real
-      // boon deck (fleet hulls get EMPTY_DECK; the addShip comment pins this).
-      expect(rec.deck.cards.length).toBeGreaterThan(0);
+      // ECONOMY: a bot is a participant that plays the game — it draws from
+      // the SAME common pool a human draws from (Story 8.14), on its own
+      // private stream and with the default seat gun.
+      expect(rec.gun).toBe('deckGun');
+      expect(w.weightsFor(rec).size).toBe(0); // nothing taken yet
     }
   });
 
@@ -250,11 +252,11 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
   it('a stationary hull in the radar annulus is TRACKED despite sweep aliasing', () => {
     const w = new World(61, 8);
     w.map.islands.length = 0; // open water: LOS/shadow can never gate the paint
-    const bot = w.addBot(undefined, undefined, NO_DECK);
+    const bot = w.addBot(undefined, undefined);
     expect(bot.id).toBe('bot-1');
     const tx = 500;
     const ty = 0;
-    const tgt = w.addShip('victim', 'TARGET', 'captain', 'battleship', undefined, { x: tx, y: ty }, []);
+    const tgt = w.addShip('victim', 'TARGET', 'captain', 'battleship', undefined, { x: tx, y: ty });
     let measured = 0;
     let tracked = 0;
     for (let t = 0; t < 2400; t += 1) {
@@ -401,7 +403,7 @@ describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => 
   it('honours a forced test profile, and the profile governs the hull', () => {
     const w = new World(5);
     w.map.islands.length = 0;
-    const rec = w.addBot(undefined, 'randomBattleship', NO_DECK);
+    const rec = w.addBot(undefined, 'randomBattleship');
     expect(rec.hullId).toBe('battleship');
     expect(w.bots.profileOf(rec.id)).toBe('randomBattleship');
   });
@@ -414,10 +416,10 @@ describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => 
     a.map.islands.length = 0;
     const b = new World(9);
     b.map.islands.length = 0;
-    a.addBot(undefined, undefined, NO_DECK);
-    b.addBot(undefined, 'randomMineLayer', NO_DECK);
-    const nextA = a.addBot(undefined, undefined, NO_DECK);
-    const nextB = b.addBot(undefined, undefined, NO_DECK);
+    a.addBot(undefined, undefined);
+    b.addBot(undefined, 'randomMineLayer');
+    const nextA = a.addBot(undefined, undefined);
+    const nextB = b.addBot(undefined, undefined);
     expect(nextB.hullId).toBe(nextA.hullId);
     expect(w2names(a)).toEqual(w2names(b));
     expect(a.bots.profileOf(nextA.id)).toBe(b.bots.profileOf(nextB.id));
@@ -427,7 +429,7 @@ describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => 
     const w = new World(31);
     w.map.islands.length = 0;
     for (let i = 0; i < 12; i += 1) {
-      const rec = w.addBot(undefined, undefined, NO_DECK);
+      const rec = w.addBot(undefined, undefined);
       const table: readonly string[] = CONFIG.bots.profiles[rec.hullId as keyof typeof CONFIG.bots.profiles];
       expect(table).toContain(w.bots.profileOf(rec.id));
     }
@@ -446,7 +448,7 @@ describe('the engage gate — endgame bots hold fire until the terminal ring (wa
     const w = new World(3101, 8, zone);
     w.map.islands.length = 0;
     const ids: string[] = [];
-    for (let i = 0; i < 4; i += 1) ids.push(w.addBot(undefined, undefined, NO_DECK).id);
+    for (let i = 0; i < 4; i += 1) ids.push(w.addBot(undefined, undefined).id);
     ids.forEach((id, i) => {
       const a = (i / ids.length) * Math.PI * 2;
       const rec = w.ships.get(id)!;

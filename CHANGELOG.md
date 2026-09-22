@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.14] - 2026-09-22
+
+### Changed
+- **The common pool replaces decks (Story 8.14)** — decks, default decks, deck legality, the deck door and the hidden 10-card match pool are gone; every captain draws from one pool of every catalog line with unlimited copies bounded only by caps and the slot rules. The draw is two-stage: first what KIND of card each of the four offer slots is — a weapon's first copy, an upgrade, or a consumable — by its share of the lines you're currently eligible for, then which specific line within that kind. The weapon guarantee is the countdown offer and its REDRAW only (amendment 93) — every later offer is the plain two-stage draw with no guarantee. Consumables are always dealt, so an offer is never empty — a consumable you can't stock shows greyed until you free a slot (amendment 94).
+- **Weapon weighting (Eric 2026-09-22, amendments 90–92)** — each other captain who takes the first copy of a weapon line multiplies that line's weight for you by 0.75, never below a floor of 0.25, permanent for the match, first copies only, and it only changes WHICH weapon you see, never the odds of seeing a weapon at all; `CONFIG.offer.weighting` is a harness dial.
+- **The gun is the seat's pick (amendment 95)** — the join carries `gun` (deck gun / machine gun / flak, default deck gun), frozen at queue; until Story 8.15 builds the other two guns every pick mounts the deck gun and the client always sends deck gun (no picker yet), so play is unchanged.
+- **Under the hood** — `shared/src/sim/draw.ts` replaces `deck.ts`/`deckRules.ts`/`pool.ts`; the World keeps a match-wide take ledger; the exhaustion latch, the `deck.*` `/metrics` counters and the 4402 deck refusal are deleted; the batch-sim harness loses `--deck-only`, `deckSim` and `PACIFIST_DECK` (Story 8.19 re-cuts the harness bars) and gains `--tune offer.weighting.factor`/`.floor`; `poolSmoke` is deleted, `queueSmoke` gains gun-seat and frame-leak steps.
+- **Network protocol** bumps to v57 (the `gun` seat field and `OwnShip.gun`, the deck door gone). Older clients are refused at the door.
+
 ## [0.18.13] - 2026-09-19
 
 ### Changed

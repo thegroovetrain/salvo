@@ -162,7 +162,7 @@ export interface ShellState {
  *                 same point-to-polygon primitive every other kind uses.
  *   - `decoy`   — a dropped decoy-class object (the RADAR BUOY's square is the
  *                 interim occupant until Story 8.15 lands the decoy store).
- *   - `ordnance`— a projectile in flight; EMPTY until flak ships (Story 8.14).
+ *   - `ordnance`— a projectile in flight; EMPTY until flak ships (Story 8.15).
  * Pure geometry: shared knows nothing about owners' doctrine, drones or the
  * damage gate — the OUTCOME of touching a kind lives entirely in world.ts.
  */

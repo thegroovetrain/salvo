@@ -99,7 +99,7 @@ function bareWorld(seed = 7, opts?: WorldOptions): World {
  *  path a real pick takes. Every dispatch, arc, pool and reload case below
  *  keeps its subject; only how the weapon got aboard changed. */
 function place(w: World, id: string, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'mineLayer', undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'mineLayer', undefined, undefined);
   fitClassWeapons(w, rec);
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
@@ -108,7 +108,7 @@ function place(w: World, id: string, heading = 0): ShipRecord {
 /** The TORPEDO BOAT sibling: [gun, boost, heavyTorpedo, empty x6], its tube
  *  fitted as a card for the same reason — every bow-arc case runs on it. */
 function placeTb(w: World, id: string, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
   fitClassWeapons(w, rec);
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
@@ -860,7 +860,7 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
     const w = bareWorld();
     const hulls = ['torpedoBoat', 'battleship', 'mineLayer'] as const;
     for (const hull of hulls) {
-      const ship = w.addShip(hull, hull, 'captain', hull, undefined, undefined, []);
+      const ship = w.addShip(hull, hull, 'captain', hull, undefined, undefined);
       expect(ship.loadout).toHaveLength(SLOT_COUNT);
       expect(ship.loadout[SLOT_GUN].equipmentId).toBe('gun');
       expect(ship.loadout[SLOT_BOOST].equipmentId).toBe('boost');
@@ -875,7 +875,7 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
 
   it('a FLEET hull spawns gun-only: eight empties, no boost (amendment 24)', () => {
     const w = bareWorld();
-    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined, []);
+    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined);
     expect(d.loadout).toHaveLength(SLOT_COUNT);
     expect(d.loadout[SLOT_GUN].equipmentId).toBe('gun');
     for (let i = 1; i < SLOT_COUNT; i++) {
@@ -914,7 +914,7 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
 
   it('a FLEET hull keeps its gun-only fit through a redeploy (the fleet flag is load-bearing)', () => {
     const w = bareWorld();
-    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined, []);
+    const d = w.addShip('d', 'D', 'fleet', 'droneSmall', undefined, undefined);
     w.resetForMatchStart();
     expect(d.loadout[SLOT_BOOST]).toEqual({ equipmentId: null, state: null }); // no boost grown
     for (let i = 1; i < SLOT_COUNT; i++) expect(d.loadout[i].equipmentId).toBeNull();

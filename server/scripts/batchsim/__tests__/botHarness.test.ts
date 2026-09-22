@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, type Island } from '@salvo/shared';
-import { NO_DECK, World } from '../../../src/game/world.js';
+import { World } from '../../../src/game/world.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
@@ -45,8 +45,13 @@ describe('args — the --bots flag', () => {
     expect(() => parseArgs(['--captains', '0'])).toThrow(UsageError);
   });
 
-  it('still allows --captains 0 in deck-only mode (no lobby exists there)', () => {
-    expect(() => parseArgs(['--captains', '0', '--deck-only'])).not.toThrow();
+  // `--deck-only` and `--draws` are DELETED (Story 8.14, amendment 95b): the
+  // deck-economy fast mode modelled a deck, and there is none. They are now
+  // unknown flags, which is the strongest possible pin that they are gone.
+  it('--deck-only and --draws are unknown flags now', () => {
+    expect(() => parseArgs(['--captains', '0', '--deck-only'])).toThrow(UsageError);
+    expect(() => parseArgs(['--bots', '4', '--deck-only'])).toThrow(/unknown argument/);
+    expect(() => parseArgs(['--bots', '4', '--draws', '20000'])).toThrow(/unknown argument/);
   });
 
   it('rejects a negative bot count', () => {
@@ -321,7 +326,7 @@ describe('runner — the bot lobby', () => {
 
   it('bots are participants: they are NOT humans and never arm a countdown', () => {
     const world = new World(7, 20);
-    const bot = world.addBot(undefined, undefined, NO_DECK);
+    const bot = world.addBot(undefined, undefined);
     expect(bot.role).toBe('bot');
     expect(world.bots.profileOf(bot.id)).not.toBeNull();
   });

@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, DEFAULT_DECKS } from '@salvo/shared';
+import { isAfloat, CONFIG } from '@salvo/shared';
 
-/** A captain fixture sails its hull's default deck (Story 8.2) — the arena
- *  door's answer with no account module. */
-const TB_DECK = DEFAULT_DECKS.torpedoBoat;
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -23,7 +20,7 @@ const input = (seq: number, extra = {}) => ({
 
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(w: World, id: string, x: number, y: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, TB_DECK);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;
@@ -81,6 +78,9 @@ describe('buildFrame — shape and clock', () => {
       ],
       sweep: ship.sweepAngle,
       cls: 'torpedoBoat',
+      // THE SEAT'S GUN (Story 8.14, amendment 95) — self-private beside `cls`,
+      // and the deck gun unless the client picked otherwise at the door.
+      gun: 'deckGun',
       // (upg died with the legacy upgrade economy — Story 2.8 strip; slowedUntil
       // / dazzledUntil are OMITTED, not 0, while inactive.)
       pts: 0, // no points banked
@@ -106,7 +106,7 @@ describe('buildFrame — shape and clock', () => {
     // OwnShip.cls is a ShipClassId by construction; a drone hull id reaching
     // toOwnShip means a drone was mis-routed to a client frame — fail loud.
     const w = makeWorld();
-    w.addShip('drone1', 'DRONE', 'fleet', 'droneMedium', undefined, undefined, []);
+    w.addShip('drone1', 'DRONE', 'fleet', 'droneMedium', undefined, undefined);
     expect(() => buildFrame(w, 'drone1')).toThrow(/drone hull id/);
   });
 
@@ -160,7 +160,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
 
   it('drone contacts carry their DRONE hull id on the wire (Contact.cls: HullId)', () => {
     const w = makeWorld();
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium', undefined, undefined, []);
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium', undefined, undefined);
     d.state.x = 0;
     d.state.y = 120; // inside a's sight bubble
     d.state.heading = 0;
@@ -192,7 +192,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
 describe('buildFrame — events (fogged via perception)', () => {
   it('emits your own spawn event on the tick after a join, then goes quiet', () => {
     const w = new World(7);
-    w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.step();
     const f = buildFrame(w, 'a');
     expect(f.events).toEqual([expect.objectContaining({ k: 'spawn', id: 'a' })]);
@@ -225,7 +225,7 @@ describe('buildFrame — events (fogged via perception)', () => {
 
   it('spawn events carry the spawn position', () => {
     const w = new World(11);
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.step();
     expect(buildFrame(w, 'a').events[0]).toEqual({
       k: 'spawn',

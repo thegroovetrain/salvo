@@ -37,7 +37,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
-import { NO_DECK, World, type ShipRecord } from '../game/world.js';
+import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, approachPoint, readyShotReaches } from '../game/ai/tactics.js';
 import { engagementBand, profileOf } from '../game/ai/profiles.js';
@@ -98,7 +98,7 @@ function mkMind(profile: BotProfileId, seed = 7): BotMind {
  *  Islands are cleared so placement is never fought by the spawn lattice or
  *  the collision push-out (the island-specific tests clear nothing). */
 function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(`b-${w.ships.size + 1}`, 'TESTER', 'bot', hullId, undefined, { x, y }, []);
+  const rec = w.addShip(`b-${w.ships.size + 1}`, 'TESTER', 'bot', hullId, undefined, { x, y });
   // THE CLASS WEAPON IS A CARD (Story 8.10, amendment 62): a hull spawns with
   // gun + Shift and an EMPTY weapon row, so this fixture fits the tube / the
   // barrage / the rack explicitly — every weapon-policy case below is about
@@ -217,7 +217,7 @@ function seawardBerth(w: World): { x: number; y: number; heading: number } {
 function botOfClass(w: World, cls: ShipClassId): ShipRecord {
   const rejects: string[] = [];
   for (let i = 0; i < 200; i += 1) {
-    const rec = w.addBot(undefined, undefined, NO_DECK);
+    const rec = w.addBot(undefined, undefined);
     if (rec.hullId === cls) {
       for (const id of rejects) w.removeShip(id);
       return rec;
@@ -1814,7 +1814,7 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
   it('they move, acquire, fire, take damage, and do not beach', () => {
     const w = new World(3101, 8); // ISLANDS INTACT: beaching is the point
     const ids: string[] = [];
-    for (let i = 0; i < 4; i += 1) ids.push(w.addBot(undefined, undefined, NO_DECK).id);
+    for (let i = 0; i < 4; i += 1) ids.push(w.addBot(undefined, undefined).id);
     // Gather them into open water so they meet inside the 30s window rather
     // than spending it crossing the spawn ring. The staging area is chosen by
     // the SAME island predicate the sim uses, so a mapgen retune moves the
@@ -1892,7 +1892,7 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
   // the distinction a speed heuristic cannot make.
   it('ShipRecord.landContact is written every tick, and the MAP EDGE is not land', () => {
     const w = new World(3104, 8);
-    const rec = w.ships.get(w.addBot(undefined, undefined, NO_DECK).id)!;
+    const rec = w.ships.get(w.addBot(undefined, undefined).id)!;
     const berth = seawardBerth(w);
 
     // Open water, well clear of everything: no contact, ever.
@@ -2038,7 +2038,7 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
     const run = (): string => {
       const w = new World(3102, 8);
       const ids: string[] = [];
-      for (let i = 0; i < 3; i += 1) ids.push(w.addBot(undefined, undefined, NO_DECK).id);
+      for (let i = 0; i < 3; i += 1) ids.push(w.addBot(undefined, undefined).id);
       for (let t = 0; t < 200; t += 1) w.step();
       return ids
         .map((id) => {

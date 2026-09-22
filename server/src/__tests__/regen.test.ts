@@ -40,7 +40,7 @@ function bareWorld(seed = 3): World {
 }
 
 function place(w: World, id: string, hull: HullId = 'torpedoBoat', fleet = false): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), fleet ? 'fleet' : 'captain', hull, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), fleet ? 'fleet' : 'captain', hull, undefined, undefined);
   rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
   return rec;
 }

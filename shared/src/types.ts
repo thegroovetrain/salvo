@@ -6,6 +6,7 @@
 // (server->client, every tick).
 
 import type { GameConfig, HornId, HullId, ShipClassId } from './constants.js';
+import type { GunId } from './sim/loadout.js';
 import type { Vec2 } from './math/vec.js';
 
 /** Short message-name tags used on the Colyseus channel. */
@@ -371,6 +372,19 @@ export interface OwnShip {
   sweep: number; // rad — current radar sweep angle
   cls: ShipClassId; // ship class (drives hull dims / kinematics / max hp client-side)
   /**
+   * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
+   * captain picked at class select, frozen at queue — `deckGun`, `machineGun`
+   * or `flak`, defaulting to `deckGun`. The client replays its own loadout from
+   * it (`loadoutFor(stats, false, gun)`), which is why it rides the frame at
+   * all; slot 0 mounts the deck-gun MODULE for all three until Story 8.15
+   * builds the other two (sim/loadout.ts MOUNTED_GUN).
+   *
+   * SELF-PRIVATE by construction, exactly like `cards` below: it rides `you`
+   * and NOTHING else — never a Contact, a blip, a ballistic event or a
+   * spectator payload. Which gun an enemy picked is build information.
+   */
+  gun: GunId;
+  /**
    * Banked LEVELS not yet spent (Story 2.6/2.8 — the economy is levels, earned
    * by passive XP, not kills; `lvl` is the running total earned, `pts` what is
    * still unspent). The server's bare banked-level COUNT — every level banks
@@ -380,11 +394,12 @@ export interface OwnShip {
    */
   pts: number;
   /**
-   * The FRONT offer, as CARD LINE IDS (Story 2.8, catalog v3 — up to CONFIG.offer.size
-   * DIFFERENT card lines drawn from this player's deck; sim/deck.ts). `[]`
-   * when pts is 0 (and, degenerately, when the deck drew nothing). Only the
+   * The FRONT offer, as CARD LINE IDS (Story 2.8, catalog v3, re-cut for THE
+   * COMMON POOL in Story 8.14 — up to CONFIG.offer.size DIFFERENT card lines
+   * drawn from the common pool; sim/draw.ts). `[]` when pts is 0. Only the
    * front level ever has a hand at all — levels behind it are a bare count
-   * server-side, and the DECK never leaves the server.
+   * server-side, and the DRAW STATE (the take ledger, this ship's weights)
+   * never leaves the server.
    * Self-private like `pts`: it rides `you` and NOTHING else. The client
    * resolves each id against the shared CATALOG and drops the WHOLE view
    * on an unresolvable id (row k must stay server slot k).

@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG } from '@salvo/shared';
-import { validateTuneValue, TunableError } from '../overrides.js';
+import { applyOverrides, validateTuneValue, TunableError } from '../overrides.js';
 
 const TURN = 'shipClasses.battleship.kinematics.turnRate';
 
@@ -52,5 +52,68 @@ describe('--tune floors — turnRate', () => {
   it('still lets a genuinely zero-able dial be zero', () => {
     expect(() => validateTuneValue('gun.burstRadius', 0)).not.toThrow();
     expect(() => validateTuneValue('mine.damage', 0)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE WEIGHTING DIALS (Story 8.14 review, F5)
+//
+// `lineWeight(n) = max(floor, factor ** n)` (amendments 90/91). Both leaves are
+// MULTIPLIERS in (0, 1], and the generic "finite and >= 0" floor let three arms
+// through that measure something other than the mechanism:
+//   - factor 0 with floor 0 weighs every taken line zero, so stage 2's
+//     cumulative walk never crosses `r` and falls through to its float-dust
+//     fallback: the LAST candidate, deterministically, every draw;
+//   - floor 0 is the same trap once five captains have taken a line;
+//   - factor > 1 INVERTS the rule — a taken line becomes MORE likely — while
+//     the run key and the report header still say "weighting".
+// A balance harness may not produce false evidence, so the range is refused.
+// ---------------------------------------------------------------------------
+
+describe('--tune ranges — the weapon weighting', () => {
+  const FACTOR = 'offer.weighting.factor';
+  const FLOOR = 'offer.weighting.floor';
+
+  it('accepts the SHIPPED values and anything else inside (0, 1]', () => {
+    expect(() => validateTuneValue(FACTOR, CONFIG.offer.weighting.factor)).not.toThrow();
+    expect(() => validateTuneValue(FLOOR, CONFIG.offer.weighting.floor)).not.toThrow();
+    for (const v of [0.01, 0.5, 0.9999, 1]) {
+      expect(() => validateTuneValue(FACTOR, v)).not.toThrow();
+      expect(() => validateTuneValue(FLOOR, v)).not.toThrow();
+    }
+  });
+
+  it('REFUSES zero on both leaves — the fall-through-to-the-last-candidate trap', () => {
+    expect(() => validateTuneValue(FACTOR, 0)).toThrow(TunableError);
+    expect(() => validateTuneValue(FLOOR, 0)).toThrow(TunableError);
+  });
+
+  it('REFUSES anything above 1 — that inverts the rule rather than tuning it', () => {
+    expect(() => validateTuneValue(FACTOR, 1.5)).toThrow(TunableError);
+    expect(() => validateTuneValue(FLOOR, 1.0001)).toThrow(TunableError);
+  });
+
+  it('refuses a negative and a non-finite value', () => {
+    expect(() => validateTuneValue(FACTOR, -0.25)).toThrow(TunableError);
+    expect(() => validateTuneValue(FLOOR, Number.NaN)).toThrow(TunableError);
+    expect(() => validateTuneValue(FACTOR, Number.POSITIVE_INFINITY)).toThrow(TunableError);
+  });
+
+  it('REFUSES floor > factor at APPLY time, and rolls the whole apply back', () => {
+    const before = { ...CONFIG.offer.weighting };
+    // Each leaf is legal on its own; the PAIR is not — so like the boost pair
+    // this is only judgeable on the finished CONFIG.
+    expect(() => validateTuneValue(FACTOR, 0.3)).not.toThrow();
+    expect(() => validateTuneValue(FLOOR, 0.9)).not.toThrow();
+    expect(() => applyOverrides({}, { [FACTOR]: 0.3, [FLOOR]: 0.9 })).toThrow(TunableError);
+    expect(CONFIG.offer.weighting).toEqual(before); // all-or-nothing
+  });
+
+  it('accepts floor === factor, and a legal pair applies and restores', () => {
+    const before = { ...CONFIG.offer.weighting };
+    const restore = applyOverrides({}, { [FACTOR]: 0.5, [FLOOR]: 0.5 });
+    expect(CONFIG.offer.weighting).toEqual({ factor: 0.5, floor: 0.5 });
+    restore();
+    expect(CONFIG.offer.weighting).toEqual(before);
   });
 });

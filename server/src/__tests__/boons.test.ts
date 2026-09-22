@@ -128,7 +128,7 @@ function bareWorld(seed = 1, opts: WorldOptions = OPTS): World {
 }
 
 function place(w: World, id: string, x: number, y: number, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;
@@ -315,13 +315,18 @@ describe('World.applyCard — two homes, nothing else', () => {
     expect(a.hp).toBe(42);
   });
 
-  it('an id the catalog cannot resolve appends (wire-mirrored) but applies NOTHING (fail-closed)', () => {
+  it('an id the catalog cannot resolve is REFUSED outright — it never even reaches `cards` (fail-closed)', () => {
+    // TIGHTENED BY THE 8.14 REVIEW (F1). It used to APPEND and apply nothing,
+    // on the theory that the client drops it at resolve. `pickRefusal` — the
+    // one predicate both sides now run — reads an id the catalog does not own
+    // as `stub`, so the copy is refused before the push and nothing unresolvable
+    // ever rides the wire in `cards` at all.
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const statsBefore = a.stats;
     const ammoBefore = ammoStates(a);
     expect(() => w.applyCard(a, 'noSuchBoon')).not.toThrow();
-    expect(a.cards).toEqual(['noSuchBoon']);
+    expect(a.cards).toEqual([]);
     expect(a.stats).toEqual(statsBefore);
     expect(ammoStates(a)).toEqual(ammoBefore);
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost'));
@@ -374,7 +379,7 @@ describe('World.applyCard — two homes, nothing else', () => {
     expect(a.hp).toBe(wounded);
   });
 
-  it('an Object.prototype key as a card id appends but applies NOTHING and never throws', () => {
+  it('an Object.prototype key as a card id is REFUSED, applies NOTHING and never throws', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const statsBefore = a.stats;
@@ -382,7 +387,7 @@ describe('World.applyCard — two homes, nothing else', () => {
     for (const junk of ['constructor', 'toString', 'hasOwnProperty', 'valueOf']) {
       expect(() => w.applyCard(a, junk)).not.toThrow();
     }
-    expect(a.cards).toEqual(['constructor', 'toString', 'hasOwnProperty', 'valueOf']);
+    expect(a.cards).toEqual([]);
     expect(a.stats).toEqual(statsBefore);
     expect(ammoStates(a)).toEqual(ammoBefore);
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(ids('gun', 'boost'));

@@ -11,10 +11,12 @@ import type { Ticker } from 'pixi.js';
 import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
+  DEFAULT_GUN,
   MSG,
   MULLIGAN_CHOICE,
   NO_CARDS,
   boostedKinematics,
+  CATALOG,
   cardBehaviors,
   effectiveStats,
   equipmentReloadMs,
@@ -29,6 +31,7 @@ import {
   type DeniedView,
   type EffectiveStats,
   type EquipmentId,
+  type GunId,
   type SlotItemId,
   type GameMap,
   type HullId,
@@ -685,18 +688,30 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
 /**
  * Slot-aligned equipment ids of the own loadout — the client-side, read-only
  * view of the shared derivation (Story 1.6, grown boons in 2.5, re-cut in 8.5):
- * the NINE-slot base fit (gun in slot 0, the boost in slot 1, seven empties)
- * with every fitted card's slot effects replayed over it (`slotsWithCards` —
- * the SAME per-effect function the server applies incrementally, so slot ids
- * agree by construction). Zero cards ≙ plain `loadoutFor`.
+ * the NINE-slot base fit (the seat's gun in slot 0, the boost in slot 1, seven
+ * empties) with every fitted card's slot effects replayed over it
+ * (`slotsWithCards` — the SAME per-effect function the server applies
+ * incrementally, so slot ids agree by construction). Zero cards ≙ plain
+ * `loadoutFor`.
+ *
+ * SLOT 0 IS REPLAYED FROM THE SEAT'S GUN (Story 8.14, epic-8 amendment 95):
+ * `slotsWithCards(…, gun)` hands the seat's gun to the shared `loadoutFor`,
+ * which resolves it through `MOUNTED_GUN` — exactly the derivation the server
+ * fits and re-fits the slot from — so neither side ever assumes the deck gun's
+ * module. All three seat guns mount the shipped `'gun'` module until Story
+ * 8.15 builds the other two.
  *
  * NO HULL ID. Story 8.5 deleted the per-hull fit: what a captain carries is a
- * fact about their DECK and their picks, never about their hardware, so the
- * replay is the only thing that can answer "what is in slot 3". The `fleet`
- * flag is not passed either — the client is only ever a captain.
+ * fact about their PICKS, never about their hardware, so the replay is the only
+ * thing that can answer "what is in slot 3". The `fleet` flag is not passed
+ * either — the client is only ever a captain.
  */
-function slotIdsFor(stats: EffectiveStats, cards: readonly string[]): (SlotItemId | null)[] {
-  return slotsWithCards(stats, cards).map((s) => s.equipmentId);
+function slotIdsFor(
+  stats: EffectiveStats,
+  cards: readonly string[],
+  gun: GunId = DEFAULT_GUN,
+): (SlotItemId | null)[] {
+  return slotsWithCards(stats, cards, CATALOG, false, gun).map((s) => s.equipmentId);
 }
 
 /**
@@ -2941,7 +2956,7 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * localStorage correction); an upgrade that touches kinematics swaps the
  * config in place and lets the next reconcile replay pending inputs under it.
  */
-function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[]): void {
+function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun: GunId): void {
   // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 91 review gate).
   // This is the PRIMARY site — gating boonCopy/upgradeMenu alone did not make an
   // unresolvable `cls` survivable, because this function threw first. Worse, it
@@ -2963,11 +2978,12 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[]): voi
   // the CATALOG's order, so the wire list's order cannot move a number.
   const stats = effectiveStats(spec, cards);
   g.ownStats = stats;
-  // Own loadout follows the authoritative class + cards (Story 1.6 / 2.5):
+  // Own loadout follows the authoritative class + cards + SEAT GUN (Story
+  // 1.6 / 2.5, slot 0 since 8.14):
   // the slot activate-vs-prime split, HUD chips, and ammo fallback all read
   // from here — derived via the SAME shared slot-effect replay the server
   // applies incrementally (slotsWithCards), so slot ids agree by construction.
-  g.ownSlots = slotIdsFor(stats, cards);
+  g.ownSlots = slotIdsFor(stats, cards, gun);
   // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). The belt empties itself:
   // the last copy of a stocked line is spent and the square goes back to
   // dashed. A prime left standing on it would swallow every click that follows
@@ -3080,7 +3096,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // bearing from), so the bearing is derived from wherever the camera is at
     // the instant it lands — read live, never captured.
     cameraCenter: () => g.camera.center,
-    onOwnStats: (cls, cards) => applyOwnStats(g, cls, cards),
+    onOwnStats: (cls, cards, gun) => applyOwnStats(g, cls, cards, gun),
     // Story 1.10: self-private server denials route through the
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
     onDenied: (d) => handleServerDenial(g, d),

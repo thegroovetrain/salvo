@@ -21,7 +21,6 @@
 
 import {
   CONFIG,
-  DEFAULT_DECKS,
   EQUIPMENT_IS_WEAPON,
   mulberry32,
   zoneClosedAtMs,
@@ -40,9 +39,6 @@ export const DEFAULT_DECISION_TICKS = 5; // 250ms between decisions
 const COUNTDOWN_MS = 1000;
 const ENDGAME_SLACK_MS = 600000;
 const ZONE_SEED_ORDINAL = 0x7a0e;
-/** Match-pool seed ordinal (Story 8.11) — the runner's constant, same reason:
- *  the pool is part of the reproducible episode, derived server-side. */
-const POOL_SEED_ORDINAL = 0x7b00;
 const SPEND_STREAM_K = 0x51ed;
 
 /** Integer action bins, decoded server-side (see decode()). */
@@ -113,10 +109,7 @@ export class HullcrackerEnv {
     const botCount = opts.bots ?? 0;
     const playerCap = Math.max(CONFIG.map.playerCap, opts.agents + botCount);
     const zoneSeeds = Array.from({ length: zoneGroups(CONFIG.zone) }, (_, i) => mixSeed(seed, ZONE_SEED_ORDINAL + i));
-    const world = new World(seed, playerCap, CONFIG.zone, {
-      zoneSeeds,
-      poolSeed: mixSeed(seed, POOL_SEED_ORDINAL),
-    });
+    const world = new World(seed, playerCap, CONFIG.zone, { zoneSeeds });
     const timings: MatchTimings = {
       countdownMs: COUNTDOWN_MS,
       resultsMs: CONFIG.match.resultsSeconds * 1000,
@@ -131,8 +124,9 @@ export class HullcrackerEnv {
       disconnect: () => {},
     });
     this.agents = enrollAgents(world, seed, opts);
-    // Bots sail the hull's DEFAULT deck (Story 8.2), like the arena's.
-    for (let i = 0; i < botCount; i += 1) world.addBot(undefined, undefined, (h) => DEFAULT_DECKS[h]);
+    // Bots draw from the COMMON POOL on the default gun (Story 8.14), like
+    // the arena's.
+    for (let i = 0; i < botCount; i += 1) world.addBot(undefined, undefined);
     match.notifyRosterChanged();
     this.world = world;
     this.match = match;
@@ -265,8 +259,8 @@ function enrollAgents(world: World, seed: number, opts: ResetOptions): AgentStat
   for (let i = 0; i < opts.agents; i += 1) {
     const id = `rl-${i + 1}`;
     const hull = opts.agentHulls?.[i] ?? HULLS[i % HULLS.length];
-    // RL captains sail their hull's DEFAULT deck (Story 8.2) — the door's answer.
-    world.addShip(id, `RL-${String(i + 1).padStart(2, '0')}`, 'captain', hull, undefined, undefined, DEFAULT_DECKS[hull]);
+    // RL captains draw from the COMMON POOL on the default gun (Story 8.14).
+    world.addShip(id, `RL-${String(i + 1).padStart(2, '0')}`, 'captain', hull, undefined, undefined);
     agents.push({
       id,
       seq: 0,

@@ -18,17 +18,16 @@ import {
   sanitizeClassId,
   sanitizeHornId,
   zoneGroups,
-  type LineId,
+  isGunId,
   type RequeueMsg,
   type ResultsMsg,
   type Rng,
+  type GunId,
   type ShipClassId,
   type WelcomeMsg,
 } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World } from '../game/world.js';
-import { loadDeckFor } from '../game/decks.js';
-import { admitDeck, checkAtDoor, deckRefusal } from './deckDoor.js';
 import { assignHue } from '../game/regatta.js';
 import { buildFrame } from '../game/frames.js';
 import {
@@ -42,9 +41,6 @@ import {
 } from '../game/match.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
 import {
-  recordDeckExhausted,
-  recordDeckMulligan,
-  recordDeckPick,
   recordMinesLive,
   registerRoom,
   type RoomMetricsHandle,
@@ -53,6 +49,7 @@ import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
   sanitizeColorPref,
+  sanitizeGun,
   sanitizeName,
   sanitizeRoomOptions,
   type JoinOptions,
@@ -425,13 +422,6 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // (no onDispose ever runs for a room that failed to create).
     try {
       this.finishCreate(sanitized, seed);
-      // The match pool exists from the World's constructor on; say so ONCE,
-      // here — after the logger is bound (so the line carries roomId/matchId)
-      // AND after creation has actually SUCCEEDED, so a room that threw its
-      // way out of onCreate never leaves a `match.pool` line behind for a
-      // match that will never be played. COUNT ONLY — the composition is
-      // server-private (NFR20) and no id may ever reach a log.
-      this.log.info('match.pool', { count: this.world.pool.length });
     } catch (err) {
       this.metrics?.unregister();
       this.metrics = null;
@@ -459,50 +449,21 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * not specific offsets). Split out of onCreate so tests can pin that the
    * world actually receives caller-supplied seed material.
    *
-   * onDeckExhausted (Story 8.3): the adapter half of the World's exhaustion
-   * seam — a ship record's card economy ran dry ("exhausted" means an EMPTY
-   * DRAW: the deck is empty, or every copy left is of a line the hull already
-   * holds at its cap, which the at-cap guard will not offer; firing a
-   * consumable reopens that second case, and the latch fires once either way),
-   * so say so ONCE in the process gauge and once in the room's log. The metric
-   * is recorded FIRST, the log line second: a throwing logger transport can
-   * then never lose the count. `this.log` is read INSIDE the arrow, not
-   * captured: buildWorld runs before initOperability binds the room logger, so
-   * a captured reference would be the unbound module default and every line
-   * would lose its roomId/matchId. Read live, the bound logger supplies both,
-   * which is how the AC's `{ matchId, shipId }` fields ride a one-field call.
-   * SHIP ID ONLY — never the deck, its contents or its depth.
+   * NOTHING ABOUT THE CARD ECONOMY COMES THROUGH HERE ANY MORE (Story 8.14):
+   * the match pool, its seed and the three `deck.*` reporting seams are gone
+   * with the deck itself (amendments 89a/94). The common pool is the catalog,
+   * per-ship state is the only draw input, and the take ledger never leaves
+   * the World.
    */
   private buildWorld(seed: number, sanitized: SanitizedRoomOptions): World {
     const zoneCfg = sanitized.zoneOverride ?? CONFIG.zone;
     const zoneSeeds = Array.from({ length: zoneGroups(zoneCfg) }, () => (Math.random() * 0xffffffff) >>> 0);
-    // The dev poolOverride is a SHAPE-checked list of arbitrary strings; the
-    // World's own sanitizePool is what turns it into real consumable line ids
-    // (unknown and equipment ids dropped), so this cast asserts nothing the
-    // World does not immediately re-check.
-    const pool = sanitized.poolOverride as readonly LineId[] | undefined;
     // The pseudonym seed is fresh per-room adapter entropy (the zoneSeeds
     // posture): track ids must never be derivable from the client-known
     // mapSeed.
     return new World(seed, CONFIG.map.playerCap, zoneCfg, {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
-      // The match pool's seed is fresh per-room adapter entropy too (Story
-      // 8.11, the zoneSeeds posture): mapSeed rides the welcome, so a pool
-      // derived from it would be brute-forceable by any client that can read
-      // its own map. `pool` (dev-only, HC_DEV_OPTIONS-gated) pins the list
-      // instead for a headless smoke; undefined on every production room.
-      poolSeed: (Math.random() * 0xffffffff) >>> 0,
-      pool,
-      onDeckExhausted: (shipId: string) => {
-        recordDeckExhausted();
-        this.log.info('deck.exhausted', { shipId });
-      },
-      // The two Story 8.10 economy seams are COUNTERS ONLY (no log line per
-      // pick — a busy room would write one every few seconds): `/metrics`
-      // answers how much shopping and how many redraws a process saw.
-      onDeckPick: () => recordDeckPick(),
-      onMulligan: () => recordDeckMulligan(),
     });
   }
 
@@ -864,11 +825,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const order = this.shuffledClasses();
     const count = CONFIG.map.playerCap - 1;
     for (let i = 0; i < count; i += 1) {
-      // Bots sail the SAME loader's answer as a captain (Story 8.2): with no
-      // account module, the hull's default deck. `deckFor` is a resolver
-      // because World.addBot may roll the hull itself (batchsim's rolled
-      // path); here the hull is dealt, so it is simply the same lookup.
-      const rec = this.world.addBot(order[i % order.length], undefined, (hull) => loadDeckFor(null, undefined, hull));
+      // Bots draw from the SAME common pool a captain draws from (Story 8.14)
+      // and sail the DEFAULT GUN — there is no deck to resolve any more.
+      const rec = this.world.addBot(order[i % order.length], undefined);
       const meta = new PlayerMeta();
       meta.id = rec.id;
       meta.name = rec.name;
@@ -1001,10 +960,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // option, never a dev override — and handed straight to the ship record.
     // Fail-open to 'standard'; no roster/PlayerMeta field (amendment 52).
     const horn = sanitizeHornId(options.horn);
-    // THE DECK (Story 8.2) — resolved BEFORE anything is spawned or written,
-    // because a refusal THROWS: core then tears down just this client with
-    // nothing of it in the world or the roster to undo.
-    const { deck, fit: devFit, source: deckSource } = this.resolveJoinDeck(client, options, classId);
+    // THE SEAT'S GUN (Story 8.14) and the dev spawn fit — both resolved BEFORE
+    // anything is spawned or written. Neither can refuse a join any more (the
+    // deck door and its 4402 are gone): a bad gun coerces to `deckGun` and a
+    // dev fit outside HC_DEV_OPTIONS=1 is stripped.
+    const gun = this.resolveJoinGun(client, options);
+    const devFit = this.resolveDevFit(client, options);
     // THE JOIN ORDINAL IS ROOM STATE, so it is bumped only once the join can
     // no longer be refused. Incrementing it first BURNED an ordinal on every
     // refusal: the next nameless captain came aboard as CAPTAIN-2 with no
@@ -1029,7 +990,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // `devFit` (Story 8.10, amendment 65) is EMPTY on every production path —
     // the dev gate strips `fitOverride` and the queue never forwards it — so
     // this is the shipped spawn unless a smoke asked for a pre-fitted weapon.
-    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, deck, devFit);
+    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, gun, devFit);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the
@@ -1052,10 +1013,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
     this.match?.notifyRosterChanged();
 
-    // `deckSource` (Story 8.2): 'seat' = the frozen list came off the queue's
-    // reservation `auth`; 'door' = this room loaded and checked it itself
-    // (Solo vs AI, dev direct join). Ops-only — never the deck's contents.
-    this.log.info('client.join', { sessionId: client.sessionId, deckSource });
+    // The seat's gun rides the join line (Story 8.14, replacing `deckSource`):
+    // ops-only, and a captain's OWN pick — never another client's.
+    this.log.info('client.join', { sessionId: client.sessionId, gun });
     this.armJoiningDeadline(client);
     // /liveness (Story 6.6): the population moved. Publish-on-change, so a room
     // whose roster is stable never writes to the driver again.
@@ -1063,36 +1023,49 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   /**
-   * THE ARENA'S HALF OF THE DECK DOOR (Story 8.2). A queue-seated captain
-   * arrives with the frozen list on `client.auth.deck` — written by
-   * StandardQueueRoom into the reservation's server-only `auth` payload, which
-   * @colyseus/core hands back as `client.auth` (Room.mjs:1098-1099) — and it
-   * is used AS IS: no re-load, no substitution, but the four rules are run
-   * again (cheap, and a malformed server-written value is a BUG that must
-   * refuse loudly as `deck.illegal`, never sail a default in its place). A
-   * captain with no seat deck (Solo vs AI's `create('arena')`, the dev direct
-   * join) has the room load + check the deck itself through the same helper
-   * the queue uses. Either way a client `deck` key in the options refuses the
-   * join: options never carry a deck at this door.
+   * THE SEAT'S GUN AT THE ARENA DOOR (Story 8.14, amendment 95), in precedence
+   * order:
+   *
+   *   1. THE SEAT'S `auth.gun` — the value StandardQueueRoom sanitized and
+   *      FROZE when it seated this captain. It rides the server-only `auth`
+   *      payload exactly as the deck used to (core surfaces it as `client.auth`
+   *      in onJoin), so a queued captain's gun is one a client cannot reshape
+   *      between the queue and the arena.
+   *   2. THE JOIN OPTION, sanitized here — the Solo vs AI door and the dev
+   *      direct join, neither of which carries a seat.
+   *   3. `DEFAULT_GUN`, which is what both of the above fail open to anyway.
+   *
+   * NOTHING REFUSES. `sanitizeGun` coerces rather than throwing, so unlike the
+   * deck door this join can never bounce; a malformed seat value is simply not
+   * a GunId and falls through to the option, then to the default.
    */
-  private resolveJoinDeck(
-    client: Client,
-    options: JoinOptions,
-    hull: ShipClassId,
-  ): { deck: readonly LineId[]; fit: readonly string[]; source: 'seat' | 'door' } {
+  private resolveJoinGun(client: Client, options: JoinOptions): GunId {
     const auth: unknown = client.auth;
-    const fromSeat: unknown = typeof auth === 'object' && auth !== null ? (auth as { deck?: unknown }).deck : undefined;
-    if (fromSeat === undefined) {
-      const devEnabled = process.env.HC_DEV_OPTIONS === '1';
-      const admitted = admitDeck(options, hull, devEnabled, this.log, client.sessionId);
-      return { ...admitted, source: 'door' };
+    const seated: unknown = typeof auth === 'object' && auth !== null ? (auth as { gun?: unknown }).gun : undefined;
+    if (isGunId(seated)) return seated;
+    return sanitizeGun(options.gun, this.log);
+  }
+
+  /**
+   * THE DEV SPAWN FIT at the arena door (Story 8.10, amendment 65; re-homed in
+   * 8.14 when the deck door was deleted). `sanitizeRoomOptions` owns the dev
+   * gate and the shape check, so this is the same admission every other dev
+   * knob gets — and EMPTY on every production path, because the env is unset
+   * and the queue never forwards the key.
+   *
+   * THE REJECTIONS ARE LOGGED (Story 8.14 review, F6), once, on the same
+   * `devOptionsRejected` event `onCreate` writes for the ROOM's options — the
+   * roomOptions contract promises a rejected dev key is announced rather than
+   * silently swallowed, and until now this door threw `rejectedKeys` away, so a
+   * smoke that mistyped `fitOverride` saw a ship spawn bare with no line saying
+   * why. `sessionId` distinguishes it from the room-create line.
+   */
+  private resolveDevFit(client: Client, options: JoinOptions): readonly string[] {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions(options as RoomOptions, process.env.HC_DEV_OPTIONS === '1');
+    if (rejectedKeys.length > 0) {
+      this.log.warn('join.devOptionsRejected', { rejected: rejectedKeys, sessionId: client.sessionId });
     }
-    if (Object.hasOwn(options, 'deck')) throw deckRefusal(this.log, 'clientSupplied', client.sessionId);
-    // A seat value that is not a list has no size — checkDeck says 'size'.
-    const list: readonly LineId[] = Array.isArray(fromSeat) ? (fromSeat as readonly LineId[]) : [];
-    // NO DEV FIT ON THE SEAT PATH (amendment 65): the queue never forwards
-    // `fitOverride`, so a queue-formed captain spawns holding nothing, always.
-    return { deck: checkAtDoor(list, this.log, client.sessionId), fit: [], source: 'seat' };
+    return sanitized.fitOverride ?? [];
   }
 
   /**

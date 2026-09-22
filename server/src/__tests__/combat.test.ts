@@ -56,7 +56,7 @@ const gunInput = (aim: number, aimDist = 1000, fireSeq = 1, seq = 1, fireT = 0) 
 function armed(seed = 5, hullId: HullId = 'torpedoBoat'): { w: World; a: ShipRecord } {
   const w = new World(seed);
   w.map.islands.length = 0;
-  const a = w.addShip('a', 'A', 'captain', hullId, undefined, undefined, []);
+  const a = w.addShip('a', 'A', 'captain', hullId, undefined, undefined);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard
@@ -192,7 +192,7 @@ describe('gun shell spawn — hull silhouette edge, NO dead ring', () => {
 describe('World combat — burst at the clicked point', () => {
   it('a click on an enemy bursts at the click point: ONE burst event + a victim-private dmg', () => {
     const { w, a } = armed(1);
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 100, heading: 0, speed: 0 };
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 100));
@@ -212,9 +212,9 @@ describe('World combat — burst at the clicked point', () => {
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Two enemies flanking the click point, hulls ~7.5u from it (inside the
     // 15u blast) but 7.5u clear of the shell's flight line (no interception).
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 12, y: 200, heading: HALF_PI, speed: 0 };
-    const c = w.addShip('c', 'C', undefined, undefined, undefined, undefined, []);
+    const c = w.addShip('c', 'C', undefined, undefined, undefined, undefined);
     c.state = { x: -12, y: 200, heading: HALF_PI, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 200));
     const events = stepCollect(w, 45);
@@ -229,7 +229,7 @@ describe('World combat — burst at the clicked point', () => {
   it('bodyblock FAR from the target: interceptor takes contactDamage, NO burst, shell stops', () => {
     const { w, a } = armed(1);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []); // crosses the flight line 200u short of the click
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // crosses the flight line 200u short of the click
     b.state = { x: 0, y: 300, heading: HALF_PI, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 500));
     const events = stepCollect(w, 60);
@@ -246,7 +246,7 @@ describe('World combat — burst at the clicked point', () => {
   it('bodyblock NEAR the target (proximity exception): full burst at the TARGET, no double-dipping', () => {
     const { w, a } = armed(1);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []); // hull straddles the click point itself
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // hull straddles the click point itself
     b.state = { x: 0, y: 495, heading: HALF_PI, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 500));
     const events = stepCollect(w, 90);
@@ -278,7 +278,7 @@ describe('World combat — burst at the clicked point', () => {
     // 500 u/s for the whole gun family — Eric ruling 2026-07-25).
     const { w, a } = armed(1, 'battleship');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []); // hull ~10u from the click at (40,0)
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // hull ~10u from the click at (40,0)
     b.state = { x: 40, y: 14.5, heading: 0, speed: 0 };
     w.submitInput('a', gunInput(0, 40)); // 40u off the bow — well inside the muzzle
     const events = stepCollect(w, 5);
@@ -292,7 +292,7 @@ describe('World combat — burst at the clicked point', () => {
   it('aimDist 0 bursts at the OWN center: owner immune, an adjacent enemy still takes full damage', () => {
     const { w, a } = armed(1, 'battleship');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []); // hull ~10u from the origin burst
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // hull ~10u from the origin burst
     b.state = { x: 0, y: 14.5, heading: 0, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 0)); // aimDist 0 — target = own center
     const events = stepCollect(w, 5);
@@ -324,7 +324,7 @@ describe('World combat — burst at the clicked point', () => {
   it('kill credit flows through the burst path: sunk by the firer, kill + banked point', () => {
     const { w, a } = armed(1);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 100, heading: 0, speed: 0 };
     b.hp = CONFIG.gun.damage; // one burst finishes it
     w.submitInput('a', gunInput(HALF_PI, 100));
@@ -339,7 +339,7 @@ describe('World combat — burst at the clicked point', () => {
   it('an island short of the click point stops the shell dead: boom, no damage, no burst', () => {
     const { w, a } = armed(2);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 300, heading: 0, speed: 0 };
     w.map.islands.push(circleIsland(0, 100, 30));
     w.submitInput('a', gunInput(HALF_PI, 300));
@@ -403,7 +403,7 @@ describe('multi-barrel click — every shell that connects deals its own damage'
 
   it('THREE shells fly, all burst, and a hull inside every burst takes all THREE applications', () => {
     const { w, a } = tripleMount();
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 100, heading: 0, speed: 0 }; // at the click point: inside all three bursts
     w.submitInput('a', gunInput(HALF_PI, 100));
     const events = stepCollect(w, 30);
@@ -420,9 +420,9 @@ describe('multi-barrel click — every shell that connects deals its own damage'
 
   it('AREA THROUGHPUT still holds: two hulls straddling the fan each take their own hits', () => {
     const { w, a } = tripleMount(12);
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 12, y: 200, heading: HALF_PI, speed: 0 };
-    const c = w.addShip('c', 'C', undefined, undefined, undefined, undefined, []);
+    const c = w.addShip('c', 'C', undefined, undefined, undefined, undefined);
     c.state = { x: -12, y: 200, heading: HALF_PI, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 200));
     const events = stepCollect(w, 45);
@@ -448,7 +448,7 @@ describe('multi-barrel click — every shell that connects deals its own damage'
     // both are paid. The no-double-dipping rule they respect is PER SHELL:
     // neither shell hit this hull twice.
     const { w, a } = tripleMount(14);
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: -35, y: 250, heading: Math.PI / 4, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 300));
     const events = stepCollect(w, 45);
@@ -715,7 +715,7 @@ describe('World fire control — one shot per click (fireSeq), single-shot pool'
 
   it('the shell event still reaches other observers through the perception seam', () => {
     const { w, a } = armed(1);
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 100, heading: 0, speed: 0 };
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 100));
@@ -828,7 +828,7 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     const { w, a } = armed(7);
     w.setRtt('a', 150);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []); // the "escaped" victim, now safely behind a rock
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // the "escaped" victim, now safely behind a rock
     b.state = { x: 0, y: 40, heading: 0, speed: 0 };
     w.map.islands.push(circleIsland(0, 15, 5));
     w.submitInput('a', { ...slotInput(0, 0, 1), aimDist: 0 });
@@ -856,7 +856,7 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
   it('SAME-TICK MUTUAL FIRE: both back-dated point-blank shots survive the spawn tick and resolve next tick — a mutual kill cannot depend on ships-map iteration order', () => {
     const { w, a } = armed(7);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 20, heading: 0, speed: 0 };
     a.hp = 1; // one burst sinks either hull
     b.hp = 1;

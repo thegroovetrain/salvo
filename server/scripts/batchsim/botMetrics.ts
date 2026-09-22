@@ -2,7 +2,7 @@
 // acceptance criterion ("bot quality is measured, not felt") rests on.
 //
 // WHY A SEPARATE COLLECTOR FROM MatchCollector. The captain collector measures
-// the ECONOMY (levels, boon timing, deck depletion) for a scripted control
+// the ECONOMY (levels, boon timing, cards fitted) for a scripted control
 // that never fires and never dies of anything interesting. The bot collector
 // measures COMBAT QUALITY for a brain that steers itself: who killed whom,
 // what killed them, how long they lived, whether they spent what they earned,

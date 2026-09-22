@@ -9,7 +9,6 @@
 import { CONFIG, zoneEndgameAtMs } from '@salvo/shared';
 import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import { BOON_N_MAX, LEVEL_SAMPLE_MS, type BatchResult } from './runner.js';
-import type { DeckAggregate } from './deckSim.js';
 
 export interface ReachAggregate {
   reachRate: number; // fraction of captain-matches that ever reached it
@@ -53,7 +52,6 @@ export interface BatchAggregate {
   finalLevel: Summary;
   picks: Summary;
   boonsFitted: Summary;
-  deckRemaining: Summary;
   cappedLines: Summary;
   anyCapRate: number;
   timeToNBoons: { n: number; reachRate: number; timeS: Summary }[];
@@ -157,7 +155,6 @@ export function buildAggregate(result: BatchResult, captainsPerMatch: number): B
     finalLevel: summarize(captains.map((c) => c.finalLevel)),
     picks: summarize(captains.map((c) => c.picks)),
     boonsFitted: summarize(captains.map((c) => c.boonsFitted)),
-    deckRemaining: summarize(captains.map((c) => c.deckRemaining)),
     cappedLines: summarize(captains.map((c) => c.cappedLines)),
     anyCapRate: captains.length === 0 ? 0 : captains.filter((c) => c.cappedLines > 0).length / captains.length,
     timeToNBoons: aggregateBoonTimes(captains),
@@ -213,7 +210,6 @@ function captainEconomyLines(agg: BatchAggregate): string[] {
   lines.push(`final level per captain: ${fmtSummary(agg.finalLevel)}`);
   lines.push(`picks per captain: ${fmtSummary(agg.picks)}`);
   lines.push(`boons fitted per captain: ${fmtSummary(agg.boonsFitted)}`);
-  lines.push(`deck cards remaining: ${fmtSummary(agg.deckRemaining)}`);
   lines.push(`copy-capped lines per captain: ${fmtSummary(agg.cappedLines)} | captains with >=1 cap: ${pct(agg.anyCapRate)}`);
   lines.push(reachLine('first doctrine OFFERED ', agg.doctrineOffered));
   lines.push(reachLine('first doctrine FITTED  ', agg.doctrineFitted));
@@ -224,51 +220,6 @@ function captainEconomyLines(agg: BatchAggregate): string[] {
   lines.push('level curve (level vs sim-time since activation):');
   for (const row of agg.levelCurve) {
     lines.push(`  t=${String(row.tS).padStart(4)}s n=${String(row.n).padStart(3)} mean=${fmt(row.mean, 2)} p50=${fmt(row.p50, 1)}`);
-  }
-  return lines;
-}
-
-/** The deck-only mode's report body (per-line reachability + cap evidence).
- *  The stopping-rule caveat is printed IN the report, not just in the code:
- *  see deckSim.ts's header — production never terminates an economy. */
-export function renderDeckReport(label: string, agg: DeckAggregate): string[] {
-  const lines: string[] = [];
-  lines.push(`== DECK-ONLY ${label} ==`);
-  lines.push('stopping rule (harness model, NOT production): an economy ends on an EMPTY DRAW —');
-  lines.push('the deck is empty, OR (Story 8.11, the match pool) only copies of lines already fitted');
-  lines.push('to their cap remain, which the at-cap guard never offers. "decks empty at stop" tells');
-  lines.push('the two apart: a rate below 100% is the share of economies that stopped on an empty');
-  lines.push('OFFER with cap-held copies still in the deck.');
-  lines.push('NEVER-USE MODEL: this economy fits cards and never FIRES one, so a consumable line');
-  lines.push('fitted to its cap stays closed for the rest of the run — production reopens it on');
-  lines.push('use (a spent copy leaves the ship\'s cards), so consumable reachability here is a');
-  lines.push('PESSIMISTIC FLOOR. Equipment/ladder lines are exact (those copies never leave in');
-  lines.push('production either). Production has no economy termination — levels keep coming while');
-  lines.push('the match runs. All variants share this rule, so cross-variant deltas are comparable;');
-  lines.push('per-economy totals are model numbers.');
-  lines.push(`economies: ${agg.economies} | total draws: ${agg.totalDraws}`);
-  lines.push(`draws played per economy: ${fmtSummary(agg.drawsPlayed)} | decks empty at stop: ${pct(agg.deckExhaustedRate)}`);
-  lines.push(`copy-capped lines per economy: ${fmtSummary(agg.cappedLines)} | economies with >=1 cap: ${pct(agg.anyCapRate)}`);
-  lines.push('deck depletion (mean cards remaining after draw k AND its immediate spend, give-backs included):');
-  for (const row of agg.depletion) {
-    lines.push(`  k=${String(row.draw).padStart(3)} n=${String(row.n).padStart(6)} meanRemaining=${fmt(row.meanRemaining, 1)}`);
-  }
-  return lines;
-}
-
-/** Side-by-side comparison across sweep variants — deck-only mode. */
-export function renderDeckComparison(variants: readonly { label: string; agg: DeckAggregate }[]): string[] {
-  const rows: { name: string; value: (a: DeckAggregate) => string }[] = [
-    { name: 'draws played p50', value: (a) => fmt(a.drawsPlayed.p50) },
-    { name: 'decks emptied', value: (a) => pct(a.deckExhaustedRate) },
-    { name: 'capped lines mean', value: (a) => fmt(a.cappedLines.mean, 2) },
-  ];
-  const nameW = Math.max(...rows.map((r) => r.name.length));
-  const colW = Math.max(18, ...variants.map((v) => v.label.length));
-  const lines: string[] = ['== SWEEP COMPARISON (deck-only) =='];
-  lines.push(`${' '.repeat(nameW)} | ${variants.map((v) => v.label.padEnd(colW)).join(' | ')}`);
-  for (const row of rows) {
-    lines.push(`${row.name.padEnd(nameW)} | ${variants.map((v) => row.value(v.agg).padEnd(colW)).join(' | ')}`);
   }
   return lines;
 }
@@ -284,7 +235,6 @@ export function renderComparison(variants: readonly { label: string; agg: BatchA
     { name: 'doctrine OFFERED reach', value: (a) => pct(a.doctrineOffered.reachRate) },
     { name: 'doctrine FITTED reach', value: (a) => pct(a.doctrineFitted.reachRate) },
     { name: 'doctrine FITTED p50 s', value: (a) => fmt(a.doctrineFitted.timeS.p50) },
-    { name: 'deck remaining p50', value: (a) => fmt(a.deckRemaining.p50) },
     { name: 'kills/captain mean', value: (a) => fmt(a.killsPerCaptain.mean, 2) },
     { name: 'storm deaths total', value: (a) => String(a.stormDeathsTotal) },
     { name: 'endedBy', value: (a) => countLine(a.endedBy) },

@@ -3,6 +3,22 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  57 — Story 8.14: decks and the match pool retired; the seat carries `gun`
+ *  (join option, default deckGun); `OwnShip.gun`; the deck door/4402 refusal
+ *  and `deckId`/`deckOverride`/`poolOverride` join keys are gone;
+ *  `CONFIG.deck`/`CONFIG.pool` deleted (the client reads `CONFIG.offer`).
+ *  THE COMMON POOL (Eric rulings 2026-09-21/22, epic-8 amendments 89–95): no
+ *  card is class-locked and none is brought — every dealable catalog line is
+ *  drawable by every captain, bounded by `cap`, the three weapon slots and the
+ *  mounted gun, through the two-stage draw in sim/draw.ts. Catalog CONTENT is
+ *  unchanged, but WHAT A CAPTAIN CAN BE DEALT is not, and the join contract
+ *  moves in three ways a stale client cannot survive: it would send a `deckId`
+ *  nothing reads, it would not send `gun`, and it would replay its own loadout
+ *  without one. `CONFIG.offer` gains the `weighting` block (factor 0.75 /
+ *  floor 0.25) inside the welcome CONFIG snapshot. No new event kind, no
+ *  change to any spatial shape, and THE PERCEPTION EXCEPTION COUNT STAYS AT
+ *  SIX — the take ledger, the per-ship weights and every other captain's `gun`
+ *  stay server-side.
  *  56 (Story 8.13): CATALOG V3 — TORPEDOES AND MINES (Eric rulings
  *  2026-09-19, epic-8 amendments 74–84). ONE bump covering two independent
  *  breaks.
@@ -695,7 +711,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 56;
+export const PROTOCOL_VERSION = 57;
 
 // Tunables
 export * from './constants.js';
@@ -724,9 +740,7 @@ export * from './sim/arcs.js';
 export * from './sim/boost.js';
 export * from './sim/slow.js';
 export * from './sim/offers.js';
-export * from './sim/deck.js';
-export * from './sim/deckRules.js';
-export * from './sim/pool.js';
+export * from './sim/draw.js';
 export * from './sim/collision.js';
 export * from './sim/silhouette.js';
 export * from './sim/radarRaster.js';

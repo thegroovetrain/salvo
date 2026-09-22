@@ -54,7 +54,7 @@ const OFFER_B = ['reload', 'speed', 'radarSweep', 'navalMines'];
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', pts: 1, offer: [...OFFER],
+    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', pts: 1, offer: [...OFFER],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     ...over,
   };
@@ -735,10 +735,10 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
 
   it('counter-scales the LABEL and the FOOT through it, and nothing else', () => {
     const menu = new UpgradeMenu(() => {});
-    const you = ownShip({ offer: ['decoyBuoy', 'radarSweep'] });
+    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
     const belt = [null, null, null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const;
     menu.toggle(offerView(you, false, false, false, belt)!);
-    // The REFUSED card (decoyBuoy) is the one that prints a foot; the live card
+    // The REFUSED card (supercavTorpedo) is the one that prints a foot; the live card
     // beside it (radarSweep) is the one that prints a stat row.
     const foot = (cards()[0].lastElementChild as HTMLElement).lastElementChild as HTMLElement;
     const body = cards()[1].lastElementChild as HTMLElement;
@@ -1398,22 +1398,53 @@ describe('the greyed card — a refusal stated before the press', () => {
     return [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
   }
 
-  it('greys ONLY a consumable, and only when the belt cannot take it', () => {
-    // A fifth distinct line has nowhere to go.
-    expect(cardGreyed(CATALOG.decoyBuoy, FULL_BELT)).toBe(true);
+  it('greys a consumable the belt cannot take', () => {
+    // A fifth distinct line has nowhere to go. (SUPERCAV, not a stub line: the
+    // shared predicate reads an unbuilt line as a refusal of its own, and this
+    // pin is about the BELT.)
+    expect(cardGreyed(CATALOG.supercavTorpedo, FULL_BELT)).toBe(true);
     // A line the belt ALREADY holds always fits — the stack just grows.
     expect(cardGreyed(CATALOG.hullRepair, FULL_BELT)).toBe(false);
     // With a square free, anything fits.
-    expect(cardGreyed(CATALOG.decoyBuoy, ROOM_LEFT)).toBe(false);
-    // No other KIND can ever be refused: a ladder lands on the hull, a weapon
-    // on a weapon slot, an add-on on a verb.
-    for (const id of ['radarSweep', 'heavyTorpedo', 'dazzleShells']) {
+    expect(cardGreyed(CATALOG.supercavTorpedo, ROOM_LEFT)).toBe(false);
+    // A ladder lands on the hull and an add-on on a verb: neither can be
+    // refused by a full belt.
+    for (const id of ['radarSweep', 'dazzleShells']) {
       expect(cardGreyed(CATALOG[id], FULL_BELT), id).toBe(false);
     }
   });
 
+  // --- THE OTHER TWO REFUSALS (Story 8.14 review, F1) -----------------------
+  // The card face used to ask `canStock` alone, which a line that already owns
+  // a belt square always passes. Amendment 94 deals a consumable AT ITS CAP on
+  // purpose, so the player was shown a live HULL REPAIR card that the server
+  // (after F1) refuses — a press into nothing, and before F1 a level spent on
+  // a sixth copy no belt square shows.
+
+  it('greys a line the player already holds AT ITS CAP, even with belt room', () => {
+    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
+    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, five)).toBe(true);
+    // ...one short of the cap it is a live card again.
+    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, five.slice(1))).toBe(false);
+    // Every kind, not just consumables.
+    expect(cardGreyed(CATALOG.armor, ROOM_LEFT, new Array<string>(CATALOG.armor.cap).fill('armor'))).toBe(true);
+  });
+
+  it('greys copy 1 of a weapon when Q/E/R are full, and never a later copy', () => {
+    const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
+    expect(cardGreyed(CATALOG.broadside, rowFull, [])).toBe(true);
+    expect(cardGreyed(CATALOG.broadside, rowFull, ['broadside'])).toBe(false); // a TIER card
+    expect(cardGreyed(CATALOG.broadside, ROOM_LEFT, [])).toBe(false); // row open
+  });
+
+  it('carries the at-cap refusal onto the OfferCard too', () => {
+    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
+    const you = ownShip({ offer: ['hullRepair', 'radarSweep'], cards: five });
+    expect(offerView(you, false, false, false, ROOM_LEFT)?.options.map((o) => o.greyed)).toEqual([true, false]);
+  });
+
   it('carries the flag onto the OfferCard, through the same shared predicate', () => {
-    const you = ownShip({ offer: ['decoyBuoy', 'hullRepair', 'radarSweep', 'dazzleShells'] });
+    const you = ownShip({ offer: ['supercavTorpedo', 'hullRepair', 'radarSweep', 'dazzleShells'] });
     const view = offerView(you, false, false, false, FULL_BELT);
     expect(view?.options.map((o) => o.greyed)).toEqual([true, false, false, false]);
     // ...and with room on the belt nothing is greyed.
@@ -1423,7 +1454,7 @@ describe('the greyed card — a refusal stated before the press', () => {
 
   it('renders the refusal three ways: dimmed face, DASHED chip, boxed SLOTS FULL', () => {
     const menu = new UpgradeMenu(() => {});
-    const you = ownShip({ offer: ['decoyBuoy', 'radarSweep'] });
+    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
     menu.toggle(offerView(you, false, false, false, FULL_BELT)!);
     const [refused, ok] = cards();
     expect(refused.style.opacity).toBe(String(R.greyedAlpha));
@@ -1444,7 +1475,7 @@ describe('the greyed card — a refusal stated before the press', () => {
   it('sends NOTHING on a greyed card\'s click — no spend, and no denied pulse', () => {
     const spends: number[] = [];
     const menu = new UpgradeMenu((c) => spends.push(c));
-    const you = ownShip({ offer: ['decoyBuoy', 'radarSweep'] });
+    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
     menu.toggle(offerView(you, false, false, false, FULL_BELT)!);
     cards()[0].click();
     expect(spends).toEqual([]);
@@ -1458,7 +1489,7 @@ describe('the greyed card — a refusal stated before the press', () => {
   it('is DISTINCT from the spend-latch dim — a refusal must stay readable', () => {
     expect(R.greyedAlpha).toBeGreaterThan(R.lockedAlpha);
     const menu = new UpgradeMenu(() => {});
-    const you = ownShip({ offer: ['decoyBuoy', 'radarSweep'] });
+    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
     // Locked dims the WHOLE row and genuinely disables it; greyed does neither.
     menu.toggle({ ...offerView(you, false, true, false, FULL_BELT)!, locked: true });
     for (const b of cards()) {

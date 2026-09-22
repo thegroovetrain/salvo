@@ -15,7 +15,6 @@ import {
   CATALOG,
   CONFIG,
   CONSUMABLE_IDS,
-  DEFAULT_DECKS,
   SHIP_CLASS_IDS,
   effectiveStats,
   hullIsFull,
@@ -120,22 +119,15 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
     expect(HEAL_PER_COPY).toBe(100);
   });
 
-  it('the line caps at 5 copies and every default deck carries exactly 3', () => {
+  it('the line caps at 5 copies — THE one heal bound now that decks are gone', () => {
+    // Story 8.14 (epic-8 amendment 89a): there is no deck and no match pool, so
+    // there is no AUTHORED copy budget under the cap any more. The common pool
+    // holds every line with unlimited copies, and `cap` alone bounds the heal.
     expect(CATALOG.hullRepair.cap).toBe(5);
-    for (const hull of SHIP_CLASS_IDS) {
-      const copies = DEFAULT_DECKS[hull].filter((id) => id === 'hullRepair');
-      expect(copies, hull).toHaveLength(3); // amendment 10 — the universal 30
-    }
   });
 
-  it('a default deck can heal at most 300 hp in a match; the CATALOG bound is 500 hp', () => {
-    // The AUTHORED budget (what a captain can actually draw today) is 3 copies;
-    // the CATALOG bound (what the cap permits, once Story 8.11's match pool can
-    // hand out more than one deck holds) is 5. Both are pinned because the
-    // ceiling below is derived from the looser one.
-    expect(3 * HEAL_PER_COPY).toBe(300);
+  it('a captain can heal at most 500 hp in a match — the CATALOG bound is the whole bound', () => {
     expect(CATALOG.hullRepair.cap * HEAL_PER_COPY).toBe(500);
-    expect(3 * HEAL_PER_COPY).toBeLessThanOrEqual(CATALOG.hullRepair.cap * HEAL_PER_COPY);
   });
 
   it('the collapse ceiling is 237.5 s — (max hull 450 + heal bound 500) / stormDps', () => {

@@ -54,6 +54,12 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // hull ids exist only on drones, which have no client). Contacts carry the
     // full HullId instead — that lives in signals.ts's contact row.
     cls: ship.hullId as ShipClassId,
+    // THE SEAT'S GUN (Story 8.14, amendments 89d/95) — SELF-PRIVATE on exactly
+    // the terms `cls` is: it rides `you` and NOTHING else, because which gun an
+    // enemy picked is build information. The client replays `loadoutFor(stats,
+    // false, gun)` from it, which is the only reason it rides at all. Slot 0
+    // mounts the deck-gun MODULE for all three until Story 8.15.
+    gun: ship.gun,
     // (OwnShip.upg died with the legacy upgrade economy — Story 2.8's
     // wholesale strip. The client derives effective stats from (cls, boons).)
     // Banked levels = the bare unspent-level count (single source of truth).

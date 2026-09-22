@@ -42,6 +42,7 @@
 
 import {
   CONFIG,
+  DEFAULT_GUN,
   SHIP_CLASS_IDS,
   mulberry32,
   paintCoverage,
@@ -579,6 +580,7 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
     ],
     sweep: (tick * 0.06) % (Math.PI * 2),
     cls: OWN_CLASS,
+    gun: DEFAULT_GUN,
     pts: bankedPointsAt(tick, world.profile),
     offer: ['radarSweep', 'heavyTorpedo', 'broadside'],
     boostUntil: 0,

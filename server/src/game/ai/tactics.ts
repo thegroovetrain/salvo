@@ -200,6 +200,9 @@ export function spendStateOf(self: BotSelf): BotSpendState {
     bankedLevels: self.bankedLevels,
     offer: self.offer,
     cards: self.cards,
+    // The nine slot contents, so the scorer can skip a card `spendCard` would
+    // refuse (Story 8.14 review, F4) — a self-read like every other field here.
+    slotIds: self.loadout.map((s) => s.equipmentId),
     hp: self.hp,
     maxHp: self.stats.maxHp,
   };

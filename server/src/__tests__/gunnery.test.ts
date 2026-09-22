@@ -28,7 +28,7 @@ function place(
   heading = 0,
   hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard

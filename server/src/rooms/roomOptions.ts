@@ -5,7 +5,16 @@
 // options — see sanitizeRoomOptions for why they must never reach a
 // production room ungated).
 
-import { CONFIG, PROTOCOL_VERSION, REGATTA_HUES, type ZoneTimeline } from '@salvo/shared';
+import {
+  CONFIG,
+  DEFAULT_GUN,
+  isGunId,
+  PROTOCOL_VERSION,
+  REGATTA_HUES,
+  type GunId,
+  type ZoneTimeline,
+} from '@salvo/shared';
+import type { Logger } from '../log.js';
 
 /**
  * Callsign cap, in CODE POINTS. Mirrors the client's display/entry cap
@@ -66,28 +75,18 @@ export interface JoinOptions {
    */
   solo?: boolean;
   /**
-   * WHICH of the captain's decks to sail (Story 8.2, the Epic 9 port). A plain
-   * join option (NOT dev-gated): sanitizeDeckOptions trims it and caps it at
-   * 64 code points, else drops it. ACCEPTED BUT UNREAD today — with no account
-   * module `loadDeckFor` ignores it and every captain sails the hull's default
-   * deck. The shipped client does NOT send it (a field with no consumer may
-   * not ride — the Story 4.9 rule); the server accepting it is what lets Epic 9
-   * add the client half without a wire change at the door.
+   * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
+   * captain picked — `deckGun` | `machineGun` | `flak`. A PLAIN join option
+   * (NOT gated by HC_DEV_OPTIONS, like `cls`): onJoin runs it through
+   * `sanitizeGun`, so anything missing, unknown or non-string becomes
+   * `deckGun`. The queue freezes the sanitized value into the seat
+   * reservation's server-only `auth`, exactly as the deck used to ride it.
+   *
+   * All three ids are ACCEPTED NOW and `machineGun`/`flak` mount the shipped
+   * deck-gun module until Story 8.15 builds the other two (MOUNTED_GUN); the
+   * shipped client sends `deckGun` until the picker exists.
    */
-  deckId?: string;
-  /**
-   * DEV TOOL for tests/smokes only — the real client NEVER sets it. A full
-   * 40-id list that REPLACES `loadDeckFor`'s answer and still goes through
-   * `checkDeck` at the door (which is how the refusal path is reached end to
-   * end). Honoured ONLY under HC_DEV_OPTIONS=1 (the matchOverride precedent);
-   * otherwise dropped, reported in `rejectedKeys` and logged once
-   * (`deck.devOptionsRejected`). SHAPE-sanitized even when honoured — an
-   * array of at most DECK_OVERRIDE_MAX strings, each at most 64 code points,
-   * else the whole override is dropped and reported — but the IDS THEMSELVES
-   * are not filtered: an unknown id rides through to `checkDeck` and is
-   * refused as `unowned`, rather than being quietly replaced by the default.
-   */
-  deckOverride?: readonly string[];
+  gun?: unknown;
   /**
    * DEV SMOKE ARM for tests/smokes only (Story 8.10, epic-8 amendment 65) —
    * the real client NEVER sets it, and production never sees it. A list of
@@ -96,107 +95,59 @@ export interface JoinOptions {
    * because FR48 deleted the interim spawn seed: a hull now spawns holding
    * NOTHING, which left the two weapon smokes (matchSmoke, weaponsSmoke)
    * clicking an empty Q slot. Honoured ONLY under HC_DEV_OPTIONS=1 (the
-   * deckOverride precedent); otherwise dropped, reported in `rejectedKeys`
-   * and logged once (`deck.devOptionsRejected`). SHAPE-sanitized when
-   * honoured (the same bounds deckOverride uses) but the IDS are NOT
-   * filtered here: the World drops an id its deck cannot pay for.
+   * matchOverride precedent); otherwise dropped, reported in `rejectedKeys`
+   * and logged once. SHAPE-sanitized when honoured, but the IDS are NOT
+   * filtered here: the World drops an id the catalog cannot resolve, a stub,
+   * and a line already held at its cap (`applyDevFit`).
+   *
+   * A JOIN OPTION THE ROOM SANITIZER RETURNS (Story 8.14): the deck door it
+   * used to arrive through is gone, so `sanitizeRoomOptions` carries it now,
+   * behind the same dev gate.
    */
   fitOverride?: readonly string[];
-  /**
-   * NEVER ACCEPTED. A client may not supply deck CONTENTS (epic-8 Anti-cheat:
-   * "the option sanitizer rejects a `deck` key at both doors"): the presence of
-   * the key — any value, even `undefined` — makes the door REFUSE the join
-   * with `deck.illegal { rule: 'clientSupplied' }`. Typed so the sanitizer can
-   * name it; it never reaches a room.
-   */
-  deck?: unknown;
 }
 
-/** Deck-shaped join options after sanitizeDeckOptions. */
-export interface DeckOptions {
-  /** Trimmed, ≤ 64 code points; absent when missing or malformed. */
-  deckId?: string;
-  /** A dev override, shape-sanitized but NOT id-filtered (the door's
-   *  `checkDeck` judges the ids); present ONLY when devEnabled honoured it. */
-  deckOverride?: readonly string[];
-  /** A dev SPAWN FIT list (amendment 65), shape-sanitized but NOT id-filtered
-   *  (the World judges the ids against the hull's own deck); present ONLY
-   *  when devEnabled honoured it. */
-  fitOverride?: readonly string[];
-  /** The `deck` key was present — the door must refuse (clientSupplied). */
-  clientDeck: boolean;
-  /** Keys DROPPED — the dev gate was closed, or the shape was malformed:
-   *  any of `['deckOverride', 'fitOverride']`, in that order, or empty. The
-   *  door logs them once. */
-  rejectedKeys: string[];
+/**
+ * THE SEAT'S GUN, SANITIZED (Story 8.14, amendment 95). One of the three
+ * `GunId`s, or `DEFAULT_GUN` for anything else — missing, unknown, non-string,
+ * an object, a number. FAIL-OPEN TO THE DEFAULT, never a refusal: a gun is an
+ * identity option like `cls` and `horn`, not a privileged override, and a
+ * captain whose client sends junk sails the deck gun rather than bouncing off
+ * the door.
+ *
+ * A PRESENT-BUT-INVALID value is LOGGED once, in the coerced-option style the
+ * other doors use, so a client shipping a bad id is visible instead of silently
+ * reinterpreted; an ABSENT value logs nothing (that is every shipped client
+ * until the Story 8.15 picker). Pure apart from the optional logger.
+ */
+export function sanitizeGun(raw: unknown, log?: Logger): GunId {
+  if (isGunId(raw)) return raw;
+  if (raw !== undefined) log?.warn('join.gunCoerced', { to: DEFAULT_GUN });
+  return DEFAULT_GUN;
 }
 
-/** Callsign-style cap for a deck id, in CODE POINTS (Epic 9 names decks; a
- *  64-point id is a generous bound for an opaque store key). */
-export const DECK_ID_MAX = 64;
-
-/** A trimmed, bounded deck id, or undefined for anything malformed/empty. */
-function sanitizeDeckId(v: unknown): string | undefined {
-  if (typeof v !== 'string') return undefined;
-  const trimmed = v.trim();
-  if (trimmed === '' || Array.from(trimmed).length > DECK_ID_MAX) return undefined;
-  return trimmed;
-}
-
-/** Bounds on a dev override: entries, and code points per entry. Generous —
- *  they exist to keep a hostile payload from reaching the rules engine at all,
- *  not to express any deck rule (a 40-card deck is CONFIG.deck.size). */
-export const DECK_OVERRIDE_MAX = 256;
-const OVERRIDE_ID_MAX = DECK_ID_MAX;
+/** Bounds on a dev id list: entries, and code points per entry. Generous —
+ *  they exist to keep a hostile payload from reaching the World at all. */
+export const DEV_LIST_MAX = 256;
+const DEV_ID_MAX = 64;
 
 /**
  * A bounded array of PLAIN STRINGS, or undefined when the value is not an
- * array, carries more than DECK_OVERRIDE_MAX entries, or holds a non-string /
- * over-long entry — in which case the caller DROPS the override and reports
- * it, so a malformed dev payload is never silent.
+ * array, carries more than DEV_LIST_MAX entries, or holds a non-string /
+ * over-long entry — in which case the caller DROPS the list and reports it, so
+ * a malformed dev payload is never silent.
  *
- * DELIBERATELY NOT FILTERED AGAINST THE CATALOG (orchestrator ruling, review
- * of Story 8.2): an unknown id used to drop the whole override, and the door
- * then sailed the DEFAULT — a silent substitution on the dev path, and it made
- * `checkDeck`'s `unowned` rule unreachable from either door. Ids are passed
- * through verbatim and `checkDeck` judges them, so an unknown id is REFUSED as
- * `unowned` end to end. The list is copied, so nothing downstream aliases the
- * raw join options.
- *
- * SHARED BY BOTH DEV ID LISTS since Story 8.10: `fitOverride` (amendment 65)
- * wants exactly this shape check and exactly this "the ids are somebody
- * else's problem" posture — the World drops a fit id its deck cannot pay for.
+ * DELIBERATELY NOT FILTERED AGAINST THE CATALOG: the ids are somebody else's
+ * problem — the World drops a fit id it cannot resolve, a stub line, and one
+ * the hull already holds at its cap. The list is copied, so nothing downstream
+ * aliases the raw join options.
  */
-function sanitizeDeckOverride(v: unknown): readonly string[] | undefined {
-  if (!Array.isArray(v) || v.length > DECK_OVERRIDE_MAX) return undefined;
+function sanitizeIdList(v: unknown): readonly string[] | undefined {
+  if (!Array.isArray(v) || v.length > DEV_LIST_MAX) return undefined;
   for (const id of v) {
-    if (typeof id !== 'string' || Array.from(id).length > OVERRIDE_ID_MAX) return undefined;
+    if (typeof id !== 'string' || Array.from(id).length > DEV_ID_MAX) return undefined;
   }
   return [...(v as string[])];
-}
-
-/**
- * Sanitize the deck-shaped join options (Story 8.2), used by BOTH doors.
- * `devEnabled` must come from `process.env.HC_DEV_OPTIONS === '1'` (checked by
- * the caller, like sanitizeRoomOptions). Pure, zero Colyseus.
- *
- *   - `deck` present (any value) → `clientDeck: true`; the door refuses.
- *   - `deckId` → trimmed string ≤ DECK_ID_MAX code points, else dropped.
- *   - `deckOverride` → honoured (shape-sanitized, ids NOT filtered) only under
- *     devEnabled; dropped and pushed to `rejectedKeys` for the door to log
- *     once when the gate is closed OR the shape is malformed.
- *   - `fitOverride` (Story 8.10, amendment 65) → the SAME treatment, the same
- *     shape, the same bounds; reported after `deckOverride` when both drop.
- */
-export function sanitizeDeckOptions(options: JoinOptions, devEnabled: boolean): DeckOptions {
-  const out: DeckOptions = { clientDeck: Object.hasOwn(options, 'deck'), rejectedKeys: [] };
-  const deckId = sanitizeDeckId(options.deckId);
-  if (deckId !== undefined) out.deckId = deckId;
-  const deckOverride = admitDevIdList(options.deckOverride, devEnabled, 'deckOverride', out.rejectedKeys);
-  if (deckOverride !== undefined) out.deckOverride = deckOverride;
-  const fitOverride = admitDevIdList(options.fitOverride, devEnabled, 'fitOverride', out.rejectedKeys);
-  if (fitOverride !== undefined) out.fitOverride = fitOverride;
-  return out;
 }
 
 /**
@@ -207,18 +158,17 @@ export function sanitizeDeckOptions(options: JoinOptions, devEnabled: boolean): 
  * case, which then sailed the default with nothing in the log to say the
  * override had been thrown away.
  *
- * Shared by the SEAT options (deckOverride/fitOverride, sanitizeDeckOptions)
- * and the ROOM's one id list (poolOverride, sanitizeRoomOptions): same gate,
- * same shape bounds, same reporting, whichever side of the door it arrives on.
+ * THE ONE DEV ID LIST LEFT since Story 8.14 retired the deck: `fitOverride`
+ * (amendment 65). The helper keeps its shape so a second one costs nothing.
  */
 function admitDevIdList(
   raw: readonly string[] | undefined,
   devEnabled: boolean,
-  key: 'deckOverride' | 'fitOverride' | 'poolOverride',
+  key: 'fitOverride',
   rejectedKeys: string[],
 ): readonly string[] | undefined {
   if (raw === undefined) return undefined;
-  const list = devEnabled ? sanitizeDeckOverride(raw) : undefined;
+  const list = devEnabled ? sanitizeIdList(raw) : undefined;
   if (list === undefined) rejectedKeys.push(key);
   return list;
 }
@@ -307,29 +257,16 @@ export interface RoomOptions extends JoinOptions {
    * sanitizeExpectedCaptains.
    */
   expectedCaptains?: number;
-  /**
-   * DEV TOOL for smokes/tests only (Story 8.11): pin this match's CONSUMABLE
-   * POOL to an exact list instead of rolling one, so a headless smoke can
-   * assert a deterministic pool. A ROOM option and not a join option — unlike
-   * `deckOverride`/`fitOverride`, the pool belongs to the ROOM, not the seat:
-   * one list, rolled once, identical for every captain and bot in the match.
-   * Gated by sanitizeRoomOptions exactly like matchOverride (HC_DEV_OPTIONS=1
-   * only) AND shape-sanitized even when dev is enabled (admitDevIdList); the
-   * World then drops anything that is not a catalog CONSUMABLE line
-   * (sanitizePool), so this can never smuggle an equipment line into a deck.
-   * Production never honours it: without the env the key is dropped and
-   * reported in `rejectedKeys`.
-   */
-  poolOverride?: readonly string[];
 }
 
 export interface SanitizedRoomOptions {
   matchOverride?: MatchOverride;
   zoneOverride?: ZoneTimeline;
   mapSeed?: number;
-  /** Dev-only explicit match pool (Story 8.11) — shape-sanitized here, id-
-   *  filtered by the World's sanitizePool; undefined = roll one. */
-  poolOverride?: readonly string[];
+  /** THE DEV SPAWN FIT (Story 8.10, amendment 65; re-homed here in 8.14 when
+   *  the deck door was deleted) — shape-sanitized, ids judged by the World.
+   *  Present ONLY under HC_DEV_OPTIONS=1; stripped and reported otherwise. */
+  fitOverride?: readonly string[];
   /** Clamped group size from the queue; undefined = no boarding expectation
    *  (a directly-created dev/smoke arena). */
   expectedCaptains?: number;
@@ -363,9 +300,9 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
   // door. Safety is structural rather than environmental: the flag only ever
   // reaches a room the asker just created for itself (see JoinOptions.solo).
   const solo = sanitizeSolo(options.solo);
-  // poolOverride (Story 8.11) goes through admitDevIdList rather than the
-  // pass-it-through treatment matchOverride gets, so a MALFORMED shape is
-  // dropped AND reported even with the gate open — the deckOverride posture.
+  // fitOverride goes through admitDevIdList rather than the pass-it-through
+  // treatment matchOverride gets, so a MALFORMED shape is dropped AND reported
+  // even with the gate open.
   const rejectedKeys: string[] = [];
   if (devEnabled) {
     return {
@@ -373,7 +310,7 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
         matchOverride: options.matchOverride,
         zoneOverride: options.zoneOverride,
         mapSeed: sanitizeMapSeed(options.mapSeed),
-        poolOverride: admitDevIdList(options.poolOverride, true, 'poolOverride', rejectedKeys),
+        fitOverride: admitDevIdList(options.fitOverride, true, 'fitOverride', rejectedKeys),
         expectedCaptains,
         solo,
       },
@@ -385,7 +322,7 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
   if (options.mapSeed !== undefined) rejectedKeys.push('mapSeed');
   // Reported LAST of the room keys, and only when present (admitDevIdList's
   // absent-means-silent rule) — the gate is closed, so the list is dropped.
-  admitDevIdList(options.poolOverride, false, 'poolOverride', rejectedKeys);
+  admitDevIdList(options.fitOverride, false, 'fitOverride', rejectedKeys);
   return { sanitized: { expectedCaptains, solo }, rejectedKeys };
 }
 

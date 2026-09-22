@@ -74,7 +74,7 @@ function lay(w: World, id: string, ownerId: string, x: number, y: number, kind: 
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard
@@ -527,7 +527,7 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
     w.applyCard(o, 'captiveMines');
-    const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 40 }, []);
+    const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 40 });
     w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
     lay(w, 'm1', 'o', 0, 0, 'captive');
     return { w, o, d };
@@ -579,7 +579,7 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
     // ...and a NEUTRAL drone sits NEARER the launch point, on the far side of
     // the fish's course and well inside the family's 120 u acquire range. An
     // unlocked fish takes the drone — it is the nearest thing in the water.
-    const drone = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 45, y: 25 }, []);
+    const drone = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 45, y: 25 });
     drone.state = { x: 45, y: 25, heading: 0, speed: 0 };
     w.drones.add('d', 'medium', 1, { x: 45, y: 25 }); // stationed where it stands
     lay(w, 'm1', 'o', 0, 0, 'captive');
@@ -605,7 +605,7 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
       const w = bareWorld(kind === 'naval' ? 3 : 5);
       const o = place(w, 'o', 600, 600, 0, 'mineLayer');
       if (kind === 'fouling') w.applyCard(o, 'foulingMines');
-      w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 20 }, []);
+      w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 20 });
       w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
       lay(w, 'm1', 'o', 0, 0, kind);
       w.step();

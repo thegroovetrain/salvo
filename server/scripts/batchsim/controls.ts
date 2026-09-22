@@ -113,10 +113,6 @@
 // Same run key => byte-identical input streams (unit-pinned).
 
 import {
-  CATALOG,
-  CONFIG,
-  DEFAULT_OWNED,
-  LINE_IDS,
   angleDiff,
   isAfloat,
   mulberry32,
@@ -124,46 +120,19 @@ import {
   SLOT_GUN,
   type InputMsg,
   type Island,
-  type LineId,
   type Rng,
   type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord, World } from '../../src/game/world.js';
 import { pickSpendChoice } from './spendPolicy.js';
 
-/**
- * THE PACIFIST DECK (Story 8.2, AR50 — the pacifist posture as a DECK, not
- * just a script). 40 cards and ZERO equipment lines, drawn from a fresh
- * account's unlocks (`DEFAULT_OWNED`): every owned ladder, the deck-gun family
- * and every owned consumable at its catalog cap, trimmed to CONFIG.deck.size
- * in LINE_IDS order. Legal by construction — `checkDeck` passes it (pinned in
- * batchSim.test.ts) — which is itself a proof of the rule "a pure-gunboat deck
- * is legal". The pacifist control sails it (`CaptainControl.deck`), so the
- * control's economy spends real levels on cards that never arm a weapon slot.
- *
- * Today: armor 4 · speed 4 · turning 4 · radarSweep 5 · reload 5 · deckGun 4 ·
- * deckGunTurret 1 · deckGunBarrel 2 · supercavTorpedo 5 · hullRepair 5 ·
- * shieldBlock 1 = 40 (the trim lands one card into SHIELD BLOCK; smoke and
- * chaff are cut). Recomputed from the catalog, so a stub flip or a cap change
- * moves it — and Story 8.13 moved it: SUPERCAV TORPEDO became a CONSUMABLE
- * (epic-8 amendment 74) and joined `DEFAULT_OWNED`, so five of its copies now
- * sit here. IT IS STILL ZERO EQUIPMENT LINES, which is the whole contract: a
- * consumable arms no weapon SLOT, and the pacifist never presses its belt.
- */
-export const PACIFIST_DECK: readonly LineId[] = Object.freeze(
-  LINE_IDS.flatMap((id) => {
-    const line = CATALOG[id];
-    if (line.kind === 'equipment' || line.kind === 'addon' || !DEFAULT_OWNED.has(id)) return [];
-    return new Array<LineId>(line.cap).fill(id);
-  }).slice(0, CONFIG.deck.size),
-);
-
 /** One scripted captain: drive your ship (and spend your levels) this tick.
- *  `deck` (Story 8.2) is the frozen 40-id list the runner hands `addShip` for
- *  this captain — a control declares what it sails. */
+ *  THE `deck` FIELD IS GONE (Story 8.14, amendments 89a/95b): decks are retired
+ *  and every captain draws from the one common pool, so a control no longer
+ *  declares what it sails — the pacifist posture is the SCRIPT (never aims,
+ *  never fires), not a hand-built card list. */
 export interface CaptainControl {
   readonly id: string;
-  readonly deck: readonly LineId[];
   tick(world: World): void;
 }
 
@@ -298,8 +267,6 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
  * makes the "never fires" pin structural rather than behavioural.
  */
 class PacifistControl implements CaptainControl {
-  /** The pacifist posture as a deck: zero equipment lines (see PACIFIST_DECK). */
-  readonly deck = PACIFIST_DECK;
   private seq = 0;
   private waypoint: Vec2 | null = null;
   private readonly rng: Rng;
@@ -328,7 +295,11 @@ class PacifistControl implements CaptainControl {
     if (!ship) return;
     // Spends are legal while dead (builds persist across waiting-phase deaths);
     // drain at most one banked level per tick through the REAL spend flow.
-    if (ship.offer !== null) world.spendPoint(this.id, pickSpendChoice(ship.offer, this.rng, ship.cards));
+    if (ship.offer !== null) {
+      // null = every card in the hand is refused (review F4): hold the level.
+      const choice = pickSpendChoice(ship.offer, this.rng, ship.cards, ship.loadout.map((s) => s.equipmentId));
+      if (choice !== null) world.spendPoint(this.id, choice);
+    }
     if (!isAfloat(ship.lifecycle)) {
       // A respawn teleports the hull: carrying the pre-death pose forward would
       // read as a giant displacement (harmless) or, worse, keep a stale stuck

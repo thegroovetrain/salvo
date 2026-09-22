@@ -4,7 +4,7 @@
 // sets reconnection.enabled + a maxRetries sized to span that window, and rides
 // a `pv` (PROTOCOL_VERSION) in the join options for the server's version gate.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_HORN_ID, MSG, PROTOCOL_VERSION, REGATTA_HUES } from '@salvo/shared';
+import { DEFAULT_GUN, DEFAULT_HORN_ID, MSG, PROTOCOL_VERSION, REGATTA_HUES } from '@salvo/shared';
 
 interface FakeRoom {
   reconnection: { enabled: boolean; maxRetries: number };
@@ -388,6 +388,9 @@ describe('connect — the SOLO VS AI door (Story 6.5)', () => {
     expect(lastCreateOpts?.name).toBe('tester');
     expect(lastCreateOpts?.horn).toBe(DEFAULT_HORN_ID);
     expect(typeof lastCreateOpts?.colorPref).toBe('number');
+    // Story 8.14: the SEAT'S GUN rides the solo door exactly as it rides the
+    // queue door — the solo arena seats a captain the same way.
+    expect(lastCreateOpts?.gun).toBe(DEFAULT_GUN);
   });
 
   it('binds NO queue channel and hands out NO canceller — there is nothing to wait for', async () => {
@@ -438,6 +441,17 @@ describe('connect', () => {
   it('rides the current PROTOCOL_VERSION as `pv` in the join options', async () => {
     await connectAndWelcome();
     expect(lastJoinOpts?.pv).toBe(PROTOCOL_VERSION);
+  });
+
+  it("forwards the seat's gun as `gun` — DEFAULT_GUN until 8.15 ships the picker", async () => {
+    await connectAndWelcome();
+    // Story 8.14 (epic-8 amendments 89d/95): the gun is the captain's PICK,
+    // frozen at queue and re-sanitized server-side exactly like `cls`. There is
+    // no picker and no stored preference yet, so EVERY join sends the default —
+    // and it is always SENT, never omitted, so the server's coercion path is
+    // never what decides a real captain's gun.
+    expect(lastJoinOpts?.gun).toBe(DEFAULT_GUN);
+    expect(lastJoinOpts?.gun).toBe('deckGun');
   });
 
   it('forwards the persisted foghorn variant as `horn` (Story 4.5, amendment 52)', async () => {
@@ -506,24 +520,6 @@ describe('connectErrorStatus', () => {
   it('keeps the generic server-down hint for other failures', () => {
     expect(connectErrorStatus(new Error('timed out waiting for welcome'))).toMatch(/:2567/);
     expect(connectErrorStatus(undefined)).toMatch(/:2567/);
-  });
-
-  // A DECK REFUSAL (Story 8.2): the server refuses an illegal deck at the door
-  // with ServerError(DECK_REFUSED_CODE = 4402 — server/src/game/decks.ts, an
-  // app-level code outside every Colyseus ErrorCode/CloseCode; hardcoded here
-  // because the client must not import the server workspace). It renders
-  // through the GENERIC branch, never as "VERSION MISMATCH": a refused deck is
-  // not a stale bundle, and a refresh would not fix it. No new copy (UX-DR71's
-  // surface is Epic 9's).
-  it('renders a deck refusal (code 4402) through the generic branch, never the version-mismatch branch', () => {
-    for (const rule of ['clientSupplied', 'size', 'equipmentLines', 'unowned', 'overCap']) {
-      const status = connectErrorStatus(codedError(4402, `deck illegal: ${rule}`));
-      expect(status).not.toMatch(/VERSION MISMATCH|REFRESH/);
-      expect(status).toMatch(/CONNECTION FAILED/);
-    }
-    // ...and the code, not the wording, discriminates: the same text with the
-    // auth code would still be the version line (unchanged behaviour).
-    expect(connectErrorStatus(codedError(525, 'deck illegal: size'))).toMatch(/REFRESH/);
   });
 });
 

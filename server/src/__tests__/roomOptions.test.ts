@@ -3,12 +3,11 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_DECKS } from '@salvo/shared';
+import { DEFAULT_GUN, GUN_IDS } from '@salvo/shared';
 import {
-  DECK_ID_MAX,
-  DECK_OVERRIDE_MAX,
+  DEV_LIST_MAX,
   NAME_MAX,
-  sanitizeDeckOptions,
+  sanitizeGun,
   sanitizeName,
   sanitizeRoomOptions,
   type JoinOptions,
@@ -126,60 +125,57 @@ describe('sanitizeRoomOptions — devEnabled=true (HC_DEV_OPTIONS=1, smokes/test
   });
 });
 
-// --- poolOverride (Story 8.11) ----------------------------------------------
-// THE MATCH CONSUMABLE POOL's dev arm, and the one dev id list that is a ROOM
-// option rather than a seat option: the pool belongs to the room (one roll, one
-// list, every captain and bot in the match gets the same one), so it is
-// sanitized HERE, by the same `admitDevIdList` that gates deckOverride /
-// fitOverride — same gate, same bounds, same reporting. Production never sees
-// it. Ids are NOT filtered here: the World's `sanitizePool` is what refuses a
-// non-consumable line, which is what makes "a pool can never add an equipment
-// line to a deck" structural rather than a sanitizer promise.
+// --- fitOverride (Story 8.10, amendment 65; re-homed here in Story 8.14) -----
+// THE DEV SPAWN FIT is the ONE dev id list left now that the deck door is gone.
+// It used to arrive through `sanitizeDeckOptions` at the seat; with no deck to
+// pay a copy out of it is admitted here instead, by the same `admitDevIdList`
+// — same gate, same bounds, same reporting. PRODUCTION MUST NEVER SEE IT, which
+// is what the gate-off rows pin. Ids are NOT filtered here: the World drops an
+// id the catalog cannot resolve, a stub line, and one already held at its cap.
 
-describe('sanitizeRoomOptions — poolOverride (the dev match pool)', () => {
-  const POOL = ['hullRepair', 'hullRepair', 'chaff'];
+describe('sanitizeRoomOptions — fitOverride (the dev spawn fit)', () => {
+  const FIT = ['heavyTorpedo', 'nope', 'lightTorpedo'];
 
   it('is DROPPED and reported without HC_DEV_OPTIONS, whatever its shape', () => {
-    const out = sanitizeRoomOptions({ poolOverride: POOL }, false);
-    expect(out.sanitized.poolOverride).toBeUndefined();
-    expect(out.rejectedKeys).toEqual(['poolOverride']);
-    expect(sanitizeRoomOptions({ poolOverride: 'junk' as unknown as string[] }, false).rejectedKeys)
-      .toEqual(['poolOverride']);
+    const out = sanitizeRoomOptions({ fitOverride: FIT }, false);
+    expect(out.sanitized.fitOverride).toBeUndefined();
+    expect(out.rejectedKeys).toEqual(['fitOverride']);
+    expect(sanitizeRoomOptions({ fitOverride: 'junk' as unknown as string[] }, false).rejectedKeys)
+      .toEqual(['fitOverride']);
   });
 
   it('is honoured under devEnabled as a FRESH array, ids unfiltered (the World judges them)', () => {
-    const list = [...POOL, 'nope', 'armor'];
-    const out = sanitizeRoomOptions({ poolOverride: list }, true);
-    expect(out.sanitized.poolOverride).toEqual(list);
-    expect(out.sanitized.poolOverride).not.toBe(list);
+    const list = [...FIT];
+    const out = sanitizeRoomOptions({ fitOverride: list }, true);
+    expect(out.sanitized.fitOverride).toEqual(FIT);
+    expect(out.sanitized.fitOverride).not.toBe(list);
     expect(out.rejectedKeys).toEqual([]);
   });
 
-  it('DROPS AND REPORTS a malformed shape, on the deckOverride bounds', () => {
+  it('DROPS AND REPORTS a malformed shape, on the shared dev-list bounds', () => {
     const bad: unknown[] = [
-      'hullRepair',
-      { 0: 'hullRepair' },
+      'heavyTorpedo',
+      { 0: 'heavyTorpedo' },
       null,
-      ['hullRepair', 7],
-      new Array<string>(DECK_OVERRIDE_MAX + 1).fill('hullRepair'),
-      ['x'.repeat(DECK_ID_MAX + 1)],
+      ['heavyTorpedo', 7],
+      new Array<string>(DEV_LIST_MAX + 1).fill('heavyTorpedo'),
+      ['x'.repeat(65)],
     ];
     for (const v of bad) {
-      const out = sanitizeRoomOptions({ poolOverride: v as string[] }, true);
-      expect(out.sanitized.poolOverride, JSON.stringify(v)?.slice(0, 40)).toBeUndefined();
-      // Malformed drops are reported EVEN WITH THE GATE OPEN — a smoke that
-      // mistyped its pool must not sail a rolled one with nothing in the log.
-      expect(out.rejectedKeys, JSON.stringify(v)?.slice(0, 40)).toEqual(['poolOverride']);
+      const out = sanitizeRoomOptions({ fitOverride: v as string[] }, true);
+      expect(out.sanitized.fitOverride, JSON.stringify(v)?.slice(0, 40)).toBeUndefined();
+      // A drop is never silent — the room logs the rejected keys once.
+      expect(out.rejectedKeys, JSON.stringify(v)?.slice(0, 40)).toEqual(['fitOverride']);
     }
-    // ...and the bounds themselves are inclusive (reused from deckOverride).
-    expect(sanitizeRoomOptions({ poolOverride: new Array<string>(DECK_OVERRIDE_MAX).fill('hullRepair') }, true)
-      .sanitized.poolOverride).toHaveLength(DECK_OVERRIDE_MAX);
-    expect(sanitizeRoomOptions({ poolOverride: ['x'.repeat(DECK_ID_MAX)] }, true).sanitized.poolOverride)
-      .toEqual(['x'.repeat(DECK_ID_MAX)]);
+    // ...and the bounds themselves are inclusive.
+    expect(sanitizeRoomOptions({ fitOverride: new Array<string>(DEV_LIST_MAX).fill('heavyTorpedo') }, true)
+      .sanitized.fitOverride).toHaveLength(DEV_LIST_MAX);
+    expect(sanitizeRoomOptions({ fitOverride: ['x'.repeat(64)] }, true).sanitized.fitOverride)
+      .toEqual(['x'.repeat(64)]);
   });
 
-  it('an EMPTY list is honoured — the pool is a list, and the empty one is a legal ask', () => {
-    expect(sanitizeRoomOptions({ poolOverride: [] }, true).sanitized.poolOverride).toEqual([]);
+  it('an EMPTY list is honoured — an explicit "fit nothing" is a legal ask', () => {
+    expect(sanitizeRoomOptions({ fitOverride: [] }, true).sanitized.fitOverride).toEqual([]);
   });
 
   it('no rejection noise when the caller passed no override', () => {
@@ -189,17 +185,11 @@ describe('sanitizeRoomOptions — poolOverride (the dev match pool)', () => {
 
   it('is reported LAST of the room keys when a hostile payload carries all four', () => {
     const { sanitized, rejectedKeys } = sanitizeRoomOptions(
-      { matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE, mapSeed: 7, poolOverride: POOL },
+      { matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE, mapSeed: 7, fitOverride: FIT },
       false,
     );
     expect(sanitized).toEqual({});
-    expect(rejectedKeys).toEqual(['matchOverride', 'zoneOverride', 'mapSeed', 'poolOverride']);
-  });
-
-  it('is a ROOM key, not a seat key: sanitizeDeckOptions never looks at it', () => {
-    const out = sanitizeDeckOptions({ poolOverride: POOL } as JoinOptions, true);
-    expect(out.rejectedKeys).toEqual([]);
-    expect(out).toEqual({ clientDeck: false, rejectedKeys: [] });
+    expect(rejectedKeys).toEqual(['matchOverride', 'zoneOverride', 'mapSeed', 'fitOverride']);
   });
 });
 
@@ -274,169 +264,70 @@ describe('sanitizeName — options.name is client-supplied and untrusted', () =>
   });
 });
 
-// sanitizeDeckOptions (Story 8.2) — the deck-shaped join options at BOTH
-// doors. A client `deck` key is REFUSED (the door reads `clientDeck`),
-// `deckId` is a plain bounded string, and `deckOverride` is a dev tool gated
-// exactly like matchOverride.
+// sanitizeGun (Story 8.14, epic-8 amendment 95) — THE SEAT'S GUN at both
+// doors, and the whole of what replaced the deck door. It is an IDENTITY option
+// like `cls` and `horn`, not a privileged override: it fails OPEN to `deckGun`
+// and can never refuse a join. All three ids are accepted today;
+// `machineGun`/`flak` mount the shipped deck-gun module until Story 8.15.
 
-const TB = DEFAULT_DECKS.torpedoBoat;
-
-describe('sanitizeDeckOptions — the `deck` key is never accepted', () => {
-  it('flags a `deck` key whatever its value — an array, a string, an object, even undefined', () => {
-    for (const deck of [[...TB], 'armor', { cards: [...TB] }, 42, null, undefined]) {
-      const options = { deck } as JoinOptions;
-      expect(sanitizeDeckOptions(options, false).clientDeck, String(deck)).toBe(true);
-      expect(sanitizeDeckOptions(options, true).clientDeck, String(deck)).toBe(true);
-    }
+describe('sanitizeGun — the three ids', () => {
+  it('passes every GunId through verbatim', () => {
+    for (const id of GUN_IDS) expect(sanitizeGun(id)).toBe(id);
+    expect(GUN_IDS).toEqual(['deckGun', 'machineGun', 'flak']);
   });
 
-  it('does not flag options without the key', () => {
-    expect(sanitizeDeckOptions({}, false).clientDeck).toBe(false);
-    expect(sanitizeDeckOptions({ name: 'X', cls: 'battleship' }, true).clientDeck).toBe(false);
-    // ...and never reads the prototype: an inherited `deck` is not a key.
-    const inherited = Object.create({ deck: [...TB] }) as JoinOptions;
-    expect(sanitizeDeckOptions(inherited, false).clientDeck).toBe(false);
+  it('coerces anything else to deckGun — never a throw, never a refusal', () => {
+    for (const bad of ['gun', 'DECKGUN', '', ' deckGun', 'monitor', 42, {}, [], null, true, undefined]) {
+      expect(sanitizeGun(bad), String(bad)).toBe(DEFAULT_GUN);
+    }
+    expect(DEFAULT_GUN).toBe('deckGun');
+  });
+
+  it('LOGS a present-but-invalid value once, and says nothing at all about an absent one', () => {
+    const lines: { event: string; fields: unknown }[] = [];
+    const log = { warn: (event: string, fields?: unknown) => lines.push({ event, fields }) };
+    expect(sanitizeGun('bogus', log as unknown as Parameters<typeof sanitizeGun>[1])).toBe(DEFAULT_GUN);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].event).toBe('join.gunCoerced');
+    sanitizeGun(undefined, log as unknown as Parameters<typeof sanitizeGun>[1]);
+    sanitizeGun('flak', log as unknown as Parameters<typeof sanitizeGun>[1]);
+    expect(lines).toHaveLength(1); // absent and valid both stay silent
+  });
+
+  it('never reads the prototype: an inherited gun is not this seat\'s pick', () => {
+    const inherited = Object.create({ gun: 'flak' }) as { gun?: unknown };
+    expect(sanitizeGun(inherited.gun)).toBe('flak'); // a READ of the value still resolves...
+    expect(sanitizeGun((inherited as JoinOptions).gun)).toBe('flak'); // ...the door passes the value, not the object
   });
 });
 
-describe('sanitizeDeckOptions — deckId (the Epic 9 port, accepted but unread)', () => {
-  it('trims a string and passes it through', () => {
-    expect(sanitizeDeckOptions({ deckId: '  my-deck ' }, false).deckId).toBe('my-deck');
-  });
+// THE DECK KEYS ARE DEAD KEYS (Story 8.14, amendment 89a). `deck`, `deckId`
+// and `deckOverride` used to be a refusal, a bounded string and a dev override.
+// The deck door is deleted: they are now unknown options, dropped in silence
+// like any other, and there is no 4402 refusal code to export.
 
-  it('drops a non-string, an empty/whitespace id, and one over DECK_ID_MAX code points', () => {
-    for (const bad of [42, {}, [], null, '', '   ', 'x'.repeat(DECK_ID_MAX + 1)]) {
-      expect(sanitizeDeckOptions({ deckId: bad } as JoinOptions, false).deckId, String(bad)).toBeUndefined();
-    }
-    expect(sanitizeDeckOptions({ deckId: 'x'.repeat(DECK_ID_MAX) }, false).deckId).toHaveLength(DECK_ID_MAX);
-    expect(sanitizeDeckOptions({ deckId: '🚢'.repeat(DECK_ID_MAX) }, false).deckId).toHaveLength(DECK_ID_MAX * 2); // code points, not UTF-16 units
-  });
-
-  it('is never dev-gated', () => {
-    expect(sanitizeDeckOptions({ deckId: 'd' }, false)).toEqual({ deckId: 'd', clientDeck: false, rejectedKeys: [] });
-  });
-});
-
-describe('sanitizeDeckOptions — deckOverride (dev-only, the matchOverride precedent)', () => {
-  it('is DROPPED and reported without HC_DEV_OPTIONS, whatever its shape', () => {
-    const out = sanitizeDeckOptions({ deckOverride: [...TB] }, false);
-    expect(out.deckOverride).toBeUndefined();
-    expect(out.rejectedKeys).toEqual(['deckOverride']);
-    expect(sanitizeDeckOptions({ deckOverride: 'junk' as unknown as string[] }, false).rejectedKeys).toEqual(['deckOverride']);
-  });
-
-  it('is honoured under devEnabled as a FRESH array of line ids', () => {
-    const list = [...TB];
-    const out = sanitizeDeckOptions({ deckOverride: list }, true);
-    expect(out.deckOverride).toEqual(TB);
-    expect(out.deckOverride).not.toBe(list);
-    expect(out.rejectedKeys).toEqual([]);
-  });
-
-  it('honours an ILLEGAL but well-formed override (legality is the door\'s job, not the sanitizer\'s)', () => {
-    const fortyOne = [...TB, 'armor'];
-    expect(sanitizeDeckOptions({ deckOverride: fortyOne }, true).deckOverride).toEqual(fortyOne);
-  });
-
-  it('honours an UNKNOWN id verbatim — checkDeck refuses it as `unowned`, the sanitizer never substitutes', () => {
-    // The sanitizer used to drop the whole override on one unknown id, which
-    // made the door sail the DEFAULT (a silent substitution) and left
-    // checkDeck's `unowned` rule unreachable from either door.
-    for (const junk of ['nope', 'constructor', '__proto__', '']) {
-      const list = [...TB.slice(1), junk];
-      const out = sanitizeDeckOptions({ deckOverride: list }, true);
-      expect(out.deckOverride, junk).toEqual(list);
-      expect(out.rejectedKeys, junk).toEqual([]);
+describe('the retired deck keys are dropped like any unknown option', () => {
+  it('sanitizeRoomOptions ignores them entirely, dev gate open or shut', () => {
+    const opts = { deck: ['armor'], deckId: 'd', deckOverride: ['armor'] } as unknown as RoomOptions;
+    for (const dev of [false, true]) {
+      const { sanitized, rejectedKeys } = sanitizeRoomOptions(opts, dev);
+      expect(rejectedKeys, String(dev)).toEqual([]);
+      expect(Object.hasOwn(sanitized, 'deck'), String(dev)).toBe(false);
+      expect(Object.hasOwn(sanitized, 'deckId'), String(dev)).toBe(false);
+      expect(Object.hasOwn(sanitized, 'deckOverride'), String(dev)).toBe(false);
     }
   });
 
-  it('DROPS AND REPORTS a malformed shape: a non-array, a non-string entry, too many entries, an over-long entry', () => {
-    const bad: unknown[] = [
-      'armor',
-      { 0: 'armor' },
-      null,
-      [...TB.slice(1), 7],
-      new Array<string>(DECK_OVERRIDE_MAX + 1).fill('armor'),
-      [...TB.slice(1), 'x'.repeat(DECK_ID_MAX + 1)],
-    ];
-    for (const v of bad) {
-      const out = sanitizeDeckOptions({ deckOverride: v as string[] }, true);
-      expect(out.deckOverride, JSON.stringify(v)?.slice(0, 40)).toBeUndefined();
-      // A drop is never silent any more — the door logs deck.devOptionsRejected.
-      expect(out.rejectedKeys, JSON.stringify(v)?.slice(0, 40)).toEqual(['deckOverride']);
+  it('a `deck` key beside a real option does not disturb it', () => {
+    const opts = { deck: [], fitOverride: ['heavyTorpedo'] } as unknown as RoomOptions;
+    expect(sanitizeRoomOptions(opts, true).sanitized.fitOverride).toEqual(['heavyTorpedo']);
+    expect(sanitizeRoomOptions(opts, true).rejectedKeys).toEqual([]);
+  });
+
+  it('the module exports no deck surface at all — no refusal code, no deck sanitizer', async () => {
+    const mod = await import('../rooms/roomOptions.js');
+    for (const gone of ['sanitizeDeckOptions', 'DECK_ID_MAX', 'DECK_OVERRIDE_MAX', 'DECK_REFUSED_CODE']) {
+      expect(Object.hasOwn(mod, gone), gone).toBe(false);
     }
-    // ...and the bounds themselves are inclusive.
-    expect(sanitizeDeckOptions({ deckOverride: new Array<string>(DECK_OVERRIDE_MAX).fill('armor') }, true).deckOverride)
-      .toHaveLength(DECK_OVERRIDE_MAX);
-    expect(sanitizeDeckOptions({ deckOverride: ['x'.repeat(DECK_ID_MAX)] }, true).deckOverride).toEqual(['x'.repeat(DECK_ID_MAX)]);
-  });
-
-  it('no rejection noise when the caller passed no override', () => {
-    expect(sanitizeDeckOptions({}, false).rejectedKeys).toEqual([]);
-    expect(sanitizeDeckOptions({ deckId: 'd' }, false).rejectedKeys).toEqual([]);
-  });
-
-  it('sanitizeRoomOptions is untouched by the deck keys (they are join-time, not create-time)', () => {
-    const opts = { deckOverride: [...TB], fitOverride: ['heavyTorpedo'], deckId: 'd', deck: [] } as RoomOptions;
-    const { sanitized, rejectedKeys } = sanitizeRoomOptions(opts, false);
-    expect(sanitized).toEqual({});
-    expect(rejectedKeys).toEqual([]);
-  });
-});
-
-// sanitizeDeckOptions — fitOverride (Story 8.10, epic-8 amendment 65): the
-// DEV SPAWN FIT, gated exactly like deckOverride beside it. FR48 deleted the
-// interim spawn seed, so the two weapon smokes pre-fit their weapon through
-// this arm; PRODUCTION MUST NEVER SEE IT, which is what the gate-off rows pin.
-
-describe('sanitizeDeckOptions — fitOverride (the dev spawn fit)', () => {
-  it('is DROPPED and reported without HC_DEV_OPTIONS, whatever its shape', () => {
-    const out = sanitizeDeckOptions({ fitOverride: ['heavyTorpedo'] }, false);
-    expect(out.fitOverride).toBeUndefined();
-    expect(out.rejectedKeys).toEqual(['fitOverride']);
-    expect(sanitizeDeckOptions({ fitOverride: 'junk' as unknown as string[] }, false).rejectedKeys).toEqual(['fitOverride']);
-  });
-
-  it('is honoured under devEnabled as a FRESH array, ids unfiltered (the World judges them)', () => {
-    const list = ['heavyTorpedo', 'nope', 'lightTorpedo'];
-    const out = sanitizeDeckOptions({ fitOverride: list }, true);
-    expect(out.fitOverride).toEqual(list);
-    expect(out.fitOverride).not.toBe(list);
-    expect(out.rejectedKeys).toEqual([]);
-  });
-
-  it('DROPS AND REPORTS a malformed shape, on the deckOverride bounds', () => {
-    const bad: unknown[] = [
-      'heavyTorpedo',
-      { 0: 'heavyTorpedo' },
-      null,
-      ['heavyTorpedo', 7],
-      new Array<string>(DECK_OVERRIDE_MAX + 1).fill('armor'),
-      ['x'.repeat(DECK_ID_MAX + 1)],
-    ];
-    for (const v of bad) {
-      const out = sanitizeDeckOptions({ fitOverride: v as string[] }, true);
-      expect(out.fitOverride, JSON.stringify(v)?.slice(0, 40)).toBeUndefined();
-      expect(out.rejectedKeys, JSON.stringify(v)?.slice(0, 40)).toEqual(['fitOverride']);
-    }
-  });
-
-  it('is INDEPENDENT of deckOverride — both drop, both are reported, in that order', () => {
-    const out = sanitizeDeckOptions({ deckOverride: [...TB], fitOverride: ['heavyTorpedo'] }, false);
-    expect(out.rejectedKeys).toEqual(['deckOverride', 'fitOverride']);
-    const honoured = sanitizeDeckOptions({ deckOverride: [...TB], fitOverride: ['heavyTorpedo'] }, true);
-    expect(honoured.deckOverride).toEqual(TB);
-    expect(honoured.fitOverride).toEqual(['heavyTorpedo']);
-    expect(honoured.rejectedKeys).toEqual([]);
-    // One malformed key never drags the other down with it.
-    const mixed = sanitizeDeckOptions({ deckOverride: [...TB], fitOverride: 'junk' as unknown as string[] }, true);
-    expect(mixed.deckOverride).toEqual(TB);
-    expect(mixed.fitOverride).toBeUndefined();
-    expect(mixed.rejectedKeys).toEqual(['fitOverride']);
-  });
-
-  it('no rejection noise when the caller passed no fit', () => {
-    expect(sanitizeDeckOptions({}, true).rejectedKeys).toEqual([]);
-    expect(sanitizeDeckOptions({ deckId: 'd' }, true)).toEqual({ deckId: 'd', clientDeck: false, rejectedKeys: [] });
   });
 });

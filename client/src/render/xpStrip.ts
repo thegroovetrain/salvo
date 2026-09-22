@@ -117,8 +117,10 @@ export interface XpView {
    * sinking window (the refit is inert from sink-entry, and the SERVER does not
    * clear `you.offer` there — the offer is still on the wire all the way down).
    * Since the lazy-draw bugfix a level always banks, so `pts > 0` with an EMPTY
-   * offer is a legitimate state (a degenerate exhausted deck), and the cue must
-   * not promise a TAB that opens nothing. The CHIP still shows the bank — the
+   * offer must still be survivable here and the cue must not promise a TAB that
+   * opens nothing — though since Story 8.14 nothing can EXHAUST (epic-8
+   * amendment 94: the common pool always has a consumable line to deal, so a
+   * real offer is never empty, only greyed). The CHIP still shows the bank — the
    * level is genuinely earned — but the instruction is withheld until it is
    * actionable.
    */

@@ -6,8 +6,8 @@
 //
 // THE PER-HULL FIT IS GONE (Story 8.5, epic-8 amendments 21–24). There is no
 // `specialsFor` and no `SLOT_EXTRA`: every captain sails with the SAME shape,
-// and class identity lives in the DECK (the cards a hull draws), not in the
-// hardware. THE INTERIM SPAWN SEED IS GONE TOO (Story 8.10, amendment 62):
+// and class identity lives in the CARDS a hull is dealt and its envelope, not
+// in the hardware. THE INTERIM SPAWN SEED IS GONE TOO (Story 8.10, amendment 62):
 // every hull now spawns with THE GUN AND THE SHIFT BOOST ONLY, and the weapon
 // row starts empty. The captain's first weapon comes from the LEVEL-ZERO OFFER
 // granted at countdown start — the opening — and lands in the row as a card
@@ -166,6 +166,47 @@ export const EQUIPMENT_IDS: readonly EquipmentId[] = Object.freeze(
 );
 
 /**
+ * THE SEAT'S GUN (Story 8.14, Eric ruling 2026-09-21 amendment 89d): the gun is
+ * the captain's PICK, not a fact about the hull — deck gun, machine gun or flak
+ * gun, any class, chosen at class select and FROZEN at queue as the seat's
+ * `gun`. It is a SEAT value, deliberately its own id space: it names which gun
+ * a captain picked, while `EquipmentId` names which MODULE is mounted.
+ */
+export type GunId = 'deckGun' | 'machineGun' | 'flak';
+
+/** Every GunId, in pick order — the totality spine the sanitizer and the
+ *  class-select picker (Story 8.15) both key on. */
+export const GUN_IDS: readonly GunId[] = Object.freeze(['deckGun', 'machineGun', 'flak'] as const);
+
+/** The gun a seat carries when the join option is missing, unknown or
+ *  malformed — and the only one the client sends until 8.15 ships the picker. */
+export const DEFAULT_GUN: GunId = 'deckGun';
+
+/** Membership over GUN_IDS — the ONE narrowing guard for a seat's gun value. */
+const GUN_ID_SET: ReadonlySet<string> = new Set<string>(GUN_IDS);
+
+/** Is `x` one of the three seat guns? Fail-closed: anything else is not. */
+export function isGunId(x: unknown): x is GunId {
+  return typeof x === 'string' && GUN_ID_SET.has(x);
+}
+
+/**
+ * THE MOUNTED MODULE for each seat gun — the (GunId -> EquipmentId) map slot 0
+ * is fitted from.
+ *
+ * Story 8.15 gives machineGun/flak their own modules; until then every seat gun
+ * mounts the shipped deck-gun module (amendment 95). The map makes that interim
+ * EXPLICIT and pinned rather than hiding it in a fallback: `equipmentFor` fails
+ * closed on an id with no module, so mounting `machineGun` directly would
+ * break the fit. Story 8.15 changes exactly two entries here.
+ */
+export const MOUNTED_GUN: Readonly<Record<GunId, EquipmentId>> = Object.freeze({
+  deckGun: 'gun',
+  machineGun: 'gun',
+  flak: 'gun',
+});
+
+/**
  * One piece of equipment's runtime state: a pool of `n` charges/rounds and a
  * single `reloadMsLeft` timer. Structurally identical to the wire `WeaponAmmo`
  * shape today (so wire derivation from slot state is identity), but defined
@@ -245,17 +286,22 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
  * (Story 8.10), then every offer after it.
  *
  * `fleet === true` is the PvE drone fit: the gun in slot 0 and eight empties,
- * nothing else (epic-5 amendment 34, epic-8 amendment 24).
+ * nothing else (epic-5 amendment 34, epic-8 amendment 24) — a drone has no
+ * seat, so it always mounts the default gun.
+ *
+ * SLOT 0 IS THE SEAT'S GUN (Story 8.14): `gun` is the captain's pick and the
+ * module it mounts comes from MOUNTED_GUN, which resolves all three to the
+ * shipped deck-gun module until Story 8.15 builds the other two.
  *
  * No hull parameter: which weapons a hull ends up carrying is a fact about its
- * deck and its picks, never about its hardware.
+ * picks, never about its hardware.
  */
-export function loadoutFor(stats: EffectiveStats, fleet = false): LoadoutSlot[] {
+export function loadoutFor(stats: EffectiveStats, fleet = false, gun: GunId = DEFAULT_GUN): LoadoutSlot[] {
   const fitted = (equipmentId: EquipmentId): LoadoutSlot => ({
     equipmentId,
     state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 },
   });
-  const out: LoadoutSlot[] = [fitted('gun')];
+  const out: LoadoutSlot[] = [fitted(MOUNTED_GUN[gun])];
   if (!fleet) out.push(fitted('boost'));
   while (out.length < SLOT_COUNT) out.push({ equipmentId: null, state: null });
   return out;

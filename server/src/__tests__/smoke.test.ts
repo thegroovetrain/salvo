@@ -21,7 +21,7 @@ function bareWorld(seed = 1): World {
 
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(w: World, id: string, x: number, y: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;
@@ -91,7 +91,7 @@ describe('world — wounded smoke band arithmetic (exclusive lower bounds, the h
 
   it('drones smoke identically to captains (amendment 47)', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined, []);
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
     d.state.x = 0;
     d.state.y = 0;
     d.hp = d.stats.maxHp * 0.3;

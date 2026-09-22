@@ -54,20 +54,16 @@ import {
   NO_CARDS,
   applyCardStats,
   applySlotEffect,
-  buildDeckState,
   cardBehaviors,
-  checkDeck,
-  DEFAULT_DECKS,
-  DEFAULT_OWNED,
-  deckFromCounts,
-  equipmentLineCount,
   cardCounts,
   catalogCardCount,
-  consumeCard,
-  consumableLines,
+  DEFAULT_GUN,
+  GUN_IDS,
+  MOUNTED_GUN,
   drawOffer,
-  rollMatchPool,
-  sanitizePool,
+  eligibleLines,
+  isGunId,
+  lineWeight,
   usableLines,
   hookKinematics,
   isStubLine,
@@ -262,8 +258,9 @@ describe('shared barrel', () => {
     // cards, `OwnShip.boons` -> `OwnShip.cards`, the `torpedo`/`mine`
     // equipment ids renamed `heavyTorpedo`/`navalMines`, `EffectiveStats`
     // re-shaped onto one total `equipment` record, and CONFIG.deck/CONFIG.catalog
-    // moving in the welcome snapshot. Both sides resolve card ids fail-closed,
-    // so a stale client would silently mis-simulate every build it was dealt.
+    // moving in the welcome snapshot (the deck block is itself deleted at PV
+    // 57). Both sides resolve card ids fail-closed, so a stale client would
+    // silently mis-simulate every build it was dealt.
     // 51 -> 52: NINE SLOTS (Story 8.5). The loadout becomes one flat
     // nine-slot array with fixed roles (gun, boost, three weapons, four
     // consumables), identical for every captain hull, so `OwnShip.ammo`
@@ -295,10 +292,11 @@ describe('shared barrel', () => {
     // drawable cards. No wire SHAPE moves and the perception exception count
     // stays at SIX.
     // UNCHANGED BY STORY 8.11 (the match consumable pool): nothing of the pool
-    // rides — not a frame, not the welcome, not the schema, not a log line
-    // (count only) — and although `CONFIG.pool.size` travels inside the welcome
-    // CONFIG snapshot, the client reads no pool field and predicts nothing from
-    // it, so there is no stale client to gate out.
+    // rode — not a frame, not the welcome, not the schema, not a log line
+    // (count only) — and although `CONFIG.pool.size` travelled inside the
+    // welcome CONFIG snapshot, the client read no pool field and predicted
+    // nothing from it, so there was no stale client to gate out. The pool is
+    // RETIRED outright at PV 57 (amendment 89a).
     // UNCHANGED BY STORY 8.12 (the ladders + deck gun): the story authors
     // nothing — two CLIENT readings change and catalog content does not.
     // 55 -> 56: CATALOG V3 — TORPEDOES AND MINES (Story 8.13, Eric rulings
@@ -316,7 +314,22 @@ describe('shared barrel', () => {
     // ONLY when `own` is true and stripped for every other observer. No new
     // event kind, no change to the reveal shape, and the perception exception
     // count stays at SIX.
-    expect(PROTOCOL_VERSION).toBe(56);
+    // 56 -> 57: THE COMMON POOL (Story 8.14, Eric rulings 2026-09-21/22,
+    // epic-8 amendments 89-95). Decks and the hidden match pool are RETIRED:
+    // no card is class-locked and none is brought, so every dealable line is
+    // drawable by every captain through the two-stage draw in sim/draw.ts.
+    // Catalog CONTENT does not move, but the JOIN CONTRACT does, three ways a
+    // stale client cannot survive: the seat now carries `gun`
+    // (deckGun|machineGun|flak, default deckGun) which a stale client never
+    // sends, `OwnShip.gun` arrives on the own frame and is what the client
+    // replays its own loadout from, and the deck door (with its 4402 refusal)
+    // and the `deckId`/`deckOverride`/`poolOverride` join keys are gone.
+    // `CONFIG.deck` and `CONFIG.pool` are DELETED from the welcome CONFIG
+    // snapshot and `CONFIG.offer` gains the `weighting` block the client reads.
+    // No new event kind, no spatial shape moves, and THE PERCEPTION EXCEPTION
+    // COUNT STAYS AT SIX — the take ledger, the per-ship weights and every
+    // other captain's `gun` never leave the server.
+    expect(PROTOCOL_VERSION).toBe(57);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -855,25 +868,32 @@ describe('shared barrel', () => {
     expect(validateCatalog()).toEqual([]);
   });
 
-  it('re-exports THE DECK MODEL engine + the offer/spend wire shape (Story 2.8)', () => {
-    for (const fn of [buildDeckState, drawOffer, consumeCard]) {
+  it('re-exports THE COMMON POOL DRAW + the offer/spend wire shape (Story 8.14)', () => {
+    for (const fn of [drawOffer, eligibleLines, lineWeight, usableLines]) {
       expect(typeof fn).toBe('function');
     }
-    // THE MATCH CONSUMABLE POOL (Story 8.11, catalog-v3 R4/R44): the pure roll
-    // the server appends to every captain's and bot's deck, plus the sanitizer
-    // every explicit pool (the dev override, a test fixture) comes through.
-    for (const fn of [rollMatchPool, sanitizePool, consumableLines]) {
-      expect(typeof fn).toBe('function');
+    // THE DECK AND THE MATCH POOL ARE GONE (Eric ruling 2026-09-21, epic-8
+    // amendment 89a): no deck engine, no legality rules, no default decks, no
+    // ownership set, no hidden match pool. sim/draw.ts is the whole draw.
+    for (const name of [
+      'buildDeck',
+      'buildDeckState',
+      'consumeCard',
+      'DeckState',
+      'checkDeck',
+      'equipmentLineCount',
+      'deckFromCounts',
+      'DEFAULT_DECKS',
+      'DEFAULT_OWNED',
+      'rollMatchPool',
+      'sanitizePool',
+      'consumableLines',
+    ]) {
+      expect((shared as Record<string, unknown>)[name], name).toBeUndefined();
     }
-    // Story 8.2: the interim `buildDeck` is gone — the pool is built from a
-    // frozen list — and the legality engine + the default decks are exported.
-    expect((shared as Record<string, unknown>).buildDeck).toBeUndefined();
-    for (const fn of [checkDeck, equipmentLineCount, deckFromCounts]) expect(typeof fn).toBe('function');
-    expect(Object.keys(DEFAULT_DECKS).sort()).toEqual(['battleship', 'mineLayer', 'torpedoBoat']);
-    expect(DEFAULT_OWNED.size).toBe(24);
     // RETIRED with the exclusivity mechanism (Story 7-5 wave 2, R2.6):
     // `returnCards` was the doctrine swap-out's give-back and the cannon pair
-    // was the mechanism's last user, so the deck now has no inflow at all.
+    // was the mechanism's last user, so nothing ever hands a card back.
     expect((shared as Record<string, unknown>).returnCards).toBeUndefined();
     // ...and the AP sweep it sat beside is gone the same way.
     expect((shared as Record<string, unknown>).pierceDamage).toBeUndefined();
@@ -884,18 +904,27 @@ describe('shared barrel', () => {
     // survives): only the FRONT offer is ever materialized, so there is no
     // second banked offer to scrub stale acquisition cards out of.
     expect((shared as Record<string, unknown>).scrubAcquisitions).toBeUndefined();
-    // THE SOFT-PITY DIALS DIED WITH RARITY (Story 8.1). CONFIG.deck now carries
-    // the AUTHORED-deck rules (AR52), read by checkDeck at the door since
-    // Story 8.2, and CONFIG.catalog carries the one engine dial the fold needs.
-    expect(CONFIG.deck).toEqual({ size: 40, maxEquipmentLines: 3 });
-    // ...and CONFIG.deck is the AUTHORED size ALONE: Story 8.11's hidden match
-    // pool is its own block (Eric's number, not a dial), appended AFTER the
-    // door's legality check, so a seat ends up with 40 + 10 = 50.
-    expect(CONFIG.pool).toEqual({ size: 10 });
+    // CONFIG.deck AND CONFIG.pool ARE DELETED (Story 8.14): the draw's only
+    // dials are the offer size and the weighting pair, and CONFIG.catalog still
+    // carries the one engine dial the fold needs.
+    expect((CONFIG as Record<string, unknown>).deck).toBeUndefined();
+    expect((CONFIG as Record<string, unknown>).pool).toBeUndefined();
     expect(CONFIG.catalog).toEqual({ reloadStepPerTier: 0.05 });
+    // THE WEIGHTING (amendments 90/91) — both numbers are [DRAFT] harness dials,
+    // and the mechanism is called WEIGHTING, never anything else.
+    expect(CONFIG.offer).toEqual({ size: 4, weighting: { factor: 0.75, floor: 0.25 } });
     expect(CONFIG.offer.size).toBe(4); // four cards, four DIFFERENT lines
     expect(MSG.spend).toBe('u');
     expect('upgradePoints' in CONFIG).toBe(false);
+  });
+
+  it("re-exports THE SEAT'S GUN (Story 8.14, amendments 89d/95)", () => {
+    expect(GUN_IDS).toEqual(['deckGun', 'machineGun', 'flak']);
+    expect(DEFAULT_GUN).toBe('deckGun');
+    expect(typeof isGunId).toBe('function');
+    // Until Story 8.15 builds the machine gun and the flak gun, every seat gun
+    // mounts the shipped deck-gun MODULE — pinned, not a silent fallback.
+    expect(MOUNTED_GUN).toEqual({ deckGun: 'gun', machineGun: 'gun', flak: 'gun' });
   });
 
   // NO HARDCODED XP TOTAL (Eric ruling 2026-08-16, epic-6 amendment 24: *"XP
