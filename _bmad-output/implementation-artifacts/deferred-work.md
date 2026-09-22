@@ -2383,3 +2383,47 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   status: OPEN — Eric's call (card copy)
   summary: THE NO-OP ROW SKIP (amendment 87b) APPLIES TO WEAPON TIER CARDS ONLY. Applying it to pure LADDER lines made some TURNING rungs print ZERO rows (the +0.05 rad/s step disappears under the row's display rounding), a blank card and a breach of "every card has at least one row" — so ladder cards still print their one `STAT cur → next` row even when the displayed values match. Either widen the display precision for TURNING or accept the unchanged-looking row; Eric to pick.
   evidence: review-gate patch P5 (`client/src/ui/boonCopy.ts` `ladderRows(dropUnchanged)`, `weaponRows` passes true; `cardStatRows.test.ts` law `rows.length === min(1 + changedSteps, 5)` for weapon tiers).
+
+## 2026-09-21 — Correct course: THE POOL (decks retired, class Shifts, the gun pick) — open threads
+
+Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (Eric-approved), epic-8 amendment 89. Everything below is Eric's to fill; nothing is a facilitator number. This section CLOSES the 8.13 entry "HEAT SEEKING ON THE MISSILE IS NOT DECIDED" (`:2330`) — the missile and HEAT SEEKING are cut.
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
+  status: OPEN — Eric (names)
+  summary: THE THREE CLASS DESIGNATIONS. The hulls become named ship classes with real designations (shape `IBK-01 KABUKI CLASS`); all three are `[NAME PENDING]`. Internal ids `torpedoBoat` / `mineLayer` / `battleship` and the identity test stay until the names land; Story 8.21 (copy) cannot close without them.
+  evidence: GDD class table (2026-09-21 supersession); epics.md Story 8.14.
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
+  status: OPEN — Eric (numbers), needed by Story 8.14
+  summary: THE MATCH-WIDE TILT. `CONFIG.offer.tilt.factor` and `.floor` have no numbers; whether copies 2+ of a line also tilt is undecided. The rule itself is ruled (a line another captain took becomes less likely for everyone else, never impossible).
+  evidence: epics.md Story 8.14; GDD "THE COMMON POOL".
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
+  status: OPEN — Eric (numbers), needed by Story 8.15
+  summary: THE CLASS SHIFT NUMBERS. INSTANT RELOAD (`mineLayer`) cooldown; DAMAGE CUT (`battleship`) duration and cooldown, and its order relative to SHIELD BLOCK inside `applyDamage`; SPEED BOOST (`torpedoBoat`) keeps the shipped numbers but the GDD's 20 s cooldown vs the shipped 25 s (`CONFIG.boost.reloadMs`) needs Eric's confirm-or-re-rule.
+  evidence: epics.md Story 8.15; GDD "The class `Shift`".
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
+  status: OPEN — Eric (authored ladders), needed by Story 8.15
+  summary: MACHINE GUN AND FLAK GUN LADDERS. Each mountable gun gets its own ladder offered only while mounted; the steps and caps are unauthored. The MG's 4 dmg / 0.25 s / 250 u / 6 s / 15 s and the flak's 10 dmg r40 u / 8 s are carried from catalog v3 as `[DRAFT]` and may be re-tuned as guns rather than equipment lines.
+  evidence: epics.md Story 8.15; GDD "The mountable guns".
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
+  status: OPEN — Eric, needed by Story 8.19
+  summary: `BOT_GUNS` (which gun each of the six bot profiles mounts) and the `SHIFT_TACTICS` bodies (when a bot fires boost / instant reload / damage cut) are `[DRAFT]`.
+  evidence: epics.md Story 8.19.
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.2
+  status: OPEN — Eric, after playtest data (Epic 9)
+  summary: THE DEFAULT SET. Everything is unlocked for everyone until accounts, progression and playtest data exist; Eric then pares the lines / guns / hulls a new account starts with. `CONFIG.progression.defaultSet` ships as "everything" in 9.6.
+  evidence: Eric 2026-09-21: "For now, everything is unlocked for everyone. Once accounts and progression are a thing and I have some playtest data, I'll pare that down to a 'Default Set.'"
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.5
+  status: OPEN — designer (`gds-ux`), before Story 9.4 is drafted
+  summary: DESIGN.md IS NOT EDITED BY THE PROPOSAL. UX-DR60–66 (Ship & Deck screen, deck card tile, copies rail, deck column) need a re-cut for the Ship Screen (class tile regains a `Shift` line and a gun picker; no deck column); UX-DR71, UX-DR75 and UX-DR77 are void; UX-DR50 icons: missile and monitor no longer owed, machine gun and flak gun glyphs are; UX-DR52 stands.
+  evidence: proposal §4.5; Story 9.4 as re-cut.
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §2.3
+  status: OPEN — Story 9.11 (already ledgered at `:1843`, widened)
+  summary: `game-architecture.md`'s deck amendment (D22 `DeckState`, the deck door, `checkDeck`, `deckId`) is void; the seat now carries `gun`; the requirements inventory in `epics.md` (FR41+, AR26+, UX-DR60+) is read through the 2026-09-21 latest-wins block until 9.11 rewrites it.
+  evidence: epics.md inventory block "RE-CUT 2026-09-21".
