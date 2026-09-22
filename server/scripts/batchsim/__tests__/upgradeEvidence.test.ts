@@ -12,13 +12,13 @@
 // Match.placements map the death banner uses, never re-derived from lifeS.
 
 import { describe, it, expect } from 'vitest';
-import { NO_DECK, World } from '../../../src/game/world.js';
+import { World } from '../../../src/game/world.js';
 import { BotCollector } from '../botMetrics.js';
 
 describe('botMetrics — builds, picks, offers, placement', () => {
   it('records a pick with the CARD id and its sim-time, and mirrors the build', () => {
     const world = new World(21, 20);
-    const bot = world.addBot('torpedoBoat', undefined, NO_DECK);
+    const bot = world.addBot('torpedoBoat', undefined);
     const col = new BotCollector([bot.id]);
     const ship = world.ships.get(bot.id)!;
 
@@ -42,7 +42,7 @@ describe('botMetrics — builds, picks, offers, placement', () => {
 
   it('counts an offer hand ONCE across the ticks it sits open (reference diff)', () => {
     const world = new World(22, 20);
-    const bot = world.addBot('battleship', undefined, NO_DECK);
+    const bot = world.addBot('battleship', undefined);
     const col = new BotCollector([bot.id]);
     const ship = world.ships.get(bot.id)!;
 
@@ -66,8 +66,8 @@ describe('botMetrics — builds, picks, offers, placement', () => {
 
   it('placement comes off the passed map; absent map or row reads null', () => {
     const world = new World(23, 20);
-    const bot = world.addBot('mineLayer', undefined, NO_DECK);
-    const other = world.addBot('torpedoBoat', undefined, NO_DECK);
+    const bot = world.addBot('mineLayer', undefined);
+    const other = world.addBot('torpedoBoat', undefined);
     const col = new BotCollector([bot.id, other.id]);
     col.observe(world, 1);
 

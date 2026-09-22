@@ -71,7 +71,7 @@ function setup(ids: string[]): Harness {
   const m = new Match(w, TIMINGS, hooks);
   const players = new Map<string, unknown>();
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
+    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
     players.set(id, {});
     m.notifyRosterChanged();
   }
@@ -261,7 +261,7 @@ describe('ArenaRoom.teardown', () => {
   it('sandbox rooms (match=null) tear down via bare removeShip', () => {
     const w = new World(1);
     w.map.islands.length = 0;
-    w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
+    w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     const players = new Map<string, unknown>([['a', {}]]);
     const room = new ArenaRoom() as unknown as {
       world: World;

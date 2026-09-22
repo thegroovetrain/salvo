@@ -11,7 +11,7 @@
 // and silently drops every bot out of the win check when 6.4 lands.
 
 import { describe, it, expect } from 'vitest';
-import { NO_DECK, World } from '../game/world.js';
+import { World } from '../game/world.js';
 import { isFleetHull, isHuman, isParticipant, type ShipRole } from '../game/participants.js';
 
 const ROLES: ShipRole[] = ['captain', 'fleet', 'bot'];
@@ -52,9 +52,9 @@ describe('participants — the seam is what World actually stamps', () => {
   it('addShip defaults to captain, and World.isFleetHull agrees with the predicate', () => {
     const w = new World(1);
     w.map.islands.length = 0;
-    const cap = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
-    const fleet = w.addShip('f', 'FLEET', 'fleet', 'droneSmall', undefined, undefined, []);
-    const bot = w.addBot(undefined, undefined, NO_DECK); // Story 6.4: the third role, stamped for real
+    const cap = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
+    const fleet = w.addShip('f', 'FLEET', 'fleet', 'droneSmall', undefined, undefined);
+    const bot = w.addBot(undefined, undefined); // Story 6.4: the third role, stamped for real
     expect(cap.role).toBe('captain');
     expect(fleet.role).toBe('fleet');
     expect(bot.role).toBe('bot');

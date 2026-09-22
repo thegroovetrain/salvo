@@ -20,8 +20,11 @@ import {
   CONFIG,
   MULLIGAN_CHOICE,
   CONSUMABLE_SLOTS,
-  DEFAULT_DECKS,
+  DEFAULT_GUN,
+  GUN_IDS,
   LINE_IDS,
+  MOUNTED_GUN,
+  eligibleLines,
   SLOT_BOOST,
   WEAPON_SLOTS,
   boonStackCount,
@@ -61,20 +64,18 @@ const SLOT_BROADSIDE = 2;
 /** Islands cleared AND the raster flattened (Story 4.11): real terrain must
  *  not radar-shadow a world the test built as empty water. */
 function bareWorld(seed = 1, opts?: WorldOptions): World {
-  // 8.11: the MATCH CONSUMABLE POOL is tested in matchPool.test.ts (and by the
-  // guard-live pin at the bottom of this file); every deck-DEPTH and offer pin
-  // here is about the AUTHORED deck, so this factory deals an EMPTY pool
-  // unless the test explicitly asks for one.
-  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, { pool: [], ...opts });
+  // 8.14: there is no deck and no hidden match pool to set up — every captain
+  // draws from the whole catalog, bounded by caps and by the slot rules.
+  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
-  // The hull's DEFAULT deck (Story 8.2): what the door admits with no account
-  // module — the frozen 40-id list the World deals the drawable pool from.
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, DEFAULT_DECKS[hull]);
+  // The seat's DEFAULT gun (Story 8.14): every captain draws from the same
+  // common pool, so a fixture says nothing about cards at all.
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -127,11 +128,6 @@ function spendPlainCard(w: World, ship: ShipRecord): string {
   return hand[0];
 }
 
-/** Occurrences of `id` in a deck's card multiset. */
-function copiesInDeck(ship: ShipRecord, id: string): number {
-  return boonStackCount(ship.deck.cards, id);
-}
-
 const bnsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'bn');
 const ptsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'pt');
 // Radar paints — the identity-free coverage footprint (the one grammar).
@@ -139,139 +135,110 @@ const blipsOf = (f: FrameMsg) => f.events.filter((e) => e.k === 'blip');
 const ballisticsOf = (f: FrameMsg) =>
   f.events.filter((e): e is BallisticEvent => e.k === 'shell' || e.k === 'torp');
 
-// ---------- deck composition -------------------------------------------------
+// ---------- the common pool --------------------------------------------------
 
 /** The seven per-equipment reload lines the 2026-08-04 global cooldown ruling
- *  deleted — no deck, offer, or catalog may ever hold one again. */
+ *  deleted — no offer or catalog may ever hold one again. */
 const DEAD_RELOAD_IDS = ['gunReload', 'cannonReload', 'torpedoReload', 'mineReload', 'boostReload', 'starReload', 'decoyReload'];
 
-/** NOTHING IS HELD AT SPAWN ANY MORE (Story 8.10, FR48, epic-8 amendment 62):
- *  the interim spawn seed — copy 1 of each of a hull's class weapons — is
- *  deleted, so every captain comes up with an EMPTY `cards` list, a gun and the
- *  Shift boost, and the whole list (less stubs) in its pool. The first weapon
- *  is the one taken from the level-zero offer the countdown grants. */
+/** NOTHING IS HELD AT SPAWN (Story 8.10, FR48, epic-8 amendment 62): the
+ *  interim spawn seed — copy 1 of each of a hull's class weapons — is deleted,
+ *  so every captain comes up with an EMPTY `cards` list, the seat's gun and the
+ *  Shift boost. The first weapon is the one taken from the level-zero offer the
+ *  countdown grants, drawn from the COMMON POOL like every card after it. */
 const NO_SEED: readonly string[] = [];
-/** Copies of `id` in a fresh torpedoBoat POOL: its default-deck count, whole —
- *  nothing is withheld now that nothing is carried (Story 8.2 + 8.10). */
-const poolCopies = (id: string): number =>
-  DEFAULT_DECKS.torpedoBoat.filter((x) => x === id).length;
-/** A DIRECTED board list for the extra-slot fits: the TB default plus every
- *  copy of NAVAL MINES. Not a legal deck (46 cards, four equipment lines) —
- *  the World checks no legality (the door does), and the TB's own default
- *  holds no unfitted, non-stub equipment line to fit, so the fixture adds
- *  one on purpose. */
-const TB_WITH_MINES: readonly LineId[] = [...DEFAULT_DECKS.torpedoBoat, ...new Array<LineId>(CATALOG.navalMines.cap).fill('navalMines')];
-/** THE DRAWABLE POOL SIZE for a hull (Story 8.2, amendment 11; Story 8.10):
- *  its 40-card DEFAULT deck less every stub card — and nothing else, now that
- *  the spawn holds no carried copy back. Derived from the ruling's list rather
- *  than restated, so the number moves with the stub flags (8.7–8.15 flip them)
- *  and the PIN is the RULE. The three hulls DIVERGED in Story 8.13 — TB 30,
- *  ML 29, BS 27 — which is the mechanism working: flipping a stub flag fills a
- *  deck out with no code change (amendment 11). */
-const deckSizeFor = (hull: ShipClassId = 'torpedoBoat'): number =>
-  DEFAULT_DECKS[hull].filter((id) => !isStubLine(id)).length;
 
-describe('deck composition — the DEFAULT deck through the World (Story 8.2)', () => {
+/** The lines the draw could deal THIS ship right now, as ids. The whole
+ *  eligibility law lives in shared/src/sim/draw.ts; this is the server-side
+ *  view of it, assembled exactly as `materializeOffer` assembles it. */
+const eligibleFor = (ship: ShipRecord): string[] =>
+  eligibleLines({
+    held: ship.cards as readonly LineId[],
+    weaponSlotOpen: WEAPON_SLOTS.some((i) => ship.loadout[i].equipmentId === null),
+    mountedGun: MOUNTED_GUN[ship.gun],
+  }).map((e) => e.id);
+
+describe('the common pool — every dealable line, for every hull (Story 8.14)', () => {
   const HULLS: ShipClassId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
 
   for (const hull of HULLS) {
-    it(`${hull}: the frozen default list, the drawable pool = list − stubs − carried (${deckSizeFor(hull)} cards)`, () => {
+    it(`${hull}: draws from the WHOLE catalog less its stubs — no per-hull list at all`, () => {
       const w = bareWorld();
       const rec = place(w, 'a', 0, 0, 0, hull);
-      // The FROZEN LIST is stored as given — the shared default identity, 40
-      // ids, stubs included (amendment 11) — and is immutable.
-      expect(rec.deckList).toBe(DEFAULT_DECKS[hull]);
-      expect(rec.deckList).toHaveLength(CONFIG.deck.size);
-      expect(Object.isFrozen(rec.deckList)).toBe(true);
-      // The POOL is the list less stubs. It was 27 for all three (Story 8.8
-      // un-stubbed HULL REPAIR, 3 copies per hull: 23 -> 26; Story 8.10
-      // deleted the one carried copy each hull held back: 26 -> 27); Story
-      // 8.13 un-stubbed LIGHT TORPEDO, CAPTIVE MINES and SUPERCAV TORPEDO, so
-      // the TB gained 3 and the ML 3 while the BS — whose missile, monitor and
-      // dazzle lines are all Story 8.14's — stayed where it was.
-      expect(rec.deck.cards).toHaveLength(deckSizeFor(hull));
-      expect(deckSizeFor(hull)).toBe({ torpedoBoat: 30, mineLayer: 29, battleship: 27 }[hull]);
-      const listed = new Map<string, number>();
-      for (const id of rec.deckList) listed.set(id, (listed.get(id) ?? 0) + 1);
+      // THE POOL IS THE CATALOG (amendment 89a). A fresh hull holds nothing and
+      // has all three weapon slots open, so every non-stub line is eligible for
+      // it except the GUN LADDERS of guns it has not mounted — and it mounts
+      // the deck gun, whose ladder IS eligible.
+      const eligible = new Set(eligibleFor(rec));
       for (const id of LINE_IDS) {
-        // A STUB line is authored but unbuilt: it can never be dealt, which is
-        // the single point at which "authored" becomes "unofferable". Every
-        // other line is dealt WHOLE — Story 8.10 deleted the carried copy.
-        expect(copiesInDeck(rec, id), id).toBe(isStubLine(id) ? 0 : (listed.get(id) ?? 0));
+        const line = CATALOG[id];
+        const gunLadder = line.kind === 'ladder' && line.appliesTo !== undefined;
+        const mounted = gunLadder && line.appliesTo!.includes(MOUNTED_GUN[rec.gun]);
+        const want = !isStubLine(id) && (!gunLadder || mounted);
+        expect(eligible.has(id), `${hull}/${id}`).toBe(want);
       }
-      // The deck-gun family and the global RELOAD ladder are universal
-      // (amendment 10's 30 shared cards), and no per-equipment reload line
-      // survives anywhere.
-      expect(copiesInDeck(rec, 'deckGunBarrel')).toBe(2);
-      expect(copiesInDeck(rec, 'deckGunTurret')).toBe(1);
-      expect(copiesInDeck(rec, 'reload')).toBe(3);
-      for (const dead of DEAD_RELOAD_IDS) {
-        expect(Object.hasOwn(CATALOG, dead)).toBe(false);
-        expect(copiesInDeck(rec, dead)).toBe(0);
-      }
+      // ...and it is IDENTICAL across hulls: class identity is the envelope and
+      // the Shift now, never the cards a hull is allowed to draw.
+      expect([...eligible].sort()).toEqual(eligibleFor(place(w, `x-${hull}`, 0, 0, 0, 'torpedoBoat')).sort());
+      for (const dead of DEAD_RELOAD_IDS) expect(Object.hasOwn(CATALOG, dead)).toBe(false);
     });
   }
 
-  it('the hulls spawn holding NOTHING, and the pool + the stubs is the whole list', () => {
+  it('the hulls spawn holding NOTHING', () => {
     for (const hull of HULLS) {
       const w = bareWorld();
-      const rec = place(w, 'a', 0, 0, 0, hull);
-      expect(rec.cards).toEqual(NO_SEED);
-      const stubs = rec.deckList.filter((id) => isStubLine(id)).length;
-      expect(rec.deck.cards.length + stubs).toBe(CONFIG.deck.size);
+      expect(place(w, 'a', 0, 0, 0, hull).cards).toEqual(NO_SEED);
     }
   });
 
-  it('a World never chooses a deck: a captain added with NO list gets an EMPTY pool and an empty list', () => {
+  it('a captain added with no gun sails the DEFAULT one, and the World never picks a deck', () => {
     const w = bareWorld();
-    const bare = w.addShip('bare', 'BARE', 'captain', 'torpedoBoat', undefined, undefined, []);
-    expect(bare.deckList).toEqual([]);
-    expect(bare.deck.cards).toEqual([]);
-    // ...and a level still banks — with no offer (deck exhaustion banks silently).
+    const bare = w.addShip('bare', 'BARE', 'captain', 'torpedoBoat', undefined, undefined);
+    expect(bare.gun).toBe(DEFAULT_GUN);
+    expect(bare.cards).toEqual([]);
+    // ...and a level banks WITH a real offer: the pool is never empty.
     w.grantXp(bare, 1);
     expect(bare.bankedLevels).toBe(1);
-    expect(bare.offer).toBeNull();
+    expect(bare.offer).toHaveLength(CONFIG.offer.size);
   });
 
-  it('a dev override arrives as a fresh array and is FROZEN on the record', () => {
+  it('the SEAT GUN rides the record and mounts slot 0 through MOUNTED_GUN', () => {
     const w = bareWorld();
-    const list = [...DEFAULT_DECKS.torpedoBoat];
-    const rec = w.addShip('o', 'O', 'captain', 'torpedoBoat', undefined, undefined, list);
-    expect(rec.deckList).toEqual(list);
-    expect(rec.deckList).not.toBe(list);
-    expect(Object.isFrozen(rec.deckList)).toBe(true);
-    list.push('armor'); // the caller's array is not the record's
-    expect(rec.deckList).toHaveLength(CONFIG.deck.size);
+    for (const gun of GUN_IDS) {
+      const rec = w.addShip(`g-${gun}`, 'G', 'captain', 'torpedoBoat', undefined, undefined, gun);
+      expect(rec.gun).toBe(gun);
+      // All three resolve to the shipped `'gun'` module until Story 8.15.
+      expect(rec.loadout[SLOT_GUN].equipmentId).toBe(MOUNTED_GUN[gun]);
+      expect(rec.loadout[SLOT_GUN].equipmentId).toBe('gun');
+    }
   });
 
-  it('DRONES get NO deck and never draw (the frozen empty identity)', () => {
+  it('DRONES never draw (no bank, no hand, whatever the XP)', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []);
-    expect(d.deck.cards).toEqual([]);
+    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined);
     // Even a direct XP grant banks nothing for a drone (the addXpMs guard).
     w.grantXp(d, 5);
     expect(d.level).toBe(0);
     expect(d.bankedLevels).toBe(0);
     expect(d.offer).toBeNull();
-    expect(d.deck.cards).toEqual([]);
+    expect(w.takes.size).toBe(0);
   });
 });
 
 // ---------- earn: who banks one ----------------------------------------------
 
-describe('point earn — who banks one (deck-drawn offers)', () => {
-  it('an attributed kill banks ONE deck-drawn offer (stats untouched) + a self-private pt event', () => {
+describe('point earn — who banks one (pool-drawn offers)', () => {
+  it('an attributed kill banks ONE pool-drawn offer (stats untouched) + a self-private pt event', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);
     w.step(); // flush joins
-    const deckBefore = a.deck.cards.length;
     w.sinkShip('b', 'a');
     w.step();
     expect(a.bankedLevels).toBe(1);
-    expect(front(a)).toHaveLength(CONFIG.offer.size); // 4 lines from a healthy deck
+    expect(front(a)).toHaveLength(CONFIG.offer.size); // four lines from the pool
     expect(new Set(front(a)).size).toBe(CONFIG.offer.size); // all DIFFERENT lines
-    expect(a.deck.cards).toHaveLength(deckBefore); // the DRAW takes nothing out
+    expect(w.takes.size).toBe(0); // the DRAW takes nothing and records nothing
     expect(a.level).toBe(1);
     // Earning applies NOTHING: the build and cached stats are the zero-card identity.
     expect(a.cards).toEqual(NO_SEED);
@@ -332,7 +299,7 @@ describe('point earn — who banks one (deck-drawn offers)', () => {
 
 // ---------- determinism ------------------------------------------------------
 
-describe('deck determinism — (mapSeed, join ordinal, draw sequence)', () => {
+describe('draw determinism — (mapSeed, join ordinal, draw sequence)', () => {
   it('same seed + same join order + same draws ⇒ identical offers', () => {
     // Three levels now materialize ONE hand at a time, so the run has to SPEND
     // to reach the second and third draws — which is exactly the sequence the
@@ -488,22 +455,21 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     expect(a.offer).toBe(second);
   });
 
-  // THE ANTI-REGRESSION PIN (the lazy-draw bugfix). Under the old model each
-  // level DREW four cards out of the deck and only gave three back on a spend,
-  // so a player who banked levels drained their own deck: a 59-card TB hit zero
-  // by ~L15 and started banking 3-card, then 1-card, then zero-card levels. The
-  // whole point of the lazy model is that banking is FREE.
-  it('20 levels banked WITHOUT a single spend: every hand is full size and the deck never shrinks', () => {
+  // THE ANTI-REGRESSION PIN (the lazy-draw bugfix). Under the old deck model
+  // each level DREW four cards out of the deck and only gave three back on a
+  // spend, so a player who banked levels drained their own deck: a 59-card TB
+  // hit zero by ~L15 and started banking 3-card, then 1-card, then zero-card
+  // levels. Story 8.14 makes that structurally impossible — a draw is a READ of
+  // the common pool and there is nothing to thin — but the pin stays, because
+  // what it really asserts is that banking is FREE.
+  it('20 levels banked WITHOUT a single spend: every hand is full size', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const buildSize = a.deck.cards.length;
-    expect(buildSize).toBe(deckSizeFor()); // the default build (suite above)
     const hands: string[][] = [];
     for (let i = 0; i < 20; i++) {
       bank(w, a, 1);
       expect(a.bankedLevels).toBe(i + 1);
       hands.push(front(a));
-      expect(a.deck.cards).toHaveLength(buildSize); // NOTHING left the deck
     }
     for (const hand of hands) {
       expect(hand).toHaveLength(CONFIG.offer.size);
@@ -517,19 +483,15 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
       expect(a.bankedLevels).toBe(i - 1);
     }
     expect(a.cards).toHaveLength(20);
-    expect(a.deck.cards).toHaveLength(buildSize - 20); // exactly the 20 FITTED cards
   });
 
-  it('a passed-on line stays at FULL copies and is drawable by the very next level', () => {
+  it('a passed-on line is drawable by the very next level (nothing is consumed by passing)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     bank(w, a, 2);
     const hand = front(a);
     const passed = hand[1]; // fit slot 0, pass on the rest
-    const copiesBefore = copiesInDeck(a, passed);
-    expect(copiesBefore).toBe(poolCopies(passed)); // never left the deck at all
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(copiesInDeck(a, passed)).toBe(copiesBefore); // ...and still hasn't
     // It is eligible for the very next draw: hammer the stream from this state
     // and it does come back up.
     let seen = false;
@@ -542,26 +504,20 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     expect(seen, `${passed} never drawable again`).toBe(true);
   });
 
-  it('spend consumes ONLY the chosen card; the unchosen never left the deck', () => {
+  it('a spend fits EXACTLY the chosen card; the unchosen three buy nothing', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     bank(w, a, 1);
     const offer = front(a);
-    const deckBefore = a.deck.cards.length;
     expect(w.spendPoint('a', 0)).toBe(true);
-    // Exactly ONE card left the pool — the fitted one.
-    expect(a.deck.cards).toHaveLength(deckBefore - 1);
-    const chosen = offer[0];
-    expect(copiesInDeck(a, chosen)).toBe(poolCopies(chosen) - 1); // one copy consumed
-    for (const id of offer.slice(1)) {
-      expect(copiesInDeck(a, id)).toBe(poolCopies(id)); // untouched
-    }
+    expect(a.cards).toEqual([offer[0]]);
+    // ...and only the CHOSEN line can have moved the take ledger.
+    for (const id of offer.slice(1)) expect(w.takes.has(id as LineId), id).toBe(false);
   });
 
-  it('N fits remove exactly N cards, however the levels are banked and spent', () => {
+  it('N spends fit exactly N cards, however the levels are banked and spent', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const buildSize = a.deck.cards.length;
     let fits = 0;
     // Interleave: bank 3, spend 1, bank 1, spend 2, ... over many rounds.
     for (let round = 0; round < 6; round++) {
@@ -572,36 +528,34 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
       spendPlainCard(w, a);
       spendPlainCard(w, a);
       fits += 2;
-      expect(a.deck.cards).toHaveLength(buildSize - fits);
+      expect(a.cards).toHaveLength(fits);
     }
-    expect(a.cards).toHaveLength(fits);
   });
 
   // SOFT PITY IS DELETED with rarity (Story 8.1), and `levelsSinceRare` with
   // it — so the "exactly one draw per level" rule needs a different witness.
-  // The deck stream is it: a healthy draw consumes exactly CONFIG.offer.size
-  // rng values (one weighted pick per offered line), so counting the stream's
-  // consumption counts draws, whatever the catalog holds.
-  it('exactly ONE draw per level across grant/spend/heal interleavings (the deck stream counts them)', () => {
+  // The DRAW STREAM is it: a healthy draw consumes exactly TWO rng values per
+  // dealt card (Story 8.14's two-stage draw — one for the KIND, one for the
+  // LINE), so counting the stream's consumption counts draws, whatever the
+  // catalog holds.
+  it('exactly ONE draw per level across grant/spend/heal interleavings (the draw stream counts them)', () => {
     const line = (id: string): CatalogLine =>
       ({ id, kind: 'ladder', cap: 9, tiers: new Array(9).fill([{ kind: 'stat', path: 'equipment.gun.damage', add: 1 }]) }) as unknown as CatalogLine;
     const catalog: Catalog = { c1: line('c1'), c2: line('c2'), c3: line('c3'), c4: line('c4'), c5: line('c5'), c6: line('c6') };
     const w = bareWorld(3, { catalog });
-    // The list must name the INJECTED lines (Story 8.2: the pool is dealt
-    // from the list, and an id the catalog does not know is dropped).
-    const list = Object.keys(catalog).flatMap((id) => new Array<LineId>(9).fill(id as LineId));
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, list);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
     a.state.speed = 0;
     // Count the stream instead of a deleted counter: wrap this ship's own rng.
     let rolls = 0;
-    const inner = a.deckRng;
-    a.deckRng = {
+    const inner = a.drawRng;
+    a.drawRng = {
       next: () => { rolls += 1; return inner.next(); },
       int: (lo: number, hi: number) => inner.int(lo, hi),
       float: (lo: number, hi: number) => inner.float(lo, hi),
       pick: <T>(xs: readonly T[]) => inner.pick(xs),
     };
-    const draws = (): number => rolls / CONFIG.offer.size;
+    const ROLLS_PER_CARD = 2; // stage 1 (kind) + stage 2 (line), amendment 92
+    const draws = (): number => rolls / (ROLLS_PER_CARD * CONFIG.offer.size);
     let levels = 0;
     const grant = (n: number): void => { bank(w, a, n); levels += n; };
     grant(4); // one draw now, three deferred
@@ -734,13 +688,11 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
     bank(w, a, 2);
     stock(w, a, 1, 50);
     const offerBefore = front(a);
-    const deckBefore = [...a.deck.cards];
     expect(press(w, a)).toEqual({ ok: true });
-    // Firing a consumable is not a spend: the bank, the live hand and the pool
-    // are all exactly where they were. (Buying the CARD cost the level, once.)
+    // Firing a consumable is not a spend: the bank and the live hand are
+    // exactly where they were. (Buying the CARD cost the level, once.)
     expect(a.bankedLevels).toBe(2);
     expect(front(a)).toEqual(offerBefore);
-    expect(a.deck.cards).toEqual(deckBefore);
   });
 
   it('the pool pays out exactly regenHp over regenMs at the FIXED rate, then stops', () => {
@@ -937,11 +889,12 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
     // THE INVERSION OF THE OLD PIN. Until Story 8.8 this asserted that NO deck
     // card matched /heal|repair/ — the strip was addressed by a wire sentinel
     // and was never a card. Now `hullRepair` is exactly that card and must be
-    // in the pool; what must still be absent is the retired RAIL, i.e. any
+    // dealable; what must still be absent is the retired RAIL, i.e. any
     // `damageControl`-shaped line.
-    expect(a.deck.cards).toContain('hullRepair');
-    for (const id of a.deck.cards) expect(id).not.toMatch(/damageControl/i);
-    for (const id of a.deck.cards) expect(Object.hasOwn(CATALOG, id)).toBe(true);
+    const eligible = eligibleFor(a);
+    expect(eligible).toContain('hullRepair');
+    for (const id of eligible) expect(id).not.toMatch(/damageControl/i);
+    for (const id of eligible) expect(Object.hasOwn(CATALOG, id)).toBe(true);
     const hand = front(a);
     expect(hand).toHaveLength(4);
     for (const id of hand) expect(Object.hasOwn(CATALOG, id)).toBe(true);
@@ -960,12 +913,12 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
 
 describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon slot', () => {
   /** A TB holding `extraLevels` more banked levels behind a directed
-   *  navalMines front offer (the TB carries no mine, so the fit lands in the
-   *  first EMPTY weapon slot — 3, since the seed holds 2). Sails
-   *  TB_WITH_MINES so the line is IN the pool. */
+   *  navalMines front offer. Since Story 8.14 there is no deck to stack the
+   *  line into: EVERY non-stub line is in the common pool for every hull, so
+   *  the fixture only has to hand the ship the offer. */
   function fitBoard(extraLevels = 0): { w: World; a: ShipRecord } {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, TB_WITH_MINES);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
     a.state.speed = 0;
     a.bankedLevels = 1 + extraLevels;
     a.offer = ['navalMines', 'deckGunBarrel', 'armor', 'radarSweep'];
@@ -984,14 +937,13 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
     expect(a.loadout[2].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('the line stays in the deck at cap − 1 and its later copies are its TIERS, not another fit', () => {
+  it('copy 1 is the TAKE, and its later copies are its TIERS, not another fit', () => {
     const { w, a } = fitBoard();
-    const before = copiesInDeck(a, 'navalMines');
-    expect(before).toBe(CATALOG['navalMines'].cap);
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(copiesInDeck(a, 'navalMines')).toBe(before - 1);
-    // Copy 2 is tier II — EMPTY until Story 8.13 authors it — and above all it
-    // does NOT fit a second mine anywhere.
+    // COPY 1 OF AN EQUIPMENT LINE IS A TAKE (Story 8.14, amendment 90) — it is
+    // the bare weapon arriving, so every other captain's weight for the line
+    // steps down. Copy 2 is a tier bump and moves nobody's weight.
+    expect([...w.takes.get('navalMines' as LineId)!]).toEqual(['a']);
     const slotsBefore = a.loadout.map((s) => s.equipmentId);
     w.applyCard(a, 'navalMines');
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(slotsBefore);
@@ -1105,214 +1057,157 @@ function ladderLine(id: string, cap = 1): CatalogLine {
   return { id, kind: 'ladder', cap, tiers: new Array(cap).fill(tier) } as unknown as CatalogLine;
 }
 
-describe('empty deck — the level banks, no hand materializes, and exhaustion is reported ONCE (epic-8 amendment 14)', () => {
-  // WHAT THE TITLE USED TO SAY — "pinned unreachable in production" — is no
-  // longer true, and Story 8.3 re-derived why. A default deck deals 23 drawable
-  // cards; since the lazy-draw bugfix BANKING costs none of them, so the
-  // terminal offer-less level arrives after exactly 23 FITS (heals and passes
-  // cost no cards). A long match yields roughly 25 levels, so a captain who
-  // fits every single level and never heals CAN run dry: reachable, unlikely,
-  // and no longer a degenerate case to be waved at. Eric ruling 2026-09-15
-  // (epic-8 amendment 14) says what happens when it lands — the level still
-  // BANKS, it presents no options, it queues no `pt`, and it stays spendable
-  // on the menu heal. The boards below still reach the state with a tiny
-  // injected catalog, because 23 real fits is a slow way to say it.
-  it('with a one-card injected catalog: the level materializes the last card, and only FITTING it empties the deck', () => {
-    const tiny: WorldOptions = { catalog: { lastShell: ladderLine('lastShell') } };
-    const w = bareWorld(1, tiny);
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, ['lastShell' as LineId]);
-    a.state.speed = 0;
-    expect(a.deck.cards).toEqual(['lastShell']);
-    w.grantXp(a, 1);
-    w.step();
-    expect(a.level).toBe(1);
-    expect(front(a)).toEqual(['lastShell']); // a thin deck draws a short offer
-    expect(a.deck.cards).toEqual(['lastShell']); // ...and the draw took nothing
-    expect(ptsOf(w.tickEvents)).toEqual([{ k: 'pt', id: 'a' }]);
-    // A second level materializes NOTHING new (the hand is already up) but is
-    // banked, and it emits pt: there IS something to spend.
-    w.grantXp(a, 1);
-    w.step();
-    expect(a.level).toBe(2);
-    expect(a.bankedLevels).toBe(2);
-    expect(front(a)).toEqual(['lastShell']);
-    expect(ptsOf(w.tickEvents)).toEqual([{ k: 'pt', id: 'a' }]);
-    // FITTING it is what empties the deck — and the level behind it now has
-    // nothing to draw: banked, offer-less, and NOT advertising TAB-to-refit.
-    expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.deck.cards).toEqual([]);
-    expect(a.bankedLevels).toBe(1);
-    expect(a.offer).toBeNull();
-    const f = buildFrame(w, 'a');
-    expect(f.you!.pts).toBe(1); // the level is still banked...
-    expect(f.you!.offer).toEqual([]); // ...with no hand behind it
-    // The offer-less level refuses a CARD pick and simply STAYS BANKED: there
-    // is nothing else to spend it on since Story 8.8 retired the heal strip,
-    // and a later level retries the draw. That is a hold, not a deadlock.
-    expect(w.spendPoint('a', 0)).toBe(false);
-    expect(a.bankedLevels).toBe(1);
-    // ...and a fresh level against the empty deck emits NO pt (the ratified
-    // offer-less-level rule) — it simply banks on top of the one already held.
-    w.grantXp(a, 1);
-    w.step();
-    expect(a.bankedLevels).toBe(2);
-    expect(a.offer).toBeNull();
-    expect(ptsOf(w.tickEvents)).toEqual([]);
+// ---------- the offer is never empty (amendment 94) --------------------------
+
+describe('the offer is never empty — consumables are never filtered out (Story 8.14)', () => {
+  // WHAT THIS DESCRIBE USED TO BE: "empty deck — the level banks, no hand
+  // materializes, and exhaustion is reported ONCE". Eric deleted the whole
+  // state (amendment 94): *"There's no such thing as an 'empty draw.' If
+  // someone is out of slots and out of upgrades there are still consumables."*
+  // A consumable line is ALWAYS eligible — at its cap, with a full belt,
+  // whatever the ship holds — so `ShipRecord.deckExhausted`, `reportExhaustion`
+  // and the `deck.*` metrics are gone with no replacement.
+  it('a ship at its absolute ceiling is STILL dealt a full offer of consumables', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    // Fill every weapon slot and cap every consumable line: no equipment copy 1
+    // can be dealt (the row is full) and no consumable copy can be STOCKED.
+    for (const id of ['heavyTorpedo', 'navalMines', 'broadside'] as LineId[]) w.applyCard(a, id);
+    expect(WEAPON_SLOTS.every((i) => a.loadout[i].equipmentId !== null)).toBe(true);
+    for (let i = 0; i < CATALOG.hullRepair.cap; i += 1) w.applyCard(a, 'hullRepair');
+    bank(w, a, 1);
+    const hand = front(a);
+    expect(hand).toHaveLength(CONFIG.offer.size);
+    // ...and HULL REPAIR at its cap is STILL dealable: it is not filtered out.
+    expect(eligibleFor(a)).toContain('hullRepair');
   });
 
-  it('the FIRST empty draw banks the level, shows no hand, emits no pt — and reports exhaustion exactly ONCE however many levels follow', () => {
-    const onDeckExhausted = vi.fn();
-    // A deck LIST that names nothing: the drawable pool is empty from tick one,
-    // which is the terminal state without 23 fits to get there.
-    const w = bareWorld(1, { catalog: { dry: ladderLine('dry') }, onDeckExhausted });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, []);
+  it('a consumable the belt cannot take is STILL dealt, and picking it is a SILENT no-op', () => {
+    // Eric, amendment 94: *"If you can't hold any more consumables (no open
+    // slots, hit duplicate cap on each) then you are still shown a FULL ASS
+    // OFFER, you just can't pick anything until you clear up space."*
+    // Four DIFFERENT consumable lines fill the belt; a fifth has nowhere to go.
+    const w = bareWorld(1, { catalog: BELT_CATALOG });
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
     a.state.speed = 0;
-    expect(a.deck.cards).toEqual([]);
-    expect(a.deckExhausted).toBe(false);
-    expect(onDeckExhausted).not.toHaveBeenCalled();
+    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as LineId[]) w.applyCard(a, id);
+    expect(CONSUMABLE_SLOTS.every((i) => a.loadout[i].equipmentId !== null)).toBe(true);
+    // THE FIFTH LINE IS STILL ELIGIBLE — it is never filtered out of the draw.
+    expect(eligibleLines({ held: a.cards as readonly LineId[], weaponSlotOpen: true, mountedGun: 'gun' }, BELT_CATALOG)
+      .map((e) => e.id)).toContain('decoyBuoy');
+    const held = [...a.cards];
+    a.bankedLevels = 1;
+    a.offer = ['decoyBuoy'];
+    const offer = a.offer;
+    // ...and the PICK is refused before anything moves: the level stays banked
+    // and the next frame's offer is the SAME array, byte for byte.
+    expect(w.spendPoint('a', 0)).toBe(false);
+    expect(a.cards).toEqual(held);
+    expect(a.bankedLevels).toBe(1);
+    expect(a.offer).toBe(offer);
+  });
 
+  it('with FEWER dealable lines than the offer size the hand is SHORT, never padded, never repeated', () => {
+    const catalog: Catalog = { a1: ladderLine('a1', 9), a2: ladderLine('a2', 9) };
+    const w = bareWorld(1, { catalog });
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    a.state.speed = 0;
     w.grantXp(a, 1);
     w.step();
-    // The level BANKS (amendment 14) and the chip counts it...
+    expect(front(a).sort()).toEqual(['a1', 'a2']);
+    expect(ptsOf(w.tickEvents)).toEqual([{ k: 'pt', id: 'a' }]);
+  });
+
+  it('an ALL-STUB catalog is the only empty draw left: the level banks in silence, no latch anywhere', () => {
+    const catalog: Catalog = { ghost: { ...ladderLine('ghost', 9), stub: true } as CatalogLine };
+    const w = bareWorld(1, { catalog });
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    a.state.speed = 0;
+    w.grantXp(a, 1);
+    w.step();
+    // The level BANKS and the chip counts it...
     expect(a.bankedLevels).toBe(1);
     expect(buildFrame(w, 'a').you!.pts).toBe(1);
     // ...with no hand behind it and NO TAB cue.
     expect(a.offer).toBeNull();
     expect(ptsOf(w.tickEvents)).toEqual([]);
-    // The latch and its ONE report — the ship id, and nothing about the deck.
-    expect(a.deckExhausted).toBe(true);
-    expect(onDeckExhausted).toHaveBeenCalledTimes(1);
-    expect(onDeckExhausted).toHaveBeenCalledWith('a');
-
-    // The NEXT level retries the draw, finds the same nothing, banks anyway —
-    // and is SILENT: the report is once per record, ever.
-    w.grantXp(a, 1);
-    w.step();
-    expect(a.bankedLevels).toBe(2);
-    expect(a.offer).toBeNull();
-    expect(ptsOf(w.tickEvents)).toEqual([]);
-    expect(onDeckExhausted).toHaveBeenCalledTimes(1);
-
-    // An offer-less banked level buys NOTHING (Story 8.8 retired the menu
-    // heal): a card pick against an empty hand is refused and the bank holds.
+    // ...and NOTHING is latched or reported: the record carries no exhaustion
+    // field at all any more.
+    expect(Object.hasOwn(a, 'deckExhausted')).toBe(false);
+    // A pick against an empty hand is refused and the bank simply holds.
     expect(w.spendPoint('a', 0)).toBe(false);
-    expect(w.spendPoint('a', 3)).toBe(false);
-    expect(a.bankedLevels).toBe(2);
-    expect(onDeckExhausted).toHaveBeenCalledTimes(1);
-  });
-
-  it('a THIN draw is not exhaustion: a one-card hand still materializes, still emits pt, and reports nothing', () => {
-    const onDeckExhausted = vi.fn();
-    const w = bareWorld(1, { catalog: { lastShell: ladderLine('lastShell') }, onDeckExhausted });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, ['lastShell' as LineId]);
-    a.state.speed = 0;
-    w.grantXp(a, 1);
-    w.step();
-    expect(front(a)).toEqual(['lastShell']); // 1 of a possible CONFIG.offer.size
-    expect(ptsOf(w.tickEvents)).toEqual([{ k: 'pt', id: 'a' }]);
-    expect(a.deckExhausted).toBe(false);
-    expect(onDeckExhausted).not.toHaveBeenCalled();
-  });
-
-  it('a REDEPLOY rebuilds the pool from the frozen list but never clears the latch — no second report, ever', () => {
-    const onDeckExhausted = vi.fn();
-    const w = bareWorld(1, { catalog: { lastShell: ladderLine('lastShell') }, onDeckExhausted });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, ['lastShell' as LineId]);
-    a.state.speed = 0;
-    // Fit the only card — the FIT is what empties the pool — then bank a level
-    // against the dry deck.
-    w.grantXp(a, 1);
-    w.step();
-    expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.deck.cards).toEqual([]);
-    w.grantXp(a, 1);
-    w.step();
-    expect(a.deckExhausted).toBe(true);
-    expect(onDeckExhausted).toHaveBeenCalledTimes(1);
-
-    // THE MATCH BOUNDARY NO LONGER REBUILDS THE POOL (Story 8.10 review, P1):
-    // the whole card economy crosses it, so the dry deck stays dry and the
-    // banked level stays banked. The LATCH was never part of any rebuild and
-    // still is not — which is the thing this case exists to pin.
-    w.resetForMatchStart();
-    a.state.speed = 0;
-    expect(a.deck.cards).toEqual([]);
     expect(a.bankedLevels).toBe(1);
-    expect(a.deckExhausted).toBe(true);
-    expect(onDeckExhausted).toHaveBeenCalledTimes(1);
-
-    // ...so banking against the SAME dry record again is silent.
     w.grantXp(a, 1);
     w.step();
     expect(a.bankedLevels).toBe(2);
-    expect(a.offer).toBeNull();
-    expect(onDeckExhausted).toHaveBeenCalledTimes(1);
-  });
-
-  it('a THROWING exhaustion callback never escapes the tick: the level still banks, the latch is set, no pt, and world.step() does not throw', () => {
-    const onDeckExhausted = vi.fn(() => {
-      throw new Error('boom');
-    });
-    const w = bareWorld(1, { catalog: { dry: ladderLine('dry') }, onDeckExhausted });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, []);
-    a.state.speed = 0;
-    w.grantXp(a, 1);
-    expect(() => w.step()).not.toThrow();
-    expect(a.bankedLevels).toBe(1);
-    expect(a.offer).toBeNull();
     expect(ptsOf(w.tickEvents)).toEqual([]);
-    expect(a.deckExhausted).toBe(true);
-    expect(onDeckExhausted).toHaveBeenCalledTimes(1);
   });
 });
 
 // ---------- the at-cap guard -------------------------------------------------
 
-describe('the at-cap guard — materializeOffer passes the ship\'s OWN cards as `held` (Story 8.3)', () => {
-  it('a line the ship already holds at its cap is never offered, though the pool still lists a copy', () => {
+describe('the at-cap guard — the draw reads the ship\'s OWN cards (Story 8.3)', () => {
+  it('a line the ship already holds at its cap is never offered', () => {
     // cap 1, so ONE fitted copy is the whole cap. `spare` (cap 9) is the rest
     // of the hand's only other option, which makes the guard's bite visible:
     // unguarded, this draw would return TWO different lines.
     const catalog: Catalog = { hog: ladderLine('hog', 1), spare: ladderLine('spare', 9) };
     const w = bareWorld(5, { catalog });
-    const list = ['hog', ...new Array<LineId>(9).fill('spare' as LineId)] as LineId[];
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, list);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
     a.state.speed = 0;
-    expect(copiesInDeck(a, 'hog')).toBe(1);
-    // Reach the cap through the real grant seam. A GRANT is not a spend, so
-    // the pool's own copy of `hog` is untouched — held 1, pool 1.
+    // Reach the cap through the real grant seam.
     w.applyCard(a, 'hog');
     expect(a.cards).toEqual(['hog']);
-    expect(copiesInDeck(a, 'hog')).toBe(1);
 
     w.grantXp(a, 1);
     w.step();
     expect(front(a)).toEqual(['spare']); // `hog` is gone from the candidate set
-    expect(copiesInDeck(a, 'hog')).toBe(1); // ...and still sitting in the pool
   });
 
   it('a line held BELOW its cap is untouched — the guard excludes only AT the cap', () => {
     const catalog: Catalog = { hog: ladderLine('hog', 2) };
     const w = bareWorld(5, { catalog });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, ['hog' as LineId, 'hog' as LineId]);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
     a.state.speed = 0;
     w.applyCard(a, 'hog'); // held 1 of 2 — below the cap
     w.grantXp(a, 1);
     w.step();
     expect(front(a)).toEqual(['hog']);
   });
+
+  it('with the weapon row FULL, no equipment copy 1 is ever dealt (amendment 89b)', () => {
+    const w = bareWorld(7);
+    const a = place(w, 'a', 0, 0);
+    for (const id of ['heavyTorpedo', 'navalMines', 'broadside'] as LineId[]) w.applyCard(a, id);
+    const held = new Set(a.cards);
+    for (const id of eligibleFor(a)) {
+      const line = CATALOG[id];
+      if (line.kind !== 'equipment') continue;
+      // The only equipment lines left eligible are TIER cards of lines aboard.
+      expect(held.has(id), id).toBe(true);
+    }
+    // ...and over many draws not one unheld equipment line ever shows up.
+    for (let seed = 0; seed < 40; seed += 1) {
+      const t = bareWorld(200 + seed);
+      const s = place(t, 'a', 0, 0);
+      for (const id of ['heavyTorpedo', 'navalMines', 'broadside'] as LineId[]) t.applyCard(s, id);
+      bank(t, s, 1);
+      for (const id of front(s)) {
+        if (CATALOG[id].kind === 'equipment') expect(s.cards, `${seed}/${id}`).toContain(id);
+      }
+    }
+  });
 });
 
 // ---------- lifecycle --------------------------------------------------------
 
 describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
-  it('respawn (waiting phase) PRESERVES the build: boons, stats, effective hp + pools, deck, bank, XP', () => {
+  it('respawn (waiting phase) PRESERVES the build: boons, stats, effective hp + pools, bank, XP', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stack(w, a, 'armor', 2);
     bank(w, a, 2);
     w.grantXp(a, 0.5); // partial progress toward the next level
-    const deckBefore = [...a.deck.cards];
     const bankBefore = a.bankedLevels;
     const offerBefore = front(a);
     const xpBefore = a.xpMs;
@@ -1323,7 +1218,6 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     expect(a.cards).toEqual(['armor', 'armor']);
     expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 50);
     expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp
-    expect(a.deck.cards).toEqual(deckBefore);
     expect(a.bankedLevels).toBe(bankBefore);
     expect(front(a)).toEqual(offerBefore);
     expect(a.level).toBe(2);
@@ -1335,22 +1229,18 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
   // the SAME build now, on every path — `hold` governs placement only, and the
   // countdown economy must reach live water in every room (the batch-sim
   // runner and the RL env build a Match without `expectedCaptains`).
-  it('redeployShip (match start) PRESERVES the build, the bank, the hand and the deck', () => {
+  it('redeployShip (match start) PRESERVES the build, the bank, the hand and the draw stream', () => {
     const w = bareWorld();
-    // TB_WITH_MINES: the TB default holds no unfitted non-stub equipment line,
-    // so the board adds NAVAL MINES to have a fit that diverges the deck.
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, TB_WITH_MINES);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
     a.state.speed = 0;
-    // Fit an equipment line so the live deck and the live FIT both diverge
-    // hard from a fresh build.
+    // Fit an equipment line so the live FIT diverges hard from a fresh build.
     a.bankedLevels = 1;
     a.offer = ['navalMines', 'deckGunBarrel', 'armor', 'radarSweep'];
     w.spendPoint('a', 0);
     bank(w, a, 2);
-    expect(copiesInDeck(a, 'navalMines')).toBe(CATALOG['navalMines'].cap - 1);
     const bankBeforeReset = a.bankedLevels;
     const handBeforeReset = a.offer;
-    const poolBeforeReset = [...a.deck.cards];
+    const streamBeforeReset = a.drawRng;
     w.resetForMatchStart();
     expect(a.cards).toEqual(['navalMines']);
     expect(a.bankedLevels).toBe(bankBeforeReset);
@@ -1368,18 +1258,17 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
       if (slot.state === null) continue;
       expect(slot.state.reloadMsLeft).toBe(0);
     }
-    // The pool is NOT rebuilt: the copy the fit consumed stays consumed.
-    expect(a.deckList).toEqual(TB_WITH_MINES);
-    expect(a.deck.cards).toEqual(poolBeforeReset);
-    expect(copiesInDeck(a, 'navalMines')).toBe(CATALOG['navalMines'].cap - 1);
-    expect(a.deck.cards).toHaveLength(deckSizeFor() + CATALOG['navalMines'].cap - 1);
+    // The draw stream is never reseeded, and the TAKE stays taken: a match
+    // boundary restores nothing (amendment 90 — a take is permanent).
+    expect(a.drawRng).toBe(streamBeforeReset);
+    expect([...w.takes.get('navalMines' as LineId)!]).toEqual(['a']);
   });
 });
 
 // ---------- wire privacy -----------------------------------------------------
 
-describe('wire privacy — banked levels and the deck never leak', () => {
-  it('own frame: pts counts the BANK, offer is the materialized FRONT hand as resolvable LINE IDS; the DECK never rides the wire', () => {
+describe('wire privacy — banked levels, the ledger and the weights never leak', () => {
+  it('own frame: pts counts the BANK, offer is the materialized FRONT hand as resolvable LINE IDS; nothing about the pool rides the wire', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     bank(w, a, 2);
@@ -1768,24 +1657,20 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
   // and made SUPERCAV TORPEDO a live consumable, so the Torpedo Boat went
   // 27 -> 30 and the Mine Layer 27 -> 29; the Battleship's three lines are all
   // still Story 8.14's, so it stays at 27 until they land.
-  const HULLS: [ShipClassId, string[], number][] = [
-    ['torpedoBoat', ['heavyTorpedo'], 30],
-    ['battleship', ['broadside', 'starShells'], 27],
-    ['mineLayer', ['navalMines'], 29],
+  const HULLS: [ShipClassId, string[]][] = [
+    ['torpedoBoat', ['heavyTorpedo']],
+    ['battleship', ['broadside', 'starShells']],
+    ['mineLayer', ['navalMines']],
   ];
 
-  for (const [hull, formerSeed, drawable] of HULLS) {
-    it(`${hull} spawns with NO cards, a ${drawable}-card pool, and ${JSON.stringify(formerSeed)} still in the deck`, () => {
+  for (const [hull, formerSeed] of HULLS) {
+    it(`${hull} spawns with NO cards, and ${JSON.stringify(formerSeed)} is just another pool line`, () => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0, 0, hull);
       expect(a.cards).toEqual([]);
-      expect(a.deck.cards).toHaveLength(drawable);
-      expect(deckSizeFor(hull)).toBe(drawable);
-      // The line the hull used to hold is dealt WHOLE now — every copy the
-      // list carries is in the pool, drawable like any other card.
-      for (const id of formerSeed) {
-        expect(copiesInDeck(a, id), id).toBe(DEFAULT_DECKS[hull].filter((x) => x === id).length);
-      }
+      // The line the hull used to hold is an ORDINARY pool line now — eligible
+      // for this hull exactly as it is for every other (Story 8.14).
+      for (const id of formerSeed) expect(eligibleFor(a), id).toContain(id);
       // ...and the fit is the bare universal loadout, byte for byte: gun,
       // Shift boost, seven empty slots. `loadoutFor` IS the spawn now.
       expect(a.stats).toEqual(effectiveStats(a.cls));
@@ -1827,25 +1712,21 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
     const a = place(w, 'a', 0, 0, 0, 'battleship');
     w.applyCard(a, 'broadside');
     w.applyCard(a, 'armor');
-    const pool = [...a.deck.cards];
     w.resetForMatchStart();
     expect(a.cards).toEqual(['broadside', 'armor']);
-    expect(a.deck.cards).toEqual(pool); // two copies still spent
     expect(a.stats).toEqual(effectiveStats(a.cls, ['broadside', 'armor']));
     expect(a.loadout[WEAPON_SLOTS[0]].equipmentId).toBe('broadside');
     // A hull that JOINS, by contrast, still comes up with nothing at all.
     const fresh = place(w, 'fresh', 0, 0, 0, 'battleship');
     expect(fresh.cards).toEqual([]);
     expect(fresh.mulliganed).toBe(false);
-    expect(fresh.deck.cards).toHaveLength(27); // battleship: three lines still stubbed (8.14)
     expect(fresh.stats).toEqual(effectiveStats(fresh.cls));
     expect(fresh.loadout).toEqual(loadoutFor(fresh.stats));
   });
 
-  it('DRONES still get NO deck, and now no cards to speak of either', () => {
+  it('DRONES still draw nothing, and hold no cards to speak of either', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []);
-    expect(d.deck.cards).toEqual([]);
+    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined);
     expect(d.cards).toEqual([]);
     // A fleet hull fits the GUN ALONE — never the Shift boost (amendment 24).
     expect(d.loadout.map((x) => x.equipmentId)).toEqual(['gun', null, null, null, null, null, null, null, null]);
@@ -1872,19 +1753,21 @@ function consumableLine(id: ConsumableId, cap = 5): CatalogLine {
   return { id, kind: 'consumable', cap, tiers } as unknown as CatalogLine;
 }
 
+/** Four KEY-FIRES lines + the one click-placed line (decoyBuoy is the only
+ *  `CONSUMABLE_IS_WEAPON` true, catalog-v3 R1), all NON-STUB. Module-scope
+ *  since Story 8.14: the never-empty-offer suite needs a belt a captain can
+ *  actually FILL, and production ships only two live consumable lines. */
+const BELT_CATALOG: Catalog = {
+  hullRepair: consumableLine('hullRepair'),
+  shieldBlock: consumableLine('shieldBlock'),
+  smokeScreen: consumableLine('smokeScreen'),
+  chaff: consumableLine('chaff'),
+  decoyBuoy: consumableLine('decoyBuoy'),
+  gunUp: ladderLine('gunUp', 9), // a non-consumable control line
+};
+
 describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Story 8.7)', () => {
   const [B0, B1, B2, B3] = CONSUMABLE_SLOTS;
-  /** Four KEY-FIRES lines + the one click-placed line (decoyBuoy is the only
-   *  `CONSUMABLE_IS_WEAPON` true, catalog-v3 R1), all NON-STUB. */
-  const BELT_CATALOG: Catalog = {
-    hullRepair: consumableLine('hullRepair'),
-    shieldBlock: consumableLine('shieldBlock'),
-    smokeScreen: consumableLine('smokeScreen'),
-    chaff: consumableLine('chaff'),
-    decoyBuoy: consumableLine('decoyBuoy'),
-    gunUp: ladderLine('gunUp', 9), // a non-consumable control line
-  };
-
   /** A World on the belt catalog with ONE key-fires row and ONE `isWeapon` row
    *  (the future decoy's shape). `used` records every effect that ran. */
   function beltWorld(seed = 1): { w: World; used: string[] } {
@@ -1897,17 +1780,28 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     return { w, used };
   }
 
-  /** A captain on a DIRECTED deck list (the injected catalog carries none of
-   *  the shipped weapon lines, so the spawn seed is empty and `cards` starts
-   *  bare — every card below is one this board put there). */
+  /** A captain on the injected belt catalog. Nothing is held at spawn, so
+   *  every card below is one this board put there. The `list` argument is kept
+   *  at the call sites for readability and is no longer a deck: Story 8.14
+   *  retired them. */
   function placeBelt(w: World, id: string, list: readonly LineId[]): ShipRecord {
-    const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, list);
+    void list;
+    const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
     rec.state.x = 0;
     rec.state.y = 0;
     rec.state.speed = 0;
     rec.sweepAngle = 0;
     rec.prevSweepAngle = 0;
     return rec;
+  }
+
+  /** ARM A DIRECTED OFFER. Until Story 8.14 these boards constrained the draw
+   *  by handing the ship a one-line DECK; with the common pool there is no such
+   *  lever, so the hand this suite wants to spend is set directly — which is
+   *  what every other directed board in this file already does. */
+  function arm(a: ShipRecord, ids: readonly LineId[], levels = 1): void {
+    a.bankedLevels = levels;
+    a.offer = [...ids];
   }
 
   /** `n` copies of one line as a deck list. */
@@ -1921,20 +1815,16 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
 
   // --- stock ---------------------------------------------------------------
 
-  it('a consumable pick STOCKS the first belt slot, leaves the deck, and queues its bn', () => {
+  it('a consumable pick STOCKS the first belt slot and queues its bn', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     expect(a.cards).toEqual([]);
-    const deckBefore = a.deck.cards.length;
-    bank(w, a, 1);
-    expect(front(a)).toEqual(['hullRepair']); // a one-line deck draws a one-card hand
+    a.bankedLevels = 1;
+    a.offer = ['hullRepair'];
     expect(w.spendPoint('a', 0)).toBe(true);
     // The stack: one copy, and a timer that is 0 for its whole life.
     expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 } });
     expect(a.cards).toEqual(['hullRepair']);
-    // FR46 — a stocked consumable LEAVES the deck on pick, like any other card.
-    expect(a.deck.cards).toHaveLength(deckBefore - 1);
-    expect(copiesInDeck(a, 'hullRepair')).toBe(4);
     w.step(); // the tick swap is what publishes the queued event
     expect(bnsOf(buildFrame(w, 'a').events)).toEqual([{ k: 'bn', id: 'a', boon: 'hullRepair' }]);
     // The weapon row and the other three belt slots are untouched.
@@ -1946,9 +1836,10 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
   it('a SECOND copy of a held line deepens the SAME stack (n 2), touching no other slot', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
-    bank(w, a, 2);
+    arm(a, ['hullRepair'], 2);
     expect(w.spendPoint('a', 0)).toBe(true);
     const state = a.loadout[B0].state; // the identical state object must survive
+    arm(a, ['hullRepair'], 1);
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.loadout[B0].state).toBe(state);
     expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
@@ -1973,9 +1864,9 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('decoyBuoy'));
     for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']) w.applyCard(a, id);
-    bank(w, a, 1);
-    w.step(); // publish the banked level's pt...
-    w.step(); // ...and let it age out, so the frames below are clean
+    arm(a, ['decoyBuoy']);
+    w.step(); // let any queued event age out, so the frames below are clean
+    w.step();
     expect(bnsOf(buildFrame(w, 'a').events)).toEqual([]);
     expect(ptsOf(buildFrame(w, 'a').events)).toEqual([]);
     expect(front(a)).toEqual(['decoyBuoy']);
@@ -1983,7 +1874,6 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     const offerCopy = [...a.offer!];
     const banked = a.bankedLevels;
     const cards = [...a.cards];
-    const deck = [...a.deck.cards];
     const loadout = JSON.parse(JSON.stringify(a.loadout)) as unknown;
     const stats = a.stats;
 
@@ -1993,7 +1883,6 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     expect([...a.offer!]).toEqual(offerCopy);
     expect(a.bankedLevels).toBe(banked);
     expect(a.cards).toEqual(cards);
-    expect(a.deck.cards).toEqual(deck);
     expect(JSON.parse(JSON.stringify(a.loadout))).toEqual(loadout);
     expect(a.stats).toBe(stats);
     // No event of either kind was queued — this tick or the next.
@@ -2011,8 +1900,7 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']) w.applyCard(a, id);
-    bank(w, a, 1);
-    expect(front(a)).toEqual(['hullRepair']);
+    arm(a, ['hullRepair']);
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
   });
@@ -2021,8 +1909,7 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', new Array<LineId>(9).fill('gunUp' as LineId));
     for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']) w.applyCard(a, id);
-    bank(w, a, 1);
-    expect(front(a)).toEqual(['gunUp']);
+    arm(a, ['gunUp' as LineId]);
     expect(w.spendPoint('a', 0)).toBe(true);
   });
 
@@ -2280,103 +2167,11 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
   });
 });
 
-// ---------- the at-cap guard is LIVE (Story 8.11) ----------------------------
-//
-// Until the match pool existed, every door-admitted deck held each line at or
-// under its catalog cap, so `drawOffer`'s at-cap guard was provably IDLE: a
-// ship could never hold `cap` copies of a line the deck still had copies of.
-// The pool is the first thing that can push a line's copies PAST its cap (HULL
-// REPAIR: three authored + five pooled = eight, against a cap of five). A ship
-// HOLDING `cap` is never offered the line again, however many copies the deck
-// still carries — but those copies are not dead, they are GATED BEHIND USE: a
-// pool holds consumables only, and firing one drops a copy out of `cards`
-// (`spendStock`, Story 8.7), which reopens the line and puts the rest back in
-// the draw. This is the pin that says so at World level, and the reason the
-// batch-sim deck economy now draws with `{ held }` too.
-
-describe('the at-cap guard with a match pool (Story 8.11)', () => {
-  const FIVE_REPAIRS: readonly LineId[] = ['hullRepair', 'hullRepair', 'hullRepair', 'hullRepair', 'hullRepair'];
-
-  it('a captain holding CAP copies is never offered the line again, with copies still in the deck', () => {
-    const w = bareWorld(5, { pool: FIVE_REPAIRS });
-    const a = place(w, 'a', 0, 0);
-    // Three authored + five pooled: the deck is over cap, which is the state
-    // only the pool can produce.
-    expect(copiesInDeck(a, 'hullRepair')).toBe(poolCopies('hullRepair') + FIVE_REPAIRS.length);
-    expect(copiesInDeck(a, 'hullRepair')).toBeGreaterThan(CATALOG.hullRepair.cap);
-    // Fit the line to its cap through the real grant seam.
-    stack(w, a, 'hullRepair', CATALOG.hullRepair.cap);
-    expect(boonStackCount(a.cards, 'hullRepair')).toBe(CATALOG.hullRepair.cap);
-    // Now draw hand after hand: the line is CLOSED while the stack is full,
-    // and the deck still holds it (firing one would reopen it — not here).
-    for (let i = 0; i < 12; i += 1) {
-      bank(w, a, 1);
-      w.step();
-      expect(front(a)).not.toContain('hullRepair');
-      expect(w.spendPoint(a.id, 0)).toBe(true);
-    }
-    expect(copiesInDeck(a, 'hullRepair')).toBeGreaterThan(0); // withheld, not consumed
-  });
-
-  it('...and a USE REOPENS the line: the over-cap copies were waiting, not dead (8.7 + 8.11)', () => {
-    // THE CORRECTION THIS PIN EXISTS FOR. "Copies past the cap are dead" is
-    // FALSE for consumables, which is all a pool can hold: `World.spendStock`
-    // (Story 8.7) removes a USED copy from `ship.cards`, and `cards` is what
-    // rides in as `held`. So firing one of five stocked HULL REPAIR REOPENS the
-    // line and the deck's remaining copies are drawable again — the "there
-    // might be more heals out there" the pool was bought for.
-    const w = bareWorld(5, { pool: FIVE_REPAIRS });
-    const a = place(w, 'a', 0, 0);
-    stack(w, a, 'hullRepair', CATALOG.hullRepair.cap);
-    expect(a.loadout[SLOT_BELT]).toEqual({ equipmentId: 'hullRepair', state: { n: 5, reloadMsLeft: 0 } });
-    expect(copiesInDeck(a, 'hullRepair')).toBeGreaterThan(0); // the pooled copies are still there
-
-    // CLOSED while the stack is full (the first pin, in miniature).
-    for (let i = 0; i < 4; i += 1) {
-      bank(w, a, 1);
-      w.step();
-      expect(front(a)).not.toContain('hullRepair');
-      expect(w.spendPoint(a.id, 0)).toBe(true);
-    }
-
-    // FIRE ONE, through the REAL wire entry point: the ability channel, the
-    // shipped HULL REPAIR row, and a hull that is actually hurt (the row
-    // refuses a full hull and would then consume nothing — amendment 53).
-    a.hp = a.stats.maxHp - 100;
-    w.submitInput('a', {
-      seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0,
-      slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_BELT, hornSeq: 0,
-    });
-    w.step();
-    expect(boonStackCount(a.cards, 'hullRepair')).toBe(CATALOG.hullRepair.cap - 1); // spendStock took one
-    expect(a.loadout[SLOT_BELT].state).toEqual({ n: 4, reloadMsLeft: 0 });
-
-    // ...and now the guard lets it through again, out of copies that never
-    // left the deck. FAIL-PROOF against "it was offered because the deck ran
-    // thin": the deck still holds the line when the offer comes back.
-    let reoffered = false;
-    for (let i = 0; i < 20 && !reoffered; i += 1) {
-      bank(w, a, 1);
-      w.step();
-      reoffered = front(a).includes('hullRepair');
-      if (!reoffered) expect(w.spendPoint(a.id, 0)).toBe(true);
-    }
-    expect(reoffered).toBe(true);
-    expect(copiesInDeck(a, 'hullRepair')).toBeGreaterThan(0);
-  });
-
-  it('...and BELOW the cap the pooled copies are ordinary cards: the line is still offered', () => {
-    // The discriminating negative — without it the pin above would pass on a
-    // World that simply never offers HULL REPAIR at all.
-    const w = bareWorld(5, { pool: FIVE_REPAIRS });
-    const a = place(w, 'a', 0, 0);
-    let offered = false;
-    for (let i = 0; i < 12 && !offered; i += 1) {
-      bank(w, a, 1);
-      w.step();
-      offered = front(a).includes('hullRepair');
-      expect(w.spendPoint(a.id, 0)).toBe(true);
-    }
-    expect(offered).toBe(true);
-  });
-});
+// THE MATCH-POOL SUITE IS DELETED (Story 8.14, epic-8 amendments 89a/94).
+// It pinned the at-cap guard against Story 8.11's hidden consumable pool —
+// three authored + five pooled HULL REPAIR against a cap of five — and both
+// halves of its premise are gone: there is no hidden pool, and a CONSUMABLE is
+// never filtered out of the draw at all (Eric: a capped consumable is dealt
+// anyway and the pick is a silent no-op). The at-cap guard now bites on
+// EQUIPMENT, LADDER and ADD-ON lines only, which the at-cap suite above pins,
+// and the never-empty suite pins the consumable half.

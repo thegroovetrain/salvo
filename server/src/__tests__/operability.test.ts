@@ -646,7 +646,7 @@ function driveCollapse(hooks: MatchHooks): void {
   w.map.islands.length = 0;
   const m = new Match(w, SEALED, hooks);
   for (const id of ['a', 'b']) {
-    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
+    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
     m.notifyRosterChanged();
   }
   expect(m.phase).toBe('countdown');

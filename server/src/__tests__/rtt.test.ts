@@ -76,7 +76,7 @@ describe('RTT staleness reaches the World (ArenaRoom ping loop)', () => {
       onPongMessage(client: { sessionId: string }, raw: unknown): void;
     };
     const w = new World(1);
-    const ship = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const ship = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     room.world = w;
     room.clients = [{ sessionId: 'a', state: ClientState.JOINED, send: () => {} }];
 

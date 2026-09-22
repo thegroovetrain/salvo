@@ -44,7 +44,7 @@ function place(
   heading = 0,
   hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard
@@ -246,7 +246,7 @@ describe('denial channel — lifecycle + privacy edges', () => {
 
   it('drones never queue denials (no client, no channel)', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined, []); // universal fit: slot 1 = torpedo
+    const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined); // universal fit: slot 1 = torpedo
     d.state.x = 0;
     d.state.y = 0;
     d.state.heading = 0;
@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 55→56 bump (PV 56, Story 8.13: catalog content the client READS — five authored tier ladders, the supercav/fouling id moves — plus `MineView.c`, the own-only mine kind, so a PV-55 client would mis-read both the cards and the mine list) is enforced at matchmake', () => {
-  it('rejects pv-55 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(56);
+describe('pv join gate — the 56→57 bump (PV 57, Story 8.14: the own-ship frame gains `gun` and the whole deck contract is deleted, so a PV-56 client would knock on a deck door that no longer exists) is enforced at matchmake', () => {
+  it('rejects pv-56 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(57);
+    expect(protocolVersionError(56)).toMatch(/refresh/);
     expect(protocolVersionError(55)).toMatch(/refresh/);
     expect(protocolVersionError(54)).toMatch(/refresh/);
     expect(protocolVersionError(53)).toMatch(/refresh/);

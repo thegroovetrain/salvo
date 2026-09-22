@@ -34,7 +34,7 @@ describe('World clock + lifecycle', () => {
 
   it('addShip creates a full-hp living ship and removeShip forgets it', () => {
     const w = new World(1);
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     expect(isAfloat(rec.lifecycle)).toBe(true);
     expect(rec.role).toBe('captain');
@@ -44,14 +44,14 @@ describe('World clock + lifecycle', () => {
   });
 
   it('addShip defaults to the torpedoBoat class', () => {
-    const rec = new World(1).addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = new World(1).addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     expect(rec.hullId).toBe('torpedoBoat');
     expect(rec.cls).toBe(CONFIG.shipClasses.torpedoBoat);
   });
 
   it('addShip applies the requested class (id, cached cls, and hp)', () => {
     const w = new World(1);
-    const bb = w.addShip('b', 'BRAVO', 'captain', 'battleship', undefined, undefined, []);
+    const bb = w.addShip('b', 'BRAVO', 'captain', 'battleship', undefined, undefined);
     expect(bb.hullId).toBe('battleship');
     expect(bb.cls).toBe(CONFIG.shipClasses.battleship);
     expect(bb.hp).toBe(CONFIG.shipClasses.battleship.hp);
@@ -59,7 +59,7 @@ describe('World clock + lifecycle', () => {
 
   it('addShip resolves a drone hull id to its CONFIG.drones envelope', () => {
     const w = new World(1);
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium', undefined, undefined, []);
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium', undefined, undefined);
     expect(d.hullId).toBe('droneMedium');
     expect(d.cls).toBe(CONFIG.drones.medium);
     // effectiveStats accepts the drone envelope: hp/kinematics flow through.
@@ -72,8 +72,8 @@ describe('World clock + lifecycle', () => {
 describe('World step — per-class kinematics', () => {
   it('a torpedo boat out-accelerates a battleship under full throttle', () => {
     const w = new World(1);
-    const dd = w.addShip('dd', 'DD', 'captain', 'torpedoBoat', undefined, undefined, []);
-    const bb = w.addShip('bb', 'BB', 'captain', 'battleship', undefined, undefined, []);
+    const dd = w.addShip('dd', 'DD', 'captain', 'torpedoBoat', undefined, undefined);
+    const bb = w.addShip('bb', 'BB', 'captain', 'battleship', undefined, undefined);
     // Same fresh pose so only kinematics differ.
     dd.state = { x: 0, y: 0, heading: 0, speed: 0 };
     bb.state = { x: 0, y: 0, heading: 0, speed: 0 };
@@ -90,7 +90,7 @@ describe('World step — per-class kinematics', () => {
 describe('World step — inputs and motion', () => {
   it('applies the latest stored input and acks its seq', () => {
     const w = new World(2);
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     const before = { ...rec.state };
     expect(w.submitInput('a', input(7))).toBe(true);
     w.step();
@@ -104,8 +104,8 @@ describe('World step — inputs and motion', () => {
     const script = [input(1, 1, 0), input(2, 1, 1), input(3, -0.5, -1), input(4, 1, 0.3)];
     const run = () => {
       const w = new World(1234);
-      w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
-      w.addShip('b', 'BRAVO', undefined, undefined, undefined, undefined, []);
+      w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
+      w.addShip('b', 'BRAVO', undefined, undefined, undefined, undefined);
       for (const msg of script) {
         w.submitInput('a', msg);
         w.submitInput('b', { ...msg, rudder: -msg.rudder });
@@ -120,7 +120,7 @@ describe('World step — inputs and motion', () => {
 
   it('setRtt stores the estimate on the ship (null = never measured); unknown ids are a no-op', () => {
     const w = new World(11);
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     expect(rec.rttMs).toBeNull(); // drones and fresh joins alike start unmeasured
     w.setRtt('a', 42);
     expect(rec.rttMs).toBe(42);
@@ -131,7 +131,7 @@ describe('World step — inputs and motion', () => {
 
   it('dead ships do not move but still ack inputs', () => {
     const w = new World(3);
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.respawnEnabled = false; // the window now outlasts the respawn delay
     w.sinkShip('a');
     // Story 5.2: sinkShip opens the five-second window (a SINKING hull still
@@ -155,7 +155,7 @@ describe('World step — boundary', () => {
   // DELIBERATELY inverted: they were the "pinned in open ocean" bug.
   it('clamps a ship at the map edge by its bow, and never damps its speed there', () => {
     const w = new World(4);
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     // Aim the ship straight out from center and place it near the edge, fast.
     rec.state.x = w.map.radius - 1;
     rec.state.y = 0;
@@ -179,7 +179,7 @@ describe('World step — boundary', () => {
 
   it('never lets a ship escape the map over a long full-throttle run', () => {
     const w = new World(5);
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.submitInput('a', input(1, 1, 0.1));
     stepN(w, 600); // 30s of sailing
     expect(Math.hypot(rec.state.x, rec.state.y)).toBeLessThanOrEqual(w.map.radius + 1e-9);
@@ -189,7 +189,7 @@ describe('World step — boundary', () => {
 describe('World step — sweep + respawn', () => {
   it('advances the radar sweep one revolution per sweep period (60000/rpm)', () => {
     const w = new World(6);
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     const ticksPerRev = Math.round(60000 / CONFIG.vision.sweepRpm / SIM_DT);
     // The RATE is the property, and it is now asserted as a DELTA from wherever
     // the beam started: a fresh hull's sweep is anchored to its spawn heading
@@ -205,7 +205,7 @@ describe('World step — sweep + respawn', () => {
 
   it('sinkShip kills, schedules respawn, and step revives after the delay', () => {
     const w = new World(7);
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.sinkShip('a', 'b');
     expect(isAfloat(rec.lifecycle)).toBe(false);
     expect(rec.hp).toBe(0);
@@ -227,7 +227,7 @@ describe('World step — sweep + respawn', () => {
 
   it('sinkShip on a dead or unknown ship is a no-op', () => {
     const w = new World(8);
-    w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.sinkShip('a');
     const at = w.ships.get('a')!.respawnAt;
     w.step();
@@ -238,7 +238,7 @@ describe('World step — sweep + respawn', () => {
 
   it('emits sunk then spawn events across the sink/respawn transition', () => {
     const w = new World(9);
-    w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.step(); // flush the join spawn event
     w.sinkShip('a', 'k');
     w.step();

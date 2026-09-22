@@ -48,7 +48,7 @@
 //      reports real client A's hp, not real client B's.
 //
 // THE WEAPONS ARE PRE-FITTED (Story 8.10, epic-8 amendment 65). FR48 deleted
-// the interim spawn seed: every hull now spawns holding the deck gun and the
+// the interim spawn seed: every hull now spawns holding the SEAT'S GUN and the
 // Shift boost ONLY, and its first weapon arrives as a CARD from the level-zero
 // countdown offer — which this smoke's SANDBOX room does not even have (no
 // Match, so no countdown and no grant). Both clients therefore ask for their
@@ -91,15 +91,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
 
 /** Each hull's own non-stub weapon line — the DEV SPAWN FIT this smoke asks
- *  for (amendment 65). It must be a line the hull's DEFAULT DECK carries: the
- *  fit is paid for out of that pool, and an id the pool cannot pay for is
- *  silently dropped. */
+ *  for (amendment 65). Since Story 8.14 there is no deck to pay a copy out of:
+ *  ANY non-stub catalog line is fittable, and an unknown or stub id (or one
+ *  already held at its cap) is silently dropped. */
 const CLASS_WEAPON = { torpedoBoat: 'heavyTorpedo', mineLayer: 'navalMines', battleship: 'starShells' };
 
 /**
  * `opts.weapon` — the line to fit instead of the hull's class weapon (Story
- * 8.13's `lightTorpedo` / `captiveMines`; it must be one the hull's DEFAULT
- * DECK carries, since the fit is paid out of that pool).
+ * 8.13's `lightTorpedo` / `captiveMines`; any non-stub catalog line works since
+ * Story 8.14 retired the decks).
  * `opts.roomId`  — join THAT room by id (the second half of a pair).
  * `opts.fresh`   — CREATE a room rather than joinOrCreate (the first half of a
  *                  pair that needs clean water).

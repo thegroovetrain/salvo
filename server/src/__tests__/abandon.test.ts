@@ -45,7 +45,7 @@ function setup(ids: string[]): Harness {
   };
   const m = new Match(w, TIMINGS, hooks);
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
+    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
     m.notifyRosterChanged();
   }
   return { w, m, sunk: [] };

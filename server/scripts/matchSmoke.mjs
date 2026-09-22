@@ -30,7 +30,7 @@
 // matchOverride is a dev tool — the real client never sets it.
 //
 // THE TORPEDO IS PRE-FITTED (Story 8.10, epic-8 amendment 65). FR48 deleted
-// the interim spawn seed, so every hull now spawns holding the deck gun and
+// the interim spawn seed, so every hull now spawns holding the seat's gun and
 // the Shift boost ONLY and its first weapon arrives as a CARD from the
 // level-zero countdown offer. This smoke's whole choreography is torpedoes in
 // slot 2 (Q) — step 2's suppressed ready-room impact, step 4's kill — so it
@@ -198,9 +198,9 @@ function killServerHard(proc) {
 async function joinClient(name) {
   const client = new Client(endpoint);
   // Every client here is a Torpedo Boat (the default class), so every one asks
-  // for the Torpedo Boat's weapon line — `heavyTorpedo`, the deck's only
-  // non-stub weapon, which lands in slot 2 (Q) exactly where the deleted spawn
-  // seed used to put it.
+  // for `heavyTorpedo`, which lands in slot 2 (Q) exactly where the deleted
+  // spawn seed used to put it. Any non-stub catalog line would do since Story
+  // 8.14 retired the decks; this one keeps the smoke's ballistics unchanged.
   const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, fitOverride: ['heavyTorpedo'], matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE });
   const ctx = {
     name, room, welcome: null, you: null, seq: 0, fireSeq: 0, fireAt: null,

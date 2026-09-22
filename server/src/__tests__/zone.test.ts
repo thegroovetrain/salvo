@@ -68,7 +68,7 @@ function placeClear(world: World, id: string, d: number): void {
 describe('zone lifecycle — starts ONLY via startZone', () => {
   it('is idle (full map, no storm) until startZone is called', () => {
     const w = new World(1, CONFIG.match.fillTo, instant(1));
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     placeClear(w, 'a', w.map.radius * 0.8); // well outside the eventual terminal ring
     expect(w.zonePhase).toBe('idle');
     expect(w.zoneStartMs).toBe(0);
@@ -81,7 +81,7 @@ describe('zone lifecycle — starts ONLY via startZone', () => {
 
   it('startZone anchors the timeline and is idempotent (rings roll once)', () => {
     const w = new World(2, CONFIG.match.fillTo, instant(1, 1));
-    w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.step(); // now = 50
     w.startZone(); // anchors at now = 50, rolls the ring set
     expect(w.zoneStartMs).toBe(50);
@@ -280,7 +280,7 @@ describe('the collapse group — the whole map is storm at closure', () => {
 
   it('bites EVERY afloat hull once collapsed — including one sitting on the collapse point itself', () => {
     const w = new World(21, CONFIG.match.fillTo, collapsing());
-    const crew = [w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []), w.addShip('b', 'BRAVO', undefined, undefined, undefined, undefined, []), w.addShip('c', 'CHARLIE', undefined, undefined, undefined, undefined, [])];
+    const crew = [w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined), w.addShip('b', 'BRAVO', undefined, undefined, undefined, undefined), w.addShip('c', 'CHARLIE', undefined, undefined, undefined, undefined)];
     w.startZone(0);
     // Parked inside the terminal ring at three different radii — including one
     // ON the collapse point (offsetCap 0 makes the rings concentric with the
@@ -334,7 +334,7 @@ describe('the collapse group — the whole map is storm at closure', () => {
     // tail) are a gameplay decision, and stormDps 4 + "no damage ramp" is
     // explicitly ruled. Nothing here presumes that ruling.
     const w = new World(22, CONFIG.match.fillTo, collapsing());
-    const rec = w.addShip('a', 'ALPHA', 'captain', 'battleship', undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', 'captain', 'battleship', undefined, undefined);
     w.startZone(0);
     placeClear(w, 'a', 0); // on the collapse point: nothing survives there either
     stepTo(w, 4 * GROUP - 1); // the last tick before the ring reaches r=0
@@ -374,7 +374,7 @@ describe('the collapse group — the whole map is storm at closure', () => {
 describe('storm damage', () => {
   it('accumulates at stormDps granularity (4 HP/s => 0.2 per 50ms tick) outside', () => {
     const w = new World(3, CONFIG.match.fillTo, instant(1));
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     placeClear(w, 'a', w.map.radius * 0.8);
     w.startZone();
     const perTick = CONFIG.zone.stormDps * (CONFIG.tick.simDtMs / 1000);
@@ -392,7 +392,7 @@ describe('storm damage', () => {
     // group 1's clear beat: ring 1 is held, smaller than the map, and a ship
     // stranded outside it must bleed even though nothing is closing.
     const w = new World(5, CONFIG.match.fillTo, paced(0));
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.startZone(0);
     // Advance to group 1 CLEAR (ring 1 held, radius < map) — a holding beat.
     while (w.tick < 4 * TICKS_PER_BEAT) w.step();
@@ -411,8 +411,8 @@ describe('storm damage', () => {
     // and one just inside the live radius must not. Concentric cfg so the
     // boundary is a pure radius; positions are set after the ring is known.
     const w = new World(8, CONFIG.match.fillTo, paced(0));
-    const outside = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
-    const inside = w.addShip('b', 'BRAVO', undefined, undefined, undefined, undefined, []);
+    const outside = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
+    const inside = w.addShip('b', 'BRAVO', undefined, undefined, undefined, undefined);
     w.startZone(0);
     while (w.tick < 3 * TICKS_PER_BEAT + TICKS_PER_BEAT / 2) w.step(); // f = 0.5 of close 1
     expect(w.zonePhase).toBe('closing');
@@ -430,7 +430,7 @@ describe('storm damage', () => {
 
   it('deals NO damage to a ship inside the safe radius', () => {
     const w = new World(4, CONFIG.match.fillTo, instant(4)); // terminal 1320 > test position
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     // 1200u — comfortably inside the 1320u terminal ring. An ABSOLUTE radius,
     // not a fraction of the map: since Story 5.6 grew baseRadius to 2800 the
     // old `radius * 0.5` (1400) sat OUTSIDE the terminal ring, which the
@@ -445,7 +445,7 @@ describe('storm damage', () => {
 
   it('deals NO damage to a ship exactly ON the ring (boundary inclusive-safe)', () => {
     const w = new World(5, CONFIG.match.fillTo, instant(2));
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.startZone();
     w.step(); // establish the closed terminal ring
     placeClear(w, 'a', w.zoneLiveRing.r); // exactly on the (concentric) ring
@@ -456,7 +456,7 @@ describe('storm damage', () => {
 
   it('is center-aware: outside an OFFSET ring bites even nearer the map center', () => {
     const w = new World(11, CONFIG.match.fillTo, instant(1, 1));
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.startZone();
     w.step();
     const ring = w.zoneLiveRing;
@@ -476,8 +476,8 @@ describe('storm damage', () => {
 
   it('storm kill sinks with NO killer (by=undefined) and no kill credited', () => {
     const w = new World(6, CONFIG.match.fillTo, instant(1));
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
-    const other = w.addShip('b', 'BRAVO', undefined, undefined, undefined, undefined, []); // must not be credited a kill
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
+    const other = w.addShip('b', 'BRAVO', undefined, undefined, undefined, undefined); // must not be credited a kill
     placeClear(w, 'a', w.map.radius * 0.8);
     w.startZone();
     rec.hp = 0.1; // one storm tick will finish it
@@ -491,7 +491,7 @@ describe('storm damage', () => {
 
   it('emits no per-tick dmg event for storm damage (relies on OwnShip.hp)', () => {
     const w = new World(7, CONFIG.match.fillTo, instant(1));
-    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined, []);
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     placeClear(w, 'a', w.map.radius * 0.8);
     w.startZone();
     w.step();

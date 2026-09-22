@@ -37,9 +37,6 @@ import {
   resetMetrics,
   metricsPayload,
   metricsEndpoint,
-  recordDeckExhausted,
-  recordDeckMulligan,
-  recordDeckPick,
   recordMinesLive,
   nearestRank,
   computeTickPercentiles,
@@ -268,7 +265,6 @@ describe('metricsPayload counts', () => {
       players: 0,
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
-      deck: { exhausted: 0, picks: 0, mulligans: 0 },
       world: { minesLivePeak: 0 },
     });
   });
@@ -306,71 +302,12 @@ describe('world.minesLivePeak gauge', () => {
   });
 });
 
-// Story 8.3 — the deck-exhaustion counter. A COUNT AND NOTHING ELSE: the gauge
-// says how many ship records ran their pool dry since process start, never
-// whose or of what. It is module-level rather than per-room ON PURPOSE, so a
-// room disposing cannot erase an exhaustion that already happened.
-describe('deck.exhausted counter', () => {
-  it('starts at zero and counts each report', () => {
-    expect(metricsPayload().deck.exhausted).toBe(0);
-    recordDeckExhausted();
-    expect(metricsPayload().deck.exhausted).toBe(1);
-    recordDeckExhausted();
-    recordDeckExhausted();
-    expect(metricsPayload().deck.exhausted).toBe(3);
-  });
-
-  it('survives the room that reported it unregistering (the messages.total posture)', () => {
-    const room = registerRoom('a');
-    recordDeckExhausted();
-    room.unregister();
-    expect(metricsPayload().deck.exhausted).toBe(1);
-    // ...and a brand-new room does not reset it either.
-    registerRoom('b');
-    expect(metricsPayload().deck.exhausted).toBe(1);
-  });
-
-  it('resetMetrics() zeroes it', () => {
-    recordDeckExhausted();
-    expect(metricsPayload().deck.exhausted).toBe(1);
-    resetMetrics();
-    expect(metricsPayload().deck.exhausted).toBe(0);
-  });
-});
-
-// Story 8.10 — the two economy counters beside it, on identical terms: COUNTS
-// AND NOTHING ELSE (no ship id, no line id), module-level so a room dispose
-// cannot erase what happened, and zeroed only by resetMetrics.
-describe('deck.picks / deck.mulligans counters', () => {
-  it('start at zero and count each report independently', () => {
-    expect(metricsPayload().deck.picks).toBe(0);
-    expect(metricsPayload().deck.mulligans).toBe(0);
-    recordDeckPick();
-    recordDeckPick();
-    recordDeckMulligan();
-    expect(metricsPayload().deck.picks).toBe(2);
-    expect(metricsPayload().deck.mulligans).toBe(1);
-    expect(metricsPayload().deck.exhausted).toBe(0); // three separate gauges
-  });
-
-  it('survive the room that reported them unregistering', () => {
-    const room = registerRoom('a');
-    recordDeckPick();
-    recordDeckMulligan();
-    room.unregister();
-    registerRoom('b');
-    expect(metricsPayload().deck.picks).toBe(1);
-    expect(metricsPayload().deck.mulligans).toBe(1);
-  });
-
-  it('resetMetrics() zeroes both', () => {
-    recordDeckPick();
-    recordDeckMulligan();
-    resetMetrics();
-    expect(metricsPayload().deck.picks).toBe(0);
-    expect(metricsPayload().deck.mulligans).toBe(0);
-  });
-});
+// THE `deck` GROUP IS GONE (Story 8.14, epic-8 amendment 94). Decks are
+// retired, nothing can exhaust, and Eric ruled the pick and mulligan counters
+// out with them — "level counts already say how many cards were picked". The
+// idle-shape test above is the pin that keeps it gone: it is an exact `toEqual`
+// over the whole payload, so re-adding a card-economy group under ANY name
+// fails there. Deliberately no replacement describe block.
 
 describe('metricsEndpoint direct invocation', () => {
   it('resolves to the payload JSON when called as a function', async () => {

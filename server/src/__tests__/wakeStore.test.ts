@@ -23,7 +23,7 @@ function bareWorld(seed = 1): World {
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;

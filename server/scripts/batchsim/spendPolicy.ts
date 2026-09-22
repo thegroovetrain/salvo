@@ -1,11 +1,10 @@
 // THE DETERMINISTIC SPEND POLICY — a measurement instrument, NOT canon AI.
 //
 // WHY IT LIVES IN ITS OWN MODULE (cycle 110): it used to sit in `pilots.ts`
-// beside the scripted captains, but its two consumers have different
-// lifetimes. `--deck-only` builds NO World and NO Match at all (deckSim.ts is
-// a pure deck-economy model), so the policy has to outlive the scripted
-// captains that were retired with the omniscient pilots. Nothing here reads a
-// World, a ship, or the clock — it is pure over (offer, rng, fitted).
+// beside the scripted captains, and it outlived them. Nothing here reads a
+// World, a ship, or the clock — it is pure over (offer, rng, fitted), which is
+// what let it survive the retirement of the pilots and, in Story 8.14, of the
+// deck-only mode that was its second consumer.
 //
 // THE POLICY: whenever a level is banked, spend immediately on the front offer;
 // with probability SPEND_TOP_P pick uniformly among the offer's HIGHEST-RANKED
@@ -45,9 +44,8 @@ function preferenceRank(id: string, fitted: readonly string[]): number {
   return KIND_RANK[line.kind] ?? 0;
 }
 
-/** The deterministic spend policy, shared by the scripted control AND the
- *  deck-only mode. `fitted` = the ship's currently-fitted card line ids
- *  (ship.cards). */
+/** The deterministic spend policy used by the scripted control. `fitted` = the
+ *  ship's currently-fitted card line ids (ship.cards). */
 export function pickSpendChoice(offer: readonly string[], rng: Rng, fitted: readonly string[]): number {
   const ranks = offer.map((id) => preferenceRank(id, fitted));
   const best = Math.max(...ranks);

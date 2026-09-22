@@ -52,7 +52,7 @@ function place(
   heading = 0,
   hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
@@ -617,8 +617,8 @@ describe('P8 — wrecksInBurst honours the fleet friendly filter', () => {
     // all (stepShells filter, amendment 36). Counting one here would let the
     // wreck list re-admit through the back door what the damage path refuses.
     const w = bareWorld(49);
-    w.addShip('fleetA', 'F1', 'fleet', 'torpedoBoat', undefined, { x: 0, y: 0 }, []);
-    const f2 = w.addShip('fleetB', 'F2', 'fleet', 'torpedoBoat', undefined, { x: 300, y: 0 }, []);
+    w.addShip('fleetA', 'F1', 'fleet', 'torpedoBoat', undefined, { x: 0, y: 0 });
+    const f2 = w.addShip('fleetB', 'F2', 'fleet', 'torpedoBoat', undefined, { x: 300, y: 0 });
     f2.state = { x: 300, y: 0, heading: 0, speed: 0 };
     w.sinkShip('fleetB', undefined);
     const inner = w as unknown as {

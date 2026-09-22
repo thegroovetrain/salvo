@@ -56,7 +56,7 @@ function bareWorld(seed = 3): World {
 
 /** Place a ship at an exact pose with a torpedo-firing input over the bow. */
 function torpShip(w: World, id: string, x: number, y: number, heading: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
   // THE TUBES ARE A CARD NOW (Story 8.10, amendment 62): the interim spawn
   // seed is deleted and a hull comes up with gun + Shift and an EMPTY weapon
   // row, so this fixture fits the torpedo explicitly through the same
@@ -122,7 +122,7 @@ describe('torpedoes — island block + ship hit', () => {
     const w = bareWorld();
     const a = torpShip(w, 'a', 0, 0, HALF_PI); // bow points +y
     a.input = { ...a.input, aim: HALF_PI };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 160, heading: 0, speed: 0 };
     w.map.islands.push(circleIsland(0, 70, 30)); // squarely on the run
     const events = [];
@@ -138,7 +138,7 @@ describe('torpedoes — island block + ship hit', () => {
     const w = bareWorld();
     const a = torpShip(w, 'a', 0, 0, HALF_PI);
     a.input = { ...a.input, aim: HALF_PI };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 150, heading: 0, speed: 0 };
     for (let i = 0; i < 80 && b.hp === CONFIG.shipClasses.torpedoBoat.hp; i++) w.step();
     expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.torpedo.damage);
@@ -162,7 +162,7 @@ describe('torpedoes — infinite range + map-edge splash (A3)', () => {
     const w = bareWorld();
     const a = torpShip(w, 'a', 0, 0, HALF_PI); // bow +y
     a.input = { ...a.input, aim: HALF_PI };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 750, heading: 0, speed: 0 }; // 750u away (> old 700 cap)
     for (let i = 0; i < 400 && b.hp === CONFIG.shipClasses.torpedoBoat.hp; i++) w.step();
     expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.torpedo.damage);
@@ -258,7 +258,7 @@ describe('mines — NO CAP: a laid mine stays laid', () => {
 describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-arc click, blast trip)', () => {
   it('a click-placed mine lands AT the clicked point, arms, then sinks an enemy that sails onto it — the nearby OWNER takes 0', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []);
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
     fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Mines are an aimed WEAPON (amendment 45): a click astern places one.
@@ -270,7 +270,7 @@ describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-a
     expect(mine.y).toBeCloseTo(0, 6);
     // The close placement leaves the owner's own hull inside the 48u blast
     // radius — the built-in owner-exclusion geometry this test also pins below.
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: mine.x, y: mine.y, heading: 0, speed: 0 };
     b.hp = CONFIG.mine.damage; // one blast sinks it
     for (let i = 0; i < CONFIG.mine.armDelay / CONFIG.tick.simDtMs + 2; i++) w.step();
@@ -286,7 +286,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
    *  theirs at the origin. */
   function minefield(): { w: World; o: ShipRecord } {
     const w = bareWorld(11);
-    const o = w.addShip('o', 'O', 'captain', 'mineLayer', undefined, undefined, []);
+    const o = w.addShip('o', 'O', 'captain', 'mineLayer', undefined, undefined);
     o.state = { x: 600, y: 600, heading: 0, speed: 0 }; // far from the blast
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval' });
     return { w, o };
@@ -294,11 +294,11 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
 
   it('a trip blasts EVERY non-owner hull within blastRadius for full damage; outside the radius is untouched', () => {
     const { w, o } = minefield();
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []); // trips it (silhouette over the mine)
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // trips it (silhouette over the mine)
     b.state = { x: 0, y: 10, heading: 0, speed: 0 };
-    const c = w.addShip('c', 'C', undefined, undefined, undefined, undefined, []); // second victim: hull well inside 48u
+    const c = w.addShip('c', 'C', undefined, undefined, undefined, undefined); // second victim: hull well inside 48u
     c.state = { x: 0, y: -40, heading: 0, speed: 0 };
-    const d = w.addShip('d', 'D', undefined, undefined, undefined, undefined, []); // bystander: whole silhouette beyond 48u
+    const d = w.addShip('d', 'D', undefined, undefined, undefined, undefined); // bystander: whole silhouette beyond 48u
     d.state = { x: 0, y: 200, heading: 0, speed: 0 };
     w.step();
     expect(w.mines.size).toBe(0);
@@ -314,7 +314,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
   it('the OWNER inside its own blast radius takes 0 while the tripping enemy takes 45', () => {
     const { w, o } = minefield();
     o.state = { x: 0, y: -40, heading: 0, speed: 0 }; // owner hull well inside 48u
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips it
     w.step();
     expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage);
@@ -326,9 +326,9 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     // that the FULL damage lands rather than only that the hull died. The small
     // hull is one-shot at its new 45hp and is covered by the case below.
     const { w } = minefield();
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []); // human trips it
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // human trips it
     b.state = { x: 0, y: 10, heading: 0, speed: 0 };
-    const dr = w.addShip('dr', 'DR', 'fleet', 'droneLarge', undefined, undefined, []); // drone inside the blast
+    const dr = w.addShip('dr', 'DR', 'fleet', 'droneLarge', undefined, undefined); // drone inside the blast
     dr.state = { x: 0, y: -30, heading: 0, speed: 0 };
     const hpBefore = dr.stats.maxHp;
     w.step();
@@ -343,9 +343,9 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     // STACKED mine cleared it; at 45 it clears at base. Ratified, not incidental.
     expect(CONFIG.mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.small.hp);
     const { w } = minefield();
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []); // human trips it
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // human trips it
     b.state = { x: 0, y: 10, heading: 0, speed: 0 };
-    const dr = w.addShip('dr', 'DR', 'fleet', 'droneSmall', undefined, undefined, []);
+    const dr = w.addShip('dr', 'DR', 'fleet', 'droneSmall', undefined, undefined);
     dr.state = { x: 0, y: -30, heading: 0, speed: 0 };
     w.step();
     expect(dr.hp).toBeLessThanOrEqual(0);
@@ -379,7 +379,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     // pre-2.8 this survived ("blast ≠ trigger"); the chain now takes it.
     w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0, kind: 'naval' });
     w.mines.set('m3', { id: 'm3', ownerId: 'x', x: -20, y: 0, armedAt: 999_999, kind: 'naval' }); // someone else's, UNARMED
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips only m1
     w.step();
     expect(w.mines.has('m2')).toBe(false); // chained same-tick
@@ -408,7 +408,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     w.mines.set('m3', { id: 'm3', ownerId: 'o', x: 0, y: -90, armedAt: 0, kind: 'naval' });
     w.mines.set('mEnemy', { id: 'mEnemy', ownerId: 'x', x: 0, y: -70, armedAt: 0, kind: 'naval' });
     w.mines.set('mCold', { id: 'mCold', ownerId: 'o', x: 0, y: -120, armedAt: 999_999, kind: 'naval' });
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips only m1
     w.step();
     expect(w.mines.has('m2')).toBe(false);
@@ -425,9 +425,9 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
    *  INSIDE the mine's 48u blast — any damage b takes is the MINE's. */
   function board(): { w: World; a: ShipRecord; b: ShipRecord } {
     const w = bareWorld(13);
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []);
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 300, y: 45, heading: 0, speed: 0 };
     return { w, a, b };
   }
@@ -489,7 +489,7 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
   // asserted here is the BURST path alone.
   function lonely(): { w: World; a: ShipRecord } {
     const w = bareWorld(17);
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []);
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     return { w, a };
   }
@@ -548,7 +548,7 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
 describe('one shot per click — torpedoes and mines (world level)', () => {
   it('one click launches exactly one torpedo over 20 ticks of the same input', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
+    const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     fitClassWeapons(w, a); // the tubes are a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
@@ -562,7 +562,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 
   it('one CLICK places exactly one mine (fireSeq — Story 2.8 aimed weapon), even applied past the drop cooldown; a second click places another', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []);
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
     fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
@@ -577,7 +577,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 
   it('a PRESS (actSeq) on the ML mine slot is inert — mines JOINED the fire-control channel (Story 2.8 flip of the 1.8 pin)', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined, []);
+    const a = w.addShip('a', 'A', 'captain', 'mineLayer', undefined, undefined);
     fitClassWeapons(w, a); // the rack is a CARD now (Story 8.10) — slot 2
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 40, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML, hornSeq: 0 });
@@ -591,7 +591,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
   it('mirrors the ship pools as a defensive copy, null for every empty slot', () => {
     const w = bareWorld();
-    const ship = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
+    const ship = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     ship.loadout[0].state = { n: 1, reloadMsLeft: 1200 };
     ship.loadout[1].state = { n: 0, reloadMsLeft: 6000 };
     ship.loadout[2].state = { n: 0, reloadMsLeft: 8000 };
@@ -609,7 +609,7 @@ describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
 
   it('a fresh hull spawns with full pools; one click empties the single-shot gun pool', () => {
     const w = bareWorld();
-    const ship = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
+    const ship = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
     expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 });
     ship.input = { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
@@ -621,10 +621,10 @@ describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
 describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
   it('a torpedo in the radar annulus produces no blip; a ship there does', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined, []);
+    const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Enemy ship in the annulus (proves the beam window is right).
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined, []);
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 400, y: 0, heading: 0, speed: 0 };
     // A torpedo flying through the same annulus.
     w.shells.set('trp', {
@@ -666,7 +666,7 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
  *  selected. Everything real: production catalog, production registry, the
  *  same `applyCard` path a pick takes. */
 function carrier(w: World, id: string, line: string, n: number, aim: number, slot: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
   rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
   for (let i = 0; i < n; i += 1) w.applyCard(rec, line);
   rec.input = { seq: 1, throttle: 0, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };

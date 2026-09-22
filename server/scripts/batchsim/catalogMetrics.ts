@@ -6,12 +6,13 @@
 // server/src imports it.
 //
 // WHY IT EXISTS. The shipped report answers "how fast does the economy run"
-// (levels, picks, deck depletion) and "how well do bots fight", but it has no
+// (levels, picks, cards fitted) and "how well do bots fight", but it has no
 // per-LINE resolution at all: a card that is never offered, never picked, or
 // picked every single time is invisible in every existing row. Story 7-5
-// rewrote the catalog wholesale (33 -> 29 lines, every equipment subdeck to
-// exactly 6, every hull deck to exactly 41), so per-line reachability is the
-// question and there was no row for it.
+// rewrote the catalog wholesale, so per-line reachability is the question and
+// there was no row for it. Story 8.14 makes it the ONLY reachability answer:
+// with the decks retired the pool is the whole catalog, so a line that never
+// shows up here is one the eligibility law never admits.
 //
 // THREE LEDGERS, all pure observation:
 //
@@ -23,7 +24,7 @@
 //    READ THE PICK COLUMN AS "POLICY + REACHABILITY", NEVER AS PLAYER TASTE:
 //    captains spend through spendPolicy.pickSpendChoice (rarity-preferring, 75%
 //    top-rank) and bots through their per-profile weights. The OFFER column is
-//    the policy-free half — it is deck composition and the offer roll alone.
+//    the policy-free half — it is the common-pool draw alone.
 //
 // 2. THE DAMAGE LEDGER, attributed BY AMOUNT. DamageEvent carries no weapon
 //    field, and adding one would mean touching server/src. It does not need
@@ -133,16 +134,17 @@ export interface CatalogSample {
   fits: Record<string, number>;
   /** distinct materialized offers observed (the offers denominator). */
   offerHands: number;
-  /** ship class -> boon id -> offers (deck composition is per class). */
+  /** ship class -> boon id -> offers (kept per class: hull identity still
+   *  shapes WHICH lines a captain ends up eligible for). */
   offersByClass: Record<string, Record<string, number>>;
-  /** ship class -> boon id -> fits (wave 4: the observed numerator beside the
-   *  structural deck-composition denominator). OPTIONAL because sample
+  /** ship class -> boon id -> fits (wave 4: the observed per-class numerator;
+   *  its structural denominator died with the decks). OPTIONAL because sample
    *  literals predating the field exist in the harness's own tests — read it
    *  defensively (`?? {}`), like `bots` on MatchSample. */
   fitsByClass?: Record<string, Record<string, number>>;
   /** spender label -> boon id -> fits. The label is a bot's PROFILE id (an
    *  in-game or test-only row), or the ship's role ('captain'; 'fleet' is
-   *  structurally empty — fleet hulls have no decks) — so a blind-vacuum run
+   *  structurally empty — fleet hulls never draw) — so a blind-vacuum run
    *  reads per-test-row and a mixed lobby splits policy from policy. Same
    *  optionality as fitsByClass. */
   fitsByProfile?: Record<string, Record<string, number>>;

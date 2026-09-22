@@ -12,18 +12,12 @@
 // path like gun.damage — is rejected with a clear error, so the harness can
 // never quietly become a general balance-editing backdoor.
 //
-// `pool.*` (Story 8.11) is refused on EVERY surface for a DIFFERENT reason —
-// not inertness (the pool IS rolled at World construction, so an override would
-// reach it) but DESIGN: ten is Eric's number, the size of the hidden hand every
-// match deals, and a harness may not quietly measure some other game.
-//
-// `deck.*` WAS on that list and is now REFUSED (Story 8.2 review): since the
-// decks became real, `CONFIG.deck.size` no longer builds anything at run time
-// — DEFAULT_DECKS and PACIFIST_DECK are expanded ONCE at module load, before
-// any override can be applied — so `--set deck.size=30` was accepted, changed
-// nothing a hull sails, and merely made `checkDeck` call every baked 40-card
-// deck illegal. An accepted, inert dial that silently invalidates the run is
-// the one failure a balance harness may not have.
+// `CONFIG.deck` AND `CONFIG.pool` NO LONGER EXIST (Story 8.14, amendment 89a):
+// decks and the hidden match pool are retired, so the two refusals that named
+// them are gone with them — those keys now fail the ordinary whitelist like any
+// other unknown path. What replaced them is `offer.weighting.*`, the two
+// `[DRAFT]` weighting dials (amendment 90), which ARE tunable: they sit on the
+// --tune surface because they are balance numbers Eric expects to move.
 // zone.* keys address the PHASED timeline shape (Story 3.1): zone.beatMs,
 // zone.offsetCap, zone.terminalSightFactor, zone.stormDps, and the per-group
 // ring exponents by INDEX — zone.ringSteps.0 / zone.ringSteps.1 (resolveLeaf
@@ -87,6 +81,14 @@ const TUNE_FAMILIES = [
   // fraction-of-MISSING shape means it never needs repricing with hull HP —
   // but a class read still has to be able to turn it off or up.
   'regen.',
+  // THE WEAPON WEIGHTING (Story 8.14, epic-8 amendments 90/91) — `factor` and
+  // `floor`, both `[DRAFT]` numbers Eric expects the harness to move. They are
+  // on the --tune surface and not the --set whitelist for the hullRepair
+  // reason: weighting decides WHICH weapon a captain is likely to be dealt, so
+  // it is a combat-shape dial, not an economy one. The family prefix is
+  // `offer.weighting.` rather than `offer.` so `offer.size` keeps its --set
+  // home and its floor of 1.
+  'offer.weighting.',
 ];
 
 /** True for an EQUIPMENT dial family (--tune only, never --set/--sweep). */
@@ -126,48 +128,16 @@ function assertNotDerived(key: string): void {
   }
 }
 
-/** Refuse a CONFIG path whose consumers ran at MODULE LOAD, so an override
- *  applied later cannot reach them (see the header's `deck.*` note). Named
- *  separately from the whitelist because the reason is not "off the surface"
- *  but "accepted and inert", which needs saying out loud. */
-function assertNotBaked(key: string): void {
-  if (!key.startsWith('deck.')) return;
-  throw new TunableError(
-    `'${key}' is not tunable: the default decks (shared/src/sim/catalog.ts) and PACIFIST_DECK ` +
-      '(batchsim/controls.ts) are expanded at MODULE LOAD, so a CONFIG.deck change cannot reach ' +
-      'any deck this run sails — it would only make checkDeck refuse them. Author the deck instead.',
-  );
-}
-
-/** Refuse `pool.*` (Story 8.11) — the sibling of assertNotBaked with the
- *  OPPOSITE reason, which is why it is its own function and its own message.
- *  `CONFIG.pool.size` is NOT inert: the pool is rolled at World construction,
- *  so a run-time override WOULD reach it. It is refused because ten is ERIC'S
- *  NUMBER (catalog-v3 R4) — the size of the hidden hand every match deals, a
- *  design decision and not a balance dial. Accepting it would let a harness
- *  run quietly measure an economy the game does not have. */
-function assertNotDesignFixed(key: string): void {
-  if (!key.startsWith('pool.')) return;
-  throw new TunableError(
-    `'${key}' is not a tunable dial: the MATCH CONSUMABLE POOL size is a DESIGN number ` +
-      '(Eric ruling, catalog-v3 R4), not a balance dial — a run that changed it would measure ' +
-      'an economy the game does not deal. Change CONFIG.pool in shared/ if the design changes.',
-  );
-}
-
 /** The family gate, split out of resolveLeaf so the --set rejection message
  *  stays byte-identical to the one shipped before --tune existed. */
 function assertKeyAllowed(key: string, allowTune: boolean): void {
   if (allowTune) {
     assertNotDerived(key);
-    assertNotDesignFixed(key);
     if (isTuneKey(key)) return;
     throw new TunableError(
       `'${key}' is not an equipment dial (allowed: ${TUNE_FAMILIES.map((f) => `${f}*`).join(', ')})`,
     );
   }
-  assertNotBaked(key);
-  assertNotDesignFixed(key);
   if (isTunableKey(key)) return;
   throw new TunableError(
     `'${key}' is not a tunable dial (allowed: xp.*, offer.size, match.fillTo, map.baseRadius, zone.*)`,
@@ -236,8 +206,8 @@ export function validateTunableKey(key: string): void {
 
 /** Per-key numeric FLOOR. A dial the sim divides by, or loops until it consumes,
  *  cannot legally be <= 0: `offer.size` 0 makes drawOffer return an empty offer
- *  forever (the deck never depletes -> the deck-only economy loop never
- *  terminates), `xp.levelMs` 0 makes passive accrual a divide-by-zero,
+ *  forever (every level would bank with nothing to spend it on),
+ *  `xp.levelMs` 0 makes passive accrual a divide-by-zero,
  *  `zone.beatMs` 0 collapses zoneClosedAtMs to 0 (a zero tick budget — the
  *  shared timeline fails closed, but every match would report as unresolved
  *  nonsense), and `map.baseRadius` 0 is a zero-area board. Everything else may

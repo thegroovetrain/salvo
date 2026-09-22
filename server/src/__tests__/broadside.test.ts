@@ -89,7 +89,7 @@ function bareWorld(seed = 7, opts: WorldOptions = { catalog: BROADSIDE_LADDERS }
  *  through the same applyCard path a real pick takes. Nothing about the arcs,
  *  the pools or the barrage below changed; only how the guns got aboard. */
 function place(w: World, id: string, hull: 'battleship' | 'torpedoBoat' | 'mineLayer', x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, []);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   fitClassWeapons(w, rec);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
