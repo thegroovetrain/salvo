@@ -993,7 +993,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
   resolution: RESOLVED 2026-08-21 (cycle 123, epic-7 amendment 34) — the nameplate lift RETIRED the `plateRoot` root (the container became the `plate` CHART layer, seated between `ship` and `aim`), which is exactly the class of root-order change this entry left unguarded, so the order was promoted to declared data rather than edited in place. `createStage` now ITERATES the exported `STAGE_ROOT_ORDER` to build and mount the roots (the array IS the order), with `EVERY_ROOT_PLACED` as the build-failing completeness check, the root-level sibling of `EVERY_LAYER_PLACED`. Pinned in `client/src/__tests__/nameplatesAboveTerrain.test.ts`; `fog.test.ts`'s "asserted only by inspection" note is retired. The reveal's "hide, never fade" rule no longer rests on the asymmetry this entry described — plates are above the fog now too — so its rationale was restated in `enterSpectateVisuals` alongside the pin.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-lazy-offer-draw.md`
-  status: RE-DERIVED 2026-09-15 by Story 8.3 (cycle 138, epic-8 amendment 14) — with a 40-card deck a hull has 23 drawable cards today (rising toward 39 as stubs flip); the terminal offer-less state needs exactly 23 FITS (banks, passes and heals cost no cards), so it is reachable in one long match but unlikely. Ruled behaviour: the level still banks, no offer, no pt, no TAB cue; the menu-heal reachability half stays open until Story 8.8 makes heal a card. The server now logs deck.exhausted once per ship and /metrics counts it.
+  status: RE-DERIVED 2026-09-15 by Story 8.3 (cycle 138, epic-8 amendment 14) — with a 40-card deck a hull has 23 drawable cards today (rising toward 39 as stubs flip); the terminal offer-less state needs exactly 23 FITS (banks, passes and heals cost no cards), so it is reachable in one long match but unlikely. Ruled behaviour: the level still banks, no offer, no pt, no TAB cue; the menu-heal reachability half stays open until Story 8.8 makes heal a card. The server now logs deck.exhausted once per ship and /metrics counts it. CLOSED 2026-09-22 by construction (8.14, amendment 94: consumables always dealt, no empty offer).
   summary: A DEGENERATE OFFER-LESS LEVEL IS SERVER-SPENDABLE BUT CLIENT-UNREACHABLE, AND THE STATE IS TERMINAL. Since the lazy-draw bugfix a level ALWAYS banks, so `bankedLevels > 0` with `offer: null` is legitimate when a draw comes up empty. `spendHeal` accepts that level over the wire (it needs only a banked level), but the client can never send it — `offerView` refuses to open the band on an empty offer, and the digit-5 heal requires the band visible — so the level is permanently unspendable. Both review models flagged the visible half independently at the cycle-80 gate and the FALSE CUE was fixed then (`cueLine` now takes `refitable`, so the rail no longer tells you to press a TAB that opens nothing, while the chip still reports the bank you earned); what remains ledgered is the unreachable heal and the chip counting a level that can never be spent. NOT FIXED because reaching it needs the deck emptied to zero drawable lines — about 59 fits against roughly 25 levels in a full match — and because it is a FROZEN state once entered: an empty deck can never refill, since both refill paths (doctrine return, acquisition subdeck) require a fit, which requires an offer, which requires a non-empty draw. Deliberately NOT dismissed as impossible: epic-2 amendment 67 dismissed deck-run-dry as "near-hypothetical" and amendment 72 records that it was in fact the shipped bug's terminal state. If a future change can shrink a deck faster (a bigger `CONFIG.offer.size`, a card that burns cards, a much longer match), re-derive this before assuming the margin still holds.
   evidence: epic-2 amendments 69-72; `server/src/game/world.ts` `materializeOffer`/`spendHeal`; `client/src/ui/upgradeMenu.ts:329` (`offerView` empty-offer refusal) and `client/src/render/xpRail.ts` `cueLine`; the Fable reviewer's 24,000-op fuzz over 60 seeds found no other coherence gap, and its trace proving the empty-deck state cannot refill.
 
@@ -2014,12 +2014,12 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: Blind Hunter finding 7 and Edge Case Hunter bot finding, review gate 2026-09-15.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-2-legal-decks-default-decks-and-the-door.md`
-  status: RESOLVED 2026-09-15 by Story 8.3 (cycle 138) — re-derived and ruled (epic-8 amendment 14): see the stamp on the lazy-offer-draw entry above; deck.exhausted log + /metrics counter shipped.
+  status: RESOLVED 2026-09-15 by Story 8.3 (cycle 138) — re-derived and ruled (epic-8 amendment 14): see the stamp on the lazy-offer-draw entry above; deck.exhausted log + /metrics counter shipped. CLOSED 2026-09-22: decks and exhaustion deleted (8.14).
   summary: THE 40-CARD DECK CHANGES THE DECK-EXHAUSTION ARITHMETIC AND THE OLD MARGIN NO LONGER HOLDS. The lazy-offer-draw entry above (`:982`, "about 59 fits against roughly 25 levels in a full match") was derived against the v2 deck; since Story 8.2 a captain sails a 40-card default deck of which only 23 cards are DRAWABLE today (16 stub cards never dealt, one carried copy seeded out — rising toward 39 as Stories 8.7–8.15 flip the stub flags). Banking still costs nothing (only a FIT removes a card), so the terminal offer-less state needs 23 fits — no longer "unreachable", merely unlikely in one match — and the harness's deck-only economy now exhausts in ~23 draws. Story 8.3 (the draw: exhaustion banks silently and logs once, per the epic) must re-derive the margin and decide what a 24th level looks like; until then the entry above's "unreachable in production" wording is stale and its client-unreachable-heal consequence is closer than it was.
   evidence: `shared/src/__tests__/deck.test.ts` drawable-size table (23 / 23 / 23); `server/src/__tests__/upgrades.test.ts` "empty deck" block; `server/scripts/batchsim/deckSim.ts` `defaultPoolFor`; epic-8 amendment 11.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-2-legal-decks-default-decks-and-the-door.md`
-  status: OPEN — hand to the Epic 9 door story (account-backed decks); a trap, not a bug today
+  status: OPEN — hand to the Epic 9 door story (account-backed decks); a trap, not a bug today. CLOSED 2026-09-22: the deck door and DEFAULT_OWNED are deleted (8.14); Epic 9's door checks hull + gun only.
   summary: THE ARENA'S SEAT RE-CHECK IS HARD-WIRED TO A FRESH ACCOUNT'S UNLOCKS. `ArenaRoom.resolveJoinDeck` re-runs `checkAtDoor` on a seat-carried list, and `checkAtDoor` always checks against `DEFAULT_OWNED`. Correct while only default decks exist, but the moment Epic 9's queue door admits an account deck holding any of the five unhomed lines (`supercavTorpedo`, `broadside`, `decoyBuoy`, `heatSeeking`, `phosphorShells`) against the account's REAL owned set, the arena — which has no account — refuses it as `unowned` after the queue said yes. Epic 9 must either carry the owned set (or the verdict) in the reservation `auth` alongside the deck, or drop the arena's ownership re-check for seat-carried lists and keep only the size/equipmentLines/overCap rules there.
   evidence: Blind Hunter plausible finding 5, review gate 2026-09-15; `server/src/rooms/deckDoor.ts` `checkAtDoor` (`checkDeck(deck, DEFAULT_OWNED)`), `server/src/rooms/ArenaRoom.ts` `resolveJoinDeck` seat branch.
 
@@ -2394,7 +2394,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: GDD class table (2026-09-21 supersession); epics.md Story 8.14.
 
 - source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
-  status: OPEN — Eric (numbers), needed by Story 8.14
+  status: RESOLVED 2026-09-22 — Eric (amendments 90–92): ×0.75 per other taker, floor 0.25, first copies only, permanent; the mechanism is called WEIGHTING (amendment 91); built in 8.14
   summary: THE MATCH-WIDE TILT. `CONFIG.offer.tilt.factor` and `.floor` have no numbers; whether copies 2+ of a line also tilt is undecided. The rule itself is ruled (a line another captain took becomes less likely for everyone else, never impossible).
   evidence: epics.md Story 8.14; GDD "THE COMMON POOL".
 
@@ -2427,3 +2427,40 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: OPEN — Story 9.11 (already ledgered at `:1843`, widened)
   summary: `game-architecture.md`'s deck amendment (D22 `DeckState`, the deck door, `checkDeck`, `deckId`) is void; the seat now carries `gun`; the requirements inventory in `epics.md` (FR41+, AR26+, UX-DR60+) is read through the 2026-09-21 latest-wins block until 9.11 rewrites it.
   evidence: epics.md inventory block "RE-CUT 2026-09-21".
+
+## 2026-09-22 — Story 8.14 The Common Pool (cycle 149, 0.18.14)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — Eric (side story, NOT 8.14/8.15)
+  summary: PER-DRAW OFFERED/PICKED RECORD. Eric 2026-09-22: "I'm more interested in *what* cards were picked in each draw, that's way more valuable info. So I am interested in doing a side story for that, we don't need to suck it up into this sprint." The `/metrics` `deck.{exhausted,picks,mulligans}` counters were deleted with no replacement (amendment 94); the record should capture, per participant and per draw, the four offered ids and the taken id with a `T+` stamp — a natural companion to Story 8.20's match record.
+  evidence: amendment 94.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — Story 8.15
+  summary: `MOUNTED_GUN` (shared/src/sim/loadout.ts) maps all three GunIds to the deck-gun module `'gun'`; 8.15 changes the `machineGun`/`flak` entries when their modules exist. `slotsWithCards(…, gun)` and `loadoutFor(…, gun)` already carry the seat's gun on both sides, so nothing else re-mounts.
+  evidence: `shared/src/sim/loadout.ts` `MOUNTED_GUN`; amendment 95.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — Story 8.19
+  summary: the harness lost `--deck-only`, `--draws`, `deckSim.ts`, `PACIFIST_DECK` and `catalogReport`'s DECK COMPOSITION block (the deterministic batch report body changed); 8.19 authors the pool-era bars (gun mix, offer composition, weighting effect). Also: `BOT_DECKS` named in the 2026-09-21 proposal never existed in code — bots were seated via `loadDeckFor` inline in ArenaRoom; nothing to delete in 8.19.
+  evidence: amendment 95(b); server/scripts/batchsim (deleted deck-era files).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — Story 9.11 doc-sync
+  summary: epics.md Story 8.14 AC, amendment 89(b) and the GDD's COMMON POOL paragraph still say the weapon guarantee holds "at every level with an open slot" and use the word "tilt"; amendments 91 and 93 supersede both (level-zero-only guarantee; the mechanism is weighting). catalog-v3.md/GDD deck-era text also still stands (already ledgered).
+  evidence: amendments 91, 93; epics.md Story 8.14 AC; GDD "THE COMMON POOL".
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — awareness until Story 8.16
+  summary: only two consumable lines are live (HULL REPAIR, SUPERCAV TORPEDO), so a captain with every equipment/ladder/add-on capped sees a two-card offer of consumables (never empty, but short); it fills to four when 8.16 flips SHIELD/CHAFF/DECOY/SMOKE.
+  evidence: amendment 94.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — Eric, optional dial
+  summary: authored kind odds (a fixed weapon/upgrade/consumable split for stage 1 of the draw) were offered on 2026-09-22 and NOT authored — the shipped stage 1 uses each kind's share of the eligible lines (amendment 92). A `CONFIG.offer.kindOdds` block would drop straight in if he ever wants it.
+  evidence: amendment 92.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — pre-existing, widened
+  summary: `server/scripts/batchsim/tsconfig.json` (not in `npm run check`) has 2 standing errors — `balanceProbe.ts:50` `Target.kind` missing and `encounterSpan.ts:97` (already ledgered ~:2028); neither is 8.14's.
+  evidence: `npx tsc --noEmit -p server/scripts/batchsim/tsconfig.json` on the 8.14 tree.

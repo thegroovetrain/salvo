@@ -2,8 +2,9 @@
 title: 'Story 8.14: The Common Pool'
 type: 'feature'
 created: '2026-09-22'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
+baseline_revision: '5e27f8b'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -92,11 +93,11 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] amendments 90–95 in both homes -- done at plan time
-- [ ] Wave 1 `shared/` -- `draw.ts`, deletions, `GunId`/`MOUNTED_GUN`/`loadoutFor(gun)`, `CONFIG.offer.weighting`, `OwnShip.gun`, PV 57, tests -- `npm run build -w shared && npm test -w shared`
-- [ ] Wave 2 `server/` -- World take ledger + draw, rooms (`gun` seat, deck door gone, dev fit re-homed), metrics, bots signature, harness re-cut, smokes, tests -- `npm test -w server`
-- [ ] Wave 3 `client/` -- `gun` join option + own-ship mirror + loadout replay, comments, tests -- `npm test -w client`
-- [ ] Wave 4 -- version 0.18.14, changelog, trackers, deferred-work, README line -- `npm run check` exit 0
+- [x] amendments 90–95 in both homes -- done at plan time
+- [x] Wave 1 `shared/` -- `draw.ts`, deletions, `GunId`/`MOUNTED_GUN`/`loadoutFor(gun)`, `CONFIG.offer.weighting`, `OwnShip.gun`, PV 57, tests -- `npm run build -w shared && npm test -w shared`
+- [x] Wave 2 `server/` -- World take ledger + draw, rooms (`gun` seat, deck door gone, dev fit re-homed), metrics, bots signature, harness re-cut, smokes, tests -- `npm test -w server`
+- [x] Wave 3 `client/` -- `gun` join option + own-ship mirror + loadout replay, comments, tests -- `npm test -w client`
+- [x] Wave 4 -- version 0.18.14, changelog, trackers, deferred-work, README line -- `npm run check` exit 0
 - [ ] Smokes on a scratch port: `queueSmoke`, `openingSmoke`, `matchSmoke`, `weaponsSmoke` pass; a full solo bot match reaches results
 
 **Acceptance Criteria:**
