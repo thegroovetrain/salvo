@@ -464,9 +464,17 @@ async function lightTorpedoPhase(log) {
   assert(a.welcome && b.welcome, 'light torpedo: missing welcome');
   await rendezvous(a, b, log);
   const dmg0 = b.dmg.length;
+  const t0 = Date.now();
+  let seenHits = 0;
   await pilotUntil([a, b], () => {
     a.goal = { mode: 'engageLight', target: b.you };
     b.goal = { mode: 'hold', target: b.you };
+    // Progress trace: a FAILED run still shows how many fish landed and when.
+    const n = b.dmg.slice(dmg0).filter((d) => d.amount === CONFIG.lightTorpedo.damage).length;
+    if (n !== seenHits) {
+      seenHits = n;
+      log.push(`lightTorpedo: hit #${n} at T+${((Date.now() - t0) / 1000).toFixed(0)}s, LT-B hp ${b.you?.hp?.toFixed(0)}`);
+    }
   // ONE TUBE ON A 25 s RELOAD at 40 damage against 250 hp: seven hits, so the
   // cadence alone is ~150 s before a single miss. WIDEN THIS BUDGET rather
   // than loosening the assertion if a balance pass moves either number.
@@ -516,6 +524,9 @@ async function captiveMinePhase(log) {
   await b.room.leave();
 }
 
+/** The phase trace, hoisted so a FAILED run still prints what passed. */
+const TRACE = [];
+
 async function main() {
   const a = await joinClient('WPN-A'); // torpedo boat — the torpedo-phase shooter
   const b = await joinClient('WPN-B', 'mineLayer'); // the mine-phase dropper
@@ -523,7 +534,7 @@ async function main() {
   await sleep(300);
   assert(a.welcome && b.welcome, 'missing welcome');
 
-  const log = [];
+  const log = TRACE;
   await rendezvous(a, b, log);
   await torpedoPhase(a, b, log);
   // Role swap for the mine phases: B is the mine layer (the dropper); A observes
@@ -545,6 +556,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('WEAPONS SMOKE FAILED:', err.message);
+  console.error('WEAPONS SMOKE FAILED:', err.message, { trace: TRACE });
   process.exit(1);
 });

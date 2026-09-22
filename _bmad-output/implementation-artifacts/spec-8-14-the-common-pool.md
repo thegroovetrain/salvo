@@ -2,10 +2,10 @@
 title: 'Story 8.14: The Common Pool'
 type: 'feature'
 created: '2026-09-22'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '5e27f8b'
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-8-context-amendments.md'
@@ -98,7 +98,7 @@ warnings: [oversized]
 - [x] Wave 2 `server/` -- World take ledger + draw, rooms (`gun` seat, deck door gone, dev fit re-homed), metrics, bots signature, harness re-cut, smokes, tests -- `npm test -w server`
 - [x] Wave 3 `client/` -- `gun` join option + own-ship mirror + loadout replay, comments, tests -- `npm test -w client`
 - [x] Wave 4 -- version 0.18.14, changelog, trackers, deferred-work, README line -- `npm run check` exit 0
-- [ ] Smokes on a scratch port: `queueSmoke`, `openingSmoke`, `matchSmoke`, `weaponsSmoke` pass; a full solo bot match reaches results
+- [x] Smokes on a scratch port: `queueSmoke`, `openingSmoke`, `matchSmoke`, `weaponsSmoke` pass; a full solo bot match reaches results
 
 **Acceptance Criteria:**
 - Given any ship state and take ledger, when `drawOffer` runs over 2000 seeds, then the fraction of weapon-kind cards equals the eligible weapon share within tolerance both with and without takes, no card exceeds its cap, no equipment copy 1 appears with full slots, and the same seed yields the same offer.
@@ -109,6 +109,38 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-22 — Review pass (Blind Hunter + Edge Case Hunter on Fable, plus Codex `gpt-5.6-sol` cross-model review — verdicts: all three FIX-FIRST on one shared finding; agreement: ALL THREE flagged the at-cap consumable pick (F1) and the dev-fit / level-zero copy 1 with a full weapon row (F2); Blind + Edge both flagged the un-gated turret/barrel gun ladders (F3), the bot re-pick stall (F4) and the dropped dev-options log (F6); Codex + Edge both flagged the unbounded `--tune offer.weighting.*` (F5); Blind alone flagged amendment 95's "rides the welcome" wording (F7, confirmed); every rng-determinism, take-ledger, wire-leak, seat-auth and stale-deck-key attack came back clean from all three)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 1, medium 2, low 4)
+- defer: 0
+- reject: 0
+- addressed_findings:
+  - `[high]` `[patch]` a consumable held at its cap could still be picked (the belt-room check was the only gate): one shared `pickRefusal` predicate (`stub` / `atCap` / `beltFull` / `noWeaponSlot`) now gates `spendCard`, `refusesCard` and the client's grey — level stays banked, offer byte-identical (all three reviewers)
+  - `[low]` `[patch]` copy 1 of a weapon could be granted with Q/E/R full via `fitOverride` or the level-zero guarantee: `DrawShip` carries `slotIds`, `usableLines` runs the predicate, the fourth dev-fit line is dropped and never enters the take ledger (all three)
+  - `[medium]` `[patch]` DECK GUN TURRET / BARREL had no mounted-gun gate (an 8.15 tripwire): `ladderHost` derives the host from the ladder's `equipment.<id>.` stat path, so the whole gun family follows the mounted gun without touching `appliesTo`/`tierTargetOf` (Blind + Edge)
+  - `[medium]` `[patch]` a bot would re-pick a refused card every tick once F1 refuses it: the bot and batch-sim spend scorers skip refused cards and spend nothing on an all-refused hand (Blind + Edge; amendment 44's ledgered skip, now required)
+  - `[low]` `[patch]` `--tune offer.weighting.factor/.floor` accepted 0, > 1 and floor > factor: both leaves bounded to (0, 1], floor ≤ factor cross-checked at apply time (Codex + Edge)
+  - `[low]` `[patch]` `resolveDevFit` dropped `rejectedKeys` silently: logs `join.devOptionsRejected` once (Blind + Edge)
+  - `[low]` `[patch]` amendment 95(a) said the gun "rides the welcome"; it rides the own-ship frame — wording corrected in both amendment homes (Blind)
+- orchestrator ruling recorded: an UNKNOWN card id is now refused fail-closed (never appended to `cards`); only dev fits and directed grants can present one, the offer never can.
+
+## Auto Run Result
+
+Status: done (cycle 149, 0.18.14; PROTOCOL_VERSION 56 → 57; epic-8 amendments 90–95)
+
+**Summary.** Story 8.14 landed as Eric ruled it on 2026-09-22. Decks, deck legality, the deck door, the `deckId` option and the 8.11 hidden match pool are deleted; every captain draws from one common pool (every dealable line, unlimited copies, bounded by caps and the slot rules). The draw is two-stage per card — the KIND (a weapon's first copy / an upgrade / a consumable) by its share of the ship's eligible lines, then WHICH line, weapons weighted by the match-wide **weighting** (×0.75 per other captain who took the first copy, floor 0.25, first copies only, permanent) — so weighting changes which weapon you see, never the odds of seeing a weapon. The weapon guarantee is the countdown offer and its REDRAW only. Consumables are always dealt, so an offer is never empty; a consumable you cannot stock (belt full or at its cap) is greyed and the pick refused. The seat carries `gun` (deck gun / machine gun / flak, default deck gun), frozen at queue, riding the own-ship frame; every pick mounts the deck-gun module until 8.15 builds the other two. Exhaustion, the `deck.*` metrics counters and the 4402 deck refusal are gone; the harness lost `--deck-only`, `deckSim` and `PACIFIST_DECK` and gained `--tune offer.weighting.*` bounded to (0, 1].
+
+**Files.** shared: `sim/draw.ts` NEW (replaces `deck.ts`/`deckRules.ts`/`pool.ts`), `sim/boons.ts` (`pickRefusal`, `slotsWithCards(…, gun)`), `sim/loadout.ts` (`GunId`, `MOUNTED_GUN`, `loadoutFor(…, gun)`), `sim/catalog.ts` (decks deleted), `constants.ts` (`CONFIG.deck`/`pool` deleted, `CONFIG.offer.weighting`), `types.ts` (`OwnShip.gun`), `index.ts` (PV 57), tests. server: `game/world.ts` (take ledger, two-stage draw, gun seat, dev fit through the refusal), `game/frames.ts`, `rooms/roomOptions.ts` / `StandardQueueRoom.ts` / `ArenaRoom.ts` (gun seat, deck door deleted, dev-key log), `game/decks.ts` + `rooms/deckDoor.ts` DELETED, `metrics.ts`, `game/ai/spending.ts` + `tactics.ts` (refused-card skip), `scripts/batchsim/*` (deck-only mode deleted, weighting bounds, spend policy), `scripts/poolSmoke.mjs` DELETED, `scripts/queueSmoke.mjs` / `weaponsSmoke.mjs` / `metricsSmoke.mjs`, tests (three deleted, `weighting.test.ts` NEW). client: `net/connection.ts`, `net/roomBindings.ts`, `main.ts`, `ui/upgradeMenu.ts`, `ui/classSelect.ts`, `config.ts`, tests. Docs: `VERSION` / `package.json` / lock 0.18.14; `CHANGELOG.md`; `README.md`; both trackers; `deferred-work.md`; amendments 90–95 in both homes; this spec.
+
+**Review.** Blind Hunter + Edge Case Hunter (Fable) and Codex `gpt-5.6-sol`: all three FIX-FIRST on the same finding (an at-cap consumable could be picked). Seven patches, every one fail-first proven (1 high, 2 medium, 4 low); zero deferred, zero rejected. See the Review Triage Log.
+
+**Follow-up review recommended: true** — the patch wave introduced a shared spend-refusal predicate that now gates the server pick, the client grey, the bot scorer and the batch-sim policy, changed the draw's input shape (`DrawShip.slotIds`) and the gun-ladder eligibility rule; each is pinned, but they were reviewed only by their implementer.
+
+**Verification.** `npm run check` exit 0 after the patch wave: shared 908 / server 2007 / client 3661, hooks 266; eslint 0 errors (3 pre-existing max-lines warnings). Headless smokes on scratch ports against the final code: queue OK (gun-seat and frame-leak steps), opening OK, match OK (full lifecycle to results), weapons OK on the fourth run (the first three failed in three different hit-dependent phases — ledgered as piloting flake; the smoke now prints its trace on failure).
+
+**Residual risk / for Eric.** (1) Epics.md, amendment 89(b) and the GDD still say the weapon guarantee holds at every open-slot level and use the word "tilt"; amendments 91/93 supersede both — 9.11 doc-sync. (2) Only two consumables are live until 8.16, so a fully capped captain sees a two-card (never empty) offer. (3) Authored kind odds were not set — stage 1 uses the eligible-line share; a `CONFIG.offer.kindOdds` dial drops in if wanted. (4) An unknown card id is now refused fail-closed (dev fits/directed grants only). (5) The per-draw offered/picked record is ledgered as your side story. Staging QA: every level-up offer shows four different lines (a mix of weapons/upgrades/consumables while a slot is open, no first-copy weapons once Q/E/R are full); with five HULL REPAIR stocked, a dealt HULL REPAIR shows greyed and a digit press does nothing; the class-select flow is unchanged (deck gun mounted).
 
 ## Design Notes
 

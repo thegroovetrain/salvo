@@ -2464,3 +2464,9 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: OPEN — pre-existing, widened
   summary: `server/scripts/batchsim/tsconfig.json` (not in `npm run check`) has 2 standing errors — `balanceProbe.ts:50` `Target.kind` missing and `encounterSpan.ts:97` (already ledgered ~:2028); neither is 8.14's.
   evidence: `npx tsc --noEmit -p server/scripts/batchsim/tsconfig.json` on the 8.14 tree.
+
+- source_spec: `spec-8-14-the-common-pool.md`
+  status: OPEN — awareness (ledgered flake, like matchSmoke)
+  summary: `weaponsSmoke.mjs` IS PILOTING-FLAKY ACROSS PHASES: on the final 8.14 code it failed three times in a row at three DIFFERENT hit-dependent phases (six mines live at once — 200 s; the mine ambush — 60 s; the light-torpedo kill — 300 s, seven straight 40-dmg hits at a 25 s cadence racing the out-of-combat regen) and passed cleanly on the fourth run (every phase, the seven fish landing at T+4/29/54/80/105/131/156 s). The server was not slow (tick p50 0.45 ms) and nothing in 8.14 touches mines or torpedoes; the variance is the rendezvous/hold geometry on a random map. The smoke now prints its phase trace and per-hit progress on failure, so the next reader can see which phase starved instead of guessing. Widen the budgets or seed the map before trusting a single red run.
+  evidence: runs 1–4 on 2026-09-22 against a scratch server on :2621 (job tmp logs weaponsSmoke*.log); `/metrics` tick p50 0.45 ms during run 3.
+
