@@ -56,7 +56,8 @@ export const SLOT_KEY_GLYPHS: readonly string[] = ['', 'Shift', 'Q', 'E', 'R', '
  * ids catalog v3 widened
  * `EquipmentId` with carry their catalog-v3 §1 sheet name and nothing else —
  * no description, no glyph, no tone, because their modules do not exist yet
- * (Stories 8.13-8.16) and their catalog lines are stubs excluded from every deck.
+ * (Stories 8.13-8.16) and their catalog lines are stubs, which the common pool
+ * never deals.
  */
 export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   gun: 'Deck Gun',

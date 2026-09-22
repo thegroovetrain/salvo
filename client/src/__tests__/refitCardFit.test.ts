@@ -54,14 +54,14 @@ import { CLIENT_CONFIG } from '../config.js';
 
 const R = CLIENT_CONFIG.refit;
 const LINES: CatalogLine[] = Object.values(CATALOG);
-/** The lines that can actually be OFFERED today. A stub is excluded from every
- *  deck, so its face is unreachable — and it prints no rows, which would make
- *  the walk's row assertions vacuous rather than strict. */
+/** The lines that can actually be OFFERED today. A stub is never dealt out of
+ *  the common pool, so its face is unreachable — and it prints no rows, which
+ *  would make the walk's row assertions vacuous rather than strict. */
 const LIVE: CatalogLine[] = LINES.filter((l) => l.stub !== true);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
 /** A maximally stacked build — EVERY line at its full copy count. Not a
- *  reachable deck state; it is the UPPER BOUND on the number of glyphs a row's
+ *  reachable build; it is the UPPER BOUND on the number of glyphs a row's
  *  `cur → next` can print, which is exactly what a fit pin wants. */
 const MAXED = LINES.flatMap((d) => Array<string>(d.cap).fill(d.id));
 
@@ -428,7 +428,7 @@ describe('the belt-and-braces clip (NOT the fix — the pins above are)', () => 
     const menu = new UpgradeMenu(() => {});
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['captiveMines', 'radarSweep'], boostUntil: 0,
+      cls: 'torpedoBoat' as const, gun: 'deckGun' as const, pts: 1, offer: ['captiveMines', 'radarSweep'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     menu.toggle(offerView(you, false, false, false, [])!);

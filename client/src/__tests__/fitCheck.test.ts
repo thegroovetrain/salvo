@@ -317,9 +317,10 @@ const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
  * to delete its entry here, which is what turns "pending" back into a real
  * identity check instead of a permanent exemption.
  *
- * HEAT SEEKING is the only entry: its verb rides the HORIZONTAL MISSILE, whose
- * module is Story 8.14. Its catalog line is a stub and is excluded from every
- * deck, so nothing can fit it today.
+ * HEAT SEEKING is the only entry: its verb rode the HORIZONTAL MISSILE, which
+ * Eric CUT for good on 2026-09-21 (epic-8 amendment 89e). Its catalog line is a
+ * stub, and a stub is never dealt out of the common pool, so nothing can fit it
+ * today; Story 8.15 deletes the row and this entry with it.
  */
 const PENDING_IDENTITY: readonly string[] = ['heatSeeking'];
 

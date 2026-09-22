@@ -122,9 +122,9 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // add a type-size step. The exemption pins are retired with it
   // (__tests__/refitCardFit.test.ts asserts the name fits at the ordinary size).
   supercavTorpedo: 'SUPERCAV TORPEDO',
-  // DEPTH CHARGE (amendment 83) — Eric's line, stubbed: it exists so the Mine
-  // Layer's deck still sums to 40, is never dealt, and its mechanism is a later
-  // story. The NAME is his, verbatim.
+  // DEPTH CHARGE (amendment 83) — Eric's line, stubbed: it is a named line with
+  // no mechanism yet, and a stub is never dealt out of the common pool (Story
+  // 8.14 retired the per-hull decks it used to pad). The NAME is his, verbatim.
   depthCharge: 'DEPTH CHARGE',
   // --- the three add-ons ----------------------------------------------------
   // ACOUSTIC HOMING and the FOULING MINES add-on were DELETED on 2026-09-19

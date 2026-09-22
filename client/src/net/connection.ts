@@ -17,12 +17,14 @@
 
 import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import {
+  DEFAULT_GUN,
   generateMap,
   MSG,
   PROTOCOL_VERSION,
   REGATTA_HUES,
   sanitizeHornId,
   type FrameMsg,
+  type GunId,
   type HornId,
   type GameMap,
   type PingMsg,
@@ -265,14 +267,26 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
 
 /** The join options. Sent at the QUEUE door now (Story 6.1) — matchMaker's seat
  *  reservation bypasses `onAuth`, so the arena's gate never runs for a queued
- *  player and the queue re-implements both the `pv` gate and the sanitizers. */
-function joinOptions(name?: string, cls?: string): Record<string, unknown> {
+ *  player and the queue re-implements both the `pv` gate and the sanitizers.
+ *
+ *  `gun` is THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): the captain's
+ *  pick, frozen at queue and re-sanitized server-side exactly as `cls` is. There
+ *  is no picker and no stored preference yet — Story 8.15 builds the class-select
+ *  picker and passes its value here — so every join sends `DEFAULT_GUN` today.
+ *  It is a PARAMETER rather than a literal precisely so 8.15 wires one caller. */
+function joinOptions(name?: string, cls?: string, gun: GunId = DEFAULT_GUN): Record<string, unknown> {
   // `pv` is the join-time protocol gate: the server's onAuth rejects a missing
   // or mismatched PROTOCOL_VERSION with a "version mismatch" ServerError that
   // startGame() surfaces on the menu status line. Reconnects bypass onAuth, so
   // they are never re-gated.
-  const opts: { pv: number; name?: string; cls?: string; colorPref?: number; horn?: string } =
-    { pv: PROTOCOL_VERSION };
+  const opts: {
+    pv: number;
+    name?: string;
+    cls?: string;
+    colorPref?: number;
+    horn?: string;
+    gun: GunId;
+  } = { pv: PROTOCOL_VERSION, gun };
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
   // Story 4.5: the equipped foghorn variant, alongside cls/colorPref. Always

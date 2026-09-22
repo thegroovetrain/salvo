@@ -22,6 +22,7 @@ import {
   type FoghornEvent,
   type FrameMsg,
   type GameEvent,
+  type GunId,
   type HealEvent,
   type HitCallEvent,
   type HullId,
@@ -180,16 +181,19 @@ export interface RoomBindingDeps {
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
-   * Fired when the authoritative own class OR boon list first arrive (or ever
-   * change) on `you` — the client trusts the server, not the localStorage
-   * guess. The handler resolves the boon ids (fail-closed), recomputes
-   * effectiveStats(cls, boons), and swaps the predictor kinematics + behavior
-   * hooks, own-hull visuals, HUD denominators, radar rings/sweep period,
-   * camera zoom, and fog hole to match (main.applyOwnStats — the Stage D
-   * onOwnClass seam, grown the boons leg in Story 2.5; the legacy upgrade-
+   * Fired when the authoritative own class, boon list OR seat gun first arrive
+   * (or ever change) on `you` — the client trusts the server, not the
+   * localStorage guess. The handler resolves the boon ids (fail-closed),
+   * recomputes effectiveStats(cls, boons), and swaps the predictor kinematics +
+   * behavior hooks, own-hull visuals, HUD denominators, radar rings/sweep
+   * period, camera zoom, and fog hole to match (main.applyOwnStats — the Stage
+   * D onOwnClass seam, grown the boons leg in Story 2.5; the legacy upgrade-
    * counts leg died with the wholesale strip in Story 2.8).
+   *
+   * `gun` is the seat's gun (Story 8.14): slot 0's module is replayed from it,
+   * so the loadout derivation needs it alongside the cards.
    */
-  onOwnStats: (cls: ShipClassId, boons: readonly string[]) => void;
+  onOwnStats: (cls: ShipClassId, boons: readonly string[], gun: GunId) => void;
   /**
    * Reset the throttle order to neutral. Called on own spawn (respawn + the
    * match-activation teleport) and own sunk, so a set engine order never
@@ -719,7 +723,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     // never reads state.net.you.
     const statsChanged = ownStatsChanged(f.you, net.you);
     net.you = f.you;
-    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards);
+    if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.gun);
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
@@ -821,16 +825,22 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
 }
 
 /**
- * Pure: did the own class or the fitted-boon list change between frames? Cheap
- * array-equality over the boon ids (Story 2.8: the legacy 14-number `upg`
- * vector died with the strip, so boons are the whole stat input) — this gates
- * the (heavier) effective-stats recompute in deps.onOwnStats, so it runs on
- * change only, not per frame. Two identical lists in fresh arrays (every frame
- * reallocates) must NOT fire it, and REPEATED ids are meaningful (a stack), so
- * the comparison stays element-wise and order-sensitive.
+ * Pure: did the own class, the seat gun or the fitted-boon list change between
+ * frames? Cheap array-equality over the boon ids (Story 2.8: the legacy
+ * 14-number `upg` vector died with the strip, so boons are the whole stat
+ * input) — this gates the (heavier) effective-stats recompute in
+ * deps.onOwnStats, so it runs on change only, not per frame. Two identical
+ * lists in fresh arrays (every frame reallocates) must NOT fire it, and
+ * REPEATED ids are meaningful (a stack), so the comparison stays element-wise
+ * and order-sensitive.
+ *
+ * The GUN (Story 8.14) is frozen at queue and cannot change mid-match, so in
+ * practice only the first frame's `!prev` fires on it — it is compared anyway
+ * because slot 0 is derived from it, and a watcher that ignores one of its
+ * own inputs is how a stale loadout survives a change nobody expected.
  */
 export function ownStatsChanged(next: OwnShip, prev: OwnShip | null | undefined): boolean {
-  if (!prev || next.cls !== prev.cls) return true;
+  if (!prev || next.cls !== prev.cls || next.gun !== prev.gun) return true;
   return !sameList(next.cards, prev.cards);
 }
 

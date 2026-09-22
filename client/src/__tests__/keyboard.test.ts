@@ -1196,7 +1196,7 @@ describe('refitCloseStamp — the close edge, over the real refit band', () => {
 
   const you = (): OwnShip => ({
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', pts: 1,
+    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', pts: 1,
     offer: ['radarSweep', 'armor', 'deckGunBarrel', 'navalMines'],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
   });
@@ -1292,7 +1292,7 @@ describe('the close edge is seen at the DIGIT\'s keydown, with no frame between 
 
   const you = (): OwnShip => ({
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', pts: 1,
+    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', pts: 1,
     offer: ['radarSweep', 'armor', 'deckGunBarrel', 'navalMines'],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
   });

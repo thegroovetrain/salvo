@@ -74,11 +74,13 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
   // that is what the three scans above assert, and they are the substance of
   // this file. This line only witnesses that a bump, when it happens, happens
   // deliberately.
-  it('PROTOCOL_VERSION is 56 — bumped by Story 8.13s catalog + MineView, not by masks', () => {
-    // 55 until Story 8.13, whose ONE bump covers the catalog content, the id
-    // moves and `MineView`'s own-only kind field (epic-8 amendment 76). The
+  it('PROTOCOL_VERSION is 57 — bumped by Story 8.14s common pool + seat gun, not by masks', () => {
+    // 55 until Story 8.13, whose ONE bump covered the catalog content, the id
+    // moves and `MineView`'s own-only kind field (epic-8 amendment 76); 56
+    // until Story 8.14, whose ONE bump covers the seat's `gun` join option,
+    // `OwnShip.gun` and the retired deck door (epic-8 amendments 89d/95). The
     // `hits` masks still never reach the client — that is the claim this file
     // makes, and no bump has ever been theirs.
-    expect(PROTOCOL_VERSION).toBe(56);
+    expect(PROTOCOL_VERSION).toBe(57);
   });
 });

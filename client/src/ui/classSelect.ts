@@ -54,14 +54,16 @@ interface LoadoutRow {
  * into it.
  *
  * WHY THERE IS NOTHING TO LIST: the interim spawn seed is gone, so every hull
- * now spawns with the deck gun and the universal `Shift` boost and NOTHING
+ * now spawns with its gun and the universal `Shift` boost and NOTHING
  * else — `Q: TORPEDO TUBES`, `Q: BROADSIDE BARRAGE` / `E: STAR SHELLS` and
  * `Q: PROXIMITY MINES` all described weapons the hull no longer carries at 0:00.
  * Eric ruling 2026-07-24 stands over the whole surface: NO fantasy tagline and
- * NO universal-GUN row — "the card sells what differs", and at spawn the only
- * thing that differs is the deck. The three stat pips carry the card alone, and
- * `buildLoadout` renders NOTHING for an empty row list (no seam, no rule, no
- * empty box).
+ * NO universal-GUN row — "the card sells what differs", and at spawn what
+ * differs is the hull's ENVELOPE and its class `Shift`: the gun is the
+ * captain's own pick (Story 8.15 puts the picker on this surface) and the draw
+ * is the COMMON POOL, the same for every hull (Story 8.14, epic-8 amendment
+ * 89). The three stat pips carry the card alone, and `buildLoadout` renders
+ * NOTHING for an empty row list (no seam, no rule, no empty box).
  */
 const LOADOUT: Record<ShipClassId, readonly LoadoutRow[]> = {
   torpedoBoat: [],

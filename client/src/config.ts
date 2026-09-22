@@ -512,7 +512,7 @@ export const FASTEST_HULL_SPEED = HULL_IDS.reduce(
  * at 45 + 4 SPEED copies = 55, × 1.25).
  *
  * DERIVED, never written down, and derived THROUGH THE REAL FOLD: a capped
- * SPEED deck goes through `effectiveStats` (so any clamp applies) and the boost
+ * SPEED card stack goes through `effectiveStats` (so any clamp applies) and the boost
  * goes through the ONE shared `boostedKinematics` hook at `CONFIG.boost.factor`
  * (so the proportional +25 % of epic-8 amendment 55 is read exactly as the sim
  * reads it). Since Story 8.9 the bonus is a FRACTION of the post-fold cap, so
@@ -524,9 +524,9 @@ export const FASTEST_HULL_SPEED = HULL_IDS.reduce(
  * too: a drone fits no cards and never boosts, so its envelope maximum is its
  * true ceiling.
  */
-const CAPPED_SPEED_DECK: readonly string[] = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
+const CAPPED_SPEED_CARDS: readonly string[] = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
 export const FASTEST_BOOSTED_HULL_SPEED = SHIP_CLASS_IDS.reduce((top, id) => {
-  const kin = effectiveStats(CONFIG.shipClasses[id], CAPPED_SPEED_DECK).kinematics;
+  const kin = effectiveStats(CONFIG.shipClasses[id], CAPPED_SPEED_CARDS).kinematics;
   return Math.max(top, boostedKinematics(kin, CONFIG.boost.factor, true).maxSpeed);
 }, FASTEST_HULL_SPEED);
 
