@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-09-19 (build: cycle 148, 0.18.13 — Story 8-13 catalog v3 torpedoes + mines landed, PV 55->56, epic-8 amendments 74-86; next: 8-14). Before that 2026-09-18 (build: cycle 147, 0.18.12 — Story 8-12 catalog v3 ladders + the deck gun landed (verify-and-pin: numbers live since 8-1), PV 55 unchanged, epic-8 amendments 70-73; next: 8-13). Before that 2026-09-18 (build: cycle 146, 0.18.11 — Story 8-11 the match consumable pool landed, PV 55 unchanged, epic-8 amendments 67-69; next: 8-12). Before that 2026-09-18 (build: cycle 145, 0.18.10 — Story 8-10 the opening landed, PV 54->55, epic-8 amendments 59-66; next: 8-11). Before that 2026-09-18 (build: cycle 144, 0.18.9 — Story 8-9 the Shift boost, universal landed, PV 53->54, epic-8 amendments 54-58; next: 8-10). Before that 2026-09-17 (build: cycle 143, 0.18.8 — Story 8-8 heal is a card landed, PV 52->53, epic-8 amendments 46-53; next: 8-9). Before that 2026-09-17 (build: cycle 142, 0.18.7 — Story 8-7 consumable slots + refit card v3 landed, PV 52 unchanged, epic-8 amendments 41-45; next: 8-8). Before that 2026-09-17 (build: cycle 141, 0.18.6 — Story 8-6 the HUD bar landed, PV 52 unchanged, epic-8 amendments 31-37; next: 8-7). Before that 2026-09-16 (build: cycle 140, 0.18.5 — Story 8-5 nine slots landed, PV 51->52, epic-8 amendments 21-30; next: 8-6). Before that 2026-09-15 (build: cycle 139, 0.18.4 — Story 8-4 the damage gate + the ordnance collector landed, PV 51 unchanged, epic-8 amendments 16-20; next: 8-5). Before that 2026-09-15 (build: cycle 138, 0.18.3 — Story 8-3 the draw landed, PV 51 unchanged, epic-8 amendments 13-15; next: 8-4). Before that 2026-09-15 (interstitial cycle 136, 0.18.1: version scheme change — 0.17.X freeze lifted, one-time move to 0.18.1, then +1 per landed cycle; epic-8 amendment 9; next: 8-2). Before that 2026-09-15 (build: cycle 135, 0.17.135 — Story 8-1 card model + catalog engine landed, PV 50->51, epic-8 amendments 5-8; next: 8-2). Before that 2026-09-14 (build: cycle 134, 0.17.134 — Story 8-0 Colyseus 0.18 upgrade landed, PV 49->50, epic-8 amendments 1-4; next: 8-1). Before that 2026-09-14 (interstitial cycle 133, 0.17.133: CLAUDE.md rewritten to best-practice size + hook-enforced edit moratorium; long-form archived to docs/; PV 49; spec-claude-md-rewrite.md). Before that 2026-09-14 (planning: gds-sprint-planning for E8/E9 — epic-8 The Deck 21 stories + epic-9 The Account 11 stories added as backlog, retros optional; 0 story files exist for either; every epic 0-7 status preserved byte-for-byte; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-create-epics-and-stories for E8/E9 — epics.md extended in place, Epic 8 The Deck 21 stories + Epic 9 The Account 11 stories, validated PASS; gds-sprint-planning next; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-ux v3 pass for E8/E9 surfaces — DESIGN.md/EXPERIENCE.md updated, 3 mocks promoted, 4-lens validation; epics run for E8/E9 next; last build cycle 132, 0.17.132). Before that 2026-09-10 (planning: gds-game-architecture deck amendment for E8 / upgrades v3 — game-architecture.md D19–D31; D25 + D28 need an E8 home before stories 5/12/13/15; last build cycle 132, 0.17.132)
+# last_updated: 2026-09-21 (correct-course: sprint-change-proposal-2026-09-21.md — Epic 8 = The Pool, 8-14/8-15 replaced, 8-16..8-21 renumbered, 9-5 cancelled; no build cycle; epic-8 amendment 89; next: 8-14 the common pool). Before that: 2026-09-19 (build: cycle 148, 0.18.13 — Story 8-13 catalog v3 torpedoes + mines landed, PV 55->56, epic-8 amendments 74-86; next: 8-14). Before that 2026-09-18 (build: cycle 147, 0.18.12 — Story 8-12 catalog v3 ladders + the deck gun landed (verify-and-pin: numbers live since 8-1), PV 55 unchanged, epic-8 amendments 70-73; next: 8-13). Before that 2026-09-18 (build: cycle 146, 0.18.11 — Story 8-11 the match consumable pool landed, PV 55 unchanged, epic-8 amendments 67-69; next: 8-12). Before that 2026-09-18 (build: cycle 145, 0.18.10 — Story 8-10 the opening landed, PV 54->55, epic-8 amendments 59-66; next: 8-11). Before that 2026-09-18 (build: cycle 144, 0.18.9 — Story 8-9 the Shift boost, universal landed, PV 53->54, epic-8 amendments 54-58; next: 8-10). Before that 2026-09-17 (build: cycle 143, 0.18.8 — Story 8-8 heal is a card landed, PV 52->53, epic-8 amendments 46-53; next: 8-9). Before that 2026-09-17 (build: cycle 142, 0.18.7 — Story 8-7 consumable slots + refit card v3 landed, PV 52 unchanged, epic-8 amendments 41-45; next: 8-8). Before that 2026-09-17 (build: cycle 141, 0.18.6 — Story 8-6 the HUD bar landed, PV 52 unchanged, epic-8 amendments 31-37; next: 8-7). Before that 2026-09-16 (build: cycle 140, 0.18.5 — Story 8-5 nine slots landed, PV 51->52, epic-8 amendments 21-30; next: 8-6). Before that 2026-09-15 (build: cycle 139, 0.18.4 — Story 8-4 the damage gate + the ordnance collector landed, PV 51 unchanged, epic-8 amendments 16-20; next: 8-5). Before that 2026-09-15 (build: cycle 138, 0.18.3 — Story 8-3 the draw landed, PV 51 unchanged, epic-8 amendments 13-15; next: 8-4). Before that 2026-09-15 (interstitial cycle 136, 0.18.1: version scheme change — 0.17.X freeze lifted, one-time move to 0.18.1, then +1 per landed cycle; epic-8 amendment 9; next: 8-2). Before that 2026-09-15 (build: cycle 135, 0.17.135 — Story 8-1 card model + catalog engine landed, PV 50->51, epic-8 amendments 5-8; next: 8-2). Before that 2026-09-14 (build: cycle 134, 0.17.134 — Story 8-0 Colyseus 0.18 upgrade landed, PV 49->50, epic-8 amendments 1-4; next: 8-1). Before that 2026-09-14 (interstitial cycle 133, 0.17.133: CLAUDE.md rewritten to best-practice size + hook-enforced edit moratorium; long-form archived to docs/; PV 49; spec-claude-md-rewrite.md). Before that 2026-09-14 (planning: gds-sprint-planning for E8/E9 — epic-8 The Deck 21 stories + epic-9 The Account 11 stories added as backlog, retros optional; 0 story files exist for either; every epic 0-7 status preserved byte-for-byte; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-create-epics-and-stories for E8/E9 — epics.md extended in place, Epic 8 The Deck 21 stories + Epic 9 The Account 11 stories, validated PASS; gds-sprint-planning next; last build cycle 132, 0.17.132). Before that 2026-09-11 (planning: gds-ux v3 pass for E8/E9 surfaces — DESIGN.md/EXPERIENCE.md updated, 3 mocks promoted, 4-lens validation; epics run for E8/E9 next; last build cycle 132, 0.17.132). Before that 2026-09-10 (planning: gds-game-architecture deck amendment for E8 / upgrades v3 — game-architecture.md D19–D31; D25 + D28 need an E8 home before stories 5/12/13/15; last build cycle 132, 0.17.132)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -272,7 +272,7 @@ development_status:
   # 7-5-design-md-real-time-refresh -> 7-6; 7-6-the-release-gate -> 7-8.
   epic-7-retrospective: done  # 2026-08-27 epic-7-retro-2026-08-27.md
 
-  # epic-8: The Deck (GDD E8 — upgrades v3 + catalog v3; 21 stories in build order, Eric-approved 2026-09-11)
+  # epic-8: The Pool (GDD E8 — upgrades v3 + catalog v4; 22 stories in build order, Eric-approved 2026-09-11; "The Deck" through 8-13, re-cut from 8-14 on by sprint-change-proposal-2026-09-21.md — epic-8 amendment 89)
   epic-8: in-progress
   8-0-colyseus-0-18-upgrade: done  # 2026-09-14 cycle 134, 0.17.134, PV 49->50, epic-8 amendments 1-4; spec-8-0-colyseus-0-18-upgrade.md
   8-1-the-card-model-and-catalog-engine: done  # 2026-09-15 cycle 135, 0.17.135, PV 50->51, epic-8 amendments 5-8; spec-8-1-the-card-model-and-catalog-engine.md
@@ -288,23 +288,24 @@ development_status:
   8-11-the-match-consumable-pool: done  # 2026-09-18 cycle 146 (0.18.11); PV 55 unchanged; epic-8 amendments 67-69
   8-12-catalog-v3-ladders-and-the-deck-gun: done  # 2026-09-18 cycle 147 (0.18.12); PV 55 unchanged; epic-8 amendments 70-73
   8-13-catalog-v3-torpedoes-and-mines: done  # 2026-09-19 cycle 148 (0.18.13); PV 55->56; epic-8 amendments 74-86
-  8-14-catalog-v3-the-gun-family-and-the-missile: backlog
-  8-15-catalog-v3-shield-chaff-decoy: backlog
-  8-16-smoke-screen-as-a-sight-occluder: backlog
-  8-17-wake-drafting: backlog
-  8-18-bots-sail-decks: backlog
-  8-19-results-loadout-and-the-match-record: backlog
-  8-20-how-to-play-and-copy-re-cut: backlog
+  8-14-the-common-pool: backlog  # 2026-09-21 correct-course: replaces 8-14-catalog-v3-the-gun-family-and-the-missile (never drafted)
+  8-15-the-gun-pick-and-the-class-shifts: backlog  # 2026-09-21 correct-course: new
+  8-16-catalog-v3-shield-chaff-decoy: backlog  # was 8-15
+  8-17-smoke-screen-as-a-sight-occluder: backlog  # was 8-16
+  8-18-wake-drafting: backlog  # was 8-17
+  8-19-bots-draw-from-the-pool: backlog  # was 8-18-bots-sail-decks
+  8-20-results-loadout-and-the-match-record: backlog  # was 8-19
+  8-21-how-to-play-and-copy-re-cut: backlog  # was 8-20
   epic-8-retrospective: optional
 
-  # epic-9: The Account (GDD E9; 11 stories in build order, Eric-approved 2026-09-11)
+  # epic-9: The Account (GDD E9; 10 stories in build order, Eric-approved 2026-09-11; 9-5 deleted and 9-4/9-6/9-7/9-11 re-scoped 2026-09-21 by sprint-change-proposal-2026-09-21.md)
   epic-9: backlog
   9-1-the-account-store-foundation: backlog  # floor story
   9-2-sign-in-with-google-or-discord: backlog
   9-3-two-state-settings-and-profile: backlog
-  9-4-the-ship-and-deck-screen: backlog
-  9-5-named-decks-and-the-pre-queue-gate: backlog
-  9-6-tokens-xp-and-per-copy-unlocks: backlog
+  9-4-the-ship-screen: backlog  # was 9-4-the-ship-and-deck-screen (deck column deleted 2026-09-21)
+  9-5-named-decks-and-the-pre-queue-gate: cancelled  # 2026-09-21 correct-course: no decks exist
+  9-6-tokens-xp-and-unlocks: backlog  # was 9-6-tokens-xp-and-per-copy-unlocks (lines whole + guns + hulls, 2026-09-21)
   9-7-match-history-and-the-admin-console: backlog
   9-8-delete-my-account: backlog
   9-9-key-rebinding: backlog
