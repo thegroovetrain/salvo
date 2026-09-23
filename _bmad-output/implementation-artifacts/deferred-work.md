@@ -2419,7 +2419,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: Eric 2026-09-21: "For now, everything is unlocked for everyone. Once accounts and progression are a thing and I have some playtest data, I'll pare that down to a 'Default Set.'"
 
 - source_spec: `sprint-change-proposal-2026-09-21.md` §4.5
-  status: OPEN — designer (`gds-ux`), before Story 9.4 is drafted
+  status: RESOLVED 2026-09-23 — gds-ux v4 pass (planning, no cycle): DESIGN.md + EXPERIENCE.md re-cut for The Pool (two-pane Ship Screen, collection tile, class tile Shift line + gun picker, UX-DR71/75/77 void, UX-DR50 icons re-owed); `mockups/ship-screen-1.html`; pane widths and the tile's new rows are `[ASSUMPTION]` for Eric's redline; record `ux-designs/…/.decision-log.md` § Update 2026-09-23
   summary: DESIGN.md IS NOT EDITED BY THE PROPOSAL. UX-DR60–66 (Ship & Deck screen, deck card tile, copies rail, deck column) need a re-cut for the Ship Screen (class tile regains a `Shift` line and a gun picker; no deck column); UX-DR71, UX-DR75 and UX-DR77 are void; UX-DR50 icons: missile and monitor no longer owed, machine gun and flak gun glyphs are; UX-DR52 stands.
   evidence: proposal §4.5; Story 9.4 as re-cut.
 
