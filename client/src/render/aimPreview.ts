@@ -283,6 +283,45 @@ function parallelVolley(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel 
   return model;
 }
 
+/** THE CANNON (the deck gun's `gun` row): every barrel on its own parallel
+ *  track, clamped to the resolved reach (`gunReachU` — the lit-zone lift). */
+function cannonPreview(inp: AimPreviewInput): AimPreviewModel {
+  const g = inp.stats.equipment.gun;
+  return parallelVolley(inp, {
+    rangeU: inp.gunReachU ?? g.rangeU,
+    burstRadius: g.burstRadius,
+    shellRadius: CONFIG.gun.shellRadius,
+    barrels: g.barrels,
+    spacingU: CONFIG.gun.barrelSpacingU,
+  });
+}
+
+/**
+ * THE TWO PICKABLE GUNS (Story 8.15), each off its OWN row — never the
+ * cannon's by assumption. One shell per shot on one track to the range-clamped
+ * click:
+ *  - the MACHINE GUN is a DIRECT-HIT gun with no burst (amendment 103): its
+ *    preview is the travel line alone, with NO ring — the reticle is its aim
+ *    mark (`burstRadius: 0` is the shellPreview's no-circle case);
+ *  - the FLAK GUN bursts at the click in its FIXED 50 u blast (amendment 105).
+ * Neither reads `gunReachU`: the lit-zone reach extension is the cannon row's
+ * (R2.15), and the server's legality gate is the authority on widening it.
+ */
+function isPickableGun(id: SlotItemId): id is 'machineGun' | 'flak' {
+  return id === 'machineGun' || id === 'flak';
+}
+
+function pickableGunPreview(inp: AimPreviewInput, id: 'machineGun' | 'flak'): AimPreviewModel {
+  const row = inp.stats.equipment[id];
+  return parallelVolley(inp, {
+    rangeU: row.rangeU,
+    burstRadius: id === 'flak' ? inp.stats.equipment.flak.burstRadius : 0,
+    shellRadius: CONFIG[id].shellRadius,
+    barrels: 1,
+    spacingU: 0,
+  });
+}
+
 /**
  * THE BROADSIDE BARRAGE (Eric ruling 2026-08-20 — per-turret firing arcs).
  * Every turret on the firing side sends one shell AS CLOSE TO THE CLICK AS ITS
@@ -502,16 +541,8 @@ function buoyPreview(inp: AimPreviewInput): AimPreviewModel {
  */
 export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   if (!inp.legal || inp.id === null) return EMPTY;
-  if (inp.id === 'gun') {
-    const g = inp.stats.equipment.gun;
-    return parallelVolley(inp, {
-      rangeU: inp.gunReachU ?? g.rangeU,
-      burstRadius: g.burstRadius,
-      shellRadius: CONFIG.gun.shellRadius,
-      barrels: g.barrels,
-      spacingU: CONFIG.gun.barrelSpacingU,
-    });
-  }
+  if (inp.id === 'gun') return cannonPreview(inp);
+  if (isPickableGun(inp.id)) return pickableGunPreview(inp, inp.id);
   if (inp.id === 'broadside') return broadsidePreview(inp);
   if (inp.id === 'starShells') return starShellPreview(inp);
   // THE FAMILIES, not the ids (Story 8.13): three torpedoes share one preview
@@ -533,6 +564,7 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
 export function ownBurstRadius(stats: EffectiveStats, own: OwnFire): number | undefined {
   if (own === 'gun') return stats.equipment.gun.burstRadius;
   if (own === 'broadside') return stats.equipment.broadside.burstRadius;
+  if (own === 'flak') return stats.equipment.flak.burstRadius; // Story 8.15 — the fixed 50 u blast
   // No torpedo bursts at a POINT any more — COMMAND DETONATION left the game in
   // Story 7-5 wave 1, and a standard/homing fish's contact hit rides the
   // boom/spark path — so the fish keeps the CONFIG default like everything else.

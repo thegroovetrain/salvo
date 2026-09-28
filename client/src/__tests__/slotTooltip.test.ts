@@ -370,7 +370,7 @@ describe('tooltip model — name, interaction class, description, and NO boons',
   it('gives the keyless gun its always-selected interaction line, with its tier', () => {
     const t = tooltipModel(0, 'gun', stats);
     expect(t).not.toBeNull();
-    expect(t?.name).toBe('DECK GUN');
+    expect(t?.name).toBe('CANNON'); // Story 8.15, amendment 108: the plain gun is CANNON in match
     // STORY 8.12 (amendment 70): the model has the fold, so the header states
     // the rung the hull is actually standing on — I at spawn.
     expect(t?.interaction).toBe('WEAPON · ALWAYS SELECTED · TIER I');

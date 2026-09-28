@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   homeYieldStyle,
   livenessLines,
+  loadSavedGun,
   loadSavedMode,
   saveMode,
   serverStatusLine,
@@ -189,7 +190,7 @@ describe('showHome — first-run vs returning routing', () => {
     // the button's "DEPLOY AS BATTLESHIP · SOLO" sub-line was restating it.
     expect(text).not.toContain('DEPLOY AS BATTLESHIP');
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', 'battleship'); // empty callsign → server assigns
+    expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'deckGun'); // empty callsign → server assigns
     expect(document.getElementById('hc-class-select')).toBeNull(); // no layer, connected
   });
 
@@ -366,7 +367,7 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     showHome('0.0.0-test', onDeploy, vi.fn(), onSolo);
     nameInput().value = 'skipper';
     soloButton().click();
-    expect(onSolo).toHaveBeenCalledWith('skipper', 'mineLayer');
+    expect(onSolo).toHaveBeenCalledWith('skipper', 'mineLayer', 'deckGun');
     expect(onDeploy).not.toHaveBeenCalled(); // the two doors never cross
     expect(localStorage.getItem('hullcracker.name')).toBe('skipper'); // callsign persisted
   });
@@ -1401,5 +1402,79 @@ describe('main.ts stands liveness down at the deploy door (F3)', () => {
     const body = bodyOf(mainSrc(), 'function startHomeLiveness(');
     expect(body).toMatch(/stopLivenessPoll\(\)/);
     expect(body).not.toMatch(/setLiveness\(null\)/);
+  });
+});
+
+
+// STORY 8.15 (Eric ruling 2026-09-28, epic-8 amendment 107): the GUN PICK lives
+// on the class-select cards, is stored under `hullcracker.gun` beside the class,
+// and rides every deploy door as the third argument. The home chip stays SLIM —
+// no `class · gun` sub-line until Story 9.4.
+describe('the gun pick — persistence and the deploy doors (Story 8.15)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    home()?.remove();
+    document.getElementById('hc-class-select')?.remove();
+  });
+
+  /** A chip on card `card` (0 TB · 1 BS · 2 ML). A chip click also highlights
+   *  ITS card, so a test that keeps the hull picks on that hull's own card. */
+  function gunChip(label: string, card = 0): HTMLButtonElement {
+    const el = document.querySelectorAll('#hc-class-select .hc-ccard')[card];
+    const chips = [...el.querySelectorAll('.hc-gunchip')] as HTMLButtonElement[];
+    return chips.find((c) => c.textContent === label) as HTMLButtonElement;
+  }
+
+  function confirm(): void {
+    ([...document.querySelectorAll('#hc-class-select button')].find(
+      (b) => b.textContent === 'CONFIRM SELECTION',
+    ) as HTMLButtonElement).click();
+  }
+
+  it('loadSavedGun: CANNON (deckGun) when unset or unknown, the stored pick otherwise', () => {
+    expect(loadSavedGun()).toBe('deckGun');
+    localStorage.setItem('hullcracker.gun', 'flak');
+    expect(loadSavedGun()).toBe('flak');
+    localStorage.setItem('hullcracker.gun', 'missile'); // CUT — and never a gun
+    expect(loadSavedGun()).toBe('deckGun');
+  });
+
+  it('a stored gun rides PLAY and SOLO VS AI as the third argument', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.gun', 'machineGun');
+    const onDeploy = vi.fn();
+    const onSolo = vi.fn();
+    showHome('0.0.0-test', onDeploy, () => undefined, onSolo);
+    playButton().click();
+    expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'machineGun');
+    soloButton().click();
+    expect(onSolo).toHaveBeenCalledWith('', 'battleship', 'machineGun');
+  });
+
+  it('picking a chip and CONFIRMING stores it beside the class; the chip stays slim', () => {
+    localStorage.setItem('hullcracker.class', 'mineLayer');
+    const onDeploy = vi.fn();
+    showHome('0.0.0-test', onDeploy);
+    chip().click();
+    expect(gunChip('CANNON').getAttribute('aria-pressed')).toBe('true'); // preselected
+    gunChip('FLAK', 2).click(); // on the Mine Layer's own card
+    confirm();
+    expect(localStorage.getItem('hullcracker.gun')).toBe('flak');
+    expect(localStorage.getItem('hullcracker.class')).toBe('mineLayer');
+    const text = home().textContent ?? '';
+    for (const word of ['FLAK', 'CANNON', 'MACHINE GUN', 'DECK GUN']) expect(text, word).not.toContain(word);
+    playButton().click();
+    expect(onDeploy).toHaveBeenCalledWith('', 'mineLayer', 'flak');
+  });
+
+  it('re-opening the bay lights the STORED gun, and ESC discards a changed pick', () => {
+    localStorage.setItem('hullcracker.class', 'torpedoBoat');
+    localStorage.setItem('hullcracker.gun', 'machineGun');
+    showHome('0.0.0-test', vi.fn());
+    chip().click();
+    expect(gunChip('MACHINE GUN').getAttribute('aria-pressed')).toBe('true');
+    gunChip('CANNON').click();
+    press('Escape');
+    expect(localStorage.getItem('hullcracker.gun')).toBe('machineGun');
   });
 });

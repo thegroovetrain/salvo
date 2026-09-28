@@ -699,6 +699,14 @@ export const CLIENT_CONFIG = {
      *  sample cadence; a per-look spacing override would be exactly the second
      *  wake model amendment 204 forbids. */
     homingCoreR: 4.2, // u
+    /** THE MACHINE GUN'S TRACER (Story 8.15): a stream shell (`w: 'mg'` on the
+     *  reveal) draws as a SHORT STREAK trailing its velocity instead of the
+     *  cannon's dot — a lighter, faster read for a gun that fires every 0.5 s.
+     *  Client-only feel (the look is the one thing `w` exists to buy). */
+    tracerLenU: 8, // u — streak length behind the head
+    tracerWidthU: 1.4, // u — streak stroke width
+    tracerCoreR: 1.3, // u — the bright head
+    tracerGlowAlpha: 0.35,
     // THE CREEP KNOBS ARE DELETED (Story 7-5 wave 2): creepWakeSpacing,
     // creepTickLen and creepEpsilon drove the SELF-PROPELLED mine's tell — a
     // heading tick plus a wake dot laid along its crawl. That doctrine left the

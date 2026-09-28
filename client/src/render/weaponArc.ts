@@ -189,6 +189,11 @@ export { twinSectorSide };
 export function weaponRangeU(stats: EffectiveStats, id: SlotItemId | null): number {
   if (id === 'broadside') return stats.equipment.broadside.rangeU;
   if (id === 'starShells') return stats.equipment.starShells.rangeU;
+  // THE TWO PICKABLE GUNS (Story 8.15) read their OWN row — both re-pinned to
+  // the radar rung today (660 u, amendments 103/105), but a gun's range is its
+  // row's number, never the cannon's by assumption.
+  if (id === 'machineGun') return stats.equipment.machineGun.rangeU;
+  if (id === 'flak') return stats.equipment.flak.rangeU;
   // ALL THREE MINE LINES share the ONE leash (Story 8.13) — the naval chassis
   // is shared, not duplicated (`CONFIG.captiveMines`/`CONFIG.foulingMines` restate
   // no placement field), so an id-equality test on `navalMines` would have given

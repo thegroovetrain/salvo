@@ -270,10 +270,10 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
  *  player and the queue re-implements both the `pv` gate and the sanitizers.
  *
  *  `gun` is THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): the captain's
- *  pick, frozen at queue and re-sanitized server-side exactly as `cls` is. There
- *  is no picker and no stored preference yet — Story 8.15 builds the class-select
- *  picker and passes its value here — so every join sends `DEFAULT_GUN` today.
- *  It is a PARAMETER rather than a literal precisely so 8.15 wires one caller. */
+ *  pick, frozen at queue and re-sanitized server-side exactly as `cls` is. Story
+ *  8.15 (amendment 107) built the pick on the class-select cards: it is stored
+ *  under `hullcracker.gun` (ui/home.ts) and threaded here through
+ *  `startGame` → `connect(…, gun)`. Always SENT, never omitted. */
 function joinOptions(name?: string, cls?: string, gun: GunId = DEFAULT_GUN): Record<string, unknown> {
   // `pv` is the join-time protocol gate: the server's onAuth rejects a missing
   // or mismatched PROTOCOL_VERSION with a "version mismatch" ServerError that
@@ -575,9 +575,10 @@ export async function connect(
   cls?: string,
   hooks: ConnectHooks = {},
   solo = false,
+  gun: GunId = DEFAULT_GUN,
 ): Promise<Connection> {
   const client = new Client(wsEndpoint());
-  const opts = joinOptions(name, cls);
+  const opts = joinOptions(name, cls, gun);
   // Everything below this line is the pre-6.1 flow byte for byte: `room` is the
   // ARENA room, so bindRoom/buildGame see exactly what they always did.
   const room = await acquireArena(client, opts, hooks, solo);

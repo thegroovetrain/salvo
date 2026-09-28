@@ -46,9 +46,10 @@ const LINES: readonly CatalogLine[] = Object.values(CATALOG);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
 describe('fit-check — catalog sanity (the walk covers something real)', () => {
-  it('the catalog has every id keyed to itself and exactly the ratified 29 lines', () => {
+  it('the catalog has every id keyed to itself and exactly the ratified 26 lines', () => {
     expect(LINES).toHaveLength(LINE_IDS.length);
-    expect(LINE_IDS).toHaveLength(29);
+    // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e).
+    expect(LINE_IDS).toHaveLength(26);
     for (const [key, line] of Object.entries(CATALOG)) expect(line.id).toBe(key);
   });
 });
@@ -199,14 +200,13 @@ describe('fit-check — the four lines Story 8.13 brought to life', () => {
  *   row to read a holding off. A LIVE equipment line DOES print one: its own
  *   reload, which every copy past the first cuts by 5 %.
  * `consumable` — the whole rack is Story 8.7.
- * `heatSeeking` — the only add-on whose weapon (the missile) is not built.
+ * (`heatSeeking` left this list when Story 8.15 CUT it with the missile.)
  * `turning` / `deckGun` — new v3 lines with no v2 text to carry: they DO print a
  *   live `current → next` sentence on the card face, which is the channel that
  *   matters; this list covers the hotbar/results HOLDING readout only.
  */
 const SILENT_EFFECT_LINE: readonly string[] = [
   ...LINES.filter((l) => (l.kind === 'equipment' && l.stub === true) || l.kind === 'consumable').map((l) => l.id),
-  'heatSeeking',
 ];
 
 describe('fit-check — VISIBLE tooltip (every authored line reports a real effect)', () => {
@@ -317,20 +317,19 @@ const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
  * to delete its entry here, which is what turns "pending" back into a real
  * identity check instead of a permanent exemption.
  *
- * HEAT SEEKING is the only entry: its verb rode the HORIZONTAL MISSILE, which
- * Eric CUT for good on 2026-09-21 (epic-8 amendment 89e). Its catalog line is a
- * stub, and a stub is never dealt out of the common pool, so nothing can fit it
- * today; Story 8.15 deletes the row and this entry with it.
+ * EMPTY since Story 8.15: its one entry, HEAT SEEKING, rode the HORIZONTAL
+ * MISSILE, which Eric CUT for good on 2026-09-21 (epic-8 amendment 89e), and
+ * 8.15 deleted the row and this entry with it.
  */
-const PENDING_IDENTITY: readonly string[] = ['heatSeeking'];
+const PENDING_IDENTITY: readonly string[] = [];
 
 describe('fit-check — DOCTRINE IDENTITY (every doctrine line registers an on-water tell)', () => {
-  it('the catalog carries the THREE surviving add-on doctrine lines', () => {
+  it('the catalog carries the TWO surviving add-on doctrine lines', () => {
     // Five until Story 8.13, when Eric deleted ACOUSTIC HOMING (homing became a
     // tier stat) and the FOULING MINES add-on (fouling became its own equipment
-    // line) — amendments 80/81.
+    // line) — amendments 80/81; three until Story 8.15 CUT HEAT SEEKING (89e).
     expect(DOCTRINE_LINES.map((l) => l.id).sort()).toEqual(
-      ['dazzleShells', 'heatSeeking', 'phosphorShells'],
+      ['dazzleShells', 'phosphorShells'],
     );
   });
 

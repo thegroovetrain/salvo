@@ -4,7 +4,7 @@
 // sets reconnection.enabled + a maxRetries sized to span that window, and rides
 // a `pv` (PROTOCOL_VERSION) in the join options for the server's version gate.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_GUN, DEFAULT_HORN_ID, MSG, PROTOCOL_VERSION, REGATTA_HUES } from '@salvo/shared';
+import { DEFAULT_GUN, DEFAULT_HORN_ID, MSG, PROTOCOL_VERSION, REGATTA_HUES, type GunId } from '@salvo/shared';
 
 interface FakeRoom {
   reconnection: { enabled: boolean; maxRetries: number };
@@ -179,8 +179,9 @@ const SEAT = { room: { roomId: 'arena-1', processId: 'p1' }, sessionId: 'arena-s
  *  reservation, then fire the ARENA welcome it awaits. */
 async function connectAndWelcome(
   hooks: ConnectHooks = {},
+  gun?: GunId,
 ): Promise<Awaited<ReturnType<typeof connect>>> {
-  const pending = connect('tester', undefined, hooks);
+  const pending = connect('tester', undefined, hooks, false, gun);
   await vi.waitFor(() => {
     if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
   });
@@ -443,15 +444,19 @@ describe('connect', () => {
     expect(lastJoinOpts?.pv).toBe(PROTOCOL_VERSION);
   });
 
-  it("forwards the seat's gun as `gun` — DEFAULT_GUN until 8.15 ships the picker", async () => {
+  it("forwards the seat's gun as `gun` — DEFAULT_GUN when the caller names none", async () => {
     await connectAndWelcome();
     // Story 8.14 (epic-8 amendments 89d/95): the gun is the captain's PICK,
-    // frozen at queue and re-sanitized server-side exactly like `cls`. There is
-    // no picker and no stored preference yet, so EVERY join sends the default —
-    // and it is always SENT, never omitted, so the server's coercion path is
-    // never what decides a real captain's gun.
+    // frozen at queue and re-sanitized server-side exactly like `cls`. It is
+    // always SENT, never omitted, so the server's coercion path is never what
+    // decides a real captain's gun.
     expect(lastJoinOpts?.gun).toBe(DEFAULT_GUN);
     expect(lastJoinOpts?.gun).toBe('deckGun');
+  });
+
+  it('forwards the THREADED gun pick verbatim (Story 8.15: startGame, connect, joinOptions)', async () => {
+    await connectAndWelcome({}, 'machineGun');
+    expect(lastJoinOpts?.gun).toBe('machineGun');
   });
 
   it('forwards the persisted foghorn variant as `horn` (Story 4.5, amendment 52)', async () => {

@@ -52,6 +52,11 @@ export const OWN_FIRE_WINDOW_MS = 400;
  *  fire a torpedo now. */
 const BALLISTIC: readonly SlotItemId[] = [
   'gun', 'broadside', 'starShells', 'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo',
+  // STORY 8.15: the FLAK GUN fires one shell per click, exactly like the
+  // cannon. The MACHINE GUN is deliberately ABSENT: a click never fires it (the
+  // held level does — amendment 103), so a click latch for it would be a claim
+  // no round answers. Its shells are claimed through `claimStream` instead.
+  'flak',
 ];
 
 /** Pure: is this slot content one a `shell`/`torp` reveal could have come from? */
@@ -66,6 +71,9 @@ export function isBallisticFire(id: SlotItemId): boolean {
  */
 export class OwnFireLatch {
   private held: { id: SlotItemId; t: number } | null = null;
+  /** Server-clock instant the local captain was last sampled HOLDING the
+   *  machine gun's stream (Story 8.15); -Infinity = never / cleared. */
+  private streamT = -Infinity;
 
   /**
    * Latch which weapon this click fired. Only a click the client PREDICTS will
@@ -93,11 +101,30 @@ export class OwnFireLatch {
     return h.id as OwnFire;
   }
 
+  /**
+   * THE STREAM LATCH (Story 8.15, amendment 103). The machine gun fires one
+   * shell per `rateMs` while the button is held — many shells per press — so
+   * the ONE-SHOT click latch cannot describe it. Instead main.ts stamps every
+   * sampled input that carries `held: true` with the machine gun mounted, and
+   * every own-looking `w: 'mg'` reveal inside the same staleness window claims
+   * it WITHOUT consuming it: one hold is many rounds, and each is ours.
+   */
+  holdStream(t: number): void {
+    this.streamT = t;
+  }
+
+  /** The machine gun when a stream hold was sampled within the window at
+   *  server time `now`, else null. NON-consuming (see `holdStream`). */
+  claimStream(now: number): OwnFire {
+    return now - this.streamT <= OWN_FIRE_WINDOW_MS ? 'machineGun' : null;
+  }
+
   /** Drop any standing claim — the hard state boundaries (own sunk / spawn /
    *  the match-activation teleport), where a click from the previous life must
    *  not dress the next life's first reveal. */
   clear(): void {
     this.held = null;
+    this.streamT = -Infinity;
   }
 
   /** Is a claim still standing? (test/debug seam — the latch's own state is

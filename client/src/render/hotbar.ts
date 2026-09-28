@@ -44,6 +44,9 @@
 //               same centred numeral, NO overlay, icon at full alpha
 //   empty       1px DASHED slate .45 + a centred `—` glyph, and NO WORDS
 //   denied      1px→2px denied-red edge pulse + red icon flash — never silence
+//   held fire   (Story 8.15, UX-DR52) the MACHINE GUN's stream is live: an
+//               amber outline + an amber fill (.16, 1px amber top edge) along
+//               the gun square's floor at `n / maxAmmo`, draining as it fires
 //
 // Selection is the CLIENT's primed slot (gun whenever nothing is primed) — the
 // server keeps no priming state. Reload/cooling renders on EVERY slot
@@ -58,6 +61,8 @@ import { Container, Graphics, Text } from 'pixi.js';
 import {
   CONSUMABLE_SLOTS,
   SLOT_COUNT,
+  SLOT_GUN,
+  equipmentMaxAmmo,
   isConsumableId,
   type EquipmentId,
   type EffectiveStats,
@@ -197,6 +202,10 @@ export interface SlotViewModel {
   /** This frame's one-shot on this slot is DEGRADED by the aggregate flash budget
    *  (amendment 240): draw the flat mark, not the bloom. Absent = animate. */
   degraded?: boolean;
+  /** THE HELD-FIRE DRAIN (Story 8.15, UX-DR52): the magazine fraction left
+   *  (`n / maxAmmo`, in (0,1]) while the machine gun's stream is live on the
+   *  gun square, else null (absent = null). */
+  drain?: number | null;
 }
 
 /** The own-ship inputs the slot row reads (one-way: state → view, never back). */
@@ -243,6 +252,40 @@ export interface HotbarView {
   /** Server-clock SECONDS — the ACTIVE outline's breathing phase (the xp strip /
    *  HP globe idiom: one shared clock, integrated phase, never a frame counter). */
   nowSec?: number;
+  /** The own fire button is HELD this frame (Story 8.15 — the same level the
+   *  sampler sends as `InputMsg.held`). With the machine gun mounted and shells
+   *  in the magazine it lights the held-fire drain. Absent = not held. */
+  held?: boolean;
+}
+
+/**
+ * Pure: the held-fire drain fraction for a slot (Story 8.15, UX-DR52 — "drawn
+ * only while a stream kind is primed and draining — never from the pointer
+ * level alone"): `n / maxAmmo` on the GUN square while it holds the MACHINE
+ * GUN, the own button is held and the magazine still has a shell; null in every
+ * other case (an empty magazine has nothing left to stream — the cooling wipe
+ * takes the square instead).
+ */
+export function heldDrainFrac(view: HotbarView, slot: number): number | null {
+  if (slot !== SLOT_GUN || view.held !== true || view.loadout[slot] !== 'machineGun') return null;
+  const ammo = view.ammo[slot] ?? null;
+  const max = equipmentMaxAmmo(view.stats, 'machineGun');
+  if (ammo === null || ammo.n <= 0 || max <= 0) return null;
+  return Math.min(1, ammo.n / max);
+}
+
+/** The drain fill's alpha (DESIGN.md hotbar-slot `heldFire`: amber at .16). */
+export const HELD_DRAIN_ALPHA = 0.16;
+
+/**
+ * Pure: the drain FILL's rect inside a square — anchored on the square's floor,
+ * `frac` of its height tall, full width. Its top edge is where the 1px amber
+ * line is drawn, so the magazine visibly drains DOWN toward the floor.
+ */
+export function drainRect(square: Rect, frac: number): Rect {
+  const f = Math.min(1, Math.max(0, frac));
+  const h = square.h * f;
+  return { x: square.x, y: square.y + square.h - h, w: square.w, h };
 }
 
 /** Pure: every square's view model, in slot order (Gun – Shift – Q – E – R – 1-4). */
@@ -341,6 +384,7 @@ function slotViewModel(view: HotbarView, slot: number): SlotViewModel {
   const common = {
     slot, id, selected, keyGlyph, activeMsLeft: activeLeft, fitFlash, boonCount,
     degraded: slotDegraded(view, slot, flags.denied),
+    drain: heldDrainFrac(view, slot),
   };
   return {
     ...common,
@@ -1057,6 +1101,7 @@ export class Hotbar {
     const cooling = m.state === 'cooling';
     if (cooling) drawWipeScrim(this.gfx, square);
     this.drawBox(m, square, skin);
+    this.drawDrain(m, square);
     this.drawIcon(m, square, skin);
     if (cooling) drawWipeDark(this.gfx, square, m.coolFrac);
     this.drawTier(m, square);
@@ -1090,6 +1135,22 @@ export class Hotbar {
     g.stroke({ width: skin.borderWidth, color: skin.border, alpha: skin.borderAlpha });
     this.drawGlow(pts, square, skin);
     if (m.fitFlash) this.drawFitPulse(pts, square);
+  }
+
+  /**
+   * THE HELD-FIRE DRAIN (Story 8.15, UX-DR52): while the machine gun streams,
+   * the gun square takes an AMBER outline and an amber fill along its floor at
+   * the magazine fraction left, with a 1px amber top edge — under the icon, so
+   * the glyph still reads over it.
+   */
+  private drawDrain(m: SlotViewModel, square: Rect): void {
+    const frac = m.drain ?? null;
+    if (frac === null) return;
+    const r = drainRect(square, frac);
+    const g = this.gfx;
+    g.rect(r.x, r.y, r.w, r.h).fill({ color: C.amber, alpha: HELD_DRAIN_ALPHA });
+    g.moveTo(r.x, r.y).lineTo(r.x + r.w, r.y).stroke({ width: 1, color: C.amber, alpha: 1 });
+    g.rect(square.x, square.y, square.w, square.h).stroke({ width: 1.5, color: C.amber, alpha: 1 });
   }
 
   /** THE FIT FLASH (amendment 51): one ≤80ms phosphor ring outside the square

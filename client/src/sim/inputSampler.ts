@@ -21,6 +21,10 @@ export interface Aiming {
   fireT: number; // ms — server-clock estimate at the last click (mouse.lastClickT); 0 = no claim
   actSeq: number; // cumulative ability-activation counter (keyboard.actSeq); 0 = never
   actSlot: number; // loadout slot of the latest ability activation (0 sentinel)
+  /** THE HELD-FIRE LEVEL (Story 8.15): the live canvas hold OR a press latched
+   *  since the last sample (`MouseInput.consumeHeld`). Drives the machine gun's
+   *  stream server-side; every other weapon ignores it. */
+  held: boolean;
 }
 
 /**
@@ -118,13 +122,23 @@ export function buildInput(seq: number, axes: Axes, aiming: Aiming, hornSeq = 0)
     actSeq: aiming.actSeq,
     actSlot: aiming.actSlot,
     hornSeq,
+    held: aiming.held,
   };
 }
 
 /** Sends one input per sim tick over the given transport with monotonic seq. */
 export class InputSampler {
   private seq = 0;
-  private lastAiming: Aiming = { aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0 };
+  private lastAiming: Aiming = {
+    aim: 0,
+    fireSeq: 0,
+    aimDist: 0,
+    slot: SLOT_GUN,
+    fireT: 0,
+    actSeq: 0,
+    actSlot: 0,
+    held: false,
+  };
   /**
    * Cumulative FOGHORN counter (InputMsg.hornSeq); 0 = never honked, the
    * sentinel every non-honking driver keeps sending.
@@ -196,7 +210,8 @@ export class InputSampler {
    * monotonic, and `actSlot` only adopts the live slot when the live counter
    * is genuinely newer. Keeps the last aim bearing / aim distance / primed
    * slot and a monotonic seq shared with sample(), so it slots into local
-   * prediction exactly like a regular tick.
+   * prediction exactly like a regular tick. `held` is always false here (Story
+   * 8.15): the stream stops the moment the tab hides or the window blurs.
    */
   sendNeutralNow(
     throttle: number,
@@ -211,7 +226,9 @@ export class InputSampler {
     const live = (currentActSeq ?? 0) > this.lastAiming.actSeq; // a gap-press since the last sample
     const actSeq = live ? (currentActSeq ?? 0) : this.lastAiming.actSeq;
     const actSlot = live ? (currentActSlot ?? this.lastAiming.actSlot) : this.lastAiming.actSlot;
-    this.lastAiming = { ...this.lastAiming, fireSeq, fireT, actSeq, actSlot };
+    // `held` IS FORCED FALSE (Story 8.15): a hidden or blurred tab must never
+    // leave the machine gun streaming on the server's latest-input model.
+    this.lastAiming = { ...this.lastAiming, fireSeq, fireT, actSeq, actSlot, held: false };
     // The honk counter needs no gap-handling parameter: it lives on the sampler
     // itself, so a press landing in the <=1-tick gap before the tab hid is
     // already reflected here and sounds NOW rather than on refocus (the fireSeq

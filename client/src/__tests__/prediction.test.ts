@@ -40,7 +40,7 @@ const TB_POLY = hullSilhouette('torpedoBoat');
 // sentinel here is what would make a future honk that DID move a hull fail
 // loudly instead of quietly desyncing prediction.
 function input(seq: number, throttle = 1, rudder = 0, actSeq = 0): InputMsg {
-  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq, actSlot: actSeq > 0 ? 2 : 0, hornSeq: 0 };
+  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq, actSlot: actSeq > 0 ? 2 : 0, hornSeq: 0, held: false };
 }
 
 function kin(s: ShipState) {

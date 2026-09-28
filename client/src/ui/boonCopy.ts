@@ -80,8 +80,13 @@ import {
  * call sites (the hotbar's accrued rows and the fit toast) pass a rung they
  * genuinely know, and a future ladder could use it again.
  *
- * TOTAL over LINE_IDS — pinned by __tests__/boonCopy.test.ts, so a 30th line
+ * TOTAL over LINE_IDS — pinned by __tests__/boonCopy.test.ts, so a new line
  * cannot ship nameless.
+ *
+ * STORY 8.15 (Eric rulings 2026-09-28): the DECK GUN ladder reads `CANNON`
+ * (amendment 108 — the plain gun's player-facing name; TURRET and BARREL keep
+ * theirs), `machineGun`/`flak` are their guns' LADDERS named `MACHINE GUN` and
+ * `FLAK`, and MISSILE, MONITOR and HEAT SEEKING are CUT (amendment 89e).
  */
 const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // --- the five universal ladders ------------------------------------------
@@ -91,7 +96,7 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   radarSweep: 'RADAR SWEEP',
   reload: 'RELOAD',
   // --- the deck-gun family --------------------------------------------------
-  deckGun: 'DECK GUN',
+  deckGun: 'CANNON',
   deckGunTurret: 'DECK GUN TURRET',
   deckGunBarrel: 'DECK GUN BARREL',
   // --- the eleven equipment lines -------------------------------------------
@@ -103,10 +108,10 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   navalMines: 'NAVAL MINES',
   captiveMines: 'CAPTIVE MINES',
   foulingMines: 'FOULING MINES',
-  missile: 'HORIZONTAL MISSILE',
+  // THE TWO PICKABLE GUNS' LADDERS (Story 8.15, amendments 104/105) — kept in
+  // their locked catalog slots, named for the gun they climb.
   machineGun: 'MACHINE GUN',
-  flak: 'FLAK GUN',
-  monitor: 'MONITOR GUN',
+  flak: 'FLAK',
   broadside: 'BROADSIDE GUN',
   starShells: 'STAR SHELLS',
   // --- the seven consumables ------------------------------------------------
@@ -126,11 +131,11 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // no mechanism yet, and a stub is never dealt out of the common pool (Story
   // 8.14 retired the per-hull decks it used to pad). The NAME is his, verbatim.
   depthCharge: 'DEPTH CHARGE',
-  // --- the three add-ons ----------------------------------------------------
+  // --- the two add-ons ------------------------------------------------------
   // ACOUSTIC HOMING and the FOULING MINES add-on were DELETED on 2026-09-19
   // (amendments 80/81): homing became a tier stat on the torpedo lines and
   // fouling became its own equipment line, so neither card exists to name.
-  heatSeeking: 'HEAT SEEKING',
+  // HEAT SEEKING was CUT with the missile in Story 8.15 (amendment 89e).
   dazzleShells: 'DAZZLE SHELLS',
   phosphorShells: 'PHOSPHOR SHELLS',
 };
@@ -291,6 +296,33 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   deckGun: { label: 'Gun damage', path: 'equipment.gun.damage' },
   deckGunTurret: { label: 'Gun rounds ready', path: 'equipment.gun.maxAmmo' }, // <- gunTurret
   deckGunBarrel: { label: 'Shells per shot', path: 'equipment.gun.barrels' }, // <- gunBarrel
+  // THE TWO PICKABLE GUNS' LADDERS (Story 8.15). Their headline is their own
+  // RELOAD, the equipment lines' grammar: a tier card prints the reload step
+  // FIRST and then every authored step (amendments 85/87(b) — see
+  // `GUN_LADDER_RELOAD`), which is the rule the torpedo/mine tier cards follow.
+  machineGun: { label: 'Reload', path: 'equipment.machineGun.reloadMs', fmt: secs },
+  flak: { label: 'Reload', path: 'equipment.flak.reloadMs', fmt: secs },
+};
+
+/**
+ * THE GUN LADDERS WHOSE TIER CARD PRINTS ITS RELOAD STEP (Story 8.15). The
+ * machine gun's and the flak gun's ladders are LADDER lines (their gun is the
+ * seat's pick, never a card), but each tier ALSO cuts that gun's reload by 5 %
+ * — derived from the tier in clampStats, never authored — exactly as a
+ * torpedo's tier does. Amendment 85 prints that step on a tier card, so these
+ * two print it too, first, then their authored steps. The DECK GUN (CANNON)
+ * ladder is NOT here: amendment 71 ruled its face ONE row (damage), and that
+ * stands.
+ */
+const GUN_LADDER_RELOAD: ReadonlySet<string> = new Set(['machineGun', 'flak']);
+
+/**
+ * PATH-SPECIFIC row words, checked before the generic field word. One entry:
+ * the machine gun's pool is a MAGAZINE of shells (amendment 103), so its row
+ * says `SHELLS` where every other pool says `ROUNDS`.
+ */
+const PATH_WORDS: Readonly<Record<string, string>> = {
+  'equipment.machineGun.maxAmmo': 'SHELLS',
 };
 
 /**
@@ -312,11 +344,9 @@ const STAT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
  * under a `◆ NAME`. A verb moves no number, so `boonEffectLine` has nothing to
  * read off `EffectiveStats`; this table is what those two surfaces show instead.
  *
- * TWO OF THE THREE remaining add-ons map straight onto a shipped v2 doctrine
- * and carry its line verbatim. HEAT SEEKING has no entry: the missile it bolts
- * onto is Story 8.14, and writing copy for a weapon nobody has played is
- * exactly what the naming law forbids. It fails open to '' like every other
- * unwritten id.
+ * BOTH remaining add-ons map straight onto a shipped v2 doctrine and carry
+ * its line verbatim. (HEAT SEEKING, the third, was CUT with the missile in
+ * Story 8.15 — amendment 89e.)
  *
  * TWO ENTRIES LEFT IN STORY 8.13 with the cards they described (epic-8
  * amendments 80/81): ACOUSTIC HOMING is deleted — homing is a TIER stat on the
@@ -340,7 +370,7 @@ const DOCTRINE_HOLDING: Readonly<Partial<Record<LineId, string>>> = {
  * whose weapons exist keep their acquisition card's explanation MINUS its
  * "their upgrade cards join your deck" sentence, which the subdeck walk's
  * deletion made untrue. The lines with no entry are the ones with nothing
- * honest to say yet: the thirteen STUB lines (their mechanisms are Stories
+ * honest to say yet: the STUB lines (their mechanisms are Stories
  * 8.13–8.16), TURNING and the DECK GUN ladder (new in v3 — no v2 line to carry
  * from). `boonTooltipText` fails open to '' for all of them, so a card with no
  * explanation simply shows no hover panel.
@@ -364,6 +394,14 @@ const BOON_EXPLAIN: Readonly<Partial<Record<LineId, string>>> = {
     'Keeps a second gun round ready, so you can fire twice back to back instead of waiting out the whole reload between shots. The reload is unchanged — you simply have somewhere to keep the spare.',
   deckGunBarrel:
     'Your gun throws extra shells on parallel tracks either side of the one you aimed, each bursting at its own point. An odd number puts one shell exactly on your click; an even number straddles it.',
+  // --- the pickable guns' ladders (Story 8.15) -------------------------------
+  // draft copy, ledgered for Eric — the two hover descriptions the spec allows
+  // (amendments 104/105), in the TURRET/BARREL register. No numbers in the
+  // prose: the face prints them as rows, live from the fold.
+  machineGun:
+    'Deepens your machine gun\'s magazine and hardens every shell in it: each copy adds shells to the magazine and damage to each shell, and cuts the magazine\'s reload by 5%.',
+  flak:
+    'Packs a heavier charge into your flak shell: each copy adds damage to every hull caught in the burst and cuts the reload by 5%. The blast itself never grows.',
   // --- the equipment lines whose weapons exist today -------------------------
   heavyTorpedo:
     'Torpedoes run just under the surface and hit hard, but they run straight — you lead the target yourself. The first copy fits the tubes to your open slot, loaded, if you are not already carrying them; every copy after that is another tier, and each tier cuts their reload by 5%.',
@@ -483,14 +521,15 @@ export function boonEffectLine(id: string, stats: EffectiveStats): string {
 // which is the one thing the rungs cannot say.
 
 /**
- * THE FOUR BASE-TIER LINES (UX-DR51). A hull sails with armor, speed, turning
- * and a deck gun already fitted, so its FIRST card of one of those ladders is
+ * THE BASE-TIER LINES (UX-DR51). A hull sails with armor, speed, turning and
+ * its mounted gun already fitted — the cannon, or since Story 8.15 the machine
+ * gun or the flak gun, whose ladders are likewise `1 + copies` — so its FIRST card of one of those ladders is
  * the step from what it has to the next rung — `I → II` — rather than the
  * acquisition of a Tier I it already owns. Every other ladder, and every weapon
  * line, starts from nothing: its first copy IS Tier I and reads as the bare
  * numeral, with the `cur → next` step appearing only from the second copy on.
  */
-const BASE_TIER_LINES: ReadonlySet<string> = new Set(['armor', 'speed', 'turning', 'deckGun']);
+const BASE_TIER_LINES: ReadonlySet<string> = new Set(['armor', 'speed', 'turning', 'deckGun', 'machineGun', 'flak']);
 
 /** The step a card buys, as NUMBERS — so the DOM can tint each numeral on the
  *  absolute ladder ramp without re-parsing "III → IV" back apart. `next` is
@@ -708,6 +747,7 @@ function fieldFmt(field: string): (v: number) => string {
 /** Pure: a stat PATH's row label — a ladder path takes the word its `STAT_LINES`
  *  entry already uses, an equipment path takes its field word. */
 function statPathLabel(path: string): string {
+  if (Object.hasOwn(PATH_WORDS, path)) return PATH_WORDS[path];
   if (Object.hasOwn(STAT_LABELS, path)) return STAT_LABELS[path];
   return fieldWord(path.split('.').pop() ?? path);
 }
@@ -978,6 +1018,20 @@ export function cardStatRows(
   const after = effectiveStats(spec, [...you.cards, line.id]);
   const rows = line.kind === 'equipment'
     ? weaponRows(line, copiesHeld, before, after)
-    : ladderRows(line, copiesHeld, before, after);
+    : gunLadderOrLadderRows(line, copiesHeld, before, after);
   return rows.slice(0, CARD_STAT_ROWS);
+}
+
+/** Pure: a LADDER's rows — for the two pickable guns' ladders the tier card's
+ *  grammar (reload step first, then every authored step that moves a printed
+ *  value — amendments 85/87(b)); for every other ladder `ladderRows` as ever. */
+function gunLadderOrLadderRows(
+  line: CatalogLine,
+  copiesHeld: number,
+  before: EffectiveStats,
+  after: EffectiveStats,
+): CardStatRow[] {
+  const stat = STAT_LINES[line.id];
+  if (!GUN_LADDER_RELOAD.has(line.id) || stat === undefined) return ladderRows(line, copiesHeld, before, after);
+  return [diffRow(stat.path, before, after), ...ladderRows(line, copiesHeld, before, after, true)];
 }

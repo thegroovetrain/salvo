@@ -121,9 +121,11 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     // Catalog v3: 29 lines. SIXTEEN were live at 8.7 (13 stubs, amendment 41);
     // Story 8.8 flipped `hullRepair`'s stub (seventeen); Story 8.13 flipped
     // LIGHT TORPEDO, CAPTIVE MINES and the SUPERCAV TORPEDO and added the stub
-    // DEPTH CHARGE — NINETEEN live against ten stubs.
-    expect(LINES).toHaveLength(29);
-    expect(LIVE).toHaveLength(19);
+    // DEPTH CHARGE — NINETEEN live against ten stubs. Story 8.15 CUT missile,
+    // monitor and heat seeking and built the machine gun's and flak gun's
+    // ladders — 26 lines, TWENTY-ONE live against five stubs.
+    expect(LINES).toHaveLength(26);
+    expect(LIVE).toHaveLength(21);
     expect(LIVE.some((l) => l.id === 'hullRepair')).toBe(true);
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });
@@ -412,9 +414,10 @@ describe('the laws that constrain the fix', () => {
     // with the card (epic-8 amendment 81 — the naval mine no longer fouls, so
     // the shipped sentence would have been a lie on two counts).
     'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'foulingMines',
-    'missile', 'machineGun', 'flak', 'monitor',
+    // Story 8.15: `machineGun`/`flak` left (their ladders carry the two DRAFT
+    // hover descriptions, ledgered for Eric); missile/monitor/heat seeking CUT.
     // `hullRepair` left this list in Story 8.8 — its mechanism is built now.
-    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge', 'heatSeeking',
+    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge',
   ];
 
   it('keeps the contract: what left the face is on the hover tooltip, for every built line', () => {

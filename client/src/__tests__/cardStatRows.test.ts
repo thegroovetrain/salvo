@@ -406,9 +406,9 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
   it('gives an ADD-ON no rows: a verb moves no number', () => {
     // ACOUSTIC HOMING and the FOULING MINES add-on were DELETED in Story 8.13
     // (epic-8 amendments 80/81) — both of those ids now print real rows or none
-    // at all for entirely different reasons, so the claim is made on the three
+    // at all for entirely different reasons, and HEAT SEEKING was CUT with the
+    // missile in Story 8.15 (amendment 89e), so the claim is made on the two
     // add-ons that survive.
-    expect(cardStatRows(CATALOG.heatSeeking, 0, TB)).toEqual([]);
     expect(cardStatRows(CATALOG.dazzleShells, 0, TB)).toEqual([]);
     expect(cardStatRows(CATALOG.phosphorShells, 0, TB)).toEqual([]);
   });
@@ -498,5 +498,42 @@ describe('cardTierLabel pairs with the rows — UX-DR51\'s four examples', () =>
     expect(cardTierLabel(CATALOG.radarSweep, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 1)).toBe('I → II');
     expect(cardTierLabel(CATALOG.hullRepair, 0)).toBeNull();
+  });
+});
+
+// --- THE TWO PICKABLE GUNS' LADDERS (Story 8.15, amendments 104/105) -----------
+//
+// A LADDER line each (the gun is the seat's pick, never a card), but each tier
+// ALSO cuts that gun's reload by 5 % — so the tier card prints the reload step
+// FIRST, then every authored step (amendments 85/87(b)): MACHINE GUN +2 shells
+// and +1 damage per shell, FLAK +2 damage (blast fixed). The machine gun's pool
+// is a MAGAZINE, so its row says SHELLS where every other pool says ROUNDS.
+describe('cardStatRows — the machine gun and flak ladders (Story 8.15)', () => {
+  function face(id: 'machineGun' | 'flak', copiesHeld: number): string[] {
+    return cardStatRows(CATALOG[id], copiesHeld, held(id, copiesHeld)).map((r) => `${r.label} ${r.cur ?? ''}>${r.next}`);
+  }
+
+  it('MACHINE GUN tier II: RELOAD 15.0 s to 14.3 s, SHELLS 16 to 18, DAMAGE 4 to 5', () => {
+    expect(face('machineGun', 0)).toEqual(['RELOAD 15.0 s>14.3 s', 'SHELLS 16>18', 'DAMAGE 4>5']);
+  });
+
+  it('MACHINE GUN tops out at 24 shells / 8 damage / 12.0 s at tier V', () => {
+    expect(face('machineGun', 3)).toEqual(['RELOAD 12.8 s>12.0 s', 'SHELLS 22>24', 'DAMAGE 7>8']);
+  });
+
+  it('FLAK tier II: RELOAD 6.0 s to 5.7 s, DAMAGE 12 to 14 — and the blast never moves', () => {
+    expect(face('flak', 0)).toEqual(['RELOAD 6.0 s>5.7 s', 'DAMAGE 12>14']);
+    expect(face('flak', 3)).toEqual(['RELOAD 5.1 s>4.8 s', 'DAMAGE 18>20']);
+    expect(face('flak', 3).some((r) => r.startsWith('BURST'))).toBe(false);
+  });
+
+  it('every rung of both ladders fits the five-row grid', () => {
+    for (const id of ['machineGun', 'flak'] as const) {
+      for (let k = 0; k < CATALOG[id].cap; k += 1) {
+        const rows = cardStatRows(CATALOG[id], k, held(id, k));
+        expect(rows.length, `${id}@${k}`).toBeGreaterThan(0);
+        expect(rows.length, `${id}@${k}`).toBeLessThanOrEqual(CARD_STAT_ROWS);
+      }
+    }
   });
 });
