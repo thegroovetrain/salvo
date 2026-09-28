@@ -30,7 +30,7 @@ import { flatRaster } from './islandFixture.js';
 const WORLD_SRC = readFileSync(fileURLToPath(new URL('../game/world.ts', import.meta.url)), 'utf8');
 
 /** Every DamageSource the union declares — the AR47 list, in AR47's order. */
-const SOURCES = ['shell', 'burst', 'torpedo', 'missile', 'mine', 'burn', 'storm', 'contact'] as const;
+const SOURCES = ['shell', 'burst', 'torpedo', 'mine', 'burn', 'storm', 'contact'] as const; // 'missile' DELETED (Story 8.15, amendment 89e)
 type Src = (typeof SOURCES)[number];
 
 /** The gate, reached directly. It is private by design (the only callers are
@@ -216,6 +216,120 @@ describe('applyDamage — (c) the shield (Story 8.15 arms it; the gate READS it)
 });
 
 // ---------------------------------------------------------------------------
+// (b′) THE DAMAGE CUT — Story 8.15, the Battleship's Shift (amendments 99–102)
+// ---------------------------------------------------------------------------
+
+describe('applyDamage — (b′) the DAMAGE CUT, before the shield (Story 8.15)', () => {
+  /** A Battleship with its cut open for the full window. */
+  function cutShip(w: World, id = 'a'): ShipRecord {
+    const rec = w.addShip(id, id.toUpperCase(), 'captain', 'battleship', undefined, undefined);
+    rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    rec.damageCutUntil = w.now + CONFIG.damageCut.durationMs;
+    return rec;
+  }
+
+  it('a 15 hp shell deals 7, a 55 hp mine 27 (halved, ROUNDED DOWN — amendment 102), and the tally reads the post-cut amount', () => {
+    const w = bareWorld();
+    const a = cutShip(w);
+    const b = place(w, 'b', 400, 0);
+    gate(w).applyDamage(a, 15, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 7);
+    gate(w).applyDamage(a, 55, 'mine', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 7 - 27);
+    expect(dmgEvents(w).map((e) => e.amount)).toEqual([7, 27]); // the report is what landed
+    expect(b.damageDealt).toBe(34); // the attacker's tally is what landed, never the nominal blow
+    expect(a.lastDamagedAt).toBe(w.now); // the combat clock still stamps
+  });
+
+  it('a PHOSPHOR burn tick halves EXACTLY (0.25 -> 0.125), never floored to nothing', () => {
+    const w = bareWorld();
+    const a = cutShip(w);
+    place(w, 'b', 400, 0);
+    gate(w).applyDamage(a, 0.25, 'burn', 'b');
+    expect(a.hp).toBeCloseTo(a.stats.maxHp - 0.125, 12);
+  });
+
+  it('a STORM bite lands in FULL while the cut is up (amendment 101)', () => {
+    const w = bareWorld();
+    const a = cutShip(w);
+    gate(w).applyDamage(a, 10, 'storm', undefined);
+    expect(a.hp).toBe(a.stats.maxHp - 10);
+  });
+
+  it('every WEAPON source is cut: shell, burst, torpedo, mine, contact floor; burn halves exactly', () => {
+    for (const src of SOURCES) {
+      if (src === 'storm' || src === 'burn') continue;
+      const w = bareWorld();
+      const a = cutShip(w);
+      place(w, 'b', 400, 0);
+      gate(w).applyDamage(a, 25, src, 'b');
+      expect(a.hp, src).toBe(a.stats.maxHp - 12); // 25 × 0.5 = 12.5 -> 12
+    }
+    const w = bareWorld();
+    const a = cutShip(w);
+    place(w, 'b', 400, 0);
+    gate(w).applyDamage(a, 25, 'burn', 'b');
+    expect(a.hp).toBeCloseTo(a.stats.maxHp - 12.5, 12); // a burn tick keeps its half
+  });
+
+  it('THE CUT COMES BEFORE THE SHIELD (amendment 100): shield 100, a 30 hp torpedo -> 15 reaches the shield, 85 left, 0 dealt', () => {
+    const w = bareWorld();
+    const a = cutShip(w);
+    place(w, 'b', 400, 0);
+    a.shield = { hpLeft: 100, until: w.now + 5000 }; // a stubbed block (8.16 arms the real one)
+    gate(w).applyDamage(a, 30, 'torpedo', 'b');
+    expect(a.shield).toEqual({ hpLeft: 85, until: w.now + 5000 });
+    expect(a.hp).toBe(a.stats.maxHp);
+    expect(dmgEvents(w).map((e) => e.amount)).toEqual([0]);
+  });
+
+  it('after the window closes the blow lands in full again — the boundary is `now < damageCutUntil`', () => {
+    const w = bareWorld();
+    const a = cutShip(w);
+    place(w, 'b', 400, 0);
+    a.damageCutUntil = w.now; // exactly at the deadline: closed
+    gate(w).applyDamage(a, 15, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 15);
+  });
+
+  it('a hull with no cut opened (damageCutUntil 0) takes full damage', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    place(w, 'b', 400, 0);
+    expect(a.damageCutUntil).toBe(0);
+    gate(w).applyDamage(a, 15, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 15);
+  });
+
+  it('DIES AT EVERY LIFE BOUNDARY beside boostUntil: founder, redeployShip and respawn zero it', () => {
+    const inner = (w: World): {
+      redeployShip(ship: ShipRecord, placed: { x: number; y: number }[], hold?: boolean): void;
+      respawn(ship: ShipRecord): void;
+    } => w as never;
+
+    const sunk = bareWorld();
+    sunk.respawnEnabled = false;
+    const s = cutShip(sunk);
+    sunk.sinkShip('a', 'b');
+    sunk.step(CONFIG.ship.sinkingWindowMs); // the founder edge
+    expect(s.lifecycle.kind).toBe('sunk');
+    expect(s.damageCutUntil).toBe(0);
+
+    const red = bareWorld();
+    const r = cutShip(red);
+    inner(red).redeployShip(r, [{ x: 0, y: 0 }]);
+    expect(r.damageCutUntil).toBe(0);
+
+    const res = bareWorld();
+    const p = cutShip(res);
+    res.sinkShip('a', 'b');
+    p.damageCutUntil = res.now + 8000; // opened mid-death window
+    inner(res).respawn(p);
+    expect(p.damageCutUntil).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // (d)-(g) the rest of the fixed order
 // ---------------------------------------------------------------------------
 
@@ -261,7 +375,7 @@ describe('applyDamage — (d)-(g) hp, ledger, sink and the per-source report', (
   });
 
   it('every other source emits the immediate victim-private dmg, then sinks', () => {
-    for (const src of ['shell', 'burst', 'torpedo', 'missile', 'mine', 'contact'] as const) {
+    for (const src of ['shell', 'burst', 'torpedo', 'mine', 'contact'] as const) {
       const w = bareWorld();
       const a = place(w, 'a');
       place(w, 'b', 400, 0);

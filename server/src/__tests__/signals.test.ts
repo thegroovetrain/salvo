@@ -6,7 +6,7 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, SHELL_FAMILIES, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
@@ -82,6 +82,7 @@ function makeShell(overrides: Partial<ShellState> = {}): ShellState {
     distLeft: 100,
     bornAt: 0,
     kind: 'shell',
+    family: overrides.kind === 'torp' ? null : 'cannon',
     damage: 10,
     hitRadius: 5,
     targetX: null,
@@ -187,14 +188,33 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(wire).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   });
 
-  it('shell row: [k,id,x,y,vx,vy,t]', () => {
+  it('shell row: [k,id,x,y,vx,vy,t,w] — the family LAST (Story 8.15), from the three-word set', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const shell = makeShell({ id: 's1', ownerId: 'a', kind: 'shell' }); // owner always sees it
     const row = signalFor('shell')!;
     const ctx = foggedCtx(w, a);
-    expect(row.visible(ctx, shell)).toBe(true);
-    const wire = row.materialize(ctx, shell);
+    for (const family of SHELL_FAMILIES) {
+      const shell = makeShell({ id: 's1', ownerId: 'a', kind: 'shell', family }); // owner always sees it
+      expect(row.visible(ctx, shell)).toBe(true);
+      const wire = row.materialize(ctx, shell);
+      expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't', 'w']);
+      expect((wire as BallisticEvent).w).toBe(family);
+    }
+  });
+
+  it('shell row with NO family (a directed record) carries no `w` key at all — never an undefined value', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const shell = makeShell({ id: 's1', ownerId: 'a', kind: 'shell', family: null });
+    const wire = signalFor('shell')!.materialize(foggedCtx(w, a), shell);
+    expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't']);
+  });
+
+  it('torp row NEVER carries `w`, even on a record that (illegally) names a family', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const torp = makeShell({ id: 't1', ownerId: 'a', kind: 'torp', family: 'cannon' });
+    const wire = signalFor('torp')!.materialize(foggedCtx(w, a), torp);
     expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't']);
   });
 

@@ -338,6 +338,7 @@ export class BotController {
       fireT: 0, // no-claim sentinel: a server-driven shooter never back-dates
       actSeq: mind.actSeq,
       actSlot: d.actSlot ?? 0,
+      held: false, // Story 8.15: the held level — wave 4 (8.19) drives it from BotDecision
       hornSeq: 0, // bots never honk (question-gate B5)
     };
     this.port.submitInput(id, msg);

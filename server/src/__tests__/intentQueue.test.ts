@@ -51,7 +51,7 @@ function place(
 function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
   return {
     seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
-    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
+    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
     ...extra,
   };
 }
@@ -186,7 +186,7 @@ describe('activationControl — two ability presses landing in ONE tick both eva
     place(w, 'a', 0, 0, 0, 'mineLayer'); // slot 1 = mine, slot 2 = radarBuoy; heading 0 ⇒ astern π
     w.step();
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 40 }));
-    w.submitInput('a', input(2, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0 }));
+    w.submitInput('a', input(2, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
     w.step(); // ONE tick — pre-2.1 the earlier intent was swallowed by latest-wins
     expect(w.mines.size).toBe(1); // the CLICK landed
     // …and the PRESS was evaluated on the same tick: slot 2 is a weapon now,
@@ -199,8 +199,8 @@ describe('activationControl — two ability presses landing in ONE tick both eva
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0); // TB: slot 1 = boost (1 charge) — Story 8.5 fixed roles
     w.step();
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0 }));
-    w.submitInput('a', input(2, { actSeq: 2, actSlot: SLOT_BOOST, hornSeq: 0 }));
+    w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
+    w.submitInput('a', input(2, { actSeq: 2, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
     w.step();
     expect(a.boostUntil).toBeGreaterThan(0); // press 1 activated
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
@@ -218,7 +218,7 @@ describe('intent-queue lifecycle discipline', () => {
     // aimDist far enough that the shell is still IN FLIGHT over the extra ticks
     // below (at 500 u/s it covers 25u per tick from the ~60u bow spawn) — this
     // pin distinguishes "no phantom re-fire" from a legitimate burst removal.
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aimDist: 400, actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0 }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aimDist: 400, actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
     w.step();
     expect(w.shells.size).toBe(1);
     expect(a.boostUntil).toBeGreaterThan(0);
@@ -280,7 +280,7 @@ describe('a burst of accepted inputs inside ONE tick: every press is evaluated',
     w.step();
     // Six valid inputs land between ticks (strictly increasing seq, actSeq
     // advancing on each) — well inside the 40/s rate cap, so ALL are accepted.
-    for (let i = 1; i <= 6; i++) w.submitInput('a', input(i, { actSeq: i, actSlot: SLOT_BOOST, hornSeq: 0 }));
+    for (let i = 1; i <= 6; i++) w.submitInput('a', input(i, { actSeq: i, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
     w.step(); // ONE tick drains them all
     expect(a.boostUntil).toBeGreaterThan(0); // press 1 activated
     const denied = buildFrame(w, 'a').denied ?? [];

@@ -23,6 +23,7 @@ const valid = (seq = 1) => ({
   actSeq: 5,
   actSlot: 2,
   hornSeq: 7,
+  held: true,
 });
 
 describe('sanitizeInput — validation table', () => {
@@ -95,6 +96,14 @@ describe('sanitizeInput — validation table', () => {
     ['fractional hornSeq', { ...valid(), hornSeq: 1.5 }],
     ['string hornSeq', { ...valid(), hornSeq: '7' }],
     ['boolean hornSeq', { ...valid(), hornSeq: true }],
+    // Story 8.15 (amendment 103): the HELD-FIRE LEVEL is a REQUIRED boolean —
+    // anything else drops the whole message; it is never coerced.
+    ['missing held', { ...valid(), held: undefined }],
+    ['null held', { ...valid(), held: null }],
+    ['numeric held (1)', { ...valid(), held: 1 }],
+    ['numeric held (0)', { ...valid(), held: 0 }],
+    ['string held', { ...valid(), held: 'true' }],
+    ['object held', { ...valid(), held: {} }],
   ];
   it.each(rejects)('drops %s', (_label, raw) => {
     expect(sanitizeInput(raw, 0)).toBeNull();
@@ -149,8 +158,14 @@ describe('sanitizeInput — validation table', () => {
     }
   });
 
+  it('accepts BOTH held levels verbatim, and the neutral input is released (Story 8.15)', () => {
+    expect(sanitizeInput({ ...valid(), held: true }, 0)?.held).toBe(true);
+    expect(sanitizeInput({ ...valid(), held: false }, 0)?.held).toBe(false);
+    expect(neutralInput().held).toBe(false);
+  });
+
   it('accepts the hornSeq sentinel (0) and positive counters verbatim (Story 4.5)', () => {
-    expect(sanitizeInput({ ...valid(), hornSeq: 0 }, 0)?.hornSeq).toBe(0);
+    expect(sanitizeInput({ ...valid(), hornSeq: 0, held: false }, 0)?.hornSeq).toBe(0);
     expect(sanitizeInput({ ...valid(), hornSeq: 42 }, 0)?.hornSeq).toBe(42);
   });
 
@@ -295,7 +310,7 @@ describe('InputStore', () => {
   it('neutralInput is a fresh zeroed input (fireT 0 = the no-claim sentinel)', () => {
     const a = neutralInput();
     expect(a).toEqual({
-      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
+      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
     });
     expect(neutralInput()).not.toBe(a);
   });

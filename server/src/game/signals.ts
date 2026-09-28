@@ -1357,7 +1357,15 @@ function ballisticSignal(kind: 'shell' | 'torp'): SignalSpec<ShellState, Ballist
       // materialize on a publicly importable registry would let Story 1.8's
       // counter-intel wiring accidentally consume reveals just by shaping one.
       // `t` is REVEAL time (ctx.now), never the projectile's bornAt.
-      return { k: shell.kind, id: shell.id, x: shell.x, y: shell.y, vx: shell.vx, vy: shell.vy, t: ctx.now };
+      const ev: BallisticEvent = { k: shell.kind, id: shell.id, x: shell.x, y: shell.y, vx: shell.vx, vy: shell.vy, t: ctx.now };
+      // THE ONE DECLARED FAMILY FIELD (Story 8.15, amendment 89(i)): a SHELL
+      // reveal carries `w` — the gun family that fired it, from the fixed
+      // three-word set — appended LAST so the key order is {k,id,x,y,vx,vy,t,w}.
+      // Never on a `torp` (this row's `kind` is the predicate, and a torpedo's
+      // family is null besides): torpedoes stay blind. It names no shooter,
+      // no range and no tier, so the constant-free anti-cheat argument holds.
+      if (kind === 'shell' && shell.family !== null) ev.w = shell.family;
+      return ev;
     },
   };
 }

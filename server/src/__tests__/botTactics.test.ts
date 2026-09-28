@@ -998,16 +998,17 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const raider = mkMind('raider');
     plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'boost'));
-    // A withdrawing MINE LAYER NOW BOOSTS TOO (Story 8.5, epic-8 amendment
-    // 23: the boost stopped being a Torpedo Boat privilege and is fitted in
-    // slot 1 on every captain hull). Before this story it pressed nothing,
-    // because it had no ability fitted at all — the policy never changed, the
-    // hardware did.
+    // A withdrawing MINE LAYER HAS NO BOOST TO PRESS (Story 8.15, amendment
+    // 89(c)): slot 1 is its class Shift, INSTANT RELOAD, and the boost is the
+    // Torpedo Boat's alone again. The withdrawal tactic therefore presses
+    // NOTHING it does not hold — never the -1 of a missing slot — and the
+    // interim INSTANT RELOAD rule (amendment 109) is wave 4's / Story 8.19's.
     const ml = mkBot(w, 'mineLayer', 0, 0, 0);
     ml.hp = ml.stats.maxHp * 0.1;
     const trapper = mkMind('trapper');
     plot(trapper, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).toBe(slotOf(ml, 'boost'));
+    expect(slotOf(ml, 'boost')).toBe(-1);
+    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).not.toBe(-1);
     // Healthy: no ability spent.
     const healthy = mkBot(w, 'torpedoBoat', 0, 0, 0);
     expect(COMBAT_BRAIN.decide(healthy, raider, port).actSlot).toBeNull();
@@ -1087,7 +1088,10 @@ describe('weapons — every shot is a LEGAL shot', () => {
   it('...and a hurt bot with an EMPTY belt reaches for its boost, never a belt slot', () => {
     const w = openWorld(213);
     const port = fakePort(w);
-    const bare = mkBot(w, 'battleship', 0, 0, 0);
+    // A TORPEDO BOAT, since Story 8.15: the boost is the Torpedo Boat's Shift
+    // alone (a Battleship's slot 1 is DAMAGE CUT, whose interim rule is wave
+    // 4's / Story 8.19's).
+    const bare = mkBot(w, 'torpedoBoat', 0, 0, 0);
     bare.hp = bare.stats.maxHp * 0.1; // hurt enough to want a heal it does not hold
     expect(slotOf(bare, 'hullRepair')).toBe(-1);
     // The withdrawal boost is the only ability it can press: a want() with no

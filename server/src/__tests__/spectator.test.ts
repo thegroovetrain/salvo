@@ -81,6 +81,7 @@ function injectShell(w: World, id: string, ownerId: string, x: number, y: number
     distLeft: 300,
     bornAt: w.now,
     kind: 'shell',
+    family: 'cannon',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
     targetX: null,
@@ -240,7 +241,7 @@ describe('spectator frames — dead observer in the active phase', () => {
     const f1 = buildFrame(w, 'a', 'active');
     const ev = f1.events.filter((e) => e.k === 'shell');
     expect(ev).toEqual([
-      { k: 'shell', id: 's1', x: sh.x, y: sh.y, vx: sh.vx, vy: sh.vy, t: w.now },
+      { k: 'shell', id: 's1', x: sh.x, y: sh.y, vx: sh.vx, vy: sh.vy, t: w.now, w: 'cannon' }, // `w`: Story 8.15
     ]);
     // Exactly once: the next spec frame does not re-send it.
     const f2 = buildFrame(w, 'a', 'active');
@@ -446,7 +447,7 @@ describe('THE INVARIANT extension — spec frames only for the dead/finished', (
             fireT: 0,
             slot: 0,
             actSeq: 0,
-            actSlot: 0, hornSeq: 0,
+            actSlot: 0, hornSeq: 0, held: false,
           });
         }
         w.step();

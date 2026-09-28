@@ -366,6 +366,7 @@ export function captiveTorpedo(
     targetY: null,
     burstRadius: p.blastRadius,
     contactDamage: p.damage,
+    family: null, // Story 8.15: a fish carries no gun family (no `w` on its reveal)
   };
   // THE LOCK IS PINNED AT LAUNCH (cycle-148 review gate, P6): this fish was
   // fired at the ONE hull that tripped the mine and cleared the hostile gate

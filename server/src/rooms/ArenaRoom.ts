@@ -12,6 +12,7 @@ import {
   CONFIG,
   MSG,
   REGATTA_NO_HUE,
+  GUN_IDS,
   SHIP_CLASS_IDS,
   isAfloat,
   mulberry32,
@@ -826,8 +827,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const count = CONFIG.map.playerCap - 1;
     for (let i = 0; i < count; i += 1) {
       // Bots draw from the SAME common pool a captain draws from (Story 8.14)
-      // and sail the DEFAULT GUN — there is no deck to resolve any more.
-      const rec = this.world.addBot(order[i % order.length], undefined);
+      // and each MOUNTS A RANDOM GUN (Story 8.15, amendment 109): one of the
+      // three drawn UNIFORMLY off the room's seeded stream — the hue RNG, the
+      // one stream every other room roll rides — so staging fights all three
+      // guns and a pinned map seed seats a pinned fleet. Never Math.random.
+      const gun = GUN_IDS[this.hueRng.int(0, GUN_IDS.length - 1)];
+      const rec = this.world.addBot(order[i % order.length], undefined, gun);
       const meta = new PlayerMeta();
       meta.id = rec.id;
       meta.name = rec.name;

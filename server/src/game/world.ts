@@ -30,7 +30,11 @@ import {
   drawOffer,
   lineWeight,
   DEFAULT_GUN,
+  DEFAULT_SHIFT,
   MOUNTED_GUN,
+  SLOT_GUN,
+  WEAPON_SLOTS,
+  classShift,
   DEFAULT_HORN_ID,
   effectiveStats,
   equipmentMaxAmmo,
@@ -76,6 +80,7 @@ import {
   type CatalogLine,
   type DrawShip,
   type GunId,
+  type ShiftId,
   type Weights,
   type BoonOffer,
   type LineId,
@@ -654,6 +659,31 @@ export interface ShipRecord {
    */
   boostUntil: number;
   /**
+   * ms — server-clock time this ship's DAMAGE CUT window ends (Story 8.15, the
+   * Battleship's Shift, Eric rulings 2026-09-28, epic-8 amendments 99–102);
+   * 0 = no cut opened this life. Written ONLY through the `setDamageCut`
+   * activation capability (the damageCut row's activate); read by applyDamage
+   * (every weapon blow is multiplied by the row's `factor` while `now <
+   * damageCutUntil`, BEFORE the shield; storm bites are exempt) and mirrored
+   * onto OwnShip.damageCutUntil (SELF-PRIVATE, omitted while 0) by frames.ts.
+   * RESET to 0 wherever `boostUntil` resets (redeploy / founder / respawn).
+   */
+  damageCutUntil: number;
+  /**
+   * ms — server-clock time the MACHINE GUN's stream may fire its next shell
+   * (Story 8.15, amendment 103): `lastShot + rateMs`. Server-private, written
+   * only by the machineGun row's `stream`. 0 = fire on the first held tick.
+   */
+  streamNextAt: number;
+  /**
+   * ms — server-clock time of the machine gun's LAST stream shot (Story 8.15,
+   * amendment 103): the IDLE CLOCK. The magazine row's tick starts the full
+   * swap once `now - streamLastShotAt >= idleReloadMs` with shells left; a
+   * shot restarts it. Server-private, never on the wire (the wire WeaponAmmo
+   * stays {n, reloadMsLeft}).
+   */
+  streamLastShotAt: number;
+  /**
    * hp — the REMAINING PAID HULL REPAIR pool (Eric rulings 2026-08-04; the
    * spend became a CARD in Story 8.8); 0 = nothing draining. Written ONLY by
    * World.applyRepair — the `ctx.applyRepair` capability HULL REPAIR's row
@@ -984,10 +1014,15 @@ const CONFIG_MINE_BLAST: Readonly<Record<MineKind, MineBlastParams>> = Object.fr
  * at all for this rule.
  */
 const SWEEP_MASKS = new WeakMap<readonly TargetKind[], readonly TargetKind[]>();
+/** The two BURST-ONLY kinds a sweep never sees: `mine` (amendment 20) and,
+ *  since Story 8.15, `ordnance` (amendment 105 — a fish in flight is struck
+ *  only by a burst covering it, never by a shell flying past). */
+const BURST_ONLY_KINDS: readonly TargetKind[] = ['mine', 'ordnance'];
 function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
   const memo = SWEEP_MASKS.get(hits);
   if (memo !== undefined) return memo;
-  const sweep = hits.includes('mine') ? hits.filter((k) => k !== 'mine') : hits;
+  const strip = hits.some((k) => BURST_ONLY_KINDS.includes(k));
+  const sweep = strip ? hits.filter((k) => !BURST_ONLY_KINDS.includes(k)) : hits;
   SWEEP_MASKS.set(hits, sweep);
   return sweep;
 }
@@ -995,17 +1030,16 @@ function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
 /**
  * WHAT DEALT THE DAMAGE (Story 8.4, AR47). The exact list AR47 names, and the
  * ONLY thing `applyDamage` branches on: 'burn' takes the windowed DoT report,
- * 'storm' emits no `dmg` and skips the assist ledger, everything else takes the
- * immediate victim-private `dmg`. Two members are declared ahead of their
- * weapons so the union is AR47's and no later story widens it in passing:
- * 'missile' lands with the horizontal missile (Story 8.14) and 'contact' is
- * the decoy-contact seat (Story 8.15).
+ * 'storm' emits no `dmg`, skips the assist ledger AND is exempt from the
+ * DAMAGE CUT (amendment 101), everything else takes the immediate
+ * victim-private `dmg`. 'missile' was declared ahead of the horizontal missile
+ * and DELETED with it (Story 8.15, amendment 89e); 'contact' is the
+ * decoy-contact seat (Story 8.16).
  */
 export type DamageSource =
   | 'shell'
   | 'burst'
   | 'torpedo'
-  | 'missile'
   | 'mine'
   | 'burn'
   | 'storm'
@@ -1617,7 +1651,7 @@ export class World {
     // The fit is the universal nine-slot loadout and nothing else: THE SEAT'S
     // GUN + the Shift boost for a captain or a bot, the GUN ALONE for a fleet
     // hull (amendment 24) — the weapon row and the belt start empty.
-    const loadout = loadoutFor(stats, roleIsFleetHull({ role }), gun);
+    const loadout = loadoutFor(stats, roleIsFleetHull({ role }), gun, World.shiftFor(role, hullId));
     const rec: ShipRecord = {
       id,
       name,
@@ -1670,6 +1704,9 @@ export class World {
       // (amendment 47): `lastDamagedAt` is `now`, never 0 — the hull is full
       // here anyway, so the wait costs nothing.
       boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, dazzledUntil: 0, shield: null,
+      // Story 8.15: no DAMAGE CUT window, and the machine gun's stream clock
+      // and idle clock both at the epoch (fire on the first held tick).
+      damageCutUntil: 0, streamNextAt: 0, streamLastShotAt: 0,
 
       rttMs: null,
       lastFireT: 0,
@@ -1973,6 +2010,7 @@ export class World {
     ship.landContact = false;
     // A fresh life never inherits an open boost window — nor a slow or dazzle.
     ship.boostUntil = 0;
+    World.clearShiftClocks(ship); // ...nor a DAMAGE CUT window or a stream clock (Story 8.15)
     // ...nor a HULL REPAIR pool: hp is already full here, so a surviving
     // pool would drain entirely into the maxHp clamp — but the wire field would
     // still tick down on a brand-new match's HUD (the boostUntil rule).
@@ -2060,7 +2098,7 @@ export class World {
     // The fit is the nine-slot loadout with THIS hull's PRESERVED cards
     // replayed over it through the SHARED fill rule. The fleet flag is
     // load-bearing (without it a drone would grow a boost in slot 1).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun);
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
     ship.hp = ship.stats.maxHp;
   }
 
@@ -2182,6 +2220,7 @@ export class World {
       ship.lifecycle = transitionLifecycle(lc, 'founder', this.now);
       ship.state.speed = 0;
       ship.boostUntil = 0;
+      World.clearShiftClocks(ship); // the DAMAGE CUT window dies with the life (Story 8.15)
       ship.slowedUntil = 0;
       ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
       ship.dazzledUntil = 0;
@@ -3061,6 +3100,12 @@ export class World {
     // owner's death — expiry is the only way out.
     { name: 'expireLitZones', run: (w) => w.expireLitZones() },
     { name: 'fireControl', run: (w, ctx) => w.fireControl(ctx.dtMs) },
+    // THE HELD-FIRE STREAM (Story 8.15): the machine gun's level channel,
+    // resolved right after the click channel — the reloads have ticked (a
+    // magazine swap that completed this tick may fire), and a click on a
+    // stream row was already skipped by consumeClick, so the two channels
+    // can never double-fire the first shell.
+    { name: 'streamControl', run: (w) => w.streamControl() },
     // Ability activation (Story 1.6): the actSeq sibling of fireControl, resolved
     // in the same step-order position — both turn this tick's stored input intent
     // into activations through the single sinking gate.
@@ -3209,8 +3254,13 @@ export class World {
    *              kind until Story 8.15 deletes the buoy and lands the decoy
    *              store. Outcomes for a buoy are byte-identical to before
    *              (hitBuoy; a buoy is not a ship and never enters the gate).
-   *   ordnance — EMPTY, and pinned empty: nothing shoots down a projectile
-   *              until FLAK ships (Story 8.14).
+   *   ordnance — every LIVE TORPEDO as a POINT (Story 8.15, amendment 105 —
+   *              a SIDE EFFECT of the flak gun's mask, which is the only mask
+   *              naming it). BURST-ONLY like `mine`: the World strips it off
+   *              every sweep, so nothing in flight ever collides with a fish;
+   *              a burst covering one REMOVES it (resolveBurst — no boom, no
+   *              damage, no `hc`), and the owner's OWN fish are never victims
+   *              (excluded at the burst, where the shooter is known).
    */
   hitTargets(mask: readonly TargetKind[]): readonly Target[] {
     const key = [...mask].sort().join('|');
@@ -3223,6 +3273,7 @@ export class World {
     if (mask.includes('hull')) this.collectHulls(list);
     if (mask.includes('mine')) this.collectMines(list);
     if (mask.includes('decoy')) this.collectDecoys(list);
+    if (mask.includes('ordnance')) this.collectOrdnance(list);
     this.tickTargets.set(key, { gen: this.targetsGen, list });
     return list;
   }
@@ -3255,6 +3306,19 @@ export class World {
    *  (Story 7-5 wave 2, R2.7). Story 8.15 swaps the store, not the kind. */
   private collectDecoys(out: Target[]): void {
     for (const buoy of this.buoys.values()) out.push(buoyTarget(buoy));
+  }
+
+  /** Every live TORPEDO as a POINT target (Story 8.15, amendment 105) — the
+   *  `ordnance` kind. A fish's polygon is the single vertex at its centre,
+   *  BURST geometry exactly as a mine's: burstVictims asks "does the blast
+   *  cover the fish's centre?". Nothing in flight is ever resolved against
+   *  this list (sweepMask strips the kind). Gun-pattern shells are NOT here:
+   *  the ruling names fish in flight, and a shell is in the air. */
+  private collectOrdnance(out: Target[]): void {
+    for (const shell of this.shells.values()) {
+      if (shell.kind !== 'torp') continue;
+      out.push({ id: shell.id, kind: 'ordnance', poly: [{ x: shell.x, y: shell.y }] });
+    }
   }
 
   /** How many mines are live on the water right now — the `/metrics`
@@ -4272,7 +4336,8 @@ export class World {
     if (byId !== undefined && byId === victim.id) return; // (a) NO FRIENDLY FIRE, every source
     if (!this.damageEnabled) return; // (b) weapons-safe phases
     if (isSinking(victim.lifecycle)) return; // (b) a sinking hull cannot be finished off
-    const net = this.absorbShield(victim, amount); // (c)
+    const cut = this.cutDamage(victim, amount, src); // (b′) DAMAGE CUT, before the shield (Story 8.15)
+    const net = this.absorbShield(victim, cut); // (c)
     const dealt = Math.max(0, Math.min(net, victim.hp)); // (d) overkill clamp, read BEFORE the write
     victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME
     // (d) THE COMBAT CLOCK (amendment 47): every source that actually removed
@@ -4283,6 +4348,25 @@ export class World {
     if (dealt > 0) victim.lastDamagedAt = this.now;
     if (src !== 'storm' && byId !== undefined) this.creditDamage(byId, victim.id, net, dealt); // (e)
     this.reportDamage(victim, net, src, byId); // (f)+(g)
+  }
+
+  /**
+   * (b′) THE DAMAGE CUT (Story 8.15, the Battleship's Shift, Eric rulings
+   * 2026-09-28, epic-8 amendments 99–102). While the victim's window is open
+   * (`now < damageCutUntil`) every WEAPON blow is multiplied by the victim's
+   * effective `damageCut.factor` BEFORE the shield absorbs it (amendment 100:
+   * a shield lasts twice as long under a cut). A hit rounds DOWN to a whole
+   * number (amendment 102 — 15 → 7, 55 → 27, damage stays whole per amendment
+   * 39); a PHOSPHOR burn tick, fractional by construction, halves exactly. The
+   * STORM is exempt (amendment 101): its bites land in full, so the
+   * sudden-death ceiling and NFR6's arithmetic are untouched. `creditDamage`
+   * and the `dmg` report both read the POST-cut amount: the attacker's tally
+   * is what actually landed.
+   */
+  private cutDamage(victim: ShipRecord, amount: number, src: DamageSource): number {
+    if (src === 'storm' || this.now >= victim.damageCutUntil) return amount;
+    const cut = amount * victim.stats.equipment.damageCut.factor;
+    return src === 'burn' ? cut : Math.floor(cut);
   }
 
   /** (c) THE SHIELD STEP. Expires a lapsed or spent block, absorbs what is
@@ -4641,9 +4725,39 @@ export class World {
     // counted in `resolved`: the hit call is about what the SHELL connected
     // with, and a sprung trap announces itself to its own layer through
     // blastMine's `hc`.
+    // ...and REMOVES every ENEMY TORPEDO whose centre it covers (Story 8.15,
+    // amendment 105 — the flak gun's side effect; only its mask names
+    // `ordnance`): the fish is simply taken off the water — no boom, no
+    // damage, no `hc` (a fish is not a hull, and the shooter's mark keys off
+    // hulls alone), and the OWNER'S OWN fish are never victims.
     for (const t of victims) {
       if (t.kind === 'mine') this.detonateBurstMine(t.id);
+      else if (t.kind === 'ordnance') this.removeBurstOrdnance(t.id, shell.ownerId);
     }
+  }
+
+  /**
+   * A BURST TAKES ONE ENEMY FISH OFF THE WATER (Story 8.15, amendment 105).
+   * Reached only from resolveBurst, for an `ordnance` target burstVictims
+   * found within the blast. OWN-FISH IMMUNITY lives HERE, where the shooter is
+   * known: the collector's list is memoized per mask across every shooter in
+   * the tick, so it cannot exclude per owner. Removal is immediate — the fish
+   * is gone from `shells`, every observer's seen-memory and the homing
+   * track store, its water detaches into the orphan store (amendment 200) —
+   * and the collector generation bumps so no later burst this tick finds a
+   * ghost. Deleting from `shells` while stepShells iterates it is
+   * well-defined (a Map skips entries deleted before their visit), which is
+   * exactly the wanted outcome: a fish struck this tick never steps again,
+   * so it cannot land a hit after it has been shot down. The `shells.get`
+   * re-check is the consume-first discipline (two bursts covering one fish).
+   */
+  private removeBurstOrdnance(id: string, shooterId: string): void {
+    const fish = this.shells.get(id);
+    if (fish === undefined || fish.ownerId === shooterId) return; // gone, or the shooter's own
+    this.shells.delete(id);
+    this.forgetBallistic(id);
+    this.orphanTorpWake(id);
+    this.targetsGen += 1;
   }
 
   /** One burst victim that is not a mine. Returns 1 when it RESOLVED (Story
@@ -4859,10 +4973,37 @@ export class World {
         // their id space, so an id with no built row ticks nothing. `slotRow`
         // (Story 8.7) is what routes a BELT slot's consumable id to the
         // consumable registry — whose rows tick nothing by construction.
-        slotRow(slot.equipmentId, this.consumables)?.tick(ship, slot, dtMs);
+        slotRow(slot.equipmentId, this.consumables)?.tick(ship, slot, dtMs, this.now);
       }
       for (const intent of ship.tickIntents) this.consumeClick(ship, intent);
       this.consumeClick(ship, ship.input);
+    }
+  }
+
+  /**
+   * THE LEVEL CHANNEL (Story 8.15, amendment 103) — the machine gun's stream,
+   * the sibling of fireControl's click channel. Every tick, for SLOT 0 ONLY,
+   * a row that declares `stream` is handed the HELD LEVEL off the ship's
+   * LATEST input (never the intent queue: a level has no edges to replay) and
+   * fires or not on its own clock. It passes the SAME gate a click passes
+   * (`activationRefusal`: frozen / dead — sinking stays live, amendment 10),
+   * so a boarding room, a foundered hull and a dead one stream nothing; the
+   * client already drops `held` on blur and when the refit window opens. No
+   * denial is ever queued: an empty magazine is visible in `ammo`, and a
+   * level that fires nothing is not a refused press.
+   *
+   * THE LEVEL COUNTS ONLY WHILE THE GUN IS THE SELECTED SLOT (orchestrator
+   * ruling, 2026-09-28): the client sends `held: true` whenever the canvas
+   * pointer is down — INCLUDING the click-and-hold that fires a primed Q/E/R
+   * weapon — so a hold with any other slot selected (`input.slot !== 0`)
+   * streams nothing. The selection rides the same latest input as the level.
+   */
+  private streamControl(): void {
+    for (const ship of this.ships.values()) {
+      const slot = ship.loadout[SLOT_GUN];
+      const row = slotRow(slot.equipmentId, this.consumables);
+      if (row?.stream === undefined || this.activationRefusal(ship) !== null) continue;
+      row.stream(this.activationContext(ship), slot, ship.input.held && ship.input.slot === SLOT_GUN);
     }
   }
 
@@ -4891,6 +5032,11 @@ export class World {
     // whatever the slot holds — the ONE predicate the client's prime/activate
     // fork reads as well.
     if (id === null || !isWeaponItem(id)) return;
+    // A LEVEL WEAPON NEVER FIRES ON A CLICK (Story 8.15, amendment 103): a row
+    // that declares `stream` (the machine gun) is driven by streamControl off
+    // `input.held`, so a fireSeq edge on it is consumed and then INERT — no
+    // activation, no denial, no lastFireT stamp (the stream never back-dates).
+    if (slotRow(id, this.consumables)?.stream !== undefined) return;
     // D1: validate the click's claimed fire time BEFORE activation. The clamp
     // is the trust boundary (never earlier than now - min(RTT+jitter, ceiling),
     // never before the previous ACCEPTED fire time).
@@ -5051,6 +5197,9 @@ export class World {
     slotIndex: number,
     fireT: number = this.now,
   ): ActivationResult {
+    // The ship-level half of the gate is FACTORED (Story 8.15) so the click
+    // channel, the ability channel and the machine gun's LEVEL channel
+    // (streamControl) all refuse a frozen room or a dead hull by the one rule.
     // THE WEAPONS LOCK (Story 6.1, amendment 8) sits at the TOP of the one call
     // path to Equipment.activate(), so a boarding room has no second seam to
     // forget: weapons, abilities and mine drops alike are refused before any
@@ -5058,8 +5207,8 @@ export class World {
     // 'frozen' never reaches the wire (wireDenialReason maps it to null, like
     // the gate's other two refusals) — a locked helm and a dark HUD already say
     // the start line is held; a denial klaxon per click would be noise.
-    if (!this.weaponsEnabled) return { ok: false, reason: 'frozen' };
-    if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) return { ok: false, reason: 'dead' };
+    const refusal = this.activationRefusal(ship);
+    if (refusal !== null) return { ok: false, reason: refusal };
     const slot = ship.loadout[slotIndex];
     if (!slot) return { ok: false, reason: 'empty-slot' };
     const id = slot.equipmentId;
@@ -5080,6 +5229,16 @@ export class World {
     // a copy: the row already denied a dry stack without touching it.
     if (result.ok && isConsumableId(id)) this.spendStock(ship, id);
     return result;
+  }
+
+  /** The SHIP-LEVEL refusals of the activation gate, shared by every channel
+   *  (Story 8.15): 'frozen' while the weapons lock holds, 'dead' for a hull
+   *  whose life is over (afloat OR sinking is live — amendments 10/15), else
+   *  null. Never on the wire (wireDenialReason maps both to null). */
+  private activationRefusal(ship: ShipRecord): ActivationDenial | null {
+    if (!this.weaponsEnabled) return 'frozen';
+    if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) return 'dead';
+    return null;
   }
 
   /**
@@ -5129,7 +5288,7 @@ export class World {
    * LoadoutSlot it activated sees the truth.
    */
   private rebuildBelt(ship: ShipRecord): void {
-    const replay = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun);
+    const replay = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
     for (const i of CONSUMABLE_SLOTS) {
       const live = ship.loadout[i];
       const want = replay[i];
@@ -5162,7 +5321,64 @@ export class World {
       // hp, the paid pool, and the self-private `heal` cue. Keyed on the
       // ACTIVATING ship, so a row can never repair anyone else.
       applyRepair: (instantHp, regenHp) => this.applyRepair(ship, instantHp, regenHp),
+      // Story 8.15 — the two new Shifts' bodies, World-owned and keyed on the
+      // ACTIVATING ship: INSTANT RELOAD's walk over its own weapon slots, and
+      // DAMAGE CUT's window (the ONLY writer of damageCutUntil).
+      finishReloads: () => World.finishReloads(ship),
+      setDamageCut: (until) => {
+        ship.damageCutUntil = until;
+      },
     };
+  }
+
+  /**
+   * INSTANT RELOAD's effect (Story 8.15, Eric ruling 2026-09-28, amendment 98
+   * — "finish one reload only"): for the mounted gun (slot 0) and each fitted
+   * Q/E/R weapon whose reload timer is RUNNING, complete that ONE reload now.
+   * A per-round pool gains ONE round (capped at its effective max) and its
+   * timer drops to zero — rounds spent beyond that stay spent and reload on
+   * the ordinary clock: a pool still short restarts its timer at the FULL
+   * reloadMs, exactly what the shared machine does after a natural top-up
+   * (a zero timer on a short pool would read as "a round is due now" and hand
+   * out a second free round on the next tick). The MACHINE GUN is the one
+   * exception by construction: its running timer is a MAGAZINE SWAP, and a
+   * swap completing means a full magazine (amendment 103), so it fills. A
+   * weapon that is not reloading is untouched; the belt (5–8) and the Shift
+   * slot (1) are never visited.
+   */
+  private static finishReloads(ship: ShipRecord): void {
+    for (const i of [SLOT_GUN, ...WEAPON_SLOTS]) {
+      const slot = ship.loadout[i];
+      const id = slot?.equipmentId;
+      if (id === null || id === undefined || slot.state === null || slot.state.reloadMsLeft <= 0) continue;
+      if (isConsumableId(id)) continue; // never a belt line, whatever slot it sits in
+      const maxAmmo = equipmentMaxAmmo(ship.stats, id);
+      slot.state.n = id === 'machineGun' ? maxAmmo : Math.min(slot.state.n + 1, maxAmmo);
+      slot.state.reloadMsLeft = slot.state.n < maxAmmo ? equipmentReloadMs(ship.stats, id) : 0;
+    }
+  }
+
+  /** The class Shift slot 1 fits for a hull (Story 8.15, amendment 89(c)) —
+   *  `classShift` over the class id for a captain or a bot; a FLEET drone has
+   *  no Shift (and no class id), so it takes the default, which `loadoutFor`
+   *  ignores for a fleet hull anyway. */
+  private static shiftFor(role: ShipRole, hullId: HullId): ShiftId {
+    return roleIsFleetHull({ role }) ? DEFAULT_SHIFT : classShift(hullId as ShipClassId);
+  }
+
+  /** `shiftFor` over a live record. */
+  private static shiftOf(ship: ShipRecord): ShiftId {
+    return World.shiftFor(ship.role, ship.hullId);
+  }
+
+  /** Zero the Story 8.15 per-life clocks — the DAMAGE CUT window and the
+   *  machine gun's stream/idle clocks — at every life boundary where
+   *  `boostUntil` resets (redeploy / founder / respawn), so a fresh life
+   *  never inherits an open cut or a mid-stream cadence. */
+  private static clearShiftClocks(ship: ShipRecord): void {
+    ship.damageCutUntil = 0;
+    ship.streamNextAt = 0;
+    ship.streamLastShotAt = 0;
   }
 
   /**
@@ -5476,6 +5692,7 @@ export class World {
         burstRadius: CONFIG.gun.burstRadius,
         contactDamage: owner.stats.equipment.radarBuoy.gunDamage,
         noAggro: true,
+        family: 'cannon', // Story 8.15: a gun-pattern shell — `w: 'cannon'`
       },
       true,
     );
@@ -5566,7 +5783,7 @@ export class World {
    * constant-free. `k` carries the projectile kind (shell vs torp).
    */
   private ballisticEvent(shell: ShellState): BallisticEvent {
-    return {
+    const ev: BallisticEvent = {
       k: shell.kind,
       id: shell.id,
       x: shell.x,
@@ -5575,6 +5792,10 @@ export class World {
       vy: shell.vy,
       t: shell.bornAt,
     };
+    // Story 8.15: the launch event carries the family exactly as the per-observer
+    // reveal does (signals.ts ballisticSignal) — a `shell` gets `w`, a `torp` never.
+    if (shell.kind === 'shell' && shell.family !== null) ev.w = shell.family;
+    return ev;
   }
 
   /**
@@ -5695,6 +5916,7 @@ export class World {
     // or a HULL REPAIR pool (sinkShip already zeroed them; kept symmetric
     // for directed callers).
     ship.boostUntil = 0;
+    World.clearShiftClocks(ship); // ...nor a DAMAGE CUT window or a stream clock (Story 8.15)
     World.clearRepair(ship);
     // ...nor the dead life's combat clock: the returning hull waits the full
     // out-of-combat window before it regens (amendment 47).
@@ -5725,7 +5947,7 @@ export class World {
     // loadout re-derives with their slot effects replayed — the SAME shared
     // derivation the client runs (slotsWithCards ≡ loadoutFor at zero cards,
     // and over the spawn SEED alone, byte-identical).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun);
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
     // The respawn TELEPORTS the hull (Story 4.12, amendment 200): the old
     // life's water detaches into the orphan store — where it keeps disclosing
     // and ageing out, a fading track with nothing attached — and the new life

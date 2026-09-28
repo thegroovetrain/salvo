@@ -338,6 +338,7 @@ export class FleetController {
       aimDist: shot?.aimDist ?? 0,
       slot: SLOT_GUN, // the gun, and the only weapon a fleet hull fits
       fireT: 0, // no-claim sentinel: a server-driven shooter never back-dates
+      held: false, // Story 8.15: a fleet hull mounts the cannon and never streams
       actSeq: 0, // structurally inert — fleet hulls fit no ability
       actSlot: 0,
       hornSeq: 0, // fleet hulls never honk

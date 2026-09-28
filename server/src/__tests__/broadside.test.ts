@@ -97,7 +97,7 @@ function place(w: World, id: string, hull: 'battleship' | 'torpedoBoat' | 'mineL
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
 }
 
 /** Every live shell's (bearing, range) from `from`. */
@@ -109,11 +109,11 @@ function polar(w: World, from: { x: number; y: number }): { bearing: number; ran
 }
 
 describe('broadside — server loadout + barrage construction', () => {
-  it('a Battleship with both class cards fitted reads [gun, boost, broadside, starShells, empty x5], full idle pools', () => {
+  it('a Battleship with both class cards fitted reads [gun, damageCut, broadside, starShells, empty x5], full idle pools', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     expect(bb.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'broadside', 'starShells', null, null, null, null, null,
+      'gun', 'damageCut', 'broadside', 'starShells', null, null, null, null, null, // slot 1: the Battleship's Shift (8.15)
     ]);
     expect(bb.loadout[SLOT_BROADSIDE].state).toEqual({ n: CONFIG.broadside.maxAmmo, reloadMsLeft: 0 });
   });
@@ -346,7 +346,7 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
 describe('broadside — per-shell signals (R2.5, Eric A2)', () => {
   /** Click through the real input channel and return this tick's event kinds. */
   function clickAndStep(w: World, id: string, patch: Partial<InputMsg>): string[] {
-    w.submitInput(id, { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...patch });
+    w.submitInput(id, { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch });
     w.step();
     return w.tickEvents.map((e) => e.k);
   }
@@ -379,7 +379,7 @@ describe('broadside — per-shell signals (R2.5, Eric A2)', () => {
   it('every MISSING shell of a barrage splashes on its own — N fall-of-shot marks, not one', () => {
     const w = bareWorld();
     place(w, 'a', 'battleship', 0, 0);
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
     let splashes = 0;
     for (let i = 0; i < 60 && splashes === 0; i++) {
       w.step();
@@ -393,7 +393,7 @@ describe('broadside — burst + interceptor outcomes (end-to-end steps)', () => 
   /** Click for `firer` via the real input channel and step until a burst or
    *  boom lands (or `maxTicks`). Returns the events seen. */
   function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTicks = 80): string[] {
-    w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 0, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...input });
+    w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 0, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...input });
     const seen: string[] = [];
     for (let i = 0; i < maxTicks; i++) {
       w.step();
@@ -456,7 +456,7 @@ describe('broadside — denials + cross-hull parity', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     expect(w.sinkingActivationGate(bb, SLOT_EMPTY)).toEqual({ ok: false, reason: 'empty-slot' });
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_EMPTY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_EMPTY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
     w.step();
     expect(w.shells.size).toBe(0);
   });
@@ -637,7 +637,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
   it('EACH TURRET GETS ITS OWN MUZZLE FLASH, at the turret (R2.5, now per POINT)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
     w.step();
     const flashes = w.tickEvents.filter((e) => e.k === 'mz') as { x: number; y: number }[];
     expect(flashes).toHaveLength(CONFIG.broadside.turrets);
@@ -678,7 +678,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
     }
     // ...and end to end, a bearing shell's fall of shot lands ON the clicked
     // point — the promise, at the rung that now carries it.
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 150, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 150, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
     const splashes: { x: number; y: number }[] = [];
     for (let i = 0; i < 60 && splashes.length === 0; i += 1) {
       w.step();
@@ -695,7 +695,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     const before = bb.hp;
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 20, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 20, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
     for (let i = 0; i < 40; i += 1) w.step();
     expect(bb.hp).toBe(before);
   });

@@ -31,6 +31,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClientState } from 'colyseus';
 import {
   CONFIG,
+  GUN_IDS,
+  MOUNTED_GUN,
   PROTOCOL_VERSION,
   REGATTA_HUES,
   REGATTA_NO_HUE,
@@ -227,6 +229,31 @@ describe('the solo room — construction', () => {
     for (const b of bots(r)) counts.set(b.hullId, (counts.get(b.hullId) ?? 0) + 1);
     expect([...counts.keys()].sort()).toEqual([...SHIP_CLASS_IDS].sort());
     expect([...counts.values()].sort()).toEqual([6, 6, 7]);
+  });
+
+  // Story 8.15 (amendment 109): every bot MOUNTS A RANDOM GUN, drawn
+  // uniformly off the room's seeded stream — the hue RNG every other room roll
+  // rides — so a pinned map seed seats a pinned fleet and staging fights all
+  // three guns from this cycle. Never Math.random.
+  it('seats every bot with a gun off the SEEDED stream: a pinned seed yields the same guns twice, and all three guns appear across a few seeds', () => {
+    process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
+    const gunsOf = (r: SoloRoom): string[] => bots(r).map((b) => r.world.ships.get(b.id)!.gun);
+    const first = gunsOf(soloRoom({ mapSeed: 7 }));
+    expect(first).toHaveLength(BOTS);
+    expect(gunsOf(soloRoom({ mapSeed: 7 }))).toEqual(first); // the same seed, the same fleet
+    for (const g of first) expect(GUN_IDS).toContain(g);
+    // Slot 0 mounts the drawn gun's OWN module (MOUNTED_GUN), never the cannon
+    // for all three.
+    const r = soloRoom({ mapSeed: 7 });
+    for (const b of bots(r)) {
+      const rec = r.world.ships.get(b.id)!;
+      expect(rec.loadout[0].equipmentId).toBe(MOUNTED_GUN[rec.gun]);
+    }
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 6 && seen.size < GUN_IDS.length; seed += 1) {
+      for (const g of gunsOf(soloRoom({ mapSeed: seed }))) seen.add(g);
+    }
+    expect([...seen].sort()).toEqual([...GUN_IDS].sort());
   });
 
   it('varies WHICH class takes the odd seat across rooms (the order is rolled, not fixed)', () => {

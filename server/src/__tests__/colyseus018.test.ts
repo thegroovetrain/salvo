@@ -165,18 +165,20 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 56 and admits 57', () => {
-  it('PROTOCOL_VERSION is 57', () => {
-    // Story 8.14 bumped 56 -> 57: the own-ship frame gained `gun` (the seat's
-    // pick, amendment 95) and the whole deck contract — the `deck` join key,
-    // `deckId`, the 4402 refusal — is gone. A PV-56 client would send a deck
-    // door's options and read an own-ship view it does not know the shape of.
-    expect(PROTOCOL_VERSION).toBe(57);
+describe('the PV join gate refuses 57 and admits 58', () => {
+  it('PROTOCOL_VERSION is 58', () => {
+    // Story 8.15 bumped 57 -> 58: `InputMsg.held` is a REQUIRED boolean (a
+    // PV-57 client sends no such field and every input it sent would be
+    // dropped), the shell reveal gains the family field `w`, the own-ship
+    // frame gains `damageCutUntil`, and the catalog content moved (missile /
+    // monitor / heatSeeking cut, machineGun / flak became ladders).
+    expect(PROTOCOL_VERSION).toBe(58);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 56 is the one that matters: a client built one story before this one
-    // still expects a deck door that no longer exists.
+    // 57 is the one that matters: a client built one story before this one
+    // sends inputs without `held`, which the sanitizer now drops whole.
+    expect(protocolVersionError(57)).toMatch(/refresh/i);
     expect(protocolVersionError(56)).toMatch(/refresh/i);
     expect(protocolVersionError(55)).toMatch(/refresh/i);
   });
@@ -186,12 +188,12 @@ describe('the PV join gate refuses 56 and admits 57', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(58)).toMatch(/refresh/i);
+    expect(protocolVersionError(59)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(57)).toBeNull();
+    expect(protocolVersionError(58)).toBeNull();
   });
 });
 

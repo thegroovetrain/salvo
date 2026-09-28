@@ -210,6 +210,7 @@ function fireGunShells(
         burstRadius: gun.burstRadius,
         contactDamage: gun.contactDamage,
         hits: CONFIG.gun.hits, // AR44 target mask
+        family: 'cannon', // Story 8.15: the reveal's `w`
       }),
     );
   }

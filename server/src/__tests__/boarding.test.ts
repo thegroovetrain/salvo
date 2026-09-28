@@ -75,14 +75,14 @@ const ALL_ON = { damage: true, xp: true, helm: true, weapons: true, radar: true 
 /** Full ahead + hard over, on the named seq. */
 function helmOrder(ctx: Ctx, id: string, seq: number): void {
   ctx.w.submitInput(id, {
-    seq, throttle: 1, rudder: 1, aim: 1.25, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
+    seq, throttle: 1, rudder: 1, aim: 1.25, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
   });
 }
 
 /** One fresh gun click (seq doubles as the click counter). */
 function fire(ctx: Ctx, id: string, seq: number): void {
   ctx.w.submitInput(id, {
-    seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
+    seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
   });
 }
 

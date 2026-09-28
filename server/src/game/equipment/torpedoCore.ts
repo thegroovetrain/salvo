@@ -149,6 +149,7 @@ export function launchTorpedo(
     burstRadius: 0,
     contactDamage: damage,
     hits: opts.hits,
+    family: null, // Story 8.15: a torpedo has no gun family and its reveal never carries `w`
     ...(homes
       ? { homing: { turnRate: homingTurnRate, acquireRange: CONFIG.torpedo.homingAcquireRange } }
       : {}),

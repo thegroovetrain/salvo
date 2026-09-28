@@ -37,6 +37,10 @@ import { boostEquipment } from './boost.js';
 import { broadsideEquipment } from './broadside.js';
 import { starShellsEquipment } from './starShells.js';
 import { radarBuoyEquipment } from './radarBuoy.js';
+import { machineGunEquipment } from './machineGun.js';
+import { flakEquipment } from './flak.js';
+import { instantReloadEquipment } from './instantReload.js';
+import { damageCutEquipment } from './damageCut.js';
 
 /**
  * The exact capabilities equipment needs from the World to activate — no more
@@ -108,6 +112,27 @@ export interface ActivationContext {
    * hullRepair.ts) that the sinking-activation gate cannot bypass.
    */
   applyRepair: (instantHp: number, regenHp: number) => void;
+  /**
+   * INSTANT RELOAD's whole body (Story 8.15, the Mine Layer's Shift, Eric
+   * rulings 2026-09-28, epic-8 amendments 97–98), World-owned: for the mounted
+   * gun (slot 0) and every fitted Q/E/R weapon whose reload timer is RUNNING,
+   * that ONE reload completes at once — a per-round pool gains one round
+   * (capped at its max) and its timer drops to zero; the machine gun's
+   * MAGAZINE fills. Nothing else is touched: rounds spent beyond the running
+   * one stay spent, a weapon that is not reloading is left alone, and the belt
+   * (5–8) and the Shift slot itself (1) are never visited. A CAPABILITY rather
+   * than a loadout write the row could make itself, so the walk over the
+   * activating ship's OTHER slots has one home the row cannot widen.
+   */
+  finishReloads: () => void;
+  /**
+   * DAMAGE CUT's whole body (Story 8.15, the Battleship's Shift, amendments
+   * 99–102): open the halving window on the ACTIVATING ship until `until`
+   * (server clock). The World's damage gate reads it; the row only computes
+   * the deadline off its own stats row. Keyed on the activating ship, so a row
+   * can never cut anyone else's damage.
+   */
+  setDamageCut: (until: number) => void;
 }
 
 /** Per-spawn options for `ActivationContext.spawnBallistic`. */
@@ -158,10 +183,23 @@ export interface Equipment {
   /** True for systems that launch ordnance (all three today); non-weapon
    *  specials (smoke, boost, …) arrive in stories 1.6+ with false. */
   readonly isWeapon: boolean;
-  /** Tick this slot's reload timer (called for every fitted slot, every tick). */
-  tick(ship: ShipRecord, slot: LoadoutSlot, dtMs: number): void;
+  /** Tick this slot's reload timer (called for every fitted slot, every tick).
+   *  `now` is server time this tick — read by the MACHINE GUN's magazine alone
+   *  (its idle clock is a server-clock timestamp, Story 8.15); every other row
+   *  ignores it. */
+  tick(ship: ShipRecord, slot: LoadoutSlot, dtMs: number, now: number): void;
   /** Run activation when this slot is selected and a click landed this tick. */
   activate(ctx: ActivationContext, slot: LoadoutSlot): ActivationResult;
+  /**
+   * THE HELD-FIRE STREAM (Story 8.15, amendment 103) — declared by the MACHINE
+   * GUN alone. Called by the World EVERY TICK for slot 0 only (World.
+   * streamControl, right after the reload ticks and through the same
+   * frozen/dead/sinking gate a click passes), with `held` = the LEVEL off the
+   * ship's LATEST input. A row that declares `stream` is a LEVEL weapon: the
+   * World's click channel skips it entirely (no activation, no denial, no
+   * fire-time bookkeeping on a `fireSeq` edge), so the level alone fires.
+   */
+  stream?(ctx: ActivationContext, slot: LoadoutSlot, held: boolean): void;
 }
 
 /** Freeze the registry AND every row inside it (the SIGNAL_REGISTRY freeze
@@ -175,14 +213,14 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
  * String-keyed registry of every fitted system, by EquipmentId. Rows are
  * added at authoring time only; the World resolves a slot's equipmentId here.
  *
- * PARTIAL, NOT TOTAL (Story 8.1). Catalog v3 widened `EquipmentId` to fifteen
- * ids, four of which name weapons whose MODULES are not built yet (MISSILE,
- * MACHINE GUN, FLAK and MONITOR — Stories 8.14–8.16; Story 8.13 built the
- * light torpedo and the captive/fouling racks). A total record would force
- * four fake rows into the tick dispatch; instead the registry holds only what
- * exists, and the invariant that keeps that safe is pinned in
- * equipment.test.ts: EVERY NON-STUB catalog `slotFill` target has a row here,
- * and every STUB target has none. World.applyCard refuses to fit an id with no
+ * PARTIAL, NOT TOTAL (Story 8.1) — by TYPE. Since Story 8.15 every
+ * `EquipmentId` HAS a row (missile and monitor were CUT, amendment 89e; the
+ * machine gun, the flak gun and the two new Shifts were built), so the record
+ * happens to be total in content, but the type stays `Partial` on purpose:
+ * the registry holds only what exists, and the invariant that keeps that safe
+ * is pinned in equipment.test.ts — EVERY NON-STUB catalog `slotFill` target
+ * and every gun ladder's `appliesTo` host has a row here, and every STUB
+ * target has none. World.applyCard refuses to fit an id with no
  * row, and both dispatch sites (`tick`, `activate`) resolve fail-closed — so
  * an unbuilt weapon can never reach a slot, and could do nothing there if it
  * somehow did.
@@ -198,6 +236,10 @@ export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deep
   broadside: broadsideEquipment, // Story 7-5 wave 2: the Battleship's twin-beam barrage (replaced the cannon)
   starShells: starShellsEquipment, // Story 1.7: the Battleship's lit-zone flare
   radarBuoy: radarBuoyEquipment, // Story 7-5 wave 2: the Mine Layer's click-placed radar relay (replaced the decoy)
+  machineGun: machineGunEquipment, // Story 8.15: the held-fire magazine stream (amendments 103–104)
+  flak: flakEquipment, // Story 8.15: the air-bursting pickable gun (amendment 105)
+  instantReload: instantReloadEquipment, // Story 8.15: the Mine Layer's Shift (amendments 97–98)
+  damageCut: damageCutEquipment, // Story 8.15: the Battleship's Shift (amendments 99–102)
 });
 
 /**
@@ -253,6 +295,10 @@ export {
   type ConsumableRow,
 } from './consumables.js';
 export { boostEquipment } from './boost.js';
+export { machineGunEquipment } from './machineGun.js';
+export { flakEquipment } from './flak.js';
+export { instantReloadEquipment } from './instantReload.js';
+export { damageCutEquipment } from './damageCut.js';
 export {
   BUOY_SIZE_U,
   addBuoy,

@@ -30,6 +30,9 @@ import {
   equipmentMaxAmmo,
   isStubLine,
   tierTargetOf,
+  classShift,
+  EQUIPMENT_IDS,
+  SHIFT_IDS,
   type InputMsg,
   type Catalog,
   type LoadoutSlot,
@@ -61,8 +64,10 @@ const DT = CONFIG.tick.simDtMs;
 // card and no seed reaches it, so the cases that exercise its module fit it
 // BY HAND into a free weapon slot (fitBuoy below). The module, its CONFIG row
 // and its behaviour pins all stay exactly as shipped.
-/** Mine Layer fit, in slot order (the rest of the nine are empty). */
-const ML_IDS = ['gun', 'boost', 'navalMines'] as const;
+/** Mine Layer fit, in slot order (the rest of the nine are empty). Slot 1 is
+ *  the hull's CLASS SHIFT since Story 8.15 (amendment 89(c)): INSTANT RELOAD
+ *  on the Mine Layer. */
+const ML_IDS = ['gun', 'instantReload', 'navalMines'] as const;
 /** Torpedo Boat fit, in slot order. */
 const TB_IDS = ['gun', 'boost', 'heavyTorpedo'] as const;
 /** The first WEAPON slot (Q) — where each hull's single seeded weapon lands. */
@@ -116,7 +121,7 @@ function placeTb(w: World, id: string, heading = 0): ShipRecord {
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
 }
 
 /** HAND-FIT THE RADAR BUOY into the second weapon slot (E). Since epic-8
@@ -158,24 +163,28 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly the TEN built rows — the seven shipped plus Story 8.13\'s three', () => {
+  it('holds exactly the FOURTEEN built rows — the ten of 8.13 plus Story 8.15\'s two guns and two Shifts', () => {
     expect(Object.keys(EQUIPMENT).sort()).toEqual([
       'boost',
       'broadside',
       'captiveMines', // Story 8.13
+      'damageCut', // Story 8.15 — the Battleship's Shift (amendments 99–102)
+      'flak', // Story 8.15 — the flak gun (amendment 105)
       'foulingMines', // Story 8.13 (amendment 81)
       'gun',
       'heavyTorpedo',
+      'instantReload', // Story 8.15 — the Mine Layer's Shift (amendments 97–98)
       'lightTorpedo', // Story 8.13
+      'machineGun', // Story 8.15 — the held-fire magazine stream (amendments 103–104)
       'navalMines',
       'radarBuoy',
       'starShells',
     ]);
-    // Still PARTIAL, and the four unbuilt weapons are exactly the ones whose
-    // modules Stories 8.14-8.16 owe.
-    for (const id of ['missile', 'machineGun', 'flak', 'monitor'] as const) {
-      expect(Object.hasOwn(EQUIPMENT, id), id).toBe(false);
-    }
+    // Total in CONTENT since Story 8.15 (missile and monitor were CUT rather
+    // than built — amendment 89e — so no EquipmentId is left without a row),
+    // while the registry's TYPE stays Partial on purpose (see index.ts).
+    for (const id of EQUIPMENT_IDS) expect(Object.hasOwn(EQUIPMENT, id), id).toBe(true);
+    for (const id of ['missile', 'monitor', 'heatSeeking']) expect(Object.hasOwn(EQUIPMENT, id), id).toBe(false);
   });
 
   // THE REGISTRY/CATALOG PIN (Story 8.1). The registry is PARTIAL over the
@@ -194,12 +203,29 @@ describe('EQUIPMENT registry — interface conformance', () => {
       if (!isStubLine(id)) nonStubTargets += 1;
     }
     // Story 8.13 flipped THREE more stubs and built their modules: the LIGHT
-    // TORPEDO and the CAPTIVE / FOULING mine racks. 4 -> 7.
+    // TORPEDO and the CAPTIVE / FOULING mine racks. 4 -> 7. Story 8.15 added
+    // no equipment line (its two guns are LADDER hosts, pinned below).
     expect(nonStubTargets).toBe(7);
-    // The gun and the speed boost are slotless/base fits — no line fills them,
-    // and they are exactly the registry rows no `slotFill` target names.
+    // EVERY GUN LADDER'S HOST HAS A ROW (Story 8.15): `deckGun` -> gun,
+    // `machineGun` -> machineGun, `flak` -> flak — the three mountable guns.
+    let ladderHosts = 0;
+    for (const id of LINE_IDS) {
+      if (CATALOG[id].kind !== 'ladder') continue;
+      const host = tierTargetOf(CATALOG[id]);
+      if (host === undefined) continue;
+      expect(Object.hasOwn(EQUIPMENT, host), `${id} -> ${host}`).toBe(true);
+      expect(isStubLine(id), id).toBe(false);
+      ladderHosts += 1;
+    }
+    expect(ladderHosts).toBe(3);
+    // The gun and the three class Shifts are slotless/base fits — no line
+    // fills them, and they are exactly the registry rows no `slotFill` target
+    // names.
     expect(Object.hasOwn(EQUIPMENT, 'gun')).toBe(true);
-    expect(Object.hasOwn(EQUIPMENT, 'boost')).toBe(true);
+    for (const id of SHIFT_IDS) expect(Object.hasOwn(EQUIPMENT, id), id).toBe(true);
+    // NO STUB EQUIPMENT OR LADDER LINE IS LEFT (STUB_ROWS drained, Story
+    // 8.15); the stubs that remain are all CONSUMABLE lines (8.16+).
+    expect(LINE_IDS.filter((id) => isStubLine(id) && CATALOG[id].kind !== 'consumable')).toEqual([]);
   });
 
   // Content-level, NOT conformance: the weapon/ability split rides the shared
@@ -279,7 +305,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     const row = consumableRow('hullRepair', () => ({ ok: true }));
     const slot = stack(2);
     const ship = placeTb(bareWorld(), 'a');
-    for (let i = 0; i < 200; i++) row.tick(ship, slot, DT);
+    for (let i = 0; i < 200; i++) row.tick(ship, slot, DT, 0);
     expect(slot.state).toEqual({ n: 2, reloadMsLeft: 0 });
   });
 
@@ -379,7 +405,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     expect(slotRow('gun', reg)).toBe(EQUIPMENT.gun);
     expect(slotRow('boost', reg)).toBe(EQUIPMENT.boost);
     expect(slotRow('lightTorpedo', reg)).toBe(EQUIPMENT.lightTorpedo); // BUILT in Story 8.13
-    expect(slotRow('missile', reg)).toBeUndefined(); // authored, unbuilt (Story 8.14)
+    expect(slotRow('machineGun', reg)).toBe(EQUIPMENT.machineGun); // BUILT in Story 8.15
     // consumable ids -> the injected registry, NEVER EQUIPMENT
     expect(slotRow('hullRepair', reg)).toBe(row);
     expect(slotRow('chaff', reg)).toBeUndefined();
@@ -625,7 +651,7 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
     const w = bareWorld();
     const ship = place(w, 'a'); // ML fit: mine at weapon slot 2; heading 0 => astern = pi
     // CLICK (weapon channel): places at the clicked point.
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
     w.step();
     expect(w.mines.size).toBe(1);
     const [mine] = [...w.mines.values()];
@@ -635,7 +661,7 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
     // A FULL rack (2-deep at base since the 2026-08-04 balance pass) with an
     // idle timer — so the only thing that could move the pool is the press.
     ship.loadout[SLOT_MINE].state = { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 };
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, actSlot: SLOT_MINE, hornSeq: 0 });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, actSlot: SLOT_MINE, hornSeq: 0, held: false });
     w.step();
     expect(w.mines.size).toBe(1); // no second mine — presses never reach a weapon
     expect(ship.loadout[SLOT_MINE].state).toEqual({ n: 2, reloadMsLeft: 0 }); // charges intact
@@ -856,14 +882,17 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
   // hold the same equipment on every captain hull and the weapon row starts
   // EMPTY on all three — the spawn seed that used to differentiate them is
   // deleted (amendment 62), so at spawn only the DECK tells the hulls apart.
-  it('every captain hull spawns the same shape: gun in 0, boost in 1, an EMPTY weapon row', () => {
+  it('every captain hull spawns the same shape: gun in 0, its CLASS SHIFT in 1, an EMPTY weapon row', () => {
     const w = bareWorld();
     const hulls = ['torpedoBoat', 'battleship', 'mineLayer'] as const;
     for (const hull of hulls) {
       const ship = w.addShip(hull, hull, 'captain', hull, undefined, undefined);
       expect(ship.loadout).toHaveLength(SLOT_COUNT);
       expect(ship.loadout[SLOT_GUN].equipmentId).toBe('gun');
-      expect(ship.loadout[SLOT_BOOST].equipmentId).toBe('boost');
+      // Story 8.15 (amendment 89(c)): slot 1 is the hull's FIXED Shift —
+      // boost / damageCut / instantReload — resolved from the class id.
+      expect(ship.loadout[SLOT_BOOST].equipmentId).toBe(classShift(hull));
+      expect(ship.loadout[SLOT_BOOST].state).toEqual({ n: 1, reloadMsLeft: 0 });
       expect(WEAPON_SLOTS.map((i) => ship.loadout[i].equipmentId)).toEqual(
         Array<null>(WEAPON_SLOTS.length).fill(null),
       );

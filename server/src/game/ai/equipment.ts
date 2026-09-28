@@ -170,13 +170,17 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   // the naval rack's neutral base; SUPERCAV TORPEDO LEFT it for the consumable
   // id space (amendment 74) and its eagerness now lives in CONSUMABLE_APPETITE.
   foulingMines: APPETITE_NEUTRAL,
-  missile: APPETITE_NEUTRAL,
-  machineGun: APPETITE_NEUTRAL,
-  flak: APPETITE_NEUTRAL,
-  monitor: APPETITE_NEUTRAL,
+  // Story 8.15: the two pickable GUNS sit at the gun's own fallback appetite
+  // (slot 0 is the always-available last resort whichever gun is mounted);
+  // the two new class SHIFTS take the boost's neutral base. Interim tactics
+  // (amendment 109) are Story 8.19's; missile and monitor are CUT (89e).
+  machineGun: 0.5,
+  flak: 0.5,
   broadside: APPETITE_NEUTRAL,
   starShells: APPETITE_NEUTRAL,
   radarBuoy: APPETITE_NEUTRAL,
+  instantReload: APPETITE_NEUTRAL,
+  damageCut: APPETITE_NEUTRAL,
 });
 
 /**
