@@ -88,6 +88,7 @@ const FROZEN_DECISION: BotDecision = Object.freeze({
   aimDist: 0,
   fireSlot: null,
   actSlot: null,
+  held: false,
   spendChoice: null,
 });
 
@@ -293,6 +294,7 @@ export class BotController {
     mind.stuckMs = 0;
     mind.unbeachUntil = 0;
     mind.unbeach = null;
+    mind.lastHurtAt = undefined;
   }
 
   /** Observe + decide + emit for one live bot. */
@@ -315,8 +317,8 @@ export class BotController {
     // THE ENGAGE GATE: while closed, the HELD decision — full ring rhythm and
     // economy, zero weapons. Perception stays per-tick either way (a fairness
     // gate may hold a bot's fire; it may never delete its perception).
-    const held = this.engage === 'endgame' && !this.port.zoneEndgameReached;
-    const d = held
+    const gateClosed = this.engage === 'endgame' && !this.port.zoneEndgameReached;
+    const d = gateClosed
       ? this.brain.decideHeld(e.self, mind, this.port, deliberate)
       : this.brain.decide(e.self, mind, this.port, deliberate);
     this.submit(e.id, mind, d);
@@ -338,7 +340,10 @@ export class BotController {
       fireT: 0, // no-claim sentinel: a server-driven shooter never back-dates
       actSeq: mind.actSeq,
       actSlot: d.actSlot ?? 0,
-      held: false, // Story 8.15: the held level — wave 4 (8.19) drives it from BotDecision
+      // Story 8.15: the machine gun's LEVEL, straight from the decision. A held
+      // tick carries fireSlot null, so `slot` is 0 — the one slot the World's
+      // streamControl lets a level fire — and fireSeq does not move.
+      held: d.held,
       hornSeq: 0, // bots never honk (question-gate B5)
     };
     this.port.submitInput(id, msg);

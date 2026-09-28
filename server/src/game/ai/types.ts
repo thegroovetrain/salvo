@@ -309,6 +309,14 @@ export interface BotMind {
    *  mind starts in — the field is optional so enrollment stays the plain
    *  literal it is in botDriver.ts and this state can never be half-built. */
   unbeach?: UnbeachState | null;
+  /** Server ms this hull last TOOK WEAPON DAMAGE, read off its own fogged
+   *  view — the self-private `dmg` event (signals.ts: a `dmg` reaches only its
+   *  victim, and the storm emits none, so every `dmg` in a bot's view is its
+   *  own weapon damage). The DAMAGE CUT interim tactic's one input (Story
+   *  8.15, amendment 109: "fires DAMAGE CUT when it has taken damage within
+   *  the last second"). OPTIONAL, absent = never hurt this life; released
+   *  with the life (BotController.releasePerLifeState). */
+  lastHurtAt?: number;
 }
 
 /**
@@ -358,6 +366,13 @@ export interface BotDecision {
   /** Loadout slot to activate (ability press), or null. A non-null value
    *  advances the mind's actSeq exactly once. */
   actSlot: number | null;
+  /** THE HELD LEVEL (Story 8.15, amendment 103) — `InputMsg.held`, the
+   *  machine gun's trigger. A LEVEL, never an edge: true on every tick the
+   *  stream should run, and it NEVER advances fireSeq (a click edge on a
+   *  mounted machine gun is inert server-side anyway). The stream only counts
+   *  while the input's `slot` is 0 (the World's streamControl), so the driver
+   *  leaves `fireSlot` null — and therefore `slot` 0 — on a held tick. */
+  held: boolean;
   /** Spend a banked level: an offer index, or null for no spend. Never
    *  negative (Story 8.8 retired the -1 heal sentinel). Only ever non-null on
    *  a deliberation tick (the decision cadence). */

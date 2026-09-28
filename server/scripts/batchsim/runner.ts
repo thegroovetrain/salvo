@@ -25,9 +25,12 @@
 import {
   CATALOG,
   CONFIG,
+  GUN_IDS,
   SHIP_CLASS_IDS,
+  mulberry32,
   zoneClosedAtMs,
   zoneGroups,
+  type GunId,
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../../src/game/world.js';
@@ -54,6 +57,9 @@ const COUNTDOWN_MS = 1000;
  *  ring index; captains use 0x100 + i — keep this band outside any
  *  roster-sized range). */
 const ZONE_SEED_ORDINAL = 0x7a0e;
+/** mixSeed ordinal reserved for a match's BOT-GUN stream (Story 8.15) — outside
+ *  the captain band (0x100 + i) and the zone band (ZONE_SEED_ORDINAL + ring). */
+const BOT_GUN_SEED_ORDINAL = 0x6a4e;
 
 export interface RunSpec {
   seed: number;
@@ -87,6 +93,11 @@ export interface RunSpec {
    *  refuses the combinations this would contradict (--bot-profile, --roster
    *  even). */
   botHull?: ShipClassId;
+  /** FORCED GUN for every bot (Story 8.15, `--gun`). Undefined = production's
+   *  rule: each bot mounts a gun drawn UNIFORMLY off a seeded per-match stream
+   *  (the ArenaRoom.buildBotFleet rule, amendment 109), so a harness run
+   *  fights all three guns exactly as staging does. */
+  botGun?: GunId;
   /** Scripted captain control factory; defaults to the storm-pacing pacifist
    *  (CONTROL_REGISTRY.pacifist — the only row there is). */
   control?: ControlFactory;
@@ -140,10 +151,11 @@ export function botProfileFor(
  *  seeded stream and the brain drives itself from World's `botsTick` row.
  *  The engage gate is set BEFORE any tick runs, so a gated lobby never fires
  *  a single pre-endgame shot; default undefined leaves the shipped 'always'. */
-function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: number): string[] {
+export function buildBotLobby(world: World, spec: RunSpec, botCount: number, matchSeed: number, index: number): string[] {
   if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
   // BEFORE any enrollment — the mode is stamped onto each mind at enroll.
   if (spec.botSpend !== undefined) world.bots.spend = spec.botSpend;
+  const guns = botGunDealer(spec, matchSeed);
   const ids: string[] = [];
   for (let i = 0; i < botCount; i += 1) {
     const profile = botProfileFor(spec, i, index);
@@ -155,11 +167,28 @@ function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: num
     // the roster deal (args.ts refuses the ambiguous combinations), else the
     // roster policy deals as it does for captains.
     // Bots draw from the SAME common pool a captain draws from (Story 8.14)
-    // and sail the DEFAULT GUN — there is no deck to resolve any more.
+    // and MOUNT A GUN (Story 8.15): the forced --gun, else a seeded uniform
+    // draw — production's rule (see botGunDealer).
     const hull = profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined;
-    ids.push(world.addBot(hull, profile).id);
+    ids.push(world.addBot(hull, profile, guns()).id);
   }
   return ids;
+}
+
+/**
+ * THE BOT GUN DEAL (Story 8.15, amendment 109). `--gun` forces every bot onto
+ * one gun; without it each bot draws one of GUN_IDS UNIFORMLY off a stream
+ * seeded from the MATCH seed on its own ordinal — the mirror of
+ * ArenaRoom.buildBotFleet's seeded draw, so a harness lobby fights the gun mix
+ * staging fights, and the deal is part of the reproducible run key. A stream
+ * of its own, never the World's or the controller's: drawing guns must not
+ * move any other roll. Exported for the determinism pin.
+ */
+export function botGunDealer(spec: Pick<RunSpec, 'botGun'>, matchSeed: number): () => GunId {
+  const forced = spec.botGun;
+  if (forced !== undefined) return () => forced;
+  const rng = mulberry32(mixSeed(matchSeed, BOT_GUN_SEED_ORDINAL));
+  return () => GUN_IDS[rng.int(0, GUN_IDS.length - 1)];
 }
 
 export interface ReachSample {
@@ -459,7 +488,7 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   // THE BOT LOBBY — see buildBotLobby: there is no bot control and nothing
   // bot-shaped in the per-tick loop below. The roster policy deals the hull
   // and the test rig deals the profile; buildBotLobby resolves which wins.
-  const botIds = buildBotLobby(world, spec, botCount, index);
+  const botIds = buildBotLobby(world, spec, botCount, matchSeed, index);
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
   const bots = new BotCollector(botIds);

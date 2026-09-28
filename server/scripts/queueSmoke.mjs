@@ -477,6 +477,10 @@ async function proveGunRodeTheSeat(expected) {
  */
 async function proveSeatGun() {
   const cases = [
+    // All three seat ids (Story 8.15 builds the other two guns): each reads
+    // back on the own frame exactly as picked.
+    { label: "gun:'deckGun'", options: { gun: 'deckGun' }, expect: 'deckGun' },
+    { label: "gun:'machineGun'", options: { gun: 'machineGun' }, expect: 'machineGun' },
     { label: "gun:'flak'", options: { gun: 'flak' }, expect: 'flak' },
     { label: "gun:'bogus'", options: { gun: 'bogus' }, expect: 'deckGun' },
     { label: "deckId:'x'", options: { deckId: 'x' }, expect: 'deckGun' },

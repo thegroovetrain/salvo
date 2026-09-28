@@ -36,7 +36,7 @@ import {
 } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import type { PerceptionView } from '../game/perception.js';
-import type { BotMind, BotPosture, BotProfileId } from '../game/ai/types.js';
+import type { AnyProfileId, BotMind, BotPosture, BotProfileId } from '../game/ai/types.js';
 import { BOT_PROFILES, TEST_PROFILES, TEST_PROFILE_IDS, engagementBand, profileOf } from '../game/ai/profiles.js';
 import {
   choosePosture,
@@ -1131,5 +1131,33 @@ describe('ai/spending — random mode (wave 4)', () => {
     expect(chooseSpend(row, spendState({ bankedLevels: 0, offer: ['x'] }), undefined, rng)).toBeNull();
     expect(chooseSpend(row, spendState({ offer: null }), undefined, rng)).toBeNull();
     expect(chooseSpend(row, spendState({ offer: [] }), undefined, rng)).toBeNull();
+  });
+});
+
+// STORY 8.15 (amendment 109, interim — Story 8.19 owns the tables): the two
+// pickable guns and the two class Shifts join the appetite and spend tables by
+// FAMILY, adding no number — a machine gun is read exactly as the cannon was,
+// a Shift exactly as the boost was.
+describe('Story 8.15 — the new ids ride their family in the appetite and spend tables', () => {
+  const ALL_ROWS: AnyProfileId[] = [...(Object.keys(BOT_PROFILES) as BotProfileId[]), ...TEST_PROFILE_IDS];
+
+  it('MG/flak read the CANNON appetite; INSTANT RELOAD / DAMAGE CUT read the BOOST appetite', () => {
+    for (const id of ALL_ROWS) {
+      const row = profileOf(id);
+      expect(appetiteFor(row, 'machineGun'), id).toBe(appetiteFor(row, 'gun'));
+      expect(appetiteFor(row, 'flak'), id).toBe(appetiteFor(row, 'gun'));
+      expect(appetiteFor(row, 'instantReload'), id).toBe(appetiteFor(row, 'boost'));
+      expect(appetiteFor(row, 'damageCut'), id).toBe(appetiteFor(row, 'boost'));
+    }
+  });
+
+  it('the mounted gun LADDER scores under the v2 `guns` category, like the cannon line', () => {
+    expect(CATEGORY_LINES.guns).toEqual(expect.arrayContaining(['deckGun', 'machineGun', 'flak']));
+    for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
+      const t = CONFIG.bots.boonWeights[id] as { cat: Record<string, number> };
+      if (t.cat.guns === undefined) continue;
+      expect(boonWeightFor(id, 'machineGun'), id).toBe(t.cat.guns);
+      expect(boonWeightFor(id, 'flak'), id).toBe(t.cat.guns);
+    }
   });
 });

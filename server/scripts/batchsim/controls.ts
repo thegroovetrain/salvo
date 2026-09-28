@@ -387,7 +387,7 @@ class PacifistControl implements CaptainControl {
       slot: SLOT_GUN,
       fireT: 0,
       actSeq: 0,
-      actSlot: SLOT_GUN, hornSeq: 0, // slot 0 on the ability channel: inert (the gun is a weapon)
+      actSlot: SLOT_GUN, hornSeq: 0, held: false, // slot 0 on the ability channel: inert (the gun is a weapon)
     };
   }
 
@@ -405,7 +405,7 @@ class PacifistControl implements CaptainControl {
       slot: SLOT_GUN,
       fireT: 0, // in-process: no latency, no claim (zero compensation)
       actSeq: 0,
-      actSlot: SLOT_GUN, hornSeq: 0, // slot 0 on the ability channel: inert (the gun is a weapon)
+      actSlot: SLOT_GUN, hornSeq: 0, held: false, // slot 0 on the ability channel: inert (the gun is a weapon)
     };
   }
 

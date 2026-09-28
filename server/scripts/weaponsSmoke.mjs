@@ -36,6 +36,13 @@
 //      fish instead of detonating. Asserts a hit at exactly
 //      CONFIG.captiveMines.damage — the CAPTIVE row's warhead, not the naval
 //      rack's.
+//   7. THE THREE GUNS (Story 8.15): one fresh room per seat gun (`gun` join
+//      option deckGun / machineGun / flak), the shooter firing slot 0 at a
+//      stationary target. Asserts a hit at that gun's CONFIG damage (15 / 4 /
+//      12 today) and that every shell reveal the target sees carries the
+//      gun's family `w` ('cannon' / 'mg' / 'flak'). The machine gun is driven
+//      as a LEVEL — `held: true` on slot 0 for ~1 s, then released, never a
+//      click.
 //   4. Mine ambush: A (the Torpedo Boat) sails onto a live armed mine laid by
 //      B (the Mine Layer) — asserts a CONFIG.mine.damage hp drop (55 today) +
 //      a boom, and that A first saw every B-mine only from within detect
@@ -103,11 +110,14 @@ const CLASS_WEAPON = { torpedoBoat: 'heavyTorpedo', mineLayer: 'navalMines', bat
  * `opts.roomId`  — join THAT room by id (the second half of a pair).
  * `opts.fresh`   — CREATE a room rather than joinOrCreate (the first half of a
  *                  pair that needs clean water).
+ * `opts.gun`     — the SEAT'S GUN join option (Story 8.15: deckGun |
+ *                  machineGun | flak); absent = the default cannon.
  */
 async function joinClient(name, cls = 'torpedoBoat', opts = {}) {
   const client = new Client(endpoint);
   const fitOverride = Array.isArray(opts.weapon) ? [...opts.weapon] : [opts.weapon ?? CLASS_WEAPON[cls]];
   const joinOpts = { name, pv: PROTOCOL_VERSION, cls, fitOverride, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE };
+  if (opts.gun !== undefined) joinOpts.gun = opts.gun;
   const room = opts.roomId
     ? await client.joinById(opts.roomId, joinOpts)
     : opts.fresh
@@ -124,6 +134,8 @@ async function joinClient(name, cls = 'torpedoBoat', opts = {}) {
     dmg: [],
     torpIds: new Set(),
     blipIds: new Set(),
+    shellW: [], // Story 8.15: the gun family `w` of every shell reveal this client is shown
+    lastClickAt: 0, // the three-guns phase's click pacing (wall ms)
     seq: 0,
     fireSeq: 0,
     goal: { mode: 'idle' },
@@ -153,6 +165,7 @@ function onFrame(ctx, f) {
     else if (e.k === 'dmg') ctx.dmg.push(e);
     else if (e.k === 'torp') ctx.torpIds.add(e.id);
     else if (e.k === 'blip') ctx.blipIds.add(e.id);
+    else if (e.k === 'shell') ctx.shellW.push(e.w);
   }
   trackEnemyMines(ctx);
 }
@@ -187,7 +200,7 @@ function trackEnemyMines(ctx) {
 }
 
 function control(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
   const g = ctx.goal;
   if (g.mode === 'goto') steerToward(ctx, inp, g.target, 1);
   else if (g.mode === 'hold') holdAt(ctx, inp, g.target);
@@ -196,7 +209,35 @@ function control(ctx) {
   else if (g.mode === 'engageLight') engageLightTorp(ctx, inp, g.target);
   else if (g.mode === 'layCaptive') layCaptive(ctx, inp);
   else if (g.mode === 'sailTo') steerToward(ctx, inp, g.target, 0.6);
+  else if (g.mode === 'gun') fireGun(ctx, inp, g);
   ctx.room.send('i', inp);
+}
+
+/**
+ * THE THREE GUNS (Story 8.15): fire the MOUNTED gun (slot 0) at a stationary
+ * target from a dead stop. CANNON and FLAK are click weapons: one fireSeq edge
+ * per GUN_CLICK_MS (the reload paces them; an early click is a harmless
+ * denial). The MACHINE GUN is a LEVEL (amendment 103): `held: true` on slot 0
+ * for the first GUN_HOLD_MS of each GUN_CLICK_MS cycle, then released — never a
+ * click. Its aim point sits a little PAST the target so the direct shell
+ * crosses the hull before it expires at the point.
+ */
+const GUN_CLICK_MS = 3000;
+const GUN_HOLD_MS = 1000;
+function fireGun(ctx, inp, g) {
+  if (!ctx.you || !g.target) return;
+  inp.slot = 0;
+  inp.aim = bearing(ctx.you, g.target);
+  inp.aimDist = dist(ctx.you, g.target) + (g.gun === 'machineGun' ? 30 : 0);
+  const now = Date.now();
+  if (g.gun === 'machineGun') {
+    inp.held = (now - g.t0) % GUN_CLICK_MS < GUN_HOLD_MS;
+    return;
+  }
+  if (now - ctx.lastClickAt >= GUN_CLICK_MS) {
+    ctx.lastClickAt = now;
+    inp.fireSeq = ++ctx.fireSeq;
+  }
 }
 
 
@@ -524,6 +565,65 @@ async function captiveMinePhase(log) {
   await b.room.leave();
 }
 
+/** The seat gun id -> the CONFIG damage one hit lands, and the shell-reveal
+ *  family `w` the target is shown (Story 8.15). Read from CONFIG, never typed. */
+const GUN_DAMAGE = { deckGun: CONFIG.gun.damage, machineGun: CONFIG.machineGun.damage, flak: CONFIG.flak.damage };
+const GUN_W = { deckGun: 'cannon', machineGun: 'mg', flak: 'flak' };
+
+/**
+ * PHASE 7 — THE THREE GUNS (Story 8.15). One fresh room per gun: a shooter
+ * seated with that `gun` join option (and an EMPTY weapon row, so slot 0 is
+ * the only weapon aboard) fires at a stationary Mine Layer from a dead stop.
+ * Asserts the shooter's own frame reads the picked gun, at least one hit at
+ * exactly that gun's CONFIG damage (4 / 12 / 15), and that every shell reveal
+ * the TARGET is shown carries that gun's family `w` ('mg' / 'flak' /
+ * 'cannon'). The machine gun is driven as a LEVEL — `held: true` on slot 0
+ * for ~1 s, then released — never a click (its fireSeq must stay 0).
+ */
+async function gunPhase(log, gun) {
+  const a = await joinClient(`GUN-${gun}`, 'torpedoBoat', { weapon: [], fresh: true, gun });
+  const b = await joinClient(`TGT-${gun}`, 'mineLayer', { weapon: [], roomId: a.room.roomId });
+  await sleep(300);
+  assert(a.welcome && b.welcome, `${gun}: missing welcome`);
+  await rendezvous(a, b, log);
+  // Coast to a dead stop (throttle 0) so the target really is stationary.
+  const settleUntil = Date.now() + 4000;
+  await pilotUntil([a, b], () => {
+    a.goal = { mode: 'idle' };
+    b.goal = { mode: 'idle' };
+  }, () => Date.now() >= settleUntil, 10000, `${gun}: settle`);
+  assert(a.you.gun === gun, `${gun}: the shooter's own frame reads gun '${a.you.gun}'`);
+  const range = dist(a.you, b.you);
+  const dmg0 = b.dmg.length;
+  const w0 = b.shellW.length;
+  const t0 = Date.now();
+  let heldSent = 0;
+  await pilotUntil([a, b], () => {
+    a.goal = { mode: 'gun', gun, target: b.you, t0 };
+    b.goal = { mode: 'idle' };
+    if (gun === 'machineGun' && (Date.now() - t0) % GUN_CLICK_MS < GUN_HOLD_MS) heldSent += 1;
+  }, () => b.dmg.slice(dmg0).some((d) => d.amount === GUN_DAMAGE[gun]), 30000, `${gun}: a ${GUN_DAMAGE[gun]}-damage hit`);
+  // Let any shell still in flight land, then stop firing.
+  const quietUntil = Date.now() + 1500;
+  await pilotUntil([a, b], () => {
+    a.goal = { mode: 'idle' };
+    b.goal = { mode: 'idle' };
+  }, () => Date.now() >= quietUntil, 5000, `${gun}: quiet`);
+  const hits = b.dmg.slice(dmg0).filter((d) => d.amount === GUN_DAMAGE[gun]);
+  const ws = b.shellW.slice(w0);
+  log.push(
+    `${gun}: range ${range.toFixed(0)}u, ${GUN_DAMAGE[gun]}-dmg hits=${hits.length}, ` +
+      `target saw ${ws.length} shell reveals w=[${[...new Set(ws)].join(',')}]` +
+      (gun === 'machineGun' ? `, held ticks sent=${heldSent}, fireSeq=${a.fireSeq}` : ''),
+  );
+  assert(hits.length >= 1, `${gun}: no ${GUN_DAMAGE[gun]}-damage hit recorded on the target`);
+  assert(ws.length > 0, `${gun}: the target never saw a shell reveal (the w check would be vacuous)`);
+  for (const w of ws) assert(w === GUN_W[gun], `${gun}: a shell reveal carried w='${w}', expected '${GUN_W[gun]}'`);
+  if (gun === 'machineGun') assert(a.fireSeq === 0, 'machineGun: the stream sent a click edge — it must be a level only');
+  await a.room.leave();
+  await b.room.leave();
+}
+
 /** The phase trace, hoisted so a FAILED run still prints what passed. */
 const TRACE = [];
 
@@ -546,6 +646,8 @@ async function main() {
   // Story 8.13's two new lines, each in clean water of its own.
   await lightTorpedoPhase(log);
   await captiveMinePhase(log);
+  // Story 8.15: the three guns, each in clean water of its own.
+  for (const gun of ['deckGun', 'machineGun', 'flak']) await gunPhase(log, gun);
 
   console.log('WEAPONS SMOKE OK:', {
     room: a.room.roomId,

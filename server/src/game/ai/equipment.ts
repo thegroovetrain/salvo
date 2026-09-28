@@ -11,12 +11,11 @@
 // carried star shells natively while being flagged never to fire them.
 //
 // `EQUIPMENT_TACTICS` is a `Partial<Record<EquipmentId, EquipmentTactic>>` —
-// PARTIAL, deliberately, because four catalog-v3 weapons still have no module
-// (MISSILE, MACHINE GUN, FLAK, MONITOR — Stories 8.14-8.16). So it is NOT the
-// compile-forced completeness gate the server's equipment rows are
-// (game/equipment/index.ts): a bot simply has no knowledge of a weapon with no
-// row here, and `want()` is never asked about one it cannot carry. The gate
-// comes back when the registry does — a tactic per BUILT module.
+// PARTIAL by type, but since Story 8.15 built the last unbuilt modules
+// (MACHINE GUN, FLAK and the two class Shifts; MISSILE and MONITOR were CUT,
+// amendment 89(e)) it holds a row for EVERY equipment id the server registry
+// has, and botTactics.test.ts pins that totality. A bot with no row for a
+// fitted id would simply skip that slot (fail-closed).
 //
 // TEMPERAMENT MODULATES PROACTIVITY ONLY (ruled). There is ONE mine tactic
 // shared by everyone; `trapper` lays as a standing plan and `siege` lays only
@@ -45,6 +44,8 @@
 import {
   CONFIG,
   SHIP_CLASS_IDS,
+  SLOT_GUN,
+  WEAPON_SLOTS,
   bearing,
   blockedWater,
   inArc,
@@ -172,8 +173,8 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   foulingMines: APPETITE_NEUTRAL,
   // Story 8.15: the two pickable GUNS sit at the gun's own fallback appetite
   // (slot 0 is the always-available last resort whichever gun is mounted);
-  // the two new class SHIFTS take the boost's neutral base. Interim tactics
-  // (amendment 109) are Story 8.19's; missile and monitor are CUT (89e).
+  // the two new class SHIFTS take the boost's neutral base. The interim
+  // tactics (amendment 109) are below; Story 8.19 owns the real tables.
   machineGun: 0.5,
   flak: 0.5,
   broadside: APPETITE_NEUTRAL,
@@ -204,6 +205,17 @@ const APPETITE_FAMILY: Readonly<Partial<Record<EquipmentId, EquipmentId>>> = Obj
   lightTorpedo: 'heavyTorpedo',
   captiveMines: 'navalMines',
   foulingMines: 'navalMines',
+  // Story 8.15 (amendment 109, interim — Story 8.19 owns the tables): the two
+  // pickable guns speak through the CANNON's entry (slot 0 is the fallback
+  // whichever gun is mounted — the test rows' `gun: 2.0` must reach a
+  // machine-gun bot too), and the two class Shifts through the BOOST's (the
+  // slot-1 ability every hull carries one of). No profile names any of the
+  // four ids, so this adds no number: it is the same read that reached slot 0
+  // and slot 1 before the pick existed.
+  machineGun: 'gun',
+  flak: 'gun',
+  instantReload: 'boost',
+  damageCut: 'boost',
 });
 
 /** How eager this profile is about one equipment id — the profile's own entry,
@@ -221,6 +233,9 @@ export interface Shot {
   aim: number;
   aimDist: number;
   slot: number;
+  /** A LEVEL shot (Story 8.15): the machine gun streams while `held` is true
+   *  and ignores a click, so the brain sends `held` and NO fireSeq edge. */
+  held?: true;
 }
 
 /** How a tactic's output reaches the world: a 'shot' needs a target and is
@@ -356,9 +371,9 @@ function behindUs(self: BotSelf, sit: BotSituation, t: BotTrack): boolean {
 // GUN — every bot's default weapon, the always-available fallback.
 // ---------------------------------------------------------------------------
 
-/** A gun-family burst (gun / broadside): aimed to a clicked point at a
- *  clamped range, coastline-gated. */
-function burstSolve(ctx: TacticContext, id: 'gun' | 'broadside', rangeU: number): Shot | null {
+/** A gun-family burst (cannon / broadside / flak): aimed to a clicked point at
+ *  a clamped range, coastline-gated. */
+function burstSolve(ctx: TacticContext, id: 'gun' | 'broadside' | 'flak', rangeU: number): Shot | null {
   const t = ctx.target;
   if (t === null) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, CONFIG[id].shellSpeed);
@@ -376,6 +391,48 @@ const gunTactic: EquipmentTactic = {
   // gate and no doctrine gate — every legality question lives in solve().
   want: (ctx) => ctx.target !== null,
   solve: (ctx) => burstSolve(ctx, 'gun', ctx.sit.stats.equipment.gun.rangeU),
+};
+
+// ---------------------------------------------------------------------------
+// THE TWO PICKABLE GUNS (Story 8.15, amendment 109 — interim; Story 8.19 owns
+// the tables). Both are 360° (amendment 106) and reach the radar rung.
+// ---------------------------------------------------------------------------
+
+/** FLAK: the cannon's burst-solve on the flak row — one shell to the led point,
+ *  bursting there. Same no-persistence, no-doctrine want as the cannon. */
+const flakTactic: EquipmentTactic = {
+  id: 'flak',
+  kind: 'shot',
+  reachU: (stats) => stats.equipment.flak.rangeU,
+  want: (ctx) => ctx.target !== null,
+  solve: (ctx) => burstSolve(ctx, 'flak', ctx.sit.stats.equipment.flak.rangeU),
+};
+
+/**
+ * THE MACHINE GUN'S STREAM: while the target sits inside the gun's reach, HOLD
+ * the level aimed at the lead solution (`held: true` on slot 0). It is never a
+ * click — the driver leaves fireSeq alone on a held tick — and the World fires
+ * one shell per `rateMs` for as long as the level stays up. The magazine gate
+ * is `slotReady` upstream (n > 0), so an empty magazine releases the level by
+ * never reaching here; a target leaving reach, or no target, releases it too.
+ * The coastline gate is the cannon's: a stream into a rock is a wasted belt.
+ */
+function streamSolve(ctx: TacticContext): Shot | null {
+  const t = ctx.target;
+  const rangeU = ctx.sit.stats.equipment.machineGun.rangeU;
+  if (t === null || distTo(ctx.sit, t) > rangeU) return null;
+  const p = aimPoint(ctx.mind, ctx.sit, t, CONFIG.machineGun.shellSpeed);
+  if (!shotReaches(ctx.self, ctx.sit, p)) return null;
+  const d = Math.min(Math.hypot(p.x - ctx.sit.x, p.y - ctx.sit.y), rangeU);
+  return { aim: bearing(ctx.self.state, p), aimDist: d, slot: ctx.slot, held: true };
+}
+
+const machineGunTactic: EquipmentTactic = {
+  id: 'machineGun',
+  kind: 'shot',
+  reachU: (stats) => stats.equipment.machineGun.rangeU,
+  want: (ctx) => ctx.target !== null,
+  solve: streamSolve,
 };
 
 // ---------------------------------------------------------------------------
@@ -839,6 +896,80 @@ const boostTactic: EquipmentTactic = {
 };
 
 // ---------------------------------------------------------------------------
+// THE CLASS SHIFTS (Story 8.15, amendment 109 — minimal interim rules; Story
+// 8.19 owns the tables). Abilities on the actSeq channel, like the boost.
+// ---------------------------------------------------------------------------
+
+/** ms — "has taken damage within the last SECOND" (amendment 109, verbatim). */
+const HURT_WINDOW_MS = 1000;
+
+/** The mounted gun's reach — "in range" for the INSTANT RELOAD rule. All three
+ *  guns sit on the radar rung today; reading the mounted row keeps the rule
+ *  honest if a ladder ever moves one. */
+function mountedGunReachU(self: BotSelf, stats: EffectiveStats): number {
+  const id = self.loadout[SLOT_GUN]?.equipmentId;
+  if (id === 'machineGun' || id === 'flak') return stats.equipment[id].rangeU;
+  return stats.equipment.gun.rangeU;
+}
+
+/** The slots INSTANT RELOAD serves (amendment 98): the mounted gun and the
+ *  Q/E/R weapon row — never the Shift slot, never the belt. */
+const RELOADABLE_SLOTS: readonly number[] = [SLOT_GUN, ...WEAPON_SLOTS];
+
+/** Is any weapon INSTANT RELOAD would serve reloading right now? */
+function weaponReloading(self: BotSelf): boolean {
+  for (const i of RELOADABLE_SLOTS) {
+    const slot = self.loadout[i];
+    if (slot === undefined || slot.equipmentId === null || slot.state === null) continue;
+    if (!isConsumableId(slot.equipmentId) && slot.state.reloadMsLeft > 0) return true;
+  }
+  return false;
+}
+
+/** INSTANT RELOAD (the Mine Layer's Shift): pressed when the target is in the
+ *  mounted gun's reach AND a weapon it would serve is reloading. */
+const instantReloadTactic: EquipmentTactic = {
+  id: 'instantReload',
+  kind: 'ability',
+  reachU: () => 0,
+  want: (ctx) =>
+    ctx.target !== null &&
+    appetiteFor(ctx.sit.profile, 'instantReload') >= APPETITE_NEUTRAL &&
+    distTo(ctx.sit, ctx.target) <= mountedGunReachU(ctx.self, ctx.sit.stats) &&
+    weaponReloading(ctx.self),
+  solve: () => null,
+};
+
+/**
+ * Stamp `mind.lastHurtAt` from the bot's own fogged view: a `dmg` event is
+ * VICTIM-PRIVATE (only the hull that took it is shown it) and the storm emits
+ * none, so any `dmg` with a positive amount in this view is weapon damage to
+ * THIS hull. The DAMAGE CUT rule's one input; called once per folded view.
+ */
+export function noteHurt(mind: BotMind, now: number): void {
+  if (mind.view === null) return;
+  for (const e of mind.view.events) {
+    if (e.k === 'dmg' && e.amount > 0) {
+      mind.lastHurtAt = now;
+      return;
+    }
+  }
+}
+
+/** DAMAGE CUT (the Battleship's Shift): pressed within one second of taking
+ *  weapon damage, and not otherwise. */
+const damageCutTactic: EquipmentTactic = {
+  id: 'damageCut',
+  kind: 'ability',
+  reachU: () => 0,
+  want: (ctx) =>
+    ctx.mind.lastHurtAt !== undefined &&
+    ctx.sit.now - ctx.mind.lastHurtAt <= HURT_WINDOW_MS &&
+    appetiteFor(ctx.sit.profile, 'damageCut') >= APPETITE_NEUTRAL,
+  solve: () => null,
+};
+
+// ---------------------------------------------------------------------------
 // THE REGISTRY — PARTIAL over EquipmentId (Story 8.1), deep-frozen like the
 // server's own EQUIPMENT registry, and keyed exactly like it: a weapon whose
 // module does not exist cannot be fitted, so it needs no tactic. tactics.ts
@@ -853,12 +984,16 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 
 export const EQUIPMENT_TACTICS: Readonly<Partial<Record<EquipmentId, EquipmentTactic>>> = deepFreezeRows({
   gun: gunTactic,
+  machineGun: machineGunTactic,
+  flak: flakTactic,
   heavyTorpedo: torpedoTactic,
   lightTorpedo: lightTorpedoTactic,
   navalMines: mineTactic,
   captiveMines: captiveMineTactic,
   foulingMines: foulingMineTactic,
   boost: boostTactic,
+  instantReload: instantReloadTactic,
+  damageCut: damageCutTactic,
   broadside: broadsideTactic,
   starShells: starShellsTactic,
   radarBuoy: radarBuoyTactic,

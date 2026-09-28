@@ -111,7 +111,7 @@ import {
 import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
-import { slotAppetite, tacticFor, type Shot, type TacticContext } from './equipment.js';
+import { noteHurt, slotAppetite, tacticFor, type Shot, type TacticContext } from './equipment.js';
 import {
   choosePosture,
   foldView,
@@ -833,7 +833,22 @@ function helmFor(
  * prune or re-credit Hit Calls against it.
  */
 function ingest(mind: BotMind, port: BotWorldPort): void {
-  if (mind.view !== null && mind.viewAt === port.now) foldView(mind, mind.view, port.now);
+  if (mind.view === null || mind.viewAt !== port.now) return;
+  foldView(mind, mind.view, port.now);
+  noteHurt(mind, port.now); // Story 8.15: the DAMAGE CUT rule's own-hull clock
+}
+
+/** The trigger half of a decision. A LEVEL shot (the machine gun, Story 8.15)
+ *  becomes `held: true` with NO fireSlot — so no fireSeq edge and `slot` 0 on
+ *  the wire; every other shot is the ordinary click on its slot. */
+function triggerOf(
+  self: BotSelf,
+  target: BotTrack | null,
+  shot: Shot | null,
+): Pick<BotDecision, 'aim' | 'aimDist' | 'fireSlot' | 'held'> {
+  if (shot === null) return { aim: idleAim(self, target), aimDist: 0, fireSlot: null, held: false };
+  const held = shot.held === true;
+  return { aim: shot.aim, aimDist: shot.aimDist, fireSlot: held ? null : shot.slot, held };
 }
 
 /**
@@ -884,9 +899,7 @@ export const COMBAT_BRAIN: BotBrain = {
     return {
       throttle: helm.throttle,
       rudder: helm.rudder,
-      aim: shot === null ? idleAim(self, target) : shot.aim,
-      aimDist: shot === null ? 0 : shot.aimDist,
-      fireSlot: shot === null ? null : shot.slot,
+      ...triggerOf(self, target, shot),
       actSlot: chooseAct(self, mind, port, sit, target, posture),
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };
@@ -915,6 +928,7 @@ export const COMBAT_BRAIN: BotBrain = {
       aimDist: 0,
       fireSlot: null,
       actSlot: null,
+      held: false,
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };
   },

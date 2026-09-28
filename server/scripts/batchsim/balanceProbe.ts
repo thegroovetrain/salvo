@@ -39,13 +39,13 @@ const deg = (d: number): number => (d * Math.PI) / 180;
 const fmt = (n: number, d = 1): string => n.toFixed(d);
 
 /** A stationary hull at `pos`, heading `head` (rad). */
-function hullAt(hullId: HullId, pos: Vec2, head: number): { id: string; poly: Vec2[] } {
+function hullAt(hullId: HullId, pos: Vec2, head: number): { id: string; kind: 'hull'; poly: Vec2[] } {
   const poly = transformPolygon(hullSilhouette(hullId), pos.x, pos.y, head, []);
-  return { id: 'target', poly };
+  return { id: 'target', kind: 'hull', poly };
 }
 
 /** How many of `targets` (burst points) land on the hull. */
-function shellsOn(targets: readonly Vec2[], burstRadius: number, hull: { id: string; poly: Vec2[] }): number {
+function shellsOn(targets: readonly Vec2[], burstRadius: number, hull: { id: string; kind: 'hull'; poly: Vec2[] }): number {
   let n = 0;
   for (const t of targets) if (burstVictims(t, burstRadius, [hull], 'shooter').length > 0) n += 1;
   return n;
