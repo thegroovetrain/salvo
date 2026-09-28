@@ -2399,12 +2399,12 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: epics.md Story 8.14; GDD "THE COMMON POOL".
 
 - source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
-  status: OPEN — Eric (numbers), needed by Story 8.15
+  status: RESOLVED 2026-09-28 — Eric (amendments 97-102): INSTANT RELOAD 45 s cooldown, finishes one reload only (never a pool refill); DAMAGE CUT 8 s active / 30 s cooldown, applied before the shield, weapons only (storm excluded), a whole-number hit rounds down and a burn tick halves exactly; SPEED BOOST keeps the shipped 25 s cooldown (not re-opened). Built in 8.15.
   summary: THE CLASS SHIFT NUMBERS. INSTANT RELOAD (`mineLayer`) cooldown; DAMAGE CUT (`battleship`) duration and cooldown, and its order relative to SHIELD BLOCK inside `applyDamage`; SPEED BOOST (`torpedoBoat`) keeps the shipped numbers but the GDD's 20 s cooldown vs the shipped 25 s (`CONFIG.boost.reloadMs`) needs Eric's confirm-or-re-rule.
   evidence: epics.md Story 8.15; GDD "The class `Shift`".
 
 - source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
-  status: OPEN — Eric (authored ladders), needed by Story 8.15
+  status: RESOLVED 2026-09-28 — Eric (amendments 103-105): machine gun 4 dmg/shell, 0.5 s cadence, 660 u, 16-shell magazine at Tier I, 15 s flat reload, ladder +2 shells/+1 dmg/-5% per tier; flak 12 dmg in a 50 u blast, 660 u, 6 s reload, ladder +2 dmg/-5% per tier (blast fixed); both supersede the catalog-v3 draft numbers named below. Built in 8.15.
   summary: MACHINE GUN AND FLAK GUN LADDERS. Each mountable gun gets its own ladder offered only while mounted; the steps and caps are unauthored. The MG's 4 dmg / 0.25 s / 250 u / 6 s / 15 s and the flak's 10 dmg r40 u / 8 s are carried from catalog v3 as `[DRAFT]` and may be re-tuned as guns rather than equipment lines.
   evidence: epics.md Story 8.15; GDD "The mountable guns".
 
@@ -2436,7 +2436,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: amendment 94.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
-  status: OPEN — Story 8.15
+  status: RESOLVED 2026-09-28 — Story 8.15 mapped the two guns: `MOUNTED_GUN` now sends `machineGun` -> `machineGun` and `flak` -> `flak` (deck gun unchanged at `'gun'`).
   summary: `MOUNTED_GUN` (shared/src/sim/loadout.ts) maps all three GunIds to the deck-gun module `'gun'`; 8.15 changes the `machineGun`/`flak` entries when their modules exist. `slotsWithCards(…, gun)` and `loadoutFor(…, gun)` already carry the seat's gun on both sides, so nothing else re-mounts.
   evidence: `shared/src/sim/loadout.ts` `MOUNTED_GUN`; amendment 95.
 
@@ -2469,4 +2469,51 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: OPEN — awareness (ledgered flake, like matchSmoke)
   summary: `weaponsSmoke.mjs` IS PILOTING-FLAKY ACROSS PHASES: on the final 8.14 code it failed three times in a row at three DIFFERENT hit-dependent phases (six mines live at once — 200 s; the mine ambush — 60 s; the light-torpedo kill — 300 s, seven straight 40-dmg hits at a 25 s cadence racing the out-of-combat regen) and passed cleanly on the fourth run (every phase, the seven fish landing at T+4/29/54/80/105/131/156 s). The server was not slow (tick p50 0.45 ms) and nothing in 8.14 touches mines or torpedoes; the variance is the rendezvous/hold geometry on a random map. The smoke now prints its phase trace and per-hit progress on failure, so the next reader can see which phase starved instead of guessing. Widen the budgets or seed the map before trusting a single red run.
   evidence: runs 1–4 on 2026-09-22 against a scratch server on :2621 (job tmp logs weaponsSmoke*.log); `/metrics` tick p50 0.45 ms during run 3.
+
+## 2026-09-28 — Story 8.15 The Gun Pick and the Class Shifts (cycle 150, 0.18.15)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Eric, standing (amendment 105)
+  summary: THE FLAK GUN'S `ordnance` TARGET KIND IS A SIDE EFFECT, NOT A FEATURE. Eric, verbatim: *"'Anti-ordinance tool' is a SIDE EFFECT, not a FEATURE, and it might GO AWAY. These are tools for KILLING ENEMY SHIPS first and foremost."* The flak burst's mask (`hull | mine | decoy | ordnance`) does take down enemy torpedoes and decoys caught in the blast, but nothing in the design, the copy or a future balance pass may lean on it being there — Eric may cut the `ordnance` half of the mask at any time with no further ceremony.
+  evidence: amendment 105; `server/src/game/world.ts` flak burst mask / `hitTargets(['ordnance'])`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — 8.16/8.20 or a later pass
+  summary: A FISH SHOT DOWN BY FLAK LEAVES A CLIENT-SIDE GHOST. A torpedo removed by a flak burst (`shells.delete` + `forgetBallistic` + `orphanTorpWake`) gets no boom and no `hc`, so the observing client — which was dead-reckoning that torpedo from its last reveal — keeps drawing it until its own prediction culls it off naturally. This is AR44's presentation gap, carried forward rather than fixed: it needs either a removal signal or a client-side "this torpedo is gone" hint, and both are out of 8.15's scope (amendment 105's "side effect, may go away" makes investing in the presentation now a bad bet).
+  evidence: AR44; amendment 105; `server/src/game/world.ts` ordnance-collector removal path (no `hc`/boom on a struck fish).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Eric's eye on staging (amendment 110)
+  summary: FOUR IMPLEMENTER DRAFTS AWAIT ERIC'S SIGN-OFF. The four new HUD glyphs (machine gun, flak gun, INSTANT RELOAD, DAMAGE CUT), the class-select card's chip layout (the new `SPECIAL` row + the `DECK GUN` three-chip row), the held-fire drain bar (amber outline + magazine level draining along the slot floor while the stream fires), the tracer look driven by shell family `w` (mg/flak/cannon), and the two new ladder lines' hover stat descriptions are all drawn/written in the existing style but are drafts, not ratified — flag them for review once staging is up.
+  evidence: amendment 110.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Story 8.19
+  summary: THE RL FEATURE VECTOR SHRANK — SAVED MODELS ARE NOW INVALID. `server/scripts/rl/features.ts`'s `CARD_IDS` is derived from `Object.keys(CATALOG)`, so the missile/monitor/heat-seeking cut shrinks it along with everything else the catalog loses; `FEATURE_VERSION` was bumped to 2 with a comment recording the break, but any saved model trained against version 1 no longer lines up with the new vector and must be retrained.
+  evidence: `server/scripts/rl/features.ts:18` (`FEATURE_VERSION = 2` comment), `:21` (`CARD_IDS`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Story 8.19
+  summary: REAL BOT GUN-MIX AND SHIFT-TACTIC TABLES ARE DEFERRED. 8.15 seats each bot with one of the three guns drawn uniformly from the room's seeded stream (no per-profile gun preference) and runs the interim Shift tactics amendment 109 spells out (Mine Layer: INSTANT RELOAD when target-in-range and readiest weapon reloading; Battleship: DAMAGE CUT after taking damage within the last second; Torpedo Boat: the shipped boost rule). The harness's bars for gun mix and Shift-tactic effectiveness are 8.19's, per the amendment.
+  evidence: amendment 109; `server/src/game/ai/profiles.ts`, `botDriver.ts`, `types.ts` (interim tactics + `BotDecision.held`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — flag for Eric (orchestrator reading of amendment 98)
+  summary: INSTANT RELOAD RESTARTS A STILL-SHORT POOL'S TIMER AT THE FULL RELOAD, NOT AT ZERO. `World.finishReloads` completes one round on every reloading slot; if that round still leaves the pool short of `maxAmmo` (any pool bigger than one round from full — e.g. a torpedo pool of 2+), the slot's timer restarts at the FULL `reloadMs` rather than being left at 0. The implementer's read of amendment 98 ("finishes one reload only — it does not refill a pool") is that a zero timer on a still-short pool would silently hand out a second free round on the very next tick, which the amendment's wording rules out — but Eric never said which way the timer should land, only that the pool isn't refilled. Worth his explicit call if the behavior reads wrong on staging.
+  evidence: `server/src/game/world.ts:5349` `finishReloads` (`slot.state.reloadMsLeft = slot.state.n < maxAmmo ? equipmentReloadMs(...) : 0`); amendment 98.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — flag for Eric (orchestrator reading)
+  summary: THE ATTACKER'S DAMAGE TALLY READS THE POST-CUT AMOUNT. `applyDamage` halves the blow (DAMAGE CUT) before the shield, then calls `creditDamage(byId, victim.id, net, dealt)` with `net` — the POST-cut, post-shield figure — so a Battleship under DAMAGE CUT deflates every attacker's `damageDealt` (the results-screen tally) exactly as much as it deflates the hp actually lost, even though `damageDealt` is documented elsewhere as "the FULL nominal damage of the blow." Eric may prefer the attacker's tally to read the NOMINAL (pre-cut) amount instead, so the results screen credits what was swung rather than what landed.
+  evidence: `server/src/game/world.ts:4349` (`this.creditDamage(byId, victim.id, net, dealt)`), `:4427-4442` (`creditDamage` comment: "`amount` is the FULL nominal damage of the blow... is what `damageDealt` has always counted"), `:4367` `cutDamage`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — awareness (audio is design, not code)
+  summary: THE MACHINE GUN HAS NO GUN-SPECIFIC FIRING SOUND, AND ITS EMPTY-MAGAZINE CLICK PLAYS A DENIAL TONE THE SERVER NEVER SENT. Every own `mz` (muzzle flash) event, whatever the shooter's mounted gun, plays the same single `gunReport` world tone (`client/src/net/roomBindings.ts` `handleMuzzle`) — there is no distinct machine-gun crack. Separately, a click on an empty machine-gun magazine is predicted client-side as a denial and plays the existing `denied` cue, even though the server sends no denial message for a held-fire weapon at zero ammo (the empty state is only ever visible in the ammo readout). Both are ledgered as awareness for whoever next touches gun audio; nothing here blocks the story.
+  evidence: `client/src/net/roomBindings.ts` `handleMuzzle`/`worldTone('gunReport', ...)`; `client/src/audio/deniedCue.ts` (the shared predicted-denial cue).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Story 9.11 doc-sync
+  summary: SEVERAL PLANNING DOCS NOW CARRY SUPERSEDED 8.15 CLAUSES. `epics.md`'s Story 8.15 AC, the GDD and `catalog-v3.md` still say the machine gun has a bow ±90° arc (voided by amendment 106, "no arc — every gun fires 360°"), still carry the catalog-v3 R20/R21/R26/R27 draft numbers (superseded by amendments 103-105), still use the word "tilt" (superseded by amendment 91's "weighting"), and the 8.15 AC's class-select wording still describes a picker/unlock surface rather than the minimal chip row amendment 107 actually built; the GDD's Shift boost also still lists a 20 s cooldown against the shipped 25 s. None of this is corrected here — Story 9.11 is the doc-sync pass.
+  evidence: amendments 91, 97-108; epics.md Story 8.15 AC; GDD class/arc tables; catalog-v3.md R20/R21/R26/R27.
 

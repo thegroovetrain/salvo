@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.15] - 2026-09-28
+
+### Changed
+- **The gun is a real pick (Story 8.15)** — class select gains a `DECK GUN` row of three chips (CANNON / MACHINE GUN / FLAK, CANNON preselected) beside a new `SPECIAL` row naming the hull's class Shift (`SPEED BOOST` / `INSTANT RELOAD` / `DAMAGE CUT`); the pick is remembered beside the class and frozen at queue as the seat's `gun`. The plain deck gun is named `CANNON` everywhere in match; `DECK GUN` survives only as the category word.
+- **The machine gun** — a held-fire stream weapon: 4 damage per shell, one shell every 0.5 s while held, 660 u range, a 16-shell magazine at Tier I. The magazine reloads in 15 s flat: the reload starts the instant the magazine empties, or after 5 s without a shot while shells remain; firing during a partial-magazine reload cancels it and restarts the 5 s idle clock. Each shell is a direct hit with no burst, its own muzzle flash, and no denial on an empty magazine — the empty state just shows in the ammo readout. Its ladder (offered only while mounted) adds +2 shells, +1 damage and −5% reload per tier, four tiers.
+- **The flak gun** — one shell per click, 660 u range, a 6 s reload, bursting in a 50 u blast for 12 damage to every hull inside it. Its ladder (offered only while mounted) adds +2 damage and −5% reload per tier, four tiers; the blast radius never grows. As a side effect the burst also takes down enemy fish and decoys caught in it (own fish untouched) — this may be removed later and nothing leans on it.
+- **Every gun fires 360°** — the cannon, the machine gun and the flak gun all carry a full arc; there is no bow sector and no out-of-arc denial for any gun.
+- **The three class Shifts are fixed per hull, not a pick** — the Torpedo Boat keeps its shipped SPEED BOOST; the Mine Layer gets INSTANT RELOAD (one charge, 45 s cooldown): it completes the mounted gun's reload and every fitted weapon's running reload (the machine gun's magazine goes straight to full) without touching the belt or itself; the Battleship gets DAMAGE CUT (8 s active, 30 s cooldown): while it's up, every weapon hit against the ship — shells, bursts, torpedoes, mines, contact hits and burn ticks — is halved (rounded down for whole hits, exactly for burn) before any shield absorbs it; storm damage is never cut.
+- **Missile, monitor and heat-seeking are deleted** — the three cut catalog lines and their stub cards are gone for good; the authored line count drops from 29 to 26.
+- **Shell reveals gain a gun-family field** — an observer now learns whether an incoming shell is a cannon round, a machine-gun round or a flak shell (never a torpedo); this is a declared, ledgered widening of what a reveal may carry.
+- **Bots** — each bot is seated with one of the three guns drawn uniformly, so staging fights all three guns; bots run interim Shift tactics (Mine Layer fires INSTANT RELOAD when reloading and in range, Battleship fires DAMAGE CUT after taking a hit, Torpedo Boat keeps its shipped boost rule).
+- **Network protocol** bumps to v58 (the held-fire input field, the shell-family reveal field, the catalog and Shift-id changes).
+
 ## [0.18.14] - 2026-09-22
 
 ### Changed
