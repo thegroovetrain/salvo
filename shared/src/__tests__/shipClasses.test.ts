@@ -25,6 +25,12 @@
 // speed retune. Hull dims are unchanged. These pins fail the moment any
 // envelope value drifts from the approved table without a matching test
 // change.
+//
+// THE `shift` KEY IS A DELIBERATE ADDITION (Story 8.15, Eric rulings
+// 2026-09-21/28, epic-8 amendments 89(c) and 97–99): hull identity is
+// envelope + a FIXED class Shift — TB `boost`, ML `instantReload`, BS
+// `damageCut`. Every envelope number is untouched; the identity table gains
+// exactly one key per class, knowingly.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -42,6 +48,7 @@ describe('ratified class table (exact Eric-approved values)', () => {
     expect(CONFIG.shipClasses.torpedoBoat).toEqual({
       hull: { length: 100, beam: 9 },
       hp: 250,
+      shift: 'boost', // Story 8.15, amendment 89(c)
       kinematics: {
         maxSpeed: 45,
         reverseSpeed: 15,
@@ -57,6 +64,7 @@ describe('ratified class table (exact Eric-approved values)', () => {
     expect(CONFIG.shipClasses.battleship).toEqual({
       hull: { length: 124, beam: 32 },
       hp: 350,
+      shift: 'damageCut', // Story 8.15, amendments 89(c)/99
       kinematics: {
         maxSpeed: 35,
         reverseSpeed: 9,
@@ -72,6 +80,7 @@ describe('ratified class table (exact Eric-approved values)', () => {
     expect(CONFIG.shipClasses.mineLayer).toEqual({
       hull: { length: 88, beam: 20 },
       hp: 300,
+      shift: 'instantReload', // Story 8.15, amendments 89(c)/97
       kinematics: {
         maxSpeed: 40,
         reverseSpeed: 14,

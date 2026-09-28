@@ -6,6 +6,7 @@
 // Angle helpers below keep mount/arc definitions readable in degrees.
 
 import type { TargetKind } from './sim/shell.js';
+import type { ShiftId } from './sim/loadout.js';
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
@@ -22,9 +23,12 @@ const SIGHT = 330;
  *
  * They are named by CONTENT rather than by weapon so the same list is shared
  * by every row that wants it and a reader can see at a glance which rows agree.
- * A STUB weapon (missile, machine gun, flak, monitor, light/supercav torpedo)
- * gets NO row until its own story — an undeclared mask is a loud failure, a
- * defaulted one is a silent wrong answer.
+ * A STUB weapon gets NO row until its own story — an undeclared mask is a loud
+ * failure, a defaulted one is a silent wrong answer. Story 8.15 declared the
+ * two pickable guns' rows: the MACHINE GUN hits hulls and decoys only (a
+ * direct-hit shell with no burst can never set a mine off), and the FLAK GUN
+ * adds `ordnance` (AR44; amendment 96(f)) — fish in flight, a SIDE EFFECT
+ * nothing leans on (amendment 105).
  *
  * `mine` IN A MASK IS BURST-ONLY (amendment 20, Eric 2026-09-16). It says the
  * weapon's BURST, at the point the shooter clicked, can set a mine off. It
@@ -32,9 +36,11 @@ const SIGHT = 330;
  * mine on its way somewhere else does not stop, does not set it off and tells
  * the shooter nothing (the World strips the bit off the mask it sweeps with).
  *
- * NOT a wire contract: the client never reads `hits`, so adding these rows does
- * NOT bump PROTOCOL_VERSION (pinned at 52 by a test).
+ * NOT a wire contract: the client never reads `hits` (pinned by the client's
+ * ordnanceMasksAreServerOnly test), so adding or changing these rows never by
+ * itself bumps PROTOCOL_VERSION.
  */
+const HITS_HULL_MINE_DECOY_ORDNANCE: readonly TargetKind[] = ['hull', 'mine', 'decoy', 'ordnance'];
 const HITS_HULL_MINE_DECOY: readonly TargetKind[] = ['hull', 'mine', 'decoy'];
 const HITS_HULL_DECOY: readonly TargetKind[] = ['hull', 'decoy'];
 const HITS_HULL: readonly TargetKind[] = ['hull'];
@@ -105,6 +111,9 @@ export const CONFIG = {
     torpedoBoat: {
       hull: { length: 100, beam: 9 }, // u — silhouette bow-to-stern / max beam
       hp: 250, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 2 pips
+      // THE CLASS SHIFT (Story 8.15, amendment 89(c)): hull identity is
+      // envelope + a FIXED Shift in slot 1 — SPEED BOOST on the Torpedo Boat.
+      shift: 'boost',
       kinematics: {
         maxSpeed: 45, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 15, // u/s — full-astern (magnitude)
@@ -117,6 +126,7 @@ export const CONFIG = {
     battleship: {
       hull: { length: 124, beam: 32 }, // u
       hp: 350, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 4 pips
+      shift: 'damageCut', // DAMAGE CUT (amendments 89(c), 99–102)
       kinematics: {
         maxSpeed: 35, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 9, // u/s — full-astern (magnitude)
@@ -129,6 +139,7 @@ export const CONFIG = {
     mineLayer: {
       hull: { length: 88, beam: 20 }, // u
       hp: 300, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 3 pips
+      shift: 'instantReload', // INSTANT RELOAD (amendments 89(c), 97–98)
       kinematics: {
         maxSpeed: 40, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 14, // u/s — full-astern (magnitude)
@@ -1171,6 +1182,70 @@ export const CONFIG = {
   },
 
   /**
+   * THE MACHINE GUN (Story 8.15, Eric rulings 2026-09-28, epic-8 amendments
+   * 103, 104 and 106) — a pickable deck gun mounted in slot 0 from the seat's
+   * `gun`. A HELD-FIRE MAGAZINE STREAM: while `InputMsg.held` is true it fires
+   * one shell every `rateMs` at `now` (no fire-time back-date), draining a
+   * `maxAmmo`-shell magazine. The full `reloadMs` reload starts the moment the
+   * magazine is EMPTY, or once `idleReloadMs` have passed without a shot while
+   * shells remain; a shot during that partial-magazine reload cancels it and
+   * restarts the idle clock; a completed reload always FILLS the magazine
+   * (amendment 103: every reload takes the full 15 s).
+   *
+   * DIRECT-HIT SHELLS WITH NO BURST: a shell that strikes a hull deals `damage`
+   * on contact; a shell reaching its aim point simply EXPIRES (the shooter's
+   * `sp` splash, no `burst` event). It can therefore never detonate a mine —
+   * its mask omits `mine` — and a shell in flight never touches one either
+   * (amendment 20). NO `burstRadius` and NO range field: range is DERIVED =
+   * the radar rung (660 u, re-pinned in effectiveStats like `gun.rangeU`;
+   * Eric: "set the Machine Gun range to 660"). 360° (amendment 106: "There
+   * is no 'arc.'"). Its ladder (+2 shells, +1 damage per tier, −5 % reload
+   * from the tier step) is the `machineGun` catalog line. Every number is a
+   * harness dial.
+   */
+  machineGun: {
+    arc: 'full', // 360° — amendment 106
+    hits: HITS_HULL_DECOY, // direct hit, no burst — never a mine
+    shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
+    maxAmmo: 16, // shells — the MAGAZINE at tier I (amendment 103)
+    rateMs: 500, // ms — one shell per 0.5 s while held (amendment 103)
+    reloadMs: 15000, // ms — the full-magazine reload, always the whole 15 s (amendment 103)
+    idleReloadMs: 5000, // ms — no shot for this long with shells left starts the reload (amendment 103)
+    damage: 4, // hp per shell (amendment 103)
+    shellRadius: 2, // u — shell collision radius (the gun family's)
+  },
+
+  /**
+   * THE FLAK GUN (Story 8.15, Eric rulings 2026-09-28, epic-8 amendments 96(f),
+   * 105 and 106) — a pickable deck gun mounted in slot 0 from the seat's `gun`.
+   * One shell per click to the clicked point at 500 u/s, AIR-BURSTING there in
+   * a `burstRadius` blast for `damage` to every hull inside it — the cannon's
+   * burst rule with Eric's numbers ("12 dmg / 50u blast / 660 u range / 6s").
+   * A hull crossing the shell's path takes `contactDamage` and stops it (the
+   * cannon's bodyblock rule; 4 = Eric's standing 40 % ratio, floored). NO
+   * range field: DERIVED = the radar rung (660 u). 360° (amendment 106).
+   *
+   * THE MASK is AR44's `hull | mine | decoy | ordnance` (amendment 96(f): a
+   * weapon for killing other players first). The `ordnance` half (enemy fish
+   * in flight inside the blast) is a SIDE EFFECT that might go away
+   * (amendment 105) — nothing in the design, copy or balance may lean on it.
+   * `mine`, as for every gun, is by BURST only (amendment 20). Its ladder (+2
+   * damage, −5 % reload per tier, blast FIXED) is the `flak` catalog line.
+   * Every number is a harness dial.
+   */
+  flak: {
+    arc: 'full', // 360° — amendment 106
+    hits: HITS_HULL_MINE_DECOY_ORDNANCE, // AR44 / amendment 96(f)
+    shellSpeed: 500, // u/s (amendment 105)
+    maxAmmo: 1, // one shell (amendment 105)
+    reloadMs: 6000, // ms (amendment 105)
+    damage: 12, // hp per burst victim (amendment 105)
+    contactDamage: 4, // hp to an early interceptor — 40 % of 12, floored (the bodyblock ratio)
+    burstRadius: 50, // u — FIXED; the ladder never grows it (amendment 105)
+    shellRadius: 2, // u — shell collision radius (the gun family's)
+  },
+
+  /**
    * Torpedoes (slot 1): bow tube. The FISH itself is never painted by radar —
    * no blip, and its 3/8 `detect` gate is untouched — but since Story 4.12
    * (Eric ruling 2026-08-08, amendment 196) its WAKE is: the ribbon of
@@ -1500,8 +1575,8 @@ export const CONFIG = {
 
   /**
    * THE SHIFT BOOST (Story 8.9) — an ACTIVATED ABILITY, not a weapon: it fires
-   * nothing and emits nothing spatial. It is UNIVERSAL, sitting in slot 1 on
-   * every captain hull, and NO CARD EVER TOUCHES IT — there is no boost line,
+   * nothing and emits nothing spatial. It was UNIVERSAL until Story 8.15 made
+   * it the TORPEDO BOAT's class Shift (amendment 89(c)), and NO CARD EVER TOUCHES IT — there is no boost line,
    * no tier and no stat path a card can address (Eric ruling 2026-09-18,
    * epic-8 amendments 54–55, verbatim: *"Build as-written, except 25s
    * reload."*). One press consumes its single charge and opens a `durationMs`
@@ -1533,6 +1608,40 @@ export const CONFIG = {
     durationMs: 10000, // ms — active window opened by one activation
     maxAmmo: 1, // single charge in the pool
     reloadMs: 25000, // ms — cooldown between activations (≥ durationMs, enforced)
+  },
+
+  /**
+   * INSTANT RELOAD — the MINE LAYER's class Shift (Story 8.15, Eric rulings
+   * 2026-09-28, epic-8 amendments 97–98). An instant activation, aimed at
+   * nothing: for the mounted gun and every fitted Q/E/R weapon whose reload is
+   * RUNNING, that ONE reload completes at once (one round tops up, timer to
+   * zero; the machine gun's magazine fills); rounds spent beyond that stay
+   * spent, and the belt and the Shift slot itself are never touched. One
+   * charge on a 45 s cooldown — longer than the longest weapon reload, so it
+   * never acts as a permanent second tube (amendment 97). `reloadMs` takes
+   * `cooldownScale` through the one multiply in clampStats like every row
+   * (33.75 s at a maxed RELOAD ladder).
+   */
+  instantReload: {
+    maxAmmo: 1, // single charge (amendment 97)
+    reloadMs: 45000, // ms — cooldown (amendment 97)
+  },
+
+  /**
+   * DAMAGE CUT — the BATTLESHIP's class Shift (Story 8.15, Eric rulings
+   * 2026-09-28, epic-8 amendments 99–102). An instant activation, aimed at
+   * nothing, that opens a `durationMs` window during which every WEAPON blow
+   * to this hull is multiplied by `factor` BEFORE the shield absorbs it
+   * (amendment 100) — a hit floored to a whole number, a burn tick halved
+   * exactly (amendment 102); storm bites land in full (amendment 101). One
+   * charge on a 30 s cooldown; `reloadMs` takes `cooldownScale` like every row
+   * (22.5 s at a maxed RELOAD ladder).
+   */
+  damageCut: {
+    factor: 0.5, // × incoming weapon damage while the window is open (amendment 89(c))
+    durationMs: 8000, // ms — the active window (amendment 99)
+    maxAmmo: 1, // single charge (amendment 99)
+    reloadMs: 30000, // ms — cooldown (amendment 99)
   },
 
   /**
@@ -2293,6 +2402,17 @@ export function fleetLevels(): number {
     CONFIG.fleet.composition.medium * tiers.droneMedium +
     CONFIG.fleet.composition.small * tiers.droneSmall
   );
+}
+
+/**
+ * THE CLASS SHIFT a hull fits in slot 1 (Story 8.15, amendment 89(c)) — the
+ * one read of `CONFIG.shipClasses.<id>.shift`, and the compile check that
+ * every class names a real `ShiftId`. Both sides call it with the class id, so
+ * the server's fit and the client's replay can never disagree. Drones have no
+ * Shift (and no ship-class id), so they never reach it.
+ */
+export function classShift(id: ShipClassId): ShiftId {
+  return CONFIG.shipClasses[id].shift;
 }
 
 /** Coerce arbitrary (wire/localStorage) input to a valid class id, default 'torpedoBoat'. */

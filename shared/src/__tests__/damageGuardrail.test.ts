@@ -110,6 +110,29 @@ describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, 
   });
 });
 
+describe('one-hit-kill guardrail — THE TWO PICKABLE GUNS (Story 8.15, amendments 103–105)', () => {
+  it('the MACHINE GUN, restated PER SHELL: 8 dmg at cap × 1 barrel stays under the lightest class hull', () => {
+    // The machine gun is a STREAM, so the law is stated per shell — the unit
+    // the gate sees — exactly as a multi-barrel cannon click is bounded per
+    // shell below. One barrel, direct hit, no burst.
+    const capped = stacked('machineGun').equipment.machineGun;
+    expect(capped.damage).toBe(8); // 4 → 8 at tier V (amendment 104)
+    expect(capped.damage * 1).toBeLessThan(minHullHp);
+    expect(CONFIG.machineGun.damage).toBeLessThan(minHullHp);
+    // Even a WHOLE capped magazine (24 × 8 = 192) cannot sink the 250 hp hull
+    // from full — a record, not a law: the stream is bounded per shell.
+    expect(capped.maxAmmo * capped.damage).toBeLessThan(minHullHp);
+  });
+
+  it('the FLAK burst and bodyblock stay under the floor at every rung (12 → 20)', () => {
+    const capped = stacked('flak').equipment.flak;
+    expect(capped.damage).toBe(20);
+    expect(capped.damage).toBeLessThan(minHullHp);
+    expect(capped.contactDamage).toBe(4); // FIXED — the ladder never steps it
+    expect(CONFIG.flak.contactDamage).toBeLessThanOrEqual(CONFIG.flak.damage);
+  });
+});
+
 describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming economy (Story 5.6, amendment 34; epic-6 amendment 24)', () => {
   it('the GUN — the fleet-clearing weapon — still cannot one-shot even the smallest drone', () => {
     // This is the one that must hold: the gun is the weapon the TTK ladder is
@@ -170,16 +193,19 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
       expect(read(s2, path), path).toBeLessThan(minHullHp);
     }
     // THE LADDERS THAT ACTUALLY MOVE DAMAGE TODAY: the DECK GUN (R14,
-    // +1.25/tier, Story 8.1) and the FOUR Story 8.13 lines that step +5/tier.
+    // +1.25/tier, Story 8.1), the FOUR Story 8.13 lines that step +5/tier, and
+    // the two Story 8.15 gun ladders (MACHINE GUN +1/tier, FLAK +2/tier).
     // FOULING MINES is deliberately absent — its 10 hp is FIXED at every tier
-    // (epic-8 amendment 81) — and so is every 8.14/8.16 line, whose tiers are
+    // (epic-8 amendment 81) — and so is every 8.16 line, whose tiers are
     // still empty. Each of those will land under this same sweep on the day it
     // does, with no edit here.
     expect(damagePaths.filter((p) => maxStackFor(p).length > 0).sort()).toEqual([
       'equipment.captiveMines.damage',
+      'equipment.flak.damage',
       'equipment.gun.damage',
       'equipment.heavyTorpedo.damage',
       'equipment.lightTorpedo.damage',
+      'equipment.machineGun.damage',
       'equipment.navalMines.damage',
     ]);
   });

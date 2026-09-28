@@ -1,9 +1,9 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
-// Pinned here: 29 lines / 122 cards with the exact per-line caps and kinds of
+// Pinned here: 26 lines / 109 cards with the exact per-line caps and kinds of
 // `catalog-v3.md` §1 as amended; `tiers.length === cap` on every line; the
-// 10-line stub set; the validator's rules, including its refusal of a stat
+// 5-line stub set; the validator's rules, including its refusal of a stat
 // path that takes `add` from one line and `mult` from another; and a seeded
 // permutation property — ≥200 shuffles of random legal multisets over all
 // three classes, deep-equal AND JSON-identical.
@@ -12,8 +12,14 @@
 // 89a). `DEFAULT_DECKS`, `DEFAULT_OWNED` and `deckFromCounts` no longer exist:
 // every dealable line is drawable by every captain from the common pool, so
 // there is no authored 40-card list to transcribe and no ownership set to
-// check a deck against. The card TOTAL stays 122 — it is simply Σ cap, a count
-// of authored ladder, not a supply.
+// check a deck against. The card TOTAL is simply Σ cap, a count of authored
+// ladder, not a supply.
+//
+// STORY 8.15 CUT THREE LINES AND RE-CUT TWO (Eric rulings 2026-09-21/28, epic-8
+// amendments 89e and 103–105): 29/122 -> 26/109. −11 (`missile` 5, `monitor`
+// 5, `heatSeeking` 1), and −2 because `machineGun` and `flak` went from
+// 5-copy stub EQUIPMENT lines to 4-copy LADDERS — the guns themselves are the
+// seat's pick and only their ladders are cards.
 //
 // STORY 8.13 RE-CUT FOUR LINES' KINDS (Eric rulings 2026-09-19, epic-8
 // amendments 74/80/81/83), which is why the CARD TOTAL moved 114 -> 122
@@ -27,6 +33,7 @@ import * as shared from '../index.js';
 import {
   CATALOG,
   CONFIG,
+  EQUIPMENT_IDS,
   LINE_IDS,
   SHIP_CLASS_IDS,
   catalogCardCount,
@@ -34,6 +41,7 @@ import {
   isStubLine,
   mulberry32,
   resolveCards,
+  tierTargetOf,
   validateCatalog,
   validateLine,
   type Catalog,
@@ -58,10 +66,10 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   supercavTorpedo: { cap: 5, kind: 'consumable', stub: false },
   navalMines: { cap: 5, kind: 'equipment', stub: false },
   captiveMines: { cap: 5, kind: 'equipment', stub: false }, // LIVE since 8.13 (R25)
-  missile: { cap: 5, kind: 'equipment', stub: true },
-  machineGun: { cap: 5, kind: 'equipment', stub: true },
-  flak: { cap: 5, kind: 'equipment', stub: true },
-  monitor: { cap: 5, kind: 'equipment', stub: true },
+  // THE TWO PICKABLE GUNS' LADDERS since 8.15 (amendments 104/105) — each
+  // keeps its locked LINE_IDS slot; `missile`/`monitor` are CUT (89e).
+  machineGun: { cap: 4, kind: 'ladder', stub: false },
+  flak: { cap: 4, kind: 'ladder', stub: false },
   broadside: { cap: 5, kind: 'equipment', stub: false },
   starShells: { cap: 5, kind: 'equipment', stub: false },
   hullRepair: { cap: 5, kind: 'consumable', stub: false }, // LIVE since Story 8.8 (R13)
@@ -72,40 +80,40 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   depthCharge: { cap: 5, kind: 'consumable', stub: true }, // NEW in 8.13 (amendment 83)
   // AN EQUIPMENT LINE since 8.13 (amendment 81) — it keeps its LINE_IDS slot.
   foulingMines: { cap: 5, kind: 'equipment', stub: false },
-  heatSeeking: { cap: 1, kind: 'addon', stub: true },
   dazzleShells: { cap: 1, kind: 'addon', stub: false },
   phosphorShells: { cap: 1, kind: 'addon', stub: false },
 };
 
-/** The 10 stub ids (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
+/** The 5 stub ids (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
  *  built HULL REPAIR's effect, 12 until Story 8.13 built the LIGHT TORPEDO,
  *  the CAPTIVE MINE and the SUPERCAV TORPEDO (which also stopped being an
- *  equipment line) and added the stub DEPTH CHARGE. */
+ *  equipment line) and added the stub DEPTH CHARGE, 10 until Story 8.15 cut
+ *  missile/monitor/heatSeeking and built the machine gun and flak ladders.
+ *  Every one left is a CONSUMABLE (8.16's). */
 const STUB_IDS: readonly LineId[] = [
-  'missile', 'machineGun', 'flak', 'monitor',
-  'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge', 'heatSeeking',
+  'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge',
 ];
 
 describe('catalog v3 identity', () => {
-  it('ships 29 lines in the ruled order, keyed by id', () => {
-    expect(LINE_IDS.length).toBe(29);
+  it('ships 26 lines in the ruled order, keyed by id', () => {
+    expect(LINE_IDS.length).toBe(26);
     expect(Object.keys(CATALOG)).toEqual([...LINE_IDS]);
     for (const id of LINE_IDS) expect(CATALOG[id].id).toBe(id);
   });
 
-  it('matches the sheet line for line (cap, kind, stub) and sums to 114 cards', () => {
+  it('matches the sheet line for line (cap, kind, stub) and sums to 109 cards', () => {
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       expect({ cap: line.cap, kind: line.kind, stub: line.stub === true }).toEqual(SHEET[id]);
     }
-    expect(catalogCardCount()).toBe(122);
+    expect(catalogCardCount()).toBe(109);
   });
 
   it('has tiers.length === cap on every line', () => {
     for (const id of LINE_IDS) expect(CATALOG[id].tiers.length).toBe(CATALOG[id].cap);
   });
 
-  it('pins the 10-line stub set exactly', () => {
+  it('pins the 5-line stub set exactly — no equipment or ladder stub is left (Story 8.15)', () => {
     expect(LINE_IDS.filter((id) => isStubLine(id)).sort()).toEqual([...STUB_IDS].sort());
     expect(isStubLine('nope')).toBe(false);
   });
@@ -124,11 +132,11 @@ describe('catalog v3 identity', () => {
         expect(line.tiers[1]!.length, id).toBeGreaterThan(0);
         for (const e of line.tiers[1]!) expect(e.kind, id).toBe('stat');
       } else {
-        // broadside + star shells (8.16) and the four gun-family stubs (8.14).
+        // broadside + star shells (8.16).
         expect(line.tiers.slice(1), id).toEqual([[], [], [], []]);
       }
     }
-    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'equipment')).toHaveLength(11);
+    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'equipment')).toHaveLength(7);
   });
 
   it('NO equipment tier authors a reload effect — the −5 %/tier step is DERIVED', () => {
@@ -152,18 +160,49 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('wires each of the THREE surviving add-ons to the equipment catalog-v3 §4 names', () => {
-    // TWO ADD-ONS ARE GONE (Eric rulings 2026-09-19, epic-8 amendments 80/81):
-    // ACOUSTIC HOMING is deleted outright (homing became a tier stat on the
-    // torpedo lines) and FOULING MINES became its own tiered EQUIPMENT line.
+  it('wires each of the TWO surviving add-ons to the equipment catalog-v3 §4 names', () => {
+    // TWO ADD-ONS WENT IN 8.13 (Eric rulings 2026-09-19, epic-8 amendments
+    // 80/81): ACOUSTIC HOMING is deleted outright (homing became a tier stat on
+    // the torpedo lines) and FOULING MINES became its own tiered EQUIPMENT line.
+    // A THIRD WENT IN 8.15: HEAT SEEKING is CUT with the missile (89e).
     expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'addon')).toEqual([
-      'heatSeeking', 'dazzleShells', 'phosphorShells',
+      'dazzleShells', 'phosphorShells',
     ]);
-    expect(CATALOG.heatSeeking.appliesTo).toEqual(['missile']);
     expect(CATALOG.dazzleShells.appliesTo).toEqual(['starShells']);
     expect(CATALOG.phosphorShells.appliesTo).toEqual(['starShells']);
-    expect(CATALOG.heatSeeking.tiers[0]).toEqual([{ kind: 'doctrine', weapon: 'missile', mode: 'homing' }]);
     expect((CATALOG as Record<string, unknown>).acousticHoming).toBeUndefined();
+  });
+
+  it('CUTS missile, monitor and heat seeking end to end (Story 8.15, amendment 89e)', () => {
+    const lines = CATALOG as Record<string, unknown>;
+    for (const id of ['missile', 'monitor', 'heatSeeking']) {
+      expect((LINE_IDS as readonly string[]).includes(id), id).toBe(false);
+      expect(lines[id], id).toBeUndefined();
+      expect((EQUIPMENT_IDS as readonly string[]).includes(id), id).toBe(false);
+    }
+  });
+
+  it('the MACHINE GUN and FLAK lines are their guns\' LADDERS, exactly like DECK GUN (amendments 104/105)', () => {
+    // Per tier: MACHINE GUN +2 shells and +1 damage; FLAK +2 damage (blast
+    // fixed). The −5 % reload is the derived tier step, never an effect.
+    expect(CATALOG.machineGun.appliesTo).toEqual(['machineGun']);
+    expect(CATALOG.flak.appliesTo).toEqual(['flak']);
+    for (const tier of CATALOG.machineGun.tiers) {
+      expect(tier).toEqual([
+        { kind: 'stat', path: 'equipment.machineGun.maxAmmo', add: 2 },
+        { kind: 'stat', path: 'equipment.machineGun.damage', add: 1 },
+      ]);
+    }
+    for (const tier of CATALOG.flak.tiers) {
+      expect(tier).toEqual([{ kind: 'stat', path: 'equipment.flak.damage', add: 2 }]);
+    }
+    // Each ladder advances its OWN gun's tier (the reload step reads it).
+    expect(tierTargetOf(CATALOG.machineGun)).toBe('machineGun');
+    expect(tierTargetOf(CATALOG.flak)).toBe('flak');
+    expect(tierTargetOf(CATALOG.deckGun)).toBe('gun');
+    // No stub flag on either (STUB_ROWS drained with them).
+    expect(CATALOG.machineGun.stub).toBeUndefined();
+    expect(CATALOG.flak.stub).toBeUndefined();
   });
 
   it('marks ARMOR as the one heal-on-grant line', () => {
@@ -262,11 +301,11 @@ describe('validateCatalog', () => {
     // The rule outlived its original example: ACOUSTIC HOMING was the live
     // add-on over a stub light torpedo, and it is deleted (amendment 80). The
     // shape is pinned through an injected catalog instead, and production —
-    // whose only remaining add-on over a STUB line, HEAT SEEKING over the
-    // missile, is ITSELF a stub and therefore exempt — still passes.
+    // which has no add-on over a STUB line at all since HEAT SEEKING was cut
+    // (8.15) — still passes.
     const bad: Catalog = {
       heavyTorpedo: { id: 'heavyTorpedo', kind: 'equipment', cap: 1, stub: true, tiers: [[{ kind: 'slotFill', equipmentId: 'heavyTorpedo' }]] },
-      dazzleShells: { id: 'dazzleShells', kind: 'addon', cap: 1, appliesTo: ['heavyTorpedo'], tiers: [[{ kind: 'doctrine', weapon: 'missile', mode: 'homing' }]] },
+      dazzleShells: { id: 'dazzleShells', kind: 'addon', cap: 1, appliesTo: ['heavyTorpedo'], tiers: [[{ kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' }]] },
     };
     expect(validateCatalog(bad).join(' | ')).toContain('dazzleShells: live add-on applies only to STUB equipment');
     expect(validateCatalog()).toEqual([]);
@@ -286,8 +325,8 @@ describe('validateCatalog', () => {
   });
 
   it('refuses an EQUIPMENT line whose copy 1 does not fit anything', () => {
-    const bad: CatalogLine = { id: 'monitor', kind: 'equipment', cap: 2, tiers: [[], []] };
-    expect(validateLine(bad).join(' ')).toContain('monitor: an equipment line needs a slotFill on copy 1');
+    const bad: CatalogLine = { id: 'broadside', kind: 'equipment', cap: 2, tiers: [[], []] };
+    expect(validateLine(bad).join(' ')).toContain('broadside: an equipment line needs a slotFill on copy 1');
   });
 
   it('refuses a healOnGrant line with no positive maxHp add', () => {
@@ -363,11 +402,12 @@ describe('THE ORDER-INDEPENDENCE PROPERTY', () => {
 // DRAWABLE BY EVERYONE NOW, exactly like every other non-stub line.
 // ---------------------------------------------------------------------------
 
-/** The five lines that were in no default deck when decks existed. */
-const FORMERLY_UNHOMED: readonly LineId[] = ['foulingMines', 'broadside', 'decoyBuoy', 'heatSeeking', 'phosphorShells'];
+/** The lines that were in no default deck when decks existed (five until
+ *  HEAT SEEKING was cut in Story 8.15). */
+const FORMERLY_UNHOMED: readonly LineId[] = ['foulingMines', 'broadside', 'decoyBuoy', 'phosphorShells'];
 
 describe('THE COMMON POOL — nothing is homed to a hull any more (amendment 89a)', () => {
-  it('every line the catalog knows is in LINE_IDS, and the five formerly-unhomed lines are ordinary lines', () => {
+  it('every line the catalog knows is in LINE_IDS, and the formerly-unhomed lines are ordinary lines', () => {
     for (const id of FORMERLY_UNHOMED) {
       expect(LINE_IDS.includes(id), id).toBe(true);
       expect(CATALOG[id], id).toBeDefined();

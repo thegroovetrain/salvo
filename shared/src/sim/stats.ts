@@ -18,11 +18,12 @@
 // Bases: the ship class for hull-ish stats (hp, kinematics); CONFIG.vision for
 // radar/sweep/sight; the per-equipment CONFIG blocks for everything else
 // (gun-family RANGE bases on CONFIG.vision.radar — range = radar range, Eric
-// ruling 2026-07-21). The four STILL-UNBUILT v3 equipments take their tier-I
-// rows from catalog-v3 §4 (see STUB_ROWS below); their modules land in Story
-// 8.15 (missile/monitor/heatSeeking are CUT there; machine gun and flak become
-// mountable guns) and promote those numbers into CONFIG blocks, exactly as
-// Story 8.13 did for the light torpedo and the captive/fouling mines.
+// ruling 2026-07-21). STORY 8.15 EMPTIED THE LAST STUB ROWS: missile and
+// monitor are CUT (amendment 89e), and the MACHINE GUN and FLAK GUN became
+// mountable guns with CONFIG blocks of their own (`CONFIG.machineGun` /
+// `CONFIG.flak`, amendments 103–105), beside the two new class Shifts
+// (`CONFIG.instantReload` / `CONFIG.damageCut`, amendments 97–102). Every row
+// is now built from a real CONFIG block.
 //
 // rangeU fields are DERIVED, not independently stat-addressable (brainstorm
 // 2026-07-30: Radar Range quietly buffs gun/blast-torp reach too — Intel is a
@@ -156,19 +157,48 @@ export interface EffectiveMine extends EquipmentRowCommon {
   slowFactor: number; // × both speed caps on a FOULING victim; 1 elsewhere
 }
 
-/** The HORIZONTAL MISSILE (catalog-v3 R29) — CUT in Story 8.15 (Eric ruling
- *  2026-09-21, epic-8 amendment 89e); the row stands until then. */
-export interface EffectiveMissile extends EquipmentRowCommon {
-  damage: number; // hp on burst at the clicked point
-  homing: boolean; // HEAT SEEKING verb (R32) — false unless held
+/**
+ * THE MACHINE GUN's effective numbers (Story 8.15, amendments 103–104). The
+ * pool IS THE MAGAZINE (`maxAmmo` shells) and `reloadMs` is the full-magazine
+ * reload; `rateMs` and `idleReloadMs` are the stream cadence and the idle
+ * clock, CONFIG pass-throughs no card addresses. Direct-hit shells with NO
+ * burst, so there is no `burstRadius` and no `contactDamage` (a hull hit IS
+ * the `damage`).
+ */
+export interface EffectiveMachineGun extends EquipmentRowCommon {
+  rangeU: number; // u — DERIVED = radarRange post-fold (not stat-addressable)
+  damage: number; // hp per shell that strikes a hull
+  rateMs: number; // ms — one shell per rateMs while held
+  idleReloadMs: number; // ms — no shot for this long with shells left starts the reload
 }
 
-/** MACHINE GUN / FLAK GUN / MONITOR GUN (catalog-v3 R20–R30) — the three
- *  unbuilt gun-family weapons. Story 8.15 settles them — MACHINE GUN and FLAK
- *  become mountable GUNS, MONITOR is CUT (amendments 89d/e); today they carry
- *  only the fields the sheet states. */
-export interface EffectiveOrdnanceGun extends EquipmentRowCommon {
-  damage: number; // hp per hit/burst victim
+/**
+ * THE FLAK GUN's effective numbers (Story 8.15, amendment 105) — the cannon's
+ * burst shape without barrels: one shell to the click, a FIXED `burstRadius`
+ * blast, the bodyblock `contactDamage` to an early interceptor.
+ */
+export interface EffectiveFlak extends EquipmentRowCommon {
+  rangeU: number; // u — DERIVED = radarRange post-fold (not stat-addressable)
+  damage: number; // hp per burst victim
+  contactDamage: number; // hp to an early interceptor outside the blast
+  burstRadius: number; // u — blast radius around the clicked point (FIXED by ruling)
+}
+
+/**
+ * INSTANT RELOAD's effective numbers (Story 8.15, the Mine Layer's Shift,
+ * amendments 97–98): a pool and a cooldown, nothing else — the effect itself
+ * (finish each running reload once) has no number to carry.
+ */
+export type EffectiveInstantReload = EquipmentRowCommon;
+
+/**
+ * DAMAGE CUT's effective numbers (Story 8.15, the Battleship's Shift,
+ * amendments 99–102): the boost's shape plus the `factor` the World applies to
+ * every weapon blow inside the window.
+ */
+export interface EffectiveDamageCut extends EquipmentRowCommon {
+  durationMs: number; // ms — the active window per activation
+  factor: number; // × incoming weapon damage while the window is open
 }
 
 export interface EffectiveStarShells extends EquipmentRowCommon {
@@ -216,11 +246,13 @@ export type EquipmentStatRow =
   | EffectiveBoost
   | EffectiveTorpedo
   | EffectiveMine
-  | EffectiveMissile
-  | EffectiveOrdnanceGun
+  | EffectiveMachineGun
+  | EffectiveFlak
   | EffectiveBroadside
   | EffectiveStarShells
-  | EffectiveRadarBuoy;
+  | EffectiveRadarBuoy
+  | EffectiveInstantReload
+  | EffectiveDamageCut;
 
 /**
  * THE TOTAL equipment record (Story 8.1) — one row per `EquipmentId`, present
@@ -237,13 +269,13 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
   navalMines: EffectiveMine;
   captiveMines: EffectiveMine;
   foulingMines: EffectiveMine;
-  missile: EffectiveMissile;
-  machineGun: EffectiveOrdnanceGun;
-  flak: EffectiveOrdnanceGun;
-  monitor: EffectiveOrdnanceGun;
+  machineGun: EffectiveMachineGun;
+  flak: EffectiveFlak;
   broadside: EffectiveBroadside;
   starShells: EffectiveStarShells;
   radarBuoy: EffectiveRadarBuoy;
+  instantReload: EffectiveInstantReload;
+  damageCut: EffectiveDamageCut;
 }
 
 /** Everything (class, cards) resolves to. See effectiveStats(). */
@@ -261,35 +293,12 @@ export interface EffectiveStats {
   equipment: EquipmentRows;
 }
 
-/**
- * TIER-I BASE ROWS FOR THE FOUR REMAINING UNBUILT EQUIPMENTS, transcribed from
- * catalog-v3 §4 — nothing here is invented, and every `[D]` cell is Eric's
- * own [DRAFT] tag carried through verbatim. These are NOT CONFIG blocks yet:
- * no module reads them, so promoting them would put blocks of harness-untuned
- * draft numbers into the gameplay source of truth. Each of Stories 8.13–8.16
- * promotes its own lines' rows into real CONFIG blocks when the weapon lands.
- *
- * STORY 8.13 EMPTIED THREE OF THE SEVEN. `lightTorpedo` and `captiveMines`
- * have CONFIG blocks of their own now (`CONFIG.lightTorpedo`,
- * `CONFIG.captiveMines`), and `supercavTorpedo` has no row at all — it became
- * a CONSUMABLE (epic-8 amendment 74), and consumables carry no stat row. The
- * four left are Story 8.15's.
- */
-const STUB_ROWS = {
-  // HORIZONTAL MISSILE (R29): bow ±50°, 250 u/s, 40 dmg, 1 missile, 30 s.
-  missile: { reloadMs: 30000, maxAmmo: 1, damage: 40 },
-  // MACHINE GUN (R20/R21): 4 dmg/shell, 15 s reload, one pool of fire. Every
-  // number but the arc is `[D]`.
-  machineGun: { reloadMs: 15000, maxAmmo: 1, damage: 4 },
-  // FLAK GUN (R27): air-burst at the click, 10 dmg in r40u, 1 shell, 8 s. All
-  // base numbers `[D]`.
-  flak: { reloadMs: 8000, maxAmmo: 1, damage: 10 },
-  // MONITOR GUN (R30): bow ±10°, arcing, 75 dmg, NO burst, 1 shell, 50 s.
-  monitor: { reloadMs: 50000, maxAmmo: 1, damage: 75 },
-  // THE SHIFT BOOST IS NOT A STUB (Story 8.9): it is live equipment in slot 1
-  // on every captain hull and its row is built from `CONFIG.boost` in
-  // baseEquipment, like the gun. Nothing is authored here.
-} as const;
+// THE STUB ROWS ARE GONE (Story 8.15). `STUB_ROWS` carried catalog-v3 §4's
+// tier-I draft numbers for equipment with no module yet; Story 8.13 promoted
+// three of its seven, and 8.15 drained the rest — `missile` and `monitor` are
+// CUT (amendment 89e), and `machineGun`/`flak` are built from their own CONFIG
+// blocks with Eric's 2026-09-28 numbers (amendments 103–105), which supersede
+// the sheet's drafts. Consumable stubs (DEPTH CHARGE…) never had a row.
 
 /** deg -> rad (CONFIG.broadside's two ladders are authored in degrees).
  *  SAME ASSOCIATION as sim/arcs.ts's `deg` — `(d * PI) / 180`, never
@@ -416,9 +425,51 @@ function mineRow(src: {
   };
 }
 
-/** One of the three unbuilt gun-family rows (machineGun / flak / monitor). */
-function ordnanceGunRow(src: { reloadMs: number; maxAmmo: number; damage: number }): EffectiveOrdnanceGun {
-  return { tier: 1, reloadMs: src.reloadMs, maxAmmo: src.maxAmmo, damage: src.damage };
+/** The two PICKABLE GUNS' rows at CONFIG base (Story 8.15). `rangeU` is
+ *  seeded at the radar rung and re-pinned post-fold in both re-pin homes,
+ *  exactly like `gun.rangeU`. */
+function pickableGunRows(): Pick<EquipmentRows, 'machineGun' | 'flak'> {
+  const mg = CONFIG.machineGun;
+  const flak = CONFIG.flak;
+  return {
+    machineGun: {
+      tier: 1,
+      reloadMs: mg.reloadMs,
+      maxAmmo: mg.maxAmmo,
+      rangeU: CONFIG.vision.radar,
+      damage: mg.damage,
+      rateMs: mg.rateMs,
+      idleReloadMs: mg.idleReloadMs,
+    },
+    flak: {
+      tier: 1,
+      reloadMs: flak.reloadMs,
+      maxAmmo: flak.maxAmmo,
+      rangeU: CONFIG.vision.radar,
+      damage: flak.damage,
+      contactDamage: flak.contactDamage,
+      burstRadius: flak.burstRadius,
+    },
+  };
+}
+
+/** The two new CLASS SHIFT rows at CONFIG base (Story 8.15). Their `reloadMs`
+ *  takes `cooldownScale` in clampStats like every row (amendments 97/99). */
+function shiftRows(): Pick<EquipmentRows, 'instantReload' | 'damageCut'> {
+  return {
+    instantReload: {
+      tier: 1,
+      reloadMs: CONFIG.instantReload.reloadMs,
+      maxAmmo: CONFIG.instantReload.maxAmmo,
+    },
+    damageCut: {
+      tier: 1,
+      reloadMs: CONFIG.damageCut.reloadMs,
+      maxAmmo: CONFIG.damageCut.maxAmmo,
+      durationMs: CONFIG.damageCut.durationMs,
+      factor: CONFIG.damageCut.factor,
+    },
+  };
 }
 
 /** THE SHIFT BOOST's row (Story 8.9) — pool, reload and window straight out of
@@ -498,8 +549,9 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' 
 function baseEquipment(cls: ShipClass): EquipmentRows {
   return {
     gun: gunRow(cls),
-    // THE SHIFT BOOST (Story 8.9): live equipment, `CONFIG.boost` verbatim —
-    // the reload then takes `cooldownScale` in clampStats like every row.
+    // THE SPEED BOOST (Story 8.9; the Torpedo Boat's Shift since 8.15):
+    // `CONFIG.boost` verbatim — the reload then takes `cooldownScale` in
+    // clampStats like every row.
     boost: boostRow(CONFIG.boost),
     // LIGHT TORPEDO (catalog-v3 R18) — its own CONFIG block since Story 8.13.
     lightTorpedo: torpedoRow(CONFIG.lightTorpedo),
@@ -535,11 +587,9 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
       triggerRadius: mineTriggerRadius(CONFIG.foulingMines.blastRadius),
       slowFactor: CONFIG.foulingMines.slowFactor,
     }),
-    missile: { tier: 1, ...STUB_ROWS.missile, homing: false },
-    machineGun: ordnanceGunRow(STUB_ROWS.machineGun),
-    flak: ordnanceGunRow(STUB_ROWS.flak),
-    monitor: ordnanceGunRow(STUB_ROWS.monitor),
+    ...pickableGunRows(),
     ...shippedSkillshotRows(),
+    ...shiftRows(),
   };
 }
 
@@ -636,9 +686,13 @@ function clampStats(stats: EffectiveStats): void {
   // contract — clamp unconditionally.
   stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
-  // Gun/star-shell range IS radarRange, always; the broadside rides the same
-  // number one rung short (the 5/8 muzzle rung, Eric: "limited to 5/8").
+  // Gun/star-shell range IS radarRange, always — all THREE pickable guns
+  // (Story 8.15: Eric set the machine gun and flak to 660, the radar rung);
+  // the broadside rides the same number one rung short (the 5/8 muzzle rung,
+  // Eric: "limited to 5/8").
   eq.gun.rangeU = stats.radarRange;
+  eq.machineGun.rangeU = stats.radarRange;
+  eq.flak.rangeU = stats.radarRange;
   eq.starShells.rangeU = stats.radarRange;
   eq.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
   // The spread ladder is a TABLE, not a step, so the card writes a 1-based RUNG

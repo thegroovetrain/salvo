@@ -54,7 +54,7 @@ import { wrapAngle } from '../math/angle.js';
 import { islandDistance, islandSegHit } from './island.js';
 import { pointPolygonDistance, segPolygonHit } from './silhouette.js';
 import type { Vec2 } from '../math/vec.js';
-import type { Island } from '../types.js';
+import type { Island, ShellFamily } from '../types.js';
 
 /** Map is centered at world origin (the boundary clamp treats origin as center). */
 const MAP_CENTER: Vec2 = { x: 0, y: 0 };
@@ -94,6 +94,24 @@ export interface ShellState {
    * posture).
    */
   hits: readonly TargetKind[];
+  /**
+   * THE GUN FAMILY that fired this projectile (Story 8.15) — `cannon`, `mg` or
+   * `flak` for a `shell`, and `null` for a `torp` (a torpedo has no gun family
+   * and its reveal never carries one). REQUIRED, so every constructor must name
+   * it and no shell can silently borrow the cannon's family. Server-internal:
+   * stepShell never reads it; the ballistic signal materializes it as the
+   * reveal's `w` (amendment 89(i), the one declared disclosure widening).
+   */
+  family: ShellFamily | null;
+  /**
+   * DIRECT-HIT, NO BURST (Story 8.15 — the MACHINE GUN's shells). A shell that
+   * reaches its aim point un-intercepted EXPIRES there (the shooter's `sp`
+   * splash) instead of bursting, and a hull it strikes on the way takes a
+   * plain contact hit — never the in-blast proximity burst, because a direct
+   * shell has no blast. Interception rules are otherwise unchanged. Absent on
+   * every bursting projectile; never on the wire.
+   */
+  direct?: true;
   /**
    * SERVER-INTERNAL star-shell tag (Story 1.7): when set, a BURST of this
    * shell also spawns a lit zone of `radius` for `durationMs` (World.
@@ -161,8 +179,11 @@ export interface ShellState {
  *                 "does the burst radius cover the mine's centre?" through the
  *                 same point-to-polygon primitive every other kind uses.
  *   - `decoy`   — a dropped decoy-class object (the RADAR BUOY's square is the
- *                 interim occupant until Story 8.15 lands the decoy store).
- *   - `ordnance`— a projectile in flight; EMPTY until flak ships (Story 8.15).
+ *                 interim occupant until Story 8.16 lands the decoy store).
+ *   - `ordnance`— a projectile in flight (a live torpedo) — only the FLAK GUN's
+ *                 mask names it (Story 8.15, AR44; a side effect, amendment
+ *                 105), and like `mine` it is BURST-ONLY: the World strips it
+ *                 from the sweep mask, so nothing in flight collides with it.
  * Pure geometry: shared knows nothing about owners' doctrine, drones or the
  * damage gate — the OUTCOME of touching a kind lives entirely in world.ts.
  */
@@ -290,6 +311,7 @@ function polyInBlast(center: Vec2, radius: number, poly: readonly Vec2[]): boole
  * so the proximity exception has no mine case to answer.
  */
 function interceptedInBlast(shell: ShellState, hit: Hit): boolean {
+  if (shell.direct === true) return false; // a direct shell has no blast (Story 8.15)
   if (shell.targetX === null || shell.targetY === null) return false;
   const center: Vec2 = { x: shell.targetX, y: shell.targetY };
   if (hit.poly !== undefined) return polyInBlast(center, shell.burstRadius, hit.poly);
@@ -300,7 +322,8 @@ function interceptedInBlast(shell: ShellState, hit: Hit): boolean {
 /**
  * Classify a resolved interception at (ix, iy): map-edge splash > in-blast
  * proximity burst (centered on the TARGET, never the impact point) > contact
- * hull hit > island stop.
+ * hull hit > island stop. A DIRECT shell (Story 8.15) never takes the burst
+ * branch — it has no blast — so its hull strike is always a contact hit.
  */
 function classifyHit(shell: ShellState, hit: Hit, ix: number, iy: number): ShellOutcome {
   if (hit.edge) return { kind: 'expired', x: ix, y: iy };
@@ -400,6 +423,14 @@ function targetDistance(shell: ShellState, p0: Vec2): number {
     : Math.hypot(shell.targetX - p0.x, shell.targetY - p0.y);
 }
 
+/** The arrival outcome at the (already snapped) target point: a burst, or an
+ *  expiry for a DIRECT shell, which has no burst (Story 8.15). */
+function arrive(shell: ShellState): ShellOutcome {
+  return shell.direct === true
+    ? { kind: 'expired', x: shell.x, y: shell.y }
+    : { kind: 'burst', x: shell.x, y: shell.y };
+}
+
 /**
  * Advance `shell` one fixed tick. Mutates its position/distLeft on travel;
  * returns the outcome. On any terminal outcome the shell is spent (the caller
@@ -441,10 +472,12 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
   }
 
   if (moveDist >= distToTarget) {
-    // Arrived un-intercepted: snap to the exact target point and burst there.
+    // Arrived un-intercepted: snap to the exact target point and burst there —
+    // or, for a DIRECT shell (Story 8.15, the machine gun), EXPIRE there: it
+    // has no burst, so reaching the aim point is a splash, never a `burst`.
     shell.x = shell.targetX!;
     shell.y = shell.targetY!;
-    return { kind: 'burst', x: shell.targetX!, y: shell.targetY! };
+    return arrive(shell);
   }
 
   shell.x = p1.x;

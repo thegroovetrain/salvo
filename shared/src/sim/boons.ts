@@ -34,8 +34,16 @@
 // covers a mid-fold write to a path a derived number rides) and clampStats (the
 // firewall's unconditional output pass). Nothing else re-derives.
 
-import type { EquipmentId, GunId, LoadoutSlot, SlotItemId } from './loadout.js';
-import { CONSUMABLE_SLOTS, DEFAULT_GUN, WEAPON_SLOTS, equipmentMaxAmmo, isConsumableId, loadoutFor } from './loadout.js';
+import type { EquipmentId, GunId, LoadoutSlot, ShiftId, SlotItemId } from './loadout.js';
+import {
+  CONSUMABLE_SLOTS,
+  DEFAULT_GUN,
+  DEFAULT_SHIFT,
+  WEAPON_SLOTS,
+  equipmentMaxAmmo,
+  isConsumableId,
+  loadoutFor,
+} from './loadout.js';
 import { CONFIG } from '../constants.js';
 import {
   BOON_STAT_PATH_SET,
@@ -161,11 +169,13 @@ function rePinDerived(stats: EffectiveStats): void {
   const eq = stats.equipment;
   stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
-  // Gun/star-shell range is radarRange, always; the broadside rides the same
-  // number one rung short (the 5/8 muzzle rung). None is stat-addressable, so
+  // Gun (all three pickable guns) / star-shell range is radarRange, always;
+  // the broadside rides the same number one rung short (the 5/8 muzzle rung). None is stat-addressable, so
   // a FUTURE fold writing the whitelisted `radarRange` path can never leave
   // them stale.
   eq.gun.rangeU = stats.radarRange;
+  eq.machineGun.rangeU = stats.radarRange;
+  eq.flak.rangeU = stats.radarRange;
   eq.starShells.rangeU = stats.radarRange;
   eq.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
   // The broadside TRAVERSE and MOUNT SPREAD both read their authored ladders
@@ -428,7 +438,9 @@ export function applySlotEffect(
 /**
  * The client-side loadout derivation (ONE derivation, both sides): the
  * universal nine-slot loadoutFor fit with every held card's slot effects
- * replayed over it, IN FIT ORDER. `fleet` selects the gun-only drone fit.
+ * replayed over it, IN FIT ORDER. `fleet` selects the gun-only drone fit;
+ * `gun` is the seat's pick (slot 0) and `shift` the hull's class Shift (slot 1,
+ * Story 8.15 — resolve it with `classShift(cls)`).
  *
  * THIS REPLAY IS IN FIT ORDER, NOT FOLD ORDER, and that is the one place the
  * two diverge on purpose. The weapon row fills FIRST-EMPTY-FIRST, so WHICH
@@ -454,10 +466,12 @@ export function slotsWithCards(
   catalog: Catalog = CATALOG,
   fleet = false,
   gun: GunId = DEFAULT_GUN,
+  shift: ShiftId = DEFAULT_SHIFT,
 ): LoadoutSlot[] {
-  // Slot 0 is the SEAT'S gun (Story 8.14): the same `loadoutFor` the spawn ran,
-  // so a replay on either side re-mounts what the captain picked, never a literal.
-  const loadout = loadoutFor(stats, fleet, gun);
+  // Slot 0 is the SEAT'S gun (Story 8.14) and slot 1 the HULL'S Shift (8.15):
+  // the same `loadoutFor` the spawn ran, so a replay on either side re-mounts
+  // what the captain picked and the class carries, never a literal.
+  const loadout = loadoutFor(stats, fleet, gun, shift);
   const seen = new Map<string, number>();
   for (const id of cards) {
     for (const e of copyEffects(id, seen, catalog)) applySlotEffect(loadout, e, stats, catalog);

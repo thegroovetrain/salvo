@@ -13,10 +13,12 @@
 // granted at countdown start — the opening — and lands in the row as a card
 // like every card after it.
 //
-// Slot 1 holds the `boost` module on every captain — THE SHIFT BOOST, a
-// universal ability no card can address (Story 8.9, epic-8 amendments 54–55).
-// The boost stopped being a Torpedo Boat privilege in Story 8.5 (amendment 23);
-// 8.9 deleted the legacy flat-bonus id it wore until then.
+// Slot 1 holds the hull's CLASS SHIFT — a FIXED ability no card can address,
+// chosen by `CONFIG.shipClasses.<id>.shift` (Story 8.15, Eric rulings
+// 2026-09-21/28, epic-8 amendments 89(c) and 97–102): SPEED BOOST on the
+// Torpedo Boat, INSTANT RELOAD on the Mine Layer, DAMAGE CUT on the Battleship.
+// The boost was UNIVERSAL from Story 8.5 (amendment 23) to 8.9's module; 8.15
+// landed the split, so hull identity is now envelope + Shift.
 //
 // PvE FLEET HULLS FIT THE GUN AND NOTHING ELSE (epic-5 amendment 34, epic-8
 // amendment 24): Eric's ruling is "each has a gun to defend itself", singular.
@@ -30,8 +32,14 @@ import type { EffectiveStats } from './stats.js';
 
 /**
  * Equipment ids fittable into a loadout slot (weapons + activated abilities) —
- * WIDENED to catalog v3 (Story 8.1, Eric ruling 2026-09-15 amendment 6). The
- * thirteen v3 ids plus the two LEGACY ids no v3 card can address.
+ * WIDENED to catalog v3 (Story 8.1, Eric ruling 2026-09-15 amendment 6).
+ *
+ * STORY 8.15 RE-CUT IT (Eric rulings 2026-09-21/28, epic-8 amendments 89 and
+ * 97–106): `missile` and `monitor` are CUT for good (amendment 89(e)); the
+ * two new SHIFT ids `instantReload` and `damageCut` join `boost` as the three
+ * non-weapon class abilities slot 1 may hold; `machineGun` and `flak` stop
+ * being stubs and become the two MOUNTABLE GUNS slot 0 may hold beside `gun`
+ * (the cannon).
  *
  * THE LEGACY RENAME: the shipped `torpedo` IS `heavyTorpedo` and the shipped
  * `mine` IS `navalMines` — same module, same numbers, v3 name (8.13 adds the
@@ -45,10 +53,10 @@ import type { EffectiveStats } from './stats.js';
  * add-on card was deleted.
  *
  * `radarBuoy` is the ONE legacy id left with a live module and no card behind
- * it: Story 8.15 deletes it in favour of the DECOY BUOY consumable (catalog-v3
+ * it: Story 8.16 deletes it in favour of the DECOY BUOY consumable (catalog-v3
  * R1), and until then its row keeps its shipped numbers so the fit is
  * unchanged. The legacy flat-bonus boost id is GONE (Story 8.9): the v3
- * `boost` id IS the Shift boost, universal in slot 1 on every captain hull.
+ * `boost` id IS the speed boost, the Torpedo Boat's Shift since 8.15.
  */
 export type EquipmentId =
   | 'gun'
@@ -58,13 +66,13 @@ export type EquipmentId =
   | 'navalMines'
   | 'captiveMines'
   | 'foulingMines'
-  | 'missile'
   | 'machineGun'
   | 'flak'
-  | 'monitor'
   | 'broadside'
   | 'starShells'
-  | 'radarBuoy';
+  | 'radarBuoy'
+  | 'instantReload'
+  | 'damageCut';
 
 /**
  * THE single source of the weapon/ability split: true iff a piece of equipment
@@ -76,8 +84,9 @@ export type EquipmentId =
  */
 export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   gun: true,
-  // THE SHIFT BOOST (Story 8.9) — universal ability, slot 1 on every captain
-  // hull: an instant activation off the Shift edge, aimed at nothing.
+  // THE SPEED BOOST (Story 8.9) — the Torpedo Boat's class Shift since 8.15
+  // (amendment 89(c)): an instant activation off the Shift edge, aimed at
+  // nothing.
   boost: false,
   lightTorpedo: true,
   // Story 2.8 (amendment 45) and the v3 rename: the mine is a click-aimed
@@ -87,10 +96,12 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   navalMines: true,
   captiveMines: true,
   foulingMines: true,
-  missile: true,
+  // THE TWO PICKABLE GUNS (Story 8.15, amendments 103–106): mounted in slot 0
+  // from the seat's `gun`, 360° like the cannon. The MACHINE GUN fires off the
+  // held LEVEL (`InputMsg.held`), never a click; the FLAK GUN fires one
+  // air-bursting shell per click like the cannon.
   machineGun: true,
   flak: true,
-  monitor: true,
   // Story 7-5 wave 2: the BROADSIDE BARRAGE — prime, aim into ONE of the two
   // beam sectors (sim/arcs.ts 'twin-sector'), click fires that side's whole
   // barrage at the clicked point's RANGE. A click outside both sectors is
@@ -100,7 +111,29 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // Story 7-5 wave 2 (R2.7): the RADAR BUOY is CLICK-PLACED like the mine — it
   // shares the mine's rear sector and placeRange — so it is a WEAPON.
   radarBuoy: true,
+  // THE TWO NEW CLASS SHIFTS (Story 8.15): INSTANT RELOAD (the Mine Layer's,
+  // amendments 97–98) and DAMAGE CUT (the Battleship's, amendments 99–102).
+  // Both are instant activations off the Shift edge, aimed at nothing — the
+  // boost's grammar exactly.
+  instantReload: false,
+  damageCut: false,
 };
+
+/**
+ * THE CLASS SHIFT ids (Story 8.15, Eric rulings 2026-09-21/28, epic-8
+ * amendments 89(c) and 97–102) — the three non-weapon abilities slot 1 may
+ * hold, one FIXED per hull by `CONFIG.shipClasses.<id>.shift`. Each is its own
+ * `EquipmentId` rather than one module dispatching on hull, so the stat row
+ * (and with it RELOAD's `cooldownScale`), the server registry, the bot tactic
+ * rows and the HUD glyph table all key on the id with no hull special case.
+ */
+export type ShiftId = 'boost' | 'instantReload' | 'damageCut';
+
+/** Every ShiftId, in class order (TB · ML · BS). */
+export const SHIFT_IDS: readonly ShiftId[] = Object.freeze(['boost', 'instantReload', 'damageCut'] as const);
+
+/** The Shift a loadout fits when none is named — the Torpedo Boat's. */
+export const DEFAULT_SHIFT: ShiftId = 'boost';
 
 /**
  * WHAT A SLOT MAY HOLD (Story 8.7): a piece of EQUIPMENT (slots 0–4) or a
@@ -179,7 +212,7 @@ export type GunId = 'deckGun' | 'machineGun' | 'flak';
 export const GUN_IDS: readonly GunId[] = Object.freeze(['deckGun', 'machineGun', 'flak'] as const);
 
 /** The gun a seat carries when the join option is missing, unknown or
- *  malformed — and the only one the client sends until 8.15 ships the picker. */
+ *  malformed (the CANNON — amendment 108's player-facing name). */
 export const DEFAULT_GUN: GunId = 'deckGun';
 
 /** Membership over GUN_IDS — the ONE narrowing guard for a seat's gun value. */
@@ -194,16 +227,16 @@ export function isGunId(x: unknown): x is GunId {
  * THE MOUNTED MODULE for each seat gun — the (GunId -> EquipmentId) map slot 0
  * is fitted from.
  *
- * Story 8.15 gives machineGun/flak their own modules; until then every seat gun
- * mounts the shipped deck-gun module (amendment 95). The map makes that interim
- * EXPLICIT and pinned rather than hiding it in a fallback: `equipmentFor` fails
- * closed on an id with no module, so mounting `machineGun` directly would
- * break the fit. Story 8.15 changes exactly two entries here.
+ * STORY 8.15 GAVE EACH GUN ITS OWN MODULE (amendments 103–105): the deck gun
+ * (the CANNON) mounts the shipped `gun` module, and the machine gun and the
+ * flak gun mount their own. The 8.14 interim (every seat gun on the deck-gun
+ * module, amendment 95) is over. The seat id `deckGun` and the module id `gun`
+ * stay different strings on purpose — one names a pick, the other a module.
  */
 export const MOUNTED_GUN: Readonly<Record<GunId, EquipmentId>> = Object.freeze({
   deckGun: 'gun',
-  machineGun: 'gun',
-  flak: 'gun',
+  machineGun: 'machineGun',
+  flak: 'flak',
 });
 
 /**
@@ -243,7 +276,8 @@ export const SLOT_COUNT = 9;
 /** Slot index of the gun — the permanently-selected default weapon. */
 export const SLOT_GUN = 0;
 
-/** Slot index of the boost — the universal Shift ability (amendment 23). */
+/** Slot index of the class Shift (the boost, instant reload or damage cut —
+ *  Story 8.15). The name predates the split and is kept. */
 export const SLOT_BOOST = 1;
 
 /** The three WEAPON slots (Q/E/R), in fill order: a `slotFill` card takes the
@@ -279,7 +313,7 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
 
 /**
  * The loadout a ship spawns with — THE SAME NINE-SLOT SHAPE FOR EVERY CAPTAIN
- * HULL (Story 8.5). A captain fits the gun in slot 0 and the boost in slot 1,
+ * HULL (Story 8.5). A captain fits the gun in slot 0 and its Shift in slot 1,
  * both with a full pool and an idle reload timer (exactly the server's
  * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics); slots 2–8 start empty
  * and are filled by CARDS — the level-zero offer at the start line first
@@ -290,19 +324,29 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
  * seat, so it always mounts the default gun.
  *
  * SLOT 0 IS THE SEAT'S GUN (Story 8.14): `gun` is the captain's pick and the
- * module it mounts comes from MOUNTED_GUN, which resolves all three to the
- * shipped deck-gun module until Story 8.15 builds the other two.
+ * module it mounts comes from MOUNTED_GUN — its own module per gun since 8.15.
+ *
+ * SLOT 1 IS THE HULL'S SHIFT (Story 8.15): `shift` is the class's fixed ability,
+ * which both sides resolve from `CONFIG.shipClasses.<id>.shift` (`classShift`,
+ * constants.ts). A fleet drone has no Shift and ignores it.
  *
  * No hull parameter: which weapons a hull ends up carrying is a fact about its
- * picks, never about its hardware.
+ * picks, never about its hardware; the Shift is passed in already resolved.
  */
-export function loadoutFor(stats: EffectiveStats, fleet = false, gun: GunId = DEFAULT_GUN): LoadoutSlot[] {
+export function loadoutFor(
+  stats: EffectiveStats,
+  fleet = false,
+  gun: GunId = DEFAULT_GUN,
+  shift: ShiftId = DEFAULT_SHIFT,
+): LoadoutSlot[] {
   const fitted = (equipmentId: EquipmentId): LoadoutSlot => ({
     equipmentId,
     state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 },
   });
-  const out: LoadoutSlot[] = [fitted(MOUNTED_GUN[gun])];
-  if (!fleet) out.push(fitted('boost'));
+  // A FLEET DRONE ALWAYS MOUNTS THE CANNON, whatever `gun` says: it has no
+  // seat, and its weaker envelope gun rides the `gun` row (Story 5.6).
+  const out: LoadoutSlot[] = [fitted(MOUNTED_GUN[fleet ? DEFAULT_GUN : gun])];
+  if (!fleet) out.push(fitted(shift));
   while (out.length < SLOT_COUNT) out.push({ equipmentId: null, state: null });
   return out;
 }

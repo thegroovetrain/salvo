@@ -180,9 +180,11 @@ const EQUIPMENT_STAT_PATH = /^equipment\.([^.]+)\./;
  *
  * Without this, a seat that mounts anything but the deck gun (Story 8.15) is
  * dealt DECK GUN TURRET and DECK GUN BARREL as live cards that step a module it
- * is not carrying.
+ * is not carrying. The MACHINE GUN and FLAK ladders (Story 8.15) name their
+ * rows in `appliesTo`, so each is gated to its own mounted gun by source 1.
+ * Exported so the gating is pinned directly (draw.test.ts).
  */
-function ladderHost(line: CatalogLine): EquipmentId | undefined {
+export function ladderHost(line: CatalogLine): EquipmentId | undefined {
   const named = line.appliesTo?.[0];
   if (named !== undefined) return named;
   for (const e of line.tiers[0] ?? []) {
@@ -193,10 +195,10 @@ function ladderHost(line: CatalogLine): EquipmentId | undefined {
   return undefined;
 }
 
-/** A LADDER's kind: a ladder with a HOST equipment row is a GUN ladder (today
- *  the only hosted ladders are the deck gun's three), offered only while that
- *  row is the mounted gun (amendment 89d); a universal ladder is always an
- *  upgrade. */
+/** A LADDER's kind: a ladder with a HOST equipment row is a GUN ladder (the
+ *  cannon's three, the machine gun's and the flak gun's — Story 8.15), offered
+ *  only while that row is the mounted gun (amendment 89d); a universal ladder
+ *  is always an upgrade. */
 function ladderKind(line: CatalogLine, ship: DrawShip): DrawKind | undefined {
   const host = ladderHost(line);
   if (host === undefined) return 'upgrade';

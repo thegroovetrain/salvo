@@ -7,7 +7,13 @@
 // placeHalfArcDeg), and since Story 7-5 wave 2 the radar buoy is click-placed
 // in that SAME rear sector; the BROADSIDE BARRAGE fires into one of two
 // mirrored BEAM sectors (Story 7-5 wave 2, R2.1 — the class-era side arcs
-// restored verbatim); the speed boost aims nothing.
+// restored verbatim); the class Shifts (boost, instant reload, damage cut) aim
+// nothing.
+//
+// STORY 8.15: NO GUN HAS AN ARC (Eric ruling 2026-09-28, epic-8 amendment 106,
+// verbatim: "There is no 'arc.' All of these guns get a 360 degree arc."). The
+// cannon, the machine gun and the flak gun all declare `arc: 'full'` in CONFIG,
+// so no gun click or stream can ever be denied out-of-arc.
 //
 // STORY 8.13 WIDENED IT PAST EQUIPMENT. `arcFor` now takes a `SlotItemId`,
 // because the SUPERCAV TORPEDO is a click-aimed CONSUMABLE (epic-8 amendment
@@ -30,7 +36,7 @@ import type { MineKind } from '../types.js';
 /**
  * One equipment id's firing-arc shape:
  * - `full`        — 360°, aimed to the clicked point, never out of arc
- *                   (the gun family).
+ *                   (every gun — cannon, machine gun, flak — and star shells).
  * - `sector`      — an aimed launch sector `heading + offset ± halfArc`
  *                   (the torpedo's bow arc; the mine's and the radar buoy's
  *                   rear placement arc — aim outside it is DENIED).
@@ -40,7 +46,7 @@ import type { MineKind } from '../types.js';
  *                   whose sector contains the click is the side that fires
  *                   (R2.2); a click in NEITHER sector — the bow and stern dead
  *                   zones — is denied out-of-arc, exactly like a `sector` miss.
- * - `none`        — nothing spatial is aimed or placed (the Shift boost).
+ * - `none`        — nothing spatial is aimed or placed (the three Shifts).
  *
  * THE `stern-drop` SHAPE IS DELETED (Story 7-5 wave 2): the decoy buoy was its
  * only user, and the radar buoy replacing it is click-placed in the mine's rear
@@ -73,8 +79,9 @@ export function arcFor(id: SlotItemId): ArcShape {
  * A CONSUMABLE's arc. Only the SUPERCAV TORPEDO aims today — the bow ±15°
  * sector of `CONFIG.supercavTorpedo` (amendment 74) — and every other line off
  * the `1`–`4` rail is an instant activation that aims nothing. THE DECOY
- * BUOY'S ARC IS STORY 8.15'S: it is `CONSUMABLE_IS_WEAPON`-true and
- * click-placed, but its module and its CONFIG block land there, and declaring
+ * BUOY'S ARC IS STORY 8.16'S (renumbered from 8.15 by amendment 89h): it is
+ * `CONSUMABLE_IS_WEAPON`-true and click-placed, but its module and its CONFIG
+ * block land there, and declaring
  * a literal for it here would put an uncited number in the arc grammar.
  */
 function consumableArc(id: ConsumableId): ArcShape {
@@ -146,7 +153,8 @@ function isMineChassis(id: EquipmentId): id is MineEquipmentId | 'radarBuoy' {
 }
 
 /**
- * A piece of EQUIPMENT's arc: gun/starShells declare `arc: 'full'` in CONFIG;
+ * A piece of EQUIPMENT's arc: the three guns (gun/machineGun/flak) and
+ * starShells declare `arc: 'full'` in CONFIG (amendment 106 for the guns);
  * the LIGHT torpedo fires into TWO mirrored beam sectors
  * (CONFIG.lightTorpedo.offset/halfArc — ±45° about both beams, 90° dead zones
  * fore and aft, catalog-v3 R18); the HEAVY torpedo keeps its bow sector
@@ -160,6 +168,8 @@ function equipmentArc(id: EquipmentId): ArcShape {
   }
   switch (id) {
     case 'gun':
+    case 'machineGun':
+    case 'flak':
     case 'starShells':
       return { kind: CONFIG[id].arc };
     case 'lightTorpedo':
@@ -178,24 +188,21 @@ function equipmentArc(id: EquipmentId): ArcShape {
 }
 
 /**
- * THE FOUR STILL-UNBUILT v3 WEAPONS and the SHIFT BOOST declare NO aimed arc.
- * For the boost that is the shipped answer (an instant activation aims nothing
- * — Story 8.9); for the four it is the honest one: no module aims them and
- * their catalog lines are STUBS that can never be dealt, so no loadout can
- * hold one. Their arcs are already RULED and each lands with its module —
- * catalog-v3 §4: MISSILE bow ±50°, MACHINE GUN bow ±90°, FLAK 360°, MONITOR
- * bow ±10° (Story 8.15, which CUTS missile and monitor — amendment 89e).
- * Declaring them here before their CONFIG blocks exist
- * would put four uncited literals in the arc grammar.
+ * THE THREE CLASS SHIFTS declare NO aimed arc (Story 8.15, amendments 89c and
+ * 97–102): SPEED BOOST, INSTANT RELOAD and DAMAGE CUT are instant activations
+ * that aim nothing (the Story 8.9 boost answer, now for all three).
  *
- * It shrank from seven to four in Story 8.13: the LIGHT TORPEDO declares its
- * twin sector above, the SUPERCAV TORPEDO declares its bow sector as a
- * consumable, and FOULING MINES joined the mine chassis.
+ * THE UNBUILT WEAPONS ARE GONE FROM THIS DEFAULT. It shrank from seven to four
+ * in Story 8.13 (the light and supercav torpedoes and fouling mines declared
+ * theirs), and Story 8.15 emptied it of weapons: MISSILE and MONITOR are CUT
+ * (amendment 89e), and the MACHINE GUN and FLAK GUN are 360° guns declared
+ * above — their catalog-v3 arcs (bow ±90° for the machine gun) are VOID by
+ * amendment 106.
  *
  * The narrow parameter type is the COMPILE FORCE: a new EquipmentId is not
  * assignable to it, so it cannot reach this default without declaring an arc.
  */
-function unbuiltArc(_id: 'boost' | 'missile' | 'machineGun' | 'flak' | 'monitor'): ArcShape {
+function unbuiltArc(_id: 'boost' | 'instantReload' | 'damageCut'): ArcShape {
   return { kind: 'none' };
 }
 

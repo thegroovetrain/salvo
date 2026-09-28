@@ -3,6 +3,14 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  58 — Story 8.15 (Eric rulings 2026-09-28, epic-8 amendments 97–110):
+ *  `InputMsg.held` (required boolean, malformed drops the message), the shell
+ *  reveal's optional `w` family field ('cannon'|'mg'|'flak' — the ONE declared
+ *  disclosure widening, amendment 89(i); torpedo reveals unchanged),
+ *  `OwnShip.damageCutUntil?` (self-private), catalog content
+ *  (missile/monitor/heatSeeking deleted; machineGun/flak become the mountable
+ *  guns' ladders; LINE_IDS 29 → 26), the Shift ids. Perception exception
+ *  count stays SIX; the reveal shape gains exactly one optional key.
  *  57 — Story 8.14: decks and the match pool retired; the seat carries `gun`
  *  (join option, default deckGun); `OwnShip.gun`; the deck door/4402 refusal
  *  and `deckId`/`deckOverride`/`poolOverride` join keys are gone;
@@ -711,7 +719,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 57;
+export const PROTOCOL_VERSION = 58;
 
 // Tunables
 export * from './constants.js';

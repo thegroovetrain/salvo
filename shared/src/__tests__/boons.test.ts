@@ -160,8 +160,9 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
         for (const e of tier) if (e.kind === 'stat') written.add(e.path);
       }
     }
-    // The universal ladders + the deck gun (Story 8.1) and the five torpedo /
-    // mine ladders (Story 8.13); the rest stand ready for 8.14/8.16.
+    // The universal ladders + the deck gun (Story 8.1), the five torpedo /
+    // mine ladders (Story 8.13) and the machine gun / flak ladders (Story
+    // 8.15); the rest stand ready for 8.16.
     expect([...written].sort()).toEqual([
       'cooldownScale', 'equipment.gun.barrels', 'equipment.gun.damage', 'equipment.gun.maxAmmo',
       'kinematics.maxSpeed', 'kinematics.turnRate', 'maxHp', 'sweepRpm',
@@ -174,11 +175,16 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'equipment.captiveMines.homingTurnRate',
       'equipment.foulingMines.blastRadius', 'equipment.foulingMines.maxAmmo',
       'equipment.foulingMines.slowFactor',
+      'equipment.machineGun.maxAmmo', 'equipment.machineGun.damage', 'equipment.flak.damage',
     ].sort());
     // Still addressable in principle, still written by nothing: the FOULING
     // mine's damage is fixed at 10 by ruling (amendment 81), and radarRange
     // has no card at all.
-    for (const path of ['radarRange', 'equipment.foulingMines.damage', 'equipment.broadside.damage']) {
+    // The flak BLAST is fixed by ruling too (amendment 105), as is its bodyblock.
+    for (const path of [
+      'radarRange', 'equipment.foulingMines.damage', 'equipment.broadside.damage',
+      'equipment.flak.burstRadius', 'equipment.flak.contactDamage',
+    ]) {
       expect(BOON_STAT_PATHS, path).toContain(path);
       expect(written.has(path), path).toBe(false);
     }
@@ -197,9 +203,9 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // epic-8 amendments 80/81): the CARDS that granted `homing` on the two
     // torpedoes and `propFouling` on the naval mine are deleted, so the verbs
     // went with them. Homing is a NUMERIC tier stat now; fouling is its own
-    // equipment line.
+    // equipment line. CUT TO ONE in Story 8.15: the missile's `homing` went
+    // with HEAT SEEKING and the missile itself (amendment 89e).
     expect(DOCTRINE_MODES).toEqual({
-      missile: ['homing'],
       starShells: ['phosphor', 'dazzle'],
     });
     for (const weapon of Object.keys(DOCTRINE_MODES)) expect(EQUIPMENT_IDS).toContain(weapon);
@@ -394,7 +400,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
     const effects: BoonEffect[] = [
       { kind: 'stat', path: 'maxHp', add: 1 },
       { kind: 'behavior', hookId: 'x', params: {} },
-      { kind: 'doctrine', weapon: 'missile', mode: 'homing' },
+      { kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' },
       { kind: 'stock', equipmentId: 'shieldBlock' },
     ];
     for (const e of effects) applySlotEffect(loadout, e, stats);
@@ -543,25 +549,35 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
 // ---------------------------------------------------------------------------
 describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
   const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  // PRODUCTION HAS NO EQUIPMENT STUB LEFT (Story 8.15 cut missile/monitor and
+  // built the machine gun and flak), so the guard is exercised through an
+  // injected catalog in which the BROADSIDE line is stubbed.
+  const STUBBED: Catalog = { ...CATALOG, broadside: { ...CATALOG.broadside, stub: true } };
 
   it('slotsWithCards over a stub id leaves the loadout exactly loadoutFor', () => {
-    expect(slotsWithCards(stats, ['missile'])).toEqual(loadoutFor(stats));
-    expect(slotsWithCards(stats, ['machineGun', 'monitor', 'flak'])).toEqual(loadoutFor(stats));
+    expect(slotsWithCards(stats, ['broadside'], STUBBED)).toEqual(loadoutFor(stats));
   });
 
   it('...and a LIVE line still fills it, so the guard is about stubs alone', () => {
-    expect(slotsWithCards(stats, ['navalMines'])[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
+    expect(slotsWithCards(stats, ['navalMines'], STUBBED)[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
+    expect(slotsWithCards(stats, ['broadside'])[WEAPON_SLOTS[0]].equipmentId).toBe('broadside');
   });
 
   it('a stub NEVER consumes a weapon slot — a live line behind it still takes slot 2', () => {
     // The stub is skipped, not "fitted then ignored": the row does not shift.
-    expect(slotsWithCards(stats, ['machineGun', 'navalMines'])[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
+    expect(slotsWithCards(stats, ['broadside', 'navalMines'], STUBBED)[WEAPON_SLOTS[0]].equipmentId)
+      .toBe('navalMines');
   });
 
   it('applySlotEffect itself refuses a stub fill', () => {
     const loadout = loadoutFor(stats);
-    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'missile' }, stats);
+    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'broadside' }, stats, STUBBED);
     for (const i of WEAPON_SLOTS) expect(loadout[i].equipmentId).toBeNull();
+  });
+
+  it('a GUN LADDER card (machineGun / flak, Story 8.15) never fills a slot — it only steps its gun', () => {
+    expect(slotsWithCards(stats, ['machineGun', 'flak'])).toEqual(loadoutFor(stats));
+    expect(slotsWithCards(stats, ['machineGun', 'navalMines'])[WEAPON_SLOTS[0]].equipmentId).toBe('navalMines');
   });
 });
 

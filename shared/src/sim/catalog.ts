@@ -1,9 +1,15 @@
 // THE CATALOG (Story 8.1) — catalog v3, Eric's authored sheet
 // (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
 // as amended by Eric's rulings (epic-8 amendments).
-// 29 card LINES / 122 physical cards: 11 equipment lines (55), 5 universal
-// ladders (22), the deck-gun family (7), 3 add-ons (3), 7 consumables (35).
-// Those counts stand until Story 8.15 re-cuts the gun family.
+// 26 card LINES / 109 physical cards: 7 equipment lines (35), 5 universal
+// ladders (22), the gun ladders (15 — the cannon's three lines, 7, plus the
+// MACHINE GUN and FLAK ladders, 4 each), 2 add-ons (2), 7 consumables (35).
+//
+// THE COUNT MOVED 29/122 -> 26/109 IN STORY 8.15 (Eric rulings 2026-09-21/28,
+// epic-8 amendments 89e and 103–105): MISSILE, MONITOR and HEAT SEEKING are
+// CUT for good (−11 cards), and MACHINE GUN and FLAK changed KIND from stub
+// equipment lines (5 copies each) to their guns' LADDERS (4 copies each, −2) —
+// the guns themselves are the seat's pick, mounted in slot 0, never a card.
 //
 // `cap` IS THE COPY CAP AND NOTHING ELSE NOW (Story 8.14, amendment 89a). The
 // "physical cards" figure is simply Σ cap: a count of how much ladder the
@@ -29,8 +35,9 @@
 // deck-gun family carry REAL content, because they replace shipped v2 lines.
 // Every equipment line carries copy 1 (`slotFill`); its FOUR UPGRADE TIERS are
 // filled by the story that builds the weapon, from catalog-v3 §4. Story 8.13
-// filled the five torpedo/mine ladders (`tieredWeapon` below); the gun family
-// is 8.15's and the broadside/star shells 8.16's, so those stay empty. The
+// filled the five torpedo/mine ladders (`tieredWeapon` below); 8.15 built the
+// two pickable guns' ladders; the broadside/star shells are 8.16's, so those
+// stay empty. The
 // −5 %/tier reload step is NEVER one of those effects — it is derived from the
 // tier in sim/stats.ts clampStats, see there. Consumables stock and nothing
 // else.
@@ -71,9 +78,16 @@ import {
 } from './effects.js';
 
 /**
- * THE 29 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
- * amended by amendments 80/83 on 2026-09-19). This order IS the fold order, so
- * it is part of the determinism contract — never re-sort it.
+ * THE 26 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
+ * amended by amendments 80/83 on 2026-09-19 and 89e on 2026-09-21). This order
+ * IS the fold order, so it is part of the determinism contract — never
+ * re-sort it.
+ *
+ * STORY 8.15 DELETED THREE IDS AND MOVED NOTHING (29 -> 26): `missile`,
+ * `monitor` and `heatSeeking` are CUT (amendment 89e). `machineGun` and `flak`
+ * KEEP their locked ids and their positions below, but their KIND is now
+ * `ladder` — each is its gun's ladder, offered only while that gun is mounted
+ * (amendments 89d/104/105). The surviving lines keep their relative order.
  *
  * STORY 8.13 SWAPPED EXACTLY ONE ID AND MOVED NOTHING. `acousticHoming` is
  * deleted (homing became a tier stat) and `depthCharge` joins; the count stays
@@ -101,10 +115,8 @@ export const LINE_IDS = [
   'supercavTorpedo', // a CONSUMABLE since amendment 74 — slot locked, kind changed
   'navalMines',
   'captiveMines',
-  'missile',
-  'machineGun',
-  'flak',
-  'monitor',
+  'machineGun', // a LADDER since 8.15 — the machine gun's, slot locked, kind changed
+  'flak', // a LADDER since 8.15 — the flak gun's, slot locked, kind changed
   'broadside',
   'starShells',
   // --- the consumables ------------------------------------------------------
@@ -123,12 +135,11 @@ export const LINE_IDS = [
   // (`foulingMines` sits here too — same reason: its slot is locked, its KIND
   // changed to `equipment` in Story 8.13.)
   'foulingMines',
-  'heatSeeking',
   'dazzleShells',
   'phosphorShells',
 ] as const;
 
-/** One of the 29 authored card lines. */
+/** One of the 26 authored card lines. */
 export type LineId = (typeof LINE_IDS)[number];
 
 /**
@@ -146,9 +157,10 @@ export type LineKind = 'equipment' | 'ladder' | 'addon' | 'consumable';
  * - `tiers` — copy k applies `tiers[k-1]`. An EMPTY tier is legal and means
  *   "this step exists but 8.1 does not author its content" (every equipment
  *   line's tiers II–V).
- * - `appliesTo` — for an `addon`, the equipment it bolts onto; for the
- *   `deckGun` LADDER, the single equipment row whose TIER its copies advance
- *   (the deck gun is slotless, so it has no `slotFill` to read the target off).
+ * - `appliesTo` — for an `addon`, the equipment it bolts onto; for a GUN
+ *   LADDER (`deckGun`, `machineGun`, `flak`), the single equipment row whose
+ *   TIER its copies advance (a mounted gun is slotless in the card sense, so it
+ *   has no `slotFill` to read the target off).
  * - `stub` — the mechanism does not exist yet: never dealt (sim/draw.ts).
  * - `healOnGrant` — the grant heals the granted maxHp delta (ARMOR only).
  */
@@ -280,7 +292,9 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *                  reload half is DERIVED from the tier in clampStats.
  *   DECK GUN TURRET R15 — pool 1 → 2, one copy.
  *   DECK GUN BARREL R16 — +1 barrel per copy, two copies.
- *   HEAT SEEKING R32 · DAZZLE / PHOSPHOR SHELLS R33.
+ *   MACHINE GUN — +2 shells, +1 damage per tier, 4 tiers (amendment 104).
+ *   FLAK — +2 damage per tier, 4 tiers, blast fixed (amendment 105).
+ *   DAZZLE / PHOSPHOR SHELLS R33.
  *   LIGHT TORPEDO R18 · HEAVY TORPEDO R17 · NAVAL MINES R23/R24 ·
  *   CAPTIVE MINES R25 · FOULING MINES R28 (as amended) — Story 8.13.
  */
@@ -325,8 +339,9 @@ export const CATALOG: Catalog = deepFreezeRows({
   // --- the eleven equipment lines (+ supercavTorpedo, which kept its slot) ---
   // Copy 1 fits the weapon. The TORPEDO AND MINE ladders below are Story
   // 8.13's (catalog-v3 §4 as amended by Eric's 2026-09-19 rulings, epic-8
-  // amendments 74/77/80/81/82); the gun family's are Story 8.15's and the
-  // broadside/star-shell ones Story 8.16's, so those tiers are still empty.
+  // amendments 74/77/80/81/82); the broadside/star-shell ones are Story
+  // 8.16's, so those tiers are still empty. The two GUN LADDERS that sit in
+  // this block (machineGun, flak) are Story 8.15's.
   //
   // LIGHT TORPEDO (R18): tiers II–V each +5 damage, +2.5 u/s, +0.5 tubes and
   // +0.125 rad/s of homing — 60 dmg / 55 u/s / 3 tubes / 0.5 rad/s at V, on a
@@ -367,10 +382,22 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('equipment.captiveMines.maxAmmo', { add: 0.5 }),
     statEffect('equipment.captiveMines.homingTurnRate', { add: 0.075 }),
   ]),
-  missile: weapon('missile', 'missile', true), // R29 — CUT in Story 8.15 (amendment 89e)
-  machineGun: weapon('machineGun', 'machineGun', true), // R20/R21 — Story 8.15 makes it a mountable GUN
-  flak: weapon('flak', 'flak', true), // R26/R27 — Story 8.15 makes it a mountable GUN
-  monitor: weapon('monitor', 'monitor', true), // R30 — CUT in Story 8.15 (amendment 89e)
+  // MACHINE GUN (amendment 104): the machine gun's LADDER — offered only while
+  // it is mounted (sim/draw.ts ladderHost reads `appliesTo`). Tiers II–V each
+  // +2 shells to the magazine and +1 damage per shell: 16 -> 24 shells, 4 -> 8
+  // damage at V. The −5 % reload per tier (15 s -> 12 s at V) is NOT an effect:
+  // it is derived from `equipment.machineGun.tier`, which `appliesTo` makes
+  // this line advance — the `deckGun` precedent exactly.
+  machineGun: ladder(
+    'machineGun',
+    4,
+    [statEffect('equipment.machineGun.maxAmmo', { add: 2 }), statEffect('equipment.machineGun.damage', { add: 1 })],
+    { appliesTo: ['machineGun'] },
+  ),
+  // FLAK (amendment 105): the flak gun's LADDER, offered only while mounted.
+  // Tiers II–V each +2 damage (12 -> 20 at V); the blast radius does NOT grow;
+  // the −5 % reload per tier is the derived tier step (6 s -> 4.8 s at V).
+  flak: ladder('flak', 4, [statEffect('equipment.flak.damage', { add: 2 })], { appliesTo: ['flak'] }),
   broadside: weapon('broadside', 'broadside'), // R35 — shipped
   starShells: weapon('starShells', 'starShells'), // R31 — shipped
   // --- the consumables (R13, R36–R39, + amendments 74/83) -------------------
@@ -396,10 +423,7 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('equipment.foulingMines.maxAmmo', { add: 1 }),
     statEffect('equipment.foulingMines.slowFactor', { add: -0.05 }),
   ]),
-  // HEAT SEEKING (R32): the homing verb on the missile. Stub — the missile
-  // itself is Story 8.15, which is also where Eric rules on this card
-  // (*"I will revisit this when we get back to missiles."*, amendment 80).
-  heatSeeking: addon('heatSeeking', ['missile'], 'homing', true),
+  // HEAT SEEKING (R32) is CUT with the missile (Story 8.15, amendment 89e).
   // DAZZLE (R33): enemies inside the lit zone see at ×0.5; never changes the
   // lit radius. Stacks with phosphor on one flare.
   dazzleShells: addon('dazzleShells', ['starShells'], 'dazzle'),
@@ -470,8 +494,9 @@ export function boonStackCount(cards: readonly string[], id: string): number {
 
 /**
  * The equipment row whose TIER a line's copies advance, or undefined. An
- * `equipment` line reads it off copy 1's `slotFill`; the DECK GUN ladder names
- * it in `appliesTo` (it is slotless, so it has no slotFill to read). Add-ons
+ * `equipment` line reads it off copy 1's `slotFill`; a GUN ladder (DECK GUN,
+ * MACHINE GUN, FLAK) names it in `appliesTo` (a mounted gun is never a card,
+ * so there is no slotFill to read). Add-ons
  * have `appliesTo` too and deliberately do NOT advance any tier — they bolt a
  * verb on, they are not a rung.
  */
@@ -488,7 +513,8 @@ export function tierTargetOf(line: CatalogLine): EquipmentId | undefined {
  * The EQUIPMENT LINE that fits a piece of equipment — the inverse of
  * `tierTargetOf` over the `equipment` lines, and the ONE place the
  * (EquipmentId -> LineId) mapping is derived. Undefined for a piece of
- * equipment no card fits (`gun`, `boost`, and the legacy `radarBuoy`).
+ * equipment no card fits (the three mounted guns, the three Shifts, and the
+ * legacy `radarBuoy`).
  *
  * It is what lets the spawn seed know which cards a hull is ALREADY holding,
  * and what lets the shared slot fold refuse to fit a STUB weapon, without
@@ -666,7 +692,7 @@ function everyStatEffect(catalog: Catalog): [CatalogLine, BoonStatEffect][] {
  *     equipment it names; if EVERY line it names is a stub, the card is dealt
  *     into live decks (it is not a stub itself) and buys nothing. An add-on
  *     with at least one live target is fine. A STUB add-on is exempt — it is
- *     never dealt either, so HEAT SEEKING may name the still-stub missile.
+ *     never dealt either.
  */
 function validateCrossLine(catalog: Catalog): string[] {
   const errs: string[] = [];
@@ -712,7 +738,7 @@ export function validateCatalog(catalog: Catalog = CATALOG): string[] {
   return errs;
 }
 
-/** Total physical cards in a catalog (Σ cap) — 114 for catalog v3. */
+/** Total physical cards in a catalog (Σ cap) — 109 since Story 8.15. */
 export function catalogCardCount(catalog: Catalog = CATALOG): number {
   let n = 0;
   for (const key of Object.keys(catalog)) n += catalog[key]?.cap ?? 0;
