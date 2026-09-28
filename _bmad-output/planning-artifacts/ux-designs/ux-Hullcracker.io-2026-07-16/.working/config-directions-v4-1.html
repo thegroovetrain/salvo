@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker — Configure-your-ship directions v4-1 (no collection grid · rows of choices)</title>
+<style>
+/* ============================================================
+   HULLCRACKER — CONFIG DIRECTIONS v4-1 · 2026-09-23
+   Eric (2026-09-23, on seeing ship-screen-1): the collection grid is
+   OFF this screen ("ugly as hell"; unlocks live on another screen).
+   This screen must: pick the ship · pick the deck-gun variant · SEE
+   the ship's current Shift (may become selectable later) · leave room
+   for more choice rows he may add (a captain character with benefits;
+   starting items — a first weapon and/or consumables). "Less a ship
+   select, more a configure-your-thing."
+   Two directions, both a ROW GRAMMAR: every choice is a labelled row
+   that can be added without redesign. Rows shown today: SHIP · SHIFT
+   (read-only) · GUN. No ghost/placeholder rows are drawn (the ghost
+   card was dropped 2026-09-11; no padding). The header word is OPEN.
+   Inline CSS only. No JS. System fonts stand in for Geist / Geist Mono.
+   ============================================================ */
+:root{--void:#050807;--panel:#0A0F0D;--pd:#070B0A;--hair:#1B2621;--silver:#C0C0C0;--t1:#E2E8F0;--t2:#8B95A5;--t3:#7A8496;
+--ph:#00FF88;--phb:#7FFFC4;--amber:#FFB800;--own:#11A5D7;--ownfill:#084A61;
+--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--void);color:var(--t1);font-family:var(--sans);line-height:1.5;padding:40px 20px 96px}
+.page{max-width:1320px;margin:0 auto}
+.kicker{font:11px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--ph);margin-bottom:10px}
+h1{font-size:30px;font-weight:700;letter-spacing:.01em}
+.lede{color:var(--t2);font-size:14px;max-width:92ch;margin-top:10px}.lede strong{color:var(--t1)}
+section.dir{margin-top:56px;border-top:1px solid var(--hair);padding-top:28px}
+.dh{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.dh .idx{font:600 15px var(--mono);color:var(--ph);letter-spacing:.15em}
+.dh h2{font-size:24px;font-weight:700;letter-spacing:.02em}.dh .pers{color:var(--t2);font-size:14px;font-style:italic}
+.rat{color:var(--t2);font-size:14px;max-width:100ch;margin:8px 0 18px}.rat strong{color:var(--t1)}
+.row{display:flex;gap:24px;align-items:flex-start;margin-top:22px}
+.scaler{width:1024px;height:576px;overflow:hidden;border:1px solid var(--hair);flex:none;position:relative}
+.frame{position:relative;width:1366px;height:768px;transform:scale(.75);transform-origin:0 0;background:var(--void);overflow:hidden}
+.side{width:262px;flex:none}
+.side h3{font:10px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--t3);margin:0 0 4px 10px}
+.side ul{margin:0 0 8px 24px;font-size:12px;color:var(--t2)}.side ul b{color:var(--t1);font-weight:600}
+.tag{display:inline-block;font:9px var(--mono);letter-spacing:.14em;border:1px solid var(--amber);color:var(--amber);padding:1px 6px;border-radius:3px;text-transform:uppercase;white-space:nowrap;vertical-align:middle}
+.cic{position:absolute;inset:0;overflow:hidden}
+.cic .rings{position:absolute;left:50%;top:54%;width:1300px;height:1300px;transform:translate(-50%,-50%);border-radius:50%;
+ background:radial-gradient(circle,transparent 0 95px,rgba(127,255,196,.10) 95px 96px,transparent 96px 210px,rgba(192,192,192,.07) 210px 211px,transparent 211px 330px,rgba(192,192,192,.06) 330px 331px,transparent 331px 460px,rgba(192,192,192,.05) 460px 461px,transparent 461px)}
+.cic .scrim{position:absolute;inset:0;background:rgba(5,8,7,.86)}
+.hd{display:flex;align-items:center;justify-content:space-between;height:30px}
+.hd .ttl{font:500 15px var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--t1)}
+.hd .ttl i{font-style:normal;color:var(--t3);margin:0 12px}
+.hd .ttl em{font-style:normal;color:var(--amber)}
+.acct{height:30px;border:1px solid var(--hair);border-radius:6px;padding:0 12px;display:inline-flex;align-items:center;gap:8px;font:500 14px var(--mono);letter-spacing:.18em;color:var(--ph);background:var(--pd)}
+.acct .tok{font-family:var(--sans);color:var(--t1);letter-spacing:0}
+.cta{position:absolute;right:24px;bottom:22px;height:50px;padding:0 26px;border:1px solid var(--amber);border-radius:6px;display:inline-flex;align-items:center;font:500 15px var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--amber);box-shadow:0 0 22px rgba(255,184,0,.25);background:var(--pd)}
+.cta small{font:10px var(--mono);letter-spacing:.14em;color:var(--t3);margin-left:14px}
+.lbl{font:9px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--ph)}
+/* shared: hull tile (v3 geometry, silhouette · name · pips · swatch) */
+.tile{background:var(--pd);border:1px solid var(--hair);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:44px 1fr;column-gap:14px;position:relative}
+.tile .sil{grid-row:1/span 2;width:44px;height:126px;margin-top:4px}
+.tile .sil svg{width:44px;height:126px;fill:none;stroke:var(--silver);stroke-width:1.4}
+.tile.sel{border-color:var(--own);box-shadow:0 0 22px rgba(17,165,215,.35)}
+.tile.sel .sil svg{fill:var(--ownfill);stroke:var(--own)}
+.tile .nm{font:700 16px var(--sans);letter-spacing:.04em;color:var(--t1);text-transform:uppercase;white-space:nowrap;line-height:1.1}
+.tile .nm small{display:block;font:10px var(--mono);letter-spacing:.18em;color:var(--t3);margin-top:2px}
+.tile.sel .nm{color:var(--own)}
+.tile .sw{position:absolute;right:12px;top:12px;width:14px;height:14px;border-radius:50%;background:var(--own)}
+.pips{margin-top:8px;display:grid;grid-template-columns:64px 1fr;row-gap:5px;align-items:center}
+.pips .p{display:flex;gap:3px}.pips .p i{width:13px;height:5px;border:1px solid var(--silver);opacity:.45;display:block}
+.pips .p i.on{background:var(--silver);opacity:.9}
+.tile.sel .pips .p i.on{background:var(--own);border-color:var(--own)}
+/* shared: a CHOICE ROW — label · options; the grammar every future row uses */
+.crow{display:grid;grid-template-columns:120px 1fr;align-items:center;min-height:64px;border-top:1px solid var(--hair);padding:14px 0}
+.crow:first-child{border-top:0}
+.crow .l{font:10px var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--ph)}
+.crow .l small{display:block;font:9px var(--mono);letter-spacing:.14em;color:var(--t3);margin-top:3px;text-transform:none}
+.opts{display:flex;gap:10px;flex-wrap:wrap}
+.opt{min-width:150px;height:64px;border:1px solid var(--hair);border-radius:8px;background:var(--pd);padding:8px 12px;display:flex;flex-direction:column;justify-content:center;gap:2px}
+.opt .g{width:22px;height:22px;border:1px solid rgba(192,192,192,.28);display:inline-flex;align-items:center;justify-content:center;color:var(--ph);font:600 9px var(--mono);margin-bottom:2px}
+.opt .n{font:600 12px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--t1);white-space:nowrap}
+.opt .s{font:9px var(--mono);letter-spacing:.1em;color:var(--t3);text-transform:uppercase;white-space:nowrap}
+.opt.on{border-color:var(--own);box-shadow:0 0 14px rgba(17,165,215,.3)}.opt.on .n{color:var(--own)}.opt.on .g{color:var(--own);border-color:var(--own)}
+.opt.ro{border-style:solid;min-width:260px}.opt.ro .n{color:var(--t1)}
+.opt.ro .g{color:var(--ph)}
+.ro-note{font:9px var(--mono);letter-spacing:.14em;color:var(--t3);text-transform:uppercase;align-self:center;margin-left:4px}
+/* ---- Direction A: RAIL — hull tiles left, config column right ---- */
+.A .lay{position:absolute;left:24px;top:24px;width:1318px;height:720px;background:var(--panel);border:1px solid var(--hair);border-radius:12px;padding:20px 24px 22px}
+.A .panes{display:flex;gap:28px;margin-top:18px;height:600px}
+.A .tiles{width:236px;flex:none;display:flex;flex-direction:column;gap:8px}
+.A .tile{height:158px}
+.A .cfg{flex:1;padding-top:4px}
+.A .cfg .who{font:500 13px var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--t2);padding-bottom:12px}
+.A .cfg .who b{color:var(--own);font-weight:600}
+.hoist{margin-top:auto;display:flex;align-items:center;gap:10px;padding:8px 6px 0}
+.hoist .l{font:9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--t3);white-space:nowrap}
+.hoist .r{display:flex;gap:4px;flex-wrap:wrap}.hoist .r i{width:14px;height:14px;border-radius:50%;display:block;opacity:.85}
+.hoist .r i.sel{outline:2px solid var(--t1);outline-offset:1px}
+/* ---- Direction B: DOSSIER — hulls across the top, one configuration sheet below ---- */
+.B .lay{position:absolute;left:83px;top:24px;width:1200px;height:720px;background:var(--panel);border:1px solid var(--hair);border-radius:12px;padding:20px 24px 22px}
+.B .hulls{display:flex;gap:12px;margin-top:18px}
+.B .tile{width:374px;height:96px;grid-template-columns:32px 1fr 1fr;column-gap:12px;padding:10px 14px}
+.B .tile .sil{grid-row:1;width:32px;height:74px;margin-top:0}.B .tile .sil svg{width:32px;height:74px}
+.B .tile .pips{margin-top:0;grid-column:3;grid-row:1;grid-template-columns:52px 1fr;row-gap:4px;align-self:center}
+.B .tile .nm{align-self:center}
+.B .sheet{margin-top:16px;border:1px solid var(--hair);border-radius:10px;background:var(--pd);padding:6px 22px 10px;min-height:400px;display:flex;flex-direction:column}
+.B .sheet .crow{grid-template-columns:140px 1fr;min-height:76px;padding:16px 0}
+.B .sheet .opt{background:var(--panel)}
+.B .sheet .hoistrow{margin-top:auto;border-top:1px solid var(--hair);padding-top:14px;display:flex;align-items:center;gap:12px}
+</style></head><body><div class="page">
+<div class="kicker">Hullcracker.io · gds-ux · directions · v4-1 · 2026-09-23</div>
+<h1>Configure your ship — two directions</h1>
+<p class="lede"><strong>Eric, 2026-09-23:</strong> the collection grid is off this screen (unlocks live on another screen, later). Here you pick the <strong>ship</strong>, pick the <strong>deck-gun variant</strong>, <strong>see</strong> the ship's current <strong>Shift</strong> (it may become a pick later), and there is room for more choice rows he may add (a captain with benefits; starting items — a first weapon and/or consumables). Both directions use one <strong>row grammar</strong> — label · options — so a new row is an addition, not a redesign. No placeholder rows are drawn. The header word is <span class="tag">open — Eric</span> (it is no longer "select class").</p>
+
+<section class="dir A"><div class="dh"><span class="idx">A</span><h2>The Rail</h2><span class="pers">hull tiles on the left as today · a configuration column on the right for the selected hull</span></div>
+<p class="rat"><strong>Closest to what is shipped.</strong> The three v3 tiles (236×158, silhouette · name · pips · swatch, hoist at the foot) stay exactly where the class layer has them; the freed middle is the configuration column: rows for the selected hull. A new row is one more <code>.crow</code>. Reads as "pick a hull, then kit it".</p>
+<div class="row"><div class="scaler"><div class="frame">
+<div class="cic"><div class="rings"></div><div class="scrim"></div></div>
+<div class="lay">
+ <div class="hd"><div class="ttl"><em>[HEADER — OPEN]</em><i>·</i>WHAT WILL YOU SAIL?</div><div class="acct">LV 7 · 2 <span class="tok">⬢</span></div></div>
+ <div class="panes">
+  <div class="tiles">
+   <div class="tile"><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 4 L34 40 L34 112 L22 122 L10 112 L10 40 Z"/></svg></div><div class="nm">Torpedo Boat<small>[NAME PENDING — ERIC]</small></div>
+    <div class="pips"><span class="lbl">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="lbl">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="lbl">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></div></div>
+   <div class="tile sel"><div class="sw"></div><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 6 L40 34 L40 108 L22 120 L4 108 L4 34 Z"/><rect x="14" y="44" width="16" height="30"/></svg></div><div class="nm">Battleship<small>[NAME PENDING — ERIC]</small></div>
+    <div class="pips"><span class="lbl">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="lbl">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="lbl">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span></div></div>
+   <div class="tile"><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 8 L36 36 L36 110 L22 118 L8 110 L8 36 Z"/><circle cx="22" cy="90" r="5"/></svg></div><div class="nm">Mine Layer<small>[NAME PENDING — ERIC]</small></div>
+    <div class="pips"><span class="lbl">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="lbl">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="lbl">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span></div></div>
+   <div class="hoist"><span class="l">Color preference:</span><span class="r"><i style="background:#FF3B3B"></i><i style="background:#FF7A1A"></i><i style="background:#FFB800"></i><i style="background:#B8E62E"></i><i style="background:#00FF88"></i><i style="background:#2EE6C6"></i><i class="sel" style="background:#11A5D7"></i><i style="background:#3B6BFF"></i><i style="background:#8A5CFF"></i><i style="background:#D14BFF"></i><i style="background:#FF4BB5"></i><i style="background:#FF6B6B"></i></span></div>
+  </div>
+  <div class="cfg">
+   <div class="who">Configuring <b>Battleship</b></div>
+   <div class="crow"><div class="l">Shift<small>current ability</small></div><div class="opts"><div class="opt ro"><span class="g">½</span><span class="n">Damage Cut</span><span class="s">incoming hull damage ×0.5 · [draft] s · [draft] s reload</span></div><span class="ro-note">fixed for this hull</span></div></div>
+   <div class="crow"><div class="l">Gun<small>deck-gun variant</small></div><div class="opts"><div class="opt"><span class="g">DG</span><span class="n">Deck Gun</span><span class="s">5 s reload · single shell</span></div><div class="opt"><span class="g">MG</span><span class="n">Machine Gun</span><span class="s">held stream · bow sector</span></div><div class="opt on"><span class="g">FL</span><span class="n">Flak Gun</span><span class="s">air-burst · hits ordnance</span></div></div></div>
+  </div>
+ </div>
+ <div class="cta">Confirm<small>⏎</small></div>
+</div></div></div>
+<div class="side"><h3>Direction A — notes</h3>
+<ul><li><b>Row grammar:</b> label (10 px mono phosphor + a 9 px sub-label) · options as 150×64 cards: glyph · NAME · one 9 px stat line. A future CAPTAIN or STARTING KIT row is the same shape.</li>
+<li><b>Shift is a read-only row today</b> — one card, no siblings, "fixed for this hull" beside it; the day it becomes a pick, its siblings appear and the note goes. Nothing else moves.</li>
+<li><b>Gun row:</b> three cards, DECK GUN preselected; the pick rides the seat as <code>gun</code>.</li>
+<li><b>The stat sub-lines</b> on the cards are <span class="tag">assumption</span> — the refit card has no prose; one stat line may be too much. Say "names only" and they go.</li>
+<li><b>Width:</b> keeps the class layer's 1318; the column has ~1000 px of room for wider rows.</li>
+<li><b>CONFIRM</b> word <span class="tag">open — Eric</span> ("CONFIRM SELECTION" was the class pick's).</li></ul></div></div>
+</section>
+
+<section class="dir B"><div class="dh"><span class="idx">B</span><h2>The Dossier</h2><span class="pers">the three hulls as a strip across the top · one configuration sheet below</span></div>
+<p class="rat"><strong>Reads as a config sheet first.</strong> The hull pick is a compact strip (three 374×96 tiles: silhouette · name · pips); everything under it belongs to the selected hull. Rows have the full 1150 px, so wide option sets (a starting kit of several consumables) fit on one line. The hoist moves into the sheet's foot as one more row of the same grammar.</p>
+<div class="row"><div class="scaler"><div class="frame">
+<div class="cic"><div class="rings"></div><div class="scrim"></div></div>
+<div class="lay">
+ <div class="hd"><div class="ttl"><em>[HEADER — OPEN]</em><i>·</i>WHAT WILL YOU SAIL?</div><div class="acct">LV 7 · 2 <span class="tok">⬢</span></div></div>
+ <div class="hulls">
+  <div class="tile"><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 4 L34 40 L34 112 L22 122 L10 112 L10 40 Z"/></svg></div><div class="nm">Torpedo Boat<small>[NAME PENDING]</small></div>
+   <div class="pips"><span class="lbl">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="lbl">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="lbl">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></div></div>
+  <div class="tile sel"><div class="sw"></div><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 6 L40 34 L40 108 L22 120 L4 108 L4 34 Z"/><rect x="14" y="44" width="16" height="30"/></svg></div><div class="nm">Battleship<small>[NAME PENDING]</small></div>
+   <div class="pips"><span class="lbl">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="lbl">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="lbl">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span></div></div>
+  <div class="tile"><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 8 L36 36 L36 110 L22 118 L8 110 L8 36 Z"/><circle cx="22" cy="90" r="5"/></svg></div><div class="nm">Mine Layer<small>[NAME PENDING]</small></div>
+   <div class="pips"><span class="lbl">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="lbl">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="lbl">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span></div></div>
+ </div>
+ <div class="sheet">
+   <div class="crow"><div class="l">Shift<small>current ability</small></div><div class="opts"><div class="opt ro"><span class="g">½</span><span class="n">Damage Cut</span><span class="s">incoming hull damage ×0.5 · [draft] s · [draft] s reload</span></div><span class="ro-note">fixed for this hull</span></div></div>
+   <div class="crow"><div class="l">Gun<small>deck-gun variant</small></div><div class="opts"><div class="opt"><span class="g">DG</span><span class="n">Deck Gun</span><span class="s">5 s reload · single shell</span></div><div class="opt"><span class="g">MG</span><span class="n">Machine Gun</span><span class="s">held stream · bow sector</span></div><div class="opt on"><span class="g">FL</span><span class="n">Flak Gun</span><span class="s">air-burst · hits ordnance</span></div></div></div>
+   <div class="hoistrow"><span class="lbl" style="width:140px">Color</span><span class="r" style="display:flex;gap:6px"><i style="width:16px;height:16px;border-radius:50%;display:block;background:#FF3B3B"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#FF7A1A"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#FFB800"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#B8E62E"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#00FF88"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#2EE6C6"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#11A5D7;outline:2px solid #E2E8F0;outline-offset:1px"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#3B6BFF"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#8A5CFF"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#D14BFF"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#FF4BB5"></i><i style="width:16px;height:16px;border-radius:50%;display:block;background:#FF6B6B"></i></span></div>
+ </div>
+ <div class="cta">Confirm<small>⏎</small></div>
+</div></div></div>
+<div class="side"><h3>Direction B — notes</h3>
+<ul><li><b>Same row grammar as A</b>, full width: a STARTING KIT row with five consumable cards fits on one line; a CAPTAIN row with portraits fits at the same 64 px or taller.</li>
+<li><b>Hull strip 374×96</b> <span class="tag">assumption</span> — the silhouette shrinks to 32×74; identity-board geometry at this size is unverified.</li>
+<li><b>Hoist becomes a row</b> ("Color") — the hoist's one home moves with it (UX-DR26); the footer seat goes.</li>
+<li><b>Layer 1200 wide</b> <span class="tag">assumption</span> — narrower than the 1318 class layer; the sheet did not need it.</li>
+<li><b>Empty room is real room:</b> the sheet is tall on purpose (400 px min) so two more rows land without scrolling at 1366×768; nothing is drawn in it today.</li>
+<li>Keys carry over: 1–3 pick a hull, Enter confirms, ESC home; gun pick pointer-only <span class="tag">assumption</span>.</li></ul></div></div>
+</section>
+</div></body></html>
