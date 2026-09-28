@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker — Ship Screen v4-1 (key screen · The Pool · signed in + anonymous)</title>
+<style>
+/* ============================================================
+   HULLCRACKER — SHIP SCREEN v4-1 · KEY SCREEN · 2026-09-23
+   Supersedes mockups/shipdeck-1.html (the merged SHIP & DECK screen,
+   ratified 2026-09-11). Decks were retired on 2026-09-21 (Sprint
+   Change Proposal, epic-8 amendment 89 — THE POOL): every captain
+   draws from ONE common pool; a hull carries a FIXED Shift; the gun
+   is a PICK. So on this screen:
+     · the RIGHT pane (deck column, dropdown, legality line, SAVE) is
+       GONE — two panes: class tiles | collection grid
+     · the class tile REGAINS two rows (Story 9.4): a Shift ability
+       line and a gun picker (three chips, DECK GUN preselected)
+     · the collection tile is glyph · name · lock state — the per-copy
+       rail is gone (a line unlocks WHOLE; Story 9.6); every line,
+       every gun and every hull is a tile; on day one everything is
+       lit (Eric 2026-09-21)
+     · ANONYMOUS = the same layout, differing by capability only:
+       no account chip, no lock, no price
+   FACILITATOR DRAFT for Eric's redline — every geometry that is not
+   carried from shipdeck-1 is tagged [ASSUMPTION] in the side notes:
+   the 320 px tile column (was 236), the 204 px tile, the chip
+   register of the gun picker, the 72 px collection tile. The grid's
+   718 px / 5-wide pane is carried unchanged. Class names are
+   [NAME PENDING — Eric]; the Shift glyphs are [DRAFT].
+   Panel width 1318 = the ratified class layer. Inline CSS only. No
+   JS. No network. System fonts stand in for Geist / Geist Mono.
+   ============================================================ */
+:root{--void:#050807;--panel:#0A0F0D;--pd:#070B0A;--hair:#1B2621;--silver:#C0C0C0;--t1:#E2E8F0;--t2:#8B95A5;--t3:#7A8496;
+--ph:#00FF88;--phb:#7FFFC4;--amber:#FFB800;--denied:#FF3B3B;--info:#38BDF8;--own:#11A5D7;--ownfill:#084A61;
+--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--void);color:var(--t1);font-family:var(--sans);line-height:1.5;padding:40px 20px 96px}
+.page{max-width:1320px;margin:0 auto}
+.kicker{font:11px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--ph);margin-bottom:10px}
+h1{font-size:30px;font-weight:700;letter-spacing:.01em}
+.lede{color:var(--t2);font-size:14px;max-width:92ch;margin-top:10px}.lede strong{color:var(--t1)}
+.fixed{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+.fixed span{font:10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--t2);border:1px solid var(--hair);padding:5px 9px}
+.fixed span b{color:var(--ph);font-weight:600}.fixed span b.am{color:var(--amber)}
+section.dir{margin-top:56px;border-top:1px solid var(--hair);padding-top:28px}
+.dh{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.dh .idx{font:600 15px var(--mono);color:var(--ph);letter-spacing:.15em}
+.dh h2{font-size:24px;font-weight:700;letter-spacing:.02em}.dh .pers{color:var(--t2);font-size:14px;font-style:italic}
+.rat{color:var(--t2);font-size:14px;max-width:100ch;margin:8px 0 18px}.rat strong{color:var(--t1)}
+.row{display:flex;gap:24px;align-items:flex-start;margin-top:22px}
+.scaler{width:1024px;height:576px;overflow:hidden;border:1px solid var(--hair);flex:none;position:relative}
+.frame{position:relative;width:1366px;height:768px;transform:scale(.75);transform-origin:0 0;background:var(--void);overflow:hidden}
+.side{width:262px;flex:none}
+.side h3{font:10px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--t3);margin:0 0 4px 10px}
+.side p.sn{font-size:12px;color:var(--t2);margin:0 0 8px 10px}.side p.sn b{color:var(--t1);font-weight:600}
+.side ul{margin:0 0 8px 24px;font-size:12px;color:var(--t2)}.side ul b{color:var(--t1);font-weight:600}
+.tag{display:inline-block;font:9px var(--mono);letter-spacing:.14em;border:1px solid var(--amber);color:var(--amber);padding:1px 6px;border-radius:3px;text-transform:uppercase;white-space:nowrap;vertical-align:middle}
+
+/* ---------- dimmed home behind the layer ---------- */
+.cic{position:absolute;inset:0;overflow:hidden}
+.cic .rings{position:absolute;left:50%;top:54%;width:1300px;height:1300px;transform:translate(-50%,-50%);border-radius:50%;
+ background:radial-gradient(circle,transparent 0 95px,rgba(127,255,196,.10) 95px 96px,transparent 96px 210px,rgba(192,192,192,.07) 210px 211px,transparent 211px 330px,rgba(192,192,192,.06) 330px 331px,transparent 331px 460px,rgba(192,192,192,.05) 460px 461px,transparent 461px)}
+.cic .scrim{position:absolute;inset:0;background:rgba(5,8,7,.86)}
+
+/* ---------- the layer ---------- */
+.lay{position:absolute;left:24px;top:24px;width:1318px;height:720px;background:var(--panel);border:1px solid var(--hair);border-radius:12px;padding:20px 24px 22px}
+.hd{display:flex;align-items:center;justify-content:space-between;height:30px}
+.hd .ttl{font:500 15px var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--t1)}
+.hd .ttl i{font-style:normal;color:var(--t3);margin:0 12px}
+.acct{height:30px;border:1px solid var(--hair);border-radius:6px;padding:0 12px;display:inline-flex;align-items:center;gap:8px;font:500 14px var(--mono);letter-spacing:.18em;color:var(--ph);background:var(--pd)}
+.acct .tok{font-family:var(--sans);color:var(--t1);letter-spacing:0}
+.panes{display:flex;gap:24px;margin-top:18px;height:620px}
+.tiles{width:320px;flex:none;display:flex;flex-direction:column;gap:8px}
+.tile{height:204px;background:var(--pd);border:1px solid var(--hair);border-radius:10px;padding:12px 14px 10px;display:grid;grid-template-columns:44px 1fr;grid-template-rows:auto auto auto 1fr;column-gap:14px;position:relative}
+.tile .sil{grid-row:1/span 3;width:44px;height:126px;align-self:start;margin-top:6px}
+.tile .sil svg{width:44px;height:126px;fill:none;stroke:var(--silver);stroke-width:1.4}
+.tile.sel{border-color:var(--own);box-shadow:0 0 22px rgba(17,165,215,.35)}
+.tile.sel .sil svg{fill:var(--ownfill);stroke:var(--own)}
+.tile .nm{font:700 16px var(--sans);letter-spacing:.04em;color:var(--t1);text-transform:uppercase;white-space:nowrap;line-height:1.1}
+.tile .nm small{display:block;font:10px var(--mono);letter-spacing:.18em;color:var(--t3);margin-top:2px}
+.tile.sel .nm{color:var(--own)}
+.tile .sw{position:absolute;right:12px;top:12px;width:14px;height:14px;border-radius:50%;background:var(--own)}
+.pips{margin-top:8px;display:grid;grid-template-columns:64px 1fr;row-gap:5px;align-items:center}
+.pips .l{font:9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ph)}
+.pips .p{display:flex;gap:3px}.pips .p i{width:13px;height:5px;border:1px solid var(--silver);opacity:.45;display:block}
+.pips .p i.on{background:var(--silver);opacity:.9}
+.tile.sel .pips .p i.on{background:var(--own);border-color:var(--own)}
+.shift{margin-top:10px;display:grid;grid-template-columns:64px 1fr;align-items:center}
+.shift .l{font:9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ph)}
+.shift .v{display:flex;align-items:center;gap:8px;font:600 11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--t1);white-space:nowrap}
+.shift .g{width:14px;height:14px;border:1px solid var(--ph);display:inline-block;color:var(--ph);font:600 9px var(--mono);line-height:12px;text-align:center}
+.guns{grid-column:1/-1;margin-top:8px;display:grid;grid-template-columns:64px 1fr;align-items:center}
+.guns .l{font:9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ph)}
+.guns .c{display:flex;gap:5px}
+.guns .c span{height:26px;padding:0 8px;border:1px solid var(--hair);border-radius:6px;display:inline-flex;align-items:center;font:500 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--t2);white-space:nowrap}
+.guns .c span.on{border-color:var(--own);color:var(--own)}
+.tile:not(.sel) .guns .c span.on{border-color:var(--silver);color:var(--t1)}
+.hoist{margin-top:auto;display:flex;align-items:center;gap:10px;padding:8px 6px 0}
+.hoist .l{font:9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--t3);white-space:nowrap}
+.hoist .r{display:flex;gap:4px;flex-wrap:wrap}
+.hoist .r i{width:14px;height:14px;border-radius:50%;display:block;opacity:.85}
+.hoist .r i.sel{outline:2px solid var(--t1);outline-offset:1px}
+.gridw{width:718px;flex:none;position:relative;height:620px;overflow:hidden}
+.gridw:after{content:"";position:absolute;left:0;right:0;bottom:0;height:70px;background:linear-gradient(transparent,var(--panel))}
+.grp{font:9px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--t3);margin:0 0 8px}
+.grp.n{margin-top:14px}
+.grid{display:grid;grid-template-columns:repeat(5,130px);column-gap:17px;row-gap:10px}
+.ct{width:130px;height:72px;background:var(--pd);border:1px solid var(--hair);padding:8px 8px 6px;display:flex;flex-direction:column;align-items:center;position:relative}
+.ct .gi{width:28px;height:28px;border:1px solid rgba(192,192,192,.28);display:flex;align-items:center;justify-content:center;color:var(--ph);font:600 11px var(--mono)}
+.ct .cn{margin-top:6px;font:600 9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--t1);white-space:nowrap}
+.ct.lk .gi,.ct.lk .cn{color:var(--t3)}.ct.lk .gi{border-color:rgba(122,132,150,.5)}
+.ct.lk:after{content:"🔒";position:absolute;right:6px;top:5px;font-size:10px;filter:grayscale(1)}
+.ct.pr{border-color:var(--amber);box-shadow:0 0 12px rgba(255,184,0,.35)}
+.ct.pr .gi{color:var(--amber);border-color:var(--amber)}.ct.pr .cn{color:var(--amber)}
+.ct.pr:after{content:"⬢ 1";font:600 10px var(--mono);color:var(--amber);filter:none}
+.cta{position:absolute;right:24px;bottom:22px;height:50px;padding:0 26px;border:1px solid var(--amber);border-radius:6px;display:inline-flex;align-items:center;font:500 15px var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--amber);box-shadow:0 0 22px rgba(255,184,0,.25);background:var(--pd)}
+.cta small{font:10px var(--mono);letter-spacing:.14em;color:var(--t3);margin-left:14px}
+</style></head><body><div class="page">
+<div class="kicker">Hullcracker.io · gds-ux · key screen · v4-1 · 2026-09-23</div>
+<h1>Ship Screen — The Pool</h1>
+<p class="lede"><strong>Supersedes shipdeck-1 (the merged Ship &amp; Deck screen).</strong> Decks are retired (Eric 2026-09-21): a captain brings a <strong>hull</strong> and a <strong>gun</strong>, everything else is drawn from the common pool in the match. The deck column is gone; the class tile regains a <strong>Shift</strong> ability line and a <strong>gun picker</strong>; the collection tile is glyph · name · lock state, and on day one everything is lit. Facilitator draft for Eric's redline — the new geometry is tagged.</p>
+<div class="fixed"><span>panel <b>1318</b></span><span>tiles <b class="am">320 [assumption]</b> (was 236)</span><span>tile <b class="am">320×204 [assumption]</b></span><span>grid <b>718 · 5 wide</b> (carried)</span><span>collection tile <b class="am">130×72 [assumption]</b> (no rail)</span><span>gun chips <b class="am">26 px [assumption]</b></span><span>confirm <b>50 px amber</b></span><span>class names <b class="am">[name pending — Eric]</b></span><span>shift glyphs <b class="am">[draft]</b></span></div>
+
+<section class="dir"><div class="dh"><span class="idx">FRAME 1</span><h2>Signed in</h2><span class="pers">Okafor, LV 7 · 2 ⬢ — Battleship selected, FLAK GUN picked</span></div>
+<p class="rat"><strong>Two panes.</strong> Tiles left (hoist at the foot), the collection in the middle; nothing on the right. Every tile in the grid is lit — day one — so the one <em>locked</em> tile and the one <em>pressed</em> tile below are shown only to fix the states for Story 9.6 and are not a day-one reading.</p>
+<div class="row"><div class="scaler"><div class="frame">
+<div class="cic"><div class="rings"></div><div class="scrim"></div></div>
+<div class="lay">
+ <div class="hd"><div class="ttl">SELECT CLASS<i>·</i>WHAT WILL YOU SAIL?</div><div class="acct">LV 7 · 2 <span class="tok">⬢</span></div></div>
+ <div class="panes">
+  <div class="tiles">
+   <div class="tile"><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 4 L34 40 L34 112 L22 122 L10 112 L10 40 Z"/></svg></div>
+    <div class="nm">Torpedo Boat<small>[NAME PENDING — ERIC]</small></div>
+    <div class="pips"><span class="l">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="l">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="l">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></div>
+    <div class="shift"><span class="l">Shift</span><span class="v"><span class="g">»</span>Speed Boost</span></div>
+    <div class="guns"><span class="l">Gun</span><span class="c"><span class="on">Deck Gun</span><span>Machine Gun</span><span>Flak Gun</span></span></div></div>
+   <div class="tile sel"><div class="sw"></div><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 6 L40 34 L40 108 L22 120 L4 108 L4 34 Z"/><rect x="14" y="44" width="16" height="30"/></svg></div>
+    <div class="nm">Battleship<small>[NAME PENDING — ERIC]</small></div>
+    <div class="pips"><span class="l">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="l">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="l">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span></div>
+    <div class="shift"><span class="l">Shift</span><span class="v"><span class="g">½</span>Damage Cut</span></div>
+    <div class="guns"><span class="l">Gun</span><span class="c"><span>Deck Gun</span><span>Machine Gun</span><span class="on">Flak Gun</span></span></div></div>
+   <div class="tile"><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 8 L36 36 L36 110 L22 118 L8 110 L8 36 Z"/><circle cx="22" cy="90" r="5"/></svg></div>
+    <div class="nm">Mine Layer<small>[NAME PENDING — ERIC]</small></div>
+    <div class="pips"><span class="l">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="l">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="l">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span></div>
+    <div class="shift"><span class="l">Shift</span><span class="v"><span class="g">↻</span>Instant Reload</span></div>
+    <div class="guns"><span class="l">Gun</span><span class="c"><span class="on">Deck Gun</span><span>Machine Gun</span><span>Flak Gun</span></span></div></div>
+   <div class="hoist"><span class="l">Color preference:</span><span class="r"><i style="background:#FF3B3B"></i><i style="background:#FF7A1A"></i><i style="background:#FFB800"></i><i style="background:#B8E62E"></i><i style="background:#00FF88"></i><i style="background:#2EE6C6"></i><i class="sel" style="background:#11A5D7"></i><i style="background:#3B6BFF"></i><i style="background:#8A5CFF"></i><i style="background:#D14BFF"></i><i style="background:#FF4BB5"></i><i style="background:#FF6B6B"></i></span></div>
+  </div>
+  <div class="gridw">
+   <div class="grp">Hulls · guns</div>
+   <div class="grid"><div class="ct"><div class="gi">TB</div><div class="cn">Torpedo Boat</div></div><div class="ct"><div class="gi">BS</div><div class="cn">Battleship</div></div><div class="ct"><div class="gi">ML</div><div class="cn">Mine Layer</div></div><div class="ct"><div class="gi">DG</div><div class="cn">Deck Gun</div></div><div class="ct"><div class="gi">MG</div><div class="cn">Machine Gun</div></div><div class="ct"><div class="gi">FL</div><div class="cn">Flak Gun</div></div></div>
+   <div class="grp n">Lines</div>
+   <div class="grid">
+    <div class="ct"><div class="gi">AR</div><div class="cn">Armor</div></div><div class="ct"><div class="gi">SP</div><div class="cn">Speed</div></div><div class="ct"><div class="gi">TU</div><div class="cn">Turning</div></div><div class="ct"><div class="gi">RS</div><div class="cn">Radar Sweep</div></div><div class="ct"><div class="gi">RL</div><div class="cn">Reload</div></div>
+    <div class="ct"><div class="gi">TR</div><div class="cn">Turret</div></div><div class="ct"><div class="gi">BR</div><div class="cn">Barrel</div></div><div class="ct"><div class="gi">LT</div><div class="cn">Light Torpedo</div></div><div class="ct"><div class="gi">HT</div><div class="cn">Heavy Torpedo</div></div><div class="ct"><div class="gi">SC</div><div class="cn">Supercav Torpedo</div></div>
+    <div class="ct"><div class="gi">NM</div><div class="cn">Naval Mines</div></div><div class="ct"><div class="gi">CM</div><div class="cn">Captive Mines</div></div><div class="ct"><div class="gi">FM</div><div class="cn">Fouling Mines</div></div><div class="ct"><div class="gi">BG</div><div class="cn">Broadside Gun</div></div><div class="ct"><div class="gi">SS</div><div class="cn">Star Shells</div></div>
+    <div class="ct"><div class="gi">HR</div><div class="cn">Hull Repair</div></div><div class="ct"><div class="gi">SB</div><div class="cn">Shield Block</div></div><div class="ct"><div class="gi">SM</div><div class="cn">Smoke Screen</div></div><div class="ct"><div class="gi">CH</div><div class="cn">Chaff</div></div><div class="ct"><div class="gi">DB</div><div class="cn">Decoy Buoy</div></div>
+    <div class="ct"><div class="gi">DC</div><div class="cn">Depth Charge</div></div><div class="ct lk"><div class="gi">DZ</div><div class="cn">Dazzle</div></div><div class="ct pr"><div class="gi">PH</div><div class="cn">Phosphor</div></div>
+   </div>
+  </div>
+ </div>
+ <div class="cta">Confirm selection<small>⏎</small></div>
+</div></div></div>
+<div class="side"><h3>Frame 1 — what is carried, what is new</h3>
+<p class="sn"><b>Carried from shipdeck-1:</b> the 1318 layer, the header with the account chip hard right, three stacked tiles with silhouette · name · pips · hue swatch, the hoist at the foot, the 718 px five-wide grid under a 70 px fade, CONFIRM SELECTION 50 px amber bottom-right, keys 1–3 / Enter / ESC.</p>
+<ul><li><b>Tile column 320</b> <span class="tag">assumption</span> — widened from 236 so the Shift line and three gun chips sit in the pip-label grid; the deck column's 280 px pays for it, the rest goes to the gutters. The grid does NOT grow to 6 wide.</li>
+<li><b>Tile 320×204</b> <span class="tag">assumption</span> — silhouette left, four rows right: name · pips · SHIFT · GUN.</li>
+<li><b>Shift line</b> — the hull's FIXED ability (Eric 2026-09-21): SPEED BOOST · DAMAGE CUT · INSTANT RELOAD; label register = the pip labels; the glyphs are <span class="tag">draft</span>.</li>
+<li><b>Gun picker</b> — three chips in the account-chip register at 26 px <span class="tag">assumption</span>; DECK GUN preselected; the selected chip takes the hull's hue on the selected tile and silver on the others (the border is the non-colour channel); the pick rides the seat as <code>gun</code>.</li>
+<li><b>Collection tile 130×72</b> <span class="tag">assumption</span> — glyph · 9 px name · lock state; no rail, nothing per copy. Hover raises the full 216×226 refit card (unchanged).</li>
+<li><b>Hulls and guns are tiles too</b> — the three unlock surfaces of Story 9.6; a hull's grid tile is its unlock, never a second picker <span class="tag">assumption</span>. The grouped rows are a reading aid <span class="tag">assumption</span>.</li>
+<li><b>States shown once:</b> DAZZLE locked (grey + lock at full alpha), PHOSPHOR pressed (amber + ⬢ 1 — the price is <span class="tag">draft</span>); on day one neither state occurs.</li>
+<li><b>Names</b> — the three hulls become NAMED SHIP CLASSES (shape <code>IBK-01 KABUKI CLASS</code>); <span class="tag">name pending — Eric</span>.</li></ul></div></div>
+</section>
+
+<section class="dir"><div class="dh"><span class="idx">FRAME 2</span><h2>Anonymous</h2><span class="pers">Dee — Mine Layer selected, DECK GUN, no account</span></div>
+<p class="rat"><strong>The same layout, differing by capability only</strong> (ratified 2026-09-11, carried): absent exactly the account chip, the lock and the price. Everything is lit; nothing in the grid is pressable.</p>
+<div class="row"><div class="scaler"><div class="frame">
+<div class="cic"><div class="rings"></div><div class="scrim"></div></div>
+<div class="lay">
+ <div class="hd"><div class="ttl">SELECT CLASS<i>·</i>WHAT WILL YOU SAIL?</div></div>
+ <div class="panes">
+  <div class="tiles">
+   <div class="tile"><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 4 L34 40 L34 112 L22 122 L10 112 L10 40 Z"/></svg></div>
+    <div class="nm">Torpedo Boat<small>[NAME PENDING — ERIC]</small></div>
+    <div class="pips"><span class="l">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="l">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="l">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></div>
+    <div class="shift"><span class="l">Shift</span><span class="v"><span class="g">»</span>Speed Boost</span></div>
+    <div class="guns"><span class="l">Gun</span><span class="c"><span class="on">Deck Gun</span><span>Machine Gun</span><span>Flak Gun</span></span></div></div>
+   <div class="tile"><div class="sil"><svg viewBox="0 0 44 126"><path d="M22 6 L40 34 L40 108 L22 120 L4 108 L4 34 Z"/><rect x="14" y="44" width="16" height="30"/></svg></div>
+    <div class="nm">Battleship<small>[NAME PENDING — ERIC]</small></div>
+    <div class="pips"><span class="l">Speed</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="l">Armor</span><span class="p"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="l">Turning</span><span class="p"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span></div>
+    <div class="shift"><span class="l">Shift</span><span class="v"><span class="g">½</span>Damage Cut</span></div>
+    <div class="guns"><span class="l">Gun</span><span class="c"><span class="on">Deck Gun</span><span>Machine Gun</span><span>Flak Gun</span></span></div></div>
+   <div class="tile sel" style="border-color:#FF4BB5;box-shadow:0 0 22px rgba(255,75,181,.35)"><div class="sw" style="background:#FF4BB5"></div><div class="sil"><svg viewBox="0 0 44 126" style="fill:#4a1636;stroke:#FF4BB5"><path d="M22 8 L36 36 L36 110 L22 118 L8 110 L8 36 Z"/><circle cx="22" cy="90" r="5"/></svg></div>
+    <div class="nm" style="color:#FF4BB5">Mine Layer<small>[NAME PENDING — ERIC]</small></div>
+    <div class="pips"><span class="l">Speed</span><span class="p"><i class="on" style="background:#FF4BB5;border-color:#FF4BB5"></i><i class="on" style="background:#FF4BB5;border-color:#FF4BB5"></i><i class="on" style="background:#FF4BB5;border-color:#FF4BB5"></i><i></i><i></i></span><span class="l">Armor</span><span class="p"><i class="on" style="background:#FF4BB5;border-color:#FF4BB5"></i><i class="on" style="background:#FF4BB5;border-color:#FF4BB5"></i><i class="on" style="background:#FF4BB5;border-color:#FF4BB5"></i><i></i><i></i></span><span class="l">Turning</span><span class="p"><i class="on" style="background:#FF4BB5;border-color:#FF4BB5"></i><i class="on" style="background:#FF4BB5;border-color:#FF4BB5"></i><i class="on" style="background:#FF4BB5;border-color:#FF4BB5"></i><i></i><i></i></span></div>
+    <div class="shift"><span class="l">Shift</span><span class="v"><span class="g">↻</span>Instant Reload</span></div>
+    <div class="guns"><span class="l">Gun</span><span class="c"><span class="on" style="border-color:#FF4BB5;color:#FF4BB5">Deck Gun</span><span>Machine Gun</span><span>Flak Gun</span></span></div></div>
+   <div class="hoist"><span class="l">Color preference:</span><span class="r"><i style="background:#FF3B3B"></i><i style="background:#FF7A1A"></i><i style="background:#FFB800"></i><i style="background:#B8E62E"></i><i style="background:#00FF88"></i><i style="background:#2EE6C6"></i><i style="background:#11A5D7"></i><i style="background:#3B6BFF"></i><i style="background:#8A5CFF"></i><i style="background:#D14BFF"></i><i class="sel" style="background:#FF4BB5"></i><i style="background:#FF6B6B"></i></span></div>
+  </div>
+  <div class="gridw">
+   <div class="grp">Hulls · guns</div>
+   <div class="grid"><div class="ct"><div class="gi">TB</div><div class="cn">Torpedo Boat</div></div><div class="ct"><div class="gi">BS</div><div class="cn">Battleship</div></div><div class="ct"><div class="gi">ML</div><div class="cn">Mine Layer</div></div><div class="ct"><div class="gi">DG</div><div class="cn">Deck Gun</div></div><div class="ct"><div class="gi">MG</div><div class="cn">Machine Gun</div></div><div class="ct"><div class="gi">FL</div><div class="cn">Flak Gun</div></div></div>
+   <div class="grp n">Lines</div>
+   <div class="grid">
+    <div class="ct"><div class="gi">AR</div><div class="cn">Armor</div></div><div class="ct"><div class="gi">SP</div><div class="cn">Speed</div></div><div class="ct"><div class="gi">TU</div><div class="cn">Turning</div></div><div class="ct"><div class="gi">RS</div><div class="cn">Radar Sweep</div></div><div class="ct"><div class="gi">RL</div><div class="cn">Reload</div></div>
+    <div class="ct"><div class="gi">TR</div><div class="cn">Turret</div></div><div class="ct"><div class="gi">BR</div><div class="cn">Barrel</div></div><div class="ct"><div class="gi">LT</div><div class="cn">Light Torpedo</div></div><div class="ct"><div class="gi">HT</div><div class="cn">Heavy Torpedo</div></div><div class="ct"><div class="gi">SC</div><div class="cn">Supercav Torpedo</div></div>
+    <div class="ct"><div class="gi">NM</div><div class="cn">Naval Mines</div></div><div class="ct"><div class="gi">CM</div><div class="cn">Captive Mines</div></div><div class="ct"><div class="gi">FM</div><div class="cn">Fouling Mines</div></div><div class="ct"><div class="gi">BG</div><div class="cn">Broadside Gun</div></div><div class="ct"><div class="gi">SS</div><div class="cn">Star Shells</div></div>
+    <div class="ct"><div class="gi">HR</div><div class="cn">Hull Repair</div></div><div class="ct"><div class="gi">SB</div><div class="cn">Shield Block</div></div><div class="ct"><div class="gi">SM</div><div class="cn">Smoke Screen</div></div><div class="ct"><div class="gi">CH</div><div class="cn">Chaff</div></div><div class="ct"><div class="gi">DB</div><div class="cn">Decoy Buoy</div></div>
+    <div class="ct"><div class="gi">DC</div><div class="cn">Depth Charge</div></div><div class="ct"><div class="gi">DZ</div><div class="cn">Dazzle</div></div><div class="ct"><div class="gi">PH</div><div class="cn">Phosphor</div></div>
+   </div>
+  </div>
+ </div>
+ <div class="cta">Confirm selection<small>⏎</small></div>
+</div></div></div>
+<div class="side"><h3>Frame 2 — absence by capability</h3>
+<ul><li><b>Absent exactly:</b> the account chip, the lock glyph, the ⬢ price. No dropdown, no ✎ ×, no SAVE, no steppers to be absent any more — those went for everyone.</li>
+<li><b>Everything lit</b> — the anonymous captain sees the whole collection and sails any hull with any gun (day one: everything unlocked for everyone).</li>
+<li><b>The grid is read-only</b> — nothing pressable; the class tile and its gun chips are the only controls beside the hoist and CONFIRM SELECTION.</li>
+<li><b>Grid contents</b> — the ids in <code>LINE_IDS</code> less the three cut lines (HORIZONTAL MISSILE, MONITOR GUN, HEAT SEEKING), plus the three hulls and three guns; DAZZLE / PHOSPHOR are the STAR SHELLS add-ons as separate tiles <span class="tag">assumption</span>; the tile order is a reading aid, unruled.</li>
+<li><b>Door refusal</b> — the only pre-queue check left is "hull and gun unlocked" (Story 9.6); the action word is <span class="tag">open — Eric</span>; <code>SAIL DEFAULT DECK</code> is void.</li></ul></div></div>
+</section>
+</div></body></html>
