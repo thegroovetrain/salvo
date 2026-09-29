@@ -247,6 +247,33 @@ describe('the magazine (amendment 103)', () => {
     expect(a.stats.equipment.machineGun.damage).toBe(5);
     expect(a.stats.equipment.machineGun.reloadMs).toBeCloseTo(MG.reloadMs * 0.95, 6);
   });
+
+  it('a tier grant on a FULL, idle magazine tops it up to the new cap: n 18, reloadMsLeft 0, and no swap starts', () => {
+    const w = bareWorld();
+    const a = gunner(w, 'a');
+    const log: GameEvent[] = [];
+    const idleTicks = MG.idleReloadMs / DT + 20; // well past the idle clock
+    hold(w, 'a', false, idleTicks, 0, log);
+    expect(mag(a)).toEqual({ n: MG.maxAmmo, reloadMsLeft: 0 });
+    w.applyCard(a, 'machineGun');
+    expect(mag(a)).toEqual({ n: 18, reloadMsLeft: 0 });
+    hold(w, 'a', false, 40, idleTicks, log);
+    expect(mag(a)).toEqual({ n: 18, reloadMsLeft: 0 });
+  });
+
+  it('a tier grant DURING an idle swap fills the magazine and the swap ends: no swap runs on a full magazine', () => {
+    const w = bareWorld();
+    const a = gunner(w, 'a');
+    const log: GameEvent[] = [];
+    let seq = hold(w, 'a', true, 1, 0, log); // one shot: 15 left
+    seq = hold(w, 'a', false, MG.idleReloadMs / DT + 5, seq, log); // idle -> the swap is running
+    expect(mag(a).n).toBe(MG.maxAmmo - 1);
+    expect(mag(a).reloadMsLeft).toBeGreaterThan(0);
+    w.applyCard(a, 'machineGun');
+    expect(mag(a).n).toBe(18); // everything arrives loaded
+    hold(w, 'a', false, 1, seq, log);
+    expect(mag(a)).toEqual({ n: 18, reloadMsLeft: 0 });
+  });
 });
 
 // ---------- the gates ---------------------------------------------------------
@@ -302,6 +329,28 @@ describe('the stream honours the click channel\'s gates', () => {
     w.submitInput('a', makeInput({ seq: 21, held: true, slot: SLOT_GUN }));
     w.step();
     expect(w.tickEvents.filter((e) => e.k === 'shell')).toHaveLength(1);
+  });
+
+  it('a DROPPED seat mid-hold stops streaming (releaseHeld), and a reconnect with a fresh held:true resumes', () => {
+    const w = bareWorld();
+    const a = gunner(w, 'a');
+    const log: GameEvent[] = [];
+    let seq = hold(w, 'a', true, 1, 0, log); // streaming: one shell
+    expect(kindCount(log, 'shell')).toBe(1);
+    // The transport drops: no more inputs arrive; the room releases the level.
+    w.releaseHeld('a');
+    for (let i = 0; i < 40; i++) {
+      w.step();
+      log.push(...w.tickEvents);
+    }
+    expect(kindCount(log, 'shell')).toBe(1); // 2 s of grace: nothing more
+    expect(mag(a).n).toBe(MG.maxAmmo - 1);
+    // Throttle/rudder are untouched (the ghost keeps its helm) — only the level drops.
+    expect(w.inputs.get('a')!.held).toBe(false);
+    expect(w.inputs.get('a')!.seq).toBe(seq);
+    // Resume: the reconnected client's fresh held:true streams again.
+    seq = hold(w, 'a', true, 1, seq, log);
+    expect(kindCount(log, 'shell')).toBe(2);
   });
 
   it('a CANNON seat ignores the level entirely: held:true on a deck gun fires nothing', () => {

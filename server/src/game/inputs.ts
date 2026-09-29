@@ -245,6 +245,18 @@ export class InputStore {
     return this.latest.get(id)?.seq ?? 0;
   }
 
+  /**
+   * Drop the held-fire LEVEL off `id`'s stored latest input (the transport
+   * dropped mid-hold, Story 8.15). The stored message is REPLACED, never
+   * mutated (it is shared by reference with ship.input); seq, helm and aim are
+   * kept, so the ghost sails on as before and the next real input still needs a
+   * higher seq. Nothing is queued — a release is not a press.
+   */
+  releaseHeld(id: string): void {
+    const last = this.latest.get(id);
+    if (last?.held) this.latest.set(id, { ...last, held: false });
+  }
+
   /** Forget a client entirely (on leave). */
   remove(id: string): void {
     this.latest.delete(id);

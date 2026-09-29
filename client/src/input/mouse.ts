@@ -196,9 +196,13 @@ export class MouseInput {
 
   /** The OS took the pointer away (touch/pen gesture, pointer capture loss): no
    *  pointerup is coming, so this is the hold's end. No button check — a
-   *  pointercancel carries no meaningful button. */
+   *  pointercancel carries no meaningful button. A cancel that ENDS the hold
+   *  also drops the press latch (Story 8.15): a cancelled gesture is not a
+   *  press, so it never yields a `held: true` sample. */
   private readonly onCancel = (e: PointerEvent): void => {
-    this.endHold(pointerIdOf(e));
+    const id = pointerIdOf(e);
+    if (this.activePointerId !== null && id === this.activePointerId) this.pressedSinceSample = false;
+    this.endHold(id);
   };
 
   /**

@@ -2517,3 +2517,13 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   summary: SEVERAL PLANNING DOCS NOW CARRY SUPERSEDED 8.15 CLAUSES. `epics.md`'s Story 8.15 AC, the GDD and `catalog-v3.md` still say the machine gun has a bow ±90° arc (voided by amendment 106, "no arc — every gun fires 360°"), still carry the catalog-v3 R20/R21/R26/R27 draft numbers (superseded by amendments 103-105), still use the word "tilt" (superseded by amendment 91's "weighting"), and the 8.15 AC's class-select wording still describes a picker/unlock surface rather than the minimal chip row amendment 107 actually built; the GDD's Shift boost also still lists a 20 s cooldown against the shipped 25 s. None of this is corrected here — Story 9.11 is the doc-sync pass.
   evidence: amendments 91, 97-108; epics.md Story 8.15 AC; GDD class/arc tables; catalog-v3.md R20/R21/R26/R27.
 
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Eric (un-ruled asymmetry), review gate 2026-09-29
+  summary: THE LIT-ZONE REACH EXTENSION (R2.15, a click beyond range whose far point lies in an OWN live star-shell zone) APPLIES TO THE CANNON ONLY. The machine gun and the flak gun clamp to the plain radar rung (660 u) on both server (`machineGun.ts` / `flak.ts` use `burstPointAlong` with `row.rangeU`, no `ownLitZones` read) and client (`aimPreview.ts`), so the three 360°/660 u guns differ in one reach rule amendments 103–106 never mention. Consistent both sides, no desync; a one-line decision either way.
+  evidence: Blind Hunter finding 11 at the 8.15 review gate; `server/src/game/equipment/guns.ts` `gunReachU` vs the two new modules.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Story 8.19 (bot tactic tables)
+  summary: THE INTERIM BATTLESHIP BOT OPENS DAMAGE CUT OFF ITS OWN `dmg` EVENT, WHICH CARRIES THE POST-SHIELD AMOUNT. A fully absorbed hit reports `amount 0`, so once SHIELD BLOCK (8.16) lands a shielded Battleship bot will not brace on absorbed hits; `lastDamagedAt` is not observable by bots (no widening was added). 8.19's table should trigger on "was hit" rather than "took damage" if Eric wants the cut under a shield.
+  evidence: Blind Hunter finding 12 at the 8.15 review gate; `server/src/game/ai/equipment.ts` `damageCutTactic` / `noteHurt`.

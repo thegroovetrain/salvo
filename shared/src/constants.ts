@@ -1222,7 +1222,8 @@ export const CONFIG = {
    * a `burstRadius` blast for `damage` to every hull inside it — the cannon's
    * burst rule with Eric's numbers ("12 dmg / 50u blast / 660 u range / 6s").
    * A hull crossing the shell's path takes `contactDamage` and stops it (the
-   * cannon's bodyblock rule; 4 = Eric's standing 40 % ratio, floored). NO
+   * cannon's bodyblock rule; a fixed 4 hp, set once off the base damage at
+   * Eric's standing 40 % ratio, floored — the ladder never re-derives it). NO
    * range field: DERIVED = the radar rung (660 u). 360° (amendment 106).
    *
    * THE MASK is AR44's `hull | mine | decoy | ordnance` (amendment 96(f): a
@@ -1240,7 +1241,10 @@ export const CONFIG = {
     maxAmmo: 1, // one shell (amendment 105)
     reloadMs: 6000, // ms (amendment 105)
     damage: 12, // hp per burst victim (amendment 105)
-    contactDamage: 4, // hp to an early interceptor — 40 % of 12, floored (the bodyblock ratio)
+    // hp to an early interceptor — a FIXED 4 hp bodyblock, derived ONCE from
+    // the base damage (floor(40 % × 12), like `gun.contactDamage`) and NOT
+    // re-derived per tier: the ladder's +2 damage never moves it.
+    contactDamage: 4,
     burstRadius: 50, // u — FIXED; the ladder never grows it (amendment 105)
     shellRadius: 2, // u — shell collision radius (the gun family's)
   },

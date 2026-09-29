@@ -1600,6 +1600,13 @@ export class World {
     return this.inputs.submit(id, raw, this.now);
   }
 
+  /** The seat's transport dropped: stop its held-fire level for the whole
+   *  reconnect grace (a machine gun must not stream on a ghost). The room
+   *  calls this from onDrop before the grace window opens. */
+  releaseHeld(id: string): void {
+    this.inputs.releaseHeld(id);
+  }
+
   /**
    * Push a fresh RTT estimate (windowed min, ms) for `id`'s D1 fire-time clamp,
    * or null when the estimator has no live samples. Called by the room's ping
@@ -2867,10 +2874,11 @@ export class World {
    * pool, then the clock that fills it" and guarantees we never scale a timer a
    * later step would overwrite. The one interaction worth naming: a slot whose
    * cap ROSE is filled to cap by reconcilePools and may keep a stale nonzero
-   * timer — but `tickReload` pins the timer to 0 on the very next tick once
-   * `n >= maxAmmo`, so scaling it is inert either way. A slot FILLED by this
-   * grant (acquisition) arrives from `freshSlotState` with `reloadMsLeft: 0` and
-   * is skipped by the `left <= 0` guard.
+   * timer — but the slot's tick pins the timer to 0 on the very next tick
+   * once `n >= maxAmmo` (`tickReload` for a per-round pool, the machine gun's
+   * `tickSwap` for its magazine), so scaling it is inert either way. A slot
+   * FILLED by this grant (acquisition) arrives from `freshSlotState` with
+   * `reloadMsLeft: 0` and is skipped by the `left <= 0` guard.
    */
   private rescaleReloadTimers(ship: ShipRecord, prevStats: EffectiveStats): void {
     for (const slot of ship.loadout) {
@@ -4691,7 +4699,10 @@ export class World {
     // off resolution, not dmg: the weapons-safe ready room still calls hits).
     if (shell.damage > 0) {
       for (const t of victims) {
-        if (t.kind === 'mine') continue; // detonated below, after the hit call
+        // Mines detonate and fish are removed below, after the hit call —
+        // neither is a damage victim (a fish is not a buoy, so it must never
+        // reach burstDamage's hitBuoy branch).
+        if (t.kind === 'mine' || t.kind === 'ordnance') continue;
         resolved += this.burstDamage(shell, t);
       }
       // AMENDMENT 19 (Eric 2026-09-15, resolving `deferred-work.md:590`): a
@@ -4732,7 +4743,7 @@ export class World {
     // hulls alone), and the OWNER'S OWN fish are never victims.
     for (const t of victims) {
       if (t.kind === 'mine') this.detonateBurstMine(t.id);
-      else if (t.kind === 'ordnance') this.removeBurstOrdnance(t.id, shell.ownerId);
+      else if (t.kind === 'ordnance') this.removeBurstOrdnance(t.id, shell.ownerId, at, shell.burstRadius);
     }
   }
 
@@ -4746,14 +4757,24 @@ export class World {
    * track store, its water detaches into the orphan store (amendment 200) —
    * and the collector generation bumps so no later burst this tick finds a
    * ghost. Deleting from `shells` while stepShells iterates it is
-   * well-defined (a Map skips entries deleted before their visit), which is
-   * exactly the wanted outcome: a fish struck this tick never steps again,
-   * so it cannot land a hit after it has been shot down. The `shells.get`
-   * re-check is the consume-first discipline (two bursts covering one fish).
+   * well-defined (a Map skips entries deleted before their visit): a fish
+   * LATER in the Map than the bursting shell never steps again, so it cannot
+   * land a hit after it has been shot down; a fish EARLIER in the Map (launched
+   * before the flak shell) has already taken this tick's step.
+   *
+   * THE LIVE-POINT RE-CHECK. The `ordnance` list is memoized at the first
+   * flak-mask call of the tick, so a fish that stepped between that call and
+   * this burst is listed at its PRE-step point. Removal therefore re-measures
+   * the fish's live centre against the blast (the same inclusive `≤ radius`
+   * burstVictims applies to a point): a fish that ran out of the blast this
+   * tick survives. (One that ran INTO it is still spared — it was not in the
+   * list — which is deterministic and acceptable.) The `shells.get` re-check
+   * is the consume-first discipline (two bursts covering one fish).
    */
-  private removeBurstOrdnance(id: string, shooterId: string): void {
+  private removeBurstOrdnance(id: string, shooterId: string, at: Vec2, burstRadius: number): void {
     const fish = this.shells.get(id);
     if (fish === undefined || fish.ownerId === shooterId) return; // gone, or the shooter's own
+    if (Math.hypot(fish.x - at.x, fish.y - at.y) > burstRadius) return; // stepped out of the blast
     this.shells.delete(id);
     this.forgetBallistic(id);
     this.orphanTorpWake(id);

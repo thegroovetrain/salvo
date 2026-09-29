@@ -218,6 +218,18 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't']);
   });
 
+  it('the World\'s own LAUNCH ballisticEvent carries `w` for every shell family and NEVER for a torp (even one naming a family)', () => {
+    const w = bareWorld();
+    const launch = (s: ShellState): BallisticEvent => (w as unknown as { ballisticEvent(s: ShellState): BallisticEvent }).ballisticEvent(s);
+    for (const family of SHELL_FAMILIES) {
+      const ev = launch(makeShell({ id: 's1', kind: 'shell', family }));
+      expect(Object.keys(ev)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't', 'w']);
+      expect(ev.w).toBe(family);
+    }
+    expect('w' in launch(makeShell({ id: 't1', kind: 'torp' }))).toBe(false);
+    expect('w' in launch(makeShell({ id: 't2', kind: 'torp', family: 'cannon' }))).toBe(false);
+  });
+
   it('torp row: [k,id,x,y,vx,vy,t]', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);

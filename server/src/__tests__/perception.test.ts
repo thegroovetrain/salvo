@@ -433,7 +433,9 @@ const BALLISTIC_KEYS = ['id', 'k', 't', 'vx', 'vy', 'x', 'y'];
 const BALLISTIC_KEYS_WITH_FAMILY = ['id', 'k', 't', 'vx', 'vy', 'w', 'x', 'y'];
 function assertBallisticShape(e: BallisticEvent): void {
   const keys = Object.keys(e).sort();
-  if (e.k === 'shell' && 'w' in e) {
+  // Every World-launched `shell` names its family; a `torp` never does.
+  expect('w' in e).toBe(e.k === 'shell');
+  if (e.k === 'shell') {
     expect(keys).toEqual(BALLISTIC_KEYS_WITH_FAMILY);
     expect(SHELL_FAMILIES).toContain(e.w);
     return;

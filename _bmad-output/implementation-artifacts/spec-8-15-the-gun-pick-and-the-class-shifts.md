@@ -2,10 +2,10 @@
 title: 'Story 8.15: The Gun Pick and the Class Shifts'
 type: 'feature'
 created: '2026-09-28'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '2cbe92b'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-8-context.md'
@@ -108,12 +108,12 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Wave 1 `shared/` -- ids, CONFIG blocks, catalog cuts + ladders, stats rows, arcs, shell family/direct, loadout shift, types, PV 58, tests -- `npm run build -w shared && npm test -w shared`
-- [ ] Wave 2 `server/src` (sim + rooms + tests) -- input `held`, stream control, magazine, flak + ordnance collector, Shifts, damage cut, `w` on the reveal, frames, perception suite over gun rows, bot random gun seat -- `npm test -w server`
-- [ ] Wave 3 `client/` (parallel with 2) -- held sampling, class-select pick + SPECIAL, HUD glyphs/names/drain/ACTIVE, shell looks, copy, tests -- `npm test -w client`
-- [ ] Wave 4 bots + harness + smokes + measurement -- tactics, appetite/spend tables, `--gun`, `TUNE_FAMILIES`, catalog metrics rows, `weaponsSmoke` gun phase, the 20-bot `mz` test -- `npm test -w server`; smokes on a scratch port
-- [ ] Wave 5 docs -- version 0.18.15, changelog, trackers, deferred-work (ordnance side effect; ghost fish; glyph + copy drafts; RL feature vector; DAMAGE CUT tally reads post-cut `dealt`), stale comments -- `npm run check` exit 0
-- [ ] Unit-test every row of the I/O matrix
+- [x] Wave 1 `shared/` -- ids, CONFIG blocks, catalog cuts + ladders, stats rows, arcs, shell family/direct, loadout shift, types, PV 58, tests -- `npm run build -w shared && npm test -w shared`
+- [x] Wave 2 `server/src` (sim + rooms + tests) -- input `held`, stream control, magazine, flak + ordnance collector, Shifts, damage cut, `w` on the reveal, frames, perception suite over gun rows, bot random gun seat -- `npm test -w server`
+- [x] Wave 3 `client/` (parallel with 2) -- held sampling, class-select pick + SPECIAL, HUD glyphs/names/drain/ACTIVE, shell looks, copy, tests -- `npm test -w client`
+- [x] Wave 4 bots + harness + smokes + measurement -- tactics, appetite/spend tables, `--gun`, `TUNE_FAMILIES`, catalog metrics rows, `weaponsSmoke` gun phase, the 20-bot `mz` test -- `npm test -w server`; smokes on a scratch port
+- [x] Wave 5 docs -- version 0.18.15, changelog, trackers, deferred-work (ordnance side effect; ghost fish; glyph + copy drafts; RL feature vector; DAMAGE CUT tally reads post-cut `dealt`), stale comments -- `npm run check` exit 0
+- [x] Unit-test every row of the I/O matrix
 
 **Acceptance Criteria:**
 - Given a join with each of the three guns on each of the three hulls (nine in-process worlds), when the captain fires once at a hull in reach, then slot 0 holds that gun's module, the hit lands for the CONFIG damage (4 direct / 12 burst / 15 burst), the reveal carries the matching `w`, and slot 1 holds the hull's Shift.
@@ -126,6 +126,45 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-29 — Review pass (Blind Hunter + Edge Case Hunter on Fable, plus Codex `gpt-5.6-sol` cross-model review on the source diff — verdicts: Codex FIX-FIRST on one medium; agreement: ALL THREE flagged the dropped-seat stream (F1); Codex + Blind flagged the stale ordnance memo point (F3); Blind alone: ordnance in the damage loop (F2), the oracle tolerating a shell without `w` (F4), the drain painting with another slot primed (F9), `flak.burstRadius` addressable (F7), comment drift (F6/F8); Edge alone: the ladder grant during a swap (F5), the cancel-latch (F10), the enemy-tracer own-fire claim (F11); every anti-cheat, input-validation, damage-gate and layering probe came back clean from all three)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 0, medium 1, low 10)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 0
+- addressed_findings:
+  - `[medium]` `[patch]` a machine-gun seat that disconnected mid-hold streamed for the whole reconnect grace (the level lived on the stored input): the room releases `held` on drop before the grace opens; a reconnect with a fresh hold resumes (all three reviewers)
+  - `[low]` `[patch]` a burst could remove a fish from a memoized pre-step point: removal re-checks the live position inside the blast; the "never steps again" comment corrected (Codex + Blind)
+  - `[low]` `[patch]` an `ordnance` victim reached `burstDamage`/`hitBuoy` by store-membership accident: skipped in the damage loop; a fish-only burst is `sp` (Blind)
+  - `[low]` `[patch]` the perception shape oracle tolerated a shell reveal without `w`; the launch event's `w` was unpinned: both pinned, mutation-verified (Blind)
+  - `[low]` `[patch]` a MACHINE GUN ladder grant during an idle swap left the swap running on a full magazine: `tickSwap` pins the timer at full (Edge)
+  - `[low]` `[patch]` `flak.burstRadius`/`contactDamage` left the stat-field whitelist (amendment 105's fixed blast, compile-enforced) (Blind)
+  - `[low]` `[patch]` the held-fire drain painted while another slot was primed: requires the gun selected (Blind; Eric confirmed the gate, amendment 111)
+  - `[low]` `[patch]` a cancelled pointer gesture kept the press latch: cleared on the holding pointer's cancel (Edge)
+  - `[low]` `[patch]` an enemy `mg` reveal near the own hull was claimed as own `gun` fire: only the stream claim can own a tracer (Edge)
+  - `[low]` `[patch]` two stale comments (reconcile timer wording; the flak `contactDamage` ratio claim) (Blind)
+- rulings recorded: Eric 2026-09-29 — the stream fires only while the gun is the selected slot (amendment 111); an idle magazine swap shows the normal wipe (amendment 112); orchestrator review-gate rulings (amendment 113).
+- deferred (ledgered in `deferred-work.md`): the lit-zone reach extension stays cannon-only (an un-ruled asymmetry, Eric); the interim Battleship bot's cut trigger reads the post-shield `dmg` amount (8.19).
+
+## Auto Run Result
+
+Status: done (cycle 150, 0.18.15; PROTOCOL_VERSION 57 → 58; epic-8 amendments 97–113)
+
+**Summary.** Story 8.15 landed as Eric ruled it on 2026-09-28/29. The gun is a real pick on today's class-select cards (CANNON · MACHINE GUN · FLAK chips plus a SPECIAL row), frozen at queue and mounted from the seat. The MACHINE GUN is a held-fire magazine stream (`InputMsg.held`, a required boolean level; 4 damage per shell, one shell per 0.5 s while the gun is the selected slot, 660 u, a 16-shell magazine, a 15 s swap that starts when empty or after 5 s idle and is cancelled by a shot; per-shell muzzle flash; a dropped seat releases the level). The FLAK GUN is one shell bursting at the click (12 damage in a 50 u blast, 660 u, 6 s; enemy torpedoes inside the blast are removed silently, own torpedoes immune — a side effect Eric may remove). Every gun is 360°. Each gun's ladder is offered only while it is mounted (MG +2 shells / +1 damage / −5 % reload per tier; flak +2 damage / −5 %). Every hull carries a FIXED Shift in slot 1: SPEED BOOST (Torpedo Boat, as shipped), INSTANT RELOAD (Mine Layer, 45 s, finishes the running reload of the gun and every fitted weapon), DAMAGE CUT (Battleship, halves incoming weapon damage rounded down for 8 s on a 30 s cooldown, before the shield, storm excluded). HORIZONTAL MISSILE, MONITOR GUN and HEAT SEEKING are deleted end to end (LINE_IDS 29 → 26). The shell reveal carries one new family word `w` (cannon / mg / flak) as the one declared disclosure widening; the perception invariant still counts six exceptions. Bots are seated with a seeded random gun and carry interim Shift and gun tactics until 8.19; the harness gains `--gun`. The plain gun is CANNON everywhere in match.
+
+**Files.** shared: `types.ts`, `sim/loadout.ts`, `sim/boons.ts`, `constants.ts`, `sim/catalog.ts`, `sim/stats.ts`, `sim/effects.ts`, `sim/arcs.ts`, `sim/shell.ts`, `sim/draw.ts`, `index.ts` (PV 58), tests. server: `game/equipment/{machineGun,flak,instantReload,damageCut}.ts` NEW, `equipment/{index,guns,ammo,ballistics,broadside,starShells,torpedoCore,mines}.ts`, `game/{inputs,world,frames,signals,drones}.ts`, `rooms/ArenaRoom.ts`, `game/ai/{types,botDriver,tactics,equipment,spending}.ts`, `scripts/batchsim/*`, `scripts/rl/*`, every smoke `.mjs`, tests (`machineGunStream`, `flak`, `shift`, `machineGunFlashCost` NEW). client: `input/mouse.ts`, `sim/inputSampler.ts`, `sim/ownFire.ts`, `main.ts`, `ui/{classSelect,home,boonCopy}.ts`, `net/{connection,roomBindings}.ts`, `render/{equipmentIcons,equipmentInfo,hotbar,slotTooltip,weaponArc,aimPreview,projectiles}.ts`, `config.ts`, tests (`gunPickHud` NEW). Docs: `VERSION` / `package.json` / lock 0.18.15; `CHANGELOG.md`; both trackers; `deferred-work.md`; amendments 97–113 in both homes; `epic-8-context.md` recompiled; this spec.
+
+**Measurement (AC).** 20 machine-gun bots streaming in one World, Node v22.19.0: `mz` per tick mean 1.35 / max 6 (exactly one per stream shell, 270 shells in a 200-tick window), shells in flight mean 4.88 / max 19, `world.step()` best-of-5 mean 1.024 ms per tick, worst tick 3.909 ms — far under the 50 ms tick (`machineGunFlashCost.test.ts`).
+
+**Review.** Blind Hunter + Edge Case Hunter (Fable) and Codex `gpt-5.6-sol`: one medium (all three) and ten low patches, all fail-first proven; two deferred; zero rejected. See the Review Triage Log.
+
+**Follow-up review recommended: true** — the patch wave changed the room's drop path (a new `releaseHeld` seam), the burst's ordnance resolution and the client's own-fire attribution; each is pinned, but they were reviewed only by their implementer.
+
+**Verification.** `npm run check` exit 0 after the patch wave: shared 934 / server 2097 / client 3708 tests, hooks green; eslint 0 errors (3 pre-existing max-lines warnings). Headless smokes: weaponsSmoke PASS on attempt 1 with the new three-guns phase (cannon 15 / mg 4 / flak 12, reveals `w` cannon / mg / flak, held ticks sent with fireSeq 0), queueSmoke PASS (seat proof over all three gun ids), openingSmoke PASS; queue + opening re-run PASS after the patches.
+
+**Residual risk / for Eric.** (1) Glyphs, chip layout, drain bar, tracer look and the two ladder hover descriptions are implementer drafts for your eye on staging (amendment 110). (2) The flak's anti-ordnance half is built but ledgered as removable, per your words. (3) The attacker's damage tally reads the post-cut amount; `finishReloads` restarts a short pool's timer at full rather than 0 — both ledgered readings you may overrule. (4) Lit-zone reach stays cannon-only (deferred, yours). (5) `epics.md`, the GDD and `catalog-v3.md` now carry superseded clauses (bow ±90°, R20/R21/R26/R27 numbers, the 20 s boost, "tilt") — 9.11 doc-sync. Staging QA: pick each gun on class select and confirm the chip persists; hold the button with the machine gun and watch the drain bar, the 5 s idle swap and the wipe; flak burst ring at 50 u; Shift on each hull (boost / instant reload with a reloading weapon / damage cut halving a hit); no missile, monitor or heat-seeking card ever appears.
+
 
 ## Design Notes
 

@@ -355,6 +355,26 @@ describe('MouseInput pairs each release with the click it closes', () => {
     });
   });
 
+  it('THE HELD LEVEL (Story 8.15): a tap latches one held sample; a POINTERCANCEL that ends the hold drops the latch too', () => {
+    withMouse((m, canvas) => {
+      // A sub-sample TAP: down + up inside one sample still yields held once.
+      fire(canvas, 'pointerdown', { button: 0, pointerId: 3 });
+      fire(canvas, 'pointerup', { button: 0, pointerId: 3 });
+      expect(m.consumeHeld()).toBe(true);
+      expect(m.consumeHeld()).toBe(false);
+      // A CANCELLED gesture is not a press: the OS took the pointer away, so
+      // the next sample must not carry held:true (no phantom stream shell).
+      fire(canvas, 'pointerdown', { button: 0, pointerId: 7 });
+      fire(canvas, 'pointercancel', { pointerId: 7 });
+      expect(m.isHeld).toBe(false);
+      expect(m.consumeHeld()).toBe(false);
+      // ...while ANOTHER pointer's cancel neither ends the hold nor drops its latch.
+      fire(canvas, 'pointerdown', { button: 0, pointerId: 8 });
+      fire(canvas, 'pointercancel', { pointerId: 9 });
+      expect(m.consumeHeld()).toBe(true);
+    });
+  });
+
   it('a SWALLOWED press (DOM chrome) never becomes a hold, so its up closes nothing', () => {
     withMouse((m) => {
       const chrome = document.createElement('button');

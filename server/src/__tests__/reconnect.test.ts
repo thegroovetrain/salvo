@@ -330,7 +330,7 @@ describe('deferred teardown (grace window)', () => {
 // and stub allowReconnection with a spy returning a controllable promise.
 
 interface WiringRoom {
-  world: { ships: Map<string, { lifecycle: ShipLifecycle }> };
+  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void };
   match: { phase: string } | null;
   lastResults: ResultsMsg | null;
   allowReconnection: (client: unknown, seconds: number) => Promise<unknown>;
@@ -342,16 +342,17 @@ function wiringRoom(opts: {
   ship?: { lifecycle: ShipLifecycle };
   lastResults?: ResultsMsg;
   reconnectPromise?: Promise<unknown>;
-}): { room: WiringRoom; allow: ReturnType<typeof vi.fn> } {
+}): { room: WiringRoom; allow: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> } {
+  const release = vi.fn();
   const allow = vi.fn(() => opts.reconnectPromise ?? new Promise<unknown>(() => undefined));
   const room = new ArenaRoom() as unknown as WiringRoom;
   const ships = new Map<string, { lifecycle: ShipLifecycle }>();
   if (opts.ship) ships.set('a', opts.ship);
-  room.world = { ships };
+  room.world = { ships, releaseHeld: release as unknown as WiringRoom['world']['releaseHeld'] };
   room.match = { phase: opts.phase };
   room.lastResults = opts.lastResults ?? null;
   room.allowReconnection = allow as unknown as WiringRoom['allowReconnection'];
-  return { room, allow };
+  return { room, allow, release };
 }
 
 const RESUMABLE = CloseCode.ABNORMAL_CLOSURE; // 1006, in RECONNECTABLE_CLOSE_CODES
@@ -363,6 +364,13 @@ describe('ArenaRoom.onDrop wiring', () => {
     room.onDrop(CLIENT, RESUMABLE);
     expect(allow).toHaveBeenCalledTimes(1);
     expect(allow.mock.calls[0][1]).toBe(CONFIG.net.reconnectGraceSeconds);
+  });
+
+  it('(a2) a held seat is released BEFORE the grace window opens (a dropped machine gun stops streaming)', () => {
+    const { room, allow, release } = wiringRoom({ phase: 'active', ship: { lifecycle: LIFECYCLE_ALIVE } });
+    room.onDrop(CLIENT, RESUMABLE);
+    expect(release).toHaveBeenCalledWith('a');
+    expect(release.mock.invocationCallOrder[0]).toBeLessThan(allow.mock.invocationCallOrder[0]);
   });
 
   it('(b) punitive close (WITH_ERROR 4002) -> allowReconnection NOT called', () => {

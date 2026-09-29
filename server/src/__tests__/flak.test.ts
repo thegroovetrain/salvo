@@ -5,11 +5,11 @@
 //   * a hull crossing the path takes the 4 hp bodyblock and stops the shell;
 //   * the ORDNANCE side effect (amendment 105): an ENEMY torpedo inside the
 //     blast is REMOVED — no boom, no damage, no `hc` — and the shooter's OWN
-//     fish are immune; a fish struck this tick never steps again;
+//     fish are immune; removal re-checks the fish's LIVE point;
 //   * a burst chains into armed non-captive mines like any burst;
 //   * the reveal carries `w: 'flak'`; a click while reloading is `cooling`.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { CONFIG, type GameEvent, type InputMsg, type ShellState } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
@@ -168,6 +168,53 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
     expect(w.shells.has('far')).toBe(true);
     expect(w.shells.has('near')).toBe(false);
     expect(w.torpWakes.has('near')).toBe(false); // its ribbon detached into the orphan store
+  });
+
+  it('a fish never reaches the burst DAMAGE loop: no hitBuoy call for it, and a fish-only blast is `sp`, not `hc`', () => {
+    const w = bareWorld();
+    flakker(w, 'a');
+    hull(w, 'b', 2000, 2000);
+    fish(w, 'enemy-fish', 'b', 300, 20);
+    const spy = vi.spyOn(w as unknown as { hitBuoy: (id: string, n: number) => boolean }, 'hitBuoy');
+    const log = click(w, 'a', 300);
+    expect(w.shells.has('enemy-fish')).toBe(false); // still removed, by the ordnance loop
+    expect(spy.mock.calls.some(([id]) => id === 'enemy-fish')).toBe(false);
+    expect(count(log, 'sp')).toBe(1);
+    expect(count(log, 'hc')).toBe(0);
+  });
+
+  it('removal re-checks the fish\'s LIVE point: a fish 49 u off at memo time that steps to 52 u before the burst resolves SURVIVES', () => {
+    const w = bareWorld();
+    flakker(w, 'a', 0, -400); // X: a flak shell in flight this tick (aimed far), built first in the Map
+    flakker(w, 'c', 0, 0); //     Y: the resolving flak shell, launched AFTER the fish
+    hull(w, 'b', 2000, 2000);
+    w.submitInput('a', makeInput({ seq: 1, fireSeq: 1, aimDist: 600, aim: 0 }));
+    w.step(); // X launched
+    const f = fish(w, 'enemy-fish', 'b', 300, 49); // Map order: X, fish, (Y)
+    f.vy = 0.001; // parked (speed must be > 0 to stay in flight)
+    w.submitInput('c', makeInput({ seq: 1, fireSeq: 1, aimDist: 300, aim: 0 }));
+    w.step(); // Y launched
+    const y = [...w.shells.values()].find((s) => s.ownerId === 'c' && s.kind === 'shell')!;
+    expect(y).toBeDefined();
+    let resolved = false;
+    for (let i = 0; i < 40 && !resolved; i++) {
+      const step = FLAK.shellSpeed * (CONFIG.tick.simDtMs / 1000);
+      const left = Math.hypot(y.targetX! - y.x, y.targetY! - y.y);
+      if (left <= step) {
+        // Y resolves THIS tick: X steps first (memoizing the fish at 49 u),
+        // then the fish runs 3 u (60 u/s) out to 52 u, then Y bursts.
+        f.x = 300;
+        f.y = 49;
+        f.vy = 60;
+        resolved = true;
+      }
+      w.step();
+    }
+    expect(resolved).toBe(true);
+    expect(w.shells.has(y.id)).toBe(false); // Y burst
+    expect([...w.shells.values()].some((s) => s.ownerId === 'a' && s.kind === 'shell')).toBe(true); // X still flying: it memoized
+    expect(f.y).toBeCloseTo(52, 6);
+    expect(w.shells.has('enemy-fish')).toBe(true); // outside the blast when it went off
   });
 
   it('a burst chains into an armed non-captive mine inside the blast like any burst (amendments 16/18/20)', () => {

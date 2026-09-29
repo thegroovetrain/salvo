@@ -35,8 +35,12 @@ import { burstPointAlong, muzzleOrTarget } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
 /** Advance a running magazine swap by `dtMs`; on completion the magazine is
- *  FULL and the timer idle. Returns true iff a swap was running. */
+ *  FULL and the timer idle. Returns true iff a swap was running. A FULL
+ *  magazine never swaps: a timer left running when a ladder grant topped the
+ *  magazine up to its new cap (reconcilePools — everything arrives loaded) is
+ *  pinned to 0 here, tickReload's `n >= maxAmmo` rule for the per-round pools. */
 function tickSwap(state: WeaponAmmo, maxAmmo: number, dtMs: number): boolean {
+  if (state.n >= maxAmmo) state.reloadMsLeft = 0;
   if (state.reloadMsLeft <= 0) return false;
   state.reloadMsLeft -= dtMs;
   if (state.reloadMsLeft <= 0) {

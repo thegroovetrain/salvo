@@ -136,6 +136,12 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       // THE CAPTIVE'S BURST IS FIXED (epic-8 amendment 84d): its tier steps
       // the TRIP RING, never the 32 u bang, so there is no blast path either.
       'equipment.captiveMines.blastRadius',
+      // THE FLAK BLAST AND BODYBLOCK ARE FIXED (amendment 105, Story 8.15
+      // review): no ladder grows the 50 u blast, and the 4 hp bodyblock is a
+      // CONFIG constant — the whitelist is the authoring gate, so neither is
+      // addressable (the captive's fixed-burst precedent above).
+      'equipment.flak.burstRadius',
+      'equipment.flak.contactDamage',
       // ...and `supercavTorpedo` has no paths AT ALL: it became a CONSUMABLE
       // (amendment 74), and a consumable has no stat row to address.
       'equipment.supercavTorpedo.damage',
@@ -180,10 +186,8 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // Still addressable in principle, still written by nothing: the FOULING
     // mine's damage is fixed at 10 by ruling (amendment 81), and radarRange
     // has no card at all.
-    // The flak BLAST is fixed by ruling too (amendment 105), as is its bodyblock.
     for (const path of [
       'radarRange', 'equipment.foulingMines.damage', 'equipment.broadside.damage',
-      'equipment.flak.burstRadius', 'equipment.flak.contactDamage',
     ]) {
       expect(BOON_STAT_PATHS, path).toContain(path);
       expect(written.has(path), path).toBe(false);

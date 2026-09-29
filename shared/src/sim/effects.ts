@@ -72,6 +72,8 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  *     DERIVED from post-fold `radarRange` (the broadside one rung short, at
  *     the 5/8 muzzle rung), so a card addressing one would be a SECOND
  *     derivation;
+ *   - `flak.burstRadius` / `flak.contactDamage`: FIXED by ruling (amendment
+ *     105 — the blast never grows; the bodyblock is a CONFIG constant);
  *   - `machineGun.rateMs` / `machineGun.idleReloadMs` and `damageCut.factor`:
  *     Eric's fixed numbers (amendments 99/103) that no ladder steps — CONFIG
  *     pass-throughs, not card-addressable (a harness `--tune` reaches CONFIG);
@@ -112,12 +114,14 @@ export const EQUIPMENT_STAT_FIELDS = {
   foulingMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius', 'slowFactor'],
   // THE TWO PICKABLE GUNS (Story 8.15, amendments 103–105). The MACHINE GUN
   // ladder steps the magazine (+2) and the per-shell damage (+1); the FLAK
-  // ladder steps damage (+2). `flak.burstRadius` / `flak.contactDamage` are
-  // whitelisted though no tier steps them (the blast is FIXED — amendment
-  // 105): the table says what is addressable in principle. The −5 %/tier
-  // reload is the tier step in clampStats, never an effect.
+  // ladder steps damage (+2). `flak.burstRadius` and `flak.contactDamage`
+  // are deliberately ABSENT: the blast is FIXED by ruling (amendment 105) and
+  // the 4 hp bodyblock is a CONFIG constant, and this table is the authoring
+  // gate — the captive's fixed-burst precedent (both still flow CONFIG ->
+  // stats row as pass-throughs; a harness `--tune flak.*` reaches CONFIG).
+  // The −5 %/tier reload is the tier step in clampStats, never an effect.
   machineGun: ['reloadMs', 'maxAmmo', 'damage'],
-  flak: ['reloadMs', 'maxAmmo', 'damage', 'contactDamage', 'burstRadius'],
+  flak: ['reloadMs', 'maxAmmo', 'damage'],
   broadside: ['reloadMs', 'maxAmmo', 'damage', 'burstRadius', 'turrets', 'spreadRung'],
   starShells: ['reloadMs', 'maxAmmo', 'litRadius', 'litDurationMs'],
   radarBuoy: ['reloadMs', 'maxAmmo', 'durationMs', 'radarRange', 'sweepRpm', 'hp', 'gunDamage', 'gunReloadMs'],

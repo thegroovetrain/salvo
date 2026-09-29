@@ -151,6 +151,10 @@ describe('THE HELD-FIRE DRAIN (UX-DR52)', () => {
     // ...never for the cannon or the flak gun:
     expect(heldDrainFrac(view('gun', 'damageCut', { held: true }), SLOT_GUN)).toBeNull();
     expect(heldDrainFrac(view('flak', 'damageCut', { held: true }), SLOT_GUN)).toBeNull();
+    // ...never while ANOTHER slot is primed (the stream fires only with the
+    // gun selected — Eric 2026-09-29; the held pointer is that slot's hold):
+    expect(heldDrainFrac({ ...live, primedSlot: 2 }, SLOT_GUN)).toBeNull();
+    expect(slotViewModels({ ...live, primedSlot: 2 })[SLOT_GUN].drain).toBeNull();
     // ...and never on an EMPTY magazine (the cooling wipe owns that square):
     const empty = { ...live, ammo: [{ n: 0, reloadMsLeft: 9000 }, ...live.ammo.slice(1)] };
     expect(heldDrainFrac(empty, SLOT_GUN)).toBeNull();

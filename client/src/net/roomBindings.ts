@@ -1424,7 +1424,7 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   // reveal the store has never seen (`firstReveal`).
   const near = firstReveal(e, deps) && nearOwnShip(e.x, e.y, deps);
   const claim = near ? shellClaim(e, deps) : null;
-  const own = near ? ownShellWeapon(claim) : null;
+  const own = near ? ownShellWeapon(e, claim) : null;
   deps.projectiles.onShell(e, own, claim);
   if (own === 'broadside') deps.effects.spawnEffect('muzzleHeavy', e.x, e.y);
   if (own) deps.audio.play(fireTone(shellFireId(own)));
@@ -1462,8 +1462,14 @@ function shellClaim(e: BallisticEvent, deps: RoomBindingDeps): OwnFire {
  * one off our effective blast radius on the strength of a guess would draw
  * somebody else's detonation at our numbers. So the burst path takes `claim`
  * (null here) and never this.
+ *
+ * A MACHINE GUN SHELL GETS NO FALLBACK (Story 8.15 review): a `w: 'mg'` reveal
+ * is own fire ONLY through the stream claim (our hull holds the level with the
+ * machine gun mounted). Enemy tracers stream past our bow constantly in a
+ * knife fight, so the near-hull guess would play our crack for each of them.
  */
-function ownShellWeapon(claim: OwnFire): OwnFire {
+function ownShellWeapon(e: BallisticEvent, claim: OwnFire): OwnFire {
+  if (e.w === 'mg') return claim;
   return claim ?? 'gun';
 }
 

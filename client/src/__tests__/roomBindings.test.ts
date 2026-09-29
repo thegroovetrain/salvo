@@ -2826,11 +2826,13 @@ describe('own-fire correlation (Story 8.15) — the machine gun stream and the f
     expect(ownFireWeapon).not.toHaveBeenCalled();
   });
 
-  it('with no stream held, an own-hull `w: mg` reveal is unclaimed (the generic fallback look)', () => {
-    const { sink, onShell, deps } = setupWater(null);
+  it('with no stream held, a `w: mg` reveal on our hull is NOT ours: no near-hull fallback, no own crack (an ENEMY tracer on our bow)', () => {
+    const { sink, onShell, play, deps, ownFireWeapon } = setupWater('gun');
     (deps as { ownStreamWeapon?: () => OwnFire }).ownStreamWeapon = () => null;
     sink.handler(victimFrame([MG('m1')], {}));
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'gun', null);
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), null, null);
+    expect(play).not.toHaveBeenCalled();
+    expect(ownFireWeapon).not.toHaveBeenCalled(); // the click latch stays whole
   });
 
   it('a flak click latch dresses the flak shell as ours (it may size the 50 u ring)', () => {

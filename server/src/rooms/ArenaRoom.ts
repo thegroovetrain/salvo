@@ -1192,6 +1192,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // `code ?? null` so the close code ALWAYS survives JSON.stringify —
       // undefined would silently drop the field and lose the forensics.
       this.log.info('client.drop', { sessionId: client.sessionId, code: code ?? null });
+      // A machine gun held at the drop would stream on the ghost for the
+      // whole grace (streamControl reads the stored LEVEL): release it. The
+      // helm keeps its last input (ghost sailing, as before).
+      this.world.releaseHeld(client.sessionId);
       this.allowReconnection(client, CONFIG.net.reconnectGraceSeconds)
         .then((newClient) => {
           this.log.info('client.resume', { sessionId: client.sessionId });

@@ -258,16 +258,23 @@ export interface HotbarView {
   held?: boolean;
 }
 
+/** The stream is live only with the machine gun mounted AND the gun the
+ *  selected slot (Eric 2026-09-29 — the server's own gate): a pointer held
+ *  with another slot primed is THAT slot's hold, never a stream. */
+function streamPrimed(view: HotbarView): boolean {
+  return view.held === true && view.primedSlot === SLOT_GUN && view.loadout[SLOT_GUN] === 'machineGun';
+}
+
 /**
  * Pure: the held-fire drain fraction for a slot (Story 8.15, UX-DR52 — "drawn
  * only while a stream kind is primed and draining — never from the pointer
  * level alone"): `n / maxAmmo` on the GUN square while it holds the MACHINE
- * GUN, the own button is held and the magazine still has a shell; null in every
- * other case (an empty magazine has nothing left to stream — the cooling wipe
- * takes the square instead).
+ * GUN, the gun is the primed slot, the own button is held and the magazine
+ * still has a shell; null in every other case (an empty magazine has nothing
+ * left to stream — the cooling wipe takes the square instead).
  */
 export function heldDrainFrac(view: HotbarView, slot: number): number | null {
-  if (slot !== SLOT_GUN || view.held !== true || view.loadout[slot] !== 'machineGun') return null;
+  if (slot !== SLOT_GUN || !streamPrimed(view)) return null;
   const ammo = view.ammo[slot] ?? null;
   const max = equipmentMaxAmmo(view.stats, 'machineGun');
   if (ammo === null || ammo.n <= 0 || max <= 0) return null;
