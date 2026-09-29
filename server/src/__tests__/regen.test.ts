@@ -187,7 +187,7 @@ describe('the combat clock (amendment 47)', () => {
     run(w, REGEN.outOfCombatMs);
     const stampBefore = a.lastDamagedAt;
     // A SHIELD BLOCK that swallows the whole blow: the gate runs to the end,
-    // emits its report, and leaves `dealt` at 0. (Story 8.15 arms `shield` in
+    // emits its report, and leaves `dealt` at 0. (Story 8.16 arms `shield` in
     // play; the gate has always read it.)
     a.shield = { hpLeft: 100, until: w.now + 10_000 };
     const hpBefore = a.hp;

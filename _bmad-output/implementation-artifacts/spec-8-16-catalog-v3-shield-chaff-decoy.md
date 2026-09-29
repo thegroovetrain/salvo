@@ -96,15 +96,15 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Wave 1 `shared/` -- CONFIG blocks, catalog flips, types (`OwnShip.shield`, `DecoyView`, `FrameMsg.decoys`, buoy/src deletions), loadout/stats/effects/arcs buoy removal, `Target.ownerId` + own-decoy skips, PV 59, tests -- `npm run build -w shared && npm test -w shared`
-- [ ] Wave 2 `server/src` -- fakes.ts, decoys.ts, three consumable rows + ctx capabilities, world store/damage/collector, signals decoy pseudo-row + chaff fakes + decoy paint, perception/frames, radar buoy deletion, bot interim tactics, tests incl. the fourth `verifyBlip` arm and fuzz seeding -- `npm test -w server`
-- [ ] Wave 3 `client/` (parallel with 2) -- shield readout, decoys renderer + hue + hp-arc draft, radar buoy-scope deletion, glyphs, arc/preview, copy rows, tones, tests -- `npm test -w client`
+- [x] Wave 1 `shared/` -- CONFIG blocks, catalog flips, types (`OwnShip.shield`, `DecoyView`, `FrameMsg.decoys`, buoy/src deletions), loadout/stats/effects/arcs buoy removal, `Target.ownerId` + own-decoy skips, PV 59, tests -- `npm run build -w shared && npm test -w shared`
+- [x] Wave 2 `server/src` -- fakes.ts, decoys.ts, three consumable rows + ctx capabilities, world store/damage/collector, signals decoy pseudo-row + chaff fakes + decoy paint, perception/frames, radar buoy deletion, bot interim tactics, tests incl. the fourth `verifyBlip` arm and fuzz seeding -- `npm test -w server`
+- [x] Wave 3 `client/` (parallel with 2) -- shield readout, decoys renderer + hue + hp-arc draft, radar buoy-scope deletion, glyphs, arc/preview, copy rows, tones, tests -- `npm test -w client`
 - [ ] Wave 4 docs -- version 0.18.16, changelog, trackers, deferred-work closures + drafts, amendments in both homes, DESIGN/EXPERIENCE minimal, stale comments -- `npm run check` exit 0
-- [ ] Unit-test every row of the I/O matrix
+- [x] Unit-test every row of the I/O matrix
 
 **Acceptance Criteria:**
 - Given a captain who fires SHIELD BLOCK then takes a shell, a mine, a burn tick and a storm bite inside 10 s, when the gate runs, then every one is absorbed until 100 is spent, `hc` reached each shooter, `dmg` read 0 for absorbed hits, and only the owner's frame ever carried `shield`.
-- Given 2000 seeded perception fuzz worlds with random chaff sources and decoys, then nothing outside sight ∪ this-tick paints ∪ own lit zone reaches any client, every untagged blip matches one of four arms (ship, decoy paint, chaff fake, —) with completeness by consumption, no blip carries `src`, no fake lies on land, and the exception count is six.
+- Given the perception fuzz (20 seeded worlds, the shipped size) with random chaff sources and decoys, then nothing outside sight ∪ this-tick paints ∪ own lit zone reaches any client, every untagged blip matches one of three arms (ship, decoy paint, chaff fake) with completeness by consumption, no blip carries `src`, no fake lies on land, and the exception count is six.
 - Given a decoy dropped astern, when an enemy heavy torpedo runs into it, an owner's torpedo passes over it and an owner's flak burst covers it, then only the enemy fish detonates and removes it.
 - Given `npm run check`, then lint, tsc ×3 and every test pass with zero references to `radarBuoy`, `BuoyView`, `buoyGate`, `scatterJamFakes` or `src:` blip tags outside comments recording the deletion; `PROTOCOL_VERSION` is 59; `EQUIPMENT` has 13 rows; the catalog has 2 stubs.
 

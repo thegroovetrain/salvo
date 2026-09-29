@@ -4,15 +4,15 @@
 
 ## Goal
 
-Replace the shipped boon/upgrade system with the common pool. A captain configures a ship, a gun and a colour, spawns with that gun mounted plus the hull's one fixed class ability, redraws the opening offer during the countdown, then draws from the single pool every captain shares into three weapon slots (`Q`/`E`/`R`) and four consumable belt slots (`1`–`4`), heals from a card, and reads the loadout they ended with in results. **Decks do not exist.** Nothing is class-locked and nothing is brought. A hull's identity is its envelope plus its fixed ability, and the gun is the captain's pick. Stories 8.0–8.14 have LANDED. 8.0–8.13 were written in deck vocabulary, and 8.14 removed the deck path and put in the pool draw and the `gun` seat field. What remains: make the gun a real pick with three built guns, give each hull its own ability (8.15, next), finish the catalog (shield/chaff/decoy, smoke as an occluder, wake drafting), re-cut bots and the harness, then close with results and copy. Epic 8 is self-contained: every path runs with no account module, so signing in later changes what a player KEEPS, never what they can DO.
+Replace the shipped boon/upgrade system with the common pool. A captain configures a ship, a gun and a colour, spawns with that gun mounted plus the hull's one fixed class ability, redraws the opening offer during the countdown, then draws from the single pool every captain shares into three weapon slots (`Q`/`E`/`R`) and four consumable belt slots (`1`–`4`), heals from a card, and reads the loadout they ended with in results. **Decks do not exist.** Nothing is class-locked and nothing is brought. A hull's identity is its envelope plus its fixed ability, and the gun is the captain's pick. Stories 8.0–8.16 have LANDED. 8.0–8.13 were written in deck vocabulary, and 8.14 removed the deck path and put in the pool draw and the `gun` seat field; 8.15 made the gun a real pick with three built guns and gave each hull its own ability; 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY and deleted the radar buoy. What remains: finish the catalog (smoke as an occluder — 8.17, next — and wake drafting), re-cut bots and the harness, then close with results and copy. Epic 8 is self-contained: every path runs with no account module, so signing in later changes what a player KEEPS, never what they can DO.
 
 ## Stories
 
 - Story 8.0–8.13: landed (Colyseus 0.18 upgrade, catalog engine, deck rules, the draw, damage gate, nine slots, HUD bar, consumables, heal card, Shift boost, the opening, match pool, ladders + deck gun, torpedoes + mines)
 - Story 8.14: The Common Pool — landed
-- Story 8.15: The Gun Pick and the Class Shifts — NEXT
-- Story 8.16: Catalog v3 — Shield, Chaff, Decoy
-- Story 8.17: Smoke Screen as a Sight Occluder
+- Story 8.15: The Gun Pick and the Class Shifts — landed
+- Story 8.16: Catalog v3 — Shield, Chaff, Decoy — landed
+- Story 8.17: Smoke Screen as a Sight Occluder — NEXT
 - Story 8.18: Wake Drafting
 - Story 8.19: Bots Draw from the Pool
 - Story 8.20: Results LOADOUT and the Match Record
@@ -20,7 +20,7 @@ Replace the shipped boon/upgrade system with the common pool. A captain configur
 
 ## Requirements & Constraints
 
-**Standing on every story.** The `Tab` refit offer's shape is untouched and the passive XP tick stays the anti-snowball floor. The perception invariant keeps EXACTLY SIX declared exceptions — chaff fakes are a second source of the existing jamming carve-out, not a seventh. **No friendly fire, ever**; the one pinned exception is shooting your own mines. Never invent a card, a number or a consumable — every `[DRAFT]` is Eric's. `PROTOCOL_VERSION` bumps once per wire-changing story, never for harness or bot work; `npm run check` green gates every landing; any story contradicting a recorded GDD/architecture fact adds it to the Epic 9 reconciliation list.
+**Standing on every story.** The `Tab` refit offer's shape is untouched and the passive XP tick stays the anti-snowball floor. The perception invariant keeps EXACTLY SIX declared exceptions — chaff fakes ride the existing jamming carve-out, not a seventh (since 8.16 deleted the radar buoy, chaff is its only source). **No friendly fire, ever**; the one pinned exception is shooting your own mines. Never invent a card, a number or a consumable — every `[DRAFT]` is Eric's. `PROTOCOL_VERSION` bumps once per wire-changing story, never for harness or bot work; `npm run check` green gates every landing; any story contradicting a recorded GDD/architecture fact adds it to the Epic 9 reconciliation list.
 
 **The pool, not a deck.** A seat is a hull and a gun, nothing else. The draw source is one hull-agnostic catalog of lines with UNLIMITED copies. Equipment, ladders and add-ons leave the draw at their cap. Consumables are NEVER filtered out: at cap or with no belt space they are dealt greyed, and the pick is refused as a silent no-op. So the offer is never empty and nothing "exhausts". The draw has two stages per card. First it picks the KIND (weapon copy 1 / upgrade / consumable), with odds equal to that kind's share of the ship's eligible lines. Then it picks the line: weapons are weighted, upgrades and consumables are even. Once `Q`/`E`/`R` are all full the weapon kind has zero share. **Weighting** (never "tilt"): each time ANOTHER participant takes a line's copy 1, that line's weight for you is ×0.75, floored at 0.25. Tier copies never move weight, and a take is permanent for the match. Weighting changes WHICH weapon is drawn, never the odds of drawing A weapon. The weapon guarantee is **level zero only**: the countdown offer and its REDRAW keep the uniform usable-card guarantee, and later offers carry no guarantee. REDRAW is the one asserted reroll. Humans and bots draw under identical rules, and everything is unlocked for everyone until progression exists.
 
@@ -28,10 +28,7 @@ Replace the shipped boon/upgrade system with the common pool. A captain configur
 
 **Owner decisions outstanding (do not invent).** Still open:
 - the three class designations
-- the instant-reload cooldown
-- the damage-cut duration, its cooldown, and its order vs the shield
-- the machine-gun and flak ladders; the machine gun's carried catalog numbers and flak's base numbers are `[DRAFT]`
-- the SPECIAL glyphs and the machine-gun/flak glyphs
+- sign-off on the implementer-drafted glyphs (8.15's SPECIAL and machine-gun/flak glyphs; 8.16's three belt glyphs, hover texts and decoy hp arc)
 - the bot gun and ability tactic tables
 - the wake-draft lift and width, and the smoke-screen expand and interval numbers
 - the later pared Default Set
@@ -88,8 +85,8 @@ The reload ladder's per-tier cooldown cut holds for all three, and bots drive th
 ## Cross-Story Dependencies
 
 - 8.14 (landed) was the hinge: 8.15–8.21 all assume the pool, weighting and the `gun` seat field.
-- 8.15 needs 8.14, supersedes the universal boost, zeroes the last stubbed catalog rows, and replaces the deck-gun fallback for the two unbuilt guns.
-- 8.16 needs the damage gate and consumables; 8.17 needs consumables; 8.18 stands alone on the wake sampler.
+- 8.15 (landed) needed 8.14, superseded the universal boost, zeroed the last stubbed catalog rows, and replaced the deck-gun fallback for the two unbuilt guns.
+- 8.16 (landed) built on the damage gate and consumables; 8.17 needs consumables; 8.18 stands alone on the wake sampler.
 - 8.19 needs every prior story; 8.20 and 8.21 close the epic and need the settled guns, Shifts and class names.
 - Epic 8 needs NOTHING from Epic 9 (null writer, everything unlocked); Epic 9 plugs a store into the same ports and its reconciliation story pays the accumulated doc corrections.
 
@@ -212,3 +209,13 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 113. **Review-gate rulings** (orchestrator 2026-09-29): a dropped seat releases the level (no streaming through the reconnect grace); ordnance removal re-checks the live position and never enters the damage loop (`sp` for a fish-only burst); `flak.burstRadius` is not stat-addressable; a ladder grant tops up a full idle magazine with no swap; the drain bar, the press latch on cancel and the own-fire claim for tracers fixed on the client; deferred: cannon-only lit-zone reach, the bot's post-shield cut trigger.
 114. **Every deck gun fires into your own lit-up area** (Eric 2026-09-29, verbatim in the amendments file): the flare reach extension applies to the machine gun and flak exactly as to the cannon; corrects the review-gate deferral in 113(g). An un-ruled asymmetry is a question for Eric, never a ledger entry.
 115. **DAMAGE CUT is proactive** (Eric 2026-09-29, verbatim: *"This is a proactive measure."*): a bot presses it when engaged in combat (its engage posture) or when an enemy torpedo is heading at its hull within 150 u; never as a reaction to damage taken. Supersedes 109's damage-taken rule and the 113(g) deferral.
+116. **The shielded HP number is `info` `#38BDF8`** (Eric 2026-09-29): `HULL 312/250` past max while the shield holds; number only — no globe ring, no hull ring.
+117. **An absorbed hit plays the ordinary hit cue** (Eric 2026-09-29): no new tone, flash or asset; the blue number falling is the twin.
+118. **The shield absorbs every source, storm and burn included** (Eric 2026-09-29): `absorbShield` after `cutDamage` on every `DamageSource`; the cut stays weapons-only.
+119. **The owner's own shells and bursts never damage the owner's own decoy** (Eric 2026-09-29): own fish pass through, own gunfire passes over; mines stay the only own-ordnance exception.
+120. **An enemy torpedo that detonates on a decoy deals its damage to it** (Eric 2026-09-29): a 50-damage fish kills a fresh 50 hp decoy; light fish take two.
+121. **A shell or burst hit on a decoy fires the shooter's hit call** (Eric 2026-09-29): `hc` exactly as on a hull; supersedes UX-DR56's no-hit-call assumption.
+122. **A decoy persists until destroyed, not sinking with its owner** (Eric 2026-09-29): the dead-owner id tell is accepted as harmless; closes `deferred-work.md:99`.
+123. **A decoy lays no wake** (Eric 2026-09-29): a stationary float paints no track, like a stopped ship; closes the cycle-74 deferral.
+124. **Orchestrator rulings for 8.16** (2026-09-29, Eric may veto): `DecoyView.by` for every observer, `hp` owner-only; chaff epoch = `floor((now − activatedAt) / sweepPeriodMs)`; chaff water filter is seeded rejection sampling (≤ 16 re-draws, else dropped), source at the owner's activation point, a second chaff replaces; `Target.ownerId?` gives the own-decoy skip on both sides; no decoy tick (`tickBuoys` row removed); decoy hp arc, three belt glyphs and three hover texts are drafts; interim bot rows (shield on the cut cues, chaff on disengage, decoy astern on an inbound torpedo); a decoy reveals by the `mineSignal` rule; `OwnShip.shield` sent only while live; a 0-amount `dmg` still plays the hit cue.
+125. **The storm ceiling counts the shield budget** (Eric 2026-09-29, verbatim: *"That hypothetical captain, if he even exists at all, is *very* lucky"*): NFR6's pinned bound and `hullRepair.test.ts` add the five-shield budget beside the heal budget (≈ 362 s worst case); nothing about the storm changes; the real ceiling is far lower in play.

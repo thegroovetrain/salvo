@@ -246,7 +246,7 @@ describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-4, left to right'
       ['gun', 'boost', 'broadside', 'starShells', null, null, null, null, null],
     );
     // AMENDMENT 22: the Mine Layer lost the radar buoy — no card reaches it,
-    // so E stays empty until Story 8.15 deletes the module.
+    // so E stays empty; Story 8.16 deleted the module.
     expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(
       ['gun', 'boost', 'navalMines', null, null, null, null, null, null],
     );

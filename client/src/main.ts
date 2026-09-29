@@ -3439,7 +3439,7 @@ function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
     const id = status.loadout[slot] ?? null;
     // `isWeaponItem` over the SlotItemId (Story 8.7, ruling 1), never an
     // EquipmentId-keyed index: a belt slot holds a consumable line id, and the
-    // click-placed one (the decoy, 8.15) is a weapon on this very split.
+    // click-placed one (the decoy, 8.16) is a weapon on this very split.
     const isWeapon = id !== null && isWeaponItem(id);
     return flash || (isWeapon && slot === status.primedSlot && g.deniedFlash);
   });

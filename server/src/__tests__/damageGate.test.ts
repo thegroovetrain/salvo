@@ -2,8 +2,8 @@
 //
 // Hull hp has ONE door: `World.applyDamage(victim, amount, src, byId)`. Before
 // Story 8.4 there were three writers — `applyStorm`, `hitShip`, `burnShip` —
-// each with its own inner order, which is why the shield (8.15), the decoy
-// (8.15) and "no friendly fire" would have needed three copies of one rule.
+// each with its own inner order, which is why the shield (8.16), the decoy
+// (8.16) and "no friendly fire" would have needed three copies of one rule.
 //
 // This file pins the gate from two directions:
 //   * BEHAVIOUR — the fixed inner order, the friendly-fire refusal for every
@@ -158,7 +158,7 @@ describe('applyDamage — (c) the shield (Story 8.16 arms it; the gate READS it)
   it('DIES AT EVERY LIFE BOUNDARY: sinkShip, redeployShip and respawn all null it (P5)', () => {
     // An absorbing pool is economy, and a fresh life inherits no economy. The
     // reset is written while nothing GRANTS a shield precisely because the
-    // boundary becomes invisible once Story 8.15 arms it.
+    // boundary becomes invisible once Story 8.16 arms it.
     const inner = (w: World): {
       redeployShip(ship: ShipRecord, placed: { x: number; y: number }[], hold?: boolean): void;
       respawn(ship: ShipRecord): void;
