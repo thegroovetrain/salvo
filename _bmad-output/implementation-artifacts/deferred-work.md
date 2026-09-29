@@ -96,6 +96,7 @@ Triage of all 9 items above, run per `_bmad-output/implementation-artifacts/spec
   summary: dropPoint (mines + the new decoy) is island/boundary-blind — an ML with its stern against an island can lay a mine or buoy inside the rock; for the decoy the failure is total (LOS-blocked from every bearing, so it never blips or truesights while the owner burns the charge + 20 s reload with zero feedback) — fold into the future island-clearance pass alongside the 1-4 muzzleSpawn entry.
   evidence: Edge Case Hunter traced decoy.ts→mines.dropPoint at the 1.8 review gate: hull-clear of the OWNER only, no island check anywhere on the drop path; same family as the 1-4 muzzleSpawn ledger entry (island-blind spawn offsets), with a new higher-stakes consumer.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-8-mine-layer-loadout.md`
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — accepted by Eric — the DECOY BUOY persists until destroyed and the dead-owner id tell is harmless: only a sighted observer receives `DecoyView.by`, and it already sees the owner's hue (amendment 122).
   summary: Decoy 30 s persistence past owner death is a cross-reference wire tell — genuine blips never carry a dead ship's id (blipSignal gates target.alive) and deaths are globally visible, so a modified client can flag every dead-owner blip as certainly-fake for up to 30 s; needs an Eric ruling (despawn-on-death vs accept the tell) — spec-ruled behavior (litZone precedent), so not patchable in review.
   evidence: Blind Hunter at the 1.8 review gate; composes two ruled behaviors (persistence + alive-gated genuine blips); visual client unaffected (blips render anonymously), FR10 wire-level only.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-8-mine-layer-loadout.md`
@@ -739,6 +740,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
 ### 2026-08-08 — cycle 69 (Story 4-12, radar wakes)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-12-radar-wakes.md`
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — accepted by Eric — a decoy lays no wake, exactly as a stopped ship; nothing stamped (amendment 123).
   summary: THE DECOY LAYS NO WAKE, AND UNDER THIS STORY THAT IS A NEW TELL — deferred BY ERIC, not missed. A decoy is frozen at its drop pose at speed 0, so it never advances a wake head and therefore paints no track, while every moving hull now does. "A wakeless paint is a stopped ship or a decoy" is inference a defender can now make, which dents amendment 11's wire-indistinguishability law. Put to Eric at the pre-implementation gate with the fix costed (stamp the decoy with the dropping ship's ribbon at release, which reads exactly like a ship that came to a stop and reuses data already kept); he answered *"Decoy will get major changes soon so lets not worry about it for now."* So NO decoy special-casing exists anywhere in the cycle, in either direction, and the next agent must not read the gap as an oversight and "fix" it into a mechanism the rework will delete. Reopen this WITH the decoy rework, not before.
   evidence: amendment 201. `shared/src/sim/wake.ts` `appendWakeSample` requires travel before a second sample exists and `eachWakeSegment` needs two — so a stationary source produces zero segments by construction, with no decoy branch in `server/src/game/signals.ts` or `client/src/render/wake.ts`.
 
@@ -1422,7 +1424,7 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: `client/src/analytics/consent.ts` `loadConsent()` catch; `client/src/analytics/index.ts` `dispatch()`. Raised by the edge-case review agent at the cycle-107 gate.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — the feature is SHIPPED and ENTIRELY UNMEASURED; only play can close it
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — moot: the RADAR BUOY is deleted end to end (Story 8.16).
   summary: THE RADAR BUOY IS UNEXERCISED BY EVERY INSTRUMENT THE PROJECT HAS. Zero buoys were deployed in 2 600 bot-matches: `server/src/game/ai/tactics.ts` says so in its own comment — the buoy is now a CLICK-PLACED weapon on the mine's rear sector (R2.7), not an `actSeq` ability, and *"its tactics belong with the buoy itself and are a later agent's"* — while the scripted captain pilots fire slot 0 only. So the relay (R2.8), the jamming density (`jamFakes = 10`, a `[DRAFT]`), the autonomous gun (R2.21), the 20s life on a 30s reload and the destructible 50 hp hull have never been generated, delivered or acted on. It also DEPRESSES the Mine Layer's measured numbers by whatever fraction of its ~82 picks per 1 000 bot-matches went into a weapon it never used. Two ways to close it: give the bots buoy tactics (which also unblocks the next balance campaign), or take it from Eric's own play.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Q3 / "What this pass could NOT measure" item 1; `server/src/game/ai/tactics.ts`. Story 7-5 evidence pass, 2026-08-19.
 
@@ -1432,22 +1434,22 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Q3 "Never picked"; `CONFIG.bots.boonWeights`, `UNLISTED_SCORE`. Story 7-5 evidence pass, 2026-08-19.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — consequence of R2.7, documented in-code, needs an Eric ruling to change
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — moot: the RADAR BUOY is deleted end to end; its successor the DECOY BUOY is owner-exempt by construction (amendment 119).
   summary: A RADAR BUOY IS AN ORDINARY ORDNANCE SUBJECT, SO IT ATTRACTS AND ABSORBS FRIENDLY FIRE. Two live consequences, both flowing from the single decision that made "destructible by anything that damages a ship" true by construction: (1) an ACOUSTIC HOMING torpedo locks onto a buoy INCLUDING ONE ITS OWN OWNER PLACED, because the owner exclusion keys on the SHIP id and a buoy is not a ship; (2) your own shells can INTERCEPT your own buoy, taking the interceptor's contact damage and stopping the shot. Neither is a defect against any ruling — a buoy is a real object in the water — but both are player-facing surprises with no cue, and the homing case in particular can waste a fish on your own equipment. Whether either wants an owner exclusion is a design call.
   evidence: `shared/src/sim/shell.ts:99-105` (the homing note, written when the behaviour changed); `server/src/game/world.ts` `hitBuoy` call sites (burst, interception, blast). Story 7-5 wave 2, R2.7.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — presentation gap; the disclosure is correct, the render under-serves it
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — moot: the RADAR BUOY, its relayed returns and the client buoy scope are deleted end to end.
   summary: A RELAYED RETURN RENDERS ALONG THE OWNER'S RAY. The server gates a buoy's returns correctly — island LOS and the height-aware shadow march run FROM THE BUOY (R2.8) — but the CLIENT's scope march runs from the local hull, so a contact the buoy paints from around an island can render at speck intensity for a viewer whose own line to that water is blocked. That is the exact case the relay exists for, and it is the case that reads weakest. Nothing leaks and nothing is wrong on the wire; the fix is a render-side question (march relayed cells from the relaying buoy, or exempt them from the owner-anchored attenuation) and it interacts with the near-range dim mask (epic-4 amendment 181) and with amendment 83's "never re-evaluate a frozen paint", so it wants its own pass rather than a drive-by.
   evidence: `client/src/render/radar.ts` beam march origin; `client/src/__tests__/blipProvenance.test.ts` ("a relay from ACROSS the map paints exactly where its cells say"). Story 7-5 wave 2 review gate.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — needs an Eric ruling (wire shape, would bump PROTOCOL_VERSION)
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — moot: `BuoyView` is deleted with the RADAR BUOY; the DECOY BUOY's `DecoyView` carries `hp` to its owner (amendment 124(a)).
   summary: `BuoyView` CARRIES NO HP CHANNEL, SO A KILLED BUOY IS INDISTINGUISHABLE FROM AN EXPIRED ONE. The buoy has 50 HP and is destructible by anything that damages a ship, but the wire shape carries only `{id, x, y, until, own, by}` — no damage state, no death cause. The owner sees their buoy vanish and cannot tell whether it timed out or was shot, which is exactly the information that would tell them someone is nearby and hunting their sensors. The type's own doc calls this out deliberately: adding a damage-state channel is a wire decision, not an implementation detail. Decide between leaving it silent (a buoy is cheap and disposable) and adding a channel (a kill is intel worth having).
   evidence: `shared/src/types.ts:1128-1141` (`BuoyView` and its preceding NOTE). Story 7-5 wave 2.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — a potential tell that partially defeats the feature
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — jamming is deleted with the RADAR BUOY; its successor CHAFF rejection-samples every fake against `blockedWater` with the same seeded stream (≤ 16 re-draws, else dropped), and the perception oracle recomputes it (amendment 124(c)).
   summary: JAMMING FAKES ARE NOT WATER-FILTERED, SO A FALSE RETURN CAN LAND ON AN ISLAND. `scatterJamFakes` scatters points across the buoy's 330u circle with no land test, and nothing else in the return grammar can paint a ship-shaped return on dry land. A player who knows the map — and both sides rebuild it deterministically from the seed — can therefore discard some fraction of the fakes by inspection, which is the one thing R2.11's "wire-indistinguishable from real blips" was written to prevent. Not a leak (a fake still discloses nothing real, so the perception carve-out is unaffected) and not necessarily worth fixing at 10 fakes, but it is a real erosion of the denial the card is sold on. The fix is a rejection sample against the same island geometry every other consumer uses.
   evidence: `server/src/game/world.ts` `scatterJamFakes` call site; `shared/src/constants.ts:1389` `jamFakes: 10`. Story 7-5 wave 2 review gate.
 
@@ -1870,12 +1872,12 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: `server/src/game/equipment/ammo.ts` `tickReload` (overshoot carry).
 
 - source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D28)
-  status: OPEN — two `[DRAFT]` defaults, Eric's to confirm
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — both defaults built as ruled (FR55, Eric 2026-09-11): an absorbed hit still emits `hc`, the victim's `dmg` reads 0 and plays the ordinary hit cue (amendment 117), a second shield REPLACES.
   summary: SHIELD BLOCK gives the shooter no tell (an absorbed hit still emits `hc`; `dmg` is victim-private and reads 0), and a second shield while one is up REPLACES it with a fresh 100 / 10 s rather than stacking. Both are the quieter default; both are one line to change.
   evidence: catalog-v3.md R37 (`[DRAFT]` scope — scope itself RULED 2026-09-10: all sources).
 
 - source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D25/D29)
-  status: OPEN — three decoy `[DRAFT]` readings carried as-is
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — (a) the decoy paints on radar (a 12 u return, built); (b) Eric: the owner IS exempt — own fish pass through and own shells/bursts pass over the owner's decoy (amendment 119); (c) own flak never touches own fish (8.15).
   summary: (a) Whether the DECOY BUOY paints on radar is unruled; the default is that it does, through the deleted radar buoy's footprint path. (b) The owner's own fish detonate on the owner's own decoy, and (c) own flak kills own torpedoes — the GDD's DRAFT reading that the owner is NOT exempt, carried; each is one mask entry in `CONFIG.<ordnance>.hits` to change.
   evidence: gdd.md Consumables (DECOY BUOY `[DRAFT]` owner exemption); catalog-v3.md R36.
 
@@ -2048,7 +2050,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: `shared/src/sim/shell.ts` `TargetKind`; `server/src/game/world.ts` `hitTargets` (no `ordnance` branch, with the comment saying why); `server/src/__tests__/hitTargets.test.ts` "`ordnance` is EMPTY and pinned empty until flak".
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
-  status: OPEN BY DESIGN — hand to Story 8.15 (shield, chaff, decoy); the seat is built, the occupant is not
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — both seats filled: `DecoyState` occupies the `decoy` kind (the buoy is deleted), and SHIELD BLOCK writes `ship.shield` through `ActivationContext.setShield`.
   summary: THE RADAR BUOY IS THE INTERIM OCCUPANT OF THE `decoy` KIND, AND `ship.shield` IS AN INERT FIELD. Two Story 8.15 seats were built here and left empty on purpose, because the gate and the collector are the only places either could ever be read. (1) `collectDecoys` emits the buoy's frozen square as kind `decoy`; every buoy OUTCOME is byte-identical to before (`hitBuoy`, `buoy.hp`, no XP, no feed line, never through the damage gate — a buoy is not a ship). 8.15 deletes the buoy and lands `DecoyState` behind the same kind, and must re-read AR44's own decoy rules, which are NOT implemented here: a shell damages a decoy, a torpedo or missile DETONATES on it, and the owner's own fish PASS THROUGH the owner's own decoy. (2) `ShipRecord.shield` is `{ hpLeft, until } | null`, always `null` — nothing writes it. The gate's step (c) reads and expires it and is pinned by `damageGate.test.ts` against a test-set shield, so the absorb semantics are already fixed: it absorbs from EVERY source, a fully absorbed hit still runs the gate to the end, and a second shield REPLACES rather than stacks (Eric 2026-09-11 — that rule belongs to whatever GRANTS one, and is not implemented here).
   evidence: `server/src/game/world.ts` `collectDecoys` / `absorbShield` / `ShipRecord.shield`; `server/src/game/equipment/radarBuoy.ts` `buoyTarget`; AR44 and AR47 in `epics.md`.
 
@@ -2098,6 +2100,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   resolution: RESOLVED 2026-09-17 by Story 8.6's bar. The nine-row column is deleted; the nine slots now lay out horizontally on the 768 px-wide bar (squares 0-4 at 54 px, belt 5-8 at 44 px), which is pinned to fit the 1280×614 logical floor (bar top at 460, bottom 18 px above the floor) at every committed UI-scale tier — no viewport-height dependence remains.
   evidence: amendment 25.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — the RADAR BUOY is deleted end to end (Story 8.16), not relit.
   summary: The radar buoy is dark from 8.5 to 8.15: its module, config row and tests stay (tests fit it directly into a weapon slot), no ship can reach it in play (amendment 22).
   evidence: no card carries `radarBuoy` and `loadoutFor` is hull-agnostic.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
@@ -2338,7 +2341,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: `client/src/render/equipmentIcons.ts`; UX-DR50 (design doc open item).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
-  status: OPEN — pre-existing, unrelated to 8.13's changes, reproduced twice
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — moot: the buoy jam-fake oracle is deleted with the RADAR BUOY; the chaff oracle recomputes every fake deterministically from `(seed, epoch, source)` and the fuzz is green.
   summary: THE INVARIANT FUZZ'S BUOY JAM-FAKE ORACLE IS SEED-FRAGILE. Certain seeds consume two extra RNG draws after tick 2 and then fail `verifyBlipCompleteness` with "gated jam fake of buoy1 accounted for by its own blip: expected -1 ≥ 0" — an oracle bookkeeping bug in the fuzz harness itself, not a perception leak (the jamming-buoy fakes carve-out is unaffected). The Wave 2b implementer reproduced it twice while working this story's perception changes and confirmed by bisection that it predates 8.13 and is untouched by the re-reveal fix. Not fixed here — it is the fuzz oracle's arithmetic, not `perception.ts` or `signals.ts`.
   evidence: Wave 2b implementer report, 2026-09-19; `server/src/__tests__/` perception invariant fuzz (buoy jam-fake accounting).
 
@@ -2451,7 +2454,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: amendments 91, 93; epics.md Story 8.14 AC; GDD "THE COMMON POOL".
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
-  status: OPEN — awareness until Story 8.16
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — five consumable lines are live (HULL REPAIR, SUPERCAV TORPEDO, SHIELD BLOCK, CHAFF, DECOY BUOY), so a capped captain's offer is full again.
   summary: only two consumable lines are live (HULL REPAIR, SUPERCAV TORPEDO), so a captain with every equipment/ladder/add-on capped sees a two-card offer of consumables (never empty, but short); it fills to four when 8.16 flips SHIELD/CHAFF/DECOY/SMOKE.
   evidence: amendment 94.
 
@@ -2524,6 +2527,53 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: Blind Hunter finding 11 at the 8.15 review gate; `server/src/game/equipment/guns.ts` `gunReachU` vs the two new modules.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
-  status: RESOLVED 2026-09-29 — Eric: DAMAGE CUT is PROACTIVE (amendment 115); the interim rule now fires on the engage posture or an inbound enemy torpedo under 150 u on a collision line, and the damage-taken trigger is deleted; 8.19 inherits the two cues
+  status: RESOLVED 2026-09-29 — Eric: DAMAGE CUT is PROACTIVE (amendment 115); the interim rule now fires on the engage posture or an inbound enemy torpedo under 150 u on a collision line, and the damage-taken trigger is deleted; 8.19 inherits the two cues; superseded by amendment 115, so the shield note is moot (confirmed at 8.16, cycle 151)
   summary: THE INTERIM BATTLESHIP BOT OPENS DAMAGE CUT OFF ITS OWN `dmg` EVENT, WHICH CARRIES THE POST-SHIELD AMOUNT. A fully absorbed hit reports `amount 0`, so once SHIELD BLOCK (8.16) lands a shielded Battleship bot will not brace on absorbed hits; `lastDamagedAt` is not observable by bots (no widening was added). 8.19's table should trigger on "was hit" rather than "took damage" if Eric wants the cut under a shield.
   evidence: Blind Hunter finding 12 at the 8.15 review gate; `server/src/game/ai/equipment.ts` `damageCutTactic` / `noteHurt`.
+
+## 2026-09-29 — Story 8.16 Catalog v3: Shield, Chaff, Decoy (cycle 151)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — Eric's eye on staging (amendment 124(f))
+  summary: FIVE IMPLEMENTER DRAFTS AWAIT ERIC'S SIGN-OFF. The three belt glyphs (SHIELD BLOCK, CHAFF, DECOY BUOY) drawn in the existing Pixi line-glyph style, the three hover descriptions, and the owner-only decoy hp readout (the old buoy marker's masthead arc re-used as `hp / CONFIG.decoyBuoy.hp`) were authored by the implementer, not Eric (the amendment 110 precedent).
+  evidence: amendment 124(f); `client/src/render/equipmentIcons.ts` (`shieldBlock`/`chaff`/`decoyBuoy` glyphs), `client/src/ui/boonCopy.ts` (hover copy), `client/src/render/decoys.ts` (own hp arc).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — a later cleanup
+  summary: `ShellState.noAggro` IS A DEAD FIELD. Its only setter was the deleted radar buoy's gun; nothing sets it now, but `world.ts` still threads `shell.noAggro === true` into `hitShip` on the contact and burst paths. Harmless (always false); delete the field and both reads in a cleanup pass.
+  evidence: `shared/src/sim/shell.ts:133`; `server/src/game/world.ts` contact/burst `hitShip` calls (the burst site's comment records the deletion).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — record correction, no code change
+  summary: THE PERCEPTION FUZZ RUNS 20 SEEDED WORLDS, NOT 2000. The 8.16 spec's acceptance criterion said "2000 seeded perception fuzz worlds" — 8.15's wording carried forward; the shipped fuzz is 20 worlds (unchanged by this story), now seeding chaff sources and decoys, with non-vacuity counters proving the chaff and decoy-paint arms ran. The spec AC is corrected to the shipped size.
+  evidence: `server/src/__tests__/perception.test.ts` (`for (let world = 0; world < 20; world++)`, `CHAFF_EXPECTED` / `DECOY_PAINT_EXPECTED`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — awareness for Story 8.19
+  summary: `BotSelf.shield?` / `BotSelf.chaff?` ARE BOT SELF-READS, NOT WIRE FIELDS. The interim tactics read the bot's own shield and chaff off its `BotSelf` view so a live copy is not re-fired; neither is on any client frame (`OwnShip.shield` is the wire field; chaff has none). 8.19's table should keep them self-only.
+  evidence: `server/src/game/ai/types.ts:131`, `:138`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — Story 8.19
+  summary: DECOY BUOY SCORES AT THE PLAIN CONSUMABLE BASE IN THE BOT CARD POLICY. The radar buoy's profile weights died with it and no decoy weight replaced them, so a bot values a DECOY BUOY card exactly like any other belt line; the three consumable tactics are interim (SHIELD BLOCK on the DAMAGE CUT cues, CHAFF on disengage, DECOY BUOY astern when a torpedo is inbound — amendment 124(g)).
+  evidence: `server/src/game/ai/spending.ts` (consumable kind base); `server/src/game/ai/equipment.ts` `CONSUMABLE_TACTICS`; amendment 124(g).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — pointers
+  summary: THE LAST TWO CATALOG STUBS AND THE BOT TABLES. SMOKE SCREEN is Story 8.17 (smoke screen as a sight occluder) and DEPTH CHARGE stays a stub for Eric; the real bot consumable/Shift tables are Story 8.19.
+  evidence: `shared/src/sim/catalog.ts` (2 stubs); `sprint-status.yaml` 8-17 / 8-19 rows.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — awareness (the ledgered piloting flake at `:2473`, re-confirmed at cycle 151)
+  summary: `weaponsSmoke.mjs` FAILED FOUR TIMES IN A ROW ON THE 8.16 BRANCH AT HIT-DEPENDENT PHASES (mine ambush ×3 — once with "B saw 0 distinct A-mines" in the phase before it, so the sailing hull had no mine to steer onto; torpedo kill ×1) and the SAME smoke run against the untouched `development` baseline (`cc86ac9`, a second headless server on a scratch port) also timed out inside its 560 s budget. A read-only trace of every path phase 4 depends on (mine trip, blast damage, `STEP_ORDER`, the `hp` in the own frame, respawn/redeploy resets, the `hitTargets` per-tick memo) found NO 8.16 change reaching any of them; the mine signal is byte-identical apart from the `buoy`→`decoy` pseudo-row rename; `goldenFrames` re-pinned with only `you.offer` moving. Reading of record: the random-map rendezvous/detect geometry the `:2473` entry describes, not a regression. `queueSmoke` and `openingSmoke` passed first time. Widen the budgets or seed the map before trusting a single red run of this smoke.
+  evidence: `$CLAUDE_JOB_DIR/tmp/weaponsSmoke{,2,3,4,-base}.log` for the cycle; `deferred-work.md:2473` (8.14: three reds in a row at three different phases, green on the fourth); the phase-4 trace report in the cycle's run.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — structural, low (review gate, Codex PLAUSIBLE)
+  summary: TARGET ID NAMESPACES ARE NOT ENFORCED — a decoy is `d${seq}`, a mine `m${seq}`, a shell `s${seq}`, a hull a 9-char Colyseus session id / `bot-N` / `fleet-N`; `resolveShell` re-derives the struck target's KIND by bare id lookup in the burst set (hulls before decoys), so a hull whose id happened to equal a decoy's would take the decoy's hit. Unreachable in production (a session id is never two characters; bot/fleet ids carry a prefix) and the mines have carried the identical caveat since Story 8.4 (`world.ts` "ids live in different namespaces but nothing enforces that"). A robust fix is to carry `TargetKind` in the collision outcome instead of re-looking it up.
+  evidence: `server/src/game/world.ts` `resolveShell` → `targetKindOf(hulls, outcome.victimId)`; `spawnDecoy` `d${this.decoySeq}`; the pre-existing namespace comment beside `targetKindOf`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — cosmetic (review gate, Edge Case Hunter; the mines precedent)
+  summary: THE `placeDecoy` TONE REPLAYS ONCE PER LIVE OWN DECOY ON A REFRESH-REJOIN — `Decoys`' own-spawn hook fires for every own decoy a fresh renderer receives in its first frame, exactly as `onOwnMineSpawn` does for mines; decoys have no lifetime so the set can be up to five. Suppress the hook on the first sync after construction if it grates.
+  evidence: `client/src/render/decoys.ts` `onOwnDecoySpawn`; the mines precedent in `client/src/render/mines.ts`.

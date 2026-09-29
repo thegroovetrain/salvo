@@ -33,8 +33,6 @@
 //   starShells.dazzle   — the flare turns OFFENSIVE (live contact in sight)
 //   starShells.phosphor — prefer the SLOW target; the ×0.8 lit shrink caps
 //                         how stale a sensor plot is worth lighting
-//   radarBuoy.jamming   — sited as COVER while in contact, not as recon
-//   radarBuoy.gun       — sited as a PICKET when a tracked hull is in its reach
 //   broadside.spreadRung— the wide base fan may be spent on a just-lost plot;
 //                         a tightened fan demands a live track
 //
@@ -89,8 +87,8 @@ type TorpedoLineId = Extract<EquipmentId, 'heavyTorpedo' | 'lightTorpedo'>;
 type MineLineId = Extract<EquipmentId, 'navalMines' | 'captiveMines' | 'foulingMines'>;
 
 /** The torpedo's ratified bow sector, the mine's ratified astern sector (the
- *  radar buoy shares it verbatim — sectorArcFor('radarBuoy') IS the mine's
- *  descriptor, pinned in shared arcs.test.ts) and the broadside's two beam
+ *  DECOY BUOY consumable shares it verbatim — sectorArcFor('decoyBuoy') IS the
+ *  mine's descriptor, Story 8.16) and the broadside's two beam
  *  sectors — resolved ONCE at module load from the single shared arc source
  *  the equipment rows enforce with. */
 const BOW_SECTOR = sectorArcFor('heavyTorpedo');
@@ -100,7 +98,7 @@ const BOW_SECTOR = sectorArcFor('heavyTorpedo');
 const LIGHT_BEAMS = twinSectorArcFor('lightTorpedo');
 const SUPERCAV_SECTOR = sectorArcFor('supercavTorpedo');
 const REAR_SECTOR = sectorArcFor('navalMines');
-const BUOY_SECTOR = sectorArcFor('radarBuoy');
+const DECOY_SECTOR = sectorArcFor('decoyBuoy');
 const BEAM_SECTORS = twinSectorArcFor('broadside');
 
 /** u — the range inside which a STANDARD torpedo intercept is CREDIBLE. A 60
@@ -180,7 +178,6 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   flak: 0.5,
   broadside: APPETITE_NEUTRAL,
   starShells: APPETITE_NEUTRAL,
-  radarBuoy: APPETITE_NEUTRAL,
   instantReload: APPETITE_NEUTRAL,
   damageCut: APPETITE_NEUTRAL,
 });
@@ -194,7 +191,7 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
  * torpedo is the heavy's tactic keyed by its own id.
  *
  * Without this, a trapper handed a captive rack would drop to the NEUTRAL base
- * and rank its signature weapon below its radar buoy — a silent behaviour
+ * and rank its signature weapon below its other racks — a silent behaviour
  * REGRESSION bought by nothing. So a line with no entry of its own reads its
  * FAMILY's entry first, which is exactly the number that used to reach it.
  *
@@ -241,8 +238,8 @@ export interface Shot {
 
 /** How a tactic's output reaches the world: a 'shot' needs a target and is
  *  resolved BELOW chooseShot's target guard; a 'placement' (flare / mine /
- *  buoy) is resolved ABOVE it — siting a sensor buoy is most valuable when
- *  nothing is tracked; an 'ability' rides the actSeq channel (chooseAct). */
+ *  decoy) is resolved ABOVE it — a placement's own want() decides whether it
+ *  needs a target; an 'ability' rides the actSeq channel (chooseAct). */
 export type TacticKind = 'shot' | 'placement' | 'ability';
 
 /** Everything a tactic may know when deciding: the bot's own record, its mind
@@ -477,7 +474,7 @@ const broadsideTactic: EquipmentTactic = {
   kind: 'shot',
   reachU: (stats) => stats.equipment.broadside.rangeU,
   // A 30s reload is never committed to a plot without PERSISTENCE — the
-  // structural counter to a jamming buoy's fakes, which re-scatter wholesale
+  // structural counter to chaff's fakes, which re-scatter wholesale
   // each revolution and so can never persist as one coherent track.
   want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
   solve: broadsideSolve,
@@ -833,56 +830,6 @@ const starShellsTactic: EquipmentTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// RADAR BUOY — no tactic existed at all before this file. Placement is
-// re-derived from CONFIG.mine.placeRange + sectorArcFor('radarBuoy') (the
-// equipment row is import-banned from ai/).
-// ---------------------------------------------------------------------------
-
-/**
- * WHERE a buoy is wanted depends on its doctrine, and on nothing the profile
- * says (appetite gates only WHETHER this captain bothers):
- *   plain sensor — RECON: sited when NOTHING is tracked, which is why the
- *                  placement class resolves ABOVE the target guard at all;
- *   jamming      — COVER: sited while IN CONTACT, scattering fakes over the
- *                  fight the bot is actually having;
- *   gun          — PICKET: sited when a tracked hull is inside the reach the
- *                  buoy's own gun could actually serve (its flat radarRange
- *                  around a drop one placeRange astern).
- */
-function buoyWant(ctx: TacticContext): boolean {
-  if (appetiteFor(ctx.sit.profile, 'radarBuoy') < APPETITE_NEUTRAL) return false;
-  const rb = ctx.sit.stats.equipment.radarBuoy;
-  // RECON IS AVAILABLE TO EVERY DOCTRINE. Both buoy verbs are pure ADDS in the
-  // sim — a jamming buoy still relays to its owner exactly as a plain one does
-  // (`signals.ts` buoyGate is untouched by the verb; jamming only ADDS fakes,
-  // and the owner is exempt from them), and a gun buoy is a sensor that also
-  // shoots. So a doctrine may ADD a siting occasion and may NEVER remove the
-  // base one: an empty scope is always worth a buoy. Reading the switch the
-  // other way made buying a doctrine a DOWNGRADE in the role the buoy already
-  // had, which no card in this catalog does.
-  if (ctx.target === null) return true;
-  // COVER: fakes scattered over the fight the bot is actually having.
-  if (rb.jamming) return true;
-  // PICKET: only where the buoy's own gun could actually serve, measured from
-  // a drop one placeRange astern.
-  if (rb.gun) return distTo(ctx.sit, ctx.target) <= rb.radarRange + CONFIG.mine.placeRange;
-  return false;
-}
-
-const radarBuoyTactic: EquipmentTactic = {
-  id: 'radarBuoy',
-  kind: 'placement',
-  reachU: () => CONFIG.mine.placeRange,
-  want: buoyWant,
-  // Dropped dead astern at the FULL shared placeRange (max standoff for a
-  // sensor), through the same sector-centre construction as the mine — the
-  // buoy shares the mine's whole placement envelope (R2.7), which BUOY_SECTOR
-  // resolves from the one shared arc source — the buoy's own descriptor, not
-  // a mine assumption (the two are pinned identical in shared arcs.test.ts).
-  solve: (ctx) => sectorPlacement(ctx, BUOY_SECTOR, CONFIG.mine.placeRange),
-};
-
-// ---------------------------------------------------------------------------
 // THE BOOST — the one ability: spent opening range on the way out. Story 8.9
 // made it universal on slot 1 (+25 % of the ladder-raised cap for 10 s, 25 s
 // reload), so every captain hull carries this tactic, not just the fast ones.
@@ -939,19 +886,25 @@ const instantReloadTactic: EquipmentTactic = {
 };
 
 /**
+ * THE DAMAGE CUT CUES (amendment 115) — (a) ENGAGED IN COMBAT: the bot's own
+ * `engage` posture, with a target; or (b) a seen enemy torpedo inbound on a
+ * collision line within 150 u (ai/torpedoThreat.ts). Shared by the DAMAGE CUT
+ * Shift and the interim SHIELD BLOCK belt row (Story 8.16, amendment 124(g)).
+ */
+function damageCutCues(ctx: TacticContext): boolean {
+  return (ctx.posture === 'engage' && ctx.target !== null) || torpedoInbound(ctx.self, ctx.mind, ctx.sit.now);
+}
+
+/**
  * DAMAGE CUT (the Battleship's Shift) is PROACTIVE — Eric, 2026-09-29,
- * amendment 115: pressed (a) while ENGAGED IN COMBAT — the bot's own `engage`
- * posture, with a target — or (b) when a seen enemy torpedo is inbound on a
- * collision line within 150 u (ai/torpedoThreat.ts). NEVER as a reaction to
- * damage already taken (amendment 109's "within the last second" rule is gone).
+ * amendment 115: pressed on the cues above. NEVER as a reaction to damage
+ * already taken (amendment 109's "within the last second" rule is gone).
  */
 const damageCutTactic: EquipmentTactic = {
   id: 'damageCut',
   kind: 'ability',
   reachU: () => 0,
-  want: (ctx) =>
-    appetiteFor(ctx.sit.profile, 'damageCut') >= APPETITE_NEUTRAL &&
-    ((ctx.posture === 'engage' && ctx.target !== null) || torpedoInbound(ctx.self, ctx.mind, ctx.sit.now)),
+  want: (ctx) => appetiteFor(ctx.sit.profile, 'damageCut') >= APPETITE_NEUTRAL && damageCutCues(ctx),
   solve: () => null,
 };
 
@@ -982,7 +935,6 @@ export const EQUIPMENT_TACTICS: Readonly<Partial<Record<EquipmentId, EquipmentTa
   damageCut: damageCutTactic,
   broadside: broadsideTactic,
   starShells: starShellsTactic,
-  radarBuoy: radarBuoyTactic,
 });
 
 // ---------------------------------------------------------------------------
@@ -1048,12 +1000,65 @@ const supercavTorpedoTactic: ConsumableTactic = {
     solveTorpedoShot(ctx, 'supercavTorpedo', CONFIG.supercavTorpedo.speed, TORPEDO_CREDIBLE_U),
 };
 
+// ---------------------------------------------------------------------------
+// SHIELD BLOCK, CHAFF, DECOY BUOY (Story 8.16) — INTERIM rows, amendment
+// 124(g): Story 8.19 owns the table (the amendment 49/79/109 precedent). No
+// new number: each rule reuses a cue another row already acts on.
+// ---------------------------------------------------------------------------
+
+/** Is this bot's own SHIELD BLOCK still up? A self-read of the one seat its
+ *  owner is told about (`OwnShip.shield`). */
+function shieldUp(self: BotSelf, now: number): boolean {
+  const s = self.shield;
+  return s !== undefined && s !== null && s.hpLeft > 0 && now < s.until;
+}
+
+/** Is this bot's own CHAFF cloud still painting? (The cloud is world-owned —
+ *  amendment 127 — so its `until` arrives on the mind, not the record.) */
+function chaffLive(mind: BotMind, now: number): boolean {
+  return mind.chaffUntil !== undefined && now < mind.chaffUntil;
+}
+
+/** SHIELD BLOCK — pressed on the DAMAGE CUT cues, never over a shield already
+ *  up (a second copy would REPLACE it, wasting the first's remainder). */
+const shieldBlockTactic: ConsumableTactic = {
+  id: 'shieldBlock',
+  kind: 'ability',
+  reachU: () => 0,
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && !shieldUp(ctx.self, ctx.sit.now) && damageCutCues(ctx),
+  solve: () => null,
+};
+
+/** CHAFF — thrown on the way OUT (the boost's disengage cue), never over a
+ *  cloud still painting. */
+const chaffTactic: ConsumableTactic = {
+  id: 'chaff',
+  kind: 'ability',
+  reachU: () => 0,
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'disengage' && !chaffLive(ctx.mind, ctx.sit.now),
+  solve: () => null,
+};
+
+/** DECOY BUOY — dropped dead astern at the full placeRange (the mine's rear
+ *  sector, the same sector-centre construction) when a seen enemy torpedo is
+ *  inbound: a float behind you for the homing fish to find first. */
+const decoyBuoyTactic: ConsumableTactic = {
+  id: 'decoyBuoy',
+  kind: 'placement',
+  reachU: () => CONFIG.mine.placeRange,
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && torpedoInbound(ctx.self, ctx.mind, ctx.sit.now),
+  solve: (ctx) => sectorPlacement(ctx, DECOY_SECTOR, CONFIG.mine.placeRange),
+};
+
 /** The consumable half of the tactic registry — PARTIAL over ConsumableId,
  *  exactly as EQUIPMENT_TACTICS is partial over EquipmentId. A line with no row
  *  here is simply unknown to bots, and the slot is skipped fail-closed. */
 export const CONSUMABLE_TACTICS: Readonly<Partial<Record<ConsumableId, ConsumableTactic>>> = deepFreezeRows({
   hullRepair: hullRepairTactic,
   supercavTorpedo: supercavTorpedoTactic,
+  shieldBlock: shieldBlockTactic,
+  chaff: chaffTactic,
+  decoyBuoy: decoyBuoyTactic,
 });
 
 /**

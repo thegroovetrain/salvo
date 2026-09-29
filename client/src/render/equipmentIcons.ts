@@ -21,6 +21,11 @@
 // A line with NO glyph draws NOTHING and throws nothing — every ladder, every
 // add-on and every CONSUMABLE without a module behind it.
 //
+// STORY 8.16 DREW THREE MORE, for the belt (amendment 124(f), same DRAFT
+// status): SHIELD BLOCK (a heater-shield outline), CHAFF (a scatter of short
+// strokes) and DECOY BUOY (the on-water spar-buoy marker the deleted radar
+// buoy's glyph already drew).
+//
 // STORY 8.15 DREW FOUR (epic-8 amendment 110 — IMPLEMENTER DRAFTS, ledgered for
 // Eric's eye on staging): the MACHINE GUN (a breech firing a stream of short
 // dashes), the FLAK GUN (a jagged starburst), INSTANT RELOAD (a circular arrow)
@@ -160,23 +165,6 @@ const starShells: GlyphPaths = [
 ];
 
 /**
- * Radar buoy: a spar buoy — waterline, mast, and a DIAMOND radar-reflector
- * daymark at the masthead.
- *
- * Redrawn in Story 7-5 wave 2 to share the on-water marker's shape language
- * (render/buoys.ts BUOY_MARKER) rather than merely being "not a mine": the
- * shipped glyph hung a pennant off the mast, which is nothing the chart ever
- * draws. The mine glyph is a SPIKED SPHERE and this one has no round part at
- * all, so Eric's *"the icon needs to be distinguished from the mines a bit
- * more"* holds in the hotbar as well as on the water.
- */
-const radarBuoy: GlyphPaths = [
-  path([-0.75, 0.85], [0.75, 0.85]),
-  path([0, 0.85], [0, -0.28]),
-  path([0, -0.7], [0.42, -0.28], [0, 0.14], [-0.42, -0.28], [0, -0.7]),
-];
-
-/**
  * The glyph table — TOTAL over `EquipmentId` since Story 8.15 built the last
  * two guns and the two new Shifts (the missile and the monitor, which never
  * had modules, are CUT). It stays typed `Partial` so a future id with no module
@@ -202,8 +190,47 @@ const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
   boost,
   broadside,
   starShells,
-  radarBuoy,
 };
+
+/**
+ * Shield block (Story 8.16 DRAFT, epic-8 amendment 124(f)): a SHIELD OUTLINE —
+ * a flat-topped heater shield, closed, with no inner mark. Deliberately not
+ * DAMAGE CUT's halved hexagon: one absorbs, the other reduces (amendment 118).
+ */
+const shieldBlock: GlyphPaths = [
+  path([-0.72, -0.82], [0.72, -0.82], [0.72, 0.08], [0, 0.95], [-0.72, 0.08], [-0.72, -0.82]),
+];
+
+/**
+ * Chaff (Story 8.16 DRAFT, epic-8 amendment 124(f)): a SCATTER of short strokes
+ * at mixed angles — the foil cloud the fakes are made of. No circle and no
+ * centre mark: the whole point is that nothing in it is the real thing.
+ */
+const chaff: GlyphPaths = [
+  path([-0.85, -0.55], [-0.55, -0.75]),
+  path([-0.2, -0.9], [0.1, -0.62]),
+  path([0.45, -0.7], [0.85, -0.6]),
+  path([-0.6, -0.05], [-0.25, 0.1]),
+  path([0.15, -0.2], [0.3, 0.15]),
+  path([0.6, 0.05], [0.9, 0.35]),
+  path([-0.9, 0.55], [-0.6, 0.8]),
+  path([-0.15, 0.55], [0.2, 0.45]),
+  path([0.5, 0.65], [0.65, 0.95]),
+];
+
+/**
+ * Decoy buoy (Story 8.16 DRAFT, epic-8 amendment 124(f)): the on-water SPAR
+ * BUOY marker (render/decoys.ts `BUOY_MARKER`) — waterline, mast, and a DIAMOND
+ * radar-reflector daymark at the masthead — so the belt square and the float on
+ * the chart share one shape. It has no round part at all, so Eric's *"the icon
+ * needs to be distinguished from the mines a bit more"* (said of the deleted
+ * radar buoy, whose glyph this was) still holds beside the spiked sphere.
+ */
+const decoyBuoy: GlyphPaths = [
+  path([-0.75, 0.85], [0.75, 0.85]),
+  path([0, 0.85], [0, -0.28]),
+  path([0, -0.7], [0.42, -0.28], [0, 0.14], [-0.42, -0.28], [0, -0.7]),
+];
 
 /**
  * THE CONSUMABLE half of the table. EMPTY until Story 8.13, because no belt
@@ -220,6 +247,11 @@ const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
  */
 const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   supercavTorpedo: torpedo,
+  // Story 8.16 — the three lines that went live, each an IMPLEMENTER DRAFT for
+  // Eric's eye on staging (amendment 124(f), the amendment 110 precedent).
+  shieldBlock,
+  chaff,
+  decoyBuoy,
 };
 
 /**

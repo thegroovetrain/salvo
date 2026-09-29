@@ -91,12 +91,13 @@ describe('CONFIG.regen — the out-of-combat regen (Eric ruling 2026-09-17, amen
   });
 });
 
-describe('HULL REPAIR is a LIVE consumable; four of the seven are still stubs', () => {
-  it('hullRepair is dealt, and so is the SUPERCAV TORPEDO — the rest are not', () => {
+describe('HULL REPAIR is a LIVE consumable; two of the seven are still stubs', () => {
+  it('hullRepair is dealt, and so are the SUPERCAV TORPEDO, SHIELD BLOCK, CHAFF and DECOY BUOY — the rest are not', () => {
     // Story 8.13 made SUPERCAV TORPEDO the second live consumable line (Eric
     // ruling 2026-09-19, epic-8 amendment 74) and added one more stub,
-    // DEPTH CHARGE (amendment 83).
-    const LIVE: readonly string[] = ['hullRepair', 'supercavTorpedo'];
+    // DEPTH CHARGE (amendment 83). Story 8.16 flipped SHIELD BLOCK, CHAFF and
+    // DECOY BUOY live (amendments 116–124); SMOKE SCREEN and DEPTH CHARGE stay.
+    const LIVE: readonly string[] = ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy'];
     for (const id of CONSUMABLE_IDS) {
       expect(isStubLine(id), id).toBe(!LIVE.includes(id));
     }
@@ -130,7 +131,7 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
     expect(CATALOG.hullRepair.cap * HEAL_PER_COPY).toBe(500);
   });
 
-  it('the collapse ceiling is 237.5 s — (max hull 450 + heal bound 500) / stormDps', () => {
+  it('the collapse ceiling is 362.5 s — (max hull 450 + heal bound 500 + shield bound 500) / stormDps', () => {
     // MAX HULL IS DERIVED, never typed: the ARMOR ladder (R8, +25 max hp per
     // tier) run to its own cap on whichever hull starts highest. That is the
     // battleship at 350 + 4 × 25 = 450.
@@ -141,11 +142,21 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
     expect(maxHull).toBe(450);
 
     const healBound = CATALOG.hullRepair.cap * HEAL_PER_COPY;
-    const ceilingS = (maxHull + healBound) / CONFIG.zone.stormDps;
-    // 950 hp at 4 hp/s = 237.5 s of continuous storm to sink the most healed,
-    // most armoured hull in the game: the storm always wins in the end.
-    expect(ceilingS).toBe(237.5);
-    expect(ceilingS).toBe((maxHull + healBound) / CONFIG.zone.stormDps);
+    // THE SHIELD BUDGET (epic-8 amendment 125, Eric 2026-09-29): SHIELD BLOCK
+    // absorbs EVERY source, storm bites included (amendment 118), so the
+    // ceiling counts the line's cap × its face value beside the heal budget.
+    // Face value is the conservative bound: a shield lasts only
+    // CONFIG.shieldBlock.durationMs, so storm alone drains far less of each
+    // copy. The five-shield captain is Eric's "very lucky" lottery ticket —
+    // the real ceiling in play is far lower than this pin.
+    const shieldBound = CATALOG.shieldBlock.cap * CONFIG.shieldBlock.hp;
+    expect(shieldBound).toBe(500);
+    const ceilingS = (maxHull + healBound + shieldBound) / CONFIG.zone.stormDps;
+    // 1450 hp at 4 hp/s = 362.5 s of continuous storm to sink the most healed,
+    // most shielded, most armoured hull in the game: the storm always wins in
+    // the end.
+    expect(ceilingS).toBe(362.5);
+    expect(ceilingS).toBe((maxHull + healBound + shieldBound) / CONFIG.zone.stormDps);
   });
 });
 

@@ -3,7 +3,7 @@
 //
 // Pinned here: 26 lines / 109 cards with the exact per-line caps and kinds of
 // `catalog-v3.md` §1 as amended; `tiers.length === cap` on every line; the
-// 5-line stub set; the validator's rules, including its refusal of a stat
+// 2-line stub set; the validator's rules, including its refusal of a stat
 // path that takes `add` from one line and `mult` from another; and a seeded
 // permutation property — ≥200 shuffles of random legal multisets over all
 // three classes, deep-equal AND JSON-identical.
@@ -73,10 +73,10 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   broadside: { cap: 5, kind: 'equipment', stub: false },
   starShells: { cap: 5, kind: 'equipment', stub: false },
   hullRepair: { cap: 5, kind: 'consumable', stub: false }, // LIVE since Story 8.8 (R13)
-  shieldBlock: { cap: 5, kind: 'consumable', stub: true },
+  shieldBlock: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R37)
   smokeScreen: { cap: 5, kind: 'consumable', stub: true },
-  chaff: { cap: 5, kind: 'consumable', stub: true },
-  decoyBuoy: { cap: 5, kind: 'consumable', stub: true },
+  chaff: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R39)
+  decoyBuoy: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R36)
   depthCharge: { cap: 5, kind: 'consumable', stub: true }, // NEW in 8.13 (amendment 83)
   // AN EQUIPMENT LINE since 8.13 (amendment 81) — it keeps its LINE_IDS slot.
   foulingMines: { cap: 5, kind: 'equipment', stub: false },
@@ -84,15 +84,14 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   phosphorShells: { cap: 1, kind: 'addon', stub: false },
 };
 
-/** The 5 stub ids (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
+/** The 2 stub ids (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
  *  built HULL REPAIR's effect, 12 until Story 8.13 built the LIGHT TORPEDO,
  *  the CAPTIVE MINE and the SUPERCAV TORPEDO (which also stopped being an
  *  equipment line) and added the stub DEPTH CHARGE, 10 until Story 8.15 cut
- *  missile/monitor/heatSeeking and built the machine gun and flak ladders.
- *  Every one left is a CONSUMABLE (8.16's). */
-const STUB_IDS: readonly LineId[] = [
-  'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge',
-];
+ *  missile/monitor/heatSeeking and built the machine gun and flak ladders,
+ *  5 until Story 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY. Both left are
+ *  CONSUMABLES (SMOKE SCREEN, DEPTH CHARGE — 8.17 / Eric). */
+const STUB_IDS: readonly LineId[] = ['smokeScreen', 'depthCharge'];
 
 describe('catalog v3 identity', () => {
   it('ships 26 lines in the ruled order, keyed by id', () => {
@@ -113,7 +112,7 @@ describe('catalog v3 identity', () => {
     for (const id of LINE_IDS) expect(CATALOG[id].tiers.length).toBe(CATALOG[id].cap);
   });
 
-  it('pins the 5-line stub set exactly — no equipment or ladder stub is left (Story 8.15)', () => {
+  it('pins the 2-line stub set exactly — no equipment or ladder stub is left (Story 8.15, 8.16)', () => {
     expect(LINE_IDS.filter((id) => isStubLine(id)).sort()).toEqual([...STUB_IDS].sort());
     expect(isStubLine('nope')).toBe(false);
   });
@@ -180,6 +179,15 @@ describe('catalog v3 identity', () => {
       expect(lines[id], id).toBeUndefined();
       expect((EQUIPMENT_IDS as readonly string[]).includes(id), id).toBe(false);
     }
+  });
+
+  it('DELETES the radar buoy end to end — 13 equipment ids, no card fits it (Story 8.16)', () => {
+    expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
+    expect(EQUIPMENT_IDS).toHaveLength(13);
+    expect((CONFIG as Record<string, unknown>).radarBuoy).toBeUndefined();
+    // The DECOY BUOY that replaces it is a live CONSUMABLE line, not equipment.
+    expect(CATALOG.decoyBuoy.kind).toBe('consumable');
+    expect(CATALOG.decoyBuoy.stub).toBeUndefined();
   });
 
   it('the MACHINE GUN and FLAK lines are their guns\' LADDERS, exactly like DECK GUN (amendments 104/105)', () => {

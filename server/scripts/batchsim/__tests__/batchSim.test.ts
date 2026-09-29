@@ -272,7 +272,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
-      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, damageCut\.\*, broadside\.\*, torpedo\.\*, mine\.\*, starShells\.\*, boost\.\*, radarBuoy\.\*, shipClasses\.\*/,
+      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, damageCut\.\*, broadside\.\*, torpedo\.\*, mine\.\*, starShells\.\*, boost\.\*, shipClasses\.\*/,
     );
     expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
   });
@@ -345,12 +345,12 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => applyOverrides({}, { 'gun.reloadMs': 0 })).toThrow(TunableError);
   });
 
-  it('matches the reload floor by SUFFIX, so radarBuoy.gunReloadMs is covered', () => {
+  it('matches the reload floor by SUFFIX, so machineGun.idleReloadMs is covered', () => {
     // An exact `leaf === 'reloadMs'` test let this one through at floor 0 — it
     // is a real reload in the same divide-or-spin class, just not named that.
-    expect(() => parseArgs(['--tune', 'radarBuoy.gunReloadMs=0'])).toThrow(TunableError);
-    expect(() => parseArgs(['--tune', 'radarBuoy.gunReloadMs=0'])).toThrow(/'radarBuoy\.gunReloadMs'.*>= 1/);
-    expect(parseArgs(['--tune', 'radarBuoy.gunReloadMs=1']).tune).toEqual({ 'radarBuoy.gunReloadMs': 1 });
+    expect(() => parseArgs(['--tune', 'machineGun.idleReloadMs=0'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'machineGun.idleReloadMs=0'])).toThrow(/'machineGun\.idleReloadMs'.*>= 1/);
+    expect(parseArgs(['--tune', 'machineGun.idleReloadMs=1']).tune).toEqual({ 'machineGun.idleReloadMs': 1 });
   });
 
   it('floors the leaves the SIM DIVIDES BY: a 0 there NaNs or inerts the campaign', () => {

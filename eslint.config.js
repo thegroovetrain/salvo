@@ -87,8 +87,9 @@ export default tseslint.config(
     // lint rule cannot be scoped INSIDE a file, and a grep cannot see the other
     // 60 server files.
     //
-    // `buoy.hp -=` in world.ts is the one non-hull decrement and is allowed by
-    // the same file exception (a buoy is not a ship: no XP, no feed line, no
+    // `decoy.hp -=` in world.ts (World.damageDecoy — Story 8.16; the radar buoy's
+    // `buoy.hp -=` before it) is the one non-hull decrement and is allowed by
+    // the same file exception (a decoy is not a ship: no XP, no feed line, no
     // dmg event, and it never enters the gate).
     files: ['server/src/**/*.ts'],
     ignores: ['server/src/game/world.ts'],

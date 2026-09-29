@@ -123,9 +123,10 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     // LIGHT TORPEDO, CAPTIVE MINES and the SUPERCAV TORPEDO and added the stub
     // DEPTH CHARGE — NINETEEN live against ten stubs. Story 8.15 CUT missile,
     // monitor and heat seeking and built the machine gun's and flak gun's
-    // ladders — 26 lines, TWENTY-ONE live against five stubs.
+    // ladders — 26 lines, TWENTY-ONE live against five stubs. Story 8.16
+    // flipped SHIELD BLOCK, CHAFF and DECOY BUOY — TWENTY-FOUR live against two.
     expect(LINES).toHaveLength(26);
-    expect(LIVE).toHaveLength(21);
+    expect(LIVE).toHaveLength(24);
     expect(LIVE.some((l) => l.id === 'hullRepair')).toBe(true);
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });
@@ -416,8 +417,9 @@ describe('the laws that constrain the fix', () => {
     'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'foulingMines',
     // Story 8.15: `machineGun`/`flak` left (their ladders carry the two DRAFT
     // hover descriptions, ledgered for Eric); missile/monitor/heat seeking CUT.
-    // `hullRepair` left this list in Story 8.8 — its mechanism is built now.
-    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge',
+    // `hullRepair` left this list in Story 8.8 — its mechanism is built now —
+    // and `shieldBlock`, `chaff`, `decoyBuoy` in Story 8.16 (DRAFT hovers).
+    'smokeScreen', 'depthCharge',
   ];
 
   it('keeps the contract: what left the face is on the hover tooltip, for every built line', () => {

@@ -387,7 +387,7 @@ function slotsView(): HotbarView {
 function barView(over: Partial<HudBarView> = {}): HudBarView {
   return {
     slots: slotsView(),
-    hp: { hp: 212, maxHp: 250, repairHp: 0, alive: true, sinking: false },
+    hp: { hp: 212, maxHp: 250, repairHp: 0, shield: 0, alive: true, sinking: false },
     hpHold: false,
     helm: {
       headingRad: 0,

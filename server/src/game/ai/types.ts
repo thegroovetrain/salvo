@@ -122,6 +122,13 @@ export interface BotSelf {
   readonly offer: BoonOffer | null;
   /** Fitted card LINE ids, in fit order (Story 8.1 — repeats are stacks). */
   readonly cards: readonly string[];
+  /**
+   * This hull's SHIELD BLOCK seat (Story 8.16) — the owner is told exactly
+   * this (`OwnShip.shield`). Read by the interim SHIELD BLOCK belt tactic so a
+   * bot never replaces a shield still up. Optional so hand-built fixtures that
+   * predate it stay valid; absent reads as "no shield".
+   */
+  readonly shield?: { readonly hpLeft: number; readonly until: number } | null;
 }
 
 /**
@@ -138,6 +145,14 @@ export interface BotTickEntry {
   readonly afloat: boolean;
   /** The bot's own record (see BotSelf). */
   readonly self: BotSelf;
+  /**
+   * ms — when THIS bot's own CHAFF cloud stops painting (0 = none). The cloud
+   * is WORLD-owned (amendment 127: it outlives the hull), so it is no longer
+   * on the record; world.ts reads the bot's OWN entry of the chaff map and
+   * hands only this one number in. A self-read of the bot's own action (a
+   * human knows when they pressed it): no fake, no other owner's cloud.
+   */
+  readonly chaffUntil: number;
   /** This bot's fogged perception view for THIS tick — perception.observe()
    *  bound to this bot's id by world.ts. Called exactly once per live bot per
    *  tick by the driver (observe() mutates per-observer reveal memory, so the
@@ -316,6 +331,11 @@ export interface BotMind {
    *  tactic's inbound-fish trigger reads it. OPTIONAL, created lazily;
    *  released with the life (BotController.releasePerLifeState). */
   torps?: Map<string, SeenTorpedo> | null;
+  /** ms — this bot's own CHAFF cloud's `until` as of this tick (Story 8.16,
+   *  amendment 127), copied from BotTickEntry.chaffUntil by the driver before
+   *  every decide. The interim CHAFF tactic never throws a second cloud over
+   *  one still painting. OPTIONAL: absent reads as "no cloud". */
+  chaffUntil?: number;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics

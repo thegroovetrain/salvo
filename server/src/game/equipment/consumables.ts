@@ -7,12 +7,13 @@
 // import the factory without importing the registry that imports it. Each
 // LINE's own effect lives beside it in `consumables/<lineId>.ts`.
 //
-// THE REGISTRY HOLDS TWO ROWS: HULL REPAIR (Story 8.8, epic-8 amendments
-// 46 + 51) and, since Story 8.13, the SUPERCAV TORPEDO — the belt's first
-// CLICK-AIMED line (amendment 74, `CONSUMABLE_IS_WEAPON.supercavTorpedo`).
-// The other four consumable lines (SHIELD BLOCK, SMOKE SCREEN, CHAFF, DECOY
-// BUOY) and the DEPTH CHARGE stub (amendment 83) are still `stub` in the
-// catalog, so no copy of them can be dealt, picked or stocked — and because
+// THE REGISTRY HOLDS FIVE ROWS: HULL REPAIR (Story 8.8, epic-8 amendments
+// 46 + 51), since Story 8.13 the SUPERCAV TORPEDO — the belt's first
+// CLICK-AIMED line (amendment 74, `CONSUMABLE_IS_WEAPON.supercavTorpedo`) —
+// and since Story 8.16 SHIELD BLOCK, CHAFF and the click-placed DECOY BUOY
+// (amendments 116–124). SMOKE SCREEN and the DEPTH CHARGE stub (amendment 83)
+// are still `stub` in the catalog, so no copy of them can be dealt, picked or
+// stocked — and because
 // the registry is PARTIAL, even a forged belt press naming one finds no row
 // and fails closed at the gate. The invariant that keeps the two halves honest
 // is pinned in equipment.test.ts: every NON-STUB consumable has a row here and
@@ -23,6 +24,9 @@
 
 import { hullRepairRow } from './consumables/hullRepair.js';
 import { supercavTorpedoRow } from './consumables/supercavTorpedo.js';
+import { shieldBlockRow } from './consumables/shieldBlock.js';
+import { chaffRow } from './consumables/chaff.js';
+import { decoyBuoyRow } from './consumables/decoyBuoy.js';
 import { buildConsumableRegistry, type ConsumableRegistry } from './consumables/row.js';
 
 export {
@@ -34,7 +38,13 @@ export {
 } from './consumables/row.js';
 
 /**
- * THE PRODUCTION REGISTRY — the two BUILT lines, pinned by equipment.test.ts
+ * THE PRODUCTION REGISTRY — the five BUILT lines, pinned by equipment.test.ts
  * against the catalog's `stub` flags.
  */
-export const CONSUMABLES: ConsumableRegistry = buildConsumableRegistry([hullRepairRow, supercavTorpedoRow]);
+export const CONSUMABLES: ConsumableRegistry = buildConsumableRegistry([
+  hullRepairRow,
+  supercavTorpedoRow,
+  shieldBlockRow,
+  chaffRow,
+  decoyBuoyRow,
+]);

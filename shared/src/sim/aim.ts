@@ -362,7 +362,7 @@ export function muzzleOrTarget(
 /**
  * Is a placement/drop point ILLEGAL water (Story 1.10 'blocked')? True when the
  * point lands on any island's LAND (inside its coastline polygon) or outside
- * the water disk. The mine AND radar-buoy rows refuse a blocked point WITHOUT
+ * the water disk. The mine AND decoy-buoy rows refuse a blocked point WITHOUT
  * consuming anything, so the client's mine-placement preview reads the SAME
  * predicate to draw its blocked tell — promoted here (from equipment/mines.ts
  * dropBlocked) so the two can never disagree about which water is legal.

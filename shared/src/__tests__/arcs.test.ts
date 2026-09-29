@@ -1,8 +1,9 @@
 // arcFor — the single arc-shape source (Story 1.10). These tests pin the
 // RATIFIED geometry byte-for-byte to CONFIG: the gun family 360°, the heavy torpedo
 // bow sector ±30°, the mine's aimed REAR sector (FLIPPED from the stern drop
-// in Story 2.8, amendment 45 — offset 180° ± placeHalfArcDeg) which the RADAR
-// BUOY now shares (Story 7-5 wave 2 — it is click-placed, not dropped), the
+// in Story 2.8, amendment 45 — offset 180° ± placeHalfArcDeg) which the DECOY
+// BUOY consumable now shares (Story 8.16 — the radar buoy that shared it before
+// is deleted), the
 // BROADSIDE's twin beam sectors, and the aimless speed boost. A geometry change
 // here is a DESIGN change and must be deliberate — these are regression pins,
 // not derivations.
@@ -111,11 +112,25 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(isConsumableId('supercavTorpedo')).toBe(true);
   });
 
-  it('EVERY OTHER consumable declares no arc — the decoy\'s is Story 8.16\'s', () => {
+  it('EVERY OTHER consumable declares no arc — the two aimed ones are the supercav and the decoy', () => {
     for (const id of CONSUMABLE_IDS) {
-      if (id === 'supercavTorpedo') continue;
+      if (id === 'supercavTorpedo' || id === 'decoyBuoy') continue;
       expect(arcFor(id), id).toEqual({ kind: 'none' });
     }
+    const aimed = CONSUMABLE_IDS.filter((id) => arcFor(id).kind !== 'none');
+    expect([...aimed].sort()).toEqual(['decoyBuoy', 'supercavTorpedo']);
+  });
+
+  it('the DECOY BUOY SHARES the mine rear sector exactly (click-placed, Story 8.16)', () => {
+    // Not merely equal-shaped: the SAME sector, so the two placement wedges can
+    // never drift apart (catalog-v3 R36 — dropped in the rear arc like a mine).
+    expect(arcFor('decoyBuoy')).toEqual({
+      kind: 'sector',
+      offset: CONFIG.mine.offset,
+      halfArc: deg(CONFIG.mine.placeHalfArcDeg),
+    });
+    expect(arcFor('decoyBuoy')).toEqual(arcFor('navalMines'));
+    expect(isConsumableId('decoyBuoy')).toBe(true);
   });
 
   it('the THREE class Shifts declare no arc — nothing else does (Story 8.15)', () => {
@@ -128,10 +143,8 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect([...none].sort()).toEqual([...SHIFT_IDS].sort());
   });
 
-  it('the radarBuoy SHARES the mine rear sector exactly (click-placed, Story 7-5 wave 2)', () => {
-    // Not merely equal-shaped: the SAME sector, so the two placement wedges can
-    // never drift apart (R2.7 — "reuse the mine's rear sector").
-    expect(arcFor('radarBuoy')).toEqual(arcFor('navalMines'));
+  it('the radar buoy is GONE from the equipment id space (Story 8.16)', () => {
+    expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
   });
 
   it('the broadside is TWO mirrored beam sectors at ±90°, each 60° half-wide', () => {
@@ -173,8 +186,8 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
   });
 });
 
-describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine/buoy rear arc)', () => {
-  it('narrows the heavy torpedo, the supercav, the mines AND the radar buoy to their sectors', () => {
+describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine/decoy rear arc)', () => {
+  it('narrows the heavy torpedo, the supercav, the mines AND the decoy buoy to their sectors', () => {
     expect(sectorArcFor('supercavTorpedo')).toEqual({
       kind: 'sector',
       offset: CONFIG.supercavTorpedo.offset,
@@ -192,7 +205,7 @@ describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine/buoy rear arc
       offset: CONFIG.mine.offset,
       halfArc: deg(CONFIG.mine.placeHalfArcDeg),
     });
-    expect(sectorArcFor('radarBuoy')).toEqual(sectorArcFor('navalMines'));
+    expect(sectorArcFor('decoyBuoy')).toEqual(sectorArcFor('navalMines'));
   });
 
   it('THROWS on any non-sector id (a CONFIG/arcs authoring error, loud at load)', () => {
@@ -222,7 +235,7 @@ describe('twinSectorArcFor — narrow-or-throw (the broadside beam accessor)', (
 
   it('THROWS on every other id — including the plain SECTOR weapons', () => {
     for (const id of ['gun', 'starShells', 'heavyTorpedo', 'navalMines', 'foulingMines',
-      'radarBuoy', 'boost', 'supercavTorpedo'] as const) {
+      'decoyBuoy', 'boost', 'supercavTorpedo'] as const) {
       expect(() => twinSectorArcFor(id)).toThrow(/must be a twin-sector/);
     }
   });

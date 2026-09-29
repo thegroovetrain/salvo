@@ -116,7 +116,7 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     levelsUnspent: 0,
     boonsFitted: 10,
     shots: 20,
-    buoysDeployed: 0,
+    decoysDeployed: 0,
     minesLaid: 0,
     damageDealt: 200,
     ticks: 2000,

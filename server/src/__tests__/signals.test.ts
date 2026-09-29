@@ -49,8 +49,8 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
  *  and the radar modes + pseudonym resolver (radar realism cycle) — off the world. */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
-    mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, buoys: w.buoys, me, wakes: w.wakeRibbons,
+    mode: 'fogged', observerId: me.id, now, islands: w.map.islands, mapRadius: w.map.radius, heightRaster: w.map.heightRaster, ships: w.ships,
+    litZones: w.litZones, decoys: w.decoys, chaffSources: w.chaffSources, me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -59,8 +59,8 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 /** The spectator sibling of foggedCtx (the record-less 'ghost' observer). */
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
-    mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, buoys: w.buoys, me: undefined, wakes: w.wakeRibbons,
+    mode: 'spectator', observerId, now: w.now, islands: w.map.islands, mapRadius: w.map.radius, heightRaster: w.map.heightRaster, ships: w.ships,
+    litZones: w.litZones, decoys: w.decoys, chaffSources: w.chaffSources, me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -102,7 +102,7 @@ const REGISTRY_KEYS = [
   'contact',
   'mine',
   'litzone',
-  'buoy', // Story 7-5 wave 2: the radar buoy's contact-like frame channel
+  'decoy', // Story 8.16: the DECOY BUOY's contact-like frame channel (the deleted radar buoy's `buoy` seat)
   'blip',
   'shell',
   'torp',
@@ -150,8 +150,8 @@ describe('SIGNAL_REGISTRY — row shape', () => {
       expect(typeof row.materialize).toBe('function');
       // The blip row carried the game's ONLY counterIntel implementation — the
       // decoy's radar-double lie. The decoy is deleted (R2.6) and the seam went
-      // with it: nothing fabricates a signal. The jamming buoy (R2.11) will
-      // re-establish it WITH its own oracle carve-out, not inherit a dormant one.
+      // with it. CHAFF's fakes (Story 8.16) are not a row seam: they merge
+      // into the blip subsequence with their own oracle carve-out.
       expect((row as { counterIntel?: unknown }).counterIntel).toBeUndefined();
     }
   });
@@ -311,10 +311,34 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   // blip-counterIntel pins (wire-shape identity with a real paint, and the
   // FR10 contact-coexistence suppression). All three assert about a channel
   // and a seam that are DELETED — the decoy buoy no longer exists and nothing
-  // fabricates a ship contact. They are not adapted to the RADAR BUOY: it
-  // paints on its OWN profile with no owner identity (R2.9), which is an
-  // ordinary return rather than a lie, and its `buoys` channel lands with the
-  // buoy itself (a later agent) along with its own key-order pin.
+  // fabricates a ship contact. (The Story 8.16 DECOY BUOY's `decoy` row is
+  // pinned below with its own key order.)
+
+  it('decoy row (Story 8.16): [id,x,y,own,by] for others, `hp` appended LAST for the owner only; the mine visibility rule', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 2000, 0); // far away: neither sight nor detect
+    const decoy = { id: 'd1', ownerId: 'a', x: 30, y: 0, hp: 50, poly: [] };
+    const row = SIGNAL_REGISTRY.decoy; // pseudo-row: direct access (not signalFor)
+    // OWNER: always visible, `hp` present and LAST.
+    expect(row.visible(foggedCtx(w, a), decoy)).toBe(true);
+    const own = row.materialize(foggedCtx(w, a), decoy);
+    expect(Object.keys(own as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'hp']);
+    expect(own).toEqual({ id: 'd1', x: 30, y: 0, own: true, by: 'a', hp: 50 });
+    // A FAR non-owner: invisible (beyond detect, no lit zone).
+    expect(row.visible(foggedCtx(w, b), decoy)).toBe(false);
+    // Move b inside DETECT range: visible, `by` rides, `hp` key ABSENT.
+    b.state.x = 60;
+    expect(row.visible(foggedCtx(w, b), decoy)).toBe(true);
+    const other = row.materialize(foggedCtx(w, b), decoy);
+    expect(Object.keys(other as object)).toEqual(['id', 'x', 'y', 'own', 'by']);
+    expect('hp' in (other as object)).toBe(false);
+    // The spectator sees every decoy, never as own.
+    expect(row.visible(specCtx(w), decoy)).toBe(true);
+    expect('hp' in (row.materialize(specCtx(w), decoy) as object)).toBe(false);
+    // A fabricated k:'decoy' world event never dispatches (pseudo-row).
+    expect(signalFor('decoy')).toBeUndefined();
+  });
 
   it('litzone row: [id,x,y,r,until,by,mode] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {
     const w = bareWorld();

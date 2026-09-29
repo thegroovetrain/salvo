@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 57→58 bump (PV 58, Story 8.15: `InputMsg.held` is a REQUIRED boolean, the shell reveal gains `w`, the own-ship frame gains `damageCutUntil` and the catalog content moved, so a PV-57 client would have every input dropped) is enforced at matchmake', () => {
-  it('rejects pv-57 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(58);
+describe('pv join gate — the 58→59 bump (PV 59, Story 8.16: the own-ship frame gains `shield`, the frame gains `decoys`, the radar buoy\'s `buoys` channel and the `src` blip tag are deleted, and the catalog content moved) is enforced at matchmake', () => {
+  it('rejects pv-58 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(59);
+    expect(protocolVersionError(58)).toMatch(/refresh/);
     expect(protocolVersionError(57)).toMatch(/refresh/);
     expect(protocolVersionError(56)).toMatch(/refresh/);
     expect(protocolVersionError(55)).toMatch(/refresh/);

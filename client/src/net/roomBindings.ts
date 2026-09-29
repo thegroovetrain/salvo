@@ -53,7 +53,7 @@ import type { Smoke } from '../render/smoke.js';
 import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
-import type { Buoys, OwnBuoyState } from '../render/buoys.js';
+import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
 import { fleetSizeName, killLine, pinDroneColor, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
@@ -112,9 +112,9 @@ export interface RoomBindingDeps {
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
    *  from FrameMsg.litZones every tick, exactly like mines. */
   litZones: LitZones;
-  /** Buoy markers (render/buoys.ts) — synced contact-like from
-   *  FrameMsg.buoys every tick, exactly like mines/litZones (Story 1.8). */
-  buoys: Buoys;
+  /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced contact-like
+   *  from FrameMsg.decoys every tick, exactly like mines/litZones. */
+  decoys: Decoys;
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. The
@@ -179,13 +179,6 @@ export interface RoomBindingDeps {
    * before own stats exist. A function, same reason as ownBurstRadius.
    */
   ownMineRings: (t: number) => OwnMineRings | undefined;
-  /**
-   * The OWNER's live radar-buoy stats for the own-buoy coverage ring + life
-   * arc, stamped with the FRAME time `t` (`BuoyView.until` is a server-clock
-   * value, so the life fraction must be measured against server timestamps —
-   * the ownMineRings rule, same reason). Undefined before own stats exist.
-   */
-  ownBuoy: (t: number) => OwnBuoyState | undefined;
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
@@ -258,7 +251,7 @@ export interface RoomBindingDeps {
    */
   colors: (id: string) => number | null;
   /**
-   * Ordnance-marker tint (Story 1.12): a mine/buoy/lit-zone firer id (`by`) →
+   * Ordnance-marker tint (Story 1.12): a mine/decoy/lit-zone firer id (`by`) →
    * that pilot's BRIGHT personal hue (the SAME hue for every observer), or null
    * while the roster hasn't synced the firer (or the firer left). The renderer
    * paints the amber fallback for a null and retries per frame until it resolves.
@@ -713,9 +706,6 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     deps.state.spectating = true;
     deps.onSpectate();
   }
-  // Frames OMIT the buoys key when the observer sees none — one shared
-  // empty-list default for the sensor hand-off and the marker sync below.
-  const buoys = f.buoys ?? [];
   if (f.you) {
     // Trust the server's class + fitted boons over any local guess: on the
     // first frame (or any change to either) recompute the effective stats and
@@ -737,13 +727,6 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
     if (deps.state.mode === 'predict') deps.predictor.onServerState(f.you, f.ackSeq);
     deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
-    // The radar's OWN-BUOY SENSORS (Story 7-5 fix cycle): the frame's buoy
-    // list, handed to the scope so `src`-tagged returns price from the buoy
-    // and the buoy's own sweep wedge turns at its frame-carried antenna
-    // angle. Under the `you` guard beside the sweep anchor deliberately:
-    // sensors exist only for a live own scope — tagged blips only ever
-    // arrive in frames that carry `you`, and a spectator's scope is cleared.
-    deps.radar.setOwnBuoys(buoys, f.t);
     // First authoritative pose after a reconnect: snap the camera to the resumed
     // hull (completes the handleSpawn mirror), consuming the one-shot flag.
     if (s.pendingSnap) {
@@ -753,7 +736,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   }
   deps.contacts.pushFrame(f.t, f.contacts);
   // Contact-like reconciles. Story 1.12: the marker tint is the FIRER's personal
-  // hue (MineView/BuoyView/LitZoneView `by` → deps.ordnanceHue), the same hue for
+  // hue (MineView/DecoyView/LitZoneView `by` → deps.ordnanceHue), the same hue for
   // every observer; the own/enemy discriminator (`own`) now only drives the fog
   // layer + brightness inside each renderer.
   // Own mines carry their owner-private radius rings (always-on, our stats,
@@ -765,9 +748,10 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   // sees no zones, so treat a missing key as an empty list.
   const litZones = f.litZones ?? [];
   deps.litZones.sync(litZones, deps.ordnanceHue);
-  // Buoys, same reconcile. Frames OMIT the key when the observer sees no
-  // buoys, so treat a missing key as an empty list.
-  deps.buoys.sync(buoys, deps.ordnanceHue, deps.ownBuoy(f.t));
+  // Decoy buoys (Story 8.16), same reconcile. Frames OMIT the key when the
+  // observer sees no decoys, so treat a missing key as an empty list.
+  const decoys = f.decoys ?? [];
+  deps.decoys.sync(decoys, deps.ordnanceHue);
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
@@ -2109,13 +2093,19 @@ function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   const selfId = deps.state.net.sessionId;
   const since = f.t - s.burningAt;
   let total = 0;
+  let hit = false;
   let allBurn = true;
   for (const e of f.events) {
     if (e.k !== 'dmg' || e.id !== selfId) continue;
+    hit = true;
     total += e.amount;
     if (!readsAsBurn(e.amount, since)) allBurn = false;
   }
-  if (total <= 0) return; // no own damage this frame (the overwhelmingly common case)
+  // Gated on the EVENT, never on the amount (Story 8.16, epic-8 amendment 117):
+  // a hit the SHIELD BLOCK fully absorbed arrives as `dmg` with amount 0 and
+  // must still play the ordinary hit cue — the shake floors at the subtle
+  // (gun-weight) magnitude, and the falling blue number is its twin.
+  if (!hit) return; // no own damage this frame (the overwhelmingly common case)
   deps.shake.trigger(allBurn ? total * CLIENT_CONFIG.litZone.burnShakeScale : total);
   deps.audio.play(allBurn ? 'burn' : 'damage');
 }

@@ -4,8 +4,8 @@
 // Until now the only aim-time truth on screen was the crosshair (and a range-
 // clamp tick when the cursor overran max range): a captain could not see that a
 // gun shell bursts in a 15u circle, where a BARREL volley's parallel tracks
-// actually run, where a BROADSIDE BARRAGE's shells fan out to, or where a mine's
-// trigger ring will actually sit. This module draws
+// actually run, where a BROADSIDE BARRAGE's shells fan out to, where a mine's
+// trigger ring will actually sit, or where a DECOY BUOY will float. This module draws
 // all of it, and draws it from the SAME shared helpers the server fires with
 // (shared sim/aim.ts — burstPointAlong / muzzleOrTarget / torpedoSpawn /
 // blockedWater, promoted out of the server equipment rows for exactly this
@@ -44,6 +44,7 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
+import { BUOY_MARKER } from './decoys.js';
 import type { OwnFire } from './projectiles.js';
 import { isMineEquipment, isTorpedoItem, mineKindOf, type MineEquipmentId } from './weaponArc.js';
 
@@ -151,6 +152,14 @@ export interface PreviewPlacement {
   blocked: boolean; // inside a rock / off the water — the server refuses it
 }
 
+/** A DECOY BUOY's drop point (Story 8.16): the marker alone, no radii — a
+ *  decoy has no blast, trigger or effect circle. */
+export interface PreviewDrop {
+  x: number;
+  y: number;
+  blocked: boolean; // inside a rock / off the water — the server refuses it
+}
+
 /** A HOMING fish's acquisition corridor along the initial track (a tier stat
  *  since epic-8 amendment 80 — drawn iff the fitted line's turn rate is
  *  above zero). */
@@ -167,6 +176,9 @@ export interface AimPreviewModel {
   bursts: PreviewBurst[];
   place: PreviewPlacement | null;
   band: PreviewBand | null;
+  /** The DECOY BUOY's ring-free drop marker (Story 8.16) — absent for every
+   *  other id. */
+  drop?: PreviewDrop;
 }
 
 const EMPTY: AimPreviewModel = { lines: [], bursts: [], place: null, band: null };
@@ -506,31 +518,23 @@ function minePreview(inp: AimPreviewInput, id: MineEquipmentId): AimPreviewModel
 }
 
 /**
- * RADAR BUOY placement (Story 7-5 wave 2, R2.7): the drop point plus THE WATER
- * THE BUOY WILL WATCH — its own flat 330u radar circle, drawn at the clicked
- * point before the click so a captain can place the coverage rather than guess
- * at it. Same placement rule as the mine, shared verbatim by the server
- * (`radarBuoyEquipment.activate` reuses `CONFIG.mine.placeRange` and the mine's
- * rear sector), so `blockedWater` is the same refusal test on both sides.
- *
- * The circle rides the `bursts` channel as an EFFECT radius, not a placement:
- * it is not a damage area (nothing detonates there), it is the same "this is
- * what it covers, in a quieter register" the star shell's lit zone uses, and it
- * is many times a blast circle's size — exactly the case `effect` exists for.
- * `blocked` carries the server's refusal so a drop into a rock dims rather than
- * promising coverage it will never get.
+ * DECOY BUOY placement (Story 8.16, catalog-v3 R36): the drop point ALONE — the
+ * decoy's own spar-buoy marker (render/decoys.ts `BUOY_MARKER`) drawn at the
+ * click, dimmed when the water refuses it. NO RINGS: a decoy has no blast, no
+ * trigger and no effect circle, so the mine preview's placement is taken
+ * WITHOUT any of its circles. Same placement rule as the mine, shared verbatim
+ * by the server (the mine's rear sector out to `CONFIG.mine.placeRange`), so
+ * `blockedWater` is the same refusal test on both sides.
  */
-function buoyPreview(inp: AimPreviewInput): AimPreviewModel {
+function decoyPreview(inp: AimPreviewInput): AimPreviewModel {
   const dist = Math.max(0, inp.aimDist);
   const p = { x: inp.ship.x + Math.cos(inp.aim) * dist, y: inp.ship.y + Math.sin(inp.aim) * dist };
-  const blocked = blockedWater(p, inp.islands, inp.mapRadius);
   return {
     lines: [],
-    // The BUOY's own set (stats.equipment.radarBuoy.radarRange), never the owner's
-    // radarRange: the buoy's reach is flat by ruling and no card moves it.
-    bursts: [{ x: p.x, y: p.y, r: inp.stats.equipment.radarBuoy.radarRange, blocked, effect: true }],
+    bursts: [],
     band: null,
     place: null,
+    drop: { x: p.x, y: p.y, blocked: blockedWater(p, inp.islands, inp.mapRadius) },
   };
 }
 
@@ -552,7 +556,7 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   // and three mine lines share one placement, each reading its OWN row.
   if (isTorpedoItem(inp.id)) return torpedoPreview(inp, inp.id);
   if (isMineEquipment(inp.id)) return minePreview(inp, inp.id);
-  if (inp.id === 'radarBuoy') return buoyPreview(inp);
+  if (inp.id === 'decoyBuoy') return decoyPreview(inp);
   return EMPTY; // the boost and every non-aimed consumable aim nothing
 }
 
@@ -609,6 +613,7 @@ export class AimPreview {
     if (model.band) this.drawBand(model.band, tint);
     for (const b of model.bursts) this.drawBurst(b, tint);
     if (model.place) this.drawPlacement(model.place, tint);
+    if (model.drop) this.drawDrop(model.drop, tint);
   }
 
   /** One alpha's worth of travel lines: every line whose `clamped` flag matches. */
@@ -674,6 +679,18 @@ export class AimPreview {
    * say for the naval mine. Nothing on the placement preview announces the slow;
    * that is the card's row, not a circle.
    */
+  /** The DECOY BUOY's drop marker: its own spar-buoy silhouette at the click,
+   *  no circles (Story 8.16). Blocked water dims it like a refused mine drop. */
+  private drawDrop(d: PreviewDrop, tint: number): void {
+    const alpha = d.blocked ? P.blockedAlpha : P.burstAlpha;
+    const m = BUOY_MARKER;
+    const g = this.g;
+    g.moveTo(d.x + m.waterline[0].x, d.y + m.waterline[0].y).lineTo(d.x + m.waterline[1].x, d.y + m.waterline[1].y);
+    g.moveTo(d.x + m.spar[0].x, d.y + m.spar[0].y).lineTo(d.x + m.spar[1].x, d.y + m.spar[1].y);
+    g.stroke({ width: P.lineWidth, color: tint, alpha });
+    g.poly(m.topmark.flatMap((q) => [d.x + q.x, d.y + q.y]), true).stroke({ width: P.lineWidth, color: tint, alpha });
+  }
+
   private drawPlacement(p: PreviewPlacement, tint: number): void {
     const alpha = p.blocked ? P.blockedAlpha : P.burstAlpha;
     const g = this.g;

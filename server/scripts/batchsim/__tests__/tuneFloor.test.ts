@@ -46,7 +46,7 @@ describe('--tune floors — turnRate', () => {
 
   it('leaves the reload/cooldown suffix rule at 1', () => {
     expect(() => validateTuneValue('broadside.reloadMs', 0.5)).toThrow(TunableError);
-    expect(() => validateTuneValue('radarBuoy.gunReloadMs', 0.5)).toThrow(TunableError);
+    expect(() => validateTuneValue('machineGun.idleReloadMs', 0.5)).toThrow(TunableError);
   });
 
   it('still lets a genuinely zero-able dial be zero', () => {

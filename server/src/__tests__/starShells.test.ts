@@ -236,11 +236,10 @@ describe('star shells — denials', () => {
 
   it('the same slot on a Mine Layer is EMPTY, never a flare', () => {
     // WAS "ML slot-2 is the RADAR BUOY": since Story 8.5 the Mine Layer's
-    // seed is `navalMines` alone and NOTHING fits the radar buoy any more
-    // (epic-8 amendment 22 — the module stays, its route into a slot is
-    // gone), so the flare's index on a Mine Layer holds nothing. What this
-    // case has always pinned survives verbatim: the slot is NOT the star
-    // shell — no flare, no shell, no zone, no mine and no buoy.
+    // seed is `navalMines` alone and the radar buoy is deleted (Story 8.16),
+    // so the flare's index on a Mine Layer holds nothing. What this case has
+    // always pinned survives verbatim: the slot is NOT the star shell — no
+    // flare, no shell, no zone, no mine and no decoy.
     const w = bareWorld();
     const ml = place(w, 'ml', 'mineLayer', 0, 0);
     expect(ml.loadout[SLOT_STAR]).toEqual({ equipmentId: null, state: null });
@@ -249,7 +248,7 @@ describe('star shells — denials', () => {
     expect(w.shells.size).toBe(0);
     expect(w.litZones.size).toBe(0);
     expect(w.mines.size).toBe(0);
-    expect(w.buoys.size).toBe(0);
+    expect(w.decoys.size).toBe(0);
   });
 
   it('the BOOST slot stays an ABILITY on every hull: a forged click is inert through the weapon-only wall', () => {

@@ -428,6 +428,20 @@ const BOON_EXPLAIN: Readonly<Partial<Record<LineId, string>>> = {
   // and a number written twice is a number that can disagree with itself.
   hullRepair:
     'Stock it in your belt and fire it with that square\'s number key: part of the repair lands at once and the rest trickles in over the next few seconds. Each copy is one use, and a full hull refuses the press.',
+  // THE THREE 8.16 LINES (epic-8 amendment 124(f)) — IMPLEMENTER DRAFTS for
+  // Eric's eye on staging, plain sentences in the hullRepair register. The
+  // numbers are read off CONFIG, never written as literals, so a retune moves
+  // the prose with it.
+  // (Two laws of this table shaped the shield's wording: an explanation runs
+  // past 100 characters, and no text may say "replaces" — so the second-copy
+  // rule reads as a reset, which is exactly what it is: fresh hp, fresh time.)
+  shieldBlock: `Absorbs the next ${CONFIG.shieldBlock.hp} damage from any source, storm and fire included, for ${
+    CONFIG.shieldBlock.durationMs / 1000
+  } s. Firing another resets it to a full ${CONFIG.shieldBlock.hp} and ${CONFIG.shieldBlock.durationMs / 1000} s.`,
+  chaff: `Scatters ${CONFIG.chaff.count} false radar returns around your position for ${
+    CONFIG.chaff.durationMs / 1000
+  } s. You never see them; enemies cannot tell them from ships.`,
+  decoyBuoy: `Drops a ${CONFIG.decoyBuoy.hp} hp float in your rear arc that enemy torpedoes home on and detonate against. Your own weapons ignore it.`,
 };
 
 /** The player state a card's live values are computed against. */
@@ -944,9 +958,10 @@ function triggerFollows(field: string, fields: readonly string[]): boolean {
  * ruling moves the card's own copy with it — the rule the retired DAMAGE
  * CONTROL rail's readout followed, kept.
  *
- * ONE ENTRY TODAY. HULL REPAIR is the first live consumable (amendment 41
- * flipped its stub in this story); the other four are still stubs, are never
- * dealt, and get no rows.
+ * HULL REPAIR was the first live consumable (amendment 41 flipped its stub in
+ * Story 8.8); the SUPERCAV TORPEDO (8.13) and SHIELD BLOCK, CHAFF and DECOY
+ * BUOY (8.16) follow below. The two remaining stubs are never dealt and get no
+ * rows.
  */
 function hullRepairRows(): CardStatRow[] {
   const h = CONFIG.hullRepair;
@@ -981,12 +996,47 @@ function supercavTorpedoRows(): CardStatRow[] {
   ];
 }
 
-/** The rows each LIVE consumable line prints. A line with no entry (the four
- *  remaining stubs, DEPTH CHARGE included) prints none, which is the honest
- *  answer for a mechanism that does not exist yet. */
+/**
+ * THE THREE 8.16 CONSUMABLES' ROWS (Story 8.16, catalog-v3 R36/R37/R39). Every
+ * number is read off `CONFIG` — never a literal — in the hullRepair shape
+ * (`cur` null, absolute): what the line does, and for how long.
+ *   - SHIELD BLOCK: how much it absorbs, and for how long.
+ *   - CHAFF: how many fakes, the radius they scatter in, and for how long.
+ *   - DECOY BUOY: its hull, and where it drops (the mine's rear arc).
+ */
+function shieldBlockRows(): CardStatRow[] {
+  const s = CONFIG.shieldBlock;
+  return [
+    { label: 'ABSORBS', cur: null, next: `${num(s.hp)} HP` },
+    { label: 'LASTS', cur: null, next: `${num(s.durationMs / 1000)} S` },
+  ];
+}
+
+function chaffRows(): CardStatRow[] {
+  const c = CONFIG.chaff;
+  return [
+    { label: 'FAKES', cur: null, next: num(c.count) },
+    { label: 'RADIUS', cur: null, next: `${num(c.radius)} U` },
+    { label: 'LASTS', cur: null, next: `${num(c.durationMs / 1000)} S` },
+  ];
+}
+
+function decoyBuoyRows(): CardStatRow[] {
+  return [
+    { label: 'HULL', cur: null, next: `${num(CONFIG.decoyBuoy.hp)} HP` },
+    { label: 'DROP', cur: null, next: 'REAR ARC' },
+  ];
+}
+
+/** The rows each LIVE consumable line prints. A line with no entry (the two
+ *  remaining stubs, SMOKE SCREEN and DEPTH CHARGE) prints none, which is the
+ *  honest answer for a mechanism that does not exist yet. */
 const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = {
   hullRepair: hullRepairRows,
   supercavTorpedo: supercavTorpedoRows,
+  shieldBlock: shieldBlockRows,
+  chaff: chaffRows,
+  decoyBuoy: decoyBuoyRows,
 };
 
 /**
@@ -996,8 +1046,8 @@ const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = 
  *
  *   - an ADD-ON bolts on a verb (its holding line stays in the hover panel);
  *   - a STUB line has no built module whose numbers could be read;
- *   - a CONSUMABLE that is still a stub (four of the five) has no mechanism to
- *     describe — the LIVE ones print `CONSUMABLE_ROWS` above instead.
+ *   - a CONSUMABLE that is still a stub (SMOKE SCREEN, DEPTH CHARGE) has no
+ *     mechanism to describe — the LIVE ones print `CONSUMABLE_ROWS` above instead.
  *
  * FAIL-OPEN on the class table, exactly as `statSentence` is and for the same
  * reason: this runs every frame the band is open, and an unresolvable hull must

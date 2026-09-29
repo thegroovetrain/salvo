@@ -124,7 +124,7 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
       flak: true,
       broadside: true, // Story 7-5 wave 2: prime-then-click twin-sector barrage
       starShells: true, // Story 1.7: prime-then-click lit-zone flare
-      radarBuoy: true, // Story 7-5 wave 2: click-placed in the mine's rear sector
+      // (radarBuoy DELETED in Story 8.16 — the DECOY BUOY consumable replaces it)
       // Story 8.15: the two NEW class Shifts — instant activations like boost.
       instantReload: false,
       damageCut: false,
@@ -266,13 +266,15 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells', ()
   });
 });
 
-describe('equipmentMaxAmmo / equipmentReloadMs cover radarBuoy (Story 7-5 wave 2)', () => {
-  it('radarBuoy pool + reload come from CONFIG.radarBuoy (via stats.radarBuoy)', () => {
+describe('the radar buoy is DELETED (Story 8.16) — no id, no stat row, no pool', () => {
+  it('radarBuoy is gone from EquipmentId and the stats record; the DECOY BUOY is a consumable with NO row', () => {
     const stats = statsFor('mineLayer');
-    expect(equipmentMaxAmmo(stats, 'radarBuoy')).toBe(stats.equipment.radarBuoy.maxAmmo);
-    expect(equipmentMaxAmmo(stats, 'radarBuoy')).toBe(CONFIG.radarBuoy.maxAmmo);
-    expect(equipmentReloadMs(stats, 'radarBuoy')).toBe(stats.equipment.radarBuoy.reloadMs);
-    expect(equipmentReloadMs(stats, 'radarBuoy')).toBe(CONFIG.radarBuoy.reloadMs);
+    expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
+    expect('radarBuoy' in stats.equipment).toBe(false);
+    // The consumable law: the replacement DECOY BUOY carries no EffectiveStats
+    // row — its numbers are read straight from CONFIG.decoyBuoy.
+    expect('decoyBuoy' in stats.equipment).toBe(false);
+    expect(isConsumableId('decoyBuoy')).toBe(true);
   });
 });
 
@@ -338,7 +340,7 @@ describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation chan
       shieldBlock: false,
       smokeScreen: false,
       chaff: false,
-      decoyBuoy: true, // click-placed like the buoy it replaces (catalog-v3 R1)
+      decoyBuoy: true, // click-placed in the mine's rear sector (catalog-v3 R1/R36, Story 8.16)
       depthCharge: false, // STUB, non-aimed until Eric rules (amendment 83)
       supercavTorpedo: true, // KEY PRIMES, CLICK FIRES — bow +/-15 deg (amendment 74)
     });

@@ -58,8 +58,11 @@ const subject = (x: number, y: number, id: string): FoghornEvent =>
  *  through rather than hardcoding anything. */
 const radarCtx = (w: World) => ({
   pseudonymOf: (id: string) => w.pseudonymFor(id),
-  // Story 7-5 wave 2: the buoy channel's subjects; the fh row reads none.
-  buoys: w.buoys,
+  // Story 8.16: the decoy channel's subjects; the fh row reads none.
+  decoys: w.decoys,
+  // ...and the world-owned chaff clouds (amendment 127); the fh row reads none.
+  chaffSources: w.chaffSources,
+  mapRadius: w.map.radius,
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.
   wakes: w.wakeRibbons,

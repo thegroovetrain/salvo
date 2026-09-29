@@ -42,7 +42,7 @@ export const OWN_FIRE_WINDOW_MS = 400;
 
 /** The BALLISTIC ids a reveal can be attributed to — the only slot contents
  *  that ever produce a `shell`/`torp` event. An ability (the boost), the
- *  CLICK-PLACED ids (the three mine lines and the radar buoy — placed, never
+ *  CLICK-PLACED ids (the three mine lines and the DECOY BUOY — placed, never
  *  revealed as a track) and every non-firing consumable can never leak through
  *  into a projectile's identity, so they are rejected at the claim.
  *

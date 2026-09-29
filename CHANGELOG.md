@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.18.16] - 2026-09-29
+
+### Added
+- **SHIELD BLOCK (Story 8.16)** — a belt consumable: press the key and your hull soaks the next 100 damage for 10 s, from every source — shells, bursts, torpedoes, mines, contact hits, phosphor burn and storm bites alike. It absorbs after the DAMAGE CUT halves a hit, never instead of it. Firing a second one replaces the first with a fresh 100 / 10 s. The shooter gets no tell: their hit call fires exactly as on a bare hull. Your HULL readout prints hull + shield past max (e.g. `HULL 312/250`) in blue while it holds; an absorbed hit plays the ordinary hit cue and the blue number falls. No ring on the globe or the hull — the number is the whole readout.
+- **CHAFF** — a belt consumable: press the key and 10 false radar returns scatter within 120 u of where you fired it, for 15 s. Every fake lands on water (a draw on land is re-rolled, and dropped if it keeps hitting land), wears the outline of a random hull, and is rescattered each of your own radar sweep periods. You never see your own chaff; there is no readout and no effect on the water — the belt count is the twin. The cloud is fixed where you fired it and runs its full 15 s even if you sink.
+- **DECOY BUOY** — a belt consumable: the key primes it and a click drops it into your rear arc (the mine sector, 150 u reach, on water only — a blocked or out-of-arc click is refused and spends nothing). It is a 50 hp float with no lifetime that paints on radar as a small return; enemy torpedoes home on it and detonate against it, dealing it their damage (a 50-damage fish sinks a fresh one). Your own torpedoes pass through it and your own shells and bursts pass over it. An enemy shell or burst that hits it fires the shooter's hit call exactly as on a hull. Enemies see the marker once it is inside their sight range, exactly as they would a ship (radar paints it beyond that). It outlives its owner and stays in the owner's colour for everyone; the owner alone sees its hp.
+
+### Removed
+- **The RADAR BUOY is deleted end to end** — the equipment line, its stat row, its radar scope, the `src` blip tag and its bot tactic are gone, and radar jamming goes with it: CHAFF is now the only source of false radar returns. The equipment catalog holds 13 modules, and only 2 catalog stubs remain (SMOKE SCREEN, DEPTH CHARGE).
+
+### Changed
+- **Three new belt glyphs and hover texts** for SHIELD BLOCK, CHAFF and DECOY BUOY, plus the owner's decoy hp arc — drafts for Eric's eye on staging.
+- **Bots** carry interim rules for the three consumables until Story 8.19: SHIELD BLOCK on the DAMAGE CUT cues (engaged in combat, or an enemy torpedo inbound within 150 u), CHAFF when disengaging, DECOY BUOY dropped astern when a torpedo is inbound.
+- **The storm sudden-death ceiling now counts shields** — the pinned worst case adds the shield budget beside the heal budget (amendment 125); the real ceiling in play is far lower.
+- **Network protocol** bumps to v59 (the own-ship shield, the decoy channel, the radar-buoy channel and the `src` tag removed).
+
+### Fixed
+- A hit event carrying 0 damage (a fully absorbed hit) now still plays the hit cue instead of staying silent.
+
 ## [0.18.15] - 2026-09-28
 
 ### Changed

@@ -57,7 +57,7 @@ export function buildCatalogAggregate(result: BatchResult): CatalogAggregate {
     sampled: 0,
     offers: {}, fits: {}, offerHands: 0, offersByClass: {},
     fitsByClass: {}, fitsByProfile: {},
-    hits: {}, hp: {}, launched: {}, minesLaid: 0, buoysDeployed: 0,
+    hits: {}, hp: {}, launched: {}, minesLaid: 0, decoysDeployed: 0,
     maxEventDamage: 0, maxTickDamage: 0, maxTickByHull: {},
     oneTickKills: {}, oneEventKills: {}, killsByHull: {},
     multiBarrelTicks: {}, maxGunOnlyTick: {}, gunClickKills: {},
@@ -68,7 +68,7 @@ export function buildCatalogAggregate(result: BatchResult): CatalogAggregate {
     agg.sampled += 1;
     agg.offerHands += c.offerHands;
     agg.minesLaid += c.minesLaid;
-    agg.buoysDeployed += c.buoysDeployed;
+    agg.decoysDeployed += c.decoysDeployed;
     agg.maxEventDamage = Math.max(agg.maxEventDamage, c.maxEventDamage);
     agg.maxTickDamage = Math.max(agg.maxTickDamage, c.maxTickDamage);
     addInto(agg.offers, c.offers);
@@ -150,7 +150,7 @@ export function renderOrdnanceLedger(label: string, agg: CatalogAggregate): stri
   const lines: string[] = [`== ORDNANCE + DAMAGE ${label} ==`];
   const launched = Object.keys(agg.launched).sort();
   lines.push(`launched: ${launched.length === 0 ? '(none)' : launched.map((k) => `${k}=${agg.launched[k]}`).join(' ')}`);
-  lines.push(`mines laid: ${agg.minesLaid} | buoys deployed: ${agg.buoysDeployed}`);
+  lines.push(`mines laid: ${agg.minesLaid} | decoys deployed: ${agg.decoysDeployed}`);
   const sources = Object.keys(agg.hits).sort();
   lines.push('damage by source (attributed by amount — see catalogMetrics.ts):');
   for (const k of sources) {

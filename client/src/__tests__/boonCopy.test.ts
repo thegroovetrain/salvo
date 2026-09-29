@@ -163,10 +163,12 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   // TORPEDO, CAPTIVE MINES and the SUPERCAV TORPEDO and added the stub DEPTH
   // CHARGE (epic-8 amendments 74/83); FIVE since Story 8.15 cut missile,
   // monitor and heat seeking and built the machine gun and flak (amendments
-  // 89e/103-105). It is the number to move as each content story lands.
+  // 89e/103-105); TWO since Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY
+  // BUOY (SMOKE SCREEN and DEPTH CHARGE remain). It is the number to move as
+  // each content story lands.
   it('renders every STUB line fail-open: a name, a kind word, no explanation', () => {
     const stubs = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.stub === true);
-    expect(stubs).toHaveLength(5);
+    expect(stubs).toHaveLength(2);
     for (const line of stubs) {
       expect(boonName(line.id), line.id).toBe(boonName(line.id).toUpperCase());
       expect(boonKindLabel(line.kind), line.id).not.toBe('');
@@ -254,8 +256,9 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
     // the two DRAFT hover descriptions the spec allows (ledgered for Eric);
     // `missile`, `monitor` and `heatSeeking` left it by being CUT.
     // `hullRepair` left this list in Story 8.8 — the first consumable with a
-    // mechanism to explain.
-    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge',
+    // mechanism to explain — and `shieldBlock`, `chaff` and `decoyBuoy` left it
+    // in Story 8.16 (their DRAFT hover descriptions, amendment 124(f)).
+    'smokeScreen', 'depthCharge',
   ];
 
   it('writes a real explanation for every line whose mechanism exists', () => {
@@ -291,6 +294,21 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
       expect(boonTooltipText(id).toLowerCase(), id).not.toContain('join your deck');
       expect(boonTooltipText(id).toLowerCase(), id).not.toContain('joined your deck');
     }
+  });
+
+  // STORY 8.16 — the three DRAFT hover descriptions (amendment 124(f)) read
+  // every number off CONFIG, so a retune moves the prose with it.
+  it('explains SHIELD BLOCK, CHAFF and DECOY BUOY with their CONFIG numbers', () => {
+    const shield = boonTooltipText('shieldBlock');
+    expect(shield).toContain(`${CONFIG.shieldBlock.hp} damage from any source`);
+    expect(shield).toContain(`${CONFIG.shieldBlock.durationMs / 1000} s`);
+    expect(shield).toContain('storm and fire included'); // amendment 118
+    const chaff = boonTooltipText('chaff');
+    expect(chaff).toContain(`${CONFIG.chaff.count} false radar returns`);
+    expect(chaff).toContain(`${CONFIG.chaff.durationMs / 1000} s`);
+    const decoy = boonTooltipText('decoyBuoy');
+    expect(decoy).toContain(`${CONFIG.decoyBuoy.hp} hp`);
+    expect(decoy).toContain('Your own weapons ignore it'); // amendment 119
   });
 
   it('fails open on an unwritten id rather than throwing mid-hover', () => {

@@ -30,7 +30,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireMine',
   'fireBroadside',
   'fireStarShells',
-  'placeBuoy',
+  'placeDecoy',
   'denied',
   'damage',
   'kill',
@@ -147,18 +147,18 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
   });
 });
 
-describe('placeBuoy tone (Story 1.8) — buoy placement cue', () => {
-  // The buoy is placed, not fired, so it is NOT in the fireTone map (radarBuoy
-  // is excluded at the type level); its cue plays as 'placeBuoy' from the buoy
-  // reconcile own-spawn hook (the mine precedent). The TONE ID keeps its shipped
-  // name — the buoy's own slice owns any rename.
+describe('placeDecoy tone (Story 8.16) — decoy placement cue', () => {
+  // The DECOY BUOY is placed, not fired, so it is NOT in the fireTone map; its
+  // cue plays as 'placeDecoy' from the decoy reconcile own-spawn hook (the mine
+  // precedent). Story 8.16 RENAMED the deleted radar buoy's 'placeBuoy' tone —
+  // same sound, new id.
   // It shares the soft sine "drop" family with the mine plop but is pitched a
-  // touch higher so seeding a buoy is audibly distinct from dropping a mine.
+  // touch higher so dropping a decoy is audibly distinct from dropping a mine.
   it('is a soft sine drop, within the short-tone budget, pitched above the mine plop', () => {
-    expect(TONES.placeBuoy.type).toBe('sine');
-    expect(TONES.placeBuoy.duration).toBeLessThanOrEqual(MAX_TONE_S);
-    expect(TONES.placeBuoy.freqStart).toBeGreaterThan(TONES.fireMine.freqStart); // brighter than the mine
-    expect(TONES.placeBuoy.freqEnd).toBeLessThan(TONES.placeBuoy.freqStart); // a downward drop
+    expect(TONES.placeDecoy.type).toBe('sine');
+    expect(TONES.placeDecoy.duration).toBeLessThanOrEqual(MAX_TONE_S);
+    expect(TONES.placeDecoy.freqStart).toBeGreaterThan(TONES.fireMine.freqStart); // brighter than the mine
+    expect(TONES.placeDecoy.freqEnd).toBeLessThan(TONES.placeDecoy.freqStart); // a downward drop
   });
 });
 
@@ -177,9 +177,9 @@ describe('denied tone (Story 1.10) — the exactly-one-feedback refusal cue', ()
     // Starts well BELOW every gun-family crack (fireGun 900 / fireBroadside 520)…
     expect(TONES.denied.freqStart).toBeLessThan(TONES.fireBroadside.freqStart);
     expect(TONES.denied.freqStart).toBeLessThan(TONES.fireGun.freqStart);
-    // …is not a soft sine drop (the mine/buoy placement family)…
+    // …is not a soft sine drop (the mine/decoy placement family)…
     expect(TONES.denied.type).not.toBe(TONES.fireMine.type);
-    expect(TONES.denied.type).not.toBe(TONES.placeBuoy.type);
+    expect(TONES.denied.type).not.toBe(TONES.placeDecoy.type);
     // …and is a different waveform family from the damage thud.
     expect(TONES.denied.type).not.toBe(TONES.damage.type);
   });
@@ -566,7 +566,7 @@ describe('the SOUND MAP catalog (Story 4.7) — six cues for the world, not for 
       expect(TONES[id].freqEnd, id).toBeGreaterThan(TONES[id].freqStart);
     }
     // ...and it is not one of the soft sine DROPS, which live an octave below.
-    for (const id of ['fireMine', 'placeBuoy'] as const) {
+    for (const id of ['fireMine', 'placeDecoy'] as const) {
       expect(TONES.splash.freqStart, id).toBeGreaterThan(TONES[id].freqStart * 1.5);
       expect(TONES[id].noise, id).toBeUndefined();
     }

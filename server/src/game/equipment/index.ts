@@ -29,6 +29,7 @@ import {
   type WeaponAmmo,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
+import type { FakeSource } from '../fakes.js';
 import { CONSUMABLES, type ConsumableRegistry } from './consumables.js';
 import { gunEquipment } from './guns.js';
 import { lightTorpedoEquipment, torpedoEquipment } from './torpedoes.js';
@@ -36,7 +37,6 @@ import { captiveMineEquipment, foulingMineEquipment, mineEquipment } from './min
 import { boostEquipment } from './boost.js';
 import { broadsideEquipment } from './broadside.js';
 import { starShellsEquipment } from './starShells.js';
-import { radarBuoyEquipment } from './radarBuoy.js';
 import { machineGunEquipment } from './machineGun.js';
 import { flakEquipment } from './flak.js';
 import { instantReloadEquipment } from './instantReload.js';
@@ -78,10 +78,11 @@ export interface ActivationContext {
    *  one hull may now hold all three and the owner's stats can no longer say
    *  which kind a given mine is. */
   dropMine: (x: number, y: number, kind: MineKind) => void;
-  /** Place a RADAR BUOY at an already-validated point (Story 7-5 wave 2,
-   *  R2.7) — the dropMine sibling: the row validates the rear sector /
-   *  placeRange / water legality and hands the World the clicked point. */
-  dropBuoy: (x: number, y: number) => void;
+  /** Place a DECOY BUOY at an already-validated point (Story 8.16) — the
+   *  dropMine sibling: the row validates the rear sector / placeRange / water
+   *  legality and hands the World the clicked point. (Replaces the deleted
+   *  radar buoy's `dropBuoy`.) */
+  dropDecoy: (x: number, y: number) => void;
   /**
    * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): the LIVE lit zones owned
    * by the ACTIVATING ship, as centre+radius circles. The three DECK GUN rows
@@ -134,6 +135,20 @@ export interface ActivationContext {
    * can never cut anyone else's damage.
    */
   setDamageCut: (until: number) => void;
+  /**
+   * SHIELD BLOCK's whole body (Story 8.16, amendments 100/116–118): write the
+   * ACTIVATING ship's shield seat. A second call REPLACES the seat (fresh hp,
+   * fresh window — never stacked). The World's damage gate is the only reader.
+   */
+  setShield: (shield: { hpLeft: number; until: number }) => void;
+  /**
+   * CHAFF's whole body (Story 8.16, amendment 124(b)(c)): put a false-return
+   * source on the water for the ACTIVATING ship. The World mints the server-
+   * private `seed` (the row never sees an RNG), stamps the owner's id and
+   * captures its sweep period, and files it in `World.chaffSources` under the
+   * owner (amendment 127); a second call REPLACES the owner's source.
+   */
+  setChaff: (source: Omit<FakeSource, 'seed' | 'ownerId' | 'sweepPeriodMs'>) => void;
 }
 
 /** Per-spawn options for `ActivationContext.spawnBallistic`. */
@@ -236,7 +251,6 @@ export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deep
   boost: boostEquipment, // Story 1.6 / 8.9: the universal slot-1 ability (the first non-weapon row)
   broadside: broadsideEquipment, // Story 7-5 wave 2: the Battleship's twin-beam barrage (replaced the cannon)
   starShells: starShellsEquipment, // Story 1.7: the Battleship's lit-zone flare
-  radarBuoy: radarBuoyEquipment, // Story 7-5 wave 2: the Mine Layer's click-placed radar relay (replaced the decoy)
   machineGun: machineGunEquipment, // Story 8.15: the held-fire magazine stream (amendments 103–104)
   flak: flakEquipment, // Story 8.15: the air-bursting pickable gun (amendment 105)
   instantReload: instantReloadEquipment, // Story 8.15: the Mine Layer's Shift (amendments 97–98)
@@ -270,7 +284,7 @@ export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
  * activation channels' walls and the sinking-activation gate — so an id with no
  * module behind it fails closed at ALL of them, exactly as an unbuilt weapon
  * already did. `consumables` is the World's injected registry (production holds
- * HULL REPAIR alone since Story 8.8; the other four lines are still `stub`);
+ * five built lines since Story 8.16; smoke screen and depth charge are still `stub`);
  * the default keeps directed callers honest.
  *
  * IT LIVES HERE, NOT IN consumables.ts, for one mechanical reason: it needs
@@ -300,16 +314,6 @@ export { machineGunEquipment } from './machineGun.js';
 export { flakEquipment } from './flak.js';
 export { instantReloadEquipment } from './instantReload.js';
 export { damageCutEquipment } from './damageCut.js';
-export {
-  BUOY_SIZE_U,
-  addBuoy,
-  buoySilhouette,
-  buoyTarget,
-  radarBuoyEquipment,
-  scatterJamFakes,
-  type BuoyState,
-  type JamFake,
-} from './radarBuoy.js';
 export { broadsideAim, broadsideEquipment } from './broadside.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';

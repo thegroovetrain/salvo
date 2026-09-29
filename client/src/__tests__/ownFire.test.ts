@@ -56,7 +56,7 @@ describe('OwnFireLatch — the one-shot claim', () => {
     expect(isBallisticFire('heavyTorpedo')).toBe(true);
     expect(isBallisticFire('starShells')).toBe(true); // rides the `shell` kind
     expect(isBallisticFire('boost')).toBe(false);
-    expect(isBallisticFire('radarBuoy')).toBe(false);
+    expect(isBallisticFire('decoyBuoy')).toBe(false); // placed, never revealed as a track
     expect(isBallisticFire('navalMines')).toBe(false); // placed, never revealed as a track
     const latch = new OwnFireLatch();
     latch.latch('boost', 1000);

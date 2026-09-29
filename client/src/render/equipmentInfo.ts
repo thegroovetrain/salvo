@@ -71,7 +71,8 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   navalMines: 'Mines',
   broadside: 'Broadside Barrage',
   starShells: 'Star Shells',
-  radarBuoy: 'Radar Buoy',
+  // (The RADAR BUOY's name went with the buoy in Story 8.16; the DECOY BUOY is a
+  // consumable and is named in ui/boonCopy.ts `LINE_NAMES`.)
   // --- catalog-v3 §1 names ---------------------------------------------------
   // THE SUPERCAV TORPEDO LEFT THIS TABLE in Story 8.13: it is a CONSUMABLE now
   // (epic-8 amendment 74), so its name lives where every consumable's does —
@@ -107,7 +108,6 @@ export const EQUIPMENT_DESCRIPTION: Partial<Record<EquipmentId, string>> = {
   boost: 'Opens the throttle past its stops for a short burst of extra speed. Nothing else changes — you just leave sooner.',
   broadside: 'Every turret on the aimed beam fires at once. The shells fan out to either side of the point you clicked, every one of them running to that same range.',
   starShells: 'An illumination round. Where it bursts, a wide circle of ocean lights up for everyone — including the hulls in it.',
-  radarBuoy: 'Drops an anchored buoy that runs its own radar sweep and relays what it finds back to you.',
   // THE TWO NEW SHIFTS (Story 8.15) — one mechanical line each, in the boost's
   // register, every number read off CONFIG (amendments 98/99). DRAFT copy,
   // ledgered for Eric.
@@ -391,7 +391,8 @@ export function slotForCard(
  *
  * Star shells deal NO damage as of Story 2.8 (amendment 39 — pure illumination;
  * the INCENDIARY doctrine's DoT is a zone effect, not a hit), so they join the
- * speed boost and the radar buoy on the null branch.
+ * speed boost on the null branch (the radar buoy that sat there too was
+ * deleted in Story 8.16).
  *
  * The BROADSIDE reports its PER-SHELL damage (Story 7-5 wave 2): every shell of
  * a barrage carries the same number and each bursts independently, so a
@@ -406,7 +407,6 @@ export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number 
     boost: null,
     broadside: e.broadside.damage,
     starShells: null,
-    radarBuoy: null,
     // The widened ids carry real rows (catalog-v3 §4 base numbers, sim/stats.ts
     // STUB_ROWS) even though no module fires them yet, so the table stays TOTAL
     // and reads the same one place every other number comes from.

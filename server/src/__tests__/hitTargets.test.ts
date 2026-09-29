@@ -2,7 +2,7 @@
 //
 // One `hitTargets(mask)` is how EVERY ordnance step finds anything. Before this
 // story each step had its own route to its victims — `aliveHulls()` plus a
-// `withBuoyTargets()` merge for shells, a separate iteration over `this.mines`
+// `withBuoyTargets()` merge for shells (the radar buoy, deleted in Story 8.16), a separate iteration over `this.mines`
 // for bursts, another for chains — which is why "shoot any mine", the decoy and
 // uncapped mines would each have needed three copies of one rule.
 //
@@ -37,6 +37,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { addDecoy } from '../game/decoys.js';
 import { flatRaster } from './islandFixture.js';
 
 const SLOT_GUN = 0;
@@ -204,16 +205,22 @@ describe('hitTargets — the four kinds', () => {
     expect(ids(w.hitTargets(['mine']))).toEqual(['armed', 'fouling']);
   });
 
-  it('`decoy` is the radar buoy, the interim occupant of that kind', () => {
+  it('`decoy` is every live DECOY BUOY from the store, carrying its OWNER id (Story 8.16)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.buoys.set('b1', {
-      id: 'b1', ownerId: a.id, x: 300, y: 0,
-      poly: [{ x: 294, y: -6 }, { x: 306, y: -6 }, { x: 306, y: 6 }, { x: 294, y: 6 }],
-      hp: 50, until: w.now + 20000, radarRange: 330, sweepAngle: 0, prevSweepAngle: 0,
-      jamSeed: 1, jamEpoch: 0, gunReloadMsLeft: 0,
-    } as never);
-    expect(kinds(w.hitTargets(['decoy']))).toEqual(['decoy']);
+    addDecoy(w.decoys, a.id, 300, 0, 'd1');
+    addDecoy(w.decoys, 'b', 400, 0, 'd2');
+    expect(kinds(w.hitTargets(['decoy']))).toEqual(['decoy', 'decoy']);
+    // The owner id rides the target so the shared sweep/acquire/burst math can
+    // skip the OWNER's own decoy (amendment 119) — without it the owner's fish
+    // would detonate on their own float.
+    expect(w.hitTargets(['decoy']).map((t) => [t.id, t.ownerId])).toEqual([
+      ['d1', a.id],
+      ['d2', 'b'],
+    ]);
+    expect(w.hitTargets(['decoy'])[0].poly).toEqual([
+      { x: 294, y: -6 }, { x: 306, y: -6 }, { x: 306, y: 6 }, { x: 294, y: 6 },
+    ]);
   });
 
   it('`ordnance` is every live TORPEDO as a point — never a gun-pattern shell — and still memoized (Story 8.15)', () => {
@@ -257,12 +264,7 @@ describe('hitTargets — the four kinds', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     mine(w, 'm1', 'b', 100, 0);
-    w.buoys.set('b1', {
-      id: 'b1', ownerId: a.id, x: 300, y: 0,
-      poly: [{ x: 294, y: -6 }, { x: 306, y: -6 }, { x: 306, y: 6 }, { x: 294, y: 6 }],
-      hp: 50, until: w.now + 20000, radarRange: 330, sweepAngle: 0, prevSweepAngle: 0,
-      jamSeed: 1, jamEpoch: 0, gunReloadMsLeft: 0,
-    } as never);
+    addDecoy(w.decoys, a.id, 300, 0, 'd1');
     expect(kinds(w.hitTargets(['hull', 'mine', 'decoy']))).toEqual(['hull', 'mine', 'decoy']);
   });
 });
@@ -574,44 +576,37 @@ describe('P2 — the interception dispatches by KIND, not by store membership', 
   });
 });
 
-describe('P3 — a destroyed or expired buoy invalidates the memo THE SAME TICK', () => {
-  /** A buoy on the +x axis with a hand-set hp. */
-  function buoy(w: World, id: string, ownerId: string, x: number, hp: number, until = w.now + 20000): void {
-    w.buoys.set(id, {
-      id, ownerId, x, y: 0,
-      poly: [{ x: x - 6, y: -6 }, { x: x + 6, y: -6 }, { x: x + 6, y: 6 }, { x: x - 6, y: 6 }],
-      hp, until, radarRange: 330, sweepAngle: 0, prevSweepAngle: 0, sweepTotalRad: 0,
-      jamSeed: 1, jamEpoch: 0, jamFakes: [], gunReloadMsLeft: 0,
-    } as never);
+describe('P3 — a destroyed decoy invalidates the memo THE SAME TICK (Story 8.16: the buoy\'s successor)', () => {
+  /** A decoy on the +x axis with a hand-set hp. */
+  function decoy(w: World, id: string, ownerId: string, x: number, hp: number): void {
+    addDecoy(w.decoys, ownerId, x, 0, id).hp = hp;
   }
 
-  it('a buoy DESTROYED by fire is gone from the next list built the same tick', () => {
+  it('a decoy DESTROYED by fire is gone from the next list built the same tick', () => {
     const w = bareWorld(45);
-    buoy(w, 'b1', 'x', 200, 1); // one point of hp: the first hit destroys it
+    decoy(w, 'b1', 'x', 200, 1); // one point of hp: the first hit destroys it
     expect(ids(w.hitTargets(['decoy']))).toEqual(['b1']);
-    const inner = w as unknown as { hitBuoy(id: string, amount: number): boolean };
-    expect(inner.hitBuoy('b1', 50)).toBe(true);
-    expect(w.buoys.has('b1')).toBe(false);
+    const inner = w as unknown as { damageDecoy(id: string, amount: number, byId: string): boolean };
+    expect(inner.damageDecoy('b1', 50, 'enemy')).toBe(true);
+    expect(w.decoys.has('b1')).toBe(false);
     // WITHOUT the generation bump this is the stale memo, and the second shell
     // of the click dies on a square that is not on the water any more.
     expect(ids(w.hitTargets(['decoy']))).toEqual([]);
   });
 
-  it('a buoy that EXPIRES in tickBuoys retires the memo too', () => {
+  it('a NEW decoy is a target the same tick it lands (spawnDecoy bumps the generation)', () => {
     const w = bareWorld(46);
-    buoy(w, 'b1', 'x', 200, 50, w.now + 1); // lapses on the next tick
-    expect(ids(w.hitTargets(['decoy']))).toEqual(['b1']);
-    const inner = w as unknown as { tickBuoys(dtMs: number): void };
-    w.now += 50;
-    inner.tickBuoys(50);
-    expect(w.buoys.has('b1')).toBe(false);
-    expect(ids(w.hitTargets(['decoy']))).toEqual([]);
+    const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+    expect(ids(w.hitTargets(['decoy']))).toEqual([]); // memoized empty
+    const inner = w as unknown as { spawnDecoy(owner: ShipRecord, x: number, y: number): void };
+    inner.spawnDecoy(a, -60, 0);
+    expect(ids(w.hitTargets(['decoy']))).toEqual(['d1']);
   });
 
-  it('two shells in one tick: the first kills the buoy, the second is NOT consumed by it', () => {
+  it('two shells in one tick: the first kills the decoy, the second is NOT consumed by it', () => {
     const w = bareWorld(47);
     const a = place(w, 'a', 0, 0, 0, 'mineLayer');
-    buoy(w, 'b1', 'x', 300, 1);
+    decoy(w, 'b1', 'x', 300, 1);
     const inner = w as unknown as {
       resolveShell(shell: unknown, outcome: unknown, hulls: readonly Target[]): void;
       hitTargets(mask: readonly TargetKind[]): readonly Target[];
@@ -625,7 +620,7 @@ describe('P3 — a destroyed or expired buoy invalidates the memo THE SAME TICK'
     });
     const hit = { kind: 'hitShip', victimId: 'b1', x: 300, y: 0 };
     inner.resolveShell(shellAt('s1'), hit, inner.hitTargets(CONFIG.gun.hits));
-    expect(w.buoys.has('b1')).toBe(false);
+    expect(w.decoys.has('b1')).toBe(false);
     // The SECOND shell asks the collector again — and must be offered nothing,
     // so its own resolution can never name the dead square at all.
     expect(ids(inner.hitTargets(CONFIG.gun.hits))).not.toContain('b1');

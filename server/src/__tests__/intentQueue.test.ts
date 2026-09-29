@@ -183,7 +183,7 @@ describe('activationControl — two ability presses landing in ONE tick both eva
     // carrying a click AND a press evaluates BOTH channels, so the press
     // produces its own denial rather than being swallowed by latest-wins.
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0, 'mineLayer'); // slot 1 = mine, slot 2 = radarBuoy; heading 0 ⇒ astern π
+    place(w, 'a', 0, 0, 0, 'mineLayer'); // the mine rack; heading 0 ⇒ astern π
     w.step();
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 40 }));
     w.submitInput('a', input(2, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));

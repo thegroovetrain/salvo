@@ -629,6 +629,13 @@ export const CONFIG = {
      * too, so it is now the whole mine rack in one card. `trapper` picks up an
      * explicit `decoyDuration` in the freed slot, matching the `decoyBuoy: 2.0`
      * category weight it already carried.
+     *
+     * STORY 8.16 DELETED THE RADAR BUOY end to end, and with it every weight
+     * above that named it — the `radarBuoy` category bases, `buoyGun`,
+     * `buoyDuration` and `acquireRadarBuoy` (so each profile now ranks FIVE
+     * acquisitions, not six). The history above records why they existed; the
+     * DECOY BUOY that replaces the buoy is a consumable, whose bot use is a
+     * tactic (8.19 owns the table), not a weight here.
      */
     boonWeights: {
       // TB raider — torpedo opener at credible range, then boost out. Buys
@@ -639,7 +646,7 @@ export const CONFIG = {
           torpedoTube: 2.5, torpedoHoming: 3.0, torpedoSpeed: 2.2, shipSpeed: 2.2, shipCooldown: 2.0, shipHull: 1.2,
           // Acquisitions, ranked: a striker wants more strike (flares to
           // light a straggler), then intel, then off-identity settles.
-          acquireTorpedo: 1.6, acquireBoost: 1.4, acquireStarShells: 1.2, acquireRadarBuoy: 1.0, acquireMine: 0.8, acquireBroadside: 0.7,
+          acquireTorpedo: 1.6, acquireBoost: 1.4, acquireStarShells: 1.2, acquireMine: 0.8, acquireBroadside: 0.7,
         },
       },
       // TB duelist — rear-quarter turn-fight, guns through the 30s torpedo
@@ -650,7 +657,7 @@ export const CONFIG = {
           gunBarrel: 2.6, gunTurret: 2.2, shipCooldown: 2.4, shipSpeed: 2.2, shipHull: 1.6, torpedoHoming: 2.0,
           // Acquisitions: knife-range tools first — a beam fan and a dazzle
           // flare are both decided inside the turn-fight.
-          acquireBroadside: 1.4, acquireStarShells: 1.3, acquireBoost: 1.2, acquireTorpedo: 1.1, acquireMine: 0.9, acquireRadarBuoy: 0.8,
+          acquireBroadside: 1.4, acquireStarShells: 1.3, acquireBoost: 1.2, acquireTorpedo: 1.1, acquireMine: 0.9,
         },
       },
       // BS bulwark — attrition. Trades on hp, so hull is the top line of any
@@ -659,9 +666,9 @@ export const CONFIG = {
         cat: { ship: 2.4, guns: 2.0, broadside: 2.0, starShells: 1.0, intel: 1.0 },
         lines: {
           shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2, starDazzle: 1.6,
-          // Acquisitions: ground-holding tools — a field and a picket buoy
-          // both defend the water it refuses to leave.
-          acquireMine: 1.4, acquireRadarBuoy: 1.2, acquireTorpedo: 1.1, acquireBroadside: 1.0, acquireStarShells: 0.9, acquireBoost: 0.8,
+          // Acquisitions: ground-holding tools — a field defends the water
+          // it refuses to leave.
+          acquireMine: 1.4, acquireTorpedo: 1.1, acquireBroadside: 1.0, acquireStarShells: 0.9, acquireBoost: 0.8,
         },
       },
       // BS siege — standoff, broadside-led, star shells to resolve stale
@@ -680,43 +687,38 @@ export const CONFIG = {
           broadsideTurrets: 2.8, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6,
           // Acquisitions: sensors for standoff fire first, then a torpedo the
           // band pull can ease it in behind.
-          acquireRadarBuoy: 1.5, acquireStarShells: 1.3, acquireTorpedo: 1.2, acquireMine: 1.1, acquireBoost: 0.9, acquireBroadside: 0.8,
+          acquireStarShells: 1.3, acquireTorpedo: 1.2, acquireMine: 1.1, acquireBoost: 0.9, acquireBroadside: 0.8,
         },
       },
       // ML forager — clears PvE fleet groups for the level lead (C3). Guns
       // and rate of fire do that work; see the propFouling note above.
       forager: {
-        cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, radarBuoy: 1.0 },
+        cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8 },
         lines: {
           // `intelRange` dropped with RANGE I–IV (cycle 118) — see siege.
           gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, mineBlast: 2.0,
           // CAPTIVE restored as a WANTED line (Eric playtest, 2026-08-20):
           // a survival-and-payoff tool for a hull that hangs back — its
           // hostile-only trip still cannot farm fleet, but that was never
-          // the point. Priced WITH the gun buoy (the other half of Eric's
-          // powerhouse combo), below the gun ladder and below trapper's 2.4
+          // the point. Priced below the gun ladder and below trapper's 2.4
           // signature — see the block comment.
-          mineCaptive: 2.0, buoyGun: 2.0, minePropFouling: 1.2,
+          mineCaptive: 2.0, minePropFouling: 1.2,
           // Acquisitions: faster rotation between fleet groups, more
           // clearing throughput, light for the next group.
-          acquireBoost: 1.4, acquireBroadside: 1.3, acquireStarShells: 1.2, acquireTorpedo: 1.0, acquireMine: 0.9, acquireRadarBuoy: 0.8,
+          acquireBoost: 1.4, acquireBroadside: 1.3, acquireStarShells: 1.2, acquireTorpedo: 1.0, acquireMine: 0.9,
         },
       },
-      // ML trapper — mines astern while withdrawing, a radar buoy for reach,
-      // fights near its own field.
+      // ML trapper — mines astern while withdrawing, fights near its own
+      // field.
       trapper: {
-        cat: { mines: 2.6, radarBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
+        cat: { mines: 2.6, ship: 1.8, guns: 1.6, intel: 1.6 },
         lines: {
           // CAPTIVE's strongest want lives HERE (2026-08-20): a hostile-only
           // torpedo mine is a trap for exactly the hulls a trapper traps.
-          // Fouling stays its signature (drags victims into the field), and
-          // the GUN BUOY gets its explicit want (cycle 111 — half of Eric's
-          // "lined up well and prepare" powerhouse combo, previously falling
-          // through to the bare 2.0 category weight): a picket that fights
-          // over the field while the trapper itself stands off.
-          mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.4, buoyGun: 2.2, shipCooldown: 2.2, buoyDuration: 2.0,
+          // Fouling stays its signature (drags victims into the field).
+          mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.4, shipCooldown: 2.2,
           // Acquisitions: ambush weapons that fire FROM the field.
-          acquireTorpedo: 1.5, acquireStarShells: 1.3, acquireBoost: 1.1, acquireMine: 1.0, acquireBroadside: 0.9, acquireRadarBuoy: 0.8,
+          acquireTorpedo: 1.5, acquireStarShells: 1.3, acquireBoost: 1.1, acquireMine: 1.0, acquireBroadside: 0.9,
         },
       },
     },
@@ -1846,63 +1848,49 @@ export const CONFIG = {
   },
 
   /**
-   * RADAR BUOY (Mine Layer slot 2, Story 7-5 wave 2) — REPLACES the decoy buoy
-   * outright (Eric's `7-5-decks.md`). THE DECOY ROLE IS DELETED: nothing in
-   * the game fakes a ship contact any more. What is dropped now is a real
-   * sensor — a stationary, destructible buoy carrying its OWN radar set that
-   * RELAYS its returns to the player who placed it.
-   *
-   * It is CLICK-PLACED like a mine (R2.7), reusing the mine's rear sector
-   * (`CONFIG.mine.offset` ± `placeHalfArcDeg`, out to `placeRange`), which is
-   * why it is a WEAPON in EQUIPMENT_IS_WEAPON rather than the 1.8 stern-drop
-   * ability. `radarRange` is a FLAT SET — the buoy's own equipment, NOT the
-   * owner's intel range — and its sweep is its own too. (Since cycle 119 the
-   * owner's radar range is itself fixed at base, no card moves it; the buoy's
-   * independence is still the point, and still what a future radar card would
-   * have to respect.)
-   *
-   * ONE BUOY, AND A GAP — AT BASE COOLDOWN (Eric ruling 2026-08-19, amending
-   * R2.7 mid-flight): the base life is SHORTER than the base reload, so out of
-   * the box at most ONE buoy is ever live and there is a ~10s dead window
-   * between one expiring and the next becoming available. That gap is the
-   * starting point — a buoy is a commitment, not permanent cover. The earlier
-   * ordering (30s life on a 20s reload) allowed two overlapping and is
-   * superseded as the BASE.
-   *
-   * CARDS LEGITIMATELY CLOSE IT, and that is a reward curve rather than a leak:
-   * BUOY I-IV adds +2.5s of life per card (to exactly the base reload at ×4),
-   * and RELOAD — the universal `shipCooldown` lever — scales `reloadMs` like it
-   * scales every other piece of equipment (stats.ts clampStats), reaching
-   * 15 000 ms at a full stack against a 20 000 ms life, so a heavy RELOAD build
-   * can hold TWO buoys on the water at once. Neither is an oversight: exempting
-   * the buoy from the one global cooldown lever would make it the odd equipment
-   * out. The instruction below is aimed at IMPLEMENTERS, not at player cards:
-   * do NOT close the BASE gap by raising `maxAmmo` or shortening `reloadMs`.
-   * It paints on radar with its OWN profile carrying no owner identity (R2.9),
-   * and killing one pays no XP and prints no kill-feed line. Every number is a
-   * DESIGN TARGET, tunable.
+   * SHIELD BLOCK (catalog-v3 R37; Story 8.16, epic-8 amendments 100, 116–118)
+   * — a key-fired consumable. Firing one copy writes the ship's shield seat
+   * `{ hpLeft: hp, until: now + durationMs }`; a second copy REPLACES it (a
+   * fresh `hp` for a fresh `durationMs`), never stacks. The damage gate's
+   * `absorbShield` runs AFTER the DAMAGE CUT (amendment 100) on EVERY damage
+   * source — storm bites and phosphor burn included (amendment 118) — so a
+   * fully absorbed hit lands `dealt` 0. No `EffectiveStats` row: a
+   * consumable's numbers are read straight from CONFIG (the consumable law).
    */
-  radarBuoy: {
-    radarRange: 330, // u — the buoy's OWN radar reach (flat; never observer-scaled)
-    // AR44: the GUN BUOY's shells are ordinary gun-pattern shells, so they
-    // carry the gun's mask (mines by BURST only — amendment 20).
-    hits: HITS_HULL_MINE_DECOY,
-    sweepRpm: 15, // rev/min — its own sweep; FIXED (R2.20 moved BUOY I-IV to durationMs; no card writes it)
-    durationMs: 20000, // ms — lifetime before natural expiry
-    hp: 50, // hp — destructible by anything that damages a ship
-    // ms — cooldown between placements. LONGER than the life at BASE cooldown
-    // (Eric 2026-08-19), so one buoy at a time with a ~10s dead gap between
-    // them; the BUOY and RELOAD ladders both eat into that gap (see above).
-    reloadMs: 30000,
-    maxAmmo: 1, // single charge in the pool
-    // --- GUN BUOY doctrine (buoyGun): the buoy defends itself.
-    gunDamage: 5, // hp per shot at a hostile inside its own radarRange
-    gunReloadMs: 5000, // ms — cooldown between its shots
-    // --- JAMMING BUOY doctrine (buoyJamming): SERVER-GENERATED false returns,
-    // wire-indistinguishable from real blips, re-scattered each sweep inside
-    // the buoy's circle. It ADDS fakes and never deletes a real return; the
-    // buoy's owner is exempt. DRAFT count (R2.11).
-    jamFakes: 10,
+  shieldBlock: {
+    hp: 100, // hp the shield absorbs before it breaks (R37)
+    durationMs: 10000, // ms the shield lasts once fired (R37)
+  },
+
+  /**
+   * CHAFF (catalog-v3 R39; Story 8.16, epic-8 amendment 124(b)(c)) — a
+   * key-fired consumable that bursts at the owner's position at activation
+   * and paints `count` server-generated false returns inside `radius`,
+   * re-scattered once per the OWNER's sweep period, water-filtered, for
+   * `durationMs`. The owner never receives them; a second copy REPLACES the
+   * source (fresh seed, fresh duration). No `EffectiveStats` row.
+   */
+  chaff: {
+    radius: 120, // u — scatter circle around the burst point (R39)
+    count: 10, // fake returns per scatter (R39; fewer is legal beside an island)
+    durationMs: 15000, // ms the fakes keep painting (R39)
+  },
+
+  /**
+   * DECOY BUOY (catalog-v3 R36/R41; Story 8.16, epic-8 amendments 119–124) —
+   * a click-placed consumable dropped in the MINE's rear sector
+   * (`CONFIG.mine.offset` ± `placeHalfArcDeg`, out to `placeRange`). It floats
+   * until destroyed (no lifetime, it does not sink with its owner — amendment
+   * 122), paints on radar as an anonymous `sizeU` square, and is the `decoy`
+   * target kind: enemy shells, bursts and fish damage it (a 50-damage fish
+   * kills a fresh one — amendment 120); the owner's own ordnance never does
+   * (amendment 119). It REPLACES the deleted RADAR BUOY (Story 8.16) — the
+   * radar buoy's `CONFIG.radarBuoy` block, its gun, its jamming and its bot
+   * weights are gone. No `EffectiveStats` row.
+   */
+  decoyBuoy: {
+    hp: 50, // hp — destructible by enemy ordnance (R36)
+    sizeU: 12, // u — side of its radar paint square (R36)
   },
 
   /**

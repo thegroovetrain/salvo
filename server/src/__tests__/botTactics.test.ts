@@ -43,10 +43,11 @@ import { circleIsland } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, approachPoint, readyShotReaches } from '../game/ai/tactics.js';
-import { EQUIPMENT_TACTICS } from '../game/ai/equipment.js';
+import { CONSUMABLE_TACTICS, EQUIPMENT_TACTICS } from '../game/ai/equipment.js';
 import { EQUIPMENT } from '../game/equipment/index.js';
 import { engagementBand, profileOf } from '../game/ai/profiles.js';
 import { pullBand } from '../game/ai/utility.js';
+import { noteTorpedoes } from '../game/ai/torpedoThreat.js';
 import type {
   BotDecision,
   BotMind,
@@ -113,18 +114,8 @@ function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading = 0)
   rec.state.y = y;
   rec.state.heading = heading;
   rec.state.speed = rec.stats.kinematics.maxSpeed * 0.5;
-  // THE RADAR BUOY, HAND-FITTED ON THE MINE LAYER (Story 8.5, epic-8
-  // amendment 22). It used to arrive with the Mine Layer's per-hull fit;
-  // NOTHING fits the buoy any more — no card names it. The MODULE and the brain's buoy policy are untouched, and the
-  // policy is what this suite pins — so the fixture writes the slot directly,
-  // exactly as `applySlotEffect` would have, and every buoy case below keeps
-  // its subject. When Story 8.15 deletes the buoy, these cases go with it.
-  if (hullId === 'mineLayer') {
-    rec.loadout[3] = {
-      equipmentId: 'radarBuoy',
-      state: { n: rec.stats.equipment.radarBuoy.maxAmmo, reloadMsLeft: 0 },
-    };
-  }
+  // (The Mine Layer's hand-fitted RADAR BUOY went with the buoy in Story
+  // 8.16; its policy cases are retired below.)
   return rec;
 }
 
@@ -166,7 +157,7 @@ function viewWithOwnMines(mind: BotMind, n: number): void {
       id: `own-${i}`, x: -2000 - i * 30, y: 2000, own: true, by: 'self',
     })),
     litZones: [],
-    buoys: [],
+    decoys: [],
   };
 }
 
@@ -284,10 +275,9 @@ describe('steering — the priority order is the policy', () => {
     const d = COMBAT_BRAIN.decide(rec, mkMind('forager'), port);
     expect(d.throttle).toBeGreaterThan(0);
     expect(Math.abs(d.rudder)).toBe(1); // hard over: 180 degrees to turn
-    // DELIBERATE PIN UPDATE (doctrine pass): an empty scope is exactly when a
-    // Mine Layer sites its recon buoy, so the placement rides this tick; no
-    // TRACK-targeted shot exists (the target guard still holds).
-    expect(d.fireSlot).toBe(slotOf(rec, 'radarBuoy'));
+    // No TRACK-targeted shot exists (the target guard holds), and since the
+    // radar buoy was deleted (Story 8.16) no recon placement rides the tick.
+    expect(d.fireSlot).toBeNull();
   });
 
   // THE TRIP IS THE SIMULATION'S CONTACT BIT, NOT A SPEED GUESS. The shipped
@@ -596,11 +586,11 @@ describe('steering — the priority order is the policy', () => {
     // Ring centre dead ahead so the posture bearing contributes nothing.
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const ahead = { id: 'm1', x: 60, y: 20, by: 'enemy' };
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], buoys: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], decoys: [] };
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
     const dodged = COMBAT_BRAIN.decide(rec, mind, port);
     expect(dodged.rudder).toBeLessThan(0); // mine to port -> steer starboard
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], buoys: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], decoys: [] };
     const own = COMBAT_BRAIN.decide(rec, mind, port);
     expect(own.rudder).toBe(0); // an owner never trips its own rack
   });
@@ -1137,11 +1127,10 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const rec = mkBot(w, 'mineLayer', 0, 0, 0);
     const mind = mkMind('forager'); // view null, contacts empty
     const d = COMBAT_BRAIN.decide(rec, mind, port);
-    // DELIBERATE PIN UPDATE (doctrine pass): with nothing tracked, a Mine
-    // Layer now sites its SENSOR BUOY — recon is exactly what an empty scope
-    // calls for, and the placement class resolves above the target guard. A
-    // TORPEDO BOAT with no placements still requests nothing.
-    expect(d.fireSlot).toBe(slotOf(rec, 'radarBuoy'));
+    // With nothing tracked and no recon buoy (deleted in Story 8.16), a Mine
+    // Layer whose prepared lay is not eager requests nothing; nor does a
+    // TORPEDO BOAT with no placements.
+    expect(d.fireSlot).toBeNull();
     expect(d.actSlot).toBeNull();
     expect(d.spendChoice).toBeNull();
     expect(Number.isFinite(d.aim)).toBe(true);
@@ -1590,12 +1579,12 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(d.fireSlot).toBe(capRack);
     expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6); // captive: FULL reach
     // The same forager WITHOUT the doctrine does not lay into empty water —
-    // a contact mine needs something following you — and sites its recon
-    // buoy instead, exactly as before this cycle.
+    // a contact mine needs something following you — so it requests nothing
+    // (the recon buoy it used to site instead went with the buoy, Story 8.16).
     const plain = mkBot(w, 'mineLayer', 0, 0, 0);
     const plainMind = mkMind('forager');
     viewWithOwnMines(plainMind, 0);
-    expect(COMBAT_BRAIN.decide(plain, plainMind, port).fireSlot).toBe(slotOf(plain, 'radarBuoy'));
+    expect(COMBAT_BRAIN.decide(plain, plainMind, port).fireSlot).toBeNull();
   });
 
   it('PREPARED LAY stops at the reserve; the REACTIVE lay still fires there (adds, never removes)', () => {
@@ -1696,81 +1685,6 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const heldMind = mkMind('duelist');
     plot(heldMind, track(port.now, { ...young, firstSeenAt: port.now - 5000 }));
     expect(COMBAT_BRAIN.decide(held, heldMind, port).fireSlot).toBe(slotOf(held, 'heavyTorpedo'));
-  });
-
-  it('THE RADAR BUOY: recon when nothing is tracked, astern at full placeRange', () => {
-    const w = openWorld(412);
-    const port = fakePort(w);
-    const rec = mkBot(w, 'mineLayer', 0, 0, 1.1); // off-axis heading on purpose
-    const mind = mkMind('trapper'); // no contacts: reposition
-    // Field at the prepared reserve (cycle 111): the prepared MINE lay —
-    // which an eager trapper would otherwise spend this safe tick on —
-    // declines, and the recon buoy gets the tick exactly as before.
-    viewWithOwnMines(mind, CONFIG.bots.preparedMineReserve);
-    const d = COMBAT_BRAIN.decide(rec, mind, port);
-    expect(d.fireSlot).toBe(slotOf(rec, 'radarBuoy'));
-    const center = wrapAngle(rec.state.heading + REAR_SECTOR.offset);
-    expect(inArc(d.aim, center, REAR_SECTOR.halfArc)).toBe(true);
-    expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6);
-    // Engaged, base doctrine: recon is over — no buoy while a target is held.
-    const busy = mkBot(w, 'mineLayer', 0, 0, 0);
-    const busyMind = mkMind('trapper');
-    plot(busyMind, track(port.now, { x: 300, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(busy, busyMind, port).fireSlot).toBe(slotOf(busy, 'gun'));
-    // Blocked water: pinned at the rim with the rack pointing off the map,
-    // the drop is refused and no click is burned.
-    const rim = mkBot(w, 'mineLayer', w.map.radius - 20, 0, Math.PI);
-    expect(COMBAT_BRAIN.decide(rim, mkMind('trapper'), port).fireSlot).toBeNull();
-  });
-
-  it('radarBuoy.jamming sites as COVER in contact; radarBuoy.gun sites as a PICKET in reach', () => {
-    const w = openWorld(413);
-    const port = fakePort(w);
-    const engaged = { x: 300, y: 0, heading: 0, speed: 0 }; // ahead: no mine play
-    // Jamming: dropped exactly when a target is held (fakes over the fight)...
-    const jam = mkBot(w, 'mineLayer', 0, 0, 0);
-    jam.stats.equipment.radarBuoy.jamming = true;
-    const jamMind = mkMind('trapper');
-    plot(jamMind, track(port.now, engaged));
-    expect(COMBAT_BRAIN.decide(jam, jamMind, port).fireSlot).toBe(slotOf(jam, 'radarBuoy'));
-    // ...AND still as idle recon, because both buoy verbs are pure ADDS: a
-    // jamming buoy relays to its owner exactly as a plain one does, so the
-    // doctrine adds the COVER occasion without taking the RECON one away.
-    // Buying a card must never make a buoy worse at the job it already had.
-    const jamIdle = mkBot(w, 'mineLayer', 0, 0, 0);
-    jamIdle.stats.equipment.radarBuoy.jamming = true;
-    const jamIdleMind = mkMind('trapper');
-    // Field at the prepared reserve, so the cycle-111 prepared mine lay
-    // yields the idle tick to the buoy (the behaviour under test here).
-    viewWithOwnMines(jamIdleMind, CONFIG.bots.preparedMineReserve);
-    expect(COMBAT_BRAIN.decide(jamIdle, jamIdleMind, port).fireSlot).toBe(
-      slotOf(jamIdle, 'radarBuoy'),
-    );
-    // Gun buoy: a picket — only when the tracked hull is inside the reach its
-    // own gun could serve from an astern drop.
-    const gunNear = mkBot(w, 'mineLayer', 0, 0, 0);
-    gunNear.stats.equipment.radarBuoy.gun = true;
-    const gunNearMind = mkMind('trapper');
-    plot(gunNearMind, track(port.now, engaged));
-    expect(COMBAT_BRAIN.decide(gunNear, gunNearMind, port).fireSlot).toBe(slotOf(gunNear, 'radarBuoy'));
-    const gunFar = mkBot(w, 'mineLayer', 0, 0, 0);
-    gunFar.stats.equipment.radarBuoy.gun = true;
-    const gunFarMind = mkMind('trapper');
-    plot(gunFarMind, track(port.now, { x: 600, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(gunFar, gunFarMind, port).fireSlot).toBe(slotOf(gunFar, 'gun'));
-  });
-
-  it('BUOY VS MINE, SAME TICK: the mine answers the immediate threat first', () => {
-    const w = openWorld(414);
-    const port = fakePort(w);
-    const rec = mkBot(w, 'mineLayer', 0, 0, 0);
-    rec.stats.equipment.radarBuoy.jamming = true; // the buoy WANTS this tick too
-    rec.hp = rec.stats.maxHp * 0.1; // disengage: the mine wants it as well
-    const mind = mkMind('trapper');
-    plot(mind, track(port.now, { x: -200, y: 0, heading: 0, speed: 20 }));
-    // Trapper's appetite ranks mine above buoy, so the trap wins the tick and
-    // the buoy waits for the next one.
-    expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(slotOf(rec, 'navalMines'));
   });
 
   it('THE BAND PULL: a loaded short-reach weapon eases the band in, and reverts when it empties', () => {
@@ -2075,7 +1989,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109, 
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], buoys: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], decoys: [] };
     mind.viewAt = now;
   }
 
@@ -2336,5 +2250,134 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109, 
     const raider = mkMind('raider');
     plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'boost'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STORY 8.16 — SHIELD BLOCK, CHAFF, DECOY BUOY: the INTERIM belt rows
+// (epic-8 amendment 124(g); Story 8.19 owns the real table).
+// ---------------------------------------------------------------------------
+
+describe('Story 8.16 — the three new belt lines (amendment 124(g), interim)', () => {
+  /** A TORPEDO BOAT with its boost AND its tube stripped, so the stocked belt
+   *  line is the only ability/placement the brain can choose (the tests are
+   *  about the belt row, not about ranking). */
+  function beltOnly(seed: number, line: 'shieldBlock' | 'chaff' | 'decoyBuoy'): {
+    w: World;
+    port: FakePort;
+    rec: ShipRecord;
+    belt: number;
+  } {
+    const w = openWorld(seed);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    for (const i of [SLOT_BOOST, 2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
+    w.applyCard(rec, line);
+    const belt = slotOf(rec, line);
+    expect(belt).toBeGreaterThanOrEqual(5);
+    return { w, port, rec, belt };
+  }
+
+  /** Hand the mind a fresh (this-tick) view carrying only `events`. */
+  function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
+    mind.view = { contacts: [], events, mines: [], litZones: [], decoys: [] };
+    mind.viewAt = now;
+  }
+
+  /** A SEEN enemy fish at (x, 0) running straight at the origin. */
+  function inbound(now: number, x = 140): GameEvent {
+    return { k: 'torp', id: 'f1', x, y: 0, vx: -65, vy: 0, t: now };
+  }
+
+  it('a CONSUMABLE_TACTICS row exists for every built consumable line', () => {
+    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy'] as const) {
+      expect(CONSUMABLE_TACTICS[id], id).toBeDefined();
+      expect(CONSUMABLE_TACTICS[id]!.id).toBe(id);
+    }
+    expect(CONSUMABLE_TACTICS.shieldBlock!.kind).toBe('ability');
+    expect(CONSUMABLE_TACTICS.chaff!.kind).toBe('ability');
+    expect(CONSUMABLE_TACTICS.decoyBuoy!.kind).toBe('placement');
+  });
+
+  it('SHIELD BLOCK: pressed on the DAMAGE CUT cues (engaged, or a fish inbound) — never over a shield still up', () => {
+    const { port, rec, belt } = beltOnly(81601, 'shieldBlock');
+    const band = engagementBand(profileOf('duelist'), rec.stats);
+    const engaged = mkMind('duelist');
+    plot(engaged, track(port.now, { x: (band.min + band.max) / 2, y: 0, speed: 0 }));
+    viewOf(engaged, port.now, []);
+    expect(COMBAT_BRAIN.decide(rec, engaged, port).actSlot).toBe(belt);
+    expect(engaged.posture).toBe('engage');
+    // No target, nothing inbound: held.
+    const idle = mkMind('duelist');
+    viewOf(idle, port.now, []);
+    expect(COMBAT_BRAIN.decide(rec, idle, port).actSlot).toBeNull();
+    // A fish inbound within 150 u: pressed with no target at all.
+    const threatened = mkMind('duelist');
+    viewOf(threatened, port.now, [inbound(port.now)]);
+    expect(COMBAT_BRAIN.decide(rec, threatened, port).actSlot).toBe(belt);
+    // ...but NOT while a shield is still up (a second copy would replace it).
+    rec.shield = { hpLeft: 60, until: port.now + 5000 };
+    const again = mkMind('duelist');
+    viewOf(again, port.now, [inbound(port.now)]);
+    expect(COMBAT_BRAIN.decide(rec, again, port).actSlot).toBeNull();
+    // A lapsed shield no longer holds the press back.
+    rec.shield = { hpLeft: 60, until: port.now - 1 };
+    const lapsed = mkMind('duelist');
+    viewOf(lapsed, port.now, [inbound(port.now)]);
+    expect(COMBAT_BRAIN.decide(rec, lapsed, port).actSlot).toBe(belt);
+  });
+
+  it('CHAFF: thrown on the DISENGAGE posture — never over a cloud still painting', () => {
+    const { port, rec, belt } = beltOnly(81602, 'chaff');
+    const healthy = mkMind('duelist');
+    plot(healthy, track(port.now, { x: 200, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, healthy, port).actSlot).toBeNull(); // not disengaging
+    rec.hp = rec.stats.maxHp * 0.1; // under every profile's break-off
+    const away = mkMind('duelist');
+    plot(away, track(port.now, { x: 200, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, away, port).actSlot).toBe(belt);
+    expect(away.posture).toBe('disengage');
+    // The bot's own cloud still painting (world-owned since amendment 127, so
+    // its `until` rides the mind, handed in by the driver each tick).
+    const live = mkMind('duelist');
+    live.chaffUntil = port.now + 5000;
+    plot(live, track(port.now, { x: 200, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, live, port).actSlot).toBeNull();
+    // A lapsed cloud no longer holds the throw back.
+    const lapsed = mkMind('duelist');
+    lapsed.chaffUntil = port.now;
+    plot(lapsed, track(port.now, { x: 200, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, lapsed, port).actSlot).toBe(belt);
+  });
+
+  it('DECOY BUOY: a rear-sector placement at full placeRange when a fish is inbound — and only then', () => {
+    const { port, rec, belt } = beltOnly(81603, 'decoyBuoy');
+    const calm = mkMind('duelist');
+    viewOf(calm, port.now, []);
+    expect(COMBAT_BRAIN.decide(rec, calm, port).fireSlot).toBeNull();
+    const threatened = mkMind('duelist');
+    viewOf(threatened, port.now, [inbound(port.now)]);
+    const d = COMBAT_BRAIN.decide(rec, threatened, port);
+    expect(d.fireSlot).toBe(belt);
+    const center = wrapAngle(rec.state.heading + REAR_SECTOR.offset);
+    expect(inArc(d.aim, center, REAR_SECTOR.halfArc)).toBe(true);
+    expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6);
+  });
+
+  it('DECOY BUOY: a SINKING bot with a fish inbound does not want the decoy (the afloat guard its siblings carry)', () => {
+    const { port, rec } = beltOnly(81604, 'decoyBuoy');
+    rec.lifecycle = transitionLifecycle(rec.lifecycle, 'sink', port.now);
+    const threatened = mkMind('duelist');
+    viewOf(threatened, port.now, [inbound(port.now)]);
+    const tactic = CONSUMABLE_TACTICS.decoyBuoy!;
+    const ctx = { self: rec, mind: threatened, sit: { now: port.now }, posture: 'reposition' } as unknown as Parameters<typeof tactic.want>[0];
+    noteTorpedoes(threatened, rec, port.now);
+    expect(tactic.want(ctx)).toBe(false);
+    // ...and the same fish over an AFLOAT hull is wanted (the guard is the only difference).
+    const afloat = beltOnly(81605, 'decoyBuoy').rec;
+    const mind2 = mkMind('duelist');
+    viewOf(mind2, port.now, [inbound(port.now)]);
+    noteTorpedoes(mind2, afloat, port.now);
+    expect(tactic.want({ ...ctx, self: afloat, mind: mind2 })).toBe(true);
   });
 });

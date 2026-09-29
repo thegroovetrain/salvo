@@ -21,6 +21,20 @@ import { observe, observeSpectator } from './perception.js';
 import { slotAmmo } from './equipment/index.js';
 import type { ShipRecord, World } from './world.js';
 
+/** The own-ship `shield` key (Story 8.16): `{ shield: {hp, until} }` while a
+ *  SHIELD BLOCK is up (hp left, not yet expired), else an EMPTY object so the
+ *  spread leaves the key absent. `hp` is ROUNDED UP to a whole number: the
+ *  shield soaks fractional storm bites and burn ticks, and the HP numeral
+ *  reads floor(hull) + shield — a raw 99.8 would knock the shielded readout
+ *  down a whole point on the first 0.2 absorbed, while the ceiling keeps it
+ *  at 100 until a whole point of shield is gone (a live shield never reads 0).
+ *  Display only: the absorb math stays exact on the server. */
+function ownShield(ship: ShipRecord, now: number): Pick<OwnShip, 'shield'> {
+  const s = ship.shield;
+  if (s === null || s.hpLeft <= 0 || now >= s.until) return {};
+  return { shield: { hp: Math.ceil(s.hpLeft), until: s.until } };
+}
+
 function toOwnShip(ship: ShipRecord, now: number): OwnShip {
   // Anti-cheat/invariant guard: OwnShip only ever describes a human client's
   // own ship, whose hullId is ALWAYS a ShipClassId. A drone hull id reaching
@@ -136,6 +150,13 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // blip, a ballistic event or a spectator payload — so the master
     // perception invariant keeps exactly SIX declared exceptions.
     ...(ship.damageCutUntil > 0 ? { damageCutUntil: ship.damageCutUntil } : {}),
+    // The SHIELD BLOCK seat (Story 8.16, amendments 100/116–118): present IFF
+    // a shield is UP — hp left and not yet expired (the gate nulls a spent or
+    // lapsed seat lazily, on the next hit, so the frame re-checks `until`) —
+    // OMITTED otherwise, never an `undefined` value. SELF-PRIVATE BY
+    // CONSTRUCTION on the boostUntil terms: it rides `you` and NOTHING else,
+    // so the perception exception count stays at SIX.
+    ...ownShield(ship, now),
   };
 }
 
@@ -194,9 +215,9 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
       // this observer sees none, so zone-free frames stay byte-identical to
       // pre-1.7 frames (same rule on both paths).
       ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
-      // buoys (Story 7-5 wave 2) is OPTIONAL on the same litZones rule:
-      // omitted when none, so buoy-free frames do not change shape.
-      ...(view.buoys.length > 0 ? { buoys: view.buoys } : {}),
+      // decoys (Story 8.16) is OPTIONAL on the same litZones rule: omitted
+      // when none, so decoy-free frames do not change shape.
+      ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
       spec: true,
     };
   }
@@ -214,9 +235,9 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     events: view.events,
     mines: view.mines,
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
-    // buoys (Story 7-5 wave 2): the contact-like radar-buoy channel — omitted
-    // when this observer sees none (the litZones rule).
-    ...(view.buoys.length > 0 ? { buoys: view.buoys } : {}),
+    // decoys (Story 8.16): the contact-like decoy-buoy channel — omitted when
+    // this observer sees none (the litZones rule).
+    ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
     ...(denied !== undefined && denied.length > 0 ? { denied: [...denied] } : {}),
   };
 }

@@ -49,7 +49,8 @@ export function isTunableKey(key: string): boolean {
 // cannon outright with the BROADSIDE BARRAGE. Shipping `cannon.` verbatim would
 // pass this family gate and then die on the CONFIG walk, while the battleship's
 // actual main weapon stayed unreachable — so the dead family is dropped and the
-// three live blocks the doc predates (broadside, boost, radarBuoy) are in.
+// three live blocks the doc predates (broadside, boost, and the radar buoy —
+// deleted in Story 8.16) are in.
 // Keep this list in step with the top-level equipment blocks of CONFIG.
 const TUNE_FAMILIES = [
   'gun.',
@@ -64,7 +65,6 @@ const TUNE_FAMILIES = [
   'mine.',
   'starShells.',
   'boost.',
-  'radarBuoy.',
   'shipClasses.',
   // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
   // "should a drone be worth, through damage, what its kill tier already says
@@ -265,7 +265,7 @@ export function validateTuneKey(key: string): void {
 const TUNE_MIN_ONE_LEAVES = new Set(['steerageSpeed', 'turnRate', 'shellSpeed', 'speed', 'hp']);
 
 /** The per-key --tune floor. Reload/cooldown leaves are matched by
- *  CASE-INSENSITIVE SUFFIX, not by exact leaf name: `radarBuoy.gunReloadMs` is
+ *  CASE-INSENSITIVE SUFFIX, not by exact leaf name: `machineGun.idleReloadMs` is
  *  a genuine reload in the same divide-or-spin class as `gun.reloadMs` and an
  *  exact match let it through at floor 0. `cooldownms` is kept in the rule even
  *  though no CONFIG leaf uses it today — this names a HAZARD CLASS, and a

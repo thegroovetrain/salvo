@@ -250,7 +250,7 @@ describe('fit-check — SLOT ROUTING (every line lands on a slot or is shipwide)
   });
 
   it('a shipwide ladder owns no slot, so its fit falls through to the rank-wide pulse', () => {
-    const loadout: (EquipmentId | null)[] = ['gun', 'navalMines', 'radarBuoy', null];
+    const loadout: (EquipmentId | null)[] = ['gun', 'navalMines', 'starShells', null];
     expect(slotForCard(loadout, 'armor')).toBeNull();
     expect(slotForCard(loadout, 'radarSweep')).toBeNull();
     // ...and an id nothing can resolve fails open the same way.

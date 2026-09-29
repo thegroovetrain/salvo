@@ -49,6 +49,7 @@ function ownStatus(over: Partial<OwnStatus> = {}): OwnStatus {
   return {
     hp: 80,
     repairHp: 0,
+    shield: 0,
     ammo: [null, null, null, null],
     primedSlot: 0,
     alive: true,

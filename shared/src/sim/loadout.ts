@@ -52,10 +52,8 @@ import type { EffectiveStats } from './stats.js';
  * space, because FOULING MINES became its own tiered equipment line and the
  * add-on card was deleted.
  *
- * `radarBuoy` is the ONE legacy id left with a live module and no card behind
- * it: Story 8.16 deletes it in favour of the DECOY BUOY consumable (catalog-v3
- * R1), and until then its row keeps its shipped numbers so the fit is
- * unchanged. The legacy flat-bonus boost id is GONE (Story 8.9): the v3
+ * The legacy `radarBuoy` id is GONE (Story 8.16): the RADAR BUOY was deleted
+ * end to end in favour of the DECOY BUOY consumable (catalog-v3 R1). The legacy flat-bonus boost id is GONE (Story 8.9): the v3
  * `boost` id IS the speed boost, the Torpedo Boat's Shift since 8.15.
  */
 export type EquipmentId =
@@ -70,7 +68,6 @@ export type EquipmentId =
   | 'flak'
   | 'broadside'
   | 'starShells'
-  | 'radarBuoy'
   | 'instantReload'
   | 'damageCut';
 
@@ -108,9 +105,6 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // denied out-of-arc.
   broadside: true,
   starShells: true, // Story 1.7: prime-then-click skillshot (spawns a lit zone at burst)
-  // Story 7-5 wave 2 (R2.7): the RADAR BUOY is CLICK-PLACED like the mine — it
-  // shares the mine's rear sector and placeRange — so it is a WEAPON.
-  radarBuoy: true,
   // THE TWO NEW CLASS SHIFTS (Story 8.15): INSTANT RELOAD (the Mine Layer's,
   // amendments 97–98) and DAMAGE CUT (the Battleship's, amendments 99–102).
   // Both are instant activations off the Shift edge, aimed at nothing — the

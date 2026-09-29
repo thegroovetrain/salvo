@@ -190,7 +190,7 @@ describe('the declared ROOT order (the gap deferred-work named)', () => {
 
   it('leaves the world and HUD child orders alone — this cycle moved one layer', () => {
     expect(WORLD_LAYER_ORDER as readonly string[]).toEqual([
-      'ocean', 'wake', 'projectile', 'mineWorld', 'buoyWorld',
+      'ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld', // Story 8.16: buoyWorld renamed
     ]);
     expect(HUD_LAYER_ORDER as readonly string[]).toEqual(['vignette', 'hud', 'foghorn']);
   });

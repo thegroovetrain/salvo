@@ -34,6 +34,7 @@ import {
   railPulsing,
   railSig,
   repairFraction,
+  shieldedFill,
   type HpGlobeInput,
 } from '../render/hpGlobe.js';
 import { circleSegmentBelow } from '../render/globe.js';
@@ -423,7 +424,7 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
   const MAX = stats.maxHp;
 
   function input(over: Partial<HpGlobeInput> = {}): HpGlobeInput {
-    return { hp: MAX * 0.8, maxHp: MAX, repairHp: 0, alive: true, sinking: false, ...over };
+    return { hp: MAX * 0.8, maxHp: MAX, repairHp: 0, shield: 0, alive: true, sinking: false, ...over };
   }
 
   afterEach(() => settings.reset());
@@ -447,6 +448,36 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
     expect(globe.readoutText()).toBe('HULL 1 /250'); // a live hull never reads 0
     globe.update(input({ hp: 0, maxHp: 250, alive: false }), GLOBE, 3, false, 1);
     expect(globe.readoutText()).toBe('HULL 0 /250');
+  });
+
+  // THE SHIELDED READOUT (Story 8.16, epic-8 amendments 116/117): hull + shield
+  // in the `info` token while a SHIELD BLOCK holds — NUMBER ONLY. The max label,
+  // the globe's band and its water never see the shield.
+  it('reads hull + shield past max in `info` while shielded, and reverts at 0', () => {
+    const globe = new HpGlobe(new Container());
+    globe.update(input({ hp: 212, maxHp: 250 }), GLOBE, 1, false, 1);
+    expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.textPrimary);
+    globe.update(input({ hp: 212, maxHp: 250, shield: 100 }), GLOBE, 2, false, 1);
+    expect(globe.readoutText()).toBe('HULL 312 /250');
+    expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.info);
+    globe.update(input({ hp: 212, maxHp: 250, shield: 27 }), GLOBE, 3, false, 1);
+    expect(globe.readoutText()).toBe('HULL 239 /250'); // an absorbed hit: the blue number falls
+    globe.update(input({ hp: 212, maxHp: 250, shield: 0 }), GLOBE, 4, false, 1);
+    expect(globe.readoutText()).toBe('HULL 212 /250');
+    expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.textPrimary);
+  });
+
+  it('the shield never touches the globe: water, band and alpha are the hull’s alone', () => {
+    const plain = new HpGlobe(new Container());
+    const shielded = new HpGlobe(new Container());
+    plain.update(input({ hp: MAX * 0.4 }), GLOBE, 1, false, 1);
+    shielded.update(input({ hp: MAX * 0.4, shield: 100 }), GLOBE, 1, false, 1);
+    expect(shielded.fillAlpha).toBe(plain.fillAlpha);
+  });
+
+  it('shieldedFill is info iff shield hp is left', () => {
+    expect(shieldedFill(1)).toBe(CLIENT_CONFIG.colors.info);
+    expect(shieldedFill(0)).toBe(CLIENT_CONFIG.colors.textPrimary);
   });
 
   // THE strobe regression, driven through the real instrument: a hull draining
