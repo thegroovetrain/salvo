@@ -388,6 +388,10 @@ type FiringEquipmentId = Extract<
   | 'gun'
   | 'broadside'
   | 'starShells'
+  // STORY 8.17: PHOSPHOR SHELLS (equipment) and FLASH SHELLS (`dazzleShells`,
+  // a click-fired consumable) — both launch one shell like the star shell.
+  | 'phosphorShells'
+  | 'dazzleShells'
   // THE TORPEDO FAMILY (Story 8.13): two LINES plus the belt's SUPERCAV
   // TORPEDO, a click-aimed CONSUMABLE (epic-8 amendment 74) — which is why the
   // Extract widened from `EquipmentId` to `SlotItemId`.
@@ -423,6 +427,10 @@ const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   foulingMines: 'fireMine',
   broadside: 'fireBroadside',
   starShells: 'fireStarShells',
+  // NO NEW ASSET (Story 8.17): a phosphor or flash shell leaves the deck
+  // exactly as a flare does, so it reuses the star-shell launch cue.
+  phosphorShells: 'fireStarShells',
+  dazzleShells: 'fireStarShells',
 };
 
 /** Pure: which tone a weapon's own-fire cue plays. */

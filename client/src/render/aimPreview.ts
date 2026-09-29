@@ -113,11 +113,13 @@ export interface PreviewLine {
 /** A circle at the TRUE burst point. `blocked` = an island stops the shot short
  *  of it, so the circle renders dimmed rather than promising anything there.
  *
- *  `effect` marks a circle that is NOT a damage area — today only the star
- *  shell's lit radius. It renders in a quieter register: it is typically many
- *  times a blast circle's size (the flare lights half a truesight bubble), and
- *  at damage-circle weight that much ink would read as a threat and bury the
- *  actual kill circles the same aim UX draws. */
+ *  `effect` marks a circle drawn in the quieter register because it is LARGE,
+ *  not because it is harmless: the star shell's lit radius (which since Story
+ *  8.17, amendment 130, is also its damage circle — the tier's damage to every
+ *  hull inside it) and the FLASH SHELLS burst (which blinds and deals none). It
+ *  is typically many times a blast circle's size (the flare lights half a
+ *  truesight bubble), and at damage-circle weight that much ink would bury the
+ *  gun-blast circles the same aim UX draws. */
 export interface PreviewBurst {
   x: number;
   y: number;
@@ -196,8 +198,11 @@ interface BurstSpec {
   /** u — LATERAL spacing between adjacent tracks (CONFIG.gun.barrelSpacingU).
    *  Irrelevant at one barrel; the straddle law handles the rest. */
   spacingU: number;
-  /** The circle is an EFFECT radius (the star shell's lit zone), not a damage
-   *  area — a quieter draw. Defaults to false: everything else here kills. */
+  /** Draw the circle in the quieter EFFECT register — the star shell's lit
+   *  zone (a damage circle too since Story 8.17, amendment 130: the flare hits
+   *  every hull inside it for the tier's damage, but its size would swamp the
+   *  blast circles at full weight) and the FLASH SHELLS burst. Defaults to
+   *  false: every other circle here is drawn at damage weight. */
   effect?: boolean;
 }
 
@@ -397,19 +402,16 @@ function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
 
 /**
  * The flare's EFFECTIVE lit radius — the exact number the server hands the
- * shell (`equipment/starShells.ts`): the owner's stats.equipment.starShells.litRadius,
- * shrunk by CONFIG.starShells.incendiaryRadiusFactor while the PHOSPHOR verb is
- * held. Both halves matter: the STAR SHELLS ladder moves the stat, and phosphor
- * trades reach for the burn, so a preview built on either the raw CONFIG base or
- * the un-shrunk stat would over-draw the zone the player is trying to place.
- *
- * Reads the PHOSPHOR flag ALONE (Story 7-5 wave 1): DAZZLE is an independent
- * verb that does not touch the radius, so a captain holding both still previews
- * the phosphor-shrunk circle.
+ * shell (`equipment/starShells.ts`): the owner's
+ * stats.equipment.starShells.litRadius, which the STAR SHELLS ladder moves
+ * (×1.1 per tier), so a preview built on the raw CONFIG base would under-draw
+ * the zone the player is trying to place. It is also the flare's damage circle
+ * since Story 8.17 (amendment 130: `burstRadius = litRadius`). The PHOSPHOR
+ * verb's shrink factor that used to apply here is DELETED with the verb
+ * (amendment 134).
  */
 export function effectiveLitRadius(stats: EffectiveStats): number {
-  const stars = stats.equipment.starShells;
-  return stars.litRadius * (stars.phosphor ? CONFIG.starShells.incendiaryRadiusFactor : 1);
+  return stats.equipment.starShells.litRadius;
 }
 
 /**
@@ -423,7 +425,9 @@ export function effectiveLitRadius(stats: EffectiveStats): number {
  * takes the plain splash-boom path in World.resolveShell, which — unlike an
  * interception — spawns NO lit zone at all. So a blocked flare lights NOTHING,
  * and the standard blocked tell is exactly the right, and rather important,
- * thing to show. The circle is drawn in the quieter EFFECT register (see
+ * thing to show. Since Story 8.17 (amendment 130) the same circle is also the
+ * flare's damage area — the tier's damage (10 → 20) to every hull inside it at
+ * burst. It is still drawn in the quieter EFFECT register (see
  * PreviewBurst.effect): the lit radius is ~7× a gun blast, and at damage weight
  * it would dominate every other circle on the water.
  */
@@ -432,6 +436,45 @@ function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
     rangeU: inp.stats.equipment.starShells.rangeU,
     burstRadius: effectiveLitRadius(inp.stats),
     shellRadius: CONFIG.starShells.shellRadius,
+    barrels: 1,
+    spacingU: 0,
+    effect: true,
+  });
+}
+
+/**
+ * PHOSPHOR SHELLS (Story 8.17, amendment 131): the star-shell preview pattern —
+ * one 360° shell to the click at the radar rung (`rangeU`), island- and
+ * map-clamped — with the burst ring at the owner's effective `zoneRadius`,
+ * which is both the burst's damage circle and the burning zone it leaves. Drawn
+ * at DAMAGE weight (not the flare's quieter effect register): a phosphor burst
+ * is a damage burst, and a blocked shell burns nothing, so the standard
+ * blocked tell is exactly right.
+ */
+function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
+  const row = inp.stats.equipment.phosphorShells;
+  return parallelVolley(inp, {
+    rangeU: row.rangeU,
+    burstRadius: row.zoneRadius,
+    shellRadius: CONFIG.phosphorShells.shellRadius,
+    barrels: 1,
+    spacingU: 0,
+  });
+}
+
+/**
+ * FLASH SHELLS (internal id `dazzleShells` — Story 8.17, amendment 132): the
+ * star-shell preview pattern for the belt's click-fired flash — one 360° shell
+ * to the click at the star shell's reach (the post-fold `radarRange`), with the
+ * one-time blinding burst at `CONFIG.flashShells.radius` (a consumable reads
+ * its numbers straight off CONFIG). Drawn in the quieter EFFECT register like
+ * the flare: the flash deals no damage.
+ */
+function flashShellPreview(inp: AimPreviewInput): AimPreviewModel {
+  return parallelVolley(inp, {
+    rangeU: inp.stats.radarRange,
+    burstRadius: CONFIG.flashShells.radius,
+    shellRadius: CONFIG.flashShells.shellRadius,
     barrels: 1,
     spacingU: 0,
     effect: true,
@@ -548,17 +591,27 @@ function decoyPreview(inp: AimPreviewInput): AimPreviewModel {
  */
 export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   if (!inp.legal || inp.id === null) return EMPTY;
-  if (inp.id === 'gun') return cannonPreview(inp);
+  const single = SINGLE_ID_PREVIEWS[inp.id];
+  if (single) return single(inp);
   if (isPickableGun(inp.id)) return pickableGunPreview(inp, inp.id);
-  if (inp.id === 'broadside') return broadsidePreview(inp);
-  if (inp.id === 'starShells') return starShellPreview(inp);
   // THE FAMILIES, not the ids (Story 8.13): three torpedoes share one preview
   // and three mine lines share one placement, each reading its OWN row.
   if (isTorpedoItem(inp.id)) return torpedoPreview(inp, inp.id);
   if (isMineEquipment(inp.id)) return minePreview(inp, inp.id);
-  if (inp.id === 'decoyBuoy') return decoyPreview(inp);
   return EMPTY; // the boost and every non-aimed consumable aim nothing
 }
+
+/** The ids with a preview of their OWN (not a family's) — a table rather than
+ *  an if-chain so each new aimed line (Story 8.17's PHOSPHOR and FLASH SHELLS)
+ *  is one row. Every id absent here falls through to the family checks. */
+const SINGLE_ID_PREVIEWS: Partial<Record<SlotItemId, (inp: AimPreviewInput) => AimPreviewModel>> = {
+  gun: cannonPreview,
+  broadside: broadsidePreview,
+  starShells: starShellPreview,
+  phosphorShells: phosphorShellPreview,
+  dazzleShells: flashShellPreview,
+  decoyBuoy: decoyPreview,
+};
 
 /**
  * The burst-ring radius for an own-correlated burst effect (render/effects.ts's
@@ -569,14 +622,23 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
  * enemy builds stay private, our own ring stops lying about our own blast.
  */
 export function ownBurstRadius(stats: EffectiveStats, own: OwnFire): number | undefined {
-  if (own === 'gun') return stats.equipment.gun.burstRadius;
-  if (own === 'broadside') return stats.equipment.broadside.burstRadius;
-  if (own === 'flak') return stats.equipment.flak.burstRadius; // Story 8.15 — the fixed 50 u blast
-  // No torpedo bursts at a POINT any more — COMMAND DETONATION left the game in
-  // Story 7-5 wave 1, and a standard/homing fish's contact hit rides the
-  // boom/spark path — so the fish keeps the CONFIG default like everything else.
-  return undefined; // torpedoes, star shells (lit, not blast), every non-own burst
+  if (own === null) return undefined;
+  return OWN_BURST_RADIUS[own]?.(stats);
 }
+
+/** Own weapon → its effective burst radius. Absent ids keep the CONFIG default:
+ *  no torpedo bursts at a POINT any more (COMMAND DETONATION left the game in
+ *  Story 7-5 wave 1; a fish's contact hit rides the boom/spark path), and the
+ *  star shell's burst is its lit circle, drawn by the zone itself. */
+const OWN_BURST_RADIUS: Partial<Record<NonNullable<OwnFire>, (stats: EffectiveStats) => number>> = {
+  gun: (s) => s.equipment.gun.burstRadius,
+  broadside: (s) => s.equipment.broadside.burstRadius,
+  flak: (s) => s.equipment.flak.burstRadius, // Story 8.15 — the fixed 50 u blast
+  // Story 8.17: PHOSPHOR bursts over its whole (tier-grown) zone; FLASH SHELLS
+  // over the fixed CONFIG radius (a consumable reads CONFIG, never a row).
+  phosphorShells: (s) => s.equipment.phosphorShells.zoneRadius,
+  dazzleShells: () => CONFIG.flashShells.radius,
+};
 
 /** The stroke tint for a weapon's preview: the TORPEDO FAMILY keeps its
  *  cool-green identity (as its arc and reticle already do) — all three fish

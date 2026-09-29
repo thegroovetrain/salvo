@@ -57,6 +57,10 @@ const BALLISTIC: readonly SlotItemId[] = [
   // held level does — amendment 103), so a click latch for it would be a claim
   // no round answers. Its shells are claimed through `claimStream` instead.
   'flak',
+  // STORY 8.17: PHOSPHOR SHELLS (equipment) and FLASH SHELLS (`dazzleShells`,
+  // a belt consumable — amendment 132) each fire one shell per click.
+  'phosphorShells',
+  'dazzleShells',
 ];
 
 /** Pure: is this slot content one a `shell`/`torp` reveal could have come from? */

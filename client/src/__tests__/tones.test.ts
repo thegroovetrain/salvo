@@ -117,8 +117,16 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
       'gun', 'broadside', 'starShells',
       'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo',
       'navalMines', 'captiveMines', 'foulingMines',
+      'phosphorShells', 'dazzleShells',
     ] as const;
     for (const id of ids) expect(TONES[fireTone(id)], id).toBeDefined();
+  });
+
+  // STORY 8.17 — two new firing ids, NO new asset: a phosphor or flash shell
+  // leaves the deck exactly as a flare does, so both reuse its launch cue.
+  it('gives PHOSPHOR and FLASH SHELLS the star-shell launch cue', () => {
+    expect(fireTone('phosphorShells')).toBe('fireStarShells');
+    expect(fireTone('dazzleShells')).toBe('fireStarShells');
   });
 
   // STORY 8.13 — FOUR NEW FIRING IDS, NO NEW TONE (epic-8 amendments 74/76/81).
@@ -390,11 +398,16 @@ describe('stormEnterEdge', () => {
 // categories are deleted, so the kind is the only axis the catalog still states.
 
 describe('fitDetune — one fit family, four kind voices', () => {
-  const KINDS = [...new Set(Object.values(CATALOG).map((line) => line.kind))];
+  // The FOUR kinds the catalog's type declares. Since Story 8.17 (amendment
+  // 134) the shipped catalog USES three — no add-on line remains — but the
+  // `addon` kind stays in place, so its voice stays too.
+  const KINDS: readonly LineKind[] = ['equipment', 'ladder', 'addon', 'consumable'];
+  const USED = [...new Set(Object.values(CATALOG).map((line) => line.kind))];
 
   it('covers EXACTLY the catalog\'s kinds — no gap, no orphan', () => {
     expect([...FIT_KINDS].sort()).toEqual([...KINDS].sort());
-    expect(KINDS).toHaveLength(4);
+    for (const k of USED) expect(KINDS).toContain(k);
+    expect([...USED].sort()).toEqual(['consumable', 'equipment', 'ladder']);
   });
 
   it('gives every kind a DISTINCT transposition inside ±4 semitones', () => {

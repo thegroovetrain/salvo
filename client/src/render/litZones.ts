@@ -13,39 +13,24 @@
 // precedent — the client keeps no timers). A zone dropping out of the list means
 // expired OR out of radar range — the client cannot tell, and that ambiguity is
 // the design (the mines precedent).
-
-// STORY 2.9 (amendment 50) — a zone reads as its DOCTRINE, for every observer.
-// A lit zone is observable behavior of a fired shell, and Eric ruled counterplay
-// over concealment: the doctrine rides the wire so a BURNING patch of water is
-// distinguishable from a DAZZLE flash-blind and from an ordinary flare — you
-// cannot play around a hazard you cannot see. The firer's personal hue keeps the
-// RING (a zone always says whose it is); the doctrine layers INSIDE it, so the
-// two channels never fight.
 //
-// STORY 7-5 WAVE 1 — THE VERBS STACK. `LitZoneView.mode` (one of standard /
-// incendiary / dazzle) became two INDEPENDENT optional wire flags, `phos` and
-// `daz`, either or BOTH of which may be set: a captain holding both star-shell
-// cards lights water that burns AND blinds. Every branch below is therefore an
-// INDEPENDENT check — never an if/else-if chain, never a switch — because a
-// mutually-exclusive read would silently drop one of the two hazards.
+// A LIT ZONE ONLY EVER LIGHTS (Story 8.17, Eric ruling 2026-09-29, epic-8
+// amendment 134). The star shell's PHOSPHOR and DAZZLE verbs — and with them the
+// `phos`/`daz` wire flags this module used to paint as an ember disc and a
+// glare — are DELETED: PHOSPHOR SHELLS burns through its own channel
+// (FrameMsg.burnZones, drawn by render/burnZones.ts with the ember treatment
+// that moved there from here) and FLASH SHELLS leaves nothing on the water. The
+// firer's personal hue still owns the ring and fill (a zone always says whose
+// it is).
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { LitZoneView } from '@salvo/shared';
-import { CLIENT_CONFIG } from '../config.js';
-import { motionScaled, settings } from '../settings/store.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 
-const Z = CLIENT_CONFIG.litZone;
 const PEAK_FILL_ALPHA = 0.12; // soft additive fill at full brightness
 const RING_ALPHA = 0.38; // the zone edge, a touch brighter than the fill
 const RING_W = 2; // u — edge stroke width
-/** PHOSPHOR ember: the existing damage-marker crimson — burn feedback stays in
- *  the damage register (no new reds), and this is literally water on fire. */
-const EMBER_COLOR = CLIENT_CONFIG.colors.damageMarker;
-/** DAZZLE glare: the muzzle-flash near-white. A flash-blind is white light; it
- *  borrows no readout register (phosphor/amber/storm all stay meaningful). */
-const GLARE_COLOR = CLIENT_CONFIG.colors.muzzle;
 /** Fade the glow out over the last FADE_MS before expiry (a dying flare). */
 export const LIT_FADE_MS = 1500;
 
@@ -81,6 +66,8 @@ export interface OwnZone {
  * NOT cull a beyond-sight projectile that lies inside one (it will never be
  * re-sent — projectiles.ts) and (b) clear its own fog over them (fog.ts).
  * Enemy-owned and expired zones return nothing here (they stay marker-only).
+ * A BURNING zone (render/burnZones.ts) never reaches this function: it reveals
+ * nothing, so it must never clear fog or keep a track (amendment 131).
  */
 export function ownActiveZones(
   zones: readonly LitZoneView[],
@@ -92,65 +79,6 @@ export function ownActiveZones(
     if (z.by === ownId && z.until > serverNow) out.push({ x: z.x, y: z.y, r: z.r, until: z.until });
   }
   return out;
-}
-
-/** The verbs one lit zone carries. INDEPENDENT booleans, never an enum: a zone
- *  may be neither, either, or BOTH (Story 7-5 wave 1). */
-export interface ZoneVerbs {
-  phos: boolean; // the water burns
-  daz: boolean; // the water blinds
-}
-
-/**
- * Pure: the verbs a zone view carries. The wire omits a false flag entirely (the
- * established optional-flag style), so an absent key reads as "not doing that" —
- * a plain flare is simply both-false, and a missing field can never blank a zone.
- */
-export function zoneVerbs(z: { phos?: true; daz?: true }): ZoneVerbs {
-  return { phos: z.phos === true, daz: z.daz === true };
-}
-
-/** Ember-breath rate (Hz) for a burning zone — well under the shared
- *  photosensitivity ceiling, and nowhere near the ≤3 flashes/s regional cap. */
-export const EMBER_HZ = Z.emberHz;
-
-/** Largest frame gap (s) the ember phase integrator advances across (the hud.ts
- *  pulse precedent: a backgrounded tab must not jump the wave). */
-const MAX_EMBER_DT = 0.5;
-
-/**
- * Pure: advance the ember breath's PHASE (radians) by one frame. INTEGRATED,
- * never derived from absolute time — the hud.ts advancePulsePhase reasoning
- * verbatim: an integrated phase is continuous through any rate change, so the
- * cap on the rate is also a cap on how fast the alpha can move.
- */
-export function advanceEmberPhase(phase: number, dtSec: number): number {
-  const step = Math.min(MAX_EMBER_DT, Math.max(0, dtSec));
-  return (phase + EMBER_HZ * step * Math.PI * 2) % (Math.PI * 2);
-}
-
-/**
- * Pure: the ember layer's alpha at a phase. `amp` is motion-scaled by the caller
- * (halved at `reduced`, 0 at `off`), and the BASE alpha is information: the
- * burning disc — where the fire is and how big it is — renders identically at
- * every motion level, and only the breath stops.
- */
-export function emberAlpha(phase: number, amp: number): number {
-  return Z.emberAlpha + amp * Math.sin(phase);
-}
-
-/**
- * Pure: the DAZZLE glare's two disc radii (u) inside a zone of wire radius `r` —
- * the outer halo and the brighter core.
- *
- * BOTH ARE CONTAINED (`<= r`), and the clamp is structural rather than trusting
- * the config: `r` is the hazard's real extent, the firer-hue ring at `r` is its
- * boundary, and a glare painted outside that ring claims water that is not
- * dazzling — a marker drawn bigger than the thing it marks (amendment 47). A
- * future retune of the draft fractions cannot reintroduce it.
- */
-export function dazzleRadii(r: number): { halo: number; core: number } {
-  return { halo: r * Math.min(1, Z.haloFrac), core: r * Math.min(1, Z.glareFrac) };
 }
 
 /** Pure: is world point `p` inside any of the given zone circles (center/radius)? */
@@ -167,8 +95,8 @@ export function insideAnyZone(
 }
 
 /** What changed between the sprites we hold and the incoming zone list. */
-export interface LitZoneDiff {
-  add: LitZoneView[];
+export interface LitZoneDiff<Z extends { id: string } = LitZoneView> {
+  add: Z[];
   remove: string[];
 }
 
@@ -177,14 +105,15 @@ export interface LitZoneDiff {
  * list, return which zones to add and which sprite ids to remove. Ids present in
  * both are left untouched (a zone is static — its center/radius/expiry are fixed
  * at spawn, so nothing to update; only the per-frame fade changes, and that is
- * render()'s job).
+ * render()'s job). Generic over the zone shape so the burning-zone renderer
+ * (render/burnZones.ts, Story 8.17) reuses the one diff.
  */
-export function reconcileLitZones(
+export function reconcileLitZones<Z extends { id: string } = LitZoneView>(
   current: ReadonlySet<string>,
-  incoming: readonly LitZoneView[],
-): LitZoneDiff {
+  incoming: readonly Z[],
+): LitZoneDiff<Z> {
   const seen = new Set<string>();
-  const add: LitZoneView[] = [];
+  const add: Z[] = [];
   for (const z of incoming) {
     seen.add(z.id);
     if (!current.has(z.id)) add.push(z);
@@ -194,22 +123,28 @@ export function reconcileLitZones(
   return { add, remove };
 }
 
+/**
+ * Draw the firer-hue zone glow onto `g` (clearing prior geometry — the recolor
+ * path redraws in place; the per-frame fade lives on `g.alpha`, untouched here):
+ * a soft additive fill and a brighter ring at `r`. Exported because the burning
+ * zone (render/burnZones.ts) wears the same identity glow under its ember — the
+ * treatment the shipped phosphor zone had.
+ */
+export function drawZoneGlow(g: Graphics, r: number, color: number): void {
+  g.clear();
+  g.blendMode = 'add'; // additive: illuminated water, not an opaque disc
+  g.circle(0, 0, r).fill({ color, alpha: PEAK_FILL_ALPHA });
+  g.circle(0, 0, r).stroke({ width: RING_W, color, alpha: RING_ALPHA });
+}
+
 interface ZoneSprite extends HueState {
   g: Graphics;
   until: number; // server-clock expiry — drives the render() fade
   r: number; // zone radius (u) — needed to redraw on a firer-hue recolor
-  verbs: ZoneVerbs; // the doctrine verbs this glow paints (amendment 50)
-  /** PHOSPHOR only: the breathing ember disc, a CHILD of `g` so its own alpha
-   *  can pulse without disturbing the glow's expiry fade (which rides `g.alpha`). */
-  ember: Graphics | null;
 }
 
 export class LitZones {
   private readonly sprites = new Map<string, ZoneSprite>();
-  /** INTEGRATED ember-breath phase + the clock it last advanced at (hud.ts's
-   *  pulse precedent — accumulated per frame, never derived from absolute time). */
-  private emberPhase = 0;
-  private lastEmberSec: number | null = null;
 
   /** `layer` = chartRoot's litZone layer (fog-immune, above the base map). */
   constructor(private readonly layer: Container) {}
@@ -227,101 +162,27 @@ export class LitZones {
     for (const z of add) this.spawn(z, hueFor);
     // Story 1.12: recolor any glow that booted on the amber fallback (firer hue
     // not yet synced at spawn) once its personal hue lands — the mines precedent.
-    for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => this.drawGlow(s.g, s.r, color, s.verbs));
+    for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => drawZoneGlow(s.g, s.r, color));
   }
 
-  /**
-   * Per render frame: fade each glow by its timestamp (until - serverNow), and
-   * breathe the burning zones' embers on the shared integrated phase. `nowSec`
-   * is the server-clock estimate in SECONDS (the same clock the HP rail's pulse
-   * rides); omitting it holds the ember at its base alpha, which is exactly what
-   * motion=off does — the breath is the only part that is motion.
-   */
-  render(serverNow: number, nowSec?: number): void {
-    const alpha = this.advanceEmber(nowSec);
-    for (const { g, until, ember } of this.sprites.values()) {
-      g.alpha = litZoneFade(until - serverNow);
-      if (ember) ember.alpha = alpha;
-    }
-  }
-
-  /** Advance the shared ember phase to `nowSec` and return this frame's ember
-   *  alpha (motion-gated amplitude; the base alpha is information). */
-  private advanceEmber(nowSec: number | undefined): number {
-    if (nowSec !== undefined) {
-      const dt = this.lastEmberSec === null ? 0 : nowSec - this.lastEmberSec;
-      this.lastEmberSec = nowSec;
-      this.emberPhase = advanceEmberPhase(this.emberPhase, dt);
-    }
-    return emberAlpha(this.emberPhase, motionScaled(Z.emberAmp, settings.current.motion));
+  /** Per render frame: fade each glow by its timestamp (until - serverNow). */
+  render(serverNow: number): void {
+    for (const { g, until } of this.sprites.values()) g.alpha = litZoneFade(until - serverNow);
   }
 
   private spawn(z: LitZoneView, hueFor: HueFor): void {
     const { color, colored, rev } = resolveHue(z.by, hueFor);
-    const verbs = zoneVerbs(z);
     const g = new Graphics();
-    this.drawGlow(g, z.r, color, verbs);
+    drawZoneGlow(g, z.r, color);
     g.position.set(z.x, z.y);
     this.layer.addChild(g);
-    const sprite = { g, until: z.until, r: z.r, by: z.by, colored, rev, verbs, ember: this.emberOf(g, z.r, verbs) };
-    this.sprites.set(z.id, sprite);
-  }
-
-  /** The burning zone's ember disc: a child Graphics whose ALPHA breathes, so a
-   *  glow's expiry fade (`g.alpha`) and the fire's breath never fight over one
-   *  property. Null unless the zone carries PHOSPHOR — and independent of
-   *  DAZZLE, so a zone carrying both breathes AND glares. */
-  private emberOf(g: Graphics, r: number, verbs: ZoneVerbs): Graphics | null {
-    if (!verbs.phos) return null;
-    const ember = new Graphics();
-    ember.blendMode = 'add';
-    ember.circle(0, 0, r * Z.emberFrac).fill({ color: EMBER_COLOR, alpha: 1 });
-    ember.alpha = Z.emberAlpha;
-    g.addChild(ember);
-    return ember;
-  }
-
-  /**
-   * Draw the additive glow onto `g` (clearing prior geometry — the recolor path
-   * redraws in place; the per-frame fade lives on `g.alpha`, untouched here).
-   *
-   * Every doctrine keeps the firer-hue ring and fill — that is the zone's
-   * IDENTITY channel, and amendment 50 changed what a zone DOES, not whose it
-   * is. DAZZLE adds a brighter core and a soft halo, both CONTAINED inside the
-   * ring (dazzleRadii — the glare is what the zone is doing, the ring is where
-   * it stops) and deliberately STATIC (a flickering flash-blind is the exact
-   * hazard the flash budget exists to prevent); PHOSPHOR's ember disc is a
-   * separate breathing child (emberOf); a zone with neither verb paints exactly
-   * as before. The two are INDEPENDENT — a both-verb zone draws the glare here
-   * and gets its ember from emberOf, and neither branch can suppress the other.
-   */
-  private drawGlow(g: Graphics, r: number, color: number, verbs: ZoneVerbs): void {
-    g.clear();
-    g.blendMode = 'add'; // additive: illuminated water, not an opaque disc
-    if (verbs.daz) {
-      const glare = dazzleRadii(r);
-      g.circle(0, 0, glare.halo).fill({ color: GLARE_COLOR, alpha: Z.haloAlpha });
-      g.circle(0, 0, glare.core).fill({ color: GLARE_COLOR, alpha: Z.glareAlpha });
-    }
-    g.circle(0, 0, r).fill({ color, alpha: PEAK_FILL_ALPHA });
-    g.circle(0, 0, r).stroke({ width: RING_W, color, alpha: RING_ALPHA });
-  }
-
-  /** The doctrine verbs a held zone is painted with (test/debug seam). */
-  verbsOf(id: string): ZoneVerbs | null {
-    return this.sprites.get(id)?.verbs ?? null;
-  }
-
-  /** The live ember alpha of a held burning zone (test seam for the breath);
-   *  null for a zone with no ember (any zone without the PHOSPHOR verb). */
-  emberAlphaOf(id: string): number | null {
-    return this.sprites.get(id)?.ember?.alpha ?? null;
+    this.sprites.set(z.id, { g, until: z.until, r: z.r, by: z.by, colored, rev });
   }
 
   private despawn(id: string): void {
     const s = this.sprites.get(id);
     if (!s) return;
-    s.g.destroy({ children: true }); // takes the ember child with it
+    s.g.destroy({ children: true });
     this.sprites.delete(id);
   }
 }

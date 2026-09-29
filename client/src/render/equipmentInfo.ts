@@ -84,6 +84,9 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   foulingMines: 'Fouling Mines',
   machineGun: 'Machine Gun',
   flak: 'Flak',
+  // STORY 8.17 (amendment 131): PHOSPHOR SHELLS is its own weapon now, no
+  // longer a star-shell add-on — named from its card, title-cased.
+  phosphorShells: 'Phosphor Shells',
 };
 
 /**
@@ -111,6 +114,10 @@ export const EQUIPMENT_DESCRIPTION: Partial<Record<EquipmentId, string>> = {
   // THE TWO NEW SHIFTS (Story 8.15) — one mechanical line each, in the boost's
   // register, every number read off CONFIG (amendments 98/99). DRAFT copy,
   // ledgered for Eric.
+  // PHOSPHOR SHELLS (Story 8.17, amendment 135(j)) — DRAFT copy, ledgered for
+  // Eric; no numbers in the prose (the card prints them as rows).
+  phosphorShells:
+    'One shell to the click; every enemy hull in the burst takes damage and the water burns for seconds after.',
   instantReload: 'Finishes the running reload of your gun and every fitted weapon.',
   damageCut: `Cuts incoming weapon damage by ${Math.round((1 - CONFIG.damageCut.factor) * 100)} % for ${
     CONFIG.damageCut.durationMs / 1000
@@ -389,10 +396,11 @@ export function slotForCard(
  * the effective stats (Story 2.8: damage is stat-driven now, so a HEAVY SHELLS
  * / RDX FILLER stack moves this number), never off CONFIG.
  *
- * Star shells deal NO damage as of Story 2.8 (amendment 39 — pure illumination;
- * the INCENDIARY doctrine's DoT is a zone effect, not a hit), so they join the
- * speed boost on the null branch (the radar buoy that sat there too was
- * deleted in Story 8.16).
+ * Star shells DEAL DAMAGE AGAIN since Story 8.17 (Eric ruling 2026-09-29,
+ * amendment 130 — amendment 39's "structurally damageless" is superseded): the
+ * tier's number to every hull inside the whole lit circle, so they left the
+ * null branch. PHOSPHOR SHELLS reports its BURST damage (its burn is a
+ * per-second zone effect, not a hit).
  *
  * The BROADSIDE reports its PER-SHELL damage (Story 7-5 wave 2): every shell of
  * a barrage carries the same number and each bursts independently, so a
@@ -406,7 +414,8 @@ export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number 
     navalMines: e.navalMines.damage,
     boost: null,
     broadside: e.broadside.damage,
-    starShells: null,
+    starShells: e.starShells.damage,
+    phosphorShells: e.phosphorShells.damage,
     // The widened ids carry real rows (catalog-v3 §4 base numbers, sim/stats.ts
     // STUB_ROWS) even though no module fires them yet, so the table stays TOTAL
     // and reads the same one place every other number comes from.

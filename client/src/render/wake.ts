@@ -429,7 +429,7 @@ export const WAKE_STAMP_MIN_MS = (CONFIG.vision.radarCellU / FASTEST_AFLOAT_SPEE
  * a second. So it rebuilds on the things that can actually change it:
  *
  *  • THE SIGHT RADIUS (`sightU`) — the complement's own boundary. It is a STEP
- *    function of two discrete inputs (`fogHoleRadiusU(sightRange, dazzled)`),
+ *    function of discrete inputs (`fogHoleRadiusU({ sightRange, radarRange }, dazzled)`),
  *    so a dazzle onset/end moves it by a large
  *    fraction all at once and nothing else in this list notices. It was
  *    missing from the key (cycle-69 review gate, P6), which left a stationary

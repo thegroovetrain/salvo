@@ -511,16 +511,20 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
     expect(rows[0].label).not.toContain('×');
   });
 
-  it('prints a doctrine row with its behavior text, not a number', () => {
-    // STORY 8.13 TOOK BOTH MINE VERBS AWAY (epic-8 amendments 76/80/81):
-    // CAPTIVE MINES and FOULING MINES are equipment LINES now, and ACOUSTIC
-    // HOMING is deleted, so no add-on bolts onto a mine or a torpedo any more.
-    // The claim under test is unchanged and is made on a surviving verb: a
-    // doctrine row prints BEHAVIOUR, never a stat readout.
-    const t = tooltipModel(1, 'starShells', stats, ['phosphorShells'])!;
-    expect(t.boons[0].label).toBe('◆ PHOSPHOR SHELLS');
-    expect(t.boons[0].effect).toContain('burn');
-    expect(t.boons[0].effect).not.toContain('→');
+  it('prints a former add-on as its own LINE now — a number, no verb sentence', () => {
+    // STORY 8.13 TOOK BOTH MINE VERBS AWAY (epic-8 amendments 76/80/81), and
+    // STORY 8.17 TOOK THE LAST TWO (amendment 134): PHOSPHOR SHELLS is its own
+    // equipment line and DAZZLE the FLASH SHELLS consumable, so no add-on bolts
+    // onto the star shell any more and a star-shell slot lists only its own
+    // line. A phosphor slot's accrued row is its OWN line's copies, holding
+    // its reload like every weapon — never the retired "your lit zones burn"
+    // verb sentence.
+    const star = tooltipModel(1, 'starShells', stats, ['starShells', 'phosphorShells'])!;
+    expect(star.boons.map((r) => r.label)).toEqual(['◆ STAR SHELLS']);
+    const t = tooltipModel(1, 'phosphorShells', stats, ['phosphorShells', 'phosphorShells'])!;
+    expect(t.boons.map((r) => r.label)).toEqual(['◆ PHOSPHOR SHELLS']);
+    expect(t.boons[0].effect).toMatch(/^Reload: /);
+    expect(t.boons[0].effect).not.toContain('lit zones');
   });
 
   // ...and a mine slot's accrued rows are now its own LINE's copies, which is

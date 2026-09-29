@@ -89,6 +89,9 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
   it('classes the gun FAMILY (gun/starShells) as 360° gunLike', () => {
     expect(fireArcKind('gun')).toBe('gunLike');
     expect(fireArcKind('starShells')).toBe('gunLike');
+    // Story 8.17: PHOSPHOR SHELLS and the FLASH SHELLS consumable are 360° too.
+    expect(fireArcKind('phosphorShells')).toBe('gunLike');
+    expect(fireArcKind('dazzleShells')).toBe('gunLike');
   });
 
   it('classes the SECTOR ids — torpedo bow arc, mine + decoy buoy rear arc', () => {
@@ -221,6 +224,13 @@ describe('clickInArc — the click-aimed consumables are GATED by their arcs', (
   it('is FALSE for a KEY-FIRES consumable — a click on an ability fires nothing', () => {
     for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const) {
       expect(clickInArc(0, 0, 10, id), id).toBe(false);
+    }
+  });
+
+  it('FLASH SHELLS is a 360° click — never out of arc, never a placement leash (Story 8.17)', () => {
+    for (const aim of [0, Math.PI / 2, Math.PI, -Math.PI / 3]) {
+      expect(clickInArc(0, aim, 10, 'dazzleShells'), `aim ${aim}`).toBe(true);
+      expect(clickInArc(0, aim, 99_999, 'dazzleShells'), `aim ${aim} far`).toBe(true); // range clamps, never denies
     }
   });
 
@@ -408,6 +418,16 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
     expect(weaponRangeU(stats, 'broadside')).toBe(stats.equipment.broadside.rangeU);
     expect(weaponRangeU(stats, 'starShells')).toBe(stats.equipment.starShells.rangeU);
     expect(weaponRangeU(stats, 'starShells')).toBe(CONFIG.vision.radar);
+  });
+
+  // STORY 8.17 (amendments 131/132): PHOSPHOR SHELLS reads its own row, and the
+  // FLASH SHELLS consumable (no row) reaches as far as the star shell — the
+  // post-fold radar range.
+  it('phosphor reads its OWN row, flash shells the radar range — both the radar rung', () => {
+    expect(weaponRangeU(stats, 'phosphorShells')).toBe(stats.equipment.phosphorShells.rangeU);
+    expect(weaponRangeU(stats, 'phosphorShells')).toBe(CONFIG.vision.radar);
+    expect(weaponRangeU(stats, 'dazzleShells')).toBe(stats.radarRange);
+    expect(weaponRangeU(stats, 'dazzleShells')).toBe(weaponRangeU(stats, 'starShells'));
   });
 
   it('the BROADSIDE stops at the 5/8 RUNG — the one weapon short of radar (R2.4)', () => {

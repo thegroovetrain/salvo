@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Container } from 'pixi.js';
-import { CONFIG, type BallisticEvent, type TorpedoUpdateEvent } from '@salvo/shared';
+import { CONFIG, effectiveSight, type BallisticEvent, type TorpedoUpdateEvent } from '@salvo/shared';
 import {
   MAX_OWN_CLAIMS,
   Projectiles,
@@ -179,7 +179,7 @@ describe('Projectiles.render — the torpedo cull is genuinely separate from the
 
   it('follows the ONE plumbed sight range — setSightRange moves both rings', () => {
     const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight * 2); // a boon-widened bubble
+    p.setSightRange(CONFIG.vision.sight * 2, CONFIG.vision.radar); // a boon-widened bubble
     p.onShell(torpAt(justOutside));
     p.render(1, own, []);
     expect(p.liveCount).toBe(1); // now well inside the widened detect ring
@@ -269,14 +269,16 @@ describe('Projectiles.render — the detect cull applies to ENEMY fish only (rev
 
 describe('Projectiles.setDazzled — both cull rings shrink with the observer (review fix)', () => {
   const own = { x: 0, y: 0 };
-  const DZ = CONFIG.starShells.dazzleSightFactor;
-  const dazzledSightCull = CONFIG.vision.sight * DZ + 40;
-  const dazzledDetectCull = CONFIG.vision.sight * DZ * CONFIG.vision.detectFactor + 40;
+  // A FLASHED observer's truesight: the shared effectiveSight — 1/8 of the
+  // intel range, 82.5 u at base (Story 8.17, amendment 132; was sight × 0.5).
+  const DZ_SIGHT = effectiveSight({ sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar }, true);
+  const dazzledSightCull = DZ_SIGHT + 40;
+  const dazzledDetectCull = DZ_SIGHT * CONFIG.vision.detectFactor + 40;
   const at = (k: 'shell' | 'torp', x: number): BallisticEvent => ({ k, id: 'p1', x, y: 0, vx: 0, vy: 0, t: 0 });
 
   const live = (ev: BallisticEvent, dazzled: boolean): number => {
     const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight);
+    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
     p.setDazzled(dazzled);
     p.onShell(ev);
     p.render(1, own, []);
@@ -291,7 +293,7 @@ describe('Projectiles.setDazzled — both cull rings shrink with the observer (r
     expect(p.isDazzled).toBe(false);
   });
 
-  it('shrinks the SHELL ring by the ratified dazzle factor — the pre-existing gap, closed', () => {
+  it('shrinks the SHELL ring to the dazzled sight (radar/8) — the pre-existing gap, closed', () => {
     expect(live(at('shell', dazzledSightCull - 1), true)).toBe(1);
     expect(live(at('shell', dazzledSightCull + 1), true)).toBe(0);
     // ...and the SAME shell survives undazzled, which is the proof the ring moved.
@@ -304,16 +306,17 @@ describe('Projectiles.setDazzled — both cull rings shrink with the observer (r
     expect(live(at('torp', dazzledDetectCull + 1), false)).toBe(1);
   });
 
-  it('uses the shared CONFIG dazzle factor, never a second copy of 0.5', () => {
-    // The same constant sightOf() applies server-side. If it is ever retuned,
-    // both sides must move together — so this reads it rather than a literal.
-    expect(DZ).toBe(CONFIG.starShells.dazzleSightFactor);
-    expect(cullRadiusSq(CONFIG.vision.sight * DZ, 'shell')).toBe((dazzledSightCull) ** 2);
+  it('uses the SHARED effectiveSight, never a local factor — 82.5 u at base', () => {
+    // The same function sightOf() calls server-side. If it is ever retuned,
+    // both sides move together — so this reads it rather than a literal.
+    expect(DZ_SIGHT).toBe(82.5);
+    expect(DZ_SIGHT).toBe(CONFIG.vision.radar * CONFIG.flashShells.sightFraction);
+    expect(cullRadiusSq(DZ_SIGHT, 'shell')).toBe((dazzledSightCull) ** 2);
   });
 
   it('restores both rings the moment the dazzle lifts', () => {
     const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight);
+    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
     p.setDazzled(true);
     p.setDazzled(false);
     p.onShell(at('shell', CONFIG.vision.sight + 39));
@@ -324,10 +327,10 @@ describe('Projectiles.setDazzled — both cull rings shrink with the observer (r
   it('a sight-stat change while dazzled keeps the dazzle applied — the flag is retained state', () => {
     const p = new Projectiles(900, new Container());
     p.setDazzled(true);
-    p.setSightRange(CONFIG.vision.sight * 2); // a boon lands mid-dazzle
-    p.onShell(at('shell', CONFIG.vision.sight * 2 * DZ + 40 + 1));
+    p.setSightRange(CONFIG.vision.sight * 2, CONFIG.vision.radar); // a boon lands mid-dazzle
+    p.onShell(at('shell', DZ_SIGHT + 40 + 1));
     p.render(1, own, []);
-    expect(p.liveCount).toBe(0); // still halved — not silently reset by the boon
+    expect(p.liveCount).toBe(0); // still dazzled — not silently reset by the boon
   });
 });
 
@@ -345,14 +348,14 @@ describe('Projectiles.setDazzled — both cull rings shrink with the observer (r
 
 describe('Projectiles — an OWN track keeps the un-dazzled ring (review fix)', () => {
   const origin = { x: 0, y: 0 };
-  const DZ = CONFIG.starShells.dazzleSightFactor;
+  const DZ_SIGHT = effectiveSight({ sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar }, true);
   const OWN_CULL = CONFIG.vision.sight + 40; // 370u — un-dazzled truesight + margin
-  const dazzledSightCull = CONFIG.vision.sight * DZ + 40; // 205u at base stats
+  const dazzledSightCull = DZ_SIGHT + 40; // 122.5u at base stats (radar/8 + margin)
   const at = (k: 'shell' | 'torp', x: number): BallisticEvent => ({ k, id: 'p1', x, y: 0, vx: 0, vy: 0, t: 0 });
 
   const live = (ev: BallisticEvent, own: 'gun' | 'heavyTorpedo' | null): number => {
     const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight);
+    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
     p.setDazzled(true);
     p.onShell(ev, own, own);
     p.render(1, origin, []);
@@ -376,7 +379,7 @@ describe('Projectiles — an OWN track keeps the un-dazzled ring (review fix)', 
 
   it('leaves the ENEMY rings dazzle-scaled — the fork is on OWNERSHIP, not on the dazzle', () => {
     expect(live(at('shell', dazzledSightCull + 1), null)).toBe(0);
-    expect(live(at('torp', CONFIG.vision.sight * DZ * CONFIG.vision.detectFactor + 40 + 1), null)).toBe(0);
+    expect(live(at('torp', DZ_SIGHT * CONFIG.vision.detectFactor + 40 + 1), null)).toBe(0);
   });
 });
 
@@ -600,11 +603,11 @@ describe('a reveal for a KNOWN id re-anchors the track (amendment 78)', () => {
 
   it('re-creates a track the client already CULLED, and keeps it ours', () => {
     const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight);
+    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
     // Our own fish, genuinely claimed at launch.
     p.onShell(fish(), 'heavyTorpedo', 'heavyTorpedo');
     // It runs out past even the OWN (sight-derived) ring and is culled.
-    const far = Math.sqrt(trackCullRadiusSq(CONFIG.vision.sight, false, 'torp', 'heavyTorpedo')) + 10;
+    const far = Math.sqrt(trackCullRadiusSq({ sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar }, false, 'torp', 'heavyTorpedo')) + 10;
     p.onShell(fish({ id: 't1', x: far, y: 0, t: 0 })); // re-anchor it out there
     p.render(0, { x: 0, y: 0 }, []);
     expect(p.liveCount).toBe(0);
@@ -654,7 +657,7 @@ describe('a reveal for a KNOWN id re-anchors the track (amendment 78)', () => {
 
   it('...and a fish we never claimed stays an ENEMY track on re-reveal', () => {
     const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight);
+    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
     const near = Math.sqrt(cullRadiusSq(CONFIG.vision.sight, 'torp')) + 20;
     p.onShell(fish({ id: 'enemy', x: near, y: 0, t: 5000 }));
     p.render(5000, { x: 0, y: 0 }, []);

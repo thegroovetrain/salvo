@@ -64,10 +64,10 @@ warnings: [oversized]
 - `shared/src/sim/catalog.ts` -- `tieredWeaponSteps` helper; `starShells`, `broadside`, `phosphorShells` ladders; `dazzleShells: consumable(...)`; `addon()` rows gone; header counts
 - `shared/src/sim/loadout.ts` -- `EquipmentId` +`phosphorShells`; `ConsumableId` +`dazzleShells`; `EQUIPMENT_IS_WEAPON` / `CONSUMABLE_IS_WEAPON`
 - `shared/src/sim/stats.ts` -- `EffectiveStarShells` (+`damage`, −verbs), NEW `EffectivePhosphorShells`, `shippedSkillshotRows` → tier-aware rows, post-fold `rangeU` re-pins for `phosphorShells`
-- `shared/src/sim/effects.ts` -- `EQUIPMENT_STAT_FIELDS` (+`starShells.damage`, `phosphorShells.*`), `EQUIPMENT_INT_FIELDS` (`turrets`, pools), `EQUIPMENT_DOCTRINES` −`starShells`
+- `shared/src/sim/effects.ts` -- `EQUIPMENT_STAT_FIELDS` (+`starShells.damage`, `phosphorShells.*`), `EQUIPMENT_INT_FIELDS` (`turrets`, pools), `DOCTRINE_MODES` emptied (`DoctrineWeapon = EquipmentId`, machinery kept)
 - `shared/src/sim/arcs.ts` -- `consumableArc('dazzleShells')` full; `arcFor('phosphorShells')` full
 - `shared/src/sim/sight.ts` -- NEW `effectiveSight(stats, dazzled)`; barrel export
-- `shared/src/types.ts` -- `LitZoneView` −`phos`/`daz`; NEW `BurnZoneView`; `FrameMsg.burnZones?`; `ShellState.burn?`/`flash?` server-internal tags beside `lit`
+- `shared/src/types.ts` -- `LitZoneView` −`phos`/`daz`; NEW `BurnZoneView`; `FrameMsg.burnZones?`; (`ShellState.burn?`/`flash?` server-internal tags live in `shared/src/sim/shell.ts` beside `lit`)
 - `shared/src/index.ts` -- PV 60 + header entry; exports
 - `server/src/game/equipment/starShells.ts` -- damage from the row; `server/src/game/equipment/phosphorShells.ts` -- NEW row (flow of starShells.ts, `burn` tag); `server/src/game/equipment/consumables/dazzleShells.ts` -- NEW click-fired row (`flash` tag); `equipment/index.ts` + `consumables.ts` registries
 - `server/src/game/world.ts` -- `LitZone` −verbs; NEW `BurnZone` store + `spawnBurnZone` + `expireBurnZones`; `resolveBurst`/`resolveShell` handle `burn`/`flash` tags; `applyZoneEffects`/`markZoneEffects` read `burnZones`; `applyFlash(at, radius, ownerId)`; STEP_ORDER row names; reset/redeploy clear `burnZones` at match start (mines precedent)

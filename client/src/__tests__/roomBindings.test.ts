@@ -9,9 +9,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CONFIG, MSG } from '@salvo/shared';
 import {
+  BURN_AMOUNT_CAP,
   bindRoom,
   frameIsDeadOrSpectating,
   inEnemyBurningZone,
+  maxBurnDps,
   readsAsBurn,
   windowRunning,
   type RoomBindingDeps,
@@ -87,6 +89,7 @@ function setup() {
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn,
@@ -171,6 +174,7 @@ function setupChannels(over: Partial<RoomBindingDeps> = {}) {
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
     decoys: { sync: decoysSync },
     colors: vi.fn(() => null),
     ordnanceHue: vi.fn(() => 0),
@@ -234,6 +238,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     projectiles: {
       onBurst: over.onBurst ?? onBurst,
@@ -334,6 +339,7 @@ describe('bindRoom own sunk', () => {
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
@@ -382,6 +388,7 @@ describe('bindRoom own sunk', () => {
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
       litZones: { sync: vi.fn() },
+      burnZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
@@ -444,6 +451,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
       litZones: { sync: vi.fn() },
+      burnZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play: vi.fn() },
@@ -545,6 +553,7 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
       litZones: { sync: vi.fn() },
+      burnZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
@@ -639,6 +648,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
       litZones: { sync: vi.fn() },
+      burnZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play },
@@ -1112,6 +1122,7 @@ function setupToasts(spectating = false, held = false) {
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
@@ -1403,7 +1414,7 @@ function setupWater(
   const knownIds = new Set<string>();
   const deps = {
     state: {
-      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0, litZones: [] },
+      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0, litZones: [], burnZones: [] },
       spectating: false, phase: '', respawnEta: null, mode: 'interp',
     },
     clock: { addSample: vi.fn() },
@@ -1419,6 +1430,7 @@ function setupWater(
     ownBurstRadius: () => burstRadius,
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     projectiles: {
       onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(),
@@ -1455,6 +1467,19 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'broadside', 'broadside');
     expect(spawnEffect).toHaveBeenCalledWith('muzzleHeavy', 0, 0);
     expect(play).toHaveBeenCalledWith('fireBroadside'); // the heavier report, finally played
+  });
+
+  // STORY 8.17: PHOSPHOR SHELLS and the FLASH SHELLS consumable each fire one
+  // shell on the `shell` kind — a genuine claim (it sizes the own burst ring)
+  // that reports with the star shell's launch cue, and no heavy muzzle.
+  it('an OWN phosphor or flash shell is claimed, and reports with the flare cue', () => {
+    for (const id of ['phosphorShells', 'dazzleShells'] as const) {
+      const { sink, play, spawnEffect, onShell } = setupWater(id);
+      sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
+      expect(onShell, id).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), id, id);
+      expect(spawnEffect, id).not.toHaveBeenCalled();
+      expect(play, id).toHaveBeenCalledWith('fireStarShells');
+    }
   });
 
   it('an OWN gun shot keeps its crack — and no longer flashes from here (Story 4.3)', () => {
@@ -1758,14 +1783,18 @@ describe('the gunnery rows (Story 4.3) — mz / sp / hc', () => {
 });
 
 describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', () => {
-  const burning = (by: string) => [{ id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by, phos: true as const }];
-  const dmg = [{ k: 'dmg', id: 'me', amount: 6 }];
+  // A PHOSPHOR SHELLS burning zone on its own channel (Story 8.17 — the
+  // star-shell `phos` lit-zone flag is deleted, amendment 134).
+  const burning = (by: string) => [{ id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by }];
+  // One tier-V burn flush: 10 hp/s × the 0.5 s window = 5 hp, exactly
+  // BURN_AMOUNT_CAP (the largest a single burn `dmg` can be).
+  const dmg = [{ k: 'dmg', id: 'me', amount: 5 }];
 
   it('reads an ordinary hit as damage: full shake, the impact thud', () => {
     const { sink, play, trigger } = setupWater();
     sink.handler(victimFrame(dmg, {}));
     expect(play).toHaveBeenCalledWith('damage');
-    expect(trigger).toHaveBeenCalledWith(6);
+    expect(trigger).toHaveBeenCalledWith(5);
   });
 
   it('a hit the SHIELD BLOCK fully absorbed (amount 0) still plays the ordinary hit cue (Story 8.16, amendment 117)', () => {
@@ -1784,39 +1813,35 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
 
   it('reads a tick inside an ENEMY burning zone as BURN: the burn cue, a softened shake', () => {
     const { sink, play, trigger } = setupWater();
-    sink.handler(victimFrame(dmg, {}, { litZones: burning('foe') }));
+    sink.handler(victimFrame(dmg, {}, { burnZones: burning('foe') }));
     expect(play).toHaveBeenCalledWith('burn');
     expect(play).not.toHaveBeenCalledWith('damage');
     const shaken = trigger.mock.calls[0][0] as number;
     expect(shaken).toBeGreaterThan(0); // it is still damage — never silent
-    expect(shaken).toBeLessThan(6); // ...but a DoT tick, not a slam
+    expect(shaken).toBeLessThan(5); // ...but a DoT tick, not a slam
   });
 
   it('our OWN flare never burns us (you cannot set fire to yourself)', () => {
     const { sink, play } = setupWater();
-    sink.handler(victimFrame(dmg, {}, { litZones: burning('me') }));
+    sink.handler(victimFrame(dmg, {}, { burnZones: burning('me') }));
     expect(play).toHaveBeenCalledWith('damage');
   });
 
-  it('a NON-burning enemy zone is not fire, and neither is standing outside one', () => {
+  it('an enemy LIT zone is not fire, and neither is standing outside a burning one', () => {
     const { sink, play } = setupWater();
-    const dazzleOnly = { id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', daz: true as const };
-    sink.handler(victimFrame(dmg, {}, { litZones: [dazzleOnly] }));
+    // Story 8.17: a lit zone only ever LIGHTS — standing in an enemy flare's
+    // circle is not standing in fire, whatever the zone looks like.
+    const litOnly = { id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by: 'foe' };
+    sink.handler(victimFrame(dmg, {}, { litZones: [litOnly] }));
     expect(play).toHaveBeenCalledWith('damage');
     play.mockClear();
-    sink.handler(victimFrame(dmg, {}, { litZones: [{ ...burning('foe')[0], x: 900 }] }));
+    sink.handler(victimFrame(dmg, {}, { burnZones: [{ ...burning('foe')[0], x: 900 }] }));
     expect(play).toHaveBeenCalledWith('damage');
   });
 
-  // THE INDEPENDENT-CHECKS PIN (Story 7-5 wave 1): the verbs STACK, so a zone
-  // that both burns AND dazzles is still a burning zone. An equality read
-  // against one enum value would have classified this tick as a plain hit.
-  it('a zone carrying BOTH verbs still reads as BURN', () => {
-    const { sink, play } = setupWater();
-    sink.handler(victimFrame(dmg, {}, { litZones: [{ ...burning('foe')[0], daz: true as const }] }));
-    expect(play).toHaveBeenCalledWith('burn');
-    expect(play).not.toHaveBeenCalledWith('damage');
-  });
+  // (The Story 7-5 "BOTH verbs still reads as BURN" pin is DELETED with the
+  // star-shell verbs — Story 8.17, amendment 134: every zone on the burning
+  // channel burns, so there is no second flag that could mask the first.)
 
   // --- 2.9 REVIEW: burn is a CLASSIFICATION, not a location -------------------
   //
@@ -1826,7 +1851,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
 
   it('reads a BIG hit taken inside the fire as the slam it was', () => {
     const { sink, play, trigger } = setupWater();
-    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 40 }], {}, { litZones: burning('foe') }));
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 40 }], {}, { burnZones: burning('foe') }));
     expect(play).toHaveBeenCalledWith('damage');
     expect(play).not.toHaveBeenCalledWith('burn');
     expect(trigger).toHaveBeenCalledWith(40); // full amplitude — a torpedo, not a tick
@@ -1835,24 +1860,24 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
   it('still reads a DoT flush that lands just after the fire left the frame', () => {
     const { sink, play, trigger } = setupWater();
     // Frame 1 (t=1000): standing in the fire, no damage yet.
-    sink.handler(victimFrame([], {}, { litZones: burning('foe') }));
+    sink.handler(victimFrame([], {}, { burnZones: burning('foe') }));
     // Frame 2: the zone is gone from the list (expired, or we sailed clear) and
     // the server's aggregated flush for the window we DID burn in arrives.
     sink.handler({
       t: 1400, tick: 4, ackSeq: 0, contacts: [], mines: [],
-      events: [{ k: 'dmg', id: 'me', amount: 6 }],
+      events: [{ k: 'dmg', id: 'me', amount: 5 }],
       you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0 },
     });
     expect(play).toHaveBeenLastCalledWith('burn');
-    expect(trigger).toHaveBeenLastCalledWith(6 * CLIENT_CONFIG.litZone.burnShakeScale);
+    expect(trigger).toHaveBeenLastCalledWith(5 * CLIENT_CONFIG.burnZone.burnShakeScale);
   });
 
   it('lets the grace EXPIRE — a hit long after the fire is an ordinary hit', () => {
     const { sink, play } = setupWater();
-    sink.handler(victimFrame([], {}, { litZones: burning('foe') })); // t=1000
+    sink.handler(victimFrame([], {}, { burnZones: burning('foe') })); // t=1000
     sink.handler({
       t: 6000, tick: 9, ackSeq: 0, contacts: [], mines: [],
-      events: [{ k: 'dmg', id: 'me', amount: 6 }],
+      events: [{ k: 'dmg', id: 'me', amount: 5 }],
       you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0 },
     });
     expect(play).toHaveBeenLastCalledWith('damage');
@@ -1866,7 +1891,13 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
   });
 
   it('readsAsBurn pins both halves: recent enough AND small enough', () => {
-    const cap = CONFIG.starShells.incendiaryDps * 0.5 * 4;
+    // Story 8.17: the cap is ONE owner's largest burn flush — the tier-V
+    // phosphor rate (10 hp/s) × the server's 0.5 s aggregation window.
+    const cap = BURN_AMOUNT_CAP;
+    expect(cap).toBe(5);
+    expect(maxBurnDps()).toBe(10);
+    expect(cap).toBe(maxBurnDps() * 0.5);
+    expect(CONFIG.phosphorShells.dps).toBeLessThan(maxBurnDps()); // the ladder raised it
     expect(readsAsBurn(cap, 0)).toBe(true);
     expect(readsAsBurn(cap, 600)).toBe(true); // the grace's last instant
     expect(readsAsBurn(cap + 0.1, 0)).toBe(false); // too big to be a DoT flush
@@ -1903,7 +1934,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     const { sink, play, trigger } = setupWater();
     sink.handler(victimFrame(dmg, {}));
     expect(trigger).toHaveBeenCalledTimes(1);
-    expect(trigger).toHaveBeenCalledWith(6);
+    expect(trigger).toHaveBeenCalledWith(5);
     expect(play).toHaveBeenCalledTimes(1);
     expect(play).toHaveBeenCalledWith('damage');
   });
@@ -1949,65 +1980,61 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     sink.handler(
       victimFrame(
         [
-          { k: 'dmg', id: 'me', amount: 6 },
+          { k: 'dmg', id: 'me', amount: 5 },
           { k: 'dmg', id: 'me', amount: 30 },
         ],
         {},
-        { litZones: burning('foe') },
+        { burnZones: burning('foe') },
       ),
     );
     expect(play).toHaveBeenCalledWith('damage');
     expect(play).not.toHaveBeenCalledWith('burn');
-    expect(trigger).toHaveBeenCalledWith(36);
+    expect(trigger).toHaveBeenCalledWith(35);
   });
 
   it('a lone DoT flush still reads as BURN', () => {
     const { sink, play, trigger } = setupWater();
-    sink.handler(victimFrame(dmg, {}, { litZones: burning('foe') }));
+    sink.handler(victimFrame(dmg, {}, { burnZones: burning('foe') }));
     expect(play).toHaveBeenCalledWith('burn');
-    expect(trigger).toHaveBeenCalledWith(6 * CLIENT_CONFIG.litZone.burnShakeScale);
+    expect(trigger).toHaveBeenCalledWith(5 * CLIENT_CONFIG.burnZone.burnShakeScale);
   });
 
   it('MANY simultaneous burners still read as BURN even though the SUM passes the cap', () => {
     // The reason burn is classified PER EVENT and folded, rather than by testing
     // the total: applyZoneEffects emits one bite per (owner, victim) per tick, so
     // four distinct enemy burners produce four separate small flushes. Their sum
-    // (24) sails past BURN_AMOUNT_CAP (10), whose ×4 headroom was derived for ONE
-    // event covering overlapping patches. Testing the sum would report standing
+    // (20) sails past BURN_AMOUNT_CAP (5), which is ONE owner's largest flush
+    // (Story 8.17). Testing the sum would report standing
     // in four fires as being shelled — a full-amplitude shake and a thud for
     // damage that was entirely DoT.
     const { sink, play, trigger } = setupWater();
     sink.handler(
       victimFrame(
         [
-          { k: 'dmg', id: 'me', amount: 6 },
-          { k: 'dmg', id: 'me', amount: 6 },
-          { k: 'dmg', id: 'me', amount: 6 },
-          { k: 'dmg', id: 'me', amount: 6 },
+          { k: 'dmg', id: 'me', amount: 5 },
+          { k: 'dmg', id: 'me', amount: 5 },
+          { k: 'dmg', id: 'me', amount: 5 },
+          { k: 'dmg', id: 'me', amount: 5 },
         ],
         {},
-        { litZones: burning('foe') },
+        { burnZones: burning('foe') },
       ),
     );
     expect(play).toHaveBeenCalledWith('burn');
     expect(play).not.toHaveBeenCalledWith('damage');
-    expect(trigger).toHaveBeenCalledWith(24 * CLIENT_CONFIG.litZone.burnShakeScale);
+    expect(trigger).toHaveBeenCalledWith(20 * CLIENT_CONFIG.burnZone.burnShakeScale);
   });
 
   it('inEnemyBurningZone pins the predicate itself', () => {
+    // Story 8.17: the PHOSPHOR burning-zone channel — every zone on it burns.
     const zones = [
-      { id: 'a', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', phos: true as const },
-      { id: 'b', x: 0, y: 0, r: 100, until: 9e9, by: 'me', phos: true as const },
-      // A dazzle-only zone is not fire, whoever fired it.
-      { id: 'c', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', daz: true as const },
+      { id: 'a', x: 0, y: 0, r: 100, until: 9e9, by: 'foe' },
+      { id: 'b', x: 0, y: 0, r: 100, until: 9e9, by: 'me' },
     ];
     expect(inEnemyBurningZone(zones, { x: 50, y: 0 }, 'me')).toBe(true);
     expect(inEnemyBurningZone(zones, { x: 100, y: 0 }, 'me')).toBe(true); // on the edge
     expect(inEnemyBurningZone(zones, { x: 101, y: 0 }, 'me')).toBe(false);
-    expect(inEnemyBurningZone([zones[1]], { x: 0, y: 0 }, 'me')).toBe(false); // our own flare
-    expect(inEnemyBurningZone([zones[2]], { x: 0, y: 0 }, 'me')).toBe(false); // dazzle is not fire
-    // ...and a BOTH-verb enemy zone still burns (the verbs stack).
-    expect(inEnemyBurningZone([{ ...zones[0], daz: true as const }], { x: 0, y: 0 }, 'me')).toBe(true);
+    expect(inEnemyBurningZone([zones[1]], { x: 0, y: 0 }, 'me')).toBe(false); // our own fire
     expect(inEnemyBurningZone([], { x: 0, y: 0 }, 'me')).toBe(false);
   });
 });
@@ -2115,6 +2142,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       contacts: { pushFrame: vi.fn() },
       mines: { sync: vi.fn() },
       litZones: { sync: vi.fn() },
+      burnZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
@@ -2630,6 +2658,7 @@ function setupSignals(early: { results: unknown; bound: boolean } = { results: n
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn: vi.fn(),

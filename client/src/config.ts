@@ -2281,15 +2281,17 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * STAR-SHELL ZONE IDENTITY (Story 2.9, amendment 50): a lit zone reads as its
-   * DOCTRINE for every observer — the one thing on the wire that says what a
-   * build is doing, because the zone IS observable behavior (Eric's counterplay-
-   * over-concealment ruling). The firer's personal hue always owns the RING (a
-   * zone still says WHOSE it is); the doctrine layers INSIDE it.
+   * PHOSPHOR SHELLS BURNING ZONE (Story 8.17, epic-8 amendments 131/135(i)) —
+   * render/burnZones.ts. The ember treatment MOVED here verbatim from the
+   * retired star-shell `phos` lit-zone verb (Story 2.9, amendment 50: a zone
+   * reads as its hazard for every observer — counterplay over concealment).
+   * The firer's personal hue owns the RING (a zone still says WHOSE it is); the
+   * ember layers INSIDE it. The DAZZLE glare knobs (glare/halo fractions) are
+   * DELETED with the verb (amendment 134): FLASH SHELLS leaves no zone.
    */
-  litZone: {
-    /** INCENDIARY: an ember disc inside the ring, at this fraction of the zone
-     *  radius, breathing between (base ∓ amp) alpha at `emberHz` — well under
+  burnZone: {
+    /** An ember disc inside the ring, at this fraction of the zone radius,
+     *  breathing between (base ∓ amp) alpha at `emberHz` — well under
      *  `settings.pulseCapHz` and nowhere near the ≤3 flashes/s ceiling. The
      *  disc itself (position + extent) is the information and holds at
      *  motion=off; only the breath is motion. */
@@ -2297,20 +2299,6 @@ export const CLIENT_CONFIG = {
     emberAlpha: 0.16,
     emberAmp: 0.07,
     emberHz: 0.5,
-    /** DAZZLE: a brighter core disc + a softer outer halo — STATIC (the doctrine
-     *  is a flash-blind, and a flickering one would be the exact hazard the
-     *  flash budget exists to prevent).
-     *
-     *  BOTH FRACTIONS ARE <= 1: the glare lives INSIDE the zone's true circle.
-     *  The wire radius `r` is the hazard's real extent and the firer-hue ring at
-     *  `r` is its boundary; a halo painted past that (the 1.28 draft) advertised
-     *  a flash-blind over water that is not dazzling — the same class of lie as
-     *  a marker drawn bigger than the thing it marks (amendment 47). The halo
-     *  now stops just short of the ring so the boundary stays the ring's. */
-    glareFrac: 0.5,
-    glareAlpha: 0.2,
-    haloFrac: 0.95,
-    haloAlpha: 0.09,
     /** A burn tick is a DoT, not a slam: the victim's shake is scaled to this
      *  fraction of an ordinary hit's so standing in fire nudges instead of
      *  hammering (the tone + the zone under the hull carry the information). */

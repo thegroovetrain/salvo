@@ -354,7 +354,8 @@ export class Radar {
   private sightRange: number = CONFIG.vision.sight;
   private radarRange: number = CONFIG.vision.radar;
   private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
-  /** Is the own ship inside an enemy DAZZLE BURST right now (Story 2.8)? The
+  /** Is the own ship dazzled by an enemy FLASH SHELLS burst right now (Story
+   *  2.8; the flash since 8.17 — sight → radarRange/8, shared `effectiveSight`)? The
    *  SAME flag `Fog` carries, plumbed from the same place in main.ts — the
    *  source seam and the drawn fog hole are one number (amendment 89), so they
    *  cannot be allowed to disagree about dazzle. It is read at paint creation
@@ -481,7 +482,7 @@ export class Radar {
    * exactly that equality assertion.
    */
   get sightHoleU(): number {
-    return fogHoleRadiusU(this.sightRange, this.dazzled);
+    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzled);
   }
 
   private applyRanges(): void {

@@ -124,7 +124,7 @@ export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'none';
 export function fireArcKind(id: SlotItemId | null): FireArcKind {
   if (id === null) return 'none'; // an unfitted weapon slot / defensive null
   const arc = arcFor(id);
-  if (arc.kind === 'full') return 'gunLike'; // gun / starShells
+  if (arc.kind === 'full') return 'gunLike'; // the guns / starShells / phosphorShells / dazzleShells (FLASH)
   if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / mine + decoy rear arc
   if (arc.kind === 'twin-sector') return 'twin'; // broadside beams
   return 'none'; // none (boost)
@@ -189,6 +189,11 @@ export { twinSectorSide };
 export function weaponRangeU(stats: EffectiveStats, id: SlotItemId | null): number {
   if (id === 'broadside') return stats.equipment.broadside.rangeU;
   if (id === 'starShells') return stats.equipment.starShells.rangeU;
+  // STORY 8.17: PHOSPHOR SHELLS reads its own row (re-pinned to the radar rung
+  // post-fold, like the star shell); the FLASH SHELLS consumable has no row and
+  // reaches exactly as far as the star shell — the post-fold radar range.
+  if (id === 'phosphorShells') return stats.equipment.phosphorShells.rangeU;
+  if (id === 'dazzleShells') return stats.radarRange;
   // THE TWO PICKABLE GUNS (Story 8.15) read their OWN row — both re-pinned to
   // the radar rung today (660 u, amendments 103/105), but a gun's range is its
   // row's number, never the cannon's by assumption.
