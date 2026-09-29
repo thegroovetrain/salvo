@@ -216,7 +216,7 @@ describe('CHAFF — emission through perception.observe()', () => {
     w.chaffSources.get(o.id)!.until = w.now;
     expect(blips(observe(w, a.id).events)).toEqual([]);
     w.chaffSources.get(o.id)!.until = w.now + 5000;
-    w.litZones.set('z', { id: 'z', ownerId: a.id, x: 500, y: 0, r: 200, until: w.now + 5000, phosphor: false, dazzle: false } as never);
+    w.litZones.set('z', { id: 'z', ownerId: a.id, x: 500, y: 0, r: 200, until: w.now + 5000 } as never);
     expect(blips(observe(w, a.id).events)).toEqual([]);
   });
 

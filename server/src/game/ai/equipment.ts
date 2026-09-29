@@ -30,18 +30,18 @@
 //   captiveMines (kind) — full-placeRange proactive lays, hostile-only victims
 //   foulingMines (kind) — the trap goes down EARLIER against a closing pursuer
 //   torpedo homingTurnRate — the credible-range gate widens (budget − turn room)
-//   starShells.dazzle   — the flare turns OFFENSIVE (live contact in sight)
-//   starShells.phosphor — prefer the SLOW target; the ×0.8 lit shrink caps
-//                         how stale a sensor plot is worth lighting
 //   broadside.spreadRung— the wide base fan may be spent on a just-lost plot;
 //                         a tightened fan demands a live track
+// (The star shell's `dazzle` / `phosphor` verbs are DELETED — Story 8.17,
+// amendment 134. PHOSPHOR SHELLS is its own weapon row with its own interim
+// tactic below, and FLASH SHELLS (`dazzleShells`) a belt row; amendment 135(h),
+// Story 8.20 owns the real table.)
 //
 // No rng is drawn anywhere in want() — the mind's stream feeds aim scatter
 // and nothing else (the determinism pin).
 
 import {
   CONFIG,
-  SHIP_CLASS_IDS,
   SLOT_GUN,
   WEAPON_SLOTS,
   bearing,
@@ -135,11 +135,6 @@ const WIDE_RUNG = 1;
  *  pattern to accept it. ~1.5s of drift at full ahead (67u) is inside the base
  *  barrage's footprint at combat range; older and the shot is a guess. */
 const WIDE_FAN_STALE_MS = 1500;
-/** u/s — the fastest playable hull, the drift bound the phosphor stale cap is
- *  derived against (never a literal: a kinematics retune moves it). */
-const FASTEST_HULL_SPEED = Math.max(
-  ...SHIP_CLASS_IDS.map((cls) => CONFIG.shipClasses[cls].kinematics.maxSpeed),
-);
 
 /** Appetite thresholds. Appetite is the SHIP profile's one word about an
  *  equipment: how PROACTIVELY this captain reaches for it. At or above EAGER
@@ -178,6 +173,9 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   flak: 0.5,
   broadside: APPETITE_NEUTRAL,
   starShells: APPETITE_NEUTRAL,
+  // Story 8.17: PHOSPHOR SHELLS joined EquipmentId (amendment 131) at the
+  // neutral base; its interim tactic is below (amendment 135(h)).
+  phosphorShells: APPETITE_NEUTRAL,
   instantReload: APPETITE_NEUTRAL,
   damageCut: APPETITE_NEUTRAL,
 });
@@ -214,6 +212,10 @@ const APPETITE_FAMILY: Readonly<Partial<Record<EquipmentId, EquipmentId>>> = Obj
   flak: 'gun',
   instantReload: 'boost',
   damageCut: 'boost',
+  // Story 8.17 (amendment 135(h), interim — Story 8.20 owns the table):
+  // PHOSPHOR SHELLS was the star shell's verb until this cycle, so a profile
+  // that spoke for `starShells` spoke for it too; it keeps reading that entry.
+  phosphorShells: 'starShells',
 });
 
 /** How eager this profile is about one equipment id — the profile's own entry,
@@ -714,73 +716,20 @@ const captiveMineTactic: EquipmentTactic = mineTacticFor('captiveMines');
 const foulingMineTactic: EquipmentTactic = mineTacticFor('foulingMines');
 
 // ---------------------------------------------------------------------------
-// STAR SHELLS — the sensor shot, plus the two offensive doctrine verbs.
+// STAR SHELLS — the sensor shot. (The two offensive doctrine verbs that used
+// to ride here are DELETED, Story 8.17 / amendment 134; PHOSPHOR SHELLS has
+// its own row below.)
 // ---------------------------------------------------------------------------
 
 /** ms — how stale a plot must be before THIS profile spends a flare on it.
  *  Eagerness only: when an eager and a neutral holder both fire, they fire at
- *  the identical point. */
+ *  the identical point. (The phosphor stale CAP that once bounded this —
+ *  `phosphorStaleCapMs`, the ×0.8 lit shrink — went with the verb; the
+ *  reluctant floor is simply the floor again.) */
 function flareStaleFloorMs(profile: BotProfile): number {
   return appetiteFor(profile, 'starShells') >= APPETITE_EAGER
     ? FLARE_STALE_MS
     : FLARE_STALE_MS * RELUCTANT_STALE_MULT;
-}
-
-/**
- * THE PHOSPHOR REACH COST: phosphor shrinks the flare's OWN lit circle ×0.8
- * (the equipment row spawns litRadius × incendiaryRadiusFactor), so a stale
- * plot is only worth lighting while its drift bound still fits inside the
- * smaller circle — staler than this and the burning zone probably misses.
- */
-function phosphorStaleCapMs(stats: EffectiveStats): number {
-  const lit = stats.equipment.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor;
-  return (lit / FASTEST_HULL_SPEED) * 1000;
-}
-
-/**
- * THE OFFENSIVE FLARE (dazzle and/or phosphor held): fired at a LIVE contact
- * inside our own sight bubble — dazzle halves the victim's whole sightOf and
- * phosphor burns 5 hp/s — rather than only at a stale far plot. PHOSPHOR
- * PREFERS THE SLOW TARGET (a DoT zone only pays on a hull that stays in it);
- * dazzle alone takes the nearest.
- */
-function offensiveFlareTarget(ctx: TacticContext): BotTrack | null {
-  const ss = ctx.sit.stats.equipment.starShells;
-  if (!ss.dazzle && !ss.phosphor) return null;
-  let best: BotTrack | null = null;
-  let bestKey = Infinity;
-  for (const t of tracksOf(ctx.mind)) {
-    if (!t.live || !isActionable(t, ctx.sit.now)) continue;
-    const d = distTo(ctx.sit, t);
-    if (d > ctx.sit.stats.sightRange) continue;
-    const key = ss.phosphor ? t.speed ?? Infinity : d;
-    if (key < bestKey) {
-      bestKey = key;
-      best = t;
-    }
-  }
-  return best;
-}
-
-/**
- * THE RELUCTANT WAIT MAY NEVER OUTLAST THE GEOMETRY (review gate, cycle 110).
- * `flareStaleFloorMs` makes a non-eager holder wait 2× before spending a
- * flare, and `phosphorStaleCapMs` refuses a plot too stale for the SHRUNKEN
- * burning circle to still cover. At shipped numbers those cross: the
- * reluctant floor is 3000ms and the phosphor cap is 165 × 0.8 / 45 × 1000 =
- * 2933ms, so the window was EMPTY by 67ms and buying PHOSPHOR silently
- * deleted the C2 sensor-flare role for every non-eager holder — `bulwark`,
- * which CARRIES star shells natively, and every acquirer at the base
- * appetite. It was invisible to the blind-vacuum rig because those rows are
- * all eager, and to the suite because the phosphor tests all use `siege`.
- *
- * The cap is real geometry and wins; RELUCTANCE DEGRADES TO THE EAGER FLOOR
- * rather than to nothing, so a doctrine still never removes a role. Pinned
- * below by a constraint test, so a future litRadius card cannot re-cross it.
- */
-function flareFloorUnderCap(profile: BotProfile, capMs: number): number {
-  const wanted = flareStaleFloorMs(profile);
-  return wanted < capMs ? wanted : FLARE_STALE_MS;
 }
 
 /**
@@ -790,14 +739,12 @@ function flareFloorUnderCap(profile: BotProfile, capMs: number): number {
  */
 function sensorFlareTarget(ctx: TacticContext): BotTrack | null {
   const sit = ctx.sit;
-  const capMs = sit.stats.equipment.starShells.phosphor ? phosphorStaleCapMs(sit.stats) : Infinity;
-  const floorMs = flareFloorUnderCap(sit.profile, capMs);
+  const floorMs = flareStaleFloorMs(sit.profile);
   let best: BotTrack | null = null;
   let bestD = Infinity;
   for (const t of tracksOf(ctx.mind)) {
     if (t.live || !isActionable(t, sit.now)) continue;
-    const age = sit.now - t.seenAt;
-    if (age < floorMs || age > capMs) continue;
+    if (sit.now - t.seenAt < floorMs) continue;
     const d = distTo(sit, t);
     if (d <= sit.stats.sightRange || d > sit.stats.equipment.starShells.rangeU) continue;
     if (d < bestD) {
@@ -809,7 +756,7 @@ function sensorFlareTarget(ctx: TacticContext): BotTrack | null {
 }
 
 function flareSolve(ctx: TacticContext): Shot | null {
-  const t = offensiveFlareTarget(ctx) ?? sensorFlareTarget(ctx);
+  const t = sensorFlareTarget(ctx);
   if (t === null) return null;
   // THE TERRAIN GATE IS ON THE SHOT, never on the selector: the bot still
   // wants the nearest plot; it holds the round when the round cannot arrive.
@@ -827,6 +774,50 @@ const starShellsTactic: EquipmentTactic = {
   // is exactly the capability-keyed-by-hull defect this axis retires.
   want: (ctx) => appetiteFor(ctx.sit.profile, 'starShells') >= APPETITE_NEUTRAL,
   solve: flareSolve,
+};
+
+// ---------------------------------------------------------------------------
+// PHOSPHOR SHELLS (Story 8.17, amendment 135(h) — MINIMAL INTERIM row; Story
+// 8.20 owns the table). The deleted offensive flare's plot, keyed on the
+// phosphor row: fired straight at the NEAREST LIVE contact inside the bot's
+// own sight bubble, inside the row's reach.
+// ---------------------------------------------------------------------------
+
+/** The nearest LIVE, actionable track inside our own truesight bubble — the
+ *  target both the phosphor row and the FLASH belt row burst on. */
+function nearestLiveInSight(ctx: TacticContext): BotTrack | null {
+  let best: BotTrack | null = null;
+  let bestD = Infinity;
+  for (const t of tracksOf(ctx.mind)) {
+    if (!t.live || !isActionable(t, ctx.sit.now)) continue;
+    const d = distTo(ctx.sit, t);
+    if (d > ctx.sit.stats.sightRange) continue;
+    if (d < bestD) {
+      bestD = d;
+      best = t;
+    }
+  }
+  return best;
+}
+
+/** A burst placed ON a live contact (no lead — the zone / flash is an area,
+ *  and the old offensive flare aimed the same way), clamped to `rangeU`,
+ *  coastline-gated on the shot. */
+function burstOnLiveContact(ctx: TacticContext, rangeU: number): Shot | null {
+  const t = nearestLiveInSight(ctx);
+  if (t === null) return null;
+  const d = distTo(ctx.sit, t);
+  if (d > rangeU) return null;
+  if (!shotReaches(ctx.self, ctx.sit, t)) return null;
+  return { aim: bearing(ctx.self.state, t), aimDist: d, slot: ctx.slot };
+}
+
+const phosphorShellsTactic: EquipmentTactic = {
+  id: 'phosphorShells',
+  kind: 'placement',
+  reachU: (stats) => stats.equipment.phosphorShells.rangeU,
+  want: (ctx) => appetiteFor(ctx.sit.profile, 'phosphorShells') >= APPETITE_NEUTRAL,
+  solve: (ctx) => burstOnLiveContact(ctx, ctx.sit.stats.equipment.phosphorShells.rangeU),
 };
 
 // ---------------------------------------------------------------------------
@@ -935,6 +926,7 @@ export const EQUIPMENT_TACTICS: Readonly<Partial<Record<EquipmentId, EquipmentTa
   damageCut: damageCutTactic,
   broadside: broadsideTactic,
   starShells: starShellsTactic,
+  phosphorShells: phosphorShellsTactic, // Story 8.17 (amendment 135(h), interim)
 });
 
 // ---------------------------------------------------------------------------
@@ -1050,6 +1042,22 @@ const decoyBuoyTactic: ConsumableTactic = {
   solve: (ctx) => sectorPlacement(ctx, DECOY_SECTOR, CONFIG.mine.placeRange),
 };
 
+/**
+ * FLASH SHELLS (`dazzleShells`, Story 8.17 — amendment 135(h), MINIMAL
+ * INTERIM row; Story 8.20 owns the table): a 'shot' row that PRIMES and FIRES
+ * one copy at the nearest LIVE contact in sight while the bot is in its
+ * ENGAGE posture, afloat only. Stock is the slot's own `n` (firePass's
+ * readiness gate); reach is the star shell's (the radar rung), which is what
+ * the row's clamp uses server-side.
+ */
+const dazzleShellsTactic: ConsumableTactic = {
+  id: 'dazzleShells',
+  kind: 'shot',
+  reachU: (stats) => stats.radarRange,
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'engage' && nearestLiveInSight(ctx) !== null,
+  solve: (ctx) => burstOnLiveContact(ctx, ctx.sit.stats.radarRange),
+};
+
 /** The consumable half of the tactic registry — PARTIAL over ConsumableId,
  *  exactly as EQUIPMENT_TACTICS is partial over EquipmentId. A line with no row
  *  here is simply unknown to bots, and the slot is skipped fail-closed. */
@@ -1059,6 +1067,7 @@ export const CONSUMABLE_TACTICS: Readonly<Partial<Record<ConsumableId, Consumabl
   shieldBlock: shieldBlockTactic,
   chaff: chaffTactic,
   decoyBuoy: decoyBuoyTactic,
+  dazzleShells: dazzleShellsTactic, // Story 8.17 (amendment 135(h), interim)
 });
 
 /**
@@ -1078,6 +1087,7 @@ const CONSUMABLE_APPETITE: Readonly<Record<ConsumableId, number>> = Object.freez
   decoyBuoy: APPETITE_NEUTRAL,
   depthCharge: APPETITE_NEUTRAL,
   supercavTorpedo: APPETITE_NEUTRAL,
+  dazzleShells: APPETITE_NEUTRAL, // Story 8.17: FLASH SHELLS joined ConsumableId (amendment 132)
 });
 
 function consumableAppetite(id: ConsumableId): number {

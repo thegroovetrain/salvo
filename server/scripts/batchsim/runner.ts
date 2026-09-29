@@ -263,7 +263,10 @@ export interface BatchResult {
 /** A DOCTRINE line — a card any of whose tiers carries a `doctrine` effect
  *  (Story 7-5 evidence pass; re-keyed to catalog v3's ADD-ONS in Story 8.1).
  *  It is the shape-changing pick, and doctrines STACK. The old
- *  `firstExclusive*` pair is deleted with rarity itself (Story 8.1). */
+ *  `firstExclusive*` pair is deleted with rarity itself (Story 8.1).
+ *  VACUOUS since Story 8.17 (amendment 134): no add-on line remains in the
+ *  catalog, so this matches nothing and both doctrine reaches print 0/never;
+ *  kept compiling for the report shape, deleted when the `addon` kind is. */
 const isDoctrineId = (id: string): boolean =>
   Object.hasOwn(CATALOG, id) &&
   CATALOG[id].tiers.some((tier) => tier.some((e) => e.kind === 'doctrine'));

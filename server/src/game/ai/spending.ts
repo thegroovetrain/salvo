@@ -45,7 +45,9 @@
 //   torpedoes  → lightTorpedo, heavyTorpedo
 //   mines      → navalMines, captiveMines, foulingMines
 //   broadside  → broadside
-//   starShells → starShells, dazzleShells, phosphorShells
+//   starShells → starShells (8.17: the two add-on verbs left the category —
+//                dazzleShells is a consumable, phosphorShells its own line)
+//   phosphorShells → phosphorShells (8.17; no profile names it — kind base)
 //   intel      → radarSweep
 //   (radarBuoy — the category and its CONFIG weights went with the radar
 //    buoy in Story 8.16; DECOY BUOY prices at the consumable KIND base)
@@ -59,7 +61,8 @@
 //   torpedoTube, torpedoSpeed, acquireTorpedo → heavyTorpedo
 //   mineBlast, acquireMine → navalMines · mineCaptive → captiveMines
 //   broadsideTurrets, broadsideSpread, acquireBroadside → broadside
-//   starDuration, acquireStarShells → starShells · starDazzle → dazzleShells
+//   starDuration, acquireStarShells → starShells
+//   (starDazzle → dazzleShells — DELETED in 8.17: nothing names it)
 //   acquireBoost → (nothing — no v3 card grants it)
 //   (buoyDuration, acquireRadarBuoy, buoyGun — deleted from CONFIG with the
 //    radar buoy in Story 8.16)
@@ -161,7 +164,15 @@ export const CATEGORY_LINES: Readonly<Record<string, readonly string[]>> = Objec
   torpedoes: ['lightTorpedo', 'heavyTorpedo'],
   mines: ['navalMines', 'captiveMines', 'foulingMines'],
   broadside: ['broadside'],
-  starShells: ['starShells', 'dazzleShells', 'phosphorShells'],
+  // Story 8.17 (amendment 134): the star shell's two add-on verbs are gone —
+  // `dazzleShells` is FLASH SHELLS, a CONSUMABLE (priced at the consumable
+  // KIND base like every belt line), and `phosphorShells` is its own weapon
+  // line under its own category. No v2 profile names `phosphorShells`, so it
+  // prices at the equipment KIND base; a phosphor zone reveals nothing, so
+  // siege's `starShells` want (C2 — resolving stale plots into sight) does
+  // NOT speak for it. Story 8.20 owns the real retune.
+  starShells: ['starShells'],
+  phosphorShells: ['phosphorShells'],
   intel: ['radarSweep'],
   boost: [], // Story 8.9: the boost is a universal ability, not a card
 });
@@ -187,7 +198,8 @@ export const LINE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   acquireBroadside: 'broadside',
   starDuration: 'starShells',
   acquireStarShells: 'starShells',
-  starDazzle: 'dazzleShells',
+  // (`starDazzle` → `dazzleShells` is DELETED, Story 8.17: no profile table
+  // names the key, and FLASH SHELLS is a consumable priced at its kind base.)
 });
 
 /**

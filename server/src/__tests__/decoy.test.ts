@@ -248,7 +248,7 @@ describe('DECOY BUOY — the views and the radar paint', () => {
     // channel, never a doubled paint.
     obs.prevSweepAngle = TAU - 0.05;
     obs.sweepAngle = 0.05;
-    w.litZones.set('z', { id: 'z', ownerId: 'obs', x: 450, y: 0, r: 100, until: w.now + 5000, phosphor: false, dazzle: false } as never);
+    w.litZones.set('z', { id: 'z', ownerId: 'obs', x: 450, y: 0, r: 100, until: w.now + 5000 } as never);
     expect(blips(observe(w, 'obs').events)).toEqual([]);
   });
 

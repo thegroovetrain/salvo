@@ -46,6 +46,7 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'tickRepairs',
       'tickSmoke',
       'expireLitZones',
+      'expireBurnZones', // Story 8.17: the PHOSPHOR burning zone's expiry sweep, beside the lit zones'
       'fireControl',
       // Story 8.15's held-fire stream — the machine gun's LEVEL channel,
       // a deliberate insertion right after the click channel (the reloads

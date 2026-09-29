@@ -573,7 +573,7 @@ function scnZoneKill(g: Golden): void {
   place(w, 'a', 0, 0);
   const b = place(w, 'b', 500, 0);
   b.hp = 15; // the next hit sinks it
-  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 500, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, phosphor: false, dazzle: false });
+  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 500, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
   injectShell(w, 'ks', 'a', 480, 0, 0, 100); // a's shell, point-blank on b, far outside a's sight
   w.step(); // strikes b -> boom + dmg (victim-private) + sunk + pt
   const fa = cap(g, w, 'a');
@@ -745,7 +745,10 @@ function scnHoming(g: Golden): void {
 
 /**
  * Debuff privacy (Story 2.8): a FOULING blast stamps the victim's slowedUntil
- * and a DAZZLE zone stamps dazzledUntil — each rides `you` on the victim's own
+ * and a FLASH SHELLS burst stamps dazzledUntil (Story 8.17 — the one-time
+ * mark that replaced the star-shell DAZZLE zone; written here as the raw
+ * record write applyFlash makes, the scnTorpReReveal precedent, so the
+ * scenario's frames stay byte-stable) — each rides `you` on the victim's own
  * frame ONLY (the boostUntil precedent); a sighted watcher's contact for the
  * victim carries neither key. Since Story 8.13 the fouling mine is its own
  * LINE (`foulingMines`, equipment) and the laid mine carries `kind: 'fouling'`
@@ -759,8 +762,8 @@ function scnDebuffs(g: Golden): void {
   const b = place(w, 'b', 0, 10); // trips the fouling mine below on the first step
   place(w, 'watcher', 100, 60); // sees b as a contact
   injectMine(w, 'fm', 'o', 0, 0, 'fouling');
-  w.litZones.set('dz', { id: 'dz', ownerId: 'o', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
-  w.step(); // blast + dazzle both land on b
+  b.dazzledUntil = w.now + DT + CONFIG.flashShells.durationMs; // the flash mark, as applyFlash stamps it on the coming tick
+  w.step(); // the blast lands on b; the dazzle mark is live
   const fb = cap(g, w, 'b');
   const fw = cap(g, w, 'watcher');
   const contact = fw.contacts.find((ct) => ct.id === 'b');
@@ -1091,6 +1094,16 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // 'phosphorShells' / 'starShells' were). Every other byte — contacts,
   // events, blips, mines, zones — is unchanged (verified by diffing the rows
   // with `offer` masked out, not by trusting the update flag).
+  // REGENERATED KNOWINGLY IN STORY 8.17. Exactly FOUR rows moved, each read:
+  // (1)+(2) two `you.offer` hands — the seeded draw deals differently now that
+  // `dazzleShells` is a consumable and `phosphorShells` an equipment line;
+  // (3) scnStarShell's burst frame: the flare bursting over hull `h` inside
+  // its lit circle now emits `hc` where it emitted `sp` (the flare deals the
+  // tier's damage — amendment 135(a)); (4) scnDebuffs' two frames: the DAZZLE
+  // zone (`daz: true` on `litZones`) is gone, `you.dazzledUntil` is the flash
+  // mark (10 s) and the dazzled victim's own contact list is EMPTY — the
+  // watcher at 117 u is outside its collapsed 82.5 u sight (amendment 132) —
+  // while the watcher's contact for the victim is unchanged. No other byte.
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });

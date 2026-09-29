@@ -1,7 +1,7 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 18 GameEvent kinds plus the four contact-like frame channels
-// (`contact`, `mine`, `litzone` and `decoy` — pseudo event types: not
+// row here: the 18 GameEvent kinds plus the five contact-like frame channels
+// (`contact`, `mine`, `litzone`, `burnzone` and `decoy` — pseudo event types: not
 // GameEvents, but the invariant suite iterates them like everything else; the
 // RADAR BUOY's `buoy` channel was deleted with the buoy in Story 8.16 and the
 // DECOY BUOY's `decoy` channel took its seat, revealed at sight like a ship).
@@ -29,14 +29,15 @@
 // msgpack key order follows object insertion order. Every materialize() below
 // builds its wire object in the exact historical field order (Contact:
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
-// k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,phos,daz;
-// SplashEvent/HitCallEvent: k,id,x,y;
+// k,id,x,y; MineView: id,x,y,own,by; LitZoneView and BurnZoneView:
+// id,x,y,r,until,by (the lit zone's `phos`/`daz` tail is DELETED, Story
+// 8.17); SplashEvent/HitCallEvent: k,id,x,y;
 // MuzzleEvent: k,x,y — Story 4.3; SmokeEvent: k,x,y,tier — Story 4.4;
 // FoghornEvent: k,h then self? (honker) / x,y (spectator) / b,v (fogged
 // listener) — Story 4.5; SunkEvent: k,id,by?,seen? — the public
 // register, absent keys OMITTED). Do not reorder keys — `by` (Story 1.12) is
-// appended LAST on mine, `mode` (Story 2.9) after it on litzone, so the
-// historical prefix stays byte-stable.
+// appended LAST on mine and on both zone views, so the historical prefix
+// stays byte-stable.
 
 import {
   CONFIG,
@@ -64,6 +65,8 @@ import {
   type HullId,
   type Island,
   type LitZoneView,
+  type BurnZoneView,
+  effectiveSight,
   type MineView,
   type MuzzleEvent,
   type BoonFitEvent,
@@ -79,7 +82,7 @@ import {
   type WakeBlipEvent,
   type WakeRibbon,
 } from '@salvo/shared';
-import type { LitZone, ShipRecord } from './world.js';
+import type { BurnZone, LitZone, ShipRecord } from './world.js';
 import { isFleetHull, isParticipant } from './participants.js';
 import type { MineState } from './equipment/index.js';
 import type { DecoyState } from './decoys.js';
@@ -111,6 +114,10 @@ interface SignalContextBase {
   /** All ACTIVE star-shell lit zones (Story 1.7) — the owned-zone truesight
    *  source (ownZoneCovers) and the litzone row's scan subjects. */
   litZones: ReadonlyMap<string, LitZone>;
+  /** All ACTIVE phosphor burning zones (Story 8.17) — the burnzone row's
+   *  scan subjects and NOTHING else: no reveal source reads them (a burning
+   *  zone is a hazard, not a light — amendment 131). */
+  burnZones: ReadonlyMap<string, BurnZone>;
   /** All LIVE decoy buoys (Story 8.16) — the `decoy` frame channel's scan
    *  subjects and the anonymous decoy-paint sources (decoyRadarBlips). Rides
    *  the context like litZones does. */
@@ -210,19 +217,20 @@ export function losClear(a: Vec2, b: Vec2, islands: readonly Island[]): boolean 
 }
 
 /**
- * The observer's EFFECTIVE sight radius this tick (Story 2.8, DAZZLE BURST):
- * stats.sightRange, scaled by CONFIG.starShells.dazzleSightFactor while the
- * observer is DAZZLED (world.applyZoneEffects refreshes dazzledUntil every
- * tick the observer's center sits in a non-owned dazzle zone; the victim's
- * own wire field OwnShip.dazzledUntil reads the same mark, so the server's
- * shrunken sight and the client's honest fog hole agree). THE one place the
- * dazzle factor enters perception — every sight-tier predicate below calls
- * this, so a NON-dazzled observer's numbers are bit-identical to pre-2.8.
+ * The observer's EFFECTIVE sight radius this tick: the SHARED `effectiveSight`
+ * (sim/sight.ts — Story 8.17, amendment 132) over its stats and its dazzle
+ * mark. A FLASH SHELLS burst sets `dazzledUntil` (world.applyFlash); while it
+ * is in the future the observer's truesight collapses to `radarRange ×
+ * CONFIG.flashShells.sightFraction` (82.5 u at base), else it is
+ * `stats.sightRange`. The victim's own wire field OwnShip.dazzledUntil reads
+ * the same mark and the client's mirrors call the same shared function, so
+ * the server's shrunken sight and the client's honest fog hole agree by
+ * construction. THE one place the dazzle enters perception — every sight-tier
+ * predicate below calls this, so a NON-dazzled observer's numbers are
+ * bit-identical to pre-2.8. Never re-derived here: one derivation, both sides.
  */
 export function sightOf(me: ShipRecord, now: number): number {
-  return now < me.dazzledUntil
-    ? me.stats.sightRange * CONFIG.starShells.dazzleSightFactor
-    : me.stats.sightRange;
+  return effectiveSight(me.stats, now < me.dazzledUntil);
 }
 
 /**
@@ -571,24 +579,12 @@ const mineSignal: SignalSpec<MineState, MineView> = {
  */
 const litZoneSignal: SignalSpec<LitZone, LitZoneView> = {
   eventType: 'litzone',
-  visible(ctx, zone) {
-    if (ctx.mode === 'spectator') return true;
-    const me = ctx.me;
-    if (zone.ownerId === me.id) return true;
-    const dx = zone.x - me.state.x;
-    const dy = zone.y - me.state.y;
-    const radar = me.stats.radarRange;
-    return dx * dx + dy * dy <= radar * radar; // no LOS, no sweep gate
-  },
+  visible: zoneCircleVisible, // the gate below, shared with the burning zone (Story 8.17)
   materialize(_ctx, zone) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,until,by,phos,daz. The two
-    // doctrine flags (Story 2.9 amendment 50, split into INDEPENDENT verbs by
-    // Story 7-5 wave 1) are stamped on the record at zone-spawn time and
-    // delivered to EVERY observer who sees the circle (counterplay over
-    // concealment), appended LAST. They are written INDEPENDENTLY — a zone
-    // that both burns and blinds carries both — and OMITTED when false, the
-    // established optional-flag wire style, so a plain flare costs what it
-    // always did.
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,until,by. The two doctrine
+    // flags that used to trail (`phos`/`daz`, Story 2.9 amendment 50) are
+    // DELETED with the verbs (Story 8.17, amendment 134): a lit zone only
+    // lights, so a flare costs exactly its pre-2.9 bytes again.
     return {
       id: zone.id,
       x: zone.x,
@@ -596,8 +592,54 @@ const litZoneSignal: SignalSpec<LitZone, LitZoneView> = {
       r: zone.r,
       until: zone.until,
       by: zone.ownerId,
-      ...(zone.phosphor ? { phos: true as const } : {}),
-      ...(zone.dazzle ? { daz: true as const } : {}),
+    };
+  },
+};
+
+/** The LIT ZONE's visibility gate, hoisted so the burning zone can share it
+ *  BYTE-FOR-BYTE (amendment 135(f)): spectators always; the owner always;
+ *  otherwise iff the zone's CENTRE is within the observer's effective radar
+ *  range — deliberately NO island LOS and NO sweep gate. */
+function zoneCircleVisible(ctx: SignalContext, zone: { ownerId: string; x: number; y: number }): boolean {
+  if (ctx.mode === 'spectator') return true;
+  const me = ctx.me;
+  if (zone.ownerId === me.id) return true;
+  const dx = zone.x - me.state.x;
+  const dy = zone.y - me.state.y;
+  const radar = me.stats.radarRange;
+  return dx * dx + dy * dy <= radar * radar; // no LOS, no sweep gate
+}
+
+/**
+ * `burnzone` — the PHOSPHOR SHELLS burning zone (Story 8.17, Eric ruling
+ * 2026-09-29, epic-8 amendments 131 / 135(f)): contact-like state (NOT
+ * events), recomputed every tick exactly like lit zones, through the LIT
+ * ZONE's visibility gate byte-for-byte (`zoneCircleVisible`): the OWNER always
+ * sees its own zones; any other fogged observer sees a zone iff its CENTER is
+ * within the observer's effective radar range — no island LOS, no sweep gate
+ * (a burning patch of sea is as visible as a flare in the sky — counterplay
+ * over concealment); spectators see all.
+ *
+ * A HAZARD ONLY: this row carries the CIRCLE and nothing else. Unlike the lit
+ * zone, NOTHING inside a burning zone is revealed by it — no contact, mine or
+ * ballistic row reads `burnZones` (ownZoneCovers iterates `litZones` alone),
+ * so a hull standing in the firer's own fire but outside the firer's sight
+ * stays dark to the firer (amendment 135(e)). The zone's `dps` is server-
+ * private (a build read); `by` is the firer's ship id (personal hue).
+ */
+const burnZoneSignal: SignalSpec<BurnZone, BurnZoneView> = {
+  eventType: 'burnzone',
+  visible: zoneCircleVisible,
+  materialize(_ctx, zone) {
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,until,by — the lit zone's
+    // exact shape. `dps` NEVER rides (it is the firer's tier, a build leak).
+    return {
+      id: zone.id,
+      x: zone.x,
+      y: zone.y,
+      r: zone.r,
+      until: zone.until,
+      by: zone.ownerId,
     };
   },
 };
@@ -1918,10 +1960,10 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 
 /**
  * String-keyed registry of every signal channel — the 18 GameEvent kinds plus
- * the `contact`/`mine`/`litzone`/`decoy` pseudo-types. perception.ts
- * dispatches world events by `e.k` (an emitted kind with no row is a hard
- * fail-closed drop) and drives the contact/blip/ballistic/mine/litzone
- * scans through their rows. Deep-frozen: the map AND every row are frozen —
+ * the `contact`/`mine`/`litzone`/`burnzone`/`decoy` pseudo-types.
+ * perception.ts dispatches world events by `e.k` (an emitted kind with no row
+ * is a hard fail-closed drop) and drives the contact/blip/ballistic/mine/
+ * litzone/burnzone scans through their rows. Deep-frozen: the map AND every row are frozen —
  * rows are added at authoring time only, each with its required invariant
  * test case.
  */
@@ -1929,6 +1971,10 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   contact: contactSignal,
   mine: mineSignal,
   litzone: litZoneSignal,
+  // Story 8.17: the PHOSPHOR burning zone's contact-like frame channel, on
+  // the lit zone's gate byte-for-byte (amendment 135(f)). A circle only —
+  // nothing is revealed through it.
+  burnzone: burnZoneSignal,
   // Story 8.16: the DECOY BUOY's contact-like frame channel (owner always /
   // SIGHTED like a ship, amendment 126 / owned-zone / spectators), in the seat the
   // deleted RADAR BUOY's `buoy` row held. Its anonymous radar paint and
@@ -1997,8 +2043,8 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 export function signalFor(kind: string): SignalSpec | undefined {
   // Pseudo-rows never dispatch from world events ('decoy' took the deleted
   // 'buoy' seat in Story 8.16 — a fabricated k:'decoy' world event must never
-  // materialize a DecoyView).
-  if (kind === 'contact' || kind === 'mine' || kind === 'litzone' || kind === 'decoy') return undefined;
+  // materialize a DecoyView; 'burnzone' joined in Story 8.17 on the same rule).
+  if (kind === 'contact' || kind === 'mine' || kind === 'litzone' || kind === 'burnzone' || kind === 'decoy') return undefined;
   if (!Object.hasOwn(SIGNAL_REGISTRY, kind)) return undefined; // own-property only
   return (SIGNAL_REGISTRY as Partial<Record<string, SignalSpec>>)[kind];
 }

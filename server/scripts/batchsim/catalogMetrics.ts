@@ -79,7 +79,12 @@ function rawSources(): { label: string; amount: number }[] {
     { label: 'mine', amount: CONFIG.mine.damage },
     { label: 'fleetGun', amount: CONFIG.drones.small.gun.damage },
     { label: 'storm', amount: CONFIG.zone.stormDps * tickS },
-    { label: 'incendiary', amount: CONFIG.starShells.incendiaryDps * tickS },
+    // Story 8.17: the burn is PHOSPHOR SHELLS' own zone (tier-I dps here; a
+    // tiered zone's per-tick bite prints under whichever label it collides
+    // with, and the ledger says so) — plus the two new burst amounts.
+    { label: 'incendiary', amount: CONFIG.phosphorShells.dps * tickS },
+    { label: 'starShells', amount: CONFIG.starShells.damage },
+    { label: 'phosphorShells', amount: CONFIG.phosphorShells.damage },
   ];
 }
 

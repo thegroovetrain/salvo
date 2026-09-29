@@ -556,8 +556,6 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
       y: REACH,
       r: 120,
       until: 10 * 60 * 1000,
-      phosphor: false,
-      dazzle: false,
     });
     return { w, a };
   }
@@ -599,7 +597,7 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
     const slot = a.loadout.findIndex((s) => s.equipmentId === 'starShells');
     expect(slot).toBeGreaterThan(0);
     w.litZones.set('z1', {
-      id: 'z1', ownerId: 'a', x: 0, y: REACH, r: 120, until: 10 * 60 * 1000, phosphor: false, dazzle: false,
+      id: 'z1', ownerId: 'a', x: 0, y: REACH, r: 120, until: 10 * 60 * 1000,
     });
     w.submitInput('a', { ...gunInput(HALF_PI, REACH), slot: slot as 0 });
     w.step();
@@ -631,7 +629,7 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
       for (const [i, z] of zones.entries()) {
         w.litZones.set(`z${i}`, {
           id: `z${i}`, ownerId: 'a', x: z.x, y: z.y, r: z.r,
-          until: 10 * 60 * 1000, phosphor: false, dazzle: false,
+          until: 10 * 60 * 1000,
         });
       }
       // The zone that misses is offset off the aim line so the burst point

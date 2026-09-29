@@ -26,10 +26,11 @@
 // their notes survive below where the suites used to sit.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CATALOG, CONFIG, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CATALOG, CONFIG, CONSUMABLE_SLOTS, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
+import { sightOf } from '../game/signals.js';
 import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -880,36 +881,218 @@ describe('vacated owner — mines fall back to CONFIG bases (pinned)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// STAR SHELLS: INCENDIARY (DoT zone) ⚔ DAZZLE (sight reduction)
+// STORY 8.17 (Eric rulings 2026-09-29, epic-8 amendments 130–135): the
+// STAR SHELL is a tiered DAMAGE weapon, PHOSPHOR SHELLS is its own weapon
+// with a BURNING ZONE, and FLASH SHELLS (`dazzleShells`) is a belt consumable
+// that sets a one-time dazzle mark. The star-shell PHOSPHOR / DAZZLE verbs
+// and the lit zone's verb flags are DELETED — the suites that pinned them
+// (INCENDIARY COMPOUND, DAZZLE BURST, "PHOSPHOR + DAZZLE stack") are
+// re-cut below onto the three rows that replaced them.
 // ---------------------------------------------------------------------------
 
-describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to non-owners', () => {
-  it('the fired flare lights a zone shrunk by incendiaryRadiusFactor, tagged with the phosphor verb', () => {
+/** The slot a fitted PHOSPHOR SHELLS row landed in (the Battleship's free
+ *  weapon slot after its two class weapons). */
+function slotOf(rec: ShipRecord, id: string): number {
+  const i = rec.loadout.findIndex((s) => s.equipmentId === id);
+  expect(i).toBeGreaterThanOrEqual(0);
+  return i;
+}
+
+/** Fire `slot` at (aim, aimDist) and step until the shell BURSTS or is
+ *  INTERCEPTED; return every event kind seen and the resolution tick's clock. */
+function fireUntilStop(w: World, firer: ShipRecord, slot: number, aim: number, aimDist: number, maxTicks = 120): { seen: GameEvent[]; at: number } {
+  setInput(firer, { aim, aimDist, slot, fireSeq: 1, seq: 2 });
+  const seen: GameEvent[] = [];
+  for (let i = 0; i < maxTicks; i++) {
+    w.step();
+    seen.push(...w.tickEvents);
+    if (seen.some((e) => e.k === 'burst' || e.k === 'boom')) return { seen, at: w.now };
+  }
+  return { seen, at: w.now };
+}
+
+const kinds = (events: readonly GameEvent[]): string[] => events.map((e) => e.k);
+
+describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything inside the WHOLE lit circle (amendment 130)', () => {
+  /** A Battleship at the origin firing at (400, 0); hull `inside` is inside the
+   *  base 165 u circle, hull `outside` is well clear of it (silhouettes
+   *  considered — a TB is 100 u long, so both sit beam-on to the burst). */
+  function board(extraCopies = 0): { w: World; a: ShipRecord; inside: ShipRecord; outside: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
-    w.applyCard(a, 'phosphorShells');
-    setInput(a, { aim: 0, aimDist: 400, slot: SLOT_SEED_2, fireSeq: 1, seq: 2 });
-    for (let i = 0; i < 60 && w.litZones.size === 0; i++) w.step();
+    fitTier(w, a, 'starShells', extraCopies);
+    const inside = place(w, 'inside', 460, 0, Math.PI / 2); // 60 u from the burst point
+    const outside = place(w, 'outside', 400, 300, 0); // nearest hull point 295.5 u away — clear even of the tier-V 241.6 u circle
+    return { w, a, inside, outside };
+  }
+
+  it('tier I: 10 damage to the hull inside, nothing to the hull outside, `hc` to the firer, the zone lit (r165, 10 s)', () => {
+    const { w, a, inside, outside } = board();
+    expect(a.stats.equipment.starShells.damage).toBe(CONFIG.starShells.damage);
+    const { seen, at } = fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
+    expect(kinds(seen)).toContain('burst');
+    expect(inside.hp).toBe(inside.stats.maxHp - 10);
+    expect(outside.hp).toBe(outside.stats.maxHp);
+    expect(a.hp).toBe(a.stats.maxHp);
+    expect(dmgFor(seen, 'inside').map((e) => (e as { amount: number }).amount)).toEqual([10]);
+    expect(dmgFor(seen, 'outside')).toEqual([]);
+    // amendment 135(a): a burst that resolved a hull is a Hit Call, not a splash.
+    expect(kinds(seen)).toContain('hc');
+    expect(kinds(seen)).not.toContain('sp');
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];
-    expect(zone.phosphor).toBe(true);
-    expect(zone.dazzle).toBe(false);
-    expect(zone.r).toBeCloseTo(CONFIG.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor, 6);
+    expect(zone).toEqual({ id: zone.id, ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: at + CONFIG.starShells.litDurationMs });
+    expect(w.burnZones.size).toBe(0); // a flare never burns
   });
 
-  it('non-owner hulls inside burn at incendiaryDps (victim-private dmg, kill credit); the owner never burns', () => {
+  it('tier III deals 15 and tier V deals 20 — the ladder’s whole numbers, floored through the gate', () => {
+    for (const [copies, dmg] of [[2, 15], [4, 20]] as const) {
+      const { w, a, inside } = board(copies);
+      expect(a.stats.equipment.starShells.damage).toBe(dmg);
+      fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
+      expect(inside.hp).toBe(inside.stats.maxHp - dmg);
+    }
+  });
+
+  it('the OWNER inside its own lit circle is immune (permanent owner immunity)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 300, 0, 0, 'battleship'); // 100 u short of the burst point: inside r165
+    const b = place(w, 'b', 460, 0, Math.PI / 2);
+    fireUntilStop(w, a, SLOT_SEED_2, 0, 100);
+    expect(a.hp).toBe(a.stats.maxHp);
+    expect(b.hp).toBe(b.stats.maxHp - 10);
+  });
+
+  it('a flare over empty water splashes (`sp`), lights its zone and hurts nobody', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const { seen } = fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
+    expect(kinds(seen)).toContain('sp');
+    expect(kinds(seen)).not.toContain('hc');
+    expect(kinds(seen)).not.toContain('dmg');
+    expect(w.litZones.size).toBe(1);
+  });
+
+  it('a SHIELD BLOCK absorbs the flare: shield 100 → 90, hull untouched, `dmg` amount 0, still `hc`', () => {
+    const { w, a, inside } = board();
+    inside.shield = { hpLeft: 100, until: w.now + 60_000 };
+    const { seen } = fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
+    expect(inside.hp).toBe(inside.stats.maxHp);
+    expect(inside.shield!.hpLeft).toBe(90);
+    expect(dmgFor(seen, 'inside').map((e) => (e as { amount: number }).amount)).toEqual([0]);
+    expect(kinds(seen)).toContain('hc');
+  });
+
+  it('an early interceptor takes the tier damage as CONTACT damage, and the flare STILL lights at the stop point', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const mid = place(w, 'mid', 300, 0, 0); // bodyblocks a 650 u click
+    const { seen } = fireUntilStop(w, a, SLOT_SEED_2, 0, 650);
+    expect(kinds(seen)).toContain('boom');
+    expect(kinds(seen)).not.toContain('burst');
+    expect(mid.hp).toBe(mid.stats.maxHp - 10);
+    expect(w.litZones.size).toBe(1);
+    expect(Math.hypot([...w.litZones.values()][0].x, [...w.litZones.values()][0].y)).toBeLessThan(400);
+  });
+
+  it('a lit zone carries NO verbs and burns/blinds nobody — it only lights (amendment 134)', () => {
+    const w = bareWorld();
+    place(w, 'a', 400, 0, 0, 'battleship');
+    const b = place(w, 'b', 420, 30);
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 165, until: 999_999 });
+    for (let i = 0; i < 20; i++) w.step();
+    expect(b.hp).toBe(b.stats.maxHp);
+    expect(b.dazzledUntil).toBe(0);
+    expect('phosphor' in w.litZones.get('z1')!).toBe(false);
+    expect('dazzle' in w.litZones.get('z1')!).toBe(false);
+  });
+});
+
+describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a BURNING ZONE that reveals nothing (amendment 131)', () => {
+  /** A Battleship at the origin with PHOSPHOR SHELLS fitted (tier `copies`),
+   *  firing at (400, 0): `A` 60 u and `B` 90 u from the burst point (inside
+   *  the tier-I r100 zone), `C` clear of it (nearest hull point 165.5 u). */
+  function board(copies = 1): { w: World; a: ShipRecord; slot: number; A: ShipRecord; B: ShipRecord; C: ShipRecord } {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    fitTier(w, a, 'phosphorShells', copies);
+    const slot = slotOf(a, 'phosphorShells');
+    const A = place(w, 'A', 460, 0, Math.PI / 2);
+    const B = place(w, 'B', 400, -90, 0);
+    const C = place(w, 'C', 400, 170, 0);
+    return { w, a, slot, A, B, C };
+  }
+
+  it('tier I: A and B take 20, C nothing, `hc`, and a r100 / 8 s / 5 hp/s zone spawns at the burst point (no lit zone)', () => {
+    const { w, a, slot, A, B, C } = board();
+    const row = a.stats.equipment.phosphorShells;
+    expect([row.damage, row.zoneRadius, row.zoneDurationMs, row.dps, row.rangeU]).toEqual([20, 100, 8000, 5, CONFIG.vision.radar]);
+    const hp = { A: A.hp, B: B.hp, C: C.hp };
+    const { seen, at } = fireUntilStop(w, a, slot, 0, 400);
+    expect(kinds(seen)).toContain('burst');
+    expect(kinds(seen)).toContain('hc');
+    // The burst's 20 landed on A and B at once (the burn's first bite is a
+    // fraction on top; the exact burst amount is the first `dmg` each got).
+    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: 20 });
+    expect(dmgFor(seen, 'B')[0]).toMatchObject({ amount: 20 });
+    expect(hp.A - A.hp).toBeGreaterThanOrEqual(20);
+    expect(hp.B - B.hp).toBeGreaterThanOrEqual(20);
+    expect(C.hp).toBe(hp.C);
+    expect(w.litZones.size).toBe(0);
+    expect(w.burnZones.size).toBe(1);
+    const zone = [...w.burnZones.values()][0];
+    expect(zone).toEqual({ id: zone.id, ownerId: 'a', x: 400, y: 0, r: 100, until: at + 8000, dps: 5 });
+  });
+
+  it('the burst DETONATES an armed mine inside the zone (the gun’s mask, amendment 135(c)) — a flare never does', () => {
+    const { w, a, slot } = board();
+    lay(w, 'm1', 'a', 340, 40, 'naval'); // 72 u from the burst point, clear of every hull's blast reach
+    fireUntilStop(w, a, slot, 0, 400);
+    expect(w.mines.has('m1')).toBe(false);
+    // THE CONTROL: the same mine under a STAR SHELL burst stands (HITS_HULL_DECOY).
+    const w2 = bareWorld();
+    const a2 = place(w2, 'a', 0, 0, 0, 'battleship');
+    lay(w2, 'm1', 'a', 340, 40, 'naval');
+    fireUntilStop(w2, a2, SLOT_SEED_2, 0, 400);
+    expect(w2.mines.has('m1')).toBe(true);
+  });
+
+  it('tier V: burst 30, zone r146.41 / 10 s / 10 hp/s — stamped on the zone from the row at launch (amendment 135(e))', () => {
+    const { w, a, slot, A } = board(5);
+    const row = a.stats.equipment.phosphorShells;
+    expect(row.damage).toBe(30);
+    expect(row.zoneRadius).toBeCloseTo(146.41, 6);
+    expect(row.zoneDurationMs).toBe(10_000);
+    expect(row.dps).toBe(10);
+    const hp0 = A.hp;
+    const { seen, at } = fireUntilStop(w, a, slot, 0, 400);
+    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: 30 });
+    expect(hp0 - A.hp).toBeGreaterThanOrEqual(30);
+    const zone = [...w.burnZones.values()][0];
+    expect(zone.r).toBeCloseTo(146.41, 6);
+    expect(zone.until).toBe(at + 10_000);
+    expect(zone.dps).toBe(10);
+  });
+
+  it('a live zone keeps the numbers it was stamped with — a tier card fitted later never changes it', () => {
+    const { w, a, slot } = board();
+    fireUntilStop(w, a, slot, 0, 400);
+    const zone = [...w.burnZones.values()][0];
+    fitTier(w, a, 'phosphorShells', 4); // to tier V, after the zone lit
+    w.step();
+    expect(w.burnZones.get(zone.id)).toEqual(zone); // r100 / 5 hp/s, untouched
+  });
+
+  it('non-owner hulls inside burn at the zone’s dps through the `burn` seat (victim-private dmg, kill credit); the owner never burns', () => {
     const w = bareWorld();
     const a = place(w, 'a', 400, 0, 0, 'battleship'); // owner INSIDE its own zone
     const b = place(w, 'b', 420, 30); // enemy inside
     const c = place(w, 'c', 900, 900); // far outside
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
-    const ticks = 20; // one second
-    for (let i = 0; i < ticks; i++) w.step();
-    expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.starShells.incendiaryDps, 4); // 1s of DoT
+    w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: CONFIG.phosphorShells.dps });
+    for (let i = 0; i < 20; i++) w.step(); // one second
+    expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.phosphorShells.dps, 4); // 1 s of DoT, un-floored (the burn seat)
     expect(a.hp).toBe(a.stats.maxHp); // owner immune
     expect(c.hp).toBe(c.stats.maxHp);
-    // The victim-private dmg stream reaches b alone. It is AGGREGATED into
-    // ~500ms windows (P4), so collect a full window's worth of frames.
     const toB: number[] = [];
     const toA: number[] = [];
     for (let i = 0; i < 12; i++) {
@@ -919,39 +1102,27 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     }
     expect(toB.length).toBeGreaterThan(0);
     expect(toA).toEqual([]);
-    // Kill credit: burn b down — the sink attributes to the zone owner.
     b.hp = 0.01;
     for (let i = 0; i < 3 && isAfloat(b.lifecycle); i++) w.step();
     expect(isAfloat(b.lifecycle)).toBe(false);
     expect(a.kills).toBe(1);
   });
 
-  // Story 2.8 review, P4: the DoT applied hp every tick AND emitted a
-  // victim-private dmg event every tick — 20 fractional events/second of wire
-  // noise, and a strobing client hit-feedback source. RULING: hp application
-  // stays per-tick; the EVENT is aggregated into ~500ms windows per (zone
-  // owner, victim), flushed immediately when the pair stops burning or the
-  // victim dies, so nothing applied is ever unreported.
-  it('the dmg EVENT is AGGREGATED (~2/s), while hp still bleeds every tick and every point is reported', () => {
+  it('the dmg EVENT is AGGREGATED into 500 ms windows while hp bleeds every tick; a leaving/expiring pair flushes at once', () => {
     const w = bareWorld();
     place(w, 'a', 400, 0, 0, 'battleship');
     const b = place(w, 'b', 420, 30);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
+    w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: CONFIG.phosphorShells.dps });
     const hp0 = b.hp;
     const seen: { amount: number }[] = [];
     for (let i = 0; i < 40; i++) {
-      // 2 seconds
-      w.step();
+      w.step(); // 2 seconds
       seen.push(...(dmgFor(w.tickEvents, 'b') as { amount: number }[]));
     }
-    // hp application is UNCHANGED — the full per-tick integration landed.
-    expect(hp0 - b.hp).toBeCloseTo(CONFIG.starShells.incendiaryDps * 2, 6);
-    // ...carried by a handful of events, not 40.
+    expect(hp0 - b.hp).toBeCloseTo(CONFIG.phosphorShells.dps * 2, 6);
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.length).toBeLessThanOrEqual(4);
-    // The zone dies: the pair's remainder flushes at once, and the reported
-    // total equals the applied total exactly.
-    w.litZones.clear();
+    w.burnZones.clear();
     w.step();
     seen.push(...(dmgFor(w.tickEvents, 'b') as { amount: number }[]));
     expect(seen.length).toBeLessThanOrEqual(5);
@@ -962,181 +1133,214 @@ describe('INCENDIARY COMPOUND (starIncendiary) — smaller burning zone, DoT to 
     const w = bareWorld();
     const a = place(w, 'a', 400, 0, 0, 'battleship');
     const b = place(w, 'b', 420, 30);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
-    const hp0 = b.hp;
-    b.hp = 0.2; // a couple of bites from death, mid-window
+    w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: CONFIG.phosphorShells.dps });
+    b.hp = 0.2;
     const seen: { amount: number }[] = [];
     for (let i = 0; i < 5 && isAfloat(b.lifecycle); i++) {
       w.step();
       seen.push(...(dmgFor(w.tickEvents, 'b') as { amount: number }[]));
     }
     expect(isAfloat(b.lifecycle)).toBe(false);
-    expect(a.kills).toBe(1); // kill credit timing unchanged
-    // The dmg arrived on the sinking tick (not stranded in an open bucket),
-    // and reports every point applied: all the hp it had, and no more than one
-    // extra bite of overkill (hp goes negative before the sink clamps it).
-    const bite = CONFIG.starShells.incendiaryDps * (DT / 1000);
+    expect(a.kills).toBe(1);
+    const bite = CONFIG.phosphorShells.dps * (DT / 1000);
     const reported = seen.reduce((s, e) => s + e.amount, 0);
     expect(seen.length).toBeGreaterThan(0);
     expect(reported).toBeGreaterThanOrEqual(0.2);
     expect(reported).toBeLessThanOrEqual(0.2 + bite);
-    void hp0;
   });
 
-  it('a STANDARD zone burns nobody (mode gating)', () => {
+  it('two overlapping zones of ONE owner bite once per tick (the stronger); zones of two owners each bite', () => {
+    const w = bareWorld();
+    place(w, 'a', 900, 900, 0, 'battleship');
+    place(w, 'o', -900, -900, 0, 'battleship');
+    const b = place(w, 'b', 0, 0);
+    w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, dps: 5 });
+    w.burnZones.set('bz2', { id: 'bz2', ownerId: 'a', x: 10, y: 0, r: 100, until: 999_999, dps: 8 });
+    w.burnZones.set('bz3', { id: 'bz3', ownerId: 'o', x: 0, y: 10, r: 100, until: 999_999, dps: 6 });
+    const hp0 = b.hp;
+    for (let i = 0; i < 20; i++) w.step(); // one second
+    expect(hp0 - b.hp).toBeCloseTo(8 + 6, 4);
+  });
+
+  it('the zone expires naturally, the burn stops, and the frame channel goes byte-free', () => {
+    const { w, a, slot, A } = board();
+    const { at } = fireUntilStop(w, a, slot, 0, 400);
+    expect(buildFrame(w, 'a').burnZones?.length).toBe(1);
+    const steps = Math.ceil(8000 / DT) + 1;
+    for (let i = 0; i < steps; i++) w.step();
+    expect(w.now).toBeGreaterThanOrEqual(at + 8000);
+    expect(w.burnZones.size).toBe(0);
+    expect('burnZones' in buildFrame(w, 'a')).toBe(false);
+    const hp = A.hp;
+    for (let i = 0; i < 10; i++) w.step();
+    expect(A.hp).toBe(hp); // no further burn
+  });
+
+  it('an early interceptor takes the tier damage as CONTACT damage and the zone BURNS where the shell stopped', () => {
+    const { w, a, slot } = board();
+    const mid = place(w, 'mid', 250, 0, 0); // bodyblocks a 650 u click
+    const { seen } = fireUntilStop(w, a, slot, 0, 650);
+    expect(kinds(seen)).toContain('boom');
+    expect(kinds(seen)).not.toContain('burst');
+    expect(mid.hp).toBeLessThanOrEqual(mid.stats.maxHp - 20);
+    expect(w.burnZones.size).toBe(1);
+    const zone = [...w.burnZones.values()][0];
+    expect(Math.hypot(zone.x, zone.y)).toBeLessThan(400); // short of the click
+    expect(zone.dps).toBe(5);
+  });
+
+  it('the zone REVEALS NOTHING: a hull inside the firer’s burn zone but outside its sight is not a contact (amendment 135(e))', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    a.prevSweepAngle = Math.PI; // park the firer's own radar beam away from the target bearing
+    a.sweepAngle = Math.PI + 0.0001;
+    fitTier(w, a, 'phosphorShells', 1);
+    const hidden = place(w, 'hidden', 520, 40, Math.PI / 2); // inside the zone, 520 u from the firer (sight 330)
+    fireUntilStop(w, a, slotOf(a, 'phosphorShells'), 0, 500);
+    expect(w.burnZones.size).toBe(1);
+    expect(hidden.hp).toBeLessThan(hidden.stats.maxHp); // it WAS hit — the zone covers it
+    const f = buildFrame(w, 'a');
+    expect(f.contacts.map((c) => c.id)).not.toContain('hidden');
+    expect(f.burnZones?.map((z) => z.by)).toEqual(['a']); // ...but the firer sees only the circle
+  });
+
+  it('the ready room never burns: a zone on the water with damage suppressed bites nobody', () => {
     const w = bareWorld();
     place(w, 'a', 400, 0, 0, 'battleship');
     const b = place(w, 'b', 420, 30);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 165, until: 999_999, phosphor: false, dazzle: false });
+    w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: 5 });
+    w.damageEnabled = false;
     for (let i = 0; i < 20; i++) w.step();
     expect(b.hp).toBe(b.stats.maxHp);
   });
-});
 
-describe('DAZZLE BURST (starDazzle) — the victim’s own truesight shrinks', () => {
-  function dazzleBoard(): { w: World; a: ShipRecord; b: ShipRecord; t: ShipRecord } {
-    const w = bareWorld();
-    const a = place(w, 'a', 900, 900, 0, 'battleship'); // zone owner, far away
-    const b = place(w, 'b', 0, 0); // the dazzled victim
-    const t = place(w, 't', 250, 0); // inside base sight (330), OUTSIDE dazzled sight (165)
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
-    return { w, a, b, t };
-  }
-
-  it('inside a non-owned dazzle zone the victim’s dazzledUntil refreshes every tick and its OWN sight halves', () => {
-    const { w, b } = dazzleBoard();
-    w.step();
-    expect(b.dazzledUntil).toBe(w.now + 250); // the refreshed grace mark
-    // The dazzled observer LOSES a contact a base observer holds.
-    expect(buildFrame(w, 'b').contacts.map((c) => c.id)).not.toContain('t');
-  });
-
-  it('a NON-dazzled observer at the same range is untouched (its invariants never weaken)', () => {
-    // The dazzleBoard geometry with the zone moved OFF the observer: same
-    // observer, same 250u contact, no dazzle — it must keep the contact.
-    const w = bareWorld();
-    place(w, 'a', 900, 900, 0, 'battleship');
-    const b = place(w, 'b', 0, 0);
-    place(w, 't', 250, 0);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 600, y: 600, r: 100, until: 999_999, phosphor: false, dazzle: true });
-    w.step();
-    expect(b.dazzledUntil).toBe(0);
-    expect(buildFrame(w, 'b').contacts.map((c) => c.id)).toContain('t');
-  });
-
-  // Story 2.8 review, P9: the burn was gated on damageEnabled but the dazzle
-  // mark was not, so a flare fired in the weapons-safe ready room still blinded
-  // people. RULING: ALL hostile zone effects ride the same policy flag.
-  it('with damage suppressed (the ready room) a dazzle zone marks NOBODY — one flag, one policy', () => {
-    const { w, b } = dazzleBoard();
-    w.damageEnabled = false; // the waiting/countdown ready room
-    for (let i = 0; i < 5; i++) w.step();
-    expect(b.dazzledUntil).toBe(0); // never marked...
-    expect(buildFrame(w, 'b').contacts.map((c) => c.id)).toContain('t'); // ...so sight is full
-    // Flip damage on: the very same board dazzles immediately.
-    w.damageEnabled = true;
-    w.step();
-    expect(b.dazzledUntil).toBe(w.now + 250);
-  });
-
-  it('the OWNER inside its own dazzle zone is never dazzled', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
-    w.step();
-    expect(a.dazzledUntil).toBe(0);
-  });
-
-  it('dazzledUntil is VICTIM-PRIVATE on the wire and expires ~250ms after leaving the zone', () => {
-    const { w, b, t } = dazzleBoard();
-    place(w, 'watcher', 100, 60);
-    w.step();
-    const fb = buildFrame(w, 'b');
-    expect(fb.you!.dazzledUntil).toBe(b.dazzledUntil);
-    const fw = buildFrame(w, 'watcher');
-    const contact = fw.contacts.find((c) => c.id === 'b')!;
-    expect(contact).toBeDefined();
-    expect('dazzledUntil' in contact).toBe(false);
-    // Leave the zone (delete it): the mark expires after the short grace and
-    // the shrunken sight recovers.
-    w.litZones.clear();
-    for (let i = 0; i < 7; i++) w.step(); // 350ms > the 250ms grace
-    expect(w.now).toBeGreaterThan(b.dazzledUntil);
-    expect(buildFrame(w, 'b').contacts.map((c) => c.id)).toContain('t');
-    void t;
-  });
-});
-
-
-// ---------------------------------------------------------------------------
-// STORY 7-5 WAVE 1: THE VERBS STACK.
-//
-// Doctrine stopped being an either/or `mode` on torpedoes, mines and star
-// shells and became INDEPENDENT BOOLEAN VERBS, so a firer may hold BOTH cards
-// of what used to be an exclusive pair. Every suite below is UNEXPRESSIBLE in
-// the old model: an enum could only ever hold the last-granted verb, and the
-// zone-effect scan was an `if (dazzle) … else if (incendiary) …` chain that
-// structurally could not burn and blind the same hull.
-// ---------------------------------------------------------------------------
-
-describe('PHOSPHOR + DAZZLE stack on one star shell', () => {
-  /** A Battleship holding BOTH star-shell verbs, granted in `order`. */
-  function bothStars(order: readonly string[]): { w: World; a: ShipRecord } {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
-    for (const id of order) w.applyCard(a, id);
-    return { w, a };
-  }
-
-  it('holding both cards sets both flags — and pick ORDER cannot erase either', () => {
-    for (const order of [['phosphorShells', 'dazzleShells'], ['dazzleShells', 'phosphorShells']]) {
-      const { a } = bothStars(order);
-      expect(a.stats.equipment.starShells.phosphor).toBe(true);
-      expect(a.stats.equipment.starShells.dazzle).toBe(true);
-    }
-  });
-
-  it('the fired flare stamps BOTH verbs on its zone, at the phosphor-shrunk radius', () => {
-    const { w, a } = bothStars(['phosphorShells', 'dazzleShells']);
-    setInput(a, { aim: 0, aimDist: 400, slot: SLOT_SEED_2, fireSeq: 1, seq: 2 });
-    for (let i = 0; i < 60 && w.litZones.size === 0; i++) w.step();
-    const zone = [...w.litZones.values()][0];
-    expect(zone.phosphor).toBe(true);
-    expect(zone.dazzle).toBe(true);
-    // Only the phosphor half moves the radius; dazzle never did.
-    expect(zone.r).toBeCloseTo(CONFIG.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor, 6);
-  });
-
-  // THE REGRESSION PIN. Pre-7-5 markZoneEffects ran `if (dazzle) … else if
-  // (incendiary) …`, so a both-verb zone dazzled and NEVER burned. This fails
-  // outright against that chain.
-  it('a both-verb zone BURNS and BLINDS the same hull in the same tick', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 900, 900, 0, 'battleship'); // owner, far from its own zone
-    const b = place(w, 'b', 0, 0); // the victim, inside
-    place(w, 't', 250, 0); // inside base sight (330), outside dazzled sight (165)
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: true });
-    for (let i = 0; i < 20; i++) w.step(); // one second
-    expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.starShells.incendiaryDps, 4); // it burned
-    expect(b.dazzledUntil).toBe(w.now + 250); // and it is blind
-    expect(buildFrame(w, 'b').contacts.map((c) => c.id)).not.toContain('t');
-  });
-
-  it('the two flags ride the wire independently, omitted when false', () => {
+  it('resetForMatchStart clears practice-field burn zones (the lit-zone / mines precedent)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0, 0, 'battleship');
-    w.litZones.set('plain', { id: 'plain', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: false });
-    w.litZones.set('burn', { id: 'burn', ownerId: 'a', x: 10, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: false });
-    w.litZones.set('blind', { id: 'blind', ownerId: 'a', x: 20, y: 0, r: 100, until: 999_999, phosphor: false, dazzle: true });
-    w.litZones.set('both', { id: 'both', ownerId: 'a', x: 30, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: true });
-    const wire = new Map(buildFrame(w, 'a').litZones!.map((z) => [z.id, z]));
-    expect(wire.get('plain')).toEqual({ id: 'plain', x: 0, y: 0, r: 100, until: 999_999, by: 'a' });
-    expect(wire.get('burn')!.phos).toBe(true);
-    expect(wire.get('burn')!.daz).toBeUndefined();
-    expect(wire.get('blind')!.phos).toBeUndefined();
-    expect(wire.get('blind')!.daz).toBe(true);
-    expect(wire.get('both')!.phos).toBe(true);
-    expect(wire.get('both')!.daz).toBe(true);
+    w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: 5 });
+    w.resetForMatchStart();
+    expect(w.burnZones.size).toBe(0);
+  });
+});
+
+describe('FLASH SHELLS (`dazzleShells`) — a belt consumable whose one-time burst dazzles every hull inside r150 for 10 s (amendment 132)', () => {
+  const BELT = CONSUMABLE_SLOTS[0];
+
+  /** A Battleship at the origin holding ONE FLASH SHELLS copy, clicking
+   *  (400, 0): `A` 100 u from the burst point (inside r150), `B` 160 u from
+   *  it (outside — beam-on, so its silhouette is irrelevant: the flash tests
+   *  CENTRES), a `watcher` who sees A as a contact. */
+  function board(): { w: World; a: ShipRecord; A: ShipRecord; B: ShipRecord; watcher: ShipRecord } {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    w.applyCard(a, 'dazzleShells');
+    expect(a.loadout[BELT]).toEqual({ equipmentId: 'dazzleShells', state: { n: 1, reloadMsLeft: 0 } });
+    const A = place(w, 'A', 500, 0, Math.PI / 2);
+    const B = place(w, 'B', 400, 160, 0);
+    const watcher = place(w, 'watcher', 560, 60);
+    return { w, a, A, B, watcher };
+  }
+
+  it('the burst marks A (inside r150) with dazzledUntil = now + 10 s, leaves B and the owner alone, spends the copy, emits `sp`, no damage, no zone', () => {
+    const { w, a, A, B } = board();
+    const { seen, at } = fireUntilStop(w, a, BELT, 0, 400);
+    expect(kinds(seen)).toContain('burst');
+    expect(kinds(seen)).toContain('sp'); // damage 0 resolves no victim (135(d))
+    expect(kinds(seen)).not.toContain('hc');
+    expect(kinds(seen)).not.toContain('dmg');
+    expect(A.dazzledUntil).toBe(at + CONFIG.flashShells.durationMs);
+    expect(B.dazzledUntil).toBe(0);
+    expect(a.dazzledUntil).toBe(0);
+    expect(A.hp).toBe(A.stats.maxHp);
+    expect(w.litZones.size).toBe(0);
+    expect(w.burnZones.size).toBe(0);
+    // ONE SPEND: the copy left the belt and the card left the build.
+    expect(a.loadout[BELT]).toEqual({ equipmentId: null, state: null });
+    expect(a.cards).not.toContain('dazzleShells');
+  });
+
+  it('a click is clamped at the star shell’s reach (radarRange) — never an arc denial', () => {
+    const { w, a } = board();
+    setInput(a, { aim: Math.PI, aimDist: 5000, slot: BELT, fireSeq: 1, seq: 2 });
+    expect(w.sinkingActivationGate(a, BELT)).toEqual({ ok: true });
+    const shell = [...w.shells.values()][0];
+    expect(shell.targetX).toBeCloseTo(-a.stats.radarRange, 6);
+    expect(shell.flash).toEqual({ radius: 150, durationMs: 10_000 });
+    expect(shell.damage).toBe(0);
+    expect(shell.contactDamage).toBe(0);
+    expect(shell.burstRadius).toBe(150);
+    expect(shell.hits).toEqual(CONFIG.flashShells.hits);
+    expect(shell.family).toBe('cannon');
+  });
+
+  it('an empty belt slot refuses the click and spends nothing', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    setInput(a, { aim: 0, aimDist: 400, slot: BELT, fireSeq: 1, seq: 2 });
+    expect(w.sinkingActivationGate(a, BELT)).toEqual({ ok: false, reason: 'empty-slot' });
+    expect(w.shells.size).toBe(0);
+  });
+
+  it('a second flash on an already-dazzled hull sets the LATER expiry — never stacks, never shortens', () => {
+    const { w, a, A } = board();
+    A.dazzledUntil = w.now + 4000; // 4 s left
+    const { at } = fireUntilStop(w, a, BELT, 0, 400);
+    expect(A.dazzledUntil).toBe(at + 10_000); // extended to the flash's 10 s
+    // ...and a mark already LONGER than a fresh flash is left alone.
+    const { w: w2, a: a2, A: A2 } = board();
+    const longer = w2.now + 60_000;
+    A2.dazzledUntil = longer;
+    fireUntilStop(w2, a2, BELT, 0, 400);
+    expect(A2.dazzledUntil).toBe(longer); // unchanged — never shortened
+  });
+
+  it('with damage suppressed (the ready room) the shell still flies and bursts but blinds NOBODY — one flag, one policy', () => {
+    const { w, a, A } = board();
+    w.damageEnabled = false;
+    const { seen } = fireUntilStop(w, a, BELT, 0, 400);
+    expect(kinds(seen)).toContain('burst');
+    expect(A.dazzledUntil).toBe(0);
+  });
+
+  it('an interception en route flashes at the STOP POINT, exactly as a flare lights there; the interceptor takes 0', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    w.applyCard(a, 'dazzleShells');
+    const mid = place(w, 'mid', 300, 0, 0); // bodyblocks; its centre is within 150 u of the stop point
+    const far = place(w, 'far', 650, 0, Math.PI / 2); // the clicked point — never reached
+    const { seen, at } = fireUntilStop(w, a, BELT, 0, 650);
+    expect(kinds(seen)).toContain('boom');
+    expect(mid.hp).toBe(mid.stats.maxHp);
+    expect(mid.dazzledUntil).toBe(at + 10_000);
+    expect(far.dazzledUntil).toBe(0);
+  });
+
+  it('the dazzled hull’s OWN sight collapses to radarRange / 8 = 82.5 u (sightOf → the shared effectiveSight); radar range is untouched', () => {
+    const { w, a, A } = board();
+    place(w, 't', 500, 200, 0); // 200 u from A: inside base sight (330), outside dazzled sight (82.5)
+    expect(buildFrame(w, 'A').contacts.map((c) => c.id)).toContain('t');
+    fireUntilStop(w, a, BELT, 0, 400);
+    expect(sightOf(A, w.now)).toBeCloseTo(A.stats.radarRange * CONFIG.flashShells.sightFraction, 9);
+    expect(sightOf(A, w.now)).toBeCloseTo(82.5, 9);
+    expect(A.stats.radarRange).toBe(CONFIG.vision.radar);
+    expect(buildFrame(w, 'A').contacts.map((c) => c.id)).not.toContain('t');
+    // Expiry: the mark lapses and full sight returns.
+    for (let i = 0; i < Math.ceil(10_000 / DT) + 2; i++) w.step();
+    expect(w.now).toBeGreaterThan(A.dazzledUntil);
+    expect(sightOf(A, w.now)).toBe(A.stats.sightRange);
+    expect(buildFrame(w, 'A').contacts.map((c) => c.id)).toContain('t');
+  });
+
+  it('dazzledUntil rides ONLY the victim’s own frame (`you`) — a watcher’s contact for the victim never carries it', () => {
+    const { w, a, A, watcher } = board();
+    fireUntilStop(w, a, BELT, 0, 400);
+    w.step();
+    expect(buildFrame(w, 'A').you!.dazzledUntil).toBe(A.dazzledUntil);
+    const contact = buildFrame(w, 'watcher').contacts.find((c) => c.id === 'A')!;
+    expect(contact).toBeDefined();
+    expect('dazzledUntil' in contact).toBe(false);
+    expect('dazzledUntil' in buildFrame(w, 'watcher').you!).toBe(false); // the watcher itself (160+ u away) is not dazzled
+    void watcher;
   });
 });
 

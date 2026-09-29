@@ -166,7 +166,7 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly the THIRTEEN built rows — Story 8.15\'s fourteen minus the radar buoy (Story 8.16)', () => {
+  it('holds exactly the FOURTEEN built rows — Story 8.16\'s thirteen plus PHOSPHOR SHELLS (Story 8.17)', () => {
     expect(Object.keys(EQUIPMENT).sort()).toEqual([
       'boost',
       'broadside',
@@ -180,9 +180,11 @@ describe('EQUIPMENT registry — interface conformance', () => {
       'lightTorpedo', // Story 8.13
       'machineGun', // Story 8.15 — the held-fire magazine stream (amendments 103–104)
       'navalMines',
+      'phosphorShells', // Story 8.17 — the burning-zone shell, its own line (amendment 131)
       'starShells',
     ]);
-    expect(Object.keys(EQUIPMENT)).toHaveLength(13);
+    expect(Object.keys(EQUIPMENT)).toHaveLength(14);
+    expect(EQUIPMENT.phosphorShells!.isWeapon).toBe(true); // Story 8.17: a 360° damage weapon
     expect(Object.hasOwn(EQUIPMENT, 'radarBuoy')).toBe(false); // deleted end to end (Story 8.16)
     // Total in CONTENT since Story 8.15 (missile and monitor were CUT rather
     // than built — amendment 89e — so no EquipmentId is left without a row),
@@ -208,8 +210,9 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
     // Story 8.13 flipped THREE more stubs and built their modules: the LIGHT
     // TORPEDO and the CAPTIVE / FOULING mine racks. 4 -> 7. Story 8.15 added
-    // no equipment line (its two guns are LADDER hosts, pinned below).
-    expect(nonStubTargets).toBe(7);
+    // no equipment line (its two guns are LADDER hosts, pinned below). Story
+    // 8.17 made PHOSPHOR SHELLS its own equipment line (amendment 131). 7 -> 8.
+    expect(nonStubTargets).toBe(8);
     // EVERY GUN LADDER'S HOST HAS A ROW (Story 8.15): `deckGun` -> gun,
     // `machineGun` -> machineGun, `flak` -> flak — the three mountable guns.
     let ladderHosts = 0;
@@ -373,13 +376,14 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
   // click-placed DECOY BUOY. SMOKE SCREEN and the DEPTH CHARGE stub are still
   // `stub` in the catalog, so nothing else is drawable or stockable in play,
   // and the PARTIAL registry is what makes even a forged press fail closed.
-  it('the PRODUCTION consumable registry holds the FIVE built lines, and every stub line is absent', () => {
-    const BUILT = ['chaff', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
+  it('the PRODUCTION consumable registry holds the SIX built lines, and every stub line is absent', () => {
+    const BUILT = ['chaff', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
     expect(Object.keys(CONSUMABLES).sort()).toEqual(BUILT);
     expect(Object.isFrozen(CONSUMABLES)).toBe(true);
     for (const id of BUILT) expect(Object.isFrozen(CONSUMABLES[id as keyof typeof CONSUMABLES]), id).toBe(true);
     expect(CONSUMABLES.supercavTorpedo!.isWeapon).toBe(true); // aimed
     expect(CONSUMABLES.decoyBuoy!.isWeapon).toBe(true); // click-placed (Story 8.16)
+    expect(CONSUMABLES.dazzleShells!.isWeapon).toBe(true); // FLASH SHELLS: prime-and-click (Story 8.17)
     expect(CONSUMABLES.hullRepair!.isWeapon).toBe(false);
     expect(CONSUMABLES.shieldBlock!.isWeapon).toBe(false); // key-fired (Story 8.16)
     expect(CONSUMABLES.chaff!.isWeapon).toBe(false); // key-fired (Story 8.16)
@@ -401,8 +405,8 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
       expect(Object.hasOwn(CONSUMABLES, id), id).toBe(!isStubLine(id));
       if (!isStubLine(id)) nonStub += 1;
     }
-    expect(nonStub).toBe(5); // HULL REPAIR (8.8) + SUPERCAV TORPEDO (8.13) + SHIELD/CHAFF/DECOY (8.16)
-    // ...so exactly TWO stubs remain (SMOKE SCREEN, DEPTH CHARGE — 8.17).
+    expect(nonStub).toBe(6); // HULL REPAIR (8.8) + SUPERCAV TORPEDO (8.13) + SHIELD/CHAFF/DECOY (8.16) + FLASH SHELLS (8.17)
+    // ...so exactly TWO stubs remain (SMOKE SCREEN, DEPTH CHARGE — 8.18+).
     expect(CONSUMABLE_IDS.filter((id) => isStubLine(id)).sort()).toEqual(['depthCharge', 'smokeScreen']);
   });
 

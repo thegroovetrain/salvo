@@ -17,7 +17,7 @@ import {
   type OwnShip,
   type ShipClassId,
 } from '@salvo/shared';
-import { observe, observeSpectator } from './perception.js';
+import { observe, observeSpectator, type PerceptionView } from './perception.js';
 import { slotAmmo } from './equipment/index.js';
 import type { ShipRecord, World } from './world.js';
 
@@ -196,6 +196,21 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * 'waiting' default preserves pre-lifecycle behavior for standalone worlds
  * (unit tests, sandbox smokes) — the room always passes its live phase.
  */
+/**
+ * The three OPTIONAL contact-like channels, on one rule for both frame paths:
+ * each is OMITTED (not an empty array) when this observer sees none, so
+ * zone-free / decoy-free frames stay byte-identical to pre-1.7 frames.
+ * `litZones` (Story 1.7), `burnZones` (Story 8.17 — the PHOSPHOR burning zone
+ * on the lit zone's gate) and `decoys` (Story 8.16).
+ */
+function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'decoys'> {
+  return {
+    ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
+    ...(view.burnZones.length > 0 ? { burnZones: view.burnZones } : {}),
+    ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
+  };
+}
+
 export function buildFrame(world: World, playerId: string, phase: MatchPhase = 'waiting'): FrameMsg {
   const ship = world.ships.get(playerId);
   const base = {
@@ -211,13 +226,9 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
       contacts: view.contacts,
       events: view.events,
       mines: view.mines,
-      // litZones is OPTIONAL on the wire: omitted (not an empty array) when
-      // this observer sees none, so zone-free frames stay byte-identical to
-      // pre-1.7 frames (same rule on both paths).
-      ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
-      // decoys (Story 8.16) is OPTIONAL on the same litZones rule: omitted
-      // when none, so decoy-free frames do not change shape.
-      ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
+      // litZones / burnZones / decoys: OPTIONAL on the wire (see
+      // optionalChannels — the same rule on both paths).
+      ...optionalChannels(view),
       spec: true,
     };
   }
@@ -234,10 +245,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,
-    ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
-    // decoys (Story 8.16): the contact-like decoy-buoy channel — omitted when
-    // this observer sees none (the litZones rule).
-    ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
+    ...optionalChannels(view), // litZones / burnZones / decoys, omitted when none
     ...(denied !== undefined && denied.length > 0 ? { denied: [...denied] } : {}),
   };
 }

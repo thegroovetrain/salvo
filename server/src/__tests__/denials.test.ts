@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 58→59 bump (PV 59, Story 8.16: the own-ship frame gains `shield`, the frame gains `decoys`, the radar buoy\'s `buoys` channel and the `src` blip tag are deleted, and the catalog content moved) is enforced at matchmake', () => {
-  it('rejects pv-58 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(59);
+describe('pv join gate — the 59→60 bump (PV 60, Story 8.17: the lit zone loses `phos`/`daz`, the frame gains `burnZones`, `phosphorShells` is an EquipmentId and `dazzleShells` a ConsumableId, and the catalog content moved) is enforced at matchmake', () => {
+  it('rejects pv-59 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(60);
+    expect(protocolVersionError(59)).toMatch(/refresh/);
     expect(protocolVersionError(58)).toMatch(/refresh/);
     expect(protocolVersionError(57)).toMatch(/refresh/);
     expect(protocolVersionError(56)).toMatch(/refresh/);

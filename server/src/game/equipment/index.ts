@@ -37,6 +37,7 @@ import { captiveMineEquipment, foulingMineEquipment, mineEquipment } from './min
 import { boostEquipment } from './boost.js';
 import { broadsideEquipment } from './broadside.js';
 import { starShellsEquipment } from './starShells.js';
+import { phosphorShellsEquipment } from './phosphorShells.js';
 import { machineGunEquipment } from './machineGun.js';
 import { flakEquipment } from './flak.js';
 import { instantReloadEquipment } from './instantReload.js';
@@ -251,6 +252,7 @@ export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deep
   boost: boostEquipment, // Story 1.6 / 8.9: the universal slot-1 ability (the first non-weapon row)
   broadside: broadsideEquipment, // Story 7-5 wave 2: the Battleship's twin-beam barrage (replaced the cannon)
   starShells: starShellsEquipment, // Story 1.7: the Battleship's lit-zone flare
+  phosphorShells: phosphorShellsEquipment, // Story 8.17: the burning-zone shell (amendment 131)
   machineGun: machineGunEquipment, // Story 8.15: the held-fire magazine stream (amendments 103–104)
   flak: flakEquipment, // Story 8.15: the air-bursting pickable gun (amendment 105)
   instantReload: instantReloadEquipment, // Story 8.15: the Mine Layer's Shift (amendments 97–98)
