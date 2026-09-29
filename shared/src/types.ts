@@ -529,6 +529,18 @@ export interface OwnShip {
    * persistence under fire, and the perception exception count stays at SIX.
    */
   damageCutUntil?: number;
+  /**
+   * The SHIELD BLOCK seat (Story 8.16, catalog-v3 R37, epic-8 amendments
+   * 100/116–118): `hp` = shield hp left to absorb, `until` = the server-clock
+   * time it expires. Present IFF a shield is up (hp left and not yet expired);
+   * OMITTED otherwise, never an `undefined` value (the `slowedUntil` /
+   * `damageCutUntil` conditional-spread precedent). The HUD prints hull +
+   * `hp` in the `info` colour while it is up (amendment 116) — number only.
+   * SELF-PRIVATE BY CONSTRUCTION (the boostUntil precedent): rides `you` and
+   * NOTHING else — an enemy reads a shielded hull only through its
+   * persistence under fire, and the perception exception count stays at SIX.
+   */
+  shield?: { hp: number; until: number };
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */
@@ -602,10 +614,10 @@ export interface Contact {
  * ANTI-CHEAT BOUND (amendment 66's rule carried forward): the mask derives
  * from hull geometry + pose ONLY — never cards, hp, damage state, or any
  * range-derivable quantity. It is observer-INDEPENDENT: every observer
- * painting this hull this tick receives the identical mask. A radar buoy's
- * paint is rasterized by the same shared function from its frozen drop-time
- * pose (owner hull, drop heading) — byte-for-byte a genuine footprint by
- * construction (amendment 11).
+ * painting this hull this tick receives the identical mask. (The radar buoy's
+ * frozen-pose paint went with the buoy in Story 8.16; a DECOY BUOY paints as
+ * an anonymous `CONFIG.decoyBuoy.sizeU` square, and a CHAFF fake is shaped
+ * exactly like a real hull's footprint.)
  *
  * WIRE LAYOUT: `gx`/`gy` are ABSOLUTE world cell indices of the rect's min
  * corner (`floor(worldU / radarCellU)`), `w`/`h` the rect in cells, `bits`
@@ -614,7 +626,10 @@ export interface Contact {
  * with `|=`, so a word whose bit 31 is set serializes NEGATIVE; consumers
  * must compare words as int32, never coerce through `>>> 0`. A battleship
  * broadside is ~16×6 cells at the 9u lattice ≈ 3 mask words. KEY
- * ORDER (msgpack key-insertion order): k,t,gx,gy,w,h,bits.
+ * ORDER (msgpack key-insertion order): k,t,gx,gy,w,h,bits — and NOTHING else:
+ * the optional `src` sensor tag (PV 44, the radar buoy's own-scope
+ * attribution) was DELETED with the radar buoy in Story 8.16 (PV 59), so every
+ * blip is untagged and fake-vs-real stays wire-indistinguishable.
  */
 export interface ReturnBlipEvent {
   k: 'blip';
@@ -624,24 +639,6 @@ export interface ReturnBlipEvent {
   w: number; // rect width in cells
   h: number; // rect height in cells
   bits: number[]; // packed row-major coverage mask (32 bits/word, LSB-first, signed int32 words)
-  /**
-   * THE SENSOR ATTRIBUTION (PV 44 — the buoy's-own-scope fix; Eric: *"It gets
-   * its own returns. I just get to see them as the owner."*): the id of the
-   * RECEIVING OBSERVER'S OWN radar buoy whose antenna made this return. Absent
-   * on every return the observer's own set made (the overwhelmingly common
-   * case), and NEVER present in any frame whose observer does not own the named
-   * buoy — an enemy learns nothing (R2.9 holds; the id resolves against the
-   * owner's own `FrameMsg.buoys` truth channel). The client prices a tagged
-   * return from the BUOY's position — its range falloff, its terrain shadow,
-   * its scope — which is the entire reason the field exists.
-   *
-   * IT SAYS WHICH OF YOUR SENSORS RETURNED IT, NEVER WHETHER THE SUBJECT IS
-   * REAL. An enemy jamming buoy's fakes that pass your buoy's own gate arrive
-   * tagged with your buoy's `src` exactly as a real hull does (signals.ts,
-   * ownBuoyScopeBlips), so fake-vs-real stays wire-indistinguishable INSIDE
-   * every scope — the jamming guarantee survives attribution by construction.
-   */
-  src?: string;
 }
 
 /**
@@ -871,7 +868,7 @@ export interface HitCallEvent {
  * deliberately does not exist). The flash must create a question, never
  * answer one. GUN FAMILY ONLY by the wire-kind predicate ('shell' selects
  * gun + broadside + star shells and excludes 'torp' exactly — no per-weapon
- * table exists to leak through); mine/buoy placements never spawn a
+ * table exists to leak through); mine/decoy placements never spawn a
  * ballistic at all. KEY ORDER IS LOAD-BEARING (msgpack): k,x,y.
  */
 export interface MuzzleEvent {
@@ -1275,43 +1272,33 @@ export interface LitZoneView {
 }
 
 /**
- * A RADAR BUOY visible to this viewer, synced as CONTACT-LIKE state (not an
- * event): FrameMsg.buoys is recomputed per observer every tick, exactly like
- * mines. Delivered to the OWNER (always sees own buoy), to enemies whose
- * sight/lit-zone covers it, and to spectators.
+ * A DECOY BUOY visible to this viewer (Story 8.16, catalog-v3 R36/R41, epic-8
+ * amendments 119–124), synced as CONTACT-LIKE state (not an event):
+ * FrameMsg.decoys is recomputed per observer every tick, exactly like mines.
+ * Delivered to the OWNER always, to any other observer whose sight or own lit
+ * zone covers it (the `mineSignal` rule), and to spectators. It REPLACES the
+ * deleted RADAR BUOY's `BuoyView` (and `FrameMsg.buoys`).
  *
- * STORY 7-5 WAVE 2 REPLACED `DecoyView` WITH THIS, and the rename is the point:
- * the DECEPTION is gone. The decoy's whole purpose was painting on enemy radar
- * as the owner's own ship (the `counterIntel` blip lie), and nothing in the game
- * fakes a ship contact any more. What paints now is the buoy itself, on its OWN
- * radar profile carrying NO owner identity (R2.9) — so this shape is no longer
- * the "truth channel" behind a lie, it is simply the buoy seen up close.
+ * `by` is the OWNER'S ship id and rides EVERY observer's view (the `MineView.by`
+ * precedent; amendment 124(a)): the decoy renders in the owner's personal hue
+ * for all observers, and the client's hue latch keys on it. The dead-owner id
+ * tell is accepted (amendment 122): only an observer who already SEES the decoy
+ * receives `by`, and a sighted observer already sees the hue.
  *
- * `until` is the server-clock expiry (informational — the current client renders
- * a static marker and removes it on despawn). A buoy dropping out of the list
- * means expired, DESTROYED, or out of view — the client cannot tell (the
- * mines/litZones precedent). `by` is the OWNER'S ship id (roster-resolvable —
- * the marker renders in the owner's personal hue for every observer, the
- * deliberate intel grant of Eric 2026-07-23; amber when the owner has left the
- * roster). NOTE: the buoy's 50 hp does NOT ride this shape — no damage-state
- * channel is specified for it, and adding one is a wire decision, not an
- * implementation detail.
+ * `hp` is PRESENT ONLY WHEN `own` (the `MineView.c` idiom): the owner's readout
+ * of the decoy's remaining hull; the key is ABSENT for every other observer,
+ * never an `undefined` value. Own-only field on an own-only object — it opens no
+ * new disclosure and the perception exception count stays at SIX. A decoy
+ * dropping out of the list means DESTROYED or out of view — the client cannot
+ * tell (the mines precedent); it has no lifetime and outlives its owner.
  */
-export interface BuoyView {
-  id: string; // the buoy's own id
+export interface DecoyView {
+  id: string; // the decoy's own id
   x: number; // u
   y: number; // u
-  until: number; // ms — server time the buoy expires
-  own: boolean; // true iff the receiving observer OWNS this buoy (per-observer, the mines precedent)
-  by: string; // the owner's ship id (personal-hue + roster attribution)
-  /** rad — the buoy's OWN radar antenna angle this tick (PV 44, the buoy's-own-
-   *  scope fix: Eric — "It gets its own returns. I just get to see them as the
-   *  owner."). The owner's client draws the buoy's rotating sweep wedge from it
-   *  (extrapolated at the fixed CONFIG.radarBuoy.sweepRpm between frames). It
-   *  rides EVERY BuoyView, sighted-enemy ones included: an antenna's rotation
-   *  phase is physically observable on a buoy you can see, and it carries no
-   *  owner identity, no doctrine and no return data — R2.9 stands. */
-  sweep: number;
+  own: boolean; // true iff the receiving observer OWNS this decoy (per-observer, the mines precedent)
+  by: string; // the owner's ship id (personal-hue + roster attribution) — every observer
+  hp?: number; // hp left — PRESENT ONLY when `own` (the MineView.c idiom)
 }
 
 /**
@@ -1321,7 +1308,7 @@ export interface BuoyView {
  *   'cooling'    — a WEAPON click against an empty pool (the round is
  *                  reloading; the weapon channel's empty-pool vocabulary).
  *   'no-ammo'    — an ABILITY press against an empty pool (no charge).
- *   'blocked'    — a placement (mine/radarBuoy) whose point lands inside an
+ *   'blocked'    — a placement (mine/decoyBuoy) whose point lands inside an
  *                  island or outside the water — nothing consumed.
  * The gate's 'dead'/'empty-slot' refusals never ride the wire: they are
  * either perfectly client-predictable (dead) or unreachable for an honest
@@ -1380,7 +1367,7 @@ export interface FrameMsg {
   events: GameEvent[];
   mines: MineView[]; // per-observer mine visibility (contact-like, recomputed per tick)
   litZones?: LitZoneView[]; // per-observer lit-zone visibility (contact-like; omitted when none)
-  buoys?: BuoyView[]; // per-observer radar-buoy visibility (contact-like; omitted when none)
+  decoys?: DecoyView[]; // per-observer decoy-buoy visibility (contact-like; omitted when none)
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on
    *  spectator frames — a dead ship cannot press). See DeniedView. */

@@ -80,6 +80,10 @@ import {
   type MineKind,
   type MineView,
   type SlotItemId,
+  type DecoyView,
+  type FrameMsg,
+  type OwnShip,
+  type ReturnBlipEvent,
 } from '../index.js';
 
 /** deg -> rad, the SAME association shared/src uses (`(d * PI) / 180`) — the
@@ -341,7 +345,13 @@ describe('shared barrel', () => {
     // (self-private), catalog content (missile/monitor/heatSeeking cut;
     // machineGun/flak become their guns' ladders; 29 -> 26 lines) and the
     // Shift ids. The perception exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(58);
+    // 58 -> 59: CATALOG V3 — SHIELD, CHAFF, DECOY (Story 8.16, Eric rulings
+    // 2026-09-29, epic-8 amendments 116-124). `OwnShip.shield?` (self-private),
+    // `FrameMsg.decoys?` (`DecoyView`, `hp` own-only), `FrameMsg.buoys` +
+    // `BuoyView` + the `src` blip tag DELETED with the radar buoy,
+    // `CONFIG.shieldBlock/chaff/decoyBuoy`, and three consumable stubs flipped
+    // live (catalog content). The perception exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(59);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -539,7 +549,8 @@ describe('shared barrel', () => {
     // non-weapons are the THREE class Shifts, and nothing else.
     expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost', 'instantReload', 'damageCut']);
     expect(EQUIPMENT_IS_WEAPON.navalMines).toBe(true); // aimed rear-arc placement (2.8, a45)
-    expect(EQUIPMENT_IS_WEAPON.radarBuoy).toBe(true); // click-placed (7-5 w2)
+    // The radar buoy is DELETED (Story 8.16) — its click-placed slot is gone.
+    expect('radarBuoy' in EQUIPMENT_IS_WEAPON).toBe(false);
   });
 
   it('the BELT surface (Story 8.7): the rack predicate, the slot-item guard and the two split tables', () => {
@@ -612,28 +623,15 @@ describe('shared barrel', () => {
     expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(CONFIG.broadside.traverseDeg.length);
   });
 
-  it('CONFIG.radarBuoy carries the buoy\'s OWN sensor set (Story 7-5 wave 2)', () => {
-    expect(CONFIG.radarBuoy).toEqual({
-      hits: ['hull', 'mine', 'decoy'], // AR44 — the gun buoy fires gun-pattern shells
-      radarRange: 330,
-      sweepRpm: 15,
-      durationMs: 20000,
-      hp: 50,
-      reloadMs: 30000,
-      maxAmmo: 1,
-      gunDamage: 5,
-      gunReloadMs: 5000,
-      jamFakes: 10,
-    });
-    // FLIPPED PIN (Eric ruling 2026-08-19, amending R2.7 mid-flight). The
-    // draft had a 30s life on a 20s reload, so TWO buoys could overlap; the
-    // ruling swapped both numbers, which makes one-at-a-time STRUCTURAL and
-    // opens a ~10s dead gap between one expiring and the next being available.
-    // The gap is intended — a buoy is a commitment, not permanent cover — so do
-    // not close it with a bigger pool or a shorter reload.
-    expect(CONFIG.radarBuoy.reloadMs).toBeGreaterThan(CONFIG.radarBuoy.durationMs);
-    expect(CONFIG.radarBuoy.reloadMs - CONFIG.radarBuoy.durationMs).toBe(10000);
-    expect(CONFIG.radarBuoy.maxAmmo).toBe(1);
+  it('CONFIG carries the three 8.16 consumable blocks verbatim; the radar buoy is GONE', () => {
+    // catalog-v3 R37 / R39 / R36 (Eric 2026-09-09), epic-8 amendments 116-124.
+    // Consumables carry NO stat row (the consumable law) — these ARE the numbers.
+    expect(CONFIG.shieldBlock).toEqual({ hp: 100, durationMs: 10000 });
+    expect(CONFIG.chaff).toEqual({ radius: 120, count: 10, durationMs: 15000 });
+    expect(CONFIG.decoyBuoy).toEqual({ hp: 50, sizeU: 12 });
+    // THE RADAR BUOY IS DELETED END TO END (Story 8.16): its CONFIG block (the
+    // sensor, the gun buoy, the jamming fakes) went with it.
+    expect((CONFIG as Record<string, unknown>).radarBuoy).toBeUndefined();
   });
 
   it('CONFIG.starShells: DAMAGELESS (amendment 39) + the incendiary/dazzle doctrine fields', () => {
@@ -695,7 +693,9 @@ describe('shared barrel', () => {
     // the retired 3° angular fan step.
     expect(CONFIG.gun.barrelSpacingU).toBe(12);
     expect((CONFIG as Record<string, unknown>).cannon).toBeUndefined();
-    expect((CONFIG as Record<string, unknown>).decoyBuoy).toBeUndefined();
+    // The LEGACY decoy-buoy EQUIPMENT block stays gone: `CONFIG.decoyBuoy` is
+    // the 8.16 CONSUMABLE's two numbers now, nothing of the 7-5 equipment.
+    expect(Object.keys(CONFIG.decoyBuoy).sort()).toEqual(['hp', 'sizeU']);
   });
 
   it('CONFIG.torpedo: the family\'s shared homing fields (command detonation retired)', () => {
@@ -800,6 +800,36 @@ describe('shared barrel', () => {
     expect(Object.keys(seen)).toEqual(['id', 'x', 'y', 'own', 'by']);
   });
 
+  it('re-exports the 8.16 WIRE shapes: DecoyView (by for all, hp own-only), FrameMsg.decoys, OwnShip.shield', () => {
+    // TYPE-LEVEL PINS as much as runtime ones — this file type-checks in the
+    // gate, so a missing `DecoyView` export, a required `hp`, a missing
+    // `FrameMsg.decoys` or `OwnShip.shield` fails to compile here.
+    const own: DecoyView = { id: 'd1', x: 10, y: 20, own: true, by: 'ship1', hp: 50 };
+    expect(own.hp).toBe(50);
+    // Every other observer: `by` (the hue latch, amendment 124(a)), NO `hp`.
+    const seen: DecoyView = { id: 'd1', x: 10, y: 20, own: false, by: 'ship1' };
+    expect(seen.hp).toBeUndefined();
+    expect(Object.keys(seen)).toEqual(['id', 'x', 'y', 'own', 'by']);
+    const frame: Pick<FrameMsg, 'decoys'> = { decoys: [own] };
+    expect(frame.decoys).toHaveLength(1);
+    const shield: NonNullable<OwnShip['shield']> = { hp: 100, until: 10000 };
+    expect(shield.hp).toBe(CONFIG.shieldBlock.hp);
+  });
+
+  it('the radar buoy wire is GONE (Story 8.16): no BuoyView export, no FrameMsg.buoys, no blip `src`', () => {
+    // Runtime half: no value named after the buoy leaks from the barrel.
+    for (const gone of ['BuoyView', 'buoyGate', 'scatterJamFakes']) {
+      expect((shared as Record<string, unknown>)[gone], gone).toBeUndefined();
+    }
+    // Type half: a blip is exactly k,t,gx,gy,w,h,bits — `src` would be an
+    // excess property and fail to compile.
+    const blip: ReturnBlipEvent = { k: 'blip', t: 0, gx: 0, gy: 0, w: 1, h: 1, bits: [1] };
+    expect(Object.keys(blip)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']);
+    // @ts-expect-error — `buoys` is no longer a FrameMsg key
+    const stale: Pick<FrameMsg, 'buoys'> = {};
+    expect(stale).toEqual({});
+  });
+
   it('re-exports the mine RING derivations (sim/stats.ts — the one home for both)', () => {
     // A CONTACT mine's trip ring is a fixed fraction of its blast...
     expect(mineTriggerRadius(CONFIG.mine.blastRadius)).toBe(CONFIG.mine.triggerRadius);
@@ -827,12 +857,13 @@ describe('shared barrel', () => {
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
     expect(Object.isFrozen(NO_CARDS)).toBe(true);
-    // 5 of the 26 lines are STUBS — authored in shape, mechanism unbuilt,
+    // 2 of the 26 lines are STUBS — authored in shape, mechanism unbuilt,
     // never dealt (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
     // gave HULL REPAIR its effect; 12 until Story 8.13 built the LIGHT
     // TORPEDO, the CAPTIVE MINE and the SUPERCAV TORPEDO and added the one new
-    // stub, DEPTH CHARGE; 10 until Story 8.15 cut three and built two.
-    expect(LINE_IDS.filter((id) => isStubLine(id))).toHaveLength(5);
+    // stub, DEPTH CHARGE; 10 until Story 8.15 cut three and built two; 5 until
+    // Story 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY.
+    expect(LINE_IDS.filter((id) => isStubLine(id))).toEqual(['smokeScreen', 'depthCharge']);
     // THE GENERATED WHITELIST, and its deliberate absences (see sim/effects.ts).
     expect(BOON_STAT_PATHS.length).toBeGreaterThan(0);
     expect(Object.keys(EQUIPMENT_STAT_FIELDS).sort()).toEqual([...EQUIPMENT_IDS].sort());

@@ -200,19 +200,8 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           phosphor: false,
           dazzle: false,
         },
-        radarBuoy: {
-          tier: 1,
-          reloadMs: CONFIG.radarBuoy.reloadMs,
-          maxAmmo: CONFIG.radarBuoy.maxAmmo,
-          durationMs: CONFIG.radarBuoy.durationMs,
-          radarRange: CONFIG.radarBuoy.radarRange,
-          sweepRpm: CONFIG.radarBuoy.sweepRpm,
-          hp: CONFIG.radarBuoy.hp,
-          gunDamage: CONFIG.radarBuoy.gunDamage,
-          gunReloadMs: CONFIG.radarBuoy.gunReloadMs,
-          gun: false,
-          jamming: false,
-        },
+        // (radarBuoy's row DELETED with the buoy, Story 8.16; the DECOY BUOY
+        // consumable that replaces it carries NO row — the consumable law.)
         // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97/99).
         instantReload: { tier: 1, reloadMs: 45000, maxAmmo: 1 },
         damageCut: { tier: 1, reloadMs: 30000, maxAmmo: 1, durationMs: 8000, factor: 0.5 },
@@ -766,7 +755,7 @@ describe('effectiveStats — doctrine verb folds (the two surviving add-ons)', (
           { kind: 'doctrine', weapon: 'navalMines', mode: 'captive' }, // now the captive LINE, not a verb
           { kind: 'doctrine', weapon: 'navalMines', mode: 'propFouling' }, // deleted with the add-on (amendment 81)
           { kind: 'doctrine', weapon: 'heavyTorpedo', mode: 'homing' }, // now a TIER STAT (amendment 80)
-          { kind: 'doctrine', weapon: 'radarBuoy', mode: 'jamming' }, // deleted with the buoy (R1)
+          { kind: 'doctrine', weapon: 'radarBuoy' as EquipmentId, mode: 'jamming' }, // the DELETED buoy (R1, Story 8.16)
           { kind: 'doctrine', weapon: 'starShells', mode: 'litRadius' }, // a real field, NOT a verb
         ]],
       },

@@ -4,6 +4,8 @@
 // 26 card LINES / 109 physical cards: 7 equipment lines (35), 5 universal
 // ladders (22), the gun ladders (15 — the cannon's three lines, 7, plus the
 // MACHINE GUN and FLAK ladders, 4 each), 2 add-ons (2), 7 consumables (35).
+// TWO stub lines remain since Story 8.16 (SMOKE SCREEN, DEPTH CHARGE); every
+// other line is live.
 //
 // THE COUNT MOVED 29/122 -> 26/109 IN STORY 8.15 (Eric rulings 2026-09-21/28,
 // epic-8 amendments 89e and 103–105): MISSILE, MONITOR and HEAT SEEKING are
@@ -403,12 +405,14 @@ export const CATALOG: Catalog = deepFreezeRows({
   // --- the consumables (R13, R36–R39, + amendments 74/83) -------------------
   // The belt and the `1`–`4` keys are built (Story 8.7). HULL REPAIR (R13) was
   // the first LIVE line — its effect is Story 8.8's — and SUPERCAV TORPEDO
-  // (above) is the second; the rest are still stubs until their effects land.
+  // (above) is the second. Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY
+  // BUOY live (catalog-v3 R37/R39/R36, epic-8 amendments 116–124), leaving
+  // TWO stubs: SMOKE SCREEN and DEPTH CHARGE, until their effects land.
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
-  shieldBlock: consumable('shieldBlock', true),
+  shieldBlock: consumable('shieldBlock'), // R37 — absorbs 100 hp for 10 s (CONFIG.shieldBlock)
   smokeScreen: consumable('smokeScreen', true),
-  chaff: consumable('chaff', true),
-  decoyBuoy: consumable('decoyBuoy', true),
+  chaff: consumable('chaff'), // R39 — 10 fakes in 120 u for 15 s (CONFIG.chaff)
+  decoyBuoy: consumable('decoyBuoy'), // R36 — a 50 hp rear-dropped decoy (CONFIG.decoyBuoy)
   // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB
   // in full shape so the id is final, and the Mine Layer's 40th default card.
   depthCharge: consumable('depthCharge', true),
@@ -513,8 +517,8 @@ export function tierTargetOf(line: CatalogLine): EquipmentId | undefined {
  * The EQUIPMENT LINE that fits a piece of equipment — the inverse of
  * `tierTargetOf` over the `equipment` lines, and the ONE place the
  * (EquipmentId -> LineId) mapping is derived. Undefined for a piece of
- * equipment no card fits (the three mounted guns, the three Shifts, and the
- * legacy `radarBuoy`).
+ * equipment no card fits (the three mounted guns and the three Shifts; the
+ * legacy `radarBuoy` was deleted in Story 8.16).
  *
  * It is what lets the spawn seed know which cards a hull is ALREADY holding,
  * and what lets the shared slot fold refuse to fit a STUB weapon, without

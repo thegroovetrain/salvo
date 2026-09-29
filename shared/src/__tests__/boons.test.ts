@@ -394,9 +394,9 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
 
   it('stat, behavior and doctrine effects are structural no-ops in the slot home (and a STUB stock with them)', () => {
     // `stock` moved home in Story 8.7 — it fills the BELT now. The one used
-    // here is SHIELD BLOCK, still a stub (epic-8 amendment 41), so the stub
-    // gate refuses it and it stays a no-op; HULL REPAIR went live in Story 8.8
-    // and would fill a belt slot. The live rack is exercised against a non-stub
+    // here is SMOKE SCREEN, still a stub (epic-8 amendment 41; SHIELD BLOCK,
+    // the line this pin used until Story 8.16, went live there), so the stub
+    // gate refuses it and it stays a no-op; a LIVE line would fill a belt slot. The live rack is exercised against a non-stub
     // test catalog at the foot of this file.
     const loadout = loadoutFor(stats);
     const slotRefs = [...loadout];
@@ -405,7 +405,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
       { kind: 'stat', path: 'maxHp', add: 1 },
       { kind: 'behavior', hookId: 'x', params: {} },
       { kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' },
-      { kind: 'stock', equipmentId: 'shieldBlock' },
+      { kind: 'stock', equipmentId: 'smokeScreen' },
     ];
     for (const e of effects) applySlotEffect(loadout, e, stats);
     expect(loadout.map((s) => s)).toEqual(slotRefs);
@@ -594,11 +594,12 @@ describe('a STUB line NEVER fills a slot (shared guard, both sides)', () => {
 // — it never reloads — and `slotsWithCards` needs no new code to replay it:
 // k copies replayed IS n = k.
 //
-// FIVE OF THE SEVEN PRODUCTION CONSUMABLES ARE STILL STUBS (epic-8 amendment
-// 41; HULL REPAIR went live in Story 8.8 and the SUPERCAV TORPEDO in 8.13),
-// so these tests run on an injected ALL-NON-STUB catalog to exercise the fold
-// over every line; the production pin (only those two reach the belt in play)
-// is asserted below and in nineSlots.test.ts.
+// TWO OF THE SEVEN PRODUCTION CONSUMABLES ARE STILL STUBS (epic-8 amendment
+// 41; HULL REPAIR went live in Story 8.8, the SUPERCAV TORPEDO in 8.13, and
+// SHIELD BLOCK, CHAFF and DECOY BUOY in 8.16), so these tests run on an
+// injected ALL-NON-STUB catalog to exercise the fold over every line; the
+// production pin (only the five live lines reach the belt in play) is
+// asserted below and in nineSlots.test.ts.
 // ---------------------------------------------------------------------------
 
 describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', () => {
@@ -630,11 +631,12 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
 
   it('the test lines are LEGAL catalog lines (the helper is the shipped shape, un-stubbed)', () => {
     for (const id of CONSUMABLE_IDS) expect(validateLine(consumableLine(id)), id).toEqual([]);
-    // ...and production ships exactly TWO live lines: HULL REPAIR (Story 8.8)
-    // and SUPERCAV TORPEDO, which moved into the consumable id space in Story
-    // 8.13 with a live module behind it (epic-8 amendment 74). The other five
-    // — including the new DEPTH CHARGE stub (amendment 83) — are still stubs.
-    const LIVE: readonly string[] = ['hullRepair', 'supercavTorpedo'];
+    // ...and production ships exactly FIVE live lines: HULL REPAIR (Story 8.8),
+    // SUPERCAV TORPEDO, which moved into the consumable id space in Story 8.13
+    // with a live module behind it (epic-8 amendment 74), and SHIELD BLOCK,
+    // CHAFF and DECOY BUOY (Story 8.16). The other two — SMOKE SCREEN and the
+    // DEPTH CHARGE stub (amendment 83) — are still stubs.
+    const LIVE: readonly string[] = ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy'];
     for (const id of CONSUMABLE_IDS) {
       expect(CATALOG[id].stub, id).toBe(LIVE.includes(id) ? undefined : true);
     }
@@ -747,11 +749,12 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
     const stubbed = catalogOf(consumableLine('hullRepair', { stub: true }));
     applySlotEffect(loadout, stock('hullRepair'), stats, stubbed);
     expect(beltIds(loadout)).toEqual([null, null, null, null]);
-    // ...and the PRODUCTION catalog still stubs FIVE of the SEVEN (amendment
-    // 41, as widened by 74/83): swept over every line, only HULL REPAIR and
-    // the SUPERCAV TORPEDO reach the belt, in CONSUMABLE_IDS order.
+    // ...and the PRODUCTION catalog still stubs TWO of the SEVEN (amendment
+    // 41, as widened by 74/83 and narrowed by 8.16): swept over every line,
+    // the first four LIVE lines reach the belt in CONSUMABLE_IDS order — SMOKE
+    // SCREEN and DEPTH CHARGE are refused, the SUPERCAV finds the belt full.
     for (const id of CONSUMABLE_IDS) applySlotEffect(loadout, stock(id), stats, CATALOG);
-    expect(beltIds(loadout)).toEqual(['hullRepair', 'supercavTorpedo', null, null]);
+    expect(beltIds(loadout)).toEqual(['hullRepair', 'shieldBlock', 'chaff', 'decoyBuoy']);
   });
 
   it('a stock NEVER touches the gun, the boost or the weapon row — even with the row full', () => {

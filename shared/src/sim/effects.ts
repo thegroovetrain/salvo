@@ -124,7 +124,6 @@ export const EQUIPMENT_STAT_FIELDS = {
   flak: ['reloadMs', 'maxAmmo', 'damage'],
   broadside: ['reloadMs', 'maxAmmo', 'damage', 'burstRadius', 'turrets', 'spreadRung'],
   starShells: ['reloadMs', 'maxAmmo', 'litRadius', 'litDurationMs'],
-  radarBuoy: ['reloadMs', 'maxAmmo', 'durationMs', 'radarRange', 'sweepRpm', 'hp', 'gunDamage', 'gunReloadMs'],
   // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97–102) — boost-shaped
   // rows: no card addresses them today, but `reloadMs` must be a row field so
   // RELOAD's `cooldownScale` reaches it through the one multiply.

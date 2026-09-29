@@ -4,8 +4,9 @@
 // torpedo launches in a bow sector (heading + CONFIG.torpedo.offset ±
 // halfArc); the mine — a click-aimed weapon as of Story 2.8 (amendment 45) —
 // places within a REAR sector (heading + CONFIG.mine.offset ±
-// placeHalfArcDeg), and since Story 7-5 wave 2 the radar buoy is click-placed
-// in that SAME rear sector; the BROADSIDE BARRAGE fires into one of two
+// placeHalfArcDeg), and since Story 8.16 the DECOY BUOY consumable is
+// click-placed in that SAME rear sector (the radar buoy that used it before is
+// deleted); the BROADSIDE BARRAGE fires into one of two
 // mirrored BEAM sectors (Story 7-5 wave 2, R2.1 — the class-era side arcs
 // restored verbatim); the class Shifts (boost, instant reload, damage cut) aim
 // nothing.
@@ -38,7 +39,7 @@ import type { MineKind } from '../types.js';
  * - `full`        — 360°, aimed to the clicked point, never out of arc
  *                   (every gun — cannon, machine gun, flak — and star shells).
  * - `sector`      — an aimed launch sector `heading + offset ± halfArc`
- *                   (the torpedo's bow arc; the mine's and the radar buoy's
+ *                   (the torpedo's bow arc; the mine's and the decoy buoy's
  *                   rear placement arc — aim outside it is DENIED).
  * - `twin-sector` — TWO MIRRORED aimed sectors at `heading ± offset`, each
  *                   `halfArc` wide (the BROADSIDE BARRAGE's beams; the LIGHT
@@ -49,8 +50,8 @@ import type { MineKind } from '../types.js';
  * - `none`        — nothing spatial is aimed or placed (the three Shifts).
  *
  * THE `stern-drop` SHAPE IS DELETED (Story 7-5 wave 2): the decoy buoy was its
- * only user, and the radar buoy replacing it is click-placed in the mine's rear
- * SECTOR. An un-aimed placement grammar with no equipment behind it is a dead
+ * only user, and the buoys that followed it (the radar buoy, then the 8.16
+ * DECOY BUOY consumable) are click-placed in the mine's rear SECTOR. An un-aimed placement grammar with no equipment behind it is a dead
  * branch in every consumer's switch, so it goes with its user rather than
  * waiting for a hypothetical next one.
  */
@@ -76,17 +77,22 @@ export function arcFor(id: SlotItemId): ArcShape {
 }
 
 /**
- * A CONSUMABLE's arc. Only the SUPERCAV TORPEDO aims today — the bow ±15°
- * sector of `CONFIG.supercavTorpedo` (amendment 74) — and every other line off
- * the `1`–`4` rail is an instant activation that aims nothing. THE DECOY
- * BUOY'S ARC IS STORY 8.16'S (renumbered from 8.15 by amendment 89h): it is
- * `CONSUMABLE_IS_WEAPON`-true and click-placed, but its module and its CONFIG
- * block land there, and declaring
- * a literal for it here would put an uncited number in the arc grammar.
+ * A CONSUMABLE's arc. TWO lines aim: the SUPERCAV TORPEDO's bow ±15° sector
+ * (`CONFIG.supercavTorpedo`, amendment 74) and the DECOY BUOY, which is
+ * click-placed in the MINE's rear sector (`CONFIG.mine.offset` ±
+ * `placeHalfArcDeg`, out to `placeRange` — Story 8.16, catalog-v3 R36). Every
+ * other line off the `1`–`4` rail is an instant activation that aims nothing.
  */
 function consumableArc(id: ConsumableId): ArcShape {
+  if (id === 'decoyBuoy') return mineSector();
   if (id !== 'supercavTorpedo') return { kind: 'none' };
   return { kind: 'sector', offset: CONFIG.supercavTorpedo.offset, halfArc: CONFIG.supercavTorpedo.halfArc };
+}
+
+/** The MINE's rear placement sector — shared by the three mine lines and the
+ *  DECOY BUOY consumable. */
+function mineSector(): ArcShape {
+  return { kind: 'sector', offset: CONFIG.mine.offset, halfArc: deg(CONFIG.mine.placeHalfArcDeg) };
 }
 
 /**
@@ -101,13 +107,14 @@ function consumableArc(id: ConsumableId): ArcShape {
  * as the guard against a fourth kind.
  *
  * It sits in `arcs.ts` because the rear placement sector is what makes these
- * ids one family in the first place — `isMineChassis` below is this list plus
- * the legacy radar buoy, which shares the arc and the leash but lays nothing.
+ * ids one family in the first place. (The legacy radar buoy shared it until
+ * Story 8.16 deleted the buoy; the DECOY BUOY consumable shares it now, via
+ * `consumableArc`, but it is not a mine line.)
  */
 export const MINE_EQUIPMENT_IDS = ['navalMines', 'captiveMines', 'foulingMines'] as const satisfies
   readonly EquipmentId[];
 
-/** One of the three mine LINES (never the radar buoy). */
+/** One of the three mine LINES (never the decoy buoy). */
 export type MineEquipmentId = (typeof MINE_EQUIPMENT_IDS)[number];
 
 /** Pure: is this slot content one of the three MINE lines? Accepts a null so
@@ -144,28 +151,20 @@ export function mineEquipmentFor(kind: MineKind): MineEquipmentId {
   return MINE_ID_OF[kind];
 }
 
-/** The four ids that share the MINE's rear placement sector — the three mine
- *  lines plus the legacy click-placed radar buoy (Story 2.8 amendment 45,
- *  Story 7-5 wave 2 R2.7). A type guard, so the switch below still narrows its
- *  `default` down to the ids that genuinely declare no arc. */
-function isMineChassis(id: EquipmentId): id is MineEquipmentId | 'radarBuoy' {
-  return isMineEquipment(id) || id === 'radarBuoy';
-}
-
 /**
  * A piece of EQUIPMENT's arc: the three guns (gun/machineGun/flak) and
  * starShells declare `arc: 'full'` in CONFIG (amendment 106 for the guns);
  * the LIGHT torpedo fires into TWO mirrored beam sectors
  * (CONFIG.lightTorpedo.offset/halfArc — ±45° about both beams, 90° dead zones
  * fore and aft, catalog-v3 R18); the HEAVY torpedo keeps its bow sector
- * (CONFIG.torpedo.offset/halfArc); the three MINE kinds and the radar buoy
- * share the rear placement sector (CONFIG.mine.offset/placeHalfArcDeg); the
+ * (CONFIG.torpedo.offset/halfArc); the three MINE kinds share the rear
+ * placement sector (CONFIG.mine.offset/placeHalfArcDeg — `isMineEquipment` is
+ * a type guard, so the switch still narrows its `default` down to the ids that
+ * genuinely declare no arc); the
  * broadside's twin beams read CONFIG.broadside.arcOffsetDeg/arcHalfArcDeg.
  */
 function equipmentArc(id: EquipmentId): ArcShape {
-  if (isMineChassis(id)) {
-    return { kind: 'sector', offset: CONFIG.mine.offset, halfArc: deg(CONFIG.mine.placeHalfArcDeg) };
-  }
+  if (isMineEquipment(id)) return mineSector();
   switch (id) {
     case 'gun':
     case 'machineGun':
@@ -208,7 +207,7 @@ function unbuiltArc(_id: 'boost' | 'instantReload' | 'damageCut'): ArcShape {
 
 /**
  * The narrowed `sector` descriptor for an id DECLARED a sector (the heavy
- * torpedo's bow arc; the supercav's; the three mines' and the radar buoy's
+ * torpedo's bow arc; the supercav's; the three mines' and the decoy buoy's
  * rear placement arc). Throws on any other shape — a CONFIG/arcs authoring
  * error, failed loudly at module load rather than mid-tick. Pure (a throw,
  * never I/O).

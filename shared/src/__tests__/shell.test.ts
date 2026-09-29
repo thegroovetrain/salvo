@@ -576,10 +576,11 @@ describe('burstVictims — kinds (Story 8.4)', () => {
 });
 
 describe('CONFIG ordnance masks (AR44)', () => {
-  it('the TWELVE shipped rows declare exactly the ruled masks; no stub row exists', () => {
+  it('the ELEVEN shipped rows declare exactly the ruled masks; no stub row exists', () => {
     expect(CONFIG.gun.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.broadside.hits).toEqual(['hull', 'mine', 'decoy']);
-    expect(CONFIG.radarBuoy.hits).toEqual(['hull', 'mine', 'decoy']);
+    // (CONFIG.radarBuoy — the GUN BUOY's mask — DELETED with the buoy, Story 8.16.)
+    expect('radarBuoy' in CONFIG).toBe(false);
     expect(CONFIG.torpedo.hits).toEqual(['hull', 'decoy']);
     expect(CONFIG.starShells.hits).toEqual(['hull', 'decoy']); // illumination detonates nothing
     expect(CONFIG.mine.hits).toEqual(['hull']); // the TRIP mask
@@ -675,6 +676,78 @@ describe('stepShell — a DIRECT shell expires at its aim point, never bursts (S
 // above are byte-identical, and one of them ('the SAME geometry without arcing
 // is intercepted') was the arcing block's own control case, already covered by
 // 'an island far from the target stops the shell dead'.
+
+// --- Story 8.16: the DECOY BUOY and NO FRIENDLY FIRE (amendment 119) ---------
+// `Target.ownerId` rides a decoy. The OWNER's own fish pass through it, the
+// owner's own shells and bursts pass over it, and the owner's own homing never
+// acquires it; an ENEMY's ordnance treats it like any target. The skip is in
+// the pure sweep / acquire / burst math, so both sides agree by construction.
+
+/** A DECOY BUOY target: a `CONFIG.decoyBuoy.sizeU` square centred on (x, y). */
+function decoyAt(x: number, y: number, ownerId: string | undefined, id = 'd1'): Target {
+  const h = CONFIG.decoyBuoy.sizeU / 2;
+  const poly = [
+    { x: x - h, y: y - h },
+    { x: x + h, y: y - h },
+    { x: x + h, y: y + h },
+    { x: x - h, y: y + h },
+  ];
+  return ownerId === undefined ? { id, kind: 'decoy', poly } : { id, kind: 'decoy', poly, ownerId };
+}
+
+describe("stepShell / burstVictims — the OWNER'S own decoy is never touched (Story 8.16, amendment 119)", () => {
+  it("an owner's CONTACT projectile (the torpedo rule) passes THROUGH its own decoy and expires", () => {
+    expect(stepToOutcome(shell(), ctx({ targets: [decoyAt(300, 0, 'owner')] })).kind).toBe('expired');
+  });
+
+  it("an ENEMY's contact projectile hits the same decoy (it is the victim)", () => {
+    const out = stepToOutcome(shell({ ownerId: 'enemy' }), ctx({ targets: [decoyAt(300, 0, 'owner')] }));
+    expect(out.kind).toBe('hitShip');
+    if (out.kind === 'hitShip') expect(out.victimId).toBe('d1');
+  });
+
+  it("an owner's GUN SHELL flies over its own decoy on the path and bursts at its own aim point", () => {
+    const over = stepToOutcome(gunShell(600), ctx({ targets: [decoyAt(300, 0, 'owner')] }));
+    expect(over).toEqual({ kind: 'burst', x: 600, y: 0 });
+    // byte-identical to the same shot over empty water
+    expect(over).toEqual(stepToOutcome(gunShell(600), ctx({ targets: [] })));
+  });
+
+  it("an owner's burst DIRECTLY on its own decoy resolves NO victim; an enemy's burst there resolves the decoy", () => {
+    const own = decoyAt(300, 0, 'owner');
+    expect(burstVictims({ x: 300, y: 0 }, CONFIG.gun.burstRadius, [own], 'owner')).toEqual([]);
+    expect(burstVictims({ x: 300, y: 0 }, CONFIG.gun.burstRadius, [own], 'enemy')).toEqual([own]);
+  });
+
+  it("the owner's own decoy is skipped but the owner's own MINE is still a burst victim (FR57 unchanged)", () => {
+    const own = decoyAt(0, 0, 'owner');
+    const ownMine: Target = { id: 'm1', kind: 'mine', poly: [{ x: 0, y: 0 }], ownerId: 'owner' };
+    expect(burstVictims({ x: 0, y: 0 }, 10, [own, ownMine], 'owner').map((t) => t.id)).toEqual(['m1']);
+  });
+
+  it("an owner's homing fish never ACQUIRES its own decoy (no steer, no lock); an enemy's does", () => {
+    const own = homingTorp();
+    stepShell(own, ctx({ targets: [decoyAt(80, 50, 'owner')] }));
+    expect(own.homing!.targetId).toBeUndefined();
+    expect(own.vy).toBe(0);
+    const enemy = homingTorp({ ownerId: 'enemy' });
+    stepShell(enemy, ctx({ targets: [decoyAt(80, 50, 'owner')] }));
+    expect(enemy.homing!.targetId).toBe('d1');
+    expect(enemy.vy).toBeGreaterThan(0);
+  });
+
+  it('a decoy with NO ownerId is never skipped — the skip keys on a real owner match only', () => {
+    const out = stepToOutcome(shell(), ctx({ targets: [decoyAt(300, 0, undefined)] }));
+    expect(out.kind).toBe('hitShip');
+    expect(burstVictims({ x: 300, y: 0 }, CONFIG.gun.burstRadius, [decoyAt(300, 0, undefined)], 'owner'))
+      .toHaveLength(1);
+  });
+
+  it('mines are STILL never a sweep subject, whatever their ownerId (amendment 20 unchanged)', () => {
+    const enemyMine: Target = { id: 'm1', kind: 'mine', poly: [{ x: 300, y: 0 }], ownerId: 'enemy' };
+    expect(stepToOutcome(shell(), ctx({ targets: [enemyMine] })).kind).toBe('expired');
+  });
+});
 
 // --- Story 2.8 doctrines: homing (ACOUSTIC HOMING) --------------------------
 

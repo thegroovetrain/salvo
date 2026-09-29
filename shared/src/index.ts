@@ -3,6 +3,13 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  59 — Story 8.16 Catalog v3: Shield, Chaff, Decoy (Eric rulings 2026-09-29,
+ *  epic-8 amendments 116–124) — `OwnShip.shield?` (self-private),
+ *  `FrameMsg.decoys?` (`DecoyView`: `by` for every observer, `hp` own-only),
+ *  `FrameMsg.buoys` + `BuoyView` + the `src` blip tag DELETED (radar buoy
+ *  gone, with its `EquipmentId` and stat row), `CONFIG.shieldBlock/chaff/
+ *  decoyBuoy`; shieldBlock/chaff/decoyBuoy stubs flipped (catalog content).
+ *  Perception exception count stays SIX.
  *  58 — Story 8.15 (Eric rulings 2026-09-28, epic-8 amendments 97–110):
  *  `InputMsg.held` (required boolean, malformed drops the message), the shell
  *  reveal's optional `w` family field ('cannon'|'mg'|'flak' — the ONE declared
@@ -719,7 +726,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 58;
+export const PROTOCOL_VERSION = 59;
 
 // Tunables
 export * from './constants.js';

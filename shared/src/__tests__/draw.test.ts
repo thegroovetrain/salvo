@@ -257,16 +257,20 @@ describe('eligibleLines — the whole eligibility law', () => {
       held: [
         ...new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'),
         ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
+        ...new Array<LineId>(CATALOG.shieldBlock.cap).fill('shieldBlock'),
+        ...new Array<LineId>(CATALOG.chaff.cap).fill('chaff'),
+        ...new Array<LineId>(CATALOG.decoyBuoy.cap).fill('decoyBuoy'),
       ],
     };
     const eligible = eligibleLines(capped);
     const ids = eligible.map((e) => e.id);
     expect(ids).toContain('hullRepair');
     expect(ids).toContain('supercavTorpedo');
-    // Both are still tagged `consumable`, and BOTH live consumable lines are
-    // present — the cap filters equipment, ladders and add-ons, never these.
+    // All are still tagged `consumable`, and ALL FIVE live consumable lines
+    // are present (Story 8.16 flipped shield/chaff/decoy) — the cap filters
+    // equipment, ladders and add-ons, never these. The two stubs never are.
     expect(eligible.filter((e) => e.kind === 'consumable').map((e) => e.id))
-      .toEqual(['supercavTorpedo', 'hullRepair']);
+      .toEqual(['supercavTorpedo', 'hullRepair', 'shieldBlock', 'chaff', 'decoyBuoy']);
     expect(kindCounts(eligible).weapon).toBe(0); // the row is full
   });
 });
@@ -422,17 +426,42 @@ describe('drawOffer — the shape of an offer', () => {
   });
 
   it('gives a SHORTER offer when fewer than CONFIG.offer.size lines are eligible — never padded, never repeated', () => {
+    // Since Story 8.16 production has FIVE live consumables, always eligible,
+    // so it can no longer run short at offer size 4 — the property is pinned
+    // on the pre-8.16 catalog shape (shield/chaff/decoy stubbed), injected.
+    const TWO_LIVE: Catalog = {
+      ...CATALOG,
+      shieldBlock: { ...CATALOG.shieldBlock, stub: true },
+      chaff: { ...CATALOG.chaff, stub: true },
+      decoyBuoy: { ...CATALOG.decoyBuoy, stub: true },
+    };
     const held: LineId[] = [
       ...everyUpgradeCapped(),
       ...new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'),
       ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
     ];
     const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
-    const eligible = eligibleLines(ship);
+    const eligible = eligibleLines(ship, TWO_LIVE);
     expect(eligible.map((e) => e.id).sort()).toEqual(['hullRepair', 'supercavTorpedo']);
     for (let seed = 0; seed < 200; seed += 1) {
-      const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed));
+      const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed), TWO_LIVE);
       expect([...offer].sort(), `seed ${seed}`).toEqual(['hullRepair', 'supercavTorpedo']);
+    }
+  });
+
+  it('a fully capped captain sees a FULL offer of consumables in production (Story 8.16 closes amendment 94\'s two-card offer)', () => {
+    const held: LineId[] = [...everyUpgradeCapped()];
+    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy'] as const) {
+      held.push(...new Array<LineId>(CATALOG[id].cap).fill(id));
+    }
+    const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
+    const live = ['chaff', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
+    expect(eligibleLines(ship).map((e) => e.id).sort()).toEqual(live);
+    for (let seed = 0; seed < 200; seed += 1) {
+      const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed));
+      expect(offer, `seed ${seed}`).toHaveLength(CONFIG.offer.size);
+      for (const id of offer) expect(live, `seed ${seed}:${id}`).toContain(id);
+      expect(new Set(offer).size).toBe(offer.length);
     }
   });
 

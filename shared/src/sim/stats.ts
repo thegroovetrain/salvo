@@ -7,7 +7,8 @@
 // authoritative sim.
 //
 // STORY 8.1 RESHAPED THE TREE. The seven hand-named equipment blocks
-// (gun/torpedo/mine/boost/broadside/starShells/radarBuoy) became ONE TOTAL
+// (gun/torpedo/mine/boost/broadside/starShells/radarBuoy — the last deleted in
+// Story 8.16) became ONE TOTAL
 // RECORD `equipment`, keyed by the widened `EquipmentId` (sim/loadout.ts), and
 // every row carries `tier` and `reloadMs`. That is what lets catalog v3's
 // per-equipment TIER ladders exist at all, and it is what
@@ -137,8 +138,8 @@ export interface EffectiveTorpedo extends EquipmentRowCommon {
  * on the water, which `MineKind`) it is holding.
  *
  * TWO FIELDS ARE KIND-SPECIFIC, and the rows that do not own one carry the
- * INERT IDENTITY rather than a lie (the `EffectiveRadarBuoy` precedent: a row
- * is TOTAL over the type and says so):
+ * INERT IDENTITY rather than a lie (a row is TOTAL over the type and says so —
+ * the deleted `EffectiveRadarBuoy`'s precedent):
  *   - `homingTurnRate` is the CAPTIVE fish's (amendment 82: 0 → 0.3 rad/s
  *     across the five rungs); naval and fouling launch nothing and sit at 0,
  *     which is exactly "does not steer";
@@ -223,23 +224,6 @@ export interface EffectiveBoost extends EquipmentRowCommon {
   durationMs: number; // ms — active window per activation
 }
 
-/**
- * The RADAR BUOY's effective numbers. LEGACY (catalog-v3 R1 deletes the buoy;
- * Story 8.15 removes the module and the DECOY BUOY consumable takes the role),
- * so no v3 card addresses it and both verbs below are permanently false until
- * then.
- */
-export interface EffectiveRadarBuoy extends EquipmentRowCommon {
-  durationMs: number; // ms — buoy lifetime before natural expiry
-  radarRange: number; // u — the buoy's own radar reach (flat, not observer-scaled)
-  sweepRpm: number; // rev/min — the buoy's own sweep
-  hp: number; // hp — destructible
-  gunDamage: number; // hp per shot — GUN BUOY verb only
-  gunReloadMs: number; // ms — cooldown between its shots — GUN BUOY verb only
-  gun: boolean; // GUN BUOY verb — no v3 card grants it
-  jamming: boolean; // JAMMING BUOY verb — no v3 card grants it
-}
-
 /** Any one equipment row. */
 export type EquipmentStatRow =
   | EffectiveGun
@@ -250,7 +234,6 @@ export type EquipmentStatRow =
   | EffectiveFlak
   | EffectiveBroadside
   | EffectiveStarShells
-  | EffectiveRadarBuoy
   | EffectiveInstantReload
   | EffectiveDamageCut;
 
@@ -273,7 +256,6 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
   flak: EffectiveFlak;
   broadside: EffectiveBroadside;
   starShells: EffectiveStarShells;
-  radarBuoy: EffectiveRadarBuoy;
   instantReload: EffectiveInstantReload;
   damageCut: EffectiveDamageCut;
 }
@@ -502,9 +484,10 @@ function gunRow(cls: ShipClass): EffectiveGun {
   };
 }
 
-/** The broadside + star-shell + radar-buoy rows — pure CONFIG pass-throughs,
- *  split out so baseEquipment stays lean. */
-function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' | 'radarBuoy'> {
+/** The broadside + star-shell rows — pure CONFIG pass-throughs, split out so
+ *  baseEquipment stays lean. (The radar-buoy row left with the buoy, Story
+ *  8.16.) */
+function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells'> {
   return {
     broadside: {
       tier: 1,
@@ -528,19 +511,6 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' 
       litDurationMs: CONFIG.starShells.litDurationMs,
       phosphor: false,
       dazzle: false,
-    },
-    radarBuoy: {
-      tier: 1,
-      reloadMs: CONFIG.radarBuoy.reloadMs,
-      maxAmmo: CONFIG.radarBuoy.maxAmmo,
-      durationMs: CONFIG.radarBuoy.durationMs,
-      radarRange: CONFIG.radarBuoy.radarRange,
-      sweepRpm: CONFIG.radarBuoy.sweepRpm,
-      hp: CONFIG.radarBuoy.hp,
-      gunDamage: CONFIG.radarBuoy.gunDamage,
-      gunReloadMs: CONFIG.radarBuoy.gunReloadMs,
-      gun: false,
-      jamming: false,
     },
   };
 }
