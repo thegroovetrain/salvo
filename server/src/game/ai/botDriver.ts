@@ -294,7 +294,7 @@ export class BotController {
     mind.stuckMs = 0;
     mind.unbeachUntil = 0;
     mind.unbeach = null;
-    mind.lastHurtAt = undefined;
+    mind.torps = null;
   }
 
   /** Observe + decide + emit for one live bot. */

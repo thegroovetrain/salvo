@@ -2524,6 +2524,6 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: Blind Hunter finding 11 at the 8.15 review gate; `server/src/game/equipment/guns.ts` `gunReachU` vs the two new modules.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
-  status: OPEN — Story 8.19 (bot tactic tables)
+  status: RESOLVED 2026-09-29 — Eric: DAMAGE CUT is PROACTIVE (amendment 115); the interim rule now fires on the engage posture or an inbound enemy torpedo under 150 u on a collision line, and the damage-taken trigger is deleted; 8.19 inherits the two cues
   summary: THE INTERIM BATTLESHIP BOT OPENS DAMAGE CUT OFF ITS OWN `dmg` EVENT, WHICH CARRIES THE POST-SHIELD AMOUNT. A fully absorbed hit reports `amount 0`, so once SHIELD BLOCK (8.16) lands a shielded Battleship bot will not brace on absorbed hits; `lastDamagedAt` is not observable by bots (no widening was added). 8.19's table should trigger on "was hit" rather than "took damage" if Eric wants the cut under a shield.
   evidence: Blind Hunter finding 12 at the 8.15 review gate; `server/src/game/ai/equipment.ts` `damageCutTactic` / `noteHurt`.

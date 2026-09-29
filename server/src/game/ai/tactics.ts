@@ -111,7 +111,8 @@ import {
 import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
-import { noteHurt, slotAppetite, tacticFor, type Shot, type TacticContext } from './equipment.js';
+import { slotAppetite, tacticFor, type Shot, type TacticContext } from './equipment.js';
+import { noteTorpedoes } from './torpedoThreat.js';
 import {
   choosePosture,
   foldView,
@@ -832,10 +833,11 @@ function helmFor(
  * the brain a view it did NOT capture this tick must not re-run the memory
  * prune or re-credit Hit Calls against it.
  */
-function ingest(mind: BotMind, port: BotWorldPort): void {
+function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
   if (mind.view === null || mind.viewAt !== port.now) return;
   foldView(mind, mind.view, port.now);
-  noteHurt(mind, port.now); // Story 8.15: the DAMAGE CUT rule's own-hull clock
+  // Story 8.15, amendment 115: the seen-torpedo table (DAMAGE CUT's inbound trigger).
+  noteTorpedoes(mind, self, port.now);
 }
 
 /** The trigger half of a decision. A LEVEL shot (the machine gun, Story 8.15)
@@ -889,7 +891,7 @@ function idleAim(self: BotSelf, target: BotTrack | null): number {
  */
 export const COMBAT_BRAIN: BotBrain = {
   decide(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate = true): BotDecision {
-    ingest(mind, port);
+    ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
     if (deliberate) deliberateNow(mind, sit);
     const target = resolveTarget(mind);
@@ -916,7 +918,7 @@ export const COMBAT_BRAIN: BotBrain = {
    * postures that chase one are unreachable), a shot, or an ability press.
    */
   decideHeld(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate = true): BotDecision {
-    ingest(mind, port);
+    ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
     mind.targetKey = null; // unconditional: a held bot NEVER carries a target
     if (deliberate) mind.posture = choosePosture(sit, null, mind.posture);

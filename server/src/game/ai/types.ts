@@ -309,14 +309,24 @@ export interface BotMind {
    *  mind starts in — the field is optional so enrollment stays the plain
    *  literal it is in botDriver.ts and this state can never be half-built. */
   unbeach?: UnbeachState | null;
-  /** Server ms this hull last TOOK WEAPON DAMAGE, read off its own fogged
-   *  view — the self-private `dmg` event (signals.ts: a `dmg` reaches only its
-   *  victim, and the storm emits none, so every `dmg` in a bot's view is its
-   *  own weapon damage). The DAMAGE CUT interim tactic's one input (Story
-   *  8.15, amendment 109: "fires DAMAGE CUT when it has taken damage within
-   *  the last second"). OPTIONAL, absent = never hurt this life; released
-   *  with the life (BotController.releasePerLifeState). */
-  lastHurtAt?: number;
+  /** THE SEEN-TORPEDO TABLE (Story 8.15, amendment 115): every torpedo this
+   *  hull's fogged view has revealed, keyed by projectile id, dead-reckoned
+   *  from its last `torp`/`torpU` and dropped on its `boom` or when its course
+   *  must be run (ai/torpedoThreat.ts is the only writer). The DAMAGE CUT
+   *  tactic's inbound-fish trigger reads it. OPTIONAL, created lazily;
+   *  released with the life (BotController.releasePerLifeState). */
+  torps?: Map<string, SeenTorpedo> | null;
+}
+
+/** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics
+ *  (`t` the reveal/update server ms) and whether it is this hull's OWN fish. */
+export interface SeenTorpedo {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  t: number;
+  own: boolean;
 }
 
 /**

@@ -73,6 +73,7 @@ import {
   type BotTrack,
 } from './utility.js';
 import type { BotProfile } from './profiles.js';
+import { torpedoInbound } from './torpedoThreat.js';
 
 const TAU = Math.PI * 2;
 
@@ -900,9 +901,6 @@ const boostTactic: EquipmentTactic = {
 // 8.19 owns the tables). Abilities on the actSeq channel, like the boost.
 // ---------------------------------------------------------------------------
 
-/** ms — "has taken damage within the last SECOND" (amendment 109, verbatim). */
-const HURT_WINDOW_MS = 1000;
-
 /** The mounted gun's reach — "in range" for the INSTANT RELOAD rule. All three
  *  guns sit on the radar rung today; reading the mounted row keeps the rule
  *  honest if a ladder ever moves one. */
@@ -941,31 +939,19 @@ const instantReloadTactic: EquipmentTactic = {
 };
 
 /**
- * Stamp `mind.lastHurtAt` from the bot's own fogged view: a `dmg` event is
- * VICTIM-PRIVATE (only the hull that took it is shown it) and the storm emits
- * none, so any `dmg` with a positive amount in this view is weapon damage to
- * THIS hull. The DAMAGE CUT rule's one input; called once per folded view.
+ * DAMAGE CUT (the Battleship's Shift) is PROACTIVE — Eric, 2026-09-29,
+ * amendment 115: pressed (a) while ENGAGED IN COMBAT — the bot's own `engage`
+ * posture, with a target — or (b) when a seen enemy torpedo is inbound on a
+ * collision line within 150 u (ai/torpedoThreat.ts). NEVER as a reaction to
+ * damage already taken (amendment 109's "within the last second" rule is gone).
  */
-export function noteHurt(mind: BotMind, now: number): void {
-  if (mind.view === null) return;
-  for (const e of mind.view.events) {
-    if (e.k === 'dmg' && e.amount > 0) {
-      mind.lastHurtAt = now;
-      return;
-    }
-  }
-}
-
-/** DAMAGE CUT (the Battleship's Shift): pressed within one second of taking
- *  weapon damage, and not otherwise. */
 const damageCutTactic: EquipmentTactic = {
   id: 'damageCut',
   kind: 'ability',
   reachU: () => 0,
   want: (ctx) =>
-    ctx.mind.lastHurtAt !== undefined &&
-    ctx.sit.now - ctx.mind.lastHurtAt <= HURT_WINDOW_MS &&
-    appetiteFor(ctx.sit.profile, 'damageCut') >= APPETITE_NEUTRAL,
+    appetiteFor(ctx.sit.profile, 'damageCut') >= APPETITE_NEUTRAL &&
+    ((ctx.posture === 'engage' && ctx.target !== null) || torpedoInbound(ctx.self, ctx.mind, ctx.sit.now)),
   solve: () => null,
 };
 
