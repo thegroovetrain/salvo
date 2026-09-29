@@ -1763,7 +1763,7 @@ So that launch day is boring.
 
 ## Epic 8: The Pool *(GDD E8 — upgrades v3 + catalog v4)*
 
-Pick a hull and sail its gun and its `Shift`: spawn with the mounted gun and the class ability, redraw the opening offer during the countdown, draw from the one pool every captain shares into `Q`/`E`/`R`, stock and fire consumables on `1`–`4`, heal from a card, read your final loadout in results — identical rules for humans and bots, and every code path runs with no account module at all. Twenty-two stories in build order (Eric-approved 2026-09-11; re-cut from 8.14 on by the 2026-09-21 Sprint Change Proposal — the epic was titled "The Deck" through Story 8.13, and the landed stories' text below still speaks in deck terms where it was written). Standing constraints on every story: **decks do not exist** from 8.14 on — no card is class-locked and no card is brought; hull identity is the envelope and the class `Shift`, the gun is the captain's pick, never the draw; the `Tab` offer is untouched; the passive XP tick stays the anti-snowball floor; the master perception invariant keeps exactly SIX declared exceptions; **NO FRIENDLY FIRE** (own ordnance never damages own hull — the one exception is shooting your own mines early); never invent a card, a number or a consumable — every `[DRAFT]` is Eric's; `PROTOCOL_VERSION` bumps once per wire-changing story and never for the harness or the bots; `npm run check` green is the gate for every landing; every story that changes a fact recorded in `gdd.md` or `game-architecture.md` adds the correction to the list Story 9.11 pays. Structural rules binding every story without being restated: the execution order 8.0 → Epic 8 → Epic 9 as one release (AR20); the file homes (AR56), naming conventions (AR57) and the five new placement rules (AR58).
+Pick a hull and sail its gun and its `Shift`: spawn with the mounted gun and the class ability, redraw the opening offer during the countdown, draw from the one pool every captain shares into `Q`/`E`/`R`, stock and fire consumables on `1`–`4`, heal from a card, read your final loadout in results — identical rules for humans and bots, and every code path runs with no account module at all. Twenty-three stories in build order (Eric-approved 2026-09-11; re-cut from 8.14 on by the 2026-09-21 Sprint Change Proposal — the epic was titled "The Deck" through Story 8.13, and the landed stories' text below still speaks in deck terms where it was written). Re-cut again 2026-09-29 (Eric): a new Story 8.17 — Catalog v3: Star Shells, Broadside, Phosphor, Flash — inserted; old 8.17–8.21 → 8.18–8.22. Standing constraints on every story: **decks do not exist** from 8.14 on — no card is class-locked and no card is brought; hull identity is the envelope and the class `Shift`, the gun is the captain's pick, never the draw; the `Tab` offer is untouched; the passive XP tick stays the anti-snowball floor; the master perception invariant keeps exactly SIX declared exceptions; **NO FRIENDLY FIRE** (own ordnance never damages own hull — the one exception is shooting your own mines early); never invent a card, a number or a consumable — every `[DRAFT]` is Eric's; `PROTOCOL_VERSION` bumps once per wire-changing story and never for the harness or the bots; `npm run check` green is the gate for every landing; every story that changes a fact recorded in `gdd.md` or `game-architecture.md` adds the correction to the list Story 9.11 pays. Structural rules binding every story without being restated: the execution order 8.0 → Epic 8 → Epic 9 as one release (AR20); the file homes (AR56), naming conventions (AR57) and the five new placement rules (AR58).
 
 ### Story 8.0: Colyseus 0.18 Upgrade (floor story)
 
@@ -1927,7 +1927,7 @@ So that heals are scarce, finite, and part of my deck.
 **And** `HEAL_CHOICE`, `Digit5` and the DAMAGE CONTROL rail are DELETED end to end (client keyboard, `offers.ts`, `hud.ts`, `upgradeMenu.ts`, the `damage-control-rail` token in DESIGN.md, the cycle-47 band pins RETIRED rather than adapted); `CONFIG.damageControl` SPLITS — the paid heal's two numbers move to `CONFIG.hullRepair`, and the FREE per-level auto-heal's fields (`levelMissingPct`, `levelRegenMs`) STAY exactly as built (Eric 2026-09-11: *"leave it as is for now"*), with the story first CHECKING whether `development` carries the per-level 10 %-over-5 s version or a passive 1 %/s out-of-combat version and recording which (FR47, AR52)
 **And** HULL REPAIR's card face reads its two numbers as stat rows; the `heal` audio twin re-points to the HP globe fill + belt count decrement; heal observability inside truesight stays as ruled (self-private) and is NOT widened here (`deferred-work.md:555`) (UX-DR49)
 **And** heals during the sudden-death collapse stay ALLOWED (Eric 2026-09-11, closing `:1030` / `:1684`); NFR6's ceiling arithmetic is restated on the card bound (≤ 4 stocked, ≤ 10 per deck) and ARMOR's 450 hp cap, and pinned
-**And** bots heal through HULL REPAIR's tactic (Story 8.19 owns the tactic table; this story adds the row stub so the total record compiles) and `spending.ts` no longer references `HEAL_CHOICE`
+**And** bots heal through HULL REPAIR's tactic (Story 8.20 owns the tactic table; this story adds the row stub so the total record compiles) and `spending.ts` no longer references `HEAL_CHOICE`
 **And** `PROTOCOL_VERSION` bumps (`SpendMsg` loses `HEAL_CHOICE`).
 
 ### Story 8.9: The Shift Boost, Universal
@@ -1977,9 +1977,9 @@ So that some of what I can draw was dealt by the match, not authored by me, and 
 **When** D22's pool lands
 **Then** `shared/src/sim/pool.ts` `rollMatchPool(rng, catalog, CONFIG.pool)` draws `CONFIG.pool.size` (10) consumable cards uniformly from the five launch consumable lines, each ≤ its cap WITHIN THE POOL alone, on a ROOM-PRIVATE seeded stream (a per-room nonce never derivable from `mapSeed` — the storm-ring pattern), rolled ONCE at room creation before any seat at BOTH doors, so every captain and bot receives the identical ten (FR43, AR40)
 **And** the pool is appended to a deck ONLY AFTER `checkDeck` passed, holds consumables only, and can never make a deck legal or illegal or add an equipment line; deck at the door = 40 + 10 = 50 (FR43)
-**And** the pool's composition is HIDDEN: never on the wire, never in `WelcomeMsg`, never in any frame; it reaches persistence only as `MatchRecord.pool` (Story 8.19) and the log only as `match.pool { matchId, count }` — count, never contents (FR43, AR51, NFR20)
+**And** the pool's composition is HIDDEN: never on the wire, never in `WelcomeMsg`, never in any frame; it reaches persistence only as `MatchRecord.pool` (Story 8.21) and the log only as `match.pool { matchId, count }` — count, never contents (FR43, AR51, NFR20)
 **And** `poolOverride` (line ids) joins `deckOverride` under `HC_DEV_OPTIONS=1` so a headless smoke asserts a deterministic pool; the batch-sim harness rolls the pool per match in every arm (AR55)
-**And** the one-copy appearance rate and the offer-size math are re-measured at 50 cards and recorded (FR59's pinned bar is set here, measured in 8.18)
+**And** the one-copy appearance rate and the offer-size math are re-measured at 50 cards and recorded (FR59's pinned bar is set here, measured in 8.20)
 **And** no PV change unless a wire field moved (none expected).
 
 ### Story 8.12: Catalog v3 — Ladders and the Deck Gun
@@ -1996,7 +1996,7 @@ So that my hull and my always-fitted gun improve the way catalog v3 says, tier b
 **And** DECK GUN cap 4 (+1.25 damage AND −5 % own reload per tier — a REAL tier I step), DECK GUN TURRET cap 1 (pool 1 → 2), DECK GUN BARREL cap 2 (+1 parallel barrel per copy at 12 u spacing — kept as shipped, Eric 2026-09-11); the base gun is unchanged (FR52)
 **And** ARMOR / SPEED / TURNING / DECK GUN start at Tier I EQUIPPED so the first card reads `I → II`; RADAR SWEEP and RELOAD have no base tier (cards I–V); no ladder reaches VI (FR42, UX-DR51)
 **And** reload composition is `base × (1 − 0.05 × equipmentTier) × (1 − 0.05 × globalTiers)` with additive 5-point steps, the equipment step BEFORE the global ladder, so a line maxed on both runs at 60 % of base; the cycle-42 proportional in-flight rescale rule (`deferred-work.md:463`) survives into tier grants — pinned (FR51)
-**And** every ladder's card face renders its `STAT current → next` rows from the catalog (no hand copy); the results LOADOUT line (8.20) reads these five tiers
+**And** every ladder's card face renders its `STAT current → next` rows from the catalog (no hand copy); the results LOADOUT line (8.21) reads these five tiers
 **And** `PROTOCOL_VERSION` bumps (catalog content).
 
 ### Story 8.13: Catalog v3 — Torpedoes and Mines
@@ -2046,7 +2046,7 @@ So that what a hull IS is visible the moment it is picked, and the weapon lines 
 **Then** THREE mountable guns, universal and slotless in slot 0, each a full `Equipment` module under `CONFIG.guns`: the **DECK GUN** as shipped (360°, 500 u/s, one round, 5 s, its ladder unchanged); the **MACHINE GUN**, a held-fire STREAM — `InputMsg.held: boolean` (REQUIRED; a non-boolean drops the whole message; a LEVEL on `InputStore.latest`), `fireControl` fires one shell per `rateMs` at `now` with no `fireT` and no D1 back-date while `held ∧ inArc ∧ n > 0`; release, arc exit (ONE denial then silence), an empty pool, Tab opening or window blur stop it; bow ±90° (ruled); 4 dmg / 0.25 s / 250 u / 6 s per pool / 15 s `[DRAFT — carried from catalog v3; Eric re-tunes it as a mountable gun]`; the Story 2.1 click-coalescing clause (`deferred-work.md:198`) is discharged here; the **FLAK GUN** — 360°, one shell air-bursting at the click in a wide weak blast that hits hulls AND enemy ordnance (own ordnance immune, Eric 2026-09-11; mask `hull | mine | decoy | ordnance`), 10 dmg r40 u, 8 s `[DRAFT]` (FR53, FR58, AR44, AR45)
 **And** each gun has its own ladder: DECK GUN / TURRET / BARREL stay the deck gun's (8.12, not re-authored); MACHINE GUN and FLAK GUN each get an authored ladder — steps `[DRAFT — Eric]` — offered only while that gun is mounted; the RELOAD ladder touches all three
 **And** HORIZONTAL MISSILE, MONITOR GUN and HEAT SEEKING are DELETED end to end (ids, `STUB_ROWS`, catalog rows, `boonCopy` names, icons, the `arcing` flag idea); no `missile` wire kind is ever added; the catalog header re-states its line and card counts
-**And** the class Shifts (`CONFIG.shipClasses.<id>.shift`), one per hull, FIXED (Eric 2026-09-21): **SPEED BOOST** on the `torpedoBoat` hull — the shipped numbers (+25% max speed, 10 s, 25 s cooldown; the GDD's "20 s" is corrected to the shipped value unless Eric re-rules); **INSTANT RELOAD** on the `mineLayer` hull — resets the reload clock of the mounted gun and every fitted `Q`/`E`/`R` weapon to ready, consumables untouched, cooldown `[DRAFT]`; **DAMAGE CUT** on the `battleship` hull — incoming hull damage ×0.5 for `[DRAFT]` s on a `[DRAFT]` cooldown, applied inside the one `applyDamage` gate (8.4), victim-private; the RELOAD ladder's −5%/tier on the Shift cooldown holds for all three; slot 1 stays the Shift slot and its HUD square reads the hull's ability glyph; bots use each through the same input pipeline (tactics in 8.19)
+**And** the class Shifts (`CONFIG.shipClasses.<id>.shift`), one per hull, FIXED (Eric 2026-09-21): **SPEED BOOST** on the `torpedoBoat` hull — the shipped numbers (+25% max speed, 10 s, 25 s cooldown; the GDD's "20 s" is corrected to the shipped value unless Eric re-rules); **INSTANT RELOAD** on the `mineLayer` hull — resets the reload clock of the mounted gun and every fitted `Q`/`E`/`R` weapon to ready, consumables untouched, cooldown `[DRAFT]`; **DAMAGE CUT** on the `battleship` hull — incoming hull damage ×0.5 for `[DRAFT]` s on a `[DRAFT]` cooldown, applied inside the one `applyDamage` gate (8.4), victim-private; the RELOAD ladder's −5%/tier on the Shift cooldown holds for all three; slot 1 stays the Shift slot and its HUD square reads the hull's ability glyph; bots use each through the same input pipeline (tactics in 8.20)
 **And** gun-shell signal rules hold for every gun (Eric): `sp` for all three; `hc` exactly one per shell resolution; `mz` PER SHELL including the stream (the deck gun's multi-barrel salvo still collapses to one flash), the stream's `mz` cost MEASURED at 20 streaming bots before the 0.25 s cadence is trusted; the reveal gains ONE field `w` (weapon FAMILY, no range-derivable value, no identity) — a DECLARED disclosure widening, ledgered; the flak burst is a burst like any other; the perception invariant suite iterates the gun rows (a signal cannot exist without coverage) and still counts exactly SIX exceptions (AR46, NFR21, NFR23)
 **And** arcs and aim points land in `arcs.ts` / `aim.ts` (machine-gun bow sector and range clamp; flak burst point); the client draws each; the slot's held-fire drain (amber fill along the floor while a stream drains) renders per UX-DR52; the class-select layer shows, per hull, the gun picker (three chips, deck gun preselected) and the Shift ability line — layout per the DESIGN.md flags in the 2026-09-21 proposal §4.5; every hull resolves end to end in a headless smoke with each gun mounted; `PROTOCOL_VERSION` bumps once (`held`, the `gun` seat field, `w`).
 
@@ -2066,7 +2066,24 @@ So that the three deception-and-defence consumables exist and the radar buoy the
 **And** **the RADAR BUOY is DELETED end to end** — equipment, `BuoyView`, `buoyGate`, the `gun` / `jamming` doctrines, `ownBuoyScopeBlips`, the `src` blip tag, `FrameMsg.buoys`, `CONFIG.radarBuoy`, `radarBuoy.ts`, `render/buoys.ts` (→ `render/decoys.ts`), with its four ledgered threads (`:1409`, `:1419`, `:1424`, `:1429`, `:1449`) stamped closed by deletion; `FrameMsg.decoys?` is a registry pseudo-row; `PerceptionView.decoys` replaces `buoys` (FR57, AR48, AR53)
 **And** SHIELD absorbs, it does not reduce — the only damage-reduction concept in the game is the Battleship hull's DAMAGE CUT `Shift` (8.15), applied inside the same `applyDamage` gate (its order relative to the shield is `[DRAFT — Eric]`); `PROTOCOL_VERSION` bumps (`OwnShip.shield`, the `decoys` channel, `buoys` gone).
 
-### Story 8.17: Smoke Screen as a Sight Occluder
+### Story 8.17: Catalog v3 — Star Shells, Broadside, Phosphor, Flash
+
+As a captain,
+I want star shells and the broadside to climb tiers like every other weapon, phosphor shells as their own damage-and-burn weapon, and a flash shell I can stock and fire to blind whoever it catches,
+So that the last two empty ladders and the last two add-on cards are gone and only star shells reveal.
+
+**Acceptance Criteria:**
+
+**Given** the tier system (8.1), the damage gate (8.4), consumables (8.7) and the shipped star shell, broadside and add-on machinery
+**When** these four lines are filled in as ruled (Eric 2026-09-29; catalog v3 R31 / R35 as ruled)
+**Then** **STAR SHELLS** is a tiered weapon: tiers II–V each −5 % reload, +2.5 s lit, ×1.1 lit radius, +0.5 flares; the flare deals 10 / 12 / 15 / 17 / 20 damage to every non-owner hull inside the whole lit circle at burst (amendment 39's damageless flare superseded); the lit zone still reveals to the firer and extends every deck gun's reach (amendment 114)
+**And** **BROADSIDE** is a tiered weapon: tiers II–V each −5 % reload, +1 spread rung, +0.5 turret (5 at III, 6 at V); 15 damage per shell at every tier; no separate damage / turret / spread cards
+**And** **PHOSPHOR SHELLS** is its own 360° tiered equipment line (a Q/E/R slot): one shell to the click at the radar rung, 20 s reload, bursting for 20 / 22 / 25 / 27 / 30 damage on every non-owner hull inside the whole zone and leaving a BURNING ZONE of r100 u (×1.1 per tier II–V) for 8 / 8 / 9 / 9 / 10 s at 5 / 6 / 7 / 8 / 10 hp/s on every non-owner hull whose centre is inside — a hazard only: drawn for every observer whose radar reaches its centre, revealing nothing and extending no reach; `FrameMsg.burnZones` is a registry pseudo-row with the lit zone's gate; the six exceptions stay six
+**And** **FLASH SHELLS** (internal id `dazzleShells`) is a belt consumable (cap 5, no reload; key primes, click fires) firing one 360° shell to the radar rung that bursts ONCE in r150 u: every non-friendly hull whose centre is inside is dazzled for 10 s — its sight becomes 1/8 of its intel (radar) range — with no lingering zone, no light, no damage; a second flash extends to the later expiry
+**And** the star-shell `phosphor` / `dazzle` verbs, the `LitZoneView` `phos` / `daz` flags and both add-on rows are deleted; no add-on line remains in the catalog; `PROTOCOL_VERSION` bumps (the burn-zone channel, the lit-zone flags, the id kind moves)
+**And** bots get minimal interim rows (8.20 owns the table); card faces print every authored tier step; hover copy and the two new glyphs are implementer drafts for Eric.
+
+### Story 8.18: Smoke Screen as a Sight Occluder
 
 As a captain,
 I want to lay a trail of smoke that hides me and whatever is behind it from eyes but not from radar,
@@ -2083,7 +2100,7 @@ So that smoke is a real sight tool with one occlusion rule, not a special case p
 **And** puffs render grey in the `{colors.wounded-smoke}` family and differ from wounded smoke by SHAPE — discrete expanding puffs laid astern, never a plume off a hull; `render/smokeScreen.ts` is NEW and `render/smoke.ts` stays wounded smoke; own puffs are always visible to the owner (UX-DR56)
 **And** the invariant suite iterates the `smoke` row and still counts SIX exceptions; `PROTOCOL_VERSION` bumps (the `smoke` channel).
 
-### Story 8.18: Wake Drafting
+### Story 8.19: Wake Drafting
 
 As a captain,
 I want a small speed lift when I ride inside another ship's wake,
@@ -2100,7 +2117,7 @@ So that formation and pursuit have a physical reward, felt in the helm and never
 **And** drafting is not a registry row and not a perception exception; the "a wake is under you" scalar disclosure is DECLARED and ledgered (NFR21); trails merge, echoes don't — both hulls still paint; bots get it passively; the harness reports time-in-draft
 **And** drafting is FELT with NO HUD readout (UX-DR57); `PROTOCOL_VERSION` bumps (`OwnShip.draft`).
 
-### Story 8.19: Bots Draw from the Pool
+### Story 8.20: Bots Draw from the Pool
 
 As a solo player,
 I want the nineteen AI captains to draw from the same pool I do, pick a gun, use their hull's `Shift`, stock and spend consumables sensibly, and be measured on it,
@@ -2117,7 +2134,7 @@ So that Solo vs AI plays the same game I do and the harness can tell whether the
 **And** **balance cycle 1's class numbers are declared VOID** and a fresh baseline is run before any tier is tuned (Murat's flag, 2026-09-04); the blind-vacuum control is re-run in-cycle (`:1630`); the `encounterSpan.ts` killing-blow bias (`:1744`) is stated in the evidence file; the evidence lands as `batch-sim-evidence-<date>.md` (AR18, FR59)
 **And** `ai/` still never imports `world.js` (the ESLint ban and the `observeSpectator` pin hold); no PV change.
 
-### Story 8.20: Results LOADOUT and the Match Record
+### Story 8.21: Results LOADOUT and the Match Record
 
 As a captain,
 I want the results screen to show the loadout I ended with, and the server to keep a record of what every captain drew in the match,
@@ -2132,7 +2149,7 @@ So that I see what I built and Eric can see what everyone built — without anyo
 **And** the room builds a server-only `MatchRecord` from `World` + `Match` (`game/matchRecord.ts`: per participant the hull, the gun, cards drawn and taken with `T+` stamps, placement, kills; `MatchEndSummary` — no deck, no pool: neither exists after 8.14) and calls `accountWriter.recordMatch(record)` at ONE site (the results hook), fire-and-forget, never awaited on the tick; the writer is a PORT the room is handed and this story ships the `NullWriter` (Epic 9 plugs in the store); **`MatchRecord` is NEVER `ResultsMsg`** — a pin asserts no `deck*` key on `ResultsMsg` (FR60, AR33, NFR20)
 **And** the `endedBy: 'lastHumanLeft'` reachability note (`:921`) is checked before the enum is persisted; no PV change (the record never rides the wire).
 
-### Story 8.21: How-to-Play and Copy Re-cut
+### Story 8.22: How-to-Play and Copy Re-cut
 
 As a new player,
 I want How-to-Play to describe the game that now exists — the pool draw, the gun pick, the class `Shift`, nine slots, consumables, REDRAW,
@@ -2240,14 +2257,14 @@ So that my collection grows by variety, never by power — and a new player's De
 
 **Acceptance Criteria:**
 
-**Given** the Ship screen (9.4) and the `NullWriter` port (8.20)
+**Given** the Ship screen (9.4) and the `NullWriter` port (8.21)
 **When** progression lands
 **Then** `account_progress (user_id, xp, tokens_spent)` and `unlocks (user_id, kind: line | gun | hull, id)` exist; level and available tokens are DERIVED (`level = f(xp)`, `available = level − tokens_spent`), never stored, so the match-end write is one atomic `UPDATE … SET xp = xp + $1` (FR65, AR26)
 **And** `shared/src/sim/progression.ts` + `CONFIG.progression` carry the placement-scaled per-match XP curve, `soloXpFactor` (Solo vs AI discounted), `matchesToCatalog` (the OPEN intent dial, measured over the catalog as built) and the `[DRAFT]` prices per kind; one token per account level; `PROTOCOL_VERSION` bumps ONLY if the client reads the block (the `CONFIG.fleet` precedent) (FR65, AR52)
 **And** **THREE unlock surfaces, one currency** (Eric 2026-09-21): a **line** is unlocked WHOLE (its copies are unlimited in the pool, 8.14 — there is nothing per copy to buy), a **gun** (deck gun, machine gun, flak gun) and a **hull**; never bought with money; the **Default Set** (`CONFIG.progression.defaultSet`, the lines / guns / hulls every account and every anonymous captain has from day one) is EVERYTHING until Eric pares it down from playtest data; the door checks the seat's hull and gun against the account's unlocks, and `drawOffer` filters each participant's pool by theirs (FR65)
 **And** the collection tile becomes the control: **PRESS, THEN CONFIRM on the SAME tile** — the first press turns a locked tile AMBER with `⬢ n` (the price), the second press buys it; a pending tile cancels on ESC or any click elsewhere; an unaffordable tile is inert with its price dimmed; no armory page; unlocked IN PLACE (Hearthstone / MTG Arena shape) (UX-DR63 as re-cut)
 **And** the REAL `AccountWriter` replaces the `NullWriter`: `recordMatch(record)` computes XP and tokens through `progression.ts` INSIDE the same transaction as the history rows (9.7 reads them), an in-process FIFO, retry once, `flush()` on shutdown (Render's SIGTERM on every deploy must not lose twenty XP grants); bots, anonymous captains and mid-match-deleted captains are written with `user_id = NULL`; nothing on the tick ever awaits it (AR33, AR34, NFR25)
-**And** the account chip's `LV n · n ⬢` updates on every token spent; the log gains `account.write.ok { matchId, rows }` / `account.write.failed`; `/metrics` `account.writeOk / writeFailed / queueDepth`; the gun-mix win band (8.19) is the measurement that unlocks are variety, never power; token count and account level surface on the chip and on the Ship screen; nothing is ever bought with money (FR61, FR65, UX-DR74).
+**And** the account chip's `LV n · n ⬢` updates on every token spent; the log gains `account.write.ok { matchId, rows }` / `account.write.failed`; `/metrics` `account.writeOk / writeFailed / queueDepth`; the gun-mix win band (8.20) is the measurement that unlocks are variety, never power; token count and account level surface on the chip and on the Ship screen; nothing is ever bought with money (FR61, FR65, UX-DR74).
 
 ### Story 9.7: Match History and the Admin Console
 
@@ -2263,7 +2280,7 @@ So that I learn from what I brought, drew and took, and Eric can see how the cat
 **And** `GET /api/account/history?cursor=` returns ONLY the caller's own rows — hull, gun, drawn / taken with `T+mm:ss` stamps, placement, kills — cursor-paged, keyed on the caller's user id and never on match id, so **enemy draws are never returned by any route**; **the hidden pool appears only as the pool cards that player DREW** (Eric 2026-09-11) (FR66, AR30)
 **And** the Match History page (DOM standard page chrome on the modal bed, reached from the account chip) renders rows in the kill-feed grammar — mono 14 px uppercase, class and callsign in text-safe hues, numbers phosphor; loading draws nothing; empty and failed fetch both render as absence (UX-DR70)
 **And** `@colyseus/admin` is mounted at `/admin` + `/admin-api` in BOTH environments for Eric only (*"I DO want @colyseus/admin for ME"*): its own login, the bootstrap admin created once out of band and never by a route, behind the staging gate on dev, the account tables exposed as `tables`; player accounts never hold an admin role; the ONE stored password hash is the knowing exception, ledgered (FR69, AR30)
-**And** the reconnect `sunk` catch-up note (`deferred-work.md:544`) and the quitter-wins question (`:1212`) are checked against what history now persists and either carried or raised; the `endedBy` enum persists only after `:921` is resolved (8.20)
+**And** the reconnect `sunk` catch-up note (`deferred-work.md:544`) and the quitter-wins question (`:1212`) are checked against what history now persists and either carried or raised; the `endedBy` enum persists only after `:921` is resolved (8.21)
 **And** the log's one-line-per-match rule holds; no PV change.
 
 ### Story 9.8: Delete My Account

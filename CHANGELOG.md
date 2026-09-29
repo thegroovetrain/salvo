@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.18.17] - 2026-09-29
+
+### Added
+- **PHOSPHOR SHELLS (Story 8.17)** — its own 360° tiered weapon in a Q/E/R slot: one shell to the click, out to your radar range, on a 20 s reload. It bursts for 20 damage at tier I rising to 30 at tier V on every enemy hull inside the burst, then leaves a burning zone of r100 u (growing ×1.1 per tier) for 8 s rising to 10 s that burns 5 hp/s rising to 10 hp/s on every enemy hull whose centre is inside. The zone is a hazard only: anyone whose radar reaches it sees it, and it reveals nothing.
+- **FLASH SHELLS** — a belt consumable (cap 5, no reload): the key primes it and a click fires one shell out to your radar range. It bursts once in r150 u and blinds every enemy hull inside for 10 s, cutting its sight to one eighth of its intel range; no zone, no light, no damage. It replaces the DAZZLE SHELLS add-on (internal id unchanged).
+
+### Changed
+- **STAR SHELLS climb tiers and hurt again** — each tier from II cuts 5 % off the reload and adds 2.5 s lit, ×1.1 lit radius and 0.5 flares (R31). Each flare now deals 10 / 12 / 15 / 17 / 20 damage (tiers I–V) to every enemy hull inside the whole lit circle at burst; the lit zone still reveals to the firer and extends the gun's reach.
+- **BROADSIDE climbs tiers** — each tier from II cuts 5 % off the reload and adds one spread rung and 0.5 turret (5 turrets at III, 6 at V); 15 damage per shell throughout (R35). There are no separate damage, turret or spread cards.
+- **Story numbering** — a new Story 8.17 was inserted; the old 8.17–8.21 are now 8.18–8.22.
+- **Bots** carry interim rules for phosphor shells and flash shells until Story 8.20.
+- **Network protocol** bumps to v60 (the burn-zone channel, the lit-zone flags removed, the id kinds moved).
+
+### Removed
+- The PHOSPHOR SHELLS and DAZZLE SHELLS add-on cards and the star shell's phosphor and dazzle verbs are gone; no add-on line remains in the catalog.
+
 ## [0.18.16] - 2026-09-29
 
 ### Added

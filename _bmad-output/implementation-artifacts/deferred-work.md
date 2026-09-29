@@ -1968,7 +1968,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   status: OPEN — honest-home gap, structural
   summary: `CONFIG.bots.boonWeights` IS STILL AUTHORED IN V2 VOCABULARY. Story 8.1 folds the new v3 equipment lines into bot spending through an alias table in `server/src/game/ai/spending.ts` that maps old v2 keys (e.g. `torpedoSpeed`, `torpedoTube`) onto the v3 lines they now land on (e.g. `heavyTorpedo`), so bots can spend on the new catalog without CONFIG itself changing. The honest home for v3 bot weights is `CONFIG.bots.boonWeights` directly, authored in v3 line ids; fold this into the bot retune that follows the deck landing rather than carrying the alias table indefinitely.
   evidence: `server/src/game/ai/spending.ts` v2→v3 alias table and its header comment, Story 8.1 wave 2.
-  note: 2026-09-19 (Story 8.13, amendment 86) — the `torpedoHoming`/`minePropFouling` aliases are now homeless (their equipment lines are gone); the trapper profile's old fouling preference is an interim tie against captive until 8.18 authors per-line entries.
+  note: 2026-09-19 (Story 8.13, amendment 86) — the `torpedoHoming`/`minePropFouling` aliases are now homeless (their equipment lines are gone); the trapper profile's old fouling preference is an interim tie against captive until 8.20 authors per-line entries.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
   status: OPEN — needs an Eric ruling (a shorter name or a type step)
@@ -2219,12 +2219,12 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 ## 2026-09-17 — Story 8.8 Heal Is a Card (cycle 143): threads for later stories
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
-  status: OPEN — Story 8.18 (bots sail decks) or the next RL harness pass
+  status: OPEN — Story 8.20 (bots sail decks) or the next RL harness pass
   summary: RL AGENTS DRAW HULL REPAIR CARDS THEY CAN NEVER FIRE — `server/scripts/rl/env.ts` autoSpend picks uniformly over the front offer (which now holds `hullRepair`) and the RL action space has no belt press, so those levels are dead for RL runs; batchsim bots are unaffected (they use the tactic table and the 8.8 consumable row).
   evidence: Blind Hunter finding 4 (PLAUSIBLE-low, harness only); rl/env.ts autoSpend after the heal branch was removed.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
-  status: OPEN — Story 8.20 (How-to-Play re-cut)
-  summary: THE HOW-TO-PLAY REGEN SENTENCE HARDCODES "THIRTY SECONDS" AND "EVERY SECOND" while `regen.` is on the batchsim --tune surface; a retune of `CONFIG.regen.outOfCombatMs` / `missingPctPerS` silently strands the copy (the HULL REPAIR card face reads CONFIG live, this sentence does not). Amendment 50 fixed only the lines that became false; 8.20 owns the re-cut and should derive or restate them.
+  status: OPEN — Story 8.22 (How-to-Play re-cut)
+  summary: THE HOW-TO-PLAY REGEN SENTENCE HARDCODES "THIRTY SECONDS" AND "EVERY SECOND" while `regen.` is on the batchsim --tune surface; a retune of `CONFIG.regen.outOfCombatMs` / `missingPctPerS` silently strands the copy (the HULL REPAIR card face reads CONFIG live, this sentence does not). Amendment 50 fixed only the lines that became false; 8.22 owns the re-cut and should derive or restate them.
   evidence: Blind Hunter finding 5; client/src/how-to-play/copy.ts UPGRADING paragraph; howToPlay.test.ts pin.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
   status: OPEN — consequence of amendments 14 + 46, recorded for the balance pass
@@ -2278,16 +2278,16 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 ## 2026-09-18 — Story 8.11 The Match Consumable Pool (cycle 146): ledgered consequences
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
-  status: OPEN BY DESIGN — a fact for QA and 8.18's balance read, not a defect (wording corrected at the review gate, amendment 69)
-  summary: POOL COPIES PAST A LINE'S CAP ARE GATED BEHIND USE, AND "EXHAUSTED" CAN NOW MEAN "ONLY CAP-HELD LINES REMAIN". R44 bounds the cap WITHIN the pool alone, so a hull can sail 3 authored + up to 5 pool HULL REPAIR (8 > stock cap 5); while it holds five, the at-cap guard (Story 8.3, idle until now) never offers the line; a fired copy leaves `cards` (8.7) and the line reopens, so the copies past the cap are supply behind use, not dead cards. Consequence: an empty draw — which latches `deckExhausted` and fires the `deck.exhausted` log/metric once per ship — now also happens for a deck whose only remaining copies are of a line held at cap; the next level retries and succeeds after a use, but the latch/metric has already counted it. Nothing to fix; 8.18's harness bars must read `deck.exhausted` with this in mind.
+  status: OPEN BY DESIGN — a fact for QA and 8.20's balance read, not a defect (wording corrected at the review gate, amendment 69)
+  summary: POOL COPIES PAST A LINE'S CAP ARE GATED BEHIND USE, AND "EXHAUSTED" CAN NOW MEAN "ONLY CAP-HELD LINES REMAIN". R44 bounds the cap WITHIN the pool alone, so a hull can sail 3 authored + up to 5 pool HULL REPAIR (8 > stock cap 5); while it holds five, the at-cap guard (Story 8.3, idle until now) never offers the line; a fired copy leaves `cards` (8.7) and the line reopens, so the copies past the cap are supply behind use, not dead cards. Consequence: an empty draw — which latches `deckExhausted` and fires the `deck.exhausted` log/metric once per ship — now also happens for a deck whose only remaining copies are of a line held at cap; the next level retries and succeeds after a use, but the latch/metric has already counted it. Nothing to fix; 8.20's harness bars must read `deck.exhausted` with this in mind.
   evidence: epic-8 amendments 68(b), 69; `server/src/game/world.ts` `spendStock` / `materializeOffer` / `reportExhaustion`; `shared/src/__tests__/deck.test.ts` "the guard is LIVE" pins.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
-  status: OPEN — hand to Story 8.18 (the bar is SET here, measured for real there)
-  summary: THE 50-CARD ONE-COPY APPEARANCE RATE AND OFFER-SIZE MATH, RE-MEASURED (FR59): unstubbed catalog, 2000 seeded economies per hull, uniform pick per level — `deckGunTurret` seen in an offer by pick 8/12/15/20 in 56.1/73.4/81.0/90.5 % (TB), 53.6/71.0/79.3/89.6 % (BS), 52.3/69.5/80.3/90.0 % (ML); first offer under four lines at mean level ≈ 46.0 (fewer than four distinct drawable lines OR the rest held at cap). The forge's 40-card figures (66/82/90/97 % at 8/12/15/20) are superseded. These are a UNIFORM-PICK, NEVER-USE read (amendment 69: no consumable is ever fired, so a consumable line fitted to cap stays closed for the rest of the economy — a pessimistic floor for consumables, exact for equipment/ladder lines), not a bot-policy read: 8.18 re-measures with the full harness, where bots fire consumables, and pins the bar there.
+  status: OPEN — hand to Story 8.20 (the bar is SET here, measured for real there)
+  summary: THE 50-CARD ONE-COPY APPEARANCE RATE AND OFFER-SIZE MATH, RE-MEASURED (FR59): unstubbed catalog, 2000 seeded economies per hull, uniform pick per level — `deckGunTurret` seen in an offer by pick 8/12/15/20 in 56.1/73.4/81.0/90.5 % (TB), 53.6/71.0/79.3/89.6 % (BS), 52.3/69.5/80.3/90.0 % (ML); first offer under four lines at mean level ≈ 46.0 (fewer than four distinct drawable lines OR the rest held at cap). The forge's 40-card figures (66/82/90/97 % at 8/12/15/20) are superseded. These are a UNIFORM-PICK, NEVER-USE read (amendment 69: no consumable is ever fired, so a consumable line fitted to cap stays closed for the rest of the economy — a pessimistic floor for consumables, exact for equipment/ladder lines), not a bot-policy read: 8.20 re-measures with the full harness, where bots fire consumables, and pins the bar there.
   evidence: `shared/src/__tests__/poolMeasure.test.ts` (prints the table); epic-8 amendment 68(a).
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
   status: OPEN — untouched here; GDD open note 20(a)/(b) still awaits Eric
-  summary: THE POOL'S TWO UNRULED EDGES ARE NOT DECIDED BY 8.11: (a) whether results/match history ever reveal the pool after the match (8.19's `MatchRecord.pool` is the only persistence path and does not exist yet — nothing in this story records the pool anywhere but the room log's count); (b) the pool deals consumables an account has not unlocked (a preview, not power — Epic 9). Both remain facilitator readings.
+  summary: THE POOL'S TWO UNRULED EDGES ARE NOT DECIDED BY 8.11: (a) whether results/match history ever reveal the pool after the match (8.21's `MatchRecord.pool` is the only persistence path and does not exist yet — nothing in this story records the pool anywhere but the room log's count); (b) the pool deals consumables an account has not unlocked (a preview, not power — Epic 9). Both remain facilitator readings.
   evidence: gdd.md open note 20; `deferred-work.md` D22 entry above; no `MatchRecord` in the repo at cycle 146.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
   status: OPEN — interim, closes itself when 8.15/8.16 flip the stub flags
@@ -2356,8 +2356,8 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: `client/src/render/equipmentInfo.ts` card-row tables for `foulingMines` and `captiveMines`; amendment 85 (rows print every authored step, silent on which rows a line chooses to show).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
-  status: OPEN — hand to Story 8.18
-  summary: BOTS' PER-LINE APPETITES FOR THIS STORY'S FIVE LINES ARE STILL THE INTERIM `APPETITE_FAMILY` FALLBACK, NOT AUTHORED ENTRIES. Amendment 79 shipped minimal tactics (light torpedo reuses the heavy torpedo tactic, captive/fouling mines reuse the mine tactic) rather than a full per-line tactic and weight table; the `APPETITE_FAMILY` fallback map that lets an unlisted line inherit its family's generic appetite is marked for deletion once Story 8.18 authors real per-line entries for every line, this story's five included.
+  status: OPEN — hand to Story 8.20
+  summary: BOTS' PER-LINE APPETITES FOR THIS STORY'S FIVE LINES ARE STILL THE INTERIM `APPETITE_FAMILY` FALLBACK, NOT AUTHORED ENTRIES. Amendment 79 shipped minimal tactics (light torpedo reuses the heavy torpedo tactic, captive/fouling mines reuse the mine tactic) rather than a full per-line tactic and weight table; the `APPETITE_FAMILY` fallback map that lets an unlisted line inherit its family's generic appetite is marked for deletion once Story 8.20 authors real per-line entries for every line, this story's five included.
   evidence: `server/src/game/ai/equipment.ts` `APPETITE_FAMILY`; `server/src/game/ai/spending.ts`; epic-8 amendment 79, amendment 86's note on the trapper's fouling tie.
 
 ### Story 8.13 review-gate defers (2026-09-19, cycle 148)
@@ -2368,7 +2368,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: Blind Hunter F4 + Edge Case Hunter finding 6, both PLAUSIBLE, traced against `server/src/game/perception.ts` `ballisticScan`/`forgetIfExited` and `signals.ts` `ballisticGateOpen`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
-  status: OPEN — bots; hand to Story 8.18
+  status: OPEN — bots; hand to Story 8.20
   summary: THE LIGHT TORPEDO'S LEAD SOLVER CAN RETURN A MEANINGLESS INTERCEPT AGAINST A TARGET IT CANNOT CATCH: `ai/equipment.ts` `leadPoint` runs three fixed-point iterations with no "target faster than the fish and opening" guard, so a bot may spend a 25 s light-torpedo tube (45 u/s at tier I) on a Torpedo Boat running away at 45+ u/s. The heavy at 65 u/s never met this case. Guard shape: `if (t.speed >= fishSpeed && closingRate <= 0) return null`.
   evidence: Edge Case Hunter finding 4 (PLAUSIBLE), traced through `solveTorpedoShot` for `lightTorpedo`.
 
@@ -2393,7 +2393,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 
 - source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
   status: OPEN — Eric (names)
-  summary: THE THREE CLASS DESIGNATIONS. The hulls become named ship classes with real designations (shape `IBK-01 KABUKI CLASS`); all three are `[NAME PENDING]`. Internal ids `torpedoBoat` / `mineLayer` / `battleship` and the identity test stay until the names land; Story 8.21 (copy) cannot close without them.
+  summary: THE THREE CLASS DESIGNATIONS. The hulls become named ship classes with real designations (shape `IBK-01 KABUKI CLASS`); all three are `[NAME PENDING]`. Internal ids `torpedoBoat` / `mineLayer` / `battleship` and the identity test stay until the names land; Story 8.22 (copy) cannot close without them.
   evidence: GDD class table (2026-09-21 supersession); epics.md Story 8.14.
 
 - source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
@@ -2412,7 +2412,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: epics.md Story 8.15; GDD "The mountable guns".
 
 - source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
-  status: OPEN — Eric, needed by Story 8.19
+  status: OPEN — Eric, needed by Story 8.20
   summary: `BOT_GUNS` (which gun each of the six bot profiles mounts) and the `SHIFT_TACTICS` bodies (when a bot fires boost / instant reload / damage cut) are `[DRAFT]`.
   evidence: epics.md Story 8.19.
 
@@ -2435,7 +2435,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
   status: OPEN — Eric (side story, NOT 8.14/8.15)
-  summary: PER-DRAW OFFERED/PICKED RECORD. Eric 2026-09-22: "I'm more interested in *what* cards were picked in each draw, that's way more valuable info. So I am interested in doing a side story for that, we don't need to suck it up into this sprint." The `/metrics` `deck.{exhausted,picks,mulligans}` counters were deleted with no replacement (amendment 94); the record should capture, per participant and per draw, the four offered ids and the taken id with a `T+` stamp — a natural companion to Story 8.20's match record.
+  summary: PER-DRAW OFFERED/PICKED RECORD. Eric 2026-09-22: "I'm more interested in *what* cards were picked in each draw, that's way more valuable info. So I am interested in doing a side story for that, we don't need to suck it up into this sprint." The `/metrics` `deck.{exhausted,picks,mulligans}` counters were deleted with no replacement (amendment 94); the record should capture, per participant and per draw, the four offered ids and the taken id with a `T+` stamp — a natural companion to Story 8.21's match record.
   evidence: amendment 94.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
@@ -2444,8 +2444,8 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: `shared/src/sim/loadout.ts` `MOUNTED_GUN`; amendment 95.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
-  status: OPEN — Story 8.19
-  summary: the harness lost `--deck-only`, `--draws`, `deckSim.ts`, `PACIFIST_DECK` and `catalogReport`'s DECK COMPOSITION block (the deterministic batch report body changed); 8.19 authors the pool-era bars (gun mix, offer composition, weighting effect). Also: `BOT_DECKS` named in the 2026-09-21 proposal never existed in code — bots were seated via `loadDeckFor` inline in ArenaRoom; nothing to delete in 8.19.
+  status: OPEN — Story 8.20
+  summary: the harness lost `--deck-only`, `--draws`, `deckSim.ts`, `PACIFIST_DECK` and `catalogReport`'s DECK COMPOSITION block (the deterministic batch report body changed); 8.20 authors the pool-era bars (gun mix, offer composition, weighting effect). Also: `BOT_DECKS` named in the 2026-09-21 proposal never existed in code — bots were seated via `loadDeckFor` inline in ArenaRoom; nothing to delete in 8.20.
   evidence: amendment 95(b); server/scripts/batchsim (deleted deck-era files).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
@@ -2491,13 +2491,13 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: amendment 110.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
-  status: OPEN — Story 8.19
+  status: OPEN — Story 8.20
   summary: THE RL FEATURE VECTOR SHRANK — SAVED MODELS ARE NOW INVALID. `server/scripts/rl/features.ts`'s `CARD_IDS` is derived from `Object.keys(CATALOG)`, so the missile/monitor/heat-seeking cut shrinks it along with everything else the catalog loses; `FEATURE_VERSION` was bumped to 2 with a comment recording the break, but any saved model trained against version 1 no longer lines up with the new vector and must be retrained.
   evidence: `server/scripts/rl/features.ts:18` (`FEATURE_VERSION = 2` comment), `:21` (`CARD_IDS`).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
-  status: OPEN — Story 8.19
-  summary: REAL BOT GUN-MIX AND SHIFT-TACTIC TABLES ARE DEFERRED. 8.15 seats each bot with one of the three guns drawn uniformly from the room's seeded stream (no per-profile gun preference) and runs the interim Shift tactics amendment 109 spells out (Mine Layer: INSTANT RELOAD when target-in-range and readiest weapon reloading; Battleship: DAMAGE CUT after taking damage within the last second; Torpedo Boat: the shipped boost rule). The harness's bars for gun mix and Shift-tactic effectiveness are 8.19's, per the amendment.
+  status: OPEN — Story 8.20
+  summary: REAL BOT GUN-MIX AND SHIFT-TACTIC TABLES ARE DEFERRED. 8.15 seats each bot with one of the three guns drawn uniformly from the room's seeded stream (no per-profile gun preference) and runs the interim Shift tactics amendment 109 spells out (Mine Layer: INSTANT RELOAD when target-in-range and readiest weapon reloading; Battleship: DAMAGE CUT after taking damage within the last second; Torpedo Boat: the shipped boost rule). The harness's bars for gun mix and Shift-tactic effectiveness are 8.20's, per the amendment.
   evidence: amendment 109; `server/src/game/ai/profiles.ts`, `botDriver.ts`, `types.ts` (interim tactics + `BotDecision.held`).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
@@ -2549,18 +2549,18 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: `server/src/__tests__/perception.test.ts` (`for (let world = 0; world < 20; world++)`, `CHAFF_EXPECTED` / `DECOY_PAINT_EXPECTED`).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: OPEN — awareness for Story 8.19
-  summary: `BotSelf.shield?` / `BotSelf.chaff?` ARE BOT SELF-READS, NOT WIRE FIELDS. The interim tactics read the bot's own shield and chaff off its `BotSelf` view so a live copy is not re-fired; neither is on any client frame (`OwnShip.shield` is the wire field; chaff has none). 8.19's table should keep them self-only.
+  status: OPEN — awareness for Story 8.20
+  summary: `BotSelf.shield?` / `BotSelf.chaff?` ARE BOT SELF-READS, NOT WIRE FIELDS. The interim tactics read the bot's own shield and chaff off its `BotSelf` view so a live copy is not re-fired; neither is on any client frame (`OwnShip.shield` is the wire field; chaff has none). 8.20's table should keep them self-only.
   evidence: `server/src/game/ai/types.ts:131`, `:138`.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: OPEN — Story 8.19
+  status: OPEN — Story 8.20
   summary: DECOY BUOY SCORES AT THE PLAIN CONSUMABLE BASE IN THE BOT CARD POLICY. The radar buoy's profile weights died with it and no decoy weight replaced them, so a bot values a DECOY BUOY card exactly like any other belt line; the three consumable tactics are interim (SHIELD BLOCK on the DAMAGE CUT cues, CHAFF on disengage, DECOY BUOY astern when a torpedo is inbound — amendment 124(g)).
   evidence: `server/src/game/ai/spending.ts` (consumable kind base); `server/src/game/ai/equipment.ts` `CONSUMABLE_TACTICS`; amendment 124(g).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
   status: OPEN — pointers
-  summary: THE LAST TWO CATALOG STUBS AND THE BOT TABLES. SMOKE SCREEN is Story 8.17 (smoke screen as a sight occluder) and DEPTH CHARGE stays a stub for Eric; the real bot consumable/Shift tables are Story 8.19.
+  summary: THE LAST TWO CATALOG STUBS AND THE BOT TABLES. SMOKE SCREEN is Story 8.18 (smoke screen as a sight occluder) and DEPTH CHARGE stays a stub for Eric; the real bot consumable/Shift tables are Story 8.20.
   evidence: `shared/src/sim/catalog.ts` (2 stubs); `sprint-status.yaml` 8-17 / 8-19 rows.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
@@ -2577,3 +2577,30 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: OPEN — cosmetic (review gate, Edge Case Hunter; the mines precedent)
   summary: THE `placeDecoy` TONE REPLAYS ONCE PER LIVE OWN DECOY ON A REFRESH-REJOIN — `Decoys`' own-spawn hook fires for every own decoy a fresh renderer receives in its first frame, exactly as `onOwnMineSpawn` does for mines; decoys have no lifetime so the set can be up to five. Suppress the hook on the first sync after construction if it grates.
   evidence: `client/src/render/decoys.ts` `onOwnDecoySpawn`; the mines precedent in `client/src/render/mines.ts`.
+
+## 2026-09-29 — Story 8.17 Catalog v3: Star Shells, Broadside, Phosphor, Flash (cycle 152)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
+  status: OPEN — for Eric's eye on staging
+  summary: THE PHOSPHOR SHELLS SLOT GLYPH, THE FLASH SHELLS BELT GLYPH AND BOTH HOVER DESCRIPTIONS ARE IMPLEMENTER DRAFTS (the amendment 110 precedent). Nothing about them was ruled; they are in the existing icon and copy style and Eric may redraw or reword either.
+  evidence: `client/src/render/equipmentIcons.ts`; `client/src/render/equipmentInfo.ts`; `client/src/ui/boonCopy.ts`; epic-8 amendment 110.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
+  status: OPEN — structural, Eric's call
+  summary: NO ADD-ON LINE REMAINS IN THE CATALOG. The `addon` kind, the `addon()` helper and the doctrine-effect machinery are now unused and were kept in place (amendment 134); deleting them or keeping them for a future add-on is Eric's call.
+  evidence: `shared/src/sim/catalog.ts` (`addon()`, the `addon` kind); `shared/src/sim/effects.ts` (`EQUIPMENT_DOCTRINES`); epic-8 amendment 134.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
+  status: OPEN — recorded reading, Eric may veto (amendment 135(b))
+  summary: A PHOSPHOR BURST OVER FOG EMITS `hc` FOR ANY HULL INSIDE ITS 100 u+ ZONE — accepted as the flak precedent (a 50 u blast already does this) and recorded rather than asked. If Eric wants a phosphor hit to stay silent over fog, the burst needs a different hit-call rule.
+  evidence: epic-8 amendment 135(b); `server/src/game/world.ts` `resolveBurst`; `server/src/game/equipment/phosphorShells.ts`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
+  status: OPEN — Story 8.20
+  summary: THE BOTS' PHOSPHOR SHELLS AND FLASH SHELLS ROWS ARE INTERIM. PHOSPHOR SHELLS fires at the nearest live contact inside sight; the FLASH SHELLS belt tactic primes and fires at the nearest live contact in sight while engaged; the verb-keyed offensive-flare branch and `phosphorStaleCapMs` were deleted. 8.20 owns the real table.
+  evidence: `server/src/game/ai/equipment.ts`; `server/src/game/ai/consumables.ts`; epic-8 amendment 135(h).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
+  status: OPEN — awareness (renumber)
+  summary: THE 8.16 POINTER ENTRY "SMOKE SCREEN IS STORY 8.17" NOW READS 8.18. Eric inserted this story as the new 8.17 (amendment 129), so old 8.17-8.21 are 8.18-8.22; the OPEN forward pointers in this ledger were renumbered by meaning (smoke 8.18, wake 8.19, bots 8.20, results 8.21, How-to-Play 8.22), and dated or resolved entries were left as written.
+  evidence: `epics.md` Stories 8.17-8.22; `sprint-status.yaml` 8-17 to 8-22 rows; epic-8 amendment 129.
