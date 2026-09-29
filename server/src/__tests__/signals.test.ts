@@ -50,7 +50,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, mapRadius: w.map.radius, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, decoys: w.decoys, chaffSources: w.chaffSources, me, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, chaffSources: w.chaffSources, me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -60,7 +60,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, mapRadius: w.map.radius, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, decoys: w.decoys, chaffSources: w.chaffSources, me: undefined, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, chaffSources: w.chaffSources, me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -68,7 +68,7 @@ function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
 
 /** Drop a lit zone directly into world state (Story 1.7). */
 function injectZone(w: World, id: string, ownerId: string, x: number, y: number, r = CONFIG.starShells.litRadius, until = 999_999): void {
-  w.litZones.set(id, { id, ownerId, x, y, r, until, phosphor: false, dazzle: false });
+  w.litZones.set(id, { id, ownerId, x, y, r, until });
 }
 
 function makeShell(overrides: Partial<ShellState> = {}): ShellState {
@@ -102,6 +102,7 @@ const REGISTRY_KEYS = [
   'contact',
   'mine',
   'litzone',
+  'burnzone', // Story 8.17: the PHOSPHOR burning zone's contact-like channel, on the lit zone's gate (amendment 135(f))
   'decoy', // Story 8.16: the DECOY BUOY's contact-like frame channel (the deleted radar buoy's `buoy` seat)
   'blip',
   'shell',
@@ -138,9 +139,9 @@ const REGISTRY_KEYS = [
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 22 known channels (18 event kinds + 4 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added)', () => {
+  it('has exactly the 23 known channels (18 event kinds + 5 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added; Story 8.17: `burnzone` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(22);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(23);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; NO row carries a counterIntel seam any more (Story 7-5 wave 2)', () => {
@@ -356,26 +357,41 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect('ownerId' in (wire as object)).toBe(false); // the wire key is `by`, never the internal name
   });
 
-  it('litzone row carries the zone\'s DOCTRINE VERBS verbatim and INDEPENDENTLY (Story 2.9 amendment 50, Story 7-5 wave 1)', () => {
+  it('litzone row carries NO doctrine verbs any more (Story 8.17, amendment 134): exactly [id,x,y,r,until,by]', () => {
     const w = bareWorld();
     const b = place(w, 'b', 0, 0); // a NON-owner observer within radar range
-    w.litZones.set('zi', { id: 'zi', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
-    w.litZones.set('zd', { id: 'zd', ownerId: 'a', x: 0, y: 400, r: 165, until: 999_999, phosphor: false, dazzle: true });
-    w.litZones.set('zb', { id: 'zb', ownerId: 'a', x: 0, y: -400, r: 165, until: 999_999, phosphor: true, dazzle: true });
+    w.litZones.set('zi', { id: 'zi', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999 });
     const row = SIGNAL_REGISTRY.litzone;
     const ctx = foggedCtx(w, b);
-    const cases = [
-      ['zi', true, undefined],
-      ['zd', undefined, true],
-      ['zb', true, true], // BOTH verbs on one zone — unrepresentable pre-7-5
-    ] as const;
-    for (const [id, phos, daz] of cases) {
-      const zone = w.litZones.get(id)!;
-      expect(row.visible(ctx, zone)).toBe(true); // radar-gated non-owner sees the circle
-      const wire = row.materialize(ctx, zone) as { phos?: true; daz?: true };
-      expect(wire.phos).toBe(phos);
-      expect(wire.daz).toBe(daz);
+    const wire = row.materialize(ctx, w.litZones.get('zi')!) as unknown as Record<string, unknown>;
+    expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'r', 'until', 'by']);
+    expect('phos' in wire).toBe(false);
+    expect('daz' in wire).toBe(false);
+  });
+
+  it('burnzone row (Story 8.17, amendment 135(f)): the LIT ZONE\'s gate byte-for-byte, shape [id,x,y,r,until,by], `dps` never rides', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0); // the firer
+    const b = place(w, 'b', 100, 0); // a NON-owner observer within radar range of the centre
+    const far = place(w, 'far', -RADAR - 100, 0); // centre at RADAR + 500: beyond its radar
+    w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 110, until: 12_345, dps: 7 });
+    const zone = w.burnZones.get('bz1')!;
+    const row = SIGNAL_REGISTRY.burnzone;
+    expect(row.eventType).toBe('burnzone');
+    expect(row.visible(foggedCtx(w, a), zone)).toBe(true); // owner always
+    expect(row.visible(foggedCtx(w, b), zone)).toBe(true); // centre within radar — no LOS, no sweep
+    expect(row.visible(foggedCtx(w, far), zone)).toBe(false); // centre beyond radar
+    expect(row.visible(specCtx(w, 'far'), zone)).toBe(true); // spectators see all
+    // The lit-zone gate, byte-for-byte: the SAME predicate answers for both rows.
+    const asLit = { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 110, until: 12_345 };
+    for (const me of [a, b, far]) {
+      expect(row.visible(foggedCtx(w, me), zone)).toBe(SIGNAL_REGISTRY.litzone.visible(foggedCtx(w, me), asLit));
     }
+    const wire = row.materialize(foggedCtx(w, b), zone) as unknown as Record<string, unknown>;
+    expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'r', 'until', 'by']);
+    expect(wire).toEqual({ id: 'bz1', x: 400, y: 0, r: 110, until: 12_345, by: 'a' });
+    expect('dps' in wire).toBe(false); // the firer's tier is a build read — never on the wire
+    expect('ownerId' in wire).toBe(false);
   });
 
   it('boom row, STRIPPED variant: [k,id,x,y], no "hit" key — fogged observer sights the impact but not the victim center', () => {
@@ -664,7 +680,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
   function zoneWorld(): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, phosphor: false, dazzle: false });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
     return { w, a };
   }
 
@@ -749,7 +765,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     a.sweepAngle = wrapPositive(0.02); // beam crossing bearing 0 this tick
     const row = signalFor('blip')!;
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // sanity: paints without a zone
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, phosphor: false, dazzle: false });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
     expect(row.visible(foggedCtx(w, a), b)).toBe(false); // contact tier now — never a blip
   });
 });
@@ -1088,13 +1104,17 @@ describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): m
     }
   });
 
-  it('detect is the OBSERVER\'S OWN scaled sight (amendment 121): dazzle halves it on all three rows', () => {
+  it('detect is the OBSERVER\'S OWN scaled sight (amendment 121): a FLASH dazzle collapses it on all three rows', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.dazzledUntil = w.now + 10_000; // detect collapses to 0.75 × 165 = 123.75
-    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 200, y: 0 }))).toBe(false);
-    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 120, y: 0 }))).toBe(true);
-    expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 200, y: 0 }))).toBe(false);
+    // Story 8.17 (amendment 132): dazzled sight is radarRange / 8 = 82.5, so
+    // detect collapses to 0.75 × 82.5 = 61.875 (it was 123.75 under the ×0.5
+    // star-shell verb).
+    a.dazzledUntil = w.now + 10_000;
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 120, y: 0 }))).toBe(false);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 61.875, y: 0 }))).toBe(true);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 62, y: 0 }))).toBe(false);
+    expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 120, y: 0 }))).toBe(false);
   });
 
   // RETIRED (Story 7-5 wave 2): "the decoy row does NOT ride detect". The row
@@ -1127,6 +1147,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(signalFor('contact')).toBeUndefined();
     expect(signalFor('mine')).toBeUndefined();
     expect(signalFor('litzone')).toBeUndefined();
+    expect(signalFor('burnzone')).toBeUndefined(); // Story 8.17: the fifth pseudo-row, never a world event
     // ...but the rows themselves still exist for direct scan-driven access.
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();

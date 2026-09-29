@@ -121,6 +121,24 @@ export interface ShellState {
    */
   lit?: { radius: number; durationMs: number };
   /**
+   * SERVER-INTERNAL phosphor tag (Story 8.17, epic-8 amendments 131 and
+   * 135(e)): when set, a BURST of this shell also spawns a BURNING ZONE of
+   * `radius` for `durationMs` that burns `dps` hp/s — all three STAMPED from
+   * the owner's effective `phosphorShells` row at launch, so a later tier card
+   * never changes a live zone. stepShell never reads it; NEVER on the wire
+   * (the `lit` tag's exact posture).
+   */
+  burn?: { radius: number; durationMs: number; dps: number };
+  /**
+   * SERVER-INTERNAL flash tag (Story 8.17, FLASH SHELLS, epic-8 amendments 132
+   * and 135(d)): when set, a BURST of this shell — at its aim point, or at the
+   * stop point of an interception, exactly as a flare lights there — dazzles
+   * every non-friendly afloat hull whose centre is inside `radius` for
+   * `durationMs`. No zone, no light, no damage. stepShell never reads it;
+   * NEVER on the wire (the `lit` tag's exact posture).
+   */
+  flash?: { radius: number; durationMs: number };
+  /**
    * SERVER-INTERNAL no-aggro tag (Story 7-5 fix cycle, R2.21a): a hit by this
    * shell must aggro NOBODY at its owner — the GUN BUOY's shells carried it
    * (the gun buoy is deleted with the radar buoy, Story 8.16), because "the layer may be dead or across the map, so there is nothing to

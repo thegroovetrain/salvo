@@ -732,7 +732,7 @@ describe('star shells — the lit radius is the preview', () => {
     expect(m.bursts).toHaveLength(1);
     expect(m.bursts[0].x).toBeCloseTo(300, 6);
     expect(m.bursts[0].r).toBe(inp.stats.equipment.starShells.litRadius);
-    expect(m.bursts[0].effect).toBe(true); // not a damage area
+    expect(m.bursts[0].effect).toBe(true); // the quieter register (a damage circle since 8.17, drawn light for its size)
     expect(m.lines).toHaveLength(1); // ...and it keeps its travel line
   });
 
@@ -746,30 +746,15 @@ describe('star shells — the lit radius is the preview', () => {
     expect(m.bursts[0].r).toBe(s.equipment.starShells.litRadius);
   });
 
-  it('honors the PHOSPHOR shrink — the verb trades reach for burn', () => {
-    const inc = stats('phosphorShells');
-    expect(inc.equipment.starShells.phosphor).toBe(true);
-    const m = computeAimPreview(input({ id: 'starShells', stats: inc }));
-    expect(m.bursts[0].r).toBeCloseTo(
-      inc.equipment.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor,
-      9,
-    );
-    expect(m.bursts[0].r).toBeLessThan(inc.equipment.starShells.litRadius);
-    expect(effectiveLitRadius(inc)).toBe(m.bursts[0].r);
-  });
-
-  // THE VERBS STACK (Story 7-5 wave 1). A captain holding BOTH star-shell cards
-  // still previews the phosphor-shrunk circle: DAZZLE is an independent verb
-  // that does not touch the radius, and an either/or read would have picked one.
-  it('a both-verb flare previews the SAME phosphor-shrunk circle', () => {
-    const both = stats('phosphorShells', 'dazzleShells');
-    expect(both.equipment.starShells.phosphor).toBe(true);
-    expect(both.equipment.starShells.dazzle).toBe(true);
-    expect(effectiveLitRadius(both)).toBeCloseTo(
-      both.equipment.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor,
-      9,
-    );
-    expect(effectiveLitRadius(both)).toBe(effectiveLitRadius(stats('phosphorShells')));
+  // STORY 8.17: the STAR SHELLS ladder moves the lit radius again (×1.1 per
+  // tier, amendment 130), and the PHOSPHOR shrink that used to apply here is
+  // DELETED with the verb (amendment 134) — the flare's circle is its lit
+  // radius, exactly, at every tier.
+  it('reads the TIERED lit radius — and no verb shrinks it any more', () => {
+    const t3 = stats('starShells', 'starShells', 'starShells');
+    expect(t3.equipment.starShells.litRadius).toBeCloseTo(CONFIG.starShells.litRadius * 1.21, 9);
+    expect(effectiveLitRadius(t3)).toBe(t3.equipment.starShells.litRadius);
+    expect(computeAimPreview(input({ id: 'starShells', stats: t3 })).bursts[0].r).toBe(effectiveLitRadius(t3));
   });
 
   it('clamps the lit circle to effective range like any gun-family shot', () => {
@@ -835,6 +820,47 @@ describe('rim honesty — a shot whose ORIGIN is off the water', () => {
   });
 });
 
+// STORY 8.17 (amendments 131/132): the two new 360° shells preview on the
+// star-shell pattern — one shell to the click, clamped at the radar rung, with
+// the burst ring at the circle it will act on.
+describe('phosphor + flash shells — the star-shell preview pattern', () => {
+  it('PHOSPHOR draws its (tiered) zone at the burst point, at DAMAGE weight', () => {
+    const s = stats('phosphorShells', 'phosphorShells');
+    const m = computeAimPreview(input({ id: 'phosphorShells', stats: s, aimDist: 300 }));
+    expect(m.bursts).toHaveLength(1);
+    expect(m.lines).toHaveLength(1);
+    expect(m.bursts[0].x).toBeCloseTo(300, 6);
+    expect(m.bursts[0].r).toBe(s.equipment.phosphorShells.zoneRadius);
+    expect(m.bursts[0].r).toBeCloseTo(110, 9); // tier II: 100 × 1.1
+    expect(m.bursts[0].effect).toBe(false); // a damage burst, not an effect radius
+  });
+
+  it('PHOSPHOR clamps at its own row range — the radar rung', () => {
+    const inp = input({ id: 'phosphorShells', stats: stats('phosphorShells'), aimDist: 99999 });
+    const m = computeAimPreview(inp);
+    expect(inp.stats.equipment.phosphorShells.rangeU).toBe(inp.stats.radarRange);
+    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.radarRange, 6);
+  });
+
+  it('FLASH SHELLS draws the fixed CONFIG burst in the EFFECT register, to radar reach', () => {
+    const inp = input({ id: 'dazzleShells', aimDist: 99999 });
+    const m = computeAimPreview(inp);
+    expect(m.bursts).toHaveLength(1);
+    expect(m.bursts[0].r).toBe(CONFIG.flashShells.radius);
+    expect(m.bursts[0].effect).toBe(true); // it blinds, it deals no damage
+    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.radarRange, 6);
+  });
+
+  it('DIMS either circle when a rock stops the shell short', () => {
+    for (const id of ['phosphorShells', 'dazzleShells'] as const) {
+      const m = computeAimPreview(
+        input({ id, stats: stats('phosphorShells'), aimDist: 400, islands: [squareIsland(150, 0, 30)] }),
+      );
+      expect(m.bursts[0].blocked, id).toBe(true);
+    }
+  });
+});
+
 describe('ownBurstRadius — our own blast, never anybody else’s', () => {
   it('sizes an own gun/broadside burst off our effective stats', () => {
     const s = stats();
@@ -847,6 +873,12 @@ describe('ownBurstRadius — our own blast, never anybody else’s', () => {
     expect(ownBurstRadius(s, null)).toBeUndefined();
     expect(ownBurstRadius(s, 'heavyTorpedo')).toBeUndefined(); // a straight-runner has no point burst
     expect(ownBurstRadius(s, 'starShells')).toBeUndefined();
+  });
+
+  it('sizes an own PHOSPHOR burst off its zone and a FLASH burst off CONFIG (Story 8.17)', () => {
+    const s = stats('phosphorShells', 'phosphorShells', 'phosphorShells');
+    expect(ownBurstRadius(s, 'phosphorShells')).toBe(s.equipment.phosphorShells.zoneRadius);
+    expect(ownBurstRadius(s, 'dazzleShells')).toBe(CONFIG.flashShells.radius);
   });
 
   // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): no torpedo bursts at a

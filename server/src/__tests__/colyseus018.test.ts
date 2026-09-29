@@ -165,23 +165,23 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 58 and admits 59', () => {
-  it('PROTOCOL_VERSION is 59', () => {
-    // Story 8.16 bumped 58 -> 59: the own-ship frame gains `shield`, the
-    // frame gains `decoys` (DecoyView), the radar buoy's `buoys` channel and
-    // the `src` blip tag are DELETED, and the catalog content moved (shield
-    // block, chaff and decoy buoy are live). Story 8.15 bumped 57 -> 58
-    // (`InputMsg.held`, the shell reveal's `w`, `damageCutUntil`).
-    expect(PROTOCOL_VERSION).toBe(59);
+describe('the PV join gate refuses 59 and admits 60', () => {
+  it('PROTOCOL_VERSION is 60', () => {
+    // Story 8.17 bumped 59 -> 60: the lit zone loses its `phos`/`daz` tail,
+    // the frame gains `burnZones` (BurnZoneView), `phosphorShells` is an
+    // EquipmentId and `dazzleShells` a ConsumableId, and the catalog content
+    // moved (star / broadside / phosphor ladders, FLASH SHELLS). Story 8.16
+    // bumped 58 -> 59 (`shield`, `decoys`, the radar buoy's deletion).
+    expect(PROTOCOL_VERSION).toBe(60);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 58 is the one that matters now: a client built one story before this
-    // one reads a `buoys` channel that no longer exists and knows no decoy.
+    // 59 is the one that matters now: a client built one story before this
+    // one still reads `phos`/`daz` on a lit zone and knows no burning zone.
+    expect(protocolVersionError(59)).toMatch(/refresh/i);
     expect(protocolVersionError(58)).toMatch(/refresh/i);
     expect(protocolVersionError(57)).toMatch(/refresh/i);
     expect(protocolVersionError(56)).toMatch(/refresh/i);
-    expect(protocolVersionError(55)).toMatch(/refresh/i);
   });
 
   it('refuses a missing pv', () => {
@@ -189,12 +189,12 @@ describe('the PV join gate refuses 58 and admits 59', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(60)).toMatch(/refresh/i);
+    expect(protocolVersionError(61)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(59)).toBeNull();
+    expect(protocolVersionError(60)).toBeNull();
   });
 });
 

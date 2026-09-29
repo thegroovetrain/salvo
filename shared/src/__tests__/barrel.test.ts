@@ -351,7 +351,15 @@ describe('shared barrel', () => {
     // `BuoyView` + the `src` blip tag DELETED with the radar buoy,
     // `CONFIG.shieldBlock/chaff/decoyBuoy`, and three consumable stubs flipped
     // live (catalog content). The perception exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(59);
+    // 59 -> 60: CATALOG V3 — STAR SHELLS, BROADSIDE, PHOSPHOR, FLASH (Story
+    // 8.17, Eric rulings 2026-09-29, epic-8 amendments 129-135). `LitZoneView`
+    // loses `phos`/`daz`; `FrameMsg.burnZones?` (`BurnZoneView`);
+    // `phosphorShells` becomes an EquipmentId and `dazzleShells` a
+    // ConsumableId (FLASH SHELLS); `CONFIG.phosphorShells` / `CONFIG.flashShells`
+    // join and `CONFIG.starShells` gains `damage`; catalog content (the
+    // star/broadside/phosphor ladders, no add-on left, 109 -> 117 cards). The
+    // perception exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(60);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -634,7 +642,11 @@ describe('shared barrel', () => {
     expect((CONFIG as Record<string, unknown>).radarBuoy).toBeUndefined();
   });
 
-  it('CONFIG.starShells: DAMAGELESS (amendment 39) + the incendiary/dazzle doctrine fields', () => {
+  it('CONFIG.starShells: the flare DEALS DAMAGE again and its doctrine fields are gone (Story 8.17)', () => {
+    // Eric ruling 2026-09-29, epic-8 amendments 130/134: `damage: 10` (tier I)
+    // arrives — amendment 39's "structurally damageless" is SUPERSEDED — and
+    // `incendiaryRadiusFactor`, `incendiaryDps` and `dazzleSightFactor` are
+    // DELETED with the star-shell verbs.
     expect(CONFIG.starShells).toEqual({
       // AR44 (Story 8.4): NO 'mine' bit — illumination detonates nothing.
       hits: ['hull', 'decoy'],
@@ -642,17 +654,46 @@ describe('shared barrel', () => {
       shellSpeed: 500,
       maxAmmo: 1,
       reloadMs: 20000,
+      damage: 10,
       litRadius: 165,
       litDurationMs: 10000,
       shellRadius: 2,
-      incendiaryRadiusFactor: 0.8,
-      incendiaryDps: 5,
-      dazzleSightFactor: 0.5,
     });
-    expect('damage' in CONFIG.starShells).toBe(false);
+    for (const gone of ['incendiaryRadiusFactor', 'incendiaryDps', 'dazzleSightFactor']) {
+      expect(gone in CONFIG.starShells, gone).toBe(false);
+    }
     expect('rangeU' in CONFIG.starShells).toBe(false);
     // The ratified SIGHT/2 structural derivation survives.
     expect(CONFIG.starShells.litRadius).toBe(CONFIG.vision.sight / 2);
+  });
+
+  it('CONFIG.phosphorShells + CONFIG.flashShells: Eric\'s 2026-09-29 numbers (Story 8.17, amendments 131/132)', () => {
+    expect(CONFIG.phosphorShells).toEqual({
+      arc: 'full',
+      // A DAMAGE weapon carries the gun's mask — an armed mine in the burst
+      // detonates (amendment 135(c)).
+      hits: ['hull', 'mine', 'decoy'],
+      shellSpeed: 500,
+      maxAmmo: 1,
+      reloadMs: 20000,
+      damage: 20,
+      zoneRadius: 100,
+      zoneDurationMs: 8000,
+      dps: 5,
+      shellRadius: 2,
+    });
+    expect('rangeU' in CONFIG.phosphorShells).toBe(false); // derived = radarRange
+    expect(CONFIG.flashShells).toEqual({
+      arc: 'full',
+      // The star shell's mask — a flash never detonates a mine (amendment 135(d)).
+      hits: ['hull', 'decoy'],
+      shellSpeed: 500,
+      shellRadius: 2,
+      radius: 150,
+      durationMs: 10000,
+      sightFraction: 0.125,
+    });
+    expect('damage' in CONFIG.flashShells).toBe(false); // a flash deals no damage
   });
 
   it('CONFIG.mine: aimed-placement + chain-era fields (Story 2.8) over the 1.8 geometry', () => {
@@ -849,10 +890,11 @@ describe('shared barrel', () => {
     // 114 -> 122 in Story 8.13 purely by re-cutting kinds (epic-8 amendments
     // 74/80/81/83), then 122 -> 109 in Story 8.15 (amendment 89e and 104/105):
     // -11 missile/monitor/heatSeeking, -2 machineGun/flak 5-copy stubs -> 4-copy
-    // ladders.
+    // ladders. 109 -> 117 in Story 8.17 (amendments 131/132): the last two
+    // 1-card add-ons became a 5-card equipment line and a 5-card consumable.
     expect(LINE_IDS).toHaveLength(26);
     expect(Object.keys(CATALOG)).toHaveLength(26);
-    expect(catalogCardCount()).toBe(109);
+    expect(catalogCardCount()).toBe(117);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
@@ -870,6 +912,8 @@ describe('shared barrel', () => {
     for (const path of [
       'sweepPeriodMs', 'sightRange',
       'equipment.gun.rangeU', 'equipment.starShells.rangeU', 'equipment.broadside.rangeU',
+      // Story 8.17: phosphor's reach is the radar rung too, derived.
+      'equipment.phosphorShells.rangeU', 'equipment.phosphorShells.tier',
       // Story 8.15: the two pickable guns' ranges are the radar rung, derived;
       // the machine gun's cadence/idle clock and the cut's factor are fixed.
       'equipment.machineGun.rangeU', 'equipment.flak.rangeU',
@@ -886,8 +930,13 @@ describe('shared barrel', () => {
     for (const path of BOON_STAT_PATHS) expect(path.startsWith('equipment.supercavTorpedo.')).toBe(false);
     // CUT FROM FIVE ENTRIES TO TWO (amendments 80/81): the torpedoes' `homing`
     // and the naval mine's `propFouling` went with the cards that granted them;
-    // and TO ONE in Story 8.15: the missile's `homing` went with HEAT SEEKING.
-    expect(Object.keys(DOCTRINE_MODES)).toEqual(['starShells']);
+    // and TO ONE in Story 8.15: the missile's `homing` went with HEAT SEEKING;
+    // and TO NONE in Story 8.17 (amendment 134): the star shell's
+    // `phosphor`/`dazzle` went with their add-ons. The table itself stays,
+    // empty — the machinery is kept for a future add-on.
+    expect(Object.keys(DOCTRINE_MODES)).toEqual([]);
+    // ...and `dazzleShells` has no paths — FLASH SHELLS is a CONSUMABLE.
+    for (const path of BOON_STAT_PATHS) expect(path.startsWith('equipment.dazzleShells.')).toBe(false);
     // DELETED WITH RARITY AND THE SUBDECK WALK (Story 8.1): there is no card
     // scarcity tier, no offer category and no acquisition card left anywhere.
     for (const gone of [

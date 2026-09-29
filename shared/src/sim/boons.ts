@@ -177,6 +177,7 @@ function rePinDerived(stats: EffectiveStats): void {
   eq.machineGun.rangeU = stats.radarRange;
   eq.flak.rangeU = stats.radarRange;
   eq.starShells.rangeU = stats.radarRange;
+  eq.phosphorShells.rangeU = stats.radarRange; // Story 8.17 — the star-shell rung
   eq.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
   // The broadside TRAVERSE and MOUNT SPREAD both read their authored ladders
   // off the folded SPREAD rung — derived for the same reason.

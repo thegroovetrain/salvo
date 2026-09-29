@@ -3,6 +3,13 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  60 — Story 8.17 Catalog v3: Star Shells, Broadside, Phosphor, Flash (Eric
+ *  rulings 2026-09-29, epic-8 amendments 129–135) — LitZoneView loses
+ *  phos/daz; FrameMsg.burnZones (BurnZoneView); phosphorShells becomes an
+ *  EquipmentId, dazzleShells a ConsumableId (FLASH SHELLS); CONFIG gains
+ *  phosphorShells + flashShells, starShells gains damage (and loses its three
+ *  doctrine fields); catalog: star/broadside/phosphor ladders, add-ons gone
+ *  (26 lines, 117 cards). Perception exception count stays SIX.
  *  59 — Story 8.16 Catalog v3: Shield, Chaff, Decoy (Eric rulings 2026-09-29,
  *  epic-8 amendments 116–124) — `OwnShip.shield?` (self-private),
  *  `FrameMsg.decoys?` (`DecoyView`: `by` for every observer, `hp` own-only),
@@ -726,7 +733,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 59;
+export const PROTOCOL_VERSION = 60;
 
 // Tunables
 export * from './constants.js';
@@ -754,6 +761,7 @@ export * from './sim/loadout.js';
 export * from './sim/arcs.js';
 export * from './sim/boost.js';
 export * from './sim/slow.js';
+export * from './sim/sight.js';
 export * from './sim/offers.js';
 export * from './sim/draw.js';
 export * from './sim/collision.js';

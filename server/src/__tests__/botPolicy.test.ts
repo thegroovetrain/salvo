@@ -84,7 +84,7 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], decoys: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], ...over };
 }
 
 function contact(id: string, x: number, y: number, cls: HullId = 'battleship'): Contact {
@@ -730,10 +730,23 @@ describe('ai/spending — the card policy', () => {
   it('a per-LINE override beats its own category base', () => {
     // siege's `starShells` category base is 2.0 and its re-keyed starDuration
     // override lands 2.2 on the `starShells` LINE, so the named line must win
-    // over an unnamed sibling of the same category (`phosphorShells`, which
-    // has only the 2.0 base).
+    // over an unnamed line — `deckGunBarrel` rides siege's `guns` 1.6 base.
+    expect(boonWeightFor('siege', 'starShells')).toBe(2.2);
+    expect(boonWeightFor('siege', 'starShells')).toBeGreaterThan(boonWeightFor('siege', 'deckGunBarrel'));
+    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['deckGunBarrel', 'starShells'] }))).toBe(1);
+  });
+
+  // STORY 8.17 (amendment 134): the star shell's two add-on verbs left the
+  // `starShells` category — PHOSPHOR SHELLS is its own weapon line under its
+  // own (unnamed) category and FLASH SHELLS (`dazzleShells`) a consumable —
+  // so neither reads siege's C2 flare want any more.
+  it('PHOSPHOR SHELLS and FLASH SHELLS no longer ride the `starShells` category (Story 8.17)', () => {
+    expect(CATEGORY_LINES.starShells).toEqual(['starShells']);
+    expect(CATEGORY_LINES.phosphorShells).toEqual(['phosphorShells']);
+    expect(boonWeightFor('siege', 'phosphorShells')).toBe(1.2); // equipment KIND base — no profile names it
+    expect(boonWeightFor('siege', 'dazzleShells')).toBe(1.0); // consumable KIND base
     expect(boonWeightFor('siege', 'starShells')).toBeGreaterThan(boonWeightFor('siege', 'phosphorShells'));
-    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['phosphorShells', 'starShells'] }))).toBe(1);
+    expect(Object.hasOwn(LINE_ALIASES, 'starDazzle')).toBe(false); // the alias is deleted
   });
 
   // RE-KEYED AGAIN IN STORY 7-5 WAVE 2, and NARROWED. Wave 1 pointed this pin
@@ -757,28 +770,34 @@ describe('ai/spending — the card policy', () => {
     expect(boonWeightFor('duelist', 'reload', ['reload', 'reload'])).toBe(
       boonWeightFor('duelist', 'reload', []),
     );
-    // And the one-copy demotion it was always FOR still fires.
-    expect(boonWeightFor('bulwark', 'dazzleShells', ['dazzleShells'])).toBeLessThan(
+    // And the AT-CAP demotion it was always FOR still fires (Story 8.17: no
+    // one-copy line is left in the catalog — FLASH SHELLS stacks to 5 like
+    // every belt line — so the demotion now bites at the cap alone).
+    expect(boonWeightFor('bulwark', 'dazzleShells', ['dazzleShells'])).toBe(boonWeightFor('bulwark', 'dazzleShells', []));
+    expect(boonWeightFor('bulwark', 'dazzleShells', Array(CATALOG.dazzleShells.cap).fill('dazzleShells'))).toBeLessThan(
       boonWeightFor('bulwark', 'dazzleShells', []),
     );
   });
 
-  it('demotes a line this bot ALREADY HOLDS (re-buying a one-copy doctrine is a no-op)', () => {
+  it('demotes a line this bot ALREADY HOLDS AT CAP (re-buying a capped line is a no-op)', () => {
     const bulwark = profileOf('bulwark');
-    const offer = ['phosphorShells', 'dazzleShells'];
-    // Fresh: bulwark's `starDazzle` line override (1.6) beats its unnamed
-    // sibling on the starShells category base (1.0).
+    const offer = ['dazzleShells', 'phosphorShells'];
+    // Fresh: PHOSPHOR SHELLS at the equipment kind base (1.2) beats FLASH
+    // SHELLS at the consumable kind base (1.0) — bulwark names neither.
     expect(chooseSpend(bulwark, spendState({ offer }))).toBe(1);
-    // Holding it already — re-buying is a no-op, so it drops below its sibling.
-    expect(chooseSpend(bulwark, spendState({ offer, cards: ['dazzleShells'] }))).toBe(0);
-    expect(boonWeightFor('bulwark', 'dazzleShells', ['dazzleShells']))
-      .toBeLessThan(boonWeightFor('bulwark', 'dazzleShells', []));
+    // Holding phosphor at cap — re-buying is refused outright (review F4), so
+    // the flash shells win the hand; the scorer's demotion agrees.
+    const capped = Array(CATALOG.phosphorShells.cap).fill('phosphorShells');
+    expect(chooseSpend(bulwark, spendState({ offer, cards: capped }))).toBe(0);
+    expect(boonWeightFor('bulwark', 'phosphorShells', capped))
+      .toBeLessThan(boonWeightFor('bulwark', 'phosphorShells', []));
   });
 
   // Wave 1's counterpart, now the GENERAL rule (wave 2 deleted exclusivity):
-  // holding one verb never demotes ANOTHER line. Holding one star-shell verb
-  // must not push the other down — every doctrine stacks.
-  it('a non-exclusive doctrine verb is NEVER demoted by holding its former rival', () => {
+  // holding one line never demotes ANOTHER. Holding PHOSPHOR SHELLS must not
+  // push FLASH SHELLS down — the two former star-shell verbs are unrelated
+  // lines now (Story 8.17).
+  it('a line is NEVER demoted by holding its former rival', () => {
     expect(boonWeightFor('bulwark', 'dazzleShells', ['phosphorShells']))
       .toBe(boonWeightFor('bulwark', 'dazzleShells', []));
   });

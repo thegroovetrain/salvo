@@ -439,8 +439,10 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // the label itself is still supported and pinned in boonCopy.test.ts, and the
   // DOM row below still renders one from a hand-built card.
   it('carries the KIND word, neutral and unconditional, on every card', () => {
+    // FLASH SHELLS (`dazzleShells`) reads CONSUMABLE since Story 8.17 (amendment
+    // 132) — the catalog carries no ADD-ON card any more (amendment 134).
     const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret', 'captiveMines', 'dazzleShells'] }), false, false, false);
-    expect(view?.options.map((o) => o.kind)).toEqual(['UPGRADE', 'UPGRADE', 'WEAPON', 'ADD-ON']);
+    expect(view?.options.map((o) => o.kind)).toEqual(['UPGRADE', 'UPGRADE', 'WEAPON', 'CONSUMABLE']);
   });
 
   it('carries the ladder length and the copies held — the rungs and their fill', () => {
@@ -624,7 +626,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       options: [
         { ...cardsOf(['radarSweep'])[0], stack: 2, tier: 'II → III', tierStep: { cur: 2, next: 3 } },
         { ...cardsOf(['hullRepair'])[0] },   // consumable: no ladder at all
-        { ...cardsOf(['dazzleShells'])[0] }, // add-on: likewise
+        { ...cardsOf(['dazzleShells'])[0] }, // FLASH SHELLS (a consumable since 8.17): likewise
       ],
     }));
     const [stacked, consumable, addon] = cards();
@@ -1407,11 +1409,11 @@ describe('the greyed card — a refusal stated before the press', () => {
     expect(cardGreyed(CATALOG.hullRepair, FULL_BELT)).toBe(false);
     // With a square free, anything fits.
     expect(cardGreyed(CATALOG.supercavTorpedo, ROOM_LEFT)).toBe(false);
-    // A ladder lands on the hull and an add-on on a verb: neither can be
-    // refused by a full belt.
-    for (const id of ['radarSweep', 'dazzleShells']) {
-      expect(cardGreyed(CATALOG[id], FULL_BELT), id).toBe(false);
-    }
+    // A ladder lands on the hull: it can never be refused by a full belt. (The
+    // add-on this pin also carried, DAZZLE SHELLS, is the FLASH SHELLS
+    // CONSUMABLE since Story 8.17 — so a full belt DOES refuse it now.)
+    expect(cardGreyed(CATALOG.radarSweep, FULL_BELT)).toBe(false);
+    expect(cardGreyed(CATALOG.dazzleShells, FULL_BELT)).toBe(true);
   });
 
   // --- THE OTHER TWO REFUSALS (Story 8.14 review, F1) -----------------------
@@ -1446,7 +1448,9 @@ describe('the greyed card — a refusal stated before the press', () => {
   it('carries the flag onto the OfferCard, through the same shared predicate', () => {
     const you = ownShip({ offer: ['supercavTorpedo', 'hullRepair', 'radarSweep', 'dazzleShells'] });
     const view = offerView(you, false, false, false, FULL_BELT);
-    expect(view?.options.map((o) => o.greyed)).toEqual([true, false, false, false]);
+    // FLASH SHELLS (last) is a fifth distinct CONSUMABLE since Story 8.17, so
+    // the full belt refuses it exactly as it refuses the supercav.
+    expect(view?.options.map((o) => o.greyed)).toEqual([true, false, false, true]);
     // ...and with room on the belt nothing is greyed.
     expect(offerView(you, false, false, false, ROOM_LEFT)?.options.map((o) => o.greyed))
       .toEqual([false, false, false, false]);

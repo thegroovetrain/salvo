@@ -54,9 +54,12 @@ describe('coverage — every catalog line has a name and a kind word', () => {
       const label = boonKindLabel(CATALOG[id].kind);
       expect(WORDS, id).toContain(label);
     }
-    // ...and all four are actually used by the shipped catalog.
+    // ...and all but ADD-ON are used by the shipped catalog: Story 8.17 re-cut
+    // the last two add-ons (amendment 134), so the word survives for the kind
+    // the catalog keeps, unused.
     expect([...new Set(LINE_IDS.map((id) => boonKindLabel(CATALOG[id].kind)))].sort())
-      .toEqual([...WORDS].sort());
+      .toEqual(['CONSUMABLE', 'UPGRADE', 'WEAPON']);
+    expect(boonKindLabel('addon')).toBe('ADD-ON');
   });
 
   it('carries the sheet\'s names verbatim (spot checks across the four kinds)', () => {
@@ -124,9 +127,11 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   it('prints a live RELOAD diff for every LIVE equipment line', () => {
     const live = SILENT_CARDS.filter((l) => l.kind === 'equipment' && l.stub !== true);
     // SEVEN since Story 8.13 flipped three stubs and moved FOULING MINES in
-    // from the add-on space (epic-8 amendments 76/77/81).
+    // from the add-on space (epic-8 amendments 76/77/81); EIGHT since Story
+    // 8.17 made PHOSPHOR SHELLS its own equipment line (amendment 131).
     expect(live.map((l) => l.id)).toEqual([
       'lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'broadside', 'starShells', 'foulingMines',
+      'phosphorShells',
     ]);
     for (const line of live) {
       expect(boonDescription(line, TB), line.id).toMatch(/^Reload: \d+\.\d s → \d+\.\d s\.$/);
@@ -138,8 +143,10 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
     expect(SILENT_CARDS).toHaveLength(16);
     // 17 until Story 8.13 made LIGHT TORPEDO, CAPTIVE MINES and FOULING MINES
     // live equipment lines that print their own reload diff; 14 until Story
-    // 8.15 cut missile/monitor/heat seeking and made machine gun/flak ladders.
-    expect(silent).toHaveLength(9);
+    // 8.15 cut missile/monitor/heat seeking and made machine gun/flak ladders;
+    // 9 until Story 8.17 made PHOSPHOR SHELLS an equipment line (8 consumables
+    // now, FLASH SHELLS among them, and no add-on).
+    expect(silent).toHaveLength(8);
     for (const line of silent) expect(boonDescription(line, TB), line.id).toBe('');
   });
 
@@ -281,7 +288,8 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
     // ACOUSTIC HOMING and the FOULING MINES add-on are DELETED (Story 8.13,
     // epic-8 amendments 80/81), so there is no verb text left to check for
     // either: homing is bought by TIER now and fouling is its own line.
-    expect(boonTooltipText('dazzleShells')).toContain('dazzle');
+    // Story 8.17: FLASH SHELLS (`dazzleShells`) blinds; PHOSPHOR SHELLS burns.
+    expect(boonTooltipText('dazzleShells')).toContain('blinded');
     expect(boonTooltipText('phosphorShells')).toContain('burns');
     expect(boonTooltipText('broadside')).toContain('open slot');
     expect(boonTooltipText('heavyTorpedo')).toContain('open slot');
@@ -315,13 +323,23 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
     expect(boonTooltipText('notARealCard')).toBe('');
   });
 
-  // The verbs STACK, so no verb card may sell itself as a trade against a rival.
-  it('no verb sells itself as a trade against a rival — and the pair says so', () => {
+  // No card may sell itself as a trade against a rival. (The PHOSPHOR/DAZZLE
+  // "stacks with" pair this pin also carried left with the star-shell verbs —
+  // Story 8.17, amendment 134: neither is bolted onto the flare any more.)
+  it('no card sells itself as a trade against a rival', () => {
     for (const id of LINE_IDS) {
       expect(boonTooltipText(id), id).not.toMatch(/\breplaces?\b/i);
     }
-    expect(boonTooltipText('phosphorShells')).toContain('stacks with DAZZLE SHELLS');
-    expect(boonTooltipText('dazzleShells')).toContain('stacks with PHOSPHOR SHELLS');
+    expect(boonTooltipText('phosphorShells')).not.toContain('DAZZLE');
+    expect(boonTooltipText('dazzleShells')).not.toContain('PHOSPHOR');
+  });
+
+  // STORY 8.17 — FLASH SHELLS' DRAFT hover reads every number off CONFIG.
+  it('explains FLASH SHELLS with its CONFIG numbers', () => {
+    const flash = boonTooltipText('dazzleShells');
+    expect(flash).toContain(`${CONFIG.flashShells.radius} u burst`);
+    expect(flash).toContain(`${CONFIG.flashShells.durationMs / 1000} s`);
+    expect(flash).toContain('1/8 of its radar range');
   });
 
   // FOULING MINES WAS AN ADD-ON until Story 8.13 (epic-8 amendment 81), and its
@@ -475,7 +493,11 @@ describe('the fitted toast', () => {
     expect(boonFitToastLine('decoyBuoy', 2, 'consumable')).toBe('◆ DECOY BUOY STOCKED');
     expect(boonFitToastLine('reload', 1, 'ladder')).toBe('◆ RELOAD FITTED');
     expect(boonFitToastLine('heavyTorpedo', 1, 'equipment')).toBe('◆ HEAVY TORPEDO FITTED');
-    expect(boonFitToastLine('dazzleShells', 1, 'addon')).toBe('◆ DAZZLE SHELLS FITTED');
+    // FLASH SHELLS (`dazzleShells`) is a CONSUMABLE since Story 8.17 (amendment
+    // 132) — stocked, and under its new display name.
+    expect(boonFitToastLine('dazzleShells', 1, 'consumable')).toBe('◆ FLASH SHELLS STOCKED');
+    // An add-on (the kind the catalog keeps, unused) still reads FITTED.
+    expect(boonFitToastLine('someFutureAddon', 1, 'addon')).toBe('◆ Some Future Addon FITTED');
   });
 
   it('keeps the pre-8.7 default when no kind is passed or the kind is unknown', () => {
@@ -504,19 +526,16 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
     expect(boonEffectLine('armor', bare)).not.toContain('Repairs');
   });
 
-  // R2.17 SPLIT what used to be one string. A verb card's face prints NOTHING,
-  // so the holding row cannot reuse it; and the hover EXPLANATION is prose far
-  // too long to ride inside a panel whose own fit pin trims accrued rows as they
-  // grow. So the holding line is its own short table.
-  it('is its OWN short line for a verb — not the blank face, not the long explanation', () => {
-    // PHOSPHOR SHELLS stands in for ACOUSTIC HOMING here: that card was deleted
-    // in Story 8.13 (epic-8 amendment 80 — homing became a tier stat), and the
-    // three surviving add-ons make exactly the same claim about the split.
-    const holding = boonEffectLine('phosphorShells', bare);
-    expect(holding.length).toBeGreaterThan(0);
+  // R2.17 SPLIT what used to be one string: a verb card's holding row was its
+  // own short table (DOCTRINE_HOLDING). STORY 8.17 EMPTIED IT (amendment 134):
+  // the last two verbs became an equipment line and a consumable, so PHOSPHOR
+  // SHELLS now holds its own RELOAD like every weapon line, never a verb
+  // sentence and never its long explanation.
+  it('a former add-on holds a NUMBER now — PHOSPHOR SHELLS reports its reload', () => {
+    const phos = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['phosphorShells']);
+    const holding = boonEffectLine('phosphorShells', phos);
+    expect(holding).toBe(`Reload: ${(phos.equipment.phosphorShells.reloadMs / 1000).toFixed(1)} s`);
     expect(holding).not.toBe(boonTooltipText('phosphorShells'));
-    expect(holding.length).toBeLessThan(boonTooltipText('phosphorShells').length);
-    expect(boonDescription(CATALOG.phosphorShells, TB)).toBe('');
   });
 
   it('fails open to \'\' for a line with neither a holding line nor a headline stat', () => {

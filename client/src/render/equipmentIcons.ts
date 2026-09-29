@@ -21,6 +21,9 @@
 // A line with NO glyph draws NOTHING and throws nothing — every ladder, every
 // add-on and every CONSUMABLE without a module behind it.
 //
+// STORY 8.17 DREW TWO (amendment 135(j), same DRAFT status): PHOSPHOR SHELLS
+// (flame tongues on a waterline) and FLASH SHELLS (a struck-through eye).
+//
 // STORY 8.16 DREW THREE MORE, for the belt (amendment 124(f), same DRAFT
 // status): SHIELD BLOCK (a heater-shield outline), CHAFF (a scatter of short
 // strokes) and DECOY BUOY (the on-water spar-buoy marker the deleted radar
@@ -165,6 +168,19 @@ const starShells: GlyphPaths = [
 ];
 
 /**
+ * Phosphor shells (Story 8.17 DRAFT, epic-8 amendment 135(j) — the amendment
+ * 110 precedent, ledgered for Eric's eye on staging): WATER ON FIRE — three
+ * flame tongues standing on a waterline, the tall one centred. Deliberately not
+ * the star shell's rayed burst: one lights, the other burns.
+ */
+const phosphorShells: GlyphPaths = [
+  path([-0.95, 0.8], [0.95, 0.8]),
+  path([-0.3, 0.8], [-0.3, 0.15], [0, -0.9], [0.3, 0.15], [0.3, 0.8]),
+  path([-0.8, 0.8], [-0.8, 0.45], [-0.62, 0.05], [-0.45, 0.45], [-0.45, 0.8]),
+  path([0.45, 0.8], [0.45, 0.45], [0.62, 0.05], [0.8, 0.45], [0.8, 0.8]),
+];
+
+/**
  * The glyph table — TOTAL over `EquipmentId` since Story 8.15 built the last
  * two guns and the two new Shifts (the missile and the monitor, which never
  * had modules, are CUT). It stays typed `Partial` so a future id with no module
@@ -190,6 +206,7 @@ const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
   boost,
   broadside,
   starShells,
+  phosphorShells, // Story 8.17 DRAFT (above)
 };
 
 /**
@@ -233,6 +250,18 @@ const decoyBuoy: GlyphPaths = [
 ];
 
 /**
+ * Flash shells (`dazzleShells`, Story 8.17 DRAFT, epic-8 amendment 135(j)): a
+ * BLINDED EYE — a lens-shaped eye outline with its pupil, struck through by one
+ * diagonal. It says what the shell does to the hull it catches (sight cut to an
+ * eighth), and shares no shape with the star shell's rayed burst.
+ */
+const dazzleShells: GlyphPaths = [
+  path([-0.95, 0], [-0.5, -0.42], [0, -0.55], [0.5, -0.42], [0.95, 0], [0.5, 0.42], [0, 0.55], [-0.5, 0.42], [-0.95, 0]),
+  circle(0, 0, 0.2),
+  path([-0.8, 0.8], [0.8, -0.8]),
+];
+
+/**
  * THE CONSUMABLE half of the table. EMPTY until Story 8.13, because no belt
  * line had a weapon behind it: a stocked square and a consumable card's icon
  * box both rendered blank, which was the honest answer for an id with no
@@ -252,6 +281,7 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   shieldBlock,
   chaff,
   decoyBuoy,
+  dazzleShells, // FLASH SHELLS — Story 8.17 DRAFT (above)
 };
 
 /**

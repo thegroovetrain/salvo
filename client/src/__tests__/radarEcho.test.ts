@@ -35,6 +35,7 @@ import {
   WAKE_AGE_BUCKETS,
   buildHeightRaster,
   coverageHas,
+  effectiveSight,
   paintCoverage,
   rasterizeSegmentCoverage,
   type HeightRaster,
@@ -760,28 +761,31 @@ describe('a sighted ship paints from its Contact when the beam crosses it', () =
 
 describe('the source seam is `fogHoleRadiusU`, so client and server agree', () => {
   const SIGHT = CONFIG.vision.sight;
-  const DAZZLE = CONFIG.starShells.dazzleSightFactor;
+  const BASE = { sightRange: SIGHT, radarRange: CONFIG.vision.radar };
+  /** A FLASHED observer's truesight — the shared effectiveSight, 1/8 of the
+   *  intel range (82.5 u at base; Story 8.17, amendment 132). */
+  const DAZZLED = effectiveSight(BASE, true);
   /** Between the dazzled hole and the un-dazzled one: the annulus a dazzle hands
    *  from the client's synthesis to the server's blips. */
-  const MID = SIGHT * ((1 + DAZZLE) / 2);
+  const MID = (SIGHT + DAZZLED) / 2;
 
   it('the seam radius IS fogHoleRadiusU, at base stats and dazzled', () => {
     const { radar } = makeRadar();
     // Called, not re-derived: it is also, by construction, the server's own
     // dazzle-scaled `sightOf`. If either side ever changes, this equality is the
     // thing that breaks — rather than a hull at the seam painting twice.
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(SIGHT, false));
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, false));
     expect(radar.setDazzled(true)).toBe(true); // mirrors Fog's changed-flag
     expect(radar.isDazzled).toBe(true);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(SIGHT, true));
-    // And that IS a shrink, by exactly the ratified factor.
-    expect(radar.sightHoleU).toBe(SIGHT * DAZZLE);
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, true));
+    // And that IS a shrink, to exactly one eighth of the intel range.
+    expect(radar.sightHoleU).toBe(82.5);
     expect(radar.setDazzled(true)).toBe(false); // no-op flip reports no change
   });
 
   it('a DAZZLE hands the annulus over: the client stops synthesizing there, '
     + 'because the server has started blipping it', () => {
-    expect(MID).toBeGreaterThan(SIGHT * DAZZLE);
+    expect(MID).toBeGreaterThan(DAZZLED);
     expect(MID).toBeLessThan(SIGHT);
     const store = sightedStore(MID);
 

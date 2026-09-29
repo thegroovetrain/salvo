@@ -25,20 +25,25 @@
 
 import { Graphics, Sprite, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, effectiveSight, type EffectiveStats } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { FOG_FILL_ALPHA, HOLE_FEATHER_START, bakeFogTexture } from './textures.js';
 
+/** The two observer ranges the dazzle-honest sight derivation reads — the
+ *  shape `effectiveSight` (shared/src/sim/sight.ts) takes. */
+export type VisionRanges = Pick<EffectiveStats, 'sightRange' | 'radarRange'>;
+
 /**
  * Pure: the world-space radius (u) the fog's sight hole is baked at — the
- * effective sight range, cut by the ratified DAZZLE factor while an enemy DAZZLE
- * BURST holds this ship (Story 2.8). It is the SAME factor the server's
- * perception applies to a dazzled observer's sight (CONFIG.starShells —
- * one source), which is the whole point: an un-shrunk hole would draw clear
- * water where the server reveals nothing, i.e. the fog circle would LIE.
+ * effective sight range, or ONE EIGHTH OF THE INTEL (radar) RANGE while an
+ * enemy FLASH SHELLS burst holds this ship (Story 8.17, epic-8 amendment 132).
+ * It is the SHARED `effectiveSight` — the very function the server's
+ * perception (`sightOf`) calls for a dazzled observer — never a local factor,
+ * which is the whole point: an un-shrunk hole would draw clear water where the
+ * server reveals nothing, i.e. the fog circle would LIE.
  */
-export function fogHoleRadiusU(sightRange: number, dazzled: boolean): number {
-  return dazzled ? sightRange * CONFIG.starShells.dazzleSightFactor : sightRange;
+export function fogHoleRadiusU(ranges: VisionRanges, dazzled: boolean): number {
+  return effectiveSight(ranges, dazzled);
 }
 
 /**
@@ -98,14 +103,15 @@ export class Fog {
    *  renders normally everywhere. Screen-space sibling of the fog sprite. */
   private readonly holeMask = new Graphics();
   private holesActive = false;
-  /** Effective sight radius (u) the hole is baked at — swapped by an intel
-   *  (truesight) boon via setSightRange(); base = CONFIG.vision.sight. */
-  private sightRange: number = CONFIG.vision.sight;
-  /** Is the own ship inside an enemy DAZZLE BURST zone right now (Story 2.8 —
-   *  the victim-private you.dazzledUntil)? While true the baked hole shrinks by
-   *  CONFIG.starShells.dazzleSightFactor, because the SERVER is already
-   *  perceiving this ship that way: an un-shrunk hole would draw clear water
-   *  where the server reveals nothing, i.e. the fog circle would lie. */
+  /** Effective sight AND radar radii (u) the hole is derived from — swapped
+   *  by a boon via setSightRange(); base = CONFIG.vision. The radar half only
+   *  matters while dazzled (a flashed hull sees radarRange/8). */
+  private ranges: VisionRanges = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
+  /** Is the own ship dazzled by an enemy FLASH SHELLS burst right now (the
+   *  victim-private you.dazzledUntil)? While true the baked hole shrinks to
+   *  `effectiveSight` (radarRange/8), because the SERVER is already perceiving
+   *  this ship that way: an un-shrunk hole would draw clear water where the
+   *  server reveals nothing, i.e. the fog circle would lie. */
   private dazzled = false;
 
   constructor(layer: Container) {
@@ -115,14 +121,15 @@ export class Fog {
     layer.addChild(this.holeMask); // in the scene graph so its transform resolves
   }
 
-  /** Adopt a new (effective) sight radius. Callers must rebake() after —
-   *  same path as a resize — so the baked hole matches the server's fog. */
-  setSightRange(sightRange: number): void {
-    this.sightRange = sightRange;
+  /** Adopt new (effective) sight and radar radii. Callers must rebake()
+   *  after — same path as a resize — so the baked hole matches the server's
+   *  fog. */
+  setSightRange(sightRange: number, radarRange: number): void {
+    this.ranges = { sightRange, radarRange };
   }
 
   /**
-   * Adopt the DAZZLE state (Story 2.8). Returns TRUE when the baked hole went
+   * Adopt the DAZZLE state (Story 2.8; a FLASH SHELLS burst since 8.17). Returns TRUE when the baked hole went
    * stale (the state actually flipped) so the caller can rebake on exactly the
    * two frames per dazzle event that need it — never per frame. Deliberately
    * un-animated: the hole simply IS smaller while the dazzle holds, with no
@@ -137,7 +144,7 @@ export class Fog {
 
   /** The radius (u) this instance's hole is baked at (the pure rule above). */
   private holeRadiusU(): number {
-    return fogHoleRadiusU(this.sightRange, this.dazzled);
+    return fogHoleRadiusU(this.ranges, this.dazzled);
   }
 
   /** Is the dazzle currently held? Test/observation seam. */

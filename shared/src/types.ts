@@ -493,9 +493,12 @@ export interface OwnShip {
   slowFactor?: number;
   /**
    * ms — server-clock time the DAZZLE truesight reduction on this ship ends
-   * (Story 2.8); absent/0 = not dazzled. While dazzled the server's perception
-   * shrinks this ship's effective sight, and the client shrinks its own fog
-   * hole honestly from THIS field. VICTIM-PRIVATE exactly like `slowedUntil`.
+   * (Story 2.8; set by a FLASH SHELLS burst since Story 8.17, amendment 132);
+   * absent/0 = not dazzled. While dazzled the server's perception shrinks this
+   * ship's effective sight to 1/8 of its intel range (sim/sight.ts
+   * `effectiveSight`), and the client shrinks its own fog hole honestly from
+   * THIS field through the same function. VICTIM-PRIVATE exactly like
+   * `slowedUntil`.
    */
   dazzledUntil?: number;
   /**
@@ -1228,7 +1231,7 @@ export interface MineView {
    *
    * ANTI-CHEAT: this is an own-only field on an own-only distinction, so it
    * opens no new disclosure and adds no perception exception — the count stays
-   * at SIX. It is OPTIONAL on the wire (the established `aggro`/`phos` style):
+   * at SIX. It is OPTIONAL on the wire (the established `aggro` style):
    * absent is the normal case, and a client that reads it off another
    * observer's mine finds `undefined`, never a guess.
    */
@@ -1249,17 +1252,12 @@ export interface MineView {
  * `until` is the server-clock expiry (drives the client's fade); a zone
  * dropping out of the list means expired OR out of radar range — the client
  * cannot tell, and that ambiguity is the point (the mines precedent).
- * `phos`/`daz` are the firer's star-shell DOCTRINE VERBS stamped on the zone
- * record at zone-spawn time — delivered to EVERY legitimate observer (Story
- * 2.9, amendment 50: counterplay over concealment — the zone's nature is
- * observable behavior of the fired shell, not a build leak).
  *
- * STORY 7-5 WAVE 1 replaced the single `mode` field with these TWO INDEPENDENT
- * OPTIONAL FLAGS, because PHOSPHOR and DAZZLE stopped being an either/or pair:
- * one zone may now burn AND blind, which a single-valued mode cannot say. They
- * follow the established optional-flag wire style (`aggro`, `slowedUntil`) —
- * present as `true` only when set, OMITTED entirely when false, so a plain
- * star-shell zone costs the same bytes it always did.
+ * STORY 8.17 DELETED THE `phos`/`daz` FLAGS (Eric ruling 2026-09-29, epic-8
+ * amendment 134): the star shell's PHOSPHOR and DAZZLE verbs are gone —
+ * PHOSPHOR SHELLS burns through its own `BurnZoneView` channel and FLASH
+ * SHELLS leaves no zone at all — so a lit zone only ever LIGHTS. KEY ORDER
+ * (msgpack): id,x,y,r,until,by.
  */
 export interface LitZoneView {
   id: string;
@@ -1268,8 +1266,32 @@ export interface LitZoneView {
   r: number; // u — lit radius
   until: number; // ms — server time the zone expires
   by: string; // the firer's ship id
-  phos?: true; // PHOSPHOR verb — the zone burns; omitted when false
-  daz?: true; // DAZZLE verb — the zone blinds; omitted when false
+}
+
+/**
+ * A PHOSPHOR SHELLS BURNING ZONE visible to this viewer (Story 8.17, Eric
+ * ruling 2026-09-29, epic-8 amendments 131 and 135(f)), synced as
+ * CONTACT-LIKE state (not an event): FrameMsg.burnZones is recomputed per
+ * observer every tick, exactly like lit zones — and through the LIT ZONE'S
+ * VISIBILITY GATE byte-for-byte: the OWNER always sees its own zones; any
+ * other observer sees a zone iff its CENTER is within the observer's effective
+ * radar range (no island LOS, no sweep gate); spectators see all.
+ *
+ * A HAZARD ONLY: the circle is drawn so every observer who can see it can
+ * steer clear (counterplay), but it REVEALS NOTHING — no contact, no mine, no
+ * ballistic ever rides it — extends no gun's reach and is NOT a lit zone.
+ * `until` is the server-clock expiry (drives the client's fade); a zone
+ * dropping out of the list means expired OR out of radar range — the client
+ * cannot tell (the mines precedent). `by` is the firer's ship id (personal
+ * hue). KEY ORDER (msgpack): id,x,y,r,until,by.
+ */
+export interface BurnZoneView {
+  id: string;
+  x: number; // u — zone center
+  y: number; // u
+  r: number; // u — burning radius (stamped from the firer's row at spawn)
+  until: number; // ms — server time the zone expires
+  by: string; // the firer's ship id
 }
 
 /**
@@ -1368,6 +1390,9 @@ export interface FrameMsg {
   events: GameEvent[];
   mines: MineView[]; // per-observer mine visibility (contact-like, recomputed per tick)
   litZones?: LitZoneView[]; // per-observer lit-zone visibility (contact-like; omitted when none)
+  // per-observer PHOSPHOR burning-zone visibility (Story 8.17 — the lit-zone
+  // gate, contact-like; omitted when none, the litZones rule)
+  burnZones?: BurnZoneView[];
   decoys?: DecoyView[]; // per-observer decoy-buoy visibility (contact-like; omitted when none)
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on

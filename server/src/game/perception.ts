@@ -42,7 +42,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type ShellState, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type ShellState, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, ballisticGateOpen, chaffFakeBlips, decoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
@@ -52,6 +52,10 @@ export interface PerceptionView {
   events: GameEvent[];
   mines: MineView[];
   litZones: LitZoneView[];
+  /** Per-observer PHOSPHOR burning-zone visibility (Story 8.17 — contact-like,
+   *  recomputed every tick through the `burnzone` row on the lit zone's gate,
+   *  in burst order). A circle only; it reveals nothing. */
+  burnZones: BurnZoneView[];
   /** Per-observer decoy-buoy visibility (Story 8.16 — contact-like,
    *  recomputed every tick through the `decoy` row, in drop order). */
   decoys: DecoyView[];
@@ -72,6 +76,7 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     heightRaster: world.map.heightRaster,
     ships: world.ships,
     litZones: world.litZones,
+    burnZones: world.burnZones, // Story 8.17: the burnzone channel's subjects (a circle, never a reveal source)
     // Story 8.16: the live decoys — the decoy channel's subjects and the
     // decoy-paint blip sources.
     decoys: world.decoys,
@@ -102,6 +107,7 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     heightRaster: world.map.heightRaster,
     ships: world.ships,
     litZones: world.litZones,
+    burnZones: world.burnZones, // Story 8.17: spectators see every burning zone
     // Story 8.16: the decoy channel's subjects (spectators see every decoy);
     // the decoy-paint blip source is inert on this path (no blips).
     decoys: world.decoys,
@@ -252,6 +258,20 @@ function litZoneScan(world: World, ctx: SignalContext): LitZoneView[] {
   const out: LitZoneView[] = [];
   const row = SIGNAL_REGISTRY.litzone;
   for (const zone of world.litZones.values()) {
+    if (row.visible(ctx, zone)) out.push(row.materialize(ctx, zone));
+  }
+  return out;
+}
+
+/** Per-observer BURNING-ZONE visibility (Story 8.17) — contact-like state
+ *  exactly like lit zones, recomputed every tick through the burnzone row (the
+ *  lit zone's gate), in Map-insertion (burst) order. ONLY the circle rides
+ *  here; nothing inside a burning zone is revealed by it — no reveal source
+ *  reads `world.burnZones` (amendment 131). */
+function burnZoneScan(world: World, ctx: SignalContext): BurnZoneView[] {
+  const out: BurnZoneView[] = [];
+  const row = SIGNAL_REGISTRY.burnzone;
+  for (const zone of world.burnZones.values()) {
     if (row.visible(ctx, zone)) out.push(row.materialize(ctx, zone));
   }
   return out;
@@ -412,6 +432,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     events,
     mines: mineScan(world, ctx),
     litZones: litZoneScan(world, ctx),
+    burnZones: burnZoneScan(world, ctx),
     decoys: decoyScan(world, ctx),
   };
 }
@@ -425,7 +446,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [], decoys: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [] };
   return view(world, foggedContext(world, me));
 }
 

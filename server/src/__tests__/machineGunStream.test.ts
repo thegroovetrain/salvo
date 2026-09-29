@@ -185,7 +185,7 @@ describe('the lit-zone reach — the machine gun fires into its own flare (amend
     const a = gunner(w, 'a');
     if (owner !== null) {
       w.litZones.set('z1', {
-        id: 'z1', ownerId: owner, x: 800, y: 0, r: 120, until: 10 * 60 * 1000, phosphor: false, dazzle: false,
+        id: 'z1', ownerId: owner, x: 800, y: 0, r: 120, until: 10 * 60 * 1000,
       });
     }
     w.submitInput('a', makeInput({ seq: 1, held: true, aimDist: 800 }));

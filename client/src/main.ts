@@ -60,6 +60,7 @@ import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
 import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
+import { BurnZones } from './render/burnZones.js';
 import { Smoke } from './render/smoke.js';
 import { Foghorn } from './render/foghorn.js';
 import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
@@ -252,6 +253,10 @@ interface Game {
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
+  /** PHOSPHOR SHELLS burning zones (render/burnZones.ts, Story 8.17) — synced
+   *  from FrameMsg.burnZones in the lit zones' layer; faded + embers breathed
+   *  per render frame. A hazard only: never a fog hole, never a cull-keep. */
+  burnZones: BurnZones;
   fog: Fog;
   radar: Radar;
   /** WOUNDED SMOKE plumes (render/smoke.ts, Story 4.4) — accumulated from
@@ -2861,6 +2866,7 @@ function buildGame(
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
     decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, () => onOwnDecoy(audio)),
     litZones: new LitZones(stage.layers.litZone),
+    burnZones: new BurnZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
@@ -3047,13 +3053,15 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   if (!classChanged && !visionChanged(prev, stats)) return;
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
   g.camera.setRadarRange(stats.radarRange);
-  g.fog.setSightRange(stats.sightRange);
+  g.fog.setSightRange(stats.sightRange, stats.radarRange);
   // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
   // cull at truesight, an ENEMY torpedo at the shorter DETECT ring the server
   // reveals and corrects it within (Story 4.9). Projectiles derives the second
   // from this same number — adding a `setDetectRange` here would be a second
-  // source of truth. The DAZZLE half rides updateDazzle, like fog and radar.
-  g.projectiles.setSightRange(stats.sightRange);
+  // source of truth. The DAZZLE half rides updateDazzle, like fog and radar;
+  // the radar range rides along because a dazzled hull sees radarRange/8
+  // (shared `effectiveSight`, Story 8.17).
+  g.projectiles.setSightRange(stats.sightRange, stats.radarRange);
   // Zoom and/or hole radius may have moved: rebake the fog against the current
   // viewport at the new zoom (exactly what the resize handler does).
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
@@ -3945,11 +3953,11 @@ function handleServerDenial(g: Game, d: DeniedView): void {
 }
 
 /**
- * Pure-ish: is the own hull inside an enemy DAZZLE BURST right now (Story 2.8)?
+ * Pure-ish: is the own hull dazzled by an enemy FLASH SHELLS burst right now
+ * (Story 2.8's mark; set by a one-time flash since Story 8.17, amendment 132)?
  * Read VERBATIM off the victim-private `you.dazzledUntil` against the server-
- * clock estimate — never predicted, never interpolated (the server refreshes
- * the mark every tick the hull sits in a dazzle zone, plus a grace). No own
- * ship (death / spectate / the pre-first-frame gap) is never dazzled.
+ * clock estimate — never predicted, never interpolated. No own ship (death /
+ * spectate / the pre-first-frame gap) is never dazzled.
  */
 function dazzleActive(g: Game, now: number): boolean {
   return now < (g.state.net.you?.dazzledUntil ?? 0);
@@ -3957,7 +3965,8 @@ function dazzleActive(g: Game, now: number): boolean {
 
 /**
  * Keep the fog's sight hole HONEST while dazzled: the server has already
- * shrunk this ship's perceived sight by CONFIG.starShells.dazzleSightFactor, so
+ * shrunk this ship's perceived sight to the shared `effectiveSight`
+ * (radarRange/8 — shared/src/sim/sight.ts, the function its `sightOf` calls), so
  * the hole must shrink with it — otherwise the fog draws clear water the server
  * reveals nothing in. The rebake only runs on the two frames per dazzle event
  * where the state actually flips (Fog.setDazzled reports staleness), the same
@@ -4293,9 +4302,11 @@ function renderAlive(
   // lead means screen centre is NOT where the hull sits (review fix).
   const foghornOrigin = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   renderFoghorn(g, now, foghornOrigin);
-  // Fade each lit-zone glow by its timestamp expiry, and breathe the burning
-  // zones' embers on the shared server-clock seconds (Story 2.9, amendment 50).
-  g.litZones.render(now, now / 1000);
+  // Fade each lit-zone glow by its timestamp expiry, and the PHOSPHOR burning
+  // zones too, breathing their embers on the shared server-clock seconds
+  // (Story 2.9's treatment, moved to render/burnZones.ts in Story 8.17).
+  g.litZones.render(now);
+  g.burnZones.render(now, now / 1000);
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4546,7 +4557,8 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // derives the spectator bearing from the camera centre too, so origin and
   // bearing must agree (review fix).
   renderFoghorn(g, now, g.camera.screenCenter); // ...and every `fh`, on the omniscient position path
-  g.litZones.render(now, now / 1000); // spectators see all zones, doctrine and all
+  g.litZones.render(now); // spectators see all zones
+  g.burnZones.render(now, now / 1000); // ...and every burning zone
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's

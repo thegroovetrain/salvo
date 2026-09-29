@@ -160,14 +160,57 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     expect(Number.parseFloat(rows[0].next)).toBeLessThan(30);
   });
 
-  // A LINE WITH EMPTY TIERS II-V still prints exactly the reload row — the
-  // shipped single-row face, unchanged for the three lines whose ladders
-  // Story 8.13 did NOT author (BROADSIDE, STAR SHELLS, RADAR BUOY).
-  it('keeps the single RELOAD row for a line whose tiers author nothing', () => {
-    for (const id of ['broadside', 'starShells'] as const) {
-      const rows = cardStatRows(CATALOG[id], 1, held(id, 1));
-      expect(rows.map((r) => r.label), id).toEqual(['RELOAD']);
-    }
+  // THE LAST EMPTY LADDERS ARE AUTHORED (Story 8.17, Eric ruling 2026-09-29,
+  // amendments 130/131/133/135(j)). BROADSIDE and STAR SHELLS printed only the
+  // reload row until now; they — and the new PHOSPHOR SHELLS line — print the
+  // reload step and then every authored step whose DISPLAYED value moves
+  // (amendment 87(b): a +0.5 flare / turret that floors back is skipped).
+  it('STAR SHELLS: RELOAD, LIT, RADIUS, (FLARES on the whole step), DAMAGE', () => {
+    const t2 = cardStatRows(CATALOG.starShells, 1, held('starShells', 1));
+    expect(t2.map((r) => r.label)).toEqual(['RELOAD', 'LIT', 'RADIUS', 'DAMAGE']); // 1.5 flares floors to 1
+    expect(t2[1]).toEqual({ label: 'LIT', cur: '10.0 s', next: '12.5 s' });
+    expect(t2[3]).toEqual({ label: 'DAMAGE', cur: '10', next: '12' });
+    const t3 = cardStatRows(CATALOG.starShells, 2, held('starShells', 2));
+    expect(t3.map((r) => r.label)).toEqual(['RELOAD', 'LIT', 'RADIUS', 'FLARES', 'DAMAGE']);
+    expect(t3[3]).toEqual({ label: 'FLARES', cur: '1', next: '2' });
+    expect(t3[4]).toEqual({ label: 'DAMAGE', cur: '12', next: '15' });
+  });
+
+  it('BROADSIDE: RELOAD, SPREAD, and TURRETS on the whole step', () => {
+    const t2 = cardStatRows(CATALOG.broadside, 1, held('broadside', 1));
+    expect(t2.map((r) => r.label)).toEqual(['RELOAD', 'SPREAD']); // 4.5 turrets floors to 4
+    expect(t2[1]).toEqual({ label: 'SPREAD', cur: '1', next: '2' });
+    const t3 = cardStatRows(CATALOG.broadside, 2, held('broadside', 2));
+    expect(t3.map((r) => r.label)).toEqual(['RELOAD', 'SPREAD', 'TURRETS']);
+    expect(t3[2]).toEqual({ label: 'TURRETS', cur: '4', next: '5' });
+  });
+
+  it('PHOSPHOR SHELLS: RELOAD, DAMAGE, BURN (hp/s), RADIUS, and LASTS where it moves', () => {
+    const t2 = cardStatRows(CATALOG.phosphorShells, 1, held('phosphorShells', 1));
+    expect(t2.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS']); // no duration step at II
+    expect(t2[2]).toEqual({ label: 'BURN', cur: '5', next: '6 hp/s' });
+    expect(t2[3]).toEqual({ label: 'RADIUS', cur: '100', next: '110' });
+    const t3 = cardStatRows(CATALOG.phosphorShells, 2, held('phosphorShells', 2));
+    expect(t3.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS', 'LASTS']);
+    expect(t3[4]).toEqual({ label: 'LASTS', cur: '8.0 s', next: '9.0 s' });
+    // Tier IV omits LASTS again; tier V is the fullest face and still FITS the
+    // five-row grid exactly (RELOAD + the four authored steps).
+    const t4 = cardStatRows(CATALOG.phosphorShells, 3, held('phosphorShells', 3));
+    expect(t4.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS']);
+    const t5 = cardStatRows(CATALOG.phosphorShells, 4, held('phosphorShells', 4));
+    expect(t5.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS', 'LASTS']);
+    expect(t5).toHaveLength(CARD_STAT_ROWS);
+    expect(t5[1]).toEqual({ label: 'DAMAGE', cur: '27', next: '30' });
+    expect(t5[2]).toEqual({ label: 'BURN', cur: '8', next: '10 hp/s' });
+  });
+
+  // PHOSPHOR's FIT card: six stat fields against a five-row grid, so it drops
+  // ROUNDS (a one-shell pool no tier moves) and keeps BURN — the positional
+  // slice would have dropped the one number that makes it a burning weapon.
+  it('PHOSPHOR SHELLS fit card keeps BURN and drops ROUNDS', () => {
+    const rows = cardStatRows(CATALOG.phosphorShells, 0, TB);
+    expect(rows.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'RADIUS', 'LASTS', 'BURN']);
+    expect(rows[4]).toEqual({ label: 'BURN', cur: null, next: '5 hp/s' });
   });
 });
 
@@ -404,13 +447,28 @@ describe('cardStatRows — HULL REPAIR, the first live consumable', () => {
 
 describe('cardStatRows — the lines that legitimately print NOTHING', () => {
   it('gives an ADD-ON no rows: a verb moves no number', () => {
-    // ACOUSTIC HOMING and the FOULING MINES add-on were DELETED in Story 8.13
-    // (epic-8 amendments 80/81) — both of those ids now print real rows or none
-    // at all for entirely different reasons, and HEAT SEEKING was CUT with the
-    // missile in Story 8.15 (amendment 89e), so the claim is made on the two
-    // add-ons that survive.
-    expect(cardStatRows(CATALOG.dazzleShells, 0, TB)).toEqual([]);
-    expect(cardStatRows(CATALOG.phosphorShells, 0, TB)).toEqual([]);
+    // NO add-on survives in the catalog since Story 8.17 (amendment 134): the
+    // last two became an equipment line and the FLASH SHELLS consumable, and
+    // both print real rows (pinned above and below). The `addon` kind stays in
+    // place, unused, so the claim is made on an INJECTED add-on line.
+    const addon: CatalogLine = {
+      id: 'injectedAddon' as CatalogLine['id'],
+      kind: 'addon',
+      cap: 1,
+      tiers: [[{ kind: 'doctrine', weapon: 'starShells', mode: 'injected' }]],
+      appliesTo: ['starShells'],
+    };
+    expect(cardStatRows(addon, 0, TB)).toEqual([]);
+  });
+
+  // FLASH SHELLS (Story 8.17, amendment 135(j)): absolute rows, every number off
+  // CONFIG.flashShells, in the 8.16 belt register's uppercase units.
+  it('prints FLASH SHELLS as RADIUS 150 U / BLINDS 10 S / SIGHT 1/8 INTEL', () => {
+    expect(cardStatRows(CATALOG.dazzleShells, 0, TB)).toEqual([
+      { label: 'RADIUS', cur: null, next: `${CONFIG.flashShells.radius} U` },
+      { label: 'BLINDS', cur: null, next: `${CONFIG.flashShells.durationMs / 1000} S` },
+      { label: 'SIGHT', cur: null, next: '1/8 INTEL' },
+    ]);
   });
 
   it('gives a STILL-STUB CONSUMABLE no rows (DEPTH CHARGE included)', () => {

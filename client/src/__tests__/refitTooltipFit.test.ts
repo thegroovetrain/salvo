@@ -90,7 +90,8 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // equipment, DEPTH CHARGE joined as a stub consumable, ACOUSTIC HOMING was
     // deleted — epic-8 amendments 80/81/83). 26 lines / 109 cards since Story
     // 8.15 (missile/monitor/heat seeking CUT; machine gun/flak became 4-copy
-    // ladders).
+    // ladders); 26 lines / 117 cards since Story 8.17 (PHOSPHOR and FLASH
+    // SHELLS re-cut from cap-1 add-ons into cap-5 lines).
     expect(LINES).toHaveLength(26);
     expect(PANELS.length).toBe(LINES.reduce((n, d) => n + d.cap, 0));
   });
@@ -121,7 +122,7 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // the band, the bar or the copy moves this split and has to look here.
     expect(CONTAINER_H).toBe(186);
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, FLOOR_BAND.band).above);
-    expect(PANELS).toHaveLength(109);
+    expect(PANELS).toHaveLength(117);
     // 45 at 8.7. Story 8.8 moved it BOTH ways and netted +1: 46px more water
     // above lifts several panels back over the line, while HULL REPAIR's new
     // explanation (amendment 50's one-line description) adds three tall panels
@@ -134,8 +135,12 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // flak ladder panels carry a short draft explanation that still fits above,
     // and the thirteen cut cards (missile, monitor, heat seeking, and one copy
     // off each gun line) all fitted above too — so ABOVE goes 78 -> 65.
-    expect(down).toHaveLength(44);
-    expect(PANELS.length - down.length).toBe(65);
+    // Story 8.17 nets +3 DOWN (44 -> 47) and +5 ABOVE (65 -> 70): the two cap-1
+    // add-on panels (both tall, both down) left, PHOSPHOR SHELLS' five equipment
+    // panels carry its long DRAFT explanation and all open down, and FLASH
+    // SHELLS' five consumable panels carry a short one that fits above.
+    expect(down).toHaveLength(47);
+    expect(PANELS.length - down.length).toBe(70);
     // The split IS the water line — nothing else decides it.
     for (const { label, model } of PANELS) {
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);
@@ -277,6 +282,11 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   // re-cut from lines that exist. FOULING MINES stays — it is an equipment LINE
   // now (amendment 81) rather than an add-on, which is exactly the kind of card
   // this row wants beside a ladder and a verb.
+  // STORY 8.17: PHOSPHOR SHELLS stays the TALL card, re-measured — its add-on
+  // explanation became the equipment line's DRAFT (240px). The tallest panels
+  // (BROADSIDE and HEAVY TORPEDO, 261px) are taller than the floor band itself,
+  // so flipped DOWN they are nudged (-17px) rather than seated at the band's
+  // top edge — which is not the placement these pins are about.
   const OFFER = ['phosphorShells', 'radarSweep', 'armor', 'foulingMines'];
 
   function open(): { menu: UpgradeMenu; cards: HTMLButtonElement[]; view: OfferView } {
@@ -363,7 +373,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
     const { menu, cards, view } = open();
     cards[TALL].dispatchEvent(new MouseEvent('mouseenter'));
     const opened = { top: tip().style.top, bottom: tip().style.bottom };
-    resizeTo(1280, 614); // the 125% logical floor: 140px of water, a 198px panel
+    resizeTo(1280, 614); // the 125% logical floor: 140px of water, a 240px panel
     menu.update(view); // the per-frame refresh, which is how a resize reaches the band
     const resized = { top: tip().style.top, bottom: tip().style.bottom, maxHeight: tip().style.maxHeight };
     const band = refitBandLayout(1280, 614).band;
@@ -381,7 +391,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   // it is worth nothing if the two placements are not actually written, so both
   // are taken here on the SAME card. The UI-scale tier is the lever: jsdom's
   // 1024x768 window is 768 logical px at 100% (294px of water — `phosphorShells`
-  // fits above at 198px) and 614.4 at the 125% tier (140px — it does not).
+  // fits above at 240px) and 614.4 at the 125% tier (140px — it does not).
   // It was `foulingMines` until Story 8.13: that line became EQUIPMENT and lost
   // its add-on explanation, so its panel is a 43px heading and fits everywhere.
   it('writes the ABOVE placement when the water is deep enough, DOWN when it is not', () => {
@@ -469,9 +479,11 @@ describe('ladder position is colour-coded AND dual-coded; the KIND is a word onl
     expect(boonKindLabel('ladder')).toBe('UPGRADE');
     expect(boonKindLabel('addon')).toBe('ADD-ON');
     expect(boonKindLabel('consumable')).toBe('CONSUMABLE');
+    // THREE kinds in the shipped catalog since Story 8.17 re-cut the last two
+    // add-ons (amendment 134); the ADD-ON word stays for the kind it keeps.
     const kinds = [...new Set(LINES.map((d) => d.kind))];
-    expect(kinds).toHaveLength(4);
-    expect(new Set(kinds.map(boonKindLabel)).size).toBe(kinds.length);
+    expect(kinds).toHaveLength(3);
+    expect(new Set([...kinds, 'addon' as const].map(boonKindLabel)).size).toBe(4);
   });
 
   it('renders the KIND word on the card (the copy count left with the interim face)', () => {

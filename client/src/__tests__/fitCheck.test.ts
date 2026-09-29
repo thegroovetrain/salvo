@@ -39,7 +39,8 @@ import { FIT_KINDS, TONES, fitTone } from '../audio/tones.js';
 import { CARD_STAT_ROWS, boonEffectLine, boonFitToastLine, cardStatRows, cardTierLabel } from '../ui/boonCopy.js';
 import { cardEquipmentIds, isShipwideCard, slotForCard } from '../render/equipmentInfo.js';
 import { lookForReveal } from '../render/projectiles.js';
-import { LitZones, zoneVerbs } from '../render/litZones.js';
+import { BurnZones } from '../render/burnZones.js';
+import { glyphPaths } from '../render/equipmentIcons.js';
 import { tellLine } from '../render/hud.js';
 
 const LINES: readonly CatalogLine[] = Object.values(CATALOG);
@@ -274,42 +275,29 @@ function doctrineEffectOf(line: CatalogLine): BoonDoctrineEffect | undefined {
 
 const DOCTRINE_LINES = LINES.filter((l) => doctrineEffectOf(l) !== undefined);
 
-/** A lit-zone wire view carrying an arbitrary set of VERB FLAGS (Story 7-5
- *  wave 1 — `phos` and `daz` are independent and may both be present). */
-const zoneView = (id: string, verbs: { phos?: true; daz?: true }) =>
-  ({ id, x: 0, y: 0, r: 100, until: 10_000, by: 'firer', ...verbs }) as const;
-
 /**
  * One real assertion per doctrine line id — the identity CHANNEL that proves
- * "no fitted card is presentation-silent". Each reads the real exported pure
- * seam (never a mock), matching the code map: projectiles' look table, litZones'
- * per-mode rendering, and the HUD's victim tell lines.
+ * "no fitted card is presentation-silent".
+ *
+ * EMPTY SINCE STORY 8.17 (Eric ruling 2026-09-29, epic-8 amendment 134): the
+ * last two add-ons left the add-on space — PHOSPHOR SHELLS became its own
+ * equipment line and DAZZLE SHELLS the FLASH SHELLS consumable — so the catalog
+ * carries no doctrine line at all. The `addon` kind and the doctrine machinery
+ * stay in place, unused, so the table and the coverage law below stay too: a
+ * future add-on lands here or fails the walk (pinned on an INJECTED line
+ * below, the shared draw test's precedent). The two former add-ons' own
+ * channels are pinned in the Story 8.17 block after this one.
  */
-const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
-  // ACOUSTIC HOMING and the FOULING MINES add-on LEFT THIS TABLE in Story 8.13
-  // (epic-8 amendments 80/81): both cards are deleted. Homing is a TIER stat on
-  // the torpedo lines — its identity channel is pinned in projectiles.test.ts,
-  // keyed by line rather than by verb — and FOULING MINES is an equipment line,
-  // whose fit channel is the SLOT itself like every other weapon. A doctrine
-  // that no longer exists cannot be presentation-silent.
-  // PHOSPHOR SHELLS: the zone carries the burn verb (not the bare flare) and
-  // the burning ember breathes above zero alpha.
-  phosphorShells: () => {
-    const zones = new LitZones(new Container());
-    zones.sync([zoneView('z-burn', { phos: true })], () => null);
-    expect(zoneVerbs({ phos: true })).toEqual({ phos: true, daz: false });
-    expect(zones.verbsOf('z-burn')?.phos).toBe(true);
-    expect(zones.emberAlphaOf('z-burn')).toBeGreaterThan(0);
-  },
-  // DAZZLE SHELLS: the zone carries the blind verb AND the victim's DAZZLED
-  // tell renders a real dual-coded line — both channels the catalog line owns.
-  dazzleShells: () => {
-    const zones = new LitZones(new Container());
-    zones.sync([zoneView('z-glare', { daz: true })], () => null);
-    expect(zones.verbsOf('z-glare')?.daz).toBe(true);
-    expect(tellLine('DAZZLED', 2000)).toBe('DAZZLED 2s');
-  },
-};
+const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {};
+
+/** The coverage law as a function, so it can be run against an injected line
+ *  as well as the live catalog. */
+function unregisteredDoctrines(lines: readonly CatalogLine[]): string[] {
+  return lines
+    .filter((l) => doctrineEffectOf(l) !== undefined)
+    .filter((l) => DOCTRINE_IDENTITY[l.id] === undefined && !PENDING_IDENTITY.includes(l.id))
+    .map((l) => l.id);
+}
 
 /**
  * DOCTRINE LINES WHOSE CLIENT IDENTITY CHANNEL IS NOT BUILT YET. The list is
@@ -324,20 +312,29 @@ const DOCTRINE_IDENTITY: Readonly<Record<string, () => void>> = {
 const PENDING_IDENTITY: readonly string[] = [];
 
 describe('fit-check — DOCTRINE IDENTITY (every doctrine line registers an on-water tell)', () => {
-  it('the catalog carries the TWO surviving add-on doctrine lines', () => {
+  it('the catalog carries NO add-on doctrine line any more (Story 8.17, amendment 134)', () => {
     // Five until Story 8.13, when Eric deleted ACOUSTIC HOMING (homing became a
     // tier stat) and the FOULING MINES add-on (fouling became its own equipment
-    // line) — amendments 80/81; three until Story 8.15 CUT HEAT SEEKING (89e).
-    expect(DOCTRINE_LINES.map((l) => l.id).sort()).toEqual(
-      ['dazzleShells', 'phosphorShells'],
-    );
+    // line) — amendments 80/81; three until Story 8.15 CUT HEAT SEEKING (89e);
+    // two until Story 8.17 re-cut PHOSPHOR (equipment) and DAZZLE (the FLASH
+    // SHELLS consumable) out of the add-on space.
+    expect(DOCTRINE_LINES.map((l) => l.id)).toEqual([]);
+    expect(LINES.filter((l) => l.kind === 'addon')).toEqual([]);
   });
 
   it('every doctrine line is either registered or explicitly PENDING a later slice', () => {
-    const missing = DOCTRINE_LINES.filter(
-      (l) => DOCTRINE_IDENTITY[l.id] === undefined && !PENDING_IDENTITY.includes(l.id),
-    ).map((l) => l.id);
-    expect(missing).toEqual([]);
+    expect(unregisteredDoctrines(LINES)).toEqual([]);
+  });
+
+  it('...and the law still BITES: an injected add-on with no identity is reported', () => {
+    const injected: CatalogLine = {
+      id: 'injectedAddon' as CatalogLine['id'],
+      kind: 'addon',
+      cap: 1,
+      tiers: [[{ kind: 'doctrine', weapon: 'starShells', mode: 'injected' }]],
+      appliesTo: ['starShells'],
+    };
+    expect(unregisteredDoctrines([...LINES, injected])).toEqual(['injectedAddon']);
   });
 
   it('the PENDING list names only lines that really are unregistered (it cannot rot)', () => {
@@ -354,4 +351,25 @@ describe('fit-check — DOCTRINE IDENTITY (every doctrine line registers an on-w
       check?.();
     });
   }
+});
+
+// --- STORY 8.17: the two FORMER add-ons keep a real presentation channel -----
+//
+// They are no longer verbs, so they left DOCTRINE_IDENTITY — but the rule that
+// table enforced ("no fitted card is presentation-silent") still holds for the
+// lines they became. PHOSPHOR SHELLS is a weapon: its slot draws a glyph and
+// its burst leaves a BURNING zone whose ember breathes. FLASH SHELLS is a belt
+// consumable: its square draws a glyph and its victim wears the DAZZLED tell.
+describe('fit-check — the former add-ons are not presentation-silent (Story 8.17)', () => {
+  it('PHOSPHOR SHELLS: a slot glyph and a breathing burning zone', () => {
+    expect(glyphPaths('phosphorShells')).not.toBeNull();
+    const zones = new BurnZones(new Container());
+    zones.sync([{ id: 'z-burn', x: 0, y: 0, r: 100, until: 10_000, by: 'firer' }], () => null);
+    expect(zones.emberAlphaOf('z-burn')).toBeGreaterThan(0);
+  });
+
+  it('FLASH SHELLS: a belt glyph and the victim\'s DAZZLED tell', () => {
+    expect(glyphPaths('dazzleShells')).not.toBeNull();
+    expect(tellLine('DAZZLED', 2000)).toBe('DAZZLED 2s');
+  });
 });

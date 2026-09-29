@@ -655,8 +655,8 @@ export const CONFIG = {
         cat: { guns: 2.4, ship: 2.2, torpedoes: 1.4, boost: 1.6, intel: 1.3 },
         lines: {
           gunBarrel: 2.6, gunTurret: 2.2, shipCooldown: 2.4, shipSpeed: 2.2, shipHull: 1.6, torpedoHoming: 2.0,
-          // Acquisitions: knife-range tools first — a beam fan and a dazzle
-          // flare are both decided inside the turn-fight.
+          // Acquisitions: knife-range tools first — a beam fan and a flare
+          // are both decided inside the turn-fight.
           acquireBroadside: 1.4, acquireStarShells: 1.3, acquireBoost: 1.2, acquireTorpedo: 1.1, acquireMine: 0.9,
         },
       },
@@ -665,7 +665,7 @@ export const CONFIG = {
       bulwark: {
         cat: { ship: 2.4, guns: 2.0, broadside: 2.0, starShells: 1.0, intel: 1.0 },
         lines: {
-          shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2, starDazzle: 1.6,
+          shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2,
           // Acquisitions: ground-holding tools — a field defends the water
           // it refuses to leave.
           acquireMine: 1.4, acquireTorpedo: 1.1, acquireBroadside: 1.0, acquireStarShells: 0.9, acquireBoost: 0.8,
@@ -807,7 +807,8 @@ export const CONFIG = {
     // constraint tests and the weapons smoke and by NO production code: at
     // RUNTIME the gate is OBSERVER-SCALED (amendment 121) and multiplies by
     // `detectFactor` below, never by this. The server resolves it as
-    // `sightOf(me, now) * detectFactor`, so a star-shell dazzle halves it,
+    // `sightOf(me, now) * detectFactor`, so a FLASH SHELLS dazzle shrinks it
+    // (sight → radarRange/8, sim/sight.ts — Story 8.17, amendment 132),
     // with island LOS applied unchanged. Nothing WIDENS it any more: the card
     // that once did (intelTruesight, merged into intelRange in cycle 92) was
     // deleted in cycle 119, so the only live scale is dazzle. The resolver
@@ -1804,9 +1805,13 @@ export const CONFIG = {
    * spawns a server-side LIT ZONE at the burst point: for `litDurationMs` the
    * FIRER — and only the firer — gains full truesight parity inside it ("lit
    * from above", no island LOS: ships as contacts, mines, ballistic reveals).
-   * DAMAGELESS as of Story 2.8 (amendment 39): the flare deals ZERO damage —
-   * interception does 0 and still spawns the lit zone at the stop point; the
-   * INCENDIARY/DAZZLE exclusive doctrines take over the damage/denial role.
+   * THE FLARE DEALS DAMAGE AGAIN (Story 8.17, Eric ruling 2026-09-29, epic-8
+   * amendment 130 — amendment 39's "structurally damageless" is SUPERSEDED):
+   * at burst it deals the tier's `damage` (10 / 12 / 15 / 17 / 20, tier I–V)
+   * to EVERY non-owner hull whose centre is inside the WHOLE lit circle
+   * (`burstRadius = litRadius`). Its old PHOSPHOR/DAZZLE verbs are DELETED
+   * (amendment 134): PHOSPHOR SHELLS is its own weapon (`CONFIG.phosphorShells`)
+   * and DAZZLE is the FLASH SHELLS consumable (`CONFIG.flashShells`).
    * The zone CIRCLE itself is visible to any observer whose effective radar
    * range reaches its center (no LOS, no sweep gate — a flare in the sky),
    * tagged with the firer's id. NO range field: range is DERIVED from
@@ -1825,8 +1830,11 @@ export const CONFIG = {
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between flares
-    // NO `damage` field (amendment 39): star shells deal zero damage anywhere,
-    // structurally — a retune cannot quietly re-arm the flare.
+    // hp — TIER-I burst damage to every non-owner hull inside the whole lit
+    // circle (Eric ruling 2026-09-29, epic-8 amendment 130; the STAR SHELLS
+    // ladder steps it +2/+3/+2/+3 to 20 at tier V — sim/catalog.ts). Whole
+    // numbers only (amendment 39's integer-damage rule still stands).
+    damage: 10,
     // u — lit-zone radius, STRUCTURALLY half of base truesight (Eric ruling
     // 2026-07-23: star shells always light exactly half the BASE sight range,
     // independent of any player's sightRange upgrade stacks). Keep this as a
@@ -1837,14 +1845,64 @@ export const CONFIG = {
     // u — flare collision radius. Own field (cannon plumbing parity) so a gun
     // retune can never silently change flare interception; same value today.
     shellRadius: 2,
-    // --- INCENDIARY COMPOUND doctrine (Story 2.8, exclusive boon) — DRAFT.
-    incendiaryRadiusFactor: 0.8, // × litRadius — the burning zone is slightly smaller
-    incendiaryDps: 5, // hp/s — DoT to non-owner hulls inside while lit
-    // --- DAZZLE BURST doctrine (Story 2.8, exclusive boon) — DRAFT.
-    // × sightRange — truesight factor applied to non-owner ships whose center
-    // is inside the zone (perception-side; victims get self-private
-    // you.dazzledUntil so their own fog hole shrinks honestly).
-    dazzleSightFactor: 0.5,
+    // The INCENDIARY (`incendiaryRadiusFactor`/`incendiaryDps`) and DAZZLE
+    // (`dazzleSightFactor`) doctrine fields are DELETED with the star-shell
+    // verbs (Story 8.17, epic-8 amendment 134): their numbers now live on
+    // `CONFIG.phosphorShells` and `CONFIG.flashShells` below.
+  },
+
+  /**
+   * PHOSPHOR SHELLS (Story 8.17, Eric ruling 2026-09-29, epic-8 amendments
+   * 131/132) — its OWN tiered 360° equipment line, no longer a star-shell
+   * add-on. One gun-pattern shell to the click at the radar rung (`rangeU =
+   * radarRange` post-fold, like the star shell). At burst it deals `damage` to
+   * every non-owner hull inside the WHOLE zone, then spawns a BURNING ZONE of
+   * `zoneRadius` for `zoneDurationMs` that burns `dps` hp/s on every non-owner
+   * afloat hull whose centre is inside. A HAZARD ONLY: the zone is drawn for
+   * every observer who can see it, reveals nothing, extends no gun's reach and
+   * is not a lit zone. Tiers II–V (sim/catalog.ts): damage 20 → 30, dps 5 → 10,
+   * radius ×1.1 per tier, duration 8 / 8 / 9 / 9 / 10 s, −5 % reload per tier
+   * derived. The zone's numbers are STAMPED from the owner's effective row at
+   * spawn (amendment 135(e)).
+   */
+  phosphorShells: {
+    arc: 'full', // 360° — the gun family's grammar (sim/arcs.ts)
+    // AR44: a DAMAGE weapon — the gun's own mask, so an armed mine inside the
+    // burst detonates like under any gun burst (amendment 135(c)).
+    hits: HITS_HULL_MINE_DECOY,
+    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
+    maxAmmo: 1, // one shell in the pool — presented as a pure cooldown
+    reloadMs: 20000, // ms — cooldown between shells (−5 %/tier derived)
+    damage: 20, // hp — tier-I burst damage to every non-owner hull inside the zone
+    zoneRadius: 100, // u — tier-I burst AND burning-zone radius (×1.1 per tier)
+    zoneDurationMs: 8000, // ms — tier-I burning-zone lifetime
+    dps: 5, // hp/s — tier-I burn on every non-owner afloat hull inside
+    shellRadius: 2, // u — shell collision radius (star-shell parity)
+  },
+
+  /**
+   * FLASH SHELLS (Story 8.17, Eric ruling 2026-09-29, epic-8 amendments
+   * 131/132) — the DAZZLE SHELLS line re-cut as a belt CONSUMABLE (display
+   * name FLASH SHELLS; the internal id stays `dazzleShells`). The key primes,
+   * a click fires ONE 360° gun-pattern shell to the radar rung that bursts
+   * ONCE in `radius`: every non-friendly afloat hull whose centre is inside is
+   * dazzled for `durationMs` (a second flash sets the LATER expiry — never
+   * stacks, never shortens). While dazzled a hull's effective sight is
+   * `radarRange × sightFraction` (sim/sight.ts `effectiveSight` — 82.5 u at the
+   * base 660 u radar), replacing the old ×0.5-of-sight factor. NO lingering
+   * zone, no light, no reveal, no damage. No `EffectiveStats` row: a
+   * consumable's numbers are read straight from CONFIG (the consumable law).
+   */
+  flashShells: {
+    arc: 'full', // 360° (sim/arcs.ts consumableArc)
+    // The star shell's mask: interception by a hull or a decoy flashes at the
+    // stop point; a flash never detonates a mine (amendment 135(d)).
+    hits: HITS_HULL_DECOY,
+    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
+    shellRadius: 2, // u — shell collision radius (star-shell parity)
+    radius: 150, // u — the one-time burst radius
+    durationMs: 10000, // ms — how long a flashed hull stays dazzled
+    sightFraction: 0.125, // × radarRange — a dazzled hull's effective sight (1/8 of intel range)
   },
 
   /**

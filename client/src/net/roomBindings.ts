@@ -17,6 +17,7 @@ import {
   type BallisticEvent,
   type BoomEvent,
   type BoonFitEvent,
+  type BurnZoneView,
   type BurstEvent,
   type DeniedView,
   type FoghornEvent,
@@ -26,7 +27,6 @@ import {
   type HealEvent,
   type HitCallEvent,
   type HullId,
-  type LitZoneView,
   type MuzzleEvent,
   type OwnShip,
   type PointEvent,
@@ -53,6 +53,7 @@ import type { Smoke } from '../render/smoke.js';
 import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
+import type { BurnZones } from '../render/burnZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
@@ -112,6 +113,9 @@ export interface RoomBindingDeps {
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
    *  from FrameMsg.litZones every tick, exactly like mines. */
   litZones: LitZones;
+  /** PHOSPHOR SHELLS burning zones (render/burnZones.ts, Story 8.17) — synced
+   *  contact-like from FrameMsg.burnZones every tick, exactly like litZones. */
+  burnZones: BurnZones;
   /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced contact-like
    *  from FrameMsg.decoys every tick, exactly like mines/litZones. */
   decoys: Decoys;
@@ -735,6 +739,20 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     }
   }
   deps.contacts.pushFrame(f.t, f.contacts);
+  syncContactLike(f, deps);
+  routeVictimTells(f, deps, s);
+  trackBurning(f, deps, s);
+  routeDenials(f, deps);
+  handleEvents(f, deps, s);
+}
+
+/**
+ * The CONTACT-LIKE reconciles — mines, lit zones, burning zones, decoys — and
+ * the two zone mirrors into state. Split out of handleFrame when Story 8.17's
+ * burning-zone channel joined them; the order and every line are unchanged.
+ */
+function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
+  const net = deps.state.net;
   // Contact-like reconciles. Story 1.12: the marker tint is the FIRER's personal
   // hue (MineView/DecoyView/LitZoneView `by` → deps.ordnanceHue), the same hue for
   // every observer; the own/enemy discriminator (`own`) now only drives the fog
@@ -748,6 +766,9 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   // sees no zones, so treat a missing key as an empty list.
   const litZones = f.litZones ?? [];
   deps.litZones.sync(litZones, deps.ordnanceHue);
+  // PHOSPHOR burning zones (Story 8.17), same reconcile, same omitted-key rule.
+  const burnZones = f.burnZones ?? [];
+  deps.burnZones.sync(burnZones, deps.ordnanceHue);
   // Decoy buoys (Story 8.16), same reconcile. Frames OMIT the key when the
   // observer sees no decoys, so treat a missing key as an empty list.
   const decoys = f.decoys ?? [];
@@ -756,10 +777,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
   net.litZones = litZones;
-  routeVictimTells(f, deps, s);
-  trackBurning(f, deps, s);
-  routeDenials(f, deps);
-  handleEvents(f, deps, s);
+  net.burnZones = burnZones; // the burn classifier's zone list (trackBurning)
 }
 
 /**
@@ -777,7 +795,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
  */
 function trackBurning(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   if (!f.you) return;
-  if (inEnemyBurningZone(deps.state.net.litZones, f.you, deps.state.net.sessionId)) s.burningAt = f.t;
+  if (inEnemyBurningZone(deps.state.net.burnZones, f.you, deps.state.net.sessionId)) s.burningAt = f.t;
 }
 
 /**
@@ -1432,8 +1450,20 @@ function shellClaim(e: BallisticEvent, deps: RoomBindingDeps): OwnFire {
   // weapon that will.
   if (e.w === 'mg') return deps.ownStreamWeapon?.() ?? null;
   const fired = deps.ownFireWeapon();
-  return fired === 'broadside' || fired === 'gun' || fired === 'starShells' || fired === 'flak' ? fired : null;
+  return SHELL_CLAIMS.has(fired) ? fired : null;
 }
+
+/** The click-latched weapons whose round rides the `shell` wire kind: the gun,
+ *  the broadside, the flak gun, the star shell, and (Story 8.17) PHOSPHOR
+ *  SHELLS and the FLASH SHELLS consumable. */
+const SHELL_CLAIMS: ReadonlySet<OwnFire> = new Set<OwnFire>([
+  'gun',
+  'broadside',
+  'starShells',
+  'flak',
+  'phosphorShells',
+  'dazzleShells',
+]);
 
 /**
  * The LOOK/AUDIO attribution for an own-looking shell reveal: the genuine claim
@@ -1458,11 +1488,14 @@ function ownShellWeapon(e: BallisticEvent, claim: OwnFire): OwnFire {
 }
 
 /** Pure: the own-fire cue a claimed shell weapon reports with. The star shell
- *  earns its own launch report (Story 2.9: every fitted line is felt); anything
- *  the claim could not name falls to the gun crack. */
-function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' {
-  if (own === 'broadside') return 'broadside';
-  return own === 'starShells' ? 'starShells' : 'gun';
+ *  earns its own launch report (Story 2.9: every fitted line is felt), and
+ *  PHOSPHOR / FLASH SHELLS (Story 8.17) report through the same launch cue
+ *  (audio/tones FIRE_TONE); anything the claim could not name falls to the gun
+ *  crack. */
+function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' | 'phosphorShells' | 'dazzleShells' {
+  if (own === 'broadside' || own === 'starShells') return own;
+  if (own === 'phosphorShells' || own === 'dazzleShells') return own;
+  return 'gun';
 }
 
 /** A steering torpedo re-anchored its track (Story 2.8 — ACOUSTIC HOMING).
@@ -2079,9 +2112,9 @@ function sunkCue(
  * of the amplitude (a full-strength shake per DoT tick reads as being shelled,
  * which is a lie about what is happening). The frame reads as fire only when
  * EVERY application in it does. Testing the sum instead would break in both
- * directions: BURN_AMOUNT_CAP's ×4 headroom was derived for ONE event covering
- * overlapping patches, so four distinct enemy burners (~2.75hp each, one bite
- * per owner per tick) already sum past it and pure fire would misreport as an
+ * directions: BURN_AMOUNT_CAP is ONE owner's largest flush, so two distinct
+ * enemy burners (one bite per owner per window) can already sum past it and
+ * pure fire would misreport as an
  * impact — while a genuine shell arriving alongside a flush must read as the
  * slam it was, which the per-event fold gets right for the opposite reason.
  *
@@ -2106,7 +2139,7 @@ function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   // must still play the ordinary hit cue — the shake floors at the subtle
   // (gun-weight) magnitude, and the falling blue number is its twin.
   if (!hit) return; // no own damage this frame (the overwhelmingly common case)
-  deps.shake.trigger(allBurn ? total * CLIENT_CONFIG.litZone.burnShakeScale : total);
+  deps.shake.trigger(allBurn ? total * CLIENT_CONFIG.burnZone.burnShakeScale : total);
   deps.audio.play(allBurn ? 'burn' : 'damage');
 }
 
@@ -2121,15 +2154,39 @@ function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
  */
 const BURN_GRACE_MS = 600;
 
+/** s — the server's burn aggregation window (one `dmg` per owner per window). */
+const BURN_WINDOW_S = 0.5;
+
+/** s — one sim tick (20 Hz). */
+const BURN_TICK_S = CONFIG.tick.simDtMs / 1000;
+
 /**
- * The largest damage amount a single incendiary flush can be (hp), derived so
- * the cap moves when the doctrine is retuned: the DoT rate × the server's 0.5s
- * aggregation window, ×4 headroom for a hull sitting in several overlapping
- * burning patches at once. Anything bigger than that arrived some other way —
- * a torpedo, a shell, a mine — and must read as the slam it was, however much
- * fire happens to be on the water. Draft headroom factor (draft-copy rule).
+ * hp/s — the HIGHEST burn rate any PHOSPHOR SHELLS zone can carry: the tier-I
+ * `CONFIG.phosphorShells.dps` plus every `dps` step the catalog's ladder
+ * authors (5 → 10 at tier V, Story 8.17, amendment 131). Summed off the ladder
+ * rather than hard-coded so a retune of either moves the cap with it.
  */
-const BURN_AMOUNT_CAP = CONFIG.starShells.incendiaryDps * 0.5 * 4;
+export function maxBurnDps(): number {
+  let dps: number = CONFIG.phosphorShells.dps;
+  for (const tier of CATALOG.phosphorShells.tiers) {
+    for (const e of tier) if (e.kind === 'stat' && e.path === 'equipment.phosphorShells.dps') dps += e.add ?? 0;
+  }
+  return dps;
+}
+
+/**
+ * The largest damage amount a single burn flush can be (hp): the MAX POSSIBLE
+ * burn per aggregation window — the tier-V phosphor rate × the server's
+ * INCLUSIVE window. `bankDot` (server world.ts) opens a bucket with
+ * `since = now` on the FIRST bite and flushes when `now - since >= 500 ms`
+ * AFTER adding the current bite, so at 20 Hz a window holds 11 bites
+ * (t = 0, 50, …, 500 ms) = window + one tick = 0.55 s of burn: 10 hp/s × 0.55 s
+ * = 5.5 hp (Story 8.17 re-derived it from the burning zone that replaced the
+ * star-shell INCENDIARY verb, and the old ×4 overlap headroom went with it). The classifier exists to tell a burn `dmg` from an
+ * impact: anything bigger than this arrived some other way — a torpedo, a
+ * shell, a mine — and must read as the slam it was.
+ */
+export const BURN_AMOUNT_CAP = maxBurnDps() * (BURN_WINDOW_S + BURN_TICK_S);
 
 /**
  * Pure: does a damage event read as FIRE rather than as an impact? Both halves
@@ -2146,10 +2203,9 @@ export function readsAsBurn(amount: number, sinceBurningMs: number): boolean {
 /**
  * Pure: is `p` standing in some OTHER captain's burning (PHOSPHOR) zone?
  *
- * Reads the `phos` flag ALONE (Story 7-5 wave 1): the verbs stack, so a zone
- * that also carries `daz` is still a burning zone and must still classify — a
- * `mode === 'incendiary'` style equality read would have dropped exactly the
- * both-verb case.
+ * Reads the PHOSPHOR SHELLS burning-zone channel (`FrameMsg.burnZones`, Story
+ * 8.17, amendment 131) — every zone on it burns, so there is no flag to test;
+ * the star-shell `phos` lit-zone flag this used to read is deleted.
  *
  * Deliberately does NOT re-check the zone's expiry: a zone that is still in the
  * frame's list is still live by construction (the server rebuilds that list per
@@ -2157,12 +2213,12 @@ export function readsAsBurn(amount: number, sinceBurningMs: number): boolean {
  * classifying arrived on that same frame.
  */
 export function inEnemyBurningZone(
-  zones: readonly LitZoneView[],
+  zones: readonly BurnZoneView[],
   p: { x: number; y: number },
   selfId: string,
 ): boolean {
   for (const z of zones) {
-    if (z.phos !== true || z.by === selfId) continue;
+    if (z.by === selfId) continue;
     const dx = p.x - z.x;
     const dy = p.y - z.y;
     if (dx * dx + dy * dy <= z.r * z.r) return true;

@@ -4,6 +4,7 @@ date: '2026-09-09'
 author: 'Eric'
 status: 'WALKTHROUGH COMPLETE 2026-09-09 — every line ruled; [DRAFT] cells await the harness; GDD update + E8 stories next'
 superseded_in_part: '2026-09-21 — Sprint Change Proposal (sprint-change-proposal-2026-09-21.md, Eric-approved): NO starter decks and NO hidden match pool (every line is in one common pool, unlimited copies); HORIZONTAL MISSILE, MONITOR GUN and HEAT SEEKING are CUT; MACHINE GUN and FLAK GUN are mountable guns (the captain picks deck gun / machine gun / flak gun per match), each with its own ladder [DRAFT]; the starter columns TB / ML / BS and §1 sheet counts are void. Per-line numbers stand where not voided here or by amendments 74 / 80-83.'
+superseded_in_part_2: '2026-09-29 (Story 8.17, epic-8 amendments 130–134): R31 star shells gain tier damage 10/12/15/17/20 across the lit circle; R33/R34 DAZZLE and PHOSPHOR add-ons are retired — PHOSPHOR SHELLS is its own tiered weapon, DAZZLE is the FLASH SHELLS consumable; R35 broadside ladder built as written.'
 source: 'Eric spreadsheet, shared 2026-09-09 (screenshot); brainstorming-session-2026-09-04.md; GDD v3 (2026-09-03)'
 ---
 

@@ -238,17 +238,27 @@ describe('eligibleLines — the whole eligibility law', () => {
   });
 
   it('an ADD-ON may be held ahead of its host while a slot is open, never with the row full', () => {
-    expect(CATALOG.dazzleShells.appliesTo).toEqual(['starShells']);
+    // NO PRODUCTION ADD-ON IS LEFT since Story 8.17 (Eric 2026-09-29,
+    // amendments 131–134: DAZZLE SHELLS became the FLASH SHELLS consumable and
+    // PHOSPHOR SHELLS its own weapon), but the `addon` kind and its draw law
+    // stay in the engine — so the law is pinned on an INJECTED add-on, shaped
+    // exactly as the deleted DAZZLE SHELLS card was.
+    const WITH_ADDON: Catalog = {
+      ...CATALOG,
+      dazzleShells: {
+        id: 'dazzleShells', kind: 'addon', cap: 1, appliesTo: ['starShells'],
+        tiers: [[{ kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' }]],
+      },
+    };
+    const has = (ship: DrawShip): boolean => eligibleLines(ship, WITH_ADDON).some((e) => e.id === 'dazzleShells');
     // Row open, no host held: held-ahead is allowed (amendment 89b).
-    expect(eligibleLines(OPEN).some((e) => e.id === 'dazzleShells')).toBe(true);
+    expect(has(OPEN)).toBe(true);
     // Row full, no host: the card would be dead, so it is not dealt.
-    expect(eligibleLines(CLOSED).some((e) => e.id === 'dazzleShells')).toBe(false);
+    expect(has(CLOSED)).toBe(false);
     // Row full WITH the host aboard: eligible again.
-    const hosted: DrawShip = { ...CLOSED, held: ['starShells'] };
-    expect(eligibleLines(hosted).some((e) => e.id === 'dazzleShells')).toBe(true);
+    expect(has({ ...CLOSED, held: ['starShells'] })).toBe(true);
     // ...and at its cap of 1 it leaves, host or no host.
-    const held: DrawShip = { ...CLOSED, held: ['starShells', 'dazzleShells'] };
-    expect(eligibleLines(held).some((e) => e.id === 'dazzleShells')).toBe(false);
+    expect(has({ ...CLOSED, held: ['starShells', 'dazzleShells'] })).toBe(false);
   });
 
   it('A CONSUMABLE IS ALWAYS ELIGIBLE — at its cap, with a full belt, always (amendment 94)', () => {
@@ -260,17 +270,19 @@ describe('eligibleLines — the whole eligibility law', () => {
         ...new Array<LineId>(CATALOG.shieldBlock.cap).fill('shieldBlock'),
         ...new Array<LineId>(CATALOG.chaff.cap).fill('chaff'),
         ...new Array<LineId>(CATALOG.decoyBuoy.cap).fill('decoyBuoy'),
+        ...new Array<LineId>(CATALOG.dazzleShells.cap).fill('dazzleShells'),
       ],
     };
     const eligible = eligibleLines(capped);
     const ids = eligible.map((e) => e.id);
     expect(ids).toContain('hullRepair');
     expect(ids).toContain('supercavTorpedo');
-    // All are still tagged `consumable`, and ALL FIVE live consumable lines
-    // are present (Story 8.16 flipped shield/chaff/decoy) — the cap filters
-    // equipment, ladders and add-ons, never these. The two stubs never are.
+    // All are still tagged `consumable`, and ALL SIX live consumable lines
+    // are present (Story 8.16 flipped shield/chaff/decoy; Story 8.17 added
+    // FLASH SHELLS, amendment 132) — the cap filters equipment, ladders and
+    // add-ons, never these. The two stubs never are.
     expect(eligible.filter((e) => e.kind === 'consumable').map((e) => e.id))
-      .toEqual(['supercavTorpedo', 'hullRepair', 'shieldBlock', 'chaff', 'decoyBuoy']);
+      .toEqual(['supercavTorpedo', 'hullRepair', 'shieldBlock', 'chaff', 'decoyBuoy', 'dazzleShells']);
     expect(kindCounts(eligible).weapon).toBe(0); // the row is full
   });
 });
@@ -426,14 +438,16 @@ describe('drawOffer — the shape of an offer', () => {
   });
 
   it('gives a SHORTER offer when fewer than CONFIG.offer.size lines are eligible — never padded, never repeated', () => {
-    // Since Story 8.16 production has FIVE live consumables, always eligible,
-    // so it can no longer run short at offer size 4 — the property is pinned
-    // on the pre-8.16 catalog shape (shield/chaff/decoy stubbed), injected.
+    // Since Story 8.16 production has FIVE live consumables (SIX since 8.17's
+    // FLASH SHELLS), always eligible, so it can no longer run short at offer
+    // size 4 — the property is pinned on the pre-8.16 catalog shape
+    // (shield/chaff/decoy — and flash — stubbed), injected.
     const TWO_LIVE: Catalog = {
       ...CATALOG,
       shieldBlock: { ...CATALOG.shieldBlock, stub: true },
       chaff: { ...CATALOG.chaff, stub: true },
       decoyBuoy: { ...CATALOG.decoyBuoy, stub: true },
+      dazzleShells: { ...CATALOG.dazzleShells, stub: true },
     };
     const held: LineId[] = [
       ...everyUpgradeCapped(),
@@ -451,11 +465,12 @@ describe('drawOffer — the shape of an offer', () => {
 
   it('a fully capped captain sees a FULL offer of consumables in production (Story 8.16 closes amendment 94\'s two-card offer)', () => {
     const held: LineId[] = [...everyUpgradeCapped()];
-    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy'] as const) {
+    // FLASH SHELLS (`dazzleShells`) joined the live consumables in Story 8.17.
+    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy', 'dazzleShells'] as const) {
       held.push(...new Array<LineId>(CATALOG[id].cap).fill(id));
     }
     const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
-    const live = ['chaff', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
+    const live = ['chaff', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
     expect(eligibleLines(ship).map((e) => e.id).sort()).toEqual(live);
     for (let seed = 0; seed < 200; seed += 1) {
       const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed));

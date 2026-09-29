@@ -156,20 +156,21 @@ describe('SHIELD BLOCK — the gate (I/O matrix, amendments 100/118)', () => {
 });
 
 describe('SHIELD BLOCK — an absorbed BURN still plays the hit cue (amendments 117 / 124(i))', () => {
-  /** Run 2 s with `a` (optionally shielded) inside b's phosphor zone and `c`
-   *  outside it; return every `dmg` event per victim id, and whether any
-   *  other observer's frame ever carried one. */
+  /** Run 2 s with `a` (optionally shielded) inside b's PHOSPHOR burning zone
+   *  (Story 8.17: its own store, `world.burnZones`) and `c` outside it; return
+   *  every `dmg` event per victim id, and whether any other observer's frame
+   *  ever carried one. */
   function burnRun(shielded: boolean): { a: DamageEvent[]; c: DamageEvent[]; leaked: boolean; hullLost: number } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 400, 0);
     place(w, 'c', -600, 0);
     if (shielded) a.shield = { hpLeft: CONFIG.shieldBlock.hp, until: w.now + 60_000 };
-    w.litZones.set('z1', { id: 'z1', ownerId: 'b', x: 0, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: false });
+    w.burnZones.set('bz1', { id: 'bz1', ownerId: 'b', x: 0, y: 0, r: 100, until: 999_999, dps: CONFIG.phosphorShells.dps });
     const hp0 = a.hp;
     const out = { a: [] as DamageEvent[], c: [] as DamageEvent[], leaked: false, hullLost: 0 };
     for (let i = 0; i <= 40; i++) {
-      if (i === 40) w.litZones.clear(); // the zone dies: the open window flushes at once
+      if (i === 40) w.burnZones.clear(); // the zone dies: the open window flushes at once
       w.step();
       for (const e of w.tickEvents) {
         if (e.k !== 'dmg') continue;

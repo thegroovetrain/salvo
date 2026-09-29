@@ -28,7 +28,7 @@ import type { HookParams } from './hooks.js';
 export type BoonId = string;
 
 /**
- * The SEVEN launch CONSUMABLES (catalog-v3 §4, as amended). They are NOT slot
+ * The EIGHT launch CONSUMABLES (catalog-v3 §4, as amended). They are NOT slot
  * EQUIPMENT — they fire off the `1`–`4` rail as stacks of copies, with no
  * module, no stats row and no reload — so they keep their OWN id space and
  * never appear in `EquipmentId`.
@@ -47,6 +47,11 @@ export type BoonId = string;
  *     (amendment 83) — and it is the Mine Layer's 40th default card.
  * Both keep their locked `LINE_IDS` ids; `acousticHoming` left the catalog
  * entirely (amendment 80).
+ *
+ * STORY 8.17 ADDED ONE MORE (Eric ruling 2026-09-29, epic-8 amendment 132):
+ * `dazzleShells` MOVED here out of the add-on space — FLASH SHELLS (its display
+ * name) is a prime-and-click belt shell with no reload and no tiers. It keeps
+ * its locked `LINE_IDS` id and slot.
  */
 export const CONSUMABLE_IDS = [
   'hullRepair',
@@ -56,9 +61,10 @@ export const CONSUMABLE_IDS = [
   'decoyBuoy',
   'depthCharge',
   'supercavTorpedo',
+  'dazzleShells',
 ] as const;
 
-/** One of the seven consumables. */
+/** One of the eight consumables. */
 export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
 
 /**
@@ -68,7 +74,8 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  * whitelist behind — but the DELIBERATE ABSENCES below are load-bearing and
  * are pinned absent by barrel.test.ts:
  *
- *   - every `rangeU` (gun / machineGun / flak / starShells / broadside):
+ *   - every `rangeU` (gun / machineGun / flak / starShells / phosphorShells /
+ *     broadside):
  *     DERIVED from post-fold `radarRange` (the broadside one rung short, at
  *     the 5/8 muzzle rung), so a card addressing one would be a SECOND
  *     derivation;
@@ -123,7 +130,12 @@ export const EQUIPMENT_STAT_FIELDS = {
   machineGun: ['reloadMs', 'maxAmmo', 'damage'],
   flak: ['reloadMs', 'maxAmmo', 'damage'],
   broadside: ['reloadMs', 'maxAmmo', 'damage', 'burstRadius', 'turrets', 'spreadRung'],
-  starShells: ['reloadMs', 'maxAmmo', 'litRadius', 'litDurationMs'],
+  // STAR SHELLS (Story 8.17, amendment 130): the flare deals burst damage
+  // again, so `damage` is addressable (10 → 20 across the ladder).
+  starShells: ['reloadMs', 'maxAmmo', 'litRadius', 'litDurationMs', 'damage'],
+  // PHOSPHOR SHELLS (Story 8.17, amendment 131) — its own weapon row. Every
+  // number its ladder steps is addressable; `rangeU` is derived (above).
+  phosphorShells: ['reloadMs', 'maxAmmo', 'damage', 'zoneRadius', 'zoneDurationMs', 'dps'],
   // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97–102) — boost-shaped
   // rows: no card addresses them today, but `reloadMs` must be a row field so
   // RELOAD's `cooldownScale` reaches it through the one multiply.
@@ -200,12 +212,16 @@ export const BOON_STAT_PATH_SET: ReadonlySet<string> = new Set(BOON_STAT_PATHS);
 /**
  * The known doctrine VERBS per equipment — the fold's fail-closed vocabulary
  * AND the authoring gate. EVERY entry names a BOOLEAN FIELD on that
- * equipment's stat row which the fold sets true; verbs STACK (a star shell may
- * be both phosphor and dazzle). Catalog v3 re-keyed it onto the widened
- * EquipmentId; STORY 8.13 CUT IT TO THE THREE SURVIVING ADD-ONS' targets, and
- * STORY 8.15 TO ONE: HEAT SEEKING (R32, the homing verb on the missile) is
- * CUT with the missile (Eric ruling 2026-09-21, epic-8 amendment 89e), so
- *   - DAZZLE / PHOSPHOR SHELLS (R33) both ride the star shell and stack.
+ * equipment's stat row which the fold sets true; verbs STACK. Catalog v3
+ * re-keyed it onto the widened EquipmentId; STORY 8.13 CUT IT TO THE THREE
+ * SURVIVING ADD-ONS' targets, STORY 8.15 TO ONE (HEAT SEEKING, R32, is CUT with
+ * the missile — Eric ruling 2026-09-21, epic-8 amendment 89e), and STORY 8.17
+ * EMPTIED IT (Eric ruling 2026-09-29, epic-8 amendments 131–134): PHOSPHOR
+ * SHELLS became its own tiered weapon line and DAZZLE the FLASH SHELLS
+ * consumable, so the star shell's `phosphor`/`dazzle` verbs are DELETED and no
+ * add-on line remains in the catalog. THE MACHINERY STAYS IN PLACE, UNUSED
+ * (amendment 134 — ledgered for Eric): the `addon` kind, the `doctrine`
+ * effect and this table, empty, so a future add-on needs no engine work.
  *
  * TWO VERBS LEFT THE VOCABULARY on 2026-09-19 (Eric rulings, epic-8
  * amendments 80 and 81), because the CARDS that granted them are deleted:
@@ -218,12 +234,13 @@ export const BOON_STAT_PATH_SET: ReadonlySet<string> = new Set(BOON_STAT_PATHS);
  * `captive` went when CAPTIVE MINES became its own line (R25) — a mine's KIND
  * is its ROW IDENTITY, never a flag a card writes.
  */
-export const DOCTRINE_MODES = {
-  starShells: ['phosphor', 'dazzle'],
-} as const satisfies Partial<Record<EquipmentId, readonly string[]>>;
+export const DOCTRINE_MODES: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {};
 
-/** An equipment that carries doctrine verb state on its stat row. */
-export type DoctrineWeapon = keyof typeof DOCTRINE_MODES;
+/** An equipment that may carry doctrine verb state on its stat row. Widened to
+ *  `EquipmentId` when the table emptied (Story 8.17): membership is the
+ *  RUNTIME `Object.hasOwn(DOCTRINE_MODES, …)` gate, which refuses every id
+ *  today. */
+export type DoctrineWeapon = EquipmentId;
 
 /**
  * Derived-stat mutation: `value * (mult ?? 1) + (add ?? 0)` on one whitelisted

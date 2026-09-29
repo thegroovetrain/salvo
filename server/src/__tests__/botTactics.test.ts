@@ -157,6 +157,7 @@ function viewWithOwnMines(mind: BotMind, n: number): void {
       id: `own-${i}`, x: -2000 - i * 30, y: 2000, own: true, by: 'self',
     })),
     litZones: [],
+    burnZones: [],
     decoys: [],
   };
 }
@@ -586,11 +587,11 @@ describe('steering — the priority order is the policy', () => {
     // Ring centre dead ahead so the posture bearing contributes nothing.
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const ahead = { id: 'm1', x: 60, y: 20, by: 'enemy' };
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], decoys: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], burnZones: [], decoys: [] };
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
     const dodged = COMBAT_BRAIN.decide(rec, mind, port);
     expect(dodged.rudder).toBeLessThan(0); // mine to port -> steer starboard
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], decoys: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], burnZones: [], decoys: [] };
     const own = COMBAT_BRAIN.decide(rec, mind, port);
     expect(own.rudder).toBe(0); // an owner never trips its own rack
   });
@@ -1436,77 +1437,80 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(early, earlyMind, port).fireSlot).toBe(slotOf(early, 'gun'));
   });
 
-  it('starShells.dazzle: the flare turns OFFENSIVE — fired at a LIVE contact inside sight', () => {
+  // STORY 8.17 (amendment 135(h), interim — Story 8.20 owns the table): the
+  // star shell's `dazzle` / `phosphor` verbs are DELETED, and with them the
+  // offensive-flare branch and the phosphor stale cap. PHOSPHOR SHELLS is its
+  // own row, fired at the nearest LIVE contact inside sight; the flare keeps
+  // the sensor role alone.
+  it('PHOSPHOR SHELLS (8.17 interim): fired at the NEAREST live contact inside sight; the plain flare never targets a live contact', () => {
     const w = openWorld(407);
     const port = fakePort(w);
-    const dazzle = mkBot(w, 'battleship', 0, 0, 0);
-    dazzle.stats.equipment.starShells.dazzle = true;
-    const dazzleMind = mkMind('siege');
-    plot(dazzleMind, track(port.now, { x: 200, y: 0, live: true, speed: 10 }));
-    const d = COMBAT_BRAIN.decide(dazzle, dazzleMind, port);
-    expect(d.fireSlot).toBe(slotOf(dazzle, 'starShells'));
-    expect(d.aimDist).toBeCloseTo(200, 6);
-    // Without the verb, a live contact never draws a flare (it gets shot at).
+    const phos = mkBot(w, 'battleship', 0, 0, 0);
+    w.applyCard(phos, 'phosphorShells');
+    const slot = slotOf(phos, 'phosphorShells');
+    expect(slot).toBeGreaterThanOrEqual(0);
+    const phosMind = mkMind('siege');
+    plot(phosMind, track(port.now, { id: 'far', x: 0, y: 300, live: true, speed: 5 }));
+    plot(phosMind, track(port.now, { id: 'near', x: 150, y: 0, live: true, speed: 40 }));
+    const d = COMBAT_BRAIN.decide(phos, phosMind, port);
+    expect(d.fireSlot).toBe(slot);
+    expect(d.aimDist).toBeCloseTo(150, 6); // the nearest, whatever its speed
+    // A live contact OUTSIDE our own sight bubble draws no phosphor.
+    const blind = mkBot(w, 'battleship', 0, 0, 0);
+    w.applyCard(blind, 'phosphorShells');
+    const blindMind = mkMind('siege');
+    plot(blindMind, track(port.now, { x: 400, y: 0, live: true, speed: 10 }));
+    expect(COMBAT_BRAIN.decide(blind, blindMind, port).fireSlot).not.toBe(slotOf(blind, 'phosphorShells'));
+    // Without the row, a live contact never draws a FLARE (it gets shot at).
     const base = mkBot(w, 'battleship', 0, 0, 0);
     const baseMind = mkMind('siege');
     plot(baseMind, track(port.now, { x: 200, y: 0, live: true, speed: 10 }));
     expect(COMBAT_BRAIN.decide(base, baseMind, port).fireSlot).not.toBe(slotOf(base, 'starShells'));
   });
 
-  it('starShells.phosphor: prefers the SLOW target; dazzle alone takes the nearest', () => {
-    const w = openWorld(408);
-    const port = fakePort(w);
-    const plots = (m: BotMind): void => {
-      plot(m, track(port.now, { id: 'slow', x: 0, y: 300, live: true, speed: 5 }));
-      plot(m, track(port.now, { id: 'fast', x: 150, y: 0, live: true, speed: 40 }));
-    };
-    const phos = mkBot(w, 'battleship', 0, 0, 0);
-    phos.stats.equipment.starShells.phosphor = true;
-    const phosMind = mkMind('siege');
-    plots(phosMind);
-    const dp = COMBAT_BRAIN.decide(phos, phosMind, port);
-    expect(dp.fireSlot).toBe(slotOf(phos, 'starShells'));
-    expect(dp.aimDist).toBeCloseTo(300, 6); // the slow one — a DoT zone needs a hull that stays
-    const daz = mkBot(w, 'battleship', 0, 0, 0);
-    daz.stats.equipment.starShells.dazzle = true;
-    const dazMind = mkMind('siege');
-    plots(dazMind);
-    expect(COMBAT_BRAIN.decide(daz, dazMind, port).aimDist).toBeCloseTo(150, 6); // the nearest
-  });
-
-  it('starShells.phosphor: the x0.8 lit shrink caps how stale a sensor plot is worth', () => {
-    const w = openWorld(409);
-    const port = fakePort(w);
-    // 3.4s of drift outruns the SHRUNKEN lit circle (132u / 45 u/s ≈ 2.93s)
-    // but not the full one — so base lights the plot and phosphor holds.
-    const stale = { x: 500, y: 0, live: false, seenAt: port.now - 3400 };
-    const base = mkBot(w, 'battleship', 0, 0, 0);
-    const baseMind = mkMind('siege');
-    plot(baseMind, track(port.now, stale));
-    expect(COMBAT_BRAIN.decide(base, baseMind, port).fireSlot).toBe(slotOf(base, 'starShells'));
-    const phos = mkBot(w, 'battleship', 0, 0, 0);
-    phos.stats.equipment.starShells.phosphor = true;
-    const phosMind = mkMind('siege');
-    plot(phosMind, track(port.now, stale));
-    expect(COMBAT_BRAIN.decide(phos, phosMind, port).fireSlot).not.toBe(slotOf(phos, 'starShells'));
-  });
-
-  it('starShells.phosphor never CLOSES the sensor window for a reluctant holder', () => {
-    // REGRESSION (review gate, cycle 110). A non-eager holder waits 2x
-    // (3000ms) before spending a flare, but the phosphor cap refuses anything
-    // staler than 132u / 45 u/s = 2933ms — the window was empty by 67ms, so
-    // buying PHOSPHOR silently deleted the sensor flare for `bulwark`, a hull
-    // that carries star shells natively. Reluctance now degrades to the eager
-    // floor instead of to nothing. Without the fix this fires the gun.
+  it('the sensor flare: the reluctant staleness floor is simply the floor again (no phosphor cap under it)', () => {
     const w = openWorld(414);
     const port = fakePort(w);
-    // Inside the cap, past the EAGER floor, short of the reluctant one.
-    const stale = { x: 500, y: 0, live: false, seenAt: port.now - 2000 };
-    const phos = mkBot(w, 'battleship', 0, 0, 0);
-    phos.stats.equipment.starShells.phosphor = true;
-    const phosMind = mkMind('bulwark'); // appetite 1.2 — reluctant, not eager
-    plot(phosMind, track(port.now, stale));
-    expect(COMBAT_BRAIN.decide(phos, phosMind, port).fireSlot).toBe(slotOf(phos, 'starShells'));
+    // bulwark (appetite 1.2 — reluctant) waits 2× FLARE_STALE_MS = 3000 ms.
+    const fresh = mkBot(w, 'battleship', 0, 0, 0);
+    const freshMind = mkMind('bulwark');
+    plot(freshMind, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 2000 }));
+    expect(COMBAT_BRAIN.decide(fresh, freshMind, port).fireSlot).not.toBe(slotOf(fresh, 'starShells'));
+    const stale = mkBot(w, 'battleship', 0, 0, 0);
+    const staleMind = mkMind('bulwark');
+    plot(staleMind, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3400 }));
+    expect(COMBAT_BRAIN.decide(stale, staleMind, port).fireSlot).toBe(slotOf(stale, 'starShells'));
+    // ...and a holder with PHOSPHOR fitted lights the same stale plot (the cap is gone).
+    const both = mkBot(w, 'battleship', 0, 0, 0);
+    w.applyCard(both, 'phosphorShells');
+    const bothMind = mkMind('bulwark');
+    plot(bothMind, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3400 }));
+    expect(COMBAT_BRAIN.decide(both, bothMind, port).fireSlot).toBe(slotOf(both, 'starShells'));
+  });
+
+  it('FLASH SHELLS (8.17 interim): the belt row PRIMES and FIRES at the nearest live contact in sight while ENGAGED; held otherwise', () => {
+    const w = openWorld(408);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    for (const i of [SLOT_BOOST, 2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
+    w.applyCard(rec, 'dazzleShells');
+    const belt = slotOf(rec, 'dazzleShells');
+    expect(belt).toBeGreaterThanOrEqual(5);
+    expect(CONSUMABLE_TACTICS.dazzleShells!.kind).toBe('shot');
+    const band = engagementBand(profileOf('duelist'), rec.stats);
+    const engaged = mkMind('duelist');
+    plot(engaged, track(port.now, { x: Math.min((band.min + band.max) / 2, 250), y: 0, live: true, speed: 0 }));
+    const d = COMBAT_BRAIN.decide(rec, engaged, port);
+    expect(engaged.posture).toBe('engage');
+    expect(d.fireSlot).toBe(belt);
+    expect(d.aimDist).toBeCloseTo(Math.min((band.min + band.max) / 2, 250), 6); // burst ON the contact
+    // No target: nothing to flash — held (the gun does not fire either).
+    const idle = mkMind('duelist');
+    expect(COMBAT_BRAIN.decide(rec, idle, port).fireSlot).toBeNull();
+    // A NON-live plot (a blip) inside the band engages but never draws a flash.
+    const blip = mkMind('duelist');
+    plot(blip, track(port.now, { x: Math.min((band.min + band.max) / 2, 250), y: 0, live: false, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, blip, port).fireSlot).not.toBe(belt);
   });
 
   it('CAPTIVE MINES keeps the base mine UNCONDITIONAL withdrawal lay', () => {
@@ -1989,7 +1993,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109, 
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], decoys: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [] };
     mind.viewAt = now;
   }
 
@@ -2280,7 +2284,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g), interim)', 
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], decoys: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [] };
     mind.viewAt = now;
   }
 
@@ -2290,7 +2294,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g), interim)', 
   }
 
   it('a CONSUMABLE_TACTICS row exists for every built consumable line', () => {
-    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy'] as const) {
+    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy', 'dazzleShells'] as const) {
       expect(CONSUMABLE_TACTICS[id], id).toBeDefined();
       expect(CONSUMABLE_TACTICS[id]!.id).toBe(id);
     }

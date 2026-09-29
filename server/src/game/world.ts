@@ -191,13 +191,10 @@ const NO_BEHAVIORS: readonly BoonBehaviorEffect[] = Object.freeze([]);
  *  no-fit case is one shared allocation-free identity. */
 const EMPTY_FIT: readonly string[] = Object.freeze([]);
 
-/** ms — how long a dazzle mark outlives its last inside-the-zone tick (Story
- *  2.8 RULING): `dazzledUntil = now + DAZZLE_GRACE_MS`, refreshed every tick
- *  the victim's center stays inside a non-owned dazzle zone. The small grace
- *  keeps the wire field (and the victim's shrunken fog hole) from strobing at
- *  tick boundaries; perception reads the same field, so the server's shrunken
- *  sight and the client's honest fog hole expire together. */
-const DAZZLE_GRACE_MS = 250;
+// (`DAZZLE_GRACE_MS` — the per-tick refresh grace of the old star-shell DAZZLE
+// zone — is DELETED with the verb, Story 8.17 / epic-8 amendment 134: a FLASH
+// SHELLS burst sets `dazzledUntil` ONCE, to `now + CONFIG.flashShells.
+// durationMs`, and nothing refreshes it — see applyFlash.)
 
 /** ms — the incendiary DoT's `dmg` EVENT window (Story 2.8 review, P4). The
  *  burn applies hp every tick (20/s); the victim-private event that reports it
@@ -275,8 +272,13 @@ function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): SlotItemId 
  * (the reveal rules live in signals.ts — "lit from above", no island LOS).
  * Server-owned, NO per-ship state — a zone survives its owner's death and
  * dies only by natural expiry (expireLitZones). The wire shape is LitZoneView
- * ({id,x,y,r,until,by,phos?,daz?}), materialized per observer by the litzone
- * signal row.
+ * ({id,x,y,r,until,by}), materialized per observer by the litzone signal row.
+ *
+ * A LIT ZONE ONLY EVER LIGHTS (Story 8.17, epic-8 amendment 134): the
+ * star-shell PHOSPHOR / DAZZLE doctrine verbs and the `phosphor` / `dazzle`
+ * fields that stamped them here are DELETED. Burning is a BurnZone
+ * (PHOSPHOR SHELLS, its own store below); blinding is a one-time FLASH
+ * SHELLS burst that sets the victim's `dazzledUntil` mark (applyFlash).
  */
 export interface LitZone {
   id: string;
@@ -285,23 +287,33 @@ export interface LitZone {
   y: number; // u
   r: number; // u — lit radius
   until: number; // ms — server time the zone expires
-  /**
-   * The firer's star-shell DOCTRINE VERBS at zone-spawn time, stamped
-   * INDEPENDENTLY (Story 7-5 wave 1 — PHOSPHOR and DAZZLE stopped being an
-   * either/or pair, so a zone may burn AND blind, and `markZoneEffects` runs
-   * the two as two separate checks rather than one if/else). Both false unless
-   * the owner held the verb when the flare stopped (owner lookup at spawn; a
-   * vacated owner falls back to both-false — the CONFIG-base rule).
-   *
-   * As of Story 2.9 (amendment 50) these ride the wire on LitZoneView to EVERY
-   * observer who sees the circle — counterplay over concealment: the zone's
-   * nature is observable behavior of the fired shell, not a build leak.
-   * Zone-spawn stamping (not fire-time) is deliberate — the burn/dazzle zone
-   * effects key off these same fields, so the wire flags can never disagree
-   * with what the zone actually does.
-   */
-  phosphor: boolean;
-  dazzle: boolean;
+}
+
+/**
+ * A live PHOSPHOR SHELLS BURNING ZONE (Story 8.17, Eric ruling 2026-09-29,
+ * epic-8 amendments 131 / 135(e)): a static circle spawned where a phosphor
+ * shell BURST (or where an interception stopped it), burning `dps` hp/s on
+ * every non-owner afloat hull whose CENTRE is inside until `until`. All three
+ * numbers are STAMPED from the shell's `burn` tag — the owner's effective row
+ * at LAUNCH — so a later tier card never changes a live zone.
+ *
+ * A HAZARD ONLY, and ITS OWN STORE rather than a LitZone with a flag, BY
+ * CONSTRUCTION: `ownZoneCovers` (the firer's truesight parity) and the
+ * star-shell gun reach (`ownLiveLitZones`) iterate `litZones` alone, so a
+ * burning zone can reveal nothing and extend no gun — there is no flag for a
+ * reader to forget. Server-owned, NO per-ship state — it survives its owner's
+ * death and dies only by natural expiry (expireBurnZones). The wire shape is
+ * BurnZoneView ({id,x,y,r,until,by}), materialized per observer by the
+ * `burnzone` signal row on the LIT ZONE's visibility gate.
+ */
+export interface BurnZone {
+  id: string;
+  ownerId: string; // the firer — never burned by its own zone; kill credit goes here
+  x: number; // u — zone center (the burst / stop point)
+  y: number; // u
+  r: number; // u — burning radius
+  until: number; // ms — server time the zone expires
+  dps: number; // hp/s — the burn, integrated per tick through the 'burn' seat
 }
 
 /**
@@ -767,12 +779,15 @@ export interface ShipRecord {
    */
   shield: { hpLeft: number; until: number } | null;
   /**
-   * ms — server time the DAZZLE truesight reduction on this ship ends (Story
-   * 2.8); 0 = not dazzled. Refreshed every tick the ship's center sits inside
-   * a NON-owned dazzle zone (applyDazzle: now + DAZZLE_GRACE_MS); read by
-   * signals.ts sightOf() — the DAZZLED OBSERVER'S own sight shrinks — and
-   * mirrored onto OwnShip.dazzledUntil (VICTIM-PRIVATE, frames.toOwnShip only)
-   * so the client's fog hole shrinks honestly. Reset on sink/respawn/redeploy.
+   * ms — server time the DAZZLE truesight reduction on this ship ends; 0 =
+   * not dazzled. Set ONCE by a FLASH SHELLS burst whose radius covers this
+   * ship's centre (Story 8.17, amendment 132 — applyFlash: `max(current, now +
+   * CONFIG.flashShells.durationMs)`, so a second flash sets the later expiry
+   * and never stacks or shortens); nothing refreshes it. Read by signals.ts
+   * sightOf() through the shared `effectiveSight` — the DAZZLED OBSERVER'S own
+   * sight collapses to radarRange × sightFraction — and mirrored onto
+   * OwnShip.dazzledUntil (VICTIM-PRIVATE, frames.toOwnShip only) so the
+   * client's fog hole shrinks honestly. Reset on sink/respawn/redeploy.
    */
   dazzledUntil: number;
   /**
@@ -1082,6 +1097,10 @@ export class World {
   readonly chaffSources = new Map<string, FakeSource>();
   /** All live star-shell lit zones (static circles), in burst order (Story 1.7). */
   readonly litZones = new Map<string, LitZone>();
+  /** All live PHOSPHOR SHELLS burning zones (static circles), in burst order
+   *  (Story 8.17). A SEPARATE store from `litZones` by design — see BurnZone:
+   *  nothing that reveals or extends reach ever iterates it. */
+  readonly burnZones = new Map<string, BurnZone>();
   /**
    * LIVE TORPEDO wake ribbons, keyed by shell id (Story 4.12, amendment 196):
    * a running torpedo (`ShellState.kind === 'torp'`) lays a one-cell-wide
@@ -1265,6 +1284,7 @@ export class World {
   private readonly dotBuckets = new Map<string, { victimId: string; amount: number; absorbed: number; since: number }>();
   private mineSeq = 0;
   private litZoneSeq = 0;
+  private burnZoneSeq = 0;
   private decoySeq = 0;
   /**
    * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match
@@ -1947,6 +1967,8 @@ export class World {
     this.decoys.clear(); // practice-field decoys never float into the real match (mines precedent)
     this.chaffSources.clear(); // ...nor a practice-field chaff cloud (amendment 127)
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
+    this.burnZones.clear(); // ...nor burn into it (Story 8.17, the same precedent)
+    this.dotBuckets.clear(); // an open burn window must not flush a phantom dmg against a redeployed hull
     // The pending queue is dropped at the boundary as it always was. The
     // COUNTDOWN's own `pt` (the level-zero grant, Story 8.10) is never in it
     // here: the grant fires at startCountdown, a whole countdown earlier, and
@@ -3092,9 +3114,10 @@ export class World {
     // (The RADAR BUOY's `tickBuoys` row was REMOVED in Story 8.16 with the
     // buoy — the DECOY BUOY that took the `decoy` kind has no tick: no
     // lifetime, no sweep, no gun, no wake. Amendment 124(e).)
-    // Star-shell doctrine zone effects (Story 2.8): incendiary DoT + dazzle
-    // marking, against post-move centers, BEFORE the expiry sweep so a zone
-    // burns/dazzles through its final tick.
+    // PHOSPHOR burning-zone DoT (Story 2.8's seat, Story 8.17's source):
+    // against post-move centers, BEFORE the expiry sweep so a zone burns
+    // through its final tick. (The dazzle mark left this row with the verb —
+    // a FLASH burst sets it inside stepShells, amendment 132.)
     { name: 'applyZoneEffects', run: (w, ctx) => w.applyZoneEffects(ctx.dt) },
     // DAMAGE CONTROL regen (Eric rulings 2026-08-04) — DELIBERATE step-order
     // position: dead LAST among the hp movers, after EVERY damage source this
@@ -3122,6 +3145,10 @@ export class World {
     // stepShells (resolveBurst on a star shell) and deliberately survive their
     // owner's death — expiry is the only way out.
     { name: 'expireLitZones', run: (w) => w.expireLitZones() },
+    // Burning zones (Story 8.17): the same natural-expiry sweep, beside the
+    // lit zones'. Spawned inside stepShells (resolveBurst / resolveInterception
+    // on a phosphor shell), they too survive their owner's death.
+    { name: 'expireBurnZones', run: (w) => w.expireBurnZones() },
     { name: 'fireControl', run: (w, ctx) => w.fireControl(ctx.dtMs) },
     // THE HELD-FIRE STREAM (Story 8.15): the machine gun's level channel,
     // resolved right after the click channel — the reloads have ticked (a
@@ -4641,9 +4668,13 @@ export class World {
     hulls: readonly Target[],
     kind: TargetKind | undefined,
   ): void {
-    // A DAMAGELESS flare still lights where it stopped (Story 2.8, amendment
-    // 39): an intercepted star shell spawns its zone at the interception point.
-    if (shell.lit) this.spawnLitZone(shell, outcome);
+    // A flare still lights where it stopped (Story 2.8): an intercepted star
+    // shell spawns its zone at the interception point. Story 8.17 gives the
+    // same posture to its two siblings — an intercepted PHOSPHOR shell burns
+    // where it stopped, and an intercepted FLASH shell flashes there
+    // (amendments 131 / 135(d)). The interceptor then takes the shell's
+    // contactDamage below like any other early hit (0 for the flash).
+    this.applyStopTags(shell, outcome);
     // THE CAPTIVE MINE'S TORPEDO (Story 7-5 wave 2, R2.12/R2.14) — the game's
     // one CONTACT-BLAST projectile: it detonates AT ITS IMPACT POINT for the
     // layer's CAPTIVE MINES damage over that row's FIXED 32 u burst, instead of
@@ -4703,13 +4734,16 @@ export class World {
   private resolveBurst(shell: ShellState, at: Vec2, hulls: readonly Target[]): void {
     const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
     this.pending.push(burst);
-    // A star shell's burst also lights its zone (Story 1.7): the server-
-    // internal `lit` tag rides only star shells, so every other burster is
-    // untouched. The burst-flash wire event above is the SAME 'burst' row —
-    // no new GameEvent kind; the zone itself syncs contact-like as litZones.
-    if (shell.lit) this.spawnLitZone(shell, at);
-    // A zero-damage burst (the damageless star shell, amendment 39) resolves
-    // no victims at all — no 0-hp dmg-event noise, structurally.
+    // A star shell's burst also lights its zone (Story 1.7), a PHOSPHOR
+    // shell's spawns its burning zone and a FLASH shell's sets the dazzle
+    // mark (Story 8.17): the three server-internal tags ride only their own
+    // rows, so every other burster is untouched. The burst-flash wire event
+    // above is the SAME 'burst' row for all of them — no new GameEvent kind;
+    // the zones themselves sync contact-like as litZones / burnZones, and the
+    // flash leaves nothing on the water at all (amendment 132).
+    this.applyStopTags(shell, at);
+    // A zero-damage burst (the FLASH shell) resolves no victims at all — no
+    // 0-hp dmg-event noise, structurally — and so emits `sp` (135(d)).
     //
     // ONE CALL TO THE COLLECTOR'S OWN MEMBERSHIP RULE covers every kind the
     // shell's mask admitted (Story 8.4): hulls and decoys take damage, mines
@@ -4732,9 +4766,9 @@ export class World {
       // AMENDMENT 19 (Eric 2026-09-15, resolving `deferred-work.md:590`): a
       // hull an EARLIER shell of this same click already sank still counts as a
       // GEOMETRIC victim for the mark — `hc`, not `sp` — while taking no damage
-      // and paying no assist. The zero-damage star shell is excluded by the
-      // `damage > 0` gate it sits inside, which is the whole point: a flare
-      // must never answer "is a hull within burstRadius of this point?".
+      // and paying no assist. The zero-damage FLASH shell is excluded by the
+      // `damage > 0` gate it sits inside: a flash must never answer "is a hull
+      // within burstRadius of this point?" (it reveals nothing, 135(d)).
       resolved += this.wrecksInBurst(at, shell.burstRadius, shell.ownerId);
     }
     // Story 4.3: exactly one of hc/sp per shell resolution — a burst that
@@ -4743,15 +4777,25 @@ export class World {
     // 8.16, amendment 121 — `hc`, exactly as a hull); the shooter's OWN decoy
     // is never a victim (amendment 119), so a burst on it alone splashes.
     //
-    // A DAMAGELESS FLARE BURSTING OVER A HULL EMITS `sp`, NEVER `hc` — and that
-    // is deliberate, not an oversight in the `damage > 0` gate above. DO NOT
-    // "fix" it by counting geometric victims for zero-damage shells: a star
-    // shell cannot connect with anything (it damages nothing), so a Hit Call
-    // there would be a lie — and worse, it would mint an unsanctioned detection
-    // channel. A flare lobbed into fog would answer "is a hull within
-    // burstRadius of this point?" directly, bypassing the lit zone + LOS that
-    // is the flare's ONE sanctioned way to reveal a ship. The flare reports
-    // where it fell; the zone it lights is what finds people.
+    // THE STAR SHELL NOW EMITS `hc` LIKE ANY DAMAGING BURST (Story 8.17, epic-8
+    // amendment 135(a) — SUPERSEDING the amendment-39 era rule that a
+    // damageless flare over a hull must splash). Until 8.17 the flare dealt
+    // nothing, so a Hit Call there would have been a lie AND an unsanctioned
+    // detection channel: a flare lobbed into fog answering "is a hull within
+    // burstRadius of this point?" bypassed the lit zone + LOS. That objection
+    // dissolves now, for two reasons that must BOTH hold for the `hc` to be
+    // sanctioned: (1) the flare CONNECTS — every hull inside the circle took
+    // the tier's damage through the ordinary gate, so the mark is true; and
+    // (2) it adds NO channel the light does not already open, with ONE
+    // recorded exception. The burst keeps the gun's OUTLINE rule (a hull hit
+    // when its outline touches the circle) while the reveal tests the hull's
+    // CENTRE, so a hull whose outline touches the rim can be hit and hit-called
+    // WITHOUT being revealed by the light. That rim disclosure is ACCEPTED, not
+    // covered by the reveal (Eric, review gate 2026-09-29, amendment 136).
+    // Every other hull in the circle is revealed to the firer anyway ("lit from
+    // above", no LOS term), so the `hc` says nothing new about them.
+    // A PHOSPHOR burst over fog does the same for its 100 u+ zone — accepted as the flak precedent (a
+    // 50 u blast already does this), amendment 135(b).
     if (resolved > 0) this.emitHitCall(shell.ownerId, at.x, at.y);
     else this.emitSplash(shell, at.x, at.y);
     // A burst DETONATES every armed non-captive mine whose centre it covers,
@@ -4873,15 +4917,24 @@ export class World {
     this.detonateMine(mine, this.hitTargets(MINE_BLAST_HITS));
   }
 
+  /** WHAT A SHELL LEAVES WHERE IT STOPS, whichever way it stopped (its burst
+   *  point, or an interception's stop point — the ONE shared list, so the two
+   *  resolution paths can never disagree about a tag): a `lit` flare lights a
+   *  zone (Story 1.7), a `burn` phosphor shell spawns a burning zone and a
+   *  `flash` shell dazzles every hull inside it (Story 8.17). Plain shells
+   *  carry no tag and leave nothing. */
+  private applyStopTags(shell: ShellState, at: Vec2): void {
+    if (shell.lit) this.spawnLitZone(shell, at);
+    if (shell.burn) this.spawnBurnZone(shell, at);
+    if (shell.flash) this.applyFlash(at, shell.ownerId, shell.flash.radius, shell.flash.durationMs);
+  }
+
   /** Spawn a lit zone where a star shell stopped (burst point, or the
-   *  interception stop point — amendment 39's damageless flare always lights).
-   *  The two doctrine verbs are read INDEPENDENTLY off the OWNER's stats at
-   *  spawn time (owner lookup; a vacated owner falls back to both-false — the
-   *  CONFIG-base rule, pinned), so a firer holding BOTH stamps a zone that
-   *  burns and blinds. */
+   *  interception stop point — a flare always lights). Stamped from the
+   *  shell's own `lit` tag; since Story 8.17 a lit zone carries no verbs
+   *  (amendment 134), so there is no owner lookup any more. */
   private spawnLitZone(shell: ShellState, at: Vec2): void {
     const id = this.nextLitZoneId();
-    const stars = this.ships.get(shell.ownerId)?.stats.equipment.starShells;
     this.litZones.set(id, {
       id,
       ownerId: shell.ownerId,
@@ -4889,24 +4942,69 @@ export class World {
       y: at.y,
       r: shell.lit!.radius,
       until: this.now + shell.lit!.durationMs,
-      phosphor: stars?.phosphor ?? false,
-      dazzle: stars?.dazzle ?? false,
+    });
+  }
+
+  /** Spawn a BURNING ZONE where a phosphor shell stopped (burst point, or the
+   *  interception stop point — Story 8.17, amendment 131). Radius, lifetime
+   *  and dps are STAMPED from the shell's `burn` tag, which the row filled
+   *  from the owner's effective stats at LAUNCH (amendment 135(e)) — never an
+   *  owner lookup here, so a tier card fitted while the shell flew, or after
+   *  the zone lit, changes nothing about it. */
+  private spawnBurnZone(shell: ShellState, at: Vec2): void {
+    const id = this.nextBurnZoneId();
+    const burn = shell.burn!;
+    this.burnZones.set(id, {
+      id,
+      ownerId: shell.ownerId,
+      x: at.x,
+      y: at.y,
+      r: burn.radius,
+      until: this.now + burn.durationMs,
+      dps: burn.dps,
     });
   }
 
   /**
-   * Star-shell DOCTRINE zone effects (Story 2.8), once per tick over post-move
-   * centers: INCENDIARY zones burn every non-owner alive hull whose CENTER is
-   * inside — incendiaryDps integrated per tick through the burnShip choke
-   * (kill credit to the zone owner), at most once per (owner, victim) pair per
-   * tick no matter how many of that owner's zones overlap; DAZZLE zones
-   * refresh the victim's dazzledUntil mark (perception shrinks the DAZZLED
-   * observer's own sight; non-dazzled observers untouched).
+   * A FLASH SHELLS burst (Story 8.17, Eric ruling 2026-09-29, amendment 132):
+   * every AFLOAT non-owner ship whose CENTRE is within `radius` of `at` —
+   * captains AND fleet drones alike (a drone is a ship; a spectator or a
+   * wreck has no eyes to dazzle) — is marked `dazzledUntil = max(current,
+   * now + durationMs)`: a hull already dazzled keeps whichever expiry is
+   * LATER, so a second flash never stacks and never shortens. One-time: no
+   * zone, no light, no reveal, no damage, nothing refreshes the mark.
+   * Perception (signals.sightOf → the shared `effectiveSight`) collapses the
+   * DAZZLED observer's own sight; frames mirror the mark to the victim alone.
    *
-   * ALL of it is gated on damageEnabled (Story 2.8 review, P9): dazzle is a
-   * HOSTILE effect like the burn, so the weapons-safe ready room must not
-   * blind anyone. One flag, one policy — a flare fired in the ready room
-   * lights the water and nothing else.
+   * GATED ON damageEnabled exactly as the old dazzle zone was (Story 2.8
+   * review, P9): a flash is a HOSTILE effect, so a ready-room burst blinds
+   * nobody — the shell still flies and bursts, and nothing else happens.
+   */
+  private applyFlash(at: Vec2, ownerId: string, radius: number, durationMs: number): void {
+    if (!this.damageEnabled) return; // ready-room flashes blind nobody
+    const r2 = radius * radius;
+    const until = this.now + durationMs;
+    for (const ship of this.ships.values()) {
+      if (ship.id === ownerId || !isAfloat(ship.lifecycle)) continue;
+      const dx = ship.state.x - at.x;
+      const dy = ship.state.y - at.y;
+      if (dx * dx + dy * dy > r2) continue;
+      ship.dazzledUntil = Math.max(ship.dazzledUntil, until);
+    }
+  }
+
+  /**
+   * PHOSPHOR burning-zone DoT (Story 2.8's machinery, Story 8.17's source —
+   * amendment 135(g)), once per tick over post-move centers: every BurnZone
+   * burns every non-owner alive hull whose CENTER is inside — the zone's own
+   * stamped `dps` integrated per tick through the burnShip choke (kill credit
+   * to the zone owner), at most once per (owner, victim) pair per tick no
+   * matter how many of that owner's zones overlap (the STRONGEST covering
+   * zone of that owner bites, so two of one owner's zones never double-burn).
+   *
+   * Gated on damageEnabled (Story 2.8 review, P9): the weapons-safe ready
+   * room never burns anyone — a phosphor shell fired there leaves its zone on
+   * the water and nothing else.
    *
    * DoT WIRE CADENCE (Story 2.8 review, P4): hp application stays EXACTLY
    * per-tick (sim math unchanged, kill timing unchanged), but the victim-
@@ -4918,15 +5016,14 @@ export class World {
    * before the sink.
    */
   private applyZoneEffects(dt: number): void {
-    if (!this.damageEnabled) return; // ready-room flares never burn OR dazzle
-    const bite = CONFIG.starShells.incendiaryDps * dt;
+    if (!this.damageEnabled) return; // ready-room zones never burn
     const burning = new Set<string>();
     for (const ship of this.ships.values()) {
       if (!isAfloat(ship.lifecycle)) continue;
-      for (const ownerId of this.markZoneEffects(ship)) {
+      for (const [ownerId, dps] of this.markZoneEffects(ship)) {
         if (!isAfloat(ship.lifecycle)) break; // a mid-loop sink stops further burns
         burning.add(dotKey(ownerId, ship.id));
-        this.burnShip(ship, bite, ownerId);
+        this.burnShip(ship, dps * dt, ownerId);
       }
     }
     // Every pair that did NOT burn this tick has stopped burning: flush its
@@ -4967,23 +5064,19 @@ export class World {
     this.pending.push({ k: 'dmg', id: bucket.victimId, amount: bucket.amount, hp: Math.max(0, victim.hp) });
   }
 
-  /** The per-ship zone scan: refresh the dazzle mark for every covering
-   *  non-owned DAZZLE zone and collect the owners of covering PHOSPHOR zones
-   *  (deduped — at most one burn per owner per tick).
-   *
-   *  THE TWO VERBS ARE INDEPENDENT CHECKS, NOT AN if/else (Story 7-5 wave 1):
-   *  a firer holding both cards stamps a zone that is phosphor AND dazzle, and
-   *  that zone must BOTH burn and blind. The pre-7-5 chain (`if dazzle … else
-   *  if incendiary …`) structurally could not say that. */
-  private markZoneEffects(ship: ShipRecord): Set<string> {
-    const burnedBy = new Set<string>();
-    for (const zone of this.litZones.values()) {
-      if (zone.ownerId === ship.id) continue; // own zones never burn or dazzle you
+  /** The per-ship BURN-ZONE scan (Story 8.17): the owners of every covering
+   *  non-owned burning zone, each with the strongest `dps` among that owner's
+   *  covering zones (deduped — at most one burn per owner per tick, whatever
+   *  the overlap). Only `burnZones` is read: a lit zone burns nobody
+   *  (amendment 134), and the dazzle branch left with the verb. */
+  private markZoneEffects(ship: ShipRecord): Map<string, number> {
+    const burnedBy = new Map<string, number>();
+    for (const zone of this.burnZones.values()) {
+      if (zone.ownerId === ship.id) continue; // own zones never burn you
       const dx = ship.state.x - zone.x;
       const dy = ship.state.y - zone.y;
       if (dx * dx + dy * dy > zone.r * zone.r) continue;
-      if (zone.dazzle) ship.dazzledUntil = this.now + DAZZLE_GRACE_MS;
-      if (zone.phosphor) burnedBy.add(zone.ownerId);
+      burnedBy.set(zone.ownerId, Math.max(burnedBy.get(zone.ownerId) ?? 0, zone.dps));
     }
     return burnedBy;
   }
@@ -4993,6 +5086,14 @@ export class World {
   private expireLitZones(): void {
     for (const [id, zone] of this.litZones) {
       if (this.now >= zone.until) this.litZones.delete(id);
+    }
+  }
+
+  /** Drop every burning zone whose lifetime has elapsed (Story 8.17 — the lit
+   *  zone's exact rule: natural expiry only, owner death never clears it). */
+  private expireBurnZones(): void {
+    for (const [id, zone] of this.burnZones) {
+      if (this.now >= zone.until) this.burnZones.delete(id);
     }
   }
 
@@ -5663,6 +5764,11 @@ export class World {
   private nextLitZoneId(): string {
     this.litZoneSeq += 1;
     return `z${this.litZoneSeq}`;
+  }
+
+  private nextBurnZoneId(): string {
+    this.burnZoneSeq += 1;
+    return `bz${this.burnZoneSeq}`;
   }
 
   /**

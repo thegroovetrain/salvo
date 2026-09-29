@@ -1,7 +1,7 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
-// Pinned here: 26 lines / 109 cards with the exact per-line caps and kinds of
+// Pinned here: 26 lines / 117 cards with the exact per-line caps and kinds of
 // `catalog-v3.md` §1 as amended; `tiers.length === cap` on every line; the
 // 2-line stub set; the validator's rules, including its refusal of a stat
 // path that takes `add` from one line and `mult` from another; and a seeded
@@ -14,6 +14,11 @@
 // there is no authored 40-card list to transcribe and no ownership set to
 // check a deck against. The card TOTAL is simply Σ cap, a count of authored
 // ladder, not a supply.
+//
+// STORY 8.17 RE-CUT THE LAST TWO ADD-ONS' KINDS (Eric 2026-09-29, epic-8
+// amendments 130–133): 109 -> 117 cards, still 26 lines. `phosphorShells` went
+// from a 1-card add-on to a 5-card EQUIPMENT line (+4) and `dazzleShells`
+// (FLASH SHELLS) to a 5-card CONSUMABLE (+4). No add-on line remains.
 //
 // STORY 8.15 CUT THREE LINES AND RE-CUT TWO (Eric rulings 2026-09-21/28, epic-8
 // amendments 89e and 103–105): 29/122 -> 26/109. −11 (`missile` 5, `monitor`
@@ -42,6 +47,7 @@ import {
   mulberry32,
   resolveCards,
   tierTargetOf,
+  tieredWeaponSteps,
   validateCatalog,
   validateLine,
   type Catalog,
@@ -80,8 +86,10 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   depthCharge: { cap: 5, kind: 'consumable', stub: true }, // NEW in 8.13 (amendment 83)
   // AN EQUIPMENT LINE since 8.13 (amendment 81) — it keeps its LINE_IDS slot.
   foulingMines: { cap: 5, kind: 'equipment', stub: false },
-  dazzleShells: { cap: 1, kind: 'addon', stub: false },
-  phosphorShells: { cap: 1, kind: 'addon', stub: false },
+  // FLASH SHELLS — a CONSUMABLE since 8.17 (amendment 132), slot kept.
+  dazzleShells: { cap: 5, kind: 'consumable', stub: false },
+  // An EQUIPMENT line since 8.17 (amendment 131), slot kept.
+  phosphorShells: { cap: 5, kind: 'equipment', stub: false },
 };
 
 /** The 2 stub ids (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
@@ -100,12 +108,14 @@ describe('catalog v3 identity', () => {
     for (const id of LINE_IDS) expect(CATALOG[id].id).toBe(id);
   });
 
-  it('matches the sheet line for line (cap, kind, stub) and sums to 109 cards', () => {
+  it('matches the sheet line for line (cap, kind, stub) and sums to 117 cards', () => {
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       expect({ cap: line.cap, kind: line.kind, stub: line.stub === true }).toEqual(SHEET[id]);
     }
-    expect(catalogCardCount()).toBe(109);
+    // 109 -> 117 in Story 8.17 (amendments 131/132): the two 1-card add-ons
+    // became a 5-card equipment line and a 5-card consumable.
+    expect(catalogCardCount()).toBe(117);
   });
 
   it('has tiers.length === cap on every line', () => {
@@ -117,25 +127,81 @@ describe('catalog v3 identity', () => {
     expect(isStubLine('nope')).toBe(false);
   });
 
-  it('gives every equipment line a copy-1 slotFill, and FOUR EMPTY tiers where the story has not landed', () => {
-    // The five lines Story 8.13 authored (their exact steps are pinned in
-    // stats.test.ts, against the numbers, not against the effect shapes).
-    const LADDERED: readonly LineId[] = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines'];
+  it('gives every equipment line a copy-1 slotFill and FOUR AUTHORED tiers — no empty tier is left (Story 8.17)', () => {
+    // The UNIFORM ladders (`tieredWeapon`): the five Story 8.13 lines and, since
+    // 8.17, BROADSIDE (amendment 133). Their exact steps are pinned in
+    // stats.test.ts, against the numbers, not against the effect shapes.
+    // STAR SHELLS and PHOSPHOR SHELLS are NON-UNIFORM (`tieredWeaponSteps`,
+    // amendments 130/131) — their per-tier shapes are pinned below.
+    const UNIFORM: readonly LineId[] = [
+      'lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines', 'broadside',
+    ];
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       if (line.kind !== 'equipment') continue;
       expect(line.tiers[0], id).toEqual([{ kind: 'slotFill', equipmentId: id }]);
-      if (LADDERED.includes(id)) {
-        // Tiers II–V are the SAME step, four times, each in its OWN array.
-        for (const tier of line.tiers.slice(1)) expect(tier, id).toEqual(line.tiers[1]);
-        expect(line.tiers[1]!.length, id).toBeGreaterThan(0);
-        for (const e of line.tiers[1]!) expect(e.kind, id).toBe('stat');
-      } else {
-        // broadside + star shells (8.16).
-        expect(line.tiers.slice(1), id).toEqual([[], [], [], []]);
+      for (const tier of line.tiers.slice(1)) {
+        expect(tier.length, id).toBeGreaterThan(0);
+        for (const e of tier) expect(e.kind, id).toBe('stat');
       }
+      // Tiers II–V are the SAME step, four times, each in its OWN array.
+      if (UNIFORM.includes(id)) for (const tier of line.tiers.slice(1)) expect(tier, id).toEqual(line.tiers[1]);
     }
-    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'equipment')).toHaveLength(7);
+    // 7 -> 8 in Story 8.17: PHOSPHOR SHELLS joined as equipment (amendment 131).
+    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'equipment')).toHaveLength(8);
+  });
+
+  it('authors the STAR SHELLS ladder tier by tier (Eric 2026-09-29, amendment 130)', () => {
+    const stepsOf = (damage: number): unknown[] => [
+      { kind: 'stat', path: 'equipment.starShells.litDurationMs', add: 2500 },
+      { kind: 'stat', path: 'equipment.starShells.litRadius', mult: 1.1 },
+      { kind: 'stat', path: 'equipment.starShells.maxAmmo', add: 0.5 },
+      { kind: 'stat', path: 'equipment.starShells.damage', add: damage },
+    ];
+    expect(CATALOG.starShells.tiers.slice(1)).toEqual([stepsOf(2), stepsOf(3), stepsOf(2), stepsOf(3)]);
+  });
+
+  it('authors the BROADSIDE ladder: +1 spread rung and +0.5 turret per tier, no damage step (amendment 133)', () => {
+    for (const tier of CATALOG.broadside.tiers.slice(1)) {
+      expect(tier).toEqual([
+        { kind: 'stat', path: 'equipment.broadside.spreadRung', add: 1 },
+        { kind: 'stat', path: 'equipment.broadside.turrets', add: 0.5 },
+      ]);
+    }
+  });
+
+  it('authors the PHOSPHOR SHELLS ladder tier by tier — a ZERO duration step is omitted (amendment 131)', () => {
+    const tier = (damage: number, dps: number, durMs?: number): unknown[] => [
+      { kind: 'stat', path: 'equipment.phosphorShells.damage', add: damage },
+      { kind: 'stat', path: 'equipment.phosphorShells.dps', add: dps },
+      { kind: 'stat', path: 'equipment.phosphorShells.zoneRadius', mult: 1.1 },
+      ...(durMs === undefined ? [] : [{ kind: 'stat', path: 'equipment.phosphorShells.zoneDurationMs', add: durMs }]),
+    ];
+    expect(CATALOG.phosphorShells.tiers.slice(1)).toEqual([
+      tier(2, 1),
+      tier(3, 1, 1000),
+      tier(2, 1),
+      tier(3, 2, 1000),
+    ]);
+  });
+
+  it('tieredWeaponSteps gives every tier a FRESH array — never the caller\'s, never another tier\'s', () => {
+    const step = [{ kind: 'stat', path: 'equipment.starShells.damage', add: 2 }] as const;
+    const steps = [[...step], [...step], [...step], [...step]] as const;
+    const line = tieredWeaponSteps('starShells', 'starShells', steps);
+    expect(line.kind).toBe('equipment');
+    expect(line.cap).toBe(5);
+    expect(line.tiers[0]).toEqual([{ kind: 'slotFill', equipmentId: 'starShells' }]);
+    for (let k = 1; k < 5; k += 1) {
+      expect(line.tiers[k]).toEqual(steps[k - 1]);
+      expect(line.tiers[k]).not.toBe(steps[k - 1]);
+      for (let j = k + 1; j < 5; j += 1) expect(line.tiers[k]).not.toBe(line.tiers[j]);
+    }
+    // And the production lines it built obey the same law.
+    for (const id of ['starShells', 'phosphorShells'] as const) {
+      const tiers = CATALOG[id].tiers;
+      for (let k = 1; k < 5; k += 1) for (let j = k + 1; j < 5; j += 1) expect(tiers[k], id).not.toBe(tiers[j]);
+    }
   });
 
   it('NO equipment tier authors a reload effect — the −5 %/tier step is DERIVED', () => {
@@ -159,16 +225,20 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('wires each of the TWO surviving add-ons to the equipment catalog-v3 §4 names', () => {
+  it('carries NO add-on line any more (Story 8.17, Eric 2026-09-29, amendments 131–134)', () => {
     // TWO ADD-ONS WENT IN 8.13 (Eric rulings 2026-09-19, epic-8 amendments
     // 80/81): ACOUSTIC HOMING is deleted outright (homing became a tier stat on
     // the torpedo lines) and FOULING MINES became its own tiered EQUIPMENT line.
-    // A THIRD WENT IN 8.15: HEAT SEEKING is CUT with the missile (89e).
-    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'addon')).toEqual([
-      'dazzleShells', 'phosphorShells',
-    ]);
-    expect(CATALOG.dazzleShells.appliesTo).toEqual(['starShells']);
-    expect(CATALOG.phosphorShells.appliesTo).toEqual(['starShells']);
+    // A THIRD WENT IN 8.15: HEAT SEEKING is CUT with the missile (89e). THE LAST
+    // TWO WENT IN 8.17: PHOSPHOR SHELLS is its own weapon and DAZZLE SHELLS the
+    // FLASH SHELLS consumable. The `addon` kind itself stays (amendment 134).
+    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'addon')).toEqual([]);
+    expect(CATALOG.phosphorShells.kind).toBe('equipment');
+    expect(CATALOG.dazzleShells.kind).toBe('consumable');
+    expect(CATALOG.phosphorShells.appliesTo).toBeUndefined();
+    expect(CATALOG.dazzleShells.appliesTo).toBeUndefined();
+    expect(tierTargetOf(CATALOG.phosphorShells)).toBe('phosphorShells');
+    expect(tierTargetOf(CATALOG.dazzleShells)).toBeUndefined();
     expect((CATALOG as Record<string, unknown>).acousticHoming).toBeUndefined();
   });
 
@@ -181,9 +251,11 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('DELETES the radar buoy end to end — 13 equipment ids, no card fits it (Story 8.16)', () => {
+  it('DELETES the radar buoy end to end — no card fits it (Story 8.16); 14 equipment ids since 8.17', () => {
     expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
-    expect(EQUIPMENT_IDS).toHaveLength(13);
+    // 13 -> 14 in Story 8.17: `phosphorShells` joined (amendment 131).
+    expect(EQUIPMENT_IDS).toHaveLength(14);
+    expect(EQUIPMENT_IDS).toContain('phosphorShells');
     expect((CONFIG as Record<string, unknown>).radarBuoy).toBeUndefined();
     // The DECOY BUOY that replaces it is a live CONSUMABLE line, not equipment.
     expect(CATALOG.decoyBuoy.kind).toBe('consumable');

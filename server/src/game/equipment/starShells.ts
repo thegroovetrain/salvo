@@ -1,23 +1,26 @@
 // Star-shell fire control — the starShells Equipment row (Story 1.7, the
-// Battleship's slot-2 special). A gun-pattern skillshot that is DAMAGELESS as
-// of Story 2.8 (amendment 39 — CONFIG.starShells.damage is structurally gone):
-// the flare spawns with damage 0 / contactDamage 0, so a burst hurts nobody
-// and an interception does 0 — and the flare STILL lights: the shell carries
-// the server-internal `lit` tag, so the World spawns a {litRadius,
-// litDurationMs} zone at the burst point OR the interception stop point
-// (World.resolveShell) — firer-only truesight parity inside it lives in
-// signals.ts/perception.ts, never here. Lit numbers come from the OWNER's
-// effective stats (the SLOW-BURN ladder); the PHOSPHOR verb
-// (stats.equipment.starShells.phosphor) shrinks the zone by CONFIG.starShells.
-// incendiaryRadiusFactor — its DoT, and DAZZLE's sight reduction, are World/
-// perception concerns keyed off the zone's own verb flags, never this row's.
-// The two verbs are INDEPENDENT as of Story 7-5 wave 1: a zone may be BOTH
-// phosphor and dazzle, and only the phosphor half moves the radius. Same fire
-// flow as the gun (360°, clamp at the system's effective range,
-// muzzle-or-target spawn, makeBallistic with D1 fireT); range = the gun's
-// BASE range (stats.equipment.starShells.rangeU, radar-derived). Pure over a
-// ShipRecord's input + pose + slot pool; the World owns shell storage, zone
-// spawn, and event emission.
+// Battleship's slot-2 special). A gun-pattern skillshot whose burst IS its
+// lit circle. Since Story 8.17 (Eric ruling 2026-09-29, epic-8 amendment 130)
+// the flare is a TIERED WEAPON: it deals the row's `damage` (10 / 12 / 15 /
+// 17 / 20, tier I–V) to EVERY non-owner hull whose silhouette is inside the
+// WHOLE lit circle at burst — `burstRadius` stays `= litRadius`, so the water
+// it hurts is exactly the water it lights — and an interceptor en route takes
+// the same number as `contactDamage` (the broadside precedent) while the
+// flare STILL lights where it stopped: the shell carries the server-internal
+// `lit` tag, so the World spawns a {litRadius, litDurationMs} zone at the
+// burst point OR the interception stop point (World.resolveShell) —
+// firer-only truesight parity inside it lives in signals.ts/perception.ts,
+// never here. Amendment 39's "structurally damageless" flare is SUPERSEDED.
+//
+// The old PHOSPHOR and DAZZLE doctrine verbs are DELETED (amendment 134): a
+// lit zone only ever LIGHTS. PHOSPHOR SHELLS is its own weapon row
+// (equipment/phosphorShells.ts) and FLASH SHELLS a belt consumable
+// (equipment/consumables/dazzleShells.ts). Same fire flow as the gun (360°,
+// clamp at the system's effective range, muzzle-or-target spawn,
+// makeBallistic with D1 fireT); range = the gun's BASE range
+// (stats.equipment.starShells.rangeU, radar-derived). Pure over a ShipRecord's
+// input + pose + slot pool; the World owns shell storage, zone spawn, and
+// event emission.
 
 import { CONFIG, EQUIPMENT_IS_WEAPON, type EquipmentState, type ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
@@ -30,10 +33,9 @@ import { burstPoint, muzzleOrTarget } from './guns.js';
  * Star-shell fire control against one slot pool: 0 or 1 flare. The ONLY
  * denial is an empty pool ('no-ammo' — the 20s cooldown); there is no arc.
  * The flare's hit rule IS the lit circle: burstRadius = the effective lit
- * radius (× the phosphor shrink when that verb is held), so an
- * interceptor already inside the would-be lit circle still bursts the flare
- * at its target (zone where aimed); damage is HARDCODED ZERO everywhere
- * (amendment 39).
+ * radius, so an interceptor already inside the would-be lit circle still
+ * bursts the flare at its target (zone where aimed); damage is the tier's
+ * number from the OWNER's effective row (amendment 130).
  */
 function fireStarShell(
   ship: ShipRecord,
@@ -47,19 +49,19 @@ function fireStarShell(
   const dir = ship.input.aim;
   const target = burstPoint(ship, mapRadius, stars.rangeU);
   const origin = muzzleOrTarget(ship, dir, target, CONFIG.starShells.shellRadius);
-  const litRadius = stars.litRadius * (stars.phosphor ? CONFIG.starShells.incendiaryRadiusFactor : 1);
+  const litRadius = stars.litRadius;
   const shell = makeBallistic(mkId(), ship, dir, now, {
     speed: CONFIG.starShells.shellSpeed,
     range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.starShells.shellRadius,
-    damage: 0, // amendment 39: the flare deals zero damage, structurally
+    damage: stars.damage, // amendment 130: the tier's number to every hull inside the whole lit circle
     hitRadius: CONFIG.starShells.shellRadius,
     kind: 'shell', // rides the existing shell wire kind (first-sight reveal, constant-free shape)
     origin,
     targetX: target.x,
     targetY: target.y,
     burstRadius: litRadius, // the burst IS the lit circle
-    contactDamage: 0, // interception does 0 — and still lights (World.resolveShell)
-    hits: CONFIG.starShells.hits, // AR44 target mask
+    contactDamage: stars.damage, // an interceptor takes the tier damage (the broadside precedent) — and it still lights (World.resolveShell)
+    hits: CONFIG.starShells.hits, // AR44 target mask — no mine bit: lighting never clears a minefield
     family: 'cannon', // Story 8.15: a flare flies a gun-pattern shell — `w: 'cannon'`
     lit: { radius: litRadius, durationMs: stars.litDurationMs },
   });
@@ -67,9 +69,9 @@ function fireStarShell(
 }
 
 /** The starShells Equipment row. Pool size + reload come from the ship's
- *  cached effective stats (pure CONFIG.starShells pass-throughs — maxAmmo
- *  pinned to 1, the single-shot cooldown). Slot state is non-null by the
- *  loadout invariant (see index.ts). */
+ *  cached effective stats (CONFIG.starShells pass-throughs folded by the
+ *  STAR SHELLS ladder — maxAmmo 1 → 3, the single-shot cooldown). Slot state
+ *  is non-null by the loadout invariant (see index.ts). */
 export const starShellsEquipment: Equipment = {
   id: 'starShells',
   isWeapon: EQUIPMENT_IS_WEAPON.starShells, // shared weapon/ability split — single source

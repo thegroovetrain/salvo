@@ -67,6 +67,7 @@ function setup(onOwnStats: () => void): {
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     effects: { spawnEffect: vi.fn() },
     audio: { play: vi.fn() },

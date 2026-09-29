@@ -129,20 +129,21 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 // list (deliberately NOT via me.stats / effectiveStats — the reimplementation
 // rule). No card writes radar range any more (the INTEL RANGE line was deleted
 // 2026-08-20), so intel range is the flat constant and truesight is half of it;
-// the DAZZLE factor (Story 2.8) scales the OBSERVER's own sight while its
-// dazzledUntil mark is live — mirrored independently from signals.sightOf.
+// a FLASH dazzle (Story 8.17, amendment 132) collapses the OBSERVER's own
+// sight to ONE EIGHTH of intel range while its dazzledUntil mark is live —
+// mirrored independently from signals.sightOf / the shared effectiveSight.
 // (`stacksOf`, the raw-card counter the radar buoy's jamming oracle read, went
 // with the buoy in Story 8.16.)
 
 // TRUESIGHT IS THE 4/8 RUNG OF ONE NUMBER (Eric rulings 2026-08-16, unchanged
 // by the 2026-08-20 INTEL RANGE deletion). Re-derived here INDEPENDENTLY, as
 // literals, per this file's reimplementation rule: sight is half of intel
-// range, and dazzle still scales sight ONLY — intel range itself is never
-// dazzle-scaled, which is what keeps the 5/8 muzzle/smoke halo un-dazzled by
-// construction.
+// range, a dazzled hull sees an eighth of it (the 1/8 rung, written as the
+// literal `/ 8` — never CONFIG.flashShells.sightFraction), and dazzle still
+// scales sight ONLY — intel range itself is never dazzle-scaled, which is what
+// keeps the 5/8 muzzle/smoke halo un-dazzled by construction.
 function effSight(me: ShipRecord, now: number): number {
-  const base = effRadar() / 2;
-  return now < me.dazzledUntil ? base * CONFIG.starShells.dazzleSightFactor : base;
+  return now < me.dazzledUntil ? effRadar() / 8 : effRadar() / 2;
 }
 
 // INTEL RANGE IS FLAT AGAIN (Eric ruling 2026-08-20). `intelRange` — the only
@@ -399,9 +400,23 @@ function injectZone(
   y: number,
   r = CONFIG.starShells.litRadius,
   until = 999_999,
-  verbs: { phosphor?: boolean; dazzle?: boolean } = {},
 ): void {
-  w.litZones.set(id, { id, ownerId, x, y, r, until, phosphor: verbs.phosphor === true, dazzle: verbs.dazzle === true });
+  w.litZones.set(id, { id, ownerId, x, y, r, until });
+}
+
+/** Drop a PHOSPHOR burning zone directly into world state (Story 8.17) —
+ *  the injectZone sibling over the SEPARATE `burnZones` store. */
+function injectBurnZone(
+  w: World,
+  id: string,
+  ownerId: string,
+  x: number,
+  y: number,
+  r: number = CONFIG.phosphorShells.zoneRadius,
+  until = 999_999,
+  dps: number = CONFIG.phosphorShells.dps,
+): void {
+  w.burnZones.set(id, { id, ownerId, x, y, r, until, dps });
 }
 
 /** Push a raw world-emitted event onto the world's tick-event list — the exact
@@ -1043,12 +1058,12 @@ describe('perception — mine visibility (owner-always, else DETECT+LOS — Stor
     expect(buildFrame(w, 'a').mines).toEqual([]);
   });
 
-  it('detect is OBSERVER-SCALED (amendment 121): dazzle halves it; a sightRange boon widens it', () => {
+  it('detect is OBSERVER-SCALED (amendment 121): a flash dazzle collapses it to the 1/8 rung; a sightRange boon widens it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     injectMine(w, 'm1', 'b', 200, 0); // inside base detect (247.5)
     expect(buildFrame(w, 'a').mines.map((m) => m.id)).toEqual(['m1']);
-    a.dazzledUntil = w.now + 10_000; // dazzled detect = 0.75 × 165 = 123.75
+    a.dazzledUntil = w.now + 10_000; // flash-dazzled detect = 0.75 × 82.5 = 61.875 (Story 8.17)
     expect(buildFrame(w, 'a').mines).toEqual([]);
     a.dazzledUntil = 0;
     a.stats = { ...a.stats, sightRange: 600 }; // boon-widened detect = 450
@@ -1245,7 +1260,7 @@ describe('perception — ballistic re-reveal on gate re-entry (Story 8.13, amend
   it('the gate SHRINKING under the projectile (dazzle) is an exit too: cleared while dazzled, re-revealed when the dazzle lifts', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    injectShell(w, 't1', 'b', 200, 0, Math.PI / 2, 900, false, 'torp'); // inside 247.5, outside a dazzled 123.75
+    injectShell(w, 't1', 'b', 200, 0, Math.PI / 2, 900, false, 'torp'); // inside 247.5, outside a flash-dazzled 61.875
     expect(collect(w, 'a', 'torp', 2).map((e) => e.id)).toEqual(['t1']);
     a.dazzledUntil = w.now + 10_000;
     expect(collect(w, 'a', 'torp', 2)).toEqual([]);
@@ -1482,27 +1497,21 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
     expect(buildFrame(w, 'c').litZones?.map((z) => z.id)).toEqual(['z1']);
   });
 
-  it('spectators see every zone, doctrine verbs included', () => {
+  it('spectators see every zone', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    injectZone(w, 'z1', 'b', 9_000, 9_000, CONFIG.starShells.litRadius, 999_999, { phosphor: true });
+    injectZone(w, 'z1', 'b', 9_000, 9_000, CONFIG.starShells.litRadius, 999_999);
     const zones = buildFrame(w, 'a', 'finished').litZones;
     expect(zones?.map((z) => z.id)).toEqual(['z1']);
-    expect(zones?.[0].phos).toBe(true);
-    expect(zones?.[0].daz).toBeUndefined();
   });
 
-  it("every legitimate observer of the circle sees its doctrine verbs (Story 2.9, amendment 50)", () => {
+  it('no observer of the circle receives a doctrine verb any more — the `phos`/`daz` tail is gone (Story 8.17, amendment 134)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0); // the firer (owner)
     place(w, 'c', 100, 0); // third party: zone center within radar
-    // Story 7-5 wave 1: the verbs are INDEPENDENT, so this zone carries BOTH.
-    injectZone(w, 'zd', 'a', 500, 0, CONFIG.starShells.litRadius, 999_999, { phosphor: true, dazzle: true });
-    // Owner, radar-gated non-owner, and spectator all read the same verbs —
-    // the zone's nature is observable behavior, never a build leak.
+    injectZone(w, 'zd', 'a', 500, 0, CONFIG.starShells.litRadius, 999_999);
     for (const f of [buildFrame(w, 'a'), buildFrame(w, 'c'), buildFrame(w, 'c', 'finished')]) {
-      expect(f.litZones?.[0].phos).toBe(true);
-      expect(f.litZones?.[0].daz).toBe(true);
+      expect(Object.keys(f.litZones![0]).sort()).toEqual(['by', 'id', 'r', 'until', 'x', 'y']);
     }
   });
 
@@ -1522,6 +1531,75 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
     for (let i = 0; i < steps; i++) w.step();
     expect(w.litZones.size).toBe(0);
     expect('litZones' in buildFrame(w, 'c')).toBe(false);
+  });
+});
+
+// ---------- Story 8.17: the PHOSPHOR burning zone (directed) ------------------
+//
+// Amendments 131 / 135(e) / 135(f): the burning zone rides its OWN frame
+// channel (`burnZones`, BurnZoneView {id,x,y,r,until,by}) through the LIT
+// ZONE's visibility gate byte-for-byte — owner always, else the centre within
+// the observer's radar range, no LOS, no sweep, spectators all — and it is a
+// HAZARD ONLY: it reveals nothing and extends no gun's reach. `dps` is
+// server-private.
+
+describe('perception — burnZones channel (Story 8.17: the lit-zone gate, a circle only, never a reveal)', () => {
+  const R = CONFIG.phosphorShells.zoneRadius;
+
+  it('the owner always receives its zone; a frame with no visible burn zones omits the key; `dps` never rides', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'far', 5_000, 0);
+    injectBurnZone(w, 'bz1', 'a', RADAR + 500, 0, R, 42_000, 7);
+    const fa = buildFrame(w, 'a');
+    expect(fa.burnZones).toEqual([{ id: 'bz1', x: RADAR + 500, y: 0, r: R, until: 42_000, by: 'a' }]);
+    expect(Object.keys(fa.burnZones![0])).toEqual(['id', 'x', 'y', 'r', 'until', 'by']);
+    expect(JSON.stringify(fa)).not.toContain('dps');
+    expect('burnZones' in buildFrame(w, 'far')).toBe(false); // byte-free beyond radar
+    expect('burnZones' in buildFrame(w, 'a', 'finished')).toBe(true); // spectators see all
+  });
+
+  it('a third party sees the circle at dist == radar (inclusive), loses it just beyond — no LOS, no sweep gate', () => {
+    const w = bareWorld();
+    w.map.islands.push(circleIsland(200, 0, 40)); // blocks sight AND radar paint on the axis
+    const c = place(w, 'c', 0, 0);
+    c.prevSweepAngle = Math.PI; // beam on the far side — never crossed bearing 0
+    c.sweepAngle = Math.PI + 0.001;
+    injectBurnZone(w, 'bz1', 'a', RADAR, 0);
+    expect(buildFrame(w, 'c').burnZones?.map((z) => z.id)).toEqual(['bz1']);
+    w.burnZones.get('bz1')!.x = RADAR + 0.01;
+    expect('burnZones' in buildFrame(w, 'c')).toBe(false);
+  });
+
+  it("a hull inside the FIRER'S OWN burn zone but outside its sight is NOT a contact (amendment 135(e)) — a lit zone in the same place WOULD reveal it", () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0); // the firer
+    place(w, 'b', 900, 0, 2.1); // way outside sight (330) AND radar (660)
+    injectBurnZone(w, 'bz1', 'a', 900, 0, R);
+    const f = buildFrame(w, 'a');
+    expect(f.contacts).toEqual([]); // no reveal through a burning zone
+    expect(f.events.filter((e) => e.k === 'blip')).toEqual([]);
+    expect(f.burnZones?.map((z) => z.id)).toEqual(['bz1']); // ...only the circle itself
+    // THE CONTROL: the same circle as a LIT zone reveals b to the firer.
+    w.burnZones.clear();
+    injectZone(w, 'z1', 'a', 900, 0, R);
+    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
+  });
+
+  it("a dead firer's burn zone persists and dies only by expiry (the lit-zone rule)", () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'c', 100, 0);
+    injectBurnZone(w, 'bz1', 'a', 500, 0, R, w.now + CONFIG.phosphorShells.zoneDurationMs);
+    w.respawnEnabled = false;
+    w.sinkShip('a', 'c');
+    w.step();
+    expect(w.burnZones.has('bz1')).toBe(true);
+    expect(buildFrame(w, 'c').burnZones?.map((z) => z.id)).toEqual(['bz1']);
+    const steps = Math.ceil(CONFIG.phosphorShells.zoneDurationMs / DT) + 2;
+    for (let i = 0; i < steps; i++) w.step();
+    expect(w.burnZones.size).toBe(0);
+    expect('burnZones' in buildFrame(w, 'c')).toBe(false);
   });
 });
 
@@ -2207,6 +2285,15 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const e of f.events) verifyEvent(w, me, e);
   for (const m of f.mines) verifyMine(w, me, m);
   for (const z of f.litZones ?? []) verifyLitZone(w, me, z);
+  for (const z of f.burnZones ?? []) verifyBurnZone(w, me, z);
+  // The OWNER always sees its own live zones of both kinds (the litzone /
+  // burnzone gates' owner clause — Story 1.7 / Story 8.17).
+  for (const z of w.litZones.values()) {
+    if (z.ownerId === me.id && w.now < z.until) expect((f.litZones ?? []).some((v) => v.id === z.id), `own lit zone ${z.id} delivered`).toBe(true);
+  }
+  for (const z of w.burnZones.values()) {
+    if (z.ownerId === me.id && w.now < z.until) expect((f.burnZones ?? []).some((v) => v.id === z.id), `own burn zone ${z.id} delivered`).toBe(true);
+  }
   for (const d of f.decoys ?? []) verifyDecoy(w, me, d);
   // The OWNER always sees its own decoys (own field awareness, even under fog).
   for (const d of w.decoys.values()) {
@@ -2408,35 +2495,39 @@ function verifyDecoy(w: World, me: ShipRecord, d: DecoyView): void {
 
 /** A lit-zone circle may reach a frame only if the viewer OWNS the zone or the
  *  zone CENTER is within the viewer's effective radar range — no LOS term, no
- *  sweep term (Story 1.7). Wire shape is exactly {id,x,y,r,until,by,mode} with
- *  `by` naming the owner and `mode` the zone record's doctrine verbatim (Story
- *  2.9, amendment 50 — every observer of the circle sees its nature); the zone
- *  must be live (in the world map, unexpired). */
+ *  sweep term (Story 1.7). Wire shape is exactly {id,x,y,r,until,by} with
+ *  `by` naming the owner (the `phos`/`daz` doctrine tail is DELETED, Story
+ *  8.17 amendment 134); the zone must be live (in the world map, unexpired). */
 function verifyLitZone(
   w: World,
   me: ShipRecord,
-  z: { id: string; x: number; y: number; r: number; until: number; by: string; phos?: true; daz?: true },
+  z: { id: string; x: number; y: number; r: number; until: number; by: string },
 ): void {
   const zone = w.litZones.get(z.id)!;
   expect(zone).toBeDefined();
   expect(w.now).toBeLessThan(zone.until); // expired zones never materialize
-  // The two doctrine verbs are INDEPENDENT optional flags (Story 7-5 wave 1),
-  // present as `true` only when the record carries them — re-derived here by
-  // hand rather than read off the row, per this file's oracle rule.
-  const expectedKeys = ['by', 'id', 'r', 'until', 'x', 'y'];
-  if (zone.phosphor) expectedKeys.push('phos');
-  if (zone.dazzle) expectedKeys.push('daz');
-  expect(Object.keys(z).sort()).toEqual(expectedKeys.sort());
-  expect(z).toEqual({
-    id: zone.id,
-    x: zone.x,
-    y: zone.y,
-    r: zone.r,
-    until: zone.until,
-    by: zone.ownerId,
-    ...(zone.phosphor ? { phos: true } : {}),
-    ...(zone.dazzle ? { daz: true } : {}),
-  });
+  expect(Object.keys(z).sort()).toEqual(['by', 'id', 'r', 'until', 'x', 'y']);
+  expect(z).toEqual({ id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId });
+  if (zone.ownerId !== me.id) expect(dist(me.state, zone)).toBeLessThanOrEqual(effRadar());
+}
+
+/** The PHOSPHOR burning zone (Story 8.17, amendments 131 / 135(f)) — the LIT
+ *  ZONE's gate, re-derived here BYTE-FOR-BYTE and independently: the owner
+ *  always, else the zone CENTER within the viewer's radar range; no LOS, no
+ *  sweep. Wire shape exactly {id,x,y,r,until,by} — `dps` (the firer's tier, a
+ *  build read) may NEVER ride; the zone must be live in the SEPARATE
+ *  `burnZones` store (a burning zone is never a lit zone, and vice versa). */
+function verifyBurnZone(
+  w: World,
+  me: ShipRecord,
+  z: { id: string; x: number; y: number; r: number; until: number; by: string },
+): void {
+  const zone = w.burnZones.get(z.id)!;
+  expect(zone).toBeDefined();
+  expect(w.litZones.has(z.id)).toBe(false); // never both stores
+  expect(w.now).toBeLessThan(zone.until); // expired zones never materialize
+  expect(Object.keys(z).sort()).toEqual(['by', 'id', 'r', 'until', 'x', 'y']);
+  expect(z).toEqual({ id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId });
   if (zone.ownerId !== me.id) expect(dist(me.state, zone)).toBeLessThanOrEqual(effRadar());
 }
 
@@ -3621,6 +3712,33 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const r = rng.float(0, w.map.radius * 0.9);
         injectZone(w, `zone${z}`, ids[rng.int(0, ids.length - 1)], Math.cos(ang) * r, Math.sin(ang) * r);
       }
+      // Random PHOSPHOR burning zones (Story 8.17) — some seated right on a
+      // hull so the burn AND the no-reveal rule are both exercised: the
+      // oracle's contact source is sight ∪ OWNED LIT zones only, so a hull
+      // standing in its enemy's (or its own) fire outside sight must stay dark
+      // (amendment 135(e)), while the radar-gated `burnZones` circle rides.
+      for (let z = 0; z < rng.int(0, 3); z++) {
+        const onHull = rng.float(0, 1) < 0.5 ? w.ships.get(ids[rng.int(0, ids.length - 1)])!.state : null;
+        const ang = rng.float(0, TAU);
+        const r = rng.float(0, w.map.radius * 0.9);
+        injectBurnZone(
+          w,
+          `burn${z}`,
+          ids[rng.int(0, ids.length - 1)],
+          onHull ? onHull.x + rng.float(-30, 30) : Math.cos(ang) * r,
+          onHull ? onHull.y + rng.float(-30, 30) : Math.sin(ang) * r,
+          CONFIG.phosphorShells.zoneRadius * rng.float(1, 1.4641),
+          w.now + rng.float(DT, 12_000),
+          rng.float(5, 10),
+        );
+      }
+      // FLASH-dazzled observers (Story 8.17, amendment 132): ~a quarter of the
+      // hulls start under a live flash mark, so the collapsed 1/8 sight rung
+      // gates real frames from tick 1 (the tick-2 dazzle below then flips two
+      // more, and clears them, for the re-reveal ledger).
+      for (const id of ids) {
+        if (rng.float(0, 1) < 0.25) w.ships.get(id)!.dazzledUntil = w.now + rng.float(DT, CONFIG.flashShells.durationMs);
+      }
       // CHAFF (Story 8.16): ~half the ships carry a live-or-lapsed chaff
       // source (a raw record write — world-state setup, like injectMine), so
       // the fuzz exercises the fake arm, its water filter, the epoch rescatter
@@ -3860,12 +3978,14 @@ describe('perception — the completeness oracle cannot be satisfied by substitu
 // dev adding a 13th row sees this block fail until they add its verifier.
 
 describe('perception — SIGNAL REGISTRY completeness', () => {
-  // The four contact-like pseudo-rows are verified through the contacts/
-  // mines/litZones/decoys frame channels (verifyFrame/verifyMine/verifyLitZone/
-  // verifyDecoy), not through EVENT_VERIFIERS. The RADAR BUOY's `buoy` row is
-  // DELETED (Story 8.16) along with its oracle; `decoy` is the DECOY BUOY's
-  // channel on the mine row's rules, with its own oracle (verifyDecoy).
-  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
+  // The five contact-like pseudo-rows are verified through the contacts/
+  // mines/litZones/burnZones/decoys frame channels (verifyFrame/verifyMine/
+  // verifyLitZone/verifyBurnZone/verifyDecoy), not through EVENT_VERIFIERS.
+  // The RADAR BUOY's `buoy` row is DELETED (Story 8.16) along with its oracle;
+  // `decoy` is the DECOY BUOY's channel on the mine row's rules, with its own
+  // oracle (verifyDecoy); `burnzone` (Story 8.17) is the PHOSPHOR burning
+  // zone's channel on the lit zone's gate, with its own oracle (verifyBurnZone).
+  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'burnzone', 'decoy'];
   // The 18 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
@@ -3876,9 +3996,9 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 22 expected channel keys (18 event kinds + contact + mine + litzone + decoy)', () => {
+  it('has exactly the 23 expected channel keys (18 event kinds + contact + mine + litzone + burnzone + decoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(22);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(23);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {
@@ -3887,10 +4007,11 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     }
   });
 
-  it('the four contact-like pseudo-rows exist (verified via the contacts/mines/litZones/decoys channels)', () => {
+  it('the five contact-like pseudo-rows exist (verified via the contacts/mines/litZones/burnZones/decoys channels)', () => {
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
     expect(SIGNAL_REGISTRY.litzone).toBeDefined();
+    expect(SIGNAL_REGISTRY.burnzone).toBeDefined(); // Story 8.17
     expect(SIGNAL_REGISTRY.decoy).toBeDefined();
     expect(Object.hasOwn(SIGNAL_REGISTRY, 'buoy')).toBe(false); // deleted with the radar buoy (Story 8.16)
   });

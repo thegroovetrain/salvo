@@ -131,12 +131,15 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // no mechanism yet, and a stub is never dealt out of the common pool (Story
   // 8.14 retired the per-hull decks it used to pad). The NAME is his, verbatim.
   depthCharge: 'DEPTH CHARGE',
-  // --- the two add-ons ------------------------------------------------------
+  // --- the former add-ons (NONE remains since Story 8.17) -------------------
   // ACOUSTIC HOMING and the FOULING MINES add-on were DELETED on 2026-09-19
   // (amendments 80/81): homing became a tier stat on the torpedo lines and
   // fouling became its own equipment line, so neither card exists to name.
   // HEAT SEEKING was CUT with the missile in Story 8.15 (amendment 89e).
-  dazzleShells: 'DAZZLE SHELLS',
+  // STORY 8.17 (Eric ruling 2026-09-29, amendments 131/132): DAZZLE SHELLS is
+  // the belt consumable FLASH SHELLS — the display name changed, the internal
+  // id `dazzleShells` did not — and PHOSPHOR SHELLS is its own equipment line.
+  dazzleShells: 'FLASH SHELLS',
   phosphorShells: 'PHOSPHOR SHELLS',
 };
 
@@ -323,6 +326,9 @@ const GUN_LADDER_RELOAD: ReadonlySet<string> = new Set(['machineGun', 'flak']);
  */
 const PATH_WORDS: Readonly<Record<string, string>> = {
   'equipment.machineGun.maxAmmo': 'SHELLS',
+  // STAR SHELLS' pool is FLARES (Story 8.17, amendment 135(j)): the ladder's
+  // +0.5 step buys a second and third flare, and "rounds" is the gun's word.
+  'equipment.starShells.maxAmmo': 'FLARES',
 };
 
 /**
@@ -344,8 +350,11 @@ const STAT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
  * under a `◆ NAME`. A verb moves no number, so `boonEffectLine` has nothing to
  * read off `EffectiveStats`; this table is what those two surfaces show instead.
  *
- * BOTH remaining add-ons map straight onto a shipped v2 doctrine and carry
- * its line verbatim. (HEAT SEEKING, the third, was CUT with the missile in
+ * EMPTY SINCE STORY 8.17 (amendment 134): the last two add-ons, PHOSPHOR and
+ * DAZZLE SHELLS, left the add-on space — phosphor as an equipment line (its
+ * holding is its own reload row) and dazzle as the FLASH SHELLS consumable (a
+ * stack, which holds no verb). The table and its reader stay, unused, beside
+ * the `addon` kind the catalog keeps. (HEAT SEEKING was CUT with the missile in
  * Story 8.15 — amendment 89e.)
  *
  * TWO ENTRIES LEFT IN STORY 8.13 with the cards they described (epic-8
@@ -354,10 +363,7 @@ const STAT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
  * sentence — and FOULING MINES is an equipment LINE now, so it reads its reload
  * off `equipmentStatLines` like every other line rather than printing a verb.
  */
-const DOCTRINE_HOLDING: Readonly<Partial<Record<LineId, string>>> = {
-  phosphorShells: 'Your lit zones also burn every hull but yours inside them.',
-  dazzleShells: 'Your lit zones also cut the true sight of every hull but yours.',
-};
+const DOCTRINE_HOLDING: Readonly<Partial<Record<LineId, string>>> = {};
 
 /**
  * THE EXPLANATIONS (Story 7-5 wave 2, R2.17 — Eric ruling 2026-08-19).
@@ -411,17 +417,22 @@ const BOON_EXPLAIN: Readonly<Partial<Record<LineId, string>>> = {
     'A broadside throws a fan of shells off whichever beam you clicked, port or starboard — never over the bow or the stern. The first copy fits the battery to your open slot, if you are not already carrying it; every copy after that is another tier, and each tier cuts its reload by 5%.',
   starShells:
     'A flare lights a circle of ocean you see into as if it were your own sight — the one way to look somewhere you are not. The first copy fits the mortar to your open slot, if you are not already carrying it; every copy after that is another tier, and each tier cuts its reload by 5%.',
-  // --- the add-ons whose verbs exist today -----------------------------------
+  // --- the former add-ons ----------------------------------------------------
   // ACOUSTIC HOMING's and the FOULING MINES add-on's explanations left with
   // their cards (Story 8.13, epic-8 amendments 80/81). Neither text carries
   // over: the homing one described a card that no longer exists (the steering
   // is bought by TIER now), and the fouling one described a verb bolted onto
   // the naval mine, which no longer fouls at all. FOULING MINES the LINE gets
   // no explanation until Eric writes one — the no-in-game-copy-unasked rule.
+  // PHOSPHOR's and DAZZLE's star-shell-verb explanations left in Story 8.17
+  // (amendment 134) for the same reason: both described a verb bolted onto the
+  // flare, which no longer exists. PHOSPHOR SHELLS the LINE gets an
+  // IMPLEMENTER DRAFT (amendment 135(j)): the fitted-slot sentence
+  // (render/equipmentInfo.ts) plus the equipment lines' shared tier sentence,
+  // because the refit face's contract is that every BUILT line explains itself
+  // on hover. FLASH SHELLS' belt DRAFT is with the consumables below.
   phosphorShells:
-    'Your lit circles catch fire. A slightly smaller ring inside each one burns every hull but yours at 5 hp a second for as long as the flare lasts. It stacks with DAZZLE SHELLS — one flare can do both.',
-  dazzleShells:
-    'Your lit circles dazzle. Any hull but yours standing in one has its own true sight cut in half while it stays there: it can still be seen, it just cannot see. It stacks with PHOSPHOR SHELLS.',
+    'One shell to the click; every enemy hull in the burst takes damage and the water burns for seconds after. The first copy fits the mortar to your open slot, if you are not already carrying it; every copy after that is another tier, and each tier cuts its reload by 5%.',
   // --- the consumables whose mechanisms exist today --------------------------
   // HULL REPAIR is the first live one (Story 8.8). The AMOUNTS are deliberately
   // absent from the prose: the card face prints them as rows, live from CONFIG,
@@ -442,6 +453,12 @@ const BOON_EXPLAIN: Readonly<Partial<Record<LineId, string>>> = {
     CONFIG.chaff.durationMs / 1000
   } s. You never see them; enemies cannot tell them from ships.`,
   decoyBuoy: `Drops a ${CONFIG.decoyBuoy.hp} hp float in your rear arc that enemy torpedoes home on and detonate against. Your own weapons ignore it.`,
+  // FLASH SHELLS (internal id `dazzleShells` — Story 8.17, amendment 135(j)):
+  // an IMPLEMENTER DRAFT for Eric's eye on staging, in the 8.16 register, every
+  // number read off CONFIG.flashShells.
+  dazzleShells: `One shell to the click. Every enemy hull inside its ${CONFIG.flashShells.radius} u burst is blinded for ${
+    CONFIG.flashShells.durationMs / 1000
+  } s: its own sight drops to 1/${Math.round(1 / CONFIG.flashShells.sightFraction)} of its radar range.`,
 };
 
 /** The player state a card's live values are computed against. */
@@ -694,6 +711,17 @@ const FIELD_WORDS: Readonly<Record<string, string>> = {
   // (`75%`), and "factor" is the sim's word for the multiplier, not the
   // player's word for what it does to them.
   slowFactor: 'SLOW',
+  // STORY 8.17 (amendment 135(j)) — the words Eric's card-face ruling names for
+  // the three ladders it authored: STAR SHELLS (`LIT`, `RADIUS`; `FLARES` is a
+  // PATH word, see PATH_WORDS), BROADSIDE (`TURRETS`; `SPREAD` above) and
+  // PHOSPHOR SHELLS (`BURN` in hp/s, `RADIUS`, `LASTS`). `DAMAGE` was already
+  // here.
+  litDurationMs: 'LIT',
+  litRadius: 'RADIUS',
+  turrets: 'TURRETS',
+  dps: 'BURN',
+  zoneRadius: 'RADIUS',
+  zoneDurationMs: 'LASTS',
 };
 
 /**
@@ -736,6 +764,9 @@ const FIELD_FMTS: Readonly<Record<string, (v: number) => string>> = {
  */
 const FIELD_UNITS: Readonly<Record<string, string>> = {
   homingTurnRate: ' rad/s',
+  // PHOSPHOR's burn is a RATE (Story 8.17, amendment 135(j): `BURN` in hp/s);
+  // a bare `5 → 6` would read as a hit, not a per-second burn.
+  dps: ' hp/s',
 };
 
 /** Pure: a field's trailing unit, or '' for a field that needs none. */
@@ -867,10 +898,16 @@ function absoluteRow(target: EquipmentId, field: string, stats: EffectiveStats):
  * drops RELOAD, which every TIER card of the line prints as its own
  * `current → next` row anyway, and keeps the slow.
  *
- * One entry today. A line absent from this table prints its whole table.
+ * PHOSPHOR SHELLS (Story 8.17) is the second: six fields, and the positional
+ * slice would drop `BURN`, the number that makes it a different weapon from a
+ * gun. Its fit card drops `ROUNDS` instead — a one-shell pool presented as a
+ * pure cooldown that no tier moves — and keeps its reload.
+ *
+ * A line absent from this table prints its whole table.
  */
 const FACE_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
   foulingMines: ['maxAmmo', 'damage', 'blastRadius', 'slowFactor'],
+  phosphorShells: ['reloadMs', 'damage', 'zoneRadius', 'zoneDurationMs', 'dps'],
 };
 
 /** Pure: the fields the fit card prints for one weapon — its override above, or
@@ -1028,6 +1065,22 @@ function decoyBuoyRows(): CardStatRow[] {
   ];
 }
 
+/**
+ * FLASH SHELLS' ROWS (internal id `dazzleShells` — Story 8.17, Eric ruling
+ * 2026-09-29, amendment 135(j)): `RADIUS 150 U` / `BLINDS 10 S` / `SIGHT 1/8
+ * INTEL`, each number off `CONFIG.flashShells` (the eighth is
+ * `1 / sightFraction`), in the 8.16 belt register's uppercase units
+ * (`ABSORBS 100 HP`, `LASTS 10 S`).
+ */
+function flashShellRows(): CardStatRow[] {
+  const f = CONFIG.flashShells;
+  return [
+    { label: 'RADIUS', cur: null, next: `${num(f.radius)} U` },
+    { label: 'BLINDS', cur: null, next: `${num(f.durationMs / 1000)} S` },
+    { label: 'SIGHT', cur: null, next: `1/${num(1 / f.sightFraction)} INTEL` },
+  ];
+}
+
 /** The rows each LIVE consumable line prints. A line with no entry (the two
  *  remaining stubs, SMOKE SCREEN and DEPTH CHARGE) prints none, which is the
  *  honest answer for a mechanism that does not exist yet. */
@@ -1037,6 +1090,7 @@ const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = 
   shieldBlock: shieldBlockRows,
   chaff: chaffRows,
   decoyBuoy: decoyBuoyRows,
+  dazzleShells: flashShellRows, // FLASH SHELLS (Story 8.17)
 };
 
 /**
