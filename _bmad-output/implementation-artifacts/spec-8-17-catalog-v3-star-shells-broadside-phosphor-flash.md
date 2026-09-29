@@ -2,8 +2,9 @@
 title: 'Story 8.17: Catalog v3 — Star Shells, Broadside, Phosphor, Flash'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-review'
+status: 'done'
 baseline_revision: '247a9e7'
+final_revision: '4b2de38'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
