@@ -8,7 +8,8 @@
 //       field for field, after the `equipment` record reshape and the
 //       torpedo→heavyTorpedo / mine→navalMines rename;
 //   (2) every ladder's authored step, from catalog-v3 §4;
-//   (3) doctrine add-ons fold into the per-equipment verb booleans, and stack;
+//   (3) doctrine add-ons folded into per-equipment verb booleans — NONE is
+//       left since Story 8.17 (amendment 134), and no row carries a verb;
 //   (4) the clamps: sweepRpm ≤ sweepRpmMax, the mine ring derivations,
 //       gun.barrels 1..3, the spread-rung ladder;
 //   (5) THE EQUIPMENT RELOAD STEP — −5 %/tier, additive, composed BEFORE the
@@ -197,8 +198,20 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           rangeU: CONFIG.vision.radar,
           litRadius: CONFIG.starShells.litRadius, // the ratified SIGHT/2 derivation
           litDurationMs: CONFIG.starShells.litDurationMs,
-          phosphor: false,
-          dazzle: false,
+          // Story 8.17 (amendments 130/134): the flare deals tier-I damage 10;
+          // the `phosphor`/`dazzle` verbs are DELETED.
+          damage: 10,
+        },
+        // PHOSPHOR SHELLS (Story 8.17, amendment 131) — its own weapon row.
+        phosphorShells: {
+          tier: 1,
+          reloadMs: 20000,
+          maxAmmo: 1,
+          rangeU: CONFIG.vision.radar, // the star-shell rung, derived post-fold
+          damage: 20,
+          zoneRadius: 100,
+          zoneDurationMs: 8000,
+          dps: 5,
         },
         // (radarBuoy's row DELETED with the buoy, Story 8.16; the DECOY BUOY
         // consumable that replaces it carries NO row — the consumable law.)
@@ -513,6 +526,116 @@ describe('STORY 8.13 — the torpedo ladders (amendments 80/84f)', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// STORY 8.17 — the STAR SHELLS, BROADSIDE and PHOSPHOR SHELLS ladders (Eric
+// rulings 2026-09-29, epic-8 amendments 130/131/133). The −5 %/tier reload is
+// DERIVED from each row's tier exactly as for the torpedoes; every other step
+// is authored in sim/catalog.ts.
+// ---------------------------------------------------------------------------
+describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendments 130/131/133)', () => {
+  it('STAR SHELLS: reload / lit / radius / flares / damage per rung (amendment 130)', () => {
+    // [reloadMs, litDurationMs, litRadius, flares, damage] per rung 1..5
+    const table = [
+      [20000, 10000, 165, 1, 10],
+      [19000, 12500, 181.5, 1, 12],
+      [18000, 15000, 199.65, 2, 15],
+      [17000, 17500, 219.615, 2, 17],
+      [16000, 20000, 241.5765, 3, 20],
+    ] as const;
+    table.forEach(([reloadMs, lit, radius, flares, damage], i) => {
+      const row = effectiveStats(BASE, stack('starShells', i + 1)).equipment.starShells;
+      const tag = `starShells x${i + 1}`;
+      expect(row.tier, `${tag}: tier`).toBe(i + 1);
+      expect(row.reloadMs, `${tag}: reloadMs`).toBeCloseTo(reloadMs, 6);
+      expect(row.litDurationMs, `${tag}: lit`).toBe(lit);
+      expect(row.litRadius, `${tag}: radius`).toBeCloseTo(radius, 9);
+      expect(row.maxAmmo, `${tag}: flares`).toBe(flares);
+      expect(row.damage, `${tag}: damage`).toBe(damage);
+      expect(row.rangeU, `${tag}: range`).toBe(CONFIG.vision.radar);
+    });
+  });
+
+  it('STAR SHELLS tier III / V: 18 s, 15 s lit, r199.65, 2 flares, 15 dmg / 16 s, 20 s, r241.6, 3 flares, 20 dmg', () => {
+    const iii = effectiveStats(BASE, stack('starShells', 3)).equipment.starShells;
+    expect([iii.reloadMs, iii.litDurationMs, iii.maxAmmo, iii.damage]).toEqual([18000, 15000, 2, 15]);
+    expect(iii.litRadius).toBeCloseTo(199.65, 9);
+    const v = effectiveStats(BASE, stack('starShells', 5)).equipment.starShells;
+    expect([v.reloadMs, v.litDurationMs, v.maxAmmo, v.damage]).toEqual([16000, 20000, 3, 20]);
+    expect(v.litRadius).toBeCloseTo(241.6, 1);
+  });
+
+  it('BROADSIDE tier III / V: 16.2 s, rung 3, 5 turrets / 14.4 s, rung 5, 6 turrets — damage 15 throughout', () => {
+    // [reloadMs, spreadRung, turrets] per rung 1..5
+    const table = [
+      [18000, 1, 4],
+      [17100, 2, 4],
+      [16200, 3, 5],
+      [15300, 4, 5],
+      [14400, 5, 6],
+    ] as const;
+    table.forEach(([reloadMs, rung, turrets], i) => {
+      const row = effectiveStats(BASE, stack('broadside', i + 1)).equipment.broadside;
+      const tag = `broadside x${i + 1}`;
+      expect(row.tier, `${tag}: tier`).toBe(i + 1);
+      expect(row.reloadMs, `${tag}: reloadMs`).toBeCloseTo(reloadMs, 6);
+      expect(row.spreadRung, `${tag}: rung`).toBe(rung);
+      expect(row.turrets, `${tag}: turrets`).toBe(turrets);
+      expect(row.damage, `${tag}: damage`).toBe(15); // FIXED at every tier (amendment 133)
+      // Both arc ladders ride the folded rung.
+      expect(row.traverseRad, `${tag}: traverse`).toBe(broadsideTraverse(rung));
+      expect(row.mountSpreadRad, `${tag}: mounts`).toBe(broadsideMountSpread(rung));
+    });
+    const v = effectiveStats(BASE, stack('broadside', 5)).equipment.broadside;
+    // Rung 5: mounts ±6°, traverse ±14° (the shipped ladders' cap).
+    expect(v.mountSpreadRad).toBeCloseTo((6 * Math.PI) / 180, 12);
+    expect(v.traverseRad).toBeCloseTo((14 * Math.PI) / 180, 12);
+  });
+
+  it('PHOSPHOR SHELLS tier I / III / V: 20/25/30 dmg, 5/7/10 hp/s, r100/121/146.41, 8/9/10 s, 20/18/16 s', () => {
+    // [reloadMs, damage, dps, zoneRadius, zoneDurationMs] per rung 1..5
+    const table = [
+      [20000, 20, 5, 100, 8000],
+      [19000, 22, 6, 110, 8000],
+      [18000, 25, 7, 121, 9000],
+      [17000, 27, 8, 133.1, 9000],
+      [16000, 30, 10, 146.41, 10000],
+    ] as const;
+    table.forEach(([reloadMs, damage, dps, radius, durMs], i) => {
+      const row = effectiveStats(BASE, stack('phosphorShells', i + 1)).equipment.phosphorShells;
+      const tag = `phosphorShells x${i + 1}`;
+      expect(row.tier, `${tag}: tier`).toBe(i + 1);
+      expect(row.reloadMs, `${tag}: reloadMs`).toBeCloseTo(reloadMs, 6);
+      expect(row.damage, `${tag}: damage`).toBe(damage);
+      // Whole numbers by AUTHORING (integer steps off an integer base) — no
+      // float dust, so no floor is needed on `dps`.
+      expect(row.dps, `${tag}: dps`).toBe(dps);
+      expect(Number.isInteger(row.dps), `${tag}: dps integer`).toBe(true);
+      expect(row.zoneRadius, `${tag}: radius`).toBeCloseTo(radius, 9);
+      expect(row.zoneDurationMs, `${tag}: duration`).toBe(durMs);
+      expect(row.maxAmmo, `${tag}: pool`).toBe(1);
+      expect(row.rangeU, `${tag}: range`).toBe(CONFIG.vision.radar);
+    });
+  });
+
+  it('the acceptance fold: a Battleship holding STAR ×3, BROADSIDE ×5, PHOSPHOR ×1', () => {
+    const s = effectiveStats(BASE, [...stack('starShells', 3), ...stack('broadside', 5), 'phosphorShells']);
+    const { starShells: star, broadside: bs, phosphorShells: ph } = s.equipment;
+    expect([star.reloadMs, star.litDurationMs, star.maxAmmo, star.damage]).toEqual([18000, 15000, 2, 15]);
+    expect(star.litRadius).toBeCloseTo(199.65, 9);
+    expect([bs.reloadMs, bs.spreadRung, bs.turrets, bs.damage]).toEqual([14400, 5, 6, 15]);
+    expect([ph.reloadMs, ph.damage, ph.zoneRadius, ph.zoneDurationMs, ph.dps]).toEqual([20000, 20, 100, 8000, 5]);
+  });
+
+  it('the three lines take the global RELOAD ladder after their own tier step (0.80 × 0.75)', () => {
+    const s = effectiveStats(BASE, [
+      ...stack('starShells', 5), ...stack('broadside', 5), ...stack('phosphorShells', 5), ...stack('reload', 5),
+    ]);
+    expect(s.equipment.starShells.reloadMs).toBeCloseTo(20000 * 0.6, 6);
+    expect(s.equipment.broadside.reloadMs).toBeCloseTo(18000 * 0.6, 6);
+    expect(s.equipment.phosphorShells.reloadMs).toBeCloseTo(20000 * 0.6, 6);
+  });
+});
+
 describe('STORY 8.13 — the three mine ladders (amendments 77/81/82/84d)', () => {
   it('NAVAL MINES: +5 dmg, x1.1 blast (trip ring follows at 2/3), +1 held', () => {
     const table: [number, number, number, number][] = [
@@ -667,8 +790,11 @@ describe('THE EQUIPMENT RELOAD STEP (catalog-v3 §3 standing rule)', () => {
     expect(s.equipment.gun.reloadMs).toBe(3000); // §4: "80 % (4 s; 3 s under max Reload)"
   });
 
-  it('a line with no tier target moves no tier at all (an add-on is not a rung)', () => {
-    const s = effectiveStats(BASE, ['dazzleShells', 'phosphorShells']);
+  it('a line with no tier target moves no tier at all (a consumable is not a rung)', () => {
+    // Story 8.17 re-pin (amendments 131/132): this used the two add-ons, and
+    // there are none left — FLASH SHELLS is a consumable and PHOSPHOR SHELLS a
+    // real equipment line (whose own tier it DOES move).
+    const s = effectiveStats(BASE, ['dazzleShells', 'hullRepair', 'chaff']);
     for (const id of EQUIPMENT_IDS) expect(s.equipment[id].tier, id).toBe(1);
   });
 });
@@ -704,13 +830,18 @@ describe('THE FRACTIONAL FLOOR (catalog-v3 R17 standing rule)', () => {
   });
 });
 
-describe('effectiveStats — doctrine verb folds (the two surviving add-ons)', () => {
-  it('every verb is false at base; each add-on sets exactly its own', () => {
-    // HEAT SEEKING and the missile's `homing` verb are CUT (Story 8.15, 89e).
-    const eq = effectiveStats(BASE).equipment;
-    expect([eq.starShells.phosphor, eq.starShells.dazzle]).toEqual([false, false]);
-    expect(effectiveStats(BASE, ['dazzleShells']).equipment.starShells.dazzle).toBe(true);
-    expect(effectiveStats(BASE, ['phosphorShells']).equipment.starShells.phosphor).toBe(true);
+describe('effectiveStats — doctrine verb folds (NO add-on is left since Story 8.17)', () => {
+  it('the star shell carries no verb any more, and the former add-on ids fold as their new kinds', () => {
+    // HEAT SEEKING and the missile's `homing` verb are CUT (Story 8.15, 89e);
+    // the star shell's `phosphor`/`dazzle` are DELETED (Story 8.17, Eric
+    // 2026-09-29, amendment 134). This pin is REWRITTEN, not removed: what it
+    // asserted — each add-on sets its own verb — is no longer true of the game.
+    const eq = effectiveStats(BASE).equipment as unknown as Record<string, Record<string, unknown>>;
+    for (const verb of ['phosphor', 'dazzle']) expect(verb in eq.starShells!, verb).toBe(false);
+    // FLASH SHELLS is a consumable: five copies move no derived number at all.
+    expect(effectiveStats(BASE, stack('dazzleShells', 5))).toEqual(effectiveStats(BASE));
+    // PHOSPHOR SHELLS copy 1 is the bare weapon: it fits and moves no number.
+    expect(effectiveStats(BASE, ['phosphorShells'])).toEqual(effectiveStats(BASE));
   });
 
   // THE TWO DELETED VERBS (Eric rulings 2026-09-19, epic-8 amendments 80/81).
@@ -729,18 +860,22 @@ describe('effectiveStats — doctrine verb folds (the two surviving add-ons)', (
     expect(effectiveStats(BASE, ['lightTorpedo']).equipment.lightTorpedo.homingTurnRate).toBe(0);
   });
 
-  it('VERBS STACK: dazzle and phosphor compose on one flare, in either pick order (R33)', () => {
-    for (const order of [['dazzleShells', 'phosphorShells'], ['phosphorShells', 'dazzleShells']] as LineId[][]) {
-      const eq = effectiveStats(BASE, order).equipment.starShells;
-      expect([eq.phosphor, eq.dazzle]).toEqual([true, true]);
-    }
-  });
-
-  it('an add-on moves ONLY its own verb flags (flatten diff)', () => {
-    expect(changed(effectiveStats(BASE), effectiveStats(BASE, ['dazzleShells'])))
-      .toEqual(['equipment.starShells.dazzle']);
-    expect(changed(effectiveStats(BASE), effectiveStats(BASE, ['phosphorShells'])))
-      .toEqual(['equipment.starShells.phosphor']);
+  it('a doctrine effect naming the DELETED star-shell verbs is a fail-closed no-op (amendment 134)', () => {
+    // The machinery stays (the `doctrine` kind, applyDoctrineEffect) but the
+    // vocabulary is empty, so an untyped line carrying the old verbs moves
+    // nothing — never a stray boolean written onto the star-shell row.
+    const rogue: Catalog = {
+      x: {
+        id: 'x' as unknown as LineId,
+        kind: 'addon',
+        cap: 1,
+        tiers: [[
+          { kind: 'doctrine', weapon: 'starShells', mode: 'phosphor' },
+          { kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' },
+        ]],
+      },
+    };
+    expect(effectiveStats(BASE, ['x'], rogue)).toEqual(effectiveStats(BASE));
   });
 
   it('an unknown doctrine weapon/verb in an untyped line is a fail-closed no-op', () => {
@@ -765,11 +900,14 @@ describe('effectiveStats — doctrine verb folds (the two surviving add-ons)', (
 });
 
 describe('effectiveStats — derived ranges and rings', () => {
-  it('gun/starShells rangeU IS radarRange; the broadside is the 5/8 rung; nothing writes radarRange', () => {
+  it('gun/starShells/phosphorShells rangeU IS radarRange; the broadside is the 5/8 rung; nothing writes radarRange', () => {
     const s = effectiveStats(BASE);
     expect(s.radarRange).toBe(CONFIG.vision.radar);
     expect(s.equipment.gun.rangeU).toBe(s.radarRange);
     expect(s.equipment.starShells.rangeU).toBe(s.radarRange);
+    // Story 8.17 (amendment 131): phosphor fires to the radar rung, 660 u base.
+    expect(s.equipment.phosphorShells.rangeU).toBe(s.radarRange);
+    expect(s.equipment.phosphorShells.rangeU).toBe(660);
     expect(s.equipment.broadside.rangeU).toBeCloseTo(412.5, 9);
     expect(s.equipment.broadside.rangeU).toBeLessThan(s.radarRange);
     const writers = LINE_IDS.filter((id) =>
@@ -817,9 +955,10 @@ describe('effectiveStats — derived ranges and rings', () => {
       expect(Number.isFinite(broadsideMountSpread(bad)), `mounts ${bad}`).toBe(true);
     }
     expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(top);
-    // The rung walks BOTH ladders in OPPOSITE directions (Eric 2026-08-27) —
-    // NO v3 line writes it this cycle (the broadside's tiers II–V are Story
-    // 8.16's), so drive it through an injected catalog.
+    // The rung walks BOTH ladders in OPPOSITE directions (Eric 2026-08-27).
+    // The BROADSIDE line writes it since Story 8.17 (amendment 133 — pinned in
+    // the 8.17 block below); this pin drives it through an injected catalog so
+    // it isolates the rung from the line's turret step.
     const spread: Catalog = {
       s: { id: 's' as unknown as LineId, kind: 'ladder', cap: 4, tiers: new Array(4).fill([{ kind: 'stat', path: 'equipment.broadside.spreadRung', add: 1 }]) },
     };
@@ -857,7 +996,7 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     // TRUE OF THE LADDERED LINES TOO: the steps live on tiers II–V, so a hull
     // holding exactly one LIGHT TORPEDO card sails the tier-I fish.
     for (const id of ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines',
-      'broadside', 'starShells'] as const) {
+      'broadside', 'starShells', 'phosphorShells'] as const) {
       expect(effectiveStats(BASE, [id]), id).toEqual(effectiveStats(BASE));
     }
   });
@@ -879,8 +1018,10 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     // SUPERCAV TORPEDO and DEPTH CHARGE joined the list in Story 8.13 — and
     // supercav is the proof that the id MOVED id spaces rather than keeping a
     // row: five copies of it move nothing at all.
+    // FLASH SHELLS (`dazzleShells`) joined in Story 8.17 (amendment 132): it
+    // moved from the add-on space and, like supercav, carries no stat row.
     for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy',
-      'depthCharge', 'supercavTorpedo'] as const) {
+      'depthCharge', 'supercavTorpedo', 'dazzleShells'] as const) {
       expect(effectiveStats(BASE, stack(id, 5)), id).toEqual(effectiveStats(BASE));
     }
   });

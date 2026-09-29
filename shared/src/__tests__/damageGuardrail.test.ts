@@ -23,7 +23,9 @@
 // fix; drone hp/damage values are still pinned below, just no longer wired
 // into the no-one-shot law. The star-shell damage pins FLIPPED deliberately
 // (amendment 39: the flare is damageless — the CONFIG field is DELETED, not
-// zeroed). Pure CONFIG/catalog pins — they fail the moment a retune or a
+// zeroed) and FLIPPED BACK in Story 8.17 (Eric 2026-09-29, amendment 130: the
+// flare deals 10 → 20 across its ladder, under the same per-shell law). Pure
+// CONFIG/catalog pins — they fail the moment a retune or a
 // catalog step drifts across a line.
 
 import { describe, it, expect } from 'vitest';
@@ -193,12 +195,13 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
       expect(read(s2, path), path).toBeLessThan(minHullHp);
     }
     // THE LADDERS THAT ACTUALLY MOVE DAMAGE TODAY: the DECK GUN (R14,
-    // +1.25/tier, Story 8.1), the FOUR Story 8.13 lines that step +5/tier, and
-    // the two Story 8.15 gun ladders (MACHINE GUN +1/tier, FLAK +2/tier).
-    // FOULING MINES is deliberately absent — its 10 hp is FIXED at every tier
-    // (epic-8 amendment 81) — and so is every 8.16 line, whose tiers are
-    // still empty. Each of those will land under this same sweep on the day it
-    // does, with no edit here.
+    // +1.25/tier, Story 8.1), the FOUR Story 8.13 lines that step +5/tier, the
+    // two Story 8.15 gun ladders (MACHINE GUN +1/tier, FLAK +2/tier), and
+    // since Story 8.17 STAR SHELLS (10 → 20) and PHOSPHOR SHELLS (20 → 30)
+    // (Eric 2026-09-29, amendments 130/131). FOULING MINES is deliberately
+    // absent — its 10 hp is FIXED at every tier (epic-8 amendment 81) — and so
+    // is the BROADSIDE, whose 15 per shell is fixed at every tier (amendment
+    // 133).
     expect(damagePaths.filter((p) => maxStackFor(p).length > 0).sort()).toEqual([
       'equipment.captiveMines.damage',
       'equipment.flak.damage',
@@ -207,6 +210,8 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
       'equipment.lightTorpedo.damage',
       'equipment.machineGun.damage',
       'equipment.navalMines.damage',
+      'equipment.phosphorShells.damage',
+      'equipment.starShells.damage',
     ]);
   });
 
@@ -298,30 +303,54 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
   // deleted with the cannon, so there is no falloff left to bound.
 
   it('the BROADSIDE obeys the per-shell law at every turret count', () => {
-    // CATALOG V3 INTERIM (Story 8.1): the broadside's tiers II-V are EMPTY
-    // until Story 8.16 authors them from catalog-v3 R35 (+0.5 turret/tier, 4 ->
-    // 6 at the cap), so no line moves turrets or damage this cycle and the
-    // whole battery sits at its base. The LAW is per SHELL either way, and the
-    // ruled cap is pinned here so 8.16 has a number to land on.
+    // Story 8.17 re-pin (Eric 2026-09-29, amendment 133): the broadside's
+    // tiers II–V are authored now (+0.5 turret per tier, 4 -> 6 at the cap —
+    // the number Story 8.1 pinned here for this day) and damage stays 15 per
+    // shell at every tier. The LAW is per SHELL.
     const maxed = stacked('broadside');
-    expect(maxed.equipment.broadside.turrets).toBe(CONFIG.broadside.turrets);
+    expect(CONFIG.broadside.turrets).toBe(4);
+    expect(maxed.equipment.broadside.turrets).toBe(6);
     expect(maxed.equipment.broadside.damage).toBe(CONFIG.broadside.damage);
     expect(maxed.equipment.broadside.damage).toBeLessThan(minHullHp); // the law, per SHELL
-    // The tier-V barrage total R35 rules (6 x 15 = 90) would still clear the
-    // 45hp drone and stay under the 250hp class floor — the multi-shell click
-    // case the law deliberately does not govern.
-    expect(6 * CONFIG.broadside.damage).toBeLessThan(minHullHp);
+    // The tier-V barrage total (6 x 15 = 90) clears the 45hp drone and stays
+    // under the 250hp class floor — the multi-shell click case the law
+    // deliberately does not govern.
+    expect(maxed.equipment.broadside.turrets * maxed.equipment.broadside.damage).toBeLessThan(minHullHp);
   });
 });
 
-describe('star shells are DAMAGELESS (amendment 39 — flipped pin)', () => {
-  it('the CONFIG damage field is DELETED, not zeroed (structurally unarmable)', () => {
-    expect('damage' in CONFIG.starShells).toBe(false);
+// STAR SHELLS DEAL DAMAGE AGAIN (Story 8.17, Eric 2026-09-29, amendment 130 —
+// SUPERSEDING amendment 39's "structurally damageless" and the flipped pin
+// that stood here). The CONFIG field is back; the ladder is Eric's whole
+// numbers; and the per-shell law holds at every rung.
+describe('star shells DEAL DAMAGE again (amendment 130 — supersedes amendment 39)', () => {
+  it('the tier ladder is 10 / 12 / 15 / 17 / 20, every rung under the floor', () => {
+    expect(CONFIG.starShells.damage).toBe(10);
+    const ladder = [1, 2, 3, 4, 5].map((n) => stacked('starShells', n).equipment.starShells.damage);
+    expect(ladder).toEqual([10, 12, 15, 17, 20]);
+    for (const d of ladder) expect(d).toBeLessThan(minHullHp);
   });
 
-  it('the incendiary doctrine DoT is the only star-shell damage, and it cannot one-tick a hull', () => {
-    expect(CONFIG.starShells.incendiaryDps).toBeGreaterThan(0);
-    expect(CONFIG.starShells.incendiaryDps).toBeLessThan(minHullHp);
+  it('the old incendiary/dazzle doctrine fields are GONE (amendment 134)', () => {
+    for (const gone of ['incendiaryRadiusFactor', 'incendiaryDps', 'dazzleSightFactor']) {
+      expect(gone in CONFIG.starShells, gone).toBe(false);
+    }
+  });
+});
+
+// PHOSPHOR SHELLS (Story 8.17, amendment 131): the burst is a per-shell hit
+// like any other, and the burn is a slow DoT — neither can one-shot a hull.
+describe('phosphor shells stay under the one-hit-kill floor (amendment 131)', () => {
+  it('the burst ladder is 20 / 22 / 25 / 27 / 30 and the burn 5 / 6 / 7 / 8 / 10 hp/s', () => {
+    const rows = [1, 2, 3, 4, 5].map((n) => stacked('phosphorShells', n).equipment.phosphorShells);
+    expect(rows.map((r) => r.damage)).toEqual([20, 22, 25, 27, 30]);
+    expect(rows.map((r) => r.dps)).toEqual([5, 6, 7, 8, 10]);
+    for (const r of rows) {
+      expect(r.damage).toBeLessThan(minHullHp);
+      // The WHOLE burn a zone can deal to a hull that never leaves it, plus
+      // the burst, still clears the lightest class hull by a wide margin.
+      expect(r.damage + r.dps * (r.zoneDurationMs / 1000)).toBeLessThan(minHullHp);
+    }
   });
 });
 
@@ -373,13 +402,14 @@ describe('star-shell tell guardrail', () => {
     expect(CONFIG.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
   });
 
-  // WIDE BURST is DELETED (Story 7-5 wave 1), so `starShells.litRadius` has no
-  // writer and the base pin above is the whole guarantee. Kept as a SWEEP so a
-  // future radius card cannot land without re-proving the tell guardrail.
-  it('no catalog line grows litRadius; if one ever does, it must stay inside BASE radar range', () => {
+  // WIDE BURST was DELETED (Story 7-5 wave 1); since Story 8.17 the STAR
+  // SHELLS line itself grows litRadius ×1.1 per tier (amendment 130), so the
+  // SWEEP re-proves the tell guardrail at the maxed ladder: 241.6 u < 660 u.
+  it('the STAR SHELLS ladder grows litRadius (amendment 130), and the maxed radius stays inside BASE radar range', () => {
     const maxed = maxStackFor('equipment.starShells.litRadius');
-    expect(maxed).toEqual([]);
+    expect(maxed).toEqual(new Array<LineId>(5).fill('starShells'));
     const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxed);
+    expect(s.equipment.starShells.litRadius).toBeCloseTo(241.5765, 9);
     expect(s.equipment.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
   });
 });

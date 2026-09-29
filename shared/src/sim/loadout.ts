@@ -52,6 +52,10 @@ import type { EffectiveStats } from './stats.js';
  * space, because FOULING MINES became its own tiered equipment line and the
  * add-on card was deleted.
  *
+ * STORY 8.17 ADDED ONE (Eric ruling 2026-09-29, epic-8 amendment 131):
+ * `phosphorShells` ARRIVED from the add-on space — PHOSPHOR SHELLS is its own
+ * tiered 360° weapon line now, not a star-shell verb (the locked id is kept).
+ *
  * The legacy `radarBuoy` id is GONE (Story 8.16): the RADAR BUOY was deleted
  * end to end in favour of the DECOY BUOY consumable (catalog-v3 R1). The legacy flat-bonus boost id is GONE (Story 8.9): the v3
  * `boost` id IS the speed boost, the Torpedo Boat's Shift since 8.15.
@@ -68,6 +72,7 @@ export type EquipmentId =
   | 'flak'
   | 'broadside'
   | 'starShells'
+  | 'phosphorShells'
   | 'instantReload'
   | 'damageCut';
 
@@ -105,6 +110,9 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // denied out-of-arc.
   broadside: true,
   starShells: true, // Story 1.7: prime-then-click skillshot (spawns a lit zone at burst)
+  // PHOSPHOR SHELLS (Story 8.17, amendment 131): prime, click fires one 360°
+  // shell that bursts into a burning zone.
+  phosphorShells: true,
   // THE TWO NEW CLASS SHIFTS (Story 8.15): INSTANT RELOAD (the Mine Layer's,
   // amendments 97–98) and DAMAGE CUT (the Battleship's, amendments 99–102).
   // Both are instant activations off the Shift edge, aimed at nothing — the
@@ -146,9 +154,10 @@ export type SlotItemId = EquipmentId | ConsumableId;
  * The consumable half of the weapon/ability split (D21) — the same law
  * `EQUIPMENT_IS_WEAPON` states for equipment: true iff the consumable is AIMED
  * and fired at a clicked point, false iff it is an instant activation off the
- * `1`–`4` rail. TWO are click-aimed: the DECOY BUOY (catalog-v3 R1, the buoy
- * it replaces was too) and the SUPERCAV TORPEDO (epic-8 amendment 74).
- * Compile-forced to cover every ConsumableId.
+ * `1`–`4` rail. THREE are click-aimed: the DECOY BUOY (catalog-v3 R1, the
+ * buoy it replaces was too), the SUPERCAV TORPEDO (epic-8 amendment 74) and
+ * FLASH SHELLS (Story 8.17, amendment 132). Compile-forced to cover every
+ * ConsumableId.
  */
 export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
   hullRepair: false,
@@ -164,6 +173,11 @@ export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
   // the mechanical sense besides the decoy: the digit primes, a click inside
   // the bow ±15° sector fires one fish (`KEY PRIMES · CLICK FIRES`).
   supercavTorpedo: true,
+  // FLASH SHELLS (internal id `dazzleShells` — Story 8.17, Eric ruling
+  // 2026-09-29, epic-8 amendment 132): the digit primes, a click fires one
+  // 360° shell to the radar rung that dazzles every non-friendly hull inside
+  // its one-time r150 burst.
+  dazzleShells: true,
 };
 
 /** Membership over the ONE consumable id list (sim/effects.ts) — never a second

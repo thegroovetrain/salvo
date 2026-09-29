@@ -37,9 +37,21 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     // The declaration itself is CONFIG-visible (rides the welcome snapshot).
     expect(CONFIG.gun.arc).toBe('full');
     expect(CONFIG.starShells.arc).toBe('full');
-    for (const id of ['gun', 'starShells'] as const) {
+    // PHOSPHOR SHELLS joins the family as its own 360° weapon (Story 8.17,
+    // amendment 131).
+    expect(CONFIG.phosphorShells.arc).toBe('full');
+    for (const id of ['gun', 'starShells', 'phosphorShells'] as const) {
       expect(arcFor(id)).toEqual({ kind: 'full' });
     }
+  });
+
+  it('FLASH SHELLS (`dazzleShells`) is a 360° CONSUMABLE shell (Story 8.17, amendment 132)', () => {
+    expect(isConsumableId('dazzleShells')).toBe(true);
+    expect(CONFIG.flashShells.arc).toBe('full');
+    expect(arcFor('dazzleShells')).toEqual({ kind: 'full' });
+    // No range field of its own: its reach is the star shell's — the
+    // post-fold radarRange — read off the firer's stats, never a CONFIG literal.
+    expect('rangeU' in CONFIG.flashShells).toBe(false);
   });
 
   it('EVERY GUN is 360° — cannon, machine gun, flak (Story 8.15, amendment 106: "There is no \'arc.\'")', () => {
@@ -112,13 +124,15 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(isConsumableId('supercavTorpedo')).toBe(true);
   });
 
-  it('EVERY OTHER consumable declares no arc — the two aimed ones are the supercav and the decoy', () => {
+  it('EVERY OTHER consumable declares no arc — the three aimed ones are the supercav, the decoy and FLASH SHELLS', () => {
+    // FLASH SHELLS joined the aimed set in Story 8.17 (amendment 132).
+    const AIMED: readonly string[] = ['supercavTorpedo', 'decoyBuoy', 'dazzleShells'];
     for (const id of CONSUMABLE_IDS) {
-      if (id === 'supercavTorpedo' || id === 'decoyBuoy') continue;
+      if (AIMED.includes(id)) continue;
       expect(arcFor(id), id).toEqual({ kind: 'none' });
     }
     const aimed = CONSUMABLE_IDS.filter((id) => arcFor(id).kind !== 'none');
-    expect([...aimed].sort()).toEqual(['decoyBuoy', 'supercavTorpedo']);
+    expect([...aimed].sort()).toEqual(['dazzleShells', 'decoyBuoy', 'supercavTorpedo']);
   });
 
   it('the DECOY BUOY SHARES the mine rear sector exactly (click-placed, Story 8.16)', () => {

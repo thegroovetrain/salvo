@@ -167,8 +167,9 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       }
     }
     // The universal ladders + the deck gun (Story 8.1), the five torpedo /
-    // mine ladders (Story 8.13) and the machine gun / flak ladders (Story
-    // 8.15); the rest stand ready for 8.16.
+    // mine ladders (Story 8.13), the machine gun / flak ladders (Story 8.15)
+    // and the STAR SHELLS / BROADSIDE / PHOSPHOR SHELLS ladders (Story 8.17,
+    // Eric 2026-09-29, amendments 130/131/133).
     expect([...written].sort()).toEqual([
       'cooldownScale', 'equipment.gun.barrels', 'equipment.gun.damage', 'equipment.gun.maxAmmo',
       'kinematics.maxSpeed', 'kinematics.turnRate', 'maxHp', 'sweepRpm',
@@ -182,10 +183,15 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'equipment.foulingMines.blastRadius', 'equipment.foulingMines.maxAmmo',
       'equipment.foulingMines.slowFactor',
       'equipment.machineGun.maxAmmo', 'equipment.machineGun.damage', 'equipment.flak.damage',
+      'equipment.starShells.litDurationMs', 'equipment.starShells.litRadius',
+      'equipment.starShells.maxAmmo', 'equipment.starShells.damage',
+      'equipment.broadside.spreadRung', 'equipment.broadside.turrets',
+      'equipment.phosphorShells.damage', 'equipment.phosphorShells.dps',
+      'equipment.phosphorShells.zoneRadius', 'equipment.phosphorShells.zoneDurationMs',
     ].sort());
     // Still addressable in principle, still written by nothing: the FOULING
-    // mine's damage is fixed at 10 by ruling (amendment 81), and radarRange
-    // has no card at all.
+    // mine's damage is fixed at 10 by ruling (amendment 81), the BROADSIDE's
+    // at 15 (amendment 133), and radarRange has no card at all.
     for (const path of [
       'radarRange', 'equipment.foulingMines.damage', 'equipment.broadside.damage',
     ]) {
@@ -202,16 +208,18 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     expect([...EQUIPMENT_INT_FIELDS]).toEqual(['maxAmmo', 'barrels', 'turrets', 'damage', 'contactDamage']);
   });
 
-  it('DOCTRINE_MODES is keyed by EquipmentId and carries only verbs a v3 add-on grants', () => {
+  it('DOCTRINE_MODES is keyed by EquipmentId and carries only verbs a v3 add-on grants — NONE since 8.17', () => {
     // CUT FROM FIVE ENTRIES TO TWO in Story 8.13 (Eric rulings 2026-09-19,
     // epic-8 amendments 80/81): the CARDS that granted `homing` on the two
     // torpedoes and `propFouling` on the naval mine are deleted, so the verbs
     // went with them. Homing is a NUMERIC tier stat now; fouling is its own
     // equipment line. CUT TO ONE in Story 8.15: the missile's `homing` went
-    // with HEAT SEEKING and the missile itself (amendment 89e).
-    expect(DOCTRINE_MODES).toEqual({
-      starShells: ['phosphor', 'dazzle'],
-    });
+    // with HEAT SEEKING and the missile itself (amendment 89e). EMPTIED in
+    // Story 8.17 (Eric 2026-09-29, amendments 131–134): PHOSPHOR SHELLS is its
+    // own weapon and DAZZLE the FLASH SHELLS consumable, so the star shell's
+    // verbs are gone. The table stays, empty (the machinery is kept).
+    expect(DOCTRINE_MODES).toEqual({});
+    expect('starShells' in DOCTRINE_MODES).toBe(false);
     for (const weapon of Object.keys(DOCTRINE_MODES)) expect(EQUIPMENT_IDS).toContain(weapon);
     // The radar buoy's gun/jamming verbs left with the buoy (catalog-v3 R1) and
     // `captive` left because CAPTIVE MINES became its own equipment line (R25).
@@ -404,6 +412,8 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
     const effects: BoonEffect[] = [
       { kind: 'stat', path: 'maxHp', add: 1 },
       { kind: 'behavior', hookId: 'x', params: {} },
+      // A doctrine effect for a verb that no longer exists (Story 8.17): the
+      // slot home ignores doctrine regardless.
       { kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' },
       { kind: 'stock', equipmentId: 'smokeScreen' },
     ];
@@ -631,12 +641,15 @@ describe('the belt — canStock / stockSlotFor / the stock fold (Story 8.7)', ()
 
   it('the test lines are LEGAL catalog lines (the helper is the shipped shape, un-stubbed)', () => {
     for (const id of CONSUMABLE_IDS) expect(validateLine(consumableLine(id)), id).toEqual([]);
-    // ...and production ships exactly FIVE live lines: HULL REPAIR (Story 8.8),
+    // ...and production ships exactly SIX live lines: HULL REPAIR (Story 8.8),
     // SUPERCAV TORPEDO, which moved into the consumable id space in Story 8.13
-    // with a live module behind it (epic-8 amendment 74), and SHIELD BLOCK,
-    // CHAFF and DECOY BUOY (Story 8.16). The other two — SMOKE SCREEN and the
-    // DEPTH CHARGE stub (amendment 83) — are still stubs.
-    const LIVE: readonly string[] = ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy'];
+    // with a live module behind it (epic-8 amendment 74), SHIELD BLOCK, CHAFF
+    // and DECOY BUOY (Story 8.16), and FLASH SHELLS (`dazzleShells`, which moved
+    // in from the add-on space in Story 8.17, amendment 132). The other two —
+    // SMOKE SCREEN and the DEPTH CHARGE stub (amendment 83) — are still stubs.
+    const LIVE: readonly string[] = [
+      'hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy', 'dazzleShells',
+    ];
     for (const id of CONSUMABLE_IDS) {
       expect(CATALOG[id].stub, id).toBe(LIVE.includes(id) ? undefined : true);
     }
@@ -829,7 +842,7 @@ describe('pickRefusal — every branch', () => {
     expect(pickRefusal([], OPEN_SLOTS, 'lightTorpedo')).toBeNull(); // copy 1, row open
     expect(pickRefusal(['lightTorpedo'], ROW_FULL, 'lightTorpedo')).toBeNull(); // a TIER card
     expect(pickRefusal([], OPEN_SLOTS, 'armor')).toBeNull(); // a ladder
-    expect(pickRefusal([], OPEN_SLOTS, 'dazzleShells')).toBeNull(); // an add-on
+    expect(pickRefusal([], OPEN_SLOTS, 'dazzleShells')).toBeNull(); // FLASH SHELLS, a consumable (no add-on is left since 8.17)
     expect(pickRefusal([], OPEN_SLOTS, 'hullRepair')).toBeNull(); // a consumable
   });
 
@@ -868,8 +881,9 @@ describe('pickRefusal — every branch', () => {
   it("'noWeaponSlot' — copy 1 of an equipment line with Q/E/R full, never a later copy", () => {
     expect(pickRefusal([], ROW_FULL, 'starShells')).toBe('noWeaponSlot');
     expect(pickRefusal(['starShells'], ROW_FULL, 'starShells')).toBeNull(); // tier II lands on the hull
-    // Only EQUIPMENT claims the row: a ladder, an add-on and a consumable all
-    // pass with the row full.
+    // Only EQUIPMENT claims the row: a ladder and two consumables (FLASH
+    // SHELLS — an add-on until Story 8.17 — and HULL REPAIR) all pass with the
+    // row full.
     for (const id of ['armor', 'dazzleShells', 'hullRepair']) {
       expect(pickRefusal([], ROW_FULL, id), id).toBeNull();
     }

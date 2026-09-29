@@ -329,6 +329,6 @@ describe('THE RACK PROPERTY — the belt over random legal decks and random pick
 
   it('the belt is exactly as wide as the number of lines a hand can stock at once (4 == 4)', () => {
     expect(CONSUMABLE_SLOTS).toHaveLength(4);
-    expect(CONSUMABLE_IDS.length).toBeGreaterThan(CONSUMABLE_SLOTS.length); // five lines, four slots: refusals are real
+    expect(CONSUMABLE_IDS.length).toBeGreaterThan(CONSUMABLE_SLOTS.length); // eight lines (since 8.17), four slots: refusals are real
   });
 });

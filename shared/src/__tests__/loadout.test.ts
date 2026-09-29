@@ -124,6 +124,7 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
       flak: true,
       broadside: true, // Story 7-5 wave 2: prime-then-click twin-sector barrage
       starShells: true, // Story 1.7: prime-then-click lit-zone flare
+      phosphorShells: true, // Story 8.17: its own 360° weapon (amendment 131)
       // (radarBuoy DELETED in Story 8.16 — the DECOY BUOY consumable replaces it)
       // Story 8.15: the two NEW class Shifts — instant activations like boost.
       instantReload: false,
@@ -248,7 +249,13 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover the Shift boost (from stats
   });
 });
 
-describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells', () => {
+describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells + phosphorShells', () => {
+  it('phosphorShells pool + reload come from CONFIG.phosphorShells (Story 8.17, amendment 131)', () => {
+    const stats = statsFor('battleship');
+    expect(equipmentMaxAmmo(stats, 'phosphorShells')).toBe(CONFIG.phosphorShells.maxAmmo);
+    expect(equipmentReloadMs(stats, 'phosphorShells')).toBe(CONFIG.phosphorShells.reloadMs);
+  });
+
   it('broadside pool + reload come from CONFIG.broadside (via stats.broadside)', () => {
     const stats = statsFor('battleship');
     expect(equipmentMaxAmmo(stats, 'broadside')).toBe(stats.equipment.broadside.maxAmmo);
@@ -309,8 +316,12 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
     const consumables = new Set<string>(CONSUMABLE_IDS);
     for (const id of EQUIPMENT_IDS) expect(consumables.has(id), id).toBe(false);
     // FIVE until Story 8.13 (epic-8 amendments 74/83): `supercavTorpedo` moved
-    // in from the equipment space and `depthCharge` is new.
-    expect(CONSUMABLE_IDS).toHaveLength(7);
+    // in from the equipment space and `depthCharge` is new. SEVEN until Story
+    // 8.17 (amendment 132): `dazzleShells` (FLASH SHELLS) moved in from the
+    // add-on space.
+    expect(CONSUMABLE_IDS).toHaveLength(8);
+    expect(CONSUMABLE_IDS).toContain('dazzleShells');
+    expect((EQUIPMENT_IDS as readonly string[]).includes('dazzleShells')).toBe(false);
   });
 
   it('a LoadoutSlot may hold either kind — a weapon slot an EquipmentId, a belt slot a ConsumableId', () => {
@@ -324,7 +335,7 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
     expect(belt.state?.reloadMsLeft).toBe(0);
   });
 
-  it('isConsumableId is the ONE guard: true for the seven, false for every EquipmentId and for junk', () => {
+  it('isConsumableId is the ONE guard: true for the eight, false for every EquipmentId and for junk', () => {
     for (const id of CONSUMABLE_IDS) expect(isConsumableId(id), id).toBe(true);
     for (const id of EQUIPMENT_IDS) expect(isConsumableId(id), id).toBe(false);
     for (const junk of ['', 'nope', 'constructor', 'toString', 'hullrepair', 'HullRepair']) {
@@ -334,7 +345,7 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
 });
 
 describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation channels read', () => {
-  it('is the exact table: the DECOY BUOY and the SUPERCAV TORPEDO are click-aimed (D21)', () => {
+  it('is the exact table: the DECOY BUOY, the SUPERCAV TORPEDO and FLASH SHELLS are click-aimed (D21)', () => {
     expect(CONSUMABLE_IS_WEAPON).toEqual({
       hullRepair: false,
       shieldBlock: false,
@@ -343,6 +354,7 @@ describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation chan
       decoyBuoy: true, // click-placed in the mine's rear sector (catalog-v3 R1/R36, Story 8.16)
       depthCharge: false, // STUB, non-aimed until Eric rules (amendment 83)
       supercavTorpedo: true, // KEY PRIMES, CLICK FIRES — bow +/-15 deg (amendment 74)
+      dazzleShells: true, // FLASH SHELLS — KEY PRIMES, CLICK FIRES, 360° (Story 8.17, amendment 132)
     });
     expect(Object.keys(CONSUMABLE_IS_WEAPON)).toEqual([...CONSUMABLE_IDS]);
     for (const value of Object.values(CONSUMABLE_IS_WEAPON)) expect(typeof value).toBe('boolean');
@@ -354,7 +366,7 @@ describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation chan
 
   it('isWeaponItem agrees with CONSUMABLE_IS_WEAPON over every ConsumableId', () => {
     for (const id of CONSUMABLE_IDS) expect(isWeaponItem(id), id).toBe(CONSUMABLE_IS_WEAPON[id]);
-    expect(CONSUMABLE_IDS.filter((id) => isWeaponItem(id))).toEqual(['decoyBuoy', 'supercavTorpedo']);
+    expect(CONSUMABLE_IDS.filter((id) => isWeaponItem(id))).toEqual(['decoyBuoy', 'supercavTorpedo', 'dazzleShells']);
   });
 });
 

@@ -1,11 +1,17 @@
 // THE CATALOG (Story 8.1) — catalog v3, Eric's authored sheet
 // (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
 // as amended by Eric's rulings (epic-8 amendments).
-// 26 card LINES / 109 physical cards: 7 equipment lines (35), 5 universal
+// 26 card LINES / 117 physical cards: 8 equipment lines (40), 5 universal
 // ladders (22), the gun ladders (15 — the cannon's three lines, 7, plus the
-// MACHINE GUN and FLAK ladders, 4 each), 2 add-ons (2), 7 consumables (35).
+// MACHINE GUN and FLAK ladders, 4 each), 0 add-ons, 8 consumables (40).
 // TWO stub lines remain since Story 8.16 (SMOKE SCREEN, DEPTH CHARGE); every
 // other line is live.
+//
+// THE COUNT MOVED 109 -> 117 IN STORY 8.17 (Eric 2026-09-29, amendments
+// 130–133), purely by re-cutting KINDS: the last two ADD-ONS are gone —
+// PHOSPHOR SHELLS became its own tiered EQUIPMENT line (1 -> 5) and DAZZLE
+// SHELLS the FLASH SHELLS CONSUMABLE (1 -> 5). The line count stays 26. The
+// `addon` kind and the doctrine machinery stay in place, unused (amendment 134).
 //
 // THE COUNT MOVED 29/122 -> 26/109 IN STORY 8.15 (Eric rulings 2026-09-21/28,
 // epic-8 amendments 89e and 103–105): MISSILE, MONITOR and HEAT SEEKING are
@@ -38,8 +44,9 @@
 // Every equipment line carries copy 1 (`slotFill`); its FOUR UPGRADE TIERS are
 // filled by the story that builds the weapon, from catalog-v3 §4. Story 8.13
 // filled the five torpedo/mine ladders (`tieredWeapon` below); 8.15 built the
-// two pickable guns' ladders; the broadside/star shells are 8.16's, so those
-// stay empty. The
+// two pickable guns' ladders; 8.17 authored the last three — STAR SHELLS,
+// BROADSIDE and PHOSPHOR SHELLS (Eric 2026-09-29, amendments 130–133) — so NO
+// equipment line has an empty tier any more. The
 // −5 %/tier reload step is NEVER one of those effects — it is derived from the
 // tier in sim/stats.ts clampStats, see there. Consumables stock and nothing
 // else.
@@ -68,7 +75,6 @@ import { EQUIPMENT_IDS, isConsumableId } from './loadout.js';
 import {
   BOON_STAT_PATH_SET,
   DOCTRINE_MODES,
-  doctrineEffect,
   statEffect,
   type BoonBehaviorEffect,
   type BoonDoctrineEffect,
@@ -84,6 +90,11 @@ import {
  * amended by amendments 80/83 on 2026-09-19 and 89e on 2026-09-21). This order
  * IS the fold order, so it is part of the determinism contract — never
  * re-sort it.
+ *
+ * STORY 8.17 MOVED NOTHING AND CHANGED TWO KINDS (Eric 2026-09-29, amendments
+ * 131/132): `dazzleShells` became a `consumable` (FLASH SHELLS) and
+ * `phosphorShells` an `equipment` line. Both KEEP their positions at the foot
+ * of the list — the `foulingMines` precedent.
  *
  * STORY 8.15 DELETED THREE IDS AND MOVED NOTHING (29 -> 26): `missile`,
  * `monitor` and `heatSeeking` are CUT (amendment 89e). `machineGun` and `flak`
@@ -133,12 +144,13 @@ export const LINE_IDS = [
   // 2026-09-19, epic-8 amendments 80/83): a new STUB consumable, and the Mine
   // Layer's 40th default card.
   'depthCharge',
-  // --- the add-ons ----------------------------------------------------------
-  // (`foulingMines` sits here too — same reason: its slot is locked, its KIND
-  // changed to `equipment` in Story 8.13.)
+  // --- the former add-ons (NONE remains since Story 8.17) -------------------
+  // Each slot is locked and each KIND changed: `foulingMines` to `equipment`
+  // in Story 8.13; `dazzleShells` to `consumable` (FLASH SHELLS) and
+  // `phosphorShells` to `equipment` in Story 8.17 (amendments 131/132).
   'foulingMines',
-  'dazzleShells',
-  'phosphorShells',
+  'dazzleShells', // a CONSUMABLE since 8.17 — FLASH SHELLS
+  'phosphorShells', // an EQUIPMENT line since 8.17
 ] as const;
 
 /** One of the 26 authored card lines. */
@@ -157,8 +169,9 @@ export type LineKind = 'equipment' | 'ladder' | 'addon' | 'consumable';
  *
  * - `cap` — physical copies in the catalog AND `tiers.length` (pinned equal).
  * - `tiers` — copy k applies `tiers[k-1]`. An EMPTY tier is legal and means
- *   "this step exists but 8.1 does not author its content" (every equipment
- *   line's tiers II–V).
+ *   "this step exists but its content is not authored" (Story 8.1's interim
+ *   for every equipment line's tiers II–V; since Story 8.17 no production
+ *   line carries one).
  * - `appliesTo` — for an `addon`, the equipment it bolts onto; for a GUN
  *   LADDER (`deckGun`, `machineGun`, `flak`), the single equipment row whose
  *   TIER its copies advance (a mounted gun is slotless in the card sense, so it
@@ -229,18 +242,6 @@ function ladder(
 }
 
 /**
- * An equipment line with NO authored ladder: copy 1 fits `equipmentId` (tier I
- * = the bare weapon, catalog-v3 §4 standing rule) and tiers II–V are EMPTY
- * until the line's own story authors them. `stub` marks a weapon whose module
- * does not exist yet.
- */
-function weapon(id: LineId, equipmentId: EquipmentId, stub?: true): CatalogLine {
-  const tiers: readonly BoonEffect[][] = [[{ kind: 'slotFill', equipmentId }], [], [], [], []];
-  const line: CatalogLine = { id, kind: 'equipment', cap: 5, tiers };
-  return stub === undefined ? line : { ...line, stub };
-}
-
-/**
  * An equipment line WITH its ladder: copy 1 fits the weapon and tiers II–V
  * each apply `step` — which is exactly how catalog-v3 §4 writes an equipment
  * row ("Tiers II–V, each: …"), so the sheet's one line is one line here.
@@ -262,17 +263,66 @@ function tieredWeapon(id: LineId, equipmentId: EquipmentId, step: readonly BoonE
   return { id, kind: 'equipment', cap: 5, tiers };
 }
 
-/** A one-copy add-on: one `doctrine` verb per equipment it applies to. */
-function addon(id: LineId, appliesTo: readonly DoctrineWeapon[], mode: string, stub?: true): CatalogLine {
-  const tiers = [appliesTo.map((eq) => doctrineEffect(eq, mode))];
-  const line: CatalogLine = { id, kind: 'addon', cap: 1, tiers, appliesTo };
-  return stub === undefined ? line : { ...line, stub };
+/**
+ * An equipment line whose ladder is NOT UNIFORM (Story 8.17): copy 1 fits the
+ * weapon and tiers II–V apply the FOUR EXPLICIT step lists given, in order.
+ * STAR SHELLS and PHOSPHOR SHELLS step damage +2, +3, +2, +3 (Eric's whole
+ * numbers, amendment 39) and phosphor's burn +1, +1, +1, +2 and its duration
+ * +0, +1, +0, +1 s — shapes one repeated `step` cannot say. A ZERO step is
+ * simply omitted from that tier's list.
+ *
+ * The reload step is derived, never authored (see `tieredWeapon`). A FRESH
+ * ARRAY PER TIER, copied from the caller's lists, so no tier aliases another
+ * or the caller's array (the `ladder` law).
+ */
+export function tieredWeaponSteps(
+  id: LineId,
+  equipmentId: EquipmentId,
+  steps: readonly [
+    readonly BoonEffect[],
+    readonly BoonEffect[],
+    readonly BoonEffect[],
+    readonly BoonEffect[],
+  ],
+): CatalogLine {
+  const slotFill: BoonEffect = { kind: 'slotFill', equipmentId };
+  const tiers: readonly (readonly BoonEffect[])[] = [
+    [slotFill],
+    ...steps.map((step) => [...step] as readonly BoonEffect[]),
+  ];
+  return { id, kind: 'equipment', cap: 5, tiers };
+}
+
+/** One upgrade tier of STAR SHELLS (catalog-v3 R31 as ruled by Eric
+ *  2026-09-29, amendment 130): +2.5 s lit, ×1.1 lit radius, +0.5 flares, plus
+ *  the tier's damage step (+2, +3, +2, +3 → 10 / 12 / 15 / 17 / 20). */
+function starShellTier(damageStep: number): BoonEffect[] {
+  return [
+    statEffect('equipment.starShells.litDurationMs', { add: 2500 }),
+    statEffect('equipment.starShells.litRadius', { mult: 1.1 }),
+    statEffect('equipment.starShells.maxAmmo', { add: 0.5 }),
+    statEffect('equipment.starShells.damage', { add: damageStep }),
+  ];
+}
+
+/** One upgrade tier of PHOSPHOR SHELLS (amendment 131): the damage and burn
+ *  steps, ×1.1 zone radius, and the duration step when it is non-zero (a zero
+ *  step is omitted — the validator refuses an `add: 0`). */
+function phosphorTier(damageStep: number, dpsStep: number, durationStepMs: number): BoonEffect[] {
+  const tier: BoonEffect[] = [
+    statEffect('equipment.phosphorShells.damage', { add: damageStep }),
+    statEffect('equipment.phosphorShells.dps', { add: dpsStep }),
+    statEffect('equipment.phosphorShells.zoneRadius', { mult: 1.1 }),
+  ];
+  if (durationStepMs !== 0) tier.push(statEffect('equipment.phosphorShells.zoneDurationMs', { add: durationStepMs }));
+  return tier;
 }
 
 /** A cap-5 consumable: every copy stocks one use. `stub` marks a consumable
  *  whose EFFECT does not exist yet — the belt itself is built (Story 8.7) and
- *  HULL REPAIR's effect landed with Story 8.8, so the flag is now passed
- *  line-by-line exactly as `weapon()`/`addon()` pass it. */
+ *  HULL REPAIR's effect landed with Story 8.8, so the flag is passed
+ *  line-by-line. (The `weapon()` and `addon()` helpers that took the same
+ *  flag were deleted in Story 8.17 with their last users.) */
 function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
   const stock: BoonStockEffect = { kind: 'stock', equipmentId: id };
   // A fresh tier array AND a fresh effect object per copy (see `ladder`).
@@ -296,7 +346,8 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *   DECK GUN BARREL R16 — +1 barrel per copy, two copies.
  *   MACHINE GUN — +2 shells, +1 damage per tier, 4 tiers (amendment 104).
  *   FLAK — +2 damage per tier, 4 tiers, blast fixed (amendment 105).
- *   DAZZLE / PHOSPHOR SHELLS R33.
+ *   BROADSIDE R35 · STAR SHELLS R31 · PHOSPHOR SHELLS · FLASH SHELLS — as
+ *                  ruled by Eric 2026-09-29, amendments 130–133 (Story 8.17).
  *   LIGHT TORPEDO R18 · HEAVY TORPEDO R17 · NAVAL MINES R23/R24 ·
  *   CAPTIVE MINES R25 · FOULING MINES R28 (as amended) — Story 8.13.
  */
@@ -341,9 +392,9 @@ export const CATALOG: Catalog = deepFreezeRows({
   // --- the eleven equipment lines (+ supercavTorpedo, which kept its slot) ---
   // Copy 1 fits the weapon. The TORPEDO AND MINE ladders below are Story
   // 8.13's (catalog-v3 §4 as amended by Eric's 2026-09-19 rulings, epic-8
-  // amendments 74/77/80/81/82); the broadside/star-shell ones are Story
-  // 8.16's, so those tiers are still empty. The two GUN LADDERS that sit in
-  // this block (machineGun, flak) are Story 8.15's.
+  // amendments 74/77/80/81/82); the BROADSIDE and STAR SHELLS ones are Story
+  // 8.17's (Eric 2026-09-29, amendments 130/133). The two GUN LADDERS that sit
+  // in this block (machineGun, flak) are Story 8.15's.
   //
   // LIGHT TORPEDO (R18): tiers II–V each +5 damage, +2.5 u/s, +0.5 tubes and
   // +0.125 rad/s of homing — 60 dmg / 55 u/s / 3 tubes / 0.5 rad/s at V, on a
@@ -400,14 +451,33 @@ export const CATALOG: Catalog = deepFreezeRows({
   // Tiers II–V each +2 damage (12 -> 20 at V); the blast radius does NOT grow;
   // the −5 % reload per tier is the derived tier step (6 s -> 4.8 s at V).
   flak: ladder('flak', 4, [statEffect('equipment.flak.damage', { add: 2 })], { appliesTo: ['flak'] }),
-  broadside: weapon('broadside', 'broadside'), // R35 — shipped
-  starShells: weapon('starShells', 'starShells'), // R31 — shipped
+  // BROADSIDE (R35 as ruled by Eric 2026-09-29, amendment 133): tiers II–V
+  // each +1 SPREAD rung (the shipped mount/traverse ladders, rung 1 → 5) and
+  // +0.5 turret (5 at III, 6 at V). Damage stays 15 per shell at every tier;
+  // there is no separate damage / turret / spread card. −5 %/tier reload is
+  // derived (18 s → 14.4 s at V).
+  broadside: tieredWeapon('broadside', 'broadside', [
+    statEffect('equipment.broadside.spreadRung', { add: 1 }),
+    statEffect('equipment.broadside.turrets', { add: 0.5 }),
+  ]),
+  // STAR SHELLS (R31 as ruled by Eric 2026-09-29, amendment 130): tiers II–V
+  // each +2.5 s lit, ×1.1 lit radius, +0.5 flares — 20 s lit, r241.6, 3 flares
+  // at V — and the flare's burst damage 10 / 12 / 15 / 17 / 20 (amendment 39's
+  // "structurally damageless" is SUPERSEDED). −5 %/tier reload derived.
+  starShells: tieredWeaponSteps('starShells', 'starShells', [
+    starShellTier(2),
+    starShellTier(3),
+    starShellTier(2),
+    starShellTier(3),
+  ]),
   // --- the consumables (R13, R36–R39, + amendments 74/83) -------------------
   // The belt and the `1`–`4` keys are built (Story 8.7). HULL REPAIR (R13) was
   // the first LIVE line — its effect is Story 8.8's — and SUPERCAV TORPEDO
   // (above) is the second. Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY
   // BUOY live (catalog-v3 R37/R39/R36, epic-8 amendments 116–124), leaving
-  // TWO stubs: SMOKE SCREEN and DEPTH CHARGE, until their effects land.
+  // TWO stubs: SMOKE SCREEN and DEPTH CHARGE, until their effects land. FLASH
+  // SHELLS (Story 8.17) is a live consumable that sits at the foot of the
+  // list with the former add-ons.
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
   shieldBlock: consumable('shieldBlock'), // R37 — absorbs 100 hp for 10 s (CONFIG.shieldBlock)
   smokeScreen: consumable('smokeScreen', true),
@@ -416,7 +486,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB
   // in full shape so the id is final, and the Mine Layer's 40th default card.
   depthCharge: consumable('depthCharge', true),
-  // --- the add-ons (+ foulingMines, which kept its slot) --------------------
+  // --- the former add-ons (NONE remains since Story 8.17) -------------------
   // FOULING MINES (R28 as superseded by amendment 81): its OWN tiered
   // EQUIPMENT line now, not an add-on — tiers II–V each ×1.1 blast (the trip
   // ring follows), +1 held and −0.05 slow factor. Damage is FIXED at 10 and
@@ -428,12 +498,22 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('equipment.foulingMines.slowFactor', { add: -0.05 }),
   ]),
   // HEAT SEEKING (R32) is CUT with the missile (Story 8.15, amendment 89e).
-  // DAZZLE (R33): enemies inside the lit zone see at ×0.5; never changes the
-  // lit radius. Stacks with phosphor on one flare.
-  dazzleShells: addon('dazzleShells', ['starShells'], 'dazzle'),
-  // PHOSPHOR (R33/R34): 5 hp/s burn inside 0.8× the lit radius; never changes
-  // the lit radius.
-  phosphorShells: addon('phosphorShells', ['starShells'], 'phosphor'),
+  // FLASH SHELLS (internal id `dazzleShells`; R33 as ruled by Eric 2026-09-29,
+  // amendment 132): a belt CONSUMABLE, no longer a star-shell add-on — one
+  // 360° shell whose r150 burst dazzles every non-friendly hull inside for
+  // 10 s (sight → 1/8 of intel range). CONFIG.flashShells.
+  dazzleShells: consumable('dazzleShells'),
+  // PHOSPHOR SHELLS (R33/R34 as ruled by Eric 2026-09-29, amendment 131): its
+  // OWN tiered 360° weapon, no longer a star-shell add-on. Tiers II–V: damage
+  // +2/+3/+2/+3 (20 → 30), burn +1/+1/+1/+2 hp/s (5 → 10), zone radius ×1.1
+  // each (100 → 146.41 u), duration +0/+1/+0/+1 s (8 / 8 / 9 / 9 / 10 s).
+  // −5 %/tier reload derived (20 s → 16 s at V).
+  phosphorShells: tieredWeaponSteps('phosphorShells', 'phosphorShells', [
+    phosphorTier(2, 1, 0),
+    phosphorTier(3, 1, 1000),
+    phosphorTier(2, 1, 0),
+    phosphorTier(3, 2, 1000),
+  ]),
 });
 
 /** The immutable zero-cards list — the shared allocation-free identity for
@@ -742,7 +822,7 @@ export function validateCatalog(catalog: Catalog = CATALOG): string[] {
   return errs;
 }
 
-/** Total physical cards in a catalog (Σ cap) — 109 since Story 8.15. */
+/** Total physical cards in a catalog (Σ cap) — 117 since Story 8.17. */
 export function catalogCardCount(catalog: Catalog = CATALOG): number {
   let n = 0;
   for (const key of Object.keys(catalog)) n += catalog[key]?.cap ?? 0;

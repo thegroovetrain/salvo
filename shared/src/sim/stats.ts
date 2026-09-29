@@ -107,9 +107,10 @@ export interface EffectiveBroadside extends EquipmentRowCommon {
 }
 
 // DOCTRINE IS A SET OF INDEPENDENT VERBS, NOT ONE ENUM (Story 7-5 wave 1).
-// Every verb below is its own boolean, folded by sim/boons.ts — so an add-on
-// stacks with another add-on on the same weapon (phosphor AND dazzle) instead
-// of the second silently erasing the first.
+// Every verb is its own boolean, folded by sim/boons.ts — so an add-on stacks
+// with another add-on on the same weapon instead of the second silently
+// erasing the first. NO ROW CARRIES A VERB since Story 8.17 (amendment 134):
+// the star shell's `phosphor`/`dazzle` were the last, and both are deleted.
 
 /**
  * A TORPEDO LINE's effective numbers — the LIGHT and HEAVY fish (the
@@ -202,12 +203,32 @@ export interface EffectiveDamageCut extends EquipmentRowCommon {
   factor: number; // × incoming weapon damage while the window is open
 }
 
+/**
+ * STAR SHELLS' effective numbers. Story 8.17 (Eric ruling 2026-09-29, epic-8
+ * amendments 130/134): the flare deals `damage` to every non-owner hull inside
+ * the WHOLE lit circle at burst, and the `phosphor`/`dazzle` verbs are DELETED
+ * (PHOSPHOR SHELLS is its own row below; DAZZLE is the FLASH SHELLS consumable).
+ */
 export interface EffectiveStarShells extends EquipmentRowCommon {
   rangeU: number; // u — max flare travel — DERIVED = radarRange post-fold
-  litRadius: number; // u — lit-zone radius
+  litRadius: number; // u — lit-zone radius (= the burst radius)
   litDurationMs: number; // ms — lit-zone lifetime
-  phosphor: boolean; // PHOSPHOR SHELLS verb — false unless held
-  dazzle: boolean; // DAZZLE SHELLS verb — false unless held; STACKS with phosphor
+  damage: number; // hp per burst victim inside the whole lit circle (10 → 20)
+}
+
+/**
+ * PHOSPHOR SHELLS' effective numbers (Story 8.17, Eric ruling 2026-09-29,
+ * epic-8 amendment 131) — its own 360° weapon: one shell to the click, a burst
+ * of `damage` over the whole `zoneRadius`, then a BURNING ZONE of that radius
+ * for `zoneDurationMs` burning `dps` hp/s. The server stamps the zone's three
+ * numbers from this row at spawn (amendment 135(e)).
+ */
+export interface EffectivePhosphorShells extends EquipmentRowCommon {
+  rangeU: number; // u — max shell travel — DERIVED = radarRange post-fold (not stat-addressable)
+  damage: number; // hp per burst victim inside the zone (20 → 30)
+  zoneRadius: number; // u — burst AND burning-zone radius (100 → 146.41)
+  zoneDurationMs: number; // ms — burning-zone lifetime (8 → 10 s)
+  dps: number; // hp/s — burn on every non-owner afloat hull inside (5 → 10)
 }
 
 /**
@@ -234,6 +255,7 @@ export type EquipmentStatRow =
   | EffectiveFlak
   | EffectiveBroadside
   | EffectiveStarShells
+  | EffectivePhosphorShells
   | EffectiveInstantReload
   | EffectiveDamageCut;
 
@@ -256,6 +278,7 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
   flak: EffectiveFlak;
   broadside: EffectiveBroadside;
   starShells: EffectiveStarShells;
+  phosphorShells: EffectivePhosphorShells;
   instantReload: EffectiveInstantReload;
   damageCut: EffectiveDamageCut;
 }
@@ -484,10 +507,12 @@ function gunRow(cls: ShipClass): EffectiveGun {
   };
 }
 
-/** The broadside + star-shell rows — pure CONFIG pass-throughs, split out so
- *  baseEquipment stays lean. (The radar-buoy row left with the buoy, Story
- *  8.16.) */
-function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells'> {
+/** The broadside, star-shell and phosphor rows — pure CONFIG pass-throughs,
+ *  split out so baseEquipment stays lean. (The radar-buoy row left with the
+ *  buoy, Story 8.16.) Every row starts at tier 1; its ladder's copies raise
+ *  the tier in the fold and the −5 %/tier reload is derived in clampStats,
+ *  exactly as for the torpedoes (Story 8.17). */
+function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' | 'phosphorShells'> {
   return {
     broadside: {
       tier: 1,
@@ -509,8 +534,17 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells'>
       rangeU: CONFIG.vision.radar, // re-derived post-fold
       litRadius: CONFIG.starShells.litRadius,
       litDurationMs: CONFIG.starShells.litDurationMs,
-      phosphor: false,
-      dazzle: false,
+      damage: CONFIG.starShells.damage,
+    },
+    phosphorShells: {
+      tier: 1,
+      reloadMs: CONFIG.phosphorShells.reloadMs,
+      maxAmmo: CONFIG.phosphorShells.maxAmmo,
+      rangeU: CONFIG.vision.radar, // re-derived post-fold (the star-shell rung)
+      damage: CONFIG.phosphorShells.damage,
+      zoneRadius: CONFIG.phosphorShells.zoneRadius,
+      zoneDurationMs: CONFIG.phosphorShells.zoneDurationMs,
+      dps: CONFIG.phosphorShells.dps,
     },
   };
 }
@@ -563,8 +597,8 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
   };
 }
 
-/** The CONFIG-base stats tree for a class — every number a pure base, every
- *  doctrine verb false. Split out so effectiveStats stays lean. */
+/** The CONFIG-base stats tree for a class — every number a pure base. Split
+ *  out so effectiveStats stays lean. */
 function baseStats(cls: ShipClass): EffectiveStats {
   return {
     kinematics: { ...cls.kinematics },
@@ -656,14 +690,16 @@ function clampStats(stats: EffectiveStats): void {
   // contract — clamp unconditionally.
   stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
-  // Gun/star-shell range IS radarRange, always — all THREE pickable guns
-  // (Story 8.15: Eric set the machine gun and flak to 660, the radar rung);
-  // the broadside rides the same number one rung short (the 5/8 muzzle rung,
-  // Eric: "limited to 5/8").
+  // Gun/star-shell/phosphor range IS radarRange, always — all THREE pickable
+  // guns (Story 8.15: Eric set the machine gun and flak to 660, the radar
+  // rung) and PHOSPHOR SHELLS (Story 8.17, amendment 131); the broadside rides
+  // the same number one rung short (the 5/8 muzzle rung, Eric: "limited to
+  // 5/8").
   eq.gun.rangeU = stats.radarRange;
   eq.machineGun.rangeU = stats.radarRange;
   eq.flak.rangeU = stats.radarRange;
   eq.starShells.rangeU = stats.radarRange;
+  eq.phosphorShells.rangeU = stats.radarRange;
   eq.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
   // The spread ladder is a TABLE, not a step, so the card writes a 1-based RUNG
   // and BOTH halves of the arc geometry are derived from it.

@@ -37,7 +37,8 @@ import type { MineKind } from '../types.js';
 /**
  * One equipment id's firing-arc shape:
  * - `full`        — 360°, aimed to the clicked point, never out of arc
- *                   (every gun — cannon, machine gun, flak — and star shells).
+ *                   (every gun — cannon, machine gun, flak — star shells,
+ *                   phosphor shells and the FLASH SHELLS consumable).
  * - `sector`      — an aimed launch sector `heading + offset ± halfArc`
  *                   (the torpedo's bow arc; the mine's and the decoy buoy's
  *                   rear placement arc — aim outside it is DENIED).
@@ -77,13 +78,17 @@ export function arcFor(id: SlotItemId): ArcShape {
 }
 
 /**
- * A CONSUMABLE's arc. TWO lines aim: the SUPERCAV TORPEDO's bow ±15° sector
- * (`CONFIG.supercavTorpedo`, amendment 74) and the DECOY BUOY, which is
+ * A CONSUMABLE's arc. THREE lines aim: the SUPERCAV TORPEDO's bow ±15° sector
+ * (`CONFIG.supercavTorpedo`, amendment 74); the DECOY BUOY, which is
  * click-placed in the MINE's rear sector (`CONFIG.mine.offset` ±
- * `placeHalfArcDeg`, out to `placeRange` — Story 8.16, catalog-v3 R36). Every
- * other line off the `1`–`4` rail is an instant activation that aims nothing.
+ * `placeHalfArcDeg`, out to `placeRange` — Story 8.16, catalog-v3 R36); and
+ * FLASH SHELLS (`dazzleShells`, Story 8.17, Eric ruling 2026-09-29, epic-8
+ * amendment 132), a 360° gun-pattern shell (`CONFIG.flashShells.arc`) whose
+ * reach is the star shell's — the post-fold `radarRange`. Every other line off
+ * the `1`–`4` rail is an instant activation that aims nothing.
  */
 function consumableArc(id: ConsumableId): ArcShape {
+  if (id === 'dazzleShells') return { kind: CONFIG.flashShells.arc };
   if (id === 'decoyBuoy') return mineSector();
   if (id !== 'supercavTorpedo') return { kind: 'none' };
   return { kind: 'sector', offset: CONFIG.supercavTorpedo.offset, halfArc: CONFIG.supercavTorpedo.halfArc };
@@ -152,8 +157,9 @@ export function mineEquipmentFor(kind: MineKind): MineEquipmentId {
 }
 
 /**
- * A piece of EQUIPMENT's arc: the three guns (gun/machineGun/flak) and
- * starShells declare `arc: 'full'` in CONFIG (amendment 106 for the guns);
+ * A piece of EQUIPMENT's arc: the three guns (gun/machineGun/flak),
+ * starShells and phosphorShells (Story 8.17, amendment 131) declare
+ * `arc: 'full'` in CONFIG (amendment 106 for the guns);
  * the LIGHT torpedo fires into TWO mirrored beam sectors
  * (CONFIG.lightTorpedo.offset/halfArc — ±45° about both beams, 90° dead zones
  * fore and aft, catalog-v3 R18); the HEAVY torpedo keeps its bow sector
@@ -170,6 +176,7 @@ function equipmentArc(id: EquipmentId): ArcShape {
     case 'machineGun':
     case 'flak':
     case 'starShells':
+    case 'phosphorShells':
       return { kind: CONFIG[id].arc };
     case 'lightTorpedo':
       return { kind: 'twin-sector', offset: CONFIG.lightTorpedo.offset, halfArc: CONFIG.lightTorpedo.halfArc };
