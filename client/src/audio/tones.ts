@@ -23,7 +23,7 @@ export type ToneId =
   | 'fireMine'
   | 'fireBroadside'
   | 'fireStarShells'
-  | 'placeBuoy'
+  | 'placeDecoy'
   | 'denied'
   | 'damage'
   | 'kill'
@@ -82,10 +82,11 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // Star shell (Story 1.7): a distinct utility POP — a bright airy rising whistle
   // (a flare climbing into the sky), no heavy noise: not a gun, not a fish.
   fireStarShells: { freqStart: 360, freqMid: 640, freqEnd: 900, duration: 0.13, volume: 0.4, type: 'triangle' },
-  // Radar buoy placement (Story 1.8): a hollow water "bloop" — same soft sine
-  // drop family as the mine plop but pitched a touch higher + brighter so
-  // seeding a buoy is audibly distinct from dropping a mine.
-  placeBuoy: { freqStart: 340, freqMid: 260, freqEnd: 160, duration: 0.13, volume: 0.38, type: 'sine' },
+  // Decoy buoy placement (Story 8.16 — the deleted radar buoy's sound, renamed):
+  // a hollow water "bloop" — same soft sine drop family as the mine plop but
+  // pitched a touch higher + brighter so dropping a decoy is audibly distinct
+  // from dropping a mine.
+  placeDecoy: { freqStart: 340, freqMid: 260, freqEnd: 160, duration: 0.13, volume: 0.38, type: 'sine' },
   // Denied press (Story 1.10 — FR12 "never silence"): a curt low square BLAT,
   // pitched fast downward with no noise layer — reads as a refusal, distinct
   // from every success cue (the gun family cracks start ≥520Hz with noise, the
@@ -294,7 +295,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   //     and centred.
   //   • `point` (700→1100→1500) and `kill` (500→900→1200) start in the same place
   //     and RISE through two octaves; nothing about a miss rises.
-  //   • `fireMine` (220) and `placeBuoy` (340) are the catalog's other soft sine
+  //   • `fireMine` (220) and `placeDecoy` (340) are the catalog's other soft sine
   //     drops, an octave or more below and both transient-free — the hiss is what
   //     says "water", and both of those are your own hand, centred.
   splash: { freqStart: 700, freqMid: 460, freqEnd: 280, duration: 0.1, volume: 0.24, type: 'sine', noise: true },
@@ -377,11 +378,11 @@ export function telegraphTone(dir: number): ToneId {
 
 /** Equipment with a discrete own-fire/placement cue routed through fireTone. The
  *  instant abilities that have NO such cue here are excluded at the type level:
- *  boost (a pure speed window) and radarBuoy (its placement cue is played
- *  as 'placeBuoy' from the buoy reconcile own-spawn hook, not via fireTone).
- *  The MINE stays included even though it is now an ability (Story 1.8) — its
- *  'fireMine' drop cue still fires, via the Mines reconcile own-spawn hook
- *  (main.ts); the buoy's cue rides the same hook shape. */
+ *  boost (a pure speed window) and the DECOY BUOY (Story 8.16 — its placement
+ *  cue is played as 'placeDecoy' from the decoy reconcile own-spawn hook, not
+ *  via fireTone). The MINE stays included even though it is now an ability
+ *  (Story 1.8) — its 'fireMine' drop cue still fires, via the Mines reconcile
+ *  own-spawn hook (main.ts); the decoy's cue rides the same hook shape. */
 type FiringEquipmentId = Extract<
   SlotItemId,
   | 'gun'
@@ -402,7 +403,8 @@ type FiringEquipmentId = Extract<
 
 /** TOTAL over the ids that HAVE a cue. Story 8.1 widened `EquipmentId` to
  *  catalog v3's thirteen weapons plus two legacy ids, so the old
- *  `Exclude<..., 'boost' | 'radarBuoy'>` would now demand a cue for weapons
+ *  `Exclude<..., 'boost' | 'radarBuoy'>` (the radar buoy is deleted since
+ *  Story 8.16) would now demand a cue for weapons
  *  that have no module to fire - the union names exactly the ones that do.
  *
  *  NO NEW `ToneId` (Story 8.13): every torpedo reports with the TORPEDO cue and

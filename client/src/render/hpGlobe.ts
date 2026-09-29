@@ -88,6 +88,12 @@ export function hullShownValue(hp: number): number {
   return hp <= 0 ? 0 : Math.max(1, Math.floor(hp));
 }
 
+/** Pure: the HP numeral's fill — `info` while a SHIELD BLOCK has hp left
+ *  (amendment 116), the ordinary `textPrimary` otherwise. */
+export function shieldedFill(shield: number): number {
+  return shield > 0 ? C.info : C.textPrimary;
+}
+
 /** Pure: the ` /250` half of the readout (its own dimmer register). */
 export function hullMaxLabel(maxHp: number): string {
   return `/${Math.round(maxHp)}`;
@@ -323,6 +329,11 @@ export interface HpGlobeInput {
   alive: boolean;
   /** Inside the five-second sinking window (Story 5.2's third state). */
   sinking: boolean;
+  /** hp — the SHIELD BLOCK's remaining absorb (`OwnShip.shield.hp`; 0 when no
+   *  shield is up). Story 8.16, epic-8 amendments 116/117: it is added to the
+   *  printed NUMBER only, tinted `info` — the globe, its band and the max label
+   *  never see it. */
+  shield: number;
 }
 
 /**
@@ -341,6 +352,7 @@ export class HpGlobe {
   private lastSig = '';
   private lastValue = '';
   private lastMax = '';
+  private lastFill: number = C.textPrimary;
   private lastMicro = 1;
   /** INTEGRATED pulse phase (radians) + the clock it was last advanced at. */
   private pulsePhase = 0;
@@ -358,8 +370,10 @@ export class HpGlobe {
     this.max = new Text({ text: '', style: MAX_STYLE });
     this.max.anchor.set(0, 1);
     this.root.addChild(this.label, this.value, this.max);
-    // The SHIELDED readout (UX-DR46 — the `info`-tinted stack a shield boon
-    // puts over this one) is Story 8.15's and is deliberately not built here.
+    // The SHIELDED readout (UX-DR46, Story 8.16, epic-8 amendments 116/117) is
+    // the NUMBER only: `readout()` prints hull + shield in `info` while a SHIELD
+    // BLOCK is up. No globe ring, no hull ring, and the globe geometry, band
+    // and max label never see the shield.
   }
 
   /**
@@ -413,18 +427,25 @@ export class HpGlobe {
     this.fill.alpha = hullFillHeld(frac, this.pulsePhase, amp, this.hold);
   }
 
-  /** `HULL` over `212 /250`, centred as one block on the globe. */
+  /** `HULL` over `212 /250`, centred as one block on the globe. While a
+   *  SHIELD BLOCK is up the value is hull + shield (it may read past max —
+   *  `HULL 312 /250`) in `info` (amendment 116); the max label is untouched. */
   private readout(input: HpGlobeInput, c: Circle, uiScale: number): void {
     const micro = microScale(uiScale);
     if (micro !== this.lastMicro) {
       this.label.scale.set(micro);
       this.lastMicro = micro;
     }
-    const value = `${hullShownValue(input.hp)}`;
+    const value = `${hullShownValue(input.hp + input.shield)}`;
     const max = hullMaxLabel(input.maxHp);
     if (value !== this.lastValue) {
       this.value.text = value;
       this.lastValue = value;
+    }
+    const fill = shieldedFill(input.shield);
+    if (fill !== this.lastFill) {
+      this.value.style.fill = fill;
+      this.lastFill = fill;
     }
     if (max !== this.lastMax) {
       this.max.text = max;
@@ -454,6 +475,11 @@ export class HpGlobe {
    *  composed readout, without reaching into the display list. */
   get fillAlpha(): number {
     return this.fill.alpha;
+  }
+
+  /** The value numeral's current fill (tests/debug — the shielded `info` tint). */
+  get valueFill(): number {
+    return this.lastFill;
   }
 
   readoutText(): string {

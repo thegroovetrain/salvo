@@ -393,7 +393,7 @@ describe('tooltip model — name, interaction class, description, and NO boons',
   });
 
   it('renders boons as ABSENCE — the list is empty, so no divider and no rows are drawn', () => {
-    for (const id of ['gun', 'heavyTorpedo', 'navalMines', 'boost', 'broadside', 'starShells', 'radarBuoy'] as const) {
+    for (const id of ['gun', 'heavyTorpedo', 'navalMines', 'boost', 'broadside', 'starShells'] as const) {
       expect(tooltipModel(Q, id, stats)?.boons).toEqual([]);
     }
   });

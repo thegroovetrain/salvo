@@ -5,9 +5,9 @@
 // dependent — the three weapon slots are generic, so whatever a captain drew
 // sits in whichever of Q/E/R was empty first. A slot-number branch would light
 // the wrong marker. The gun family
-// (gun/starShells) is 360°; the torpedo has a bow arc; the MINE and (Story 7-5
-// wave 2) the RADAR BUOY have a rear placement arc; the BROADSIDE BARRAGE has
-// TWIN mirrored beam sectors.
+// (gun/starShells) is 360°; the torpedo has a bow arc; the MINE and (Story
+// 8.16) the DECOY BUOY consumable have a rear placement arc; the BROADSIDE
+// BARRAGE has TWIN mirrored beam sectors.
 //
 // The TB torpedo case is the byte-identical regression pin: its bow-arc behavior
 // must NOT drift as the branch grows more shapes. `slotsWithCards` over the
@@ -16,9 +16,10 @@
 // seed that used to supply them, so the lists are this suite's own fixture.
 //
 // STORY 7-5 WAVE 2 RETIRED the `stern-drop` pins wholesale: that shape is
-// deleted from sim/arcs.ts with the decoy buoy that was its only user, so
+// deleted from sim/arcs.ts with the old decoy buoy that was its only user, so
 // "the buoy is never in arc at any bearing" is no longer true and no longer
-// asserted — the radar buoy is a placement SECTOR like the mine.
+// asserted — every buoy since (the radar buoy, deleted in 8.16, and the 8.16
+// DECOY BUOY consumable) is a placement SECTOR like the mine.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -41,6 +42,7 @@ import {
   MINE_EQUIPMENT_IDS,
   fireArcKind,
   isMineEquipment,
+  isPlacedItem,
   isTorpedoItem,
   mineEquipmentFor,
   mineKindOf,
@@ -89,14 +91,14 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
     expect(fireArcKind('starShells')).toBe('gunLike');
   });
 
-  it('classes the SECTOR ids — torpedo bow arc, mine + radar buoy rear arc', () => {
+  it('classes the SECTOR ids — torpedo bow arc, mine + decoy buoy rear arc', () => {
     expect(fireArcKind('heavyTorpedo')).toBe('sector');
     // PIN FLIPPED (Story 2.8, amendment 45): the mine is a click-aimed weapon
     // with a rear placement sector — it used to classify `none`.
     expect(fireArcKind('navalMines')).toBe('sector');
-    // PIN FLIPPED (Story 7-5 wave 2): the buoy is click-placed in the mine's
-    // rear sector now — it used to be an un-aimed stern drop classifying `none`.
-    expect(fireArcKind('radarBuoy')).toBe('sector');
+    // PIN FLIPPED (Story 8.16): the DECOY BUOY consumable is click-placed in the
+    // mine's rear sector — it classified `none` (server-trusted) until now.
+    expect(fireArcKind('decoyBuoy')).toBe('sector');
   });
 
   it('classes the BROADSIDE as `twin` — two mirrored beam sectors (R2.1)', () => {
@@ -149,7 +151,7 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
 //
 // IT IS KEPT ANYWAY, deliberately. What it actually pins is the SECOND case:
 // every EquipmentId that declares the mine's rear placement sector must be one
-// of the three lines or the legacy buoy. That is the assertion a FOURTH mine
+// of the three lines. That is the assertion a FOURTH mine
 // kind trips — a new line can declare the sector in `equipmentArc` without
 // anyone remembering to add it to `MINE_EQUIPMENT_IDS`, and then every
 // kind-keyed reader on both sides would silently treat it as no mine at all.
@@ -162,12 +164,19 @@ describe('the mine + torpedo id sets agree with the SHARED arc grammar', () => {
     }
   });
 
-  it('...and every EQUIPMENT id declaring that sector is a mine or the legacy buoy', () => {
+  it('...and every EQUIPMENT id declaring that sector is a mine (the radar buoy is gone)', () => {
     const rear = JSON.stringify(arcFor('navalMines'));
     const strays = EQUIPMENT_IDS
       .filter((id) => JSON.stringify(arcFor(id)) === rear)
-      .filter((id) => !isMineEquipment(id) && id !== 'radarBuoy');
+      .filter((id) => !isMineEquipment(id));
     expect(strays).toEqual([]);
+  });
+
+  it('the DECOY BUOY consumable declares EXACTLY the mine\'s rear sector (Story 8.16)', () => {
+    expect(arcFor('decoyBuoy')).toEqual(arcFor('navalMines'));
+    expect(isPlacedItem('decoyBuoy')).toBe(true);
+    // ...and it is NOT a mine line: no mine-kind reader may treat it as one.
+    expect(isMineEquipment('decoyBuoy')).toBe(false);
   });
 
   it('maps each line to its wire KIND, and back, without a third spelling', () => {
@@ -188,17 +197,25 @@ describe('the mine + torpedo id sets agree with the SHARED arc grammar', () => {
 
 // THE CLICK GATE OVER A SLOT'S CONTENT (review patch P8).
 //
-// A click-placed CONSUMABLE — the decoy buoy, Story 8.15 — is an `isWeapon`
-// item with NO equipment row, so the arc table and the range table know nothing
-// about it. Asking them produced `inArc: false`, which made the client paint a
-// predicted DENIED pulse, keep the prime and dedupe away the server's answer,
-// while the server cheerfully placed the buoy. The client TRUSTS THE SERVER'S
-// ARC for one: no sector test, no range clamp, prime consumed like any weapon.
-describe('clickInArc — a click-placed consumable trusts the server (P8)', () => {
-  it('is TRUE for an isWeapon consumable at any bearing and any distance', () => {
-    for (const aim of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
-      expect(clickInArc(0, aim, 99_999, 'decoyBuoy'), String(aim)).toBe(true);
-    }
+// A click-placed CONSUMABLE used to be BLIND-TRUSTED here (the decoy buoy had
+// no arc before Story 8.16, so the client could only defer to the server).
+// STORY 8.16 ENDED THAT: the DECOY BUOY declares the mine's rear sector and
+// shares the mine's placement leash, so the client gates it exactly like a
+// mine — a predicted denial over a click the server would refuse, and nothing
+// else. The key-fires consumables still answer false.
+describe('clickInArc — the click-aimed consumables are GATED by their arcs', () => {
+  it('the DECOY BUOY is gated by the mine\'s rear sector — no longer blind-trusted', () => {
+    const rear = arcFor('decoyBuoy');
+    if (rear.kind !== 'sector') throw new Error('the decoy buoy must declare a sector');
+    expect(clickInArc(0, rear.offset, 10, 'decoyBuoy')).toBe(true); // dead astern, in reach
+    expect(clickInArc(0, 0, 10, 'decoyBuoy')).toBe(false); // dead ahead: out of arc
+    expect(clickInArc(0, Math.PI / 2, 10, 'decoyBuoy')).toBe(false); // abeam: out of arc
+  });
+
+  it('the DECOY BUOY shares the mine\'s placement leash — past it is denied', () => {
+    expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange, 'decoyBuoy')).toBe(true);
+    expect(clickInArc(0, Math.PI, CONFIG.mine.placeRange + 1, 'decoyBuoy')).toBe(false);
+    expect(clickInArc(0, Math.PI, 99_999, 'decoyBuoy')).toBe(false); // the old blind trust is gone
   });
 
   it('is FALSE for a KEY-FIRES consumable — a click on an ability fires nothing', () => {
@@ -207,14 +224,9 @@ describe('clickInArc — a click-placed consumable trusts the server (P8)', () =
     }
   });
 
-  // THE ONE CONSUMABLE THAT IS NOT TRUSTED BLIND (Story 8.13, epic-8 amendment
-  // 74): the SUPERCAV TORPEDO declares a real arc, so the client gates it like
-  // a fitted weapon. The test is the DESCRIPTOR, not the id — the decoy buoy
-  // declares `none` and keeps the blind trust above.
-  it('GATES a consumable that declares an arc, and trusts one that does not', () => {
+  it('GATES the supercav by its bow sector too', () => {
     expect(clickInArc(0, 0, 10, 'supercavTorpedo')).toBe(true); // dead ahead: inside ±15°
     expect(clickInArc(0, Math.PI, 10, 'supercavTorpedo')).toBe(false); // astern: denied
-    expect(clickInArc(0, Math.PI, 99_999, 'decoyBuoy')).toBe(true); // still blind-trusted
   });
 
   it('gates EVERY mine line on the ONE shared leash, not just the naval rack', () => {
@@ -359,15 +371,14 @@ describe('weaponArcHit — torpedo bow arc', () => {
 describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', () => {
   // The id-driven branch must reproduce the TB's bow-arc torpedo behavior
   // (TB's Q = torpedo). The Mine Layer's seed fills Q with the mine; the RADAR
-  // BUOY has gone DARK (epic-8 amendment 22 — no card and no seed reaches it,
-  // so no hull carries it in play), and the arc suite below drives it as a bare
-  // id, which is what `weaponArcHit` actually takes.
+  // BUOY that used to ride E went dark (epic-8 amendment 22) and was deleted in
+  // Story 8.16.
   const halfArc = CONFIG.torpedo.halfArc;
 
   it('the TB seed fills Q with the torpedo; the ML seed fills Q with the mine', () => {
     expect(idAt('torpedoBoat', Q)).toBe('heavyTorpedo');
     expect(idAt('mineLayer', Q)).toBe('navalMines');
-    // AMENDMENT 22: nothing fits the buoy any more — E stays empty on the ML.
+    // AMENDMENT 22: nothing fits E on the ML (the radar buoy is deleted).
     expect(idAt('mineLayer', E)).toBeNull();
   });
 
@@ -379,20 +390,10 @@ describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', 
     expect(weaponArcHit(0, Math.PI, torp)).toBe(false); // astern
   });
 
-  it('BOTH ML specials are AIMED rear-sector ids (wave 2 flipped the buoy)', () => {
-    // PIN FLIPPED (Story 2.8): the mine used to classify `none` alongside the
-    // buoy. PIN FLIPPED AGAIN (Story 7-5 wave 2): so does the buoy — it is
-    // click-placed in the mine's own rear sector, and the stern-drop shape that
-    // made it "never in arc at any bearing" is deleted.
-    //
-    // STORY 8.5 DROPPED THE SLOT LOOKUP, NOT THE PIN (epic-8 amendment 22): the
-    // buoy is unreachable in play, so there is no fitted slot to read it out of
-    // — the module, its arc and this behaviour all stay until Story 8.15
-    // deletes them. The ids are named directly, which is what weaponArcHit
-    // takes anyway.
+  it('the mine and the DECOY BUOY are AIMED rear-sector ids (Story 8.16)', () => {
     const rear = arcFor('navalMines');
     if (rear.kind !== 'sector') throw new Error('mine must declare a sector');
-    for (const id of ['navalMines', 'radarBuoy'] as const) {
+    for (const id of ['navalMines', 'decoyBuoy'] as const) {
       expect(fireArcKind(id), id).toBe('sector');
       expect(weaponArcHit(0, rear.offset, id), id).toBe(true);
       expect(weaponArcHit(0, 0, id), id).toBe(false); // dead ahead
@@ -426,8 +427,8 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
   it('the MINE reads its ratified placement reach — NOT radar range (Story 2.8)', () => {
     expect(weaponRangeU(stats, 'navalMines')).toBe(CONFIG.mine.placeRange);
     expect(weaponRangeU(stats, 'navalMines')).toBeLessThan(stats.equipment.gun.rangeU);
-    // The RADAR BUOY shares the mine's placement leash verbatim (R2.7).
-    expect(weaponRangeU(stats, 'radarBuoy')).toBe(CONFIG.mine.placeRange);
+    // The DECOY BUOY shares the mine's placement leash verbatim (Story 8.16).
+    expect(weaponRangeU(stats, 'decoyBuoy')).toBe(CONFIG.mine.placeRange);
   });
 
   // A WIDER `radarRange` grows gun, star shells AND the broadside together.
@@ -599,13 +600,11 @@ describe('weaponRangeHit — the CLICK-PLACED ids\' hard placement-reach denial 
   // The client's predicted gate must be its exact complement, or an
   // out-of-range click would silently consume the prime and revert to the gun.
   //
-  // STORY 7-5 WAVE 2: the RADAR BUOY joined the mine on this gate, and it is a
-  // real client/server parity fix rather than a nicety —
-  // `server/src/game/equipment/radarBuoy.ts` reuses `CONFIG.mine.placeRange`
-  // verbatim (R2.7's "the mine's rear sector at placeRange 150u"), so while the
-  // client answered `true` for the buoy at any distance, a long buoy click ate
-  // the prime for a drop the server refused.
-  for (const id of ['navalMines', 'radarBuoy'] as const) {
+  // STORY 8.16: the DECOY BUOY joined the mine on this gate (the radar buoy
+  // that held the seat is deleted). The decoy row reuses `CONFIG.mine.placeRange`
+  // verbatim, so a client that answered `true` at any distance would eat the
+  // prime for a drop the server refuses.
+  for (const id of ['navalMines', 'decoyBuoy'] as const) {
     it(`${id}: accepts a click inside the reach, boundary included, and refuses one past it`, () => {
       expect(weaponRangeHit(0, id)).toBe(true);
       expect(weaponRangeHit(CONFIG.mine.placeRange - 1, id)).toBe(true);
@@ -613,14 +612,6 @@ describe('weaponRangeHit — the CLICK-PLACED ids\' hard placement-reach denial 
       expect(weaponRangeHit(CONFIG.mine.placeRange + 0.001, id)).toBe(false);
     });
   }
-
-  // The buoy's OWN 330u radar set is a different number entirely — that is the
-  // circle it watches once dropped, not how far you can throw it. Reaching for
-  // it here would triple the placement leash.
-  it('the buoy is leashed by the PLACEMENT range, never by its own radar reach', () => {
-    expect(CONFIG.radarBuoy.radarRange).toBeGreaterThan(CONFIG.mine.placeRange);
-    expect(weaponRangeHit(CONFIG.radarBuoy.radarRange, 'radarBuoy')).toBe(false);
-  });
 
   it('never gates any OTHER id on distance — they clamp or run on, they do not deny', () => {
     for (const id of ['gun', 'broadside', 'starShells', 'heavyTorpedo', 'boost'] as const) {
@@ -633,7 +624,7 @@ describe('weaponRangeHit — the CLICK-PLACED ids\' hard placement-reach denial 
 // --- Story 1.10: classification derives from the shared arcFor descriptor ----
 
 describe('weaponArc — arcFor single-source (Story 1.10)', () => {
-  const ALL_IDS: EquipmentId[] = ['gun', 'heavyTorpedo', 'navalMines', 'boost', 'broadside', 'starShells', 'radarBuoy'];
+  const ALL_IDS: SlotItemId[] = ['gun', 'heavyTorpedo', 'navalMines', 'boost', 'broadside', 'starShells', 'decoyBuoy'];
 
   it('fireArcKind is a straight projection of the shared descriptor for every id', () => {
     const PROJECTION: Record<string, string> = {
@@ -692,42 +683,23 @@ describe('sectorOutline — the placement wedge boundary', () => {
 
 // ---- THE PLACEMENT WEDGE (Eric playtest 2026-08-20) --------------------------
 //
-// *"The buoy's targeting range indicator isn't correct"* and *"the mine's
-// targeting indicator seems to show two stacked indicators?"*, with the reason
-// both matter: *"with this rear facing, place-in-short-range arc style weapon,
-// its important that I as a captain can clearly see where I can place my
-// stuff."*
-//
-// Two defects, one root cause — the two CLICK-PLACED ids were not sharing a
-// grammar. `render/firing.ts` special-cased `id === 'navalMines'` for radius, tint and
-// boundary, so the RADAR BUOY fell to the torpedo branch: drawn at the
-// indicative ARC_R (72u) instead of its real 150u leash. And `sector()` drew a
-// SECOND wedge at HALF the radius to show reloading, which on a true-radius
-// placement wedge is a second "you can place here" boundary.
-//
-// These pin the INVARIANT rather than the pixels: both click-placed ids answer
-// the same leash, and that leash is the placement range — never the buoy's own
-// 330u radar set, which is a different circle entirely.
-describe('the click-placed pair share ONE placement leash (Eric 2026-08-20)', () => {
-  it('mine and radarBuoy report the SAME reach, and it is the placement range', () => {
+// *"with this rear facing, place-in-short-range arc style weapon, its important
+// that I as a captain can clearly see where I can place my stuff."* The radar
+// buoy that prompted it is deleted (Story 8.16); the invariant stands for the
+// click-placed ids that remain — the mine lines and the DECOY BUOY consumable
+// share ONE grammar: the same leash, the same rear sector.
+describe('the click-placed ids share ONE placement leash (Eric 2026-08-20, Story 8.16)', () => {
+  it('mine and decoyBuoy report the SAME reach, and it is the placement range', () => {
     const stats = effectiveStats(CONFIG.shipClasses.mineLayer, []);
     expect(weaponRangeU(stats, 'navalMines')).toBe(CONFIG.mine.placeRange);
-    expect(weaponRangeU(stats, 'radarBuoy')).toBe(CONFIG.mine.placeRange);
-    expect(weaponRangeU(stats, 'radarBuoy')).toBe(weaponRangeU(stats, 'navalMines'));
+    expect(weaponRangeU(stats, 'decoyBuoy')).toBe(CONFIG.mine.placeRange);
   });
 
-  it("the buoy's placement leash is NOT its radar set — the bug was showing a different circle", () => {
-    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, []);
-    expect(weaponRangeU(stats, 'radarBuoy')).not.toBe(stats.equipment.radarBuoy.radarRange);
-    expect(weaponRangeU(stats, 'radarBuoy')).toBeLessThan(stats.equipment.radarBuoy.radarRange);
-  });
-
-  it('both are aim-gated SECTOR weapons sharing the rear arc — so both draw a wedge at all', () => {
+  it('both are aim-gated SECTOR ids sharing the rear arc — so both draw a wedge at all', () => {
     expect(fireArcKind('navalMines')).toBe('sector');
-    expect(fireArcKind('radarBuoy')).toBe('sector');
+    expect(fireArcKind('decoyBuoy')).toBe('sector');
     const m = arcFor('navalMines');
-    const b = arcFor('radarBuoy');
-    expect(b.kind).toBe('sector');
+    const b = arcFor('decoyBuoy');
     if (m.kind !== 'sector' || b.kind !== 'sector') throw new Error('both must be sectors');
     expect(b.offset).toBe(m.offset);
     expect(b.halfArc).toBe(m.halfArc);
@@ -739,8 +711,9 @@ describe('the click-placed pair share ONE placement leash (Eric 2026-08-20)', ()
 // every weapon-geometry helper in this module is keyed by `EquipmentId`. A
 // primed slot holding a consumable therefore has NO weapon geometry on the
 // client: no arc, no range, no reload readout, no aim preview. The click itself
-// is untouched and still travels to the server on `input.slot` (the decoy
-// buoy's arc is the server's in Story 8.15).
+// is untouched and still travels to the server on `input.slot`. (The arc and
+// the aim preview read the slot's RAW content instead, which is how the
+// supercav and — Story 8.16 — the decoy buoy draw their sectors.)
 //
 // Behaviourally inert today — every consumable is a stub and the belt ships
 // empty — so what is pinned is the TYPE-LEVEL discipline: narrow, never cast.

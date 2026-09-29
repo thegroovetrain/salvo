@@ -143,8 +143,8 @@ export interface SlotFlags {
  * lie. Only an empty pool (`n <= 0`) with a running timer cools.
  *
  * ACTIVE OUTRANKS COOLING (amendment 48, re-ruled for the bar by amendment 34).
- * The two genuinely coexist — a radar buoy floats out its whole window while its
- * rack reloads, and the boost's cooldown starts the instant the throttle opens —
+ * The two genuinely coexist — the boost's cooldown starts the instant the
+ * throttle opens —
  * so this is a real decision, not a hypothetical: while the window is RUNNING it
  * is the payoff, and the cooldown is the smaller story. On the bar the ACTIVE
  * slot therefore shows the WINDOW's seconds in the same centred numeral the
@@ -238,8 +238,8 @@ export interface HotbarView {
    *  accrued list and each square's TIER numeral. Absent = nothing fitted. */
   cards?: readonly string[];
   /** Per-slot REMAINING ability-window ms (0 = no window running) — the ACTIVE
-   *  state's whole input (amendment 48: boost's `boostUntil`, the radar buoy's
-   *  own `until`), resolved against the server clock by the caller. */
+   *  state's whole input (amendment 48: boost's `boostUntil`, DAMAGE CUT's
+   *  `damageCutUntil`), resolved against the server clock by the caller. */
   activeMsLeft?: readonly number[];
   /** Per-slot fit pulse this frame: a boon landed on THIS slot's family. */
   fit?: readonly boolean[];

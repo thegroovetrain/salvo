@@ -14,8 +14,8 @@
 // pierces, so those are not adapted — the weapon they described is gone.
 
 import { describe, it, expect } from 'vitest';
+import { Container, type Graphics } from 'pixi.js';
 import {
-  CATALOG,
   CONFIG,
   burstPointAlong,
   effectiveStats,
@@ -28,13 +28,12 @@ import {
   islandFromPolygon,
   parallelOffsets,
   torpedoSpawn,
-  type Catalog,
-  type CatalogLine,
   type EffectiveStats,
   type Island,
   type TurretAim,
 } from '@salvo/shared';
 import {
+  AimPreview,
   clipAtIslands,
   computeAimPreview,
   effectiveLitRadius,
@@ -118,28 +117,6 @@ function minesAt(cards: readonly string[], blastMult: number): EffectiveStats {
   };
 }
 
-/** An INJECTED def that widens the owner's radar range. No shipped card writes
- *  `radarRange` since cycle 119 deleted the INTEL RANGE line, but the path is
- *  still whitelisted on BOON_STAT_PATHS precisely so a future card can land on
- *  it — and the R2.7 contrast case below is only meaningful if the owner's
- *  scope and the buoy's flat set are DIFFERENT numbers. Same shape as the
- *  server suite's `OMNI_BOON`. */
-const WIDE_RADAR = {
-  id: 'testWideRadar',
-  kind: 'ladder',
-  cap: 1,
-  tiers: [[{ kind: 'stat', path: 'radarRange', mult: 1.25 }]],
-} as unknown as CatalogLine;
-
-/** CATALOG plus the injected line — `effectiveStats`' third argument is THE
- *  test seam since Story 8.1 made the fold resolve ids internally. */
-const WIDE_CATALOG: Catalog = { ...CATALOG, testWideRadar: WIDE_RADAR };
-
-/** Battleship stats with the owner's radar widened by the injected def. */
-function wideRadarStats(): EffectiveStats {
-  return effectiveStats(CONFIG.shipClasses.battleship, ['testWideRadar'], WIDE_CATALOG);
-}
-
 function input(over: Partial<AimPreviewInput> = {}): AimPreviewInput {
   return {
     id: 'gun',
@@ -161,57 +138,58 @@ describe('computeAimPreview — nothing is previewed that cannot be fired', () =
   });
 
   it('an ABILITY slot (and an empty slot) previews nothing', () => {
-    // The speed boost aims nothing and the empty slot holds nothing. The RADAR
-    // BUOY is NOT here any more: it is click-placed, so it previews its drop
-    // (see the buoy suite below).
+    // The speed boost aims nothing and the empty slot holds nothing. The DECOY
+    // BUOY is NOT here: it is click-placed, so it previews its drop (see the
+    // decoy suite below).
     expect(computeAimPreview(input({ id: 'boost' }))).toEqual({ lines: [], bursts: [], place: null, band: null });
     expect(computeAimPreview(input({ id: null }))).toEqual({ lines: [], bursts: [], place: null, band: null });
   });
 });
 
-describe('radar buoy placement — the water the buoy will watch (R2.7)', () => {
-  const buoy = (over: Partial<AimPreviewInput> = {}) =>
-    computeAimPreview(input({ id: 'radarBuoy', aim: 0, aimDist: 120, ...over }));
+describe('decoy buoy placement — the drop marker, no rings (Story 8.16)', () => {
+  const decoy = (over: Partial<AimPreviewInput> = {}) =>
+    computeAimPreview(input({ id: 'decoyBuoy', aim: 0, aimDist: 120, ...over }));
 
-  it('draws the coverage circle AT the drop point, not at the ship', () => {
-    const [c] = buoy().bursts;
-    expect({ x: c.x, y: c.y }).toEqual({ x: SHIP.x + 120, y: SHIP.y });
+  it('marks the drop point AT the click, not at the ship', () => {
+    const m = decoy();
+    expect(m.drop).toEqual({ x: SHIP.x + 120, y: SHIP.y, blocked: false });
   });
 
-  it('the circle is the BUOY’s own flat radar set, never the owner’s radar range', () => {
-    const s = stats();
-    expect(buoy({ stats: s }).bursts[0].r).toBe(s.equipment.radarBuoy.radarRange);
-    expect(buoy({ stats: s }).bursts[0].r).toBe(CONFIG.radarBuoy.radarRange);
-    // Widening the OWNER's scope must leave the buoy's set exactly where it was
-    // (R2.7 — flat by ruling, no card writes it). Driven by an injected def
-    // rather than a catalog id: nothing shipped moves `radarRange` any more, and
-    // the pin is worthless unless the two numbers actually differ.
-    const wide = wideRadarStats();
-    expect(wide.radarRange).toBeGreaterThan(s.radarRange);
-    expect(buoy({ stats: wide }).bursts[0].r).toBe(s.equipment.radarBuoy.radarRange);
-  });
-
-  it('renders in the QUIET effect register — it is coverage, not a kill circle', () => {
-    expect(buoy().bursts[0].effect).toBe(true);
-  });
-
-  it('draws no travel line, no band and no mine placement ring', () => {
-    const m = buoy();
+  it('draws NO rings — no blast, no trigger, no effect circle (a decoy has none)', () => {
+    const m = decoy();
+    expect(m.bursts).toEqual([]);
+    expect(m.place).toBeNull(); // the mine placement (with its two rings) is never used
     expect(m.lines).toEqual([]);
     expect(m.band).toBeNull();
-    expect(m.place).toBeNull();
   });
 
-  it('marks a drop into a rock BLOCKED — the server refuses it and the circle must not promise coverage', () => {
+  it('marks a drop into a rock BLOCKED — the server refuses it', () => {
     const rock = squareIsland(120, 0, 30);
-    expect(buoy({ islands: [rock] }).bursts[0].blocked).toBe(true);
-    expect(buoy({ islands: [rock], aimDist: 20 }).bursts[0].blocked).toBe(false);
+    expect(decoy({ islands: [rock] }).drop?.blocked).toBe(true);
+    expect(decoy({ islands: [rock], aimDist: 20 }).drop?.blocked).toBe(false);
   });
 
   it('an ILLEGAL aim (outside the rear sector / past the placement reach) previews nothing', () => {
-    expect(computeAimPreview(input({ id: 'radarBuoy', legal: false }))).toEqual({
-      lines: [], bursts: [], place: null, band: null,
+    expect(computeAimPreview(input({ id: 'decoyBuoy', legal: false }))).toEqual(EMPTY_MODEL);
+  });
+
+  it('no other id carries a drop marker (a mine keeps its rings, never the decoy marker)', () => {
+    expect(computeAimPreview(input({ id: 'navalMines', aim: 0, aimDist: 120 })).drop).toBeUndefined();
+    expect(computeAimPreview(input({ id: 'gun', aimDist: 300 })).drop).toBeUndefined();
+  });
+
+  it('the Pixi adapter strokes the spar-buoy silhouette and no circle', () => {
+    const layer = new Container();
+    const preview = new AimPreview(layer);
+    preview.update(decoy(), 0xffffff);
+    const g = layer.children[0] as Graphics;
+    const actions = g.context.instructions.flatMap((ins) => {
+      const path = (ins.data as { path?: { instructions: { action: string }[] } }).path;
+      return path === undefined ? [] : path.instructions.map((q) => q.action);
     });
+    expect(actions).toContain('poly');
+    expect(actions).not.toContain('circle');
+    expect(actions).not.toContain('arc');
   });
 });
 

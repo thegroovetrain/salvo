@@ -414,8 +414,41 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
   });
 
   it('gives a STILL-STUB CONSUMABLE no rows (DEPTH CHARGE included)', () => {
-    for (const id of ['shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge'] as const) {
+    // TWO since Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY BUOY.
+    for (const id of ['smokeScreen', 'depthCharge'] as const) {
       expect(cardStatRows(CATALOG[id], 0, TB), id).toEqual([]);
+    }
+  });
+
+  // THE THREE 8.16 CONSUMABLES (catalog-v3 R36/R37/R39): absolute rows in the
+  // hullRepair shape, every number read off CONFIG — never a literal.
+  it('gives SHIELD BLOCK what it absorbs and how long it lasts, off CONFIG', () => {
+    expect(cardStatRows(CATALOG.shieldBlock, 0, TB)).toEqual([
+      { label: 'ABSORBS', cur: null, next: `${CONFIG.shieldBlock.hp} HP` },
+      { label: 'LASTS', cur: null, next: `${CONFIG.shieldBlock.durationMs / 1000} S` },
+    ]);
+  });
+
+  it('gives CHAFF its fake count, scatter radius and duration, off CONFIG', () => {
+    expect(cardStatRows(CATALOG.chaff, 0, TB)).toEqual([
+      { label: 'FAKES', cur: null, next: String(CONFIG.chaff.count) },
+      { label: 'RADIUS', cur: null, next: `${CONFIG.chaff.radius} U` },
+      { label: 'LASTS', cur: null, next: `${CONFIG.chaff.durationMs / 1000} S` },
+    ]);
+  });
+
+  it('gives DECOY BUOY its hull and where it drops, off CONFIG', () => {
+    expect(cardStatRows(CATALOG.decoyBuoy, 0, TB)).toEqual([
+      { label: 'HULL', cur: null, next: `${CONFIG.decoyBuoy.hp} HP` },
+      { label: 'DROP', cur: null, next: 'REAR ARC' },
+    ]);
+  });
+
+  it('the three 8.16 rows are the same on every hull and at every copy count', () => {
+    for (const id of ['shieldBlock', 'chaff', 'decoyBuoy'] as const) {
+      const base = cardStatRows(CATALOG[id], 0, TB);
+      expect(base.length, id).toBeGreaterThan(0);
+      expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['armor'] }), id).toEqual(base);
     }
   });
 

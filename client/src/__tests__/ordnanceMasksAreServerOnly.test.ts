@@ -74,7 +74,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
   // that is what the three scans above assert, and they are the substance of
   // this file. This line only witnesses that a bump, when it happens, happens
   // deliberately.
-  it('PROTOCOL_VERSION is 58 — bumped by Story 8.15s held/w/Shift ids/catalog, not by masks', () => {
+  it('PROTOCOL_VERSION is 59 — bumped by Story 8.16s shield/decoys/buoy deletion, not by masks', () => {
     // 55 until Story 8.13, whose ONE bump covered the catalog content, the id
     // moves and `MineView`'s own-only kind field (epic-8 amendment 76); 56
     // until Story 8.14, whose ONE bump covers the seat's `gun` join option,
@@ -84,6 +84,9 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // bump covers `InputMsg.held`, the reveal's `w`, `OwnShip.damageCutUntil`,
     // the Shift ids and the catalog cuts (epic-8 amendments 97-110) — the
     // flak row's new `ordnance` bit in its mask is server-only like every mask.
-    expect(PROTOCOL_VERSION).toBe(58);
+    // 58 until Story 8.16, whose ONE bump covers `OwnShip.shield`,
+    // `FrameMsg.decoys` and the radar buoy's deletion (`FrameMsg.buoys`,
+    // `BuoyView`, the `src` blip tag — epic-8 amendments 116-124).
+    expect(PROTOCOL_VERSION).toBe(59);
   });
 });

@@ -271,16 +271,16 @@ export function panAxesFrom(keys: Set<string>): Axes {
  * Story 8.5 seated in SLOT_BOOST on EVERY captain hull (epic-8 amendment 23) —
  * is the ONLY one left that answers true. Weapons and empty/out-of-range slots return
  * false (they prime / do nothing) — as of Story 2.8 (amendment 45) the MINE is
- * one of them, and as of Story 7-5 wave 2 (R2.7) so is the RADAR BUOY that
- * replaced the decoy rack: both place on a click inside the rear arc, exactly
- * like the torpedo launches inside its bow arc. The single weapon/ability split
+ * one of them, and as of Story 8.16 so is the DECOY BUOY consumable: both
+ * place on a click inside the rear arc, exactly like the torpedo launches
+ * inside its bow arc. The single weapon/ability split
  * source is the shared `isWeaponItem`; main.ts closes this over the own loadout
  * (slotsWithBoons) for the isAbilitySlot hook.
  *
  * SINCE STORY 8.7 A SLOT MAY HOLD A CONSUMABLE (`SlotItemId` — the belt's
  * content), and the same one predicate answers for both id spaces: a stack that
- * is not `isWeapon` ACTIVATES off the `1`-`4` rail, while the decoy shape (the
- * one aimed consumable) PRIMES, exactly as the mine and the buoy do. No cast
+ * is not `isWeapon` ACTIVATES off the `1`-`4` rail, while the aimed consumables
+ * (the DECOY BUOY, the SUPERCAV TORPEDO) PRIME, exactly as the mine does. No cast
  * and no second table — that is what `isWeaponItem` exists for.
  */
 export function slotHoldsAbility(slotIds: readonly (SlotItemId | null)[], slot: number): boolean {

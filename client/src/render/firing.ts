@@ -277,10 +277,11 @@ export class FiringUX {
     // — see weaponRangeU) so they must share the whole grammar: true radius,
     // armed amber, and a stroked boundary that is a real line on the chart.
     //
-    // THE RADAR BUOY USED TO FALL TO THE ELSE and was drawn as a TORPEDO —
-    // indicative ARC_R (72u, less than half its real 150u reach), torpedo green,
-    // no boundary. That is Eric's "the buoy's targeting range indicator isn't
-    // correct": it was not the buoy's range at all.
+    // THE (since-deleted) RADAR BUOY USED TO FALL TO THE ELSE and was drawn as
+    // a TORPEDO — indicative ARC_R (72u, less than half its real 150u reach),
+    // torpedo green, no boundary. That was Eric's "the buoy's targeting range
+    // indicator isn't correct". The 8.16 DECOY BUOY takes the placement grammar
+    // through `isPlacedItem`, exactly as the mines do.
     // ALL THREE MINE LINES place (Story 8.13), not just the naval one, and the
     // belt's SUPERCAV TORPEDO is a LAUNCH, so the two halves are asked
     // separately: `isPlacedItem` decides the placement grammar, `weaponTint`

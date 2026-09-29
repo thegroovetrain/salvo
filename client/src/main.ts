@@ -58,7 +58,7 @@ import { clickInArc, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
-import { Buoys, type OwnBuoyState } from './render/buoys.js';
+import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { Smoke } from './render/smoke.js';
 import { Foghorn } from './render/foghorn.js';
@@ -246,9 +246,9 @@ interface Game {
   aimPreview: AimPreview;
   effects: Effects;
   mines: Mines;
-  /** Radar-buoy markers (render/buoys.ts) — synced from FrameMsg.buoys, the
-   *  mines precedent (Story 1.8). */
-  buoys: Buoys;
+  /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced from
+   *  FrameMsg.decoys, the mines precedent (Story 1.8). */
+  decoys: Decoys;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -408,8 +408,7 @@ interface Game {
    *  Story 1.6) or, as of Story 1.10, an UNMATCHED server denial on ANY slot
    *  (weapon chips flash per-slot too) — consumed into the matching
    *  abilityPulse (never silence). Per-slot since Story 1.8: the ML fits TWO
-   *  special slots (mine + radarBuoy — both click-placed WEAPONS as of Story
-   *  7-5 wave 2), so a denied press must not flash the other slot's chip.
+   *  special slots, so a denied press must not flash the other slot's chip.
    *  Indexed by loadout slot (length SLOT_COUNT). */
   abilityDeniedPress: boolean[];
   /** Rate-limited denied pulse PER LOADOUT SLOT — the SAME deniedFire grammar
@@ -755,6 +754,16 @@ function boostUntilNow(g: Game): number {
   return g.state.net.you?.boostUntil ?? 0;
 }
 
+/**
+ * hp — SHIELD BLOCK's remaining absorb off the server's own-ship (Story 8.16).
+ * The `shield` key is ABSENT when no shield is up (the conditional-spread wire
+ * rule), so a missing seat — or a missing `you` — reads 0. Server-
+ * authoritative, never predicted (the `repairHp` precedent).
+ */
+function ownShieldHp(you: OwnShip | null): number {
+  return you?.shield?.hp ?? 0;
+}
+
 /** Derive HUD/combat status from the latest server own-ship + respawn ETA. */
 function ownStatus(g: Game): OwnStatus {
   const you = g.state.net.you;
@@ -769,6 +778,7 @@ function ownStatus(g: Game): OwnStatus {
     // and `hp` already self-syncs every frame, so the HUD's only job is to show
     // what is coming.
     repairHp: you?.repairHp ?? 0,
+    shield: ownShieldHp(you), // SHIELD BLOCK's remaining absorb (Story 8.16)
     ammo: ownAmmo(you, stats, g.ownSlots),
     cls: you?.cls ?? g.ownClass,
     stats,
@@ -1466,7 +1476,7 @@ function updateBounty(g: Game): void {
   }
 }
 
-/** Ordnance-marker tint for a firer id (mine/buoy/lit-zone `by`): the pilot's
+/** Ordnance-marker tint for a firer id (mine/decoy/lit-zone `by`): the pilot's
  *  bright personal hue for every observer, or null while the roster hasn't synced
  *  it (or the firer left) — the renderer paints the amber fallback and retries
  *  per frame until the hue resolves (render/hueLatch.ts). The `?? amber` on the
@@ -2541,8 +2551,8 @@ function overlayFocused(g: Game | null): boolean {
 /**
  * An ability-activation keypress landed. As of Story 7-5 wave 2 the SPEED BOOST
  * is the only equipment left on this path: the MINE left it in Story 2.8
- * (amendment 45) and the RADAR BUOY replacing the decoy rack is click-placed in
- * the same rear sector (R2.7), so both prime instead. The keyboard has QUEUED
+ * (amendment 45) and the DECOY BUOY consumable (Story 8.16) is click-placed in
+ * the same rear sector, so both prime instead. The keyboard has QUEUED
  * the press (it rides
  * a later input, drained one-per-tick so the server's one-ability-per-tick gate
  * fires each in turn) — the server decides. Here the client only predicts the
@@ -2555,11 +2565,11 @@ function overlayFocused(g: Game | null): boolean {
  *    boost window at the current server-clock estimate so the speed-up doesn't
  *    wait a round trip (the authoritative you.boostUntil overwrites it once
  *    acked; the predictor ignores a second press while pending, so a stale-ammo
- *    double press within RTT can't extend it). A click-placed BUOY needs
- *    no press-time cue either: its placement tone rides the buoy reconcile's
- *    own-spawn hook (fired on the confirmed OWN buoy, gated by BuoyView `own`
- *    so it never misfires on a truesighted enemy buoy) — the same hook the
- *    mine's placement tone still rides from the Mines reconcile.
+ *    double press within RTT can't extend it). A click-placed DECOY BUOY
+ *    (Story 8.16) needs no press-time cue either: its placement tone rides the
+ *    decoy reconcile's own-spawn hook (fired on the confirmed OWN decoy, gated
+ *    by DecoyView `own` so it never misfires on someone else's) — the same
+ *    hook the mine's placement tone still rides from the Mines reconcile.
  */
 function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   const you = g.state.net.you;
@@ -2602,9 +2612,9 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   // ACTIVATED pop above: INSTANT RELOAD's refilled pools and DAMAGE CUT's
   // `damageCutUntil` window both arrive with the server's frame — neither moves
   // the hull, so there is no motion to hide a round trip behind.
-  // A click-placed buoy has no press-time cue: its placement tone rides the buoy
-  // reconcile's own-spawn hook (the mine precedent), so it fires on the confirmed
-  // OWN buoy and never on a truesighted enemy buoy.
+  // A click-placed decoy has no press-time cue: its placement tone rides the
+  // decoy reconcile's own-spawn hook (the mine precedent), so it fires on the
+  // confirmed OWN decoy and never on anyone else's.
 }
 
 /**
@@ -2689,8 +2699,8 @@ function onRedrawClick(getG: () => Game | null): () => void {
 }
 
 /** Fresh per-slot denied-feedback state (Story 1.6/1.8): one latch +
- *  rate-limited pulse + flash per loadout slot, so two special slots (the ML's
- *  mine + radarBuoy) never share a pulse/flash. Fed by predicted ability-press
+ *  rate-limited pulse + flash per loadout slot, so two special slots never
+ *  share a pulse/flash. Fed by predicted ability-press
  *  denials and — Story 1.10 — by unmatched server denials on any slot (the
  *  `ability` naming predates the weapon-slot extension). */
 function abilityFeedbackState(): Pick<
@@ -2724,17 +2734,13 @@ function abilityFeedbackState(): Pick<
 }
 
 /**
- * An OWN radar buoy just appeared in the reconcile (render/buoys' own-spawn
- * hook): play its placement cue. The hook only ever fires for buoys we own, so
- * a truesighted enemy buoy can never sound our drop.
- *
- * It latches NOTHING: the hotbar's ACTIVE window is DERIVED from the reconciled
- * sprite set (Buoys.ownUntil) rather than from this edge, because a buoy is
- * destructible and its death is silent on the wire — a latch kept the slot lit
- * for the full nominal life of a buoy that had already been shot off the water.
+ * An OWN decoy buoy just appeared in the reconcile (render/decoys' own-spawn
+ * hook, Story 8.16): play its placement cue. The hook only ever fires for
+ * decoys we own, so someone else's decoy can never sound our drop. It latches
+ * nothing — a decoy has no lifetime and no ACTIVE window.
  */
-function onOwnBuoy(audio: Audio): void {
-  audio.play('placeBuoy');
+function onOwnDecoy(audio: Audio): void {
+  audio.play('placeDecoy');
 }
 
 /**
@@ -2752,8 +2758,7 @@ function latchFitFlash(g: Game, cardId: string): void {
 /**
  * ms — the REMAINING ability window per loadout slot (0 = none running), the
  * ACTIVE state's only input (amendment 48). The boost reads the same
- * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; the buoy
- * reads the latched own-buoy expiry; DAMAGE CUT (Story 8.15, the Battleship's
+ * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; DAMAGE CUT (Story 8.15, the Battleship's
  * Shift) reads the server's self-private `you.damageCutUntil` — no prediction,
  * the window arrives with the frame — so the Shift square takes the boost's
  * ACTIVE grammar for its 8 s (amendment 34). INSTANT RELOAD has no window: it
@@ -2763,7 +2768,6 @@ function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
   const until: Partial<Record<string, number>> = {
     boost: boostUntilNow(g),
-    radarBuoy: g.buoys.ownUntil(),
     damageCut: g.state.net.you?.damageCutUntil ?? 0,
   };
   return status.loadout.map((id) => Math.max(0, (id === null ? 0 : until[id] ?? 0) - now));
@@ -2855,7 +2859,7 @@ function buildGame(
     // NO CREEP WAKE CALLBACK (Story 7-5 wave 2): the SELF-PROPELLED doctrine
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
-    buoys: new Buoys(stage.layers.buoyChart, stage.layers.buoyWorld, () => onOwnBuoy(audio)),
+    decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, () => onOwnDecoy(audio)),
     litZones: new LitZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
@@ -3079,30 +3083,6 @@ function ownMineRingParams(g: Game, t: number): OwnMineRings {
   };
 }
 
-/**
- * The own-buoy readout parameters for the frame timestamped `t`: the buoy's own
- * EFFECTIVE radar reach and lifetime plus the two doctrine verbs, read straight
- * off our stats — the same block the server stamps onto a buoy at drop and gates
- * its relay with. Stamped with the FRAME's own time for the same reason the mine
- * rings are: `BuoyView.until` is a server-clock value, so a local `serverNow()`
- * estimate would charge the buoy for the transport delay and run its life arc
- * systematically short.
- *
- * `radarRange` here is `stats.equipment.radarBuoy.radarRange` — the BUOY's flat 330u set,
- * never the owner's own `stats.radarRange`, which no card on this line moves and
- * which the buoy does not use.
- */
-function ownBuoyParams(g: Game, t: number): OwnBuoyState {
-  const buoy = g.ownStats.equipment.radarBuoy;
-  return {
-    radarRange: buoy.radarRange,
-    gun: buoy.gun,
-    jamming: buoy.jamming,
-    durationMs: buoy.durationMs,
-    now: t,
-  };
-}
-
 /** Wire the room's messages into the game (frames, results, disconnects), and
  *  hand back the disposer that unwires them (see bindRoom's docstring). */
 function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
@@ -3173,10 +3153,6 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // The owner-private mine rings: our live effective radii + our clock. The
     // acquisition ring exists only while we actually hold the doctrine.
     ownMineRings: (t) => ownMineRingParams(g, t),
-    // The owner-private buoy readout: our live effective buoy stats + the
-    // frame's clock. Owner-only by construction (render/buoys.ts draws the ring
-    // and the life arc for `own` buoys alone).
-    ownBuoy: (t) => ownBuoyParams(g, t),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
       // Latched: a story-0.2 resume re-delivers the cached results broadcast,
@@ -3234,12 +3210,12 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
  * and the radar's `shipStamp` sample them at, so the foam lands on the hull the
  * player can see rather than ~100ms ahead of it.
  *
- * THERE IS NO BUOY BRANCH HERE AND THERE MUST NOT BE (amendment 201, written
- * of the decoy the RADAR BUOY replaced, and true of the replacement for the
- * same reason). A buoy is anchored at its drop point, so it never travels one
+ * THERE IS NO DECOY BRANCH HERE AND THERE MUST NOT BE (amendment 201, and
+ * Story 8.16's amendment 123: a decoy lays no wake). A decoy is anchored at its
+ * drop point, so it never travels one
  * sample cadence and lays nothing BY CONSTRUCTION. The resulting tell — a
- * stationary radar return with no wake behind it — is ledgered, not papered
- * over.
+ * stationary radar return with no wake behind it — is ACCEPTED by Eric's
+ * ruling (amendment 123), not papered over.
  *
  * Each source carries its own tint, resolved off the SAME roster the hull's
  * silhouette reads (`contactStyle` → drone grey for the 255 sentinel, the
@@ -3413,6 +3389,7 @@ function hudBarView(g: Game, status: OwnStatus, pose: RenderPose, ringUrgent: bo
       hp: status.hp,
       maxHp: status.stats.maxHp,
       repairHp: status.repairHp,
+      shield: status.shield,
       alive: status.alive,
       sinking: status.sinking,
     },
@@ -3645,10 +3622,8 @@ function renderFiring(
   // NARROWED through `ownWeaponAt` (Story 8.7, ruling 1), never cast: a primed
   // BELT slot holds a CONSUMABLE line id, which has no row in any of the six
   // EquipmentId-keyed surfaces below. It answers null here, so a primed
-  // consumable draws no arc, no range clamp, no reload numeral and no aim
-  // preview — the client has no geometry for it. The CLICK is untouched: it
-  // still travels on `input.slot`, and the server owns the decoy's arc (8.15).
-  // Inert today — every consumable is a stub and the belt ships empty.
+  // consumable reads no reload numeral (a stack never reloads). Its ARC is read
+  // off the raw slot item below instead.
   const primedId = ownWeaponAt(g, slot);
   const reloadFrac = a && primedId !== null ? reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, primedId)) : 0;
   // THE PRIMED SLOT'S RAW CONTENT, which may be a BELT line. Story 8.13 gave
@@ -3656,7 +3631,8 @@ function renderFiring(
   // (epic-8 amendment 74) — so the arc, the reticle and the aim preview are
   // driven from the slot item, while the ROW-keyed reads above (the reload
   // numeral) stay on `ownWeaponAt`, because a stack has no row and never
-  // reloads. Every other consumable still declares `none` and draws nothing.
+  // reloads. Story 8.16 gave the DECOY BUOY the mine's rear sector the same
+  // way; every other consumable declares `none` and draws nothing.
   const primedItem = g.ownSlots[slot] ?? null;
   // Gate on the PREDICTED heading, the same source clickPrediction/consumePrimeOnFire
   // read — NOT the alpha-interpolated pose.heading. At a sector boundary while
@@ -3808,10 +3784,11 @@ function clickPrediction(
     loaded: !!a && a.n > 0,
     // The mine's placement reach is part of its aim gate (Story 2.8): an
     // out-of-range click is refused server-side with nothing consumed, so it
-    // must KEEP the prime here rather than revert to the gun. A CLICK-PLACED
-    // CONSUMABLE has no client geometry at all and trusts the server (P8) —
-    // both readings live in `clickInArc`, over the slot's raw content rather
-    // than the equipment-only narrowing.
+    // must KEEP the prime here rather than revert to the gun. The click-aimed
+    // CONSUMABLES (the supercav's bow sector, the DECOY BUOY's rear sector and
+    // leash, Story 8.16) are gated the same way — both readings live in
+    // `clickInArc`, over the slot's raw content rather than the equipment-only
+    // narrowing.
     inArc: clickInArc(predictedHeading(g), aim, aimDist, g.ownSlots[primedSlot] ?? null),
   };
 }
@@ -3850,7 +3827,7 @@ function latchOwnFire(g: Game, primedSlot: number, p: { alive: boolean; loaded: 
  * rather than being cast into a record that has no row for it.
  *
  * NOT a "can this fire" predicate: a click-placed consumable (the DECOY BUOY,
- * Story 8.15) is a weapon on the ability/click split and still has no equipment
+ * Story 8.16) is a weapon on the ability/click split and still has no equipment
  * row. What this answers is strictly "is this slot's content something the
  * equipment tables know about".
  */

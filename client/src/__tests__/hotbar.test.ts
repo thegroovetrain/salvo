@@ -693,25 +693,26 @@ describe('the EIGHTH state: ACTIVE while an ability window runs (amendment 48)',
     }
   });
 
-  it('outranks COOLING — a decoy floats while its rack reloads — but not denied/activated', () => {
-    expect(slotState('radarBuoy', NONE, true, false, false, true)).toBe('active');
-    expect(slotState('radarBuoy', NONE, true, true, false, true)).toBe('active');
-    expect(slotState('radarBuoy', { ...NONE, denied: true }, true, false, false, true)).toBe('denied');
-    expect(slotState('radarBuoy', { ...NONE, activated: true }, true, false, false, true)).toBe('activated');
-    // ...and the WIPE's fraction is still computed, so nothing is lost. The
-    // buoy is DARK since Story 8.5 (amendment 22) — no card or seed fits it —
-    // so the row is built by hand here rather than read off a hull's fit; the
-    // coexistence this pins is a property of the STATE machine, not of the fit.
-    const base = viewFor('mineLayer');
+  it('outranks COOLING — a DAMAGE CUT window runs while its reload does — but not denied/activated', () => {
+    // RETARGETED in Story 8.16: this pin was written against the radar buoy
+    // (deleted). DAMAGE CUT (the Battleship's Shift, 8.15) is the live id with a
+    // window that coexists with its reload; the coexistence is a property of
+    // the STATE machine, so the row is built by hand.
+    expect(slotState('damageCut', NONE, true, false, false, true)).toBe('active');
+    expect(slotState('damageCut', NONE, true, true, false, true)).toBe('active');
+    expect(slotState('damageCut', { ...NONE, denied: true }, true, false, false, true)).toBe('denied');
+    expect(slotState('damageCut', { ...NONE, activated: true }, true, false, false, true)).toBe('activated');
+    // ...and the WIPE's fraction is still computed, so nothing is lost.
+    const base = viewFor('battleship');
     const view: HotbarView = {
       ...base,
-      loadout: base.loadout.map((id, i) => (i === E ? 'radarBuoy' : id)),
-      ammo: at(null, { [E]: { n: 0, reloadMsLeft: 5000 } }),
-      activeMsLeft: at(0, { [E]: 20_000 }),
+      loadout: base.loadout.map((id, i) => (i === SLOT_BOOST ? 'damageCut' : id)),
+      ammo: at(null, { [SLOT_BOOST]: { n: 0, reloadMsLeft: 5000 } }),
+      activeMsLeft: at(0, { [SLOT_BOOST]: 8_000 }),
     };
-    const decoy = slotViewModels(view)[E];
-    expect(decoy.state).toBe('active');
-    expect(decoy.coolFrac).toBeGreaterThan(0);
+    const cut = slotViewModels(view)[SLOT_BOOST];
+    expect(cut.state).toBe('active');
+    expect(cut.coolFrac).toBeGreaterThan(0);
   });
 
   it('prints the window\'s seconds as the centred numeral, dual-coding the outline', () => {
@@ -1389,6 +1390,30 @@ describe('a stocked BELT square', () => {
     // ...and the two families are still drawn differently from each other.
     expect(glyphPaths('navalMines')).not.toEqual(glyphPaths('heavyTorpedo'));
     expect(equipmentGlyphSvg('supercavTorpedo', 24)?.tagName.toLowerCase()).toBe('svg');
+  });
+
+  // STORY 8.16 — THREE BELT GLYPHS, IMPLEMENTER DRAFTS for Eric's eye (epic-8
+  // amendment 124(f)), in the shipped unit-box line-glyph style. The radar
+  // buoy's glyph is DELETED with the buoy; the DECOY BUOY takes the on-water
+  // spar-buoy marker's linework. SMOKE SCREEN stays a stub and stays blank.
+  it('draws the three 8.16 consumables, each distinct, and no radar buoy', () => {
+    const ids = ['shieldBlock', 'chaff', 'decoyBuoy'] as const;
+    for (const id of ids) {
+      const parts = glyphPaths(id);
+      expect(parts, id).not.toBeNull();
+      // Unit frame: every point inside the ±1 box, like every shipped glyph.
+      for (const part of parts!) {
+        const pts = part.kind === 'path' ? part.pts : [part.c];
+        for (const [x, y] of pts) expect(Math.max(Math.abs(x), Math.abs(y)), id).toBeLessThanOrEqual(1);
+      }
+      expect(equipmentGlyphSvg(id, 24)?.tagName.toLowerCase(), id).toBe('svg');
+    }
+    expect(glyphPaths('shieldBlock')).not.toEqual(glyphPaths('chaff'));
+    expect(glyphPaths('shieldBlock')).not.toEqual(glyphPaths('damageCut')); // absorb ≠ reduce
+    // The decoy shares NO round part with the mine (Eric: tell them apart).
+    expect(glyphPaths('decoyBuoy')!.some((p) => p.kind === 'circle')).toBe(false);
+    expect(glyphPaths('radarBuoy')).toBeNull();
+    expect(glyphPaths('smokeScreen')).toBeNull();
   });
 });
 

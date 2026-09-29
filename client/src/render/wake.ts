@@ -38,9 +38,9 @@
 // on-water FOAM is drawn at the stern instead (that is where foam physically
 // is); the ribbon is the geometry, the foam is a rendering of it.
 //
-// AMENDMENT 201 — NO BUOY SPECIAL-CASING, IN EITHER DIRECTION. A radar buoy is
-// anchored at its drop point (as the decoy this rule was written for was), so it
-// never travels one sample cadence and `appendWakeSample` stores nothing after
+// AMENDMENT 201 — NO BUOY SPECIAL-CASING, IN EITHER DIRECTION. A DECOY BUOY is
+// anchored at its drop point (amendment 123, Story 8.16: a decoy lays no wake),
+// so it never travels one sample cadence and `appendWakeSample` stores nothing after
 // its first sample: no segments, no foam, no chop, BY CONSTRUCTION. There is
 // deliberately no buoy branch here to delete.
 //

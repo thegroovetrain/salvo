@@ -223,14 +223,12 @@ describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
     }
   });
 
-  it('PIN HELD: NO WEAPON SLOT activates — the mine and the buoy both prime', () => {
+  it('PIN HELD: NO WEAPON SLOT activates — every mine line primes', () => {
     // Story 2.8, amendment 45: the mine primes on its key and places on a click
-    // inside its rear arc. Story 7-5 wave 2 (R2.7) did the same to the RADAR
-    // BUOY that replaced the decoy rack. Story 8.5 (amendment 22) then took the
-    // buoy out of every fit — it is named here as a bare id because no hull can
-    // carry it any more, and the split it declares is still the pin.
+    // inside its rear arc. (The radar buoy that shared this pin is deleted,
+    // Story 8.16; the DECOY BUOY's belt prime is pinned below.)
     expect(slotHoldsAbility(ML_SLOTS, Q_SLOT)).toBe(false);
-    expect(slotHoldsAbility(nine('radarBuoy'), Q_SLOT)).toBe(false);
+    expect(slotHoldsAbility(nine('captiveMines'), Q_SLOT)).toBe(false);
     expect(slotHoldsAbility(ML_SLOTS, SLOT_GUN)).toBe(false); // gun stays a weapon
   });
 
@@ -244,7 +242,7 @@ describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
   // predicate both dispatch channels call, so it answers over CONSUMABLE ids as
   // well as equipment ones. A consumable that is not `isWeapon` ACTIVATES off
   // the `1`-`4` rail; the decoy shape (the one click-placed consumable) PRIMES,
-  // exactly as the mine and the buoy do on the weapon row.
+  // exactly as the mine does on the weapon row.
   it('answers over CONSUMABLE ids too: an instant stack ACTIVATES, the decoy shape PRIMES', () => {
     expect(slotHoldsAbility(withBelt('hullRepair'), BELT_1)).toBe(true);
     expect(slotHoldsAbility(withBelt('smokeScreen'), BELT_1)).toBe(true);
@@ -554,14 +552,15 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     expect(rides).toEqual([1, 2]);
   });
 
-  it('PIN HELD: the mine and the buoy PRIME — neither queues an activation', () => {
+  it('PIN HELD: the mine lines PRIME — neither queues an activation', () => {
     // Story 2.8, amendment 45 moved the mine out of the activation FIFO onto the
-    // prime path; Story 7-5 wave 2 (R2.7) moved the RADAR BUOY there too. Both
-    // prime, and the FIFO stays empty for a hull carrying them. (The speed boost
-    // still activates — on Shift, in the sibling tests above.)
+    // prime path. (The radar buoy that shared it is deleted, Story 8.16; the
+    // DECOY BUOY's belt prime is pinned in the belt suite below.) Both mine
+    // lines prime, and the FIFO stays empty for a hull carrying them. (The
+    // speed boost still activates — on Shift, in the sibling tests above.)
     const presses: number[] = [];
     const weaponRow: readonly (SlotItemId | null)[] =
-      ['gun', 'boost', 'navalMines', 'radarBuoy', null, null, null, null, null];
+      ['gun', 'boost', 'navalMines', 'captiveMines', null, null, null, null, null];
     kb = new KeyboardInput({
       isSlotFitted: (slot) => weaponRow[slot] != null,
       isAbilitySlot: (slot) => slotHoldsAbility(weaponRow, slot),
@@ -571,7 +570,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     press('KeyQ'); // mine — a WEAPON prime
     expect(kb.primedSlot).toBe(Q_SLOT);
     expect(kb.pendingActivationCount).toBe(0);
-    press('KeyE'); // radar buoy — a WEAPON prime as of wave 2
+    press('KeyE'); // captive mines — a WEAPON prime
     expect(presses).toEqual([]);
     expect(kb.pendingActivationCount).toBe(0);
     expect(kb.primedSlot).toBe(E_SLOT);

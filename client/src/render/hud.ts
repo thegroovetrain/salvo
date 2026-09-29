@@ -69,6 +69,11 @@ export interface OwnStatus {
    *  amendment 35) and nothing else — the authoritative hull number is still
    *  `hp`, which the pool pays into every server tick. */
   repairHp: number;
+  /** hp — the SHIELD BLOCK's remaining absorb (`OwnShip.shield.hp`, Story
+   *  8.16); 0 when no shield is up. Self-private, read verbatim off the server
+   *  frame. Drives the HP globe's shielded NUMBER (amendment 116) and nothing
+   *  else — `hp` stays the hull. */
+  shield: number;
   // Slot-aligned pool count + reload timer (OwnShip.ammo): length SLOT_COUNT
   // (NINE since Story 8.5), null for an empty slot — which at 0:00 is seven of
   // the nine: the three weapon slots and the whole consumable belt.
