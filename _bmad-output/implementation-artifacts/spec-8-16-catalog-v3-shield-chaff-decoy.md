@@ -2,11 +2,11 @@
 title: 'Story 8.16: Catalog v3 — Shield, Chaff, Decoy'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'cc86ac9'
-final_revision: ''
+final_revision: '9dc5f86'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-8-context.md'
@@ -99,7 +99,7 @@ warnings: [oversized]
 - [x] Wave 1 `shared/` -- CONFIG blocks, catalog flips, types (`OwnShip.shield`, `DecoyView`, `FrameMsg.decoys`, buoy/src deletions), loadout/stats/effects/arcs buoy removal, `Target.ownerId` + own-decoy skips, PV 59, tests -- `npm run build -w shared && npm test -w shared`
 - [x] Wave 2 `server/src` -- fakes.ts, decoys.ts, three consumable rows + ctx capabilities, world store/damage/collector, signals decoy pseudo-row + chaff fakes + decoy paint, perception/frames, radar buoy deletion, bot interim tactics, tests incl. the fourth `verifyBlip` arm and fuzz seeding -- `npm test -w server`
 - [x] Wave 3 `client/` (parallel with 2) -- shield readout, decoys renderer + hue + hp-arc draft, radar buoy-scope deletion, glyphs, arc/preview, copy rows, tones, tests -- `npm test -w client`
-- [ ] Wave 4 docs -- version 0.18.16, changelog, trackers, deferred-work closures + drafts, amendments in both homes, DESIGN/EXPERIENCE minimal, stale comments -- `npm run check` exit 0
+- [x] Wave 4 docs -- version 0.18.16, changelog, trackers, deferred-work closures + drafts, amendments in both homes, DESIGN/EXPERIENCE minimal, stale comments -- `npm run check` exit 0
 - [x] Unit-test every row of the I/O matrix
 
 **Acceptance Criteria:**
@@ -128,6 +128,22 @@ warnings: [oversized]
 - rulings recorded, not changed: attacker credit counts hull damage only (Eric, amendment 128; Blind F4); a fully absorbed hit does not reset the regen clock (already amendment 47; Blind F3).
 - deferred: decoy/hull id namespaces are not enforced (`d1` vs a hull id; Codex PLAUSIBLE — 9-char session ids / `bot-N` / `fleet-N` cannot collide in production; the mines' `m1` namespace has carried the same caveat since 8.4); the `placeDecoy` tone replays once per live own decoy on a refresh-rejoin (Edge; the mines precedent); `noAggro` has no writer (Blind F6; already ledgered).
 - rejected: 0-amount burn buckets "fire the cue every 500 ms" (Blind F5 — `flushDot` drops them; superseded by the P4 patch which emits once per window exactly as an unshielded burn does); the shield "should" reset regen (Blind F3 — ruled by amendment 47); chaff fakes deterministic across observers as a discriminator (Blind — every hull paint is equally deterministic; inherent to R39).
+
+## Auto Run Result
+
+Status: done (cycle 151, 0.18.16; PROTOCOL_VERSION 58 → 59; epic-8 amendments 116–128)
+
+**Summary.** Story 8.16 landed as Eric ruled it on 2026-09-29 (eight rulings before the build, amendments 116–123; one in chat on the storm ceiling, 125; three at the review gate, 126–128). SHIELD BLOCK is live: a key press writes a 100 hp / 10 s shield absorbed inside the one damage gate after the DAMAGE CUT, from every source including storm bites and phosphor burn; a second shield replaces; the shooter gets no tell (`hc` fires, `dmg` reads 0); the owner's HP numeral reads hull + shield past max in the `info` blue and falls with the ordinary hit cue. CHAFF is live: ten false radar returns rejection-sampled onto water within 120 u of where it was fired, for 15 s, rescattered each owner sweep period, wire-indistinguishable from hull paints, never sent to the owner, outliving the owner's sinking. DECOY BUOY is live: key primes, click drops a 50 hp float into the mine's rear arc (blocked or out-of-arc refused with nothing spent); it paints on radar as a 12 u return, reveals to enemies at sight range like a ship, homes enemy torpedoes which detonate on it and deal their damage, is ignored by its owner's own fish, shells and bursts, fires the shooter's hit call, persists past its owner's death, lays no wake, and renders in the owner's hue for all with an owner-only hp arc. The RADAR BUOY is deleted end to end and jamming with it; chaff is the only fake source. 13 equipment modules; 2 catalog stubs left (SMOKE SCREEN, DEPTH CHARGE). Interim bot rows for the three (8.19 owns the table). The NFR6 storm ceiling now counts the shield budget (a five-shield captain is a lottery ticket, Eric).
+
+**Files.** shared: `constants.ts` (three CONFIG blocks, `radarBuoy` + bot weights out), `types.ts` (`OwnShip.shield?`, `DecoyView`, `FrameMsg.decoys?`; `BuoyView`/`buoys`/`src` out), `sim/{catalog,loadout,stats,effects,arcs,shell}.ts` (`Target.ownerId` + own-decoy skips), `index.ts` PV 59, tests (+13, `hullRepair` NFR6 pin). server: NEW `game/fakes.ts`, `game/decoys.ts`, `equipment/consumables/{shieldBlock,chaff,decoyBuoy}.ts`, tests `shieldBlock`/`chaff`/`decoy`; `game/{world,signals,perception,frames}.ts`, `equipment/{index,consumables}.ts`, `ai/*`, `scripts/{batchsim,rl}/*`; DELETED `equipment/radarBuoy.ts` + two radarBuoy tests; `eslint.config.js` fence comment. client: `render/decoys.ts` (from `buoys.ts`), `render/{hpGlobe,hud,stage,radar,aimPreview,weaponArc,equipmentIcons,equipmentInfo,firing,hotbar}.ts`, `main.ts`, `net/roomBindings.ts`, `audio/{tones,twinMap}.ts`, `input/keyboard.ts`, `sim/ownFire.ts`, `ui/boonCopy.ts`; DELETED `radarBuoyScope`/`blipProvenance` tests. Docs: `VERSION`/`package.json`/lock 0.18.16; `CHANGELOG.md`; both trackers; `deferred-work.md` (13 closures, 8 new entries); amendments 116–128 in both homes; `DESIGN.md`/`EXPERIENCE.md`/`.decision-log.md` minimal; this spec.
+
+**Review.** Blind Hunter + Edge Case Hunter (Fable) and Codex `gpt-5.6-sol`: 2 medium + 4 low patches, all fail-first proven; 3 deferred; 3 rejected; 3 rulings recorded. See the Review Triage Log.
+
+**Follow-up review recommended: true** — the gate moved the chaff source off the ship record into a world-owned map (a new lifecycle seam), changed the decoy's reveal rung, added the absorbed-burn `dmg` path and the shield ceiling on the wire; each is pinned but was reviewed only by its implementer.
+
+**Verification.** `npm run check` exit 0 after the patch wave: shared 947 / server 2135 / client 3689 tests, hooks 266, eslint 0 errors (3 pre-existing max-lines warnings); `tsc -p server/scripts/rl` and `batchsim` clean. Headless smokes on a scratch server: `queueSmoke` PASS, `openingSmoke` PASS; `weaponsSmoke` FAILED four runs (mine ambush ×3, torpedo kill ×1) AND timed out against the untouched `development` baseline on a second scratch server; a read-only trace found no 8.16 change on any path phase 4 depends on — the ledgered random-map piloting flake (`deferred-work.md:2473`), re-ledgered.
+
+**Residual risk / for Eric.** (1) Three belt glyphs, three hover texts and the decoy's owner-only hp arc are implementer drafts for your eye on staging (amendment 124(f)). (2) Orchestrator readings you may veto: `DecoyView.by` for every observer (needed for your "owner's hue for all"); chaff epoch = time over the owner's sweep period; ≤ 16 re-draws per fake; a re-fire replaces a live chaff; the owner's own radar paints their own decoy. (3) The interim shield bot re-buys every 10 s while engaged (five copies in ~50 s) — 8.19's table. (4) `ShellState.noAggro` has no writer now (dead field, ledgered). (5) Decoy/hull id namespaces stay unenforced (mines precedent, ledgered). Staging QA: fire a shield and take a hit (blue number falls, ordinary cue), stand in phosphor/storm with a shield up; fire chaff and watch an enemy's scope (fakes on water only, none on your own scope), sink and confirm the cloud stays; drop a decoy astern (blocked click spends nothing), let an enemy fish hit it, shoot your own decoy (nothing), watch the marker appear at sight range from the enemy's seat; confirm no radar buoy card ever appears.
 
 ## Design Notes
 
