@@ -23,7 +23,7 @@ import { writeFileSync } from 'node:fs';
 import { USAGE, UsageError, buildVariants, parseArgs, type CliOptions } from './args.js';
 import { TunableError, applyOverrides } from './overrides.js';
 import { CONTROL_REGISTRY } from './controls.js';
-import { runBatch, type BatchResult } from './runner.js';
+import { runBatch, type BatchResult, type RunSpec } from './runner.js';
 import {
   buildAggregate,
   renderBatchReport,
@@ -69,7 +69,9 @@ function headerLines(opts: CliOptions): string[] {
   // only-when-non-default terms as every flag before them (NFR5).
   const botSpend = opts.botSpend !== 'profile' ? ` botSpend=${opts.botSpend}` : '';
   const botHull = opts.botHull !== null ? ` botHull=${opts.botHull}` : '';
-  const roster = ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage}${botSpend}${botHull} control=${opts.control}`;
+  // Story 8.15: a forced gun is a different lobby (NFR5), printed only when set.
+  const botGun = opts.botGun !== null ? ` botGun=${opts.botGun}` : '';
+  const roster = ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage}${botSpend}${botHull}${botGun} control=${opts.control}`;
   const tune = Object.keys(opts.tune).length > 0 ? ` tune=${tuneLine(opts.tune)}` : '';
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
@@ -107,6 +109,25 @@ interface ModeOutput {
   variants: JsonVariant[];
 }
 
+/** The parsed options as the runner's RunSpec (null → undefined = the shipped
+ *  default on every optional arm). Split out of batchMode for the complexity
+ *  budget when --gun (Story 8.15) joined the list. */
+function runSpecOf(opts: CliOptions): RunSpec {
+  return {
+    seed: opts.seed,
+    matches: opts.matches,
+    captains: opts.captains,
+    bots: opts.bots,
+    botProfile: opts.botProfile ?? undefined,
+    botEngage: opts.botEngage,
+    botSpend: opts.botSpend,
+    botHull: opts.botHull ?? undefined,
+    botGun: opts.botGun ?? undefined,
+    roster: opts.roster,
+    control: CONTROL_REGISTRY[opts.control],
+  };
+}
+
 function batchMode(opts: CliOptions): ModeOutput {
   const body = headerLines(opts);
   const rendered: { label: string; agg: BatchAggregate }[] = [];
@@ -116,18 +137,7 @@ function batchMode(opts: CliOptions): ModeOutput {
     const restore = applyOverrides(variant.set, opts.tune);
     try {
       const result = runBatch(
-        {
-          seed: opts.seed,
-          matches: opts.matches,
-          captains: opts.captains,
-          bots: opts.bots,
-          botProfile: opts.botProfile ?? undefined,
-          botEngage: opts.botEngage,
-          botSpend: opts.botSpend,
-          botHull: opts.botHull ?? undefined,
-          roster: opts.roster,
-          control: CONTROL_REGISTRY[opts.control],
-        },
+        runSpecOf(opts),
         opts.quiet ? undefined : progressLogger(variant.label, opts.matches),
       );
       const agg = buildAggregate(result, opts.captains);

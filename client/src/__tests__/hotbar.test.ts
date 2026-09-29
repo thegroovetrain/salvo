@@ -52,6 +52,7 @@ import {
   effectiveStats,
   isConsumableId,
   slotsWithCards,
+  classShift,
   type EffectiveStats,
   type EquipmentId,
   type GunId,
@@ -1435,32 +1436,33 @@ describe('slotForCard over a belt that holds consumables', () => {
 // gun to the shared `slotsWithCards(…, gun)` — the ONE derivation the server
 // fits and re-fits from — so the square this row paints is the module it mounted.
 //
-// All three seat guns mount the shipped `'gun'` module until Story 8.15 builds
-// the other two (`MOUNTED_GUN`), which is exactly why this pin walks all three:
-// the day 8.15 changes two entries of that map, the row must follow without a
-// second edit here.
+// Story 8.15 gave each gun its OWN module (`MOUNTED_GUN`: deckGun -> 'gun',
+// machineGun -> 'machineGun', flak -> 'flak') and slot 1 the HULL'S Shift
+// (`classShift(cls)`), so this pin walks all three guns on all three hulls.
 describe("slot 0 is the SEAT'S gun, replayed as main.ts derives it", () => {
-  /** main.ts's `slotIdsFor`, verbatim (the gun leg included). */
+  /** main.ts's `slotIdsFor`, verbatim (the gun and Shift legs included). */
   function slotIdsFor(
     stats: EffectiveStats,
     cards: readonly string[],
+    cls: ShipClassId,
     gun: GunId,
   ): (SlotItemId | null)[] {
-    return slotsWithCards(stats, cards, CATALOG, false, gun).map((s) => s.equipmentId);
+    return slotsWithCards(stats, cards, CATALOG, false, gun, classShift(cls)).map((s) => s.equipmentId);
   }
 
   it('walks every seat gun there is — the list is the shared one, so it cannot rot', () => {
     expect([...GUN_IDS]).toEqual(['deckGun', 'machineGun', 'flak']);
   });
 
+  const MODULE: Record<GunId, EquipmentId> = { deckGun: 'gun', machineGun: 'machineGun', flak: 'flak' };
   for (const gun of GUN_IDS) {
-    it(`${gun} mounts equipment 'gun' in slot 0 and moves no other slot`, () => {
+    it(`${gun} mounts its OWN module in slot 0 and moves no other slot`, () => {
       const stats = statsFor('torpedoBoat');
       const cards = FITTED.torpedoBoat;
-      const ids = slotIdsFor(stats, cards, gun);
-      // The module, through the shared map — never a hard-coded id here.
+      const ids = slotIdsFor(stats, cards, 'torpedoBoat', gun);
+      // The module, through the shared map — and pinned literally too.
       expect(ids[SLOT_GUN]).toBe(MOUNTED_GUN[gun]);
-      expect(ids[SLOT_GUN]).toBe('gun'); // the interim, pinned until 8.15
+      expect(ids[SLOT_GUN]).toBe(MODULE[gun]);
       // ...and the PICK addresses slot 0 alone: a card's slotFill takes the
       // first empty of Q/E/R, so the rest of the row is the plain card replay.
       const plain = slotsWithCards(stats, cards).map((s) => s.equipmentId);
@@ -1469,9 +1471,24 @@ describe("slot 0 is the SEAT'S gun, replayed as main.ts derives it", () => {
     });
   }
 
+  it('slot 1 replays the HULL\'S Shift (Story 8.15, amendment 89(c)) whatever the gun', () => {
+    const want: Record<ShipClassId, EquipmentId> = {
+      torpedoBoat: 'boost',
+      mineLayer: 'instantReload',
+      battleship: 'damageCut',
+    };
+    for (const cls of ['torpedoBoat', 'mineLayer', 'battleship'] as const) {
+      for (const gun of GUN_IDS) {
+        const ids = slotIdsFor(statsFor(cls), FITTED[cls], cls, gun);
+        expect(ids[SLOT_BOOST], `${cls}/${gun}`).toBe(want[cls]);
+        expect(ids[SLOT_GUN], `${cls}/${gun}`).toBe(MODULE[gun]);
+      }
+    }
+  });
+
   it('main.ts really pins the slot from the loadout, not from a literal', () => {
     // The helper above is a copy; this is the pin that keeps the copy honest.
     const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'), 'utf8');
-    expect(src).toMatch(/slotsWithCards\(stats, cards, CATALOG, false, gun\)/);
+    expect(src).toMatch(/slotsWithCards\(stats, cards, CATALOG, false, gun, classShift\(cls\)\)/);
   });
 });

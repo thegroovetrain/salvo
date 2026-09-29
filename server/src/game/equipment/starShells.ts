@@ -60,6 +60,7 @@ function fireStarShell(
     burstRadius: litRadius, // the burst IS the lit circle
     contactDamage: 0, // interception does 0 — and still lights (World.resolveShell)
     hits: CONFIG.starShells.hits, // AR44 target mask
+    family: 'cannon', // Story 8.15: a flare flies a gun-pattern shell — `w: 'cannon'`
     lit: { radius: litRadius, durationMs: stars.litDurationMs },
   });
   return { shell, denial: null };

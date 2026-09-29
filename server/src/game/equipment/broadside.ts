@@ -144,6 +144,7 @@ function fireBroadside(
         // damage figure), so contactDamage is the same 20.
         contactDamage: bs.damage,
         hits: CONFIG.broadside.hits, // AR44 target mask
+        family: 'cannon', // Story 8.15: gun-pattern shells — `w: 'cannon'`
       }),
     );
   });

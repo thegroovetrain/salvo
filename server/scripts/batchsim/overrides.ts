@@ -53,6 +53,12 @@ export function isTunableKey(key: string): boolean {
 // Keep this list in step with the top-level equipment blocks of CONFIG.
 const TUNE_FAMILIES = [
   'gun.',
+  // Story 8.15: the two pickable guns and the two new class Shifts — every
+  // number Eric ruled for them is a harness dial (amendments 97-105).
+  'machineGun.',
+  'flak.',
+  'instantReload.',
+  'damageCut.',
   'broadside.',
   'torpedo.',
   'mine.',
@@ -104,7 +110,7 @@ export function isTuneKey(key: string): boolean {
 // may not have (the same argument the prototype-walk refusal above is written
 // on), so these are refused up front with the real dial named instead.
 // `mine.triggerRadius` exists in CONFIG and would be silently ignored; the
-// three rangeU paths are not CONFIG entries at all and would otherwise fail
+// rangeU paths are not CONFIG entries at all and would otherwise fail
 // with the generic not-a-numeric-entry message, which tells the reader nothing
 // about WHY the range they are trying to move is unreachable.
 const DERIVED_TUNE_KEYS = new Map<string, string>([
@@ -113,6 +119,14 @@ const DERIVED_TUNE_KEYS = new Map<string, string>([
     'the trip ring is DERIVED as mine.blastRadius x CONFIG.mine.triggerFactor (Eric ruling 2026-08-16) — tune mine.blastRadius instead',
   ],
   ['gun.rangeU', 'gun range is DERIVED from radar range (Eric ruling 2026-07-21) and is not independently tunable'],
+  [
+    'machineGun.rangeU',
+    'machine-gun range is DERIVED from radar range like gun.rangeU (Story 8.15, amendment 103) and is not independently tunable',
+  ],
+  [
+    'flak.rangeU',
+    'flak range is DERIVED from radar range like gun.rangeU (Story 8.15, amendment 105) and is not independently tunable',
+  ],
   ['starShells.rangeU', 'star-shell range is DERIVED from radar range and is not independently tunable'],
   [
     'broadside.rangeU',

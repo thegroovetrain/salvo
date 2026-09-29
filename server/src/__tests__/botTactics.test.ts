@@ -21,17 +21,20 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   angleDiff,
+  hullSilhouette,
   inArc,
   isAfloat,
   islandDistance,
   mulberry32,
   nearestCoastPoint,
+  polygonMaxRadius,
   sectorArcFor,
   SHIP_CLASS_IDS,
   SLOT_BOOST,
   stepShip,
   transitionLifecycle,
   wrapAngle,
+  type GameEvent,
   type HullId,
   type Island,
   type ShipClassId,
@@ -40,6 +43,8 @@ import { circleIsland } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, approachPoint, readyShotReaches } from '../game/ai/tactics.js';
+import { EQUIPMENT_TACTICS } from '../game/ai/equipment.js';
+import { EQUIPMENT } from '../game/equipment/index.js';
 import { engagementBand, profileOf } from '../game/ai/profiles.js';
 import { pullBand } from '../game/ai/utility.js';
 import type {
@@ -998,16 +1003,17 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const raider = mkMind('raider');
     plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'boost'));
-    // A withdrawing MINE LAYER NOW BOOSTS TOO (Story 8.5, epic-8 amendment
-    // 23: the boost stopped being a Torpedo Boat privilege and is fitted in
-    // slot 1 on every captain hull). Before this story it pressed nothing,
-    // because it had no ability fitted at all — the policy never changed, the
-    // hardware did.
+    // A withdrawing MINE LAYER HAS NO BOOST TO PRESS (Story 8.15, amendment
+    // 89(c)): slot 1 is its class Shift, INSTANT RELOAD, and the boost is the
+    // Torpedo Boat's alone again. The withdrawal tactic therefore presses
+    // NOTHING it does not hold — never the -1 of a missing slot — and the
+    // interim INSTANT RELOAD rule (amendment 109) is wave 4's / Story 8.19's.
     const ml = mkBot(w, 'mineLayer', 0, 0, 0);
     ml.hp = ml.stats.maxHp * 0.1;
     const trapper = mkMind('trapper');
     plot(trapper, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).toBe(slotOf(ml, 'boost'));
+    expect(slotOf(ml, 'boost')).toBe(-1);
+    expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).not.toBe(-1);
     // Healthy: no ability spent.
     const healthy = mkBot(w, 'torpedoBoat', 0, 0, 0);
     expect(COMBAT_BRAIN.decide(healthy, raider, port).actSlot).toBeNull();
@@ -1087,7 +1093,10 @@ describe('weapons — every shot is a LEGAL shot', () => {
   it('...and a hurt bot with an EMPTY belt reaches for its boost, never a belt slot', () => {
     const w = openWorld(213);
     const port = fakePort(w);
-    const bare = mkBot(w, 'battleship', 0, 0, 0);
+    // A TORPEDO BOAT, since Story 8.15: the boost is the Torpedo Boat's Shift
+    // alone (a Battleship's slot 1 is DAMAGE CUT, whose interim rule is wave
+    // 4's / Story 8.19's).
+    const bare = mkBot(w, 'torpedoBoat', 0, 0, 0);
     bare.hp = bare.stats.maxHp * 0.1; // hurt enough to want a heal it does not hold
     expect(slotOf(bare, 'hullRepair')).toBe(-1);
     // The withdrawal boost is the only ability it can press: a want() with no
@@ -2048,5 +2057,284 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
         .join('|');
     };
     expect(run()).toBe(run());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STORY 8.15 — the gun pick and the class Shifts: the INTERIM bot rules
+// (epic-8 amendment 109; Story 8.19 owns the real tables).
+// ---------------------------------------------------------------------------
+
+describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109, interim)', () => {
+  /** Mount `gun` in slot 0 with a full pool and EMPTY the weapon row, so the
+   *  gun is the only shot the brain can choose (the tests are about the gun). */
+  function mountGun(rec: ShipRecord, id: 'machineGun' | 'flak'): void {
+    rec.loadout[0] = { equipmentId: id, state: { n: rec.stats.equipment[id].maxAmmo, reloadMsLeft: 0 } };
+    for (const i of [2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
+  }
+
+  /** Hand the mind a fresh (this-tick) view carrying only `events`. */
+  function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
+    mind.view = { contacts: [], events, mines: [], litZones: [], buoys: [] };
+    mind.viewAt = now;
+  }
+
+  it('an EQUIPMENT_TACTICS row exists for every equipment id the server registry builds', () => {
+    for (const id of Object.keys(EQUIPMENT) as (keyof typeof EQUIPMENT)[]) {
+      expect(EQUIPMENT_TACTICS[id], `no bot tactic for '${id}'`).toBeDefined();
+      expect(EQUIPMENT_TACTICS[id]!.id).toBe(id);
+    }
+  });
+
+  it('MACHINE GUN: HOLDS the level on slot 0 while a target is in reach — never a click', () => {
+    const w = openWorld(8151);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    mountGun(rec, 'machineGun');
+    const mind = mkMind('duelist');
+    plot(mind, track(port.now, { x: 300, y: 0, speed: 0 }));
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(d.held).toBe(true);
+    expect(d.fireSlot).toBeNull(); // the driver's fireSeq never moves on a held tick
+    expect(d.aimDist).toBeGreaterThan(0);
+    expect(d.aimDist).toBeLessThanOrEqual(rec.stats.equipment.machineGun.rangeU);
+  });
+
+  it('MACHINE GUN: RELEASES when the target leaves reach, when there is no target, and on an empty magazine', () => {
+    const w = openWorld(8152);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    mountGun(rec, 'machineGun');
+    const far = mkMind('duelist');
+    plot(far, track(port.now, { x: rec.stats.equipment.machineGun.rangeU + 100, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, far, port).held).toBe(false);
+    expect(COMBAT_BRAIN.decide(rec, mkMind('duelist'), port).held).toBe(false);
+    const near = mkMind('duelist');
+    plot(near, track(port.now, { x: 300, y: 0, speed: 0 }));
+    rec.loadout[0].state = { n: 0, reloadMsLeft: 15000 };
+    const dry = COMBAT_BRAIN.decide(rec, near, port);
+    expect(dry.held).toBe(false);
+    expect(dry.fireSlot).toBeNull();
+  });
+
+  it('MACHINE GUN, END TO END: two MG bots stream through the real driver — held level, slot 0, no fireSeq edge', () => {
+    const w = openWorld(8153, 4);
+    const a = w.addBot('torpedoBoat', undefined, 'machineGun');
+    const b = w.addBot('torpedoBoat', undefined, 'machineGun');
+    [a, b].forEach((rec, i) => {
+      rec.state.x = i === 0 ? -150 : 150;
+      rec.state.y = 0;
+      rec.state.heading = i === 0 ? 0 : Math.PI;
+      rec.prevPose = { ...rec.state };
+    });
+    expect(a.loadout[0].equipmentId).toBe('machineGun');
+    let heldTicks = 0;
+    let mgShells = 0;
+    const seen = new Set<string>();
+    for (let t = 0; t < 120; t += 1) {
+      w.step();
+      if (a.input.held) {
+        heldTicks += 1;
+        expect(a.input.slot).toBe(0);
+      }
+      for (const [id, s] of w.shells) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        if (s.family === 'mg') mgShells += 1;
+      }
+    }
+    expect(heldTicks).toBeGreaterThan(0);
+    expect(mgShells).toBeGreaterThan(0);
+    // A LEVEL, never an edge: neither bot ever advanced fireSeq for the stream.
+    expect(a.input.fireSeq).toBe(0);
+    expect(b.input.fireSeq).toBe(0);
+    expect(a.loadout[0].state!.n).toBeLessThan(a.stats.equipment.machineGun.maxAmmo);
+  });
+
+  it('FLAK: fires the cannon\'s burst-solve on the flak row — a click on slot 0 at the led point', () => {
+    const w = openWorld(8154);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    mountGun(rec, 'flak');
+    const mind = mkMind('bulwark');
+    plot(mind, track(port.now, { x: 300, y: 0, speed: 0, heading: null }));
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(d.fireSlot).toBe(0);
+    expect(d.held).toBe(false);
+    expect(d.aimDist).toBeGreaterThan(250);
+    expect(d.aimDist).toBeLessThanOrEqual(rec.stats.equipment.flak.rangeU);
+    // Beyond the flak row's reach: no shot.
+    const far = mkMind('bulwark');
+    plot(far, track(port.now, { x: rec.stats.equipment.flak.rangeU + 100, y: 0, speed: 0, heading: null }));
+    expect(COMBAT_BRAIN.decide(rec, far, port).fireSlot).toBeNull();
+  });
+
+  it('INSTANT RELOAD: pressed ONLY with a target in reach AND a weapon reloading', () => {
+    const w = openWorld(8155);
+    const port = fakePort(w);
+    const ml = mkBot(w, 'mineLayer', 0, 0, 0);
+    const shift = slotOf(ml, 'instantReload');
+    expect(shift).toBe(1);
+    const inReach = (): BotMind => {
+      const m = mkMind('trapper');
+      plot(m, track(port.now, { x: 300, y: 0, speed: 0 }));
+      return m;
+    };
+    // Nothing reloading: held.
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBeNull();
+    // The gun reloading, target in reach: pressed.
+    ml.loadout[0].state = { n: 0, reloadMsLeft: 2100 };
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBe(shift);
+    // Same reload, target OUT of the gun's reach: held.
+    const far = mkMind('trapper');
+    plot(far, track(port.now, { x: ml.stats.equipment.gun.rangeU + 100, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(ml, far, port).actSlot).toBeNull();
+    // No target at all: held.
+    expect(COMBAT_BRAIN.decide(ml, mkMind('trapper'), port).actSlot).toBeNull();
+    // A Q/E/R weapon reloading (the rack) counts too; the gun full again.
+    ml.loadout[0].state = { n: ml.stats.equipment.gun.maxAmmo, reloadMsLeft: 0 };
+    ml.loadout[2].state = { n: 1, reloadMsLeft: 5000 };
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBe(shift);
+    // The charge spent (cooling): never pressed.
+    ml.loadout[1].state = { n: 0, reloadMsLeft: 45000 };
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBeNull();
+  });
+
+  // DAMAGE CUT is PROACTIVE (Eric, 2026-09-29, amendment 115): pressed while
+  // ENGAGED (the bot's own `engage` posture, with a target) or when a SEEN
+  // enemy torpedo is inbound on a collision line within 150 u — NEVER as a
+  // reaction to damage already taken (the amendment-109 "within one second of
+  // taking damage" rule is gone).
+  describe('DAMAGE CUT — proactive: engaged, or a fish inbound within 150 u (amendment 115)', () => {
+    const BS_RADIUS = polygonMaxRadius(hullSilhouette('battleship'));
+    const FISH_SPEED = 65;
+
+    /** A bulwark Battleship at the origin, bow east; `hurt` drops it under its
+     *  disengage fraction so the posture is `disengage`. */
+    function setup(seed: number, hurt: boolean): { bs: ShipRecord; port: FakePort; shift: number } {
+      const w = openWorld(seed);
+      const port = fakePort(w);
+      const bs = mkBot(w, 'battleship', 0, 0, 0);
+      if (hurt) bs.hp = bs.stats.maxHp * 0.1;
+      const shift = slotOf(bs, 'damageCut');
+      expect(shift).toBe(1);
+      return { bs, port, shift };
+    }
+
+    /** A `torp` reveal at (x, y) running at FISH_SPEED along `dir`. */
+    function fish(id: string, now: number, x: number, y: number, dir: number): GameEvent {
+      return { k: 'torp', id, x, y, vx: Math.cos(dir) * FISH_SPEED, vy: Math.sin(dir) * FISH_SPEED, t: now };
+    }
+
+    /** Midway through the bulwark's band — inside it, so the posture is `engage`. */
+    function inBandX(bs: ShipRecord): number {
+      const band = engagementBand(profileOf('bulwark'), bs.stats);
+      return (band.min + band.max) / 2;
+    }
+
+    it('ENGAGED with a target: pressed; disengaging with no threat: not', () => {
+      const { bs, port, shift } = setup(8156, false);
+      const engaged = mkMind('bulwark');
+      plot(engaged, track(port.now, { x: inBandX(bs), y: 0, speed: 0 }));
+      viewOf(engaged, port.now, []);
+      expect(COMBAT_BRAIN.decide(bs, engaged, port).actSlot).toBe(shift);
+      expect(engaged.posture).toBe('engage');
+      // The same hull hurt below its break-off: disengaging, nothing inbound.
+      const hurt = setup(8156, true);
+      const away = mkMind('bulwark');
+      plot(away, track(hurt.port.now, { x: inBandX(hurt.bs), y: 0, speed: 0 }));
+      viewOf(away, hurt.port.now, []);
+      expect(COMBAT_BRAIN.decide(hurt.bs, away, hurt.port).actSlot).toBeNull();
+      expect(away.posture).toBe('disengage');
+    });
+
+    it('an enemy fish at 140 u on a collision line: pressed even while disengaging', () => {
+      const { bs, port, shift } = setup(8157, true);
+      const mind = mkMind('bulwark');
+      viewOf(mind, port.now, [fish('t1', port.now, 140, 0, Math.PI)]);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBe(shift);
+      expect(mind.posture).toBe('disengage');
+    });
+
+    it('the same fish at 160 u, or inside 150 u on a line that MISSES the hull or recedes: not pressed', () => {
+      const { bs, port } = setup(8158, true);
+      const far = mkMind('bulwark');
+      viewOf(far, port.now, [fish('t1', port.now, 160, 0, Math.PI)]);
+      expect(COMBAT_BRAIN.decide(bs, far, port).actSlot).toBeNull();
+      // Offset abeam by more than the hull's bounding radius, running parallel.
+      const off = BS_RADIUS + CONFIG.torpedo.hitRadius + 8;
+      expect(Math.hypot(120, off)).toBeLessThan(150);
+      const miss = mkMind('bulwark');
+      viewOf(miss, port.now, [fish('t2', port.now, 120, off, Math.PI)]);
+      expect(COMBAT_BRAIN.decide(bs, miss, port).actSlot).toBeNull();
+      // Inside 150 u but pointed AWAY (already past): not pressed.
+      const gone = mkMind('bulwark');
+      viewOf(gone, port.now, [fish('t3', port.now, -100, 0, Math.PI)]);
+      expect(COMBAT_BRAIN.decide(bs, gone, port).actSlot).toBeNull();
+    });
+
+    it('a fish revealed ONCE far out is dead-reckoned in: pressed once it closes inside 150 u; its boom clears it', () => {
+      const { bs, port, shift } = setup(8159, true);
+      const mind = mkMind('bulwark');
+      // The reveal is once per visit: seen at 300 u, then the views go quiet.
+      viewOf(mind, port.now, [fish('t1', port.now, 300, 0, Math.PI)]);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      port.now += 2000; // 300 − 130 = 170 u: still outside
+      viewOf(mind, port.now, []);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      port.now += 500; // 137.5 u: inside
+      viewOf(mind, port.now, []);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBe(shift);
+      // It detonated (a boom keyed by its id): the threat is gone.
+      port.now += 50;
+      viewOf(mind, port.now, [{ k: 'boom', id: 't1', x: 130, y: 0 }]);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+    });
+
+    it('the bot\'s OWN torpedo never triggers it — even when a homing update swings it back at the hull', () => {
+      const { bs, port } = setup(8160, true);
+      const mind = mkMind('bulwark');
+      // The owner's launch-tick reveal: just off the bow, running away.
+      const launchX = BS_RADIUS + CONFIG.torpedo.hitRadius + CONFIG.torpedo.spawnClearance;
+      viewOf(mind, port.now, [fish('own', port.now, launchX, 0, 0)]);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      // Later a homing update swings it straight back at us from 120 u.
+      port.now += 1000;
+      viewOf(mind, port.now, [{ k: 'torpU', id: 'own', x: 120, y: 0, vx: -FISH_SPEED, vy: 0, t: port.now }]);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+    });
+
+    it('JUST HIT but neither engaged nor threatened: NOT pressed (the damage-reaction rule is gone)', () => {
+      const { bs, port } = setup(8161, false);
+      const mind = mkMind('bulwark');
+      viewOf(mind, port.now, [{ k: 'dmg', id: bs.id, amount: 15, hp: bs.hp - 15 }]);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      expect(mind.posture).toBe('reposition');
+      const hurt = setup(8161, true);
+      const m2 = mkMind('bulwark');
+      viewOf(m2, hurt.port.now, [{ k: 'dmg', id: hurt.bs.id, amount: 15, hp: hurt.bs.hp - 15 }]);
+      expect(COMBAT_BRAIN.decide(hurt.bs, m2, hurt.port).actSlot).toBeNull();
+      expect(m2.posture).toBe('disengage');
+    });
+
+    it('the charge spent (cooling): engaged AND threatened is still a no-op', () => {
+      const { bs, port, shift } = setup(8162, false);
+      bs.loadout[shift].state = { n: 0, reloadMsLeft: 20000 };
+      const mind = mkMind('bulwark');
+      plot(mind, track(port.now, { x: inBandX(bs), y: 0, speed: 0 }));
+      viewOf(mind, port.now, [fish('t1', port.now, 140, 0, Math.PI)]);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBeNull();
+      expect(mind.posture).toBe('engage');
+    });
+  });
+
+  it('the TORPEDO BOAT still boosts on disengage (the shipped rule, untouched)', () => {
+    const w = openWorld(8157);
+    const port = fakePort(w);
+    const tb = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    tb.hp = tb.stats.maxHp * 0.1;
+    const raider = mkMind('raider');
+    plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'boost'));
   });
 });

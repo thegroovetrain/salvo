@@ -79,7 +79,10 @@
 // cssHex for the personal hues, which have no --hc-* var).
 
 import {
+  DEFAULT_GUN,
+  isGunId,
   sanitizeClassId,
+  type GunId,
   type LivenessPayload,
   type QueueStatusMsg,
   type ShipClassId,
@@ -113,6 +116,8 @@ export { NAME_MAX };
 const HOME_ID = 'main-menu'; // kept id so index.html / any external hook is stable
 const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
+/** THE GUN PICK (Story 8.15, amendment 107), stored beside the class. */
+export const GUN_KEY = 'hullcracker.gun';
 const MODE_KEY = 'hullcracker.mode';
 
 const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY is pressed mid-connect
@@ -183,6 +188,28 @@ function saveClass(cls: ShipClassId): void {
 }
 
 /**
+ * The saved gun pick (Story 8.15, amendment 107) — `deckGun` (the CANNON) when
+ * nothing is stored, the value is unknown, or storage is unavailable. Unlike
+ * the class there is no first-run signal: CANNON is simply preselected.
+ */
+export function loadSavedGun(): GunId {
+  try {
+    const raw = localStorage.getItem(GUN_KEY);
+    return isGunId(raw) ? raw : DEFAULT_GUN;
+  } catch {
+    return DEFAULT_GUN;
+  }
+}
+
+function saveGun(gun: GunId): void {
+  try {
+    localStorage.setItem(GUN_KEY, gun);
+  } catch {
+    // storage unavailable — the gun just won't persist
+  }
+}
+
+/**
  * The MODE a deploy goes out through. `standard` is the queue; `soloVsAi` is
  * the queue-free `create('arena', {solo:true})` door (Story 6.5). It is an
  * IDENTIFIER rather than a boolean so DUO/TRIO slot in beside it without
@@ -193,6 +220,10 @@ function saveClass(cls: ShipClassId): void {
  * module (the reverse would be a cycle).
  */
 export type DeployMode = 'standard' | 'soloVsAi';
+
+/** A deploy door's callback: the callsign, the hull, and the gun pick (Story
+ *  8.15 threads the gun through `startGame` → `connect` → `joinOptions`). */
+export type DeployFn = (name: string, cls: ShipClassId, gun: GunId) => void;
 
 const DEPLOY_MODES: readonly DeployMode[] = ['standard', 'soloVsAi'];
 
@@ -850,13 +881,15 @@ interface Home {
   livenessEls: LivenessEls;
   /** The last `/liveness` read, or null while UNAVAILABLE (nothing renders). */
   liveness: LivenessPayload | null;
-  onDeploy: (name: string, cls: ShipClassId) => void;
-  /** Deploy into a solo-vs-AI match. Same (name, cls) contract as onDeploy —
-   *  the mode is the DOOR, not a field on the identity. */
-  onSolo: (name: string, cls: ShipClassId) => void;
+  onDeploy: DeployFn;
+  /** Deploy into a solo-vs-AI match. Same (name, cls, gun) contract as
+   *  onDeploy — the mode is the DOOR, not a field on the identity. */
+  onSolo: DeployFn;
   /** Open/toggle the settings overlay (gear + home ESC — Story 2.3). */
   onSettings: () => void;
   currentClass: ShipClassId | null;
+  /** The captain's gun pick (Story 8.15) — never null, CANNON by default. */
+  currentGun: GunId;
   layerOpen: boolean;
   busy: boolean;
   /** Drives the callsign field's personal-color focus ring (see paintCallsign). */
@@ -958,7 +991,7 @@ function setClass(h: Home, cls: ShipClassId): void {
 /** Commit the typed callsign and hand it to ONE deploy door (`go`). Both home
  *  actions share this body — the class, the callsign and the never-silence rule
  *  are identical; only the door differs. */
-function deploy(h: Home, go: (name: string, cls: ShipClassId) => void): void {
+function deploy(h: Home, go: DeployFn): void {
   // Never-silence: a press mid-connect re-asserts the LIVE status line rather
   // than dying. It re-asserts what is ALREADY painted (not a fixed CONNECTING…)
   // because Story 6.1's queue readout only refreshes when the server pushes —
@@ -967,7 +1000,7 @@ function deploy(h: Home, go: (name: string, cls: ShipClassId) => void): void {
   if (h.currentClass === null) return;
   const name = sanitizeName(h.input.value);
   saveName(name);
-  go(name, h.currentClass);
+  go(name, h.currentClass, h.currentGun);
 }
 
 function onPlay(h: Home): void {
@@ -997,13 +1030,18 @@ function openLayer(h: Home): void {
   h.layerOpen = true;
   h.layer = openClassSelect({
     initial: h.currentClass ?? 'torpedoBoat',
+    initialGun: h.currentGun,
     hoist: h.hoist,
     blurTarget: h.overlay,
     // CONFIRM SELECTION (and Enter) saves the class and comes back to port —
     // deliberately NO deploy(h) here: PLAY is the only path to onDeploy.
-    onConfirm: (cls) => {
+    onConfirm: (cls, gun) => {
       h.layerOpen = false;
       h.layer = null;
+      // The gun is saved beside the class (Story 8.15). The home chip stays
+      // slim — no `class · gun` sub-line until Story 9.4 (amendment 107).
+      h.currentGun = gun;
+      saveGun(gun);
       setClass(h, cls);
       refocusInput(h);
     },
@@ -1104,20 +1142,20 @@ function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
 }
 
 /**
- * Show the pre-join home. `onDeploy(name, cls)` fires ONLY from PLAY with a
+ * Show the pre-join home. `onDeploy(name, cls, gun)` fires ONLY from PLAY with a
  * chosen class — the class bay never deploys (CONFIRM SELECTION saves and comes
  * back to port). First-run SOLO opens the layer instead of connecting.
  * `onSettings()` is the gear + home-ESC settings toggle (Story 2.3).
- * `onSoloDeploy(name, cls)` is Story 6.5's SOLO VS AI door — same contract,
+ * `onSoloDeploy(name, cls, gun)` is Story 6.5's SOLO VS AI door — same contract,
  * different route (no queue). It defaults to the standard deploy so a caller
  * that predates the second button still behaves.
  * Returns the handle main.ts drives for status/busy/hide.
  */
 export function showHome(
   version: string,
-  onDeploy: (name: string, cls: ShipClassId) => void,
+  onDeploy: DeployFn,
   onSettings: () => void = () => undefined,
-  onSoloDeploy: (name: string, cls: ShipClassId) => void = onDeploy,
+  onSoloDeploy: DeployFn = onDeploy,
 ): HomeHandle {
   document.getElementById(HOME_ID)?.remove();
   const overlay = document.createElement('div');
@@ -1146,6 +1184,7 @@ export function showHome(
     onSolo: onSoloDeploy,
     onSettings,
     currentClass: loadSavedClassOrNull(),
+    currentGun: loadSavedGun(),
     layerOpen: false,
     busy: false,
     inputFocused: false,

@@ -30,6 +30,7 @@ import {
   cardEquipmentIds,
   equipmentInfo,
   interactionLine,
+  isGunFamily,
   isShipwideCard,
 } from './equipmentInfo.js';
 
@@ -58,7 +59,9 @@ export function slotBoonIds(id: SlotItemId, cards: readonly string[]): string[] 
   return cards.filter((c) => {
     if (!Object.hasOwn(CATALOG, c)) return false;
     const targets = cardEquipmentIds(c);
-    return targets.length === 0 ? id === 'gun' : targets.includes(id);
+    // The shipwide ladders ride slot 0's MOUNTED gun, whichever of the three
+    // it is (Story 8.15 — the cannon, the machine gun or the flak gun).
+    return targets.length === 0 ? isGunFamily(id) : targets.includes(id);
   });
 }
 // --- pure core: hover + tooltip -------------------------------------------------

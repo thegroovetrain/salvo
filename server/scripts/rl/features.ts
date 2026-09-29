@@ -15,7 +15,7 @@ import { CATALOG, CONFIG, type GameEvent } from '@salvo/shared';
 import type { ShipRecord, World } from '../../src/game/world.js';
 import type { PerceptionView } from '../../src/game/perception.js';
 
-export const FEATURE_VERSION = 1;
+export const FEATURE_VERSION = 2; // Story 8.15: CARD_IDS shrank (missile/monitor/heatSeeking cut) — saved models break
 
 /** Stable card index: catalog literal insertion order (deterministic). */
 export const CARD_IDS: readonly string[] = Object.freeze(Object.keys(CATALOG));

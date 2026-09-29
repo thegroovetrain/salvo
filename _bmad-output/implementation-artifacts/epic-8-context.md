@@ -4,13 +4,13 @@
 
 ## Goal
 
-Replace the shipped boon/upgrade system with the common pool. A captain picks a hull and a gun, spawns with that mounted gun plus the hull's one fixed class `Shift`, redraws the opening offer during the countdown, then draws from the single pool every captain shares into three weapon slots (`Q`/`E`/`R`) and four consumable belt slots (`1`–`4`), heals from a card, and reads the loadout they ended with in results. **Decks do not exist** — nothing is class-locked, nothing is brought; identity is the hull envelope plus the class `Shift`, and the gun is the captain's pick. Stories 8.0–8.13 have LANDED and stand as machinery, but they were written in deck vocabulary and the deck path is torn out by 8.14, the next story. What remains replaces the deck with the pool, makes the gun a pick and hull identity a fixed `Shift`, finishes the catalog (shield/chaff/decoy, smoke as an occluder, wake drafting), re-cuts bots and the harness, and closes with results and copy. Epic 8 is self-contained: every path runs with no account module, so signing in later changes what a player KEEPS, never what they can DO.
+Replace the shipped boon/upgrade system with the common pool. A captain configures a ship, a gun and a colour, spawns with that gun mounted plus the hull's one fixed class ability, redraws the opening offer during the countdown, then draws from the single pool every captain shares into three weapon slots (`Q`/`E`/`R`) and four consumable belt slots (`1`–`4`), heals from a card, and reads the loadout they ended with in results. **Decks do not exist.** Nothing is class-locked and nothing is brought. A hull's identity is its envelope plus its fixed ability, and the gun is the captain's pick. Stories 8.0–8.14 have LANDED. 8.0–8.13 were written in deck vocabulary, and 8.14 removed the deck path and put in the pool draw and the `gun` seat field. What remains: make the gun a real pick with three built guns, give each hull its own ability (8.15, next), finish the catalog (shield/chaff/decoy, smoke as an occluder, wake drafting), re-cut bots and the harness, then close with results and copy. Epic 8 is self-contained: every path runs with no account module, so signing in later changes what a player KEEPS, never what they can DO.
 
 ## Stories
 
 - Story 8.0–8.13: landed (Colyseus 0.18 upgrade, catalog engine, deck rules, the draw, damage gate, nine slots, HUD bar, consumables, heal card, Shift boost, the opening, match pool, ladders + deck gun, torpedoes + mines)
-- Story 8.14: The Common Pool — NEXT
-- Story 8.15: The Gun Pick and the Class Shifts
+- Story 8.14: The Common Pool — landed
+- Story 8.15: The Gun Pick and the Class Shifts — NEXT
 - Story 8.16: Catalog v3 — Shield, Chaff, Decoy
 - Story 8.17: Smoke Screen as a Sight Occluder
 - Story 8.18: Wake Drafting
@@ -22,19 +22,39 @@ Replace the shipped boon/upgrade system with the common pool. A captain picks a 
 
 **Standing on every story.** The `Tab` refit offer's shape is untouched and the passive XP tick stays the anti-snowball floor. The perception invariant keeps EXACTLY SIX declared exceptions — chaff fakes are a second source of the existing jamming carve-out, not a seventh. **No friendly fire, ever**; the one pinned exception is shooting your own mines. Never invent a card, a number or a consumable — every `[DRAFT]` is Eric's. `PROTOCOL_VERSION` bumps once per wire-changing story, never for harness or bot work; `npm run check` green gates every landing; any story contradicting a recorded GDD/architecture fact adds it to the Epic 9 reconciliation list.
 
-**The pool, not a deck.** A seat is a hull and a gun, nothing else. The draw source is one hull-agnostic catalog of lines with UNLIMITED copies; a line's only stops are its own cap and the slot rules. While any weapon slot is empty every kind is eligible and at least one offered card is a weapon's copy 1; once all three are filled, equipment copy 1 is never offered — only tiers for held lines, ladders (including the mounted gun's), add-ons whose host is held, and consumables. A match-wide tilt makes a line another captain just took less likely for everyone else, never impossible. The countdown REDRAW is the one asserted reroll. Humans and bots draw under identical rules, and everything is unlocked for everyone until progression exists.
+**The pool, not a deck.** A seat is a hull and a gun, nothing else. The draw source is one hull-agnostic catalog of lines with UNLIMITED copies. Equipment, ladders and add-ons leave the draw at their cap. Consumables are NEVER filtered out: at cap or with no belt space they are dealt greyed, and the pick is refused as a silent no-op. So the offer is never empty and nothing "exhausts". The draw has two stages per card. First it picks the KIND (weapon copy 1 / upgrade / consumable), with odds equal to that kind's share of the ship's eligible lines. Then it picks the line: weapons are weighted, upgrades and consumables are even. Once `Q`/`E`/`R` are all full the weapon kind has zero share. **Weighting** (never "tilt"): each time ANOTHER participant takes a line's copy 1, that line's weight for you is ×0.75, floored at 0.25. Tier copies never move weight, and a take is permanent for the match. Weighting changes WHICH weapon is drawn, never the odds of drawing A weapon. The weapon guarantee is **level zero only**: the countdown offer and its REDRAW keep the uniform usable-card guarantee, and later offers carry no guarantee. REDRAW is the one asserted reroll. Humans and bots draw under identical rules, and everything is unlocked for everyone until progression exists.
 
-**Anti-cheat.** Draw state and the tilt are server-private; only an offer's four line ids reach a client, and enemy draws reach nobody. A client never supplies pool contents — the option sanitizer accepts `hull` and `gun` and treats any deck key as unknown; dev overrides stay behind the dev-options env gate.
+**Anti-cheat.** Draw state and weighting are server-private. Only an offer's line ids reach a client, and enemy draws reach nobody. A client never supplies pool contents: the option sanitizer accepts `hull` and `gun` (missing or unknown → the deck gun) and treats any deck key as unknown. Dev overrides stay behind the dev-options env gate.
 
-**Owner decisions outstanding (do not invent).** Three class designations; the tilt factor/floor and whether copies 2+ tilt; the instant-reload cooldown; the damage-cut duration, cooldown and order vs the shield; the machine-gun and flak ladders; bot gun and Shift tactic tables; the boost cooldown (documented 20 s vs shipped 25 s); the later pared Default Set.
+**Owner decisions outstanding (do not invent).** Still open:
+- the three class designations
+- the instant-reload cooldown
+- the damage-cut duration, its cooldown, and its order vs the shield
+- the machine-gun and flak ladders; the machine gun's carried catalog numbers and flak's base numbers are `[DRAFT]`
+- the SPECIAL glyphs and the machine-gun/flak glyphs
+- the bot gun and ability tactic tables
+- the wake-draft lift and width, and the smoke-screen expand and interval numbers
+- the later pared Default Set
+
+The boost's shipped 25 s cooldown is ruled; the documented "20 s" is stale.
 
 **Pins owed.** Perception at 20 observers × 200 live smoke puffs inside the 50 ms tick; mine triggers plus the target collector at 500 live mines; the machine-gun stream's per-shell muzzle-flash cost MEASURED at 20 streaming bots before its cadence is trusted. New sim math lives in `shared/` and runs identically on both sides; the stat fold stays permutation-invariant, integers accumulating as floats and flooring ONCE.
 
 ## Technical Decisions
 
-**The gun is a seat field.** Three universal, slotless guns live in slot 0, each a full equipment module: the deck gun as shipped; the machine gun as a held-fire stream driven by a validated boolean LEVEL on the input message with a server-side cadence and no back-date (release, arc exit with one denial then silence, an empty pool, the refit window opening or window blur stop it); the flak gun as one shell air-bursting at the click, hitting hulls AND enemy ordnance, own ordnance immune. Each gun has its own ladder, offered only while mounted; the reload ladder touches all three.
+**The gun is a seat field.** It rides the seat and the self-private own-ship frame, never the welcome. Three universal, slotless guns live in slot 0, each a full equipment module:
+- **Deck gun:** as shipped; its ladder is not re-authored.
+- **Machine gun:** a held-fire stream driven by a REQUIRED boolean LEVEL on the input message (a non-boolean drops the whole message), with a server-side cadence and no back-date. Release, arc exit (one denial, then silence), an empty pool, the refit window opening or window blur stop it.
+- **Flak gun:** one shell air-bursting at the click. Its target mask is `hull | mine | decoy | ordnance`, where every other gun's is `hull | mine | decoy`. Own ordnance is immune. Take what flak hits from the mask of record, never from a paraphrase.
 
-**Class Shift.** One fixed ability per hull in slot 1: a speed boost scaled off POST-fold max speed; an instant reload that resets the mounted gun's and every fitted weapon's clock through the equipment registry (consumables untouched); a damage cut applied INSIDE the one damage gate, victim-private. The reload ladder's per-tier cooldown cut holds for all three, and bots drive them through the same input pipeline.
+Each gun has its own ladder, offered only while that gun is mounted. The reload ladder touches all three. HORIZONTAL MISSILE, MONITOR GUN and HEAT SEEKING are deleted end to end.
+
+**Class ability.** One fixed ability per hull in slot 1:
+- **Speed boost** (torpedo boat): scaled off POST-fold max speed.
+- **Instant reload** (mine layer): resets the mounted gun's and every fitted `Q`/`E`/`R` weapon's clock through the equipment registry; consumables are untouched.
+- **Damage cut** (battleship): ×0.5, applied INSIDE the one damage gate and victim-private. It is the only damage-reduction concept in the game (the shield absorbs; it does not reduce).
+
+The reload ladder's per-tier cooldown cut holds for all three, and bots drive them through the same input pipeline.
 
 **Chokepoints that bind new work.** Hull damage enters only through the one damage function; ordnance finds targets only through the one masked collector; every catalog fact lives in the catalog module; persistence sits behind a port the room is handed and never reaches the sim; bot code never imports the world module (ESLint-enforced) and its tactic tables stay TOTAL over their id sets.
 
@@ -44,12 +64,31 @@ Replace the shipped boon/upgrade system with the common pool. A captain picks a 
 
 ## UX & Interaction Patterns
 
-Class select gains, per hull, a gun picker (three chips, deck gun preselected), the `Shift` ability line and the class designation once named; the HUD's Shift square reads the hull ability's glyph. Refit cards stay a fixed-size face with NO prose — explanation is hover-only — and the tier ramp is ABSOLUTE, a sixth rung forbidden. Results replaces the accrued-boons blocks with one LOADOUT block: the ending slot row led by the mounted gun plus the five ship-ladder tiers. Explanations go to How-to-Play only — no glossary, no in-game explanatory copy, no `deck` / `DEFAULT` / `STARTER` string in client copy. The design doc's deck-era rules (Ship & Deck screen, copies rail, pre-queue gate, the DEFAULT clause) are void or awaiting a designer re-cut; dual-coding, audio/visual twins, photosensitivity limits and the 9 px micro-type floor bind every new surface.
+**The port screen is `LOADOUT`**, not a class select. It is one DOM sheet over the dimmed home with a single list of KEY · VALUE rows, in this order: `SHIP · SPECIAL · DECK GUN · COLOR`.
+- A row's value is glyph · NAME · caret and nothing else.
+- Clicking a value opens that category's picker modal. The modal is the ONE place an option is described.
+- The gun choices are `CANNON · MACHINE GUN · FLAK`. `CANNON` is the player-facing name of the internal `deckGun` and is preselected.
+- The ability is called `SPECIAL` (never "Shift"). It is read-only until it becomes a choice.
+- The colour row never explains the in-match grant.
+- The confirm word is `CONFIRM`.
+- A future category is one more row.
+- In Epic 8 nothing is locked, and there are no class tiles, no collection grid and no unlock page.
+- Class designations stay `[NAME PENDING]`.
+
+**HUD.** The gun square shows the mounted gun with its tier numeral. The slot-1 square keeps the `Shift` key chip and shows the hull ability's glyph. While a stream drains, the machine gun draws the amber held-fire drain along its slot floor.
+
+**Refit cards.** A fixed-size face with NO prose; explanation is hover-only. The tier ramp is ABSOLUTE and a sixth rung is forbidden. Weighting is never named on any surface.
+
+**Results.** One LOADOUT block replaces the accrued-boons blocks: the ending slot row, led by the mounted gun, plus the five ship-ladder tiers.
+
+**Copy.** Explanations go to How-to-Play only: no glossary, and no in-game explanatory copy. No `deck` / `DEFAULT` / `STARTER` string appears in client copy.
+
+**Binding on every new surface.** Dual-coding, audio/visual twins, photosensitivity limits and the 9 px rendered micro-type floor.
 
 ## Cross-Story Dependencies
 
-- 8.14 is the hinge: it deletes the deck path and re-cuts the draw, so 8.15–8.21 all assume the pool and the `gun` seat field.
-- 8.15 needs 8.14, supersedes the universal boost and zeroes the last stubbed catalog rows.
+- 8.14 (landed) was the hinge: 8.15–8.21 all assume the pool, weighting and the `gun` seat field.
+- 8.15 needs 8.14, supersedes the universal boost, zeroes the last stubbed catalog rows, and replaces the deck-gun fallback for the two unbuilt guns.
 - 8.16 needs the damage gate and consumables; 8.17 needs consumables; 8.18 stands alone on the wake sampler.
 - 8.19 needs every prior story; 8.20 and 8.21 close the epic and need the settled guns, Shifts and class names.
 - Epic 8 needs NOTHING from Epic 9 (null writer, everything unlocked); Epic 9 plugs a store into the same ports and its reconciliation story pays the accumulated doc corrections.
@@ -153,3 +192,23 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 93. **The weapon guarantee is level zero only** (Eric 2026-09-22): the countdown offer and its REDRAW keep 8.10's uniform usable-card guarantee; every later offer is the plain two-stage draw. Supersedes the 8.14 AC's "at every level with an open slot".
 94. **The offer is never empty; consumables are never filtered from the draw** (Eric 2026-09-22): a consumable at cap / with no belt space is dealt greyed and the pick refused until space frees; equipment/ladders/add-ons still leave at cap; exhaustion (`deckExhausted`, `reportExhaustion`, `onDeckExhausted`, the log) and the `/metrics` `deck.*` counters are DELETED; a per-draw offered/picked record is a ledgered side story. Supersedes 14 and 69(a).
 95. **Seat accepts all three gun ids now (the gun rides the seat and the own-ship frame — `OwnShip.gun`, self-private — not the welcome); unbuilt guns mount the deck gun until 8.15; harness `--deck-only` / `deckSim` / `PACIFIST_DECK` / the 50-card measurement deleted now** (Eric 2026-09-22); 8.19 re-cuts the harness bars.
+96. **The port screen is `LOADOUT` — key · value rows `SHIP · SPECIAL · DECK GUN · COLOR` with picker modals** (Eric 2026-09-23/28): the two-pane class-tile / collection-grid Ship Screen is REJECTED; a value is glyph · name only, every description lives in its picker modal; locked options are listed in the picker with lock + price and unlocked in place by press-then-confirm (9.6: "the picker card becomes the control"; no unlock page, no collection grid); words: `LOADOUT` (header and screen), `SPECIAL` (never "Shift"), the gun row `DECK GUN` with choices `CANNON · MACHINE GUN · FLAK` (`deckGun` id untouched), `CONFIRM`, colour values = `REGATTA_HUES` names; the colour row never explains the grant. **Flak's mask of record is AR44 / Story 8.15: `hull | mine | decoy | ordnance`** (every gun: `hull | mine | decoy`) — 89(i)'s "flak hits enemy ordnance only" is NOT a statement of what flak hits; read AR44, never paraphrase it. Supersedes 9.4's tile/grid text and UX-DR60–66 as re-cut 2026-09-23; 9.11 reconciles `epics.md`.
+97. **INSTANT RELOAD cools down 45 s** (Eric 2026-09-28): `CONFIG.instantReload.reloadMs 45000`, one charge, under `cooldownScale`.
+98. **INSTANT RELOAD finishes one reload only** (Eric 2026-09-28): a running reload completes (one round tops up); spent rounds beyond that stay spent; the belt and the Shift slot untouched; the machine-gun magazine is the round.
+99. **DAMAGE CUT is 8 s on a 30 s cooldown** (Eric 2026-09-28): `CONFIG.damageCut { factor 0.5, durationMs 8000, maxAmmo 1, reloadMs 30000 }`.
+100. **The cut applies before the shield** (Eric 2026-09-28): halve first, then SHIELD BLOCK absorbs the remainder (8.16 slots in).
+101. **The cut halves weapon damage only** (Eric 2026-09-28): shells, bursts, torpedoes, mines, contact and burn ticks; storm bites land in full.
+102. **A halved weapon hit rounds down; burn halves exactly** (Eric 2026-09-28): 15 → 7; whole-number damage stands.
+103. **Machine gun: 4 dmg / one shell per 0.5 s / 660 u / 16-shell magazine at tier I / 15 s reload; magazine model** (Eric 2026-09-28, verbatim in the amendments file): reload starts when EMPTY or after 5 s idle with shells left; firing during a partial reload cancels it; every reload is the full 15 s. Supersedes R20/R21's draft.
+104. **Machine-gun ladder: +2 shells, +1 damage, −5 % reload per tier** (Eric 2026-09-28): 16 → 24 shells, 4 → 8 dmg, cap 4, offered only while mounted.
+105. **Flak: 12 dmg in a 50 u blast, 660 u, one shell, 6 s; ladder +2 dmg and −5 % reload, blast fixed; anti-ordnance is a SIDE EFFECT that may go away** (Eric 2026-09-28, verbatim: *"These are tools for KILLING ENEMY SHIPS first and foremost."*): AR44's mask is built, nothing may lean on the ordnance half. Supersedes R26/R27.
+106. **There is no arc — every gun fires 360°** (Eric 2026-09-28, verbatim: *"There is no 'arc.' All of these guns get a 360 degree arc."*): no gun is ever denied out-of-arc; the AC's bow ±90° and arc-exit clauses, R21 and the GDD's MG arc line are void.
+107. **8.15 builds the minimal pick on today's class-select cards** (Eric 2026-09-28): a `SPECIAL` row (name only) + a `DECK GUN` row of chips `CANNON · MACHINE GUN · FLAK`, CANNON preselected, remembered beside the class; the LOADOUT screen stays 9.4; the home chip stays slim.
+108. **The plain gun is `CANNON` everywhere in match** (Eric 2026-09-28): the ladder card, the tooltip, results; TURRET/BARREL keep their names; DECK GUN is the category word only.
+109. **Bots mount a random gun and carry minimal Shift rules until 8.19** (Eric 2026-09-28): uniform seeded gun per bot; a harness arm may force one gun; ML fires INSTANT RELOAD with a target in range and a weapon reloading, BS fires DAMAGE CUT when damaged in the last second; MG bots hold while a target is in range.
+110. **Class names stay pending; the four new glyphs are implementer drafts** (Eric 2026-09-28), ledgered for his eye.
+111. **The machine gun streams only while the gun is the selected slot** (Eric 2026-09-29): a hold with a Q/E/R weapon primed fires that weapon only.
+112. **An idle magazine swap shows the normal cooldown wipe** (Eric 2026-09-29): no new visual state; the drain bar returns on the next hold.
+113. **Review-gate rulings** (orchestrator 2026-09-29): a dropped seat releases the level (no streaming through the reconnect grace); ordnance removal re-checks the live position and never enters the damage loop (`sp` for a fish-only burst); `flak.burstRadius` is not stat-addressable; a ladder grant tops up a full idle magazine with no swap; the drain bar, the press latch on cancel and the own-fire claim for tracers fixed on the client; deferred: cannon-only lit-zone reach, the bot's post-shield cut trigger.
+114. **Every deck gun fires into your own lit-up area** (Eric 2026-09-29, verbatim in the amendments file): the flare reach extension applies to the machine gun and flak exactly as to the cannon; corrects the review-gate deferral in 113(g). An un-ruled asymmetry is a question for Eric, never a ledger entry.
+115. **DAMAGE CUT is proactive** (Eric 2026-09-29, verbatim: *"This is a proactive measure."*): a bot presses it when engaged in combat (its engage posture) or when an enemy torpedo is heading at its hull within 150 u; never as a reaction to damage taken. Supersedes 109's damage-taken rule and the 113(g) deferral.

@@ -2,7 +2,7 @@
 // sheet, §1, verbatim), the four KIND words, and the "name is flavor, rules text
 // is the contract" law. Three properties carry the whole module:
 //
-//   1. COVERAGE — every one of the 29 shipped lines has a real display name and
+//   1. COVERAGE — every one of the 26 shipped lines has a real display name and
 //      a real kind label. A missing entry would print the humanized id
 //      mid-match, or an unlabelled meta row.
 //   2. THE MINIMAL FACE (R2.17) — a line that moves a NUMBER prints its live
@@ -36,8 +36,9 @@ import {
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
 
 describe('coverage — every catalog line has a name and a kind word', () => {
-  it('names every one of the 29 lines (never the humanized fallback)', () => {
-    expect(LINE_IDS).toHaveLength(29);
+  it('names every one of the 26 lines (never the humanized fallback)', () => {
+    // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e).
+    expect(LINE_IDS).toHaveLength(26);
     for (const id of LINE_IDS) {
       const name = boonName(id);
       expect(name.length, id).toBeGreaterThan(0);
@@ -69,8 +70,13 @@ describe('coverage — every catalog line has a name and a kind word', () => {
     expect(boonName('supercavTorpedo')).toBe('SUPERCAV TORPEDO');
     expect(boonName('depthCharge')).toBe('DEPTH CHARGE');
     expect(boonName('foulingMines')).toBe('FOULING MINES');
-    expect(boonName('missile')).toBe('HORIZONTAL MISSILE');
-    expect(boonName('flak')).toBe('FLAK GUN');
+    // Story 8.15: the plain gun's ladder reads CANNON (amendment 108; TURRET
+    // and BARREL keep their names), and the two pickable guns' ladders are
+    // named for their guns.
+    expect(boonName('deckGun')).toBe('CANNON');
+    expect(boonName('deckGunBarrel')).toBe('DECK GUN BARREL');
+    expect(boonName('machineGun')).toBe('MACHINE GUN');
+    expect(boonName('flak')).toBe('FLAK');
     expect(boonName('broadside')).toBe('BROADSIDE GUN');
     expect(boonName('decoyBuoy')).toBe('DECOY BUOY');
     expect(boonName('phosphorShells')).toBe('PHOSPHOR SHELLS');
@@ -100,7 +106,9 @@ const SILENT_CARDS = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.kind !== 
 
 describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   it('prints a live current → next sentence for every LADDER line', () => {
-    expect(STAT_CARDS).toHaveLength(8); // five universal ladders + the deck-gun family
+    // five universal ladders + the deck-gun family + (Story 8.15) the machine
+    // gun's and the flak gun's ladders.
+    expect(STAT_CARDS).toHaveLength(10);
     for (const line of STAT_CARDS) {
       const text = boonDescription(line, TB);
       expect(text.length, line.id).toBeGreaterThan(0);
@@ -127,10 +135,11 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
 
   it('prints NOTHING for an add-on, a consumable or an unbuilt weapon', () => {
     const silent = SILENT_CARDS.filter((l) => l.kind !== 'equipment' || l.stub === true);
-    expect(SILENT_CARDS).toHaveLength(21);
+    expect(SILENT_CARDS).toHaveLength(16);
     // 17 until Story 8.13 made LIGHT TORPEDO, CAPTIVE MINES and FOULING MINES
-    // live equipment lines that print their own reload diff.
-    expect(silent).toHaveLength(14);
+    // live equipment lines that print their own reload diff; 14 until Story
+    // 8.15 cut missile/monitor/heat seeking and made machine gun/flak ladders.
+    expect(silent).toHaveLength(9);
     for (const line of silent) expect(boonDescription(line, TB), line.id).toBe('');
   });
 
@@ -152,11 +161,12 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   // contract and a stale client could see one. THIRTEEN at 8.7; TWELVE once
   // Story 8.8 flipped `hullRepair`'s stub; TEN since Story 8.13 flipped LIGHT
   // TORPEDO, CAPTIVE MINES and the SUPERCAV TORPEDO and added the stub DEPTH
-  // CHARGE (epic-8 amendments 74/83). It is the number to move as each content
-  // story lands.
+  // CHARGE (epic-8 amendments 74/83); FIVE since Story 8.15 cut missile,
+  // monitor and heat seeking and built the machine gun and flak (amendments
+  // 89e/103-105). It is the number to move as each content story lands.
   it('renders every STUB line fail-open: a name, a kind word, no explanation', () => {
     const stubs = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.stub === true);
-    expect(stubs).toHaveLength(10);
+    expect(stubs).toHaveLength(5);
     for (const line of stubs) {
       expect(boonName(line.id), line.id).toBe(boonName(line.id).toUpperCase());
       expect(boonKindLabel(line.kind), line.id).not.toBe('');
@@ -240,10 +250,12 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
     // the card — it described a verb bolted onto the naval mine, which no
     // longer fouls at all.
     'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'foulingMines',
-    'missile', 'machineGun', 'flak', 'monitor',
+    // `machineGun` and `flak` left this list in Story 8.15: their ladders carry
+    // the two DRAFT hover descriptions the spec allows (ledgered for Eric);
+    // `missile`, `monitor` and `heatSeeking` left it by being CUT.
     // `hullRepair` left this list in Story 8.8 — the first consumable with a
     // mechanism to explain.
-    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge', 'heatSeeking',
+    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge',
   ];
 
   it('writes a real explanation for every line whose mechanism exists', () => {
@@ -329,6 +341,16 @@ describe('cardTierLabel — the step, not the position', () => {
     expect(cardTierLabel(CATALOG.heavyTorpedo, 0)).toBe('I');
   });
 
+  // Story 8.15: the machine gun's and the flak gun's ladders are BASE-TIER
+  // lines like the cannon's — the gun is already mounted at rung I, so the
+  // first card is the step I → II and the fourth tops out at V.
+  it('reads the two pickable guns\' ladders as base-tier lines (I → II … IV → V)', () => {
+    for (const line of [CATALOG.machineGun, CATALOG.flak]) {
+      expect(cardTierLabel(line, 0), line.id).toBe('I → II');
+      expect(cardTierLabel(line, 3), line.id).toBe('IV → V');
+    }
+  });
+
   it('and as a step from the copy held once there is one', () => {
     expect(cardTierLabel(CATALOG.heavyTorpedo, 1)).toBe('I → II');
     expect(cardTierLabel(CATALOG.reload, 1)).toBe('I → II');
@@ -338,7 +360,6 @@ describe('cardTierLabel — the step, not the position', () => {
   it('shows NO ladder at all for a consumable or an add-on', () => {
     expect(cardTierLabel(CATALOG.hullRepair, 0)).toBeNull();
     expect(cardTierLabel(CATALOG.decoyBuoy, 0)).toBeNull();
-    expect(cardTierLabel(CATALOG.heatSeeking, 0)).toBeNull();
     expect(cardTierLabel(CATALOG.dazzleShells, 0)).toBeNull();
   });
 
@@ -484,7 +505,7 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
     // A STUB equipment line has no built weapon to read a holding off, so it
     // reports its `◆ NAME` row alone — the honest readout. A LIVE one prints
     // the reload it is actually carrying.
-    expect(boonEffectLine('monitor', bare)).toBe('');
+    expect(boonEffectLine('depthCharge', bare)).toBe('');
     expect(boonEffectLine('notARealCard', bare)).toBe('');
     expect(boonEffectLine('heavyTorpedo', bare)).toBe('Reload: 30.0 s');
   });

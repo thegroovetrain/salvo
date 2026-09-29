@@ -14,6 +14,7 @@
 
 import {
   CATALOG,
+  CONFIG,
   CONSUMABLE_IS_WEAPON,
   EQUIPMENT_IS_WEAPON,
   LINE_IDS,
@@ -50,18 +51,22 @@ import {
 export const SLOT_KEY_GLYPHS: readonly string[] = ['', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4'];
 
 /**
- * Display name per equipment id. The seven BUILT ids keep their shipped names
+ * Display name per equipment id. The BUILT ids keep their shipped names
  * verbatim (Story 8.1 renamed ids, never copy — the boost's legacy id was
- * deleted in Story 8.9 and its name came across to `boost` unchanged); the seven
- * ids catalog v3 widened
- * `EquipmentId` with carry their catalog-v3 §1 sheet name and nothing else —
- * no description, no glyph, no tone, because their modules do not exist yet
- * (Stories 8.13-8.16) and their catalog lines are stubs, which the common pool
- * never deals.
+ * deleted in Story 8.9 and its name came across to `boost` unchanged).
+ *
+ * STORY 8.15 (Eric rulings 2026-09-28): the plain gun reads `Cannon` everywhere
+ * in match (amendment 108 — `DECK GUN` survives only as the class-select row's
+ * category word); the two pickable guns are `Machine Gun` and `Flak`, and the
+ * two new class Shifts `Instant Reload` and `Damage Cut` (amendment 107's
+ * names, title-cased like every tooltip name). The missile and the monitor are
+ * CUT (amendment 89e).
  */
 export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
-  gun: 'Deck Gun',
+  gun: 'Cannon',
   boost: 'Speed Boost',
+  instantReload: 'Instant Reload',
+  damageCut: 'Damage Cut',
   heavyTorpedo: 'Torpedoes',
   navalMines: 'Mines',
   broadside: 'Broadside Barrage',
@@ -76,10 +81,8 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   lightTorpedo: 'Light Torpedo',
   captiveMines: 'Captive Mines',
   foulingMines: 'Fouling Mines',
-  missile: 'Horizontal Missile',
   machineGun: 'Machine Gun',
-  flak: 'Flak Gun',
-  monitor: 'Monitor Gun',
+  flak: 'Flak',
 };
 
 /**
@@ -105,6 +108,13 @@ export const EQUIPMENT_DESCRIPTION: Partial<Record<EquipmentId, string>> = {
   broadside: 'Every turret on the aimed beam fires at once. The shells fan out to either side of the point you clicked, every one of them running to that same range.',
   starShells: 'An illumination round. Where it bursts, a wide circle of ocean lights up for everyone — including the hulls in it.',
   radarBuoy: 'Drops an anchored buoy that runs its own radar sweep and relays what it finds back to you.',
+  // THE TWO NEW SHIFTS (Story 8.15) — one mechanical line each, in the boost's
+  // register, every number read off CONFIG (amendments 98/99). DRAFT copy,
+  // ledgered for Eric.
+  instantReload: 'Finishes the running reload of your gun and every fitted weapon.',
+  damageCut: `Cuts incoming weapon damage by ${Math.round((1 - CONFIG.damageCut.factor) * 100)} % for ${
+    CONFIG.damageCut.durationMs / 1000
+  } s.`,
 };
 
 /**
@@ -169,9 +179,20 @@ export function interactionLine(
     : `ABILITY · ${key} · ACTIVATES`;
 }
 
-/** The permanent deck gun's equipment id — the one row `slotTier` (and, below,
- *  `tierSuffix`) reads off the fold instead of off a catalog line. */
-const GUN_EQUIPMENT_ID: EquipmentId = 'gun';
+/**
+ * THE MOUNTED-GUN FAMILY (Story 8.15): the three modules slot 0 can hold — the
+ * cannon (`gun`), the machine gun and the flak gun. Each climbs a slotless GUN
+ * LADDER whose rung is `1 + copies` (the `deckGun` precedent, amendments 70/104/
+ * 105), so `slotTier` (and, below, `tierSuffix`) reads it off the fold's own
+ * row instead of off a catalog line's raw copy count. Replaces the single-id
+ * `GUN_EQUIPMENT_ID` the deck gun alone once needed.
+ */
+const GUN_FAMILY: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machineGun', 'flak']);
+
+/** Pure: is this equipment one of the three mountable guns? */
+export function isGunFamily(id: EquipmentId): boolean {
+  return GUN_FAMILY.has(id);
+}
 
 /** ` · TIER n` for a slot standing on a rung, '' otherwise — an unfitted-but-
  *  somehow-present weapon reads 0, which prints nothing rather than a fake
@@ -187,7 +208,7 @@ const GUN_EQUIPMENT_ID: EquipmentId = 'gun';
  *  a caller with no stats gets silence, never a plausible-looking wrong
  *  number. */
 function tierSuffix(id: EquipmentId, cards: readonly string[], stats?: EffectiveStats): string {
-  if (id === GUN_EQUIPMENT_ID && stats === undefined) return '';
+  if (GUN_FAMILY.has(id) && stats === undefined) return '';
   const tier = stats === undefined ? lineTier(cards, lineForEquipment(id) ?? id) : slotTier(stats, cards, id);
   return tier > 0 ? ` · TIER ${TIER_WORDS[Math.min(tier, TIER_WORDS.length) - 1]}` : '';
 }
@@ -335,7 +356,7 @@ export function lineTier(cards: readonly string[], lineId: string): number {
  * not itself — and it is answered above, off the fold).
  */
 export function slotTier(stats: EffectiveStats, cards: readonly string[], id: EquipmentId): number {
-  if (id === GUN_EQUIPMENT_ID) return Math.min(stats.equipment.gun.tier, TIER_WORDS.length);
+  if (GUN_FAMILY.has(id)) return Math.min(stats.equipment[id].tier, TIER_WORDS.length);
   return lineTier(cards, lineForEquipment(id) ?? id);
 }
 
@@ -399,10 +420,12 @@ export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number 
     lightTorpedo: e.lightTorpedo.damage,
     captiveMines: e.captiveMines.damage,
     foulingMines: e.foulingMines.damage,
-    missile: e.missile.damage,
+    // THE TWO PICKABLE GUNS (Story 8.15): the machine gun's number is PER SHELL
+    // (a direct hit), the flak gun's per hull inside its burst.
     machineGun: e.machineGun.damage,
     flak: e.flak.damage,
-    monitor: e.monitor.damage,
+    instantReload: null,
+    damageCut: null,
   };
   return table[id];
 }

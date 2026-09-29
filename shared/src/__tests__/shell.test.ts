@@ -73,6 +73,7 @@ function shell(overrides: Partial<ShellState> = {}): ShellState {
     burstRadius: 0,
     contactDamage: CONFIG.gun.damage,
     hits: CONFIG.gun.hits,
+    family: 'cannon',
     ...overrides,
   };
 }
@@ -575,7 +576,7 @@ describe('burstVictims — kinds (Story 8.4)', () => {
 });
 
 describe('CONFIG ordnance masks (AR44)', () => {
-  it('the TEN shipped rows declare exactly the ruled masks; no stub row exists', () => {
+  it('the TWELVE shipped rows declare exactly the ruled masks; no stub row exists', () => {
     expect(CONFIG.gun.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.broadside.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.radarBuoy.hits).toEqual(['hull', 'mine', 'decoy']);
@@ -591,11 +592,72 @@ describe('CONFIG ordnance masks (AR44)', () => {
     // detonates on contact — it LAUNCHES a fish, which flies under the
     // torpedo family's mask (CONFIG.torpedo.hits).
     expect('hits' in CONFIG.captiveMines).toBe(false);
-    // The FOUR still-stub lines get no row until Story 8.14: an undeclared
-    // mask fails loudly rather than defaulting to something plausible.
-    for (const row of ['missile', 'machineGun', 'flak', 'monitor']) {
+    // STORY 8.15's two PICKABLE GUNS (AR44, amendments 96f/105): the machine
+    // gun is DIRECT-HIT with no burst, so it can never set a mine off; the flak
+    // gun carries AR44's full `hull | mine | decoy | ordnance` (the ordnance
+    // half a side effect nothing leans on).
+    expect(CONFIG.machineGun.hits).toEqual(['hull', 'decoy']);
+    expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'decoy', 'ordnance']);
+    // The CUT lines never get a row (amendment 89e).
+    for (const row of ['missile', 'monitor']) {
       expect(row in CONFIG, row).toBe(false);
     }
+  });
+});
+
+// --- Story 8.15: the DIRECT-HIT shell (the machine gun) ----------------------
+// A direct shell has NO burst: reaching its aim point is an EXPIRY (the
+// shooter's own `sp` splash), never a `burst`; a hull it strikes on the way is
+// a plain contact hit, even when the aim point sits inside that hull's
+// would-be blast — because there is no blast. Interception otherwise unchanged.
+
+/** A machine-gun shell: flies +x to (tx, 0), direct-hit, no burst. */
+function mgShell(tx: number, overrides: Partial<ShellState> = {}): ShellState {
+  return shell({
+    targetX: tx,
+    targetY: 0,
+    distLeft: GUN_RANGE,
+    burstRadius: 0,
+    damage: CONFIG.machineGun.damage,
+    contactDamage: CONFIG.machineGun.damage,
+    hitRadius: CONFIG.machineGun.shellRadius,
+    hits: CONFIG.machineGun.hits,
+    family: 'mg',
+    direct: true,
+    ...overrides,
+  });
+}
+
+describe('stepShell — a DIRECT shell expires at its aim point, never bursts (Story 8.15)', () => {
+  it('arrival at the aim point with `direct` is `expired` AT the aim point — never `burst`', () => {
+    const out = stepToOutcome(mgShell(200), ctx());
+    expect(out).toEqual({ kind: 'expired', x: 200, y: 0 });
+  });
+
+  it('the SAME shell without `direct` bursts there (the control — the flag alone decides)', () => {
+    const out = stepToOutcome(mgShell(200, { direct: undefined }), ctx());
+    expect(out).toEqual({ kind: 'burst', x: 200, y: 0 });
+  });
+
+  it('a hull on the path takes a CONTACT hit, even with the aim point inside its hull', () => {
+    // A bursting shell aimed INTO a hull bursts on contact (the proximity
+    // exception); a direct shell has no blast, so it is a plain `hitShip`.
+    const hull = hullAt(150, 0, Math.PI / 2, 'enemy');
+    const direct = stepToOutcome(mgShell(150), ctx({ targets: [hull] }));
+    expect(direct.kind).toBe('hitShip');
+    if (direct.kind === 'hitShip') expect(direct.victimId).toBe('enemy');
+    const bursting = stepToOutcome(mgShell(150, { direct: undefined, burstRadius: 15 }), ctx({ targets: [hull] }));
+    expect(bursting.kind).toBe('burst');
+  });
+
+  it('a direct shell still splashes at the map edge and stops on an island (interception unchanged)', () => {
+    const island = rock(100, 0, 10);
+    expect(stepToOutcome(mgShell(300), ctx({ islands: [island] })).kind).toBe('hitIsland');
+  });
+
+  it('a direct shell never touches a mine in flight or at its aim point (amendment 20)', () => {
+    const out = stepToOutcome(mgShell(200), ctx({ targets: [mineAt(100, 0), mineAt(200, 0, 'm2')] }));
+    expect(out).toEqual({ kind: 'expired', x: 200, y: 0 });
   });
 });
 
@@ -626,6 +688,7 @@ function homingTorp(overrides: Partial<ShellState> = {}): ShellState {
     damage: CONFIG.torpedo.damage,
     hitRadius: CONFIG.torpedo.hitRadius,
     contactDamage: CONFIG.torpedo.damage,
+    family: null, // a torpedo has no gun family
     homing: { turnRate: CONFIG.torpedo.homingTurnRate, acquireRange: CONFIG.torpedo.homingAcquireRange },
     ...overrides,
   });

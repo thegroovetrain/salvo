@@ -68,3 +68,31 @@ describe('OwnFireLatch — the one-shot claim', () => {
     expect(new OwnFireLatch().pending).toBe(false);
   });
 });
+
+
+// STORY 8.15: the STREAM latch — many shells per hold, so it never consumes.
+describe('OwnFireLatch — the machine gun stream (Story 8.15)', () => {
+  it('claimStream answers machineGun inside the window, without consuming, and null after it', () => {
+    const l = new OwnFireLatch();
+    expect(l.claimStream(1000)).toBeNull(); // never held
+    l.holdStream(1000);
+    expect(l.claimStream(1100)).toBe('machineGun');
+    expect(l.claimStream(1200)).toBe('machineGun'); // one hold, many rounds
+    expect(l.claimStream(1000 + OWN_FIRE_WINDOW_MS + 1)).toBeNull();
+  });
+
+  it('clear() drops the stream too (sunk / spawn / the activation teleport)', () => {
+    const l = new OwnFireLatch();
+    l.holdStream(1000);
+    l.clear();
+    expect(l.claimStream(1001)).toBeNull();
+  });
+
+  it('the FLAK gun is click-claimable; the MACHINE GUN never is (a click cannot fire it)', () => {
+    expect(isBallisticFire('flak')).toBe(true);
+    expect(isBallisticFire('machineGun')).toBe(false);
+    const l = new OwnFireLatch();
+    l.latch('machineGun', 1000);
+    expect(l.claim(1001)).toBeNull();
+  });
+});

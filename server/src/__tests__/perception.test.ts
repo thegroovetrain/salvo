@@ -26,7 +26,16 @@
 // the DETECT range — 0.75 × the observer's effective sight, a strict subset
 // of the sight bubble — so their oracles below bind them to the narrower
 // gate (see `detected`); shells, booms, bursts, sunk-witness and
-// spawns stay on truesight. The checks below
+// spawns stay on truesight. Story 8.15 adds ONE DECLARED DISCLOSURE WIDENING
+// inside the invariant, not a seventh exception (amendment 89(i)): a `shell`
+// reveal carries `w`, the gun family from the fixed three-word set — nothing
+// range-derivable, no identity, never on a `torp` — see assertBallisticShape
+// and verifyBallistic; and it pins three more SELF-PRIVATE fields on the
+// boostUntil terms: `damageCutUntil` (the Battleship's Shift window), the
+// seat's `gun` and the held-fire level `held` may exist NOWHERE but the
+// observer's own `you` (see verifyFrame). The fuzz seats every ship with a
+// RANDOM gun and drives a random `held` level, so machine-gun streams, flak
+// bursts and cannon salvos all flow through the oracle. The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -38,7 +47,10 @@ import {
   CATALOG,
   CONFIG,
   CONSUMABLE_SLOTS,
+  DEFAULT_GUN,
+  GUN_IDS,
   HORN_IDS,
+  SHELL_FAMILIES,
   bearing,
   coverageHas,
   effectiveStats,
@@ -60,6 +72,7 @@ import {
   type DamageEvent,
   type GameEvent,
   type FrameMsg,
+  type GunId,
   type HealEvent,
   type HitCallEvent,
   type MatchPhase,
@@ -312,9 +325,11 @@ function bareWorld(seed = 1, opts: WorldOptions = {}): World {
   return w;
 }
 
-/** Add a ship and teleport it to an exact pose (speed 0). */
-function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
+/** Add a ship and teleport it to an exact pose (speed 0). `gun` is the seat's
+ *  pick (Story 8.15) — the fuzz draws one at random; directed cases default
+ *  to the cannon. */
+function place(w: World, id: string, x: number, y: number, heading = 0, gun: GunId = DEFAULT_GUN): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined, gun);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -357,6 +372,7 @@ function injectShell(
     distLeft,
     bornAt: w.now,
     kind,
+    family: kind === 'torp' ? null : 'cannon',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
     // `targeted` mirrors the real gun: a burst point distLeft along the
@@ -406,10 +422,26 @@ const boomsOf = (f: FrameMsg) => f.events.filter((e): e is BoomEvent => e.k === 
  * extra field (a returning `ttl`/`distLeft`, or a launch position tag) is
  * range-derivable and would let a modified client solve back to the fogged
  * muzzle — so its mere PRESENCE fails the test. See BallisticEvent's note.
+ *
+ * THE ONE DECLARED WIDENING (Story 8.15, amendment 89(i)): a `shell` reveal
+ * MAY carry `w`, and when it does the value is one of the three family words
+ * and nothing else — a `torp` reveal NEVER carries it. `w` is not
+ * range-derivable (the three families share one shell speed and one range
+ * rung) and names no shooter, so the constant-free argument stands.
  */
 const BALLISTIC_KEYS = ['id', 'k', 't', 'vx', 'vy', 'x', 'y'];
+const BALLISTIC_KEYS_WITH_FAMILY = ['id', 'k', 't', 'vx', 'vy', 'w', 'x', 'y'];
 function assertBallisticShape(e: BallisticEvent): void {
-  expect(Object.keys(e).sort()).toEqual(BALLISTIC_KEYS);
+  const keys = Object.keys(e).sort();
+  // Every World-launched `shell` names its family; a `torp` never does.
+  expect('w' in e).toBe(e.k === 'shell');
+  if (e.k === 'shell') {
+    expect(keys).toEqual(BALLISTIC_KEYS_WITH_FAMILY);
+    expect(SHELL_FAMILIES).toContain(e.w);
+    return;
+  }
+  expect(keys).toEqual(BALLISTIC_KEYS);
+  expect('w' in e).toBe(false); // a torpedo (or a family-less shell) never carries it
 }
 
 // ---------- directed cases: sight tier ---------------------------------------
@@ -661,13 +693,48 @@ describe('perception — shell events (per-observer, exactly once)', () => {
     expect(shellsOf(buildFrame(w, 'a'))).toEqual([]);
   });
 
-  it('a shell event carries ONLY {k,id,x,y,vx,vy,t} — no range-derivable field', () => {
+  it('a shell event carries ONLY {k,id,x,y,vx,vy,t} (+ the family `w`) — no range-derivable field', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     injectShell(w, 's1', 'a', 10, 0, 0, 300);
     const ev = shellsOf(buildFrame(w, 'a'))[0];
     expect(ev).toBeDefined();
     assertBallisticShape(ev); // fails if `ttl`/`distLeft`/anything extra returns
+    expect(ev.w).toBe('cannon');
+  });
+
+  // Story 8.15 (amendment 89(i)): a MACHINE-GUN stream shell entering an
+  // enemy's sight reveals with `w: 'mg'` and NOTHING else new — current pos and
+  // velocity, the reveal time, the family word. No shooter, no range, no
+  // magazine, no `held`. The torpedo stays blind (no `w`).
+  it("a machine-gun shell entering an observer's sight carries w:'mg' and nothing range-derivable; a torpedo carries no w", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 600, 0, Math.PI, 'machineGun'); // out of a's 330u sight, bow toward a
+    expect(b.loadout[0].equipmentId).toBe('machineGun');
+    // b holds fire toward a; the level alone fires (no click).
+    w.submitInput('b', {
+      seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 600, slot: 0, fireT: 0,
+      actSeq: 0, actSlot: 0, hornSeq: 0, held: true,
+    });
+    let ev: BallisticEvent | undefined;
+    for (let i = 0; i < 60 && ev === undefined; i++) {
+      w.step();
+      ev = shellsOf(buildFrame(w, 'a'))[0];
+    }
+    expect(ev).toBeDefined();
+    expect(Object.keys(ev!).sort()).toEqual(BALLISTIC_KEYS_WITH_FAMILY);
+    expect(ev!.w).toBe('mg');
+    expect(Math.hypot(ev!.x, ev!.y)).toBeLessThanOrEqual(SIGHT); // revealed at the sight ring, never at the muzzle
+    // The owner's own reveal carries the same word — and one `mz` PER SHELL.
+    const own = buildFrame(w, 'b');
+    for (const e of shellsOf(own)) expect(e.w).toBe('mg');
+    // A torpedo reveal, in the same world, never carries the key.
+    injectShell(w, 't1', 'b', 100, 0, Math.PI, 500, false, 'torp');
+    const torp = buildFrame(w, 'a').events.find((e): e is BallisticEvent => e.k === 'torp');
+    expect(torp).toBeDefined();
+    expect('w' in torp!).toBe(false);
+    expect(a.seenBallistics.has('t1')).toBe(true);
   });
 });
 
@@ -931,7 +998,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
   it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
     let burst: GameEvent | undefined;
     for (let i = 0; i < 120 && !burst; i++) {
       w.step();
@@ -1099,7 +1166,10 @@ describe('perception — ballistic re-reveal on gate re-entry (Story 8.13, amend
       const again = collect(w, 'a', kind, 3);
       expect(again.map((e) => e.id)).toEqual(['p1']); // ONE re-reveal, then silent again
       const live = w.shells.get('p1')!;
-      expect(again[0]).toEqual({ k: kind, id: 'p1', x: live.x, y: live.y, vx: live.vx, vy: live.vy, t: w.now });
+      expect(again[0]).toEqual({
+        k: kind, id: 'p1', x: live.x, y: live.y, vx: live.vx, vy: live.vy, t: w.now,
+        ...(kind === 'shell' ? { w: 'cannon' } : {}), // Story 8.15: the family rides a shell, never a torp
+      });
       assertBallisticShape(again[0]); // the re-reveal gains no field
       expect(Math.hypot(again[0].x - a.state.x, again[0].y - a.state.y)).toBeLessThanOrEqual(ring);
     });
@@ -2065,6 +2135,23 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // `slowedUntil`, has been pinned victim-private since Story 2.8 in
   // doctrines.test.ts; this is its depth.)
   expect(JSON.stringify(withoutYou)).not.toContain('slowFactor');
+  // THE DAMAGE CUT WINDOW (Story 8.15, the Battleship's Shift, amendments
+  // 99–102) is SELF-PRIVATE on the boostUntil terms: an enemy reads a cut hull
+  // only through its persistence under fire. It may exist NOWHERE but `you`,
+  // the string must be absent from any frame that has no `you`, and on `you`
+  // it is present IFF the observer's own record has a cut opened this life.
+  expect(JSON.stringify(withoutYou)).not.toContain('damageCutUntil');
+  if (f.you !== undefined) {
+    expect('damageCutUntil' in f.you).toBe(me.damageCutUntil > 0);
+    if (me.damageCutUntil > 0) expect(f.you.damageCutUntil).toBe(me.damageCutUntil);
+  }
+  // THE SEAT'S GUN AND THE HELD LEVEL never ride anything but `you` (the gun,
+  // Story 8.14) — and `held` is INPUT, which no frame carries at all: a
+  // machine-gun stream is disclosed only through its shells' reveals and
+  // their flashes, never as "this hull's button is down".
+  expect(JSON.stringify(withoutYou)).not.toContain('"gun"');
+  expect(JSON.stringify(f)).not.toContain('"held"');
+  if (f.you !== undefined) expect(f.you.gun).toBe(me.gun);
   // And when it IS on `you`, it is this observer's own record's factor and
   // present only while the observer's own window runs.
   if (f.you !== undefined) {
@@ -2867,6 +2954,12 @@ function verifyBallistic(w: World, me: ShipRecord, e: GameEvent): void {
   expect(sh).toBeDefined();
   expect({ x: ev.x, y: ev.y }).toEqual({ x: sh.x, y: sh.y }); // current pos, never launch pos
   assertBallisticShape(ev); // no range-derivable field ever leaks
+  // Story 8.15: `w` is the LIVE projectile's family, present IFF it is a shell
+  // with a family — and a torpedo's family is null by construction, so a torp
+  // reveal is provably blind (the structural half is in assertBallisticShape).
+  if (sh.kind === 'torp') expect(sh.family).toBeNull();
+  expect('w' in ev).toBe(sh.kind === 'shell' && sh.family !== null);
+  if ('w' in ev) expect(ev.w).toBe(sh.family);
   // First-sight (shell) / first-detect (torp) OR inside an OWNED lit zone
   // (Story 1.7) — never anyone else's.
   if (sh.ownerId !== me.id) {
@@ -3583,8 +3676,16 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         ids.push(id);
         const ang = rng.float(0, TAU);
         const r = rng.float(0, w.map.radius * 0.85);
-        const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU));
+        // Story 8.15: every seat draws a RANDOM GUN, so cannon salvos, flak
+        // bursts and machine-gun streams (driven by the random `held` level
+        // below) all flow through the oracle — `w` on every shell reveal,
+        // one `mz` per stream shell, flak bursts over fish.
+        const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU), GUN_IDS[rng.int(0, GUN_IDS.length - 1)]);
         rec.sweepAngle = rng.float(0, TAU); // decorrelate paint windows
+        // ...and ~a third open a DAMAGE CUT window (a raw state write, like the
+        // scratches below) so the self-private pin on `damageCutUntil` is
+        // exercised on real frames rather than vacuous.
+        if (rng.float(0, 1) < 0.3) rec.damageCutUntil = w.now + rng.float(500, 8000);
         // Random INTEL boons so the invariant is exercised at varied
         // per-observer SWEEP RATES (Story 2.8: the boon economy replaced the
         // legacy counts). Ids are stacked directly and the world-side cache
@@ -3703,6 +3804,10 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             // cooldown consumes and drops inside this 300ms run — the
             // stale/early-press path is fuzzed too).
             hornSeq: tick === 1 || rng.float(0, 1) < 0.3 ? tick : 0,
+            // THE HELD LEVEL (Story 8.15): ~half of every ship's ticks hold
+            // fire, so a machine-gun seat streams (one direct shell per rateMs
+            // at `now`, its own `mz` each) and every other seat ignores it.
+            held: rng.float(0, 1) < 0.5,
           });
         }
         // HULL REPAIR (a CARD since Story 8.8): drive REAL heals through the

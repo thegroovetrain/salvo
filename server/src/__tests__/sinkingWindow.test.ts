@@ -80,7 +80,7 @@ function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
     fireT: 0,
     actSeq: 0,
     actSlot: 0,
-    hornSeq: 0,
+    hornSeq: 0, held: false,
     ...extra,
   };
 }
@@ -224,10 +224,13 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     // fit (amendment 22) — its own module is still pinned in radarBuoy.test.ts
     // — so this sweep now covers six of the seven rows, and the Battleship's
     // two-line seed covers the fourth slot.
+    // Slot 1 is the hull's CLASS SHIFT since Story 8.15 (amendment 89(c)):
+    // boost / damageCut / instantReload — all three ride the sinking window
+    // exactly as the universal boost did (amendment 10).
     const fits: [ShipClassId, string[]][] = [
       ['torpedoBoat', ['gun', 'boost', 'heavyTorpedo']],
-      ['battleship', ['gun', 'boost', 'broadside', 'starShells']],
-      ['mineLayer', ['gun', 'boost', 'navalMines']],
+      ['battleship', ['gun', 'damageCut', 'broadside', 'starShells']],
+      ['mineLayer', ['gun', 'instantReload', 'navalMines']],
     ];
     for (const [cls, expected] of fits) {
       const ship = place(w, `s-${cls}`, 0, 0, cls);

@@ -18,6 +18,9 @@ import {
   CONFIG,
   CONSUMABLE_IDS,
   EQUIPMENT_IDS,
+  GUN_IDS,
+  MOUNTED_GUN,
+  SHIFT_IDS,
   arcFor,
   isConsumableId,
   sectorArcFor,
@@ -36,6 +39,16 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     for (const id of ['gun', 'starShells'] as const) {
       expect(arcFor(id)).toEqual({ kind: 'full' });
     }
+  });
+
+  it('EVERY GUN is 360° — cannon, machine gun, flak (Story 8.15, amendment 106: "There is no \'arc.\'")', () => {
+    for (const id of ['gun', 'machineGun', 'flak'] as const) {
+      expect(CONFIG[id].arc, id).toBe('full');
+      expect(arcFor(id), id).toEqual({ kind: 'full' });
+    }
+    // …and every seat gun's MOUNTED module is one of them (no gun can be
+    // denied out-of-arc, whatever the captain picked).
+    for (const gun of GUN_IDS) expect(arcFor(MOUNTED_GUN[gun]), gun).toEqual({ kind: 'full' });
   });
 
   it('the torpedo is the bow sector heading + offset ± halfArc, byte-identical to CONFIG', () => {
@@ -98,20 +111,21 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(isConsumableId('supercavTorpedo')).toBe(true);
   });
 
-  it('EVERY OTHER consumable declares no arc — the decoy\'s is Story 8.15\'s', () => {
+  it('EVERY OTHER consumable declares no arc — the decoy\'s is Story 8.16\'s', () => {
     for (const id of CONSUMABLE_IDS) {
       if (id === 'supercavTorpedo') continue;
       expect(arcFor(id), id).toEqual({ kind: 'none' });
     }
   });
 
-  it('the FOUR still-unbuilt v3 weapons and the Shift boost declare no arc yet (Story 8.14)', () => {
-    // It was SEVEN until Story 8.13: the light torpedo declares its twin
-    // sector, the supercav declares its bow sector as a consumable, and
-    // fouling mines joined the mine chassis.
-    for (const id of ['boost', 'missile', 'machineGun', 'flak', 'monitor'] as const) {
-      expect(arcFor(id)).toEqual({ kind: 'none' });
+  it('the THREE class Shifts declare no arc — nothing else does (Story 8.15)', () => {
+    // It was the boost plus four unbuilt weapons until Story 8.15: missile and
+    // monitor are CUT (amendment 89e) and machine gun / flak are 360° guns.
+    for (const id of SHIFT_IDS) {
+      expect(arcFor(id), id).toEqual({ kind: 'none' });
     }
+    const none = EQUIPMENT_IDS.filter((id) => arcFor(id).kind === 'none');
+    expect([...none].sort()).toEqual([...SHIFT_IDS].sort());
   });
 
   it('the radarBuoy SHARES the mine rear sector exactly (click-placed, Story 7-5 wave 2)', () => {

@@ -18,6 +18,8 @@ import {
   isAfloat,
   CATALOG,
   CONFIG,
+  classShift,
+  equipmentMaxAmmo,
   MULLIGAN_CHOICE,
   CONSUMABLE_SLOTS,
   DEFAULT_GUN,
@@ -99,7 +101,7 @@ function windowAround(me: ShipRecord, brg: number, halfWidth = 0.02): void {
 /** Park a complete InputMsg carrying ONE click on `slot` (fireSeq doubles as
  *  seq — a fresh fireSeq is what the world reads as a pending press). */
 function fire(ship: ShipRecord, fireSeq: number, slot: number, aimDist: number, aim = 0): void {
-  ship.input = { seq: fireSeq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
+  ship.input = { seq: fireSeq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
 }
 
 /** Stack `count` copies of one catalog line through the real grant seam. */
@@ -208,9 +210,10 @@ describe('the common pool — every dealable line, for every hull (Story 8.14)',
     for (const gun of GUN_IDS) {
       const rec = w.addShip(`g-${gun}`, 'G', 'captain', 'torpedoBoat', undefined, undefined, gun);
       expect(rec.gun).toBe(gun);
-      // All three resolve to the shipped `'gun'` module until Story 8.15.
+      // Each gun mounts its OWN module since Story 8.15 (amendments 103–105).
       expect(rec.loadout[SLOT_GUN].equipmentId).toBe(MOUNTED_GUN[gun]);
-      expect(rec.loadout[SLOT_GUN].equipmentId).toBe('gun');
+      expect(rec.loadout[SLOT_GUN].equipmentId).toBe(gun === 'deckGun' ? 'gun' : gun);
+      expect(rec.loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(rec.stats, MOUNTED_GUN[gun]), reloadMsLeft: 0 });
     }
   });
 
@@ -951,14 +954,20 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
     expect(a.stats.equipment.navalMines.tier).toBe(2);
   });
 
-  it('a STUB line never fits: applyCard is a silent no-op and the stats row stays at its base numbers', () => {
+  it('NO STUB EQUIPMENT LINE IS LEFT (Story 8.15 drained STUB_ROWS) — and a gun LADDER never fits a slot', () => {
     const { w, a } = fitBoard();
+    // The stubs that remain are consumable lines (8.16+); every equipment and
+    // ladder line is built.
+    expect(LINE_IDS.filter((id) => isStubLine(id) && CATALOG[id].kind !== 'consumable')).toEqual([]);
+    // The machine gun's line is a LADDER now (amendment 104): forced past the
+    // pool onto a cannon seat it moves the machineGun ROW's numbers and fits
+    // nothing — the weapon row is untouched (a ladder has no slotFill).
     const before = effectiveStats(a.cls);
-    // Forced past the deck (a stub is never dealt) — the last line of defence.
-    expect(isStubLine('machineGun')).toBe(true);
     expect(() => w.applyCard(a, 'machineGun')).not.toThrow();
     expect(a.loadout[3].equipmentId).toBeNull(); // the first empty weapon slot is untouched
-    expect(a.stats.equipment.machineGun).toEqual(before.equipment.machineGun);
+    expect(a.stats.equipment.machineGun.tier).toBe(2);
+    expect(a.stats.equipment.machineGun.maxAmmo).toBe(before.equipment.machineGun.maxAmmo + 2);
+    expect(a.stats.equipment.machineGun.damage).toBe(before.equipment.machineGun.damage + 1);
   });
 
   it('the post-fit draw is deterministic on the player’s own stream (twin worlds agree)', () => {
@@ -1599,7 +1608,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0);
       stack(w, a, 'deckGun', cards);
-      a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
+      a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
       w.step();
       const [shell] = [...w.shells.values()];
       return { ...shell, effective: a.stats.equipment.gun.damage };
@@ -1624,7 +1633,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const a = place(w, 'a', 0, 0);
     fitClassWeapons(w, a); // the tubes are a card (Story 8.10)
     w.step(); // flush the join spawn
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
     w.step();
     const ev = w.tickEvents.find((e): e is BallisticEvent => e.k === 'torp');
     expect(ev).toBeDefined();
@@ -1651,7 +1660,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
         // Mines are an aimed WEAPON (Story 2.8): each placement is one rear-arc click.
         w.submitInput('a', {
           seq: i + 1, throttle: 0, rudder: 0, aim: Math.PI,
-          fireSeq: i + 1, aimDist: 40 + i, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
+          fireSeq: i + 1, aimDist: 40 + i, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
         });
         w.step();
       }
@@ -1668,8 +1677,8 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     place(w, 'base', 0, 200);
     stack(w, up, 'speed', 2); // +2.5 each
     for (let tick = 1; tick <= 200; tick++) {
-      w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
-      w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+      w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+      w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
       w.step();
     }
     expect(w.ships.get('up')!.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + 5, 6);
@@ -1747,14 +1756,15 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
       // for this hull exactly as it is for every other (Story 8.14).
       for (const id of formerSeed) expect(eligibleFor(a), id).toContain(id);
       // ...and the fit is the bare universal loadout, byte for byte: gun,
-      // Shift boost, seven empty slots. `loadoutFor` IS the spawn now.
+      // the hull's CLASS SHIFT (Story 8.15), seven empty slots. `loadoutFor`
+      // IS the spawn now.
       expect(a.stats).toEqual(effectiveStats(a.cls));
-      expect(a.loadout).toEqual(loadoutFor(a.stats));
-      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards));
+      expect(a.loadout).toEqual(loadoutFor(a.stats, false, DEFAULT_GUN, classShift(hull)));
+      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards, CATALOG, false, DEFAULT_GUN, classShift(hull)));
       for (const i of WEAPON_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
       for (const i of CONSUMABLE_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
       expect(a.loadout[SLOT_GUN].equipmentId).toBe('gun');
-      expect(a.loadout[SLOT_BOOST].equipmentId).toBe('boost');
+      expect(a.loadout[SLOT_BOOST].equipmentId).toBe(classShift(hull));
     });
   }
 
@@ -1796,7 +1806,7 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
     expect(fresh.cards).toEqual([]);
     expect(fresh.mulliganed).toBe(false);
     expect(fresh.stats).toEqual(effectiveStats(fresh.cls));
-    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats));
+    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats, false, DEFAULT_GUN, 'damageCut')); // the Battleship's Shift
   });
 
   it('DRONES still draw nothing, and hold no cards to speak of either', () => {
@@ -1885,7 +1895,7 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
 
   /** A complete InputMsg through the REAL wire entry point. */
   function send(w: World, id: string, seq: number, extra: Partial<InputMsg>): void {
-    w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...extra });
+    w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...extra });
   }
 
   // --- stock ---------------------------------------------------------------

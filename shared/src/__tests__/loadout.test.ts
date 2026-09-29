@@ -18,7 +18,10 @@ import {
   CONFIG,
   CONSUMABLE_IDS,
   CONSUMABLE_IS_WEAPON,
+  DEFAULT_GUN,
   HULL_IDS,
+  SHIFT_IDS,
+  classShift,
   SHIP_CLASS_IDS,
   SLOT_COUNT,
   SLOT_GUN,
@@ -116,13 +119,15 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
       navalMines: true, // Story 2.8: click-aimed rear-arc placement (amendment 45)
       captiveMines: true,
       foulingMines: true, // Story 8.13: its own line now (epic-8 amendment 81)
-      missile: true,
+      // Story 8.15: the two PICKABLE GUNS (missile/monitor CUT, amendment 89e).
       machineGun: true,
       flak: true,
-      monitor: true,
       broadside: true, // Story 7-5 wave 2: prime-then-click twin-sector barrage
       starShells: true, // Story 1.7: prime-then-click lit-zone flare
       radarBuoy: true, // Story 7-5 wave 2: click-placed in the mine's rear sector
+      // Story 8.15: the two NEW class Shifts — instant activations like boost.
+      instantReload: false,
+      damageCut: false,
     });
     expect(Object.keys(EQUIPMENT_IS_WEAPON)).toEqual([...EQUIPMENT_IDS]);
   });
@@ -160,9 +165,35 @@ describe('loadoutFor — THE UNIVERSAL NINE-SLOT FIT (Story 8.5)', () => {
     }
   });
 
-  it('EVERY captain hull boosts now (amendment 23 — it was a Torpedo Boat privilege)', () => {
+  it('the DEFAULT shift is the boost (the argument omitted fits the Torpedo Boat\'s Shift)', () => {
     for (const id of SHIP_CLASS_IDS) {
       expect(loadoutFor(statsFor(id))[SLOT_BOOST].equipmentId, id).toBe('boost');
+    }
+  });
+
+  it('SLOT 1 IS THE HULL\'S CLASS SHIFT (Story 8.15, amendment 89c): TB boost · ML instant reload · BS damage cut', () => {
+    const want = { torpedoBoat: 'boost', mineLayer: 'instantReload', battleship: 'damageCut' } as const;
+    for (const id of SHIP_CLASS_IDS) {
+      expect(CONFIG.shipClasses[id].shift, id).toBe(want[id]);
+      expect(classShift(id), id).toBe(want[id]);
+      const stats = statsFor(id);
+      const loadout = loadoutFor(stats, false, DEFAULT_GUN, classShift(id));
+      expect(loadout[SLOT_BOOST].equipmentId, id).toBe(want[id]);
+      // A FULL single charge, idle — the boost's semantics for every Shift.
+      expect(loadout[SLOT_BOOST].state, id).toEqual({ n: 1, reloadMsLeft: 0 });
+      expect(EQUIPMENT_IS_WEAPON[want[id]], id).toBe(false);
+      // The rest of the fit does not move with the Shift.
+      expect(loadout.map((s) => s.equipmentId).filter((_, i) => i !== SLOT_BOOST), id)
+        .toEqual(['gun', null, null, null, null, null, null, null]);
+    }
+    // Every ShiftId is some hull's — no orphan Shift, no hull without one.
+    expect(SHIP_CLASS_IDS.map((id) => classShift(id)).sort()).toEqual([...SHIFT_IDS].sort());
+  });
+
+  it('a FLEET drone fits NO Shift whatever `shift` says', () => {
+    for (const shift of SHIFT_IDS) {
+      expect(loadoutFor(statsFor('droneSmall'), true, DEFAULT_GUN, shift)[SLOT_BOOST])
+        .toEqual({ equipmentId: null, state: null });
     }
   });
 

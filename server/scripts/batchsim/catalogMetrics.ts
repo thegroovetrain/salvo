@@ -66,6 +66,14 @@ function rawSources(): { label: string; amount: number }[] {
   return [
     { label: 'gun', amount: CONFIG.gun.damage },
     { label: 'gunBodyblock', amount: CONFIG.gun.contactDamage },
+    // Story 8.15: the two pickable guns. The machine gun's direct shell deals
+    // `damage` on contact (no burst, no smaller bodyblock); flak bursts for
+    // `damage` and bodyblocks for `contactDamage`. At shipped numbers the MG's
+    // 4 and flak's bodyblock 4 COLLIDE and print as one merged label — the
+    // ledger cannot tell them apart by amount, and says so.
+    { label: 'machineGun', amount: CONFIG.machineGun.damage },
+    { label: 'flak', amount: CONFIG.flak.damage },
+    { label: 'flakBodyblock', amount: CONFIG.flak.contactDamage },
     { label: 'broadside', amount: CONFIG.broadside.damage },
     { label: 'torpedo', amount: CONFIG.torpedo.damage },
     { label: 'mine', amount: CONFIG.mine.damage },
@@ -109,8 +117,13 @@ function classifyDamage(amount: number): string {
 }
 
 /** Ordnance classification from the ShellState signature (no weapon id exists
- *  on a shell either — same constraint, same solution). */
-function classifyShell(kind: string, damage: number, lit: boolean): string {
+ *  on a shell either — same constraint, same solution). Since Story 8.15 a
+ *  shell DOES carry its gun family, so the two new guns are filed by family,
+ *  never by amount: a machine-gun shell and a flak shell are unambiguous even
+ *  where their damage collides with another source. */
+function classifyShell(kind: string, damage: number, lit: boolean, family: string | null = null): string {
+  if (family === 'mg') return 'machineGun';
+  if (family === 'flak') return 'flak';
   // A CAPTIVE MINE's torpedo is a `torp` carrying MINE damage (55) rather than
   // torpedo damage (70) — R2.12. Splitting them here is the only way to see
   // whether captive mines ever actually fire, since neither the shell nor the
@@ -274,7 +287,7 @@ export class CatalogCollector {
     for (const [id, shell] of world.shells) {
       if (this.seenShells.has(id)) continue;
       this.seenShells.add(id);
-      bump(this.sample.launched, classifyShell(shell.kind, shell.damage, shell.lit !== undefined));
+      bump(this.sample.launched, classifyShell(shell.kind, shell.damage, shell.lit !== undefined, shell.family));
     }
     for (const id of world.mines.keys()) {
       if (this.seenMines.has(id)) continue;

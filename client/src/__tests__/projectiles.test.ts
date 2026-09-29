@@ -802,3 +802,32 @@ describe('Projectiles — own-shot claims outlive their sprites', () => {
     expect(p.ownFireOf('enemy')).toBeNull();
   });
 });
+
+
+// STORY 8.15: the reveal's declared gun-family word `w` (amendment 89(i)) picks
+// the look — a machine gun shell is a short TRACER for any observer; flak and
+// cannon keep the shell dot; a torpedo carries no `w` and is unchanged.
+describe('shell looks by the reveal family `w` (Story 8.15)', () => {
+  const modes = { lightTorpedo: false, heavyTorpedo: false };
+
+  it('lookForReveal: mg -> tracer; flak / cannon / absent -> shell; own broadside wins', () => {
+    expect(lookForReveal('shell', null, modes, 'mg')).toBe('tracer');
+    expect(lookForReveal('shell', 'machineGun', modes, 'mg')).toBe('tracer');
+    expect(lookForReveal('shell', null, modes, 'flak')).toBe('shell');
+    expect(lookForReveal('shell', 'flak', modes, 'flak')).toBe('shell');
+    expect(lookForReveal('shell', null, modes, 'cannon')).toBe('shell');
+    expect(lookForReveal('shell', null, modes)).toBe('shell');
+    expect(lookForReveal('shell', 'broadside', modes, 'cannon')).toBe('broadside');
+    expect(lookForReveal('torp', null, modes)).toBe('torp');
+  });
+
+  it('the live store paints each reveal with the look its family word names', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell({ k: 'shell', id: 'm1', x: 0, y: 0, vx: 0, vy: 500, t: 0, w: 'mg' });
+    expect(p.lookOf('m1')).toBe('tracer');
+    p.onShell({ k: 'shell', id: 'c1', x: 0, y: 0, vx: 500, vy: 0, t: 0, w: 'cannon' });
+    expect(p.lookOf('c1')).toBe('shell');
+    p.onShell({ k: 'shell', id: 'f1', x: 0, y: 0, vx: 500, vy: 0, t: 0, w: 'flak' });
+    expect(p.lookOf('f1')).toBe('shell');
+  });
+});

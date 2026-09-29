@@ -309,6 +309,24 @@ export interface BotMind {
    *  mind starts in — the field is optional so enrollment stays the plain
    *  literal it is in botDriver.ts and this state can never be half-built. */
   unbeach?: UnbeachState | null;
+  /** THE SEEN-TORPEDO TABLE (Story 8.15, amendment 115): every torpedo this
+   *  hull's fogged view has revealed, keyed by projectile id, dead-reckoned
+   *  from its last `torp`/`torpU` and dropped on its `boom` or when its course
+   *  must be run (ai/torpedoThreat.ts is the only writer). The DAMAGE CUT
+   *  tactic's inbound-fish trigger reads it. OPTIONAL, created lazily;
+   *  released with the life (BotController.releasePerLifeState). */
+  torps?: Map<string, SeenTorpedo> | null;
+}
+
+/** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics
+ *  (`t` the reveal/update server ms) and whether it is this hull's OWN fish. */
+export interface SeenTorpedo {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  t: number;
+  own: boolean;
 }
 
 /**
@@ -358,6 +376,13 @@ export interface BotDecision {
   /** Loadout slot to activate (ability press), or null. A non-null value
    *  advances the mind's actSeq exactly once. */
   actSlot: number | null;
+  /** THE HELD LEVEL (Story 8.15, amendment 103) — `InputMsg.held`, the
+   *  machine gun's trigger. A LEVEL, never an edge: true on every tick the
+   *  stream should run, and it NEVER advances fireSeq (a click edge on a
+   *  mounted machine gun is inert server-side anyway). The stream only counts
+   *  while the input's `slot` is 0 (the World's streamControl), so the driver
+   *  leaves `fireSlot` null — and therefore `slot` 0 — on a held tick. */
+  held: boolean;
   /** Spend a banked level: an offer index, or null for no spend. Never
    *  negative (Story 8.8 retired the -1 heal sentinel). Only ever non-null on
    *  a deliberation tick (the decision cadence). */

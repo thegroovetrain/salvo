@@ -41,7 +41,7 @@
 //
 //   CATEGORY   → v3 lines
 //   ship       → armor, speed, turning, reload
-//   guns       → deckGun, deckGunTurret, deckGunBarrel
+//   guns       → deckGun, deckGunTurret, deckGunBarrel, machineGun, flak (8.15)
 //   torpedoes  → lightTorpedo, heavyTorpedo
 //   mines      → navalMines, captiveMines, foulingMines
 //   broadside  → broadside
@@ -149,7 +149,9 @@ const KIND_BASE: Readonly<Record<LineKind, number>> = Object.freeze({
  *  Exported so the re-key is pinnable rather than only documented. */
 export const CATEGORY_LINES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   ship: ['armor', 'speed', 'turning', 'reload'],
-  guns: ['deckGun', 'deckGunTurret', 'deckGunBarrel'],
+  // Story 8.15: the two pickable guns' ladders (offered only while mounted)
+  // score as the cannon's line does — a gun is a gun to a v2 `guns` weight.
+  guns: ['deckGun', 'deckGunTurret', 'deckGunBarrel', 'machineGun', 'flak'],
   // Story 8.13: ACOUSTIC HOMING is DELETED (homing became a tier stat on both
   // lines, amendment 80) and SUPERCAV TORPEDO became a CONSUMABLE (amendment
   // 74) — so a v2 `torpedoes` category no longer speaks for it, and it prices

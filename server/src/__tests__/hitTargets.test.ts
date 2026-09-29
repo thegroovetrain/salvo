@@ -9,7 +9,10 @@
 // What this file pins:
 //   * the memo (per tick, per mask, mask order irrelevant) and its two
 //     invalidations — a SINK and a CONSUMED MINE;
-//   * the four kinds, including `ordnance` pinned EMPTY until flak (8.14);
+//   * the four kinds, including `ordnance` — EVERY live torpedo as a point,
+//     BURST-ONLY like `mine`, populated since Story 8.15 (the flak gun's side
+//     effect, amendment 105; own-fish immunity and the burst outcome are
+//     pinned in flak.test.ts);
 //   * amendments 16/18/20 (a BURST at the clicked point sets off any armed
 //     mine whoever laid it, chains cross owners, captives and arming mines are
 //     immune, and a shell IN FLIGHT never touches a mine at all) end to end
@@ -24,6 +27,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   type BoomEvent,
+  type BurstEvent,
   type GameEvent,
   type HitCallEvent,
   type SplashEvent,
@@ -74,13 +78,28 @@ function mine(
 }
 
 const ids = (ts: readonly Target[]): string[] => ts.map((t) => t.id);
+
+/** A live ballistic (a torpedo or a gun shell) straight into world state,
+ *  parked at (x, y) with a long straight run ahead of it. */
+function injectBallistic(w: World, id: string, ownerId: string, x: number, y: number, kind: 'shell' | 'torp'): void {
+  const torp = kind === 'torp';
+  w.shells.set(id, {
+    id, ownerId, x, y, vx: 0, vy: torp ? CONFIG.torpedo.speed : CONFIG.gun.shellSpeed,
+    distLeft: 5000, bornAt: w.now, kind, family: torp ? null : 'cannon',
+    damage: torp ? CONFIG.torpedo.damage : CONFIG.gun.damage,
+    hitRadius: torp ? CONFIG.torpedo.hitRadius : CONFIG.gun.shellRadius,
+    targetX: null, targetY: null, burstRadius: 0,
+    contactDamage: torp ? CONFIG.torpedo.damage : CONFIG.gun.contactDamage,
+    hits: torp ? CONFIG.torpedo.hits : CONFIG.gun.hits,
+  });
+}
 const kinds = (ts: readonly Target[]): TargetKind[] => ts.map((t) => t.kind);
 
 /** Click `a`'s gun at (dist, 0) and step until something resolves. */
 function shootAt(w: World, shooter: string, dist: number, seq = 9): void {
   w.submitInput(shooter, {
     seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: dist,
-    slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
+    slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
   });
   for (let i = 0; i < 60; i += 1) {
     w.step();
@@ -197,12 +216,41 @@ describe('hitTargets — the four kinds', () => {
     expect(kinds(w.hitTargets(['decoy']))).toEqual(['decoy']);
   });
 
-  it('`ordnance` is EMPTY and pinned empty until flak (Story 8.14) — and still memoized', () => {
+  it('`ordnance` is every live TORPEDO as a point — never a gun-pattern shell — and still memoized (Story 8.15)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     mine(w, 'm1', 'b', 100, 0);
-    expect(w.hitTargets(['ordnance'])).toEqual([]);
+    expect(w.hitTargets(['ordnance'])).toEqual([]); // nothing in flight
+    injectBallistic(w, 'fish', 'b', 200, 40, 'torp');
+    injectBallistic(w, 'shot', 'b', 300, 40, 'shell');
+    w.step(); // a fresh tick: the memo is rebuilt (an injection is not a collector invalidation)
+    const fishNow = w.shells.get('fish')!;
+    expect(w.hitTargets(['ordnance'])).toEqual([{ id: 'fish', kind: 'ordnance', poly: [{ x: fishNow.x, y: fishNow.y }] }]);
     expect(w.hitTargets(['ordnance'])).toBe(w.hitTargets(['ordnance']));
+    // Neither a hull nor a mine bleeds into the kind, and the build order puts
+    // ordnance LAST (after hulls, mines, decoys).
+    expect(kinds(w.hitTargets(['hull', 'mine', 'ordnance']))).toEqual(['hull', 'mine', 'ordnance']);
+  });
+
+  it('`ordnance` is BURST-ONLY: a shell in flight never sweeps against a fish (the sweep mask strips it)', () => {
+    // A flak-masked shell flying straight through a torpedo's centre: the
+    // fish neither stops nor consumes the shell — it bursts at its own click.
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectBallistic(w, 'fish', 'b', 150, 0, 'torp');
+    w.shells.set('fk', {
+      id: 'fk', ownerId: 'a', x: 60, y: 0, vx: CONFIG.flak.shellSpeed, vy: 0,
+      distLeft: 260, bornAt: w.now, kind: 'shell', family: 'flak', damage: CONFIG.flak.damage,
+      hitRadius: CONFIG.flak.shellRadius, targetX: 320, targetY: 0,
+      burstRadius: CONFIG.flak.burstRadius, contactDamage: CONFIG.flak.contactDamage, hits: CONFIG.flak.hits,
+    });
+    for (let i = 0; i < 12 && w.shells.has('fk'); i += 1) w.step();
+    expect(w.shells.has('fk')).toBe(false); // resolved...
+    const burst = w.tickEvents.find((e): e is BurstEvent => e.k === 'burst' && e.id === 'fk');
+    expect(burst).toBeDefined(); // ...by BURSTING at its click point (320, 0), 170u past the fish
+    expect(burst!.x).toBeCloseTo(320, 3);
+    // The fish sat 20u OUTSIDE the 50u blast, so it survives untouched.
+    expect(w.shells.has('fish')).toBe(true);
   });
 
   it('the build ORDER is hulls, then mines, then decoys (parity with the old hulls+buoys list)', () => {
@@ -245,7 +293,7 @@ describe('gunfire and mines (amendments 16/18/20)', () => {
     for (const [id, owner, x, y] of mines) mine(w, id, owner, x, y);
     w.submitInput('a', {
       seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist,
-      slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
+      slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
     });
     const frames: GameEvent[][] = [];
     for (let i = 0; i < 40; i += 1) {

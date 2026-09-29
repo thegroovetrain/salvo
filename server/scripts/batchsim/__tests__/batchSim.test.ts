@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  GUN_IDS,
   LIFECYCLE_ALIVE,
   SHIP_CLASS_IDS,
   angleDiff,
@@ -29,7 +30,7 @@ import { mixSeed, percentile, summarize } from '../stats.js';
 import { CONTROL_REGISTRY } from '../controls.js';
 import { pickSpendChoice } from '../spendPolicy.js';
 import { Match } from '../../../src/game/match.js';
-import { MatchCollector, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
+import { MatchCollector, botGunDealer, buildBotLobby, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
 import { buildAggregate, renderBatchReport } from '../report.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 
@@ -271,7 +272,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
-      /gun\.\*, broadside\.\*, torpedo\.\*, mine\.\*, starShells\.\*, boost\.\*, radarBuoy\.\*, shipClasses\.\*/,
+      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, damageCut\.\*, broadside\.\*, torpedo\.\*, mine\.\*, starShells\.\*, boost\.\*, radarBuoy\.\*, shipClasses\.\*/,
     );
     expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
   });
@@ -1405,3 +1406,77 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
 // Story 8.19 re-cuts the harness bars for the pool era. `botHarness.test.ts`
 // pins that the two flags are UNKNOWN ARGUMENTS now, which is the strongest
 // statement that they are gone.
+
+describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
+  it('accepts each of the three guns with --bots, and stores the forced id', () => {
+    for (const gun of GUN_IDS) {
+      expect(parseArgs(['--bots', '4', '--gun', gun]).botGun).toBe(gun);
+    }
+    expect(parseArgs(['--bots', '4']).botGun).toBeNull();
+  });
+
+  it('refuses an unknown gun (naming the legal set) and a --gun with no bots', () => {
+    expect(() => parseArgs(['--bots', '4', '--gun', 'missile'])).toThrow(UsageError);
+    expect(() => parseArgs(['--bots', '4', '--gun', 'missile'])).toThrow(/deckGun, machineGun, flak/);
+    // The ENGINE id `gun` is not a seat gun id: the pick is deckGun.
+    expect(() => parseArgs(['--bots', '4', '--gun', 'gun'])).toThrow(UsageError);
+    expect(() => parseArgs(['--gun', 'flak'])).toThrow(/--gun needs --bots/);
+  });
+
+  it('forced: every bot mounts the one gun', () => {
+    const deal = botGunDealer({ botGun: 'machineGun' }, 1234);
+    for (let i = 0; i < 20; i += 1) expect(deal()).toBe('machineGun');
+  });
+
+  it('unforced: a SEEDED uniform mix — deterministic per match seed, all three guns reached', () => {
+    const draw = (seed: number): string[] => {
+      const deal = botGunDealer({}, seed);
+      return Array.from({ length: 19 }, () => deal());
+    };
+    expect(draw(mixSeed(7, 0))).toEqual(draw(mixSeed(7, 0)));
+    expect(draw(mixSeed(7, 0))).not.toEqual(draw(mixSeed(7, 1)));
+    const seen = new Set<string>();
+    for (let m = 0; m < 5; m += 1) for (const g of draw(mixSeed(7, m))) seen.add(g);
+    expect([...seen].sort()).toEqual([...GUN_IDS].sort());
+  });
+
+  it('the harness lobby mounts the dealt gun in slot 0 — forced, and the seeded mix', () => {
+    const mounted = (spec: { botGun?: 'deckGun' | 'machineGun' | 'flak' }, matchSeed: number): string[] => {
+      const world = new World(matchSeed, 20);
+      const ids = buildBotLobby(world, { seed: 1, matches: 1, captains: 0, ...spec }, 12, matchSeed, 0);
+      return ids.map((id) => String(world.ships.get(id)!.loadout[0].equipmentId));
+    };
+    expect(mounted({ botGun: 'flak' }, 99)).toEqual(Array(12).fill('flak'));
+    // Unforced: the seat gun deckGun mounts the engine id `gun`; the mix is the
+    // dealer's sequence, byte-identical for the same match seed.
+    const expected = (() => {
+      const deal = botGunDealer({}, 99);
+      return Array.from({ length: 12 }, () => {
+        const g = deal();
+        return g === 'deckGun' ? 'gun' : g;
+      });
+    })();
+    expect(mounted({}, 99)).toEqual(expected);
+    expect(mounted({}, 99)).toEqual(mounted({}, 99));
+  });
+
+  it('--tune machineGun.damage is a live dial (and restores); every new family passes the gate', () => {
+    expect(parseArgs(['--tune', 'machineGun.damage=5']).tune).toEqual({ 'machineGun.damage': 5 });
+    const before = CONFIG.machineGun.damage;
+    const restore = applyOverrides({}, { 'machineGun.damage': 5 });
+    expect(CONFIG.machineGun.damage).toBe(5);
+    restore();
+    expect(CONFIG.machineGun.damage).toBe(before);
+    for (const key of ['flak.damage=14', 'instantReload.reloadMs=40000', 'damageCut.durationMs=6000']) {
+      expect(() => parseArgs(['--tune', key])).not.toThrow();
+    }
+  });
+
+  it('--tune machineGun.rangeU / flak.rangeU are refused as DERIVED, like gun.rangeU', () => {
+    for (const key of ['machineGun.rangeU', 'flak.rangeU']) {
+      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(TunableError);
+      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/DERIVED/);
+      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/derived from radar range/i);
+    }
+  });
+});

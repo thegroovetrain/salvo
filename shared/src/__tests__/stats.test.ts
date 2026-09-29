@@ -156,10 +156,27 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           homingTurnRate: 0,
           slowFactor: CONFIG.foulingMines.slowFactor,
         },
-        missile: { tier: 1, reloadMs: 30000, maxAmmo: 1, damage: 40, homing: false },
-        machineGun: { tier: 1, reloadMs: 15000, maxAmmo: 1, damage: 4 },
-        flak: { tier: 1, reloadMs: 8000, maxAmmo: 1, damage: 10 },
-        monitor: { tier: 1, reloadMs: 50000, maxAmmo: 1, damage: 75 },
+        // THE TWO PICKABLE GUNS (Story 8.15, amendments 103/105) — built from
+        // their own CONFIG blocks; range is the radar rung, like the cannon's.
+        // `missile` and `monitor` are CUT (amendment 89e) and have no row.
+        machineGun: {
+          tier: 1,
+          reloadMs: 15000,
+          maxAmmo: 16,
+          rangeU: CONFIG.vision.radar,
+          damage: 4,
+          rateMs: 500,
+          idleReloadMs: 5000,
+        },
+        flak: {
+          tier: 1,
+          reloadMs: 6000,
+          maxAmmo: 1,
+          rangeU: CONFIG.vision.radar,
+          damage: 12,
+          contactDamage: 4,
+          burstRadius: 50,
+        },
         broadside: {
           tier: 1,
           reloadMs: CONFIG.broadside.reloadMs,
@@ -196,6 +213,9 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           gun: false,
           jamming: false,
         },
+        // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97/99).
+        instantReload: { tier: 1, reloadMs: 45000, maxAmmo: 1 },
+        damageCut: { tier: 1, reloadMs: 30000, maxAmmo: 1, durationMs: 8000, factor: 0.5 },
       },
     });
   });
@@ -211,7 +231,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
     expect([eq.captiveMines.triggerRadius, eq.captiveMines.blastRadius]).toEqual([144, 32]);
   });
 
-  it('the STORY 8.13 tier-I rows come from their own CONFIG blocks, not STUB_ROWS', () => {
+  it('the STORY 8.13 tier-I rows come from their own CONFIG blocks (STUB_ROWS is gone since 8.15)', () => {
     const eq = effectiveStats(BASE).equipment;
     // LIGHT TORPEDO (R18): 45 u/s, 40 dmg, 1 tube, 25 s, straight-running.
     expect([eq.lightTorpedo.speed, eq.lightTorpedo.damage, eq.lightTorpedo.maxAmmo, eq.lightTorpedo.reloadMs])
@@ -363,6 +383,93 @@ describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
     expect(effectiveStats(BASE, stack('deckGunBarrel', 1)).equipment.gun.barrels).toBe(2);
     expect(effectiveStats(BASE, stack('deckGunBarrel', 2)).equipment.gun.barrels).toBe(3);
     expect(CATALOG.deckGunBarrel.cap).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STORY 8.15 — THE PICKABLE GUNS' LADDERS AND THE CLASS SHIFT ROWS (Eric
+// rulings 2026-09-28, epic-8 amendments 97–105). Pinned as TABLES, rung by
+// rung. Each gun ladder is the DECK GUN's shape exactly: `appliesTo` advances
+// the gun's TIER (1 + copies), and the −5 % reload per tier is DERIVED from
+// that tier in clampStats — additive five-point steps (×1.00 → ×0.80 at V),
+// the one formula every row uses, which is what lands the machine gun on
+// Eric's "15 s → 12 s at V".
+// ---------------------------------------------------------------------------
+describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)', () => {
+  it('MACHINE GUN: magazine 16 → 24 (+2), damage 4 → 8 (+1), reload 15 s → 12 s at V', () => {
+    const table: [number, number, number, number, number][] = [
+      // copies, tier, maxAmmo, damage, reloadMs
+      [0, 1, 16, 4, 15000],
+      [1, 2, 18, 5, 14250],
+      [2, 3, 20, 6, 13500],
+      [3, 4, 22, 7, 12750],
+      [4, 5, 24, 8, 12000],
+    ];
+    for (const [copies, tier, maxAmmo, damage, reloadMs] of table) {
+      const mg = effectiveStats(BASE, stack('machineGun', copies)).equipment.machineGun;
+      expect([mg.tier, mg.maxAmmo, mg.damage, mg.reloadMs], `${copies} copies`).toEqual([tier, maxAmmo, damage, reloadMs]);
+      // The cadence, the idle clock and the range never move with the ladder.
+      expect([mg.rateMs, mg.idleReloadMs, mg.rangeU], `${copies} copies`).toEqual([500, 5000, CONFIG.vision.radar]);
+    }
+    expect(CATALOG.machineGun.cap).toBe(4);
+  });
+
+  it('FLAK: damage 12 → 20 (+2), reload 6 s → 4.8 s at V; the 50 u blast and the 4 hp bodyblock are FIXED', () => {
+    const table: [number, number, number, number][] = [
+      // copies, tier, damage, reloadMs
+      [0, 1, 12, 6000],
+      [1, 2, 14, 5700],
+      [2, 3, 16, 5400],
+      [3, 4, 18, 5100],
+      [4, 5, 20, 4800],
+    ];
+    for (const [copies, tier, damage, reloadMs] of table) {
+      const flak = effectiveStats(BASE, stack('flak', copies)).equipment.flak;
+      expect([flak.tier, flak.damage, flak.reloadMs], `${copies} copies`).toEqual([tier, damage, reloadMs]);
+      expect([flak.burstRadius, flak.contactDamage, flak.maxAmmo, flak.rangeU], `${copies} copies`)
+        .toEqual([50, 4, 1, CONFIG.vision.radar]);
+    }
+    expect(CATALOG.flak.cap).toBe(4);
+  });
+
+  it('a gun ladder steps ONLY its own gun: the machine gun ladder never touches the cannon or flak (and back)', () => {
+    const base = effectiveStats(BASE).equipment;
+    const mg = effectiveStats(BASE, stack('machineGun', 4)).equipment;
+    const flak = effectiveStats(BASE, stack('flak', 4)).equipment;
+    const cannon = effectiveStats(BASE, stack('deckGun', 4)).equipment;
+    expect([mg.gun, mg.flak]).toEqual([base.gun, base.flak]);
+    expect([flak.gun, flak.machineGun]).toEqual([base.gun, base.machineGun]);
+    expect([cannon.machineGun, cannon.flak]).toEqual([base.machineGun, base.flak]);
+  });
+
+  it('the two guns\' ranges ARE the radar rung (660 u — Eric: "set the Machine Gun range to 660")', () => {
+    const s = effectiveStats(BASE);
+    expect(s.equipment.machineGun.rangeU).toBe(s.radarRange);
+    expect(s.equipment.flak.rangeU).toBe(s.radarRange);
+    expect(s.radarRange).toBe(660);
+  });
+});
+
+describe('STORY 8.15 — the class Shift rows take RELOAD like every row (amendments 97/99)', () => {
+  it('INSTANT RELOAD 45 s → 33.75 s and DAMAGE CUT 30 s → 22.5 s under a maxed RELOAD ladder', () => {
+    const base = effectiveStats(BASE).equipment;
+    expect([base.instantReload.reloadMs, base.damageCut.reloadMs, base.boost.reloadMs]).toEqual([45000, 30000, 25000]);
+    const maxed = effectiveStats(BASE, stack('reload', 5)).equipment;
+    expect(maxed.instantReload.reloadMs).toBe(33750);
+    expect(maxed.damageCut.reloadMs).toBe(22500);
+    expect(maxed.boost.reloadMs).toBe(18750); // the Story 8.9 pin, beside them
+    // The window and the factor are Eric's fixed numbers — RELOAD never moves them.
+    expect([maxed.damageCut.durationMs, maxed.damageCut.factor]).toEqual([8000, 0.5]);
+    expect([maxed.instantReload.maxAmmo, maxed.damageCut.maxAmmo]).toEqual([1, 1]);
+  });
+
+  it('no catalog line steps a Shift row\'s tier (no card can address a Shift)', () => {
+    for (const id of LINE_IDS) {
+      for (const shift of ['boost', 'instantReload', 'damageCut'] as const) {
+        const s = effectiveStats(BASE, stack(id, CATALOG[id].cap)).equipment[shift];
+        expect(s.tier, `${id} → ${shift}`).toBe(1);
+      }
+    }
   });
 });
 
@@ -608,11 +715,11 @@ describe('THE FRACTIONAL FLOOR (catalog-v3 R17 standing rule)', () => {
   });
 });
 
-describe('effectiveStats — doctrine verb folds (the three surviving add-ons)', () => {
+describe('effectiveStats — doctrine verb folds (the two surviving add-ons)', () => {
   it('every verb is false at base; each add-on sets exactly its own', () => {
+    // HEAT SEEKING and the missile's `homing` verb are CUT (Story 8.15, 89e).
     const eq = effectiveStats(BASE).equipment;
-    expect([eq.missile.homing, eq.starShells.phosphor, eq.starShells.dazzle]).toEqual([false, false, false]);
-    expect(effectiveStats(BASE, ['heatSeeking']).equipment.missile.homing).toBe(true);
+    expect([eq.starShells.phosphor, eq.starShells.dazzle]).toEqual([false, false]);
     expect(effectiveStats(BASE, ['dazzleShells']).equipment.starShells.dazzle).toBe(true);
     expect(effectiveStats(BASE, ['phosphorShells']).equipment.starShells.phosphor).toBe(true);
   });
@@ -766,11 +873,17 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     }
   });
 
-  it('a STUB line forced in (never dealt) moves only its own row — no crash, no leak', () => {
+  it('a GUN LADDER moves only its own gun\'s row — no crash, no leak (Story 8.15)', () => {
+    // machineGun / flak were STUB equipment lines until 8.15; they are their
+    // guns' ladders now, and every copy — copy 1 included — is a real step.
     const identity = effectiveStats(BASE);
-    expect(effectiveStats(BASE, ['machineGun'])).toEqual(identity);
-    expect(changed(identity, effectiveStats(BASE, stack('machineGun', 5))))
-      .toEqual(['equipment.machineGun.reloadMs', 'equipment.machineGun.tier']);
+    expect(changed(identity, effectiveStats(BASE, stack('machineGun', 4)))).toEqual([
+      'equipment.machineGun.damage', 'equipment.machineGun.maxAmmo',
+      'equipment.machineGun.reloadMs', 'equipment.machineGun.tier',
+    ]);
+    expect(changed(identity, effectiveStats(BASE, stack('flak', 4)))).toEqual([
+      'equipment.flak.damage', 'equipment.flak.reloadMs', 'equipment.flak.tier',
+    ]);
   });
 
   it('a consumable is a pure `stock` line: it never moves a derived number', () => {

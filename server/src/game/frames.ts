@@ -57,8 +57,8 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // THE SEAT'S GUN (Story 8.14, amendments 89d/95) — SELF-PRIVATE on exactly
     // the terms `cls` is: it rides `you` and NOTHING else, because which gun an
     // enemy picked is build information. The client replays `loadoutFor(stats,
-    // false, gun)` from it, which is the only reason it rides at all. Slot 0
-    // mounts the deck-gun MODULE for all three until Story 8.15.
+    // false, gun, shift)` from it, which is the only reason it rides at all.
+    // Slot 0 mounts each gun's OWN module since Story 8.15.
     gun: ship.gun,
     // (OwnShip.upg died with the legacy upgrade economy — Story 2.8's
     // wholesale strip. The client derives effective stats from (cls, boons).)
@@ -128,6 +128,14 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     ...(ship.lifecycle.kind === 'sinking'
       ? { sinkingUntil: founderDeadline(ship.lifecycle.since) }
       : {}),
+    // ms — the DAMAGE CUT window end (Story 8.15, the Battleship's Shift,
+    // amendments 99–102): present IFF a cut has been opened this life (the
+    // record's value is non-zero), OMITTED otherwise — never an `undefined`
+    // value (the slowedUntil precedent). SELF-PRIVATE BY CONSTRUCTION on the
+    // boostUntil terms: it rides `you` and NOTHING else — never a Contact, a
+    // blip, a ballistic event or a spectator payload — so the master
+    // perception invariant keeps exactly SIX declared exceptions.
+    ...(ship.damageCutUntil > 0 ? { damageCutUntil: ship.damageCutUntil } : {}),
   };
 }
 

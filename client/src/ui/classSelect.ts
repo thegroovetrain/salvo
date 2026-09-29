@@ -5,7 +5,10 @@
 // differences that matter: hull silhouette (the shared polygon via
 // util/silhouetteSvg), three real-value pip scales (util/pips against
 // absolute anchors). The weapon-row block is EMPTY on every card since Story
-// 8.10 (amendment 62 — no hull spawns with a class weapon any more). The footer is the
+// 8.10 (amendment 62 — no hull spawns with a class weapon any more); Story 8.15
+// (amendment 107) puts two rows back: `SPECIAL` (the hull's Shift NAME) and
+// `DECK GUN` (three chips CANNON · MACHINE GUN · FLAK — the captain's gun pick,
+// one pick shared by every card, CANNON preselected). The footer is the
 // ONLY home for the Color Hoist (the duplicate home picker is retired) and
 // carries CONFIRM SELECTION — which saves the class and returns to port. It
 // never deploys: PLAY is the single launch path.
@@ -20,7 +23,16 @@
 // the DESIGN type ramp). DESIGN spine over mock: CONFIRM SELECTION is an
 // amber OUTLINE+GLOW primary button (never a filled slab).
 
-import { CONFIG, SHIP_CLASS_IDS, type ShipClassId } from '@salvo/shared';
+import {
+  CONFIG,
+  DEFAULT_GUN,
+  GUN_IDS,
+  SHIP_CLASS_IDS,
+  classShift,
+  type GunId,
+  type ShiftId,
+  type ShipClassId,
+} from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { applyViewportCap } from './fit.js';
 import { cssHex, cssRgba, textSafe } from '../util/color.js';
@@ -29,6 +41,7 @@ import { pipFill } from '../util/pips.js';
 import { PLAYER_HUES, PLAYER_FILLS } from '../render/ships.js';
 import { ensureColorPref, COLOR_PREF_KEY } from '../net/connection.js';
 import { registerCss } from './theme.js';
+import { monoTextWidth } from './refitCardFit.js';
 
 const C = CLIENT_CONFIG.colors;
 
@@ -47,29 +60,69 @@ interface LoadoutRow {
 }
 
 /**
- * Long-form loadout rows — EMPTY FOR EVERY HULL since Story 8.10 (Eric ruling
- * 2026-09-18, epic-8 amendment 62, which supersedes amendment 58's "the Q rows
- * stand"). The table is kept, rather than deleted with its rows, because the
- * card's anatomy is unchanged and Epic 9's per-hull lines land straight back
- * into it.
- *
- * WHY THERE IS NOTHING TO LIST: the interim spawn seed is gone, so every hull
- * now spawns with its gun and the universal `Shift` boost and NOTHING
- * else — `Q: TORPEDO TUBES`, `Q: BROADSIDE BARRAGE` / `E: STAR SHELLS` and
- * `Q: PROXIMITY MINES` all described weapons the hull no longer carries at 0:00.
- * Eric ruling 2026-07-24 stands over the whole surface: NO fantasy tagline and
- * NO universal-GUN row — "the card sells what differs", and at spawn what
- * differs is the hull's ENVELOPE and its class `Shift`: the gun is the
- * captain's own pick (Story 8.15 puts the picker on this surface) and the draw
- * is the COMMON POOL, the same for every hull (Story 8.14, epic-8 amendment
- * 89). The three stat pips carry the card alone, and `buildLoadout` renders
- * NOTHING for an empty row list (no seam, no rule, no empty box).
+ * THE CLASS SHIFT's player-facing NAME, per Shift id (Story 8.15, Eric ruling
+ * 2026-09-28, epic-8 amendment 107). NAMES ONLY — amendment 96(c): "Any
+ * description should be in the modal, not as subtext on the button that opens
+ * it", and the modal is Story 9.4's LOADOUT screen. The row key is `SPECIAL`,
+ * never "Shift" (amendment 96(e): "shift can be reassigned").
  */
-const LOADOUT: Record<ShipClassId, readonly LoadoutRow[]> = {
-  torpedoBoat: [],
-  battleship: [],
-  mineLayer: [],
+export const SPECIAL_NAMES: Readonly<Record<ShiftId, string>> = {
+  boost: 'SPEED BOOST',
+  instantReload: 'INSTANT RELOAD',
+  damageCut: 'DAMAGE CUT',
 };
+
+/**
+ * THE GUN CHIPS' words, in pick order (amendments 96(e)/107/108): `CANNON` is
+ * the player-facing name of the plain deck gun (id `deckGun`, untouched);
+ * `DECK GUN` survives only as the ROW's key.
+ */
+export const GUN_CHIP_LABELS: Readonly<Record<GunId, string>> = {
+  deckGun: 'CANNON',
+  machineGun: 'MACHINE GUN',
+  flak: 'FLAK',
+};
+
+/** The two card-row keys (amendment 96(e)'s words). */
+export const SPECIAL_KEY = 'SPECIAL';
+export const GUN_ROW_KEY = 'DECK GUN';
+
+/**
+ * The card's loadout rows. EMPTY OF WEAPONS since Story 8.10 (amendment 62 —
+ * no hull spawns with a class weapon), and since Story 8.15 carrying exactly
+ * ONE derived row: `SPECIAL · <the hull's Shift name>` (amendment 107), read
+ * through `classShift` so the card can never disagree with what slot 1 fits.
+ * Eric ruling 2026-07-24 stands over the rest: NO fantasy tagline — "the card
+ * sells what differs", and at spawn what differs is the ENVELOPE (the pips) and
+ * the class Shift. The gun is the captain's pick, not the hull's, so it is not
+ * a row here — it is the chip row `buildGunRow` adds under it.
+ */
+function loadoutRows(cls: ShipClassId): readonly LoadoutRow[] {
+  return [{ key: SPECIAL_KEY, value: SPECIAL_NAMES[classShift(cls)] }];
+}
+
+// --- THE CONTAINER-FIT LAW ON THE CARD (amendment 47) ---------------------------
+//
+// The card is a FIXED 356 px flex-basis with 22 px side padding, so every row
+// shares one 312 px inner line. The class bay is PORT chrome and does NOT ride
+// `--hc-ui-scale` (ui/theme.ts UI_SCALE_VAR), so these widths hold at every
+// UI-scale tier; the pins in __tests__/classSelect.test.ts measure them with
+// the refit card's mono model (`monoTextWidth`).
+
+/** The card's inner content width (px): 356 − 2 × 22 padding. */
+export const CARD_INNER_PX = 356 - 2 * 22;
+/** The loadout row grammar: key column, key→value gap, value type. */
+export const LOADOUT_KEY_COL_PX = 108;
+export const LOADOUT_KEY_GAP_PX = 10;
+export const LOADOUT_KEY_TRACKING_EM = 0.14;
+export const LOADOUT_VALUE_PX = 20;
+export const LOADOUT_VALUE_TRACKING_EM = 0.05;
+/** The gun chips: hudMicro-sized mono, tighter tracking than the register's
+ *  0.18em so the three chips sit on ONE line with room to spare. */
+export const GUN_CHIP_TRACKING_EM = 0.1;
+export const GUN_CHIP_PAD_X_PX = 8;
+export const GUN_CHIP_GAP_PX = 6;
+export const GUN_CHIP_BORDER_PX = 1;
 
 /** Register label sitting to the LEFT of the footer swatch row. */
 const HOIST_LABEL = 'COLOR PREFERENCE:';
@@ -126,7 +179,7 @@ export function cardViewModel(cls: ShipClassId): CardViewModel {
       { label: 'ARMOR', filled: pipFill(spec.hp, anchors.toughness) },
       { label: 'TURNING', filled: pipFill(spec.kinematics.turnRate, anchors.turning) },
     ],
-    loadout: LOADOUT[cls],
+    loadout: loadoutRows(cls),
   };
 }
 
@@ -376,6 +429,8 @@ interface CardEls {
   pipEls: HTMLElement[][]; // [row][pip]
   pipFilled: number[]; // filled count per row
   pickBtn: HTMLElement;
+  /** The three gun chips (Story 8.15), keyed by gun id. */
+  chips: Map<GunId, HTMLButtonElement>;
   silverStroke: string;
 }
 
@@ -445,7 +500,8 @@ function buildPips(vm: CardViewModel): { el: HTMLElement; rows: HTMLElement[][] 
 
 /** The loadout block, or NULL when the hull lists no rows (amendment 62): an
  *  empty wrap would still paint its 12px seam and its hairline rule above
- *  nothing, which reads as a block that failed to load. */
+ *  nothing, which reads as a block that failed to load. Since Story 8.15 every
+ *  hull lists its `SPECIAL` row, and the block also hosts the gun chip row. */
 function buildLoadout(vm: CardViewModel): HTMLElement | null {
   if (vm.loadout.length === 0) return null;
   const wrap = document.createElement('div');
@@ -454,17 +510,77 @@ function buildLoadout(vm: CardViewModel): HTMLElement | null {
     'display:flex;flex-direction:column;gap:5px';
   for (const slot of vm.loadout) {
     const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:10px;align-items:baseline';
-    const k = document.createElement('span');
-    k.textContent = slot.key;
-    k.style.cssText = `${registerCss('hudMicro')};flex:0 0 108px;color:var(--hc-phosphor);letter-spacing:0.14em`;
+    row.style.cssText = `display:flex;gap:${LOADOUT_KEY_GAP_PX}px;align-items:baseline`;
     const v = document.createElement('span');
     v.textContent = slot.value;
-    v.style.cssText = 'font:500 20px var(--hc-font-mono);letter-spacing:0.05em;color:var(--hc-text-primary)';
-    row.append(k, v);
+    v.style.cssText =
+      `font:500 ${LOADOUT_VALUE_PX}px var(--hc-font-mono);letter-spacing:${LOADOUT_VALUE_TRACKING_EM}em;` +
+      'color:var(--hc-text-primary);white-space:nowrap';
+    row.append(rowKey(slot.key, `flex:0 0 ${LOADOUT_KEY_COL_PX}px`), v);
     wrap.appendChild(row);
   }
   return wrap;
+}
+
+/** One row KEY in the loadout grammar (phosphor hudMicro, 0.14em). */
+function rowKey(text: string, extra: string): HTMLElement {
+  const k = document.createElement('span');
+  k.textContent = text;
+  k.style.cssText =
+    `${registerCss('hudMicro')};${extra};color:var(--hc-phosphor);letter-spacing:${LOADOUT_KEY_TRACKING_EM}em`;
+  return k;
+}
+
+/**
+ * Pure: the rendered width (px) of the three gun chips on one line — the
+ * container-fit pin's model (text + side padding + borders per chip, plus the
+ * gaps between them). Must stay ≤ CARD_INNER_PX.
+ */
+export function gunChipRowWidth(): number {
+  const px = CLIENT_CONFIG.type.registers.hudMicro.size;
+  const track = px * GUN_CHIP_TRACKING_EM;
+  let w = GUN_CHIP_GAP_PX * (GUN_IDS.length - 1);
+  for (const id of GUN_IDS) {
+    w += monoTextWidth(GUN_CHIP_LABELS[id], px, track) + 2 * (GUN_CHIP_PAD_X_PX + GUN_CHIP_BORDER_PX);
+  }
+  return w;
+}
+
+/**
+ * THE `DECK GUN` ROW (Story 8.15, amendment 107): the key on its own line and
+ * the three chips on ONE full-width line under it — the 108 px key column would
+ * leave the chips 194 px, too narrow for `MACHINE GUN` at a legible size, so
+ * the row stacks rather than shrinking the type toward the 9 px floor. A chip
+ * is a `<button>` painted in the card's own selected/unselected register by
+ * `paintChips`. It does NOT stop propagation: picking a gun on a card also
+ * highlights that card, exactly like its in-card SELECT button.
+ */
+function buildGunRow(onGun: (gun: GunId) => void): { el: HTMLElement; chips: Map<GunId, HTMLButtonElement> } {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:4px';
+  const line = document.createElement('div');
+  line.style.cssText = `display:flex;flex-wrap:nowrap;gap:${GUN_CHIP_GAP_PX}px`;
+  const chips = new Map<GunId, HTMLButtonElement>();
+  for (const id of GUN_IDS) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'hc-gunchip';
+    chip.dataset.gun = id;
+    chip.textContent = GUN_CHIP_LABELS[id];
+    chip.style.cssText =
+      `${registerCss('hudMicro')};letter-spacing:${GUN_CHIP_TRACKING_EM}em;flex:0 0 auto;white-space:nowrap;` +
+      `padding:5px ${GUN_CHIP_PAD_X_PX}px;border:${GUN_CHIP_BORDER_PX}px solid var(--hc-hairline);` +
+      'border-radius:6px;background:transparent;cursor:pointer;box-sizing:border-box';
+    chip.addEventListener('click', () => {
+      onGun(id);
+      // Release focus so Enter/Space reach the layer again (the swatch rule).
+      chip.blur();
+    });
+    chips.set(id, chip);
+    line.appendChild(chip);
+  }
+  row.append(rowKey(GUN_ROW_KEY, 'display:block'), line);
+  return { el: row, chips };
 }
 
 function buildPickButton(): HTMLElement {
@@ -481,7 +597,11 @@ function buildPickButton(): HTMLElement {
   return row;
 }
 
-function buildCard(vm: CardViewModel, onSelect: (cls: ShipClassId) => void): CardEls {
+function buildCard(
+  vm: CardViewModel,
+  onSelect: (cls: ShipClassId) => void,
+  onGun: (gun: GunId) => void,
+): CardEls {
   const root = document.createElement('div');
   root.className = 'hc-ccard';
   root.style.cssText = CARD_BASE;
@@ -490,6 +610,8 @@ function buildCard(vm: CardViewModel, onSelect: (cls: ShipClassId) => void): Car
   const pips = buildPips(vm);
   const pickRow = buildPickButton();
   const loadout = buildLoadout(vm);
+  const gunRow = buildGunRow(onGun);
+  loadout?.appendChild(gunRow.el);
   root.append(head, silbox, pips.el, ...(loadout ? [loadout] : []), pickRow);
   root.addEventListener('click', () => onSelect(vm.cls));
   return {
@@ -500,6 +622,7 @@ function buildCard(vm: CardViewModel, onSelect: (cls: ShipClassId) => void): Car
     pipEls: pips.rows,
     pipFilled: vm.pips.map((p) => p.filled),
     pickBtn: pickRow.querySelector('.hc-pickbtn') as HTMLElement,
+    chips: gunRow.chips,
     silverStroke: cssHex(C.silver),
   };
 }
@@ -524,11 +647,33 @@ function buildGhostCard(): HTMLElement {
 
 // --- card paint (selection treatment) ----------------------------------------
 
-/** Repaint every card for the current highlight + personal accent. */
-function paintCards(cards: CardEls[], highlight: number, hoist: ColorHoist): void {
+/** Repaint every card for the current highlight + personal accent, and every
+ *  card's gun chips for the one shared gun pick. */
+function paintCards(cards: CardEls[], highlight: number, hoist: ColorHoist, gun: GunId): void {
   const n = hoist.accentValue;
   const fill = hoist.accentFill;
-  cards.forEach((card, i) => paintCard(card, i === highlight, n, fill));
+  cards.forEach((card, i) => {
+    paintCard(card, i === highlight, n, fill);
+    paintChips(card, gun, n);
+  });
+}
+
+/**
+ * The gun chips in the card's OWN selected register (the SELECTED ✓ button's
+ * paint: accent border + accent text + a 0.07 accent wash) for the picked gun,
+ * and its unselected register (hairline border, secondary text, no wash) for
+ * the other two. The pick is ONE value shared by every card, so every card
+ * shows the same chip lit.
+ */
+function paintChips(card: CardEls, gun: GunId, accentN: number): void {
+  const accent = cssHex(accentN);
+  for (const [id, chip] of card.chips) {
+    const on = id === gun;
+    chip.style.borderColor = on ? accent : cssHex(C.hairline);
+    chip.style.color = on ? accent : cssHex(C.textSecondary);
+    chip.style.background = on ? cssRgba(accentN, 0.07) : 'transparent';
+    chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
 }
 
 function paintCard(card: CardEls, on: boolean, accentN: number, fill: string): void {
@@ -674,12 +819,15 @@ function buildFooter(hoist: ColorHoist, onConfirm: () => void): HoistRow {
 export interface ClassSelectOpts {
   /** Card pre-highlighted on open (first-run: Torpedo Boat). */
   initial: ShipClassId;
+  /** The gun chip lit on open (Story 8.15) — the stored pick, else CANNON. */
+  initialGun?: GunId;
   hoist: ColorHoist;
   /** Home overlay to blur/dim behind the layer while open. */
   blurTarget: HTMLElement;
   /** Footer CONFIRM SELECTION (and Enter): persist the highlight + close back to
-   *  port. NEVER deploys — PLAY is the one launch path. */
-  onConfirm: (cls: ShipClassId) => void;
+   *  port. NEVER deploys — PLAY is the one launch path. Carries the gun pick
+   *  beside the class (Story 8.15). */
+  onConfirm: (cls: ShipClassId, gun: GunId) => void;
   /** ESC / dimmer dismiss: close with no change. */
   onClose: () => void;
 }
@@ -781,8 +929,9 @@ function makeLayerShell(): { container: HTMLElement; dimmer: HTMLElement; panel:
  */
 export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   current?.close(); // full teardown of any prior layer (listener + subscriptions), not just DOM
-  const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), select));
+  const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), select, pickGun));
   let highlight = Math.max(0, SHIP_CLASS_IDS.indexOf(opts.initial));
+  let gun: GunId = opts.initialGun ?? DEFAULT_GUN;
 
   const { container, dimmer, panel } = makeLayerShell();
   const rail = buildRail(cards);
@@ -795,7 +944,13 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   const openedAt = performance.now();
   const onResize = (): void => rail.evaluateOverflow();
   function repaint(): void {
-    paintCards(cards, highlight, opts.hoist);
+    paintCards(cards, highlight, opts.hoist, gun);
+  }
+  /** A gun chip: move the ONE gun pick and repaint. The chip's click then
+   *  bubbles to its card, which highlights that card too. */
+  function pickGun(id: GunId): void {
+    gun = id;
+    repaint();
   }
   /** Card click (or its in-card SELECT button): move the highlight and repaint —
    *  never closes the layer, never fires a callback (Eric ruling 2026-08-03). */
@@ -807,7 +962,7 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   function confirmPick(): void {
     const cls = SHIP_CLASS_IDS[highlight];
     close();
-    opts.onConfirm(cls);
+    opts.onConfirm(cls, gun);
   }
   function dismiss(): void {
     close();

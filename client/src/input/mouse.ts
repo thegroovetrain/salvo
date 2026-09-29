@@ -48,6 +48,14 @@
 // main.ts calls when the refit window OPENS. The window's lockout has always
 // dropped new presses; this is what closes a stream that was already running
 // when it opened, so no hold — and no prime-revert debt — outlives the window.
+//
+// Story 8.15 (epic-8 amendment 103) publishes the HOLD ITSELF as a level for
+// the machine gun's stream: `isHeld` is simply "a hold is open"
+// (`activePointerId !== null`), and a PRESS LATCH (`pressedSinceSample`) makes
+// a tap shorter than one 50 ms sample still read as held once — the sampler
+// calls `consumeHeld()` exactly once per input. Every path that ends a hold
+// without a pointerup (blur, `endHolds()` on the refit window opening) also
+// drops the latch, so the next input carries `held: false`.
 
 /** A screen-space point (px). */
 export interface ScreenPoint {
@@ -96,6 +104,11 @@ export class MouseInput {
   /** Sequence number of the last click whose hold ENDED; 0 = none yet (clicks
    *  are numbered from 1). Monotonic, so main.ts polls it as an edge. */
   private releasedSeq = 0;
+  /** A canvas press was ACCEPTED since the last `consumeHeld()` (Story 8.15):
+   *  a tap whose pointerup lands inside one sample window still yields one
+   *  `held: true` input. Cleared on read and by every hold-ending path that is
+   *  not a pointerup (blur, `endHolds`). */
+  private pressedSinceSample = false;
   private canvas: EventTarget | null = null;
   /**
    * Is the pointer currently INSIDE the window? Deliberately separate from
@@ -144,8 +157,11 @@ export class MouseInput {
   private readonly onBlur = (): void => {
     this.inside = false;
     // The window lost focus mid-hold: the pointerup will land somewhere we
-    // never hear, so the hold ends HERE rather than standing forever.
+    // never hear, so the hold ends HERE rather than standing forever — and a
+    // tap still latched for the next sample is dropped with it (Story 8.15:
+    // a blur stops the stream that tick).
     this.endHold(null);
+    this.pressedSinceSample = false;
   };
 
   private readonly onDown = (e: PointerEvent): void => {
@@ -163,6 +179,7 @@ export class MouseInput {
     // pointerId, or a blur) may close it.
     this.activePointerId = pointerIdOf(e);
     this.activeClickSeq = this.clicks;
+    this.pressedSinceSample = true;
     // Stamp the honest fire instant at pointerdown (not sample time): a click
     // can sit up to a tick in the sampler before it ships. Feeds InputMsg.fireT.
     this.clickT = this.nowServer();
@@ -179,9 +196,13 @@ export class MouseInput {
 
   /** The OS took the pointer away (touch/pen gesture, pointer capture loss): no
    *  pointerup is coming, so this is the hold's end. No button check — a
-   *  pointercancel carries no meaningful button. */
+   *  pointercancel carries no meaningful button. A cancel that ENDS the hold
+   *  also drops the press latch (Story 8.15): a cancelled gesture is not a
+   *  press, so it never yields a `held: true` sample. */
   private readonly onCancel = (e: PointerEvent): void => {
-    this.endHold(pointerIdOf(e));
+    const id = pointerIdOf(e);
+    if (this.activePointerId !== null && id === this.activePointerId) this.pressedSinceSample = false;
+    this.endHold(id);
   };
 
   /**
@@ -216,6 +237,7 @@ export class MouseInput {
    */
   endHolds(): void {
     this.endHold(null);
+    this.pressedSinceSample = false;
   }
 
   private readonly onContextMenu = (e: Event): void => {
@@ -258,6 +280,26 @@ export class MouseInput {
    *  this so it can't hang open once the pointer leaves; aiming ignores it. */
   get pointerInside(): boolean {
     return this.inside;
+  }
+
+  /**
+   * THE HELD-FIRE LEVEL (Story 8.15): true while a canvas hold is open — the
+   * pointer that pressed on the water has not come back up, cancelled, or been
+   * ended by a blur or the refit window. Pure read; never clears the latch.
+   */
+  get isHeld(): boolean {
+    return this.activePointerId !== null;
+  }
+
+  /**
+   * The value `InputMsg.held` carries for ONE sample: the live level OR a press
+   * accepted since the previous sample (so a sub-sample tap still yields exactly
+   * one `held: true`). Clears the latch — call it once per sampled input.
+   */
+  consumeHeld(): boolean {
+    const held = this.isHeld || this.pressedSinceSample;
+    this.pressedSinceSample = false;
+    return held;
   }
 
   /** Cumulative button-0 canvas clicks since boot (feeds InputMsg.fireSeq). */

@@ -18,8 +18,14 @@
 //   • `equipmentGlyphSvg` emits the same primitives as an `<svg>` with a
 //     `-1 -1 2 2` viewBox, which the refit card drops into its icon box.
 //
-// A line with NO glyph draws NOTHING and throws nothing — the eight unbuilt
-// weapons (Stories 8.13-8.16), every ladder, every add-on and every CONSUMABLE.
+// A line with NO glyph draws NOTHING and throws nothing — every ladder, every
+// add-on and every CONSUMABLE without a module behind it.
+//
+// STORY 8.15 DREW FOUR (epic-8 amendment 110 — IMPLEMENTER DRAFTS, ledgered for
+// Eric's eye on staging): the MACHINE GUN (a breech firing a stream of short
+// dashes), the FLAK GUN (a jagged starburst), INSTANT RELOAD (a circular arrow)
+// and DAMAGE CUT (a hexagon halved down the middle). The missile and monitor
+// are CUT (amendment 89e) and never had glyphs.
 // Drawing linework for kit nobody has played would be inventing art; the card's
 // icon box simply renders empty, which is ledgered for the icon pass UX-DR50
 // names.
@@ -63,6 +69,67 @@ const gun: GlyphPaths = [
   path([-0.45, 0.05], [0.65, -0.75]),
   path([-0.15, 0.3], [0.95, -0.5]),
   circle(0.62, -0.95, 0.14),
+];
+
+/**
+ * Machine gun (Story 8.15 DRAFT, amendment 110): a breech block bottom-left, a
+ * short barrel, and a STREAM of three short dashes leaving the muzzle along the
+ * same bearing — the held-fire tracer stream, where the cannon has one shell.
+ */
+const machineGun: GlyphPaths = [
+  path([-0.95, 0.95], [-0.45, 0.95], [-0.45, 0.45], [-0.95, 0.45], [-0.95, 0.95]),
+  path([-0.6, 0.45], [-0.2, 0.05]),
+  path([-0.05, -0.1], [0.15, -0.3]),
+  path([0.3, -0.45], [0.5, -0.65]),
+  path([0.65, -0.8], [0.85, -1]),
+];
+
+/**
+ * Flak (Story 8.15 DRAFT, amendment 110): an AIR-BURST — a jagged eight-point
+ * starburst outline, closed. Deliberately NOT the star shell's core-and-rays:
+ * one is a flare that lights, the other a shell that bursts.
+ */
+const flak: GlyphPaths = [
+  path(
+    ...Array.from({ length: 17 }, (_, i): GlyphPoint => {
+      const a = (i * Math.PI) / 8 - Math.PI / 2;
+      const r = i % 2 === 0 ? 0.95 : 0.42;
+      return [Math.cos(a) * r, Math.sin(a) * r];
+    }),
+  ),
+];
+
+/** Points on a circle of radius `r` from angle `a0` to `a1` (rad), `n` steps. */
+function arcPts(r: number, a0: number, a1: number, n: number): GlyphPoint[] {
+  return Array.from({ length: n + 1 }, (_, i): GlyphPoint => {
+    const a = a0 + ((a1 - a0) * i) / n;
+    return [Math.cos(a) * r, Math.sin(a) * r];
+  });
+}
+
+/**
+ * Instant reload (Story 8.15 DRAFT, amendment 110): a CIRCULAR ARROW — a
+ * three-quarter ring with an arrowhead at its leading end (the universal
+ * "reload / refresh" mark).
+ */
+const INSTANT_RELOAD_ARC = arcPts(0.7, -Math.PI / 3, (4 * Math.PI) / 3, 14);
+const instantReload: GlyphPaths = (() => {
+  const [hx, hy] = INSTANT_RELOAD_ARC[INSTANT_RELOAD_ARC.length - 1];
+  return [path(...INSTANT_RELOAD_ARC), path([hx - 0.32, hy - 0.08], [hx, hy], [hx + 0.08, hy - 0.32])];
+})();
+
+/**
+ * Damage cut (Story 8.15 DRAFT, amendment 110): a HALVED HEXAGON — an armour
+ * plate outline split down the middle, one half hatched: incoming damage cut
+ * in two.
+ */
+const HEX = arcPts(0.9, -Math.PI / 2, (3 * Math.PI) / 2, 6);
+const damageCut: GlyphPaths = [
+  path(...HEX),
+  path([0, -0.9], [0, 0.9]),
+  path([0.12, -0.45], [0.55, -0.7]),
+  path([0.12, 0.05], [0.78, -0.33]),
+  path([0.12, 0.55], [0.7, 0.22]),
 ];
 
 /** Torpedo: elongated body with a pointed nose, tail fins, wake ticks. */
@@ -110,13 +177,17 @@ const radarBuoy: GlyphPaths = [
 ];
 
 /**
- * The glyph table. PARTIAL over `EquipmentId` since Story 8.1 widened that type
- * to catalog v3's thirteen weapons plus the legacy ids: the seven ids whose
- * MODULES do not exist yet (Stories 8.13-8.16) get no glyph, because drawing
- * linework for a weapon nobody has played would be inventing art.
+ * The glyph table — TOTAL over `EquipmentId` since Story 8.15 built the last
+ * two guns and the two new Shifts (the missile and the monitor, which never
+ * had modules, are CUT). It stays typed `Partial` so a future id with no module
+ * yet can land without inventing art; the lookup answers null for it.
  */
 const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
   gun,
+  machineGun,
+  flak,
+  instantReload,
+  damageCut,
   // THE FAMILY GLYPHS ARE REUSED (Story 8.13, UX-DR50's icon pass stays
   // ledgered): a light torpedo is a torpedo and a captive or fouling mine is a
   // mine, so each new line takes its family's shipped linework rather than art

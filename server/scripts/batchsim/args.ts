@@ -2,7 +2,7 @@
 // `--flag value` pairs, fail-fast with a usage message on anything unknown).
 // Pure over argv — unit-testable without a process.
 
-import { SHIP_CLASS_IDS, type ShipClassId } from '@salvo/shared';
+import { GUN_IDS, SHIP_CLASS_IDS, isGunId, type GunId, type ShipClassId } from '@salvo/shared';
 import { validateTunableKey, validateTunableValue, validateTuneKey, validateTuneValue } from './overrides.js';
 import { CONTROL_REGISTRY } from './controls.js';
 import { BOT_PROFILES, TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
@@ -46,6 +46,10 @@ export interface CliOptions {
    *  with tuned temperaments): each bot still rolls an in-game profile for
    *  that hull. Null = the roster policy deals as usual. */
   botHull: ShipClassId | null;
+  /** FORCED GUN for every bot (Story 8.15, amendment 109: "a harness/dev arm
+   *  may force every bot to one gun"). Null = production's rule — each bot
+   *  mounts a seeded uniform gun off the match seed (runner.ts botGunFor). */
+  botGun: GunId | null;
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
   set: Record<string, number>;
   /** EQUIPMENT CONFIG overrides (--tune), applied alongside `set` before any
@@ -96,8 +100,9 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --sweep key=v1,v2  run the full batch per value and compare side-by-side
                      (repeatable; repeats form a cartesian variant grid)
   --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:
-                     gun.*, broadside.*, torpedo.*, mine.*, starShells.*,
-                     boost.*, radarBuoy.*, shipClasses.*, offer.weighting.*.
+                     gun.*, machineGun.*, flak.*, broadside.*, torpedo.*,
+                     mine.*, starShells.*, boost.*, instantReload.*,
+                     damageCut.*, radarBuoy.*, shipClasses.*, offer.weighting.*.
                      Requires
                      HC_BALANCE=1 as well as HC_DEV_OPTIONS=1 — this edits
                      combat numbers, not harness dials. Not sweepable (one
@@ -122,6 +127,9 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      (${SHIP_CLASS_IDS.join(' | ')}); profiles still roll among
                      that hull's own rows. Mono-class arms with tuned
                      temperaments. Not valid with --bot-profile or --roster even
+  --gun GUN          force every bot's deck gun (${GUN_IDS.join(' | ')}).
+                     Without it each bot mounts a seeded uniform gun off the
+                     match seed — production's rule (amendment 109). Needs --bots
   --raw              include raw per-match bot rows (builds, pick timing,
                      offers seen, placement) in the --json envelope
   --json PATH        also write the machine-readable report to PATH
@@ -139,6 +147,7 @@ function defaults(): CliOptions {
     botEngage: 'always',
     botSpend: 'profile',
     botHull: null,
+    botGun: null,
     set: {},
     tune: {},
     roster: 'rolled',
@@ -264,6 +273,10 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
     }
     o.botHull = v as ShipClassId;
   },
+  '--gun': (o, v) => {
+    if (!isGunId(v)) throw new UsageError(`--gun: unknown gun '${v}' (available: ${GUN_IDS.join(', ')})`);
+    o.botGun = v;
+  },
   '--set': parseSet,
   '--sweep': parseSweep,
   '--tune': parseTune,
@@ -335,6 +348,9 @@ function assertCoherent(opts: CliOptions): void {
 function assertBotFlagsCoherent(opts: CliOptions): void {
   if (opts.botSpend !== 'profile' && opts.bots === 0) {
     throw new UsageError('--bot-spend needs --bots N: there is no bot to apply it to');
+  }
+  if (opts.botGun !== null && opts.bots === 0) {
+    throw new UsageError('--gun needs --bots N: there is no bot to mount it on');
   }
   if (opts.botHull === null) return;
   if (opts.bots === 0) throw new UsageError('--bot-hull needs --bots N: there is no bot to force it onto');

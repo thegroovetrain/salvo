@@ -120,7 +120,7 @@ function shipMask(w: World, s: ShipRecord): HullCoverage {
 
 /** The PRODUCTION click: slot 2, astern, 60u — activate → dropBuoy → spawnBuoy. */
 function dropBuoy(w: World, id: string, fireSeq: number): void {
-  w.submitInput(id, { seq: fireSeq, throttle: 0, rudder: 0, aim: Math.PI, fireSeq, aimDist: 60, slot: SLOT_BUOY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  w.submitInput(id, { seq: fireSeq, throttle: 0, rudder: 0, aim: Math.PI, fireSeq, aimDist: 60, slot: SLOT_BUOY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
   w.step();
 }
 

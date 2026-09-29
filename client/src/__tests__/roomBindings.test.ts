@@ -2806,3 +2806,38 @@ describe('bindRoom — the disposer', () => {
     expect(onRequeue).toHaveBeenCalledTimes(1); // still attached, now inert
   });
 });
+
+
+// STORY 8.15: the machine gun's stream shells are claimed per shell off the
+// held level (`ownStreamWeapon`, sim/ownFire.ts `claimStream`) — NEVER off the
+// one-shot click latch, which stays whole for the weapon that will use it.
+describe('own-fire correlation (Story 8.15) — the machine gun stream and the flak gun', () => {
+  const MG = (id: string) => ({ k: 'shell' as const, id, x: 0, y: 0, vx: 500, vy: 0, t: 900, w: 'mg' as const });
+
+  it('EVERY own `w: mg` reveal on our hull claims the stream, and the click latch is untouched', () => {
+    const { sink, onShell, deps, ownFireWeapon } = setupWater('gun');
+    const stream = vi.fn((): OwnFire => 'machineGun');
+    (deps as { ownStreamWeapon?: () => OwnFire }).ownStreamWeapon = stream;
+    sink.handler(victimFrame([MG('m1')], {}));
+    sink.handler(victimFrame([MG('m2')], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'machineGun', 'machineGun');
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'm2' }), 'machineGun', 'machineGun');
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(ownFireWeapon).not.toHaveBeenCalled();
+  });
+
+  it('with no stream held, a `w: mg` reveal on our hull is NOT ours: no near-hull fallback, no own crack (an ENEMY tracer on our bow)', () => {
+    const { sink, onShell, play, deps, ownFireWeapon } = setupWater('gun');
+    (deps as { ownStreamWeapon?: () => OwnFire }).ownStreamWeapon = () => null;
+    sink.handler(victimFrame([MG('m1')], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), null, null);
+    expect(play).not.toHaveBeenCalled();
+    expect(ownFireWeapon).not.toHaveBeenCalled(); // the click latch stays whole
+  });
+
+  it('a flak click latch dresses the flak shell as ours (it may size the 50 u ring)', () => {
+    const { sink, onShell } = setupWater('flak');
+    sink.handler(victimFrame([{ k: 'shell', id: 'f1', x: 0, y: 0, vx: 500, vy: 0, t: 900, w: 'flak' }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'f1' }), 'flak', 'flak');
+  });
+});

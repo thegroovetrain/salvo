@@ -79,6 +79,7 @@ function hit(w: World, by: string, victim: ShipRecord, damage: number, id = `s${
     distLeft: 60,
     bornAt: w.now,
     kind: 'shell',
+    family: 'cannon',
     damage,
     hitRadius: CONFIG.gun.shellRadius,
     targetX: null,

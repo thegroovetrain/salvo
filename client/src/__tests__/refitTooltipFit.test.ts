@@ -88,8 +88,10 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // Catalog v3: 29 lines / 122 physical cards. It was 114 until Story 8.13
     // traded two cap-1 ADD-ONS for two cap-5 lines (FOULING MINES became
     // equipment, DEPTH CHARGE joined as a stub consumable, ACOUSTIC HOMING was
-    // deleted — epic-8 amendments 80/81/83).
-    expect(LINES).toHaveLength(29);
+    // deleted — epic-8 amendments 80/81/83). 26 lines / 109 cards since Story
+    // 8.15 (missile/monitor/heat seeking CUT; machine gun/flak became 4-copy
+    // ladders).
+    expect(LINES).toHaveLength(26);
     expect(PANELS.length).toBe(LINES.reduce((n, d) => n + d.cap, 0));
   });
 
@@ -119,7 +121,7 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // the band, the bar or the copy moves this split and has to look here.
     expect(CONTAINER_H).toBe(186);
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, FLOOR_BAND.band).above);
-    expect(PANELS).toHaveLength(122);
+    expect(PANELS).toHaveLength(109);
     // 45 at 8.7. Story 8.8 moved it BOTH ways and netted +1: 46px more water
     // above lifts several panels back over the line, while HULL REPAIR's new
     // explanation (amendment 50's one-line description) adds three tall panels
@@ -128,8 +130,12 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // (ACOUSTIC HOMING, the FOULING MINES verb) took two tall explained panels
     // with them, and the ten cards that replaced them carry no explanation at
     // all, so every one of them fits above.
+    // Story 8.15 leaves the DOWN count at 44: the eight new machine-gun and
+    // flak ladder panels carry a short draft explanation that still fits above,
+    // and the thirteen cut cards (missile, monitor, heat seeking, and one copy
+    // off each gun line) all fitted above too — so ABOVE goes 78 -> 65.
     expect(down).toHaveLength(44);
-    expect(PANELS.length - down.length).toBe(78);
+    expect(PANELS.length - down.length).toBe(65);
     // The split IS the water line — nothing else decides it.
     for (const { label, model } of PANELS) {
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);
@@ -237,9 +243,10 @@ describe('the laws that constrain the fix', () => {
     // neither does FOULING MINES, whose add-on text died with its card: the
     // mechanisms exist, the WORDS are Eric's (no-in-game-copy-unasked).
     'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'foulingMines',
-    'missile', 'machineGun', 'flak', 'monitor',
+    // Story 8.15: `machineGun`/`flak` left (their ladders carry the two DRAFT
+    // hover descriptions, ledgered for Eric); missile/monitor/heat seeking CUT.
     // `hullRepair` left this list in Story 8.8 — its mechanism is built now.
-    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge', 'heatSeeking',
+    'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'depthCharge',
   ];
 
   it('keeps the WRITTEN explanations genuinely explanatory — past the old card budget', () => {

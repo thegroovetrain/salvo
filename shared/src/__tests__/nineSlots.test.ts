@@ -22,8 +22,8 @@
 //   deleted, so a hull's weapon row holds nothing but the cards it is dealt.
 //
 // 2. THE SEAT'S GUN (Story 8.14, amendment 95): `loadoutFor(stats, fleet, gun)`
-//    mounts slot 0 from MOUNTED_GUN, which resolves ALL THREE seat guns to the
-//    shipped deck-gun module until Story 8.15 builds the other two.
+//    mounts slot 0 from MOUNTED_GUN — each seat gun on its OWN module since
+//    Story 8.15 (amendments 103–105).
 //
 // Pure, zero I/O. Seeded PRNG (mulberry32), so a failure is reproducible.
 
@@ -32,6 +32,7 @@ import {
   CATALOG,
   CONSUMABLE_IDS,
   DEFAULT_GUN,
+  EQUIPMENT_IS_WEAPON,
   GUN_IDS,
   LINE_IDS,
   MOUNTED_GUN,
@@ -42,6 +43,7 @@ import {
   SLOT_GUN,
   applySlotEffect,
   canStock,
+  classShift,
   effectiveStats,
   isGunId,
   hullEnvelope,
@@ -161,22 +163,46 @@ describe('THE REACHABLE-HAND PROPERTY — a reachable hand can never out-card th
 // ---------------------------------------------------------------------------
 // THE SEAT'S GUN (Story 8.14, Eric rulings 2026-09-21/22, epic-8 amendments
 // 89d/95). The gun is the captain's PICK, frozen at queue; slot 0 mounts the
-// module MOUNTED_GUN names for it. Until Story 8.15 builds the machine gun and
-// the flak gun, all three resolve to the shipped deck-gun module — pinned here
-// so the interim is a fact of record rather than a silent fallback.
+// module MOUNTED_GUN names for it. STORY 8.15 gave the machine gun and the
+// flak gun their own modules (amendments 103–105), ending the 8.14 interim in
+// which all three mounted the deck-gun module.
 // ---------------------------------------------------------------------------
 
 describe("loadoutFor(stats, fleet, gun) — slot 0 is the SEAT'S gun", () => {
   const stats = effectiveStats(hullEnvelope('torpedoBoat'));
 
-  it.each(GUN_IDS)('%s mounts the deck-gun module in slot 0 (amendment 95)', (gun) => {
-    expect(MOUNTED_GUN[gun]).toBe('gun');
+  it('each seat gun mounts ITS OWN module (Story 8.15): deckGun→gun, machineGun→machineGun, flak→flak', () => {
+    expect(MOUNTED_GUN.deckGun).toBe('gun');
+    expect(MOUNTED_GUN.machineGun).toBe('machineGun');
+    expect(MOUNTED_GUN.flak).toBe('flak');
+    expect(new Set(GUN_IDS.map((g) => MOUNTED_GUN[g])).size).toBe(GUN_IDS.length); // no two share one
+  });
+
+  it.each(GUN_IDS)('%s mounts its module in slot 0 with a FULL pool (the MG magazine is 16)', (gun) => {
+    const eq = MOUNTED_GUN[gun];
     const loadout = loadoutFor(stats, false, gun);
-    expect(loadout[SLOT_GUN].equipmentId).toBe('gun');
+    expect(loadout[SLOT_GUN]).toEqual({ equipmentId: eq, state: { n: stats.equipment[eq].maxAmmo, reloadMsLeft: 0 } });
     expect(loadout[SLOT_BOOST].equipmentId).toBe('boost');
     expect(loadout).toHaveLength(9);
-    // ...and the three seat guns are byte-identical fits until 8.15.
-    expect(loadout).toEqual(loadoutFor(stats, false, DEFAULT_GUN));
+    expect(EQUIPMENT_IS_WEAPON[eq]).toBe(true);
+  });
+
+  it('the machine gun mounts a 16-shell magazine and the flak gun one shell (amendments 103/105)', () => {
+    expect(loadoutFor(stats, false, 'machineGun')[SLOT_GUN].state).toEqual({ n: 16, reloadMsLeft: 0 });
+    expect(loadoutFor(stats, false, 'flak')[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
+  });
+
+  it('the Shift rides beside ANY gun: every (gun × hull) seat fits slot 0 from the gun and slot 1 from the hull', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      const clsStats = effectiveStats(hullEnvelope(cls));
+      for (const gun of GUN_IDS) {
+        const loadout = loadoutFor(clsStats, false, gun, classShift(cls));
+        expect(loadout[SLOT_GUN].equipmentId, `${cls}/${gun}`).toBe(MOUNTED_GUN[gun]);
+        expect(loadout[SLOT_BOOST].equipmentId, `${cls}/${gun}`).toBe(classShift(cls));
+        // The client replay (slotsWithCards) lands on the SAME fit.
+        expect(slotsWithCards(clsStats, [], CATALOG, false, gun, classShift(cls)), `${cls}/${gun}`).toEqual(loadout);
+      }
+    }
   });
 
   it('the default gun is the deck gun, and the fleet fit is gun-only whatever the seat says', () => {

@@ -69,7 +69,7 @@ function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
     slot: 0,
     fireT: 0,
     actSeq: 0,
-    actSlot: 0, hornSeq: 0,
+    actSlot: 0, hornSeq: 0, held: false,
     ...extra,
   };
 }
@@ -106,11 +106,11 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   it("no-ammo: a within-RTT ability double press denies {'no-ammo'} keyed on the press's actSeq", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0); // TB: slot 1 = boost (1 charge) on every captain
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0 }));
+    w.submitInput('a', input(1, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
     w.step(); // press 1 activates (charge 1 → 0)
     expect(a.boostUntil).toBeGreaterThan(0);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
-    w.submitInput('a', input(2, { actSeq: 2, actSlot: SLOT_BOOST, hornSeq: 0 }));
+    w.submitInput('a', input(2, { actSeq: 2, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
     w.step(); // press 2, pool empty — silently swallowed before 1.10
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
   });
@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 56→57 bump (PV 57, Story 8.14: the own-ship frame gains `gun` and the whole deck contract is deleted, so a PV-56 client would knock on a deck door that no longer exists) is enforced at matchmake', () => {
-  it('rejects pv-56 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(57);
+describe('pv join gate — the 57→58 bump (PV 58, Story 8.15: `InputMsg.held` is a REQUIRED boolean, the shell reveal gains `w`, the own-ship frame gains `damageCutUntil` and the catalog content moved, so a PV-57 client would have every input dropped) is enforced at matchmake', () => {
+  it('rejects pv-57 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(58);
+    expect(protocolVersionError(57)).toMatch(/refresh/);
     expect(protocolVersionError(56)).toMatch(/refresh/);
     expect(protocolVersionError(55)).toMatch(/refresh/);
     expect(protocolVersionError(54)).toMatch(/refresh/);

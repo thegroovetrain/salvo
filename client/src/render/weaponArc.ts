@@ -189,6 +189,11 @@ export { twinSectorSide };
 export function weaponRangeU(stats: EffectiveStats, id: SlotItemId | null): number {
   if (id === 'broadside') return stats.equipment.broadside.rangeU;
   if (id === 'starShells') return stats.equipment.starShells.rangeU;
+  // THE TWO PICKABLE GUNS (Story 8.15) read their OWN row — both re-pinned to
+  // the radar rung today (660 u, amendments 103/105), but a gun's range is its
+  // row's number, never the cannon's by assumption.
+  if (id === 'machineGun') return stats.equipment.machineGun.rangeU;
+  if (id === 'flak') return stats.equipment.flak.rangeU;
   // ALL THREE MINE LINES share the ONE leash (Story 8.13) — the naval chassis
   // is shared, not duplicated (`CONFIG.captiveMines`/`CONFIG.foulingMines` restate
   // no placement field), so an id-equality test on `navalMines` would have given
@@ -216,26 +221,35 @@ export type { LitCircle };
 export { pointInLitZone };
 
 /**
- * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): the reach the primed
- * system actually has FOR THIS AIM, which is `weaponRangeU` except where the
- * flare extension applies.
+ * THE DECK GUNS (amendment 114) — the three slot-0 gun rows that fire into the
+ * shooter's own lit-up area: the cannon (`gun`), the MACHINE GUN and the FLAK
+ * GUN. An explicit, pinned id SET (never an id equality), mirroring the server,
+ * where exactly these three rows call `gunReachU`.
+ */
+const DECK_GUNS: ReadonlySet<SlotItemId> = new Set<SlotItemId>(['gun', 'machineGun', 'flak']);
+
+/**
+ * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15; amendment 114): the reach
+ * the primed system actually has FOR THIS AIM, which is `weaponRangeU` except
+ * where the flare extension applies.
  *
- * A GUN click whose target point lies inside a LIVE lit zone the clicking
- * player OWNS is legal beyond `stats.equipment.gun.rangeU` — you can shell what your own
- * flare is lighting.
+ * A DECK-GUN click whose target point lies inside a LIVE lit zone the clicking
+ * player OWNS is legal beyond that gun's own row `rangeU` — you can shell what
+ * your own flare is lighting. Eric ruling 2026-09-29 (amendment 114): every
+ * deck gun — cannon, machine gun, flak — gets it, exactly as the cannon did.
  *
- * THE RULE ITSELF IS NOT WRITTEN HERE ANY MORE. It used to be, mirrored line
- * for line off the server's legality gate; both sides now CALL the promoted
- * shared `gunReachU` (sim/aim.ts), the same promotion `blockedWater` and
+ * THE RULE ITSELF IS NOT WRITTEN HERE. Both sides CALL the promoted shared
+ * `gunReachU` (sim/aim.ts), the same promotion `blockedWater` and
  * `burstPointAlong` already made. All that survives on this side is the part
  * that is genuinely the client's:
  *
- *  - THE ID GATE. Gun ONLY — never the broadside (its 5/8 rung is a weapon
- *    identity, not a horizon), never the star shell itself, never the torpedo,
- *    never the mine. It lives HERE rather than at the call sites so nothing can
- *    forget it and quietly widen a second weapon; on the server the same clause
- *    is structural (only the gun row calls the predicate at all).
- *  - THE BASE RANGE, resolved per id through `weaponRangeU`.
+ *  - THE ID GATE. Deck guns ONLY (`DECK_GUNS`) — never the broadside (its 5/8
+ *    rung is a weapon identity, not a horizon), never the star shell itself,
+ *    never the torpedo, never the mine. It lives HERE rather than at the call
+ *    sites so nothing can forget it and quietly widen another weapon; on the
+ *    server the same clause is structural (only the three deck-gun rows call
+ *    the predicate at all).
+ *  - THE BASE RANGE, resolved per id through `weaponRangeU` (each gun's OWN row).
  *  - THE ZONE LIST, already filtered to own + live by `ownActiveZones`.
  *
  * This is the number BOTH the range-clamp marker (render/firing.ts) and the aim
@@ -255,7 +269,7 @@ export function weaponReachU(
   ownLitZones: readonly LitCircle[],
 ): number {
   const base = weaponRangeU(stats, id);
-  if (id !== 'gun') return base; // gun only — every other id keeps its own range
+  if (id === null || !DECK_GUNS.has(id)) return base; // deck guns only — every other id keeps its own range
   return gunReachU(ship, aim, aimDist, base, mapRadius, ownLitZones);
 }
 

@@ -132,7 +132,7 @@ function buoyMask(w: World, b: BuoyState): HullCoverage {
 
 /** Click the buoy slot astern and let the tick apply it. */
 function dropBuoy(w: World, id: string, fireSeq: number): void {
-  w.submitInput(id, { seq: fireSeq, throttle: 0, rudder: 0, aim: Math.PI, fireSeq, aimDist: 60, slot: SLOT_BUOY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  w.submitInput(id, { seq: fireSeq, throttle: 0, rudder: 0, aim: Math.PI, fireSeq, aimDist: 60, slot: SLOT_BUOY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
   w.step();
 }
 
@@ -142,7 +142,7 @@ describe('radar buoy — placement + the one-buoy lifecycle (R2.7)', () => {
   it('a fireSeq click astern places the buoy AT the clicked point with the owner-stat life/hp/set', () => {
     const w = bareWorld();
     const ml = place(w, 'm', 0, 0, 0, 'mineLayer');
-    w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 60, slot: SLOT_BUOY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 60, slot: SLOT_BUOY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
     w.step();
     expect(w.buoys.size).toBe(1);
     const [b] = [...w.buoys.values()];
@@ -157,7 +157,7 @@ describe('radar buoy — placement + the one-buoy lifecycle (R2.7)', () => {
   it('AT BASE COOLDOWN life < reload: the buoy expires silently ~10s before the next charge, so one buoy at a time', () => {
     const w = bareWorld();
     const ml = place(w, 'm', 0, 0, 0, 'mineLayer');
-    w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 60, slot: SLOT_BUOY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 60, slot: SLOT_BUOY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
     w.step();
     expect(w.buoys.size).toBe(1);
     // Never two live at any tick, and expiry emits NOTHING.
@@ -429,7 +429,7 @@ describe('radar buoy — the GUN BUOY (R2.10)', () => {
     const watcher = place(w, 'w', 100, 0);
     place(w, 'e', 200, 0); // something for the buoy to shoot
     // the owner's own gun click, same tick (SLOT_GUN = 0)
-    w.submitInput('j', { seq: 1, throttle: 0, rudder: 0, aim: -Math.PI / 2, fireSeq: 1, aimDist: 200, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.submitInput('j', { seq: 1, throttle: 0, rudder: 0, aim: -Math.PI / 2, fireSeq: 1, aimDist: 200, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
     w.step();
     const flashes = buildFrame(w, 'w').events.filter((e) => e.k === 'mz') as { x: number; y: number }[];
     expect(flashes).toHaveLength(2);
@@ -506,7 +506,7 @@ describe('radar buoy — destructible by ordinary weapons, paying nothing (R2.7)
     // shell flies past and the BURST — not an interception — resolves it.
     w.shells.set('s1', {
       id: 's1', ownerId: 'k', x: 60, y: 20, vx: CONFIG.gun.shellSpeed, vy: 0,
-      distLeft: 40, bornAt: w.now, kind: 'shell', damage: 10,
+      distLeft: 40, bornAt: w.now, kind: 'shell', family: 'cannon', damage: 10,
       hitRadius: CONFIG.gun.shellRadius, targetX: 100, targetY: 20,
       burstRadius: CONFIG.gun.burstRadius, contactDamage: CONFIG.gun.contactDamage, hits: CONFIG.gun.hits,
     });

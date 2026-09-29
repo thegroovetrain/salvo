@@ -416,7 +416,7 @@ export function pointInLitZone(p: Vec2, zones: readonly LitCircle[]): boolean {
 
 /**
  * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15) — ONE derivation, both
- * sides. A gun click normally clamps to the ship's effective `gun.rangeU`; a
+ * sides. A deck-gun click normally clamps to its effective row `rangeU`; a
  * click whose BURST POINT lies inside a LIVE lit zone the CLICKING player owns
  * is legal past it, and the shell flies the whole way. You can shell what your
  * own flare is lighting.
@@ -431,8 +431,10 @@ export function pointInLitZone(p: Vec2, zones: readonly LitCircle[]): boolean {
  *
  * Every clause here is load-bearing and none of them may be "improved" in
  * passing:
- *  - GUN ONLY. Callers gate on the equipment id before calling; no other row
- *    reaches for this. The broadside's 5/8 rung is a weapon identity, not a
+ *  - DECK GUNS ONLY (the cannon, the machine gun and the flak gun — Eric
+ *    ruling 2026-09-29, amendment 114), each passing its OWN row's range.
+ *    Callers gate on the equipment id before calling; no other row reaches
+ *    for this. The broadside's 5/8 rung is a weapon identity, not a
  *    horizon; a torpedo runs to the map edge; the star shell keeps its own
  *    range.
  *  - OWN FLARES ONLY — enforced by construction in `ownLitZones` (see
@@ -448,7 +450,8 @@ export function pointInLitZone(p: Vec2, zones: readonly LitCircle[]): boolean {
  *
  * An in-range click early-outs before any zone is visited or any geometry is
  * computed, so the ordinary shot is byte-identical to the pre-R2.15 path.
- * `baseRangeU` arrives from the caller's `effectiveStats().gun.rangeU` — this
+ * `baseRangeU` arrives from the caller's effective row `rangeU` (`gun` /
+ * `machineGun` / `flak`) — this
  * module never reads CONFIG for a boon-scalable value.
  */
 export function gunReachU(

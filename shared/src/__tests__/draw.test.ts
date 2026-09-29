@@ -33,11 +33,15 @@ import {
   boonStackCount,
   drawOffer,
   eligibleLines,
+  GUN_IDS,
+  ladderHost,
   lineWeight,
+  MOUNTED_GUN,
   mulberry32,
   usableLines,
   type Catalog,
   type CatalogLine,
+  type GunId,
   type DrawKind,
   type DrawShip,
   type EquipmentId,
@@ -179,6 +183,58 @@ describe('eligibleLines — the whole eligibility law', () => {
     rows.deckGun = { ...CATALOG.deckGun, appliesTo: ['machineGun'] };
     expect(eligibleLines(OPEN, rows).some((e) => e.id === 'deckGun')).toBe(false);
     expect(eligibleLines(otherGun, rows).some((e) => e.id === 'deckGun')).toBe(true);
+  });
+
+  it('EACH GUN LADDER IS GATED TO ITS OWN MOUNTED GUN (Story 8.15, amendments 89d/104/105)', () => {
+    // ladderHost reads the ladder's `appliesTo` — the machine gun and flak
+    // ladders name their own rows, exactly as DECK GUN names `gun`.
+    expect(ladderHost(CATALOG.machineGun)).toBe('machineGun');
+    expect(ladderHost(CATALOG.flak)).toBe('flak');
+    expect(ladderHost(CATALOG.deckGun)).toBe('gun');
+    expect(ladderHost(CATALOG.deckGunTurret)).toBe('gun'); // via its stat path
+    expect(ladderHost(CATALOG.deckGunBarrel)).toBe('gun');
+    for (const id of ['armor', 'speed', 'turning', 'radarSweep', 'reload'] as const) {
+      expect(ladderHost(CATALOG[id]), id).toBeUndefined(); // universal
+    }
+
+    // Which gun ladders a seat can be dealt, per mounted gun — the WHOLE set,
+    // so a cannon ladder can never reach a flak seat and vice versa.
+    const GUN_LADDERS = ['deckGun', 'deckGunTurret', 'deckGunBarrel', 'machineGun', 'flak'];
+    const want: Record<GunId, string[]> = {
+      deckGun: ['deckGun', 'deckGunTurret', 'deckGunBarrel'],
+      machineGun: ['machineGun'],
+      flak: ['flak'],
+    };
+    for (const gun of GUN_IDS) {
+      const ship: DrawShip = { ...OPEN, mountedGun: MOUNTED_GUN[gun] };
+      const dealt = eligibleLines(ship).map((e) => e.id).filter((id) => GUN_LADDERS.includes(id));
+      expect(dealt, gun).toEqual(want[gun]);
+      // Every gun ladder that IS eligible is an UPGRADE, never a weapon.
+      for (const e of eligibleLines(ship)) {
+        if (GUN_LADDERS.includes(e.id)) expect(e.kind, `${gun}/${e.id}`).toBe('upgrade');
+      }
+    }
+  });
+
+  it('the draw NEVER OFFERS a gun ladder for an unmounted gun, over many seeded offers (Story 8.15)', () => {
+    const rng = mulberry32(0x815_0815);
+    for (const gun of GUN_IDS) {
+      const mounted = MOUNTED_GUN[gun];
+      const ship: DrawShip = { ...OPEN, mountedGun: mounted };
+      for (let i = 0; i < 300; i += 1) {
+        for (const id of drawOffer(ship, new Map(), rng)) {
+          const host = ladderHost(CATALOG[id]);
+          if (CATALOG[id].kind === 'ladder' && host !== undefined) expect(host, `${gun} offered ${id}`).toBe(mounted);
+        }
+      }
+    }
+  });
+
+  it('a gun ladder leaves the pool at its cap of 4 (the MG and flak ladders, like DECK GUN)', () => {
+    const mg: DrawShip = { ...OPEN, mountedGun: 'machineGun', held: ['machineGun', 'machineGun', 'machineGun'] };
+    expect(eligibleLines(mg).some((e) => e.id === 'machineGun')).toBe(true);
+    const capped: DrawShip = { ...mg, held: [...mg.held, 'machineGun'] };
+    expect(eligibleLines(capped).some((e) => e.id === 'machineGun')).toBe(false);
   });
 
   it('an ADD-ON may be held ahead of its host while a slot is open, never with the row full', () => {

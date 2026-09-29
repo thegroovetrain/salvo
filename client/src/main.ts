@@ -18,6 +18,7 @@ import {
   boostedKinematics,
   CATALOG,
   cardBehaviors,
+  classShift,
   effectiveStats,
   equipmentReloadMs,
   hullSilhouette,
@@ -124,10 +125,11 @@ import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
-import { InputSampler } from './sim/inputSampler.js';
+import { InputSampler, type Aiming } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
 import {
   loadSavedClass,
+  loadSavedGun,
   loadSavedMode,
   loadSavedName,
   saveMode,
@@ -698,8 +700,11 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
  * `slotsWithCards(…, gun)` hands the seat's gun to the shared `loadoutFor`,
  * which resolves it through `MOUNTED_GUN` — exactly the derivation the server
  * fits and re-fits the slot from — so neither side ever assumes the deck gun's
- * module. All three seat guns mount the shipped `'gun'` module until Story
- * 8.15 builds the other two.
+ * module. Since Story 8.15 each gun mounts its OWN module.
+ *
+ * SLOT 1 IS REPLAYED FROM THE HULL'S SHIFT (Story 8.15, amendment 89(c)):
+ * `classShift(cls)` — the same read the server fits slot 1 from — so the Mine
+ * Layer's square holds INSTANT RELOAD and the Battleship's DAMAGE CUT.
  *
  * NO HULL ID. Story 8.5 deleted the per-hull fit: what a captain carries is a
  * fact about their PICKS, never about their hardware, so the replay is the only
@@ -709,9 +714,10 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
 function slotIdsFor(
   stats: EffectiveStats,
   cards: readonly string[],
+  cls: ShipClassId,
   gun: GunId = DEFAULT_GUN,
 ): (SlotItemId | null)[] {
-  return slotsWithCards(stats, cards, CATALOG, false, gun).map((s) => s.equipmentId);
+  return slotsWithCards(stats, cards, CATALOG, false, gun, classShift(cls)).map((s) => s.equipmentId);
 }
 
 /**
@@ -2592,6 +2598,10 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   // an input (it may sit behind other queued presses); the optimistic boost
   // window keys its clear-on-ack on exactly that counter, not the live count.
   if (id === 'boost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
+  // The other two class Shifts (Story 8.15) predict NOTHING beyond the generic
+  // ACTIVATED pop above: INSTANT RELOAD's refilled pools and DAMAGE CUT's
+  // `damageCutUntil` window both arrive with the server's frame — neither moves
+  // the hull, so there is no motion to hide a round trip behind.
   // A click-placed buoy has no press-time cue: its placement tone rides the buoy
   // reconcile's own-spawn hook (the mine precedent), so it fires on the confirmed
   // OWN buoy and never on a truesighted enemy buoy.
@@ -2743,12 +2753,20 @@ function latchFitFlash(g: Game, cardId: string): void {
  * ms — the REMAINING ability window per loadout slot (0 = none running), the
  * ACTIVE state's only input (amendment 48). The boost reads the same
  * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; the buoy
- * reads the latched own-buoy expiry. Everything else has no window.
+ * reads the latched own-buoy expiry; DAMAGE CUT (Story 8.15, the Battleship's
+ * Shift) reads the server's self-private `you.damageCutUntil` — no prediction,
+ * the window arrives with the frame — so the Shift square takes the boost's
+ * ACTIVE grammar for its 8 s (amendment 34). INSTANT RELOAD has no window: it
+ * goes straight to the cooldown wipe. Everything else has no window.
  */
 function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
-  const until = { boost: boostUntilNow(g), radarBuoy: g.buoys.ownUntil() };
-  return status.loadout.map((id) => (id === 'boost' || id === 'radarBuoy' ? Math.max(0, until[id] - now) : 0));
+  const until: Partial<Record<string, number>> = {
+    boost: boostUntilNow(g),
+    radarBuoy: g.buoys.ownUntil(),
+    damageCut: g.state.net.you?.damageCutUntil ?? 0,
+  };
+  return status.loadout.map((id) => Math.max(0, (id === null ? 0 : until[id] ?? 0) - now));
 }
 
 /**
@@ -2878,7 +2896,7 @@ function buildGame(
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
-    ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS),
+    ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls),
     refitClosedAt: -Infinity, refitWasOpen: false,
     // Story 8.10: both are per-MATCH latches, and a fresh Game is built per
     // join — so a join is already a reset, and `updateMatchEpoch` owns every
@@ -2983,7 +3001,7 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   // the slot activate-vs-prime split, HUD chips, and ammo fallback all read
   // from here — derived via the SAME shared slot-effect replay the server
   // applies incrementally (slotsWithCards), so slot ids agree by construction.
-  g.ownSlots = slotIdsFor(stats, cards, gun);
+  g.ownSlots = slotIdsFor(stats, cards, cls, gun);
   // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). The belt empties itself:
   // the last copy of a stocked line is spent and the square goes back to
   // dashed. A prime left standing on it would swallow every click that follows
@@ -3148,6 +3166,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // honest way to tell an own CANNON shell from an own GUN shell, since the
     // ballistic wire shape says neither.
     ownFireWeapon: () => ownFireWeapon(g),
+    ownStreamWeapon: () => g.ownFire.claimStream(g.clock.serverNow()), // Story 8.15: every own MG shell
     // The own-burst ring's EFFECTIVE radius (undefined = keep the CONFIG base,
     // which is what every burst we cannot honestly claim as ours renders at).
     ownBurstRadius: (own) => ownBurstRadius(g.ownStats, own),
@@ -3495,6 +3514,8 @@ function hotbarView(g: Game, status: OwnStatus): HotbarView {
     fitFrame: g.fitFrameFlash,
     fitFrameDegraded: g.fitFrameDegraded,
     nowSec: g.clock.serverNow() / 1000,
+    // Story 8.15 (UX-DR52): the live hold, for the machine gun's held-fire drain.
+    held: g.mouse.isHeld,
   };
 }
 
@@ -3666,9 +3687,9 @@ function renderFiring(
     g, FLASH_ELEMENTS.deniedArc, g.deniedPulse, g.deniedFlash, nowMs, g.deniedDegraded,
   );
   // ONE reach for this aim, feeding BOTH the range-clamp marker and the aim
-  // preview (R2.15): the gun's clamp LIFTS to the click when the click lands
-  // inside one of our own live lit zones — you may shell what your own flare is
-  // lighting — and every other id keeps its own weaponRangeU byte-for-byte. Two
+  // preview (R2.15, amendment 114): a deck gun's clamp (cannon, machine gun,
+  // flak) LIFTS to the click when the click lands inside one of our own live lit
+  // zones — you may shell what your own flare is lighting — and every other id keeps its own weaponRangeU byte-for-byte. Two
   // derivations of one reach would let the marker and the burst circle disagree
   // about where the shell stops.
   const reachU = weaponReachU(status.stats, primedItem, pose, aim, aimDist, g.mapRadius, ownZones);
@@ -3793,6 +3814,15 @@ function clickPrediction(
     // than the equipment-only narrowing.
     inArc: clickInArc(predictedHeading(g), aim, aimDist, g.ownSlots[primedSlot] ?? null),
   };
+}
+
+/**
+ * THE STREAM LATCH (Story 8.15): a sampled input carrying `held: true` with the
+ * MACHINE GUN mounted stamps the non-consuming stream claim, so every own
+ * `w: 'mg'` reveal inside the window reads as ours (sim/ownFire.ts).
+ */
+function stampOwnStream(g: Game, held: boolean): void {
+  if (held && g.ownSlots[0] === 'machineGun') g.ownFire.holdStream(g.clock.serverNow());
 }
 
 /**
@@ -4636,6 +4666,21 @@ function tickAim(g: Game): { aim: number; aimDist: number } {
   };
 }
 
+/** This tick's fire-facing wire fields (the sampler's `Aiming`). Called ONCE
+ *  per sim tick: `consumeHeld` clears the tap latch as it reads it. */
+function tickAiming(g: Game, aim: number, aimDist: number, primedSlot: number): Aiming {
+  return {
+    aim,
+    fireSeq: g.mouse.clickCount,
+    aimDist,
+    slot: primedSlot,
+    fireT: g.mouse.lastClickT, // honest fire instant (server-clock estimate at pointerdown)
+    actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
+    actSlot: g.keyboard.actSlot,
+    held: g.mouse.consumeHeld(), // Story 8.15: the machine gun's stream level (live hold OR a latched tap)
+  };
+}
+
 function makeCallbacks(g: Game): LoopCallbacks {
   // Story 1.13: hoist the per-contact nameplate frame — camera + pad are stable
   // and nameOf closes over g, so build it ONCE and reuse it every render frame
@@ -4670,16 +4715,9 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // in one 50ms window must ride successive inputs — consume before reading
       // actSeq/actSlot so this input carries the drained press (if any).
       g.keyboard.consumeActivation();
-      const input = g.sampler.sample(helmAxes(g), {
-        aim,
-        fireSeq: g.mouse.clickCount,
-        aimDist,
-        slot: primedSlot,
-        fireT: g.mouse.lastClickT, // honest fire instant (server-clock estimate at pointerdown)
-        actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
-        actSlot: g.keyboard.actSlot,
-      });
+      const input = g.sampler.sample(helmAxes(g), tickAiming(g, aim, aimDist, primedSlot));
       consumePrimeOnFire(g, primedSlot, aim, aimDist, input.fireSeq);
+      stampOwnStream(g, input.held);
       // This tick's server-time estimate rides into the pending ring so a later
       // replay re-evaluates the boost gate at the identical per-tick time.
       if (g.state.mode === 'predict') g.predictor.localTick(input, g.clock.serverNow());
@@ -5061,7 +5099,7 @@ function startHomeLiveness(home: HomeHandle, countMe = true): void {
  * human leaves the room simply disposes. The field earns its keep for DUO/TRIO,
  * where a collapse is real and re-queueing into Standard would be wrong.
  */
-let lastDeploy: { name: string; cls: ShipClassId; mode: DeployMode } | null = null;
+let lastDeploy: { name: string; cls: ShipClassId; gun: GunId; mode: DeployMode } | null = null;
 
 // RETIRED (Eric rulings 2026-08-18): `REQUEUE_STATUS_HOLD_MS` and
 // `makeStatusHold`. Both existed for ONE reason — the home had a single status
@@ -5131,21 +5169,21 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
   const { start: startAmbient, stop: stopAmbient } = makeAmbient(shell.stage);
   const home = showHome(
     shell.version,
-    (name, cls) => {
+    (name, cls, gun) => {
       shell.audio.resume(); // must happen inside the PLAY click's user-gesture handler
       // FUNNEL: mode_pick. This closure runs only AFTER home's `deploy()` has
       // cleared its busy and no-class guards, so "a press that actually
       // deploys" is structural — a press that opens the class bay instead
       // never reaches here, and neither does the machine-driven auto-requeue.
       analytics.modePick('standard');
-      void startGame(shell, home, stopAmbient, name, cls);
+      void startGame(shell, home, stopAmbient, name, cls, 'standard', gun);
     },
     () => shell.settingsOverlay.toggle(),
     // SOLO VS AI (Story 6.5): same deploy identity, queue-free door.
-    (name, cls) => {
+    (name, cls, gun) => {
       shell.audio.resume(); // same user-gesture rule as the SOLO primary
       analytics.modePick('soloVsAi'); // FUNNEL: mode_pick, same guard story
-      void startGame(shell, home, stopAmbient, name, cls, 'soloVsAi');
+      void startGame(shell, home, stopAmbient, name, cls, 'soloVsAi', gun);
     },
   );
   homeRef = home;
@@ -5164,16 +5202,17 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     // deploy, which the lifecycle does not allow; it takes the saved hull rather
     // than inventing one — and the queue, which is the only door a collapse can
     // arrive from today.
-    const { name, cls, mode } = lastDeploy ?? {
+    const { name, cls, gun, mode } = lastDeploy ?? {
       name: '',
       cls: loadSavedClass(),
+      gun: loadSavedGun(),
       // Story 6.6: the persisted mode, so a reload between the deploy and the
       // collapse still re-enters the door the player actually chose.
       mode: loadSavedMode() ?? 'standard',
     };
     // Eric ruling 2026-08-17: re-enter the mode the player last chose, not
     // always Standard. (Unreachable for `soloVsAi` — see `lastDeploy`.)
-    void startGame(shell, home, stopAmbient, name, cls, mode);
+    void startGame(shell, home, stopAmbient, name, cls, mode, gun);
     return;
   }
   // THE CONSENT CARD IS DELETED (Story 7.4, Eric ruling 2026-08-19). Nothing is
@@ -5243,6 +5282,7 @@ async function startGame(
   name: string,
   cls: ShipClassId,
   mode: DeployMode = 'standard',
+  gun: GunId = DEFAULT_GUN,
 ): Promise<void> {
   const solo = mode === 'soloVsAi';
   home.setBusy(true);
@@ -5262,7 +5302,7 @@ async function startGame(
     startHomeLiveness(home); // another tab is at sea; this home stays live + informed
     return;
   }
-  lastDeploy = { name, cls, mode }; // what the auto-requeue re-deploys with
+  lastDeploy = { name, cls, gun, mode }; // what the auto-requeue re-deploys with
   saveMode(mode); // ...and what a RELOAD re-deploys with (Story 6.6)
   // Every deploy opens on CONNECTING… now, the auto-requeue included: the
   // collapse's own opening register is gone (Eric ruling 2026-08-18), so there
@@ -5300,6 +5340,7 @@ async function startGame(
             },
           },
       solo,
+      gun, // Story 8.15: the captain's gun pick, frozen at queue as the seat's `gun`
     );
   } catch (err) {
     // A CANCEL rejects through the same door but is NOT a failure: it is quiet
@@ -5411,7 +5452,7 @@ async function tryResumeMatch(shell: Shell): Promise<'none' | 'resumed' | 'faile
   }
   // What the auto-requeue would re-deploy with, had we come through the home.
   const mode = loadSavedMode() ?? 'standard';
-  lastDeploy = { name: loadSavedName(), cls: loadSavedClass(), mode };
+  lastDeploy = { name: loadSavedName(), cls: loadSavedClass(), gun: loadSavedGun(), mode };
   // `loadSavedClass()` is a GUESS and is meant to be: `buildGame` seeds the
   // predictor and the hull view from it, and the very first frame's `you.cls`
   // replaces every derived stat through `applyOwnStats` — the same desync

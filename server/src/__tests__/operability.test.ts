@@ -477,7 +477,7 @@ describe('JOINING-deadline kick', () => {
 // JOIN_ROOM ack squats forever (roster slot, win-check ship, growing buffer).
 
 interface ResumeRoom {
-  world: { ships: Map<string, { lifecycle: ShipLifecycle }> };
+  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void };
   match: { phase: string } | null;
   lastResults: ResultsMsg | null;
   clients: JoinClient[];
@@ -488,7 +488,7 @@ interface ResumeRoom {
 
 async function resumedDeadline(newClient: JoinClient): Promise<() => void> {
   const room = new ArenaRoom() as unknown as ResumeRoom;
-  room.world = { ships: new Map([['a', { lifecycle: LIFECYCLE_ALIVE }]]) };
+  room.world = { ships: new Map([['a', { lifecycle: LIFECYCLE_ALIVE }]]), releaseHeld: () => undefined };
   room.match = { phase: 'active' };
   room.lastResults = null;
   room.clients = [newClient];

@@ -63,6 +63,11 @@ export type Kind = BallisticEvent['k'];
  *                  heuristic (self-private). The ballistic wire shape cannot
  *                  say "broadside" and must not — an onlooker sees the ordinary
  *                  shell look, which is the correct amount of information.
+ *   tracer         a MACHINE GUN shell (Story 8.15): the reveal's declared
+ *                  gun-family field `w === 'mg'` (amendment 89(i) — the ONE
+ *                  disclosure widening, visible to any observer) — a short
+ *                  streak along its velocity. `w: 'flak'` and `'cannon'` keep
+ *                  the shell dot (flak's 50 u ring comes from its burst event).
  *
  * STORY 7-5 WAVE 2 retired `cannon`/`cannonArcing`/`cannonAp` with the weapon
  * (R2.6). The BROADSIDE BARRAGE that replaces it has NO doctrine cards at all,
@@ -70,7 +75,7 @@ export type Kind = BallisticEvent['k'];
  * and ARMOR-PIERCING went the `swell` (height-as-size) and `stretch` (dart)
  * channels, which had no other user.
  */
-export type ProjectileLookId = 'shell' | 'torp' | 'torpHoming' | 'broadside';
+export type ProjectileLookId = 'shell' | 'torp' | 'torpHoming' | 'broadside' | 'tracer';
 
 /** Per-look sprite paint. Torpedoes read slower + fatter with a cooler tint. */
 interface ProjectileLook {
@@ -115,6 +120,16 @@ const LOOKS: Record<ProjectileLookId, ProjectileLook> = {
     glowR: O.broadsideGlowR,
     glowAlpha: O.broadsideGlowAlpha,
   },
+  // THE MACHINE GUN'S TRACER (Story 8.15): the shell's own tones, a smaller
+  // head, and a streak (`O.tracerLenU`) painted behind it along the velocity —
+  // see `paint` / `aimTracer`. `glowR` sizes the streak's soft underlay.
+  tracer: {
+    core: C.legacy.shellCore,
+    glow: C.amber,
+    coreR: O.tracerCoreR,
+    glowR: O.tracerWidthU * 2,
+    glowAlpha: O.tracerGlowAlpha,
+  },
 };
 
 /**
@@ -153,6 +168,11 @@ export type OwnFire =
   | 'lightTorpedo'
   | 'heavyTorpedo'
   | 'supercavTorpedo'
+  // THE TWO PICKABLE GUNS (Story 8.15): the FLAK GUN's shell is claimed by the
+  // click latch like the cannon's; the MACHINE GUN's stream shells are claimed
+  // per shell off the held level (OwnFireLatch.claimStream), never the click.
+  | 'flak'
+  | 'machineGun'
   | null;
 
 /**
@@ -171,10 +191,32 @@ export type OwnFire =
  * rides the same wire kind) falls through to the generic shell look on the same
  * clause.
  */
-export function lookForReveal(kind: Kind, own: OwnFire, modes: OwnModes): ProjectileLookId {
-  if (kind !== 'torp') return own === 'broadside' ? 'broadside' : 'shell';
+export function lookForReveal(
+  kind: Kind,
+  own: OwnFire,
+  modes: OwnModes,
+  w?: BallisticEvent['w'],
+): ProjectileLookId {
+  if (kind !== 'torp') return shellLook(own, w);
   const homing = own === 'lightTorpedo' || own === 'heavyTorpedo' ? modes[own] : false;
   return homing ? 'torpHoming' : 'torp';
+}
+
+/** Pure: a `shell` reveal's look — the own broadside's heavier dot, else the
+ *  machine gun's tracer off the reveal's family word (Story 8.15), else the
+ *  shell dot (cannon, flak, star shells, and any pre-8.15 reveal with no `w`). */
+function shellLook(own: OwnFire, w: BallisticEvent['w']): ProjectileLookId {
+  if (own === 'broadside') return 'broadside';
+  return w === 'mg' ? 'tracer' : 'shell';
+}
+
+/**
+ * Point a sprite along its velocity when it wears the TRACER look (the streak
+ * is painted along local −x), and square every other look back to 0 — the
+ * sprites are POOLED, so a dot must never inherit a tracer's rotation.
+ */
+function aimTracer(g: Graphics, look: ProjectileLookId, ev: { vx: number; vy: number }): void {
+  g.rotation = look === 'tracer' ? Math.atan2(ev.vy, ev.vx) : 0;
 }
 
 /** Extra map crossings' worth of slack on the lifetime backstop (u). */
@@ -498,7 +540,14 @@ export class Projectiles {
   private paint(g: Graphics, id: ProjectileLookId): void {
     const look = LOOKS[id];
     g.clear();
-    g.circle(0, 0, look.glowR).fill({ color: look.glow, alpha: look.glowAlpha });
+    if (id === 'tracer') {
+      // A SHORT STREAK trailing the head along local −x; `aimTracer` rotates
+      // the sprite onto the velocity. Soft underlay first, then the hot line.
+      g.moveTo(-O.tracerLenU, 0).lineTo(0, 0).stroke({ width: look.glowR, color: look.glow, alpha: look.glowAlpha });
+      g.moveTo(-O.tracerLenU, 0).lineTo(0, 0).stroke({ width: O.tracerWidthU, color: look.core, alpha: 0.9 });
+    } else {
+      g.circle(0, 0, look.glowR).fill({ color: look.glow, alpha: look.glowAlpha });
+    }
     g.circle(0, 0, look.coreR).fill({ color: look.core, alpha: 1 });
   }
 
@@ -543,8 +592,9 @@ export class Projectiles {
     // fish is ever fabricated as ours.
     const attributed = own ?? this.claims.get(ev.id) ?? null;
     const gfx = this.pool.acquire();
-    const look = lookForReveal(ev.k, attributed, this.ownModes);
+    const look = lookForReveal(ev.k, attributed, this.ownModes, ev.w);
     this.paint(gfx, look);
+    aimTracer(gfx, look, ev);
     gfx.visible = true;
     const s: LiveShell = {
       gfx,
@@ -604,6 +654,7 @@ export class Projectiles {
     s.vy = ev.vy;
     s.t0 = ev.t;
     s.expiresAt = ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy));
+    aimTracer(s.gfx, s.look, ev);
   }
 
   /**

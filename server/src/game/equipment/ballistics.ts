@@ -14,6 +14,7 @@
 import {
   hullClearOffset as sharedHullClearOffset,
   muzzleSpawn as sharedMuzzleSpawn,
+  type ShellFamily,
   type ShellState,
   type TargetKind,
   type Vec2,
@@ -67,6 +68,15 @@ export interface BallisticParams {
    *  `CONFIG.<ordnance>.hits`. REQUIRED like every other hit-rule field, so a
    *  new weapon cannot silently borrow the gun's answer or default to hulls. */
   hits: readonly TargetKind[];
+  /** THE GUN FAMILY (Story 8.15, amendment 89(i)) — `cannon` / `mg` / `flak`
+   *  for a gun-pattern shell, `null` for a torpedo. REQUIRED like `hits`, so
+   *  no constructor can silently borrow the cannon's family: the ballistic
+   *  signal materializes it as the shell reveal's `w`. */
+  family: ShellFamily | null;
+  /** DIRECT-HIT, NO BURST (Story 8.15 — the machine gun): the shell expires
+   *  at its aim point with a splash instead of bursting, and a hull it strikes
+   *  takes a plain contact hit (see ShellState.direct). */
+  direct?: true;
   /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
    *  zone (see ShellState.lit). Only fireStarShell sets it; never on the wire. */
   lit?: { radius: number; durationMs: number };
@@ -106,7 +116,9 @@ export function makeBallistic(
     burstRadius: p.burstRadius,
     contactDamage: p.contactDamage,
     hits: p.hits,
+    family: p.family,
   };
+  if (p.direct === true) shell.direct = true;
   // The optional doctrine tags are set only when the caller carries one (never
   // an explicit `undefined` key — the shape stays clean for plain projectiles).
   if (p.lit) shell.lit = p.lit;

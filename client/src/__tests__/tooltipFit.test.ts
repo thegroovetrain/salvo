@@ -203,11 +203,10 @@ describe('the laws that constrain the fix', () => {
     expect(bad).toEqual([]);
   });
 
-  // HEAT SEEKING is the one add-on with no holding line: its verb rides the
-  // HORIZONTAL MISSILE, whose module is Story 8.14, and writing copy for a
-  // weapon nobody has played is what the naming law forbids.
+  // HEAT SEEKING, the one add-on that had no holding line, was CUT with the
+  // missile in Story 8.15 (amendment 89e), so every ladder and add-on speaks.
   it('a LADDER or ADD-ON row always reports a live effect line', () => {
-    const chatty = LINES.filter((d) => (d.kind === 'ladder' || d.kind === 'addon') && d.id !== 'heatSeeking')
+    const chatty = LINES.filter((d) => d.kind === 'ladder' || d.kind === 'addon')
       .map((d) => d.id);
     const bad: string[] = [];
     for (const c of CASES) {
@@ -231,8 +230,15 @@ describe('the laws that constrain the fix', () => {
     const shipOnly = modelFor({ label: '', id: 'gun', cls: 'torpedoBoat', boons: shipwide });
     expect(shipOnly.boons.some((r) => r.label === SHIP_DIVIDER_ROW)).toBe(false);
     expect(shipOnly.boons.length).toBeGreaterThan(0);
-    for (const id of EQUIPMENT_IDS.filter((e) => e !== 'gun')) {
+    // Story 8.15: slot 0 holds WHICHEVER gun the captain picked, and the
+    // shipwide lines ride it — so the three mountable guns host them and no
+    // other equipment does.
+    const GUNS: readonly string[] = ['gun', 'machineGun', 'flak'];
+    for (const id of EQUIPMENT_IDS.filter((e) => !GUNS.includes(e))) {
       expect(modelFor({ label: '', id, cls: 'torpedoBoat', boons: shipwide }).boons).toEqual([]);
+    }
+    for (const id of ['machineGun', 'flak'] as const) {
+      expect(modelFor({ label: '', id, cls: 'torpedoBoat', boons: shipwide }).boons.length, id).toBeGreaterThan(0);
     }
   });
 

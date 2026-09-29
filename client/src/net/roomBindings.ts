@@ -158,6 +158,14 @@ export interface RoomBindingDeps {
    */
   ownFireWeapon: () => OwnFire;
   /**
+   * THE MACHINE GUN'S STREAM CLAIM (Story 8.15): 'machineGun' while the local
+   * hull has just been sampled holding its stream, else null — NON-consuming,
+   * because one hold fires many shells and every one of them is ours
+   * (sim/ownFire.ts `claimStream`). Consulted only for an own-hull `w: 'mg'`
+   * reveal. Optional so a harness with no stream simply never claims one.
+   */
+  ownStreamWeapon?: () => OwnFire;
+  /**
    * The burst-ring radius for an own-correlated burst, or undefined to keep the
    * CONFIG default (render/aimPreview.ownBurstRadius over the live own stats).
    * A function, not a value: effective stats are swapped wholesale whenever a
@@ -1415,8 +1423,8 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   // hull — see the ownFireWeapon dep note (a claim consumes) — and only for a
   // reveal the store has never seen (`firstReveal`).
   const near = firstReveal(e, deps) && nearOwnShip(e.x, e.y, deps);
-  const claim = near ? shellClaim(deps) : null;
-  const own = near ? ownShellWeapon(claim) : null;
+  const claim = near ? shellClaim(e, deps) : null;
+  const own = near ? ownShellWeapon(e, claim) : null;
   deps.projectiles.onShell(e, own, claim);
   if (own === 'broadside') deps.effects.spawnEffect('muzzleHeavy', e.x, e.y);
   if (own) deps.audio.play(fireTone(shellFireId(own)));
@@ -1433,9 +1441,14 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
  * shell inside one 400ms window, or an enemy shell revealed on our bow, can
  * never wear it.
  */
-function shellClaim(deps: RoomBindingDeps): OwnFire {
+function shellClaim(e: BallisticEvent, deps: RoomBindingDeps): OwnFire {
+  // A MACHINE GUN stream shell (Story 8.15 — the reveal's family word) claims
+  // the non-consuming STREAM latch, never the one-shot click latch: a click
+  // cannot fire the machine gun, and the click latch must stay whole for the
+  // weapon that will.
+  if (e.w === 'mg') return deps.ownStreamWeapon?.() ?? null;
   const fired = deps.ownFireWeapon();
-  return fired === 'broadside' || fired === 'gun' || fired === 'starShells' ? fired : null;
+  return fired === 'broadside' || fired === 'gun' || fired === 'starShells' || fired === 'flak' ? fired : null;
 }
 
 /**
@@ -1449,8 +1462,14 @@ function shellClaim(deps: RoomBindingDeps): OwnFire {
  * one off our effective blast radius on the strength of a guess would draw
  * somebody else's detonation at our numbers. So the burst path takes `claim`
  * (null here) and never this.
+ *
+ * A MACHINE GUN SHELL GETS NO FALLBACK (Story 8.15 review): a `w: 'mg'` reveal
+ * is own fire ONLY through the stream claim (our hull holds the level with the
+ * machine gun mounted). Enemy tracers stream past our bow constantly in a
+ * knife fight, so the near-hull guess would play our crack for each of them.
  */
-function ownShellWeapon(claim: OwnFire): OwnFire {
+function ownShellWeapon(e: BallisticEvent, claim: OwnFire): OwnFire {
+  if (e.w === 'mg') return claim;
   return claim ?? 'gun';
 }
 

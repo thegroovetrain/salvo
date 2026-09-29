@@ -94,7 +94,7 @@ for (let m = 0; m < MATCHES; m++) {
   const firstDmg = new Map<string, number>();
   const cap = CONFIG.zone.beatMs * 4 * 4 + 300000;
 
-  while (world.now < cap && match.phase !== 'results' && match.phase !== 'finished') {
+  while (world.now < cap && match.phase !== 'finished') {
     const snap = new Map<string, Per[]>();
     for (const s of world.ships.values()) {
       if (isFleetHull(s)) continue;

@@ -68,9 +68,15 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  * whitelist behind — but the DELIBERATE ABSENCES below are load-bearing and
  * are pinned absent by barrel.test.ts:
  *
- *   - every `rangeU` (gun / starShells / broadside): DERIVED from post-fold
- *     `radarRange` (the broadside one rung short, at the 5/8 muzzle rung), so a
- *     card addressing one would be a SECOND derivation;
+ *   - every `rangeU` (gun / machineGun / flak / starShells / broadside):
+ *     DERIVED from post-fold `radarRange` (the broadside one rung short, at
+ *     the 5/8 muzzle rung), so a card addressing one would be a SECOND
+ *     derivation;
+ *   - `flak.burstRadius` / `flak.contactDamage`: FIXED by ruling (amendment
+ *     105 — the blast never grows; the bodyblock is a CONFIG constant);
+ *   - `machineGun.rateMs` / `machineGun.idleReloadMs` and `damageCut.factor`:
+ *     Eric's fixed numbers (amendments 99/103) that no ladder steps — CONFIG
+ *     pass-throughs, not card-addressable (a harness `--tune` reaches CONFIG);
  *   - `broadside.traverseRad` / `broadside.mountSpreadRad`: derived from the
  *     1-based `spreadRung`, which IS the addressable field;
  *   - every mine's `triggerRadius`: derived post-fold (naval and fouling from
@@ -106,13 +112,24 @@ export const EQUIPMENT_STAT_FIELDS = {
   // is whitelisted although no tier steps it (10 hp is fixed): the table says
   // what is addressable in principle, not what a card writes today.
   foulingMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius', 'slowFactor'],
-  missile: ['reloadMs', 'maxAmmo', 'damage'],
+  // THE TWO PICKABLE GUNS (Story 8.15, amendments 103–105). The MACHINE GUN
+  // ladder steps the magazine (+2) and the per-shell damage (+1); the FLAK
+  // ladder steps damage (+2). `flak.burstRadius` and `flak.contactDamage`
+  // are deliberately ABSENT: the blast is FIXED by ruling (amendment 105) and
+  // the 4 hp bodyblock is a CONFIG constant, and this table is the authoring
+  // gate — the captive's fixed-burst precedent (both still flow CONFIG ->
+  // stats row as pass-throughs; a harness `--tune flak.*` reaches CONFIG).
+  // The −5 %/tier reload is the tier step in clampStats, never an effect.
   machineGun: ['reloadMs', 'maxAmmo', 'damage'],
   flak: ['reloadMs', 'maxAmmo', 'damage'],
-  monitor: ['reloadMs', 'maxAmmo', 'damage'],
   broadside: ['reloadMs', 'maxAmmo', 'damage', 'burstRadius', 'turrets', 'spreadRung'],
   starShells: ['reloadMs', 'maxAmmo', 'litRadius', 'litDurationMs'],
   radarBuoy: ['reloadMs', 'maxAmmo', 'durationMs', 'radarRange', 'sweepRpm', 'hp', 'gunDamage', 'gunReloadMs'],
+  // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97–102) — boost-shaped
+  // rows: no card addresses them today, but `reloadMs` must be a row field so
+  // RELOAD's `cooldownScale` reaches it through the one multiply.
+  instantReload: ['reloadMs', 'maxAmmo'],
+  damageCut: ['reloadMs', 'maxAmmo', 'durationMs'],
 } as const satisfies Record<EquipmentId, readonly string[]>;
 
 /**
@@ -186,9 +203,9 @@ export const BOON_STAT_PATH_SET: ReadonlySet<string> = new Set(BOON_STAT_PATHS);
  * AND the authoring gate. EVERY entry names a BOOLEAN FIELD on that
  * equipment's stat row which the fold sets true; verbs STACK (a star shell may
  * be both phosphor and dazzle). Catalog v3 re-keyed it onto the widened
- * EquipmentId; STORY 8.13 CUT IT TO THE THREE SURVIVING ADD-ONS' targets:
- *   - HEAT SEEKING (R32) is the homing verb on the missile — both are CUT in
- *     Story 8.15 (Eric ruling 2026-09-21, epic-8 amendment 89e);
+ * EquipmentId; STORY 8.13 CUT IT TO THE THREE SURVIVING ADD-ONS' targets, and
+ * STORY 8.15 TO ONE: HEAT SEEKING (R32, the homing verb on the missile) is
+ * CUT with the missile (Eric ruling 2026-09-21, epic-8 amendment 89e), so
  *   - DAZZLE / PHOSPHOR SHELLS (R33) both ride the star shell and stack.
  *
  * TWO VERBS LEFT THE VOCABULARY on 2026-09-19 (Eric rulings, epic-8
@@ -203,7 +220,6 @@ export const BOON_STAT_PATH_SET: ReadonlySet<string> = new Set(BOON_STAT_PATHS);
  * is its ROW IDENTITY, never a flag a card writes.
  */
 export const DOCTRINE_MODES = {
-  missile: ['homing'],
   starShells: ['phosphor', 'dazzle'],
 } as const satisfies Partial<Record<EquipmentId, readonly string[]>>;
 

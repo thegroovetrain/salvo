@@ -21,7 +21,7 @@
 
 import {
   CONFIG,
-  EQUIPMENT_IS_WEAPON,
+  isWeaponItem,
   mulberry32,
   zoneClosedAtMs,
   zoneGroups,
@@ -197,7 +197,7 @@ export class HullcrackerEnv {
       fireT: 0,
       actSeq: agent.actSeq,
       actSlot: boostSlot >= 0 ? boostSlot : 0,
-      hornSeq: 0,
+      hornSeq: 0, held: false,
     });
   }
 
@@ -284,7 +284,7 @@ function ringOf(ring: { cx: number; cy: number; r: number } | null): { cx: numbe
 function nonWeaponSlot(me: ShipRecord): number {
   for (let i = 0; i < me.loadout.length; i += 1) {
     const id = me.loadout[i]?.equipmentId;
-    if (id !== null && id !== undefined && !EQUIPMENT_IS_WEAPON[id]) return i;
+    if (id !== null && id !== undefined && !isWeaponItem(id)) return i;
   }
   return -1;
 }

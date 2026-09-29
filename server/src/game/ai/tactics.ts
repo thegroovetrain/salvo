@@ -112,6 +112,7 @@ import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './ty
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
 import { slotAppetite, tacticFor, type Shot, type TacticContext } from './equipment.js';
+import { noteTorpedoes } from './torpedoThreat.js';
 import {
   choosePosture,
   foldView,
@@ -832,8 +833,24 @@ function helmFor(
  * the brain a view it did NOT capture this tick must not re-run the memory
  * prune or re-credit Hit Calls against it.
  */
-function ingest(mind: BotMind, port: BotWorldPort): void {
-  if (mind.view !== null && mind.viewAt === port.now) foldView(mind, mind.view, port.now);
+function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
+  if (mind.view === null || mind.viewAt !== port.now) return;
+  foldView(mind, mind.view, port.now);
+  // Story 8.15, amendment 115: the seen-torpedo table (DAMAGE CUT's inbound trigger).
+  noteTorpedoes(mind, self, port.now);
+}
+
+/** The trigger half of a decision. A LEVEL shot (the machine gun, Story 8.15)
+ *  becomes `held: true` with NO fireSlot — so no fireSeq edge and `slot` 0 on
+ *  the wire; every other shot is the ordinary click on its slot. */
+function triggerOf(
+  self: BotSelf,
+  target: BotTrack | null,
+  shot: Shot | null,
+): Pick<BotDecision, 'aim' | 'aimDist' | 'fireSlot' | 'held'> {
+  if (shot === null) return { aim: idleAim(self, target), aimDist: 0, fireSlot: null, held: false };
+  const held = shot.held === true;
+  return { aim: shot.aim, aimDist: shot.aimDist, fireSlot: held ? null : shot.slot, held };
 }
 
 /**
@@ -874,7 +891,7 @@ function idleAim(self: BotSelf, target: BotTrack | null): number {
  */
 export const COMBAT_BRAIN: BotBrain = {
   decide(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate = true): BotDecision {
-    ingest(mind, port);
+    ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
     if (deliberate) deliberateNow(mind, sit);
     const target = resolveTarget(mind);
@@ -884,9 +901,7 @@ export const COMBAT_BRAIN: BotBrain = {
     return {
       throttle: helm.throttle,
       rudder: helm.rudder,
-      aim: shot === null ? idleAim(self, target) : shot.aim,
-      aimDist: shot === null ? 0 : shot.aimDist,
-      fireSlot: shot === null ? null : shot.slot,
+      ...triggerOf(self, target, shot),
       actSlot: chooseAct(self, mind, port, sit, target, posture),
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };
@@ -903,7 +918,7 @@ export const COMBAT_BRAIN: BotBrain = {
    * postures that chase one are unreachable), a shot, or an ability press.
    */
   decideHeld(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate = true): BotDecision {
-    ingest(mind, port);
+    ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
     mind.targetKey = null; // unconditional: a held bot NEVER carries a target
     if (deliberate) mind.posture = choosePosture(sit, null, mind.posture);
@@ -915,6 +930,7 @@ export const COMBAT_BRAIN: BotBrain = {
       aimDist: 0,
       fireSlot: null,
       actSlot: null,
+      held: false,
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };
   },

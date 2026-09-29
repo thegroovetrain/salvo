@@ -60,6 +60,10 @@ import {
   DEFAULT_GUN,
   GUN_IDS,
   MOUNTED_GUN,
+  SHIFT_IDS,
+  DEFAULT_SHIFT,
+  SHELL_FAMILIES,
+  classShift,
   drawOffer,
   eligibleLines,
   isGunId,
@@ -329,7 +333,15 @@ describe('shared barrel', () => {
     // No new event kind, no spatial shape moves, and THE PERCEPTION EXCEPTION
     // COUNT STAYS AT SIX — the take ledger, the per-ship weights and every
     // other captain's `gun` never leave the server.
-    expect(PROTOCOL_VERSION).toBe(57);
+    // 57 -> 58: THE GUN PICK AND THE CLASS SHIFTS (Story 8.15, Eric rulings
+    // 2026-09-28, epic-8 amendments 97-110). `InputMsg.held` (a REQUIRED
+    // boolean level — the machine gun's stream), the shell reveal's optional
+    // `w` family field ('cannon'|'mg'|'flak', the ONE declared disclosure
+    // widening, amendment 89(i); never on a torpedo), `OwnShip.damageCutUntil?`
+    // (self-private), catalog content (missile/monitor/heatSeeking cut;
+    // machineGun/flak become their guns' ladders; 29 -> 26 lines) and the
+    // Shift ids. The perception exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(58);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -395,16 +407,15 @@ describe('shared barrel', () => {
     // automatically. This also now covers the radar buoy's 30s reload, which
     // the old five-reload enumeration omitted.
     // Read off the FIREWALL rather than a hand-built CONFIG table (Story 8.1:
-    // `EffectiveStats.equipment` is total over EquipmentId), so the seven
-    // UNBUILT v3 weapons are already covered and stay covered the day their
-    // modules land. The tightest of them is the MONITOR GUN's 50 s (catalog-v3
-    // R30) — still inside the 60 s window, with the least room of any weapon.
+    // `EffectiveStats.equipment` is total over EquipmentId), so every weapon is
+    // covered the day its module lands. The MONITOR GUN's 50 s was the tightest
+    // margin until Story 8.15 cut it (amendment 89e); the tightest now is the
+    // radar buoy's / heavy torpedo's 30 s class, far inside the window.
     const stats = effectiveStats(CONFIG.shipClasses.battleship);
     for (const id of EQUIPMENT_IDS) {
       if (!EQUIPMENT_IS_WEAPON[id]) continue;
       expect(CONFIG.xp.assistWindowMs, id).toBeGreaterThan(stats.equipment[id].reloadMs);
     }
-    expect(stats.equipment.monitor.reloadMs).toBe(50000); // R30 — the tightest margin
     expect(Object.keys(CONFIG.xp).sort()).toEqual(['assistWindowMs', 'droneTierLevels', 'killLevels', 'killerShare', 'levelMs']);
   });
 
@@ -524,9 +535,9 @@ describe('shared barrel', () => {
     // here the barrel pins TOTALITY and the split's shape.
     expect(Object.keys(EQUIPMENT_IS_WEAPON)).toEqual([...EQUIPMENT_IDS]);
     // 15 -> 14 (Story 8.9): the legacy flat-bonus boost id is gone and the v3
-    // `boost` id IS the Shift boost — the one non-weapon left.
-    expect(EQUIPMENT_IDS).toHaveLength(14);
-    expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost']);
+    // `boost` id IS the Shift boost. STORY 8.15 (amendments 89c/97–102): the
+    // non-weapons are the THREE class Shifts, and nothing else.
+    expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost', 'instantReload', 'damageCut']);
     expect(EQUIPMENT_IS_WEAPON.navalMines).toBe(true); // aimed rear-arc placement (2.8, a45)
     expect(EQUIPMENT_IS_WEAPON.radarBuoy).toBe(true); // click-placed (7-5 w2)
   });
@@ -804,28 +815,34 @@ describe('shared barrel', () => {
   });
 
   it('re-exports THE CATALOG + the card fold engine (Story 8.1, catalog v3)', () => {
-    // 28 v2 boon lines -> 29 v3 LINES. The CARD total moved 114 -> 122 in
-    // Story 8.13 purely by re-cutting kinds (epic-8 amendments 74/80/81/83):
-    // -1 acousticHoming, +5 depthCharge, foulingMines 1 -> 5, supercav 5 -> 5.
-    expect(LINE_IDS).toHaveLength(29);
-    expect(Object.keys(CATALOG)).toHaveLength(29);
-    expect(catalogCardCount()).toBe(122);
+    // 28 v2 boon lines -> 29 v3 LINES -> 26 (Story 8.15). The CARD total moved
+    // 114 -> 122 in Story 8.13 purely by re-cutting kinds (epic-8 amendments
+    // 74/80/81/83), then 122 -> 109 in Story 8.15 (amendment 89e and 104/105):
+    // -11 missile/monitor/heatSeeking, -2 machineGun/flak 5-copy stubs -> 4-copy
+    // ladders.
+    expect(LINE_IDS).toHaveLength(26);
+    expect(Object.keys(CATALOG)).toHaveLength(26);
+    expect(catalogCardCount()).toBe(109);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
     expect(Object.isFrozen(NO_CARDS)).toBe(true);
-    // 10 of the 29 lines are STUBS — authored in shape, mechanism unbuilt,
-    // never dealt into a deck (Eric ruling 2026-09-15, amendment 5). 13 until
-    // Story 8.8 gave HULL REPAIR its effect; 12 until Story 8.13 built the
-    // LIGHT TORPEDO, the CAPTIVE MINE and the SUPERCAV TORPEDO and added the
-    // one new stub, DEPTH CHARGE.
-    expect(LINE_IDS.filter((id) => isStubLine(id))).toHaveLength(10);
+    // 5 of the 26 lines are STUBS — authored in shape, mechanism unbuilt,
+    // never dealt (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
+    // gave HULL REPAIR its effect; 12 until Story 8.13 built the LIGHT
+    // TORPEDO, the CAPTIVE MINE and the SUPERCAV TORPEDO and added the one new
+    // stub, DEPTH CHARGE; 10 until Story 8.15 cut three and built two.
+    expect(LINE_IDS.filter((id) => isStubLine(id))).toHaveLength(5);
     // THE GENERATED WHITELIST, and its deliberate absences (see sim/effects.ts).
     expect(BOON_STAT_PATHS.length).toBeGreaterThan(0);
     expect(Object.keys(EQUIPMENT_STAT_FIELDS).sort()).toEqual([...EQUIPMENT_IDS].sort());
     for (const path of [
       'sweepPeriodMs', 'sightRange',
       'equipment.gun.rangeU', 'equipment.starShells.rangeU', 'equipment.broadside.rangeU',
+      // Story 8.15: the two pickable guns' ranges are the radar rung, derived;
+      // the machine gun's cadence/idle clock and the cut's factor are fixed.
+      'equipment.machineGun.rangeU', 'equipment.flak.rangeU',
+      'equipment.machineGun.rateMs', 'equipment.machineGun.idleReloadMs', 'equipment.damageCut.factor',
       'equipment.broadside.traverseRad', 'equipment.broadside.mountSpreadRad',
       'equipment.navalMines.triggerRadius', 'equipment.gun.tier',
       // THE CAPTIVE MINE HAS NEITHER RADIUS PATH (epic-8 amendment 84d): its
@@ -837,8 +854,9 @@ describe('shared barrel', () => {
     // (amendment 74), so it has no stat row to address.
     for (const path of BOON_STAT_PATHS) expect(path.startsWith('equipment.supercavTorpedo.')).toBe(false);
     // CUT FROM FIVE ENTRIES TO TWO (amendments 80/81): the torpedoes' `homing`
-    // and the naval mine's `propFouling` went with the cards that granted them.
-    expect(Object.keys(DOCTRINE_MODES)).toHaveLength(2);
+    // and the naval mine's `propFouling` went with the cards that granted them;
+    // and TO ONE in Story 8.15: the missile's `homing` went with HEAT SEEKING.
+    expect(Object.keys(DOCTRINE_MODES)).toEqual(['starShells']);
     // DELETED WITH RARITY AND THE SUBDECK WALK (Story 8.1): there is no card
     // scarcity tier, no offer category and no acquisition card left anywhere.
     for (const gone of [
@@ -922,9 +940,33 @@ describe('shared barrel', () => {
     expect(GUN_IDS).toEqual(['deckGun', 'machineGun', 'flak']);
     expect(DEFAULT_GUN).toBe('deckGun');
     expect(typeof isGunId).toBe('function');
-    // Until Story 8.15 builds the machine gun and the flak gun, every seat gun
-    // mounts the shipped deck-gun MODULE — pinned, not a silent fallback.
-    expect(MOUNTED_GUN).toEqual({ deckGun: 'gun', machineGun: 'gun', flak: 'gun' });
+    // STORY 8.15 gave each gun its OWN module (amendments 103–105): the 8.14
+    // interim, where every seat gun mounted the deck-gun module, is over.
+    expect(MOUNTED_GUN).toEqual({ deckGun: 'gun', machineGun: 'machineGun', flak: 'flak' });
+  });
+
+  it('re-exports THE CLASS SHIFTS and the gun-family wire vocabulary (Story 8.15)', () => {
+    expect(SHIFT_IDS).toEqual(['boost', 'instantReload', 'damageCut']);
+    expect(DEFAULT_SHIFT).toBe('boost');
+    expect(SHELL_FAMILIES).toEqual(['cannon', 'mg', 'flak']);
+    expect(classShift('torpedoBoat')).toBe('boost');
+    expect(classShift('mineLayer')).toBe('instantReload');
+    expect(classShift('battleship')).toBe('damageCut');
+    // Eric's numbers, verbatim (amendments 97, 99, 103, 105).
+    expect(CONFIG.machineGun).toEqual({
+      arc: 'full', hits: ['hull', 'decoy'], shellSpeed: 500, maxAmmo: 16, rateMs: 500,
+      reloadMs: 15000, idleReloadMs: 5000, damage: 4, shellRadius: 2,
+    });
+    expect(CONFIG.flak).toEqual({
+      arc: 'full', hits: ['hull', 'mine', 'decoy', 'ordnance'], shellSpeed: 500, maxAmmo: 1,
+      reloadMs: 6000, damage: 12, contactDamage: 4, burstRadius: 50, shellRadius: 2,
+    });
+    expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 45000 });
+    expect(CONFIG.damageCut).toEqual({ factor: 0.5, durationMs: 8000, maxAmmo: 1, reloadMs: 30000 });
+    // Neither pickable gun carries a range field — it is the radar rung.
+    expect('rangeU' in CONFIG.machineGun).toBe(false);
+    expect('rangeU' in CONFIG.flak).toBe(false);
+    expect('burstRadius' in CONFIG.machineGun).toBe(false); // direct hit, NO burst
   });
 
   // NO HARDCODED XP TOTAL (Eric ruling 2026-08-16, epic-6 amendment 24: *"XP

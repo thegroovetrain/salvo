@@ -291,6 +291,20 @@ export interface InputMsg {
    * Validated server-side like every field (finite int ≥ 0, monotonic).
    */
   hornSeq: number;
+  /**
+   * THE HELD-FIRE LEVEL (Story 8.15, Eric rulings 2026-09-28, epic-8 amendment
+   * 103; D26 `held`, carried over by amendment 89(i)). `true` while the
+   * captain's fire button is DOWN — a LEVEL sampled from the live pointer at
+   * input time, never a click and never an edge. It drives the MACHINE GUN's
+   * stream (one shell per `CONFIG.machineGun.rateMs` while held, magazine
+   * permitting) and nothing else: a click edge (`fireSeq`) on a mounted machine
+   * gun fires nothing, and every other weapon ignores this field. The server
+   * reads it off the LATEST input (never the intent queue); a tap shorter than
+   * one sample is latched client-side so it still yields one `true` sample.
+   * REQUIRED: a non-boolean drops the whole message (server/src/game/inputs.ts).
+   * Drones and neutral inputs send `false`.
+   */
+  held: boolean;
 }
 
 /**
@@ -375,9 +389,9 @@ export interface OwnShip {
    * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
    * captain picked at class select, frozen at queue — `deckGun`, `machineGun`
    * or `flak`, defaulting to `deckGun`. The client replays its own loadout from
-   * it (`loadoutFor(stats, false, gun)`), which is why it rides the frame at
-   * all; slot 0 mounts the deck-gun MODULE for all three until Story 8.15
-   * builds the other two (sim/loadout.ts MOUNTED_GUN).
+   * it (`loadoutFor(stats, false, gun, shift)`), which is why it rides the
+   * frame at all; slot 0 mounts each gun's OWN module since Story 8.15
+   * (sim/loadout.ts MOUNTED_GUN).
    *
    * SELF-PRIVATE by construction, exactly like `cards` below: it rides `you`
    * and NOTHING else — never a Contact, a blip, a ballistic event or a
@@ -502,6 +516,19 @@ export interface OwnShip {
    * what keeps hull/helm/hotbar/firing-arc/horn live instead of spectate.
    */
   sinkingUntil?: number;
+  /**
+   * ms — server-clock time this ship's DAMAGE CUT window ends (Story 8.15, the
+   * `battleship` Shift, Eric rulings 2026-09-28, epic-8 amendments 99–102);
+   * absent = no cut running. While `serverNow < damageCutUntil` every weapon
+   * blow to this hull is halved (a hit floored, a burn tick halved exactly —
+   * storm bites land in full), which drives the HUD's ACTIVE grammar on the
+   * Shift square. Present IFF a cut has been opened this life; OMITTED
+   * otherwise, never an `undefined` value (the `slowedUntil` conditional-spread
+   * precedent). SELF-PRIVATE BY CONSTRUCTION (the boostUntil precedent): rides
+   * `you` and NOTHING else — an enemy reads a cut hull only through its
+   * persistence under fire, and the perception exception count stays at SIX.
+   */
+  damageCutUntil?: number;
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */
@@ -686,6 +713,14 @@ export interface WakeBlipEvent {
  * ttl·speed, launch = pos − unit(v)·traveled. A constant-free wire shape
  * ({id,x,y,vx,vy,t}) cannot encode traveled distance, so it cannot leak a
  * fogged shooter's position. Termination stays a client concern.
+ *
+ * ONE DECLARED FAMILY FIELD, and only one (Story 8.15, amendment 89(i)): a
+ * `shell` reveal carries `w`, the GUN FAMILY that fired it — exactly what the
+ * client needs to draw a tracer, a flak shell or a cannon shell. It is a
+ * DECLARED, ledgered disclosure widening, and it is never range-derivable: it
+ * names no shooter, no range, no tier and no target, and the three families
+ * share one `shellSpeed` and one radar-rung range. A `torp` reveal NEVER
+ * carries it (torpedoes stay blind). Nothing else may ever be added here.
  */
 export interface BallisticEvent {
   k: 'shell' | 'torp';
@@ -695,7 +730,22 @@ export interface BallisticEvent {
   vx: number; // u/s
   vy: number; // u/s
   t: number; // ms — reveal server time
+  /** The gun family (Story 8.15, amendment 89(i)) — present on `k: 'shell'`
+   *  ONLY, from the fixed three-word set; never on `torp`. */
+  w?: ShellFamily;
 }
+
+/**
+ * THE GUN FAMILY a shell belongs to (Story 8.15): `cannon` for the deck gun
+ * (and the broadside and star shells, which fly gun-pattern shells), `mg` for
+ * the MACHINE GUN's stream, `flak` for the FLAK GUN's air-burst. The ONE value
+ * set the reveal's `w` may carry (amendment 89(i)).
+ */
+export type ShellFamily = 'cannon' | 'mg' | 'flak';
+
+/** Every ShellFamily, in pick order — the fixed set a reveal's `w` is
+ *  validated against on both sides. */
+export const SHELL_FAMILIES: readonly ShellFamily[] = Object.freeze(['cannon', 'mg', 'flak'] as const);
 
 /**
  * An explosion at a point (shell/torp impact or mine detonation). `id` matches

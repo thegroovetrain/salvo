@@ -50,6 +50,11 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'tickSmoke',
       'expireLitZones',
       'fireControl',
+      // Story 8.15's held-fire stream — the machine gun's LEVEL channel,
+      // a deliberate insertion right after the click channel (the reloads
+      // have ticked; a click on a stream row was already skipped). See the
+      // row comment in world.ts.
+      'streamControl',
       'activationControl',
       'hornControl',
       'advanceSweeps',

@@ -34,7 +34,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 /** Drive `id` full ahead for `ticks` ticks. */
 function drive(w: World, id: string, ticks: number): void {
   for (let t = 1; t <= ticks; t++) {
-    w.submitInput(id, { seq: t, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+    w.submitInput(id, { seq: t, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
     w.step();
   }
 }
@@ -91,7 +91,7 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     // A live fish running +x at the fixed torpedo speed, 90u of range left.
     w.shells.set('fish', {
       id: 'fish', ownerId: 'a', x: 300, y: 0,
-      vx: CONFIG.torpedo.speed, vy: 0, distLeft: 90, bornAt: w.now, kind: 'torp',
+      vx: CONFIG.torpedo.speed, vy: 0, distLeft: 90, bornAt: w.now, kind: 'torp', family: null,
       damage: CONFIG.torpedo.damage, hitRadius: CONFIG.torpedo.hitRadius,
       targetX: null, targetY: null, burstRadius: 0, contactDamage: CONFIG.torpedo.damage, hits: CONFIG.torpedo.hits,
     });
