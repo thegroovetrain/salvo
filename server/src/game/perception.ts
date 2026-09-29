@@ -75,6 +75,8 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // Story 8.16: the live decoys — the decoy channel's subjects and the
     // decoy-paint blip sources.
     decoys: world.decoys,
+    // Story 8.16 / amendment 127: the world-owned chaff clouds (fake sources).
+    chaffSources: world.chaffSources,
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
     wakes: world.wakeRibbons,
@@ -103,6 +105,9 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // Story 8.16: the decoy channel's subjects (spectators see every decoy);
     // the decoy-paint blip source is inert on this path (no blips).
     decoys: world.decoys,
+    // Inert on this path (spectators get no blips, so no chaff fakes) —
+    // rides uniformly so the context stays one shape.
+    chaffSources: world.chaffSources,
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,

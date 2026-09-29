@@ -1,9 +1,11 @@
-// CHAFF (Story 8.16, catalog-v3 R39, epic-8 amendment 124(b)(c)).
+// CHAFF (Story 8.16, catalog-v3 R39, epic-8 amendments 124(b)(c)/127).
 //
 // One copy puts a false-return SOURCE at the owner's position; for 15 s its
 // server-generated fakes paint on every OTHER observer's radar through that
 // observer's own blipGate, re-scattered once per the OWNER's sweep period and
-// water-filtered (game/fakes.ts). The owner never receives them. This file pins
+// water-filtered (game/fakes.ts). The owner never receives them. The cloud is
+// WORLD-owned (`World.chaffSources`, keyed by owner): it runs its full window
+// through the owner's sink, redeploy or respawn (amendment 127). This file pins
 // the scatter contract, the row, and the emission end to end through
 // perception.observe().
 
@@ -46,9 +48,15 @@ function wideBeam(me: ShipRecord): void {
   me.sweepAngle = TAU - 1e-9;
 }
 
-/** A hand-built source (world-state setup, like injectMine's raw write). */
-function source(w: World, x: number, y: number, seed = 0xc0ffee): FakeSource {
-  return { x, y, radius: CONFIG.chaff.radius, count: CONFIG.chaff.count, until: w.now + CONFIG.chaff.durationMs, seed, at: w.now };
+/** A hand-built source for `owner`, filed in the world map (world-state
+ *  setup, like injectMine's raw write). */
+function arm(w: World, owner: ShipRecord, x: number, y: number, seed = 0xc0ffee): FakeSource {
+  const src: FakeSource = {
+    ownerId: owner.id, x, y, radius: CONFIG.chaff.radius, count: CONFIG.chaff.count,
+    until: w.now + CONFIG.chaff.durationMs, seed, at: w.now, sweepPeriodMs: owner.stats.sweepPeriodMs,
+  };
+  w.chaffSources.set(owner.id, src);
+  return src;
 }
 
 const blips = (evs: readonly { k: string }[]): ReturnBlipEvent[] => evs.filter((e): e is BlipEvent => e.k === 'blip') as ReturnBlipEvent[];
@@ -97,11 +105,11 @@ describe('CHAFF — the scatter contract (game/fakes.ts)', () => {
   });
 
   it('the EPOCH is time over the OWNER\'s sweep period, and a new epoch is a new scatter', () => {
-    const src: FakeSource = { x: 0, y: 0, radius: 120, count: 10, until: 99_999, seed: 42, at: 1000 };
-    expect(fakeEpoch(src, 1000, 4000)).toBe(0);
-    expect(fakeEpoch(src, 4999, 4000)).toBe(0);
-    expect(fakeEpoch(src, 5000, 4000)).toBe(1);
-    expect(fakeEpoch(src, 5000, 2000)).toBe(2); // a faster sweep rescatters sooner
+    const src: FakeSource = { ownerId: 'o', x: 0, y: 0, radius: 120, count: 10, until: 99_999, seed: 42, at: 1000, sweepPeriodMs: 4000 };
+    expect(fakeEpoch(src, 1000)).toBe(0);
+    expect(fakeEpoch(src, 4999)).toBe(0);
+    expect(fakeEpoch(src, 5000)).toBe(1);
+    expect(fakeEpoch({ ...src, sweepPeriodMs: 2000 }, 5000)).toBe(2); // a faster sweep rescatters sooner
     expect(scatterFakes(42, 0, 0, 0, 120, 10, [], 2800)).not.toEqual(scatterFakes(42, 1, 0, 0, 120, 10, [], 2800));
   });
 });
@@ -113,32 +121,36 @@ describe('CHAFF — the row (Story 8.16)', () => {
     w.applyCard(a, 'chaff');
     w.applyCard(a, 'chaff');
     expect(w.sinkingActivationGate(a, BELT)).toEqual({ ok: true });
-    const first = a.chaff!;
+    const first = w.chaffSources.get('a')!;
     expect(first).toEqual({
       x: 120, y: -40, radius: CONFIG.chaff.radius, count: CONFIG.chaff.count,
       until: w.now + CONFIG.chaff.durationMs, seed: first.seed, at: w.now,
+      ownerId: 'a', sweepPeriodMs: a.stats.sweepPeriodMs,
     });
+    expect('chaff' in a).toBe(false); // nothing about it on the hull (amendment 127)
     expect(Number.isInteger(first.seed)).toBe(true);
     expect(a.loadout[BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
     // Sail on, press again: a FRESH source at the NEW position replaces it.
     for (let i = 0; i < 3; i++) w.step();
     a.state.x = 300;
     expect(w.sinkingActivationGate(a, BELT)).toEqual({ ok: true });
-    expect(a.chaff).not.toBe(first);
-    expect(a.chaff!.x).toBe(300);
-    expect(a.chaff!.at).toBe(w.now);
-    expect(a.chaff!.until).toBe(w.now + CONFIG.chaff.durationMs);
-    expect(a.chaff!.seed).not.toBe(first.seed);
+    const second = w.chaffSources.get('a')!;
+    expect(w.chaffSources.size).toBe(1); // REPLACED, never stacked (124(c))
+    expect(second).not.toBe(first);
+    expect(second.x).toBe(300);
+    expect(second.at).toBe(w.now);
+    expect(second.until).toBe(w.now + CONFIG.chaff.durationMs);
+    expect(second.seed).not.toBe(first.seed);
     expect(a.loadout[BELT]).toEqual({ equipmentId: null, state: null });
   });
 
-  it('a SINKING hull is refused (blocked), nothing spent; a sunk hull loses its source', () => {
+  it('a SINKING hull is refused (blocked), nothing spent; its live cloud stays on the water (amendment 127)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'chaff');
-    a.chaff = source(w, 0, 0);
+    const src = arm(w, a, 0, 0);
     w.sinkShip('a', 'b');
-    expect(a.chaff).toBeNull(); // the life boundary nulls it
+    expect(w.chaffSources.get('a')).toBe(src); // the sink does NOT touch it
     expect(w.sinkingActivationGate(a, BELT)).toEqual({ ok: false, reason: 'blocked' });
     expect(a.loadout[BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
@@ -147,7 +159,7 @@ describe('CHAFF — the row (Story 8.16)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);
-    a.chaff = source(w, 0, 0);
+    arm(w, a, 0, 0);
     for (const id of ['a', 'b']) {
       const f = buildFrame(w, id);
       expect(JSON.stringify({ ...f, you: { ...f.you, offer: [], cards: [] } })).not.toContain('chaff');
@@ -164,8 +176,8 @@ describe('CHAFF — emission through perception.observe()', () => {
     const a = place(w, 'a', 0, 0);
     const c = place(w, 'c', 1000, 0);
     for (const s of [o, a, c]) wideBeam(s);
-    o.chaff = source(w, 500, 0);
-    const fakes = scatterFakes(o.chaff.seed, fakeEpoch(o.chaff, w.now, o.stats.sweepPeriodMs), 500, 0, 120, 10, w.map.islands, w.map.radius);
+    const src = arm(w, o, 500, 0);
+    const fakes = scatterFakes(src.seed, fakeEpoch(src, w.now), 500, 0, 120, 10, w.map.islands, w.map.radius);
     return { w, o, a, c, fakes };
   }
 
@@ -201,16 +213,16 @@ describe('CHAFF — emission through perception.observe()', () => {
 
   it('a LAPSED source paints nothing (lazy expiry), and a lit zone the observer owns shows the truth', () => {
     const { w, o, a } = board();
-    o.chaff!.until = w.now;
+    w.chaffSources.get(o.id)!.until = w.now;
     expect(blips(observe(w, a.id).events)).toEqual([]);
-    o.chaff!.until = w.now + 5000;
+    w.chaffSources.get(o.id)!.until = w.now + 5000;
     w.litZones.set('z', { id: 'z', ownerId: a.id, x: 500, y: 0, r: 200, until: w.now + 5000, phosphor: false, dazzle: false } as never);
     expect(blips(observe(w, a.id).events)).toEqual([]);
   });
 
   it('a fake never paints inside the observer\'s sight bubble (the annulus is the gate)', () => {
     const { w, o, a } = board();
-    o.chaff = source(w, 60, 0); // the whole cloud inside a's truesight
+    arm(w, o, 60, 0); // the whole cloud inside a's truesight
     expect(blips(observe(w, a.id).events)).toEqual([]);
   });
 
@@ -221,8 +233,77 @@ describe('CHAFF — emission through perception.observe()', () => {
     const after = blips(observe(w, a.id).events).map(maskKey).sort();
     expect(after.length).toBeGreaterThan(0);
     expect(after).not.toEqual(before);
-    const next = scatterFakes(o.chaff!.seed, 1, 500, 0, 120, 10, w.map.islands, w.map.radius);
+    const next = scatterFakes(w.chaffSources.get(o.id)!.seed, 1, 500, 0, 120, 10, w.map.islands, w.map.radius);
     const want = new Set(next.map((f) => fakeKey(f, w.now)));
     for (const k of after) expect(want.has(k)).toBe(true);
+  });
+});
+
+describe('CHAFF — the cloud outlives its owner (amendment 127)', () => {
+  it('a pressed cloud keeps painting the SAME fakes after its owner sinks', () => {
+    const w = bareWorld();
+    const o = place(w, 'o', 500, 0);
+    const a = place(w, 'a', 0, 0);
+    w.applyCard(o, 'chaff');
+    expect(w.sinkingActivationGate(o, BELT)).toEqual({ ok: true });
+    wideBeam(a);
+    const before = blips(observe(w, a.id).events).map(maskKey).sort();
+    expect(before.length).toBeGreaterThan(0);
+    w.sinkShip('o', 'a');
+    wideBeam(a);
+    expect(blips(observe(w, a.id).events).map(maskKey).sort()).toEqual(before);
+  });
+
+  it('the NEXT TICK after the owner sinks an enemy still receives the same fake set (same seed, same epoch)', () => {
+    const w = bareWorld();
+    const o = place(w, 'o', -1500, 0); // the owner far from its cloud: nothing of its own paints
+    const a = place(w, 'a', 0, 0);
+    const src = arm(w, o, 450, 0);
+    wideBeam(a);
+    const want = scatterFakes(src.seed, fakeEpoch(src, w.now), 450, 0, 120, 10, w.map.islands, w.map.radius)
+      .map((f) => fakeKey(f, w.now)).sort();
+    const before = blips(observe(w, a.id).events).map(maskKey).sort();
+    expect(before.length).toBeGreaterThan(0);
+    for (const k of before) expect(want).toContain(k);
+    w.sinkShip('o', 'a');
+    w.step();
+    expect(w.chaffSources.get('o')).toBe(src);
+    expect(fakeEpoch(src, w.now)).toBe(0);
+    wideBeam(a);
+    const after = blips(observe(w, a.id).events).map(maskKey).sort();
+    const again = scatterFakes(src.seed, 0, 450, 0, 120, 10, w.map.islands, w.map.radius).map((f) => fakeKey(f, w.now)).sort();
+    expect(after.length).toBe(before.length);
+    for (const k of after) expect(again).toContain(k);
+  });
+
+  it('the owner RESPAWNS: the cloud is still there, and still skipped for its owner, until `until`', () => {
+    const w = bareWorld();
+    const o = place(w, 'o', -1500, 0);
+    const a = place(w, 'a', 0, 0);
+    const src = arm(w, o, 450, 0);
+    w.sinkShip('o', 'a');
+    const inner = w as unknown as { respawn(ship: ShipRecord): void };
+    inner.respawn(o);
+    expect(w.chaffSources.get('o')).toBe(src);
+    o.state = { x: 0, y: 450, heading: 0, speed: 0 }; // the cloud inside its annulus
+    wideBeam(a);
+    wideBeam(o);
+    expect(blips(observe(w, a.id).events).length).toBeGreaterThan(0);
+    const ownPaints = blips(observe(w, o.id).events).map(maskKey);
+    const fakeKeys = new Set(scatterFakes(src.seed, fakeEpoch(src, w.now), 450, 0, 120, 10, w.map.islands, w.map.radius).map((f) => fakeKey(f, w.now)));
+    for (const k of ownPaints) expect(fakeKeys.has(k)).toBe(false); // never its own fakes
+    src.until = w.now; // lazy expiry
+    o.state = { x: -1500, y: 0, heading: 0, speed: 0 }; // its hull out of a's annulus again
+    wideBeam(a);
+    expect(blips(observe(w, a.id).events)).toEqual([]);
+  });
+
+  it('resetForMatchStart clears every cloud (the practice -> match boundary, the mines precedent)', () => {
+    const w = bareWorld();
+    const o = place(w, 'o', -1500, 0);
+    place(w, 'a', 0, 0);
+    arm(w, o, 450, 0);
+    w.resetForMatchStart();
+    expect(w.chaffSources.size).toBe(0);
   });
 });

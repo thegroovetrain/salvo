@@ -4,9 +4,9 @@
 // `World.decoys` that is the `decoy` target kind — enemy shells, bursts and
 // fish damage it (amendments 120/121), the owner's own ordnance never does
 // (amendment 119) — with no lifetime and no owner-death despawn (amendment
-// 122). It rides the contact-like `decoys` frame channel (the mine rule; `by`
-// for every observer, `hp` for the owner only) and paints on radar as an
-// anonymous 12 u square through the ordinary blip gate.
+// 122). It rides the contact-like `decoys` frame channel (sighted like a ship,
+// amendment 126; `by` for every observer, `hp` for the owner only) and paints
+// on radar as an anonymous 12 u square through the ordinary blip gate.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -200,7 +200,7 @@ describe('DECOY BUOY — damage (amendments 119–121)', () => {
 });
 
 describe('DECOY BUOY — the views and the radar paint', () => {
-  it('owner always (with `hp` last); a DETECTING enemy gets {id,x,y,own,by}; a far one gets nothing', () => {
+  it('owner always (with `hp` last); a SIGHTING enemy gets {id,x,y,own,by}; a far one gets nothing', () => {
     const w = bareWorld();
     place(w, 'o', -2000, 0); // the owner, far from its own float
     place(w, 'near', 0, 80); // inside detect
@@ -213,6 +213,23 @@ describe('DECOY BUOY — the views and the radar paint', () => {
     expect(near).toEqual([{ id: 'd1', x: 0, y: 0, own: false, by: 'o' }]);
     expect('hp' in near[0]).toBe(false);
     expect('decoys' in buildFrame(w, 'far')).toBe(false); // omitted when none
+  });
+
+  it('an enemy INSIDE SIGHT but outside detect gets the view; one just past sight with no paint gets nothing (amendment 126)', () => {
+    const w = bareWorld();
+    place(w, 'o', -2000, 0);
+    const probe = place(w, 'probe', 0, 0);
+    const sight = probe.stats.sightRange;
+    expect(0.9 * sight).toBeGreaterThan(sight * CONFIG.vision.detectFactor); // the dark band 124(h) left
+    probe.state = { x: 0.9 * sight, y: 0, heading: 0, speed: 0 };
+    probe.prevSweepAngle = 1;
+    probe.sweepAngle = 1.1; // the beam elsewhere: no paint either way
+    addDecoy(w.decoys, 'o', 0, 0, 'd1');
+    expect(buildFrame(w, 'probe').decoys).toEqual([{ id: 'd1', x: 0, y: 0, own: false, by: 'o' }]);
+    probe.state = { x: 1.1 * sight, y: 0, heading: 0, speed: 0 };
+    const far = observe(w, 'probe');
+    expect(blips(far.events)).toEqual([]);
+    expect('decoys' in buildFrame(w, 'probe')).toBe(false);
   });
 
   it('it PAINTS on radar as an untagged 12 u square when the observer\'s beam crosses it — and only then', () => {

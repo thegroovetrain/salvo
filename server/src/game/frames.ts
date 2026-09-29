@@ -23,11 +23,16 @@ import type { ShipRecord, World } from './world.js';
 
 /** The own-ship `shield` key (Story 8.16): `{ shield: {hp, until} }` while a
  *  SHIELD BLOCK is up (hp left, not yet expired), else an EMPTY object so the
- *  spread leaves the key absent. */
+ *  spread leaves the key absent. `hp` is ROUNDED UP to a whole number: the
+ *  shield soaks fractional storm bites and burn ticks, and the HP numeral
+ *  reads floor(hull) + shield — a raw 99.8 would knock the shielded readout
+ *  down a whole point on the first 0.2 absorbed, while the ceiling keeps it
+ *  at 100 until a whole point of shield is gone (a live shield never reads 0).
+ *  Display only: the absorb math stays exact on the server. */
 function ownShield(ship: ShipRecord, now: number): Pick<OwnShip, 'shield'> {
   const s = ship.shield;
   if (s === null || s.hpLeft <= 0 || now >= s.until) return {};
-  return { shield: { hp: s.hpLeft, until: s.until } };
+  return { shield: { hp: Math.ceil(s.hpLeft), until: s.until } };
 }
 
 function toOwnShip(ship: ShipRecord, now: number): OwnShip {

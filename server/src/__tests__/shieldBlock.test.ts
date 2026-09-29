@@ -155,6 +155,54 @@ describe('SHIELD BLOCK — the gate (I/O matrix, amendments 100/118)', () => {
   });
 });
 
+describe('SHIELD BLOCK — an absorbed BURN still plays the hit cue (amendments 117 / 124(i))', () => {
+  /** Run 2 s with `a` (optionally shielded) inside b's phosphor zone and `c`
+   *  outside it; return every `dmg` event per victim id, and whether any
+   *  other observer's frame ever carried one. */
+  function burnRun(shielded: boolean): { a: DamageEvent[]; c: DamageEvent[]; leaked: boolean; hullLost: number } {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 400, 0);
+    place(w, 'c', -600, 0);
+    if (shielded) a.shield = { hpLeft: CONFIG.shieldBlock.hp, until: w.now + 60_000 };
+    w.litZones.set('z1', { id: 'z1', ownerId: 'b', x: 0, y: 0, r: 100, until: 999_999, phosphor: true, dazzle: false });
+    const hp0 = a.hp;
+    const out = { a: [] as DamageEvent[], c: [] as DamageEvent[], leaked: false, hullLost: 0 };
+    for (let i = 0; i <= 40; i++) {
+      if (i === 40) w.litZones.clear(); // the zone dies: the open window flushes at once
+      w.step();
+      for (const e of w.tickEvents) {
+        if (e.k !== 'dmg') continue;
+        if (e.id === 'a') out.a.push(e);
+        if (e.id === 'c') out.c.push(e);
+      }
+      for (const id of ['b', 'c']) if (buildFrame(w, id).events.some((e) => e.k === 'dmg')) out.leaked = true;
+    }
+    out.hullLost = hp0 - a.hp;
+    return out;
+  }
+
+  it('a shield eating EVERY burn tick still emits ONE `dmg` amount 0 per window — to the victim only', () => {
+    const plain = burnRun(false);
+    const shielded = burnRun(true);
+    expect(shielded.hullLost).toBe(0); // the shield ate it all
+    expect(shielded.a.length).toBeGreaterThanOrEqual(3); // 2 s of 500 ms windows
+    expect(shielded.a.length).toBe(plain.a.length); // the SAME cadence as an unshielded burn
+    for (const e of shielded.a) expect(e.amount).toBe(0);
+    expect(shielded.leaked).toBe(false);
+    // Nothing burned `c` (outside the zone): no dmg at all.
+    expect(shielded.c).toEqual([]);
+  });
+
+  it('an UNSHIELDED burn is unchanged: positive windowed amounts summing to the hp lost', () => {
+    const plain = burnRun(false);
+    expect(plain.a.length).toBeGreaterThan(0);
+    for (const e of plain.a) expect(e.amount).toBeGreaterThan(0);
+    expect(plain.a.reduce((s, e) => s + e.amount, 0)).toBeCloseTo(plain.hullLost, 6);
+    expect(plain.c).toEqual([]);
+  });
+});
+
 describe('SHIELD BLOCK — the wire (OwnShip.shield, self-private)', () => {
   it('the OWN frame carries `shield: {hp, until}` while it is up; NO other frame ever does', () => {
     const w = bareWorld();
@@ -168,6 +216,17 @@ describe('SHIELD BLOCK — the wire (OwnShip.shield, self-private)', () => {
     expect('shield' in other.you!).toBe(false);
     expect(JSON.stringify({ ...other, you: undefined })).not.toContain('"shield"');
     expect(JSON.stringify({ ...own, you: undefined })).not.toContain('"shield"');
+  });
+
+  it('a FRACTIONAL shield reads rounded UP on the wire: 99.8 -> 100, 99.0 -> 99, 0.25 -> 1', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    a.shield = { hpLeft: 99.8, until: w.now + 5000 };
+    expect(buildFrame(w, 'a').you?.shield?.hp).toBe(100);
+    a.shield = { hpLeft: 99.0, until: w.now + 5000 };
+    expect(buildFrame(w, 'a').you?.shield?.hp).toBe(99);
+    a.shield = { hpLeft: 0.25, until: w.now + 5000 };
+    expect(buildFrame(w, 'a').you?.shield?.hp).toBe(1); // a live shield never reads 0
   });
 
   it('the key is ABSENT (never undefined) with no shield, once it is spent, and once it has lapsed', () => {

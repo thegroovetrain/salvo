@@ -4,7 +4,7 @@
 // (`contact`, `mine`, `litzone` and `decoy` — pseudo event types: not
 // GameEvents, but the invariant suite iterates them like everything else; the
 // RADAR BUOY's `buoy` channel was deleted with the buoy in Story 8.16 and the
-// DECOY BUOY's `decoy` channel took its seat on the mine row's rules).
+// DECOY BUOY's `decoy` channel took its seat, revealed at sight like a ship).
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
 // visible()/materialize(); nothing spatial leaves the server outside a row.
 //
@@ -115,6 +115,10 @@ interface SignalContextBase {
    *  subjects and the anonymous decoy-paint sources (decoyRadarBlips). Rides
    *  the context like litZones does. */
   decoys: ReadonlyMap<string, DecoyState>;
+  /** All CHAFF clouds by owner id (Story 8.16, amendment 127 — world-owned,
+   *  so a cloud outlives its owner's hull) — chaffFakeBlips' sources. Rides
+   *  the context like decoys does; inert on the spectator path (no blips). */
+  chaffSources: ReadonlyMap<string, FakeSource>;
   /** Ship id → stable per-match track id (World.pseudonymFor — the server-
    *  private stream; see World.trackIds for the honest correlation bound).
    *  The `return` blip payload carries no id at all (amendment 152), so no
@@ -601,12 +605,14 @@ const litZoneSignal: SignalSpec<LitZone, LitZoneView> = {
 
 /**
  * `decoy` — contact-like state (Story 8.16, catalog-v3 R36, amendments
- * 119–124), recomputed every tick exactly like mines — THE MINE ROW'S RULE,
- * verbatim: the OWNER always sees its own decoy (own field awareness, even
- * under fog); everyone else sees it only within DETECT range + island LOS
- * (pointDetected — it sits low in the water, like a mine) or inside a lit zone
- * the observer OWNS (Story 1.7 parity, no LOS on the zone path). Spectators see
- * all. Beyond that an enemy learns of the decoy ONLY through its anonymous
+ * 119–124, 126), recomputed every tick like mines: the OWNER always sees its
+ * own decoy (own field awareness, even under fog); everyone else sees it at
+ * SIGHT range + island LOS (pointSighted — LIKE A SHIP, amendment 126, which
+ * superseded 124(h)'s mine-detect rung: radar paints only OUTSIDE sight, so a
+ * detect-rung view left a dark band between the two where the paint stopped
+ * and nothing replaced it — a free decoy tell) or inside a lit zone the
+ * observer OWNS (Story 1.7 parity, no LOS on the zone path). Spectators see
+ * all. Beyond sight an enemy learns of the decoy ONLY through its anonymous
  * radar paint (decoyRadarBlips below), which carries no id and no owner.
  */
 const decoySignal: SignalSpec<DecoyState, DecoyView> = {
@@ -615,7 +621,7 @@ const decoySignal: SignalSpec<DecoyState, DecoyView> = {
     if (ctx.mode === 'spectator') return true;
     return (
       decoy.ownerId === ctx.me.id ||
-      pointDetected(ctx.me, decoy, ctx.islands, ctx.now) ||
+      pointSighted(ctx.me, decoy, ctx.islands, ctx.now) ||
       ownZoneCovers(ctx, decoy)
     );
   },
@@ -730,9 +736,10 @@ export function decoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
  */
 const FAKE_MEMO = new WeakMap<FakeSource, { epoch: number; fakes: readonly Fake[] }>();
 
-/** The live fake set of `owner`'s chaff source this tick. */
-function chaffFakes(ctx: SignalContext, owner: ShipRecord, source: FakeSource): readonly Fake[] {
-  const epoch = fakeEpoch(source, ctx.now, owner.stats.sweepPeriodMs);
+/** The live fake set of one chaff source this tick (the epoch unit is the
+ *  owner's sweep period captured AT ACTIVATION — amendment 127). */
+function chaffFakes(ctx: SignalContext, source: FakeSource): readonly Fake[] {
+  const epoch = fakeEpoch(source, ctx.now);
   const memo = FAKE_MEMO.get(source);
   if (memo !== undefined && memo.epoch === epoch) return memo.fakes;
   const fakes = scatterFakes(source.seed, epoch, source.x, source.y, source.radius, source.count, ctx.islands, ctx.mapRadius);
@@ -755,8 +762,10 @@ function chaffFakes(ctx: SignalContext, owner: ShipRecord, source: FakeSource): 
  *   • RADAR ONLY — the annulus inside blipGate means a fake can never appear
  *     inside your sight bubble, and the ownZoneCovers skip extends the same
  *     truth-wins rule to a flare you hung over the cloud;
- *   • the OWNER NEVER receives their own chaff's fakes (the owner's source is
- *     skipped entirely) — no readout, no `src` tag;
+ *   • the OWNER NEVER receives their own chaff's fakes (a source whose
+ *     `ownerId` is the observer is skipped entirely) — no readout, no `src`
+ *     tag; the cloud is WORLD-owned (amendment 127), so it keeps painting
+ *     after its owner sinks, redeploys, respawns or leaves;
  *   • deterministic per (source, epoch), identical for every observer in a
  *     tick, WATER-FILTERED (no fake lies on land or off the disk), and a
  *     lapsed source (`until <= now`) paints nothing — lazy expiry.
@@ -769,10 +778,9 @@ function chaffFakes(ctx: SignalContext, owner: ShipRecord, source: FakeSource): 
  * never hide a genuine leak.
  */
 export function chaffFakeBlips(ctx: FoggedSignalContext, out: BlipEvent[]): void {
-  for (const owner of ctx.ships.values()) {
-    const source = owner.chaff;
-    if (source === null || owner.id === ctx.me.id || source.until <= ctx.now) continue;
-    pushGatedFakes(ctx, chaffFakes(ctx, owner, source), out);
+  for (const source of ctx.chaffSources.values()) {
+    if (source.ownerId === ctx.me.id || source.until <= ctx.now) continue;
+    pushGatedFakes(ctx, chaffFakes(ctx, source), out);
   }
 }
 
@@ -1921,8 +1929,8 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   contact: contactSignal,
   mine: mineSignal,
   litzone: litZoneSignal,
-  // Story 8.16: the DECOY BUOY's contact-like frame channel (the mine row's
-  // rule — owner always / detected / owned-zone / spectators), in the seat the
+  // Story 8.16: the DECOY BUOY's contact-like frame channel (owner always /
+  // SIGHTED like a ship, amendment 126 / owned-zone / spectators), in the seat the
   // deleted RADAR BUOY's `buoy` row held. Its anonymous radar paint and
   // CHAFF's fakes are NOT rows: they merge into the `blip` subsequence via
   // decoyRadarBlips / chaffFakeBlips above.

@@ -531,7 +531,8 @@ export interface OwnShip {
   damageCutUntil?: number;
   /**
    * The SHIELD BLOCK seat (Story 8.16, catalog-v3 R37, epic-8 amendments
-   * 100/116–118): `hp` = shield hp left to absorb, `until` = the server-clock
+   * 100/116–118): `hp` = shield hp left to absorb, ROUNDED UP to a whole
+   * number (display only — a live shield never reads 0), `until` = the server-clock
    * time it expires. Present IFF a shield is up (hp left and not yet expired);
    * OMITTED otherwise, never an `undefined` value (the `slowedUntil` /
    * `damageCutUntil` conditional-spread precedent). The HUD prints hull +

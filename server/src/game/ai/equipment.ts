@@ -1013,10 +1013,10 @@ function shieldUp(self: BotSelf, now: number): boolean {
   return s !== undefined && s !== null && s.hpLeft > 0 && now < s.until;
 }
 
-/** Is this bot's own CHAFF cloud still painting? */
-function chaffLive(self: BotSelf, now: number): boolean {
-  const c = self.chaff;
-  return c !== undefined && c !== null && now < c.until;
+/** Is this bot's own CHAFF cloud still painting? (The cloud is world-owned —
+ *  amendment 127 — so its `until` arrives on the mind, not the record.) */
+function chaffLive(mind: BotMind, now: number): boolean {
+  return mind.chaffUntil !== undefined && now < mind.chaffUntil;
 }
 
 /** SHIELD BLOCK — pressed on the DAMAGE CUT cues, never over a shield already
@@ -1035,7 +1035,7 @@ const chaffTactic: ConsumableTactic = {
   id: 'chaff',
   kind: 'ability',
   reachU: () => 0,
-  want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'disengage' && !chaffLive(ctx.self, ctx.sit.now),
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'disengage' && !chaffLive(ctx.mind, ctx.sit.now),
   solve: () => null,
 };
 
@@ -1046,7 +1046,7 @@ const decoyBuoyTactic: ConsumableTactic = {
   id: 'decoyBuoy',
   kind: 'placement',
   reachU: () => CONFIG.mine.placeRange,
-  want: (ctx) => torpedoInbound(ctx.self, ctx.mind, ctx.sit.now),
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && torpedoInbound(ctx.self, ctx.mind, ctx.sit.now),
   solve: (ctx) => sectorPlacement(ctx, DECOY_SECTOR, CONFIG.mine.placeRange),
 };
 

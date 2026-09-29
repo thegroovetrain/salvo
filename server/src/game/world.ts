@@ -767,16 +767,6 @@ export interface ShipRecord {
    */
   shield: { hpLeft: number; until: number } | null;
   /**
-   * THE CHAFF source (Story 8.16, catalog-v3 R39, amendment 124(b)(c)) — `null`
-   * until the CHAFF consumable arms it through `ActivationContext.setChaff`
-   * (a second copy REPLACES it). Fixed at the owner's position at activation;
-   * signals.ts `chaffFakeBlips` paints its water-filtered fakes on every OTHER
-   * observer's radar while `now < until` and skips it after (lazy expiry — a
-   * lapsed source is inert, and is nulled at every life boundary with
-   * `shield`). SERVER-PRIVATE: nothing about it rides the owner's own frame.
-   */
-  chaff: FakeSource | null;
-  /**
    * ms — server time the DAZZLE truesight reduction on this ship ends (Story
    * 2.8); 0 = not dazzled. Refreshed every tick the ship's center sits inside
    * a NON-owned dazzle zone (applyDazzle: now + DAZZLE_GRACE_MS); read by
@@ -1076,6 +1066,20 @@ export class World {
    * destroyed decoy simply drops out of the next frame's `decoys` list.
    */
   readonly decoys = new Map<string, DecoyState>();
+  /**
+   * THE CHAFF clouds (Story 8.16, catalog-v3 R39, amendments 124(b)(c)/127),
+   * keyed by OWNER id — one per owner; a second press REPLACES the entry
+   * (fresh seed, fresh 15 s) through `ActivationContext.setChaff`. Fixed at
+   * the owner's position at activation; signals.ts `chaffFakeBlips` paints
+   * each cloud's water-filtered fakes on every OTHER observer's radar while
+   * `now < until` and skips it after (lazy expiry — a lapsed entry is inert).
+   * WORLD-OWNED, not on the hull: a cloud runs its full window through its
+   * owner's sink, redeploy, respawn or leave (amendment 127 — everything
+   * placed on the water outlives its owner), and only resetForMatchStart
+   * clears the map (the mines/decoys precedent). SERVER-PRIVATE: nothing
+   * about it rides any frame.
+   */
+  readonly chaffSources = new Map<string, FakeSource>();
   /** All live star-shell lit zones (static circles), in burst order (Story 1.7). */
   readonly litZones = new Map<string, LitZone>();
   /**
@@ -1253,10 +1257,12 @@ export class World {
   /**
    * OPEN INCENDIARY DoT EVENT BUCKETS (Story 2.8 review, P4), keyed by
    * dotKey(zone owner, victim): the applied-but-not-yet-reported DoT for that
-   * pair and the server time its window opened. hp is ALREADY deducted — this
+   * pair, the part of it a SHIELD BLOCK ate (`absorbed` — Story 8.16: a window
+   * the shield swallowed whole still reports, as `dmg` amount 0, amendment
+   * 117), and the server time its window opened. hp is ALREADY deducted — this
    * only defers the victim-private `dmg` event (see applyZoneEffects).
    */
-  private readonly dotBuckets = new Map<string, { victimId: string; amount: number; since: number }>();
+  private readonly dotBuckets = new Map<string, { victimId: string; amount: number; absorbed: number; since: number }>();
   private mineSeq = 0;
   private litZoneSeq = 0;
   private decoySeq = 0;
@@ -1718,7 +1724,7 @@ export class World {
       // ...and it waits the full out-of-combat window before it regens
       // (amendment 47): `lastDamagedAt` is `now`, never 0 — the hull is full
       // here anyway, so the wait costs nothing.
-      boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, dazzledUntil: 0, shield: null, chaff: null,
+      boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, dazzledUntil: 0, shield: null,
       // Story 8.15: no DAMAGE CUT window, and the machine gun's stream clock
       // and idle clock both at the epoch (fire on the first held tick).
       damageCutUntil: 0, streamNextAt: 0, streamLastShotAt: 0,
@@ -1846,6 +1852,8 @@ export class World {
         id: ship.id,
         afloat: isAfloat(ship.lifecycle),
         self: ship,
+        // The bot's OWN chaff cloud only (amendment 127 — world-owned).
+        chaffUntil: this.chaffSources.get(ship.id)?.until ?? 0,
         observe: () => observe(this, ship.id),
       });
     }
@@ -1937,6 +1945,7 @@ export class World {
     this.shells.clear();
     this.mines.clear();
     this.decoys.clear(); // practice-field decoys never float into the real match (mines precedent)
+    this.chaffSources.clear(); // ...nor a practice-field chaff cloud (amendment 127)
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
     // The pending queue is dropped at the boundary as it always was. The
     // COUNTDOWN's own `pt` (the level-zero grant, Story 8.10) is never in it
@@ -2034,10 +2043,10 @@ export class World {
     // window (amendment 47), so a hull redeployed straight out of a fight
     // cannot start regenerating on the start line.
     ship.lastDamagedAt = this.now;
-    // ...nor a SHIELD BLOCK (Story 8.4 review, P5 — the clearRepair rule),
-    // nor a CHAFF source (Story 8.16 — the same boundary).
+    // ...nor a SHIELD BLOCK (Story 8.4 review, P5 — the clearRepair rule).
+    // (A CHAFF cloud is on the water, not on the hull — amendment 127: only
+    // resetForMatchStart's chaffSources.clear() ends one early.)
     ship.shield = null;
-    ship.chaff = null;
     ship.slowedUntil = 0;
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
     ship.dazzledUntil = 0;
@@ -2194,9 +2203,9 @@ export class World {
     World.clearRepair(ship);
     // ...and so does the SHIELD BLOCK, on the same rule (Story 8.4 review, P5):
     // an absorbing pool is economy, and a sinking captain loses their economy.
-    // CHAFF goes with it (Story 8.16): a wreck paints no false returns.
+    // A CHAFF cloud does NOT go with it (amendment 127): it is on the water in
+    // World.chaffSources and runs its full window, like a mine or a decoy.
     ship.shield = null;
-    ship.chaff = null;
     ship.deaths += 1;
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     this.creditKill(ship, by, victimHeldBounty);
@@ -4363,7 +4372,7 @@ export class World {
     // count as taking damage; dealing damage never counts at all.
     if (dealt > 0) victim.lastDamagedAt = this.now;
     if (src !== 'storm' && byId !== undefined) this.creditDamage(byId, victim.id, net, dealt); // (e)
-    this.reportDamage(victim, net, src, byId); // (f)+(g)
+    this.reportDamage(victim, net, src, byId, cut - net); // (f)+(g)
   }
 
   /**
@@ -4411,10 +4420,12 @@ export class World {
    *    - every other source pushes the immediate victim-private `dmg` FIRST
    *      and then takes the sink edge — the order hitShip has always emitted.
    *      `amount` on the event is the NOMINAL blow (post-shield), not `dealt`:
-   *      that is the shipped wire number and the results-screen tally's unit. */
-  private reportDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined): void {
+   *      that is the shipped wire number and the results-screen tally's unit.
+   *  `absorbed` is what the shield ate of this blow; only the burn bucket
+   *  reads it (a non-burn blow already emits `dmg` 0 when fully absorbed). */
+  private reportDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined, absorbed: number): void {
     if (src === 'burn') {
-      this.bankDot(victim, byId!, amount);
+      this.bankDot(victim, byId!, amount, absorbed);
       return;
     }
     if (src !== 'storm') this.pending.push({ k: 'dmg', id: victim.id, amount, hp: Math.max(0, victim.hp) });
@@ -4425,11 +4436,14 @@ export class World {
    *  window bucket, flush it ahead of a lethal bite's sink, and otherwise emit
    *  once the window has run (see applyZoneEffects for why the DoT `dmg` event
    *  is windowed while its hp application stays per-tick). */
-  private bankDot(victim: ShipRecord, ownerId: string, amount: number): void {
+  private bankDot(victim: ShipRecord, ownerId: string, amount: number, absorbed: number): void {
     const key = dotKey(ownerId, victim.id);
     const bucket = this.dotBuckets.get(key);
-    if (bucket === undefined) this.dotBuckets.set(key, { victimId: victim.id, amount, since: this.now });
-    else bucket.amount += amount;
+    if (bucket === undefined) this.dotBuckets.set(key, { victimId: victim.id, amount, absorbed, since: this.now });
+    else {
+      bucket.amount += amount;
+      bucket.absorbed += absorbed;
+    }
     if (victim.hp <= 0) {
       this.flushDot(key);
       this.sinkShip(victim.id, ownerId);
@@ -4939,13 +4953,17 @@ export class World {
 
   /** Emit one aggregated victim-private `dmg` for a DoT bucket and drop it.
    *  `hp` reports the victim's CURRENT hp (already applied per tick), so the
-   *  client's hp mirror is exact at flush time. */
+   *  client's hp mirror is exact at flush time. A window the SHIELD swallowed
+   *  whole (`amount` 0, `absorbed` > 0) still emits — `dmg` amount 0, the
+   *  shells/torpedoes/mines behaviour — so an absorbed burn plays the ordinary
+   *  hit cue (amendment 117 / 124(i)); a window where nothing burned at all
+   *  emits nothing. */
   private flushDot(key: string): void {
     const bucket = this.dotBuckets.get(key);
     if (bucket === undefined) return;
     this.dotBuckets.delete(key);
     const victim = this.ships.get(bucket.victimId);
-    if (victim === undefined || bucket.amount <= 0) return;
+    if (victim === undefined || (bucket.amount <= 0 && bucket.absorbed <= 0)) return;
     this.pending.push({ k: 'dmg', id: bucket.victimId, amount: bucket.amount, hp: Math.max(0, victim.hp) });
   }
 
@@ -5368,7 +5386,10 @@ export class World {
         ship.shield = { hpLeft: shield.hpLeft, until: shield.until };
       },
       setChaff: (source) => {
-        ship.chaff = { ...source, seed: this.fakeRng.int(0, 0xffffffff) };
+        // Amendment 127: a WORLD-owned cloud keyed by owner (a re-fire
+        // replaces — 124(c)), the owner's sweep period captured for the epoch.
+        const seed = this.fakeRng.int(0, 0xffffffff);
+        this.chaffSources.set(ship.id, { ...source, ownerId: ship.id, sweepPeriodMs: ship.stats.sweepPeriodMs, seed });
       },
     };
   }
@@ -5790,9 +5811,9 @@ export class World {
     // out-of-combat window before it regens (amendment 47).
     ship.lastDamagedAt = this.now;
     // ...nor a SHIELD BLOCK (Story 8.4 review, P5; sinkShip already nulled it,
-    // kept symmetric here for directed callers) — and no CHAFF source.
+    // kept symmetric here for directed callers). A live CHAFF cloud stays on
+    // the water (amendment 127).
     ship.shield = null;
-    ship.chaff = null;
     ship.slowedUntil = 0;
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
     ship.dazzledUntil = 0;

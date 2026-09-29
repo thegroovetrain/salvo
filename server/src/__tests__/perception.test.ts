@@ -2146,7 +2146,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // THE SHIELD BLOCK SEAT (Story 8.16, amendments 116–118) is SELF-PRIVATE on
   // the same terms: it may exist NOWHERE but `you`, and on `you` it is present
   // IFF the observer's own shield is UP (hp left, not yet expired), carrying
-  // exactly the record's hp and deadline. CHAFF rides no frame at all — the
+  // the record's hp ROUNDED UP and its exact deadline. CHAFF rides no frame at all — the
   // owner gets no readout and nobody gets a source (the fakes are blips).
   expect(JSON.stringify(withoutYou)).not.toContain('"shield"');
   expect(JSON.stringify(withoutYou)).not.toContain('chaff');
@@ -2154,7 +2154,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     const sh = me.shield;
     const up = sh !== null && sh.hpLeft > 0 && w.now < sh.until;
     expect('shield' in f.you).toBe(up);
-    if (up) expect(f.you.shield).toEqual({ hp: sh!.hpLeft, until: sh!.until });
+    if (up) expect(f.you.shield).toEqual({ hp: Math.ceil(sh!.hpLeft), until: sh!.until }); // whole-number readout (P5)
   }
   // THE SEAT'S GUN AND THE HELD LEVEL never ride anything but `you` (the gun,
   // Story 8.14) — and `held` is INPUT, which no frame carries at all: a
@@ -2277,16 +2277,18 @@ function expectedDecoyBlips(w: World, me: ShipRecord): ExpectedBlip[] {
 }
 
 /** CHAFF fakes (Story 8.16): one per oracle-recomputed fake of every OTHER
- *  ship's live source passing the observer's gate — never the owner's own.
+ *  owner's live source passing the observer's gate — never the owner's own
+ *  (the source read off the world-owned `chaffSources` map, amendment 127 —
+ *  a sunk or departed owner's cloud still counts).
  *  This is the lower bound that keeps the carve-out honest in BOTH directions:
  *  fakes the ruling promises must actually be on the wire, and nothing beyond
  *  the recomputed set may ride along. */
 function expectedFakeBlips(w: World, me: ShipRecord): ExpectedBlip[] {
   const out: ExpectedBlip[] = [];
-  for (const [owner, src] of chaffSourcesFor(w, me)) {
-    for (const fake of chaffFakesOracle(w, owner, src)) {
+  for (const src of chaffSourcesFor(w, me)) {
+    for (const fake of chaffFakesOracle(w, src)) {
       if (!blipPredicate(w, me, fake)) continue;
-      out.push({ mask: maskOracle(fake.cls, fake.x, fake.y, fake.heading, w.now), label: `gated chaff fake of ${owner.id}` });
+      out.push({ mask: maskOracle(fake.cls, fake.x, fake.y, fake.heading, w.now), label: `gated chaff fake of ${src.ownerId}` });
       CHAFF_EXPECTED.n += 1;
     }
   }
@@ -2389,8 +2391,8 @@ function verifyMine(w: World, me: ShipRecord, m: MineView): void {
 }
 
 /** A DECOY may reach a frame only if the viewer OWNS it (own field awareness,
- *  even under fog), it is DETECTED (the mine's 0.75×sight rung + island LOS —
- *  the `mineSignal` rule, Story 8.16), or it sits inside a lit zone the viewer
+ *  even under fog), it is SIGHTED (sight range + island LOS, like a ship —
+ *  amendment 126, superseding 124(h)'s mine-detect rung), or it sits inside a lit zone the viewer
  *  OWNS (Story 1.7 parity). Wire shape is exactly {id,x,y,own,by} in that key
  *  order, `by` naming the owner for EVERY observer (amendment 124(a)), with
  *  `hp` appended LAST on the owner's view ONLY (the MineView.c idiom — a KEY
@@ -2401,7 +2403,7 @@ function verifyDecoy(w: World, me: ShipRecord, d: DecoyView): void {
   const own = decoy.ownerId === me.id;
   expect(Object.keys(d)).toEqual(own ? ['id', 'x', 'y', 'own', 'by', 'hp'] : ['id', 'x', 'y', 'own', 'by']);
   expect(d).toEqual({ id: decoy.id, x: decoy.x, y: decoy.y, own, by: decoy.ownerId, ...(own ? { hp: decoy.hp } : {}) });
-  if (!own) expect(detected(w, me, decoy) || zoneCovers(w, me, decoy)).toBe(true);
+  if (!own) expect(sighted(w, me, decoy) || zoneCovers(w, me, decoy)).toBe(true);
 }
 
 /** A lit-zone circle may reach a frame only if the viewer OWNS the zone or the
@@ -2495,13 +2497,14 @@ function decoyMaskOracle(d: { x: number; y: number }, t: number): MaskOracle {
   return wakeMaskOracle(d.x, d.y, d.x, d.y, DECOY_PAINT_W_U, t);
 }
 
-/** Every OTHER ship's LIVE chaff source (`until > now`) — the observer's own
- *  cloud is never a source of blips for them (the owner exemption). */
-function chaffSourcesFor(w: World, me: ShipRecord): [ShipRecord, FakeSource][] {
-  const out: [ShipRecord, FakeSource][] = [];
-  for (const s of w.ships.values()) {
-    if (s.id === me.id || s.chaff === null || s.chaff.until <= w.now) continue;
-    out.push([s, s.chaff]);
+/** Every OTHER owner's LIVE chaff source (`until > now`) in the world-owned
+ *  map (amendment 127 — whatever became of the owner's hull) — the observer's
+ *  own cloud is never a source of blips for them (the owner exemption). */
+function chaffSourcesFor(w: World, me: ShipRecord): FakeSource[] {
+  const out: FakeSource[] = [];
+  for (const src of w.chaffSources.values()) {
+    if (src.ownerId === me.id || src.until <= w.now) continue;
+    out.push(src);
   }
   return out;
 }
@@ -2518,14 +2521,16 @@ function onWaterOracle(w: World, p: { x: number; y: number }): boolean {
 }
 
 /** THE SCATTER oracle (amendment 124(b)(c)): the fake set re-derived from the
- *  documented contract — epoch = ⌊(now − at) / owner's sweep period⌋, seed mix
+ *  documented contract — epoch = ⌊(now − at) / the owner's sweep period
+ *  CAPTURED on the source at activation⌋ (amendment 127), seed mix
  *  (seed ^ imul(epoch+1, 0x9e3779b9)), then per fake up to 16 attempts of
  *  exactly four draws — disc radius (R·√u), bearing (2π·a), heading (2π·h),
  *  class index (⌊c·6⌋) — each rejected unless on water, a fake that fails all
- *  16 dropped. Source fields are read off the ship RECORD (server state, like
- *  sweep angles) — never the production scatter output this oracle checks. */
-function chaffFakesOracle(w: World, owner: ShipRecord, src: FakeSource): { x: number; y: number; heading: number; cls: HullId }[] {
-  const epoch = Math.floor((w.now - src.at) / owner.stats.sweepPeriodMs);
+ *  16 dropped. Source fields are read off the world's source RECORD (server
+ *  state, like sweep angles) — never the production scatter output this
+ *  oracle checks. */
+function chaffFakesOracle(w: World, src: FakeSource): { x: number; y: number; heading: number; cls: HullId }[] {
+  const epoch = Math.floor((w.now - src.at) / src.sweepPeriodMs);
   const rng = mulberry32((src.seed ^ Math.imul(epoch + 1, 0x9e3779b9)) >>> 0);
   const out: { x: number; y: number; heading: number; cls: HullId }[] = [];
   for (let i = 0; i < src.count; i++) {
@@ -2763,8 +2768,8 @@ function blipMatchesDecoyPaint(w: World, me: ShipRecord, ev: BlipEvent): boolean
  *  never byte-match a mask built from a private-stream pose (see the directed
  *  leak-catch case below the invariant suite). */
 function blipMatchesChaffFake(w: World, me: ShipRecord, ev: BlipEvent): boolean {
-  for (const [owner, src] of chaffSourcesFor(w, me)) {
-    for (const fake of chaffFakesOracle(w, owner, src)) {
+  for (const src of chaffSourcesFor(w, me)) {
+    for (const fake of chaffFakesOracle(w, src)) {
       if (!blipPredicate(w, me, fake)) continue;
       if (blipPoseMatches(w, ev, fake.cls, fake, fake.heading)) return true;
     }
@@ -3629,7 +3634,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const obs = w.ships.get(ids[rng.int(0, ids.length - 1)])!;
         const brg = obs.sweepAngle + rng.float(0.05, 0.35);
         const d = rng.float(SIGHT + 60, RADAR - 60);
-        owner.chaff = {
+        w.chaffSources.set(owner.id, {
+          ownerId: owner.id,
           x: obs.state.x + Math.cos(brg) * d,
           y: obs.state.y + Math.sin(brg) * d,
           radius: CONFIG.chaff.radius,
@@ -3637,7 +3643,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           until: w.now + rng.float(-400, CONFIG.chaff.durationMs),
           seed: rng.int(0, 0xffffffff),
           at: w.now - rng.float(0, 12_000),
-        };
+          sweepPeriodMs: owner.stats.sweepPeriodMs,
+        });
       }
       // DECOYS (Story 8.16): 1-3 live decoys on random owners, minted through
       // production addDecoy; most seated in another ship's beam annulus (the
@@ -3768,7 +3775,10 @@ describe('perception — the chaff carve-out still catches a genuine leak (Story
     const w = bareWorld();
     place(w, 'a', 0, 0); // observer; place() parks its beam zero-width
     const j = place(w, 'j', 2000, 2000); // the chaff owner, far away
-    j.chaff = { x: 400, y: 0, radius: 120, count: 10, until: w.now + 15000, seed: 0xdead_beef, at: w.now };
+    w.chaffSources.set(j.id, {
+      ownerId: j.id, x: 400, y: 0, radius: 120, count: 10, until: w.now + 15000, seed: 0xdead_beef, at: w.now,
+      sweepPeriodMs: j.stats.sweepPeriodMs,
+    });
     // The REAL hidden ship: inside the chaff cloud and inside a's annulus,
     // but a's paint window is zero-width, so NO gate passes for it.
     const h = place(w, 'h', 400, 100, 1.25);

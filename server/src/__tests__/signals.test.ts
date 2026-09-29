@@ -50,7 +50,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, mapRadius: w.map.radius, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, decoys: w.decoys, me, wakes: w.wakeRibbons,
+    litZones: w.litZones, decoys: w.decoys, chaffSources: w.chaffSources, me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -60,7 +60,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, mapRadius: w.map.radius, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, decoys: w.decoys, me: undefined, wakes: w.wakeRibbons,
+    litZones: w.litZones, decoys: w.decoys, chaffSources: w.chaffSources, me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };

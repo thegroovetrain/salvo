@@ -30,9 +30,14 @@ import {
  * One live false-return SOURCE (a CHAFF burst). Fixed at the OWNER's position
  * at activation (R39 "bursts at your own position") — it does not follow the
  * ship. `at` is the activation time the rescatter epoch counts from; `until`
- * the server time it stops painting.
+ * the server time it stops painting. WORLD-OWNED (amendment 127): it lives in
+ * `World.chaffSources` keyed by `ownerId`, never on the ship, so it runs its
+ * full window whatever becomes of the hull (sink, redeploy, respawn, leave) —
+ * which is why the owner's `sweepPeriodMs` is CAPTURED here at activation
+ * rather than read off a live ship that may no longer exist.
  */
 export interface FakeSource {
+  ownerId: string; // the activating ship's id — the observer the fakes skip
   x: number; // u — the burst point
   y: number; // u
   radius: number; // u — scatter circle
@@ -40,6 +45,7 @@ export interface FakeSource {
   until: number; // ms — server time the fakes stop
   seed: number; // server-private scatter seed
   at: number; // ms — activation time (the epoch origin)
+  sweepPeriodMs: number; // ms — the owner's sweep period AT ACTIVATION (the epoch unit)
 }
 
 /** One fabricated radar subject. */
@@ -59,10 +65,12 @@ export const FAKE_MAX_ATTEMPTS = 16;
  * The rescatter epoch (amendment 124(b)): how many of the OWNER's sweep
  * periods have elapsed since activation. Ships keep no revolution counter, so
  * "re-scattered per sweep" is time over the owner's own `sweepPeriodMs` — the
- * same quantity, recomputable by the oracle from the frame time.
+ * same quantity, recomputable by the oracle from the frame time. The period is
+ * the one captured on the source at activation (amendment 127: the owner may
+ * have sunk or left since).
  */
-export function fakeEpoch(source: FakeSource, now: number, sweepPeriodMs: number): number {
-  return Math.floor((now - source.at) / sweepPeriodMs);
+export function fakeEpoch(source: FakeSource, now: number): number {
+  return Math.floor((now - source.at) / source.sweepPeriodMs);
 }
 
 /** One candidate pose: the four draws, in THE contract order. */

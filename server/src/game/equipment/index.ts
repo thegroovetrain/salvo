@@ -143,10 +143,12 @@ export interface ActivationContext {
   setShield: (shield: { hpLeft: number; until: number }) => void;
   /**
    * CHAFF's whole body (Story 8.16, amendment 124(b)(c)): put a false-return
-   * source on the ACTIVATING ship. The World mints the server-private `seed`
-   * (the row never sees an RNG); a second call REPLACES the source.
+   * source on the water for the ACTIVATING ship. The World mints the server-
+   * private `seed` (the row never sees an RNG), stamps the owner's id and
+   * captures its sweep period, and files it in `World.chaffSources` under the
+   * owner (amendment 127); a second call REPLACES the owner's source.
    */
-  setChaff: (source: Omit<FakeSource, 'seed'>) => void;
+  setChaff: (source: Omit<FakeSource, 'seed' | 'ownerId' | 'sweepPeriodMs'>) => void;
 }
 
 /** Per-spawn options for `ActivationContext.spawnBallistic`. */

@@ -47,6 +47,7 @@ import { CONSUMABLE_TACTICS, EQUIPMENT_TACTICS } from '../game/ai/equipment.js';
 import { EQUIPMENT } from '../game/equipment/index.js';
 import { engagementBand, profileOf } from '../game/ai/profiles.js';
 import { pullBand } from '../game/ai/utility.js';
+import { noteTorpedoes } from '../game/ai/torpedoThreat.js';
 import type {
   BotDecision,
   BotMind,
@@ -2336,10 +2337,17 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g), interim)', 
     plot(away, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, away, port).actSlot).toBe(belt);
     expect(away.posture).toBe('disengage');
-    rec.chaff = { x: 0, y: 0, radius: 120, count: 10, until: port.now + 5000, seed: 1, at: port.now };
+    // The bot's own cloud still painting (world-owned since amendment 127, so
+    // its `until` rides the mind, handed in by the driver each tick).
     const live = mkMind('duelist');
+    live.chaffUntil = port.now + 5000;
     plot(live, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, live, port).actSlot).toBeNull();
+    // A lapsed cloud no longer holds the throw back.
+    const lapsed = mkMind('duelist');
+    lapsed.chaffUntil = port.now;
+    plot(lapsed, track(port.now, { x: 200, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, lapsed, port).actSlot).toBe(belt);
   });
 
   it('DECOY BUOY: a rear-sector placement at full placeRange when a fish is inbound — and only then', () => {
@@ -2354,5 +2362,22 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g), interim)', 
     const center = wrapAngle(rec.state.heading + REAR_SECTOR.offset);
     expect(inArc(d.aim, center, REAR_SECTOR.halfArc)).toBe(true);
     expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6);
+  });
+
+  it('DECOY BUOY: a SINKING bot with a fish inbound does not want the decoy (the afloat guard its siblings carry)', () => {
+    const { port, rec } = beltOnly(81604, 'decoyBuoy');
+    rec.lifecycle = transitionLifecycle(rec.lifecycle, 'sink', port.now);
+    const threatened = mkMind('duelist');
+    viewOf(threatened, port.now, [inbound(port.now)]);
+    const tactic = CONSUMABLE_TACTICS.decoyBuoy!;
+    const ctx = { self: rec, mind: threatened, sit: { now: port.now }, posture: 'reposition' } as unknown as Parameters<typeof tactic.want>[0];
+    noteTorpedoes(threatened, rec, port.now);
+    expect(tactic.want(ctx)).toBe(false);
+    // ...and the same fish over an AFLOAT hull is wanted (the guard is the only difference).
+    const afloat = beltOnly(81605, 'decoyBuoy').rec;
+    const mind2 = mkMind('duelist');
+    viewOf(mind2, port.now, [inbound(port.now)]);
+    noteTorpedoes(mind2, afloat, port.now);
+    expect(tactic.want({ ...ctx, self: afloat, mind: mind2 })).toBe(true);
   });
 });

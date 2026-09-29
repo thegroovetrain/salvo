@@ -2,7 +2,7 @@
 title: 'Story 8.16: Catalog v3 — Shield, Chaff, Decoy'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'cc86ac9'
 final_revision: ''
 review_loop_iteration: 0
@@ -111,6 +111,23 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-29 — Review pass (Blind Hunter + Edge Case Hunter on Fable, plus Codex `gpt-5.6-sol` on the source diff — verdicts: Blind fix-first on F1 after an Eric ruling, Edge "#1/#2 to Eric before the PR", Codex FIX-FIRST; agreement: BOTH hunters CONFIRMED the decoy's dark band between detect and sight range; Codex + Edge flagged the chaff cloud dying with its owner; every anti-cheat probe (shield self-privacy, `DecoyView.hp` owner-only, chaff gate/memo/epoch, own-decoy skips, `targetsGen`, spend law, prediction) came back clean from all three)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 0, medium 2, low 4)
+- defer: 3: (high 0, medium 0, low 3)
+- reject: 3: (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[medium]` `[patch]` Decoy invisible in the (0.75 × sight, sight] band — radar paints only outside sight, the view arrived only inside detect (both hunters, CONFIRMED). Eric ruled at the gate: reveal at SIGHT range like a ship (amendment 126). `decoySignal.visible` → `pointSighted`; oracle arm + directed test.
+  - `[medium]` `[patch]` Chaff cloud nulled in `sinkShip`/redeploy/respawn — an implementer's invented decision (Codex CONFIRMED, Edge PLAUSIBLE). Eric ruled: chaff runs its full 15 s (amendment 127). Source moves to a world-owned map keyed by owner, cleared only at `resetForMatchStart`; carries the owner's `sweepPeriodMs` at activation.
+  - `[low]` `[patch]` `server/scripts/rl/features.ts` still read the deleted `view.buoys` (Blind, CONFIRMED; outside `npm run check`'s tsc scope) → `decoys` channel.
+  - `[low]` `[patch]` A shield-absorbed BURN tick emitted no `dmg` (`flushDot` drops `amount <= 0` buckets) so the victim's hit cue was silent for burn only, against amendment 117 (Edge, CONFIRMED) → the DoT bucket tracks `absorbed` and flushes one `dmg amount 0` per window.
+  - `[low]` `[patch]` Fractional shield hp on the wire made the readout drop a whole point on a 0.2 storm bite then stall (Edge, CONFIRMED) → `ownShield` sends `ceil(hpLeft)`.
+  - `[low]` `[patch]` A SINKING bot could drop decoys (the tactic lacked the afloat guard the shield/chaff rows carry) (Edge, CONFIRMED) → guard added.
+- rulings recorded, not changed: attacker credit counts hull damage only (Eric, amendment 128; Blind F4); a fully absorbed hit does not reset the regen clock (already amendment 47; Blind F3).
+- deferred: decoy/hull id namespaces are not enforced (`d1` vs a hull id; Codex PLAUSIBLE — 9-char session ids / `bot-N` / `fleet-N` cannot collide in production; the mines' `m1` namespace has carried the same caveat since 8.4); the `placeDecoy` tone replays once per live own decoy on a refresh-rejoin (Edge; the mines precedent); `noAggro` has no writer (Blind F6; already ledgered).
+- rejected: 0-amount burn buckets "fire the cue every 500 ms" (Blind F5 — `flushDot` drops them; superseded by the P4 patch which emits once per window exactly as an unshielded burn does); the shield "should" reset regen (Blind F3 — ruled by amendment 47); chaff fakes deterministic across observers as a discriminator (Blind — every hull paint is equally deterministic; inherent to R39).
 
 ## Design Notes
 
