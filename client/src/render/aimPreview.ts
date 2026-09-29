@@ -75,18 +75,20 @@ export interface AimPreviewInput {
   islands: readonly Island[];
   legal: boolean;
   /**
-   * THE GUN'S RESOLVED REACH FOR THIS AIM (Story 7-5 wave 2, R2.15) — normally
-   * `stats.equipment.gun.rangeU`, but LIFTED to the click's own distance when the clicked
-   * point lies inside a live lit zone the player owns. Computed ONCE by the
-   * caller through weaponArc.weaponReachU and handed to the range-clamp marker
+   * THE PRIMED DECK GUN'S RESOLVED REACH FOR THIS AIM (Story 7-5 wave 2,
+   * R2.15; amendment 114) — normally the primed gun's own row `rangeU`, but
+   * LIFTED to the click's own distance when the clicked point lies inside a
+   * live lit zone the player owns. Computed ONCE by the caller through
+   * weaponArc.weaponReachU and handed to the range-clamp marker
    * (render/firing.ts) and to this preview as the SAME NUMBER, so the marker
    * that says "the shell stops here" and the circle that says "it bursts here"
    * cannot disagree.
    *
-   * GUN ONLY: no other branch reads it, because no other system has the
-   * extension (R2.15 names the gun and excludes the broadside and the torpedo
-   * explicitly). Omitted = `stats.equipment.gun.rangeU`, i.e. the pre-wave-2 clamp
-   * byte-for-byte, which is what every non-main caller (tests) wants.
+   * DECK GUNS ONLY: the cannon, the machine gun and the flak gun read it (Eric
+   * ruling 2026-09-29, amendment 114); no other branch does, because no other
+   * system has the extension (R2.15 excludes the broadside and the torpedo
+   * explicitly). Omitted = the primed gun's own row `rangeU`, i.e. the plain
+   * clamp byte-for-byte, which is what every non-main caller (tests) wants.
    */
   gunReachU?: number;
 }
@@ -304,8 +306,9 @@ function cannonPreview(inp: AimPreviewInput): AimPreviewModel {
  *    preview is the travel line alone, with NO ring — the reticle is its aim
  *    mark (`burstRadius: 0` is the shellPreview's no-circle case);
  *  - the FLAK GUN bursts at the click in its FIXED 50 u blast (amendment 105).
- * Neither reads `gunReachU`: the lit-zone reach extension is the cannon row's
- * (R2.15), and the server's legality gate is the authority on widening it.
+ * Both clamp to the resolved reach (`gunReachU` — the lit-zone lift, off the
+ * gun's OWN row via weaponArc.weaponReachU): every deck gun fires into the
+ * shooter's own lit-up area (R2.15, amendment 114).
  */
 function isPickableGun(id: SlotItemId): id is 'machineGun' | 'flak' {
   return id === 'machineGun' || id === 'flak';
@@ -314,7 +317,7 @@ function isPickableGun(id: SlotItemId): id is 'machineGun' | 'flak' {
 function pickableGunPreview(inp: AimPreviewInput, id: 'machineGun' | 'flak'): AimPreviewModel {
   const row = inp.stats.equipment[id];
   return parallelVolley(inp, {
-    rangeU: row.rangeU,
+    rangeU: inp.gunReachU ?? row.rangeU,
     burstRadius: id === 'flak' ? inp.stats.equipment.flak.burstRadius : 0,
     shellRadius: CONFIG[id].shellRadius,
     barrels: 1,

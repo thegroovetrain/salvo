@@ -2519,7 +2519,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
-  status: OPEN — Eric (un-ruled asymmetry), review gate 2026-09-29
+  status: RESOLVED 2026-09-29 — Eric: "I can fire any of my deck guns into the lit up area" (amendment 114); the machine gun and flak now take the R2.15 reach extension exactly as the cannon, both sides
   summary: THE LIT-ZONE REACH EXTENSION (R2.15, a click beyond range whose far point lies in an OWN live star-shell zone) APPLIES TO THE CANNON ONLY. The machine gun and the flak gun clamp to the plain radar rung (660 u) on both server (`machineGun.ts` / `flak.ts` use `burstPointAlong` with `row.rangeU`, no `ownLitZones` read) and client (`aimPreview.ts`), so the three 360°/660 u guns differ in one reach rule amendments 103–106 never mention. Consistent both sides, no desync; a one-line decision either way.
   evidence: Blind Hunter finding 11 at the 8.15 review gate; `server/src/game/equipment/guns.ts` `gunReachU` vs the two new modules.
 

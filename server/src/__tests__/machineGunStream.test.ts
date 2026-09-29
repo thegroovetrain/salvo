@@ -172,6 +172,45 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
   });
 });
 
+// ---------- the lit-zone reach (amendment 114) -------------------------------
+
+// EVERY DECK GUN FIRES INTO ITS OWN LIT-UP AREA (Eric ruling 2026-09-29,
+// amendment 114): R2.15's reach extension — a click past the gun's range whose
+// far point lies inside one of the shooter's OWN live star-shell zones is
+// honoured at the clicked distance — applies to the machine gun exactly as to
+// the cannon. An ENEMY's flare, or none, still clamps to the 660 u rung.
+describe('the lit-zone reach — the machine gun fires into its own flare (amendment 114)', () => {
+  function litStream(owner: string | null): { w: World; a: ShipRecord } {
+    const w = bareWorld();
+    const a = gunner(w, 'a');
+    if (owner !== null) {
+      w.litZones.set('z1', {
+        id: 'z1', ownerId: owner, x: 800, y: 0, r: 120, until: 10 * 60 * 1000, phosphor: false, dazzle: false,
+      });
+    }
+    w.submitInput('a', makeInput({ seq: 1, held: true, aimDist: 800 }));
+    w.step();
+    return { w, a };
+  }
+
+  it('a click at 800 u into an OWN live lit zone lands the shell at 800 u', () => {
+    const { w, a } = litStream('a');
+    expect(a.stats.equipment.machineGun.rangeU).toBe(660);
+    const shells = [...w.shells.values()];
+    expect(shells).toHaveLength(1);
+    expect(shells[0].targetX).toBeCloseTo(800, 6);
+  });
+
+  it('the same click into an ENEMY zone, or with no zone, clamps to 660 u', () => {
+    for (const owner of ['b', null]) {
+      const { w } = litStream(owner);
+      const shells = [...w.shells.values()];
+      expect(shells, `owner=${owner}`).toHaveLength(1);
+      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(660, 6);
+    }
+  });
+});
+
 // ---------- the magazine ------------------------------------------------------
 
 describe('the magazine (amendment 103)', () => {

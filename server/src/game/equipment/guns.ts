@@ -94,38 +94,32 @@ export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shel
 }
 
 /**
- * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15) — the ShipRecord-shaped
- * wrapper around the SHARED predicate (`sim/aim.ts` `gunReachU`, where the full
- * rationale lives). A gun click normally clamps to `stats.equipment.gun.rangeU`; a click
- * whose burst point lies inside a LIVE lit zone the CLICKING PLAYER owns is
- * legal past it, and the shell flies the whole way.
+ * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15; amendment 114) — the
+ * ShipRecord-shaped wrapper around the SHARED predicate (`sim/aim.ts`
+ * `gunReachU`, where the full rationale lives). A deck-gun click normally
+ * clamps to its row's `rangeU`; a click whose burst point lies inside a LIVE
+ * lit zone the CLICKING PLAYER owns is legal past it, and the shell flies the
+ * whole way.
  *
- * THE RULE ITSELF IS NO LONGER WRITTEN HERE. It was, and the client's aim
- * preview mirrored it line for line — two implementations of one legality gate,
- * agreeing by discipline. It is now promoted into `shared/` exactly as
- * `blockedWater` and `burstPointAlong` were, so the previewed reach and the
+ * THE RULE ITSELF IS NOT WRITTEN HERE. It is promoted into `shared/` exactly
+ * as `blockedWater` and `burstPointAlong` were, so the previewed reach and the
  * enforced reach are one function. Nothing in this file may re-derive it.
  *
  * What stays server-side is the two things `shared/` may not see:
- *   * GUN ONLY — no other row calls this, which is what makes the extension
- *     gun-only. The broadside and the torpedo keep their own reach.
+ *   * DECK GUNS ONLY — the cannon (`gun`), the MACHINE GUN and the FLAK GUN
+ *     (Eric ruling 2026-09-29, amendment 114: every deck gun fires into the
+ *     shooter's own lit-up area) call this, each passing its OWN row's
+ *     `rangeU`. The broadside, the star shell and the torpedo keep their own
+ *     reach.
  *   * OWN FLARES ONLY — `ctx.ownLitZones()` is keyed on the ACTIVATING ship, so
  *     an enemy's flare hanging over your target lights the water for THEM and
- *     buys you nothing. Illuminating for someone else is never a gift you can
- *     take.
+ *     buys you nothing.
  * SERVER-AUTHORITATIVE: this IS the legality answer; the client's preview is
  * never asked.
  */
-export function gunReachU(ctx: ActivationContext): number {
+export function gunReachU(ctx: ActivationContext, rangeU: number): number {
   const ship = ctx.ship;
-  return sharedGunReachU(
-    ship.state,
-    ship.input.aim,
-    ship.input.aimDist,
-    ship.stats.equipment.gun.rangeU,
-    ctx.mapRadius,
-    ctx.ownLitZones(),
-  );
+  return sharedGunReachU(ship.state, ship.input.aim, ship.input.aimDist, rangeU, ctx.mapRadius, ctx.ownLitZones());
 }
 
 /**
@@ -230,7 +224,7 @@ export const gunEquipment: Equipment = {
     // bornAt = the VALIDATED fire time (D1): a back-dated shell is then
     // pre-stepped by the World to where it belongs this tick.
     // R2.15: an own LIVE lit zone over the clicked point extends the reach.
-    const reachU = gunReachU(ctx);
+    const reachU = gunReachU(ctx, ctx.ship.stats.equipment.gun.rangeU);
     const { shells, denial } = fireGunShells(ctx.ship, slot.state!, ctx.fireT, reachU, ctx.mapRadius, ctx.mkId);
     for (const shell of shells) ctx.spawnBallistic(shell);
     return denial === null ? { ok: true } : { ok: false, reason: denial };

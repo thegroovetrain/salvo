@@ -31,7 +31,7 @@
 import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type WeaponAmmo } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
-import { burstPointAlong, muzzleOrTarget } from './guns.js';
+import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
 /** Advance a running magazine swap by `dtMs`; on completion the magazine is
@@ -51,13 +51,15 @@ function tickSwap(state: WeaponAmmo, maxAmmo: number, dtMs: number): boolean {
 }
 
 /** Spawn ONE direct shell along the ship's aim to the clicked point, clamped
- *  to the gun's effective range and the water disk (the cannon's exact aim
- *  flow: `burstPointAlong` + `muzzleOrTarget`), born at `now`. */
+ *  to the gun's effective reach and the water disk (the cannon's exact aim
+ *  flow: `gunReachU` + `burstPointAlong` + `muzzleOrTarget`), born at `now`.
+ *  The reach is the row's `rangeU`, lifted to the click inside one of the
+ *  shooter's OWN live lit zones (R2.15, amendment 114). */
 function fireStreamShell(ctx: ActivationContext): void {
   const ship = ctx.ship;
   const mg = ship.stats.equipment.machineGun;
   const dir = ship.input.aim;
-  const target = burstPointAlong(ship, ctx.mapRadius, mg.rangeU, dir);
+  const target = burstPointAlong(ship, ctx.mapRadius, gunReachU(ctx, mg.rangeU), dir);
   const origin = muzzleOrTarget(ship, dir, target, CONFIG.machineGun.shellRadius);
   const range = Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.machineGun.shellRadius;
   const shell = makeBallistic(ctx.mkId(), ship, dir, ctx.now, {

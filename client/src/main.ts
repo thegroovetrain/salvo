@@ -3687,9 +3687,9 @@ function renderFiring(
     g, FLASH_ELEMENTS.deniedArc, g.deniedPulse, g.deniedFlash, nowMs, g.deniedDegraded,
   );
   // ONE reach for this aim, feeding BOTH the range-clamp marker and the aim
-  // preview (R2.15): the gun's clamp LIFTS to the click when the click lands
-  // inside one of our own live lit zones — you may shell what your own flare is
-  // lighting — and every other id keeps its own weaponRangeU byte-for-byte. Two
+  // preview (R2.15, amendment 114): a deck gun's clamp (cannon, machine gun,
+  // flak) LIFTS to the click when the click lands inside one of our own live lit
+  // zones — you may shell what your own flare is lighting — and every other id keeps its own weaponRangeU byte-for-byte. Two
   // derivations of one reach would let the marker and the burst circle disagree
   // about where the shell stops.
   const reachU = weaponReachU(status.stats, primedItem, pose, aim, aimDist, g.mapRadius, ownZones);

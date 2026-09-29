@@ -132,7 +132,7 @@ warnings: [oversized]
 - intent_gap: 0
 - bad_spec: 0
 - patch: 11: (high 0, medium 1, low 10)
-- defer: 2: (high 0, medium 0, low 2)
+- defer: 1: (high 0, medium 0, low 1) — a second deferral (cannon-only flare reach) was overturned by Eric the same day and built (amendment 114)
 - reject: 0
 - addressed_findings:
   - `[medium]` `[patch]` a machine-gun seat that disconnected mid-hold streamed for the whole reconnect grace (the level lived on the stored input): the room releases `held` on drop before the grace opens; a reconnect with a fresh hold resumes (all three reviewers)
@@ -146,11 +146,11 @@ warnings: [oversized]
   - `[low]` `[patch]` an enemy `mg` reveal near the own hull was claimed as own `gun` fire: only the stream claim can own a tracer (Edge)
   - `[low]` `[patch]` two stale comments (reconcile timer wording; the flak `contactDamage` ratio claim) (Blind)
 - rulings recorded: Eric 2026-09-29 — the stream fires only while the gun is the selected slot (amendment 111); an idle magazine swap shows the normal wipe (amendment 112); orchestrator review-gate rulings (amendment 113).
-- deferred (ledgered in `deferred-work.md`): the lit-zone reach extension stays cannon-only (an un-ruled asymmetry, Eric); the interim Battleship bot's cut trigger reads the post-shield `dmg` amount (8.19).
+- deferred (ledgered in `deferred-work.md`): the interim Battleship bot's cut trigger reads the post-shield `dmg` amount (8.19). The lit-zone reach asymmetry was WRONGLY deferred: Eric ruled the same day (amendment 114) that every deck gun fires into the shooter's own lit-up area, and the machine gun and flak now take the R2.15 reach exactly as the cannon, both sides, fail-first pinned (server 2101 / client 3711 tests).
 
 ## Auto Run Result
 
-Status: done (cycle 150, 0.18.15; PROTOCOL_VERSION 57 → 58; epic-8 amendments 97–113)
+Status: done (cycle 150, 0.18.15; PROTOCOL_VERSION 57 → 58; epic-8 amendments 97–114)
 
 **Summary.** Story 8.15 landed as Eric ruled it on 2026-09-28/29. The gun is a real pick on today's class-select cards (CANNON · MACHINE GUN · FLAK chips plus a SPECIAL row), frozen at queue and mounted from the seat. The MACHINE GUN is a held-fire magazine stream (`InputMsg.held`, a required boolean level; 4 damage per shell, one shell per 0.5 s while the gun is the selected slot, 660 u, a 16-shell magazine, a 15 s swap that starts when empty or after 5 s idle and is cancelled by a shot; per-shell muzzle flash; a dropped seat releases the level). The FLAK GUN is one shell bursting at the click (12 damage in a 50 u blast, 660 u, 6 s; enemy torpedoes inside the blast are removed silently, own torpedoes immune — a side effect Eric may remove). Every gun is 360°. Each gun's ladder is offered only while it is mounted (MG +2 shells / +1 damage / −5 % reload per tier; flak +2 damage / −5 %). Every hull carries a FIXED Shift in slot 1: SPEED BOOST (Torpedo Boat, as shipped), INSTANT RELOAD (Mine Layer, 45 s, finishes the running reload of the gun and every fitted weapon), DAMAGE CUT (Battleship, halves incoming weapon damage rounded down for 8 s on a 30 s cooldown, before the shield, storm excluded). HORIZONTAL MISSILE, MONITOR GUN and HEAT SEEKING are deleted end to end (LINE_IDS 29 → 26). The shell reveal carries one new family word `w` (cannon / mg / flak) as the one declared disclosure widening; the perception invariant still counts six exceptions. Bots are seated with a seeded random gun and carry interim Shift and gun tactics until 8.19; the harness gains `--gun`. The plain gun is CANNON everywhere in match.
 
@@ -164,7 +164,7 @@ Status: done (cycle 150, 0.18.15; PROTOCOL_VERSION 57 → 58; epic-8 amendments 
 
 **Verification.** `npm run check` exit 0 after the patch wave: shared 934 / server 2097 / client 3708 tests, hooks green; eslint 0 errors (3 pre-existing max-lines warnings). Headless smokes: weaponsSmoke PASS on attempt 1 with the new three-guns phase (cannon 15 / mg 4 / flak 12, reveals `w` cannon / mg / flak, held ticks sent with fireSeq 0), queueSmoke PASS (seat proof over all three gun ids), openingSmoke PASS; queue + opening re-run PASS after the patches.
 
-**Residual risk / for Eric.** (1) Glyphs, chip layout, drain bar, tracer look and the two ladder hover descriptions are implementer drafts for your eye on staging (amendment 110). (2) The flak's anti-ordnance half is built but ledgered as removable, per your words. (3) The attacker's damage tally reads the post-cut amount; `finishReloads` restarts a short pool's timer at full rather than 0 — both ledgered readings you may overrule. (4) Lit-zone reach stays cannon-only (deferred, yours). (5) `epics.md`, the GDD and `catalog-v3.md` now carry superseded clauses (bow ±90°, R20/R21/R26/R27 numbers, the 20 s boost, "tilt") — 9.11 doc-sync. Staging QA: pick each gun on class select and confirm the chip persists; hold the button with the machine gun and watch the drain bar, the 5 s idle swap and the wipe; flak burst ring at 50 u; Shift on each hull (boost / instant reload with a reloading weapon / damage cut halving a hit); no missile, monitor or heat-seeking card ever appears.
+**Residual risk / for Eric.** (1) Glyphs, chip layout, drain bar, tracer look and the two ladder hover descriptions are implementer drafts for your eye on staging (amendment 110). (2) The flak's anti-ordnance half is built but ledgered as removable, per your words. (3) The attacker's damage tally reads the post-cut amount; `finishReloads` restarts a short pool's timer at full rather than 0 — both ledgered readings you may overrule. (4) Every deck gun reaches into your own flare's light beyond 660 u (amendment 114, built). (5) `epics.md`, the GDD and `catalog-v3.md` now carry superseded clauses (bow ±90°, R20/R21/R26/R27 numbers, the 20 s boost, "tilt") — 9.11 doc-sync. Staging QA: pick each gun on class select and confirm the chip persists; hold the button with the machine gun and watch the drain bar, the 5 s idle swap and the wipe; flak burst ring at 50 u; Shift on each hull (boost / instant reload with a reloading weapon / damage cut halving a hit); no missile, monitor or heat-seeking card ever appears.
 
 
 ## Design Notes

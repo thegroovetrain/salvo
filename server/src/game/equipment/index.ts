@@ -84,10 +84,11 @@ export interface ActivationContext {
   dropBuoy: (x: number, y: number) => void;
   /**
    * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): the LIVE lit zones owned
-   * by the ACTIVATING ship, as centre+radius circles. The gun row feeds them to
-   * the SHARED reach predicate (`@salvo/shared` `gunReachU`) before it clamps an
-   * out-of-range click; no other row calls it, which is what makes the extension
-   * gun-only.
+   * by the ACTIVATING ship, as centre+radius circles. The three DECK GUN rows
+   * (cannon, machine gun, flak — amendment 114) feed them to the SHARED reach
+   * predicate (`@salvo/shared` `gunReachU`) before they clamp an out-of-range
+   * click; no other row calls it, which is what keeps the extension to the
+   * deck guns.
    *
    * A CAPABILITY, NOT THE ZONE STORE. Rows get a list already filtered to
    * OWN + LIVE — never the zone map, never an owner id or expiry they could

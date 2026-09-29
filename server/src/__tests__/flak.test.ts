@@ -126,6 +126,42 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
   });
 });
 
+// EVERY DECK GUN FIRES INTO ITS OWN LIT-UP AREA (Eric ruling 2026-09-29,
+// amendment 114): R2.15's reach extension applies to the flak gun exactly as
+// to the cannon — own live zone over the far point = the clicked distance; an
+// ENEMY's flare, or none, clamps to the 660 u rung.
+describe('the lit-zone reach — the flak gun fires into its own flare (amendment 114)', () => {
+  function litClick(owner: string | null): { w: World; a: ShipRecord } {
+    const w = bareWorld();
+    const a = flakker(w, 'a');
+    if (owner !== null) {
+      w.litZones.set('z1', {
+        id: 'z1', ownerId: owner, x: 800, y: 0, r: 120, until: 10 * 60 * 1000, phosphor: false, dazzle: false,
+      });
+    }
+    w.submitInput('a', makeInput({ seq: 1, fireSeq: 1, aimDist: 800 }));
+    w.step();
+    return { w, a };
+  }
+
+  it('a click at 800 u into an OWN live lit zone lands the shell at 800 u', () => {
+    const { w, a } = litClick('a');
+    expect(a.stats.equipment.flak.rangeU).toBe(660);
+    const shells = [...w.shells.values()];
+    expect(shells).toHaveLength(1);
+    expect(shells[0].targetX).toBeCloseTo(800, 6);
+  });
+
+  it('the same click into an ENEMY zone, or with no zone, clamps to 660 u', () => {
+    for (const owner of ['b', null]) {
+      const { w } = litClick(owner);
+      const shells = [...w.shells.values()];
+      expect(shells, `owner=${owner}`).toHaveLength(1);
+      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(660, 6);
+    }
+  });
+});
+
 describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fish, never the shooter\'s own', () => {
   it('an enemy torpedo 20 u off the burst point is REMOVED: no boom, no damage, no `hc`, its water orphaned', () => {
     const w = bareWorld();

@@ -15,21 +15,24 @@
 // and one covering an ENEMY torpedo in flight removes it — a SIDE EFFECT that
 // might go away (amendment 105); nothing here leans on it, and the World owns
 // the outcome (resolveBurst: no boom, no damage, no `hc`, own fish immune).
-// No lit-zone reach extension: that is the CANNON's alone (R2.15).
+// THE LIT-ZONE REACH (R2.15, amendment 114): like every deck gun, a click past
+// `rangeU` into one of the shooter's OWN live lit zones is honoured at the
+// clicked distance (guns.ts `gunReachU`, off this row's own `rangeU`).
 
 import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { burstPointAlong, muzzleOrTarget } from './guns.js';
+import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
 /** Build the one flak shell for this click, born at `now` (the validated
- *  fire time). Pure over the ship's input + pose + stats. */
-function flakShell(ship: ShipRecord, now: number, mapRadius: number, mkId: () => string): ShellState {
+ *  fire time), clamped to `reachU` (the row's `rangeU`, lit-zone lifted).
+ *  Pure over the ship's input + pose + stats. */
+function flakShell(ship: ShipRecord, now: number, reachU: number, mapRadius: number, mkId: () => string): ShellState {
   const flak = ship.stats.equipment.flak;
   const dir = ship.input.aim;
-  const target = burstPointAlong(ship, mapRadius, flak.rangeU, dir);
+  const target = burstPointAlong(ship, mapRadius, reachU, dir);
   const origin = muzzleOrTarget(ship, dir, target, CONFIG.flak.shellRadius);
   return makeBallistic(mkId(), ship, dir, now, {
     speed: CONFIG.flak.shellSpeed,
@@ -60,7 +63,8 @@ export const flakEquipment: Equipment = {
     if (!consume(slot.state!, ctx.ship.stats.equipment.flak.reloadMs)) return { ok: false, reason: 'no-ammo' };
     // bornAt = the VALIDATED fire time (D1), the cannon's rule: a back-dated
     // shell is pre-stepped by the World to where it belongs this tick.
-    ctx.spawnBallistic(flakShell(ctx.ship, ctx.fireT, ctx.mapRadius, ctx.mkId));
+    const reachU = gunReachU(ctx, ctx.ship.stats.equipment.flak.rangeU); // R2.15, amendment 114
+    ctx.spawnBallistic(flakShell(ctx.ship, ctx.fireT, reachU, ctx.mapRadius, ctx.mkId));
     return { ok: true };
   },
 };

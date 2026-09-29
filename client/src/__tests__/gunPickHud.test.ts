@@ -13,6 +13,7 @@ import {
   SLOT_GUN,
   effectiveStats,
   equipmentMaxAmmo,
+  gunReachU as sharedGunReachU,
   type EffectiveStats,
   type SlotItemId,
   type WeaponAmmo,
@@ -34,7 +35,7 @@ import {
   type HotbarView,
 } from '../render/hotbar.js';
 import { slotBoonIds } from '../render/slotTooltip.js';
-import { fireArcKind, weaponRangeU } from '../render/weaponArc.js';
+import { fireArcKind, weaponRangeU, weaponReachU } from '../render/weaponArc.js';
 import { computeAimPreview, ownBurstRadius, type AimPreviewInput } from '../render/aimPreview.js';
 
 function nine<T>(v: T): T[] {
@@ -235,5 +236,54 @@ describe('the machine gun and the flak gun — aim and reach (Story 8.15)', () =
   it('our own flak burst rings at the flak gun\'s radius; the machine gun never bursts', () => {
     expect(ownBurstRadius(stats(), 'flak')).toBe(CONFIG.flak.burstRadius);
     expect(ownBurstRadius(stats(), 'machineGun')).toBeUndefined();
+  });
+});
+
+// EVERY DECK GUN FIRES INTO ITS OWN LIT-UP AREA (Eric ruling 2026-09-29,
+// amendment 114): R2.15's reach extension applies to the machine gun and the
+// flak gun exactly as to the cannon, on both sides. The client resolves the
+// reach ONCE through weaponReachU (the shared gunReachU off each gun's OWN row)
+// and hands it to the range-clamp marker and the preview, so the preview shows
+// the extended reach into the player's own flare — and clamps at 660 u under an
+// enemy's flare or none (ownActiveZones never hands the client an enemy zone).
+describe('the machine gun and the flak gun reach into their own flare (amendment 114)', () => {
+  const OWN_ZONE = [{ x: 800, y: 0, r: 120 }];
+  const SHIP = { x: 0, y: 0 };
+  const MAP_R = 5000;
+
+  it('weaponReachU lifts BOTH guns to an 800 u click inside an own live zone, and clamps to 660 u without one', () => {
+    const s = stats();
+    for (const id of ['machineGun', 'flak'] as const) {
+      expect(s.equipment[id].rangeU, id).toBe(660);
+      expect(weaponReachU(s, id, SHIP, 0, 800, MAP_R, OWN_ZONE), id).toBe(800);
+      expect(weaponReachU(s, id, SHIP, 0, 800, MAP_R, []), id).toBe(660);
+      expect(weaponReachU(s, id, SHIP, 0, 300, MAP_R, OWN_ZONE), id).toBe(660); // in range: the base
+    }
+  });
+
+  it('IS the shared gunReachU off each gun\'s OWN row — the parity the server fires with', () => {
+    const s = stats();
+    const cases: [number, { x: number; y: number; r: number }[]][] = [
+      [300, OWN_ZONE], [800, OWN_ZONE], [800, []], [1200, OWN_ZONE], [NaN, OWN_ZONE],
+    ];
+    for (const id of ['gun', 'machineGun', 'flak'] as const) {
+      for (const [d, zones] of cases) {
+        expect(weaponReachU(s, id, SHIP, 0, d, MAP_R, zones), `${id} d=${d}`)
+          .toBe(sharedGunReachU(SHIP, 0, d, s.equipment[id].rangeU, MAP_R, zones));
+      }
+    }
+  });
+
+  it('the preview carries the lifted reach: the MG line and the flak burst land at 800 u', () => {
+    const at = (id: 'machineGun' | 'flak', reach: number) =>
+      computeAimPreview({
+        id, ship: { x: 0, y: 0, heading: 0, cls: 'battleship' }, aim: 0, aimDist: 800,
+        stats: stats(), mapRadius: MAP_R, islands: [], legal: true, gunReachU: reach,
+      });
+    expect(at('machineGun', 800).lines[0].x2).toBeCloseTo(800, 6);
+    expect(at('flak', 800).bursts[0].x).toBeCloseTo(800, 6);
+    // Not lifted (an enemy's flare, or none): the 660 u clamp.
+    expect(at('machineGun', 660).lines[0].x2).toBeCloseTo(660, 6);
+    expect(at('flak', 660).bursts[0].x).toBeCloseTo(660, 6);
   });
 });
