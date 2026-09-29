@@ -419,8 +419,9 @@ export function isActionable(t: BotTrack, now: number): boolean {
 export const TRACK_PERSIST_MS = 60000 / CONFIG.vision.sweepRpm;
 
 /**
- * TRACK PERSISTENCE — the structural counter to an enemy JAMMING BUOY. A
- * jamming buoy scatters 10 fakes per revolution, wire-indistinguishable from
+ * TRACK PERSISTENCE — the structural counter to an enemy CHAFF cloud (the
+ * deleted jamming buoy's successor, Story 8.16): chaff scatters 10 fakes per the
+ * owner's sweep period, wire-indistinguishable from
  * real blips and folded into this store as ordinary tracks; but fakes
  * RE-SCATTER WHOLESALE each revolution, so no fake survives association as
  * one coherent track across a full sweep period, while a real hull's paints

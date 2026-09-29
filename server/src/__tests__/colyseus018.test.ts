@@ -165,19 +165,20 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 57 and admits 58', () => {
-  it('PROTOCOL_VERSION is 58', () => {
-    // Story 8.15 bumped 57 -> 58: `InputMsg.held` is a REQUIRED boolean (a
-    // PV-57 client sends no such field and every input it sent would be
-    // dropped), the shell reveal gains the family field `w`, the own-ship
-    // frame gains `damageCutUntil`, and the catalog content moved (missile /
-    // monitor / heatSeeking cut, machineGun / flak became ladders).
-    expect(PROTOCOL_VERSION).toBe(58);
+describe('the PV join gate refuses 58 and admits 59', () => {
+  it('PROTOCOL_VERSION is 59', () => {
+    // Story 8.16 bumped 58 -> 59: the own-ship frame gains `shield`, the
+    // frame gains `decoys` (DecoyView), the radar buoy's `buoys` channel and
+    // the `src` blip tag are DELETED, and the catalog content moved (shield
+    // block, chaff and decoy buoy are live). Story 8.15 bumped 57 -> 58
+    // (`InputMsg.held`, the shell reveal's `w`, `damageCutUntil`).
+    expect(PROTOCOL_VERSION).toBe(59);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 57 is the one that matters: a client built one story before this one
-    // sends inputs without `held`, which the sanitizer now drops whole.
+    // 58 is the one that matters now: a client built one story before this
+    // one reads a `buoys` channel that no longer exists and knows no decoy.
+    expect(protocolVersionError(58)).toMatch(/refresh/i);
     expect(protocolVersionError(57)).toMatch(/refresh/i);
     expect(protocolVersionError(56)).toMatch(/refresh/i);
     expect(protocolVersionError(55)).toMatch(/refresh/i);
@@ -188,12 +189,12 @@ describe('the PV join gate refuses 57 and admits 58', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(59)).toMatch(/refresh/i);
+    expect(protocolVersionError(60)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(58)).toBeNull();
+    expect(protocolVersionError(59)).toBeNull();
   });
 });
 

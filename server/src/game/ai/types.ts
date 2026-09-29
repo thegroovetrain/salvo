@@ -122,6 +122,20 @@ export interface BotSelf {
   readonly offer: BoonOffer | null;
   /** Fitted card LINE ids, in fit order (Story 8.1 — repeats are stacks). */
   readonly cards: readonly string[];
+  /**
+   * This hull's SHIELD BLOCK seat (Story 8.16) — the owner is told exactly
+   * this (`OwnShip.shield`). Read by the interim SHIELD BLOCK belt tactic so a
+   * bot never replaces a shield still up. Optional so hand-built fixtures that
+   * predate it stay valid; absent reads as "no shield".
+   */
+  readonly shield?: { readonly hpLeft: number; readonly until: number } | null;
+  /**
+   * This hull's CHAFF source (Story 8.16) — only `until` is read: the interim
+   * CHAFF tactic never throws a second cloud over one still painting. A self-
+   * read of the bot's OWN action (a human knows when they pressed it); it
+   * carries no fake and no other ship's state. Optional, as `shield`.
+   */
+  readonly chaff?: { readonly until: number } | null;
 }
 
 /**

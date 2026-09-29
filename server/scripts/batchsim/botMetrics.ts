@@ -94,14 +94,15 @@ export interface BotSample {
   shots: number;
   /**
    * PLACEABLES THAT ACTUALLY REACHED THE WATER, counted by id off the World's
-   * own `buoys` / `mines` maps — NOT off `shots`.
+   * own `decoys` / `mines` maps — NOT off `shots` (the radar buoy's `buoys` map
+   * became the DECOY BUOY's `decoys` in Story 8.16).
    *
    * The distinction is the whole reason these exist. `shots` is
    * `ship.lastFireSeq`, and world.ts is explicit that "consumption is
    * unconditional — lastFireSeq advances even dead or denied", so a bot that
-   * requests a buoy every tick and is refused every tick reads identically to
+   * requests a placement every tick and is refused every tick reads identically to
    * one that deploys. Nothing in the report could previously tell those apart,
-   * which made "do bots use their buoy at all?" unanswerable from a campaign.
+   * which made "do bots use their placeables at all?" unanswerable from a campaign.
    *
    * Counted by DIFFING IDS rather than by watching a drop event: both maps are
    * keyed by a monotonic id (`b<seq>`, `m<seq>`) that is never reused, so a
@@ -109,7 +110,7 @@ export interface BotSample {
    * between two observe() calls is the only thing this can miss — impossible
    * today, since observe() runs every tick and neither expires same-tick.
    */
-  buoysDeployed: number;
+  decoysDeployed: number;
   minesLaid: number;
   /** hp dealt to other hulls (self-hits and storm excluded). */
   damageDealt: number;
@@ -170,7 +171,7 @@ interface BotTrack {
   levelsUnspent: number;
   boonsFitted: number;
   shots: number;
-  buoysDeployed: number;
+  decoysDeployed: number;
   minesLaid: number;
   damageDealt: number;
   landEpisodes: number;
@@ -197,7 +198,7 @@ function newTrack(): BotTrack {
     levelsUnspent: 0,
     boonsFitted: 0,
     shots: 0,
-    buoysDeployed: 0,
+    decoysDeployed: 0,
     minesLaid: 0,
     damageDealt: 0,
     landEpisodes: 0,
@@ -304,14 +305,14 @@ export class BotCollector {
    *
    * READ-ONLY, like every other number in this module: it reads two World maps
    * and writes only into this collector's own tracks. The `seen` set is keyed
-   * by TYPE-PREFIXED id (`b:`/`m:`) rather than the bare id, so the two id
+   * by TYPE-PREFIXED id (`d:`/`m:`) rather than the bare id, so the two id
    * spaces can never collide even if the sim's prefixes ever converge.
    *
    * A placement by a NON-BOT (a captain in a mixed lobby, a fleet hull) finds
    * no track and is silently skipped — the same rule `recordKill` already uses.
    */
   private notePlacements(world: World): void {
-    this.creditNew(world.buoys.values(), 'b', (t) => { t.buoysDeployed += 1; });
+    this.creditNew(world.decoys.values(), 'd', (t) => { t.decoysDeployed += 1; });
     this.creditNew(world.mines.values(), 'm', (t) => { t.minesLaid += 1; });
   }
 
@@ -382,7 +383,7 @@ export class BotCollector {
         levelsUnspent: track.levelsUnspent,
         boonsFitted: track.boonsFitted,
         shots: track.shots,
-        buoysDeployed: track.buoysDeployed,
+        decoysDeployed: track.decoysDeployed,
         minesLaid: track.minesLaid,
         damageDealt: track.damageDealt,
         ticks: track.ticks,

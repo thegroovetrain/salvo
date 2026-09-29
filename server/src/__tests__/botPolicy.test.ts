@@ -84,7 +84,7 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], buoys: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], decoys: [], ...over };
 }
 
 function contact(id: string, x: number, y: number, cls: HullId = 'battleship'): Contact {
@@ -914,24 +914,26 @@ describe('ai/spending — the card policy', () => {
     expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer: vsWanted, cards: [], hp: 100, maxHp: 100 })).toBe(0);
   });
 
-  // THE TWO HOMELESS v2 KEYS (Story 8.1) ------------------------------------
-  // `buoyGun` was cycle 111's explicit ML want, half of the combo Eric calls a
-  // powerhouse. Catalog v3 has NO card for it — R1 deletes the radar buoy in
-  // Story 8.15 and the DECOY BUOY consumable takes the role — so the want has
-  // nothing to attach to and is deliberately homeless rather than silently
-  // re-keyed onto a line that means something else. The pin records that, and
-  // pins what DID survive: both ML tables still speak for the buoy SLOT
-  // through their `radarBuoy` category, which now reaches `decoyBuoy`.
-  it('the two ruled-homeless v2 keys score nothing, and the buoy category reaches decoyBuoy', () => {
-    for (const key of ['buoyGun', 'acquireBoost']) {
-      expect(HOMELESS_V2_LINES.has(key)).toBe(true);
-      expect(Object.hasOwn(CATALOG, key)).toBe(false);
-      expect(boonWeightFor('forager', key)).toBe(0); // unknown id: never picked
-      expect(boonWeightFor('trapper', key)).toBe(0);
+  // THE HOMELESS v2 KEY (Story 8.1) ----------------------------------------
+  // `acquireBoost` has no card (the boost is the universal Shift, Story 8.9),
+  // so it is deliberately homeless rather than silently re-keyed. The radar
+  // buoy's three v2 keys (`buoyGun`, `buoyDuration`, `acquireRadarBuoy`) and
+  // its `radarBuoy` CATEGORY left CONFIG with the buoy in Story 8.16, so the
+  // re-key tables no longer name them at all: DECOY BUOY prices at the
+  // consumable KIND base like every other belt line.
+  it('the ruled-homeless v2 key scores nothing, and every radar-buoy key is gone from the re-key (Story 8.16)', () => {
+    expect([...HOMELESS_V2_LINES].sort()).toEqual(['acquireBoost', 'minePropFouling', 'torpedoHoming']);
+    expect(Object.hasOwn(CATALOG, 'acquireBoost')).toBe(false);
+    expect(boonWeightFor('forager', 'acquireBoost')).toBe(0); // unknown id: never picked
+    expect(boonWeightFor('trapper', 'acquireBoost')).toBe(0);
+    for (const key of ['buoyGun', 'buoyDuration', 'acquireRadarBuoy']) {
+      expect(HOMELESS_V2_LINES.has(key), key).toBe(false);
+      expect(Object.hasOwn(LINE_ALIASES, key), key).toBe(false);
     }
-    const tables = CONFIG.bots.boonWeights;
-    expect(boonWeightFor('forager', 'decoyBuoy')).toBeGreaterThanOrEqual(tables.forager.cat.radarBuoy);
-    expect(boonWeightFor('trapper', 'decoyBuoy')).toBeGreaterThanOrEqual(tables.trapper.cat.radarBuoy);
+    expect(Object.hasOwn(CATEGORY_LINES, 'radarBuoy')).toBe(false);
+    for (const t of Object.values(CONFIG.bots.boonWeights)) {
+      expect(Object.hasOwn(t.cat, 'radarBuoy')).toBe(false);
+    }
   });
 
   // THE EQUIPMENT RANKING (Eric ruling 2026-08-20, re-keyed in Story 8.1) -----
@@ -973,8 +975,8 @@ describe('ai/spending — the card policy', () => {
 
 // --- track persistence: the structural jamming counter -----------------------
 
-describe('ai/utility — track persistence (the jamming-buoy counter)', () => {
-  // A jamming buoy scatters 10 fakes per revolution, wire-indistinguishable
+describe('ai/utility — track persistence (the chaff counter; the jamming buoy before it)', () => {
+  // A chaff cloud scatters 10 fakes per sweep period, wire-indistinguishable
   // from real blips and folded into memory as ordinary tracks — but fakes
   // RE-SCATTER WHOLESALE each revolution, so no fake persists as one coherent
   // track across a full sweep period. Persistence is therefore the honest

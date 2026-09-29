@@ -116,7 +116,7 @@ export interface BotProfile {
    * Consumers (every entry has at least one — the deleted-`aggression` rule):
    * the slot ORDERING in tactics.ts (all entries) and each tactic's want()
    * PROACTIVITY gate against equipment.ts's APPETITE_NEUTRAL (1) /
-   * APPETITE_EAGER (2) thresholds (mine, starShells, radarBuoy, boost).
+   * APPETITE_EAGER (2) thresholds (mine, starShells, boost).
    * Unlisted equipment resolves to the neutral base (gun deliberately lowest:
    * the fallback weapon is tried last). Values are eagerness, NEVER ranges —
    * ranges stay fractions of the bot's own stats in the tactics.
@@ -229,9 +229,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // A farmer, not a layer: the mine sits barely above neutral (reactive —
     // it answers a closing chaser, not trapper's standing plan; holding the
     // CAPTIVE doctrine opens the prepared lay at this tier, but that lives
-    // with the weapon in ai/equipment.ts), and the buoy is plain recon
-    // between fleet groups.
-    appetite: { navalMines: 1.4, radarBuoy: 1.1 },
+    // with the weapon in ai/equipment.ts). (Its radar-buoy entry went with
+    // the buoy in Story 8.16.)
+    appetite: { navalMines: 1.4 },
   },
   trapper: {
     id: 'trapper',
@@ -250,9 +250,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     disengageHpFrac: 0.45, // breaks off early — the trap fights on without it
     healHpFrac: 0.6, // and heals early, for the same survive-to-payoff reason
     // EAGER mines — the standing plan (the old usesMinesProactively: true,
-    // now the eager tier of the ONE shared mine tactic) — and the mine
-    // outranks the buoy, so a threatened tick answers with the trap first.
-    appetite: { navalMines: 2.6, radarBuoy: 1.6 },
+    // now the eager tier of the ONE shared mine tactic). (Its radar-buoy entry
+    // went with the buoy in Story 8.16.)
+    appetite: { navalMines: 2.6 },
   },
 });
 
@@ -280,7 +280,6 @@ const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.fre
   boost: 2.2,
   broadside: 2.2,
   starShells: 2.2,
-  radarBuoy: 2.2,
 });
 
 const testRow = (id: TestProfileId, hullId: ShipClassId): BotProfile => ({

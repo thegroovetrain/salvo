@@ -221,7 +221,7 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     const w = bareWorld();
     // The NINE-SLOT fit (Story 8.5): gun, the universal boost, then the spawn
     // seed's weapons. The RADAR BUOY has left the Mine Layer with the per-hull
-    // fit (amendment 22) — its own module is still pinned in radarBuoy.test.ts
+    // fit (amendment 22) and was deleted outright in Story 8.16
     // — so this sweep now covers six of the seven rows, and the Battleship's
     // two-line seed covers the fourth slot.
     // Slot 1 is the hull's CLASS SHIFT since Story 8.15 (amendment 89(c)):

@@ -58,7 +58,8 @@ const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 // 'sp'/'hc'/'mz'; the 2026-08-04 DAMAGE CONTROL strip brought 'heal' BACK)
 // plus the three contact-like channels (contact/mine/litzone) and the
 // spectator frame. (`decoy` left with the decoy buoy — Story 7-5 wave 2; the
-// RADAR BUOY's `buoys` channel joins this list when the buoy is built.)
+// Story 8.16 DECOY BUOY's `decoys` channel has no battery scenario — it is
+// pinned by perception.test.ts's fuzz and decoy.test.ts.)
 // BALANCE CYCLE 1 ADDED 'sm' — and it was the doubling that added it, not a
 // perception change. Hull hp doubled while the fixture's ordnance did not, so
 // hits that used to sink a hull outright now leave it ALIVE and inside the
@@ -1083,6 +1084,13 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // from hulls now surviving wounded where they used to sink. No perception
   // rule moved, no channel was lost, and no scenario was retired — verified by
   // reading the diff rather than by trusting the update flag.
+  // REGENERATED KNOWINGLY IN STORY 8.16. Exactly TWO rows moved, and in each
+  // the ONLY difference is `you.offer`'s content: SHIELD BLOCK, CHAFF and
+  // DECOY BUOY left `stub` and joined the common pool, so the seeded draw
+  // deals a different hand ('decoyBuoy' / 'deckGunBarrel' where
+  // 'phosphorShells' / 'starShells' were). Every other byte — contacts,
+  // events, blips, mines, zones — is unchanged (verified by diffing the rows
+  // with `offer` masked out, not by trusting the update flag).
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });

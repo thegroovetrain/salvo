@@ -47,7 +47,8 @@
 //   broadside  → broadside
 //   starShells → starShells, dazzleShells, phosphorShells
 //   intel      → radarSweep
-//   radarBuoy  → decoyBuoy            (R1: the buoy becomes the consumable)
+//   (radarBuoy — the category and its CONFIG weights went with the radar
+//    buoy in Story 8.16; DECOY BUOY prices at the consumable KIND base)
 //   boost      → (nothing — Story 8.9 makes the boost a universal ability,
 //                 so no v3 card addresses it and the base is simply unused)
 //
@@ -59,8 +60,9 @@
 //   mineBlast, acquireMine → navalMines · mineCaptive → captiveMines
 //   broadsideTurrets, broadsideSpread, acquireBroadside → broadside
 //   starDuration, acquireStarShells → starShells · starDazzle → dazzleShells
-//   buoyDuration, acquireRadarBuoy → decoyBuoy
-//   buoyGun, acquireBoost → (nothing — no v3 card grants either)
+//   acquireBoost → (nothing — no v3 card grants it)
+//   (buoyDuration, acquireRadarBuoy, buoyGun — deleted from CONFIG with the
+//    radar buoy in Story 8.16)
 //
 // Several v2 keys land on ONE v3 line (raider's torpedoTube 2.5, torpedoSpeed
 // 2.2 and acquireTorpedo 1.6 all become `heavyTorpedo`). The HIGHEST of them
@@ -161,7 +163,6 @@ export const CATEGORY_LINES: Readonly<Record<string, readonly string[]>> = Objec
   broadside: ['broadside'],
   starShells: ['starShells', 'dazzleShells', 'phosphorShells'],
   intel: ['radarSweep'],
-  radarBuoy: ['decoyBuoy'],
   boost: [], // Story 8.9: the boost is a universal ability, not a card
 });
 
@@ -187,16 +188,12 @@ export const LINE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   starDuration: 'starShells',
   acquireStarShells: 'starShells',
   starDazzle: 'dazzleShells',
-  buoyDuration: 'decoyBuoy',
-  acquireRadarBuoy: 'decoyBuoy',
 });
 
 /**
  * The v2 line-override keys catalog v3 has NO home for, listed deliberately so
  * the "every override names a real line" pin can tell a re-key gap from a
  * ruled deletion:
- *   - `buoyGun` — the GUN BUOY verb; R1 deletes the radar buoy (Story 8.15)
- *     and no v3 line grants it.
  *   - `acquireBoost` — the speed boost becomes the universal Shift ability in
  *     Story 8.9, so it is not a card at all.
  *   - `torpedoHoming` — the ACOUSTIC HOMING add-on is DELETED (Eric ruling
@@ -215,7 +212,6 @@ export const LINE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
  * balance pass with its own ruling, not a side effect of a content story.
  */
 export const HOMELESS_V2_LINES: ReadonlySet<string> = new Set([
-  'buoyGun',
   'acquireBoost',
   'torpedoHoming',
   'minePropFouling',
@@ -284,8 +280,8 @@ function categoryFor(table: WeightTable, id: string): number | null {
  *
  * WHY THE MAX RATHER THAN "OVERRIDE FIRST" (Story 8.1): the re-key collapses
  * several v2 keys onto one v3 line, and a v2 table could legitimately price
- * them differently — raider's `acquireRadarBuoy` 0.8 (an acquisition it ranked
- * last) and its `radarBuoy` category base both now speak about `decoyBuoy`.
+ * them differently — raider's `torpedoTube` 2.5 and `acquireTorpedo` 1.6 both
+ * now speak about `heavyTorpedo`.
  * Taking the strongest thing the profile said about that line keeps the v2
  * intent intact in both directions; override-first would silently let an
  * acquisition ranking demote a category the profile actually wants.

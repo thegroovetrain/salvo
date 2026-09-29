@@ -60,10 +60,10 @@ const DT = CONFIG.tick.simDtMs;
 // first-empty-first:
 //   MINE LAYER   [gun, boost, navalMines,   empty x6]
 //   TORPEDO BOAT [gun, boost, heavyTorpedo, empty x6]
-// THE RADAR BUOY IS NO LONGER FITTED ON ANY HULL (epic-8 amendment 22): no
-// card and no seed reaches it, so the cases that exercise its module fit it
-// BY HAND into a free weapon slot (fitBuoy below). The module, its CONFIG row
-// and its behaviour pins all stay exactly as shipped.
+// THE RADAR BUOY IS DELETED (Story 8.16). The cases that hand-fitted it into
+// a free weapon slot to have a SECOND reloading weapon aboard now hand-fit a
+// LIGHT TORPEDO there instead (fitSecond below) — the tick behaviour they pin
+// is about "a fitted slot reloads", not about which weapon it is.
 /** Mine Layer fit, in slot order (the rest of the nine are empty). Slot 1 is
  *  the hull's CLASS SHIFT since Story 8.15 (amendment 89(c)): INSTANT RELOAD
  *  on the Mine Layer. */
@@ -74,8 +74,8 @@ const TB_IDS = ['gun', 'boost', 'heavyTorpedo'] as const;
 const SLOT_MINE = WEAPON_SLOTS[0];
 const SLOT_TORPEDO = WEAPON_SLOTS[0];
 /** The SECOND weapon slot (E) — free on every hull, so it is where the tests
- *  hand-fit the radar buoy (amendment 22: nothing fits it in play). */
-const SLOT_BUOY = WEAPON_SLOTS[1];
+ *  hand-fit a second weapon (fitSecond). */
+const SLOT_SECOND = WEAPON_SLOTS[1];
 /** An EMPTY weapon slot on every hull today (R): the empty-slot subject. */
 const SLOT_EMPTY_WEAPON = WEAPON_SLOTS[2];
 /** The first BELT slot - empty all of Story 8.5 (8.7 builds the rack). */
@@ -124,16 +124,19 @@ function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
   ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
 }
 
-/** HAND-FIT THE RADAR BUOY into the second weapon slot (E). Since epic-8
- *  amendment 22 no hull's spawn seed and no card fits the buoy, so the only
- *  way to exercise its live module is to write the slot directly — exactly
- *  what `applySlotEffect` would have written. The module's behaviour pins are
- *  unchanged; only the route into the slot is. */
-function fitBuoy(ship: ShipRecord): void {
-  ship.loadout[SLOT_BUOY] = {
-    equipmentId: 'radarBuoy',
-    state: { n: equipmentMaxAmmo(ship.stats, 'radarBuoy'), reloadMsLeft: 0 },
+/** HAND-FIT A LIGHT TORPEDO into the second weapon slot (E) — written
+ *  directly, with NO card behind it (so a rebuild from the cards drops it).
+ *  Replaces the deleted radar buoy's `fitBuoy` (Story 8.16). */
+function fitSecond(ship: ShipRecord): void {
+  ship.loadout[SLOT_SECOND] = {
+    equipmentId: 'lightTorpedo',
+    state: { n: equipmentMaxAmmo(ship.stats, 'lightTorpedo'), reloadMsLeft: 0 },
   };
+}
+
+/** The hand-fitted second weapon's effective reload (ms). */
+function secondReloadMs(ship: ShipRecord): number {
+  return ship.stats.equipment.lightTorpedo.reloadMs;
 }
 
 /** Assert a ship carries its fresh nine-slot fit: the named ids at full pool
@@ -163,7 +166,7 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly the FOURTEEN built rows — the ten of 8.13 plus Story 8.15\'s two guns and two Shifts', () => {
+  it('holds exactly the THIRTEEN built rows — Story 8.15\'s fourteen minus the radar buoy (Story 8.16)', () => {
     expect(Object.keys(EQUIPMENT).sort()).toEqual([
       'boost',
       'broadside',
@@ -177,14 +180,15 @@ describe('EQUIPMENT registry — interface conformance', () => {
       'lightTorpedo', // Story 8.13
       'machineGun', // Story 8.15 — the held-fire magazine stream (amendments 103–104)
       'navalMines',
-      'radarBuoy',
       'starShells',
     ]);
+    expect(Object.keys(EQUIPMENT)).toHaveLength(13);
+    expect(Object.hasOwn(EQUIPMENT, 'radarBuoy')).toBe(false); // deleted end to end (Story 8.16)
     // Total in CONTENT since Story 8.15 (missile and monitor were CUT rather
     // than built — amendment 89e — so no EquipmentId is left without a row),
     // while the registry's TYPE stays Partial on purpose (see index.ts).
     for (const id of EQUIPMENT_IDS) expect(Object.hasOwn(EQUIPMENT, id), id).toBe(true);
-    for (const id of ['missile', 'monitor', 'heatSeeking']) expect(Object.hasOwn(EQUIPMENT, id), id).toBe(false);
+    for (const id of ['missile', 'monitor', 'heatSeeking', 'radarBuoy']) expect(Object.hasOwn(EQUIPMENT, id), id).toBe(false);
   });
 
   // THE REGISTRY/CATALOG PIN (Story 8.1). The registry is PARTIAL over the
@@ -231,9 +235,9 @@ describe('EQUIPMENT registry — interface conformance', () => {
   // Content-level, NOT conformance: the weapon/ability split rides the shared
   // EQUIPMENT_IS_WEAPON map (single source) — gun/torpedo/broadside/starShells
   // AND (as of Story 2.8, amendment 45) the mine are aimed-click weapons, and
-  // since Story 7-5 wave 2 so is the RADAR BUOY (click-placed in the mine's
-  // rear sector, R2.7 — where the decoy buoy it replaced was an un-aimed
-  // stern-drop ability). boost (1.6) is the ONLY non-weapon left.
+  // the RADAR BUOY (click-placed since Story 7-5 wave 2) was deleted in Story
+  // 8.16 — the DECOY BUOY consumable took its rear-sector click. boost (1.6)
+  // and the class Shifts are the non-weapons.
   it('each row mirrors the shared EQUIPMENT_IS_WEAPON split', () => {
     for (const [id, row] of Object.entries(EQUIPMENT)) {
       expect(row!.isWeapon).toBe(EQUIPMENT_IS_WEAPON[id as keyof typeof EQUIPMENT_IS_WEAPON]);
@@ -249,7 +253,6 @@ describe('EQUIPMENT registry — interface conformance', () => {
     expect(EQUIPMENT.boost!.isWeapon).toBe(false);
     expect(EQUIPMENT.broadside!.isWeapon).toBe(true); // Story 7-5 wave 2
     expect(EQUIPMENT.starShells!.isWeapon).toBe(true); // Story 1.7
-    expect(EQUIPMENT.radarBuoy!.isWeapon).toBe(true); // Story 7-5 wave 2 (R2.7): click-placed
   });
 
   it('the registry itself is frozen — rows cannot be added', () => {
@@ -366,19 +369,22 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
 
   // THE PRODUCTION PIN. Story 8.8 flipped `hullRepair` and added its row;
   // Story 8.13 added SUPERCAV TORPEDO, the belt's first CLICK-AIMED line
-  // (epic-8 amendment 74). The remaining consumable lines — SHIELD BLOCK,
-  // SMOKE SCREEN, CHAFF, DECOY BUOY and the DEPTH CHARGE stub — are still
+  // (epic-8 amendment 74); Story 8.16 added SHIELD BLOCK, CHAFF and the
+  // click-placed DECOY BUOY. SMOKE SCREEN and the DEPTH CHARGE stub are still
   // `stub` in the catalog, so nothing else is drawable or stockable in play,
   // and the PARTIAL registry is what makes even a forged press fail closed.
-  it('the PRODUCTION consumable registry holds HULL REPAIR + SUPERCAV TORPEDO, and every stub line is absent', () => {
-    expect(Object.keys(CONSUMABLES).sort()).toEqual(['hullRepair', 'supercavTorpedo']);
+  it('the PRODUCTION consumable registry holds the FIVE built lines, and every stub line is absent', () => {
+    const BUILT = ['chaff', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
+    expect(Object.keys(CONSUMABLES).sort()).toEqual(BUILT);
     expect(Object.isFrozen(CONSUMABLES)).toBe(true);
-    expect(Object.isFrozen(CONSUMABLES.hullRepair)).toBe(true);
-    expect(Object.isFrozen(CONSUMABLES.supercavTorpedo)).toBe(true);
-    expect(CONSUMABLES.supercavTorpedo!.isWeapon).toBe(true); // the ONE aimed row today
+    for (const id of BUILT) expect(Object.isFrozen(CONSUMABLES[id as keyof typeof CONSUMABLES]), id).toBe(true);
+    expect(CONSUMABLES.supercavTorpedo!.isWeapon).toBe(true); // aimed
+    expect(CONSUMABLES.decoyBuoy!.isWeapon).toBe(true); // click-placed (Story 8.16)
     expect(CONSUMABLES.hullRepair!.isWeapon).toBe(false);
+    expect(CONSUMABLES.shieldBlock!.isWeapon).toBe(false); // key-fired (Story 8.16)
+    expect(CONSUMABLES.chaff!.isWeapon).toBe(false); // key-fired (Story 8.16)
     for (const id of CONSUMABLE_IDS) {
-      if (id === 'hullRepair' || id === 'supercavTorpedo') continue;
+      if (BUILT.includes(id)) continue;
       expect(isStubLine(id), id).toBe(true); // every absent line is absent BECAUSE it is a stub
       expect(CONSUMABLES[id], id).toBeUndefined();
     }
@@ -395,7 +401,9 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
       expect(Object.hasOwn(CONSUMABLES, id), id).toBe(!isStubLine(id));
       if (!isStubLine(id)) nonStub += 1;
     }
-    expect(nonStub).toBe(2); // HULL REPAIR (8.8) + SUPERCAV TORPEDO (8.13)
+    expect(nonStub).toBe(5); // HULL REPAIR (8.8) + SUPERCAV TORPEDO (8.13) + SHIELD/CHAFF/DECOY (8.16)
+    // ...so exactly TWO stubs remain (SMOKE SCREEN, DEPTH CHARGE — 8.17).
+    expect(CONSUMABLE_IDS.filter((id) => isStubLine(id)).sort()).toEqual(['depthCharge', 'smokeScreen']);
   });
 
   it('slotRow routes BOTH id spaces, and fails closed on null / an unbuilt id', () => {
@@ -409,9 +417,10 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     // consumable ids -> the injected registry, NEVER EQUIPMENT
     expect(slotRow('hullRepair', reg)).toBe(row);
     expect(slotRow('chaff', reg)).toBeUndefined();
-    // ...and production resolves HULL REPAIR alone for the belt (Story 8.8)
+    // ...and production resolves the BUILT belt lines, never a stub one
     expect(slotRow('hullRepair')).toBe(hullRepairRow);
-    expect(slotRow('chaff')).toBeUndefined();
+    expect(slotRow('chaff')).toBe(CONSUMABLES.chaff); // built in Story 8.16
+    expect(slotRow('smokeScreen')).toBeUndefined(); // still a stub (8.17)
     expect(slotRow(null, reg)).toBeUndefined();
   });
 
@@ -617,31 +626,6 @@ describe('denial reasons — derived through the gate without changing effects',
     expect(w.mines.size).toBe(0);
   });
 
-  // The RADAR BUOY's denial matrix (Story 7-5 wave 2, R2.7 — the mine's,
-  // shared sector and placeRange): bow click / past placeRange -> out-of-arc
-  // (nothing consumed); a good astern click places the buoy and consumes.
-  it('the radarBuoy denies out-of-arc on a bow click, keeping the charge; an astern click places it', () => {
-    const w = bareWorld();
-    const ml = place(w, 'ml');
-    fitBuoy(ml); // amendment 22: nothing fits the buoy in play any more
-    expect(ml.loadout[SLOT_BUOY].equipmentId).toBe('radarBuoy');
-    // Default aim (bow, heading 0): outside the rear sector -> out-of-arc.
-    setInput(ml, { aim: 0, aimDist: 60, slot: SLOT_BUOY });
-    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'out-of-arc' });
-    // Astern but past the shared placeRange: same aim-denial channel.
-    setInput(ml, { aim: Math.PI, aimDist: CONFIG.mine.placeRange + 1, slot: SLOT_BUOY });
-    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'out-of-arc' });
-    expect(ml.loadout[SLOT_BUOY].state).toEqual({ n: CONFIG.radarBuoy.maxAmmo, reloadMsLeft: 0 });
-    expect(w.buoys.size).toBe(0);
-    // A legal astern click: the buoy is placed AT the clicked point and the
-    // one charge + reload are consumed.
-    setInput(ml, { aim: Math.PI, aimDist: 60, slot: SLOT_BUOY });
-    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: true });
-    expect(w.buoys.size).toBe(1);
-    expect(ml.loadout[SLOT_BUOY].state).toEqual({ n: 0, reloadMsLeft: CONFIG.radarBuoy.reloadMs });
-    // Empty pool now: a further click denies no-ammo.
-    expect(w.sinkingActivationGate(ml, SLOT_BUOY)).toEqual({ ok: false, reason: 'no-ammo' });
-  });
 });
 
 // ---------- 2b. mine dispatch channel (Story 2.8: aimed weapon, fire control) --
@@ -720,16 +704,16 @@ describe('empty-slot safety — the gate answers before any dereference', () => 
 // ---------- 4. FR5: deselected slots still reload every tick -------------------
 
 describe('FR5 — a deselected slot still reloads every tick', () => {
-  it('with the gun selected, the reloading MINE and BUOY slots both advance', () => {
+  it('with the gun selected, the reloading MINE and SECOND-weapon slots both advance', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    fitBuoy(ship); // amendment 22 — hand-fitted; the tick behaviour it pins is unchanged
+    fitSecond(ship); // hand-fitted light torpedo (the deleted buoy's seat)
     setInput(ship, { slot: SLOT_GUN }); // gun slot named; fireSeq 0 => no activation
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
-    ship.loadout[SLOT_BUOY].state = { n: 0, reloadMsLeft: CONFIG.radarBuoy.reloadMs };
+    ship.loadout[SLOT_SECOND].state = { n: 0, reloadMsLeft: secondReloadMs(ship) };
     w.step();
     expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - DT);
-    expect(ship.loadout[SLOT_BUOY].state!.reloadMsLeft).toBe(CONFIG.radarBuoy.reloadMs - DT);
+    expect(ship.loadout[SLOT_SECOND].state!.reloadMsLeft).toBe(secondReloadMs(ship) - DT);
   });
 
   it('the same holds on the OTHER hull: a reloading TORPEDO advances under the gun', () => {
@@ -748,12 +732,12 @@ describe('the empty slots are never ticked', () => {
   it('behavioral: a ship steps many ticks with SIX empty slots, world stays healthy while the fitted ones reload', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    fitBuoy(ship); // a fourth fitted slot, so the loop has more than the seed to do
+    fitSecond(ship); // a fourth fitted slot, so the loop has more than the seed to do
     setInput(ship, { slot: SLOT_GUN }); // no click (fireSeq 0)
     // Drain the fitted slots so their reload timers must tick down.
     ship.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: CONFIG.gun.reloadMs };
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
-    ship.loadout[SLOT_BUOY].state = { n: 0, reloadMsLeft: CONFIG.radarBuoy.reloadMs };
+    ship.loadout[SLOT_SECOND].state = { n: 0, reloadMsLeft: secondReloadMs(ship) };
     const N = 5;
     expect(() => {
       for (let i = 0; i < N; i++) w.step();
@@ -765,7 +749,7 @@ describe('the empty slots are never ticked', () => {
     // The fitted slots DID reload-tick (proves the loop ran, and skips only 3).
     expect(ship.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs - N * DT);
     expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - N * DT);
-    expect(ship.loadout[SLOT_BUOY].state!.reloadMsLeft).toBe(CONFIG.radarBuoy.reloadMs - N * DT);
+    expect(ship.loadout[SLOT_SECOND].state!.reloadMsLeft).toBe(secondReloadMs(ship) - N * DT);
   });
 
   it("source: fireControl's per-slot tick loop dispatches through slotRow (which answers undefined for an empty slot)", () => {
@@ -929,11 +913,11 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: 500 }; // dirty it, prove the rebuild
-    fitBuoy(ship); // a hand-fitted slot the rebuild must clear — no card backs it
+    fitSecond(ship); // a hand-fitted slot the rebuild must clear — no card backs it
     // THE REDEPLOY PRESERVES THE BUILD ON EVERY PATH (Story 8.10 review, P1 —
     // the old sandbox-only wipe is retired): the rack CARD survives, so the
     // rebuilt fit is the suite's standard loadout straight away, with fresh
-    // pools and no reload in flight. The hand-fitted buoy, which no card
+    // pools and no reload in flight. The hand-fitted torpedo, which no card
     // backs, is what the rebuild drops — that is the whole point of rebuilding
     // the loadout from the cards rather than keeping the array.
     w.resetForMatchStart();

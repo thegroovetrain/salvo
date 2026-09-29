@@ -40,11 +40,8 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'applyStorm',
       'stepShells',
       'stepMines',
-      // Story 7-5 wave 2's radar buoys — a deliberate insertion in the
-      // static-entity band: expiry, the buoy's own sweep, and the GUN BUOY's
-      // auto-fire, which must land BEFORE tickRepairs (the "after every
-      // damage source" contract). See the row comment in world.ts.
-      'tickBuoys',
+      // (Story 7-5 wave 2's `tickBuoys` row was REMOVED with the radar buoy
+      // in Story 8.16: the DECOY BUOY has no tick — amendment 124(e).)
       'applyZoneEffects',
       'tickRepairs',
       'tickSmoke',

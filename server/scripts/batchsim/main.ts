@@ -223,7 +223,7 @@ function gateFailure(opts: CliOptions): number | null {
     console.error(
       'batchSim: refusing --tune without HC_BALANCE=1 — --tune mutates COMBAT ' +
         'CONFIG (gun.*, broadside.*, torpedo.*, mine.*, starShells.*, ' +
-        'boost.*, radarBuoy.*, shipClasses.*), ' +
+        'boost.*, shipClasses.*), ' +
         'a separate surface from the --set/--sweep harness dials.',
     );
     return 2;

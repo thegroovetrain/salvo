@@ -87,7 +87,7 @@ const OMNI_CARD = line('omni', [
   // type-checks. Widening radar here still exercises a stat effect AND now
   // proves the derivation reaches sightRange through applyCard (asserted below).
   { kind: 'stat', path: 'radarRange', mult: 1.25 },
-  { kind: 'slotFill', equipmentId: 'radarBuoy' },
+  { kind: 'slotFill', equipmentId: 'starShells' },
   { kind: 'behavior', hookId: 'surge', params: { bonus: 20 } },
   { kind: 'stock', equipmentId: 'hullRepair' },
 ]);
@@ -298,9 +298,9 @@ describe('World.applyCard — two homes, nothing else', () => {
     // `stock` took the first BELT slot as a fresh one-copy stack that never
     // reloads. Neither can reach the other's row.
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'radarBuoy', null, null, 'hullRepair', null, null, null,
+      'gun', 'boost', 'starShells', null, null, 'hullRepair', null, null, null,
     ]);
-    expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.radarBuoy.maxAmmo, reloadMsLeft: 0 });
+    expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.starShells.maxAmmo, reloadMsLeft: 0 });
     expect(a.loadout[CONSUMABLE_SLOTS[0]].state).toEqual({ n: 1, reloadMsLeft: 0 });
     // Hooks — the behavior effect executes on the real tick (outruns control).
     a.input.throttle = 1;

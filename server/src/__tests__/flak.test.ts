@@ -206,12 +206,12 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
     expect(w.torpWakes.has('near')).toBe(false); // its ribbon detached into the orphan store
   });
 
-  it('a fish never reaches the burst DAMAGE loop: no hitBuoy call for it, and a fish-only blast is `sp`, not `hc`', () => {
+  it('a fish never reaches the burst DAMAGE loop: no damageDecoy call for it, and a fish-only blast is `sp`, not `hc`', () => {
     const w = bareWorld();
     flakker(w, 'a');
     hull(w, 'b', 2000, 2000);
     fish(w, 'enemy-fish', 'b', 300, 20);
-    const spy = vi.spyOn(w as unknown as { hitBuoy: (id: string, n: number) => boolean }, 'hitBuoy');
+    const spy = vi.spyOn(w as unknown as { damageDecoy: (id: string, n: number, by: string) => boolean }, 'damageDecoy');
     const log = click(w, 'a', 300);
     expect(w.shells.has('enemy-fish')).toBe(false); // still removed, by the ordnance loop
     expect(spy.mock.calls.some(([id]) => id === 'enemy-fish')).toBe(false);

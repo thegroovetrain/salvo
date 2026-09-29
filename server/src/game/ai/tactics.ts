@@ -89,8 +89,8 @@
 // ACQUIRED into the WEAPON ROW (Story 8.5) works exactly like a seeded fit —
 // there is no native per-hull fit left for it to differ from. Ordering
 // comes from the ship profile's APPETITE table (gun lowest: the fallback);
-// the placement class (flare / mine / buoy) is resolved ABOVE the
-// target === null guard, because siting a sensor buoy is most valuable when
+// the placement class (flare / mine / decoy) is resolved ABOVE the
+// target === null guard, because siting a sensor was most valuable when
 // nothing is tracked. Every legality gate (arcs, ranges, water, the
 // coastline check on every flat-trajectory round) lives with its weapon in
 // the tactic's solve(), so `fireSlot` is null unless every check passed and
@@ -275,8 +275,8 @@ function firePass(
 }
 
 /**
- * The one weapon this tick. PLACEMENTS (flare / mine / buoy) are resolved
- * ABOVE the target guard — siting a sensor buoy is most valuable exactly when
+ * The one weapon this tick. PLACEMENTS (flare / mine / decoy) are resolved
+ * ABOVE the target guard — a placement's want() may fire exactly when
  * nothing is tracked, and a withdrawing layer's mine wants no target at all.
  * Shots need a target; the gun's low base appetite keeps it the last resort,
  * so heavy ordnance is always offered the tick first.

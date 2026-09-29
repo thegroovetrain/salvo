@@ -77,7 +77,6 @@ function rawSources(): { label: string; amount: number }[] {
     { label: 'broadside', amount: CONFIG.broadside.damage },
     { label: 'torpedo', amount: CONFIG.torpedo.damage },
     { label: 'mine', amount: CONFIG.mine.damage },
-    { label: 'buoyGun', amount: CONFIG.radarBuoy.gunDamage },
     { label: 'fleetGun', amount: CONFIG.drones.small.gun.damage },
     { label: 'storm', amount: CONFIG.zone.stormDps * tickS },
     { label: 'incendiary', amount: CONFIG.starShells.incendiaryDps * tickS },
@@ -130,7 +129,8 @@ function classifyShell(kind: string, damage: number, lit: boolean, family: strin
   // DamageEvent names its weapon.
   if (kind === 'torp') return damage === CONFIG.mine.damage ? 'captiveTorpedo' : 'torpedo';
   if (lit) return 'starShell';
-  // Everything else goes through the ONE collision-honest table: the buoy gun
+  // Everything else goes through the ONE collision-honest table: the (deleted,
+  // Story 8.16) buoy gun
   // used to be matched here with an exact `===` AHEAD of the merge, so a tune
   // that put buoy damage on a gun/broadside amount would have filed every such
   // shell under a confident 'buoyGun'. It is a row in that table like any
@@ -166,9 +166,9 @@ export interface CatalogSample {
   hp: Record<string, number>;
   /** ordnance label -> projectiles spawned. */
   launched: Record<string, number>;
-  /** mines laid / buoys deployed (not projectiles — counted by id diff). */
+  /** mines laid / decoys deployed (not projectiles — counted by id diff). */
   minesLaid: number;
-  buoysDeployed: number;
+  decoysDeployed: number;
   /** largest SINGLE DamageEvent, and largest per-victim PER-TICK total. */
   maxEventDamage: number;
   maxTickDamage: number;
@@ -206,7 +206,7 @@ const emptySample = (): CatalogSample => ({
   hp: {},
   launched: {},
   minesLaid: 0,
-  buoysDeployed: 0,
+  decoysDeployed: 0,
   maxEventDamage: 0,
   maxTickDamage: 0,
   maxTickByHull: {},
@@ -243,7 +243,7 @@ export class CatalogCollector {
   private readonly seenBoons = new Map<string, number>();
   private readonly seenShells = new Set<string>();
   private readonly seenMines = new Set<string>();
-  private readonly seenBuoys = new Set<string>();
+  private readonly seenDecoys = new Set<string>();
 
   observe(world: World, active: boolean): void {
     if (!active) return;
@@ -294,10 +294,10 @@ export class CatalogCollector {
       this.seenMines.add(id);
       this.sample.minesLaid += 1;
     }
-    for (const id of world.buoys.keys()) {
-      if (this.seenBuoys.has(id)) continue;
-      this.seenBuoys.add(id);
-      this.sample.buoysDeployed += 1;
+    for (const id of world.decoys.keys()) {
+      if (this.seenDecoys.has(id)) continue;
+      this.seenDecoys.add(id);
+      this.sample.decoysDeployed += 1;
     }
   }
 

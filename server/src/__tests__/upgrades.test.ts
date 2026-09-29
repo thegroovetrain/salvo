@@ -34,6 +34,7 @@ import {
   effectiveStats,
   isStubLine,
   loadoutFor,
+  pickRefusal,
   slotsWithCards,
   tierTargetOf,
   type BallisticEvent,
@@ -120,15 +121,20 @@ function front(ship: ShipRecord): string[] {
   return [...ship.offer!];
 }
 
-/** Spend the front offer on its first card. Catalog v3 has no acquisition
- *  card and no subdeck, so EVERY pick moves the deck by exactly one card —
- *  the old "find a plain card" search has nothing left to skip past, and a
- *  card-count assertion means what it says for any index. Returns the fitted
- *  id. */
+/** Spend the front offer on its first FITTABLE card. Catalog v3 has no
+ *  acquisition card and no subdeck, so every accepted pick moves the build by
+ *  exactly one card. Since Story 8.16 five consumable lines are live against a
+ *  four-slot belt, so a long spend run CAN meet a hand whose first card is a
+ *  refused pick (a fifth distinct belt line — `beltFull`); the helper skips
+ *  to the first card the shared `pickRefusal` admits, which is exactly the
+ *  card a human could take. Returns the fitted id. */
 function spendPlainCard(w: World, ship: ShipRecord): string {
   const hand = front(ship);
-  expect(w.spendPoint(ship.id, 0)).toBe(true);
-  return hand[0];
+  const slotIds = ship.loadout.map((s) => s.equipmentId);
+  const idx = hand.findIndex((id) => pickRefusal(ship.cards, slotIds, id) === null);
+  expect(idx, `no fittable card in ${hand.join(',')}`).toBeGreaterThanOrEqual(0);
+  expect(w.spendPoint(ship.id, idx)).toBe(true);
+  return hand[idx];
 }
 
 const bnsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'bn');
@@ -2227,12 +2233,12 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
   });
 
   it('a belt slot whose line has NO row fails closed at the gate', () => {
-    // Story 8.8 gave HULL REPAIR a row, so the UNBUILT subject is one of the
-    // four lines still waiting for its story. The injected catalog un-stubs it
-    // so it can be stocked at all; production CONSUMABLES has no row for it.
+    // Story 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY, so the UNBUILT
+    // subject is SMOKE SCREEN (8.17). The injected catalog un-stubs it so it
+    // can be stocked at all; production CONSUMABLES has no row for it.
     const w = bareWorld(1, { catalog: BELT_CATALOG });
-    const a = placeBelt(w, 'a', deckOf('chaff'));
-    w.applyCard(a, 'chaff');
+    const a = placeBelt(w, 'a', deckOf('smokeScreen'));
+    w.applyCard(a, 'smokeScreen');
     expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // stocked...
     expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: false, reason: 'empty-slot' }); // ...but inert
     expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // nothing spent

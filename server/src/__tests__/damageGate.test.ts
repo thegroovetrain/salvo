@@ -21,7 +21,8 @@
 // (`deferred-work.md:564`).
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONFIG, type DamageEvent, type GameEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
@@ -130,19 +131,28 @@ describe('applyDamage — (b) the phase and sinking guards', () => {
 // (c) the shield step
 // ---------------------------------------------------------------------------
 
-describe('applyDamage — (c) the shield (Story 8.15 arms it; the gate READS it)', () => {
-  it('is null on a fresh hull and nothing in the sim ever sets it', () => {
+describe('applyDamage — (c) the shield (Story 8.16 arms it; the gate READS it)', () => {
+  it('is null on a fresh hull, and ONLY the SHIELD BLOCK row ever sets it (Story 8.16)', () => {
     const w = bareWorld();
     expect(place(w, 'a').shield).toBeNull();
-    // The whole point of the field landing in 8.4: the gate is the one reader,
-    // so a grant path added later cannot end up with a second absorber. EVERY
-    // write in world.ts assigns `null` — two expiries inside absorbShield plus
-    // the three LIFE BOUNDARIES (sinkShip, redeployShip, respawn) that P5
-    // added, so a fresh life can never inherit an open block. Nothing GRANTS
-    // one until Story 8.15.
+    // The gate is the one reader. Every write in world.ts assigns `null` — two
+    // expiries inside absorbShield plus the three LIFE BOUNDARIES (sinkShip,
+    // redeployShip, respawn) that P5 added — EXCEPT the ONE grant: the
+    // `setShield` capability inside activationContext (Story 8.16).
     const writes = WORLD_SRC.match(/\.shield = .*/g) ?? [];
-    expect(writes).toHaveLength(5);
-    for (const w2 of writes) expect(w2).toBe('.shield = null;');
+    expect(writes).toHaveLength(6);
+    expect(writes.filter((w2) => w2 === '.shield = null;')).toHaveLength(5);
+    const grants = writes.filter((w2) => w2 !== '.shield = null;');
+    expect(grants).toEqual(['.shield = { hpLeft: shield.hpLeft, until: shield.until };']);
+    expect(methodBody('activationContext')).toContain('setShield: (shield) => {');
+    expect(methodBody('activationContext')).toContain(grants[0]);
+    // ...and the capability has exactly ONE caller in the whole game: the
+    // SHIELD BLOCK consumable row.
+    const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), '../game');
+    const callers = readdirSync(gameDir, { recursive: true })
+      .filter((f): f is string => typeof f === 'string' && f.endsWith('.ts'))
+      .filter((f) => /\bsetShield\(/.test(readFileSync(join(gameDir, f), 'utf8')));
+    expect(callers).toEqual([join('equipment', 'consumables', 'shieldBlock.ts')]);
   });
 
   it('DIES AT EVERY LIFE BOUNDARY: sinkShip, redeployShip and respawn all null it (P5)', () => {
@@ -423,12 +433,13 @@ describe('the grep pin — exactly one hull-hp decrement', () => {
     }
   });
 
-  it('`buoy.hp -=` is the ONE non-hull decrement, and there is exactly one of it', () => {
+  it('`decoy.hp -=` is the ONE non-hull decrement, and there is exactly one of it (Story 8.16)', () => {
     const code = WORLD_SRC.split('\n').filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//'));
     expect(code.filter((l) => /\.hp\s*-=/.test(l)).map((l) => l.trim())).toEqual([
       'victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME',
-      'buoy.hp -= amount;',
+      'decoy.hp -= amount;',
     ]);
+    expect(methodBody('damageDecoy')).toContain('decoy.hp -= amount;');
   });
 });
 
