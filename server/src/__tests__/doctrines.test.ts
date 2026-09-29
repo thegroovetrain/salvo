@@ -52,6 +52,7 @@ const SLOT_SEED_2 = 3;
 // now authors them for real (×1.1 blast per rung), so the vacated-owner pin
 // buys real copies of the real line and this file runs on the PRODUCTION
 // catalog with nothing injected.
+const hpLost = (s: { hp: number; stats: { maxHp: number } }): number => s.stats.maxHp - s.hp;
 function bareWorld(seed = 3, opts: WorldOptions = {}): World {
   const w = new World(seed, CONFIG.map.playerCap, CONFIG.zone, opts);
   w.map.islands.length = 0;
@@ -1127,6 +1128,23 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     seen.push(...(dmgFor(w.tickEvents, 'b') as { amount: number }[]));
     expect(seen.length).toBeLessThanOrEqual(5);
     expect(seen.reduce((s, e) => s + e.amount, 0)).toBeCloseTo(hp0 - b.hp, 6);
+  });
+
+  it('resetForMatchStart drops open burn buckets — no phantom dmg against a redeployed hull (Story 8.17 review)', () => {
+    const w = bareWorld();
+    place(w, 'a', 400, 0, 0, 'battleship');
+    const b = place(w, 'b', 420, 30);
+    w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: CONFIG.phosphorShells.dps });
+    w.step();
+    w.step(); // a bucket is open (window not yet run)
+    expect(hpLost(b)).toBeGreaterThan(0);
+    w.resetForMatchStart();
+    const seen: unknown[] = [];
+    for (let i = 0; i < 5; i++) {
+      w.step();
+      seen.push(...dmgFor(w.tickEvents, 'b'));
+    }
+    expect(seen).toEqual([]);
   });
 
   it('a lethal bite flushes the bucket BEFORE the sink — a killing burn is never unreported', () => {

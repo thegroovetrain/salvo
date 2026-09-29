@@ -1786,8 +1786,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
   // A PHOSPHOR SHELLS burning zone on its own channel (Story 8.17 — the
   // star-shell `phos` lit-zone flag is deleted, amendment 134).
   const burning = (by: string) => [{ id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by }];
-  // One tier-V burn flush: 10 hp/s × the 0.5 s window = 5 hp, exactly
-  // BURN_AMOUNT_CAP (the largest a single burn `dmg` can be).
+  // An ordinary small hit / DoT-sized amount (below BURN_AMOUNT_CAP).
   const dmg = [{ k: 'dmg', id: 'me', amount: 5 }];
 
   it('reads an ordinary hit as damage: full shake, the impact thud', () => {
@@ -1849,6 +1848,17 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
   // torpedo that slams a hull parked in a burning patch is not a crackle, and
   // the last DoT flush of a fire we have already sailed clear of is not a shell.
 
+  it('a full tier-V window flush (11 bites = 5.5 hp) inside an enemy burn zone reads as BURN; 5.6 does not', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 5.5 }], {}, { burnZones: burning('foe') }));
+    expect(play).toHaveBeenCalledWith('burn');
+    expect(play).not.toHaveBeenCalledWith('damage');
+    play.mockClear();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 5.6 }], {}, { burnZones: burning('foe') }));
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(play).not.toHaveBeenCalledWith('burn');
+  });
+
   it('reads a BIG hit taken inside the fire as the slam it was', () => {
     const { sink, play, trigger } = setupWater();
     sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 40 }], {}, { burnZones: burning('foe') }));
@@ -1892,11 +1902,13 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
 
   it('readsAsBurn pins both halves: recent enough AND small enough', () => {
     // Story 8.17: the cap is ONE owner's largest burn flush — the tier-V
-    // phosphor rate (10 hp/s) × the server's 0.5 s aggregation window.
+    // phosphor rate (10 hp/s) × the server's INCLUSIVE window: bankDot flushes
+    // once `now - since >= 500 ms` AFTER adding the bite, so at 20 Hz a window
+    // holds 11 bites (t = 0..500 ms) = 0.55 s of burn.
     const cap = BURN_AMOUNT_CAP;
-    expect(cap).toBe(5);
+    expect(cap).toBeCloseTo(5.5, 9);
     expect(maxBurnDps()).toBe(10);
-    expect(cap).toBe(maxBurnDps() * 0.5);
+    expect(cap).toBeCloseTo(maxBurnDps() * (0.5 + CONFIG.tick.simDtMs / 1000), 9);
     expect(CONFIG.phosphorShells.dps).toBeLessThan(maxBurnDps()); // the ladder raised it
     expect(readsAsBurn(cap, 0)).toBe(true);
     expect(readsAsBurn(cap, 600)).toBe(true); // the grace's last instant

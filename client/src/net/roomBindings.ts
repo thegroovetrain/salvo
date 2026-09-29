@@ -2157,6 +2157,9 @@ const BURN_GRACE_MS = 600;
 /** s — the server's burn aggregation window (one `dmg` per owner per window). */
 const BURN_WINDOW_S = 0.5;
 
+/** s — one sim tick (20 Hz). */
+const BURN_TICK_S = CONFIG.tick.simDtMs / 1000;
+
 /**
  * hp/s — the HIGHEST burn rate any PHOSPHOR SHELLS zone can carry: the tier-I
  * `CONFIG.phosphorShells.dps` plus every `dps` step the catalog's ladder
@@ -2173,14 +2176,17 @@ export function maxBurnDps(): number {
 
 /**
  * The largest damage amount a single burn flush can be (hp): the MAX POSSIBLE
- * burn per aggregation window — the tier-V phosphor rate × the server's 0.5 s
- * window (10 hp/s × 0.5 s = 5 hp; Story 8.17 re-derived it from the burning
- * zone that replaced the star-shell INCENDIARY verb, and the old ×4 overlap
- * headroom went with it). The classifier exists to tell a burn `dmg` from an
+ * burn per aggregation window — the tier-V phosphor rate × the server's
+ * INCLUSIVE window. `bankDot` (server world.ts) opens a bucket with
+ * `since = now` on the FIRST bite and flushes when `now - since >= 500 ms`
+ * AFTER adding the current bite, so at 20 Hz a window holds 11 bites
+ * (t = 0, 50, …, 500 ms) = window + one tick = 0.55 s of burn: 10 hp/s × 0.55 s
+ * = 5.5 hp (Story 8.17 re-derived it from the burning zone that replaced the
+ * star-shell INCENDIARY verb, and the old ×4 overlap headroom went with it). The classifier exists to tell a burn `dmg` from an
  * impact: anything bigger than this arrived some other way — a torpedo, a
  * shell, a mine — and must read as the slam it was.
  */
-export const BURN_AMOUNT_CAP = maxBurnDps() * BURN_WINDOW_S;
+export const BURN_AMOUNT_CAP = maxBurnDps() * (BURN_WINDOW_S + BURN_TICK_S);
 
 /**
  * Pure: does a damage event read as FIRE rather than as an impact? Both halves

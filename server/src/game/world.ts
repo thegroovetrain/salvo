@@ -1968,6 +1968,7 @@ export class World {
     this.chaffSources.clear(); // ...nor a practice-field chaff cloud (amendment 127)
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
     this.burnZones.clear(); // ...nor burn into it (Story 8.17, the same precedent)
+    this.dotBuckets.clear(); // an open burn window must not flush a phantom dmg against a redeployed hull
     // The pending queue is dropped at the boundary as it always was. The
     // COUNTDOWN's own `pt` (the level-zero grant, Story 8.10) is never in it
     // here: the grant fires at startCountdown, a whole countdown earlier, and
@@ -4785,11 +4786,15 @@ export class World {
     // dissolves now, for two reasons that must BOTH hold for the `hc` to be
     // sanctioned: (1) the flare CONNECTS — every hull inside the circle took
     // the tier's damage through the ordinary gate, so the mark is true; and
-    // (2) it MINTS NO NEW CHANNEL — the burst radius IS the lit radius, and the
-    // zone it lights at that same point reveals every one of those hulls to
-    // the firer anyway ("lit from above", no LOS term). The `hc` says nothing
-    // the firer's next frame does not already show. A PHOSPHOR burst over fog
-    // does the same for its 100 u+ zone — accepted as the flak precedent (a
+    // (2) it adds NO channel the light does not already open, with ONE
+    // recorded exception. The burst keeps the gun's OUTLINE rule (a hull hit
+    // when its outline touches the circle) while the reveal tests the hull's
+    // CENTRE, so a hull whose outline touches the rim can be hit and hit-called
+    // WITHOUT being revealed by the light. That rim disclosure is ACCEPTED, not
+    // covered by the reveal (Eric, review gate 2026-09-29, amendment 136).
+    // Every other hull in the circle is revealed to the firer anyway ("lit from
+    // above", no LOS term), so the `hc` says nothing new about them.
+    // A PHOSPHOR burst over fog does the same for its 100 u+ zone — accepted as the flak precedent (a
     // 50 u blast already does this), amendment 135(b).
     if (resolved > 0) this.emitHitCall(shell.ownerId, at.x, at.y);
     else this.emitSplash(shell, at.x, at.y);

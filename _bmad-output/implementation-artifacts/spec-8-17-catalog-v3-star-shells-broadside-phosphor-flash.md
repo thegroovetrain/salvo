@@ -2,7 +2,7 @@
 title: 'Story 8.17: Catalog v3 — Star Shells, Broadside, Phosphor, Flash'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '247a9e7'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -80,11 +80,11 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Wave 1 `shared/` -- CONFIG blocks, catalog ladders + kind moves, stats/effects rows, arcs, `effectiveSight`, types (burn zone, lit flags gone, shell tags), PV 60, tests -- `npm run build -w shared && npm test -w shared`
-- [ ] Wave 2 `server/src` -- star damage, phosphor row + burn-zone store/signal/channel, flash consumable + dazzle mark, `sightOf`, bots interim, perception invariants + fuzz, tests -- `npm test -w server`; `tsc` on `server/scripts/{batchsim,rl}`
-- [ ] Wave 3 `client/` (parallel with 2) -- burn-zone renderer, dazzle mirrors via `effectiveSight`, phosphor + flash slot/belt/aim/glyph/copy, card rows, tests -- `npm test -w client`
-- [ ] Wave 4 docs -- version 0.18.17, changelog, epics.md 8.17 section + renumber, both trackers, amendments 129–135 in both homes, deferred-work, catalog-v3 stamp, DESIGN/EXPERIENCE minimal -- `npm run check` exit 0
-- [ ] Unit-test every row of the I/O matrix
+- [x] Wave 1 `shared/` -- CONFIG blocks, catalog ladders + kind moves, stats/effects rows, arcs, `effectiveSight`, types (burn zone, lit flags gone, shell tags), PV 60, tests -- `npm run build -w shared && npm test -w shared`
+- [x] Wave 2 `server/src` -- star damage, phosphor row + burn-zone store/signal/channel, flash consumable + dazzle mark, `sightOf`, bots interim, perception invariants + fuzz, tests -- `npm test -w server`; `tsc` on `server/scripts/{batchsim,rl}`
+- [x] Wave 3 `client/` (parallel with 2) -- burn-zone renderer, dazzle mirrors via `effectiveSight`, phosphor + flash slot/belt/aim/glyph/copy, card rows, tests -- `npm test -w client`
+- [x] Wave 4 docs -- version 0.18.17, changelog, epics.md 8.17 section + renumber, both trackers, amendments 129–135 in both homes, deferred-work, catalog-v3 stamp, DESIGN/EXPERIENCE minimal -- `npm run check` exit 0
+- [x] Unit-test every row of the I/O matrix
 
 **Acceptance Criteria:**
 - Given a Battleship holding STAR SHELLS ×3, BROADSIDE ×5 and PHOSPHOR SHELLS ×1, when `effectiveStats` folds, then star = 18 s / 15 s lit / r199.65 / 2 flares / 15 dmg, broadside = 14.4 s / rung 5 / 6 turrets / 15 dmg, phosphor = 20 s / 20 dmg / r100 / 8 s / 5 hp/s, and the server and client folds are byte-identical.
@@ -96,11 +96,40 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-09-29 — Review pass (Blind Hunter + Edge Case Hunter on Fable, plus Codex `gpt-5.6-sol` on the source diff — verdicts: all three FIX-FIRST; agreement: ALL THREE confirmed the outline-vs-centre burst membership divergence; Codex + Blind Hunter confirmed the client burn cap; Codex alone found the burn buckets surviving the match reset, verified by the orchestrator against `resetForMatchStart`; every anti-cheat probe — `burnzone` gate + oracle arm, owner delivery, `dazzledUntil` self-privacy, flash spend law, dazzle derivation on both sides, preview radii, golden regen — came back clean from all three)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 1, low 2)
+- defer: 0
+- reject: 1: (high 0, medium 0, low 1)
+- addressed_findings:
+  - `[medium]` `[patch]` Client burn classifier cap (`BURN_AMOUNT_CAP` 5 hp) was below a legal tier-V flush: the server's DoT window holds 11 bites (t = 0…500 ms inclusive) = 10 hp/s × 0.55 s = 5.5 hp, so a full tier-V window played the impact cue and shake (Codex + Blind Hunter, CONFIRMED) → cap = `maxBurnDps() × (window + tick)`; fail-first test (5.5 reads as burn, 5.6 does not).
+  - `[low]` `[patch]` `dotBuckets` (the per-(owner, victim) burn windows) were never cleared at `resetForMatchStart`, so a bucket opened before the boundary could flush a phantom `dmg` on the first live tick (Codex, CONFIRMED by the orchestrator) → cleared beside `burnZones`; fail-first test.
+  - `[low]` `[patch]` The `resolveBurst` comment claimed the lit circle reveals every hull the star burst can hit; false in the rim band under the outline rule → rewritten to record the accepted rim disclosure (amendment 136).
+- rulings taken to Eric BEFORE the PR (no-deferring-design-gaps rule): (1) burst membership — Eric keeps the gun's OUTLINE rule for the star and phosphor bursts and CENTRES for the flash and the burn ticks; the rim hit-call disclosure is accepted and recorded (amendment 136; the intent-contract's "whose centre is inside" wording for the two bursts reads "whose outline is inside"); (2) interception — as built: the interceptor takes the tier damage, the zone spawns at the stop point, no area burst; a flash intercepted en route still emits `hc` by the all-ordnance rule (amendment 137).
+- rejected: a fleet-owned flash or burn zone would blind or burn friendly fleet hulls (Edge Case Hunter, PLAUSIBLE) — unreachable: PvE fleet drones carry the deck gun and nothing else (amendment 24) and combat bots are not fleet.
+
 ## Design Notes
 
 - **Why the burn zone is its own store, not a `LitZone` with a flag:** `ownZoneCovers` (reveal) and the flare-reach rule both iterate `world.litZones`; a burning zone must reach neither. A separate store makes "hazard only" true by construction rather than by a flag every reader must remember to check.
 - **Why the flash sets a mark instead of spawning a zone:** Eric's ruling is a one-time burst; the existing `dazzledUntil` mark, its `OwnShip` mirror and the DAZZLED tell already carry the victim side, so nothing lingers on the water and no observer can watch a glare ring.
 - **Why `effectiveSight` lives in shared:** three client mirrors of the server's shrunken sight (fog, radar dim, projectile cull) have desynced before (epic-4 amendments); one shared function is the only way the four stay equal.
+
+## Auto Run Result
+
+Status: done (cycle 152, 0.18.17; PROTOCOL_VERSION 59 → 60; epic-8 amendments 129–137; the new Story 8.17, old 8.17–8.21 renumbered 8.18–8.22)
+
+**Summary.** Story 8.17 landed as Eric ruled it on 2026-09-29 (seven rulings before the build, amendments 129–135; two at the review gate, 136–137). STAR SHELLS is a tiered weapon on the R31 ladder (−5 % reload, +2.5 s lit, ×1.1 lit radius, +0.5 flares per tier) and the flare hurts again: 10 / 12 / 15 / 17 / 20 damage to every non-owner hull whose outline is inside the whole lit circle at burst, with a hit call. BROADSIDE is a tiered weapon on the R35 ladder (−5 % reload, +1 spread rung, +0.5 turret per tier; 15 damage throughout). PHOSPHOR SHELLS is its own 360° equipment line: one shell to the radar rung, 20 s reload, bursting for 20 → 30 across the zone and leaving a burning zone of r100 u (×1.1 per tier) for 8 → 10 s at 5 → 10 hp/s — a hazard drawn for anyone whose radar reaches it, revealing nothing (its own world store and `FrameMsg.burnZones` channel behind the lit zone's gate, DoT through the existing burn seat). DAZZLE is the FLASH SHELLS belt consumable (id `dazzleShells`): key primes, click fires one shell to the radar rung, a one-time r150 u burst that dazzles every non-owner hull whose centre is inside for 10 s to one eighth of its intel range, through one shared `effectiveSight` on both sides. The star-shell verbs, the lit-zone `phos`/`daz` flags and both add-on rows are gone; no add-on line remains. Interim bot rows for phosphor and flash (8.20 owns the table). 14 equipment modules; 6 live consumables; 2 stubs; 117 cards.
+
+**Files.** shared: `constants.ts` (star damage, `phosphorShells`, `flashShells`, doctrine fields and `starDazzle` out), `sim/{catalog,loadout,effects,stats,boons,arcs,shell}.ts`, NEW `sim/sight.ts`, `types.ts`, `index.ts` PV 60, tests (+18). server: NEW `equipment/phosphorShells.ts`, `equipment/consumables/dazzleShells.ts`; `equipment/{starShells,ballistics,index,consumables}.ts`; `game/{world,signals,perception,frames}.ts`; `ai/{equipment,spending}.ts`; `scripts/batchsim/{catalogMetrics,runner}.ts`; tests incl. the oracle's burn-zone arm, fuzz seeding, golden regen (4 rows, each recorded). client: NEW `render/burnZones.ts`; `render/{litZones,fog,radar,projectiles,aimPreview,weaponArc,equipmentIcons,equipmentInfo,ambient,wake}.ts`, `net/roomBindings.ts`, `sim/ownFire.ts`, `audio/{tones,twinMap}.ts`, `ui/boonCopy.ts`, `config.ts`, `state.ts`, `main.ts`, tests. Docs: `VERSION`/`package.json`/lock 0.18.17; `CHANGELOG.md`; `epics.md` (new 8.17 + renumber); both trackers; `deferred-work.md` (open pointers renumbered, 8.17 section); amendments 129–137 in both homes; `catalog-v3.md` stamp; DESIGN/EXPERIENCE untouched (nothing there became false); this spec.
+
+**Review.** Blind Hunter + Edge Case Hunter (Fable) and Codex `gpt-5.6-sol`: 3 patches (1 medium, 2 low), all fail-first proven; 2 Eric rulings at the gate; 1 rejected. See the Review Triage Log.
+
+**Follow-up review recommended: false** — the gate's code changes are two localized, pinned fixes (a cap constant and a `clear()` at a boundary) plus a comment; the geometry and interception questions were ruled as built.
+
+**Verification.** `npm run check` exit 0 after the patch wave: shared 965 / server 2156 / client 3698 tests, hooks 266, eslint 0 errors (3 pre-existing max-lines warnings); `tsc` clean on `server/scripts/batchsim` and `server/scripts/rl`. Headless smokes were NOT run this cycle (nothing in the spec's verification list requires them; `weaponsSmoke` is a ledgered flake). One wall-clock pin (`machineGunFlashCost.test.ts`) failed once under the parallel server run in wave 2 and passed alone and in every full run since — load, not a regression.
+
+**Residual risk / for Eric.** (1) Drafts for your eye on staging: the PHOSPHOR SHELLS slot glyph (flame tongues on a waterline), the FLASH SHELLS belt glyph (a struck-through eye), both hover texts, and the phosphor card face dropping its ROUNDS row (a 1-round pool no tier moves) to fit five rows. (2) Readings you may veto: the burning zone's ember disc is drawn at 0.72 of the burn radius (the shipped phosphor treatment; DESIGN.md names no burning-zone token); a bot lobs phosphor at any live in-sight contact before its guns (placements resolve before shots); one owner's overlapping burn zones bite once per tick at the STRONGER dps; the phosphor spend category is its own (kind base), not the star shell's C2 want. (3) The star-shell hover text does not yet mention the new damage (left under the no-unasked-copy rule). (4) Fleet friendliness for flash/burn is unguarded but unreachable (amendment 24). Staging QA: fit STAR SHELLS ×3 and watch the flare hurt everything under its light (hit call, `HULL` drop on the target); fit PHOSPHOR and burst a hull — impact, then the burning ring visible on radar range, burn ticks on whoever stays; stock FLASH SHELLS, prime + click near an enemy and confirm their DAZZLED tell and a fog hole a quarter of normal on their side; fit BROADSIDE ×5 and count six turrets at rung 5; confirm no DAZZLE / PHOSPHOR add-on card ever appears.
 
 ## Verification
 
