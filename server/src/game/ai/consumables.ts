@@ -116,6 +116,13 @@ function smokedThisRetreat(mind: BotMind): boolean {
   return mind.smokeUntil - CONFIG.smokeScreen.layMs >= mind.disengageSince;
 }
 
+/** Is this bot's own SMOKE trail still being laid? (`smokeUntil` arrives on
+ *  the mind, copied by the driver.) A re-press mid-lay would spend a copy for
+ *  at most one lay window of extra trail (ruling 140). */
+function smokeLaying(mind: BotMind, now: number): boolean {
+  return mind.smokeUntil !== undefined && now < mind.smokeUntil;
+}
+
 /** SHIELD BLOCK — pressed on the DAMAGE CUT cues, never over a shield already
  *  up (a second copy would REPLACE it, wasting the first's remainder). */
 const shieldBlockTactic: ConsumableTactic = {
@@ -140,14 +147,20 @@ const chaffTactic: ConsumableTactic = {
  * SMOKE SCREEN — pressed ONCE PER RETREAT (Eric ruling R8, 2026-09-30): laid
  * on the way OUT (the disengage posture), and not again until the bot has left
  * `disengage` and re-entered it. A copy stocked mid-retreat, with none pressed
- * this retreat, is pressed once.
+ * this retreat, is pressed once. NEVER WHILE A TRAIL IS STILL BEING LAID: a bot
+ * that re-enters `disengage` inside its previous press's lay window waits for
+ * the window to lapse rather than restarting it (orchestrator reading of
+ * record, Story 8.20; Eric may veto).
  */
 const smokeScreenTactic: ConsumableTactic = {
   id: 'smokeScreen',
   kind: 'ability',
   reachU: () => 0,
   want: (ctx: TacticContext) =>
-    isAfloat(ctx.self.lifecycle) && ctx.posture === 'disengage' && !smokedThisRetreat(ctx.mind),
+    isAfloat(ctx.self.lifecycle) &&
+    ctx.posture === 'disengage' &&
+    !smokedThisRetreat(ctx.mind) &&
+    !smokeLaying(ctx.mind, ctx.sit.now),
   solve: () => null,
 };
 

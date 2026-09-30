@@ -2371,7 +2371,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
       expect(rec.loadout[slotOf(rec, 'smokeScreen')].state!.n).toBe(1);
     });
 
-    it('Smoke re-arm inside the old lay window: the re-entry still presses once', () => {
+    it('Smoke re-arm inside the old lay window: the re-entry presses once, after that window lapses', () => {
       const { rec, run } = drill(81620, 3);
       hurt(rec);
       expect(run(10)).toBe(1); // pressed; its 5 s window is still open
@@ -2379,6 +2379,30 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
       expect(run(5)).toBe(0);
       hurt(rec);
       expect(run(TWELVE_S)).toBe(1);
+    });
+
+    it('Smoke still laying: re-entering disengage 2 s after the last press waits for the lay window, then presses once', () => {
+      const LAY = CONFIG.smokeScreen.layMs;
+      const { port, rec, mind, run } = drill(81625, 3);
+      hurt(rec);
+      expect(run(10)).toBe(1);
+      const pressedAt = mind.smokeUntil! - LAY;
+      // Leave the retreat, and come back exactly 2 s after the press.
+      healed(rec);
+      expect(run(Math.round((pressedAt + 2000 - port.now) / TICK))).toBe(0);
+      expect(mind.posture).not.toBe('disengage');
+      expect(port.now).toBe(pressedAt + 2000);
+      hurt(rec);
+      // Re-entry with the old trail still being laid: no press on entry, nor
+      // anywhere inside that window.
+      expect(run(Math.round((pressedAt + LAY - port.now) / TICK))).toBe(0);
+      expect(mind.posture).toBe('disengage');
+      expect(mind.disengageSince).toBeGreaterThanOrEqual(pressedAt + 2000);
+      expect(port.now).toBe(pressedAt + LAY);
+      // The window lapsed, still in disengage: ONE press, then once-per-retreat holds it.
+      expect(run(1)).toBe(1);
+      expect(run(TWELVE_S)).toBe(0);
+      expect(rec.loadout[slotOf(rec, 'smokeScreen')].state!.n).toBe(1);
     });
 
     it('Smoke late stock: a copy stocked mid-retreat, none pressed this retreat -> pressed once', () => {
@@ -2419,9 +2443,14 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
       mind.disengageSince = port.now - 1000;
       mind.smokeUntil = port.now - 500 + CONFIG.smokeScreen.layMs;
       expect(CONSUMABLE_TACTICS.smokeScreen.want(ctx)).toBe(false);
-      // A press from a PREVIOUS retreat (before the stamp) does not.
+      // A press from a PREVIOUS retreat (before the stamp) whose trail is
+      // still being laid holds it too (not while still laying)...
       mind.smokeUntil = port.now - 1500 + CONFIG.smokeScreen.layMs;
+      expect(CONSUMABLE_TACTICS.smokeScreen.want(ctx)).toBe(false);
+      // ...and once that window has lapsed, it does not.
+      mind.smokeUntil = port.now;
       expect(CONSUMABLE_TACTICS.smokeScreen.want(ctx)).toBe(true);
+      expect(mind.disengageSince).toBe(port.now - 1000);
     });
 
     it('END TO END: a real World and its driver — one copy per retreat', () => {

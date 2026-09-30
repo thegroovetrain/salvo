@@ -143,7 +143,7 @@ export interface BotProfile {
    *
    * Consumers (every entry has at least one — the deleted-`aggression` rule):
    * the slot ORDERING in tactics.ts (all entries) and each tactic's want()
-   * PROACTIVITY gate against equipment.ts's APPETITE_NEUTRAL (1) /
+   * PROACTIVITY gate against tacticKit.ts's APPETITE_NEUTRAL (1) /
    * APPETITE_EAGER (2) thresholds. EVERY LINE IS WRITTEN EXPLICITLY (Story
    * 8.20 deleted the old family fallback by writing the very numbers it used
    * to resolve: a light torpedo reads as the heavy, the captive and fouling

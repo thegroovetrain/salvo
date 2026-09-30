@@ -90,7 +90,8 @@ export interface RunSpec {
    *  undefined = 'profile', the shipped weighted policy, byte-identical. */
   botSpend?: 'profile' | 'random';
   /** Force every rolled-path bot's hull (mono-class arms with tuned
-   *  temperaments); profiles still roll among that hull's own rows. args.ts
+   *  temperaments); personalities still roll among all six (Story 8.20: any
+   *  personality on any hull). args.ts
    *  refuses the combinations this would contradict (--bot-profile, --roster
    *  even). */
   botHull?: ShipClassId;

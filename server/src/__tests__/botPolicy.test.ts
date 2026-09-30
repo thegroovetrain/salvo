@@ -1075,14 +1075,34 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     expect(cardScore(raider, capped, 'armor')).toBe(P.base + P.style);
   });
 
-  it('an empty build ties every upgradeable line at min = max, so every ladder earns either style\'s bonus', () => {
+  it('an empty build is FLAT (min = max of U), so no ladder earns either style\'s bonus (R11)', () => {
     for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
       const row = profileOf(id);
       const favUps: readonly string[] = row.taste.favoriteUpgrades;
       for (const l of SHIP_LADDERS) {
-        expect(cardScore(row, spendState(), l), `${id} ${l}`).toBe(P.base + (favUps.includes(l) ? P.favorite : 0) + P.style);
+        expect(cardScore(row, spendState(), l), `${id} ${l}`).toBe(P.base + (favUps.includes(l) ? P.favorite : 0));
       }
     }
+  });
+
+  it('Flat build (R11): bulwark at level 0 → armor 2+1 = 3 (no style bonus), a non-favorite weapon 3.5 wins', () => {
+    const bulwark = profileOf('bulwark'); // rounded; favorite upgrade armor; favorite weapons broadside + starShells
+    const s = spendState();
+    expect(cardScore(bulwark, s, 'armor')).toBe(P.base + P.favorite);
+    expect(cardScore(bulwark, s, 'armor')).toBe(3);
+    expect(cardScore(bulwark, s, 'lightTorpedo')).toBe(P.weapon);
+    expect(cardScore(bulwark, s, 'lightTorpedo')).toBe(3.5);
+    expect(chooseSpend(bulwark, { ...s, offer: ['armor', 'lightTorpedo'] })).toBe(1);
+  });
+
+  it('Uneven build: bulwark holding one weapon, ladders at 0 → both at min(U) = 0: armor 4, speed 3', () => {
+    const bulwark = profileOf('bulwark');
+    const s = spendState({ cards: ['lightTorpedo'], slotIds: slotsOf(['lightTorpedo']) });
+    expect(cardScore(bulwark, s, 'armor')).toBe(P.base + P.favorite + P.style);
+    expect(cardScore(bulwark, s, 'armor')).toBe(4);
+    expect(cardScore(bulwark, s, 'speed')).toBe(P.base + P.style);
+    expect(cardScore(bulwark, s, 'speed')).toBe(3);
+    expect(chooseSpend(bulwark, { ...s, offer: ['speed', 'armor'] })).toBe(1);
   });
 
   it('"gun" favors EVERY ladder of the mounted gun, and style reads only the MOUNTED gun\'s ladders', () => {

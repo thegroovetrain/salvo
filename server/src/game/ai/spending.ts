@@ -25,7 +25,9 @@
 //     is the build's lowest line (a `rounded` taste) or its highest (a
 //     `specialist`). "The build" is every line the bot could still raise: the
 //     ship ladders, the mounted gun's ladders and the weapons it holds, each
-//     counted by copies held.
+//     counted by copies held. THE STYLE BONUS NEEDS AN UNEVEN BUILD (R11): when
+//     every line in it holds the same count (the flat level-zero build), no
+//     upgrade earns it, so a favorite ladder scores 3 and a weapon opens.
 //   - A CONSUMABLE is `base`, + `favorite` if it is one, then + the taste's
 //     belt hunger if the belt carries none of it, or + `carried` (a
 //     negative) if it already does. HULL REPAIR while hurt and carrying none
@@ -165,14 +167,17 @@ function upgradeableSet(s: BotSpendState, catalog: Catalog): Map<string, number>
 }
 
 /** Does this upgrade card earn the STYLE bonus — its line holds the build's
- *  lowest copy count (`rounded`) or highest (`specialist`)? */
+ *  lowest copy count (`rounded`) or highest (`specialist`)? Never on a FLAT
+ *  build, where min(U) = max(U) (R11). */
 function styleMatches(taste: BotTaste, s: BotSpendState, line: CatalogLine, catalog: Catalog): boolean {
   const set = upgradeableSet(s, catalog);
   const mine = set.get(line.id);
   if (mine === undefined) return false;
   const counts = [...set.values()];
-  const target = taste.style === 'rounded' ? Math.min(...counts) : Math.max(...counts);
-  return mine === target;
+  const lo = Math.min(...counts);
+  const hi = Math.max(...counts);
+  if (lo === hi) return false;
+  return mine === (taste.style === 'rounded' ? lo : hi);
 }
 
 /** Does this upgrade card match one of the taste's favorite upgrades? A tier
