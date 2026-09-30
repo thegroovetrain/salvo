@@ -175,7 +175,7 @@ Sensor ladder (frozen): detect 247.5 · sight 330 · muzzle/smoke 412.5 · radar
 
 **R38 (Eric) — SMOKE SCREEN (consumable, cap 5): a trail laid astern for 5 s; each puff lasts 30 s, starts at r40u and slowly EXPANDS to r60u.** Blocks SIGHT only (radar unaffected); a hull inside or behind the smoke is not sighted. Whether the puff hides its OWN occupant from truesight as well as what lies behind it: assumed yes (it blocks the LOS segment like an island does for sight) [DRAFT, facilitator assumption].
 
-*(2026-09-29, Story 8.18, epic-8 amendments 138–144: built — cadence 500 ms, growth over the full 30 s; the self-hiding `[DRAFT]` is confirmed by construction (symmetric segment test); re-press restarts the 5 s trail; laying stops at sink entry; smoke also hides hulls under a star-shell flare.)*
+*(2026-09-29, Story 8.18, epic-8 amendments 138–149: built — cadence 500 ms, growth over the full 30 s; the self-hiding `[DRAFT]` is confirmed by construction (symmetric segment test); re-press restarts the 5 s trail; laying stops at sink entry; smoke also hides hulls under a star-shell flare; in smoke you see 1/8 intel range into other smoke and nothing optical beyond (amendment 149); radar paints a smoke-hidden hull inside the bubble (147); a puff is delivered when any part is visible (148).)*
 
 **R39 (Eric) — CHAFF (consumable, cap 5): bursts at YOUR OWN position** — fake radar returns around you to hide your true echo among them (the brainstorm's fire-to-the-click delivery is NOT taken). **R41: 10 fakes in r120u around you, for 15 s.**
 

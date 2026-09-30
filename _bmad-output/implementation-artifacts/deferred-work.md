@@ -2619,8 +2619,8 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
   status: OPEN — Story 9.11 reconciliation list
-  summary: UPSTREAM DOCS STILL SAY WHAT THIS CYCLE SUPERSEDED. `game-architecture.md` D24 / Novel Pattern 12 and `epics.md` AR43 / the Story 8.18 AC still say "a lit zone ignores smoke" and "six call sites" — superseded by amendments 142 and 146(a). Catalog-v3 R38's self-hiding `[DRAFT]` is confirmed by construction. Amendment 51 / catalog-v3 R13 / FR47 "pools add" is superseded by amendment 141.
-  evidence: epic-8 amendments 141, 142, 146(a); `catalog-v3.md` R13 / R38 stamps.
+  summary: UPSTREAM DOCS STILL SAY WHAT THIS CYCLE SUPERSEDED. `game-architecture.md` D24 / Novel Pattern 12 and `epics.md` AR43 / the Story 8.18 AC still say "a lit zone ignores smoke" and "six call sites" — superseded by amendments 142 and 146(a). Catalog-v3 R38's self-hiding `[DRAFT]` is confirmed by construction. Amendment 51 / catalog-v3 R13 / FR47 "pools add" is superseded by amendment 141. D24 / Novel Pattern 12 / AR43 / the 8.18 AC's "blinds an observer inside it" and "centre … island-only LOS" clauses are superseded by amendments 148–149; amendment 179's "sight wins inside its radius" is refined by 147.
+  evidence: epic-8 amendments 141, 142, 146(a), 147–149; `catalog-v3.md` R13 / R38 stamps.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
   status: OPEN — awareness
@@ -2629,5 +2629,20 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
   status: OPEN — recorded reading
-  summary: THE CLIENT'S SYNTHESIZED WAKE MIRROR APPLIES THE SMOKE TERM TO SHIP WATER AS WELL AS TORPEDO WATER INSIDE THE BUBBLE (one shared gate). This changes nothing visible, because a smoked hull is not held by the client at all.
+  summary: THE CLIENT'S SYNTHESIZED WAKE MIRROR APPLIES THE SMOKE TERM TO SHIP WATER AS WELL AS TORPEDO WATER INSIDE THE BUBBLE (one shared gate). This changes nothing visible, because a smoked hull is not held by the client at all. For an observer inside a puff the mirror applies no puff term (amendment 149: they see into smoke, clamped at 1/8 intel range).
   evidence: epic-8 amendment 143; the client wake-stamp mirror (`setWakeSources`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — for Eric's eye on staging
+  summary: THE IN-BUBBLE RADAR PAINT OF A SMOKE-HIDDEN HULL RENDERS AT THE EXISTING 20 % IN-BUBBLE DIM (amendment 181). Eric wants to see it before deciding whether the intensity changes.
+  evidence: epic-8 amendment 147; `blipGate` in-bubble arm.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — recorded readings Eric may veto
+  summary: THREE READINGS UNDER AMENDMENT 149: a foghorn beyond 82.5 u is muffled one step (not silenced) for an in-smoke listener; a sinking hull inside a puff keeps the pre-149 blind-out rule (not "in smoke"); the smoke-hidden in-bubble blip carries no ship-wake tell.
+  evidence: epic-8 amendment 149.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — dials for staging
+  summary: `CONFIG.smokeScreen.inSmokeSightFraction` is 0.125 (Eric: 1/8) and the puff render alphas (fill 0.35, rim 0.6) are dials to tune on staging.
+  evidence: epic-8 amendments 147, 149, 150(b); `shared/src/constants.ts`.

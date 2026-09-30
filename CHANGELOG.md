@@ -3,7 +3,7 @@
 ## [0.18.18] - 2026-09-29
 
 ### Added
-- **SMOKE SCREEN (Story 8.18)** — a belt consumable (cap 5, no reload): press its key and the hull lays a trail of smoke astern for 5 s, one puff every 0.5 s; each puff lives 30 s and grows from r40 to r60 u over that life. Smoke blocks SIGHT only — a hull inside or behind a puff cannot be seen by eyes, an observer standing in a puff is blind, and it hides even under a star-shell flare — while radar sees straight through it. Torpedo water and mines/decoys behind a puff are hidden the same way. Pressing again restarts the 5 s trail; a sinking hull lays nothing. Puffs render as grey discs, and your own puffs are always visible to you.
+- **SMOKE SCREEN (Story 8.18)** — a belt consumable (cap 5, no reload): press its key and the hull lays a trail of smoke astern for 5 s, one puff every 0.5 s; each puff lives 30 s and grows from r40 to r60 u over that life. Smoke blocks SIGHT only — a hull inside or behind a puff cannot be seen by eyes, an observer standing in ANY puff is short-sighted instead — 1/8 of intel range, seeing into other smoke, nothing by eye beyond it — and smoke hides hulls even under a star-shell flare — while radar sees straight through it. Torpedo water and mines/decoys behind a puff are hidden the same way. Pressing again restarts the 5 s trail; a sinking hull lays nothing. Puffs render as grey discs, and your own puffs are always visible to you. A hull that smoke alone hides inside your sight bubble still paints on radar when the sweep crosses it (dimmed, like every in-bubble paint).
 
 ### Changed
 - **HULL REPAIR re-press replaces its heal pool** — firing a second copy while the first is still paying out discards what was left and starts a fresh 50 hp over 5 s (was: pools added up at the same rate).
@@ -14,6 +14,7 @@
 - `FrameMsg.smoke` channel behind a `smoke` perception pseudo-row (six exceptions unchanged); `/metrics` `world.smokeLivePeak`.
 - Perf pin: 20 observers x 200 puffs is about 5 ms of the 50 ms tick.
 - Interim bot row: a bot lays smoke when disengaging (Story 8.20 owns the table).
+- `blipGate` gains an in-bubble arm for a smoke-hidden point; a puff is delivered when any part of it is island-visible.
 - PROTOCOL_VERSION 60 -> 61.
 
 ## [0.18.17] - 2026-09-29
