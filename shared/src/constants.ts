@@ -1822,6 +1822,29 @@ export const CONFIG = {
   },
 
   /**
+   * WAKE DRAFTING (Story 8.19, FR50 / D23; Eric rulings 2026-09-30, epic-8
+   * amendments 151–152). A hull sailing in another source's wake ribbon is
+   * lifted: its FORWARD speed cap rises by `lift × ageFactor × headFactor` of
+   * itself (sim/wake.ts `draftLift` → sim/draft.ts `draftedKinematics`), the
+   * best single lane only — a MAX, never a sum.
+   *
+   * `lift` (amendment 151): 5 % of the rider's OWN per-tick forward cap at the
+   * freshest water, dead astern, same heading. `halfWidthBeams` (amendment
+   * 152): the lane's half-width is the WAKE-MAKER's own hull width
+   * (`ribbon.widthU`, 9 / 20 / 32 u for the three captain hulls) × this — so
+   * there is no fixed half-width in u. Both are harness dials.
+   *
+   * The wake's own clocks (life, sample cadence, torpedo factor) stay in
+   * `CONFIG.vision` — this block holds the drafting dials only.
+   */
+  wake: {
+    draft: {
+      lift: 0.05, // fraction of the rider's own forward cap added at full lift (amendment 151)
+      halfWidthBeams: 1, // × the wake-maker's hull width (ribbon.widthU) — the lane's half-width each side of the trail (amendment 152)
+    },
+  },
+
+  /**
    * THE CATALOG's engine dials (Story 8.1). `reloadStepPerTier` is catalog-v3's
    * STANDING RULE (§3, from R14): every equipment line steps −5 % of its OWN
    * base reload per tier, in ADDITIVE five-point steps (100 → 95 → 90 → 85 →

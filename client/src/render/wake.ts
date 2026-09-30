@@ -88,9 +88,10 @@ export type WakeSourceKind = HullId | 'torp';
 /** One visible source, as the wake layer needs it: pose, kind and the tint its
  *  foam carries. `maxSpeedU` provisions the ring buffer — pass the source's
  *  TRUE attainable top speed when it is known (own ship:
- *  `boostedKinematics(kinematics, CONFIG.boost.factor, true).maxSpeed`,
- *  mirroring `World.wakeTopSpeed`); omitted, the class
- *  envelope is used and a boosted hull loses a little tail early, which is the
+ *  `draftedKinematics(boostedKinematics(kinematics, CONFIG.boost.factor, true),
+ *  CONFIG.wake.draft.lift, true).maxSpeed`, mirroring `World.wakeTopSpeed` —
+ *  boost AND full wake-draft lift, Story 8.19); omitted, the class
+ *  envelope is used and a boosted or drafting hull loses a little tail early, which is the
  *  shared model's documented graceful degradation. A `'torp'` source ignores it
  *  entirely — `createTorpWake` provisions off the fixed `CONFIG.torpedo.speed`,
  *  exactly as `World.sampleTorpWake` does. */
@@ -387,6 +388,12 @@ export const WAKE_STAMP_REBUILD_MS = CONFIG.vision.wakeLifeMs / WAKE_AGE_BUCKETS
  * shared `boostedKinematics` hook — NOT a base speed plus a flat bonus, which
  * would now UNDER-state the bound (the proportional boost grows with the
  * ladder) and under-provision every ring this number sizes.
+ *
+ * STORY 8.19 RAISED IT ONCE MORE: a hull riding another hull's wake runs up to
+ * `CONFIG.wake.draft.lift` (5 %) past its boosted cap, so the constant now folds
+ * the full lift through the one shared `draftedKinematics` hook on top of the
+ * boost (68.75 → 72.1875 u/s at the shipped numbers) — the same double the
+ * server's `World.wakeTopSpeed` provisions with.
  */
 export const FASTEST_AFLOAT_SPEED = Math.max(
   FASTEST_BOOSTED_HULL_SPEED,

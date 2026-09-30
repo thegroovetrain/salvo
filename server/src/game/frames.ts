@@ -35,6 +35,19 @@ function ownShield(ship: ShipRecord, now: number): Pick<OwnShip, 'shield'> {
   return { shield: { hp: Math.ceil(s.hpLeft), until: s.until } };
 }
 
+/** The own-ship `draft` key (Story 8.19): `{ draft }` — the exact double —
+ *  while the hull rides a wake (`ship.draft > 0`), else an EMPTY object so the
+ *  spread leaves the key absent (never `undefined`, never 0). The exact
+ *  scalar is `lift × ageFactor × headFactor`: a MODIFIED client varying its
+ *  heading over a few ticks can recover the direction and rough age of a wake
+ *  it cannot see (island- or smoke-hidden) — a rough bearing toward a hidden
+ *  hull within one wake length (~250 u). Honest clients show nothing; accepted
+ *  by Eric (2026-09-30, amendment 160) because prediction needs the exact
+ *  double, and the exception count is unaffected. */
+function ownDraft(ship: ShipRecord): Pick<OwnShip, 'draft'> {
+  return ship.draft > 0 ? { draft: ship.draft } : {};
+}
+
 function toOwnShip(ship: ShipRecord, now: number): OwnShip {
   // Anti-cheat/invariant guard: OwnShip only ever describes a human client's
   // own ship, whose hullId is ALWAYS a ShipClassId. A drone hull id reaching
@@ -140,6 +153,17 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // blip, an event or a spectator payload — so the perception exception
     // count stays at SIX.
     ...(ship.inSmoke ? { inSmoke: true as const } : {}),
+    // The WAKE-DRAFT lift (Story 8.19, amendments 151–155): the exact double
+    // stepShips folded into this hull's forward cap THIS tick — PRESENT IFF
+    // positive, OMITTED at 0, never `undefined` (the slowFactor precedent).
+    // The exact double, never rounded: the client predictor folds it through
+    // the SAME shared draftedKinematics, so a drafting hull predicts with no
+    // drift. SELF-PRIVATE BY CONSTRUCTION on the boostUntil terms: it rides
+    // `you` and NOTHING else — a DECLARED own-ship disclosure (NFR21,
+    // amendment 160: a modified client can recover a rough bearing toward a
+    // hidden wake-maker from it — see ownDraft), not a perception exception,
+    // so the count stays SIX.
+    ...ownDraft(ship),
     // ms — the founder deadline while THIS hull is in the sinking window
     // (Story 5.2, amendment 16): present IFF sinking, OMITTED entirely
     // otherwise — never an `undefined` value (the slowedUntil precedent

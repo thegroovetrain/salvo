@@ -943,7 +943,7 @@ function scnWake(g: Golden): void {
   b.wake.head = 0;
   b.wake.count = xs.length;
   // A torpedo's water: half-life (6000ms), one-cell (9u) ribbon at y=6.
-  const torp: WakeRibbon = { xs: new Float64Array(8), ys: new Float64Array(8), ts: new Float64Array(8), cap: 8, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true };
+  const torp: WakeRibbon = { xs: new Float64Array(8), ys: new Float64Array(8), ts: new Float64Array(8), cap: 8, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true, hullAheadU: 0 };
   for (let i = 0; i < 5; i++) {
     torp.xs[i] = 500 + 12 * i;
     torp.ys[i] = 6;

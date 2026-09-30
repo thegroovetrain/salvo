@@ -3,6 +3,12 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  62 — Story 8.19 Wake Drafting: OwnShip.draft?: number (self-private,
+ *  omitted when 0 — the wake-draft lift the server folded into this hull's
+ *  forward cap this tick, the exact double, so the predictor's
+ *  `draftedKinematics` fold matches); CONFIG.wake.draft {lift,
+ *  halfWidthBeams} (Eric rulings 2026-09-30, epic-8 amendments 151–155).
+ *  Perception exception count stays SIX.
  *  61 — Story 8.18 Smoke Screen: FrameMsg.smoke channel (SmokeView
  *  {id,x,y,t0} — no owner, no own-flag); smokeScreen stub flipped (a new
  *  dealable consumable); CONFIG.smokeScreen read by the client (incl.
@@ -740,7 +746,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 61;
+export const PROTOCOL_VERSION = 62;
 
 // Tunables
 export * from './constants.js';
@@ -768,6 +774,7 @@ export * from './sim/loadout.js';
 export * from './sim/arcs.js';
 export * from './sim/boost.js';
 export * from './sim/slow.js';
+export * from './sim/draft.js';
 export * from './sim/sight.js';
 export * from './sim/offers.js';
 export * from './sim/draw.js';

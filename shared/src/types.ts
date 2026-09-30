@@ -563,6 +563,24 @@ export interface OwnShip {
    * persistence under fire, and the perception exception count stays at SIX.
    */
   shield?: { hp: number; until: number };
+  /**
+   * The WAKE-DRAFT lift (Story 8.19, Eric rulings 2026-09-30, epic-8
+   * amendments 151–155) the server folded into this hull's forward speed cap
+   * THIS tick (`draftLift` → `draftedKinematics`), in (0,
+   * CONFIG.wake.draft.lift] — the exact double the server used, so the
+   * client's predictor folds the identical cap. OMITTED when 0, never an
+   * `undefined` value and never 0 on the wire (the `slowedUntil` conditional-
+   * spread precedent). SELF-PRIVATE own-ship state like `slowedUntil`: rides
+   * `you` and NOTHING else — not a perception exception (the count stays at
+   * SIX). DECLARED DISCLOSURE (NFR21; Eric ruling 2026-09-30, amendment
+   * 160): the exact scalar is `lift × ageFactor × headFactor`, so a MODIFIED
+   * client that varies its heading over a few ticks can recover the
+   * direction and rough age of a wake it cannot see (island- or smoke-
+   * hidden) — i.e. a rough bearing toward a hidden hull within one wake
+   * length (~250 u). Honest clients show nothing. Accepted by Eric because
+   * prediction needs the exact double, and the exception count is unaffected.
+   */
+  draft?: number;
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */

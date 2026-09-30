@@ -2646,3 +2646,41 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: OPEN — dials for staging
   summary: `CONFIG.smokeScreen.inSmokeSightFraction` is 0.125 (Eric: 1/8) and the puff render alphas (fill 0.35, rim 0.6) are dials to tune on staging.
   evidence: epic-8 amendments 147, 149, 150(b); `shared/src/constants.ts`.
+
+## 2026-09-30 — Story 8.19 Wake Drafting (cycle 154)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: RESOLVED 2026-09-30 (Story 8.19, cycle 154) — the D23 disclosure landed as declared
+  summary: THE `OwnShip.draft` DISCLOSURE SHIPPED AS ACCEPTED. `you.draft` is self-private own-ship state (present only when positive, like `slowedUntil`), carries no position, and is declared in the `perception.test.ts` header note and its self-private clause. It is not a perception exception (still SIX). Points at the original entry ("Deck amendment, D23", OPEN — accepted disclosure, ledgered), which is left as written.
+  evidence: epic-8 amendment 158(e); `server/src/game/perception.test.ts` header note + self-private clause; the D23 entry above.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — Story 9.11 reconciliation list
+  summary: UPSTREAM DOCS STILL SAY WHAT THIS CYCLE SUPERSEDED. FR50 / AR42 / D23 / the Story 8.19 AC still say `cfg.halfWidthU` and the position-only `draftLift(ribbons, x, y, now, cfg)`, and D23 says `setDraft` sits "beside `setBoostStats`" — superseded by amendments 152, 154 and 158(f).
+  evidence: epic-8 amendments 152, 154, 158(f); `shared/src/sim/` `draftLift`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — harness, on Eric's ask only
+  summary: THE 5 % LIFT AND `halfWidthBeams` ARE DIALS AWAITING A `/balance-sim` LOOK AT `draft%`. The harness reports `draft%` beside `land%`; no batch sim was run in this cycle.
+  evidence: epic-8 amendments 151, 152, 158(k); `CONFIG.wake.draft`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — not measured
+  summary: THE CLIENT WAKE-STAMP REBUILD FLOOR SHORTENED ABOUT 5 % (the wake-ring headroom folds the lift) and was not measured. Prediction shimmer at lane entry and exit is bounded by the lift and smoothed, but is to be eyeballed on staging.
+  evidence: epic-8 amendment 158(f), 158(h).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — for Eric's eye on staging
+  summary: WHETHER 5 % IS FELT AT ALL IN A TAIL CHASE is Eric's eye to judge on staging; the lift is a dial if it reads as nothing.
+  evidence: epic-8 amendment 151.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — 8.20 tuning note
+  summary: THE HARNESS `draft%` COLUMN COUNTS LANE OCCUPANCY, NOT BENEFIT: a stopped, reversing or nose-to-tail-holding hull with `draft > 0` counts as a drafting tick, so the column overstates "rode a wake to close a gap". Fine as a first signal; refine (e.g. count only ticks above the rated cap) if 8.20 tuning leans on it.
+  evidence: review gate 2026-09-30 (Blind Hunter 9, Edge Case Hunter 4); epic-8 amendment 161(e); `server/scripts/batchsim/botMetrics.ts` `draftTicks`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — accepted disclosure, recorded honestly (Eric 2026-09-30)
+  summary: `OwnShip.draft` DISCLOSES MORE THAN "A WAKE IS UNDER YOU": the exact scalar is lift × age × heading alignment, so a modified client can steer back and forth for a few ticks and recover a hidden wake's direction and rough age — a rough bearing toward a hidden hull within one wake length (~250 u). Accepted by Eric (prediction needs the exact double; honest clients show nothing; still six exceptions). Supersedes the wording of the D23 entry above.
+  evidence: epic-8 amendment 160; `shared/src/types.ts` `OwnShip.draft` doc; `server/src/__tests__/perception.test.ts` header note.
+

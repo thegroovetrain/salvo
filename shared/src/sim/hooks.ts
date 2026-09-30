@@ -85,10 +85,12 @@ export const HOOK_REGISTRY: HookRegistry = deepFreezeRows({});
  * Returns `kin` UNCHANGED (same reference) when no behavior resolves to a
  * registered kinematics hook — the common, allocation-free path. An unknown
  * hookId (or a non-kinematics hook kind) is a silent no-op (fail-closed).
- * Call sites compose this AFTER the bespoke boost:
- * `hookKinematics(boostedKinematics(...), behaviors, registry)` — boost
- * first, hooks after (pinned by the prediction parity suite so 2.8 cannot
- * accidentally flip it).
+ * Call sites compose this LAST, after the bespoke folds. PINNED COMPOSITION
+ * ORDER (server AND predictor, byte-identical):
+ *   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
+ * (boost, then the prop-fouling slow — sim/slow.ts — then the wake draft —
+ * sim/draft.ts — then hooks; pinned by the prediction parity suite so no
+ * later story can accidentally flip it).
  */
 export function hookKinematics(
   kin: ShipConfig,

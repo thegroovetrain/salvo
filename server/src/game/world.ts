@@ -68,6 +68,8 @@ import {
   createTorpWake,
   pruneWake,
   wakeCapacity,
+  draftLift,
+  draftedKinematics,
   rollZoneRings,
   zoneCollapses,
   zoneGroups,
@@ -86,6 +88,7 @@ import {
   type DeniedView,
   type DenialReason,
   type EffectiveStats,
+  type ShipConfig,
   type ConsumableId,
   type HookRegistry,
   type GameEvent,
@@ -813,6 +816,20 @@ export interface ShipRecord {
    * lay window (clearSmokeScreen).
    */
   inSmoke: boolean;
+  /**
+   * The WAKE-DRAFT lift folded into this hull's forward cap on the CURRENT
+   * tick (Story 8.19, Eric rulings 2026-09-30, epic-8 amendments 151–155): the
+   * shared `draftLift` over every OTHER hull's ribbon as it stood after last
+   * tick's sampleWakes (stepShips precedes sampleWakes — one tick old IS the
+   * definition), in [0, CONFIG.wake.draft.lift]. STAMPED by stepShips before
+   * each step for every hull on the water (afloat OR sinking — ruling 155,
+   * "water is water"); 0 for a hull off the water. Mirrored onto
+   * OwnShip.draft (SELF-PRIVATE, frames.toOwnShip only, present only when
+   * positive — the exact double, so the client predictor folds the identical
+   * `draftedKinematics`). Reset 0 at addShip / founderSinking / respawn /
+   * redeploy.
+   */
+  draft: number;
   /**
    * ms — windowed-min measured RTT for this client (pushed by the room's ping
    * loop via World.setRtt), or null when never measured. Null => the D1 fire-
@@ -1816,6 +1833,7 @@ export class World {
       respawnAt: 0,
       nextSmokeAt: 0,
       smokeUntil: 0, nextPuffAt: 0, inSmoke: false, // Story 8.18: a fresh hull lays no smoke and stands in none (stamped next tick)
+      draft: 0, // Story 8.19: a fresh hull rides no wake until stepShips stamps it
       seenBallistics: new Set(),
       torpDirs: new Map(),
       loadout,
@@ -1999,7 +2017,10 @@ export class World {
    *  orphan store and keeps disclosing until its water ages out. */
   removeShip(id: string): void {
     const ship = this.ships.get(id);
-    if (ship !== undefined && pruneWake(ship.wake, this.now) > 0) this.orphanWakes.push(ship.wake);
+    if (ship !== undefined && pruneWake(ship.wake, this.now) > 0) {
+      ship.wake.hullAheadU = 0; // detached water: no hull ahead of it (amendment 159)
+      this.orphanWakes.push(ship.wake);
+    }
     this.ships.delete(id);
     this.inputs.remove(id);
     this.drones.remove(id);
@@ -2144,6 +2165,7 @@ export class World {
     ship.nextSmokeAt = 0;
     World.clearSmokeScreen(ship);
     ship.inSmoke = false; // amendment 149: a redeployed hull stands in no smoke until stepSmoke says so
+    ship.draft = 0; // Story 8.19: a redeployed hull rides no wake until stepShips stamps it
     ship.nextHonkAt = 0;
     // lastFireSeq / lastActSeq / lastHornSeq are deliberately NOT reset — a
     // reset fires a phantom shot / phantom boost / phantom honk (the stored
@@ -2352,6 +2374,7 @@ export class World {
       ship.dazzledUntil = 0;
       World.clearSmokeScreen(ship); // already closed at sinkShip (ruling 144); symmetric for directed callers
       ship.inSmoke = false; // a FOUNDERED hull is sunk: stands in no smoke
+      ship.draft = 0; // ...and rides no wake (Story 8.19): never a stale lift on the wire
     }
   }
 
@@ -3574,51 +3597,76 @@ export class World {
    *  predictor steps with the same effectiveStats() result, so prediction
    *  stays in lockstep. */
   private stepShips(dt: number): void {
+    // THE WATER a rider reads (Story 8.19): every ribbon as it stood after
+    // LAST tick's sampleWakes — stepShips precedes sampleWakes in STEP_ORDER,
+    // so the lift is one tick old by definition. Captured ONCE: the getter
+    // allocates a fresh array per call.
+    const ribbons = this.wakeRibbons;
     for (const ship of this.ships.values()) {
       const lc = ship.lifecycle;
-      if (!isAfloat(lc) && !isSinking(lc)) continue;
+      if (!isAfloat(lc) && !isSinking(lc)) {
+        ship.draft = 0; // off the water: never a stale lift on the wire
+        continue;
+      }
       // Snapshot the pre-kinematics pose (induction-valid) for resolveShipPose's
       // rollback branch, then advance.
       const p = ship.prevPose;
       p.x = ship.state.x;
       p.y = ship.state.y;
       p.heading = ship.state.heading;
-      // THE one place boost enters kinematics (Story 1.6): while the window is
-      // open (now < boostUntil) the shared helper raises the forward maxSpeed cap
-      // by CONFIG.boost.factor (+25 %) of the POST-FOLD max speed — so the SPEED
-      // ladder is inside the bonus (Story 8.9, amendment 55) — and the hull
-      // accelerates toward it at class accel and decays back at class decel on
-      // expiry. Client prediction/replay call the identical helper with the same
-      // factor, so a boosting hull stays in lockstep.
-      // Story 2.5: boon behavior hooks fold in AFTER the bespoke boost —
-      // hookKinematics(boostedKinematics(...)) — the documented composition
-      // order the client Predictor.tickKin mirrors exactly. Zero behaviors
-      // (every production hull until 2.7) returns the boosted reference
-      // unchanged, so the pre-boon tick is byte-identical.
-      const boosted = boostedKinematics(
-        ship.stats.kinematics,
-        CONFIG.boost.factor,
-        this.now < ship.boostUntil,
-      );
-      // PINNED COMPOSITION ORDER (server AND predictor, byte-identical —
-      // sim/slow.ts header): boostedKinematics → slowedKinematics →
-      // hookKinematics. The prop-fouling slow (Story 2.8) folds between the
-      // bespoke boost and the hook chain; the client's Predictor.tickKin
-      // mirrors this exact order from you.boostUntil/you.slowedUntil.
-      const slowed = slowedKinematics(boosted, ship.slowFactor, this.now < ship.slowedUntil);
-      const kin = hookKinematics(slowed, ship.cardBehaviors, this.hookRegistry);
+      const kin = this.tickKinematics(ship, ribbons);
       stepShip(ship.state, ship.input, kin, dt);
       // THE RITARDANDO (Story 5.2): the shared linear speed cap, applied
       // right after stepShip exactly where prediction.ts applies it — and
-      // fed the POST-boost/slow PER-TICK max (kin.maxSpeed), NEVER the rated
-      // class max: amendment 10 admits the boost while sinking, and a
-      // rated-max ramp would silently cap the surge out of existence. A live
-      // boost lifts the ceiling the ramp scales (bonus × remaining), a slow
-      // lowers it, and either way the cap is exactly 0 at the founder
-      // deadline. (The `kind` read, not isSinking(), because the `since`
-      // payload needs the discriminant narrow — the gate above is the seam.)
+      // fed the POST-FOLD PER-TICK max (kin.maxSpeed — boost, slow, draft and
+      // hooks all in), NEVER the rated class max: amendment 10 admits the
+      // boost while sinking, and a rated-max ramp would silently cap the surge
+      // out of existence. A live boost lifts the ceiling the ramp scales
+      // (bonus × remaining), a slow lowers it, a wake under a sinking hull
+      // lifts it (ruling 155), and either way the cap is exactly 0 at the
+      // founder deadline. (The `kind` read, not isSinking(), because the
+      // `since` payload needs the discriminant narrow — the gate above is the
+      // seam.)
       if (lc.kind === 'sinking') applySinkingDecel(ship.state, kin.maxSpeed, lc.since, this.now);
     }
+  }
+
+  /**
+   * One hull's kinematics for THIS tick — stamps `ship.draft` first (the
+   * shared draftLift at the PRE-STEP pose, the hull's own attached ribbon
+   * excluded by reference, the rider's own half hull length fed to the stern
+   * rule — amendment 159), then folds.
+   *
+   * THE one place boost enters kinematics (Story 1.6): while the window is
+   * open (now < boostUntil) the shared helper raises the forward maxSpeed cap
+   * by CONFIG.boost.factor (+25 %) of the POST-FOLD max speed — so the SPEED
+   * ladder is inside the bonus (Story 8.9, amendment 55) — and the hull
+   * accelerates toward it at class accel and decays back at class decel on
+   * expiry. Zero behaviors return the input reference unchanged, and a zero
+   * draft returns its input reference unchanged, so an undrafted, hookless
+   * tick is byte-identical to the pre-8.19 composition.
+   *
+   * PINNED COMPOSITION ORDER (server AND predictor, byte-identical — sim/
+   * boost.ts, sim/slow.ts, sim/draft.ts, sim/hooks.ts headers):
+   *   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
+   * The prop-fouling slow (Story 2.8) folds after the bespoke boost, the wake
+   * draft (Story 8.19) after the slow, the boon hook chain (Story 2.5) last;
+   * the client's Predictor.tickKin mirrors this exact order from
+   * you.boostUntil / you.slowedUntil / you.draft.
+   */
+  private tickKinematics(ship: ShipRecord, ribbons: readonly WakeRibbon[]): ShipConfig {
+    ship.draft = draftLift(
+      ribbons, ship.wake, ship.state.x, ship.state.y, ship.state.heading,
+      ship.cls.hull.length / 2, this.now, CONFIG.wake.draft,
+    );
+    const boosted = boostedKinematics(
+      ship.stats.kinematics,
+      CONFIG.boost.factor,
+      this.now < ship.boostUntil,
+    );
+    const slowed = slowedKinematics(boosted, ship.slowFactor, this.now < ship.slowedUntil);
+    const drafted = draftedKinematics(slowed, ship.draft, ship.draft > 0);
+    return hookKinematics(drafted, ship.cardBehaviors, this.hookRegistry);
   }
 
   /**
@@ -3661,13 +3709,15 @@ export class World {
   }
 
   /** A hull's TRUE attainable top speed for wake-ring provisioning (Story
-   *  4.12): the effective kinematics cap with an OPEN boost window folded in —
-   *  through the SAME shared hook stepShips and the client predictor use (Story
-   *  8.9), never a hand-written multiply, so the server's provisioning and the
-   *  client's ring budget land on the identical double. The kinematics come off
-   *  effectiveStats(), the sole derivation path. Never raw CONFIG for the cap. */
+   *  4.12): the effective kinematics cap with an OPEN boost window AND a full
+   *  wake-draft lift (Story 8.19) folded in — through the SAME shared hooks
+   *  stepShips and the client predictor use (Story 8.9), never a hand-written
+   *  multiply, so the server's provisioning and the client's ring budget land
+   *  on the identical double. The kinematics come off effectiveStats(), the
+   *  sole derivation path. Never raw CONFIG for the cap. */
   private static wakeTopSpeed(stats: EffectiveStats): number {
-    return boostedKinematics(stats.kinematics, CONFIG.boost.factor, true).maxSpeed;
+    const boosted = boostedKinematics(stats.kinematics, CONFIG.boost.factor, true);
+    return draftedKinematics(boosted, CONFIG.wake.draft.lift, true).maxSpeed;
   }
 
   /**
@@ -3702,10 +3752,16 @@ export class World {
    * appendWakeSample chains consecutive samples, so a kept ribbon would draw
    * a bogus death-point→spawn-point segment across the map. The old water
    * keeps disclosing from orphanWakes until it ages out. An empty detached
-   * ribbon is dropped immediately (nothing to age out).
+   * ribbon is dropped immediately (nothing to age out). Detached water has no
+   * hull ahead of it, so its `hullAheadU` drops to 0 (Story 8.19's stern
+   * rule, amendment 159 — all of it is draftable back to the rider's own
+   * half length).
    */
   private detachWake(ship: ShipRecord): void {
-    if (pruneWake(ship.wake, this.now) > 0) this.orphanWakes.push(ship.wake);
+    if (pruneWake(ship.wake, this.now) > 0) {
+      ship.wake.hullAheadU = 0; // detached water: no hull ahead of it (amendment 159)
+      this.orphanWakes.push(ship.wake);
+    }
     ship.wake = createShipWake(ship.hullId, World.wakeTopSpeed(ship.stats));
   }
 
@@ -6152,6 +6208,7 @@ export class World {
     // it — ruling 144 — kept symmetric here for directed callers).
     World.clearSmokeScreen(ship);
     ship.inSmoke = false; // a respawned hull stands in no smoke until stepSmoke says so
+    ship.draft = 0; // Story 8.19: a respawned hull rides no wake until stepShips stamps it
     // A fresh life never inherits a stale smoke timer (Story 4.4): without
     // this, a hull that puffed just before sinking would owe the remainder of
     // the old interval on its next life.
