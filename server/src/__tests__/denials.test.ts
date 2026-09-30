@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 59→60 bump (PV 60, Story 8.17: the lit zone loses `phos`/`daz`, the frame gains `burnZones`, `phosphorShells` is an EquipmentId and `dazzleShells` a ConsumableId, and the catalog content moved) is enforced at matchmake', () => {
-  it('rejects pv-59 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(60);
+describe('pv join gate — the 60→61 bump (PV 61, Story 8.18: the frame gains the `smoke` channel (SmokeView {id,x,y,t0}), `smokeScreen` is a dealable consumable and the client reads CONFIG.smokeScreen) is enforced at matchmake', () => {
+  it('rejects pv-60 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(61);
+    expect(protocolVersionError(60)).toMatch(/refresh/);
     expect(protocolVersionError(59)).toMatch(/refresh/);
     expect(protocolVersionError(58)).toMatch(/refresh/);
     expect(protocolVersionError(57)).toMatch(/refresh/);

@@ -197,17 +197,20 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * (unit tests, sandbox smokes) — the room always passes its live phase.
  */
 /**
- * The three OPTIONAL contact-like channels, on one rule for both frame paths:
+ * The four OPTIONAL contact-like channels, on one rule for both frame paths:
  * each is OMITTED (not an empty array) when this observer sees none, so
- * zone-free / decoy-free frames stay byte-identical to pre-1.7 frames.
- * `litZones` (Story 1.7), `burnZones` (Story 8.17 — the PHOSPHOR burning zone
- * on the lit zone's gate) and `decoys` (Story 8.16).
+ * zone-free / decoy-free / smoke-free frames stay byte-identical to pre-1.7
+ * frames. WIRE ORDER (key insertion, load-bearing for msgpack): `litZones`
+ * (Story 1.7), `burnZones` (Story 8.17 — the PHOSPHOR burning zone on the lit
+ * zone's gate), `decoys` (Story 8.16), then `smoke` (Story 8.18 — the SMOKE
+ * SCREEN puffs, `{id,x,y,t0}` each).
  */
-function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'decoys'> {
+function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'decoys' | 'smoke'> {
   return {
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
     ...(view.burnZones.length > 0 ? { burnZones: view.burnZones } : {}),
     ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
+    ...(view.smoke.length > 0 ? { smoke: view.smoke } : {}),
   };
 }
 
@@ -226,7 +229,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
       contacts: view.contacts,
       events: view.events,
       mines: view.mines,
-      // litZones / burnZones / decoys: OPTIONAL on the wire (see
+      // litZones / burnZones / decoys / smoke: OPTIONAL on the wire (see
       // optionalChannels — the same rule on both paths).
       ...optionalChannels(view),
       spec: true,
@@ -245,7 +248,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,
-    ...optionalChannels(view), // litZones / burnZones / decoys, omitted when none
+    ...optionalChannels(view), // litZones / burnZones / decoys / smoke, omitted when none
     ...(denied !== undefined && denied.length > 0 ? { denied: [...denied] } : {}),
   };
 }

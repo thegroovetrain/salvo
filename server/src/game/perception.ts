@@ -13,7 +13,8 @@
 // independently-reimplemented oracle in that suite.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 18 GameEvent kinds plus the contact/mine/litzone frame channels —
+// the 18 GameEvent kinds plus the contact/mine/litzone/burnzone/decoy/smoke
+// frame channels —
 // is one declarative SignalSpec row (visible + materialize),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
 // Adding a signal means adding a row (plus its invariant test case), never
@@ -42,7 +43,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type ShellState, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type ShellState, type SmokeView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, ballisticGateOpen, chaffFakeBlips, decoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
@@ -59,6 +60,11 @@ export interface PerceptionView {
   /** Per-observer decoy-buoy visibility (Story 8.16 — contact-like,
    *  recomputed every tick through the `decoy` row, in drop order). */
   decoys: DecoyView[];
+  /** Per-observer SMOKE SCREEN puff visibility (Story 8.18 — contact-like,
+   *  recomputed every tick through the `smoke` row, in lay order). The disc
+   *  alone rides here (`{id,x,y,t0}`); the puff's OCCLUSION of everything
+   *  else flows through `sightClear` inside every sight-tier row. */
+  smoke: SmokeView[];
 }
 
 /** The narrow row context for the FOGGED path (observe() fail-closes before
@@ -80,6 +86,9 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // Story 8.16: the live decoys — the decoy channel's subjects and the
     // decoy-paint blip sources.
     decoys: world.decoys,
+    // Story 8.18: every live SMOKE SCREEN puff — the ONE occluder input of
+    // every sight-tier predicate (sightClear) and the smoke channel's subjects.
+    smoke: world.smokePuffs,
     // Story 8.16 / amendment 127: the world-owned chaff clouds (fake sources).
     chaffSources: world.chaffSources,
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
@@ -111,6 +120,9 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // Story 8.16: the decoy channel's subjects (spectators see every decoy);
     // the decoy-paint blip source is inert on this path (no blips).
     decoys: world.decoys,
+    // Story 8.18: the smoke channel's subjects (spectators see every puff);
+    // the occlusion term is inert here (no spectator row reads sightClear).
+    smoke: world.smokePuffs,
     // Inert on this path (spectators get no blips, so no chaff fakes) —
     // rides uniformly so the context stays one shape.
     chaffSources: world.chaffSources,
@@ -289,6 +301,19 @@ function decoyScan(world: World, ctx: SignalContext): DecoyView[] {
   return out;
 }
 
+/** Per-observer SMOKE SCREEN puff visibility (Story 8.18) — contact-like
+ *  state exactly like decoys, recomputed every tick through the smoke row, in
+ *  Map-insertion (lay) order. ONLY the disc rides here; a puff's occlusion of
+ *  hulls, ordnance, marks and water is `sightClear`'s job inside the rows. */
+function smokeScan(world: World, ctx: SignalContext): SmokeView[] {
+  const out: SmokeView[] = [];
+  const row = SIGNAL_REGISTRY.smoke;
+  for (const puff of world.smoke.values()) {
+    if (row.visible(ctx, puff)) out.push(row.materialize(ctx, puff));
+  }
+  return out;
+}
+
 /** Reused wake-subject scratch for the wake scan (the SEG_SCRATCH pattern):
  *  filled per segment, consumed synchronously by the row's visible()/
  *  materialize() — the materialized wire object is always fresh. */
@@ -434,6 +459,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     litZones: litZoneScan(world, ctx),
     burnZones: burnZoneScan(world, ctx),
     decoys: decoyScan(world, ctx),
+    smoke: smokeScan(world, ctx),
   };
 }
 
@@ -446,7 +472,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], smoke: [] };
   return view(world, foggedContext(world, me));
 }
 

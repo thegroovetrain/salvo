@@ -1011,6 +1011,12 @@ function chaffLive(mind: BotMind, now: number): boolean {
   return mind.chaffUntil !== undefined && now < mind.chaffUntil;
 }
 
+/** Is this bot's own SMOKE SCREEN trail still being laid? (`smokeUntil` is the
+ *  lay window's end — Story 8.18; it arrives on the mind like chaffUntil.) */
+function smokeLaying(mind: BotMind, now: number): boolean {
+  return mind.smokeUntil !== undefined && now < mind.smokeUntil;
+}
+
 /** SHIELD BLOCK — pressed on the DAMAGE CUT cues, never over a shield already
  *  up (a second copy would REPLACE it, wasting the first's remainder). */
 const shieldBlockTactic: ConsumableTactic = {
@@ -1028,6 +1034,21 @@ const chaffTactic: ConsumableTactic = {
   kind: 'ability',
   reachU: () => 0,
   want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'disengage' && !chaffLive(ctx.mind, ctx.sit.now),
+  solve: () => null,
+};
+
+/**
+ * SMOKE SCREEN (Story 8.18, Eric ruling 2026-09-29, amendment 145 — MINIMAL
+ * INTERIM row; Story 8.20 owns the real table): the CHAFF row's template —
+ * laid on the way OUT (the disengage posture), once, and never re-pressed
+ * while the current trail is still being laid (a re-press would RESTART the
+ * 5 s clock — ruling 140 — spending a copy for at most 5 s of extra trail).
+ */
+const smokeScreenTactic: ConsumableTactic = {
+  id: 'smokeScreen',
+  kind: 'ability',
+  reachU: () => 0,
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'disengage' && !smokeLaying(ctx.mind, ctx.sit.now),
   solve: () => null,
 };
 
@@ -1068,6 +1089,7 @@ export const CONSUMABLE_TACTICS: Readonly<Partial<Record<ConsumableId, Consumabl
   chaff: chaffTactic,
   decoyBuoy: decoyBuoyTactic,
   dazzleShells: dazzleShellsTactic, // Story 8.17 (amendment 135(h), interim)
+  smokeScreen: smokeScreenTactic, // Story 8.18 (amendment 145, interim — 8.20 owns the table)
 });
 
 /**

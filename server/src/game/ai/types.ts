@@ -153,6 +153,14 @@ export interface BotTickEntry {
    * human knows when they pressed it): no fake, no other owner's cloud.
    */
   readonly chaffUntil: number;
+  /**
+   * ms — when THIS bot's own SMOKE SCREEN lay window closes (0 = not laying;
+   * Story 8.18). A self-read of the bot's own press exactly like chaffUntil
+   * (`ShipRecord.smokeUntil`, copied by world.ts): the interim tactic never
+   * re-presses while a trail is still being laid. No puff position, no other
+   * owner's window.
+   */
+  readonly smokeUntil: number;
   /** This bot's fogged perception view for THIS tick — perception.observe()
    *  bound to this bot's id by world.ts. Called exactly once per live bot per
    *  tick by the driver (observe() mutates per-observer reveal memory, so the
@@ -336,6 +344,11 @@ export interface BotMind {
    *  every decide. The interim CHAFF tactic never throws a second cloud over
    *  one still painting. OPTIONAL: absent reads as "no cloud". */
   chaffUntil?: number;
+  /** ms — this bot's own SMOKE SCREEN lay-window end as of this tick (Story
+   *  8.18), copied from BotTickEntry.smokeUntil by the driver before every
+   *  decide. The interim SMOKE SCREEN tactic never presses over a trail still
+   *  being laid. OPTIONAL: absent reads as "not laying". */
+  smokeUntil?: number;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics

@@ -373,11 +373,12 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
   // THE PRODUCTION PIN. Story 8.8 flipped `hullRepair` and added its row;
   // Story 8.13 added SUPERCAV TORPEDO, the belt's first CLICK-AIMED line
   // (epic-8 amendment 74); Story 8.16 added SHIELD BLOCK, CHAFF and the
-  // click-placed DECOY BUOY. SMOKE SCREEN and the DEPTH CHARGE stub are still
-  // `stub` in the catalog, so nothing else is drawable or stockable in play,
-  // and the PARTIAL registry is what makes even a forged press fail closed.
-  it('the PRODUCTION consumable registry holds the SIX built lines, and every stub line is absent', () => {
-    const BUILT = ['chaff', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
+  // click-placed DECOY BUOY; Story 8.17 FLASH SHELLS; Story 8.18 SMOKE SCREEN.
+  // The DEPTH CHARGE stub is the ONE line still `stub` in the catalog, so
+  // nothing else is drawable or stockable in play, and the PARTIAL registry is
+  // what makes even a forged press fail closed.
+  it('the PRODUCTION consumable registry holds the SEVEN built lines, and every stub line is absent', () => {
+    const BUILT = ['chaff', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'smokeScreen', 'supercavTorpedo'];
     expect(Object.keys(CONSUMABLES).sort()).toEqual(BUILT);
     expect(Object.isFrozen(CONSUMABLES)).toBe(true);
     for (const id of BUILT) expect(Object.isFrozen(CONSUMABLES[id as keyof typeof CONSUMABLES]), id).toBe(true);
@@ -387,6 +388,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     expect(CONSUMABLES.hullRepair!.isWeapon).toBe(false);
     expect(CONSUMABLES.shieldBlock!.isWeapon).toBe(false); // key-fired (Story 8.16)
     expect(CONSUMABLES.chaff!.isWeapon).toBe(false); // key-fired (Story 8.16)
+    expect(CONSUMABLES.smokeScreen!.isWeapon).toBe(false); // key-fired (Story 8.18)
     for (const id of CONSUMABLE_IDS) {
       if (BUILT.includes(id)) continue;
       expect(isStubLine(id), id).toBe(true); // every absent line is absent BECAUSE it is a stub
@@ -405,9 +407,9 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
       expect(Object.hasOwn(CONSUMABLES, id), id).toBe(!isStubLine(id));
       if (!isStubLine(id)) nonStub += 1;
     }
-    expect(nonStub).toBe(6); // HULL REPAIR (8.8) + SUPERCAV TORPEDO (8.13) + SHIELD/CHAFF/DECOY (8.16) + FLASH SHELLS (8.17)
-    // ...so exactly TWO stubs remain (SMOKE SCREEN, DEPTH CHARGE — 8.18+).
-    expect(CONSUMABLE_IDS.filter((id) => isStubLine(id)).sort()).toEqual(['depthCharge', 'smokeScreen']);
+    expect(nonStub).toBe(7); // HULL REPAIR (8.8) + SUPERCAV TORPEDO (8.13) + SHIELD/CHAFF/DECOY (8.16) + FLASH SHELLS (8.17) + SMOKE SCREEN (8.18)
+    // ...so exactly ONE stub remains (DEPTH CHARGE — never built, amendment 83).
+    expect(CONSUMABLE_IDS.filter((id) => isStubLine(id)).sort()).toEqual(['depthCharge']);
   });
 
   it('slotRow routes BOTH id spaces, and fails closed on null / an unbuilt id', () => {
@@ -424,7 +426,8 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     // ...and production resolves the BUILT belt lines, never a stub one
     expect(slotRow('hullRepair')).toBe(hullRepairRow);
     expect(slotRow('chaff')).toBe(CONSUMABLES.chaff); // built in Story 8.16
-    expect(slotRow('smokeScreen')).toBeUndefined(); // still a stub (8.17)
+    expect(slotRow('smokeScreen')).toBe(CONSUMABLES.smokeScreen); // built in Story 8.18
+    expect(slotRow('depthCharge')).toBeUndefined(); // the one stub left
     expect(slotRow(null, reg)).toBeUndefined();
   });
 
@@ -507,16 +510,34 @@ describe('HULL REPAIR — the first live consumable line (Story 8.8)', () => {
     expect(ship.cards.filter((c) => c === 'hullRepair')).toHaveLength(1);
   });
 
-  it('the pool pays out at the fixed rate and stacks by DURATION, never by rate', () => {
+  it('the pool pays out at the fixed rate, and a second press REPLACES the pool (Eric ruling 2026-09-29, amendment 141)', () => {
     const w = bareWorld();
     const ship = healer(w, 'a', 2, 300);
     w.sinkingActivationGate(ship, SLOT_BELT);
     w.sinkingActivationGate(ship, SLOT_BELT);
-    expect(ship.repairHp).toBe(HR.regenHp * 2); // pools ADD...
+    expect(ship.repairHp).toBe(HR.regenHp); // REPLACES — never 2 × regenHp (the retired "pools ADD" law)
     const hpBefore = ship.hp;
     w.step(DT);
     // ...and the RATE is unchanged: one regenMs' worth of pool per regenMs.
     expect(ship.hp - hpBefore).toBeCloseTo((HR.regenHp / HR.regenMs) * DT, 9);
+  });
+
+  it('THE MATRIX ROW (amendment 141): a re-press 2 s into a pool with 30 owed leaves repairHp 50, not 80; +50 lands now; the rate stays 0.01 hp/ms', () => {
+    const w = bareWorld();
+    const ship = healer(w, 'a', 2, 300);
+    w.sinkingActivationGate(ship, SLOT_BELT);
+    // Drain 20 of the 50 over 2 s (40 ticks at 0.01 hp/ms × 50 ms = 0.5 hp/tick).
+    for (let i = 0; i < 40; i += 1) w.step(DT);
+    expect(ship.repairHp).toBeCloseTo(30, 6);
+    const hpBefore = ship.hp;
+    expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: true });
+    expect(ship.hp).toBe(hpBefore + HR.instantHp); // the instant half, as before
+    expect(ship.repairHp).toBe(HR.regenHp); // 50 — the 30 owed is DISCARDED (never 80)
+    // ...and the fresh pool pays out over a fresh 5 s at the unchanged rate.
+    const hpAfterPress = ship.hp;
+    for (let i = 0; i < 100; i += 1) w.step(DT);
+    expect(ship.hp - hpAfterPress).toBeCloseTo(HR.regenHp, 6);
+    expect(ship.repairHp).toBeCloseTo(0, 6);
   });
 
   it('a FULL hull is refused `blocked` and NOTHING is spent (ONE SPEND LAW)', () => {

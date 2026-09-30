@@ -150,6 +150,17 @@ export interface ActivationContext {
    * owner (amendment 127); a second call REPLACES the owner's source.
    */
   setChaff: (source: Omit<FakeSource, 'seed' | 'ownerId' | 'sweepPeriodMs'>) => void;
+  /**
+   * SMOKE SCREEN's whole body (Story 8.18, catalog-v3 R38, amendments
+   * 138–145): open the ACTIVATING ship's lay window — `smokeUntil = now +
+   * CONFIG.smokeScreen.layMs`, `nextPuffAt = now` — so World.stepSmoke drops a
+   * puff at the stern on the very next tick and every `puffIntervalMs` after,
+   * until the window closes (10 puffs per copy). A second call while laying
+   * RESTARTS the clock (fresh 5 s from the re-press — ruling 140; the copy is
+   * spent, the shield/chaff "replaces" posture). Puffs are WORLD-owned
+   * (World.smoke) and outlive the hull.
+   */
+  setSmokeScreen: () => void;
 }
 
 /** Per-spawn options for `ActivationContext.spawnBallistic`. */
@@ -286,7 +297,7 @@ export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
  * activation channels' walls and the sinking-activation gate — so an id with no
  * module behind it fails closed at ALL of them, exactly as an unbuilt weapon
  * already did. `consumables` is the World's injected registry (production holds
- * five built lines since Story 8.16; smoke screen and depth charge are still `stub`);
+ * seven built lines since Story 8.18; only the depth charge is still `stub`);
  * the default keeps directed callers honest.
  *
  * IT LIVES HERE, NOT IN consumables.ts, for one mechanical reason: it needs

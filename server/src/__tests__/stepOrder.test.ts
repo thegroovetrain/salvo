@@ -37,6 +37,10 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // absorbed: after motion, before damage/activation (see the row comment
       // in world.ts for the full placement rationale).
       'founderSinking',
+      // Story 8.18's SMOKE SCREEN laying — AFTER the founder edge (Eric ruling
+      // 144: a hull that founders this tick lays no puff, true without a
+      // second liveness read) and BEFORE the storm (see the row comment).
+      'stepSmoke',
       'applyStorm',
       'stepShells',
       'stepMines',
