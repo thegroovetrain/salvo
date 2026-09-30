@@ -2,10 +2,11 @@
 title: 'Story 8.19: Wake Drafting'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-review'
+status: 'done'
+final_revision: 'PENDING'
 baseline_revision: '2c57a99'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-8-context.md'
@@ -122,7 +123,7 @@ warnings: [oversized]
 
 ## Design Notes
 
-Orchestrator readings of record (amendment 156; Eric may veto any): (a) the age fade is LINEAR and interpolated along the segment; (b) own exclusion is by ribbon reference, so a ship's own DETACHED water (after a respawn) counts as water — consistent with ruling 155; (c) the rider's test point is its centre and its heading is the pre-step heading; (d) the scalar travels as the exact double (a few bytes, only while drafting) because a rounded value would desync the fold; (e) replay applies the LATEST scalar to every un-acked tick — an approximation D23 accepts, bounded by the lift, exactly 0 outside a wake; (f) a segment is capped at its NEWER end only (a projection behind its older end contributes 0), so a rider always reads the age of the water at its own spot, the outer wedge of a turn is covered at the joint age, and the lane reaches one half-width past the newest sample toward the leader's stern.
+Orchestrator readings of record (amendment 156; Eric may veto any): (a) the age fade is LINEAR and interpolated along the segment; (b) own exclusion is by ribbon reference, so a ship's own DETACHED water (after a respawn) counts as water — consistent with ruling 155; (c) the rider's test point is its centre and its heading is the pre-step heading; (d) the scalar travels as the exact double (a few bytes, only while drafting) because a rounded value would desync the fold; (e) replay applies the LATEST scalar to every un-acked tick — an approximation D23 accepts, bounded by the lift, exactly 0 outside a wake; (f) a segment is capped at its NEWER end only (a projection behind its older end contributes 0), so a rider always reads the age of the water at its own spot, the outer wedge of a turn is covered at the joint age, and (SUPERSEDED at the review gate by Eric's amendment 159) the lane's head now sits `hullAheadU + riderHalfLenU` of arc behind the newest sample — behind the maker's stern with the rider's bow clear — with the cap at that head.
 
 Cost: ≤ (hulls × ribbons × ~25 segments) point-segment tests per tick — about 10 k multiplies at 20 hulls; no spatial index.
 
@@ -132,3 +133,28 @@ Cost: ≤ (hulls × ribbons × ~25 segments) point-segment tests per tick — ab
 - `npm run build -w shared && npm test -w shared` -- expected: green, PV 62 pins
 - `npm test -w server` / `npm test -w client` -- expected: green, golden frames untouched
 - `npm run check` -- expected: exit 0
+
+## Auto Run Result
+
+Status: done — PR opened, NOT merged (Eric's call).
+
+**Summary.** Wake drafting is a base rule of the shared sim: a hull whose whole hull sits behind another hull's stern, inside a lane as wide as that hull, sailing the way the wake runs, gets up to 5 % more forward speed cap, fading as the water ages (Eric's "realistic package", 2026-09-30, amendments 151–155; stern rule 159 at the review gate). The lift is the MAX over every other hull's ribbon as it stood after last tick's `sampleWakes`, folded `boosted → slowed → drafted → hooks` on the server and in the client predictor, sent as the self-private exact double `OwnShip.draft` (omitted at 0), parity-pinned at zero. No HUD readout was added; the helm's speed number shows true speed (157). Torpedo water gives no lift and torpedoes are never lifted (156). `PROTOCOL_VERSION` 61 → 62; version 0.18.19 (cycle 154).
+
+**Files changed.**
+- `shared/src/sim/wake.ts` — `draftLift`, `DraftConfig`, `WakeRibbon.hullAheadU`, `createWakeRibbon`/`createShipWake` half-length, dust floor
+- `shared/src/sim/draft.ts` — NEW `draftedKinematics`; `boost.ts`/`slow.ts`/`hooks.ts` pinned-order headers
+- `shared/src/constants.ts` — `CONFIG.wake.draft { lift: 0.05, halfWidthBeams: 1 }`; `shared/src/types.ts` — `OwnShip.draft` (honest disclosure doc); `shared/src/index.ts` — exports, PV 62
+- `server/src/game/world.ts` — `ShipRecord.draft`, `tickKinematics` fold, ribbons captured once, resets, `wakeTopSpeed` headroom, orphan `hullAheadU = 0`; `server/src/game/frames.ts` — `ownDraft`
+- `server/scripts/batchsim/botMetrics.ts`, `botReport.ts` — `draftTicks` / `draft%`
+- `client/src/sim/prediction.ts` — `setDraft` (clamped), adoption before replay, four-step `tickKin`, `forceSnap`, `dropAcked`; `client/src/config.ts`, `client/src/main.ts`, `client/src/render/wake.ts` — headroom
+- Tests: NEW `shared/__tests__/draft.test.ts`, `draftLift.test.ts`, `server/__tests__/draft.test.ts`; extended `wake`, `barrel`, `radarRaster`, `frames`, `perception`, `denials`, `colyseus018`, `wakeStore`, `goldenFrames` (fixture field only), `smokeScreen` (fixture), `botHarness`, client `prediction`, `wake`, `helmGlobe`, `ordnanceMasksAreServerOnly`
+- Docs: `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, both trackers, `epic-8-context.md`, `epic-8-context-amendments.md` (151–161), `deferred-work.md` (8.19 section), `gdd.md` (stamp)
+
+**Review findings.** Patches applied: 6 (the stern rule after Eric's ruling; sawtooth absorbed; long stern-chase pins; independent perception clause; honest disclosure wording; `setDraft` clamp). Deferred: 1 (harness `draft%` counts occupancy). Rejected: 8 (see the triage log). Cross-model: the lane gap was found by both Fable reviewers and not by Codex; Codex alone raised the clamp (confirmed, fixed) and the scan cost (refuted).
+
+**Follow-up review recommended: true** — the review gate changed the lane's geometry (the stern rule, `hullAheadU`, the arc cut) and rewrote the server steady-state tests; an independent pass over `shared/src/sim/wake.ts` `ribbonLift`/`segmentLift` and `server/src/__tests__/draft.test.ts` would be worth it.
+
+**Verification.** `npm run check` exit 0 after the review fixes (lint 0 errors / 3 pre-existing warnings; tsc ×3; shared 40 files / 1017 tests, server 80 / 2220, client 115 / 3748; hook test 266). Golden-frame snapshots untouched. No dev server, smoke or batch sim was run.
+
+**Residual risks.** (1) Steady-state lift in a same-class chase averages under 2 % (the chaser can only match the leader once nose-to-tail) — whether 5 % "is felt" is Eric's eye on staging. (2) Prediction shimmer at lane entry/exit is bounded by the lift and smoothed; not seen in a browser. (3) The client wake-stamp rebuild floor shortened ~5 % (headroom), not measured. (4) A modified client can infer a hidden wake's direction from the scalar (accepted, amendment 160).
+

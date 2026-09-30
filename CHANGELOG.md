@@ -3,7 +3,7 @@
 ## [0.18.19] - 2026-09-30
 
 ### Added
-- **WAKE DRAFTING (Story 8.19)** — riding in another ship's wake lifts your top speed by up to 5 % (a torpedo boat's 45 u/s cap reads 47.25; a mine layer's 40 reads 42; a battleship's 35 reads 36.75). The lane is as wide as the ship that made it, one hull-width each side of the trail. The lift is strongest in fresh water right behind the ship and fades to nothing at the old end of the trail. It only works when you are sailing the way the wake runs: full lift heading the same way, fading to nothing when you cross it, never a slowdown. Overlapping wakes never stack — you get the best single one. Your own wake and torpedo wakes never count, and a torpedo is never lifted. A sunk or departed ship's leftover trail still works until it ages out, and a sinking hull is lifted like any other. There is no HUD indicator; the speed number simply reads higher (true speed, like under the class boost).
+- **WAKE DRAFTING (Story 8.19)** — riding in another ship's wake lifts your top speed by up to 5 % (a torpedo boat's 45 u/s cap reads 47.25; a mine layer's 40 reads 42; a battleship's 35 reads 36.75). The lane is as wide as the ship that made it, one hull-width each side of the trail, and it starts behind that ship's stern: you get the lift only while your whole ship is behind it, so a chaser closes to nose-to-tail and holds there, and two ships side by side or on top of each other never lift each other. The lift is strongest in fresh water right behind the ship and fades to nothing at the old end of the trail. It only works when you are sailing the way the wake runs: full lift heading the same way, fading to nothing when you cross it, never a slowdown. Overlapping wakes never stack — you get the best single one. Your own wake and torpedo wakes never count, and a torpedo is never lifted. A sunk or departed ship's leftover trail still works until it ages out, and a sinking hull is lifted like any other. There is no HUD indicator; the speed number simply reads higher (true speed, like under the class boost).
 
 ### Internal
 - `draftLift` and `draftedKinematics` in shared; the fold is pinned `boosted -> slowed -> drafted -> hooks` on the server and the predictor, parity-pinned at zero.
@@ -11,7 +11,8 @@
 - `CONFIG.wake.draft { lift: 0.05, halfWidthBeams: 1 }`; wake-ring provisioning folds the lift (a torpedo boat's ring grows 28 -> 30 samples).
 - Harness `draft%` column beside `land%`; no batch sim was run.
 - PROTOCOL_VERSION 61 -> 62.
-- Tests: shared 1008.
+- Review gate: the stern rule (`WakeRibbon.hullAheadU`, `draftLift` arc cut), 1500-tick stern-chase pins, an independent perception draft clause, `setDraft` clamped; epic-8 amendments 159-161.
+- Tests: shared 1017, server 2220, client 3748.
 
 ## [0.18.18] - 2026-09-29
 

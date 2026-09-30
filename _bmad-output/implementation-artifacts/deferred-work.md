@@ -2673,3 +2673,14 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: OPEN — for Eric's eye on staging
   summary: WHETHER 5 % IS FELT AT ALL IN A TAIL CHASE is Eric's eye to judge on staging; the lift is a dial if it reads as nothing.
   evidence: epic-8 amendment 151.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — 8.20 tuning note
+  summary: THE HARNESS `draft%` COLUMN COUNTS LANE OCCUPANCY, NOT BENEFIT: a stopped, reversing or nose-to-tail-holding hull with `draft > 0` counts as a drafting tick, so the column overstates "rode a wake to close a gap". Fine as a first signal; refine (e.g. count only ticks above the rated cap) if 8.20 tuning leans on it.
+  evidence: review gate 2026-09-30 (Blind Hunter 9, Edge Case Hunter 4); epic-8 amendment 161(e); `server/scripts/batchsim/botMetrics.ts` `draftTicks`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — accepted disclosure, recorded honestly (Eric 2026-09-30)
+  summary: `OwnShip.draft` DISCLOSES MORE THAN "A WAKE IS UNDER YOU": the exact scalar is lift × age × heading alignment, so a modified client can steer back and forth for a few ticks and recover a hidden wake's direction and rough age — a rough bearing toward a hidden hull within one wake length (~250 u). Accepted by Eric (prediction needs the exact double; honest clients show nothing; still six exceptions). Supersedes the wording of the D23 entry above.
+  evidence: epic-8 amendment 160; `shared/src/types.ts` `OwnShip.draft` doc; `server/src/__tests__/perception.test.ts` header note.
+
