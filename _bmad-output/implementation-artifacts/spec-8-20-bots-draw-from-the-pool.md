@@ -34,6 +34,8 @@ warnings: [oversized, multiple-goals]
   - (R7) BOOST is also pressed when attacking a target farther than the band's far edge; it still fires when fleeing.
   - (R8) SMOKE SCREEN is pressed ONCE per retreat — not again until the bot has left `disengage` and re-entered it.
   - (R9) Every other firing rule stands as shipped (the interim rows become the rows).
+  - (R11, 2026-09-30, AskUserQuestion, recommended option) THE STYLE BONUS NEEDS AN UNEVEN BUILD: when every line in the upgradeable set U holds the same count (the flat level-zero build), no upgrade earns the style bonus — a favorite ladder scores 3 and a weapon (3.5) takes the opening pick. Rejected: leave the flat build as is (a favorite ladder at 4 opening over a weapon).
+  - (Orchestrator reading, Eric may veto) SMOKE keeps the "not while a trail is still being laid" guard beside the once-per-retreat rule: a bot that re-enters `disengage` inside the 5 s lay window of its previous press waits for the window to lapse rather than restarting it (a re-press mid-lay spends a copy for at most 5 s of extra trail, ruling 140).
   - (R10) Harness readouts are MEASUREMENTS — no new pass/fail threshold. ONE batch run after the changes, ≤ 99 matches; the blind-vacuum control is NOT re-run this cycle (stated in the evidence).
 - **Scorer definitions (orchestrator readings of record; Eric may veto):** "its weapons" = a tier copy (2..cap) of an `equipment` line already held; "its gun" = any gun-ladder line (`deckGun`, `deckGunTurret`, `deckGunBarrel`, `machineGun`, `flak` — the draw only ever offers the mounted gun's); a ship ladder is named by its line id. STYLE reads the bot's upgradeable set `U` = the five ship ladders + the mounted gun's ladder lines + held equipment lines, each below cap, by copies held: `rounded` bonus iff the card's line holds `min(U)`, `specialist` bonus iff it holds `max(U)`. HURT = `(hp + repairHp) / maxHp < profile.healHpFrac` — the heal tactic's own read. Refused cards (`pickRefusal`) are never scored; an all-refused hand returns null (level stays banked). Spelling is American (`favorite`).
 - **Tie-break:** among max-scoring indices pick uniformly off `mind.spendRng`, drawing ONLY when more than one index ties; with no rng supplied (hand-built tests) the lowest index wins. No other stream moves.
@@ -59,6 +61,8 @@ warnings: [oversized, multiple-goals]
 | Already carried | `bulwark` carrying shieldBlock; hand = shieldBlock + chaff (none) | chaff 2+1 = 3 beats shieldBlock 2+1−1 = 2 | none |
 | Style: rounded | `bulwark`, armor 3 copies, speed 0; hand = armor + speed | speed 3 (min of U) ties armor 3 (favorite) → seeded flip | none |
 | Tie, no rng | two cards tie, `rng` undefined | lowest offer index | none |
+| Flat build (R11) | `bulwark` at level 0, nothing held; hand = armor (favorite) + a non-favorite weapon | armor 2+1 = 3 (no style bonus on a flat build); weapon 3.5 wins | none |
+| Uneven build | `bulwark` with one weapon held, ladders at 0; hand = armor + speed | both at min(U) = 0: armor 4, speed 3 | none |
 | Tie, rng | same hand, seeded `spendRng` | one `next()` consumed, either tied index; a non-tied hand consumes none | none |
 | Dead hand | every card refused | `null`, level stays banked | none |
 | Hull unlock | 600 seeded enrollments with no override | all six personalities appear on all three hulls | none |
