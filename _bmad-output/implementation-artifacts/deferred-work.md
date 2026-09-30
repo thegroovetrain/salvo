@@ -1882,7 +1882,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: gdd.md Consumables (DECOY BUOY `[DRAFT]` owner exemption); catalog-v3.md R36.
 
 - source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D24)
-  status: OPEN — consistent by construction; a design question only if contested
+  status: RESOLVED 2026-09-29 (Story 8.18, cycle 153, epic-8 amendment 142) — Eric ruled the OTHER way: the lit-zone reveal gains a smoke-only term; islands still do not block the flare
   summary: A star shell's firer-only truesight (`ownZoneCovers`) has no island term today and gains no smoke term, so a lit zone sees INTO smoke exactly as it sees past islands. Pinned. If a flare should not pierce smoke, the fix is one term in `ownZoneCovers`, not a second predicate. Also pinned: a puff's own visibility uses island-only LOS (so it never vanishes around you), and a destroyed torpedo or missile emits no boom — a presentation gap.
   evidence: `server/src/game/signals.ts` `ownZoneCovers` (no LOS term at HEAD).
 
@@ -2559,7 +2559,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: `server/src/game/ai/spending.ts` (consumable kind base); `server/src/game/ai/equipment.ts` `CONSUMABLE_TACTICS`; amendment 124(g).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: OPEN — pointers
+  status: PARTLY RESOLVED 2026-09-29 (Story 8.18) — SMOKE SCREEN built; DEPTH CHARGE stays the one stub for Eric; bot tables still 8.20
   summary: THE LAST TWO CATALOG STUBS AND THE BOT TABLES. SMOKE SCREEN is Story 8.18 (smoke screen as a sight occluder) and DEPTH CHARGE stays a stub for Eric; the real bot consumable/Shift tables are Story 8.20.
   evidence: `shared/src/sim/catalog.ts` (2 stubs); `sprint-status.yaml` 8-17 / 8-19 rows.
 
@@ -2604,3 +2604,30 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: OPEN — awareness (renumber)
   summary: THE 8.16 POINTER ENTRY "SMOKE SCREEN IS STORY 8.17" NOW READS 8.18. Eric inserted this story as the new 8.17 (amendment 129), so old 8.17-8.21 are 8.18-8.22; the OPEN forward pointers in this ledger were renumbered by meaning (smoke 8.18, wake 8.19, bots 8.20, results 8.21, How-to-Play 8.22), and dated or resolved entries were left as written.
   evidence: `epics.md` Stories 8.17-8.22; `sprint-status.yaml` 8-17 to 8-22 rows; epic-8 amendment 129.
+
+## 2026-09-29 — Story 8.18 Smoke Screen as a Sight Occluder (cycle 153)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — for Eric's eye on staging
+  summary: THE SMOKE SCREEN CLIENT VISUALS AND COPY ARE IMPLEMENTER DRAFTS. The disc render (wounded-smoke grey, fill alpha 0.35, 1 u rim alpha 0.6, easing out over the last 5 s), the belt glyph (three growing puffs trailing over a short waterline), the hover text "Lays a trail of smoke astern for 5 s; each puff hides everything behind it from eyes for 30 s — radar sees through." and the card rows `TRAIL 5 S` / `PUFF 30 S` / `RADIUS 40 → 60 U` await Eric's sign-off.
+  evidence: epic-8 amendment 146(g); `client/src/render/` smoke disc renderer; the draft belt glyph and card rows.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — Story 8.20
+  summary: THE BOTS' SMOKE SCREEN ROW IS INTERIM. A bot in its `disengage` posture presses SMOKE SCREEN once (not while already laying); Story 8.20 owns the real bot table.
+  evidence: epic-8 amendment 145; `server/src/game/ai/consumables.ts`; `BotTickEntry.smokeUntil`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — Story 9.11 reconciliation list
+  summary: UPSTREAM DOCS STILL SAY WHAT THIS CYCLE SUPERSEDED. `game-architecture.md` D24 / Novel Pattern 12 and `epics.md` AR43 / the Story 8.18 AC still say "a lit zone ignores smoke" and "six call sites" — superseded by amendments 142 and 146(a). Catalog-v3 R38's self-hiding `[DRAFT]` is confirmed by construction. Amendment 51 / catalog-v3 R13 / FR47 "pools add" is superseded by amendment 141.
+  evidence: epic-8 amendments 141, 142, 146(a); `catalog-v3.md` R13 / R38 stamps.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — awareness
+  summary: `server/scripts/matchSmoke.mjs` CARRIES ITS OWN CLIENT-SIDE `losClear` COPY for a bot script's torpedo-lane check. It is not a server predicate and was left alone, so that script's pilot does not know about smoke.
+  evidence: `server/scripts/matchSmoke.mjs`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — recorded reading
+  summary: THE CLIENT'S SYNTHESIZED WAKE MIRROR APPLIES THE SMOKE TERM TO SHIP WATER AS WELL AS TORPEDO WATER INSIDE THE BUBBLE (one shared gate). This changes nothing visible, because a smoked hull is not held by the client at all.
+  evidence: epic-8 amendment 143; the client wake-stamp mirror (`setWakeSources`).

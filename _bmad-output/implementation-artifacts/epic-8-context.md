@@ -4,7 +4,7 @@
 
 ## Goal
 
-Replace the old boon system with the common pool. A captain picks a hull, a gun and a colour, spawns with that gun plus the hull's fixed class ability (`SPECIAL`, key `Shift`), redraws the opening offer during the countdown, then draws from the one pool every captain shares into weapon slots `Q`/`E`/`R` and belt slots `1`–`4`, and reads the ending loadout in results. **Decks do not exist**: nothing is class-locked, nothing is brought. Stories 8.0–8.17 have LANDED; what remains is smoke as a sight occluder (8.18, NEXT), wake drafting, bots on the pool, then results and copy. Epic 8 runs with no account module — signing in later changes what a player KEEPS, never what they can DO.
+Replace the old boon system with the common pool. A captain picks a hull, a gun and a colour, spawns with that gun plus the hull's fixed class ability (`SPECIAL`, key `Shift`), redraws the opening offer during the countdown, then draws from the one pool every captain shares into weapon slots `Q`/`E`/`R` and belt slots `1`–`4`, and reads the ending loadout in results. **Decks do not exist**: nothing is class-locked, nothing is brought. Stories 8.0–8.18 have LANDED; what remains is wake drafting (8.19, NEXT), bots on the pool, then results and copy. Epic 8 runs with no account module — signing in later changes what a player KEEPS, never what they can DO.
 
 ## Stories
 
@@ -13,8 +13,8 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 - Story 8.15: The Gun Pick and the Class Shifts — landed
 - Story 8.16: Catalog v3 — Shield, Chaff, Decoy — landed
 - Story 8.17: Catalog v3 — Star Shells, Broadside, Phosphor, Flash — landed
-- Story 8.18: Smoke Screen as a Sight Occluder — NEXT
-- Story 8.19: Wake Drafting
+- Story 8.18: Smoke Screen as a Sight Occluder — landed
+- Story 8.19: Wake Drafting — NEXT
 - Story 8.20: Bots Draw from the Pool
 - Story 8.21: Results LOADOUT and the Match Record
 - Story 8.22: How-to-Play and Copy Re-cut
@@ -27,7 +27,7 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 
 **Catalog as landed.** Missiles, monitor, heat seeking, acoustic homing and the fouling add-on are cut; supercav torpedo and depth charge are consumables; no add-on line remains. Every gun fires 360°. FLASH SHELLS (`dazzleShells`) is a belt consumable feeding one shared `effectiveSight`; PHOSPHOR SHELLS is a tiered equipment line.
 
-**Smoke screen (8.18).** A key-fired belt consumable (cap 5): a trail laid astern for 5 s; each puff lives 30 s, expanding r40 → r60 u. It blocks SIGHT ONLY — radar is unaffected. By symmetry a puff hides its occupant, hides everything behind it and blinds an observer inside it. `puffIntervalMs` and `expandMs` are Eric's `[DRAFT]` numbers. Perf pin: perception at 20 observers × 200 live puffs inside the 50 ms tick; `/metrics` gains `smokeLivePeak`.
+**Smoke screen (8.18).** A key-fired belt consumable (cap 5): a trail laid astern for 5 s; each puff lives 30 s, expanding r40 → r60 u. It blocks SIGHT ONLY — radar is unaffected. By symmetry a puff hides its occupant, hides everything behind it and blinds an observer inside it. `puffIntervalMs` is 500 ms and `expandMs` 30 s (Eric, amendments 138–139). Perf pin: perception at 20 observers × 200 live puffs inside the 50 ms tick; `/metrics` gains `smokeLivePeak`.
 
 **Still open:** class designations; bot gun/ability tactic tables; wake-draft lift and width (Eric sets them when 8.19 opens); sign-off on drafted glyphs and hover copy.
 
@@ -39,8 +39,8 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 - `SmokePuff { id, ownerId, x, y, bornAt, until }` in a new `world.smoke` store. New `shared/src/sim/smoke.ts`: `puffRadius(puff, now) = r0 + (r1 − r0) × min(1, age / expandMs)`, run by server and client alike.
 - NEW `CONFIG.smokeScreen { r0: 40, r1: 60, lifeMs: 30000, layMs: 5000, puffIntervalMs, expandMs }`. The existing `CONFIG.smoke` is WOUNDED smoke — a different thing, untouched; never conflate them.
 - Activation stamps `ship.smokeUntil`; a new `STEP_ORDER` row `stepSmoke` (after `sampleWakes`, before `applyStorm`) drops a stern puff each interval while laying and expires dead puffs.
-- ONE predicate `sightClear(a, b, islands, puffs, now) = losClear(...) && !puffs.some(segCircleHit(a, b, p, puffRadius(p, now)))` replaces `losClear` at exactly the SIX sight-tier call sites: `shipSees`, `pointSighted`, `pointDetected`, the `mz` halo, the `sm` halo, the foghorn muffle. A future occluder is one more term, never a second predicate.
-- Radar is untouched BY CONSTRUCTION — its gate never called `losClear`. `ownZoneCovers` gains NO smoke term: a lit zone sees into smoke as it sees past islands (pinned, ledgered).
+- ONE predicate `sightClear(a, b, islands, puffs, now) = losClear(...) && !puffs.some(segCircleHit(a, b, p, puffRadius(p, now)))` replaces `losClear` at exactly the EIGHT sight-tier call sites: `shipSees`, `pointSighted`, `pointDetected`, the `mz` halo, the `sm` halo, the foghorn muffle, the contact row's inline check and `wakeGate`'s in-bubble clause (the last two were missed by the original six, amendment 146(a)). A future occluder is one more term, never a second predicate.
+- Radar is untouched BY CONSTRUCTION — its gate never called `losClear`. `ownZoneCovers` gains a smoke-only term (Eric, amendment 142): smoke hides hulls even under a flare, and an island still never blocks it.
 - Wire: `SmokeView { id, x, y, t0 }`, no radius. A `smoke` registry pseudo-row is visible iff the puff CENTRE is within `sight + puffRadius` with ISLAND-ONLY LOS (so a puff stays visible from inside another), or `ownerId === me`. Rides `FrameMsg.smoke?`; bots get it via `observe()`. The invariant suite iterates the row and still counts six; `PROTOCOL_VERSION` bumps.
 - Cost bound: live puffs ≤ stacks × `layMs / puffIntervalMs`; one `segCircleHit` per (observer, subject, puff).
 
@@ -200,3 +200,12 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 135. **Orchestrator readings for 8.17** (2026-09-29, Eric may veto): star and phosphor bursts emit `hc` like any damaging burst (the flak precedent for the 100 u+ phosphor zone is recorded); phosphor's mask is `hull | mine | decoy`, star and flash keep `hull | decoy`; the flash is a server-internal shell tag like `lit`; burn-zone numbers are stamped at spawn; the burn zone is its own store and `FrameMsg.burnZones` channel behind the lit zone's gate (six exceptions); DoT reuses the `'burn'` seat; one shared `effectiveSight` feeds server and client; interim bot rows (8.20 owns the table); card rows print every authored step; glyphs and hover copy are drafts.
 136. **Star and phosphor bursts keep the gun's OUTLINE rule; the flash and the burn ticks test CENTRES; the rim hit-call disclosure is accepted** (Eric 2026-09-29, review gate): a hull whose outline touches a flare's rim can be hit and hit-called without the light revealing it — corrects 135(a)'s "reveals the same hulls anyway"; the spec's "centre" wording for the two bursts reads "outline".
 137. **Interception as built** (Eric 2026-09-29, review gate): an intercepted star or phosphor shell deals its tier damage to the interceptor and lights / burns at the stop point, no area burst there; a flash intercepted en route still emits `hc` by the all-ordnance rule (135(d) covers the burst path only).
+138. **Puff cadence is 500 ms** (Eric 2026-09-29): `CONFIG.smokeScreen.puffIntervalMs = 500`, ten puffs per 5 s lay; fills the `[DRAFT]`.
+139. **A puff grows r40 → r60 over its whole 30 s life** (Eric 2026-09-29): `expandMs = 30000`, linear.
+140. **A re-press while laying restarts the 5 s clock** (Eric 2026-09-29): the copy is spent; the 500 ms grid is re-anchored only from idle, so two presses never drop two puffs 50 ms apart.
+141. **A HULL REPAIR re-press replaces the heal pool** (Eric 2026-09-29): fresh 50 over 5 s, the remainder is lost (`repairHp = regenHp`); supersedes amendment 51's "pools add".
+142. **Smoke hides hulls even under a flare** (Eric 2026-09-29, non-recommended option): `ownZoneCovers` gains a smoke-only term, still no island term; supersedes D24 / AR43 and resolves the deferred-work pin; the flare-reach range rule is untouched.
+143. **Torpedo water inside the sight bubble is hidden by smoke** (Eric 2026-09-29): `wakeGate`'s in-bubble clause uses `sightClear`, and the client wake mirror carries the same term.
+144. **Laying stops at sink entry** (Eric 2026-09-29, non-recommended option): `stepSmoke` sits after `founderSinking`; a new press while sinking is refused `blocked`; puffs already laid live out their 30 s.
+145. **Interim bot row** (Eric 2026-09-29): a bot in its `disengage` posture lays SMOKE SCREEN once, not while already laying; Story 8.20 owns the real table.
+146. **Orchestrator readings for 8.18** (2026-09-29, Eric may veto): eight sight-tier sites (the contact row and `wakeGate`'s in-bubble clause were missed), the `smoke` channel is a pseudo-row with its own oracle and not a seventh exception (still SIX, 24 registry keys), fleet drones are blinded like everyone, bot fire-line and flare-reach stay island-only, puffs stationary at the stern and never on radar, client visuals are drafts for Eric's eye, perf pin 5.2 ms for 20 observers × 200 puffs.

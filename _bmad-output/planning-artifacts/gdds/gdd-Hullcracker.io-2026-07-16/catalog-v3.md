@@ -129,6 +129,8 @@ Sensor ladder (frozen): detect 247.5 · sight 330 · muzzle/smoke 412.5 · radar
 
 **R13 (Eric) — HULL REPAIR: 100 hp as shipped** (50 instant + 50 pooled at 5 hp/s), consumable, cap 5.
 
+*(2026-09-29, Story 8.18, amendment 141: a re-press REPLACES the pool — fresh 50 over 5 s, remainder lost; "pools add" is superseded.)*
+
 **R14 (Eric) — DECK GUN ladder, 4 tiers: +1.25 damage AND −5% own reload per tier.** Damage 15 → 16.25 → 17.5 → 18.75 → 20 (Eric wrote it rounded: 15 → 16 → 17 → 18 → 20); own reload 100% → 95% → 90% → 85% → 80% (additive 5-point steps, not compounding). Since the deck gun is slotless and always fitted, its tier I is a real upgrade (unlike an equipment line, where copy 1 is the weapon itself).
 
 **STANDING RULE (Eric, from R14) — THE EQUIPMENT RELOAD STEP:** *"5% reduced reload will be a thing on most if not all equipment tier levels. This applies BEFORE the global reload reduction."* Composition: `reload = base × (1 − 0.05 × equipmentTier) × (1 − 0.05 × globalReloadTiers)`, so a maxed deck gun under a maxed global Reload runs at 0.80 × 0.75 = **60%** of base. Any line that departs from the 5% step says so in its own block.
@@ -172,6 +174,8 @@ Sensor ladder (frozen): detect 247.5 · sight 330 · muzzle/smoke 412.5 · radar
 **R37 (Eric) — SHIELD BLOCK (consumable, cap 5): absorbs the next 100 hp of damage for 10 s**; unused shield expires at 10 s. What it stops beyond weapon damage (storm, phosphor burn): not stated — assumed ALL damage sources [DRAFT, facilitator assumption].
 
 **R38 (Eric) — SMOKE SCREEN (consumable, cap 5): a trail laid astern for 5 s; each puff lasts 30 s, starts at r40u and slowly EXPANDS to r60u.** Blocks SIGHT only (radar unaffected); a hull inside or behind the smoke is not sighted. Whether the puff hides its OWN occupant from truesight as well as what lies behind it: assumed yes (it blocks the LOS segment like an island does for sight) [DRAFT, facilitator assumption].
+
+*(2026-09-29, Story 8.18, epic-8 amendments 138–144: built — cadence 500 ms, growth over the full 30 s; the self-hiding `[DRAFT]` is confirmed by construction (symmetric segment test); re-press restarts the 5 s trail; laying stops at sink entry; smoke also hides hulls under a star-shell flare.)*
 
 **R39 (Eric) — CHAFF (consumable, cap 5): bursts at YOUR OWN position** — fake radar returns around you to hide your true echo among them (the brainstorm's fire-to-the-click delivery is NOT taken). **R41: 10 fakes in r120u around you, for 15 s.**
 
@@ -258,4 +262,4 @@ Dazzle + Phosphor stack on one flare (no exclusivity).
 
 **Build-time consequences ledgered (E8 stories, not design questions):** `CONFIG.mine.maxLive` and `addMine`'s oldest-eviction go — whether the room-wide `globalCap` (60) survives as a pure engineering ceiling needs a call; the radar buoy equipment and its gun/jamming doctrines are deleted (the jamming fake-blip machinery is REUSED by CHAFF); the Monitor Gun's no-burst plunging hit test; the missile's en-route direct-hit damage (burst figure vs a lower contact figure); `cooldownScale` floor moves from 0.1 to 0.75 by construction; every `[D]` above is a CONFIG dial the harness tunes once bots run v3 decks.
 
-**Still [DRAFT]:** Turning step; Shift boost numbers; Machine Gun numbers bar the arc; Flak Gun base numbers; Captive Mines' pool 1 / 20 s; Shield Block's damage-source scope; Smoke's self-hiding; the unlock economy's flat price (note 11).
+**Still [DRAFT]:** Turning step; Shift boost numbers; Machine Gun numbers bar the arc; Flak Gun base numbers; Captive Mines' pool 1 / 20 s; Shield Block's damage-source scope; the unlock economy's flat price (note 11).
