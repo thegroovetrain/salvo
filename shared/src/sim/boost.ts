@@ -19,8 +19,9 @@
 // objects — never mutates its input.
 //
 // PINNED COMPOSITION ORDER (server AND predictor, byte-identical — Story 2.8):
-//   boostedKinematics → slowedKinematics → hookKinematics
-// (boost first, the prop-fouling slow second — see sim/slow.ts — hooks last).
+//   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
+// (boost first, the prop-fouling slow second — see sim/slow.ts — the wake
+// draft third — see sim/draft.ts — hooks last).
 
 import type { ShipConfig } from './ship.js';
 

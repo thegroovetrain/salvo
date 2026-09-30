@@ -38,8 +38,20 @@
 // so even a corrupted buffer degrades (skip + close across) instead of
 // throwing. Nothing in this module throws on any input.
 //
-// PURE, ZERO I/O, no transcendentals (only comparisons, floor and multiply on
-// the hot path — the cadence test compares SQUARED distances).
+// WAKE DRAFTING (Story 8.19, Eric rulings 2026-09-30, epic-8 amendments
+// 151–155). `draftLift` reads the same ribbons as a speed LIFT for a hull
+// sailing in them: the best single lane (a MAX, never a sum) of `CONFIG.wake
+// .draft.lift`, faded linearly by the water's age at the projection and by how
+// well the rider's heading runs WITH the segment (never negative). The lift is
+// tied to the WATER, not the ship (amendment 155): a wreck's, a departed or
+// respawned ship's leftover ribbon lifts like any other. Only two ribbons are
+// excluded — the rider's OWN (by reference) and any TORPEDO's.
+//
+// PURE, ZERO I/O. The ring store, the sampler and the segment walk use no
+// transcendentals (only comparisons, floor and multiply on the hot path — the
+// cadence test compares SQUARED distances); `draftLift` alone takes one
+// cos/sin of the rider's heading per call and one sqrt per in-lane segment
+// (this is not map generation — no byte-identity-across-engines rule applies).
 
 import { CONFIG, hullEnvelope, type HullId } from '../constants.js';
 
@@ -315,4 +327,129 @@ export function wakeAgeBucket(ageMs: number, lifeMs: number): number {
   const b = Math.floor((ageMs / lifeMs) * WAKE_AGE_BUCKETS);
   if (b < 0) return 0;
   return b >= WAKE_AGE_BUCKETS ? WAKE_AGE_BUCKETS - 1 : b;
+}
+
+/** The drafting dials `draftLift` reads — structurally `CONFIG.wake.draft`
+ *  (Story 8.19, amendments 151–152). */
+export interface DraftConfig {
+  /** Fraction of the rider's own forward cap added at full lift. */
+  lift: number;
+  /** Lane half-width in multiples of the wake-maker's hull width (`widthU`). */
+  halfWidthBeams: number;
+}
+
+/** True iff `v` is a finite, strictly positive number. */
+function positiveFinite(v: number): boolean {
+  return Number.isFinite(v) && v > 0;
+}
+
+/** Clamp to [0, 1]; NaN answers 0. */
+function clamp01(v: number): number {
+  if (!(v > 0)) return 0;
+  return v > 1 ? 1 : v;
+}
+
+/** True iff every per-call input of `draftLift` is usable. */
+function draftInputsValid(x: number, y: number, heading: number, now: number, cfg: DraftConfig): boolean {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  if (!Number.isFinite(heading) || !Number.isFinite(now)) return false;
+  return positiveFinite(cfg.lift) && positiveFinite(cfg.halfWidthBeams);
+}
+
+/**
+ * One LIVE segment's candidate lift, samples a (older) → b (newer), both
+ * finite. A segment whose older endpoint is strictly older than the ribbon's
+ * life is expired (the `emitSegment` rule) and a zero-length segment is
+ * degenerate — both contribute 0. Otherwise the rider's point projects onto
+ * the segment's line at u = ((p − a)·(b − a)) / |ab|². The segment is CAPPED
+ * AT ITS NEWER END ONLY: u < 0 (or non-finite) contributes 0 — that water
+ * belongs to the previous, older segment, and behind the oldest sample there
+ * is no lane — while u > 1 clamps to 1, so the round cap at b covers the outer
+ * wedge of a turn with the joint's own age and, at the newest sample, reaches
+ * one half-width past it (design reading f). Outside the lane → 0; inside →
+ * `lift × ageFactor × headFactor`, the age INTERPOLATED at the projection —
+ * so a rider on the centre line always reads the water at its own spot.
+ */
+function segmentLift(
+  r: WakeRibbon, a: number, b: number,
+  x: number, y: number, hx: number, hy: number,
+  now: number, half2: number, lift: number,
+): number {
+  const tA = r.ts[a];
+  if (now - tA > r.lifeMs) return 0;
+  const ax = r.xs[a];
+  const ay = r.ys[a];
+  const dx = r.xs[b] - ax;
+  const dy = r.ys[b] - ay;
+  const len2 = dx * dx + dy * dy;
+  if (!(len2 > 0) || !Number.isFinite(len2)) return 0;
+  const u = ((x - ax) * dx + (y - ay) * dy) / len2;
+  if (!(u >= 0) || !Number.isFinite(u)) return 0;
+  const t = u > 1 ? 1 : u;
+  const ox = ax + t * dx - x;
+  const oy = ay + t * dy - y;
+  if (ox * ox + oy * oy > half2) return 0;
+  const age = now - (tA + t * (r.ts[b] - tA));
+  const ageFactor = clamp01(1 - age / r.lifeMs);
+  const headFactor = clamp01((hx * dx + hy * dy) / Math.sqrt(len2));
+  return lift * ageFactor * headFactor;
+}
+
+/** The best candidate lift over one ribbon's live segments (the
+ *  `eachWakeSegment` walk — non-finite stored samples skipped and closed
+ *  across — without its callback, so nothing is allocated per segment). */
+function ribbonLift(r: WakeRibbon, x: number, y: number, hx: number, hy: number, now: number, cfg: DraftConfig): number {
+  if (r.count < 2 || !positiveFinite(r.lifeMs) || !positiveFinite(r.widthU)) return 0;
+  const half = r.widthU * cfg.halfWidthBeams;
+  const half2 = half * half;
+  if (!Number.isFinite(half2)) return 0;
+  let best = 0;
+  let prev = -1;
+  for (let n = 0; n < r.count; n++) {
+    const i = (r.head + n) % r.cap;
+    if (!finiteSample(r, i)) continue;
+    if (prev >= 0) best = Math.max(best, segmentLift(r, prev, i, x, y, hx, hy, now, half2, cfg.lift));
+    prev = i;
+  }
+  return best;
+}
+
+/**
+ * WAKE DRAFTING's lift (Story 8.19, Eric rulings 2026-09-30, epic-8
+ * amendments 151–155): the fraction of its own forward cap a rider at (x, y)
+ * sailing `heading` (radians) gains from the water under it at `now`, in
+ * [0, cfg.lift]. Walks every ribbon that is not `own` (reference equality —
+ * a ship's own DETACHED water counts as water) and not a torpedo's, and every
+ * LIVE segment a (older) → b (newer) of it; a segment counts when the rider's
+ * point lies within `widthU × cfg.halfWidthBeams` of it — the segment capped
+ * at the newer end only (a projection behind its older end contributes 0;
+ * past its newer end it clamps to b, t ∈ [0, 1]) — and is worth
+ * `cfg.lift × ageFactor × headFactor` where
+ *   ageFactor  = clamp01(1 − (now − (ts_a + t × (ts_b − ts_a))) / lifeMs)
+ *   headFactor = max(0, (cos(heading)·dx + sin(heading)·dy) / |ab|).
+ * Returns the MAX candidate — overlapping wakes never stack.
+ *
+ * Pure, allocation-free, never throws: any non-finite x / y / heading / now,
+ * a non-finite or non-positive dial, a sub-2-sample ribbon, a degenerate
+ * segment, `lifeMs ≤ 0` or `widthU ≤ 0` contributes 0.
+ */
+export function draftLift(
+  ribbons: readonly WakeRibbon[],
+  own: WakeRibbon | null,
+  x: number,
+  y: number,
+  heading: number,
+  now: number,
+  cfg: DraftConfig,
+): number {
+  if (!draftInputsValid(x, y, heading, now, cfg)) return 0;
+  const hx = Math.cos(heading);
+  const hy = Math.sin(heading);
+  let best = 0;
+  for (let k = 0; k < ribbons.length; k++) {
+    const r = ribbons[k];
+    if (r === own || r.torp) continue;
+    best = Math.max(best, ribbonLift(r, x, y, hx, hy, now, cfg));
+  }
+  return best;
 }

@@ -367,7 +367,12 @@ describe('shared barrel', () => {
     // radius: both sides run the shared `puffRadius`), the smokeScreen stub
     // flipped live (catalog content), and `CONFIG.smokeScreen`, which the
     // client reads. The perception exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(61);
+    // 61 -> 62: WAKE DRAFTING (Story 8.19, Eric rulings 2026-09-30, epic-8
+    // amendments 151-155). `OwnShip.draft?` (self-private, omitted when 0 —
+    // the exact lift double the server folded, so the predictor's
+    // `draftedKinematics` matches) and `CONFIG.wake.draft`, which the client
+    // reads. The perception exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(62);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat

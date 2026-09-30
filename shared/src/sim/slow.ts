@@ -14,8 +14,9 @@
 // objects — never mutates its input.
 //
 // PINNED COMPOSITION ORDER (server AND predictor, byte-identical):
-//   boostedKinematics → slowedKinematics → hookKinematics
-// (boost first, slow second, hooks last — see sim/boost.ts and sim/hooks.ts).
+//   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
+// (boost first, slow second, the wake draft third, hooks last — see
+// sim/boost.ts, sim/draft.ts and sim/hooks.ts).
 
 import type { ShipConfig } from './ship.js';
 
