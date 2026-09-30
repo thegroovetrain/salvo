@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  HOOK_REGISTRY,
   boostedKinematics,
+  draftedKinematics,
   hookKinematics,
   slowedKinematics,
   hullSilhouette,
@@ -795,6 +797,406 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
     }
     expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
     expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+});
+
+// --- Story 8.19: THE WAKE DRAFT -------------------------------------------------
+//
+// A hull riding another hull's wake gets a small lift on its FORWARD cap. The
+// server computes the lift (`draftLift`, shared) and sends it self-privately as
+// `you.draft` — the exact double it folded that tick; the predictor never
+// recomputes it, it adopts the scalar from every frame BEFORE the replay and
+// folds it through the ONE shared `draftedKinematics`, third in the pinned
+// order: boosted → slowed → drafted → hooks.
+//
+// What these pin: (a) with no draft nothing about any tick moves, to the BIT;
+// (b) with a draft both sides land on the identical doubles, in the pinned
+// order; (c)/(d) the LATEST scalar is what every un-acked tick replays under
+// (the accepted approximation of epic-8 amendment 156(e)), and it is adopted
+// before that replay; (e) a hard re-init zeroes it; (f) garbage reads as 0;
+// (g) reverse never drafts; and the sinking cap reads the post-fold max.
+
+describe('Predictor wake draft (Story 8.19)', () => {
+  const T0 = 700_000;
+  const tickT = (seq: number): number => T0 + seq * CONFIG.tick.simDtMs;
+  const FOUL = CONFIG.foulingMines.slowFactor;
+  const LIFT = CONFIG.wake.draft.lift;
+  const BOOST = CONFIG.boost.factor;
+
+  /** What the server knows about one tick's folds. */
+  interface Fold {
+    boostUntil?: number;
+    slowedUntil?: number;
+    slowFactor?: number;
+    draft?: number;
+  }
+
+  /** One tick's kinematics — world.stepShips' exact composition. `withDraft`
+   *  false is the PRE-8.19 three-step fold (boosted → slowed → hooks), true the
+   *  pinned four-step one (boosted → slowed → drafted → hooks). */
+  function foldKin(t: number, f: Fold, withDraft: boolean): ShipConfig {
+    const boosted = boostedKinematics(TB.kinematics, BOOST, t < (f.boostUntil ?? 0));
+    const slowed = slowedKinematics(boosted, f.slowFactor ?? FOUL, t < (f.slowedUntil ?? 0));
+    const draft = f.draft ?? 0;
+    const drafted = withDraft ? draftedKinematics(slowed, draft, draft > 0) : slowed;
+    return hookKinematics(drafted, [], HOOK_REGISTRY);
+  }
+
+  /** Step + the shared collision/grounding pass the predictor also runs (RATED
+   *  max, exactly as world.ts passes it). */
+  function stepWith(s: ShipState, inp: InputMsg, k: ShipConfig): void {
+    const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+    stepShip(s, inp, k, DT);
+    applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, TB_POLY), TB.kinematics.maxSpeed);
+  }
+
+  /** Reference server tick — the four-step composition. */
+  function serverDraftStep(s: ShipState, inp: InputMsg, t: number, f: Fold): void {
+    stepWith(s, inp, foldKin(t, f, true));
+  }
+
+  /** Reference PRE-8.19 tick — the three-step composition, no draft step. */
+  function pre819Step(s: ShipState, inp: InputMsg, t: number, f: Fold): void {
+    stepWith(s, inp, foldKin(t, f, false));
+  }
+
+  /** The identical DOUBLES, not merely close ones (`toBe` is Object.is). */
+  function expectSameDoubles(p: Predictor, s: ShipState, label: string): void {
+    expect(p.predicted.x, `${label} x`).toBe(s.x);
+    expect(p.predicted.y, `${label} y`).toBe(s.y);
+    expect(p.predicted.heading, `${label} heading`).toBe(s.heading);
+    expect(p.predicted.speed, `${label} speed`).toBe(s.speed);
+  }
+
+  /**
+   * A 160-tick run through all four fold states, under acks that lag 4 ticks:
+   *   1..40 boosted + fouled, 41..80 fouled, 81..120 plain, 121..160 boosted
+   * (the authoritative windows only have an END, so the run opens with both
+   * open and a lock-step frame at tick 120 opens the second boost).
+   * `frameDraft` is what every frame's `you` carries (`undefined` = no key);
+   * `ref` is the server the predictor is held to, tick by tick, to the bit.
+   */
+  function mixedRun(
+    frameDraft: number | undefined,
+    ref: (s: ShipState, inp: InputMsg, t: number, f: Fold) => void,
+  ): ShipState {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0.4, speed: TB.kinematics.maxSpeed };
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }];
+    const slowedUntil = tickT(80) + 1;
+    const foldAt = (seq: number): Fold => ({
+      boostUntil: seq <= 120 ? tickT(40) + 1 : tickT(160) + 1,
+      slowedUntil,
+      ...(frameDraft === undefined ? {} : { draft: frameDraft }),
+    });
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...foldAt(1) }, 0);
+    for (let seq = 1; seq <= 160; seq++) {
+      const inp = input(seq, 1, seq % 16 < 8 ? 0.3 : -0.3);
+      p.localTick(inp, tickT(seq));
+      ref(server, inp, tickT(seq), foldAt(seq));
+      history[seq] = { ...server };
+      expectSameDoubles(p, server, `tick ${seq}`);
+      if (seq === 120) {
+        // Lock-step frame: nothing pending, and the second boost window opens.
+        p.onServerState({ ...kin(history[120]), ...foldAt(121) }, 120);
+      } else if (seq % 3 === 0 && seq > 4 && (seq < 120 || seq >= 124)) {
+        // Ack lags 4 ticks: the replay re-makes every per-tick fold decision.
+        p.onServerState({ ...kin(history[seq - 4]), ...foldAt(seq) }, seq - 4);
+        expect(p.visualErrorMagnitude).toBe(0);
+        expectSameDoubles(p, server, `reconcile at ${seq}`);
+      }
+    }
+    return server;
+  }
+
+  it('PARITY PIN — with draft absent or 0, every tick of a mixed run is BYTE-IDENTICAL to the pre-8.19 fold', () => {
+    // draftedKinematics returns its input REFERENCE when the lift is 0, so the
+    // un-drafted tick — plain, boosted, fouled, or both — may not move by a bit.
+    const absent = mixedRun(undefined, pre819Step);
+    const zero = mixedRun(0, pre819Step);
+    expect(zero).toEqual(absent);
+    // The run really did visit the boosted cap (last phase), so it is a mixed
+    // run and not forty ticks of open water.
+    expect(absent.speed).toBe(boostedKinematics(TB.kinematics, BOOST, true).maxSpeed);
+  });
+
+  it('with you.draft > 0 every tick lands on the four-step server reference, to the identical doubles', () => {
+    const drafted = mixedRun(0.03, serverDraftStep);
+    // NON-VACUOUS: the drafted hull is a materially different hull.
+    const plain = mixedRun(undefined, pre819Step);
+    expect(Math.abs(drafted.x - plain.x) + Math.abs(drafted.y - plain.y)).toBeGreaterThan(1);
+    const boostedCap = boostedKinematics(TB.kinematics, BOOST, true).maxSpeed;
+    expect(drafted.speed).toBe(boostedCap + boostedCap * 0.03);
+  });
+
+  it('pins the ORDER — boost, THEN slow, THEN draft: the cap is a double only that order produces', () => {
+    // The three folds are all proportional, so they commute on paper; they do
+    // NOT commute in floating point. Against a tier-V fouling (0.55) at the
+    // shipped lift, draft-before-slow and draft-before-boost each round to a
+    // different last bit than the pinned order — which is exactly why the order
+    // is pinned on both sides rather than left to taste.
+    const DEEP = 0.55;
+    const boosted = boostedKinematics(TB.kinematics, BOOST, true);
+    const pinned = draftedKinematics(slowedKinematics(boosted, DEEP, true), LIFT, true);
+    const draftBeforeSlow = slowedKinematics(draftedKinematics(boosted, LIFT, true), DEEP, true);
+    const draftBeforeBoost = slowedKinematics(
+      boostedKinematics(draftedKinematics(TB.kinematics, LIFT, true), BOOST, true),
+      DEEP,
+      true,
+    );
+    expect(draftBeforeSlow.maxSpeed).not.toBe(pinned.maxSpeed);
+    expect(draftBeforeBoost.maxSpeed).not.toBe(pinned.maxSpeed);
+    // The I/O matrix's own row: (max + max × 0.25) × factor, then m + m × lift.
+    const slowedCap = (TB.kinematics.maxSpeed + TB.kinematics.maxSpeed * BOOST) * DEEP;
+    expect(pinned.maxSpeed).toBe(slowedCap + slowedCap * LIFT);
+    // ...and the reverse cap is slowed only — never lifted.
+    expect(pinned.reverseSpeed).toBe(slowedKinematics(boosted, DEEP, true).reverseSpeed);
+
+    const fold: Fold = { boostUntil: T0 + 1e6, slowedUntil: T0 + 1e6, slowFactor: DEEP, draft: LIFT };
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }];
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...fold }, 0);
+    for (let seq = 1; seq <= 120; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverDraftStep(server, inp, tickT(seq), fold);
+      history[seq] = { ...server };
+      if (seq % 5 === 0) p.onServerState({ ...kin(history[seq - 3]), ...fold }, seq - 3);
+      expectSameDoubles(p, server, `tick ${seq}`);
+    }
+    // The hull ran up to the cap and sits on it exactly — the pinned double,
+    // and neither of the two a mis-ordered fold would have produced.
+    expect(p.predicted.speed).toBe(pinned.maxSpeed);
+    expect(p.predicted.speed).not.toBe(draftBeforeSlow.maxSpeed);
+    expect(p.predicted.speed).not.toBe(draftBeforeBoost.maxSpeed);
+  });
+
+  it('pins hooks LAST — a non-proportional hook sees the DRAFTED cap, not the other way round', () => {
+    // A flat-add hook is the one fold in the chain that does not commute with
+    // the draft even on paper: (m + m × lift) + 3 against (m + 3) × (1 + lift).
+    const REGISTRY: HookRegistry = {
+      flat: {
+        kind: 'kinematics',
+        apply: (k, prm) => ({ ...k, maxSpeed: k.maxSpeed + (prm.add ?? 0) }),
+      },
+    };
+    const BEHAVIORS = [{ hookId: 'flat', params: { add: 3 } }];
+    const m = TB.kinematics.maxSpeed;
+    const hooksLast = m + m * LIFT + 3;
+    const hooksFirst = m + 3 + (m + 3) * LIFT;
+    expect(Math.abs(hooksLast - hooksFirst)).toBeGreaterThan(0.1);
+    expect(
+      hookKinematics(draftedKinematics(TB.kinematics, LIFT, true), BEHAVIORS, REGISTRY).maxSpeed,
+    ).toBe(hooksLast);
+
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: m };
+    const p = new Predictor({ radius: MAP_R, islands: [] }, TB.kinematics, TB_POLY, DT, REGISTRY);
+    p.setBoons(BEHAVIORS);
+    p.onServerState({ ...kin(spawn), draft: LIFT }, 0);
+    for (let seq = 1; seq <= 60; seq++) p.localTick(input(seq, 1, 0), tickT(seq));
+    expect(p.predicted.speed).toBe(hooksLast);
+  });
+
+  it('REPLAY — a frame with draft 0.03 and 4 un-acked inputs replays ALL FOUR ticks at 0.03', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0.2, speed: TB.kinematics.maxSpeed };
+    const p = makeInitialized(spawn); // no draft yet: the four live ticks run un-drafted
+    const inputs: InputMsg[] = [];
+    for (let seq = 1; seq <= 4; seq++) {
+      inputs.push(input(seq, 1, 0.2));
+      p.localTick(inputs[seq - 1], tickT(seq));
+    }
+    expect(p.pendingCount).toBe(4);
+    // The frame acks NOTHING (ackSeq 0) and reports the hull in a wake.
+    p.onServerState({ ...kin(spawn), draft: 0.03 }, 0);
+    expect(p.pendingCount).toBe(4);
+
+    /** The four ticks re-stepped from `you`, tick i drafted iff `lifts[i]`. */
+    const replayRef = (lifts: readonly number[]): ShipState => {
+      const s: ShipState = { ...spawn };
+      inputs.forEach((inp, i) => serverDraftStep(s, inp, tickT(i + 1), { draft: lifts[i] }));
+      return s;
+    };
+    expectSameDoubles(p, replayRef([0.03, 0.03, 0.03, 0.03]), 'replayed');
+    // Every one of the four is load-bearing: drop the lift from ANY single
+    // tick and the replayed hull lands somewhere else.
+    for (let drop = 0; drop < 4; drop++) {
+      const lifts = [0.03, 0.03, 0.03, 0.03];
+      lifts[drop] = 0;
+      expect(replayRef(lifts).x, `tick ${drop + 1} un-drafted`).not.toBe(p.predicted.x);
+    }
+    // ...and the live ticks that follow keep folding the same latest scalar.
+    const server = replayRef([0.03, 0.03, 0.03, 0.03]);
+    const next = input(5, 1, 0.2);
+    p.localTick(next, tickT(5));
+    serverDraftStep(server, next, tickT(5), { draft: 0.03 });
+    expectSameDoubles(p, server, 'live tick after the replay');
+  });
+
+  it('the scalar is adopted BEFORE the replay — a frame that drops 0.05 to 0 replays the un-acked ticks at 0', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), draft: 0.05 }, 0);
+    const inputs: InputMsg[] = [];
+    const lifted: ShipState = { ...spawn };
+    for (let seq = 1; seq <= 4; seq++) {
+      inputs.push(input(seq, 1, 0));
+      p.localTick(inputs[seq - 1], tickT(seq));
+      serverDraftStep(lifted, inputs[seq - 1], tickT(seq), { draft: 0.05 });
+    }
+    expectSameDoubles(p, lifted, 'live, drafted'); // the four live ticks WERE lifted
+    // The hull has left the lane: the next frame carries no key at all.
+    p.onServerState(kin(spawn), 0);
+    const plain: ShipState = { ...spawn };
+    for (let i = 0; i < 4; i++) pre819Step(plain, inputs[i], tickT(i + 1), {});
+    expectSameDoubles(p, plain, 'replayed at 0');
+    expect(p.predicted.x).not.toBe(lifted.x); // non-vacuous: the two replays differ
+    // An explicit 0 on the wire reads the same as an absent key.
+    const q = new Predictor({ radius: MAP_R, islands: [] });
+    q.onServerState({ ...kin(spawn), draft: 0.05 }, 0);
+    for (let i = 0; i < 4; i++) q.localTick(inputs[i], tickT(i + 1));
+    q.onServerState({ ...kin(spawn), draft: 0 }, 0);
+    expectSameDoubles(q, plain, 'replayed at an explicit 0');
+  });
+
+  it('leaving the lane lets the hull decay back to its rated cap, and no higher cap lingers', () => {
+    const m = TB.kinematics.maxSpeed;
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: m };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), draft: LIFT }, 0);
+    let peak = 0;
+    for (let seq = 1; seq <= 40; seq++) {
+      p.localTick(input(seq, 1, 0), tickT(seq));
+      peak = Math.max(peak, p.predicted.speed);
+    }
+    expect(peak).toBe(m + m * LIFT); // above the rated cap, and never past cap + cap × lift
+    p.onServerState({ ...kin(p.predicted) }, 40); // out of the wake: no key
+    for (let seq = 41; seq <= 80; seq++) p.localTick(input(seq, 1, 0), tickT(seq));
+    expect(p.predicted.speed).toBe(m);
+  });
+
+  it('forceSnap() zeroes the scalar with the other authoritative fields', () => {
+    const peek = (pr: Predictor): number => (pr as unknown as { authDraft: number }).authDraft;
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), draft: 0.05 }, 0);
+    expect(peek(p)).toBe(0.05);
+    p.forceSnap(); // respawn / reconnect / class swap / P-toggle
+    // The field is private and the next frame re-adopts it anyway, so the reset
+    // itself is only visible here — which is the point of pinning it: a stale
+    // lift must not be what a future pre-frame reader of the field finds.
+    expect(peek(p)).toBe(0);
+    // A class swap re-inits through the same door.
+    p.onServerState({ ...kin(spawn), draft: 0.05 }, 0);
+    p.setClassConfig(TB.kinematics, TB_POLY, true);
+    expect(peek(p)).toBe(0);
+    // ...while an upgrade grant (snap = false) keeps the ring AND the lift.
+    p.onServerState({ ...kin(spawn), draft: 0.05 }, 0);
+    p.setClassConfig(TB.kinematics, TB_POLY, false);
+    expect(peek(p)).toBe(0.05);
+    // Behaviourally: the life after a snap, on a frame with no key, is un-drafted.
+    p.forceSnap();
+    p.onServerState(kin(spawn), 0);
+    const server: ShipState = { ...spawn };
+    for (let seq = 1; seq <= 20; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      pre819Step(server, inp, tickT(seq), {});
+    }
+    expectSameDoubles(p, server, 'after the snap');
+  });
+
+  it('setDraft: a non-finite or negative lift reads as 0; the top is the server\'s and is not clamped', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    for (const bad of [NaN, -0.05, -Infinity, Infinity, -0]) {
+      const p = makeInitialized(spawn);
+      p.setDraft(LIFT); // a real lift first, so "0" is a reset and not the default
+      p.setDraft(bad);
+      const server: ShipState = { ...spawn };
+      for (let seq = 1; seq <= 10; seq++) {
+        const inp = input(seq, 1, 0);
+        p.localTick(inp, tickT(seq));
+        pre819Step(server, inp, tickT(seq), {});
+      }
+      expectSameDoubles(p, server, `setDraft(${bad})`);
+    }
+    // The same guard stands on the frame path (a malformed `you.draft`).
+    const viaFrame = new Predictor({ radius: MAP_R, islands: [] });
+    viaFrame.onServerState({ ...kin(spawn), draft: NaN }, 0);
+    const still: ShipState = { ...spawn };
+    const first = input(1, 1, 0);
+    viaFrame.localTick(first, tickT(1));
+    pre819Step(still, first, tickT(1), {});
+    expectSameDoubles(viaFrame, still, 'you.draft NaN');
+    // The TOP is not second-guessed: whatever positive double the server
+    // folded is what the predictor folds, even past CONFIG's lift.
+    const big = 4 * LIFT;
+    const p = makeInitialized(spawn);
+    p.setDraft(big);
+    const server: ShipState = { ...spawn };
+    for (let seq = 1; seq <= 60; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverDraftStep(server, inp, tickT(seq), { draft: big });
+    }
+    expectSameDoubles(p, server, 'unclamped top');
+    expect(p.predicted.speed).toBe(TB.kinematics.maxSpeed + TB.kinematics.maxSpeed * big);
+  });
+
+  it('REVERSE never drafts — full astern in a wake tops out at the un-lifted reverse cap', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+    const server: ShipState = { ...spawn };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), draft: LIFT }, 0);
+    for (let seq = 1; seq <= 80; seq++) {
+      const inp = input(seq, -1, 0);
+      p.localTick(inp, tickT(seq));
+      serverDraftStep(server, inp, tickT(seq), { draft: LIFT });
+      expectSameDoubles(p, server, `tick ${seq}`);
+    }
+    expect(p.predicted.speed).toBe(-TB.kinematics.reverseSpeed);
+    // ...and a FOULED hull astern in a wake is slowed only, never lifted back.
+    const fouled: ShipState = { ...spawn };
+    const q = new Predictor({ radius: MAP_R, islands: [] });
+    const slowedUntil = T0 + 1e6;
+    q.onServerState({ ...kin(spawn), slowedUntil, draft: LIFT }, 0);
+    for (let seq = 1; seq <= 80; seq++) {
+      const inp = input(seq, -1, 0);
+      q.localTick(inp, tickT(seq));
+      serverDraftStep(fouled, inp, tickT(seq), { slowedUntil, draft: LIFT });
+    }
+    expectSameDoubles(q, fouled, 'fouled astern');
+    expect(q.predicted.speed).toBe(-slowedKinematics(TB.kinematics, FOUL, true).reverseSpeed);
+  });
+
+  it('a SINKING rider is lifted too — the sinking ramp scales the POST-FOLD (drafted) cap', () => {
+    // "Water is water" (amendment 155): a sinking hull in a wake is drafted
+    // like an afloat one, and the ritardando reads the cap the fold produced.
+    const since = T0;
+    const sinkingUntil = since + CONFIG.ship.sinkingWindowMs;
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    /** `capDraft` is the lift in the max the RAMP reads; the step is always drafted. */
+    const sinkStep = (s: ShipState, inp: InputMsg, t: number, capDraft: number): void => {
+      const k = foldKin(t, { draft: LIFT }, true);
+      const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+      stepShip(s, inp, k, DT);
+      applySinkingDecel(s, foldKin(t, { draft: capDraft }, true).maxSpeed, since, t);
+      applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, TB_POLY), TB.kinematics.maxSpeed);
+    };
+    const server: ShipState = { ...spawn };
+    const ratedCap: ShipState = { ...spawn }; // what a ramp off the UN-drafted max would do
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), sinkingUntil, draft: LIFT }, 0);
+    for (let seq = 1; seq <= 30; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      sinkStep(server, inp, tickT(seq), LIFT);
+      sinkStep(ratedCap, inp, tickT(seq), 0);
+      expectSameDoubles(p, server, `tick ${seq}`);
+    }
+    expect(p.predicted.speed).not.toBe(ratedCap.speed); // non-vacuous
   });
 });
 

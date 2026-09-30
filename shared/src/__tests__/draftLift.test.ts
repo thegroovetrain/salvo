@@ -140,8 +140,10 @@ describe('draftLift — the lane is the wake-maker\'s own hull width', () => {
 describe('draftLift — heading matters, never negative', () => {
   it('crossing (90°): 0', () => {
     const r = straightRibbon(20);
-    expect(draftLift([r], null, 120, 0, Math.PI / 2, NEWEST_T, CFG)).toBeCloseTo(0, 12);
-    expect(draftLift([r], null, 120, 0, -Math.PI / 2, NEWEST_T, CFG)).toBeCloseTo(0, 12);
+    // EXACTLY 0: cos(π/2) is ~6e-17 as a double, and the dust floor reports
+    // that ~1e-18 "lift" as 0 so the server never stamps or sends it.
+    expect(draftLift([r], null, 120, 0, Math.PI / 2, NEWEST_T, CFG)).toBe(0);
+    expect(draftLift([r], null, 120, 0, -Math.PI / 2, NEWEST_T, CFG)).toBe(0);
   });
 
   it('opposed (180°): exactly 0, never negative', () => {

@@ -47,7 +47,12 @@
 // with ISLAND-only LOS) — see verifySmoke — carrying `{id,x,y,t0}` and no
 // owner, radius or `until`. Every term is re-derived here (puffRadiusOracle,
 // puffBlocks, sightClearOracle) from the rulings as LITERALS, never from
-// `puffRadius`/`segCircleHit`/`sightClear`. The checks below
+// `puffRadius`/`segCircleHit`/`sightClear`. Story 8.19 (WAKE DRAFTING,
+// amendments 151–155) adds ONE own-ship field, not a seventh exception:
+// `you.draft` — the wake-draft lift folded into the observer's own cap — is
+// own-ship state, the DECLARED "a wake is under you" disclosure (NFR21,
+// deferred-work D23 entry); it may exist NOWHERE but the observer's own `you`
+// (see verifyFrame), so the count stays SIX. The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -218,6 +223,10 @@ const SMOKE_OCCLUDED = { n: 0 };
  *  puff inside its 1/8 bubble (the "see into other smoke" arm was exercised). */
 const SMOKED_BLIP = { n: 0 };
 const IN_SMOKE_SEES = { n: 0 };
+/** Story 8.19: how many frames carried a POSITIVE `you.draft` (the drafting
+ *  arm of the self-private clause ran against a real lift, not only the
+ *  omitted-at-0 arm). */
+const DRAFT_SEEN = { n: 0 };
 
 // Per-observer EFFECTIVE ranges, recomputed here from the raw fitted-boon id
 // list (deliberately NOT via me.stats / effectiveStats — the reimplementation
@@ -2412,6 +2421,19 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect('inSmoke' in f.you).toBe(meInSmoke);
     if (meInSmoke) expect(f.you.inSmoke).toBe(true);
   }
+  // THE WAKE-DRAFT LIFT IS SELF-PRIVATE (Story 8.19): `draft` may exist
+  // NOWHERE but `you` — never on a contact, never in a frame without `you` —
+  // and on `you` it is the record's exact double IFF positive, ABSENT (never
+  // 0, never `undefined`) otherwise. It is the declared "a wake is under you"
+  // own-ship disclosure (NFR21), not a perception exception.
+  expect(JSON.stringify(withoutYou)).not.toContain('"draft"');
+  if (f.you !== undefined) {
+    expect('draft' in f.you).toBe(me.draft > 0);
+    if (me.draft > 0) {
+      DRAFT_SEEN.n += 1;
+      expect(Object.is(f.you.draft, me.draft)).toBe(true);
+    }
+  }
   for (const c of f.contacts) {
     const target = w.ships.get(c.id)!;
     expect(target).toBeDefined();
@@ -2422,6 +2444,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect('lvl' in c).toBe(false); // ...and so is the economy (Story 2.6)
     expect('xp' in c).toBe(false);
     expect('inSmoke' in c).toBe(false); // ...and whether they stand in smoke (Story 8.18, amendment 149)
+    expect('draft' in c).toBe(false); // ...and whether they ride a wake (Story 8.19)
     // Sight tier (dist + LOS) OR the ship's CENTER inside a zone the viewer
     // OWNS (Story 1.7 firer-only truesight parity) — nothing else.
     expect(sighted(w, me, target.state) || zoneCovers(w, me, target.state)).toBe(true);
@@ -3828,6 +3851,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     SMOKE_OCCLUDED.n = 0;
     SMOKED_BLIP.n = 0;
     IN_SMOKE_SEES.n = 0;
+    DRAFT_SEEN.n = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
     let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
     for (let world = 0; world < 20; world++) {
@@ -4112,6 +4136,15 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           w.sinkingActivationGate(patient, CONSUMABLE_SLOTS[0]);
         }
         w.step();
+        // THE WAKE-DRAFT LIFT (Story 8.19) must be EXERCISED on the wire, not
+        // only its omitted-at-0 arm: these short fuzz runs rarely sail one
+        // hull along another's water, so on odd ticks ids[0]'s stamp is
+        // planted AFTER the step (a non-round double, no rng draw — every
+        // other oracle keeps its stream) and verifyFrame must find it in that
+        // observer's own `you`, exactly, and nowhere else. The next stepShips
+        // restamps it from the water, so the sim itself never sees the plant.
+        const rider = w.ships.get(ids[0])!;
+        if (tick % 2 === 1 && isAfloat(rider.lifecycle)) rider.draft = CONFIG.wake.draft.lift * 0.6180339887;
         // Build each observer's frame exactly once per tick (wire semantics).
         for (const id of ids) {
           const f = buildFrame(w, id);
@@ -4145,6 +4178,10 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // (amendment 149 — puffs are seated ON observers by the seeding above).
     expect(SMOKED_BLIP.n).toBeGreaterThan(0);
     expect(IN_SMOKE_SEES.n).toBeGreaterThan(0);
+    // ...and the wake-draft clause saw a POSITIVE `you.draft` at least once
+    // (Story 8.19 — hulls pre-laid with tracks sail through each other's
+    // water), so its present-and-exact arm ran, not only the omitted-at-0 one.
+    expect(DRAFT_SEEN.n).toBeGreaterThan(0);
     // The wake oracle must have been EXERCISED (amendment 40's vacuity rule):
     // with 70% of hulls pre-laid with tracks across 20 worlds × 6 ticks, zero
     // disclosed segments would mean the channel silently died.

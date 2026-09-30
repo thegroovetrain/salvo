@@ -71,6 +71,9 @@ export interface BotGroup {
   anyKillRate: number;
   stormShareOfDeaths: number;
   landRate: number;
+  /** Afloat bot-ticks spent riding another hull's wake (Story 8.19), pooled
+   *  over the group: Σ draftTicks / Σ ticks — the landRate shape. */
+  draftRate: number;
   spentRate: number;
   /** Land-contact episodes per bot-match, and the longest single run in
    *  SIM-SECONDS — the diagnosis half of the land bar (see BotSample). */
@@ -165,6 +168,10 @@ function groupOf(key: string, rows: readonly BotSample[]): BotGroup {
     stormShareOfDeaths: ratio(rows.filter((r) => r.end === 'sunkByStorm').length, deaths),
     landRate: ratio(
       rows.reduce((a, r) => a + r.landTicks, 0),
+      rows.reduce((a, r) => a + r.ticks, 0),
+    ),
+    draftRate: ratio(
+      rows.reduce((a, r) => a + r.draftTicks, 0),
       rows.reduce((a, r) => a + r.ticks, 0),
     ),
     spentRate: spentRate(rows),
@@ -360,6 +367,8 @@ const GROUP_COLS: { head: string; w: number; value: (g: BotGroup) => string }[] 
   { head: 'land%', w: 7, value: (g) => pct(g.landRate) },
   { head: 'landRuns', w: 9, value: (g) => fmt(g.landEpisodes.mean, 1) },
   { head: 'maxRunS', w: 8, value: (g) => fmt(g.maxLandRunS.max, 1) },
+  // Story 8.19: afloat ticks riding another hull's wake (observation only).
+  { head: 'draft%', w: 7, value: (g) => pct(g.draftRate) },
 ];
 
 function groupTable(groups: readonly BotGroup[]): string[] {

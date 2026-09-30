@@ -147,6 +147,10 @@ export interface BotSample {
   /** Ticks this bot was afloat, and how many of them were in land contact. */
   ticks: number;
   landTicks: number;
+  /** Of those afloat ticks, how many the bot rode another hull's wake —
+   *  `ShipRecord.draft > 0`, the lift stepShips folded that tick (Story 8.19,
+   *  wake drafting). Observation only: bots do not seek wakes (8.20). */
+  draftTicks: number;
   /** Distinct land-contact EPISODES (an unbroken run of contact ticks) and the
    *  longest one, in ticks. A raw contact RATE cannot tell "brushed a headland
    *  forty times" from "beached once and never got off", and the I/O contract
@@ -165,6 +169,7 @@ interface BotTrack {
   lifeS: number;
   ticks: number;
   landTicks: number;
+  draftTicks: number;
   /** Last reading taken while the bot was still AFLOAT — so a bot's economy is
    *  reported as it stood at death, not after the corpse sat out the match. */
   levelsEarned: number;
@@ -194,6 +199,7 @@ function newTrack(): BotTrack {
     lifeS: 0,
     ticks: 0,
     landTicks: 0,
+    draftTicks: 0,
     levelsEarned: 0,
     levelsUnspent: 0,
     boonsFitted: 0,
@@ -294,6 +300,7 @@ export class BotCollector {
       if (ship === undefined || !isAfloat(ship.lifecycle)) continue;
       track.ticks += 1;
       noteLand(track, hullTouchesLand(ship, world.map.islands, this.scratch));
+      if (ship.draft > 0) track.draftTicks += 1;
       track.lifeS = tS;
       readEconomy(track, ship);
       noteOffer(track, ship);
@@ -388,6 +395,7 @@ export class BotCollector {
         damageDealt: track.damageDealt,
         ticks: track.ticks,
         landTicks: track.landTicks,
+        draftTicks: track.draftTicks,
         landEpisodes: track.landEpisodes,
         maxLandRunTicks: track.maxLandRunTicks,
         boons: track.boons,

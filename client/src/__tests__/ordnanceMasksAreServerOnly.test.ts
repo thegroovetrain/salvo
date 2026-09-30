@@ -74,7 +74,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
   // that is what the three scans above assert, and they are the substance of
   // this file. This line only witnesses that a bump, when it happens, happens
   // deliberately.
-  it('PROTOCOL_VERSION is 61 — bumped by Story 8.18s smoke channel, not by masks', () => {
+  it('PROTOCOL_VERSION is 62 — bumped by Story 8.19s self-private OwnShip.draft, not by masks', () => {
     // 55 until Story 8.13, whose ONE bump covered the catalog content, the id
     // moves and `MineView`'s own-only kind field (epic-8 amendment 76); 56
     // until Story 8.14, whose ONE bump covers the seat's `gun` join option,
@@ -94,6 +94,9 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // 60 until Story 8.18, whose ONE bump covers `FrameMsg.smoke` (`SmokeView`),
     // the SMOKE SCREEN stub flip and `CONFIG.smokeScreen` (epic-8 amendments
     // 138-145) — smoke carries no mask at all.
-    expect(PROTOCOL_VERSION).toBe(61);
+    // 61 until Story 8.19, whose ONE bump covers the self-private
+    // `OwnShip.draft` (the wake-draft lift the predictor folds) and
+    // `CONFIG.wake.draft` (epic-8 amendments 151-156) — a wake carries no mask.
+    expect(PROTOCOL_VERSION).toBe(62);
   });
 });

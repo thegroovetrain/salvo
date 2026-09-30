@@ -35,6 +35,13 @@ function ownShield(ship: ShipRecord, now: number): Pick<OwnShip, 'shield'> {
   return { shield: { hp: Math.ceil(s.hpLeft), until: s.until } };
 }
 
+/** The own-ship `draft` key (Story 8.19): `{ draft }` — the exact double —
+ *  while the hull rides a wake (`ship.draft > 0`), else an EMPTY object so the
+ *  spread leaves the key absent (never `undefined`, never 0). */
+function ownDraft(ship: ShipRecord): Pick<OwnShip, 'draft'> {
+  return ship.draft > 0 ? { draft: ship.draft } : {};
+}
+
 function toOwnShip(ship: ShipRecord, now: number): OwnShip {
   // Anti-cheat/invariant guard: OwnShip only ever describes a human client's
   // own ship, whose hullId is ALWAYS a ShipClassId. A drone hull id reaching
@@ -140,6 +147,15 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // blip, an event or a spectator payload — so the perception exception
     // count stays at SIX.
     ...(ship.inSmoke ? { inSmoke: true as const } : {}),
+    // The WAKE-DRAFT lift (Story 8.19, amendments 151–155): the exact double
+    // stepShips folded into this hull's forward cap THIS tick — PRESENT IFF
+    // positive, OMITTED at 0, never `undefined` (the slowFactor precedent).
+    // The exact double, never rounded: the client predictor folds it through
+    // the SAME shared draftedKinematics, so a drafting hull predicts with no
+    // drift. SELF-PRIVATE BY CONSTRUCTION on the boostUntil terms: it rides
+    // `you` and NOTHING else — the DECLARED "a wake is under you" own-ship
+    // disclosure (NFR21), not a perception exception, so the count stays SIX.
+    ...ownDraft(ship),
     // ms — the founder deadline while THIS hull is in the sinking window
     // (Story 5.2, amendment 16): present IFF sinking, OMITTED entirely
     // otherwise — never an `undefined` value (the slowedUntil precedent

@@ -121,6 +121,7 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     damageDealt: 200,
     ticks: 2000,
     landTicks: 0,
+    draftTicks: 0,
     landEpisodes: 0,
     maxLandRunTicks: 0,
     boons: [],
@@ -198,6 +199,43 @@ describe('botReport — the quality bars', () => {
     // 100 / 10000 = 1%, not the 5% a per-bot mean would report.
     expect(agg.landContactRate).toBeCloseTo(0.01, 6);
     expect(barByName(agg, 'land contact').pass).toBe(false); // bar is STRICTLY < 1%
+  });
+
+  it('wake drafting pools TICKS per group and renders a draft% column beside land% (Story 8.19)', () => {
+    const agg = buildBotAggregate(
+      result([[
+        sample({ ticks: 1000, draftTicks: 300 }),
+        sample({ id: 'b2', ticks: 3000, draftTicks: 100 }),
+        sample({ id: 'b3', profile: 'siege', cls: 'battleship', ticks: 500, draftTicks: 0 }),
+      ]]),
+      3,
+    );
+    // 400 / 4000 = 10%, not the 16.7% a per-bot mean would report.
+    expect(agg.byProfile.find((g) => g.key === 'raider')!.draftRate).toBeCloseTo(0.1, 6);
+    expect(agg.byClass.find((g) => g.key === 'torpedoBoat')!.draftRate).toBeCloseTo(0.1, 6);
+    expect(agg.byClass.find((g) => g.key === 'battleship')!.draftRate).toBe(0);
+    const text = renderBotReport('baseline', agg);
+    const heads = text.filter((l) => l.includes('land%'));
+    expect(heads).toHaveLength(2); // BY PROFILE and BY CLASS
+    for (const h of heads) {
+      expect(h).toContain('draft%');
+      expect(h.indexOf('draft%')).toBeGreaterThan(h.indexOf('land%'));
+    }
+    expect(text.join('\n')).toContain('10.0%');
+  });
+
+  it('the collector counts afloat ticks whose ship.draft is positive (Story 8.19)', () => {
+    const world = new World(7, 20);
+    const bot = world.addBot(undefined, undefined);
+    const collector = new BotCollector([bot.id]);
+    bot.draft = 0;
+    collector.observe(world, 1);
+    bot.draft = 0.03;
+    collector.observe(world, 1);
+    collector.observe(world, 1);
+    const [row] = collector.samples(world);
+    expect(row.ticks).toBe(3);
+    expect(row.draftTicks).toBe(2);
   });
 
   it('levels spent is earned-minus-still-banked, pooled', () => {
@@ -308,6 +346,8 @@ describe('runner — the bot lobby', () => {
         expect(Object.values(CONFIG.bots.profiles).flat() as string[]).toContain(b.profile);
         expect(Object.keys(CONFIG.bots.profiles)).toContain(b.cls);
         expect(b.ticks).toBeGreaterThan(0);
+        expect(b.draftTicks).toBeGreaterThanOrEqual(0);
+        expect(b.draftTicks).toBeLessThanOrEqual(b.ticks);
       }
     } finally {
       restore();

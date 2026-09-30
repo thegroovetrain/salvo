@@ -329,6 +329,17 @@ export function wakeAgeBucket(ageMs: number, lifeMs: number): number {
   return b >= WAKE_AGE_BUCKETS ? WAKE_AGE_BUCKETS - 1 : b;
 }
 
+/**
+ * FLOAT-DUST FLOOR for `draftLift` (Story 8.19): a lift at or below this is
+ * reported as exactly 0. `Math.cos(π/2)` is ~6e-17, not 0, so a hull crossing
+ * a wake at a true right angle would otherwise be "lifted" by ~1e-18 — the
+ * server would stamp `draft > 0`, put a meaningless double on the wire and
+ * allocate a folded kinematics object for it. One billionth of the rider's
+ * cap is far below anything the sim can express; this is numeric hygiene, not
+ * a gameplay threshold.
+ */
+const DRAFT_LIFT_DUST = 1e-9;
+
 /** The drafting dials `draftLift` reads — structurally `CONFIG.wake.draft`
  *  (Story 8.19, amendments 151–152). */
 export interface DraftConfig {
@@ -451,5 +462,5 @@ export function draftLift(
     if (r === own || r.torp) continue;
     best = Math.max(best, ribbonLift(r, x, y, hx, hy, now, cfg));
   }
-  return best;
+  return best > DRAFT_LIFT_DUST ? best : 0;
 }
