@@ -4,7 +4,7 @@
 
 ## Goal
 
-Replace the old boon system with the common pool. A captain picks a hull, a gun and a colour, spawns with that gun plus the hull's fixed class ability (`SPECIAL`, key `Shift`), redraws the opening offer during the countdown, then draws from the one pool every captain shares into weapon slots `Q`/`E`/`R` and belt slots `1`–`4`, and reads the ending loadout in results. **Decks do not exist**: nothing is class-locked, nothing is brought. Stories 8.0–8.18 have LANDED; what remains is wake drafting (8.19, NEXT), bots on the pool, then results and copy. Epic 8 runs with no account module — signing in later changes what a player KEEPS, never what they can DO.
+Replace the old boon system with the common pool. A captain picks a hull, a gun and a colour, spawns with that gun plus the hull's fixed class ability (`SPECIAL`, key `Shift`), redraws the opening offer during the countdown, then draws from the one pool every captain shares into weapon slots `Q`/`E`/`R` and belt slots `1`–`4`, and reads the ending loadout in results. **Decks do not exist**: nothing is class-locked, nothing is brought. Stories 8.0–8.19 have LANDED; what remains is bots on the pool (8.20, NEXT), then results and copy. Epic 8 runs with no account module — signing in later changes what a player KEEPS, never what they can DO.
 
 ## Stories
 
@@ -14,8 +14,8 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 - Story 8.16: Catalog v3 — Shield, Chaff, Decoy — landed
 - Story 8.17: Catalog v3 — Star Shells, Broadside, Phosphor, Flash — landed
 - Story 8.18: Smoke Screen as a Sight Occluder — landed
-- Story 8.19: Wake Drafting — NEXT
-- Story 8.20: Bots Draw from the Pool
+- Story 8.19: Wake Drafting — landed
+- Story 8.20: Bots Draw from the Pool — NEXT
 - Story 8.21: Results LOADOUT and the Match Record
 - Story 8.22: How-to-Play and Copy Re-cut
 
@@ -29,7 +29,7 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 
 **Smoke screen (8.18).** A key-fired belt consumable (cap 5): a trail laid astern for 5 s; each puff lives 30 s, expanding r40 → r60 u. It blocks SIGHT ONLY — radar is unaffected. A puff hides its occupant and everything behind it from a clear observer; an observer INSIDE any puff is not blind but short-sighted: 1/8 intel range, seeing into smoke, nothing optical beyond (radar untouched). `puffIntervalMs` is 500 ms and `expandMs` 30 s (Eric, amendments 138–139). Perf pin: perception at 20 observers × 200 live puffs inside the 50 ms tick; `/metrics` gains `smokeLivePeak`.
 
-**Still open:** class designations; bot gun/ability tactic tables; wake-draft lift and width (Eric sets them when 8.19 opens); sign-off on drafted glyphs and hover copy.
+**Still open:** class designations; bot gun/ability tactic tables; sign-off on drafted glyphs and hover copy.
 
 ## Technical Decisions
 
@@ -45,13 +45,13 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 - Wire: `SmokeView { id, x, y, t0 }`, no radius. A `smoke` registry pseudo-row is visible iff the puff is within `sight + puffRadius` and the NEAREST point of the disc has island-only LOS (any visible part suffices, amendment 148; a puff stays visible from inside another), or `ownerId === me`. Rides `FrameMsg.smoke?`; bots get it via `observe()`. The invariant suite iterates the row and still counts six; `PROTOCOL_VERSION` bumps.
 - Cost bound: live puffs ≤ stacks × `layMs / puffIntervalMs`; one `segCircleHit` per (observer, subject, puff).
 
-**Later seams.** Wake drafting is a MAX lift over last tick's other-hull ribbons, folded `boosted → slowed → drafted → hooks`, parity-pinned at zero. The match record is server-only behind a port writer and is NEVER the results message.
+**Later seams.** Wake drafting (8.19) has landed: a 5 % lift on the rider's forward cap, the lane one maker's-hull-width each side of the trail and starting behind the maker's stern (a rider counts only with its whole hull behind it, amendment 159), fading with the water's age and scaled by heading, a MAX over other hulls' ribbons read one tick old (amendments 151–158). It is folded `boosted → slowed → drafted → hooks`, `OwnShip.draft` is self-private, and it is parity-pinned at zero. The match record is server-only behind a port writer and is NEVER the results message.
 
 ## UX & Interaction Patterns
 
 - **Smoke puffs** are grey (`{colors.wounded-smoke}` family) and differ from wounded smoke by SHAPE: discrete expanding puffs laid astern, never a plume off a hull, never by colour. New `render/smokeScreen.ts`; `render/smoke.ts` stays wounded smoke. Own puffs are always visible to the owner.
 - Refit cards carry no prose (hover only) and an absolute tier ramp; weighting is never named. The plain gun is `CANNON`; the ability is `SPECIAL`.
-- Drafting is felt, never shown. Results get one LOADOUT block; enemy draws appear nowhere.
+- Drafting is felt, never shown (no dedicated indicator; the speed number shows true speed, amendment 157). Results get one LOADOUT block; enemy draws appear nowhere.
 - Copy lives in How-to-Play only — no glossary, no `deck`/`DEFAULT`/`STARTER` string. Every surface honours dual-coding, photosensitivity limits and the 9 px type floor.
 
 ## Cross-Story Dependencies
@@ -214,3 +214,14 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 148. **A puff is delivered when any part of it is visible** (Eric 2026-09-29): the `smoke` row's non-owner gate tests island LOS to the disc point NEAREST the observer (own position if inside); the `sight + puffRadius` distance gate is unchanged; supersedes the "CENTRE … ISLAND-ONLY LOS" clause of AR43 / D24 / the 8.18 AC.
 149. **In smoke you see 1/8 of intel range — into other smoke too — and nothing optical beyond it; ownership plays no part; radar still works** (Eric 2026-09-29, three chat statements): a hull whose centre is in ANY live puff (`ShipRecord.inSmoke`, self-private `OwnShip.inSmoke?`) has `sightOf = radarRange × CONFIG.smokeScreen.inSmokeSightFraction` (0.125), drops the puff term, clamps every optical row at that range, own lit zones reveal nothing; a not-in-smoke observer is occluded by every puff incl. their own trail. Supersedes D24's "blinds an observer standing in one". Readings Eric may veto: foghorn muffled not silenced; a sinking hull in a puff is in smoke like an afloat one (corrected in-cycle); the smoke-hidden in-bubble blip has no wake tell.
 150. **Review-gate patches of record** (orchestrator 2026-09-29): wake-stamp cache smoke check before the age floor and full-id + radius-bucket key; puff rim stays full alpha to death (only fill fades); non-finite stern point skips the lay; bot smoke comment made truthful; noise rejected (dying-puff tick, per-observer copy, golden offer reshuffle).
+151. **Wake-drafting lift is 5 % of the rider's own forward cap** (Eric 2026-09-30, "Go with the realistic package"): `CONFIG.wake.draft.lift = 0.05` (45 → 47.25, 40 → 42, 35 → 36.75 u/s); fills the `[DRAFT]`; a harness dial.
+152. **The lane is the wake-maker's own hull width each side of the trail's center line** (Eric 2026-09-30, the realistic package): `ribbon.widthU × halfWidthBeams` (`halfWidthBeams = 1`, 9 / 20 / 32 u); supersedes a fixed `halfWidthU`.
+153. **The lift fades with the water's age** (Eric 2026-09-30): full at the fresh end of the trail, zero at the end of the ribbon's life.
+154. **Heading matters** (Eric 2026-09-30): the lift scales with the cosine of the angle to the wake's direction, clamped at zero, so full when following, zero when crossing, never negative; `draftLift(ribbons, own, x, y, heading, now, cfg)` supersedes D23's position-only signature.
+155. **The lift is tied to the wake, not the ship** (Eric 2026-09-30): a sinking hull keeps laying wake as today (epic-5 amendment 15) and a sinking rider is lifted like an afloat one ("water is water"); leftover water from a wreck, a departed or a respawned ship lifts until it ages out.
+156. **Torpedoes are out of it, both ways** (Eric asked 2026-09-30; answer of record): torpedo ribbons give no lift and a torpedo is never lifted.
+157. **The helm's speed number shows true speed while drafting** (Eric 2026-09-30): no dedicated drafting indicator; the KTS number prints real speed as under the Shift boost.
+158. **Orchestrator readings for 8.19** (2026-09-30, Eric may veto): linear age fade interpolated along the segment; segments capped at the newer end only; own-wake exclusion by ribbon reference; the rider's center and pre-step heading are the test; `you.draft` is the exact double, omitted at 0; the predictor adopts it before replay (`setDraft`); a 1e-9 dust floor; wake-ring headroom folds the lift on both sides (torpedo boat 28 → 30 samples); `ship.draft` zeroed at add / redeploy / respawn / founder / off-water; no `STEP_ORDER` row added; harness `draft%`, no batch sim run.
+159. **The wake starts behind the maker's stern; a rider is lifted only while its whole hull is behind it** (Eric 2026-09-30, review gate): `WakeRibbon.hullAheadU` (maker half length while attached, 0 once detached), `draftLift` cuts `hullAheadU + riderHalfLenU` of arc from the newest sample; a chaser closes to nose-to-tail and holds there, the leader never drafts its follower, abreast or stacked hulls never lift each other; steady-state lift averages under 2 % (the lift closes the gap, then holds formation). Supersedes 158(b)'s forward reach.
+160. **The `OwnShip.draft` disclosure is recorded honestly** (Eric 2026-09-30): the exact scalar lets a modified client recover a hidden wake's direction and rough age (a rough bearing toward a hidden hull within ~250 u); accepted, honest clients show nothing, still six exceptions.
+161. **Review-gate patches of record** (2026-09-30): 1500-tick stern-chase pins replace the 160-tick leader pin; independent perception draft clause + sink-with-stale-draft case; `setDraft` clamped to the config lift; harness `draft%` counts occupancy, not benefit (deferred for 8.20).

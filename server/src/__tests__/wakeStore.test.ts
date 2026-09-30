@@ -52,17 +52,23 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     expect(torp.widthU).toBe(9); // exactly one radar cell
   });
 
-  it('provisions the ring from the TRUE attainable top speed — class max PLUS the boost bonus (never base kinematics alone)', () => {
+  it('provisions the ring from the TRUE attainable top speed — class max PLUS the boost bonus PLUS a full wake-draft lift (never base kinematics alone)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     // torpedoBoat 45 u/s + 25 % of it = 56.25 (Story 8.9, amendment 55: the
     // boost pays a PROPORTION of the post-fold max, retiring the flat +10 u/s
-    // that made this 55): capacity must cover the boosted hull, or a boost run
-    // would silently drop the oldest tail. wakeTopSpeed derives it through the
-    // SAME shared boostedKinematics hook the client's ring budget uses.
-    expect(a.wake.cap).toBe(wakeCapacity(45 + 45 * CONFIG.boost.factor, 5_500));
-    expect(45 + 45 * CONFIG.boost.factor).toBe(56.25);
-    expect(a.wake.cap).toBeGreaterThan(wakeCapacity(45, 5_500));
+    // that made this 55), then + 5 % of THAT for a full wake-draft lift
+    // (Story 8.19, amendment 151) = 59.0625: capacity must cover a boosted,
+    // drafting hull, or its run would silently drop the oldest tail.
+    // wakeTopSpeed derives it through the SAME shared boostedKinematics →
+    // draftedKinematics hooks the client's ring budget uses. 28 → 30 samples.
+    const boosted = 45 + 45 * CONFIG.boost.factor;
+    const top = boosted + boosted * CONFIG.wake.draft.lift;
+    expect(boosted).toBe(56.25);
+    expect(top).toBe(59.0625);
+    expect(a.wake.cap).toBe(wakeCapacity(top, 5_500));
+    expect(a.wake.cap).toBe(30);
+    expect(a.wake.cap).toBeGreaterThan(wakeCapacity(boosted, 5_500));
   });
 
   it('samples the RESOLVED pose on the distance cadence in step(); a stopped hull lays no SEGMENT', () => {

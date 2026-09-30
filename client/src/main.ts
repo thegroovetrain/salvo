@@ -16,6 +16,7 @@ import {
   MULLIGAN_CHOICE,
   NO_CARDS,
   boostedKinematics,
+  draftedKinematics,
   CATALOG,
   cardBehaviors,
   classShift,
@@ -3257,8 +3258,14 @@ function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
       // Mirrors the server's `World.wakeTopSpeed` so the two ring buffers are
       // provisioned alike; through the ONE shared hook, so the proportional
       // boost (amendment 55) is read off the post-fold cap on both sides and a
-      // SPEED card lengthens both rings or neither.
-      maxSpeedU: boostedKinematics(own.kinematics, CONFIG.boost.factor, true).maxSpeed,
+      // SPEED card lengthens both rings or neither. The full wake-draft lift
+      // is folded on top through its own shared hook (Story 8.19), exactly as
+      // `wakeTopSpeed` folds it — a drafting, boosted hull is the true ceiling.
+      maxSpeedU: draftedKinematics(
+        boostedKinematics(own.kinematics, CONFIG.boost.factor, true),
+        CONFIG.wake.draft.lift,
+        true,
+      ).maxSpeed,
     });
   }
   const at = now - CLIENT_CONFIG.net.interpDelayMs;

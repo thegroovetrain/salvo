@@ -256,3 +256,22 @@ describe('buildFrame — the `smoke` channel (Story 8.18)', () => {
     expect(spec.smoke).toEqual([{ id: 'sk1', x: 40, y: 40, t0: w.now }]);
   });
 });
+
+describe('buildFrame — the self-private wake-draft lift (Story 8.19)', () => {
+  it('omits `draft` from `you` at 0 (never undefined, never 0) and carries the EXACT double when positive — never on a contact', () => {
+    const w = makeWorld();
+    const a = w.ships.get('a')!;
+    a.draft = 0;
+    const off = buildFrame(w, 'a');
+    expect('draft' in off.you!).toBe(false);
+    const lift = 0.05 * 0.7319281734; // an arbitrary non-round double
+    a.draft = lift;
+    const on = buildFrame(w, 'a');
+    expect(Object.is(on.you!.draft, lift)).toBe(true);
+    // b sees a as a contact: the lift rides a's own `you` and NOTHING else.
+    const other = buildFrame(w, 'b');
+    expect(other.contacts.some((c) => c.id === 'a')).toBe(true);
+    expect(JSON.stringify({ ...other, you: undefined })).not.toContain('"draft"');
+    expect('draft' in other.you!).toBe(false);
+  });
+});

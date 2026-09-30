@@ -165,20 +165,23 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 60 and admits 61', () => {
-  it('PROTOCOL_VERSION is 61', () => {
-    // Story 8.18 bumped 60 -> 61: the frame gains the `smoke` channel
+describe('the PV join gate refuses 61 and admits 62', () => {
+  it('PROTOCOL_VERSION is 62', () => {
+    // Story 8.19 bumped 61 -> 62: OwnShip gains the self-private `draft`
+    // lift (the wake-draft fold the client predictor must match) and the
+    // client reads CONFIG.wake.draft. Story 8.18 bumped 60 -> 61: the frame gains the `smoke` channel
     // (SmokeView {id,x,y,t0}), SMOKE SCREEN is a dealable consumable (the
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(61);
+    expect(PROTOCOL_VERSION).toBe(62);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 60 is the one that matters now: a client built one story before this
-    // one knows no `smoke` channel and holds a catalog with SMOKE SCREEN
-    // still a stub.
+    // 61 is the one that matters now: a client built one story before this
+    // one knows no `draft` lift and would predict a drafting hull short of
+    // the server's cap.
+    expect(protocolVersionError(61)).toMatch(/refresh/i);
     expect(protocolVersionError(60)).toMatch(/refresh/i);
     expect(protocolVersionError(59)).toMatch(/refresh/i);
     expect(protocolVersionError(58)).toMatch(/refresh/i);
@@ -191,12 +194,12 @@ describe('the PV join gate refuses 60 and admits 61', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(62)).toMatch(/refresh/i);
+    expect(protocolVersionError(63)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(61)).toBeNull();
+    expect(protocolVersionError(62)).toBeNull();
   });
 });
 

@@ -11,8 +11,10 @@
 // RIGHT) and its clamp at the arc's end under boost.
 
 import { describe, it, expect, afterEach } from 'vitest';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { Container } from 'pixi.js';
-import { CATALOG, CONFIG, boostedKinematics, effectiveStats } from '@salvo/shared';
+import { CATALOG, CONFIG, boostedKinematics, draftedKinematics, effectiveStats } from '@salvo/shared';
 import {
   DETENT_LABELS,
   HELM_LETTER_OFFSETS,
@@ -203,6 +205,47 @@ describe('needleAngle — the solid amber pointer on the arc', () => {
     for (const speed of [0, KIN.maxSpeed, -KIN.reverseSpeed]) {
       expect(detentTickAngle(detentIndexOf(0.75)), `speed ${speed}`).toBe(detentTickAngle(7));
     }
+  });
+
+  // STORY 8.19 — DRAFTING IS FELT, NEVER SHOWN (UX-DR57). A hull riding a wake
+  // runs up to `CONFIG.wake.draft.lift` past the cap the globe draws, and the
+  // drawn cap is deliberately NOT raised for it: there is no drafting readout.
+  // All the globe owes is to not misbehave — the needle pins at the arc's end,
+  // finite, on the plain AND the boosted denominators, exactly as it already
+  // does for any over-cap speed.
+  it('a DRAFTING hull (up to 5 % over the drawn cap) pins the needle at the arc end — no overflow, no NaN', () => {
+    const LIFT = CONFIG.wake.draft.lift;
+    const boosted = boostedKinematics(KIN, FACTOR, true);
+    for (const kin of [KIN, boosted]) {
+      const drafted = draftedKinematics(kin, LIFT, true).maxSpeed;
+      expect(drafted).toBeGreaterThan(kin.maxSpeed);
+      for (const frac of [0.2, 0.5, 1]) {
+        const speed = kin.maxSpeed + kin.maxSpeed * LIFT * frac;
+        expect(speedLadderFraction(speed, kin)).toBe(1);
+        expect(needleAngle(speed, kin)).toBe(T.arcDeg);
+      }
+    }
+    // Astern is never lifted, so nothing new can happen at the other end.
+    expect(draftedKinematics(KIN, LIFT, true).reverseSpeed).toBe(KIN.reverseSpeed);
+  });
+
+  it('NO HUD or UI module reads the draft — the scalar stops at the predictor', () => {
+    // The lift reaches the client as `you.draft` and is consumed by
+    // sim/prediction.ts alone. A chrome or HUD module that named it would be a
+    // drafting readout by another door. `render/wake.ts` is the one render file
+    // allowed to cite it, and only as ring-buffer HEADROOM in a comment.
+    const SRC = existsSync(join(process.cwd(), 'src', 'render'))
+      ? join(process.cwd(), 'src')
+      : join(process.cwd(), 'client', 'src');
+    const NAMES = /draftedKinematics|setDraft|wake\.draft|\.draft\b|\bdrafting\b/i;
+    const offenders: string[] = [];
+    for (const dir of ['render', 'ui']) {
+      for (const entry of readdirSync(join(SRC, dir), { recursive: true, encoding: 'utf8' })) {
+        if (!entry.endsWith('.ts') || (dir === 'render' && entry === 'wake.ts')) continue;
+        if (NAMES.test(readFileSync(join(SRC, dir, entry), 'utf8'))) offenders.push(`${dir}/${entry}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 
