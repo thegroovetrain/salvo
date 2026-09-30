@@ -104,6 +104,7 @@ import {
   type ShellOutcome,
   type ShellState,
   type SmokePuff,
+  puffRadius,
   type ShipClassId,
   type ShipLifecycle,
   type ShipState,
@@ -792,6 +793,26 @@ export interface ShipRecord {
    * client's fog hole shrinks honestly. Reset on sink/respawn/redeploy.
    */
   dazzledUntil: number;
+  /**
+   * True iff this hull's CENTRE is inside ANY live SMOKE SCREEN puff — whoever
+   * laid it, its own trail included (Story 8.18, Eric ruling 2026-09-29, epic-8
+   * amendment 149, final: "if I'm in smoke, I should be able to see at 1/8
+   * intel range, including into other smoke. If I'm not in smoke, I can't see
+   * into it. If I'm in it, go ahead and occlude everything outside of that
+   * range, no matter what. Radar still works."). STAMPED every tick by
+   * stepSmoke AFTER the expiry sweep (so a puff that died this tick never
+   * counts), against the post-move pose, for every afloat hull; false for a
+   * sinking/sunk hull. Read by signals.ts: sightOf() through the shared
+   * `effectiveSight` (sight collapses to radarRange ×
+   * CONFIG.smokeScreen.inSmokeSightFraction — 82.5 u at base; dazzle wins when
+   * both), sightClear() (island LOS ∧ that clamp, no puff term — it sees INTO
+   * other smoke) and ownZoneCovers() (its own flare reveals nothing to it).
+   * Mirrored onto OwnShip.inSmoke (SELF-PRIVATE, frames.toOwnShip only,
+   * present only when true) so the client's fog hole shrinks honestly. Reset
+   * false at addShip / sinkShip / founderSinking / respawn / redeploy with the
+   * lay window (clearSmokeScreen).
+   */
+  inSmoke: boolean;
   /**
    * ms — windowed-min measured RTT for this client (pushed by the room's ping
    * loop via World.setRtt), or null when never measured. Null => the D1 fire-
@@ -1794,7 +1815,7 @@ export class World {
       lastFireT: 0,
       respawnAt: 0,
       nextSmokeAt: 0,
-      smokeUntil: 0, nextPuffAt: 0, // Story 8.18: a fresh hull lays no smoke
+      smokeUntil: 0, nextPuffAt: 0, inSmoke: false, // Story 8.18: a fresh hull lays no smoke and stands in none (stamped next tick)
       seenBallistics: new Set(),
       torpDirs: new Map(),
       loadout,
@@ -2340,6 +2361,7 @@ export class World {
   private static clearSmokeScreen(ship: ShipRecord): void {
     ship.smokeUntil = 0;
     ship.nextPuffAt = 0;
+    ship.inSmoke = false; // amendment 149: a sunk/redeployed/respawned hull stands in no smoke until stepSmoke says so
   }
 
   /**
@@ -5971,9 +5993,15 @@ export class World {
    * copy at the shipped 5000 / 500 (ruling 138); a re-press re-arms
    * `nextPuffAt = now` (setSmokeScreen), so the trail restarts on the next
    * tick. A sinking or sunk hull lays nothing (ruling 144 — the window is
-   * also closed at sink entry). Then every puff whose `until` has arrived is
-   * deleted — one sweep for the whole store, so an owner's death, redeploy or
-   * leave never shortens a puff's life (amendment 127).
+   * also closed at sink entry). A NON-FINITE stern (a NaN/Infinity pose —
+   * unreachable through inputs.ts's finite-checked intent, guarded anyway)
+   * lays NOTHING and advances nothing: a NaN puff would fail every distance
+   * test and ride segCircleHit's NaN path, occluding or exposing every
+   * observer for 30 s (review gate, Edge Case Hunter). Then every puff whose
+   * `until` has arrived is deleted — one sweep for the whole store, so an
+   * owner's death, redeploy or leave never shortens a puff's life (amendment
+   * 127). LAST, after the sweep, every hull's `inSmoke` stamp (amendment 149):
+   * true iff its centre is inside any live puff, whoever laid it.
    */
   private stepSmoke(): void {
     const sc = CONFIG.smokeScreen;
@@ -5982,6 +6010,7 @@ export class World {
       const half = ship.cls.hull.length / 2;
       const x = ship.state.x - Math.cos(ship.state.heading) * half;
       const y = ship.state.y - Math.sin(ship.state.heading) * half;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
       while (this.now >= ship.nextPuffAt) {
         this.smokeSeq += 1;
         const id = `sk${this.smokeSeq}`;
@@ -5992,6 +6021,34 @@ export class World {
     for (const [id, puff] of this.smoke) {
       if (this.now >= puff.until) this.smoke.delete(id);
     }
+    this.stampInSmoke();
+  }
+
+  /**
+   * The per-tick `ShipRecord.inSmoke` stamp (Story 8.18, amendment 149): for
+   * every hull, true iff it is afloat and its centre lies within some live
+   * puff's current radius (the shared `puffRadius` at this tick's `now` —
+   * the same curve signals.sightClear reads, so "I stand in it" and "smoke
+   * does not blind me" agree). Ownership is not read.
+   * Runs after the expiry sweep so a puff deleted this tick never counts, and
+   * after the motion block (stepSmoke's slot) so the stamp is against the
+   * pose frames.ts ships this tick.
+   */
+  private stampInSmoke(): void {
+    const puffs = [...this.smoke.values()];
+    const radii = puffs.map((p) => puffRadius(p.bornAt, this.now));
+    for (const ship of this.ships.values()) {
+      ship.inSmoke = isAfloat(ship.lifecycle) && World.standsInPuff(ship.state, puffs, radii);
+    }
+  }
+
+  private static standsInPuff(pos: { x: number; y: number }, puffs: readonly SmokePuff[], radii: readonly number[]): boolean {
+    for (let i = 0; i < puffs.length; i += 1) {
+      const dx = pos.x - puffs[i].x;
+      const dy = pos.y - puffs[i].y;
+      if (dx * dx + dy * dy <= radii[i] * radii[i]) return true;
+    }
+    return false;
   }
 
   /**

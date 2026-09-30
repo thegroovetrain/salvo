@@ -129,6 +129,17 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // the master perception invariant keeps its SIX declared exceptions.
     ...(ship.slowedUntil > now && ship.slowFactor !== 1 ? { slowFactor: ship.slowFactor } : {}),
     ...(ship.dazzledUntil > now ? { dazzledUntil: ship.dazzledUntil } : {}),
+    // Standing in smoke (Story 8.18, amendment 149): PRESENT (`true`) IFF the
+    // server's per-tick stepSmoke stamp says this hull's centre is inside a
+    // live SMOKE SCREEN puff — whoever laid it — OMITTED otherwise, never
+    // `false` (the dazzledUntil precedent beside it; msgpack carries no dead
+    // keys). The client feeds it to the SAME shared effectiveSight the
+    // server's sightOf runs, so its fog hole shrinks to 1/8 of intel range
+    // exactly when the server's does. SELF-PRIVATE BY CONSTRUCTION on the
+    // boostUntil terms: it rides `you` and NOTHING else — never a Contact, a
+    // blip, an event or a spectator payload — so the perception exception
+    // count stays at SIX.
+    ...(ship.inSmoke ? { inSmoke: true as const } : {}),
     // ms — the founder deadline while THIS hull is in the sinking window
     // (Story 5.2, amendment 16): present IFF sinking, OMITTED entirely
     // otherwise — never an `undefined` value (the slowedUntil precedent

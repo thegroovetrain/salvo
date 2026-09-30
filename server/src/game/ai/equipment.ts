@@ -1040,9 +1040,12 @@ const chaffTactic: ConsumableTactic = {
 /**
  * SMOKE SCREEN (Story 8.18, Eric ruling 2026-09-29, amendment 145 — MINIMAL
  * INTERIM row; Story 8.20 owns the real table): the CHAFF row's template —
- * laid on the way OUT (the disengage posture), once, and never re-pressed
- * while the current trail is still being laid (a re-press would RESTART the
- * 5 s clock — ruling 140 — spending a copy for at most 5 s of extra trail).
+ * laid on the way OUT (the disengage posture), and never re-pressed while the
+ * current trail is still being laid (a re-press would RESTART the 5 s clock —
+ * ruling 140 — spending a copy for at most 5 s of extra trail). NOT "once":
+ * the moment the 5 s window lapses, a bot STILL in `disengage` with a copy
+ * left wants it again, so a long retreat re-presses every ~5 s until the belt
+ * is empty. Behaviour is the interim's; 8.20 decides whether that stands.
  */
 const smokeScreenTactic: ConsumableTactic = {
   id: 'smokeScreen',

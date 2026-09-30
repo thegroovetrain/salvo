@@ -4,8 +4,12 @@
 
 /** Bumped on any breaking change to the client/server wire protocol.
  *  61 — Story 8.18 Smoke Screen: FrameMsg.smoke channel (SmokeView
- *  {id,x,y,t0}); smokeScreen stub flipped (a new dealable consumable);
- *  CONFIG.smokeScreen read by the client; perception exception count stays SIX.
+ *  {id,x,y,t0} — no owner, no own-flag); smokeScreen stub flipped (a new
+ *  dealable consumable); CONFIG.smokeScreen read by the client (incl.
+ *  `inSmokeSightFraction`, amendment 149); `OwnShip.inSmoke?: true` (self-
+ *  private, omitted when false — the hull's centre is inside a live puff, so
+ *  the client's `effectiveSight(stats, dazzled, inSmoke)` mirror matches the
+ *  server's); perception exception count stays SIX.
  *  60 — Story 8.17 Catalog v3: Star Shells, Broadside, Phosphor, Flash (Eric
  *  rulings 2026-09-29, epic-8 amendments 129–135) — LitZoneView loses
  *  phos/daz; FrameMsg.burnZones (BurnZoneView); phosphorShells becomes an

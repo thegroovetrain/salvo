@@ -1961,7 +1961,19 @@ export const CONFIG = {
    * linearly from `r0` to `r1` over `expandMs` (the whole life) — the one pure
    * curve is `puffRadius` in sim/smoke.ts, run by both sides, so no radius
    * rides the wire. A puff blocks every SIGHT-tier sensor like an island
-   * (flare zone included) and never radar. No `EffectiveStats` row: a
+   * (flare zone included) and never radar — for an observer NOT standing in
+   * smoke. STANDING IN SMOKE (Eric ruling 2026-09-29, epic-8 amendment 149,
+   * final — verbatim: "if I'm in smoke, I should be able to see at 1/8 intel
+   * range, including into other smoke. If I'm not in smoke, I can't see into
+   * it. If I'm in it, go ahead and occlude everything outside of that range,
+   * no matter what. Radar still works."): while a hull's centre is inside ANY
+   * live puff, whoever laid it, its effective sight is `radarRange ×
+   * inSmokeSightFraction` (sim/sight.ts `effectiveSight`; 82.5 u at the base
+   * 660 u radar), smoke no longer occludes it inside that bubble (islands
+   * still do), nothing optical — its own flare included — reaches it from
+   * beyond, and its radar is untouched. Ownership plays no part in smoke.
+   * Radar also paints a hull inside a clear observer's sight bubble that
+   * smoke alone hides (amendment 147). No `EffectiveStats` row: a
    * consumable's numbers are read straight from CONFIG (the consumable law).
    *
    * NOT `CONFIG.smoke` above: that block is WOUNDED smoke (the damage-band
@@ -1975,6 +1987,7 @@ export const CONFIG = {
     layMs: 5000, // ms of laying per copy fired; a re-press restarts it (R38; amendment 140)
     puffIntervalMs: 500, // ms between puffs while laying — 10 per lay (amendment 138)
     expandMs: 30000, // ms for a puff to grow r0 → r1 — the whole life (amendment 139)
+    inSmokeSightFraction: 0.125, // × radarRange — effective sight while the hull's centre is inside ANY live puff, whoever laid it (Eric: "see at 1/8 intel range" — a harness dial, separate from flashShells.sightFraction by ruling; amendment 149)
   },
 
   /**

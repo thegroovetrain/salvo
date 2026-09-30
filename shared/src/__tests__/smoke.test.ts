@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, puffRadius } from '../index.js';
 
 describe('CONFIG.smokeScreen — the ruled numbers', () => {
-  it('is exactly the six ruled numbers (R38 + amendments 138–140)', () => {
+  it('is exactly the six ruled numbers (R38 + amendments 138–140) plus the in-smoke sight dial (amendment 149)', () => {
     expect(CONFIG.smokeScreen).toEqual({
       r0: 40,
       r1: 60,
@@ -15,6 +15,7 @@ describe('CONFIG.smokeScreen — the ruled numbers', () => {
       layMs: 5000,
       puffIntervalMs: 500,
       expandMs: 30000,
+      inSmokeSightFraction: 0.125,
     });
   });
 

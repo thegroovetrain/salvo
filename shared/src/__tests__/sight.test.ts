@@ -49,3 +49,30 @@ describe('effectiveSight — FLASH SHELLS dazzle (amendment 132)', () => {
     expect(effectiveSight({ sightRange: 100, radarRange: 800 }, true)).toBe(100);
   });
 });
+
+describe('effectiveSight — standing in smoke (Story 8.18, amendment 149: 1/8 of intel range, whoever laid the puff)', () => {
+  const s = effectiveStats(CONFIG.shipClasses.battleship);
+
+  it('in smoke, undazzled: radarRange × 0.125 = 82.5 u at the base 660 u radar — its OWN dial, not the flash one', () => {
+    expect(CONFIG.smokeScreen.inSmokeSightFraction).toBe(0.125);
+    expect(effectiveSight(s, false, true)).toBe(82.5);
+    expect(effectiveSight(s, false, true)).toBe(s.radarRange * CONFIG.smokeScreen.inSmokeSightFraction);
+  });
+
+  it('dazzled AND in smoke: the dazzle dial answers (82.5 — equal today, but the flash path)', () => {
+    expect(effectiveSight(s, true, true)).toBe(s.radarRange * CONFIG.flashShells.sightFraction);
+    expect(effectiveSight(s, true, true)).toBe(82.5);
+    expect(effectiveSight(s, true, false)).toBe(82.5);
+  });
+
+  it('the third argument defaults to false — the two-argument call is byte-identical to before', () => {
+    expect(effectiveSight(s, false)).toBe(effectiveSight(s, false, false));
+    expect(effectiveSight(s, false)).toBe(330);
+  });
+
+  it('never touches radar range', () => {
+    const before = { ...s };
+    effectiveSight(s, false, true);
+    expect(s).toEqual(before);
+  });
+});

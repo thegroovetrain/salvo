@@ -502,6 +502,24 @@ export interface OwnShip {
    */
   dazzledUntil?: number;
   /**
+   * PRESENT (`true`) IFF this hull's centre is inside ANY live SMOKE SCREEN
+   * puff this tick (Story 8.18, Eric ruling 2026-09-29, epic-8 amendment 149,
+   * revised — "whoever laid it"); OMITTED entirely otherwise, never `false`
+   * (the msgpack rule; the `dazzledUntil` precedent beside it). While present
+   * the server's perception shrinks this ship's effective sight to
+   * `radarRange × CONFIG.smokeScreen.inSmokeSightFraction` (1/8 of intel
+   * range; sim/sight.ts `effectiveSight`'s third argument — dazzle wins when
+   * both hold), lets it see INTO other smoke inside that bubble and shows it
+   * nothing optical beyond (Eric: "occlude everything outside of that range,
+   * no matter what. Radar still works."), and the client shrinks its own fog
+   * hole honestly from THIS field through the same function. The stamp is the server's per-tick
+   * `stepSmoke` read of the store, so the client never re-derives it from the
+   * `smoke` channel. SELF-PRIVATE exactly like `dazzledUntil`: rides `you` and
+   * NOTHING else — no contact, blip or spectator payload — so the perception
+   * exception count stays SIX.
+   */
+  inSmoke?: true;
+  /**
    * ms — server-clock time this SINKING hull founders (Story 5.2, amendments
    * 13/16): `sinceMs + CONFIG.ship.sinkingWindowMs`, stamped at sink-entry via
    * sim/sinking.ts founderDeadline(). Present IFF the hull is in the sinking
@@ -1330,9 +1348,15 @@ export interface DecoyView {
  * FrameMsg.smoke is recomputed per observer every tick. Delivered to the
  * OWNER always, to spectators, and to any other observer whose sight reaches
  * the puff's edge (centre within sight + current radius) with an island-clear
- * line to its centre — smoke never blocks the view OF smoke.
+ * line to the point of the disc NEAREST the observer (Eric ruling 2026-09-29,
+ * epic-8 amendment 148: a puff is delivered if any part of it is island-
+ * visible — its water-side rim shows past an island that hides its centre; an
+ * observer inside the disc is trivially clear) — smoke never blocks the view
+ * OF smoke.
  *
- * NO RADIUS, NO OWNER, NO EXPIRY on the wire: `t0` is the server time the puff
+ * NO RADIUS, NO OWNER, NO EXPIRY on the wire (amendment 149: not even an
+ * own-flag — ownership plays no part in smoke; whether the client's own hull
+ * stands in smoke arrives as the self-private `OwnShip.inSmoke`): `t0` is the server time the puff
  * was laid, and the client derives the radius with the shared `puffRadius(t0,
  * serverNow)` (sim/smoke.ts) — the same curve the server's sight predicate
  * runs. A puff dropping out of the list means expired OR out of view — the
