@@ -5594,11 +5594,15 @@ export class World {
         this.chaffSources.set(ship.id, { ...source, ownerId: ship.id, sweepPeriodMs: ship.stats.sweepPeriodMs, seed });
       },
       // Story 8.18 — SMOKE SCREEN's lay window (its ONE writer), keyed on the
-      // ACTIVATING ship. A re-press RESTARTS the 5 s clock (ruling 140) and
-      // re-arms the cadence, so the next puff drops on the very next tick.
+      // ACTIVATING ship. A re-press RESTARTS the 5 s clock (ruling 140). The
+      // cadence grid is re-anchored ONLY from idle (first puff on the next
+      // tick); a re-press mid-lay keeps the running 500 ms grid, so two
+      // presses never drop two puffs 50 ms apart at the same stern — the
+      // window simply extends and the trail stays evenly spaced (orchestrator
+      // ruling at the 8.18 build, recorded in the spec's review log).
       setSmokeScreen: () => {
+        if (ship.smokeUntil <= this.now) ship.nextPuffAt = this.now;
         ship.smokeUntil = this.now + CONFIG.smokeScreen.layMs;
-        ship.nextPuffAt = this.now;
       },
     };
   }

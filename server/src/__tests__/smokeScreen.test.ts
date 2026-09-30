@@ -7,7 +7,7 @@
 //   • GROWTH: r40 at birth → r50 at 15 s → deleted at 30 s (ruling 139), read
 //     through the sim clock — a puff that MISSES a segment fresh BLOCKS it once
 //     it has grown, and the segment clears again when the puff dies;
-//   • RE-PRESS restarts the clock (ruling 140): 6 + 10 = 16 puffs;
+//   • RE-PRESS restarts the clock (ruling 140), grid kept mid-lay: 16 puffs;
 //   • a SINKING press is refused `blocked`, copy kept; FOUNDERING mid-lay stops
 //     the trail while the laid puffs live out their 30 s (ruling 144);
 //   • OCCLUSION: a contact behind a puff is gone, its radar blip is not; an
@@ -171,20 +171,18 @@ describe('SMOKE SCREEN — the lay (rulings 138 / 140 / 144)', () => {
     expect(press(w, a)).toEqual({ ok: true });
     expect(copies(a)).toBe(0); // the second copy is SPENT
     expect(a.smokeUntil).toBe(t1 + SC.layMs); // the clock restarts from the re-press
-    expect(a.nextPuffAt).toBe(t1); // ...and the cadence re-arms on the re-press's own grid
-    steps(w, 100); // to +7.75 s: 2800, 3250, …, 7250 — ten more
+    expect(a.nextPuffAt).toBe(3000); // ...but the running 500 ms grid is KEPT (no re-anchor mid-lay)
+    steps(w, 100); // to +7.75 s: 3000, 3500, …, 7500 — ten more
     expect(w.smoke.size).toBe(16);
     steps(w, 40);
     expect(w.smoke.size).toBe(16);
   });
 
-  it('a re-press landing ON a cadence tick re-arms one puff for the next tick as well (the spec\'s `nextPuffAt = now`, taken literally): 7 + 10 = 17', () => {
-    // Recorded, not ruled: the matrix's "16 total" assumes the re-press falls
-    // BETWEEN cadence ticks (the case above). When it lands on the tick that
-    // just dropped a puff, the re-arm puts the next one 50 ms later instead of
-    // 500 — one extra puff, 50 ms apart from its predecessor, at the stern of
-    // a hull that has not moved. Harmless on the water; pinned so a change to
-    // the re-arm rule is a deliberate one.
+  it('a re-press landing ON a cadence tick keeps the grid — no 50 ms double-drop: 7 + 9 = 16', () => {
+    // Orchestrator ruling at build: the cadence grid is re-anchored only from
+    // IDLE. A re-press that lands on the tick that just dropped a puff leaves
+    // `nextPuffAt` on the running grid (+500), so the trail stays evenly
+    // spaced and the window simply extends to press + 5 s (exclusive).
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stock(w, a, 2);
@@ -192,10 +190,11 @@ describe('SMOKE SCREEN — the lay (rulings 138 / 140 / 144)', () => {
     steps(w, 60); // +3.0 s: the 3000 ms puff dropped THIS tick — seven so far
     expect(w.smoke.size).toBe(7);
     press(w, a);
+    expect(a.nextPuffAt).toBe(3500);
     steps(w, 1);
-    expect(w.smoke.size).toBe(8); // re-armed: a puff 50 ms after the last
-    steps(w, 200);
-    expect(w.smoke.size).toBe(17);
+    expect(w.smoke.size).toBe(7); // no re-armed puff 50 ms after the last
+    steps(w, 200); // window ends at 8000 (exclusive): 3500 … 7500 — nine more
+    expect(w.smoke.size).toBe(16);
   });
 
   it('a SINKING press is refused `blocked` by the row and the copy is kept (ruling 144, the chaff guard verbatim)', () => {
