@@ -295,13 +295,24 @@ export function cullRadiusSq(sightRange: number, kind: Kind): number {
  * `sightOf`, the fog hole and the radar source seam call the same function, so
  * there is exactly one derivation of a dazzled observer's sight in the game.
  *
+ * IN SMOKE (Story 8.18, amendment 149) is the same shrink on the same path:
+ * the server's `sightOf` passes its `inSmoke` stamp into the same
+ * `effectiveSight`, so `inSmoke` (the self-private `OwnShip.inSmoke` mirror)
+ * narrows the ENEMY ring exactly as a dazzle does, and never an own track.
+ *
  * KNOWN AND ACCEPTED: ownership is a soft click-time latch, so a MISSED latch
  * degrades an own track to the enemy ring. That one-sided error is deliberate —
  * inverting it would hand every enemy fish a long ghost.
  */
-export function trackCullRadiusSq(ranges: VisionRanges, dazzled: boolean, kind: Kind, own: OwnFire): number {
+export function trackCullRadiusSq(
+  ranges: VisionRanges,
+  dazzled: boolean,
+  kind: Kind,
+  own: OwnFire,
+  inSmoke = false,
+): number {
   if (own !== null) return cullRadiusSq(ranges.sightRange, 'shell'); // believed-own: un-dazzled truesight
-  return cullRadiusSq(effectiveSight(ranges, dazzled), kind);
+  return cullRadiusSq(effectiveSight(ranges, dazzled, inSmoke), kind);
 }
 
 /** Pure: dead-reckoned shell position at server time `now` (ms). */
@@ -404,6 +415,9 @@ export class Projectiles {
    *  the enemy rings, and vice versa). */
   private ranges: VisionRanges = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
   private dazzled = false;
+  /** Does the own hull stand in a live SMOKE SCREEN puff (Story 8.18)? Same
+   *  enemy-ring-only shrink as `dazzled`, via the shared `effectiveSight`. */
+  private inSmoke = false;
 
   constructor(
     private readonly mapRadius: number,
@@ -488,6 +502,19 @@ export class Projectiles {
   /** Is the dazzle currently held? Test/observation seam (mirrors `Fog`). */
   get isDazzled(): boolean {
     return this.dazzled;
+  }
+
+  /** Adopt the IN-SMOKE state (Story 8.18) — `setDazzled`'s twin, same
+   *  changed-flag contract, same enemy-ring-only reach. */
+  setInSmoke(inSmoke: boolean): boolean {
+    if (inSmoke === this.inSmoke) return false;
+    this.inSmoke = inSmoke;
+    return true;
+  }
+
+  /** Is the own hull in smoke? Test/observation seam (mirrors `Fog`). */
+  get isInSmoke(): boolean {
+    return this.inSmoke;
   }
 
   /** Set the own loadout's doctrine modes (main.applyOwnStats). Affects only
@@ -799,7 +826,7 @@ export class Projectiles {
         continue;
       }
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
-      const cull2 = trackCullRadiusSq(this.ranges, this.dazzled, s.kind, s.own);
+      const cull2 = trackCullRadiusSq(this.ranges, this.dazzled, s.kind, s.own, this.inSmoke);
       if (ownPos && shellCulledBeyondSight(p, ownPos, cull2, keepZones)) {
         this.remove(id);
         continue;

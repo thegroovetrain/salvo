@@ -19,8 +19,15 @@
 // animation to scale. Only the end-of-life fade (timestamp math off
 // `t0 + lifeMs − serverNow`; the client keeps no timers) moves the alpha, and it
 // runs at every motion level because it tracks the puff's real removal.
+//
+// THE FADE TOUCHES THE FILL ONLY (cycle-153 review gate). The puff occludes at
+// full strength until the server removes it, so the RIM — the drawn occlusion
+// edge — holds its full rim alpha for the whole life; only the fill thins over
+// the last `fadeMs`, so the ending reads without the edge ever lying about where
+// sight is still blocked. Fill and rim are therefore two Graphics under one
+// per-puff container (the container carries position and the growth scale).
 
-import { Graphics } from 'pixi.js';
+import { Container as PixiContainer, Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import { CONFIG, puffRadius, type SmokeView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -44,7 +51,9 @@ export function puffFade(t0: number, serverNow: number): number {
 }
 
 interface PuffSprite {
-  g: Graphics;
+  root: PixiContainer; // position + growth scale; parent of the two below
+  fill: Graphics; // alpha = fillAlpha × puffFade — the only faded part
+  rim: Graphics; // full rim alpha for the whole life — the occlusion edge
   t0: number; // server-clock birth stamp — drives radius and fade
 }
 
@@ -69,24 +78,30 @@ export class SmokeScreen {
     for (const id of [...this.sprites.keys()]) if (!live.has(id)) this.despawn(id);
   }
 
-  /** Per render frame: grow each disc along the shared curve and fade it over
-   *  its last `fadeMs`. `serverNow` is the server-clock estimate (ms). */
+  /** Per render frame: grow each disc along the shared curve and fade its
+   *  FILL over the last `fadeMs` (the rim never fades). `serverNow` is the
+   *  server-clock estimate (ms). */
   render(serverNow: number): void {
-    for (const { g, t0 } of this.sprites.values()) {
-      g.scale.set(puffRadius(t0, serverNow) / PUFF_DRAW_RADIUS);
-      g.alpha = puffFade(t0, serverNow);
+    for (const { root, fill, t0 } of this.sprites.values()) {
+      root.scale.set(puffRadius(t0, serverNow) / PUFF_DRAW_RADIUS);
+      fill.alpha = puffFade(t0, serverNow);
     }
   }
 
   /** The drawn radius (u) of a held puff (test seam). */
   radiusOf(id: string): number | null {
     const s = this.sprites.get(id);
-    return s ? s.g.scale.x * PUFF_DRAW_RADIUS : null;
+    return s ? s.root.scale.x * PUFF_DRAW_RADIUS : null;
   }
 
-  /** The live alpha multiplier of a held puff (test seam). */
+  /** The live FILL alpha multiplier of a held puff (test seam). */
   alphaOf(id: string): number | null {
-    return this.sprites.get(id)?.g.alpha ?? null;
+    return this.sprites.get(id)?.fill.alpha ?? null;
+  }
+
+  /** The live RIM alpha multiplier of a held puff (test seam) — 1 for life. */
+  rimAlphaOf(id: string): number | null {
+    return this.sprites.get(id)?.rim.alpha ?? null;
   }
 
   /** How many puffs are held (test seam). */
@@ -95,20 +110,20 @@ export class SmokeScreen {
   }
 
   private spawn(p: SmokeView): void {
-    const g = new Graphics();
-    g.circle(0, 0, PUFF_DRAW_RADIUS)
-      .fill({ color: COLOR, alpha: K.fillAlpha })
-      .stroke({ color: COLOR, alpha: K.rimAlpha, width: 1 });
-    g.position.set(p.x, p.y);
-    g.scale.set(CONFIG.smokeScreen.r0 / PUFF_DRAW_RADIUS);
-    this.layer.addChild(g);
-    this.sprites.set(p.id, { g, t0: p.t0 });
+    const fill = new Graphics().circle(0, 0, PUFF_DRAW_RADIUS).fill({ color: COLOR, alpha: K.fillAlpha });
+    const rim = new Graphics().circle(0, 0, PUFF_DRAW_RADIUS).stroke({ color: COLOR, alpha: K.rimAlpha, width: 1 });
+    const root = new PixiContainer();
+    root.addChild(fill, rim);
+    root.position.set(p.x, p.y);
+    root.scale.set(CONFIG.smokeScreen.r0 / PUFF_DRAW_RADIUS);
+    this.layer.addChild(root);
+    this.sprites.set(p.id, { root, fill, rim, t0: p.t0 });
   }
 
   private despawn(id: string): void {
     const s = this.sprites.get(id);
     if (!s) return;
-    s.g.destroy();
+    s.root.destroy({ children: true });
     this.sprites.delete(id);
   }
 }

@@ -139,8 +139,12 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // add-on panels (both tall, both down) left, PHOSPHOR SHELLS' five equipment
     // panels carry its long DRAFT explanation and all open down, and FLASH
     // SHELLS' five consumable panels carry a short one that fits above.
-    expect(down).toHaveLength(47);
-    expect(PANELS.length - down.length).toBe(70);
+    // Story 8.18 (cycle-153 review gate) nets +5 DOWN (47 -> 52) and −5 ABOVE
+    // (70 -> 65): SMOKE SCREEN's reworded DRAFT hover (radar still paints; the
+    // in-smoke sight cut) outgrows the water above, so its five consumable
+    // panels now open down — none clipped (the next test).
+    expect(down).toHaveLength(52);
+    expect(PANELS.length - down.length).toBe(65);
     // The split IS the water line — nothing else decides it.
     for (const { label, model } of PANELS) {
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);

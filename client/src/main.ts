@@ -3972,6 +3972,19 @@ function dazzleActive(g: Game, now: number): boolean {
 }
 
 /**
+ * Pure-ish: does the own hull's centre stand inside a live SMOKE SCREEN puff
+ * right now (Story 8.18, Eric ruling 2026-09-29, amendment 149)? Read VERBATIM
+ * off the self-private `you.inSmoke` the server stamps per tick — never
+ * re-derived from the puff list, so the fog, radar seam and projectile cull
+ * shrink on exactly the ticks the server's `sightOf` does. Spectating reads
+ * false: `net.you` is never cleared, so a wreck's last in-smoke frame must not
+ * hold a spectator's bubble at 1/8 forever.
+ */
+function inSmokeActive(g: Game): boolean {
+  return !g.state.spectating && g.state.net.you?.inSmoke === true;
+}
+
+/**
  * Keep the fog's sight hole HONEST while dazzled: the server has already
  * shrunk this ship's perceived sight to the shared `effectiveSight`
  * (radarRange/8 — shared/src/sim/sight.ts, the function its `sightOf` calls), so
@@ -3992,10 +4005,18 @@ function dazzleActive(g: Game, now: number): boolean {
  * flag guards the expensive rebake and nothing else; the radar re-reads the
  * radius when a paint is created and has nothing to rebake, so its own
  * changed-flag is deliberately unused here.
+ *
+ * IN SMOKE RIDES THE SAME PATH (Story 8.18, amendment 149): the self-private
+ * `you.inSmoke` shrinks the server's `sightOf` through the same shared
+ * `effectiveSight`, so all three consumers take it from here beside the dazzle
+ * flag, and a flip rebakes the fog on exactly the frames it changes. No HUD
+ * tell rides it — the DAZZLED tell keys on `dazzledUntil` alone.
  */
 function updateDazzle(g: Game, now: number): void {
   const dazzled = dazzleActive(g, now);
+  const inSmoke = inSmokeActive(g);
   g.radar.setDazzled(dazzled);
+  g.radar.setInSmoke(inSmoke);
   // THE PROJECTILE CULL RINGS TAKE IT TOO (review fix). The server reveals and
   // corrects ballistics inside `sightOf(me, now)` — dazzle-scaled — so a client
   // holding the un-dazzled ring would go on dead-reckoning a shell or an enemy
@@ -4003,7 +4024,12 @@ function updateDazzle(g: Game, now: number): void {
   // before the fog's changed-flag early-return, for the same reason the radar
   // is: that flag guards the expensive rebake and nothing else.
   g.projectiles.setDazzled(dazzled);
-  if (!g.fog.setDazzled(dazzled)) return;
+  g.projectiles.setInSmoke(inSmoke);
+  // Both fog flags are set BEFORE the one rebake decision, so neither setter is
+  // short-circuited away by the other reporting a flip.
+  const dazzleFlipped = g.fog.setDazzled(dazzled);
+  const smokeFlipped = g.fog.setInSmoke(inSmoke);
+  if (!dazzleFlipped && !smokeFlipped) return;
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
 

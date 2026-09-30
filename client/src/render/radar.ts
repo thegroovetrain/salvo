@@ -367,6 +367,13 @@ export class Radar {
    *  only, so a dazzle changes which source paints the NEXT sweep and never
    *  retroactively edits a paint already on the scope (amendment 83). */
   private dazzled = false;
+  /** Does the own hull stand inside a live SMOKE SCREEN puff (Story 8.18, the
+   *  self-private you.inSmoke)? The SAME flag `Fog` carries, from the same
+   *  call site — it moves the source seam (1/8 intel range) exactly as a dazzle
+   *  does, and it drops the puff term from the in-bubble wake synthesis (an
+   *  in-smoke observer sees INTO smoke inside its shrunken bubble, amendment
+   *  149). Read at paint creation / stamp build only. */
+  private inSmoke = false;
   /**
    * THE IN-BOUND WAKE SOURCE (Story 4.12) — the client's own ribbons, for the
    * half of the scope's wake the server deliberately does not disclose.
@@ -478,6 +485,22 @@ export class Radar {
   }
 
   /**
+   * Adopt the IN-SMOKE state (Story 8.18) — `setDazzled`'s twin, same
+   * changed-flag contract (nothing to rebake here; the dim mask re-syncs off
+   * `sightHoleU` on its own).
+   */
+  setInSmoke(inSmoke: boolean): boolean {
+    if (inSmoke === this.inSmoke) return false;
+    this.inSmoke = inSmoke;
+    return true;
+  }
+
+  /** Is the own hull in smoke? Test/observation seam (mirrors `Fog`). */
+  get isInSmoke(): boolean {
+    return this.inSmoke;
+  }
+
+  /**
    * THE SOURCE SEAM (u): the effective truesight radius, inside which a ship
    * echo is SYNTHESIZED from its `Contact` and outside which it arrives as a
    * wire blip (amendment 89). Nothing is suppressed on either side of it — the
@@ -491,7 +514,7 @@ export class Radar {
    * exactly that equality assertion.
    */
   get sightHoleU(): number {
-    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzled);
+    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzled, this.inSmoke);
   }
 
   private applyRanges(): void {
@@ -1190,6 +1213,7 @@ export class Radar {
       this.wakeIslands,
       Math.floor(at / this.sweepPeriodMs),
       this.wakeSmoke(),
+      this.inSmoke,
     );
   }
 

@@ -321,11 +321,13 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
   });
 
   // STORY 8.18 — SMOKE SCREEN's DRAFT hover reads its numbers off CONFIG.
-  it('explains SMOKE SCREEN with its CONFIG numbers, and that radar sees through', () => {
+  it('explains SMOKE SCREEN with its CONFIG numbers, that radar still paints, and the in-smoke sight', () => {
     const smoke = boonTooltipText('smokeScreen');
     expect(smoke).toContain(`astern for ${CONFIG.smokeScreen.layMs / 1000} s`);
     expect(smoke).toContain(`for ${CONFIG.smokeScreen.lifeMs / 1000} s`);
-    expect(smoke).toContain('radar sees through');
+    expect(smoke).toContain('Radar still paints');
+    expect(smoke).not.toContain('sees through'); // amendment 147: radar paints a smoked hull, it does not "see through"
+    expect(smoke).toContain(`1/${Math.round(1 / CONFIG.smokeScreen.inSmokeSightFraction)} of your radar range`);
     expect(smoke).not.toMatch(/replaces/i);
   });
 

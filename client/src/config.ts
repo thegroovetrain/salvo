@@ -2314,8 +2314,10 @@ export const CLIENT_CONFIG = {
    * a large stationary disc with a crisp rim vs small trailing soft blobs.
    */
   smokeScreen: {
-    /** The last this-many ms of a puff's life ease its alpha linearly to 0 so a
-     *  puff thins out rather than popping off at its server `until`. */
+    /** The last this-many ms of a puff's life ease its FILL alpha linearly to
+     *  0 so a puff thins out rather than popping off at its server `until`.
+     *  The rim never fades — it is the occlusion edge, and the puff occludes at
+     *  full strength until removal (cycle-153 review gate). */
     fadeMs: 5000,
     /** Disc fill alpha at full strength (before the end-of-life fade). */
     fillAlpha: 0.35,

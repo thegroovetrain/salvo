@@ -454,10 +454,16 @@ const BOON_EXPLAIN: Readonly<Partial<Record<LineId, string>>> = {
   } s. You never see them; enemies cannot tell them from ships.`,
   decoyBuoy: `Drops a ${CONFIG.decoyBuoy.hp} hp float in your rear arc that enemy torpedoes home on and detonate against. Your own weapons ignore it.`,
   // SMOKE SCREEN (Story 8.18) — an IMPLEMENTER DRAFT for Eric's eye on staging,
-  // in the 8.16 register, every number read off CONFIG.smokeScreen.
-  smokeScreen: `Lays a trail of smoke astern for ${CONFIG.smokeScreen.layMs / 1000} s; each puff hides everything behind it from eyes for ${
+  // in the 8.16 register, every number read off CONFIG.smokeScreen. Reworded
+  // at the cycle-153 review gate: radar now paints a smoked hull inside your
+  // bubble too (amendment 147), and standing in smoke shrinks your own sight
+  // (amendment 149) — "radar sees through" undersold the first and hid the
+  // second. The fraction reads like FLASH SHELLS' below.
+  smokeScreen: `Lays a trail of smoke astern for ${CONFIG.smokeScreen.layMs / 1000} s; each puff hides what is inside or behind it from eyes for ${
     CONFIG.smokeScreen.lifeMs / 1000
-  } s — radar sees through.`,
+  } s. Radar still paints; standing in smoke cuts your own sight to 1/${Math.round(
+    1 / CONFIG.smokeScreen.inSmokeSightFraction,
+  )} of your radar range.`,
   // FLASH SHELLS (internal id `dazzleShells` — Story 8.17, amendment 135(j)):
   // an IMPLEMENTER DRAFT for Eric's eye on staging, in the 8.16 register, every
   // number read off CONFIG.flashShells.

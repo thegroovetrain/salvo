@@ -10,15 +10,18 @@
 
 import { afterEach, describe, it, expect } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
-import { CONFIG, eachWakeSegment, puffRadius, type SmokeView } from '@salvo/shared';
+import { CONFIG, eachWakeSegment, effectiveSight, puffRadius, type SmokeView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { settings } from '../settings/store.js';
 import { PUFF_DRAW_RADIUS, SmokeScreen, puffFade } from '../render/smokeScreen.js';
 import {
+  SMOKE_GROWTH_BUCKET_MS,
   WAKE_STAMP_MIN_MS,
+  WAKE_STAMP_REBUILD_MS,
   WakeSources,
   WakeStampCache,
   buildTruesightWakeStamp,
+  smokeSetKey,
   type WakeHull,
 } from '../render/wake.js';
 
@@ -50,7 +53,7 @@ describe('SmokeScreen.sync — the id-keyed puff reconcile', () => {
     const smoke = new SmokeScreen(layer);
     smoke.sync([puff('sk1', 0, 120, -40)]);
     smoke.render(10_000);
-    const g = layer.children[0] as Graphics;
+    const g = layer.children[0];
     expect([g.x, g.y]).toEqual([120, -40]);
     smoke.render(20_000);
     expect([g.x, g.y]).toEqual([120, -40]);
@@ -59,9 +62,13 @@ describe('SmokeScreen.sync — the id-keyed puff reconcile', () => {
   it('draws ONE disc: a fill and a rim, nothing else (shape, not colour, is the tell)', () => {
     const layer = new Container();
     new SmokeScreen(layer).sync([puff('sk1')]);
-    const g = layer.children[0] as Graphics;
-    expect(g.children).toHaveLength(0);
-    expect(g.context.instructions).toHaveLength(2); // fill + stroke
+    // One node per puff in the layer; under it exactly the fill and the rim,
+    // split so the end-of-life fade can thin the fill while the rim holds.
+    expect(layer.children).toHaveLength(1);
+    const [fill, rim] = layer.children[0].children as Graphics[];
+    expect(layer.children[0].children).toHaveLength(2);
+    expect(fill.context.instructions.map((i) => i.action)).toEqual(['fill']);
+    expect(rim.context.instructions.map((i) => i.action)).toEqual(['stroke']);
   });
 });
 
@@ -99,13 +106,20 @@ describe('the end-of-life fade — the last fadeMs of a puff, timestamp math', (
     expect(puffFade(t0, end + 1_000)).toBe(0);
   });
 
-  it('applies the fade to the held disc on render', () => {
+  it('applies the fade to the FILL only — the rim (the occlusion edge) holds for the whole life', () => {
     const smoke = new SmokeScreen(new Container());
     smoke.sync([puff('sk1', 0)]);
     smoke.render(1_000);
     expect(smoke.alphaOf('sk1')).toBe(1);
+    expect(smoke.rimAlphaOf('sk1')).toBe(1);
     smoke.render(K.lifeMs - FADE / 4);
     expect(smoke.alphaOf('sk1')).toBeCloseTo(0.25, 9);
+    // The puff still occludes at full strength until the server removes it, so
+    // the drawn edge must not thin with the fill.
+    expect(smoke.rimAlphaOf('sk1')).toBe(1);
+    smoke.render(K.lifeMs - 1);
+    expect(smoke.rimAlphaOf('sk1')).toBe(1);
+    expect(smoke.rimAlphaOf('nope')).toBeNull();
   });
 });
 
@@ -194,7 +208,7 @@ describe('the in-bubble wake mirror owes the server smoke term (ruling 143)', ()
     expect(buildTruesightWakeStamp(sources, own, SIGHT, t, CELL, MODEL, [], 0, [old]).size).toBeLessThan(clear);
   });
 
-  it('a puff laid (or gone) forces the stamp cache to rebuild past its floor', () => {
+  it('a puff laid (or gone) forces the stamp cache to rebuild', () => {
     const { sources, t } = tracked();
     const cache = new WakeStampCache();
     expect(cache.stampFor(sources, own, SIGHT, t, CELL, MODEL, [], 0, []).size).toBeGreaterThan(0);
@@ -204,5 +218,110 @@ describe('the in-bubble wake mirror owes the server smoke term (ruling 143)', ()
     const again = later + WAKE_STAMP_MIN_MS + 1;
     sources.get('a')!.seenMs = again;
     expect(cache.stampFor(sources, own, SIGHT, again, CELL, MODEL, [], 0, []).size).toBeGreaterThan(0);
+  });
+
+  // --- cycle-153 review gate: the cache key and the in-smoke observer ---------
+
+  it('(i) a puff arriving INSIDE the min-ms floor invalidates the stamp at once', () => {
+    const { sources, t } = tracked();
+    const cache = new WakeStampCache();
+    expect(cache.stampFor(sources, own, SIGHT, t, CELL, MODEL, [], 0, []).size).toBeGreaterThan(0);
+    const soon = t + WAKE_STAMP_MIN_MS / 2; // under the floor
+    sources.get('a')!.seenMs = soon + 1; // still observed throughout
+    expect(cache.stampFor(sources, own, SIGHT, soon, CELL, MODEL, [], 0, [between(soon)]).size).toBe(0);
+    // ...and a puff leaving under the floor re-reveals at once too.
+    expect(cache.stampFor(sources, own, SIGHT, soon + 1, CELL, MODEL, [], 0, []).size).toBeGreaterThan(0);
+  });
+
+  it('(ii) a mid-list swap with the same count and the same first/last id changes the key', () => {
+    const a = [puff('sk1'), puff('sk2'), puff('sk9')];
+    const b = [puff('sk1'), puff('sk5'), puff('sk9')];
+    expect(smokeSetKey(a, 0)).not.toBe(smokeSetKey(b, 0));
+    expect(smokeSetKey(a, 0)).toBe(smokeSetKey([puff('sk1'), puff('sk2'), puff('sk9')], 0));
+    // ...and the cache acts on it: swap in a middle puff that sits on the line.
+    const { sources, t } = tracked();
+    const cache = new WakeStampCache();
+    const off1 = puff('sk1', t, own.x, own.y - 200);
+    const off9 = puff('sk9', t, own.x, own.y - 300);
+    const offMid = puff('sk2', t, own.x - 300, own.y);
+    const onLine = { ...between(t), id: 'sk5' };
+    expect(cache.stampFor(sources, own, SIGHT, t, CELL, MODEL, [], 0, [off1, offMid, off9]).size).toBeGreaterThan(0);
+    expect(cache.stampFor(sources, own, SIGHT, t + 1, CELL, MODEL, [], 0, [off1, onLine, off9]).size).toBe(0);
+  });
+
+  it('(iii) a young r40 puff that misses at build time hides the segment once grown, within one bucket', () => {
+    const { sources, t } = tracked();
+    let steepest = -Infinity;
+    eachWakeSegment(sources.get('a')!.ribbon, t, (seg) => {
+      steepest = Math.max(steepest, Math.atan2(seg.my - own.y, seg.mx - own.x));
+    });
+    const at = steepest + Math.PI / 6;
+    // The steepest line passes 100·sin 30° = 50 u from the puff centre. Born
+    // so it is r 49.5 at the build (misses), it crosses 50 u ~0.75 s later.
+    const born = t - ((49.5 - K.r0) / (K.r1 - K.r0)) * K.expandMs;
+    const p = puff('sk4', born, own.x + 100 * Math.cos(at), own.y + 100 * Math.sin(at));
+    const src = sources.get('a')!;
+    const clear = buildTruesightWakeStamp(sources, own, SIGHT, t, CELL, MODEL, [], 0, []).size;
+    const cache = new WakeStampCache();
+    // Find the first instant the one-shot build hides something.
+    const hides = (now: number): boolean => {
+      src.seenMs = now; // keep the source observed; only growth moves
+      return buildTruesightWakeStamp(sources, own, SIGHT, now, CELL, MODEL, [], 0, [p]).size < clear;
+    };
+    let hideAt = t;
+    while (!hides(hideAt) && hideAt < t + 5_000) hideAt += 50;
+    expect(hideAt).toBeGreaterThan(t); // it really did miss at build time
+    expect(hideAt).toBeLessThan(t + 5_000); // ...and really does hide once grown
+    src.seenMs = t;
+    expect(cache.stampFor(sources, own, SIGHT, t, CELL, MODEL, [], 0, [p]).size).toBe(clear);
+    // Observer still, segment set fixed: only growth (the bucket) can re-key it.
+    const within = hideAt + SMOKE_GROWTH_BUCKET_MS;
+    src.seenMs = within;
+    // ...and before the generic rebuild clock would have caught it anyway, so
+    // the growth bucket is what does the work here.
+    expect(within - t).toBeLessThan(WAKE_STAMP_REBUILD_MS);
+    expect(cache.stampFor(sources, own, SIGHT, within, CELL, MODEL, [], 0, [p]).size).toBeLessThan(clear);
+  });
+
+  it('(iv) an IN-SMOKE observer sees INTO smoke within its 1/8 bubble and nothing beyond', () => {
+    const inSmokeSight = effectiveSight({ sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar }, false, true);
+    expect(inSmokeSight).toBe(CONFIG.vision.radar * CONFIG.smokeScreen.inSmokeSightFraction);
+    // A short track running along y = 60 u from the observer: every segment
+    // midpoint well inside 82.5 u, a puff squarely on the line between.
+    const near = new WakeSources();
+    const h: WakeHull = { id: 'n', x: -20, y: 60, heading: 0, speed: 30, cls: 'battleship', color: 0xffffff, maxSpeedU: 60 };
+    let t = 0;
+    for (let i = 0; i < 4; i++) {
+      near.observe(h, t);
+      h.x += CONFIG.vision.wakeSampleU + 1;
+      t += 50;
+    }
+    const origin = { x: 0, y: 0 };
+    const mid = puff('sk1', t, 0, 30);
+    const smoke = [mid, puff('sk2', t, 0, 0)]; // the observer's own puff too
+    expect(buildTruesightWakeStamp(near, origin, inSmokeSight, t, CELL, MODEL, [], 0, smoke, false).size).toBe(0);
+    expect(buildTruesightWakeStamp(near, origin, inSmokeSight, t, CELL, MODEL, [], 0, smoke, true).size).toBeGreaterThan(0);
+    // A CLEAR segment at ~100 u (no puff anywhere near it) is beyond the in-smoke
+    // bubble and is NOT revealed.
+    const far = tracked();
+    const farOwn = { x: 150, y: 140 }; // ~100 u north of the track at y=40
+    expect(buildTruesightWakeStamp(far.sources, farOwn, SIGHT, far.t, CELL, MODEL, [], 0, []).size).toBeGreaterThan(0);
+    expect(buildTruesightWakeStamp(far.sources, farOwn, inSmokeSight, far.t, CELL, MODEL, [], 0, [], true).size).toBe(0);
+  });
+
+  it('an in-smoke flip invalidates the cached stamp inside the floor', () => {
+    const { sources, t } = tracked();
+    const cache = new WakeStampCache();
+    const onMe = puff('sk3', t, own.x + 10, own.y);
+    expect(cache.stampFor(sources, own, SIGHT, t, CELL, MODEL, [], 0, [onMe], false).size).toBe(0);
+    // Same sight radius on purpose, so only the flag can be the reason.
+    expect(cache.stampFor(sources, own, SIGHT, t + 1, CELL, MODEL, [], 0, [onMe], true).size).toBeGreaterThan(0);
+  });
+
+  it('the growth bucket ticks only while a puff is live', () => {
+    expect(smokeSetKey([], 0)).toBe(smokeSetKey([], 10 * SMOKE_GROWTH_BUCKET_MS));
+    expect(smokeSetKey([puff('sk1')], 0)).toBe(smokeSetKey([puff('sk1')], SMOKE_GROWTH_BUCKET_MS - 1));
+    expect(smokeSetKey([puff('sk1')], 0)).not.toBe(smokeSetKey([puff('sk1')], SMOKE_GROWTH_BUCKET_MS));
+    expect(smokeSetKey([puff('sk1')], 0, true)).toBe(smokeSetKey([puff('sk2')], 99_999, true));
   });
 });

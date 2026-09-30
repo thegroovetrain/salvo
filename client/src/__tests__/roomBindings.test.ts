@@ -2083,6 +2083,24 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
   });
 });
 
+// STORY 8.18 (amendment 149): the self-private `you.inSmoke` rides the own-ship
+// mirror VERBATIM — main.ts `inSmokeActive` reads it off `state.net.you` to
+// shrink fog, radar seam and projectile cull through the shared
+// `effectiveSight`. No cue and no tell ride it (Eric asked for none).
+describe('the in-smoke own-ship read (Story 8.18)', () => {
+  it('mirrors you.inSmoke onto state.net.you, and drops it when the server omits it', () => {
+    const { sink, play, deps } = setupWater();
+    const you = (): { inSmoke?: true } | null => (deps.state.net as { you: { inSmoke?: true } | null }).you;
+    sink.handler(victimFrame([], {}));
+    expect(you()?.inSmoke).toBeUndefined();
+    sink.handler(victimFrame([], { inSmoke: true }));
+    expect(you()?.inSmoke).toBe(true);
+    sink.handler(victimFrame([], {})); // stepped out: the key is absent, not false
+    expect(you()?.inSmoke).toBeUndefined();
+    expect(play).not.toHaveBeenCalled(); // no sound, no DAZZLED-style tell
+  });
+});
+
 describe('victim tells (Story 2.9) — SLOWED / DAZZLED cue edges', () => {
   it('fires each cue ONCE on the rising edge, and never on a refresh', () => {
     const { sink, play } = setupWater();
