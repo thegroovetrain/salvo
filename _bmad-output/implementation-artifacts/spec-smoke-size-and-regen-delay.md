@@ -2,7 +2,8 @@
 title: 'Smoke puffs sized to intel range; out-of-combat regen delay 15 s'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-review'
+status: 'done'
+final_revision: 'f82a33d'
 baseline_revision: '0bccb8a'
 review_loop_iteration: 0
 followup_review_recommended: false
