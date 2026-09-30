@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.18.20] - 2026-09-30
+
+### Changed
+- **BOTS DRAW FROM THE POOL (Story 8.20)** — a Solo vs AI bot now picks its cards from what it carries, what it lacks and how hurt it is, instead of a per-hull wish list. A weapon for an empty slot comes first; a strong upgrade or a needed HULL REPAIR still beats a weapon it merely favors; a consumable it already carries scores lower; a bot with a flat level-zero build takes a weapon before any upgrade.
+- **Six personalities, any hull** — raider, duelist, bulwark, siege, forager and trapper keep their fighting style (band, targets, retreat point) and gain a build taste: rounded or specialist builds, favorite upgrades, favorite consumables, favorite weapons and how hungry the belt is. Any of them can now sail any of the three hulls.
+- **Bots boost into a fight** — a bot chasing or engaging a target beyond the edge of its firing band presses the class boost (never while hunting fleet groups, and still when fleeing).
+- **Smoke discipline** — a bot never pops a smoke screen while one of its own is still running.
+- Bot guns stay random.
+
+### Internal
+- `CONFIG.bots.cardPoints` replaces `boonWeights` and the v2-to-v3 alias layer (deleted); `CONFIG.bots.profiles` is a flat list, `BotProfile.hullId` is gone (test rows stay hull-bound).
+- Tactic tables split into `ai/tacticKit.ts`, `equipment.ts`, `shift.ts`, `consumables.ts` and `tacticRegistry.ts`; the registries are total (a new card id without a bot row fails type-check) and `tacticFor` stays fail-closed. `APPETITE_FAMILY` deleted.
+- Harness: POOL READOUTS section (gun mix, weaponless-at-level, pure gunboat, heal-take rate, levels wasted, weapon-line spread, peak live mines) — measurements, no pass/fail bars; dead `--deck-only --draws` usage line removed. Evidence: `batch-sim-evidence-2026-09-30.md`.
+- PROTOCOL_VERSION unchanged at 62.
+- Tests: shared 1017, server 2263, client 3748.
+
 ## [0.18.19] - 2026-09-30
 
 ### Added
