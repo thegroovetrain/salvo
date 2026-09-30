@@ -55,6 +55,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isAfloat,
+  isSinking,
   CATALOG,
   CONFIG,
   CONSUMABLE_SLOTS,
@@ -185,7 +186,7 @@ function puffBlocks(w: World, a: { x: number; y: number }, b: { x: number; y: nu
  *  stamps afloat hulls only — it keeps the ordinary rule and is blind from
  *  inside a puff). */
 function inSmokeOracle(w: World, me: ShipRecord): boolean {
-  if (!isAfloat(me.lifecycle)) return false;
+  if (!isAfloat(me.lifecycle) && !isSinking(me.lifecycle)) return false;
   for (const puff of w.smoke.values()) {
     if (w.now >= puff.until) continue;
     if (dist(me.state, puff) <= puffRadiusOracle(puff.bornAt, w.now)) return true;

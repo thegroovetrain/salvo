@@ -2639,7 +2639,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
   status: OPEN — recorded readings Eric may veto
-  summary: THREE READINGS UNDER AMENDMENT 149: a foghorn beyond 82.5 u is muffled one step (not silenced) for an in-smoke listener; a sinking hull inside a puff keeps the pre-149 blind-out rule (not "in smoke"); the smoke-hidden in-bubble blip carries no ship-wake tell.
+  summary: TWO READINGS UNDER AMENDMENT 149: a foghorn beyond 82.5 u is muffled one step (not silenced) for an in-smoke listener; the smoke-hidden in-bubble blip carries no ship-wake tell.
   evidence: epic-8 amendment 149.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`

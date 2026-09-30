@@ -308,12 +308,11 @@ export function puffCrossed(a: Vec2, b: Vec2, puffs: readonly SmokePuff[], now: 
  */
 export function sightClear(me: ShipRecord, b: Vec2, islands: readonly Island[], puffs: readonly SmokePuff[], now: number): boolean {
   const a = me.state;
-  if (!losClear(a, b, islands)) return false;
-  if (!me.inSmoke) return !puffCrossed(a, b, puffs, now);
+  if (!me.inSmoke) return losClear(a, b, islands) && !puffCrossed(a, b, puffs, now);
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const sight = sightOf(me, now);
-  return dx * dx + dy * dy <= sight * sight;
+  return dx * dx + dy * dy <= sight * sight && losClear(a, b, islands);
 }
 
 /**

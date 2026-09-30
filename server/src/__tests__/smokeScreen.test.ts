@@ -38,7 +38,7 @@
 // perception.test.ts; the perf pin in smokePerf.test.ts.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, CONSUMABLE_SLOTS, isAfloat, wrapPositive, type FrameMsg, type GameEvent, type WakeRibbon } from '@salvo/shared';
+import { CONFIG, CONSUMABLE_SLOTS, isAfloat, isSinking, wrapPositive, type FrameMsg, type GameEvent, type WakeRibbon } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { sightOf } from '../game/signals.js';
@@ -678,12 +678,24 @@ describe('SMOKE SCREEN — STANDING IN SMOKE (Eric ruling 2026-09-29, amendment 
     expect(a.inSmoke).toBe(false);
   });
 
-  it('a SINKING hull is never stamped in smoke (afloat only), and a life boundary resets the stamp', () => {
+  it('a SINKING hull inside a live puff IS in smoke (1/8 sight, OwnShip.inSmoke true); a SUNK hull is never stamped', () => {
     const { w, a } = inSmokeWorld();
+    place(w, 'near', 60, 0);
+    place(w, 'far', 100, 0);
+    injectPuff(w, 'other', 'z', 60, 0); // `near` stands inside another puff
     steps(w, 1);
     expect(a.inSmoke).toBe(true);
     w.sinkShip('a');
-    expect(a.inSmoke).toBe(false);
+    expect(isSinking(a.lifecycle)).toBe(true);
+    steps(w, 1);
+    expect(isSinking(a.lifecycle)).toBe(true);
+    expect(a.inSmoke).toBe(true);
+    expect(sightOf(a, w.now)).toBe(82.5);
+    const f = buildFrame(w, 'a');
+    expect(f.you!.inSmoke).toBe(true);
+    expect(contactIds(f)).toContain('near');
+    expect(contactIds(f)).not.toContain('far');
+    a.lifecycle = { kind: 'sunk', at: w.now };
     steps(w, 1);
     expect(a.inSmoke).toBe(false);
   });

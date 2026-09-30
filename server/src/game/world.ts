@@ -2143,6 +2143,7 @@ export class World {
     // window (Story 8.18; the puffs themselves left with smoke.clear()).
     ship.nextSmokeAt = 0;
     World.clearSmokeScreen(ship);
+    ship.inSmoke = false; // amendment 149: a redeployed hull stands in no smoke until stepSmoke says so
     ship.nextHonkAt = 0;
     // lastFireSeq / lastActSeq / lastHornSeq are deliberately NOT reset — a
     // reset fires a phantom shot / phantom boost / phantom honk (the stored
@@ -2350,6 +2351,7 @@ export class World {
       ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
       ship.dazzledUntil = 0;
       World.clearSmokeScreen(ship); // already closed at sinkShip (ruling 144); symmetric for directed callers
+      ship.inSmoke = false; // a FOUNDERED hull is sunk: stands in no smoke
     }
   }
 
@@ -2357,11 +2359,11 @@ export class World {
    *  owed. THE one reset, called at every life boundary (sinkShip — ruling
    *  144's "laying stops at sink entry" — founderSinking, respawn,
    *  redeployShip). Never touches World.smoke: the puffs on the water are not
-   *  the hull's. */
+   *  the hull's. Does NOT touch `inSmoke`: a sinking hull keeps being stamped
+   *  each tick; the non-sinking boundaries reset it at their own call. */
   private static clearSmokeScreen(ship: ShipRecord): void {
     ship.smokeUntil = 0;
     ship.nextPuffAt = 0;
-    ship.inSmoke = false; // amendment 149: a sunk/redeployed/respawned hull stands in no smoke until stepSmoke says so
   }
 
   /**
@@ -5990,9 +5992,9 @@ export class World {
    * (cos h, sin h)`, the same half-length the ordnance spawn offset reads
    * (equipment/ballistics.ts hullClearOffset) — with `bornAt = now`, `until =
    * now + lifeMs`, and advance `nextPuffAt` by `puffIntervalMs`. Ten puffs per
-   * copy at the shipped 5000 / 500 (ruling 138); a re-press re-arms
-   * `nextPuffAt = now` (setSmokeScreen), so the trail restarts on the next
-   * tick. A sinking or sunk hull lays nothing (ruling 144 — the window is
+   * copy at the shipped 5000 / 500 (ruling 138); the cadence grid
+   * is re-anchored only from idle (setSmokeScreen); a mid-lay re-press keeps
+   * the running grid and only extends `smokeUntil`. A sinking or sunk hull lays nothing (ruling 144 — the window is
    * also closed at sink entry). A NON-FINITE stern (a NaN/Infinity pose —
    * unreachable through inputs.ts's finite-checked intent, guarded anyway)
    * lays NOTHING and advances nothing: a NaN puff would fail every distance
@@ -6026,7 +6028,9 @@ export class World {
 
   /**
    * The per-tick `ShipRecord.inSmoke` stamp (Story 8.18, amendment 149): for
-   * every hull, true iff it is afloat and its centre lies within some live
+   * every hull, true iff it is afloat or sinking (never sunk — a sinking captain in a
+   * puff has the 1/8 sight like an afloat one, ruling 149 has no carve-out)
+   * and its centre lies within some live
    * puff's current radius (the shared `puffRadius` at this tick's `now` —
    * the same curve signals.sightClear reads, so "I stand in it" and "smoke
    * does not blind me" agree). Ownership is not read.
@@ -6038,7 +6042,7 @@ export class World {
     const puffs = [...this.smoke.values()];
     const radii = puffs.map((p) => puffRadius(p.bornAt, this.now));
     for (const ship of this.ships.values()) {
-      ship.inSmoke = isAfloat(ship.lifecycle) && World.standsInPuff(ship.state, puffs, radii);
+      ship.inSmoke = (isAfloat(ship.lifecycle) || isSinking(ship.lifecycle)) && World.standsInPuff(ship.state, puffs, radii);
     }
   }
 
@@ -6147,6 +6151,7 @@ export class World {
     // ...nor a SMOKE SCREEN lay window (Story 8.18; sinkShip already closed
     // it — ruling 144 — kept symmetric here for directed callers).
     World.clearSmokeScreen(ship);
+    ship.inSmoke = false; // a respawned hull stands in no smoke until stepSmoke says so
     // A fresh life never inherits a stale smoke timer (Story 4.4): without
     // this, a hull that puffed just before sinking would owe the remainder of
     // the old interval on its next life.
