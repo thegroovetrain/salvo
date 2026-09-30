@@ -2541,7 +2541,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 ## 2026-09-29 — Story 8.16 Catalog v3: Shield, Chaff, Decoy (cycle 151)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: OPEN — Eric's eye on staging (amendment 124(f))
+  status: OPEN — Eric's eye on staging (amendment 124(f)); the three HOVER DESCRIPTIONS half is RESOLVED 2026-09-30 by deletion (cycle 157, amendment 178: tooltips print stats, no prose) — the glyphs and the hp readout stay open
   summary: FIVE IMPLEMENTER DRAFTS AWAIT ERIC'S SIGN-OFF. The three belt glyphs (SHIELD BLOCK, CHAFF, DECOY BUOY) drawn in the existing Pixi line-glyph style, the three hover descriptions, and the owner-only decoy hp readout (the old buoy marker's masthead arc re-used as `hp / CONFIG.decoyBuoy.hp`) were authored by the implementer, not Eric (the amendment 110 precedent).
   evidence: amendment 124(f); `client/src/render/equipmentIcons.ts` (`shieldBlock`/`chaff`/`decoyBuoy` glyphs), `client/src/ui/boonCopy.ts` (hover copy), `client/src/render/decoys.ts` (own hp arc).
 
@@ -2590,7 +2590,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 ## 2026-09-29 — Story 8.17 Catalog v3: Star Shells, Broadside, Phosphor, Flash (cycle 152)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
-  status: OPEN — for Eric's eye on staging
+  status: OPEN — for Eric's eye on staging; the BOTH HOVER DESCRIPTIONS half is RESOLVED 2026-09-30 by deletion (cycle 157, amendment 178) — the two glyphs stay open
   summary: THE PHOSPHOR SHELLS SLOT GLYPH, THE FLASH SHELLS BELT GLYPH AND BOTH HOVER DESCRIPTIONS ARE IMPLEMENTER DRAFTS (the amendment 110 precedent). Nothing about them was ruled; they are in the existing icon and copy style and Eric may redraw or reword either.
   evidence: `client/src/render/equipmentIcons.ts`; `client/src/render/equipmentInfo.ts`; `client/src/ui/boonCopy.ts`; epic-8 amendment 110.
 

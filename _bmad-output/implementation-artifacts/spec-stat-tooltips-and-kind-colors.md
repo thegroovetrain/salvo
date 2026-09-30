@@ -2,7 +2,8 @@
 title: 'Stat tooltips (one number per line), color-coded refit cards, machine-gun retune'
 type: 'feature'
 created: '2026-09-30'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '1252080'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
