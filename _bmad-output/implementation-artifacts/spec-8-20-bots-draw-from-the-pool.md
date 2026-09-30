@@ -2,8 +2,9 @@
 title: 'Story 8.20: Bots Draw from the Pool'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-review'
+status: 'done'
 baseline_revision: '2c57a99'
+final_revision: 'set-below'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -96,12 +97,12 @@ warnings: [oversized, multiple-goals]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Wave 0 (Opus, one writer — freezes the interfaces) `shared/src/constants.ts`, `ai/types.ts`, `ai/profiles.ts`, `ai/botDriver.ts`, profile blocks of `bots.test.ts` / `botPolicy.test.ts` -- flat profiles, tastes, `cardPoints`, explicit appetites, hull unlock -- `npm run build -w shared`; tsc may be red only in `spending.ts` consumers until Wave 1
-- [ ] Wave 1S (Opus) `ai/spending.ts` + spending/random/8.15 blocks of `botPolicy.test.ts` -- the scorer, every scorer row of the matrix, and a seeded property test (6 personalities × 50 seeds through the real `drawOffer`) that no personality ends ten levels with zero Q/E/R weapons
-- [ ] Wave 1E (Opus, parallel) `ai/equipment.ts`, NEW `ai/shift.ts`, `ai/consumables.ts`, registry module, `ai/tactics.ts`, `botTactics.test.ts` -- split, totality, R7, R8, stale comments
-- [ ] Wave 1H (Opus, parallel) harness files + tests -- readouts: gun mix (count and mean placement per gun), weaponless-at-level rate, pure-gunboat rate, heal-take rate (HULL REPAIR offered vs taken), levels wasted, weapon-line spread per lobby, peak live mines; read from `world` in the collector
-- [ ] Wave 2 (orchestrator) gate, review, ONE batch run `HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --captains 0 --bots 20 --matches 99`, evidence file
-- [ ] Wave 3 (Sonnet) docs wave
+- [x] Wave 0 (Opus, one writer — freezes the interfaces) `shared/src/constants.ts`, `ai/types.ts`, `ai/profiles.ts`, `ai/botDriver.ts`, profile blocks of `bots.test.ts` / `botPolicy.test.ts` -- flat profiles, tastes, `cardPoints`, explicit appetites, hull unlock -- `npm run build -w shared`; tsc may be red only in `spending.ts` consumers until Wave 1
+- [x] Wave 1S (Opus) `ai/spending.ts` + spending/random/8.15 blocks of `botPolicy.test.ts` -- the scorer, every scorer row of the matrix, and a seeded property test (6 personalities × 50 seeds through the real `drawOffer`) that no personality ends ten levels with zero Q/E/R weapons
+- [x] Wave 1E (Opus, parallel) `ai/equipment.ts`, NEW `ai/shift.ts`, `ai/consumables.ts`, registry module, `ai/tactics.ts`, `botTactics.test.ts` -- split, totality, R7, R8, stale comments
+- [x] Wave 1H (Opus, parallel) harness files + tests -- readouts: gun mix (count and mean placement per gun), weaponless-at-level rate, pure-gunboat rate, heal-take rate (HULL REPAIR offered vs taken), levels wasted, weapon-line spread per lobby, peak live mines; read from `world` in the collector
+- [x] Wave 2 (orchestrator) gate, review, ONE batch run `HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --captains 0 --bots 20 --matches 99`, evidence file
+- [x] Wave 3 (Sonnet) docs wave
 
 **Acceptance Criteria:**
 - Given `npm run check`, then lint, tsc ×3, all tests and the hook test pass; `npx tsc --noEmit -p server/scripts/batchsim/tsconfig.json` and the `rl` tsconfig are clean; `PROTOCOL_VERSION` is unchanged.
@@ -129,6 +130,22 @@ warnings: [oversized, multiple-goals]
   - `[low]` `[patch]` Runtime fail-closed skip for an unknown slot id was lost with the total registries (Edge Case Hunter 2) → restored without weakening compile-time totality.
 - evidence-file caveats (not code): the heal-take denominator counts hands where HULL REPAIR was untakeable (at cap / belt full), so late-match rates under-read willingness; a level earned within one deliberation of death reads as wasted (Blind Hunter F3/F7).
 - rejected: the rounded/specialist consequences of the points table (many 3-point ties for a rounded bot; a specialist stacks a favorite weapon's tiers before a second weapon) — that IS the ruled table, to be read in the evidence, not changed (Blind Hunter F5); the `slotIds`-absent test-state divergence (Edge Case Hunter 4, hand-built states only).
+
+## Auto Run Result
+
+Status: done (cycle 155, 0.18.20; `PROTOCOL_VERSION` unchanged at 62; epic-8 amendments 162–173)
+
+**Summary.** Bots choose cards with a build-aware points scorer (`CONFIG.bots.cardPoints`, `ai/spending.ts` `cardScore` / `chooseSpend`): what they carry, what they lack, their hp, flavored by a per-personality TASTE (rounded | specialist, favorite upgrades / consumables / weapons, belt hunger — Eric's six rows verbatim), ties by a seeded coin flip; the six per-hull wish lists and the v2→v3 alias layer are deleted. Any personality is dealt to any hull (flat `CONFIG.bots.profiles`, no `hullId`; test rows stay hull-bound). Bot guns stay random — final. Boost also fires when attacking a target beyond the band's far edge (real fights only, never farming); SMOKE SCREEN is never pressed while the bot's own smoke is running (Eric: "bad play"); every other firing rule stands. Tactic tables split into `tacticKit` / `equipment` (weapons) / `shift` (`SHIFT_TACTICS` from `classShift`) / `consumables` (total, `depthCharge` never fires) / `tacticRegistry` (`EQUIPMENT_TACTICS` total, `tacticFor` fail-closed); `APPETITE_FAMILY` gone with equivalence pinned. Harness: POOL READOUTS (gun mix, weaponless-at-level, pure gunboat, heal-take, levels wasted, weapon-line spread, peak live mines — measurements only), dead usage line removed. One 99-match run → `batch-sim-evidence-2026-09-30.md`.
+
+**Files.** shared: `constants.ts` (`bots` block). server/src/game/ai: `spending.ts` (rewritten), `profiles.ts`, `types.ts`, `botDriver.ts`, `equipment.ts`, `tactics.ts`, NEW `tacticKit.ts`, `shift.ts`, `consumables.ts`, `tacticRegistry.ts`; tests `bots`, `botPolicy`, `botTactics`. server/scripts/batchsim: NEW `poolReadouts.ts` + test, `runner.ts`, `botReport.ts`, `args.ts`, `batchSim.mjs`, harness tests. Docs: `VERSION` / `package.json` / lock 0.18.20, `CHANGELOG.md`, both trackers, amendments 162–173 in both homes, `deferred-work.md` (11 resolved, 4 new), GDD stamps (3), the evidence file, this spec.
+
+**Review.** Pass 1: Blind Hunter + Edge Case Hunter (Fable) + Codex `gpt-5.6-sol`: 7 patches (2 medium, 5 low), 2 rejected, 0 deferred; two of the patches became Eric rulings R12/R13 (asked in chat before the PR). Cross-model picture: both hunters flagged the smoke re-arm; Codex alone found the harness death-tick omission (confirmed in code); no model found a wire, determinism or scorer-arithmetic defect.
+
+**Follow-up review recommended: false** — the gate patches are a simpler smoke predicate (fewer states than before), harness sampling fixes, and a fail-closed lookup, each with a fail-first test.
+
+**Verification.** `npm run check` exit 0 on the merged tree: shared 1017 / server 2263 / client 3748 (baseline 977 / 2200 / 3734 before 8.19 + 8.20), hooks 266, eslint 0 errors (3 pre-existing max-lines warnings), tsc clean on shared/server/client and the batchsim + rl script projects. Property test: 6 personalities × 50 seeds × 10 real pool draws — no run without a weapon. Batch: 99/99 matches, 0 failed. Headless smokes not run (no wire or room change).
+
+**Residual risk / for Eric.** (1) The weapon half-points (3.5 / 3.75) are my encoding of your reading B — veto or move them. (2) The evidence flags: machine-gun bots win half as often as cannon bots; `bulwark` is now the weakest personality; the Story 6-4 "≥ 1 participant kill" bar reads 49 % vs its 60 % bar — pre-pool bar, your call. (3) Readings in amendment 173 you may veto (scorer definitions, tie-break, test rows hull-bound). (4) Staging QA: start Solo vs AI and watch bots stock belts and fire chaff/smoke/shield; a Torpedo Boat bot should boost toward you when you are outside its band and never lay a second smoke trail over a live one.
 
 ## Design Notes
 
