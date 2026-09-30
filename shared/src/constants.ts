@@ -1952,6 +1952,32 @@ export const CONFIG = {
   },
 
   /**
+   * SMOKE SCREEN (catalog-v3 R38; Story 8.18, Eric rulings 2026-09-29, epic-8
+   * amendments 138–145) — a key-fired consumable. Firing one copy opens a
+   * `layMs` lay window: every `puffIntervalMs` the hull drops a stationary
+   * puff at its STERN, so one copy lays 10 puffs. A re-press while laying
+   * RESTARTS the lay clock (a fresh `layMs` from the press; the copy is spent —
+   * the shield/chaff "replaces" posture). Each puff lives `lifeMs` and grows
+   * linearly from `r0` to `r1` over `expandMs` (the whole life) — the one pure
+   * curve is `puffRadius` in sim/smoke.ts, run by both sides, so no radius
+   * rides the wire. A puff blocks every SIGHT-tier sensor like an island
+   * (flare zone included) and never radar. No `EffectiveStats` row: a
+   * consumable's numbers are read straight from CONFIG (the consumable law).
+   *
+   * NOT `CONFIG.smoke` above: that block is WOUNDED smoke (the damage-band
+   * plume, 250 ms emission cadence, no occlusion) — a different thing, and
+   * untouched by this one. Never conflate the two.
+   */
+  smokeScreen: {
+    r0: 40, // u — puff radius at the instant it is laid (R38)
+    r1: 60, // u — puff radius at full growth (R38)
+    lifeMs: 30000, // ms a puff lives on the water (R38)
+    layMs: 5000, // ms of laying per copy fired; a re-press restarts it (R38; amendment 140)
+    puffIntervalMs: 500, // ms between puffs while laying — 10 per lay (amendment 138)
+    expandMs: 30000, // ms for a puff to grow r0 → r1 — the whole life (amendment 139)
+  },
+
+  /**
    * THE CATALOG's engine dials (Story 8.1). `reloadStepPerTier` is catalog-v3's
    * STANDING RULE (§3, from R14): every equipment line steps −5 % of its OWN
    * base reload per tier, in ADDITIVE five-point steps (100 → 95 → 90 → 85 →
@@ -2126,10 +2152,12 @@ export const CONFIG = {
    * HULL REPAIR (catalog-v3 R13; Eric rulings 2026-08-04, relocated by epic-8
    * amendment 46) — the PAID heal, now the first LIVE consumable card rather
    * than an always-available level spend. Firing one stocked copy restores
-   * `instantHp` immediately (clamped to maxHp) and adds `regenHp` to a regen
-   * pool that drains at the fixed rate regenHp/regenMs. Pools ADD, never
-   * accelerate: two copies run twice as long at the same rate, never twice as
-   * fast. Amounts are FLAT on every hull — no maxHp scaling, no upgrade
+   * `instantHp` immediately (clamped to maxHp) and REPLACES the regen pool
+   * with `regenHp`, which drains at the fixed rate regenHp/regenMs. A re-press
+   * never stacks: whatever the old pool still owed is discarded and a fresh
+   * `regenHp` pays over a fresh `regenMs` (Eric 2026-09-29, epic-8 amendment
+   * 141 — SUPERSEDES the old "pools ADD, the rate never changes" stacking
+   * law); the rate never changes either way. Amounts are FLAT on every hull — no maxHp scaling, no upgrade
    * scaling, no class variation. Every number is a DESIGN TARGET, tunable.
    *
    * THIS BLOCK WAS THE DAMAGE-CONTROL BLOCK (renamed by epic-8 amendment 46).
@@ -2147,12 +2175,14 @@ export const CONFIG = {
     // highest-HP hull paid most. Doubling both holds a heal at the same fraction
     // of every hull it was worth before, and boons recovered past baseline.
     instantHp: 50, // hp restored the instant the copy fires (clamped to maxHp)
-    regenHp: 50, // hp added to the regen pool per HULL REPAIR copy fired
+    regenHp: 50, // hp the regen pool is SET to per HULL REPAIR copy fired (replaces, never adds)
     // ms — payout time of ONE regenHp pool. The rate is regenHp/regenMs =
     // 0.01 hp/ms; it was ruled as 5 hp/s at regenHp 25 and doubled with the
     // amount in balance cycle 1, so the shipped pool pays 50 hp over 5 s. The
-    // stacking law (pools ADD, the rate never changes) is what was ruled and is
-    // untouched — see hullRepair.test.ts.
+    // old stacking law (pools ADD, the rate never changes) is SUPERSEDED (Eric
+    // 2026-09-29, amendment 141): a re-press REPLACES the pool (`repairHp =
+    // regenHp`, remainder discarded); the 0.01 hp/ms rate is unchanged — see
+    // hullRepair.test.ts.
     regenMs: 5000,
   },
 

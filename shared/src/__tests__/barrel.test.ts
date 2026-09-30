@@ -82,6 +82,9 @@ import {
   type SlotItemId,
   type DecoyView,
   type FrameMsg,
+  type SmokePuff,
+  type SmokeView,
+  puffRadius,
   type OwnShip,
   type ReturnBlipEvent,
 } from '../index.js';
@@ -359,7 +362,12 @@ describe('shared barrel', () => {
     // join and `CONFIG.starShells` gains `damage`; catalog content (the
     // star/broadside/phosphor ladders, no add-on left, 109 -> 117 cards). The
     // perception exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(60);
+    // 60 -> 61: SMOKE SCREEN (Story 8.18, Eric rulings 2026-09-29, epic-8
+    // amendments 138-145). `FrameMsg.smoke?` (`SmokeView` {id,x,y,t0} — no
+    // radius: both sides run the shared `puffRadius`), the smokeScreen stub
+    // flipped live (catalog content), and `CONFIG.smokeScreen`, which the
+    // client reads. The perception exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(61);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -857,6 +865,18 @@ describe('shared barrel', () => {
     expect(shield.hp).toBe(CONFIG.shieldBlock.hp);
   });
 
+  it('re-exports the 8.18 SMOKE SCREEN shapes: puffRadius, SmokePuff (server store), SmokeView + FrameMsg.smoke (wire)', () => {
+    // TYPE-LEVEL PINS as much as runtime ones: the wire view is exactly
+    // id,x,y,t0 — a radius, owner or expiry would be an excess property.
+    expect(typeof puffRadius).toBe('function');
+    const puff: SmokePuff = { id: 'sk1', ownerId: 'ship1', x: 1, y: 2, bornAt: 1000, until: 31000 };
+    const view: SmokeView = { id: puff.id, x: puff.x, y: puff.y, t0: puff.bornAt };
+    expect(Object.keys(view)).toEqual(['id', 'x', 'y', 't0']);
+    const frame: Pick<FrameMsg, 'smoke'> = { smoke: [view] };
+    expect(frame.smoke).toHaveLength(1);
+    expect(puffRadius(view.t0, view.t0)).toBe(CONFIG.smokeScreen.r0);
+  });
+
   it('the radar buoy wire is GONE (Story 8.16): no BuoyView export, no FrameMsg.buoys, no blip `src`', () => {
     // Runtime half: no value named after the buoy leaks from the barrel.
     for (const gone of ['BuoyView', 'buoyGate', 'scatterJamFakes']) {
@@ -899,13 +919,14 @@ describe('shared barrel', () => {
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
     expect(Object.isFrozen(NO_CARDS)).toBe(true);
-    // 2 of the 26 lines are STUBS — authored in shape, mechanism unbuilt,
+    // 1 of the 26 lines is a STUB — authored in shape, mechanism unbuilt,
     // never dealt (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
     // gave HULL REPAIR its effect; 12 until Story 8.13 built the LIGHT
     // TORPEDO, the CAPTIVE MINE and the SUPERCAV TORPEDO and added the one new
     // stub, DEPTH CHARGE; 10 until Story 8.15 cut three and built two; 5 until
-    // Story 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY.
-    expect(LINE_IDS.filter((id) => isStubLine(id))).toEqual(['smokeScreen', 'depthCharge']);
+    // Story 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY; 2 until Story 8.18
+    // built SMOKE SCREEN.
+    expect(LINE_IDS.filter((id) => isStubLine(id))).toEqual(['depthCharge']);
     // THE GENERATED WHITELIST, and its deliberate absences (see sim/effects.ts).
     expect(BOON_STAT_PATHS.length).toBeGreaterThan(0);
     expect(Object.keys(EQUIPMENT_STAT_FIELDS).sort()).toEqual([...EQUIPMENT_IDS].sort());

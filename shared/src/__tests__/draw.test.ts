@@ -268,6 +268,7 @@ describe('eligibleLines — the whole eligibility law', () => {
         ...new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'),
         ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
         ...new Array<LineId>(CATALOG.shieldBlock.cap).fill('shieldBlock'),
+        ...new Array<LineId>(CATALOG.smokeScreen.cap).fill('smokeScreen'),
         ...new Array<LineId>(CATALOG.chaff.cap).fill('chaff'),
         ...new Array<LineId>(CATALOG.decoyBuoy.cap).fill('decoyBuoy'),
         ...new Array<LineId>(CATALOG.dazzleShells.cap).fill('dazzleShells'),
@@ -277,12 +278,12 @@ describe('eligibleLines — the whole eligibility law', () => {
     const ids = eligible.map((e) => e.id);
     expect(ids).toContain('hullRepair');
     expect(ids).toContain('supercavTorpedo');
-    // All are still tagged `consumable`, and ALL SIX live consumable lines
+    // All are still tagged `consumable`, and ALL SEVEN live consumable lines
     // are present (Story 8.16 flipped shield/chaff/decoy; Story 8.17 added
-    // FLASH SHELLS, amendment 132) — the cap filters equipment, ladders and
-    // add-ons, never these. The two stubs never are.
+    // FLASH SHELLS, amendment 132; Story 8.18 flipped SMOKE SCREEN) — the cap
+    // filters equipment, ladders and add-ons, never these. The one stub never is.
     expect(eligible.filter((e) => e.kind === 'consumable').map((e) => e.id))
-      .toEqual(['supercavTorpedo', 'hullRepair', 'shieldBlock', 'chaff', 'decoyBuoy', 'dazzleShells']);
+      .toEqual(['supercavTorpedo', 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'dazzleShells']);
     expect(kindCounts(eligible).weapon).toBe(0); // the row is full
   });
 });
@@ -439,12 +440,14 @@ describe('drawOffer — the shape of an offer', () => {
 
   it('gives a SHORTER offer when fewer than CONFIG.offer.size lines are eligible — never padded, never repeated', () => {
     // Since Story 8.16 production has FIVE live consumables (SIX since 8.17's
-    // FLASH SHELLS), always eligible, so it can no longer run short at offer
-    // size 4 — the property is pinned on the pre-8.16 catalog shape
-    // (shield/chaff/decoy — and flash — stubbed), injected.
+    // FLASH SHELLS, SEVEN since 8.18's SMOKE SCREEN), always eligible, so it
+    // can no longer run short at offer size 4 — the property is pinned on the
+    // pre-8.16 catalog shape (shield/chaff/decoy — and flash and smoke —
+    // stubbed), injected.
     const TWO_LIVE: Catalog = {
       ...CATALOG,
       shieldBlock: { ...CATALOG.shieldBlock, stub: true },
+      smokeScreen: { ...CATALOG.smokeScreen, stub: true },
       chaff: { ...CATALOG.chaff, stub: true },
       decoyBuoy: { ...CATALOG.decoyBuoy, stub: true },
       dazzleShells: { ...CATALOG.dazzleShells, stub: true },
@@ -465,12 +468,13 @@ describe('drawOffer — the shape of an offer', () => {
 
   it('a fully capped captain sees a FULL offer of consumables in production (Story 8.16 closes amendment 94\'s two-card offer)', () => {
     const held: LineId[] = [...everyUpgradeCapped()];
-    // FLASH SHELLS (`dazzleShells`) joined the live consumables in Story 8.17.
-    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy', 'dazzleShells'] as const) {
+    // FLASH SHELLS (`dazzleShells`) joined the live consumables in Story 8.17,
+    // SMOKE SCREEN in Story 8.18.
+    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'dazzleShells'] as const) {
       held.push(...new Array<LineId>(CATALOG[id].cap).fill(id));
     }
     const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
-    const live = ['chaff', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
+    const live = ['chaff', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'smokeScreen', 'supercavTorpedo'];
     expect(eligibleLines(ship).map((e) => e.id).sort()).toEqual(live);
     for (let seed = 0; seed < 200; seed += 1) {
       const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed));

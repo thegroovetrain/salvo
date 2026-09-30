@@ -3,6 +3,9 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  61 — Story 8.18 Smoke Screen: FrameMsg.smoke channel (SmokeView
+ *  {id,x,y,t0}); smokeScreen stub flipped (a new dealable consumable);
+ *  CONFIG.smokeScreen read by the client; perception exception count stays SIX.
  *  60 — Story 8.17 Catalog v3: Star Shells, Broadside, Phosphor, Flash (Eric
  *  rulings 2026-09-29, epic-8 amendments 129–135) — LitZoneView loses
  *  phos/daz; FrameMsg.burnZones (BurnZoneView); phosphorShells becomes an
@@ -733,7 +736,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 60;
+export const PROTOCOL_VERSION = 61;
 
 // Tunables
 export * from './constants.js';
@@ -776,4 +779,5 @@ export * from './sim/noise.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
 export * from './sim/wake.js';
+export * from './sim/smoke.js';
 export * from './sim/zone.js';

@@ -1325,6 +1325,28 @@ export interface DecoyView {
 }
 
 /**
+ * A SMOKE SCREEN puff visible to this viewer (Story 8.18, catalog-v3 R38,
+ * epic-8 amendments 138–145), synced as CONTACT-LIKE state (not an event):
+ * FrameMsg.smoke is recomputed per observer every tick. Delivered to the
+ * OWNER always, to spectators, and to any other observer whose sight reaches
+ * the puff's edge (centre within sight + current radius) with an island-clear
+ * line to its centre — smoke never blocks the view OF smoke.
+ *
+ * NO RADIUS, NO OWNER, NO EXPIRY on the wire: `t0` is the server time the puff
+ * was laid, and the client derives the radius with the shared `puffRadius(t0,
+ * serverNow)` (sim/smoke.ts) — the same curve the server's sight predicate
+ * runs. A puff dropping out of the list means expired OR out of view — the
+ * client cannot tell (the mines precedent). NOT the wounded-smoke `SmokeEvent`
+ * (`sm`), which is a different thing. KEY ORDER (msgpack): id,x,y,t0.
+ */
+export interface SmokeView {
+  id: string; // the puff's own id
+  x: number; // u — puff centre (stationary)
+  y: number; // u
+  t0: number; // ms — server time the puff was laid (drives puffRadius)
+}
+
+/**
  * Why the server refused a press, on the wire (Story 1.10 — FR12's "denied
  * fire is never silent"). The four wire reasons:
  *   'out-of-arc' — an aimed weapon click outside its launch sector (torpedo).
@@ -1394,6 +1416,9 @@ export interface FrameMsg {
   // gate, contact-like; omitted when none, the litZones rule)
   burnZones?: BurnZoneView[];
   decoys?: DecoyView[]; // per-observer decoy-buoy visibility (contact-like; omitted when none)
+  // per-observer SMOKE SCREEN puff visibility (Story 8.18 — contact-like;
+  // omitted when none, the litZones rule). NOT the wounded `sm` SmokeEvent.
+  smoke?: SmokeView[];
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on
    *  spectator frames — a dead ship cannot press). See DeniedView. */

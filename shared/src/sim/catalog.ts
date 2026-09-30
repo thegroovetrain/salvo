@@ -4,8 +4,8 @@
 // 26 card LINES / 117 physical cards: 8 equipment lines (40), 5 universal
 // ladders (22), the gun ladders (15 — the cannon's three lines, 7, plus the
 // MACHINE GUN and FLAK ladders, 4 each), 0 add-ons, 8 consumables (40).
-// TWO stub lines remain since Story 8.16 (SMOKE SCREEN, DEPTH CHARGE); every
-// other line is live.
+// ONE stub line remains since Story 8.18 (DEPTH CHARGE — SMOKE SCREEN went
+// live); every other line is live, so 7 of the 8 consumables are live.
 //
 // THE COUNT MOVED 109 -> 117 IN STORY 8.17 (Eric 2026-09-29, amendments
 // 130–133), purely by re-cutting KINDS: the last two ADD-ONS are gone —
@@ -474,13 +474,14 @@ export const CATALOG: Catalog = deepFreezeRows({
   // The belt and the `1`–`4` keys are built (Story 8.7). HULL REPAIR (R13) was
   // the first LIVE line — its effect is Story 8.8's — and SUPERCAV TORPEDO
   // (above) is the second. Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY
-  // BUOY live (catalog-v3 R37/R39/R36, epic-8 amendments 116–124), leaving
-  // TWO stubs: SMOKE SCREEN and DEPTH CHARGE, until their effects land. FLASH
+  // BUOY live (catalog-v3 R37/R39/R36, epic-8 amendments 116–124), and Story
+  // 8.18 flipped SMOKE SCREEN (R38, amendments 138–145), leaving ONE stub —
+  // DEPTH CHARGE — until its effect lands (7 live consumables). FLASH
   // SHELLS (Story 8.17) is a live consumable that sits at the foot of the
   // list with the former add-ons.
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
   shieldBlock: consumable('shieldBlock'), // R37 — absorbs 100 hp for 10 s (CONFIG.shieldBlock)
-  smokeScreen: consumable('smokeScreen', true),
+  smokeScreen: consumable('smokeScreen'), // R38 — a 5 s trail of r40→60 puffs, 30 s life (CONFIG.smokeScreen)
   chaff: consumable('chaff'), // R39 — 10 fakes in 120 u for 15 s (CONFIG.chaff)
   decoyBuoy: consumable('decoyBuoy'), // R36 — a 50 hp rear-dropped decoy (CONFIG.decoyBuoy)
   // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB
