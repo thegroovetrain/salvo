@@ -1104,6 +1104,14 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // mark (10 s) and the dazzled victim's own contact list is EMPTY — the
   // watcher at 117 u is outside its collapsed 82.5 u sight (amendment 132) —
   // while the watcher's contact for the victim is unchanged. No other byte.
+  // REGENERATED KNOWINGLY IN STORY 8.18. Exactly ONE row moved, and the ONLY
+  // difference is `you.offer`'s content: SMOKE SCREEN left `stub` and joined
+  // the common pool, so the seeded draw deals a different hand ('chaff' /
+  // 'deckGunTurret' re-ordered where 'deckGunTurret' / 'reload' were). No
+  // battery frame carries a `smoke` channel (no scenario lays a trail), no
+  // contact, event, blip, mine or zone byte moved — the sightClear predicate
+  // with an EMPTY puff store is byte-identical to losClear (verified by
+  // diffing the snapshot, not by trusting the update flag).
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });

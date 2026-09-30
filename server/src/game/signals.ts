@@ -1,23 +1,41 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 18 GameEvent kinds plus the five contact-like frame channels
-// (`contact`, `mine`, `litzone`, `burnzone` and `decoy` — pseudo event types: not
-// GameEvents, but the invariant suite iterates them like everything else; the
-// RADAR BUOY's `buoy` channel was deleted with the buoy in Story 8.16 and the
-// DECOY BUOY's `decoy` channel took its seat, revealed at sight like a ship).
+// row here: the 18 GameEvent kinds plus the six contact-like frame channels
+// (`contact`, `mine`, `litzone`, `burnzone`, `decoy` and `smoke` — pseudo event
+// types: not GameEvents, but the invariant suite iterates them like everything
+// else; the RADAR BUOY's `buoy` channel was deleted with the buoy in Story 8.16
+// and the DECOY BUOY's `decoy` channel took its seat, revealed at sight like a
+// ship; the SMOKE SCREEN's `smoke` channel joined in Story 8.18).
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
 // visible()/materialize(); nothing spatial leaves the server outside a row.
 //
-// THE LOS RULE (one rule for everything OPTICAL): a point is line-of-sight-
-// clear from the observer iff the segment observer→point crosses no island
-// COASTLINE (islandBlocksSegment — bounding-circle broadphase, `core`
-// early-out, then the exact polygon test). Sight, shells, booms, spawns, and
-// sinks all use it. ALL island-geometry branching stays inside losClear: no
-// visible()/materialize() row may iterate polygon edges itself, or the 14 rows
-// blow the ESLint complexity ceiling. THE ONE EXCEPTION (Story 4.11, amendment
+// THE SIGHT RULE (one rule for everything OPTICAL — Story 8.18): a point is
+// SIGHT-clear from the observer iff the segment observer→point crosses no
+// island COASTLINE (losClear: islandBlocksSegment — bounding-circle
+// broadphase, `core` early-out, then the exact polygon test) AND no live
+// SMOKE SCREEN puff (puffCrossed: the shared segCircleHit against each puff's
+// current puffRadius) — UNLESS THE OBSERVER STANDS IN SMOKE (Eric ruling
+// 2026-09-29, amendment 149, final: "if I'm in smoke, I should be able to see
+// at 1/8 intel range, including into other smoke. If I'm not in smoke, I
+// can't see into it. If I'm in it, go ahead and occlude everything outside of
+// that range, no matter what. Radar still works."): for an observer whose
+// centre is inside ANY live puff (ShipRecord.inSmoke, whoever laid it) the
+// rule is island LOS ∧ dist ≤ its shrunken sightOf — NO puff term at all, and
+// NO reveal from its own flare — so it sees into every puff within 82.5 u and
+// nothing optical beyond. `sightClear` is the ONE predicate every sight-tier
+// site calls — contacts, shells, booms, spawns, sinks, the mz/sm halos, the
+// foghorn muffle and in-bubble torpedo water; a smoke puff is "an island for
+// every sensor but radar" without a second predicate per sensor. ALL island-
+// and puff-geometry branching stays inside sightClear / puffCrossed: no
+// visible()/materialize() row may iterate polygon edges or puffs itself, or
+// the rows blow the ESLint complexity ceiling. THE ONE EXCEPTION (Story 4.11, amendment
 // 179): the RADAR blip gate's occlusion term is the shared height-aware shadow
 // march (visibilityTo over the height raster) rather than binary island LOS —
-// see blipGate. Every other sensor keeps binary island LOS byte-identical.
+// see blipGate. Radar is smoke-blind BEYOND sight (the storm-grey disc is
+// optical); INSIDE the sight bubble (amendment 147) the blip gate reads the
+// puffs for one purpose only — to paint the hull that smoke alone hides, so
+// smoke never makes a hull invisible to every sensor at once. Every other
+// sensor keeps binary island LOS byte-identical and adds the puff term.
 //
 // Rows see a NARROW SignalContext (the ActivationContext pattern from
 // equipment/index.ts) — the observer's ship record, tick time, islands for LOS,
@@ -31,7 +49,7 @@
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
 // k,id,x,y; MineView: id,x,y,own,by; LitZoneView and BurnZoneView:
 // id,x,y,r,until,by (the lit zone's `phos`/`daz` tail is DELETED, Story
-// 8.17); SplashEvent/HitCallEvent: k,id,x,y;
+// 8.17); SmokeView: id,x,y,t0 (Story 8.18); SplashEvent/HitCallEvent: k,id,x,y;
 // MuzzleEvent: k,x,y — Story 4.3; SmokeEvent: k,x,y,tier — Story 4.4;
 // FoghornEvent: k,h then self? (honker) / x,y (spectator) / b,v (fogged
 // listener) — Story 4.5; SunkEvent: k,id,by?,seen? — the public
@@ -79,6 +97,10 @@ import {
   type TorpedoUpdateEvent,
   type Vec2,
   paintSegmentCoverage,
+  puffRadius,
+  segCircleHit,
+  type SmokePuff,
+  type SmokeView,
   type WakeBlipEvent,
   type WakeRibbon,
 } from '@salvo/shared';
@@ -122,6 +144,15 @@ interface SignalContextBase {
    *  subjects and the anonymous decoy-paint sources (decoyRadarBlips). Rides
    *  the context like litZones does. */
   decoys: ReadonlyMap<string, DecoyState>;
+  /** Every LIVE SMOKE SCREEN puff this tick (Story 8.18 — World.smoke,
+   *  snapshotted by perception per observer pass): THE occluder input of
+   *  `sightClear` (puffCrossed) and the `smoke` channel's scan subjects. Read
+   *  by every sight-tier predicate; on the radar side ONLY by blipGate's
+   *  in-bubble clause (amendment 147 — a hull inside sight that smoke alone
+   *  hides paints when swept), never by the annulus, the radar half of
+   *  wakeGate or visibilityTo (a puff is optical, ruling of record). Rides
+   *  both paths uniformly. */
+  readonly smoke: readonly SmokePuff[];
   /** All CHAFF clouds by owner id (Story 8.16, amendment 127 — world-owned,
    *  so a cloud outlives its owner's hull) — chaffFakeBlips' sources. Rides
    *  the context like decoys does; inert on the spectator path (no blips). */
@@ -198,7 +229,12 @@ export interface SignalSpec<S = unknown, O = unknown> {
 // ---------------------------------------------------------------------------
 
 /**
- * True iff the segment a→b crosses no island coastline (the one LOS rule).
+ * True iff the segment a→b crosses no island coastline (the ISLAND half of
+ * the sight rule — since Story 8.18 a sight-tier site calls `sightClear`,
+ * which is this ∧ no puff crossed; `losClear` alone stays the predicate for
+ * the one place a puff deliberately does NOT block: the `smoke` channel's
+ * own island-only gate. The flare has NO island term at all — see
+ * ownZoneCovers).
  *
  * THE ANTI-CHEAT CHOKEPOINT: this must stay EXACT — an approximation that
  * over-blocks hides a contact the observer has earned, one that under-blocks
@@ -206,7 +242,7 @@ export interface SignalSpec<S = unknown, O = unknown> {
  * circle broadphase and `core` early-out only skip work in cases whose answer
  * is already decided), and it is the ONLY island-geometry branching on this
  * path — every visible()/materialize() row delegates here rather than
- * iterating polygon edges, which is what keeps those 14 rows under ESLint
+ * iterating polygon edges, which is what keeps those rows under ESLint
  * complexity 10.
  */
 export function losClear(a: Vec2, b: Vec2, islands: readonly Island[]): boolean {
@@ -217,20 +253,89 @@ export function losClear(a: Vec2, b: Vec2, islands: readonly Island[]): boolean 
 }
 
 /**
+ * True iff the segment a→b crosses (enters, exits, or lies inside) ANY live
+ * SMOKE SCREEN puff at its radius for `now` (Story 8.18, catalog-v3 R38; Eric
+ * rulings 2026-09-29, amendments 138–149). OWNERSHIP-BLIND: whose puff it is
+ * plays no part (amendment 149 — an observer's own trail hides a hull behind
+ * it exactly as anyone's does). The SHARED `segCircleHit` is the one
+ * geometry: it returns the entry fraction when the segment crosses the disc,
+ * `0` when `a` ALREADY STARTS INSIDE the disc, and `null` only when the
+ * segment misses it entirely — so a target standing in a puff is hidden
+ * (every segment to them ends inside) from any observer NOT standing in
+ * smoke. The in-smoke observer never reaches this function: sightClear
+ * branches on ShipRecord.inSmoke first (island LOS ∧ the 1/8 clamp, no puff
+ * term), so `a` starting inside a disc is a case this predicate is not asked
+ * about in production. The radius is the shared `puffRadius` (r0 → r1 over
+ * expandMs — the client derives the identical disc from the wire `t0`), never
+ * re-derived here. Exported for the perception oracle's directed cases and
+ * for ownZoneCovers' smoke-only term.
+ */
+export function puffCrossed(a: Vec2, b: Vec2, puffs: readonly SmokePuff[], now: number): boolean {
+  for (const p of puffs) {
+    if (segCircleHit(a, b, p, puffRadius(p.bornAt, now)) !== null) return true;
+  }
+  return false;
+}
+
+/**
+ * THE sight predicate (Story 8.18; Eric ruling 2026-09-29, amendment 149,
+ * final): may observer `me` see point `b` optically?
+ *
+ *   • `me` NOT standing in smoke (ShipRecord.inSmoke false — the per-tick
+ *     stepSmoke stamp): no island coastline AND no live smoke puff lies on
+ *     the segment (losClear ∧ !puffCrossed). "If I'm not in smoke, I can't
+ *     see into it."
+ *   • `me` STANDING in smoke (centre inside any live puff, whoever laid it):
+ *     no island coastline AND dist(me, b) ≤ sightOf(me, now) — the shrunken
+ *     1/8-of-intel bubble (82.5 u at base) — and NO puff term at all. "If I'm
+ *     in smoke, I should be able to see at 1/8 intel range, including into
+ *     other smoke ... occlude everything outside of that range, no matter
+ *     what." The distance clamp is what "no matter what" means for the rows
+ *     whose own reach is bigger than sight — the mz/sm 5/8 halos and the
+ *     foghorn muffle — which otherwise carry no sight-distance term; for the
+ *     contact/detect rungs (already ≤ sight) it is redundant by construction.
+ *     Islands still block: an island is an island.
+ *
+ * Every sight-tier gate calls this — the contact row, pointSighted,
+ * pointDetected, shipSees, the mz/sm halos, the foghorn muffle and in-bubble
+ * torpedo water (wakeGate's sight clause) — so the one predicate carries both
+ * halves of the ruling and no row re-derives either. Radar never calls it for
+ * its own answer (blipGate's in-bubble clause calls it for the OPPOSITE one —
+ * paint what sight would show but for smoke). The observer's own flare is
+ * the ONE other sight source, and it follows the same stamp (ownZoneCovers).
+ * Takes the RECORD, not a Vec2, because the branch and the clamp are the
+ * observer's own state — a caller cannot forget to thread them.
+ */
+export function sightClear(me: ShipRecord, b: Vec2, islands: readonly Island[], puffs: readonly SmokePuff[], now: number): boolean {
+  const a = me.state;
+  if (!me.inSmoke) return losClear(a, b, islands) && !puffCrossed(a, b, puffs, now);
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const sight = sightOf(me, now);
+  return dx * dx + dy * dy <= sight * sight && losClear(a, b, islands);
+}
+
+/**
  * The observer's EFFECTIVE sight radius this tick: the SHARED `effectiveSight`
- * (sim/sight.ts — Story 8.17, amendment 132) over its stats and its dazzle
- * mark. A FLASH SHELLS burst sets `dazzledUntil` (world.applyFlash); while it
- * is in the future the observer's truesight collapses to `radarRange ×
- * CONFIG.flashShells.sightFraction` (82.5 u at base), else it is
- * `stats.sightRange`. The victim's own wire field OwnShip.dazzledUntil reads
- * the same mark and the client's mirrors call the same shared function, so
- * the server's shrunken sight and the client's honest fog hole agree by
- * construction. THE one place the dazzle enters perception — every sight-tier
- * predicate below calls this, so a NON-dazzled observer's numbers are
+ * (sim/sight.ts — Story 8.17, amendment 132; Story 8.18, amendment 149) over
+ * its stats, its dazzle mark and its in-smoke stamp. A FLASH SHELLS burst sets
+ * `dazzledUntil` (world.applyFlash); while it is in the future the observer's
+ * truesight collapses to `radarRange × CONFIG.flashShells.sightFraction`
+ * (82.5 u at base). Else, while the hull's centre is inside ANY live smoke
+ * puff (`ShipRecord.inSmoke`, stamped by world.stepSmoke every tick — whoever
+ * laid the puff), it is `radarRange × CONFIG.smokeScreen.inSmokeSightFraction`
+ * (1/8 of intel range — also 82.5 u at base today; a separate dial by
+ * ruling). Else `stats.sightRange`. The hull's own wire fields
+ * OwnShip.dazzledUntil / OwnShip.inSmoke read the same marks and the client's
+ * mirrors call the same shared function, so the server's shrunken sight and
+ * the client's honest fog hole agree by construction. THE one place dazzle and
+ * smoke-standing enter perception — every sight-tier predicate below and every
+ * derived rung (detect, the smoke channel's `sight + r`, the annulus boundary,
+ * the wake inner bounds) calls this, so an unaffected observer's numbers are
  * bit-identical to pre-2.8. Never re-derived here: one derivation, both sides.
  */
 export function sightOf(me: ShipRecord, now: number): number {
-  return effectiveSight(me.stats, now < me.dazzledUntil);
+  return effectiveSight(me.stats, now < me.dazzledUntil, me.inSmoke);
 }
 
 /**
@@ -244,24 +349,28 @@ export function sightOf(me: ShipRecord, now: number): number {
  *
  * The lit-zone term is deliberately absent: a star shell is a captain's tool
  * for revealing hulls to CAPTAINS, and letting it also hand the AI free vision
- * would make firing one actively dangerous in a way nobody ruled on.
+ * would make firing one actively dangerous in a way nobody ruled on. The
+ * SMOKE term is present (Story 8.18): a PvE fleet hull is blinded by a puff
+ * exactly as a captain is — one rule, no carve-out — so the fleet callers
+ * pass the world's live puffs beside the islands.
  */
-export function shipSees(me: ShipRecord, other: ShipRecord, islands: readonly Island[], now: number): boolean {
+export function shipSees(me: ShipRecord, other: ShipRecord, islands: readonly Island[], puffs: readonly SmokePuff[], now: number): boolean {
   const dx = other.state.x - me.state.x;
   const dy = other.state.y - me.state.y;
   const sight = sightOf(me, now);
-  return dx * dx + dy * dy <= sight * sight && losClear(me.state, other.state, islands);
+  return dx * dx + dy * dy <= sight * sight && sightClear(me, other.state, islands, puffs, now);
 }
 
 /** Sight-tier test for a point: within the OBSERVER'S effective sight range
- *  (inclusive, dazzle-scaled — sightOf) + LOS-clear. Takes the ShipRecord so
- *  the sightRange boons apply to every point-sighted gate (ballistics, mines,
- *  booms, wrecks, spawns) uniformly. */
-function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Island[], now: number): boolean {
+ *  (inclusive, dazzle-scaled — sightOf) + SIGHT-clear (island LOS ∧ no smoke
+ *  puff crossed — Story 8.18). Takes the ShipRecord so the sightRange boons
+ *  apply to every point-sighted gate (ballistics, mines, booms, wrecks,
+ *  spawns) uniformly. */
+function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Island[], puffs: readonly SmokePuff[], now: number): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
   const sight = sightOf(me, now);
-  return dx * dx + dy * dy <= sight * sight && losClear(me.state, p, islands);
+  return dx * dx + dy * dy <= sight * sight && sightClear(me, p, islands, puffs, now);
 }
 
 /**
@@ -274,17 +383,19 @@ function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Island[], now: 
  * spawns — stays on truesight, byte-identical (SHELLS DO NOT MOVE: a shell is
  * in the air; a torpedo is a wake just under the surface and a mine sits in
  * the water). Observer-scaled exactly as sight is (amendment 121): a
- * star-shell dazzle halves it and island LOS applies unchanged. The rung is
+ * star-shell dazzle halves it and island LOS applies unchanged (and, since
+ * Story 8.18, so does the smoke term — a mine or a fish behind a puff is
+ * hidden at the detect rung exactly as behind land). The rung is
  * resolved through `sightOf`, never a literal, so it keeps ONE derivation
  * path: no card writes `stats.radarRange` today (the INTEL RANGE line was
  * deleted 2026-08-20), so every observer resolves the same 247.5u — but a
  * future radar card would move this rung for free.
  */
-function pointDetected(me: ShipRecord, p: Vec2, islands: readonly Island[], now: number): boolean {
+function pointDetected(me: ShipRecord, p: Vec2, islands: readonly Island[], puffs: readonly SmokePuff[], now: number): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
   const detect = sightOf(me, now) * CONFIG.vision.detectFactor;
-  return dx * dx + dy * dy <= detect * detect && losClear(me.state, p, islands);
+  return dx * dx + dy * dy <= detect * detect && sightClear(me, p, islands, puffs, now);
 }
 
 /**
@@ -321,24 +432,42 @@ function muzzleFlashReach(me: ShipRecord): number {
 
 /**
  * True iff a lit zone OWNED by this observer covers point `p` (Story 1.7):
- * dist(p, zone center) ≤ zone radius, boundary INCLUSIVE. "Lit from above" —
- * deliberately NO island-LOS term on any zone path (an island between the
- * observer and a lit point never blocks the reveal; the flare hangs over the
- * water). FIRER-ONLY by construction: only zones whose ownerId is the
- * observer count, so a non-owner NEVER gains contacts/mines/ballistics from
- * someone else's zone. Feeds the contact/mine/ballistic rows as an OR beside
- * their sight gates.
+ * dist(p, zone center) ≤ zone radius, boundary INCLUSIVE, AND (Story 8.18,
+ * Eric ruling 2026-09-29, amendment 142) the observer→`p` segment crosses no
+ * live SMOKE SCREEN puff. "Lit from above" — deliberately NO island-LOS term
+ * on any zone path (an island between the observer and a lit point never
+ * blocks the reveal; the flare hangs over the water) — but SMOKE DOES block
+ * it: smoke hides hulls even under a flare, so the term here is SMOKE ONLY,
+ * `puffCrossed` and never `sightClear`/`losClear`. This makes a puff stronger
+ * than an island for the flare, deliberately (supersedes D24 / AR43's "a lit
+ * zone sees into smoke as it sees past islands"). A puff BEHIND the lit hull
+ * (off the segment) blocks nothing. FIRER-ONLY by construction: only zones
+ * whose ownerId is the observer count, so a non-owner NEVER gains contacts/
+ * mines/ballistics from someone else's zone. Feeds the contact/mine/ballistic
+ * rows as an OR beside their sight gates. The smoke term is evaluated ONCE,
+ * after the zone loop, so a point inside two owned zones costs one puff scan.
+ *
+ * AN OBSERVER STANDING IN SMOKE GETS NOTHING FROM ITS FLARE (amendment 149,
+ * final — "occlude everything outside of that range, no matter what"): with
+ * ShipRecord.inSmoke set the function returns false before the zone loop, so
+ * the in-smoke observer's whole optical world is the 1/8 bubble sightClear
+ * describes, lit zones included (a point INSIDE that bubble is already sighted
+ * by the sight gate beside this OR, so nothing is lost there).
  */
 export function ownZoneCovers(ctx: SignalContext, p: Vec2): boolean {
   const me = ctx.me;
-  if (!me) return false;
+  if (!me || me.inSmoke) return false;
+  let lit = false;
   for (const zone of ctx.litZones.values()) {
     if (zone.ownerId !== me.id) continue;
     const dx = p.x - zone.x;
     const dy = p.y - zone.y;
-    if (dx * dx + dy * dy <= zone.r * zone.r) return true;
+    if (dx * dx + dy * dy <= zone.r * zone.r) {
+      lit = true;
+      break;
+    }
   }
-  return false;
+  return lit && !puffCrossed(me.state, p, ctx.smoke, ctx.now);
 }
 
 /** Anything carrying a radar sweep window — a ShipRecord (the radar buoy's
@@ -361,18 +490,21 @@ function sweptThisTick(me: SweepWindow, brg: number): boolean {
 
 /** Radar-annulus test for a POINT: beyond sight (exclusive), within radar
  *  (inclusive) — both the OBSERVER'S effective ranges (the sight boundary is
- *  the SAME dazzle-scaled sightOf every sight predicate uses, so "sight wins
- *  inside its radius" stays coherent for a dazzled observer: the shrunk band
- *  becomes paintable annulus, never a dead ring). Sight wins inside its
- *  radius — and since Story 4.11 that is carried by THIS annulus exclusion
- *  alone, not by any shared occlusion predicate: sight occludes on binary
- *  island LOS while radar occludes on the height-aware shadow march, so an
- *  island-LOS-blocked ship inside sight is simply invisible (not in the
- *  annulus, so it cannot paint) even where a low island would leave it
- *  radar-visible. The two tiers' occlusion rules are DIFFERENT predicates by
- *  ruling (amendment 179), and the annulus is what keeps them from ever
- *  answering for the same point. Point-based so a non-ship subject can share it
- *  (Story 1.8) runs the IDENTICAL test on a decoy or chaff-fake position. */
+ *  the SAME dazzle- and smoke-scaled sightOf every sight predicate uses, so
+ *  "sight wins inside its radius" stays coherent for a dazzled or smoke-
+ *  standing observer: the shrunk band becomes paintable annulus, never a dead
+ *  ring). Sight wins inside its radius UNLESS SMOKE ALONE HIDES THE POINT
+ *  (Story 8.18, Eric ruling 2026-09-29, amendment 147 — see smokedInBubble):
+ *  since Story 4.11 the annulus exclusion, not any shared occlusion predicate,
+ *  is what keeps the two tiers from answering for the same point — sight
+ *  occludes on binary island LOS while radar occludes on the height-aware
+ *  shadow march, so an island-LOS-blocked ship inside sight is simply
+ *  invisible (not in the annulus, so it cannot paint) even where a low island
+ *  would leave it radar-visible (amendment 179; Eric 2026-08-02: islands
+ *  block every sensor). The in-bubble smoke clause is the one deliberate
+ *  re-entry into the bubble, and it keeps the island rule intact (island LOS
+ *  must be CLEAR). Point-based so a non-ship subject can share it (Story 1.8)
+ *  runs the IDENTICAL test on a decoy or chaff-fake position. */
 function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
@@ -383,28 +515,56 @@ function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
 }
 
 /**
- * THE ship-blip gate (one function, two callers — FR10's temporal
- * indistinguishability by construction): sight < dist ≤ radar (the annulus) ∧
+ * THE IN-BUBBLE SMOKE CLAUSE (Story 8.18, Eric ruling 2026-09-29, amendment
+ * 147 — "radar paints a hull inside the sight bubble that smoke alone
+ * hides"): a point INSIDE the observer's effective sight (dist ≤ sightOf,
+ * inclusive — the sight tier's own boundary) that the sight tier would show
+ * BUT FOR SMOKE: island LOS CLEAR (an island-hidden in-bubble hull stays
+ * invisible to every sensor — Eric 2026-08-02) ∧ NOT sightClear. Written as
+ * losClear ∧ !sightClear rather than losClear ∧ puffCrossed so the two
+ * failure modes are told apart (island-blocked → nothing; smoke-blocked → a
+ * blip) AND so the in-smoke observer (amendment 149) falls out correctly with
+ * no special case: inside its 82.5 u bubble sightClear is island LOS alone,
+ * so a hull there — in another puff or not — is a CONTACT and this clause is
+ * false; beyond 82.5 the ordinary annulus paints ("radar still works"). The
+ * blip gate's swept-this-tick and shadow-march terms still apply on top.
+ */
+function smokedInBubble(me: ShipRecord, p: Vec2, now: number, islands: readonly Island[], puffs: readonly SmokePuff[]): boolean {
+  const dx = p.x - me.state.x;
+  const dy = p.y - me.state.y;
+  const sight = sightOf(me, now);
+  return dx * dx + dy * dy <= sight * sight && losClear(me.state, p, islands) && !sightClear(me, p, islands, puffs, now);
+}
+
+/**
+ * THE ship-blip gate (one function, three callers — FR10's temporal
+ * indistinguishability by construction): [ sight < dist ≤ radar (the annulus)
+ * ∨ inside sight but hidden by smoke alone (smokedInBubble, amendment 147) ] ∧
  * the observer's beam crossed the point's bearing this tick ∧ the target is
  * at least PARTIALLY illuminated under the height-aware radar shadow (Story
  * 4.11, amendment 179 — the shared `visibilityTo` march over the height
  * raster replaced binary island LOS on this one gate; a partially shadowed
  * hull still returns something and is therefore disclosed, and only vis = 0 —
  * past the residual reach, or behind hard cover ≥ mast height — deletes the
- * blip). The march is the SAME shared function the client's beam march runs
- * (the story's one-implementation constraint), which is what keeps the scope
- * and the gate from ever disagreeing. Term ordering is load-bearing for cost:
- * annulus → swept-this-tick → shadow march, so the expensive term runs only
- * for candidates already in this tick's beam wedge. The genuine ship scan and
- * any future non-ship radar subject both call THIS, so anything afloat at a
- * position paints exactly when a ship there would — same tick, same
- * boundaries, same shadowing. Do not fork it, and do not give a non-ship
- * subject its own height: observer and target are both at mast height
- * (amendment 101), which is what makes the model symmetric.
+ * blip). BEYOND SIGHT this is byte-identical to the pre-8.18 gate: the smoke
+ * clause is evaluated only for a point the annulus rejects, and it can pass
+ * only inside the bubble. The march is the SAME shared function the client's
+ * beam march runs (the story's one-implementation constraint), which is what
+ * keeps the scope and the gate from ever disagreeing. Term ordering is
+ * load-bearing for cost: annulus (or the in-bubble clause) → swept-this-tick →
+ * shadow march, so the expensive term runs only for candidates already in
+ * this tick's beam wedge. The genuine ship scan, the decoy paint and the
+ * chaff fakes all call THIS, so anything afloat at a position paints exactly
+ * when a ship there would — same tick, same boundaries, same shadowing; a
+ * decoy or a fake behind smoke inside your bubble paints too. Do not fork it,
+ * and do not give a non-ship subject its own height: observer and target are
+ * both at mast height (amendment 101), which is what makes the model
+ * symmetric. The wire shape is the SAME footprint either way (blipShape) — an
+ * in-bubble smoked paint carries no id, class or heading, like every blip.
  */
-function blipGate(me: ShipRecord, p: Vec2, raster: HeightRaster, now: number): boolean {
+function blipGate(me: ShipRecord, p: Vec2, raster: HeightRaster, now: number, islands: readonly Island[], puffs: readonly SmokePuff[]): boolean {
   return (
-    inRadarAnnulus(me, p, now) &&
+    (inRadarAnnulus(me, p, now) || smokedInBubble(me, p, now, islands, puffs)) &&
     sweptThisTick(me, bearing(me.state, p)) &&
     visibilityTo(raster, me.state.x, me.state.y, p.x, p.y) > 0
   );
@@ -474,9 +634,11 @@ function blipShape(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): B
 /**
  * `contact` — true-sight tier: another hull still on the water (afloat OR
  * sinking) within the observer's effective sight range (boundary INCLUSIVE)
- * + LOS-clear, OR the hull's CENTER inside a lit zone the observer OWNS
- * (Story 1.7 — firer-only truesight parity, "lit from above": no LOS term on
- * the zone path). Live position/heading/speed straight from the sim.
+ * + SIGHT-clear (island LOS ∧ no smoke puff crossed — Story 8.18), OR the
+ * hull's CENTER inside a lit zone the observer OWNS (Story 1.7 — firer-only
+ * truesight parity, "lit from above": no island term on the zone path, but
+ * the smoke term applies there too — amendment 142). Live position/heading/
+ * speed straight from the sim.
  * Spectators (unfogged) see every such hull — including, in the finished
  * phase, their own.
  */
@@ -497,7 +659,7 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     const dy = ship.state.y - me.state.y;
     const sight = sightOf(me, ctx.now); // dazzle-scaled (Story 2.8) — the observer's own reduction
     return (
-      (dx * dx + dy * dy <= sight * sight && losClear(me.state, ship.state, ctx.islands)) ||
+      (dx * dx + dy * dy <= sight * sight && sightClear(me, ship.state, ctx.islands, ctx.smoke, ctx.now)) ||
       ownZoneCovers(ctx, ship.state)
     );
   },
@@ -543,7 +705,7 @@ const mineSignal: SignalSpec<MineState, MineView> = {
     if (ctx.mode === 'spectator') return true;
     return (
       mine.ownerId === ctx.me.id ||
-      pointDetected(ctx.me, mine, ctx.islands, ctx.now) ||
+      pointDetected(ctx.me, mine, ctx.islands, ctx.smoke, ctx.now) ||
       ownZoneCovers(ctx, mine)
     );
   },
@@ -663,7 +825,7 @@ const decoySignal: SignalSpec<DecoyState, DecoyView> = {
     if (ctx.mode === 'spectator') return true;
     return (
       decoy.ownerId === ctx.me.id ||
-      pointSighted(ctx.me, decoy, ctx.islands, ctx.now) ||
+      pointSighted(ctx.me, decoy, ctx.islands, ctx.smoke, ctx.now) ||
       ownZoneCovers(ctx, decoy)
     );
   },
@@ -678,23 +840,92 @@ const decoySignal: SignalSpec<DecoyState, DecoyView> = {
   },
 };
 
+/**
+ * `smoke` — the SMOKE SCREEN puff (Story 8.18, catalog-v3 R38, amendments
+ * 138–145): contact-like state (NOT events), recomputed every tick like
+ * decoys, in Map-insertion (lay) order. A puff is an OBJECT ON THE WATER, so
+ * it is seen like one — but its edge is what an observer sees, not its
+ * centre, so the rule is: SPECTATORS always; the OWNER always (own field
+ * awareness — you laid it); otherwise iff the puff's CENTRE is within
+ * `sightOf(me, now) + puffRadius(bornAt, now)` (the disc's near edge touches
+ * the sight bubble) AND the segment observer → NEAREST POINT OF THE DISC is
+ * ISLAND-clear (Eric ruling 2026-09-29, amendment 148: "a puff is delivered
+ * if any part of it is island-visible" — the point `centre − r · unit(centre −
+ * me)`, the water-side rim, is what an island that hides the centre most
+ * often leaves showing; an observer INSIDE the disc has the nearest point at
+ * its own position, trivially clear). `losClear` — deliberately NOT
+ * `sightClear`: a puff never hides another puff, or an observer standing
+ * inside puff A could not see puff B beside it, and a hull IN a puff must
+ * still be shown the smoke it is standing in. NO lit-zone term (a flare lights
+ * hulls, not weather) and NEVER radar (a puff paints nothing — the blip scan
+ * iterates ships only, by construction).
+ *
+ * THIS IS A CHANNEL WITH ITS OWN ORACLE, NOT A SEVENTH PERCEPTION EXCEPTION
+ * (the litzone / burnzone / decoy precedent): its gate is a per-row predicate
+ * the invariant suite re-derives independently (verifySmoke), and the SIX
+ * declared exceptions — sp, hc, mz, sunk, sm, fh — are events that reach
+ * beyond every gate. materialize() emits `{id, x, y, t0}` and NOTHING else:
+ * no radius (both sides run the shared puffRadius curve from `t0`), no
+ * owner (a wall of smoke tells you nothing about who laid it — the mz/sm
+ * anonymity posture), no `until` (t0 + the CONFIG life; the client derives
+ * it).
+ */
+/** The point of a disc (centre `c`, radius `r`) nearest the observer `o`,
+ *  given `d = |c − o|`: `c − r · unit(c − o)`. When the observer is INSIDE
+ *  the disc (d ≤ r) the nearest point is the observer itself — a zero-length
+ *  segment, trivially island-clear (amendment 148's carve-in). */
+function nearestRimPoint(o: Vec2, c: Vec2, r: number, d: number): Vec2 {
+  if (d <= r) return o;
+  const k = r / d;
+  return { x: c.x - (c.x - o.x) * k, y: c.y - (c.y - o.y) * k };
+}
+
+const smokeSignal: SignalSpec<SmokePuff, SmokeView> = {
+  eventType: 'smoke',
+  visible(ctx, puff) {
+    if (ctx.mode === 'spectator') return true;
+    const me = ctx.me;
+    if (puff.ownerId === me.id) return true;
+    const dx = puff.x - me.state.x;
+    const dy = puff.y - me.state.y;
+    const d2 = dx * dx + dy * dy;
+    const r = puffRadius(puff.bornAt, ctx.now);
+    const reach = sightOf(me, ctx.now) + r;
+    if (d2 > reach * reach) return false;
+    return losClear(me.state, nearestRimPoint(me.state, puff, r, Math.sqrt(d2)), ctx.islands);
+  },
+  materialize(_ctx, puff) {
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,t0 — the shared SmokeView
+    // declaration order. ALWAYS a fresh bare object: `ownerId` and `until`
+    // live on the store record and may never ride along by accident — and NO
+    // own-flag either (amendment 149: ownership plays no part in smoke; the
+    // client derives "the puff I stand in" from position + puffRadius).
+    return { id: puff.id, x: puff.x, y: puff.y, t0: puff.bornAt };
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Perception-generated event channels (scan-driven, never forwarded raw).
 // ---------------------------------------------------------------------------
 
 /**
- * `blip` — the radar tier: sight < dist ≤ radar (both boundaries as written)
- * ∧ shadow-visible (Story 4.11: `visibilityTo` over the height raster > 0 —
- * partial illumination discloses; only full shadow deletes) ∧ the observer's
- * beam crossed the target's bearing this tick
- * (the half-open window [prev, cur) — wrap-safe, each bearing painted exactly
- * once per revolution). Paints carry position-at-paint-time; the server keeps
- * no blip history (phosphor decay is client render math). ONLY SHIPS PAINT —
- * torpedoes and mines never appear on radar (the ship scan iterates ships
- * only, by construction). A ship inside a lit zone the observer OWNS never
- * blips: it is already a FULL contact (Story 1.7), and the row stays
- * self-contained rather than leaning on the scan's contact-first ordering.
- * Spectators get live contacts instead, never blips.
+ * `blip` — the radar tier: [ sight < dist ≤ radar (both boundaries as
+ * written) ∨ dist ≤ sight with island LOS clear and a smoke puff on the
+ * segment (Story 8.18, amendment 147 — the hull the sight tier would show but
+ * for smoke paints instead of vanishing) ] ∧ shadow-visible (Story 4.11:
+ * `visibilityTo` over the height raster > 0 — partial illumination
+ * discloses; only full shadow deletes) ∧ the observer's beam crossed the
+ * target's bearing this tick (the half-open window [prev, cur) — wrap-safe,
+ * each bearing painted exactly once per revolution). Paints carry position-
+ * at-paint-time; the server keeps no blip history (phosphor decay is client
+ * render math). ONLY SHIPS PAINT — torpedoes and mines never appear on radar
+ * (the ship scan iterates ships only, by construction). A ship inside a lit
+ * zone the observer OWNS never blips: it is already a FULL contact (Story
+ * 1.7) — unless smoke lies on the segment, when the flare shows nothing
+ * (amendment 142) and the radar paints it (the ownZoneCovers skip and the
+ * smoke term agree by construction). The row stays self-contained rather
+ * than leaning on the scan's contact-first ordering. Spectators get live
+ * contacts instead, never blips.
  *
  * COUNTER-INTEL IS DELETED (Story 7-5 wave 2). The two non-ship additions to
  * the blip subsequence — the DECOY BUOY's anonymous paint and CHAFF's fakes
@@ -716,7 +947,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
     if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
     // The observer's OWN radar, and nothing else (the radar buoy's relay and
     // its own-scope `src` tag were deleted with the buoy in Story 8.16).
-    return blipGate(me, target.state, ctx.heightRaster, ctx.now);
+    return blipGate(me, target.state, ctx.heightRaster, ctx.now, ctx.islands, ctx.smoke);
   },
   materialize(ctx, target) {
     // Live pose (Story 4.2, FR14): hull id, heading, and the raw signed speed
@@ -763,7 +994,7 @@ export function decoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
   const out: BlipEvent[] = [];
   for (const decoy of ctx.decoys.values()) {
     if (ownZoneCovers(ctx, decoy)) continue;
-    if (blipGate(ctx.me, decoy, ctx.heightRaster, ctx.now)) out.push(decoyPaintBlip(ctx, decoy));
+    if (blipGate(ctx.me, decoy, ctx.heightRaster, ctx.now, ctx.islands, ctx.smoke)) out.push(decoyPaintBlip(ctx, decoy));
   }
   return out;
 }
@@ -802,8 +1033,10 @@ function chaffFakes(ctx: SignalContext, source: FakeSource): readonly Fake[] {
  * that pose would. The rules:
  *   • it ADDS fakes; it NEVER deletes a real return;
  *   • RADAR ONLY — the annulus inside blipGate means a fake can never appear
- *     inside your sight bubble, and the ownZoneCovers skip extends the same
- *     truth-wins rule to a flare you hung over the cloud;
+ *     inside your sight bubble EXCEPT where smoke alone hides that spot
+ *     (amendment 147 — exactly where a real hull would paint too), and the
+ *     ownZoneCovers skip extends the same truth-wins rule to a flare you
+ *     hung over the cloud;
  *   • the OWNER NEVER receives their own chaff's fakes (a source whose
  *     `ownerId` is the observer is skipped entirely) — no readout, no `src`
  *     tag; the cloud is WORLD-owned (amendment 127), so it keeps painting
@@ -830,7 +1063,7 @@ export function chaffFakeBlips(ctx: FoggedSignalContext, out: BlipEvent[]): void
 function pushGatedFakes(ctx: FoggedSignalContext, fakes: readonly Fake[], out: BlipEvent[]): void {
   for (const fake of fakes) {
     if (ownZoneCovers(ctx, fake)) continue; // your own flare shows the truth: no ship there
-    if (!blipGate(ctx.me, fake, ctx.heightRaster, ctx.now)) continue;
+    if (!blipGate(ctx.me, fake, ctx.heightRaster, ctx.now, ctx.islands, ctx.smoke)) continue;
     out.push(blipShape(ctx, fake, fake.cls, fake.heading));
   }
 }
@@ -1055,10 +1288,13 @@ function wakeInnerBound(me: ShipRecord, torp: boolean, now: number): number {
  * tick ∧ occlusion CONSISTENT WITH THE SENSOR THE BAND STANDS IN FOR —
  * inside the sight bubble (reachable only by torpedo water, whose inner
  * bound is detect) the fish itself is hidden by pointDetected's BINARY
- * island LOS, so its water uses that same binary test (the shadow march must
- * never reveal water that binary LOS hides — precisely the leak the sight
- * exclusion exists to prevent); beyond sight, the amendment-179 shadow
- * accumulator, exactly as a hull. Clause order is blipGate's cost order.
+ * island LOS ∧ smoke (sightClear — Story 8.18, Eric ruling 143: torpedo
+ * water inside the bubble is hidden by a puff on the segment), so its water
+ * uses that same binary test (the shadow march must never reveal water that
+ * the sight predicate hides — precisely the leak the sight exclusion exists
+ * to prevent); beyond sight, the amendment-179 shadow accumulator, exactly
+ * as a hull — the RADAR half, untouched by smoke. Clause order is blipGate's
+ * cost order.
  */
 function wakeGate(ctx: FoggedSignalContext, seg: WakeSubject): boolean {
   const me = ctx.me;
@@ -1069,7 +1305,7 @@ function wakeGate(ctx: FoggedSignalContext, seg: WakeSubject): boolean {
   if (d2 <= inner * inner || d2 > me.stats.radarRange * me.stats.radarRange) return false;
   if (!sweptThisTick(me, bearing(me.state, seg))) return false;
   const sight = sightOf(me, ctx.now);
-  if (d2 <= sight * sight) return losClear(me.state, seg, ctx.islands);
+  if (d2 <= sight * sight) return sightClear(me, seg, ctx.islands, ctx.smoke, ctx.now);
   return visibilityTo(ctx.heightRaster, me.state.x, me.state.y, seg.x, seg.y) > 0;
 }
 
@@ -1250,8 +1486,8 @@ export function ballisticGateOpen(ctx: SignalContext, shell: ShellState): boolea
   return (
     shell.ownerId === me.id ||
     (shell.kind === 'torp'
-      ? pointDetected(me, shell, ctx.islands, ctx.now)
-      : pointSighted(me, shell, ctx.islands, ctx.now)) ||
+      ? pointDetected(me, shell, ctx.islands, ctx.smoke, ctx.now)
+      : pointSighted(me, shell, ctx.islands, ctx.smoke, ctx.now)) ||
     ownZoneCovers(ctx, shell)
   );
 }
@@ -1396,14 +1632,14 @@ const boomSignal: SignalSpec<BoomEvent, BoomEvent> = {
   eventType: 'boom',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx.islands, ctx.now) || ownZoneCovers(ctx, e);
+    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx.islands, ctx.smoke, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(ctx, e) {
     if (ctx.mode === 'spectator') return e;
     const me = ctx.me;
     if (!e.hit || e.hit === me.id) return e;
     const victim = ctx.ships.get(e.hit);
-    if (victim && (pointSighted(me, victim.state, ctx.islands, ctx.now) || ownZoneCovers(ctx, victim.state))) {
+    if (victim && (pointSighted(me, victim.state, ctx.islands, ctx.smoke, ctx.now) || ownZoneCovers(ctx, victim.state))) {
       return e;
     }
     return { k: 'boom', id: e.id, x: e.x, y: e.y }; // impact visible, victim id stripped
@@ -1442,7 +1678,7 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
   eventType: 'burst',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx.islands, ctx.now) || ownZoneCovers(ctx, e);
+    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx.islands, ctx.smoke, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object — never `e` verbatim, which would leak the
@@ -1465,7 +1701,7 @@ function sunkWitnessed(ctx: SignalContext, e: SunkEvent): boolean {
   if (ctx.mode === 'spectator' || e.id === ctx.me.id) return true;
   const wreck = ctx.ships.get(e.id);
   if (wreck === undefined) return false;
-  return pointSighted(ctx.me, wreck.state, ctx.islands, ctx.now) || ownZoneCovers(ctx, wreck.state);
+  return pointSighted(ctx.me, wreck.state, ctx.islands, ctx.smoke, ctx.now) || ownZoneCovers(ctx, wreck.state);
 }
 
 /**
@@ -1652,7 +1888,7 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
   eventType: 'spawn',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.id === ctx.me.id || pointSighted(ctx.me, e, ctx.islands, ctx.now) || ownZoneCovers(ctx, e);
+    return e.id === ctx.me.id || pointSighted(ctx.me, e, ctx.islands, ctx.smoke, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(_ctx, e) {
     return e;
@@ -1751,8 +1987,9 @@ const hitCallSignal = shooterPrivateSignal<HitCallEvent>('hc');
  * CONSTANT, deliberately NOT the observer's dazzle-scaled
  * sightOf: a flash is a light source, not an illuminated object, so dazzle
  * does not change how far it carries, and intel boons do not widen it) ∧
- * island LOS clear (the standing 2026-08-02 ruling: islands block EVERY
- * sensor at ALL ranges). Deliberately NO ownZoneCovers term — a star-shell
+ * SIGHT clear (island LOS — the standing 2026-08-02 ruling: islands block
+ * EVERY sensor at ALL ranges — ∧ no smoke puff crossed, Story 8.18: a puff
+ * hides a flash behind it as land does). Deliberately NO ownZoneCovers term — a star-shell
  * zone does not help you see a flash you are too far away from. materialize
  * returns the bare {k,x,y} for EVERY observer — shooter and spectators
  * included; there is no privileged view of this row and no identity of any
@@ -1767,7 +2004,7 @@ const muzzleFlashSignal: SignalSpec<MuzzleEvent, MuzzleEvent> = {
     const dx = e.x - me.state.x;
     const dy = e.y - me.state.y;
     const halo = muzzleFlashReach(me); // observer-scaled 5/8 rung (Eric ruling 2026-08-16)
-    return dx * dx + dy * dy <= halo * halo && losClear(me.state, e, ctx.islands);
+    return dx * dx + dy * dy <= halo * halo && sightClear(me, e, ctx.islands, ctx.smoke, ctx.now);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object (the burst-row discipline): the wire shape is
@@ -1786,8 +2023,9 @@ const muzzleFlashSignal: SignalSpec<MuzzleEvent, MuzzleEvent> = {
  * (amendment 42: no fourth vision constant), deliberately NOT the observer's
  * dazzle-scaled sightOf and NOT the boon-widened stats.sightRange: smoke
  * reach must be identical for every observer, or the plume would carry
- * per-observer build/state information — ∧ island LOS clear (amendment 44:
- * islands block EVERY sensor at ALL ranges). Deliberately NO ownZoneCovers
+ * per-observer build/state information — ∧ SIGHT clear (amendment 44:
+ * islands block EVERY sensor at ALL ranges; Story 8.18: so does a smoke puff
+ * on the segment). Deliberately NO ownZoneCovers
  * term, exactly like mz: a star-shell zone does not help you see a plume you
  * are too far away from. materialize returns a fresh bare {k,x,y,tier} for
  * EVERY observer — the smoking ship's own captain (amendment 46: own smoke
@@ -1804,7 +2042,7 @@ const woundedSmokeSignal: SignalSpec<SmokeEvent, SmokeEvent> = {
     const dx = e.x - me.state.x;
     const dy = e.y - me.state.y;
     const halo = muzzleFlashReach(me); // observer-scaled 5/8 rung (Eric ruling 2026-08-16)
-    return dx * dx + dy * dy <= halo * halo && losClear(me.state, e, ctx.islands);
+    return dx * dx + dy * dy <= halo * halo && sightClear(me, e, ctx.islands, ctx.smoke, ctx.now);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object (the mz/burst-row discipline): the wire shape
@@ -1861,7 +2099,10 @@ type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
  *
  * ISLANDS MUFFLE, NEVER BLOCK (amendment 54, preserved in meaning — still
  * the one partial carve-out of the 2026-08-02 "islands block every sensor"
- * law): after the FLOORED band resolves, a failed losClear() demotes ONCE to
+ * law; since Story 8.18 a SMOKE PUFF on the segment muffles the identical one
+ * step — the sightClear predicate, so the horn is neither more nor less
+ * smoke-blind than every other optical sensor): after the FLOORED band
+ * resolves, a failed sightClear() demotes ONCE to
  * `max(5, floored + 2)` — two bands is the width of one old tier, so the
  * boundaries reproduce the old behavior (a honk at the truesight edge blocked
  * by rock lands at band 6 = 75%; bands 7-8 lose the honk entirely). Exactly ONE
@@ -1892,16 +2133,16 @@ type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
  * from an honest server today; that is exactly why it must return null rather
  * than throw.
  */
-function hornBandFor(me: ShipRecord, subject: FoghornSubject, islands: readonly Island[]): FoghornBand | null {
+function hornBandFor(me: ShipRecord, subject: FoghornSubject, islands: readonly Island[], puffs: readonly SmokePuff[], now: number): FoghornBand | null {
   const intel = me.stats.radarRange;
   if (!Number.isFinite(intel) || intel <= 0) return null; // before the d === 0 branch, which never reads it
   const d = Math.hypot(subject.x - me.state.x, subject.y - me.state.y);
   const band = d === 0 ? 1 : Math.ceil((8 * d) / intel);
   if (!Number.isInteger(band) || band < 1 || band > 8) return null;
   const floored = Math.max(band, 4); // the plateau floor, on the RAW band
-  const emitted = losClear(me.state, subject, islands)
+  const emitted = sightClear(me, subject, islands, puffs, now)
     ? floored
-    : Math.max(5, floored + 2); // one step, applied once (amendment 54)
+    : Math.max(5, floored + 2); // one step, applied once (amendment 54; a smoke puff muffles the same step — Story 8.18)
   return emitted > 8 ? null : (emitted as FoghornBand);
 }
 
@@ -1932,14 +2173,14 @@ const foghornSignal: SignalSpec<FoghornSubject, FoghornEvent> = {
   visible(ctx, e) {
     if (e.id === ctx.observerId) return true; // the honker always hears their own horn
     if (ctx.mode === 'spectator') return true; // before any ctx.me math (me may be undefined)
-    return hornBandFor(ctx.me, e, ctx.islands) !== null;
+    return hornBandFor(ctx.me, e, ctx.islands, ctx.smoke, ctx.now) !== null;
   },
   materialize(ctx, e) {
     if (e.id === ctx.observerId) return { k: 'fh', h: e.h, self: true };
     if (ctx.mode === 'spectator') return { k: 'fh', h: e.h, x: e.x, y: e.y };
     // visible() passed, so the band is non-null — the ONE shared resolver
     // guarantees the gate and this payload agree.
-    const v = hornBandFor(ctx.me, e, ctx.islands) as FoghornBand;
+    const v = hornBandFor(ctx.me, e, ctx.islands, ctx.smoke, ctx.now) as FoghornBand;
     return { k: 'fh', h: e.h, b: wrapPositive(bearing(ctx.me.state, e)), v };
   },
 };
@@ -1960,7 +2201,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 
 /**
  * String-keyed registry of every signal channel — the 18 GameEvent kinds plus
- * the `contact`/`mine`/`litzone`/`burnzone`/`decoy` pseudo-types.
+ * the `contact`/`mine`/`litzone`/`burnzone`/`decoy`/`smoke` pseudo-types.
  * perception.ts dispatches world events by `e.k` (an emitted kind with no row
  * is a hard fail-closed drop) and drives the contact/blip/ballistic/mine/
  * litzone/burnzone scans through their rows. Deep-frozen: the map AND every row are frozen —
@@ -1981,6 +2222,11 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   // CHAFF's fakes are NOT rows: they merge into the `blip` subsequence via
   // decoyRadarBlips / chaffFakeBlips above.
   decoy: decoySignal,
+  // Story 8.18: the SMOKE SCREEN puff's contact-like frame channel (owner
+  // always / spectators / centre within sight + radius with island-only LOS).
+  // A puff is an OCCLUDER for every other sight-tier row through sightClear;
+  // this row is only how the disc itself reaches the client.
+  smoke: smokeSignal,
   blip: blipSignal,
   shell: ballisticSignal('shell'),
   torp: ballisticSignal('torp'),
@@ -2040,11 +2286,14 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
  * the caller drops the event (nothing spatial leaves the server outside a
  * registry row).
  */
+const PSEUDO_ROWS: ReadonlySet<string> = new Set(['contact', 'mine', 'litzone', 'burnzone', 'decoy', 'smoke']);
+
 export function signalFor(kind: string): SignalSpec | undefined {
   // Pseudo-rows never dispatch from world events ('decoy' took the deleted
   // 'buoy' seat in Story 8.16 — a fabricated k:'decoy' world event must never
-  // materialize a DecoyView; 'burnzone' joined in Story 8.17 on the same rule).
-  if (kind === 'contact' || kind === 'mine' || kind === 'litzone' || kind === 'burnzone' || kind === 'decoy') return undefined;
+  // materialize a DecoyView; 'burnzone' joined in Story 8.17 and 'smoke' in
+  // Story 8.18 on the same rule).
+  if (PSEUDO_ROWS.has(kind)) return undefined;
   if (!Object.hasOwn(SIGNAL_REGISTRY, kind)) return undefined; // own-property only
   return (SIGNAL_REGISTRY as Partial<Record<string, SignalSpec>>)[kind];
 }

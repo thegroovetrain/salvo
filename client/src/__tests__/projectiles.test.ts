@@ -334,6 +334,50 @@ describe('Projectiles.setDazzled — both cull rings shrink with the observer (r
   });
 });
 
+// --- Story 8.18: IN SMOKE narrows the ENEMY rings on the same path -------------
+// The server's `sightOf` passes its per-tick `inSmoke` stamp into the same
+// `effectiveSight` (amendment 149), so the self-private `you.inSmoke` mirror
+// shrinks the enemy rings exactly as a dazzle does — and never an own track.
+
+describe('Projectiles.setInSmoke — the in-smoke observer\'s cull rings', () => {
+  const origin = { x: 0, y: 0 };
+  const BASE = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
+  const SMOKE_SIGHT = effectiveSight(BASE, false, true);
+  const at = (k: 'shell' | 'torp', x: number): BallisticEvent => ({ k, id: 'p1', x, y: 0, vx: 0, vy: 0, t: 0 });
+  const live = (ev: BallisticEvent, inSmoke: boolean, own: 'gun' | null = null): number => {
+    const p = new Projectiles(900, new Container());
+    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
+    p.setInSmoke(inSmoke);
+    p.onShell(ev, own, own);
+    p.render(1, origin, []);
+    return p.liveCount;
+  };
+
+  it('mirrors the changed-flag contract', () => {
+    const p = new Projectiles(900, new Container());
+    expect(p.setInSmoke(true)).toBe(true);
+    expect(p.setInSmoke(true)).toBe(false);
+    expect(p.isInSmoke).toBe(true);
+    expect(p.setInSmoke(false)).toBe(true);
+  });
+
+  it('shrinks an ENEMY shell ring to the in-smoke sight (1/8 intel range)', () => {
+    expect(SMOKE_SIGHT).toBe(CONFIG.vision.radar * CONFIG.smokeScreen.inSmokeSightFraction);
+    expect(live(at('shell', SMOKE_SIGHT + 40 - 1), true)).toBe(1);
+    expect(live(at('shell', SMOKE_SIGHT + 40 + 1), true)).toBe(0);
+    expect(live(at('shell', SMOKE_SIGHT + 40 + 1), false)).toBe(1);
+  });
+
+  it('keeps an OWN shell on the un-shrunk truesight ring', () => {
+    expect(live(at('shell', SMOKE_SIGHT + 40 + 1), true, 'gun')).toBe(1);
+  });
+
+  it('trackCullRadiusSq takes the flag through effectiveSight', () => {
+    expect(trackCullRadiusSq(BASE, false, 'shell', null, true)).toBe((SMOKE_SIGHT + 40) ** 2);
+    expect(trackCullRadiusSq(BASE, false, 'shell', 'gun', true)).toBe((CONFIG.vision.sight + 40) ** 2);
+  });
+});
+
 // --- REVIEW FIX: DAZZLE must not shrink the ring for OWNER-fired ordnance -----
 //
 // The server's ballistic rows short-circuit on `shell.ownerId === me.id` BEFORE
@@ -402,7 +446,22 @@ describe('main.updateDazzle — the dazzle actually reaches the projectile rende
 
   it('sets it BEFORE the fog\'s changed-flag early-return, exactly as the radar is', () => {
     const body = updateDazzle.slice(0, updateDazzle.indexOf('\n}'));
-    expect(body.indexOf('g.projectiles.setDazzled')).toBeLessThan(body.indexOf('if (!g.fog.setDazzled'));
+    const fogGate = body.indexOf('g.fog.setDazzled');
+    expect(fogGate).toBeGreaterThan(-1);
+    expect(body.indexOf('g.projectiles.setDazzled')).toBeLessThan(fogGate);
+    expect(body.indexOf('g.projectiles.setInSmoke')).toBeLessThan(fogGate);
+    // The one early return sits after BOTH fog setters (neither short-circuits the other).
+    expect(body.indexOf('g.fog.setInSmoke(inSmoke)')).toBeLessThan(body.indexOf('return;'));
+  });
+
+  it('fans IN SMOKE out to radar, projectiles and fog from the same place (Story 8.18)', () => {
+    const body = updateDazzle.slice(0, updateDazzle.indexOf('\n}'));
+    expect(body).toContain('g.radar.setInSmoke(inSmoke)');
+    expect(body).toContain('g.projectiles.setInSmoke(inSmoke)');
+    expect(body).toContain('g.fog.setInSmoke(inSmoke)');
+    // Read verbatim off the self-private own-ship flag, never re-derived from puffs.
+    const helper = MAIN_TS.slice(MAIN_TS.indexOf('function inSmokeActive('));
+    expect(helper.slice(0, helper.indexOf('\n}'))).toContain('g.state.net.you?.inSmoke === true');
   });
 
   it('runs BEFORE the projectile render, so the cull rings never lag the fog by a frame (review fix)', () => {

@@ -62,6 +62,7 @@ import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
 import { Smoke } from './render/smoke.js';
+import { SmokeScreen } from './render/smokeScreen.js';
 import { Foghorn } from './render/foghorn.js';
 import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
@@ -263,6 +264,10 @@ interface Game {
    *  the anonymous `sm` pulses on the fog-immune chart, since a hurt hull is
    *  disclosed out to 412.5u and the plume must read past the sight bubble. */
   smoke: Smoke;
+  /** SMOKE SCREEN puffs (render/smokeScreen.ts, Story 8.18) — synced from
+   *  FrameMsg.smoke into the same fog-immune `smoke` layer as the wounded
+   *  plumes; grown along the shared `puffRadius` and faded per render frame. */
+  smokeScreen: SmokeScreen;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
   foghorn: Foghorn;
@@ -2868,6 +2873,7 @@ function buildGame(
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
+    smokeScreen: new SmokeScreen(stage.layers.smoke),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
@@ -2931,8 +2937,10 @@ function buildGame(
   // a STAND-IN for a disclosure the server withholds on BINARY-LOS grounds, so
   // it owes the same binary test the server would have applied. They are the
   // deterministic set rebuilt from the map seed — the same array the predictor
-  // and the fog already collide against, never a second geometry.
-  g.radar.setWakeSources(g.effects.wakeSources, g.islands);
+  // and the fog already collide against, never a second geometry. The SMOKE
+  // SCREEN puffs ride along for the same reason (Story 8.18, ruling 143): a
+  // thunk over the live `state.net.smoke`, since puffs come and go per frame.
+  g.radar.setWakeSources(g.effects.wakeSources, g.islands, () => g.state.net.smoke);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's
@@ -3964,6 +3972,19 @@ function dazzleActive(g: Game, now: number): boolean {
 }
 
 /**
+ * Pure-ish: does the own hull's centre stand inside a live SMOKE SCREEN puff
+ * right now (Story 8.18, Eric ruling 2026-09-29, amendment 149)? Read VERBATIM
+ * off the self-private `you.inSmoke` the server stamps per tick — never
+ * re-derived from the puff list, so the fog, radar seam and projectile cull
+ * shrink on exactly the ticks the server's `sightOf` does. Spectating reads
+ * false: `net.you` is never cleared, so a wreck's last in-smoke frame must not
+ * hold a spectator's bubble at 1/8 forever.
+ */
+function inSmokeActive(g: Game): boolean {
+  return !g.state.spectating && g.state.net.you?.inSmoke === true;
+}
+
+/**
  * Keep the fog's sight hole HONEST while dazzled: the server has already
  * shrunk this ship's perceived sight to the shared `effectiveSight`
  * (radarRange/8 — shared/src/sim/sight.ts, the function its `sightOf` calls), so
@@ -3984,10 +4005,18 @@ function dazzleActive(g: Game, now: number): boolean {
  * flag guards the expensive rebake and nothing else; the radar re-reads the
  * radius when a paint is created and has nothing to rebake, so its own
  * changed-flag is deliberately unused here.
+ *
+ * IN SMOKE RIDES THE SAME PATH (Story 8.18, amendment 149): the self-private
+ * `you.inSmoke` shrinks the server's `sightOf` through the same shared
+ * `effectiveSight`, so all three consumers take it from here beside the dazzle
+ * flag, and a flip rebakes the fog on exactly the frames it changes. No HUD
+ * tell rides it — the DAZZLED tell keys on `dazzledUntil` alone.
  */
 function updateDazzle(g: Game, now: number): void {
   const dazzled = dazzleActive(g, now);
+  const inSmoke = inSmokeActive(g);
   g.radar.setDazzled(dazzled);
+  g.radar.setInSmoke(inSmoke);
   // THE PROJECTILE CULL RINGS TAKE IT TOO (review fix). The server reveals and
   // corrects ballistics inside `sightOf(me, now)` — dazzle-scaled — so a client
   // holding the un-dazzled ring would go on dead-reckoning a shell or an enemy
@@ -3995,7 +4024,12 @@ function updateDazzle(g: Game, now: number): void {
   // before the fog's changed-flag early-return, for the same reason the radar
   // is: that flag guards the expensive rebake and nothing else.
   g.projectiles.setDazzled(dazzled);
-  if (!g.fog.setDazzled(dazzled)) return;
+  g.projectiles.setInSmoke(inSmoke);
+  // Both fog flags are set BEFORE the one rebake decision, so neither setter is
+  // short-circuited away by the other reporting a flip.
+  const dazzleFlipped = g.fog.setDazzled(dazzled);
+  const smokeFlipped = g.fog.setInSmoke(inSmoke);
+  if (!dazzleFlipped && !smokeFlipped) return;
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
 
@@ -4307,6 +4341,7 @@ function renderAlive(
   // (Story 2.9's treatment, moved to render/burnZones.ts in Story 8.17).
   g.litZones.render(now);
   g.burnZones.render(now, now / 1000);
+  g.smokeScreen.render(now); // SMOKE SCREEN puffs grow + fade on the server clock
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4559,6 +4594,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   renderFoghorn(g, now, g.camera.screenCenter); // ...and every `fh`, on the omniscient position path
   g.litZones.render(now); // spectators see all zones
   g.burnZones.render(now, now / 1000); // ...and every burning zone
+  g.smokeScreen.render(now); // ...and every SMOKE SCREEN puff
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's

@@ -720,7 +720,7 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
     expect(a.hp).toBe(settled);
   });
 
-  it('POOLS ADD, the rate never changes: a second copy mid-drain extends, never steepens', () => {
+  it('A RE-PRESS REPLACES THE POOL, the rate never changes (Eric ruling 2026-09-29, amendment 141): a second copy mid-drain discards what was owed and restarts, never stacks or steepens', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stock(w, a, 2, 150);
@@ -731,9 +731,14 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
     expect(a.repairHp).toBeCloseTo(HR.regenHp - 10, 6);
     const hpAtSecondHeal = a.hp;
     expect(press(w, a)).toEqual({ ok: true });
-    expect(a.repairHp).toBeCloseTo(HR.regenHp - 10 + HR.regenHp, 6);
+    // THE REPLACE PIN: the 40 still owed is DISCARDED and a fresh 50 takes its
+    // place — 50, not 90 (amendment 51's "pools ADD" parenthetical is
+    // superseded). The instant 50 lands as before (asserted on hp below).
+    expect(a.repairHp).toBe(HR.regenHp);
+    expect(a.repairHp).not.toBeCloseTo(HR.regenHp - 10 + HR.regenHp, 6);
     // THE RATE PIN: the very next tick pays ONE pool's worth of rate, NOT two.
-    // Pools ADD, never ACCELERATE — the ratified anti-flask rule.
+    // A re-press can only RESTART the drain, never accelerate it — the half of
+    // the anti-flask rule that survives.
     w.step();
     expect(a.hp).toBeCloseTo(hpAtSecondHeal + HR.instantHp + REGEN_PER_TICK, 9);
     expect(a.hp).not.toBeCloseTo(hpAtSecondHeal + HR.instantHp + 2 * REGEN_PER_TICK, 9);
@@ -1854,6 +1859,7 @@ const BELT_CATALOG: Catalog = {
   smokeScreen: consumableLine('smokeScreen'),
   chaff: consumableLine('chaff'),
   decoyBuoy: consumableLine('decoyBuoy'),
+  depthCharge: consumableLine('depthCharge'), // the one production stub, un-stubbed HERE only (the no-row subject)
   gunUp: ladderLine('gunUp', 9), // a non-consumable control line
 };
 
@@ -2233,12 +2239,13 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
   });
 
   it('a belt slot whose line has NO row fails closed at the gate', () => {
-    // Story 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY, so the UNBUILT
-    // subject is SMOKE SCREEN (8.17). The injected catalog un-stubs it so it
-    // can be stocked at all; production CONSUMABLES has no row for it.
+    // Story 8.18 built SMOKE SCREEN, so the one UNBUILT subject left is the
+    // DEPTH CHARGE (amendment 83 — never built). The injected catalog
+    // un-stubs it so it can be stocked at all; production CONSUMABLES has no
+    // row for it.
     const w = bareWorld(1, { catalog: BELT_CATALOG });
-    const a = placeBelt(w, 'a', deckOf('smokeScreen'));
-    w.applyCard(a, 'smokeScreen');
+    const a = placeBelt(w, 'a', deckOf('depthCharge'));
+    w.applyCard(a, 'depthCharge');
     expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // stocked...
     expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: false, reason: 'empty-slot' }); // ...but inert
     expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // nothing spent

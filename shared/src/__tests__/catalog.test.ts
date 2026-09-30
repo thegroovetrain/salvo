@@ -3,7 +3,7 @@
 //
 // Pinned here: 26 lines / 117 cards with the exact per-line caps and kinds of
 // `catalog-v3.md` §1 as amended; `tiers.length === cap` on every line; the
-// 2-line stub set; the validator's rules, including its refusal of a stat
+// 1-line stub set; the validator's rules, including its refusal of a stat
 // path that takes `add` from one line and `mult` from another; and a seeded
 // permutation property — ≥200 shuffles of random legal multisets over all
 // three classes, deep-equal AND JSON-identical.
@@ -80,7 +80,7 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   starShells: { cap: 5, kind: 'equipment', stub: false },
   hullRepair: { cap: 5, kind: 'consumable', stub: false }, // LIVE since Story 8.8 (R13)
   shieldBlock: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R37)
-  smokeScreen: { cap: 5, kind: 'consumable', stub: true },
+  smokeScreen: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.18 (R38)
   chaff: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R39)
   decoyBuoy: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R36)
   depthCharge: { cap: 5, kind: 'consumable', stub: true }, // NEW in 8.13 (amendment 83)
@@ -92,14 +92,15 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   phosphorShells: { cap: 5, kind: 'equipment', stub: false },
 };
 
-/** The 2 stub ids (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
+/** The 1 stub id (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
  *  built HULL REPAIR's effect, 12 until Story 8.13 built the LIGHT TORPEDO,
  *  the CAPTIVE MINE and the SUPERCAV TORPEDO (which also stopped being an
  *  equipment line) and added the stub DEPTH CHARGE, 10 until Story 8.15 cut
  *  missile/monitor/heatSeeking and built the machine gun and flak ladders,
- *  5 until Story 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY. Both left are
- *  CONSUMABLES (SMOKE SCREEN, DEPTH CHARGE — 8.17 / Eric). */
-const STUB_IDS: readonly LineId[] = ['smokeScreen', 'depthCharge'];
+ *  5 until Story 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY, 2 until Story
+ *  8.18 built SMOKE SCREEN (R38, amendments 138–145). The one left is the
+ *  DEPTH CHARGE consumable. */
+const STUB_IDS: readonly LineId[] = ['depthCharge'];
 
 describe('catalog v3 identity', () => {
   it('ships 26 lines in the ruled order, keyed by id', () => {
@@ -122,7 +123,7 @@ describe('catalog v3 identity', () => {
     for (const id of LINE_IDS) expect(CATALOG[id].tiers.length).toBe(CATALOG[id].cap);
   });
 
-  it('pins the 2-line stub set exactly — no equipment or ladder stub is left (Story 8.15, 8.16)', () => {
+  it('pins the 1-line stub set exactly — no equipment or ladder stub is left (Story 8.15, 8.16, 8.18)', () => {
     expect(LINE_IDS.filter((id) => isStubLine(id)).sort()).toEqual([...STUB_IDS].sort());
     expect(isStubLine('nope')).toBe(false);
   });

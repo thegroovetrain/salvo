@@ -259,13 +259,14 @@ export class FleetController {
    */
   private propagateWitnesses(victim: ShipRecord, attacker: ShipRecord): void {
     const islands = this.world.map.islands;
+    const puffs = this.world.smokePuffs; // Story 8.18: a fleet hull is blinded by smoke like everyone
     const now = this.world.now;
     for (const [id, mind] of this.minds) {
       if (id === victim.id || mind.targetId !== null) continue;
       const witness = this.world.ships.get(id);
       if (!witness || !isAfloat(witness.lifecycle)) continue;
-      if (!shipSees(witness, attacker, islands, now)) continue;
-      if (!shipSees(witness, victim, islands, now)) continue;
+      if (!shipSees(witness, attacker, islands, puffs, now)) continue;
+      if (!shipSees(witness, victim, islands, puffs, now)) continue;
       this.acquire(id, attacker);
     }
   }
@@ -310,7 +311,7 @@ export class FleetController {
       return;
     }
     const now = this.world.now;
-    if (shipSees(ship, target, this.world.map.islands, now)) {
+    if (shipSees(ship, target, this.world.map.islands, this.world.smokePuffs, now)) {
       mind.lastContactMs = now;
       mind.lastKnown = { x: target.state.x, y: target.state.y };
       return;
@@ -483,7 +484,7 @@ export class FleetController {
     if (!slot.state || slot.state.n <= 0 || slot.state.reloadMsLeft > 0) return null;
     const target = this.world.ships.get(mind.targetId);
     if (!target || !isAfloat(target.lifecycle)) return null;
-    if (!shipSees(ship, target, this.world.map.islands, this.world.now)) return null;
+    if (!shipSees(ship, target, this.world.map.islands, this.world.smokePuffs, this.world.now)) return null;
     const point = this.aimPoint(ship, target, mind);
     mind.fireSeq += 1;
     return { aim: bearing(ship.state, point), aimDist: dist(ship.state, point) };

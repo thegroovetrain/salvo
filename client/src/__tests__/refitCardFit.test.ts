@@ -125,8 +125,9 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     // monitor and heat seeking and built the machine gun's and flak gun's
     // ladders — 26 lines, TWENTY-ONE live against five stubs. Story 8.16
     // flipped SHIELD BLOCK, CHAFF and DECOY BUOY — TWENTY-FOUR live against two.
+    // Story 8.18 flipped SMOKE SCREEN — TWENTY-FIVE live against one.
     expect(LINES).toHaveLength(26);
-    expect(LIVE).toHaveLength(24);
+    expect(LIVE).toHaveLength(25);
     expect(LIVE.some((l) => l.id === 'hullRepair')).toBe(true);
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });
@@ -418,8 +419,9 @@ describe('the laws that constrain the fix', () => {
     // Story 8.15: `machineGun`/`flak` left (their ladders carry the two DRAFT
     // hover descriptions, ledgered for Eric); missile/monitor/heat seeking CUT.
     // `hullRepair` left this list in Story 8.8 — its mechanism is built now —
-    // and `shieldBlock`, `chaff`, `decoyBuoy` in Story 8.16 (DRAFT hovers).
-    'smokeScreen', 'depthCharge',
+    // and `shieldBlock`, `chaff`, `decoyBuoy` in Story 8.16 (DRAFT hovers);
+    // `smokeScreen` in Story 8.18 (its DRAFT hover).
+    'depthCharge',
   ];
 
   it('keeps the contract: what left the face is on the hover tooltip, for every built line', () => {

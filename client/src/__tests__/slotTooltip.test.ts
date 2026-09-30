@@ -54,6 +54,7 @@ import {
 } from '../render/slotTooltip.js';
 import { hudBarLayout } from '../render/hudBar.js';
 import { interactionLine } from '../render/equipmentInfo.js';
+import { boonTooltipText } from '../ui/boonCopy.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const STATS: EffectiveStats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
@@ -267,7 +268,7 @@ describe('the interaction line carries a BELT slot\'s SHAPE and STOCK (ruling 13
 
   it('carries the LIVE consumable\'s explanation, and none for a stub', () => {
     // STORY 8.8 wrote HULL REPAIR's line — the first consumable with a
-    // mechanism to explain. The other four are still stubs, and an unwritten
+    // mechanism to explain. DEPTH CHARGE is still a stub, and an unwritten
     // explanation still fails open to '' exactly as it does for an unbuilt
     // weapon (amendment 41).
     const live = tooltipModel(BELT_1, 'hullRepair', STATS, [], 1)?.description ?? '';
@@ -276,7 +277,19 @@ describe('the interaction line carries a BELT slot\'s SHAPE and STOCK (ruling 13
     // ...and it carries NO amounts: the card face prints those, live from
     // CONFIG, and a number written twice can disagree with itself.
     expect(live).not.toMatch(/\d/);
-    expect(tooltipModel(BELT_1, 'smokeScreen', STATS, [], 1)?.description).toBe('');
+    // DEPTH CHARGE is the one stub left (Story 8.18 flipped SMOKE SCREEN).
+    expect(tooltipModel(BELT_1, 'depthCharge', STATS, [], 1)?.description).toBe('');
+  });
+
+  // STORY 8.18 — a stocked SMOKE SCREEN reads through the existing consumable
+  // path: KEY FIRES, its stock, and its DRAFT explanation.
+  it('renders a stocked SMOKE SCREEN: key-fired, its stock, its explanation', () => {
+    const m = tooltipModel(BELT_2, 'smokeScreen', STATS, [], 3);
+    expect(m?.name).toBe('SMOKE SCREEN');
+    expect(m?.interaction).toBe('CONSUMABLE · 2 · KEY FIRES · ×3');
+    expect(m?.boons).toEqual([]);
+    expect(m?.description).toBe(boonTooltipText('smokeScreen'));
+    expect(m?.description.length).toBeGreaterThan(0);
   });
 });
 

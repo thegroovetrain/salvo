@@ -38,6 +38,7 @@ import {
   metricsPayload,
   metricsEndpoint,
   recordMinesLive,
+  recordSmokeLive,
   nearestRank,
   computeTickPercentiles,
   round2,
@@ -265,7 +266,7 @@ describe('metricsPayload counts', () => {
       players: 0,
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
-      world: { minesLivePeak: 0 },
+      world: { minesLivePeak: 0, smokeLivePeak: 0 },
     });
   });
 });
@@ -299,6 +300,30 @@ describe('world.minesLivePeak gauge', () => {
     expect(metricsPayload().world.minesLivePeak).toBe(5);
     resetMetrics();
     expect(metricsPayload().world.minesLivePeak).toBe(0);
+  });
+});
+
+// Story 8.18 — the live SMOKE SCREEN puff high-water mark, the mine peak's
+// twin: every live puff is one segment–circle test inside every sight
+// predicate for every observer, so the peak is what the perception pass paid
+// for. A COUNT AND NOTHING ELSE — no owner, no position.
+describe('world.smokeLivePeak gauge (Story 8.18)', () => {
+  it('keeps the MAX ever recorded, never falls, and rides the payload beside minesLivePeak', () => {
+    expect(metricsPayload().world.smokeLivePeak).toBe(0);
+    recordSmokeLive(4);
+    expect(metricsPayload().world.smokeLivePeak).toBe(4);
+    recordSmokeLive(160); // sixteen full trails on the water
+    expect(metricsPayload().world.smokeLivePeak).toBe(160);
+    recordSmokeLive(0); // every trail expired — the PEAK does not fall
+    expect(metricsPayload().world.smokeLivePeak).toBe(160);
+    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, smokeLivePeak: 160 }); // independent of the mine peak
+  });
+
+  it('resetMetrics() zeroes it', () => {
+    recordSmokeLive(9);
+    expect(metricsPayload().world.smokeLivePeak).toBe(9);
+    resetMetrics();
+    expect(metricsPayload().world.smokeLivePeak).toBe(0);
   });
 });
 

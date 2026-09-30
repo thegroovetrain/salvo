@@ -7,18 +7,18 @@
 // import the factory without importing the registry that imports it. Each
 // LINE's own effect lives beside it in `consumables/<lineId>.ts`.
 //
-// THE REGISTRY HOLDS SIX ROWS: HULL REPAIR (Story 8.8, epic-8 amendments
+// THE REGISTRY HOLDS SEVEN ROWS: HULL REPAIR (Story 8.8, epic-8 amendments
 // 46 + 51), since Story 8.13 the SUPERCAV TORPEDO — the belt's first
 // CLICK-AIMED line (amendment 74, `CONSUMABLE_IS_WEAPON.supercavTorpedo`) —
 // since Story 8.16 SHIELD BLOCK, CHAFF and the click-placed DECOY BUOY
-// (amendments 116–124), and since Story 8.17 FLASH SHELLS (id `dazzleShells`,
-// amendment 132 — the second click-aimed line). SMOKE SCREEN and the DEPTH
-// CHARGE stub (amendment 83)
-// are still `stub` in the catalog, so no copy of them can be dealt, picked or
-// stocked — and because
-// the registry is PARTIAL, even a forged belt press naming one finds no row
-// and fails closed at the gate. The invariant that keeps the two halves honest
-// is pinned in equipment.test.ts: every NON-STUB consumable has a row here and
+// (amendments 116–124), since Story 8.17 FLASH SHELLS (id `dazzleShells`,
+// amendment 132 — the second click-aimed line), and since Story 8.18 SMOKE
+// SCREEN (amendments 138–145 — key-fired, lays a 5 s trail of puffs astern).
+// The DEPTH CHARGE stub (amendment 83) is the ONE line still `stub` in the
+// catalog, so no copy of it can be dealt, picked or stocked — and because the
+// registry is PARTIAL, even a forged belt press naming it finds no row and
+// fails closed at the gate. The invariant that keeps the two halves honest is
+// pinned in equipment.test.ts: every NON-STUB consumable has a row here and
 // every STUB one has none.
 //
 // Pure adapter, like every other row module: no World reference and no I/O.
@@ -30,6 +30,7 @@ import { shieldBlockRow } from './consumables/shieldBlock.js';
 import { chaffRow } from './consumables/chaff.js';
 import { decoyBuoyRow } from './consumables/decoyBuoy.js';
 import { dazzleShellsRow } from './consumables/dazzleShells.js';
+import { smokeScreenRow } from './consumables/smokeScreen.js';
 import { buildConsumableRegistry, type ConsumableRegistry } from './consumables/row.js';
 
 export {
@@ -41,7 +42,7 @@ export {
 } from './consumables/row.js';
 
 /**
- * THE PRODUCTION REGISTRY — the six BUILT lines, pinned by equipment.test.ts
+ * THE PRODUCTION REGISTRY — the seven BUILT lines, pinned by equipment.test.ts
  * against the catalog's `stub` flags.
  */
 export const CONSUMABLES: ConsumableRegistry = buildConsumableRegistry([
@@ -51,4 +52,5 @@ export const CONSUMABLES: ConsumableRegistry = buildConsumableRegistry([
   chaffRow,
   decoyBuoyRow,
   dazzleShellsRow,
+  smokeScreenRow,
 ]);

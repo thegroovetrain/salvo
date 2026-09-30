@@ -2306,6 +2306,27 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * SMOKE SCREEN puffs (render/smokeScreen.ts, Story 8.18) — FEEL ONLY. The
+   * puff's presence, position, life and radius are gameplay (the server's sight
+   * predicate reads them) and live in shared `CONFIG.smokeScreen` + the shared
+   * `puffRadius`; nothing here may change who sees what. NOT `smoke` below
+   * (WOUNDED smoke): the two share `colors.woundedSmoke` and differ by SHAPE —
+   * a large stationary disc with a crisp rim vs small trailing soft blobs.
+   */
+  smokeScreen: {
+    /** The last this-many ms of a puff's life ease its FILL alpha linearly to
+     *  0 so a puff thins out rather than popping off at its server `until`.
+     *  The rim never fades — it is the occlusion edge, and the puff occludes at
+     *  full strength until removal (cycle-153 review gate). */
+    fadeMs: 5000,
+    /** Disc fill alpha at full strength (before the end-of-life fade). */
+    fillAlpha: 0.35,
+    /** 1 u rim alpha — a hair stronger than the fill, so the EDGE (the
+     *  occlusion boundary) reads crisply. */
+    rimAlpha: 0.6,
+  },
+
+  /**
    * Radar blip render knobs — persistence and legibility for the quantized
    * intensity bitmap (the one radar grammar; cycle 105 deleted the retired
    * `silhouette` outline path and every knob that only it read).

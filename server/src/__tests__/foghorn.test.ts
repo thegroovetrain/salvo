@@ -62,6 +62,9 @@ const radarCtx = (w: World) => ({
   decoys: w.decoys,
   // ...and the world-owned chaff clouds (amendment 127); the fh row reads none.
   chaffSources: w.chaffSources,
+  // Story 8.18: the live smoke puffs — the fh row's muffle DOES read these
+  // (sightClear), so the World's own live list passes through.
+  smoke: w.smokePuffs,
   mapRadius: w.map.radius,
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.

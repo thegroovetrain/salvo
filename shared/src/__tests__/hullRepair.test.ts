@@ -3,7 +3,7 @@
 // CONFIG pins for the game's two heal channels, plus the NFR6 arithmetic the
 // collapse ceiling rests on. Pure pins, the damageGuardrail idiom: they fail
 // the moment a retune or a refactor drifts across a ruled line — an amount
-// moving, the pool's rate leaving its ruled stacking law, the belt's authored
+// moving, the pool's rate leaving its ruled 0.01 hp/ms, the belt's authored
 // heal budget growing, or the four-card draw thinning.
 //
 // WAS the damage-control pin file. Gone with the rename: the sentinel pins (the
@@ -30,9 +30,13 @@ describe('CONFIG.hullRepair — the paid heal, flat on every hull (Eric rulings 
     }
   });
 
-  it('the pool pays at EXACTLY 0.01 hp/ms — one fixed rate, pools ADD and never accelerate', () => {
-    // THE RULED INVARIANT IS THE STACKING LAW, not the scalar: two copies run
-    // twice as long at this rate, never twice as fast. The rate itself was
+  it('the pool pays at EXACTLY 0.01 hp/ms — one fixed rate; a re-press REPLACES the pool, never accelerates it', () => {
+    // THE OLD STACKING LAW ("pools ADD, the rate never changes") IS SUPERSEDED
+    // (Eric 2026-09-29, epic-8 amendment 141): a re-press REPLACES the pool —
+    // `repairHp = regenHp`, whatever was still owed is discarded, and a fresh
+    // 50 hp pays over a fresh 5 s. The replace itself is server behaviour
+    // (World.applyRepair) and is pinned in the server suite; this file pins the
+    // rate, which is unchanged either way. The rate itself was
     // ruled as 5 hp/s at regenHp 25 (Eric 2026-08-04) and balance cycle 1
     // doubled the AMOUNT with hull hp while regenMs stayed 5000, so the shipped
     // pool pays 50 hp over 5 s. That doubling is deliberate: hull hp doubled in
@@ -91,16 +95,16 @@ describe('CONFIG.regen — the out-of-combat regen (Eric ruling 2026-09-17, amen
   });
 });
 
-describe('HULL REPAIR is a LIVE consumable; two of the eight are still stubs', () => {
-  it('hullRepair is dealt, and so are the SUPERCAV TORPEDO, SHIELD BLOCK, CHAFF, DECOY BUOY and FLASH SHELLS — the rest are not', () => {
+describe('HULL REPAIR is a LIVE consumable; one of the eight is still a stub', () => {
+  it('hullRepair is dealt, and so are the SUPERCAV TORPEDO, SHIELD BLOCK, SMOKE SCREEN, CHAFF, DECOY BUOY and FLASH SHELLS — DEPTH CHARGE is not', () => {
     // Story 8.13 made SUPERCAV TORPEDO the second live consumable line (Eric
     // ruling 2026-09-19, epic-8 amendment 74) and added one more stub,
     // DEPTH CHARGE (amendment 83). Story 8.16 flipped SHIELD BLOCK, CHAFF and
     // DECOY BUOY live (amendments 116–124); Story 8.17 moved FLASH SHELLS
-    // (`dazzleShells`) in from the add-on space, live (amendment 132). SMOKE
-    // SCREEN and DEPTH CHARGE stay.
+    // (`dazzleShells`) in from the add-on space, live (amendment 132); Story
+    // 8.18 flipped SMOKE SCREEN live (amendments 138-145). DEPTH CHARGE stays.
     const LIVE: readonly string[] = [
-      'hullRepair', 'supercavTorpedo', 'shieldBlock', 'chaff', 'decoyBuoy', 'dazzleShells',
+      'hullRepair', 'supercavTorpedo', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'dazzleShells',
     ];
     for (const id of CONSUMABLE_IDS) {
       expect(isStubLine(id), id).toBe(!LIVE.includes(id));

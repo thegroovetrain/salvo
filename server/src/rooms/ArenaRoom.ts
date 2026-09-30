@@ -43,6 +43,7 @@ import {
 import { createLogger, type LogFields, type Logger } from '../log.js';
 import {
   recordMinesLive,
+  recordSmokeLive,
   registerRoom,
   type RoomMetricsHandle,
 } from '../metrics.js';
@@ -1328,6 +1329,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // peak. A count, nothing else — and read right after the step, so a
       // cascade that cleared the water is already reflected.
       recordMinesLive(this.world.mineCount);
+      // ...and the live SMOKE SCREEN puff count (Story 8.18), on the same terms.
+      recordSmokeLive(this.world.smokeCount);
       this.match?.update();
       this.observeMatchActivation();
       this.afterStep();

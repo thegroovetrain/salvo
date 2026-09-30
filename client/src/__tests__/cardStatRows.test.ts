@@ -471,11 +471,21 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     ]);
   });
 
-  it('gives a STILL-STUB CONSUMABLE no rows (DEPTH CHARGE included)', () => {
-    // TWO since Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY BUOY.
-    for (const id of ['smokeScreen', 'depthCharge'] as const) {
-      expect(cardStatRows(CATALOG[id], 0, TB), id).toEqual([]);
-    }
+  it('gives a STILL-STUB CONSUMABLE no rows (DEPTH CHARGE)', () => {
+    // TWO since Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY BUOY; ONE since
+    // Story 8.18 flipped SMOKE SCREEN.
+    expect(cardStatRows(CATALOG.depthCharge, 0, TB)).toEqual([]);
+  });
+
+  // SMOKE SCREEN (Story 8.18): DRAFT rows, every number off CONFIG.smokeScreen,
+  // in the 8.16 belt register's uppercase units.
+  it('gives SMOKE SCREEN its trail, puff life and growth, off CONFIG', () => {
+    const k = CONFIG.smokeScreen;
+    expect(cardStatRows(CATALOG.smokeScreen, 0, TB)).toEqual([
+      { label: 'TRAIL', cur: null, next: `${k.layMs / 1000} S` },
+      { label: 'PUFF', cur: null, next: `${k.lifeMs / 1000} S` },
+      { label: 'RADIUS', cur: null, next: `${k.r0} → ${k.r1} U` },
+    ]);
   });
 
   // THE THREE 8.16 CONSUMABLES (catalog-v3 R36/R37/R39): absolute rows in the
