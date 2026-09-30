@@ -848,7 +848,8 @@ const decoySignal: SignalSpec<DecoyState, DecoyView> = {
  * centre, so the rule is: SPECTATORS always; the OWNER always (own field
  * awareness — you laid it); otherwise iff the puff's CENTRE is within
  * `sightOf(me, now) + puffRadius(bornAt, now)` (the disc's near edge touches
- * the sight bubble) AND the segment observer → NEAREST POINT OF THE DISC is
+ * the sight bubble — at the 82.5 → 165 u radii of 2026-09-30, up to sight +
+ * 165 u, i.e. 495 u for a clear observer at base sight) AND the segment observer → NEAREST POINT OF THE DISC is
  * ISLAND-clear (Eric ruling 2026-09-29, amendment 148: "a puff is delivered
  * if any part of it is island-visible" — the point `centre − r · unit(centre −
  * me)`, the water-side rim, is what an island that hides the centre most

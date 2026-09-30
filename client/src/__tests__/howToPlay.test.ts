@@ -70,7 +70,7 @@ describe('how-to-play copy', () => {
     // ...and it names the two halves of the rule Eric ruled: the wait, and what
     // resets it.
     const regen = paragraphs.find((p) => p.includes('your hull slowly mends on its own')) ?? '';
-    expect(regen).toContain('thirty seconds');
+    expect(regen).toContain('fifteen seconds');
     expect(regen).toContain('storm');
   });
 

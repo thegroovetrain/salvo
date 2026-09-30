@@ -23,7 +23,9 @@ const OBSERVERS = 20;
 const PUFFS = 200;
 const RING_U = 220; // every hull within 440 u of every other: about half the pairs inside the 330 u sight bubble
 const RING_PUFFS = 20; // puffs ON the ring — the occluding minority (non-vacuity)
-const FAR_MIN_U = 320; // the other 180 sit in an annulus every hull-to-hull segment misses ...
+const RING_PUFF_SECTOR = Math.PI / 6; // ...confined to one 30° slice of the ring (see smokedField)
+const RING_PUFF_BAND_U = 40; // ...and to the outer 40 u band inside it
+const FAR_MIN_U = 400; // the other 180 sit in an annulus every hull-to-hull segment misses ...
 const FAR_MAX_U = 520; // ... yet inside sight + radius of the ring, so the smoke CHANNEL delivers them too
 
 /** Twenty captains on a ring, two hundred live puffs of random age. THE WORST
@@ -31,8 +33,14 @@ const FAR_MAX_U = 520; // ... yet inside sight + radius of the ring, so the smok
  *  puff, so a field where every segment is smoked is the CHEAP case. Here 180
  *  of the 200 puffs lie where no hull-to-hull segment can reach them (a
  *  segment between two ring points stays within RING_U of the centre; a puff
- *  at ≥ 320 u with r ≤ 60 never touches it), so every predicate scans the
- *  whole store for most pairs, while 20 ring puffs keep the occlusion real.
+ *  at ≥ 400 u with r ≤ 165 — the full-grown 2/8 of intel range — keeps its
+ *  near edge ≥ 235 u out, a 15 u margin past the 220 u ring), so every
+ *  predicate scans the whole store for most pairs, while 20 ring puffs keep
+ *  the occlusion real. The ring puffs sit in ONE 30° slice, in the outer 40 u
+ *  band just inside the ring: with r up to 165 u (2/8 of intel range) a puff
+ *  anywhere near the centre would cross every in-sight chord (each lies
+ *  ≥ 145 u from the centre) and smoke the whole room — the cheap case — so
+ *  they occlude that side's pairs only and the far side stays clear.
  *  Built outside the clock; deterministic per seed. */
 function smokedField(seed: number): { w: World; ids: string[] } {
   const rng = mulberry32(seed);
@@ -53,11 +61,12 @@ function smokedField(seed: number): { w: World; ids: string[] } {
     ids.push(id);
   }
   for (let p = 0; p < PUFFS; p += 1) {
-    const ang = rng.float(0, Math.PI * 2);
     // The far puffs go into the store FIRST: `puffCrossed` walks insertion
     // order and stops at the first hit, so a ring puff at the front would let
     // every smoked segment skip the 180 misses this pin exists to price.
-    const r = p >= PUFFS - RING_PUFFS ? Math.sqrt(rng.float(0, 1)) * RING_U : rng.float(FAR_MIN_U, FAR_MAX_U);
+    const ring = p >= PUFFS - RING_PUFFS;
+    const ang = rng.float(0, ring ? RING_PUFF_SECTOR : Math.PI * 2);
+    const r = ring ? rng.float(RING_U - RING_PUFF_BAND_U, RING_U) : rng.float(FAR_MIN_U, FAR_MAX_U);
     const bornAt = w.now - rng.float(0, CONFIG.smokeScreen.lifeMs - 1);
     const id = `sk${p}`;
     w.smoke.set(id, { id, ownerId: ids[p % OBSERVERS], x: Math.cos(ang) * r, y: Math.sin(ang) * r, bornAt, until: bornAt + CONFIG.smokeScreen.lifeMs });

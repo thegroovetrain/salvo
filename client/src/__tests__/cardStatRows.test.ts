@@ -486,6 +486,9 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
       { label: 'PUFF', cur: null, next: `${k.lifeMs / 1000} S` },
       { label: 'RADIUS', cur: null, next: `${k.r0} → ${k.r1} U` },
     ]);
+    // The 2026-09-30 radii (1/8 → 2/8 of intel range) through the row's
+    // one-decimal `num()` formatter, as the card prints them.
+    expect(cardStatRows(CATALOG.smokeScreen, 0, TB)[2].next).toBe('82.5 → 165 U');
   });
 
   // THE THREE 8.16 CONSUMABLES (catalog-v3 R36/R37/R39): absolute rows in the

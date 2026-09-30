@@ -74,8 +74,8 @@ describe('CONFIG.regen — the out-of-combat regen (Eric ruling 2026-09-17, amen
     expect(CONFIG.regen.missingPctPerS).toBe(0.01);
   });
 
-  it('waits 30 s since the last landed damage', () => {
-    expect(CONFIG.regen.outOfCombatMs).toBe(30000);
+  it('waits 15 s since the last landed damage (Eric 2026-09-30; was 30 s)', () => {
+    expect(CONFIG.regen.outOfCombatMs).toBe(15000);
   });
 
   it('both dials are finite and positive, and the clock is a whole number of sim ticks', () => {

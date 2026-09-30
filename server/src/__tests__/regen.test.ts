@@ -1,7 +1,9 @@
 // OUT-OF-COMBAT REGEN (epic-8 amendments 46-48; Eric ruling 2026-09-17) —
 // the channel that REPLACED the free per-level auto-heal in Story 8.8.
 //
-// The shape, in Eric's words: *"1 %/s of missing, after 30 s"*. So healing is
+// The shape, in Eric's words: *"1 %/s of missing, after 30 s"* — the wait cut
+// to 15 s on 2026-09-30 (Eric: 30 s was "far too long given the current
+// deadliness of the game"; `CONFIG.regen.outOfCombatMs`). So healing is
 // paced by DISENGAGING rather than by the economy — a hull that breaks contact
 // and stays out of it comes back; a hull that keeps trading never does, because
 // every landed blow (storm bites and burn ticks included) resets the clock at
@@ -65,7 +67,7 @@ function missingAfter(missing0: number, ticks: number): number {
   return missing0 * (1 - REGEN.missingPctPerS * (DT / 1000)) ** ticks;
 }
 
-describe('the 30 s wait', () => {
+describe('the 15 s wait', () => {
   it('a hurt hull regens NOTHING until outOfCombatMs have passed', () => {
     const w = bareWorld();
     const a = place(w, 'a');
@@ -78,10 +80,10 @@ describe('the 30 s wait', () => {
 
   // THE WAIT IS EXCLUSIVE OF THE TICK THAT ENDS ON IT (review gate, 2026-09-17).
   // A tick is a 50 ms SPAN, `now` its END: the tick that ends at exactly
-  // `lastDamagedAt + 30000` covers (29950, 30000], which is still inside the
+  // `lastDamagedAt + 15000` covers (14950, 15000], which is still inside the
   // wait. Crediting it would pay a full tick's regen for time spent waiting —
   // the whole tick has to lie past the window before any of it is regen time.
-  it('the tick that ENDS exactly on the 30 s mark credits NOTHING — its span is still inside the wait', () => {
+  it('the tick that ENDS exactly on the 15 s mark credits NOTHING — its span is still inside the wait', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     a.hp = a.stats.maxHp * 0.5;

@@ -150,8 +150,9 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 
 // ---------- Story 8.18: the SMOKE SCREEN oracle (independently re-derived) ----
 //
-// A puff is a stationary disc born at 40 u and growing LINEARLY to 60 u over
-// its whole 30 s life (Eric rulings 138–139), written here as LITERALS —
+// A puff is a stationary disc born at 82.5 u and growing LINEARLY to 165 u
+// over its whole 30 s life (Eric rulings 138–139; radii re-ruled 2026-09-30 to
+// 1/8 → 2/8 of the 660 u intel range), written here as LITERALS —
 // deliberately NOT CONFIG.smokeScreen and NEVER the shared `puffRadius`. A
 // segment is BLOCKED by a puff iff the disc's centre lies within its radius of
 // the segment — the closest-point test written out below, NEVER the shared
@@ -164,7 +165,7 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 // but the oracle states the rule rather than trusting the sweep.
 function puffRadiusOracle(bornAt: number, now: number): number {
   const age = Math.max(0, now - bornAt);
-  return 40 + 20 * Math.min(1, age / 30_000);
+  return 82.5 + 82.5 * Math.min(1, age / 30_000);
 }
 
 function segPointDistOracle(a: { x: number; y: number }, b: { x: number; y: number }, p: { x: number; y: number }): number {
@@ -541,7 +542,7 @@ function injectBurnZone(
 
 /** Drop a SMOKE SCREEN puff directly into world state (Story 8.18) — the
  *  injectMine posture: a raw store write, never the production lay path.
- *  `bornAt` defaults to "now" (a fresh 40 u disc); `until` to a 30 s life. */
+ *  `bornAt` defaults to "now" (a fresh 82.5 u disc); `until` to a 30 s life. */
 function injectPuff(w: World, id: string, ownerId: string, x: number, y: number, bornAt = w.now, until = bornAt + 30_000): void {
   w.smoke.set(id, { id, ownerId, x, y, bornAt, until });
 }
@@ -2706,7 +2707,7 @@ function verifyDecoy(w: World, me: ShipRecord, d: DecoyView): void {
 /** A SMOKE SCREEN puff (Story 8.18) may reach a fogged frame only if the
  *  viewer OWNS it (own field awareness) or its CENTRE is within the viewer's
  *  effective sight PLUS the puff's current radius (the disc's near edge
- *  touches the bubble — the 40 → 60 u literal curve) with ISLAND-only LOS to
+ *  touches the bubble — the 82.5 → 165 u literal curve) with ISLAND-only LOS to
  *  the point of the disc NEAREST the viewer (Eric ruling 2026-09-29,
  *  amendment 148 — "a puff is delivered if any part of it is island-
  *  visible"; written out here as `centre − r · (centre − me) / |centre − me|`,
@@ -3931,26 +3932,30 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       // A GUARANTEED NEIGHBOUR (Story 8.18): the random ring above seats hulls
       // kilometres apart, so two hulls inside one sight bubble were rare and
       // the smoke occluder could pass vacuously. One extra hull per world
-      // sits 120–300 u off ids[0] on a random bearing — inside sight, in the
-      // clear — and most of the puffs below are seated on THAT segment.
+      // sits 180–300 u off ids[0] on a random bearing — inside sight, in the
+      // clear — and most of the puffs below are seated on THAT segment. (The
+      // floor was 120 u while a fresh puff was 40 u; at 82.5 u it rose to 180
+      // so the EVEN-world midpoint puff below still contains neither centre.)
       {
         const anchor = w.ships.get(ids[0])!.state;
         const brg = rng.float(0, TAU);
-        const d = rng.float(120, 300);
+        const d = rng.float(180, 300);
         const rec = place(w, 'pn', anchor.x + Math.cos(brg) * d, anchor.y + Math.sin(brg) * d, rng.float(0, TAU), GUN_IDS[rng.int(0, GUN_IDS.length - 1)]);
         rec.sweepAngle = rng.float(0, TAU);
         ids.push('pn');
         // ...and the two amendment-147/149 arrangements the random ring never
         // produces on its own (the ruling's "arrange a seeded scenario"):
-        //   • EVEN worlds: a fresh r40 puff at the MIDPOINT of anchor→pn (≥ 60 u
-        //     from either centre, so it contains neither) and the anchor's beam
+        //   • EVEN worlds: a fresh r82.5 puff at the MIDPOINT of anchor→pn
+        //     (≥ 90 u from either centre, so it contains neither) and the anchor's beam
         //     parked just short of pn's bearing, so the first step's paint
         //     window crosses a hull inside sight that smoke alone hides — the
         //     in-bubble BLIP arm (SMOKED_BLIP) runs against a real frame;
         //   • ODD worlds: a close neighbour 'pq' 40–80 u off the anchor (inside
-        //     the 82.5 u in-smoke bubble) and a puff of random age centred on
-        //     the anchor, so a hull STANDING IN SMOKE sees through it
-        //     (IN_SMOKE_SEES) while pn, 120–300 u out, is clamped away.
+        //     the 82.5 u in-smoke bubble — and, now that a puff is ≥ 82.5 u,
+        //     inside the puff too, which still puts the puff on the segment)
+        //     and a puff of random age centred on the anchor, so a hull
+        //     STANDING IN SMOKE sees through it (IN_SMOKE_SEES) while pn,
+        //     180–300 u out, is clamped away.
         const anchorRec = w.ships.get(ids[0])!;
         if (world % 2 === 0) {
           const pn = rec.state;
@@ -4065,8 +4070,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         addDecoy(w.decoys, owner.id, obs.state.x + Math.cos(brg) * d, obs.state.y + Math.sin(brg) * d, `decoy${di}`).hp =
           rng.float(1, CONFIG.decoyBuoy.hp);
       }
-      // SMOKE SCREEN (Story 8.18): 0-4 live puffs of RANDOM age (fresh 40 u
-      // to nearly-expired 60 u), seated so the occluder is EXERCISED rather
+      // SMOKE SCREEN (Story 8.18): 0-4 live puffs of RANDOM age (fresh 82.5 u
+      // to nearly-expired 165 u), seated so the occluder is EXERCISED rather
       // than vacuous (SMOKE_OCCLUDED below): most STRADDLE the segment
       // between two hulls (a random point along it, the puff's edge across
       // the line), some sit ON an observer (a hull standing inside a puff —

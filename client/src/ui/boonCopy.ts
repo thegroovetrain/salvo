@@ -1095,7 +1095,7 @@ function flashShellRows(): CardStatRow[] {
 /**
  * SMOKE SCREEN'S ROWS (Story 8.18, catalog-v3 R38 — DRAFT labels for Eric's
  * eye): how long the trail is laid, how long each puff lives, and how it grows
- * — `TRAIL 5 S` / `PUFF 30 S` / `RADIUS 40 → 60 U`, every number off
+ * — `TRAIL 5 S` / `PUFF 30 S` / `RADIUS 82.5 → 165 U`, every number off
  * `CONFIG.smokeScreen`, in the 8.16 belt register's uppercase units.
  */
 function smokeScreenRows(): CardStatRow[] {

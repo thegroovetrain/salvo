@@ -481,7 +481,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // list with the former add-ons.
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
   shieldBlock: consumable('shieldBlock'), // R37 — absorbs 100 hp for 10 s (CONFIG.shieldBlock)
-  smokeScreen: consumable('smokeScreen'), // R38 — a 5 s trail of r40→60 puffs, 30 s life (CONFIG.smokeScreen)
+  smokeScreen: consumable('smokeScreen'), // R38 — a 5 s trail of r82.5→165 puffs (1/8 → 2/8 intel range, Eric 2026-09-30), 30 s life (CONFIG.smokeScreen)
   chaff: consumable('chaff'), // R39 — 10 fakes in 120 u for 15 s (CONFIG.chaff)
   decoyBuoy: consumable('decoyBuoy'), // R36 — a 50 hp rear-dropped decoy (CONFIG.decoyBuoy)
   // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB

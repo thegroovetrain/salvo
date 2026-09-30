@@ -600,9 +600,10 @@ function smokeCrossed(own: Vec2, at: Vec2, smoke: readonly SmokeView[], nowMs: n
 
 /**
  * ms — the growth bucket the smoke key carries while any puff is live. A puff
- * grows (r1 − r0) / expandMs ≈ 0.67 u/s, so a stamp held for one bucket judges
- * the line against a radius at most ~0.33 u stale — well under one radar cell —
- * while rebuilding twice a second at most on growth alone.
+ * grows (r1 − r0) / expandMs = 82.5 u / 30 s = 2.75 u/s (the 2026-09-30 radii,
+ * 82.5 → 165 u), so a stamp held for one bucket judges the line against a
+ * radius at most 1.375 u stale — still well under one 9 u radar cell — while
+ * rebuilding twice a second at most on growth alone.
  */
 export const SMOKE_GROWTH_BUCKET_MS = 500;
 

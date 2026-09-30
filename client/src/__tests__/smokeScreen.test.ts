@@ -160,12 +160,21 @@ describe('the in-bubble wake mirror owes the server smoke term (ruling 143)', ()
   const MODEL = CLIENT_CONFIG.blip.heatmap.model;
   const CELL = CLIENT_CONFIG.blip.heatmap.cellU;
   const SIGHT = CONFIG.vision.sight;
-  /** The observer sits well SOUTH of the track so a single r40 puff 60 u away
-   *  along the track's mean bearing covers every observer→segment line. */
+  /** The observer sits well SOUTH of the track so a single fresh r82.5 puff
+   *  100 u away along the track's mean bearing covers every observer→segment
+   *  line — without containing the observer (100 > 82.5). */
   const own = { x: 0, y: -100 };
   const bearing = Math.atan2(40 - own.y, 150 - own.x);
   const between = (t0: number): SmokeView =>
-    puff('sk1', t0, own.x + 60 * Math.cos(bearing), own.y + 60 * Math.sin(bearing));
+    puff('sk1', t0, own.x + 100 * Math.cos(bearing), own.y + 100 * Math.sin(bearing));
+  /** A puff OUTSIDE the fan of observer→segment lines: 180 u out (so even
+   *  fully grown, r165, it never contains the observer), 60° past the
+   *  steepest line — 180·sin 60° ≈ 155.9 u from it, its foot 90 u along a
+   *  line ~150 u long. Fresh (r82.5) it misses every line; fully grown (r165)
+   *  it crosses the steepest ones. */
+  const PAST_FAN_U = 180;
+  const PAST_FAN_RAD = Math.PI / 3;
+  const PAST_FAN_GAP_U = PAST_FAN_U * Math.sin(PAST_FAN_RAD);
 
   it('reveals the segment with no puff, and hides it with a puff on the line', () => {
     const { sources, t } = tracked();
@@ -189,18 +198,18 @@ describe('the in-bubble wake mirror owes the server smoke term (ruling 143)', ()
     expect(buildTruesightWakeStamp(sources, own, SIGHT, t, CELL, MODEL, [], 0, [onMe]).size).toBe(0);
   });
 
-  it('uses the shared radius at the frame clock: an r40 puff that misses can grow to hide', () => {
+  it('uses the shared radius at the frame clock: an r82.5 puff that misses can grow to hide', () => {
     const { sources, t } = tracked();
-    // Put the puff OUTSIDE the fan of observer→segment lines: 100 u out, 30°
-    // past the steepest line — 50 u from the nearest line. Just born (r40) it
-    // misses every line; at full growth (r60) it crosses the steepest ones.
+    // Put the puff OUTSIDE the fan of observer→segment lines (PAST_FAN_*):
+    // ≈155.9 u from the nearest line. Just born (r82.5) it misses every line;
+    // at full growth (r165) it crosses the steepest ones.
     let steepest = -Infinity;
     eachWakeSegment(sources.get('a')!.ribbon, t, (seg) => {
       steepest = Math.max(steepest, Math.atan2(seg.my - own.y, seg.mx - own.x));
     });
-    const at = steepest + Math.PI / 6;
-    const px = own.x + 100 * Math.cos(at);
-    const py = own.y + 100 * Math.sin(at);
+    const at = steepest + PAST_FAN_RAD;
+    const px = own.x + PAST_FAN_U * Math.cos(at);
+    const py = own.y + PAST_FAN_U * Math.sin(at);
     const young = puff('sk4', t, px, py);
     const old = puff('sk4', t - K.expandMs, px, py);
     const clear = buildTruesightWakeStamp(sources, own, SIGHT, t, CELL, MODEL, [], 0, []).size;
@@ -249,17 +258,18 @@ describe('the in-bubble wake mirror owes the server smoke term (ruling 143)', ()
     expect(cache.stampFor(sources, own, SIGHT, t + 1, CELL, MODEL, [], 0, [off1, onLine, off9]).size).toBe(0);
   });
 
-  it('(iii) a young r40 puff that misses at build time hides the segment once grown, within one bucket', () => {
+  it('(iii) a young puff that misses at build time hides the segment once grown, within one bucket', () => {
     const { sources, t } = tracked();
     let steepest = -Infinity;
     eachWakeSegment(sources.get('a')!.ribbon, t, (seg) => {
       steepest = Math.max(steepest, Math.atan2(seg.my - own.y, seg.mx - own.x));
     });
-    const at = steepest + Math.PI / 6;
-    // The steepest line passes 100·sin 30° = 50 u from the puff centre. Born
-    // so it is r 49.5 at the build (misses), it crosses 50 u ~0.75 s later.
-    const born = t - ((49.5 - K.r0) / (K.r1 - K.r0)) * K.expandMs;
-    const p = puff('sk4', born, own.x + 100 * Math.cos(at), own.y + 100 * Math.sin(at));
+    const at = steepest + PAST_FAN_RAD;
+    // The steepest line passes 180·sin 60° ≈ 155.9 u from the puff centre.
+    // Born so it is 1 u short of that at the build (misses), it crosses it
+    // ~0.36 s later (growth is 82.5 u / 30 s = 2.75 u/s).
+    const born = t - ((PAST_FAN_GAP_U - 1 - K.r0) / (K.r1 - K.r0)) * K.expandMs;
+    const p = puff('sk4', born, own.x + PAST_FAN_U * Math.cos(at), own.y + PAST_FAN_U * Math.sin(at));
     const src = sources.get('a')!;
     const clear = buildTruesightWakeStamp(sources, own, SIGHT, t, CELL, MODEL, [], 0, []).size;
     const cache = new WakeStampCache();

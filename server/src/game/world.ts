@@ -3862,7 +3862,7 @@ export class World {
    *      deliberately NOT a pool: `CONFIG.regen.missingPctPerS` of the hull's
    *      MISSING hp per second, paid straight into `hp`, once
    *      `CONFIG.regen.outOfCombatMs` have WHOLLY passed since
-   *      `lastDamagedAt` — the tick that merely ENDS on the 30 s mark is still
+   *      `lastDamagedAt` — the tick that merely ENDS on the 15 s mark is still
    *      a tick of the wait and credits nothing (see `idleSince` below). No
    *      pool, no rate field, no `heal` cue (a continuous trickle would loop
    *      the tone), no pending band. Healing is paced by DISENGAGING now, not
@@ -4575,7 +4575,7 @@ export class World {
     victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME
     // (d) THE COMBAT CLOCK (amendment 47): every source that actually removed
     // hp — shell, torpedo, mine, burn tick, STORM bite — resets the
-    // out-of-combat regen's 30 s wait, because every one of them passes through
+    // out-of-combat regen's 15 s wait, because every one of them passes through
     // here. A blow fully eaten by a SHIELD BLOCK leaves `dealt` 0 and does NOT
     // count as taking damage; dealing damage never counts at all.
     if (dealt > 0) victim.lastDamagedAt = this.now;
