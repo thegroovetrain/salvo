@@ -2,7 +2,7 @@
 title: 'Story 8.18: Smoke Screen as a Sight Occluder'
 type: 'feature'
 created: '2026-09-29'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '7bb6425'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -85,11 +85,11 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] Wave 1 `shared/` (Opus) -- CONFIG block, `sim/smoke.ts`, `FrameMsg.smoke`, stub flip, PV 61 + header, exports, tests -- `npm run build -w shared && npm test -w shared`
-- [ ] Wave 2 `server/` (Fable — perception chokepoint) -- predicate + eight sites + zone term, store/step/activation/resets, row + registry, metrics, hull-repair replace, drones callers, bots interim, perception channel + oracle + fuzz + perf pin, all server tests -- `npm test -w server`; `tsc` on `server/scripts/{batchsim,rl}`
-- [ ] Wave 3 `client/` (Opus, parallel with 2, shared frozen) -- renderer, state/bindings/main, wake mirror, glyph, copy, tests -- `npm test -w client`
-- [ ] Wave 4 docs (Sonnet) -- version 0.18.18, changelog, both trackers, amendments 138–145 in both homes, deferred-work, catalog-v3 stamps -- `npm run check` exit 0
-- [ ] Unit-test every row of the I/O matrix
+- [x] Wave 1 `shared/` (Opus) -- CONFIG block, `sim/smoke.ts`, `FrameMsg.smoke`, stub flip, PV 61 + header, exports, tests -- `npm run build -w shared && npm test -w shared`
+- [x] Wave 2 `server/` (Fable — perception chokepoint) -- predicate + eight sites + zone term, store/step/activation/resets, row + registry, metrics, hull-repair replace, drones callers, bots interim, perception channel + oracle + fuzz + perf pin, all server tests -- `npm test -w server`; `tsc` on `server/scripts/{batchsim,rl}`
+- [x] Wave 3 `client/` (Opus, parallel with 2, shared frozen) -- renderer, state/bindings/main, wake mirror, glyph, copy, tests -- `npm test -w client`
+- [x] Wave 4 docs (Sonnet) -- version 0.18.18, changelog, both trackers, amendments 138–145 in both homes, deferred-work, catalog-v3 stamps -- `npm run check` exit 0
+- [x] Unit-test every row of the I/O matrix
 
 **Acceptance Criteria:**
 - Given the perception fuzz (seeded worlds with random live puffs, lit zones, burn zones, chaff, decoys), then no contact, mine, decoy, ballistic, `mz`/`sm`/`wk` mark or foghorn band reaches an observer that an independent island∧smoke segment test hides; every puff received passes its own gate; the exception count is six; the registry has 24 keys.
@@ -99,6 +99,52 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-29 — Review pass 1 (Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol` on the source diff — verdicts: Blind Hunter build-on-it with two Eric questions, Edge Case Hunter build-on-it, Codex fix-first; agreement: ALL THREE flagged the puff-centred-on-land delivery gap; Codex alone found the two wake-stamp cache bugs, confirmed by the orchestrator; the Blind Hunter alone found the in-bubble radar consequence, which Eric corrected into amendment 147; every anti-cheat probe — the eight `sightClear` sites, the `smoke` channel shape, dazzle-scaled gates, oracle independence, fuzz non-vacuity, resets, cadence, hull-repair replace, determinism — came back clean from all three)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 4, low 3)
+- defer: 0
+- reject: 4: (high 0, medium 0, low 4)
+- addressed_findings:
+  - `[medium]` `[patch]` Puff centred on land hides hulls but is delivered to nobody but its owner (all three, CONFIRMED) → Eric ruling 148: the delivery gate tests island LOS to the puff's nearest point (`nearestRimPoint`); directed test + oracle mirror.
+  - `[medium]` `[patch]` In-bubble smoked hull invisible to every sensor; the draft copy promised "radar sees through" (Blind Hunter, CONFIRMED) → Eric ruling 147 (his premise correction: the in-bubble paint a captain sees is client-synthesized): `blipGate` gains an in-bubble arm for a smoke-alone-hidden point; island-hidden stays invisible; fuzz non-vacuity counter; copy re-cut.
+  - `[medium]` `[patch]` "An observer inside a puff is blind" hid a wounded captain's own plume (amendment 46) and let a stopped layer blind itself (Edge Case Hunter + Blind Hunter, CONFIRMED) → Eric ruling 149 (three statements, the last governing): in ANY puff sight = 1/8 intel range, sees into other smoke, nothing optical beyond, own lit zones off, radar untouched; `ShipRecord.inSmoke` + self-private `OwnShip.inSmoke`; shared `effectiveSight(stats, dazzled, inSmoke)`; client mirrors.
+  - `[medium]` `[patch]` Wake-stamp cache checked the smoke key after the min-age floor (Codex, CONFIRMED) → check moved ahead of the floor; fail-first test.
+  - `[low]` `[patch]` Wake-stamp key `count:first:last` missed mid-list swaps and radius growth (Codex CONFIRMED; both hunters PLAUSIBLE) → FNV hash of every id + 500 ms growth bucket; tests.
+  - `[low]` `[patch]` Puff rim faded out while the server still occluded at full radius (Blind Hunter, PLAUSIBLE) → rim holds to death, fill-only fade.
+  - `[low]` `[patch]` A non-finite stern point would lay a puff blinding everyone for 30 s (Edge Case Hunter, PLAUSIBLE) → lay-site `Number.isFinite` guard; pinned. Also: bot row comment "once" made truthful.
+- rejected: bots see a dying puff one tick longer than captains (observe before `stepSmoke`); `smokePuffs` array copy per observer (negligible, perf pin 5 ms); golden offer reshuffle from the pool draw (expected); the 450 ms first gap after a press (cosmetic).
+- orchestrator ruling at build (recorded in amendment 140): the cadence grid is re-anchored only from idle; a mid-lay re-press keeps the grid (16 puffs for two presses in every case).
+
+### 2026-09-29 — Review pass 2 (on the gate patch `072768b..e7d0459`: Blind Hunter on Fable + Codex `gpt-5.6-sol` — verdicts: Fable build-on-it with one question, Codex fix-first on one item; agreement: none overlapping; every anti-cheat probe of the new in-bubble blip arm, the nearest-rim delivery, `OwnShip.inSmoke` self-privacy, oracle independence and the client mirrors came back clean from both)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 1, low 2)
+- defer: 0
+- reject: 1: (high 0, medium 0, low 1)
+- addressed_findings:
+  - `[medium]` `[patch]` A SINKING captain standing in a puff was still totally blind (afloat-only `inSmoke` stamp — the old rule's leftover; Eric's ruling 149 has no sinking carve-out) (Blind Hunter, CONFIRMED) → stamp afloat-or-sinking; oracle mirror; directed test (sees 60 u into another puff, not 100 u clear; `OwnShip.inSmoke` present); amendment 149's recorded reading corrected in-cycle.
+  - `[low]` `[patch]` `stepSmoke` docstring still described the pre-ruling `nextPuffAt = now` re-arm (Blind Hunter, CONFIRMED) → rewritten.
+  - `[low]` `[patch]` In-smoke `sightClear` ran island LOS before the cheap distance clamp (Blind Hunter, PLAUSIBLE perf) → reordered, same truth table.
+- rejected: bots and PvE fleet AI observe before `stepSmoke` and read a one-tick-stale `inSmoke`/puff list (Codex, CONFIRMED as latency) — server-internal, consistent with every other pre-movement bot read; nothing reaches a client.
+- not re-asked (already Eric's): the in-bubble smoked blip lands at amendment 181's 20 % dim floor — Eric said he wants to see it on staging before deciding intensity (147); decoys and chaff fakes behind smoke inside the bubble paint like a ship would — stated to Eric in chat with ruling 147 (one gate for anything afloat).
+
+## Auto Run Result
+
+Status: done (cycle 153, 0.18.18; PROTOCOL_VERSION 60 → 61; epic-8 amendments 138–150)
+
+**Summary.** SMOKE SCREEN is live: a key-fired belt consumable that lays a 5 s trail astern (one puff per 500 ms; each r40 → r60 over its 30 s life). ONE predicate `sightClear` (island LOS ∧ no puff crossed) sits at the EIGHT sight-tier call sites (the epic's six plus the contact row's inline check and the in-bubble torpedo-water clause); the star-shell reveal gains a smoke-only term (Eric); a puff is delivered when any part of it is island-visible (Eric); a hull that smoke alone hides inside a clear observer's bubble paints as an ordinary radar blip when swept (Eric); an observer standing in ANY puff sees 1/8 of intel range into other smoke and nothing optical beyond, radar untouched (Eric); ownership plays no part; laying stops at sink entry; a re-press restarts the trail on the running grid; a HULL REPAIR re-press replaces its heal pool (Eric). New `world.smoke` store + `stepSmoke` row, `FrameMsg.smoke` behind a `smoke` pseudo-row with its own oracle arm (six exceptions unchanged, registry 24), self-private `OwnShip.inSmoke`, shared `effectiveSight(stats, dazzled, inSmoke)`, `/metrics` `smokeLivePeak`, perf pin ≈ 5 ms worst case. Client disc renderer, `inSmoke` mirrors, wake-stamp smoke mirror with its cache fixed, draft glyph/copy/rows. Interim bot row (disengage). 7 live consumables, 1 stub (DEPTH CHARGE).
+
+**Files.** shared: `constants.ts` (`CONFIG.smokeScreen` incl. `inSmokeSightFraction`; hullRepair comment), NEW `sim/smoke.ts`, `sim/sight.ts`, `sim/catalog.ts` (stub flipped), `types.ts` (`SmokeView`, `FrameMsg.smoke`, `OwnShip.inSmoke`), `index.ts` (PV 61), tests (+12). server: `game/{signals,perception,frames,world,drones}.ts`, NEW `equipment/consumables/smokeScreen.ts`, `equipment/{consumables,index}.ts`, `ai/{equipment,types,botDriver}.ts`, `metrics.ts`, `rooms/ArenaRoom.ts`, tests incl. NEW `smokeScreen.test.ts` + `smokePerf.test.ts`, oracle/fuzz arms, golden re-record (one offer row — pool draw shift) (+44). client: NEW `render/smokeScreen.ts`, `render/{wake,radar,fog,projectiles,equipmentIcons}.ts`, `net/roomBindings.ts`, `state.ts`, `main.ts`, `config.ts`, `ui/boonCopy.ts`, tests incl. NEW `smokeScreen.test.ts` (+36). Docs: `VERSION`/`package.json`/lock 0.18.18, `CHANGELOG.md`, both trackers, amendments 138–150 in both homes, `deferred-work.md` 8.18 section (`:1886` lit-zone pin RESOLVED), `catalog-v3.md` R38/R13 stamps, recompiled `epic-8-context.md`, this spec.
+
+**Review.** Pass 1: Blind Hunter + Edge Case Hunter (Fable) + Codex — 7 patches (4 medium, 3 low), 4 rejected, three of the patches became Eric rulings 147–149 (asked in chat before the PR, none deferred). Pass 2 on the gate patch: 3 patches (1 medium, 2 low), 1 rejected. See the Review Triage Log.
+
+**Follow-up review recommended: false** — pass 2 already re-reviewed the large gate patch; its own fixes are a liveness-gate widening with a directed pin, a docstring and a reorder.
+
+**Verification.** `npm run check` exit 0 after the final patch: shared 977 / server 2200 / client 3734 tests (was 965 / 2156 / 3698), hooks 266, eslint 0 errors (3 pre-existing max-lines warnings), tsc clean on shared/server/client and `server/scripts/{rl,batchsim}`. Headless smokes were NOT run (nothing in scope requires them; `weaponsSmoke` is a ledgered flake).
+
+**Residual risk / for Eric.** (1) On staging: the in-bubble smoked blip renders at the 20 % in-bubble dim floor — you said you want to see it before deciding intensity. (2) Drafts for your eye: the disc render (grey fill α 0.35, rim α 0.6 holding to death, fill fading over the last 5 s), the belt glyph (three growing puffs over a waterline), the hover text ("Lays a trail of smoke astern for 5 s; each puff hides what is inside or behind it from eyes for 30 s. Radar still paints; standing in smoke cuts your own sight to 1/8 of your radar range."), the card rows `TRAIL 5 S / PUFF 30 S / RADIUS 40 → 60 U`; SMOKE SCREEN's tooltip now opens downward on short screens (longer hover). (3) Dial: `CONFIG.smokeScreen.inSmokeSightFraction` 0.125. (4) Readings you may veto (amendment 149): a foghorn beyond 82.5 u is muffled, not silenced, for an in-smoke listener; the in-bubble smoked blip carries no wake tell; decoys and chaff fakes behind smoke inside the bubble paint as a ship would; entering smoke also shrinks how far away you are sent puffs (82.5 + r), so distant puffs vanish from your screen while you stand in one. (5) The interim bot row re-presses every ~5 s while disengaging (8.20 owns the table). Staging QA: stock SMOKE SCREEN, lay a trail while turning and watch ten discs grow; have a second hull sit behind it — it vanishes from eyes but a dim blip paints where the sweep crosses it; stand in a puff yourself — your fog hole shrinks to a quarter and you see hulls inside neighbouring puffs; fire HULL REPAIR twice quickly and confirm the pending band resets to 50 rather than stacking.
 
 ## Design Notes
 
