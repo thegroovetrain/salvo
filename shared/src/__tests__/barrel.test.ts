@@ -372,7 +372,12 @@ describe('shared barrel', () => {
     // the exact lift double the server folded, so the predictor's
     // `draftedKinematics` matches) and `CONFIG.wake.draft`, which the client
     // reads. The perception exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(62);
+    // 62 -> 63: smoke puff radii 40/60 -> 82.5/165 u — 1/8 -> 2/8 of intel
+    // range (Eric 2026-09-30). The client derives the disc from the shared
+    // curve over its bundled CONFIG.smokeScreen, so a stale client would draw
+    // (and wake-mask) the wrong disc. No wire shape moved; the exception
+    // count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(63);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -458,12 +463,13 @@ describe('shared barrel', () => {
     expect(CONFIG.hullRepair.regenHp).toBe(50);
     expect(CONFIG.hullRepair.regenMs).toBe(5000);
     // THE OUT-OF-COMBAT REGEN (epic-8 amendments 46-48, replacing the cycle-129
-    // per-level auto-heal): 1 % of MISSING hull per second, once 30 s have
-    // passed since the hull last took landed damage. A fraction of MISSING (not
+    // per-level auto-heal): 1 % of MISSING hull per second, once 15 s have
+    // passed since the hull last took landed damage (30 s until Eric
+    // 2026-09-30: "far too long given the current deadliness of the game"). A fraction of MISSING (not
     // of max, not a flat amount) is the ruled shape and is what makes it need no
     // repricing when hull HP next moves.
     expect(CONFIG.regen.missingPctPerS).toBe(0.01);
-    expect(CONFIG.regen.outOfCombatMs).toBe(30000);
+    expect(CONFIG.regen.outOfCombatMs).toBe(15000);
     // THE SHAPE PINS. The paid block is now the paid heal and NOTHING else (the
     // free per-level channel's two dials lived inside it and are deleted), and
     // the regen carries no pool dial of its own — it pays straight into hp. A

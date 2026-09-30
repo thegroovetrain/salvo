@@ -90,7 +90,7 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
       'You gain a level every minute you stay afloat, and more for sinking other captains. Levels never expire, so there is no rush to spend one.',
       'A kill is shared. Whoever lands the last blow keeps a guaranteed slice, and the rest is split by damage dealt among everyone who wore the target down, the finisher included. Keep landing hits at least once a minute and your whole contribution stays counted; go silent for a minute and your claim on that hull lapses.',
       'The refit offers four cards. Take one and it is fitted for the rest of the match. HULL REPAIR is a card too: stock it in your belt and fire it with its number key when you need hull back.',
-      'Stay out of the fight and your hull slowly mends on its own: thirty seconds after the last hit you took, a little of what is missing comes back every second. Any hit, the storm included, stops it again.',
+      'Stay out of the fight and your hull slowly mends on its own: fifteen seconds after the last hit you took, a little of what is missing comes back every second. Any hit, the storm included, stops it again.',
       'You cannot fire while the refit is open. You can still steer.',
     ],
     keys: [

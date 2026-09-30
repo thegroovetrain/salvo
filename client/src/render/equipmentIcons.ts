@@ -266,7 +266,7 @@ const dazzleShells: GlyphPaths = [
  * precedent): THREE OVERLAPPING PUFFS over a short waterline, growing as they
  * trail away to the left — the newest, smallest puff low at the stern end, the
  * oldest and biggest highest and furthest back, which is how a laid puff
- * behaves (it grows r40 → r60 over its life and never drifts). Every circle's
+ * behaves (it grows r82.5 → r165 over its life and never drifts). Every circle's
  * whole extent sits inside the ±1 box.
  */
 const smokeScreen: GlyphPaths = [

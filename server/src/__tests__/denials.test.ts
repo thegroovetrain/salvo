@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 61→62 bump (PV 62, Story 8.19: OwnShip gains the self-private `draft` lift (the wake-draft fold the predictor must match) and the client reads CONFIG.wake.draft) is enforced at matchmake', () => {
-  it('rejects pv-61 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(62);
+describe('pv join gate — the 62→63 bump (PV 63, cycle 156: smoke puff radii 40/60 → 82.5/165 u, which the client derives from the shared curve over its bundled CONFIG) is enforced at matchmake', () => {
+  it('rejects pv-62 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(63);
+    expect(protocolVersionError(62)).toMatch(/refresh/);
     expect(protocolVersionError(61)).toMatch(/refresh/);
     expect(protocolVersionError(60)).toMatch(/refresh/);
     expect(protocolVersionError(59)).toMatch(/refresh/);

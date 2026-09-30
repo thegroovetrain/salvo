@@ -242,8 +242,9 @@ describe('buildFrame — the `smoke` channel (Story 8.18)', () => {
     w.step();
     const quiet = buildFrame(w, 'a');
     expect('smoke' in quiet).toBe(false); // the litZones / burnZones / decoys rule, applied to smoke
-    // A puff laid by `b` (a raw store write — the injectMine posture) 40 u off
-    // `a`, well inside sight.
+    // A puff laid by `b` (a raw store write — the injectMine posture) 56.6 u off
+    // `a` — `a` stands INSIDE the fresh 82.5 u disc (delivered trivially; this
+    // test pins the wire shape, not the gate).
     w.smoke.set('sk1', { id: 'sk1', ownerId: 'b', x: 40, y: 40, bornAt: w.now, until: w.now + CONFIG.smokeScreen.lifeMs });
     const f = buildFrame(w, 'a');
     expect(f.smoke).toEqual([{ id: 'sk1', x: 40, y: 40, t0: w.now }]);

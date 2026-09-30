@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  63 — smoke puff radii 40/60 → 82.5/165 u (the client derives the disc
+ *  from the shared curve) — cycle 156. CONFIG.smokeScreen.r0/r1 become 1/8
+ *  and 2/8 of intel range (Eric 2026-09-30); CONFIG.regen.outOfCombatMs
+ *  30000 → 15000 rides along (server-only). Perception exception count stays
+ *  SIX.
  *  62 — Story 8.19 Wake Drafting: OwnShip.draft?: number (self-private,
  *  omitted when 0 — the wake-draft lift the server folded into this hull's
  *  forward cap this tick, the exact double, so the predictor's
@@ -746,7 +751,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 62;
+export const PROTOCOL_VERSION = 63;
 
 // Tunables
 export * from './constants.js';

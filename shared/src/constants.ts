@@ -1812,8 +1812,15 @@ export const CONFIG = {
    * untouched by this one. Never conflate the two.
    */
   smokeScreen: {
-    r0: 40, // u — puff radius at the instant it is laid (R38)
-    r1: 60, // u — puff radius at full growth (R38)
+    // Eric 2026-09-30: a puff starts at 1/8 of intel range and grows to 2/8 —
+    // big enough to cover the hull that lays it. Intel range is vision.radar
+    // (SIGHT × 2 = 660 u, a global constant no card raises), so these are
+    // authored as fractions of that same constant (supersedes R38's r40 → r60,
+    // amendment 139). r0 happens to equal the in-smoke sight (radar × 1/8) —
+    // separate dials. The radius rides no wire: both sides derive it from
+    // sim/smoke.ts puffRadius.
+    r0: SIGHT * 2 * (1 / 8), // u — puff radius at the instant it is laid (82.5)
+    r1: SIGHT * 2 * (2 / 8), // u — puff radius at full growth (165)
     lifeMs: 30000, // ms a puff lives on the water (R38)
     layMs: 5000, // ms of laying per copy fired; a re-press restarts it (R38; amendment 140)
     puffIntervalMs: 500, // ms between puffs while laying — 10 per lay (amendment 138)
@@ -2084,7 +2091,7 @@ export const CONFIG = {
    */
   regen: {
     missingPctPerS: 0.01, // fraction of MISSING hull restored per second out of combat
-    outOfCombatMs: 30000, // ms since the last landed hull damage before it starts
+    outOfCombatMs: 15000, // ms since the last landed hull damage before it starts (Eric 2026-09-30: 30 s was "far too long given the current deadliness of the game"; was 30000, amendment 46)
   },
 
   /**

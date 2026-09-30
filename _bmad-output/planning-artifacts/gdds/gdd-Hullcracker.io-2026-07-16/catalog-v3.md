@@ -175,7 +175,7 @@ Sensor ladder (frozen): detect 247.5 · sight 330 · muzzle/smoke 412.5 · radar
 
 **R38 (Eric) — SMOKE SCREEN (consumable, cap 5): a trail laid astern for 5 s; each puff lasts 30 s, starts at r40u and slowly EXPANDS to r60u.** Blocks SIGHT only (radar unaffected); a hull inside or behind the smoke is not sighted. Whether the puff hides its OWN occupant from truesight as well as what lies behind it: assumed yes (it blocks the LOS segment like an island does for sight) [DRAFT, facilitator assumption].
 
-*(2026-09-29, Story 8.18, epic-8 amendments 138–149: built — cadence 500 ms, growth over the full 30 s; the self-hiding `[DRAFT]` is confirmed by construction (symmetric segment test); re-press restarts the 5 s trail; laying stops at sink entry; smoke also hides hulls under a star-shell flare; in smoke you see 1/8 intel range into other smoke and nothing optical beyond (amendment 149); radar paints a smoke-hidden hull inside the bubble (147); a puff is delivered when any part is visible (148).)*
+*(2026-09-30, cycle 156, epic-8 amendment 174: the radii are SUPERSEDED — r82.5 → r165 u, 1/8 → 2/8 of intel range; everything else in R38 stands.)* *(2026-09-29, Story 8.18, epic-8 amendments 138–149: built — cadence 500 ms, growth over the full 30 s; the self-hiding `[DRAFT]` is confirmed by construction (symmetric segment test); re-press restarts the 5 s trail; laying stops at sink entry; smoke also hides hulls under a star-shell flare; in smoke you see 1/8 intel range into other smoke and nothing optical beyond (amendment 149); radar paints a smoke-hidden hull inside the bubble (147); a puff is delivered when any part is visible (148).)*
 
 **R39 (Eric) — CHAFF (consumable, cap 5): bursts at YOUR OWN position** — fake radar returns around you to hide your true echo among them (the brainstorm's fire-to-the-click delivery is NOT taken). **R41: 10 fakes in r120u around you, for 15 s.**
 
@@ -250,7 +250,7 @@ Dazzle + Phosphor stack on one flare (no exclusivity).
 |---|---|---|
 | HULL REPAIR | 50 hp instant + 50 hp pooled at 5 hp/s (100 total), as shipped DAMAGE CONTROL | 5/5/5 |
 | SHIELD BLOCK | absorbs the next 100 hp of damage for 10 s; unused expires. All damage sources `[D]` | — |
-| SMOKE SCREEN | trail astern laid for 5 s; each puff lives 30 s, r40u expanding slowly to r60u; blocks SIGHT only, radar unaffected. Hides its occupant as well as what lies behind `[D]` | — |
+| SMOKE SCREEN | trail astern laid for 5 s; each puff lives 30 s, r40u expanding slowly to r60u *(superseded 2026-09-30, amendment 174: r82.5 → r165 u)*; blocks SIGHT only, radar unaffected. Hides its occupant as well as what lies behind `[D]` | — |
 | CHAFF | bursts at YOUR position: 10 fake radar returns in r120u for 15 s | — |
 | DECOY BUOY | dropped astern in the mine's rear arc; 50 hp; lasts until destroyed; homing ordnance retargets onto it AND it physically blocks any torpedo/missile that runs into it | — |
 

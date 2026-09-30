@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.21] - 2026-09-30
+
+### Changed
+- **Smoke that covers your ship** — a SMOKE SCREEN puff now starts at 1/8 of your intel range (82.5 u) and grows to 2/8 (165 u) over its 30 s life, up from 40 → 60 u. Eric's call: the old puffs did not cover the hull that laid them. Cadence, trail length, life and every sight rule are unchanged; the refit card row reads `RADIUS 82.5 → 165 U`.
+- **Hull mends sooner** — out-of-combat regen now starts 15 s after the last hit you took, not 30 s (the rate, 1 % of missing hull per second, is unchanged; any hit, storm included, still restarts the clock). How-to-Play says fifteen seconds.
+
+### Internal
+- `CONFIG.smokeScreen.r0/r1` are authored as `SIGHT * 2 * (1/8)` / `* (2/8)` — fractions of `vision.radar`, the intel range (a global constant no card raises); the radius still rides no wire. `CONFIG.regen.outOfCombatMs` 30000 → 15000.
+- PROTOCOL_VERSION 62 -> 63 (the client derives the puff disc from the shared curve).
+- Tests: the perception fuzz oracle's independent curve literal moved to 82.5 + 82.5·f; smoke, fuzz and the 200-puff perf pin had their GEOMETRY re-laid (the perf pin's ring puffs now sit in one 30° slice of the outer 40 u band so "some smoked, some clear" still holds; far puffs at ≥ 400 u). Non-vacuity counters after the re-lay: SMOKE_OCCLUDED 152, SMOKED_BLIP 23, IN_SMOKE_SEES 108; perf pin 7.2 ms against the 50 ms budget.
+- The pool-era batch-sim baseline (`batch-sim-evidence-2026-09-30.md`) predates this cycle's numbers; not re-run.
+- Tests: shared 1018, server 2263, client 3748.
+
 ## [0.18.20] - 2026-09-30
 
 ### Changed
