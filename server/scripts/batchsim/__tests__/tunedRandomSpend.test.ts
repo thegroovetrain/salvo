@@ -41,16 +41,16 @@ describe('args — --bot-spend / --bot-hull', () => {
 });
 
 describe('runner — the tuned-profile measurement lobby', () => {
-  it('--bot-hull forces the class; profiles are that hull’s IN-GAME rows', () => {
+  it('--bot-hull forces the class; profiles are IN-GAME rows (any personality, Story 8.20)', () => {
     const restore = applyOverrides({ 'zone.beatMs': 3000 });
     try {
       const m = runMatch(0, { seed: 909, matches: 1, captains: 0, bots: 4, botHull: 'mineLayer', botSpend: 'random' });
       expect(m.bots!.length).toBe(4);
       for (const b of m.bots!) {
         expect(b.cls).toBe('mineLayer');
-        // In-game rows for the forced hull — never a test row (the test id
-        // space is only reachable through --bot-profile).
-        expect(CONFIG.bots.profiles.mineLayer as readonly string[]).toContain(b.profile);
+        // In-game rows — never a test row (the test id space is only reachable
+        // through --bot-profile). Any personality sails any hull (Story 8.20).
+        expect(CONFIG.bots.profiles as readonly string[]).toContain(b.profile);
       }
     } finally {
       restore();

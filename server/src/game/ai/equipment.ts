@@ -180,52 +180,14 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   damageCut: APPETITE_NEUTRAL,
 });
 
-/**
- * THE FAMILY FALLBACK (Story 8.13, interim — epic-8 amendment 79's "minimal
- * tactics now, Story 8.18 owns the table"). Three lines became fittable this
- * cycle whose behaviour the profiles already had an opinion about, under
- * another name: CAPTIVE and FOULING mines were DOCTRINE VERBS on the naval
- * rack (so a trapper's `navalMines: 2.6` spoke for them), and the LIGHT
- * torpedo is the heavy's tactic keyed by its own id.
- *
- * Without this, a trapper handed a captive rack would drop to the NEUTRAL base
- * and rank its signature weapon below its other racks — a silent behaviour
- * REGRESSION bought by nothing. So a line with no entry of its own reads its
- * FAMILY's entry first, which is exactly the number that used to reach it.
- *
- * IT IS NOT A RETUNE and adds no number: every profile table is untouched, and
- * the day Story 8.18 authors per-line appetites those entries win outright
- * (the profile's own entry is still read first). Delete this map then.
- */
-const APPETITE_FAMILY: Readonly<Partial<Record<EquipmentId, EquipmentId>>> = Object.freeze({
-  lightTorpedo: 'heavyTorpedo',
-  captiveMines: 'navalMines',
-  foulingMines: 'navalMines',
-  // Story 8.15 (amendment 109, interim — Story 8.19 owns the tables): the two
-  // pickable guns speak through the CANNON's entry (slot 0 is the fallback
-  // whichever gun is mounted — the test rows' `gun: 2.0` must reach a
-  // machine-gun bot too), and the two class Shifts through the BOOST's (the
-  // slot-1 ability every hull carries one of). No profile names any of the
-  // four ids, so this adds no number: it is the same read that reached slot 0
-  // and slot 1 before the pick existed.
-  machineGun: 'gun',
-  flak: 'gun',
-  instantReload: 'boost',
-  damageCut: 'boost',
-  // Story 8.17 (amendment 135(h), interim — Story 8.20 owns the table):
-  // PHOSPHOR SHELLS was the star shell's verb until this cycle, so a profile
-  // that spoke for `starShells` spoke for it too; it keeps reading that entry.
-  phosphorShells: 'starShells',
-});
-
 /** How eager this profile is about one equipment id — the profile's own entry,
- *  else its FAMILY's entry (see APPETITE_FAMILY), else the neutral base. THE
- *  one resolver both consumers (the want() gates here, the slot ordering in
- *  tactics.ts) read, so an appetite entry always has at least the ordering as
- *  its consumer. */
+ *  else the neutral base. Every line a profile has an opinion about is written
+ *  explicitly in ai/profiles.ts (Story 8.20 retired the family fallback by
+ *  writing its numbers per line). THE one resolver both consumers (the want()
+ *  gates here, the slot ordering in tactics.ts) read, so an appetite entry
+ *  always has at least the ordering as its consumer. */
 export function appetiteFor(profile: BotProfile, id: EquipmentId): number {
-  const family = APPETITE_FAMILY[id];
-  return profile.appetite[id] ?? (family === undefined ? undefined : profile.appetite[family]) ?? BASE_APPETITE[id];
+  return profile.appetite[id] ?? BASE_APPETITE[id];
 }
 
 /** A legal shot request: one slot, one bearing, one commanded distance. */

@@ -40,13 +40,13 @@ import type {
 import type { PerceptionView } from '../perception.js';
 
 /**
- * The six priority profiles (Eric ruling E1, 2026-08-16) — derived from
- * CONFIG.bots.profiles so the CONFIG tuning panel and this union can never
- * drift: adding a profile id there without a wave-2 behaviour table here
- * fails to type-check in profiles.ts's Record<BotProfileId, ...>.
+ * The six priority profiles (Eric ruling E1, 2026-08-16; unlocked from hulls
+ * by Eric ruling 2026-09-30) — derived from the flat CONFIG.bots.profiles list
+ * so the CONFIG tuning panel and this union can never drift: adding a profile
+ * id there without a behavior row fails to type-check in profiles.ts's
+ * Record<BotProfileId, ...>.
  */
-export type BotProfileId =
-  (typeof CONFIG.bots.profiles)[keyof typeof CONFIG.bots.profiles][number];
+export type BotProfileId = (typeof CONFIG.bots.profiles)[number];
 
 /**
  * TEST-ONLY random-spend profiles (Story 7-6 wave 4) — one per hull, for the
@@ -349,6 +349,13 @@ export interface BotMind {
    *  decide. The interim SMOKE SCREEN tactic never presses over a trail still
    *  being laid. OPTIONAL: absent reads as "not laying". */
   smokeUntil?: number;
+  /** ms — server time of this bot's LAST ENTRY into the `disengage` posture
+   *  (Story 8.20, Eric ruling R8: SMOKE SCREEN is pressed once per retreat).
+   *  Stamped by ai/tactics.ts on the posture edge; the smoke tactic compares it
+   *  with the lay window so `want()` stays write-free. OPTIONAL: absent reads
+   *  as "never retreated this life"; released with the life
+   *  (BotController.releasePerLifeState). */
+  disengageSince?: number;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics

@@ -518,209 +518,40 @@ export const CONFIG = {
      */
     unbeachHoldMs: 3000,
     /**
-     * The 2 priority profiles per class (Eric ruling E1: *"Each ship should
-     * just get 2-3 different 'priority profiles'"*) — assigned per-bot at
-     * spawn off the seeded RNG. Profiles decide what a bot WANTS, never its
-     * competence: TB raider = isolated/damaged targets, torpedo opener, boost
-     * out; TB duelist = rear-quarter turn-fights vs peers; BS bulwark =
-     * attrition on HP; BS siege = standoff broadside + star shells; ML forager =
-     * fleet clearing for the level lead; ML trapper = mines astern while
-     * withdrawing. Behaviour tables live in server ai/profiles.ts — only the
-     * ID VOCABULARY is data, so it lives here.
+     * The six priority profiles (Eric ruling E1: *"Each ship should just get
+     * 2-3 different 'priority profiles'"*; unlocked from hulls by Eric ruling
+     * 2026-09-30, R6: ANY personality on ANY hull). Enrollment deals one off
+     * the seeded RNG with a single pick over this flat list — the hull is
+     * rolled separately and a personality never decides it. Profiles decide
+     * what a bot WANTS, never its competence: raider = isolated/damaged
+     * targets, torpedo opener, boost out; duelist = rear-quarter turn-fights vs
+     * peers; bulwark = attrition on HP; siege = standoff broadside + star
+     * shells; forager = fleet clearing for the level lead; trapper = mines
+     * astern while withdrawing. Behavior tables (fighting style + build taste)
+     * live in server ai/profiles.ts — only the ID VOCABULARY is data, so it
+     * lives here.
      */
-    profiles: {
-      torpedoBoat: ['raider', 'duelist'],
-      battleship: ['bulwark', 'siege'],
-      mineLayer: ['forager', 'trapper'],
-    } as const,
+    profiles: ['raider', 'duelist', 'bulwark', 'siege', 'forager', 'trapper'] as const,
     /**
-     * PER-PROFILE boon weights (Eric ruling D1: *"Sure"* — first-pass weights
-     * derived by the orchestrator, placed in CONFIG as a tuning panel, like
-     * the height-field knobs). Keyed by PRIORITY PROFILE, not by class: two
-     * bots of the same hull sailing different profiles want DIFFERENT cards,
-     * which is the whole point of the E1 ruling — a class-keyed table cannot
-     * express "the standoff battleship buys star shells and the attrition
-     * battleship buys hull".
-     *
-     * Two levels, resolved by wave-2 ai/spending.ts as `lines[id] ?? cat[def
-     * .category] ?? default`:
-     *   `cat`   — the base weight for every card of a boon CATEGORY, covering
-     *             exactly the categories that profile can be dealt (the
-     *             three universals — intel/ship/guns — plus its fitted
-     *             equipment's).
-     *   `lines` — per-BOON-LINE overrides (real ids from sim/boons.ts) for the
-     *             handful of cards a profile wants more or less than its
-     *             category base. Everything unnamed falls through to `cat`.
-     * A bot picks the highest-weighted offered card, rarity as tiebreak.
-     * Higher = wanted more; the absolute scale is arbitrary.
-     *
-     * THE MINE-LAYER DOCTRINE SPLIT, AND A CORRECTION OF RECORD. These weights
-     * were first written against the PRE-cycle-95 mine rack, where
-     * `minePropFouling` carried `mult: 0.6` on `mine.damage`. That mattered
-     * arithmetically: a base mine does 55 and a small PvE fleet hull has 45 hp,
-     * so a base mine ONE-SHOTS a fleet hull while a fouling mine (33) does not
-     * — and one-shotting fleet hulls is what `forager` lives on (C3). So
-     * forager weighted the card 0.4 and trapper 2.0, a genuine same-card
-     * disagreement.
-     *
-     * AMENDMENT 25 DELETED THAT MULTIPLIER (Eric: *"remove damage decrease for
-     * the fouling mines"*), so the penalty forager was avoiding no longer
-     * exists and prop-fouling is now a PURE ADD. Forager's 0.4 is therefore
-     * retired rather than defended — keeping it would have been a bot avoiding
-     * a card for a reason the game no longer contains, which is exactly the
-     * stale-rationale trap this comment block exists to prevent.
-     *
-     * What survives is a WEAKER, still-real split: `trapper` keeps the fouling
-     * want because the slow drags a victim INTO its minefield, which is its
-     * whole plan; `forager` merely has no special use for a slow (a fleet hull
-     * dies to one mine either way). Both doctrines are pure adds and
-     * side-grades to each other, so neither profile refuses one.
-     *
-     * CAPTIVE IS A SURVIVAL-AND-PAYOFF TOOL, NOT A FARMING TOOL (Eric
-     * playtest ruling 2026-08-20, cycle 111 — partially reversing the
-     * cycle-110 demotion). The mechanical fact from that cycle STANDS: a
-     * captive mine's trip gate is HOSTILE-ONLY (isCaptiveMineHostile), so a
-     * neutral PvE fleet drone walks straight over it and CAPTIVE can never
-     * farm fleet. But the conclusion drawn from it — that `forager` therefore
-     * doesn't want the card — was the wrong frame. Eric ran CAPTIVE MINES and
-     * GUN BUOY together and reports both as *"REALLY powerful weapons, you
-     * just have to be lined up well and prepare"*: a 144u-trip torpedo
-     * launcher covers the water a hull that HANGS BACK is withdrawing
-     * through, which is precisely what a class whose measured problem is
-     * SURVIVAL (181.1s vs the random control's 264.0s) should buy. Forager's
-     * entry is restored as a wanted line at 2.0 — above its mines category
-     * base and its fouling want, below its gun ladder (it is still a
-     * gun-led fleet-clearer) and below `trapper`'s 2.4, which stays the
-     * stronger signature. `buoyGun` — the other half of the combo — gets an
-     * explicit override in BOTH ML tables; it was previously named by
-     * neither and fell through to a bare category weight.
-     *
-     * THE SIX ACQUISITION CARDS GET A FULL RANKING PER PROFILE (same ruling).
-     * An acquisition card inherits its TARGET equipment's category
-     * (sim/boons.ts `acquire`), and no profile's `cat` table names a category
-     * its hull does not already carry — so all six scored the 0.5 unlisted
-     * default and the extra slot stayed empty by accident. Every profile now
-     * ranks ALL SIX explicitly, every entry above that floor: a bot PREFERS
-     * its favourite pickup but SETTLES for the best on offer — it never
-     * passes out of pickiness. (Entries for equipment a hull already carries
-     * are undrawable and exist only to make the ranking total.)
-     *
-     * STORY 7-5 WAVE 2 RE-KEYED FIVE MORE for the same forced reason — the
-     * cannon and the decoy buoy were replaced outright, taking `cannonDamage`,
-     * `decoyDuration` and `mineSelfPropelled` with them. Each moved to the
-     * surviving line carrying the same INTENT, never re-tuned: siege's cannon
-     * want becomes `broadsideTurrets` (the broadside's throughput line, its
-     * only damage-shaped card), both Mine Layer profiles' SELF-PROPELLED want
-     * becomes `mineCaptive` (its direct successor — a mine that reaches the
-     * target itself), and trapper's decoy want becomes `buoyDuration`. The two
-     * `cannon`/`decoyBuoy` CATEGORY weights carry over verbatim onto
-     * `broadside`/`radarBuoy`.
-     *
-     * STORY 7-5 WAVE 1 RE-KEYED FOUR OVERRIDES, and this was forced rather
-     * than chosen: `starRadius`, `mineDamage` and `mineMax` were DELETED from
-     * the catalog, and a per-line override naming a card that no longer exists
-     * is dead data that scores nothing (a test pins that every key here is a
-     * real line, precisely so a catalog move fails loudly instead of silently
-     * dropping a bot's priority). Each was re-pointed at the surviving line
-     * that carries the same INTENT for that profile, never re-tuned:
-     * siege's star-shell want moves to `starDuration` (its only remaining
-     * star-shell line), and both Mine Layer profiles' mine want consolidates
-     * onto `mineBlast` — which since the cycle-95 merge grows the trip ring
-     * too, so it is now the whole mine rack in one card. `trapper` picks up an
-     * explicit `decoyDuration` in the freed slot, matching the `decoyBuoy: 2.0`
-     * category weight it already carried.
-     *
-     * STORY 8.16 DELETED THE RADAR BUOY end to end, and with it every weight
-     * above that named it — the `radarBuoy` category bases, `buoyGun`,
-     * `buoyDuration` and `acquireRadarBuoy` (so each profile now ranks FIVE
-     * acquisitions, not six). The history above records why they existed; the
-     * DECOY BUOY that replaces the buoy is a consumable, whose bot use is a
-     * tactic (8.19 owns the table), not a weight here.
+     * THE CARD POINTS TABLE (Eric ruling 2026-09-30, R3) — how a bot scores
+     * each card on offer; highest wins, ties by a seeded coin flip. Any upgrade
+     * or consumable starts at `base`; `favorite` if it is one of the
+     * personality's favorites; `style` if an upgrade matches its style
+     * (rounded = its lowest line, specialist = its highest); a consumable it
+     * carries none of adds `beltHunger[hunger]`, one it already carries adds
+     * `carried`; HULL REPAIR while hurt and carrying none adds `hurtRepair`
+     * (belt hunger NOT applied then). A weapon for an empty Q/E/R slot scores
+     * `weapon` flat, a favorite weapon `favoriteWeapon`.
      */
-    boonWeights: {
-      // TB raider — torpedo opener at credible range, then boost out. Buys
-      // tubes/homing/speed to make the one opener count, and hull last.
-      raider: {
-        cat: { torpedoes: 2.2, ship: 2.0, guns: 1.5, boost: 1.8, intel: 1.5 },
-        lines: {
-          torpedoTube: 2.5, torpedoHoming: 3.0, torpedoSpeed: 2.2, shipSpeed: 2.2, shipCooldown: 2.0, shipHull: 1.2,
-          // Acquisitions, ranked: a striker wants more strike (flares to
-          // light a straggler), then intel, then off-identity settles.
-          acquireTorpedo: 1.6, acquireBoost: 1.4, acquireStarShells: 1.2, acquireMine: 0.8, acquireBroadside: 0.7,
-        },
-      },
-      // TB duelist — rear-quarter turn-fight, guns through the 30s torpedo
-      // reload. Guns and the global cooldown lever come first.
-      duelist: {
-        cat: { guns: 2.4, ship: 2.2, torpedoes: 1.4, boost: 1.6, intel: 1.3 },
-        lines: {
-          gunBarrel: 2.6, gunTurret: 2.2, shipCooldown: 2.4, shipSpeed: 2.2, shipHull: 1.6, torpedoHoming: 2.0,
-          // Acquisitions: knife-range tools first — a beam fan and a flare
-          // are both decided inside the turn-fight.
-          acquireBroadside: 1.4, acquireStarShells: 1.3, acquireBoost: 1.2, acquireTorpedo: 1.1, acquireMine: 0.9,
-        },
-      },
-      // BS bulwark — attrition. Trades on hp, so hull is the top line of any
-      // profile's table.
-      bulwark: {
-        cat: { ship: 2.4, guns: 2.0, broadside: 2.0, starShells: 1.0, intel: 1.0 },
-        lines: {
-          shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2,
-          // Acquisitions: ground-holding tools — a field defends the water
-          // it refuses to leave.
-          acquireMine: 1.4, acquireTorpedo: 1.1, acquireBroadside: 1.0, acquireStarShells: 0.9, acquireBoost: 0.8,
-        },
-      },
-      // BS siege — standoff, broadside-led, star shells to resolve stale
-      // contacts into live sight (C2). Its reach is FIXED: gun, broadside and
-      // star-shell rangeU all ride radarRange (the broadside at the 5/8 rung),
-      // and no card moves that number since RANGE I–IV was deleted
-      // (2026-08-20), so `intel` now buys sweep rate only. The appetite is
-      // deliberately LEFT UNTUNED here — a bot retune belongs to a balance
-      // pass, not to a card removal (ledgered in deferred-work.md).
-      siege: {
-        cat: { broadside: 2.6, starShells: 2.0, intel: 2.2, ship: 1.8, guns: 1.6 },
-        lines: {
-          // `intelRange` was dropped here when RANGE I–IV left the catalog
-          // (2026-08-20, cycle 118) — the key would name a card that no
-          // longer exists, which a pin refuses.
-          broadsideTurrets: 2.8, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6,
-          // Acquisitions: sensors for standoff fire first, then a torpedo the
-          // band pull can ease it in behind.
-          acquireStarShells: 1.3, acquireTorpedo: 1.2, acquireMine: 1.1, acquireBoost: 0.9, acquireBroadside: 0.8,
-        },
-      },
-      // ML forager — clears PvE fleet groups for the level lead (C3). Guns
-      // and rate of fire do that work; see the propFouling note above.
-      forager: {
-        cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8 },
-        lines: {
-          // `intelRange` dropped with RANGE I–IV (cycle 118) — see siege.
-          gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, mineBlast: 2.0,
-          // CAPTIVE restored as a WANTED line (Eric playtest, 2026-08-20):
-          // a survival-and-payoff tool for a hull that hangs back — its
-          // hostile-only trip still cannot farm fleet, but that was never
-          // the point. Priced below the gun ladder and below trapper's 2.4
-          // signature — see the block comment.
-          mineCaptive: 2.0, minePropFouling: 1.2,
-          // Acquisitions: faster rotation between fleet groups, more
-          // clearing throughput, light for the next group.
-          acquireBoost: 1.4, acquireBroadside: 1.3, acquireStarShells: 1.2, acquireTorpedo: 1.0, acquireMine: 0.9,
-        },
-      },
-      // ML trapper — mines astern while withdrawing, fights near its own
-      // field.
-      trapper: {
-        cat: { mines: 2.6, ship: 1.8, guns: 1.6, intel: 1.6 },
-        lines: {
-          // CAPTIVE's strongest want lives HERE (2026-08-20): a hostile-only
-          // torpedo mine is a trap for exactly the hulls a trapper traps.
-          // Fouling stays its signature (drags victims into the field).
-          mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.4, shipCooldown: 2.2,
-          // Acquisitions: ambush weapons that fire FROM the field.
-          acquireTorpedo: 1.5, acquireStarShells: 1.3, acquireBoost: 1.1, acquireMine: 1.0, acquireBroadside: 0.9,
-        },
-      },
+    cardPoints: {
+      base: 2,
+      favorite: 1,
+      style: 1,
+      beltHunger: { low: -1, medium: 0, high: 1 },
+      carried: -1,
+      hurtRepair: 2,
+      weapon: 3.5,
+      favoriteWeapon: 3.75,
     },
     /**
      * The callsign pool (Eric ruling E5(a)): nautical names drawn without

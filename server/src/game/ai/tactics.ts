@@ -205,6 +205,9 @@ export function spendStateOf(self: BotSelf): BotSpendState {
     // refuse (Story 8.14 review, F4) — a self-read like every other field here.
     slotIds: self.loadout.map((s) => s.equipmentId),
     hp: self.hp,
+    // The paid HULL REPAIR still draining in (Story 8.20): the scorer's HURT
+    // read is (hp + repairHp) / maxHp — the heal tactic's own read.
+    repairHp: self.repairHp,
     maxHp: self.stats.maxHp,
   };
 }
