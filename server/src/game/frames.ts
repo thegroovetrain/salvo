@@ -37,7 +37,13 @@ function ownShield(ship: ShipRecord, now: number): Pick<OwnShip, 'shield'> {
 
 /** The own-ship `draft` key (Story 8.19): `{ draft }` — the exact double —
  *  while the hull rides a wake (`ship.draft > 0`), else an EMPTY object so the
- *  spread leaves the key absent (never `undefined`, never 0). */
+ *  spread leaves the key absent (never `undefined`, never 0). The exact
+ *  scalar is `lift × ageFactor × headFactor`: a MODIFIED client varying its
+ *  heading over a few ticks can recover the direction and rough age of a wake
+ *  it cannot see (island- or smoke-hidden) — a rough bearing toward a hidden
+ *  hull within one wake length (~250 u). Honest clients show nothing; accepted
+ *  by Eric (2026-09-30, amendment 160) because prediction needs the exact
+ *  double, and the exception count is unaffected. */
 function ownDraft(ship: ShipRecord): Pick<OwnShip, 'draft'> {
   return ship.draft > 0 ? { draft: ship.draft } : {};
 }
@@ -153,8 +159,10 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // The exact double, never rounded: the client predictor folds it through
     // the SAME shared draftedKinematics, so a drafting hull predicts with no
     // drift. SELF-PRIVATE BY CONSTRUCTION on the boostUntil terms: it rides
-    // `you` and NOTHING else — the DECLARED "a wake is under you" own-ship
-    // disclosure (NFR21), not a perception exception, so the count stays SIX.
+    // `you` and NOTHING else — a DECLARED own-ship disclosure (NFR21,
+    // amendment 160: a modified client can recover a rough bearing toward a
+    // hidden wake-maker from it — see ownDraft), not a perception exception,
+    // so the count stays SIX.
     ...ownDraft(ship),
     // ms — the founder deadline while THIS hull is in the sinking window
     // (Story 5.2, amendment 16): present IFF sinking, OMITTED entirely

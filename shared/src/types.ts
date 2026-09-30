@@ -572,9 +572,13 @@ export interface OwnShip {
    * `undefined` value and never 0 on the wire (the `slowedUntil` conditional-
    * spread precedent). SELF-PRIVATE own-ship state like `slowedUntil`: rides
    * `you` and NOTHING else — not a perception exception (the count stays at
-   * SIX). DECLARED DISCLOSURE (NFR21): it tells the client "a wake is under
-   * you" even when the hull that laid it is island-hidden; it carries no
-   * position, and the own kinematics would disclose the same one frame later.
+   * SIX). DECLARED DISCLOSURE (NFR21; Eric ruling 2026-09-30, amendment
+   * 160): the exact scalar is `lift × ageFactor × headFactor`, so a MODIFIED
+   * client that varies its heading over a few ticks can recover the
+   * direction and rough age of a wake it cannot see (island- or smoke-
+   * hidden) — i.e. a rough bearing toward a hidden hull within one wake
+   * length (~250 u). Honest clients show nothing. Accepted by Eric because
+   * prediction needs the exact double, and the exception count is unaffected.
    */
   draft?: number;
 }

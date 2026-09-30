@@ -1108,7 +1108,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
     expectSameDoubles(p, server, 'after the snap');
   });
 
-  it('setDraft: a non-finite or negative lift reads as 0; the top is the server\'s and is not clamped', () => {
+  it('setDraft: a non-finite or negative lift reads as 0; the top is clamped to CONFIG.wake.draft.lift', () => {
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
     for (const bad of [NaN, -0.05, -Infinity, Infinity, -0]) {
       const p = makeInitialized(spawn);
@@ -1130,19 +1130,32 @@ describe('Predictor wake draft (Story 8.19)', () => {
     viaFrame.localTick(first, tickT(1));
     pre819Step(still, first, tickT(1), {});
     expectSameDoubles(viaFrame, still, 'you.draft NaN');
-    // The TOP is not second-guessed: whatever positive double the server
-    // folded is what the predictor folds, even past CONFIG's lift.
-    const big = 4 * LIFT;
-    const p = makeInitialized(spawn);
-    p.setDraft(big);
-    const server: ShipState = { ...spawn };
+    // The TOP is clamped to the dial (a defensive bound — the server's
+    // draftLift never exceeds it, so an honest value passes unchanged): a
+    // lift past CONFIG's folds exactly as the cap itself does.
+    for (const big of [Number.MAX_VALUE, 4 * LIFT, LIFT + 1e-9]) {
+      const p = makeInitialized(spawn);
+      p.setDraft(big);
+      const server: ShipState = { ...spawn };
+      for (let seq = 1; seq <= 60; seq++) {
+        const inp = input(seq, 1, 0);
+        p.localTick(inp, tickT(seq));
+        serverDraftStep(server, inp, tickT(seq), { draft: LIFT });
+      }
+      expectSameDoubles(p, server, `clamped top ${big}`);
+      expect(p.predicted.speed).toBe(TB.kinematics.maxSpeed + TB.kinematics.maxSpeed * LIFT);
+    }
+    // ...and a value AT or under the cap is the server's exact double, untouched.
+    const exact = LIFT * 0.6180339887;
+    const q = makeInitialized(spawn);
+    q.setDraft(exact);
+    const srv: ShipState = { ...spawn };
     for (let seq = 1; seq <= 60; seq++) {
       const inp = input(seq, 1, 0);
-      p.localTick(inp, tickT(seq));
-      serverDraftStep(server, inp, tickT(seq), { draft: big });
+      q.localTick(inp, tickT(seq));
+      serverDraftStep(srv, inp, tickT(seq), { draft: exact });
     }
-    expectSameDoubles(p, server, 'unclamped top');
-    expect(p.predicted.speed).toBe(TB.kinematics.maxSpeed + TB.kinematics.maxSpeed * big);
+    expectSameDoubles(q, srv, 'exact under-cap lift');
   });
 
   it('REVERSE never drafts — full astern in a wake tops out at the un-lifted reverse cap', () => {

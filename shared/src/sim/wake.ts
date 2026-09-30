@@ -45,7 +45,12 @@
 // well the rider's heading runs WITH the segment (never negative). The lift is
 // tied to the WATER, not the ship (amendment 155): a wreck's, a departed or
 // respawned ship's leftover ribbon lifts like any other. Only two ribbons are
-// excluded — the rider's OWN (by reference) and any TORPEDO's.
+// excluded — the rider's OWN (by reference) and any TORPEDO's. THE STERN RULE
+// (Eric 2026-09-30, amendment 159): the wake starts behind the maker's stern,
+// and a rider is lifted only while its WHOLE hull is behind that stern — the
+// freshest `hullAheadU + riderHalfLenU` of arc length along the ribbon is not
+// draftable, so a chaser holds nose-to-tail, a leader never drafts its
+// follower and hulls abreast never lift each other.
 //
 // PURE, ZERO I/O. The ring store, the sampler and the segment walk use no
 // transcendentals (only comparisons, floor and multiply on the hot path — the
@@ -111,6 +116,18 @@ export interface WakeRibbon {
    * field.
    */
   torp: boolean;
+  /**
+   * HULL AHEAD (u) — the half hull length of the source hull that sits AHEAD
+   * of the newest sample while the ribbon is ATTACHED to it (samples are laid
+   * at the hull's centre, so the maker's own hull covers the freshest half
+   * length of its ribbon). `draftLift`'s stern rule (Story 8.19, amendment
+   * 159) cuts this much arc length, plus the rider's own half length, off the
+   * ribbon's newest end. 0 for torpedo water and for DETACHED water — an
+   * orphan has no hull ahead of it, so all its water is draftable back to the
+   * rider's own half length. A foundered hull's still-attached ribbon keeps
+   * it: the wreck still sits there.
+   */
+  hullAheadU: number;
 }
 
 /**
@@ -141,8 +158,13 @@ export function wakeCapacity(maxSpeedU: number, lifeMs: number): number {
  * one-cell ribbon) — degrade, never throw. `torp` marks a TORPEDO source
  * (the per-source disclosure bound — see WakeRibbon.torp); it defaults to
  * false so every hull/drone caller stays a ship source by construction.
+ * `hullAheadU` is the attached source hull's half length (see
+ * WakeRibbon.hullAheadU); it defaults to 0 (render-only ribbons, torpedo
+ * water), and a non-finite or negative value degrades to 0.
  */
-export function createWakeRibbon(maxSpeedU: number, lifeMs: number, widthU: number, torp = false): WakeRibbon {
+export function createWakeRibbon(
+  maxSpeedU: number, lifeMs: number, widthU: number, torp = false, hullAheadU = 0,
+): WakeRibbon {
   const cap = wakeCapacity(maxSpeedU, lifeMs);
   return {
     xs: new Float64Array(cap),
@@ -154,6 +176,7 @@ export function createWakeRibbon(maxSpeedU: number, lifeMs: number, widthU: numb
     lifeMs: Number.isFinite(lifeMs) && lifeMs > 0 ? lifeMs : 0,
     widthU: Number.isFinite(widthU) && widthU > 0 ? widthU : 0,
     torp,
+    hullAheadU: Number.isFinite(hullAheadU) && hullAheadU > 0 ? hullAheadU : 0,
   };
 }
 
@@ -180,10 +203,13 @@ export function torpWakeLifeMs(): number {
 }
 
 /** Convenience: a hull source's ribbon (life = `CONFIG.vision.wakeLifeMs`,
- *  width = its own beam). `maxSpeedU` is the caller's — pass the effective
- *  top speed, boost included, if known. */
+ *  width = its own beam, hull ahead = half its own length — the ribbon is
+ *  born attached). `maxSpeedU` is the caller's — pass the effective top
+ *  speed, boost included, if known. */
 export function createShipWake(cls: HullId, maxSpeedU: number): WakeRibbon {
-  return createWakeRibbon(maxSpeedU, CONFIG.vision.wakeLifeMs, shipWakeWidthU(cls));
+  return createWakeRibbon(
+    maxSpeedU, CONFIG.vision.wakeLifeMs, shipWakeWidthU(cls), false, hullEnvelope(cls).hull.length / 2,
+  );
 }
 
 /** Convenience: a torpedo source's ribbon (fixed `CONFIG.torpedo.speed`,
@@ -367,80 +393,123 @@ function draftInputsValid(x: number, y: number, heading: number, now: number, cf
   return positiveFinite(cfg.lift) && positiveFinite(cfg.halfWidthBeams);
 }
 
+/** Per-call geometry `segmentLift` reads — module scratch, written once per
+ *  `draftLift` call (the SEG_SCRATCH pattern: allocation-free, synchronous). */
+const DRAFT_PROBE = { x: 0, y: 0, hx: 0, hy: 0, now: 0, half2: 0, lift: 0 };
+
 /**
  * One LIVE segment's candidate lift, samples a (older) → b (newer), both
- * finite. A segment whose older endpoint is strictly older than the ribbon's
- * life is expired (the `emitSegment` rule) and a zero-length segment is
- * degenerate — both contribute 0. Otherwise the rider's point projects onto
- * the segment's line at u = ((p − a)·(b − a)) / |ab|². The segment is CAPPED
- * AT ITS NEWER END ONLY: u < 0 (or non-finite) contributes 0 — that water
- * belongs to the previous, older segment, and behind the oldest sample there
- * is no lane — while u > 1 clamps to 1, so the round cap at b covers the outer
- * wedge of a turn with the joint's own age and, at the newest sample, reaches
- * one half-width past it (design reading f). Outside the lane → 0; inside →
- * `lift × ageFactor × headFactor`, the age INTERPOLATED at the projection —
- * so a rider on the centre line always reads the water at its own spot.
+ * finite, with its draftable part `t ∈ [0, uMax]` (`uMax = 1` for a segment
+ * wholly behind the lane head; less for the segment that CONTAINS the head —
+ * the stern rule, see `ribbonLift`). A segment whose older endpoint is
+ * strictly older than the ribbon's life is expired (the `emitSegment` rule)
+ * and a zero-length segment is degenerate — both contribute 0. Otherwise the
+ * rider's point projects onto the segment's line at
+ * u = ((p − a)·(b − a)) / |ab|². u < 0 (or non-finite) contributes 0 — that
+ * water belongs to the previous, older segment, and behind the oldest sample
+ * there is no lane — while u > uMax clamps to uMax, so the round cap sits AT
+ * THE LANE HEAD (for older segments, at b: it covers the outer wedge of a
+ * turn with the joint's own age). Outside the lane → 0; inside →
+ * `lift × ageFactor × headFactor`, the age INTERPOLATED at the clamped
+ * projection — so a rider on the centre line reads the water at its own spot,
+ * and a rider abeam of the head reads the head's age.
  */
-function segmentLift(
-  r: WakeRibbon, a: number, b: number,
-  x: number, y: number, hx: number, hy: number,
-  now: number, half2: number, lift: number,
-): number {
+function segmentLift(r: WakeRibbon, a: number, b: number, uMax: number): number {
+  const p = DRAFT_PROBE;
   const tA = r.ts[a];
-  if (now - tA > r.lifeMs) return 0;
+  if (p.now - tA > r.lifeMs) return 0;
   const ax = r.xs[a];
   const ay = r.ys[a];
   const dx = r.xs[b] - ax;
   const dy = r.ys[b] - ay;
   const len2 = dx * dx + dy * dy;
   if (!(len2 > 0) || !Number.isFinite(len2)) return 0;
-  const u = ((x - ax) * dx + (y - ay) * dy) / len2;
+  const u = ((p.x - ax) * dx + (p.y - ay) * dy) / len2;
   if (!(u >= 0) || !Number.isFinite(u)) return 0;
-  const t = u > 1 ? 1 : u;
-  const ox = ax + t * dx - x;
-  const oy = ay + t * dy - y;
-  if (ox * ox + oy * oy > half2) return 0;
-  const age = now - (tA + t * (r.ts[b] - tA));
+  const t = u > uMax ? uMax : u;
+  const ox = ax + t * dx - p.x;
+  const oy = ay + t * dy - p.y;
+  if (ox * ox + oy * oy > p.half2) return 0;
+  const age = p.now - (tA + t * (r.ts[b] - tA));
   const ageFactor = clamp01(1 - age / r.lifeMs);
-  const headFactor = clamp01((hx * dx + hy * dy) / Math.sqrt(len2));
-  return lift * ageFactor * headFactor;
+  const headFactor = clamp01((p.hx * dx + p.hy * dy) / Math.sqrt(len2));
+  return p.lift * ageFactor * headFactor;
 }
 
-/** The best candidate lift over one ribbon's live segments (the
- *  `eachWakeSegment` walk — non-finite stored samples skipped and closed
- *  across — without its callback, so nothing is allocated per segment). */
-function ribbonLift(r: WakeRibbon, x: number, y: number, hx: number, hy: number, now: number, cfg: DraftConfig): number {
+/** Length (u) of the segment between stored samples a and b. */
+function segmentLength(r: WakeRibbon, a: number, b: number): number {
+  const dx = r.xs[b] - r.xs[a];
+  const dy = r.ys[b] - r.ys[a];
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** A finite, strictly positive length, else 0. */
+function lengthOrZero(v: number): number {
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+/**
+ * The best candidate lift over one ribbon's live segments — the
+ * `eachWakeSegment` walk (non-finite stored samples skipped and closed
+ * across) run NEWEST → OLDEST, without a callback, so nothing is allocated.
+ *
+ * THE STERN RULE (amendment 159): the freshest `cut = r.hullAheadU +
+ * riderHalfLenU` units of ARC LENGTH, measured back from the newest sample,
+ * are not draftable. Walking back, a segment of length L with `cut ≥ L` is
+ * wholly cut (`cut −= L`, contributes 0); the first segment with `cut < L`
+ * contains the LANE HEAD and is draftable only over `t ∈ [0, 1 − cut/L]`;
+ * every older segment is draftable whole.
+ */
+function ribbonLift(r: WakeRibbon, riderHalfLenU: number, halfWidthBeams: number): number {
   if (r.count < 2 || !positiveFinite(r.lifeMs) || !positiveFinite(r.widthU)) return 0;
-  const half = r.widthU * cfg.halfWidthBeams;
-  const half2 = half * half;
-  if (!Number.isFinite(half2)) return 0;
+  const half = r.widthU * halfWidthBeams;
+  DRAFT_PROBE.half2 = half * half;
+  if (!Number.isFinite(DRAFT_PROBE.half2)) return 0;
+  let cut = lengthOrZero(r.hullAheadU) + riderHalfLenU;
   let best = 0;
-  let prev = -1;
-  for (let n = 0; n < r.count; n++) {
+  let newer = -1;
+  for (let n = r.count - 1; n >= 0; n--) {
     const i = (r.head + n) % r.cap;
     if (!finiteSample(r, i)) continue;
-    if (prev >= 0) best = Math.max(best, segmentLift(r, prev, i, x, y, hx, hy, now, half2, cfg.lift));
-    prev = i;
+    if (newer >= 0) {
+      const len = segmentLength(r, i, newer);
+      if (cut >= len) {
+        cut -= len;
+      } else {
+        const uMax = cut > 0 ? 1 - cut / len : 1;
+        cut = 0;
+        best = Math.max(best, segmentLift(r, i, newer, uMax));
+      }
+    }
+    newer = i;
   }
   return best;
 }
 
 /**
  * WAKE DRAFTING's lift (Story 8.19, Eric rulings 2026-09-30, epic-8
- * amendments 151–155): the fraction of its own forward cap a rider at (x, y)
- * sailing `heading` (radians) gains from the water under it at `now`, in
- * [0, cfg.lift]. Walks every ribbon that is not `own` (reference equality —
- * a ship's own DETACHED water counts as water) and not a torpedo's, and every
- * LIVE segment a (older) → b (newer) of it; a segment counts when the rider's
- * point lies within `widthU × cfg.halfWidthBeams` of it — the segment capped
- * at the newer end only (a projection behind its older end contributes 0;
- * past its newer end it clamps to b, t ∈ [0, 1]) — and is worth
+ * amendments 151–155, 159): the fraction of its own forward cap a rider at
+ * (x, y) sailing `heading` (radians), whose own half hull length is
+ * `riderHalfLenU`, gains from the water under it at `now`, in [0, cfg.lift].
+ * Walks every ribbon that is not `own` (reference equality — a ship's own
+ * DETACHED water counts as water) and not a torpedo's, and every LIVE segment
+ * a (older) → b (newer) of it.
+ *
+ * THE STERN RULE: the wake starts behind the maker's stern, and a rider is
+ * lifted only while its WHOLE hull is behind that stern — the freshest
+ * `r.hullAheadU + riderHalfLenU` of arc length back from the newest sample is
+ * not draftable, and the LANE HEAD is the point that far back. A segment
+ * counts when the rider's point lies within `widthU × cfg.halfWidthBeams` of
+ * its draftable part — capped at the lane head only (a projection behind its
+ * older end contributes 0; past the head it clamps to the head, t ∈ [0,
+ * uMax]) — and is worth
  * `cfg.lift × ageFactor × headFactor` where
  *   ageFactor  = clamp01(1 − (now − (ts_a + t × (ts_b − ts_a))) / lifeMs)
  *   headFactor = max(0, (cos(heading)·dx + sin(heading)·dy) / |ab|).
  * Returns the MAX candidate — overlapping wakes never stack.
  *
- * Pure, allocation-free, never throws: any non-finite x / y / heading / now,
+ * Pure, allocation-free, never throws: a non-finite or negative
+ * `riderHalfLenU` is treated as 0; any non-finite x / y / heading / now,
  * a non-finite or non-positive dial, a sub-2-sample ribbon, a degenerate
  * segment, `lifeMs ≤ 0` or `widthU ≤ 0` contributes 0.
  */
@@ -450,17 +519,24 @@ export function draftLift(
   x: number,
   y: number,
   heading: number,
+  riderHalfLenU: number,
   now: number,
   cfg: DraftConfig,
 ): number {
   if (!draftInputsValid(x, y, heading, now, cfg)) return 0;
-  const hx = Math.cos(heading);
-  const hy = Math.sin(heading);
+  const p = DRAFT_PROBE;
+  p.x = x;
+  p.y = y;
+  p.hx = Math.cos(heading);
+  p.hy = Math.sin(heading);
+  p.now = now;
+  p.lift = cfg.lift;
+  const riderHalf = lengthOrZero(riderHalfLenU);
   let best = 0;
   for (let k = 0; k < ribbons.length; k++) {
     const r = ribbons[k];
     if (r === own || r.torp) continue;
-    best = Math.max(best, ribbonLift(r, x, y, hx, hy, now, cfg));
+    best = Math.max(best, ribbonLift(r, riderHalf, cfg.halfWidthBeams));
   }
   return best > DRAFT_LIFT_DUST ? best : 0;
 }

@@ -312,13 +312,14 @@ export class Predictor {
    * two above, because that seam only fires when the stats change and the lift
    * changes tick to tick. NO snap, and the pending ring is kept.
    *
-   * A non-finite or negative value reads as 0 (not drafting). The TOP is
-   * deliberately not clamped: the server's double is the authority, and
-   * clamping it here would be a second opinion on a number only one side
-   * computes.
+   * A non-finite or non-positive value reads as 0 (not drafting); the top is
+   * clamped to `CONFIG.wake.draft.lift` (orchestrator ruling 2026-09-30) — a
+   * defensive bound only: the server's `draftLift` never exceeds the dial, so
+   * every honest value passes through as the identical double and parity is
+   * unaffected.
    */
   setDraft(lift: number): void {
-    this.authDraft = Number.isFinite(lift) && lift > 0 ? lift : 0;
+    this.authDraft = Number.isFinite(lift) && lift > 0 ? Math.min(lift, CONFIG.wake.draft.lift) : 0;
   }
 
   /**

@@ -50,9 +50,14 @@
 // `puffRadius`/`segCircleHit`/`sightClear`. Story 8.19 (WAKE DRAFTING,
 // amendments 151–155) adds ONE own-ship field, not a seventh exception:
 // `you.draft` — the wake-draft lift folded into the observer's own cap — is
-// own-ship state, the DECLARED "a wake is under you" disclosure (NFR21,
-// deferred-work D23 entry); it may exist NOWHERE but the observer's own `you`
-// (see verifyFrame), so the count stays SIX. The checks below
+// own-ship state, a DECLARED disclosure (NFR21; Eric 2026-09-30, amendment
+// 160): the exact scalar is `lift × ageFactor × headFactor`, so a MODIFIED
+// client varying its heading over a few ticks can recover the direction and
+// rough age of a wake it cannot see (island- or smoke-hidden) — a rough
+// bearing toward a hidden hull within one wake length (~250 u); honest
+// clients show nothing, and Eric accepted it because prediction needs the
+// exact double. It may exist NOWHERE but the observer's own `you` (see
+// verifyFrame), so the count stays SIX. The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -608,6 +613,24 @@ describe('perception — sight tier boundaries (exact)', () => {
     // ...and stepping aside restores the contact.
     w.ships.get('b')!.state.y = 120;
     expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
+  });
+
+  it('a foundered hull carries no wake-draft lift on the wire (Story 8.19)', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    const b = place(w, 'b', 100, 0);
+    w.respawnEnabled = false;
+    w.sinkShip('b');
+    w.step(CONFIG.ship.sinkingWindowMs);
+    expect(isAfloat(b.lifecycle) || isSinking(b.lifecycle)).toBe(false);
+    // A stale lift planted on the sunk record is restamped to 0 by the next
+    // step (off the water) and never reaches the wire.
+    b.draft = 0.03;
+    w.step();
+    expect(b.draft).toBe(0);
+    const f = buildFrame(w, 'b');
+    if (f.you !== undefined) expect('draft' in f.you).toBe(false);
+    expect(JSON.stringify(f)).not.toContain('"draft"');
   });
 
   it('dead ships are never contacts; a viewer with no ship sees nothing', () => {
@@ -2134,7 +2157,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     // The torpedo ribbon's ruled constants as LITERALS: half a ship's life
     // (2750ms since amendment 213 cut the ship clock; the 0.5 factor is
     // unchanged), one 9u cell wide.
-    const tw: WakeRibbon = { xs: new Float64Array(20), ys: new Float64Array(20), ts: new Float64Array(20), cap: 20, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
+    const tw: WakeRibbon = { xs: new Float64Array(20), ys: new Float64Array(20), ts: new Float64Array(20), cap: 20, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true, hullAheadU: 0 };
     injectWakeTrack(tw, 500, 6, 0, 8, w.now, 5_000); // 416..500 at y=6
     w.torpWakes.set('fish', tw);
     windowAround(a, 0.013, 0.03); // the wedge covering the ribbon's bearings
@@ -2156,7 +2179,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     // sight). Amendment 196's tell must survive exactly here — the terminal
     // approach is the only part that matters.
     const cap = 20;
-    const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
+    const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true, hullAheadU: 0 };
     injectWakeTrack(tw, 300, 0, 0, 4, w.now, 2_000); // 264..300 along y=0
     w.torpWakes.set('fish', tw);
     windowAround(a, 0);
@@ -2166,7 +2189,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     // The detect radius is the torpedo wake's INNER bound: water at or inside
     // 247.5u stays undisclosed (the fish there is a revealed entity — that
     // band belongs to the torp row and truesight rendering, not this one).
-    const inner: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
+    const inner: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true, hullAheadU: 0 };
     injectWakeTrack(inner, 240, 0, 0, 4, w.now, 2_000); // 204..240: inside detect
     w.torpWakes.set('fish2', inner);
     const f2 = buildFrame(w, 'a');
@@ -2199,7 +2222,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     // occlusion is binary island LOS — so it must NOT disclose.
     w.map.islands.push(circleIsland(200, 0, 40));
     const cap = 20;
-    const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
+    const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true, hullAheadU: 0 };
     injectWakeTrack(tw, 300, 0, 0, 4, w.now, 2_000); // (detect, sight] band, behind the island
     w.torpWakes.set('fish', tw);
     windowAround(a, 0);
@@ -2208,7 +2231,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     expect(f.events.some((e) => e.k === 'wk')).toBe(false);
     // BEYOND sight the same polygon is irrelevant and the raster rules
     // (Story 4.11's deliberate widening, unchanged): flat raster → discloses.
-    const far: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
+    const far: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true, hullAheadU: 0 };
     injectWakeTrack(far, 500, 0, 0, 4, w.now, 2_000); // 464..500: annulus, behind the polygon
     w.torpWakes.set('fish2', far);
     const f2 = buildFrame(w, 'a');
@@ -2424,14 +2447,22 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // THE WAKE-DRAFT LIFT IS SELF-PRIVATE (Story 8.19): `draft` may exist
   // NOWHERE but `you` — never on a contact, never in a frame without `you` —
   // and on `you` it is the record's exact double IFF positive, ABSENT (never
-  // 0, never `undefined`) otherwise. It is the declared "a wake is under you"
-  // own-ship disclosure (NFR21), not a perception exception.
+  // 0, never `undefined`) otherwise. INDEPENDENTLY of the record: a positive
+  // `draft` is only ever carried by a hull that is ON THE WATER (afloat or
+  // sinking) — a foundered/sunk hull rides no wake — and never above the
+  // dial. It is a declared own-ship disclosure (NFR21, amendment 160), not a
+  // perception exception.
   expect(JSON.stringify(withoutYou)).not.toContain('"draft"');
   if (f.you !== undefined) {
     expect('draft' in f.you).toBe(me.draft > 0);
     if (me.draft > 0) {
       DRAFT_SEEN.n += 1;
       expect(Object.is(f.you.draft, me.draft)).toBe(true);
+    }
+    if (f.you.draft !== undefined) {
+      expect(isAfloat(me.lifecycle) || isSinking(me.lifecycle), `${me.id} carries draft off the water`).toBe(true);
+      expect(f.you.draft).toBeGreaterThan(0);
+      expect(f.you.draft).toBeLessThanOrEqual(CONFIG.wake.draft.lift);
     }
   }
   for (const c of f.contacts) {
@@ -4079,7 +4110,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       // by the untouched torp/torpU rows).
       for (let t = 0; t < rng.int(0, 2); t++) {
         const cap = 40;
-        const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true };
+        const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true, hullAheadU: 0 };
         const ang = rng.float(0, TAU);
         const rr = rng.float(0, w.map.radius * 0.9);
         injectWakeTrack(tw, Math.cos(ang) * rr, Math.sin(ang) * rr, rng.float(0, TAU), rng.int(2, 12), w.now, 5_000);
@@ -4179,8 +4210,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     expect(SMOKED_BLIP.n).toBeGreaterThan(0);
     expect(IN_SMOKE_SEES.n).toBeGreaterThan(0);
     // ...and the wake-draft clause saw a POSITIVE `you.draft` at least once
-    // (Story 8.19 — hulls pre-laid with tracks sail through each other's
-    // water), so its present-and-exact arm ran, not only the omitted-at-0 one.
+    // (Story 8.19 — the value is PLANTED on ids[0] on odd ticks, above), so
+    // its present-and-exact arm ran, not only the omitted-at-0 one.
     expect(DRAFT_SEEN.n).toBeGreaterThan(0);
     // The wake oracle must have been EXERCISED (amendment 40's vacuity rule):
     // with 70% of hulls pre-laid with tracks across 20 worlds × 6 ticks, zero

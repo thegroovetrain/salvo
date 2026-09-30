@@ -17,6 +17,8 @@ import {
   createTorpWake,
   createWakeRibbon,
   eachWakeSegment,
+  hullEnvelope,
+  HULL_IDS,
   mulberry32,
   paintSegmentCoverage,
   pruneWake,
@@ -125,6 +127,25 @@ describe('wakeCapacity — the DERIVED ring capacity (never a literal)', () => {
     const ticksPerSample = Math.ceil(STEP / (speed * 0.05));
     expect(r.count).toBeGreaterThanOrEqual(Math.floor(LIFE / (ticksPerSample * 50)) - 1);
     expect(r.count).toBeLessThanOrEqual(r.cap);
+  });
+});
+
+describe('hullAheadU — the attached hull that sits ahead of the newest sample (Story 8.19, amendment 159)', () => {
+  it('a ship wake carries half its own hull length, for every class and drone hull', () => {
+    for (const id of HULL_IDS) {
+      expect(createShipWake(id, 40).hullAheadU).toBe(hullEnvelope(id).hull.length / 2);
+    }
+    expect(createShipWake('torpedoBoat', 45).hullAheadU).toBe(50);
+    expect(createShipWake('battleship', 35).hullAheadU).toBe(62);
+  });
+
+  it('torpedo water carries 0; the default is 0; non-finite or negative degrades to 0', () => {
+    expect(createTorpWake().hullAheadU).toBe(0);
+    expect(createWakeRibbon(45, LIFE, 9).hullAheadU).toBe(0);
+    expect(createWakeRibbon(45, LIFE, 9, false, 17).hullAheadU).toBe(17);
+    for (const bad of [NaN, Infinity, -Infinity, -3]) {
+      expect(createWakeRibbon(45, LIFE, 9, false, bad).hullAheadU).toBe(0);
+    }
   });
 });
 

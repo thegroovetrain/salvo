@@ -108,7 +108,7 @@ function emitWorldEvent(w: World, e: GameEvent): void {
  *  midpoint (x, 0), laid in the last 100 ms. */
 function torpWater(w: World, x: number): WakeRibbon {
   const cap = 8;
-  const r: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 2, lifeMs: 2_750, widthU: 9, torp: true };
+  const r: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 2, lifeMs: 2_750, widthU: 9, torp: true, hullAheadU: 0 };
   r.xs[0] = x;
   r.ys[0] = -6;
   r.ts[0] = w.now - 100;

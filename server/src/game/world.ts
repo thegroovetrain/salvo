@@ -2017,7 +2017,10 @@ export class World {
    *  orphan store and keeps disclosing until its water ages out. */
   removeShip(id: string): void {
     const ship = this.ships.get(id);
-    if (ship !== undefined && pruneWake(ship.wake, this.now) > 0) this.orphanWakes.push(ship.wake);
+    if (ship !== undefined && pruneWake(ship.wake, this.now) > 0) {
+      ship.wake.hullAheadU = 0; // detached water: no hull ahead of it (amendment 159)
+      this.orphanWakes.push(ship.wake);
+    }
     this.ships.delete(id);
     this.inputs.remove(id);
     this.drones.remove(id);
@@ -3631,7 +3634,8 @@ export class World {
   /**
    * One hull's kinematics for THIS tick — stamps `ship.draft` first (the
    * shared draftLift at the PRE-STEP pose, the hull's own attached ribbon
-   * excluded by reference), then folds.
+   * excluded by reference, the rider's own half hull length fed to the stern
+   * rule — amendment 159), then folds.
    *
    * THE one place boost enters kinematics (Story 1.6): while the window is
    * open (now < boostUntil) the shared helper raises the forward maxSpeed cap
@@ -3652,7 +3656,8 @@ export class World {
    */
   private tickKinematics(ship: ShipRecord, ribbons: readonly WakeRibbon[]): ShipConfig {
     ship.draft = draftLift(
-      ribbons, ship.wake, ship.state.x, ship.state.y, ship.state.heading, this.now, CONFIG.wake.draft,
+      ribbons, ship.wake, ship.state.x, ship.state.y, ship.state.heading,
+      ship.cls.hull.length / 2, this.now, CONFIG.wake.draft,
     );
     const boosted = boostedKinematics(
       ship.stats.kinematics,
@@ -3747,10 +3752,16 @@ export class World {
    * appendWakeSample chains consecutive samples, so a kept ribbon would draw
    * a bogus death-point→spawn-point segment across the map. The old water
    * keeps disclosing from orphanWakes until it ages out. An empty detached
-   * ribbon is dropped immediately (nothing to age out).
+   * ribbon is dropped immediately (nothing to age out). Detached water has no
+   * hull ahead of it, so its `hullAheadU` drops to 0 (Story 8.19's stern
+   * rule, amendment 159 — all of it is draftable back to the rider's own
+   * half length).
    */
   private detachWake(ship: ShipRecord): void {
-    if (pruneWake(ship.wake, this.now) > 0) this.orphanWakes.push(ship.wake);
+    if (pruneWake(ship.wake, this.now) > 0) {
+      ship.wake.hullAheadU = 0; // detached water: no hull ahead of it (amendment 159)
+      this.orphanWakes.push(ship.wake);
+    }
     ship.wake = createShipWake(ship.hullId, World.wakeTopSpeed(ship.stats));
   }
 
