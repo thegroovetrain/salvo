@@ -4,91 +4,60 @@
 
 ## Goal
 
-Replace the shipped boon/upgrade system with the common pool. A captain configures a ship, a gun and a colour, spawns with that gun mounted plus the hull's one fixed class ability, redraws the opening offer during the countdown, then draws from the single pool every captain shares into three weapon slots (`Q`/`E`/`R`) and four consumable belt slots (`1`–`4`), heals from a card, and reads the loadout they ended with in results. **Decks do not exist.** Nothing is class-locked and nothing is brought. A hull's identity is its envelope plus its fixed ability, and the gun is the captain's pick. Stories 8.0–8.16 have LANDED. 8.0–8.13 were written in deck vocabulary, and 8.14 removed the deck path and put in the pool draw and the `gun` seat field; 8.15 made the gun a real pick with three built guns and gave each hull its own ability; 8.16 built SHIELD BLOCK, CHAFF and DECOY BUOY and deleted the radar buoy. What remains: finish the catalog (smoke as an occluder — 8.17, next — and wake drafting), re-cut bots and the harness, then close with results and copy. Epic 8 is self-contained: every path runs with no account module, so signing in later changes what a player KEEPS, never what they can DO.
+Replace the old boon system with the common pool. A captain picks a hull, a gun and a colour, spawns with that gun plus the hull's fixed class ability (`SPECIAL`, key `Shift`), redraws the opening offer during the countdown, then draws from the one pool every captain shares into weapon slots `Q`/`E`/`R` and belt slots `1`–`4`, and reads the ending loadout in results. **Decks do not exist**: nothing is class-locked, nothing is brought. Stories 8.0–8.17 have LANDED; what remains is smoke as a sight occluder (8.18, NEXT), wake drafting, bots on the pool, then results and copy. Epic 8 runs with no account module — signing in later changes what a player KEEPS, never what they can DO.
 
 ## Stories
 
-- Story 8.0–8.13: landed (Colyseus 0.18 upgrade, catalog engine, deck rules, the draw, damage gate, nine slots, HUD bar, consumables, heal card, Shift boost, the opening, match pool, ladders + deck gun, torpedoes + mines)
+- Story 8.0–8.13: landed (Colyseus 0.18, catalog engine, the draw, damage gate, nine slots, HUD bar, consumables, heal card, Shift boost, the opening, match pool, ladders + deck gun, torpedoes + mines)
 - Story 8.14: The Common Pool — landed
 - Story 8.15: The Gun Pick and the Class Shifts — landed
 - Story 8.16: Catalog v3 — Shield, Chaff, Decoy — landed
-- Story 8.17: Smoke Screen as a Sight Occluder — NEXT
-- Story 8.18: Wake Drafting
-- Story 8.19: Bots Draw from the Pool
-- Story 8.20: Results LOADOUT and the Match Record
-- Story 8.21: How-to-Play and Copy Re-cut
+- Story 8.17: Catalog v3 — Star Shells, Broadside, Phosphor, Flash — landed
+- Story 8.18: Smoke Screen as a Sight Occluder — NEXT
+- Story 8.19: Wake Drafting
+- Story 8.20: Bots Draw from the Pool
+- Story 8.21: Results LOADOUT and the Match Record
+- Story 8.22: How-to-Play and Copy Re-cut
 
 ## Requirements & Constraints
 
-**Standing on every story.** The `Tab` refit offer's shape is untouched and the passive XP tick stays the anti-snowball floor. The perception invariant keeps EXACTLY SIX declared exceptions — chaff fakes ride the existing jamming carve-out, not a seventh (since 8.16 deleted the radar buoy, chaff is its only source). **No friendly fire, ever**; the one pinned exception is shooting your own mines. Never invent a card, a number or a consumable — every `[DRAFT]` is Eric's. `PROTOCOL_VERSION` bumps once per wire-changing story, never for harness or bot work; `npm run check` green gates every landing; any story contradicting a recorded GDD/architecture fact adds it to the Epic 9 reconciliation list.
+**Standing rules.** The `Tab` offer's shape is untouched; the passive XP tick stays the anti-snowball floor. The perception invariant keeps EXACTLY SIX exceptions — new channels are registry pseudo-rows, never a seventh. **No friendly fire**, except shooting your own mines. Every `[DRAFT]` number, card and copy line is Eric's — never invent one. `PROTOCOL_VERSION` bumps once per wire-changing story (never for bots/harness); `npm run check` green gates every landing.
 
-**The pool, not a deck.** A seat is a hull and a gun, nothing else. The draw source is one hull-agnostic catalog of lines with UNLIMITED copies. Equipment, ladders and add-ons leave the draw at their cap. Consumables are NEVER filtered out: at cap or with no belt space they are dealt greyed, and the pick is refused as a silent no-op. So the offer is never empty and nothing "exhausts". The draw has two stages per card. First it picks the KIND (weapon copy 1 / upgrade / consumable), with odds equal to that kind's share of the ship's eligible lines. Then it picks the line: weapons are weighted, upgrades and consumables are even. Once `Q`/`E`/`R` are all full the weapon kind has zero share. **Weighting** (never "tilt"): each time ANOTHER participant takes a line's copy 1, that line's weight for you is ×0.75, floored at 0.25. Tier copies never move weight, and a take is permanent for the match. Weighting changes WHICH weapon is drawn, never the odds of drawing A weapon. The weapon guarantee is **level zero only**: the countdown offer and its REDRAW keep the uniform usable-card guarantee, and later offers carry no guarantee. REDRAW is the one asserted reroll. Humans and bots draw under identical rules, and everything is unlocked for everyone until progression exists.
+**The pool.** One hull-agnostic catalog, unlimited copies; equipment and ladders leave the draw at cap; consumables are never filtered (at cap or belt-full they are dealt greyed and the pick is a silent no-op). Draw picks the KIND by share of eligible lines, then the LINE (weapons weighted, others even). **Weighting** (never "tilt"): each time ANOTHER participant takes a line's copy 1, its weight for you ×0.75, floor 0.25. Humans and bots draw identically; draw state is server-private.
 
-**Anti-cheat.** Draw state and weighting are server-private. Only an offer's line ids reach a client, and enemy draws reach nobody. A client never supplies pool contents: the option sanitizer accepts `hull` and `gun` (missing or unknown → the deck gun) and treats any deck key as unknown. Dev overrides stay behind the dev-options env gate.
+**Catalog as landed.** Missiles, monitor, heat seeking, acoustic homing and the fouling add-on are cut; supercav torpedo and depth charge are consumables; no add-on line remains. Every gun fires 360°. FLASH SHELLS (`dazzleShells`) is a belt consumable feeding one shared `effectiveSight`; PHOSPHOR SHELLS is a tiered equipment line.
 
-**Owner decisions outstanding (do not invent).** Still open:
-- the three class designations
-- sign-off on the implementer-drafted glyphs (8.15's SPECIAL and machine-gun/flak glyphs; 8.16's three belt glyphs, hover texts and decoy hp arc)
-- the bot gun and ability tactic tables
-- the wake-draft lift and width, and the smoke-screen expand and interval numbers
-- the later pared Default Set
+**Smoke screen (8.18).** A key-fired belt consumable (cap 5): a trail laid astern for 5 s; each puff lives 30 s, expanding r40 → r60 u. It blocks SIGHT ONLY — radar is unaffected. By symmetry a puff hides its occupant, hides everything behind it and blinds an observer inside it. `puffIntervalMs` and `expandMs` are Eric's `[DRAFT]` numbers. Perf pin: perception at 20 observers × 200 live puffs inside the 50 ms tick; `/metrics` gains `smokeLivePeak`.
 
-The boost's shipped 25 s cooldown is ruled; the documented "20 s" is stale.
-
-**Pins owed.** Perception at 20 observers × 200 live smoke puffs inside the 50 ms tick; mine triggers plus the target collector at 500 live mines; the machine-gun stream's per-shell muzzle-flash cost MEASURED at 20 streaming bots before its cadence is trusted. New sim math lives in `shared/` and runs identically on both sides; the stat fold stays permutation-invariant, integers accumulating as floats and flooring ONCE.
+**Still open:** class designations; bot gun/ability tactic tables; wake-draft lift and width (Eric sets them when 8.19 opens); sign-off on drafted glyphs and hover copy.
 
 ## Technical Decisions
 
-**The gun is a seat field.** It rides the seat and the self-private own-ship frame, never the welcome. Three universal, slotless guns live in slot 0, each a full equipment module:
-- **Deck gun:** as shipped; its ladder is not re-authored.
-- **Machine gun:** a held-fire stream driven by a REQUIRED boolean LEVEL on the input message (a non-boolean drops the whole message), with a server-side cadence and no back-date. Release, arc exit (one denial, then silence), an empty pool, the refit window opening or window blur stop it.
-- **Flak gun:** one shell air-bursting at the click. Its target mask is `hull | mine | decoy | ordnance`, where every other gun's is `hull | mine | decoy`. Own ordnance is immune. Take what flak hits from the mask of record, never from a paraphrase.
+**Chokepoints.** Hull damage enters only through the one damage gate (cut → shield → hull); ordnance finds targets only through the one masked collector; catalog facts live in the catalog module; bots never import the world module and their tactic tables stay TOTAL. New sim math lives in `shared/` and runs identically on both sides.
 
-Each gun has its own ladder, offered only while that gun is mounted. The reload ladder touches all three. HORIZONTAL MISSILE, MONITOR GUN and HEAT SEEKING are deleted end to end.
+**Smoke occluder.**
+- `SmokePuff { id, ownerId, x, y, bornAt, until }` in a new `world.smoke` store. New `shared/src/sim/smoke.ts`: `puffRadius(puff, now) = r0 + (r1 − r0) × min(1, age / expandMs)`, run by server and client alike.
+- NEW `CONFIG.smokeScreen { r0: 40, r1: 60, lifeMs: 30000, layMs: 5000, puffIntervalMs, expandMs }`. The existing `CONFIG.smoke` is WOUNDED smoke — a different thing, untouched; never conflate them.
+- Activation stamps `ship.smokeUntil`; a new `STEP_ORDER` row `stepSmoke` (after `sampleWakes`, before `applyStorm`) drops a stern puff each interval while laying and expires dead puffs.
+- ONE predicate `sightClear(a, b, islands, puffs, now) = losClear(...) && !puffs.some(segCircleHit(a, b, p, puffRadius(p, now)))` replaces `losClear` at exactly the SIX sight-tier call sites: `shipSees`, `pointSighted`, `pointDetected`, the `mz` halo, the `sm` halo, the foghorn muffle. A future occluder is one more term, never a second predicate.
+- Radar is untouched BY CONSTRUCTION — its gate never called `losClear`. `ownZoneCovers` gains NO smoke term: a lit zone sees into smoke as it sees past islands (pinned, ledgered).
+- Wire: `SmokeView { id, x, y, t0 }`, no radius. A `smoke` registry pseudo-row is visible iff the puff CENTRE is within `sight + puffRadius` with ISLAND-ONLY LOS (so a puff stays visible from inside another), or `ownerId === me`. Rides `FrameMsg.smoke?`; bots get it via `observe()`. The invariant suite iterates the row and still counts six; `PROTOCOL_VERSION` bumps.
+- Cost bound: live puffs ≤ stacks × `layMs / puffIntervalMs`; one `segCircleHit` per (observer, subject, puff).
 
-**Class ability.** One fixed ability per hull in slot 1:
-- **Speed boost** (torpedo boat): scaled off POST-fold max speed.
-- **Instant reload** (mine layer): resets the mounted gun's and every fitted `Q`/`E`/`R` weapon's clock through the equipment registry; consumables are untouched.
-- **Damage cut** (battleship): ×0.5, applied INSIDE the one damage gate and victim-private. It is the only damage-reduction concept in the game (the shield absorbs; it does not reduce).
-
-The reload ladder's per-tier cooldown cut holds for all three, and bots drive them through the same input pipeline.
-
-**Chokepoints that bind new work.** Hull damage enters only through the one damage function; ordnance finds targets only through the one masked collector; every catalog fact lives in the catalog module; persistence sits behind a port the room is handed and never reaches the sim; bot code never imports the world module (ESLint-enforced) and its tactic tables stay TOTAL over their id sets.
-
-**Remaining sim seams.** Smoke is ONE sight-clear predicate (island LOS ∧ no puff crossed) swapped in at exactly the sight-tier call sites, so radar is untouched by construction. Wake drafting is a shared max lift (never a sum) over last tick's ribbons, folded third in the kinematics order (boosted → slowed → drafted → hooks), byte-identical at both call sites and parity-pinned at zero.
-
-**Wire.** The reveal gains exactly ONE new field — a gun shell's weapon FAMILY, nothing range-derivable — as a DECLARED, ledgered disclosure widening; the invariant suite iterates the gun rows and still counts six exceptions. Missiles never get a wire kind. The match record is server-only and is NEVER the results message.
+**Later seams.** Wake drafting is a MAX lift over last tick's other-hull ribbons, folded `boosted → slowed → drafted → hooks`, parity-pinned at zero. The match record is server-only behind a port writer and is NEVER the results message.
 
 ## UX & Interaction Patterns
 
-**The port screen is `LOADOUT`**, not a class select. It is one DOM sheet over the dimmed home with a single list of KEY · VALUE rows, in this order: `SHIP · SPECIAL · DECK GUN · COLOR`.
-- A row's value is glyph · NAME · caret and nothing else.
-- Clicking a value opens that category's picker modal. The modal is the ONE place an option is described.
-- The gun choices are `CANNON · MACHINE GUN · FLAK`. `CANNON` is the player-facing name of the internal `deckGun` and is preselected.
-- The ability is called `SPECIAL` (never "Shift"). It is read-only until it becomes a choice.
-- The colour row never explains the in-match grant.
-- The confirm word is `CONFIRM`.
-- A future category is one more row.
-- In Epic 8 nothing is locked, and there are no class tiles, no collection grid and no unlock page.
-- Class designations stay `[NAME PENDING]`.
-
-**HUD.** The gun square shows the mounted gun with its tier numeral. The slot-1 square keeps the `Shift` key chip and shows the hull ability's glyph. While a stream drains, the machine gun draws the amber held-fire drain along its slot floor.
-
-**Refit cards.** A fixed-size face with NO prose; explanation is hover-only. The tier ramp is ABSOLUTE and a sixth rung is forbidden. Weighting is never named on any surface.
-
-**Results.** One LOADOUT block replaces the accrued-boons blocks: the ending slot row, led by the mounted gun, plus the five ship-ladder tiers.
-
-**Copy.** Explanations go to How-to-Play only: no glossary, and no in-game explanatory copy. No `deck` / `DEFAULT` / `STARTER` string appears in client copy.
-
-**Binding on every new surface.** Dual-coding, audio/visual twins, photosensitivity limits and the 9 px rendered micro-type floor.
+- **Smoke puffs** are grey (`{colors.wounded-smoke}` family) and differ from wounded smoke by SHAPE: discrete expanding puffs laid astern, never a plume off a hull, never by colour. New `render/smokeScreen.ts`; `render/smoke.ts` stays wounded smoke. Own puffs are always visible to the owner.
+- Refit cards carry no prose (hover only) and an absolute tier ramp; weighting is never named. The plain gun is `CANNON`; the ability is `SPECIAL`.
+- Drafting is felt, never shown. Results get one LOADOUT block; enemy draws appear nowhere.
+- Copy lives in How-to-Play only — no glossary, no `deck`/`DEFAULT`/`STARTER` string. Every surface honours dual-coding, photosensitivity limits and the 9 px type floor.
 
 ## Cross-Story Dependencies
 
-- 8.14 (landed) was the hinge: 8.15–8.21 all assume the pool, weighting and the `gun` seat field.
-- 8.15 (landed) needed 8.14, superseded the universal boost, zeroed the last stubbed catalog rows, and replaced the deck-gun fallback for the two unbuilt guns.
-- 8.16 (landed) built on the damage gate and consumables; 8.17 needs consumables; 8.18 stands alone on the wake sampler.
-- 8.19 needs every prior story; 8.20 and 8.21 close the epic and need the settled guns, Shifts and class names.
-- Epic 8 needs NOTHING from Epic 9 (null writer, everything unlocked); Epic 9 plugs a store into the same ports and its reconciliation story pays the accumulated doc corrections.
+- 8.18 needs consumables (8.7) and the five sight-tier sensors (sight already flows through 8.17's shared `effectiveSight`); 8.19 stands alone on the wake sampler.
+- 8.20 needs every prior story; 8.21 and 8.22 close the epic.
+- Epic 8 needs nothing from Epic 9.
 
 ## Ratified Amendments (durable — survives recompiles)
 
