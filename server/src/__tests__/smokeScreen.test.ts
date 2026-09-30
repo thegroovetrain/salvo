@@ -374,7 +374,8 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);
     place(w, 'c', 60, 0);
-    // a stands 80 u inside the rim of a fresh r82.5 puff centred BEHIND it, so
+    // a stands 80 u from the centre of a fresh r82.5 puff centred BEHIND it
+    // (2.5 u inside its rim — the puff grows, so the margin only widens), so
     // its forward water is clear: b (180 u off the centre) and c (140 u) are
     // out in the clear. (A puff centred ON a would now cover a's whole 82.5 u
     // in-smoke bubble.)

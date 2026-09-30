@@ -2,7 +2,7 @@
 title: 'Smoke puffs sized to intel range; out-of-combat regen delay 15 s'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '0bccb8a'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -57,12 +57,12 @@ warnings: ['multiple-goals']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` -- set `smokeScreen.r0`/`r1` to 1/8 and 2/8 of the radar constant with comments citing Eric 2026-09-30; set `regen.outOfCombatMs` 15000 -- the two rulings
-- [ ] `shared/src/index.ts` -- PV 62 → 63 with a history line -- the client reads the smoke numbers
-- [ ] `shared/src/__tests__/*` -- re-pin r0/r1, the curve values, PV, regen 15000; fix stale titles -- pins tell the truth
-- [ ] `server/src/__tests__/*` -- re-pin CONFIG, boundary test at 82.5/83, oracle curve literals, PV describes; re-lay smoke/fuzz/perf geometry that assumed ≤ 60 u puffs; refresh stale comments; run the fuzz and perf pin -- oracle independence, invariants green
-- [ ] `client/src/**` -- card-row test via `num()`, PV pin, How-to-Play copy + test, re-laid smoke render test geometry, comments -- client mirrors and copy truthful
-- [ ] Docs wave (files in Code Map) -- version, changelog, both trackers, amendments 174–175 in both homes, GDD/catalog stamps, deferred-work note -- the landing record
+- [x] `shared/src/constants.ts` -- set `smokeScreen.r0`/`r1` to 1/8 and 2/8 of the radar constant with comments citing Eric 2026-09-30; set `regen.outOfCombatMs` 15000 -- the two rulings
+- [x] `shared/src/index.ts` -- PV 62 → 63 with a history line -- the client reads the smoke numbers
+- [x] `shared/src/__tests__/*` -- re-pin r0/r1, the curve values, PV, regen 15000; fix stale titles -- pins tell the truth
+- [x] `server/src/__tests__/*` -- re-pin CONFIG, boundary test at 82.5/83, oracle curve literals, PV describes; re-lay smoke/fuzz/perf geometry that assumed ≤ 60 u puffs; refresh stale comments; run the fuzz and perf pin -- oracle independence, invariants green
+- [x] `client/src/**` -- card-row test via `num()`, PV pin, How-to-Play copy + test, re-laid smoke render test geometry, comments -- client mirrors and copy truthful
+- [x] Docs wave (files in Code Map) -- version, changelog, both trackers, amendments 174–175 in both homes, GDD/catalog stamps, deferred-work note -- the landing record
 
 **Acceptance Criteria:**
 - Given the shared CONFIG, when `CONFIG.smokeScreen.r0`/`r1` are read, then they equal `CONFIG.vision.radar × 1/8` and `× 2/8` exactly (82.5 / 165), and `inSmokeSightFraction`, `expandMs`, `lifeMs`, `layMs`, `puffIntervalMs` are unchanged
@@ -78,6 +78,20 @@ warnings: ['multiple-goals']
 
 ## Review Triage Log
 
+### 2026-09-30 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol`)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 0, low 3)
+- defer: 3: (high 0, medium 0, low 3)
+- reject: 4: (high 0, medium 0, low 4)
+- addressed_findings:
+  - `[low]` `[patch]` `server/src/__tests__/frames.test.ts` comment said the puff sat "40 u off a, well inside sight"; it is 56.6 u off and `a` stands inside the 82.5 u disc — comment corrected (Blind Hunter 7).
+  - `[low]` `[patch]` `server/src/__tests__/smokeScreen.test.ts` comment said "80 u inside the rim"; it is 80 u from the centre, 2.5 u inside the fresh rim — corrected (Blind Hunter 4).
+  - `[low]` `[patch]` `server/src/__tests__/smokePerf.test.ts` header overclaimed "every predicate scans the whole store"; two ring hulls now stand in a ring puff and take the cheap branch — comment made truthful, budget and geometry unchanged (Blind Hunter 5 = Edge Case Hunter PLAUSIBLE 1).
+- put to Eric before the PR (both hunters CONFIRMED, not code defects — his rulings 2026-09-30, amendment 177): the layer stands in its own fresh puff for the whole lay and is short-sighted (KEEP AS RULED); the smoke delivery reach grew to sight + 165 u (ACCEPTED disclosure).
+- deferred: the half-pixel rim stroke at birth (Blind 3); the r40→60 number still in EXPERIENCE.md / epics / architecture for Story 9.11 (Blind 9); the pool-era batch-sim baseline predates this cycle (Blind 12).
+- rejected: the 7.5 u EVEN-world straddle margin (Blind 6 — holds, deterministic); the uncommitted docs wave at review time (Blind 8 — process, committed in this pass); the decimal on the card face (Blind 13 — Eric's literal number; noted for his eye); Codex reported no defects.
+
 ## Design Notes
 
 Why constants, not a post-fold stat: radar range is `CONFIG.vision.radar` for every hull (`stats.ts:606`); no catalog line targets it since the RANGE card was deleted. A puff belongs to the water, not an observer, and its radius rides no wire (the client derives it from `t0`), so the only way to express "fraction of intel range" is as a fraction of that constant. If a card ever raises radar range again, a per-owner radius would need a wire field — a design question, not this cycle's.
@@ -91,3 +105,12 @@ Coincidence to note in comments: r0 (82.5) now equals the in-smoke sight (radar 
 - `npm test -w server` -- expected: green, including `perception.test.ts` fuzz, `smokePerf.test.ts`, `smokeScreen.test.ts`, `regen.test.ts`
 - `npm test -w client` -- expected: green, including `cardStatRows`, `howToPlay`, `smokeScreen`, PV pin
 - `npm run check` -- expected: lint + tsc ×3 + all tests + hook test pass
+
+## Auto Run Result
+
+- **Status:** done (cycle 156, 0.18.21, PROTOCOL_VERSION 62 → 63).
+- **Implemented:** SMOKE SCREEN puffs 40 → 60 u become 82.5 → 165 u (1/8 → 2/8 of intel range, `CONFIG.smokeScreen.r0/r1` as fractions of `vision.radar`); `CONFIG.regen.outOfCombatMs` 30000 → 15000; How-to-Play regen sentence "fifteen seconds"; PV bump; pins, the fuzz oracle literal and test geometry re-laid (perf pin far puffs ≥ 400 u, ring puffs in one 30° slice; fuzz neighbour 180–300 u).
+- **Files:** `shared/src/constants.ts` (the two rulings), `shared/src/index.ts` (PV 63), `shared/src/sim/catalog.ts` (comment), shared tests (`smoke`, `barrel`, `hullRepair`, `radarRaster`); `server/src/game/{signals.ts,world.ts,equipment/consumables/smokeScreen.ts}` (comments only), server tests (`smokeScreen`, `perception`, `smokePerf`, `regen`, `denials`, `colyseus018`, `frames`); `client/src/how-to-play/copy.ts`, `client/src/{ui/boonCopy.ts,render/wake.ts,render/equipmentIcons.ts}` (comments), client tests (`howToPlay`, `cardStatRows`, `ordnanceMasksAreServerOnly`, `smokeScreen`); docs: `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, both trackers, `epic-8-context.md`, `epic-8-context-amendments.md` (174–177), `deferred-work.md` (+3, one note), GDD and catalog-v3 stamps.
+- **Review:** 3 low patches applied (test comments); 3 deferred; 4 rejected; 2 design consequences put to Eric and ruled (amendment 177). Codex: no defects, build-on-it.
+- **Verification:** `npm run check` exit 0 — lint 0 errors, tsc ×3, shared 1018 / server 2263 / client 3748 tests, hook test 266; perception fuzz non-vacuity SMOKE_OCCLUDED 152 / SMOKED_BLIP 23 / IN_SMOKE_SEES 108; perf pin 7.2 ms of 50 ms. Re-run after the patches (see final_revision).
+- **Residual risks:** the layer is short-sighted for the whole lay (ruled, for Eric's eye on staging); the card prints `RADIUS 82.5 → 165 U`, the first fractional unit on a card face; the batch-sim baseline predates these numbers.

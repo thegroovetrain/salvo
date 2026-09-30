@@ -35,8 +35,10 @@ const FAR_MAX_U = 520; // ... yet inside sight + radius of the ring, so the smok
  *  segment between two ring points stays within RING_U of the centre; a puff
  *  at ≥ 400 u with r ≤ 165 — the full-grown 2/8 of intel range — keeps its
  *  near edge ≥ 235 u out, a 15 u margin past the 220 u ring), so every
- *  predicate scans the whole store for most pairs, while 20 ring puffs keep
- *  the occlusion real. The ring puffs sit in ONE 30° slice, in the outer 40 u
+ *  predicate scans the whole store for most pairs — the two ring hulls that
+ *  stand inside a ring puff take the cheap in-smoke branch and skip the scan;
+ *  the other eighteen pay full price — while 20 ring puffs keep the
+ *  occlusion real. The ring puffs sit in ONE 30° slice, in the outer 40 u
  *  band just inside the ring: with r up to 165 u (2/8 of intel range) a puff
  *  anywhere near the centre would cross every in-sight chord (each lies
  *  ≥ 145 u from the centre) and smoke the whole room — the cheap case — so

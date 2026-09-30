@@ -2225,7 +2225,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   summary: RL AGENTS DRAW HULL REPAIR CARDS THEY CAN NEVER FIRE — `server/scripts/rl/env.ts` autoSpend picks uniformly over the front offer (which now holds `hullRepair`) and the RL action space has no belt press, so those levels are dead for RL runs; batchsim bots are unaffected (they use the tactic table and the 8.8 consumable row).
   evidence: Blind Hunter finding 4 (PLAUSIBLE-low, harness only); rl/env.ts autoSpend after the heal branch was removed.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
-  status: OPEN — Story 8.22 (How-to-Play re-cut)
+  status: OPEN — Story 8.22 (How-to-Play re-cut). Note 2026-09-30 (cycle 156, amendment 175): the delay moved 30 s → 15 s and the sentence was corrected to "fifteen seconds" in the same PR, so the copy is TRUE again; the hard-coding itself remains open.
   summary: THE HOW-TO-PLAY REGEN SENTENCE HARDCODES "THIRTY SECONDS" AND "EVERY SECOND" while `regen.` is on the batchsim --tune surface; a retune of `CONFIG.regen.outOfCombatMs` / `missingPctPerS` silently strands the copy (the HULL REPAIR card face reads CONFIG live, this sentence does not). Amendment 50 fixed only the lines that became false; 8.22 owns the re-cut and should derive or restate them.
   evidence: Blind Hunter finding 5; client/src/how-to-play/copy.ts UPGRADING paragraph; howToPlay.test.ts pin.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
@@ -2722,3 +2722,17 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   summary: A LEVEL EARNED WITHIN ONE DELIBERATION OF DEATH READS AS WASTED. The bot dies before its next spend decision, so the levels-wasted readout counts it although no policy could have used it.
   evidence: review gate 2026-09-30 (Blind Hunter F3/F7); epic-8 amendment 173(e).
 
+
+## 2026-09-30 — cycle 156 (smoke size + regen delay), review-gate deferrals
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-smoke-size-and-regen-delay.md`
+  summary: THE PUFF'S RIM STROKE IS HALF A PIXEL AT BIRTH — `client/src/render/smokeScreen.ts` draws the rim as a 1 px stroke at `PUFF_DRAW_RADIUS = r1` and scales the container by `r/r1`, so the birth scale is now 0.5 (was 0.667) and the "crisp occlusion edge" the cycle-153 gate wanted (amendment 150(b)) is an anti-aliased half-pixel line for the first seconds; Pixi 8 `stroke({ pixelLine: true })` would hold it at 1 px. Client draft for Eric's eye on staging.
+  evidence: Blind Hunter finding 3 (PLAUSIBLE); pre-existing scale-the-container design made worse by the 82.5/165 radii.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-smoke-size-and-regen-delay.md`
+  summary: EXPERIENCE.md:236 (and epics.md FR55/AR43/UX-DR56, game-architecture.md:962, review-accessibility.md, review-hud-legibility.md) still state the SMOKE SCREEN puff as r40 → 60 u; by the standing rule those are Story 9.11's reconciliation (amendment 89(k)), but a player-facing design number is now wrong in the design source of truth — 9.11's list must carry amendment 174.
+  evidence: Blind Hunter finding 9; spec Never clause ("edit epics.md / game-architecture.md / UX docs — Story 9.11 reconciles").
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-smoke-size-and-regen-delay.md`
+  summary: THE POOL-ERA BATCH-SIM BASELINE PREDATES THIS CYCLE — `batch-sim-evidence-2026-09-30.md` (99 matches, Story 8.20) was taken at r40/60 puffs and a 30 s regen wait; `regen.` is on the `--tune` surface so a re-run is one flag away. Not launched (standing rule: never unprompted); the next approved balance run supersedes it.
+  evidence: Blind Hunter finding 12 (PLAUSIBLE); amendment 171 set that run as the first pool-era baseline.
