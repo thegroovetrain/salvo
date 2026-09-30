@@ -84,8 +84,8 @@
 //
 // ONE WEAPON PER TICK, THROUGH THE EQUIPMENT AXIS (Eric ruling 2026-08-20):
 // chooseShot iterates the bot's ACTUAL FITTED SLOTS through `tacticFor` — the
-// EQUIPMENT_TACTICS / CONSUMABLE_TACTICS pair in ai/equipment.ts — never a
-// hull-keyed weapon ladder — so an equipment
+// EQUIPMENT_TACTICS / CONSUMABLE_TACTICS pair in ai/tacticRegistry.ts — never
+// a hull-keyed weapon ladder — so an equipment
 // ACQUIRED into the WEAPON ROW (Story 8.5) works exactly like a seeded fit —
 // there is no native per-hull fit left for it to differ from. Ordering
 // comes from the ship profile's APPETITE table (gun lowest: the fallback);
@@ -111,7 +111,8 @@ import {
 import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
-import { slotAppetite, tacticFor, type Shot, type TacticContext } from './equipment.js';
+import { slotAppetite, tacticFor } from './tacticRegistry.js';
+import type { Shot, TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
 import {
   choosePosture,
@@ -213,10 +214,10 @@ export function spendStateOf(self: BotSelf): BotSpendState {
 }
 
 // ---------------------------------------------------------------------------
-// WEAPONS — the EQUIPMENT AXIS. Every weapon's want/solve/reach lives with
-// the weapon in ai/equipment.ts (EQUIPMENT_TACTICS, and CONSUMABLE_TACTICS for
-// the belt); this file only walks the bot's ACTUAL FITTED SLOTS through those
-// registries, in appetite order.
+// WEAPONS — the EQUIPMENT AXIS. Every row's want/solve/reach lives with its
+// item (ai/equipment.ts weapons, ai/shift.ts Shifts, ai/consumables.ts belt),
+// assembled by ai/tacticRegistry.ts; this file only walks the bot's ACTUAL
+// FITTED SLOTS through those registries, in appetite order.
 // ---------------------------------------------------------------------------
 
 /** One fitted slot, ranked by the profile's appetite for what it holds. */
@@ -267,7 +268,7 @@ function firePass(
 ): Shot | null {
   for (const r of ranked) {
     const tactic = tacticFor(r.id);
-    if (tactic === undefined || tactic.kind !== kind) continue;
+    if (tactic.kind !== kind) continue;
     if (!slotReady(base.self, r.slot)) continue;
     const ctx: TacticContext = { ...base, slot: r.slot };
     if (!tactic.want(ctx)) continue;
@@ -301,10 +302,11 @@ function chooseShot(
 }
 
 /**
- * The ability press, if any: the 'ability' rows of EITHER registry — the speed
- * boost (spent opening range on the way out) and, since Story 8.8, a stocked
- * HULL REPAIR stack (pressed under the profile's healHpFrac). Abilities ride
- * the actSeq channel, so this composes with a shot in the same tick.
+ * The ability press, if any: the 'ability' rows of EITHER registry — the class
+ * Shift (the speed boost on the way out or into a fight, INSTANT RELOAD, DAMAGE
+ * CUT) and the belt's abilities (HULL REPAIR, SHIELD BLOCK, CHAFF, SMOKE
+ * SCREEN). Abilities ride the actSeq channel, so this composes with a shot in
+ * the same tick.
  */
 function chooseAct(
   self: BotSelf,
@@ -316,7 +318,7 @@ function chooseAct(
 ): number | null {
   for (const r of rankedSlots(self, sit.profile)) {
     const tactic = tacticFor(r.id);
-    if (tactic === undefined || tactic.kind !== 'ability') continue;
+    if (tactic.kind !== 'ability') continue;
     if (!slotReady(self, r.slot)) continue;
     if (tactic.want({ self, mind, sit, port, target, posture, slot: r.slot })) return r.slot;
   }
@@ -344,7 +346,7 @@ export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[]
     const id = self.loadout[i].equipmentId;
     if (id === null || !slotReady(self, i)) continue;
     const tactic = tacticFor(id);
-    if (tactic?.kind === 'shot') out.push(tactic.reachU(stats));
+    if (tactic.kind === 'shot') out.push(tactic.reachU(stats));
   }
   return out;
 }
@@ -867,7 +869,21 @@ function triggerOf(
  */
 function deliberateNow(mind: BotMind, sit: BotSituation): void {
   mind.targetKey = selectTargetKey(mind, sit);
-  mind.posture = choosePosture(sit, resolveTarget(mind), mind.posture);
+  setPosture(mind, choosePosture(sit, resolveTarget(mind), mind.posture), sit.now);
+}
+
+/**
+ * THE ONE POSTURE WRITE, shared by both deliberations. On the EDGE into
+ * `disengage` it stamps `mind.disengageSince` — the start of this retreat, which
+ * the SMOKE SCREEN row reads to press once per retreat (Eric ruling R8). A mind
+ * already in `disengage` with no stamp (a hand-set posture, or any path that
+ * skipped the edge) is stamped on its first write too, so the retreat it is in
+ * counts as begun no later than now.
+ */
+function setPosture(mind: BotMind, next: BotPosture, now: number): void {
+  const entering = mind.posture !== 'disengage' || mind.disengageSince === undefined;
+  if (next === 'disengage' && entering) mind.disengageSince = now;
+  mind.posture = next;
 }
 
 /** The cached target key resolved against the LIVE track store — a pruned or
@@ -924,7 +940,7 @@ export const COMBAT_BRAIN: BotBrain = {
     ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
     mind.targetKey = null; // unconditional: a held bot NEVER carries a target
-    if (deliberate) mind.posture = choosePosture(sit, null, mind.posture);
+    if (deliberate) setPosture(mind, choosePosture(sit, null, mind.posture), sit.now);
     const helm = helmFor(self, mind, port, sit, null, mind.posture);
     return {
       throttle: helm.throttle,

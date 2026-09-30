@@ -22,6 +22,7 @@ import { CONFIG, zoneClosedAtMs } from '@salvo/shared';
 import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import type { BatchResult, MatchSample } from './runner.js';
 import { lifeSamples, type BotSample } from './botMetrics.js';
+import { buildPoolReadouts, renderPoolReadouts, type PoolReadouts } from './poolReadouts.js';
 
 /** The spec's Verification bars, as data (one place to read them off). */
 const BARS = {
@@ -126,6 +127,8 @@ export interface BotAggregate {
   byProfile: BotGroup[];
   byClass: BotClassGroup[];
   bars: BotBar[];
+  /** POOL READOUTS (Story 8.20, R10): measurements, never judged. */
+  pool: PoolReadouts;
 }
 
 const ratio = (num: number, den: number): number => (den === 0 ? 0 : num / den);
@@ -249,6 +252,7 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     byProfile: groupBy(rows, (r) => r.profile),
     byClass: groupByClass(rows),
     bars: [],
+    pool: buildPoolReadouts(matches),
   };
   agg.bars = buildBars(agg);
   return agg;
@@ -333,6 +337,7 @@ export function renderBotReport(label: string, a: BotAggregate): string[] {
   lines.push(...groupTable(a.byProfile));
   lines.push('', 'BY CLASS:');
   lines.push(...groupTable(a.byClass));
+  lines.push('', ...renderPoolReadouts(a.pool));
   return lines;
 }
 

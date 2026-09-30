@@ -31,7 +31,6 @@
 //
 // Usage (see batchsim/args.ts USAGE for the full flag set):
 //   HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --matches 500 --seed 7
-//   HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --deck-only --draws 20000
 //   HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --sweep xp.levelMs=45000,60000
 //   HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --captains 0 --bots 20 --matches 50 --seed 7
 //   HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs --captains 2 --bots 18 --matches 20  (mixed lobby)
