@@ -453,6 +453,11 @@ const BOON_EXPLAIN: Readonly<Partial<Record<LineId, string>>> = {
     CONFIG.chaff.durationMs / 1000
   } s. You never see them; enemies cannot tell them from ships.`,
   decoyBuoy: `Drops a ${CONFIG.decoyBuoy.hp} hp float in your rear arc that enemy torpedoes home on and detonate against. Your own weapons ignore it.`,
+  // SMOKE SCREEN (Story 8.18) — an IMPLEMENTER DRAFT for Eric's eye on staging,
+  // in the 8.16 register, every number read off CONFIG.smokeScreen.
+  smokeScreen: `Lays a trail of smoke astern for ${CONFIG.smokeScreen.layMs / 1000} s; each puff hides everything behind it from eyes for ${
+    CONFIG.smokeScreen.lifeMs / 1000
+  } s — radar sees through.`,
   // FLASH SHELLS (internal id `dazzleShells` — Story 8.17, amendment 135(j)):
   // an IMPLEMENTER DRAFT for Eric's eye on staging, in the 8.16 register, every
   // number read off CONFIG.flashShells.
@@ -997,8 +1002,8 @@ function triggerFollows(field: string, fields: readonly string[]): boolean {
  *
  * HULL REPAIR was the first live consumable (amendment 41 flipped its stub in
  * Story 8.8); the SUPERCAV TORPEDO (8.13) and SHIELD BLOCK, CHAFF and DECOY
- * BUOY (8.16) follow below. The two remaining stubs are never dealt and get no
- * rows.
+ * BUOY (8.16), FLASH SHELLS (8.17) and SMOKE SCREEN (8.18) follow below. The
+ * one remaining stub is never dealt and gets no rows.
  */
 function hullRepairRows(): CardStatRow[] {
   const h = CONFIG.hullRepair;
@@ -1081,9 +1086,24 @@ function flashShellRows(): CardStatRow[] {
   ];
 }
 
-/** The rows each LIVE consumable line prints. A line with no entry (the two
- *  remaining stubs, SMOKE SCREEN and DEPTH CHARGE) prints none, which is the
- *  honest answer for a mechanism that does not exist yet. */
+/**
+ * SMOKE SCREEN'S ROWS (Story 8.18, catalog-v3 R38 — DRAFT labels for Eric's
+ * eye): how long the trail is laid, how long each puff lives, and how it grows
+ * — `TRAIL 5 S` / `PUFF 30 S` / `RADIUS 40 → 60 U`, every number off
+ * `CONFIG.smokeScreen`, in the 8.16 belt register's uppercase units.
+ */
+function smokeScreenRows(): CardStatRow[] {
+  const k = CONFIG.smokeScreen;
+  return [
+    { label: 'TRAIL', cur: null, next: `${num(k.layMs / 1000)} S` },
+    { label: 'PUFF', cur: null, next: `${num(k.lifeMs / 1000)} S` },
+    { label: 'RADIUS', cur: null, next: `${num(k.r0)} → ${num(k.r1)} U` },
+  ];
+}
+
+/** The rows each LIVE consumable line prints. A line with no entry (the one
+ *  remaining stub, DEPTH CHARGE) prints none, which is the honest answer for a
+ *  mechanism that does not exist yet. */
 const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = {
   hullRepair: hullRepairRows,
   supercavTorpedo: supercavTorpedoRows,
@@ -1091,6 +1111,7 @@ const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = 
   chaff: chaffRows,
   decoyBuoy: decoyBuoyRows,
   dazzleShells: flashShellRows, // FLASH SHELLS (Story 8.17)
+  smokeScreen: smokeScreenRows, // Story 8.18
 };
 
 /**
@@ -1100,7 +1121,7 @@ const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = 
  *
  *   - an ADD-ON bolts on a verb (its holding line stays in the hover panel);
  *   - a STUB line has no built module whose numbers could be read;
- *   - a CONSUMABLE that is still a stub (SMOKE SCREEN, DEPTH CHARGE) has no
+ *   - a CONSUMABLE that is still a stub (DEPTH CHARGE) has no
  *     mechanism to describe — the LIVE ones print `CONSUMABLE_ROWS` above instead.
  *
  * FAIL-OPEN on the class table, exactly as `statSentence` is and for the same

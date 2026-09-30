@@ -262,6 +262,21 @@ const dazzleShells: GlyphPaths = [
 ];
 
 /**
+ * Smoke screen (Story 8.18 DRAFT for Eric's eye, the amendment 124(f)
+ * precedent): THREE OVERLAPPING PUFFS over a short waterline, growing as they
+ * trail away to the left — the newest, smallest puff low at the stern end, the
+ * oldest and biggest highest and furthest back, which is how a laid puff
+ * behaves (it grows r40 → r60 over its life and never drifts). Every circle's
+ * whole extent sits inside the ±1 box.
+ */
+const smokeScreen: GlyphPaths = [
+  circle(0.55, 0.28, 0.26),
+  circle(0.02, 0.0, 0.38),
+  circle(-0.46, -0.36, 0.48),
+  path([-0.3, 0.78], [0.95, 0.78]),
+];
+
+/**
  * THE CONSUMABLE half of the table. EMPTY until Story 8.13, because no belt
  * line had a weapon behind it: a stocked square and a consumable card's icon
  * box both rendered blank, which was the honest answer for an id with no
@@ -282,6 +297,7 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   chaff,
   decoyBuoy,
   dazzleShells, // FLASH SHELLS — Story 8.17 DRAFT (above)
+  smokeScreen, // Story 8.18 DRAFT (above)
 };
 
 /**

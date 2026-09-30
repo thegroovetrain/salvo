@@ -145,6 +145,7 @@ import {
   type HeightRaster,
   type HullCoverage,
   type Island,
+  type SmokeView,
   type WakeBlipEvent,
   WAKE_AGE_BUCKETS,
 } from '@salvo/shared';
@@ -185,6 +186,10 @@ import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './
 import { wakeLitFloor } from './radarSources.js';
 import { WakeStampCache, type WakeSources } from './wake.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
+
+/** The empty puff list — the wake synthesis's default when no smoke source is
+ *  wired (headless tests). */
+const NO_SMOKE = (): readonly SmokeView[] => [];
 
 /**
  * Hard cap on the pending echo/wake parks. Radar paints arrive from network
@@ -392,6 +397,10 @@ export class Radar {
    *  stamp's binary-LOS clause. Empty for a caller that has none — in which
    *  case nothing blocks, which is the pre-P5 behaviour. */
   private wakeIslands: readonly Island[] = [];
+  /** The live SMOKE SCREEN puff list (Story 8.18) — a thunk over
+   *  `state.net.smoke`, read at each stamp build, so the synthesis hides water
+   *  behind a puff exactly as the server's sight predicate does. */
+  private wakeSmoke: () => readonly SmokeView[] = NO_SMOKE;
   private readonly wakeCache = new WakeStampCache();
 
   constructor(blipLayer: Container, sweepLayer: Container) {
@@ -1120,11 +1129,18 @@ export class Radar {
    * `islands` is the binary-LOS geometry the synthesis owes (P5); omitted, the
    * stamp blocks on nothing, which is the correct degradation for a caller that
    * genuinely has no map (headless tests) and never a silent loosening in play,
-   * because main.ts always passes the set.
+   * because main.ts always passes the set. `smoke` (Story 8.18) is the same
+   * owed test's SMOKE half — a thunk over the live `state.net.smoke`, read at
+   * each stamp build; omitted, nothing is smoked, on the same headless terms.
    */
-  setWakeSources(sources: WakeSources | null, islands: readonly Island[] = []): void {
+  setWakeSources(
+    sources: WakeSources | null,
+    islands: readonly Island[] = [],
+    smoke: () => readonly SmokeView[] = NO_SMOKE,
+  ): void {
     this.wakeSources = sources;
     this.wakeIslands = islands;
+    this.wakeSmoke = smoke;
   }
 
   /**
@@ -1173,6 +1189,7 @@ export class Radar {
       cfg.model,
       this.wakeIslands,
       Math.floor(at / this.sweepPeriodMs),
+      this.wakeSmoke(),
     );
   }
 

@@ -60,8 +60,11 @@ import {
   islandBlocksSegment,
   paintSegmentCoverage,
   pruneWake,
+  puffRadius,
+  segCircleHit,
   type HullId,
   type Island,
+  type SmokeView,
   type Vec2,
   type WakeRibbon,
 } from '@salvo/shared';
@@ -455,6 +458,7 @@ export class WakeStampCache {
   private sight = NaN;
   private seed = NaN;
   private builtMs = -Infinity;
+  private smokeKey = '';
 
   /** Live cell count of the cached stamp — the measurement seam. */
   get size(): number {
@@ -470,19 +474,22 @@ export class WakeStampCache {
     model: ReturnModelOpts,
     islands: readonly Island[] = [],
     seedT = 0,
+    smoke: readonly SmokeView[] = [],
   ): CellStamp {
-    if (!this.stale(sources.version, own, sightU, nowMs, seedT)) return this.stamp;
+    const smokeKey = smokeSetKey(smoke);
+    if (!this.stale(sources.version, own, sightU, nowMs, seedT, smokeKey)) return this.stamp;
     this.key = sources.version;
+    this.smokeKey = smokeKey;
     this.ox = own.x;
     this.oy = own.y;
     this.sight = sightU;
     this.seed = seedT;
     this.builtMs = nowMs;
-    this.stamp = buildTruesightWakeStamp(sources, own, sightU, nowMs, cellU, model, islands, seedT);
+    this.stamp = buildTruesightWakeStamp(sources, own, sightU, nowMs, cellU, model, islands, seedT, smoke);
     return this.stamp;
   }
 
-  private stale(version: number, own: Vec2, sightU: number, nowMs: number, seedT: number): boolean {
+  private stale(version: number, own: Vec2, sightU: number, nowMs: number, seedT: number, smokeKey: string): boolean {
     // AHEAD OF THE FLOOR, and only this one (see the class doc): the sight
     // radius is a step function of dazzle and boons, so it cannot churn — but
     // when it does move it moves far, and holding a stamp built against the old
@@ -493,6 +500,7 @@ export class WakeStampCache {
     // under it, no input can have moved by more than the lattice can express.
     if (age >= 0 && age < WAKE_STAMP_MIN_MS) return false;
     if (version !== this.key) return true;
+    if (smokeKey !== this.smokeKey) return true; // a puff laid or gone (Story 8.18)
     if (!(seedT === this.seed)) return true;
     if (!(age < WAKE_STAMP_REBUILD_MS)) return true;
     const dx = own.x - this.ox;
@@ -530,14 +538,49 @@ function innerBoundU(src: WakeSource, sightU: number): number {
  * test: `marchRay`'s accumulator alone would let a low island pass water that
  * truesight itself would not.
  */
-function segmentRevealable(own: Vec2, mx: number, my: number, islands: readonly Island[]): boolean {
-  if (islands.length === 0) return true;
+function segmentRevealable(
+  own: Vec2,
+  mx: number,
+  my: number,
+  islands: readonly Island[],
+  smoke: readonly SmokeView[],
+  nowMs: number,
+): boolean {
   LOS_SCRATCH.x = mx;
   LOS_SCRATCH.y = my;
   for (const isle of islands) {
     if (islandBlocksSegment(own, LOS_SCRATCH, isle)) return false;
   }
-  return true;
+  return !smokeCrossed(own, LOS_SCRATCH, smoke, nowMs);
+}
+
+/**
+ * THE SMOKE HALF of the binary-LOS gate (Story 8.18, Eric ruling 143 — torpedo
+ * water inside the sight bubble is hidden by smoke). The server's sight
+ * predicate (`sightClear`) is island LOS AND no live puff crossed, and the
+ * synthesis stands in for that disclosure, so it owes the same term: the
+ * observer→segment line may cross no puff at the shared `puffRadius` (never a
+ * client re-derivation). `segCircleHit` returns 0 when the observer stands
+ * inside a puff, so a smoked observer synthesizes nothing — by construction,
+ * exactly as the server blinds them.
+ */
+function smokeCrossed(own: Vec2, at: Vec2, smoke: readonly SmokeView[], nowMs: number): boolean {
+  for (const p of smoke) {
+    if (segCircleHit(own, at, p, puffRadius(p.t0, nowMs)) !== null) return true;
+  }
+  return false;
+}
+
+/**
+ * The stamp cache's smoke key: changes whenever a puff is laid or removed. Ids
+ * are `sk${n}` and each puff is immutable (stationary; its radius is a pure
+ * function of its birth stamp), so count + first + last id identifies the set
+ * without allocating per puff. Growth between rebuilds (≤ 0.7 u/s) is left to
+ * the rebuild clock, like the age buckets.
+ */
+function smokeSetKey(smoke: readonly SmokeView[]): string {
+  const n = smoke.length;
+  return n === 0 ? '' : `${n}:${smoke[0].id}:${smoke[n - 1].id}`;
 }
 
 /** Reused endpoint for `segmentRevealable` (the SEG_SCRATCH pattern): filled
@@ -618,6 +661,7 @@ export function buildTruesightWakeStamp(
   model: ReturnModelOpts,
   islands: readonly Island[] = [],
   seedT = 0,
+  smoke: readonly SmokeView[] = [],
 ): CellStamp {
   const segs: WakeSegmentCover[] = [];
   // ONE island cull for the whole rebuild (see nearIslands): a per-segment walk
@@ -631,7 +675,7 @@ export function buildTruesightWakeStamp(
       const dx = s.mx - own.x;
       const dy = s.my - own.y;
       if (dx * dx + dy * dy > reach) return;
-      if (!segmentRevealable(own, s.mx, s.my, near)) return;
+      if (!segmentRevealable(own, s.mx, s.my, near, smoke, nowMs)) return;
       segs.push({
         cov: paintSegmentCoverage(s.ax, s.ay, s.bx, s.by, src.ribbon.widthU, cellU, seedT),
         a: s.bucket,

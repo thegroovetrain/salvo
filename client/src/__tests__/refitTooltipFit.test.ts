@@ -251,8 +251,9 @@ describe('the laws that constrain the fix', () => {
     // Story 8.15: `machineGun`/`flak` left (their ladders carry the two DRAFT
     // hover descriptions, ledgered for Eric); missile/monitor/heat seeking CUT.
     // `hullRepair` left this list in Story 8.8 — its mechanism is built now —
-    // and `shieldBlock`, `chaff`, `decoyBuoy` in Story 8.16 (DRAFT hovers).
-    'smokeScreen', 'depthCharge',
+    // and `shieldBlock`, `chaff`, `decoyBuoy` in Story 8.16 (DRAFT hovers);
+    // `smokeScreen` in Story 8.18 (its DRAFT hover).
+    'depthCharge',
   ];
 
   it('keeps the WRITTEN explanations genuinely explanatory — past the old card budget', () => {

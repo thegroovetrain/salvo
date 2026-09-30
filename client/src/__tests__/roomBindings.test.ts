@@ -91,6 +91,7 @@ function setup() {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn,
     onDrop,
@@ -176,12 +177,13 @@ function setupChannels(over: Partial<RoomBindingDeps> = {}) {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     decoys: { sync: decoysSync },
+    smokeScreen: { sync: vi.fn() },
     colors: vi.fn(() => null),
     ordnanceHue: vi.fn(() => 0),
     ...over,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, decoysSync };
+  return { sink, decoysSync, deps };
 }
 
 describe('bindRoom decoy channel (Story 8.16)', () => {
@@ -208,6 +210,28 @@ describe('bindRoom decoy channel (Story 8.16)', () => {
     const buoys = [{ id: 'b1', x: 0, y: 0, until: 5000, own: true, by: 'p1', sweep: 0 }];
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], buoys });
     expect(decoysSync).toHaveBeenCalledWith([], expect.any(Function));
+  });
+});
+
+describe('bindRoom SMOKE SCREEN channel (Story 8.18)', () => {
+  // FrameMsg.smoke (SmokeView {id,x,y,t0}) is contact-like state, reconciled
+  // every frame like burnZones/decoys, and mirrored into state.net.smoke for the
+  // wake mirror (render/wake.ts). No hue: a puff says nothing about whose it is.
+  it('hands a present smoke list to the renderer and mirrors it into state', () => {
+    const smokeSync = vi.fn();
+    const { sink, deps } = setupChannels({ smokeScreen: { sync: smokeSync } as never });
+    const smoke = [{ id: 'sk1', x: 10, y: 20, t0: 90 }];
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], smoke });
+    expect(smokeSync).toHaveBeenCalledWith(smoke);
+    expect(deps.state.net.smoke).toEqual(smoke);
+  });
+
+  it('treats an omitted smoke key as an empty list (frames omit it when none)', () => {
+    const smokeSync = vi.fn();
+    const { sink, deps } = setupChannels({ smokeScreen: { sync: smokeSync } as never });
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(smokeSync).toHaveBeenCalledWith([]);
+    expect(deps.state.net.smoke).toEqual([]);
   });
 });
 
@@ -240,6 +264,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
     projectiles: {
       onBurst: over.onBurst ?? onBurst,
       onBoom,
@@ -341,6 +366,7 @@ describe('bindRoom own sunk', () => {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -390,6 +416,7 @@ describe('bindRoom own sunk', () => {
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
+      smokeScreen: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -453,6 +480,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
+      smokeScreen: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -555,6 +583,7 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
+      smokeScreen: { sync: vi.fn() },
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetHonkCooldown,
@@ -650,6 +679,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
+      smokeScreen: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play },
       // Story 4.7: this harness spectates (`you` is null), so the witnessed
@@ -1124,6 +1154,7 @@ function setupToasts(spectating = false, held = false) {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
     radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
@@ -1432,6 +1463,7 @@ function setupWater(
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
     projectiles: {
       onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(),
       ownFireOf: () => null, isKnown: (id: string) => knownIds.has(id),
@@ -2156,6 +2188,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
+      smokeScreen: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
       radar: { onSweepSample: vi.fn(), onBlip },
@@ -2672,6 +2705,7 @@ function setupSignals(early: { results: unknown; bound: boolean } = { results: n
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn: vi.fn(),
     audio: { play: vi.fn(), playHorn: vi.fn() },

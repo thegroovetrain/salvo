@@ -62,6 +62,7 @@ import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
 import { Smoke } from './render/smoke.js';
+import { SmokeScreen } from './render/smokeScreen.js';
 import { Foghorn } from './render/foghorn.js';
 import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
@@ -263,6 +264,10 @@ interface Game {
    *  the anonymous `sm` pulses on the fog-immune chart, since a hurt hull is
    *  disclosed out to 412.5u and the plume must read past the sight bubble. */
   smoke: Smoke;
+  /** SMOKE SCREEN puffs (render/smokeScreen.ts, Story 8.18) — synced from
+   *  FrameMsg.smoke into the same fog-immune `smoke` layer as the wounded
+   *  plumes; grown along the shared `puffRadius` and faded per render frame. */
+  smokeScreen: SmokeScreen;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
   foghorn: Foghorn;
@@ -2868,6 +2873,7 @@ function buildGame(
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
+    smokeScreen: new SmokeScreen(stage.layers.smoke),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
@@ -2931,8 +2937,10 @@ function buildGame(
   // a STAND-IN for a disclosure the server withholds on BINARY-LOS grounds, so
   // it owes the same binary test the server would have applied. They are the
   // deterministic set rebuilt from the map seed — the same array the predictor
-  // and the fog already collide against, never a second geometry.
-  g.radar.setWakeSources(g.effects.wakeSources, g.islands);
+  // and the fog already collide against, never a second geometry. The SMOKE
+  // SCREEN puffs ride along for the same reason (Story 8.18, ruling 143): a
+  // thunk over the live `state.net.smoke`, since puffs come and go per frame.
+  g.radar.setWakeSources(g.effects.wakeSources, g.islands, () => g.state.net.smoke);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's
@@ -4307,6 +4315,7 @@ function renderAlive(
   // (Story 2.9's treatment, moved to render/burnZones.ts in Story 8.17).
   g.litZones.render(now);
   g.burnZones.render(now, now / 1000);
+  g.smokeScreen.render(now); // SMOKE SCREEN puffs grow + fade on the server clock
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4559,6 +4568,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   renderFoghorn(g, now, g.camera.screenCenter); // ...and every `fh`, on the omniscient position path
   g.litZones.render(now); // spectators see all zones
   g.burnZones.render(now, now / 1000); // ...and every burning zone
+  g.smokeScreen.render(now); // ...and every SMOKE SCREEN puff
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's

@@ -171,11 +171,11 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   // CHARGE (epic-8 amendments 74/83); FIVE since Story 8.15 cut missile,
   // monitor and heat seeking and built the machine gun and flak (amendments
   // 89e/103-105); TWO since Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY
-  // BUOY (SMOKE SCREEN and DEPTH CHARGE remain). It is the number to move as
-  // each content story lands.
+  // BUOY; ONE since Story 8.18 flipped SMOKE SCREEN (DEPTH CHARGE remains). It
+  // is the number to move as each content story lands.
   it('renders every STUB line fail-open: a name, a kind word, no explanation', () => {
     const stubs = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.stub === true);
-    expect(stubs).toHaveLength(2);
+    expect(stubs).toHaveLength(1);
     for (const line of stubs) {
       expect(boonName(line.id), line.id).toBe(boonName(line.id).toUpperCase());
       expect(boonKindLabel(line.kind), line.id).not.toBe('');
@@ -264,8 +264,9 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
     // `missile`, `monitor` and `heatSeeking` left it by being CUT.
     // `hullRepair` left this list in Story 8.8 — the first consumable with a
     // mechanism to explain — and `shieldBlock`, `chaff` and `decoyBuoy` left it
-    // in Story 8.16 (their DRAFT hover descriptions, amendment 124(f)).
-    'smokeScreen', 'depthCharge',
+    // in Story 8.16 (their DRAFT hover descriptions, amendment 124(f)), and
+    // `smokeScreen` in Story 8.18 (its DRAFT hover description).
+    'depthCharge',
   ];
 
   it('writes a real explanation for every line whose mechanism exists', () => {
@@ -317,6 +318,15 @@ describe('the hover explanation — every BUILT line, and the honest one', () =>
     const decoy = boonTooltipText('decoyBuoy');
     expect(decoy).toContain(`${CONFIG.decoyBuoy.hp} hp`);
     expect(decoy).toContain('Your own weapons ignore it'); // amendment 119
+  });
+
+  // STORY 8.18 — SMOKE SCREEN's DRAFT hover reads its numbers off CONFIG.
+  it('explains SMOKE SCREEN with its CONFIG numbers, and that radar sees through', () => {
+    const smoke = boonTooltipText('smokeScreen');
+    expect(smoke).toContain(`astern for ${CONFIG.smokeScreen.layMs / 1000} s`);
+    expect(smoke).toContain(`for ${CONFIG.smokeScreen.lifeMs / 1000} s`);
+    expect(smoke).toContain('radar sees through');
+    expect(smoke).not.toMatch(/replaces/i);
   });
 
   it('fails open on an unwritten id rather than throwing mid-hover', () => {

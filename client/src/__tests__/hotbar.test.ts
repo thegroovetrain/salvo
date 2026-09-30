@@ -1395,7 +1395,7 @@ describe('a stocked BELT square', () => {
   // STORY 8.16 — THREE BELT GLYPHS, IMPLEMENTER DRAFTS for Eric's eye (epic-8
   // amendment 124(f)), in the shipped unit-box line-glyph style. The radar
   // buoy's glyph is DELETED with the buoy; the DECOY BUOY takes the on-water
-  // spar-buoy marker's linework. SMOKE SCREEN stays a stub and stays blank.
+  // spar-buoy marker's linework. (SMOKE SCREEN drew blank here until 8.18.)
   it('draws the three 8.16 consumables, each distinct, and no radar buoy', () => {
     const ids = ['shieldBlock', 'chaff', 'decoyBuoy'] as const;
     for (const id of ids) {
@@ -1413,7 +1413,26 @@ describe('a stocked BELT square', () => {
     // The decoy shares NO round part with the mine (Eric: tell them apart).
     expect(glyphPaths('decoyBuoy')!.some((p) => p.kind === 'circle')).toBe(false);
     expect(glyphPaths('radarBuoy')).toBeNull();
-    expect(glyphPaths('smokeScreen')).toBeNull();
+  });
+
+  // STORY 8.18 — SMOKE SCREEN's DRAFT glyph: overlapping puffs over a waterline.
+  // Stricter than the 8.16 check: every circle's WHOLE extent stays in the box.
+  it('draws SMOKE SCREEN inside the unit box, distinct from every other belt glyph', () => {
+    const parts = glyphPaths('smokeScreen');
+    expect(parts).not.toBeNull();
+    for (const part of parts!) {
+      if (part.kind === 'circle') {
+        const [cx, cy] = part.c;
+        expect(Math.max(Math.abs(cx) + part.r, Math.abs(cy) + part.r)).toBeLessThanOrEqual(1);
+      } else {
+        for (const [x, y] of part.pts) expect(Math.max(Math.abs(x), Math.abs(y))).toBeLessThanOrEqual(1);
+      }
+    }
+    expect(parts!.filter((p) => p.kind === 'circle')).toHaveLength(3);
+    for (const other of ['shieldBlock', 'chaff', 'decoyBuoy', 'dazzleShells', 'navalMines', 'starShells']) {
+      expect(parts, other).not.toEqual(glyphPaths(other));
+    }
+    expect(equipmentGlyphSvg('smokeScreen', 24)?.tagName.toLowerCase()).toBe('svg');
   });
 });
 
