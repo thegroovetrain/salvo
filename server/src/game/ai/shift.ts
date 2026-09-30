@@ -10,7 +10,15 @@
 // ids in the total EQUIPMENT_TACTICS, which is what a fitted slot resolves
 // through.
 
-import { SLOT_GUN, WEAPON_SLOTS, isConsumableId, type EffectiveStats, type ShiftId, type ShipClassId } from '@salvo/shared';
+import {
+  SLOT_GUN,
+  WEAPON_SLOTS,
+  classShift,
+  isConsumableId,
+  type EffectiveStats,
+  type ShiftId,
+  type ShipClassId,
+} from '@salvo/shared';
 import type { BotSelf } from './types.js';
 import { engagementBand } from './profiles.js';
 import {
@@ -34,6 +42,7 @@ import {
 function chargingIn(ctx: TacticContext): boolean {
   const t = ctx.target;
   if (t === null) return false;
+  // R13 (Eric, 2026-09-30): real fights only — `farm` (PvE fleet hunting) never boosts in.
   if (ctx.posture !== 'pursue' && ctx.posture !== 'engage') return false;
   return distTo(ctx.sit, t) > engagementBand(ctx.sit.profile, ctx.sit.stats).max;
 }
@@ -124,9 +133,17 @@ export const SHIFT_ROWS: Readonly<Record<ShiftId, EquipmentTactic>> = deepFreeze
   damageCut: damageCutTactic,
 });
 
-/** Each hull's Shift tactic. TOTAL over ShipClassId, deep-frozen. */
+/** A hull's Shift row, read through the shared hull->Shift source of truth
+ *  (`classShift`, i.e. `CONFIG.shipClasses.<id>.shift`) — never a second,
+ *  hand-written hull->Shift map that could drift from it. */
+function shiftRowOf(hull: ShipClassId): EquipmentTactic {
+  return SHIFT_ROWS[classShift(hull)];
+}
+
+/** Each hull's Shift tactic. TOTAL over ShipClassId (the object literal names
+ *  every hull, so a new one fails to type-check), deep-frozen. */
 export const SHIFT_TACTICS: Readonly<Record<ShipClassId, EquipmentTactic>> = Object.freeze({
-  torpedoBoat: SHIFT_ROWS.boost,
-  mineLayer: SHIFT_ROWS.instantReload,
-  battleship: SHIFT_ROWS.damageCut,
+  torpedoBoat: shiftRowOf('torpedoBoat'),
+  mineLayer: shiftRowOf('mineLayer'),
+  battleship: shiftRowOf('battleship'),
 });

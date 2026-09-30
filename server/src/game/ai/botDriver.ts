@@ -298,7 +298,6 @@ export class BotController {
     mind.unbeachUntil = 0;
     mind.unbeach = null;
     mind.torps = null;
-    mind.disengageSince = undefined;
   }
 
   /** Observe + decide + emit for one live bot. */

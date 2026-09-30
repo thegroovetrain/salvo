@@ -346,16 +346,10 @@ export interface BotMind {
   chaffUntil?: number;
   /** ms — this bot's own SMOKE SCREEN lay-window end as of this tick (Story
    *  8.18), copied from BotTickEntry.smokeUntil by the driver before every
-   *  decide. The SMOKE SCREEN tactic never presses over a trail still
-   *  being laid. OPTIONAL: absent reads as "not laying". */
+   *  decide. The SMOKE SCREEN tactic never presses while one of its own
+   *  puffs can still be alive (`now < smokeUntil + lifeMs`, Eric ruling R12).
+   *  OPTIONAL: absent (or 0) reads as "nothing running". */
   smokeUntil?: number;
-  /** ms — server time of this bot's LAST ENTRY into the `disengage` posture
-   *  (Story 8.20, Eric ruling R8: SMOKE SCREEN is pressed once per retreat).
-   *  Stamped by ai/tactics.ts on the posture edge; the smoke tactic compares it
-   *  with the lay window so `want()` stays write-free. OPTIONAL: absent reads
-   *  as "never retreated this life"; released with the life
-   *  (BotController.releasePerLifeState). */
-  disengageSince?: number;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics

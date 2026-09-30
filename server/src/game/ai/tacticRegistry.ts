@@ -36,7 +36,12 @@ export function slotAppetite(profile: BotProfile, id: SlotItemId): number {
 
 /** THE ONE TACTIC LOOKUP FOR A FITTED SLOT — `slotRow`'s bot-side twin.
  *  Narrows through the shared guard (never a cast) and answers with whichever
- *  registry owns the id; both are total, so every fitted id has a row. */
-export function tacticFor(id: SlotItemId): SlotTactic {
-  return isConsumableId(id) ? CONSUMABLE_TACTICS[id] : EQUIPMENT_TACTICS[id];
+ *  registry owns the id. Both registries are total at COMPILE time, so every
+ *  well-typed id has a row; the `undefined` answer is the RUNTIME fail-closed
+ *  path for an id neither registry knows (a corrupt or future loadout entry):
+ *  every caller skips that slot rather than throwing. Own keys only, so a
+ *  prototype name ('constructor', 'toString') never resolves to a row. */
+export function tacticFor(id: SlotItemId): SlotTactic | undefined {
+  if (isConsumableId(id)) return Object.hasOwn(CONSUMABLE_TACTICS, id) ? CONSUMABLE_TACTICS[id] : undefined;
+  return Object.hasOwn(EQUIPMENT_TACTICS, id) ? EQUIPMENT_TACTICS[id] : undefined;
 }

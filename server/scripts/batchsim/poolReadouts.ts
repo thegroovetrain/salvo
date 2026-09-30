@@ -17,7 +17,7 @@
 // Determinism: pure over the collected samples, fixed iteration orders (GUN_IDS,
 // ascending level, insertion-ordered bot ids), fixed-decimal formatting.
 
-import { GUN_IDS, WEAPON_SLOTS, isAfloat } from '@salvo/shared';
+import { GUN_IDS, WEAPON_SLOTS } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
 import type { MatchSample } from './runner.js';
 import type { BotSample } from './botMetrics.js';
@@ -34,9 +34,14 @@ export interface PoolBotSample {
   /** The gun this bot mounted (`ship.gun`). */
   gun: string;
   /** `levelEmpty[n - 1]` = EMPTY Q/E/R slots at the tick the bot reached level
-   *  n (sampled when `ship.level` changes, before any pick at that level). */
+   *  n (sampled when `ship.level` changes, before any pick at that level). A
+   *  level RESET (`World.redeployEconomy` zeroes `ship.level` on a redeploy)
+   *  truncates the series and starts a fresh one: the old series belonged to a
+   *  life whose build the redeploy rebuilt, so only the latest series is kept. */
   levelEmpty: number[];
-  /** EMPTY Q/E/R slots at the last afloat reading (death or finish). */
+  /** EMPTY Q/E/R slots at the last reading (finish, or the frozen build of a
+   *  sinking/sunk hull). Only SAMPLED bots are emitted, so this is never the
+   *  unsampled seed. */
   finalEmpty: number;
 }
 
@@ -52,7 +57,10 @@ export interface PoolMatchSample {
 
 interface PoolTrack {
   levelEmpty: number[];
-  finalEmpty: number;
+  /** null until the first active-phase reading (unsampled). */
+  finalEmpty: number | null;
+  /** `ship.level` at the previous reading — a drop below it is a level reset. */
+  lastLevel: number;
 }
 
 /** Empty Q/E/R slots on a ship right now. */
@@ -64,11 +72,15 @@ export function emptyWeaponSlots(ship: Pick<ShipRecord, 'loadout'>): number {
   return empty;
 }
 
-/** Fold one afloat reading into a track: the last-afloat slot count, and one
- *  level-reach sample per level gained since the previous reading (a multi-level
- *  jump in one tick stamps every level it crossed with the same reading). */
-function notePoolTrack(track: PoolTrack, ship: ShipRecord): void {
+/** Fold one reading into a track: the latest slot count, and one level-reach
+ *  sample per level gained since the previous reading (a multi-level jump in
+ *  one tick stamps every level it crossed with the same reading). A level
+ *  BELOW the previous reading's is a reset (redeployEconomy): the series
+ *  restarts from empty, so the new life's levels are sampled from level 1. */
+function notePoolTrack(track: PoolTrack, ship: Pick<ShipRecord, 'loadout' | 'level'>): void {
   const empty = emptyWeaponSlots(ship);
+  if (ship.level < track.lastLevel) track.levelEmpty = [];
+  track.lastLevel = ship.level;
   track.finalEmpty = empty;
   while (track.levelEmpty.length < ship.level) track.levelEmpty.push(empty);
 }
@@ -80,24 +92,31 @@ export class PoolCollector {
   private peakMines = 0;
 
   constructor(botIds: readonly string[]) {
-    for (const id of botIds) this.tracks.set(id, { levelEmpty: [], finalEmpty: WEAPON_SLOTS.length });
+    for (const id of botIds) this.tracks.set(id, { levelEmpty: [], finalEmpty: null, lastLevel: 0 });
   }
 
   observe(world: World, activatedAt: number): void {
     if (activatedAt === 0) return;
     this.peakMines = Math.max(this.peakMines, world.mineCount);
+    // EVERY lifecycle, not just afloat: the harness observes after the whole
+    // tick, so a weapon fitted or a level reached on the tick a bot SINKS is
+    // only visible on the sinking hull. Its build is frozen from then on, so
+    // re-reading it every later tick is idempotent (the level samples only
+    // move when `ship.level` does).
     for (const [id, track] of this.tracks) {
       const ship = world.ships.get(id);
-      if (ship === undefined || !isAfloat(ship.lifecycle)) continue;
-      notePoolTrack(track, ship);
+      if (ship !== undefined) notePoolTrack(track, ship);
     }
   }
 
   result(world: World): PoolMatchSample {
     const bots: PoolBotSample[] = [];
+    // An UNSAMPLED track (never read in the active phase) is skipped outright,
+    // so every readout — the gun mix and the pure-gunboat share alike — counts
+    // over the same population of bots that were actually read.
     for (const [id, track] of this.tracks) {
       const ship = world.ships.get(id);
-      if (ship === undefined) continue;
+      if (ship === undefined || track.finalEmpty === null) continue;
       bots.push({ id, gun: ship.gun, levelEmpty: track.levelEmpty.slice(), finalEmpty: track.finalEmpty });
     }
     return { peakMines: this.peakMines, takes: this.botTakes(world), bots };

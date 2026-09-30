@@ -268,7 +268,7 @@ function firePass(
 ): Shot | null {
   for (const r of ranked) {
     const tactic = tacticFor(r.id);
-    if (tactic.kind !== kind) continue;
+    if (tactic === undefined || tactic.kind !== kind) continue; // unknown id: fail closed
     if (!slotReady(base.self, r.slot)) continue;
     const ctx: TacticContext = { ...base, slot: r.slot };
     if (!tactic.want(ctx)) continue;
@@ -318,7 +318,7 @@ function chooseAct(
 ): number | null {
   for (const r of rankedSlots(self, sit.profile)) {
     const tactic = tacticFor(r.id);
-    if (tactic.kind !== 'ability') continue;
+    if (tactic === undefined || tactic.kind !== 'ability') continue; // unknown id: fail closed
     if (!slotReady(self, r.slot)) continue;
     if (tactic.want({ self, mind, sit, port, target, posture, slot: r.slot })) return r.slot;
   }
@@ -346,7 +346,7 @@ export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[]
     const id = self.loadout[i].equipmentId;
     if (id === null || !slotReady(self, i)) continue;
     const tactic = tacticFor(id);
-    if (tactic.kind === 'shot') out.push(tactic.reachU(stats));
+    if (tactic !== undefined && tactic.kind === 'shot') out.push(tactic.reachU(stats)); // unknown id: skipped
   }
   return out;
 }
@@ -869,21 +869,7 @@ function triggerOf(
  */
 function deliberateNow(mind: BotMind, sit: BotSituation): void {
   mind.targetKey = selectTargetKey(mind, sit);
-  setPosture(mind, choosePosture(sit, resolveTarget(mind), mind.posture), sit.now);
-}
-
-/**
- * THE ONE POSTURE WRITE, shared by both deliberations. On the EDGE into
- * `disengage` it stamps `mind.disengageSince` — the start of this retreat, which
- * the SMOKE SCREEN row reads to press once per retreat (Eric ruling R8). A mind
- * already in `disengage` with no stamp (a hand-set posture, or any path that
- * skipped the edge) is stamped on its first write too, so the retreat it is in
- * counts as begun no later than now.
- */
-function setPosture(mind: BotMind, next: BotPosture, now: number): void {
-  const entering = mind.posture !== 'disengage' || mind.disengageSince === undefined;
-  if (next === 'disengage' && entering) mind.disengageSince = now;
-  mind.posture = next;
+  mind.posture = choosePosture(sit, resolveTarget(mind), mind.posture);
 }
 
 /** The cached target key resolved against the LIVE track store — a pruned or
@@ -940,7 +926,7 @@ export const COMBAT_BRAIN: BotBrain = {
     ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
     mind.targetKey = null; // unconditional: a held bot NEVER carries a target
-    if (deliberate) setPosture(mind, choosePosture(sit, null, mind.posture), sit.now);
+    if (deliberate) mind.posture = choosePosture(sit, null, mind.posture);
     const helm = helmFor(self, mind, port, sit, null, mind.posture);
     return {
       throttle: helm.throttle,

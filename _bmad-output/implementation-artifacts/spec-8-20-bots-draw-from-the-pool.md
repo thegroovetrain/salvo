@@ -134,7 +134,7 @@ warnings: [oversized, multiple-goals]
 
 - **Why 3.5 / 3.75 for weapons:** Eric's reading B — a new weapon is a card like any other, ahead of ordinary cards but behind a two-bonus upgrade (4) and a needed heal (≥ 4). Half-points keep the order strict without a second rule.
 - **Why style reads the whole upgradeable set, not the hand:** "my lowest-tier thing" is a fact about the build; reading only the hand would call a lone mid-tier card both lowest and highest.
-- **Why `disengageSince` instead of a pressed flag:** `want()` must stay write-free; `smokeUntil − layMs ≥ disengageSince` answers "pressed this retreat" from two stamps the mind already has or gets on the posture edge.
+- **Why the smoke rule reads only `smokeUntil` (R12 replaced R8's retreat bookkeeping at the review gate):** the last puff drops no later than the lay window's end and lives `lifeMs`, so `now ≥ smokeUntil + lifeMs` is "none of my smoke is running" from one stamp the mind already has; `want()` stays write-free and no posture-edge state exists to flicker. A 0 stamp means nothing was ever laid (a real World starts near `now` 0).
 - **Why a registry module:** the total `EQUIPMENT_TACTICS` needs the shift rows while shift and belt rows need the weapon helpers; two-way imports would read a `const` row before it exists.
 
 ## Verification

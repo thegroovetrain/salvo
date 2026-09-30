@@ -103,24 +103,17 @@ function chaffLive(mind: BotMind, now: number): boolean {
 }
 
 /**
- * Has this bot already pressed SMOKE SCREEN in its CURRENT retreat? The lay
- * window's start is `smokeUntil − layMs` (a press stamps `smokeUntil = now +
- * layMs`, and the world keeps that stamp after the window lapses — it is only
- * zeroed at a life boundary). The retreat began at `disengageSince`, stamped by
- * tactics.ts on the posture edge into `disengage`. A press at or after that
- * stamp belongs to this retreat; an older one (a previous retreat) does not,
- * and with either stamp absent nothing has been pressed this retreat.
+ * Could one of this bot's OWN smoke puffs still be alive? A press stamps
+ * `smokeUntil = now + layMs` (the world keeps that stamp after the window
+ * lapses and zeroes it only at a life boundary); the last puff drops no later
+ * than the lay window's end and lives `lifeMs`, so every own puff is gone once
+ * `now >= smokeUntil + lifeMs`. An undefined or 0 stamp means nothing is
+ * running. (`smokeUntil` arrives on the mind, copied by the driver.)
  */
-function smokedThisRetreat(mind: BotMind): boolean {
-  if (mind.smokeUntil === undefined || mind.disengageSince === undefined) return false;
-  return mind.smokeUntil - CONFIG.smokeScreen.layMs >= mind.disengageSince;
-}
-
-/** Is this bot's own SMOKE trail still being laid? (`smokeUntil` arrives on
- *  the mind, copied by the driver.) A re-press mid-lay would spend a copy for
- *  at most one lay window of extra trail (ruling 140). */
-function smokeLaying(mind: BotMind, now: number): boolean {
-  return mind.smokeUntil !== undefined && now < mind.smokeUntil;
+function ownSmokeRunning(mind: BotMind, now: number): boolean {
+  const until = mind.smokeUntil;
+  if (until === undefined || until === 0) return false;
+  return now < until + CONFIG.smokeScreen.lifeMs;
 }
 
 /** SHIELD BLOCK — pressed on the DAMAGE CUT cues, never over a shield already
@@ -144,13 +137,12 @@ const chaffTactic: ConsumableTactic = {
 };
 
 /**
- * SMOKE SCREEN — pressed ONCE PER RETREAT (Eric ruling R8, 2026-09-30): laid
- * on the way OUT (the disengage posture), and not again until the bot has left
- * `disengage` and re-entered it. A copy stocked mid-retreat, with none pressed
- * this retreat, is pressed once. NEVER WHILE A TRAIL IS STILL BEING LAID: a bot
- * that re-enters `disengage` inside its previous press's lay window waits for
- * the window to lapse rather than restarting it (orchestrator reading of
- * record, Story 8.20; Eric may veto).
+ * SMOKE SCREEN — laid on the way OUT (the disengage posture), NEVER while one
+ * of the bot's own smokes is still running (Eric ruling R12, 2026-09-30:
+ * "never while one of your own is running — bad play"; supersedes R8's
+ * once-per-retreat bookkeeping). No posture-edge state: a retreat that
+ * outlives its smoke may press again once the last puff is gone, and a posture
+ * flicker (storm-edge dodge, heal pop-up) cannot re-arm it early.
  */
 const smokeScreenTactic: ConsumableTactic = {
   id: 'smokeScreen',
@@ -159,8 +151,7 @@ const smokeScreenTactic: ConsumableTactic = {
   want: (ctx: TacticContext) =>
     isAfloat(ctx.self.lifecycle) &&
     ctx.posture === 'disengage' &&
-    !smokedThisRetreat(ctx.mind) &&
-    !smokeLaying(ctx.mind, ctx.sit.now),
+    !ownSmokeRunning(ctx.mind, ctx.sit.now),
   solve: () => null,
 };
 

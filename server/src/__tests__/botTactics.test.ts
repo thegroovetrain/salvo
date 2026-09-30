@@ -40,6 +40,7 @@ import {
   type HullId,
   type Island,
   type ShipClassId,
+  type SlotItemId,
 } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
@@ -2260,7 +2261,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 
 // ---------------------------------------------------------------------------
 // STORY 8.16 — SHIELD BLOCK, CHAFF, DECOY BUOY: the belt rows (epic-8
-// amendment 124(g)); SMOKE SCREEN once per retreat (Eric ruling R8).
+// amendment 124(g)); SMOKE SCREEN never while its own is running (Eric ruling R12).
 // ---------------------------------------------------------------------------
 
 describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
@@ -2301,15 +2302,19 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
     expect(CONSUMABLE_TACTICS.smokeScreen.kind).toBe('ability');
   });
 
-  // SMOKE SCREEN IS PRESSED ONCE PER RETREAT (Eric ruling R8, 2026-09-30):
-  // laid on the way out, and not again until the bot has LEFT `disengage` and
-  // re-entered it. The drill drives the real brain tick by tick and plays the
-  // World's half by hand — a press spends a copy and opens the lay window
-  // (`smokeUntil = now + layMs`, which the World keeps after it lapses; the
-  // driver copies it onto the mind every tick).
-  describe('SMOKE SCREEN — once per retreat (R8)', () => {
+  // SMOKE SCREEN IS NEVER PRESSED WHILE ONE OF THE BOT'S OWN IS RUNNING (Eric
+  // ruling R12, 2026-09-30 — supersedes R8's once-per-retreat bookkeeping):
+  // laid on the way out, and not again until the last puff of the previous
+  // press can no longer be alive (`now >= smokeUntil + lifeMs`). The drill
+  // drives the real brain tick by tick and plays the World's half by hand — a
+  // press spends a copy and opens the lay window (`smokeUntil = now + layMs`,
+  // which the World keeps after it lapses; the driver copies it onto the mind
+  // every tick).
+  describe('SMOKE SCREEN — never while its own is running (R12)', () => {
     const TICK = CONFIG.tick.simDtMs;
     const TWELVE_S = 12000 / TICK;
+    const LAY = CONFIG.smokeScreen.layMs;
+    const LIFE = CONFIG.smokeScreen.lifeMs;
 
     function drill(seed: number, copies: number): {
       w: World;
@@ -2317,6 +2322,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
       rec: ShipRecord;
       mind: BotMind;
       run: (ticks: number) => number;
+      runUntil: (t: number) => number;
     } {
       const { w, port, rec } = beltOnly(seed, 'smokeScreen');
       for (let i = 1; i < copies; i += 1) w.applyCard(rec, 'smokeScreen');
@@ -2331,13 +2337,15 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
             presses += 1;
             const state = rec.loadout[belt].state!;
             state.n -= 1;
-            mind.smokeUntil = port.now + CONFIG.smokeScreen.layMs;
+            mind.smokeUntil = port.now + LAY;
           }
           port.now += TICK;
         }
         return presses;
       };
-      return { w, port, rec, mind, run };
+      /** Tick up to (not including) server time `t`. */
+      const runUntil = (t: number): number => run(Math.max(0, Math.round((t - port.now) / TICK)));
+      return { w, port, rec, mind, run, runUntil };
     }
 
     const hurt = (rec: ShipRecord): void => {
@@ -2346,66 +2354,82 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
     const healed = (rec: ShipRecord): void => {
       rec.hp = rec.stats.maxHp;
     };
+    const stock = (rec: ShipRecord): number => rec.loadout[slotOf(rec, 'smokeScreen')].state!.n;
 
     it('Smoke once: entering disengage holding 3, 12 s in disengage -> exactly one press', () => {
       const { rec, mind, run } = drill(81618, 3);
-      expect(rec.loadout[slotOf(rec, 'smokeScreen')].state!.n).toBe(3);
+      expect(stock(rec)).toBe(3);
       expect(run(20)).toBe(0); // healthy: not retreating
       hurt(rec);
       expect(run(TWELVE_S)).toBe(1);
       expect(mind.posture).toBe('disengage');
-      expect(rec.loadout[slotOf(rec, 'smokeScreen')].state!.n).toBe(2);
+      expect(stock(rec)).toBe(2);
     });
 
-    it('Smoke re-arm: leave disengage, re-enter -> one more press (the old retreat\'s press does not count)', () => {
-      const { rec, mind, run } = drill(81619, 3);
+    it('Smoke still running (R12): leaving disengage and re-entering 20 s after the press -> no press while its puffs can live', () => {
+      const { port, rec, mind, run, runUntil } = drill(81619, 3);
       hurt(rec);
-      expect(run(TWELVE_S)).toBe(1);
-      const firstRetreat = mind.disengageSince;
+      expect(run(10)).toBe(1);
+      const pressedAt = mind.smokeUntil! - LAY;
+      healed(rec);
+      expect(runUntil(pressedAt + 20000)).toBe(0);
+      expect(mind.posture).not.toBe('disengage');
+      hurt(rec);
+      // Re-entered 20 s after the press: the lay window is long over, but the
+      // puffs it dropped still float — no press anywhere before they are gone.
+      expect(runUntil(pressedAt + LAY + LIFE)).toBe(0);
+      expect(mind.posture).toBe('disengage');
+      expect(port.now).toBe(pressedAt + LAY + LIFE);
+      expect(stock(rec)).toBe(2);
+    });
+
+    it('Smoke still running (R12): a storm-edge ringRun interlude and an hp pop-up above the flee line re-arm nothing', () => {
+      const { port, rec, mind, run, runUntil } = drill(81620, 3);
+      hurt(rec);
+      expect(run(10)).toBe(1);
+      const pressedAt = mind.smokeUntil! - LAY;
+      // A storm-edge dodge: outside the ring (r = 0 is outside everywhere).
+      const ring = port.zoneLiveRing;
+      port.zoneLiveRing = { cx: 0, cy: 0, r: 0 };
+      expect(run(20)).toBe(0);
+      expect(mind.posture).toBe('ringRun');
+      port.zoneLiveRing = ring;
+      expect(run(20)).toBe(0);
+      expect(mind.posture).toBe('disengage');
+      // A heal pop-up above the flee line, then a drop below it.
       healed(rec);
       expect(run(20)).toBe(0);
       expect(mind.posture).not.toBe('disengage');
       hurt(rec);
-      expect(run(TWELVE_S)).toBe(1);
-      expect(mind.disengageSince).toBeGreaterThan(firstRetreat!);
-      expect(rec.loadout[slotOf(rec, 'smokeScreen')].state!.n).toBe(1);
+      expect(runUntil(pressedAt + LAY + LIFE)).toBe(0);
+      expect(mind.posture).toBe('disengage');
+      expect(stock(rec)).toBe(2);
     });
 
-    it('Smoke re-arm inside the old lay window: the re-entry presses once, after that window lapses', () => {
-      const { rec, run } = drill(81620, 3);
-      hurt(rec);
-      expect(run(10)).toBe(1); // pressed; its 5 s window is still open
-      healed(rec);
-      expect(run(5)).toBe(0);
-      hurt(rec);
-      expect(run(TWELVE_S)).toBe(1);
-    });
-
-    it('Smoke still laying: re-entering disengage 2 s after the last press waits for the lay window, then presses once', () => {
-      const LAY = CONFIG.smokeScreen.layMs;
-      const { port, rec, mind, run } = drill(81625, 3);
+    it('Smoke gone (R12): still in disengage 36 s after the press -> one more press', () => {
+      const { rec, mind, run, runUntil } = drill(81625, 3);
       hurt(rec);
       expect(run(10)).toBe(1);
       const pressedAt = mind.smokeUntil! - LAY;
-      // Leave the retreat, and come back exactly 2 s after the press.
-      healed(rec);
-      expect(run(Math.round((pressedAt + 2000 - port.now) / TICK))).toBe(0);
-      expect(mind.posture).not.toBe('disengage');
-      expect(port.now).toBe(pressedAt + 2000);
-      hurt(rec);
-      // Re-entry with the old trail still being laid: no press on entry, nor
-      // anywhere inside that window.
-      expect(run(Math.round((pressedAt + LAY - port.now) / TICK))).toBe(0);
+      expect(runUntil(pressedAt + 36000)).toBe(1);
       expect(mind.posture).toBe('disengage');
-      expect(mind.disengageSince).toBeGreaterThanOrEqual(pressedAt + 2000);
-      expect(port.now).toBe(pressedAt + LAY);
-      // The window lapsed, still in disengage: ONE press, then once-per-retreat holds it.
-      expect(run(1)).toBe(1);
-      expect(run(TWELVE_S)).toBe(0);
-      expect(rec.loadout[slotOf(rec, 'smokeScreen')].state!.n).toBe(1);
+      expect(stock(rec)).toBe(1);
     });
 
-    it('Smoke late stock: a copy stocked mid-retreat, none pressed this retreat -> pressed once', () => {
+    it('Smoke gone (R12): AGAIN in disengage 36 s after the press -> one more press', () => {
+      const { rec, mind, run, runUntil } = drill(81626, 3);
+      hurt(rec);
+      expect(run(10)).toBe(1);
+      const pressedAt = mind.smokeUntil! - LAY;
+      healed(rec);
+      expect(runUntil(pressedAt + 36000)).toBe(0);
+      expect(mind.posture).not.toBe('disengage');
+      hurt(rec);
+      expect(run(TWELVE_S)).toBe(1);
+      expect(stock(rec)).toBe(1);
+    });
+
+    it('Smoke late stock: a copy stocked mid-retreat, none of its own running -> pressed once', () => {
       const { w, rec, mind, run } = drill(81621, 1);
       // Empty the belt, then retreat with nothing to press.
       const belt = slotOf(rec, 'smokeScreen');
@@ -2420,40 +2444,33 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
       expect(run(TWELVE_S)).toBe(1);
     });
 
-    it('a mind already in disengage with no retreat stamp presses once, not every lay window', () => {
-      const { rec, mind, run } = drill(81622, 3);
-      hurt(rec);
-      mind.posture = 'disengage';
-      expect(mind.disengageSince).toBeUndefined();
-      expect(run(TWELVE_S)).toBe(1);
-      expect(mind.disengageSince).toBeDefined();
-    });
-
-    it('want() is write-free: it never stamps or clears the mind', () => {
+    it('want() reads only the lay stamp + lifeMs, and is write-free', () => {
       const { port, rec, mind } = drill(81623, 1);
       hurt(rec);
-      const ctx = { self: rec, mind, sit: { now: port.now }, posture: 'disengage' } as unknown as Parameters<
-        typeof CONSUMABLE_TACTICS.smokeScreen.want
-      >[0];
+      type Ctx = Parameters<typeof CONSUMABLE_TACTICS.smokeScreen.want>[0];
+      const at = (now: number): Ctx => ({ self: rec, mind, sit: { now }, posture: 'disengage' }) as unknown as Ctx;
+      const now = port.now;
       const before = { ...mind };
-      expect(CONSUMABLE_TACTICS.smokeScreen.want(ctx)).toBe(true);
-      expect(mind.disengageSince).toBe(before.disengageSince);
-      expect(mind.smokeUntil).toBe(before.smokeUntil);
-      // A press this retreat (lay window opened at or after the stamp) holds it.
-      mind.disengageSince = port.now - 1000;
-      mind.smokeUntil = port.now - 500 + CONFIG.smokeScreen.layMs;
-      expect(CONSUMABLE_TACTICS.smokeScreen.want(ctx)).toBe(false);
-      // A press from a PREVIOUS retreat (before the stamp) whose trail is
-      // still being laid holds it too (not while still laying)...
-      mind.smokeUntil = port.now - 1500 + CONFIG.smokeScreen.layMs;
-      expect(CONSUMABLE_TACTICS.smokeScreen.want(ctx)).toBe(false);
-      // ...and once that window has lapsed, it does not.
-      mind.smokeUntil = port.now;
-      expect(CONSUMABLE_TACTICS.smokeScreen.want(ctx)).toBe(true);
-      expect(mind.disengageSince).toBe(port.now - 1000);
+      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(now))).toBe(true);
+      expect(mind).toEqual(before);
+      // A 0 (World reset) or absent stamp is "nothing running" — even early in
+      // a match, when `now < lifeMs`.
+      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(1000))).toBe(true);
+      mind.smokeUntil = undefined;
+      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(1000))).toBe(true);
+      // Still laying: held.
+      mind.smokeUntil = now - 500 + LAY;
+      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(now))).toBe(false);
+      // Lay window over, the last puff still alive: held.
+      mind.smokeUntil = now - LIFE + 1;
+      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(now))).toBe(false);
+      // The last puff is gone: pressed.
+      mind.smokeUntil = now - LIFE;
+      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(now))).toBe(true);
+      expect(mind.smokeUntil).toBe(now - LIFE);
     });
 
-    it('END TO END: a real World and its driver — one copy per retreat', () => {
+    it('END TO END: a real World and its driver — no press while its own smoke runs, one once it is gone', () => {
       const w = openWorld(81624, 4);
       const rec = w.addBot('torpedoBoat', 'duelist');
       for (let i = 0; i < 3; i += 1) w.applyCard(rec, 'smokeScreen');
@@ -2470,6 +2487,8 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
       expect(rec.loadout[belt].state!.n).toBe(2);
       rec.hp = rec.stats.maxHp * 0.1;
       step(12000);
+      expect(rec.loadout[belt].state!.n).toBe(2); // its own smoke is still running
+      step(LAY + LIFE - 25000 + 2000); // past the last puff's life
       expect(rec.loadout[belt].state!.n).toBe(1);
     });
   });
@@ -2594,6 +2613,26 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
     expect(isDeepFrozen(SHIFT_TACTICS)).toBe(true);
   });
 
+  it('FAIL CLOSED: a loadout slot whose id neither registry knows is skipped by every pass, no throw', () => {
+    for (const bogus of ['bogusLine', 'constructor']) {
+      expect(tacticFor(bogus as SlotItemId)).toBeUndefined();
+      const w = openWorld(8207);
+      const port = fakePort(w);
+      const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
+      rec.hp = rec.stats.maxHp * 0.1; // disengaging: the ability pass runs too
+      for (const slot of [4, 5]) rec.loadout[slot] = { equipmentId: bogus as SlotItemId, state: { n: 3, reloadMsLeft: 0 } };
+      const mind = mkMind('duelist');
+      plot(mind, track(port.now, { x: 150, y: 0, speed: 0 }));
+      let d: BotDecision | null = null;
+      expect(() => {
+        d = COMBAT_BRAIN.decide(rec, mind, port);
+      }).not.toThrow();
+      expect([4, 5]).not.toContain(d!.actSlot);
+      expect([4, 5]).not.toContain(d!.fireSlot);
+      expect(() => readyShotReaches(rec, rec.stats)).not.toThrow();
+    }
+  });
+
   it('Stub row: a bot somehow holding DEPTH CHARGE never wants it, and nothing throws', () => {
     const row = CONSUMABLE_TACTICS.depthCharge;
     expect(row.kind).toBe('ability');
@@ -2619,7 +2658,7 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
   });
 });
 
-describe('Story 8.20 — BOOST INTO FIGHTS (Eric ruling R7)', () => {
+describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13)', () => {
   /** A healthy raider Torpedo Boat and its band. */
   function setup(seed: number): { port: FakePort; tb: ShipRecord; boost: number; bandMax: number } {
     const w = openWorld(seed);
@@ -2664,5 +2703,22 @@ describe('Story 8.20 — BOOST INTO FIGHTS (Eric ruling R7)', () => {
     const mind = mkMind('raider');
     plot(mind, track(port.now, { x: bandMax + 50, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(tb, mind, port).actSlot).toBeNull();
+  });
+
+  it('Boost vs fleet (R13): a TB bot in farm posture, fleet group at band.max + 200 u -> not pressed', () => {
+    const { port, tb, boost } = setup(8206);
+    const bandMax = engagementBand(profileOf('forager'), tb.stats).max;
+    const fleet = { x: bandMax + 200, y: 0, speed: 0, cls: 'droneSmall' as HullId, fleet: true };
+    const mind = mkMind('forager');
+    plot(mind, track(port.now, fleet));
+    expect(COMBAT_BRAIN.decide(tb, mind, port).actSlot).toBeNull();
+    expect(mind.posture).toBe('farm');
+    // Control: the same captain, the same far target, in a real-fight posture
+    // boosts — so the hold above is the posture, not the appetite.
+    const fighting = mkMind('forager');
+    plot(fighting, track(port.now, fleet));
+    fighting.targetKey = 'tgt';
+    fighting.posture = 'pursue';
+    expect(COMBAT_BRAIN.decide(tb, fighting, port, false).actSlot).toBe(boost);
   });
 });

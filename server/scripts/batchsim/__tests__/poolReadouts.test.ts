@@ -11,8 +11,10 @@ import { applyOverrides } from '../overrides.js';
 import type { BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
 import { runBatch, type BatchResult, type MatchSample } from '../runner.js';
+import type { World } from '../../../src/game/world.js';
 import {
   HULL_REPAIR_ID,
+  PoolCollector,
   buildPoolReadouts,
   emptyWeaponSlots,
   renderPoolReadouts,
@@ -180,6 +182,82 @@ describe('poolReadouts — arithmetic', () => {
     const slot = (id: string | null) => ({ equipmentId: id, state: null });
     const loadout = [slot('gun'), slot('boost'), slot(null), slot('heavyTorpedo'), slot(null), slot(null), slot(null), slot(null), slot(null)];
     expect(emptyWeaponSlots({ loadout } as never)).toBe(2);
+  });
+});
+
+// --- the collector on a hand-built world ---------------------------------------
+
+describe('PoolCollector — reading a hand-built world tick by tick', () => {
+  const slot = (id: string | null) => ({ equipmentId: id, state: null });
+  /** Q/E/R filled with `weapons` ids, the rest of the loadout empty. */
+  const loadoutWith = (...weapons: string[]) => [
+    slot('deckGun'),
+    slot('boost'),
+    slot(weapons[0] ?? null),
+    slot(weapons[1] ?? null),
+    slot(weapons[2] ?? null),
+    slot(null),
+    slot(null),
+    slot(null),
+    slot(null),
+  ];
+  interface FakeShip {
+    gun: string;
+    level: number;
+    lifecycle: string;
+    loadout: ReturnType<typeof loadoutWith>;
+  }
+  function fakeWorld(ship: FakeShip): World {
+    return { mineCount: 0, ships: new Map([['bot-1', ship]]), takes: new Map() } as unknown as World;
+  }
+  const ACTIVE = 1;
+
+  it('a weapon fitted and a level reached on the tick the bot SINKS are in the sample', () => {
+    const ship: FakeShip = { gun: 'deckGun', level: 1, lifecycle: 'alive', loadout: loadoutWith() };
+    const world = fakeWorld(ship);
+    const c = new PoolCollector(['bot-1']);
+    c.observe(world, ACTIVE);
+    // The final tick: a pick and a level land, and the hull goes down, all
+    // before the harness observes.
+    ship.level = 2;
+    ship.loadout = loadoutWith('heavyTorpedo');
+    ship.lifecycle = 'sinking';
+    c.observe(world, ACTIVE);
+    ship.lifecycle = 'sunk';
+    c.observe(world, ACTIVE); // frozen build: re-reading is idempotent
+    expect(c.result(world).bots).toEqual([{ id: 'bot-1', gun: 'deckGun', levelEmpty: [3, 2], finalEmpty: 2 }]);
+  });
+
+  it('a level RESET (redeployEconomy) starts a fresh series: 0 -> 3 -> 0 -> 2', () => {
+    const ship: FakeShip = { gun: 'deckGun', level: 0, lifecycle: 'alive', loadout: loadoutWith() };
+    const world = fakeWorld(ship);
+    const c = new PoolCollector(['bot-1']);
+    c.observe(world, ACTIVE);
+    ship.level = 3; // three levels in one reading, all three slots empty
+    c.observe(world, ACTIVE);
+    ship.level = 0; // the redeploy
+    ship.loadout = loadoutWith('heavyTorpedo');
+    c.observe(world, ACTIVE);
+    ship.level = 1;
+    c.observe(world, ACTIVE);
+    ship.level = 2;
+    ship.loadout = loadoutWith('heavyTorpedo', 'navalMines');
+    c.observe(world, ACTIVE);
+    expect(c.result(world).bots[0].levelEmpty).toEqual([2, 1]);
+  });
+
+  it('zero samples: an unobserved bot is skipped, and every readout stays n/a', () => {
+    const ship: FakeShip = { gun: 'deckGun', level: 0, lifecycle: 'alive', loadout: loadoutWith() };
+    const world = fakeWorld(ship);
+    const c = new PoolCollector(['bot-1']);
+    c.observe(world, 0); // pre-activation: not a sample
+    const pool = c.result(world);
+    expect(pool.bots).toEqual([]);
+    const p = buildPoolReadouts([match([bot()], pool)]);
+    expect(p.bots).toBe(0);
+    expect(p.pureGunboat).toEqual({ bots: 0, share: null });
+    expect(p.gunMix.every((g) => g.bots === 0 && g.share === null)).toBe(true);
+    expect(allFinite(p)).toBe(true);
   });
 });
 
