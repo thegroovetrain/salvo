@@ -42,6 +42,7 @@ import { TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
 import type { BotEngageGate, TestProfileId } from '../../src/game/ai/types.js';
 import { BotCollector, type BotSample } from './botMetrics.js';
 import { CatalogCollector, type CatalogSample } from './catalogMetrics.js';
+import { PoolCollector, type PoolMatchSample } from './poolReadouts.js';
 import { mixSeed, tally } from './stats.js';
 
 /** ms of sim time each level-curve sample bucket spans. */
@@ -89,7 +90,8 @@ export interface RunSpec {
    *  undefined = 'profile', the shipped weighted policy, byte-identical. */
   botSpend?: 'profile' | 'random';
   /** Force every rolled-path bot's hull (mono-class arms with tuned
-   *  temperaments); profiles still roll among that hull's own rows. args.ts
+   *  temperaments); personalities still roll among all six (Story 8.20: any
+   *  personality on any hull). args.ts
    *  refuses the combinations this would contradict (--bot-profile, --roster
    *  even). */
   botHull?: ShipClassId;
@@ -253,6 +255,9 @@ export interface MatchSample {
    *  pass). OPTIONAL for the same reason `bots` is: sample literals predating
    *  the field exist in the harness's own tests. Read it defensively. */
   catalog?: CatalogSample;
+  /** POOL READOUTS (Story 8.20): gun, level-reach slot state, weapon takes and
+   *  the live-mine peak. OPTIONAL for the same reason `bots` is. */
+  pool?: PoolMatchSample;
 }
 
 export interface BatchResult {
@@ -496,6 +501,7 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   const collector = new MatchCollector(captainIds);
   const bots = new BotCollector(botIds);
   const catalog = new CatalogCollector();
+  const pool = new PoolCollector(botIds);
   // Tick budget from the SHARED time-to-closed helper: the full phased
   // timeline (12:00 at production CONFIG — ~14400 ticks) + countdown + endgame
   // slack. Honest but bounded: a full control run fits comfortably; nothing
@@ -508,12 +514,20 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     collector.observe(world, match);
     bots.observe(world, match.activatedAt);
     catalog.observe(world, match.activatedAt !== 0);
-    if (match.phase === 'finished') return finishSample(index, matchSeed, world, match, collector, captainIds, bots, catalog);
+    pool.observe(world, match.activatedAt);
+    if (match.phase === 'finished') return withPool(finishSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world);
   }
   if (match.activatedAt === 0) {
     throw new Error(`match ${index} (seed ${matchSeed}) never activated within ${tickCap} ticks`);
   }
-  return capSample(index, matchSeed, world, match, collector, captainIds, bots, catalog);
+  return withPool(capSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world);
+}
+
+/** Attach the pool readings to a finished sample — only when the lobby has
+ *  bots, so a captains-only sample keeps its exact pre-8.20 shape. */
+function withPool(sample: MatchSample, pool: PoolCollector, world: World): MatchSample {
+  if (sample.bots === undefined || sample.bots.length === 0) return sample;
+  return { ...sample, pool: pool.result(world) };
 }
 
 /**

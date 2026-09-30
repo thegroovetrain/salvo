@@ -10,25 +10,31 @@
 // `bulwark` and one `siege`, play completely differently and neither is the
 // harder one.
 //
-// Six profiles, two per class, matching CONFIG.bots.profiles exactly (the
-// Record<BotProfileId, BotProfile> below fails to type-check the moment the
-// two lists disagree, which is the whole reason BotProfileId is derived from
-// CONFIG rather than written twice):
+// SIX PERSONALITIES, ANY HULL (Story 8.20, Eric ruling 2026-09-30, R6). They
+// were two per class until 8.20; a hull is now only stats plus a special, and
+// enrollment deals any personality onto any hull off the seeded stream. The
+// names keep their historical flavor, but NOTHING here is keyed by hull any
+// more, and the fighting-style numbers (band, target weights, disengage/heal
+// fractions, appetite values) are carried over UNCHANGED. The list matches
+// CONFIG.bots.profiles exactly (the Record<BotProfileId, BotProfile> below
+// fails to type-check the moment the two lists disagree, which is the whole
+// reason BotProfileId is derived from CONFIG rather than written twice):
 //
-//   TB raider  — isolated/damaged targets; torpedo opener at credible range;
-//                boost out. Avoids sustained fights (C1: hit-and-run).
-//   TB duelist — vs a peer, turn-fight for the REAR QUARTER; guns through the
-//                30s torpedo reload (C1: TB-vs-TB is a dogfight). The
-//                geometry already rewards it — behind a TB denies its bow
-//                ±30° torpedo arc while your own guns stay 360°.
-//   BS bulwark — attrition. Holds ground, trades on HP, disengages late (C2:
-//                maximize survivability).
-//   BS siege   — standoff. Cannon-led; star shells to resolve stale contacts
-//                into live sight (C2: the BS DOES use star shells).
-//   ML forager — clears PvE fleet groups for a level lead; avoids captains
-//                early (C3). Hangs BACK doing it (Eric ruling 2026-08-20).
-//   ML trapper — mines astern while withdrawing; prepares its field from
-//                standoff and lets the traps do the closing.
+//   raider  — isolated/damaged targets; torpedo opener at credible range;
+//             boost out. Avoids sustained fights (hit-and-run).
+//   duelist — vs a peer, turn-fight for the REAR QUARTER; guns through the
+//             torpedo reload (a dogfighter).
+//   bulwark — attrition. Holds ground, trades on HP, disengages late.
+//   siege   — standoff. Cannon-led; star shells to resolve stale contacts
+//             into live sight.
+//   forager — clears PvE fleet groups for a level lead; avoids captains
+//             early. Hangs BACK doing it (Eric ruling 2026-08-20).
+//   trapper — mines astern while withdrawing; prepares its field from
+//             standoff and lets the traps do the closing.
+//
+// Each row also carries a build TASTE (Eric ruling 2026-09-30, R5, approved
+// verbatim) — the only thing the card scorer in ai/spending.ts reads from a
+// profile, scored against CONFIG.bots.cardPoints (R3).
 //
 // RANGES ARE FRACTIONS OF INTEL RANGE, NEVER LITERALS. `bandMinFrac`/
 // `bandMaxFrac` multiply the bot's OWN `stats.radarRange`, so a profile's
@@ -46,7 +52,7 @@
 // class. The only kind distinction any profile draws is participant-vs-PvE
 // fleet hull, which is a real difference in what the target is worth.
 
-import { CONFIG, type EffectiveStats, type EquipmentId, type ShipClassId } from '@salvo/shared';
+import { CONFIG, type ConsumableId, type EffectiveStats, type EquipmentId, type ShipClassId } from '@salvo/shared';
 import type { AnyProfileId, BotProfileId, TestProfileId } from './types.js';
 
 /** How much a profile wants one KIND of target, relative to the others.
@@ -67,29 +73,52 @@ export interface BotTargetWeights {
   isolated: number;
 }
 
+/**
+ * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The five ship
+ * ladders are named by what they raise; `gun` = any gun-ladder line (deckGun,
+ * deckGunTurret, deckGunBarrel, machineGun, flak — the draw only ever offers
+ * the mounted gun's); `weapons` = a tier copy (2..cap) of an equipment line
+ * the bot already holds (the spec's "Scorer definitions").
+ */
+export type UpgradeFavorite = 'armor' | 'speed' | 'turning' | 'radarSweep' | 'reload' | 'gun' | 'weapons';
+
+/**
+ * A personality's BUILD TASTE (Story 8.20, Eric ruling 2026-09-30, R5) — read
+ * only by the card scorer (ai/spending.ts) against CONFIG.bots.cardPoints.
+ * `style`: 'rounded' favors raising its lowest upgradeable line, 'specialist'
+ * its highest. `beltHunger` keys CONFIG.bots.cardPoints.beltHunger (applied to
+ * a consumable it carries none of). The favorites add points to a matching
+ * card; `favoriteWeapons` decides among weapons for an empty Q/E/R slot only.
+ */
+export interface BotTaste {
+  style: 'rounded' | 'specialist';
+  favoriteUpgrades: readonly UpgradeFavorite[];
+  favoriteConsumables: readonly ConsumableId[];
+  favoriteWeapons: readonly EquipmentId[];
+  beltHunger: 'low' | 'medium' | 'high';
+}
+
 /** One priority profile — the tunable surface ai/utility.ts (targeting +
- *  posture), ai/spending.ts (boons) and wave-3 ai/tactics.ts (steering +
- *  weapons) read. Everything here is WANT, never SKILL — and every field
- *  here HAS a consumer: the review gate deleted an unconsumed `aggression`
- *  dial (its doc claimed throttle/marginality scaling that was never built)
- *  rather than invent behaviour for it late in the cycle; re-adding it means
- *  building its consumer in the same change. */
+ *  posture), ai/spending.ts (cards) and ai/tactics.ts (steering + weapons)
+ *  read. Everything here is WANT, never SKILL — and every field here HAS a
+ *  consumer: the review gate deleted an unconsumed `aggression` dial (its doc
+ *  claimed throttle/marginality scaling that was never built) rather than
+ *  invent behavior for it late in the cycle; re-adding it means building its
+ *  consumer in the same change. No field names a hull (Story 8.20). */
 export interface BotProfile {
   id: AnyProfileId;
-  /** The hull this profile is only ever assigned to (CONFIG.bots.profiles
-   *  for the six in-game rows; the harness's explicit override for the three
-   *  test-only rows). */
-  hullId: ShipClassId;
   /**
-   * HOW A BANKED LEVEL IS SPENT (Story 7-6 wave 4). 'weighted' — the shipped
-   * deterministic, rng-free doctrine-weight scoring in ai/spending.ts; every
-   * in-game row is 'weighted' and that path is byte-identical to before this
-   * field existed. 'random' — a UNIFORM pick over the offer off the mind's
-   * decorrelated spendRng stream, for the blind-vacuum test rows only. The
-   * heal rule is NOT randomized in either mode (Eric ruling: card pick only),
-   * so damage control never becomes a confound in the survival data.
+   * HOW A BANKED LEVEL IS SPENT (Story 7-6 wave 4). 'weighted' — the
+   * deterministic points scorer in ai/spending.ts (ties by the seeded spend
+   * stream); every in-game row is 'weighted'. 'random' — a UNIFORM pick over
+   * the offer off the mind's decorrelated spendRng stream, for the
+   * blind-vacuum test rows only. The heal rule is NOT randomized in either
+   * mode (Eric ruling: card pick only), so damage control never becomes a
+   * confound in the survival data.
    */
   spend: 'weighted' | 'random';
+  /** The build taste the 'weighted' scorer reads (see BotTaste). */
+  taste: BotTaste;
   /** Preferred engagement band, as fractions of the bot's own intel range —
    *  resolve with engagementBand(), never read raw. */
   bandMinFrac: number;
@@ -108,18 +137,21 @@ export interface BotProfile {
    * captain reaches for each equipment, and the ONLY thing a profile may say
    * about a weapon. It replaces the retired usesStarShells /
    * usesMinesProactively / usesBoost capability flags, which keyed weapon
-   * knowledge by HULL (a Battleship acquiring mines knew nothing about mines;
-   * `bulwark` carried star shells it was flagged never to fire). HOW a weapon
-   * is used — placement geometry, doctrine branches, target selection — lives
-   * with the weapon in ai/equipment.ts and may NOT be overridden here.
+   * knowledge by HULL. HOW a weapon is used — placement geometry, doctrine
+   * branches, target selection — lives with the weapon in ai/equipment.ts and
+   * may NOT be overridden here.
    *
    * Consumers (every entry has at least one — the deleted-`aggression` rule):
    * the slot ORDERING in tactics.ts (all entries) and each tactic's want()
-   * PROACTIVITY gate against equipment.ts's APPETITE_NEUTRAL (1) /
-   * APPETITE_EAGER (2) thresholds (mine, starShells, boost).
-   * Unlisted equipment resolves to the neutral base (gun deliberately lowest:
-   * the fallback weapon is tried last). Values are eagerness, NEVER ranges —
-   * ranges stay fractions of the bot's own stats in the tactics.
+   * PROACTIVITY gate against tacticKit.ts's APPETITE_NEUTRAL (1) /
+   * APPETITE_EAGER (2) thresholds. EVERY LINE IS WRITTEN EXPLICITLY (Story
+   * 8.20 deleted the old family fallback by writing the very numbers it used
+   * to resolve: a light torpedo reads as the heavy, the captive and fouling
+   * racks as the naval rack, phosphor as star shells, the two Shifts as the
+   * boost, the two pickable guns as the gun). Unlisted equipment resolves to
+   * the neutral base (gun deliberately lowest: the fallback weapon is tried
+   * last). Values are eagerness, NEVER ranges — ranges stay fractions of the
+   * bot's own stats in the tactics.
    */
   appetite: Partial<Record<EquipmentId, number>>;
 }
@@ -138,7 +170,13 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
   raider: {
     id: 'raider',
     spend: 'weighted',
-    hullId: 'torpedoBoat',
+    taste: {
+      style: 'specialist',
+      favoriteUpgrades: ['speed', 'weapons'],
+      favoriteConsumables: ['smokeScreen', 'chaff'],
+      favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
+      beltHunger: 'medium',
+    },
     // Strikes from around the truesight boundary (0.5R) and does not loiter
     // inside knife range — the torpedo opener needs run-out room, and a TB
     // that stays close is in the fight it is trying to avoid.
@@ -150,12 +188,18 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     healHpFrac: DEFAULT_HEAL,
     // The opener weapon leads every tick; boost is spent eagerly on the way
     // out (the old usesBoost: true, now a number the ordering also reads).
-    appetite: { heavyTorpedo: 2.5, boost: 2.0 },
+    appetite: { heavyTorpedo: 2.5, lightTorpedo: 2.5, boost: 2.0, instantReload: 2.0, damageCut: 2.0 },
   },
   duelist: {
     id: 'duelist',
     spend: 'weighted',
-    hullId: 'torpedoBoat',
+    taste: {
+      style: 'specialist',
+      favoriteUpgrades: ['gun', 'turning', 'reload'],
+      favoriteConsumables: ['shieldBlock', 'dazzleShells'],
+      favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
+      beltHunger: 'low',
+    },
     // Knife range: inside 0.3R the rear-quarter turn-fight is decided by
     // rudder and gun cooldown, which is exactly where this profile wins.
     bandMinFrac: 0.08,
@@ -166,12 +210,18 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     healHpFrac: DEFAULT_HEAL,
     // Gun-led by BAND, not by ordering: the tube is still tried first when a
     // credible opening exists (mid appetite), and the boost breaks a bad fight.
-    appetite: { heavyTorpedo: 1.5, boost: 1.5 },
+    appetite: { heavyTorpedo: 1.5, lightTorpedo: 1.5, boost: 1.5, instantReload: 1.5, damageCut: 1.5 },
   },
   bulwark: {
     id: 'bulwark',
     spend: 'weighted',
-    hullId: 'battleship',
+    taste: {
+      style: 'rounded',
+      favoriteUpgrades: ['armor'],
+      favoriteConsumables: ['hullRepair', 'shieldBlock'],
+      favoriteWeapons: ['broadside', 'starShells'],
+      beltHunger: 'high',
+    },
     // Holds ground at gun-trade range and refuses to be kited out of it.
     bandMinFrac: 0.15,
     bandMaxFrac: 0.4,
@@ -182,12 +232,18 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // (above neutral, below eager: it waits for a plot to go properly cold
     // before spending a 20s flare). The old usesStarShells: false was the
     // capability-keyed-by-hull defect the equipment axis retires.
-    appetite: { broadside: 2.0, starShells: 1.2 },
+    appetite: { broadside: 2.0, starShells: 1.2, phosphorShells: 1.2 },
   },
   siege: {
     id: 'siege',
     spend: 'weighted',
-    hullId: 'battleship',
+    taste: {
+      style: 'specialist',
+      favoriteUpgrades: ['weapons', 'radarSweep'],
+      favoriteConsumables: ['dazzleShells', 'supercavTorpedo'],
+      favoriteWeapons: ['starShells', 'phosphorShells', 'broadside'],
+      beltHunger: 'low',
+    },
     // Standoff — RE-BANDED IN STORY 7-5 WAVE 2, forced by the weapon swap
     // rather than chosen: the cannon reached the full radar horizon, so this
     // profile stood out past the muzzle/smoke rung (0.625R) where the reply
@@ -205,12 +261,18 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // the shipped 1.5s staleness trigger) leading the broadside; an acquired
     // mine stays at the neutral base, so siege lays only against something
     // CLOSING — never as trapper's standing plan.
-    appetite: { starShells: 2.4, broadside: 2.2 },
+    appetite: { starShells: 2.4, phosphorShells: 2.4, broadside: 2.2 },
   },
   forager: {
     id: 'forager',
     spend: 'weighted',
-    hullId: 'mineLayer',
+    taste: {
+      style: 'rounded',
+      favoriteUpgrades: ['gun', 'reload'],
+      favoriteConsumables: ['hullRepair', 'decoyBuoy'],
+      favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
+      beltHunger: 'medium',
+    },
     // HANGS BACK TO SURVIVE TO THE PAYOFF (Eric ruling 2026-08-20, cycle
     // 111). The ML *"wants certain things, and when it gets them it is a
     // powerhouse, it just needs to survive until then"* — and cycle 110's A/B
@@ -231,12 +293,18 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // CAPTIVE doctrine opens the prepared lay at this tier, but that lives
     // with the weapon in ai/equipment.ts). (Its radar-buoy entry went with
     // the buoy in Story 8.16.)
-    appetite: { navalMines: 1.4 },
+    appetite: { navalMines: 1.4, captiveMines: 1.4, foulingMines: 1.4 },
   },
   trapper: {
     id: 'trapper',
     spend: 'weighted',
-    hullId: 'mineLayer',
+    taste: {
+      style: 'rounded',
+      favoriteUpgrades: ['weapons', 'speed'],
+      favoriteConsumables: ['smokeScreen', 'decoyBuoy', 'chaff'],
+      favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
+      beltHunger: 'high',
+    },
     // RE-BANDED OUTWARD (Eric ruling 2026-08-20, cycle 111): the old
     // 0.12–0.35 "fights near its own field" band was the closest in the game
     // and the A/B measured it as the death of the hull that most needs to
@@ -252,7 +320,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // EAGER mines — the standing plan (the old usesMinesProactively: true,
     // now the eager tier of the ONE shared mine tactic). (Its radar-buoy entry
     // went with the buoy in Story 8.16.)
-    appetite: { navalMines: 2.6 },
+    appetite: { navalMines: 2.6, captiveMines: 2.6, foulingMines: 2.6 },
   },
 });
 
@@ -275,17 +343,35 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
  */
 const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.freeze({
   gun: 2.0,
+  machineGun: 2.0,
+  flak: 2.0,
   heavyTorpedo: 2.2,
+  lightTorpedo: 2.2,
   navalMines: 2.2,
+  captiveMines: 2.2,
+  foulingMines: 2.2,
   boost: 2.2,
+  instantReload: 2.2,
+  damageCut: 2.2,
   broadside: 2.2,
   starShells: 2.2,
+  phosphorShells: 2.2,
 });
 
-const testRow = (id: TestProfileId, hullId: ShipClassId): BotProfile => ({
+/** A neutral taste for the test rows — never read (they spend at random), but
+ *  every row carries one so BotProfile stays a single shape. */
+const TEST_TASTE: BotTaste = Object.freeze({
+  style: 'rounded',
+  favoriteUpgrades: [],
+  favoriteConsumables: [],
+  favoriteWeapons: [],
+  beltHunger: 'medium',
+});
+
+const testRow = (id: TestProfileId): BotProfile => ({
   id,
   spend: 'random',
-  hullId,
+  taste: TEST_TASTE,
   bandMinFrac: 0.15,
   bandMaxFrac: 0.55,
   targetWeights: { captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 1.0 },
@@ -297,10 +383,31 @@ const testRow = (id: TestProfileId, hullId: ShipClassId): BotProfile => ({
 /** `Record<TestProfileId, …>` is the same completeness gate BOT_PROFILES
  *  uses: a new test id in types.ts cannot ship without a row here. */
 export const TEST_PROFILES: Readonly<Record<TestProfileId, BotProfile>> = Object.freeze({
-  randomTorpedoBoat: testRow('randomTorpedoBoat', 'torpedoBoat'),
-  randomBattleship: testRow('randomBattleship', 'battleship'),
-  randomMineLayer: testRow('randomMineLayer', 'mineLayer'),
+  randomTorpedoBoat: testRow('randomTorpedoBoat'),
+  randomBattleship: testRow('randomBattleship'),
+  randomMineLayer: testRow('randomMineLayer'),
 });
+
+/** THE TEST ROWS STAY HULL-BOUND (Story 8.20): the harness's
+ *  `--bot-profile random*` contract is one row per hull, so a forced test row
+ *  still governs its bot's hull. The six in-game personalities have none. */
+export const TEST_PROFILE_HULL: Readonly<Record<TestProfileId, ShipClassId>> = Object.freeze({
+  randomTorpedoBoat: 'torpedoBoat',
+  randomBattleship: 'battleship',
+  randomMineLayer: 'mineLayer',
+});
+
+/** True iff `id` is one of the three test-only rows. */
+export function isTestProfileId(id: AnyProfileId): id is TestProfileId {
+  return Object.hasOwn(TEST_PROFILES, id);
+}
+
+/** The hull a FORCED profile binds its bot to: a test row's hull, or null for
+ *  an in-game personality (which never decides the hull — the rolled or
+ *  caller-passed hull stands). */
+export function testProfileHull(id: AnyProfileId): ShipClassId | null {
+  return isTestProfileId(id) ? TEST_PROFILE_HULL[id] : null;
+}
 
 /** The test ids in hull-class order (TB, BS, ML) — the harness's round-robin
  *  deal order for `--bot-profile random`. */

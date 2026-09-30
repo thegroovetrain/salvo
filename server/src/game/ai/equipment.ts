@@ -4,24 +4,23 @@
 // Bot policy splits onto TWO AXES. The SHIP profile (ai/profiles.ts) is
 // temperament: engagement band, target weights, disengage/heal thresholds,
 // posture, and an APPETITE table saying how eager this captain is about each
-// piece of equipment. The EQUIPMENT TACTIC (this file) is weapon knowledge:
-// want/solve/reach and every doctrine branch for ONE equipment id. The flat
-// model this replaces keyed weapon knowledge by HULL, so a Battleship that
-// ACQUIRED mines (acquireMine) had no idea what a mine was, and `bulwark`
-// carried star shells natively while being flagged never to fire them.
+// piece of equipment. The EQUIPMENT TACTIC is weapon knowledge: want/solve/
+// reach and every doctrine branch for ONE equipment id. The flat model this
+// replaces keyed weapon knowledge by HULL, so a Battleship that ACQUIRED mines
+// had no idea what a mine was.
 //
-// `EQUIPMENT_TACTICS` is a `Partial<Record<EquipmentId, EquipmentTactic>>` —
-// PARTIAL by type, but since Story 8.15 built the last unbuilt modules
-// (MACHINE GUN, FLAK and the two class Shifts; MISSILE and MONITOR were CUT,
-// amendment 89(e)) it holds a row for EVERY equipment id the server registry
-// has, and botTactics.test.ts pins that totality. A bot with no row for a
-// fitted id would simply skip that slot (fail-closed).
+// THIS FILE holds the WEAPON rows — the three guns and every Q/E/R line —
+// as `WEAPON_TACTICS`, TOTAL over every EquipmentId that is not a class Shift.
+// The three Shift rows live in ai/shift.ts, the belt rows in ai/consumables.ts,
+// the shared vocabulary (types, aiming, appetite) in ai/tacticKit.ts, and
+// ai/tacticRegistry.ts assembles the TOTAL `EQUIPMENT_TACTICS` a fitted slot
+// resolves through.
 //
 // TEMPERAMENT MODULATES PROACTIVITY ONLY (ruled). There is ONE mine tactic
 // shared by everyone; `trapper` lays as a standing plan and `siege` lays only
 // when something is closing, and that difference is carried ENTIRELY by the
-// appetite number read against the two thresholds below. A profile may NOT
-// override placement geometry, doctrine choice or target selection — a
+// appetite number read against the two thresholds (tacticKit.ts). A profile
+// may NOT override placement geometry, doctrine choice or target selection — a
 // per-(profile × equipment) override table is the flat model this replaces
 // and is forbidden.
 //
@@ -32,79 +31,69 @@
 //   torpedo homingTurnRate — the credible-range gate widens (budget − turn room)
 //   broadside.spreadRung— the wide base fan may be spent on a just-lost plot;
 //                         a tightened fan demands a live track
-// (The star shell's `dazzle` / `phosphor` verbs are DELETED — Story 8.17,
-// amendment 134. PHOSPHOR SHELLS is its own weapon row with its own interim
-// tactic below, and FLASH SHELLS (`dazzleShells`) a belt row; amendment 135(h),
-// Story 8.20 owns the real table.)
+// (PHOSPHOR SHELLS is its own weapon row below; FLASH SHELLS (`dazzleShells`)
+// is a belt row in ai/consumables.ts.)
 //
 // No rng is drawn anywhere in want() — the mind's stream feeds aim scatter
 // and nothing else (the determinism pin).
 
 import {
   CONFIG,
-  SLOT_GUN,
-  WEAPON_SLOTS,
   bearing,
-  blockedWater,
   inArc,
-  isAfloat,
-  isConsumableId,
   sectorArcFor,
   twinSectorArcFor,
-  twinSectorSide,
   wrapAngle,
-  type ConsumableId,
   type EffectiveStats,
   type EquipmentId,
-  type Rng,
-  type SlotItemId,
-  type Vec2,
+  type ShiftId,
 } from '@salvo/shared';
-import type { BotMind, BotPosture, BotSelf, BotWorldPort } from './types.js';
+import type { BotPosture, BotSelf } from './types.js';
 import {
   hasPersistence,
   isActionable,
-  lineBlocked,
   ownLiveMines,
   tracksOf,
   type BotSituation,
   type BotTrack,
 } from './utility.js';
 import type { BotProfile } from './profiles.js';
-import { torpedoInbound } from './torpedoThreat.js';
+import {
+  APPETITE_EAGER,
+  APPETITE_NEUTRAL,
+  TORPEDO_CREDIBLE_U,
+  aimPoint,
+  appetiteFor,
+  burstOnLiveContact,
+  deepFreezeRows,
+  distTo,
+  sectorPlacement,
+  shotReaches,
+  solveTorpedoShot,
+  type EquipmentTactic,
+  type Shot,
+  type TacticContext,
+  type TorpedoLineId,
+} from './tacticKit.js';
 
-const TAU = Math.PI * 2;
+// The appetite vocabulary is re-exported so a caller reading weapon appetites
+// keeps one import path for the weapon axis.
+export { APPETITE_EAGER, APPETITE_NEUTRAL, appetiteFor } from './tacticKit.js';
 
-/**
- * THE TWO FAMILY ID UNIONS the parameterized tactics below are keyed by
- * (Story 8.13). Declared HERE rather than imported from the server's equipment
- * modules because `ai/` is perception-gated — it may not import
- * `game/equipment/**` at all (the ESLint boundary, ai/types.ts) — and they are
- * only narrowings of `EquipmentId`, so the compiler still refuses a string
- * that is not a real line id.
- */
-type TorpedoLineId = Extract<EquipmentId, 'heavyTorpedo' | 'lightTorpedo'>;
+/** The MINE family id union the parameterized mine tactic is keyed by (Story
+ *  8.13) — a narrowing of `EquipmentId`, declared here because `ai/` may not
+ *  import `game/equipment/**`. */
 type MineLineId = Extract<EquipmentId, 'navalMines' | 'captiveMines' | 'foulingMines'>;
 
-/** The torpedo's ratified bow sector, the mine's ratified astern sector (the
- *  DECOY BUOY consumable shares it verbatim — sectorArcFor('decoyBuoy') IS the
- *  mine's descriptor, Story 8.16) and the broadside's two beam
- *  sectors — resolved ONCE at module load from the single shared arc source
- *  the equipment rows enforce with. */
-const BOW_SECTOR = sectorArcFor('heavyTorpedo');
-/** The LIGHT torpedo's TWIN beam sectors and the SUPERCAV consumable's narrow
- *  bow cone (Story 8.13) — resolved from the same shared arc source the server
- *  rows enforce with, so a bot never solves a shot its own weapon refuses. */
-const LIGHT_BEAMS = twinSectorArcFor('lightTorpedo');
-const SUPERCAV_SECTOR = sectorArcFor('supercavTorpedo');
+/** Every equipment id a WEAPON row covers: all of them but the class Shifts. */
+type WeaponLineId = Exclude<EquipmentId, ShiftId>;
+
+/** The mine's ratified astern sector and the broadside's two beam sectors —
+ *  resolved ONCE at module load from the single shared arc source the
+ *  equipment rows enforce with. */
 const REAR_SECTOR = sectorArcFor('navalMines');
-const DECOY_SECTOR = sectorArcFor('decoyBuoy');
 const BEAM_SECTORS = twinSectorArcFor('broadside');
 
-/** u — the range inside which a STANDARD torpedo intercept is CREDIBLE. A 60
- *  u/s fish against a 45 u/s hull needs the target inside knife range or the
- *  lead solution is fiction; beyond this the tube is held. */
-const TORPEDO_CREDIBLE_U = 250;
 /** Fraction of CONFIG.mine.placeRange a STANDARD mine is dropped at — astern
  *  of the hull but well inside the rack's reach, so arc and range pass by
  *  construction and only the water can refuse. A CAPTIVE mine drops at the
@@ -135,222 +124,6 @@ const WIDE_RUNG = 1;
  *  pattern to accept it. ~1.5s of drift at full ahead (67u) is inside the base
  *  barrage's footprint at combat range; older and the shot is a guess. */
 const WIDE_FAN_STALE_MS = 1500;
-
-/** Appetite thresholds. Appetite is the SHIP profile's one word about an
- *  equipment: how PROACTIVELY this captain reaches for it. At or above EAGER
- *  the weapon is a standing plan; at or above NEUTRAL it is used reactively
- *  (when the situation demands); below NEUTRAL it is held for emergencies the
- *  tactic itself names (a mine on disengage answers a threat at ANY appetite). */
-export const APPETITE_NEUTRAL = 1;
-export const APPETITE_EAGER = 2;
-
-/** The neutral eagerness for equipment a profile's table does not name. The
- *  GUN is the deliberate exception: it is the always-available fallback, so
- *  its base appetite sits below everything else and it is tried LAST — the
- *  shipped ladder's ordering, now expressed as data. */
-const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
-  gun: 0.5,
-  // Story 8.1 widened EquipmentId to the fifteen catalog-v3 ids. This record
-  // stays TOTAL — the compile-time forcing function that a new weapon cannot
-  // land without an appetite — so the unbuilt weapons carry the neutral base
-  // until their stories give them tactics. `boost` is BUILT (Story 8.9: the
-  // universal slot-1 ability); its base stays neutral and each profile that
-  // wants it eagerly overrides here (see profiles.ts `appetite`).
-  boost: APPETITE_NEUTRAL,
-  lightTorpedo: APPETITE_NEUTRAL,
-  heavyTorpedo: APPETITE_NEUTRAL,
-  navalMines: APPETITE_NEUTRAL,
-  captiveMines: APPETITE_NEUTRAL,
-  // FOULING MINES joined EquipmentId in Story 8.13 (amendment 81) and takes
-  // the naval rack's neutral base; SUPERCAV TORPEDO LEFT it for the consumable
-  // id space (amendment 74) and its eagerness now lives in CONSUMABLE_APPETITE.
-  foulingMines: APPETITE_NEUTRAL,
-  // Story 8.15: the two pickable GUNS sit at the gun's own fallback appetite
-  // (slot 0 is the always-available last resort whichever gun is mounted);
-  // the two new class SHIFTS take the boost's neutral base. The interim
-  // tactics (amendment 109) are below; Story 8.19 owns the real tables.
-  machineGun: 0.5,
-  flak: 0.5,
-  broadside: APPETITE_NEUTRAL,
-  starShells: APPETITE_NEUTRAL,
-  // Story 8.17: PHOSPHOR SHELLS joined EquipmentId (amendment 131) at the
-  // neutral base; its interim tactic is below (amendment 135(h)).
-  phosphorShells: APPETITE_NEUTRAL,
-  instantReload: APPETITE_NEUTRAL,
-  damageCut: APPETITE_NEUTRAL,
-});
-
-/**
- * THE FAMILY FALLBACK (Story 8.13, interim — epic-8 amendment 79's "minimal
- * tactics now, Story 8.18 owns the table"). Three lines became fittable this
- * cycle whose behaviour the profiles already had an opinion about, under
- * another name: CAPTIVE and FOULING mines were DOCTRINE VERBS on the naval
- * rack (so a trapper's `navalMines: 2.6` spoke for them), and the LIGHT
- * torpedo is the heavy's tactic keyed by its own id.
- *
- * Without this, a trapper handed a captive rack would drop to the NEUTRAL base
- * and rank its signature weapon below its other racks — a silent behaviour
- * REGRESSION bought by nothing. So a line with no entry of its own reads its
- * FAMILY's entry first, which is exactly the number that used to reach it.
- *
- * IT IS NOT A RETUNE and adds no number: every profile table is untouched, and
- * the day Story 8.18 authors per-line appetites those entries win outright
- * (the profile's own entry is still read first). Delete this map then.
- */
-const APPETITE_FAMILY: Readonly<Partial<Record<EquipmentId, EquipmentId>>> = Object.freeze({
-  lightTorpedo: 'heavyTorpedo',
-  captiveMines: 'navalMines',
-  foulingMines: 'navalMines',
-  // Story 8.15 (amendment 109, interim — Story 8.19 owns the tables): the two
-  // pickable guns speak through the CANNON's entry (slot 0 is the fallback
-  // whichever gun is mounted — the test rows' `gun: 2.0` must reach a
-  // machine-gun bot too), and the two class Shifts through the BOOST's (the
-  // slot-1 ability every hull carries one of). No profile names any of the
-  // four ids, so this adds no number: it is the same read that reached slot 0
-  // and slot 1 before the pick existed.
-  machineGun: 'gun',
-  flak: 'gun',
-  instantReload: 'boost',
-  damageCut: 'boost',
-  // Story 8.17 (amendment 135(h), interim — Story 8.20 owns the table):
-  // PHOSPHOR SHELLS was the star shell's verb until this cycle, so a profile
-  // that spoke for `starShells` spoke for it too; it keeps reading that entry.
-  phosphorShells: 'starShells',
-});
-
-/** How eager this profile is about one equipment id — the profile's own entry,
- *  else its FAMILY's entry (see APPETITE_FAMILY), else the neutral base. THE
- *  one resolver both consumers (the want() gates here, the slot ordering in
- *  tactics.ts) read, so an appetite entry always has at least the ordering as
- *  its consumer. */
-export function appetiteFor(profile: BotProfile, id: EquipmentId): number {
-  const family = APPETITE_FAMILY[id];
-  return profile.appetite[id] ?? (family === undefined ? undefined : profile.appetite[family]) ?? BASE_APPETITE[id];
-}
-
-/** A legal shot request: one slot, one bearing, one commanded distance. */
-export interface Shot {
-  aim: number;
-  aimDist: number;
-  slot: number;
-  /** A LEVEL shot (Story 8.15): the machine gun streams while `held` is true
-   *  and ignores a click, so the brain sends `held` and NO fireSeq edge. */
-  held?: true;
-}
-
-/** How a tactic's output reaches the world: a 'shot' needs a target and is
- *  resolved BELOW chooseShot's target guard; a 'placement' (flare / mine /
- *  decoy) is resolved ABOVE it — a placement's own want() decides whether it
- *  needs a target; an 'ability' rides the actSeq channel (chooseAct). */
-export type TacticKind = 'shot' | 'placement' | 'ability';
-
-/** Everything a tactic may know when deciding: the bot's own record, its mind
- *  (track store + aim-scatter rng), the folded situation, the narrow port,
- *  the deliberated target (null is legal for placements) and the cached
- *  posture — plus the loadout slot this tactic would fire. */
-export interface TacticContext {
-  self: BotSelf;
-  mind: BotMind;
-  sit: BotSituation;
-  port: BotWorldPort;
-  target: BotTrack | null;
-  posture: BotPosture;
-  slot: number;
-}
-
-/**
- * ONE SLOT ITEM'S BOT TACTIC — the shape both axes share. A fitted slot may
- * hold a piece of EQUIPMENT (slots 0-4) or a CONSUMABLE stack (the belt, 5-8),
- * the two id spaces are disjoint, and each has its OWN registry keyed by its
- * OWN id (`EQUIPMENT_TACTICS` / `CONSUMABLE_TACTICS`) so neither record ever
- * grows a fake row. `tacticFor` is the one lookup that spans them, narrowing
- * through the shared guard rather than a cast — exactly the two-registry
- * discipline `slotRow` uses on the server side.
- */
-export interface SlotTactic {
-  readonly id: SlotItemId;
-  readonly kind: TacticKind;
-  /** u — the effective COMMITTED reach at these stats (the band pull's input;
-   *  0 = never pulls). For a shot weapon this is the range it is genuinely
-   *  worth firing at, not its maximum flight. */
-  reachU(stats: EffectiveStats): number;
-  /** Spend this equipment now? Appetite modulates PROACTIVITY here and
-   *  nothing else. Must draw no rng. */
-  want(ctx: TacticContext): boolean;
-  /** The legal shot, or null (an arc/range/water/doctrine refusal — nothing
-   *  consumed). Ability rows always return null. */
-  solve(ctx: TacticContext): Shot | null;
-}
-
-/** One equipment's bot tactic — the weapon axis. */
-export interface EquipmentTactic extends SlotTactic {
-  readonly id: EquipmentId;
-}
-
-/** One consumable line's bot tactic — the BELT axis (epic-8 amendment 49).
- *  Same shape, narrower id. */
-export interface ConsumableTactic extends SlotTactic {
-  readonly id: ConsumableId;
-}
-
-// ---------------------------------------------------------------------------
-// AIMING — one lead solve, one scatter, one place (moved verbatim from
-// tactics.ts when the weapon ladder moved onto this axis).
-// ---------------------------------------------------------------------------
-
-/** Fixed-point iterations for the intercept solve (converges well inside 3). */
-const LEAD_ITERATIONS = 3;
-
-/**
- * The lead-corrected intercept point for a track at `speed` u/s of ordnance.
- * A track with no disclosed pose — the identity-free `return`-grammar plot —
- * cannot be led at all, so its last-known point IS the aim point.
- */
-function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
-  if (t.heading === null || t.speed === null) return { x: t.x, y: t.y };
-  const vx = Math.cos(t.heading) * t.speed;
-  const vy = Math.sin(t.heading) * t.speed;
-  let tof = 0;
-  for (let i = 0; i < LEAD_ITERATIONS; i += 1) {
-    const px = t.x + vx * tof;
-    const py = t.y + vy * tof;
-    tof = Math.hypot(px - sit.x, py - sit.y) / speed;
-  }
-  return { x: t.x + vx * tof, y: t.y + vy * tof };
-}
-
-/**
- * THE ONE PLACE MARKSMANSHIP LIVES (competence knob E2): a uniform disc of
- * CONFIG.bots.aimScatterU scaled by range, applied BEFORE any legality check.
- * The mind's rng feeds this and nothing else.
- */
-function scatter(p: Vec2, sit: BotSituation, rng: Rng): Vec2 {
-  const range = Math.hypot(p.x - sit.x, p.y - sit.y);
-  const r = Math.sqrt(rng.next()) * CONFIG.bots.aimScatterU * (range / CONFIG.bots.aimScatterRefU);
-  const a = rng.float(0, TAU);
-  return { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r };
-}
-
-/** The scattered lead solution for one weapon against one track. */
-function aimPoint(mind: BotMind, sit: BotSituation, t: BotTrack, speed: number): Vec2 {
-  return scatter(leadPoint(sit, t, speed), sit, mind.rng);
-}
-
-/**
- * THE TERRAIN CHECK — can this flat-trajectory round actually ARRIVE, or does
- * the coastline stop it first (the cycle-99 fix)? A physics question, never a
- * visibility one: firing into fog is a ratified feature (FR16), firing into a
- * rock is a wasted click. Origin is the hull CENTRE (BotSelf carries no hull
- * class), which is the strictly longer segment, so the check can only be
- * conservative.
- */
-function shotReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean {
-  return !lineBlocked(self.state, p, sit.islands);
-}
-
-function distTo(sit: BotSituation, t: BotTrack): number {
-  return Math.hypot(t.x - sit.x, t.y - sit.y);
-}
 
 /** Is this track making way TOWARD us? Unknown course = not closing (an
  *  identity-free plot cannot justify a reactive trap). */
@@ -394,8 +167,8 @@ const gunTactic: EquipmentTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// THE TWO PICKABLE GUNS (Story 8.15, amendment 109 — interim; Story 8.19 owns
-// the tables). Both are 360° (amendment 106) and reach the radar rung.
+// THE TWO PICKABLE GUNS (Story 8.15, amendment 109). Both are 360°
+// (amendment 106) and reach the radar rung.
 // ---------------------------------------------------------------------------
 
 /** FLAK: the cannon's burst-solve on the flak row — one shell to the led point,
@@ -505,38 +278,9 @@ function torpedoReachU(stats: EffectiveStats, id: TorpedoLineId): number {
   return Math.max(TORPEDO_CREDIBLE_U, CONFIG.torpedo.homingMaxRangeU - Math.PI * turnRadius);
 }
 
-/** Is `aim` legal for this torpedo line? The HEAVY (and the supercav belt
- *  fish) fire into a bow SECTOR; the LIGHT fires into either BEAM and refuses
- *  the fore/aft dead zones — the server's own arc law (equipment/
- *  torpedoCore.ts `torpedoBearing`), read from the same shared descriptors. */
-function torpedoAimLegal(id: TorpedoLineId | 'supercavTorpedo', heading: number, aim: number): boolean {
-  if (id === 'lightTorpedo') return twinSectorSide(heading, aim, LIGHT_BEAMS) !== null;
-  const sector = id === 'supercavTorpedo' ? SUPERCAV_SECTOR : BOW_SECTOR;
-  return inArc(aim, wrapAngle(heading + sector.offset), sector.halfArc);
-}
-
-/** One torpedo shot solve, shared by both equipment lines and the supercav
- *  belt fish: lead at THIS weapon's speed, refuse out of THIS weapon's arc
- *  (ARC FIRST — an arc miss consumes nothing), refuse a blocked line. */
-function solveTorpedoShot(
-  ctx: TacticContext,
-  id: TorpedoLineId | 'supercavTorpedo',
-  speed: number,
-  reachU: number,
-): Shot | null {
-  const t = ctx.target;
-  if (t === null || t.heading === null) return null; // a return-grammar plot cannot be led
-  if (distTo(ctx.sit, t) > reachU) return null;
-  const p = aimPoint(ctx.mind, ctx.sit, t, speed);
-  const aim = bearing(ctx.self.state, p);
-  if (!torpedoAimLegal(id, ctx.self.state.heading, aim)) return null;
-  if (!shotReaches(ctx.self, ctx.sit, p)) return null;
-  return { aim, aimDist: distTo(ctx.sit, t), slot: ctx.slot };
-}
-
 /** ONE TORPEDO TACTIC, built per line (epic-8 amendment 79 — the light
- *  torpedo reuses the heavy's tactic keyed by its own id; Story 8.18 owns the
- *  real table). Everything that differs is the row and the arc. */
+ *  torpedo reuses the heavy's tactic keyed by its own id). Everything that
+ *  differs is the row and the arc. */
 function torpedoTacticFor(id: TorpedoLineId): EquipmentTactic {
   return {
     id,
@@ -679,24 +423,10 @@ function mineWant(ctx: TacticContext, id: MineLineId): boolean {
   return reactiveMineWant(ctx, id);
 }
 
-/** A drop commanded DEAD ASTERN — the centre of the given ratified placement
- *  sector — so arc and range pass by construction and only the water can
- *  refuse (`blockedWater` is the SAME predicate the equipment rows deny with). */
-function sectorPlacement(
-  ctx: TacticContext,
-  sector: { offset: number },
-  dropU: number,
-): Shot | null {
-  const aim = wrapAngle(ctx.self.state.heading + sector.offset);
-  const p = { x: ctx.sit.x + Math.cos(aim) * dropU, y: ctx.sit.y + Math.sin(aim) * dropU };
-  if (blockedWater(p, ctx.port.map.islands, ctx.port.map.radius)) return null;
-  return { aim, aimDist: dropU, slot: ctx.slot };
-}
-
 /** ONE MINE TACTIC, built per line (epic-8 amendment 79 — captive and fouling
- *  reuse the mine tactic keyed by their own ids; Story 8.18 owns the real
- *  table). The three racks share every chassis number, so only the want
- *  branches and the drop distance differ. */
+ *  reuse the mine tactic keyed by their own ids). The three racks share every
+ *  chassis number, so only the want branches and the drop distance differ.
+ *  The drop is dead astern, at the centre of the rear sector. */
 function mineTacticFor(id: MineLineId): EquipmentTactic {
   return {
     id,
@@ -777,40 +507,10 @@ const starShellsTactic: EquipmentTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// PHOSPHOR SHELLS (Story 8.17, amendment 135(h) — MINIMAL INTERIM row; Story
-// 8.20 owns the table). The deleted offensive flare's plot, keyed on the
-// phosphor row: fired straight at the NEAREST LIVE contact inside the bot's
-// own sight bubble, inside the row's reach.
+// PHOSPHOR SHELLS (Story 8.17, amendment 135(h)). Fired straight at the
+// NEAREST LIVE contact inside the bot's own sight bubble, inside the row's
+// reach (tacticKit.ts burstOnLiveContact).
 // ---------------------------------------------------------------------------
-
-/** The nearest LIVE, actionable track inside our own truesight bubble — the
- *  target both the phosphor row and the FLASH belt row burst on. */
-function nearestLiveInSight(ctx: TacticContext): BotTrack | null {
-  let best: BotTrack | null = null;
-  let bestD = Infinity;
-  for (const t of tracksOf(ctx.mind)) {
-    if (!t.live || !isActionable(t, ctx.sit.now)) continue;
-    const d = distTo(ctx.sit, t);
-    if (d > ctx.sit.stats.sightRange) continue;
-    if (d < bestD) {
-      bestD = d;
-      best = t;
-    }
-  }
-  return best;
-}
-
-/** A burst placed ON a live contact (no lead — the zone / flash is an area,
- *  and the old offensive flare aimed the same way), clamped to `rangeU`,
- *  coastline-gated on the shot. */
-function burstOnLiveContact(ctx: TacticContext, rangeU: number): Shot | null {
-  const t = nearestLiveInSight(ctx);
-  if (t === null) return null;
-  const d = distTo(ctx.sit, t);
-  if (d > rangeU) return null;
-  if (!shotReaches(ctx.self, ctx.sit, t)) return null;
-  return { aim: bearing(ctx.self.state, t), aimDist: d, slot: ctx.slot };
-}
 
 const phosphorShellsTactic: EquipmentTactic = {
   id: 'phosphorShells',
@@ -821,98 +521,11 @@ const phosphorShellsTactic: EquipmentTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// THE BOOST — the one ability: spent opening range on the way out. Story 8.9
-// made it universal on slot 1 (+25 % of the ladder-raised cap for 10 s, 25 s
-// reload), so every captain hull carries this tactic, not just the fast ones.
+// THE WEAPON TABLE — TOTAL over every non-Shift EquipmentId, deep-frozen.
+// ai/tacticRegistry.ts adds the Shift rows to make EQUIPMENT_TACTICS.
 // ---------------------------------------------------------------------------
 
-const boostTactic: EquipmentTactic = {
-  id: 'boost',
-  kind: 'ability',
-  reachU: () => 0,
-  want: (ctx) => ctx.posture === 'disengage' && appetiteFor(ctx.sit.profile, 'boost') >= APPETITE_NEUTRAL,
-  solve: () => null,
-};
-
-// ---------------------------------------------------------------------------
-// THE CLASS SHIFTS (Story 8.15, amendment 109 — minimal interim rules; Story
-// 8.19 owns the tables). Abilities on the actSeq channel, like the boost.
-// ---------------------------------------------------------------------------
-
-/** The mounted gun's reach — "in range" for the INSTANT RELOAD rule. All three
- *  guns sit on the radar rung today; reading the mounted row keeps the rule
- *  honest if a ladder ever moves one. */
-function mountedGunReachU(self: BotSelf, stats: EffectiveStats): number {
-  const id = self.loadout[SLOT_GUN]?.equipmentId;
-  if (id === 'machineGun' || id === 'flak') return stats.equipment[id].rangeU;
-  return stats.equipment.gun.rangeU;
-}
-
-/** The slots INSTANT RELOAD serves (amendment 98): the mounted gun and the
- *  Q/E/R weapon row — never the Shift slot, never the belt. */
-const RELOADABLE_SLOTS: readonly number[] = [SLOT_GUN, ...WEAPON_SLOTS];
-
-/** Is any weapon INSTANT RELOAD would serve reloading right now? */
-function weaponReloading(self: BotSelf): boolean {
-  for (const i of RELOADABLE_SLOTS) {
-    const slot = self.loadout[i];
-    if (slot === undefined || slot.equipmentId === null || slot.state === null) continue;
-    if (!isConsumableId(slot.equipmentId) && slot.state.reloadMsLeft > 0) return true;
-  }
-  return false;
-}
-
-/** INSTANT RELOAD (the Mine Layer's Shift): pressed when the target is in the
- *  mounted gun's reach AND a weapon it would serve is reloading. */
-const instantReloadTactic: EquipmentTactic = {
-  id: 'instantReload',
-  kind: 'ability',
-  reachU: () => 0,
-  want: (ctx) =>
-    ctx.target !== null &&
-    appetiteFor(ctx.sit.profile, 'instantReload') >= APPETITE_NEUTRAL &&
-    distTo(ctx.sit, ctx.target) <= mountedGunReachU(ctx.self, ctx.sit.stats) &&
-    weaponReloading(ctx.self),
-  solve: () => null,
-};
-
-/**
- * THE DAMAGE CUT CUES (amendment 115) — (a) ENGAGED IN COMBAT: the bot's own
- * `engage` posture, with a target; or (b) a seen enemy torpedo inbound on a
- * collision line within 150 u (ai/torpedoThreat.ts). Shared by the DAMAGE CUT
- * Shift and the interim SHIELD BLOCK belt row (Story 8.16, amendment 124(g)).
- */
-function damageCutCues(ctx: TacticContext): boolean {
-  return (ctx.posture === 'engage' && ctx.target !== null) || torpedoInbound(ctx.self, ctx.mind, ctx.sit.now);
-}
-
-/**
- * DAMAGE CUT (the Battleship's Shift) is PROACTIVE — Eric, 2026-09-29,
- * amendment 115: pressed on the cues above. NEVER as a reaction to damage
- * already taken (amendment 109's "within the last second" rule is gone).
- */
-const damageCutTactic: EquipmentTactic = {
-  id: 'damageCut',
-  kind: 'ability',
-  reachU: () => 0,
-  want: (ctx) => appetiteFor(ctx.sit.profile, 'damageCut') >= APPETITE_NEUTRAL && damageCutCues(ctx),
-  solve: () => null,
-};
-
-// ---------------------------------------------------------------------------
-// THE REGISTRY — PARTIAL over EquipmentId (Story 8.1), deep-frozen like the
-// server's own EQUIPMENT registry, and keyed exactly like it: a weapon whose
-// module does not exist cannot be fitted, so it needs no tactic. tactics.ts
-// walks the bot's ACTUAL FITTED SLOTS, so a missing row is unreachable — and
-// resolves fail-closed (the slot is skipped) if it ever were not.
-// ---------------------------------------------------------------------------
-
-const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
-  for (const key of Object.keys(rows) as (keyof T)[]) Object.freeze(rows[key]);
-  return Object.freeze(rows);
-};
-
-export const EQUIPMENT_TACTICS: Readonly<Partial<Record<EquipmentId, EquipmentTactic>>> = deepFreezeRows({
+export const WEAPON_TACTICS: Readonly<Record<WeaponLineId, EquipmentTactic>> = deepFreezeRows({
   gun: gunTactic,
   machineGun: machineGunTactic,
   flak: flakTactic,
@@ -921,213 +534,7 @@ export const EQUIPMENT_TACTICS: Readonly<Partial<Record<EquipmentId, EquipmentTa
   navalMines: mineTactic,
   captiveMines: captiveMineTactic,
   foulingMines: foulingMineTactic,
-  boost: boostTactic,
-  instantReload: instantReloadTactic,
-  damageCut: damageCutTactic,
   broadside: broadsideTactic,
   starShells: starShellsTactic,
-  phosphorShells: phosphorShellsTactic, // Story 8.17 (amendment 135(h), interim)
+  phosphorShells: phosphorShellsTactic,
 });
-
-// ---------------------------------------------------------------------------
-// THE BELT AXIS (epic-8 amendment 49) — ONE ROW, DELIBERATELY.
-//
-// `HEAL_CHOICE` left the bot spend policy with the wire in Story 8.8, so
-// without this a bot could draw and stock HULL REPAIR cards and never fire one
-// until Story 8.18 builds the real consumable tactic table. The rule is the
-// SAME threshold that used to buy the `5` key: a bot presses its stocked stack
-// when its hull is under the profile's `healHpFrac`. Nothing else — no
-// posture term, no appetite tier, no target read.
-//
-// STORY 8.18 STILL OWNS THE TABLE and may replace this row outright; it also
-// retunes the spend SCORER, which is untouched here (a hurt bot still scores a
-// HULL REPAIR card at the consumable kind base, not above it — ruled).
-// ---------------------------------------------------------------------------
-
-const hullRepairTactic: ConsumableTactic = {
-  id: 'hullRepair',
-  kind: 'ability',
-  // Never pulls the engagement band: healing is not a reach.
-  reachU: () => 0,
-  // TWO THINGS THE BARE `hp / maxHp` READ GETS WRONG, both fixed at the review
-  // gate rather than by retuning anything:
-  //
-  //   * THE PAID POOL IS HP ALREADY BOUGHT. `repairHp` is the last copy's
-  //     second 50 hp, landing over 5 s. Reading `hp` alone reads the hull
-  //     mid-payment, so a bot that fires at 120/350 sees 170 on the next tick
-  //     and fires again for hp already on its way — a three-deep stack gone
-  //     inside one pool's lifetime. Counting the pool asks the only question
-  //     worth asking: where will this hull BE?
-  //   * A SINKING HULL IS THE HUNGRIEST OF ALL. It reads 0/350 and the row
-  //     would press every tick, at a slot the server always refuses (no hp
-  //     comes back in the window — amendment 10). The driver drops non-afloat
-  //     bots before they decide; this is the tactic's own guard, so a caller
-  //     that reaches the brain another way cannot resurrect the behaviour.
-  //
-  // No new number and no new profile field: the threshold is still the
-  // profile's existing `healHpFrac` (amendment 49's "minimal" rule).
-  want: (ctx) =>
-    isAfloat(ctx.self.lifecycle) &&
-    ctx.sit.maxHp > 0 &&
-    (ctx.sit.hp + ctx.self.repairHp) / ctx.sit.maxHp < ctx.sit.profile.healHpFrac,
-  // Abilities ride the actSeq channel and solve no shot.
-  solve: () => null,
-};
-
-/**
- * SUPERCAV TORPEDO — the belt's first SHOT row (Story 8.13, epic-8 amendments
- * 74/79: *"a bot holding SUPERCAV TORPEDO stock uses the torpedo tactic on its
- * belt slot"*). It is the torpedo tactic with three substitutions and nothing
- * else: the bow ±15° sector, the 195 u/s lead, and the straight-runner's
- * credible range (it never homes, so the gate never widens). A stack has no
- * stat row, so the speed comes from CONFIG exactly as the server's row reads
- * it. Story 8.18 still owns the real belt table.
- */
-const supercavTorpedoTactic: ConsumableTactic = {
-  id: 'supercavTorpedo',
-  kind: 'shot',
-  reachU: () => TORPEDO_CREDIBLE_U,
-  want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
-  solve: (ctx) =>
-    solveTorpedoShot(ctx, 'supercavTorpedo', CONFIG.supercavTorpedo.speed, TORPEDO_CREDIBLE_U),
-};
-
-// ---------------------------------------------------------------------------
-// SHIELD BLOCK, CHAFF, DECOY BUOY (Story 8.16) — INTERIM rows, amendment
-// 124(g): Story 8.19 owns the table (the amendment 49/79/109 precedent). No
-// new number: each rule reuses a cue another row already acts on.
-// ---------------------------------------------------------------------------
-
-/** Is this bot's own SHIELD BLOCK still up? A self-read of the one seat its
- *  owner is told about (`OwnShip.shield`). */
-function shieldUp(self: BotSelf, now: number): boolean {
-  const s = self.shield;
-  return s !== undefined && s !== null && s.hpLeft > 0 && now < s.until;
-}
-
-/** Is this bot's own CHAFF cloud still painting? (The cloud is world-owned —
- *  amendment 127 — so its `until` arrives on the mind, not the record.) */
-function chaffLive(mind: BotMind, now: number): boolean {
-  return mind.chaffUntil !== undefined && now < mind.chaffUntil;
-}
-
-/** Is this bot's own SMOKE SCREEN trail still being laid? (`smokeUntil` is the
- *  lay window's end — Story 8.18; it arrives on the mind like chaffUntil.) */
-function smokeLaying(mind: BotMind, now: number): boolean {
-  return mind.smokeUntil !== undefined && now < mind.smokeUntil;
-}
-
-/** SHIELD BLOCK — pressed on the DAMAGE CUT cues, never over a shield already
- *  up (a second copy would REPLACE it, wasting the first's remainder). */
-const shieldBlockTactic: ConsumableTactic = {
-  id: 'shieldBlock',
-  kind: 'ability',
-  reachU: () => 0,
-  want: (ctx) => isAfloat(ctx.self.lifecycle) && !shieldUp(ctx.self, ctx.sit.now) && damageCutCues(ctx),
-  solve: () => null,
-};
-
-/** CHAFF — thrown on the way OUT (the boost's disengage cue), never over a
- *  cloud still painting. */
-const chaffTactic: ConsumableTactic = {
-  id: 'chaff',
-  kind: 'ability',
-  reachU: () => 0,
-  want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'disengage' && !chaffLive(ctx.mind, ctx.sit.now),
-  solve: () => null,
-};
-
-/**
- * SMOKE SCREEN (Story 8.18, Eric ruling 2026-09-29, amendment 145 — MINIMAL
- * INTERIM row; Story 8.20 owns the real table): the CHAFF row's template —
- * laid on the way OUT (the disengage posture), and never re-pressed while the
- * current trail is still being laid (a re-press would RESTART the 5 s clock —
- * ruling 140 — spending a copy for at most 5 s of extra trail). NOT "once":
- * the moment the 5 s window lapses, a bot STILL in `disengage` with a copy
- * left wants it again, so a long retreat re-presses every ~5 s until the belt
- * is empty. Behaviour is the interim's; 8.20 decides whether that stands.
- */
-const smokeScreenTactic: ConsumableTactic = {
-  id: 'smokeScreen',
-  kind: 'ability',
-  reachU: () => 0,
-  want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'disengage' && !smokeLaying(ctx.mind, ctx.sit.now),
-  solve: () => null,
-};
-
-/** DECOY BUOY — dropped dead astern at the full placeRange (the mine's rear
- *  sector, the same sector-centre construction) when a seen enemy torpedo is
- *  inbound: a float behind you for the homing fish to find first. */
-const decoyBuoyTactic: ConsumableTactic = {
-  id: 'decoyBuoy',
-  kind: 'placement',
-  reachU: () => CONFIG.mine.placeRange,
-  want: (ctx) => isAfloat(ctx.self.lifecycle) && torpedoInbound(ctx.self, ctx.mind, ctx.sit.now),
-  solve: (ctx) => sectorPlacement(ctx, DECOY_SECTOR, CONFIG.mine.placeRange),
-};
-
-/**
- * FLASH SHELLS (`dazzleShells`, Story 8.17 — amendment 135(h), MINIMAL
- * INTERIM row; Story 8.20 owns the table): a 'shot' row that PRIMES and FIRES
- * one copy at the nearest LIVE contact in sight while the bot is in its
- * ENGAGE posture, afloat only. Stock is the slot's own `n` (firePass's
- * readiness gate); reach is the star shell's (the radar rung), which is what
- * the row's clamp uses server-side.
- */
-const dazzleShellsTactic: ConsumableTactic = {
-  id: 'dazzleShells',
-  kind: 'shot',
-  reachU: (stats) => stats.radarRange,
-  want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'engage' && nearestLiveInSight(ctx) !== null,
-  solve: (ctx) => burstOnLiveContact(ctx, ctx.sit.stats.radarRange),
-};
-
-/** The consumable half of the tactic registry — PARTIAL over ConsumableId,
- *  exactly as EQUIPMENT_TACTICS is partial over EquipmentId. A line with no row
- *  here is simply unknown to bots, and the slot is skipped fail-closed. */
-export const CONSUMABLE_TACTICS: Readonly<Partial<Record<ConsumableId, ConsumableTactic>>> = deepFreezeRows({
-  hullRepair: hullRepairTactic,
-  supercavTorpedo: supercavTorpedoTactic,
-  shieldBlock: shieldBlockTactic,
-  chaff: chaffTactic,
-  decoyBuoy: decoyBuoyTactic,
-  dazzleShells: dazzleShellsTactic, // Story 8.17 (amendment 135(h), interim)
-  smokeScreen: smokeScreenTactic, // Story 8.18 (amendment 145, interim — 8.20 owns the table)
-});
-
-/**
- * HOW EAGER A BOT IS ABOUT ONE BELT LINE. A profile still says nothing about
- * consumables (amendment 49 ships the minimal rule and no new tuning), so the
- * table is TOTAL over ConsumableId at the SAME neutral base an unlisted
- * equipment would sit at — which keeps the ranking stable and the tie-break on
- * slot index. It is a table rather than a constant so that SUPERCAV TORPEDO,
- * the first belt line with a shot tactic (amendment 74), has a declared entry
- * beside the rest; Story 8.18 is where any real belt tuning lands.
- */
-const CONSUMABLE_APPETITE: Readonly<Record<ConsumableId, number>> = Object.freeze({
-  hullRepair: APPETITE_NEUTRAL,
-  shieldBlock: APPETITE_NEUTRAL,
-  smokeScreen: APPETITE_NEUTRAL,
-  chaff: APPETITE_NEUTRAL,
-  decoyBuoy: APPETITE_NEUTRAL,
-  depthCharge: APPETITE_NEUTRAL,
-  supercavTorpedo: APPETITE_NEUTRAL,
-  dazzleShells: APPETITE_NEUTRAL, // Story 8.17: FLASH SHELLS joined ConsumableId (amendment 132)
-});
-
-function consumableAppetite(id: ConsumableId): number {
-  return CONSUMABLE_APPETITE[id];
-}
-
-/** How eager this profile is about whatever a slot holds — the one resolver
- *  `rankedSlots` reads, spanning both id spaces through the shared guard. */
-export function slotAppetite(profile: BotProfile, id: SlotItemId): number {
-  return isConsumableId(id) ? consumableAppetite(id) : appetiteFor(profile, id);
-}
-
-/** THE ONE TACTIC LOOKUP FOR A FITTED SLOT — `slotRow`'s bot-side twin.
- *  Narrows through the shared guard (never a cast) and answers with whichever
- *  registry owns the id, or `undefined` when neither does. */
-export function tacticFor(id: SlotItemId): SlotTactic | undefined {
-  return isConsumableId(id) ? CONSUMABLE_TACTICS[id] : EQUIPMENT_TACTICS[id];
-}

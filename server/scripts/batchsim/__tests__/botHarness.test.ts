@@ -11,7 +11,7 @@
 // NEVER import ../main.ts here — it runs the CLI (process.exit) at import time.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type Island } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, type Island } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 import { UsageError, parseArgs } from '../args.js';
@@ -343,8 +343,8 @@ describe('runner — the bot lobby', () => {
       expect(m.bots).toHaveLength(4);
       for (const b of m.bots!) {
         expect(b.id).toMatch(/^bot-\d+$/);
-        expect(Object.values(CONFIG.bots.profiles).flat() as string[]).toContain(b.profile);
-        expect(Object.keys(CONFIG.bots.profiles)).toContain(b.cls);
+        expect(CONFIG.bots.profiles as readonly string[]).toContain(b.profile);
+        expect(SHIP_CLASS_IDS as readonly string[]).toContain(b.cls);
         expect(b.ticks).toBeGreaterThan(0);
         expect(b.draftTicks).toBeGreaterThanOrEqual(0);
         expect(b.draftTicks).toBeLessThanOrEqual(b.ticks);
@@ -449,7 +449,7 @@ describe('runner — forced test profiles and the engage gate (wave 4)', () => {
       for (const b of m.bots!) {
         // A test id can NEVER be an in-game id (the disjointness pin lives in
         // botPolicy.test.ts); here: the forced row governed the hull.
-        expect(Object.values(CONFIG.bots.profiles).flat() as string[]).not.toContain(b.profile);
+        expect(CONFIG.bots.profiles as readonly string[]).not.toContain(b.profile);
       }
     } finally {
       restore();

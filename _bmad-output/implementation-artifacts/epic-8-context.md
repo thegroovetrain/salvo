@@ -15,7 +15,7 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 - Story 8.17: Catalog v3 — Star Shells, Broadside, Phosphor, Flash — landed
 - Story 8.18: Smoke Screen as a Sight Occluder — landed
 - Story 8.19: Wake Drafting — landed
-- Story 8.20: Bots Draw from the Pool — NEXT
+- Story 8.20: Bots Draw from the Pool — landed
 - Story 8.21: Results LOADOUT and the Match Record
 - Story 8.22: How-to-Play and Copy Re-cut
 
@@ -29,7 +29,9 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 
 **Smoke screen (8.18).** A key-fired belt consumable (cap 5): a trail laid astern for 5 s; each puff lives 30 s, expanding r40 → r60 u. It blocks SIGHT ONLY — radar is unaffected. A puff hides its occupant and everything behind it from a clear observer; an observer INSIDE any puff is not blind but short-sighted: 1/8 intel range, seeing into smoke, nothing optical beyond (radar untouched). `puffIntervalMs` is 500 ms and `expandMs` 30 s (Eric, amendments 138–139). Perf pin: perception at 20 observers × 200 live puffs inside the 50 ms tick; `/metrics` gains `smokeLivePeak`.
 
-**Still open:** class designations; bot gun/ability tactic tables; sign-off on drafted glyphs and hover copy.
+**Bots (8.20, landed).** A bot picks cards with ONE build-aware points scorer (`CONFIG.bots.cardPoints`): any upgrade or consumable base 2, +1 a favorite, +1 an upgrade matching its style (rounded = the lowest-held line, specialist = the highest, and only on an uneven build), consumable belt hunger low −1 / medium 0 / high +1, −1 for one already carried, HULL REPAIR while hurt and carrying none +2, a weapon for an empty Q/E/R slot 3.5 and a favorite weapon 3.75; highest wins, ties by a seeded flip. The six personalities keep their fighting-style numbers and gain a build taste (style, favorite upgrades, consumables and weapons, belt hunger); any personality sails any hull. Bot guns stay random (no `BOT_GUNS`, no weighting table of any kind). Two firing-rule changes: boost is also pressed in `pursue` / `engage` against a target beyond the band's far edge (never `farm`), and a bot never pops smoke while one of its own is still running. Every other interim row is the row. Harness readouts are measurements with no bars (amendments 162–173).
+
+**Still open:** class designations; sign-off on drafted glyphs and hover copy.
 
 ## Technical Decisions
 
@@ -44,6 +46,12 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 - In smoke (centre inside ANY puff, `ShipRecord.inSmoke`) sight = 1/8 intel range (`CONFIG.smokeScreen.inSmokeSightFraction` 0.125), sees into smoke, nothing optical beyond it, own lit zones off, radar untouched (amendment 149).
 - Wire: `SmokeView { id, x, y, t0 }`, no radius. A `smoke` registry pseudo-row is visible iff the puff is within `sight + puffRadius` and the NEAREST point of the disc has island-only LOS (any visible part suffices, amendment 148; a puff stays visible from inside another), or `ownerId === me`. Rides `FrameMsg.smoke?`; bots get it via `observe()`. The invariant suite iterates the row and still counts six; `PROTOCOL_VERSION` bumps.
 - Cost bound: live puffs ≤ stacks × `layMs / puffIntervalMs`; one `segCircleHit` per (observer, subject, puff).
+
+**Bots (8.20).**
+- `ai/spending.ts` `cardScore` / `chooseSpend` read the bot's own build (`spendStateOf`: copies per line, slots, belt, hp + `repairHp`) and the personality's `taste`; refused cards are never scored, an all-refused hand banks the level; ties draw ONE `mind.spendRng` value only when more than one index ties (none with no rng: lowest index).
+- `CONFIG.bots.profiles` is a flat list of six ids (no `hullId`); enrollment does one `rng.pick` over it; test-only rows stay hull-bound via `TEST_PROFILE_HULL`. `boonWeights`, the v2 → v3 alias layer and `APPETITE_FAMILY` are deleted (explicit per-line appetites).
+- Tactic tables split: `ai/tacticKit.ts` (shared helpers), `equipment.ts` (weapon rows), `shift.ts` (`SHIFT_TACTICS`, derived from `classShift`), `consumables.ts` (`CONSUMABLE_TACTICS`, total, `depthCharge` never fires), `tacticRegistry.ts` (`EQUIPMENT_TACTICS` total, `tacticFor` fail-closed); imports flow helpers ← rows ← registry ← `tactics.ts`. The smoke row wants iff afloat ∧ `disengage` ∧ `now ≥ smokeUntil + lifeMs` (no posture-edge state).
+- Harness: `batchsim/poolReadouts.ts` POOL READOUTS (gun mix, weaponless-at-level, pure gunboat, heal-take rate, levels wasted, weapon-line spread, peak live mines), read from `world` in the collector; no `World` hook; evidence in `batch-sim-evidence-2026-09-30.md`. No wire change, `PROTOCOL_VERSION` stays 62.
 
 **Later seams.** Wake drafting (8.19) has landed: a 5 % lift on the rider's forward cap, the lane one maker's-hull-width each side of the trail and starting behind the maker's stern (a rider counts only with its whole hull behind it, amendment 159), fading with the water's age and scaled by heading, a MAX over other hulls' ribbons read one tick old (amendments 151–158). It is folded `boosted → slowed → drafted → hooks`, `OwnShip.draft` is self-private, and it is parity-pinned at zero. The match record is server-only behind a port writer and is NEVER the results message.
 
@@ -225,3 +233,16 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 159. **The wake starts behind the maker's stern; a rider is lifted only while its whole hull is behind it** (Eric 2026-09-30, review gate): `WakeRibbon.hullAheadU` (maker half length while attached, 0 once detached), `draftLift` cuts `hullAheadU + riderHalfLenU` of arc from the newest sample; a chaser closes to nose-to-tail and holds there, the leader never drafts its follower, abreast or stacked hulls never lift each other; steady-state lift averages under 2 % (the lift closes the gap, then holds formation). Supersedes 158(b)'s forward reach.
 160. **The `OwnShip.draft` disclosure is recorded honestly** (Eric 2026-09-30): the exact scalar lets a modified client recover a hidden wake's direction and rough age (a rough bearing toward a hidden hull within ~250 u); accepted, honest clients show nothing, still six exceptions.
 161. **Review-gate patches of record** (2026-09-30): 1500-tick stern-chase pins replace the 160-tick leader pin; independent perception draft clause + sink-with-stale-draft case; `setDraft` clamped to the config lift; harness `draft%` counts occupancy, not benefit (deferred for 8.20).
+
+162. **Story 8.20's scope is card choosing, a firing-rule review, harness readouts and tidy-up; hull identity is dead** (Eric 2026-09-30): a bot picks from its build, hp and what it lacks; `boonWeights` and the alias layer deleted; no wire change.
+163. **Bot guns stay random — final** (Eric 2026-09-30): amendment 109's interim is the rule; no `BOT_GUNS`.
+164. **The points table** (Eric 2026-09-30; half-points are the orchestrator's encoding of his "reading B"): base 2, +1 favorite, +1 style, belt hunger −1/0/+1, −1 already carried, HULL REPAIR hurt-and-none +2 (no hunger), weapon for an empty slot 3.5, favorite weapon 3.75; a two-bonus upgrade or a needed heal beats a favorite weapon; upgrades and consumables stand equal; ties by a seeded flip.
+165. **The six build tastes** (Eric 2026-09-30, verbatim as approved): raider, duelist, specialist; bulwark, forager, trapper, rounded; siege specialist; each with its favorite upgrades, consumables, belt hunger and weapons as recorded in `epic-8-context-amendments.md`.
+166. **Favorite weapons** (Eric 2026-09-30): raider and duelist heavy + light torpedo; bulwark broadside, star shells; siege star shells, phosphor shells, broadside; forager and trapper naval, captive, fouling mines.
+167. **Any personality on any hull** (Eric 2026-09-30): flat `profiles` list, one enrollment pick, `hullId` gone; test rows stay hull-bound.
+168. **Boost into fights** (Eric 2026-09-30, plus the review-gate ruling): also pressed in `pursue` / `engage` against a target beyond the band's far edge, still when fleeing; never in `farm`.
+169. **Smoke: once-per-retreat was ruled, then superseded at the review gate** (Eric 2026-09-30): "never while one of your own is running — bad play"; `now ≥ smokeUntil + lifeMs`, no posture-edge state; the latter governs.
+170. **Every other firing rule stands as shipped** (Eric 2026-09-30): the interim rows become the rows.
+171. **Harness readouts are measurements** (Eric 2026-09-30): no bars, one batch of at most 99 matches, the control not re-run, balance cycle 1's class numbers void.
+172. **The style bonus needs an uneven build** (Eric 2026-09-30): on a flat build no upgrade earns it, so a weapon takes the opening pick.
+173. **Orchestrator readings for 8.20** (2026-09-30, Eric may veto): "its weapons" = a tier copy of a held equipment line, "its gun" = any gun-ladder line, style reads the whole upgradeable set, HURT is the heal tactic's own read; tie-break draws only on a real tie; registries total with a fail-closed `tacticFor`; caveats: the heal-take denominator counts untakeable hands and a level earned within one deliberation of death reads as wasted; review-gate fixes (death-tick sampling, unsampled bot, level reset).

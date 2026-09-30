@@ -1,6 +1,4 @@
-// COMBAT-BOT CARD POLICY (Story 6.4 wave 2; re-cut for catalog v3 in Story
-// 8.1) — how a bot spends a banked level (Eric ruling D1: doctrine weights;
-// D2: the heal rule).
+// COMBAT-BOT CARD POLICY — how a bot spends a banked level.
 //
 // PURE POLICY, ZERO AUTHORITY. Nothing here calls World. `chooseSpend()`
 // returns a `spendChoice` — an offer index, or null for "not this tick" — and
@@ -9,93 +7,66 @@
 // public entry point a human client's SpendMsg lands on. IT NEVER RETURNS A
 // NEGATIVE: the reserved -1 heal sentinel left the wire in Story 8.8.
 //
-// THE HEAL IS NOT A SPEND ANY MORE (epic-8 amendments 46 + 49). Healing is a
-// CARD a bot draws, stocks in its belt and FIRES — so `healHpFrac` now gates
-// the belt press in ai/equipment.ts (CONSUMABLE_TACTICS), not this policy. A
-// hurt bot still scores a HULL REPAIR card at the ordinary consumable kind
-// base, deliberately: Story 8.18 owns retuning the scorer.
+// THE HEAL IS NOT A SPEND (epic-8 amendments 46 + 49). Healing is a CARD a bot
+// draws, stocks in its belt and FIRES — so `healHpFrac` gates the belt press
+// in the HULL REPAIR tactic. The only thing this policy does with hp is WANT a HULL
+// REPAIR card more while hurt (below).
 //
-// THE SCORING, in order:
-//   1. Nothing banked → null. No offer materialized → null (a degenerate
-//      offer-less level has nothing to buy at all now).
-//   2. Every offered LINE is scored: the profile's re-keyed per-line
-//      override if it names that line, else its re-keyed category base, else
-//      the line's KIND base, else a low default. Ties break on offer index —
-//      deterministic, no rng (a `spend: 'random'` test profile is the only
-//      path that touches the rng at all).
+// THE POINTS SCORER (Story 8.20, Eric ruling 2026-09-30, R3/R4). Every card
+// in the hand that the hull can actually take (`pickRefusal`) gets a score
+// from ONE table, CONFIG.bots.cardPoints, read against the bot's own build and
+// its personality's build TASTE (ai/profiles.ts). Highest score wins.
 //
-// WHAT CATALOG V3 DELETED HERE (Story 8.1). RARITY is gone as a concept, so
-// the rarity tiebreak went with it; ACQUISITION cards are gone, so the
-// "already-resolved exclusive" demotion has nothing left to demote; and the
-// old `copies === 1` held-line test is replaced by the only thing that is
-// true of every v3 line — AT CAP: a bot that holds `CATALOG[id].cap` copies
-// of a line can buy nothing more from it, whatever its cap happens to be.
+//   - A NEW WEAPON (copy 1 of an equipment line, for an empty Q/E/R slot) is
+//     worth `weapon`, or `favoriteWeapon` if it is one of the taste's
+//     favorites. Nothing else is added to a weapon.
+//   - AN UPGRADE (a ladder rung, or a tier copy of a weapon already held) is
+//     `base`, + `favorite` if it matches a favorite upgrade, + `style` if it
+//     is the build's lowest line (a `rounded` taste) or its highest (a
+//     `specialist`). "The build" is every line the bot could still raise: the
+//     ship ladders, the mounted gun's ladders and the weapons it holds, each
+//     counted by copies held. THE STYLE BONUS NEEDS AN UNEVEN BUILD (R11): when
+//     every line in it holds the same count (the flat level-zero build), no
+//     upgrade earns it, so a favorite ladder scores 3 and a weapon opens.
+//   - A CONSUMABLE is `base`, + `favorite` if it is one, then + the taste's
+//     belt hunger if the belt carries none of it, or + `carried` (a
+//     negative) if it already does. HULL REPAIR while hurt and carrying none
+//     is `base + hurtRepair` (+ `favorite`) with belt hunger NOT applied.
 //
-// THE V2 → V3 REMAP, AND WHY IT LIVES HERE. `CONFIG.bots.boonWeights` is
-// authored in the v2 vocabulary (nine CATEGORY bases + v2 LINE overrides).
-// Catalog v3 deleted both vocabularies, and the weight tables are a BOT TUNE,
-// not a card fact — retuning them is a balance pass with its own ruling, not
-// a side effect of the model swap (deferred-work already carries the bot
-// retune). So this module translates the shipped table onto the 29 v3 lines
-// and changes NO number:
+// THE ORDER THAT PRODUCES: a two-bonus upgrade and a needed repair (both 4 or
+// more) beat any new weapon; a favorite weapon (3.75) beats any other weapon
+// (3.5); a new weapon beats a one-bonus upgrade or consumable (3 or less); a
+// plain card sits at 2 and a carried or unwanted consumable below it.
+// Upgrades and consumables stand on equal footing (R4).
 //
-//   CATEGORY   → v3 lines
-//   ship       → armor, speed, turning, reload
-//   guns       → deckGun, deckGunTurret, deckGunBarrel, machineGun, flak (8.15)
-//   torpedoes  → lightTorpedo, heavyTorpedo
-//   mines      → navalMines, captiveMines, foulingMines
-//   broadside  → broadside
-//   starShells → starShells (8.17: the two add-on verbs left the category —
-//                dazzleShells is a consumable, phosphorShells its own line)
-//   phosphorShells → phosphorShells (8.17; no profile names it — kind base)
-//   intel      → radarSweep
-//   (radarBuoy — the category and its CONFIG weights went with the radar
-//    buoy in Story 8.16; DECOY BUOY prices at the consumable KIND base)
-//   boost      → (nothing — Story 8.9 makes the boost a universal ability,
-//                 so no v3 card addresses it and the base is simply unused)
+// TIES draw the mind's decorrelated spend stream (`mind.spendRng`): a uniform
+// pick among the tied indices, ONE draw, and only when more than one index
+// ties. No rng in hand (hand-built tests) takes the lowest tied index.
 //
-//   LINE OVERRIDE                     → v3 line
-//   shipHull → armor · shipSpeed → speed · shipCooldown → reload
-//   intelSweep → radarSweep
-//   gunBarrel → deckGunBarrel · gunTurret → deckGunTurret
-//   torpedoTube, torpedoSpeed, acquireTorpedo → heavyTorpedo
-//   mineBlast, acquireMine → navalMines · mineCaptive → captiveMines
-//   broadsideTurrets, broadsideSpread, acquireBroadside → broadside
-//   starDuration, acquireStarShells → starShells
-//   (starDazzle → dazzleShells — DELETED in 8.17: nothing names it)
-//   acquireBoost → (nothing — no v3 card grants it)
-//   (buoyDuration, acquireRadarBuoy, buoyGun — deleted from CONFIG with the
-//    radar buoy in Story 8.16)
-//
-// Several v2 keys land on ONE v3 line (raider's torpedoTube 2.5, torpedoSpeed
-// 2.2 and acquireTorpedo 1.6 all become `heavyTorpedo`). The HIGHEST of them
-// wins: the strongest thing the profile said about that weapon is what it
-// meant about the weapon.
-//
-// NO PICK-ORDER AWARENESS LIVES HERE, AND NONE SHOULD.
-// This policy scores each offered card on its own merits and never reasons
-// about the order cards are acquired in. That was a deliberate ruling when the
-// `mineDamage` × `minePropFouling` pick-order bug was still open: the finding
-// was against the CARD ENGINE, not the bots, and Eric confirmed bots should
-// eat it exactly as human players do rather than route around it. Catalog v3
-// removes the hazard by construction (the fold is permutation-invariant and
-// `validateCatalog` refuses an add/mult collision), but the rule survives its
-// occasion: a future order-dependence is fixed in the engine for everyone.
+// NO PICK-ORDER AWARENESS LIVES HERE, AND NONE SHOULD. The scorer reads what
+// the bot holds now, never the order it was acquired in: a future
+// order-dependence is fixed in the engine for everyone.
 
 import {
   CATALOG,
   CONFIG,
+  CONSUMABLE_SLOTS,
+  DEFAULT_GUN,
+  MOUNTED_GUN,
   SLOT_COUNT,
+  SLOT_GUN,
   boonStackCount,
+  isConsumableId,
+  ladderHost,
   pickRefusal,
+  tierTargetOf,
   type Catalog,
   type CatalogLine,
-  type LineKind,
+  type EquipmentId,
   type Rng,
   type SlotItemId,
 } from '@salvo/shared';
-import type { BotProfile } from './profiles.js';
-import type { AnyProfileId } from './types.js';
+import type { BotProfile, BotTaste } from './profiles.js';
 
 /** Everything the policy needs about the bot's own economy — read by the
  *  driver off the bot's OWN ShipRecord (the sanctioned self-read: its bank,
@@ -112,226 +83,23 @@ export interface BotSpendState {
    * array the server's `pickRefusal` takes, read off the bot's own ShipRecord
    * by the driver like everything else here (ai/ never sees a World).
    *
-   * WHY THE SCORER NEEDS IT (Story 8.14 review, F4): `spendCard` refuses a card
-   * this hull cannot take, and the offer does NOT reroll on a refusal. A scorer
-   * that keeps naming the same refused card therefore spends the same banked
-   * level into a no-op every tick, forever. Defaulted so the many hand-built
-   * test states keep compiling as "nothing fitted, every slot empty".
+   * The scorer reads three things off it: which cards `spendCard` would refuse
+   * (Story 8.14 review, F4 — the offer does NOT reroll on a refusal, so naming
+   * a refused card would spend the same level into a no-op every tick), which
+   * consumables the belt already carries, and the mounted gun (slot 0).
+   * OPTIONAL: absent reads as "the cannon mounted, every other slot empty", so
+   * the many hand-built test states keep compiling.
    */
   slotIds?: readonly (SlotItemId | null)[];
   hp: number;
+  /**
+   * The paid HULL REPAIR pool still draining in (`BotSelf.repairHp`) — hp
+   * already bought. The scorer's HURT read is `(hp + repairHp) / maxHp <
+   * profile.healHpFrac`, the heal tactic's own read (Story 8.20). OPTIONAL:
+   * absent reads as 0, so hand-built test states keep compiling.
+   */
+  repairHp?: number;
   maxHp: number;
-}
-
-/** Score for a line this bot has taken to its CAP — deliberately neither zero
- *  (the pick stays legal, and a banked level held forever is wasted) nor
- *  competitive. Sits just under the lowest category base in the table. */
-const HELD_LINE_SCORE = 0.9;
-
-/** Score for a line nothing in this profile's table — and no kind base —
- *  speaks to. Below every real weight. */
-const UNLISTED_SCORE = 0.5;
-
-/**
- * THE KIND BASES (Story 8.1): what a profile wants from a line its re-keyed
- * table says nothing about, by the card's v3 KIND.
- *
- * STRUCTURAL, NOT TUNED. These are not new balance decisions: they reproduce
- * the shape the v2 table already had — a universal ladder is the safe
- * always-useful buy, an add-on is a cheap nature-changer on a weapon you are
- * already carrying, a new weapon is a bigger commitment, a consumable is the
- * least of them until Story 8.7 gives the rack a use. The real bot retune
- * against v3 decks is a balance pass with its own ruling (deferred-work).
- */
-const KIND_BASE: Readonly<Record<LineKind, number>> = Object.freeze({
-  ladder: 1.8,
-  addon: 1.6,
-  equipment: 1.2,
-  consumable: 1.0,
-});
-
-/** v2 CATEGORY → the v3 lines it now speaks for (see the header table).
- *  Exported so the re-key is pinnable rather than only documented. */
-export const CATEGORY_LINES: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  ship: ['armor', 'speed', 'turning', 'reload'],
-  // Story 8.15: the two pickable guns' ladders (offered only while mounted)
-  // score as the cannon's line does — a gun is a gun to a v2 `guns` weight.
-  guns: ['deckGun', 'deckGunTurret', 'deckGunBarrel', 'machineGun', 'flak'],
-  // Story 8.13: ACOUSTIC HOMING is DELETED (homing became a tier stat on both
-  // lines, amendment 80) and SUPERCAV TORPEDO became a CONSUMABLE (amendment
-  // 74) — so a v2 `torpedoes` category no longer speaks for it, and it prices
-  // at the consumable KIND base like every other belt line.
-  torpedoes: ['lightTorpedo', 'heavyTorpedo'],
-  mines: ['navalMines', 'captiveMines', 'foulingMines'],
-  broadside: ['broadside'],
-  // Story 8.17 (amendment 134): the star shell's two add-on verbs are gone —
-  // `dazzleShells` is FLASH SHELLS, a CONSUMABLE (priced at the consumable
-  // KIND base like every belt line), and `phosphorShells` is its own weapon
-  // line under its own category. No v2 profile names `phosphorShells`, so it
-  // prices at the equipment KIND base; a phosphor zone reveals nothing, so
-  // siege's `starShells` want (C2 — resolving stale plots into sight) does
-  // NOT speak for it. Story 8.20 owns the real retune.
-  starShells: ['starShells'],
-  phosphorShells: ['phosphorShells'],
-  intel: ['radarSweep'],
-  boost: [], // Story 8.9: the boost is a universal ability, not a card
-});
-
-/** v2 LINE-override key → the v3 line it now names (see the header table).
- *  A key with no v3 home is listed in HOMELESS_V2_LINES below instead, and
- *  contributes nothing. Exported so the re-key is pinnable. */
-export const LINE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
-  shipHull: 'armor',
-  shipSpeed: 'speed',
-  shipCooldown: 'reload',
-  intelSweep: 'radarSweep',
-  gunBarrel: 'deckGunBarrel',
-  gunTurret: 'deckGunTurret',
-  torpedoTube: 'heavyTorpedo',
-  torpedoSpeed: 'heavyTorpedo',
-  acquireTorpedo: 'heavyTorpedo',
-  mineBlast: 'navalMines',
-  acquireMine: 'navalMines',
-  mineCaptive: 'captiveMines',
-  broadsideTurrets: 'broadside',
-  broadsideSpread: 'broadside',
-  acquireBroadside: 'broadside',
-  starDuration: 'starShells',
-  acquireStarShells: 'starShells',
-  // (`starDazzle` → `dazzleShells` is DELETED, Story 8.17: no profile table
-  // names the key, and FLASH SHELLS is a consumable priced at its kind base.)
-});
-
-/**
- * The v2 line-override keys catalog v3 has NO home for, listed deliberately so
- * the "every override names a real line" pin can tell a re-key gap from a
- * ruled deletion:
- *   - `acquireBoost` — the speed boost becomes the universal Shift ability in
- *     Story 8.9, so it is not a card at all.
- *   - `torpedoHoming` — the ACOUSTIC HOMING add-on is DELETED (Eric ruling
- *     2026-09-19, epic-8 amendment 80): homing is a TIER STAT on the light and
- *     heavy lines, so the want has no single card to attach to. Re-keying it
- *     onto one of the two lines would silently double that line's price for a
- *     profile that actually wanted the verb on both.
- *   - `minePropFouling` — the PROP FOULING add-on is DELETED (amendment 81)
- *     and FOULING MINES is now a WEAPON LINE of its own, priced by the `mines`
- *     CATEGORY like the other two racks. The v2 key was an ADD-ON's weight;
- *     carrying it onto a whole weapon line would price a rack by what the
- *     profile thought of a modifier.
- *
- * STORY 8.18 OWNS THE RETUNE. Re-authoring these tables in v3 vocabulary (at
- * which point a profile can say what it thinks of FOULING MINES directly) is a
- * balance pass with its own ruling, not a side effect of a content story.
- */
-export const HOMELESS_V2_LINES: ReadonlySet<string> = new Set([
-  'acquireBoost',
-  'torpedoHoming',
-  'minePropFouling',
-]);
-
-/** One profile's two-level weight table, widened for lookup. */
-interface WeightTable {
-  cat: Readonly<Record<string, number>>;
-  lines: Readonly<Record<string, number>>;
-}
-
-/** The empty table a profile OUTSIDE CONFIG.bots.boonWeights resolves to —
- *  test-only rows have no doctrine table (they spend at random and only reach
- *  the weighted scorer through a hand-built call), so every line scores at
- *  its kind base rather than crashing on a missing table. Unreachable for the
- *  six in-game ids, whose tables always exist. */
-const EMPTY_TABLE: WeightTable = { cat: {}, lines: {} };
-
-/** The CONFIG weight table for a profile (category bases + line overrides). */
-function weightTable(profile: AnyProfileId): WeightTable {
-  const tables = CONFIG.bots.boonWeights as Partial<
-    Record<string, { cat: Record<string, number>; lines?: Record<string, number> }>
-  >;
-  const t = Object.hasOwn(tables, profile) ? tables[profile] : undefined;
-  return t === undefined ? EMPTY_TABLE : { cat: t.cat, lines: t.lines ?? {} };
-}
-
-/** Catalog lookup, own-property only (the engine-wide fail-closed gate: a
- *  plain-object catalog answers `catalog['constructor']` otherwise). */
-function lineOf(catalog: Catalog, id: string): CatalogLine | null {
-  if (!Object.hasOwn(catalog, id)) return null;
-  return catalog[id] ?? null;
-}
-
-/** The HIGHEST re-keyed per-line override this profile has for `id`, or null.
- *  A table key that already IS a v3 line id counts as itself, so a future
- *  retune can author v3 keys directly without touching this module. */
-function overrideFor(table: WeightTable, id: string): number | null {
-  let best: number | null = null;
-  for (const key of Object.keys(table.lines)) {
-    const target = key === id ? id : LINE_ALIASES[key];
-    if (target !== id) continue;
-    const w = table.lines[key];
-    if (w !== undefined && (best === null || w > best)) best = w;
-  }
-  return best;
-}
-
-/** The HIGHEST re-keyed category base this profile has for `id`, or null. */
-function categoryFor(table: WeightTable, id: string): number | null {
-  let best: number | null = null;
-  for (const key of Object.keys(table.cat)) {
-    if (!(CATEGORY_LINES[key] ?? []).includes(id)) continue;
-    const w = table.cat[key];
-    if (w !== undefined && (best === null || w > best)) best = w;
-  }
-  return best;
-}
-
-/**
- * How much this profile wants one offered LINE: the HIGHEST of its re-keyed
- * per-line overrides and its re-keyed category bases for that line, else the
- * line's KIND base — with a line already held AT CAP demoted to neutral.
- * Exported so tests (and a future tuning tool) can read the policy without
- * running a spend.
- *
- * WHY THE MAX RATHER THAN "OVERRIDE FIRST" (Story 8.1): the re-key collapses
- * several v2 keys onto one v3 line, and a v2 table could legitimately price
- * them differently — raider's `torpedoTube` 2.5 and `acquireTorpedo` 1.6 both
- * now speak about `heavyTorpedo`.
- * Taking the strongest thing the profile said about that line keeps the v2
- * intent intact in both directions; override-first would silently let an
- * acquisition ranking demote a category the profile actually wants.
- */
-export function boonWeightFor(
-  profile: AnyProfileId,
-  id: string,
-  fitted: readonly string[] = [],
-  catalog: Catalog = CATALOG,
-): number {
-  const line = lineOf(catalog, id);
-  if (line === null) return 0; // unknown id: never picked
-  if (boonStackCount(fitted, id) >= line.cap) return HELD_LINE_SCORE;
-  const table = weightTable(profile);
-  const named = [overrideFor(table, id), categoryFor(table, id)].filter((w): w is number => w !== null);
-  if (named.length > 0) return Math.max(...named);
-  return KIND_BASE[line.kind] ?? UNLISTED_SCORE;
-}
-
-/**
- * THE OFFER INDICES THIS HULL CAN ACTUALLY TAKE (Story 8.14 review, F4) — the
- * cards `World.spendCard` would not refuse, through the one shared predicate
- * both sides run. Everything downstream of a spend decision picks from HERE.
- *
- * Before this, an at-cap line scored `HELD_LINE_SCORE` and could still win the
- * hand; with the server now refusing it (review F1) the bot re-picked the same
- * card every tick and the banked level never moved. An empty result means the
- * whole hand is refused, and the right answer is the human one (amendment 44):
- * DO NOT SPEND — the level stays banked until firing a consumable frees a slot.
- */
-function spendableIndices(s: BotSpendState, catalog: Catalog): number[] {
-  const offer = s.offer ?? [];
-  const slotIds = s.slotIds ?? EMPTY_SLOTS;
-  const out: number[] = [];
-  for (let i = 0; i < offer.length; i += 1) {
-    if (pickRefusal(s.cards, slotIds, offer[i], catalog) === null) out.push(i);
-  }
-  return out;
 }
 
 /** A hull whose slots the caller did not supply: every slot empty, which is
@@ -340,38 +108,175 @@ const EMPTY_SLOTS: readonly (SlotItemId | null)[] = Object.freeze(
   Array.from({ length: SLOT_COUNT }, () => null),
 );
 
-/** The best SPENDABLE line in an offer under this profile's weights, or null
- *  when every card in the hand is refused. Otherwise unchanged: even an
- *  all-junk hand is spent, because a banked level held forever is a level
- *  wasted. Ties keep the incumbent, so offer index settles them —
- *  deterministic, rng-free. */
-function bestOfferIndex(profile: BotProfile, s: BotSpendState, catalog: Catalog): number | null {
-  let bestI: number | null = null;
-  let bestW = -Infinity;
-  for (const i of spendableIndices(s, catalog)) {
-    const w = boonWeightFor(profile.id, (s.offer ?? [])[i], s.cards, catalog);
-    if (w > bestW) {
-      bestW = w;
-      bestI = i;
-    }
+const POINTS = CONFIG.bots.cardPoints;
+
+function slotIdsOf(s: BotSpendState): readonly (SlotItemId | null)[] {
+  return s.slotIds ?? EMPTY_SLOTS;
+}
+
+/**
+ * THE OFFER INDICES THIS HULL CAN ACTUALLY TAKE (Story 8.14 review, F4) — the
+ * cards `World.spendCard` would not refuse, through the one shared predicate
+ * both sides run. An empty result means the whole hand is refused, and the
+ * right answer is the human one (amendment 44): DO NOT SPEND — the level stays
+ * banked until firing a consumable frees a slot.
+ */
+function spendableIndices(s: BotSpendState, catalog: Catalog): number[] {
+  const offer = s.offer ?? [];
+  const slotIds = slotIdsOf(s);
+  const out: number[] = [];
+  for (let i = 0; i < offer.length; i += 1) {
+    if (pickRefusal(s.cards, slotIds, offer[i], catalog) === null) out.push(i);
   }
-  return bestI;
+  return out;
+}
+
+/** The equipment row slot 0 carries — the cannon's when the caller supplied
+ *  no slots (or slot 0 holds nothing a gun ladder could name). */
+function mountedGunOf(s: BotSpendState): EquipmentId {
+  const g = s.slotIds?.[SLOT_GUN] ?? null;
+  return g === null || isConsumableId(g) ? MOUNTED_GUN[DEFAULT_GUN] : g;
+}
+
+/** Does this line belong to the bot's UPGRADEABLE SET — a ship ladder, a
+ *  ladder of the mounted gun, or a weapon already held? (Cap is checked by
+ *  the caller.) */
+function inUpgradeableSet(line: CatalogLine, copies: number, mounted: EquipmentId): boolean {
+  if (line.kind === 'equipment') return copies > 0;
+  if (line.kind !== 'ladder') return false;
+  const host = ladderHost(line);
+  return host === undefined || host === mounted;
+}
+
+/**
+ * THE UPGRADEABLE SET `U` the style bonus reads (spec "Scorer definitions"):
+ * the ship ladders, the mounted gun's ladder lines and every held equipment
+ * line, each only while BELOW CAP, valued by copies held. Derived from the
+ * catalog (a ladder with no host is a ship ladder), never a list of ids.
+ */
+function upgradeableSet(s: BotSpendState, catalog: Catalog): Map<string, number> {
+  const mounted = mountedGunOf(s);
+  const out = new Map<string, number>();
+  for (const key of Object.keys(catalog)) {
+    const line = catalog[key];
+    if (line === undefined || line.stub === true) continue;
+    const copies = boonStackCount(s.cards, key);
+    if (copies < line.cap && inUpgradeableSet(line, copies, mounted)) out.set(key, copies);
+  }
+  return out;
+}
+
+/** Does this upgrade card earn the STYLE bonus — its line holds the build's
+ *  lowest copy count (`rounded`) or highest (`specialist`)? Never on a FLAT
+ *  build, where min(U) = max(U) (R11). */
+function styleMatches(taste: BotTaste, s: BotSpendState, line: CatalogLine, catalog: Catalog): boolean {
+  const set = upgradeableSet(s, catalog);
+  const mine = set.get(line.id);
+  if (mine === undefined) return false;
+  const counts = [...set.values()];
+  const lo = Math.min(...counts);
+  const hi = Math.max(...counts);
+  if (lo === hi) return false;
+  return mine === (taste.style === 'rounded' ? lo : hi);
+}
+
+/** Does this upgrade card match one of the taste's favorite upgrades? A tier
+ *  copy of a held weapon is `weapons`; a ladder with a host row is `gun`; a
+ *  ship ladder is named by its own line id. */
+function isFavoriteUpgrade(taste: BotTaste, line: CatalogLine): boolean {
+  const favs: readonly string[] = taste.favoriteUpgrades;
+  if (line.kind === 'equipment') return favs.includes('weapons');
+  if (line.kind !== 'ladder') return false;
+  return ladderHost(line) === undefined ? favs.includes(line.id) : favs.includes('gun');
+}
+
+function upgradeScore(taste: BotTaste, s: BotSpendState, line: CatalogLine, catalog: Catalog): number {
+  const favorite = isFavoriteUpgrade(taste, line) ? POINTS.favorite : 0;
+  const style = styleMatches(taste, s, line, catalog) ? POINTS.style : 0;
+  return POINTS.base + favorite + style;
+}
+
+function weaponScore(taste: BotTaste, line: CatalogLine): number {
+  const eq = tierTargetOf(line);
+  return eq !== undefined && taste.favoriteWeapons.includes(eq) ? POINTS.favoriteWeapon : POINTS.weapon;
+}
+
+/** HURT — the heal tactic's own read, including the repair still draining in. */
+function isHurt(profile: BotProfile, s: BotSpendState): boolean {
+  return s.maxHp > 0 && (s.hp + (s.repairHp ?? 0)) / s.maxHp < profile.healHpFrac;
+}
+
+/** Does a BELT slot already carry this consumable? */
+function carries(s: BotSpendState, id: string): boolean {
+  const slotIds = slotIdsOf(s);
+  return CONSUMABLE_SLOTS.some((i) => slotIds[i] === id);
+}
+
+function consumableScore(profile: BotProfile, s: BotSpendState, id: string): number {
+  const favs: readonly string[] = profile.taste.favoriteConsumables;
+  const favorite = favs.includes(id) ? POINTS.favorite : 0;
+  const carried = carries(s, id);
+  if (!carried && id === 'hullRepair' && isHurt(profile, s)) return POINTS.base + POINTS.hurtRepair + favorite;
+  const belt = carried ? POINTS.carried : POINTS.beltHunger[profile.taste.beltHunger];
+  return POINTS.base + favorite + belt;
+}
+
+/**
+ * ONE CARD'S SCORE for this bot, or null when the hull cannot take it
+ * (`pickRefusal` — unknown, stub, at cap, belt full, no weapon slot). Pure:
+ * no rng, no clock. Exported so tests and tuning tools can read the policy
+ * without running a spend.
+ */
+export function cardScore(
+  profile: BotProfile,
+  s: BotSpendState,
+  lineId: string,
+  catalog: Catalog = CATALOG,
+): number | null {
+  if (pickRefusal(s.cards, slotIdsOf(s), lineId, catalog) !== null) return null;
+  const line = catalog[lineId];
+  if (line === undefined) return null;
+  if (line.kind === 'consumable') return consumableScore(profile, s, lineId);
+  if (line.kind === 'equipment' && boonStackCount(s.cards, lineId) === 0) return weaponScore(profile.taste, line);
+  return upgradeScore(profile.taste, s, line, catalog);
+}
+
+/** The max-scoring offer indices, in offer order (empty when all refused). */
+function topIndices(profile: BotProfile, s: BotSpendState, catalog: Catalog): number[] {
+  const offer = s.offer ?? [];
+  let best = -Infinity;
+  let ties: number[] = [];
+  for (let i = 0; i < offer.length; i += 1) {
+    const score = cardScore(profile, s, offer[i], catalog);
+    if (score === null || score < best) continue;
+    if (score > best) {
+      best = score;
+      ties = [];
+    }
+    ties.push(i);
+  }
+  return ties;
+}
+
+/** THE TIE-BREAK: one uniform draw among the tied indices, and only when
+ *  there IS a tie and an rng; otherwise the lowest index. */
+function breakTie(ties: readonly number[], rng?: Rng): number | null {
+  if (ties.length === 0) return null;
+  if (ties.length === 1 || rng === undefined) return ties[0];
+  return ties[rng.int(0, ties.length - 1)];
 }
 
 /**
  * THE SPEND DECISION: an offer index, or null for no spend this tick. NEVER
  * negative (Story 8.8: the reserved -1 heal sentinel is gone from the wire, and
  * World.spendPoint refuses every negative as malformed). Pure — no World, no
- * clock, no rng. The driver acts on it.
+ * clock. The driver acts on it.
  *
- * `rng` (Story 7-6 wave 4) is consumed ONLY by a `spend: 'random'` test
- * profile's uniform offer pick — the WEIGHTED path never touches it (a
- * weighted spend with an rng in hand is byte-identical to one without), so
- * every in-game profile's spend stays pure and rng-free exactly as shipped.
- * A random profile handed no rng — only
- * reachable from a hand-built test call, never from the driver, which always
- * threads the mind's spendRng — falls through to the weighted scorer rather
- * than inventing a fixed pick.
+ * `rng` is the mind's decorrelated spendRng. The points scorer draws it only
+ * to break a tie; a `spend: 'random'` test profile's uniform offer pick
+ * consumes it; a random profile handed no rng — only reachable from a
+ * hand-built test call, never from the driver, which always threads the
+ * mind's spendRng — falls through to the scorer.
  */
 export function chooseSpend(
   profile: BotProfile,
@@ -382,7 +287,7 @@ export function chooseSpend(
   if (s.bankedLevels <= 0) return null;
   if (s.offer === null || s.offer.length === 0) return null;
   if (profile.spend === 'random' && rng !== undefined) return randomSpendable(s, catalog, rng);
-  return bestOfferIndex(profile, s, catalog);
+  return breakTie(topIndices(profile, s, catalog), rng);
 }
 
 /** The `spend: 'random'` test profile's uniform pick, over the SPENDABLE cards

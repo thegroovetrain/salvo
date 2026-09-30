@@ -84,8 +84,8 @@
 //
 // ONE WEAPON PER TICK, THROUGH THE EQUIPMENT AXIS (Eric ruling 2026-08-20):
 // chooseShot iterates the bot's ACTUAL FITTED SLOTS through `tacticFor` — the
-// EQUIPMENT_TACTICS / CONSUMABLE_TACTICS pair in ai/equipment.ts — never a
-// hull-keyed weapon ladder — so an equipment
+// EQUIPMENT_TACTICS / CONSUMABLE_TACTICS pair in ai/tacticRegistry.ts — never
+// a hull-keyed weapon ladder — so an equipment
 // ACQUIRED into the WEAPON ROW (Story 8.5) works exactly like a seeded fit —
 // there is no native per-hull fit left for it to differ from. Ordering
 // comes from the ship profile's APPETITE table (gun lowest: the fallback);
@@ -111,7 +111,8 @@ import {
 import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
-import { slotAppetite, tacticFor, type Shot, type TacticContext } from './equipment.js';
+import { slotAppetite, tacticFor } from './tacticRegistry.js';
+import type { Shot, TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
 import {
   choosePosture,
@@ -205,15 +206,18 @@ export function spendStateOf(self: BotSelf): BotSpendState {
     // refuse (Story 8.14 review, F4) — a self-read like every other field here.
     slotIds: self.loadout.map((s) => s.equipmentId),
     hp: self.hp,
+    // The paid HULL REPAIR still draining in (Story 8.20): the scorer's HURT
+    // read is (hp + repairHp) / maxHp — the heal tactic's own read.
+    repairHp: self.repairHp,
     maxHp: self.stats.maxHp,
   };
 }
 
 // ---------------------------------------------------------------------------
-// WEAPONS — the EQUIPMENT AXIS. Every weapon's want/solve/reach lives with
-// the weapon in ai/equipment.ts (EQUIPMENT_TACTICS, and CONSUMABLE_TACTICS for
-// the belt); this file only walks the bot's ACTUAL FITTED SLOTS through those
-// registries, in appetite order.
+// WEAPONS — the EQUIPMENT AXIS. Every row's want/solve/reach lives with its
+// item (ai/equipment.ts weapons, ai/shift.ts Shifts, ai/consumables.ts belt),
+// assembled by ai/tacticRegistry.ts; this file only walks the bot's ACTUAL
+// FITTED SLOTS through those registries, in appetite order.
 // ---------------------------------------------------------------------------
 
 /** One fitted slot, ranked by the profile's appetite for what it holds. */
@@ -264,7 +268,7 @@ function firePass(
 ): Shot | null {
   for (const r of ranked) {
     const tactic = tacticFor(r.id);
-    if (tactic === undefined || tactic.kind !== kind) continue;
+    if (tactic === undefined || tactic.kind !== kind) continue; // unknown id: fail closed
     if (!slotReady(base.self, r.slot)) continue;
     const ctx: TacticContext = { ...base, slot: r.slot };
     if (!tactic.want(ctx)) continue;
@@ -298,10 +302,11 @@ function chooseShot(
 }
 
 /**
- * The ability press, if any: the 'ability' rows of EITHER registry — the speed
- * boost (spent opening range on the way out) and, since Story 8.8, a stocked
- * HULL REPAIR stack (pressed under the profile's healHpFrac). Abilities ride
- * the actSeq channel, so this composes with a shot in the same tick.
+ * The ability press, if any: the 'ability' rows of EITHER registry — the class
+ * Shift (the speed boost on the way out or into a fight, INSTANT RELOAD, DAMAGE
+ * CUT) and the belt's abilities (HULL REPAIR, SHIELD BLOCK, CHAFF, SMOKE
+ * SCREEN). Abilities ride the actSeq channel, so this composes with a shot in
+ * the same tick.
  */
 function chooseAct(
   self: BotSelf,
@@ -313,7 +318,7 @@ function chooseAct(
 ): number | null {
   for (const r of rankedSlots(self, sit.profile)) {
     const tactic = tacticFor(r.id);
-    if (tactic === undefined || tactic.kind !== 'ability') continue;
+    if (tactic === undefined || tactic.kind !== 'ability') continue; // unknown id: fail closed
     if (!slotReady(self, r.slot)) continue;
     if (tactic.want({ self, mind, sit, port, target, posture, slot: r.slot })) return r.slot;
   }
@@ -341,7 +346,7 @@ export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[]
     const id = self.loadout[i].equipmentId;
     if (id === null || !slotReady(self, i)) continue;
     const tactic = tacticFor(id);
-    if (tactic?.kind === 'shot') out.push(tactic.reachU(stats));
+    if (tactic !== undefined && tactic.kind === 'shot') out.push(tactic.reachU(stats)); // unknown id: skipped
   }
   return out;
 }

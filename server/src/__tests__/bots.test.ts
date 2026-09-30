@@ -23,10 +23,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
-import { HOMELESS_V2_LINES, LINE_ALIASES } from '../game/ai/spending.js';
+import { CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
 import { World } from '../game/world.js';
-import { botPhase } from '../game/ai/botDriver.js';
+import { BotController, botPhase } from '../game/ai/botDriver.js';
+import type { BotWorldPort } from '../game/ai/types.js';
 import { isFleetHull, isHuman, isParticipant } from '../game/participants.js';
 
 /** The DELIBERATION round-robin window in ticks — recomputed here
@@ -49,8 +49,8 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
     expect(Object.keys(CONFIG.bots).sort()).toEqual([
       'aimScatterRefU',
       'aimScatterU',
-      'boonWeights',
       'callsigns',
+      'cardPoints', // Story 8.20: the points table replaced `boonWeights` (a DELIBERATE edit to this pin)
       'contactMemoryMs',
       'decisionCadenceMs',
       'disengageHpFrac',
@@ -101,43 +101,25 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
     }
   });
 
-  it('profiles: 2 per class, every class covered; callsigns: ~30, unique', () => {
-    expect(Object.keys(CONFIG.bots.profiles).sort()).toEqual([...SHIP_CLASS_IDS].sort());
-    for (const cls of SHIP_CLASS_IDS) expect(CONFIG.bots.profiles[cls].length).toBe(2);
+  it('profiles: the flat six, in dealing order; callsigns: ~30, unique', () => {
+    // Story 8.20 (Eric ruling 2026-09-30, R6): personalities are no longer
+    // per hull. The order is the dealing order the seeded pick indexes into.
+    expect([...CONFIG.bots.profiles]).toEqual(['raider', 'duelist', 'bulwark', 'siege', 'forager', 'trapper']);
     expect(CONFIG.bots.callsigns.length).toBeGreaterThanOrEqual(30);
     expect(new Set(CONFIG.bots.callsigns).size).toBe(CONFIG.bots.callsigns.length);
   });
 
-  it('boonWeights are keyed by PROFILE and speak every profile\'s drawable categories', () => {
-    // WAVE-2 RESTRUCTURE (deliberate pin update): this table was keyed by
-    // CLASS with a flat category map. It is now keyed by PRIORITY PROFILE
-    // with `{ cat, lines }` — a class-keyed table cannot express what the E1
-    // ruling asks for, namely that two battleships of different profiles want
-    // different cards (siege buys star shells, bulwark buys hull). The
-    // per-line overrides address REAL boon ids so a renamed catalog line
-    // fails loudly here rather than silently scoring at the category base.
-    const profileIds = SHIP_CLASS_IDS.flatMap((cls) => [...CONFIG.bots.profiles[cls]]);
-    expect(Object.keys(CONFIG.bots.boonWeights).sort()).toEqual([...profileIds].sort());
-    for (const id of profileIds) {
-      const t = CONFIG.bots.boonWeights[id] as { cat: Record<string, number>; lines: Record<string, number> };
-      // Universal categories (intel/ship/guns) — every deck draws them, so
-      // an unlisted one would score at spending.ts's unlisted default.
-      for (const cat of ['intel', 'ship', 'guns']) expect(t.cat[cat]).toBeGreaterThan(0);
-      // STORY 8.1: the table is still authored in the v2 vocabulary (retuning
-      // it is a balance pass with its own ruling), and ai/spending.ts
-      // translates it onto the 29 v3 lines. The "a renamed catalog line fails
-      // loudly" guarantee moves to that alias table, pinned in
-      // botPolicy.test.ts; what is pinned here is that no override is left
-      // speaking about nothing at all.
-      for (const line of Object.keys(t.lines)) {
-        const resolved = Object.hasOwn(CATALOG, line) || HOMELESS_V2_LINES.has(line) || LINE_ALIASES[line] !== undefined;
-        expect(resolved, line).toBe(true);
-      }
-    }
-    // The class arsenal's own category leads its profiles' tables.
-    expect((CONFIG.bots.boonWeights.raider.cat as Record<string, number>).torpedoes).toBeGreaterThan(0);
-    expect((CONFIG.bots.boonWeights.siege.cat as Record<string, number>).broadside).toBeGreaterThan(0);
-    expect((CONFIG.bots.boonWeights.trapper.cat as Record<string, number>).mines).toBeGreaterThan(0);
+  it('cardPoints carries exactly Eric\'s R3 table (2026-09-30)', () => {
+    expect(CONFIG.bots.cardPoints).toEqual({
+      base: 2,
+      favorite: 1,
+      style: 1,
+      beltHunger: { low: -1, medium: 0, high: 1 },
+      carried: -1,
+      hurtRepair: 2,
+      weapon: 3.5,
+      favoriteWeapon: 3.75,
+    });
   });
 });
 
@@ -175,13 +157,36 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
     for (const name of names.slice(n)) expect(name.endsWith(' 2')).toBe(true);
   });
 
-  it('profile assignment matches the bot\'s own class table', () => {
+  it('profile assignment comes from the flat in-game list, never a test row', () => {
     const { w, ids } = botWorld(14, 8);
-    for (const id of ids) {
-      const rec = w.ships.get(id)!;
-      const table: readonly string[] = CONFIG.bots.profiles[rec.hullId as keyof typeof CONFIG.bots.profiles];
-      expect(table).toContain(w.bots.profileOf(id));
+    const table: readonly string[] = CONFIG.bots.profiles;
+    for (const id of ids) expect(table).toContain(w.bots.profileOf(id));
+  });
+
+  it('HULL UNLOCK: 600 seeded enrollments put all six personalities on all three hulls', () => {
+    // Story 8.20 (Eric ruling 2026-09-30, R6): any personality on any hull.
+    // The controller alone (enroll never touches the port): 600 hulls would
+    // not fit a World's arena.
+    const ctl = new BotController({} as BotWorldPort, 15);
+    const seen = new Set<string>();
+    for (let i = 0; i < 600; i += 1) {
+      const id = `bot-${i}`;
+      const { hullId } = ctl.enroll(id);
+      seen.add(`${ctl.profileOf(id)}@${hullId}`);
     }
+    for (const p of CONFIG.bots.profiles) {
+      for (const cls of SHIP_CLASS_IDS) expect(seen.has(`${p}@${cls}`), `${p}@${cls}`).toBe(true);
+    }
+  });
+
+  it('a forced TEST row stays hull-bound; a forced in-game personality never decides the hull', () => {
+    const w = new World(16);
+    w.map.islands.length = 0;
+    expect(w.addBot(undefined, 'randomBattleship').hullId).toBe('battleship');
+    expect(w.addBot('torpedoBoat', 'randomMineLayer').hullId).toBe('mineLayer');
+    const forced = w.addBot('mineLayer', 'raider');
+    expect(forced.hullId).toBe('mineLayer');
+    expect(w.bots.profileOf(forced.id)).toBe('raider');
   });
 
   it('enrollment is deterministic per world seed (the decorrelated stream)', () => {
@@ -430,7 +435,7 @@ describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => 
     w.map.islands.length = 0;
     for (let i = 0; i < 12; i += 1) {
       const rec = w.addBot(undefined, undefined);
-      const table: readonly string[] = CONFIG.bots.profiles[rec.hullId as keyof typeof CONFIG.bots.profiles];
+      const table: readonly string[] = CONFIG.bots.profiles;
       expect(table).toContain(w.bots.profileOf(rec.id));
     }
   });

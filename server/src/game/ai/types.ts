@@ -40,13 +40,13 @@ import type {
 import type { PerceptionView } from '../perception.js';
 
 /**
- * The six priority profiles (Eric ruling E1, 2026-08-16) — derived from
- * CONFIG.bots.profiles so the CONFIG tuning panel and this union can never
- * drift: adding a profile id there without a wave-2 behaviour table here
- * fails to type-check in profiles.ts's Record<BotProfileId, ...>.
+ * The six priority profiles (Eric ruling E1, 2026-08-16; unlocked from hulls
+ * by Eric ruling 2026-09-30) — derived from the flat CONFIG.bots.profiles list
+ * so the CONFIG tuning panel and this union can never drift: adding a profile
+ * id there without a behavior row fails to type-check in profiles.ts's
+ * Record<BotProfileId, ...>.
  */
-export type BotProfileId =
-  (typeof CONFIG.bots.profiles)[keyof typeof CONFIG.bots.profiles][number];
+export type BotProfileId = (typeof CONFIG.bots.profiles)[number];
 
 /**
  * TEST-ONLY random-spend profiles (Story 7-6 wave 4) — one per hull, for the
@@ -124,7 +124,7 @@ export interface BotSelf {
   readonly cards: readonly string[];
   /**
    * This hull's SHIELD BLOCK seat (Story 8.16) — the owner is told exactly
-   * this (`OwnShip.shield`). Read by the interim SHIELD BLOCK belt tactic so a
+   * this (`OwnShip.shield`). Read by the SHIELD BLOCK belt tactic so a
    * bot never replaces a shield still up. Optional so hand-built fixtures that
    * predate it stay valid; absent reads as "no shield".
    */
@@ -156,7 +156,7 @@ export interface BotTickEntry {
   /**
    * ms — when THIS bot's own SMOKE SCREEN lay window closes (0 = not laying;
    * Story 8.18). A self-read of the bot's own press exactly like chaffUntil
-   * (`ShipRecord.smokeUntil`, copied by world.ts): the interim tactic never
+   * (`ShipRecord.smokeUntil`, copied by world.ts): the SMOKE SCREEN tactic never
    * re-presses while a trail is still being laid. No puff position, no other
    * owner's window.
    */
@@ -341,13 +341,14 @@ export interface BotMind {
   torps?: Map<string, SeenTorpedo> | null;
   /** ms — this bot's own CHAFF cloud's `until` as of this tick (Story 8.16,
    *  amendment 127), copied from BotTickEntry.chaffUntil by the driver before
-   *  every decide. The interim CHAFF tactic never throws a second cloud over
+   *  every decide. The CHAFF tactic never throws a second cloud over
    *  one still painting. OPTIONAL: absent reads as "no cloud". */
   chaffUntil?: number;
   /** ms — this bot's own SMOKE SCREEN lay-window end as of this tick (Story
    *  8.18), copied from BotTickEntry.smokeUntil by the driver before every
-   *  decide. The interim SMOKE SCREEN tactic never presses over a trail still
-   *  being laid. OPTIONAL: absent reads as "not laying". */
+   *  decide. The SMOKE SCREEN tactic never presses while one of its own
+   *  puffs can still be alive (`now < smokeUntil + lifeMs`, Eric ruling R12).
+   *  OPTIONAL: absent (or 0) reads as "nothing running". */
   smokeUntil?: number;
 }
 

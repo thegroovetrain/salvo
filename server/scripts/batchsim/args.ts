@@ -124,8 +124,8 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      but pick cards uniformly at random (tuned-profile
                      instance of the randomized-pick measurement design)
   --bot-hull CLASS   force every rolled-path bot onto one hull
-                     (${SHIP_CLASS_IDS.join(' | ')}); profiles still roll among
-                     that hull's own rows. Mono-class arms with tuned
+                     (${SHIP_CLASS_IDS.join(' | ')}); personalities still roll
+                     among all six, as on any hull. Mono-class arms with tuned
                      temperaments. Not valid with --bot-profile or --roster even
   --gun GUN          force every bot's deck gun (${GUN_IDS.join(' | ')}).
                      Without it each bot mounts a seeded uniform gun off the

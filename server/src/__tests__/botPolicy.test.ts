@@ -1,10 +1,9 @@
-// COMBAT-BOT POLICY — wave-2 coverage (Story 6.4): the six priority profiles
-// (ai/profiles.ts), utility scoring over the perception view (ai/utility.ts)
-// and the boon spend policy (ai/spending.ts). Wave 1's bots.test.ts owns the
-// driver plumbing (cadence, port, lifecycle, emission); nothing here touches
-// a World.
+// COMBAT-BOT POLICY — the six priority profiles (ai/profiles.ts), utility
+// scoring over the perception view (ai/utility.ts) and the card spend policy
+// (ai/spending.ts). bots.test.ts owns the driver plumbing (cadence, port,
+// lifecycle, emission); nothing here touches a World.
 //
-// The six things this file exists to pin:
+// The things this file exists to pin:
 //   * BOTH BLIP GRAMMARS fold — a `silhouette` paint carries pose, a `return`
 //     paint carries only a cell footprint and must still produce a usable
 //     identity-free track (the room picks one grammar per match; a bot cannot
@@ -12,32 +11,53 @@
 //   * RING ESCAPE DOMINATES every other posture, at any hp, with any target;
 //   * THE REACTION DELAY gates action on a freshly acquired track — the E2
 //     competence knob, in one place;
-//   * THE HEAL THRESHOLD outranks buying cards, and works with no offer;
-//   * A LINE THE BOT ALREADY HOLDS is demoted when re-buying it is a no-op,
-//     and NEVER when it is a ladder meant to be climbed (the exclusivity
-//     half this bullet used to name died with `exclusiveWith` in 7-5 wave 2);
-//   * FORAGER AND TRAPPER GENUINELY DISAGREE about PROP-FOULING MINES — the
-//     proof that profiles change what a bot wants rather than how good it is.
+//   * THE POINTS SCORER (Story 8.20, Eric ruling 2026-09-30) — every scorer
+//     row of the spec's I/O matrix with its exact CONFIG.bots.cardPoints
+//     arithmetic, the seeded tie-break (one spend-stream draw, only on a tie),
+//     refused cards never scored, and a seeded property through the REAL
+//     draw that no personality sails ten levels without a Q/E/R weapon;
+//   * THE SIX TASTES are Eric's verbatim — the proof that personalities change
+//     what a bot wants rather than how good it is.
 
 import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  CONSUMABLE_SLOTS,
+  GUN_IDS,
+  MOUNTED_GUN,
   MULLIGAN_CHOICE,
   SHIP_CLASS_IDS,
+  WEAPON_SLOTS,
+  classShift,
+  drawOffer,
   effectiveStats,
   hullEnvelope,
   mulberry32,
+  slotsWithCards,
   type Contact,
   type EffectiveStats,
+  type EquipmentId,
   type GameEvent,
   type HullId,
+  type LineId,
+  type Rng,
+  type SlotItemId,
   type ZoneRing,
 } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import type { PerceptionView } from '../game/perception.js';
 import type { AnyProfileId, BotMind, BotPosture, BotProfileId } from '../game/ai/types.js';
-import { BOT_PROFILES, TEST_PROFILES, TEST_PROFILE_IDS, engagementBand, profileOf } from '../game/ai/profiles.js';
+import {
+  BOT_PROFILES,
+  TEST_PROFILES,
+  TEST_PROFILE_HULL,
+  TEST_PROFILE_IDS,
+  engagementBand,
+  isTestProfileId,
+  profileOf,
+  testProfileHull,
+} from '../game/ai/profiles.js';
 import {
   choosePosture,
   foldView,
@@ -52,14 +72,7 @@ import {
   type BotSituation,
   type BotTrack,
 } from '../game/ai/utility.js';
-import {
-  boonWeightFor,
-  chooseSpend,
-  CATEGORY_LINES,
-  HOMELESS_V2_LINES,
-  LINE_ALIASES,
-  type BotSpendState,
-} from '../game/ai/spending.js';
+import { cardScore, chooseSpend, type BotSpendState } from '../game/ai/spending.js';
 import { APPETITE_EAGER, APPETITE_NEUTRAL, appetiteFor } from '../game/ai/equipment.js';
 
 // --- builders ---------------------------------------------------------------
@@ -105,6 +118,23 @@ function stats(cls: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'battleship'): 
 
 const WIDE_RING: ZoneRing = { cx: 0, cy: 0, r: 100000 };
 
+/** THE FIXTURE HULL per profile (Story 8.20 unlocked personalities from
+ *  hulls). A test FIXTURE, not a game rule: each in-game row keeps sailing the
+ *  hull it was written against so every stats-dependent expectation below
+ *  reads exactly as before; a test row reads its bound hull. */
+const FIXTURE_HULL: Readonly<Record<BotProfileId, 'torpedoBoat' | 'battleship' | 'mineLayer'>> = {
+  raider: 'torpedoBoat',
+  duelist: 'torpedoBoat',
+  bulwark: 'battleship',
+  siege: 'battleship',
+  forager: 'mineLayer',
+  trapper: 'mineLayer',
+};
+
+function fixtureHull(id: AnyProfileId): 'torpedoBoat' | 'battleship' | 'mineLayer' {
+  return isTestProfileId(id) ? TEST_PROFILE_HULL[id] : FIXTURE_HULL[id];
+}
+
 /** Open water unless a test names terrain — `islands: []` is the explicit
  *  statement of intent, exactly as `openWorld()` is in botTactics.test.ts. */
 function situation(over: Partial<BotSituation> = {}): BotSituation {
@@ -115,7 +145,7 @@ function situation(over: Partial<BotSituation> = {}): BotSituation {
     y: 0,
     hp: 100,
     maxHp: 100,
-    stats: over.stats ?? stats(profile.hullId),
+    stats: over.stats ?? stats(fixtureHull(profile.id)),
     // Dead in the water by default: `ringDeadband` floors at RATED speed, so
     // 0 here means every test that does not name a speed reads the rated turn
     // radius — the figure the class table publishes.
@@ -137,11 +167,107 @@ function onlyTrack(m: BotMind): BotTrack {
 // --- profiles ---------------------------------------------------------------
 
 describe('ai/profiles — six priority profiles, one competence level', () => {
-  it('covers exactly CONFIG.bots.profiles, each row on its own hull', () => {
-    const ids = SHIP_CLASS_IDS.flatMap((cls) => [...CONFIG.bots.profiles[cls]]);
-    expect(Object.keys(BOT_PROFILES).sort()).toEqual([...ids].sort());
-    for (const cls of SHIP_CLASS_IDS) {
-      for (const id of CONFIG.bots.profiles[cls]) expect(BOT_PROFILES[id].hullId).toBe(cls);
+  it('covers exactly CONFIG.bots.profiles, and no in-game row names a hull (Story 8.20)', () => {
+    expect(Object.keys(BOT_PROFILES).sort()).toEqual([...CONFIG.bots.profiles].sort());
+    for (const p of Object.values(BOT_PROFILES)) {
+      expect(Object.hasOwn(p, 'hullId'), p.id).toBe(false);
+      expect(testProfileHull(p.id), p.id).toBeNull(); // a personality never decides the hull
+    }
+  });
+
+  it('carries the SIX TASTES of Eric ruling 2026-09-30 (R5) verbatim', () => {
+    const tastes = Object.fromEntries(Object.values(BOT_PROFILES).map((p) => [p.id, p.taste]));
+    expect(tastes).toEqual({
+      raider: {
+        style: 'specialist',
+        favoriteUpgrades: ['speed', 'weapons'],
+        favoriteConsumables: ['smokeScreen', 'chaff'],
+        favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
+        beltHunger: 'medium',
+      },
+      duelist: {
+        style: 'specialist',
+        favoriteUpgrades: ['gun', 'turning', 'reload'],
+        favoriteConsumables: ['shieldBlock', 'dazzleShells'],
+        favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
+        beltHunger: 'low',
+      },
+      bulwark: {
+        style: 'rounded',
+        favoriteUpgrades: ['armor'],
+        favoriteConsumables: ['hullRepair', 'shieldBlock'],
+        favoriteWeapons: ['broadside', 'starShells'],
+        beltHunger: 'high',
+      },
+      siege: {
+        style: 'specialist',
+        favoriteUpgrades: ['weapons', 'radarSweep'],
+        favoriteConsumables: ['dazzleShells', 'supercavTorpedo'],
+        favoriteWeapons: ['starShells', 'phosphorShells', 'broadside'],
+        beltHunger: 'low',
+      },
+      forager: {
+        style: 'rounded',
+        favoriteUpgrades: ['gun', 'reload'],
+        favoriteConsumables: ['hullRepair', 'decoyBuoy'],
+        favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
+        beltHunger: 'medium',
+      },
+      trapper: {
+        style: 'rounded',
+        favoriteUpgrades: ['weapons', 'speed'],
+        favoriteConsumables: ['smokeScreen', 'decoyBuoy', 'chaff'],
+        favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
+        beltHunger: 'high',
+      },
+    });
+    // Every favorite names something real.
+    for (const p of Object.values(BOT_PROFILES)) {
+      for (const c of p.taste.favoriteConsumables) expect(Object.hasOwn(CATALOG, c), c).toBe(true);
+      for (const w of p.taste.favoriteWeapons) expect(Object.hasOwn(CATALOG, w), w).toBe(true);
+    }
+  });
+
+  // THE FAMILY FALLBACK IS GONE WITH ZERO BEHAVIOR CHANGE (Story 8.20). The
+  // old resolver read `appetite[id] ?? appetite[family[id]] ?? base`; the
+  // family map is hard-coded HERE as the oracle, so this pin proves the
+  // explicit per-line rows reproduce every number it used to resolve.
+  it('appetiteFor with explicit rows equals the retired APPETITE_FAMILY resolution, row x id', () => {
+    const OLD_FAMILY: Partial<Record<EquipmentId, EquipmentId>> = {
+      lightTorpedo: 'heavyTorpedo',
+      captiveMines: 'navalMines',
+      foulingMines: 'navalMines',
+      machineGun: 'gun',
+      flak: 'gun',
+      instantReload: 'boost',
+      damageCut: 'boost',
+      phosphorShells: 'starShells',
+    };
+    // The pre-8.20 appetite tables, verbatim (the oracle's input).
+    const OLD_APPETITE: Record<AnyProfileId, Partial<Record<EquipmentId, number>>> = {
+      raider: { heavyTorpedo: 2.5, boost: 2.0 },
+      duelist: { heavyTorpedo: 1.5, boost: 1.5 },
+      bulwark: { broadside: 2.0, starShells: 1.2 },
+      siege: { starShells: 2.4, broadside: 2.2 },
+      forager: { navalMines: 1.4 },
+      trapper: { navalMines: 2.6 },
+      randomTorpedoBoat: { gun: 2.0, heavyTorpedo: 2.2, navalMines: 2.2, boost: 2.2, broadside: 2.2, starShells: 2.2 },
+      randomBattleship: { gun: 2.0, heavyTorpedo: 2.2, navalMines: 2.2, boost: 2.2, broadside: 2.2, starShells: 2.2 },
+      randomMineLayer: { gun: 2.0, heavyTorpedo: 2.2, navalMines: 2.2, boost: 2.2, broadside: 2.2, starShells: 2.2 },
+    };
+    const ALL_EQUIPMENT: EquipmentId[] = [
+      'gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines',
+      'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells', 'instantReload', 'damageCut',
+    ];
+    const rows: AnyProfileId[] = [...CONFIG.bots.profiles, ...TEST_PROFILE_IDS];
+    for (const id of rows) {
+      const row = profileOf(id);
+      const bare = { ...row, appetite: {} };
+      for (const eq of ALL_EQUIPMENT) {
+        const fam = OLD_FAMILY[eq];
+        const old = OLD_APPETITE[id][eq] ?? (fam === undefined ? undefined : OLD_APPETITE[id][fam]) ?? appetiteFor(bare, eq);
+        expect(appetiteFor(row, eq), `${id}.${eq}`).toBe(old);
+      }
     }
   });
 
@@ -664,36 +790,67 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
 
 // --- spending ---------------------------------------------------------------
 
-describe('ai/spending — the card policy', () => {
-  function spendState(over: Partial<BotSpendState> = {}): BotSpendState {
-    return { bankedLevels: 1, offer: null, cards: [], hp: 100, maxHp: 100, ...over };
-  }
+/** A bare spend state: one level banked, healthy, nothing fitted, every slot
+ *  empty and the cannon mounted (the defaults `BotSpendState` documents). */
+function spendState(over: Partial<BotSpendState> = {}): BotSpendState {
+  return { bankedLevels: 1, offer: null, cards: [], hp: 100, maxHp: 100, ...over };
+}
 
+/** Nine slot ids: the given gun, the boost, then Q/E/R and the belt as named
+ *  (missing entries are empty). */
+function slotsOf(
+  weapons: readonly (SlotItemId | null)[] = [],
+  belt: readonly (SlotItemId | null)[] = [],
+  gun: EquipmentId = 'gun',
+): (SlotItemId | null)[] {
+  const out: (SlotItemId | null)[] = [gun, 'boost'];
+  for (let i = 0; i < WEAPON_SLOTS.length; i += 1) out.push(weapons[i] ?? null);
+  for (let i = 0; i < CONSUMABLE_SLOTS.length; i += 1) out.push(belt[i] ?? null);
+  return out;
+}
+
+/** An rng that COUNTS every call made on it, whatever the method. */
+function countingRng(seed: number): { rng: Rng; calls: () => number } {
+  const inner = mulberry32(seed);
+  let n = 0;
+  const rng: Rng = {
+    next: () => { n += 1; return inner.next(); },
+    float: (a, b) => { n += 1; return inner.float(a, b); },
+    int: (a, b) => { n += 1; return inner.int(a, b); },
+    pick: (arr) => { n += 1; return inner.pick(arr); },
+  };
+  return { rng, calls: () => n };
+}
+
+const P = CONFIG.bots.cardPoints;
+const SHIP_LADDERS = ['armor', 'speed', 'turning', 'radarSweep', 'reload'] as const;
+/** Every equipment line (copy 1 = a new weapon), read off the catalog. */
+const EQUIPMENT_LINES = Object.keys(CATALOG).filter((k) => CATALOG[k].kind === 'equipment' && CATALOG[k].stub !== true);
+
+describe('ai/spending — the card policy', () => {
   it('returns null with nothing banked, and null with a healthy hull + no offer', () => {
     expect(chooseSpend(profileOf('raider'), spendState({ bankedLevels: 0, offer: ['deckGunBarrel'] }))).toBeNull();
     expect(chooseSpend(profileOf('raider'), spendState())).toBeNull();
   });
 
   // THE HEAL LEFT THE SPEND POLICY (Story 8.8, epic-8 amendments 46 + 49).
-  // `healHpFrac` now gates FIRING a stocked HULL REPAIR from the belt, not
-  // buying one with a level, so a hurt bot spends exactly like a healthy one
-  // and NEVER returns a negative — which matters because World.spendPoint
-  // refuses every negative as malformed now.
-  it('a hurt hull no longer diverts the spend — and never returns a negative', () => {
+  // `healHpFrac` gates FIRING a stocked HULL REPAIR from the belt, not buying
+  // one with a level, and the policy NEVER returns a negative — which matters
+  // because World.spendPoint refuses every negative as malformed. (Hurt DOES
+  // raise the HULL REPAIR card's score since Story 8.20 — pinned below.)
+  it('a hurt hull still picks a card off an ordinary hand — and never returns a negative', () => {
     const raider = profileOf('raider');
     const hurt = raider.healHpFrac * 100 - 1;
     expect(chooseSpend(raider, spendState({ hp: hurt, offer: null }))).toBeNull();
     expect(chooseSpend(raider, spendState({ hp: hurt, offer: ['heavyTorpedo'] }))).toBe(0);
-    // ...the same pick a healthy hull makes out of the same hand.
     expect(chooseSpend(raider, spendState({ hp: 100, offer: ['heavyTorpedo'] }))).toBe(0);
     expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['deckGunBarrel'] }))).toBe(0);
   });
 
   // ...AND THE MULLIGAN NEVER REACHES THE BOTS (Story 8.10, amendment 60).
-  // Story 8.10 re-opened exactly one negative on the spend channel —
-  // MULLIGAN_CHOICE (-2), the countdown redraw — and it is a HUMAN captain's
-  // button: World.mulligan refuses any other role outright. This pin is the
-  // other half of that guarantee: the policy cannot even ask.
+  // MULLIGAN_CHOICE (-2) is a HUMAN captain's button: World.mulligan refuses
+  // any other role outright. This pin is the other half: the policy cannot
+  // even ask.
   it('no profile, at any hp, on any hand or seed, ever returns a negative choice', () => {
     const hands = [
       ['deckGunBarrel', 'armor'],
@@ -718,94 +875,7 @@ describe('ai/spending — the card policy', () => {
     }
   });
 
-  it('picks the profile\'s highest-weighted line out of the offered hand', () => {
-    // RE-KEYED IN STORY 8.13: `acousticHoming` is DELETED (amendment 80 — homing
-    // is a tier stat on both torpedo lines now), so the hand's torpedo slot is
-    // the HEAVY line, which raider's re-keyed `torpedoTube` 2.5 speaks for.
-    const offer = ['deckGunBarrel', 'heavyTorpedo', 'armor'];
-    expect(chooseSpend(profileOf('raider'), spendState({ offer }))).toBe(1); // torpedoTube 2.5
-    expect(chooseSpend(profileOf('bulwark'), spendState({ offer }))).toBe(2); // shipHull 3.0
-  });
-
-  it('a per-LINE override beats its own category base', () => {
-    // siege's `starShells` category base is 2.0 and its re-keyed starDuration
-    // override lands 2.2 on the `starShells` LINE, so the named line must win
-    // over an unnamed line — `deckGunBarrel` rides siege's `guns` 1.6 base.
-    expect(boonWeightFor('siege', 'starShells')).toBe(2.2);
-    expect(boonWeightFor('siege', 'starShells')).toBeGreaterThan(boonWeightFor('siege', 'deckGunBarrel'));
-    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['deckGunBarrel', 'starShells'] }))).toBe(1);
-  });
-
-  // STORY 8.17 (amendment 134): the star shell's two add-on verbs left the
-  // `starShells` category — PHOSPHOR SHELLS is its own weapon line under its
-  // own (unnamed) category and FLASH SHELLS (`dazzleShells`) a consumable —
-  // so neither reads siege's C2 flare want any more.
-  it('PHOSPHOR SHELLS and FLASH SHELLS no longer ride the `starShells` category (Story 8.17)', () => {
-    expect(CATEGORY_LINES.starShells).toEqual(['starShells']);
-    expect(CATEGORY_LINES.phosphorShells).toEqual(['phosphorShells']);
-    expect(boonWeightFor('siege', 'phosphorShells')).toBe(1.2); // equipment KIND base — no profile names it
-    expect(boonWeightFor('siege', 'dazzleShells')).toBe(1.0); // consumable KIND base
-    expect(boonWeightFor('siege', 'starShells')).toBeGreaterThan(boonWeightFor('siege', 'phosphorShells'));
-    expect(Object.hasOwn(LINE_ALIASES, 'starDazzle')).toBe(false); // the alias is deleted
-  });
-
-  // RE-KEYED AGAIN IN STORY 7-5 WAVE 2, and NARROWED. Wave 1 pointed this pin
-  // at the cannon pair as the last `exclusiveWith` users; wave 2 DELETED
-  // exclusivity outright with the cannon (R2.6), so the "holding the RIVAL
-  // demotes this line" half has no mechanism left and is RETIRED. What
-  // survives — and is what the demotion was always for — is that a line the
-  // bot ALREADY HOLDS drops below a real card, so a one-copy doctrine is never
-  // re-bought as a no-op.
-  it('NEVER demotes a STACKABLE line — a ladder is meant to be climbed', () => {
-    // REGRESSION (cross-model review, cycle 110). The demotion tested only
-    // `fitted.includes(id)` with no copy test, so it hit the deliberately
-    // stackable ladders too: a `siege` bot that bought one `intelRange` (x4)
-    // scored the next at the held-line 0.9 instead of its profile's 2.4 and
-    // stopped building the line its whole doctrine rests on. Same for
-    // `shipCooldown` (x5) and every other ladder. Without the fix the weight
-    // collapses after one copy and the stacked card loses to its sibling.
-    expect(boonWeightFor('siege', 'radarSweep', ['radarSweep'])).toBe(
-      boonWeightFor('siege', 'radarSweep', []),
-    );
-    expect(boonWeightFor('duelist', 'reload', ['reload', 'reload'])).toBe(
-      boonWeightFor('duelist', 'reload', []),
-    );
-    // And the AT-CAP demotion it was always FOR still fires (Story 8.17: no
-    // one-copy line is left in the catalog — FLASH SHELLS stacks to 5 like
-    // every belt line — so the demotion now bites at the cap alone).
-    expect(boonWeightFor('bulwark', 'dazzleShells', ['dazzleShells'])).toBe(boonWeightFor('bulwark', 'dazzleShells', []));
-    expect(boonWeightFor('bulwark', 'dazzleShells', Array(CATALOG.dazzleShells.cap).fill('dazzleShells'))).toBeLessThan(
-      boonWeightFor('bulwark', 'dazzleShells', []),
-    );
-  });
-
-  it('demotes a line this bot ALREADY HOLDS AT CAP (re-buying a capped line is a no-op)', () => {
-    const bulwark = profileOf('bulwark');
-    const offer = ['dazzleShells', 'phosphorShells'];
-    // Fresh: PHOSPHOR SHELLS at the equipment kind base (1.2) beats FLASH
-    // SHELLS at the consumable kind base (1.0) — bulwark names neither.
-    expect(chooseSpend(bulwark, spendState({ offer }))).toBe(1);
-    // Holding phosphor at cap — re-buying is refused outright (review F4), so
-    // the flash shells win the hand; the scorer's demotion agrees.
-    const capped = Array(CATALOG.phosphorShells.cap).fill('phosphorShells');
-    expect(chooseSpend(bulwark, spendState({ offer, cards: capped }))).toBe(0);
-    expect(boonWeightFor('bulwark', 'phosphorShells', capped))
-      .toBeLessThan(boonWeightFor('bulwark', 'phosphorShells', []));
-  });
-
-  // Wave 1's counterpart, now the GENERAL rule (wave 2 deleted exclusivity):
-  // holding one line never demotes ANOTHER. Holding PHOSPHOR SHELLS must not
-  // push FLASH SHELLS down — the two former star-shell verbs are unrelated
-  // lines now (Story 8.17).
-  it('a line is NEVER demoted by holding its former rival', () => {
-    expect(boonWeightFor('bulwark', 'dazzleShells', ['phosphorShells']))
-      .toBe(boonWeightFor('bulwark', 'dazzleShells', []));
-  });
-
   it('an all-junk hand is still SPENT — a banked level held forever is wasted', () => {
-    // Junk to THIS profile, but real lines it could take: the 8.14 review (F4)
-    // made the scorer skip cards `spendCard` would refuse, and an id outside
-    // the catalog (the v2 leftovers this pin used to use) is one of them.
     const idx = chooseSpend(profileOf('siege'), spendState({ offer: ['turning', 'radarSweep'] }));
     expect(idx).not.toBeNull();
     expect(idx).toBeGreaterThanOrEqual(0);
@@ -815,7 +885,7 @@ describe('ai/spending — the card policy', () => {
   // `World.spendCard` refuses a card this hull cannot take, and the offer does
   // NOT reroll on a refusal. A scorer that keeps naming the refused card spends
   // the same banked level into a no-op every tick, forever — so the scorer runs
-  // the same `pickRefusal` the server does and skips what it would refuse.
+  // the same `pickRefusal` the server does and never scores what it refuses.
 
   it('SKIPS an at-cap line and takes a card it can actually hold', () => {
     const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
@@ -823,6 +893,7 @@ describe('ai/spending — the card policy', () => {
     const idx = chooseSpend(profileOf('siege'), spendState({ cards: five, offer }));
     expect(idx).not.toBeNull();
     expect(offer[idx!]).not.toBe('hullRepair');
+    expect(cardScore(profileOf('siege'), spendState({ cards: five }), 'hullRepair')).toBeNull();
   });
 
   it('SKIPS copy 1 of a weapon with Q/E/R full, and a consumable with a full belt', () => {
@@ -834,162 +905,319 @@ describe('ai/spending — the card policy', () => {
       .toBe(1);
   });
 
-  it('DOES NOT SPEND when every card in the hand is refused — the level stays banked', () => {
+  it('DOES NOT SPEND when every card in the hand is refused — the level stays banked (matrix: Dead hand)', () => {
     const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
     const capped = [...five, ...new Array<string>(CATALOG.armor.cap).fill('armor')];
-    expect(chooseSpend(profileOf('siege'), spendState({ cards: capped, offer: ['hullRepair', 'armor'] })))
-      .toBeNull();
+    for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
+      const { rng, calls } = countingRng(5);
+      expect(chooseSpend(profileOf(id), spendState({ cards: capped, offer: ['hullRepair', 'armor'] }), undefined, rng), id)
+        .toBeNull();
+      expect(calls(), id).toBe(0);
+    }
     // ...and a RANDOM profile holds it too, rather than rolling a dead index.
     expect(chooseSpend(profileOf('randomMineLayer'), spendState({ cards: capped, offer: ['hullRepair', 'armor'] }),
       undefined, mulberry32(3))).toBeNull();
   });
 
-  it('an unknown id never wins, and cannot crash the policy', () => {
-    expect(boonWeightFor('siege', 'notACard')).toBe(0);
-    expect(chooseSpend(profileOf('siege'), spendState({ offer: ['notACard', 'broadside'] }))).toBe(1);
+  it('an unknown id or a stub is never scored and never wins, and cannot crash the policy', () => {
+    const siege = profileOf('siege');
+    expect(cardScore(siege, spendState(), 'noSuchLine')).toBeNull();
+    expect(cardScore(siege, spendState(), 'depthCharge')).toBeNull(); // the one stub consumable
+    expect(cardScore(siege, spendState(), '__proto__')).toBeNull();
+    expect(chooseSpend(siege, spendState({ offer: ['noSuchLine', 'depthCharge', 'armor'] }))).toBe(2);
+    expect(chooseSpend(siege, spendState({ offer: ['noSuchLine'] }))).toBeNull();
+  });
+});
+
+// --- THE POINTS SCORER (Story 8.20, Eric ruling 2026-09-30, R3/R4) ------------
+// Every scorer row of the spec's I/O matrix, with its exact arithmetic read
+// through `cardScore` and its outcome through `chooseSpend`.
+
+describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
+  it('Eric\'s example: raider, heavy torpedo at 4 (its highest), slots full → torpedo 4 beats smoke 3', () => {
+    const raider = profileOf('raider');
+    const s = spendState({
+      cards: ['heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo', 'lightTorpedo', 'navalMines'],
+      slotIds: slotsOf(['heavyTorpedo', 'lightTorpedo', 'navalMines']),
+    });
+    expect(cardScore(raider, s, 'heavyTorpedo')).toBe(P.base + P.favorite + P.style);
+    expect(cardScore(raider, s, 'heavyTorpedo')).toBe(4);
+    expect(cardScore(raider, s, 'smokeScreen')).toBe(P.base + P.favorite + P.beltHunger.medium);
+    expect(cardScore(raider, s, 'smokeScreen')).toBe(3);
+    expect(chooseSpend(raider, { ...s, offer: ['smokeScreen', 'heavyTorpedo'] })).toBe(1);
   });
 
-  // RE-CUT IN STORY 8.1. `CONFIG.bots.boonWeights` is still authored in the v2
-  // vocabulary — retuning it is a balance pass with its own ruling, not a side
-  // effect of the model swap — so ai/spending.ts translates it onto the 29 v3
-  // lines. The pin therefore moves from "names a catalog line" to "RESOLVES":
-  // every override key is either a v3 line id, or an alias naming one, or one
-  // of the two the sheet deliberately has no home for. That still fails loudly
-  // on a renamed catalog line; it just fails on the alias table instead.
-  it('every per-line override RESOLVES — a v3 line, an alias to one, or a ruled homeless key', () => {
+  it('Weapon vs plain upgrade: every personality takes a non-favorite weapon (3.5) over a no-bonus ladder (2)', () => {
     for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
-      const t = CONFIG.bots.boonWeights[id] as { lines: Record<string, number> };
-      for (const line of Object.keys(t.lines)) {
-        if (Object.hasOwn(CATALOG, line)) continue;
-        if (HOMELESS_V2_LINES.has(line)) continue;
-        const target = LINE_ALIASES[line];
-        expect(target, `${id}.lines.${line} has no v3 home`).toBeDefined();
-        expect(Object.hasOwn(CATALOG, target), `${line} -> ${target}`).toBe(true);
+      const row = profileOf(id);
+      const favUps: readonly string[] = row.taste.favoriteUpgrades;
+      const [plain, other] = SHIP_LADDERS.filter((l) => !favUps.includes(l));
+      const weapon = EQUIPMENT_LINES.find((l) => !(row.taste.favoriteWeapons as readonly string[]).includes(l))!;
+      // `plain` at 1 copy, `other` at 2, the rest at 0: neither min nor max of U.
+      const s = spendState({ cards: [plain, other, other] });
+      expect(cardScore(row, s, weapon), id).toBe(P.weapon);
+      expect(cardScore(row, s, plain), id).toBe(P.base);
+      expect(chooseSpend(row, { ...s, offer: [plain, weapon] }), id).toBe(1);
+    }
+  });
+
+  it('Two-bonus upgrade vs favorite weapon: siege radarSweep at max(U) 4 beats starShells 3.75', () => {
+    const siege = profileOf('siege');
+    const s = spendState({ cards: ['radarSweep'] });
+    expect(cardScore(siege, s, 'starShells')).toBe(P.favoriteWeapon);
+    expect(cardScore(siege, s, 'radarSweep')).toBe(P.base + P.favorite + P.style);
+    expect(cardScore(siege, s, 'radarSweep')).toBe(4);
+    expect(chooseSpend(siege, { ...s, offer: ['starShells', 'radarSweep'] })).toBe(1);
+  });
+
+  it('Favorite among weapons: trapper takes navalMines (3.75) over broadside (3.5)', () => {
+    const trapper = profileOf('trapper');
+    expect(cardScore(trapper, spendState(), 'navalMines')).toBe(P.favoriteWeapon);
+    expect(cardScore(trapper, spendState(), 'broadside')).toBe(P.weapon);
+    expect(chooseSpend(trapper, spendState({ offer: ['broadside', 'navalMines'] }))).toBe(1);
+  });
+
+  it('Needed heal: siege at 30% hp, none carried → hullRepair 4 beats a favorite weapon 3.75 (hunger NOT applied)', () => {
+    const siege = profileOf('siege');
+    const hurt = spendState({ hp: 30 });
+    expect(30 / 100).toBeLessThan(siege.healHpFrac);
+    expect(cardScore(siege, hurt, 'hullRepair')).toBe(P.base + P.hurtRepair);
+    expect(cardScore(siege, hurt, 'hullRepair')).toBe(4);
+    expect(chooseSpend(siege, { ...hurt, offer: ['starShells', 'hullRepair'] })).toBe(1);
+    // The same bot healthy reads its LOW belt hunger instead: 2 − 1 = 1.
+    expect(cardScore(siege, spendState(), 'hullRepair')).toBe(P.base + P.beltHunger.low);
+    // HURT counts the repair still draining in — the heal tactic's own read.
+    expect(cardScore(siege, spendState({ hp: 30, repairHp: 30 }), 'hullRepair')).toBe(P.base + P.beltHunger.low);
+    // A zero maxHp is never "hurt" (no divide-by-zero verdict).
+    expect(cardScore(siege, spendState({ hp: 0, maxHp: 0 }), 'hullRepair')).toBe(P.base + P.beltHunger.low);
+  });
+
+  it('a HURT bot already carrying HULL REPAIR scores it as carried, favorite still counted', () => {
+    const bulwark = profileOf('bulwark'); // hullRepair IS a bulwark favorite
+    const carrying = spendState({ hp: 10, cards: ['hullRepair'], slotIds: slotsOf([], ['hullRepair']) });
+    expect(cardScore(bulwark, carrying, 'hullRepair')).toBe(P.base + P.favorite + P.carried);
+    // ...and hurt with none carried: base + hurtRepair + favorite, never below 4.
+    expect(cardScore(bulwark, spendState({ hp: 10 }), 'hullRepair')).toBe(P.base + P.hurtRepair + P.favorite);
+  });
+
+  it('Healthy, low hunger: duelist takes a plain ladder (2) over an uncarried HULL REPAIR (1)', () => {
+    const duelist = profileOf('duelist');
+    const s = spendState({ cards: ['speed'] }); // armor below max(U): no specialist bonus
+    expect(cardScore(duelist, s, 'hullRepair')).toBe(P.base + P.beltHunger.low);
+    expect(cardScore(duelist, s, 'hullRepair')).toBe(1);
+    expect(cardScore(duelist, s, 'armor')).toBe(P.base);
+    expect(chooseSpend(duelist, { ...s, offer: ['hullRepair', 'armor'] })).toBe(1);
+  });
+
+  it('Already carried: bulwark carrying shieldBlock takes chaff 3 over shieldBlock 2', () => {
+    const bulwark = profileOf('bulwark');
+    const s = spendState({ cards: ['shieldBlock'], slotIds: slotsOf([], ['shieldBlock']) });
+    expect(cardScore(bulwark, s, 'shieldBlock')).toBe(P.base + P.favorite + P.carried);
+    expect(cardScore(bulwark, s, 'shieldBlock')).toBe(2);
+    expect(cardScore(bulwark, s, 'chaff')).toBe(P.base + P.beltHunger.high);
+    expect(cardScore(bulwark, s, 'chaff')).toBe(3);
+    expect(chooseSpend(bulwark, { ...s, offer: ['shieldBlock', 'chaff'] })).toBe(1);
+  });
+
+  it('Style rounded: bulwark armor 3, speed 0 → speed 3 (min of U) ties armor 3 (favorite)', () => {
+    const bulwark = profileOf('bulwark');
+    const s = spendState({ cards: ['armor', 'armor', 'armor'] });
+    expect(cardScore(bulwark, s, 'speed')).toBe(P.base + P.style);
+    expect(cardScore(bulwark, s, 'armor')).toBe(P.base + P.favorite);
+    expect(cardScore(bulwark, s, 'speed')).toBe(cardScore(bulwark, s, 'armor'));
+  });
+
+  it('Tie, no rng: the lowest offer index wins', () => {
+    const bulwark = profileOf('bulwark');
+    const s = spendState({ cards: ['armor', 'armor', 'armor'] });
+    expect(chooseSpend(bulwark, { ...s, offer: ['armor', 'speed'] })).toBe(0);
+    expect(chooseSpend(bulwark, { ...s, offer: ['speed', 'armor'] })).toBe(0);
+    // A lower-scoring card ahead of the tie does not shift the answer.
+    const withReload = spendState({ cards: ['armor', 'armor', 'armor', 'reload'] }); // reload 1 copy: plain 2
+    expect(chooseSpend(bulwark, { ...withReload, offer: ['reload', 'speed', 'armor'] })).toBe(1);
+  });
+
+  it('Tie, rng: exactly ONE draw, a tied index, and both tied indices occur over seeds', () => {
+    const bulwark = profileOf('bulwark');
+    // armor 3 (favorite) and speed 3 (min of U) tie; reload at 1 copy is plain 2.
+    const two = spendState({ cards: ['armor', 'armor', 'armor', 'reload'], offer: ['reload', 'armor', 'speed'] });
+    expect(two.offer!.map((id) => cardScore(bulwark, two, id))).toEqual([P.base, P.base + P.favorite, P.base + P.style]);
+    const tied = [1, 2];
+    const seen = new Set<number>();
+    for (let seed = 1; seed <= 64; seed += 1) {
+      const { rng, calls } = countingRng(seed);
+      const got = chooseSpend(bulwark, two, undefined, rng);
+      expect(calls(), `seed ${seed}`).toBe(1);
+      expect(tied, `seed ${seed}`).toContain(got);
+      // ...and it is the uniform pick a replay of the same seed predicts.
+      expect(got).toBe(tied[mulberry32(seed).int(0, tied.length - 1)]);
+      seen.add(got!);
+    }
+    expect([...seen].sort()).toEqual(tied);
+  });
+
+  it('Tie, rng: a NON-tied hand consumes no draw', () => {
+    const trapper = profileOf('trapper');
+    const { rng, calls } = countingRng(9);
+    expect(chooseSpend(trapper, spendState({ offer: ['broadside', 'navalMines', 'armor'] }), undefined, rng)).toBe(1);
+    expect(calls()).toBe(0);
+  });
+
+  it('Style specialist: the build\'s HIGHEST line earns the bonus; a line at cap leaves U', () => {
+    const raider = profileOf('raider');
+    // speed at 2 is max(U): +favorite +style; armor at 0 is not.
+    const s = spendState({ cards: ['speed', 'speed'] });
+    expect(cardScore(raider, s, 'speed')).toBe(P.base + P.favorite + P.style);
+    expect(cardScore(raider, s, 'armor')).toBe(P.base);
+    // speed at CAP leaves U (and is refused); armor at 1 is now the max.
+    const capped = spendState({ cards: [...new Array<string>(CATALOG.speed.cap).fill('speed'), 'armor'] });
+    expect(cardScore(raider, capped, 'speed')).toBeNull();
+    expect(cardScore(raider, capped, 'armor')).toBe(P.base + P.style);
+  });
+
+  it('an empty build is FLAT (min = max of U), so no ladder earns either style\'s bonus (R11)', () => {
+    for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
+      const row = profileOf(id);
+      const favUps: readonly string[] = row.taste.favoriteUpgrades;
+      for (const l of SHIP_LADDERS) {
+        expect(cardScore(row, spendState(), l), `${id} ${l}`).toBe(P.base + (favUps.includes(l) ? P.favorite : 0));
       }
     }
   });
 
-  it('every re-keyed CATEGORY names only real v3 lines, and every category in a table is re-keyed', () => {
-    for (const lines of Object.values(CATEGORY_LINES)) {
-      for (const line of lines) expect(Object.hasOwn(CATALOG, line), line).toBe(true);
+  it('Flat build (R11): bulwark at level 0 → armor 2+1 = 3 (no style bonus), a non-favorite weapon 3.5 wins', () => {
+    const bulwark = profileOf('bulwark'); // rounded; favorite upgrade armor; favorite weapons broadside + starShells
+    const s = spendState();
+    expect(cardScore(bulwark, s, 'armor')).toBe(P.base + P.favorite);
+    expect(cardScore(bulwark, s, 'armor')).toBe(3);
+    expect(cardScore(bulwark, s, 'lightTorpedo')).toBe(P.weapon);
+    expect(cardScore(bulwark, s, 'lightTorpedo')).toBe(3.5);
+    expect(chooseSpend(bulwark, { ...s, offer: ['armor', 'lightTorpedo'] })).toBe(1);
+  });
+
+  it('Uneven build: bulwark holding one weapon, ladders at 0 → both at min(U) = 0: armor 4, speed 3', () => {
+    const bulwark = profileOf('bulwark');
+    const s = spendState({ cards: ['lightTorpedo'], slotIds: slotsOf(['lightTorpedo']) });
+    expect(cardScore(bulwark, s, 'armor')).toBe(P.base + P.favorite + P.style);
+    expect(cardScore(bulwark, s, 'armor')).toBe(4);
+    expect(cardScore(bulwark, s, 'speed')).toBe(P.base + P.style);
+    expect(cardScore(bulwark, s, 'speed')).toBe(3);
+    expect(chooseSpend(bulwark, { ...s, offer: ['speed', 'armor'] })).toBe(1);
+  });
+
+  it('"gun" favors EVERY ladder of the mounted gun, and style reads only the MOUNTED gun\'s ladders', () => {
+    const forager = profileOf('forager'); // rounded; favorites gun + reload
+    const s = spendState({ cards: ['armor'] });
+    // The cannon mounted: its three ladders are favorites and sit at min(U) = 0.
+    for (const l of ['deckGun', 'deckGunTurret', 'deckGunBarrel']) {
+      expect(cardScore(forager, s, l), l).toBe(P.base + P.favorite + P.style);
     }
+    // The machine gun mounted: its ladder is the gun favorite and in U...
+    const mg = { ...s, slotIds: slotsOf([], [], 'machineGun') };
+    expect(cardScore(forager, mg, 'machineGun')).toBe(P.base + P.favorite + P.style);
+    // ...and the cannon's ladders leave U (still `gun` family — never dealt here).
+    expect(cardScore(forager, mg, 'deckGun')).toBe(P.base + P.favorite);
+    // A personality without the gun favorite reads a gun ladder as plain + style.
+    expect(cardScore(profileOf('raider'), spendState({ cards: ['speed'] }), 'deckGun')).toBe(P.base);
+  });
+
+  it('"weapons" favors a tier copy of a HELD weapon; copy 1 is a weapon card, not an upgrade', () => {
+    const siege = profileOf('siege'); // favorites weapons + radarSweep; specialist
+    const s = spendState({ cards: ['navalMines', 'navalMines'], slotIds: slotsOf(['navalMines']) });
+    expect(cardScore(siege, s, 'navalMines')).toBe(P.base + P.favorite + P.style); // 2 copies = max(U)
+    expect(cardScore(siege, s, 'broadside')).toBe(P.favoriteWeapon); // unheld: a weapon for an empty slot
+    expect(cardScore(profileOf('duelist'), s, 'navalMines')).toBe(P.base + P.style); // no `weapons` favorite
+  });
+
+  it('every personality ranks every new weapon above any one-bonus upgrade or consumable', () => {
+    const oneBonusCeiling = P.base + P.favorite; // === base + style === base + beltHunger.high
     for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
-      const t = CONFIG.bots.boonWeights[id] as { cat: Record<string, number> };
-      for (const cat of Object.keys(t.cat)) {
-        expect(Object.hasOwn(CATEGORY_LINES, cat), `${id}.cat.${cat} is not re-keyed`).toBe(true);
+      for (const w of EQUIPMENT_LINES) {
+        expect(cardScore(profileOf(id), spendState(), w)!, `${id} ${w}`).toBeGreaterThan(oneBonusCeiling);
       }
     }
   });
 
-  // THE PROOF THAT PROFILES MATTER -------------------------------------------
-  it('CAPTIVE is a wanted line for BOTH ML profiles, and trapper keeps the stronger signature', () => {
-    // RE-CUT AGAIN AT CYCLE 111 (Eric playtest ruling, 2026-08-20). Cycle 110
-    // demoted forager's captive want to 0.9 on a farming argument whose
-    // mechanical half stands (a captive trip is HOSTILE-ONLY, so it cannot
-    // farm neutral fleet drones) but whose conclusion was wrong: captive is a
-    // SURVIVAL-AND-PAYOFF tool — *"REALLY powerful… you just have to be lined
-    // up well and prepare"* — exactly what the hull whose measured problem is
-    // staying alive should buy. Restored as a genuinely reachable want,
-    // WITHOUT displacing trapper's 2.4 signature.
-    //
-    // STORY 8.13 RE-CUT HOW FOULING IS PRICED. `minePropFouling` was the v2
-    // weight for the PROP FOULING ADD-ON, and Story 8.1 aliased it onto the
-    // `foulingMines` line. Amendment 81 deleted the add-on and made FOULING
-    // MINES a WEAPON LINE, so pricing a whole rack by what a profile thought
-    // of a modifier is no longer honest: the alias is retired to
-    // HOMELESS_V2_LINES and the line is priced by the `mines` CATEGORY, like
-    // the other two racks. Story 8.18 owns the real v3 retune.
-    //
-    // WHAT SURVIVES IS THE RULING (cycle 111): trapper still wants mines more
-    // than forager does, and forager still genuinely wants CAPTIVE.
-    const foragerFoul = boonWeightFor('forager', 'foulingMines');
-    const trapperFoul = boonWeightFor('trapper', 'foulingMines');
-    expect(trapperFoul).toBeGreaterThan(foragerFoul); // 2.6 (cat) vs 1.8 (cat)
-
-    // Forager WANTS captive again: above its mines category base and its
-    // fouling want, below its gun ladder (still a gun-led fleet-clearer).
-    const foragerCaptive = boonWeightFor('forager', 'captiveMines');
-    expect(foragerCaptive).toBe(2.0);
-    expect(foragerCaptive).toBeGreaterThan(foragerFoul);
-    expect(foragerCaptive).toBeGreaterThan(1.8); // its own `mines` category base
-    expect(foragerCaptive).toBeLessThan(boonWeightFor('forager', 'deckGunBarrel'));
-    // Trapper's want stays the stronger one in absolute terms...
-    expect(boonWeightFor('trapper', 'captiveMines')).toBeGreaterThan(2);
-    expect(boonWeightFor('trapper', 'captiveMines')).toBeGreaterThan(foragerCaptive);
-    // ...and its whole mines family now sits at its 2.6 category base, captive
-    // included (its own `mineCaptive` 2.4 override is BELOW that base, and the
-    // scorer takes the strongest thing the profile said about the line).
-    expect(boonWeightFor('trapper', 'captiveMines')).toBe(trapperFoul);
-
-    // The pick moves with the ruling: offered captive against a merely
-    // category-weighted mine card, forager TAKES the captive line; for trapper
-    // the two tie at its mines base and offer index settles it (ties keep the
-    // incumbent — deterministic, rng-free).
-    const offer = ['foulingMines', 'captiveMines'];
-    expect(chooseSpend(profileOf('trapper'), { bankedLevels: 1, offer, cards: [], hp: 100, maxHp: 100 })).toBe(0);
-    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer, cards: [], hp: 100, maxHp: 100 })).toBe(1);
-    // Against the naval-mine line at the same 2.0 want, offer index settles it.
-    const vsWanted = ['captiveMines', 'navalMines'];
-    expect(chooseSpend(profileOf('forager'), { bankedLevels: 1, offer: vsWanted, cards: [], hp: 100, maxHp: 100 })).toBe(0);
+  it('a bot SETTLES: its favorite weapon absent, it takes the best card present', () => {
+    const trapper = profileOf('trapper'); // favorite weapons: the three mine racks
+    expect(chooseSpend(trapper, spendState({ offer: ['hullRepair', 'broadside', 'armor'] }))).toBe(1);
   });
 
-  // THE HOMELESS v2 KEY (Story 8.1) ----------------------------------------
-  // `acquireBoost` has no card (the boost is the universal Shift, Story 8.9),
-  // so it is deliberately homeless rather than silently re-keyed. The radar
-  // buoy's three v2 keys (`buoyGun`, `buoyDuration`, `acquireRadarBuoy`) and
-  // its `radarBuoy` CATEGORY left CONFIG with the buoy in Story 8.16, so the
-  // re-key tables no longer name them at all: DECOY BUOY prices at the
-  // consumable KIND base like every other belt line.
-  it('the ruled-homeless v2 key scores nothing, and every radar-buoy key is gone from the re-key (Story 8.16)', () => {
-    expect([...HOMELESS_V2_LINES].sort()).toEqual(['acquireBoost', 'minePropFouling', 'torpedoHoming']);
-    expect(Object.hasOwn(CATALOG, 'acquireBoost')).toBe(false);
-    expect(boonWeightFor('forager', 'acquireBoost')).toBe(0); // unknown id: never picked
-    expect(boonWeightFor('trapper', 'acquireBoost')).toBe(0);
-    for (const key of ['buoyGun', 'buoyDuration', 'acquireRadarBuoy']) {
-      expect(HOMELESS_V2_LINES.has(key), key).toBe(false);
-      expect(Object.hasOwn(LINE_ALIASES, key), key).toBe(false);
-    }
-    expect(Object.hasOwn(CATEGORY_LINES, 'radarBuoy')).toBe(false);
-    for (const t of Object.values(CONFIG.bots.boonWeights)) {
-      expect(Object.hasOwn(t.cat, 'radarBuoy')).toBe(false);
-    }
-  });
-
-  // THE EQUIPMENT RANKING (Eric ruling 2026-08-20, re-keyed in Story 8.1) -----
-  // Acquisition cards are DELETED: an equipment LINE's copy 1 is the fit. The
-  // ruling behind the old pin — a profile must want a weapon it does not carry
-  // more than it wants junk, or the extra slot stays empty by accident —
-  // survives on the lines those six acquisitions now name.
-  const EQUIPMENT_LINES = ['heavyTorpedo', 'navalMines', 'starShells', 'broadside', 'decoyBuoy'] as const;
-
-  it('every profile ranks every acquirable equipment LINE above the unlisted floor', () => {
-    // 0.5 here IS spending.ts's UNLISTED_SCORE, restated so a drift fails loudly.
+  it('cardScore is pure: no rng, and the same answer twice', () => {
+    const s = spendState({ cards: ['armor'] });
     for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
-      for (const card of EQUIPMENT_LINES) {
-        expect(Object.hasOwn(CATALOG, card)).toBe(true);
-        expect(boonWeightFor(id, card), `${id} ${card}`).toBeGreaterThan(0.5);
+      for (const l of Object.keys(CATALOG)) {
+        expect(cardScore(profileOf(id), s, l)).toBe(cardScore(profileOf(id), s, l));
       }
     }
   });
+});
 
-  it('a bot SETTLES: its preferred weapon absent, it takes the best line present', () => {
-    // Raider's weapon ranking bottoms out at `broadside` (acquireBroadside
-    // 0.7) — still above an unknown id, so a hand of [junk, 3rd-choice weapon]
-    // is spent on the weapon, never passed out of pickiness.
-    expect(boonWeightFor('raider', 'broadside')).toBeGreaterThan(0);
-    expect(chooseSpend(profileOf('raider'), spendState({ offer: ['notACard', 'broadside'] }))).toBe(1);
-    // And a genuinely wanted card still outranks a settled pickup.
-    expect(chooseSpend(profileOf('raider'), spendState({ offer: ['broadside', 'heavyTorpedo'] }))).toBe(1);
+// --- THE PROPERTY: NO PERSONALITY SAILS TEN LEVELS WEAPONLESS ------------------
+// Through the REAL draw: each level's hand is `drawOffer` over the ship's own
+// state (neutral weights; the level-zero guarantee on the first offer only, as
+// World.materializeOffer passes it), the pick is `chooseSpend`, and the pick is
+// applied by replaying the cards through `slotsWithCards` — the one slot fold
+// the World and the client share. The bot sails healthy and never FIRES a
+// consumable, so the belt only fills. The distribution is logged per
+// personality as a reading, not a threshold.
+
+describe('ai/spending — ten seeded levels through the real draw (Story 8.20)', () => {
+  const SEEDS = 50;
+  const LEVELS = 10;
+
+  interface RunResult { weapons: number; consumableCopies: number; beltLines: number; wasted: number }
+
+  function runOnce(id: BotProfileId, seed: number): RunResult {
+    const pickRng = mulberry32((seed * 7919 + 17) >>> 0);
+    const cls = pickRng.pick(SHIP_CLASS_IDS);
+    const gun = pickRng.pick(GUN_IDS);
+    const drawRng = mulberry32(seed);
+    const spendRng = mulberry32((seed * 104729 + 3) >>> 0);
+    const profile = profileOf(id);
+    const cards: string[] = [];
+    let wasted = 0;
+    const slotIds = (): (SlotItemId | null)[] =>
+      slotsWithCards(effectiveStats(hullEnvelope(cls), cards), cards, CATALOG, false, gun, classShift(cls))
+        .map((s) => s.equipmentId);
+    for (let level = 0; level < LEVELS; level += 1) {
+      const ids = slotIds();
+      const ship = { held: cards as readonly LineId[], slotIds: ids, mountedGun: MOUNTED_GUN[gun] };
+      const offer = drawOffer(ship, new Map(), drawRng, CATALOG, { guarantee: level === 0 });
+      const choice = chooseSpend(profile, spendState({ offer, cards, slotIds: ids }), CATALOG, spendRng);
+      if (choice === null) wasted += 1;
+      else cards.push(offer[choice]);
+    }
+    const ids = slotIds();
+    return {
+      weapons: WEAPON_SLOTS.filter((i) => ids[i] !== null).length,
+      consumableCopies: cards.filter((c) => CATALOG[c].kind === 'consumable').length,
+      beltLines: CONSUMABLE_SLOTS.filter((i) => ids[i] !== null).length,
+      wasted,
+    };
+  }
+
+  it('no personality × seed ends ten levels with zero Q/E/R weapons (distribution logged)', () => {
+    const table: Record<string, { meanWeapons: number; meanConsumableCopies: number; meanBeltLines: number; zeroWeapon: number; wasted: number }> = {};
+    for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
+      let w = 0;
+      let c = 0;
+      let b = 0;
+      let zero = 0;
+      let wasted = 0;
+      for (let seed = 1; seed <= SEEDS; seed += 1) {
+        const r = runOnce(id, seed);
+        w += r.weapons;
+        c += r.consumableCopies;
+        b += r.beltLines;
+        wasted += r.wasted;
+        if (r.weapons === 0) zero += 1;
+      }
+      table[id] = { meanWeapons: w / SEEDS, meanConsumableCopies: c / SEEDS, meanBeltLines: b / SEEDS, zeroWeapon: zero, wasted };
+    }
+    console.log('[8.20 scorer distribution, 50 seeds x 10 levels]', JSON.stringify(table));
+    for (const [id, row] of Object.entries(table)) expect(row.zeroWeapon, id).toBe(0);
   });
-
-  // RETIRED at the cycle-95 merge: "the mineDamage x minePropFouling PICK-ORDER
-  // BUG is deliberately not dodged". The bug it guarded (53 vs 45 hp depending
-  // on pick order, because prop-fouling's multiplicative write raced
-  // mineDamage's additive ladder) was FIXED UPSTREAM by amendment 25, which
-  // deleted the multiplier outright — "with no multiplier left, one effect
-  // writes the path and order cannot matter." The test is retired rather than
-  // adapted, per the project's standing rule; the spec's matching "Never"
-  // clause is discharged, not overruled.
 });
 
 // --- track persistence: the structural jamming counter -----------------------
@@ -1055,21 +1283,20 @@ describe('ai/utility — the band pull is bounded (Eric ruling 2026-08-20)', () 
 describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
   it('lives in a SEPARATE id space: no test id is reachable through in-game enrollment', () => {
     // STRUCTURAL, not sampled: botDriver.enroll's in-game roll is
-    // `rng.pick(CONFIG.bots.profiles[hull])` and ArenaRoom.buildBotFleet
+    // `rng.pick(CONFIG.bots.profiles)` and ArenaRoom.buildBotFleet
     // passes no override, so the ONLY profiles a real Solo vs AI lobby can
-    // deal are the ids in that CONFIG table. Test ids being absent from every
-    // per-class list — and from BOT_PROFILES entirely — is therefore proof of
+    // deal are the ids in that CONFIG table. Test ids being absent from that
+    // flat list — and from BOT_PROFILES entirely — is therefore proof of
     // unreachability, not a probabilistic claim.
     const testIds = Object.keys(TEST_PROFILES);
     expect(testIds.sort()).toEqual(['randomBattleship', 'randomMineLayer', 'randomTorpedoBoat']);
-    for (const cls of SHIP_CLASS_IDS) {
-      for (const id of CONFIG.bots.profiles[cls]) expect(testIds).not.toContain(id);
-    }
+    for (const id of CONFIG.bots.profiles) expect(testIds).not.toContain(id);
     for (const id of testIds) expect(Object.hasOwn(BOT_PROFILES, id)).toBe(false);
   });
 
   it('three rows, one per hull, carrying the RULED blind-vacuum values verbatim', () => {
-    const hulls = TEST_PROFILE_IDS.map((id) => TEST_PROFILES[id].hullId);
+    // Story 8.20: the test rows stay hull-bound through TEST_PROFILE_HULL.
+    const hulls = TEST_PROFILE_IDS.map((id) => testProfileHull(id));
     expect([...hulls].sort()).toEqual([...SHIP_CLASS_IDS].sort());
     for (const id of TEST_PROFILE_IDS) {
       const row = TEST_PROFILES[id];
@@ -1083,9 +1310,13 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
       // Every appetite entry at or above EAGER, so every equipment verb is
       // exercised and the read is not shaped by a doctrine preference…
       for (const v of Object.values(row.appetite)) expect(v).toBeGreaterThanOrEqual(APPETITE_EAGER);
-      // …with the gun still the LOWEST entry (the universal fallback order).
+      // …with the gun ladder still the LOWEST entries (the universal fallback
+      // order). Story 8.20 writes the two pickable guns explicitly at the
+      // gun's own 2.0 (the numbers the retired family fallback resolved).
+      const GUNS = ['gun', 'machineGun', 'flak'];
       for (const [eq, v] of Object.entries(row.appetite)) {
-        if (eq !== 'gun') expect(v).toBeGreaterThan(appetiteFor(row, 'gun'));
+        if (GUNS.includes(eq)) expect(v).toBe(appetiteFor(row, 'gun'));
+        else expect(v).toBeGreaterThan(appetiteFor(row, 'gun'));
       }
     }
   });
@@ -1098,23 +1329,22 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
 });
 
 describe('ai/spending — random mode (wave 4)', () => {
-  function spendState(over: Partial<BotSpendState> = {}): BotSpendState {
-    return { bankedLevels: 1, offer: null, cards: [], hp: 100, maxHp: 100, ...over };
-  }
-
-  /** An rng that COUNTS its draws and fails the test if the weighted path
-   *  ever touches it. */
+  /** An rng that fails the test if it is touched at all. */
   function trapRng(): never {
     throw new Error('the weighted spend path drew from the rng');
   }
-  const TRAP = { float: trapRng, int: trapRng, pick: trapRng } as unknown as Parameters<typeof chooseSpend>[3];
+  const TRAP = { next: trapRng, float: trapRng, int: trapRng, pick: trapRng } as unknown as Rng;
 
-  it('the WEIGHTED path never draws, and is byte-identical with or without an rng in hand', () => {
+  it('the WEIGHTED path draws ONLY on a tie, and is byte-identical with or without an rng on a clear winner', () => {
     const offer = ['deckGunBarrel', 'heavyTorpedo', 'armor'];
     const bare = chooseSpend(profileOf('raider'), spendState({ offer }));
-    // Handing the weighted path a trap rng must neither change the answer nor
-    // trigger a single draw — the shipped path is pure and rng-free.
+    expect(bare).toBe(1); // a favorite weapon, 3.75, clears every 3-point card
+    // No tie: a trap rng must neither change the answer nor be touched.
     expect(chooseSpend(profileOf('raider'), spendState({ offer }), undefined, TRAP)).toBe(bare);
+    // A tie: exactly one draw.
+    const { rng, calls } = countingRng(4);
+    chooseSpend(profileOf('raider'), spendState({ offer: ['deckGunBarrel', 'armor'] }), undefined, rng);
+    expect(calls()).toBe(1);
   });
 
   it('a random profile picks UNIFORMLY over the offer off its own stream', () => {
@@ -1130,9 +1360,7 @@ describe('ai/spending — random mode (wave 4)', () => {
       expect(got).toBe(expected.int(0, offer.length - 1));
       seen.add(got!);
     }
-    // 40 draws over 4 slots: every index reachable (a fixed pick is not
-    // uniform; the chance of missing a slot honestly is (3/4)^40 ≈ 1e-5 per
-    // slot on this FIXED seed, i.e. this is a deterministic replay, not flake).
+    // 40 draws over 4 slots on a FIXED seed: a deterministic replay, not flake.
     expect(seen.size).toBe(offer.length);
   });
 
@@ -1140,8 +1368,6 @@ describe('ai/spending — random mode (wave 4)', () => {
     const row = profileOf('randomTorpedoBoat');
     const hurt = row.healHpFrac * 100 - 1;
     const rng = mulberry32(7);
-    // The hurt call is an ordinary randomized pick now, so it DOES draw — and
-    // it draws #1 off this seed, exactly as a healthy call would.
     expect(chooseSpend(row, spendState({ hp: hurt, offer: ['deckGunBarrel', 'armor'] }), undefined, rng))
       .toBe(mulberry32(7).int(0, 1));
   });
@@ -1155,11 +1381,11 @@ describe('ai/spending — random mode (wave 4)', () => {
   });
 });
 
-// STORY 8.15 (amendment 109, interim — Story 8.19 owns the tables): the two
-// pickable guns and the two class Shifts join the appetite and spend tables by
-// FAMILY, adding no number — a machine gun is read exactly as the cannon was,
-// a Shift exactly as the boost was.
-describe('Story 8.15 — the new ids ride their family in the appetite and spend tables', () => {
+// STORY 8.15 (amendment 109): the two pickable guns and the two class Shifts
+// read their family's appetite, adding no number — a machine gun exactly as
+// the cannon, a Shift exactly as the boost. Story 8.20 writes those numbers
+// explicitly per line (the family fallback is deleted); the equality stands.
+describe('Story 8.15 — the new ids read their family\'s appetite', () => {
   const ALL_ROWS: AnyProfileId[] = [...(Object.keys(BOT_PROFILES) as BotProfileId[]), ...TEST_PROFILE_IDS];
 
   it('MG/flak read the CANNON appetite; INSTANT RELOAD / DAMAGE CUT read the BOOST appetite', () => {
@@ -1169,16 +1395,6 @@ describe('Story 8.15 — the new ids ride their family in the appetite and spend
       expect(appetiteFor(row, 'flak'), id).toBe(appetiteFor(row, 'gun'));
       expect(appetiteFor(row, 'instantReload'), id).toBe(appetiteFor(row, 'boost'));
       expect(appetiteFor(row, 'damageCut'), id).toBe(appetiteFor(row, 'boost'));
-    }
-  });
-
-  it('the mounted gun LADDER scores under the v2 `guns` category, like the cannon line', () => {
-    expect(CATEGORY_LINES.guns).toEqual(expect.arrayContaining(['deckGun', 'machineGun', 'flak']));
-    for (const id of Object.keys(BOT_PROFILES) as BotProfileId[]) {
-      const t = CONFIG.bots.boonWeights[id] as { cat: Record<string, number> };
-      if (t.cat.guns === undefined) continue;
-      expect(boonWeightFor(id, 'machineGun'), id).toBe(t.cat.guns);
-      expect(boonWeightFor(id, 'flak'), id).toBe(t.cat.guns);
     }
   });
 });

@@ -36,7 +36,7 @@
 // world.js outright and makes perception.js type-only for this directory.
 
 import { CONFIG, SHIP_CLASS_IDS, mulberry32, type InputMsg, type Rng, type ShipClassId } from '@salvo/shared';
-import { profileOf } from './profiles.js';
+import { testProfileHull } from './profiles.js';
 import { COMBAT_BRAIN } from './tactics.js';
 import type {
   AnyProfileId,
@@ -199,23 +199,26 @@ export class BotController {
    * behaviour change — a bot's brain does not know where its class came from.
    *
    * `profile` (Story 7-6 wave 4) is the batch-sim harness's door to the
-   * TEST-ONLY rows and obeys the SAME stream discipline: the profile roll
-   * still happens off the class the roll landed on, and is then discarded —
-   * so every downstream draw (callsign order, every later enrollment's class
-   * and mind seed) is byte-identical whether or not a profile was forced. A
-   * forced profile also governs the HULL (each row is hull-bound by
-   * construction), so a caller passes the profile alone. The in-game path
-   * (ArenaRoom.buildBotFleet) never passes one, and the rolled profile comes
-   * from CONFIG.bots.profiles — which contains no test id — so a real Solo vs
-   * AI opponent can never carry a test row.
+   * TEST-ONLY rows and obeys the SAME stream discipline: the personality roll
+   * (ONE pick over the flat CONFIG.bots.profiles list — Story 8.20, Eric
+   * ruling 2026-09-30: any personality on any hull) still happens and is then
+   * discarded — so every downstream draw (callsign order, every later
+   * enrollment's class and mind seed) is byte-identical whether or not a
+   * profile was forced. A forced TEST row governs the HULL (each is
+   * hull-bound through TEST_PROFILE_HULL), so the harness passes the profile
+   * alone; a forced IN-GAME personality never decides the hull — the
+   * rolled/passed hull stands. The in-game path (ArenaRoom.buildBotFleet)
+   * never passes one, and the rolled profile comes from CONFIG.bots.profiles
+   * — which contains no test id — so a real Solo vs AI opponent can never
+   * carry a test row.
    */
   enroll(id: string, hull?: ShipClassId, profile?: AnyProfileId): { name: string; hullId: ShipClassId } {
     this.enrollCounter += 1;
     const rolled = this.rng.pick(SHIP_CLASS_IDS);
     const rolledHull = hull ?? rolled;
-    const rolledProfile = this.rng.pick(CONFIG.bots.profiles[rolledHull]);
+    const rolledProfile = this.rng.pick(CONFIG.bots.profiles);
     const prof: AnyProfileId = profile ?? rolledProfile;
-    const hullId = profile === undefined ? rolledHull : profileOf(profile).hullId;
+    const hullId = (profile === undefined ? null : testProfileHull(profile)) ?? rolledHull;
     const name = this.drawCallsign();
     this.minds.set(id, {
       rng: mulberry32((this.seed + this.enrollCounter * MIND_STREAM_K) >>> 0),
