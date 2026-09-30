@@ -50,21 +50,19 @@
 // rest is a thin DOM adapter.
 
 import {
-  CATALOG,
-  CONFIG,
-  boonStackCount,
-  effectiveStats,
-  resolveCards,
   type EffectiveStats,
+  type GunId,
   type ResultsMsg,
   type ResultsRow,
   type ShipClassId,
+  type SlotItemId,
+  type WeaponAmmo,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { applyViewportCap } from './fit.js';
 import type { MatchLogEntry, PersonalScore } from '../score.js';
 import { cssHex, cssRgba, textSafe } from '../util/color.js';
-import { boonEffectLine, boonKindLabel, boonName } from './boonCopy.js';
+import { makeLoadoutBlock } from './loadoutBlock.js';
 import { CLASS_DISPLAY_NAMES } from './classSelect.js';
 import { fmtBarClock, fmtElapsedClock } from './chromeBar.js';
 
@@ -293,12 +291,6 @@ export function matchLogRow(entry: MatchLogEntry): { stamp: string; text: string
   };
 }
 
-/** Pure: the LAST OFFER section head — `LAST OFFER — 1 LEVEL UNSPENT`. The
- *  plural is the only moving part; the mockup's own head prints the count. */
-export function offerHeading(pts: number): string {
-  return `LAST OFFER — ${pts} LEVEL${pts === 1 ? '' : 'S'} UNSPENT`;
-}
-
 /**
  * Pure: the "ships you sank" block. Contestant-controlled hulls only — drone
  * kills count in the KILLS tally above but never appear here (the I/O matrix's
@@ -310,12 +302,13 @@ export function sunkLines(score: PersonalScore): string[] {
 }
 
 /**
- * The own hull's identity + build, for the blocks the personal score does not
+ * The own hull's identity + loadout, for the blocks the personal score does not
  * carry. Optional on the view: absent, every block that needs it is simply not
  * drawn (the modal degrades to the score card, which is complete on its own).
  * Everything here is already in hand when the modal opens — `net.you` is never
- * cleared on death (`roomBindings.ts:799-800`), so this costs ZERO wire
- * (amendment 28).
+ * cleared on death (`roomBindings.ts:799-800`), and the slot ids + stats are the
+ * client's own replay of it (`g.ownSlots` / `g.ownStats`), so this costs ZERO
+ * wire (amendment 28; Story 8.21).
  */
 export interface ResultsOwn {
   /** Own callsign, as the roster carries it. */
@@ -328,12 +321,17 @@ export interface ResultsOwn {
   hue: number;
   /** Fitted card ids, REPEATS INTACT (`OwnShip.cards`). */
   cards: readonly string[];
-  /** The FRONT queued offer's boon ids (`OwnShip.offer`), `[]` when nothing is
-   *  banked. Death is the only thing that expires an offer, which is why the
-   *  modal is where it gets reviewed. */
-  offer: readonly string[];
-  /** Banked levels still unspent (`OwnShip.pts`). */
-  pts: number;
+  /** The seat gun (`OwnShip.gun`) — slot 0's mount. */
+  gun: GunId;
+  /** Slot-aligned item ids of the own loadout as it ended (`g.ownSlots`: the
+   *  replayed `slotIdsFor`), `null` for an empty square — a belt stack fired to
+   *  zero has left `cards`, so it is simply empty here too (Eric R4). */
+  slots: readonly (SlotItemId | null)[];
+  /** Slot-aligned stock (`OwnShip.ammo`) — the belt's `×n` badges read it. */
+  ammo: readonly (WeaponAmmo | null)[];
+  /** The own effective stats (`g.ownStats`, the hotbar's own fold) — the gun's
+   *  tier is read off it, never re-derived. */
+  stats: EffectiveStats;
 }
 
 /** Everything the modal renders. Built by main.ts at elimination and at game end. */
@@ -350,8 +348,8 @@ export interface ResultsView {
   ownId: string;
   /** Offer SPECTATE — only while the match is still live. */
   canSpectate: boolean;
-  /** Own identity + build (amendment 29's identity line, plus the boons/offer
-   *  blocks). Omitted ⇒ those blocks are not drawn. */
+  /** Own identity + loadout (amendment 29's identity line, plus the LOADOUT
+   *  block). Omitted ⇒ those blocks are not drawn. */
   own?: ResultsOwn | null;
   /** Captains in the match — the `OF 14` of `9TH OF 14`. Null ⇒ the bare
    *  ordinal (see placementLine); the game-end table supplies it for free. */
@@ -412,13 +410,14 @@ const PANEL_CSS = [
 const CELL_CSS = 'padding:5px 16px;font:400 16px var(--hc-font-mono);letter-spacing:1px';
 
 /** Mockup F3 `.res-sec-h` — the section-head register every block below the
- *  stat row wears (MATCH LOG / SHIPS YOU SANK / BOONS ACCRUED / LAST OFFER). */
-const SECTION_HEAD_CSS =
+ *  stat row wears (MATCH LOG / SHIPS YOU SANK / LOADOUT). Exported for the
+ *  LOADOUT block (`loadoutBlock.ts`), which lives in its own module. */
+export const SECTION_HEAD_CSS =
   'font:400 10px var(--hc-font-mono);letter-spacing:.24em;text-transform:uppercase;' +
   'color:var(--hc-text-muted);margin:20px 0 10px';
 
-/** Mockup F3 `.res-boons` — the body register the boon rows, the match log and
- *  the sunk roll share (one list voice for the whole lower half). */
+/** Mockup F3 `.res-boons` — the body register the match log and the sunk roll
+ *  share (one list voice for the whole lower half). */
 const LIST_CSS = 'font:400 12px var(--hc-font-mono);letter-spacing:.06em;color:var(--hc-text-secondary);line-height:2';
 
 let handlers: ResultsHandlers | null = null;
@@ -631,93 +630,6 @@ function makeScoreCard(score: PersonalScore, fieldSize: number | null): HTMLElem
   return card;
 }
 
-// --- THE BUILD BLOCKS — an OPEN OWNER DECISION (amendment 28) -----------------
-//
-// Eric: *"I don't know if I care about what boons I have selected at this point,
-// i'll need to think on that."* Both blocks are ratified in UX-DR27 and drawn in
-// mockup F3, and both cost ZERO wire, so they are BUILT to the mockup and are a
-// PURE SUBTRACTION to cut on sight (the `deferred-work.md:860` agreement — prefer
-// "ship it and look" over choosing from written descriptions).
-//
-// THAT IS WHY EACH IS ONE SELF-CONTAINED RENDER FUNCTION returning an element or
-// null: cutting either is deleting its function and its one `append` line in
-// showResults. Nothing else in this module reads them.
-
-/** BOONS ACCRUED (cut-able — see the block note above). `◆ NAME — effect line`,
- *  the hotbar tooltip's accrued-row grammar verbatim: stacked copies COLLAPSE to
- *  one row named at the rung you hold, and the effect line reports what the
- *  FITTED build actually has (live `effectiveStats`, no preview diff). */
-/**
- * The build list's order: the fitted lines, deduped, GROUPED BY KIND in catalog
- * order (weapons, then the upgrade ladders, then add-ons, then consumables).
- * Catalog v3 has no categories to group by any more, and a raw fit-order list
- * reads as noise once a build carries twenty cards — the kind is the one axis
- * the catalog still states. Unresolvable ids are dropped (fail-closed).
- */
-const KIND_ORDER: readonly string[] = ['equipment', 'ladder', 'addon', 'consumable'];
-
-function buildOrder(cards: readonly string[]): string[] {
-  // resolveCards is the shared FAIL-CLOSED resolver: an id this build cannot
-  // resolve is silently dropped rather than rendering a row nothing explains.
-  const lines = [...resolveCards([...new Set(cards)])];
-  return lines.sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind)).map((l) => l.id);
-}
-
-function makeBoons(own: ResultsOwn): HTMLElement | null {
-  if (own.cards.length === 0) return null;
-  const stats: EffectiveStats = effectiveStats(CONFIG.shipClasses[own.cls], own.cards);
-  const block = document.createElement('div');
-  block.appendChild(makeSectionHead('BOONS ACCRUED'));
-  const list = document.createElement('div');
-  list.style.cssText = LIST_CSS;
-  for (const id of buildOrder(own.cards)) {
-    const row = document.createElement('div');
-    const name = document.createElement('span');
-    name.textContent = `◆ ${boonName(id, boonStackCount(own.cards, id) - 1)}`;
-    name.style.cssText = 'color:var(--hc-phosphor);font-weight:600';
-    row.append(name, document.createTextNode(` — ${boonEffectLine(id, stats)}`));
-    list.appendChild(row);
-  }
-  block.appendChild(list);
-  return block;
-}
-
-/** LAST OFFER (cut-able — see the block note above). The dashed cards of the
- *  offer death expired, kind word over name. Drawn only with a banked level AND
- *  a front offer to show: `pts === offer.length` is the server's own invariant,
- *  but both are checked because either alone would draw an empty row. */
-export function makeOffer(own: ResultsOwn): HTMLElement | null {
-  if (own.pts <= 0 || own.offer.length === 0) return null;
-  const block = document.createElement('div');
-  block.appendChild(makeSectionHead(offerHeading(own.pts)));
-  const row = document.createElement('div');
-  row.style.cssText = 'display:flex;gap:10px';
-  for (const id of own.offer) {
-    if (!Object.hasOwn(CATALOG, id)) continue; // fail-open: an unresolvable id drops its card, never the block
-    const line = CATALOG[id];
-    const card = document.createElement('div');
-    card.style.cssText = [
-      'flex:1',
-      'padding:8px 10px',
-      `border:1px dashed ${cssRgba(CLIENT_CONFIG.colors.textMuted, 0.45)}`,
-      `border-radius:${R.controlRadius}px`,
-      'font:400 10px var(--hc-font-mono)',
-      'letter-spacing:.1em',
-      'text-transform:uppercase',
-      'color:var(--hc-text-muted)',
-      'text-align:center',
-      'line-height:1.7',
-    ].join(';');
-    const cat = document.createElement('span');
-    cat.textContent = boonKindLabel(line.kind);
-    cat.style.cssText = 'color:var(--hc-text-secondary);font-size:9px;letter-spacing:.18em;display:block';
-    card.append(cat, document.createTextNode(boonName(id, boonStackCount(own.cards, id))));
-    row.appendChild(card);
-  }
-  block.appendChild(row);
-  return block;
-}
-
 function makeHeaderRow(): HTMLTableRowElement {
   const tr = document.createElement('tr');
   for (const h of ['#', 'CAPTAIN', 'KILLS', 'DMG']) {
@@ -871,13 +783,9 @@ export function showResults(view: ResultsView, h: ResultsHandlers): void {
   panel.append(makeBanner(bannerText(view), bannerOutcome(view)), placement);
   if (view.own != null) panel.appendChild(makeIdentity(view.own));
   panel.appendChild(card);
-  // The two cut-able build blocks (amendment 28's open owner decision).
-  if (view.own != null) {
-    const boons = makeBoons(view.own);
-    if (boons !== null) panel.appendChild(boons);
-    const offer = makeOffer(view.own);
-    if (offer !== null) panel.appendChild(offer);
-  }
+  // THE LOADOUT BLOCK (Story 8.21) — where the retired build list sat: after
+  // the score card, before the game-end table.
+  if (view.own != null) panel.appendChild(makeLoadoutBlock(view.own));
   if (view.rows !== null) panel.appendChild(makeTable(view.rows, view.ownId));
   panel.appendChild(makeActions(view, h));
 

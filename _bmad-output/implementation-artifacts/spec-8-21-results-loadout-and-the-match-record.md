@@ -2,7 +2,7 @@
 title: 'Story 8.21: Results LOADOUT and the Match Record'
 type: 'feature'
 created: '2026-09-30'
-status: 'ready-for-dev'
+status: 'in-progress'
 baseline_revision: 'ae9f92f'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -95,8 +95,8 @@ warnings: [oversized, multiple-goals]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `server/src/game/world.ts`, `server/src/game/match.ts`, `server/src/game/matchRecord.ts`, `server/src/game/accountWriter.ts`, `server/src/rooms/ArenaRoom.ts`, `server/src/app.config.ts`, server tests -- the hand log, the participant snapshot, the builder, the port + NullWriter, the one call site, pins (a)–(d) -- the record half (Opus; wire-privacy pins reviewed on Fable).
-- [ ] `client/src/ui/tierRamp.ts`, `client/src/ui/loadoutBlock.ts`, `client/src/ui/results.ts`, `client/src/main.ts`, client tests -- the LOADOUT block, the block deletions, pins (e) -- the modal half (Opus), in parallel with the server half (disjoint files; `shared/` frozen).
+- [x] `server/src/game/world.ts`, `server/src/game/match.ts`, `server/src/game/matchRecord.ts`, `server/src/game/accountWriter.ts`, `server/src/rooms/ArenaRoom.ts`, `server/src/app.config.ts`, server tests -- the hand log, the participant snapshot, the builder, the port + NullWriter, the one call site, pins (a)–(d) -- the record half (Opus; wire-privacy pins reviewed on Fable).
+- [x] `client/src/ui/tierRamp.ts`, `client/src/ui/loadoutBlock.ts`, `client/src/ui/results.ts`, `client/src/main.ts`, client tests -- the LOADOUT block, the block deletions, pins (e) -- the modal half (Opus), in parallel with the server half (disjoint files; `shared/` frozen).
 - [ ] Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex `gpt-5.6-sol` on the diff; triage; fixes routed by weight.
 - [ ] Docs wave (Sonnet): version, changelog, trackers, amendments 178–182 in both homes, ledger entries, DESIGN/EXPERIENCE stamps; `npm run check` green; commit, push, ONE PR to `development`.
 

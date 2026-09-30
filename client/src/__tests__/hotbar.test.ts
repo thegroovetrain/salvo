@@ -1365,13 +1365,20 @@ describe('a stocked BELT square', () => {
     expect(slotViewModels(stocked(2, { cards: ['hullRepair', 'hullRepair'] }))[5].boonCount).toBe(0);
   });
 
-  it('draws NO glyph for an instant or STUB consumable, and invents none', () => {
-    // No crash, no word, no placeholder — the square is its outline and badge.
-    expect(glyphPaths('hullRepair')).toBeNull();
-    expect(equipmentGlyphSvg('hullRepair', 24)).toBeNull();
+  it('draws the mock PLUS for HULL REPAIR, NO glyph for a STUB consumable, and invents none', () => {
+    // Story 8.21: HULL REPAIR takes the ratified results mock's `ic-repair` — a
+    // bare plus, two strokes — from the one glyph source (Story 8.8 had left it
+    // artless rather than invent; the mock now supplies the art).
+    const plus = glyphPaths('hullRepair');
+    expect(plus).not.toBeNull();
+    expect(plus).toHaveLength(2);
+    expect(plus?.every((p) => p.kind === 'path' && p.pts.length === 2)).toBe(true);
+    expect(equipmentGlyphSvg('hullRepair', 24)?.tagName.toLowerCase()).toBe('svg');
     // DEPTH CHARGE is a STUB (Story 8.13, epic-8 amendment 83): no mechanism,
-    // so no linework — the same blank every other stub consumable renders.
+    // so no linework — the same blank every other stub consumable renders. No
+    // crash, no word, no placeholder — the square is its outline and badge.
     expect(glyphPaths('depthCharge')).toBeNull();
+    expect(equipmentGlyphSvg('depthCharge', 24)).toBeNull();
     // ...while a built weapon still has its linework, from the SAME source.
     expect(glyphPaths('heavyTorpedo')).not.toBeNull();
     expect(equipmentGlyphSvg('heavyTorpedo', 24)?.tagName.toLowerCase()).toBe('svg');

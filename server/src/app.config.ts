@@ -18,6 +18,7 @@ import {
   stagingGateMiddleware,
 } from './stagingGate.js';
 import { logInfo } from './log.js';
+import { createAccountWriter, setAccountWriter, setGameVersion } from './game/accountWriter.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -25,6 +26,14 @@ const pkg = JSON.parse(
 ) as { version: string };
 
 const isProd = process.env.NODE_ENV === 'production';
+
+// THE ACCOUNT WRITER (Story 8.21): where a finished match's server-only
+// MatchRecord goes — the NullWriter until Epic 9 branches createAccountWriter().
+// Installed at boot beside the metrics/liveness wiring, with the build stamp
+// every record carries. (No graceful-shutdown hook exists in this server, so
+// `flush()` has no caller yet: Epic 9 wires it with the writer that can fail.)
+setAccountWriter(createAccountWriter());
+setGameVersion(pkg.version);
 
 export default config({
   // Typed HTTP routes (Colyseus 0.18): served alongside the default

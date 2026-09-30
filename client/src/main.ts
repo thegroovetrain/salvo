@@ -1717,7 +1717,7 @@ function ownScore(g: Game): PersonalScore {
 /**
  * The modal's OWN-IDENTITY block (Story 5.3): callsign · class in the personal
  * hue, plus the build it is reviewing. Every field is already in hand — the
- * roster for name/hue, and `net.you` for class/boons/offer, which is NEVER
+ * roster for name/hue, and `net.you` for class/cards/gun/ammo, which is NEVER
  * cleared on death (roomBindings: "the wreck's last pose survives the entire
  * spectate period"), so this costs no wire and no PROTOCOL_VERSION bump.
  * Null when either half is unresolved: the modal then simply omits the line.
@@ -1732,8 +1732,14 @@ function ownResultsIdentity(g: Game): ResultsOwn | null {
     cls: you.cls,
     hue: PLAYER_HUES[idx] ?? CLIENT_CONFIG.colors.droneOutline,
     cards: you.cards ?? [],
-    offer: you.offer ?? [],
-    pts: you.pts ?? 0,
+    // THE LOADOUT BLOCK (Story 8.21) reads the SAME replayed loadout and fold
+    // the hotbar paints from: `applyOwnStats` rewrites `g.ownSlots` and
+    // `g.ownStats` in the frame handler that advances `net.you`, so they are
+    // coherent with it at death and at game end alike — no second fold.
+    gun: you.gun,
+    slots: g.ownSlots,
+    ammo: you.ammo,
+    stats: g.ownStats,
   };
 }
 

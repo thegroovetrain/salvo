@@ -53,13 +53,16 @@ import {
   CONFIG,
   isAfloat,
   isSinking,
+  type GunId,
   type HullId,
+  type LineId,
   type MatchPhase,
   type ResultsMsg,
   type ResultsRow,
 } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { isHuman, isParticipant, type ShipRole } from './participants.js';
+import type { HandRecord } from './matchRecord.js';
 
 /**
  * BOARDING GRACE (Story 6.1, epic-6 amendment 8) — the backstop under the
@@ -327,7 +330,7 @@ function isAfloatCaptain(s: ShipRecord): boolean {
 }
 
 /** Snapshot of a participant's identity + tallies (survives their ship's removal). */
-interface Participant {
+export interface Participant {
   name: string;
   /** The hull's ROLE at activation (Story 6.3 — was the `isDrone` boolean).
    *  Read only through participants.ts's predicates. */
@@ -340,6 +343,33 @@ interface Participant {
    *  end-of-match telemetry. */
   pveKills: Record<string, number>;
   damageDealt: number;
+  /** THE BUILD AND THE HAND LOG (Story 8.21, R3 "leavers yes"): the seat's
+   *  gun, the fitted card ids (fit order, repeats intact), every hand dealt and
+   *  the levels still unspent — snapshotted with the tallies at leave and at
+   *  finish, COPIED (hands deep), so `buildMatchRecord` reads a leaver whose
+   *  record is long gone. Server-private: never on `ResultsMsg`. */
+  gun: GunId;
+  cards: LineId[];
+  hands: HandRecord[];
+  bankedLevels: number;
+}
+
+/** A fresh participant snapshot of `ship` — every field COPIED, never aliased
+ *  (the snapshot outlives the record). The one constructor activate(), the
+ *  finish backfill and snapshotStats share (Story 8.21). */
+function participantOf(ship: ShipRecord): Participant {
+  return {
+    name: ship.name,
+    role: ship.role,
+    hullId: ship.hullId,
+    kills: ship.kills,
+    pveKills: { ...ship.pveKills },
+    damageDealt: ship.damageDealt,
+    gun: ship.gun,
+    cards: [...ship.cards] as LineId[],
+    hands: ship.hands.map((h) => ({ ...h, offered: [...h.offered] })),
+    bankedLevels: ship.bankedLevels,
+  };
 }
 
 export class Match {
@@ -701,16 +731,10 @@ export class Match {
     // rosterSize/rosterByClass/killsByClass must count every hull). They are
     // NOT shown in the RESULTS: resultsMsg() filters them out and
     // computePlacements() places captains only (Eric ruling 2026-08-11).
-    for (const s of this.world.ships.values()) {
-      this.participants.set(s.id, {
-        name: s.name,
-        role: s.role,
-        hullId: s.hullId,
-        kills: 0,
-        pveKills: {},
-        damageDealt: 0,
-      });
-    }
+    // (The tallies read 0 here: resetForMatchStart's redeploy just zeroed
+    // kills/pveKills/damageDealt. The build and hand log carry through — the
+    // countdown's opening hand is part of the record, Story 8.21.)
+    for (const s of this.world.ships.values()) this.participants.set(s.id, participantOf(s));
     this.applyPolicy();
   }
 
@@ -731,14 +755,7 @@ export class Match {
     // resultsMsg()/computePlacements() — simplest option that keeps every
     // downstream read (snapshotStats, resultsMsg) correct with no other change.
     if (aliveWinner && !this.participants.has(aliveWinner.id)) {
-      this.participants.set(aliveWinner.id, {
-        name: aliveWinner.name,
-        role: aliveWinner.role,
-        hullId: aliveWinner.hullId,
-        kills: aliveWinner.kills,
-        pveKills: { ...aliveWinner.pveKills },
-        damageDealt: aliveWinner.damageDealt,
-      });
+      this.participants.set(aliveWinner.id, participantOf(aliveWinner));
     }
     // RULING (Story 5.2, amendment 14): with 0 captains afloat the winner is
     // the latest-sunk HUMAN — drones can never win, so we skip past them in
@@ -1029,12 +1046,7 @@ export class Match {
       rows.push({
         id,
         name: p.name,
-        // UNREACHABLE by computePlacements()' partition invariant (every
-        // captain participant is the winner or in the sink order). The fallback
-        // sorts LAST rather than first so that if that invariant is ever
-        // broken, an unplaced hull can never be seated above the winner again —
-        // the exact shape of the defect this replaced.
-        placement: this.placements.get(id) ?? this.participants.size + 1,
+        placement: this.placementOf(id), // the fallback's WHY lives on placementOf
         kills: p.kills,
         damageDealt: p.damageDealt,
       });
@@ -1089,12 +1101,39 @@ export class Match {
     return this.winnerId === '' ? 'draw' : 'winner';
   }
 
+  /**
+   * A participant's placement — the results row and the match record read the
+   * SAME rule (Story 8.21: one truth). The fallback is UNREACHABLE by
+   * computePlacements()' partition invariant (every captain participant is the
+   * winner or in the sink order); it sorts LAST rather than first so that if
+   * that invariant is ever broken, an unplaced hull can never be seated above
+   * the winner — the exact shape of the defect this replaced.
+   */
+  placementOf(id: string): number {
+    return this.placements.get(id) ?? this.participants.size + 1;
+  }
+
+  /** The participant snapshots (activation roster, leavers included, FLEET
+   *  HULLS INCLUDED — filter with isParticipant), read-only, for the
+   *  server-private match record (Story 8.21). */
+  participantRecords(): ReadonlyMap<string, Readonly<Participant>> {
+    return this.participants;
+  }
+
+  /** Refresh a participant's snapshot from its live record — at leave and at
+   *  finish. Everything is COPIED, never aliased (the record outlives the
+   *  ship); identity (name/role/hull) stays the activation value. */
   private snapshotStats(ship: ShipRecord): void {
     const p = this.participants.get(ship.id);
     if (!p) return;
-    p.kills = ship.kills;
-    p.pveKills = { ...ship.pveKills }; // COPIED, never aliased (the record outlives the ship)
-    p.damageDealt = ship.damageDealt;
+    const fresh = participantOf(ship);
+    p.kills = fresh.kills;
+    p.pveKills = fresh.pveKills;
+    p.damageDealt = fresh.damageDealt;
+    p.gun = fresh.gun;
+    p.cards = fresh.cards;
+    p.hands = fresh.hands;
+    p.bankedLevels = fresh.bankedLevels;
   }
 
   /**

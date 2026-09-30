@@ -64,6 +64,7 @@ import {
   domMicroScale,
 } from './refitCardFit.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
+import { LINEAGE_TIERS } from './tierRamp.js';
 import {
   REFIT_TIP,
   refitTooltipLeft,
@@ -175,13 +176,7 @@ const TIP_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.4);
  * compete for the same pixels — but if rung IV ever reads as "this card is
  * refused", that is the thing to change.
  */
-export const LINEAGE_TIERS: readonly string[] = [
-  'var(--hc-phosphor)', // I   — green
-  'var(--hc-info)', // II  — blue
-  'var(--hc-storm-readout)', // III — purple
-  'var(--hc-denied)', // IV  — red
-  'var(--hc-amber)', // V   — gold
-];
+export { LINEAGE_TIERS }; // the five strings live in ./tierRamp.ts since Story 8.21
 
 export function lineageTint(stack: number, copies: number): string {
   if (copies <= 1) return LINEAGE_TIERS[0];
