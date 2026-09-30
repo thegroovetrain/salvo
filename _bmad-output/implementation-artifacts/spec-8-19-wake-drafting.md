@@ -2,7 +2,7 @@
 title: 'Story 8.19: Wake Drafting'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '2c57a99'
 review_loop_iteration: 0
 followup_review_recommended: false
