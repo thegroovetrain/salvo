@@ -7,7 +7,9 @@
 //      mid-match, or an unlabelled meta row.
 //   2. THE MINIMAL FACE (R2.17) — a line that moves a NUMBER prints its live
 //      `current → next` sentence and nothing else; every other line prints
-//      nothing at all and the hover tooltip does the talking.
+//      nothing at all. Since cycle 158 (amendments 185-188) the hovers print
+//      STAT TABLES off the same row builder (no prose), and the refit card's
+//      kind word splits into five (`cardKind`).
 //   3. LIVE VALUES — the rules text is computed through a REAL effectiveStats
 //      preview diff, so it can never promise a number the firewall would not
 //      produce (clamps and caps included).
@@ -22,15 +24,22 @@
 import { describe, it, expect } from 'vitest';
 import { CATALOG, CONFIG, LINE_IDS, effectiveStats, type CatalogLine } from '@salvo/shared';
 import {
-  boonDescription,
   boonEffectLine,
   boonFitToastLine,
   boonKindLabel,
   boonName,
-  boonTooltipText,
+  KIND_WORDS,
+  cardHoverRows,
+  cardKind,
+  cardKindLabel,
   cardStatRows,
   cardTierLabel,
   cardTierSteps,
+  consumableStatRows,
+  equipmentStatRows,
+  shipStatRows,
+  statValueText,
+  type CardKind,
 } from '../ui/boonCopy.js';
 
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
@@ -104,67 +113,10 @@ describe('coverage — every catalog line has a name and a kind word', () => {
   });
 });
 
-/** The catalog partition R2.17 draws: a LADDER moves a number (its face prints
- *  `current → next`); an equipment line, an add-on and a consumable move none
- *  (their face prints nothing at all and the hover tooltip does the talking). */
-const STAT_CARDS = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.kind === 'ladder');
-const SILENT_CARDS = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.kind !== 'ladder');
-
-describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
-  it('prints a live current → next sentence for every LADDER line', () => {
-    // five universal ladders + the CANNON ladder + (Story 8.15) the machine
-    // gun's and the flak gun's ladders. 10 until TURRET and BARREL folded into
-    // the CANNON ladder (amendment 197).
-    expect(STAT_CARDS).toHaveLength(8);
-    for (const line of STAT_CARDS) {
-      const text = boonDescription(line, TB);
-      expect(text.length, line.id).toBeGreaterThan(0);
-      expect(text, line.id).toContain('→');
-      expect(text, line.id).toMatch(/^[^.]+: .+ → .+\.$/); // exactly ONE sentence, the diff
-    }
-  });
-
-  // AN EQUIPMENT LINE IS NOT SILENT. Copy 1 fits the weapon and every copy
-  // after it is a TIER, and a tier is -5% of that weapon's own reload (derived
-  // in clampStats) — so the face prints the number that actually moves. Only
-  // the lines with no built mechanism, and the verb cards, stay silent.
-  it('prints a live RELOAD diff for every LIVE equipment line', () => {
-    const live = SILENT_CARDS.filter((l) => l.kind === 'equipment' && l.stub !== true);
-    // SEVEN since Story 8.13 flipped three stubs and moved FOULING MINES in
-    // from the add-on space (epic-8 amendments 76/77/81); EIGHT since Story
-    // 8.17 made PHOSPHOR SHELLS its own equipment line (amendment 131).
-    expect(live.map((l) => l.id)).toEqual([
-      'lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'broadside', 'starShells', 'foulingMines',
-      'phosphorShells',
-    ]);
-    for (const line of live) {
-      expect(boonDescription(line, TB), line.id).toMatch(/^Reload: \d+\.\d s → \d+\.\d s\.$/);
-    }
-  });
-
-  it('prints NOTHING for an add-on, a consumable or an unbuilt weapon', () => {
-    const silent = SILENT_CARDS.filter((l) => l.kind !== 'equipment' || l.stub === true);
-    expect(SILENT_CARDS).toHaveLength(16);
-    // 17 until Story 8.13 made LIGHT TORPEDO, CAPTIVE MINES and FOULING MINES
-    // live equipment lines that print their own reload diff; 14 until Story
-    // 8.15 cut missile/monitor/heat seeking and made machine gun/flak ladders;
-    // 9 until Story 8.17 made PHOSPHOR SHELLS an equipment line (8 consumables
-    // now, FLASH SHELLS among them, and no add-on).
-    expect(silent).toHaveLength(8);
-    for (const line of silent) expect(boonDescription(line, TB), line.id).toBe('');
-  });
-
-  // THE NUMBER THE CARD SELLS. A Torpedo Boat SPAWNS holding copy 1 of HEAVY
-  // TORPEDO, so the next one it is offered is tier II: 30.0 s -> 28.5 s, the
-  // -5% step, computed through the real firewall like every other face.
-  it('copy 2 of HEAVY TORPEDO prints the tier II step: 30.0 s → 28.5 s', () => {
-    const held = { cls: 'torpedoBoat' as const, cards: ['heavyTorpedo'] };
-    expect(boonDescription(CATALOG.heavyTorpedo, held)).toBe('Reload: 30.0 s → 28.5 s.');
-    // ...and copy 1, on a hull without the weapon, honestly prints no change:
-    // it buys the FIT, which the hover tooltip is what explains.
-    expect(boonDescription(CATALOG.heavyTorpedo, TB)).toBe('Reload: 30.0 s → 30.0 s.');
-  });
-
+// The one-sentence `boonDescription` reader (and its face/rules-text suites)
+// was DELETED in cycle 158's review gate: the face prints `cardStatRows`
+// (cardStatRows.test.ts) and the hover prints `cardHoverRows` (amendment 187).
+describe('the card view renders a STUB fail-open (amendment 5)', () => {
   // THE STUB PIN (Eric ruling 2026-09-15, amendment 5): lines authored in full
   // shape with no mechanism behind them. They are excluded from every deck, so
   // they can never be offered — but the card view must still render them
@@ -183,192 +135,176 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
     for (const line of stubs) {
       expect(boonName(line.id), line.id).toBe(boonName(line.id).toUpperCase());
       expect(boonKindLabel(line.kind), line.id).not.toBe('');
-      expect(boonDescription(line, TB), line.id).toBe('');
-      expect(boonTooltipText(line.id), line.id).toBe('');
+      // ...and no hover rows, so no hover panel (amendment 187).
+      expect(cardHoverRows(line, 0, TB), line.id).toEqual([]);
       // A STUB line prints no rows on the ratified face either — there is no
       // built module whose numbers could be read (Story 8.7, ruling 12).
       expect(cardStatRows(line, 0, TB), line.id).toEqual([]);
     }
   });
-
-  // THE RIDERS ARE GONE FROM THE FACE. Every one of these used to trail the
-  // number on the card and every one is now in the hover explanation instead —
-  // moved, not dropped, which is what the second half of each assertion proves.
-  it('carries no standing note beside the number — the riders are on the tooltip', () => {
-    const moved: [string, string][] = [
-      ['armor', 'repairs'],
-      ['reload', 'every weapon'],
-      ['flak', 'blast'],
-      ['radarSweep', 'sweep'],
-    ];
-    for (const [id, phrase] of moved) {
-      expect(boonDescription(CATALOG[id], TB), id).toMatch(/^[^.]+: .+ → .+\.$/);
-      expect(boonTooltipText(id).toLowerCase(), id).toContain(phrase);
-    }
-  });
 });
 
-describe('rules text — the contract, with live values', () => {
-  it('prints the canonical current → next sentence off a real preview diff', () => {
-    const sweep = boonDescription(CATALOG.radarSweep, TB);
-    const base = effectiveStats(CONFIG.shipClasses.torpedoBoat);
-    const next = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['radarSweep']);
-    expect(sweep).toBe(`Radar sweep: ${base.sweepRpm} RPM → ${next.sweepRpm} RPM.`);
-    expect(next.sweepRpm).toBeGreaterThan(base.sweepRpm);
-  });
-
-  it('the printed values MOVE with the player\'s existing build (not a static table)', () => {
-    const fresh = boonDescription(CATALOG.armor, TB);
-    const stacked = boonDescription(CATALOG.armor, { cls: 'torpedoBoat', cards: ['armor', 'armor'] });
-    expect(stacked).not.toBe(fresh);
-    const two = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor', 'armor']);
-    expect(stacked).toContain(`${two.maxHp} →`);
-  });
-
-  it('tells the TRUTH at a firewall clamp — a capped sweep prints an unchanged number', () => {
-    // The ratified 30-RPM ceiling: the card cannot promise what effectiveStats
-    // would refuse to produce, because it asks effectiveStats.
-    const capped = { cls: 'torpedoBoat' as const, cards: Array.from({ length: 5 }, () => 'radarSweep') };
-    const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, capped.cards);
-    expect(stats.sweepRpm).toBe(CONFIG.vision.sweepRpmMax);
-    expect(boonDescription(CATALOG.radarSweep, capped)).toBe(
-      `Radar sweep: ${CONFIG.vision.sweepRpmMax} RPM → ${CONFIG.vision.sweepRpmMax} RPM.`,
-    );
-  });
-
-  it('prints the global cooldown as a PERCENT, reading downward', () => {
-    // The one card that scales every equipment reload has no single second
-    // count to headline, so it prints the scale itself. Catalog v3 (R12) cut the
-    // step from −10% to −5% per tier, capped at 25%.
-    expect(boonDescription(CATALOG.reload, TB)).toBe('All cooldowns: 100% → 95%.');
-  });
-
-  it('fails open on an unresolvable hull rather than printing half a diff', () => {
-    expect(boonDescription(CATALOG.armor, { cls: 'cruiser' as never, cards: [] })).toBe('');
-  });
-});
-
-// --- THE HOVER TOOLTIP (Story 7-5 wave 2, R2.17) --------------------------------
+// --- THE STAT TABLES (cycle 158, Eric ruling 2026-09-30, amendments 185-187) ----
 //
-// *"hovering one with the mouse should give a tooltip explaining the card, so
-// that there are no questions like 'what the fuck does a captive mine do?'"*
-describe('the hover explanation — every BUILT line, and the honest one', () => {
-  /** The lines catalog v3 leaves without an explanation, and why. EXACT, so the
-   *  agent who builds one has to delete its entry. */
-  const NO_EXPLANATION: readonly string[] = [
-    'turning', 'deckGun', // new in v3: no v2 line whose text could be carried over
-    // LIVE AS OF STORY 8.13 AND STILL UNEXPLAINED, deliberately: their
-    // mechanisms exist but their words are Eric's to write (the
-    // no-in-game-copy-unasked rule), and FOULING MINES' add-on text died with
-    // the card — it described a verb bolted onto the naval mine, which no
-    // longer fouls at all.
-    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'foulingMines',
-    // `machineGun` and `flak` left this list in Story 8.15: their ladders carry
-    // the two DRAFT hover descriptions the spec allows (ledgered for Eric);
-    // `missile`, `monitor` and `heatSeeking` left it by being CUT.
-    // `hullRepair` left this list in Story 8.8 — the first consumable with a
-    // mechanism to explain — and `shieldBlock`, `chaff` and `decoyBuoy` left it
-    // in Story 8.16 (their DRAFT hover descriptions, amendment 124(f)), and
-    // `smokeScreen` in Story 8.18 (its DRAFT hover description).
-    'depthCharge',
-  ];
+// *"What I want to see when I hover over my weapon are the weapon's actual
+// stats/numbers. One per line."* The prose explanations are DELETED; the slot
+// tooltip, the SHIP panel and the refit card's hover print these rows.
+describe('the stat tables — one builder for the face and both hovers', () => {
+  const bare = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const text = (rows: readonly { label: string; cur: string | null; next: string }[]) =>
+    rows.map((r) => `${r.label} ${statValueText(r)}`);
 
-  it('writes a real explanation for every line whose mechanism exists', () => {
-    const silent: string[] = [];
-    for (const id of LINE_IDS) {
-      const text = boonTooltipText(id);
-      if (text.trim().length === 0) {
-        silent.push(id);
-        continue;
+  it('equipmentStatRows: the EQUIPMENT_STAT_FIELDS in order, ABSOLUTE, off the live fold', () => {
+    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['heavyTorpedo', 'heavyTorpedo']);
+    const rows = equipmentStatRows('heavyTorpedo', s);
+    expect(rows.every((r) => r.cur === null)).toBe(true);
+    expect(text(rows)).toEqual([
+      `RELOAD ${(s.equipment.heavyTorpedo.reloadMs / 1000).toFixed(1)} s`,
+      `ROUNDS ${s.equipment.heavyTorpedo.maxAmmo}`,
+      `SPEED ${s.equipment.heavyTorpedo.speed}`,
+      `DAMAGE ${s.equipment.heavyTorpedo.damage}`,
+      `HOMING ${s.equipment.heavyTorpedo.homingTurnRate} rad/s`,
+    ]);
+  });
+
+  it('reuses the card face\'s row strings byte-for-byte (a weapon\'s fit card)', () => {
+    // The fit card is the line's table valued on the AFTER fold; the hover of
+    // that card is the same table, so every face row appears verbatim in it.
+    for (const id of ['heavyTorpedo', 'navalMines', 'lightTorpedo', 'broadside'] as const) {
+      const face = cardStatRows(CATALOG[id], 0, TB);
+      const hover = cardHoverRows(CATALOG[id], 0, TB);
+      for (const row of face) expect(hover, id).toContainEqual(row);
+    }
+  });
+
+  it('inserts the mine\'s derived TRIGGER RADIUS by the fit card\'s rule', () => {
+    const s = effectiveStats(CONFIG.shipClasses.mineLayer, ['navalMines']);
+    expect(equipmentStatRows('navalMines', s).map((r) => r.label)).toEqual([
+      'RELOAD', 'ROUNDS', 'DAMAGE', 'BLAST RADIUS', 'TRIGGER RADIUS',
+    ]);
+    // The CAPTIVE mine has no blast field: the ring follows DAMAGE.
+    expect(equipmentStatRows('captiveMines', s).map((r) => r.label)).toEqual([
+      'RELOAD', 'ROUNDS', 'DAMAGE', 'TRIGGER RADIUS', 'HOMING',
+    ]);
+  });
+
+  it('prints RANGE (the derived rangeU) LAST, in lowercase world units', () => {
+    expect(text(equipmentStatRows('gun', bare)).at(-1)).toBe(`RANGE ${bare.equipment.gun.rangeU} u`);
+    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(`RANGE ${bare.equipment.flak.rangeU} u`);
+    // A torpedo's row carries no rangeU, so it prints none.
+    expect(equipmentStatRows('heavyTorpedo', bare).map((r) => r.label)).not.toContain('RANGE');
+  });
+
+  it('the MACHINE GUN: SHELLS, and RATE to two decimals with the trailing zero kept', () => {
+    expect(text(equipmentStatRows('machineGun', bare))).toEqual([
+      'RELOAD 10.0 s',
+      'SHELLS 16',
+      'DAMAGE 4',
+      'RATE 0.35 s',
+      `RANGE ${bare.equipment.machineGun.rangeU} u`,
+    ]);
+    const top = effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(4).fill('machineGun'));
+    expect(text(equipmentStatRows('machineGun', top))).toContain('RATE 0.20 s');
+  });
+
+  it('a Shift opens with its factor off CONFIG and prints no ROUNDS line', () => {
+    expect(text(equipmentStatRows('boost', bare))).toEqual(['BOOST +25%', 'DURATION 10.0 s', 'RELOAD 25.0 s']);
+    expect(equipmentStatRows('boost', bare)[0].next).toBe(`+${CONFIG.boost.factor * 100}%`);
+    expect(text(equipmentStatRows('instantReload', bare))).toEqual([
+      `RELOAD ${(CONFIG.instantReload.reloadMs / 1000).toFixed(1)} s`,
+    ]);
+    expect(text(equipmentStatRows('damageCut', bare))).toEqual([
+      `CUT ${Math.round((1 - CONFIG.damageCut.factor) * 100)}%`,
+      `DURATION ${(CONFIG.damageCut.durationMs / 1000).toFixed(1)} s`,
+      `RELOAD ${(CONFIG.damageCut.reloadMs / 1000).toFixed(1)} s`,
+    ]);
+  });
+
+  it('consumableStatRows is the face\'s CONSUMABLE_ROWS, and none for a stub or a junk id', () => {
+    expect(consumableStatRows('hullRepair')).toEqual(cardStatRows(CATALOG.hullRepair, 0, TB));
+    expect(text(consumableStatRows('hullRepair'))).toEqual(['INSTANT +50 HP', 'OVER TIME +50 HP / 5 S']);
+    expect(consumableStatRows('depthCharge')).toEqual([]);
+    expect(consumableStatRows('constructor')).toEqual([]);
+  });
+
+  it('shipStatRows: the five ladders in order, uppercased words, each line\'s own printer', () => {
+    expect(text(shipStatRows(bare))).toEqual([
+      `MAX HULL ${bare.maxHp}`,
+      `TOP SPEED ${bare.kinematics.maxSpeed}`,
+      `TURNING ${Math.round((bare.kinematics.turnRate * 180) / Math.PI)}°/s`, // 0.8 rad/s → 46°/s (P10)
+      `RADAR SWEEP ${bare.sweepRpm} RPM`,
+      'ALL COOLDOWNS 100%',
+    ]);
+  });
+
+  it('cardHoverRows: the full table of what the card touches, valued AFTER the card', () => {
+    // A weapon line: its weapon's table on the after fold.
+    const after = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['lightTorpedo']);
+    expect(cardHoverRows(CATALOG.lightTorpedo, 0, TB)).toEqual(equipmentStatRows('lightTorpedo', after));
+    // A ship ladder: the five ship stats after the card (MAX HULL moved).
+    const armored = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']);
+    expect(cardHoverRows(CATALOG.armor, 0, TB)).toEqual(shipStatRows(armored));
+    expect(text(cardHoverRows(CATALOG.armor, 0, TB))[0]).toBe(`MAX HULL ${armored.maxHp}`);
+    // A gun ladder: the CANNON's table after the card (the CANNON ladder —
+    // DECK GUN BARREL folded into it, amendment 197).
+    const cannon = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun']);
+    expect(cardHoverRows(CATALOG.deckGun, 0, TB)).toEqual(equipmentStatRows('gun', cannon));
+    // The two pickable guns' ladders climb their own gun.
+    const mg = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['machineGun']);
+    expect(cardHoverRows(CATALOG.machineGun, 0, TB)).toEqual(equipmentStatRows('machineGun', mg));
+    expect(text(cardHoverRows(CATALOG.machineGun, 0, TB))).toContain('RATE 0.31 s');
+    // A consumable: its CONFIG rows; a stub: none.
+    expect(cardHoverRows(CATALOG.smokeScreen, 0, TB)).toEqual(consumableStatRows('smokeScreen'));
+    expect(cardHoverRows(CATALOG.depthCharge, 0, TB)).toEqual([]);
+  });
+});
+
+// --- THE CARD KIND (cycle 158, Eric ruling 2026-09-30, amendment 188) -----------
+describe('cardKind — what the card does for the player', () => {
+  it('has exactly the five kind words, longest WEAPON UPGRADE', () => {
+    expect([...KIND_WORDS].sort()).toEqual(['ADD-ON', 'CONSUMABLE', 'SHIP UPGRADE', 'WEAPON', 'WEAPON UPGRADE']);
+    expect(Math.max(...KIND_WORDS.map((w) => w.length))).toBe('WEAPON UPGRADE'.length);
+  });
+
+  it('copy 1 of an equipment line is a WEAPON; every later copy a WEAPON UPGRADE', () => {
+    for (const id of ['heavyTorpedo', 'lightTorpedo', 'navalMines', 'broadside', 'starShells', 'phosphorShells']) {
+      expect(cardKind(CATALOG[id], 0), id).toBe('weapon');
+      expect(cardKind(CATALOG[id], 1), id).toBe('weaponUpgrade');
+      expect(cardKind(CATALOG[id], 3), id).toBe('weaponUpgrade');
+    }
+    expect(cardKind(CATALOG.heavyTorpedo, Number.NaN)).toBe('weapon'); // fail-open to copy 1
+  });
+
+  it('every gun ladder is a WEAPON UPGRADE, every ship ladder a SHIP UPGRADE, whatever the copies', () => {
+    for (const n of [0, 1, 3]) {
+      for (const id of ['deckGun', 'machineGun', 'flak']) {
+        expect(cardKind(CATALOG[id], n), id).toBe('weaponUpgrade');
       }
-      // Not a stub, and not the face's sentence copied over: an explanation is
-      // prose, so it runs well past the ~90-character card-face budget.
-      expect(text.length, id).toBeGreaterThan(100);
-      expect(text, id).not.toContain('→');
+      for (const id of ['armor', 'speed', 'turning', 'radarSweep', 'reload']) {
+        expect(cardKind(CATALOG[id], n), id).toBe('shipUpgrade');
+      }
     }
-    expect(silent.sort()).toEqual([...NO_EXPLANATION].sort());
   });
 
-  it('explains the behaviour change of every BUILT verb and what each weapon is', () => {
-    // ACOUSTIC HOMING and the FOULING MINES add-on are DELETED (Story 8.13,
-    // epic-8 amendments 80/81), so there is no verb text left to check for
-    // either: homing is bought by TIER now and fouling is its own line.
-    // Story 8.17: FLASH SHELLS (`dazzleShells`) blinds; PHOSPHOR SHELLS burns.
-    expect(boonTooltipText('dazzleShells')).toContain('blinded');
-    expect(boonTooltipText('phosphorShells')).toContain('burns');
-    expect(boonTooltipText('broadside')).toContain('open slot');
-    expect(boonTooltipText('heavyTorpedo')).toContain('open slot');
+  it('a consumable is a CONSUMABLE, an add-on an ADD-ON, and the words map one to one', () => {
+    for (const id of ['hullRepair', 'smokeScreen', 'chaff', 'supercavTorpedo', 'dazzleShells']) {
+      expect(cardKind(CATALOG[id], 0), id).toBe('consumable');
+    }
+    expect(cardKind({ ...CATALOG.armor, kind: 'addon' } as CatalogLine, 0)).toBe('addon');
+    const words: Record<CardKind, string> = {
+      weapon: 'WEAPON',
+      weaponUpgrade: 'WEAPON UPGRADE',
+      shipUpgrade: 'SHIP UPGRADE',
+      consumable: 'CONSUMABLE',
+      addon: 'ADD-ON',
+    };
+    for (const [k, w] of Object.entries(words)) expect(cardKindLabel(k as CardKind)).toBe(w);
   });
 
-  // THE SUBDECK IS DELETED (Story 8.1): no card shuffles another card into your
-  // deck any more, so no explanation may still promise that it does.
-  it('no explanation still promises a subdeck of upgrade cards', () => {
+  it('every shipped line resolves to a kind at every copy count', () => {
     for (const id of LINE_IDS) {
-      expect(boonTooltipText(id).toLowerCase(), id).not.toContain('join your deck');
-      expect(boonTooltipText(id).toLowerCase(), id).not.toContain('joined your deck');
+      for (let n = 0; n <= CATALOG[id].cap; n += 1) expect(KIND_WORDS, id).toContain(cardKindLabel(cardKind(CATALOG[id], n)));
     }
-  });
-
-  // STORY 8.16 — the three DRAFT hover descriptions (amendment 124(f)) read
-  // every number off CONFIG, so a retune moves the prose with it.
-  it('explains SHIELD BLOCK, CHAFF and DECOY BUOY with their CONFIG numbers', () => {
-    const shield = boonTooltipText('shieldBlock');
-    expect(shield).toContain(`${CONFIG.shieldBlock.hp} damage from any source`);
-    expect(shield).toContain(`${CONFIG.shieldBlock.durationMs / 1000} s`);
-    expect(shield).toContain('storm and fire included'); // amendment 118
-    const chaff = boonTooltipText('chaff');
-    expect(chaff).toContain(`${CONFIG.chaff.count} false radar returns`);
-    expect(chaff).toContain(`${CONFIG.chaff.durationMs / 1000} s`);
-    const decoy = boonTooltipText('decoyBuoy');
-    expect(decoy).toContain(`${CONFIG.decoyBuoy.hp} hp`);
-    expect(decoy).toContain('Your own weapons ignore it'); // amendment 119
-  });
-
-  // STORY 8.18 — SMOKE SCREEN's DRAFT hover reads its numbers off CONFIG.
-  it('explains SMOKE SCREEN with its CONFIG numbers, that radar still paints, and the in-smoke sight', () => {
-    const smoke = boonTooltipText('smokeScreen');
-    expect(smoke).toContain(`astern for ${CONFIG.smokeScreen.layMs / 1000} s`);
-    expect(smoke).toContain(`for ${CONFIG.smokeScreen.lifeMs / 1000} s`);
-    expect(smoke).toContain('Radar still paints');
-    expect(smoke).not.toContain('sees through'); // amendment 147: radar paints a smoked hull, it does not "see through"
-    expect(smoke).toContain(`1/${Math.round(1 / CONFIG.smokeScreen.inSmokeSightFraction)} of your radar range`);
-    expect(smoke).not.toMatch(/replaces/i);
-  });
-
-  it('fails open on an unwritten id rather than throwing mid-hover', () => {
-    expect(boonTooltipText('notARealCard')).toBe('');
-  });
-
-  // No card may sell itself as a trade against a rival. (The PHOSPHOR/DAZZLE
-  // "stacks with" pair this pin also carried left with the star-shell verbs —
-  // Story 8.17, amendment 134: neither is bolted onto the flare any more.)
-  it('no card sells itself as a trade against a rival', () => {
-    for (const id of LINE_IDS) {
-      expect(boonTooltipText(id), id).not.toMatch(/\breplaces?\b/i);
-    }
-    expect(boonTooltipText('phosphorShells')).not.toContain('DAZZLE');
-    expect(boonTooltipText('dazzleShells')).not.toContain('PHOSPHOR');
-  });
-
-  // STORY 8.17 — FLASH SHELLS' DRAFT hover reads every number off CONFIG.
-  it('explains FLASH SHELLS with its CONFIG numbers', () => {
-    const flash = boonTooltipText('dazzleShells');
-    expect(flash).toContain(`${CONFIG.flashShells.radius} u burst`);
-    expect(flash).toContain(`${CONFIG.flashShells.durationMs / 1000} s`);
-    expect(flash).toContain('1/8 of its radar range');
-  });
-
-  // FOULING MINES WAS AN ADD-ON until Story 8.13 (epic-8 amendment 81), and its
-  // explanation described exactly that: a verb bolted onto the naval mine's
-  // blast. It is its own tiered LINE now and the naval mine NO LONGER FOULS, so
-  // the old text would be a lie on two counts and is deleted rather than
-  // reworded. The line has no explanation at all until Eric writes one, which
-  // is why its id sits in NO_EXPLANATION above.
-  it('no explanation claims the NAVAL mine fouls anything', () => {
-    for (const id of LINE_IDS) {
-      expect(boonTooltipText(id).toLowerCase(), id).not.toContain('screws fouled');
-    }
-    expect(boonTooltipText('navalMines').toLowerCase()).not.toContain('slower');
   });
 });
 
@@ -531,6 +467,8 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
     expect(boonEffectLine('armor', bare)).not.toContain('→');
     expect(boonEffectLine('radarSweep', bare)).toBe(`Radar sweep: ${bare.sweepRpm} RPM`);
     expect(boonEffectLine('reload', bare)).toBe('All cooldowns: 100%');
+    // TURNING in whole degrees per second (Eric 2026-09-30): 0.8 rad/s → 46°/s.
+    expect(boonEffectLine('turning', bare)).toBe('Turning: 46°/s');
   });
 
   it('MOVES with the fitted stack (it reads the firewall\'s output, not CONFIG)', () => {
@@ -543,19 +481,16 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
     expect(boonEffectLine('armor', bare)).not.toContain('Repairs');
   });
 
-  // R2.17 SPLIT what used to be one string: a verb card's holding row was its
-  // own short table (DOCTRINE_HOLDING). STORY 8.17 EMPTIED IT (amendment 134):
-  // the last two verbs became an equipment line and a consumable, so PHOSPHOR
-  // SHELLS now holds its own RELOAD like every weapon line, never a verb
-  // sentence and never its long explanation.
+  // A verb card's holding row was its own short table until STORY 8.17 emptied
+  // it (amendment 134), and cycle 158 deleted the empty table: PHOSPHOR SHELLS
+  // holds its own RELOAD like every weapon line.
   it('a former add-on holds a NUMBER now — PHOSPHOR SHELLS reports its reload', () => {
     const phos = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['phosphorShells']);
     const holding = boonEffectLine('phosphorShells', phos);
     expect(holding).toBe(`Reload: ${(phos.equipment.phosphorShells.reloadMs / 1000).toFixed(1)} s`);
-    expect(holding).not.toBe(boonTooltipText('phosphorShells'));
   });
 
-  it('fails open to \'\' for a line with neither a holding line nor a headline stat', () => {
+  it('fails open to \'\' for a line with no headline stat', () => {
     // A STUB equipment line has no built weapon to read a holding off, so it
     // reports its `◆ NAME` row alone — the honest readout. A LIVE one prints
     // the reload it is actually carrying.

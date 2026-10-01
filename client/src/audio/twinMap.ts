@@ -31,7 +31,7 @@ export type AudioCueId = ToneId | 'foghorn';
 /** AudioCueId -> the visual channel that carries the SAME information, muted. */
 export const TONE_TWINS: Record<AudioCueId, string> = {
   fireGun: 'muzzle flash on the firing hull + the shell leaving under dead reckoning (render/effects, projectiles)',
-  fireTorp: 'the fish itself + its wake trail on the water (render/projectiles, effects torpwake)',
+  fireTorp: 'the torpedo itself + its wake trail on the water (render/projectiles, effects torpwake)',
   fireMine: 'the armed mine marker appearing on the chart (render/mines)',
   fireBroadside: 'muzzle flash + the heavier broadside shells in flight (render/effects, projectiles)',
   fireStarShells: 'the star shell climbing away + the lit zone it opens (render/projectiles, litZones)',

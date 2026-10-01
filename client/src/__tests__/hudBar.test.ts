@@ -486,6 +486,21 @@ describe('(c) HudBar — one container, four members', () => {
     expect(bar.slotAt({ x: layout.squares[0].x + 2, y: layout.squares[0].y + 2 })).toBe(null);
   });
 
+  it('forwards press: a slot acts, the HP GLOBE swallows with no action, water falls through, a hidden bar routes nothing', () => {
+    const { bar } = build();
+    bar.update(barView(), REF_W, REF_H, null, 10, 10_000, 1);
+    const layout = hudBarLayout(REF_W, REF_H);
+    const acted: number[] = [];
+    const act = (slot: number): void => { acted.push(slot); };
+    const sq = layout.squares[4];
+    expect(bar.press({ x: sq.x + sq.w / 2, y: sq.y + sq.h / 2 }, act)).toBe(true);
+    expect(bar.press({ x: layout.hpGlobe.cx, y: layout.hpGlobe.cy }, act)).toBe(true);
+    expect(acted).toEqual([4]);
+    expect(bar.press({ x: layout.bar.x - 40, y: layout.bar.y }, act)).toBe(false);
+    bar.hide();
+    expect(bar.press({ x: layout.hpGlobe.cx, y: layout.hpGlobe.cy }, act)).toBe(false);
+  });
+
   it('exposes barTop — the bar publishes its own top edge, laid out or hidden', () => {
     const { bar } = build();
     expect(bar.barTop).toBe(0); // nothing laid out yet

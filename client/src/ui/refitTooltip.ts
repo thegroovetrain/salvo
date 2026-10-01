@@ -1,17 +1,21 @@
 // THE REFIT CARD'S HOVER TOOLTIP (Story 7-5 wave 2, R2.17 — Eric ruling
-// 2026-08-19). The card face went minimal — ladder name, lineage marker, rarity
-// tag, and a `current → next` sentence only where the line moves a number — and
-// the EXPLANATION moved here:
+// 2026-08-19). The card face went minimal and the hover took the rest:
 //
 //   *"hovering one with the mouse should give a tooltip explaining the card, so
 //   that there are no questions like 'what the fuck does a captive mine do?'"*
+//
+// CYCLE 158 (Eric ruling 2026-09-30, epic-8 amendment 187) — THE SAME STAT
+// LIST: the prose explanation is DELETED, and the panel prints the full stat
+// table of what the card touches, valued AFTER the card (ui/boonCopy.ts
+// `cardHoverRows` — the one builder the slot tooltip shares), one `LABEL value`
+// per line. A card with no rows shows no panel.
 //
 // HOVER ONLY, BY RULING. Tab opens the refit window, 1–4 pick a card and 5 heals
 // (input/keyboard.ts). The tooltip is deliberately NOT wired into that path:
 // *"a new player will probably click and hover and read tooltips. an experienced
 // player knows what they want and will use the shortcut or click faster without
 // reading."* The shortcut exists so the reading can be SKIPPED, so putting the
-// explanation in front of it would defeat its purpose. Nothing here observes a
+// panel in front of it would defeat its purpose. Nothing here observes a
 // focus or key event, and __tests__/refitTooltipFit.test.ts pins that absence.
 //
 // WHY THIS IS A SECOND TOOLTIP AND NOT THE HOTBAR'S. `render/hotbar.ts`'s slot
@@ -40,7 +44,8 @@
 import { CONSUMABLE_SLOTS, isConsumableId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { interactionLine } from '../render/equipmentInfo.js';
-import { monoWrapLines, widestToken } from './refitCardFit.js';
+import { statValueText, type CardStatRow } from './boonCopy.js';
+import { monoTextWidth, monoWrapLines, widestToken } from './refitCardFit.js';
 
 const R = CLIENT_CONFIG.refit;
 
@@ -49,11 +54,9 @@ const R = CLIENT_CONFIG.refit;
  * straight into its CSS strings and this module measures with them, so the model
  * and the render cannot drift (the REFIT_TYPE pattern, verbatim).
  *
- * The width is 300 rather than the slot tooltip's 236: this panel carries a
- * paragraph rather than a stat list, and 276px of inner box is what keeps the
- * longest catalog explanation inside the clear space above the band at the
- * 1280×614 logical floor. Everything else about the surface — the bed color,
- * the silver hairline, the square corners — is the slot tooltip's ratified spec.
+ * The width is 300 (amendment 187 keeps it). Everything else about the surface
+ * — the bed color, the silver hairline, the square corners — is the slot
+ * tooltip's ratified spec.
  */
 export const REFIT_TIP = {
   /** Panel width (px), borders and padding included (box-sizing: border-box). */
@@ -66,18 +69,15 @@ export const REFIT_TIP = {
   gap: 10,
   /** Minimum clear space (px) between the panel's top edge and the viewport. */
   margin: 12,
-  /** The heading row: the ladder name at the hovered card's stack position. */
+  /** The heading row: the ladder name at the hovered card's stack position.
+   *  The interaction line and every stat row use this same mono register. */
   nameSize: 14,
   nameLetterSpacing: 1,
   nameLineHeight: 1.2,
-  /** The explanation paragraph. Runs looser than the heading — it is the only
-   *  multi-line block, and this is the refit card's own `descLineHeight` idea
-   *  applied to a wider, longer body. */
-  bodySize: 14,
-  bodyLetterSpacing: 0,
-  bodyLineHeight: 1.45,
-  /** Vertical gap (px) between the heading row and the paragraph. */
+  /** Vertical gap (px) between the panel's blocks (heading, shape line, rows). */
   rowGap: 8,
+  /** Minimum clear px between a stat row's label and its value. */
+  statColGap: 12,
 } as const;
 
 /** The logical floor viewport the pin measures against — the 1280×614 of the
@@ -106,27 +106,20 @@ export function refitTooltipMaxPanelH(bandTopY: number): number {
 }
 
 /**
- * What the panel renders: the hovered card's name over its explanation.
- * Nothing else — the KIND word, the ladder and the `current → next` rows are ON
- * THE FACE the pointer is already sitting on, and repeating them here would
- * spend the panel's budget saying what the player can see.
+ * What the panel renders: the hovered card's name over the stat table of what
+ * the card touches, one row per line (amendment 187).
  *
- * ONE EXCEPTION, STORY 8.7 (ruling 13): a CONSUMABLE card carries the same
- * INTERACTION LINE the belt's slot tooltip does, above the explanation. The
- * activation shape (`KEY FIRES` vs `KEY PRIMES · CLICK FIRES`) is the one thing
- * about a consumable a player cannot read off the face — UX-DR50 keeps verbs
- * and sentences off the card outright — and the card is where they meet the
- * line for the first time, before there is a belt square to hover.
- *
- * Dormant in 8.7: every consumable is still a stub (amendment 41), so no
- * consumable card is ever offered. The path is built and unit-tested so Story
- * 8.8 finds it working.
+ * A CONSUMABLE card also carries the same INTERACTION LINE the belt's slot
+ * tooltip does, above the rows (Story 8.7, ruling 13): the activation shape
+ * (`KEY FIRES` vs `KEY PRIMES · CLICK FIRES`) is the one thing about a
+ * consumable a player cannot read off the face, and the card is where they meet
+ * the line for the first time, before there is a belt square to hover.
  */
 export interface RefitTooltipModel {
   name: string;
-  body: string;
-  /** The consumable's shape line, or '' for every other kind. */
+  /** The consumable's shape line, or absent for every other kind. */
   interaction?: string;
+  stats: readonly CardStatRow[];
 }
 
 export interface RefitTooltipMetrics {
@@ -134,7 +127,8 @@ export interface RefitTooltipMetrics {
   nameLines: number;
   /** The consumable interaction row's wrapped lines; 0 when there is none. */
   interactionLines: number;
-  bodyLines: number;
+  /** One per stat row (rows never wrap). */
+  statLines: number;
   /** Total rendered panel height (px), padding and borders included. */
   height: number;
   /** height − containerH: ≤ 0 fits, > 0 is an amendment-47 violation. */
@@ -149,42 +143,46 @@ function lineBox(fontPx: number, lh: number): number {
 
 /**
  * Pure: the panel's rendered height against its container. Mirrors the DOM in
- * `ui/upgradeMenu.ts` exactly — padding, border, heading row, row gap,
- * paragraph. An EMPTY body contributes no lines and no gap, which agrees with
- * the render because an empty explanation never draws a panel AT ALL (fail-open
- * on an unwritten id; the totality pin is what makes that unreachable for any
- * shipped catalog line).
+ * `ui/upgradeMenu.ts` exactly — padding, border, heading row, then one
+ * `rowGap` before the shape line (consumables only) and one before the stat
+ * block, whose rows are one mono line box each. An EMPTY table contributes
+ * nothing, which agrees with the render because a card with no rows never
+ * draws a panel AT ALL.
  */
 export function refitTooltipMetrics(model: RefitTooltipModel, containerH: number): RefitTooltipMetrics {
   const innerW = refitTooltipInnerWidth();
   const nameLines = monoWrapLines(model.name, REFIT_TIP.nameSize, REFIT_TIP.nameLetterSpacing, innerW);
   const interaction = model.interaction ?? '';
   const interactionLines = monoWrapLines(interaction, REFIT_TIP.nameSize, REFIT_TIP.nameLetterSpacing, innerW);
-  const bodyLines = monoWrapLines(model.body, REFIT_TIP.bodySize, REFIT_TIP.bodyLetterSpacing, innerW);
-  const row = (n: number, size: number, lh: number): number =>
-    n > 0 ? REFIT_TIP.rowGap + n * lineBox(size, lh) : 0;
-  const height =
-    2 * (REFIT_TIP.pad + REFIT_TIP.border) +
-    nameLines * lineBox(REFIT_TIP.nameSize, REFIT_TIP.nameLineHeight) +
-    row(interactionLines, REFIT_TIP.nameSize, REFIT_TIP.nameLineHeight) +
-    row(bodyLines, REFIT_TIP.bodySize, REFIT_TIP.bodyLineHeight);
-  return { innerW, nameLines, interactionLines, bodyLines, height, overflow: height - containerH };
+  const statLines = model.stats.length;
+  const box = lineBox(REFIT_TIP.nameSize, REFIT_TIP.nameLineHeight);
+  const block = (n: number): number => (n > 0 ? REFIT_TIP.rowGap + n * box : 0);
+  const height = 2 * (REFIT_TIP.pad + REFIT_TIP.border) + nameLines * box + block(interactionLines) + block(statLines);
+  return { innerW, nameLines, interactionLines, statLines, height, overflow: height - containerH };
 }
 
-/** Widest unbreakable token (px) across both rows — the horizontal half of the
- *  law: a token wider than the inner box paints out through the panel's side. */
+/** Pure: one stat row's width (px) — label, the minimum column gap, value. A
+ *  row never wraps, so it is one unbreakable token for the width law. */
+export function refitTooltipRowWidth(row: CardStatRow): number {
+  const w = (t: string): number => monoTextWidth(t, REFIT_TIP.nameSize, REFIT_TIP.nameLetterSpacing);
+  return w(row.label) + REFIT_TIP.statColGap + w(statValueText(row));
+}
+
+/** Widest unbreakable token (px) across the heading, the shape line and every
+ *  stat row (label + value) — the horizontal half of the law: a token wider
+ *  than the inner box paints out through the panel's side. */
 export function refitTooltipWidestToken(model: RefitTooltipModel): number {
   return Math.max(
     widestToken(model.name, REFIT_TIP.nameSize, REFIT_TIP.nameLetterSpacing),
     widestToken(model.interaction ?? '', REFIT_TIP.nameSize, REFIT_TIP.nameLetterSpacing),
-    widestToken(model.body, REFIT_TIP.bodySize, REFIT_TIP.bodyLetterSpacing),
+    ...model.stats.map(refitTooltipRowWidth),
   );
 }
 
 /**
  * Pure: the hover panel's model for one offered line (Story 8.7, ruling 13).
  * A CONSUMABLE card gains the interaction line the belt's slot tooltip prints;
- * every other kind is the name over its explanation, exactly as it shipped.
+ * every other kind is the name over its stat rows.
  *
  * The KEY is the FIRST belt key rather than a resolved slot, because a card has
  * not been picked yet and therefore has no slot — what the panel teaches is the
@@ -201,12 +199,12 @@ export function refitTooltipWidestToken(model: RefitTooltipModel): number {
 export function refitTooltipModel(
   line: { id: string; kind: string },
   name: string,
-  body: string,
+  stats: readonly CardStatRow[],
   copiesHeld: number,
 ): RefitTooltipModel {
-  if (line.kind !== 'consumable' || !isConsumableId(line.id)) return { name, body };
+  if (line.kind !== 'consumable' || !isConsumableId(line.id)) return { name, stats };
   const stock = Math.max(0, Math.trunc(copiesHeld)) + 1;
-  return { name, body, interaction: interactionLine(CONSUMABLE_SLOTS[0], line.id, [], stock) };
+  return { name, stats, interaction: interactionLine(CONSUMABLE_SLOTS[0], line.id, [], stock) };
 }
 
 /**

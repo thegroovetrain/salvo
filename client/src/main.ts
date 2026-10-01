@@ -64,6 +64,7 @@ import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/li
 import { BurnZones } from './render/burnZones.js';
 import { Smoke } from './render/smoke.js';
 import { SmokeScreen } from './render/smokeScreen.js';
+import { ChaffRing } from './render/chaffRing.js';
 import { Foghorn } from './render/foghorn.js';
 import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
@@ -269,6 +270,10 @@ interface Game {
    *  FrameMsg.smoke into the same fog-immune `smoke` layer as the wounded
    *  plumes; grown along the shared `puffRadius` and faded per render frame. */
   smokeScreen: SmokeScreen;
+  /** THE CHAFF OWNER'S DASHED RING (render/chaffRing.ts, epic-8 amendment 191)
+   *  — read each frame off the self-private `net.you.chaff`, in the fog-immune
+   *  lit-zone chart layer; never anyone else's cloud, never the fakes. */
+  chaffRing: ChaffRing;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
   foghorn: Foghorn;
@@ -2881,6 +2886,7 @@ function buildGame(
     burnZones: new BurnZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
     smokeScreen: new SmokeScreen(stage.layers.smoke),
+    chaffRing: new ChaffRing(stage.layers.litZone),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
@@ -3501,6 +3507,8 @@ function hotbarView(g: Game, status: OwnStatus): HotbarView {
     loadout: status.loadout,
     ammo: status.ammo,
     stats: status.stats,
+    // The HP globe's SHIP tooltip names the hull (epic-8 amendment 186).
+    cls: status.cls,
     primedSlot: status.primedSlot,
     denied: hotbarDenied(g, status),
     deniedDegraded: hotbarDeniedDegraded(g, status),
@@ -3533,14 +3541,15 @@ function hotbarView(g: Game, status: OwnStatus): HotbarView {
  * FIFO (cap feedback included), and the weapon prime toggle, so a click cannot
  * drift from its key. The press is reported SWALLOWED either way — over the
  * hotbar is never a shot, even when the action turns out inert (unfitted slot,
- * modal open). A press anywhere else returns false and fires as ever.
+ * modal open). The HP GLOBE swallows too, with no action at all (Eric
+ * 2026-09-30); the helm globe stays water. A press anywhere else returns false
+ * and fires as ever.
  */
 function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
   if (!g) return false;
-  const slot = g.hudBar.slotAt(hudPoint(g, p));
-  if (slot === null) return false;
-  g.keyboard.slotAction(slot);
-  return true;
+  // A press on the HP GLOBE is swallowed with no slot action (Eric 2026-09-30):
+  // `hotbarPress` shares the hover's hit-test, so chrome is chrome both ways.
+  return g.hudBar.press(hudPoint(g, p), (slot) => g.keyboard.slotAction(slot));
 }
 
 /**
@@ -4355,6 +4364,7 @@ function renderAlive(
   g.litZones.render(now);
   g.burnZones.render(now, now / 1000);
   g.smokeScreen.render(now); // SMOKE SCREEN puffs grow + fade on the server clock
+  g.chaffRing.render(g.state.net.you?.chaff, now); // own chaff cloud's ring, fading on the server clock
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4608,6 +4618,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.litZones.render(now); // spectators see all zones
   g.burnZones.render(now, now / 1000); // ...and every burning zone
   g.smokeScreen.render(now); // ...and every SMOKE SCREEN puff
+  g.chaffRing.render(null, now); // a spectator owns no chaff cloud
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's

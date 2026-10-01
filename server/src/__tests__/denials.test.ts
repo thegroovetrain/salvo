@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 63→64 bump (PV 64, amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog — their effects are CANNON ladder rungs) is enforced at matchmake', () => {
-  it('rejects pv-63 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(64);
+describe('pv join gate — the 64→65 bump (PV 65, amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog — their effects are CANNON ladder rungs; PV 64 was cycle 158: the machine-gun ladder authors rateMs, the stats row drops idleReloadMs, OwnShip.chaff is self-private) is enforced at matchmake', () => {
+  it('rejects pv-64 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(65);
+    expect(protocolVersionError(64)).toMatch(/refresh/);
     expect(protocolVersionError(63)).toMatch(/refresh/);
     expect(protocolVersionError(62)).toMatch(/refresh/);
     expect(protocolVersionError(61)).toMatch(/refresh/);

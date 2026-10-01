@@ -20,7 +20,7 @@ warnings: [oversized]
 
 **Problem:** Eric played a match with the cannon and was offered a `DECK GUN BARREL` card. Story 8.15 should have retired every one-off gun card: amendments 89(d) and 108 recorded the opposite ("TURRET and BARREL stay") and were wrong. Eric's ruling of record, 2026-09-30: *there are NO MORE one-off upgrades; EVERY upgrade is tiered.* `deckGunTurret` and `deckGunBarrel` are deleted; their effects become rungs of the two gun ladders.
 
-**Approach:** Catalog content change plus its fallout, no new mechanism. The CANNON ladder (`deckGun`, cap 4, base tier I) keeps +1 damage and −5 % reload at every tier and ADDS the second turret (gun pool 1 → 2, `equipment.gun.maxAmmo` +1) on the rung that reaches **tier III** (card 2, `tiers[1]`) and the second barrel per turret (`equipment.gun.barrels` +1, two parallel shells per click) on the rung that reaches **tier V** (card 4, `tiers[3]`). The FLAK ladder (`flak`, cap 4) keeps +2 damage and −5 % reload at every tier and ADDS a turret (`equipment.flak.maxAmmo` +1) on the rungs that reach **tier III** and **tier V** (pool 1 → 2 → 3). Eric's first answer put the steps at II and IV; he corrected himself to III and V in the same conversation ("OH you're right. Make the steps at Tier III and Tier V"). `LINE_IDS` goes 26 → 24, the card count 117 → 114, `PROTOCOL_VERSION` 63 → 64 (ids leave the wire's card vocabulary). The MACHINE GUN is untouched: another agent is changing it concurrently.
+**Approach:** Catalog content change plus its fallout, no new mechanism. The CANNON ladder (`deckGun`, cap 4, base tier I) keeps +1 damage and −5 % reload at every tier and ADDS the second turret (gun pool 1 → 2, `equipment.gun.maxAmmo` +1) on the rung that reaches **tier III** (card 2, `tiers[1]`) and the second barrel per turret (`equipment.gun.barrels` +1, two parallel shells per click) on the rung that reaches **tier V** (card 4, `tiers[3]`). The FLAK ladder (`flak`, cap 4) keeps +2 damage and −5 % reload at every tier and ADDS a turret (`equipment.flak.maxAmmo` +1) on the rungs that reach **tier III** and **tier V** (pool 1 → 2 → 3). Eric's first answer put the steps at II and IV; he corrected himself to III and V in the same conversation ("OH you're right. Make the steps at Tier III and Tier V"). `LINE_IDS` goes 26 → 24, the card count 117 → 114, `PROTOCOL_VERSION` 64 → 65 (cycle 158 took 64; ids leave the wire's card vocabulary). The MACHINE GUN is untouched: another agent is changing it concurrently.
 
 ## Boundaries & Constraints
 
@@ -29,7 +29,7 @@ warnings: [oversized]
 - The flak pool at tiers III/V reloads through the existing `consume`/`tickReload` helpers and `reconcilePools` fills a raised cap generically; add no flak- or cannon-specific pool code.
 - The stat-path whitelist is untouched: `equipment.gun.maxAmmo`, `equipment.gun.barrels` and `equipment.flak.maxAmmo` are already on it. `flak.burstRadius` and `flak.contactDamage` stay OFF it (amendment 113(d)).
 - A ladder rung may now carry more than one authored effect. The tier card prints EVERY authored step of the rung it buys (amendment 85's rule), using only words the copy table already has: `ROUNDS` for a pool step, `SHELLS PER SHOT` for the barrel step. No new player-facing words. Amendment 71's "ONE row" for the deck gun face is read as "one row per authored step" now that the rung authors two; recorded in the new amendment.
-- `PROTOCOL_VERSION` 63 → 64 with a header entry in `shared/src/index.ts`; `VERSION` and root `package.json` 0.18.22 → 0.18.24; `CHANGELOG.md` entry; BOTH trackers get a one-line stamp; epic-8 amendments get the ruling (number 185) and a short orchestrator record; GDD and catalog-v3 get DATED supersession notes only (minimal design-doc edits), never rewrites.
+- `PROTOCOL_VERSION` 63 → 64 with a header entry in `shared/src/index.ts`; `VERSION` and root `package.json` 0.18.22 → 0.18.24; `CHANGELOG.md` entry; BOTH trackers get a one-line stamp; epic-8 amendments get the ruling (number 197) and a short orchestrator record; GDD and catalog-v3 get DATED supersession notes only (minimal design-doc edits), never rewrites.
 - Every test that pinned the deleted ids is rewritten to the new ladders, not deleted, unless its subject no longer exists (then say so in the report). Regression pins required: cannon pool 2 at III, barrels 2 at V, flak pool 2 at III and 3 at V, no production ladder rung is empty, no deleted id resolves.
 - The gun `barrels` clamp stays `1..3` (harmless; the reachable max is now 2); fix the comments that say the BARREL card adds them.
 - Golden-frame snapshot regeneration is expected (the seeded draw changes when lines leave the catalog): regenerate, diff-read the change, and say what moved.
@@ -66,7 +66,7 @@ warnings: [oversized]
 - `shared/src/sim/draw.ts:172-183` -- `ladderHost` doc example names TURRET/BARREL; reword
 - `shared/src/sim/stats.ts:41,:506,:715` -- stale BARREL comments; clamp stays
 - `shared/src/constants.ts:982-983` -- stale AFT TURRET comment
-- `shared/src/index.ts:754` -- `PROTOCOL_VERSION` 64 + header entry
+- `shared/src/index.ts` -- `PROTOCOL_VERSION` 65 + header entry
 - `shared/src/__tests__/` -- `catalog`, `draw`, `stats`, `boons`, `barrel`, `damageGuardrail`, `radarRaster` (PV pin) per the sweep
 - `server/src/game/ai/profiles.ts:78-79`, `server/src/game/equipment/guns.ts:215`, `server/src/game/world.ts:3027` -- comment-only
 - `server/src/__tests__/` -- `botPolicy`, `upgrades`, `combat`, `gunnery`, `radarWire`, `broadside` (self-contained injected line may stay), `goldenFrames` + snapshot, `scripts/batchsim/__tests__/upgradeEvidence`
@@ -80,7 +80,7 @@ warnings: [oversized]
 **Execution:**
 - [ ] `shared/src/sim/catalog.ts` -- add `ladderSteps(id, steps[cap], extra)`; rewrite `deckGun` and `flak` as per-rung ladders; delete the two rows and ids; fix counts -- the single authoring point
 - [ ] `shared/src/sim/{draw,stats}.ts`, `shared/src/constants.ts` -- comment fixes only
-- [ ] `shared/src/index.ts` -- PV 64 + header entry
+- [ ] `shared/src/index.ts` -- PV 65 + header entry
 - [ ] `shared/src/__tests__/*` -- rewrite pins; add the climb tables of the I/O matrix as explicit tests in `stats.test.ts`; pin "no production rung is empty" and "`ladderSteps` gives each rung a fresh array" in `catalog.test.ts`
 - [ ] `server/src/**` -- comment fixes; test fixtures move from the dead ids to `deckGun` copies (TURRET pool-fill tests → `deckGun` ×2; the "gun card whose tier does not move" test uses an injected test catalog line); regenerate the golden snapshot and read the diff
 - [ ] `server/scripts/batchsim/*` -- barrel loop 1..2
@@ -115,9 +115,9 @@ warnings: [oversized]
 
 ## Auto Run Result
 
-**Summary:** `deckGunTurret` and `deckGunBarrel` are deleted; the CANNON ladder carries the second turret on its rung to tier III and a second barrel per turret on its rung to tier V; the FLAK ladder carries a turret on its rungs to III and V; per-tier damage/reload steps unchanged. `ladderSteps` authors per-rung ladders. 24 lines, 114 cards, PV 64, version 0.18.24. Eric's rulings: amendments 197 (the fold), 199 (the drone consequence accepted); orchestrator readings 198.
+**Summary:** `deckGunTurret` and `deckGunBarrel` are deleted; the CANNON ladder carries the second turret on its rung to tier III and a second barrel per turret on its rung to tier V; the FLAK ladder carries a turret on its rungs to III and V; per-tier damage/reload steps unchanged. `ladderSteps` authors per-rung ladders. 24 lines, 114 cards, PV 65 (merged after cycle 158 took 64), version 0.18.24. Eric's rulings: amendments 197 (the fold), 199 (the drone consequence accepted); orchestrator readings 198.
 
-**Files changed (54 + docs):** `shared/src/sim/catalog.ts` (rows, ids, helper), `shared/src/index.ts` (PV 64), comment fixes in `draw.ts`/`stats.ts`/`constants.ts`; 7 shared test files; server comment fixes (`profiles.ts`, `guns.ts`, `world.ts`), 8 server test files + the golden snapshot (two offer hands moved), `balanceProbe.ts`/`catalogMetrics.ts`; `client/src/ui/boonCopy.ts` (four entries dropped) + 16 client test files; CHANGELOG, VERSION, package.json, both trackers, epic-8 amendments 197–199, epic-8 context, GDD/catalog-v3/epics/deferred-work dated notes.
+**Files changed (54 + docs):** `shared/src/sim/catalog.ts` (rows, ids, helper), `shared/src/index.ts` (PV 65), comment fixes in `draw.ts`/`stats.ts`/`constants.ts`; 7 shared test files; server comment fixes (`profiles.ts`, `guns.ts`, `world.ts`), 8 server test files + the golden snapshot (two offer hands moved), `balanceProbe.ts`/`catalogMetrics.ts`; `client/src/ui/boonCopy.ts` (four entries dropped) + 16 client test files; CHANGELOG, VERSION, package.json, both trackers, epic-8 amendments 197–199, epic-8 context, GDD/catalog-v3/epics/deferred-work dated notes.
 
 **Review:** 4 low patches applied, 0 deferred, 1 rejected (see the triage log). Follow-up review: not recommended (comment/doc/script patches only).
 

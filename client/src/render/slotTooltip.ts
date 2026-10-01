@@ -2,87 +2,65 @@
 // squares no longer say out loud (Story 8.6 deleted the label column; UX-DR40/41
 // left the square with state, seconds and counts and nothing else).
 //
-// SPLIT OUT OF render/hotbar.ts IN STORY 8.7 (ruling 13), VERBATIM. Nothing here
-// is new work: the hover dwell, the accrued-boon rows, the container-fit model
-// and the placement are the ratified 2.2–8.6 contract, moved so that `hotbar.ts`
-// is the SQUARES and this file is the PANEL. 8.7 then re-cut the panel's
-// CONTENT — the interaction line gained a weapon's tier and a belt slot's
-// consumable shape (render/equipmentInfo.ts) — and epic-8 amendment 42 froze its
-// WIDTH, type and notch exactly where they shipped.
+// SPLIT OUT OF render/hotbar.ts IN STORY 8.7 (ruling 13). `hotbar.ts` is the
+// SQUARES and this file is the PANEL; epic-8 amendment 42 froze its WIDTH, type
+// and notch exactly where they shipped.
+//
+// CYCLE 158 (Eric rulings 2026-09-30, epic-8 amendments 185/186) RE-CUT THE
+// CONTENT TO NUMBERS: *"What I want to see when I hover over my weapon are the
+// weapon's actual stats/numbers. One per line."* The prose description and the
+// accrued-card build list (with its `— SHIP —` divider and `+n MORE` trim) are
+// DELETED. The panel is now a heading — the name and the amber interaction
+// line — over the hovered thing's LIVE stat table, one `LABEL value` per line,
+// in the refit card's own row vocabulary (ui/boonCopy.ts is the one builder).
+// Hovering the HP GLOBE opens the same panel for the hull itself: the class
+// name over `SHIP` and the five ship stats (amendment 186). The helm globe
+// stays silent.
 //
 // The Pixi shell that paints this model still lives in `hotbar.ts`: it draws
-// into the bar's own container and shares the slot geometry, so moving the
-// drawing would have split one renderer across two files to no end. What moved
-// is the pure core, which is what the tests measure.
+// into the bar's own container and shares the slot geometry. What lives here is
+// the pure core, which is what the tests measure.
 
-import {
-  CATALOG,
-  boonStackCount,
-  isConsumableId,
-  type EffectiveStats,
-  type SlotItemId,
-} from '@salvo/shared';
+import { isConsumableId, type EffectiveStats, type EquipmentId, type ShipClassId, type SlotItemId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { boonEffectLine, boonName, boonTooltipText } from '../ui/boonCopy.js';
-import { monoWrapLines } from '../ui/refitCardFit.js';
-import type { Rect } from './hudBar.js';
 import {
-  cardEquipmentIds,
-  equipmentInfo,
-  interactionLine,
-  isGunFamily,
-  isShipwideCard,
-} from './equipmentInfo.js';
+  boonName,
+  consumableStatRows,
+  equipmentStatRows,
+  shipStatRows,
+  statValueText,
+  type CardStatRow,
+} from '../ui/boonCopy.js';
+import { CLASS_DISPLAY_NAMES } from '../ui/classNames.js';
+import { monoTextWidth, monoWrapLines } from '../ui/refitCardFit.js';
+import type { Rect } from './hudBar.js';
+import { equipmentInfo, interactionLine, lineForEquipment } from './equipmentInfo.js';
 
 const H = CLIENT_CONFIG.hotbar;
 
-/**
- * Pure: the accrued card ids a SLOT owns, in fit order with repeats intact.
- *
- * STORY 8.1 — NO CATEGORY FILTER. Catalog v3 deleted the nine categories, so a
- * slot claims the cards that actually ADDRESS its equipment: the line's own
- * slotFill target, the equipment its stat effects write into, and the equipment
- * an add-on bolts its verb onto (render/equipmentInfo.cardEquipmentIds). The
- * GUN, being the permanent first slot, additionally hosts the SHIPWIDE ladders
- * (ARMOR / SPEED / TURNING / RADAR SWEEP / RELOAD), which belong to no weapon —
- * the same role the v2 INTEL/SHIP categories had, derived rather than declared.
- *
- * A BELT slot holds a CONSUMABLE line, which addresses no equipment at all
- * (Story 8.7, ruling 1): it owns no accrued rows, and its stock is carried by
- * the interaction line instead. Narrowed, never cast.
- *
- * Fail-closed on the catalog (Object.hasOwn): a junk id on the wire is dropped
- * rather than rendering a row nothing can explain.
- */
-export function slotBoonIds(id: SlotItemId, cards: readonly string[]): string[] {
-  if (isConsumableId(id)) return [];
-  return cards.filter((c) => {
-    if (!Object.hasOwn(CATALOG, c)) return false;
-    const targets = cardEquipmentIds(c);
-    // The shipwide ladders ride slot 0's MOUNTED gun, whichever of the three
-    // it is (Story 8.15 — the cannon, the machine gun or the flak gun).
-    return targets.length === 0 ? isGunFamily(id) : targets.includes(id);
-  });
-}
 // --- pure core: hover + tooltip -------------------------------------------------
 
-/** Hover dwell state (which slot, since when). */
+/** What the pointer is resting on: a slot index, the HP globe (`'ship'` —
+ *  amendment 186), or nothing. */
+export type HoverTarget = number | 'ship' | null;
+
+/** Hover dwell state (which target, since when). */
 export interface HoverState {
-  slot: number | null;
+  target: HoverTarget;
   since: number;
 }
 
-export const NO_HOVER: HoverState = { slot: null, since: 0 };
+export const NO_HOVER: HoverState = { target: null, since: 0 };
 
-/** Pure: advance the hover dwell — the clock restarts whenever the slot changes. */
-export function nextHover(prev: HoverState, slot: number | null, nowMs: number): HoverState {
-  if (slot === prev.slot) return prev;
-  return { slot, since: nowMs };
+/** Pure: advance the hover dwell — the clock restarts whenever the target changes. */
+export function nextHover(prev: HoverState, target: HoverTarget, nowMs: number): HoverState {
+  if (target === prev.target) return prev;
+  return { target, since: nowMs };
 }
 
 /** Pure: has the hover dwelled long enough to show the tooltip? */
 export function hoverReady(state: HoverState, nowMs: number, delayMs = H.tooltip.delayMs): boolean {
-  return state.slot !== null && nowMs - state.since >= delayMs;
+  return state.target !== null && nowMs - state.since >= delayMs;
 }
 
 /**
@@ -96,95 +74,27 @@ export function shouldShowTooltip(hover: HoverState, nowMs: number, dim: boolean
 }
 
 /**
- * One accrued-boon row in the tooltip's BOONS block (Story 2.9 — the block that
- * shipped in 2.2 as deliberate absence now carries the build).
- *
- * A normal row is a PAIR of lines: the `◆ NAME` the card showed (at the stack's
- * current rung) over a compact effect line reporting the LIVE value. A `divider`
- * row is a single line with no effect under it — the `— SHIP —` section head and
- * the `+n MORE` overflow marker.
- */
-export interface TooltipBoonRow {
-  label: string;
-  effect: string;
-  divider: boolean;
-  /** The `+n MORE` marker only: how many REAL accrued lines it stands in for.
-   *  Carried as data (not re-parsed off the label) so a second trim pass — the
-   *  render's viewport clamp re-trimming an already-trimmed list — folds the
-   *  earlier count into its own instead of forgetting it. */
-  hidden?: number;
-}
-
-/**
- * The tooltip's content. `boons` is the ACCRUED build for this slot — already
- * trimmed to fit its box (fitBoonRows). An empty list still renders as ABSENCE:
- * no divider, no rows, no placeholder.
+ * The tooltip's content: the heading (name + interaction line) over the stat
+ * table, one row per line. `stats` may be empty (a belt stub with no live
+ * mechanism) — the panel is then the heading alone.
  */
 export interface TooltipModel {
   name: string;
   interaction: string;
-  description: string;
-  boons: readonly TooltipBoonRow[];
-}
-
-/** The section head that separates the gun slot's own guns lines from the
- *  shipwide INTEL/SHIP lines it hosts. */
-export const SHIP_DIVIDER_ROW = '— SHIP —';
-
-/** Pure: the `+n MORE` marker that replaces the rows a panel cannot fit. */
-export function moreBoonsRow(hidden: number): TooltipBoonRow {
-  return { label: `◆ +${hidden} MORE`, effect: '', divider: true, hidden };
-}
-
-/**
- * Pure: one accrued line's row — the ladder name at the rung you hold, and the
- * live effect line under it.
- *
- * NO `×n` SUFFIX. `boonName` is position-aware: every stackable ladder in the
- * catalog names its own rung (HEAVY SHELLS Mk III), so a suffix could only ever
- * repeat what the name just said — and the rows that DON'T carry a rung name are
- * the single-copy lines, where there is no count to print anyway.
- */
-function boonRow(id: string, stack: number, stats: EffectiveStats): TooltipBoonRow {
-  return { label: `◆ ${boonName(id, stack - 1)}`, effect: boonEffectLine(id, stats), divider: false };
-}
-
-/**
- * Pure: every accrued row for a slot, UNTRIMMED, in fit order. Stacked copies
- * COLLAPSE: five HEAVY SHELLS are one row at Mk V, not five rows. The gun slot
- * appends the shipwide lines under the `— SHIP —` divider (see slotBoonIds).
- *
- * The divider is a SEPARATOR, so it only appears with something on both sides:
- * a gun holding shipwide lines and nothing of its own lists them bare. A heading
- * over the whole list separates it from nothing and just spends a line saying so.
- */
-export function boonRows(id: SlotItemId, cards: readonly string[], stats: EffectiveStats): TooltipBoonRow[] {
-  const ids = slotBoonIds(id, cards);
-  const own: TooltipBoonRow[] = [];
-  const ship: TooltipBoonRow[] = [];
-  const seen = new Set<string>();
-  for (const b of ids) {
-    if (seen.has(b)) continue;
-    seen.add(b);
-    const row = boonRow(b, boonStackCount(ids, b), stats);
-    (isShipwideCard(b) ? ship : own).push(row);
-  }
-  if (ship.length === 0) return own;
-  if (own.length === 0) return ship;
-  return [...own, { label: SHIP_DIVIDER_ROW, effect: '', divider: true }, ...ship];
+  stats: readonly CardStatRow[];
 }
 
 /**
  * Pure: the tooltip for a slot, or null when there is nothing to describe (an
  * unfitted slot has no equipment — and since Story 8.6 the square carries no
  * words at all, so the tooltip is the ONLY place a slot's name is ever read).
- * `boons` is the own fitted-boon id list (repeats intact).
+ * `cards` is the own fitted-card id list (repeats intact) — the interaction
+ * line's tier reads it.
  *
- * A BELT SLOT forks the whole model (Story 8.7, ruling 13): a consumable has no
- * equipment row to read a name, a description or accrued cards off, so it takes
- * its name from the copy layer, its explanation from the catalog's own hover
- * text, and carries the shape and the STOCK on its interaction line instead.
- * `stock` is the belt slot's `ammo[slot].n` — copies held.
+ * A BELT SLOT takes its name from the copy layer and its rows from the card
+ * face's `CONSUMABLE_ROWS`, and carries the shape and the STOCK on its
+ * interaction line (Story 8.7, ruling 13). `stock` is the belt slot's
+ * `ammo[slot].n` — copies held.
  */
 export function tooltipModel(
   slot: number,
@@ -198,52 +108,75 @@ export function tooltipModel(
     return {
       name: boonName(id).toUpperCase(),
       interaction: interactionLine(slot, id, cards, stock),
-      description: boonTooltipText(id),
-      boons: [],
+      stats: consumableStatRows(id),
     };
   }
-  const info = equipmentInfo(stats, id);
-  const full: TooltipModel = {
-    name: info.name.toUpperCase(),
+  return {
+    name: slotHeading(id, stats),
     interaction: interactionLine(slot, id, cards, 0, stats),
-    description: info.description,
-    boons: boonRows(id, cards, stats),
+    stats: equipmentStatRows(id, stats),
   };
-  return { ...full, boons: fitBoonRows(full) };
 }
+
+/**
+ * Pure: an equipment slot tooltip's HEADING (Eric 2026-09-30, review gate P9)
+ * — the catalog LINE's name where a line fits the equipment (HEAVY TORPEDO,
+ * NAVAL MINES, BROADSIDE GUN, CANNON for the gun's `deckGun` …), so the hover
+ * names the weapon exactly as the card that fitted it did; the three Shifts
+ * have no line and keep `EQUIPMENT_NAME` (SPEED BOOST / INSTANT RELOAD /
+ * DAMAGE CUT). Uppercased for the tooltip register.
+ */
+export function slotHeading(id: EquipmentId, stats: EffectiveStats): string {
+  const line = lineForEquipment(id);
+  return (line === null ? equipmentInfo(stats, id).name : boonName(line)).toUpperCase();
+}
+
+/** The SHIP panel's interaction word (amendment 186). */
+export const SHIP_INTERACTION = 'SHIP';
+
+/**
+ * Pure: the HP globe's SHIP panel (amendment 186) — the class display name over
+ * `SHIP` and the five ship stats at live values. Null for a hull this build
+ * cannot name (fail-closed: no panel rather than a nameless one).
+ */
+export function shipTooltipModel(cls: ShipClassId | undefined, stats: EffectiveStats): TooltipModel | null {
+  if (cls === undefined || !Object.hasOwn(CLASS_DISPLAY_NAMES, cls)) return null;
+  return { name: CLASS_DISPLAY_NAMES[cls], interaction: SHIP_INTERACTION, stats: shipStatRows(stats) };
+}
+
+/** The stat row's printed value (one printer for both hover panels). */
+export { statValueText };
 
 // --- pure core: the tooltip's CONTAINER FIT (amendment 47) ----------------------
 
-// The panel is the mirror image of the refit card's fit problem: the card is a
-// FIXED box holding growing text, the tooltip is a GROWING panel inside a fixed
-// viewport. Same law, same method — model the height in pure arithmetic, pin it
-// in a test that walks the whole catalog (__tests__/tooltipFit.test.ts).
+// The panel is a GROWING panel inside a fixed viewport — model the height in
+// pure arithmetic, pin it in a test that walks the whole catalog
+// (__tests__/tooltipFit.test.ts).
 //
-// WHY THE MODEL IS THE RENDER (and cannot drift): every text style below takes
-// its size AND its line-height from TIP_TYPE, and drawTooltip lays the rows out
-// at the modelled offsets rather than at Pixi's measured heights. Widths use the
-// refit card's mono model (ui/refitCardFit) — an UPPER bound for the mono rows
-// (0.605em covers the whole declared fallback stack) and, comfortably, for the
-// proportional description too, whose display face averages well under 0.6em.
+// WHY THE MODEL IS THE RENDER (and cannot drift): every text style the shell
+// builds takes its size AND its line-height from TIP_TYPE, the stat rows are
+// one mono line each (no wrap), and drawTooltip lays everything out at the
+// modelled offsets. Widths use the refit card's mono model (ui/refitCardFit) —
+// an UPPER bound (0.605em covers the whole declared fallback stack).
 
 /** The tooltip's type register — sizes, letter-spacings, explicit line-heights
- *  and inter-block gaps. The Pixi styles below are built FROM this. */
+ *  and inter-block gaps. The Pixi styles in hotbar.ts are built FROM this. */
 export const TIP_TYPE = {
   nameSize: 17,
   nameLetterSpacing: 1.1,
   interactionSize: 14,
   interactionLetterSpacing: 1.6,
-  descSize: 18,
-  descLineHeight: 26,
+  /** The stat rows (both columns). */
   boonSize: 14,
   boonLetterSpacing: 0.6,
   boonLineHeight: 20,
   /** Line box (px) for the two mono heading rows. */
   headLineHeight: 24,
-  /** Gaps: name→interaction, interaction→description, description→boons. */
+  /** Gaps: name→interaction, interaction→stat rows. */
   nameGap: 6,
   descGap: 10,
-  boonsGap: 12,
+  /** Clear px between the widest label and the value column. */
+  statColGap: 12,
 } as const;
 
 /**
@@ -263,32 +196,22 @@ export function tooltipInnerWidth(): number {
   return H.tooltip.width - H.tooltip.pad * 2;
 }
 
-/** Everything the fit pin asserts on, plus the line counts that make a failure
- *  diagnosable ("the boons block wrapped to 31 lines"). */
+/** Everything the fit pin asserts on. */
 export interface TooltipMetrics {
   innerW: number;
-  /**
-   * Wrapped line count of the INTERACTION row (Story 8.7).
-   *
-   * It used to be one, unconditionally, and the height model said so. Ruling 13
-   * put two facts on that row that a player cannot guess — a weapon's TIER and
-   * a belt slot's whole activation shape plus its stock — and the longest of
-   * them (`CONSUMABLE · 1 · KEY PRIMES · CLICK FIRES · ×2`) is 46 glyphs
-   * against a 29-glyph line. Epic-8 amendment 42 freezes the panel's WIDTH and
-   * TYPE, so the row has to WRAP, and a model that kept assuming one line would
-   * put the description on top of it and paint the overflow outside the panel —
-   * the exact amendment-47 failure this module exists to prevent.
-   *
-   * So the row is measured. Everything else is untouched: the panel is still
-   * 320px at the same type with the same notch, and the boon-row trim still
-   * absorbs the extra line out of the SAME height budget.
-   */
+  /** Wrapped line count of the INTERACTION row (Story 8.7 — a belt slot's whole
+   *  activation shape plus its stock does not sit on one 320px line at the
+   *  frozen type, so the row wraps and the panel grows by a line). */
   interactionLines: number;
-  descLines: number;
-  boonLines: number;
+  /** One per stat row. */
+  statLines: number;
+  /** The widest label (px) — the value column starts `statColGap` past it. */
+  labelW: number;
+  /** The widest whole row (label column + gap + value) — must fit `innerW`. */
+  rowW: number;
   /** Total panel height (px) — the same number drawTooltip paints with. */
   height: number;
-  /** height − TOOLTIP_MAX_PANEL_H: ≤ 0 fits, > 0 is an amendment-47 violation. */
+  /** height − maxPanelH: ≤ 0 fits, > 0 is an amendment-47 violation. */
   overflow: number;
 }
 
@@ -305,150 +228,75 @@ export function headingHeight(interaction: string): number {
   return TIP_TYPE.headLineHeight * (1 + interactionLines(interaction));
 }
 
-/** Pure: the BOONS block as ONE wrapped text run — the exact string the panel
- *  renders (a divider row contributes its label alone). */
-export function boonBlockText(rows: readonly TooltipBoonRow[]): string {
-  return rows.map((r) => (r.divider ? r.label : `${r.label}\n${r.effect}`)).join('\n');
+/** Pure: one string's width at the stat-row register. */
+function statTextWidth(text: string): number {
+  return monoTextWidth(text, TIP_TYPE.boonSize, TIP_TYPE.boonLetterSpacing);
 }
 
-/** Wrapped line count of the boons block at the panel's inner width. */
-function boonBlockLines(rows: readonly TooltipBoonRow[], innerW: number): number {
-  let lines = 0;
-  for (const r of rows) {
-    lines += monoWrapLines(r.label, TIP_TYPE.boonSize, TIP_TYPE.boonLetterSpacing, innerW);
-    if (!r.divider) lines += monoWrapLines(r.effect, TIP_TYPE.boonSize, TIP_TYPE.boonLetterSpacing, innerW);
-  }
-  return lines;
+/** Pure: the widest LABEL (px) of a stat table — where the value column's
+ *  offset comes from, in the model and the render alike. */
+export function statLabelWidth(rows: readonly CardStatRow[]): number {
+  return rows.reduce((w, r) => Math.max(w, statTextWidth(r.label)), 0);
 }
 
 /**
- * Pure: the modelled height of a tooltip panel, against its container. `maxPanelH`
- * is the budget `overflow` is measured against — the design floor by default, and
- * the REAL viewport's allowance when the render clamps against a screen shorter
- * than the room above the hovered square (drawTooltip / tooltipRenderGeom).
+ * Pure: the modelled geometry of a tooltip panel, against its container.
+ * `maxPanelH` is the budget `overflow` is measured against — the design floor
+ * by default; the fit pin passes the room above each square.
  */
 export function tooltipMetrics(model: TooltipModel, maxPanelH = TOOLTIP_MAX_PANEL_H): TooltipMetrics {
   const T = TIP_TYPE;
-  const innerW = tooltipInnerWidth();
-  const descLines = monoWrapLines(model.description, T.descSize, 0, innerW);
-  const boonLines = boonBlockLines(model.boons, innerW);
-  const iLines = interactionLines(model.interaction);
-  const height =
-    H.tooltip.pad * 2 +
-    headingHeight(model.interaction) +
-    T.nameGap +
-    T.descGap +
-    descLines * T.descLineHeight +
-    (model.boons.length > 0 ? T.boonsGap + boonLines * T.boonLineHeight : 0);
-  return { innerW, interactionLines: iLines, descLines, boonLines, height, overflow: height - maxPanelH };
-}
-
-/** Pure: how many REAL accrued lines a row list accounts for — one per boon row,
- *  none for a `— SHIP —` head (furniture: counting it would make the `+n MORE`
- *  marker overstate the build it hides), and the carried count for a marker that
- *  is itself standing in for rows. */
-function boonLineCount(rows: readonly TooltipBoonRow[]): number {
-  return rows.reduce((n, r) => n + (r.divider ? (r.hidden ?? 0) : 1), 0);
+  const labelW = statLabelWidth(model.stats);
+  const valueW = model.stats.reduce((w, r) => Math.max(w, statTextWidth(statValueText(r))), 0);
+  const n = model.stats.length;
+  const height = H.tooltip.pad * 2 + headingHeight(model.interaction) + T.nameGap + T.descGap + n * T.boonLineHeight;
+  return {
+    innerW: tooltipInnerWidth(),
+    interactionLines: interactionLines(model.interaction),
+    statLines: n,
+    labelW,
+    rowW: n === 0 ? 0 : labelW + T.statColGap + valueW,
+    height,
+    overflow: height - maxPanelH,
+  };
 }
 
 /**
- * Pure: the first `k` rows, tidied into something that can actually be shown —
- * the trim's own honesty rules, kept out of the fit search's arithmetic.
- *
- *  • a kept TRAILING divider is popped: a `— SHIP —` head whose section was
- *    entirely trimmed away introduces nothing, and directly above the marker it
- *    reads as a heading FOR the marker;
- *  • the `+n MORE` count is the REAL lines dropped, dividers excluded — the
- *    panel must never claim to be hiding a separator.
- */
-export function trimmedBoonRows(rows: readonly TooltipBoonRow[], k: number): TooltipBoonRow[] {
-  const kept = rows.slice(0, k);
-  while (kept.length > 0 && kept[kept.length - 1].divider) kept.pop();
-  const hidden = boonLineCount(rows) - boonLineCount(kept);
-  return hidden > 0 ? [...kept, moreBoonsRow(hidden)] : kept;
-}
-
-/**
- * Pure: the accrued rows a panel can actually SHOW (amendment 47 — the tooltip's
- * half of the container-fit law). Keeps as many rows as fit, in fit order, and
- * spends the last row on a `◆ +n MORE` marker when anything had to go, so the
- * panel never lies about the size of the build. Returns the whole list whenever
- * it fits — the trim is the exception, not the design. `maxPanelH` is the height
- * budget to fit inside (see tooltipMetrics).
- */
-export function fitBoonRows(model: TooltipModel, maxPanelH = TOOLTIP_MAX_PANEL_H): readonly TooltipBoonRow[] {
-  for (let k = model.boons.length; k > 0; k -= 1) {
-    const boons = k === model.boons.length ? model.boons : trimmedBoonRows(model.boons, k);
-    if (tooltipMetrics({ ...model, boons }, maxPanelH).overflow <= 0) return boons;
-  }
-  return [];
-}
-
-/**
- * What ONE frame's tooltip actually paints — the model's arithmetic reconciled
- * with the two things only the renderer knows: how tall the description text
- * MEASURED, and how tall the screen really is.
- *
- * The offsets are relative to the panel's top-left, so the placement (which
- * needs `panelH`) can be resolved after this.
+ * What ONE frame's tooltip paints — offsets relative to the panel's top-left,
+ * so the placement (which needs `panelH`) can be resolved after this.
  */
 export interface TooltipRenderGeom {
-  /** The rows to draw — model.boons, or a shorter list when the real viewport
-   *  is tighter than the design floor the model was fitted against. */
-  boons: readonly TooltipBoonRow[];
   panelH: number;
-  /** Top of the description block, from the panel's top edge. */
-  descDy: number;
-  /** Top of the boons block, from the panel's top edge. */
-  boonsDy: number;
+  /** Top of the stat rows, from the panel's top edge. */
+  statsDy: number;
+  /** Left of the VALUE column, from the panel's inner left edge. */
+  valueDx: number;
 }
 
 /**
- * Pure: that reconciliation (amendment 47, the render half).
- *
- * The MODEL stays the fit-pin authority — tooltipMetrics is what the catalog
- * walk proves — but a model is an upper bound on width and a nominal on height,
- * and the panel is painted at real pixels on a real screen. Two things can
- * therefore differ from the pin, and both would otherwise draw past a boundary:
- *
- *  • `measuredDescH`: Pixi wrapped the description to more height than the mono
- *    model predicted. The boons block is placed below the LARGER of the two and
- *    the panel grows by the difference, so the description can never run under
- *    the build list.
- *  • `roomAboveH`: the clear water ABOVE the hovered square is shorter than the
- *    design floor's allowance (a small window, a high UI scale, a belt square
- *    that sits lower than the weapon row). The panel is clamped to what that
- *    space allows and the rows are re-trimmed against the smaller budget — the
- *    same `+n MORE` grammar, just tighter.
- *
- *    THE ROOM ABOVE, NOT THE SCREEN (review gate, cycle 141). This used to be
- *    `screenH - 2*margin`, which at the 1280x614 floor let the tallest build
- *    model a 570px panel that `tooltipPlacement` then clamped to the top margin
- *    — painting straight over the hovered square, the other eight slots and both
- *    globes. The panel hangs ABOVE the square by construction, so the square's
- *    own clearance is the only budget that can keep that promise, and the screen
- *    clamp is subsumed by it (the bar is `floor` px off the viewport's edge).
- *
- * Growth from measurement is taken out of the row budget FIRST, so the two fixes
- * cannot fight: whatever the description costs, the panel still fits its space.
+ * Pure: the render geometry. NO MEASUREMENT AND NO TRIM: every row is one mono
+ * line at an explicit line-height, so the model IS the render, and the catalog
+ * walk (tooltipFit.test.ts) proves every panel fits the room above its square
+ * at the 1280×614 floor — the cycle-141 room-above law, kept as a PIN.
  */
-export function tooltipRenderGeom(model: TooltipModel, measuredDescH: number, roomAboveH: number): TooltipRenderGeom {
+export function tooltipRenderGeom(model: TooltipModel): TooltipRenderGeom {
   const T = TIP_TYPE;
-  const maxPanelH = Math.min(TOOLTIP_MAX_PANEL_H, roomAboveH);
-  const modelledDescH = tooltipMetrics(model).descLines * T.descLineHeight;
-  const excess = Math.max(0, measuredDescH - modelledDescH);
-  const budget = maxPanelH - excess;
-  const fitted = tooltipMetrics(model, budget).overflow <= 0 ? model.boons : fitBoonRows(model, budget);
-  const m = tooltipMetrics({ ...model, boons: fitted }, budget);
-  // The description starts under the WHOLE heading block — the name's one line
-  // plus however many the interaction row wrapped to (Story 8.7, ruling 13).
-  const descDy = H.tooltip.pad + headingHeight(model.interaction) + T.nameGap + T.descGap;
+  const m = tooltipMetrics(model);
   return {
-    boons: fitted,
-    panelH: m.height + excess,
-    descDy,
-    boonsDy: descDy + Math.max(modelledDescH, measuredDescH) + T.boonsGap,
+    panelH: m.height,
+    statsDy: H.tooltip.pad + headingHeight(model.interaction) + T.nameGap + T.descGap,
+    valueDx: m.labelW + T.statColGap,
   };
+}
+
+/**
+ * Pure: the clear water ABOVE an anchor — between the top margin and the
+ * panel's own `gap` over the thing it points at (review gate, cycle 141). The
+ * panel hangs above its anchor by construction, so this is the only budget that
+ * keeps it off the bar; the fit pin asserts every panel fits inside it.
+ */
+export function tooltipRoomAbove(anchor: Rect): number {
+  return anchor.y - H.tooltip.gap - H.tooltip.margin;
 }
 
 /** Where the tooltip panel sits, and where its pointer notch tips down. */
@@ -460,21 +308,20 @@ export interface TooltipPlacement {
 }
 
 /**
- * Pure: the panel ABOVE the hovered square (Story 8.6), horizontally centred on
- * it and clamped so it never leaves the viewport on any edge.
+ * Pure: the panel ABOVE the hovered anchor (Story 8.6), horizontally centred on
+ * it and clamped so it never leaves the viewport on any edge. The anchor is a
+ * slot square, or the HP globe's bounding square for the SHIP panel.
  *
- * ABOVE, NOT FLANKING. The old stack sat at the screen's left edge, so a panel
- * could flank it right and sit over open water. The bar is CENTRED at the foot
- * of the screen: a flanking panel would cover the globes or the belt — i.e. the
- * HUD would hide the HUD — while the space directly above the bar is empty by
- * construction. Nothing else renders there: epic-8 amendment 38 moved the storm
- * warning and the victim tells UNDER the top-centre chrome bar precisely because
- * this panel reaches across that space on every hover.
+ * ABOVE, NOT FLANKING. The bar is CENTRED at the foot of the screen: a flanking
+ * panel would cover the globes or the belt — i.e. the HUD would hide the HUD —
+ * while the space directly above the bar is empty by construction. Nothing else
+ * renders there: epic-8 amendment 38 moved the storm warning and the victim
+ * tells UNDER the top-centre chrome bar precisely because this panel reaches
+ * across that space on every hover.
  *
- * THE CLAMPS ARE BELT AND BRACES, NOT THE FIT (review gate, cycle 141): the
- * panel is trimmed to the room above the square before it gets here
- * (`tooltipFrame`), so the top clamp can no longer pull a too-tall panel down
- * over the square it points at.
+ * THE CLAMPS ARE BELT AND BRACES, NOT THE FIT: the fit pin proves every panel
+ * fits the room above its anchor at the floor, so the top clamp never pulls a
+ * panel down over the thing it points at.
  *
  * `gap` is measured from the SQUARE, not from the chip, so the panel's foot
  * reads as pointing at the thing it describes.
@@ -492,22 +339,16 @@ export function tooltipPlacement(square: Rect, panelH: number, screenW: number, 
 
 /**
  * Pure: ONE frame's whole tooltip — the geometry and the placement, composed in
- * the same order the renderer needs them (the placement needs `panelH`, which
- * the geometry resolves). The Pixi shell does nothing else to them, which is
- * what makes the pair testable without a canvas.
+ * the order the renderer needs them (the placement needs `panelH`). The Pixi
+ * shell does nothing else to them, which is what makes the pair testable
+ * without a canvas.
  */
 export function tooltipFrame(
   model: TooltipModel,
-  measuredDescH: number,
-  square: Rect,
+  anchor: Rect,
   screenW: number,
   screenH: number,
 ): { geom: TooltipRenderGeom; place: TooltipPlacement } {
-  // THE HEIGHT BUDGET IS THE ROOM ABOVE THE SQUARE (review gate, cycle 141) —
-  // the clear water between the top margin and the panel's own `gap` over the
-  // thing it points at. Trimming against the SCREEN instead let the tallest
-  // build model a panel taller than that space and land on the bar.
-  const roomAbove = square.y - H.tooltip.gap - H.tooltip.margin;
-  const geom = tooltipRenderGeom(model, measuredDescH, roomAbove);
-  return { geom, place: tooltipPlacement(square, geom.panelH, screenW, screenH) };
+  const geom = tooltipRenderGeom(model);
+  return { geom, place: tooltipPlacement(anchor, geom.panelH, screenW, screenH) };
 }

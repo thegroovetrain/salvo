@@ -250,12 +250,15 @@ function ladder(
 }
 
 /**
- * A ladder whose rungs are NOT UNIFORM (Eric 2026-09-30): `steps[k]` is the
- * effect list of the rung copy k+1 buys, and `cap` is `steps.length`. A rung
- * may carry more than one authored effect — CANNON's tier-III rung is its
- * damage step AND the second turret. The `ladder` law holds: a FRESH ARRAY
- * PER RUNG, copied from the caller's lists, so no rung aliases another or the
- * caller's array; the effect objects are deep-frozen with the catalog.
+ * A ladder whose rungs are NOT UNIFORM (Eric 2026-09-30): the `ladder` twin of
+ * `tieredWeaponSteps`. `steps[k]` is the effect list of the rung copy k+1
+ * buys, and `cap` is `steps.length`. A rung may carry more than one authored
+ * effect — CANNON's tier-III rung is its damage step AND the second turret;
+ * the MACHINE GUN's shot delay steps −40, −40, −40, −30 ms beside its uniform
+ * +2 shells / +1 damage — shapes one repeated list cannot say. The `ladder`
+ * law holds: a FRESH ARRAY PER RUNG, copied from the caller's lists, so no
+ * rung aliases another or the caller's array; the effect objects are
+ * deep-frozen with the catalog.
  */
 export function ladderSteps(
   id: LineId,
@@ -321,6 +324,16 @@ export function tieredWeaponSteps(
     ...steps.map((step) => [...step] as readonly BoonEffect[]),
   ];
   return { id, kind: 'equipment', cap: 5, tiers };
+}
+
+/** One upgrade tier of the MACHINE GUN ladder (Eric 2026-09-30): +2 shells,
+ *  +1 damage, and the tier's shot-delay step (−40, −40, −40, −30 ms). */
+function machineGunTier(rateStepMs: number): BoonEffect[] {
+  return [
+    statEffect('equipment.machineGun.maxAmmo', { add: 2 }),
+    statEffect('equipment.machineGun.damage', { add: 1 }),
+    statEffect('equipment.machineGun.rateMs', { add: rateStepMs }),
+  ];
 }
 
 /** One upgrade tier of STAR SHELLS (catalog-v3 R31 as ruled by Eric
@@ -475,16 +488,17 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('equipment.captiveMines.maxAmmo', { add: 0.5 }),
     statEffect('equipment.captiveMines.homingTurnRate', { add: 0.075 }),
   ]),
-  // MACHINE GUN (amendment 104): the machine gun's LADDER — offered only while
-  // it is mounted (sim/draw.ts ladderHost reads `appliesTo`). Tiers II–V each
-  // +2 shells to the magazine and +1 damage per shell: 16 -> 24 shells, 4 -> 8
-  // damage at V. The −5 % reload per tier (15 s -> 12 s at V) is NOT an effect:
-  // it is derived from `equipment.machineGun.tier`, which `appliesTo` makes
-  // this line advance — the `deckGun` precedent exactly.
-  machineGun: ladder(
+  // MACHINE GUN (amendment 104; the shot delay Eric 2026-09-30): the machine
+  // gun's LADDER — offered only while it is mounted (sim/draw.ts ladderHost
+  // reads `appliesTo`). Tiers II–V each +2 shells to the magazine and +1
+  // damage per shell (16 -> 24 shells, 4 -> 8 damage at V) and step the shot
+  // delay −40, −40, −40, −30 ms (0.35 / 0.31 / 0.27 / 0.23 / 0.20 s). The −5 %
+  // reload per tier (10 s -> 8 s at V) is NOT an effect: it is derived from
+  // `equipment.machineGun.tier`, which `appliesTo` makes this line advance —
+  // the `deckGun` precedent exactly.
+  machineGun: ladderSteps(
     'machineGun',
-    4,
-    [statEffect('equipment.machineGun.maxAmmo', { add: 2 }), statEffect('equipment.machineGun.damage', { add: 1 })],
+    [machineGunTier(-40), machineGunTier(-40), machineGunTier(-40), machineGunTier(-30)],
     { appliesTo: ['machineGun'] },
   ),
   // FLAK (amendment 105): the flak gun's LADDER, offered only while mounted.

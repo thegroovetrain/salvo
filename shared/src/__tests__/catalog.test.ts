@@ -322,16 +322,21 @@ describe('catalog v3 identity', () => {
   });
 
   it('the MACHINE GUN and FLAK lines are their guns\' LADDERS, exactly like DECK GUN (amendments 104/105)', () => {
-    // Per tier: MACHINE GUN +2 shells and +1 damage; FLAK +2 damage (blast
-    // fixed). The −5 % reload is the derived tier step, never an effect.
+    // Per tier: MACHINE GUN +2 shells, +1 damage and the shot-delay step
+    // −40/−40/−40/−30 ms (Eric 2026-09-30); FLAK +2 damage, +1 pool on the
+    // rungs to III and V (blast fixed).
+    // The −5 % reload is the derived tier step, never an effect.
     expect(CATALOG.machineGun.appliesTo).toEqual(['machineGun']);
     expect(CATALOG.flak.appliesTo).toEqual(['flak']);
-    for (const tier of CATALOG.machineGun.tiers) {
-      expect(tier).toEqual([
-        { kind: 'stat', path: 'equipment.machineGun.maxAmmo', add: 2 },
-        { kind: 'stat', path: 'equipment.machineGun.damage', add: 1 },
-      ]);
-    }
+    expect(CATALOG.machineGun.tiers.map((tier) => tier)).toEqual([-40, -40, -40, -30].map((rate) => [
+      { kind: 'stat', path: 'equipment.machineGun.maxAmmo', add: 2 },
+      { kind: 'stat', path: 'equipment.machineGun.damage', add: 1 },
+      { kind: 'stat', path: 'equipment.machineGun.rateMs', add: rate },
+    ]));
+    // A fresh array per tier (the `ladder` law): no tier aliases another.
+    const mgTiers = CATALOG.machineGun.tiers;
+    expect(new Set(mgTiers).size).toBe(mgTiers.length);
+    expect(mgTiers.every((tier) => Object.isFrozen(tier) && tier.every((e) => Object.isFrozen(e)))).toBe(true);
     // FLAK: +2 damage every rung, and a TURRET (+1 pool) on the rungs reaching
     // tier III and tier V (Eric 2026-09-30). The blast radius never moves.
     const flakDmg = { kind: 'stat', path: 'equipment.flak.damage', add: 2 };

@@ -3,9 +3,16 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  64 — catalog content: DECK GUN TURRET and DECK GUN BARREL deleted; the
+ *  65 — catalog content: DECK GUN TURRET and DECK GUN BARREL deleted; the
  *  second turret and second barrel are CANNON tier III / V rungs, the flak
  *  turrets are FLAK tier III / V rungs (Eric 2026-09-30).
+ *  64 — catalog content: the machine-gun ladder authors rateMs (−40/−40/
+ *  −40/−30 ms, 0.35 → 0.20 s); the stats row drops idleReloadMs — cycle 158.
+ *  CONFIG.machineGun.rateMs 500 → 350 and reloadMs 15000 → 10000 (Eric
+ *  2026-09-30); the swap starts the tick the stream stops (server-only).
+ *  Self-private OwnShip.chaff?: {x, y, until} (the owner's live chaff
+ *  cloud, amendment 191 — rides `you` only).
+ *  Perception exception count stays SIX.
  *  63 — smoke puff radii 40/60 → 82.5/165 u (the client derives the disc
  *  from the shared curve) — cycle 156. CONFIG.smokeScreen.r0/r1 become 1/8
  *  and 2/8 of intel range (Eric 2026-09-30); CONFIG.regen.outOfCombatMs
@@ -754,7 +761,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 64;
+export const PROTOCOL_VERSION = 65;
 
 // Tunables
 export * from './constants.js';

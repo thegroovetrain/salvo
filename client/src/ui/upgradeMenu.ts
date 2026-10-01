@@ -42,6 +42,7 @@ import {
   CONFIG,
   MULLIGAN_CHOICE,
   boonStackCount,
+  isStubLine,
   pickRefusal,
   resolveCards,
   type CatalogLine,
@@ -75,12 +76,15 @@ import {
 } from './refitTooltip.js';
 import {
   TIER_ARROW,
-  boonKindLabel,
   boonName,
-  boonTooltipText,
+  cardHoverRows,
+  cardKind,
+  cardKindLabel,
   cardStatRows,
   cardTierLabel,
   cardTierSteps,
+  statValueText,
+  type CardKind,
   type CardStatRow,
   type CardTierStep,
 } from './boonCopy.js';
@@ -103,21 +107,49 @@ const REST = 'var(--hc-text-primary)';
 const AMBER = 'var(--hc-amber)';
 const PHOSPHOR = 'var(--hc-phosphor)';
 const DENIED = 'var(--hc-denied)';
-const HAIRLINE = 'var(--hc-hairline)';
 /** The mock's `--t3` (muted text): the in-row arrow, the tier arrow, and the
  *  greyed key chip's dashed edge. */
 const MUTED = 'var(--hc-text-muted)';
 /** The greyed foot's word — `silver` at FULL alpha, so the reason still reads
  *  through the card's own dim (mock `.rc.grey .foot`). */
 const SILVER = 'var(--hc-silver)';
-/**
- * THE META ROW IS NEUTRAL (Eric ruling 2026-09-15, amendment 8). The v2 RARE /
- * EXCLUSIVE tag colours are DELETED with the rarity axis itself: catalog v3 has
- * no tier to colour, and the interim meta row carries the line's KIND word and
- * its copy count, both in the shipped secondary-text token. Stories 8.6/8.7 own
- * the real card faces — nothing here anticipates them with a colour ramp.
- */
+/** The shipped secondary-text token — the key chip at rest, the row labels. */
 const META = 'var(--hc-text-secondary)';
+
+/**
+ * THE KIND COLORS (Eric ruling 2026-09-30, epic-8 amendment 188 — supersedes
+ * amendment 8's neutral kind word). The refit card is color-coded by what it
+ * does for the player: WEAPON phosphor · WEAPON UPGRADE info · SHIP UPGRADE
+ * storm-readout · CONSUMABLE silver (ADD-ON, the unused kind, keeps the
+ * secondary text it always had). Eric's picks avoid amber and the denied red,
+ * which already mean ARMED and REFUSED on this surface.
+ *
+ * DUAL-CODED: the KIND WORD carries the kind with the color stripped. The color
+ * rides the word at full strength and the card's RESTING edge at `KIND_EDGE_ALPHA`
+ * (`cssRgba` off the numeric token, never a literal); the armed amber edge and
+ * glow and the greyed `.55` face are unchanged.
+ */
+export const KIND_COLORS: Readonly<Record<CardKind, string>> = {
+  weapon: 'var(--hc-phosphor)',
+  weaponUpgrade: 'var(--hc-info)',
+  shipUpgrade: 'var(--hc-storm-readout)',
+  consumable: 'var(--hc-silver)',
+  addon: 'var(--hc-text-secondary)',
+};
+
+/** The resting edge's alpha on the kind token (an orchestrator reading of
+ *  amendment 188's "reduced alpha"). */
+export const KIND_EDGE_ALPHA = 0.55;
+
+const KC = CLIENT_CONFIG.colors;
+/** The kind's resting 1px edge — the same tokens as KIND_COLORS, at reduced alpha. */
+export const KIND_EDGES: Readonly<Record<CardKind, string>> = {
+  weapon: cssRgba(KC.phosphor, KIND_EDGE_ALPHA),
+  weaponUpgrade: cssRgba(KC.info, KIND_EDGE_ALPHA),
+  shipUpgrade: cssRgba(KC.stormReadout, KIND_EDGE_ALPHA),
+  consumable: cssRgba(KC.silver, KIND_EDGE_ALPHA),
+  addon: cssRgba(KC.textSecondary, KIND_EDGE_ALPHA),
+};
 /** The slot tooltip's ratified surface, reused verbatim for the refit card's
  *  hover panel (DESIGN.md `components.slot-tooltip`): the `panel` bed at .97 and
  *  a `silver` edge at .4. Composed from the TOKENS through `cssRgba` rather than
@@ -368,9 +400,11 @@ export function refitTooltipPlacement(model: RefitTooltipModel, band: RefitBox):
  */
 export interface OfferCard {
   id: string;
-  /** The KIND word (WEAPON / UPGRADE / ADD-ON / CONSUMABLE) — the mock's `.ck`,
-   *  and the a11y channel that carries what colour no longer does. */
+  /** The KIND word (WEAPON / WEAPON UPGRADE / SHIP UPGRADE / CONSUMABLE /
+   *  ADD-ON) — the mock's `.ck`, and the non-color channel of the kind. */
   kind: string;
+  /** The kind itself (amendment 188) — what colors the word and the edge. */
+  kindTone: CardKind;
   /** The line's name, uppercase (the face's one display-face mark). */
   name: string;
   /** The `cur → next` tier numerals, or null for a line with no ladder (a
@@ -383,9 +417,10 @@ export interface OfferCard {
   /** Up to five live stat rows (ruling 12). Fewer is normal; an add-on has
    *  none at all and its five rows render blank. */
   rows: readonly CardStatRow[];
-  /** The HOVER-ONLY explanation (R2.17) — what the card actually does, in plain
-   *  terms. Never rendered on the face; the band's hover panel shows it. */
-  tooltip: string;
+  /** The HOVER-ONLY stat list (R2.17; amendment 187) — the full table of what
+   *  the card touches, valued after the card. Never rendered on the face; an
+   *  empty list means no hover panel. */
+  hover: readonly CardStatRow[];
   /**
    * THE REFUSAL (Story 8.7, ruling 10; widened by the 8.14 review F1). A card
    * this hull cannot take — a consumable with a full belt, a line already at
@@ -542,12 +577,13 @@ function toCard(line: CatalogLine, you: OwnShip, ownSlots: readonly (SlotItemId 
   const stack = boonStackCount(you.cards, line.id);
   return {
     id: line.id,
-    kind: boonKindLabel(line.kind),
+    kind: cardKindLabel(cardKind(line, stack)),
+    kindTone: cardKind(line, stack),
     name: boonName(line.id, stack),
     tier: cardTierLabel(line, stack),
     tierStep: cardTierSteps(line, stack),
     rows: cardStatRows(line, stack, you),
-    tooltip: boonTooltipText(line.id),
+    hover: cardHoverRows(line, stack, you),
     greyed: cardGreyed(line, ownSlots, you.cards),
     stack,
     cap: line.cap,
@@ -981,16 +1017,27 @@ const TIP_INTERACTION_CSS = [
   'overflow-wrap:anywhere',
 ].join(';');
 
-/** The explanation paragraph — data, so phosphor rather than grey (amendment
- *  16), at the card description's own opacity so the two read as one voice. */
-const TIP_BODY_CSS = [
-  `font:400 ${REFIT_TIP.bodySize}px var(--hc-font-mono)`,
-  `letter-spacing:${REFIT_TIP.bodyLetterSpacing}px`,
-  `line-height:${REFIT_TIP.bodyLineHeight}`,
-  `color:${PHOSPHOR}`,
-  'opacity:0.85',
-  'overflow-wrap:anywhere',
+/** The stat block (amendment 187): ONE flex child of the panel, so the panel's
+ *  `rowGap` falls once before it, and its rows stack with no gap of their own
+ *  — exactly what refitTooltipMetrics models. */
+const TIP_ROWS_CSS = ['display:flex', 'flex-direction:column', 'align-self:stretch'].join(';');
+
+/** One stat row: label hard left, value hard right, one mono line box at the
+ *  heading's register (the card face's row grammar, at the hover's 14px). */
+const TIP_ROW_CSS = [
+  'display:flex',
+  'justify-content:space-between',
+  'align-items:baseline',
+  `gap:${REFIT_TIP.statColGap}px`,
+  `font:400 ${REFIT_TIP.nameSize}px var(--hc-font-mono)`,
+  `letter-spacing:${REFIT_TIP.nameLetterSpacing}px`,
+  `line-height:${REFIT_TIP.nameLineHeight}`,
+  'white-space:nowrap',
 ].join(';');
+/** A row's label — the secondary-text register the card face's labels use. */
+const TIP_ROW_LABEL_CSS = `color:${META}`;
+/** A row's value — data, so phosphor (amendment 16). */
+const TIP_ROW_VALUE_CSS = [`color:${PHOSPHOR}`, 'font-variant-numeric:tabular-nums'].join(';');
 
 /**
  * The mono key-chip glyph — the mock's `.rc .kc.big`: a 22px bordered digit
@@ -1087,7 +1134,6 @@ const KIND_CSS = [
   `letter-spacing:${T.kindLetterSpacing}px`,
   `line-height:${T.lineHeight}`,
   'text-transform:uppercase',
-  `color:${META}`,
   'white-space:nowrap',
   `margin-top:${T.kindGap}px`,
 ].join(';');
@@ -1211,20 +1257,21 @@ const FOOT_CSS = [
 
 /**
  * The armed (hover/focus) treatment — mock `.rc.armed`: amber edge + glow, amber
- * key chip on the void bed, amber name and amber icon box. The KIND word, the
- * rows and the ladder stay put through the arm: they are facts about the card,
- * not states of the pointer.
+ * key chip on the void bed, amber name and amber icon box. The KIND word (in its
+ * kind color — amendment 188), the rows and the ladder stay put through the
+ * arm: they are facts about the card, not states of the pointer. At REST the
+ * edge is the kind token at reduced alpha.
  */
 function paintCard(card: RefitCardEls, armed: boolean): void {
   const c = armed ? AMBER : REST;
-  card.root.style.borderColor = armed ? AMBER : HAIRLINE;
+  card.root.style.borderColor = armed ? AMBER : KIND_EDGES[card.tone];
   card.root.style.boxShadow = armed ? `0 0 8px ${AMBER}` : 'none';
   card.name.style.color = c;
   card.icon.style.color = c;
   card.icon.style.borderColor = armed ? ICON_EDGE_ARMED : ICON_EDGE;
   card.chip.style.borderColor = armed ? AMBER : card.greyed ? MUTED : CHIP_EDGE;
   card.chip.style.color = armed ? AMBER : card.greyed ? MUTED : META;
-  card.kind.style.color = META;
+  card.kind.style.color = KIND_COLORS[card.tone];
 }
 
 /** One plain text line at a prepared style. */
@@ -1369,7 +1416,8 @@ function footEl(greyed: boolean): HTMLDivElement {
  *  numerals and its current→next numbers, all of which are in here. */
 function cardSignature(card: OfferCard): string {
   const rows = card.rows.map((r) => `${r.label}=${r.cur ?? ''}>${r.next}`).join('|');
-  return [card.id, card.kind, card.name, card.tier ?? '', card.stack, card.cap, rows, card.tooltip, card.greyed ? 'g' : ''].join('~');
+  const hover = card.hover.map((r) => `${r.label}=${r.cur ?? ''}>${r.next}`).join('|');
+  return [card.id, card.kind, card.kindTone, card.name, card.tier ?? '', card.stack, card.cap, rows, hover, card.greyed ? 'g' : ''].join('~');
 }
 
 /** The DOM handles of one built card — the marks `paintCard` repaints on arm. */
@@ -1379,6 +1427,8 @@ interface RefitCardEls {
   icon: HTMLDivElement;
   kind: HTMLSpanElement;
   name: HTMLSpanElement;
+  /** The card's kind — its word color and resting edge (amendment 188). */
+  tone: CardKind;
   /** Carried so the arm/rest repaint can restore a GREYED chip's own colours
    *  rather than the resting ones (the refusal outlives a hover). */
   greyed: boolean;
@@ -1391,29 +1441,47 @@ interface RefitTipEls {
   /** The CONSUMABLE shape line (Story 8.7, ruling 13) — hidden on every other
    *  kind, so it spends no vertical rhythm where there is nothing to say. */
   interaction: HTMLSpanElement;
-  body: HTMLSpanElement;
+  /** The stat block (amendment 187) — one row line per stat, re-filled per hover. */
+  rows: HTMLDivElement;
 }
 
-/** Pure: the hover panel's model for one card — the name over its explanation,
- *  plus the CONSUMABLE shape line (ruling 13) where the catalog resolves. An
- *  unresolvable id still gets a panel, which is the fail-open this surface has
- *  always had. The card's OWN stack feeds the shape line's `×n` (review patch
- *  P7), so the hover and the belt square can never print different counts. */
+/** Pure: the hover panel's model for one card — the name over its stat rows,
+ *  plus the CONSUMABLE shape line (ruling 13) where the catalog resolves. The
+ *  card's OWN stack feeds the shape line's `×n` (review patch P7), so the hover
+ *  and the belt square can never print different counts. */
 function tipModelFor(copy: OfferCard): RefitTooltipModel {
   const line = Object.hasOwn(CATALOG, copy.id) ? CATALOG[copy.id] : undefined;
   return line === undefined
-    ? { name: copy.name, body: copy.tooltip }
-    : refitTooltipModel(line, copy.name, copy.tooltip, copy.stack);
+    ? { name: copy.name, stats: copy.hover }
+    : refitTooltipModel(line, copy.name, copy.hover, copy.stack);
+}
+
+/** Pure: the panel model a hovered card OPENS, or null for no panel — a stub
+ *  (never dealt), or a card with nothing to say (no stat rows AND no consumable
+ *  shape line). A consumable whose rows are empty still opens on its shape
+ *  line (review gate P6). */
+function shownTipModel(copy: OfferCard | undefined): RefitTooltipModel | null {
+  if (copy === undefined || isStubLine(copy.id)) return null;
+  const model = tipModelFor(copy);
+  return model.stats.length === 0 && !model.interaction ? null : model;
+}
+
+/** One stat row of the hover panel: label left, value right. */
+function tipRowEl(row: CardStatRow): HTMLDivElement {
+  const el = document.createElement('div');
+  el.style.cssText = TIP_ROW_CSS;
+  el.append(lineEl(TIP_ROW_LABEL_CSS, row.label), lineEl(TIP_ROW_VALUE_CSS, statValueText(row)));
+  return el;
 }
 
 /** Fill the one hover panel from a model. The SHAPE row is REMOVED rather than
  *  left blank on the kinds that have none, so it spends no vertical rhythm on
  *  information that is not there. */
-function fillTip(tip: RefitTipEls, model: RefitTooltipModel, body: string): void {
+function fillTip(tip: RefitTipEls, model: RefitTooltipModel): void {
   tip.name.textContent = model.name;
   tip.interaction.textContent = model.interaction ?? '';
   tip.interaction.style.display = model.interaction ? 'block' : 'none';
-  tip.body.textContent = body;
+  tip.rows.replaceChildren(...model.stats.map(tipRowEl));
 }
 
 /**
@@ -1456,7 +1524,7 @@ export class UpgradeMenu {
    *  the band moves under a stationary pointer (review gate, cycle 141). */
   private tipModel: RefitTooltipModel | null = null;
   /** The last rendered view — the tooltip's copy source. Kept as state rather
-   *  than stamped onto the DOM: the panel shows ONE card's explanation at a
+   *  than stamped onto the DOM: the panel shows ONE card's stat rows at a
    *  time, and re-reading it from the view keeps the cards free of copy. */
   private view: OfferView | null = null;
   private shown = false;
@@ -1574,7 +1642,7 @@ export class UpgradeMenu {
 
   /**
    * The hover tooltip's panel (R2.17), built ONCE with the band: heading row
-   * over explanation paragraph. It takes no pointer events and registers no
+   * over the stat rows (amendment 187). It takes no pointer events and registers no
    * listeners of its own — every appearance is driven by a card's mouseenter.
    */
   private makeTip(): RefitTipEls {
@@ -1588,36 +1656,34 @@ export class UpgradeMenu {
     const interaction = document.createElement('span');
     interaction.style.cssText = TIP_INTERACTION_CSS;
     interaction.style.display = 'none';
-    const body = document.createElement('span');
-    body.style.cssText = TIP_BODY_CSS;
-    root.append(name, interaction, body);
-    return { root, name, interaction, body };
+    const rows = document.createElement('div');
+    rows.style.cssText = TIP_ROWS_CSS;
+    root.append(name, interaction, rows);
+    return { root, name, interaction, rows };
   }
 
   /**
-   * Show the explanation for the card in slot `index`, or hide the panel.
+   * Show the stat list for the card in slot `index`, or hide the panel.
    *
    * HOVER ONLY, BY RULING (R2.17). The single caller is a card's `mouseenter` /
    * `mouseleave`; nothing on the keyboard path reaches here, because Tab/1–4/5
    * exist precisely so an experienced player can skip the reading.
    *
-   * A card with NO explanation written (fail-open on an unwritten id) shows no
-   * panel at all rather than an empty box — the totality pin in
-   * __tests__/refitTooltipFit.test.ts is what makes that unreachable for any
-   * shipped catalog line.
+   * A STUB (never dealt) or a card with NOTHING to say — no stat rows AND no
+   * consumable shape line — shows no panel at all rather than an empty box; a
+   * consumable whose rows are empty still opens on its shape line (review
+   * gate P6).
    */
   private showTip(index: number | null): void {
     const tip = this.tip;
     if (!tip) return;
-    const card = index === null ? null : this.cards[index];
-    const copy = index === null ? null : this.view?.options[index] ?? null;
-    if (!card || !copy || copy.tooltip === '') {
+    const model = index === null || !this.cards[index] ? null : shownTipModel(this.view?.options[index]);
+    if (!model) {
       tip.root.style.display = 'none';
       this.tipModel = null;
       return;
     }
-    const model = tipModelFor(copy);
-    fillTip(tip, model, copy.tooltip);
+    fillTip(tip, model);
     tip.root.style.left = `${refitTooltipLeft(index!, this.rowWidth())}px`;
     this.tipModel = model;
     this.placeTip(tip.root, model);
@@ -1682,7 +1748,7 @@ export class UpgradeMenu {
     body.style.cssText = CARD_BODY_CSS;
     body.append(icon, name, ladderEl(card), kind, rowsEl(card.rows), footEl(card.greyed));
     btn.appendChild(body);
-    const els: RefitCardEls = { root: btn, chip, icon, kind, name, greyed: card.greyed };
+    const els: RefitCardEls = { root: btn, chip, icon, kind, name, tone: card.kindTone, greyed: card.greyed };
     if (card.greyed) {
       // The DASHED chip is the refusal's glyph channel and rides through
       // everything. The DIM is only applied while the card is otherwise live:

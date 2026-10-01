@@ -154,7 +154,7 @@ export interface ActivationContext {
    * SMOKE SCREEN's whole body (Story 8.18, catalog-v3 R38, amendments
    * 138–145): open the ACTIVATING ship's lay window — `smokeUntil = now +
    * CONFIG.smokeScreen.layMs`, `nextPuffAt = now` — so World.stepSmoke drops a
-   * puff at the stern on the very next tick and every `puffIntervalMs` after,
+   * puff at the hull's center (amendment 190) on the very next tick and every `puffIntervalMs` after,
    * until the window closes (10 puffs per copy). A second call while laying
    * RESTARTS the clock (fresh 5 s from the re-press — ruling 140; the copy is
    * spent, the shield/chaff "replaces" posture). Puffs are WORLD-owned
@@ -212,9 +212,9 @@ export interface Equipment {
    *  specials (smoke, boost, …) arrive in stories 1.6+ with false. */
   readonly isWeapon: boolean;
   /** Tick this slot's reload timer (called for every fitted slot, every tick).
-   *  `now` is server time this tick — read by the MACHINE GUN's magazine alone
-   *  (its idle clock is a server-clock timestamp, Story 8.15); every other row
-   *  ignores it. */
+   *  `now` is server time this tick — no row reads it since the machine gun's
+   *  idle clock was deleted (Eric 2026-09-30); kept on the contract for a
+   *  row that needs a server-clock read. */
   tick(ship: ShipRecord, slot: LoadoutSlot, dtMs: number, now: number): void;
   /** Run activation when this slot is selected and a click landed this tick. */
   activate(ctx: ActivationContext, slot: LoadoutSlot): ActivationResult;

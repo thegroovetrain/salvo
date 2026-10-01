@@ -42,17 +42,15 @@ import { PLAYER_HUES, PLAYER_FILLS } from '../render/ships.js';
 import { ensureColorPref, COLOR_PREF_KEY } from '../net/connection.js';
 import { registerCss } from './theme.js';
 import { monoTextWidth } from './refitCardFit.js';
+import { CLASS_DISPLAY_NAMES } from './classNames.js';
 
 const C = CLIENT_CONFIG.colors;
 
 // --- class display data (verbatim rulings) -----------------------------------
 
-/** Two-word display names the ship-class id can't produce. */
-export const CLASS_DISPLAY_NAMES: Record<ShipClassId, string> = {
-  torpedoBoat: 'TORPEDO BOAT',
-  battleship: 'BATTLESHIP',
-  mineLayer: 'MINE LAYER',
-};
+/** Two-word display names the ship-class id can't produce — moved to the leaf
+ *  `ui/classNames.ts` in cycle 158 so the HUD's SHIP tooltip can read it. */
+export { CLASS_DISPLAY_NAMES };
 
 interface LoadoutRow {
   key: string;

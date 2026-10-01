@@ -81,9 +81,10 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  *     derivation;
  *   - `flak.burstRadius` / `flak.contactDamage`: FIXED by ruling (amendment
  *     105 — the blast never grows; the bodyblock is a CONFIG constant);
- *   - `machineGun.rateMs` / `machineGun.idleReloadMs` and `damageCut.factor`:
- *     Eric's fixed numbers (amendments 99/103) that no ladder steps — CONFIG
- *     pass-throughs, not card-addressable (a harness `--tune` reaches CONFIG);
+ *   - `damageCut.factor`: Eric's fixed number (amendment 99) that no ladder
+ *     steps — a CONFIG pass-through, not card-addressable (a harness `--tune`
+ *     reaches CONFIG); `machineGun.rateMs` LEFT this list on 2026-09-30 (the
+ *     ladder steps it);
  *   - `broadside.traverseRad` / `broadside.mountSpreadRad`: derived from the
  *     1-based `spreadRung`, which IS the addressable field;
  *   - every mine's `triggerRadius`: derived post-fold (naval and fouling from
@@ -120,14 +121,15 @@ export const EQUIPMENT_STAT_FIELDS = {
   // what is addressable in principle, not what a card writes today.
   foulingMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius', 'slowFactor'],
   // THE TWO PICKABLE GUNS (Story 8.15, amendments 103–105). The MACHINE GUN
-  // ladder steps the magazine (+2) and the per-shell damage (+1); the FLAK
+  // ladder steps the magazine (+2), the per-shell damage (+1) and the shot
+  // delay (`rateMs` −40/−40/−40/−30 ms, Eric 2026-09-30); the FLAK
   // ladder steps damage (+2). `flak.burstRadius` and `flak.contactDamage`
   // are deliberately ABSENT: the blast is FIXED by ruling (amendment 105) and
   // the 4 hp bodyblock is a CONFIG constant, and this table is the authoring
   // gate — the captive's fixed-burst precedent (both still flow CONFIG ->
   // stats row as pass-throughs; a harness `--tune flak.*` reaches CONFIG).
   // The −5 %/tier reload is the tier step in clampStats, never an effect.
-  machineGun: ['reloadMs', 'maxAmmo', 'damage'],
+  machineGun: ['reloadMs', 'maxAmmo', 'damage', 'rateMs'],
   flak: ['reloadMs', 'maxAmmo', 'damage'],
   broadside: ['reloadMs', 'maxAmmo', 'damage', 'burstRadius', 'turrets', 'spreadRung'],
   // STAR SHELLS (Story 8.17, amendment 130): the flare deals burst damage
