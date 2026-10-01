@@ -5,7 +5,7 @@ created: '2026-09-30'
 status: 'in-review'
 baseline_revision: '1252080'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-8-context-amendments.md'
@@ -113,6 +113,25 @@ warnings: ['multiple-goals', 'oversized']
 
 ## Review Triage Log
 
+### 2026-09-30 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol; record: epic-8 amendment 189)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 9: (high 1, medium 2, low 6)
+- defer: 0
+- reject: 4
+- addressed_findings:
+  - `[high]` `[patch]` A refused (frozen / start-line / dead) hull was skipped by `streamControl`, so a part-used machine gun never started its swap and kept its cadence across the freeze (Codex + Edge Case Hunter, CONFIRMED) — the row is now told the stream is not live while refused; two regression pins.
+  - `[medium]` `[patch]` A part-used magazine's swap painted nothing on the gun square although amendment 112 ruled the wipe shows (Blind Hunter, CONFIRMED) — the machine gun's square shows the wipe and numeral during any swap without entering the cooling state; four pins.
+  - `[medium]` `[patch]` A press on the HP globe (now a hover target) fell through to the water and fired (Codex, PLAUSIBLE → Eric ruling, amendment 187) — presses inside the HP globe are swallowed; the helm globe stays water; pins in slotTooltip and hudBar tests.
+  - `[low]` `[patch]` `rateMs` had no plumbing floor after becoming ladder-stepped (Edge + Blind) — `clampStats` guards it (the fold already refuses ≤ 0 effects; the guard covers a bad base row — recorded honestly).
+  - `[low]` `[patch]` The swap-start test was `=== 0` (Edge) — now `<= 0`, aligned with `tickSwap`.
+  - `[low]` `[patch]` The chaff ring's dash count divided by `dash + gap` (Edge) — non-positive pitch and fraction fall back to fixed values.
+  - `[low]` `[patch]` A consumable card with a shape line but no rows showed no panel (Edge) — the panel opens with rows OR the shape line; stubs stay hidden.
+  - `[low]` `[patch]` Dead exports `isGunFamily`, `isShipwideCard`, `boonDescription`, `statSentence` and the stale comments calling `boonDescription` the hover's sentence (Blind + Edge deletion check) — deleted with their tests.
+  - `[low]` `[patch]` Four comments still said a smoke puff is laid at the stern (Codex) — corrected to the hull's center (amendment 183).
+  - Rejected: the re-press-after-release waiting out the previous due time (Codex — the anti-tap-spam gate is the design, recorded in 189(b)); INSTANT RELOAD filling a part-used magazine (Blind — Eric: "Let it", amendment 188); the Pixi value column placed from the mono width model (Blind — a documented upper bound); a viewport under the 1280×614 floor clamping the panel (Edge — the floor is the contract).
+  - Eric rulings taken at the gate, not findings: the hover heading uses the catalog line's name (185); TURNING prints in whole °/s (186) — this one printer also feeds the results build line, a deliberate exception to the "never touch the results block" Never (Eric's ruling governs).
+
 ## Design Notes
 
 Orchestrator readings (Eric may veto any): (a) the tooltip lines reuse the card rows' strings byte-for-byte (`DAMAGE 50`, `RELOAD 30.0 s`, `RADIUS 150 U`) so the face, the slot hover and the card hover never disagree; (b) `RANGE` is appended last for rows carrying `rangeU` (a derived number the face never printed); (c) a Shift prints no `ROUNDS 1` and gets its factor line off `CONFIG` (`BOOST +25%`, `CUT 50%`); (d) the card hover is valued AFTER the card, the face's tense; (e) resting border = kind token at .55 alpha via `cssRgba`, armed stays amber; (f) gun ladders are WEAPON UPGRADE (they upgrade the mounted gun); (g) the SHIP tooltip anchors on the globe's bounding square; the helm globe stays silent; (h) MG `RATE` prints in seconds like every `*Ms` field (`0.35 s`), the humanizer's word; (i) the MG reload ladder is the DERIVED convention on a 10 s base (Eric: *"applying whatever convention from there"*), so 10 / 9.5 / 9 / 8.5 / 8 s — his earlier "10/9/8/7/6" is superseded by that sentence; (j) "stream stops" = no shell fired this tick because `held` is false or the gun is not the selected slot (amendment 111), so the swap starts on the first non-firing tick — no grace.
@@ -126,3 +145,17 @@ Orchestrator readings (Eric may veto any): (a) the tooltip lines reuse the card 
 
 **Manual checks (if no CLI):**
 - Eric's eye on staging: the three panels, the four card colors, the machine gun's feel.
+
+## Auto Run Result
+
+Status: done (cycle 157, 0.18.22, PROTOCOL_VERSION 63 → 64; branch `worktree-dev-auto-stat-tooltips-kind-colors`, one PR to `development`; NOT merged — Eric's call).
+
+**Implemented:** (1) the HUD slot tooltip prints the slot's live stats one per line (name = the catalog line's name, the amber key line, `LABEL value` rows in the refit card's row vocabulary, `RANGE` last; Shifts print their CONFIG factor and no ROUNDS) — no prose, no accrued-build list, no "fish" anywhere (a structural test scans every client string literal); (2) hovering the HP globe opens a `SHIP` panel (MAX HULL / TOP SPEED / TURNING in °/s / RADAR SWEEP / ALL COOLDOWNS) and a press on the globe is swallowed; (3) the refit card hover prints the same stat table valued after the card (consumables keep the shape line); (4) `EQUIPMENT_DESCRIPTION`, `BOON_EXPLAIN`, `boonTooltipText`, `boonDescription` deleted; (5) refit cards color-coded by kind on the KIND word and resting border (WEAPON phosphor · WEAPON UPGRADE info · SHIP UPGRADE storm-readout · CONSUMABLE silver); (6) machine gun: per-tier shot delay 350/310/270/230/200 ms (authored `rateMs` ladder steps, two-decimal `RATE` row), 10 s base reload on the −5 %/tier convention, idle delay deleted, swap starts the tick the stream stops with shells left (refused hulls included), cancelled by a shot with shells left, uninterruptible when empty, cadence carry-over, the swap's wipe on the square; (7) smoke puffs lay at the hull's center; (8) self-private `OwnShip.chaff` and the owner's dashed 120 u ring.
+
+**Files:** shared — `constants.ts` (MG numbers), `sim/catalog.ts` (`ladderSteps`, the MG ladder), `sim/effects.ts` (`rateMs` addressable), `sim/stats.ts` (no `idleReloadMs`; `guardRateMs`), `sim/smoke.ts` (comment), `types.ts` (`OwnShip.chaff`), `index.ts` (PV 64); server — `game/equipment/machineGun.ts` (swap rules, `nextDue`), `game/world.ts` (`streamLive`, `streamControl` refusal path, `stepSmoke` center), `game/frames.ts` (`ownChaff`), `game/equipment/index.ts` + `consumables.ts` + `consumables/smokeScreen.ts` (comments), `scripts/batchsim/overrides.ts`; client — `render/slotTooltip.ts` (stat-row model, `'ship'` target, `slotHeading`, `hotbarPress`), `render/hotbar.ts` (two-column render, `hoverTargetAt`, `isSwapping`/`wipeShown`), `render/hudBar.ts` (`press`), `render/equipmentInfo.ts` (descriptions deleted), `render/chaffRing.ts` (new), `ui/boonCopy.ts` (stat-row builders, `cardKind`, `RATE`/`RANGE`/°/s printers, prose deleted), `ui/refitTooltip.ts` (row model), `ui/upgradeMenu.ts` (`hover`, `kindTone`, `KIND_COLORS`/`KIND_EDGES`, `shownTipModel`), `ui/classNames.ts` (new), `main.ts` (chaff ring, press gate), `config.ts` (`chaffRing`), `audio/twinMap.ts`; tests across all three workspaces incl. new `chaffRing.test.ts`, `noFishCopy.test.ts`. Docs: VERSION/package(.lock) 0.18.22, CHANGELOG, both trackers, epic-8 amendments 178–189 (both homes), DESIGN.md / catalog-v3 / GDD dated stamps, deferred-work annotations.
+
+**Review:** 9 patches (1 high, 2 medium, 6 low), 0 deferred, 4 rejected — see the Review Triage Log and amendment 189. Follow-up review recommended: true (the gate changed a server state machine, added a client press gate and a HUD wipe state).
+
+**Verification:** `npm run check` exit 0 — lint 0 errors (3 pre-existing max-lines warnings), tsc ×3 clean, shared 1020 / server 2273 / client 3732 / hook test 266. Not verified by eye: no browser in the worktree — Eric's look on staging is the acceptance gate for the three panels, the four card colors, the chaff ring and the machine gun's feel.
+
+**Residual risks:** the `nextDue` "stalled tick" branch is unreachable in sim time (harmless); the Pixi tooltip's value column is placed from the mono width model (an upper bound); the batch-sim pool-era baseline predates the machine-gun numbers and was not re-run.

@@ -16,7 +16,7 @@
 - Self-private `OwnShip.chaff { x, y, until }` on the owner's own frame (the `shield` precedent; the SIX-exception count is untouched). PROTOCOL_VERSION 63 -> 64.
 - Client: `render/slotTooltip.ts` is a stat-row model (no boon-row trim, no measured-height reconciliation; `HoverState.target` is `number | 'ship' | null`); `ui/boonCopy.ts` gains `equipmentStatRows` / `consumableStatRows` / `shipStatRows` / `cardHoverRows` / `cardKind`; `EQUIPMENT_DESCRIPTION`, `BOON_EXPLAIN`, `boonTooltipText`, `boonDescription` deleted; new `render/chaffRing.ts`, `ui/classNames.ts`; a structural test forbids "fish" in any client string literal.
 - Review gate (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol): see epic-8 amendment 189.
-- Tests: TESTS_PLACEHOLDER.
+- Tests: shared 1020, server 2273, client 3732; hook test 266; lint 0 errors.
 
 ## [0.18.21] - 2026-09-30
 
