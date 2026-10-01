@@ -206,7 +206,7 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
     );
     // Only the CANNON line is the deck gun's ladder: another gun's ladder (FLAK)
     // climbs ITS gun, never this one. (This pinned the DECK GUN BARREL card
-    // until it folded into the CANNON ladder, amendment 185.)
+    // until it folded into the CANNON ladder, amendment 197.)
     expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { flak: 2 }))).toBe(
       'WEAPON · ALWAYS SELECTED · TIER I',
     );
@@ -505,7 +505,7 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   const stats = statsFor('torpedoBoat');
 
   it('gives every held line a ◆ name row, and a live effect line where there is one', () => {
-    // The CANNON ladder is the gun's one line since amendment 185 (TURRET and
+    // The CANNON ladder is the gun's one line since amendment 197 (TURRET and
     // BARREL folded into it); its holding line stays the damage headline.
     const t = tooltipModel(0, 'gun', stats, ['deckGun', 'deckGun'])!;
     expect(t.boons.map((r) => r.label)).toEqual(['◆ CANNON']);

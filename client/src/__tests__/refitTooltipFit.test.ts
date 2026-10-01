@@ -93,7 +93,7 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // ladders); 26 lines / 117 cards since Story 8.17 (PHOSPHOR and FLASH
     // SHELLS re-cut from cap-1 add-ons into cap-5 lines); 24 lines / 114 cards
     // since DECK GUN TURRET and DECK GUN BARREL (cap 1 and cap 2) folded into
-    // the CANNON ladder (2026-09-30, amendment 185).
+    // the CANNON ladder (2026-09-30, amendment 197).
     expect(LINES).toHaveLength(24);
     expect(PANELS.length).toBe(LINES.reduce((n, d) => n + d.cap, 0));
   });
@@ -145,7 +145,7 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // (70 -> 65): SMOKE SCREEN's reworded DRAFT hover (radar still paints; the
     // in-smoke sight cut) outgrows the water above, so its five consumable
     // panels now open down — none clipped (the next test).
-    // DECK GUN TURRET / BARREL deleted (2026-09-30, amendment 185) nets −3
+    // DECK GUN TURRET / BARREL deleted (2026-09-30, amendment 197) nets −3
     // DOWN (52 -> 49) and ABOVE unchanged at 65: all three of their panels
     // (TURRET's one, BARREL's two) carried a tall explanation and opened down;
     // the CANNON ladder's own four panels are untouched by the fold.

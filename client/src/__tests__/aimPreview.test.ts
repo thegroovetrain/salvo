@@ -101,7 +101,7 @@ function broadsideStats(rung: number, turrets: number): EffectiveStats {
  * directly on the fold's output — the same WHY-NOT-CARDS reasoning as
  * `broadsideStats` above. The claim under test is the PREVIEW GEOMETRY of an
  * ODD volley, and since DECK GUN BARREL folded into the CANNON ladder
- * (2026-09-30, amendment 185) no shipped card build reaches three barrels any
+ * (2026-09-30, amendment 197) no shipped card build reaches three barrels any
  * more (the CANNON's tier V buys the second); the `barrels` clamp still allows
  * three, so the preview must still draw it honestly.
  */
@@ -268,7 +268,7 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
   // them can be true at a time.
   it('EVEN barrel count: the shells STRADDLE the click, none on it', () => {
     // The real build that reaches two barrels: four CANNON cards, tier V
-    // (amendment 185).
+    // (amendment 197).
     const inp = input({ stats: stats('deckGun', 'deckGun', 'deckGun', 'deckGun') });
     expect(inp.stats.equipment.gun.barrels).toBe(2);
     const m = computeAimPreview(inp);

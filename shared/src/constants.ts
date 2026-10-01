@@ -716,7 +716,7 @@ export const CONFIG = {
     // ratio h/H: the same number that decides which terrain is an absolute
     // radar wall (h ≥ H ⇒ dark to the rim) also sets how long every softer
     // shadow runs. Consumed ONLY by sim/radarShadow.ts, alongside the derived
-    // K = radar²/4 (amendment 185: K stays on the BASE range above, never an
+    // K = radar²/4 (amendment 197: K stays on the BASE range above, never an
     // observer's boon-widened stats.radarRange).
     //
     // THIS IS A FIXED CONSTANT, NEVER A PERCENTILE. Amendment 184: q64 is a

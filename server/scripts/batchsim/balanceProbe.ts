@@ -157,7 +157,7 @@ function barrelBlock(): void {
   console.log('barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u)');
   // Each row is priced at the damage of the BUILD that reaches that barrel
   // count: 1 barrel = the bare cannon (15), 2 barrels = CANNON ×4, the rung to
-  // tier V (20) — the only build with two barrels since amendment 185.
+  // tier V (20) — the only build with two barrels since amendment 197.
   for (const [barrels, copies] of [[1, 0], [2, 4]] as const) {
     const dmg = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), Array<LineId>(copies).fill('deckGun')).equipment.gun.damage;
     const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);

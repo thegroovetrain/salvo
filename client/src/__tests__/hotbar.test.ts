@@ -808,7 +808,7 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
     // the TIER numeral; the list itself lives in the tooltip.
     // The deck gun sails at rung I (amendment 70) and each CANNON card is a
     // rung, so two put it at III. (Two DECK GUN BARREL cards held it at I until
-    // BARREL folded into the CANNON ladder, amendment 185.)
+    // BARREL folded into the CANNON ladder, amendment 197.)
     expect(rows[SLOT_GUN].tier).toBe(3);
     expect(rows[Q].tier).toBe(1); // ...and the torpedo's line is at copy 1
   });
@@ -823,7 +823,7 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
 
   it('ignores a junk id on the wire rather than counting it', () => {
     expect(slotBoonIds('gun', ['deckGun', 'notARealBoon', 'constructor'])).toEqual(['deckGun']);
-    // A DELETED line's id (amendment 185) is junk like any other.
+    // A DELETED line's id (amendment 197) is junk like any other.
     expect(slotBoonIds('gun', ['deckGunBarrel', 'deckGunTurret'])).toEqual([]);
   });
 
@@ -836,7 +836,7 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
     // ...and the square still shows ONE number: the rung. Twelve CANNON cards
     // (an over-stack past the cap of 4) climb the gun to its ceiling, V — never
     // a 12. (Twelve DECK GUN BARREL cards pinned the spawned I here until BARREL
-    // folded into the CANNON ladder, amendment 185.)
+    // folded into the CANNON ladder, amendment 197.)
     expect(rows[SLOT_GUN].tier).toBe(5);
     expect(slotNumeral(rows[SLOT_GUN])).toBe('');
   });

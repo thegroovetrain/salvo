@@ -126,7 +126,7 @@ describe('HUD denominators react to effective stats', () => {
   it('chip denominators come from effective stats — the second turret retires the single-shot pin', () => {
     // PIN FLIPPED (Story 2.8): the gun pool is no longer pinned at 1 — the
     // second turret raises it, and effectiveStats is the one place it moves.
-    // Since amendment 185 the turret is the CANNON ladder's rung to III (its
+    // Since amendment 197 the turret is the CANNON ladder's rung to III (its
     // second card), not a card of its own: one card leaves the pool alone.
     expect(equipmentMaxAmmo(effectiveStats(TB), 'gun')).toBe(CONFIG.gun.maxAmmo);
     expect(equipmentMaxAmmo(statsFor('torpedoBoat', { deckGun: 1 }), 'gun')).toBe(CONFIG.gun.maxAmmo);

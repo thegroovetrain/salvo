@@ -100,7 +100,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // 62 until cycle 156, whose ONE bump covers the smoke puff radii 40/60 ->
     // 82.5/165 u (1/8 -> 2/8 of intel range, Eric 2026-09-30), which the
     // client reads to derive the disc — no wire shape moved, no mask either.
-    // 63 until the gun-ladder fold (2026-09-30, amendment 185), whose ONE bump
+    // 63 until the gun-ladder fold (2026-09-30, amendment 197), whose ONE bump
     // covers DECK GUN TURRET and DECK GUN BARREL leaving the catalog's card
     // vocabulary — catalog content, no mask.
     expect(PROTOCOL_VERSION).toBe(64);

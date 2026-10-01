@@ -29,7 +29,7 @@ warnings: [oversized]
 - The flak pool at tiers III/V reloads through the existing `consume`/`tickReload` helpers and `reconcilePools` fills a raised cap generically; add no flak- or cannon-specific pool code.
 - The stat-path whitelist is untouched: `equipment.gun.maxAmmo`, `equipment.gun.barrels` and `equipment.flak.maxAmmo` are already on it. `flak.burstRadius` and `flak.contactDamage` stay OFF it (amendment 113(d)).
 - A ladder rung may now carry more than one authored effect. The tier card prints EVERY authored step of the rung it buys (amendment 85's rule), using only words the copy table already has: `ROUNDS` for a pool step, `SHELLS PER SHOT` for the barrel step. No new player-facing words. Amendment 71's "ONE row" for the deck gun face is read as "one row per authored step" now that the rung authors two; recorded in the new amendment.
-- `PROTOCOL_VERSION` 63 → 64 with a header entry in `shared/src/index.ts`; `VERSION` and root `package.json` 0.18.22 → 0.18.23; `CHANGELOG.md` entry; BOTH trackers get a one-line stamp; epic-8 amendments get the ruling (number 185) and a short orchestrator record; GDD and catalog-v3 get DATED supersession notes only (minimal design-doc edits), never rewrites.
+- `PROTOCOL_VERSION` 63 → 64 with a header entry in `shared/src/index.ts`; `VERSION` and root `package.json` 0.18.22 → 0.18.24; `CHANGELOG.md` entry; BOTH trackers get a one-line stamp; epic-8 amendments get the ruling (number 185) and a short orchestrator record; GDD and catalog-v3 get DATED supersession notes only (minimal design-doc edits), never rewrites.
 - Every test that pinned the deleted ids is rewritten to the new ladders, not deleted, unless its subject no longer exists (then say so in the report). Regression pins required: cannon pool 2 at III, barrels 2 at V, flak pool 2 at III and 3 at V, no production ladder rung is empty, no deleted id resolves.
 - The gun `barrels` clamp stays `1..3` (harmless; the reachable max is now 2); fix the comments that say the BARREL card adds them.
 - Golden-frame snapshot regeneration is expected (the seeded draw changes when lines leave the catalog): regenerate, diff-read the change, and say what moved.
@@ -86,7 +86,7 @@ warnings: [oversized]
 - [ ] `server/scripts/batchsim/*` -- barrel loop 1..2
 - [ ] `client/src/ui/boonCopy.ts` -- drop the four entries and the comments; no new words
 - [ ] `client/src/__tests__/*` -- rewrite pins; `cardStatRows` pins the two-row faces at III and V and the one-row faces at II and IV
-- [ ] Docs wave -- version 0.18.23, CHANGELOG, both trackers, amendment 185 (+ orchestrator record), GDD/catalog-v3/epics dated notes, epic-8-context re-aligned
+- [ ] Docs wave -- version 0.18.24, CHANGELOG, both trackers, amendment 197 (+ orchestrator record), GDD/catalog-v3/epics dated notes, epic-8-context re-aligned
 
 **Acceptance Criteria:**
 - Given a cannon captain with two CANNON cards, when the fold runs on either side, then the gun pool is 2 and barrels are 1; with four cards barrels are 2 and the pool is 2.
@@ -110,14 +110,14 @@ warnings: [oversized]
   - `[low]` `[patch]` `balanceProbe.ts` priced the two-barrel row at base damage (30) though only the tier V build reaches two barrels — each row is now priced at the build that reaches it (15 / 40) (Blind + Edge)
   - `[low]` `[patch]` catalog-v3 §4 table rows for TURRET/BARREL and `deferred-work.md:1460` (the accepted 45 hp one-click) lacked the supersession stamp — stamped (Blind)
   - `[low]` `[patch]` `guns.ts` fire-control doc still said "1..3 TWIN/TRIPLE MOUNT, Story 2.8" — now the reachable 1..2 (Blind)
-  - `[low]` `[patch]` the maxed cannon no longer one-clicks a 45 hp small drone (2 × 20 = 40) — put to Eric before the PR, accepted as is, recorded as amendment 187 (Blind + the shared wave)
-  - rejected: the gun slot tooltip no longer names the second barrel once bought (the gun square badge and the two preview bursts show it; no in-game copy unasked) — noted for Eric in amendment 187
+  - `[low]` `[patch]` the maxed cannon no longer one-clicks a 45 hp small drone (2 × 20 = 40) — put to Eric before the PR, accepted as is, recorded as amendment 199 (Blind + the shared wave)
+  - rejected: the gun slot tooltip no longer names the second barrel once bought (the gun square badge and the two preview bursts show it; no in-game copy unasked) — noted for Eric in amendment 199
 
 ## Auto Run Result
 
-**Summary:** `deckGunTurret` and `deckGunBarrel` are deleted; the CANNON ladder carries the second turret on its rung to tier III and a second barrel per turret on its rung to tier V; the FLAK ladder carries a turret on its rungs to III and V; per-tier damage/reload steps unchanged. `ladderSteps` authors per-rung ladders. 24 lines, 114 cards, PV 64, version 0.18.23. Eric's rulings: amendments 185 (the fold), 187 (the drone consequence accepted); orchestrator readings 186.
+**Summary:** `deckGunTurret` and `deckGunBarrel` are deleted; the CANNON ladder carries the second turret on its rung to tier III and a second barrel per turret on its rung to tier V; the FLAK ladder carries a turret on its rungs to III and V; per-tier damage/reload steps unchanged. `ladderSteps` authors per-rung ladders. 24 lines, 114 cards, PV 64, version 0.18.24. Eric's rulings: amendments 197 (the fold), 199 (the drone consequence accepted); orchestrator readings 198.
 
-**Files changed (54 + docs):** `shared/src/sim/catalog.ts` (rows, ids, helper), `shared/src/index.ts` (PV 64), comment fixes in `draw.ts`/`stats.ts`/`constants.ts`; 7 shared test files; server comment fixes (`profiles.ts`, `guns.ts`, `world.ts`), 8 server test files + the golden snapshot (two offer hands moved), `balanceProbe.ts`/`catalogMetrics.ts`; `client/src/ui/boonCopy.ts` (four entries dropped) + 16 client test files; CHANGELOG, VERSION, package.json, both trackers, epic-8 amendments 185–187, epic-8 context, GDD/catalog-v3/epics/deferred-work dated notes.
+**Files changed (54 + docs):** `shared/src/sim/catalog.ts` (rows, ids, helper), `shared/src/index.ts` (PV 64), comment fixes in `draw.ts`/`stats.ts`/`constants.ts`; 7 shared test files; server comment fixes (`profiles.ts`, `guns.ts`, `world.ts`), 8 server test files + the golden snapshot (two offer hands moved), `balanceProbe.ts`/`catalogMetrics.ts`; `client/src/ui/boonCopy.ts` (four entries dropped) + 16 client test files; CHANGELOG, VERSION, package.json, both trackers, epic-8 amendments 197–199, epic-8 context, GDD/catalog-v3/epics/deferred-work dated notes.
 
 **Review:** 4 low patches applied, 0 deferred, 1 rejected (see the triage log). Follow-up review: not recommended (comment/doc/script patches only).
 

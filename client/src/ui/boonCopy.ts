@@ -296,7 +296,7 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   reload: { label: 'All cooldowns', path: 'cooldownScale', fmt: pct },
   // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
   // the tier in clampStats and stays silent): damage is the number the player
-  // watches change. Since amendment 185 the rungs to III and V also author the
+  // watches change. Since amendment 197 the rungs to III and V also author the
   // second turret (`equipment.gun.maxAmmo`) and the second barrel
   // (`equipment.gun.barrels`); those rows print through the FIELD_WORDS
   // fallback (`ROUNDS`, `SHELLS PER SHOT`) — no entry here, no new words.
@@ -317,7 +317,7 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
  * torpedo's tier does. Amendment 85 prints that step on a tier card, so these
  * two print it too, first, then their authored steps. The DECK GUN (CANNON)
  * ladder is NOT here: amendment 71 ruled its face the damage row and no reload
- * row, read since amendment 185 (186(a)) as ONE ROW PER AUTHORED STEP — the
+ * row, read since amendment 197 (198(a)) as ONE ROW PER AUTHORED STEP — the
  * rungs to II and IV print damage alone, the rungs to III and V print damage
  * plus `ROUNDS` (the second turret) or `SHELLS PER SHOT` (the second barrel).
  */
@@ -402,7 +402,7 @@ const BOON_EXPLAIN: Readonly<Partial<Record<LineId, string>>> = {
   // --- the pickable guns' ladders (Story 8.15) -------------------------------
   // draft copy, ledgered for Eric — the two hover descriptions the spec allows
   // (amendments 104/105), in the register of the retired TURRET/BARREL cards'
-  // copy (deleted 2026-09-30, amendment 185). No numbers in the
+  // copy (deleted 2026-09-30, amendment 197). No numbers in the
   // prose: the face prints them as rows, live from the fold.
   machineGun:
     'Deepens your machine gun\'s magazine and hardens every shell in it: each copy adds shells to the magazine and damage to each shell, and cuts the magazine\'s reload by 5%.',
@@ -840,9 +840,9 @@ function diffRow(path: string, before: EffectiveStats, after: EffectiveStats): C
  * Pure: a LADDER line's rows — one per `stat` effect in the tier this card
  * WOULD apply (`tiers[copiesHeld]`, clamped to the last authored rung), valued
  * through the live preview diff. A rung may author more than one stat effect
- * (since amendment 185 the CANNON rungs to III and V add a pool and a barrel
+ * (since amendment 197 the CANNON rungs to III and V add a pool and a barrel
  * step, the FLAK rungs to III and V a pool step), and EVERY authored step
- * prints its own row (amendment 85's rule, 186(a)) — a two-number rung must
+ * prints its own row (amendment 85's rule, 198(a)) — a two-number rung must
  * not silently print only one of them.
  *
  * `dropUnchanged` IS THE TIER CARD'S RULE, AND ONLY ITS (cycle-148 review gate,
@@ -957,7 +957,7 @@ function faceFields(target: EquipmentId): readonly string[] {
  * THE DECK GUN IS UNAFFECTED and stays as epic-8 amendment 71 ruled it: it is
  * a LADDER line, so it never reaches this function at all — `ladderRows` prints
  * its authored rows (damage, plus the rung's pool or barrel step at III and V,
- * amendment 185) and its tier-derived reload cut stays silent.
+ * amendment 197) and its tier-derived reload cut stays silent.
  *
  * The single-row face this replaced was honest for the three live lines with
  * EMPTY tiers II–V (BROADSIDE, STAR SHELLS, RADAR BUOY), which still print

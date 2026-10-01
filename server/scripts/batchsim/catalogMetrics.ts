@@ -194,7 +194,7 @@ export interface CatalogSample {
    *  is the known contaminant — reported, not hidden). */
   multiBarrelTicks: Record<string, number>;
   /** victim hull id -> largest gun-ONLY per-tick total. 40 is the theoretical
-   *  max (2 barrels x 20 at CANNON tier V — amendment 185). */
+   *  max (2 barrels x 20 at CANNON tier V — amendment 197). */
   maxGunOnlyTick: Record<string, number>;
   /** victim hull id -> kills from FULL hp by a gun-only multi-burst tick. */
   gunClickKills: Record<string, number>;

@@ -1044,7 +1044,7 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
     expect(a.hp).toBe(40);
   });
 
-  // The second turret is the CANNON ladder's rung to tier III (amendment 185):
+  // The second turret is the CANNON ladder's rung to tier III (amendment 197):
   // copy 1 moves damage only, copy 2 raises the pool and fills it the same tick.
   it('CANNON tier III (deckGun x2): the gun pool cap rises to 2 AND fills immediately (amendment 41)', () => {
     const w = bareWorld();
@@ -1073,7 +1073,7 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
     expect(a.loadout[SLOT_GUN].state!.n).toBe(2); // everything arrives loaded
   });
 
-  // The FLAK ladder's turrets (amendment 185): the rungs to tiers III and V
+  // The FLAK ladder's turrets (amendment 197): the rungs to tiers III and V
   // each add a round. Pinned through the REAL flak module and the ordinary
   // consume/tickReload pool — no flak-specific pool code exists.
   it('FLAK tier III (flak x2) fires twice before the reload and refills to 2; tier V (flak x4) holds 3', () => {
@@ -1645,7 +1645,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(a.stats.equipment.gun.reloadMs).toBe(4750);
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(2375); // the fraction survives
     // Copy 1 is the rung to tier II: damage + the derived reload, NO pool step
-    // (the second turret is the rung to III — amendment 185).
+    // (the second turret is the rung to III — amendment 197).
     expect(a.stats.equipment.gun.maxAmmo).toBe(1);
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0); // no round handed out
   });

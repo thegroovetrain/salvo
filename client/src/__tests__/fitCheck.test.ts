@@ -51,7 +51,7 @@ describe('fit-check — catalog sanity (the walk covers something real)', () => 
     expect(LINES).toHaveLength(LINE_IDS.length);
     // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
     // 26 until DECK GUN TURRET and DECK GUN BARREL folded into the CANNON
-    // ladder (amendment 185).
+    // ladder (amendment 197).
     expect(LINE_IDS).toHaveLength(24);
     for (const [key, line] of Object.entries(CATALOG)) expect(line.id).toBe(key);
   });

@@ -379,8 +379,8 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
     );
   }
 
-  // THE DECK GUN FACE (amendment 71, read since amendment 185 as ONE ROW PER
-  // AUTHORED STEP — 186(a)): it is a LADDER, not an equipment line, so it never
+  // THE DECK GUN FACE (amendment 71, read since amendment 197 as ONE ROW PER
+  // AUTHORED STEP — 198(a)): it is a LADDER, not an equipment line, so it never
   // touches the tier-card rule and its tier-derived reload cut stays silent.
   // The rungs to II and IV author damage alone (one row); the rungs to III and
   // V also author the second turret / the second barrel (two rows), printed
@@ -391,7 +391,7 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   });
 });
 
-// --- THE CANNON AND FLAK FACES, BYTE-EXACT (amendment 185, 186(a)) -------------
+// --- THE CANNON AND FLAK FACES, BYTE-EXACT (amendment 197, 198(a)) -------------
 //
 // TURRET and BARREL folded into the gun ladders: CANNON adds the second turret
 // on the rung to III and the second barrel on the rung to V; FLAK adds a turret
@@ -674,7 +674,7 @@ describe('cardStatRows — the machine gun and flak ladders (Story 8.15)', () =>
   });
 
   it('FLAK tier II: RELOAD 6.0 s to 5.7 s, DAMAGE 12 to 14 — and the blast never moves', () => {
-    // The rungs to III and V also add a flak turret (amendment 185): ROUNDS.
+    // The rungs to III and V also add a flak turret (amendment 197): ROUNDS.
     expect(face('flak', 0)).toEqual(['RELOAD 6.0 s>5.7 s', 'DAMAGE 12>14']);
     expect(face('flak', 1)).toEqual(['RELOAD 5.7 s>5.4 s', 'DAMAGE 14>16', 'ROUNDS 1>2']);
     expect(face('flak', 2)).toEqual(['RELOAD 5.4 s>5.1 s', 'DAMAGE 16>18']);

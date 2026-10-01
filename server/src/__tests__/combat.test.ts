@@ -387,7 +387,7 @@ describe('World combat — burst at the clicked point', () => {
 // they separate only past ~573u of a 660u base range). Story 2.8's review added
 // a same-click salvo ledger that held one victim to ONE application per click —
 // so two of the three shells did nothing and the two rare MOUNT cards added no
-// single-target damage at all. (Since amendment 185 the reachable mount is the
+// single-target damage at all. (Since amendment 197 the reachable mount is the
 // TWIN — the CANNON ladder's rung to tier V — so the pins below fire two.)
 //
 // RULING (2026-08-05): "everything that connects should deal damage." The
@@ -397,7 +397,7 @@ describe('World combat — burst at the clicked point', () => {
 
 describe('multi-barrel click — every shell that connects deals its own damage', () => {
   /** A twin-mount gun: the CANNON ladder at tier V (deckGun x4 — the rung to
-   *  V adds the second barrel, amendment 185; 2 is the reachable max). */
+   *  V adds the second barrel, amendment 197; 2 is the reachable max). */
   function twinMount(seed = 11): { w: World; a: ShipRecord } {
     const { w, a } = armed(seed);
     for (let i = 0; i < 4; i++) w.applyCard(a, 'deckGun');
@@ -481,7 +481,7 @@ describe('multi-barrel click — every shell that connects deals its own damage'
 
 describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
   /** A TEST line (+1 barrel per copy) for the three-barrel geometry cases: no
-   *  production card reaches 3 barrels since amendment 185 (the CANNON
+   *  production card reaches 3 barrels since amendment 197 (the CANNON
    *  ladder's rung to V is the one barrel step), but the straddle law and the
    *  1..3 clamp still cover 3, and the ODD case needs a middle shell. */
   const testGunBarrel = {

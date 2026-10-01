@@ -39,7 +39,7 @@ describe('coverage — every catalog line has a name and a kind word', () => {
   it('names every one of the 24 lines (never the humanized fallback)', () => {
     // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
     // 26 until DECK GUN TURRET and DECK GUN BARREL folded into the CANNON
-    // ladder (2026-09-30, amendment 185).
+    // ladder (2026-09-30, amendment 197).
     expect(LINE_IDS).toHaveLength(24);
     for (const id of LINE_IDS) {
       const name = boonName(id);
@@ -77,7 +77,7 @@ describe('coverage — every catalog line has a name and a kind word', () => {
     expect(boonName('foulingMines')).toBe('FOULING MINES');
     // Story 8.15: the plain gun's ladder reads CANNON (amendment 108), and the
     // two pickable guns' ladders are named for their guns. DECK GUN TURRET and
-    // DECK GUN BARREL are deleted (amendment 185): their ids fall to the
+    // DECK GUN BARREL are deleted (amendment 197): their ids fall to the
     // humanizer like any unknown id.
     expect(boonName('deckGun')).toBe('CANNON');
     expect(boonName('deckGunBarrel')).toBe('Deck Gun Barrel');
@@ -114,7 +114,7 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   it('prints a live current → next sentence for every LADDER line', () => {
     // five universal ladders + the CANNON ladder + (Story 8.15) the machine
     // gun's and the flak gun's ladders. 10 until TURRET and BARREL folded into
-    // the CANNON ladder (amendment 185).
+    // the CANNON ladder (amendment 197).
     expect(STAT_CARDS).toHaveLength(8);
     for (const line of STAT_CARDS) {
       const text = boonDescription(line, TB);
@@ -435,7 +435,7 @@ describe('cardTierLabel — the step, not the position', () => {
     expect(cardTierLabel(CATALOG.radarSweep, 5)).toBe('V');
     // An OVER-STACK of the CANNON ladder (more copies than its cap) still reads
     // the top rung. (This pinned the one-rung TURRET until it was deleted,
-    // amendment 185; no one-rung ladder ships now.)
+    // amendment 197; no one-rung ladder ships now.)
     expect(cardTierLabel(CATALOG.deckGun, 5)).toBe('V');
     expect(cardTierSteps(CATALOG.armor, 4)).toEqual({ cur: 5, next: null });
     expect(cardTierSteps(CATALOG.radarSweep, 5)).toEqual({ cur: 5, next: null });

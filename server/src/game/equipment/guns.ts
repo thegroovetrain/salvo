@@ -124,7 +124,7 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
 
 /**
  * Gun fire control against one slot pool: `stats.equipment.gun.barrels` shells (1..2
- * reachable — the CANNON rung to tier V, amendment 185; the clamp still admits 3)
+ * reachable — the CANNON rung to tier V, amendment 197; the clamp still admits 3)
  * for ONE consumed round, each a REAL shell
  * bursting at its OWN point. The ONLY denial is an empty pool ('no-ammo' — the
  * shot cooldown; single-consume, so the denial mapping is unchanged from the
@@ -166,7 +166,7 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
  * no upgrades at all); the cycle-44 rebalance (gun 15, lightest hull 80) removed
  * that premise. The accepted consequence: every shell of a multi-barrel click
  * lands; the reachable max is the CANNON's tier-V twin mount (2 barrels × 20 =
- * 40 — amendment 185), and the 1..3 barrel clamp's ceiling is now unreachable. No
+ * 40 — amendment 197), and the 1..3 barrel clamp's ceiling is now unreachable. No
  * PLAYER hull can be one-clicked — the lightest is the 125hp Torpedo Boat.
  *
  * Every shell carries the gun's hit rule off the OWNER's effective stats:
@@ -215,7 +215,7 @@ function fireGunShells(
 
 /** The gun Equipment row. Pool size + reload come from the ship's cached
  *  effective stats (base maxAmmo 1; the CANNON ladder's tier-III rung raises
- *  it to 2 — amendment 185).
+ *  it to 2 — amendment 197).
  *  Slot state is non-null by the loadout invariant (see index.ts). */
 export const gunEquipment: Equipment = {
   id: 'gun',

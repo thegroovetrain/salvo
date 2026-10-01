@@ -71,7 +71,7 @@ const BROADSIDE_LADDERS: Catalog = {
   broadsideSpread: ladder('broadsideSpread', 4, 'equipment.broadside.spreadRung', 1),
   broadsideTurrets: ladder('broadsideTurrets', 2, 'equipment.broadside.turrets', 1),
   // A TEST gun-barrel line (the production DECK GUN BARREL card is gone —
-  // its barrel is the CANNON ladder's rung to V, amendment 185), so the "the
+  // its barrel is the CANNON ladder's rung to V, amendment 197), so the "the
   // gun is unchanged" counter-pin still has a one-card second barrel.
   testGunBarrel: ladder('testGunBarrel', 2, 'equipment.gun.barrels', 1),
 };

@@ -270,7 +270,7 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 63→64 bump (PV 64, amendment 185: DECK GUN TURRET and DECK GUN BARREL left the catalog — their effects are CANNON ladder rungs) is enforced at matchmake', () => {
+describe('pv join gate — the 63→64 bump (PV 64, amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog — their effects are CANNON ladder rungs) is enforced at matchmake', () => {
   it('rejects pv-63 and older protocols and a missing pv; accepts the current one', () => {
     expect(PROTOCOL_VERSION).toBe(64);
     expect(protocolVersionError(63)).toMatch(/refresh/);
