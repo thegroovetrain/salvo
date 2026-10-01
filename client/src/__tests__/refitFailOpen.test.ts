@@ -15,7 +15,6 @@ import { describe, it, expect } from 'vitest';
 import { CATALOG, CONFIG, effectiveStats, type OwnShip } from '@salvo/shared';
 import { cardHoverRows, cardStatRows } from '../ui/boonCopy.js';
 import { beltPressDenied } from '../input/keyboard.js';
-import { makeOffer } from '../ui/results.js';
 
 const KNOWN = { cls: 'torpedoBoat', cards: [] as string[] };
 const UNKNOWN = { cls: 'notAHull', cards: [] as string[] };
@@ -43,32 +42,6 @@ describe('the refit card rows — an unresolvable hull renders nothing, never th
     }
     expect(cardHoverRows(CATALOG.armor, 0, KNOWN as never).length).toBeGreaterThan(0);
     expect(cardHoverRows(CATALOG.hullRepair, 0, UNKNOWN as never).length).toBeGreaterThan(0);
-  });
-});
-
-// The I/O matrix row the acceptance audit found uncovered. The guard at
-// results.ts is PRE-EXISTING (it was already there at the baseline commit, and
-// the spec's claim that it needed adding came from a stale read) — but the row
-// is inside the spec's frozen block, so it gets covered rather than reworded.
-describe('results LAST OFFER — an unresolvable boon id drops its card, never the block', () => {
-  const own = {
-    name: 'ERIC', cls: 'torpedoBoat', hue: 0, cards: [] as string[],
-    offer: ['radarSweep', 'notARealBoon', 'armor'] as string[],
-    pts: 3,
-  };
-
-  it('renders the block and omits only the unresolvable card', () => {
-    const block = makeOffer(own as never);
-    expect(block).not.toBeNull();
-    // One section head + one row; the row holds 2 cards, not 3.
-    const row = block?.lastElementChild;
-    expect(row?.children.length).toBe(2);
-  });
-
-  it('does not throw on an offer that is entirely unresolvable', () => {
-    const allJunk = { ...own, offer: ['nope', 'alsoNope'], pts: 2 };
-    expect(() => makeOffer(allJunk as never)).not.toThrow();
-    expect(makeOffer(allJunk as never)?.lastElementChild?.children.length).toBe(0);
   });
 });
 

@@ -4,7 +4,7 @@
 
 ## Goal
 
-Replace the old boon system with the common pool. A captain picks a hull, a gun and a colour, spawns with that gun plus the hull's fixed class ability (`SPECIAL`, key `Shift`), redraws the opening offer during the countdown, then draws from the one pool every captain shares into weapon slots `Q`/`E`/`R` and belt slots `1`–`4`, and reads the ending loadout in results. **Decks do not exist**: nothing is class-locked, nothing is brought. Stories 8.0–8.19 have LANDED; what remains is bots on the pool (8.20, NEXT), then results and copy. Epic 8 runs with no account module — signing in later changes what a player KEEPS, never what they can DO.
+Replace the old boon system with the common pool. A captain picks a hull, a gun and a colour, spawns with that gun plus the hull's fixed class ability (`SPECIAL`, key `Shift`), redraws the opening offer during the countdown, then draws from the one pool every captain shares into weapon slots `Q`/`E`/`R` and belt slots `1`–`4`, and reads the ending loadout in results. **Decks do not exist**: nothing is class-locked, nothing is brought. Stories 8.0–8.21 have LANDED; what remains is the How-to-Play and copy re-cut (8.22, NEXT). Epic 8 runs with no account module — signing in later changes what a player KEEPS, never what they can DO.
 
 ## Stories
 
@@ -16,7 +16,7 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 - Story 8.18: Smoke Screen as a Sight Occluder — landed
 - Story 8.19: Wake Drafting — landed
 - Story 8.20: Bots Draw from the Pool — landed
-- Story 8.21: Results LOADOUT and the Match Record
+- Story 8.21: Results LOADOUT and the Match Record — landed
 - Story 8.22: How-to-Play and Copy Re-cut
 
 ## Requirements & Constraints
@@ -53,13 +53,13 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 - Tactic tables split: `ai/tacticKit.ts` (shared helpers), `equipment.ts` (weapon rows), `shift.ts` (`SHIFT_TACTICS`, derived from `classShift`), `consumables.ts` (`CONSUMABLE_TACTICS`, total, `depthCharge` never fires), `tacticRegistry.ts` (`EQUIPMENT_TACTICS` total, `tacticFor` fail-closed); imports flow helpers ← rows ← registry ← `tactics.ts`. The smoke row wants iff afloat ∧ `disengage` ∧ `now ≥ smokeUntil + lifeMs` (no posture-edge state).
 - Harness: `batchsim/poolReadouts.ts` POOL READOUTS (gun mix, weaponless-at-level, pure gunboat, heal-take rate, levels wasted, weapon-line spread, peak live mines), read from `world` in the collector; no `World` hook; evidence in `batch-sim-evidence-2026-09-30.md`. No wire change, `PROTOCOL_VERSION` stays 62.
 
-**Later seams.** Wake drafting (8.19) has landed: a 5 % lift on the rider's forward cap, the lane one maker's-hull-width each side of the trail and starting behind the maker's stern (a rider counts only with its whole hull behind it, amendment 159), fading with the water's age and scaled by heading, a MAX over other hulls' ribbons read one tick old (amendments 151–158). It is folded `boosted → slowed → drafted → hooks`, `OwnShip.draft` is self-private, and it is parity-pinned at zero. The match record is server-only behind a port writer and is NEVER the results message.
+**Later seams.** Wake drafting (8.19) has landed: a 5 % lift on the rider's forward cap, the lane one maker's-hull-width each side of the trail and starting behind the maker's stern (a rider counts only with its whole hull behind it, amendment 159), fading with the water's age and scaled by heading, a MAX over other hulls' ribbons read one tick old (amendments 151–158). It is folded `boosted → slowed → drafted → hooks`, `OwnShip.draft` is self-private, and it is parity-pinned at zero. The match record (8.21) is live: `ShipRecord.hands` → `Participant` snapshots (leave, reap, finish; countdown leavers kept) → `buildMatchRecord(match, meta)` → `AccountWriter` port (`NullWriter`) under the `match.end` latch; it is NEVER the results message (pinned).
 
 ## UX & Interaction Patterns
 
 - **Smoke puffs** are grey (`{colors.wounded-smoke}` family) and differ from wounded smoke by SHAPE: discrete expanding puffs laid astern, never a plume off a hull, never by colour. New `render/smokeScreen.ts`; `render/smoke.ts` stays wounded smoke. Own puffs are always visible to the owner.
 - Refit cards carry no prose (hover only) and an absolute tier ramp; weighting is never named. The plain gun is `CANNON`; the ability is `SPECIAL`.
-- Drafting is felt, never shown (no dedicated indicator; the speed number shows true speed, amendment 157). Results get one LOADOUT block; enemy draws appear nowhere.
+- Drafting is felt, never shown (no dedicated indicator; the speed number shows true speed, amendment 157). Results get one LOADOUT block; enemy draws appear nowhere (built 8.21: the bar's slot row at .72 as a DOM twin, text at the 9 px floor, ladder line with `—` for an untaken RADAR SWEEP / RELOAD).
 - Copy lives in How-to-Play only — no glossary, no `deck`/`DEFAULT`/`STARTER` string. Every surface honours dual-coding, photosensitivity limits and the 9 px type floor.
 
 ## Cross-Story Dependencies
@@ -250,6 +250,13 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 175. **Out-of-combat regen starts after 15 s, not 30** (Eric 2026-09-30, cycle 156): `CONFIG.regen.outOfCombatMs` 15000; rate and the any-damage reset unchanged; How-to-Play says fifteen seconds.
 176. **Review-gate record for cycle 156** (orchestrator, 2026-09-30): test geometry re-laid (perf pin far puffs ≥ 400 u, ring puffs in one 30° slice; fuzz neighbour 180–300 u; oracle literal 82.5 + 82.5·f); budgets, gates, wire shapes and the SIX-exception count untouched; Codex build-on-it.
 177. **The layer stands in its own smoke and is short-sighted for the lay; the bigger delivery reach (sight + up to 165 u) is an accepted disclosure** (Eric 2026-09-30, cycle 156 review gate): amendment 149 stands with no owner exemption; no delivery cap.
+178. **The match record captures the full per-draw history** (Eric 2026-09-30): every hand's offered ids, the id taken, the REDRAW flag and `T+` stamp, per participant; absorbs the 2026-09-22 side story.
+179. **An untaken RADAR SWEEP or RELOAD reads its name and a dash** (Eric 2026-09-30): the LOADOUT ladder line always lists all five ladders; ARMOR / SPEED / TURNING always carry a numeral.
+180. **Leavers yes, aborts no** (Eric 2026-09-30): a mid-match leaver is snapshotted at leave and again at reap; an aborted match (no `match.end`) writes no record.
+181. **A countdown leaver is recorded too, placement 0, no kills** (Eric 2026-09-30, "If the game starts, i want the player's choices tracked."): kept in `Match.countdownLeavers`, appended last, never in a results row.
+182. **A used-up belt stack renders as the bar's own empty square** (Eric 2026-09-30): dashed box and `—`; no `×0`, no word EMPTY.
+183. **Orchestrator readings of record for 8.21** (orchestrator 2026-09-30; Eric may veto): DOM twin of the bar at .72 with 9 px text; HULL REPAIR plus glyph also on the live bar; `buildMatchRecord(match, meta)` takes no World; `T+` negative in the countdown; `mode` is the door value; `Match.placementOf` is the one placement rule; `lastHumanLeft` check moot; PV stays 63.
+184. **Review-gate record for cycle 157** (orchestrator 2026-09-30): all three build-on-it; the scuttle-window credit hole (both Fable hunters) became the reap re-snapshot; the countdown-leaver gap went to Eric (181); `account.write.failed` error text deferred to the Epic 9 writer.
 185. **In-game tooltips print stats, one number per line — no prose, never "fish"; weapon descriptions belong to How-to-Play (8-22)** (Eric 2026-09-30, cycle 158): `EQUIPMENT_DESCRIPTION` and `BOON_EXPLAIN` deleted; the slot tooltip prints the live stat table in the refit card's row words, `RANGE` last; Shifts print their CONFIG factor and no `ROUNDS 1`.
 186. **The slot tooltip's accrued build list is dropped; ship stats live on the HP globe's hover** (Eric 2026-09-30, cycle 158): a `SHIP` panel — class name over MAX HULL / TOP SPEED / TURNING / RADAR SWEEP / ALL COOLDOWNS — above the globe; the helm globe stays silent.
 187. **The refit card's hover prints the same stat list, valued after the card** (Eric 2026-09-30, cycle 158): weapon → its table, gun ladder → the mounted gun's, ship ladder → the five ship stats, consumable → shape line + rows; hover-only; no rows → no panel.

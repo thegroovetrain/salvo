@@ -2294,8 +2294,13 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
  * Matched as KEYS (see `hasForbiddenKey`), never as a substring of the
  * serialized text, so a LINE ID riding `offer`/`cards` as a VALUE can never
  * false-positive.
+ *
+ * THE HAND LOG TOO (Story 8.21, R1): `hands`, `offered`, `taken` and `record`
+ * are the server-only MatchRecord's vocabulary — every hand a captain was
+ * dealt, what they took, what they threw back. No frame ever carried them;
+ * this is the forward pin that none ever will.
  */
-const DECK_FORBIDDEN_KEYS = ['deck', 'deckList', 'deckId', 'deckLeft', 'deckSize', 'pool', 'remaining', 'takes', 'weights'] as const;
+const DECK_FORBIDDEN_KEYS = ['deck', 'deckList', 'deckId', 'deckLeft', 'deckSize', 'pool', 'remaining', 'takes', 'weights', 'hands', 'offered', 'taken', 'record'] as const;
 
 /**
  * Recursively walk every plain object/array nested in `value` and report

@@ -935,6 +935,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
   resolution: RESOLVED 2026-08-17 (cycle 97, Story 6-5; epic-6 amendment 29) — and the debt turned out to be already discharged rather than needing payment. This entry conflates "solo MATCH" with "solo HUMAN". Story 6-5's roster is 1 human + 19 AI captains, and `isParticipant` is `role !== 'fleet'`, so bots count in `afloatCaptains()`; `latchOutcome()` returns early while `captains.length > 1`, the match runs normally, and `latchedWinner` MAY BE A BOT (the results modal names it). The sinking hold generalises for free via `holdsForSinkingCaptain`'s `isParticipant` test. Amendment 13's participant seam — built ahead of its consumer over the orchestrator's objection — is what paid this off. STILL OPEN and deliberately untouched: 1 human + ONLY PvE fleet hulls has no defined end, is pinned as current correct behaviour by `drones.test.ts:911`, and is still refused by `queue.ts`. 6-5 did not open that case.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-1-lifecycle-state-machine-step-order-registry.md`
+  status: RESOLVED (already, by Story 6.3 — epic-6 amendment 16 retired the value; `MatchEndCause` is `'lastHumanSunk' | 'fieldCleared'`); verified 2026-09-30 at Story 8.21 before the enum was persisted into `MatchRecord`.
   summary: `endedBy: 'lastHumanLeft'` IS NOW EFFECTIVELY UNREACHABLE THROUGH THE ROOM, and nobody decided that — it fell out of the drone-gate removal. Any event leaving one afloat captain now finishes immediately, so a DEPARTURE can only be terminal if it lands between a sink and the next win check, which `ArenaRoom` makes impossible (it calls `world.step()` and `match.update()` synchronously). The telemetry enum value, its classification branch and its unit test all still exist and are green — the unit test drives sink-then-leave with no tick between — but no real socket session can now produce it, and `metricsSmoke`'s real finish moved from `lastHumanLeft` to `fieldCleared`. Either the enum value should be retired or the classification revisited; it is currently a telemetry category that can only be reached synthetically.
   evidence: `match.ts` `classifyEnd`; `matchTelemetry.test.ts` (`lastHumanLeft` case, now synthetic); `metricsSmoke.mjs` observed `"endedBy":"fieldCleared"`.
 
@@ -977,6 +978,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
   evidence: `server/src/game/world.ts` `processRespawns` (`isSunk` gate) and its own "production-unreachable" comment; `match.ts:418-419`; the `w.step(CONFIG.ship.sinkingWindowMs)` retrofits in `denials`/`foghorn`/`smoke`/`spectator`/`xp`/`decoy`/`equipment`/`cannon`/`starShells`/`combat`/`world`/`perception`/`upgrades` tests.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-3-omniscient-reveal-results.md`
+  status: RESOLVED 2026-09-30 (Story 8.21, cycle 157): both blocks CUT, replaced by the LOADOUT block (UX-DR55, Eric 2026-09-11 ruling, built).
   summary: NEEDS AN ERIC DECISION HE DEFERRED IN THE SAME BREATH — THE BOONS + LAST-OFFER BLOCKS. Asked whether the results modal should review the build he died with, Eric said *"I don't know if I care about what boons I have selected at this point, i'll need to think on that."* Both blocks are ratified in UX-DR27 and drawn in mockup F3, and both cost ZERO wire (`net.you` is never cleared on death, so `you.boons`/`you.offer` are still in hand), so they were BUILT rather than withheld — per the standing "ship it behind a flag and look" agreement. Each is one self-contained `HTMLElement | null` render function with one append line, so cutting either is a two-line deletion and nothing else reads them. This is an open OWNER decision, not a defect: look at the modal and keep or cut.
   evidence: epic-5 amendment 28; `client/src/ui/results.ts` `makeBoons`/`makeOffer` and the cut-ability comment above them.
 
@@ -1888,7 +1890,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: `server/src/game/signals.ts` `ownZoneCovers` (no LOS term at HEAD).
 
 - source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D22)
-  status: OPEN — Eric reading (GDD open note 20a)
+  status: CLOSED — MOOT 2026-09-30 (Story 8.21): the hidden match pool was retired at 8.14 (amendment 89a); there is no `MatchRecord.pool` and nothing to reveal.
   summary: A player's own match history shows the pool cards they DREW and nothing else, because the pool is hidden during play. Implemented as a filter on `MatchRecord` (which records the whole pool for Eric's metrics). Awaiting Eric's confirmation; the alternative (reveal the pool after the match) is a client change only.
   evidence: gdd.md open note 20.
 
@@ -2289,7 +2291,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   summary: THE 50-CARD ONE-COPY APPEARANCE RATE AND OFFER-SIZE MATH, RE-MEASURED (FR59): unstubbed catalog, 2000 seeded economies per hull, uniform pick per level — `deckGunTurret` seen in an offer by pick 8/12/15/20 in 56.1/73.4/81.0/90.5 % (TB), 53.6/71.0/79.3/89.6 % (BS), 52.3/69.5/80.3/90.0 % (ML); first offer under four lines at mean level ≈ 46.0 (fewer than four distinct drawable lines OR the rest held at cap). The forge's 40-card figures (66/82/90/97 % at 8/12/15/20) are superseded. These are a UNIFORM-PICK, NEVER-USE read (amendment 69: no consumable is ever fired, so a consumable line fitted to cap stays closed for the rest of the economy — a pessimistic floor for consumables, exact for equipment/ladder lines), not a bot-policy read: 8.20 re-measures with the full harness, where bots fire consumables, and pins the bar there.
   evidence: `shared/src/__tests__/poolMeasure.test.ts` (prints the table); epic-8 amendment 68(a).
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
-  status: OPEN — untouched here; GDD open note 20(a)/(b) still awaits Eric
+  status: CLOSED — MOOT 2026-09-30 (Story 8.21): the hidden match pool was retired at 8.14 (amendment 89a); there is no `MatchRecord.pool` and nothing to reveal; (b) of the 8.11 entry (unlocks preview) is an Epic 9 question and is restated in the Story 8.21 entry below.
   summary: THE POOL'S TWO UNRULED EDGES ARE NOT DECIDED BY 8.11: (a) whether results/match history ever reveal the pool after the match (8.21's `MatchRecord.pool` is the only persistence path and does not exist yet — nothing in this story records the pool anywhere but the room log's count); (b) the pool deals consumables an account has not unlocked (a preview, not power — Epic 9). Both remain facilitator readings.
   evidence: gdd.md open note 20; `deferred-work.md` D22 entry above; no `MatchRecord` in the repo at cycle 146.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
@@ -2439,7 +2441,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 ## 2026-09-22 — Story 8.14 The Common Pool (cycle 149, 0.18.14)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
-  status: OPEN — Eric (side story, NOT 8.14/8.15)
+  status: RESOLVED 2026-09-30 (Story 8.21): ABSORBED — `MatchRecord.participants[].hands` records every hand (offered ids, taken id, REDRAW, `T+`), epic-8 amendment 178.
   summary: PER-DRAW OFFERED/PICKED RECORD. Eric 2026-09-22: "I'm more interested in *what* cards were picked in each draw, that's way more valuable info. So I am interested in doing a side story for that, we don't need to suck it up into this sprint." The `/metrics` `deck.{exhausted,picks,mulligans}` counters were deleted with no replacement (amendment 94); the record should capture, per participant and per draw, the four offered ids and the taken id with a `T+` stamp — a natural companion to Story 8.21's match record.
   evidence: amendment 94.
 
@@ -2736,3 +2738,30 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 - source_spec: `_bmad-output/implementation-artifacts/spec-smoke-size-and-regen-delay.md`
   summary: THE POOL-ERA BATCH-SIM BASELINE PREDATES THIS CYCLE — `batch-sim-evidence-2026-09-30.md` (99 matches, Story 8.20) was taken at r40/60 puffs and a 30 s regen wait; `regen.` is on the `--tune` surface so a re-run is one flag away. Not launched (standing rule: never unprompted); the next approved balance run supersedes it.
   evidence: Blind Hunter finding 12 (PLAUSIBLE); amendment 171 set that run as the first pool-era baseline.
+
+## 2026-09-30 — Story 8.21 (cycle 157; results LOADOUT + the match record)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-21-results-loadout-and-the-match-record.md`
+  status: OPEN — Epic 9 (Story 9.1/9.7)
+  summary: AR33's `AccountWriter` queue (in-process FIFO, retry once, `flush()` on shutdown) is NOT built — the `NullWriter` cannot fail; the real writer brings them, and the server has NO graceful-shutdown hook today (`flush()` has no caller).
+  evidence: `server/src/game/accountWriter.ts`, `app.config.ts` comment.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-21-results-loadout-and-the-match-record.md`
+  status: OPEN — Epic 9
+  summary: `account.write.failed` logs the writer's error text verbatim (`describeError(err).error`); an ORM/HTTP error that embeds the payload could put a captain's name on stdout — the real writer must scrub before the PII rule (NFR24) is breached.
+  evidence: review gate, Blind Hunter finding 8.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-21-results-loadout-and-the-match-record.md`
+  status: OPEN — Epic 9 (match history, 9.x)
+  summary: a player's own history reads `ParticipantRecord.hands` for THEIR OWN id only; enemy hands never leave the server; the "pool preview of locked consumables" question (old 8.11 entry (b)) is restated here for 9.6.
+  evidence: FR60; amendment 178.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-21-results-loadout-and-the-match-record.md`
+  status: OPEN — Eric's eye on staging
+  summary: the HULL REPAIR plus glyph (ratified mock art, implementer-mapped to the unit frame) now shows on the LIVE bar's belt square as well as in results; and the LOADOUT block's square skins / numeral placement are drafts to the mock.
+  evidence: amendment 183(b)(c).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-21-results-loadout-and-the-match-record.md`
+  status: OPEN — note
+  summary: `ShipRecord.cards`'s doc comment in `world.ts` still says cards do not survive `redeployShip`, untrue since 8.10 (found, not fixed — comment only).
+  evidence: `server/src/game/world.ts` `cards` doc.

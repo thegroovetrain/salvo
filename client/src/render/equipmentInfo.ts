@@ -33,6 +33,7 @@ import {
   type EffectiveStats,
   type EquipmentId,
   type SlotItemId,
+  type WeaponAmmo,
 } from '@salvo/shared';
 
 /**
@@ -401,4 +402,15 @@ export function equipmentInfo(stats: EffectiveStats, id: EquipmentId): Equipment
     reloadMs: equipmentReloadMs(stats, id),
     maxAmmo: equipmentMaxAmmo(stats, id),
   };
+}
+
+/**
+ * Pure: the belt square's stock badge — `×n` for a live stack, nothing at zero
+ * or with no ammo entry (the slot is then EMPTY, never `×0` — Story 8.7 ruling
+ * 16, Eric R4 of Story 8.21). Shared by the Pixi bar and the results LOADOUT
+ * block, which is why it lives here with the slot predicates and not in the
+ * bar's render module (Story 8.21 review gate).
+ */
+export function beltBadgeText(ammo: WeaponAmmo | null): string | null {
+  return ammo === null || ammo.n <= 0 ? null : `×${ammo.n}`;
 }

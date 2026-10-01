@@ -17,6 +17,15 @@
 - Client: `render/slotTooltip.ts` is a stat-row model (no boon-row trim, no measured-height reconciliation; `HoverState.target` is `number | 'ship' | null`); `ui/boonCopy.ts` gains `equipmentStatRows` / `consumableStatRows` / `shipStatRows` / `cardHoverRows` / `cardKind`; `EQUIPMENT_DESCRIPTION`, `BOON_EXPLAIN`, `boonTooltipText`, `boonDescription` deleted; new `render/chaffRing.ts`, `ui/classNames.ts`; a structural test forbids "fish" in any client string literal.
 - Review gate (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol): see epic-8 amendment 196.
 - Tests: shared 1020, server 2273, client 3732; hook test 266; lint 0 errors.
+## [0.18.22] - 2026-09-30
+
+### Changed
+- **Results show your LOADOUT** — the BOONS ACCRUED and LAST OFFER blocks on the results modal are gone; in their place one `LOADOUT` block: the HUD bar's own slot row as it ended (gun · Shift · Q E R · belt 1–4) at 72 % with each slot's glyph, tier numeral on the absolute ramp and `×n` stock badge, then one line of the five ship ladders `ARMOR · SPEED · TURNING · RADAR SWEEP · RELOAD`; an untaken RADAR SWEEP or RELOAD reads `—`; a used-up belt stack is the empty square. Enemy draws appear nowhere.
+- **HULL REPAIR has its glyph** — the belt square (on the live bar and in results) now draws the plus from the ratified results mock; it had been a bare box since Story 8.8.
+
+### Internal
+- **The match record** — at the results hook the server builds a server-only `MatchRecord` (per participant: hull, gun, placement, kills, final cards, EVERY hand dealt with the offered ids, the id taken, the REDRAW flag and `T+` stamps — negative during the countdown; mid-match leavers snapshotted at leave and again at reap; countdown leavers recorded with placement 0) and hands it to an `AccountWriter` port (`server/src/game/accountWriter.ts`, the `NullWriter` until Epic 9) fire-and-forget under the `match.end` latch; aborted matches write nothing; `match.record` is a count-only log line. `MatchRecord` is never `ResultsMsg` — pinned (no `deck*`/`hands`/`cards`/`record` key on the broadcast, and the frame invariant's forbidden-key list gained `hands`, `offered`, `taken`, `record`).
+- Tests: server 2263 -> 2280, client 3748 -> 3753; `PROTOCOL_VERSION` 63 unchanged; `LINEAGE_TIERS` moved to `client/src/ui/tierRamp.ts`; `beltBadgeText` moved to `render/equipmentInfo.ts`.
 
 ## [0.18.21] - 2026-09-30
 

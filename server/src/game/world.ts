@@ -138,6 +138,7 @@ import {
   type MineTripRules,
 } from './equipment/index.js';
 import type { BurstSubject } from './signals.js';
+import type { HandRecord } from './matchRecord.js';
 import { addDecoy, decoyTarget, type DecoyState } from './decoys.js';
 import type { FakeSource } from './fakes.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
@@ -475,6 +476,22 @@ export interface ShipRecord {
    * held at 0:01).
    */
   offer: BoonOffer | null;
+  /**
+   * THE HAND LOG (Story 8.21, Eric ruling R1 2026-09-30): every hand this ship
+   * was dealt, in deal order — the offered ids, the id taken (or null), whether
+   * it was REDRAWn — for the end-of-match `MatchRecord`. Written at the three
+   * sites that own the flow and nowhere else: `materializeOffer` pushes,
+   * `mulligan` marks the open hand redrawn, `settleSpend` marks it taken. The
+   * dev spawn fit is NOT a hand (it rides `cards` only). Stamps are RAW
+   * `world.now` — the World does not know the match's activation, so
+   * `buildMatchRecord` converts to `T+` once.
+   *
+   * PER MATCH, like `cards` and `bankedLevels`: set `[]` at addShip and never
+   * cleared (the activation redeploy preserves the whole countdown economy, and
+   * a record lives exactly one match). SERVER-PRIVATE: never on the wire — the
+   * perception invariant's forbidden-key walk pins it.
+   */
+  hands: HandRecord[];
   /**
    * THE ONE FREE COUNTDOWN REDRAW, SPENT (Story 8.10, FR48, epic-8 amendment
    * 60): false until this ship's captain throws the level-zero offer back
@@ -1800,7 +1817,7 @@ export class World {
       // deck to deal any more — the pool is the catalog and a draw is a pure
       // read of this record's own state (materializeOffer).
       gun, devFit: World.spawnFit(role, fit), drawRng: this.drawRngFor(this.joinSeq++),
-      bankedLevels: 0, offer: null, mulliganed: false, openingGranted: false,
+      bankedLevels: 0, offer: null, hands: [], mulliganed: false, openingGranted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [],
       cardBehaviors: NO_BEHAVIORS,
@@ -2731,6 +2748,7 @@ export class World {
     if (ship.mulliganed || ship.offer === null) return false;
     ship.mulliganed = true;
     ship.offer = null; // dropped, NOT spent: bankedLevels does not move
+    World.markRedrawn(ship); // the thrown hand stays in the log (Story 8.21)
     this.materializeOffer(ship, true);
     if (ship.offer !== null) this.pending.push({ k: 'pt', id: ship.id });
     return true;
@@ -2766,7 +2784,24 @@ export class World {
   private materializeOffer(ship: ShipRecord, guarantee = false): void {
     if (ship.bankedLevels <= 0 || ship.offer !== null) return;
     const offer = drawOffer(this.drawShipOf(ship), this.weightsFor(ship), ship.drawRng, this.catalog, { guarantee });
-    if (offer.length > 0) ship.offer = offer;
+    if (offer.length === 0) return;
+    ship.offer = offer;
+    // THE HAND LOG (Story 8.21, R1): a dealt hand is logged the moment it is
+    // drawn — this is the single place a hand is ever drawn.
+    ship.hands.push({ dealtAtMs: this.now, offered: [...offer], taken: null, takenAtMs: null, redrawn: false });
+  }
+
+  /** The hand currently open in the log — the last entry, while it is neither
+   *  taken nor thrown back — or undefined (Story 8.21). */
+  private static openHand(ship: ShipRecord): HandRecord | undefined {
+    const last = ship.hands[ship.hands.length - 1];
+    return last !== undefined && last.taken === null && !last.redrawn ? last : undefined;
+  }
+
+  /** The countdown REDRAW threw the open hand back (Story 8.21, R1). */
+  private static markRedrawn(ship: ShipRecord): void {
+    const open = World.openHand(ship);
+    if (open !== undefined) open.redrawn = true;
   }
 
   /**
@@ -3151,6 +3186,14 @@ export class World {
   private settleSpend(ship: ShipRecord, front: BoonOffer, choice: number): void {
     const card = front[choice];
     this.applyCard(ship, card);
+    // THE TAKE, IN THE HAND LOG (Story 8.21, R1): only a pick from an OFFER
+    // lands here — the dev spawn fit calls applyCard directly and is no hand,
+    // and a refused pick returned in spendCard before anything moved.
+    const open = World.openHand(ship);
+    if (open !== undefined) {
+      open.taken = card;
+      open.takenAtMs = this.now;
+    }
     this.pending.push({ k: 'bn', id: ship.id, boon: card });
   }
 

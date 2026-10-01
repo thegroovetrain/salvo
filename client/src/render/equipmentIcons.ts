@@ -289,8 +289,18 @@ const smokeScreen: GlyphPaths = [
  * never dealt, with no mechanism to draw — the same blank every other stub
  * consumable renders.
  */
+/**
+ * Hull repair (Story 8.21): the ratified mock's `ic-repair` — a bare PLUS,
+ * the field-dressing mark (countdown-results-1.html, `M12 4v16 M4 12h16`
+ * mapped to the unit frame). The line had no art since Story 8.8, so its belt
+ * square drew as an empty box on the live bar and would have again on the
+ * results LOADOUT row. Landed with the row that made the gap visible.
+ */
+const hullRepair: GlyphPaths = [path([0, -0.68], [0, 0.68]), path([-0.68, 0], [0.68, 0])];
+
 const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   supercavTorpedo: torpedo,
+  hullRepair, // Story 8.21 — the mock's plus (above)
   // Story 8.16 — the three lines that went live, each an IMPLEMENTER DRAFT for
   // Eric's eye on staging (amendment 124(f), the amendment 110 precedent).
   shieldBlock,
