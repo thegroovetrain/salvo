@@ -2,7 +2,7 @@
 title: 'Mines have hit points: only a deck gun click on the mine hurts one'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-review'
+status: 'done'
 baseline_revision: '3ef6b29a'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -95,6 +95,32 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-10-01 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol`; all three BUILD-ON-IT, zero confirmed defects; Codex alone found nothing; the hunters each raised one item, neither shared)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 1, low 2)
+- defer: 0
+- reject: 1: (high 0, medium 0, low 1)
+- addressed_findings:
+  - `[medium]` `[patch]` Blind Hunter: a reach-clamped click landing on a mine under the clamped point counted as "clicking the mine" though the cursor was elsewhere — put to Eric before the PR: "Only the cursor counts" → every deck-gun shell carries its raw cursor point (server-only, frame-pinned) and a mine is hit only within the disc of BOTH the cursor and the landing (amendment 202; +4 mineHp cases incl. the MG per-shell cursor)
+  - `[low]` `[patch]` Edge Case Hunter: the arrival-point landing also caught a burst-family shell expiring at the map edge (unreachable, clamped targets) — guarded to `shell.direct === true`
+  - `[low]` `[patch]` Blind Hunter: GDD :257 and catalog-v3 R25 lacked the amendment-200 stamp — stamped
+  - rejected: Blind Hunter's rim-clamped muzzle expiry (a shell spawned outside the disk expiring at the muzzle could land on an arming/captive mine within 10 u of the shooter's own bow) — far-fetched, no leak, no change
+- also in this cycle (Eric, mid-run): the slot tooltip's interaction line is the tier alone (amendment 203) — client only
+
+
+## Auto Run Result
+
+**Summary:** every mine has 10 hp (server-only); a cannon/flak/machine-gun shell damages a mine by its full damage only when the shooter's cursor was on the mine (10 u drawn ring, `CONFIG.mine.hitRadiusU`) AND the shell landed there; burst coverage and non-deck-gun shells never pop a mine; naval-only chain; arming mines pop; a captive is destroyed without its fish. PV 65 → 66, version 0.18.25, amendments 200–203 (203: the hotbar tooltip prints the tier alone).
+
+**Files changed:** `shared/src/constants.ts` (hp, hitRadiusU, masks), `shared/src/sim/shell.ts` (`burstVictims` skips mines; `ShellState.cursor`), `shared/src/index.ts` (PV 66); `server/src/game/world.ts` (`landOnMines`, `damageMine`, `popMine`, naval-only `chainMines`, `collectMines` lists every mine, `detonateBurstMine` deleted), `equipment/mines.ts` (hp), `guns.ts`/`flak.ts`/`machineGun.ts` (`rawAimPoint` cursor), `ballistics.ts`; `client/src/render/mines.ts` (ring from CONFIG), `equipmentInfo.ts`/`slotTooltip.ts`/`refitTooltip.ts` (tier-only line); tests: new `mineHp.test.ts` (24), rewritten pins in shell/hitTargets/weapons/flak/doctrines/gunnery/starShells/damageGate/perception + 9 client test files; docs: CHANGELOG, VERSION, package.json, trackers, amendments 200–203, context, GDD/catalog-v3/epics/EXPERIENCE dated notes.
+
+**Review:** 3 patches, 0 deferred, 1 rejected. Follow-up review: not recommended.
+
+**Verification:** `npm run check` green — shared 1024, server 2316, client 3743, hooks 266; lint 0 errors (3 pre-existing warnings); tsc clean ×3; golden snapshot unchanged.
+
+**Residual risks / for Eric's eye:** a refit-card hover for a consumable with no stat rows now opens no panel at all (its only line was the activation shape); a machine-gun shell is spent on a hull in its path before it can reach a mine (by design).
 
 ## Verification
 

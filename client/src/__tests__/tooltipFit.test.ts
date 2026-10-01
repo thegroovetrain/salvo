@@ -164,7 +164,7 @@ describe('slot tooltip container fit (amendment 47)', () => {
   });
 
   it('grows the panel by exactly one line box per stat row', () => {
-    const one = { name: 'X', interaction: 'WEAPON · Q', stats: [{ label: 'A', cur: null, next: '1' }] };
+    const one = { name: 'X', interaction: 'TIER I', stats: [{ label: 'A', cur: null, next: '1' }] };
     const two = { ...one, stats: [...one.stats, { label: 'B', cur: null, next: '2' }] };
     expect(tooltipMetrics(two).height - tooltipMetrics(one).height).toBe(TIP_TYPE.boonLineHeight);
   });

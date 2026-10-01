@@ -3,15 +3,16 @@
 ## [0.18.25] - 2026-10-01
 
 ### Changed
-- **Mines have hit points, and every deck gun can pop them** — a mine has 10 hp. A cannon, flak or machine-gun shell that lands ON the mine (your click on its marker) deals its full damage to it: cannon and flak pop it in one shot, the machine gun in three shells at tier I (two from tier II). Nothing else hurts a mine any more: a burst that merely covers it, a broadside, star, phosphor or flash shell, a torpedo — none of them. Eric's words: "I HAVE TO CLICK ON THE MINE."
+- **Mines have hit points, and every deck gun can pop them** — a mine has 10 hp. A cannon, flak or machine-gun shell deals its full damage to a mine only when your cursor was on the mine's marker when you fired AND the shell landed there (a click past your reach that lands short on a mine does nothing): cannon and flak pop it in one shot, the machine gun in three shells at tier I (two from tier II). Nothing else hurts a mine any more: a burst that merely covers it, a broadside, star, phosphor or flash shell, a torpedo — none of them. Eric's words: "I HAVE TO CLICK ON THE MINE."
 - **Chains are naval-only** — a naval mine's blast still sets off every armed naval mine it covers, whoever laid it; fouling and captive mines neither trigger nor join a chain.
+- **The hotbar tooltip says only the tier** — the line that read `WEAPON · Q · SWITCH-TO · TIER II` now reads `TIER II`; the gun square likewise; the Shift and belt squares drop the line (the belt badge already shows stock). Eric: "I know it's a weapon because it's in my weapon hotbar."
 - **Arming mines can be popped; captive mines can be destroyed** — a deck gun click on a mine still arming pops it; a captive mine shot to 0 hp vanishes with a pop and never launches its fish.
 
 ### Internal
-- `CONFIG.mine.hp = 10`, `CONFIG.mine.hitRadiusU = 10` (the client's drawn marker ring now reads it — the one "on the mine" number); mine hp lives on the server `MineState` only, never on the wire. The landing test runs per shell at its resolution point (burst point for cannon/flak, arrival point for a machine-gun shell that reached its aim) for shells whose hit mask carries `mine`: the machine gun gains it, broadside and phosphor lose it. Burst victims no longer include mines. `chainMines` is naval-only both ways.
+- `CONFIG.mine.hp = 10`, `CONFIG.mine.hitRadiusU = 10` (the client's drawn marker ring now reads it — the one "on the mine" number); mine hp lives on the server `MineState` only, never on the wire. Each deck-gun shell carries its raw cursor point (server-only; the frame tests pin it never reaches a client) and the landing test hits a mine only within the disc of both the cursor and the resolution point (burst point for cannon/flak, arrival point for a machine-gun shell that reached its aim) for shells whose hit mask carries `mine`: the machine gun gains it, broadside and phosphor lose it. Burst victims no longer include mines. `chainMines` is naval-only both ways.
 - PROTOCOL_VERSION 65 -> 66 (the client reads `hitRadiusU`; the masks moved).
-- Tests: TEST_COUNTS; new `mineHp.test.ts` drives every ruled case through the real fire paths.
-- Epic-8 amendments 200–202; GDD, catalog-v3, epics (FR57) and EXPERIENCE carry dated supersession notes; `spec-mines-have-hp.md`.
+- Tests: shared 1023 -> 1024, server 2291 -> 2316, client 3744 -> 3743; the golden-frame snapshot is unchanged; new `mineHp.test.ts` drives every ruled case through the real fire paths.
+- Epic-8 amendments 200–203; GDD, catalog-v3, epics (FR57) and EXPERIENCE carry dated supersession notes; `spec-mines-have-hp.md`.
 
 ## [0.18.24] - 2026-10-01
 

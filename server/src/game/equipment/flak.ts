@@ -24,7 +24,7 @@ import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type ShellState } from '
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
+import { burstPointAlong, gunReachU, muzzleOrTarget, rawAimPoint } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
 /** Build the one flak shell for this click, born at `now` (the validated
@@ -48,6 +48,7 @@ function flakShell(ship: ShipRecord, now: number, reachU: number, mapRadius: num
     contactDamage: flak.contactDamage,
     hits: CONFIG.flak.hits, // AR44 target mask
     family: 'flak',
+    cursor: rawAimPoint(ship, dir), // amendment 202: the unclamped click
   });
 }
 

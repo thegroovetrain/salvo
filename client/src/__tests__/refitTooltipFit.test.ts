@@ -570,9 +570,9 @@ describe('the panel is anchored on the band\'s own geometry', () => {
 describe('the hover panel\'s consumable shape line', () => {
   it('adds the line for a CONSUMABLE and for nothing else', () => {
     const instant = refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', [], 0);
-    expect(instant.interaction).toBe('CONSUMABLE · 1 · KEY FIRES · ×1');
+    expect(instant.interaction).toBeUndefined();
     const clicked = refitTooltipModel({ id: 'decoyBuoy', kind: 'consumable' }, 'DECOY BUOY', [], 0);
-    expect(clicked.interaction).toBe('CONSUMABLE · 1 · KEY PRIMES · CLICK FIRES · ×1');
+    expect(clicked.interaction).toBeUndefined();
     for (const line of [
       { id: 'radarSweep', kind: 'ladder' },
       { id: 'heavyTorpedo', kind: 'equipment' },
@@ -592,9 +592,10 @@ describe('the hover panel\'s consumable shape line', () => {
   it('prints the stock the belt will read AFTER the pick: held + 1', () => {
     const at = (held: number): string | undefined =>
       refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', [], held).interaction;
-    expect(at(0)).toBe('CONSUMABLE · 1 · KEY FIRES · ×1');
-    expect(at(1)).toBe('CONSUMABLE · 1 · KEY FIRES · ×2');
-    expect(at(2)).toBe('CONSUMABLE · 1 · KEY FIRES · ×3');
+    // Amendment 203: no shape line, no stock — the belt badge shows stock.
+    expect(at(0)).toBeUndefined();
+    expect(at(1)).toBeUndefined();
+    expect(at(2)).toBeUndefined();
   });
 
   it('is fed the card\'s OWN stack by the band, never a literal', () => {
@@ -612,8 +613,9 @@ describe('the hover panel\'s consumable shape line', () => {
       CONTAINER,
     );
     expect(bare.interactionLines).toBe(0);
-    expect(withLine.interactionLines).toBeGreaterThan(0);
-    expect(withLine.height).toBeGreaterThan(bare.height);
+    // Amendment 203: a consumable card prints no interaction line either.
+    expect(withLine.interactionLines).toBe(0);
+    expect(withLine.height).toBe(bare.height);
   });
 
   it('fits inside the panel, at its shipped width (amendment 42)', () => {
@@ -641,8 +643,8 @@ describe('the hover panel\'s consumable shape line', () => {
     // HULL REPAIR's panel carries its shape line ABOVE its rows (ruling 13)...
     cards[0].dispatchEvent(new MouseEvent('mouseenter'));
     expect(tip.style.display).toBe('flex');
-    expect(row().style.display).toBe('block');
-    expect(row().textContent).toBe('CONSUMABLE · 1 · KEY FIRES · ×1');
+    expect(row().style.display).toBe('none');
+    expect(row().textContent).toBe('');
     expect(tip.children[2].textContent).toContain('INSTANT');
     // ...and the LADDER beside it opens with no shape line.
     cards[1].dispatchEvent(new MouseEvent('mouseenter'));

@@ -1,6 +1,6 @@
 // Per-equipment DISPLAY information for the hotbar + slot tooltip (Story 2.2).
 // The single client-side seam between an EquipmentId and the words/numbers the
-// player reads: display name, the interaction line ("WEAPON · Q · SWITCH-TO"),
+// player reads: display name, the interaction line (the TIER word only, amendment 203),
 // and the numeric quick-info inputs.
 //
 // NO PROSE (Eric ruling 2026-09-30, epic-8 amendment 185): the per-equipment
@@ -19,7 +19,6 @@
 
 import {
   CATALOG,
-  CONSUMABLE_IS_WEAPON,
   EQUIPMENT_IS_WEAPON,
   LINE_IDS,
   SLOT_GUN,
@@ -29,7 +28,6 @@ import {
   isConsumableId,
   tierTargetOf,
   type CatalogLine,
-  type ConsumableId,
   type EffectiveStats,
   type EquipmentId,
   type SlotItemId,
@@ -95,46 +93,29 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
 };
 
 /**
- * The label a slot's tooltip uses for how its content is operated: the gun is
- * keyless and permanently selected, weapons switch-to on their key, abilities
- * activate immediately, and a BELT slot states the consumable's whole shape.
- * Weapon-vs-ability comes ONLY from `isWeaponItem` (the one predicate both
- * dispatch channels read), and the key comes ONLY from SLOT_KEY_GLYPHS — so the
- * boost in slot 1 reads `ABILITY · Shift · ACTIVATES` without this function
- * knowing what a boost is.
+ * The slot tooltip's ONE interaction word: the TIER (Eric 2026-10-01, amendment
+ * 203 — every instruction about how the weapon works is gone; the player knows
+ * it is a weapon because it is in the weapon bar, which key because the square
+ * is labelled, and how it works from How To Play). A gun or weapon square reads
+ * `TIER II`; a Shift/ability square and a belt consumable read '' and the
+ * callers SKIP an empty line (the belt badge already shows stock).
  *
- * STORY 8.7 (ruling 13) adds the two facts UX-DR43 says are learned HERE and
- * never on the card face:
- *
- *   • a WEAPON slot carries its line's TIER — `WEAPON · Q · TIER II` — which is
- *     the word behind the bar's bottom-right numeral. `cards` is the own fitted
- *     list; without it (a caller with no build) the suffix is simply absent
- *     rather than a fabricated Tier I.
- *
- *     STORY 8.12 (epic-8 amendment 70) puts the DECK GUN on that same line.
- *     The deck gun is a BASE-TIER line: a hull sails with it already fitted, so
- *     TIER I is the truth at spawn, not a fabrication — and the number is not
- *     ours to invent, it is `stats.equipment.gun.tier`, the server's own fold
- *     of `1 + DECK GUN copies` (`slotTier`). A caller with no stats prints no
- *     suffix, because the fold is the only place that number lives.
- *   • a BELT slot carries the consumable's ACTIVATION SHAPE and its STOCK —
- *     `CONSUMABLE · 1 · KEY FIRES · ×2`, or `KEY PRIMES · CLICK FIRES` for the
- *     click-placed ones (`CONSUMABLE_IS_WEAPON`). The shape is the thing a
- *     player cannot guess, so it is stated in words, once, where they hover.
+ * Weapon-vs-ability comes ONLY from `isWeaponItem` (via `EQUIPMENT_IS_WEAPON`).
+ * `cards` is the own fitted list; without it a weapon prints nothing rather
+ * than a fabricated Tier I. The DECK GUN family is a base-tier line whose rung
+ * is the server's own fold (`slotTier`), so a gun caller with no `stats` prints
+ * no line.
  */
 export function interactionLine(
   slot: number,
   id: SlotItemId,
   cards: readonly string[] = [],
-  stock = 0,
+  _stock = 0,
   stats?: EffectiveStats,
 ): string {
-  if (slot === SLOT_GUN) return `WEAPON · ALWAYS SELECTED${gunTierSuffix(id, cards, stats)}`;
-  const key = SLOT_KEY_GLYPHS[slot] ?? '';
-  if (isConsumableId(id)) return consumableLine(id, key, stock);
-  return EQUIPMENT_IS_WEAPON[id]
-    ? `WEAPON · ${key} · SWITCH-TO${tierSuffix(id, cards)}`
-    : `ABILITY · ${key} · ACTIVATES`;
+  if (slot === SLOT_GUN) return gunTierSuffix(id, cards, stats);
+  if (isConsumableId(id) || !EQUIPMENT_IS_WEAPON[id]) return '';
+  return tierSuffix(id, cards);
 }
 
 /**
@@ -147,7 +128,7 @@ export function interactionLine(
  */
 const GUN_FAMILY: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machineGun', 'flak']);
 
-/** ` · TIER n` for a slot standing on a rung, '' otherwise — an unfitted-but-
+/** `TIER n` for a slot standing on a rung, '' otherwise — an unfitted-but-
  *  somehow-present weapon reads 0, which prints nothing rather than a fake
  *  Tier I. With `stats` the number is `slotTier`'s (so the deck gun reads its
  *  own fold); without them only a line-keyed weapon can answer.
@@ -163,7 +144,7 @@ const GUN_FAMILY: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machi
 function tierSuffix(id: EquipmentId, cards: readonly string[], stats?: EffectiveStats): string {
   if (GUN_FAMILY.has(id) && stats === undefined) return '';
   const tier = stats === undefined ? lineTier(cards, lineForEquipment(id) ?? id) : slotTier(stats, cards, id);
-  return tier > 0 ? ` · TIER ${TIER_WORDS[Math.min(tier, TIER_WORDS.length) - 1]}` : '';
+  return tier > 0 ? `TIER ${TIER_WORDS[Math.min(tier, TIER_WORDS.length) - 1]}` : '';
 }
 
 /** The GUN slot's suffix. A belt id handed to the top slot cannot happen, so
@@ -172,12 +153,6 @@ function tierSuffix(id: EquipmentId, cards: readonly string[], stats?: Effective
 function gunTierSuffix(id: SlotItemId, cards: readonly string[], stats?: EffectiveStats): string {
   if (isConsumableId(id)) return '';
   return tierSuffix(id, cards, stats);
-}
-
-/** The belt's whole shape in one line (ruling 13). */
-function consumableLine(id: ConsumableId, key: string, stock: number): string {
-  const fires = CONSUMABLE_IS_WEAPON[id] ? 'KEY PRIMES · CLICK FIRES' : 'KEY FIRES';
-  return `CONSUMABLE · ${key} · ${fires} · ×${Math.max(0, Math.trunc(stock))}`;
 }
 
 /** The Roman tier words the interaction line prints — the SAME ramp the bar's

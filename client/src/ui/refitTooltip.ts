@@ -111,7 +111,7 @@ export function refitTooltipMaxPanelH(bandTopY: number): number {
  *
  * A CONSUMABLE card also carries the same INTERACTION LINE the belt's slot
  * tooltip does, above the rows (Story 8.7, ruling 13): the activation shape
- * (`KEY FIRES` vs `KEY PRIMES · CLICK FIRES`) is the one thing about a
+ * (formerly printed; removed, amendment 203) is the one thing about a
  * consumable a player cannot read off the face, and the card is where they meet
  * the line for the first time, before there is a belt square to hover.
  */
@@ -186,7 +186,7 @@ export function refitTooltipWidestToken(model: RefitTooltipModel): number {
  *
  * The KEY is the FIRST belt key rather than a resolved slot, because a card has
  * not been picked yet and therefore has no slot — what the panel teaches is the
- * SHAPE (`KEY FIRES` vs `KEY PRIMES · CLICK FIRES`), not which square it will
+ * SHAPE (formerly printed; removed, amendment 203), not which square it will
  * land in.
  *
  * THE STOCK IS THE REAL ONE (review patch P7). It was a hard-coded `×1`, so a
@@ -204,7 +204,8 @@ export function refitTooltipModel(
 ): RefitTooltipModel {
   if (line.kind !== 'consumable' || !isConsumableId(line.id)) return { name, stats };
   const stock = Math.max(0, Math.trunc(copiesHeld)) + 1;
-  return { name, stats, interaction: interactionLine(CONSUMABLE_SLOTS[0], line.id, [], stock) };
+  const interaction = interactionLine(CONSUMABLE_SLOTS[0], line.id, [], stock);
+  return interaction === '' ? { name, stats } : { name, stats, interaction };
 }
 
 /**

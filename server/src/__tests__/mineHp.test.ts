@@ -22,6 +22,7 @@ import {
   pointPolygonDistance,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { buildFrame } from '../game/frames.js';
 import { hullFor } from '../game/equipment/index.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { flatRaster } from './islandFixture.js';
@@ -78,6 +79,15 @@ function click(w: World, id: string, dist: number, opts: { aim?: number; slot?: 
   throw new Error('the shot never resolved');
 }
 
+/** The cursor point's every possible spelling (amendment 202): never a KEY in
+ *  any frame. A recursive key walk — perception.test's hasForbiddenKey shape. */
+const CURSOR_KEYS = ['cursor', 'cursorX', 'cursorY'] as const;
+function hasKey(value: unknown, keys: readonly string[]): boolean {
+  if (Array.isArray(value)) return value.some((v) => hasKey(v, keys));
+  if (value === null || typeof value !== 'object') return false;
+  return Object.entries(value as Record<string, unknown>).some(([k, v]) => keys.includes(k) || hasKey(v, keys));
+}
+
 const mineBooms = (log: readonly GameEvent[], id: string): BoomEvent[] =>
   log.filter((e): e is BoomEvent => e.k === 'boom' && e.id === id);
 const count = (log: readonly GameEvent[], k: string): number => log.filter((e) => e.k === k).length;
@@ -121,6 +131,57 @@ describe('the CANNON — one click on the mine pops it (15 >= 10)', () => {
     expect(burst.x).toBeCloseTo(660, 3);
     expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp);
     expect(mineBooms(log, 'm1')).toEqual([]);
+  });
+
+  it('THE CURSOR DECIDES (amendment 202): a click at 700 u clamps to 660 u and lands dead on a mine there — untouched, the cursor was 40 u off', () => {
+    const w = bareWorld();
+    captain(w, 'a', 0, 0);
+    lay(w, 'm1', 'x', 660, 0);
+    const log = click(w, 'a', 700);
+    const burst = log.find((e): e is BurstEvent => e.k === 'burst')!;
+    expect(Math.hypot(burst.x - 660, burst.y)).toBeLessThan(1e-6); // landed ON the mine
+    expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp);
+    expect(mineBooms(log, 'm1')).toEqual([]);
+  });
+
+  it('the honest boundary of the two-disc rule: a click just past reach pops a mine that lies under BOTH the cursor and the landing', () => {
+    // Click 6 u past reach (666 u); the shell lands at 660 u.
+    for (const [mineX, cursorOff, landOff] of [
+      [658, 8, 2], // a mine 2 u INSIDE reach: cursor 8 u off, landing 2 u off
+      [663, 3, 3], // a mine 3 u PAST reach: cursor 3 u off one way, landing 3 u off the other
+    ] as const) {
+      const w = bareWorld();
+      captain(w, 'a', 0, 0);
+      lay(w, 'm1', 'x', mineX, 0);
+      expect(666 - mineX).toBe(cursorOff);
+      expect(mineX - 660).toBe(mineX > 660 ? landOff : -landOff);
+      expect(Math.max(cursorOff, landOff)).toBeLessThanOrEqual(CONFIG.mine.hitRadiusU);
+      const log = click(w, 'a', 666);
+      expect(w.mines.has('m1')).toBe(false);
+      expect(mineBooms(log, 'm1')).toHaveLength(1);
+    }
+  });
+
+  it('the cursor point never rides a frame: live deck-gun shells carry it, no frame (shooter or watcher) does', () => {
+    const w = bareWorld();
+    captain(w, 'a', 0, 0);
+    captain(w, 'b', 400, 60, { hull: 'battleship' }); // a watcher with the shell in sight
+    lay(w, 'm1', 'x', 700, 0);
+    w.submitInput('a', input({ seq: 2, fireSeq: 2, aimDist: 700 }));
+    let carried = 0;
+    let reveals = 0;
+    for (let i = 0; i < 80; i += 1) {
+      w.step();
+      for (const s of w.shells.values()) if (s.kind === 'shell' && s.cursor !== undefined) carried += 1;
+      for (const id of ['a', 'b']) {
+        const f = buildFrame(w, id);
+        expect(hasKey(f, CURSOR_KEYS)).toBe(false);
+        reveals += f.events.filter((e) => e.k === 'shell').length;
+      }
+      if (i > 0 && !gunShellsInFlight(w)) break;
+    }
+    expect(carried).toBeGreaterThan(0); // not vacuous: the shell did carry it
+    expect(reveals).toBeGreaterThan(0); // and its reveal did ride a frame
   });
 
   it("the shooter's OWN mine pops too (the standing friendly-fire exception)", () => {
@@ -284,6 +345,28 @@ describe('the MACHINE GUN — 4 a shell, three shells to pop one at tier I', () 
     expect(b.hp).toBe(hp0 - 3 * CONFIG.machineGun.damage);
     expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp);
     expect(count(log, 'hc')).toBe(3);
+  });
+
+  it('THE CURSOR IS READ PER SHELL (amendment 202): cursor moved 40 u past reach after shell 2 fired — shell 3 still lands on the mine at the 660 u clamp, and leaves it at 2 hp', () => {
+    const w = bareWorld();
+    const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
+    expect(a.stats.equipment.machineGun.rangeU).toBe(660);
+    lay(w, 'm1', 'x', 660, 0);
+    const fired = new Set<string>();
+    const hpAfter: (number | null)[] = [];
+    let seq = 1;
+    for (let i = 0; i < 200 && hpAfter.length < 3; i += 1) {
+      seq += 1;
+      // On the mine until two shells are out; then the cursor jumps to 700 u.
+      w.submitInput('a', input({ seq, held: true, aimDist: fired.size < 2 ? 660 : 700 }));
+      const before = new Set([...w.shells.keys()]);
+      w.step();
+      for (const [sid, sh] of w.shells) if (sh.family === 'mg' && fired.size < 3) fired.add(sid);
+      const gone = [...before].filter((sid) => !w.shells.has(sid)).length;
+      for (let k = 0; k < gone; k += 1) hpAfter.push(w.mines.get('m1')?.hp ?? null);
+    }
+    expect(hpAfter.slice(0, 3)).toEqual([6, 2, 2]);
+    expect(w.mines.get('m1')!.hp).toBe(2);
   });
 
   it('a stream aimed 12 u off the mine never scratches it', () => {

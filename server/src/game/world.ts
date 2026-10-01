@@ -1145,6 +1145,12 @@ export interface StepRow {
   readonly run: (world: World, ctx: StepContext) => void;
 }
 
+/** Is point `p` ON `mine` — within `r` of its centre? (The mine landing
+ *  test's one predicate, amendment 202: asked of the cursor and the landing.) */
+function onMine(mine: Vec2, p: Vec2, r: number): boolean {
+  return Math.hypot(mine.x - p.x, mine.y - p.y) <= r;
+}
+
 export class World {
   readonly map: GameMap;
   readonly playerCap: number;
@@ -4846,8 +4852,11 @@ export class World {
       // A DIRECT shell (the machine gun's) that ARRIVED without striking a
       // hull LANDS here: the landing test runs at its final point (amendment
       // 200 — a no-op for any mask without `mine`). An island stop is not a
-      // landing: the shell never reached the point the shooter clicked.
-      if (outcome.kind === 'expired') this.landOnMines(shell, outcome, hulls);
+      // landing: the shell never reached the point the shooter clicked. The
+      // `direct` guard keeps this the DIRECT shell's path alone: a burst-family
+      // shell lands only through `resolveBurst` (its `expired` is the map-edge
+      // crossing, unreachable for a clamped gun target but excluded by name).
+      if (outcome.kind === 'expired' && shell.direct === true) this.landOnMines(shell, outcome, hulls);
       // hitIsland / expired: a MISS — fall of shot to the shooter (Story 4.3;
       // gun family only — the guard lives in emitSplash).
       this.emitSplash(shell, outcome.x, outcome.y);
@@ -5122,15 +5131,20 @@ export class World {
   }
 
   /**
-   * THE LANDING TEST (Eric 2026-10-01, amendments 200/201). *"I HAVE TO CLICK
-   * ON THE MINE"*: a shell whose `hits` mask carries `mine` — exactly the three
-   * deck guns — that LANDS at `at` deals its FULL `damage` (never
-   * contactDamage) to EVERY mine whose centre lies within
-   * `CONFIG.mine.hitRadiusU` of that point: any kind, armed or arming, any
-   * owner (the shooter's own included — the standing friendly-fire exception).
-   * `at` is the burst point for the cannon and flak and the arrival point for
-   * a machine-gun shell; a shell spent on a hull on the way never calls this,
-   * and a click past reach was clamped short before the shell flew.
+   * THE LANDING TEST (Eric 2026-10-01, amendments 200/201; amendment 202, the
+   * cursor decides). *"I HAVE TO CLICK ON THE MINE"*: a shell whose `hits`
+   * mask carries `mine` — exactly the three deck guns — that LANDS at `at`
+   * deals its FULL `damage` (never contactDamage) to EVERY mine whose centre
+   * lies within `CONFIG.mine.hitRadiusU` of BOTH that point AND the shooter's
+   * CURSOR at fire time (`shell.cursor`, the unclamped click): any kind, armed
+   * or arming, any owner (the shooter's own included — the standing
+   * friendly-fire exception). `at` is the burst point for the cannon and flak
+   * and the arrival point for a machine-gun shell; a shell spent on a hull on
+   * the way never calls this. An unclamped click lands at its cursor, so the
+   * two discs coincide; a click past reach is clamped short, so a mine under
+   * the clamped landing point is NOT under the cursor (untouched), and a mine
+   * under the cursor is beyond the landing (untouched — the shell never got
+   * there). A shell with no cursor recorded is no landing at all (fail closed).
    *
    * `targets` is the shell's own full-mask list (stepShells' `burstSet`), so
    * the collector stays the one place mines are enumerated; the `mines.get`
@@ -5139,13 +5153,14 @@ export class World {
    * no-op. Mine hp never leaves the server.
    */
   private landOnMines(shell: ShellState, at: Vec2, targets: readonly Target[]): void {
-    if (!shell.hits.includes('mine')) return;
+    const cursor = shell.cursor;
+    if (!shell.hits.includes('mine') || cursor === undefined) return;
     const r = CONFIG.mine.hitRadiusU;
     for (const t of targets) {
       if (t.kind !== 'mine') continue;
       const mine = this.mines.get(t.id);
       if (mine === undefined) continue; // consume-first re-check, not a policy
-      if (Math.hypot(mine.x - at.x, mine.y - at.y) > r) continue;
+      if (!onMine(mine, cursor, r) || !onMine(mine, at, r)) continue;
       if (this.damageMine(mine, shell.damage)) this.popMine(mine);
     }
   }
