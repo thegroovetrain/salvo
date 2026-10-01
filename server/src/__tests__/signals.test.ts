@@ -95,7 +95,7 @@ function makeShell(overrides: Partial<ShellState> = {}): ShellState {
 }
 
 function makeMine(overrides: Partial<MineState> = {}): MineState {
-  return { id: 'm1', ownerId: 'a', x: 0, y: 0, armedAt: 0, kind: 'naval', ...overrides };
+  return { id: 'm1', ownerId: 'a', x: 0, y: 0, armedAt: 0, kind: 'naval', hp: 10, ...overrides };
 }
 
 const REGISTRY_KEYS = [

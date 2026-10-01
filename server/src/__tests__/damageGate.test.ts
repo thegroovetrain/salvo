@@ -433,13 +433,15 @@ describe('the grep pin — exactly one hull-hp decrement', () => {
     }
   });
 
-  it('`decoy.hp -=` is the ONE non-hull decrement, and there is exactly one of it (Story 8.16)', () => {
+  it('`decoy.hp -=` and `mine.hp -=` are the TWO non-hull decrements, exactly one of each (Story 8.16; amendment 200)', () => {
     const code = WORLD_SRC.split('\n').filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//'));
     expect(code.filter((l) => /\.hp\s*-=/.test(l)).map((l) => l.trim())).toEqual([
       'victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME',
+      'mine.hp -= amount;',
       'decoy.hp -= amount;',
     ]);
     expect(methodBody('damageDecoy')).toContain('decoy.hp -= amount;');
+    expect(methodBody('damageMine')).toContain('mine.hp -= amount;');
   });
 });
 

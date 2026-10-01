@@ -305,20 +305,20 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
     const w = bareWorld();
     place(w, 'o', 900, 900, 0, 'mineLayer'); // the owner, nowhere near the trap
     place(w, 'b', 4, 0); // hull sitting on the mine — trips it on the first scan
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval' });
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
     const acc = stepCollect(w, 5, (evs) => ofKind(evs, 'boom').length > 0);
     expect(acc.hc).toHaveLength(1);
     expect(acc.hc[0]).toEqual({ k: 'hc', id: 'o', x: 0, y: 0 }); // the trap's position, the owner's id
     expect(acc.sp).toHaveLength(0); // mines never splash
   });
 
-  it('a VICTIMLESS mine detonation (own gun burst) sends no hc — while the missing shell still splashes', () => {
+  it('a VICTIMLESS mine detonation (own gun shell landing on it) sends no hc — while the missing shell still splashes', () => {
     const w = bareWorld();
     place(w, 'o', 900, 900, 0, 'mineLayer'); // owner, alone on the water
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 300, y: 900, armedAt: 0, kind: 'naval' }); // own armed mine, 600u up-range
-    fire(w, 'o', 0, Math.PI, 600); // click the mine's position — the burst detonates it
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 300, y: 900, armedAt: 0, kind: 'naval', hp: 10 }); // own armed mine, 600u up-range
+    fire(w, 'o', 0, Math.PI, 600); // click the mine's position — the shell lands on it (amendment 200)
     const acc = stepCollect(w, 60, () => w.mines.size === 0);
-    expect(w.mines.size).toBe(0); // the burst really detonated it
+    expect(w.mines.size).toBe(0); // the landing shell really popped it
     expect(acc.hc).toHaveLength(0); // neither burst nor blast resolved any victim
     expect(acc.sp).toHaveLength(1); // the SHELL's own miss splashes; the mine adds nothing
   });

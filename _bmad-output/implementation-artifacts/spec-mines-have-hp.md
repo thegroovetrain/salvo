@@ -2,7 +2,7 @@
 title: 'Mines have hit points: only a deck gun click on the mine hurts one'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '3ef6b29a'
 review_loop_iteration: 0
 followup_review_recommended: false

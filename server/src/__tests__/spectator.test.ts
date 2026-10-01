@@ -142,8 +142,8 @@ describe('spectator frames — dead observer in the active phase', () => {
 
   it('carries every mine, flagging only the observer-owned ones — and the KIND rides own-only', () => {
     const w = deadObserverWorld();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 800, y: 800, armedAt: 0, kind: 'captive' });
-    w.mines.set('m2', { id: 'm2', ownerId: 'b', x: -800, y: -800, armedAt: 0, kind: 'fouling' });
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 800, y: 800, armedAt: 0, kind: 'captive', hp: 10 });
+    w.mines.set('m2', { id: 'm2', ownerId: 'b', x: -800, y: -800, armedAt: 0, kind: 'fouling', hp: 10 });
     const f = buildFrame(w, 'a', 'active');
     // A SPECTATOR IS STILL AN OWNER of the mines it laid while it was afloat,
     // so `own` — and with it `c`, the Story 8.13 kind field (epic-8 amendment

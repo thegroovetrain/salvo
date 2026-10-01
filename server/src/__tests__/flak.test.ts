@@ -253,10 +253,21 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
     expect(w.shells.has('enemy-fish')).toBe(true); // outside the blast when it went off
   });
 
-  it('a burst chains into an armed non-captive mine inside the blast like any burst (amendments 16/18/20)', () => {
+  it('a burst merely COVERING a mine 30 u off the click leaves it untouched (amendment 200)', () => {
     const w = bareWorld();
     flakker(w, 'a');
-    w.mines.set('m1', { id: 'm1', ownerId: 'b', x: 300, y: 30, armedAt: 0, kind: 'naval' });
+    w.mines.set('m1', { id: 'm1', ownerId: 'b', x: 300, y: 30, armedAt: 0, kind: 'naval', hp: 10 });
+    const log = click(w, 'a', 300);
+    expect(w.mines.has('m1')).toBe(true); // inside the 50 u blast, outside the 10 u landing disc
+    expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp);
+    expect(count(log, 'burst')).toBe(1);
+    expect(log.some((e) => e.k === 'boom' && (e as { id: string }).id === 'm1')).toBe(false);
+  });
+
+  it('a flak click ON a mine pops it in one shell (12 dmg >= 10 hp, amendment 200)', () => {
+    const w = bareWorld();
+    flakker(w, 'a');
+    w.mines.set('m1', { id: 'm1', ownerId: 'b', x: 300, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
     const log = click(w, 'a', 300);
     expect(w.mines.has('m1')).toBe(false);
     expect(count(log, 'burst')).toBe(1);

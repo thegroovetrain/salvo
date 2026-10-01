@@ -386,7 +386,11 @@ describe('shared barrel', () => {
     // the second turret and second barrel are CANNON tier III / V rungs, the
     // flak turrets are FLAK tier III / V rungs (Eric 2026-09-30). No wire
     // shape moved; the exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(65);
+    // 65 -> 66: the client reads CONFIG.mine.hitRadiusU (the drawn mine ring
+    // is the deck guns' "on the mine" disc); mine hp is server-only and the
+    // masks never reach the wire (Eric 2026-10-01, amendment 200). The
+    // exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(66);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -615,7 +619,7 @@ describe('shared barrel', () => {
 
   it('CONFIG.broadside carries the barrage block; its range stays DERIVED at the 5/8 rung', () => {
     expect(CONFIG.broadside).toEqual({
-      hits: ['hull', 'mine', 'decoy'], // AR44 gun-family mask (Story 8.4)
+      hits: ['hull', 'decoy'], // AR44 — never a mine since amendment 200 (only deck guns, by landing)
       arcOffsetDeg: 90,
       arcHalfArcDeg: 60,
       shellSpeed: 500,
@@ -698,9 +702,9 @@ describe('shared barrel', () => {
   it('CONFIG.phosphorShells + CONFIG.flashShells: Eric\'s 2026-09-29 numbers (Story 8.17, amendments 131/132)', () => {
     expect(CONFIG.phosphorShells).toEqual({
       arc: 'full',
-      // A DAMAGE weapon carries the gun's mask — an armed mine in the burst
-      // detonates (amendment 135(c)).
-      hits: ['hull', 'mine', 'decoy'],
+      // Never a mine (amendment 200, superseding 135(c)): only a deck gun's
+      // shell landing on a mine damages one.
+      hits: ['hull', 'decoy'],
       shellSpeed: 500,
       maxAmmo: 1,
       reloadMs: 20000,
@@ -849,6 +853,11 @@ describe('shared barrel', () => {
     for (const k of ['offset', 'placeHalfArcDeg', 'placeRange', 'armDelay']) {
       expect(k in CONFIG.foulingMines, k).toBe(false);
     }
+  });
+
+  it("CONFIG.mine carries Eric's mine hp and the one 'on the mine' radius (amendments 200/201)", () => {
+    expect(CONFIG.mine.hp).toBe(10); // cannon/flak pop in one, the tier-I machine gun in three
+    expect(CONFIG.mine.hitRadiusU).toBe(10); // = the client's drawn marker ring
   });
 
   it('re-exports the mine WIRE shape: MineKind + the own-only MineView.c (amendment 76)', () => {
@@ -1082,7 +1091,7 @@ describe('shared barrel', () => {
     expect(classShift('battleship')).toBe('damageCut');
     // Eric's numbers, verbatim (amendments 97, 99, 103, 105).
     expect(CONFIG.machineGun).toEqual({
-      arc: 'full', hits: ['hull', 'decoy'], shellSpeed: 500, maxAmmo: 16, rateMs: 350,
+      arc: 'full', hits: ['hull', 'mine', 'decoy'], shellSpeed: 500, maxAmmo: 16, rateMs: 350,
       reloadMs: 10000, damage: 4, shellRadius: 2,
     });
     expect(CONFIG.flak).toEqual({

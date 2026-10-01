@@ -72,7 +72,7 @@ function fitTier(w: World, rec: ShipRecord, line: string, copies: number): void 
 /** Lay one mine of `kind` straight into world state, armed. The KIND is the
  *  mine's own since Story 8.13 (amendment 76) — never a flag on its layer. */
 function lay(w: World, id: string, ownerId: string, x: number, y: number, kind: MineKind, armedAt = 0): void {
-  w.mines.set(id, { id, ownerId, x, y, armedAt, kind });
+  w.mines.set(id, { id, ownerId, x, y, armedAt, kind, hp: 10 });
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
@@ -641,10 +641,12 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
     expect(victim.hp).toBeCloseTo(victim.stats.maxHp - 2 * o.stats.equipment.navalMines.damage, 6);
   });
 
-  it('a gun burst over a same-owner cluster detonates each mine once (snapshot ∩ cascade)', () => {
+  it('a gun click ON a same-owner cluster pops each mine once (landing test ∩ cascade, amendment 200)', () => {
     const w = bareWorld();
     const o = place(w, 'o', 0, 0, 0, 'mineLayer');
-    // Three mines clustered so the burst snapshot AND the chain both reach them.
+    // Three mines clustered so the LANDING TEST (m1 and m2 are 5u off the
+    // click, inside the 10u disc) AND the chain (m3, 15u off) both reach them:
+    // m1's pop chains m2 and m3, and the landing loop then finds m2 gone.
     lay(w, 'm1', 'o', 200, 0, 'naval');
     lay(w, 'm2', 'o', 210, 0, 'naval');
     lay(w, 'm3', 'o', 220, 0, 'naval');
@@ -1045,11 +1047,14 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     expect(zone).toEqual({ id: zone.id, ownerId: 'a', x: 400, y: 0, r: 100, until: at + 8000, dps: 5 });
   });
 
-  it('the burst DETONATES an armed mine inside the zone (the gun’s mask, amendment 135(c)) — a flare never does', () => {
+  it('the burst NEVER touches a mine — not inside the zone, not dead under the burst point (amendment 200, superseding 135(c)) — and a flare never does either', () => {
     const { w, a, slot } = board();
     lay(w, 'm1', 'a', 340, 40, 'naval'); // 72 u from the burst point, clear of every hull's blast reach
+    lay(w, 'm0', 'a', 400, 0, 'naval'); // exactly where the phosphor shell lands
     fireUntilStop(w, a, slot, 0, 400);
-    expect(w.mines.has('m1')).toBe(false);
+    expect(w.mines.has('m1')).toBe(true);
+    expect(w.mines.has('m0')).toBe(true); // only a DECK GUN damages a mine
+    expect(w.mines.get('m0')!.hp).toBe(CONFIG.mine.hp);
     // THE CONTROL: the same mine under a STAR SHELL burst stands (HITS_HULL_DECOY).
     const w2 = bareWorld();
     const a2 = place(w2, 'a', 0, 0, 0, 'battleship');

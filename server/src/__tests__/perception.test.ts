@@ -509,7 +509,7 @@ function injectShell(
 /** Drop a mine directly into world state (armed by default; a NAVAL mine
  *  unless the case says otherwise — Story 8.13 stamps the laying line's kind). */
 function injectMine(w: World, id: string, ownerId: string, x: number, y: number, armedAt = 0, kind: MineKind = 'naval'): void {
-  w.mines.set(id, { id, ownerId, x, y, armedAt, kind });
+  w.mines.set(id, { id, ownerId, x, y, armedAt, kind, hp: 10 });
 }
 
 /** Drop a lit zone directly into world state (Story 1.7; far-future expiry). */

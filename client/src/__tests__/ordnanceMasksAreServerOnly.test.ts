@@ -74,7 +74,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
   // that is what the three scans above assert, and they are the substance of
   // this file. This line only witnesses that a bump, when it happens, happens
   // deliberately.
-  it('PROTOCOL_VERSION is 65 — bumped by the gun-ladder catalog fold (64 by the cycle-158 machine-gun catalog content), not by masks', () => {
+  it('PROTOCOL_VERSION is 66 — bumped by the client reading CONFIG.mine.hitRadiusU (65 by the gun-ladder catalog fold), not by masks', () => {
     // 55 until Story 8.13, whose ONE bump covered the catalog content, the id
     // moves and `MineView`'s own-only kind field (epic-8 amendment 76); 56
     // until Story 8.14, whose ONE bump covers the seat's `gun` join option,
@@ -107,6 +107,10 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // 64 until the gun-ladder fold (2026-09-30, amendment 197), whose ONE bump
     // covers DECK GUN TURRET and DECK GUN BARREL leaving the catalog's card
     // vocabulary — catalog content, no mask.
-    expect(PROTOCOL_VERSION).toBe(65);
+    // 65 until cycle 160 (amendment 200), whose ONE bump covers the client
+    // reading CONFIG.mine.hitRadiusU for its mine ring. The same cycle moves
+    // `mine` in three masks (machine gun gains it, broadside and phosphor
+    // lose it) — server-only like every mask, never the reason for a bump.
+    expect(PROTOCOL_VERSION).toBe(66);
   });
 });
