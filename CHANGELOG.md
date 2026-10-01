@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.23] - 2026-09-30
+
+### Changed
+- **No more one-off upgrade cards** — DECK GUN TURRET and DECK GUN BARREL are gone from the pool. Eric's ruling: every upgrade is tiered. The CANNON ladder now carries what they did: the rung to tier III adds the second turret (two rounds loaded before the reload runs) and the rung to tier V adds a second barrel per turret (two parallel shells per click); every rung still adds +1 damage (15 → 20) and −5 % reload. The FLAK ladder gains a turret at its rungs to tier III and tier V (one, two, then three bursts before the reload); +2 damage and −5 % reload per rung as before, blast fixed.
+- **The card tells you what the rung buys** — a CANNON card that reaches tier III prints `GUN DAMAGE 16 → 17` and `ROUNDS 1 → 2`; the rung to V prints the damage step and `SHELLS PER SHOT 1 → 2`; the FLAK rungs to III and V print their `ROUNDS` step under reload and damage. Existing words only.
+- A fully upgraded cannon's biggest click is now two shells at 20 (40 hp), down from three at 15 (45 hp), so it no longer one-clicks an undamaged 45 hp small drone (two clicks now). Eric accepted this as a consequence of his numbers (amendment 187).
+
+### Internal
+- `shared/src/sim/catalog.ts`: `ladderSteps(id, steps, extra)` authors a ladder with per-rung effect lists (the equipment lines' `tieredWeaponSteps` precedent); `LINE_IDS` 26 → 24, authored cards 117 → 114. No whitelist change (`equipment.gun.maxAmmo`, `equipment.gun.barrels`, `equipment.flak.maxAmmo` were already addressable). The gun `barrels` clamp stays 1..3 (reachable max is 2); the batch-sim barrel probe loops 1..2. The machine gun was not touched (a parallel change owns it).
+- PROTOCOL_VERSION 63 -> 64 (catalog content: two ids leave the wire's card vocabulary).
+- Tests: shared 1018 -> 1021, server 2280 -> 2281, client 3753 -> 3760; the golden-frame snapshot regenerated (two offer hands moved, nothing else); new pins: the cannon and flak climb tables, no empty production rung, dead ids fail closed, the six card faces byte-exact, flak fires twice at III and holds three at V through the real module.
+- Epic-8 amendments 185–187; GDD, catalog-v3 (R15/R16) and epics (FR52) carry dated supersession notes; `spec-gun-ladders-turret-barrel-tiered.md`.
+
 ## [0.18.22] - 2026-09-30
 
 ### Changed

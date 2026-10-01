@@ -212,8 +212,8 @@ Conventions: **tier I of an equipment line is the bare weapon**; tiers II–V ar
 | Line | Cap | Per tier / copy | At cap | Starter |
 |---|---|---|---|---|
 | DECK GUN | 4 | +1.25 dmg, −5% own reload (tier I is a real step) | 20 dmg, 80% (4 s; 3 s under max Reload) | 1/1/1 |
-| DECK GUN TURRET | 1 | pool 1 → 2 | 2 rounds | 1/1/1 |
-| DECK GUN BARREL | 2 | +1 barrel, parallel tracks 12u | 3 shells | 2/2/2 |
+| DECK GUN TURRET | 1 | pool 1 → 2 | 2 rounds | 1/1/1 *(SUPERSEDED 2026-09-30, amendment 185: deleted — folded into the CANNON rungs to III / V.)* |
+| DECK GUN BARREL | 2 | +1 barrel, parallel tracks 12u | 3 shells | 2/2/2 *(SUPERSEDED 2026-09-30, amendment 185: deleted — folded into the CANNON rungs to III / V.)* |
 
 Base gun unchanged: 360°, 500 u/s, 15 dmg burst r15u, 6 contact, range 660u, 5 s.
 

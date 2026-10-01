@@ -2,7 +2,7 @@
 title: 'Gun ladders: TURRET and BARREL fold into the CANNON and FLAK tiers'
 type: 'bugfix'
 created: '2026-09-30'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '86223419'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -98,6 +98,31 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-30 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol`; all three BUILD-ON-IT, no code defect; agreement: Blind + Edge both flagged the batch-sim barrel pricing; Codex alone found nothing and traced the fold, the helper, the fail-closed id drop, pool reconciliation and the bot scorer clean)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 0, low 4)
+- defer: 0
+- reject: 1: (high 0, medium 0, low 1)
+- addressed_findings:
+  - `[low]` `[patch]` `balanceProbe.ts` priced the two-barrel row at base damage (30) though only the tier V build reaches two barrels — each row is now priced at the build that reaches it (15 / 40) (Blind + Edge)
+  - `[low]` `[patch]` catalog-v3 §4 table rows for TURRET/BARREL and `deferred-work.md:1460` (the accepted 45 hp one-click) lacked the supersession stamp — stamped (Blind)
+  - `[low]` `[patch]` `guns.ts` fire-control doc still said "1..3 TWIN/TRIPLE MOUNT, Story 2.8" — now the reachable 1..2 (Blind)
+  - `[low]` `[patch]` the maxed cannon no longer one-clicks a 45 hp small drone (2 × 20 = 40) — put to Eric before the PR, accepted as is, recorded as amendment 187 (Blind + the shared wave)
+  - rejected: the gun slot tooltip no longer names the second barrel once bought (the gun square badge and the two preview bursts show it; no in-game copy unasked) — noted for Eric in amendment 187
+
+## Auto Run Result
+
+**Summary:** `deckGunTurret` and `deckGunBarrel` are deleted; the CANNON ladder carries the second turret on its rung to tier III and a second barrel per turret on its rung to tier V; the FLAK ladder carries a turret on its rungs to III and V; per-tier damage/reload steps unchanged. `ladderSteps` authors per-rung ladders. 24 lines, 114 cards, PV 64, version 0.18.23. Eric's rulings: amendments 185 (the fold), 187 (the drone consequence accepted); orchestrator readings 186.
+
+**Files changed (54 + docs):** `shared/src/sim/catalog.ts` (rows, ids, helper), `shared/src/index.ts` (PV 64), comment fixes in `draw.ts`/`stats.ts`/`constants.ts`; 7 shared test files; server comment fixes (`profiles.ts`, `guns.ts`, `world.ts`), 8 server test files + the golden snapshot (two offer hands moved), `balanceProbe.ts`/`catalogMetrics.ts`; `client/src/ui/boonCopy.ts` (four entries dropped) + 16 client test files; CHANGELOG, VERSION, package.json, both trackers, epic-8 amendments 185–187, epic-8 context, GDD/catalog-v3/epics/deferred-work dated notes.
+
+**Review:** 4 low patches applied, 0 deferred, 1 rejected (see the triage log). Follow-up review: not recommended (comment/doc/script patches only).
+
+**Verification:** `npm run check` green — shared 1021, server 2281, client 3760, hook suite 266; lint 0 errors (3 pre-existing `max-lines-per-function` warnings in untouched files); `tsc` clean on all three; batch-sim probe prints 15 / 40 for 1 / 2 barrels.
+
+**Residual risks:** the parallel machine-gun change will collide on `catalog.ts`, `catalog.test.ts`, `stats.test.ts`, `cardStatRows.test.ts`, `boonCopy.ts` neighbours and on the PV pins (`index.ts`, `barrel.test.ts`, `radarRaster.test.ts`, `colyseus018.test.ts`, `denials.test.ts`, `ordnanceMasksAreServerOnly.test.ts`) if it also bumps PV — whichever lands second re-bumps. A rung that raises a pool mid-reload hands the new rounds out loaded (amendment 41 rule, as the TURRET card did).
 
 ## Design Notes
 
