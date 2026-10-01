@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 62→63 bump (PV 63, cycle 156: smoke puff radii 40/60 → 82.5/165 u, which the client derives from the shared curve over its bundled CONFIG) is enforced at matchmake', () => {
-  it('rejects pv-62 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(63);
+describe('pv join gate — the 63→64 bump (PV 64, amendment 185: DECK GUN TURRET and DECK GUN BARREL left the catalog — their effects are CANNON ladder rungs) is enforced at matchmake', () => {
+  it('rejects pv-63 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(64);
+    expect(protocolVersionError(63)).toMatch(/refresh/);
     expect(protocolVersionError(62)).toMatch(/refresh/);
     expect(protocolVersionError(61)).toMatch(/refresh/);
     expect(protocolVersionError(60)).toMatch(/refresh/);

@@ -302,7 +302,7 @@ function scnPtBn(g: Golden): void {
   place(w, 'b', 400, 0); // far (out of a's sight); sunk to bank a a level
   w.sinkShip('b', 'a'); // sunk(b) + pt(a) — the sunk now reaches a UNSEEN (PV 23: credited killer)
   a.hp -= 30; // damaged — a non-heal spend may not restore this
-  a.offer = ['deckGunBarrel', 'reload', 'radarSweep', 'speed']; // fixed non-heal hand
+  a.offer = ['deckGun', 'reload', 'radarSweep', 'speed']; // fixed non-heal hand
   const hpBefore = a.hp;
   expect(w.spendPoint('a', 3)).toBe(true); // the fourth card — bn(a)
   expect(a.hp).toBe(hpBefore); // a non-heal spend never heals
@@ -1112,6 +1112,14 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // contact, event, blip, mine or zone byte moved — the sightClear predicate
   // with an EMPTY puff store is byte-identical to losClear (verified by
   // diffing the snapshot, not by trusting the update flag).
+  // REGENERATED KNOWINGLY FOR AMENDMENT 185 (gun ladders tiered). Exactly TWO
+  // rows moved, and in each the ONLY difference is `you.offer`'s content:
+  // DECK GUN TURRET and DECK GUN BARREL left the catalog (their effects are
+  // CANNON ladder rungs now), so the seeded draw deals differently — row 8
+  // ['deckGun','chaff','dazzleShells','deckGunTurret'] became ['reload',
+  // 'chaff','dazzleShells','radarSweep'], row 31 dealt 'armor' where it dealt
+  // 'speed'. No contact, event, blip, mine, zone, position or hp byte moved
+  // (verified by diffing the rows with `offer` masked out).
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });

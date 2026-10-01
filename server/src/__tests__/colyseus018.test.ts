@@ -165,8 +165,11 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 62 and admits 63', () => {
-  it('PROTOCOL_VERSION is 63', () => {
+describe('the PV join gate refuses 63 and admits 64', () => {
+  it('PROTOCOL_VERSION is 64', () => {
+    // Amendment 185 bumped 63 -> 64: DECK GUN TURRET and DECK GUN BARREL left
+    // the catalog (their effects are rungs of the CANNON ladder), so two card
+    // ids left the wire's card vocabulary.
     // Cycle 156 bumped 62 -> 63: the smoke puff radii moved 40/60 -> 82.5/165 u
     // (1/8 -> 2/8 of intel range, Eric 2026-09-30) and the client derives the
     // disc from the shared curve over its bundled CONFIG.smokeScreen.
@@ -177,13 +180,13 @@ describe('the PV join gate refuses 62 and admits 63', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(63);
+    expect(PROTOCOL_VERSION).toBe(64);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 62 is the one that matters now: a client built one cycle before this
-    // one draws (and wake-masks) the old 40 → 60 u puff disc while the server
-    // occludes at 82.5 → 165 u.
+    // 63 is the one that matters now: a client built one cycle before this
+    // one still offers and prints the two deleted gun cards.
+    expect(protocolVersionError(63)).toMatch(/refresh/i);
     expect(protocolVersionError(62)).toMatch(/refresh/i);
     expect(protocolVersionError(61)).toMatch(/refresh/i);
     expect(protocolVersionError(60)).toMatch(/refresh/i);
@@ -198,12 +201,12 @@ describe('the PV join gate refuses 62 and admits 63', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(64)).toMatch(/refresh/i);
+    expect(protocolVersionError(65)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(63)).toBeNull();
+    expect(protocolVersionError(64)).toBeNull();
   });
 });
 

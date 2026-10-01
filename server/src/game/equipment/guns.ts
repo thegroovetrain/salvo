@@ -163,8 +163,9 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
  * that has been DELETED, tag and all. It was mandatory under the pre-rebalance
  * numbers (gun 25, lightest hull 70 — base 3 × 25 = 75 breached the floor with
  * no upgrades at all); the cycle-44 rebalance (gun 15, lightest hull 80) removed
- * that premise. The accepted consequence: a fully max-stacked triple mount
- * (3 barrels × 30) deals 90 and one-clicks an undamaged 80hp small drone. No
+ * that premise. The accepted consequence: every shell of a multi-barrel click
+ * lands; the reachable max is the CANNON's tier-V twin mount (2 barrels × 20 =
+ * 40 — amendment 185), and the 1..3 barrel clamp's ceiling is now unreachable. No
  * PLAYER hull can be one-clicked — the lightest is the 125hp Torpedo Boat.
  *
  * Every shell carries the gun's hit rule off the OWNER's effective stats:
@@ -212,7 +213,8 @@ function fireGunShells(
 }
 
 /** The gun Equipment row. Pool size + reload come from the ship's cached
- *  effective stats (base maxAmmo 1; AFT TURRET may raise it — Story 2.8).
+ *  effective stats (base maxAmmo 1; the CANNON ladder's tier-III rung raises
+ *  it to 2 — amendment 185).
  *  Slot state is non-null by the loadout invariant (see index.ts). */
 export const gunEquipment: Equipment = {
   id: 'gun',

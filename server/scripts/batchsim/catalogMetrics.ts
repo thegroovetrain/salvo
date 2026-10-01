@@ -193,8 +193,8 @@ export interface CatalogSample {
    *  burst in the exact same 50ms tick on the exact same hull is possible and
    *  is the known contaminant — reported, not hidden). */
   multiBarrelTicks: Record<string, number>;
-  /** victim hull id -> largest gun-ONLY per-tick total. 45 is the theoretical
-   *  max (3 barrels x 15). */
+  /** victim hull id -> largest gun-ONLY per-tick total. 40 is the theoretical
+   *  max (2 barrels x 20 at CANNON tier V — amendment 185). */
   maxGunOnlyTick: Record<string, number>;
   /** victim hull id -> kills from FULL hp by a gun-only multi-burst tick. */
   gunClickKills: Record<string, number>;

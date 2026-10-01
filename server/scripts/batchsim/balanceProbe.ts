@@ -154,7 +154,7 @@ function barrelBlock(): void {
   console.log(`== BARREL PARALLEL TRACKS (DRAFT barrelSpacingU = ${g.barrelSpacingU}u, burstRadius ${g.burstRadius}u) ==`);
   console.log(`spacing ${g.barrelSpacingU}u vs burst DIAMETER ${g.burstRadius * 2}u: adjacent bursts ${g.barrelSpacingU < g.burstRadius * 2 ? 'OVERLAP' : 'are separate'}`);
   console.log('barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u)');
-  for (const barrels of [1, 2, 3]) {
+  for (const barrels of [1, 2]) { // 2 is the reachable max: the CANNON ladder's rung to V (amendment 185)
     const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);
     const cells: string[] = [];
     for (const hullId of HULL_IDS) {
@@ -165,8 +165,8 @@ function barrelBlock(): void {
     console.log(`${String(barrels).padStart(7)} | ${String(barrels * g.damage).padStart(12)} | ${cells.join(' ')}`);
   }
   console.log('');
-  console.log('OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (3 barrels, R=300u):');
-  const offsets = parallelOffsets(0, 3, g.barrelSpacingU);
+  console.log('OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (2 barrels — the reachable max, R=300u):');
+  const offsets = parallelOffsets(0, 2, g.barrelSpacingU);
   for (const hullId of [...SHIP_CLASS_IDS, 'droneSmall' as HullId]) {
     const row: string[] = [];
     for (const miss of [0, 10, 20, 30, 40, 60]) {

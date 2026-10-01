@@ -3024,7 +3024,7 @@ export class World {
   /**
    * Pool invariant after a stats recompute (amendment 41): a slot whose
    * effective cap ROSE fills to the new cap immediately ("everything arrives
-   * loaded" — AFT TURRET/SECOND TUBE hand out their round); a cap at-or-below
+   * loaded" — a ladder rung that adds a turret or tube hands out its round); a cap at-or-below
    * its previous value still clamps `n` down to the ceiling. A slot FILLED by
    * this very grant (acquisition) compares base-vs-base caps — a no-op over
    * its already-full fresh pool.

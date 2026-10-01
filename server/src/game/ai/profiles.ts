@@ -75,9 +75,9 @@ export interface BotTargetWeights {
 
 /**
  * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The five ship
- * ladders are named by what they raise; `gun` = any gun-ladder line (deckGun,
- * deckGunTurret, deckGunBarrel, machineGun, flak — the draw only ever offers
- * the mounted gun's); `weapons` = a tier copy (2..cap) of an equipment line
+ * ladders are named by what they raise; `gun` = any gun-ladder line (deckGun —
+ * CANNON's own ladder, its turret and barrel are rungs of it — machineGun, flak;
+ * the draw only ever offers the mounted gun's); `weapons` = a tier copy (2..cap) of an equipment line
  * the bot already holds (the spec's "Scorer definitions").
  */
 export type UpgradeFavorite = 'armor' | 'speed' | 'turning' | 'radarSweep' | 'reload' | 'gun' | 'weapons';
