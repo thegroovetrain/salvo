@@ -36,9 +36,11 @@ import {
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
 
 describe('coverage — every catalog line has a name and a kind word', () => {
-  it('names every one of the 26 lines (never the humanized fallback)', () => {
-    // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e).
-    expect(LINE_IDS).toHaveLength(26);
+  it('names every one of the 24 lines (never the humanized fallback)', () => {
+    // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
+    // 26 until DECK GUN TURRET and DECK GUN BARREL folded into the CANNON
+    // ladder (2026-09-30, amendment 185).
+    expect(LINE_IDS).toHaveLength(24);
     for (const id of LINE_IDS) {
       const name = boonName(id);
       expect(name.length, id).toBeGreaterThan(0);
@@ -65,7 +67,7 @@ describe('coverage — every catalog line has a name and a kind word', () => {
   it('carries the sheet\'s names verbatim (spot checks across the four kinds)', () => {
     expect(boonName('armor')).toBe('ARMOR');
     expect(boonName('radarSweep')).toBe('RADAR SWEEP');
-    expect(boonName('deckGunTurret')).toBe('DECK GUN TURRET');
+    expect(boonName('heavyTorpedo')).toBe('HEAVY TORPEDO');
     // `SUPERCAV TORPEDO`, not the sheet's `SUPERCAVITATING TORPEDO` — the ONE
     // name Eric shortened (2026-09-19, epic-8 amendment 75) because the long
     // form never fitted the refit card's name box. See refitCardFit.test.ts:
@@ -73,11 +75,12 @@ describe('coverage — every catalog line has a name and a kind word', () => {
     expect(boonName('supercavTorpedo')).toBe('SUPERCAV TORPEDO');
     expect(boonName('depthCharge')).toBe('DEPTH CHARGE');
     expect(boonName('foulingMines')).toBe('FOULING MINES');
-    // Story 8.15: the plain gun's ladder reads CANNON (amendment 108; TURRET
-    // and BARREL keep their names), and the two pickable guns' ladders are
-    // named for their guns.
+    // Story 8.15: the plain gun's ladder reads CANNON (amendment 108), and the
+    // two pickable guns' ladders are named for their guns. DECK GUN TURRET and
+    // DECK GUN BARREL are deleted (amendment 185): their ids fall to the
+    // humanizer like any unknown id.
     expect(boonName('deckGun')).toBe('CANNON');
-    expect(boonName('deckGunBarrel')).toBe('DECK GUN BARREL');
+    expect(boonName('deckGunBarrel')).toBe('Deck Gun Barrel');
     expect(boonName('machineGun')).toBe('MACHINE GUN');
     expect(boonName('flak')).toBe('FLAK');
     expect(boonName('broadside')).toBe('BROADSIDE GUN');
@@ -109,9 +112,10 @@ const SILENT_CARDS = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.kind !== 
 
 describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
   it('prints a live current → next sentence for every LADDER line', () => {
-    // five universal ladders + the deck-gun family + (Story 8.15) the machine
-    // gun's and the flak gun's ladders.
-    expect(STAT_CARDS).toHaveLength(10);
+    // five universal ladders + the CANNON ladder + (Story 8.15) the machine
+    // gun's and the flak gun's ladders. 10 until TURRET and BARREL folded into
+    // the CANNON ladder (amendment 185).
+    expect(STAT_CARDS).toHaveLength(8);
     for (const line of STAT_CARDS) {
       const text = boonDescription(line, TB);
       expect(text.length, line.id).toBeGreaterThan(0);
@@ -194,7 +198,7 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
     const moved: [string, string][] = [
       ['armor', 'repairs'],
       ['reload', 'every weapon'],
-      ['deckGunBarrel', 'parallel'],
+      ['flak', 'blast'],
       ['radarSweep', 'sweep'],
     ];
     for (const [id, phrase] of moved) {
@@ -385,8 +389,8 @@ describe('cardTierLabel — the step, not the position', () => {
   it('reads every OTHER ladder and every weapon as a bare I on its first copy', () => {
     expect(cardTierLabel(CATALOG.radarSweep, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.reload, 0)).toBe('I');
-    expect(cardTierLabel(CATALOG.deckGunTurret, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 0)).toBe('I');
+    expect(cardTierLabel(CATALOG.navalMines, 0)).toBe('I');
   });
 
   // Story 8.15: the machine gun's and the flak gun's ladders are BASE-TIER
@@ -429,9 +433,10 @@ describe('cardTierLabel — the step, not the position', () => {
     expect(cardTierLabel(CATALOG.turning, 4)).toBe('V');
     expect(cardTierLabel(CATALOG.deckGun, 4)).toBe('V');
     expect(cardTierLabel(CATALOG.radarSweep, 5)).toBe('V');
-    // A ONE-RUNG ladder is at its ceiling the moment it is held: the TURRET is
-    // fitted once and has nowhere to climb.
-    expect(cardTierLabel(CATALOG.deckGunTurret, 1)).toBe('I');
+    // An OVER-STACK of the CANNON ladder (more copies than its cap) still reads
+    // the top rung. (This pinned the one-rung TURRET until it was deleted,
+    // amendment 185; no one-rung ladder ships now.)
+    expect(cardTierLabel(CATALOG.deckGun, 5)).toBe('V');
     expect(cardTierSteps(CATALOG.armor, 4)).toEqual({ cur: 5, next: null });
     expect(cardTierSteps(CATALOG.radarSweep, 5)).toEqual({ cur: 5, next: null });
   });
@@ -458,7 +463,7 @@ describe('cardTierLabel — the step, not the position', () => {
     expect(cardTierLabel(CATALOG.radarSweep, 4)).toBe('IV → V');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 4)).toBe('IV → V');
     expect(cardTierSteps(CATALOG.armor, 2)).toEqual({ cur: 3, next: 4 });
-    expect(cardTierSteps(CATALOG.deckGunTurret, 0)).toEqual({ cur: 1, next: null });
+    expect(cardTierSteps(CATALOG.deckGun, 3)).toEqual({ cur: 4, next: 5 });
   });
 
   // REVIEW GATE, CYCLE 147: `Math.trunc(NaN)` is `NaN`, so a non-finite

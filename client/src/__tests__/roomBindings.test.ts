@@ -1266,7 +1266,7 @@ describe('bindRoom reward toasts', () => {
     // An EQUIPMENT card fits a whole new weapon and gets the fuller cue; a
     // ladder rung, an add-on verb and a consumable all land light.
     for (const [boon, tone] of [
-      ['reload', 'fitCommon'], ['deckGunBarrel', 'fitCommon'],
+      ['reload', 'fitCommon'], ['deckGun', 'fitCommon'],
       ['captiveMines', 'fitRare'], ['acousticHoming', 'fitCommon'],
     ]) {
       document.body.replaceChildren();

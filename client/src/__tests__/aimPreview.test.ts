@@ -96,6 +96,23 @@ function broadsideStats(rung: number, turrets: number): EffectiveStats {
 }
 
 
+/**
+ * Battleship stats with the deck gun firing `barrels` parallel shells, set
+ * directly on the fold's output — the same WHY-NOT-CARDS reasoning as
+ * `broadsideStats` above. The claim under test is the PREVIEW GEOMETRY of an
+ * ODD volley, and since DECK GUN BARREL folded into the CANNON ladder
+ * (2026-09-30, amendment 185) no shipped card build reaches three barrels any
+ * more (the CANNON's tier V buys the second); the `barrels` clamp still allows
+ * three, so the preview must still draw it honestly.
+ */
+function gunBarrelStats(barrels: number): EffectiveStats {
+  const base = stats();
+  return {
+    ...base,
+    equipment: { ...base.equipment, gun: { ...base.equipment.gun, barrels } },
+  };
+}
+
 /** The SPREAD ladder's top rung, at the base four guns. */
 const SPREAD_CAP = CONFIG.broadside.traverseDeg.length;
 
@@ -222,7 +239,7 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
   // here is the property that DISCRIMINATES the two shapes, and it is asserted
   // against the shared helper the server offsets with.
   it('draws one line AND one circle per barrel, on PARALLEL tracks (BARREL)', () => {
-    const inp = input({ stats: stats('deckGunBarrel', 'deckGunBarrel') });
+    const inp = input({ stats: gunBarrelStats(3) });
     expect(inp.stats.equipment.gun.barrels).toBe(3);
     const m = computeAimPreview(inp);
     expect(m.lines).toHaveLength(3);
@@ -250,7 +267,9 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
   // shell is on the click" are different promises to the player, and only one of
   // them can be true at a time.
   it('EVEN barrel count: the shells STRADDLE the click, none on it', () => {
-    const inp = input({ stats: stats('deckGunBarrel') });
+    // The real build that reaches two barrels: four CANNON cards, tier V
+    // (amendment 185).
+    const inp = input({ stats: stats('deckGun', 'deckGun', 'deckGun', 'deckGun') });
     expect(inp.stats.equipment.gun.barrels).toBe(2);
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(2);
@@ -266,7 +285,7 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
   // range, a parallel volley's does not. Measured at two ranges and off-axis, so
   // an implementation that happened to look parallel along +x cannot pass.
   it('lateral separation is CONSTANT with range (parallel, never a cone)', () => {
-    const s = stats('deckGunBarrel', 'deckGunBarrel');
+    const s = gunBarrelStats(3);
     const bearing = 0.7; // off-axis on purpose
     const sep = (aimDist: number): number => {
       const m = computeAimPreview(input({ stats: s, aim: bearing, aimDist }));

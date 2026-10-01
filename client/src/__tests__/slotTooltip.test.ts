@@ -93,7 +93,7 @@ describe('the model, the fit and the placement (moved verbatim)', () => {
   });
 
   it('collapses stacked copies into one accrued row, and keeps the SHIP divider', () => {
-    const rows = boonRows('gun', ['deckGunBarrel', 'deckGunBarrel', 'armor'], STATS);
+    const rows = boonRows('gun', ['deckGun', 'deckGun', 'armor'], STATS);
     expect(rows.filter((r) => !r.divider)).toHaveLength(2); // one per LINE, not per copy
     expect(rows.some((r) => r.label === SHIP_DIVIDER_ROW)).toBe(true);
   });
@@ -204,9 +204,10 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
     expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGun: 9 }))).toBe(
       'WEAPON · ALWAYS SELECTED · TIER V',
     );
-    // The gun's OWN family climbs the gun, but only the DECK GUN line is its
-    // ladder: a barrel card buys a barrel, not a rung.
-    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGunBarrel: 2 }))).toBe(
+    // Only the CANNON line is the deck gun's ladder: another gun's ladder (FLAK)
+    // climbs ITS gun, never this one. (This pinned the DECK GUN BARREL card
+    // until it folded into the CANNON ladder, amendment 185.)
+    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { flak: 2 }))).toBe(
       'WEAPON · ALWAYS SELECTED · TIER I',
     );
   });
@@ -504,10 +505,11 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   const stats = statsFor('torpedoBoat');
 
   it('gives every held line a ◆ name row, and a live effect line where there is one', () => {
-    const t = tooltipModel(0, 'gun', stats, ['deckGunBarrel', 'deckGunTurret'])!;
-    expect(t.boons.map((r) => r.label)).toEqual(['◆ DECK GUN BARREL', '◆ DECK GUN TURRET']);
-    expect(t.boons[0].effect).toMatch(/^Shells per shot: \d/);
-    expect(t.boons[1].effect).toMatch(/^Gun rounds ready: \d/);
+    // The CANNON ladder is the gun's one line since amendment 185 (TURRET and
+    // BARREL folded into it); its holding line stays the damage headline.
+    const t = tooltipModel(0, 'gun', stats, ['deckGun', 'deckGun'])!;
+    expect(t.boons.map((r) => r.label)).toEqual(['◆ CANNON']);
+    expect(t.boons[0].effect).toMatch(/^Gun damage: \d/);
   });
 
   // PIN FLIPPED (2.9 review): the row carried a `×n` suffix beside a name that
@@ -517,10 +519,10 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   // where there is nothing to count. The suffix is gone; the row's contract
   // ("only when needed") is now trivially satisfied.
   it('COLLAPSES a stack into ONE row that names the LINE — and nothing else', () => {
-    const held = ['deckGunBarrel', 'deckGunBarrel'];
-    const rows = boonRows('gun', held, statsFor('torpedoBoat', { deckGunBarrel: 2 }));
+    const held = ['deckGun', 'deckGun'];
+    const rows = boonRows('gun', held, statsFor('torpedoBoat', { deckGun: 2 }));
     expect(rows).toHaveLength(1);
-    expect(rows[0].label).toBe('◆ DECK GUN BARREL');
+    expect(rows[0].label).toBe('◆ CANNON');
     expect(rows[0].label).not.toContain('×');
   });
 
@@ -549,12 +551,12 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
 
   it('hosts the SHIPWIDE ladders under the — SHIP — divider, in the gun tooltip only', () => {
     // RELOAD, RADAR SWEEP and SPEED address no equipment at all, so they belong
-    // BELOW the divider — the gun's own row here is DECK GUN BARREL, which is
+    // BELOW the divider — the gun's own row here is CANNON, which is
     // what puts a side on each of the separator.
-    const held = ['deckGunBarrel', 'reload', 'radarSweep', 'speed'];
+    const held = ['deckGun', 'reload', 'radarSweep', 'speed'];
     const gun = tooltipModel(0, 'gun', stats, held)!;
     expect(gun.boons.map((r) => r.label)).toEqual([
-      '◆ DECK GUN BARREL',
+      '◆ CANNON',
       SHIP_DIVIDER_ROW,
       '◆ RELOAD',
       '◆ RADAR SWEEP',
@@ -566,13 +568,13 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   });
 
   it('still renders ABSENCE for a slot with nothing fitted', () => {
-    expect(tooltipModel(1, 'heavyTorpedo', stats, ['deckGunBarrel'])!.boons).toEqual([]);
+    expect(tooltipModel(1, 'heavyTorpedo', stats, ['deckGun'])!.boons).toEqual([]);
     expect(tooltipModel(1, 'heavyTorpedo', stats)!.boons).toEqual([]);
   });
 
   it('reports the LIVE value, so the row moves with the stack', () => {
-    const one = tooltipModel(0, 'gun', statsFor('torpedoBoat', { deckGunBarrel: 1 }), ['deckGunBarrel'])!;
-    const two = tooltipModel(0, 'gun', statsFor('torpedoBoat', { deckGunBarrel: 2 }), Array(2).fill('deckGunBarrel'))!;
+    const one = tooltipModel(0, 'gun', statsFor('torpedoBoat', { deckGun: 1 }), ['deckGun'])!;
+    const two = tooltipModel(0, 'gun', statsFor('torpedoBoat', { deckGun: 2 }), Array(2).fill('deckGun'))!;
     expect(one.boons[0].effect).not.toBe(two.boons[0].effect);
   });
 });
@@ -626,7 +628,7 @@ describe('tooltipRenderGeom — the model reconciled with the room it has', () =
     .flatMap((d) => Array<string>(d.cap).fill(d.id));
 
   it('places the boons block below the MEASURED description, never under it', () => {
-    const model = tooltipModel(0, 'gun', stats, ['deckGunBarrel', 'reload'])!;
+    const model = tooltipModel(0, 'gun', stats, ['deckGun', 'reload'])!;
     const modelled = tooltipRenderGeom(model, 0, 1080);
     // Pixi wrapped the description taller than the mono model predicted (the
     // model is an upper bound on WIDTH, a nominal on height). The block below it
@@ -638,7 +640,7 @@ describe('tooltipRenderGeom — the model reconciled with the room it has', () =
   });
 
   it('never shrinks below the model — the fit pin stays the authority', () => {
-    const model = tooltipModel(0, 'gun', stats, ['deckGunBarrel'])!;
+    const model = tooltipModel(0, 'gun', stats, ['deckGun'])!;
     const under = tooltipRenderGeom(model, 1, 1080); // a measurement smaller than modelled
     expect(under.panelH).toBe(tooltipRenderGeom(model, 0, 1080).panelH);
   });

@@ -5,6 +5,7 @@ author: 'Eric'
 status: 'WALKTHROUGH COMPLETE 2026-09-09 — every line ruled; [DRAFT] cells await the harness; GDD update + E8 stories next'
 superseded_in_part: '2026-09-21 — Sprint Change Proposal (sprint-change-proposal-2026-09-21.md, Eric-approved): NO starter decks and NO hidden match pool (every line is in one common pool, unlimited copies); HORIZONTAL MISSILE, MONITOR GUN and HEAT SEEKING are CUT; MACHINE GUN and FLAK GUN are mountable guns (the captain picks deck gun / machine gun / flak gun per match), each with its own ladder [DRAFT]; the starter columns TB / ML / BS and §1 sheet counts are void. Per-line numbers stand where not voided here or by amendments 74 / 80-83.'
 superseded_in_part_2: '2026-09-29 (Story 8.17, epic-8 amendments 130–134): R31 star shells gain tier damage 10/12/15/17/20 across the lit circle; R33/R34 DAZZLE and PHOSPHOR add-ons are retired — PHOSPHOR SHELLS is its own tiered weapon, DAZZLE is the FLASH SHELLS consumable; R35 broadside ladder built as written.'
+superseded_in_part_3: '2026-09-30 (epic-8 amendment 185, Eric): R15 DECK GUN TURRET and R16 DECK GUN BARREL are DELETED — every upgrade is tiered, no one-copy cards; the second turret is the CANNON rung to tier III and a second barrel per turret its rung to tier V; the FLAK ladder gains a turret at its rungs to III and V (pool 1 → 2 → 3); 24 lines, 114 cards'
 source: 'Eric spreadsheet, shared 2026-09-09 (screenshot); brainstorming-session-2026-09-04.md; GDD v3 (2026-09-03)'
 ---
 
@@ -135,9 +136,9 @@ Sensor ladder (frozen): detect 247.5 · sight 330 · muzzle/smoke 412.5 · radar
 
 **STANDING RULE (Eric, from R14) — THE EQUIPMENT RELOAD STEP:** *"5% reduced reload will be a thing on most if not all equipment tier levels. This applies BEFORE the global reload reduction."* Composition: `reload = base × (1 − 0.05 × equipmentTier) × (1 − 0.05 × globalReloadTiers)`, so a maxed deck gun under a maxed global Reload runs at 0.80 × 0.75 = **60%** of base. Any line that departs from the 5% step says so in its own block.
 
-**R15 (Eric) — DECK GUN TURRET: pool 1 → 2, as shipped**, 1 copy.
+**R15 (Eric) — DECK GUN TURRET: pool 1 → 2, as shipped**, 1 copy. *(SUPERSEDED 2026-09-30, Eric, epic-8 amendment 185: DECK GUN TURRET and DECK GUN BARREL are deleted — every upgrade is tiered; the second turret is the CANNON rung to tier III and a second barrel per turret its rung to tier V; FLAK gains a turret at its rungs to III and V.)*
 
-**R16 (Eric) — DECK GUN BARREL: +1 barrel per copy, as shipped**, 2 copies (1 → 3 parallel shells, 12u spacing, full damage each).
+**R16 (Eric) — DECK GUN BARREL: +1 barrel per copy, as shipped**, 2 copies (1 → 3 parallel shells, 12u spacing, full damage each). *(SUPERSEDED 2026-09-30, Eric, epic-8 amendment 185: DECK GUN TURRET and DECK GUN BARREL are deleted — every upgrade is tiered; the second turret is the CANNON rung to tier III and a second barrel per turret its rung to tier V; FLAK gains a turret at its rungs to III and V.)*
 
 **STANDING RULE (Eric) — TIER I IS THE BARE WEAPON.** For every 5-tier equipment line, copy 1 fits the weapon at base and tiers II–V are the four upgrade steps (so the equipment reload step reaches 80% at V, the same four-step shape as the deck gun).
 

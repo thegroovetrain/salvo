@@ -91,8 +91,10 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // deleted — epic-8 amendments 80/81/83). 26 lines / 109 cards since Story
     // 8.15 (missile/monitor/heat seeking CUT; machine gun/flak became 4-copy
     // ladders); 26 lines / 117 cards since Story 8.17 (PHOSPHOR and FLASH
-    // SHELLS re-cut from cap-1 add-ons into cap-5 lines).
-    expect(LINES).toHaveLength(26);
+    // SHELLS re-cut from cap-1 add-ons into cap-5 lines); 24 lines / 114 cards
+    // since DECK GUN TURRET and DECK GUN BARREL (cap 1 and cap 2) folded into
+    // the CANNON ladder (2026-09-30, amendment 185).
+    expect(LINES).toHaveLength(24);
     expect(PANELS.length).toBe(LINES.reduce((n, d) => n + d.cap, 0));
   });
 
@@ -122,7 +124,7 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // the band, the bar or the copy moves this split and has to look here.
     expect(CONTAINER_H).toBe(186);
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, FLOOR_BAND.band).above);
-    expect(PANELS).toHaveLength(117);
+    expect(PANELS).toHaveLength(114);
     // 45 at 8.7. Story 8.8 moved it BOTH ways and netted +1: 46px more water
     // above lifts several panels back over the line, while HULL REPAIR's new
     // explanation (amendment 50's one-line description) adds three tall panels
@@ -143,7 +145,11 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // (70 -> 65): SMOKE SCREEN's reworded DRAFT hover (radar still paints; the
     // in-smoke sight cut) outgrows the water above, so its five consumable
     // panels now open down — none clipped (the next test).
-    expect(down).toHaveLength(52);
+    // DECK GUN TURRET / BARREL deleted (2026-09-30, amendment 185) nets −3
+    // DOWN (52 -> 49) and ABOVE unchanged at 65: all three of their panels
+    // (TURRET's one, BARREL's two) carried a tall explanation and opened down;
+    // the CANNON ladder's own four panels are untouched by the fold.
+    expect(down).toHaveLength(49);
     expect(PANELS.length - down.length).toBe(65);
     // The split IS the water line — nothing else decides it.
     for (const { label, model } of PANELS) {
@@ -494,13 +500,13 @@ describe('ladder position is colour-coded AND dual-coded; the KIND is a word onl
   it('renders the KIND word on the card (the copy count left with the interim face)', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['deckGunTurret', 'heavyTorpedo'], boostUntil: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['deckGun', 'heavyTorpedo'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false, []) as OfferView);
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
-    expect(cards[0].textContent).toContain('UPGRADE'); // deckGunTurret — a ladder
+    expect(cards[0].textContent).toContain('UPGRADE'); // deckGun (CANNON) — a ladder
     expect(cards[1].textContent).toContain('WEAPON'); // heavyTorpedo — an equipment line
     // STORY 8.7: the "n/cap" count is DELETED — the drawn ladder says the same
     // thing in rungs, and Eric's standing rule is that a readout must earn its
@@ -523,7 +529,7 @@ describe('ladder position is colour-coded AND dual-coded; the KIND is a word onl
   it('paints the KIND word NEUTRAL — no tier tint survives anywhere on it', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['deckGunTurret'], boostUntil: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['deckGun'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});

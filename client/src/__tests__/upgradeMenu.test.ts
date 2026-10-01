@@ -48,7 +48,7 @@ const R = CLIENT_CONFIG.refit;
 
 /** A real four-LINE draw from the shipped Boon Catalog v1 (the deck draws four
  *  different card LINES — categories may repeat; these happen not to). */
-const OFFER = ['radarSweep', 'armor', 'deckGunBarrel', 'navalMines'];
+const OFFER = ['radarSweep', 'armor', 'deckGun', 'navalMines'];
 const OFFER_B = ['reload', 'speed', 'radarSweep', 'navalMines'];
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
@@ -441,17 +441,19 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   it('carries the KIND word, neutral and unconditional, on every card', () => {
     // FLASH SHELLS (`dazzleShells`) reads CONSUMABLE since Story 8.17 (amendment
     // 132) — the catalog carries no ADD-ON card any more (amendment 134).
-    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret', 'captiveMines', 'dazzleShells'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun', 'captiveMines', 'dazzleShells'] }), false, false, false);
     expect(view?.options.map((o) => o.kind)).toEqual(['UPGRADE', 'UPGRADE', 'WEAPON', 'CONSUMABLE']);
   });
 
   it('carries the ladder length and the copies held — the rungs and their fill', () => {
     const held = ['radarSweep', 'radarSweep', 'radarSweep'];
-    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret'], cards: held }), false, false, false);
+    // The CANNON ladder replaced the one-rung DECK GUN TURRET here (amendment
+    // 185 — no one-rung card ships any more): nothing held, cap 4.
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun'], cards: held }), false, false, false);
     expect(view?.options[0].stack).toBe(3);
     expect(view?.options[0].cap).toBe(5);
     expect(view?.options[1].stack).toBe(0);
-    expect(view?.options[1].cap).toBe(1);
+    expect(view?.options[1].cap).toBe(4);
   });
 
   it('draws NO ladder for a consumable or an add-on — they have no rungs', () => {
@@ -601,13 +603,16 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     menu.toggle(view({
       options: [
         { ...cardsOf(['radarSweep'])[0] },
-        { ...cardsOf(['deckGunTurret'])[0] },
+        // RELOAD replaced the one-rung DECK GUN TURRET here (deleted, amendment
+        // 185): a second UPGRADE whose first copy is a bare `I`, so no step
+        // numeral carries the info tint this test forbids on the meta row.
+        { ...cardsOf(['reload'])[0] },
         { ...cardsOf(['captiveMines'])[0] },
       ],
     }));
-    const [ladder, single, weapon] = cards();
+    const [ladder, second, weapon] = cards();
     expect(ladder.textContent).toContain('UPGRADE');
-    expect(single.textContent).toContain('UPGRADE');
+    expect(second.textContent).toContain('UPGRADE');
     expect(weapon.textContent).toContain('WEAPON');
     // No tier hue anywhere: not on the border (that channel belongs to the
     // armed edge and the denied pulse) and not on any span.

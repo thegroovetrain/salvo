@@ -777,7 +777,7 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
 
   it('routes a fitted CARD to its slot, and a shipwide ladder to no slot at all', () => {
     const loadout = idsFor('mineLayer', statsFor('mineLayer')); // gun / boost / mine / empties
-    expect(slotForCard(loadout, 'deckGunBarrel')).toBe(SLOT_GUN);
+    expect(slotForCard(loadout, 'deckGun')).toBe(SLOT_GUN);
     expect(slotForCard(loadout, 'navalMines')).toBe(Q);
     // FOULING MINES IS ITS OWN LINE since Story 8.13 (epic-8 amendment 81), so
     // it fits its OWN weapon and routes to the slot carrying THAT — not to the
@@ -794,8 +794,11 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
 
 describe('the accrued build routes to its slot (the ◆n MARK is deleted — amendment 8)', () => {
   it('counts the cards addressing this slot, and nothing on an unfitted-for slot', () => {
-    const cards = ['deckGunBarrel', 'deckGunBarrel', 'heavyTorpedo'];
-    const rows = slotViewModels(viewFor('torpedoBoat', { cards }));
+    const cards = ['deckGun', 'deckGun', 'heavyTorpedo'];
+    // The stats are FOLDED from the same cards (the tier the square prints is
+    // read off them), so the fixture is a build the firewall could produce.
+    const stats = statsFor('torpedoBoat', { deckGun: 2, heavyTorpedo: 1 });
+    const rows = slotViewModels(viewFor('torpedoBoat', { cards, stats }));
     expect(rows[SLOT_GUN].boonCount).toBe(2); // gun
     expect(rows[Q].boonCount).toBe(1); // heavy torpedo
     expect(rows[SLOT_BOOST].boonCount).toBe(0); // boost
@@ -803,7 +806,10 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
     // v2 categories and left with them (Eric ruling 2026-09-15), and Story 8.6
     // took the words with the label column. What a square shows of the build is
     // the TIER numeral; the list itself lives in the tooltip.
-    expect(rows[SLOT_GUN].tier).toBe(1); // the deck gun sails at rung I (amendment 70)
+    // The deck gun sails at rung I (amendment 70) and each CANNON card is a
+    // rung, so two put it at III. (Two DECK GUN BARREL cards held it at I until
+    // BARREL folded into the CANNON ladder, amendment 185.)
+    expect(rows[SLOT_GUN].tier).toBe(3);
     expect(rows[Q].tier).toBe(1); // ...and the torpedo's line is at copy 1
   });
 
@@ -816,16 +822,22 @@ describe('the accrued build routes to its slot (the ◆n MARK is deleted — ame
   });
 
   it('ignores a junk id on the wire rather than counting it', () => {
-    expect(slotBoonIds('gun', ['deckGunBarrel', 'notARealBoon', 'constructor'])).toEqual(['deckGunBarrel']);
+    expect(slotBoonIds('gun', ['deckGun', 'notARealBoon', 'constructor'])).toEqual(['deckGun']);
+    // A DELETED line's id (amendment 185) is junk like any other.
+    expect(slotBoonIds('gun', ['deckGunBarrel', 'deckGunTurret'])).toEqual([]);
   });
 
   it('spends no glyphs on a count — a deep gun build prints its RUNG, never a tally', () => {
-    const rows = slotViewModels(viewFor('torpedoBoat', { cards: Array<string>(12).fill('deckGunBarrel') }));
+    const rows = slotViewModels(viewFor('torpedoBoat', {
+      cards: Array<string>(12).fill('deckGun'),
+      stats: statsFor('torpedoBoat', { deckGun: 12 }),
+    }));
     expect(rows[SLOT_GUN].boonCount).toBe(12); // the tooltip lists every one of them
-    // ...and the square still shows ONE number: the rung. Twelve barrels buy no
-    // rung at all — DECK GUN BARREL is not the gun's ladder — so the numeral is
-    // the I the hull spawned with, not a 12.
-    expect(rows[SLOT_GUN].tier).toBe(1);
+    // ...and the square still shows ONE number: the rung. Twelve CANNON cards
+    // (an over-stack past the cap of 4) climb the gun to its ceiling, V — never
+    // a 12. (Twelve DECK GUN BARREL cards pinned the spawned I here until BARREL
+    // folded into the CANNON ladder, amendment 185.)
+    expect(rows[SLOT_GUN].tier).toBe(5);
     expect(slotNumeral(rows[SLOT_GUN])).toBe('');
   });
 });

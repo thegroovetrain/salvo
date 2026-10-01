@@ -74,7 +74,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
   // that is what the three scans above assert, and they are the substance of
   // this file. This line only witnesses that a bump, when it happens, happens
   // deliberately.
-  it('PROTOCOL_VERSION is 63 — bumped by the cycle-156 smoke puff radii, not by masks', () => {
+  it('PROTOCOL_VERSION is 64 — bumped by the gun-ladder catalog fold, not by masks', () => {
     // 55 until Story 8.13, whose ONE bump covered the catalog content, the id
     // moves and `MineView`'s own-only kind field (epic-8 amendment 76); 56
     // until Story 8.14, whose ONE bump covers the seat's `gun` join option,
@@ -100,6 +100,9 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // 62 until cycle 156, whose ONE bump covers the smoke puff radii 40/60 ->
     // 82.5/165 u (1/8 -> 2/8 of intel range, Eric 2026-09-30), which the
     // client reads to derive the disc — no wire shape moved, no mask either.
-    expect(PROTOCOL_VERSION).toBe(63);
+    // 63 until the gun-ladder fold (2026-09-30, amendment 185), whose ONE bump
+    // covers DECK GUN TURRET and DECK GUN BARREL leaving the catalog's card
+    // vocabulary — catalog content, no mask.
+    expect(PROTOCOL_VERSION).toBe(64);
   });
 });

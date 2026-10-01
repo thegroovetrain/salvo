@@ -49,8 +49,6 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(labels(CATALOG.radarSweep)).toEqual(['RADAR SWEEP']);
     expect(labels(CATALOG.reload)).toEqual(['ALL COOLDOWNS']);
     expect(labels(CATALOG.deckGun)).toEqual(['GUN DAMAGE']);
-    expect(labels(CATALOG.deckGunTurret)).toEqual(['GUN ROUNDS READY']);
-    expect(labels(CATALOG.deckGunBarrel)).toEqual(['SHELLS PER SHOT']);
   });
 
   it('keeps the RPM and PERCENTAGE printers the hover panel already uses', () => {
@@ -381,20 +379,70 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
     );
   }
 
-  // THE DECK GUN FACE IS UNCHANGED (amendment 85 keeps amendment 71): it is a
-  // LADDER, not an equipment line, so it never touches the tier-card rule —
-  // one authored damage row, and its tier-derived reload cut stays silent.
-  it('leaves the DECK GUN family exactly as amendment 71 ruled it — one row', () => {
+  // THE DECK GUN FACE (amendment 71, read since amendment 185 as ONE ROW PER
+  // AUTHORED STEP — 186(a)): it is a LADDER, not an equipment line, so it never
+  // touches the tier-card rule and its tier-derived reload cut stays silent.
+  // The rungs to II and IV author damage alone (one row); the rungs to III and
+  // V also author the second turret / the second barrel (two rows), printed
+  // with the copy table's existing words `ROUNDS` and `SHELLS PER SHOT`.
+  it('prints the CANNON face one row per authored step — one at II and IV, two at III and V', () => {
+    const rowsAt = (k: number): number => cardStatRows(CATALOG.deckGun, k, held('deckGun', k)).length;
+    expect([0, 1, 2, 3].map(rowsAt)).toEqual([1, 2, 1, 2]);
+  });
+});
+
+// --- THE CANNON AND FLAK FACES, BYTE-EXACT (amendment 185, 186(a)) -------------
+//
+// TURRET and BARREL folded into the gun ladders: CANNON adds the second turret
+// on the rung to III and the second barrel on the rung to V; FLAK adds a turret
+// on the rungs to III and V. Every authored step prints its own row, with no
+// new words.
+describe('cardStatRows — the CANNON and FLAK rungs that carry a turret or a barrel', () => {
+  it('CANNON rung to II: GUN DAMAGE 15 to 16, alone', () => {
+    expect(cardStatRows(CATALOG.deckGun, 0, held('deckGun', 0))).toEqual([
+      { label: 'GUN DAMAGE', cur: '15', next: '16' },
+    ]);
+  });
+
+  it('CANNON rung to III: GUN DAMAGE 16 to 17 and ROUNDS 1 to 2 (the second turret)', () => {
     expect(cardStatRows(CATALOG.deckGun, 1, held('deckGun', 1))).toEqual([
       { label: 'GUN DAMAGE', cur: '16', next: '17' },
+      { label: 'ROUNDS', cur: '1', next: '2' },
     ]);
-    expect(face('deckGunTurret', 0)).toEqual(['GUN ROUNDS READY 1>2']);
-    expect(face('deckGunBarrel', 1)).toEqual(['SHELLS PER SHOT 2>3']);
-    for (const id of ['deckGun', 'deckGunTurret', 'deckGunBarrel'] as const) {
-      for (let k = 0; k < CATALOG[id].cap; k += 1) {
-        expect(cardStatRows(CATALOG[id], k, held(id, k)), `${id}@${k}`).toHaveLength(1);
-      }
-    }
+  });
+
+  it('CANNON rung to IV: GUN DAMAGE 17 to 18, alone', () => {
+    expect(cardStatRows(CATALOG.deckGun, 2, held('deckGun', 2))).toEqual([
+      { label: 'GUN DAMAGE', cur: '17', next: '18' },
+    ]);
+  });
+
+  it('CANNON rung to V: GUN DAMAGE 18 to 20 and SHELLS PER SHOT 1 to 2 (the second barrel)', () => {
+    expect(cardStatRows(CATALOG.deckGun, 3, held('deckGun', 3))).toEqual([
+      { label: 'GUN DAMAGE', cur: '18', next: '20' },
+      { label: 'SHELLS PER SHOT', cur: '1', next: '2' },
+    ]);
+  });
+
+  it('FLAK rung to III: RELOAD, DAMAGE 14 to 16 and ROUNDS 1 to 2', () => {
+    expect(cardStatRows(CATALOG.flak, 1, held('flak', 1))).toEqual([
+      { label: 'RELOAD', cur: '5.7 s', next: '5.4 s' },
+      { label: 'DAMAGE', cur: '14', next: '16' },
+      { label: 'ROUNDS', cur: '1', next: '2' },
+    ]);
+  });
+
+  it('FLAK rung to V: RELOAD, DAMAGE 18 to 20 and ROUNDS 2 to 3', () => {
+    expect(cardStatRows(CATALOG.flak, 3, held('flak', 3))).toEqual([
+      { label: 'RELOAD', cur: '5.1 s', next: '4.8 s' },
+      { label: 'DAMAGE', cur: '18', next: '20' },
+      { label: 'ROUNDS', cur: '2', next: '3' },
+    ]);
+  });
+
+  it('a dead TURRET/BARREL id prints no face at all', () => {
+    expect(Object.hasOwn(CATALOG, 'deckGunTurret')).toBe(false);
+    expect(Object.hasOwn(CATALOG, 'deckGunBarrel')).toBe(false);
   });
 });
 
@@ -626,8 +674,11 @@ describe('cardStatRows — the machine gun and flak ladders (Story 8.15)', () =>
   });
 
   it('FLAK tier II: RELOAD 6.0 s to 5.7 s, DAMAGE 12 to 14 — and the blast never moves', () => {
+    // The rungs to III and V also add a flak turret (amendment 185): ROUNDS.
     expect(face('flak', 0)).toEqual(['RELOAD 6.0 s>5.7 s', 'DAMAGE 12>14']);
-    expect(face('flak', 3)).toEqual(['RELOAD 5.1 s>4.8 s', 'DAMAGE 18>20']);
+    expect(face('flak', 1)).toEqual(['RELOAD 5.7 s>5.4 s', 'DAMAGE 14>16', 'ROUNDS 1>2']);
+    expect(face('flak', 2)).toEqual(['RELOAD 5.4 s>5.1 s', 'DAMAGE 16>18']);
+    expect(face('flak', 3)).toEqual(['RELOAD 5.1 s>4.8 s', 'DAMAGE 18>20', 'ROUNDS 2>3']);
     expect(face('flak', 3).some((r) => r.startsWith('BURST'))).toBe(false);
   });
 
