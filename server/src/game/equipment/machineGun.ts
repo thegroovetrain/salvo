@@ -123,7 +123,7 @@ export const machineGunEquipment: Equipment = {
       // THE STREAM IS NOT LIVE (Eric 2026-09-30): with shells missing and no
       // swap running, the full swap starts THIS tick — no idle wait.
       ship.streamLive = false;
-      if (state.n < mg.maxAmmo && state.reloadMsLeft === 0) state.reloadMsLeft = mg.reloadMs;
+      if (state.n < mg.maxAmmo && state.reloadMsLeft <= 0) state.reloadMsLeft = mg.reloadMs;
       return;
     }
     // Held on an EMPTY magazine: nothing fires and the running swap is left

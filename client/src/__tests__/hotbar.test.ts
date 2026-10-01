@@ -82,6 +82,8 @@ import {
   FIT_PULSE_PX,
   isBeltSlot,
   isCooling,
+  dimAlphaFor,
+  wipeShown,
   slotAtPoint,
   tipCacheHit,
   slotDegraded,
@@ -474,6 +476,64 @@ describe('the ONE centred numeral — the reload clock and the ACTIVE window', (
     expect(slotNumeral(rows[Q])).toBe('12');
     expect(rows[Q].coolFrac).toBeGreaterThan(0);
     expect(rows[Q].coolFrac).toBeLessThan(1);
+  });
+});
+
+// AMENDMENT 112 HONORED (Eric 2026-09-29; review gate P8, 2026-09-30): "the gun
+// square shows the ordinary cooldown wipe for the running timer even though a
+// new hold fires at once". The machine gun's PARTIAL-magazine swap starts the
+// tick the stream stops, so it is the gun's common resting state; the square
+// paints the wipe + numeral off `reloadMsLeft` WITHOUT entering `cooling`.
+describe('the machine gun\'s partial swap shows the ordinary wipe (amendment 112)', () => {
+  const mgView = (gunAmmo: WeaponAmmo, over: Partial<HotbarView> = {}): HotbarView => {
+    const base = viewFor('torpedoBoat');
+    return {
+      ...base,
+      loadout: [ 'machineGun', ...base.loadout.slice(1) ],
+      ammo: [gunAmmo, ...base.ammo.slice(1)],
+      ...over,
+    };
+  };
+
+  it('n 7/16 with 9.5 s of swap left: the wipe fraction and the numeral are up, the state is NOT cooling', () => {
+    const m = slotViewModels(mgView({ n: 7, reloadMsLeft: 9500 }))[SLOT_GUN];
+    expect(m.state).toBe('selected'); // the gun can still fire — a hold cancels the swap
+    expect(m.swapWipe).toBe(true);
+    expect(wipeShown(m)).toBe(true);
+    expect(m.reloadMsLeft).toBe(9500);
+    const reloadMs = equipmentInfo(statsFor('torpedoBoat'), 'machineGun').reloadMs;
+    expect(m.coolFrac).toBeCloseTo(1 - 9500 / reloadMs, 9);
+    expect(slotNumeral(m)).toBe(wipeLabel(9500));
+    expect(dimAlphaFor(m)).toBeLessThan(1); // the ordinary wipe dims the small type too
+    // Unselected (Q primed): still the wipe, state readyWeapon.
+    const q = slotViewModels(mgView({ n: 7, reloadMsLeft: 9500 }, { primedSlot: Q }))[SLOT_GUN];
+    expect(q.state).toBe('readyWeapon');
+    expect(slotNumeral(q)).toBe(wipeLabel(9500));
+  });
+
+  it('while HELD the drain returns instead of the wipe (amendment 113(f)) — the first shot cancels the swap', () => {
+    const m = slotViewModels(mgView({ n: 7, reloadMsLeft: 9500 }, { held: true }))[SLOT_GUN];
+    expect(m.drain).not.toBeNull();
+    expect(m.swapWipe).toBe(false);
+    expect(slotNumeral(m)).toBe('');
+  });
+
+  it('the CANNON with a round left and a timer running is unchanged: no wipe, no numeral', () => {
+    const base = viewFor('torpedoBoat');
+    const m = slotViewModels({ ...base, ammo: [{ n: 1, reloadMsLeft: 4000 }, ...base.ammo.slice(1)] })[SLOT_GUN];
+    expect(base.loadout[SLOT_GUN]).toBe('gun');
+    expect(m.state).toBe('selected');
+    expect(m.swapWipe).toBe(false);
+    expect(wipeShown(m)).toBe(false);
+    expect(m.coolFrac).toBe(0);
+    expect(slotNumeral(m)).toBe('');
+  });
+
+  it('an EMPTY machine-gun magazine cools as before (state cooling, wipe, numeral)', () => {
+    const m = slotViewModels(mgView({ n: 0, reloadMsLeft: 6000 }))[SLOT_GUN];
+    expect(m.state).toBe('cooling');
+    expect(m.swapWipe).toBe(false);
+    expect(slotNumeral(m)).toBe(wipeLabel(6000));
   });
 });
 

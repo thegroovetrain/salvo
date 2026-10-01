@@ -146,11 +146,6 @@ export function interactionLine(
  */
 const GUN_FAMILY: ReadonlySet<EquipmentId> = new Set<EquipmentId>(['gun', 'machineGun', 'flak']);
 
-/** Pure: is this equipment one of the three mountable guns? */
-export function isGunFamily(id: EquipmentId): boolean {
-  return GUN_FAMILY.has(id);
-}
-
 /** ` · TIER n` for a slot standing on a rung, '' otherwise — an unfitted-but-
  *  somehow-present weapon reads 0, which prints nothing rather than a fake
  *  Tier I. With `stats` the number is `slotTier`'s (so the deck gun reads its
@@ -261,12 +256,6 @@ const LINE_TARGETS: ReadonlyMap<string, readonly EquipmentId[]> = new Map(
  *  - fail-open, since an unresolvable card must still get a rank-wide flash). */
 export function cardEquipmentIds(id: string): readonly EquipmentId[] {
   return LINE_TARGETS.get(id) ?? [];
-}
-
-/** Pure: true iff this card belongs to no weapon - one of the five universal
- *  ladders (or an id this build cannot resolve). */
-export function isShipwideCard(id: string): boolean {
-  return cardEquipmentIds(id).length === 0;
 }
 
 /**

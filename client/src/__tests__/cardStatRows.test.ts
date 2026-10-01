@@ -53,6 +53,15 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(labels(CATALOG.deckGunBarrel)).toEqual(['SHELLS PER SHOT']);
   });
 
+  it('TURNING prints WHOLE DEGREES PER SECOND with the unit (Eric 2026-09-30): 46°/s → 49°/s on a bare Torpedo Boat', () => {
+    expect(cardStatRows(CATALOG.turning, 0, TB)).toEqual([{ label: 'TURNING', cur: '46°/s', next: '49°/s' }]);
+    // Every rung moves the printed number (0.05 rad/s ≈ 2.9°): 46 / 49 / 52 / 54 / 57.
+    const ladder = [0, 1, 2, 3].map((k) =>
+      cardStatRows(CATALOG.turning, k, { cls: 'torpedoBoat', cards: new Array<string>(k).fill('turning') })[0].next,
+    );
+    expect(ladder).toEqual(['49°/s', '52°/s', '54°/s', '57°/s']);
+  });
+
   it('keeps the RPM and PERCENTAGE printers the hover panel already uses', () => {
     const sweep = cardStatRows(CATALOG.radarSweep, 0, TB)[0];
     expect(sweep.cur).toMatch(/ RPM$/);

@@ -13,65 +13,22 @@
 
 import { describe, it, expect } from 'vitest';
 import { CATALOG, CONFIG, effectiveStats, type OwnShip } from '@salvo/shared';
-import { boonDescription, cardHoverRows } from '../ui/boonCopy.js';
+import { cardHoverRows, cardStatRows } from '../ui/boonCopy.js';
 import { beltPressDenied } from '../input/keyboard.js';
 import { makeOffer } from '../ui/results.js';
 
 const KNOWN = { cls: 'torpedoBoat', cards: [] as string[] };
 const UNKNOWN = { cls: 'notAHull', cards: [] as string[] };
 
-/** The catalog ids whose card text is a computed `current → next` sentence —
- *  derived from behavior on a REAL hull rather than by duplicating the
- *  STAT_LINES table, so this cannot drift from it. Doctrine and acquisition
- *  lines print static rules text and need no hull. */
-const STAT_LINES_WITH_NUMBERS: Record<string, true> = Object.fromEntries(
-  Object.values(CATALOG)
-    .filter((d) => boonDescription(d, KNOWN as never).includes('→'))
-    .map((d) => [d.id, true]),
-);
-
-describe('boonDescription — an unresolvable hull renders nothing, never throws', () => {
-  it('returns rules text for a real hull (the control)', () => {
-    const def = CATALOG['reload'];
-    const text = boonDescription(def, KNOWN as never);
-    expect(text.length).toBeGreaterThan(0);
-    expect(text).toContain('→');
-  });
-
-  it('returns empty text for an unknown hull instead of throwing', () => {
-    const def = CATALOG['reload'];
-    expect(() => boonDescription(def, UNKNOWN as never)).not.toThrow();
-    expect(boonDescription(def, UNKNOWN as never)).toBe('');
-  });
-
-  // RE-AIMED BY R2.17 (Story 7-5 wave 2). This pin used to guard a DANGLING
-  // NOTE: the deleted INTEL RANGE line carried a standing rider, so an
-  // unresolvable hull that skipped the guard printed " Sight, gun, broadside and
-  // star shells reach with it." with a leading space and no numbers. The riders
-  // left the card face entirely — the face is now the stat sentence alone — so
-  // that exact shape is unreachable and its subject is gone.
-  //
-  // What survives is the CLAUSE the guard actually protects, which R2.17 makes
-  // sharper rather than weaker: a stat card's face is ALL numbers, so an
-  // unresolvable hull must print the empty string and never a fragment of the
-  // template. Checked over EVERY stat line rather than one named example,
-  // because there is no longer a note to make one line special.
-  it('never prints a fragment of the diff template when the numbers cannot be computed', () => {
-    const stats = Object.values(CATALOG).filter((d) => Object.hasOwn(STAT_LINES_WITH_NUMBERS, d.id));
-    // A NON-DEGENERACY FLOOR, deliberately slack — not a catalog count pin. The
-    // set is derived from the catalog, so it moves when lines do: catalog v3
-    // (Story 8.1) took it to the EIGHT ladder lines, because an equipment line's
-    // copy 1 fits a weapon and its four upgrade tiers are unauthored until
-    // Stories 8.12–8.16. Its only job is to prove the filter did not silently
-    // return an empty set and make the loop below vacuous. The authoritative
-    // catalog counts live in shared/src/__tests__/catalog.test.ts.
-    expect(stats.length).toBeGreaterThanOrEqual(8);
-    for (const def of stats) {
-      // The control: on a real hull the line prints a label and two numbers.
-      expect(boonDescription(def, KNOWN as never), def.id).toMatch(/^[^.]+: .+ → .+\.$/);
-      // On an unresolvable hull it must print nothing at all — not a label, not
-      // a colon, not a lone arrow.
-      expect(boonDescription(def, UNKNOWN as never), def.id).toBe('');
+// CYCLE 157's review gate DELETED the one-sentence `boonDescription` reader;
+// the same fail-open rule now guards the two row builders that replaced it —
+// the face's `cardStatRows` and the hover's `cardHoverRows`.
+describe('the refit card rows — an unresolvable hull renders nothing, never throws', () => {
+  it('the FACE rows go silent on an unresolvable hull (a real hull is the control), and never throw', () => {
+    expect(cardStatRows(CATALOG.reload, 0, KNOWN as never).length).toBeGreaterThan(0);
+    for (const def of Object.values(CATALOG)) {
+      expect(() => cardStatRows(def, 0, UNKNOWN as never), def.id).not.toThrow();
+      if (def.kind !== 'consumable') expect(cardStatRows(def, 0, UNKNOWN as never), def.id).toEqual([]);
     }
   });
 
@@ -86,17 +43,6 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
     }
     expect(cardHoverRows(CATALOG.armor, 0, KNOWN as never).length).toBeGreaterThan(0);
     expect(cardHoverRows(CATALOG.hullRepair, 0, UNKNOWN as never).length).toBeGreaterThan(0);
-  });
-
-  it('never substitutes a fabricated hull — every catalog line is SILENT, not merely non-throwing', () => {
-    for (const def of Object.values(CATALOG)) {
-      expect(() => boonDescription(def, UNKNOWN as never)).not.toThrow();
-      const text = boonDescription(def, UNKNOWN as never);
-      // Doctrine and acquisition lines carry static rules text that needs no
-      // hull to render; every STAT line must go quiet rather than half-print.
-      if (Object.hasOwn(STAT_LINES_WITH_NUMBERS, def.id)) expect(text).toBe('');
-      expect(text.startsWith(' ')).toBe(false);
-    }
   });
 });
 

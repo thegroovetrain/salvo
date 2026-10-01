@@ -660,6 +660,19 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     menu.hide();
   });
 
+  it('a CONSUMABLE whose stat rows are empty still opens the panel on its shape line (review gate P6)', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view({ options: [{ ...cardsOf(['hullRepair'])[0], hover: [] }] }));
+    const tip = document.getElementById('refit-card-tooltip') as HTMLElement;
+    cards()[0].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(tip.style.display).toBe('flex');
+    const interaction = tip.children[1] as HTMLElement;
+    expect(interaction.style.display).toBe('block');
+    expect(interaction.textContent).toContain('CONSUMABLE');
+    expect(tip.children[2].children).toHaveLength(0);
+    menu.hide();
+  });
+
   it('draws one rung per copy the line carries, filled up to what is held', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({

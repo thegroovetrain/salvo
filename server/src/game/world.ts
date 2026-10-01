@@ -5322,7 +5322,8 @@ export class World {
    * LATEST input (never the intent queue: a level has no edges to replay) and
    * fires or not on its own clock. It passes the SAME gate a click passes
    * (`activationRefusal`: frozen / dead — sinking stays live, amendment 10),
-   * so a boarding room, a foundered hull and a dead one stream nothing; the
+   * so a boarding room, a foundered hull and a dead one stream nothing (the
+   * row is handed `held: false`, so a stream cut by the gate ends there); the
    * client already drops `held` on blur and when the refit window opens. No
    * denial is ever queued: an empty magazine is visible in `ammo`, and a
    * level that fires nothing is not a refused press.
@@ -5337,8 +5338,13 @@ export class World {
     for (const ship of this.ships.values()) {
       const slot = ship.loadout[SLOT_GUN];
       const row = slotRow(slot.equipmentId, this.consumables);
-      if (row?.stream === undefined || this.activationRefusal(ship) !== null) continue;
-      row.stream(this.activationContext(ship), slot, ship.input.held && ship.input.slot === SLOT_GUN);
+      if (row?.stream === undefined) continue;
+      // A REFUSED hull (frozen / dead) is told the stream is NOT live, never
+      // skipped: a hold cut by the refusal ends the stream THAT tick — the
+      // partial-magazine swap starts, and the hold after the refusal lifts is
+      // a FRESH stream (review gate P1, 2026-09-30).
+      const live = this.activationRefusal(ship) === null && ship.input.held && ship.input.slot === SLOT_GUN;
+      row.stream(this.activationContext(ship), slot, live);
     }
   }
 

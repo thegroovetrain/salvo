@@ -362,6 +362,12 @@ export class HudBar {
     return this.hotbar.slotAt(p);
   }
 
+  /** Route one press (HUD space) — THE click gate (main.ts): a slot's action,
+   *  the HP globe's swallowed no-op (Eric 2026-09-30), or false for water. */
+  press(p: ScreenPoint, slotAction: (slot: number) => void): boolean {
+    return this.hotbar.press(p, slotAction);
+  }
+
   /** The layout this bar last computed; null before the first frame. */
   get layout(): HudBarLayout | null {
     return this.cached;

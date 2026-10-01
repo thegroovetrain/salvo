@@ -680,6 +680,20 @@ export function deriveMineRings(eq: EquipmentRows): void {
   eq.captiveMines.triggerRadius = captiveTriggerRadius(eq.captiveMines.tier);
 }
 
+/** THE MACHINE GUN'S SHOT DELAY GUARD (review gate 2026-09-30). `rateMs` is
+ *  ladder-stepped (−40/−40/−40/−30 ms, 350 → 200 ms at V) and the server's
+ *  stream reads it as the gap between shells, so a non-finite or ≤ 0 value
+ *  would fire a shell every tick (or stall the clock on NaN). A PLUMBING
+ *  guard like reloadTierScale's 0.1 floor — NOT a balance ceiling: every
+ *  reachable tier passes through untouched; only malformed data falls back
+ *  to the CONFIG base. Today the fold's own sanity gate (sim/boons.ts
+ *  applyStatEffect skips any ≤ 0 / non-finite result) already stops a bad
+ *  EFFECT, so this is the firewall's OUTPUT contract — it holds whatever
+ *  path (a malformed base row, a future fold) hands it a bad number. */
+function guardRateMs(rateMs: number): number {
+  return Number.isFinite(rateMs) && rateMs > 0 ? rateMs : CONFIG.machineGun.rateMs;
+}
+
 /** The post-fold defensive clamps + derivations (see the header). Mutates in
  *  place. */
 function clampStats(stats: EffectiveStats): void {
@@ -711,6 +725,7 @@ function clampStats(stats: EffectiveStats): void {
   deriveMineRings(eq);
   floorIntegerFields(eq);
   eq.gun.barrels = Math.min(3, Math.max(1, eq.gun.barrels));
+  eq.machineGun.rateMs = guardRateMs(eq.machineGun.rateMs);
   // THE global cooldown scale, applied ONCE, post-fold, to every equipment.
   // Additive folding accumulates float dust, and because ammo.ts ticks reloads
   // down in 50ms steps and only refills at <= 0, un-rounded dust silently costs

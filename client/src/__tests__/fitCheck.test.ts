@@ -37,7 +37,7 @@ import {
 } from '@salvo/shared';
 import { FIT_KINDS, TONES, fitTone } from '../audio/tones.js';
 import { CARD_STAT_ROWS, boonEffectLine, boonFitToastLine, cardStatRows, cardTierLabel } from '../ui/boonCopy.js';
-import { cardEquipmentIds, isShipwideCard, slotForCard } from '../render/equipmentInfo.js';
+import { cardEquipmentIds, slotForCard } from '../render/equipmentInfo.js';
 import { lookForReveal } from '../render/projectiles.js';
 import { BurnZones } from '../render/burnZones.js';
 import { glyphPaths } from '../render/equipmentIcons.js';
@@ -246,7 +246,7 @@ describe('fit-check — SLOT ROUTING (every line lands on a slot or is shipwide)
   });
 
   it('the shipwide lines are EXACTLY the five universal ladders — no gap, no orphan', () => {
-    const shipwide = LINES.filter((l) => isShipwideCard(l.id) && l.kind !== 'consumable').map((l) => l.id);
+    const shipwide = LINES.filter((l) => cardEquipmentIds(l.id).length === 0 && l.kind !== 'consumable').map((l) => l.id);
     expect(shipwide.sort()).toEqual(['armor', 'radarSweep', 'reload', 'speed', 'turning']);
   });
 

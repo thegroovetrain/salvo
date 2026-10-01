@@ -44,10 +44,24 @@ export function chaffRingAlpha(until: number, now: number, durationMs: number = 
   return clamp01((until - now) / durationMs) * K.alpha;
 }
 
+/** The fallback dash count — the floor, and the whole answer for a bad knob. */
+const MIN_DASHES = 8;
+
 /** Pure: the dash count around the ring — the `dash + gap` pitch along the
- *  circumference, at least 8 so a mis-set knob still reads as dashed. */
-export function chaffDashSegments(radius: number = CHAFF_RING_RADIUS): number {
-  return Math.max(8, Math.round((2 * Math.PI * radius) / (K.dash + K.gap)));
+ *  circumference, at least 8 so a mis-set knob still reads as dashed. A
+ *  non-positive (or non-finite) pitch or radius returns a fixed 8: dividing by
+ *  a zero pitch would hand `dashArcs` an Infinity and loop forever. */
+export function chaffDashSegments(radius: number = CHAFF_RING_RADIUS, dash: number = K.dash, gap: number = K.gap): number {
+  const pitch = dash + gap;
+  const n = (2 * Math.PI * radius) / pitch;
+  if (!(pitch > 0) || !Number.isFinite(n)) return MIN_DASHES;
+  return Math.max(MIN_DASHES, Math.round(n));
+}
+
+/** Pure: the dash's share of one pitch (0.5 for a non-positive pitch). */
+export function chaffDashFraction(dash: number = K.dash, gap: number = K.gap): number {
+  const pitch = dash + gap;
+  return pitch > 0 && Number.isFinite(pitch) ? clamp01(dash / pitch) : 0.5;
 }
 
 /** The one ring, drawn once at the origin and moved/faded per frame. */
@@ -59,7 +73,7 @@ export class ChaffRing {
   constructor(layer: Container) {
     const stroke = { width: K.width, color: CLIENT_CONFIG.colors.phosphor, alpha: 1 };
     const r = CHAFF_RING_RADIUS;
-    for (const [a0, a1] of dashArcs(chaffDashSegments(r), K.dash / (K.dash + K.gap))) {
+    for (const [a0, a1] of dashArcs(chaffDashSegments(r), chaffDashFraction())) {
       this.g.moveTo(Math.cos(a0) * r, Math.sin(a0) * r);
       this.g.arc(0, 0, r, a0, a1);
     }

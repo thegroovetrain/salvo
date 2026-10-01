@@ -19,7 +19,8 @@
 //     stopping with shells left (released, or the gun deselected) starts the
 //     swap THAT tick — no idle wait; a shot cancels a running partial swap,
 //     which restarts from the FULL reloadMs when the stream stops again;
-//   * the gates: frozen (boarding), dead (foundered) and sinking (LIVE);
+//   * the gates: frozen (boarding), dead (foundered) and sinking (LIVE); a
+//     refusal mid-hold ENDS the stream (the swap starts; unfreeze is fresh);
 //   * a direct hit deals the full damage as a CONTACT hit (no burst).
 // The 20-bot `mz` measurement is wave 4's (the harness `--gun` arm).
 
@@ -27,6 +28,8 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, isAfloat, isSinking, type GameEvent, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
+import { machineGunEquipment } from '../game/equipment/machineGun.js';
+import type { ActivationContext } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
 const MG = CONFIG.machineGun;
@@ -367,6 +370,15 @@ describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
     expect(mag(a)).toEqual({ n: 14, reloadMsLeft: MG.reloadMs });
   });
 
+  it('a NEGATIVE swap remainder with shells missing still starts the full swap on a release (the `<= 0` idiom, review gate P3)', () => {
+    const w = bareWorld();
+    const a = gunner(w, 'a');
+    const slot = a.loadout[SLOT_GUN];
+    slot.state = { n: 5, reloadMsLeft: -10 };
+    machineGunEquipment.stream!({ ship: a } as unknown as ActivationContext, slot, false);
+    expect(slot.state).toEqual({ n: 5, reloadMsLeft: MG.reloadMs });
+  });
+
   it('the ladder moves the magazine: tier II reads 18 shells / 5 damage / 0.31 s, and a fresh pool is 18', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
@@ -415,6 +427,38 @@ describe('the stream honours the click channel\'s gates', () => {
     hold(w, 'a', true, 20, 0, log);
     expect(kindCount(log, 'shell')).toBe(0);
     expect(mag(a).n).toBe(MG.maxAmmo);
+  });
+
+  it('a hull REFUSED mid-stream (frozen) with 9/16 shells: the stream ends that tick and the full swap starts (review gate P1)', () => {
+    const w = bareWorld();
+    const a = gunner(w, 'a');
+    const log: GameEvent[] = [];
+    let seq = 0;
+    while (mag(a).n > 9) seq = hold(w, 'a', true, 1, seq, log);
+    expect(mag(a)).toEqual({ n: 9, reloadMsLeft: 0 });
+    expect(a.streamLive).toBe(true);
+    w.weaponsEnabled = false; // the boarding lock lands mid-hold
+    hold(w, 'a', true, 1, seq, log);
+    expect(a.streamLive).toBe(false);
+    expect(mag(a)).toEqual({ n: 9, reloadMsLeft: MG.reloadMs });
+  });
+
+  it('UNFREEZE with the button still held: the first shot is a FRESH stream (re-anchored) and it cancels the swap the refusal started', () => {
+    const w = bareWorld();
+    const a = gunner(w, 'a');
+    w.applyCard(a, 'machineGun'); // 310 ms: a carried due differs from a fresh one
+    const log: GameEvent[] = [];
+    let seq = hold(w, 'a', true, 1, 0, log); // shot at X, due X + 310
+    seq = hold(w, 'a', true, 1, seq, log); // X + 50: live, nothing due
+    w.weaponsEnabled = false;
+    seq = hold(w, 'a', true, 1, seq, log); // X + 100: refused -> the stream ends, the swap starts
+    expect(mag(a).reloadMsLeft).toBe(a.stats.equipment.machineGun.reloadMs);
+    w.weaponsEnabled = true;
+    while (kindCount(log, 'shell') < 2) seq = hold(w, 'a', true, 1, seq, log);
+    const born = Math.max(...[...w.shells.values()].map((s) => s.bornAt));
+    expect(mag(a)).toEqual({ n: 16, reloadMsLeft: 0 }); // the shot cancelled the swap
+    // FRESH: next due = this shot + rateMs (a carried stream would be X + 620).
+    expect(a.streamNextAt).toBe(born + a.stats.equipment.machineGun.rateMs);
   });
 
   it('SINKING stays live (amendment 10): the dying captain keeps streaming', () => {

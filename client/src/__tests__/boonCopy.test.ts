@@ -24,7 +24,6 @@
 import { describe, it, expect } from 'vitest';
 import { CATALOG, CONFIG, LINE_IDS, effectiveStats, type CatalogLine } from '@salvo/shared';
 import {
-  boonDescription,
   boonEffectLine,
   boonFitToastLine,
   boonKindLabel,
@@ -111,66 +110,10 @@ describe('coverage — every catalog line has a name and a kind word', () => {
   });
 });
 
-/** The catalog partition R2.17 draws: a LADDER moves a number (its face prints
- *  `current → next`); an equipment line, an add-on and a consumable move none
- *  (their face prints nothing at all and the hover tooltip does the talking). */
-const STAT_CARDS = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.kind === 'ladder');
-const SILENT_CARDS = LINE_IDS.map((id) => CATALOG[id]).filter((l) => l.kind !== 'ladder');
-
-describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
-  it('prints a live current → next sentence for every LADDER line', () => {
-    // five universal ladders + the deck-gun family + (Story 8.15) the machine
-    // gun's and the flak gun's ladders.
-    expect(STAT_CARDS).toHaveLength(10);
-    for (const line of STAT_CARDS) {
-      const text = boonDescription(line, TB);
-      expect(text.length, line.id).toBeGreaterThan(0);
-      expect(text, line.id).toContain('→');
-      expect(text, line.id).toMatch(/^[^.]+: .+ → .+\.$/); // exactly ONE sentence, the diff
-    }
-  });
-
-  // AN EQUIPMENT LINE IS NOT SILENT. Copy 1 fits the weapon and every copy
-  // after it is a TIER, and a tier is -5% of that weapon's own reload (derived
-  // in clampStats) — so the face prints the number that actually moves. Only
-  // the lines with no built mechanism, and the verb cards, stay silent.
-  it('prints a live RELOAD diff for every LIVE equipment line', () => {
-    const live = SILENT_CARDS.filter((l) => l.kind === 'equipment' && l.stub !== true);
-    // SEVEN since Story 8.13 flipped three stubs and moved FOULING MINES in
-    // from the add-on space (epic-8 amendments 76/77/81); EIGHT since Story
-    // 8.17 made PHOSPHOR SHELLS its own equipment line (amendment 131).
-    expect(live.map((l) => l.id)).toEqual([
-      'lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'broadside', 'starShells', 'foulingMines',
-      'phosphorShells',
-    ]);
-    for (const line of live) {
-      expect(boonDescription(line, TB), line.id).toMatch(/^Reload: \d+\.\d s → \d+\.\d s\.$/);
-    }
-  });
-
-  it('prints NOTHING for an add-on, a consumable or an unbuilt weapon', () => {
-    const silent = SILENT_CARDS.filter((l) => l.kind !== 'equipment' || l.stub === true);
-    expect(SILENT_CARDS).toHaveLength(16);
-    // 17 until Story 8.13 made LIGHT TORPEDO, CAPTIVE MINES and FOULING MINES
-    // live equipment lines that print their own reload diff; 14 until Story
-    // 8.15 cut missile/monitor/heat seeking and made machine gun/flak ladders;
-    // 9 until Story 8.17 made PHOSPHOR SHELLS an equipment line (8 consumables
-    // now, FLASH SHELLS among them, and no add-on).
-    expect(silent).toHaveLength(8);
-    for (const line of silent) expect(boonDescription(line, TB), line.id).toBe('');
-  });
-
-  // THE NUMBER THE CARD SELLS. A Torpedo Boat SPAWNS holding copy 1 of HEAVY
-  // TORPEDO, so the next one it is offered is tier II: 30.0 s -> 28.5 s, the
-  // -5% step, computed through the real firewall like every other face.
-  it('copy 2 of HEAVY TORPEDO prints the tier II step: 30.0 s → 28.5 s', () => {
-    const held = { cls: 'torpedoBoat' as const, cards: ['heavyTorpedo'] };
-    expect(boonDescription(CATALOG.heavyTorpedo, held)).toBe('Reload: 30.0 s → 28.5 s.');
-    // ...and copy 1, on a hull without the weapon, honestly prints no change:
-    // it buys the FIT, which the hover tooltip is what explains.
-    expect(boonDescription(CATALOG.heavyTorpedo, TB)).toBe('Reload: 30.0 s → 30.0 s.');
-  });
-
+// The one-sentence `boonDescription` reader (and its face/rules-text suites)
+// was DELETED in cycle 157's review gate: the face prints `cardStatRows`
+// (cardStatRows.test.ts) and the hover prints `cardHoverRows` (amendment 180).
+describe('the card view renders a STUB fail-open (amendment 5)', () => {
   // THE STUB PIN (Eric ruling 2026-09-15, amendment 5): lines authored in full
   // shape with no mechanism behind them. They are excluded from every deck, so
   // they can never be offered — but the card view must still render them
@@ -189,60 +132,12 @@ describe('the card FACE — minimal, and only the numbers (R2.17)', () => {
     for (const line of stubs) {
       expect(boonName(line.id), line.id).toBe(boonName(line.id).toUpperCase());
       expect(boonKindLabel(line.kind), line.id).not.toBe('');
-      expect(boonDescription(line, TB), line.id).toBe('');
       // ...and no hover rows, so no hover panel (amendment 180).
       expect(cardHoverRows(line, 0, TB), line.id).toEqual([]);
       // A STUB line prints no rows on the ratified face either — there is no
       // built module whose numbers could be read (Story 8.7, ruling 12).
       expect(cardStatRows(line, 0, TB), line.id).toEqual([]);
     }
-  });
-
-  // THE RIDERS ARE GONE FROM THE FACE: a stat line's sentence is its number.
-  it('carries no standing note beside the number', () => {
-    for (const id of ['armor', 'reload', 'deckGunBarrel', 'radarSweep']) {
-      expect(boonDescription(CATALOG[id], TB), id).toMatch(/^[^.]+: .+ → .+\.$/);
-    }
-  });
-});
-
-describe('rules text — the contract, with live values', () => {
-  it('prints the canonical current → next sentence off a real preview diff', () => {
-    const sweep = boonDescription(CATALOG.radarSweep, TB);
-    const base = effectiveStats(CONFIG.shipClasses.torpedoBoat);
-    const next = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['radarSweep']);
-    expect(sweep).toBe(`Radar sweep: ${base.sweepRpm} RPM → ${next.sweepRpm} RPM.`);
-    expect(next.sweepRpm).toBeGreaterThan(base.sweepRpm);
-  });
-
-  it('the printed values MOVE with the player\'s existing build (not a static table)', () => {
-    const fresh = boonDescription(CATALOG.armor, TB);
-    const stacked = boonDescription(CATALOG.armor, { cls: 'torpedoBoat', cards: ['armor', 'armor'] });
-    expect(stacked).not.toBe(fresh);
-    const two = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor', 'armor']);
-    expect(stacked).toContain(`${two.maxHp} →`);
-  });
-
-  it('tells the TRUTH at a firewall clamp — a capped sweep prints an unchanged number', () => {
-    // The ratified 30-RPM ceiling: the card cannot promise what effectiveStats
-    // would refuse to produce, because it asks effectiveStats.
-    const capped = { cls: 'torpedoBoat' as const, cards: Array.from({ length: 5 }, () => 'radarSweep') };
-    const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, capped.cards);
-    expect(stats.sweepRpm).toBe(CONFIG.vision.sweepRpmMax);
-    expect(boonDescription(CATALOG.radarSweep, capped)).toBe(
-      `Radar sweep: ${CONFIG.vision.sweepRpmMax} RPM → ${CONFIG.vision.sweepRpmMax} RPM.`,
-    );
-  });
-
-  it('prints the global cooldown as a PERCENT, reading downward', () => {
-    // The one card that scales every equipment reload has no single second
-    // count to headline, so it prints the scale itself. Catalog v3 (R12) cut the
-    // step from −10% to −5% per tier, capped at 25%.
-    expect(boonDescription(CATALOG.reload, TB)).toBe('All cooldowns: 100% → 95%.');
-  });
-
-  it('fails open on an unresolvable hull rather than printing half a diff', () => {
-    expect(boonDescription(CATALOG.armor, { cls: 'cruiser' as never, cards: [] })).toBe('');
   });
 });
 
@@ -333,7 +228,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     expect(text(shipStatRows(bare))).toEqual([
       `MAX HULL ${bare.maxHp}`,
       `TOP SPEED ${bare.kinematics.maxSpeed}`,
-      `TURNING ${Math.round(bare.kinematics.turnRate * 10) / 10}`,
+      `TURNING ${Math.round((bare.kinematics.turnRate * 180) / Math.PI)}°/s`, // 0.8 rad/s → 46°/s (P10)
       `RADAR SWEEP ${bare.sweepRpm} RPM`,
       'ALL COOLDOWNS 100%',
     ]);
@@ -567,6 +462,8 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
     expect(boonEffectLine('armor', bare)).not.toContain('→');
     expect(boonEffectLine('radarSweep', bare)).toBe(`Radar sweep: ${bare.sweepRpm} RPM`);
     expect(boonEffectLine('reload', bare)).toBe('All cooldowns: 100%');
+    // TURNING in whole degrees per second (Eric 2026-09-30): 0.8 rad/s → 46°/s.
+    expect(boonEffectLine('turning', bare)).toBe('Turning: 46°/s');
   });
 
   it('MOVES with the fitted stack (it reads the firewall\'s output, not CONFIG)', () => {

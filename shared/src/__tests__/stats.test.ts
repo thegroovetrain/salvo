@@ -417,6 +417,22 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
     expect(CATALOG.machineGun.cap).toBe(4);
   });
 
+  it('MACHINE GUN: a malformed shot delay (≤ 0 or non-finite) falls back to the CONFIG base; the ladder\'s 200 ms is untouched (plumbing guard)', () => {
+    const bad = (over: { add?: number; mult?: number }): Catalog => ({
+      machineGun: {
+        id: 'machineGun', kind: 'ladder', cap: 1, appliesTo: ['machineGun'],
+        tiers: [[{ kind: 'stat', path: 'equipment.machineGun.rateMs', ...over }]],
+      },
+    } as unknown as Catalog);
+    // The fold's sanity gate (boons.ts) skips the bad effect first; the
+    // clampStats guard (guardRateMs) is the output contract behind it.
+    for (const over of [{ add: -1000 }, { mult: 0 }, { add: Number.NaN }, { add: Number.POSITIVE_INFINITY }]) {
+      const mg = effectiveStats(BASE, ['machineGun'], bad(over)).equipment.machineGun;
+      expect(mg.rateMs, JSON.stringify(over)).toBe(CONFIG.machineGun.rateMs);
+    }
+    expect(effectiveStats(BASE, stack('machineGun', 4)).equipment.machineGun.rateMs).toBe(200);
+  });
+
   it('MACHINE GUN: RELOAD scales the reload but never the shot delay (cooldownScale reaches reloadMs only)', () => {
     const mg = effectiveStats(BASE, [...stack('machineGun', 4), ...stack('reload', 5)]).equipment.machineGun;
     expect(mg.rateMs).toBe(200);

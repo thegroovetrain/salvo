@@ -1789,7 +1789,7 @@ export const CONFIG = {
    * SMOKE SCREEN (catalog-v3 R38; Story 8.18, Eric rulings 2026-09-29, epic-8
    * amendments 138–145) — a key-fired consumable. Firing one copy opens a
    * `layMs` lay window: every `puffIntervalMs` the hull drops a stationary
-   * puff at its STERN, so one copy lays 10 puffs. A re-press while laying
+   * puff at its CENTER (its own position, amendment 183), so one copy lays 10 puffs. A re-press while laying
    * RESTARTS the lay clock (a fresh `layMs` from the press; the copy is spent —
    * the shield/chaff "replaces" posture). Each puff lives `lifeMs` and grows
    * linearly from `r0` to `r1` over `expandMs` (the whole life) — the one pure

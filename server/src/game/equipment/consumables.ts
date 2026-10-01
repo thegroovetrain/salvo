@@ -13,7 +13,7 @@
 // since Story 8.16 SHIELD BLOCK, CHAFF and the click-placed DECOY BUOY
 // (amendments 116–124), since Story 8.17 FLASH SHELLS (id `dazzleShells`,
 // amendment 132 — the second click-aimed line), and since Story 8.18 SMOKE
-// SCREEN (amendments 138–145 — key-fired, lays a 5 s trail of puffs astern).
+// SCREEN (amendments 138–145 — key-fired, lays 5 s of puffs at the hull's center, amendment 183).
 // The DEPTH CHARGE stub (amendment 83) is the ONE line still `stub` in the
 // catalog, so no copy of it can be dealt, picked or stocked — and because the
 // registry is PARTIAL, even a forged belt press naming it finds no row and

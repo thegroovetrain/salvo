@@ -44,8 +44,9 @@
 //   • `cardHoverRows` — THE REFIT CARD'S HOVER: the same table valued AFTER the
 //     card (the face's own tense).
 //
-// `boonDescription` (a stat line's one sentence) and `boonEffectLine` (the
-// results build list's live value) stay as they were.
+// `boonEffectLine` (the results build list's live value) stays as it was;
+// the old `boonDescription` one-sentence reader is DELETED (the hover is
+// `cardHoverRows`, amendment 180).
 //
 // FAIL-OPEN, not fail-closed: an id with no copy renders a readable
 // de-camelCased fallback rather than an empty card, and a stack position past
@@ -306,6 +307,11 @@ function equipmentStatLines(): Partial<Record<LineId, StatLine>> {
   return out;
 }
 
+/** Pure: a yaw rate (rad/s) as WHOLE degrees per second with the unit. */
+function degPerSec(radPerSec: number): string {
+  return `${Math.round((radPerSec * 180) / Math.PI)}°/s`;
+}
+
 /**
  * The headline stat each line moves — the number the card prints as
  * `current → next`, and the WHOLE of what a stat card's face says (R2.17).
@@ -321,7 +327,10 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   ...equipmentStatLines(),
   armor: { label: 'Max hull', path: 'maxHp' }, // <- shipHull
   speed: { label: 'Top speed', path: 'kinematics.maxSpeed' }, // <- shipSpeed
-  turning: { label: 'Turning', path: 'kinematics.turnRate' },
+  // TURNING PRINTS IN DEGREES PER SECOND (Eric 2026-09-30, review gate P10):
+  // a whole number with its unit — 0.8 rad/s reads `46°/s` — on the card face,
+  // the SHIP tooltip and the results build line alike (one printer).
+  turning: { label: 'Turning', path: 'kinematics.turnRate', fmt: degPerSec },
   // <- intelSweep
   radarSweep: { label: 'Radar sweep', path: 'sweepRpm', fmt: (v) => `${num(v)} RPM` },
   // <- shipCooldown. The ONE global cooldown lever: `cooldownScale` multiplies
@@ -384,46 +393,6 @@ const STAT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
 export interface BoonPreviewShip {
   cls: ShipClassId;
   cards: readonly string[];
-}
-
-/**
- * The card's `current → next` sentence for a STAT line, computed through a real
- * effectiveStats PREVIEW DIFF: fold the player's fitted cards, fold them again
- * with this id appended, and read the headline stat off both. The firewall does
- * the arithmetic (clamps, caps and derivations included), so a card can never
- * promise a number the sim would not produce — a sweep line at the 30-RPM
- * ceiling honestly prints "30 RPM → 30 RPM".
- */
-function statSentence(id: string, line: StatLine, you: BoonPreviewShip): string {
-  // FAIL-OPEN on the class table (cycle 91). This runs EVERY FRAME while the
-  // refit band is open, i.e. exactly while the player is picking a card, and an
-  // unresolvable `cls` would hand `effectiveStats` an undefined spec and throw
-  // on `cls.kinematics` — inside the ticker callback, which until this cycle
-  // meant a permanent freeze. Returning '' prints no numbers rather than
-  // inventing a hull we cannot identify.
-  if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return '';
-  const spec = CONFIG.shipClasses[you.cls];
-  const before = effectiveStats(spec, you.cards);
-  const after = effectiveStats(spec, [...you.cards, id]);
-  const fmt = line.fmt ?? num;
-  return `${line.label}: ${fmt(readStatPath(before, line.path))} → ${fmt(readStatPath(after, line.path))}.`;
-}
-
-/**
- * Pure: the card FACE's one text row — and, since R2.17, the ONLY prose a card
- * face carries. A STAT line prints its headline number as `current → next`
- * (live, via the preview diff above); everything else prints NOTHING AT ALL.
- *
- * An empty string is a LEGITIMATE, EXPECTED answer here, not a failure — and
- * since catalog v3 it is the common case, because an equipment line's copy 1
- * fits the weapon and its four upgrade tiers are not authored yet.
- */
-export function boonDescription(line: CatalogLine, you: BoonPreviewShip): string {
-  const stat = STAT_LINES[line.id];
-  if (stat === undefined) return '';
-  // An empty sentence means statSentence could not resolve the hull — the ONLY
-  // way it returns '' — and printing nothing beats printing half a diff.
-  return statSentence(line.id, stat, you);
 }
 
 /**
@@ -557,9 +526,9 @@ export const COPY_LINE_IDS: readonly string[] = LINE_IDS;
 // --- THE FIVE STAT ROWS (Story 8.7, ruling 12) ---------------------------------
 //
 // The ratified card face (mock `.rc .rows`) is a fixed grid of five 17px rows,
-// each a LABEL and a VALUE. It replaces `boonDescription` ON THE FACE —
-// `boonDescription` stays, unchanged, as the hover panel's one sentence — and it
-// is the only place a number reaches the card, which is what keeps the card and
+// each a LABEL and a VALUE. It is the only number on the FACE (the hover
+// panel prints `cardHoverRows`, amendment 180) and the only place a number
+// reaches the card, which is what keeps the card and
 // the firewall in step: every value below comes out of `effectiveStats`.
 //
 // FEWER THAN FIVE IS NORMAL. A ladder moves one number; a weapon's first copy
@@ -1036,14 +1005,14 @@ const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = 
  * PLAYER'S OWN BUILD — at most `CARD_STAT_ROWS`, and legitimately EMPTY for a
  * line that moves no number:
  *
- *   - an ADD-ON bolts on a verb (its holding line stays in the hover panel);
+ *   - an ADD-ON bolts on a verb and moves no number;
  *   - a STUB line has no built module whose numbers could be read;
  *   - a CONSUMABLE that is still a stub (DEPTH CHARGE) has no
  *     mechanism to describe — the LIVE ones print `CONSUMABLE_ROWS` above instead.
  *
- * FAIL-OPEN on the class table, exactly as `statSentence` is and for the same
- * reason: this runs every frame the band is open, and an unresolvable hull must
- * print nothing rather than throw from inside the ticker.
+ * FAIL-OPEN on the class table (cycle 91): this runs every frame the band is
+ * open, and an unresolvable hull must print nothing rather than throw from
+ * inside the ticker.
  */
 export function cardStatRows(
   line: CatalogLine,

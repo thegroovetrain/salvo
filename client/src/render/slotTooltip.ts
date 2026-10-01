@@ -21,7 +21,7 @@
 // into the bar's own container and shares the slot geometry. What lives here is
 // the pure core, which is what the tests measure.
 
-import { isConsumableId, type EffectiveStats, type ShipClassId, type SlotItemId } from '@salvo/shared';
+import { isConsumableId, type EffectiveStats, type EquipmentId, type ShipClassId, type SlotItemId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   boonName,
@@ -34,7 +34,7 @@ import {
 import { CLASS_DISPLAY_NAMES } from '../ui/classNames.js';
 import { monoTextWidth, monoWrapLines } from '../ui/refitCardFit.js';
 import type { Rect } from './hudBar.js';
-import { equipmentInfo, interactionLine } from './equipmentInfo.js';
+import { equipmentInfo, interactionLine, lineForEquipment } from './equipmentInfo.js';
 
 const H = CLIENT_CONFIG.hotbar;
 
@@ -112,10 +112,23 @@ export function tooltipModel(
     };
   }
   return {
-    name: equipmentInfo(stats, id).name.toUpperCase(),
+    name: slotHeading(id, stats),
     interaction: interactionLine(slot, id, cards, 0, stats),
     stats: equipmentStatRows(id, stats),
   };
+}
+
+/**
+ * Pure: an equipment slot tooltip's HEADING (Eric 2026-09-30, review gate P9)
+ * — the catalog LINE's name where a line fits the equipment (HEAVY TORPEDO,
+ * NAVAL MINES, BROADSIDE GUN, CANNON for the gun's `deckGun` …), so the hover
+ * names the weapon exactly as the card that fitted it did; the three Shifts
+ * have no line and keep `EQUIPMENT_NAME` (SPEED BOOST / INSTANT RELOAD /
+ * DAMAGE CUT). Uppercased for the tooltip register.
+ */
+export function slotHeading(id: EquipmentId, stats: EffectiveStats): string {
+  const line = lineForEquipment(id);
+  return (line === null ? equipmentInfo(stats, id).name : boonName(line)).toUpperCase();
 }
 
 /** The SHIP panel's interaction word (amendment 179). */

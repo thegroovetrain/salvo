@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { Container } from 'pixi.js';
 import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { CHAFF_RING_RADIUS, ChaffRing, chaffDashSegments, chaffRingAlpha } from '../render/chaffRing.js';
+import { CHAFF_RING_RADIUS, ChaffRing, chaffDashFraction, chaffDashSegments, chaffRingAlpha } from '../render/chaffRing.js';
 
 const K = CLIENT_CONFIG.chaffRing;
 const D = CONFIG.chaff.durationMs;
@@ -48,6 +48,15 @@ describe('the ring geometry comes off CONFIG', () => {
     expect(n).toBe(Math.round((2 * Math.PI * CONFIG.chaff.radius) / (K.dash + K.gap)));
     expect(n).toBeGreaterThanOrEqual(8);
     expect(chaffDashSegments(1)).toBe(8);
+  });
+
+  it('a NON-POSITIVE dash + gap pitch (a bad feel knob) returns a fixed 8 dashes, never Infinity (review gate P5)', () => {
+    expect(chaffDashSegments(120, 0, 0)).toBe(8);
+    expect(chaffDashSegments(120, -4, 2)).toBe(8);
+    expect(chaffDashSegments(120, Number.NaN, 4)).toBe(8);
+    expect(chaffDashSegments(Number.POSITIVE_INFINITY)).toBe(8);
+    expect(chaffDashFraction(0, 0)).toBe(0.5);
+    expect(chaffDashFraction(K.dash, K.gap)).toBeCloseTo(K.dash / (K.dash + K.gap), 12);
   });
 });
 

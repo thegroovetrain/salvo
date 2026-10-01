@@ -3535,14 +3535,15 @@ function hotbarView(g: Game, status: OwnStatus): HotbarView {
  * FIFO (cap feedback included), and the weapon prime toggle, so a click cannot
  * drift from its key. The press is reported SWALLOWED either way — over the
  * hotbar is never a shot, even when the action turns out inert (unfitted slot,
- * modal open). A press anywhere else returns false and fires as ever.
+ * modal open). The HP GLOBE swallows too, with no action at all (Eric
+ * 2026-09-30); the helm globe stays water. A press anywhere else returns false
+ * and fires as ever.
  */
 function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
   if (!g) return false;
-  const slot = g.hudBar.slotAt(hudPoint(g, p));
-  if (slot === null) return false;
-  g.keyboard.slotAction(slot);
-  return true;
+  // A press on the HP GLOBE is swallowed with no slot action (Eric 2026-09-30):
+  // `hotbarPress` shares the hover's hit-test, so chrome is chrome both ways.
+  return g.hudBar.press(hudPoint(g, p), (slot) => g.keyboard.slotAction(slot));
 }
 
 /**

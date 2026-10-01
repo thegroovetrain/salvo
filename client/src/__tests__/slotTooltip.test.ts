@@ -40,7 +40,7 @@ import {
   tooltipRenderGeom,
   tooltipRoomAbove,
 } from '../render/slotTooltip.js';
-import { hoverAnchor, hoverTargetAt, tipCacheHit, type TooltipCache } from '../render/hotbar.js';
+import { hotbarPress, hoverAnchor, hoverTargetAt, tipCacheHit, type TooltipCache } from '../render/hotbar.js';
 import { hudBarLayout } from '../render/hudBar.js';
 import { interactionLine } from '../render/equipmentInfo.js';
 import { consumableStatRows, equipmentStatRows, shipStatRows, statValueText } from '../ui/boonCopy.js';
@@ -100,6 +100,31 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
     expect(Object.keys(m).sort()).toEqual(['interaction', 'name', 'stats']);
     expect(m.name).toBe(m.name.toUpperCase());
     expect(m.stats.every((r) => r.cur === null)).toBe(true); // absolute rows, never an arrow
+  });
+
+  // THE HEADING IS THE CATALOG LINE'S NAME (Eric 2026-09-30, review gate P9):
+  // where a line fits the equipment the hover names it as the card did; the
+  // three Shifts have no line and keep EQUIPMENT_NAME.
+  it('the heading is the LINE\'s name where one fits, EQUIPMENT_NAME for the Shifts', () => {
+    const expected: Record<string, string> = {
+      heavyTorpedo: 'HEAVY TORPEDO',
+      lightTorpedo: 'LIGHT TORPEDO',
+      navalMines: 'NAVAL MINES',
+      captiveMines: 'CAPTIVE MINES',
+      foulingMines: 'FOULING MINES',
+      broadside: 'BROADSIDE GUN',
+      starShells: 'STAR SHELLS',
+      phosphorShells: 'PHOSPHOR SHELLS',
+      gun: 'CANNON',
+      machineGun: 'MACHINE GUN',
+      flak: 'FLAK',
+      boost: 'SPEED BOOST',
+      instantReload: 'INSTANT RELOAD',
+      damageCut: 'DAMAGE CUT',
+    };
+    for (const [id, name] of Object.entries(expected)) {
+      expect(tooltipModel(Q, id as never, STATS)!.name, id).toBe(name);
+    }
   });
 
   it('prints a weapon\'s EQUIPMENT_STAT_FIELDS in table order, off the live fold', () => {
@@ -207,6 +232,7 @@ describe('the HP globe opens a SHIP panel with the five ship stats (amendment 17
     expect(m.interaction).toBe('SHIP');
     expect(m.stats.map((r) => r.label)).toEqual(['MAX HULL', 'TOP SPEED', 'TURNING', 'RADAR SWEEP', 'ALL COOLDOWNS']);
     expect(lines(m.stats)[0]).toBe(`MAX HULL ${STATS.maxHp}`);
+    expect(lines(m.stats)[2]).toBe('TURNING 46°/s'); // 0.8 rad/s, whole degrees (P10)
     expect(lines(m.stats)[3]).toBe(`RADAR SWEEP ${STATS.sweepRpm} RPM`);
     expect(lines(m.stats)[4]).toBe('ALL COOLDOWNS 100%');
     expect(m.stats).toEqual(shipStatRows(STATS));
@@ -234,6 +260,27 @@ describe('the HP globe opens a SHIP panel with the five ship stats (amendment 17
     const sq = layout.squares[Q];
     expect(hoverTargetAt({ x: sq.x + sq.w / 2, y: sq.y + sq.h / 2 }, layout)).toBe(Q);
     expect(hoverTargetAt({ x: g.cx, y: g.cy }, null)).toBeNull();
+  });
+
+  // THE GLOBE IS CHROME TO A PRESS TOO (Eric 2026-09-30, review gate P11).
+  it('a PRESS inside the HP globe is swallowed with no slot action; water beside it falls through; a square still acts', () => {
+    const layout = hudBarLayout(1366, 768);
+    const g = layout.hpGlobe;
+    const acted: number[] = [];
+    const act = (slot: number): void => { acted.push(slot); };
+    expect(hotbarPress({ x: g.cx, y: g.cy }, layout, act)).toBe(true); // consumed: never a shot, never a hold
+    expect(hotbarPress({ x: g.cx + g.r - 1, y: g.cy }, layout, act)).toBe(true);
+    expect(acted).toEqual([]); // ...and no slot selected or fired
+    // Water beside the globe (outside the circle, inside its bounding square) fires as before.
+    expect(hotbarPress({ x: g.cx - g.r + 2, y: g.cy - g.r + 2 }, layout, act)).toBe(false);
+    // The helm globe stays water.
+    expect(hotbarPress({ x: layout.helmGlobe.cx, y: layout.helmGlobe.cy }, layout, act)).toBe(false);
+    // Amendment 11 stands: a square swallows AND acts.
+    const sq = layout.squares[Q];
+    expect(hotbarPress({ x: sq.x + sq.w / 2, y: sq.y + sq.h / 2 }, layout, act)).toBe(true);
+    expect(acted).toEqual([Q]);
+    // A hidden bar routes nothing.
+    expect(hotbarPress({ x: g.cx, y: g.cy }, null, act)).toBe(false);
   });
 
   it('anchors on the globe\'s bounding square, centred above the globe', () => {

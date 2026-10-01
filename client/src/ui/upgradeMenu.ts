@@ -42,6 +42,7 @@ import {
   CONFIG,
   MULLIGAN_CHOICE,
   boonStackCount,
+  isStubLine,
   pickRefusal,
   resolveCards,
   type CatalogLine,
@@ -1460,6 +1461,16 @@ function tipModelFor(copy: OfferCard): RefitTooltipModel {
     : refitTooltipModel(line, copy.name, copy.hover, copy.stack);
 }
 
+/** Pure: the panel model a hovered card OPENS, or null for no panel — a stub
+ *  (never dealt), or a card with nothing to say (no stat rows AND no consumable
+ *  shape line). A consumable whose rows are empty still opens on its shape
+ *  line (review gate P6). */
+function shownTipModel(copy: OfferCard | undefined): RefitTooltipModel | null {
+  if (copy === undefined || isStubLine(copy.id)) return null;
+  const model = tipModelFor(copy);
+  return model.stats.length === 0 && !model.interaction ? null : model;
+}
+
 /** One stat row of the hover panel: label left, value right. */
 function tipRowEl(row: CardStatRow): HTMLDivElement {
   const el = document.createElement('div');
@@ -1663,20 +1674,20 @@ export class UpgradeMenu {
    * `mouseleave`; nothing on the keyboard path reaches here, because Tab/1–4/5
    * exist precisely so an experienced player can skip the reading.
    *
-   * A card with NO stat rows (a stub or an add-on) shows no panel at all
-   * rather than an empty box.
+   * A STUB (never dealt) or a card with NOTHING to say — no stat rows AND no
+   * consumable shape line — shows no panel at all rather than an empty box; a
+   * consumable whose rows are empty still opens on its shape line (review
+   * gate P6).
    */
   private showTip(index: number | null): void {
     const tip = this.tip;
     if (!tip) return;
-    const card = index === null ? null : this.cards[index];
-    const copy = index === null ? null : this.view?.options[index] ?? null;
-    if (!card || !copy || copy.hover.length === 0) {
+    const model = index === null || !this.cards[index] ? null : shownTipModel(this.view?.options[index]);
+    if (!model) {
       tip.root.style.display = 'none';
       this.tipModel = null;
       return;
     }
-    const model = tipModelFor(copy);
     fillTip(tip, model);
     tip.root.style.left = `${refitTooltipLeft(index!, this.rowWidth())}px`;
     this.tipModel = model;

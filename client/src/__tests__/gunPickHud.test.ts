@@ -23,7 +23,6 @@ import {
   EQUIPMENT_NAME,
   equipmentDamage,
   interactionLine,
-  isGunFamily,
   slotTier,
 } from '../render/equipmentInfo.js';
 import {
@@ -117,12 +116,6 @@ describe('the ruled names (amendments 107/108)', () => {
 });
 
 describe('the gun family — the MOUNTED gun\'s tier', () => {
-  it('isGunFamily is exactly the three mountable guns', () => {
-    expect(['gun', 'machineGun', 'flak'].every((id) => isGunFamily(id as never))).toBe(true);
-    expect(isGunFamily('boost')).toBe(false);
-    expect(isGunFamily('heavyTorpedo')).toBe(false);
-  });
-
   it('slot 0 reads the MOUNTED gun\'s own ladder rung (1 + copies), and says so on hover', () => {
     const cards = ['machineGun', 'machineGun'];
     const s = stats(cards);
