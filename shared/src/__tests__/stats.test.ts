@@ -170,7 +170,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
         },
         flak: {
           tier: 1,
-          reloadMs: 6000,
+          reloadMs: 4000, // 6 s → 4 s (amendment 210)
           maxAmmo: 1,
           rangeU: CONFIG.vision.radar,
           damage: 12,
@@ -197,9 +197,9 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           rangeU: CONFIG.vision.radar,
           litRadius: CONFIG.starShells.litRadius, // the ratified SIGHT/2 derivation
           litDurationMs: CONFIG.starShells.litDurationMs,
-          // Story 8.17 (amendments 130/134): the flare deals tier-I damage 10;
+          // Story 8.17 (amendments 130/134): the flare deals tier-I damage 20 (swapped with phosphor, amendment 208);
           // the `phosphor`/`dazzle` verbs are DELETED.
-          damage: 10,
+          damage: 20,
         },
         // PHOSPHOR SHELLS (Story 8.17, amendment 131) — its own weapon row.
         phosphorShells: {
@@ -207,7 +207,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           reloadMs: 20000,
           maxAmmo: 1,
           rangeU: CONFIG.vision.radar, // the star-shell rung, derived post-fold
-          damage: 20,
+          damage: 10,
           zoneRadius: 100,
           zoneDurationMs: 8000,
           dps: 5,
@@ -444,14 +444,14 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
     expect(mg.reloadMs).toBeCloseTo(8000 * 0.75, 6);
   });
 
-  it('FLAK: damage 12 → 20 (+2), pool 1 → 3 (a turret at III and at V), reload 6 s → 4.8 s at V; the 50 u blast and the 4 hp bodyblock are FIXED', () => {
+  it('FLAK: damage 12 → 20 (+2), pool 1 → 3 (a turret at III and at V), reload 4 s → 3.2 s at V (6 s → 4 s at tier I, Eric 2026-10-01, amendment 210); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
     const table: [number, number, number, number, number][] = [
       // copies, tier, damage, maxAmmo (pool), reloadMs
-      [0, 1, 12, 1, 6000],
-      [1, 2, 14, 1, 5700],
-      [2, 3, 16, 2, 5400],
-      [3, 4, 18, 2, 5100],
-      [4, 5, 20, 3, 4800],
+      [0, 1, 12, 1, 4000],
+      [1, 2, 14, 1, 3800],
+      [2, 3, 16, 2, 3600],
+      [3, 4, 18, 2, 3400],
+      [4, 5, 20, 3, 3200],
     ];
     for (const [copies, tier, damage, maxAmmo, reloadMs] of table) {
       const flak = effectiveStats(BASE, stack('flak', copies)).equipment.flak;
@@ -564,11 +564,11 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
   it('STAR SHELLS: reload / lit / radius / flares / damage per rung (amendment 130)', () => {
     // [reloadMs, litDurationMs, litRadius, flares, damage] per rung 1..5
     const table = [
-      [20000, 10000, 165, 1, 10],
-      [19000, 12500, 181.5, 1, 12],
-      [18000, 15000, 199.65, 2, 15],
-      [17000, 17500, 219.615, 2, 17],
-      [16000, 20000, 241.5765, 3, 20],
+      [20000, 10000, 165, 1, 20],
+      [19000, 12500, 181.5, 1, 22],
+      [18000, 15000, 199.65, 2, 25],
+      [17000, 17500, 219.615, 2, 27],
+      [16000, 20000, 241.5765, 3, 30],
     ] as const;
     table.forEach(([reloadMs, lit, radius, flares, damage], i) => {
       const row = effectiveStats(BASE, stack('starShells', i + 1)).equipment.starShells;
@@ -583,12 +583,12 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
     });
   });
 
-  it('STAR SHELLS tier III / V: 18 s, 15 s lit, r199.65, 2 flares, 15 dmg / 16 s, 20 s, r241.6, 3 flares, 20 dmg', () => {
+  it('STAR SHELLS tier III / V: 18 s, 15 s lit, r199.65, 2 flares, 25 dmg / 16 s, 20 s, r241.6, 3 flares, 30 dmg', () => {
     const iii = effectiveStats(BASE, stack('starShells', 3)).equipment.starShells;
-    expect([iii.reloadMs, iii.litDurationMs, iii.maxAmmo, iii.damage]).toEqual([18000, 15000, 2, 15]);
+    expect([iii.reloadMs, iii.litDurationMs, iii.maxAmmo, iii.damage]).toEqual([18000, 15000, 2, 25]);
     expect(iii.litRadius).toBeCloseTo(199.65, 9);
     const v = effectiveStats(BASE, stack('starShells', 5)).equipment.starShells;
-    expect([v.reloadMs, v.litDurationMs, v.maxAmmo, v.damage]).toEqual([16000, 20000, 3, 20]);
+    expect([v.reloadMs, v.litDurationMs, v.maxAmmo, v.damage]).toEqual([16000, 20000, 3, 30]);
     expect(v.litRadius).toBeCloseTo(241.6, 1);
   });
 
@@ -619,14 +619,14 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
     expect(v.traverseRad).toBeCloseTo((14 * Math.PI) / 180, 12);
   });
 
-  it('PHOSPHOR SHELLS tier I / III / V: 20/25/30 dmg, 5/7/10 hp/s, r100/121/146.41, 8/9/10 s, 20/18/16 s', () => {
+  it('PHOSPHOR SHELLS tier I / III / V: 10/15/20 dmg, 5/7/10 hp/s, r100/121/146.41, 8/9/10 s, 20/18/16 s', () => {
     // [reloadMs, damage, dps, zoneRadius, zoneDurationMs] per rung 1..5
     const table = [
-      [20000, 20, 5, 100, 8000],
-      [19000, 22, 6, 110, 8000],
-      [18000, 25, 7, 121, 9000],
-      [17000, 27, 8, 133.1, 9000],
-      [16000, 30, 10, 146.41, 10000],
+      [20000, 10, 5, 100, 8000],
+      [19000, 12, 6, 110, 8000],
+      [18000, 15, 7, 121, 9000],
+      [17000, 17, 8, 133.1, 9000],
+      [16000, 20, 10, 146.41, 10000],
     ] as const;
     table.forEach(([reloadMs, damage, dps, radius, durMs], i) => {
       const row = effectiveStats(BASE, stack('phosphorShells', i + 1)).equipment.phosphorShells;
@@ -648,10 +648,10 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
   it('the acceptance fold: a Battleship holding STAR ×3, BROADSIDE ×5, PHOSPHOR ×1', () => {
     const s = effectiveStats(BASE, [...stack('starShells', 3), ...stack('broadside', 5), 'phosphorShells']);
     const { starShells: star, broadside: bs, phosphorShells: ph } = s.equipment;
-    expect([star.reloadMs, star.litDurationMs, star.maxAmmo, star.damage]).toEqual([18000, 15000, 2, 15]);
+    expect([star.reloadMs, star.litDurationMs, star.maxAmmo, star.damage]).toEqual([18000, 15000, 2, 25]);
     expect(star.litRadius).toBeCloseTo(199.65, 9);
     expect([bs.reloadMs, bs.spreadRung, bs.turrets, bs.damage]).toEqual([14400, 5, 6, 15]);
-    expect([ph.reloadMs, ph.damage, ph.zoneRadius, ph.zoneDurationMs, ph.dps]).toEqual([20000, 20, 100, 8000, 5]);
+    expect([ph.reloadMs, ph.damage, ph.zoneRadius, ph.zoneDurationMs, ph.dps]).toEqual([20000, 10, 100, 8000, 5]);
   });
 
   it('the three lines take the global RELOAD ladder after their own tier step (0.80 × 0.75)', () => {

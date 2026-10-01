@@ -91,14 +91,14 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
       // CONFIG.boost.factor 0.25 / durationMs 10000 / reloadMs 25000;
       // CONFIG.instantReload.reloadMs 45000;
       // CONFIG.damageCut.factor 0.5 / durationMs 8000 / reloadMs 30000
-      'SPEED BOOST on the Speedboat: a quarter more top speed for ten seconds. INSTANT RELOAD on the Repeater: your gun and every weapon you have fitted finish reloading at once. DAMAGE CUT on the Dreadnought: hits on your hull do half damage for eight seconds.',
-      'The bar at the bottom of the screen holds nine squares: your gun, your SPECIAL, three weapon slots and four belt slots. You sail out with the gun and the SPECIAL. Everything else you draw at sea.',
+      'SPEED BOOST on the Speedboat: a quarter more top speed for ten seconds. INSTANT RELOAD on the Repeater: your gun and every weapon you have fitted get their next shot right now. DAMAGE CUT on the Dreadnought: weapon hits on your hull do half damage for eight seconds. The storm still bites in full.',
+      'The bar at the bottom of the screen holds nine squares: your gun, your SPECIAL, three weapon slots and four belt slots. You sail out with the gun and the SPECIAL. Everything else comes from the cards.',
       'Press a weapon\'s key to select it, press again to go back to the gun. Firing it also returns you to the gun. If a weapon has a firing arc, it is drawn on the water.',
     ],
     keys: [
       { keys: ['SHIFT'], action: 'Your class SPECIAL' },
       { keys: ['Q', 'E', 'R'], action: 'Weapon slots — select, or press again to cancel' },
-      { keys: ['1', '2', '3', '4'], action: 'Belt slots — fire a consumable' },
+      { keys: ['1', '2', '3', '4'], action: 'Belt slots — use a consumable (some then aim with a click)' },
     ],
   },
   {
@@ -145,21 +145,21 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
       // catalog.ts:40-50, 346-360 — copy 1 is the weapon, copies 2-5 are tiers; CONFIG.catalog.reloadStepPerTier 0.05
       'Every weapon below is a card from the pool. The first copy fits it in a weapon slot; each copy after that upgrades it, and every upgrade also shaves a little off its reload.',
       // CONFIG.torpedo (heavy): 50 dmg, 65 u/s, bow ±30°, 1 tube, 30 s; ladder +5 dmg, +2.5 speed, tubes 1,1,2,2,3, homing 0 → 0.5 rad/s from tier II
-      'HEAVY TORPEDO: Fires straight out the bow, in a cone thirty degrees either side of it. Slow to reload, but it hits for half a hull and keeps running until it finds something. Upgrades add damage, speed and a second tube, and from the second tier it steers itself toward the nearest ship.',
+      'HEAVY TORPEDO: Fires straight out the bow, in a cone thirty degrees either side of it. Slow to reload, but it hits hard and runs a long way. Upgrades add damage, speed and more tubes, and from the second tier it steers itself toward the nearest ship.',
       // CONFIG.lightTorpedo: 40 dmg, 45 u/s, both beams ±45°, 25 s; same ladder shape
       'LIGHT TORPEDO: Fires from either side of the ship, toward whichever side you click. Lighter and slower than the heavy, but you get to shoot sideways, which is where the enemy usually is. Same upgrades as the heavy.',
       // CONFIG.broadside: 4 turrets × 15 dmg, both beams ±60°, 18 s, reach 5/8 of radar; ladder +0.5 turret, +1 spread rung
       'BROADSIDE GUN: Click to either side and every turret on that side fires at once, each shell bursting where it lands. Shorter range than your main gun and useless straight ahead or astern. Upgrades add turrets and tighten the pattern.',
       // CONFIG.starShells: lit r165 u, 10 s, 10 dmg at burst to every enemy hull in the circle, 20 s; ladder +2.5 s, ×1.1 r, +0.5 flares, 10/12/15/17/20 dmg; the lit zone ignores island LOS
-      'STAR SHELLS: A flare over the point you click. For ten seconds you see everything inside the lit circle, islands or not, and only you do. It also hurts every enemy ship under it when it bursts. Upgrades make it wider, longer and meaner, and add a second flare.',
+      'STAR SHELLS: A flare over the point you click. For ten seconds you see everything inside the lit circle, islands or not, and only you do. It also hurts every enemy ship under it when it bursts. Upgrades make it wider, longer and meaner, and add more flares.',
       // CONFIG.phosphorShells: 20 dmg burst, r100 u burning zone 5 hp/s for 8 s, 20 s; ladder 20→30 dmg, 5→10 hp/s, ×1.1 r, 8→10 s; reveals nothing
       'PHOSPHOR SHELLS: A shell that bursts into a patch of burning water. Everyone caught in the burst takes damage, and anyone who stays in the patch keeps burning. It lights nothing and shows you nothing. It is just fire. Upgrades grow the patch and the burn.',
       // CONFIG.mine (naval): astern ±60° to 150 u, arms 3 s, 55 dmg, blast 48 u, 2 held, 15 s; chains into every armed naval mine in the blast, any owner (world.ts:4522-4540)
       'NAVAL MINES: Click behind your ship to drop a mine. It arms in three seconds and goes off when an enemy sails over it, and one going off sets off every other naval mine in its blast, whoever laid them. Upgrades add damage, blast and mines in the rack.',
       // CONFIG.captiveMine: trip ring 144 u, launches one torpedo (55 dmg, 65 u/s) at the tripper, 1 held, 20 s; ladder +5 dmg, held 1,1,2,2,3, homing 0 → 0.3 rad/s
-      'CAPTIVE MINES: Drops like a naval mine, but it does not blow up. When an enemy comes within range it fires a torpedo at them and is spent. Upgrades add damage and a second mine in the rack, and the torpedo learns to steer.',
+      'CAPTIVE MINES: Drops like a naval mine, but it does not blow up. When an enemy comes within range it fires a torpedo at them and is spent. Upgrades add damage and more mines in the rack, and the torpedo learns to steer.',
       // CONFIG.foulingMine: 10 dmg, blast 72 u, slow ×0.75 for 5 s, 2 held, 15 s; ladder ×1.1 blast, +1 held, slow to ×0.55
-      'FOULING MINES: A mine that barely hurts but fouls the propeller: anyone caught in it crawls at three quarters speed for five seconds. Lay them where the enemy will run. Upgrades widen the blast and slow them harder.',
+      'FOULING MINES: A mine that barely hurts but fouls the propeller: any enemy caught in it crawls at three quarters speed for five seconds. Lay them where the enemy will run. Upgrades widen the blast and slow them harder.',
       // CONFIG.mine.hp 10 / hitRadiusU 10 (amendments 200-202): only a deck-gun shell landing on the marker under your cursor hurts a mine; cannon/flak one shot, MG three at tier I; own mines are the one friendly-fire exception
       'A mine has ten hit points and only a direct hit from a gun hurts it. If you can see one, aim right at it and shoot it. Your own mines too. That is the one time you can hurt your own gear.',
     ],
@@ -189,7 +189,7 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
     heading: 'SHIP UPGRADES',
     paragraphs: [
       // catalog.ts:402-419 — ARMOR +25 hp (heals the grant), SPEED +2.5 u/s, TURNING +0.05 rad/s, RADAR SWEEP +3 rpm to 30, RELOAD −5 % per tier to 0.75; reload never touches consumables
-      'Five cards improve the ship itself, and they are always in the pool. ARMOR adds hull and heals you by the same amount. SPEED adds to your top speed. TURNING makes you turn faster. RADAR SWEEP spins your radar faster, down to a sweep every two seconds. RELOAD shortens every cooldown on the ship, except your consumables, which have none.',
+      'Five cards improve the ship itself, and they are in the pool whatever you carry. ARMOR adds hull and heals you by the same amount. SPEED adds to your top speed. TURNING makes you turn faster. RADAR SWEEP spins your radar faster, down to a sweep every two seconds. RELOAD shortens every cooldown on the ship, except your consumables, which have none.',
     ],
   },
 ];

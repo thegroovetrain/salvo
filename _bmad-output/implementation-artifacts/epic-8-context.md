@@ -17,7 +17,7 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 - Story 8.19: Wake Drafting — landed
 - Story 8.20: Bots Draw from the Pool — landed
 - Story 8.21: Results LOADOUT and the Match Record — landed
-- Story 8.22: How-to-Play and Copy Re-cut — landed (cycle 161: the five play sections re-cut from code, every weapon described, class names SPEEDBOAT · REPEATER · DREADNOUGHT, Settings rows fixed; client-only, PV 66)
+- Story 8.22: How-to-Play and Copy Re-cut — landed (cycle 161: the five play sections re-cut from code, every weapon described, class names SPEEDBOAT · REPEATER · DREADNOUGHT, Settings rows fixed; star/phosphor burst damage swapped, PV 66->67)
 
 ## Requirements & Constraints
 
@@ -283,3 +283,6 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 205. **The toasts stay `◆ <LINE> FITTED` / `◆ <LINE> STOCKED`** (orchestrator reading 2026-10-01, not objected to): the AC's `card fitted` / `consumable stocked` is shorthand for 8.7 ruling 14.
 206. **How-to-Play describes every weapon, in a human voice, never "fish"** (Eric 2026-10-01): the five play sections stay and the page gains one plain paragraph per gun, weapon line, live consumable and ship upgrade; still no GLOSSARY heading, no stat tables, no in-game copy; draft for Eric's pass.
 207. **Orchestrator readings for 8.22** (2026-10-01): SHOOTING re-cut with the gun pick; Settings' three false rows fixed (`Q / E / R` weapon slots, `SHIFT` class SPECIAL, no DEFAULT); HULL REPAIR described as 50 + 50 over 5 s; numbers are prose with CONFIG citations; subagents routed per `/orchestrate`.
+208. **STAR SHELLS and PHOSPHOR SHELLS swap burst damage** (Eric 2026-10-01): star 20/22/25/27/30, phosphor 10/12/15/17/20; phosphor's burn, star's light and both reloads unchanged; PV 66 → 67. Supersedes the damage halves of 130–131.
+209. **Review-gate record for cycle 161** (orchestrator 2026-10-01): both Fable Blind Hunter and Codex flagged "half a hull"; seven copy-precision patches and two regex fixes; two notes rejected.
+210. **FLAK reloads in 4 s at tier I** (Eric 2026-10-01): `CONFIG.flak.reloadMs` 6000 → 4000, ladder 4 → 3.2 s; damage, blast and turret rungs unchanged; inside PV 67.

@@ -176,11 +176,11 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     const t2 = cardStatRows(CATALOG.starShells, 1, held('starShells', 1));
     expect(t2.map((r) => r.label)).toEqual(['RELOAD', 'LIT', 'RADIUS', 'DAMAGE']); // 1.5 flares floors to 1
     expect(t2[1]).toEqual({ label: 'LIT', cur: '10.0 s', next: '12.5 s' });
-    expect(t2[3]).toEqual({ label: 'DAMAGE', cur: '10', next: '12' });
+    expect(t2[3]).toEqual({ label: 'DAMAGE', cur: '20', next: '22' });
     const t3 = cardStatRows(CATALOG.starShells, 2, held('starShells', 2));
     expect(t3.map((r) => r.label)).toEqual(['RELOAD', 'LIT', 'RADIUS', 'FLARES', 'DAMAGE']);
     expect(t3[3]).toEqual({ label: 'FLARES', cur: '1', next: '2' });
-    expect(t3[4]).toEqual({ label: 'DAMAGE', cur: '12', next: '15' });
+    expect(t3[4]).toEqual({ label: 'DAMAGE', cur: '22', next: '25' });
   });
 
   it('BROADSIDE: RELOAD, SPREAD, and TURRETS on the whole step', () => {
@@ -207,7 +207,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     const t5 = cardStatRows(CATALOG.phosphorShells, 4, held('phosphorShells', 4));
     expect(t5.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS', 'LASTS']);
     expect(t5).toHaveLength(CARD_STAT_ROWS);
-    expect(t5[1]).toEqual({ label: 'DAMAGE', cur: '27', next: '30' });
+    expect(t5[1]).toEqual({ label: 'DAMAGE', cur: '17', next: '20' });
     expect(t5[2]).toEqual({ label: 'BURN', cur: '8', next: '10 hp/s' });
   });
 
@@ -435,7 +435,7 @@ describe('cardStatRows — the CANNON and FLAK rungs that carry a turret or a ba
 
   it('FLAK rung to III: RELOAD, DAMAGE 14 to 16 and ROUNDS 1 to 2', () => {
     expect(cardStatRows(CATALOG.flak, 1, held('flak', 1))).toEqual([
-      { label: 'RELOAD', cur: '5.7 s', next: '5.4 s' },
+      { label: 'RELOAD', cur: '3.8 s', next: '3.6 s' },
       { label: 'DAMAGE', cur: '14', next: '16' },
       { label: 'ROUNDS', cur: '1', next: '2' },
     ]);
@@ -443,7 +443,7 @@ describe('cardStatRows — the CANNON and FLAK rungs that carry a turret or a ba
 
   it('FLAK rung to V: RELOAD, DAMAGE 18 to 20 and ROUNDS 2 to 3', () => {
     expect(cardStatRows(CATALOG.flak, 3, held('flak', 3))).toEqual([
-      { label: 'RELOAD', cur: '5.1 s', next: '4.8 s' },
+      { label: 'RELOAD', cur: '3.4 s', next: '3.2 s' },
       { label: 'DAMAGE', cur: '18', next: '20' },
       { label: 'ROUNDS', cur: '2', next: '3' },
     ]);
@@ -683,12 +683,12 @@ describe('cardStatRows — the machine gun and flak ladders (Story 8.15)', () =>
     expect(face('machineGun', 3)).toEqual(['RELOAD 8.5 s>8.0 s', 'SHELLS 22>24', 'DAMAGE 7>8', 'RATE 0.23 s>0.20 s']);
   });
 
-  it('FLAK tier II: RELOAD 6.0 s to 5.7 s, DAMAGE 12 to 14 — and the blast never moves', () => {
+  it('FLAK tier II: RELOAD 4.0 s to 3.8 s (6 s → 4 s at tier I, amendment 210), DAMAGE 12 to 14 — and the blast never moves', () => {
     // The rungs to III and V also add a flak turret (amendment 197): ROUNDS.
-    expect(face('flak', 0)).toEqual(['RELOAD 6.0 s>5.7 s', 'DAMAGE 12>14']);
-    expect(face('flak', 1)).toEqual(['RELOAD 5.7 s>5.4 s', 'DAMAGE 14>16', 'ROUNDS 1>2']);
-    expect(face('flak', 2)).toEqual(['RELOAD 5.4 s>5.1 s', 'DAMAGE 16>18']);
-    expect(face('flak', 3)).toEqual(['RELOAD 5.1 s>4.8 s', 'DAMAGE 18>20', 'ROUNDS 2>3']);
+    expect(face('flak', 0)).toEqual(['RELOAD 4.0 s>3.8 s', 'DAMAGE 12>14']);
+    expect(face('flak', 1)).toEqual(['RELOAD 3.8 s>3.6 s', 'DAMAGE 14>16', 'ROUNDS 1>2']);
+    expect(face('flak', 2)).toEqual(['RELOAD 3.6 s>3.4 s', 'DAMAGE 16>18']);
+    expect(face('flak', 3)).toEqual(['RELOAD 3.4 s>3.2 s', 'DAMAGE 18>20', 'ROUNDS 2>3']);
     expect(face('flak', 3).some((r) => r.startsWith('BURST'))).toBe(false);
   });
 

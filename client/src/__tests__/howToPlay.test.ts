@@ -23,6 +23,8 @@ import {
 } from '../how-to-play/copy.js';
 import { mountHowToPlayPage } from '../how-to-play/main.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { LINE_IDS, isStubLine } from '@salvo/shared';
+import { boonName } from '../ui/boonCopy.js';
 
 const page = (): HTMLElement => document.getElementById('how-to-play-page') as HTMLElement;
 const section = (heading: string): HowToSection | undefined =>
@@ -94,6 +96,21 @@ describe('how-to-play copy', () => {
     for (const name of shipUpgrades) expect(joined, name).toContain(name);
     // DEPTH CHARGE is a stub: it is described nowhere.
     expect(JSON.stringify(HOWTO_SECTIONS)).not.toContain('DEPTH CHARGE');
+  });
+
+  // The list above is the human-readable record; THIS pin is derived from the
+  // catalog, so a new live line (or a stub flipping live) fails the page until
+  // it is described (Edge Case Hunter, cycle 161). The three guns live under
+  // the CANNON / MACHINE GUN / FLAK words in THE GUNS; every other non-stub
+  // line's card name must appear in the four description sections.
+  it('describes every non-stub catalog line, derived from LINE_IDS', () => {
+    const joined = ['THE GUNS', 'WEAPONS', 'CONSUMABLES', 'SHIP UPGRADES']
+      .flatMap((h) => section(h)?.paragraphs ?? [])
+      .join(' ');
+    for (const id of LINE_IDS) {
+      if (isStubLine(id)) continue;
+      expect(joined, id).toContain(boonName(id, 0));
+    }
   });
 
   it('states the mine hit-point rule', () => {

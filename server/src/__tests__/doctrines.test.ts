@@ -929,15 +929,15 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     return { w, a, inside, outside };
   }
 
-  it('tier I: 10 damage to the hull inside, nothing to the hull outside, `hc` to the firer, the zone lit (r165, 10 s)', () => {
+  it('tier I: 20 damage to the hull inside, nothing to the hull outside, `hc` to the firer, the zone lit (r165, 10 s)', () => {
     const { w, a, inside, outside } = board();
     expect(a.stats.equipment.starShells.damage).toBe(CONFIG.starShells.damage);
     const { seen, at } = fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
     expect(kinds(seen)).toContain('burst');
-    expect(inside.hp).toBe(inside.stats.maxHp - 10);
+    expect(inside.hp).toBe(inside.stats.maxHp - 20);
     expect(outside.hp).toBe(outside.stats.maxHp);
     expect(a.hp).toBe(a.stats.maxHp);
-    expect(dmgFor(seen, 'inside').map((e) => (e as { amount: number }).amount)).toEqual([10]);
+    expect(dmgFor(seen, 'inside').map((e) => (e as { amount: number }).amount)).toEqual([20]);
     expect(dmgFor(seen, 'outside')).toEqual([]);
     // amendment 135(a): a burst that resolved a hull is a Hit Call, not a splash.
     expect(kinds(seen)).toContain('hc');
@@ -948,8 +948,8 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     expect(w.burnZones.size).toBe(0); // a flare never burns
   });
 
-  it('tier III deals 15 and tier V deals 20 — the ladder’s whole numbers, floored through the gate', () => {
-    for (const [copies, dmg] of [[2, 15], [4, 20]] as const) {
+  it('tier III deals 25 and tier V deals 30 — the ladder’s whole numbers, floored through the gate', () => {
+    for (const [copies, dmg] of [[2, 25], [4, 30]] as const) {
       const { w, a, inside } = board(copies);
       expect(a.stats.equipment.starShells.damage).toBe(dmg);
       fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
@@ -963,7 +963,7 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     const b = place(w, 'b', 460, 0, Math.PI / 2);
     fireUntilStop(w, a, SLOT_SEED_2, 0, 100);
     expect(a.hp).toBe(a.stats.maxHp);
-    expect(b.hp).toBe(b.stats.maxHp - 10);
+    expect(b.hp).toBe(b.stats.maxHp - 20);
   });
 
   it('a flare over empty water splashes (`sp`), lights its zone and hurts nobody', () => {
@@ -976,12 +976,12 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     expect(w.litZones.size).toBe(1);
   });
 
-  it('a SHIELD BLOCK absorbs the flare: shield 100 → 90, hull untouched, `dmg` amount 0, still `hc`', () => {
+  it('a SHIELD BLOCK absorbs the flare: shield 100 → 80, hull untouched, `dmg` amount 0, still `hc`', () => {
     const { w, a, inside } = board();
     inside.shield = { hpLeft: 100, until: w.now + 60_000 };
     const { seen } = fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
     expect(inside.hp).toBe(inside.stats.maxHp);
-    expect(inside.shield!.hpLeft).toBe(90);
+    expect(inside.shield!.hpLeft).toBe(80);
     expect(dmgFor(seen, 'inside').map((e) => (e as { amount: number }).amount)).toEqual([0]);
     expect(kinds(seen)).toContain('hc');
   });
@@ -993,7 +993,7 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     const { seen } = fireUntilStop(w, a, SLOT_SEED_2, 0, 650);
     expect(kinds(seen)).toContain('boom');
     expect(kinds(seen)).not.toContain('burst');
-    expect(mid.hp).toBe(mid.stats.maxHp - 10);
+    expect(mid.hp).toBe(mid.stats.maxHp - 20);
     expect(w.litZones.size).toBe(1);
     expect(Math.hypot([...w.litZones.values()][0].x, [...w.litZones.values()][0].y)).toBeLessThan(400);
   });
@@ -1026,20 +1026,20 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     return { w, a, slot, A, B, C };
   }
 
-  it('tier I: A and B take 20, C nothing, `hc`, and a r100 / 8 s / 5 hp/s zone spawns at the burst point (no lit zone)', () => {
+  it('tier I: A and B take 10, C nothing, `hc`, and a r100 / 8 s / 5 hp/s zone spawns at the burst point (no lit zone)', () => {
     const { w, a, slot, A, B, C } = board();
     const row = a.stats.equipment.phosphorShells;
-    expect([row.damage, row.zoneRadius, row.zoneDurationMs, row.dps, row.rangeU]).toEqual([20, 100, 8000, 5, CONFIG.vision.radar]);
+    expect([row.damage, row.zoneRadius, row.zoneDurationMs, row.dps, row.rangeU]).toEqual([10, 100, 8000, 5, CONFIG.vision.radar]);
     const hp = { A: A.hp, B: B.hp, C: C.hp };
     const { seen, at } = fireUntilStop(w, a, slot, 0, 400);
     expect(kinds(seen)).toContain('burst');
     expect(kinds(seen)).toContain('hc');
-    // The burst's 20 landed on A and B at once (the burn's first bite is a
+    // The burst's 10 landed on A and B at once (the burn's first bite is a
     // fraction on top; the exact burst amount is the first `dmg` each got).
-    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: 20 });
-    expect(dmgFor(seen, 'B')[0]).toMatchObject({ amount: 20 });
-    expect(hp.A - A.hp).toBeGreaterThanOrEqual(20);
-    expect(hp.B - B.hp).toBeGreaterThanOrEqual(20);
+    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: 10 });
+    expect(dmgFor(seen, 'B')[0]).toMatchObject({ amount: 10 });
+    expect(hp.A - A.hp).toBeGreaterThanOrEqual(10);
+    expect(hp.B - B.hp).toBeGreaterThanOrEqual(10);
     expect(C.hp).toBe(hp.C);
     expect(w.litZones.size).toBe(0);
     expect(w.burnZones.size).toBe(1);
@@ -1063,17 +1063,17 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     expect(w2.mines.has('m1')).toBe(true);
   });
 
-  it('tier V: burst 30, zone r146.41 / 10 s / 10 hp/s — stamped on the zone from the row at launch (amendment 135(e))', () => {
+  it('tier V: burst 20, zone r146.41 / 10 s / 10 hp/s — stamped on the zone from the row at launch (amendment 135(e))', () => {
     const { w, a, slot, A } = board(5);
     const row = a.stats.equipment.phosphorShells;
-    expect(row.damage).toBe(30);
+    expect(row.damage).toBe(20);
     expect(row.zoneRadius).toBeCloseTo(146.41, 6);
     expect(row.zoneDurationMs).toBe(10_000);
     expect(row.dps).toBe(10);
     const hp0 = A.hp;
     const { seen, at } = fireUntilStop(w, a, slot, 0, 400);
-    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: 30 });
-    expect(hp0 - A.hp).toBeGreaterThanOrEqual(30);
+    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: 20 });
+    expect(hp0 - A.hp).toBeGreaterThanOrEqual(20);
     const zone = [...w.burnZones.values()][0];
     expect(zone.r).toBeCloseTo(146.41, 6);
     expect(zone.until).toBe(at + 10_000);
@@ -1205,7 +1205,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     const { seen } = fireUntilStop(w, a, slot, 0, 650);
     expect(kinds(seen)).toContain('boom');
     expect(kinds(seen)).not.toContain('burst');
-    expect(mid.hp).toBeLessThanOrEqual(mid.stats.maxHp - 20);
+    expect(mid.hp).toBeLessThanOrEqual(mid.stats.maxHp - 10);
     expect(w.burnZones.size).toBe(1);
     const zone = [...w.burnZones.values()][0];
     expect(Math.hypot(zone.x, zone.y)).toBeLessThan(400); // short of the click

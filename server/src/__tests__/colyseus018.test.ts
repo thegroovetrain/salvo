@@ -165,8 +165,10 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 65 and admits 66', () => {
-  it('PROTOCOL_VERSION is 66', () => {
+describe('the PV join gate refuses 66 and admits 67', () => {
+  it('PROTOCOL_VERSION is 67', () => {
+    // Cycle 161 bumped 66 -> 67: STAR SHELLS / PHOSPHOR SHELLS burst bases
+    // swapped (Eric 2026-10-01, amendment 208); the refit card prints CONFIG.
     // Amendment 200 bumped 65 -> 66: the client reads CONFIG.mine.hitRadiusU
     // (its drawn mine ring is the deck guns' "on the mine" disc); mine hp
     // never leaves the server.
@@ -187,7 +189,7 @@ describe('the PV join gate refuses 65 and admits 66', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(66);
+    expect(PROTOCOL_VERSION).toBe(67);
   });
 
   it('refuses the immediately-previous protocol', () => {
@@ -196,6 +198,7 @@ describe('the PV join gate refuses 65 and admits 66', () => {
     // a 64 client still offers and prints the two deleted gun cards; a 63 client
     // also resolves the machine-gun ladder without its `rateMs` steps (a tier
     // card and a stat readout that disagree with the server's cadence).
+    expect(protocolVersionError(66)).toMatch(/refresh/i);
     expect(protocolVersionError(65)).toMatch(/refresh/i);
     expect(protocolVersionError(64)).toMatch(/refresh/i);
     expect(protocolVersionError(63)).toMatch(/refresh/i);
@@ -213,12 +216,12 @@ describe('the PV join gate refuses 65 and admits 66', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(67)).toMatch(/refresh/i);
+    expect(protocolVersionError(68)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(66)).toBeNull();
+    expect(protocolVersionError(67)).toBeNull();
   });
 });
 

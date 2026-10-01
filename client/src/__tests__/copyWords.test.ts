@@ -6,6 +6,11 @@
 //
 // `deck gun` is the one legal use of the word (amendments 96/107), so the deck
 // pattern exempts it.
+//
+// The sweep covers the copy surfaces the 8.22 AC names (How-to-Play, Settings
+// rows, class and SPECIAL names, card line names). `ui/taglines.ts` is Eric's
+// frozen home copy and its "ALL HANDS ON DECK" is the ship's deck, deliberately
+// outside the sweep, like "deck gun".
 
 import { describe, expect, it } from 'vitest';
 import { HOWTO_SECTIONS } from '../how-to-play/copy.js';
@@ -35,9 +40,9 @@ describe('client copy carries no retired deck word', () => {
   });
 
   it.each([
-    ['deck (except "deck gun")', /\bdeck\b(?!\s+gun)/i],
-    ['DEFAULT', /\bDEFAULT\b/],
-    ['STARTER', /\bSTARTER\b/],
+    ['deck (except "deck gun")', /\bdeck\b(?!\s+gun\b)/i],
+    ['DEFAULT', /\bdefault\b/i],
+    ['STARTER', /\bstarter\b/i],
   ])('no string matches %s', (_label, re) => {
     expect(strings.filter((s) => re.test(s))).toEqual([]);
   });

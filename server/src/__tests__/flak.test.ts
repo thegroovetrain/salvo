@@ -1,7 +1,7 @@
 // THE FLAK GUN (Story 8.15, Eric rulings 2026-09-28, epic-8 amendments 96(f),
 // 105 and 106) — the I/O matrix's flak rows through World.step():
 //   * one shell per click to the clicked point, bursting in a 50 u blast for
-//     12 hp per hull inside it (`hc`), reload 6 s, one round;
+//     12 hp per hull inside it (`hc`), reload 4 s (6 s until amendment 210), one round;
 //   * a hull crossing the path takes the 4 hp bodyblock and stops the shell;
 //   * the ORDNANCE side effect (amendment 105): an ENEMY torpedo inside the
 //     blast is REMOVED — no boom, no damage, no `hc` — and the shooter's OWN
@@ -66,12 +66,12 @@ function fish(w: World, id: string, ownerId: string, x: number, y: number): Shel
 const count = (log: readonly GameEvent[], k: string): number => log.filter((e) => e.k === k).length;
 
 describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amendment 105)', () => {
-  it('mounts the flak module in slot 0: one round, 6 s reload, 660 u range, the AR44 mask', () => {
+  it('mounts the flak module in slot 0: one round, 4 s reload (amendment 210), 660 u range, the AR44 mask', () => {
     const w = bareWorld();
     const a = flakker(w, 'a');
     expect(a.loadout[SLOT_GUN].equipmentId).toBe('flak');
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
-    expect(a.stats.equipment.flak).toMatchObject({ maxAmmo: 1, reloadMs: 6000, damage: 12, burstRadius: 50, contactDamage: 4 });
+    expect(a.stats.equipment.flak).toMatchObject({ maxAmmo: 1, reloadMs: 4000, damage: 12, burstRadius: 50, contactDamage: 4 });
     expect(a.stats.equipment.flak.rangeU).toBe(a.stats.radarRange);
     expect(FLAK.hits).toEqual(['hull', 'mine', 'decoy', 'ordnance']);
   });
@@ -91,7 +91,7 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
     expect(a.damageDealt).toBe(12);
     for (const e of log) if (e.k === 'shell') expect(e.w).toBe('flak');
     expect(count(log, 'mz')).toBe(1);
-    // One round: the pool is now reloading the full 6 s.
+    // One round: the pool is now reloading the full 4 s.
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
   });
 

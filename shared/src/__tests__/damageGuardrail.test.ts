@@ -334,10 +334,10 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
 // that stood here). The CONFIG field is back; the ladder is Eric's whole
 // numbers; and the per-shell law holds at every rung.
 describe('star shells DEAL DAMAGE again (amendment 130 — supersedes amendment 39)', () => {
-  it('the tier ladder is 10 / 12 / 15 / 17 / 20, every rung under the floor', () => {
-    expect(CONFIG.starShells.damage).toBe(10);
+  it('the tier ladder is 20 / 22 / 25 / 27 / 30, every rung under the floor', () => {
+    expect(CONFIG.starShells.damage).toBe(20);
     const ladder = [1, 2, 3, 4, 5].map((n) => stacked('starShells', n).equipment.starShells.damage);
-    expect(ladder).toEqual([10, 12, 15, 17, 20]);
+    expect(ladder).toEqual([20, 22, 25, 27, 30]);
     for (const d of ladder) expect(d).toBeLessThan(minHullHp);
   });
 
@@ -351,9 +351,9 @@ describe('star shells DEAL DAMAGE again (amendment 130 — supersedes amendment 
 // PHOSPHOR SHELLS (Story 8.17, amendment 131): the burst is a per-shell hit
 // like any other, and the burn is a slow DoT — neither can one-shot a hull.
 describe('phosphor shells stay under the one-hit-kill floor (amendment 131)', () => {
-  it('the burst ladder is 20 / 22 / 25 / 27 / 30 and the burn 5 / 6 / 7 / 8 / 10 hp/s', () => {
+  it('the burst ladder is 10 / 12 / 15 / 17 / 20 and the burn 5 / 6 / 7 / 8 / 10 hp/s', () => {
     const rows = [1, 2, 3, 4, 5].map((n) => stacked('phosphorShells', n).equipment.phosphorShells);
-    expect(rows.map((r) => r.damage)).toEqual([20, 22, 25, 27, 30]);
+    expect(rows.map((r) => r.damage)).toEqual([10, 12, 15, 17, 20]);
     expect(rows.map((r) => r.dps)).toEqual([5, 6, 7, 8, 10]);
     for (const r of rows) {
       expect(r.damage).toBeLessThan(minHullHp);

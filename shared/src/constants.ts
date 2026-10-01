@@ -1085,7 +1085,7 @@ export const CONFIG = {
     hits: HITS_HULL_MINE_DECOY_ORDNANCE, // AR44 / amendment 96(f)
     shellSpeed: 500, // u/s (amendment 105)
     maxAmmo: 1, // one shell (amendment 105)
-    reloadMs: 6000, // ms (amendment 105)
+    reloadMs: 4000, // ms (6 s → 4 s, Eric 2026-10-01, epic-8 amendment 210; was amendment 105's 6 s) — the −5 %/tier step runs it to 3.2 s at V
     damage: 12, // hp per burst victim (amendment 105)
     // hp to an early interceptor — a FIXED 4 hp bodyblock, derived ONCE from
     // the base damage (floor(40 % × 12), like `gun.contactDamage`) and NOT
@@ -1690,9 +1690,11 @@ export const CONFIG = {
     reloadMs: 20000, // ms — cooldown between flares
     // hp — TIER-I burst damage to every non-owner hull inside the whole lit
     // circle (Eric ruling 2026-09-29, epic-8 amendment 130; the STAR SHELLS
-    // ladder steps it +2/+3/+2/+3 to 20 at tier V — sim/catalog.ts). Whole
-    // numbers only (amendment 39's integer-damage rule still stands).
-    damage: 10,
+    // ladder steps it +2/+3/+2/+3 — sim/catalog.ts: 20 / 22 / 25 / 27 / 30,
+    // I–V). Whole numbers only (amendment 39's integer-damage rule still
+    // stands). (Swapped 2026-10-01, Eric, epic-8 amendment 208 — phosphor
+    // over-performed, star under-performed.)
+    damage: 20,
     // u — lit-zone radius, STRUCTURALLY half of base truesight (Eric ruling
     // 2026-07-23: star shells always light exactly half the BASE sight range,
     // independent of any player's sightRange upgrade stacks). Keep this as a
@@ -1718,7 +1720,7 @@ export const CONFIG = {
    * `zoneRadius` for `zoneDurationMs` that burns `dps` hp/s on every non-owner
    * afloat hull whose centre is inside. A HAZARD ONLY: the zone is drawn for
    * every observer who can see it, reveals nothing, extends no gun's reach and
-   * is not a lit zone. Tiers II–V (sim/catalog.ts): damage 20 → 30, dps 5 → 10,
+   * is not a lit zone. Tiers II–V (sim/catalog.ts): damage 10 → 20, dps 5 → 10,
    * radius ×1.1 per tier, duration 8 / 8 / 9 / 9 / 10 s, −5 % reload per tier
    * derived. The zone's numbers are STAMPED from the owner's effective row at
    * spawn (amendment 135(e)).
@@ -1732,7 +1734,10 @@ export const CONFIG = {
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     maxAmmo: 1, // one shell in the pool — presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between shells (−5 %/tier derived)
-    damage: 20, // hp — tier-I burst damage to every non-owner hull inside the zone
+    // hp — tier-I burst damage to every non-owner hull inside the zone; tiers
+    // I–V read 10 / 12 / 15 / 17 / 20 (swapped 2026-10-01, Eric, epic-8
+    // amendment 208 — phosphor over-performed, star under-performed).
+    damage: 10,
     zoneRadius: 100, // u — tier-I burst AND burning-zone radius (×1.1 per tier)
     zoneDurationMs: 8000, // ms — tier-I burning-zone lifetime
     dps: 5, // hp/s — tier-I burn on every non-owner afloat hull inside

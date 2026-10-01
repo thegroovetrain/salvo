@@ -272,7 +272,8 @@ describe('denial channel — lifecycle + privacy edges', () => {
 
 describe('pv join gate — the 65→66 bump (PV 66, amendment 200: the client reads CONFIG.mine.hitRadiusU; PV 65 was amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog — their effects are CANNON ladder rungs; PV 64 was cycle 158: the machine-gun ladder authors rateMs, the stats row drops idleReloadMs, OwnShip.chaff is self-private) is enforced at matchmake', () => {
   it('rejects pv-65 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(66);
+    expect(PROTOCOL_VERSION).toBe(67);
+    expect(protocolVersionError(66)).toMatch(/refresh/); // PV 67: star / phosphor burst bases swapped (amendment 208)
     expect(protocolVersionError(65)).toMatch(/refresh/);
     expect(protocolVersionError(64)).toMatch(/refresh/);
     expect(protocolVersionError(63)).toMatch(/refresh/);

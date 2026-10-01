@@ -2,7 +2,7 @@
 title: 'Story 8.22: How-to-Play and Copy Re-cut (+ the three class names)'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-review'
+status: 'done'
 baseline_revision: '28770b41'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -69,6 +69,7 @@ warnings: [oversized, multiple-goals]
 - `client/src/__tests__/classSelect.test.ts` `:131–133`, `:343–345`; `slotTooltip.test.ts:230`; `home.test.ts` `:184, :225, :262, :393, :581` -- display-name asserts → new names.
 - `client/src/__tests__/copyWords.test.ts` -- NEW: the client-copy pin (no `deck`/`DEFAULT`/`STARTER` in `HOWTO_SECTIONS`, `bindingRows()`, `CLASS_DISPLAY_NAMES`, `SPECIAL_NAMES`, the boonCopy line names).
 - Facts the copy states (read, not edited): `shared/src/constants.ts` `CONFIG.offer.size 4`, `xp.levelMs 60000`, `boost`, `instantReload`, `damageCut`, `hullRepair`, `regen`; `shared/src/sim/draw.ts` eligibility (`:13–33`, `:154–159`, `:200–208`); `shared/src/sim/loadout.ts` slots `:281–306`, `CONSUMABLE_IS_WEAPON` `:162–181`; `client/src/input/keyboard.ts` bindings; `server/src/game/world.ts` `mulligan` `:2753–2757`.
+- `shared/src/constants.ts` -- `starShells.damage` 10 → 20, `phosphorShells.damage` 20 → 10 (amendment 208), `flak.reloadMs` 6000 → 4000 (amendment 210); `shared/src/index.ts` `PROTOCOL_VERSION` 66 → 67; pins re-cut in `shared/src/__tests__/{barrel,stats,damageGuardrail,radarRaster}.test.ts`, `server/src/__tests__/{starShells,doctrines,colyseus018,denials,flak}.test.ts`, `client/src/__tests__/{cardStatRows,ordnanceMasksAreServerOnly}.test.ts`.
 - Docs: `VERSION`, `package.json`, `package-lock.json` (0.18.26), `CHANGELOG.md`, `_bmad-output/gds-workflow-status.yaml`, `_bmad-output/implementation-artifacts/{sprint-status.yaml, epic-8-context.md, epic-8-context-amendments.md (204–206), deferred-work.md}`, GDD `gdd.md` class tables `:118–122`, `:206–210`, `:126` (dated supersession: names land), `catalog-v3.md` stamp if it names a hull, `DESIGN.md:234–238` silhouette table (dated note: display names), `EXPERIENCE.md` Journey headings stamp, `epics.md` Story 8.22 (dated stamp: toasts stay as shipped; SHOOTING re-cut too).
 
 ## Tasks & Acceptance
@@ -91,7 +92,7 @@ warnings: [oversized, multiple-goals]
 - Given `/how-to-play`, when it mounts, then the five sections render in order with keycaps, every mechanism in the AC is explained from code facts, the win condition is stated, and no glossary heading exists.
 - Given the client copy sources, when the word pin runs, then no `deck` (other than `deck gun`), `DEFAULT` or `STARTER` string is found.
 - Given Settings, when the key reference opens, then Q/E/R are one weapon-slot row, Shift has its own row, and no row is false against `keyboard.ts`.
-- Given the whole change, when `npm run check` runs, then it exits 0 and `PROTOCOL_VERSION` is still 66.
+- Given the whole change, when `npm run check` runs, then it exits 0; `PROTOCOL_VERSION` is 67 (the two CONFIG rulings folded in mid-run; the copy itself is client-only).
 
 ## Spec Change Log
 
@@ -99,6 +100,45 @@ warnings: [oversized, multiple-goals]
 - **2026-10-01, mid-run (Eric) — MODEL ROUTING.** *"use /orchestrate for model selection for subagents. Don't waste fable."* Fact-gathering and mechanical landings on Sonnet, the implementation on Opus, the review gate on Fable (amendment 207(e)).
 
 ## Review Triage Log
+
+### 2026-10-01 — Review pass 1 (Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol`, same 921-line diff — verdicts: Blind Hunter fix-first (one wrong number), Edge Case Hunter build-on-it, Codex fix-first; agreement: BOTH Blind Hunter and Codex flagged HEAVY TORPEDO "hits for half a hull"; BOTH Codex and Edge Case Hunter flagged the `copyWords` sweep's scope vs the home tagline and the regex word boundaries; everything else single-model, verified by the orchestrator against the code before routing)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 12: (high 0, medium 2, low 10)
+- defer: 0
+- reject: 3: (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[medium]` `[patch]` HEAVY TORPEDO "hits for half a hull" (50 dmg vs 250–350 hp; Blind Hunter + Codex) → "hits hard".
+  - `[medium]` `[patch]` DAMAGE CUT "hits on your hull do half damage" — storm bites land in full (CONFIG.damageCut, amendment 101; Edge Case Hunter) → "weapon hits … The storm still bites in full."
+  - `[low]` `[patch]` INSTANT RELOAD "finish reloading at once" overstated amendment 98's one-round top-up (Blind Hunter) → "get their next shot right now".
+  - `[low]` `[patch]` FOULING MINES "anyone caught" — the owner is never slowed (Codex) → "any enemy caught".
+  - `[low]` `[patch]` "a second tube" / "a second flare" / "a second mine" understate the tier-V third (Blind Hunter) → "more tubes / flares / mines".
+  - `[low]` `[patch]` SHIP UPGRADES "always in the pool" false at cap (Blind Hunter + Edge Case Hunter) → "in the pool whatever you carry".
+  - `[low]` `[patch]` Belt keycap row "fire a consumable" where three aim with a click (Blind Hunter) → "use a consumable (some then aim with a click)".
+  - `[low]` `[patch]` "keeps running until it finds something" false for a homing torpedo past 1300 u (Blind Hunter) → "runs a long way".
+  - `[low]` `[patch]` "Everything else you draw at sea" vs the countdown draw (Blind Hunter) → "Everything else comes from the cards."
+  - `[low]` `[patch]` `copyWords` regexes let `deck gunner` and lowercase `default`/`starter` through (Codex + Edge Case Hunter) → `\bdeck\b(?!\s+gun\b)` and case-insensitive word matches; the test header now states the sweep's scope and that `ui/taglines.ts`'s "ALL HANDS ON DECK" is the ship's deck, deliberately outside it (orchestrator ruling, Eric may veto — amendment 209).
+  - `[low]` `[patch]` The every-line-described pin was a hand list (Edge Case Hunter) → a second pin derived from `LINE_IDS` minus `isStubLine`.
+  - `[low]` `[patch]` Codex: the sweep's name claimed more than its scope → header corrected (part of the regex patch).
+  - rejected: a pin-weakness note on the bare `SPEED` / `RELOAD` matches (honest today, recorded here); the intent-contract still saying five sections (read-only by rule; the Spec Change Log is the record); the FLAK anti-ordnance half as "undocumented" (deliberately not taught, amendment 105; ledgered).
+
+**Mid-run rulings folded into the same PR (Eric, 2026-10-01):** STAR SHELLS ↔ PHOSPHOR SHELLS burst damage swapped (amendment 208); FLAK reload 6 s → 4 s at tier I (amendment 210); `PROTOCOL_VERSION` 66 → 67. The flak edit was applied by the orchestrator after the Sonnet landing agent's classifier refused a mid-run message as untrusted; the instruction was Eric's in this session.
+
+## Auto Run Result
+
+**Status:** done — cycle 161, 0.18.26, `PROTOCOL_VERSION` 66 → 67; branch `worktree-dev-auto-8-22-how-to-play`, ONE PR to `development`, NOT merged (Eric merges). Epic 8 (The Pool) is complete: 8-0 … 8-22 landed.
+
+**Summary.** The three classes print their names — SPEEDBOAT (`torpedoBoat`), REPEATER (`mineLayer`), DREADNOUGHT (`battleship`) — from the one display table; ids, identity test and comments untouched. How-to-Play is re-cut from code facts into nine sections: the five play sections (SHOOTING teaches the gun pick; EQUIPMENT the hulls, the SPECIAL on Shift, the nine squares and the keys; UPGRADING the shared pool, the countdown offer and REDRAW, consumable stocking and the two fire modes, HULL REPAIR as built, regen) plus THE GUNS · WEAPONS · CONSUMABLES · SHIP UPGRADES describing every gun, weapon line, live consumable and ship ladder in plain words, never "fish" (Eric mid-run, amendment 206). Settings' three false key rows fixed. Mid-run CONFIG rulings folded in: STAR SHELLS ↔ PHOSPHOR SHELLS burst damage swapped (208), FLAK reload 6 → 4 s (210).
+
+**Eric rulings this run (epic-8 amendments 204–210):** 204 names; 205 toasts stay as shipped (orchestrator reading, not objected to); 206 weapon descriptions in a human voice; 207 orchestrator readings (SHOOTING re-cut, Settings rows, HULL REPAIR 50+50, prose numbers with CONFIG citations, `/orchestrate` routing); 208 star/phosphor swap; 209 review-gate record; 210 flak reload. Orchestrator ruling for Eric's veto: `ui/taglines.ts` "ALL HANDS ON DECK" is the ship's deck and stays outside the deck-word sweep.
+
+**Files changed.** Client: `ui/classNames.ts`, `how-to-play/copy.ts`, `ui/settings.ts`; tests `howToPlay`, `settings`, `classSelect`, `slotTooltip`, `home`, `cardStatRows`, `ordnanceMasksAreServerOnly`, NEW `copyWords.test.ts`. Shared: `constants.ts` (star/phosphor damage, flak reload), `index.ts` (PV 67), `sim/catalog.ts` (comment); tests `barrel`, `stats`, `damageGuardrail`, `radarRaster`. Server tests: `starShells`, `doctrines`, `colyseus018`, `denials`, `flak`. Docs: `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, both trackers, `epic-8-context.md`, `epic-8-context-amendments.md` (204–210), `deferred-work.md` (2 closed, 3 new), GDD class tables + star row, `catalog-v3.md` stamp, `DESIGN.md` silhouette note, `EXPERIENCE.md` journey notes, `epics.md` Story 8.22 + 8.17 ladder stamps.
+
+**Review.** One pass: Blind Hunter + Edge Case Hunter (Fable) + Codex `gpt-5.6-sol`. Patched 12 (2 medium: "half a hull" flagged by BOTH Blind Hunter and Codex; DAMAGE CUT vs the storm; 10 low wording-precision and regex fixes); rejected 3; deferred 0. `followup_review_recommended: false` — every patch is a one-clause copy edit or a test tightening, each re-verified against CONFIG.
+
+**Verification.** `npm run check` exit 0: shared 40 files / 1024 tests, server 83 / 2316, client 118 / 3759, hook suite 266 PASS; lint 0 errors (3 pre-existing `max-lines-per-function` warnings); tsc clean on server and client. `grep "TORPEDO BOAT\|MINE LAYER\|BATTLESHIP" client/src --include='*.ts' | grep -v __tests__` → nothing. `PROTOCOL_VERSION = 67`.
+
+**Residual risks.** The whole page is draft for Eric's pen (ledgered). The star/phosphor swap and the flak reload are untested in play — Eric's staging eye. Subagent routing note: a mid-run instruction relayed by message to a Sonnet landing agent was refused by its classifier as untrusted; the orchestrator applied that one-line change itself.
 
 ## Design Notes
 
@@ -115,4 +155,4 @@ warnings: [oversized, multiple-goals]
 - `npm run lint` -- expected: zero errors
 - `npm run check` -- expected: exit 0
 - `grep -rn "TORPEDO BOAT\|MINE LAYER\|BATTLESHIP" client/src --include='*.ts' | grep -v __tests__ | grep -v "^\S*:\s*//\|\* "` -- expected: no string literal matches
-- `grep -n "PROTOCOL_VERSION = " shared/src/index.ts` -- expected: 66
+- `grep -n "PROTOCOL_VERSION = " shared/src/index.ts` -- expected: 67
