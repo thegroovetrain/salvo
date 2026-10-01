@@ -1,7 +1,12 @@
 // THE CONTAINER-FIT PIN for the REFIT CARD'S HOVER TOOLTIP (Story 7-5 wave 2,
-// R2.17 — Eric ruling 2026-08-19), plus the two rulings that shipped alongside
-// it: hover-ONLY (no keyboard path), and colour-carries-ladder-position under
-// DESIGN.md's dual-coding floor.
+// R2.17 — Eric ruling 2026-08-19), plus the rulings that shipped alongside it:
+// hover-ONLY (no keyboard path), colour-carries-ladder-position under
+// DESIGN.md's dual-coding floor, and (cycle 157, amendment 181) the KIND
+// colours — dual-coded by the kind word.
+//
+// CYCLE 157 (amendment 180): the panel's body is the STAT TABLE of what the card
+// touches, valued after the card (`cardHoverRows`) — not prose. The walk below
+// is every line × every class × every copy count.
 //
 // THE POINT OF THE FILE. Amendment 47's ~90-character budget exists because
 // Story 2.8's doctrine text overflowed the 216×236 card BOX by 50–97px on the
@@ -27,7 +32,16 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CATALOG, CONFIG, type CatalogLine, type ShipClassId } from '@salvo/shared';
-import { boonName, boonKindLabel, boonTooltipText, cardTierLabel } from '../ui/boonCopy.js';
+import {
+  boonName,
+  cardHoverRows,
+  cardKind,
+  cardKindLabel,
+  cardTierLabel,
+  consumableStatRows,
+  statValueText,
+  type CardKind,
+} from '../ui/boonCopy.js';
 import {
   REFIT_TIP,
   REFIT_TIP_FLOOR_VIEWPORT_H,
@@ -40,6 +54,8 @@ import {
   type RefitTooltipModel,
 } from '../ui/refitTooltip.js';
 import {
+  KIND_COLORS,
+  KIND_EDGES,
   LINEAGE_TIERS,
   UpgradeMenu,
   lineageTint,
@@ -65,17 +81,22 @@ const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 const FLOOR_BAND = refitBandLayout(1280, REFIT_TIP_FLOOR_VIEWPORT_H);
 const CONTAINER_H = refitTooltipMaxPanelH(FLOOR_BAND.band.y);
 
-/** Every panel the catalog can ever produce: one per line per stack position
- *  (the heading is the ladder name AT THAT RUNG, so it moves with the stack;
- *  the explanation is keyed on the id alone and does not). */
+/** The hover model the band builds for a line at `stack` copies on `cls`. */
+function panelFor(def: CatalogLine, stack: number, cls: ShipClassId): RefitTooltipModel {
+  const rows = cardHoverRows(def, stack, { cls, cards: Array<string>(stack).fill(def.id) });
+  return refitTooltipModel(def, boonName(def.id, stack), rows, stack);
+}
+
+/** Every panel the catalog can ever open: every line × class × copies held
+ *  0..cap, keeping only those with rows (a card with none opens no panel). */
 function everyPanel(): { label: string; model: RefitTooltipModel }[] {
   const out: { label: string; model: RefitTooltipModel }[] = [];
   for (const def of LINES) {
-    for (let stack = 0; stack < def.cap; stack += 1) {
-      out.push({
-        label: `${def.id}@${stack}`,
-        model: { name: boonName(def.id, stack), body: boonTooltipText(def.id) },
-      });
+    for (const cls of CLASSES) {
+      for (let stack = 0; stack <= def.cap; stack += 1) {
+        const model = panelFor(def, stack, cls);
+        if (model.stats.length > 0) out.push({ label: `${def.id}@${stack}/${cls}`, model });
+      }
     }
   }
   return out;
@@ -83,78 +104,45 @@ function everyPanel(): { label: string; model: RefitTooltipModel }[] {
 
 const PANELS = everyPanel();
 
+/** A panel's rows as the DOM prints them, one `LABEL value` per line. */
+function rowText(model: RefitTooltipModel): string[] {
+  return model.stats.map((r) => `${r.label}${statValueText(r)}`);
+}
+
 describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => {
-  it('covers every catalog line at every stack position', () => {
-    // Catalog v3: 29 lines / 122 physical cards. It was 114 until Story 8.13
-    // traded two cap-1 ADD-ONS for two cap-5 lines (FOULING MINES became
-    // equipment, DEPTH CHARGE joined as a stub consumable, ACOUSTIC HOMING was
-    // deleted — epic-8 amendments 80/81/83). 26 lines / 109 cards since Story
-    // 8.15 (missile/monitor/heat seeking CUT; machine gun/flak became 4-copy
-    // ladders); 26 lines / 117 cards since Story 8.17 (PHOSPHOR and FLASH
-    // SHELLS re-cut from cap-1 add-ons into cap-5 lines).
+  it('covers every catalog line × class × copies held — every built line opens a panel', () => {
     expect(LINES).toHaveLength(26);
-    expect(PANELS.length).toBe(LINES.reduce((n, d) => n + d.cap, 0));
+    const lines = new Set(PANELS.map((p) => p.label.split('@')[0]));
+    // Only the never-dealt stub opens no panel.
+    expect(LINES.filter((d) => !lines.has(d.id)).map((d) => d.id)).toEqual(['depthCharge']);
+    expect(PANELS.length).toBe(
+      LINES.filter((d) => d.id !== 'depthCharge').reduce((n, d) => n + (d.cap + 1) * CLASSES.length, 0),
+    );
   });
 
-  // AMENDMENT 37 (Eric, 2026-09-17) — THE PANEL FLIPS RATHER THAN CLIPS.
-  //
-  // Amendment 36 hung the band off the HUD bar, and at the logical floor that
-  // left 130px of water above it against a tallest panel of 261px: 45 of the
-  // catalog's 114 panels would have been cut off at the top. STORY 8.7's 236 ->
-  // 226 card re-cut handed 10px of that back, and STORY 8.8 hands back 46 more
-  // (the DAMAGE CONTROL rail plus its seam), which moves the split BOTH ways
-  // without changing the rule: more water above, and a shorter band to open
-  // downward into. The panel's own width and type are untouched (epic-8
-  // amendment 42). Eric's ruling keeps the ratified above-the-band placement
-  // wherever it fits and opens the rest DOWNWARD from the band's top edge, over
-  // the card row they describe — never over the bar, never clipped. So the pin
-  // is no longer "everything fits above"; it is "everything fits SOMEWHERE, and
-  // the somewhere is one of exactly two".
-  it('opens every panel ABOVE at 1366x768 — the flip is a short-viewport rule', () => {
+  // AMENDMENT 37 (Eric, 2026-09-17) — THE PANEL FLIPS RATHER THAN CLIPS: it
+  // opens above the band whenever it fits there, otherwise DOWNWARD from the
+  // band's top edge over the card row — never over the bar, never clipped.
+  it('opens every panel ABOVE at 1366x768', () => {
     const band = refitBandLayout(1366, 768).band;
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, band).above).map((p) => p.label);
     expect(down).toEqual([]);
     expect(refitTooltipMaxPanelH(band.y)).toBe(340);
   });
 
-  it('flips exactly the panels the floor has no water for, and counts them', () => {
-    // The floor's own numbers, documented rather than implied: whoever changes
-    // the band, the bar or the copy moves this split and has to look here.
+  // CYCLE 157: a stat table is much shorter than the prose it replaced (the
+  // tallest is a seven-row weapon table, 170px), so at the floor EVERY panel
+  // opens above the band. The flip rule still stands (the DOM pins below
+  // exercise it on a shorter viewport); the split is still the water line.
+  it('opens every panel ABOVE even at the 1280x614 floor — the split is the water line', () => {
     expect(CONTAINER_H).toBe(186);
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, FLOOR_BAND.band).above);
-    expect(PANELS).toHaveLength(117);
-    // 45 at 8.7. Story 8.8 moved it BOTH ways and netted +1: 46px more water
-    // above lifts several panels back over the line, while HULL REPAIR's new
-    // explanation (amendment 50's one-line description) adds three tall panels
-    // of its own.
-    // 45 at 8.7, 46 at 8.8. Story 8.13 nets −2: the two DELETED add-ons
-    // (ACOUSTIC HOMING, the FOULING MINES verb) took two tall explained panels
-    // with them, and the ten cards that replaced them carry no explanation at
-    // all, so every one of them fits above.
-    // Story 8.15 leaves the DOWN count at 44: the eight new machine-gun and
-    // flak ladder panels carry a short draft explanation that still fits above,
-    // and the thirteen cut cards (missile, monitor, heat seeking, and one copy
-    // off each gun line) all fitted above too — so ABOVE goes 78 -> 65.
-    // Story 8.17 nets +3 DOWN (44 -> 47) and +5 ABOVE (65 -> 70): the two cap-1
-    // add-on panels (both tall, both down) left, PHOSPHOR SHELLS' five equipment
-    // panels carry its long DRAFT explanation and all open down, and FLASH
-    // SHELLS' five consumable panels carry a short one that fits above.
-    // Story 8.18 (cycle-153 review gate) nets +5 DOWN (47 -> 52) and −5 ABOVE
-    // (70 -> 65): SMOKE SCREEN's reworded DRAFT hover (radar still paints; the
-    // in-smoke sight cut) outgrows the water above, so its five consumable
-    // panels now open down — none clipped (the next test).
-    expect(down).toHaveLength(52);
-    expect(PANELS.length - down.length).toBe(65);
-    // The split IS the water line — nothing else decides it.
+    expect(down.map((p) => p.label)).toEqual([]);
     for (const { label, model } of PANELS) {
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);
       expect(p.above, label).toBe(p.height <= CONTAINER_H);
-      // DOWN: the budget is the band's own height, and a panel that outgrows it
-      // slides up by the shortfall rather than clipping (Story 8.8 — see
-      // RefitTipPlacement.offset). `maxH` follows the lift, so it is never a
-      // clip for anything the shipped catalog can produce.
-      expect(p.maxH, label).toBe(p.above ? CONTAINER_H : FLOOR_BAND.band.h + p.offset);
-      expect(p.offset, label).toBe(p.above ? 0 : Math.max(0, p.height - FLOOR_BAND.band.h));
+      expect(p.maxH, label).toBe(CONTAINER_H);
+      expect(p.offset, label).toBe(0);
     }
   });
 
@@ -188,19 +176,20 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     expect(clipped).toEqual([]);
   });
 
-  it('leaves real headroom in BOTH placements — neither pin is on the boundary', () => {
+  it('leaves real headroom at the floor — the pin is not on the boundary', () => {
     const worst = Math.max(...PANELS.map(({ model }) => refitTooltipMetrics(model, CONTAINER_H).height));
-    expect(worst).toBe(261);
-    // Above, at the comfortable floor: the water still out-measures the panel.
-    expect(refitTooltipMaxPanelH(refitBandLayout(1366, 768).band.y) - worst).toBeGreaterThanOrEqual(2);
-    // DOWN, at the floor: the band is 244px since Story 8.8 deleted the rail, so
-    // the tallest panel no longer fits inside it and takes the amendment-37
-    // slide-up instead. What has to hold is that the lift lands the panel in
-    // real water — its top stays on screen with room to spare, and its bottom
-    // still seats `barGap` above the bar.
-    const lift = Math.max(0, worst - FLOOR_BAND.band.h);
-    expect(lift).toBe(17);
-    expect(FLOOR_BAND.band.y - lift).toBeGreaterThanOrEqual(2);
+    expect(worst).toBe(170);
+    expect(CONTAINER_H - worst).toBeGreaterThanOrEqual(2);
+  });
+
+  it('models each stat row as ONE line box, one rowGap before the block', () => {
+    const box = Math.ceil(REFIT_TIP.nameSize * REFIT_TIP.nameLineHeight);
+    const head = { name: 'X', stats: [] };
+    const one = { name: 'X', stats: [{ label: 'A', cur: null, next: '1' }] };
+    const two = { name: 'X', stats: [...one.stats, { label: 'B', cur: null, next: '2' }] };
+    expect(refitTooltipMetrics(one, 999).height - refitTooltipMetrics(head, 999).height).toBe(REFIT_TIP.rowGap + box);
+    expect(refitTooltipMetrics(two, 999).height - refitTooltipMetrics(one, 999).height).toBe(box);
+    expect(refitTooltipMetrics(two, 999).statLines).toBe(2);
   });
 
   it('never carries a token wider than the panel, so nothing paints out its side', () => {
@@ -228,48 +217,17 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
 
 describe('the laws that constrain the fix', () => {
   // The fix for an overflow may not be "shrink the type until it fits" — that
-  // is the trade amendment 15 already refused on the card, and this panel's
-  // whole reason to exist is that the explanation should be READABLE.
-  it('keeps amendment 15 legibility: the explanation never crashes below 14px', () => {
-    expect(REFIT_TIP.bodySize).toBeGreaterThanOrEqual(14);
+  // is the trade amendment 15 already refused on the card.
+  it('keeps amendment 15 legibility: the panel never crashes below 14px', () => {
     expect(REFIT_TIP.nameSize).toBeGreaterThanOrEqual(14);
-    expect(Math.min(REFIT_TIP.bodySize, REFIT_TIP.nameSize) * 0.9).toBeGreaterThanOrEqual(
-      CLIENT_CONFIG.settings.monoFloorPx,
+    expect(REFIT_TIP.nameSize * 0.9).toBeGreaterThanOrEqual(CLIENT_CONFIG.settings.monoFloorPx);
+  });
+
+  it('every panel row is a real stat — a label and a value, never blank', () => {
+    const blank = PANELS.flatMap(({ label, model }) =>
+      model.stats.filter((r) => r.label.trim() === '' || r.next.trim() === '').map(() => label),
     );
-  });
-
-  // Nor may it be "cut the copy back to the old card budget", which would undo
-  // the ruling. Amendment 47's ~90 characters is what the FACE gets; the whole
-  // point here is that an explanation is allowed to be a real explanation.
-  // PARTIAL, not total, since catalog v3 (Story 8.1): a line whose MECHANISM is
-  // not built has nothing honest to explain, and inventing copy for a weapon
-  // nobody has played is what the naming law forbids. The exemptions are named
-  // EXACTLY so the list cannot rot — an agent who builds one has to delete its
-  // entry, and `boonCopy.test.ts` pins the same list from the copy side.
-  const NO_EXPLANATION: readonly string[] = [
-    'turning', 'deckGun',
-    // The three lines Story 8.13 made LIVE still have no explanation, and
-    // neither does FOULING MINES, whose add-on text died with its card: the
-    // mechanisms exist, the WORDS are Eric's (no-in-game-copy-unasked).
-    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'foulingMines',
-    // Story 8.15: `machineGun`/`flak` left (their ladders carry the two DRAFT
-    // hover descriptions, ledgered for Eric); missile/monitor/heat seeking CUT.
-    // `hullRepair` left this list in Story 8.8 — its mechanism is built now —
-    // and `shieldBlock`, `chaff`, `decoyBuoy` in Story 8.16 (DRAFT hovers);
-    // `smokeScreen` in Story 8.18 (its DRAFT hover).
-    'depthCharge',
-  ];
-
-  it('keeps the WRITTEN explanations genuinely explanatory — past the old card budget', () => {
-    const thin = LINES.filter((d) => !NO_EXPLANATION.includes(d.id))
-      .filter((d) => boonTooltipText(d.id).length <= 90)
-      .map((d) => d.id);
-    expect(thin).toEqual([]);
-  });
-
-  it('covers every line whose mechanism exists — and NOTHING it cannot explain', () => {
-    const blank = LINES.filter((d) => boonTooltipText(d.id).trim() === '').map((d) => d.id);
-    expect(blank.sort()).toEqual([...NO_EXPLANATION].sort());
+    expect(blank).toEqual([]);
   });
 });
 
@@ -315,13 +273,18 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
 
   const tip = (): HTMLElement => document.getElementById('refit-card-tooltip') as HTMLElement;
 
-  it('is hidden until a pointer enters a card, and shows that card\'s explanation', () => {
-    const { menu, cards } = open();
+  it('is hidden until a pointer enters a card, and shows that card\'s stat rows', () => {
+    const { menu, cards, view } = open();
     expect(tip().style.display).toBe('none');
     cards[0].dispatchEvent(new MouseEvent('mouseenter'));
     expect(tip().style.display).toBe('flex');
     expect(tip().textContent).toContain(boonName(OFFER[0], 0));
-    expect(tip().textContent).toContain(boonTooltipText(OFFER[0]));
+    // One DOM line per stat row, label then value.
+    const hover = view.options[0].hover;
+    expect(hover.length).toBeGreaterThan(0);
+    const lines = [...tip().children[2].children] as HTMLElement[];
+    expect(lines).toHaveLength(hover.length);
+    expect(lines.map((l) => l.textContent)).toEqual(hover.map((r) => `${r.label}${statValueText(r)}`));
     cards[0].dispatchEvent(new MouseEvent('mouseleave'));
     expect(tip().style.display).toBe('none');
     menu.hide();
@@ -333,8 +296,9 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
     cards[0].dispatchEvent(new MouseEvent('mouseenter'));
     cards[1].dispatchEvent(new MouseEvent('mouseenter'));
     expect(document.querySelectorAll('#refit-card-tooltip')).toHaveLength(1);
-    expect(tip().textContent).toContain(boonTooltipText(OFFER[1]));
-    expect(tip().textContent).not.toContain(boonTooltipText(OFFER[0]));
+    // radarSweep's hover is the SHIP table; PHOSPHOR's own BURN row is gone.
+    expect(tip().textContent).toContain('RADAR SWEEP');
+    expect(tip().textContent).not.toContain('BURN');
     menu.hide();
     document.body.replaceChildren();
   });
@@ -370,41 +334,42 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   // REVIEW GATE, CYCLE 141: the above/below decision went STALE on a resize.
   // `placeTip` ran only inside `showTip`, so a window that shrank while the
   // pointer sat on a card left the panel opening upward into water that was no
-  // longer there — clipped at the top, which is the exact outcome amendment 37
-  // exists to prevent. The per-frame `place()` now re-decides for the open tip.
+  // longer there. The per-frame `place()` now re-decides for the open tip.
+  // CYCLE 157: every stat panel fits above at the 1280x614 floor, so the shrink
+  // here goes past it, to a viewport whose water the tallest panel outgrows.
+  const SHORT = { w: 1280, h: 560 };
   it('re-decides an OPEN tip\'s placement when the viewport resizes under it', () => {
     const TALL = OFFER.indexOf('phosphorShells');
+    const model = panelFor(CATALOG.phosphorShells, 0, 'torpedoBoat');
     const before = { w: window.innerWidth, h: window.innerHeight };
     const { menu, cards, view } = open();
     cards[TALL].dispatchEvent(new MouseEvent('mouseenter'));
     const opened = { top: tip().style.top, bottom: tip().style.bottom };
-    resizeTo(1280, 614); // the 125% logical floor: 140px of water, a 240px panel
+    resizeTo(SHORT.w, SHORT.h);
     menu.update(view); // the per-frame refresh, which is how a resize reaches the band
     const resized = { top: tip().style.top, bottom: tip().style.bottom, maxHeight: tip().style.maxHeight };
-    const band = refitBandLayout(1280, 614).band;
+    const band = refitBandLayout(SHORT.w, SHORT.h).band;
     resizeTo(before.w, before.h);
     menu.hide();
     document.body.replaceChildren();
+    const p = refitTooltipPlacement(model, band);
+    expect(p.above).toBe(false); // the short viewport really has no water for it
     expect(opened.top).toBe('auto'); // it opened ABOVE, where it fitted
     expect(opened.bottom).toBe(`calc(100% + ${REFIT_TIP.gap}px)`);
-    expect(resized.top).toBe('0px'); // ...and flipped DOWN when the water went away
+    expect(resized.top).toBe(`${-p.offset}px`); // ...and flipped DOWN when the water went away
     expect(resized.bottom).toBe('auto');
-    expect(resized.maxHeight).toBe(`${band.h}px`);
+    expect(resized.maxHeight).toBe(`${p.maxH}px`);
   });
 
-  // AMENDMENT 37 REACHES THE DOM. The rule is pure (refitTooltipPlacement) but
-  // it is worth nothing if the two placements are not actually written, so both
-  // are taken here on the SAME card. The UI-scale tier is the lever: jsdom's
-  // 1024x768 window is 768 logical px at 100% (294px of water — `phosphorShells`
-  // fits above at 240px) and 614.4 at the 125% tier (140px — it does not).
-  // It was `foulingMines` until Story 8.13: that line became EQUIPMENT and lost
-  // its add-on explanation, so its panel is a 43px heading and fits everywhere.
+  // AMENDMENT 37 REACHES THE DOM: both placements written on the SAME card. The
+  // UI-scale tier is the lever — jsdom's 1024x768 window is 768 logical px at
+  // 100% (340px of water) and 512 at 150% (too little for the 170px panel).
   it('writes the ABOVE placement when the water is deep enough, DOWN when it is not', () => {
     const TALL = OFFER.indexOf('phosphorShells');
-    const model = { name: boonName(OFFER[TALL], 0), body: boonTooltipText(OFFER[TALL]) };
+    const model = panelFor(CATALOG.phosphorShells, 0, 'torpedoBoat');
     // Measured first, asserted after — a failed expectation inside the loop
     // would strand an open band in the document and poison every later DOM test.
-    const seen = [1, 1.25].map((factor) => {
+    const seen = [1, 1.5].map((factor) => {
       setUiScaleVar(factor);
       const { menu, cards } = open();
       cards[TALL].dispatchEvent(new MouseEvent('mouseenter'));
@@ -412,15 +377,15 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
       menu.hide();
       document.body.replaceChildren();
       const band = refitBandLayout(window.innerWidth / factor, window.innerHeight / factor).band;
-      return { factor, band, css: { top, bottom, maxHeight }, p: refitTooltipPlacement(model, band) };
+      return { factor, css: { top, bottom, maxHeight }, p: refitTooltipPlacement(model, band) };
     });
     setUiScaleVar(1);
-    for (const { factor, band, css, p } of seen) {
+    for (const { factor, css, p } of seen) {
       const above = factor === 1;
       expect(p.above, `@${factor}`).toBe(above);
-      expect(css.top, `@${factor}`).toBe(above ? 'auto' : '0px');
+      expect(css.top, `@${factor}`).toBe(above ? 'auto' : `${-p.offset}px`);
       expect(css.bottom, `@${factor}`).toBe(above ? `calc(100% + ${REFIT_TIP.gap}px)` : 'auto');
-      expect(css.maxHeight, `@${factor}`).toBe(`${above ? refitTooltipMaxPanelH(band.y) : band.h}px`);
+      expect(css.maxHeight, `@${factor}`).toBe(`${p.maxH}px`);
     }
   });
 });
@@ -435,7 +400,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
 // state meaning — dual-code (shape/position/text/audio)."* So each of the two
 // distinctions colour now carries must ALSO be readable with the colour removed.
 
-describe('ladder position is colour-coded AND dual-coded; the KIND is a word only', () => {
+describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('walks the loot-tier ramp green->blue->purple->red->gold, a DISTINCT hue per rung', () => {
     // Eric's ruling: cards are chrome, not the water, so they may carry the
     // convention every looter has taught players. The rungs must stay DISTINCT
@@ -475,20 +440,27 @@ describe('ladder position is colour-coded AND dual-coded; the KIND is a word onl
     }
   });
 
-  // ...and the card's KIND is a WORD and ONLY a word (Eric ruling 2026-09-15,
-  // amendment 8): the meta row is neutral, so nothing here is carried by hue at
-  // all. Every kind the catalog uses resolves to a DISTINCT word, so the text
-  // alone partitions the catalog.
-  it('states the kind in TEXT only — four distinct words, no tier colour', () => {
-    expect(boonKindLabel('equipment')).toBe('WEAPON');
-    expect(boonKindLabel('ladder')).toBe('UPGRADE');
-    expect(boonKindLabel('addon')).toBe('ADD-ON');
-    expect(boonKindLabel('consumable')).toBe('CONSUMABLE');
-    // THREE kinds in the shipped catalog since Story 8.17 re-cut the last two
-    // add-ons (amendment 134); the ADD-ON word stays for the kind it keeps.
-    const kinds = [...new Set(LINES.map((d) => d.kind))];
-    expect(kinds).toHaveLength(3);
-    expect(new Set([...kinds, 'addon' as const].map(boonKindLabel)).size).toBe(4);
+  // THE KIND (Eric ruling 2026-09-30, epic-8 amendment 181 — supersedes
+  // amendment 8's neutral word): WEAPON phosphor · WEAPON UPGRADE info · SHIP
+  // UPGRADE storm-readout · CONSUMABLE silver, on the word and the resting
+  // edge. DUAL-CODED: strip the colour and the WORD still names the kind — every
+  // kind has its own distinct word, so the text alone partitions the cards.
+  it('states the kind in TEXT as well as colour — five distinct words, five distinct colours', () => {
+    const KINDS: readonly CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade', 'consumable', 'addon'];
+    expect(new Set(KINDS.map(cardKindLabel)).size).toBe(KINDS.length);
+    expect(new Set(KINDS.map((k) => KIND_COLORS[k])).size).toBe(KINDS.length);
+    expect(KIND_COLORS).toEqual({
+      weapon: 'var(--hc-phosphor)',
+      weaponUpgrade: 'var(--hc-info)',
+      shipUpgrade: 'var(--hc-storm-readout)',
+      consumable: 'var(--hc-silver)',
+      addon: 'var(--hc-text-secondary)',
+    });
+    // Eric's picks keep clear of the two state colours this surface already uses.
+    for (const k of KINDS) {
+      expect(KIND_COLORS[k], k).not.toBe('var(--hc-amber)');
+      expect(KIND_COLORS[k], k).not.toBe('var(--hc-denied)');
+    }
   });
 
   it('renders the KIND word on the card (the copy count left with the interim face)', () => {
@@ -500,19 +472,10 @@ describe('ladder position is colour-coded AND dual-coded; the KIND is a word onl
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false, []) as OfferView);
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
-    expect(cards[0].textContent).toContain('UPGRADE'); // deckGunTurret — a ladder
-    expect(cards[1].textContent).toContain('WEAPON'); // heavyTorpedo — an equipment line
-    // STORY 8.7: the "n/cap" count is DELETED — the drawn ladder says the same
-    // thing in rungs, and Eric's standing rule is that a readout must earn its
-    // place.
-    //
-    // PINNED AS THE COUNT'S SHAPE, not as a bare slash (Story 8.13). The
-    // original assertion was `not.toContain('/')`, a proxy that was already
-    // untrue elsewhere on the face — HULL REPAIR's OVER TIME row has read
-    // `+50 HP / 5 S` since Story 8.8 — and that the HOMING row's `rad/s`
-    // (epic-8 amendment 85) now trips on the weapon faces too. What must stay
-    // gone is the COUNT: a number over a number. A unit with a solidus in it
-    // is a unit, and the two are told apart by the digits either side.
+    expect(cards[0].textContent).toContain('WEAPON UPGRADE'); // deckGunTurret — a gun ladder
+    expect(cards[1].textContent).toContain('WEAPON'); // heavyTorpedo copy 1 — the fit
+    expect(cards[1].textContent).not.toContain('UPGRADE');
+    // The "n/cap" count stays DELETED (Story 8.7): a number over a number.
     const COUNT = /\d\s*\/\s*\d/;
     expect(cards[0].textContent).not.toMatch(COUNT);
     expect(cards[1].textContent).not.toMatch(COUNT);
@@ -520,18 +483,36 @@ describe('ladder position is colour-coded AND dual-coded; the KIND is a word onl
     document.body.replaceChildren();
   });
 
-  it('paints the KIND word NEUTRAL — no tier tint survives anywhere on it', () => {
+  it('paints the KIND word and the resting edge in the kind\'s colour; armed stays amber', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['deckGunTurret'], boostUntil: 0,
-      cards: [], lvl: 0, xp: 0, repairHp: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['heavyTorpedo', 'deckGunTurret', 'armor', 'hullRepair'],
+      boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false, []) as OfferView);
-    const spans = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button span')] as HTMLElement[];
-    const meta = spans.filter((el) => el.textContent === 'UPGRADE');
-    expect(meta).toHaveLength(1);
-    for (const el of meta) expect(el.style.color).toBe('var(--hc-text-secondary)');
+    const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
+    const expected: CardKind[] = ['weapon', 'weaponUpgrade', 'shipUpgrade', 'consumable'];
+    expected.forEach((kind, i) => {
+      const line = CATALOG[you.offer[i]];
+      expect(cardKind(line, 0), line.id).toBe(kind);
+      const word = cardKindLabel(kind);
+      const spans = [...cards[i].querySelectorAll('span')] as HTMLElement[];
+      const meta = spans.filter((el) => el.textContent === word);
+      expect(meta, `${line.id} kind word`).toHaveLength(1);
+      expect(meta[0].style.color, line.id).toBe(KIND_COLORS[kind]);
+      // jsdom normalises the rgba() string; compare through a probe element.
+      const probe = document.createElement('div');
+      probe.style.borderColor = KIND_EDGES[kind];
+      expect(cards[i].style.borderColor, line.id).toBe(probe.style.borderColor);
+    });
+    // ARMED: the edge flips to amber and the kind word KEEPS its colour.
+    cards[0].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(cards[0].style.borderColor).toBe('var(--hc-amber)');
+    const word = ([...cards[0].querySelectorAll('span')] as HTMLElement[]).find((el) => el.textContent === 'WEAPON');
+    expect(word?.style.color).toBe(KIND_COLORS.weapon);
+    cards[0].dispatchEvent(new MouseEvent('mouseleave'));
+    expect(cards[0].style.borderColor).not.toBe('var(--hc-amber)');
     menu.hide();
     document.body.replaceChildren();
   });
@@ -586,16 +567,16 @@ describe('the panel is anchored on the band\'s own geometry', () => {
 // flip rather than a plumbing job.
 describe('the hover panel\'s consumable shape line', () => {
   it('adds the line for a CONSUMABLE and for nothing else', () => {
-    const instant = refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', 'body', 0);
+    const instant = refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', [], 0);
     expect(instant.interaction).toBe('CONSUMABLE · 1 · KEY FIRES · ×1');
-    const clicked = refitTooltipModel({ id: 'decoyBuoy', kind: 'consumable' }, 'DECOY BUOY', 'body', 0);
+    const clicked = refitTooltipModel({ id: 'decoyBuoy', kind: 'consumable' }, 'DECOY BUOY', [], 0);
     expect(clicked.interaction).toBe('CONSUMABLE · 1 · KEY PRIMES · CLICK FIRES · ×1');
     for (const line of [
       { id: 'radarSweep', kind: 'ladder' },
       { id: 'heavyTorpedo', kind: 'equipment' },
       { id: 'acousticHoming', kind: 'addon' },
     ]) {
-      expect(refitTooltipModel(line, 'N', 'body', 0).interaction, line.id).toBeUndefined();
+      expect(refitTooltipModel(line, 'N', [], 0).interaction, line.id).toBeUndefined();
     }
   });
 
@@ -608,7 +589,7 @@ describe('the hover panel\'s consumable shape line', () => {
   // being offered, never the one already held).
   it('prints the stock the belt will read AFTER the pick: held + 1', () => {
     const at = (held: number): string | undefined =>
-      refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', 'body', held).interaction;
+      refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', [], held).interaction;
     expect(at(0)).toBe('CONSUMABLE · 1 · KEY FIRES · ×1');
     expect(at(1)).toBe('CONSUMABLE · 1 · KEY FIRES · ×2');
     expect(at(2)).toBe('CONSUMABLE · 1 · KEY FIRES · ×3');
@@ -622,9 +603,10 @@ describe('the hover panel\'s consumable shape line', () => {
 
   it('costs the panel its own row, and nothing when there is no line', () => {
     const CONTAINER = 400;
-    const bare = refitTooltipMetrics({ name: 'HULL REPAIR', body: 'body' }, CONTAINER);
+    const rows = consumableStatRows('hullRepair');
+    const bare = refitTooltipMetrics({ name: 'HULL REPAIR', stats: rows }, CONTAINER);
     const withLine = refitTooltipMetrics(
-      refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', 'body', 0),
+      refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', rows, 0),
       CONTAINER,
     );
     expect(bare.interactionLines).toBe(0);
@@ -635,12 +617,9 @@ describe('the hover panel\'s consumable shape line', () => {
   it('fits inside the panel, at its shipped width (amendment 42)', () => {
     expect(REFIT_TIP.width).toBe(300);
     for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy']) {
-      const model = refitTooltipModel({ id, kind: 'consumable' }, boonName(id), boonTooltipText(id), 4);
+      const model = refitTooltipModel({ id, kind: 'consumable' }, boonName(id), consumableStatRows(id), 4);
       expect(refitTooltipWidestToken(model), id).toBeLessThanOrEqual(refitTooltipInnerWidth());
-      // VERTICALLY the panel is measured against the placement it would take,
-      // not against the above-the-band water alone: HULL REPAIR has real prose
-      // since Story 8.8, so at the floor it flips DOWN exactly like the tall
-      // weapon panels do. The amendment-47 claim is that it fits SOMEWHERE.
+      // VERTICALLY the panel is measured against the placement it would take.
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);
       expect(p.height, id).toBeLessThanOrEqual(p.maxH);
     }
@@ -657,9 +636,13 @@ describe('the hover panel\'s consumable shape line', () => {
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
     const tip = document.getElementById('refit-card-tooltip') as HTMLElement;
     const row = (): HTMLElement => tip.children[1] as HTMLElement;
-    // HULL REPAIR has no explanation yet (every consumable is a stub), so its
-    // panel never opens at all — the shape line is built, not shown. The LADDER
-    // beside it does open, and carries no shape line.
+    // HULL REPAIR's panel carries its shape line ABOVE its rows (ruling 13)...
+    cards[0].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(tip.style.display).toBe('flex');
+    expect(row().style.display).toBe('block');
+    expect(row().textContent).toBe('CONSUMABLE · 1 · KEY FIRES · ×1');
+    expect(tip.children[2].textContent).toContain('INSTANT');
+    // ...and the LADDER beside it opens with no shape line.
     cards[1].dispatchEvent(new MouseEvent('mouseenter'));
     expect(tip.style.display).toBe('flex');
     expect(row().style.display).toBe('none');

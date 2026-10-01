@@ -1,7 +1,12 @@
 // Per-equipment DISPLAY information for the hotbar + slot tooltip (Story 2.2).
 // The single client-side seam between an EquipmentId and the words/numbers the
-// player reads: display name, draft description copy, the interaction line
-// ("WEAPON · Q · SWITCH-TO"), and the numeric quick-info inputs.
+// player reads: display name, the interaction line ("WEAPON · Q · SWITCH-TO"),
+// and the numeric quick-info inputs.
+//
+// NO PROSE (Eric ruling 2026-09-30, epic-8 amendment 178): the per-equipment
+// description sentences are DELETED — the slot tooltip prints the weapon's live
+// stat table one number per line (ui/boonCopy.ts `equipmentStatRows`), and the
+// weapon explanations will live in How-to-Play.
 //
 // Numbers rule: EVERY number comes from `effectiveStats()` (the desync
 // firewall). Story 2.8 walked the documented migration seam: damage was
@@ -9,12 +14,11 @@
 // equipmentDamage() now reads `stats.<id>.damage` and moves with the fitted
 // boons exactly as reload/pool always have. Nothing here hand-copies a number.
 //
-// COPY STATUS: every name/description is DRAFT PLACEHOLDER (amendment 13, the
-// boon-copy rule) — canon later.
+// COPY STATUS: every name is DRAFT PLACEHOLDER (amendment 13, the boon-copy
+// rule) — canon later.
 
 import {
   CATALOG,
-  CONFIG,
   CONSUMABLE_IS_WEAPON,
   EQUIPMENT_IS_WEAPON,
   LINE_IDS,
@@ -88,60 +92,6 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   // longer a star-shell add-on — named from its card, title-cased.
   phosphorShells: 'Phosphor Shells',
 };
-
-/**
- * One-to-two sentence tooltip description per equipment id (DRAFT copy).
- * PARTIAL by construction: the unbuilt ids get no description, because writing
- * one would be inventing copy for a weapon nobody has played. `equipmentDescription`
- * fails open to '' for them, exactly as the rest of the copy layer does.
- */
-export const EQUIPMENT_DESCRIPTION: Partial<Record<EquipmentId, string>> = {
-  gun: 'The deck gun you always have. It flies to the clicked point and bursts there, hitting every hull inside the blast.',
-  heavyTorpedo: 'A bow-launched fish that runs flat and straight until it finds a hull. Slow to reload, brutal on contact.',
-  navalMines: 'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then takes the whole blast out of whoever found it.',
-  // THE CAPTIVE MINE'S LINE (Story 7-5 wave 2, R2.12; its own id since Story
-  // 8.13). The naval line ends "takes the whole blast out of whoever found it",
-  // which is a straight statement of contact detonation — the ONE thing this
-  // line does not do. A captive mine never detonates on contact; it launches a
-  // torpedo and is expended. The rest of the sentence is unchanged,
-  // deliberately: placement, the arming wait and the silence are all still
-  // true, and rewording settled copy that a ruling did not touch is exactly
-  // what the naming law forbids.
-  captiveMines: 'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then spends itself firing one torpedo at it.',
-  boost: 'Opens the throttle past its stops for a short burst of extra speed. Nothing else changes — you just leave sooner.',
-  broadside: 'Every turret on the aimed beam fires at once. The shells fan out to either side of the point you clicked, every one of them running to that same range.',
-  starShells: 'An illumination round. Where it bursts, a wide circle of ocean lights up for everyone — including the hulls in it.',
-  // THE TWO NEW SHIFTS (Story 8.15) — one mechanical line each, in the boost's
-  // register, every number read off CONFIG (amendments 98/99). DRAFT copy,
-  // ledgered for Eric.
-  // PHOSPHOR SHELLS (Story 8.17, amendment 135(j)) — DRAFT copy, ledgered for
-  // Eric; no numbers in the prose (the card prints them as rows).
-  phosphorShells:
-    'One shell to the click; every enemy hull in the burst takes damage and the water burns for seconds after.',
-  instantReload: 'Finishes the running reload of your gun and every fitted weapon.',
-  damageCut: `Cuts incoming weapon damage by ${Math.round((1 - CONFIG.damageCut.factor) * 100)} % for ${
-    CONFIG.damageCut.durationMs / 1000
-  } s.`,
-};
-
-/**
- * The tooltip description for a fitted piece of equipment.
- *
- * IT NO LONGER FORKS ON A VERB (Story 8.13). Until now the MINE's line was
- * rewritten in place when the CAPTIVE MINES card was held, because one id —
- * `navalMines` — could be either weapon. Captive mines are their own LINE now
- * (epic-8 amendments 76/81), so the two descriptions sit under their own ids in
- * the table above and this is a plain lookup again; the stats argument it took
- * only to read that verb is gone with it.
- *
- * LIGHT TORPEDO and FOULING MINES have NO entry, and that silence is
- * deliberate: their mechanisms are live now, but their copy is not ours to
- * write (the no-in-game-copy-unasked rule — Eric authors the words). They fail
- * open to '' exactly as the unbuilt ids do.
- */
-export function equipmentDescription(id: EquipmentId): string {
-  return EQUIPMENT_DESCRIPTION[id] ?? '';
-}
 
 /**
  * The label a slot's tooltip uses for how its content is operated: the gun is
@@ -273,10 +223,9 @@ export function lineForEquipment(id: EquipmentId): string | null {
  *
  * An EMPTY list means SHIPWIDE - the five universal ladders (ARMOR, SPEED,
  * TURNING, RADAR SWEEP, RELOAD) move the whole vessel and belong to no weapon.
- * Amendment 51 makes the hotbar the only place a fitted card becomes visible, so
- * those need a home that is not a weapon: the gun slot's tooltip carries them
- * under a `- SHIP -` divider (the gun is the permanent top slot, i.e. the
- * natural ship card) and their fit flash is rank-wide rather than slot-local.
+ * Their fit flash is rank-wide rather than slot-local (amendment 51), and
+ * since cycle 157 their numbers read on the HP globe's SHIP tooltip
+ * (amendment 179).
  *
  * Built ONCE at module load off the frozen CATALOG - it is authored data, not
  * per-frame state.
@@ -334,7 +283,7 @@ export function isShipwideCard(id: string): boolean {
  *
  * CAPPED, not raw: the ramp is five rungs and the caps are the catalog's, so a
  * duplicate that the server should never have granted cannot paint a sixth
- * colour. Fail-closed on an unknown id (0), the same discipline as slotBoonIds.
+ * colour. Fail-closed on an unknown id (0).
  */
 export function lineTier(cards: readonly string[], lineId: string): number {
   const line = (CATALOG as Record<string, CatalogLine | undefined>)[lineId];
@@ -443,7 +392,6 @@ export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number 
 export interface EquipmentInfo {
   id: EquipmentId;
   name: string;
-  description: string;
   /** Mechanically aimed-and-fired (EQUIPMENT_IS_WEAPON) vs instant activation. */
   isWeapon: boolean;
   /** hp per burst/hit, or null when the equipment deals none. */
@@ -459,7 +407,6 @@ export function equipmentInfo(stats: EffectiveStats, id: EquipmentId): Equipment
   return {
     id,
     name: EQUIPMENT_NAME[id],
-    description: equipmentDescription(id),
     isWeapon: EQUIPMENT_IS_WEAPON[id],
     damage: equipmentDamage(stats, id),
     reloadMs: equipmentReloadMs(stats, id),

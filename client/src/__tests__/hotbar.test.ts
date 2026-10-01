@@ -96,26 +96,10 @@ import {
   type TooltipCache,
 } from '../render/hotbar.js';
 // THE TOOLTIP CORE MOVED in Story 8.7 (ruling 13): `render/slotTooltip.ts` owns
-// the hover dwell, the accrued rows, the container-fit model and the placement.
-// The pins that measure them moved with it (__tests__/slotTooltip.test.ts);
-// what this file still needs from there is what the SQUARES are tested against.
-import {
-  NO_HOVER,
-  SHIP_DIVIDER_ROW,
-  TIP_TYPE,
-  TOOLTIP_MAX_PANEL_H,
-  boonRows,
-  hoverReady,
-  nextHover,
-  shouldShowTooltip,
-  slotBoonIds,
-  tooltipFrame,
-  tooltipModel,
-  tooltipPlacement,
-  tooltipRenderGeom,
-  trimmedBoonRows,
-  type TooltipBoonRow,
-} from '../render/slotTooltip.js';
+// the hover dwell, the stat-line model, the container-fit model and the
+// placement. The pins that measure them moved with it
+// (__tests__/slotTooltip.test.ts); this file keeps the memo-key pins.
+import { tooltipModel } from '../render/slotTooltip.js';
 import { hudBarLayout, microScale } from '../render/hudBar.js';
 import { equipmentGlyphSvg, glyphPaths } from '../render/equipmentIcons.js';
 import { wipeLabel } from '../render/cooldownWipe.js';
@@ -792,36 +776,16 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
   });
 });
 
-describe('the accrued build routes to its slot (the ◆n MARK is deleted — amendment 8)', () => {
-  it('counts the cards addressing this slot, and nothing on an unfitted-for slot', () => {
+describe('a square shows the build as its TIER numeral, never a tally (amendment 8)', () => {
+  it('prints the rung a slot\'s line stands on', () => {
     const cards = ['deckGunBarrel', 'deckGunBarrel', 'heavyTorpedo'];
     const rows = slotViewModels(viewFor('torpedoBoat', { cards }));
-    expect(rows[SLOT_GUN].boonCount).toBe(2); // gun
-    expect(rows[Q].boonCount).toBe(1); // heavy torpedo
-    expect(rows[SLOT_BOOST].boonCount).toBe(0); // boost
-    // ...and NONE of it is drawn on the square: the per-slot `◆n` mark rode the
-    // v2 categories and left with them (Eric ruling 2026-09-15), and Story 8.6
-    // took the words with the label column. What a square shows of the build is
-    // the TIER numeral; the list itself lives in the tooltip.
     expect(rows[SLOT_GUN].tier).toBe(1); // the deck gun sails at rung I (amendment 70)
     expect(rows[Q].tier).toBe(1); // ...and the torpedo's line is at copy 1
   });
 
-  it('folds the shipwide ladders into the GUN slot only (the ship card)', () => {
-    const cards = ['radarSweep', 'armor', 'reload'];
-    const rows = slotViewModels(viewFor('torpedoBoat', { cards }));
-    expect(rows[SLOT_GUN].boonCount).toBe(3);
-    expect(rows[Q].boonCount).toBe(0);
-    expect(slotBoonIds('heavyTorpedo', cards)).toEqual([]);
-  });
-
-  it('ignores a junk id on the wire rather than counting it', () => {
-    expect(slotBoonIds('gun', ['deckGunBarrel', 'notARealBoon', 'constructor'])).toEqual(['deckGunBarrel']);
-  });
-
   it('spends no glyphs on a count — a deep gun build prints its RUNG, never a tally', () => {
     const rows = slotViewModels(viewFor('torpedoBoat', { cards: Array<string>(12).fill('deckGunBarrel') }));
-    expect(rows[SLOT_GUN].boonCount).toBe(12); // the tooltip lists every one of them
     // ...and the square still shows ONE number: the rung. Twelve barrels buy no
     // rung at all — DECK GUN BARREL is not the gun's ladder — so the numeral is
     // the I the hull spawned with, not a 12.
@@ -1114,7 +1078,7 @@ describe('the tooltip memo keys on the slot\'s own stock (P5)', () => {
   const stats = statsFor('torpedoBoat');
   const cards = ['hullRepair', 'hullRepair'];
   const cached = (n: number): TooltipCache => ({
-    slot: BELT_1, id: 'hullRepair', stats, boons: cards, n,
+    target: BELT_1, id: 'hullRepair', stats, boons: cards, n,
     model: tooltipModel(BELT_1, 'hullRepair', stats, cards, n),
   });
 
@@ -1359,10 +1323,6 @@ describe('a stocked BELT square', () => {
     expect(row.state).toBe('empty');
     expect(row.id).toBeNull();
     expect(row.badge).toBeNull();
-  });
-
-  it('owns NO accrued rows — a consumable addresses no equipment', () => {
-    expect(slotViewModels(stocked(2, { cards: ['hullRepair', 'hullRepair'] }))[5].boonCount).toBe(0);
   });
 
   it('draws NO glyph for an instant or STUB consumable, and invents none', () => {

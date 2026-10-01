@@ -2336,6 +2336,22 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE CHAFF OWNER'S RING (cycle 157, Eric 2026-09-30, epic-8 amendment 184) —
+   * render/chaffRing.ts. A dim phosphor DASHED circle of `CONFIG.chaff.radius`
+   * around the owner's own burst point (self-private `you.chaff`), fading to
+   * nothing at the cloud's expiry. Client-only feel: none of these is gameplay.
+   */
+  chaffRing: {
+    /** Stroke alpha of a FRESH cloud; it falls linearly to 0 at `until`. */
+    alpha: 0.45,
+    /** Dash and gap lengths (world u) along the circumference. */
+    dash: 10,
+    gap: 8,
+    /** Stroke width (world u). */
+    width: 1.5,
+  },
+
+  /**
    * Radar blip render knobs — persistence and legibility for the quantized
    * intensity bitmap (the one radar grammar; cycle 105 deleted the retired
    * `silhouette` outline path and every knob that only it read).

@@ -23,6 +23,8 @@ import {
   shouldAutoOpen,
   spendLatchReleased,
   spendOutcome,
+  KIND_COLORS,
+  KIND_EDGES,
   type OfferCard,
   type OfferView,
   type RefitBox,
@@ -31,9 +33,10 @@ import {
 import { MICRO_VAR, domMicroScale } from '../ui/refitCardFit.js';
 import {
   boonFitToastLine,
-  boonKindLabel,
   boonName,
-  boonTooltipText,
+  cardHoverRows,
+  cardKind,
+  cardKindLabel,
   cardStatRows,
   cardTierLabel,
   cardTierSteps,
@@ -359,9 +362,11 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
       if (speaks) expect(card.rows.length, card.id).toBeGreaterThan(0);
       else expect(card.rows, card.id).toEqual([]);
       // ...and the three interim-face fields went with the face they belonged to.
-      for (const dead of ['count', 'lineage', 'description']) {
+      for (const dead of ['count', 'lineage', 'description', 'tooltip']) {
         expect(card, `${card.id}.${dead}`).not.toHaveProperty(dead);
       }
+      // CYCLE 157 (amendment 180): the hover is the AFTER-fold stat table.
+      expect(card.hover, card.id).toEqual(cardHoverRows(line, 0, ownShip()));
     }
     // Story 2.1 ("1-4 cards, no repair"): the view carries ONLY cards — the
     // canHeal/healHp fields left with the REPAIR spend and never came back.
@@ -438,11 +443,16 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // EXCLUSIVE line in the catalog. So no SHIPPED line carries that tier today;
   // the label itself is still supported and pinned in boonCopy.test.ts, and the
   // DOM row below still renders one from a hand-built card.
-  it('carries the KIND word, neutral and unconditional, on every card', () => {
-    // FLASH SHELLS (`dazzleShells`) reads CONSUMABLE since Story 8.17 (amendment
-    // 132) — the catalog carries no ADD-ON card any more (amendment 134).
+  // AMENDMENT 181 (Eric 2026-09-30): the kind is what the card does for the
+  // player — a function of the line AND the copies held.
+  it('carries the KIND word and its tone, unconditional, on every card', () => {
     const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret', 'captiveMines', 'dazzleShells'] }), false, false, false);
-    expect(view?.options.map((o) => o.kind)).toEqual(['UPGRADE', 'UPGRADE', 'WEAPON', 'CONSUMABLE']);
+    expect(view?.options.map((o) => o.kind)).toEqual(['SHIP UPGRADE', 'WEAPON UPGRADE', 'WEAPON', 'CONSUMABLE']);
+    expect(view?.options.map((o) => o.kindTone)).toEqual(['shipUpgrade', 'weaponUpgrade', 'weapon', 'consumable']);
+    // Copy 2 of an equipment line is a WEAPON UPGRADE.
+    const tier = offerView(ownShip({ offer: ['captiveMines'], cards: ['captiveMines'] }), false, false, false);
+    expect(tier?.options[0].kind).toBe('WEAPON UPGRADE');
+    expect(tier?.options[0].kindTone).toBe('weaponUpgrade');
   });
 
   it('carries the ladder length and the copies held — the rungs and their fill', () => {
@@ -503,12 +513,13 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   const cardsOf = (ids: readonly string[]): OfferCard[] =>
     ids.map((id) => ({
       id,
-      kind: boonKindLabel(CATALOG[id].kind),
+      kind: cardKindLabel(cardKind(CATALOG[id], 0)),
+      kindTone: cardKind(CATALOG[id], 0),
       name: boonName(id, 0),
       tier: cardTierLabel(CATALOG[id], 0),
       tierStep: cardTierSteps(CATALOG[id], 0),
       rows: cardStatRows(CATALOG[id], 0, { cls: 'torpedoBoat', cards: [] }),
-      tooltip: boonTooltipText(id),
+      hover: cardHoverRows(CATALOG[id], 0, { cls: 'torpedoBoat', cards: [] }),
       greyed: false,
       stack: 0,
       cap: CATALOG[id].cap,
@@ -560,7 +571,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(kids[0].style.width).toBe(`${R.iconBox}px`);        // icon box
     expect(kids[1].textContent).toBe(boonName(OFFER[0], 0));   // name
     expect(kids[2].style.height).toBe(`${R.ladderH}px`);       // ladder row
-    expect(kids[3].textContent).toBe(boonKindLabel(CATALOG[OFFER[0]].kind));
+    expect(kids[3].textContent).toBe(cardKindLabel(cardKind(CATALOG[OFFER[0]], 0)));
     expect(kids[4].style.display).toBe('grid');                // the five-row grid
     expect(kids[5].style.height).toBe(`${R.footH}px`);         // foot, blank at rest
     expect(kids[5].textContent).toBe('');
@@ -579,11 +590,10 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     }
   });
 
-  it('carries NO prose on the face — the explanation is hover-only (R2.17)', () => {
+  it('carries NO prose on the face (R2.17)', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({ options: cardsOf(['heavyTorpedo']) }));
     const text = cards()[0].textContent ?? '';
-    expect(text).not.toContain(boonTooltipText('heavyTorpedo').slice(0, 20));
     expect(text).not.toMatch(/[a-z]{4}/); // no lowercase word: the face is all caps + numbers
   });
 
@@ -592,32 +602,62 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   // The card face grew three CONDITIONAL lines. The digit chip stays the FIRST
   // span in every card (pinned above and re-pinned here against the new lines):
   // the whole 1-4 spatial mapping is read off it.
-  // THE META ROW IS UNCONDITIONAL AND NEUTRAL (Eric ruling 2026-09-15,
-  // amendment 8). The v2 RARE / EXCLUSIVE tag and its two tier colours are
-  // deleted with the rarity axis; every card now states its KIND as a word and
-  // its copy count, both in the secondary-text token.
-  it('renders the kind WORD on EVERY card, in the neutral token', () => {
+  // THE KIND IS COLOR-CODED (Eric ruling 2026-09-30, epic-8 amendment 181 —
+  // supersedes amendment 8's neutral word): the word and the resting edge carry
+  // the kind's token; the armed state keeps its amber edge and glow.
+  it('renders the kind WORD on EVERY card, in the kind\'s colour, with a kind-tinted resting edge', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({
       options: [
         { ...cardsOf(['radarSweep'])[0] },
         { ...cardsOf(['deckGunTurret'])[0] },
         { ...cardsOf(['captiveMines'])[0] },
+        { ...cardsOf(['hullRepair'])[0] },
       ],
     }));
-    const [ladder, single, weapon] = cards();
-    expect(ladder.textContent).toContain('UPGRADE');
-    expect(single.textContent).toContain('UPGRADE');
-    expect(weapon.textContent).toContain('WEAPON');
-    // No tier hue anywhere: not on the border (that channel belongs to the
-    // armed edge and the denied pulse) and not on any span.
-    for (const b of cards()) {
-      expect(b.style.borderColor).not.toBe('var(--hc-info)');
-      const colors = [...b.querySelectorAll('span')].map((el) => (el as HTMLElement).style.color);
-      expect(colors).not.toContain('var(--hc-info)');
-      expect(colors).not.toContain('var(--hc-storm-readout)');
-      expect(colors).toContain('var(--hc-text-secondary)');
-    }
+    const expected = [
+      ['SHIP UPGRADE', 'shipUpgrade'],
+      ['WEAPON UPGRADE', 'weaponUpgrade'],
+      ['WEAPON', 'weapon'],
+      ['CONSUMABLE', 'consumable'],
+    ] as const;
+    cards().forEach((b, i) => {
+      const [word, tone] = expected[i];
+      const kindEl = ((b.lastElementChild as HTMLElement).children[3]) as HTMLElement;
+      expect(kindEl.textContent, word).toBe(word);
+      expect(kindEl.style.color, word).toBe(KIND_COLORS[tone]);
+      const probe = document.createElement('div');
+      probe.style.borderColor = KIND_EDGES[tone];
+      expect(b.style.borderColor, word).toBe(probe.style.borderColor);
+      expect(b.style.boxShadow, word).toBe('none');
+    });
+    // ARMED: amber edge + glow, the kind word keeps its colour; disarmed: back
+    // to the kind edge.
+    const first = cards()[0];
+    first.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(first.style.borderColor).toBe('var(--hc-amber)');
+    expect(first.style.boxShadow).toContain('var(--hc-amber)');
+    expect(((first.lastElementChild as HTMLElement).children[3] as HTMLElement).style.color).toBe(KIND_COLORS.shipUpgrade);
+    first.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(first.style.borderColor).not.toBe('var(--hc-amber)');
+    menu.hide();
+  });
+
+  it('opens the hover panel with ONE row line per hover stat, and none for a card with no rows', () => {
+    const menu = new UpgradeMenu(() => {});
+    const opts = cardsOf(['heavyTorpedo', 'radarSweep']);
+    menu.toggle(view({ options: [...opts, { ...opts[1], id: 'depthCharge', hover: [] }] }));
+    const tip = document.getElementById('refit-card-tooltip') as HTMLElement;
+    cards()[0].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(tip.style.display).toBe('flex');
+    const rows = [...tip.children[2].children] as HTMLElement[];
+    expect(rows).toHaveLength(opts[0].hover.length);
+    expect(rows[0].children[0].textContent).toBe(opts[0].hover[0].label);
+    expect((rows[0].children[0] as HTMLElement).style.color).toBe('var(--hc-text-secondary)');
+    expect((rows[0].children[1] as HTMLElement).style.color).toBe('var(--hc-phosphor)');
+    cards()[2].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(tip.style.display).toBe('none');
+    menu.hide();
   });
 
   it('draws one rung per copy the line carries, filled up to what is held', () => {

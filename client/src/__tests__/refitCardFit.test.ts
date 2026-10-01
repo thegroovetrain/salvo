@@ -26,9 +26,11 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOG, CONFIG, LINE_IDS, type CatalogLine, type ShipClassId } from '@salvo/shared';
 import {
-  boonKindLabel,
+  KIND_WORDS,
   boonName,
-  boonTooltipText,
+  cardHoverRows,
+  cardKind,
+  cardKindLabel,
   cardStatRows,
   cardTierLabel,
 } from '../ui/boonCopy.js';
@@ -78,7 +80,7 @@ function heldCards(line: CatalogLine, stack: number, maxed: boolean): string[] {
 function faceOf(line: CatalogLine, stack: number, cls: ShipClassId, maxed: boolean): RefitCardCopy {
   const cards = heldCards(line, stack, maxed);
   return {
-    kind: boonKindLabel(line.kind),
+    kind: cardKindLabel(cardKind(line, stack)),
     name: boonName(line.id, stack),
     tier: cardTierLabel(line, stack),
     cap: line.cap,
@@ -405,28 +407,26 @@ describe('the laws that constrain the fix', () => {
     expect(R.greyedAlpha).toBeGreaterThan(R.lockedAlpha);
   });
 
-  // The seam check that R2.17's split still holds: what left the face is on the
-  // hover panel. PARTIAL since catalog v3 — a line whose MECHANISM is not built
-  // has nothing honest to explain, and the exemptions are named exactly so the
-  // list cannot rot (an agent who builds one has to delete its entry).
-  const NO_EXPLANATION: readonly string[] = [
-    'turning', 'deckGun', // new in v3: no v2 line to carry text from
-    // LIVE BUT UNEXPLAINED since Story 8.13: the mechanisms exist, the WORDS
-    // are Eric's to write. FOULING MINES joined them when its add-on text died
-    // with the card (epic-8 amendment 81 — the naval mine no longer fouls, so
-    // the shipped sentence would have been a lie on two counts).
-    'lightTorpedo', 'supercavTorpedo', 'captiveMines', 'foulingMines',
-    // Story 8.15: `machineGun`/`flak` left (their ladders carry the two DRAFT
-    // hover descriptions, ledgered for Eric); missile/monitor/heat seeking CUT.
-    // `hullRepair` left this list in Story 8.8 — its mechanism is built now —
-    // and `shieldBlock`, `chaff`, `decoyBuoy` in Story 8.16 (DRAFT hovers);
-    // `smokeScreen` in Story 8.18 (its DRAFT hover).
-    'depthCharge',
-  ];
+  // The seam check that R2.17's split still holds: what the face does not
+  // print is on the hover panel — since cycle 157 (amendment 180) the stat
+  // table of what the card touches. Only the never-dealt stub has none.
+  it('keeps the contract: every built line has hover rows', () => {
+    const silent = LINES.filter((line) => cardHoverRows(line, 0, { cls: 'torpedoBoat', cards: [] }).length === 0).map(
+      (d) => d.id,
+    );
+    expect(silent).toEqual(['depthCharge']);
+  });
 
-  it('keeps the contract: what left the face is on the hover tooltip, for every built line', () => {
-    const silent = LINES.filter((line) => boonTooltipText(line.id).trim() === '').map((d) => d.id);
-    expect(silent.sort()).toEqual([...NO_EXPLANATION].sort());
+  // AMENDMENT 181 split the kind word; the longest is WEAPON UPGRADE, and the
+  // nowrap kind row must still sit inside the card at every kind.
+  it('fits the longest kind word (WEAPON UPGRADE) inside the inner box', () => {
+    const longest = [...KIND_WORDS].sort((a, b) => b.length - a.length)[0];
+    expect(longest).toBe('WEAPON UPGRADE');
+    for (const kind of KIND_WORDS) {
+      const m = refitCardMetrics({ ...GREYED_FACE, kind });
+      expect(m.kindWidth, kind).toBeLessThanOrEqual(m.innerW);
+      expect(m.overflowX, kind).toBeLessThanOrEqual(0);
+    }
   });
 });
 

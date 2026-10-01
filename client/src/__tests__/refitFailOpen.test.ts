@@ -13,7 +13,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CATALOG, CONFIG, effectiveStats, type OwnShip } from '@salvo/shared';
-import { boonDescription, boonTooltipText } from '../ui/boonCopy.js';
+import { boonDescription, cardHoverRows } from '../ui/boonCopy.js';
 import { beltPressDenied } from '../input/keyboard.js';
 import { makeOffer } from '../ui/results.js';
 
@@ -75,17 +75,17 @@ describe('boonDescription — an unresolvable hull renders nothing, never throws
     }
   });
 
-  // ...and the riders really did land on the hover tooltip rather than being
-  // deleted. RETARGETED in cycle 119: this pin was authored around INTEL RANGE,
-  // whose catalog line is now deleted, so it runs on `shipHull` — a SURVIVING
-  // line that carried a standing rider ("Repairs the hull it adds.") which the
-  // same R2.17 move pushed into the hover explanation.
-  it('moved the standing riders to the hover explanation, which needs no hull', () => {
-    expect(boonTooltipText('armor')).toContain('repairs');
-    expect(boonTooltipText('navalMines')).toContain('trip ring');
-    // The explanation is keyed on the id alone, so an unresolvable hull cannot
-    // silence it — the tooltip is the surface that always has something to say.
-    expect(boonTooltipText('armor').length).toBeGreaterThan(100);
+  // CYCLE 157 (amendment 180): the hover panel is the card's AFTER-fold stat
+  // table now, so it goes through the same class lookup — and must fail open
+  // the same way: no rows (no panel) on an unresolvable hull, never a throw,
+  // while a consumable's CONFIG rows need no hull at all.
+  it('the hover rows go silent on an unresolvable hull, and never throw', () => {
+    for (const def of Object.values(CATALOG)) {
+      expect(() => cardHoverRows(def, 0, UNKNOWN as never), def.id).not.toThrow();
+      if (def.kind !== 'consumable') expect(cardHoverRows(def, 0, UNKNOWN as never), def.id).toEqual([]);
+    }
+    expect(cardHoverRows(CATALOG.armor, 0, KNOWN as never).length).toBeGreaterThan(0);
+    expect(cardHoverRows(CATALOG.hullRepair, 0, UNKNOWN as never).length).toBeGreaterThan(0);
   });
 
   it('never substitutes a fabricated hull — every catalog line is SILENT, not merely non-throwing', () => {
