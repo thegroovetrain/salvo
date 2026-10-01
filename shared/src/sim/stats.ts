@@ -38,7 +38,8 @@
 //   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling);
 //   - the mine ring derivations (deriveMineRings): a CONTACT mine's trip ring
 //     from its folded blastRadius, the CAPTIVE's from its TIER;
-//   - gun.barrels clamped to 1..3 integer;
+//   - gun.barrels clamped to 1..3 integer (the reachable max is 2 — the
+//     CANNON ladder's tier-V rung adds the second barrel; the clamp stays);
 //   - EVERY integer equipment field (tubes/turrets/barrels/pools) FLOORED
 //     ONCE here, after a fold that accumulated it as a float — catalog-v3 R17's
 //     standing rule (a +0.5 tube step shows nothing until it completes a whole);
@@ -503,7 +504,7 @@ function gunRow(cls: ShipClass): EffectiveGun {
     damage: cls.gun?.damage ?? CONFIG.gun.damage,
     contactDamage: CONFIG.gun.contactDamage,
     burstRadius: CONFIG.gun.burstRadius,
-    barrels: 1, // base single mount — the DECK GUN BARREL ladder adds
+    barrels: 1, // base single mount — the CANNON ladder's tier-V rung adds one
   };
 }
 

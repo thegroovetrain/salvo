@@ -979,8 +979,9 @@ export const CONFIG = {
     hits: HITS_HULL_MINE_DECOY,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
-    // AFT TURRET boon (gunTurret) may raise the pool to 2 via the whitelisted
-    // gun.maxAmmo stat path. The base fit is still one round.
+    // CANNON ladder's tier-III rung (catalog `deckGun`, Eric 2026-09-30) raises
+    // the pool to 2 via the whitelisted gun.maxAmmo stat path. The base fit is
+    // still one round.
     maxAmmo: 1,
     // ms — cooldown between shots. RETUNED 3000 → 5000 (Eric ruling
     // 2026-08-04, the global-cooldown-reduction cycle): the gun fired far too

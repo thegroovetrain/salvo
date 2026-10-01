@@ -151,25 +151,36 @@ describe('eligibleLines — the whole eligibility law', () => {
   });
 
   it('THE WHOLE GUN FAMILY follows the MOUNTED gun, appliesTo or not (amendment 89d, review F3)', () => {
-    // Only DECK GUN names `appliesTo` — it is the ladder whose copies advance
-    // the gun's equipment TIER (catalog.tierTargetOf reads that same field), so
-    // TURRET and BARREL deliberately do NOT carry one. They name the row the
-    // only other way a slotless ladder can: through their tier's stat path.
+    // CANNON (`deckGun`) names `appliesTo` — it is the ladder whose copies
+    // advance the gun's equipment TIER. Since 2026-09-30 it is the WHOLE cannon
+    // family: the one-off TURRET and BARREL cards are its tier III / V rungs.
     expect(CATALOG.deckGun.appliesTo).toEqual(['gun']);
-    expect(CATALOG.deckGunTurret.appliesTo).toBeUndefined();
-    expect(CATALOG.deckGunBarrel.appliesTo).toBeUndefined();
+    expect(Object.hasOwn(CATALOG, 'deckGunTurret')).toBe(false);
+    expect(Object.hasOwn(CATALOG, 'deckGunBarrel')).toBe(false);
 
-    const GUN_FAMILY = ['deckGun', 'deckGunTurret', 'deckGunBarrel'];
-    // Mounted gun is the deck gun's row: all three are dealable.
+    const GUN_FAMILY = ['deckGun'];
+    // Mounted gun is the deck gun's row: CANNON is dealable.
     const mounted = eligibleLines(OPEN).map((e) => e.id);
     for (const id of GUN_FAMILY) expect(mounted, id).toContain(id);
 
-    // A seat carrying ANY other gun (Story 8.15) is dealt none of them — before
-    // review F3, TURRET and BARREL were dealt as universal ladders and stepped
-    // a module the hull is not carrying.
+    // A seat carrying ANY other gun (Story 8.15) is dealt none of it.
     const otherGun: DrawShip = { ...OPEN, mountedGun: 'machineGun' as EquipmentId };
     const elsewhere = eligibleLines(otherGun).map((e) => e.id);
     for (const id of GUN_FAMILY) expect(elsewhere, id).not.toContain(id);
+
+    // A gun ladder WITHOUT `appliesTo` still follows the mounted gun through its
+    // tier's `equipment.<row>.` stat path (ladderHost source 2, review F3) — an
+    // injected test line, since no production line relies on it any more.
+    const pathOnly: CatalogLine = {
+      id: 'testGunPool' as LineId,
+      kind: 'ladder',
+      cap: 1,
+      tiers: [[{ kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }]],
+    };
+    expect(ladderHost(pathOnly)).toBe('gun');
+    const injected: Record<string, CatalogLine> = { ...CATALOG, testGunPool: pathOnly };
+    expect(eligibleLines(OPEN, injected).some((e) => (e.id as string) === 'testGunPool')).toBe(true);
+    expect(eligibleLines(otherGun, injected).some((e) => (e.id as string) === 'testGunPool')).toBe(false);
 
     // ...while the five UNIVERSAL ladders (no `equipment.` stat path, no
     // appliesTo) are gun-blind and stay dealable whatever is mounted.
@@ -191,17 +202,15 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(ladderHost(CATALOG.machineGun)).toBe('machineGun');
     expect(ladderHost(CATALOG.flak)).toBe('flak');
     expect(ladderHost(CATALOG.deckGun)).toBe('gun');
-    expect(ladderHost(CATALOG.deckGunTurret)).toBe('gun'); // via its stat path
-    expect(ladderHost(CATALOG.deckGunBarrel)).toBe('gun');
     for (const id of ['armor', 'speed', 'turning', 'radarSweep', 'reload'] as const) {
       expect(ladderHost(CATALOG[id]), id).toBeUndefined(); // universal
     }
 
     // Which gun ladders a seat can be dealt, per mounted gun — the WHOLE set,
     // so a cannon ladder can never reach a flak seat and vice versa.
-    const GUN_LADDERS = ['deckGun', 'deckGunTurret', 'deckGunBarrel', 'machineGun', 'flak'];
+    const GUN_LADDERS = ['deckGun', 'machineGun', 'flak'];
     const want: Record<GunId, string[]> = {
-      deckGun: ['deckGun', 'deckGunTurret', 'deckGunBarrel'],
+      deckGun: ['deckGun'],
       machineGun: ['machineGun'],
       flak: ['flak'],
     };

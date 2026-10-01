@@ -1,12 +1,17 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
-// Pinned here: 26 lines / 117 cards with the exact per-line caps and kinds of
+// Pinned here: 24 lines / 114 cards with the exact per-line caps and kinds of
 // `catalog-v3.md` §1 as amended; `tiers.length === cap` on every line; the
 // 1-line stub set; the validator's rules, including its refusal of a stat
 // path that takes `add` from one line and `mult` from another; and a seeded
 // permutation property — ≥200 shuffles of random legal multisets over all
 // three classes, deep-equal AND JSON-identical.
+//
+// 2026-09-30 DELETED THE TWO ONE-OFF GUN CARDS (Eric: "there are NO MORE
+// one-off upgrades; EVERY upgrade is tiered"): 26/117 -> 24/114. −1
+// (`deckGunTurret`) and −2 (`deckGunBarrel`); the turret and the barrel are
+// now CANNON rungs (tier III / tier V) and FLAK gained a turret at III and V.
 //
 // STORY 8.14 DELETED THE DECK PINS (Eric ruling 2026-09-21, epic-8 amendment
 // 89a). `DEFAULT_DECKS`, `DEFAULT_OWNED` and `deckFromCounts` no longer exist:
@@ -44,6 +49,7 @@ import {
   catalogCardCount,
   effectiveStats,
   isStubLine,
+  ladderSteps,
   mulberry32,
   resolveCards,
   tierTargetOf,
@@ -63,9 +69,8 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   turning: { cap: 4, kind: 'ladder', stub: false },
   radarSweep: { cap: 5, kind: 'ladder', stub: false },
   reload: { cap: 5, kind: 'ladder', stub: false },
+  // CANNON — the one deck-gun line since 2026-09-30 (TURRET/BARREL deleted).
   deckGun: { cap: 4, kind: 'ladder', stub: false },
-  deckGunTurret: { cap: 1, kind: 'ladder', stub: false },
-  deckGunBarrel: { cap: 2, kind: 'ladder', stub: false },
   lightTorpedo: { cap: 5, kind: 'equipment', stub: false }, // LIVE since 8.13 (R18)
   heavyTorpedo: { cap: 5, kind: 'equipment', stub: false },
   // A CONSUMABLE since 8.13 (amendment 74) — it keeps its LINE_IDS slot.
@@ -103,20 +108,73 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
 const STUB_IDS: readonly LineId[] = ['depthCharge'];
 
 describe('catalog v3 identity', () => {
-  it('ships 26 lines in the ruled order, keyed by id', () => {
-    expect(LINE_IDS.length).toBe(26);
+  it('ships 24 lines in the ruled order, keyed by id', () => {
+    expect(LINE_IDS.length).toBe(24);
     expect(Object.keys(CATALOG)).toEqual([...LINE_IDS]);
     for (const id of LINE_IDS) expect(CATALOG[id].id).toBe(id);
   });
 
-  it('matches the sheet line for line (cap, kind, stub) and sums to 117 cards', () => {
+  it('matches the sheet line for line (cap, kind, stub) and sums to 114 cards', () => {
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       expect({ cap: line.cap, kind: line.kind, stub: line.stub === true }).toEqual(SHEET[id]);
     }
     // 109 -> 117 in Story 8.17 (amendments 131/132): the two 1-card add-ons
-    // became a 5-card equipment line and a 5-card consumable.
-    expect(catalogCardCount()).toBe(117);
+    // became a 5-card equipment line and a 5-card consumable. 117 -> 114 on
+    // 2026-09-30: DECK GUN TURRET (1) and DECK GUN BARREL (2) deleted.
+    expect(catalogCardCount()).toBe(114);
+  });
+
+  it('resolves NO deleted one-off gun id (Eric 2026-09-30) — a dead id on the wire is dropped', () => {
+    for (const dead of ['deckGunTurret', 'deckGunBarrel']) {
+      expect((LINE_IDS as readonly string[]).includes(dead)).toBe(false);
+      expect(Object.hasOwn(CATALOG, dead)).toBe(false);
+      expect(resolveCards([dead])).toEqual([]);
+    }
+    // A list carrying a dead id folds exactly as if it were absent.
+    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGunTurret', 'deckGun', 'deckGunBarrel'])).toEqual(
+      effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun']),
+    );
+  });
+
+  it('has NO EMPTY RUNG on any production line — every upgrade is tiered (Eric 2026-09-30)', () => {
+    for (const id of LINE_IDS) {
+      CATALOG[id].tiers.forEach((tier, k) => expect(tier.length, `${id} tier ${k + 1}`).toBeGreaterThan(0));
+    }
+  });
+
+  it('authors the CANNON ladder rung by rung: turret at tier III, barrel at tier V (Eric 2026-09-30)', () => {
+    const dmg = { kind: 'stat', path: 'equipment.gun.damage', add: 1.25 };
+    expect(CATALOG.deckGun.appliesTo).toEqual(['gun']);
+    expect(CATALOG.deckGun.tiers).toEqual([
+      [dmg], // I → II
+      [dmg, { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }], // II → III
+      [dmg], // III → IV
+      [dmg, { kind: 'stat', path: 'equipment.gun.barrels', add: 1 }], // IV → V
+    ]);
+  });
+
+  it('ladderSteps gives every rung a FRESH array (never the caller\'s, never a sibling\'s); the catalog rungs are deep-frozen', () => {
+    const step = [{ kind: 'stat', path: 'maxHp', add: 1 }] as const;
+    const steps = [step, step, step];
+    const line = ladderSteps('armor', steps);
+    expect(line.kind).toBe('ladder');
+    expect(line.cap).toBe(3);
+    expect(line.tiers).toHaveLength(3);
+    for (let k = 0; k < 3; k += 1) {
+      expect(line.tiers[k]).not.toBe(steps[k]);
+      for (let j = k + 1; j < 3; j += 1) expect(line.tiers[k]).not.toBe(line.tiers[j]);
+    }
+    expect(ladderSteps('flak', [step], { appliesTo: ['flak'] }).appliesTo).toEqual(['flak']);
+    for (const id of ['deckGun', 'flak'] as const) {
+      const tiers = CATALOG[id].tiers;
+      expect(Object.isFrozen(tiers), id).toBe(true);
+      expect(new Set(tiers).size, id).toBe(tiers.length);
+      for (const tier of tiers) {
+        expect(Object.isFrozen(tier), id).toBe(true);
+        for (const e of tier) expect(Object.isFrozen(e), id).toBe(true);
+      }
+    }
   });
 
   it('has tiers.length === cap on every line', () => {
@@ -274,9 +332,14 @@ describe('catalog v3 identity', () => {
         { kind: 'stat', path: 'equipment.machineGun.damage', add: 1 },
       ]);
     }
-    for (const tier of CATALOG.flak.tiers) {
-      expect(tier).toEqual([{ kind: 'stat', path: 'equipment.flak.damage', add: 2 }]);
-    }
+    // FLAK: +2 damage every rung, and a TURRET (+1 pool) on the rungs reaching
+    // tier III and tier V (Eric 2026-09-30). The blast radius never moves.
+    const flakDmg = { kind: 'stat', path: 'equipment.flak.damage', add: 2 };
+    const flakPool = { kind: 'stat', path: 'equipment.flak.maxAmmo', add: 1 };
+    expect(CATALOG.flak.tiers[0]).toEqual([flakDmg]);
+    expect(CATALOG.flak.tiers[1]).toEqual([flakDmg, flakPool]);
+    expect(CATALOG.flak.tiers[2]).toEqual([flakDmg]);
+    expect(CATALOG.flak.tiers[3]).toEqual([flakDmg, flakPool]);
     // Each ladder advances its OWN gun's tier (the reload step reads it).
     expect(tierTargetOf(CATALOG.machineGun)).toBe('machineGun');
     expect(tierTargetOf(CATALOG.flak)).toBe('flak');

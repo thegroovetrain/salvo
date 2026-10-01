@@ -182,7 +182,7 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'equipment.captiveMines.homingTurnRate',
       'equipment.foulingMines.blastRadius', 'equipment.foulingMines.maxAmmo',
       'equipment.foulingMines.slowFactor',
-      'equipment.machineGun.maxAmmo', 'equipment.machineGun.damage', 'equipment.flak.damage',
+      'equipment.machineGun.maxAmmo', 'equipment.machineGun.damage', 'equipment.flak.damage', 'equipment.flak.maxAmmo',
       'equipment.starShells.litDurationMs', 'equipment.starShells.litRadius',
       'equipment.starShells.maxAmmo', 'equipment.starShells.damage',
       'equipment.broadside.spreadRung', 'equipment.broadside.turrets',
@@ -480,8 +480,9 @@ describe('two homes — a card may touch stats and slots, NOTHING else, each via
 // ---------------------------------------------------------------------------
 
 describe('one derivation, both sides — incremental vs replayed slot-id parity', () => {
-  /** The NON-STUB equipment lines plus a ladder, as a grant pool. */
-  const POOL: LineId[] = ['heavyTorpedo', 'navalMines', 'broadside', 'starShells', 'armor', 'deckGunTurret'];
+  /** The NON-STUB equipment lines plus two ladders (CANNON carries the pool
+   *  rung since 2026-09-30), as a grant pool. */
+  const POOL: LineId[] = ['heavyTorpedo', 'navalMines', 'broadside', 'starShells', 'armor', 'deckGun'];
 
   /**
    * The server's incremental path, emulated faithfully: per granted card,
@@ -526,13 +527,15 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
   });
 
   it('a capacity ladder + an equipment fit compose: turret pool 2 beside a fresh fill', () => {
-    const cards: LineId[] = ['deckGunTurret', 'navalMines'];
+    // CANNON ×2 reaches tier III, whose rung adds the second turret (Eric
+    // 2026-09-30 — the deleted DECK GUN TURRET card's effect).
+    const cards: LineId[] = ['deckGun', 'deckGun', 'navalMines'];
     const stats = effectiveStats(BS, cards);
     const loadout = slotsWithCards(stats, cards);
     expect(loadout.map((s) => s.equipmentId)).toEqual([
       'gun', 'boost', 'navalMines', null, null, null, null, null, null,
     ]);
-    expect(loadout[0].state).toEqual({ n: 2, reloadMsLeft: 0 }); // DECK GUN TURRET pool
+    expect(loadout[0].state).toEqual({ n: 2, reloadMsLeft: 0 }); // the CANNON tier-III pool
     expect(loadout[WEAPON_SLOTS[0]].state).toEqual({ n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 });
   });
 
