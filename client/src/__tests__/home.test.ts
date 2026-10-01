@@ -181,14 +181,14 @@ describe('showHome — first-run vs returning routing', () => {
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     const text = home().textContent ?? '';
-    expect(text).toContain('BATTLESHIP');
+    expect(text).toContain('DREADNOUGHT');
     expect(text).toContain('YOUR SHIP');
     expect(text).toContain('CHANGE CLASS');
     expect(text).not.toContain('STD GUN'); // the retired loadout sub-line
     expect(text).not.toContain('LONG-RANGE CANNON');
     // The chip is the ONLY place the hull is named now (Eric ruling 2026-08-17):
     // the button's "DEPLOY AS BATTLESHIP · SOLO" sub-line was restating it.
-    expect(text).not.toContain('DEPLOY AS BATTLESHIP');
+    expect(text).not.toContain('DEPLOY AS DREADNOUGHT');
     playButton().click();
     expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'deckGun'); // empty callsign → server assigns
     expect(document.getElementById('hc-class-select')).toBeNull(); // no layer, connected
@@ -222,7 +222,7 @@ describe('showHome — first-run vs returning routing', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); // pick it
     expect(onDeploy).not.toHaveBeenCalled();
     const text = home().textContent ?? '';
-    expect(text).toContain('BATTLESHIP'); // the chip, which is now the only place it shows
+    expect(text).toContain('DREADNOUGHT'); // the chip, which is now the only place it shows
     expect(text).not.toContain('SELECT CLASS'); // ...and the first-run prompt is gone
     expect(localStorage.getItem('hullcracker.class')).toBe('battleship'); // persisted
   });
@@ -259,7 +259,7 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     expect(playButton().textContent).toBe('SOLO');
     expect(soloButton().textContent).toBe('SOLO VS AI');
     for (const btn of [playButton(), soloButton()]) {
-      expect(btn.textContent).not.toMatch(/TORPEDO BOAT|BATTLESHIP|MINE LAYER|DEPLOY AS/);
+      expect(btn.textContent).not.toMatch(/SPEEDBOAT|DREADNOUGHT|REPEATER|DEPLOY AS/);
     }
   });
 
@@ -390,7 +390,7 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     press('Enter');
     expect(labelOf(playButton()).textContent).toBe('SOLO');
     expect(labelOf(soloButton()).textContent).toBe('SOLO VS AI');
-    expect(home().textContent).toContain('BATTLESHIP'); // ...the chip took the pick
+    expect(home().textContent).toContain('DREADNOUGHT'); // ...the chip took the pick
   });
 
   it('setBusy dims BOTH doors, and a busy solo press cannot start a second join', () => {
@@ -578,7 +578,7 @@ describe('showHome — CONFIRM SELECTION saves the class WITHOUT deploying', () 
     expect(localStorage.getItem('hullcracker.class')).toBe('mineLayer');
     expect(onDeploy).not.toHaveBeenCalled(); // the buttons are the ONLY deploy path
     expect(document.getElementById('hc-class-select')).toBeNull();
-    expect(home().textContent).toContain('MINE LAYER'); // the chip took the pick
+    expect(home().textContent).toContain('REPEATER'); // the chip took the pick
   });
 
   it('Enter in the bay confirms the same way (no deploy)', () => {

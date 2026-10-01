@@ -17,7 +17,7 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 - Story 8.19: Wake Drafting — landed
 - Story 8.20: Bots Draw from the Pool — landed
 - Story 8.21: Results LOADOUT and the Match Record — landed
-- Story 8.22: How-to-Play and Copy Re-cut
+- Story 8.22: How-to-Play and Copy Re-cut — landed (cycle 161: the five play sections re-cut from code, every weapon described, class names SPEEDBOAT · REPEATER · DREADNOUGHT, Settings rows fixed; star/phosphor burst damage swapped, PV 66->67)
 
 ## Requirements & Constraints
 
@@ -33,7 +33,7 @@ Replace the old boon system with the common pool. A captain picks a hull, a gun 
 
 **Gun ladders (Eric 2026-09-30, amendment 197).** Every upgrade is tiered; no one-off cards (TURRET and BARREL deleted). CANNON: the second turret (gun pool 2) on the rung to tier III, a second barrel per turret on the rung to tier V. FLAK: a turret on the rungs to III and to V (pool 3 at V). Per-tier damage/reload steps stay. A tier card prints every authored step of its rung (198(a)).
 
-**Still open:** class designations; sign-off on drafted glyphs and hover copy.
+**Still open:** sign-off on drafted glyphs and hover copy. (Class names LANDED 2026-10-01: SPEEDBOAT · REPEATER · DREADNOUGHT, amendment 204.)
 
 ## Technical Decisions
 
@@ -279,3 +279,11 @@ Source of truth: `epic-8-context-amendments.md`. On any conflict, the amendment 
 201. **Orchestrator readings for the mine hp** (2026-10-01): `CONFIG.mine.hitRadiusU = 10` (the drawn ring) is the one "on the mine" number; the test is per shell at its landing point; a destroyed captive emits a `boom` with no blast; a mine-only pop keeps `sp`; PV 66.
 202. **The cursor decides** (Eric 2026-10-01): a reach-clamped shot never damages a mine it lands on; a deck-gun shell carries its raw cursor point server-side and a mine is hit only within `hitRadiusU` of both the cursor and the landing point.
 203. **The slot tooltip's interaction line is the tier alone** (Eric 2026-10-01): no kind word, key or how-to; Shift and belt squares print no line.
+204. **The three classes are named SPEEDBOAT (`torpedoBoat`), REPEATER (`mineLayer`), DREADNOUGHT (`battleship`)** (Eric 2026-10-01): plain uppercase in the one display table, no designation prefix; ids, identity test and comments untouched; closes 89(f)'s `IBK-01 KABUKI CLASS` shape unbuilt.
+205. **The toasts stay `◆ <LINE> FITTED` / `◆ <LINE> STOCKED`** (orchestrator reading 2026-10-01, not objected to): the AC's `card fitted` / `consumable stocked` is shorthand for 8.7 ruling 14.
+206. **How-to-Play describes every weapon, in a human voice, never "fish"** (Eric 2026-10-01): the five play sections stay and the page gains one plain paragraph per gun, weapon line, live consumable and ship upgrade; still no GLOSSARY heading, no stat tables, no in-game copy; draft for Eric's pass.
+207. **Orchestrator readings for 8.22** (2026-10-01): SHOOTING re-cut with the gun pick; Settings' three false rows fixed (`Q / E / R` weapon slots, `SHIFT` class SPECIAL, no DEFAULT); HULL REPAIR described as 50 + 50 over 5 s; numbers are prose with CONFIG citations; subagents routed per `/orchestrate`.
+208. **STAR SHELLS and PHOSPHOR SHELLS swap burst damage** (Eric 2026-10-01): star 20/22/25/27/30, phosphor 10/12/15/17/20; phosphor's burn, star's light and both reloads unchanged; PV 66 → 67. Supersedes the damage halves of 130–131.
+209. **Review-gate record for cycle 161** (orchestrator 2026-10-01): both Fable Blind Hunter and Codex flagged "half a hull"; seven copy-precision patches; two notes rejected.
+210. **FLAK reloads in 4 s at tier I** (Eric 2026-10-01): `CONFIG.flak.reloadMs` 6000 → 4000, ladder 4 → 3.2 s; damage, blast and turret rungs unchanged; inside PV 67.
+211. **No word-police tests** (Eric 2026-10-01): the `copyWords` word-sweep test is deleted; an AC clause about copy is checked once by hand, never pinned.

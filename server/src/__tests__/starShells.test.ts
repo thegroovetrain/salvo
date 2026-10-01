@@ -64,7 +64,7 @@ function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTi
 }
 
 describe('star shells — shell construction', () => {
-  it('firing spawns a TIERED DAMAGE flare (Story 8.17, amendment 130): speed 500, damage = the row (10 at tier I) on burst AND contact, burst = lit radius, lit tag set', () => {
+  it('firing spawns a TIERED DAMAGE flare (Story 8.17, amendment 130): speed 500, damage = the row (20 at tier I) on burst AND contact, burst = lit radius, lit tag set', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     setInput(bb, { aim: 0, aimDist: 400, slot: SLOT_STAR });
@@ -72,11 +72,11 @@ describe('star shells — shell construction', () => {
     const shell = [...w.shells.values()][0];
     expect(Math.hypot(shell.vx, shell.vy)).toBeCloseTo(CONFIG.starShells.shellSpeed, 9);
     // Story 8.17 FLIPS amendment 39's damageless pin: the flare deals the
-    // row's tier damage (10 at tier I) to every hull inside the whole lit
+    // row's tier damage (20 at tier I) to every hull inside the whole lit
     // circle, and the same number to an interceptor (the broadside precedent).
     expect(shell.damage).toBe(CONFIG.starShells.damage);
-    expect(shell.damage).toBe(10);
-    expect(shell.contactDamage).toBe(10);
+    expect(shell.damage).toBe(20);
+    expect(shell.contactDamage).toBe(20);
     expect(shell.hits).toEqual(CONFIG.starShells.hits); // still no mine bit — lighting never clears a minefield
     expect(shell.burn).toBeUndefined(); // a flare never burns (PHOSPHOR SHELLS is its own row)
     expect(shell.flash).toBeUndefined(); // ...and never flashes (FLASH SHELLS is a belt row)
@@ -109,10 +109,10 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     const { seen, at } = fireAndResolve(w, 'a', { aim: 0, aimDist: 500 });
     expect(seen).toContain('burst'); // the flash reuses the EXISTING burst event kind
     // Story 8.17 (amendment 130) FLIPS amendment 39's damageless pin: the hull
-    // inside the circle takes the tier's 10, the one outside nothing, the
+    // inside the circle takes the tier's 20, the one outside nothing, the
     // owner never — and the burst resolved a hull, so it is a Hit Call
     // (amendment 135(a)).
-    expect(near.hp).toBe(near.stats.maxHp - 10);
+    expect(near.hp).toBe(near.stats.maxHp - 20);
     expect(far.hp).toBe(far.stats.maxHp);
     expect(a.hp).toBe(a.stats.maxHp);
     expect(seen.filter((k) => k === 'dmg')).toHaveLength(1);
@@ -142,9 +142,9 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     const { seen } = fireAndResolve(w, 'a', { aim: 0, aimDist: 650 });
     expect(seen).toContain('boom');
     expect(seen).not.toContain('burst');
-    // Story 8.17: the interceptor takes the row's 10 (the broadside precedent)
+    // Story 8.17: the interceptor takes the row's 20 (the broadside precedent)
     // and the flare STILL lights where it stopped.
-    expect(mid.hp).toBe(mid.stats.maxHp - 10);
+    expect(mid.hp).toBe(mid.stats.maxHp - 20);
     expect(seen).toContain('dmg');
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];

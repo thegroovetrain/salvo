@@ -98,14 +98,19 @@ export interface BindingRow {
  * when healing became a card — and `1`-`4` carry the TWO MEANINGS Story 8.7
  * gave them (`REFIT_DIGIT_CODES` with the window open, `BELT_KEY_CODES` with it
  * closed), which is what the row now states. The numpad aliasing is unchanged.
+ *
+ * STORY 8.22 (2026-10-01) re-cut the slot rows: they became false when Story
+ * 8.5 made Q/E/R three weapon slots and Story 8.15 put the class SPECIAL on
+ * Shift, so `Q / E` + `R` are one `Q / E / R` row and SHIFT has its own. The
+ * word DEFAULT left the gun row because no client copy may carry it.
  */
 export function bindingRows(): BindingRow[] {
   return [
     { keys: 'W / S (+ ARROWS)', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
     { keys: 'A / D (+ ARROWS)', action: 'RUDDER — HELD' },
-    { keys: '(NONE)', action: 'GUN — ALWAYS-SELECTED DEFAULT; CLICK ITS HOTBAR TILE TO RESELECT' },
-    { keys: 'Q / E', action: 'CLASS SPECIAL SLOTS' },
-    { keys: 'R', action: 'PICKUP SLOT — INERT WHILE EMPTY' },
+    { keys: '(NONE)', action: 'GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT' },
+    { keys: 'Q / E / R', action: 'WEAPON SLOTS — PRESS TO SELECT, AGAIN TO CANCEL' },
+    { keys: 'SHIFT', action: 'CLASS SPECIAL' },
     { keys: 'F', action: 'FOGHORN — SOUND OFF (BEARING ONLY)' },
     { keys: 'CLICK', action: 'FIRE THE SELECTED WEAPON / PRIME A SKILLSHOT' },
     { keys: 'TAB', action: 'REFIT WINDOW — TOGGLE' },

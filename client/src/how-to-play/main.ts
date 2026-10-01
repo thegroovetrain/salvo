@@ -7,10 +7,17 @@
 // `dist/how-to-play/index.html`, which `express.static` serves at
 // `/how-to-play`.
 //
-// THERE IS NO GAME HERE. No Pixi, no socket, no shared sim, no analytics: this
-// module imports the theme bridge, the page chrome and the copy, and that is
-// the whole graph. Rollup gives the page its own chunk, so a reader never
-// downloads the renderer to read the manual.
+// THERE IS NO GAME HERE. No Pixi, no socket, no analytics: this module imports
+// the theme bridge, the page chrome, the copy and its stat tables. Rollup gives
+// the page its own chunk, so a reader never downloads the renderer to read the
+// manual.
+//
+// THE "NO SHARED SIM" RULE IS SUPERSEDED (Eric ruling 2026-10-01: "give me a
+// stat table showing its exact attributes at each tier"). The manual now
+// derives every table from `effectiveStats` — the sim's one stat function —
+// through `weaponTables.ts` and the refit card's own row builders, so the page
+// can never disagree with the card. That pulls `@salvo/shared`'s pure stat
+// fold into this chunk; it still pulls no renderer and no socket.
 //
 // `injectTheme()` MUST RUN FIRST, exactly as it does in `main.ts` and the
 // privacy page: every style below is written in `var(--hc-*)`, and those
@@ -21,13 +28,14 @@
 // like this" reads as one system across the hotbar, the refit cards and this
 // page.
 
-import { injectTheme } from '../ui/theme.js';
+import { injectTheme, registerCss } from '../ui/theme.js';
 import {
   goHome,
   makeKeyTable,
   makePageLink,
   makePageParagraph,
   makePageSection,
+  makeStatTable,
   renderPage,
 } from '../ui/page.js';
 import {
@@ -36,14 +44,64 @@ import {
   HOWTO_FOOTER_TAIL,
   HOWTO_SECTIONS,
   HOWTO_TITLE,
+  type HowToEntry,
   type HowToSection,
 } from './copy.js';
+import { consumableTable, shipUpgradeTable, tierTable, type StatTable } from './weaponTables.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
+import { CATALOG, tierTargetOf } from '@salvo/shared';
 
-/** One copy section → one page block: prose first, then its keycaps. */
+/** An entry's derived table, or null (a consumable with no live rows). */
+function entryTable(entry: HowToEntry): StatTable | null {
+  if (entry.table === 'tier') return tierTable(entry.lineId);
+  if (entry.table === 'shipUpgrade') return shipUpgradeTable(entry.lineId);
+  return consumableTable(entry.lineId);
+}
+
+/**
+ * The glyph id an entry draws — the SAME id the refit card and the hotbar feed
+ * `equipmentGlyphSvg`. A tiered weapon line draws its equipment row's glyph
+ * (`tierTargetOf`: the CANNON ladder `deckGun` -> the mounted `gun`, a weapon
+ * line -> its own row, as the hotbar draws it); a consumable draws its own id.
+ * The ship ladders have no glyph anywhere, so they resolve to nothing.
+ */
+export function entryGlyphId(entry: HowToEntry): string | null {
+  if (entry.table === 'shipUpgrade') return null;
+  if (entry.table === 'consumable') return entry.lineId;
+  const line = Object.hasOwn(CATALOG, entry.lineId) ? CATALOG[entry.lineId] : undefined;
+  return (line === undefined ? undefined : tierTargetOf(line)) ?? entry.lineId;
+}
+
+/** An entry's name — the uppercase mono system register, like the headings —
+ *  with its glyph (hotbar icon size, phosphor via currentColor) before it. */
+function entryName(entry: HowToEntry): HTMLElement {
+  const el = document.createElement('h3');
+  el.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);margin:8px 0 0;display:flex;align-items:center;gap:8px`;
+  const id = entryGlyphId(entry);
+  const svg = id === null ? null : equipmentGlyphSvg(id, CLIENT_CONFIG.hudBar.icon);
+  if (svg !== null) {
+    svg.style.cssText = 'display:inline-block;flex:none;color:var(--hc-phosphor)';
+    el.appendChild(svg);
+  }
+  el.appendChild(document.createTextNode(entry.name));
+  return el;
+}
+
+/** One entry → its name line, its description, then its stat table. */
+function entryBlocks(entry: HowToEntry): HTMLElement[] {
+  const blocks = [entryName(entry), makePageParagraph(entry.description)];
+  const table = entryTable(entry);
+  if (table !== null) blocks.push(makeStatTable(table));
+  return blocks;
+}
+
+/** One copy section → one page block: prose, keycaps, entries, closing prose. */
 function sectionBlock(section: HowToSection): HTMLElement {
   const children: HTMLElement[] = (section.paragraphs ?? []).map(makePageParagraph);
   if (section.keys !== undefined) children.push(makeKeyTable(section.keys));
+  for (const entry of section.entries ?? []) children.push(...entryBlocks(entry));
+  children.push(...(section.tail ?? []).map(makePageParagraph));
   return makePageSection(section.heading, ...children);
 }
 

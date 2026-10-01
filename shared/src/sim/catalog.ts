@@ -338,7 +338,7 @@ function machineGunTier(rateStepMs: number): BoonEffect[] {
 
 /** One upgrade tier of STAR SHELLS (catalog-v3 R31 as ruled by Eric
  *  2026-09-29, amendment 130): +2.5 s lit, ×1.1 lit radius, +0.5 flares, plus
- *  the tier's damage step (+2, +3, +2, +3 → 10 / 12 / 15 / 17 / 20). */
+ *  the tier's damage step (+2, +3, +2, +3 → 20 / 22 / 25 / 27 / 30). */
 function starShellTier(damageStep: number): BoonEffect[] {
   return [
     statEffect('equipment.starShells.litDurationMs', { add: 2500 }),

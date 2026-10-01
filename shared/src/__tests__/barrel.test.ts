@@ -390,7 +390,9 @@ describe('shared barrel', () => {
     // is the deck guns' "on the mine" disc); mine hp is server-only and the
     // masks never reach the wire (Eric 2026-10-01, amendment 200). The
     // exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(66);
+    // 66 -> 67: STAR SHELLS / PHOSPHOR SHELLS burst bases swapped (star 20,
+    // phosphor 10; Eric 2026-10-01, amendment 208). No wire shape moved.
+    expect(PROTOCOL_VERSION).toBe(67);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -675,7 +677,7 @@ describe('shared barrel', () => {
   });
 
   it('CONFIG.starShells: the flare DEALS DAMAGE again and its doctrine fields are gone (Story 8.17)', () => {
-    // Eric ruling 2026-09-29, epic-8 amendments 130/134: `damage: 10` (tier I)
+    // Eric ruling 2026-09-29, epic-8 amendments 130/134: `damage: 20` (tier I; swapped with phosphor 2026-10-01, amendment 208)
     // arrives — amendment 39's "structurally damageless" is SUPERSEDED — and
     // `incendiaryRadiusFactor`, `incendiaryDps` and `dazzleSightFactor` are
     // DELETED with the star-shell verbs.
@@ -686,7 +688,7 @@ describe('shared barrel', () => {
       shellSpeed: 500,
       maxAmmo: 1,
       reloadMs: 20000,
-      damage: 10,
+      damage: 20,
       litRadius: 165,
       litDurationMs: 10000,
       shellRadius: 2,
@@ -708,7 +710,7 @@ describe('shared barrel', () => {
       shellSpeed: 500,
       maxAmmo: 1,
       reloadMs: 20000,
-      damage: 20,
+      damage: 10,
       zoneRadius: 100,
       zoneDurationMs: 8000,
       dps: 5,
@@ -1096,7 +1098,7 @@ describe('shared barrel', () => {
     });
     expect(CONFIG.flak).toEqual({
       arc: 'full', hits: ['hull', 'mine', 'decoy', 'ordnance'], shellSpeed: 500, maxAmmo: 1,
-      reloadMs: 6000, damage: 12, contactDamage: 4, burstRadius: 50, shellRadius: 2,
+      reloadMs: 4000, damage: 12, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 6000 → 4000, amendment 210
     });
     expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 45000 });
     expect(CONFIG.damageCut).toEqual({ factor: 0.5, durationMs: 8000, maxAmmo: 1, reloadMs: 30000 });

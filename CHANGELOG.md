@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.26] - 2026-10-01
+
+### Changed
+- **The three classes have names** — the Torpedo Boat is the **SPEEDBOAT**, the Mine Layer is the **REPEATER**, the Battleship is the **DREADNOUGHT** (Eric). Class select, the home chip, the SHIP tooltip and results print the new names. Nothing else about the hulls changes.
+- **How to Play is rewritten** — Eric's own copy for the objective, the controls, experience and upgrades; then every Deck Gun, weapon, consumable and ship upgrade as an entry with its hotbar icon, a one-line description and a stat table of its exact attributes at every tier. The tables are computed from the same stat function the refit cards use, so they can never disagree with a card. Still one page, still no glossary.
+- **Settings key reference** — `Q / E / R` is one WEAPON SLOTS row, `SHIFT` has its own CLASS SPECIAL row, and the gun row no longer says DEFAULT.
+- **Star shells hit harder, phosphor hits softer** — the two burst-damage ladders swap (Eric: phosphor was performing too well, star shells too poorly). STAR SHELLS now bursts 20 / 22 / 25 / 27 / 30 by tier; PHOSPHOR SHELLS bursts 10 / 12 / 15 / 17 / 20. Phosphor's burning zone, star's light and both reloads are unchanged.
+- **Flak reloads faster** — 6 s → 4 s at tier I (3.2 s at tier V); damage and blast unchanged.
+
+### Internal
+- PROTOCOL_VERSION 66 -> 67 (the client prints the swapped damage values from CONFIG). The rest is client-only copy. Internal class ids (`torpedoBoat` / `mineLayer` / `battleship`) are untouched; `client/src/ui/classNames.ts` is the one mapping.
+- Tests: client 3743 -> 3761 (`howToPlay.test.ts` pins the nine-section set, no GLOSSARY heading, no "fish", every line described, derived from the catalog); shared 1024 and server 2316 unchanged in count (star/phosphor/flak pins re-cut).
+- Epic-8 amendments 204–210; GDD class tables, DESIGN silhouette table, EXPERIENCE journeys and epics Story 8.22 carry dated stamps; `spec-8-22-how-to-play-and-copy-re-cut.md`.
+
 ## [0.18.25] - 2026-10-01
 
 ### Changed

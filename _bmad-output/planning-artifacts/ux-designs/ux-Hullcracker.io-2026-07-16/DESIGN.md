@@ -231,6 +231,8 @@ Palette explorations (Scope Jewels, Signal Pennants — not chosen): [ship-color
 
 Three launch classes (`shared/src/constants.ts` `SHIP_CLASS_IDS`), genuinely distinct top-down silhouettes in the shared linework language — ratified board: [class-silhouettes-1.html](./mockups/class-silhouettes-1.html). Silhouettes are **gameplay-load-bearing** twice over. **The silhouette IS the hitbox** (shared `sim/silhouette.ts` — hull length and beam below are the polygon's own bow-to-stern and max beam), **and it is what the radar measures**: a return is that polygon rasterized onto the radar lattice, so hull shape decides how much of a return a class makes and from which aspect, even though the scope never draws the outline (see *Blip rule* below). Accepted knowingly (accepted knowingly; watch Torpedo Boat balance — decoupling is the named fallback).
 
+*(Display names landed 2026-10-01, Story 8.22, epic-8 amendment 204: Torpedo Boat prints **SPEEDBOAT**, Battleship **DREADNOUGHT**, Mine Layer **REPEATER**; the working names below are the internal ids' names and stay in this table as geometry labels.)*
+
 | Class | Geometry | Rationale | Hull length | Beam |
 |---|---|---|---|---|
 | Torpedo Boat | Knife blade, extreme length-to-beam (~9:1) | "The needle" — long, skinny, hard to hit; balance worry logged | 100 u | 9 u |

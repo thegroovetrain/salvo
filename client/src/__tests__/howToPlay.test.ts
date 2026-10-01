@@ -1,23 +1,33 @@
 // THE HOW-TO-PLAY PAGE (Story 7.3, FR39 / UX-DR29).
 //
 // Two things are pinned here and they are different in kind. The COPY tests
-// guard facts and scope — that the win condition is actually stated, and that
-// the page did not quietly regrow the glossary Eric struck. The MOUNT tests
-// guard that the page uses the shared chrome rather than inventing its own.
+// guard facts and scope — that the win condition is actually stated, that
+// every live catalog line is described, and that the page did not quietly
+// regrow the glossary Eric struck. The MOUNT tests guard that the page uses
+// the shared chrome rather than inventing its own.
 //
-// The copy itself is DRAFT pending Eric's pass, so nothing here asserts an exact
-// sentence except the one line the story exists to deliver.
+// ERIC HOLDS THE PEN (his copy pass, 2026-10-01): nothing here pins one of
+// his sentences — only facts. The stat tables' numbers are pinned in
+// `weaponTables.test.ts`, against the sim they are derived from.
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  type HowToEntry,
   HOWTO_FOOTER_LINK,
   HOWTO_SECTIONS,
   HOWTO_TITLE,
 } from '../how-to-play/copy.js';
-import { mountHowToPlayPage } from '../how-to-play/main.js';
+import { entryGlyphId, mountHowToPlayPage } from '../how-to-play/main.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { LINE_IDS, isStubLine } from '@salvo/shared';
+import { glyphPaths } from '../render/equipmentIcons.js';
+import { boonName } from '../ui/boonCopy.js';
 
 const page = (): HTMLElement => document.getElementById('how-to-play-page') as HTMLElement;
+
+const allEntries = (): HowToEntry[] => HOWTO_SECTIONS.flatMap((s) => [...(s.entries ?? [])]);
+const allProse = (): string =>
+  HOWTO_SECTIONS.flatMap((s) => [...(s.paragraphs ?? []), ...(s.tail ?? [])]).join(' ');
 
 describe('how-to-play copy', () => {
   it('every section has a heading, and something under it', () => {
@@ -25,7 +35,7 @@ describe('how-to-play copy', () => {
     for (const s of HOWTO_SECTIONS) {
       expect(s.heading.length, s.heading).toBeGreaterThan(0);
       expect(s.heading, s.heading).toBe(s.heading.toUpperCase());
-      const bodyCount = (s.paragraphs?.length ?? 0) + (s.keys?.length ?? 0);
+      const bodyCount = (s.paragraphs?.length ?? 0) + (s.keys?.length ?? 0) + (s.entries?.length ?? 0);
       expect(bodyCount, s.heading).toBeGreaterThan(0);
     }
   });
@@ -34,16 +44,12 @@ describe('how-to-play copy', () => {
   // the win condition was stated nowhere a new player could read it. The results
   // banner says it, but only to the player who already won.
   it('STATES THE WIN CONDITION', () => {
-    const all = HOWTO_SECTIONS.flatMap((s) => s.paragraphs ?? []).join(' ');
-    expect(all.toLowerCase()).toContain('last hull floating wins');
+    expect(allProse().toLowerCase()).toContain('last hull floating wins');
   });
 
-  // Eric ruled the scope down to the basics on 2026-08-19 — steer, select
-  // weapons, upgrade, shoot — and struck the boon glossary by name. This pins
-  // the SCOPE, so a later well-meaning expansion has to move a test rather than
-  // quietly reinstate a thing that was cut. He renamed WEAPONS -> EQUIPMENT in
-  // his copy pass, which is the better word: one of the two slots is a utility
-  // (speed boost, decoy), not a weapon.
+  // Eric ruled the scope down to the basics on 2026-08-19 and struck the boon
+  // glossary by name. This pins the SCOPE, so a later well-meaning expansion
+  // has to move a test rather than quietly reinstate a thing that was cut.
   it('carries no boon glossary', () => {
     const all = JSON.stringify(HOWTO_SECTIONS).toLowerCase();
     for (const banned of ['glossary', 'rarity', 'exclusive', 'mk i', 'subdeck']) {
@@ -51,50 +57,70 @@ describe('how-to-play copy', () => {
     }
   });
 
-  it('teaches the four basics Eric named', () => {
-    const headings = HOWTO_SECTIONS.map((s) => s.heading).join(' ');
-    for (const topic of ['STEERING', 'SHOOTING', 'EQUIPMENT', 'UPGRADING']) {
-      expect(headings, topic).toContain(topic);
+  // Eric's own section set (his copy pass, 2026-10-01), exactly and in order.
+  it('the section headings, exactly, in order', () => {
+    expect(HOWTO_SECTIONS.map((s) => s.heading)).toEqual([
+      '[ HOW TO PLAY ]',
+      '[ CONTROLS ]',
+      '[ EXPERIENCE ]',
+      '[ UPGRADES ]',
+      '[ DECK GUNS ]',
+      '[ WEAPONS ]',
+      '[ CONSUMABLES ]',
+      '[ SHIP UPGRADES ]',
+    ]);
+  });
+
+  it('never calls a torpedo a fish (Eric 2026-10-01)', () => {
+    expect(JSON.stringify(HOWTO_SECTIONS).toLowerCase()).not.toMatch(/\bfish\b|\bfishes\b/);
+  });
+
+  // Derived from the catalog, so a new live line (or a stub flipping live)
+  // fails the page until it is described (Edge Case Hunter, cycle 161).
+  it('every non-stub catalog line is an entry, derived from LINE_IDS', () => {
+    const names = allEntries().map((e) => e.name);
+    for (const id of LINE_IDS) {
+      if (isStubLine(id)) continue;
+      expect(names, id).toContain(boonName(id, 0));
     }
   });
 
-  // The 2026-08-23 assist split (CONFIG.xp.assistWindowMs / killerShare) and —
-  // since Story 8.8 (epic-8 amendment 46) — the OUT-OF-COMBAT REGEN that
-  // replaced the free per-level heal: pins that BOTH UPGRADING paragraphs
-  // survive, so a later edit cannot silently delete either one.
-  it('teaches the assist split and the out-of-combat regen', () => {
-    const upgrading = HOWTO_SECTIONS.find((s) => s.heading === 'UPGRADING');
-    const paragraphs = upgrading?.paragraphs ?? [];
-    expect(paragraphs.some((p) => p.includes('A kill is shared'))).toBe(true);
-    expect(paragraphs.some((p) => p.includes('your hull slowly mends on its own'))).toBe(true);
-    // ...and it names the two halves of the rule Eric ruled: the wait, and what
-    // resets it.
-    const regen = paragraphs.find((p) => p.includes('your hull slowly mends on its own')) ?? '';
-    expect(regen).toContain('fifteen seconds');
-    expect(regen).toContain('storm');
+  it('every entry names a real catalog line, under its card name', () => {
+    for (const e of allEntries()) {
+      expect(LINE_IDS as readonly string[], e.lineId).toContain(e.lineId);
+      expect(e.name, e.lineId).toBe(boonName(e.lineId, 0));
+    }
   });
 
-  // STORY 8.8: healing is a CARD now. The UPGRADING copy must say so, and must
-  // no longer teach the deleted DAMAGE CONTROL level spend or its `5` key.
-  it('teaches HULL REPAIR as a card, and teaches no DAMAGE CONTROL spend', () => {
-    const upgrading = HOWTO_SECTIONS.find((s) => s.heading === 'UPGRADING');
-    const paragraphs = upgrading?.paragraphs ?? [];
-    expect(paragraphs.some((p) => p.includes('HULL REPAIR is a card too'))).toBe(true);
-    for (const section of HOWTO_SECTIONS) {
-      for (const p of section.paragraphs ?? []) expect(p.toUpperCase()).not.toContain('DAMAGE CONTROL');
-      for (const row of section.keys ?? []) {
-        expect(row.action.toUpperCase(), row.keys.join('/')).not.toContain('DAMAGE CONTROL');
-        expect(row.keys, section.heading).not.toContain('5');
+  // Eric 2026-10-01: the stats live in the table, not the description.
+  it('no entry description carries a number', () => {
+    for (const e of allEntries()) expect(e.description, e.name).not.toMatch(/\d/);
+  });
+
+  it('DEPTH CHARGE (a stub) is described nowhere', () => {
+    expect(JSON.stringify(HOWTO_SECTIONS)).not.toContain('DEPTH CHARGE');
+  });
+
+  it('no heading is a glossary', () => {
+    for (const s of HOWTO_SECTIONS) expect(s.heading.toUpperCase()).not.toContain('GLOSSARY');
+  });
+
+  it('no keycaps row carries CTRL or SPACE', () => {
+    for (const s of HOWTO_SECTIONS) {
+      for (const row of s.keys ?? []) {
+        expect(row.keys, s.heading).not.toContain('CTRL');
+        expect(row.keys, s.heading).not.toContain('SPACE');
       }
     }
   });
 
-  // The netcode debug toggle ships to players but is a developer affordance, and
-  // Eric ruled it out of BOTH binding surfaces (the settings reference omits it
-  // too). A bare 'P' would be too loose a match, so this checks the key tables.
-  it('does not teach the P debug key', () => {
+  // The netcode debug toggle (P) is a developer affordance Eric ruled out of
+  // both binding surfaces; the `5` key went with the deleted DAMAGE CONTROL
+  // spend (Story 8.8).
+  it('teaches neither the P debug key nor a 5 key', () => {
     const keys = HOWTO_SECTIONS.flatMap((s) => s.keys ?? []).flatMap((k) => k.keys);
     expect(keys).not.toContain('P');
+    expect(keys).not.toContain('5');
   });
 });
 
@@ -130,6 +156,28 @@ describe('how-to-play page mount', () => {
     expect(keys.length).toBeGreaterThan(0);
     const text = page().textContent ?? '';
     for (const k of keys) expect(text, k).toContain(k);
+  });
+
+  // Eric 2026-10-01: every weapon, consumable and ship upgrade carries a
+  // derived stat table.
+  it('renders one stat table per entry, plus the controls table', () => {
+    const tables = page().querySelectorAll('table');
+    const keyTables = HOWTO_SECTIONS.filter((s) => s.keys !== undefined).length;
+    expect(tables).toHaveLength(allEntries().length + keyTables);
+  });
+
+  // Eric 2026-10-01: each entry shows its icon as the card / hotbar draws it.
+  it('every entry with a registry glyph draws an svg in its name; the rest draw none', () => {
+    const names = [...page().querySelectorAll('h3')];
+    const entries = allEntries();
+    expect(names).toHaveLength(entries.length);
+    entries.forEach((entry, i) => {
+      const id = entryGlyphId(entry);
+      const has = id !== null && glyphPaths(id) !== null;
+      expect(names[i]!.textContent, entry.name).toBe(entry.name);
+      expect(names[i]!.querySelector('svg') !== null, entry.name).toBe(has);
+    });
+    expect(entries.some((e) => entryGlyphId(e) !== null && glyphPaths(entryGlyphId(e)!) !== null)).toBe(true);
   });
 
   it('mounts once, not twice, when booted again', () => {
