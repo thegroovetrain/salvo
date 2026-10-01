@@ -212,9 +212,9 @@ export interface Equipment {
    *  specials (smoke, boost, …) arrive in stories 1.6+ with false. */
   readonly isWeapon: boolean;
   /** Tick this slot's reload timer (called for every fitted slot, every tick).
-   *  `now` is server time this tick — read by the MACHINE GUN's magazine alone
-   *  (its idle clock is a server-clock timestamp, Story 8.15); every other row
-   *  ignores it. */
+   *  `now` is server time this tick — no row reads it since the machine gun's
+   *  idle clock was deleted (Eric 2026-09-30); kept on the contract for a
+   *  row that needs a server-clock read. */
   tick(ship: ShipRecord, slot: LoadoutSlot, dtMs: number, now: number): void;
   /** Run activation when this slot is selected and a click landed this tick. */
   activate(ctx: ActivationContext, slot: LoadoutSlot): ActivationResult;

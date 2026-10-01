@@ -345,12 +345,13 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => applyOverrides({}, { 'gun.reloadMs': 0 })).toThrow(TunableError);
   });
 
-  it('matches the reload floor by SUFFIX, so machineGun.idleReloadMs is covered', () => {
-    // An exact `leaf === 'reloadMs'` test let this one through at floor 0 — it
-    // is a real reload in the same divide-or-spin class, just not named that.
-    expect(() => parseArgs(['--tune', 'machineGun.idleReloadMs=0'])).toThrow(TunableError);
-    expect(() => parseArgs(['--tune', 'machineGun.idleReloadMs=0'])).toThrow(/'machineGun\.idleReloadMs'.*>= 1/);
-    expect(parseArgs(['--tune', 'machineGun.idleReloadMs=1']).tune).toEqual({ 'machineGun.idleReloadMs': 1 });
+  it('the machine gun\'s reload dial is floored at 1, and the deleted idle clock is no dial at all', () => {
+    // The suffix rule itself is pinned in tuneFloor.test.ts (validateTuneValue);
+    // `machineGun.idleReloadMs` — the leaf that motivated it — was DELETED
+    // with the 5 s idle delay (Eric 2026-09-30), so it is no CONFIG entry now.
+    expect(() => parseArgs(['--tune', 'machineGun.reloadMs=0'])).toThrow(/'machineGun\.reloadMs'.*>= 1/);
+    expect(parseArgs(['--tune', 'machineGun.reloadMs=1']).tune).toEqual({ 'machineGun.reloadMs': 1 });
+    expect(() => parseArgs(['--tune', 'machineGun.idleReloadMs=1'])).toThrow(/not a numeric CONFIG entry/);
   });
 
   it('floors the leaves the SIM DIVIDES BY: a 0 there NaNs or inerts the campaign', () => {

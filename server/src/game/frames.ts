@@ -19,6 +19,7 @@ import {
 } from '@salvo/shared';
 import { observe, observeSpectator, type PerceptionView } from './perception.js';
 import { slotAmmo } from './equipment/index.js';
+import type { FakeSource } from './fakes.js';
 import type { ShipRecord, World } from './world.js';
 
 /** The own-ship `shield` key (Story 8.16): `{ shield: {hp, until} }` while a
@@ -48,7 +49,18 @@ function ownDraft(ship: ShipRecord): Pick<OwnShip, 'draft'> {
   return ship.draft > 0 ? { draft: ship.draft } : {};
 }
 
-function toOwnShip(ship: ShipRecord, now: number): OwnShip {
+/** The own-ship `chaff` key (Eric 2026-09-30, epic-8 amendment 184):
+ *  `{ chaff: {x, y, until} }` — the owner's live CHAFF burst point and the
+ *  cloud's expiry — while `now < until`, else an EMPTY object so the spread
+ *  leaves the key absent. A re-fire REPLACES the World's source, so the key
+ *  simply follows it. The fakes themselves stay withheld from the owner
+ *  (amendment 127's skip); this is only where the cloud is. */
+function ownChaff(source: FakeSource | undefined, now: number): Pick<OwnShip, 'chaff'> {
+  if (source === undefined || now >= source.until) return {};
+  return { chaff: { x: source.x, y: source.y, until: source.until } };
+}
+
+function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined): OwnShip {
   // Anti-cheat/invariant guard: OwnShip only ever describes a human client's
   // own ship, whose hullId is ALWAYS a ShipClassId. A drone hull id reaching
   // here means a drone record was routed to a client frame — an upstream bug,
@@ -192,6 +204,11 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // CONSTRUCTION on the boostUntil terms: it rides `you` and NOTHING else,
     // so the perception exception count stays at SIX.
     ...ownShield(ship, now),
+    // The CHAFF owner's cloud (amendment 184): present IFF this ship's own
+    // chaff burst is live, OMITTED otherwise. SELF-PRIVATE BY CONSTRUCTION
+    // (the shield / inSmoke precedent): it rides `you` and NOTHING else — no
+    // other observer ever receives it — so the exception count stays at SIX.
+    ...ownChaff(chaff, now),
   };
 }
 
@@ -279,7 +296,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
   const denied = world.denialsFor(playerId);
   return {
     ...base,
-    you: ship ? toOwnShip(ship, world.now) : undefined,
+    you: ship ? toOwnShip(ship, world.now, world.chaffSources.get(ship.id)) : undefined,
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,

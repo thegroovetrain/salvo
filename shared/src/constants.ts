@@ -1021,10 +1021,13 @@ export const CONFIG = {
    * `gun`. A HELD-FIRE MAGAZINE STREAM: while `InputMsg.held` is true it fires
    * one shell every `rateMs` at `now` (no fire-time back-date), draining a
    * `maxAmmo`-shell magazine. The full `reloadMs` reload starts the moment the
-   * magazine is EMPTY, or once `idleReloadMs` have passed without a shot while
-   * shells remain; a shot during that partial-magazine reload cancels it and
-   * restarts the idle clock; a completed reload always FILLS the magazine
-   * (amendment 103: every reload takes the full 15 s).
+   * magazine is EMPTY, or on the first tick the stream is not live with shells
+   * left (released, or the gun not the selected slot — Eric 2026-09-30, the
+   * 5 s idle delay deleted); a shot during that partial-magazine reload
+   * cancels it and it restarts from the full time when the stream stops
+   * again; an EMPTY magazine's reload cannot be interrupted; a completed
+   * reload always FILLS the magazine (amendment 103: every reload takes the
+   * full time — 10 s at tier I since 2026-09-30).
    *
    * DIRECT-HIT SHELLS WITH NO BURST: a shell that strikes a hull deals `damage`
    * on contact; a shell reaching its aim point simply EXPIRES (the shooter's
@@ -1033,7 +1036,8 @@ export const CONFIG = {
    * (amendment 20). NO `burstRadius` and NO range field: range is DERIVED =
    * the radar rung (660 u, re-pinned in effectiveStats like `gun.rangeU`;
    * Eric: "set the Machine Gun range to 660"). 360° (amendment 106: "There
-   * is no 'arc.'"). Its ladder (+2 shells, +1 damage per tier, −5 % reload
+   * is no 'arc.'"). Its ladder (+2 shells, +1 damage and −40/−40/−40/−30 ms
+   * of shot delay per tier — 0.35 → 0.20 s, Eric 2026-09-30 — and −5 % reload
    * from the tier step) is the `machineGun` catalog line. Every number is a
    * harness dial.
    */
@@ -1042,9 +1046,8 @@ export const CONFIG = {
     hits: HITS_HULL_DECOY, // direct hit, no burst — never a mine
     shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
     maxAmmo: 16, // shells — the MAGAZINE at tier I (amendment 103)
-    rateMs: 500, // ms — one shell per 0.5 s while held (amendment 103)
-    reloadMs: 15000, // ms — the full-magazine reload, always the whole 15 s (amendment 103)
-    idleReloadMs: 5000, // ms — no shot for this long with shells left starts the reload (amendment 103)
+    rateMs: 350, // ms — one shell per 0.35 s while held at tier I (Eric 2026-09-30; was 500, amendment 103)
+    reloadMs: 10000, // ms — the full-magazine reload, always the whole 10 s at tier I (Eric 2026-09-30; was 15 s)
     damage: 4, // hp per shell (amendment 103)
     shellRadius: 2, // u — shell collision radius (the gun family's)
   },

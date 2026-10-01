@@ -162,8 +162,8 @@ export interface EffectiveMine extends EquipmentRowCommon {
 /**
  * THE MACHINE GUN's effective numbers (Story 8.15, amendments 103–104). The
  * pool IS THE MAGAZINE (`maxAmmo` shells) and `reloadMs` is the full-magazine
- * reload; `rateMs` and `idleReloadMs` are the stream cadence and the idle
- * clock, CONFIG pass-throughs no card addresses. Direct-hit shells with NO
+ * reload; `rateMs` is the stream cadence (the shot delay), which the ladder
+ * steps (Eric 2026-09-30). Direct-hit shells with NO
  * burst, so there is no `burstRadius` and no `contactDamage` (a hull hit IS
  * the `damage`).
  */
@@ -171,7 +171,6 @@ export interface EffectiveMachineGun extends EquipmentRowCommon {
   rangeU: number; // u — DERIVED = radarRange post-fold (not stat-addressable)
   damage: number; // hp per shell that strikes a hull
   rateMs: number; // ms — one shell per rateMs while held
-  idleReloadMs: number; // ms — no shot for this long with shells left starts the reload
 }
 
 /**
@@ -444,7 +443,6 @@ function pickableGunRows(): Pick<EquipmentRows, 'machineGun' | 'flak'> {
       rangeU: CONFIG.vision.radar,
       damage: mg.damage,
       rateMs: mg.rateMs,
-      idleReloadMs: mg.idleReloadMs,
     },
     flak: {
       tier: 1,

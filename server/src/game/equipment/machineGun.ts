@@ -6,16 +6,19 @@
 // `maxAmmo`-shell MAGAZINE; a click edge (`fireSeq`) on a mounted machine gun
 // does NOTHING (World.consumeClick skips a row that declares `stream`).
 //
-// THE MAGAZINE MODEL (amendment 103, verbatim reading of record): the pool IS
-// the magazine (`slot.state.n` = shells left) and `reloadMsLeft` is the running
-// magazine SWAP — always the full `reloadMs`, whatever was left. The swap starts
-// the moment the magazine is EMPTY, or once `idleReloadMs` have passed without
-// a shot while shells remain; a shot during a partial-magazine swap CANCELS it
-// (the shells left fire; the idle clock restarts from that shot); a completed
-// swap always FILLS the magazine. Two server-private timestamps on the
-// ShipRecord carry the stream's clock (`streamNextAt`) and the idle clock
-// (`streamLastShotAt`); the wire `WeaponAmmo` stays `{n, reloadMsLeft}` and the
-// HUD draws the drain from n / maxAmmo.
+// THE MAGAZINE MODEL (amendment 103, the swap rule re-cut by Eric 2026-09-30):
+// the pool IS the magazine (`slot.state.n` = shells left) and `reloadMsLeft`
+// is the running magazine SWAP — always the full `reloadMs`, whatever was
+// left. The swap starts the moment the magazine is EMPTY, or on the FIRST tick
+// the stream is not live with shells left (the level released, or the gun not
+// the selected slot — amendment 111); the old 5 s idle delay is DELETED. A
+// shot fired with shells left CANCELS a running partial swap, which restarts
+// from the FULL time on the next tick the stream is not live. An EMPTY
+// magazine's swap cannot be interrupted (a hold fires nothing and leaves the
+// timer alone); a completed swap always FILLS the magazine. One server-private
+// timestamp on the ShipRecord carries the stream's clock (`streamNextAt`);
+// the wire `WeaponAmmo` stays `{n, reloadMsLeft}` and the HUD draws the drain
+// from n / maxAmmo.
 //
 // A DIRECT SHELL HAS NO BURST: a hull it strikes takes the full `damage` on
 // contact; a shell reaching its aim point simply EXPIRES there (the shooter's
@@ -25,7 +28,8 @@
 // (amendment 89(i): the stream IS the spectacle, like the broadside's barrage).
 //
 // Every number is read off the ship's cached EFFECTIVE stats row
-// (`stats.equipment.machineGun` — the ladder moves maxAmmo/damage/reloadMs),
+// (`stats.equipment.machineGun` — the ladder moves maxAmmo/damage/rateMs and
+// the tier step reloadMs),
 // never CONFIG, except the family constants (shell speed / radius / mask).
 
 import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type WeaponAmmo } from '@salvo/shared';
@@ -48,6 +52,17 @@ function tickSwap(state: WeaponAmmo, maxAmmo: number, dtMs: number): boolean {
     state.n = maxAmmo;
   }
   return true;
+}
+
+/** THE CADENCE CARRY-OVER (orchestrator ruling 2026-09-30 — Eric's per-tier
+ *  delays are the spec, and 20 Hz ticks would otherwise round every delay UP
+ *  to the next 50 ms, so tier II's 310 ms would fire at tier I's 350). While
+ *  the stream stays live the next shot is due at the PREVIOUS due time +
+ *  rateMs; a FRESH stream (first shot after a release, a deselect or a swap)
+ *  re-anchors to `now + rateMs`, and so does a shot more than one rateMs late
+ *  (a stalled tick): one shell per tick at most, never a catch-up burst. */
+function nextDue(live: boolean, due: number, now: number, rateMs: number): number {
+  return live && now - due < rateMs ? due + rateMs : now + rateMs;
 }
 
 /** Spawn ONE direct shell along the ship's aim to the clicked point, clamped
@@ -85,13 +100,13 @@ function fireStreamShell(ctx: ActivationContext): void {
 export const machineGunEquipment: Equipment = {
   id: 'machineGun',
   isWeapon: EQUIPMENT_IS_WEAPON.machineGun, // shared weapon/ability split — single source
-  tick(ship: ShipRecord, slot: LoadoutSlot, dtMs: number, now: number): void {
+  tick(ship: ShipRecord, slot: LoadoutSlot, dtMs: number): void {
     const mg = ship.stats.equipment.machineGun;
     const state = slot.state!;
     if (tickSwap(state, mg.maxAmmo, dtMs)) return; // a running swap counts down
-    if (state.n >= mg.maxAmmo) return; // full: nothing to do
-    // EMPTY, or IDLE with shells left (amendment 103): start the full swap.
-    if (state.n === 0 || now - ship.streamLastShotAt >= mg.idleReloadMs) state.reloadMsLeft = mg.reloadMs;
+    // EMPTY (amendment 103): start the full swap. A PARTIAL magazine's swap is
+    // started by `stream` on the first tick the level is not live.
+    if (state.n === 0) state.reloadMsLeft = mg.reloadMs;
   },
   activate(): ActivationResult {
     // A CLICK EDGE FIRES NOTHING (amendment 103: the level alone fires). The
@@ -103,14 +118,28 @@ export const machineGunEquipment: Equipment = {
   stream(ctx: ActivationContext, slot: LoadoutSlot, held: boolean): void {
     const ship = ctx.ship;
     const state = slot.state!;
-    if (!held || state.n <= 0 || ctx.now < ship.streamNextAt) return;
+    const mg = ship.stats.equipment.machineGun;
+    if (!held) {
+      // THE STREAM IS NOT LIVE (Eric 2026-09-30): with shells missing and no
+      // swap running, the full swap starts THIS tick — no idle wait.
+      ship.streamLive = false;
+      if (state.n < mg.maxAmmo && state.reloadMsLeft === 0) state.reloadMsLeft = mg.reloadMs;
+      return;
+    }
+    // Held on an EMPTY magazine: nothing fires and the running swap is left
+    // alone (it cannot be interrupted); the shot after the swap starts a
+    // FRESH stream. Between shots the stream stays live.
+    if (state.n <= 0) {
+      ship.streamLive = false;
+      return;
+    }
+    if (ctx.now < ship.streamNextAt) return;
     // A SHOT CANCELS A RUNNING PARTIAL SWAP (amendment 103): the shells left
-    // fire, and the idle clock restarts from this shot. The next swap is again
-    // the full reloadMs.
+    // fire; the swap restarts from the full reloadMs when the stream stops.
     state.reloadMsLeft = 0;
     state.n -= 1;
-    ship.streamLastShotAt = ctx.now;
-    ship.streamNextAt = ctx.now + ship.stats.equipment.machineGun.rateMs;
+    ship.streamNextAt = nextDue(ship.streamLive, ship.streamNextAt, ctx.now, mg.rateMs);
+    ship.streamLive = true;
     fireStreamShell(ctx);
   },
 };

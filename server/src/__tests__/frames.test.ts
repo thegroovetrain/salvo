@@ -276,3 +276,23 @@ describe('buildFrame — the self-private wake-draft lift (Story 8.19)', () => {
     expect('draft' in other.you!).toBe(false);
   });
 });
+
+describe('buildFrame — the self-private chaff cloud (amendment 184)', () => {
+  it('carries `you.chaff` {x, y, until} while the owner\'s source is live, omits it after expiry, and never on another hull\'s frame', () => {
+    const w = makeWorld();
+    const a = w.ships.get('a')!;
+    expect('chaff' in buildFrame(w, 'a').you!).toBe(false); // no source: absent, never undefined
+    const until = w.now + CONFIG.chaff.durationMs;
+    w.chaffSources.set('a', {
+      ownerId: 'a', x: 30, y: -12, radius: CONFIG.chaff.radius, count: CONFIG.chaff.count,
+      until, seed: 7, at: w.now, sweepPeriodMs: a.stats.sweepPeriodMs,
+    });
+    expect(buildFrame(w, 'a').you!.chaff).toEqual({ x: 30, y: -12, until });
+    const other = buildFrame(w, 'b');
+    expect('chaff' in other.you!).toBe(false);
+    expect(JSON.stringify({ ...other, you: undefined })).not.toContain('chaff');
+    // Expired (the source may still sit in the map): the key is gone.
+    w.chaffSources.get('a')!.until = w.now;
+    expect('chaff' in buildFrame(w, 'a').you!).toBe(false);
+  });
+});

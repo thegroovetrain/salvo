@@ -564,6 +564,19 @@ export interface OwnShip {
    */
   shield?: { hp: number; until: number };
   /**
+   * THE CHAFF OWNER'S CLOUD (Eric 2026-09-30, epic-8 amendment 184): the
+   * burst point (`x`, `y`, u) of THIS hull's live CHAFF and the server-clock
+   * time it expires (`until`) — what the client's dim dashed ring of
+   * `CONFIG.chaff.radius` is drawn around. Present IFF the owner's chaff
+   * source is live (`now < until`); OMITTED otherwise, never an `undefined`
+   * value; a re-fire replaces the source, so the key follows it. The FAKES
+   * stay withheld from the owner (amendment 127). SELF-PRIVATE BY
+   * CONSTRUCTION (the `shield` / `inSmoke` precedent): rides `you` and
+   * NOTHING else — never on any other observer's frame — so the perception
+   * exception count stays at SIX.
+   */
+  chaff?: { x: number; y: number; until: number };
+  /**
    * The WAKE-DRAFT lift (Story 8.19, Eric rulings 2026-09-30, epic-8
    * amendments 151–155) the server folded into this hull's forward speed cap
    * THIS tick (`draftLift` → `draftedKinematics`), in (0,

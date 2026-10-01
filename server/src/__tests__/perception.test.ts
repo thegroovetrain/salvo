@@ -2370,10 +2370,18 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // THE SHIELD BLOCK SEAT (Story 8.16, amendments 116–118) is SELF-PRIVATE on
   // the same terms: it may exist NOWHERE but `you`, and on `you` it is present
   // IFF the observer's own shield is UP (hp left, not yet expired), carrying
-  // the record's hp ROUNDED UP and its exact deadline. CHAFF rides no frame at all — the
-  // owner gets no readout and nobody gets a source (the fakes are blips).
+  // the record's hp ROUNDED UP and its exact deadline. CHAFF rides no frame
+  // outside `you` — nobody gets another hull's source (the fakes are blips) —
+  // and on `you` the OWNER's own live cloud rides as `chaff` {x, y, until}
+  // (Eric 2026-09-30, amendment 184), present IFF its source is live.
   expect(JSON.stringify(withoutYou)).not.toContain('"shield"');
   expect(JSON.stringify(withoutYou)).not.toContain('chaff');
+  if (f.you !== undefined) {
+    const src = w.chaffSources.get(me.id);
+    const live = src !== undefined && w.now < src.until;
+    expect('chaff' in f.you).toBe(live);
+    if (live) expect(f.you.chaff).toEqual({ x: src.x, y: src.y, until: src.until });
+  }
   if (f.you !== undefined) {
     const sh = me.shield;
     const up = sh !== null && sh.hpLeft > 0 && w.now < sh.until;
@@ -4076,7 +4084,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       // between two hulls (a random point along it, the puff's edge across
       // the line), some sit ON an observer (a hull standing inside a puff —
       // blind out, hidden in, symmetric), the rest anywhere on the water. A
-      // raw store write, like injectMine; production lays them at a stern.
+      // raw store write, like injectMine; production lays them at the laying
+      // hull's center (amendment 183).
       for (let sp = 0; sp < rng.int(1, 4); sp++) {
         const roll = rng.float(0, 1);
         // Half the pairs are the guaranteed in-sight pair (ids[0] ↔ 'pn').
@@ -4239,6 +4248,27 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
 // now legal blips. Justification is exact mask equality against oracle-
 // recomputed sources, so a real hidden ship's true footprint — the exact
 // payload a leaking perception bug would emit — matches no arm and fails.
+
+describe('perception — the chaff OWNER\'s cloud is self-private (amendment 184)', () => {
+  it('a pressed chaff rides the owner\'s own `you.chaff` (burst point + until) and NOTHING else — no other observer, no fakes for the owner', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 120, -40);
+    place(w, 'b', 220, -40); // well inside b's sight: a is b's contact
+    w.applyCard(a, 'chaff');
+    expect(w.sinkingActivationGate(a, CONSUMABLE_SLOTS[0])).toEqual({ ok: true });
+    const src = w.chaffSources.get('a')!;
+    const own = buildFrame(w, 'a');
+    expect(own.you!.chaff).toEqual({ x: 120, y: -40, until: src.until });
+    expect(src.until).toBe(w.now + CONFIG.chaff.durationMs);
+    verifyFrame(w, 'a', own);
+    // The other observer: a is a contact, and nothing about the cloud rides b's frame.
+    const other = buildFrame(w, 'b');
+    expect(other.contacts.some((c) => c.id === 'a')).toBe(true);
+    expect('chaff' in other.you!).toBe(false);
+    expect(JSON.stringify({ ...other, you: undefined })).not.toContain('chaff');
+    verifyFrame(w, 'b', other);
+  });
+});
 
 describe('perception — the chaff carve-out still catches a genuine leak (Story 8.16)', () => {
   it('a forged blip carrying a hidden REAL ship\'s true footprint fails verifyFrame, fakes present or not', () => {

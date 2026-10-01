@@ -377,7 +377,12 @@ describe('shared barrel', () => {
     // curve over its bundled CONFIG.smokeScreen, so a stale client would draw
     // (and wake-mask) the wrong disc. No wire shape moved; the exception
     // count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(63);
+    // 63 -> 64: catalog content — the machine-gun ladder authors `rateMs`
+    // (-40/-40/-40/-30 ms, 0.35 -> 0.20 s) and the stats row drops
+    // `idleReloadMs` (Eric 2026-09-30), and the self-private
+    // `OwnShip.chaff` {x, y, until} (the owner's own live cloud, amendment
+    // 184 — rides `you` only). The exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(64);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -941,15 +946,20 @@ describe('shared barrel', () => {
     // THE GENERATED WHITELIST, and its deliberate absences (see sim/effects.ts).
     expect(BOON_STAT_PATHS.length).toBeGreaterThan(0);
     expect(Object.keys(EQUIPMENT_STAT_FIELDS).sort()).toEqual([...EQUIPMENT_IDS].sort());
+    // The machine gun's shot delay is card-addressable (Eric 2026-09-30: its
+    // ladder steps it, and the refit tier card prints a RATE row off it).
+    expect(EQUIPMENT_STAT_FIELDS.machineGun).toEqual(['reloadMs', 'maxAmmo', 'damage', 'rateMs']);
+    expect(BOON_STAT_PATHS).toContain('equipment.machineGun.rateMs');
     for (const path of [
       'sweepPeriodMs', 'sightRange',
       'equipment.gun.rangeU', 'equipment.starShells.rangeU', 'equipment.broadside.rangeU',
       // Story 8.17: phosphor's reach is the radar rung too, derived.
       'equipment.phosphorShells.rangeU', 'equipment.phosphorShells.tier',
       // Story 8.15: the two pickable guns' ranges are the radar rung, derived;
-      // the machine gun's cadence/idle clock and the cut's factor are fixed.
+      // the cut's factor is fixed. (`machineGun.rateMs` is ADDRESSABLE since
+      // 2026-09-30 — its ladder steps it; the idle clock is deleted.)
       'equipment.machineGun.rangeU', 'equipment.flak.rangeU',
-      'equipment.machineGun.rateMs', 'equipment.machineGun.idleReloadMs', 'equipment.damageCut.factor',
+      'equipment.machineGun.idleReloadMs', 'equipment.damageCut.factor',
       'equipment.broadside.traverseRad', 'equipment.broadside.mountSpreadRad',
       'equipment.navalMines.triggerRadius', 'equipment.gun.tier',
       // THE CAPTIVE MINE HAS NEITHER RADIUS PATH (epic-8 amendment 84d): its
@@ -1066,8 +1076,8 @@ describe('shared barrel', () => {
     expect(classShift('battleship')).toBe('damageCut');
     // Eric's numbers, verbatim (amendments 97, 99, 103, 105).
     expect(CONFIG.machineGun).toEqual({
-      arc: 'full', hits: ['hull', 'decoy'], shellSpeed: 500, maxAmmo: 16, rateMs: 500,
-      reloadMs: 15000, idleReloadMs: 5000, damage: 4, shellRadius: 2,
+      arc: 'full', hits: ['hull', 'decoy'], shellSpeed: 500, maxAmmo: 16, rateMs: 350,
+      reloadMs: 10000, damage: 4, shellRadius: 2,
     });
     expect(CONFIG.flak).toEqual({
       arc: 'full', hits: ['hull', 'mine', 'decoy', 'ordnance'], shellSpeed: 500, maxAmmo: 1,

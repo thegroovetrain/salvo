@@ -2,7 +2,8 @@
 // key-fired consumable, the LAST live-content stub flipped. One copy opens a
 // 5 s LAY WINDOW on the activating hull (`CONFIG.smokeScreen.layMs`): every
 // `puffIntervalMs` (500 ms — 10 puffs per copy) World.stepSmoke drops a
-// stationary puff at the hull's STERN, born at r0 (82.5 u — 1/8 of intel
+// stationary puff at the hull's CENTER (Eric 2026-09-30, amendment 183 — it
+// was the stern), born at r0 (82.5 u — 1/8 of intel
 // range) and growing to r1 (165 u — 2/8; Eric 2026-09-30) over its whole
 // `lifeMs` (30 s), after which it is deleted. A puff is
 // "an island for every sensor but radar": signals.ts's ONE `sightClear`

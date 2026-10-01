@@ -12,15 +12,21 @@
 // in which the bots acquire each other (the reaction gate) and open fire.
 //
 // RECORDED 2026-09-28 on the dev machine (Darwin 25.4, Node v22.19.0), seed 815,
-// 200-tick window after a 60-tick warm-up:
-//   mz per tick        mean 1.35, max 6 (exactly one per stream shell: 270
-//                      stream shells spawned in the window, 270 flashes; 20
-//                      guns × one shell per 500 ms is 2/tick at full stream,
-//                      and a 16-shell magazine empties inside the window)
-//   shells in flight   mean 4.88, max 19 (a 500 u/s shell over <= 440 u
+// 200-tick window after a 60-tick warm-up, at the 500 ms cadence: mz/tick mean
+// 1.35, max 6 (270 stream shells); world.step() best-of-5 mean 1.024 ms/tick.
+// RE-MEASURED 2026-09-30 at Eric's 350 ms cadence and 10 s swap (same machine,
+// seed and window, the swap starting the tick a stream stops):
+//   mz per tick        mean 1.31, max 6 (exactly one per stream shell: 263
+//                      stream shells spawned in the window, 263 flashes; 20
+//                      guns × one shell per 350 ms is ~2.9/tick at full
+//                      stream, but a 16-shell magazine now empties in 5.25 s
+//                      and the 10 s swap then holds the gun silent — the
+//                      faster cadence did NOT raise the window's flash count)
+//   shells in flight   mean 2.76, max 10 (a 500 u/s shell over <= 440 u
 //                      lives about a second)
-//   world.step()       best-of-5 mean 1.024 ms/tick; worst tick of that run
-//                      3.909 ms; best worst-tick across the five runs 2.284 ms
+//   world.step()       best-of-5 mean 1.039 ms/tick run alone; worst tick of
+//                      that run 1.742 ms (inside the full parallel suite, a
+//                      loaded box: mean 1.7–2.6 ms, worst tick 14–22 ms)
 // Against the 50 ms tick that is ~2 % of the budget on average. The log line
 // (HC_PERF_LOG=1) re-measures on the machine that runs it.
 
@@ -31,7 +37,7 @@ import { World } from '../game/world.js';
 const BOTS = 20;
 const RING_U = 220; // every bot within 440 u of every other — inside the 660 u reach
 const WARMUP_TICKS = 60; // 3 s: acquire (reaction gate) and open the streams
-const WINDOW_TICKS = 200; // 10 s: a full 16-shell magazine (8 s) and the start of the reload
+const WINDOW_TICKS = 200; // 10 s: a full 16-shell magazine (5.25 s at 350 ms) and the 10 s swap after it
 
 interface RunStats {
   meanStepMs: number;
