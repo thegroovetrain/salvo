@@ -21,28 +21,34 @@ import { flatRaster } from './islandFixture.js';
 
 const OBSERVERS = 20;
 const PUFFS = 200;
-const RING_U = 220; // every hull within 440 u of every other: about half the pairs inside the 330 u sight bubble
+// THE GEOMETRY SCALED ×1.5 WITH THE DISCS (cycle 162, Eric 2026-10-01: puffs
+// 82.5 → 165 u became 123.75 → 247.5 u): ring 220 → 330, band 40 → 60, far
+// annulus 400–520 → 600–780, so every ratio the layout note below relies on
+// is unchanged. The sight bubble (330 u) did NOT scale, so each hull now has
+// six in-sight neighbours (within 54°) instead of ten — the pin is
+// correspondingly less loaded on the sight-tier scans, and still a pin.
+const RING_U = 330; // every hull within 660 u of every other: six of every hull's nineteen partners inside the 330 u sight bubble
 const RING_PUFFS = 20; // puffs ON the ring — the occluding minority (non-vacuity)
 const RING_PUFF_SECTOR = Math.PI / 6; // ...confined to one 30° slice of the ring (see smokedField)
-const RING_PUFF_BAND_U = 40; // ...and to the outer 40 u band inside it
-const FAR_MIN_U = 400; // the other 180 sit in an annulus every hull-to-hull segment misses ...
-const FAR_MAX_U = 520; // ... yet inside sight + radius of the ring, so the smoke CHANNEL delivers them too
+const RING_PUFF_BAND_U = 60; // ...and to the outer 60 u band inside it
+const FAR_MIN_U = 600; // the other 180 sit in an annulus every hull-to-hull segment misses ...
+const FAR_MAX_U = 780; // ... yet inside sight + radius of the ring, so the smoke CHANNEL delivers them too
 
 /** Twenty captains on a ring, two hundred live puffs of random age. THE WORST
  *  CASE, deliberately: `puffCrossed` short-circuits on the FIRST blocking
  *  puff, so a field where every segment is smoked is the CHEAP case. Here 180
  *  of the 200 puffs lie where no hull-to-hull segment can reach them (a
  *  segment between two ring points stays within RING_U of the centre; a puff
- *  at ≥ 400 u with r ≤ 165 — the full-grown 2/8 of intel range — keeps its
- *  near edge ≥ 235 u out, a 15 u margin past the 220 u ring), so every
- *  predicate scans the whole store for most pairs — the two ring hulls that
+ *  at ≥ 600 u with r ≤ 247.5 — the full-grown 3/8 of intel range — keeps its
+ *  near edge ≥ 352.5 u out, a 22.5 u margin past the 330 u ring), so every
+ *  predicate scans the whole store for most pairs — the few ring hulls that
  *  stand inside a ring puff take the cheap in-smoke branch and skip the scan;
- *  the other eighteen pay full price — while 20 ring puffs keep the
- *  occlusion real. The ring puffs sit in ONE 30° slice, in the outer 40 u
- *  band just inside the ring: with r up to 165 u (2/8 of intel range) a puff
- *  anywhere near the centre would cross every in-sight chord (each lies
- *  ≥ 145 u from the centre) and smoke the whole room — the cheap case — so
- *  they occlude that side's pairs only and the far side stays clear.
+ *  the rest pay full price — while 20 ring puffs keep the occlusion real.
+ *  The ring puffs sit in ONE 30° slice, in the outer 60 u band just inside
+ *  the ring: with r up to 247.5 u (3/8 of intel range) a puff anywhere near
+ *  the centre would cross every in-sight chord (each lies ≥ 286 u from the
+ *  centre) and smoke the whole room — the cheap case — so they occlude that
+ *  side's pairs only and the far side stays clear.
  *  Built outside the clock; deterministic per seed. */
 function smokedField(seed: number): { w: World; ids: string[] } {
   const rng = mulberry32(seed);

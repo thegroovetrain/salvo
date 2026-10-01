@@ -3,20 +3,28 @@
 // One copy puts a false-return SOURCE at the owner's position; for 15 s its
 // server-generated fakes paint on every OTHER observer's radar through that
 // observer's own blipGate, re-scattered once per the OWNER's sweep period and
-// water-filtered (game/fakes.ts). The owner never receives them. The cloud is
-// WORLD-owned (`World.chaffSources`, keyed by owner): it runs its full window
-// through the owner's sink, redeploy or respawn (amendment 127). This file pins
-// the scatter contract, the row, and the emission end to end through
-// perception.observe().
+// water-filtered (game/fakes.ts). The owner never receives them as `events`
+// blips; since cycle 162 (Eric 2026-10-01, PV 68) the owner receives the
+// rects of the fakes its OWN beam painted as the self-private
+// `you.chaffGhosts` — the same scatter, the same rect shape, gated by the
+// owner's beam and the radar shadow but not the sight annulus (the cloud is
+// at the owner's own position). The cloud is WORLD-owned
+// (`World.chaffSources`, keyed by owner): it runs its full window through
+// the owner's sink, redeploy or respawn (amendment 127). This file pins the
+// scatter contract, the row, the emission end to end through
+// perception.observe(), and the owner's ghosts.
 
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   CONSUMABLE_SLOTS,
+  bearing,
   blockedWater,
   mulberry32,
   paintCoverage,
+  wrapPositive,
   type BlipEvent,
+  type FrameMsg,
   type ReturnBlipEvent,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
@@ -104,6 +112,11 @@ describe('CHAFF — the scatter contract (game/fakes.ts)', () => {
     expect(open.some((f) => blockedWater(f, [isle], 2800))).toBe(true);
   });
 
+  it('the dials are the rulings: a 180 u scatter circle (Eric 2026-10-01, ×1.5 from 120) of CONFIG.chaff.count fakes', () => {
+    expect(CONFIG.chaff.radius).toBe(180);
+    expect(CONFIG.chaff.count).toBe(10);
+  });
+
   it('the EPOCH is time over the OWNER\'s sweep period, and a new epoch is a new scatter', () => {
     const src: FakeSource = { ownerId: 'o', x: 0, y: 0, radius: 120, count: 10, until: 99_999, seed: 42, at: 1000, sweepPeriodMs: 4000 };
     expect(fakeEpoch(src, 1000)).toBe(0);
@@ -179,7 +192,7 @@ describe('CHAFF — emission through perception.observe()', () => {
     const c = place(w, 'c', 1000, 0);
     for (const s of [o, a, c]) wideBeam(s);
     const src = arm(w, o, 500, 0);
-    const fakes = scatterFakes(src.seed, fakeEpoch(src, w.now), 500, 0, 120, 10, w.map.islands, w.map.radius);
+    const fakes = scatterFakes(src.seed, fakeEpoch(src, w.now), 500, 0, CONFIG.chaff.radius, CONFIG.chaff.count, w.map.islands, w.map.radius);
     return { w, o, a, c, fakes };
   }
 
@@ -207,10 +220,12 @@ describe('CHAFF — emission through perception.observe()', () => {
     for (const b of blips(observe(w, a.id).events)) expect(Object.keys(b).sort()).toEqual(['bits', 'gx', 'gy', 'h', 'k', 't', 'w']);
   });
 
-  it('the OWNER never receives its own fakes', () => {
+  it('the OWNER\'s fakes never ride `events` (they ride `you.chaffGhosts` instead — see the ghost suite below)', () => {
     const { w, o, a } = board();
     expect(blips(observe(w, a.id).events).length).toBeGreaterThan(0);
     expect(blips(observe(w, o.id).events)).toEqual([]); // no other hull in its annulus, and never its own fakes
+    // ...while the same beam, over the same cloud, paints the owner's ghosts.
+    expect(observe(w, o.id).chaffGhosts.length).toBeGreaterThan(0);
   });
 
   it('a LAPSED source paints nothing (lazy expiry), and a lit zone the observer owns shows the truth', () => {
@@ -235,9 +250,122 @@ describe('CHAFF — emission through perception.observe()', () => {
     const after = blips(observe(w, a.id).events).map(maskKey).sort();
     expect(after.length).toBeGreaterThan(0);
     expect(after).not.toEqual(before);
-    const next = scatterFakes(w.chaffSources.get(o.id)!.seed, 1, 500, 0, 120, 10, w.map.islands, w.map.radius);
+    const next = scatterFakes(w.chaffSources.get(o.id)!.seed, 1, 500, 0, CONFIG.chaff.radius, CONFIG.chaff.count, w.map.islands, w.map.radius);
     const want = new Set(next.map((f) => fakeKey(f, w.now)));
     for (const k of after) expect(want.has(k)).toBe(true);
+  });
+});
+
+describe('CHAFF — THE OWNER\'S GHOSTS, `you.chaffGhosts` (Eric 2026-10-01, cycle 162, PV 68)', () => {
+  const GHOST_KEYS = ['bits', 'gx', 'gy', 'h', 'w'];
+
+  /** The R39 geometry: the owner `o` bursts its chaff AT ITS OWN POSITION
+   *  (500, 500) — every fake inside its sight bubble, where the annulus never
+   *  paints — with its beam wide open. `a` at the origin is 707 u out: beyond
+   *  o's radar, so nothing else can paint on o's scope. */
+  function ownBoard(seed = 0xc0ffee): { w: World; o: ShipRecord; a: ShipRecord; src: FakeSource; fakes: Fake[] } {
+    const w = bareWorld();
+    const o = place(w, 'o', 500, 500);
+    const a = place(w, 'a', 0, 0);
+    wideBeam(o);
+    wideBeam(a);
+    const src = arm(w, o, 500, 500, seed);
+    const fakes = scatterFakes(src.seed, fakeEpoch(src, w.now), 500, 500, CONFIG.chaff.radius, CONFIG.chaff.count, w.map.islands, w.map.radius);
+    expect(fakes.length).toBeGreaterThan(0);
+    return { w, o, a, src, fakes };
+  }
+
+  const ghostsOf = (f: FrameMsg): string[] => (f.you!.chaffGhosts ?? []).map(maskKey).sort();
+
+  it('the owner\'s fakes never ride `events`, and ride `you.chaffGhosts` — EXACTLY the blip rect (gx,gy,w,h,bits) of every fake the beam crossed — when the owner\'s beam crosses them inside its own bubble', () => {
+    const { w, o, a, fakes } = ownBoard();
+    const f = buildFrame(w, o.id);
+    expect(blips(f.events)).toEqual([]); // never an events blip for the owner
+    const ghosts = f.you!.chaffGhosts!;
+    expect(ghosts.length).toBeGreaterThan(0);
+    for (const g of ghosts) expect(Object.keys(g).sort()).toEqual(GHOST_KEYS); // no `k`, no `t`, nothing else
+    for (const g of ghosts) expect(Object.keys(g)).toEqual(['gx', 'gy', 'w', 'h', 'bits']); // the blip's own key order
+    // The wide beam crosses every fake on a flat raster with no island: the
+    // ghost set IS the fake set, rect for rect — what enemies would see.
+    expect(ghostsOf(f)).toEqual(fakes.map((fk) => fakeKey(fk, w.now)).sort());
+    // Nobody else gets a ghost list (the key is absent from every other frame).
+    const fa = buildFrame(w, a.id);
+    expect('chaffGhosts' in fa.you!).toBe(false);
+    expect(JSON.stringify(fa)).not.toContain('chaffGhosts');
+    expect(JSON.stringify({ ...f, you: undefined })).not.toContain('chaffGhosts');
+  });
+
+  it('no ghosts once `until` passes (lazy expiry, with `you.chaff`) — the key is ABSENT, never []', () => {
+    const { w, o, src } = ownBoard();
+    expect('chaffGhosts' in buildFrame(w, o.id).you!).toBe(true);
+    src.until = w.now;
+    const f = buildFrame(w, o.id);
+    expect('chaffGhosts' in f.you!).toBe(false);
+    expect('chaff' in f.you!).toBe(false);
+    expect(observe(w, o.id).chaffGhosts).toEqual([]);
+  });
+
+  it('no ghosts when the beam is elsewhere (sweptThisTick false); a narrow window paints exactly the fakes whose bearing it crosses', () => {
+    const { w, o, fakes } = ownBoard();
+    o.prevSweepAngle = 0;
+    o.sweepAngle = 0; // a zero-width window: nothing is swept this tick
+    expect('chaffGhosts' in buildFrame(w, o.id).you!).toBe(false);
+    // A 0.02 rad window around fake[0]'s bearing: fake[0] paints; every ghost
+    // is a fake whose bearing lies inside the window and nothing else does.
+    const brg0 = bearing(o.state, fakes[0]);
+    o.prevSweepAngle = wrapPositive(brg0 - 0.01);
+    o.sweepAngle = wrapPositive(brg0 + 0.01);
+    const swept = fakes.filter((fk) => wrapPositive(bearing(o.state, fk) - o.prevSweepAngle) < 0.02);
+    expect(swept.length).toBeGreaterThan(0);
+    expect(swept.length).toBeLessThan(fakes.length); // a non-trivial subset — the gate is doing work
+    expect(ghostsOf(buildFrame(w, o.id))).toEqual(swept.map((fk) => fakeKey(fk, w.now)).sort());
+  });
+
+  it('a flare the owner owns over the cloud shows the truth: no ghosts there either (the ownZoneCovers skip, as for enemies\' blips)', () => {
+    const { w, o } = ownBoard();
+    w.litZones.set('z', { id: 'z', ownerId: o.id, x: 500, y: 500, r: 300, until: w.now + 5000 } as never);
+    expect('chaffGhosts' in buildFrame(w, o.id).you!).toBe(false);
+  });
+
+  it('a re-fire REPLACES the ghosts: they come off the NEW source\'s seed, and the old set is gone', () => {
+    const { w, o, fakes } = ownBoard();
+    const before = ghostsOf(buildFrame(w, o.id));
+    expect(before).toEqual(fakes.map((fk) => fakeKey(fk, w.now)).sort());
+    const next = arm(w, o, 500, 500, 0xbeef);
+    const nextFakes = scatterFakes(next.seed, fakeEpoch(next, w.now), 500, 500, CONFIG.chaff.radius, CONFIG.chaff.count, w.map.islands, w.map.radius);
+    const after = ghostsOf(buildFrame(w, o.id));
+    expect(after).toEqual(nextFakes.map((fk) => fakeKey(fk, w.now)).sort());
+    expect(after).not.toEqual(before);
+  });
+
+  it('the ghosts ARE what the enemy sees: an enemy whose annulus and beam hold the cloud receives the same rects as `events` blips', () => {
+    const { w, o, fakes } = ownBoard();
+    const e = place(w, 'e', 500, 0); // 500 u below the cloud: sight 330 < 500 ≤ radar 660
+    wideBeam(e);
+    const enemyBlips = blips(buildFrame(w, e.id).events).map(maskKey).sort();
+    const ownGhosts = ghostsOf(buildFrame(w, o.id));
+    // Every fake the enemy's annulus admits is in both lists, byte-identical.
+    const inAnnulus = fakes.filter((fk) => {
+      const d = Math.hypot(fk.x - 500, fk.y - 0);
+      return d > e.stats.sightRange && d <= e.stats.radarRange;
+    });
+    expect(inAnnulus.length).toBeGreaterThan(0);
+    for (const fk of inAnnulus) {
+      expect(enemyBlips).toContain(fakeKey(fk, w.now));
+      expect(ownGhosts).toContain(fakeKey(fk, w.now));
+    }
+    // ...and the enemy's frame carries no ghost list of its own.
+    expect('chaffGhosts' in buildFrame(w, e.id).you!).toBe(false);
+  });
+
+  it('a SPECTATOR gets no ghosts (no `you`, no beam), and the radar lock withholds them like every blip', () => {
+    const { w, o } = ownBoard();
+    const spec = buildFrame(w, o.id, 'finished');
+    expect(spec.spec).toBe(true);
+    expect(JSON.stringify(spec)).not.toContain('chaffGhosts');
+    w.radarEnabled = false;
+    expect('chaffGhosts' in buildFrame(w, o.id).you!).toBe(false);
+    expect(observe(w, o.id).chaffGhosts).toEqual([]);
   });
 });
 
@@ -262,7 +390,7 @@ describe('CHAFF — the cloud outlives its owner (amendment 127)', () => {
     const a = place(w, 'a', 0, 0);
     const src = arm(w, o, 450, 0);
     wideBeam(a);
-    const want = scatterFakes(src.seed, fakeEpoch(src, w.now), 450, 0, 120, 10, w.map.islands, w.map.radius)
+    const want = scatterFakes(src.seed, fakeEpoch(src, w.now), 450, 0, CONFIG.chaff.radius, CONFIG.chaff.count, w.map.islands, w.map.radius)
       .map((f) => fakeKey(f, w.now)).sort();
     const before = blips(observe(w, a.id).events).map(maskKey).sort();
     expect(before.length).toBeGreaterThan(0);
@@ -273,7 +401,7 @@ describe('CHAFF — the cloud outlives its owner (amendment 127)', () => {
     expect(fakeEpoch(src, w.now)).toBe(0);
     wideBeam(a);
     const after = blips(observe(w, a.id).events).map(maskKey).sort();
-    const again = scatterFakes(src.seed, 0, 450, 0, 120, 10, w.map.islands, w.map.radius).map((f) => fakeKey(f, w.now)).sort();
+    const again = scatterFakes(src.seed, 0, 450, 0, CONFIG.chaff.radius, CONFIG.chaff.count, w.map.islands, w.map.radius).map((f) => fakeKey(f, w.now)).sort();
     expect(after.length).toBe(before.length);
     for (const k of after) expect(again).toContain(k);
   });
@@ -292,8 +420,8 @@ describe('CHAFF — the cloud outlives its owner (amendment 127)', () => {
     wideBeam(o);
     expect(blips(observe(w, a.id).events).length).toBeGreaterThan(0);
     const ownPaints = blips(observe(w, o.id).events).map(maskKey);
-    const fakeKeys = new Set(scatterFakes(src.seed, fakeEpoch(src, w.now), 450, 0, 120, 10, w.map.islands, w.map.radius).map((f) => fakeKey(f, w.now)));
-    for (const k of ownPaints) expect(fakeKeys.has(k)).toBe(false); // never its own fakes
+    const fakeKeys = new Set(scatterFakes(src.seed, fakeEpoch(src, w.now), 450, 0, CONFIG.chaff.radius, CONFIG.chaff.count, w.map.islands, w.map.radius).map((f) => fakeKey(f, w.now)));
+    for (const k of ownPaints) expect(fakeKeys.has(k)).toBe(false); // never its own fakes in `events` (they ride `you.chaffGhosts` instead)
     src.until = w.now; // lazy expiry
     o.state = { x: -1500, y: 0, heading: 0, speed: 0 }; // its hull out of a's annulus again
     wideBeam(a);
