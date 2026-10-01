@@ -2,7 +2,7 @@
 title: 'Story 8.22: How-to-Play and Copy Re-cut (+ the three class names)'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '28770b41'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -76,6 +76,7 @@ warnings: [oversized, multiple-goals]
 **Execution:**
 - [ ] `client/src/ui/classNames.ts` -- `SPEEDBOAT` / `DREADNOUGHT` / `REPEATER`; header comment cites amendment 204 -- Eric's names.
 - [ ] `client/src/__tests__/{classSelect,slotTooltip,home}.test.ts` -- update the name asserts -- same behaviour, new words.
+- [ ] `client/src/how-to-play/copy.ts` -- ALSO (amendment 206) four sections after UPGRADING: THE GUNS (the pick + one paragraph per gun), WEAPONS (one per equipment line + the mine hit-point rule), CONSUMABLES (one per live consumable; DEPTH CHARGE stub omitted), SHIP UPGRADES (the five ladders) -- Eric 2026-10-01.
 - [ ] `client/src/how-to-play/copy.ts` -- rewrite the module header (scope, draft status, the 2026-10-01 re-cut) and the sections: THE OBJECTIVE (unchanged), STEERING (unchanged), SHOOTING (the gun is your pick of three — CANNON clicks a shell to the point, MACHINE GUN holds to stream a magazine then reloads, FLAK bursts in the air; every gun fires all round; islands stop shells), EQUIPMENT (your class: SPEEDBOAT / REPEATER / DREADNOUGHT with the hull word and its SPECIAL on `Shift` — SPEED BOOST / INSTANT RELOAD / DAMAGE CUT, one line each with the CONFIG numbers; the nine squares on the bar: gun, Shift, Q/E/R weapons, 1–4 belt; select/cancel/return-to-gun; arcs drawn when a weapon has one), UPGRADING (levels per minute and per kill, the assist split kept; the refit's four cards from the ONE pool every captain shares — a weapon while a weapon square is empty, upgrades and consumables once all three are full; the countdown offer opens by itself and REDRAW once; consumables stock on the belt and some fire on the key, some prime then click; HULL REPAIR 50 at once + 50 over 5 s; regen sentence kept; cannot fire while the refit is open) -- the AC's list, from code.
 - [ ] `client/src/ui/settings.ts` -- `Q / E / R` → `WEAPON SLOTS — PRESS TO SELECT, AGAIN TO CANCEL`; new `SHIFT` row `CLASS SPECIAL`; gun row `GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT`; header comment dated -- the three rows became false (amendment 50's rule).
 - [ ] `client/src/__tests__/settings.test.ts` -- re-pin the three rows -- current truth.
@@ -93,6 +94,9 @@ warnings: [oversized, multiple-goals]
 - Given the whole change, when `npm run check` runs, then it exits 0 and `PROTOCOL_VERSION` is still 66.
 
 ## Spec Change Log
+
+- **2026-10-01, mid-run (Eric ruling, amendment 206) — WEAPON DESCRIPTIONS ADDED.** Eric: *"I want instructions on how to play like there are now. But I also want descriptions of every weapon. Do NOT call Torpedoes 'Fish.' Write it like a human. Like *I* wrote it."* The intent-contract's Never-clause "Author a glossary, a card-by-card list, or per-line weapon descriptions as a table" was an orchestrator over-reading of "NO glossary"; the ruling wins and the contract is left as written (read-only) with this entry as the record. Amended: four sections (THE GUNS · WEAPONS · CONSUMABLES · SHIP UPGRADES) of plain paragraphs after UPGRADING; the section-set pin grows to nine; a no-"fish" pin and an every-line-described pin are added. Known-bad state avoided: a How-to-Play that teaches the mechanisms but leaves a new player unable to tell a captive mine from a fouling mine. KEEP: still no heading named GLOSSARY, no stat tables, no in-game copy; the flak anti-ordnance side effect is NOT described (amendment 105).
+- **2026-10-01, mid-run (Eric) — MODEL ROUTING.** *"use /orchestrate for model selection for subagents. Don't waste fable."* Fact-gathering and mechanical landings on Sonnet, the implementation on Opus, the review gate on Fable (amendment 207(e)).
 
 ## Review Triage Log
 

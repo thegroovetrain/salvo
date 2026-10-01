@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.26] - 2026-10-01
+
+### Changed
+- **The three classes have names** — the Torpedo Boat is the **SPEEDBOAT**, the Mine Layer is the **REPEATER**, the Battleship is the **DREADNOUGHT** (Eric). Class select, the home chip, the SHIP tooltip and results print the new names. Nothing else about the hulls changes.
+- **How to Play describes the game that exists** — SHOOTING teaches the gun pick (CANNON, MACHINE GUN, FLAK); EQUIPMENT teaches the three hulls, the SPECIAL on Shift, the nine squares on the bar and the weapon keys; UPGRADING teaches the shared pool, the countdown offer and REDRAW, consumable stocking and the two ways they fire, HULL REPAIR as built. Four new sections describe every gun, weapon, consumable and ship upgrade in plain words. Still one page, still no glossary, and the win condition is still stated.
+- **Settings key reference** — `Q / E / R` is one WEAPON SLOTS row, `SHIFT` has its own CLASS SPECIAL row, and the gun row no longer says DEFAULT.
+
+### Internal
+- Client-only; `PROTOCOL_VERSION` stays 66. Internal class ids (`torpedoBoat` / `mineLayer` / `battleship`) are untouched; `client/src/ui/classNames.ts` is the one mapping.
+- Tests: client 3743 -> 3758 (new `copyWords.test.ts` pins that no `deck`, `DEFAULT` or `STARTER` string ships in client copy; `howToPlay.test.ts` pins the nine-section set, no GLOSSARY heading, no "fish", every line described); shared 1024 and server 2316 unchanged.
+- Epic-8 amendments 204–207; GDD class tables, DESIGN silhouette table, EXPERIENCE journeys and epics Story 8.22 carry dated stamps; `spec-8-22-how-to-play-and-copy-re-cut.md`.
+
 ## [0.18.25] - 2026-10-01
 
 ### Changed

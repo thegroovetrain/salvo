@@ -68,7 +68,36 @@ describe('how-to-play copy', () => {
       'SHOOTING',
       'EQUIPMENT',
       'UPGRADING',
+      'THE GUNS',
+      'WEAPONS',
+      'CONSUMABLES',
+      'SHIP UPGRADES',
     ]);
+  });
+
+  it('never calls a torpedo a fish (Eric 2026-10-01)', () => {
+    expect(JSON.stringify(HOWTO_SECTIONS).toLowerCase()).not.toMatch(/\bfish\b|\bfishes\b/);
+  });
+
+  it('describes every live weapon, consumable and ship upgrade', () => {
+    const joined = ['THE GUNS', 'WEAPONS', 'CONSUMABLES', 'SHIP UPGRADES']
+      .flatMap((h) => section(h)?.paragraphs ?? [])
+      .join(' ');
+    const shipUpgrades = ['ARMOR', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD'];
+    const named = [
+      'CANNON', 'MACHINE GUN', 'FLAK', 'HEAVY TORPEDO', 'LIGHT TORPEDO', 'BROADSIDE GUN',
+      'STAR SHELLS', 'PHOSPHOR SHELLS', 'NAVAL MINES', 'CAPTIVE MINES', 'FOULING MINES',
+      'HULL REPAIR', 'SHIELD BLOCK', 'SMOKE SCREEN', 'CHAFF', 'DECOY BUOY', 'SUPERCAV TORPEDO',
+      'FLASH SHELLS',
+    ];
+    for (const name of named) expect(joined, name).toContain(`${name}:`);
+    for (const name of shipUpgrades) expect(joined, name).toContain(name);
+    // DEPTH CHARGE is a stub: it is described nowhere.
+    expect(JSON.stringify(HOWTO_SECTIONS)).not.toContain('DEPTH CHARGE');
+  });
+
+  it('states the mine hit-point rule', () => {
+    expect((section('WEAPONS')?.paragraphs ?? []).join(' ')).toContain('ten hit points');
   });
 
   it('no heading is a glossary', () => {

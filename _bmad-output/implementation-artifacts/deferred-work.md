@@ -2227,7 +2227,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   summary: RL AGENTS DRAW HULL REPAIR CARDS THEY CAN NEVER FIRE — `server/scripts/rl/env.ts` autoSpend picks uniformly over the front offer (which now holds `hullRepair`) and the RL action space has no belt press, so those levels are dead for RL runs; batchsim bots are unaffected (they use the tactic table and the 8.8 consumable row).
   evidence: Blind Hunter finding 4 (PLAUSIBLE-low, harness only); rl/env.ts autoSpend after the heal branch was removed.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
-  status: OPEN — Story 8.22 (How-to-Play re-cut). Note 2026-09-30 (cycle 156, amendment 175): the delay moved 30 s → 15 s and the sentence was corrected to "fifteen seconds" in the same PR, so the copy is TRUE again; the hard-coding itself remains open.
+  status: RESOLVED-AS-RESTATED 2026-10-01 (Story 8.22, cycle 161, amendment 207(d)) — the page imports no game module by design (`how-to-play/main.ts`), so the numbers stay prose; every sentence that states a number now carries a `// CONFIG.xxx` citation comment beside it in `copy.ts`, so a retune greps its way to the copy. Not derived, deliberately. (Earlier note 2026-09-30, cycle 156, amendment 175: the delay moved 30 s → 15 s and the sentence was corrected to "fifteen seconds" in the same PR.)
   summary: THE HOW-TO-PLAY REGEN SENTENCE HARDCODES "THIRTY SECONDS" AND "EVERY SECOND" while `regen.` is on the batchsim --tune surface; a retune of `CONFIG.regen.outOfCombatMs` / `missingPctPerS` silently strands the copy (the HULL REPAIR card face reads CONFIG live, this sentence does not). Amendment 50 fixed only the lines that became false; 8.22 owns the re-cut and should derive or restate them.
   evidence: Blind Hunter finding 5; client/src/how-to-play/copy.ts UPGRADING paragraph; howToPlay.test.ts pin.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
@@ -2398,7 +2398,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
 Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (Eric-approved), epic-8 amendment 89. Everything below is Eric's to fill; nothing is a facilitator number. This section CLOSES the 8.13 entry "HEAT SEEKING ON THE MISSILE IS NOT DECIDED" (`:2330`) — the missile and HEAT SEEKING are cut.
 
 - source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
-  status: OPEN — Eric (names)
+  status: RESOLVED 2026-10-01 (Story 8.22, cycle 161, epic-8 amendment 204) — Eric: **SPEEDBOAT** (`torpedoBoat`), **REPEATER** (`mineLayer`), **DREADNOUGHT** (`battleship`); plain uppercase in `client/src/ui/classNames.ts`; the designation-prefix shape is closed unbuilt; ids and the identity test untouched.
   summary: THE THREE CLASS DESIGNATIONS. The hulls become named ship classes with real designations (shape `IBK-01 KABUKI CLASS`); all three are `[NAME PENDING]`. Internal ids `torpedoBoat` / `mineLayer` / `battleship` and the identity test stay until the names land; Story 8.22 (copy) cannot close without them.
   evidence: GDD class table (2026-09-21 supersession); epics.md Story 8.14.
 
@@ -2765,3 +2765,20 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: OPEN — note
   summary: `ShipRecord.cards`'s doc comment in `world.ts` still says cards do not survive `redeployShip`, untrue since 8.10 (found, not fixed — comment only).
   evidence: `server/src/game/world.ts` `cards` doc.
+
+## 2026-10-01 — Story 8.22 How-to-Play and Copy Re-cut (cycle 161) — open threads
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-22-how-to-play-and-copy-re-cut.md`
+  status: OPEN — Eric's copy pass
+  summary: THE WHOLE HOW-TO-PLAY PAGE IS DRAFT FOR ERIC'S PEN (7.3 precedent, epic-6 amendment 41). Nine sections (the five play sections re-cut, plus THE GUNS · WEAPONS · CONSUMABLES · SHIP UPGRADES, amendment 206) were drafted from code facts in his voice as best the implementer could hear it; he said "Write it like a human. Like *I* wrote it." Every sentence is his to strike or rewrite; the tests pin facts and scope, never exact sentences beyond the win condition and the regen rule.
+  evidence: `client/src/how-to-play/copy.ts`; amendments 206–207.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-22-how-to-play-and-copy-re-cut.md`
+  status: OPEN — note for a later copy or Settings pass
+  summary: FLAK'S ANTI-ORDNANCE SIDE EFFECT IS DELIBERATELY NOT TAUGHT. The page describes FLAK as a wide, lighter burst only; the torpedo-interception half is amendment 105's "side effect that may go away", which no copy may lean on. If Eric ever ratifies it as a feature, the FLAK paragraph gains a sentence.
+  evidence: `CONFIG.flak` comment; amendment 105; `copy.ts` THE GUNS.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-22-how-to-play-and-copy-re-cut.md`
+  status: OPEN — comments only
+  summary: HUNDREDS OF CODE COMMENTS STILL SAY "Torpedo Boat" / "Mine Layer" / "Battleship" (and the test-profile ids `randomTorpedoBoat` / `randomMineLayer` / `randomBattleship`). Amendment 204 keeps the ids and leaves the comments as history; a reader of the code meets both vocabularies. `classNames.ts` is the one place the mapping is written down.
+  evidence: `grep -rn "Torpedo Boat\|Mine Layer\|Battleship" shared/src server/src client/src`.
