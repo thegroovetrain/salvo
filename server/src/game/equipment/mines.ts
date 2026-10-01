@@ -11,12 +11,14 @@
 // every non-owner hull silhouette within the owner's effective blastRadius
 // takes the owner's effective damage (mineBlastVictims below — the owner is
 // ALWAYS excluded, the universal AoE convention), with one boom at the mine
-// point; chains cascade in the World into every armed non-captive mine in
-// range WHOEVER LAID IT (amendment 18, superseding amendment 46's same-owner
-// rule). MINES HAVE NO CAP AT ALL (Story 8.4, FR57/AR48): the per-player
+// point; chains cascade in the World from a NAVAL mine into every armed NAVAL
+// mine in range WHOEVER LAID IT (amendment 200, narrowing amendment 18 —
+// fouling and captive mines neither propagate nor receive). MINES HAVE NO CAP AT ALL (Story 8.4, FR57/AR48): the per-player
 // `maxLive` board cap with its silent oldest-eviction and the defensive global
 // cap are both DELETED — a mine exists until it is triggered or destroyed, and
-// shooting one is the sanctioned way to clear it (amendment 16). Mines never
+// shooting one is the sanctioned way to clear it: every mine carries
+// `CONFIG.mine.hp` that only a DECK GUN shell LANDING on it takes (amendment
+// 200 — the World's landing test and `damageMine`). Mines never
 // radar-paint; their per-observer visibility is contact-like (the `mine`
 // signal row).
 //
@@ -35,11 +37,13 @@
 // row for that kind (`MINE_ROW_ID`), with the vacated-owner CONFIG fallback.
 //
 // CAPTIVE MINES (Story 7-5 wave 2, R2.12-R2.14) change the TRIP and what
-// follows it, and nothing else. A captive mine is immune to shells, bursts and
-// chains (R2.18, re-affirmed by amendment 16), NEVER detonates on contact, and
+// follows it, and nothing else. A captive mine never receives or propagates a
+// chain (R2.18), NEVER detonates on contact, and
 // trips only on a HOSTILE (R2.13: an enemy captain or bot, or a fleet drone
 // whose CURRENT acquired target is the layer; a neutral drone may sail straight
-// over it) — answering by LAUNCHING its one torpedo and expending itself.
+// over it) — answering by LAUNCHING its one torpedo and expending itself. A
+// deck gun CAN destroy one (amendment 200): at 0 hp it is removed with a boom,
+// no blast and no fish.
 //
 // FOULING MINES (amendment 81) detonate exactly as a naval mine does, for a
 // fixed 10 hp over a much larger blast, and SLOW every victim: `slowFactor` x
@@ -91,6 +95,16 @@ export interface MineState {
    * build's numbers. The kind is the only per-mine field.
    */
   kind: MineKind;
+  /**
+   * HIT POINTS (Eric 2026-10-01, amendment 200) — `CONFIG.mine.hp` at drop for
+   * every kind. SERVER-ONLY: never on `MineView` or any wire shape, never
+   * predicted. Only a DECK GUN shell landing on the mine takes them (the
+   * World's landing test via `World.damageMine` — beside `damageDecoy`, the
+   * other non-hull decrement the damage-gate fence admits in world.ts); a
+   * trip, a chain or a burst merely
+   * covering the mine never reads them.
+   */
+  hp: number;
 }
 
 /** The three MINE LINE ids — the EquipmentId subset whose stat row is an
@@ -188,7 +202,7 @@ export function addMine(
   id: string,
   kind: MineKind = 'naval',
 ): MineState {
-  const mine: MineState = { id, ownerId, x, y, armedAt: now + CONFIG.mine.armDelay, kind };
+  const mine: MineState = { id, ownerId, x, y, armedAt: now + CONFIG.mine.armDelay, kind, hp: CONFIG.mine.hp };
   mines.set(id, mine);
   return mine;
 }

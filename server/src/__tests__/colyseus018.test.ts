@@ -165,8 +165,11 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 64 and admits 65', () => {
-  it('PROTOCOL_VERSION is 65', () => {
+describe('the PV join gate refuses 65 and admits 66', () => {
+  it('PROTOCOL_VERSION is 66', () => {
+    // Amendment 200 bumped 65 -> 66: the client reads CONFIG.mine.hitRadiusU
+    // (its drawn mine ring is the deck guns' "on the mine" disc); mine hp
+    // never leaves the server.
     // Amendment 197 bumped 64 -> 65: DECK GUN TURRET and DECK GUN BARREL left
     // the catalog (their effects are rungs of the CANNON ladder), so two card
     // ids left the wire's card vocabulary.
@@ -184,14 +187,16 @@ describe('the PV join gate refuses 64 and admits 65', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(65);
+    expect(PROTOCOL_VERSION).toBe(66);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 64 is the one that matters now: a client built one cycle before this
-    // one still offers and prints the two deleted gun cards; a 63 client
+    // 65 is the one that matters now: a client built one cycle before this
+    // one draws its mine ring off a literal rather than the shared hit disc;
+    // a 64 client still offers and prints the two deleted gun cards; a 63 client
     // also resolves the machine-gun ladder without its `rateMs` steps (a tier
     // card and a stat readout that disagree with the server's cadence).
+    expect(protocolVersionError(65)).toMatch(/refresh/i);
     expect(protocolVersionError(64)).toMatch(/refresh/i);
     expect(protocolVersionError(63)).toMatch(/refresh/i);
     expect(protocolVersionError(62)).toMatch(/refresh/i);
@@ -208,12 +213,12 @@ describe('the PV join gate refuses 64 and admits 65', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(66)).toMatch(/refresh/i);
+    expect(protocolVersionError(67)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(65)).toBeNull();
+    expect(protocolVersionError(66)).toBeNull();
   });
 });
 

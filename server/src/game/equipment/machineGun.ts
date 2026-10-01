@@ -22,9 +22,10 @@
 //
 // A DIRECT SHELL HAS NO BURST: a hull it strikes takes the full `damage` on
 // contact; a shell reaching its aim point simply EXPIRES there (the shooter's
-// self-private `sp` splash, no `burst` event), so it can never detonate a mine
-// — its mask omits `mine` — and a shell in flight never touches one either
-// (amendment 20). 360°, no arc (amendment 106). Every shell emits its OWN `mz`
+// self-private `sp` splash, no `burst` event). That arrival point is where it
+// LANDS (amendment 200, Eric 2026-10-01): a mine within `CONFIG.mine.hitRadiusU`
+// of it takes the shell's `damage` off its 10 hp — three tier-I shells pop one
+// — and a shell in flight never touches a mine (amendment 20). 360°, no arc (amendment 106). Every shell emits its OWN `mz`
 // (amendment 89(i): the stream IS the spectacle, like the broadside's barrage).
 //
 // Every number is read off the ship's cached EFFECTIVE stats row
@@ -35,7 +36,7 @@
 import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type WeaponAmmo } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
-import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
+import { burstPointAlong, gunReachU, muzzleOrTarget, rawAimPoint } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
 /** Advance a running magazine swap by `dtMs`; on completion the magazine is
@@ -88,9 +89,10 @@ function fireStreamShell(ctx: ActivationContext): void {
     targetY: target.y,
     burstRadius: 0, // no blast — a direct shell
     contactDamage: mg.damage, // a direct hit deals the full damage
-    hits: CONFIG.machineGun.hits, // AR44 target mask (hull | decoy — never a mine)
+    hits: CONFIG.machineGun.hits, // AR44 target mask (hull | mine | decoy — a mine only where it lands, amendment 200)
     family: 'mg',
     direct: true,
+    cursor: rawAimPoint(ship, dir), // amendment 202: THIS shell's live cursor
   });
   ctx.spawnBallistic(shell, { perShellFlash: true }); // one `mz` per shell (amendment 89(i))
 }

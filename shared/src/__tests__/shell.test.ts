@@ -494,8 +494,9 @@ describe('burstVictims — blast membership (silhouette within burstRadius, owne
 // ---------------------------------------------------------------------------
 
 /** A MINE as the collector builds it: a one-vertex (degenerate) polygon at the
- *  mine centre. That polygon is BURST GEOMETRY ONLY (amendment 20) — no
- *  mine-size number exists, and nothing in flight is ever resolved against it. */
+ *  mine centre. That polygon is LANDING GEOMETRY ONLY (amendments 20, 200) —
+ *  nothing in flight is ever resolved against it and no burst counts it; only
+ *  the server's landing test reads it (against CONFIG.mine.hitRadiusU). */
 function mineAt(x: number, y: number, id = 'm1'): Target {
   return { id, kind: 'mine', poly: [{ x, y }] };
 }
@@ -555,30 +556,30 @@ describe('stepShell — a mine is NEVER a collision subject in flight (amendment
 });
 
 describe('burstVictims — kinds (Story 8.4)', () => {
-  it('a burst covers a mine when the radius reaches its CENTRE — the ONE gunfire path to a mine (amendment 20)', () => {
+  it('a burst NEVER returns a mine, even one dead centre under it — only the landing test touches a mine (amendment 200)', () => {
     const center = { x: 300, y: 0 };
+    const dead = mineAt(300, 0, 'dead');
     const near = mineAt(300 + CONFIG.gun.burstRadius - 1, 0, 'near');
-    const far = mineAt(300 + CONFIG.gun.burstRadius + 1, 0, 'far');
     const hull = hullAt(310, 0, Math.PI / 2, 'enemy');
-    const out = burstVictims(center, CONFIG.gun.burstRadius, [hull, near, far], 'owner');
-    expect(out.map((t) => [t.id, t.kind])).toEqual([
-      ['enemy', 'hull'],
-      ['near', 'mine'],
-    ]);
+    const out = burstVictims(center, CONFIG.gun.burstRadius, [hull, dead, near], 'owner');
+    expect(out.map((t) => [t.id, t.kind])).toEqual([['enemy', 'hull']]);
   });
 
-  it("includes the OWNER'S own mines but never the owner's own hull (your burst sets off your own field)", () => {
+  it("never the owner's own hull, and never a mine of ANY owner — a burst is no route to a mine (amendment 200)", () => {
     const center = { x: 0, y: 0 };
     const ownHull = hullAt(0, 0, 0, 'owner');
     const ownMine: Target = { id: 'owner', kind: 'mine', poly: [{ x: 0, y: 0 }] };
-    expect(burstVictims(center, 10, [ownHull, ownMine], 'owner').map((t) => t.kind)).toEqual(['mine']);
+    expect(burstVictims(center, 10, [ownHull, ownMine], 'owner')).toEqual([]);
   });
 });
 
 describe('CONFIG ordnance masks (AR44)', () => {
   it('the ELEVEN shipped rows declare exactly the ruled masks; no stub row exists', () => {
     expect(CONFIG.gun.hits).toEqual(['hull', 'mine', 'decoy']);
-    expect(CONFIG.broadside.hits).toEqual(['hull', 'mine', 'decoy']);
+    // Amendment 200 (Eric 2026-10-01): only the three DECK GUNS damage a mine
+    // (by landing on it) — the broadside barrage and phosphor shells lost `mine`.
+    expect(CONFIG.broadside.hits).toEqual(['hull', 'decoy']);
+    expect(CONFIG.phosphorShells.hits).toEqual(['hull', 'decoy']);
     // (CONFIG.radarBuoy — the GUN BUOY's mask — DELETED with the buoy, Story 8.16.)
     expect('radarBuoy' in CONFIG).toBe(false);
     expect(CONFIG.torpedo.hits).toEqual(['hull', 'decoy']);
@@ -594,10 +595,11 @@ describe('CONFIG ordnance masks (AR44)', () => {
     // torpedo family's mask (CONFIG.torpedo.hits).
     expect('hits' in CONFIG.captiveMines).toBe(false);
     // STORY 8.15's two PICKABLE GUNS (AR44, amendments 96f/105): the machine
-    // gun is DIRECT-HIT with no burst, so it can never set a mine off; the flak
-    // gun carries AR44's full `hull | mine | decoy | ordnance` (the ordnance
-    // half a side effect nothing leans on).
-    expect(CONFIG.machineGun.hits).toEqual(['hull', 'decoy']);
+    // gun is DIRECT-HIT with no burst, and since amendment 200 a shell of its
+    // that ARRIVES on a mine damages it, so it carries `mine`; the flak gun
+    // carries AR44's full `hull | mine | decoy | ordnance` (the ordnance half
+    // a side effect nothing leans on).
+    expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'decoy', 'ordnance']);
     // The CUT lines never get a row (amendment 89e).
     for (const row of ['missile', 'monitor']) {
@@ -656,7 +658,7 @@ describe('stepShell — a DIRECT shell expires at its aim point, never bursts (S
     expect(stepToOutcome(mgShell(300), ctx({ islands: [island] })).kind).toBe('hitIsland');
   });
 
-  it('a direct shell never touches a mine in flight or at its aim point (amendment 20)', () => {
+  it('a direct shell never touches a mine in flight, and the pure step simply EXPIRES it at its aim point (amendment 20; the landing test there is the server\'s, amendment 200)', () => {
     const out = stepToOutcome(mgShell(200), ctx({ targets: [mineAt(100, 0), mineAt(200, 0, 'm2')] }));
     expect(out).toEqual({ kind: 'expired', x: 200, y: 0 });
   });
@@ -719,10 +721,11 @@ describe("stepShell / burstVictims — the OWNER'S own decoy is never touched (S
     expect(burstVictims({ x: 300, y: 0 }, CONFIG.gun.burstRadius, [own], 'enemy')).toEqual([own]);
   });
 
-  it("the owner's own decoy is skipped but the owner's own MINE is still a burst victim (FR57 unchanged)", () => {
+  it("the owner's own decoy is skipped, an enemy decoy is a victim, and no mine ever is (amendment 200)", () => {
     const own = decoyAt(0, 0, 'owner');
+    const enemy = decoyAt(0, 0, 'enemy', 'd2');
     const ownMine: Target = { id: 'm1', kind: 'mine', poly: [{ x: 0, y: 0 }], ownerId: 'owner' };
-    expect(burstVictims({ x: 0, y: 0 }, 10, [own, ownMine], 'owner').map((t) => t.id)).toEqual(['m1']);
+    expect(burstVictims({ x: 0, y: 0 }, 10, [own, ownMine, enemy], 'owner').map((t) => t.id)).toEqual(['d2']);
   });
 
   it("an owner's homing fish never ACQUIRES its own decoy (no steer, no lock); an enemy's does", () => {

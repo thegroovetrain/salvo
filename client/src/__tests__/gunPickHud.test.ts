@@ -121,10 +121,10 @@ describe('the gun family — the MOUNTED gun\'s tier', () => {
     const s = stats(cards);
     expect(slotTier(s, cards, 'machineGun')).toBe(3);
     expect(slotTier(s, cards, 'gun')).toBe(1); // the cannon's ladder is untouched
-    expect(interactionLine(SLOT_GUN, 'machineGun', cards, 0, s)).toBe('WEAPON · ALWAYS SELECTED · TIER III');
-    expect(interactionLine(SLOT_GUN, 'flak', ['flak'], 0, stats(['flak']))).toBe('WEAPON · ALWAYS SELECTED · TIER II');
+    expect(interactionLine(SLOT_GUN, 'machineGun', cards, 0, s)).toBe('TIER III');
+    expect(interactionLine(SLOT_GUN, 'flak', ['flak'], 0, stats(['flak']))).toBe('TIER II');
     // No stats, no number: the fold is the only place a gun's rung lives.
-    expect(interactionLine(SLOT_GUN, 'machineGun', cards)).toBe('WEAPON · ALWAYS SELECTED');
+    expect(interactionLine(SLOT_GUN, 'machineGun', cards)).toBe('');
   });
 
 });

@@ -25,16 +25,20 @@ const SIGHT = 330;
  * by every row that wants it and a reader can see at a glance which rows agree.
  * A STUB weapon gets NO row until its own story — an undeclared mask is a loud
  * failure, a defaulted one is a silent wrong answer. Story 8.15 declared the
- * two pickable guns' rows: the MACHINE GUN hits hulls and decoys only (a
- * direct-hit shell with no burst can never set a mine off), and the FLAK GUN
- * adds `ordnance` (AR44; amendment 96(f)) — fish in flight, a SIDE EFFECT
- * nothing leans on (amendment 105).
+ * two pickable guns' rows; the FLAK GUN adds `ordnance` (AR44; amendment
+ * 96(f)) — fish in flight, a SIDE EFFECT nothing leans on (amendment 105).
  *
- * `mine` IN A MASK IS BURST-ONLY (amendment 20, Eric 2026-09-16). It says the
- * weapon's BURST, at the point the shooter clicked, can set a mine off. It
- * never means a projectile in flight may touch one: a shell passing over a
- * mine on its way somewhere else does not stop, does not set it off and tells
- * the shooter nothing (the World strips the bit off the mask it sweeps with).
+ * `mine` IN A MASK MEANS "THIS SHELL DAMAGES A MINE IT LANDS ON" (amendment
+ * 200, Eric 2026-10-01, superseding amendment 20's burst rule). Exactly the
+ * three DECK GUNS carry it — cannon, flak and machine gun: a shell of theirs
+ * that LANDS (its burst point, or a direct shell's arrival point) within
+ * `CONFIG.mine.hitRadiusU` of a mine's centre deals its full `damage` to that
+ * mine's `CONFIG.mine.hp`. A burst that merely COVERS a mine does nothing to
+ * it, and no other weapon ever damages a mine. It never means a projectile in
+ * flight may touch one (amendment 20's shooter-information rule stands): a
+ * shell passing over a mine on its way somewhere else does not stop, does not
+ * hurt it and tells the shooter nothing (the World strips the bit off the
+ * mask it sweeps with).
  *
  * NOT a wire contract: the client never reads `hits` (pinned by the client's
  * ordnanceMasksAreServerOnly test), so adding or changing these rows never by
@@ -973,9 +977,10 @@ export const CONFIG = {
    */
   gun: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
-    // AR44: the gun family hits hulls, decoys and — WITH ITS BURST ONLY
-    // (amendments 16/20) — any armed non-captive MINE the burst at the clicked
-    // point covers, yours included. A shell in flight never touches a mine.
+    // AR44: the cannon hits hulls, decoys and — ONLY where its shell LANDS
+    // (amendment 200) — any MINE within `mine.hitRadiusU` of the burst point,
+    // yours included, for its full damage. A shell in flight never touches a
+    // mine, and the burst merely covering one does nothing to it.
     hits: HITS_HULL_MINE_DECOY,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
@@ -1032,11 +1037,13 @@ export const CONFIG = {
    *
    * DIRECT-HIT SHELLS WITH NO BURST: a shell that strikes a hull deals `damage`
    * on contact; a shell reaching its aim point simply EXPIRES (the shooter's
-   * `sp` splash, no `burst` event). It can therefore never detonate a mine —
-   * its mask omits `mine` — and a shell in flight never touches one either
-   * (amendment 20). NO `burstRadius` and NO range field: range is DERIVED =
-   * the radar rung (660 u, re-pinned in effectiveStats like `gun.rangeU`;
-   * Eric: "set the Machine Gun range to 660"). 360° (amendment 106: "There
+   * `sp` splash, no `burst` event). A shell that arrives within
+   * `mine.hitRadiusU` of a mine deals its `damage` to the mine's hp (amendment
+   * 200 — three tier-I shells pop one); a shell in flight never touches a mine
+   * (amendment 20), and one spent on a hull on the way never arrives. NO
+   * `burstRadius` and NO range field: range is DERIVED = the radar rung
+   * (660 u, re-pinned in effectiveStats like `gun.rangeU`; Eric: "set the
+   * Machine Gun range to 660"). 360° (amendment 106: "There
    * is no 'arc.'"). Its ladder (+2 shells, +1 damage and −40/−40/−40/−30 ms
    * of shot delay per tier — 0.35 → 0.20 s, Eric 2026-09-30 — and −5 % reload
    * from the tier step) is the `machineGun` catalog line. Every number is a
@@ -1044,7 +1051,7 @@ export const CONFIG = {
    */
   machineGun: {
     arc: 'full', // 360° — amendment 106
-    hits: HITS_HULL_DECOY, // direct hit, no burst — never a mine
+    hits: HITS_HULL_MINE_DECOY, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
     shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
     maxAmmo: 16, // shells — the MAGAZINE at tier I (amendment 103)
     rateMs: 350, // ms — one shell per 0.35 s while held at tier I (Eric 2026-09-30; was 500, amendment 103)
@@ -1068,8 +1075,9 @@ export const CONFIG = {
    * weapon for killing other players first). The `ordnance` half (enemy fish
    * in flight inside the blast) is a SIDE EFFECT that might go away
    * (amendment 105) — nothing in the design, copy or balance may lean on it.
-   * `mine`, as for every gun, is by BURST only (amendment 20). Its ladder (+2
-   * damage, −5 % reload per tier, blast FIXED) is the `flak` catalog line.
+   * `mine`, as for every deck gun, is by LANDING on it only (amendment 200).
+   * Its ladder (+2 damage, −5 % reload per tier, blast FIXED) is the `flak`
+   * catalog line.
    * Every number is a harness dial.
    */
   flak: {
@@ -1244,10 +1252,12 @@ export const CONFIG = {
    * the denial register). Arms after `armDelay`; an enemy silhouette within
    * `triggerRadius` trips it, BLASTING every non-owner hull within the larger
    * `blastRadius` for full `damage` (owner excluded — the gun/starShells
-   * owner-excluded AoE precedent). Chain reactions are SAME-OWNER only
-   * (amendment 46): a detonation cascades to the owner's other ARMED mines
-   * whose centers lie within its blast radius; enemy mines never sympathize.
-   * Every number is a DESIGN TARGET, tunable.
+   * owner-excluded AoE precedent). Chain reactions are NAVAL-ONLY, BOTH WAYS
+   * (amendment 200, narrowing amendment 18): a NAVAL detonation cascades to
+   * every ARMED NAVAL mine, whoever laid it, whose centre lies within its
+   * blast radius; fouling and captive mines neither propagate nor receive.
+   * Every mine carries `hp` that only a deck gun's shell landing on it takes
+   * (amendment 200). Every number is a DESIGN TARGET, tunable.
    */
   mine: {
     // astern — RATIFIED class-era stern bearing (Eric 2026-07-23; sim/arcs.ts).
@@ -1312,8 +1322,21 @@ export const CONFIG = {
     // AR44: a mine TRIPS on hulls only — a decoy, a buoy or another mine
     // sailing into its ring is not a hull and must not set it off (remote
     // minefield clearing is a mechanic nobody ruled on; CLICKING ON the mine,
-    // so that your burst covers it, is the sanctioned way — amendments 16/20).
+    // with a deck gun, is the sanctioned way — amendment 200).
     hits: HITS_HULL,
+    // hp — EVERY mine (naval, captive, fouling) carries this many hit points,
+    // SERVER-SIDE ONLY, never on the wire (Eric 2026-10-01, amendment 200).
+    // Only a DECK GUN shell (cannon, flak, machine gun) that LANDS on the mine
+    // takes them, for the shell's full damage: cannon and flak pop one in a
+    // single shell, the machine gun needs three at tier I. Nothing else ever
+    // damages a mine. At 0 a naval/fouling mine detonates; a captive is
+    // destroyed (a boom, no blast, no fish).
+    hp: 10,
+    // u — "ON the mine" (amendment 201(a)): a shell landing within this
+    // distance of a mine's centre damages it. It IS the marker ring the client
+    // draws (`client/src/render/mines.ts` RING_R reads it) — one number for
+    // the cursor pointing at the mine, read by both sides (PROTOCOL_VERSION 66).
+    hitRadiusU: 10,
     // PROP FOULING LEFT THIS BLOCK (Eric ruling 2026-09-19, epic-8 amendment
     // 81): the FOULING MINES add-on is deleted and fouling became its OWN
     // tiered equipment line, so a NAVAL mine no longer slows anything. Its
@@ -1518,9 +1541,9 @@ export const CONFIG = {
   broadside: {
     // deg — bearing of each sector's CENTER off the bow (±): the beams.
     arcOffsetDeg: 90,
-    // AR44: gun family — hulls, decoys, and mines by BURST only (the gun's own
-    // mask; amendment 20).
-    hits: HITS_HULL_MINE_DECOY,
+    // AR44: hulls and decoys. NEVER a mine (amendment 200, Eric 2026-10-01):
+    // only a deck gun's shell landing on a mine damages one.
+    hits: HITS_HULL_DECOY,
     // deg — half-width of each beam sector about its center.
     arcHalfArcDeg: 60,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
@@ -1702,9 +1725,10 @@ export const CONFIG = {
    */
   phosphorShells: {
     arc: 'full', // 360° — the gun family's grammar (sim/arcs.ts)
-    // AR44: a DAMAGE weapon — the gun's own mask, so an armed mine inside the
-    // burst detonates like under any gun burst (amendment 135(c)).
-    hits: HITS_HULL_MINE_DECOY,
+    // AR44: hulls and decoys. NEVER a mine (amendment 200, Eric 2026-10-01,
+    // superseding amendment 135(c)): only a deck gun's shell landing on a mine
+    // damages one.
+    hits: HITS_HULL_DECOY,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     maxAmmo: 1, // one shell in the pool — presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between shells (−5 %/tier derived)

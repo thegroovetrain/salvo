@@ -200,7 +200,7 @@ describe('mines — arm delay, silhouette trigger, owner immunity', () => {
     kind: MineKind = 'naval',
   ): Map<string, MineState> {
     const m = new Map<string, MineState>();
-    m.set('m1', { id: 'm1', ownerId, x, y, armedAt, kind });
+    m.set('m1', { id: 'm1', ownerId, x, y, armedAt, kind, hp: 10 });
     return m;
   }
 
@@ -288,7 +288,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     const w = bareWorld(11);
     const o = w.addShip('o', 'O', 'captain', 'mineLayer', undefined, undefined);
     o.state = { x: 600, y: 600, heading: 0, speed: 0 }; // far from the blast
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval' });
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
     return { w, o };
   }
 
@@ -353,7 +353,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
   });
 
   it('mineBlastVictims: silhouette-in-radius membership, owner excluded (the shared burstVictims rule)', () => {
-    const mine: MineState = { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval' };
+    const mine: MineState = { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval', hp: 10 };
     const hull = (id: string, x: number, y: number): Target => ({
       id,
       kind: 'hull',
@@ -369,16 +369,17 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
 
   // Story 2.8 (amendment 46) flipped the 1.8 no-chain pins; Story 8.4
   // (Eric ruling 2026-09-15, epic-8 amendment 18) flips the OWNERSHIP half of
-  // them in turn: a detonation now cascades into EVERY ARMED non-captive mine
-  // in blast range, WHOEVER LAID IT. Unarmed mines still never chain, and a
-  // captive field neither receives nor propagates (R2.18).
+  // them in turn: a NAVAL detonation cascades into EVERY ARMED NAVAL mine in
+  // blast range, WHOEVER LAID IT. Unarmed mines still never chain, and since
+  // amendment 200 (Eric 2026-10-01) fouling and captive mines neither receive
+  // nor propagate (naval only, both ways).
 
   it('CHAIN: a trip cascades to another ARMED mine in blast range; an unarmed mine survives', () => {
     const { w } = minefield();
     // 45u from m1: inside m1's 48u blast, OUTSIDE the tripping hull's reach —
     // pre-2.8 this survived ("blast ≠ trigger"); the chain now takes it.
-    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0, kind: 'naval' });
-    w.mines.set('m3', { id: 'm3', ownerId: 'x', x: -20, y: 0, armedAt: 999_999, kind: 'naval' }); // someone else's, UNARMED
+    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0, kind: 'naval', hp: 10 });
+    w.mines.set('m3', { id: 'm3', ownerId: 'x', x: -20, y: 0, armedAt: 999_999, kind: 'naval', hp: 10 }); // someone else's, UNARMED
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips only m1
     w.step();
@@ -404,10 +405,10 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     const { w } = minefield();
     // m1 (0,0) → m2 at 45u → m3 at 90u (inside m2's blast, outside m1's) —
     // and an ENEMY armed mine at 70u, which amendment 18 now takes with them.
-    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0, kind: 'naval' });
-    w.mines.set('m3', { id: 'm3', ownerId: 'o', x: 0, y: -90, armedAt: 0, kind: 'naval' });
-    w.mines.set('mEnemy', { id: 'mEnemy', ownerId: 'x', x: 0, y: -70, armedAt: 0, kind: 'naval' });
-    w.mines.set('mCold', { id: 'mCold', ownerId: 'o', x: 0, y: -120, armedAt: 999_999, kind: 'naval' });
+    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0, kind: 'naval', hp: 10 });
+    w.mines.set('m3', { id: 'm3', ownerId: 'o', x: 0, y: -90, armedAt: 0, kind: 'naval', hp: 10 });
+    w.mines.set('mEnemy', { id: 'mEnemy', ownerId: 'x', x: 0, y: -70, armedAt: 0, kind: 'naval', hp: 10 });
+    w.mines.set('mCold', { id: 'mCold', ownerId: 'o', x: 0, y: -120, armedAt: 999_999, kind: 'naval', hp: 10 });
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips only m1
     w.step();
@@ -419,7 +420,7 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
   });
 });
 
-describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 16)', () => {
+describe('mines — a deck-gun shell LANDING on a mine (any mine, any owner, arming included — amendment 200)', () => {
   /** ML `a` at the origin with an enemy `b` parked near a remote minefield:
    *  b's hull (y ∈ [35..55]) is OUTSIDE the gun's 30u burst at (300,0) but
    *  INSIDE the mine's 48u blast — any damage b takes is the MINE's. */
@@ -442,11 +443,11 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
     throw new Error('no burst within the tick budget');
   }
 
-  it('the owner’s burst detonates its ARMED mine under the click: mine gone, blast damages the nearby enemy', () => {
+  it('the owner’s shell landing on its ARMED mine pops it: mine gone, blast damages the nearby enemy', () => {
     const { w, a, b } = board();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval' }); // armed, at the click point
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval', hp: 10 }); // armed, at the click point
     shootAt(w, 300);
-    expect(w.mines.size).toBe(0); // detonated by the owner's burst
+    expect(w.mines.size).toBe(0); // popped by the owner's shell (15 dmg >= 10 hp)
     // b's hull is outside the 30u gun burst but inside the mine's 48u blast:
     // exactly one full mine damage, nothing from the shell.
     expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage);
@@ -457,31 +458,32 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
     expect(boom && 'hit' in boom).toBe(false);
   });
 
-  it('an UNARMED own mine under the burst survives (armDelay keeps its anti-instant-bomb role)', () => {
+  // FLIPPED AGAIN (amendment 200, Eric 2026-10-01: "An arming mine can be set
+  // off."). The arm delay keeps its anti-instant-bomb role for the TRIP only;
+  // a deck-gun shell landing on an arming mine takes its hp like any other.
+  it('an UNARMED own mine the shell lands on takes the damage and pops (amendment 200)', () => {
     const { w } = board();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 999_999, kind: 'naval' }); // still arming
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 999_999, kind: 'naval', hp: 10 }); // still arming
     shootAt(w, 300);
-    expect(w.mines.has('m1')).toBe(true); // immune while unarmed
+    expect(w.mines.has('m1')).toBe(false);
   });
 
   // FLIPPED, NOT DELETED (Story 8.4, Eric ruling 2026-09-15, amendment 16).
   // The old version of this case asserted that only the mine's OWN owner could
-  // set it off with a burst — the shipped click-your-own-minefield rule. Eric
-  // ruled that a shell or burst detonates ANY armed non-captive mine, so the
-  // pin now proves the opposite, and the ONE thing that still saves a mine
-  // (the arm delay) keeps its own case above.
-  it('ANY burst detonates ANY armed mine — an enemy field included (amendment 16)', () => {
+  // set it off — the shipped click-your-own-minefield rule. Any owner's mine is
+  // fair game, and since amendment 200 the trigger is the shell LANDING on it.
+  it('ANY deck-gun shell landing on ANY mine pops it — an enemy field included (amendments 16/200)', () => {
     const { w } = board();
-    w.mines.set('m1', { id: 'm1', ownerId: 'x', x: 300, y: 0, armedAt: 0, kind: 'naval' }); // someone ELSE's armed mine
-    shootAt(w, 300); // a's burst covers it
+    w.mines.set('m1', { id: 'm1', ownerId: 'x', x: 300, y: 0, armedAt: 0, kind: 'naval', hp: 10 }); // someone ELSE's armed mine
+    shootAt(w, 300); // a's shell lands on it
     expect(w.mines.has('m1')).toBe(false);
   });
 
-  // A CAPTIVE MINE CANNOT BE SELF-DETONATED (Story 7-5 wave 2, R2.18 — Eric
-  // ruling 2026-08-19). The burst passes over it and the mine PERSISTS, armed
-  // and waiting: it neither blasts NOR launches, because R2.12 already made the
-  // torpedo its only attack and this was the last path by which a captive mine
-  // could produce a blast centred on its own casing.
+  // A CAPTIVE MINE CAN BE DESTROYED BY A DECK GUN (amendment 200, Eric
+  // 2026-10-01: "A captive mine can be destroyed by a deck gun too.") —
+  // superseding R2.18's immunity. At 0 hp it is taken off the water with a
+  // boom and NOTHING else: no blast centred on its casing and no launch (only
+  // a TRIP fires its fish).
   //
   // The board is deliberately EMPTY of hostiles: a captive field's trip ring is
   // 144u at base (the swap-and-triple transform), so `board()`'s enemy parked
@@ -505,42 +507,49 @@ describe('mines — gun-burst detonation (armed-only, ANY owner since amendment 
    * forged; the BEHAVIOUR it guarded is pinned unchanged below.
    */
 
-  it('R2.18: an ARMED CAPTIVE mine under the owner’s own burst survives, un-fired', () => {
+  it('an ARMED CAPTIVE mine the owner’s own shell lands on is DESTROYED: a boom, no blast, no fish (amendment 200)', () => {
     const { w } = lonely();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'captive' }); // armed, at the click point
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'captive', hp: 10 }); // armed, at the click point
     shootAt(w, 300);
-    expect(w.mines.has('m1')).toBe(true); // NOT detonated — the burst passed over it
-    expect(w.tickEvents.some((e) => e.k === 'boom' && e.id === 'm1')).toBe(false);
-    // And it did not LAUNCH either: no torpedo ever left the casing.
+    expect(w.mines.has('m1')).toBe(false);
+    // The boom carries no `hit` — nobody tripped it.
+    expect(w.tickEvents.filter((e) => e.k === 'boom' && e.id === 'm1')).toEqual([
+      { k: 'boom', id: 'm1', x: 300, y: 0 },
+    ]);
+    // And it did not LAUNCH: no torpedo ever left the casing.
     expect([...w.shells.values()].some((sh) => sh.kind === 'torp')).toBe(false);
+    // The shell itself resolved no hull, so the shooter's mark is fall of shot.
+    expect(w.tickEvents.some((e) => e.k === 'sp')).toBe(true);
+    expect(w.tickEvents.some((e) => e.k === 'hc')).toBe(false);
   });
 
-  it('R2.18 is CAPTIVE-ONLY: the very same burst still detonates an ORDINARY mine', () => {
+  it('the CONTROL: the very same click detonates an ORDINARY mine with its blast', () => {
     const { w } = lonely(); // no captive chassis — everything else identical
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval' });
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
     shootAt(w, 300);
     expect(w.mines.has('m1')).toBe(false); // detonated exactly as it always has
     expect(w.tickEvents.some((e) => e.k === 'boom' && e.id === 'm1')).toBe(true);
   });
 
-  it('R2.18: a CAPTIVE field never chains either — a whole cluster survives one burst', () => {
+  it('a CAPTIVE field never chains — destroying one captive leaves its neighbour standing (amendment 200)', () => {
     const { w } = lonely();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'captive' }); // under the click
-    w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0, kind: 'captive' }); // the chain neighbour
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'captive', hp: 10 }); // under the click
+    w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0, kind: 'captive', hp: 10 }); // the chain neighbour
     shootAt(w, 300);
-    expect(w.mines.has('m1')).toBe(true);
-    expect(w.mines.has('m2')).toBe(true);
+    expect(w.mines.has('m1')).toBe(false); // destroyed
+    expect(w.mines.has('m2')).toBe(true); // 40u off the landing point, and no chain
+    expect(w.mines.get('m2')!.hp).toBe(CONFIG.mine.hp);
   });
 
-  it('CHAIN THROUGH THE BURST (Story 2.8 flip of the 1.8 no-cascade pin): the burst-detonated mine chains its own neighbour outside the shell burst', () => {
+  it('CHAIN THROUGH THE POP (Story 2.8 flip of the 1.8 no-cascade pin): the shot-down naval mine chains its naval neighbour off the landing point', () => {
     const { w } = board();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval' }); // under the click (30u burst)
-    // 40u from m1: inside m1's 48u blast, OUTSIDE the 30u shell burst — the
-    // burst never reaches it, but m1's detonation now cascades same-owner
-    // (amendment 46; pre-2.8 this survived as "blast is damage-only").
-    w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0, kind: 'naval' });
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval', hp: 10 }); // under the click
+    // 40u from m1: inside m1's 48u blast, far outside the 10u landing disc —
+    // the shell never touches it, but m1's detonation cascades into it
+    // (amendments 18/200: naval into naval, any owner).
+    w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
     shootAt(w, 300);
-    expect(w.mines.has('m1')).toBe(false); // burst-detonated
+    expect(w.mines.has('m1')).toBe(false); // popped by the landing shell
     expect(w.mines.has('m2')).toBe(false); // chained off m1's blast
   });
 });

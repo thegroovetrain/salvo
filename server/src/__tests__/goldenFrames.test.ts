@@ -259,7 +259,7 @@ function injectShell(
 /** Drop a mine directly into world state (armed by default; a NAVAL mine
  *  unless the scenario says otherwise — Story 8.13 stamps the laying line's kind). */
 function injectMine(w: World, id: string, ownerId: string, x: number, y: number, kind: MineKind = 'naval'): void {
-  w.mines.set(id, { id, ownerId, x, y, armedAt: 0, kind });
+  w.mines.set(id, { id, ownerId, x, y, armedAt: 0, kind, hp: 10 });
 }
 
 // ---------- scenarios ---------------------------------------------------------
@@ -623,9 +623,11 @@ function scnMineBlast(g: Golden): void {
 }
 
 /**
- * Owner gun-burst mine detonation (Story 1.8) — ML `a` clicks its own ARMED
- * mine (injected, mines precedent): the burst detonates it as a plain blast at
- * the MINE's position whose boom carries NO victim id (no tripping ship).
+ * Owner gun mine detonation (Story 1.8) — ML `a` clicks its own ARMED mine
+ * (injected, mines precedent): the cannon shell LANDS on it (15 dmg >= the
+ * mine's 10 hp, amendment 200 — the snapshot did not move with that ruling)
+ * and it pops as a plain blast at the MINE's position whose boom carries NO
+ * victim id (no tripping ship).
  */
 function scnMineBurstDetonation(g: Golden): void {
   const w = bareWorld(1014);

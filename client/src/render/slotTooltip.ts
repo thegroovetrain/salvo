@@ -216,10 +216,10 @@ export interface TooltipMetrics {
 }
 
 /** Pure: how many lines the interaction row wraps to at the panel's inner
- *  width. At least one — an empty row still owns its line box. */
+ *  width. Zero for an EMPTY line (Shift/belt squares print none, amendment 203). */
 export function interactionLines(interaction: string): number {
   const n = monoWrapLines(interaction, TIP_TYPE.interactionSize, TIP_TYPE.interactionLetterSpacing, tooltipInnerWidth());
-  return Math.max(1, n);
+  return interaction === '' ? 0 : Math.max(1, n);
 }
 
 /** Pure: the rendered height (px) of the two heading rows — the name's one line

@@ -13,10 +13,13 @@
 //     BURST-ONLY like `mine`, populated since Story 8.15 (the flak gun's side
 //     effect, amendment 105; own-fish immunity and the burst outcome are
 //     pinned in flak.test.ts);
-//   * amendments 16/18/20 (a BURST at the clicked point sets off any armed
-//     mine whoever laid it, chains cross owners, captives and arming mines are
-//     immune, and a shell IN FLIGHT never touches a mine at all) end to end
-//     through a real World;
+//   * amendments 18/20/200 (a deck-gun shell LANDING within
+//     CONFIG.mine.hitRadiusU of a mine spends its damage on the mine's hp,
+//     whoever laid it, arming and captive mines included; a burst merely
+//     covering a mine does nothing; naval chains cross owners and fouling /
+//     captive mines never chain; a shell IN FLIGHT never touches a mine at
+//     all) end to end through a real World (the full I/O matrix lives in
+//     mineHp.test.ts);
 //   * amendment 19 (a burst over a hull sunk this tick marks `hc`, not `sp`)
 //     and the star shell's surviving exclusion;
 //   * `deferred-work.md:594` — a later shell of one click passes THROUGH a
@@ -75,7 +78,7 @@ function mine(
   armedAt = 0,
   kind: MineKind = 'naval',
 ): void {
-  w.mines.set(id, { id, ownerId, x, y, armedAt, kind });
+  w.mines.set(id, { id, ownerId, x, y, armedAt, kind, hp: 10 });
 }
 
 const ids = (ts: readonly Target[]): string[] => ts.map((t) => t.id);
@@ -161,7 +164,8 @@ describe('hitTargets — the invalidations', () => {
     mine(w, 'm1', 'b', 100, 0);
     mine(w, 'm2', 'b', 200, 0);
     expect(ids(w.hitTargets(['mine']))).toEqual(['m1', 'm2']);
-    // `consumeMine` is the ONE deletion path (detonation, captive launch); it
+    // `consumeMine` is the ONE deletion path (detonation, captive launch, a
+    // captive destroyed by gunfire); it
     // is what bumps the generation, so the next list is rebuilt without it.
     const inner = w as unknown as { consumeMine(id: string): boolean };
     expect(inner.consumeMine('m1')).toBe(true);
@@ -191,18 +195,18 @@ describe('hitTargets — the four kinds', () => {
     expect(t.poly).toEqual([{ x: 120, y: -30 }]);
   });
 
-  it('`mine` OMITS a still-arming mine and a CAPTIVE mine — a burst must not set them off', () => {
+  it('`mine` lists EVERY mine — armed, still-arming, captive and fouling alike (amendment 200)', () => {
+    // Eric 2026-10-01: "An arming mine can be set off. A captive mine can be
+    // destroyed by a deck gun too." The collector's old arming/captive gates
+    // are gone; whether a shell hurts a listed mine is the LANDING TEST's
+    // question (CONFIG.mine.hitRadiusU at the point the shell lands).
     const w = bareWorld();
     place(w, 'cap', 800, 800, 0, 'mineLayer');
     mine(w, 'armed', 'b', 100, 0);
     mine(w, 'arming', 'b', 150, 0, 999_999);
-    // THE EXCLUSION IS BY KIND (Story 8.13): a captive mine is captive because
-    // it was LAID by the captive rack, not because its layer currently holds a
-    // doctrine — so the carve-out survives a refit and a vacated owner.
     mine(w, 'captive', 'cap', 200, 0, 0, 'captive');
-    // A FOULING mine is an ordinary burst target: only the captive is immune.
     mine(w, 'fouling', 'b', 250, 0, 0, 'fouling');
-    expect(ids(w.hitTargets(['mine']))).toEqual(['armed', 'fouling']);
+    expect(ids(w.hitTargets(['mine']))).toEqual(['armed', 'arming', 'captive', 'fouling']);
   });
 
   it('`decoy` is every live DECOY BUOY from the store, carrying its OWNER id (Story 8.16)', () => {
@@ -270,10 +274,10 @@ describe('hitTargets — the four kinds', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AMENDMENTS 16-18 — shooting mines, end to end
+// AMENDMENTS 18/20/200 — shooting mines, end to end
 // ---------------------------------------------------------------------------
 
-describe('gunfire and mines (amendments 16/18/20)', () => {
+describe('gunfire and mines (amendments 18/20/200)', () => {
   /** The shooter alone at the origin, gun pointing +x. */
   function board(seed = 21): World {
     const w = bareWorld(seed);
@@ -352,21 +356,21 @@ describe('gunfire and mines (amendments 16/18/20)', () => {
     // The interception proximity exception (a target inside the would-be blast
     // bursts the shell for full damage) must have no mine case either.
     const near = 600 - CONFIG.gun.burstRadius + 1;
+    // ...and since amendment 200 the burst COVERING it does nothing either:
+    // 14u off the landing point is outside the 10u "on the mine" disc.
+    expect(600 - near).toBeGreaterThan(CONFIG.mine.hitRadiusU);
     const withMine = fireAndRecord(600, [['m1', 'x', near, 0]]);
     const cleanWater = fireAndRecord(600, []);
-    expect(withMine.w.mines.has('m1')).toBe(false); // the BURST at 600 covers it
-    // The mine dies to the burst at the clicked point — not to contact — so the
-    // shooter's own marks are the clean-water ones up to the mine's own boom.
-    const marks = flat(withMine.frames).filter((e) => e.k === 'hc' || e.k === 'sp');
-    const cleanMarks = flat(cleanWater.frames).filter((e) => e.k === 'hc' || e.k === 'sp');
-    expect(marks).toEqual(cleanMarks);
+    expect(withMine.w.mines.has('m1')).toBe(true);
+    expect(withMine.w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp); // not even scratched
+    expect(withMine.frames).toEqual(cleanWater.frames);
   });
 
   // -------------------------------------------------------------------------
-  // AMENDMENTS 16/18 — the BURST at the clicked point is the one trigger
+  // AMENDMENT 200 — the shell LANDING on the mine is the one gunfire path
   // -------------------------------------------------------------------------
 
-  it('(c) a burst whose radius covers a mine CENTRE detonates it — any owner, the mine\'s own blast at the mine', () => {
+  it('(c) a cannon shell LANDING on a mine pops it (15 dmg >= 10 hp) — any owner, the mine\'s own blast at the mine', () => {
     const w = board(22);
     mine(w, 'm1', 'x', 600, 0); // an ENEMY mine, AT the clicked point
     shootAt(w, 'a', 600);
@@ -375,17 +379,17 @@ describe('gunfire and mines (amendments 16/18/20)', () => {
     expect(boom).toEqual({ k: 'boom', id: 'm1', x: 600, y: 0 }); // at the MINE
   });
 
-  it('(c) the shooter\'s OWN mine is set off by the shooter\'s own burst (the one pinned owner-immunity exception)', () => {
+  it('(c) the shooter\'s OWN mine is popped by the shooter\'s own shell landing on it (the one pinned owner-immunity exception)', () => {
     const w = board(23);
     mine(w, 'm1', 'a', 600, 0);
     shootAt(w, 'a', 600);
     expect(w.mines.has('m1')).toBe(false);
   });
 
-  it('(c) the detonation CHAINS ACROSS OWNERS in the same tick (amendment 18), skipping captives and arming mines', () => {
+  it('(c) a NAVAL pop CHAINS ACROSS OWNERS in the same tick (amendments 18/200), skipping captives and arming mines', () => {
     const w = board(24);
     place(w, 'cap', 900, 900, 0, 'mineLayer');
-    mine(w, 'shot', 'x', 600, 0); // the one the BURST covers
+    mine(w, 'shot', 'x', 600, 0); // the one the shell LANDS on
     mine(w, 'mine-mine', 'a', 600, 40); // within the 48u blast — a DIFFERENT owner
     mine(w, 'third', 'y', 600, 80); // chained off the second, a THIRD owner
     mine(w, 'cold', 'x', 600, 120, 999_999); // still arming — immune
@@ -398,36 +402,49 @@ describe('gunfire and mines (amendments 16/18/20)', () => {
     expect(w.mines.has('captive')).toBe(true);
   });
 
-  it('(c2) a FOULING mine chains like a naval one — only the CAPTIVE kind is carved out', () => {
+  it('(c2) a FOULING mine never chains — a naval pop leaves it standing (amendment 200: naval only)', () => {
     const w = board(27);
-    mine(w, 'shot', 'x', 600, 0); // the one the BURST covers
+    mine(w, 'shot', 'x', 600, 0); // the one the shell LANDS on
     mine(w, 'foul', 'y', 600, 40, 0, 'fouling'); // inside the naval blast, a THIRD owner
     shootAt(w, 'a', 600);
     expect(w.mines.has('shot')).toBe(false);
-    expect(w.mines.has('foul')).toBe(false);
+    expect(w.mines.has('foul')).toBe(true);
+    expect(w.mines.get('foul')!.hp).toBe(CONFIG.mine.hp); // a chain never touches hp
   });
 
-  it('(d) a STILL-ARMING mine under the burst is not set off, and the shell still bursts', () => {
+  it('(d) a STILL-ARMING mine the shell lands on takes the damage and pops (amendment 200)', () => {
     const w = board(25);
     mine(w, 'm1', 'x', 600, 0, 999_999);
     shootAt(w, 'a', 600);
-    expect(w.mines.has('m1')).toBe(true);
+    expect(w.mines.has('m1')).toBe(false);
     expect(w.tickEvents.some((e) => e.k === 'burst')).toBe(true);
+    expect(w.tickEvents.find((e): e is BoomEvent => e.k === 'boom' && e.id === 'm1')).toEqual({
+      k: 'boom', id: 'm1', x: 600, y: 0,
+    });
   });
 
-  it('(d) a CAPTIVE mine under the burst is not set off either (R2.18)', () => {
+  it('(d) a CAPTIVE mine the shell lands on is DESTROYED: a boom, no blast victim, no fish (amendment 200)', () => {
     const w = board(26);
     place(w, 'cap', 900, 900, 0, 'mineLayer');
     mine(w, 'm1', 'cap', 600, 0, 0, 'captive');
     shootAt(w, 'a', 600);
-    expect(w.mines.has('m1')).toBe(true);
+    expect(w.mines.has('m1')).toBe(false);
     expect(w.tickEvents.some((e) => e.k === 'burst')).toBe(true);
+    expect(w.tickEvents.find((e): e is BoomEvent => e.k === 'boom' && e.id === 'm1')).toEqual({
+      k: 'boom', id: 'm1', x: 600, y: 0,
+    });
+    expect([...w.shells.values()].some((sh) => sh.kind === 'torp')).toBe(false); // no fish
   });
 
   it('a STAR SHELL detonates nothing: illumination is not minefield clearing (AR44 mask)', () => {
     // The flare's mask has no `mine` bit at all, which is the structural half.
     expect(CONFIG.starShells.hits).not.toContain('mine');
     expect(CONFIG.gun.hits).toContain('mine');
+    // Amendment 200: exactly the three DECK GUNS carry the bit.
+    expect(CONFIG.machineGun.hits).toContain('mine');
+    expect(CONFIG.flak.hits).toContain('mine');
+    expect(CONFIG.broadside.hits).not.toContain('mine');
+    expect(CONFIG.phosphorShells.hits).not.toContain('mine');
   });
 });
 

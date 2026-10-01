@@ -34,7 +34,10 @@ export type { HueFor };
 
 const R = CLIENT_CONFIG.mineRings;
 const P = CLIENT_CONFIG.aimPreview;
-const RING_R = 10; // u (Eric 2026-07-22: the mine graphic read a bit small)
+// u — the marker ring IS the deck guns' "on the mine" disc (amendment 201(a)):
+// one number, `CONFIG.mine.hitRadiusU`, read by the server's landing test and
+// by this drawing (10 u since Eric 2026-07-22: the graphic read a bit small).
+const RING_R = CONFIG.mine.hitRadiusU;
 const DOT_R = 3.5; // u
 
 /**

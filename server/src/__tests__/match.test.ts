@@ -187,7 +187,7 @@ describe('match — waiting phase (ready room)', () => {
     const a = ctx.w.ships.get('a')!;
     // Drop an already-armed mine (owned by a bystander, like injectShell's 'ghost')
     // right on top of a — walks a ship onto an armed practice mine in waiting.
-    ctx.w.mines.set('m1', { id: 'm1', ownerId: 'ghost', x: a.state.x, y: a.state.y, armedAt: 0, kind: 'naval' });
+    ctx.w.mines.set('m1', { id: 'm1', ownerId: 'ghost', x: a.state.x, y: a.state.y, armedAt: 0, kind: 'naval', hp: 10 });
     step(ctx);
     expect(ctx.w.mines.size).toBe(0); // triggered + despawned
     expect(ctx.w.tickEvents.some((e) => e.k === 'boom')).toBe(true);
@@ -241,7 +241,7 @@ describe('match — countdown', () => {
     const a = ctx.w.ships.get('a')!;
     // Dirty the practice field.
     injectShell(ctx, 's1', 'a', 500, 500);
-    ctx.w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 1, y: 2, armedAt: 0, kind: 'naval' });
+    ctx.w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 1, y: 2, armedAt: 0, kind: 'naval', hp: 10 });
     a.hp = 40;
     a.state.x = 5;
     a.state.y = 5;

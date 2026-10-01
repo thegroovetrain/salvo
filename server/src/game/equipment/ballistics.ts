@@ -77,6 +77,9 @@ export interface BallisticParams {
    *  at its aim point with a splash instead of bursting, and a hull it strikes
    *  takes a plain contact hit (see ShellState.direct). */
   direct?: true;
+  /** THE CURSOR POINT (amendment 202): the deck guns' raw click, pre-clamp
+   *  (see ShellState.cursor, guns.ts `rawAimPoint`). Never on the wire. */
+  cursor?: Vec2;
   /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
    *  zone (see ShellState.lit). Only fireStarShell sets it; never on the wire. */
   lit?: { radius: number; durationMs: number };
@@ -127,6 +130,7 @@ export function makeBallistic(
     family: p.family,
   };
   if (p.direct === true) shell.direct = true;
+  if (p.cursor) shell.cursor = { x: p.cursor.x, y: p.cursor.y };
   // The optional doctrine tags are set only when the caller carries one (never
   // an explicit `undefined` key — the shape stays clean for plain projectiles).
   if (p.lit) shell.lit = p.lit;

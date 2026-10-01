@@ -441,7 +441,7 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
     const w = bareWorld();
     place(w, 'a', 0, 0);
     place(w, 'b', 900, 0);
-    w.mines.set('m1', { id: 'm1', ownerId: 'b', x: 200, y: 0, armedAt: 0, kind: 'naval' });
+    w.mines.set('m1', { id: 'm1', ownerId: 'b', x: 200, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
     addDecoy(w.decoys, 'b', 200, -20, 'd1');
     const clear = buildFrame(w, 'a');
     expect(clear.mines.map((m) => m.id)).toEqual(['m1']);

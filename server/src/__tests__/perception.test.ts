@@ -509,7 +509,7 @@ function injectShell(
 /** Drop a mine directly into world state (armed by default; a NAVAL mine
  *  unless the case says otherwise — Story 8.13 stamps the laying line's kind). */
 function injectMine(w: World, id: string, ownerId: string, x: number, y: number, armedAt = 0, kind: MineKind = 'naval'): void {
-  w.mines.set(id, { id, ownerId, x, y, armedAt, kind });
+  w.mines.set(id, { id, ownerId, x, y, armedAt, kind, hp: 10 });
 }
 
 /** Drop a lit zone directly into world state (Story 1.7; far-future expiry). */
@@ -2416,6 +2416,10 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // ride `offer`/`cards` as VALUES and a substring match on the JSON text
   // cannot tell a key from a value.
   expect(hasForbiddenKey(f, DECK_FORBIDDEN_KEYS)).toBe(false);
+  // THE CURSOR POINT (amendment 202): a deck-gun shell's unclamped click rides
+  // `ShellState.cursor` for the mine landing test and NEVER a frame — the
+  // ballistic reveal is built field by field. Every spelling, as a KEY.
+  expect(hasForbiddenKey(f, ['cursor', 'cursorX', 'cursorY'])).toBe(false);
   // THE SEAT'S GUN IS SELF-PRIVATE (Story 8.14, amendment 95), on exactly the
   // terms `cls` is: it rides `you` and NOTHING else. Which gun an enemy picked
   // is build information, so a whole-frame text scan with `you` spliced out is

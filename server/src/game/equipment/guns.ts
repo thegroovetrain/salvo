@@ -70,6 +70,21 @@ export function burstPointAlong(
 }
 
 /**
+ * THE CURSOR POINT (Eric 2026-10-01, epic-8 amendment 202 — "the cursor
+ * decides"): where the shooter's cursor sat when a deck gun fired — ship
+ * CENTRE + `aimDist` along `dir`, with NO reach clamp and NO map clamp. The one
+ * helper the cannon, the flak gun and the machine gun all call, so the three
+ * cannot disagree about where the click was. The only clamp that applies is
+ * the input sanitizer's (inputs.ts `sanitizeAimDist`: finite-checked, then
+ * clamped to [0, AIM_DIST_MAX]). Server-internal: it rides `ShellState.cursor`
+ * for the mine landing test and never the wire.
+ */
+export function rawAimPoint(ship: ShipRecord, dir: number): Vec2 {
+  const d = ship.input.aimDist;
+  return { x: ship.state.x + Math.cos(dir) * d, y: ship.state.y + Math.sin(dir) * d };
+}
+
+/**
  * The gun's clicked burst point: burstPoint at the ship's EFFECTIVE max gun
  * range (stats.equipment.gun.rangeU — the gunRange upgrade; base = CONFIG.vision.radar).
  * Exported for tests.
@@ -189,6 +204,9 @@ function fireGunShells(
   const gun = ship.stats.equipment.gun;
   const dir = ship.input.aim;
   const center = burstPointAlong(ship, mapRadius, reachU, dir);
+  // Every barrel carries the ONE unclamped click centre (amendment 202): the
+  // twin mount's straddle offsets move where each shell lands, not the cursor.
+  const cursor = rawAimPoint(ship, dir);
   const muzzle = muzzleOrTarget(ship, dir, center, CONFIG.gun.shellRadius);
   const range = Math.hypot(center.x - muzzle.x, center.y - muzzle.y) + CONFIG.gun.shellRadius;
   const shells: ShellState[] = [];
@@ -207,6 +225,7 @@ function fireGunShells(
         contactDamage: gun.contactDamage,
         hits: CONFIG.gun.hits, // AR44 target mask
         family: 'cannon', // Story 8.15: the reveal's `w`
+        cursor, // amendment 202: the mine landing test's cursor point
       }),
     );
   }

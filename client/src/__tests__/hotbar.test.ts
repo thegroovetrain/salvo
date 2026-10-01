@@ -1158,9 +1158,9 @@ describe('the tooltip memo keys on the slot\'s own stock (P5)', () => {
     expect(tipCacheHit(c, BELT_1, 'hullRepair', stats, cards, 1)).toBe(false);
   });
 
-  it('...so the rebuilt model reads ×1 where the stale one still said ×2', () => {
-    expect(cached(2).model?.interaction).toBe('CONSUMABLE · 1 · KEY FIRES · ×2');
-    expect(cached(1).model?.interaction).toBe('CONSUMABLE · 1 · KEY FIRES · ×1');
+  it('...and a belt square has no interaction line at any stock (amendment 203)', () => {
+    expect(cached(2).model?.interaction).toBe('');
+    expect(cached(1).model?.interaction).toBe('');
   });
 
   it('still misses on every other input, and hits on none of them changing', () => {

@@ -11,8 +11,9 @@
 // damage and reload; the blast never grows). 360°, no arc (amendment 106).
 //
 // THE MASK is AR44's `hull | mine | decoy | ordnance` (CONFIG.flak.hits): a
-// burst covering an armed mine sets it off like any burst (amendments 16/18/20),
-// and one covering an ENEMY torpedo in flight removes it — a SIDE EFFECT that
+// shell LANDING within `mine.hitRadiusU` of a mine deals its damage to the
+// mine's hp like every deck gun (amendment 200 — a burst merely covering a mine
+// does nothing to it), and a burst covering an ENEMY torpedo in flight removes it — a SIDE EFFECT that
 // might go away (amendment 105); nothing here leans on it, and the World owns
 // the outcome (resolveBurst: no boom, no damage, no `hc`, own fish immune).
 // THE LIT-ZONE REACH (R2.15, amendment 114): like every deck gun, a click past
@@ -23,7 +24,7 @@ import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type ShellState } from '
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
+import { burstPointAlong, gunReachU, muzzleOrTarget, rawAimPoint } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
 /** Build the one flak shell for this click, born at `now` (the validated
@@ -47,6 +48,7 @@ function flakShell(ship: ShipRecord, now: number, reachU: number, mapRadius: num
     contactDamage: flak.contactDamage,
     hits: CONFIG.flak.hits, // AR44 target mask
     family: 'flak',
+    cursor: rawAimPoint(ship, dir), // amendment 202: the unclamped click
   });
 }
 

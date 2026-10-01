@@ -1095,8 +1095,8 @@ const CONFIG_MINE_BLAST: Readonly<Record<MineKind, MineBlastParams>> = Object.fr
  * in flight: *"if I did not DIRECTLY click on the mine, then under no
  * circumstances whatsoever should it block a shot, register a hit or miss, or
  * give any indication whatsoever to the shooter that anything might be there"*.
- * So every sweep runs against this mask and only the BURST at the clicked point
- * runs against the full one.
+ * So every sweep runs against this mask; only the LANDING TEST at the point the
+ * shell lands (amendment 200, `landOnMines`) reads the full one's mines.
  *
  * Memoized by the ROW OBJECT (the `CONFIG.<ordnance>.hits` arrays are frozen
  * module constants, so there are three of them for the whole game), and a mask
@@ -1107,7 +1107,8 @@ const CONFIG_MINE_BLAST: Readonly<Record<MineKind, MineBlastParams>> = Object.fr
 const SWEEP_MASKS = new WeakMap<readonly TargetKind[], readonly TargetKind[]>();
 /** The two BURST-ONLY kinds a sweep never sees: `mine` (amendment 20) and,
  *  since Story 8.15, `ordnance` (amendment 105 — a fish in flight is struck
- *  only by a burst covering it, never by a shell flying past). */
+ *  only by a burst covering it, never by a shell flying past). A mine is
+ *  touched only where a deck gun's shell LANDS on it (amendment 200). */
 const BURST_ONLY_KINDS: readonly TargetKind[] = ['mine', 'ordnance'];
 function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
   const memo = SWEEP_MASKS.get(hits);
@@ -1142,6 +1143,12 @@ export type DamageSource =
 export interface StepRow {
   readonly name: string;
   readonly run: (world: World, ctx: StepContext) => void;
+}
+
+/** Is point `p` ON `mine` — within `r` of its centre? (The mine landing
+ *  test's one predicate, amendment 202: asked of the cursor and the landing.) */
+function onMine(mine: Vec2, p: Vec2, r: number): boolean {
+  return Math.hypot(mine.x - p.x, mine.y - p.y) <= r;
 }
 
 export class World {
@@ -3466,15 +3473,14 @@ export class World {
    *
    * THE KINDS:
    *   hull     — afloat silhouettes (a sinking hull is not a collision subject).
-   *   mine     — every DETONABLE mine as a POINT: armed, and not a captive
-   *              layer's. BURST-ONLY (amendment 20): this kind is asked for by
-   *              the burst resolution, never by a sweep — stepShells strips the
-   *              `mine` bit off every projectile's mask before it collects the
-   *              list stepShell flies against, so NO mine, detonable or not, can
-   *              stop, slow or report a shell passing overhead. The arm delay
-   *              and the R2.18 captive carve-out are applied HERE rather than at
-   *              the outcome, so a mine that reaches an outcome is by
-   *              construction detonable.
+   *   mine     — EVERY mine as a POINT, any kind, armed or arming (amendment
+   *              200). LANDING-ONLY: this kind is read by the deck guns'
+   *              landing test (`landOnMines`) at the point a shell lands, never
+   *              by a sweep — stepShells strips the `mine` bit off every
+   *              projectile's mask before it collects the list stepShell flies
+   *              against, so NO mine can stop, slow or report a shell passing
+   *              overhead (amendment 20) — and never as a burst victim (shared
+   *              burstVictims skips the kind).
    *   decoy    — every live DECOY BUOY's frozen square (Story 8.16), carrying
    *              its `ownerId` so the shared sweep/acquire/burst math skips
    *              the OWNER's own decoy (amendment 119). A decoy is not a ship
@@ -3514,15 +3520,15 @@ export class World {
     }
   }
 
-  /** Every DETONABLE mine as a POINT target (amendments 16/18/20): armed, and
-   *  not laid by a captive layer. A mine's polygon is the single vertex at its
-   *  centre, which is BURST geometry: burstVictims reduces to "does the burst
-   *  radius cover the mine's centre?". Nothing in flight is ever resolved
-   *  against this list (amendment 20). */
+  /** EVERY mine on the water as a POINT target — any kind, armed OR arming,
+   *  any owner (amendment 200, Eric 2026-10-01: an arming mine pops and a
+   *  captive can be destroyed, so the old arming/captive gates are gone). A
+   *  mine's polygon is the single vertex at its centre, read ONLY by the
+   *  deck guns' LANDING TEST (`landOnMines`): nothing in flight is ever
+   *  resolved against this list (amendment 20, sweepMask) and no burst ever
+   *  counts a mine as a victim (shared burstVictims skips the kind). */
   private collectMines(out: Target[]): void {
     for (const mine of this.mines.values()) {
-      if (this.now < mine.armedAt) continue; // still arming — a burst passes over it
-      if (mine.kind === 'captive') continue; // R2.18 — never set off
       out.push({ id: mine.id, kind: 'mine', poly: [{ x: mine.x, y: mine.y }] });
     }
   }
@@ -4199,14 +4205,15 @@ export class World {
   private stepShells(dt: number, hitTargets: HitTargets): void {
     for (const [id, shell] of this.shells) {
       // EVERY PROJECTILE ASKS THE COLLECTOR FOR ITS OWN MASK (Story 8.4,
-      // AR44): a gun-family shell sees hulls, mines and decoys; a torpedo sees
+      // AR44): a deck-gun shell sees hulls, mines and decoys; a torpedo sees
       // hulls and decoys; a star shell detonates nothing. The mask rides the
       // projectile (`ShellState.hits`, copied off its CONFIG row at launch), so
       // this loop never branches on which weapon fired.
       //
       // TWO LISTS, AND THE DIFFERENCE BETWEEN THEM IS THE WHOLE OF AMENDMENT
-      // 20 (Eric 2026-09-16). `burstSet` is the full mask — what the BURST at
-      // the clicked point resolves against, mines included. `sweepSet` is the
+      // 20 (Eric 2026-09-16). `burstSet` is the full mask — what the shell's
+      // RESOLUTION reads: the burst's victims, and the mines the LANDING TEST
+      // checks at the point the shell lands (amendment 200). `sweepSet` is the
       // same mask MINUS `mine`, and it is the only list stepShell ever sees, so
       // a shell in flight cannot collide with, stop on, or in any way notice a
       // mine it merely flies over. For a mask with no `mine` bit the two are
@@ -4246,8 +4253,9 @@ export class World {
   private stepMines(hitTargets: HitTargets): void {
     // TRIPPING scans EACH KIND'S OWN `hits` row (`MINE_TRIP_HITS`) — HULLS
     // ONLY on all three today. A decoy never trips a mine: it is not a hull,
-    // and remote minefield clearing is a mechanic nobody ruled on — shooting
-    // the mine is the sanctioned way (amendment 16). DETONATION resolves
+    // and remote minefield clearing is a mechanic nobody ruled on — a deck
+    // gun shell landing on the mine is the sanctioned way (amendment 200).
+    // DETONATION resolves
     // against the blast set (hulls + decoys), so a blast still damages an
     // ENEMY decoy inside it (damageDecoy refuses the layer's own).
     //
@@ -4349,7 +4357,7 @@ export class World {
   }
 
   /**
-   * Detonate ONE mine — and its SAME-OWNER CHAIN (Story 2.8, amendment 46).
+   * Detonate ONE mine — and its NAVAL CHAIN (Story 2.8; amendments 18, 200).
    * Each detonation: despawn, one boom at the mine point (`hit` = the tripping
    * ship on the FIRST mine only; chained mines and gun-shot detonations carry
    * NO victim id — the splash-boom convention), then the BLAST: every
@@ -4359,16 +4367,17 @@ export class World {
    * convention; a VACATED owner's mine falls back to CONFIG bases, pinned).
    * FOULING (the KIND, amendment 81): victims of a FOULING mine's blast get
    * slowedUntil AND slowFactor refreshed (never stacked); a naval mine never
-   * fouls. CHAINS: every ARMED non-captive mine whose CENTER lies within the
-   * detonation's blast radius detonates in the same tick, cascading breadth-first with a visited set (bounded — each mine
-   * detonates at most once; deletion makes re-entry impossible); enemy mines
-   * NEVER sympathetically detonate.
+   * fouls. CHAINS (naval only, both ways — amendment 200): a NAVAL detonation
+   * sets off every ARMED NAVAL mine, whoever laid it, whose CENTER lies within
+   * its blast radius in the same tick, cascading breadth-first with a visited
+   * set (bounded — each mine detonates at most once; deletion makes re-entry
+   * impossible); fouling and captive mines neither propagate nor receive.
    *
    * CONSUME-FIRST (Story 2.8 review, P6): the mine is deleted from the store
    * BEFORE its blast resolves, and every path into a detonation re-checks
    * existence via that delete. The `visited` set alone was not enough — two
    * mines within each other's blast can both trip in the SAME tick, so the
-   * trigger loop (and the burst-detonation snapshot) hands us a mine an
+   * trigger loop (and the landing test's snapshot) hands us a mine an
    * earlier cascade already consumed; without the re-check it detonated twice
    * (two booms, double damage) from one trip.
    */
@@ -4394,7 +4403,7 @@ export class World {
 
   /**
    * TAKE ONE MINE OFF THE WATER. The single deletion path (detonation, captive
-   * launch), so the collector's generation bumps wherever a mine leaves: a
+   * launch, a captive destroyed by gunfire), so the collector's generation bumps wherever a mine leaves: a
    * later shell of the same tick can then never be consumed by a mine an
    * earlier detonation already removed. Returns false when it was already gone
    * — the consume-first re-check every detonation path relies on.
@@ -4497,26 +4506,25 @@ export class World {
   }
 
   /**
-   * Queue the ARMED mines whose centers lie within `blastRadius` of detonating
-   * mine `m` — WHOEVER LAID THEM (Eric ruling 2026-09-15, amendment 18, which
-   * SUPERSEDES the same-owner condition amendment 46 shipped). A minefield is
-   * water, not property: one blast sets off everything armed in range, and the
-   * whole cascade resolves this tick through the existing visited set.
+   * Queue the ARMED NAVAL mines whose centers lie within `blastRadius` of
+   * detonating NAVAL mine `m` — WHOEVER LAID THEM (amendment 18: a minefield
+   * is water, not property). The whole cascade resolves this tick through the
+   * existing visited set.
    *
-   * CAPTIVE MINES KEEP R2.18 IN FULL, on BOTH sides: a captive field never
-   * propagates a chain (the first read below) and a captive mine never receives
-   * one (the per-candidate read) — consistent with amendment 16, which keeps a
-   * captive immune to shells and bursts too.
+   * NAVAL ONLY, BOTH WAYS (Eric 2026-10-01, amendment 200: *"Naval Mines yes
+   * chain. Fouling/Captive mines, no chain."*): a fouling or captive mine
+   * never propagates a chain (the first read below) and never receives one
+   * (the per-candidate read).
    *
    * This walk is the mine system propagating inside its OWN store, not an
    * ordnance step finding targets (see stepMines' note on placement rule 13).
    */
   private chainMines(m: MineState, blastRadius: number, visited: Set<string>, queue: MineState[]): void {
     const r2 = blastRadius * blastRadius;
-    if (m.kind === 'captive') return; // R2.18 — never propagates
+    if (m.kind !== 'naval') return; // amendment 200 — only a naval mine propagates
     for (const other of this.mines.values()) {
       if (visited.has(other.id) || this.now < other.armedAt) continue;
-      if (other.kind === 'captive') continue; // R2.18 — never receives
+      if (other.kind !== 'naval') continue; // amendment 200 — only a naval mine receives
       const dx = other.x - m.x;
       const dy = other.y - m.y;
       if (dx * dx + dy * dy <= r2) {
@@ -4841,6 +4849,14 @@ export class World {
     }
     if (outcome.kind !== 'hitShip') {
       this.pending.push({ k: 'boom', id: shell.id, x: outcome.x, y: outcome.y });
+      // A DIRECT shell (the machine gun's) that ARRIVED without striking a
+      // hull LANDS here: the landing test runs at its final point (amendment
+      // 200 — a no-op for any mask without `mine`). An island stop is not a
+      // landing: the shell never reached the point the shooter clicked. The
+      // `direct` guard keeps this the DIRECT shell's path alone: a burst-family
+      // shell lands only through `resolveBurst` (its `expired` is the map-edge
+      // crossing, unreachable for a clamped gun target but excluded by name).
+      if (outcome.kind === 'expired' && shell.direct === true) this.landOnMines(shell, outcome, hulls);
       // hitIsland / expired: a MISS — fall of shot to the shooter (Story 4.3;
       // gun family only — the guard lives in emitSplash).
       this.emitSplash(shell, outcome.x, outcome.y);
@@ -4973,21 +4989,20 @@ export class World {
     // 0-hp dmg-event noise, structurally — and so emits `sp` (135(d)).
     //
     // ONE CALL TO THE COLLECTOR'S OWN MEMBERSHIP RULE covers every kind the
-    // shell's mask admitted (Story 8.4): hulls and decoys take damage, mines
-    // detonate. The two are SEQUENCED rather than interleaved so the emitted
-    // order is byte-identical to before — all damage, then the hit call, then
-    // the mine detonations, which is exactly where the old
-    // `detonateMinesInBurst` sat at the end of this method.
+    // shell's mask admitted (Story 8.4): hulls and decoys take damage, fish
+    // are removed. A MINE IS NEVER A BURST VICTIM (amendment 200 — shared
+    // burstVictims skips the kind); the LANDING TEST at the burst point runs
+    // after the hit call, where the old burst detonation sat.
     const victims = burstVictims(at, shell.burstRadius, hulls, shell.ownerId);
     let resolved = 0; // hulls the burst RESOLVED (Story 4.3 — counted ahead of
     // the damage-suppression phase guard inside hitShip, so the Hit Call keys
     // off resolution, not dmg: the weapons-safe ready room still calls hits).
     if (shell.damage > 0) {
       for (const t of victims) {
-        // Mines detonate and fish are removed below, after the hit call —
-        // neither is a damage victim (a fish is not a decoy, so it must never
-        // reach burstDamage's damageDecoy branch).
-        if (t.kind === 'mine' || t.kind === 'ordnance') continue;
+        // Fish are removed below, after the hit call — never a damage victim
+        // (a fish is not a decoy, so it must never reach burstDamage's
+        // damageDecoy branch).
+        if (t.kind === 'ordnance') continue;
         resolved += this.burstDamage(shell, t);
       }
       // AMENDMENT 19 (Eric 2026-09-15, resolving `deferred-work.md:590`): a
@@ -5025,21 +5040,22 @@ export class World {
     // 50 u blast already does this), amendment 135(b).
     if (resolved > 0) this.emitHitCall(shell.ownerId, at.x, at.y);
     else this.emitSplash(shell, at.x, at.y);
-    // A burst DETONATES every armed non-captive mine whose centre it covers,
-    // whoever laid it (amendments 16/18) — and since amendment 20 this is the
-    // ONLY way gunfire ever touches a mine. The burst sits at the point the
-    // shooter CLICKED, so the trigger is always his own doing. Mines are never
-    // counted in `resolved`: the hit call is about what the SHELL connected
-    // with, and a sprung trap announces itself to its own layer through
-    // blastMine's `hc`.
-    // ...and REMOVES every ENEMY TORPEDO whose centre it covers (Story 8.15,
+    // THE LANDING TEST (amendment 200, Eric 2026-10-01): a deck-gun shell's
+    // burst point IS where it landed, so every mine within
+    // `CONFIG.mine.hitRadiusU` of it takes the shell's full damage — and a
+    // burst that merely COVERS a mine farther off does nothing to it. Run
+    // AFTER the hc/sp decision on purpose: a mine is never counted in
+    // `resolved` (the hit call is about the hulls the shell connected with —
+    // a pop with no hull victim keeps `sp`), and a sprung trap announces
+    // itself to its own layer through blastMine's `hc`.
+    this.landOnMines(shell, at, hulls);
+    // The burst REMOVES every ENEMY TORPEDO whose centre it covers (Story 8.15,
     // amendment 105 — the flak gun's side effect; only its mask names
     // `ordnance`): the fish is simply taken off the water — no boom, no
     // damage, no `hc` (a fish is not a hull, and the shooter's mark keys off
     // hulls alone), and the OWNER'S OWN fish are never victims.
     for (const t of victims) {
-      if (t.kind === 'mine') this.detonateBurstMine(t.id);
-      else if (t.kind === 'ordnance') this.removeBurstOrdnance(t.id, shell.ownerId, at, shell.burstRadius);
+      if (t.kind === 'ordnance') this.removeBurstOrdnance(t.id, shell.ownerId, at, shell.burstRadius);
     }
   }
 
@@ -5115,33 +5131,64 @@ export class World {
   }
 
   /**
-   * A BURST SETS OFF ONE MINE (FR57 / AR44; Eric rulings 2026-09-15 and
-   * 2026-09-16, amendments 16/18/20). THE one gunfire→mine path: reached only
-   * from resolveBurst, for a target burstVictims found within the burst radius
-   * of the point the shooter CLICKED. A shell in flight has no route here at
-   * all — it never sweeps against a mine (amendment 20). The dispatch is the
-   * KIND's (Story 8.4 review, P2), never "did the mine store happen to hold
-   * this id", which a hull sharing an id with a live mine used to answer
-   * wrongly.
+   * THE LANDING TEST (Eric 2026-10-01, amendments 200/201; amendment 202, the
+   * cursor decides). *"I HAVE TO CLICK ON THE MINE"*: a shell whose `hits`
+   * mask carries `mine` — exactly the three deck guns — that LANDS at `at`
+   * deals its FULL `damage` (never contactDamage) to EVERY mine whose centre
+   * lies within `CONFIG.mine.hitRadiusU` of BOTH that point AND the shooter's
+   * CURSOR at fire time (`shell.cursor`, the unclamped click): any kind, armed
+   * or arming, any owner (the shooter's own included — the standing
+   * friendly-fire exception). `at` is the burst point for the cannon and flak
+   * and the arrival point for a machine-gun shell; a shell spent on a hull on
+   * the way never calls this. An unclamped click lands at its cursor, so the
+   * two discs coincide; a click past reach is clamped short, so a mine under
+   * the clamped landing point is NOT under the cursor (untouched), and a mine
+   * under the cursor is beyond the landing (untouched — the shell never got
+   * there). A shell with no cursor recorded is no landing at all (fail closed).
    *
-   * THIS REPLACES `detonateMinesInBurst`, the old click-your-own-minefield
-   * path, and with it the two gates that made a minefield the layer's private
-   * property: OWNER-ONLY (a burst could only ever touch your own field) and the
-   * shell-owner captive read (a captive LAYER's burst passed over everything).
-   * The rule is now about the MINE: any ARMED mine detonates, whoever laid it,
-   * and a CAPTIVE mine never does — both enforced upstream in the collector, so
-   * a mine that reaches here is by construction detonable. The re-check below
-   * is the consume-first discipline, not a second policy: two shells of one
-   * click can both cover a mine an earlier cascade already took.
-   *
-   * The blast is the MINE's own, at the MINE's own position, on the MINE
-   * OWNER's numbers — the shooter's weapon contributes nothing but the trigger
-   * — and it CASCADES through detonateMine's visited set in the same tick.
+   * `targets` is the shell's own full-mask list (stepShells' `burstSet`), so
+   * the collector stays the one place mines are enumerated; the `mines.get`
+   * re-check is the consume-first discipline — a mine an earlier shell or a
+   * chain already took this tick is gone, and a second application is a
+   * no-op. Mine hp never leaves the server.
    */
-  private detonateBurstMine(id: string): void {
-    const mine = this.mines.get(id);
-    if (mine === undefined) return; // consume-first re-check, not a policy
-    this.detonateMine(mine, this.hitTargets(MINE_BLAST_HITS));
+  private landOnMines(shell: ShellState, at: Vec2, targets: readonly Target[]): void {
+    const cursor = shell.cursor;
+    if (!shell.hits.includes('mine') || cursor === undefined) return;
+    const r = CONFIG.mine.hitRadiusU;
+    for (const t of targets) {
+      if (t.kind !== 'mine') continue;
+      const mine = this.mines.get(t.id);
+      if (mine === undefined) continue; // consume-first re-check, not a policy
+      if (!onMine(mine, cursor, r) || !onMine(mine, at, r)) continue;
+      if (this.damageMine(mine, shell.damage)) this.popMine(mine);
+    }
+  }
+
+  /** Spend `amount` of a mine's hp (amendment 200); true iff it is now at or
+   *  below 0 and the caller pops it. A mine is not a ship: no gate, no XP, no
+   *  `dmg` event — the second non-hull decrement after `damageDecoy`, and like
+   *  it allowed only here by the damage-gate fence (damageGate.test pins both). */
+  private damageMine(mine: MineState, amount: number): boolean {
+    mine.hp -= amount;
+    return mine.hp <= 0;
+  }
+
+  /**
+   * A MINE SHOT TO 0 HP (amendment 200). A NAVAL or FOULING mine detonates
+   * exactly as a tripped one does — boom (no `hit`), its own blast on its
+   * OWNER's numbers at its own point, and (naval only) the chain. A CAPTIVE
+   * mine is DESTROYED: taken off the water with the same sight-gated `boom`
+   * so observers see it go (201(c)), but no `hit`, no blast and no fish — only
+   * a TRIP launches a captive's torpedo.
+   */
+  private popMine(mine: MineState): void {
+    if (mine.kind !== 'captive') {
+      this.detonateMine(mine, this.hitTargets(MINE_BLAST_HITS));
+      return;
+    }
+    if (!this.consumeMine(mine.id)) return;
+    this.pending.push({ k: 'boom', id: mine.id, x: mine.x, y: mine.y });
   }
 
   /** WHAT A SHELL LEAVES WHERE IT STOPS, whichever way it stopped (its burst

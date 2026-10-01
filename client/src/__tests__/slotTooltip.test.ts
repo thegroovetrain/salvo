@@ -130,7 +130,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
   it('prints a weapon\'s EQUIPMENT_STAT_FIELDS in table order, off the live fold', () => {
     const stats = statsFor('torpedoBoat', { heavyTorpedo: 2 });
     const m = tooltipModel(Q, 'heavyTorpedo', stats, ['heavyTorpedo', 'heavyTorpedo'])!;
-    expect(m.interaction).toBe('WEAPON · Q · SWITCH-TO · TIER II');
+    expect(m.interaction).toBe('TIER II');
     expect(m.stats.map((r) => r.label)).toEqual(['RELOAD', 'ROUNDS', 'SPEED', 'DAMAGE', 'HOMING']);
     expect(lines(m.stats)[0]).toBe(`RELOAD ${(stats.equipment.heavyTorpedo.reloadMs / 1000).toFixed(1)} s`);
     expect(lines(m.stats)[3]).toBe(`DAMAGE ${stats.equipment.heavyTorpedo.damage}`);
@@ -152,7 +152,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
     const stats = statsFor('torpedoBoat', { deckGun: 1 });
     const m = tooltipModel(SLOT_GUN, 'gun', stats, ['deckGun'])!;
     expect(m.name).toBe('CANNON');
-    expect(m.interaction).toBe('WEAPON · ALWAYS SELECTED · TIER II');
+    expect(m.interaction).toBe('TIER II');
     expect(m.stats.map((r) => r.label)).toEqual([
       'RELOAD',
       'ROUNDS',
@@ -200,7 +200,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
 
   it('prints a belt slot\'s CONSUMABLE_ROWS — the card face\'s own rows', () => {
     const m = tooltipModel(BELT_1, 'hullRepair', STATS, [], 2)!;
-    expect(m.interaction).toBe('CONSUMABLE · 1 · KEY FIRES · ×2');
+    expect(m.interaction).toBe('');
     expect(lines(m.stats)).toEqual([
       `INSTANT +${CONFIG.hullRepair.instantHp} HP`,
       `OVER TIME +${CONFIG.hullRepair.regenHp} HP / ${CONFIG.hullRepair.regenMs / 1000} S`,
@@ -215,10 +215,10 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
     expect(tooltipModel(8, null, STATS)).toBeNull();
   });
 
-  it('labels a weapon slot SWITCH-TO and an ability slot ACTIVATES, with its key', () => {
-    expect(tooltipModel(Q, 'heavyTorpedo', STATS)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
-    expect(tooltipModel(E, 'starShells', STATS)?.interaction).toBe('WEAPON · E · SWITCH-TO');
-    expect(tooltipModel(SLOT_BOOST, 'boost', STATS)?.interaction).toBe('ABILITY · Shift · ACTIVATES');
+  it('prints no line for a weapon without a build, and none for an ability (amendment 203)', () => {
+    expect(tooltipModel(Q, 'heavyTorpedo', STATS)?.interaction).toBe('');
+    expect(tooltipModel(E, 'starShells', STATS)?.interaction).toBe('');
+    expect(tooltipModel(SLOT_BOOST, 'boost', STATS)?.interaction).toBe('');
   });
 });
 
@@ -346,23 +346,21 @@ describe('the height model is the render: heading + one line per stat', () => {
 // --- what Story 8.7 put ON the panel -------------------------------------------
 
 describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () => {
-  it('prints the line\'s tier beside the switch-to grammar', () => {
-    expect(interactionLine(Q, 'heavyTorpedo', ['heavyTorpedo', 'heavyTorpedo'])).toBe(
-      'WEAPON · Q · SWITCH-TO · TIER II',
-    );
-    expect(interactionLine(Q, 'heavyTorpedo', ['heavyTorpedo'])).toBe('WEAPON · Q · SWITCH-TO · TIER I');
+  it('prints the line\'s tier alone — no kind, key or switch-to (amendment 203)', () => {
+    expect(interactionLine(Q, 'heavyTorpedo', ['heavyTorpedo', 'heavyTorpedo'])).toBe('TIER II');
+    expect(interactionLine(Q, 'heavyTorpedo', ['heavyTorpedo'])).toBe('TIER I');
   });
 
   it('prints NO tier where the build has not climbed the line, or has no line at all', () => {
     // Fitted but no copies recorded (a caller with no build): honest silence
     // rather than a fabricated Tier I.
-    expect(interactionLine(Q, 'heavyTorpedo', [])).toBe('WEAPON · Q · SWITCH-TO');
+    expect(interactionLine(Q, 'heavyTorpedo', [])).toBe('');
     // STORY 8.12 (amendment 70). The deck gun's rung lives ONLY in the fold —
     // `stats.equipment.gun.tier` — so a caller handing over cards and no stats
     // still gets silence here. It is not that the gun has no tier; it is that
     // this caller cannot know it, and guessing `1 + copies` a second time is
     // exactly the drift the ruling forbids.
-    expect(interactionLine(SLOT_GUN, 'gun', ['deckGun', 'deckGun'])).toBe('WEAPON · ALWAYS SELECTED');
+    expect(interactionLine(SLOT_GUN, 'gun', ['deckGun', 'deckGun'])).toBe('');
     // REVIEW GATE, CYCLE 147: the exact same call, WITH stats, prints the rung —
     // pinning that the silence above is a missing-stats fact, not a missing-tier
     // one. `lineForEquipment('gun')` resolves to `'deckGun'` (a real map entry),
@@ -370,7 +368,7 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
     // (2, one short of the fold's `1 + copies` = 3) and never notice.
     expect(
       interactionLine(SLOT_GUN, 'gun', ['deckGun', 'deckGun'], 0, effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun', 'deckGun'])),
-    ).toBe('WEAPON · ALWAYS SELECTED · TIER III');
+    ).toBe('TIER III');
   });
 
   // STORY 8.12, ERIC RULING 2026-09-18 (epic-8 amendment 70). The DECK GUN is a
@@ -380,29 +378,27 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
   // same number the reload step is priced off — so the bar, the header and the
   // sim cannot disagree.
   it('carries the DECK GUN\'s own rung on the keyless header, read off the fold', () => {
-    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat'))).toBe(
-      'WEAPON · ALWAYS SELECTED · TIER I',
-    );
+    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat'))).toBe('TIER I');
     expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGun: 2 }))).toBe(
-      'WEAPON · ALWAYS SELECTED · TIER III',
+      'TIER III',
     );
     // At the cap, and past a cap the server should never have granted: V, never VI.
     expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGun: 4 }))).toBe(
-      'WEAPON · ALWAYS SELECTED · TIER V',
+      'TIER V',
     );
     expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGun: 9 }))).toBe(
-      'WEAPON · ALWAYS SELECTED · TIER V',
+      'TIER V',
     );
     // Only the CANNON line is the deck gun's ladder: another gun's ladder (FLAK)
     // climbs ITS gun, never this one. (This pinned the DECK GUN BARREL card
     // until it folded into the CANNON ladder, amendment 197.)
     expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { flak: 2 }))).toBe(
-      'WEAPON · ALWAYS SELECTED · TIER I',
+      'TIER I',
     );
   });
 
   it('leaves the ABILITY grammar untouched — an ability has no tier to print', () => {
-    expect(interactionLine(1, 'boost', ['armor'])).toBe('ABILITY · Shift · ACTIVATES');
+    expect(interactionLine(1, 'boost', ['armor'])).toBe('');
   });
 
   it('reaches the tooltip model, not just the helper', () => {
@@ -411,22 +407,12 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
   });
 });
 
-describe('the interaction line carries a BELT slot\'s SHAPE and STOCK (ruling 13)', () => {
-  it('reads KEY FIRES for an instant consumable, with its stock', () => {
-    expect(interactionLine(BELT_1, 'hullRepair', [], 2)).toBe('CONSUMABLE · 1 · KEY FIRES · ×2');
-    expect(interactionLine(BELT_2, 'smokeScreen', [], 1)).toBe('CONSUMABLE · 2 · KEY FIRES · ×1');
-  });
-
-  it('reads KEY PRIMES · CLICK FIRES for the click-aimed ones', () => {
-    // TWO `CONSUMABLE_IS_WEAPON` lines since Story 8.13 (catalog-v3 R1 / D21
-    // plus epic-8 amendment 74's SUPERCAV TORPEDO), and the shape is the thing
-    // a player cannot guess — so it is stated, once, where they hover.
-    expect(interactionLine(BELT_1, 'decoyBuoy', [], 3)).toBe(
-      'CONSUMABLE · 1 · KEY PRIMES · CLICK FIRES · ×3',
-    );
-    expect(interactionLine(BELT_2, 'supercavTorpedo', [], 2)).toBe(
-      'CONSUMABLE · 2 · KEY PRIMES · CLICK FIRES · ×2',
-    );
+describe('a BELT slot has NO interaction line (amendment 203)', () => {
+  it('prints nothing for any consumable, whatever its shape or stock', () => {
+    expect(interactionLine(BELT_1, 'hullRepair', [], 2)).toBe('');
+    expect(interactionLine(BELT_2, 'smokeScreen', [], 1)).toBe('');
+    expect(interactionLine(BELT_1, 'decoyBuoy', [], 3)).toBe('');
+    expect(interactionLine(BELT_2, 'supercavTorpedo', [], 2)).toBe('');
   });
 
   // THE BELT'S TORPEDO (amendment 74/75). Its name comes from the copy layer
@@ -436,21 +422,25 @@ describe('the interaction line carries a BELT slot\'s SHAPE and STOCK (ruling 13
     const m = tooltipModel(BELT_2, 'supercavTorpedo', STATS, [], 2);
     expect(m?.name).toBe('SUPERCAV TORPEDO');
     expect(m?.name).not.toContain('SUPERCAVITATING');
-    expect(m?.interaction).toBe('CONSUMABLE · 2 · KEY PRIMES · CLICK FIRES · ×2');
+    expect(m?.interaction).toBe('');
     // Its rows are the card face's own CONSUMABLE_ROWS, off CONFIG.
     expect(m?.stats).toEqual(consumableStatRows('supercavTorpedo'));
-  });
-
-  it('never prints a negative or fractional stock', () => {
-    expect(interactionLine(BELT_1, 'hullRepair', [], -4)).toContain('×0');
-    expect(interactionLine(BELT_1, 'hullRepair', [], 2.7)).toContain('×2');
   });
 
   it('builds the WHOLE model for a stocked belt slot — no equipment row needed', () => {
     const m = tooltipModel(BELT_1, 'hullRepair', STATS, ['hullRepair', 'hullRepair'], 2);
     expect(m).not.toBeNull();
     expect(m?.name).toBe('HULL REPAIR');
-    expect(m?.interaction).toBe('CONSUMABLE · 1 · KEY FIRES · ×2');
+    expect(m?.interaction).toBe('');
+  });
+});
+
+describe('one interaction pin per square kind (amendment 203)', () => {
+  it('gun TIER I at spawn, weapon TIER II with one tier card, Shift and belt empty', () => {
+    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat'))).toBe('TIER I');
+    expect(interactionLine(Q, 'heavyTorpedo', ['heavyTorpedo', 'heavyTorpedo'])).toBe('TIER II');
+    expect(interactionLine(SLOT_BOOST, 'boost')).toBe('');
+    expect(interactionLine(BELT_1, 'hullRepair', [], 4)).toBe('');
   });
 });
 
@@ -462,19 +452,20 @@ describe('the panel keeps its box (amendment 42)', () => {
     expect(TIP_TYPE.boonSize).toBe(14);
   });
 
-  it('wraps the longest belt line to two lines and MODELS that wrap', () => {
-    const longest = interactionLine(BELT_1, 'decoyBuoy', [], 5);
-    expect(interactionLines(longest)).toBe(2);
-    expect(headingHeight(longest)).toBe(TIP_TYPE.headLineHeight * 3);
+  it('owns NO heading row for an empty interaction line, one for a tier line', () => {
+    expect(interactionLines('')).toBe(0);
+    expect(headingHeight('')).toBe(TIP_TYPE.headLineHeight);
+    expect(interactionLines('TIER II')).toBe(1);
+    expect(headingHeight('TIER II')).toBe(TIP_TYPE.headLineHeight * 2);
     const m = tooltipModel(BELT_1, 'decoyBuoy', STATS, [], 5)!;
-    expect(tooltipMetrics(m).interactionLines).toBe(2);
+    expect(tooltipMetrics(m).interactionLines).toBe(0);
     expect(tooltipMetrics(m).overflow).toBeLessThanOrEqual(0);
   });
 
   it('pushes the stat rows down by the wrap, so the two can never overlap', () => {
-    const short = tooltipRenderGeom({ name: 'X', interaction: 'WEAPON · Q', stats: [] });
-    const long = tooltipRenderGeom({ name: 'X', interaction: interactionLine(BELT_1, 'decoyBuoy', [], 5), stats: [] });
-    expect(long.statsDy - short.statsDy).toBe(TIP_TYPE.headLineHeight);
+    const none = tooltipRenderGeom({ name: 'X', interaction: '', stats: [] });
+    const one = tooltipRenderGeom({ name: 'X', interaction: 'TIER II', stats: [] });
+    expect(one.statsDy - none.statsDy).toBe(TIP_TYPE.headLineHeight);
   });
 });
 

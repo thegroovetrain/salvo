@@ -22,11 +22,14 @@
 //     (amendment 20, Eric 2026-09-16): a shell whose path crosses a mine on
 //     its way to the clicked point flies on exactly as if the mine were not
 //     there — it does not stop, the mine does not detonate, and NOTHING is
-//     emitted to the shooter. Gunfire sets a mine off only through the BURST
-//     at the clicked point covering the mine's centre (burstVictims). The
-//     sweep below skips `mine` targets outright and the server's collector
-//     already hands a shell a mine-free sweep list: both halves are
-//     deliberate, so neither side alone can reintroduce the contact path.
+//     emitted to the shooter. A mine is touched ONLY where a DECK GUN's shell
+//     LANDS within `CONFIG.mine.hitRadiusU` of it (amendment 200, Eric
+//     2026-10-01 — the server's landing test spends the shell's damage on the
+//     mine's hp); a burst merely covering a mine does nothing to it, so
+//     burstVictims below never returns one. The sweep below skips `mine`
+//     targets outright and the server's collector already hands a shell a
+//     mine-free sweep list: both halves are deliberate, so neither side alone
+//     can reintroduce the contact path.
 //   - Torpedo (contact-only: no target, burstRadius 0): today's behavior
 //     byte-for-byte — first non-owner contact hits for full damage
 //     (contactDamage = damage), islands stop it, it runs until impact/edge.
@@ -113,6 +116,17 @@ export interface ShellState {
    */
   direct?: true;
   /**
+   * THE CURSOR POINT (Eric 2026-10-01, epic-8 amendment 202 — "the cursor
+   * decides"): where the shooter's cursor was when a DECK GUN fired — ship
+   * centre + `aimDist` along the aim bearing, taken BEFORE the reach clamp and
+   * the map clamp (guns.ts `rawAimPoint`). The World's mine landing test reads
+   * it: a mine is hit only if it lies under BOTH this point and the point the
+   * shell actually landed. Set only by the three deck guns; absent on every
+   * other projectile. stepShell never reads it; NEVER on the wire (the `lit`
+   * tag's exact posture — the ballistic reveal is built field by field).
+   */
+  cursor?: Vec2;
+  /**
    * SERVER-INTERNAL star-shell tag (Story 1.7): when set, a BURST of this
    * shell also spawns a lit zone of `radius` for `durationMs` (World.
    * resolveBurst). Absent on every other projectile; stepShell never reads it.
@@ -189,11 +203,12 @@ export interface ShellState {
  * every ordnance row declares which of them its projectiles may touch through
  * `CONFIG.<ordnance>.hits`:
  *   - `hull`    — an afloat ship silhouette.
- *   - `mine`    — a laid mine, a BURST-ONLY point target (amendment 20): it is
- *                 NEVER swept against, so nothing in flight can touch it; the
- *                 one-vertex polygon exists purely so burstVictims can ask
- *                 "does the burst radius cover the mine's centre?" through the
- *                 same point-to-polygon primitive every other kind uses.
+ *   - `mine`    — a laid mine, a LANDING-ONLY point target (amendments 20,
+ *                 200): it is NEVER swept against, so nothing in flight can
+ *                 touch it, and it is NEVER a burst victim (burstVictims skips
+ *                 it); the server's landing test reads its one-vertex polygon
+ *                 as the mine's centre and asks whether the shell LANDED
+ *                 within `CONFIG.mine.hitRadiusU` of it.
  *   - `decoy`   — a dropped DECOY BUOY (Story 8.16; the radar buoy that held
  *                 the kind before it is deleted). It carries `ownerId`, and
  *                 the OWNER's own ordnance never touches it (amendment 119).
@@ -213,8 +228,9 @@ export type TargetKind = 'hull' | 'mine' | 'decoy' | 'ordnance';
  * callers cache the transformed verts per tick); a mine's polygon is the
  * DEGENERATE one-vertex `[centre]`, which every polygon primitive here already
  * handles (segSegClosest treats an equal-endpoint segment as a point), so a
- * point target needs no second code path. That polygon is BURST GEOMETRY ONLY
- * (amendment 20): the swept collision never reads a mine's poly at all.
+ * point target needs no second code path. That polygon is LANDING GEOMETRY
+ * ONLY (amendments 20, 200): neither the swept collision nor a burst ever
+ * reads a mine's poly; the server's landing test reads it as the centre.
  */
 export interface Target {
   id: string;
@@ -228,7 +244,8 @@ export interface Target {
    * (`burstVictims`), so the owner's fish pass through and the owner's shells
    * and bursts pass over their own decoy on both sides by construction.
    * Absent on every other kind (a hull's owner IS its `id`; a mine's owner
-   * never matters here — the owner's burst still sets off the owner's field).
+   * never matters here — the owner's own shell can still land on the owner's
+   * mine, amendment 200).
    * A decoy with no `ownerId` is never skipped.
    */
   ownerId?: string;
@@ -294,18 +311,20 @@ function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Island[]): Hit | n
  * Earliest TARGET hit along p0->p1. Two kinds are structurally immune. The
  * firer's own HULL (NO FRIENDLY FIRE, Eric 2026-09-11) — and only its HULL,
  * which is why the test is on the kind rather than on ship and mine ids never
- * colliding — plus the firer's own DECOY (amendment 119, via `Target.ownerId`). And EVERY MINE, whoever laid it (amendment 20, Eric 2026-09-16:
+ * colliding — plus the firer's own DECOY (amendment 119, via `Target.ownerId`). And
+ * EVERY MINE, whoever laid it (amendment 20, Eric 2026-09-16:
  * if the shooter did not DIRECTLY click on the mine, nothing about it may
  * block the shot, register a hit or a miss, or tell the shooter anything at
- * all) — gunfire reaches a mine only through burstVictims at the clicked
- * point. The World already builds this list without mines; the kind check
- * below keeps the rule true of the pure function on its own.
+ * all) — gunfire reaches a mine only through the server's landing test at
+ * the point the shell lands (amendment 200). The World already builds this
+ * list without mines; the kind check below keeps the rule true of the pure
+ * function on its own.
  * Null = no hit.
  */
 function earliestTarget(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
   let best: Hit | null = null;
   for (const t of ctx.targets) {
-    if (t.kind === 'mine') continue; // never in flight — burst-only (amendment 20)
+    if (t.kind === 'mine') continue; // never in flight — landing-only (amendments 20, 200)
     if (t.kind === 'hull' && t.id === shell.ownerId) continue; // own weapon never damages the owner
     if (isOwnDecoy(t, shell.ownerId)) continue; // own ordnance passes the owner's decoy (amendment 119)
     // Target polygon dilated by this projectile's own radius.
@@ -528,17 +547,15 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
  * Resolve the victims of a burst at `center`: every TARGET whose polygon is
  * within `radius` of the center (point-to-polygon distance, 0 when the center
  * is inside the polygon) — the SAME predicate the interception proximity
- * exception uses, and for a mine's one-vertex polygon it reduces to "the burst
- * radius covers the mine centre". THIS IS THE ONLY WAY GUNFIRE TOUCHES A MINE
- * (amendment 20): the burst sits at the point the shooter CLICKED, so setting
- * off a mine is always the shooter's own doing, never a by-product of a shell
- * passing overhead on its way somewhere else.
+ * exception uses. A MINE IS NEVER A BURST VICTIM (amendment 200, Eric
+ * 2026-10-01, superseding amendment 20's burst rule): a burst that merely
+ * covers a mine does nothing to it — only a deck gun's shell LANDING on the
+ * mine (the server's landing test, `CONFIG.mine.hitRadiusU`) damages one.
  * The owner's own HULL is excluded (permanent owner immunity), and so is the
- * owner's own DECOY (Story 8.16, amendment 119); the owner's own MINES are NOT
- * (FR57 / amendment 16 — your burst sets off your own field).
+ * owner's own DECOY (Story 8.16, amendment 119).
  *
  * Returns the TARGETS, not ids: the caller dispatches on `kind` (a hull takes
- * damage through the gate, a mine detonates, a decoy takes its own outcome),
+ * damage through the gate, a fish is removed, a decoy takes its own outcome),
  * and a bare id would force it to re-guess which store the id came from.
  * Pure; every outcome lives in world.ts.
  */
@@ -550,6 +567,7 @@ export function burstVictims(
 ): Target[] {
   const victims: Target[] = [];
   for (const t of targets) {
+    if (t.kind === 'mine') continue; // a burst never touches a mine — landing only (amendment 200)
     if (t.kind === 'hull' && t.id === ownerId) continue; // own weapon never damages the OWNER'S HULL
     if (isOwnDecoy(t, ownerId)) continue; // nor the OWNER'S DECOY (amendment 119)
     if (polyInBlast(center, radius, t.poly)) victims.push(t);

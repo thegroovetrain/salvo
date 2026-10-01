@@ -11,9 +11,9 @@
 // An interception en route burns where the shell stopped, exactly as a flare
 // lights there (World.resolveInterception).
 //
-// A DAMAGE WEAPON, so it carries the gun's `hull | mine | decoy` mask
-// (amendment 135(c)): an armed mine inside the burst detonates like under any
-// gun burst. The zone it leaves is a HAZARD ONLY — it reveals nothing and
+// A DAMAGE WEAPON with the `hull | decoy` mask — NEVER a mine (amendment 200,
+// Eric 2026-10-01, superseding 135(c)): only a deck gun's shell landing on a
+// mine damages one, so a phosphor burst over a minefield leaves it. The zone it leaves is a HAZARD ONLY — it reveals nothing and
 // extends no gun's reach; that is the World's and perception's concern
 // (`World.burnZones`, `signals.burnZoneSignal`), never this row's.
 //

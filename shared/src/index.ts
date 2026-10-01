@@ -3,6 +3,9 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  66 — CONFIG.mine.hitRadiusU read by the client; mine hit masks (machine
+ *  gun gains `mine`, broadside/phosphor lose it) — Eric 2026-10-01,
+ *  amendment 200.
  *  65 — catalog content: DECK GUN TURRET and DECK GUN BARREL deleted; the
  *  second turret and second barrel are CANNON tier III / V rungs, the flak
  *  turrets are FLAK tier III / V rungs (Eric 2026-09-30).
@@ -761,7 +764,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 65;
+export const PROTOCOL_VERSION = 66;
 
 // Tunables
 export * from './constants.js';
