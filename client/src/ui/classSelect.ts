@@ -49,7 +49,7 @@ const C = CLIENT_CONFIG.colors;
 // --- class display data (verbatim rulings) -----------------------------------
 
 /** Two-word display names the ship-class id can't produce — moved to the leaf
- *  `ui/classNames.ts` in cycle 157 so the HUD's SHIP tooltip can read it. */
+ *  `ui/classNames.ts` in cycle 158 so the HUD's SHIP tooltip can read it. */
 export { CLASS_DISPLAY_NAMES };
 
 interface LoadoutRow {

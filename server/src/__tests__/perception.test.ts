@@ -2373,7 +2373,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // the record's hp ROUNDED UP and its exact deadline. CHAFF rides no frame
   // outside `you` — nobody gets another hull's source (the fakes are blips) —
   // and on `you` the OWNER's own live cloud rides as `chaff` {x, y, until}
-  // (Eric 2026-09-30, amendment 184), present IFF its source is live.
+  // (Eric 2026-09-30, amendment 191), present IFF its source is live.
   expect(JSON.stringify(withoutYou)).not.toContain('"shield"');
   expect(JSON.stringify(withoutYou)).not.toContain('chaff');
   if (f.you !== undefined) {
@@ -4085,7 +4085,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       // the line), some sit ON an observer (a hull standing inside a puff —
       // blind out, hidden in, symmetric), the rest anywhere on the water. A
       // raw store write, like injectMine; production lays them at the laying
-      // hull's center (amendment 183).
+      // hull's center (amendment 190).
       for (let sp = 0; sp < rng.int(1, 4); sp++) {
         const roll = rng.float(0, 1);
         // Half the pairs are the guaranteed in-sight pair (ids[0] ↔ 'pn').
@@ -4249,7 +4249,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
 // recomputed sources, so a real hidden ship's true footprint — the exact
 // payload a leaking perception bug would emit — matches no arm and fails.
 
-describe('perception — the chaff OWNER\'s cloud is self-private (amendment 184)', () => {
+describe('perception — the chaff OWNER\'s cloud is self-private (amendment 191)', () => {
   it('a pressed chaff rides the owner\'s own `you.chaff` (burst point + until) and NOTHING else — no other observer, no fakes for the owner', () => {
     const w = bareWorld();
     const a = place(w, 'a', 120, -40);

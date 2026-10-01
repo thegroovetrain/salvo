@@ -155,7 +155,7 @@ describe('CHAFF — the row (Story 8.16)', () => {
     expect(a.loadout[BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 
-  it('only the OWNER\'s own `you.chaff` carries the cloud (amendment 184) — nothing else about chaff rides any frame', () => {
+  it('only the OWNER\'s own `you.chaff` carries the cloud (amendment 191) — nothing else about chaff rides any frame', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);

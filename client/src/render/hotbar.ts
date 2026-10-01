@@ -11,7 +11,7 @@
 //     hit-tests and paints the rects it is handed.
 //   • the LABEL COLUMN (slot name + quick-info line) — no word renders on a slot
 //     any more (UX-DR40/41). The tooltip carries the name, the interaction line
-//     and (cycle 157, amendment 178) the live stat table; the SQUARE carries
+//     and (cycle 158, amendment 185) the live stat table; the SQUARE carries
 //     state, seconds and counts. With the whole loadout on one row there is no column to put
 //     words in, and nine names across the bottom of the screen was the "three
 //     corners" problem in miniature.
@@ -177,7 +177,7 @@ export function isCooling(ammo: WeaponAmmo | null): boolean {
  * Pure: is a MACHINE GUN's PARTIAL-MAGAZINE swap running — shells left AND the
  * swap timer counting (epic-8 amendment 112, Eric 2026-09-29: "the gun square
  * shows the ordinary cooldown wipe for the running timer even though a new
- * hold fires at once")? Since cycle 157 the swap starts the tick the stream
+ * hold fires at once")? Since cycle 158 the swap starts the tick the stream
  * stops, so this is the gun's COMMON resting state, and a square that painted
  * nothing let a player cancel a 9.5 s swap unknowingly.
  *
@@ -267,7 +267,7 @@ export interface HotbarView {
    *  TIER numeral and the tooltip's interaction line. Absent = nothing fitted. */
   cards?: readonly string[];
   /** The own hull's class — the HP globe's SHIP tooltip names it (epic-8
-   *  amendment 179). Absent = no SHIP panel. */
+   *  amendment 186). Absent = no SHIP panel. */
   cls?: ShipClassId;
   /** Per-slot REMAINING ability-window ms (0 = no window running) — the ACTIVE
    *  state's whole input (amendment 48: boost's `boostUntil`, DAMAGE CUT's
@@ -531,7 +531,7 @@ function stackMarks(
 /**
  * Pure: a slot's Story 2.9 inputs — the running ability window and this
  * frame's fit pulse (the accrued count left with the tooltip's build list in
- * cycle 157, amendment 179). Both are OPTIONAL on the view (a caller from
+ * cycle 158, amendment 186). Both are OPTIONAL on the view (a caller from
  * before 2.9 gets exactly the old square back).
  *
  * The fit pulse is pure JUICE — the toast and the tier numeral carry the same
@@ -866,7 +866,7 @@ export function slotAtPoint(p: ScreenPoint, layout: HudBarLayout | null): number
 }
 
 /**
- * Pure: what the HOVER TOOLTIP is pointing at (epic-8 amendment 179) — a slot
+ * Pure: what the HOVER TOOLTIP is pointing at (epic-8 amendment 186) — a slot
  * (`slotAtPoint`, so the hover and the click gate share one hit-test) first,
  * else the HP GLOBE (`'ship'`) when the point is inside its circle, else
  * nothing. The helm globe stays silent. A null layout hits nothing.
@@ -962,7 +962,7 @@ const TIP_INTERACTION_STYLE = {
   wordWrap: true,
   wordWrapWidth: tooltipInnerWidth(),
 } as const;
-/** The stat table's LABEL column (cycle 157, amendment 178) — the card face's
+/** The stat table's LABEL column (cycle 158, amendment 185) — the card face's
  *  row-label register: secondary text, mono, one line per row (never wraps). */
 const TIP_LABEL_STYLE = {
   fontFamily: MONO,
@@ -1083,7 +1083,7 @@ export class Hotbar {
   private readonly tipGfx = new Graphics();
   private readonly tipName: Text;
   private readonly tipInteraction: Text;
-  /** The stat table's two mono columns (cycle 157): labels, then values. */
+  /** The stat table's two mono columns (cycle 158): labels, then values. */
   private readonly tipLabels: Text;
   private readonly tipValues: Text;
   private readonly lastText: string[] = [];

@@ -17,7 +17,7 @@ import { CONFIG } from '../constants.js';
 /**
  * One laid SMOKE SCREEN puff — the SERVER store record (`world.smoke`, ids
  * `sk${n}`). Stationary for its whole life: laid at the layer's CENTER (its own
- * position, amendment 183) at
+ * position, amendment 190) at
  * `bornAt`, deleted at `until` (= bornAt + CONFIG.smokeScreen.lifeMs). It
  * outlives its owner (everything on the water does). Never sent as-is: the
  * wire shape is `SmokeView` (types.ts) — no owner, no `until`, no radius.

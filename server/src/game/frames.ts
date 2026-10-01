@@ -49,7 +49,7 @@ function ownDraft(ship: ShipRecord): Pick<OwnShip, 'draft'> {
   return ship.draft > 0 ? { draft: ship.draft } : {};
 }
 
-/** The own-ship `chaff` key (Eric 2026-09-30, epic-8 amendment 184):
+/** The own-ship `chaff` key (Eric 2026-09-30, epic-8 amendment 191):
  *  `{ chaff: {x, y, until} }` — the owner's live CHAFF burst point and the
  *  cloud's expiry — while `now < until`, else an EMPTY object so the spread
  *  leaves the key absent. A re-fire REPLACES the World's source, so the key
@@ -204,7 +204,7 @@ function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined)
     // CONSTRUCTION on the boostUntil terms: it rides `you` and NOTHING else,
     // so the perception exception count stays at SIX.
     ...ownShield(ship, now),
-    // The CHAFF owner's cloud (amendment 184): present IFF this ship's own
+    // The CHAFF owner's cloud (amendment 191): present IFF this ship's own
     // chaff burst is live, OMITTED otherwise. SELF-PRIVATE BY CONSTRUCTION
     // (the shield / inSmoke precedent): it rides `you` and NOTHING else — no
     // other observer ever receives it — so the exception count stays at SIX.

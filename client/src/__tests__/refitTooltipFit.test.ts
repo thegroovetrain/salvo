@@ -1,10 +1,10 @@
 // THE CONTAINER-FIT PIN for the REFIT CARD'S HOVER TOOLTIP (Story 7-5 wave 2,
 // R2.17 — Eric ruling 2026-08-19), plus the rulings that shipped alongside it:
 // hover-ONLY (no keyboard path), colour-carries-ladder-position under
-// DESIGN.md's dual-coding floor, and (cycle 157, amendment 181) the KIND
+// DESIGN.md's dual-coding floor, and (cycle 158, amendment 188) the KIND
 // colours — dual-coded by the kind word.
 //
-// CYCLE 157 (amendment 180): the panel's body is the STAT TABLE of what the card
+// CYCLE 158 (amendment 187): the panel's body is the STAT TABLE of what the card
 // touches, valued after the card (`cardHoverRows`) — not prose. The walk below
 // is every line × every class × every copy count.
 //
@@ -130,7 +130,7 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     expect(refitTooltipMaxPanelH(band.y)).toBe(340);
   });
 
-  // CYCLE 157: a stat table is much shorter than the prose it replaced (the
+  // CYCLE 158: a stat table is much shorter than the prose it replaced (the
   // tallest is a seven-row weapon table, 170px), so at the floor EVERY panel
   // opens above the band. The flip rule still stands (the DOM pins below
   // exercise it on a shorter viewport); the split is still the water line.
@@ -335,7 +335,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   // `placeTip` ran only inside `showTip`, so a window that shrank while the
   // pointer sat on a card left the panel opening upward into water that was no
   // longer there. The per-frame `place()` now re-decides for the open tip.
-  // CYCLE 157: every stat panel fits above at the 1280x614 floor, so the shrink
+  // CYCLE 158: every stat panel fits above at the 1280x614 floor, so the shrink
   // here goes past it, to a viewport whose water the tallest panel outgrows.
   const SHORT = { w: 1280, h: 560 };
   it('re-decides an OPEN tip\'s placement when the viewport resizes under it', () => {
@@ -440,7 +440,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
     }
   });
 
-  // THE KIND (Eric ruling 2026-09-30, epic-8 amendment 181 — supersedes
+  // THE KIND (Eric ruling 2026-09-30, epic-8 amendment 188 — supersedes
   // amendment 8's neutral word): WEAPON phosphor · WEAPON UPGRADE info · SHIP
   // UPGRADE storm-readout · CONSUMABLE silver, on the word and the resting
   // edge. DUAL-CODED: strip the colour and the WORD still names the kind — every

@@ -167,10 +167,10 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 
 describe('the PV join gate refuses 63 and admits 64', () => {
   it('PROTOCOL_VERSION is 64', () => {
-    // Cycle 157 bumped 63 -> 64: catalog content — the machine-gun ladder
+    // Cycle 158 bumped 63 -> 64: catalog content — the machine-gun ladder
     // authors `rateMs` (0.35 -> 0.20 s) and the stats row drops
     // `idleReloadMs` (Eric 2026-09-30); the owner's self-private
-    // `OwnShip.chaff` cloud rides `you` (amendment 184).
+    // `OwnShip.chaff` cloud rides `you` (amendment 191).
     // Cycle 156 bumped 62 -> 63: the smoke puff radii moved 40/60 -> 82.5/165 u
     // (1/8 -> 2/8 of intel range, Eric 2026-09-30) and the client derives the
     // disc from the shared curve over its bundled CONFIG.smokeScreen.

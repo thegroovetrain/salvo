@@ -93,7 +93,7 @@ describe('the ruled names (amendments 107/108)', () => {
     expect(Object.keys(EQUIPMENT_NAME)).not.toContain('monitor');
   });
 
-  // CYCLE 157 (amendment 178): the Shifts' prose descriptions are DELETED; their
+  // CYCLE 158 (amendment 185): the Shifts' prose descriptions are DELETED; their
   // hover prints stat lines, every number off CONFIG / the fold.
   it('the two Shifts\' stat lines read their numbers off CONFIG, never a literal', () => {
     const lines = (id: 'instantReload' | 'damageCut') =>

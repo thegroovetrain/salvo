@@ -365,7 +365,7 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
       for (const dead of ['count', 'lineage', 'description', 'tooltip']) {
         expect(card, `${card.id}.${dead}`).not.toHaveProperty(dead);
       }
-      // CYCLE 157 (amendment 180): the hover is the AFTER-fold stat table.
+      // CYCLE 158 (amendment 187): the hover is the AFTER-fold stat table.
       expect(card.hover, card.id).toEqual(cardHoverRows(line, 0, ownShip()));
     }
     // Story 2.1 ("1-4 cards, no repair"): the view carries ONLY cards — the
@@ -602,7 +602,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   // The card face grew three CONDITIONAL lines. The digit chip stays the FIRST
   // span in every card (pinned above and re-pinned here against the new lines):
   // the whole 1-4 spatial mapping is read off it.
-  // THE KIND IS COLOR-CODED (Eric ruling 2026-09-30, epic-8 amendment 181 —
+  // THE KIND IS COLOR-CODED (Eric ruling 2026-09-30, epic-8 amendment 188 —
   // supersedes amendment 8's neutral word): the word and the resting edge carry
   // the kind's token; the armed state keeps its amber edge and glow.
   it('renders the kind WORD on EVERY card, in the kind\'s colour, with a kind-tinted resting edge', () => {

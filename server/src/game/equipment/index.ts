@@ -154,7 +154,7 @@ export interface ActivationContext {
    * SMOKE SCREEN's whole body (Story 8.18, catalog-v3 R38, amendments
    * 138–145): open the ACTIVATING ship's lay window — `smokeUntil = now +
    * CONFIG.smokeScreen.layMs`, `nextPuffAt = now` — so World.stepSmoke drops a
-   * puff at the hull's center (amendment 183) on the very next tick and every `puffIntervalMs` after,
+   * puff at the hull's center (amendment 190) on the very next tick and every `puffIntervalMs` after,
    * until the window closes (10 puffs per copy). A second call while laying
    * RESTARTS the clock (fresh 5 s from the re-press — ruling 140; the copy is
    * spent, the shield/chaff "replaces" posture). Puffs are WORLD-owned

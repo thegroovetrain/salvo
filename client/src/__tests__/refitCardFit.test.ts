@@ -408,7 +408,7 @@ describe('the laws that constrain the fix', () => {
   });
 
   // The seam check that R2.17's split still holds: what the face does not
-  // print is on the hover panel — since cycle 157 (amendment 180) the stat
+  // print is on the hover panel — since cycle 158 (amendment 187) the stat
   // table of what the card touches. Only the never-dealt stub has none.
   it('keeps the contract: every built line has hover rows', () => {
     const silent = LINES.filter((line) => cardHoverRows(line, 0, { cls: 'torpedoBoat', cards: [] }).length === 0).map(

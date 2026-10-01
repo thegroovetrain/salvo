@@ -270,7 +270,7 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 63→64 bump (PV 64, cycle 157: the machine-gun ladder authors rateMs, the stats row drops idleReloadMs, OwnShip.chaff is self-private) is enforced at matchmake', () => {
+describe('pv join gate — the 63→64 bump (PV 64, cycle 158: the machine-gun ladder authors rateMs, the stats row drops idleReloadMs, OwnShip.chaff is self-private) is enforced at matchmake', () => {
   it('rejects pv-63 and older protocols and a missing pv; accepts the current one', () => {
     expect(PROTOCOL_VERSION).toBe(64);
     expect(protocolVersionError(63)).toMatch(/refresh/);

@@ -3,7 +3,7 @@
 // sibling, and its mirror image: the card is a FIXED box holding growing text,
 // the tooltip is a GROWING panel inside a fixed viewport.
 //
-// CYCLE 157 (amendments 178/179) re-cut the panel to the hovered thing's LIVE
+// CYCLE 158 (amendments 185/186) re-cut the panel to the hovered thing's LIVE
 // stat table, one row per line, with no trim at all — so this walk is the whole
 // of the fit story. It walks
 //   • EVERY equipment id × EVERY class × {bare, its own lines maxed, the whole

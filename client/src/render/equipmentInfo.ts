@@ -3,7 +3,7 @@
 // player reads: display name, the interaction line ("WEAPON · Q · SWITCH-TO"),
 // and the numeric quick-info inputs.
 //
-// NO PROSE (Eric ruling 2026-09-30, epic-8 amendment 178): the per-equipment
+// NO PROSE (Eric ruling 2026-09-30, epic-8 amendment 185): the per-equipment
 // description sentences are DELETED — the slot tooltip prints the weapon's live
 // stat table one number per line (ui/boonCopy.ts `equipmentStatRows`), and the
 // weapon explanations will live in How-to-Play.
@@ -219,8 +219,8 @@ export function lineForEquipment(id: EquipmentId): string | null {
  * An EMPTY list means SHIPWIDE - the five universal ladders (ARMOR, SPEED,
  * TURNING, RADAR SWEEP, RELOAD) move the whole vessel and belong to no weapon.
  * Their fit flash is rank-wide rather than slot-local (amendment 51), and
- * since cycle 157 their numbers read on the HP globe's SHIP tooltip
- * (amendment 179).
+ * since cycle 158 their numbers read on the HP globe's SHIP tooltip
+ * (amendment 186).
  *
  * Built ONCE at module load off the frozen CATALOG - it is authored data, not
  * per-frame state.

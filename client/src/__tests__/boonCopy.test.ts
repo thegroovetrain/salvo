@@ -7,7 +7,7 @@
 //      mid-match, or an unlabelled meta row.
 //   2. THE MINIMAL FACE (R2.17) — a line that moves a NUMBER prints its live
 //      `current → next` sentence and nothing else; every other line prints
-//      nothing at all. Since cycle 157 (amendments 178-181) the hovers print
+//      nothing at all. Since cycle 158 (amendments 185-188) the hovers print
 //      STAT TABLES off the same row builder (no prose), and the refit card's
 //      kind word splits into five (`cardKind`).
 //   3. LIVE VALUES — the rules text is computed through a REAL effectiveStats
@@ -111,8 +111,8 @@ describe('coverage — every catalog line has a name and a kind word', () => {
 });
 
 // The one-sentence `boonDescription` reader (and its face/rules-text suites)
-// was DELETED in cycle 157's review gate: the face prints `cardStatRows`
-// (cardStatRows.test.ts) and the hover prints `cardHoverRows` (amendment 180).
+// was DELETED in cycle 158's review gate: the face prints `cardStatRows`
+// (cardStatRows.test.ts) and the hover prints `cardHoverRows` (amendment 187).
 describe('the card view renders a STUB fail-open (amendment 5)', () => {
   // THE STUB PIN (Eric ruling 2026-09-15, amendment 5): lines authored in full
   // shape with no mechanism behind them. They are excluded from every deck, so
@@ -132,7 +132,7 @@ describe('the card view renders a STUB fail-open (amendment 5)', () => {
     for (const line of stubs) {
       expect(boonName(line.id), line.id).toBe(boonName(line.id).toUpperCase());
       expect(boonKindLabel(line.kind), line.id).not.toBe('');
-      // ...and no hover rows, so no hover panel (amendment 180).
+      // ...and no hover rows, so no hover panel (amendment 187).
       expect(cardHoverRows(line, 0, TB), line.id).toEqual([]);
       // A STUB line prints no rows on the ratified face either — there is no
       // built module whose numbers could be read (Story 8.7, ruling 12).
@@ -141,7 +141,7 @@ describe('the card view renders a STUB fail-open (amendment 5)', () => {
   });
 });
 
-// --- THE STAT TABLES (cycle 157, Eric ruling 2026-09-30, amendments 178-180) ----
+// --- THE STAT TABLES (cycle 158, Eric ruling 2026-09-30, amendments 185-187) ----
 //
 // *"What I want to see when I hover over my weapon are the weapon's actual
 // stats/numbers. One per line."* The prose explanations are DELETED; the slot
@@ -255,7 +255,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
   });
 });
 
-// --- THE CARD KIND (cycle 157, Eric ruling 2026-09-30, amendment 181) -----------
+// --- THE CARD KIND (cycle 158, Eric ruling 2026-09-30, amendment 188) -----------
 describe('cardKind — what the card does for the player', () => {
   it('has exactly the five kind words, longest WEAPON UPGRADE', () => {
     expect([...KIND_WORDS].sort()).toEqual(['ADD-ON', 'CONSUMABLE', 'SHIP UPGRADE', 'WEAPON', 'WEAPON UPGRADE']);
@@ -477,7 +477,7 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
   });
 
   // A verb card's holding row was its own short table until STORY 8.17 emptied
-  // it (amendment 134), and cycle 157 deleted the empty table: PHOSPHOR SHELLS
+  // it (amendment 134), and cycle 158 deleted the empty table: PHOSPHOR SHELLS
   // holds its own RELOAD like every weapon line.
   it('a former add-on holds a NUMBER now — PHOSPHOR SHELLS reports its reload', () => {
     const phos = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['phosphorShells']);

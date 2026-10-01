@@ -2336,7 +2336,7 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * THE CHAFF OWNER'S RING (cycle 157, Eric 2026-09-30, epic-8 amendment 184) —
+   * THE CHAFF OWNER'S RING (cycle 158, Eric 2026-09-30, epic-8 amendment 191) —
    * render/chaffRing.ts. A dim phosphor DASHED circle of `CONFIG.chaff.radius`
    * around the owner's own burst point (self-private `you.chaff`), fading to
    * nothing at the cloud's expiry. Client-only feel: none of these is gameplay.

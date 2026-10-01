@@ -270,7 +270,7 @@ interface Game {
    *  FrameMsg.smoke into the same fog-immune `smoke` layer as the wounded
    *  plumes; grown along the shared `puffRadius` and faded per render frame. */
   smokeScreen: SmokeScreen;
-  /** THE CHAFF OWNER'S DASHED RING (render/chaffRing.ts, epic-8 amendment 184)
+  /** THE CHAFF OWNER'S DASHED RING (render/chaffRing.ts, epic-8 amendment 191)
    *  — read each frame off the self-private `net.you.chaff`, in the fog-immune
    *  lit-zone chart layer; never anyone else's cloud, never the fakes. */
   chaffRing: ChaffRing;
@@ -3501,7 +3501,7 @@ function hotbarView(g: Game, status: OwnStatus): HotbarView {
     loadout: status.loadout,
     ammo: status.ammo,
     stats: status.stats,
-    // The HP globe's SHIP tooltip names the hull (epic-8 amendment 179).
+    // The HP globe's SHIP tooltip names the hull (epic-8 amendment 186).
     cls: status.cls,
     primedSlot: status.primedSlot,
     denied: hotbarDenied(g, status),

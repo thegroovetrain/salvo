@@ -1,11 +1,11 @@
-// THE SLOT TOOLTIP's own suite (Story 8.7, ruling 13; re-cut in cycle 157).
+// THE SLOT TOOLTIP's own suite (Story 8.7, ruling 13; re-cut in cycle 158).
 //
 // `render/slotTooltip.ts` owns the hover dwell, the model, the container-fit
 // arithmetic and the placement; `render/hotbar.ts` keeps the squares and the
 // Pixi shell that paints both. Nothing about the panel's width, type or notch
 // moved (epic-8 amendment 42).
 //
-// CYCLE 157 (Eric rulings 2026-09-30, epic-8 amendments 178/179): the panel is
+// CYCLE 158 (Eric rulings 2026-09-30, epic-8 amendments 185/186): the panel is
 // the heading over the hovered thing's LIVE stat table, one `LABEL value` per
 // line — no prose, no accrued build list — and the HP globe opens a SHIP panel
 // with the five ship stats.
@@ -92,9 +92,9 @@ describe('the hover dwell — keyed on the TARGET (a slot or the HP globe)', () 
   });
 });
 
-// --- THE STAT LINES (amendment 178) ---------------------------------------------
+// --- THE STAT LINES (amendment 185) ---------------------------------------------
 
-describe('the slot tooltip prints the LIVE stat table, one number per line (amendment 178)', () => {
+describe('the slot tooltip prints the LIVE stat table, one number per line (amendment 185)', () => {
   it('has the heading and the stat rows — and no prose, no build list', () => {
     const m = tooltipModel(Q, 'heavyTorpedo', STATS)!;
     expect(Object.keys(m).sort()).toEqual(['interaction', 'name', 'stats']);
@@ -222,9 +222,9 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
   });
 });
 
-// --- THE SHIP PANEL ON THE HP GLOBE (amendment 179) ------------------------------
+// --- THE SHIP PANEL ON THE HP GLOBE (amendment 186) ------------------------------
 
-describe('the HP globe opens a SHIP panel with the five ship stats (amendment 179)', () => {
+describe('the HP globe opens a SHIP panel with the five ship stats (amendment 186)', () => {
   it('names the hull over SHIP and the five ladders\' live values', () => {
     const m = shipTooltipModel('torpedoBoat', STATS)!;
     expect(m.name).toBe('TORPEDO BOAT');

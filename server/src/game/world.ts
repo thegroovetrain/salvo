@@ -863,7 +863,7 @@ export interface ShipRecord {
    * `ActivationContext.setSmokeScreen` (`now + CONFIG.smokeScreen.layMs`; a
    * re-press RESTARTS it — ruling 140). While `smokeUntil > now` and the hull
    * is AFLOAT, stepSmoke drops a puff at the hull's CENTER every
-   * `puffIntervalMs` (Eric 2026-09-30, amendment 183 — was the stern).
+   * `puffIntervalMs` (Eric 2026-09-30, amendment 190 — was the stern).
    * RESET to 0 at addShip / sinkShip / founderSinking / respawn / redeploy
    * (ruling 144: laying stops at sink entry — the puffs already on the water
    * live out their own `until`). SERVER-PRIVATE, never on the wire; mirrored
@@ -1163,7 +1163,7 @@ export class World {
   /**
    * THE SMOKE SCREEN puffs (Story 8.18, catalog-v3 R38, amendments 138–145),
    * keyed by id (`sk${n}`), in LAY order. Each is a stationary disc laid at
-   * its owner's CENTER (amendment 183) by stepSmoke, born at `bornAt` with radius r0 and
+   * its owner's CENTER (amendment 190) by stepSmoke, born at `bornAt` with radius r0 and
    * growing to r1 over `expandMs` (the SHARED `puffRadius` curve — both sides
    * run it), deleted by stepSmoke once `now >= until` (bornAt + lifeMs). THE
    * OCCLUDER: signals.ts's `sightClear` tests every sight-tier segment against
@@ -6054,7 +6054,7 @@ export class World {
    * For every AFLOAT hull whose lay window is open (`smokeUntil > now`): while
    * a puff is owed (`now >= nextPuffAt` — a `while`, so a skipped tick still
    * lays every owed puff), drop one at the hull's CENTER — `pos` this tick
-   * (Eric 2026-09-30, amendment 183; it was the stern) — with `bornAt = now`, `until =
+   * (Eric 2026-09-30, amendment 190; it was the stern) — with `bornAt = now`, `until =
    * now + lifeMs`, and advance `nextPuffAt` by `puffIntervalMs`. Ten puffs per
    * copy at the shipped 5000 / 500 (ruling 138); the cadence grid
    * is re-anchored only from idle (setSmokeScreen); a mid-lay re-press keeps
@@ -6073,7 +6073,7 @@ export class World {
     const sc = CONFIG.smokeScreen;
     for (const ship of this.ships.values()) {
       if (ship.smokeUntil <= this.now || !isAfloat(ship.lifecycle)) continue;
-      const { x, y } = ship.state; // the hull's CENTER (amendment 183)
+      const { x, y } = ship.state; // the hull's CENTER (amendment 190)
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
       while (this.now >= ship.nextPuffAt) {
         this.smokeSeq += 1;

@@ -564,7 +564,7 @@ export interface OwnShip {
    */
   shield?: { hp: number; until: number };
   /**
-   * THE CHAFF OWNER'S CLOUD (Eric 2026-09-30, epic-8 amendment 184): the
+   * THE CHAFF OWNER'S CLOUD (Eric 2026-09-30, epic-8 amendment 191): the
    * burst point (`x`, `y`, u) of THIS hull's live CHAFF and the server-clock
    * time it expires (`until`) — what the client's dim dashed ring of
    * `CONFIG.chaff.radius` is drawn around. Present IFF the owner's chaff

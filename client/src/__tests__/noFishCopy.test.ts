@@ -1,4 +1,4 @@
-// NO "FISH" ON ANY IN-GAME SURFACE (Eric 2026-09-30, epic-8 amendment 178):
+// NO "FISH" ON ANY IN-GAME SURFACE (Eric 2026-09-30, epic-8 amendment 185):
 // *"I hate that you call torpedoes fish."* A structural scan of every string
 // literal in the client's non-test sources (comments are not surfaces and are
 // skipped by construction — the TypeScript scanner tells the two apart).
@@ -39,7 +39,7 @@ function literals(path: string): string[] {
   return out;
 }
 
-describe('no player-facing "fish" (amendment 178)', () => {
+describe('no player-facing "fish" (amendment 185)', () => {
   it('scans a real source tree', () => {
     expect(sources(SRC).length).toBeGreaterThan(50);
   });

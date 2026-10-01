@@ -277,7 +277,7 @@ describe('buildFrame — the self-private wake-draft lift (Story 8.19)', () => {
   });
 });
 
-describe('buildFrame — the self-private chaff cloud (amendment 184)', () => {
+describe('buildFrame — the self-private chaff cloud (amendment 191)', () => {
   it('carries `you.chaff` {x, y, until} while the owner\'s source is live, omits it after expiry, and never on another hull\'s frame', () => {
     const w = makeWorld();
     const a = w.ships.get('a')!;

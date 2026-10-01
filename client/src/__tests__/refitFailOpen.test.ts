@@ -20,7 +20,7 @@ import { makeOffer } from '../ui/results.js';
 const KNOWN = { cls: 'torpedoBoat', cards: [] as string[] };
 const UNKNOWN = { cls: 'notAHull', cards: [] as string[] };
 
-// CYCLE 157's review gate DELETED the one-sentence `boonDescription` reader;
+// CYCLE 158's review gate DELETED the one-sentence `boonDescription` reader;
 // the same fail-open rule now guards the two row builders that replaced it —
 // the face's `cardStatRows` and the hover's `cardHoverRows`.
 describe('the refit card rows — an unresolvable hull renders nothing, never throws', () => {
@@ -32,7 +32,7 @@ describe('the refit card rows — an unresolvable hull renders nothing, never th
     }
   });
 
-  // CYCLE 157 (amendment 180): the hover panel is the card's AFTER-fold stat
+  // CYCLE 158 (amendment 187): the hover panel is the card's AFTER-fold stat
   // table now, so it goes through the same class lookup — and must fail open
   // the same way: no rows (no panel) on an unresolvable hull, never a throw,
   // while a consumable's CONFIG rows need no hull at all.

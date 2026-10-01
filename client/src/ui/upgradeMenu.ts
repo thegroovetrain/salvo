@@ -116,7 +116,7 @@ const SILVER = 'var(--hc-silver)';
 const META = 'var(--hc-text-secondary)';
 
 /**
- * THE KIND COLORS (Eric ruling 2026-09-30, epic-8 amendment 181 — supersedes
+ * THE KIND COLORS (Eric ruling 2026-09-30, epic-8 amendment 188 — supersedes
  * amendment 8's neutral kind word). The refit card is color-coded by what it
  * does for the player: WEAPON phosphor · WEAPON UPGRADE info · SHIP UPGRADE
  * storm-readout · CONSUMABLE silver (ADD-ON, the unused kind, keeps the
@@ -137,7 +137,7 @@ export const KIND_COLORS: Readonly<Record<CardKind, string>> = {
 };
 
 /** The resting edge's alpha on the kind token (an orchestrator reading of
- *  amendment 181's "reduced alpha"). */
+ *  amendment 188's "reduced alpha"). */
 export const KIND_EDGE_ALPHA = 0.55;
 
 const KC = CLIENT_CONFIG.colors;
@@ -408,7 +408,7 @@ export interface OfferCard {
   /** The KIND word (WEAPON / WEAPON UPGRADE / SHIP UPGRADE / CONSUMABLE /
    *  ADD-ON) — the mock's `.ck`, and the non-color channel of the kind. */
   kind: string;
-  /** The kind itself (amendment 181) — what colors the word and the edge. */
+  /** The kind itself (amendment 188) — what colors the word and the edge. */
   kindTone: CardKind;
   /** The line's name, uppercase (the face's one display-face mark). */
   name: string;
@@ -422,7 +422,7 @@ export interface OfferCard {
   /** Up to five live stat rows (ruling 12). Fewer is normal; an add-on has
    *  none at all and its five rows render blank. */
   rows: readonly CardStatRow[];
-  /** The HOVER-ONLY stat list (R2.17; amendment 180) — the full table of what
+  /** The HOVER-ONLY stat list (R2.17; amendment 187) — the full table of what
    *  the card touches, valued after the card. Never rendered on the face; an
    *  empty list means no hover panel. */
   hover: readonly CardStatRow[];
@@ -1022,7 +1022,7 @@ const TIP_INTERACTION_CSS = [
   'overflow-wrap:anywhere',
 ].join(';');
 
-/** The stat block (amendment 180): ONE flex child of the panel, so the panel's
+/** The stat block (amendment 187): ONE flex child of the panel, so the panel's
  *  `rowGap` falls once before it, and its rows stack with no gap of their own
  *  — exactly what refitTooltipMetrics models. */
 const TIP_ROWS_CSS = ['display:flex', 'flex-direction:column', 'align-self:stretch'].join(';');
@@ -1263,7 +1263,7 @@ const FOOT_CSS = [
 /**
  * The armed (hover/focus) treatment — mock `.rc.armed`: amber edge + glow, amber
  * key chip on the void bed, amber name and amber icon box. The KIND word (in its
- * kind color — amendment 181), the rows and the ladder stay put through the
+ * kind color — amendment 188), the rows and the ladder stay put through the
  * arm: they are facts about the card, not states of the pointer. At REST the
  * edge is the kind token at reduced alpha.
  */
@@ -1432,7 +1432,7 @@ interface RefitCardEls {
   icon: HTMLDivElement;
   kind: HTMLSpanElement;
   name: HTMLSpanElement;
-  /** The card's kind — its word color and resting edge (amendment 181). */
+  /** The card's kind — its word color and resting edge (amendment 188). */
   tone: CardKind;
   /** Carried so the arm/rest repaint can restore a GREYED chip's own colours
    *  rather than the resting ones (the refusal outlives a hover). */
@@ -1446,7 +1446,7 @@ interface RefitTipEls {
   /** The CONSUMABLE shape line (Story 8.7, ruling 13) — hidden on every other
    *  kind, so it spends no vertical rhythm where there is nothing to say. */
   interaction: HTMLSpanElement;
-  /** The stat block (amendment 180) — one row line per stat, re-filled per hover. */
+  /** The stat block (amendment 187) — one row line per stat, re-filled per hover. */
   rows: HTMLDivElement;
 }
 
@@ -1647,7 +1647,7 @@ export class UpgradeMenu {
 
   /**
    * The hover tooltip's panel (R2.17), built ONCE with the band: heading row
-   * over the stat rows (amendment 180). It takes no pointer events and registers no
+   * over the stat rows (amendment 187). It takes no pointer events and registers no
    * listeners of its own — every appearance is driven by a card's mouseenter.
    */
   private makeTip(): RefitTipEls {

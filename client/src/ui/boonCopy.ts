@@ -6,7 +6,7 @@
 // STORY 8.1 — CATALOG V3. Every name below is verbatim from Eric's authored
 // sheet (`catalog-v3.md` §1); the nine CATEGORY labels and the three RARITY
 // tiers are DELETED with the axes behind them and replaced by ONE meta word,
-// the line's KIND. Cycle 157 (Eric ruling 2026-09-30, epic-8 amendment 181)
+// the line's KIND. Cycle 158 (Eric ruling 2026-09-30, epic-8 amendment 188)
 // split that word by what the card DOES for the player — WEAPON / WEAPON
 // UPGRADE / SHIP UPGRADE / CONSUMABLE (ADD-ON for the unused kind) — and the
 // refit card colors it by kind (`cardKind` below); `boonKindLabel` keeps the
@@ -32,7 +32,7 @@
 // tooltip explaining the card, so that there are no questions like 'what the
 // fuck does a captive mine do?'"*
 //
-// CYCLE 157 (Eric ruling 2026-09-30, epic-8 amendments 178-180) REPLACED THE
+// CYCLE 158 (Eric ruling 2026-09-30, epic-8 amendments 185-187) REPLACED THE
 // EXPLANATION WITH NUMBERS: *"What I want to see when I hover over my weapon
 // are the weapon's actual stats/numbers. One per line."* The prose table and
 // its reader are DELETED — weapon descriptions belong to How-to-Play — and ONE
@@ -46,7 +46,7 @@
 //
 // `boonEffectLine` (the results build list's live value) stays as it was;
 // the old `boonDescription` one-sentence reader is DELETED (the hover is
-// `cardHoverRows`, amendment 180).
+// `cardHoverRows`, amendment 187).
 //
 // FAIL-OPEN, not fail-closed: an id with no copy renders a readable
 // de-camelCased fallback rather than an empty card, and a stack position past
@@ -147,9 +147,9 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
 
 /**
  * THE CATALOG-KIND WORD (Eric ruling 2026-09-15, amendment 8) — one word per
- * catalog v3 kind, the sheet's own column words. Since cycle 157 it is read by
+ * catalog v3 kind, the sheet's own column words. Since cycle 158 it is read by
  * the RESULTS screen's build list alone (`boonKindLabel`); the refit card prints
- * the finer `cardKindLabel` below (amendment 181).
+ * the finer `cardKindLabel` below (amendment 188).
  */
 const KIND_LABELS: Readonly<Record<LineKind, string>> = {
   equipment: 'WEAPON',
@@ -178,7 +178,7 @@ export function boonKindLabel(kind: string): string {
 }
 
 /**
- * THE REFIT CARD'S KIND (Eric ruling 2026-09-30, epic-8 amendment 181) — what
+ * THE REFIT CARD'S KIND (Eric ruling 2026-09-30, epic-8 amendment 188) — what
  * the card does for the player, which is a function of the line AND the copies
  * held: copy 1 of an equipment line FITS a weapon; every later copy, and every
  * gun ladder, upgrades a weapon; the five shipwide ladders upgrade the hull.
@@ -398,8 +398,8 @@ export interface BoonPreviewShip {
 /**
  * Pure: the ACCRUED-CARD effect line (Story 2.9) — the one-line "what this line
  * is doing for you RIGHT NOW" under a `◆ NAME` row of the results screen's
- * build list (the hotbar tooltip's accrued list was dropped in cycle 157,
- * amendment 179).
+ * build list (the hotbar tooltip's accrued list was dropped in cycle 158,
+ * amendment 186).
  *
  * Deliberately NOT the refit card's sentence: a card sells a change and prints
  * `current → next`; a tooltip row reports a HOLDING and prints the value the
@@ -527,7 +527,7 @@ export const COPY_LINE_IDS: readonly string[] = LINE_IDS;
 //
 // The ratified card face (mock `.rc .rows`) is a fixed grid of five 17px rows,
 // each a LABEL and a VALUE. It is the only number on the FACE (the hover
-// panel prints `cardHoverRows`, amendment 180) and the only place a number
+// panel prints `cardHoverRows`, amendment 187) and the only place a number
 // reaches the card, which is what keeps the card and
 // the firewall in step: every value below comes out of `effectiveStats`.
 //
@@ -596,11 +596,11 @@ const FIELD_WORDS: Readonly<Record<string, string>> = {
   dps: 'BURN',
   zoneRadius: 'RADIUS',
   zoneDurationMs: 'LASTS',
-  // THE MACHINE GUN'S SHOT DELAY (Eric 2026-09-30, amendment 182): a stat
+  // THE MACHINE GUN'S SHOT DELAY (Eric 2026-09-30, amendment 189): a stat
   // field and a tier step now. `RATE` is the humanizer's own word, spelled out.
   rateMs: 'RATE',
   // The derived max travel (`rangeU`, re-pinned to the radar range post-fold),
-  // printed LAST on the stat tables that carry it (amendment 178). The
+  // printed LAST on the stat tables that carry it (amendment 185). The
   // humanizer would say `RANGE U`; the unit rides `FIELD_UNITS`.
   rangeU: 'RANGE',
 };
@@ -1047,7 +1047,7 @@ function gunLadderOrLadderRows(
   return [diffRow(stat.path, before, after), ...ladderRows(line, copiesHeld, before, after, true)];
 }
 
-// --- THE STAT TABLES (cycle 157, Eric ruling 2026-09-30, amendments 178-180) ----
+// --- THE STAT TABLES (cycle 158, Eric ruling 2026-09-30, amendments 185-187) ----
 //
 // *"What I want to see when I hover over my weapon are the weapon's actual
 // stats/numbers. One per line."* The HUD bar's slot tooltip, the HP globe's
@@ -1125,7 +1125,7 @@ export function shipStatRows(stats: EffectiveStats): CardStatRow[] {
 }
 
 /**
- * Pure: the refit card's HOVER rows (amendment 180) — the full table of what
+ * Pure: the refit card's HOVER rows (amendment 187) — the full table of what
  * the card touches, valued on the AFTER fold (the face's tense): a weapon line
  * its weapon's table, a gun ladder its gun's, a ship ladder the five ship
  * stats, a consumable its `CONSUMABLE_ROWS`; a stub or an add-on none (no

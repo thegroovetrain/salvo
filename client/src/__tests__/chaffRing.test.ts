@@ -1,4 +1,4 @@
-// THE CHAFF OWNER'S RING (cycle 157, Eric 2026-09-30, epic-8 amendment 184) —
+// THE CHAFF OWNER'S RING (cycle 158, Eric 2026-09-30, epic-8 amendment 191) —
 // render/chaffRing.ts. *"I don't want to see the false radar information the
 // chaff is creating, but i do want *SOME* indication that chaff has been used in
 // an area."* One dim phosphor DASHED circle of `CONFIG.chaff.radius` around the

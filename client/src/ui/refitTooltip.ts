@@ -4,7 +4,7 @@
 //   *"hovering one with the mouse should give a tooltip explaining the card, so
 //   that there are no questions like 'what the fuck does a captive mine do?'"*
 //
-// CYCLE 157 (Eric ruling 2026-09-30, epic-8 amendment 180) — THE SAME STAT
+// CYCLE 158 (Eric ruling 2026-09-30, epic-8 amendment 187) — THE SAME STAT
 // LIST: the prose explanation is DELETED, and the panel prints the full stat
 // table of what the card touches, valued AFTER the card (ui/boonCopy.ts
 // `cardHoverRows` — the one builder the slot tooltip shares), one `LABEL value`
@@ -54,7 +54,7 @@ const R = CLIENT_CONFIG.refit;
  * straight into its CSS strings and this module measures with them, so the model
  * and the render cannot drift (the REFIT_TYPE pattern, verbatim).
  *
- * The width is 300 (amendment 180 keeps it). Everything else about the surface
+ * The width is 300 (amendment 187 keeps it). Everything else about the surface
  * — the bed color, the silver hairline, the square corners — is the slot
  * tooltip's ratified spec.
  */
@@ -107,7 +107,7 @@ export function refitTooltipMaxPanelH(bandTopY: number): number {
 
 /**
  * What the panel renders: the hovered card's name over the stat table of what
- * the card touches, one row per line (amendment 180).
+ * the card touches, one row per line (amendment 187).
  *
  * A CONSUMABLE card also carries the same INTERACTION LINE the belt's slot
  * tooltip does, above the rows (Story 8.7, ruling 13): the activation shape

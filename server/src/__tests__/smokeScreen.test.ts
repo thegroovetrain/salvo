@@ -4,7 +4,7 @@
 // matrix as a directed case:
 //
 //   • the LAY: one copy opens a 5 s window; a puff drops at the hull's CENTER
-//     (Eric 2026-09-30, amendment 183 — it was the stern) every 500 ms — ten
+//     (Eric 2026-09-30, amendment 190 — it was the stern) every 500 ms — ten
 //     per copy, an eleventh never (rulings 138 / setSmokeScreen);
 //   • GROWTH: r82.5 at birth → r123.75 at 15 s → deleted at 30 s (ruling 139), read
 //     through the sim clock — a puff that MISSES a segment fresh BLOCKS it once
@@ -155,7 +155,7 @@ describe('SMOKE SCREEN — the lay (rulings 138 / 140 / 144)', () => {
     // grid (t0 + 500, + 1000, …, + 4500) — ten in the 5 s window.
     expect(puffs.map((p) => p.bornAt)).toEqual([t0 + DT, ...Array.from({ length: 9 }, (_, i) => t0 + (i + 1) * SC.puffIntervalMs)]);
     for (const p of puffs) {
-      // The hull's own position (amendment 183), never a stern offset.
+      // The hull's own position (amendment 190), never a stern offset.
       expect(p).toEqual({ id: p.id, ownerId: 'a', x: 0, y: 0, bornAt: p.bornAt, until: p.bornAt + SC.lifeMs });
       expect(p.id).toMatch(/^sk\d+$/);
     }
@@ -163,7 +163,7 @@ describe('SMOKE SCREEN — the lay (rulings 138 / 140 / 144)', () => {
     expect(a.smokeUntil).toBe(t0 + SC.layMs); // the window is a stamp, not a countdown: it simply lapses
   });
 
-  it('the puff lands on the hull\'s own position whatever the heading (amendment 183: the center, not the stern)', () => {
+  it('the puff lands on the hull\'s own position whatever the heading (amendment 190: the center, not the stern)', () => {
     for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 3]) {
       const w = bareWorld();
       const a = place(w, 'a', 100, 100, heading);

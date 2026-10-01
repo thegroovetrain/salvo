@@ -6,7 +6,7 @@
 // SQUARES and this file is the PANEL; epic-8 amendment 42 froze its WIDTH, type
 // and notch exactly where they shipped.
 //
-// CYCLE 157 (Eric rulings 2026-09-30, epic-8 amendments 178/179) RE-CUT THE
+// CYCLE 158 (Eric rulings 2026-09-30, epic-8 amendments 185/186) RE-CUT THE
 // CONTENT TO NUMBERS: *"What I want to see when I hover over my weapon are the
 // weapon's actual stats/numbers. One per line."* The prose description and the
 // accrued-card build list (with its `— SHIP —` divider and `+n MORE` trim) are
@@ -14,7 +14,7 @@
 // line — over the hovered thing's LIVE stat table, one `LABEL value` per line,
 // in the refit card's own row vocabulary (ui/boonCopy.ts is the one builder).
 // Hovering the HP GLOBE opens the same panel for the hull itself: the class
-// name over `SHIP` and the five ship stats (amendment 179). The helm globe
+// name over `SHIP` and the five ship stats (amendment 186). The helm globe
 // stays silent.
 //
 // The Pixi shell that paints this model still lives in `hotbar.ts`: it draws
@@ -41,7 +41,7 @@ const H = CLIENT_CONFIG.hotbar;
 // --- pure core: hover + tooltip -------------------------------------------------
 
 /** What the pointer is resting on: a slot index, the HP globe (`'ship'` —
- *  amendment 179), or nothing. */
+ *  amendment 186), or nothing. */
 export type HoverTarget = number | 'ship' | null;
 
 /** Hover dwell state (which target, since when). */
@@ -131,11 +131,11 @@ export function slotHeading(id: EquipmentId, stats: EffectiveStats): string {
   return (line === null ? equipmentInfo(stats, id).name : boonName(line)).toUpperCase();
 }
 
-/** The SHIP panel's interaction word (amendment 179). */
+/** The SHIP panel's interaction word (amendment 186). */
 export const SHIP_INTERACTION = 'SHIP';
 
 /**
- * Pure: the HP globe's SHIP panel (amendment 179) — the class display name over
+ * Pure: the HP globe's SHIP panel (amendment 186) — the class display name over
  * `SHIP` and the five ship stats at live values. Null for a hull this build
  * cannot name (fail-closed: no panel rather than a nameless one).
  */

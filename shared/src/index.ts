@@ -4,11 +4,11 @@
 
 /** Bumped on any breaking change to the client/server wire protocol.
  *  64 — catalog content: the machine-gun ladder authors rateMs (−40/−40/
- *  −40/−30 ms, 0.35 → 0.20 s); the stats row drops idleReloadMs — cycle 157.
+ *  −40/−30 ms, 0.35 → 0.20 s); the stats row drops idleReloadMs — cycle 158.
  *  CONFIG.machineGun.rateMs 500 → 350 and reloadMs 15000 → 10000 (Eric
  *  2026-09-30); the swap starts the tick the stream stops (server-only).
  *  Self-private OwnShip.chaff?: {x, y, until} (the owner's live chaff
- *  cloud, amendment 184 — rides `you` only).
+ *  cloud, amendment 191 — rides `you` only).
  *  Perception exception count stays SIX.
  *  63 — smoke puff radii 40/60 → 82.5/165 u (the client derives the disc
  *  from the shared curve) — cycle 156. CONFIG.smokeScreen.r0/r1 become 1/8

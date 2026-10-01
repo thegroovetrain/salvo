@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.18.22] - 2026-09-30
+## [0.18.23] - 2026-09-30
 
 ### Changed
 - **Tooltips show numbers, not prose** — hovering a weapon, Shift or belt square on the HUD bar now lists that slot's live stats one per line (`RELOAD 28.5 s`, `ROUNDS 1`, `SPEED 67.5`, `DAMAGE 55`, `HOMING 0.125 rad/s`, `RANGE 660 u` …) under its name and the key line; the prose descriptions and the accrued-build list are gone, and nothing in the game calls a torpedo a "fish" any more. Weapon descriptions will live in How-to-Play (Story 8-22). The hover heading is the card's line name (HEAVY TORPEDO, NAVAL MINES, CANNON).
@@ -15,7 +15,7 @@
 - `CONFIG.machineGun`: `rateMs` 500 → 350, `reloadMs` 15000 → 10000, `idleReloadMs` deleted; the MACHINE GUN ladder authors `rateMs` steps −40/−40/−40/−30 ms (`ladderSteps`, four explicit tiers); `rateMs` joins `EQUIPMENT_STAT_FIELDS.machineGun` with a plumbing floor in `clampStats`; the stream carries its cadence remainder across ticks (`nextDue`), re-anchoring on a fresh stream or a stalled tick; a refused (frozen) hull is told its stream stopped so the swap still starts.
 - Self-private `OwnShip.chaff { x, y, until }` on the owner's own frame (the `shield` precedent; the SIX-exception count is untouched). PROTOCOL_VERSION 63 -> 64.
 - Client: `render/slotTooltip.ts` is a stat-row model (no boon-row trim, no measured-height reconciliation; `HoverState.target` is `number | 'ship' | null`); `ui/boonCopy.ts` gains `equipmentStatRows` / `consumableStatRows` / `shipStatRows` / `cardHoverRows` / `cardKind`; `EQUIPMENT_DESCRIPTION`, `BOON_EXPLAIN`, `boonTooltipText`, `boonDescription` deleted; new `render/chaffRing.ts`, `ui/classNames.ts`; a structural test forbids "fish" in any client string literal.
-- Review gate (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol): see epic-8 amendment 189.
+- Review gate (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol): see epic-8 amendment 196.
 - Tests: shared 1020, server 2273, client 3732; hook test 266; lint 0 errors.
 
 ## [0.18.21] - 2026-09-30
