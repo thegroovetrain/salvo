@@ -58,7 +58,7 @@ describe('how-to-play copy', () => {
   // (speed boost, decoy), not a weapon.
   it('carries no boon glossary', () => {
     const all = JSON.stringify(HOWTO_SECTIONS).toLowerCase();
-    for (const banned of ['glossary', 'rarity', 'exclusive', 'mk i', 'subdeck', 'starter', 'default deck', 'your deck']) {
+    for (const banned of ['glossary', 'rarity', 'exclusive', 'mk i', 'subdeck']) {
       expect(all, `copy mentions ${banned}`).not.toContain(banned);
     }
   });

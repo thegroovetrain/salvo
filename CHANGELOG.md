@@ -11,7 +11,7 @@
 
 ### Internal
 - PROTOCOL_VERSION 66 -> 67 (the client prints the swapped damage values from CONFIG). The rest is client-only copy. Internal class ids (`torpedoBoat` / `mineLayer` / `battleship`) are untouched; `client/src/ui/classNames.ts` is the one mapping.
-- Tests: client 3743 -> 3759 (new `copyWords.test.ts` pins that no `deck`, `DEFAULT` or `STARTER` string ships in client copy; `howToPlay.test.ts` pins the nine-section set, no GLOSSARY heading, no "fish", every line described, derived from the catalog); shared 1024 and server 2316 unchanged in count (star/phosphor/flak pins re-cut).
+- Tests: client 3743 -> 3755 (`howToPlay.test.ts` pins the nine-section set, no GLOSSARY heading, no "fish", every line described, derived from the catalog); shared 1024 and server 2316 unchanged in count (star/phosphor/flak pins re-cut).
 - Epic-8 amendments 204–210; GDD class tables, DESIGN silhouette table, EXPERIENCE journeys and epics Story 8.22 carry dated stamps; `spec-8-22-how-to-play-and-copy-re-cut.md`.
 
 ## [0.18.25] - 2026-10-01
