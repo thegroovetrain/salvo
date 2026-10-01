@@ -2,8 +2,9 @@
 title: 'Story 8.21: Results LOADOUT and the Match Record'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'ae9f92f'
+final_revision: 'f256f89'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -97,8 +98,8 @@ warnings: [oversized, multiple-goals]
 **Execution:**
 - [x] `server/src/game/world.ts`, `server/src/game/match.ts`, `server/src/game/matchRecord.ts`, `server/src/game/accountWriter.ts`, `server/src/rooms/ArenaRoom.ts`, `server/src/app.config.ts`, server tests -- the hand log, the participant snapshot, the builder, the port + NullWriter, the one call site, pins (a)–(d) -- the record half (Opus; wire-privacy pins reviewed on Fable).
 - [x] `client/src/ui/tierRamp.ts`, `client/src/ui/loadoutBlock.ts`, `client/src/ui/results.ts`, `client/src/main.ts`, client tests -- the LOADOUT block, the block deletions, pins (e) -- the modal half (Opus), in parallel with the server half (disjoint files; `shared/` frozen).
-- [ ] Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex `gpt-5.6-sol` on the diff; triage; fixes routed by weight.
-- [ ] Docs wave (Sonnet): version, changelog, trackers, amendments 178–182 in both homes, ledger entries, DESIGN/EXPERIENCE stamps; `npm run check` green; commit, push, ONE PR to `development`.
+- [x] Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex `gpt-5.6-sol` on the diff; triage; fixes routed by weight.
+- [x] Docs wave (Sonnet): version, changelog, trackers, amendments 178–182 in both homes, ledger entries, DESIGN/EXPERIENCE stamps; `npm run check` green; commit, push, ONE PR to `development`.
 
 **Acceptance Criteria:**
 - Given own dies or the match ends, when the results modal opens, then one `LOADOUT` block shows the nine slots as they ended (glyph, ramp numeral, `×n` badge, empty dash) and the five-ladder line with R2's dash, and no BOONS ACCRUED / LAST OFFER string exists in the client.
@@ -124,6 +125,22 @@ warnings: [oversized, multiple-goals]
   - `[low]` `[patch]` ERIC RULING AT THE GATE (Edge Case Hunter's finding 2, put to Eric by AskUserQuestion; he chose the NON-recommended option and then wrote *"If the game starts, i want the player's choices tracked."*): a captain dealt the opening hand who leaves DURING THE COUNTDOWN is now recorded too — `Match.countdownLeavers` snapshots them before the hull goes (`keepCountdownLeaver`, kept out of `onPlayerLeave` for the complexity cap), `buildMatchRecord` appends them LAST with `placement: 0` and their (zero) kills; pinned by "a COUNTDOWN leaver is recorded with placement 0 and its opening-hand choice". Recorded as epic-8 amendment 181.
   - Deferred (ledger): `account.write.failed` logs the writer's error text verbatim — harmless with the NullWriter, but an Epic 9 ORM/HTTP error may embed the payload (names) and breach the telemetry PII rule; the real writer must scrub.
   - Rejected: the block cannot wrap on a narrow viewport (desktop-only; the panel already scrolls under the viewport cap); the 9 px floor pin reads declaration text, not a computed size (no scaling rule exists in the block — a truthful, if weak, pin); `Participant.cards` is cast from `string[]` (ids are gated upstream by `applyCard`); the HULL REPAIR plus glyph also changes the LIVE bar's belt square (it is the ratified mock's art and the one glyph source — recorded for Eric's eye on staging, amendment 183); the spec's `buildMatchRecord(world, match, meta)` signature vs the built `(match, meta)` (inside the read-only intent contract; recorded as a measured correction in amendment 183, not re-derived).
+
+## Auto Run Result
+
+**Status:** done — cycle 157, 0.18.22, `PROTOCOL_VERSION` 63 unchanged; branch `worktree-dev-auto-8-21-results-loadout`, ONE PR to `development`, NOT merged (Eric merges).
+
+**Summary.** The results modal's BOONS ACCRUED / LAST OFFER blocks are retired for one `LOADOUT` block — a DOM twin of the hud-bar's slot row at .72 (glyph, ramp numeral, `×n` badge, empty dash; text at the 9 px floor) plus the five-ladder line with `—` for an untaken RADAR SWEEP / RELOAD. The server keeps a per-ship, server-private hand log (offered ids, taken id, REDRAW, raw stamps), snapshots it into the match's participants at leave, at reap and at finish (countdown leavers kept, placement 0), and at the results hook builds a server-only `MatchRecord` handed to the `AccountWriter` port (`NullWriter`) fire-and-forget under the `match.end` latch; aborts write nothing; `MatchRecord` is never `ResultsMsg` (pinned). HULL REPAIR gained the ratified mock's plus glyph (live bar and results).
+
+**Eric rulings this run (epic-8 amendments 178–182):** full per-draw record (absorbs the 2026-09-22 side story); `RADAR SWEEP —` at zero copies; leavers yes / aborts no; countdown leavers recorded with placement 0 (*"If the game starts, i want the player's choices tracked."*); a used-up stack is the empty square. Orchestrator readings: 183; review-gate record: 184.
+
+**Files changed.** Client: `ui/results.ts` (blocks deleted, `ResultsOwn` re-cut, block appended), NEW `ui/loadoutBlock.ts`, NEW `ui/tierRamp.ts` (`LINEAGE_TIERS` moved; `upgradeMenu.ts` re-exports), `main.ts` (`ownResultsIdentity`), `render/equipmentIcons.ts` (`hullRepair` plus), `render/equipmentInfo.ts` (`beltBadgeText` moved in), `render/hotbar.ts` (imports + re-exports it); tests `results.test.ts`, `hotbar.test.ts`, `refitFailOpen.test.ts`. Server: `game/world.ts` (`ShipRecord.hands`, three write sites), `game/match.ts` (`Participant` build fields, `participantOf`, `placementOf`, `participantRecords`, `countdownLeavers` + `keepCountdownLeaver`, reap re-snapshot), NEW `game/matchRecord.ts`, NEW `game/accountWriter.ts`, `rooms/ArenaRoom.ts` (`handOverRecord` under the latch), `app.config.ts` (boot wiring); tests NEW `matchRecord.test.ts` (17), `perception.test.ts` (forbidden keys +4). Docs: `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, both trackers, `epic-8-context.md`, `epic-8-context-amendments.md` (178–184), `deferred-work.md` (5 closures, 5 new), `DESIGN.md` + `EXPERIENCE.md` BUILT stamps.
+
+**Review.** One pass: Blind Hunter + Edge Case Hunter (Fable) + Codex `gpt-5.6-sol`, all build-on-it. Patched 5 (1 medium: the scuttle-window re-snapshot, flagged by BOTH hunters; 4 low incl. the countdown-leaver ruling Eric took); deferred 1 (writer error text and the PII rule, Epic 9); rejected 5. Codex alone: nothing (every seeded invariant traced clean). `followup_review_recommended: false` — the gate's changes are small, localized and each pinned.
+
+**Verification.** `npm test -w server` 82 files / 2280 tests green; `npm test -w client` 115 files / 3753 green; `tsc --noEmit` server + client clean; `npm run lint` 0 errors (3 pre-existing `max-lines-per-function` warnings); `grep "BOONS ACCRUED\|LAST OFFER\|offerHeading\|makeOffer\|makeBoons" client/src` → nothing; `npm run check` → see the final commit (exit 0).
+
+**Residual risks.** The LOADOUT block's square skins, numeral placement and the HULL REPAIR plus are drafts to the mock for Eric's eye on staging (amendment 183, ledger). `flush()` has no caller until Epic 9 adds a shutdown hook. The record's `mode` is the door value, not `arena`. Countdown leavers' `T+` stamps are relative to the final activation if a countdown was cancelled and re-armed.
 
 ## Design Notes
 
