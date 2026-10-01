@@ -1463,8 +1463,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
         gameVersion: getGameVersion(),
         endedAtEpochMs: Date.now(),
       });
-      this.log.info('match.record', { matchId, participants: record.participants.length, hands: handCount(record) });
       void getAccountWriter().recordMatch(record).catch(failed);
+      // Logged AFTER the call returns, so the count line never asserts a
+      // hand-over a synchronously throwing writer refused (review gate).
+      this.log.info('match.record', { matchId, participants: record.participants.length, hands: handCount(record) });
     } catch (err) {
       failed(err);
     }

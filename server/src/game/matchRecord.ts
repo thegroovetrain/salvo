@@ -88,7 +88,7 @@ function toTPlus(hand: HandRecord, zero: number): HandRecord {
   };
 }
 
-function participantRecord(match: Match, id: string, p: Readonly<Participant>): ParticipantRecord {
+function participantRecord(match: Match, id: string, p: Readonly<Participant>, placement: number): ParticipantRecord {
   return {
     id,
     name: p.name,
@@ -96,7 +96,7 @@ function participantRecord(match: Match, id: string, p: Readonly<Participant>): 
     userId: null,
     hullId: p.hullId,
     gun: p.gun,
-    placement: match.placementOf(id),
+    placement,
     kills: p.kills,
     pveKills: { ...p.pveKills },
     damageDealt: p.damageDealt,
@@ -117,9 +117,16 @@ export function buildMatchRecord(match: Match, meta: MatchRecordMeta): MatchReco
   const summary = match.endSummary();
   const participants: ParticipantRecord[] = [];
   for (const [id, p] of match.participantRecords()) {
-    if (isParticipant(p)) participants.push(participantRecord(match, id, p));
+    if (isParticipant(p)) participants.push(participantRecord(match, id, p, match.placementOf(id)));
   }
   participants.sort((a, b) => a.placement - b.placement);
+  // COUNTDOWN LEAVERS LAST, PLACEMENT 0 (Eric 2026-09-30: *"If the game
+  // starts, I want the player's choices tracked."*): dealt the opening hand,
+  // gone before 0:00 — in no placement, no results row, but their choices are
+  // in the record. Placement 0 is the marker; their stamps are negative T+.
+  for (const [id, p] of match.countdownLeaverRecords()) {
+    if (isParticipant(p)) participants.push(participantRecord(match, id, p, 0));
+  }
   return {
     matchId: meta.matchId,
     mode: meta.mode,

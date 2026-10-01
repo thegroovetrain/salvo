@@ -2,7 +2,7 @@
 title: 'Story 8.21: Results LOADOUT and the Match Record'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'ae9f92f'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -109,6 +109,21 @@ warnings: [oversized, multiple-goals]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-30 — Review pass 1 (Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol` on the same 2,096-line diff — verdicts: all three build-on-it; agreement: BOTH Fable hunters flagged the leaver-credited-in-the-scuttle-window timing hole, confirmed by the orchestrator in the code and fixed; Codex alone found nothing and traced every seeded invariant clean (privacy of the hand log, snapshot-before-removal, the shared abort/finish latch, writer-failure containment, the safe module cycle); every other finding was single-model and verified by the orchestrator before routing)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5: (high 0, medium 1, low 4)
+- defer: 1: (high 0, medium 0, low 1)
+- reject: 5: (high 0, medium 0, low 5)
+- addressed_findings:
+  - `[medium]` `[patch]` A scuttled leaver's hull stays on the water for its 5 s window and can still be credited a kill there (a torpedo in flight), which banks a level and deals a hand AFTER the leave-time snapshot — the record then depended on whether the match finished during the window (finish re-snapshots) or after it (both hunters). FIX: `reapDeparted` re-snapshots the participant before `removeShip`, so the leaver's record is the hull's last state on every path; pinned by `matchRecord.test.ts` "a leaver CREDITED during its scuttle window keeps that hand" (fails without the fix).
+  - `[low]` `[patch]` `match.record` was logged BEFORE `recordMatch` was invoked, so a synchronously throwing writer produced a count line asserting a hand-over that never happened (Blind Hunter). FIX: the log line now follows the call.
+  - `[low]` `[patch]` `ui/loadoutBlock.ts` imported `render/hotbar.ts` (Pixi, the settings store) for the one-line pure `beltBadgeText` — the first `ui/ → render/hotbar` edge (Blind Hunter). FIX: the helper moved to `render/equipmentInfo.ts` beside the other pure slot predicates; `hotbar.ts` imports and re-exports it for its own importers.
+  - `[low]` `[patch]` The server test's `RESULTS_FORBIDDEN_KEYS` includes `cards`, which the own-ship frame legitimately carries — a future copy into `DECK_FORBIDDEN_KEYS` would break the perception suite (Blind Hunter). FIX: a domain note on the list.
+  - `[low]` `[patch]` ERIC RULING AT THE GATE (Edge Case Hunter's finding 2, put to Eric by AskUserQuestion; he chose the NON-recommended option and then wrote *"If the game starts, i want the player's choices tracked."*): a captain dealt the opening hand who leaves DURING THE COUNTDOWN is now recorded too — `Match.countdownLeavers` snapshots them before the hull goes (`keepCountdownLeaver`, kept out of `onPlayerLeave` for the complexity cap), `buildMatchRecord` appends them LAST with `placement: 0` and their (zero) kills; pinned by "a COUNTDOWN leaver is recorded with placement 0 and its opening-hand choice". Recorded as epic-8 amendment 181.
+  - Deferred (ledger): `account.write.failed` logs the writer's error text verbatim — harmless with the NullWriter, but an Epic 9 ORM/HTTP error may embed the payload (names) and breach the telemetry PII rule; the real writer must scrub.
+  - Rejected: the block cannot wrap on a narrow viewport (desktop-only; the panel already scrolls under the viewport cap); the 9 px floor pin reads declaration text, not a computed size (no scaling rule exists in the block — a truthful, if weak, pin); `Participant.cards` is cast from `string[]` (ids are gated upstream by `applyCard`); the HULL REPAIR plus glyph also changes the LIVE bar's belt square (it is the ratified mock's art and the one glyph source — recorded for Eric's eye on staging, amendment 183); the spec's `buildMatchRecord(world, match, meta)` signature vs the built `(match, meta)` (inside the read-only intent contract; recorded as a measured correction in amendment 183, not re-derived).
 
 ## Design Notes
 

@@ -36,8 +36,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
-import { SLOT_KEY_GLYPHS, slotTier } from '../render/equipmentInfo.js';
-import { beltBadgeText } from '../render/hotbar.js';
+import { SLOT_KEY_GLYPHS, beltBadgeText, slotTier } from '../render/equipmentInfo.js';
 import { boonName, cardTierSteps } from './boonCopy.js';
 import { romanTier, tierTint } from './tierRamp.js';
 import { SECTION_HEAD_CSS, type ResultsOwn } from './results.js';

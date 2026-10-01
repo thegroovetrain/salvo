@@ -420,6 +420,13 @@ export class Match {
    *  exit/finish). Telemetry reads all of it; the results rows read the
    *  captains only. */
   private readonly participants = new Map<string, Participant>();
+  /** Captains who left DURING THE COUNTDOWN — dealt the opening hand (maybe
+   *  redrawn, maybe spent) and gone before 0:00. The activation roster above
+   *  is rebuilt without them, so they live here and reach the match record
+   *  with placement 0 and no kills (Eric 2026-09-30, Story 8.21 review gate:
+   *  *"If the game starts, I want the player's choices tracked."*). Server-
+   *  private; one match per room, so never cleared. */
+  private readonly countdownLeavers = new Map<string, Participant>();
   private finishedAt = 0;
   private disconnectFired = false;
 
@@ -564,6 +571,7 @@ export class Match {
       this.departed.add(id); // reapDeparted: remove at founder, not before
       this.world.sinkShip(id); // no killer — credits nobody by construction
     } else if (!this.departed.has(id)) {
+      this.keepCountdownLeaver(id, ship); // before the hull goes (Story 8.21)
       // Not the repeat-leave case: core can route onLeave twice (the
       // drop -> failed-reconnect path), and a second call for a hull we
       // already scuttled must not truncate the deferred window.
@@ -571,6 +579,14 @@ export class Match {
     }
     this.notifyRosterChanged();
     if (this.phase === 'active') this.checkWin();
+  }
+
+  /** A captain leaving DURING THE COUNTDOWN keeps its choices for the record
+   *  (see countdownLeavers): snapshotted here, before onPlayerLeave removes
+   *  the hull. Any other phase, or a non-participant, keeps nothing. */
+  private keepCountdownLeaver(id: string, ship: ShipRecord | undefined): void {
+    if (ship === undefined || this.phase !== 'countdown' || !isParticipant(ship)) return;
+    this.countdownLeavers.set(id, participantOf(ship));
   }
 
   /**
@@ -586,7 +602,15 @@ export class Match {
       const ship = this.world.ships.get(id);
       if (ship !== undefined && isSinking(ship.lifecycle)) continue; // window still open
       this.departed.delete(id);
-      if (ship !== undefined) this.world.removeShip(id);
+      if (ship === undefined) continue;
+      // Story 8.21 (review gate, both hunters): the scuttled hull stays on the
+      // water for its window and can still be CREDITED there — a torpedo it
+      // launched sinks someone, the kill banks a level, a hand is dealt. The
+      // leave-time snapshot predates that; refreshing it here, at the hull's
+      // last moment, makes the leaver's record the same whether the match
+      // finished during the window (finish re-snapshots) or after it.
+      this.snapshotStats(ship);
+      this.world.removeShip(id);
     }
   }
 
@@ -1118,6 +1142,12 @@ export class Match {
    *  server-private match record (Story 8.21). */
   participantRecords(): ReadonlyMap<string, Readonly<Participant>> {
     return this.participants;
+  }
+
+  /** The captains who left during the countdown (see countdownLeavers) —
+   *  for the record only; they are in no placement and no results row. */
+  countdownLeaverRecords(): ReadonlyMap<string, Readonly<Participant>> {
+    return this.countdownLeavers;
   }
 
   /** Refresh a participant's snapshot from its live record — at leave and at

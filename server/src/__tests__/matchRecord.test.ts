@@ -28,7 +28,9 @@ const SINK_TICKS = CONFIG.ship.sinkingWindowMs / CONFIG.tick.simDtMs;
 const META = { matchId: 'm-1', mode: 'standard', gameVersion: '0.0.0-test', endedAtEpochMs: 1_700_000_000_000 };
 
 /** Every key the record's vocabulary (and the retired deck's) may NEVER use on
- *  the results broadcast. */
+ *  the RESULTS BROADCAST. This list is for `ResultsMsg` ONLY — it includes
+ *  `cards`, which the own-ship frame (`you.cards`) legitimately carries, so it
+ *  must never be copied into perception.test.ts's `DECK_FORBIDDEN_KEYS`. */
 const RESULTS_FORBIDDEN_KEYS = [
   'deck', 'deckList', 'deckId', 'deckLeft', 'deckSize', 'pool', 'remaining', 'takes', 'weights',
   'hands', 'offered', 'taken', 'cards', 'loadout', 'record',
@@ -210,6 +212,62 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
     (r1.participants[0].cards as unknown as string[]).push('tampered');
     const r2 = buildMatchRecord(m, META);
     expect(JSON.stringify(r2)).not.toContain('tampered');
+  });
+
+  it('a COUNTDOWN leaver is recorded with placement 0 and its opening-hand choice (Eric: "if the game starts, track the choices")', () => {
+    const w = bareWorld();
+    const results: ResultsMsg[] = [];
+    const m = new Match(w, TIMINGS, noopHooks(results));
+    const ctx = { w, m };
+    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'battleship', undefined, undefined);
+    w.addShip('c', 'C', 'captain', 'mineLayer', undefined, undefined);
+    m.notifyRosterChanged();
+    expect(m.phase).toBe('countdown');
+    step(ctx); // the opening hand is dealt
+    const taken = spendAny(w, 'b'); // b chooses at the start line...
+    m.onPlayerLeave('b'); // ...and leaves before 0:00
+    expect(m.phase).toBe('countdown');
+    for (let i = 0; i < 200 && m.phase !== 'active'; i++) step(ctx);
+    expect(m.phase).toBe('active');
+    w.sinkShip('c', 'a');
+    step(ctx, SINK_TICKS + 2);
+    expect(m.phase).toBe('finished');
+    const rec = buildMatchRecord(m, META);
+    expect(rec.participants.map((p) => p.id)).toEqual(['a', 'c', 'b']); // leavers LAST
+    const b = rec.participants[2];
+    expect(b.placement).toBe(0);
+    expect(b.kills).toBe(0);
+    expect(b.hands).toHaveLength(1);
+    expect(b.hands[0].taken).toBe(taken);
+    expect(b.hands[0].dealtAtMs).toBeLessThan(0);
+    expect(b.cards).toContain(taken);
+    // ...and nowhere near the results broadcast.
+    expect(results[0].rows.map((r) => r.id).sort()).toEqual(['a', 'c']);
+  });
+
+  it('a leaver CREDITED during its scuttle window keeps that hand: the reap re-snapshots before the hull goes (review gate)', () => {
+    const w = bareWorld();
+    const m = new Match(w, TIMINGS, noopHooks());
+    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('c', 'C', 'captain', 'torpedoBoat', undefined, undefined);
+    m.notifyRosterChanged();
+    for (let i = 0; i < 100 && m.phase !== 'active'; i++) step({ w, m });
+    const bRec = w.ships.get('b')!;
+    spendAny(w, 'b'); // close the opening hand, so the next level DEALS one
+    m.onPlayerLeave('b');
+    const atLeave = m.participantRecords().get('b')!.hands.length;
+    // The hull is still on the water for its sinking window; a kill it is
+    // credited there banks a level and deals a hand (the economy has no
+    // "departed" guard — faithfully logged, whichever way the match ends).
+    w.grantXp(bRec, 1);
+    expect(bRec.hands.length).toBe(atLeave + 1);
+    // Run the window out: reapDeparted removes the wreck — after re-snapshotting.
+    for (let i = 0; i < 400 && w.ships.has('b'); i++) step({ w, m });
+    expect(w.ships.has('b')).toBe(false);
+    expect(m.participantRecords().get('b')!.hands).toHaveLength(atLeave + 1);
+    expect(m.participantRecords().get('b')!.bankedLevels).toBeGreaterThanOrEqual(1);
   });
 
   it('a snapshot never ALIASES the live record: a hand logged after the leave snapshot does not reach it', () => {
