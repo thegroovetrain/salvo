@@ -3260,7 +3260,7 @@ export const CLIENT_CONFIG = {
    * correlation handle, the plume's own disclosure and nothing more. EVERY
    * number here is an IMPLEMENTER DRAFT for Eric's eye on staging.
    *
-   * INFORMATION, NOT JUICE (the amendment-43 rule smoke.ts states): presence,
+   * INFORMATION, NOT JUICE (the epic-4 amendment-49 house rule smoke.ts states): presence,
    * size and tier are never motion-gated. Only the flicker and the rise scale
    * with the motion setting; at `motion: 'off'` the flames are still, present
    * and full-sized.

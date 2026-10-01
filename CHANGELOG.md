@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.18.27] - 2026-10-01
+
+### Changed
+- **Every card has its own icon** — the three torpedoes, the three mines, the CANNON card and the five ship upgrades no longer share a drawing or show an empty box. LIGHT TORPEDO is a slim torpedo with speed dashes, SUPERCAV TORPEDO rides inside a bubble, CAPTIVE MINES is a triangle with a small torpedo inside, FOULING MINES is a small spiked sphere on a tether, HULL REPAIR is a rod of Asclepius instead of a plus, and ARMOR / SPEED / TURNING / RADAR SWEEP / RELOAD each get one (plates, arrow, rudder, dish, hourglass). Eric approved the sheet before it was built. The same icon shows on the refit card, the hotbar, the results LOADOUT and How to Play.
+- **Mines on the water show their icon** — a laid mine draws its hotbar icon in the dropper's color instead of a ring and a dot, and everyone who can see a mine can now tell naval, captive and fouling apart (Eric: "Everyone sees the kind").
+- **Mine rings are easier to see** — the blast and trigger rings on your mines are twice as thick and about twice as bright; an arming mine still reads dimmer.
+- **Chaff is easier to read** — the dashed ring around your cloud is brighter and thicker, and you now see your own fake radar returns, in grey at half strength, so you know where the decoys are. Enemies still cannot tell a fake from a real return.
+- **Bigger chaff and smoke** — chaff scatters its fakes over 180 u (was 120). A SMOKE SCREEN puff now starts at 123.75 u and grows to 247.5 u (was 82.5 → 165). Seeing out of smoke is unchanged.
+- **Ships under 25 % hull are on fire** — flames flicker at the hull alongside the heavy smoke. They stay visible with motion turned off; only the flicker stops.
+- **The Supercav Torpedo hits for 85** (was 50).
+- **The mouse wheel scrolls the ESC menu** — while the settings menu is open, the wheel no longer zooms the camera.
+
+### Internal
+- PROTOCOL_VERSION 67 -> 68: `MineView.c` rides every observer's mine row (was owner-only, amendment 76); the self-private `OwnShip.chaffGhosts?: GhostPaint[]` carries the owner's own beam-painted fake rects (`ReturnBlipEvent` now extends `GhostPaint`; the wire blip stays seven keys); the client reads `chaff.radius`, `smokeScreen.r0` / `r1` and `supercavTorpedo.damage` from CONFIG. Perception exception count stays SIX.
+- Client: `render/equipmentIcons.ts` gains `LINE_GLYPHS` and `glyphPaths` resolves consumable → equipment → line ids (every line but the stub DEPTH CHARGE answers a distinct glyph); new `render/chaffGhosts.ts` (the scope's own march/heatmap functions into a separate grey sprite on the `litZone` layer) and `render/fire.ts` (rides the tier-2 `sm` pulse, no wire change); three DRAFT grey tokens `ghostFaint` / `ghostFuzzy` / `ghostSolid`; `mineRings` and `chaffRing` knobs raised (drafts); `wheelScrollsSurface` gates the one wheel listener.
+- Tests: shared 1024 -> 1025, client 3761 -> 3802, server 2316 -> 2325 (chaff ghosts, frames, perception ghost oracle); hook test 266.
+- Epic-8 amendments 213–223; GDD, catalog-v3, DESIGN and EXPERIENCE carry dated stamps; `spec-epic-8-legibility-cleanup.md`.
+
 ## [0.18.26] - 2026-10-01
 
 ### Changed

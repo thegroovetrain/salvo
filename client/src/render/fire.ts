@@ -20,7 +20,7 @@
 // accumulated dt — smoke's reason verbatim: the backgrounded tab throttles the
 // render loop that would do the accumulating while the pulses keep arriving.
 //
-// FIRE IS INFORMATION, NOT JUICE (the amendment-43 rule, copied from smoke.ts
+// FIRE IS INFORMATION, NOT JUICE (the epic-4 amendment-49 house rule, copied from smoke.ts
 // because the reasoning is identical). The ratified house rule
 // (effects.ts:44-53) is that `motion: 'off'` removes MOTION, never INFORMATION.
 // A flame says "this hull is critical, right here" — so its PRESENCE, EXTENT
