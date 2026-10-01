@@ -821,7 +821,7 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
 
   it('routes a fitted CARD to its slot, and a shipwide ladder to no slot at all', () => {
     const loadout = idsFor('mineLayer', statsFor('mineLayer')); // gun / boost / mine / empties
-    expect(slotForCard(loadout, 'deckGunBarrel')).toBe(SLOT_GUN);
+    expect(slotForCard(loadout, 'deckGun')).toBe(SLOT_GUN);
     expect(slotForCard(loadout, 'navalMines')).toBe(Q);
     // FOULING MINES IS ITS OWN LINE since Story 8.13 (epic-8 amendment 81), so
     // it fits its OWN weapon and routes to the slot carrying THAT — not to the
@@ -838,18 +838,28 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
 
 describe('a square shows the build as its TIER numeral, never a tally (amendment 8)', () => {
   it('prints the rung a slot\'s line stands on', () => {
-    const cards = ['deckGunBarrel', 'deckGunBarrel', 'heavyTorpedo'];
-    const rows = slotViewModels(viewFor('torpedoBoat', { cards }));
-    expect(rows[SLOT_GUN].tier).toBe(1); // the deck gun sails at rung I (amendment 70)
+    const cards = ['deckGun', 'deckGun', 'heavyTorpedo'];
+    // The stats are FOLDED from the same cards (the tier the square prints is
+    // read off them), so the fixture is a build the firewall could produce.
+    const stats = statsFor('torpedoBoat', { deckGun: 2, heavyTorpedo: 1 });
+    const rows = slotViewModels(viewFor('torpedoBoat', { cards, stats }));
+    // The deck gun sails at rung I (amendment 70) and each CANNON card is a
+    // rung, so two put it at III. (Two DECK GUN BARREL cards held it at I until
+    // BARREL folded into the CANNON ladder, amendment 197.)
+    expect(rows[SLOT_GUN].tier).toBe(3);
     expect(rows[Q].tier).toBe(1); // ...and the torpedo's line is at copy 1
   });
 
   it('spends no glyphs on a count — a deep gun build prints its RUNG, never a tally', () => {
-    const rows = slotViewModels(viewFor('torpedoBoat', { cards: Array<string>(12).fill('deckGunBarrel') }));
-    // ...and the square still shows ONE number: the rung. Twelve barrels buy no
-    // rung at all — DECK GUN BARREL is not the gun's ladder — so the numeral is
-    // the I the hull spawned with, not a 12.
-    expect(rows[SLOT_GUN].tier).toBe(1);
+    const rows = slotViewModels(viewFor('torpedoBoat', {
+      cards: Array<string>(12).fill('deckGun'),
+      stats: statsFor('torpedoBoat', { deckGun: 12 }),
+    }));
+    // ...and the square still shows ONE number: the rung. Twelve CANNON cards
+    // (an over-stack past the cap of 4) climb the gun to its ceiling, V — never
+    // a 12. (Twelve DECK GUN BARREL cards pinned the spawned I here until BARREL
+    // folded into the CANNON ladder, amendment 197.)
+    expect(rows[SLOT_GUN].tier).toBe(5);
     expect(slotNumeral(rows[SLOT_GUN])).toBe('');
   });
 });

@@ -936,7 +936,7 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
     const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
     a.state.speed = 0;
     a.bankedLevels = 1 + extraLevels;
-    a.offer = ['navalMines', 'deckGunBarrel', 'armor', 'radarSweep'];
+    a.offer = ['navalMines', 'deckGun', 'armor', 'radarSweep'];
     return { w, a };
   }
 
@@ -1040,15 +1040,20 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.hp = 40;
-    w.applyCard(a, 'deckGunBarrel');
+    w.applyCard(a, 'deckGun');
     expect(a.hp).toBe(40);
   });
 
-  it('DECK GUN TURRET: the gun pool cap rises to 2 AND fills immediately (amendment 41)', () => {
+  // The second turret is the CANNON ladder's rung to tier III (amendment 197):
+  // copy 1 moves damage only, copy 2 raises the pool and fills it the same tick.
+  it('CANNON tier III (deckGun x2): the gun pool cap rises to 2 AND fills immediately (amendment 41)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
-    w.applyCard(a, 'deckGunTurret');
+    w.applyCard(a, 'deckGun'); // tier II: damage only
+    expect(a.stats.equipment.gun.maxAmmo).toBe(1);
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(1);
+    w.applyCard(a, 'deckGun'); // tier III: the second turret
     expect(a.stats.equipment.gun.maxAmmo).toBe(2); // the single-shot pin is deliberately retired
     expect(a.loadout[SLOT_GUN].state!.n).toBe(2); // topped to the new cap — arrives loaded
   });
@@ -1061,10 +1066,49 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
   it('a mid-reload slot fills to a raised cap immediately (amendment 41, gun pool)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
+    w.applyCard(a, 'deckGun'); // tier II: no pool step yet
     a.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: 3000 };
-    w.applyCard(a, 'deckGunTurret');
+    w.applyCard(a, 'deckGun'); // tier III: the pool cap rises 1 -> 2
     expect(a.stats.equipment.gun.maxAmmo).toBe(2);
     expect(a.loadout[SLOT_GUN].state!.n).toBe(2); // everything arrives loaded
+  });
+
+  // The FLAK ladder's turrets (amendment 197): the rungs to tiers III and V
+  // each add a round. Pinned through the REAL flak module and the ordinary
+  // consume/tickReload pool — no flak-specific pool code exists.
+  it('FLAK tier III (flak x2) fires twice before the reload and refills to 2; tier V (flak x4) holds 3', () => {
+    const w = bareWorld();
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, 'flak');
+    a.state.speed = 0;
+    expect(a.loadout[SLOT_GUN].equipmentId).toBe('flak');
+    w.applyCard(a, 'flak'); // tier II: damage only
+    expect(a.stats.equipment.flak.maxAmmo).toBe(1);
+    w.applyCard(a, 'flak'); // tier III: the second turret
+    expect(a.stats.equipment.flak.maxAmmo).toBe(2);
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    const reloadMs = a.stats.equipment.flak.reloadMs;
+    let flakShells = 0;
+    const click = (seq: number, aim: number): void => {
+      fire(a, seq, SLOT_GUN, 300, aim);
+      w.step();
+      for (const e of w.tickEvents) if (e.k === 'shell' && e.w === 'flak') flakShells += 1;
+    };
+    click(1, 0);
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(1);
+    click(2, Math.PI / 2); // the second round: no reload in between
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
+    expect(flakShells).toBe(2);
+    click(3, Math.PI); // the pool is dry: refused, no third shell
+    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_GUN, reason: 'cooling', seq: 3 }]);
+    expect(flakShells).toBe(2);
+    // The reload refills one round per reloadMs, back to the 2-round cap.
+    const ticks = Math.ceil((2 * reloadMs) / CONFIG.tick.simDtMs) + 1;
+    for (let i = 0; i < ticks; i++) w.step();
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    // Tier V: the rung to V adds the third round, filled the same tick.
+    stack(w, a, 'flak', 2);
+    expect(a.stats.equipment.flak.maxAmmo).toBe(3);
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 3, reloadMsLeft: 0 });
   });
 });
 
@@ -1330,7 +1374,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     a.state.speed = 0;
     // Fit an equipment line so the live FIT diverges hard from a fresh build.
     a.bankedLevels = 1;
-    a.offer = ['navalMines', 'deckGunBarrel', 'armor', 'radarSweep'];
+    a.offer = ['navalMines', 'deckGun', 'armor', 'radarSweep'];
     w.spendPoint('a', 0);
     bank(w, a, 2);
     const bankBeforeReset = a.bankedLevels;
@@ -1569,13 +1613,21 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   });
 
   it('a card that does not touch reloads leaves every in-flight timer BYTE-identical', () => {
-    const w = bareWorld();
+    // No production GUN card leaves the gun tier alone any more (amendment
+    // 185 folded TURRET/BARREL into the CANNON ladder), so the gun-side half
+    // of this pin injects a TEST line: a gun stat card with no tier step.
+    const testGunBarrel: CatalogLine = {
+      id: 'testGunBarrel', kind: 'ladder', cap: 1,
+      tiers: [[{ kind: 'stat', path: 'equipment.gun.barrels', add: 1 }]],
+    } as unknown as CatalogLine;
+    const w = bareWorld(1, { catalog: { ...CATALOG, testGunBarrel } });
     const a = place(w, 'a', 0, 0);
     gunAtHalfReload(w, a);
     const before = a.loadout[SLOT_GUN].state!.reloadMsLeft;
     w.applyCard(a, 'armor'); // +25 maxHp, heal-on-grant: ratio 1
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(before);
-    w.applyCard(a, 'deckGunBarrel'); // a GUN card whose tier does not move: ratio 1
+    w.applyCard(a, 'testGunBarrel'); // a GUN card whose tier does not move: ratio 1
+    expect(a.stats.equipment.gun.barrels).toBe(2); // the card did land
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(before);
     expect(a.stats.equipment.gun.reloadMs).toBe(CONFIG.gun.reloadMs); // untouched base
   });
@@ -1592,6 +1644,10 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(a.stats.equipment.gun.tier).toBe(2);
     expect(a.stats.equipment.gun.reloadMs).toBe(4750);
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(2375); // the fraction survives
+    // Copy 1 is the rung to tier II: damage + the derived reload, NO pool step
+    // (the second turret is the rung to III — amendment 197).
+    expect(a.stats.equipment.gun.maxAmmo).toBe(1);
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(0); // no round handed out
   });
 
   it('an IDLE slot (and a slot filled by this very grant) stays at reloadMsLeft 0', () => {

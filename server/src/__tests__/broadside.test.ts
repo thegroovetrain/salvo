@@ -70,9 +70,10 @@ const BROADSIDE_LADDERS: Catalog = {
   navalMines: CATALOG.navalMines, // ...and the ML's
   broadsideSpread: ladder('broadsideSpread', 4, 'equipment.broadside.spreadRung', 1),
   broadsideTurrets: ladder('broadsideTurrets', 2, 'equipment.broadside.turrets', 1),
-  // The production DECK GUN BARREL line, carried into the injected catalog so
-  // the "the gun is unchanged" counter-pin still has its card.
-  deckGunBarrel: ladder('deckGunBarrel', 2, 'equipment.gun.barrels', 1),
+  // A TEST gun-barrel line (the production DECK GUN BARREL card is gone —
+  // its barrel is the CANNON ladder's rung to V, amendment 197), so the "the
+  // gun is unchanged" counter-pin still has a one-card second barrel.
+  testGunBarrel: ladder('testGunBarrel', 2, 'equipment.gun.barrels', 1),
 };
 
 /** World whose islands are cleared, for exact-geometry cases. */
@@ -369,7 +370,7 @@ describe('broadside — per-shell signals (R2.5, Eric A2)', () => {
   it('THE GUN IS UNCHANGED: a multi-barrel gun click still collapses to ONE flash', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    w.applyCard(bb, 'deckGunBarrel'); // a second barrel — two shells, one flash
+    w.applyCard(bb, 'testGunBarrel'); // a second barrel — two shells, one flash
     expect(bb.stats.equipment.gun.barrels).toBeGreaterThan(1);
     const kinds = clickAndStep(w, 'a', { slot: 0, aim: 0 });
     expect(w.shells.size).toBe(bb.stats.equipment.gun.barrels);

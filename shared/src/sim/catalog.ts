@@ -1,11 +1,17 @@
 // THE CATALOG (Story 8.1) — catalog v3, Eric's authored sheet
 // (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
 // as amended by Eric's rulings (epic-8 amendments).
-// 26 card LINES / 117 physical cards: 8 equipment lines (40), 5 universal
-// ladders (22), the gun ladders (15 — the cannon's three lines, 7, plus the
-// MACHINE GUN and FLAK ladders, 4 each), 0 add-ons, 8 consumables (40).
+// 24 card LINES / 114 physical cards: 8 equipment lines (40), 5 universal
+// ladders (22), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each),
+// 0 add-ons, 8 consumables (40).
 // ONE stub line remains since Story 8.18 (DEPTH CHARGE — SMOKE SCREEN went
 // live); every other line is live, so 7 of the 8 consumables are live.
+//
+// THE COUNT MOVED 26/117 -> 24/114 ON 2026-09-30 (Eric: "there are NO MORE
+// one-off upgrades; EVERY upgrade is tiered"): DECK GUN TURRET and DECK GUN
+// BARREL are DELETED. The second turret and the second barrel are now rungs of
+// the CANNON ladder (tier III and tier V), and the FLAK ladder gains a turret
+// at tier III and tier V. See `ladderSteps`.
 //
 // THE COUNT MOVED 109 -> 117 IN STORY 8.17 (Eric 2026-09-29, amendments
 // 130–133), purely by re-cutting KINDS: the last two ADD-ONS are gone —
@@ -86,10 +92,14 @@ import {
 } from './effects.js';
 
 /**
- * THE 26 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
+ * THE 24 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
  * amended by amendments 80/83 on 2026-09-19 and 89e on 2026-09-21). This order
  * IS the fold order, so it is part of the determinism contract — never
  * re-sort it.
+ *
+ * 2026-09-30 DELETED TWO IDS AND MOVED NOTHING (26 -> 24): `deckGunTurret`
+ * and `deckGunBarrel` folded into the CANNON ladder's rungs (Eric). Every
+ * surviving line keeps its relative order.
  *
  * STORY 8.17 MOVED NOTHING AND CHANGED TWO KINDS (Eric 2026-09-29, amendments
  * 131/132): `dazzleShells` became a `consumable` (FLASH SHELLS) and
@@ -118,10 +128,8 @@ export const LINE_IDS = [
   'turning',
   'radarSweep',
   'reload',
-  // --- the deck-gun family (slotless, always fitted) -----------------------
+  // --- the CANNON ladder (the deck gun: slotless, always fitted) ------------
   'deckGun',
-  'deckGunTurret',
-  'deckGunBarrel',
   // --- the eleven equipment lines (+ one consumable that kept its slot) -----
   'lightTorpedo',
   'heavyTorpedo',
@@ -153,7 +161,7 @@ export const LINE_IDS = [
   'phosphorShells', // an EQUIPMENT line since 8.17
 ] as const;
 
-/** One of the 26 authored card lines. */
+/** One of the 24 authored card lines. */
 export type LineId = (typeof LINE_IDS)[number];
 
 /**
@@ -242,14 +250,17 @@ function ladder(
 }
 
 /**
- * A ladder whose tiers are NOT UNIFORM (Eric 2026-09-30): the `ladder` twin of
- * `tieredWeaponSteps`. Copy k applies `steps[k-1]`, so `cap` is the number of
- * lists given. The MACHINE GUN's shot delay steps −40, −40, −40, −30 ms beside
- * its uniform +2 shells / +1 damage — a shape one repeated list cannot say.
- * A FRESH ARRAY PER TIER, copied from the caller's lists (the `ladder` law);
- * the effect objects are deep-frozen with the catalog.
+ * A ladder whose rungs are NOT UNIFORM (Eric 2026-09-30): the `ladder` twin of
+ * `tieredWeaponSteps`. `steps[k]` is the effect list of the rung copy k+1
+ * buys, and `cap` is `steps.length`. A rung may carry more than one authored
+ * effect — CANNON's tier-III rung is its damage step AND the second turret;
+ * the MACHINE GUN's shot delay steps −40, −40, −40, −30 ms beside its uniform
+ * +2 shells / +1 damage — shapes one repeated list cannot say. The `ladder`
+ * law holds: a FRESH ARRAY PER RUNG, copied from the caller's lists, so no
+ * rung aliases another or the caller's array; the effect objects are
+ * deep-frozen with the catalog.
  */
-function ladderSteps(
+export function ladderSteps(
   id: LineId,
   steps: readonly (readonly BoonEffect[])[],
   extra: { healOnGrant?: true; appliesTo?: readonly EquipmentId[] } = {},
@@ -257,6 +268,11 @@ function ladderSteps(
   const tiers = steps.map((step) => [...step] as readonly BoonEffect[]);
   return { id, kind: 'ladder', cap: tiers.length, tiers, ...extra };
 }
+
+/** One CANNON rung's damage step (R14): +1.25, floored once after the fold. */
+const cannonDamage = (): BoonEffect => statEffect('equipment.gun.damage', { add: 1.25 });
+/** One FLAK rung's damage step (amendment 105): +2. */
+const flakDamage = (): BoonEffect => statEffect('equipment.flak.damage', { add: 2 });
 
 /**
  * An equipment line WITH its ladder: copy 1 fits the weapon and tiers II–V
@@ -369,10 +385,11 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *   RELOAD  R12 — −5 % per tier, 5 tiers, cap 25 % (cooldownScale 1.0 → 0.75).
  *   DECK GUN R14 — +1.25 damage AND −5 % own reload per tier, 4 tiers; the
  *                  reload half is DERIVED from the tier in clampStats.
- *   DECK GUN TURRET R15 — pool 1 → 2, one copy.
- *   DECK GUN BARREL R16 — +1 barrel per copy, two copies.
+ *                  R15 (turret) / R16 (barrel) folded into the CANNON rungs
+ *                  on 2026-09-30: +1 pool at tier III, +1 barrel at tier V.
  *   MACHINE GUN — +2 shells, +1 damage per tier, 4 tiers (amendment 104).
- *   FLAK — +2 damage per tier, 4 tiers, blast fixed (amendment 105).
+ *   FLAK — +2 damage per tier, 4 tiers, blast fixed (amendment 105); +1 pool
+ *                  at tier III and tier V (Eric 2026-09-30).
  *   BROADSIDE R35 · STAR SHELLS R31 · PHOSPHOR SHELLS · FLASH SHELLS — as
  *                  ruled by Eric 2026-09-29, amendments 130–133 (Story 8.17).
  *   LIGHT TORPEDO R18 · HEAVY TORPEDO R17 · NAVAL MINES R23/R24 ·
@@ -400,7 +417,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // stacking is linear rather than 0.95^N. Scope (R40): every equipment reload
   // AND the Shift boost cooldown; consumables have no reload.
   reload: ladder('reload', 5, [statEffect('cooldownScale', { add: -0.05 })]),
-  // --- the deck-gun family --------------------------------------------------
+  // --- the CANNON ladder ----------------------------------------------------
   // DECK GUN (R14): +1.25 damage per tier, 4 tiers, FLOORED once after the fold
   // (effects.ts EQUIPMENT_INT_FIELDS) so the gun deals Eric's whole-number
   // scale 15 → 16 → 17 → 18 → 20 — never 16.25 / 17.5 / 18.75 (epic-8
@@ -410,12 +427,21 @@ export const CATALOG: Catalog = deepFreezeRows({
   // `equipment.gun.tier` in clampStats, exactly as every equipment line's step
   // is, so there is one reload derivation in the engine rather than two.
   // `appliesTo: ['gun']` is how this ladder names the row whose tier it moves.
-  deckGun: ladder('deckGun', 4, [statEffect('equipment.gun.damage', { add: 1.25 })], { appliesTo: ['gun'] }),
-  // DECK GUN TURRET (R15): the gun pool 1 → 2, one copy.
-  deckGunTurret: ladder('deckGunTurret', 1, [statEffect('equipment.gun.maxAmmo', { add: 1 })]),
-  // DECK GUN BARREL (R16): +1 barrel per copy, two copies (1 → 3 parallel
-  // shells 12u apart, full damage each).
-  deckGunBarrel: ladder('deckGunBarrel', 2, [statEffect('equipment.gun.barrels', { add: 1 })]),
+  // THE ONE-OFF TURRET AND BARREL CARDS ARE RUNGS NOW (Eric 2026-09-30, "EVERY
+  // upgrade is tiered"; R15/R16 folded in): the rung that reaches tier III
+  // (copy 2) adds the second turret (gun pool 1 → 2) and the rung that
+  // reaches tier V (copy 4) a second barrel per turret (two parallel shells
+  // per click). Pool by copies 0..4: 1,1,2,2,2; barrels: 1,1,1,1,2.
+  deckGun: ladderSteps(
+    'deckGun',
+    [
+      [cannonDamage()], // I → II
+      [cannonDamage(), statEffect('equipment.gun.maxAmmo', { add: 1 })], // II → III — the second turret
+      [cannonDamage()], // III → IV
+      [cannonDamage(), statEffect('equipment.gun.barrels', { add: 1 })], // IV → V — a second barrel
+    ],
+    { appliesTo: ['gun'] },
+  ),
   // --- the eleven equipment lines (+ supercavTorpedo, which kept its slot) ---
   // Copy 1 fits the weapon. The TORPEDO AND MINE ladders below are Story
   // 8.13's (catalog-v3 §4 as amended by Eric's 2026-09-19 rulings, epic-8
@@ -478,7 +504,18 @@ export const CATALOG: Catalog = deepFreezeRows({
   // FLAK (amendment 105): the flak gun's LADDER, offered only while mounted.
   // Tiers II–V each +2 damage (12 -> 20 at V); the blast radius does NOT grow;
   // the −5 % reload per tier is the derived tier step (6 s -> 4.8 s at V).
-  flak: ladder('flak', 4, [statEffect('equipment.flak.damage', { add: 2 })], { appliesTo: ['flak'] }),
+  // The rungs reaching tier III and tier V each add a TURRET (Eric
+  // 2026-09-30): flak pool by copies 0..4 is 1,1,2,2,3.
+  flak: ladderSteps(
+    'flak',
+    [
+      [flakDamage()], // I → II
+      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // II → III
+      [flakDamage()], // III → IV
+      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // IV → V
+    ],
+    { appliesTo: ['flak'] },
+  ),
   // BROADSIDE (R35 as ruled by Eric 2026-09-29, amendment 133): tiers II–V
   // each +1 SPREAD rung (the shipped mount/traverse ladders, rung 1 → 5) and
   // +0.5 turret (5 at III, 6 at V). Damage stays 15 per shell at every tier;
@@ -851,7 +888,7 @@ export function validateCatalog(catalog: Catalog = CATALOG): string[] {
   return errs;
 }
 
-/** Total physical cards in a catalog (Σ cap) — 117 since Story 8.17. */
+/** Total physical cards in a catalog (Σ cap) — 114 since 2026-09-30. */
 export function catalogCardCount(catalog: Catalog = CATALOG): number {
   let n = 0;
   for (const key of Object.keys(catalog)) n += catalog[key]?.cap ?? 0;

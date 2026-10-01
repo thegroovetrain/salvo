@@ -382,7 +382,11 @@ describe('shared barrel', () => {
     // `idleReloadMs` (Eric 2026-09-30), and the self-private
     // `OwnShip.chaff` {x, y, until} (the owner's own live cloud, amendment
     // 184 — rides `you` only). The exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(64);
+    // 64 -> 65: catalog content — DECK GUN TURRET and DECK GUN BARREL deleted;
+    // the second turret and second barrel are CANNON tier III / V rungs, the
+    // flak turrets are FLAK tier III / V rungs (Eric 2026-09-30). No wire
+    // shape moved; the exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(65);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -496,7 +500,7 @@ describe('shared barrel', () => {
   });
 
   it('re-exports the universal standard gun model (single-shot pin retired in 2.8)', () => {
-    expect(CONFIG.gun.maxAmmo).toBe(1); // still the BASE — gunTurret raises it via stats
+    expect(CONFIG.gun.maxAmmo).toBe(1); // still the BASE — the CANNON tier-III rung raises it via stats
     expect(CONFIG.gun.burstRadius).toBe(15);
     expect(CONFIG.gun.contactDamage).toBe(6); // RETUNED 10 -> 6 (Eric ruling 2026-08-04)
     expect(typeof burstVictims).toBe('function');
@@ -928,9 +932,11 @@ describe('shared barrel', () => {
     // -11 missile/monitor/heatSeeking, -2 machineGun/flak 5-copy stubs -> 4-copy
     // ladders. 109 -> 117 in Story 8.17 (amendments 131/132): the last two
     // 1-card add-ons became a 5-card equipment line and a 5-card consumable.
-    expect(LINE_IDS).toHaveLength(26);
-    expect(Object.keys(CATALOG)).toHaveLength(26);
-    expect(catalogCardCount()).toBe(117);
+    // 26/117 -> 24/114 on 2026-09-30 (Eric): DECK GUN TURRET and DECK GUN
+    // BARREL deleted, folded into the CANNON ladder's rungs.
+    expect(LINE_IDS).toHaveLength(24);
+    expect(Object.keys(CATALOG)).toHaveLength(24);
+    expect(catalogCardCount()).toBe(114);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);

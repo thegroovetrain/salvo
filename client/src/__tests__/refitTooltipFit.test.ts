@@ -111,7 +111,9 @@ function rowText(model: RefitTooltipModel): string[] {
 
 describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => {
   it('covers every catalog line × class × copies held — every built line opens a panel', () => {
-    expect(LINES).toHaveLength(26);
+    // 24 lines since DECK GUN TURRET and DECK GUN BARREL folded into the
+    // CANNON ladder (2026-09-30, amendment 197); 26 before.
+    expect(LINES).toHaveLength(24);
     const lines = new Set(PANELS.map((p) => p.label.split('@')[0]));
     // Only the never-dealt stub opens no panel.
     expect(LINES.filter((d) => !lines.has(d.id)).map((d) => d.id)).toEqual(['depthCharge']);
@@ -466,13 +468,13 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('renders the KIND word on the card (the copy count left with the interim face)', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['deckGunTurret', 'heavyTorpedo'], boostUntil: 0,
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['deckGun', 'heavyTorpedo'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false, []) as OfferView);
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
-    expect(cards[0].textContent).toContain('WEAPON UPGRADE'); // deckGunTurret — a gun ladder
+    expect(cards[0].textContent).toContain('WEAPON UPGRADE'); // deckGun (CANNON) — a gun ladder
     expect(cards[1].textContent).toContain('WEAPON'); // heavyTorpedo copy 1 — the fit
     expect(cards[1].textContent).not.toContain('UPGRADE');
     // The "n/cap" count stays DELETED (Story 8.7): a number over a number.
@@ -486,7 +488,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('paints the KIND word and the resting edge in the kind\'s colour; armed stays amber', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['heavyTorpedo', 'deckGunTurret', 'armor', 'hullRepair'],
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['heavyTorpedo', 'deckGun', 'armor', 'hullRepair'],
       boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});

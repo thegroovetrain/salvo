@@ -393,9 +393,10 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
     expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGun: 9 }))).toBe(
       'WEAPON · ALWAYS SELECTED · TIER V',
     );
-    // The gun's OWN family climbs the gun, but only the DECK GUN line is its
-    // ladder: a barrel card buys a barrel, not a rung.
-    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { deckGunBarrel: 2 }))).toBe(
+    // Only the CANNON line is the deck gun's ladder: another gun's ladder (FLAK)
+    // climbs ITS gun, never this one. (This pinned the DECK GUN BARREL card
+    // until it folded into the CANNON ladder, amendment 197.)
+    expect(interactionLine(SLOT_GUN, 'gun', [], 0, statsFor('torpedoBoat', { flak: 2 }))).toBe(
       'WEAPON · ALWAYS SELECTED · TIER I',
     );
   });

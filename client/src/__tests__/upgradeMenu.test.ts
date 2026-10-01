@@ -51,7 +51,7 @@ const R = CLIENT_CONFIG.refit;
 
 /** A real four-LINE draw from the shipped Boon Catalog v1 (the deck draws four
  *  different card LINES — categories may repeat; these happen not to). */
-const OFFER = ['radarSweep', 'armor', 'deckGunBarrel', 'navalMines'];
+const OFFER = ['radarSweep', 'armor', 'deckGun', 'navalMines'];
 const OFFER_B = ['reload', 'speed', 'radarSweep', 'navalMines'];
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
@@ -446,7 +446,7 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // AMENDMENT 181 (Eric 2026-09-30): the kind is what the card does for the
   // player — a function of the line AND the copies held.
   it('carries the KIND word and its tone, unconditional, on every card', () => {
-    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret', 'captiveMines', 'dazzleShells'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun', 'captiveMines', 'dazzleShells'] }), false, false, false);
     expect(view?.options.map((o) => o.kind)).toEqual(['SHIP UPGRADE', 'WEAPON UPGRADE', 'WEAPON', 'CONSUMABLE']);
     expect(view?.options.map((o) => o.kindTone)).toEqual(['shipUpgrade', 'weaponUpgrade', 'weapon', 'consumable']);
     // Copy 2 of an equipment line is a WEAPON UPGRADE.
@@ -457,11 +457,13 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
 
   it('carries the ladder length and the copies held — the rungs and their fill', () => {
     const held = ['radarSweep', 'radarSweep', 'radarSweep'];
-    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGunTurret'], cards: held }), false, false, false);
+    // The CANNON ladder replaced the one-rung DECK GUN TURRET here (amendment
+    // 197 — no one-rung card ships any more): nothing held, cap 4.
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun'], cards: held }), false, false, false);
     expect(view?.options[0].stack).toBe(3);
     expect(view?.options[0].cap).toBe(5);
     expect(view?.options[1].stack).toBe(0);
-    expect(view?.options[1].cap).toBe(1);
+    expect(view?.options[1].cap).toBe(4);
   });
 
   it('draws NO ladder for a consumable or an add-on — they have no rungs', () => {
@@ -610,7 +612,9 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     menu.toggle(view({
       options: [
         { ...cardsOf(['radarSweep'])[0] },
-        { ...cardsOf(['deckGunTurret'])[0] },
+        // CANNON replaced the DECK GUN TURRET here (deleted, amendment 197):
+        // the gun ladder that is still a WEAPON UPGRADE.
+        { ...cardsOf(['deckGun'])[0] },
         { ...cardsOf(['captiveMines'])[0] },
         { ...cardsOf(['hullRepair'])[0] },
       ],

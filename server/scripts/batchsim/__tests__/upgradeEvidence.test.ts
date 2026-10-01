@@ -29,7 +29,7 @@ describe('botMetrics — builds, picks, offers, placement', () => {
     // REAL CATALOG LINES (8.14 review F1): `spendCard` now refuses an id the
     // catalog does not own, so the v2 leftovers this pin used to stage with
     // would be a no-op rather than a pick.
-    ship.offer = ['deckGunBarrel', 'reload', 'radarSweep', 'speed'] as never;
+    ship.offer = ['deckGun', 'reload', 'radarSweep', 'speed'] as never;
     expect(world.spendPoint(bot.id, 2)).toBe(true); // radarSweep — bn fires next step
     world.step();
     col.observe(world, 1);

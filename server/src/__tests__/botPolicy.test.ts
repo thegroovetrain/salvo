@@ -829,7 +829,7 @@ const EQUIPMENT_LINES = Object.keys(CATALOG).filter((k) => CATALOG[k].kind === '
 
 describe('ai/spending — the card policy', () => {
   it('returns null with nothing banked, and null with a healthy hull + no offer', () => {
-    expect(chooseSpend(profileOf('raider'), spendState({ bankedLevels: 0, offer: ['deckGunBarrel'] }))).toBeNull();
+    expect(chooseSpend(profileOf('raider'), spendState({ bankedLevels: 0, offer: ['deckGun'] }))).toBeNull();
     expect(chooseSpend(profileOf('raider'), spendState())).toBeNull();
   });
 
@@ -844,7 +844,7 @@ describe('ai/spending — the card policy', () => {
     expect(chooseSpend(raider, spendState({ hp: hurt, offer: null }))).toBeNull();
     expect(chooseSpend(raider, spendState({ hp: hurt, offer: ['heavyTorpedo'] }))).toBe(0);
     expect(chooseSpend(raider, spendState({ hp: 100, offer: ['heavyTorpedo'] }))).toBe(0);
-    expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['deckGunBarrel'] }))).toBe(0);
+    expect(chooseSpend(raider, spendState({ hp: raider.healHpFrac * 100, offer: ['deckGun'] }))).toBe(0);
   });
 
   // ...AND THE MULLIGAN NEVER REACHES THE BOTS (Story 8.10, amendment 60).
@@ -853,7 +853,7 @@ describe('ai/spending — the card policy', () => {
   // even ask.
   it('no profile, at any hp, on any hand or seed, ever returns a negative choice', () => {
     const hands = [
-      ['deckGunBarrel', 'armor'],
+      ['deckGun', 'armor'],
       ['hullRepair', 'reload', 'speed', 'armor'],
       ['heavyTorpedo', 'navalMines', 'broadside', 'starShells'],
       ['armor'],
@@ -1108,8 +1108,8 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
   it('"gun" favors EVERY ladder of the mounted gun, and style reads only the MOUNTED gun\'s ladders', () => {
     const forager = profileOf('forager'); // rounded; favorites gun + reload
     const s = spendState({ cards: ['armor'] });
-    // The cannon mounted: its three ladders are favorites and sit at min(U) = 0.
-    for (const l of ['deckGun', 'deckGunTurret', 'deckGunBarrel']) {
+    // The cannon mounted: its one ladder (turret + barrel are its rungs) is a favorite and sit at min(U) = 0.
+    for (const l of ['deckGun']) {
       expect(cardScore(forager, s, l), l).toBe(P.base + P.favorite + P.style);
     }
     // The machine gun mounted: its ladder is the gun favorite and in U...
@@ -1336,20 +1336,20 @@ describe('ai/spending — random mode (wave 4)', () => {
   const TRAP = { next: trapRng, float: trapRng, int: trapRng, pick: trapRng } as unknown as Rng;
 
   it('the WEIGHTED path draws ONLY on a tie, and is byte-identical with or without an rng on a clear winner', () => {
-    const offer = ['deckGunBarrel', 'heavyTorpedo', 'armor'];
+    const offer = ['deckGun', 'heavyTorpedo', 'armor'];
     const bare = chooseSpend(profileOf('raider'), spendState({ offer }));
     expect(bare).toBe(1); // a favorite weapon, 3.75, clears every 3-point card
     // No tie: a trap rng must neither change the answer nor be touched.
     expect(chooseSpend(profileOf('raider'), spendState({ offer }), undefined, TRAP)).toBe(bare);
     // A tie: exactly one draw.
     const { rng, calls } = countingRng(4);
-    chooseSpend(profileOf('raider'), spendState({ offer: ['deckGunBarrel', 'armor'] }), undefined, rng);
+    chooseSpend(profileOf('raider'), spendState({ offer: ['deckGun', 'armor'] }), undefined, rng);
     expect(calls()).toBe(1);
   });
 
   it('a random profile picks UNIFORMLY over the offer off its own stream', () => {
     const row = profileOf('randomMineLayer');
-    const offer = ['deckGunBarrel', 'heavyTorpedo', 'armor', 'speed'];
+    const offer = ['deckGun', 'heavyTorpedo', 'armor', 'speed'];
     // The policy must be exactly one rng.int(0, offer.length - 1) draw: replay
     // the same seed independently and demand index equality, draw for draw.
     const rng = mulberry32(99);
@@ -1368,7 +1368,7 @@ describe('ai/spending — random mode (wave 4)', () => {
     const row = profileOf('randomTorpedoBoat');
     const hurt = row.healHpFrac * 100 - 1;
     const rng = mulberry32(7);
-    expect(chooseSpend(row, spendState({ hp: hurt, offer: ['deckGunBarrel', 'armor'] }), undefined, rng))
+    expect(chooseSpend(row, spendState({ hp: hurt, offer: ['deckGun', 'armor'] }), undefined, rng))
       .toBe(mulberry32(7).int(0, 1));
   });
 

@@ -45,9 +45,11 @@ import {
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
 
 describe('coverage — every catalog line has a name and a kind word', () => {
-  it('names every one of the 26 lines (never the humanized fallback)', () => {
-    // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e).
-    expect(LINE_IDS).toHaveLength(26);
+  it('names every one of the 24 lines (never the humanized fallback)', () => {
+    // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
+    // 26 until DECK GUN TURRET and DECK GUN BARREL folded into the CANNON
+    // ladder (2026-09-30, amendment 197).
+    expect(LINE_IDS).toHaveLength(24);
     for (const id of LINE_IDS) {
       const name = boonName(id);
       expect(name.length, id).toBeGreaterThan(0);
@@ -74,7 +76,7 @@ describe('coverage — every catalog line has a name and a kind word', () => {
   it('carries the sheet\'s names verbatim (spot checks across the four kinds)', () => {
     expect(boonName('armor')).toBe('ARMOR');
     expect(boonName('radarSweep')).toBe('RADAR SWEEP');
-    expect(boonName('deckGunTurret')).toBe('DECK GUN TURRET');
+    expect(boonName('heavyTorpedo')).toBe('HEAVY TORPEDO');
     // `SUPERCAV TORPEDO`, not the sheet's `SUPERCAVITATING TORPEDO` — the ONE
     // name Eric shortened (2026-09-19, epic-8 amendment 75) because the long
     // form never fitted the refit card's name box. See refitCardFit.test.ts:
@@ -82,11 +84,12 @@ describe('coverage — every catalog line has a name and a kind word', () => {
     expect(boonName('supercavTorpedo')).toBe('SUPERCAV TORPEDO');
     expect(boonName('depthCharge')).toBe('DEPTH CHARGE');
     expect(boonName('foulingMines')).toBe('FOULING MINES');
-    // Story 8.15: the plain gun's ladder reads CANNON (amendment 108; TURRET
-    // and BARREL keep their names), and the two pickable guns' ladders are
-    // named for their guns.
+    // Story 8.15: the plain gun's ladder reads CANNON (amendment 108), and the
+    // two pickable guns' ladders are named for their guns. DECK GUN TURRET and
+    // DECK GUN BARREL are deleted (amendment 197): their ids fall to the
+    // humanizer like any unknown id.
     expect(boonName('deckGun')).toBe('CANNON');
-    expect(boonName('deckGunBarrel')).toBe('DECK GUN BARREL');
+    expect(boonName('deckGunBarrel')).toBe('Deck Gun Barrel');
     expect(boonName('machineGun')).toBe('MACHINE GUN');
     expect(boonName('flak')).toBe('FLAK');
     expect(boonName('broadside')).toBe('BROADSIDE GUN');
@@ -242,9 +245,10 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     const armored = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']);
     expect(cardHoverRows(CATALOG.armor, 0, TB)).toEqual(shipStatRows(armored));
     expect(text(cardHoverRows(CATALOG.armor, 0, TB))[0]).toBe(`MAX HULL ${armored.maxHp}`);
-    // A gun ladder: the CANNON's table after the card (the deck-gun family).
-    const barrel = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGunBarrel']);
-    expect(cardHoverRows(CATALOG.deckGunBarrel, 0, TB)).toEqual(equipmentStatRows('gun', barrel));
+    // A gun ladder: the CANNON's table after the card (the CANNON ladder —
+    // DECK GUN BARREL folded into it, amendment 197).
+    const cannon = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun']);
+    expect(cardHoverRows(CATALOG.deckGun, 0, TB)).toEqual(equipmentStatRows('gun', cannon));
     // The two pickable guns' ladders climb their own gun.
     const mg = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['machineGun']);
     expect(cardHoverRows(CATALOG.machineGun, 0, TB)).toEqual(equipmentStatRows('machineGun', mg));
@@ -273,7 +277,7 @@ describe('cardKind — what the card does for the player', () => {
 
   it('every gun ladder is a WEAPON UPGRADE, every ship ladder a SHIP UPGRADE, whatever the copies', () => {
     for (const n of [0, 1, 3]) {
-      for (const id of ['deckGun', 'deckGunTurret', 'deckGunBarrel', 'machineGun', 'flak']) {
+      for (const id of ['deckGun', 'machineGun', 'flak']) {
         expect(cardKind(CATALOG[id], n), id).toBe('weaponUpgrade');
       }
       for (const id of ['armor', 'speed', 'turning', 'radarSweep', 'reload']) {
@@ -321,8 +325,8 @@ describe('cardTierLabel — the step, not the position', () => {
   it('reads every OTHER ladder and every weapon as a bare I on its first copy', () => {
     expect(cardTierLabel(CATALOG.radarSweep, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.reload, 0)).toBe('I');
-    expect(cardTierLabel(CATALOG.deckGunTurret, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 0)).toBe('I');
+    expect(cardTierLabel(CATALOG.navalMines, 0)).toBe('I');
   });
 
   // Story 8.15: the machine gun's and the flak gun's ladders are BASE-TIER
@@ -365,9 +369,10 @@ describe('cardTierLabel — the step, not the position', () => {
     expect(cardTierLabel(CATALOG.turning, 4)).toBe('V');
     expect(cardTierLabel(CATALOG.deckGun, 4)).toBe('V');
     expect(cardTierLabel(CATALOG.radarSweep, 5)).toBe('V');
-    // A ONE-RUNG ladder is at its ceiling the moment it is held: the TURRET is
-    // fitted once and has nowhere to climb.
-    expect(cardTierLabel(CATALOG.deckGunTurret, 1)).toBe('I');
+    // An OVER-STACK of the CANNON ladder (more copies than its cap) still reads
+    // the top rung. (This pinned the one-rung TURRET until it was deleted,
+    // amendment 197; no one-rung ladder ships now.)
+    expect(cardTierLabel(CATALOG.deckGun, 5)).toBe('V');
     expect(cardTierSteps(CATALOG.armor, 4)).toEqual({ cur: 5, next: null });
     expect(cardTierSteps(CATALOG.radarSweep, 5)).toEqual({ cur: 5, next: null });
   });
@@ -394,7 +399,7 @@ describe('cardTierLabel — the step, not the position', () => {
     expect(cardTierLabel(CATALOG.radarSweep, 4)).toBe('IV → V');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 4)).toBe('IV → V');
     expect(cardTierSteps(CATALOG.armor, 2)).toEqual({ cur: 3, next: 4 });
-    expect(cardTierSteps(CATALOG.deckGunTurret, 0)).toEqual({ cur: 1, next: null });
+    expect(cardTierSteps(CATALOG.deckGun, 3)).toEqual({ cur: 4, next: 5 });
   });
 
   // REVIEW GATE, CYCLE 147: `Math.trunc(NaN)` is `NaN`, so a non-finite

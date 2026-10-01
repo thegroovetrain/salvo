@@ -127,9 +127,11 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     // monitor and heat seeking and built the machine gun's and flak gun's
     // ladders — 26 lines, TWENTY-ONE live against five stubs. Story 8.16
     // flipped SHIELD BLOCK, CHAFF and DECOY BUOY — TWENTY-FOUR live against two.
-    // Story 8.18 flipped SMOKE SCREEN — TWENTY-FIVE live against one.
-    expect(LINES).toHaveLength(26);
-    expect(LIVE).toHaveLength(25);
+    // Story 8.18 flipped SMOKE SCREEN — TWENTY-FIVE live against one. DECK GUN
+    // TURRET and DECK GUN BARREL folded into the CANNON ladder (2026-09-30,
+    // amendment 197) — 24 lines, TWENTY-THREE live against one.
+    expect(LINES).toHaveLength(24);
+    expect(LIVE).toHaveLength(23);
     expect(LIVE.some((l) => l.id === 'hullRepair')).toBe(true);
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });

@@ -169,19 +169,21 @@ const EQUIPMENT_STAT_PATH = /^equipment\.([^.]+)\./;
  *
  * Two sources, in order, and the order is load-bearing:
  *   1. `appliesTo[0]`, when the ladder names one. That field is ALSO what
- *      `catalog.tierTargetOf` advances the equipment TIER for, which is why
- *      DECK GUN TURRET and DECK GUN BARREL must NOT grow one: they are gun
- *      cards, but they are not rungs of the gun's tier ladder.
+ *      `catalog.tierTargetOf` advances the equipment TIER for. Every gun
+ *      ladder in production — CANNON (`deckGun` -> `gun`), MACHINE GUN and
+ *      FLAK (`flak` -> `flak`) — names its row here, so each is gated to its
+ *      own mounted gun by this source alone.
  *   2. Otherwise the row its FIRST tier's first `stat` effect addresses —
- *      `equipment.gun.maxAmmo` -> `gun`, `equipment.gun.barrels` -> `gun`. The
- *      five universal ladders (ARMOR, SPEED, TURNING, RADAR SWEEP, RELOAD)
- *      write `maxHp`, `kinematics.*`, `sweepRpm` and `cooldownScale`, none of
- *      which is an `equipment.` path, so they stay universal.
+ *      an `equipment.gun.*` path -> `gun`. No production line reaches this
+ *      source since the one-off DECK GUN TURRET and DECK GUN BARREL cards were
+ *      deleted (Eric 2026-09-30); it stays as the guard for an injected
+ *      catalog. The five universal ladders (ARMOR, SPEED, TURNING, RADAR
+ *      SWEEP, RELOAD) write `maxHp`, `kinematics.*`, `sweepRpm` and
+ *      `cooldownScale`, none of which is an `equipment.` path, so they stay
+ *      universal.
  *
- * Without this, a seat that mounts anything but the deck gun (Story 8.15) is
- * dealt DECK GUN TURRET and DECK GUN BARREL as live cards that step a module it
- * is not carrying. The MACHINE GUN and FLAK ladders (Story 8.15) name their
- * rows in `appliesTo`, so each is gated to its own mounted gun by source 1.
+ * Without this, a seat that mounts the flak gun would be dealt CANNON cards
+ * that step a module it is not carrying, and vice versa.
  * Exported so the gating is pinned directly (draw.test.ts).
  */
 export function ladderHost(line: CatalogLine): EquipmentId | undefined {
@@ -196,7 +198,7 @@ export function ladderHost(line: CatalogLine): EquipmentId | undefined {
 }
 
 /** A LADDER's kind: a ladder with a HOST equipment row is a GUN ladder (the
- *  cannon's three, the machine gun's and the flak gun's — Story 8.15), offered
+ *  CANNON's, the machine gun's and the flak gun's — Story 8.15), offered
  *  only while that row is the mounted gun (amendment 89d); a universal ladder
  *  is always an upgrade. */
 function ladderKind(line: CatalogLine, ship: DrawShip): DrawKind | undefined {

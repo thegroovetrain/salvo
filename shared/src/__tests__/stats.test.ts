@@ -374,16 +374,21 @@ describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
     expect(CATALOG.deckGun.cap).toBe(4);
   });
 
-  it('DECK GUN TURRET (R15): the gun pool 1 -> 2, one copy', () => {
-    expect(effectiveStats(BASE).equipment.gun.maxAmmo).toBe(1);
-    expect(effectiveStats(BASE, stack('deckGunTurret', 1)).equipment.gun.maxAmmo).toBe(2);
-    expect(CATALOG.deckGunTurret.cap).toBe(1);
-  });
-
-  it('DECK GUN BARREL (R16): +1 barrel per copy, 1 -> 2 -> 3', () => {
-    expect(effectiveStats(BASE, stack('deckGunBarrel', 1)).equipment.gun.barrels).toBe(2);
-    expect(effectiveStats(BASE, stack('deckGunBarrel', 2)).equipment.gun.barrels).toBe(3);
-    expect(CATALOG.deckGunBarrel.cap).toBe(2);
+  it('CANNON climbs I -> V: the second TURRET at tier III, the second BARREL at tier V (Eric 2026-09-30; R15/R16 folded in)', () => {
+    const baseReload = effectiveStats(BASE).equipment.gun.reloadMs;
+    const table: [number, number, number, number, number, number][] = [
+      // copies, tier, damage, maxAmmo (pool), barrels, reload scale
+      [0, 1, 15, 1, 1, 1],
+      [1, 2, 16, 1, 1, 0.95],
+      [2, 3, 17, 2, 1, 0.9],
+      [3, 4, 18, 2, 1, 0.85],
+      [4, 5, 20, 2, 2, 0.8],
+    ];
+    for (const [copies, tier, damage, maxAmmo, barrels, scale] of table) {
+      const gun = effectiveStats(BASE, stack('deckGun', copies)).equipment.gun;
+      expect([gun.tier, gun.damage, gun.maxAmmo, gun.barrels], `${copies} copies`).toEqual([tier, damage, maxAmmo, barrels]);
+      expect(gun.reloadMs, `${copies} copies`).toBeCloseTo(baseReload * scale, 9);
+    }
   });
 });
 
@@ -439,20 +444,20 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
     expect(mg.reloadMs).toBeCloseTo(8000 * 0.75, 6);
   });
 
-  it('FLAK: damage 12 → 20 (+2), reload 6 s → 4.8 s at V; the 50 u blast and the 4 hp bodyblock are FIXED', () => {
-    const table: [number, number, number, number][] = [
-      // copies, tier, damage, reloadMs
-      [0, 1, 12, 6000],
-      [1, 2, 14, 5700],
-      [2, 3, 16, 5400],
-      [3, 4, 18, 5100],
-      [4, 5, 20, 4800],
+  it('FLAK: damage 12 → 20 (+2), pool 1 → 3 (a turret at III and at V), reload 6 s → 4.8 s at V; the 50 u blast and the 4 hp bodyblock are FIXED', () => {
+    const table: [number, number, number, number, number][] = [
+      // copies, tier, damage, maxAmmo (pool), reloadMs
+      [0, 1, 12, 1, 6000],
+      [1, 2, 14, 1, 5700],
+      [2, 3, 16, 2, 5400],
+      [3, 4, 18, 2, 5100],
+      [4, 5, 20, 3, 4800],
     ];
-    for (const [copies, tier, damage, reloadMs] of table) {
+    for (const [copies, tier, damage, maxAmmo, reloadMs] of table) {
       const flak = effectiveStats(BASE, stack('flak', copies)).equipment.flak;
-      expect([flak.tier, flak.damage, flak.reloadMs], `${copies} copies`).toEqual([tier, damage, reloadMs]);
-      expect([flak.burstRadius, flak.contactDamage, flak.maxAmmo, flak.rangeU], `${copies} copies`)
-        .toEqual([50, 4, 1, CONFIG.vision.radar]);
+      expect([flak.tier, flak.damage, flak.maxAmmo, flak.reloadMs], `${copies} copies`).toEqual([tier, damage, maxAmmo, reloadMs]);
+      expect([flak.burstRadius, flak.contactDamage, flak.rangeU], `${copies} copies`)
+        .toEqual([50, 4, CONFIG.vision.radar]);
     }
     expect(CATALOG.flak.cap).toBe(4);
   });
@@ -828,7 +833,7 @@ describe('THE FRACTIONAL FLOOR (catalog-v3 R17 standing rule)', () => {
     // author the +0.5 tube/turret/flare steps the rule exists for).
     const half: Catalog = {
       halfBarrel: {
-        id: 'deckGunBarrel' as LineId,
+        id: 'halfBarrel' as LineId,
         kind: 'ladder',
         cap: 4,
         tiers: new Array(4).fill([{ kind: 'stat', path: 'equipment.gun.barrels', add: 0.5 }]),
@@ -1033,7 +1038,7 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
       'equipment.machineGun.rateMs', 'equipment.machineGun.reloadMs', 'equipment.machineGun.tier',
     ]);
     expect(changed(identity, effectiveStats(BASE, stack('flak', 4)))).toEqual([
-      'equipment.flak.damage', 'equipment.flak.reloadMs', 'equipment.flak.tier',
+      'equipment.flak.damage', 'equipment.flak.maxAmmo', 'equipment.flak.reloadMs', 'equipment.flak.tier',
     ]);
   });
 
@@ -1125,14 +1130,15 @@ describe('the equipment reload step FLOORS at x0.1 (hostile / over-capped tier)'
 // whichever one sorts first. A line nobody holds now writes nothing at all.
 // ---------------------------------------------------------------------------
 describe('a line held at ZERO copies never writes a tier', () => {
-  /** Two lines over one row: a held one-copy ladder, then an UNHELD deck gun. */
+  /** Two lines over one row: a held one-copy TEST ladder (an injected id, not
+   *  a production line), then an UNHELD deck gun. */
   const twoClaimants: Catalog = {
-    deckGunTurret: { id: 'deckGunTurret', kind: 'ladder', cap: 1, appliesTo: ['gun'], tiers: [[]] },
+    testGunClaimant: { id: 'testGunClaimant' as LineId, kind: 'ladder', cap: 1, appliesTo: ['gun'], tiers: [[]] },
     deckGun: CATALOG.deckGun,
   };
 
   it('the held line keeps the tier it bought, whatever sorts after it', () => {
-    expect(effectiveStats(BASE, ['deckGunTurret'], twoClaimants).equipment.gun.tier).toBe(2);
+    expect(effectiveStats(BASE, ['testGunClaimant'], twoClaimants).equipment.gun.tier).toBe(2);
   });
 
   it('...and an unheld catalog still reads every row at tier 1', () => {

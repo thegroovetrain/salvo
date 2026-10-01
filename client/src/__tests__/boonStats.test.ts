@@ -65,7 +65,7 @@ describe('ownStatsChanged — the recompute gate', () => {
     const next = {
       ...ownShip('torpedoBoat'),
       pts: 2,
-      offer: ['radarSweep', 'armor', 'deckGunBarrel', 'navalMines'],
+      offer: ['radarSweep', 'armor', 'deckGun', 'navalMines'],
     };
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
@@ -123,11 +123,14 @@ describe('HUD denominators react to effective stats', () => {
     expect(speedLadderFraction(-fast.reverseSpeed, fast)).toBe(-1);
   });
 
-  it('chip denominators come from effective stats — AFT TURRET retires the single-shot pin', () => {
-    // PIN FLIPPED (Story 2.8): the gun pool is no longer pinned at 1 — the rare
-    // AFT TURRET line raises it, and effectiveStats is the one place it moves.
+  it('chip denominators come from effective stats — the second turret retires the single-shot pin', () => {
+    // PIN FLIPPED (Story 2.8): the gun pool is no longer pinned at 1 — the
+    // second turret raises it, and effectiveStats is the one place it moves.
+    // Since amendment 197 the turret is the CANNON ladder's rung to III (its
+    // second card), not a card of its own: one card leaves the pool alone.
     expect(equipmentMaxAmmo(effectiveStats(TB), 'gun')).toBe(CONFIG.gun.maxAmmo);
-    const turret = statsFor('torpedoBoat', { deckGunTurret: 1 });
+    expect(equipmentMaxAmmo(statsFor('torpedoBoat', { deckGun: 1 }), 'gun')).toBe(CONFIG.gun.maxAmmo);
+    const turret = statsFor('torpedoBoat', { deckGun: 2 });
     expect(equipmentMaxAmmo(turret, 'gun')).toBe(CONFIG.gun.maxAmmo + 1);
   });
 

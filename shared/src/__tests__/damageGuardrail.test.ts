@@ -263,11 +263,14 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     //
     // What CI still enforces is the per-shell law, above and here: no single
     // shell of any weapon, max-stacked, reaches the lightest hull.
-    const barrels = stacked('deckGunBarrel').equipment.gun.barrels;
+    // The CANNON ladder at its cap (Eric 2026-09-30): the tier-V rung is the
+    // second barrel — the deleted DECK GUN BARREL card's effect, one copy's
+    // worth, so the reachable max is 2 barrels (the 1..3 clamp stays).
+    const barrels = stacked('deckGun').equipment.gun.barrels;
     // The per-shell number under the strongest build catalog v3 can reach: the
     // DECK GUN ladder at its cap (R14), 20 damage.
     const perShell = stacked('deckGun').equipment.gun.damage;
-    expect(barrels).toBe(3); // TWIN + TRIPLE MOUNT, both copies
+    expect(barrels).toBe(2); // CANNON ×4 — a second barrel at tier V
     expect(perShell).toBeLessThan(minHullHp); // the law, per SHELL — the thing that holds
     // And this is the consequence Eric was shown and ACCEPTED: a fully
     // max-stacked triple mount whose three overlapping bursts all connect
@@ -294,7 +297,14 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // click walked over your own field can obviously exceed any hull's hp. That
     // is the minefield paying out, not the gun, and it is deliberately outside
     // this pin.
-    expect(perShell * barrels).toBeGreaterThanOrEqual(minDroneHp); // exactly equal since wave 1 — see above
+    //
+    // 2026-09-30: THE ZERO MARGIN ABOVE IS GONE. With the triple mount no
+    // longer reachable (TURRET/BARREL folded into CANNON tiers, Eric), the
+    // max-stacked click is 2 × 20 = 40, BELOW the 45hp small drone — it no
+    // longer one-clicks it. Pinned so a future barrel or damage change that
+    // restores the one-click is a visible decision.
+    expect(perShell * barrels).toBe(40);
+    expect(perShell * barrels).toBeLessThan(minDroneHp);
     expect(perShell * barrels).toBeLessThan(minHullHp); // minHullHp === Math.min(...classHps)
   });
 
