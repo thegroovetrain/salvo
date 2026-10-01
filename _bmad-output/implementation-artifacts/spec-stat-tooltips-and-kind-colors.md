@@ -2,7 +2,7 @@
 title: 'Stat tooltips (one number per line), color-coded refit cards, machine-gun retune'
 type: 'feature'
 created: '2026-09-30'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '1252080'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -83,17 +83,17 @@ warnings: ['multiple-goals', 'oversized']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts`, `shared/src/sim/catalog.ts`, `shared/src/sim/effects.ts`, `shared/src/sim/stats.ts`, `shared/src/index.ts` -- the machine-gun numbers, the `rateMs` ladder, drop `idleReloadMs`, PV 64 -- Eric's retune, one fold
-- [ ] `server/src/game/equipment/machineGun.ts` + its tests -- the four swap rules -- immediate start, cancel-and-restart, empty uninterruptible, complete → full
-- [ ] `server/src/game/world.ts` `stepSmoke` + `server/src/__tests__/smokeScreen.test.ts` -- puffs lay at the hull's center -- amendment 183
-- [ ] `shared/src/types.ts` + `server/src/game/frames.ts` + perception/frames/golden pins -- self-private `you.chaff` -- amendment 184, wire half
-- [ ] `client/src/render/chaffRing.ts` + wiring in `main.ts` + test -- the owner's dashed ring -- amendment 184, render half
-- [ ] `client/src/ui/boonCopy.ts` -- delete the prose tables; add `equipmentStatRows` / `consumableStatRows` / `shipStatRows` / `cardHoverRows` / `cardKind` / `cardKindLabel` -- one builder feeds both tooltips and the card face
-- [ ] `client/src/render/equipmentInfo.ts` -- delete descriptions -- no prose, no "fish"
-- [ ] `client/src/render/slotTooltip.ts` + `client/src/render/hotbar.ts` + `client/src/ui/classSelect.ts` -- stat-line model, `'ship'` target on the HP globe, two-column mono render -- the slot and SHIP tooltips
-- [ ] `client/src/ui/refitTooltip.ts` + `client/src/ui/upgradeMenu.ts` -- stat-row hover model/render; kind colors on word + resting border -- Eric's rulings
-- [ ] tests listed in the Code Map -- re-pin; add: stat-line content per equipment, ship target hit-test + placement, refit hover rows per kind, kind word/color per kind, both fit walks, no player-facing "fish", MG cadence per tier and the swap state machine
-- [ ] docs wave -- version, changelog, both trackers, amendments, epic-8-context, deferred-work, DESIGN.md / catalog-v3 / GDD stamps
+- [x] `shared/src/constants.ts`, `shared/src/sim/catalog.ts`, `shared/src/sim/effects.ts`, `shared/src/sim/stats.ts`, `shared/src/index.ts` -- the machine-gun numbers, the `rateMs` ladder, drop `idleReloadMs`, PV 64 -- Eric's retune, one fold
+- [x] `server/src/game/equipment/machineGun.ts` + its tests -- the four swap rules -- immediate start, cancel-and-restart, empty uninterruptible, complete → full
+- [x] `server/src/game/world.ts` `stepSmoke` + `server/src/__tests__/smokeScreen.test.ts` -- puffs lay at the hull's center -- amendment 183
+- [x] `shared/src/types.ts` + `server/src/game/frames.ts` + perception/frames/golden pins -- self-private `you.chaff` -- amendment 184, wire half
+- [x] `client/src/render/chaffRing.ts` + wiring in `main.ts` + test -- the owner's dashed ring -- amendment 184, render half
+- [x] `client/src/ui/boonCopy.ts` -- delete the prose tables; add `equipmentStatRows` / `consumableStatRows` / `shipStatRows` / `cardHoverRows` / `cardKind` / `cardKindLabel` -- one builder feeds both tooltips and the card face
+- [x] `client/src/render/equipmentInfo.ts` -- delete descriptions -- no prose, no "fish"
+- [x] `client/src/render/slotTooltip.ts` + `client/src/render/hotbar.ts` + `client/src/ui/classSelect.ts` -- stat-line model, `'ship'` target on the HP globe, two-column mono render -- the slot and SHIP tooltips
+- [x] `client/src/ui/refitTooltip.ts` + `client/src/ui/upgradeMenu.ts` -- stat-row hover model/render; kind colors on word + resting border -- Eric's rulings
+- [x] tests listed in the Code Map -- re-pin; add: stat-line content per equipment, ship target hit-test + placement, refit hover rows per kind, kind word/color per kind, both fit walks, no player-facing "fish", MG cadence per tier and the swap state machine
+- [x] docs wave -- version, changelog, both trackers, amendments, epic-8-context, deferred-work, DESIGN.md / catalog-v3 / GDD stamps
 
 **Acceptance Criteria:**
 - Given any fitted slot, when hovered past the dwell, then the panel shows name, the interaction line and one `LABEL value` per stat with values equal to `effectiveStats()` for that hull's cards, and no prose.
