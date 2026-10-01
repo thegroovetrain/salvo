@@ -3,8 +3,9 @@
 // 2/8 of intel range, 82.5 → 165 u), every server-side row of the spec's I/O
 // matrix as a directed case:
 //
-//   • the LAY: one copy opens a 5 s window; a puff drops at the STERN every
-//     500 ms — ten per copy, an eleventh never (rulings 138 / setSmokeScreen);
+//   • the LAY: one copy opens a 5 s window; a puff drops at the hull's CENTER
+//     (Eric 2026-09-30, amendment 190 — it was the stern) every 500 ms — ten
+//     per copy, an eleventh never (rulings 138 / setSmokeScreen);
 //   • GROWTH: r82.5 at birth → r123.75 at 15 s → deleted at 30 s (ruling 139), read
 //     through the sim clock — a puff that MISSES a segment fresh BLOCKS it once
 //     it has grown, and the segment clears again when the puff dies;
@@ -21,7 +22,7 @@
 //     occlude everything outside of that range, no matter what. Radar still
 //     works."): sight 82.5 u, no puff term inside it, nothing optical beyond
 //     it (halos, horn, own flare included), radar untouched; `inSmoke` rides
-//     `you` only; a NaN stern lays nothing (P1);
+//     `you` only; a NaN position lays nothing (P1);
 //   • FLARE + SMOKE (ruling 142): the owned lit zone reveals nothing through a
 //     puff on the segment; a puff BEHIND the hull and an ISLAND never block it;
 //   • TORPEDO WATER (ruling 143): in-bubble `wk` hidden by a puff; the radar
@@ -130,7 +131,7 @@ describe('SMOKE SCREEN — the lay (rulings 138 / 140 / 144)', () => {
     expect(CONFIG.smoke.puffIntervalMs).toBe(250); // CONFIG.smoke is the damage-band plume, never conflated
   });
 
-  it('one copy: spent at the press, the window stamped, then TEN puffs at the STERN every 500 ms — the eleventh never', () => {
+  it('one copy: spent at the press, the window stamped, then TEN puffs at the hull\'s CENTER every 500 ms — the eleventh never', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0);
     stock(w, a, 1);
@@ -153,24 +154,26 @@ describe('SMOKE SCREEN — the lay (rulings 138 / 140 / 144)', () => {
     // next tick (t0 + 50) and every later one on the press's own 500 ms
     // grid (t0 + 500, + 1000, …, + 4500) — ten in the 5 s window.
     expect(puffs.map((p) => p.bornAt)).toEqual([t0 + DT, ...Array.from({ length: 9 }, (_, i) => t0 + (i + 1) * SC.puffIntervalMs)]);
-    const stern = -a.cls.hull.length / 2; // heading 0: the stern is dead astern on -x
     for (const p of puffs) {
-      expect(p).toEqual({ id: p.id, ownerId: 'a', x: stern, y: 0, bornAt: p.bornAt, until: p.bornAt + SC.lifeMs });
+      // The hull's own position (amendment 190), never a stern offset.
+      expect(p).toEqual({ id: p.id, ownerId: 'a', x: 0, y: 0, bornAt: p.bornAt, until: p.bornAt + SC.lifeMs });
       expect(p.id).toMatch(/^sk\d+$/);
     }
     expect(w.smokeCount).toBe(10);
     expect(a.smokeUntil).toBe(t0 + SC.layMs); // the window is a stamp, not a countdown: it simply lapses
   });
 
-  it('the stern follows the heading (a hull pointing +y lays on -y)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 100, 100, Math.PI / 2);
-    stock(w, a, 1);
-    press(w, a);
-    steps(w, 1);
-    const p = [...w.smoke.values()][0];
-    expect(p.x).toBeCloseTo(100, 9);
-    expect(p.y).toBeCloseTo(100 - a.cls.hull.length / 2, 9);
+  it('the puff lands on the hull\'s own position whatever the heading (amendment 190: the center, not the stern)', () => {
+    for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 3]) {
+      const w = bareWorld();
+      const a = place(w, 'a', 100, 100, heading);
+      stock(w, a, 1);
+      press(w, a);
+      steps(w, 1);
+      const p = [...w.smoke.values()][0];
+      expect(p.x, `heading ${heading}`).toBe(a.state.x);
+      expect(p.y, `heading ${heading}`).toBe(a.state.y);
+    }
   });
 
   it('a RE-PRESS while laying RESTARTS the 5 s clock (ruling 140): 6 puffs, then a fresh 10 — 16 in all', () => {
@@ -710,7 +713,7 @@ describe('SMOKE SCREEN — STANDING IN SMOKE (Eric ruling 2026-09-29, amendment 
     expect(a.inSmoke).toBe(false);
   });
 
-  it('P1 — a NON-FINITE stern lays nothing: no NaN puff ever enters the store', () => {
+  it('P1 — a NON-FINITE position lays nothing: no NaN puff ever enters the store', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 200, 0);

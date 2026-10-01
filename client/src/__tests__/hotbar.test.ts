@@ -82,6 +82,8 @@ import {
   FIT_PULSE_PX,
   isBeltSlot,
   isCooling,
+  dimAlphaFor,
+  wipeShown,
   slotAtPoint,
   tipCacheHit,
   slotDegraded,
@@ -96,26 +98,10 @@ import {
   type TooltipCache,
 } from '../render/hotbar.js';
 // THE TOOLTIP CORE MOVED in Story 8.7 (ruling 13): `render/slotTooltip.ts` owns
-// the hover dwell, the accrued rows, the container-fit model and the placement.
-// The pins that measure them moved with it (__tests__/slotTooltip.test.ts);
-// what this file still needs from there is what the SQUARES are tested against.
-import {
-  NO_HOVER,
-  SHIP_DIVIDER_ROW,
-  TIP_TYPE,
-  TOOLTIP_MAX_PANEL_H,
-  boonRows,
-  hoverReady,
-  nextHover,
-  shouldShowTooltip,
-  slotBoonIds,
-  tooltipFrame,
-  tooltipModel,
-  tooltipPlacement,
-  tooltipRenderGeom,
-  trimmedBoonRows,
-  type TooltipBoonRow,
-} from '../render/slotTooltip.js';
+// the hover dwell, the stat-line model, the container-fit model and the
+// placement. The pins that measure them moved with it
+// (__tests__/slotTooltip.test.ts); this file keeps the memo-key pins.
+import { tooltipModel } from '../render/slotTooltip.js';
 import { hudBarLayout, microScale } from '../render/hudBar.js';
 import { equipmentGlyphSvg, glyphPaths } from '../render/equipmentIcons.js';
 import { wipeLabel } from '../render/cooldownWipe.js';
@@ -493,6 +479,64 @@ describe('the ONE centred numeral — the reload clock and the ACTIVE window', (
   });
 });
 
+// AMENDMENT 112 HONORED (Eric 2026-09-29; review gate P8, 2026-09-30): "the gun
+// square shows the ordinary cooldown wipe for the running timer even though a
+// new hold fires at once". The machine gun's PARTIAL-magazine swap starts the
+// tick the stream stops, so it is the gun's common resting state; the square
+// paints the wipe + numeral off `reloadMsLeft` WITHOUT entering `cooling`.
+describe('the machine gun\'s partial swap shows the ordinary wipe (amendment 112)', () => {
+  const mgView = (gunAmmo: WeaponAmmo, over: Partial<HotbarView> = {}): HotbarView => {
+    const base = viewFor('torpedoBoat');
+    return {
+      ...base,
+      loadout: [ 'machineGun', ...base.loadout.slice(1) ],
+      ammo: [gunAmmo, ...base.ammo.slice(1)],
+      ...over,
+    };
+  };
+
+  it('n 7/16 with 9.5 s of swap left: the wipe fraction and the numeral are up, the state is NOT cooling', () => {
+    const m = slotViewModels(mgView({ n: 7, reloadMsLeft: 9500 }))[SLOT_GUN];
+    expect(m.state).toBe('selected'); // the gun can still fire — a hold cancels the swap
+    expect(m.swapWipe).toBe(true);
+    expect(wipeShown(m)).toBe(true);
+    expect(m.reloadMsLeft).toBe(9500);
+    const reloadMs = equipmentInfo(statsFor('torpedoBoat'), 'machineGun').reloadMs;
+    expect(m.coolFrac).toBeCloseTo(1 - 9500 / reloadMs, 9);
+    expect(slotNumeral(m)).toBe(wipeLabel(9500));
+    expect(dimAlphaFor(m)).toBeLessThan(1); // the ordinary wipe dims the small type too
+    // Unselected (Q primed): still the wipe, state readyWeapon.
+    const q = slotViewModels(mgView({ n: 7, reloadMsLeft: 9500 }, { primedSlot: Q }))[SLOT_GUN];
+    expect(q.state).toBe('readyWeapon');
+    expect(slotNumeral(q)).toBe(wipeLabel(9500));
+  });
+
+  it('while HELD the drain returns instead of the wipe (amendment 113(f)) — the first shot cancels the swap', () => {
+    const m = slotViewModels(mgView({ n: 7, reloadMsLeft: 9500 }, { held: true }))[SLOT_GUN];
+    expect(m.drain).not.toBeNull();
+    expect(m.swapWipe).toBe(false);
+    expect(slotNumeral(m)).toBe('');
+  });
+
+  it('the CANNON with a round left and a timer running is unchanged: no wipe, no numeral', () => {
+    const base = viewFor('torpedoBoat');
+    const m = slotViewModels({ ...base, ammo: [{ n: 1, reloadMsLeft: 4000 }, ...base.ammo.slice(1)] })[SLOT_GUN];
+    expect(base.loadout[SLOT_GUN]).toBe('gun');
+    expect(m.state).toBe('selected');
+    expect(m.swapWipe).toBe(false);
+    expect(wipeShown(m)).toBe(false);
+    expect(m.coolFrac).toBe(0);
+    expect(slotNumeral(m)).toBe('');
+  });
+
+  it('an EMPTY machine-gun magazine cools as before (state cooling, wipe, numeral)', () => {
+    const m = slotViewModels(mgView({ n: 0, reloadMsLeft: 6000 }))[SLOT_GUN];
+    expect(m.state).toBe('cooling');
+    expect(m.swapWipe).toBe(false);
+    expect(slotNumeral(m)).toBe(wipeLabel(6000));
+  });
+});
+
 describe('the bar\'s rects — what the row draws on, and what it swallows', () => {
   const layout = hudBarLayout(1366, 768);
 
@@ -792,36 +836,16 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
   });
 });
 
-describe('the accrued build routes to its slot (the ◆n MARK is deleted — amendment 8)', () => {
-  it('counts the cards addressing this slot, and nothing on an unfitted-for slot', () => {
+describe('a square shows the build as its TIER numeral, never a tally (amendment 8)', () => {
+  it('prints the rung a slot\'s line stands on', () => {
     const cards = ['deckGunBarrel', 'deckGunBarrel', 'heavyTorpedo'];
     const rows = slotViewModels(viewFor('torpedoBoat', { cards }));
-    expect(rows[SLOT_GUN].boonCount).toBe(2); // gun
-    expect(rows[Q].boonCount).toBe(1); // heavy torpedo
-    expect(rows[SLOT_BOOST].boonCount).toBe(0); // boost
-    // ...and NONE of it is drawn on the square: the per-slot `◆n` mark rode the
-    // v2 categories and left with them (Eric ruling 2026-09-15), and Story 8.6
-    // took the words with the label column. What a square shows of the build is
-    // the TIER numeral; the list itself lives in the tooltip.
     expect(rows[SLOT_GUN].tier).toBe(1); // the deck gun sails at rung I (amendment 70)
     expect(rows[Q].tier).toBe(1); // ...and the torpedo's line is at copy 1
   });
 
-  it('folds the shipwide ladders into the GUN slot only (the ship card)', () => {
-    const cards = ['radarSweep', 'armor', 'reload'];
-    const rows = slotViewModels(viewFor('torpedoBoat', { cards }));
-    expect(rows[SLOT_GUN].boonCount).toBe(3);
-    expect(rows[Q].boonCount).toBe(0);
-    expect(slotBoonIds('heavyTorpedo', cards)).toEqual([]);
-  });
-
-  it('ignores a junk id on the wire rather than counting it', () => {
-    expect(slotBoonIds('gun', ['deckGunBarrel', 'notARealBoon', 'constructor'])).toEqual(['deckGunBarrel']);
-  });
-
   it('spends no glyphs on a count — a deep gun build prints its RUNG, never a tally', () => {
     const rows = slotViewModels(viewFor('torpedoBoat', { cards: Array<string>(12).fill('deckGunBarrel') }));
-    expect(rows[SLOT_GUN].boonCount).toBe(12); // the tooltip lists every one of them
     // ...and the square still shows ONE number: the rung. Twelve barrels buy no
     // rung at all — DECK GUN BARREL is not the gun's ladder — so the numeral is
     // the I the hull spawned with, not a 12.
@@ -1114,7 +1138,7 @@ describe('the tooltip memo keys on the slot\'s own stock (P5)', () => {
   const stats = statsFor('torpedoBoat');
   const cards = ['hullRepair', 'hullRepair'];
   const cached = (n: number): TooltipCache => ({
-    slot: BELT_1, id: 'hullRepair', stats, boons: cards, n,
+    target: BELT_1, id: 'hullRepair', stats, boons: cards, n,
     model: tooltipModel(BELT_1, 'hullRepair', stats, cards, n),
   });
 
@@ -1359,10 +1383,6 @@ describe('a stocked BELT square', () => {
     expect(row.state).toBe('empty');
     expect(row.id).toBeNull();
     expect(row.badge).toBeNull();
-  });
-
-  it('owns NO accrued rows — a consumable addresses no equipment', () => {
-    expect(slotViewModels(stocked(2, { cards: ['hullRepair', 'hullRepair'] }))[5].boonCount).toBe(0);
   });
 
   it('draws the mock PLUS for HULL REPAIR, NO glyph for a STUB consumable, and invents none', () => {

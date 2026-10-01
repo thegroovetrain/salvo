@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.23] - 2026-09-30
+
+### Changed
+- **Tooltips show numbers, not prose** — hovering a weapon, Shift or belt square on the HUD bar now lists that slot's live stats one per line (`RELOAD 28.5 s`, `ROUNDS 1`, `SPEED 67.5`, `DAMAGE 55`, `HOMING 0.125 rad/s`, `RANGE 660 u` …) under its name and the key line; the prose descriptions and the accrued-build list are gone, and nothing in the game calls a torpedo a "fish" any more. Weapon descriptions will live in How-to-Play (Story 8-22). The hover heading is the card's line name (HEAVY TORPEDO, NAVAL MINES, CANNON).
+- **Ship stats on the HP globe** — hover the HP globe for a `SHIP` panel: MAX HULL, TOP SPEED, TURNING (now in degrees per second), RADAR SWEEP, ALL COOLDOWNS at your live values. A press on the globe no longer fires the gun through it.
+- **Refit card hover = the same stat list** — hovering an offered card shows the full stat table of what it touches, valued as it will be once taken; a consumable keeps its KEY FIRES / KEY PRIMES line above its rows.
+- **Color-coded refit cards** — the KIND word and the card's resting edge are colored by kind: WEAPON phosphor, WEAPON UPGRADE blue (tier copies and the gun ladders), SHIP UPGRADE purple, CONSUMABLE silver. The word still says it; hovering still turns the edge amber.
+- **Machine gun retune** — one shell every 0.35 s at tier I, falling to 0.31 / 0.27 / 0.23 / 0.20 s at tiers II–V (the card prints a `RATE` row); the magazine swap is 10 s at tier I (−5 % a tier, 8 s at V); the 5 s idle delay is gone — the swap starts the moment you stop firing with shells left, firing again with shells left cancels it and it restarts from full when you stop, and an empty magazine reloads uninterrupted; the swap shows on the gun square while it runs. INSTANT RELOAD still finishes a running swap. Magazine size and damage per tier are unchanged.
+- **Smoke covers the ship that lays it** — SMOKE SCREEN puffs now drop at the hull's center, not astern.
+- **You can see your own chaff** — a dim dashed ring marks the 120 u cloud where you fired CHAFF, fading out over its 15 s. Only you see it; enemies still see the fake returns and never the ring.
+
+### Internal
+- `CONFIG.machineGun`: `rateMs` 500 → 350, `reloadMs` 15000 → 10000, `idleReloadMs` deleted; the MACHINE GUN ladder authors `rateMs` steps −40/−40/−40/−30 ms (`ladderSteps`, four explicit tiers); `rateMs` joins `EQUIPMENT_STAT_FIELDS.machineGun` with a plumbing floor in `clampStats`; the stream carries its cadence remainder across ticks (`nextDue`), re-anchoring on a fresh stream or a stalled tick; a refused (frozen) hull is told its stream stopped so the swap still starts.
+- Self-private `OwnShip.chaff { x, y, until }` on the owner's own frame (the `shield` precedent; the SIX-exception count is untouched). PROTOCOL_VERSION 63 -> 64.
+- Client: `render/slotTooltip.ts` is a stat-row model (no boon-row trim, no measured-height reconciliation; `HoverState.target` is `number | 'ship' | null`); `ui/boonCopy.ts` gains `equipmentStatRows` / `consumableStatRows` / `shipStatRows` / `cardHoverRows` / `cardKind`; `EQUIPMENT_DESCRIPTION`, `BOON_EXPLAIN`, `boonTooltipText`, `boonDescription` deleted; new `render/chaffRing.ts`, `ui/classNames.ts`; a structural test forbids "fish" in any client string literal.
+- Review gate (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol): see epic-8 amendment 196.
+- Tests: shared 1020, server 2273, client 3732; hook test 266; lint 0 errors.
 ## [0.18.22] - 2026-09-30
 
 ### Changed

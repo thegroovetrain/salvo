@@ -20,11 +20,9 @@ import {
 } from '@salvo/shared';
 import { glyphPaths } from '../render/equipmentIcons.js';
 import {
-  EQUIPMENT_DESCRIPTION,
   EQUIPMENT_NAME,
   equipmentDamage,
   interactionLine,
-  isGunFamily,
   slotTier,
 } from '../render/equipmentInfo.js';
 import {
@@ -34,7 +32,7 @@ import {
   slotViewModels,
   type HotbarView,
 } from '../render/hotbar.js';
-import { slotBoonIds } from '../render/slotTooltip.js';
+import { equipmentStatRows, statValueText } from '../ui/boonCopy.js';
 import { fireArcKind, weaponRangeU, weaponReachU } from '../render/weaponArc.js';
 import { computeAimPreview, ownBurstRadius, type AimPreviewInput } from '../render/aimPreview.js';
 
@@ -95,11 +93,17 @@ describe('the ruled names (amendments 107/108)', () => {
     expect(Object.keys(EQUIPMENT_NAME)).not.toContain('monitor');
   });
 
-  it('the two Shift descriptions read their numbers off CONFIG, never a literal', () => {
-    const cut = EQUIPMENT_DESCRIPTION.damageCut ?? '';
-    expect(cut).toContain(`${CONFIG.damageCut.durationMs / 1000} s`);
-    expect(cut).toContain(`${Math.round((1 - CONFIG.damageCut.factor) * 100)} %`);
-    expect(EQUIPMENT_DESCRIPTION.instantReload ?? '').not.toBe('');
+  // CYCLE 158 (amendment 185): the Shifts' prose descriptions are DELETED; their
+  // hover prints stat lines, every number off CONFIG / the fold.
+  it('the two Shifts\' stat lines read their numbers off CONFIG, never a literal', () => {
+    const lines = (id: 'instantReload' | 'damageCut') =>
+      equipmentStatRows(id, stats()).map((r) => `${r.label} ${statValueText(r)}`);
+    expect(lines('damageCut')).toEqual([
+      `CUT ${Math.round((1 - CONFIG.damageCut.factor) * 100)}%`,
+      `DURATION ${(CONFIG.damageCut.durationMs / 1000).toFixed(1)} s`,
+      `RELOAD ${(CONFIG.damageCut.reloadMs / 1000).toFixed(1)} s`,
+    ]);
+    expect(lines('instantReload')).toEqual([`RELOAD ${(CONFIG.instantReload.reloadMs / 1000).toFixed(1)} s`]);
   });
 
   it('the Shifts deal no damage; the machine gun reports PER SHELL, the flak per burst victim', () => {
@@ -111,13 +115,7 @@ describe('the ruled names (amendments 107/108)', () => {
   });
 });
 
-describe('the gun family — the MOUNTED gun\'s tier and the shipwide rows', () => {
-  it('isGunFamily is exactly the three mountable guns', () => {
-    expect(['gun', 'machineGun', 'flak'].every((id) => isGunFamily(id as never))).toBe(true);
-    expect(isGunFamily('boost')).toBe(false);
-    expect(isGunFamily('heavyTorpedo')).toBe(false);
-  });
-
+describe('the gun family — the MOUNTED gun\'s tier', () => {
   it('slot 0 reads the MOUNTED gun\'s own ladder rung (1 + copies), and says so on hover', () => {
     const cards = ['machineGun', 'machineGun'];
     const s = stats(cards);
@@ -129,12 +127,6 @@ describe('the gun family — the MOUNTED gun\'s tier and the shipwide rows', () 
     expect(interactionLine(SLOT_GUN, 'machineGun', cards)).toBe('WEAPON · ALWAYS SELECTED');
   });
 
-  it('the shipwide ladders ride slot 0 whichever gun is mounted', () => {
-    for (const gun of ['gun', 'machineGun', 'flak'] as const) {
-      expect(slotBoonIds(gun, ['armor', 'speed']), gun).toEqual(['armor', 'speed']);
-    }
-    expect(slotBoonIds('instantReload', ['armor'])).toEqual([]);
-  });
 });
 
 describe('THE HELD-FIRE DRAIN (UX-DR52)', () => {

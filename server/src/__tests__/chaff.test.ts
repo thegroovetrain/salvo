@@ -155,14 +155,16 @@ describe('CHAFF — the row (Story 8.16)', () => {
     expect(a.loadout[BELT].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 
-  it('nothing about chaff ever rides a frame — not the owner\'s, not anyone\'s', () => {
+  it('only the OWNER\'s own `you.chaff` carries the cloud (amendment 191) — nothing else about chaff rides any frame', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);
-    arm(w, a, 0, 0);
+    const src = arm(w, a, 0, 0);
+    const own = buildFrame(w, 'a');
+    expect(own.you!.chaff).toEqual({ x: 0, y: 0, until: src.until });
     for (const id of ['a', 'b']) {
       const f = buildFrame(w, id);
-      expect(JSON.stringify({ ...f, you: { ...f.you, offer: [], cards: [] } })).not.toContain('chaff');
+      expect(JSON.stringify({ ...f, you: { ...f.you, offer: [], cards: [], chaff: undefined } })).not.toContain('chaff');
     }
   });
 });

@@ -1,257 +1,171 @@
 // THE CONTAINER-FIT PIN for the hotbar SLOT TOOLTIP (amendment 47: "nothing
 // anywhere in the game may render larger than its container"). The refit card's
 // sibling, and its mirror image: the card is a FIXED box holding growing text,
-// the tooltip is a GROWING panel inside a fixed viewport. Story 2.9 turned its
-// BOONS block from deliberate absence into a live list of the whole build, which
-// is exactly the shape that overflows silently.
+// the tooltip is a GROWING panel inside a fixed viewport.
 //
-// It walks EVERY equipment id against EVERY reachable accrued build —
-//   • the empty build (the pre-2.9 panel, which must not have grown),
-//   • each subdeck fully stacked (every line of the slot's category at its full
-//     copy count, both rival doctrines' worst case),
-//   • the GUN slot with the shipwide INTEL/SHIP lines it hosts on top,
-//   • every ship class (class stats move the printed values)
-// — and asserts the modelled panel fits the floor viewport and that what
-// survives is still a useful list (the fix may not be "trim everything").
-//
-// STORY 8.6 took the LABEL COLUMN with the bottom-left stack, so the quick-info
-// compression suite that used to close this file is gone with the box it was
-// measured against (deferred-work ledger :1966). The tooltip is now the ONLY
-// place a slot's name, interaction line and build are read, which makes this
-// file's own pins the whole of the container-fit story for the surface.
+// CYCLE 158 (amendments 185/186) re-cut the panel to the hovered thing's LIVE
+// stat table, one row per line, with no trim at all — so this walk is the whole
+// of the fit story. It walks
+//   • EVERY equipment id × EVERY class × {bare, its own lines maxed, the whole
+//     catalog fitted}, each in the slot(s) that equipment can occupy,
+//   • EVERY consumable on EVERY belt square,
+//   • the HP globe's SHIP panel per class (bare and every ladder maxed),
+// and asserts each panel fits the room ABOVE its anchor at the 1280×614 floor
+// (the cycle-141 law: the panel hangs above the thing it points at, so that
+// clearance is its container), and that no row is wider than the panel.
 
 import { describe, expect, it } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  CONSUMABLE_IDS,
+  CONSUMABLE_SLOTS,
   EQUIPMENT_IDS as SHARED_EQUIPMENT_IDS,
+  SLOT_BOOST,
+  SLOT_GUN,
+  WEAPON_SLOTS,
   effectiveStats,
   type EquipmentId,
   type ShipClassId,
+  type SlotItemId,
 } from '@salvo/shared';
-// THE TOOLTIP CORE MOVED in Story 8.7 (ruling 13): `render/slotTooltip.ts` owns
-// the model, the fit arithmetic and the placement; `render/hotbar.ts` keeps the
-// squares and the Pixi shell that paints both. The pins are re-pointed, not
-// rewritten — the panel's width, type and notch are untouched (amendment 42).
 import {
-  SHIP_DIVIDER_ROW,
+  TIP_TYPE,
   TOOLTIP_MAX_PANEL_H,
-  boonRows,
-  slotBoonIds,
+  headingHeight,
+  interactionLines,
+  shipTooltipModel,
   tooltipInnerWidth,
   tooltipMetrics,
   tooltipModel,
-  headingHeight,
-  interactionLines,
-  TIP_TYPE,
-  type TooltipBoonRow,
+  tooltipRoomAbove,
+  type TooltipModel,
 } from '../render/slotTooltip.js';
-
-/** The heading rows' shared line box (px) — the panel's own register. */
-const TIP_TYPE_HEAD = TIP_TYPE.headLineHeight;
-import { cardEquipmentIds, isShipwideCard } from '../render/equipmentInfo.js';
+import { hoverAnchor } from '../render/hotbar.js';
+import { hudBarLayout, type Rect } from '../render/hudBar.js';
+import { cardEquipmentIds } from '../render/equipmentInfo.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
-import { boonName } from '../ui/boonCopy.js';
 
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 const LINES = Object.values(CATALOG);
 const EQUIPMENT_IDS = [...SHARED_EQUIPMENT_IDS];
+const FLOOR = hudBarLayout(1280, 614);
 
-/** Every copy of every line that ADDRESSES one of `ids` — the MAXIMUM accrued
- *  build a slot's tooltip can ever be asked to render. Story 8.1: the v2
- *  categories are deleted, so a line's slot comes from the equipment it
- *  addresses (render/equipmentInfo.cardEquipmentIds). */
-function maxedFor(ids: readonly EquipmentId[]): string[] {
-  return LINES.filter((d) => cardEquipmentIds(d.id).some((e) => ids.includes(e)))
-    .flatMap((d) => Array<string>(d.cap).fill(d.id));
+/** Every copy of every line that ADDRESSES `id` — its maxed build. */
+function maxedFor(id: EquipmentId): string[] {
+  return LINES.filter((d) => cardEquipmentIds(d.id).includes(id)).flatMap((d) => Array<string>(d.cap).fill(d.id));
 }
 
-/** Every copy of every SHIPWIDE line (the five universal ladders) — the gun
- *  slot hosts these under the `— SHIP —` divider. */
-const SHIPWIDE_CARDS = LINES.filter((d) => isShipwideCard(d.id) && d.kind === 'ladder')
-  .flatMap((d) => Array<string>(d.cap).fill(d.id));
-
-/** The whole catalog at cap — the filter, not the panel, is what keeps another
- *  slot's lines out, so the worst possible input proves the filter. */
+/** The whole catalog at cap. */
 const WHOLE_CATALOG = LINES.flatMap((d) => Array<string>(d.cap).fill(d.id));
+/** Every ladder at cap — the SHIP panel's maxed build. */
+const LADDERS_MAXED = LINES.filter((d) => d.kind === 'ladder').flatMap((d) => Array<string>(d.cap).fill(d.id));
 
-/** The accrued builds each equipment's tooltip is measured against. */
-function buildsFor(id: EquipmentId): { label: string; boons: string[] }[] {
-  const own = maxedFor([id]);
-  return [
-    { label: 'bare', boons: [] },
-    { label: 'own lines maxed', boons: own },
-    { label: 'everything this slot can show', boons: id === 'gun' ? [...own, ...SHIPWIDE_CARDS] : own },
-    { label: 'whole catalog fitted', boons: WHOLE_CATALOG },
-  ];
+const GUNS: readonly EquipmentId[] = ['gun', 'machineGun', 'flak'];
+const SHIFTS: readonly EquipmentId[] = ['boost', 'instantReload', 'damageCut'];
+
+/** The slots a piece of equipment can sit in. */
+function slotsFor(id: EquipmentId): readonly number[] {
+  if (GUNS.includes(id)) return [SLOT_GUN];
+  if (SHIFTS.includes(id)) return [SLOT_BOOST];
+  return WEAPON_SLOTS;
 }
 
 interface Case {
   label: string;
-  id: EquipmentId;
-  cls: ShipClassId;
-  boons: string[];
+  model: TooltipModel;
+  anchor: Rect;
 }
 
-const CASES: Case[] = EQUIPMENT_IDS.flatMap((id) =>
-  CLASSES.flatMap((cls) => buildsFor(id).map((b) => ({ label: `${id}/${cls}/${b.label}`, id, cls, boons: b.boons }))),
+const SLOT_CASES: Case[] = EQUIPMENT_IDS.flatMap((id) =>
+  CLASSES.flatMap((cls) =>
+    [
+      { b: 'bare', cards: [] as string[] },
+      { b: 'own maxed', cards: maxedFor(id) },
+      { b: 'whole catalog', cards: WHOLE_CATALOG },
+    ].flatMap(({ b, cards }) =>
+      slotsFor(id).map((slot) => ({
+        label: `${id}/${cls}/${b}/slot ${slot}`,
+        model: tooltipModel(slot, id as SlotItemId, effectiveStats(CONFIG.shipClasses[cls], cards), cards)!,
+        anchor: FLOOR.squares[slot],
+      })),
+    ),
+  ),
 );
 
-function statsFor(c: Case) {
-  return effectiveStats(CONFIG.shipClasses[c.cls], c.boons);
-}
+const BELT_CASES: Case[] = CONSUMABLE_IDS.flatMap((id) =>
+  CONSUMABLE_SLOTS.map((slot) => ({
+    label: `${id}/belt ${slot}`,
+    // The deepest stock the belt can print (the line's cap) — the longest `×n`.
+    model: tooltipModel(slot, id, effectiveStats(CONFIG.shipClasses.torpedoBoat), [], CATALOG[id].cap)!,
+    anchor: FLOOR.squares[slot],
+  })),
+);
 
-function modelFor(c: Case) {
-  return tooltipModel(c.id === 'gun' ? 0 : 1, c.id, statsFor(c), c.boons)!;
-}
+const SHIP_CASES: Case[] = CLASSES.flatMap((cls) =>
+  [
+    { b: 'bare', cards: [] as string[] },
+    { b: 'every ladder maxed', cards: LADDERS_MAXED },
+  ].map(({ b, cards }) => ({
+    label: `SHIP/${cls}/${b}`,
+    model: shipTooltipModel(cls, effectiveStats(CONFIG.shipClasses[cls], cards))!,
+    anchor: hoverAnchor('ship', FLOOR),
+  })),
+);
+
+const CASES = [...SLOT_CASES, ...BELT_CASES, ...SHIP_CASES];
 
 describe('slot tooltip container fit (amendment 47)', () => {
-  it('covers every equipment id, class and accrued build', () => {
-    expect(CASES.length).toBe(EQUIPMENT_IDS.length * CLASSES.length * 4);
+  it('covers every equipment id × class × build, every belt line, and the SHIP panel per class', () => {
+    const slotCount = EQUIPMENT_IDS.reduce((n, id) => n + slotsFor(id).length, 0);
+    expect(SLOT_CASES.length).toBe(slotCount * CLASSES.length * 3);
+    expect(BELT_CASES.length).toBe(CONSUMABLE_IDS.length * CONSUMABLE_SLOTS.length);
+    expect(SHIP_CASES.length).toBe(CLASSES.length * 2);
+    expect(CASES.every((c) => c.model !== null)).toBe(true);
   });
 
-  it('NO tooltip panel renders taller than the floor viewport allows', () => {
-    const over = CASES.map((c) => ({ c, m: tooltipMetrics(modelFor(c)) }))
+  it('EVERY panel fits the room ABOVE its anchor at the 1280×614 floor', () => {
+    const over = CASES.map((c) => ({ c, m: tooltipMetrics(c.model, tooltipRoomAbove(c.anchor)) }))
       .filter((r) => r.m.overflow > 0)
-      .map((r) => `${r.c.label}: ${r.m.height}px > ${TOOLTIP_MAX_PANEL_H}px (${r.m.boonLines} boon lines)`);
+      .map((r) => `${r.c.label}: ${r.m.height}px > ${tooltipRoomAbove(r.c.anchor)}px (${r.m.statLines} rows)`);
     expect(over).toEqual([]);
   });
 
-  // THE NAME still owns ONE line — it is the panel's heading and a wrapped name
-  // would read as two headings. The INTERACTION row no longer does: Story 8.7
-  // (ruling 13) put a weapon's TIER and a belt slot's whole activation shape on
-  // it, and epic-8 amendment 42 freezes the panel's width and type, so the row
-  // WRAPS and the height model measures the wrap. What is pinned is that the
-  // model and the render agree — which is the amendment-47 property, not "one
-  // line" — and that no row needs more than two.
+  it('and therefore fits the floor viewport', () => {
+    const worst = Math.max(...CASES.map((c) => tooltipMetrics(c.model).height));
+    expect(worst).toBeLessThanOrEqual(TOOLTIP_MAX_PANEL_H);
+  });
+
+  it('never lets a stat row run wider than the panel (label column + gap + value)', () => {
+    const inner = tooltipInnerWidth();
+    const wide = CASES.filter((c) => tooltipMetrics(c.model).rowW > inner).map(
+      (c) => `${c.label}: ${tooltipMetrics(c.model).rowW}px`,
+    );
+    expect(wide).toEqual([]);
+  });
+
+  // THE NAME owns ONE line — it is the panel's heading. The INTERACTION row
+  // wraps (Story 8.7, ruling 13), and the height model measures the wrap.
   it('keeps the NAME on one line, and MODELS however many the interaction row takes', () => {
     const inner = tooltipInnerWidth();
     for (const c of CASES) {
-      const m = modelFor(c);
-      expect(monoTextWidth(m.name, 17, 1.1), m.name).toBeLessThanOrEqual(inner);
+      const m = c.model;
+      expect(monoTextWidth(m.name, TIP_TYPE.nameSize, TIP_TYPE.nameLetterSpacing), m.name).toBeLessThanOrEqual(inner);
       const lines = interactionLines(m.interaction);
-      expect(lines, m.interaction).toBeGreaterThanOrEqual(1);
       expect(lines, m.interaction).toBeLessThanOrEqual(2);
       expect(tooltipMetrics(m).interactionLines, m.interaction).toBe(lines);
-      // The modelled heading block is exactly what the row costs.
-      expect(headingHeight(m.interaction), m.interaction).toBe(TIP_TYPE_HEAD * (1 + lines));
+      expect(headingHeight(m.interaction)).toBe(TIP_TYPE.headLineHeight * (1 + lines));
     }
   });
 
-  it('grows the panel by exactly one line box when the interaction row wraps', () => {
-    const one = { name: 'X', interaction: 'WEAPON · Q', description: '', boons: [] };
-    const two = { name: 'X', interaction: 'WEAPON · Q · SWITCH-TO · TIER V', description: '', boons: [] };
-    expect(interactionLines(one.interaction)).toBe(1);
-    expect(interactionLines(two.interaction)).toBe(2);
-    expect(tooltipMetrics(two).height - tooltipMetrics(one).height).toBe(TIP_TYPE_HEAD);
+  it('every fitted weapon and the SHIP panel print at least one stat row', () => {
+    const silent = [...SLOT_CASES, ...SHIP_CASES].filter((c) => c.model.stats.length === 0).map((c) => c.label);
+    expect(silent).toEqual([]);
   });
 
-  it('leaves real headroom on the worst panel — the pin is not on the boundary', () => {
-    const worst = Math.max(...CASES.map((c) => tooltipMetrics(modelFor(c)).height));
-    expect(worst).toBeLessThanOrEqual(TOOLTIP_MAX_PANEL_H);
-    // Documents the fit budget: whoever spends the last of it has to look here.
-    expect(TOOLTIP_MAX_PANEL_H - worst).toBeGreaterThanOrEqual(2);
-  });
-
-  it('the panel GROWS with the build (the rows are really rendered, not dropped)', () => {
-    const bare = tooltipMetrics(modelFor({ label: '', id: 'gun', cls: 'battleship', boons: [] })).height;
-    const fitted = tooltipMetrics(
-      modelFor({ label: '', id: 'gun', cls: 'battleship', boons: ['deckGunBarrel', 'deckGunTurret'] }),
-    ).height;
-    expect(fitted).toBeGreaterThan(bare);
-  });
-});
-
-describe('the laws that constrain the fix', () => {
-  it('never trims a real build down to nothing — a fitted slot always lists rows', () => {
-    const empty = CASES.filter((c) => c.boons.length > 0 && slotBoonIds(c.id, c.boons).length > 0)
-      .filter((c) => modelFor(c).boons.length === 0)
-      .map((c) => c.label);
-    expect(empty).toEqual([]);
-  });
-
-  it('keeps at least six rows on every slot before it starts trimming', () => {
-    const thin = CASES.filter((c) => slotBoonIds(c.id, c.boons).length > 0)
-      .map((c) => ({ c, shown: modelFor(c).boons, all: boonRows(c.id, c.boons, statsFor(c)) }))
-      .filter((r) => r.shown.length < Math.min(6, r.all.length))
-      .map((r) => `${r.c.label}: ${r.shown.length} of ${r.all.length}`);
-    expect(thin).toEqual([]);
-  });
-
-  it('says so when it trims: the last row becomes the +n MORE marker', () => {
-    for (const c of CASES) {
-      const all = boonRows(c.id, c.boons, statsFor(c));
-      const shown = modelFor(c).boons;
-      if (shown.length === all.length) continue;
-      expect(shown[shown.length - 1].label).toMatch(/^◆ \+\d+ MORE$/);
-    }
-  });
-
-  // Since catalog v3 (Story 8.1) an EQUIPMENT line has no holding line to print
-  // — copy 1 fits the weapon and tiers II–V are unauthored until Stories
-  // 8.12–8.16 — so the row is its `◆ NAME` alone, which is the honest readout.
-  // Every row still carries the diamond, and every LADDER/ADD-ON row still
-  // carries a real effect line.
-  it('every accrued row carries a ◆ name, and an effect line wherever there is one', () => {
-    const bad: string[] = [];
-    for (const c of CASES) {
-      for (const row of modelFor(c).boons) {
-        if (row.divider) continue;
-        if (!row.label.startsWith('◆ ')) bad.push(`${c.label}: ${row.label}`);
-      }
-    }
-    expect(bad).toEqual([]);
-  });
-
-  // HEAT SEEKING, the one add-on that had no holding line, was CUT with the
-  // missile in Story 8.15 (amendment 89e), so every ladder and add-on speaks.
-  it('a LADDER or ADD-ON row always reports a live effect line', () => {
-    const chatty = LINES.filter((d) => d.kind === 'ladder' || d.kind === 'addon')
-      .map((d) => d.id);
-    const bad: string[] = [];
-    for (const c of CASES) {
-      for (const row of boonRows(c.id, c.boons, statsFor(c))) {
-        if (row.divider) continue;
-        const id = chatty.find((x) => row.label === `◆ ${boonName(x)}`);
-        if (id !== undefined && row.effect.trim() === '') bad.push(`${c.label}: ${row.label}`);
-      }
-    }
-    expect(bad).toEqual([]);
-  });
-
-  it('hosts the shipwide lines under the SHIP divider — in the GUN slot only', () => {
-    const shipwide = SHIPWIDE_CARDS;
-    // The divider SEPARATES, so it needs the gun's own lines above it...
-    const mixed = modelFor({ label: '', id: 'gun', cls: 'torpedoBoat', boons: ['deckGunBarrel', ...shipwide] });
-    expect(mixed.boons.some((r) => r.label === SHIP_DIVIDER_ROW)).toBe(true);
-    // ...and a gun holding ONLY shipwide lines lists them bare (2.9 review): a
-    // heading over the whole list separates it from nothing and spends a row of
-    // the panel's fit budget saying so.
-    const shipOnly = modelFor({ label: '', id: 'gun', cls: 'torpedoBoat', boons: shipwide });
-    expect(shipOnly.boons.some((r) => r.label === SHIP_DIVIDER_ROW)).toBe(false);
-    expect(shipOnly.boons.length).toBeGreaterThan(0);
-    // Story 8.15: slot 0 holds WHICHEVER gun the captain picked, and the
-    // shipwide lines ride it — so the three mountable guns host them and no
-    // other equipment does.
-    const GUNS: readonly string[] = ['gun', 'machineGun', 'flak'];
-    for (const id of EQUIPMENT_IDS.filter((e) => !GUNS.includes(e))) {
-      expect(modelFor({ label: '', id, cls: 'torpedoBoat', boons: shipwide }).boons).toEqual([]);
-    }
-    for (const id of ['machineGun', 'flak'] as const) {
-      expect(modelFor({ label: '', id, cls: 'torpedoBoat', boons: shipwide }).boons.length, id).toBeGreaterThan(0);
-    }
-  });
-
-  it('never lets a row carry an unbreakable token wider than the panel', () => {
-    const inner = tooltipInnerWidth();
-    const tooWide: string[] = [];
-    for (const c of CASES) {
-      for (const row of modelFor(c).boons) {
-        for (const word of `${row.label} ${row.effect}`.split(/\s+/)) {
-          if (monoTextWidth(word, 14, 0.6) > inner) tooWide.push(word);
-        }
-      }
-    }
-    expect(tooWide).toEqual([]);
+  it('grows the panel by exactly one line box per stat row', () => {
+    const one = { name: 'X', interaction: 'WEAPON · Q', stats: [{ label: 'A', cur: null, next: '1' }] };
+    const two = { ...one, stats: [...one.stats, { label: 'B', cur: null, next: '2' }] };
+    expect(tooltipMetrics(two).height - tooltipMetrics(one).height).toBe(TIP_TYPE.boonLineHeight);
   });
 });

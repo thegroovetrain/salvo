@@ -53,6 +53,15 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(labels(CATALOG.deckGunBarrel)).toEqual(['SHELLS PER SHOT']);
   });
 
+  it('TURNING prints WHOLE DEGREES PER SECOND with the unit (Eric 2026-09-30): 46°/s → 49°/s on a bare Torpedo Boat', () => {
+    expect(cardStatRows(CATALOG.turning, 0, TB)).toEqual([{ label: 'TURNING', cur: '46°/s', next: '49°/s' }]);
+    // Every rung moves the printed number (0.05 rad/s ≈ 2.9°): 46 / 49 / 52 / 54 / 57.
+    const ladder = [0, 1, 2, 3].map((k) =>
+      cardStatRows(CATALOG.turning, k, { cls: 'torpedoBoat', cards: new Array<string>(k).fill('turning') })[0].next,
+    );
+    expect(ladder).toEqual(['49°/s', '52°/s', '54°/s', '57°/s']);
+  });
+
   it('keeps the RPM and PERCENTAGE printers the hover panel already uses', () => {
     const sweep = cardStatRows(CATALOG.radarSweep, 0, TB)[0];
     expect(sweep.cur).toMatch(/ RPM$/);
@@ -609,20 +618,21 @@ describe('cardTierLabel pairs with the rows — UX-DR51\'s four examples', () =>
 //
 // A LADDER line each (the gun is the seat's pick, never a card), but each tier
 // ALSO cuts that gun's reload by 5 % — so the tier card prints the reload step
-// FIRST, then every authored step (amendments 85/87(b)): MACHINE GUN +2 shells
-// and +1 damage per shell, FLAK +2 damage (blast fixed). The machine gun's pool
+// FIRST, then every authored step (amendments 85/87(b)): MACHINE GUN +2 shells,
+// +1 damage per shell and the shot-delay step −40/−40/−40/−30 ms (Eric
+// 2026-09-30: 0.35 → 0.20 s, a RATE row), FLAK +2 damage (blast fixed). The machine gun's pool
 // is a MAGAZINE, so its row says SHELLS where every other pool says ROUNDS.
 describe('cardStatRows — the machine gun and flak ladders (Story 8.15)', () => {
   function face(id: 'machineGun' | 'flak', copiesHeld: number): string[] {
     return cardStatRows(CATALOG[id], copiesHeld, held(id, copiesHeld)).map((r) => `${r.label} ${r.cur ?? ''}>${r.next}`);
   }
 
-  it('MACHINE GUN tier II: RELOAD 15.0 s to 14.3 s, SHELLS 16 to 18, DAMAGE 4 to 5', () => {
-    expect(face('machineGun', 0)).toEqual(['RELOAD 15.0 s>14.3 s', 'SHELLS 16>18', 'DAMAGE 4>5']);
+  it('MACHINE GUN tier II: RELOAD 10.0 s to 9.5 s, SHELLS 16 to 18, DAMAGE 4 to 5, RATE 0.35 s to 0.31 s', () => {
+    expect(face('machineGun', 0)).toEqual(['RELOAD 10.0 s>9.5 s', 'SHELLS 16>18', 'DAMAGE 4>5', 'RATE 0.35 s>0.31 s']);
   });
 
-  it('MACHINE GUN tops out at 24 shells / 8 damage / 12.0 s at tier V', () => {
-    expect(face('machineGun', 3)).toEqual(['RELOAD 12.8 s>12.0 s', 'SHELLS 22>24', 'DAMAGE 7>8']);
+  it('MACHINE GUN tops out at 24 shells / 8 damage / 8.0 s / 0.20 s at tier V', () => {
+    expect(face('machineGun', 3)).toEqual(['RELOAD 8.5 s>8.0 s', 'SHELLS 22>24', 'DAMAGE 7>8', 'RATE 0.23 s>0.20 s']);
   });
 
   it('FLAK tier II: RELOAD 6.0 s to 5.7 s, DAMAGE 12 to 14 — and the blast never moves', () => {

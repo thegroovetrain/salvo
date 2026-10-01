@@ -701,18 +701,20 @@ export interface ShipRecord {
   damageCutUntil: number;
   /**
    * ms — server-clock time the MACHINE GUN's stream may fire its next shell
-   * (Story 8.15, amendment 103): `lastShot + rateMs`. Server-private, written
-   * only by the machineGun row's `stream`. 0 = fire on the first held tick.
+   * (Story 8.15, amendment 103). While the stream stays live it CARRIES OVER
+   * (`previous due + rateMs`, orchestrator ruling 2026-09-30, so a 310 ms
+   * delay averages 310 ms on 50 ms ticks); a fresh stream re-anchors to
+   * `now + rateMs`. Server-private, written only by the machineGun row's
+   * `stream`. 0 = fire on the first held tick.
    */
   streamNextAt: number;
   /**
-   * ms — server-clock time of the machine gun's LAST stream shot (Story 8.15,
-   * amendment 103): the IDLE CLOCK. The magazine row's tick starts the full
-   * swap once `now - streamLastShotAt >= idleReloadMs` with shells left; a
-   * shot restarts it. Server-private, never on the wire (the wire WeaponAmmo
-   * stays {n, reloadMsLeft}).
+   * True while the machine gun's stream was live on the previous call (held on
+   * the selected gun slot, shells in the magazine) — the carry-over gate for
+   * `streamNextAt`. False = the next shot starts a FRESH stream (after a
+   * release, a deselect or an emptied magazine). Server-private.
    */
-  streamLastShotAt: number;
+  streamLive: boolean;
   /**
    * hp — the REMAINING PAID HULL REPAIR pool (Eric rulings 2026-08-04; the
    * spend became a CARD in Story 8.8); 0 = nothing draining. Written ONLY by
@@ -877,7 +879,8 @@ export interface ShipRecord {
    * catalog-v3 R38; amendments 138–145); 0 = not laying. Set ONLY by
    * `ActivationContext.setSmokeScreen` (`now + CONFIG.smokeScreen.layMs`; a
    * re-press RESTARTS it — ruling 140). While `smokeUntil > now` and the hull
-   * is AFLOAT, stepSmoke drops a puff at the stern every `puffIntervalMs`.
+   * is AFLOAT, stepSmoke drops a puff at the hull's CENTER every
+   * `puffIntervalMs` (Eric 2026-09-30, amendment 190 — was the stern).
    * RESET to 0 at addShip / sinkShip / founderSinking / respawn / redeploy
    * (ruling 144: laying stops at sink entry — the puffs already on the water
    * live out their own `until`). SERVER-PRIVATE, never on the wire; mirrored
@@ -1177,7 +1180,7 @@ export class World {
   /**
    * THE SMOKE SCREEN puffs (Story 8.18, catalog-v3 R38, amendments 138–145),
    * keyed by id (`sk${n}`), in LAY order. Each is a stationary disc laid at
-   * its owner's stern by stepSmoke, born at `bornAt` with radius r0 and
+   * its owner's CENTER (amendment 190) by stepSmoke, born at `bornAt` with radius r0 and
    * growing to r1 over `expandMs` (the SHARED `puffRadius` curve — both sides
    * run it), deleted by stepSmoke once `now >= until` (bornAt + lifeMs). THE
    * OCCLUDER: signals.ts's `sightClear` tests every sight-tier segment against
@@ -1842,8 +1845,8 @@ export class World {
       // here anyway, so the wait costs nothing.
       boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, dazzledUntil: 0, shield: null,
       // Story 8.15: no DAMAGE CUT window, and the machine gun's stream clock
-      // and idle clock both at the epoch (fire on the first held tick).
-      damageCutUntil: 0, streamNextAt: 0, streamLastShotAt: 0,
+      // at the epoch (fire on the first held tick), no stream live.
+      damageCutUntil: 0, streamNextAt: 0, streamLive: false,
 
       rttMs: null,
       lastFireT: 0,
@@ -3265,7 +3268,7 @@ export class World {
     // the row's own `isAfloat` gate sees the post-edge lifecycle (and
     // sinkShip has already closed the lay window at sink ENTRY, so a
     // sinking hull lays nothing either). AFTER the motion block for the same
-    // reason wake sampling is: a puff is laid at the RESOLVED stern (water
+    // reason wake sampling is: a puff is laid at the RESOLVED position (water
     // where the hull actually is this tick), never a rolled-back candidate.
     // BEFORE applyStorm and everything after it: the puffs this row lays are
     // live for every later consumer this tick — the AI rows next tick read
@@ -5362,7 +5365,8 @@ export class World {
    * LATEST input (never the intent queue: a level has no edges to replay) and
    * fires or not on its own clock. It passes the SAME gate a click passes
    * (`activationRefusal`: frozen / dead — sinking stays live, amendment 10),
-   * so a boarding room, a foundered hull and a dead one stream nothing; the
+   * so a boarding room, a foundered hull and a dead one stream nothing (the
+   * row is handed `held: false`, so a stream cut by the gate ends there); the
    * client already drops `held` on blur and when the refit window opens. No
    * denial is ever queued: an empty magazine is visible in `ammo`, and a
    * level that fires nothing is not a refused press.
@@ -5377,8 +5381,13 @@ export class World {
     for (const ship of this.ships.values()) {
       const slot = ship.loadout[SLOT_GUN];
       const row = slotRow(slot.equipmentId, this.consumables);
-      if (row?.stream === undefined || this.activationRefusal(ship) !== null) continue;
-      row.stream(this.activationContext(ship), slot, ship.input.held && ship.input.slot === SLOT_GUN);
+      if (row?.stream === undefined) continue;
+      // A REFUSED hull (frozen / dead) is told the stream is NOT live, never
+      // skipped: a hold cut by the refusal ends the stream THAT tick — the
+      // partial-magazine swap starts, and the hold after the refusal lifts is
+      // a FRESH stream (review gate P1, 2026-09-30).
+      const live = this.activationRefusal(ship) === null && ship.input.held && ship.input.slot === SLOT_GUN;
+      row.stream(this.activationContext(ship), slot, live);
     }
   }
 
@@ -5720,7 +5729,7 @@ export class World {
       // ACTIVATING ship. A re-press RESTARTS the 5 s clock (ruling 140). The
       // cadence grid is re-anchored ONLY from idle (first puff on the next
       // tick); a re-press mid-lay keeps the running 500 ms grid, so two
-      // presses never drop two puffs 50 ms apart at the same stern — the
+      // presses never drop two puffs 50 ms apart at the same spot — the
       // window simply extends and the trail stays evenly spaced (orchestrator
       // ruling at the 8.18 build, recorded in the spec's review log).
       setSmokeScreen: () => {
@@ -5771,13 +5780,13 @@ export class World {
   }
 
   /** Zero the Story 8.15 per-life clocks — the DAMAGE CUT window and the
-   *  machine gun's stream/idle clocks — at every life boundary where
+   *  machine gun's stream clock — at every life boundary where
    *  `boostUntil` resets (redeploy / founder / respawn), so a fresh life
    *  never inherits an open cut or a mid-stream cadence. */
   private static clearShiftClocks(ship: ShipRecord): void {
     ship.damageCutUntil = 0;
     ship.streamNextAt = 0;
-    ship.streamLastShotAt = 0;
+    ship.streamLive = false;
   }
 
   /**
@@ -6087,14 +6096,13 @@ export class World {
    *
    * For every AFLOAT hull whose lay window is open (`smokeUntil > now`): while
    * a puff is owed (`now >= nextPuffAt` — a `while`, so a skipped tick still
-   * lays every owed puff), drop one at the STERN — `pos − (hull.length / 2) ×
-   * (cos h, sin h)`, the same half-length the ordnance spawn offset reads
-   * (equipment/ballistics.ts hullClearOffset) — with `bornAt = now`, `until =
+   * lays every owed puff), drop one at the hull's CENTER — `pos` this tick
+   * (Eric 2026-09-30, amendment 190; it was the stern) — with `bornAt = now`, `until =
    * now + lifeMs`, and advance `nextPuffAt` by `puffIntervalMs`. Ten puffs per
    * copy at the shipped 5000 / 500 (ruling 138); the cadence grid
    * is re-anchored only from idle (setSmokeScreen); a mid-lay re-press keeps
    * the running grid and only extends `smokeUntil`. A sinking or sunk hull lays nothing (ruling 144 — the window is
-   * also closed at sink entry). A NON-FINITE stern (a NaN/Infinity pose —
+   * also closed at sink entry). A NON-FINITE position (a NaN/Infinity pose —
    * unreachable through inputs.ts's finite-checked intent, guarded anyway)
    * lays NOTHING and advances nothing: a NaN puff would fail every distance
    * test and ride segCircleHit's NaN path, occluding or exposing every
@@ -6108,9 +6116,7 @@ export class World {
     const sc = CONFIG.smokeScreen;
     for (const ship of this.ships.values()) {
       if (ship.smokeUntil <= this.now || !isAfloat(ship.lifecycle)) continue;
-      const half = ship.cls.hull.length / 2;
-      const x = ship.state.x - Math.cos(ship.state.heading) * half;
-      const y = ship.state.y - Math.sin(ship.state.heading) * half;
+      const { x, y } = ship.state; // the hull's CENTER (amendment 190)
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
       while (this.now >= ship.nextPuffAt) {
         this.smokeSeq += 1;

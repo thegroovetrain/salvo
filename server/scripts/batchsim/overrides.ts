@@ -265,10 +265,11 @@ export function validateTuneKey(key: string): void {
 const TUNE_MIN_ONE_LEAVES = new Set(['steerageSpeed', 'turnRate', 'shellSpeed', 'speed', 'hp']);
 
 /** The per-key --tune floor. Reload/cooldown leaves are matched by
- *  CASE-INSENSITIVE SUFFIX, not by exact leaf name: `machineGun.idleReloadMs` is
+ *  CASE-INSENSITIVE SUFFIX, not by exact leaf name: a prefixed reload leaf
+ *  (the machine gun's idle clock was one, until it was deleted 2026-09-30) is
  *  a genuine reload in the same divide-or-spin class as `gun.reloadMs` and an
- *  exact match let it through at floor 0. `cooldownms` is kept in the rule even
- *  though no CONFIG leaf uses it today — this names a HAZARD CLASS, and a
+ *  exact match let it through at floor 0. The suffix rule and `cooldownms`
+ *  stay although no CONFIG leaf needs them today — they name a HAZARD CLASS, and a
  *  future `<equipment>.cooldownMs` must inherit the floor by existing, not by
  *  someone remembering to come back here. */
 /**

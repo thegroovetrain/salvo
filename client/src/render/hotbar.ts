@@ -10,9 +10,9 @@
 //     one pure `hudBarLayout` owns every rect now (ruling 1), and this module
 //     hit-tests and paints the rects it is handed.
 //   • the LABEL COLUMN (slot name + quick-info line) — no word renders on a slot
-//     any more (UX-DR40/41). The tooltip carries the name, the interaction line,
-//     the description and the accrued build; the SQUARE carries state, seconds
-//     and counts. With the whole loadout on one row there is no column to put
+//     any more (UX-DR40/41). The tooltip carries the name, the interaction line
+//     and (cycle 158, amendment 185) the live stat table; the SQUARE carries
+//     state, seconds and counts. With the whole loadout on one row there is no column to put
 //     words in, and nine names across the bottom of the screen was the "three
 //     corners" problem in miniature.
 //   • the CHAMFER — the ability shape mark. The bar's ability slot is `Shift`,
@@ -23,9 +23,8 @@
 //     from twelve with the seconds left as one big centred numeral.
 //
 // WHAT SURVIVED UNTOUCHED: the pure state grammar. `slotState` and its
-// precedence, the eight skins, the ACTIVE breath, the flash-budget degrade, the
-// hover dwell and the whole tooltip core are the ratified 2.2–8.5 contract and
-// are byte-identical here — only their geometry moved.
+// precedence, the eight skins, the ACTIVE breath, the flash-budget degrade and
+// the hover dwell are the ratified 2.2–8.5 contract — only their geometry moved.
 //
 // The state grammar is DESIGN.md · Components · Hotbar Slot, as the ratified
 // mock (`mockups/hud-composite-3.html`) draws it:
@@ -66,6 +65,7 @@ import {
   isConsumableId,
   type EquipmentId,
   type EffectiveStats,
+  type ShipClassId,
   type SlotItemId,
   type WeaponAmmo,
 } from '@salvo/shared';
@@ -79,19 +79,20 @@ import { drawWipeDark, drawWipeScrim, wipeLabel } from './cooldownWipe.js';
 import { microScale, type HudBarLayout, type Rect } from './hudBar.js';
 import { SLOT_KEY_GLYPHS, beltBadgeText, equipmentInfo, slotTier, type EquipmentInfo } from './equipmentInfo.js';
 // THE TOOLTIP CORE MOVED OUT in Story 8.7 (ruling 13): `render/slotTooltip.ts`
-// owns the hover dwell, the accrued rows, the container-fit model and the
+// owns the hover dwell, the stat-line model, the container-fit model and the
 // placement. This file keeps the SQUARES and the Pixi shell that paints both.
 import {
   NO_HOVER,
   TIP_TYPE,
-  boonBlockText,
   nextHover,
+  shipTooltipModel,
   shouldShowTooltip,
-  slotBoonIds,
+  statValueText,
   tooltipFrame,
   tooltipInnerWidth,
   tooltipModel,
   type HoverState,
+  type HoverTarget,
   type TooltipModel,
   type TooltipPlacement,
 } from './slotTooltip.js';
@@ -101,7 +102,6 @@ const H = CLIENT_CONFIG.hotbar;
 const B = CLIENT_CONFIG.hudBar;
 const W = B.wipe;
 const MONO = CLIENT_CONFIG.type.mono;
-const DISPLAY = CLIENT_CONFIG.type.display;
 
 /** Pure: is this slot one of the four CONSUMABLE BELT squares (44px, framed,
  *  no tier numeral)? The belt's membership is shared's, never a local range. */
@@ -173,6 +173,32 @@ export function isCooling(ammo: WeaponAmmo | null): boolean {
   return ammo !== null && ammo.n <= 0 && ammo.reloadMsLeft > 0;
 }
 
+/**
+ * Pure: is a MACHINE GUN's PARTIAL-MAGAZINE swap running — shells left AND the
+ * swap timer counting (epic-8 amendment 112, Eric 2026-09-29: "the gun square
+ * shows the ordinary cooldown wipe for the running timer even though a new
+ * hold fires at once")? Since cycle 158 the swap starts the tick the stream
+ * stops, so this is the gun's COMMON resting state, and a square that painted
+ * nothing let a player cancel a 9.5 s swap unknowingly.
+ *
+ * The square takes the ordinary wipe + numeral off `reloadMsLeft`, but NOT the
+ * `cooling` STATE: the gun can still fire (a hold cancels the swap), so the
+ * state stays selected / ready and nothing that keys off `cooling` — no
+ * pre-denial, no tone — sees it. Every other equipment answers false: a
+ * per-round pool's timer is the NEXT round's, and amendment 34 keeps it off a
+ * square that still has one.
+ */
+export function isSwapping(id: EquipmentId, ammo: WeaponAmmo | null): boolean {
+  return id === 'machineGun' && ammo !== null && ammo.n > 0 && ammo.reloadMsLeft > 0;
+}
+
+/** Pure: does this square draw the cooldown wipe — the COOLING state, or a
+ *  machine gun's partial swap on a square left selected / ready (`swapWipe`,
+ *  never on a denied / activated / active one, whose own mark wins)? */
+export function wipeShown(m: Pick<SlotViewModel, 'state' | 'swapWipe'>): boolean {
+  return m.state === 'cooling' || m.swapWipe === true;
+}
+
 /** Everything one rendered slot square needs — the pure view model. */
 export interface SlotViewModel {
   slot: number;
@@ -185,10 +211,15 @@ export interface SlotViewModel {
   keyGlyph: string;
   /** Ammo count text, or null — badges show ONLY on pools larger than one. */
   badge: string | null;
-  /** The wipe's elapsed fraction in [0,1); 0 when not cooling. */
+  /** The wipe's elapsed fraction in [0,1); 0 when not cooling (or swapping). */
   coolFrac: number;
-  /** Reload ms left while COOLING (0 otherwise) — the wipe's centred numeral. */
+  /** Reload ms left while COOLING — or while a machine gun's partial swap runs
+   *  (`swapWipe`) — the wipe's centred numeral; 0 otherwise. */
   reloadMsLeft: number;
+  /** A machine gun's PARTIAL-MAGAZINE swap paints the ordinary wipe on a square
+   *  whose STATE is still selected / ready (amendment 112 — see `isSwapping`).
+   *  Absent = false. */
+  swapWipe?: boolean;
   /** Remaining ms of a running ability window (0 = none) — the ACTIVE numeral. */
   activeMsLeft: number;
   /** The fitted equipment LINE's tier, 1..5 (0 = none, and always 0 on the belt
@@ -197,8 +228,6 @@ export interface SlotViewModel {
   /** A boon just landed on this slot's family: the ≤80ms phosphor fit pulse is
    *  showing THIS frame (already motion-gated — see slotViewModel). */
   fitFlash: boolean;
-  /** Accrued cards on this slot (the tooltip's list length, unclamped). */
-  boonCount: number;
   /** This frame's one-shot on this slot is DEGRADED by the aggregate flash budget
    *  (amendment 240): draw the flat mark, not the bloom. Absent = animate. */
   degraded?: boolean;
@@ -234,9 +263,12 @@ export interface HotbarView {
    *  flash and the glow/breathing amplitude. Defaults to 'full' so existing
    *  callers/tests are unchanged. */
   motion?: MotionLevel;
-  /** The own fitted card ids (OwnShip.cards, repeats intact) — the tooltip's
-   *  accrued list and each square's TIER numeral. Absent = nothing fitted. */
+  /** The own fitted card ids (OwnShip.cards, repeats intact) — each square's
+   *  TIER numeral and the tooltip's interaction line. Absent = nothing fitted. */
   cards?: readonly string[];
+  /** The own hull's class — the HP globe's SHIP tooltip names it (epic-8
+   *  amendment 186). Absent = no SHIP panel. */
+  cls?: ShipClassId;
   /** Per-slot REMAINING ability-window ms (0 = no window running) — the ACTIVE
    *  state's whole input (amendment 48: boost's `boostUntil`, DAMAGE CUT's
    *  `damageCutUntil`), resolved against the server clock by the caller. */
@@ -333,9 +365,9 @@ export function coolFraction(reloadMsLeft: number, reloadMs: number): number {
  * clock they are reading, because the two never coexist on one square —
  * `slotState` ranks ACTIVE above cooling precisely so the window wins.
  */
-export function slotNumeral(m: Pick<SlotViewModel, 'state' | 'activeMsLeft' | 'reloadMsLeft'>): string {
+export function slotNumeral(m: Pick<SlotViewModel, 'state' | 'activeMsLeft' | 'reloadMsLeft' | 'swapWipe'>): string {
   if (m.state === 'active') return wipeLabel(m.activeMsLeft);
-  if (m.state === 'cooling') return wipeLabel(m.reloadMsLeft);
+  if (wipeShown(m)) return wipeLabel(m.reloadMsLeft);
   return '';
 }
 
@@ -347,7 +379,7 @@ export function slotNumeral(m: Pick<SlotViewModel, 'state' | 'activeMsLeft' | 'r
  * slot holds nothing to deny, so it can never carry a budget verdict.
  */
 function emptySlotModel(slot: number, keyGlyph: string): SlotViewModel {
-  return { slot, id: null, state: 'empty', selected: false, keyGlyph, badge: null, coolFrac: 0, reloadMsLeft: 0, activeMsLeft: 0, tier: 0, fitFlash: false, boonCount: 0, degraded: false };
+  return { slot, id: null, state: 'empty', selected: false, keyGlyph, badge: null, coolFrac: 0, reloadMsLeft: 0, activeMsLeft: 0, tier: 0, fitFlash: false, degraded: false };
 }
 
 /**
@@ -385,9 +417,9 @@ function slotViewModel(view: HotbarView, slot: number): SlotViewModel {
   const a = view.ammo[slot] ?? null;
   const flags = slotFlags(view, slot);
   const selected = slot === view.primedSlot;
-  const { activeLeft, boonCount, fitFlash } = slotEconomy(view, slot, id);
+  const { activeLeft, fitFlash } = slotEconomy(view, slot);
   const common = {
-    slot, id, selected, keyGlyph, activeMsLeft: activeLeft, fitFlash, boonCount,
+    slot, id, selected, keyGlyph, activeMsLeft: activeLeft, fitFlash,
     degraded: slotDegraded(view, slot, flags.denied),
     drain: heldDrainFrac(view, slot),
   };
@@ -410,21 +442,44 @@ function equipmentMarks(
   flags: SlotFlags,
   selected: boolean,
   active: boolean,
-): { state: SlotState; badge: string | null; tier: number; coolFrac: number; reloadMsLeft: number } {
+): EquipmentMarks {
   const info = equipmentInfo(view.stats, id);
   const cooling = isCooling(ammo);
+  const state = slotState(id, flags, cooling, selected, info.isWeapon, active);
   // The numeral + the wipe belong to the COOLING read: a slot that still has a
-  // round shows no clock at all, not the timer for the next one.
-  const left = cooling ? (ammo?.reloadMsLeft ?? 0) : 0;
+  // round shows no clock at all, not the timer for the next one — EXCEPT the
+  // machine gun's partial swap (amendment 112), which keeps its ready state.
+  const swapWipe = swapWipeShown(view, slot, id, ammo, state);
+  const left = cooling || swapWipe ? (ammo?.reloadMsLeft ?? 0) : 0;
   const belt = isBeltSlot(slot);
   return {
-    state: slotState(id, flags, cooling, selected, info.isWeapon, active),
+    state,
     badge: belt ? beltBadgeText(ammo) : badgeText(info, ammo),
     tier: belt ? 0 : slotTier(view.stats, view.cards ?? [], id),
     coolFrac: coolFraction(left, info.reloadMs),
     reloadMsLeft: left,
+    swapWipe,
   };
 }
+
+/** Pure: does a machine gun's partial swap paint its wipe this frame? Only on
+ *  a square left SELECTED / READY (a denied / activated mark wins), and not
+ *  while the held-fire DRAIN is up (amendments 112/113(f): a hold brings the
+ *  drain back — the first shot then cancels the swap server-side). */
+function swapWipeShown(view: HotbarView, slot: number, id: EquipmentId, ammo: WeaponAmmo | null, state: SlotState): boolean {
+  if (!isSwapping(id, ammo) || heldDrainFrac(view, slot) !== null) return false;
+  return state === 'selected' || state === 'readyWeapon';
+}
+
+/** A fitted equipment square's marks (`equipmentMarks`' answer). */
+type EquipmentMarks = {
+  state: SlotState;
+  badge: string | null;
+  tier: number;
+  coolFrac: number;
+  reloadMsLeft: number;
+  swapWipe: boolean;
+};
 
 /**
  * Pure: the id a slot really holds THIS frame (Story 8.7, ruling 16). A BELT
@@ -472,22 +527,18 @@ function stackMarks(
 }
 
 /**
- * Pure: a slot's Story 2.9 inputs — the running ability window, the accrued
- * count, and this frame's fit pulse. All three are OPTIONAL on the view (a
- * caller from before 2.9 gets exactly the old square back).
+ * Pure: a slot's Story 2.9 inputs — the running ability window and this
+ * frame's fit pulse (the accrued count left with the tooltip's build list in
+ * cycle 158, amendment 186). Both are OPTIONAL on the view (a caller from
+ * before 2.9 gets exactly the old square back).
  *
- * The fit pulse is pure JUICE — the tooltip row and the toast carry the same
+ * The fit pulse is pure JUICE — the toast and the tier numeral carry the same
  * fact statically — so it gates on the motion level exactly as the ACTIVATED
- * pop does. The window and the count never gate: they are information.
+ * pop does. The window never gates: it is information.
  */
-function slotEconomy(
-  view: HotbarView,
-  slot: number,
-  id: SlotItemId,
-): { activeLeft: number; boonCount: number; fitFlash: boolean } {
+function slotEconomy(view: HotbarView, slot: number): { activeLeft: number; fitFlash: boolean } {
   return {
     activeLeft: Math.max(0, view.activeMsLeft?.[slot] ?? 0),
-    boonCount: slotBoonIds(id, view.cards ?? []).length,
     fitFlash: (view.fit?.[slot] ?? false) && motionAllowed(view.motion ?? 'full'),
   };
 }
@@ -689,8 +740,8 @@ export function activeBreath(phase: number, amp = ACTIVE_PULSE_AMP): number {
  * dim-not-grey rule: a cooling or empty slot dims the phosphor/white it already
  * uses instead of swapping in a grey.
  */
-export function dimAlphaFor(m: Pick<SlotViewModel, 'state' | 'id'>): number {
-  return m.state === 'cooling' || m.id === null ? DIM_TEXT_ALPHA : 1;
+export function dimAlphaFor(m: Pick<SlotViewModel, 'state' | 'id' | 'swapWipe'>): number {
+  return wipeShown(m) || m.id === null ? DIM_TEXT_ALPHA : 1;
 }
 
 /**
@@ -812,6 +863,48 @@ export function slotAtPoint(p: ScreenPoint, layout: HudBarLayout | null): number
   return null;
 }
 
+/**
+ * Pure: what the HOVER TOOLTIP is pointing at (epic-8 amendment 186) — a slot
+ * (`slotAtPoint`, so the hover and the click gate share one hit-test) first,
+ * else the HP GLOBE (`'ship'`) when the point is inside its circle, else
+ * nothing. The helm globe stays silent. A null layout hits nothing.
+ *
+ * THE CLICK GATE READS IT TOO (Eric 2026-09-30, review gate P11): a press on
+ * the HP globe is swallowed like a press on a slot square — it does nothing,
+ * and never fires or holds the gun (`hotbarPress`). The helm globe stays
+ * water.
+ */
+export function hoverTargetAt(p: ScreenPoint, layout: HudBarLayout | null): HoverTarget {
+  if (layout === null) return null;
+  const slot = slotAtPoint(p, layout);
+  if (slot !== null) return slot;
+  const g = layout.hpGlobe;
+  return Math.hypot(p.x - g.cx, p.y - g.cy) <= g.r ? 'ship' : null;
+}
+
+/**
+ * Pure: route ONE canvas press over the bar (input/mouse.ts's injected hotbar
+ * gate, amendment 11). A press on a slot's column / chip / badge is that slot's
+ * action (`slotAction`); a press inside the HP GLOBE's circle is CONSUMED with
+ * no slot action (Eric 2026-09-30 — the globe is chrome, never a shot); either
+ * way it returns true and the press never reaches the tube. Anything else —
+ * the gaps, the helm globe, the water — returns false and fires as ever.
+ */
+export function hotbarPress(p: ScreenPoint, layout: HudBarLayout | null, slotAction: (slot: number) => void): boolean {
+  const target = hoverTargetAt(p, layout);
+  if (target === null) return false;
+  if (target !== 'ship') slotAction(target);
+  return true;
+}
+
+/** Pure: the rect a tooltip hangs above — the hovered square, or the HP globe's
+ *  bounding square for the SHIP panel. */
+export function hoverAnchor(target: number | 'ship', layout: HudBarLayout): Rect {
+  if (target !== 'ship') return layout.squares[target];
+  const g = layout.hpGlobe;
+  return { x: g.cx - g.r, y: g.cy - g.r, w: 2 * g.r, h: 2 * g.r };
+}
+
 // --- Pixi shell -----------------------------------------------------------------
 
 // EVERY size here is the BAR's (CLIENT_CONFIG.hudBar), read literally off the
@@ -867,24 +960,23 @@ const TIP_INTERACTION_STYLE = {
   wordWrap: true,
   wordWrapWidth: tooltipInnerWidth(),
 } as const;
-const TIP_DESC_STYLE = {
-  fontFamily: DISPLAY,
-  fontSize: TIP_TYPE.descSize,
-  fill: C.textPrimary,
-  wordWrap: true,
-  wordWrapWidth: H.tooltip.width - H.tooltip.pad * 2,
-  lineHeight: TIP_TYPE.descLineHeight,
+/** The stat table's LABEL column (cycle 158, amendment 185) — the card face's
+ *  row-label register: secondary text, mono, one line per row (never wraps). */
+const TIP_LABEL_STYLE = {
+  fontFamily: MONO,
+  fontSize: TIP_TYPE.boonSize,
+  fill: C.textSecondary,
+  letterSpacing: TIP_TYPE.boonLetterSpacing,
+  lineHeight: TIP_TYPE.boonLineHeight,
 } as const;
-/** The accrued-boon block: the PHOSPHOR DATA register (amendment 16 — the same
- *  family as the HDG/KTS readouts; the build readout is instrument data). */
-const TIP_BOON_STYLE = {
+/** The stat table's VALUE column: the PHOSPHOR DATA register (amendment 16 —
+ *  the same family as the HDG/KTS readouts; a live number is instrument data). */
+const TIP_VALUE_STYLE = {
   fontFamily: MONO,
   fontSize: TIP_TYPE.boonSize,
   fill: C.phosphor,
   letterSpacing: TIP_TYPE.boonLetterSpacing,
   lineHeight: TIP_TYPE.boonLineHeight,
-  wordWrap: true,
-  wordWrapWidth: H.tooltip.width - H.tooltip.pad * 2,
 } as const;
 
 /** Alpha the small square text dims to in the cooling + empty states
@@ -924,8 +1016,11 @@ interface SlotText {
 
 /** The memoized tooltip model + the inputs it was built from (see cachedModel). */
 export interface TooltipCache {
-  slot: number;
+  /** The hovered target — a slot, or the HP globe's SHIP panel. */
+  target: number | 'ship';
   id: SlotItemId | null;
+  /** The hull class (the SHIP panel's heading); undefined for a slot. */
+  cls?: ShipClassId;
   stats: EffectiveStats;
   boons: readonly string[];
   /** The slot's OWN pool count — what a belt slot's `×n` prints (P5). */
@@ -944,14 +1039,16 @@ export interface TooltipCache {
  */
 export function tipCacheHit(
   c: TooltipCache | null,
-  slot: number,
+  target: number | 'ship',
   id: SlotItemId | null,
   stats: EffectiveStats,
   boons: readonly string[],
   n: number,
+  cls?: ShipClassId,
 ): boolean {
   if (c === null) return false;
-  return c.slot === slot && c.id === id && c.stats === stats && c.n === n && sameBoonList(c.boons, boons);
+  if (c.target !== target || c.id !== id || c.cls !== cls) return false;
+  return c.stats === stats && c.n === n && sameBoonList(c.boons, boons);
 }
 
 /** One shared empty list, so a build with nothing fitted keeps a stable identity
@@ -984,8 +1081,9 @@ export class Hotbar {
   private readonly tipGfx = new Graphics();
   private readonly tipName: Text;
   private readonly tipInteraction: Text;
-  private readonly tipDesc: Text;
-  private readonly tipBoons: Text;
+  /** The stat table's two mono columns (cycle 158): labels, then values. */
+  private readonly tipLabels: Text;
+  private readonly tipValues: Text;
   private readonly lastText: string[] = [];
   private hover: HoverState = NO_HOVER;
   private cachedLayout: HudBarLayout | null = null;
@@ -1003,9 +1101,9 @@ export class Hotbar {
     this.slotText = Array.from({ length: SLOT_COUNT }, () => this.buildSlotText());
     this.tipName = new Text({ text: '', style: TIP_NAME_STYLE });
     this.tipInteraction = new Text({ text: '', style: TIP_INTERACTION_STYLE });
-    this.tipDesc = new Text({ text: '', style: TIP_DESC_STYLE });
-    this.tipBoons = new Text({ text: '', style: TIP_BOON_STYLE });
-    this.tipRoot.addChild(this.tipGfx, this.tipName, this.tipInteraction, this.tipDesc, this.tipBoons);
+    this.tipLabels = new Text({ text: '', style: TIP_LABEL_STYLE });
+    this.tipValues = new Text({ text: '', style: TIP_VALUE_STYLE });
+    this.tipRoot.addChild(this.tipGfx, this.tipName, this.tipInteraction, this.tipLabels, this.tipValues);
     this.tipRoot.visible = false;
     this.root.addChild(this.tipRoot);
   }
@@ -1031,6 +1129,13 @@ export class Hotbar {
   /** The slot under a screen point, or null while the bar isn't rendering. */
   slotAt(p: ScreenPoint): number | null {
     return slotAtPoint(p, this.cachedLayout);
+  }
+
+  /** Route one canvas press against this frame's layout (`hotbarPress`): true =
+   *  swallowed (a slot's action, or the HP globe's no-op); a hidden bar routes
+   *  nothing. */
+  press(p: ScreenPoint, slotAction: (slot: number) => void): boolean {
+    return hotbarPress(p, this.cachedLayout, slotAction);
   }
 
   /**
@@ -1103,7 +1208,7 @@ export class Hotbar {
     // the icon, the .86 dark region OVER it — the clock takes the icon down with
     // it as it uncovers — and then the numeral, tier numeral and badge on top of
     // both. Nothing that carries a NUMBER is ever dimmed by the wipe.
-    const cooling = m.state === 'cooling';
+    const cooling = wipeShown(m);
     if (cooling) drawWipeScrim(this.gfx, square);
     this.drawBox(m, square, skin);
     this.drawDrain(m, square);
@@ -1189,7 +1294,7 @@ export class Hotbar {
     const cx = square.x + square.w / 2;
     const cy = square.y + square.h / 2;
     const size = isBeltSlot(m.slot) ? B.beltIcon : B.icon;
-    const alpha = m.state === 'cooling' ? W.iconAlpha : skin.iconAlpha;
+    const alpha = wipeShown(m) ? W.iconAlpha : skin.iconAlpha;
     const style = { width: 1.5, color: skin.icon, alpha };
     if (m.id === null) drawDashGlyph(this.gfx, cx, cy, size * 0.5, style);
     else drawEquipmentIcon(this.gfx, m.id, cx, cy, size, style);
@@ -1305,39 +1410,38 @@ export class Hotbar {
   ): void {
     // A null cursor is "the pointer isn't in the window" (input/mouse.ts's
     // presence flag): the last known position must not keep a tooltip alive.
-    this.hover = nextHover(this.hover, cursor === null ? null : slotAtPoint(cursor, layout), nowMs);
-    const slot = this.hover.slot;
-    const model = slot === null ? null : this.cachedModel(slot, models[slot].id, view);
-    if (!shouldShowTooltip(this.hover, nowMs, view.dim, model !== null) || slot === null || model === null) {
+    this.hover = nextHover(this.hover, cursor === null ? null : hoverTargetAt(cursor, layout), nowMs);
+    const target = this.hover.target;
+    const model = target === null ? null : this.cachedModel(target, target === 'ship' ? null : models[target].id, view);
+    if (!shouldShowTooltip(this.hover, nowMs, view.dim, model !== null) || target === null || model === null) {
       this.tipRoot.visible = false;
       return;
     }
     this.tipRoot.visible = true;
-    this.drawTooltip(model, layout, slot);
+    this.drawTooltip(model, layout, hoverAnchor(target, layout));
   }
 
   /**
    * The hovered slot's tooltip model, rebuilt only when its INPUTS change.
    *
-   * Pure perf, no behavior: tooltipModel walks the catalog, formats an effect
-   * line per accrued row and then runs the fit search — which re-measures the
-   * whole panel once per row it has to drop — and a held hover asks for the same
-   * answer every frame for as long as the pointer rests there. The key is the
-   * four inputs the model is a function of: the slot's equipment, the accrued
-   * list (by identity, falling back to length + last id for a caller that
-   * rebuilds the array each frame), the effective stats the effect lines read
-   * (swapped as a whole object by applyOwnStats, so identity is exact), and the
-   * slot's own pool count, which is what a belt slot's `×n` prints (P5).
+   * Pure perf, no behavior: the model formats a whole stat table, and a held
+   * hover asks for the same answer every frame for as long as the pointer rests
+   * there. The key is the inputs the model is a function of: the TARGET (a slot
+   * or the HP globe), the slot's equipment, the fitted list (the tier on the
+   * interaction line — by identity, falling back to length + last id), the
+   * effective stats the rows read (swapped as a whole object by applyOwnStats,
+   * so identity is exact), the slot's own pool count (a belt slot's `×n`, P5)
+   * and, for the SHIP panel, the hull class.
    */
-  private cachedModel(slot: number, id: SlotItemId | null, view: HotbarView): TooltipModel | null {
+  private cachedModel(target: number | 'ship', id: SlotItemId | null, view: HotbarView): TooltipModel | null {
     const boons = view.cards ?? EMPTY_BOONS;
-    const n = view.ammo[slot]?.n ?? 0;
+    const n = target === 'ship' ? 0 : (view.ammo[target]?.n ?? 0);
+    const cls = target === 'ship' ? view.cls : undefined;
     const c = this.tipCache;
-    if (c !== null && tipCacheHit(c, slot, id, view.stats, boons, n)) return c.model;
-    // The belt's STOCK rides the interaction line (ruling 13), so the model's
-    // inputs include the slot's own pool count — and so does the key above.
-    const model = tooltipModel(slot, id, view.stats, boons, n);
-    this.tipCache = { slot, id, stats: view.stats, boons, n, model };
+    if (c !== null && tipCacheHit(c, target, id, view.stats, boons, n, cls)) return c.model;
+    const model =
+      target === 'ship' ? shipTooltipModel(cls, view.stats) : tooltipModel(target, id, view.stats, boons, n);
+    this.tipCache = { target, id, cls, stats: view.stats, boons, n, model };
     return model;
   }
 
@@ -1358,27 +1462,25 @@ export class Hotbar {
   /**
    * Near-opaque panel + 1px silver .4 border + a pointer notch on its BOTTOM
    * edge, laid out at the offsets tooltipRenderGeom resolves — the MODEL's
-   * arithmetic (the amendment-47 pin measures the same functions) reconciled
-   * with the description's MEASURED height and the REAL viewport. An empty
-   * BOONS block still renders as ABSENCE: no divider, no rows, no placeholder.
+   * arithmetic, which the amendment-47 pin measures. The stat table is TWO mono
+   * Text columns, one row per line at the explicit line-height: labels at the
+   * inner left edge, values `statColGap` past the widest label (the same
+   * `monoTextWidth` the model uses). An empty table paints no rows.
    */
-  private drawTooltip(model: TooltipModel, layout: HudBarLayout, slot: number): void {
+  private drawTooltip(model: TooltipModel, layout: HudBarLayout, anchor: Rect): void {
     const t = H.tooltip;
     const T = TIP_TYPE;
     const screen = this.screenOf(layout);
     this.setText(this.tipName, model.name, 100);
     this.setText(this.tipInteraction, model.interaction, 101);
-    // The description's text must be assigned BEFORE it is measured: the height
-    // this reads is the one Pixi just wrapped, not last frame's.
-    this.setText(this.tipDesc, model.description, 102);
-    const { geom, place } = tooltipFrame(model, this.tipDesc.height, layout.squares[slot], screen.w, screen.h);
-    this.setText(this.tipBoons, boonBlockText(geom.boons), 103);
-    this.tipBoons.visible = geom.boons.length > 0;
+    this.setText(this.tipLabels, model.stats.map((r) => r.label).join('\n'), 102);
+    this.setText(this.tipValues, model.stats.map(statValueText).join('\n'), 103);
+    const { geom, place } = tooltipFrame(model, anchor, screen.w, screen.h);
     const x = place.x + t.pad;
     this.tipName.position.set(x, place.y + t.pad);
     this.tipInteraction.position.set(x, place.y + t.pad + T.headLineHeight + T.nameGap);
-    this.tipDesc.position.set(x, place.y + geom.descDy);
-    this.tipBoons.position.set(x, place.y + geom.boonsDy);
+    this.tipLabels.position.set(x, place.y + geom.statsDy);
+    this.tipValues.position.set(x + geom.valueDx, place.y + geom.statsDy);
     this.paintTooltipPanel(place, geom.panelH);
   }
 
