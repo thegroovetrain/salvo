@@ -49,6 +49,8 @@ import {
 } from './copy.js';
 import { consumableTable, shipUpgradeTable, tierTable, type StatTable } from './weaponTables.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
+import { CATALOG, tierTargetOf } from '@salvo/shared';
 
 /** An entry's derived table, or null (a consumable with no live rows). */
 function entryTable(entry: HowToEntry): StatTable | null {
@@ -57,17 +59,38 @@ function entryTable(entry: HowToEntry): StatTable | null {
   return consumableTable(entry.lineId);
 }
 
-/** An entry's name — the uppercase mono system register, like the headings. */
-function entryName(text: string): HTMLElement {
+/**
+ * The glyph id an entry draws — the SAME id the refit card and the hotbar feed
+ * `equipmentGlyphSvg`. A tiered weapon line draws its equipment row's glyph
+ * (`tierTargetOf`: the CANNON ladder `deckGun` -> the mounted `gun`, a weapon
+ * line -> its own row, as the hotbar draws it); a consumable draws its own id.
+ * The ship ladders have no glyph anywhere, so they resolve to nothing.
+ */
+export function entryGlyphId(entry: HowToEntry): string | null {
+  if (entry.table === 'shipUpgrade') return null;
+  if (entry.table === 'consumable') return entry.lineId;
+  const line = Object.hasOwn(CATALOG, entry.lineId) ? CATALOG[entry.lineId] : undefined;
+  return (line === undefined ? undefined : tierTargetOf(line)) ?? entry.lineId;
+}
+
+/** An entry's name — the uppercase mono system register, like the headings —
+ *  with its glyph (hotbar icon size, phosphor via currentColor) before it. */
+function entryName(entry: HowToEntry): HTMLElement {
   const el = document.createElement('h3');
-  el.textContent = text;
-  el.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);margin:8px 0 0`;
+  el.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);margin:8px 0 0;display:flex;align-items:center;gap:8px`;
+  const id = entryGlyphId(entry);
+  const svg = id === null ? null : equipmentGlyphSvg(id, CLIENT_CONFIG.hudBar.icon);
+  if (svg !== null) {
+    svg.style.cssText = 'display:inline-block;flex:none;color:var(--hc-phosphor)';
+    el.appendChild(svg);
+  }
+  el.appendChild(document.createTextNode(entry.name));
   return el;
 }
 
 /** One entry → its name line, its description, then its stat table. */
 function entryBlocks(entry: HowToEntry): HTMLElement[] {
-  const blocks = [entryName(entry.name), makePageParagraph(entry.description)];
+  const blocks = [entryName(entry), makePageParagraph(entry.description)];
   const table = entryTable(entry);
   if (table !== null) blocks.push(makeStatTable(table));
   return blocks;

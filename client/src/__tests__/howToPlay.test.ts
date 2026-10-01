@@ -17,9 +17,10 @@ import {
   HOWTO_SECTIONS,
   HOWTO_TITLE,
 } from '../how-to-play/copy.js';
-import { mountHowToPlayPage } from '../how-to-play/main.js';
+import { entryGlyphId, mountHowToPlayPage } from '../how-to-play/main.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { LINE_IDS, isStubLine } from '@salvo/shared';
+import { glyphPaths } from '../render/equipmentIcons.js';
 import { boonName } from '../ui/boonCopy.js';
 
 const page = (): HTMLElement => document.getElementById('how-to-play-page') as HTMLElement;
@@ -163,6 +164,20 @@ describe('how-to-play page mount', () => {
     const tables = page().querySelectorAll('table');
     const keyTables = HOWTO_SECTIONS.filter((s) => s.keys !== undefined).length;
     expect(tables).toHaveLength(allEntries().length + keyTables);
+  });
+
+  // Eric 2026-10-01: each entry shows its icon as the card / hotbar draws it.
+  it('every entry with a registry glyph draws an svg in its name; the rest draw none', () => {
+    const names = [...page().querySelectorAll('h3')];
+    const entries = allEntries();
+    expect(names).toHaveLength(entries.length);
+    entries.forEach((entry, i) => {
+      const id = entryGlyphId(entry);
+      const has = id !== null && glyphPaths(id) !== null;
+      expect(names[i]!.textContent, entry.name).toBe(entry.name);
+      expect(names[i]!.querySelector('svg') !== null, entry.name).toBe(has);
+    });
+    expect(entries.some((e) => entryGlyphId(e) !== null && glyphPaths(entryGlyphId(e)!) !== null)).toBe(true);
   });
 
   it('mounts once, not twice, when booted again', () => {
