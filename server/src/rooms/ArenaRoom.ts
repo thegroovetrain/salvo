@@ -41,6 +41,8 @@ import {
   type MatchTimings,
 } from '../game/match.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
+import { buildMatchRecord, handCount } from '../game/matchRecord.js';
+import { getAccountWriter, getGameVersion } from '../game/accountWriter.js';
 import {
   recordMinesLive,
   recordSmokeLive,
@@ -761,8 +763,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
         this.lastResults = msg;
         this.broadcast(MSG.results, msg);
         // Match.finish() is the only caller — the one finish hook, so this is
-        // where match.end telemetry is emitted (story 0.3).
-        this.emitMatchEnd();
+        // where match.end telemetry is emitted (story 0.3) — and the match
+        // record handed over, under the SAME latch (Story 8.21, R3: a match
+        // that aborted wrote no match.end and writes no record).
+        if (this.emitMatchEnd() && this.match) this.handOverRecord(this.match);
       },
       // Story 6.3 (epic-6 amendments 15/17/18): the cohort-collapse signal, fired
       // by Match immediately BEFORE the disconnect it annotates. BEST-EFFORT AND
@@ -1428,10 +1432,44 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * abort guard here is load-bearing, not decorative. No session ids or
    * player names ride on this line (telemetry PII rule).
    */
-  private emitMatchEnd(): void {
-    if (this.matchEndEmitted || this.matchAbortEmitted || !this.match) return;
+  private emitMatchEnd(): boolean {
+    if (this.matchEndEmitted || this.matchAbortEmitted || !this.match) return false;
     this.matchEndEmitted = true;
     this.log.info('match.end', { matchId: this.matchId, mode: MODE, ...this.match.endSummary() });
+    return true;
+  }
+
+  /**
+   * THE MATCH RECORD HAND-OVER (Story 8.21) — called only when emitMatchEnd
+   * just emitted, so exactly once per finished match and never on an abort.
+   * FIRE-AND-FORGET: the writer's promise is never awaited on the tick, and a
+   * writer that rejects OR throws synchronously is logged, never propagated
+   * (the tick that finishes a match must not be the tick a store breaks).
+   * The log is COUNTS ONLY — no names, ids or line ids (NFR24).
+   */
+  private handOverRecord(match: Match): void {
+    const matchId = this.matchId;
+    const failed = (err: unknown): void => {
+      try {
+        this.log.warn('account.write.failed', { matchId, err: describeError(err).error });
+      } catch {
+        /* diagnostics are best-effort; the tick behind us is not */
+      }
+    };
+    try {
+      const record = buildMatchRecord(match, {
+        matchId,
+        mode: this.mode,
+        gameVersion: getGameVersion(),
+        endedAtEpochMs: Date.now(),
+      });
+      void getAccountWriter().recordMatch(record).catch(failed);
+      // Logged AFTER the call returns, so the count line never asserts a
+      // hand-over a synchronously throwing writer refused (review gate).
+      this.log.info('match.record', { matchId, participants: record.participants.length, hands: handCount(record) });
+    } catch (err) {
+      failed(err);
+    }
   }
 
   /**

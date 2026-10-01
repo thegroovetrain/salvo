@@ -77,7 +77,7 @@ import { monoTextWidth } from '../ui/refitCardFit.js';
 import { drawEquipmentIcon, drawDashGlyph } from './equipmentIcons.js';
 import { drawWipeDark, drawWipeScrim, wipeLabel } from './cooldownWipe.js';
 import { microScale, type HudBarLayout, type Rect } from './hudBar.js';
-import { SLOT_KEY_GLYPHS, equipmentInfo, slotTier, type EquipmentInfo } from './equipmentInfo.js';
+import { SLOT_KEY_GLYPHS, beltBadgeText, equipmentInfo, slotTier, type EquipmentInfo } from './equipmentInfo.js';
 // THE TOOLTIP CORE MOVED OUT in Story 8.7 (ruling 13): `render/slotTooltip.ts`
 // owns the hover dwell, the accrued rows, the container-fit model and the
 // placement. This file keeps the SQUARES and the Pixi shell that paints both.
@@ -315,9 +315,7 @@ export function badgeText(info: EquipmentInfo, ammo: WeaponAmmo | null): string 
  * square's grammar and leaving a hole here is how the rack's first stock ships
  * with no readout at all.
  */
-export function beltBadgeText(ammo: WeaponAmmo | null): string | null {
-  return ammo === null || ammo.n <= 0 ? null : `×${ammo.n}`;
-}
+export { beltBadgeText }; // re-exported for the bar's own importers — the pure rule lives in equipmentInfo.ts (Story 8.21)
 
 /** Pure: the wipe's elapsed fraction in [0,1] (0 = not cooling). */
 export function coolFraction(reloadMsLeft: number, reloadMs: number): number {
