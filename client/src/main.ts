@@ -160,7 +160,7 @@ import {
   type ResultsOwn,
   type ResultsView,
 } from './ui/results.js';
-import { SettingsOverlay, canAbandon, canOpenSurface, escapeAction } from './ui/settings.js';
+import { SettingsOverlay, canAbandon, canOpenSurface, escapeAction, wheelScrollsSurface } from './ui/settings.js';
 import { effectiveScale, motionIntensity, scaleFactor, settings } from './settings/store.js';
 import { setUiScaleVar } from './ui/theme.js';
 import {
@@ -4998,7 +4998,11 @@ function bindWheelZoom(game: Game): () => void {
     // near-invisible before (the dim was almost opaque and the zoom stayed
     // inside [0.5, 1]); against the 0.62 dim it destroys the reveal by
     // reading a scroll as a zoom.
-    if (resultsVisible()) return;
+    //
+    // THE ESC MENU IS THE SAME CASE (Eric 2026-10-01, cycle 162): the settings
+    // overlay is a scrollable panel too, and a wheel over it is the player
+    // scrolling the menu — the pure `wheelScrollsSurface` names both surfaces.
+    if (wheelScrollsSurface(openSurfaces(game))) return;
     if (game.state.spectating) {
       game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
       return;

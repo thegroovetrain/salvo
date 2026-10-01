@@ -129,8 +129,9 @@ export function isMineEquipment(id: SlotItemId | null): id is MineEquipmentId {
 }
 
 /** The MINE LINE ↔ the `MineKind` a mine laid from it carries (stamped at drop
- *  on the server, and the own-only `MineView.c` on the wire — epic-8 amendment
- *  76). Two tiny TOTAL maps rather than a string-prefix trick, so a fourth kind
+ *  on the server, and `MineView.c` on the wire for every observer who receives
+ *  the mine — Eric 2026-10-01, superseding epic-8 amendment 76's own-only
+ *  rule). Two tiny TOTAL maps rather than a string-prefix trick, so a fourth kind
  *  fails to compile on both sides. */
 const MINE_KIND_OF: Readonly<Record<MineEquipmentId, MineKind>> = {
   navalMines: 'naval',

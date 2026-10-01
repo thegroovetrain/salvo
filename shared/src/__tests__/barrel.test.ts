@@ -87,6 +87,7 @@ import {
   puffRadius,
   type OwnShip,
   type ReturnBlipEvent,
+  type GhostPaint,
 } from '../index.js';
 
 /** deg -> rad, the SAME association shared/src uses (`(d * PI) / 180`) — the
@@ -392,7 +393,13 @@ describe('shared barrel', () => {
     // exception count stays SIX.
     // 66 -> 67: STAR SHELLS / PHOSPHOR SHELLS burst bases swapped (star 20,
     // phosphor 10; Eric 2026-10-01, amendment 208). No wire shape moved.
-    expect(PROTOCOL_VERSION).toBe(67);
+    // 67 -> 68: cycle 162 — MineView.c rides for EVERY observer who receives
+    // the mine (Eric 2026-10-01, "Everyone sees the kind", superseding
+    // amendment 76's own-only rule); the self-private OwnShip.chaffGhosts
+    // (the owner's own fake paints, GhostPaint rects); chaff.radius 120 -> 180
+    // and smokeScreen r0/r1 x1.5 (123.75 / 247.5), which the client draws from
+    // CONFIG. The exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(68);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -669,7 +676,7 @@ describe('shared barrel', () => {
     // catalog-v3 R37 / R39 / R36 (Eric 2026-09-09), epic-8 amendments 116-124.
     // Consumables carry NO stat row (the consumable law) — these ARE the numbers.
     expect(CONFIG.shieldBlock).toEqual({ hp: 100, durationMs: 10000 });
-    expect(CONFIG.chaff).toEqual({ radius: 120, count: 10, durationMs: 15000 });
+    expect(CONFIG.chaff).toEqual({ radius: 180, count: 10, durationMs: 15000 }); // radius ×1.5 (Eric 2026-10-01)
     expect(CONFIG.decoyBuoy).toEqual({ hp: 50, sizeU: 12 });
     // THE RADAR BUOY IS DELETED END TO END (Story 8.16): its CONFIG block (the
     // sensor, the gun buoy, the jamming fakes) went with it.
@@ -812,7 +819,7 @@ describe('shared barrel', () => {
       offset: deg(0), // bow-centered
       halfArc: deg(15),
       speed: 195,
-      damage: 50,
+      damage: 85, // 50 → 85, Eric 2026-10-01 (cycle 162)
       hits: ['hull', 'decoy'],
     });
     // THE ABSENCES ARE THE RULING (Eric 2026-09-19): a consumable never
@@ -862,22 +869,40 @@ describe('shared barrel', () => {
     expect(CONFIG.mine.hitRadiusU).toBe(10); // = the client's drawn marker ring
   });
 
-  it('re-exports the mine WIRE shape: MineKind + the own-only MineView.c (amendment 76)', () => {
+  it('re-exports the mine WIRE shape: MineKind + MineView.c for every observer (Eric 2026-10-01, supersedes amendment 76)', () => {
     // A TYPE-LEVEL PIN as much as a runtime one — this file type-checks in the
-    // gate, so a `MineKind` the barrel does not export, or a `c` that is not
-    // optional, fails to compile here.
+    // gate, so a `MineKind` the barrel does not export fails to compile here.
+    // `c` stays OPTIONAL on the type (a pre-68 frame carried none for others).
     const kinds: MineKind[] = ['naval', 'captive', 'fouling'];
     expect(kinds).toHaveLength(3);
     // The OWNER's marker carries the kind...
     const own: MineView = { id: 'm1', x: 10, y: 20, own: true, by: 'ship1', c: 'captive' };
     expect(own.c).toBe('captive');
-    // ...and EVERY OTHER OBSERVER's is the byte-identical kind-less marker it
-    // always was: the server strips the field, so an observer cannot tell the
-    // three kinds apart by sight. `c` is OPTIONAL precisely so that costs
-    // nothing on the wire.
-    const seen: MineView = { id: 'm1', x: 10, y: 20, own: false, by: 'ship1' };
-    expect(seen.c).toBeUndefined();
-    expect(Object.keys(seen)).toEqual(['id', 'x', 'y', 'own', 'by']);
+    expect(Object.keys(own)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
+    // ...and so does EVERY OTHER OBSERVER's ("Everyone sees the kind").
+    const seen: MineView = { id: 'm1', x: 10, y: 20, own: false, by: 'ship1', c: 'fouling' };
+    expect(seen.c).toBe('fouling');
+    expect(Object.keys(seen)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
+  });
+
+  it('re-exports GhostPaint + the self-private OwnShip.chaffGhosts (cycle 162): the blip rect minus k and t', () => {
+    // TYPE-LEVEL PINS: a ghost is exactly the blip payload's rect, and a
+    // blip is assignable to it (ReturnBlipEvent extends GhostPaint), so the
+    // two shapes cannot drift. The blip itself keeps its seven keys.
+    const blip: ReturnBlipEvent = { k: 'blip', t: 1000, gx: 3, gy: -4, w: 2, h: 1, bits: [3] };
+    expect(Object.keys(blip)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']);
+    const { k: _k, t: _t, ...rect } = blip;
+    const ghost: GhostPaint = rect;
+    expect(Object.keys(ghost)).toEqual(['gx', 'gy', 'w', 'h', 'bits']);
+    const ghosts: NonNullable<OwnShip['chaffGhosts']> = [ghost, blip];
+    const you: Pick<OwnShip, 'chaff' | 'chaffGhosts'> = {
+      chaff: { x: 100, y: 200, until: 16000 },
+      chaffGhosts: ghosts,
+    };
+    // Round-trips through JSON (the wire's plain-object contract) unchanged.
+    const back = JSON.parse(JSON.stringify(you)) as typeof you;
+    expect(back.chaffGhosts?.[0]).toEqual({ gx: 3, gy: -4, w: 2, h: 1, bits: [3] });
+    expect(back).toEqual(you);
   });
 
   it('re-exports the 8.16 WIRE shapes: DecoyView (by for all, hp own-only), FrameMsg.decoys, OwnShip.shield', () => {

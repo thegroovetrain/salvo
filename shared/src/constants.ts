@@ -1239,7 +1239,7 @@ export const CONFIG = {
     offset: deg(0), // bow-centered
     halfArc: deg(15), // ±15° bow sector (amendment 74, R19's arc kept)
     speed: 195, // u/s (amendment 74, R19's speed kept)
-    damage: 50, // hp per contact hit (amendment 74, R19's damage kept)
+    damage: 85, // hp per contact hit — 50 → 85, Eric 2026-10-01 (cycle 162; supersedes amendment 74's "R19's damage kept")
     // AR44: hulls and decoys, never a mine — it runs UNDER a minefield.
     hits: HITS_HULL_DECOY,
   },
@@ -1789,11 +1789,13 @@ export const CONFIG = {
    * key-fired consumable that bursts at the owner's position at activation
    * and paints `count` server-generated false returns inside `radius`,
    * re-scattered once per the OWNER's sweep period, water-filtered, for
-   * `durationMs`. The owner never receives them; a second copy REPLACES the
-   * source (fresh seed, fresh duration). No `EffectiveStats` row.
+   * `durationMs`. The fakes never ride the owner's `events`; the owner receives
+   * their OWN ghosts only via the self-private `OwnShip.chaffGhosts` (Eric
+   * 2026-10-01, cycle 162). A second copy REPLACES the source (fresh seed,
+   * fresh duration). No `EffectiveStats` row.
    */
   chaff: {
-    radius: 120, // u — scatter circle around the burst point (R39)
+    radius: 180, // u — scatter circle around the burst point (R39's 120 ×1.5, Eric 2026-10-01 "to 150 %")
     count: 10, // fake returns per scatter (R39; fewer is legal beside an island)
     durationMs: 15000, // ms the fakes keep painting (R39)
   },
@@ -1845,15 +1847,16 @@ export const CONFIG = {
    * untouched by this one. Never conflate the two.
    */
   smokeScreen: {
-    // Eric 2026-09-30: a puff starts at 1/8 of intel range and grows to 2/8 —
-    // big enough to cover the hull that lays it. Intel range is vision.radar
+    // Eric 2026-10-01: ×1.5 ("to 150 %") — a puff starts at 1.5/8 of intel
+    // range and grows to 3/8 (supersedes amendment 174's 1/8 → 2/8, which had
+    // superseded R38's r40 → r60, amendment 139). Intel range is vision.radar
     // (SIGHT × 2 = 660 u, a global constant no card raises), so these are
-    // authored as fractions of that same constant (supersedes R38's r40 → r60,
-    // amendment 139). r0 happens to equal the in-smoke sight (radar × 1/8) —
-    // separate dials. The radius rides no wire: both sides derive it from
-    // sim/smoke.ts puffRadius.
-    r0: SIGHT * 2 * (1 / 8), // u — puff radius at the instant it is laid (82.5)
-    r1: SIGHT * 2 * (2 / 8), // u — puff radius at full growth (165)
+    // authored as fractions of that same constant. The old coincidence that
+    // r0 equalled the in-smoke sight (radar × 1/8) ENDS here — the two were
+    // always separate dials, and `inSmokeSightFraction` is untouched. The
+    // radius rides no wire: both sides derive it from sim/smoke.ts puffRadius.
+    r0: SIGHT * 2 * (1.5 / 8), // u — puff radius at the instant it is laid (123.75)
+    r1: SIGHT * 2 * (3 / 8), // u — puff radius at full growth (247.5)
     lifeMs: 30000, // ms a puff lives on the water (R38)
     layMs: 5000, // ms of laying per copy fired; a re-press restarts it (R38; amendment 140)
     puffIntervalMs: 500, // ms between puffs while laying — 10 per lay (amendment 138)
