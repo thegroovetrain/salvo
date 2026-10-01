@@ -18,8 +18,9 @@ import {
 } from '../render/mines.js';
 import { CLIENT_CONFIG } from '../config.js';
 
-/** A mine view. `c` — the OWN-ONLY kind (epic-8 amendment 76) — is set exactly
- *  where the server would set it: on our own mines. */
+/** A mine view. `c` — the mine's kind, on EVERY row since cycle 162 ("Everyone
+ *  sees the kind", Eric 2026-10-01) — is set where a test says it is; a
+ *  kind-less view exercises the defensive naval default. */
 const mine = (id: string, own = false, by = 'p1', c?: MineKind): MineView =>
   (c === undefined ? { id, x: 0, y: 0, own, by } : { id, x: 0, y: 0, own, by, c });
 
@@ -233,10 +234,10 @@ describe('ownMineRings — the owner-private radius set', () => {
     // LITERAL alphas, deliberately: re-deriving them from CLIENT_CONFIG would
     // make this test agree with any value the config happens to hold, including
     // an armingScale of 1 that renders the arming state invisible.
-    expect(ownMineRings(base, 'naval', true).map((r) => r.alpha)).toEqual([0.3, 0.34]);
+    expect(ownMineRings(base, 'naval', true).map((r) => r.alpha)).toEqual([0.6, 0.65]);
     const arming = ownMineRings(base, 'naval', false).map((r) => r.alpha);
-    expect(arming[0]).toBeCloseTo(0.12, 9);
-    expect(arming[1]).toBeCloseTo(0.136, 9);
+    expect(arming[0]).toBeCloseTo(0.24, 9); // 0.6 × armingScale 0.4 (cycle 162 rings)
+    expect(arming[1]).toBeCloseTo(0.26, 9); // 0.65 × 0.4
     // ...and the arming set is unambiguously the quieter of the two.
     for (let i = 0; i < arming.length; i++) {
       expect(arming[i]).toBeLessThan(ownMineRings(base, 'naval', true)[i].alpha);
@@ -269,17 +270,59 @@ describe('mineArmed / ringsKey — the client-inferred arming window', () => {
   });
 });
 
-describe('mineKindOfView — the own-only wire kind (epic-8 amendment 76)', () => {
+describe('mineKindOfView — the wire kind, for every observer (cycle 162)', () => {
   it('reads the kind the server stamped on an OWN mine', () => {
     expect(mineKindOfView(mine('m', true, 'me', 'captive'))).toBe('captive');
     expect(mineKindOfView(mine('m', true, 'me', 'fouling'))).toBe('fouling');
   });
 
-  // An ENEMY's mine never carries `c` — the server strips it for every observer
-  // but the owner — and an observer's marker draws no ring at all, so the
-  // default is defensive rather than load-bearing.
-  it('falls back to naval when the field is absent (an enemy marker, an old frame)', () => {
+  // Cycle 162 (Eric 2026-10-01, "Everyone sees the kind"): an ENEMY's mine
+  // carries `c` too, and its marker draws that kind's glyph.
+  it('reads the kind on an ENEMY mine too', () => {
+    expect(mineKindOfView(mine('m', false, 'foe', 'captive'))).toBe('captive');
+  });
+
+  // The default is defensive only — this server stamps `c` on every row.
+  it('falls back to naval when the field is absent (an old/foreign frame)', () => {
     expect(mineKindOfView(mine('m', false, 'foe'))).toBe('naval');
+  });
+});
+
+describe("Mines — the marker is the kind's glyph (cycle 162)", () => {
+  /** Every Pixi path action a sprite's Graphics recorded, in order. */
+  function actions(layer: Container): string[] {
+    const g = layer.children[0] as unknown as {
+      context: { instructions: { data: { path?: { instructions: { action: string }[] } } }[] };
+    };
+    return g.context.instructions.flatMap((ins) => ins.data.path?.instructions.map((p) => p.action) ?? []);
+  }
+  /** The marker one ENEMY mine of `kind` draws (no owner rings). */
+  function marker(c?: MineKind): string[] {
+    const layer = new Container();
+    new Mines(new Container(), layer).sync([mine('m', false, 'foe', c)], () => 0x00ff00);
+    return actions(layer);
+  }
+
+  it('an enemy mine keeps the kind off its wire view; a kind-less one is naval', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([mine('c', false, 'foe', 'captive'), mine('x', false, 'foe')], () => 0x00ff00);
+    expect(mines.kindAt('c')).toBe('captive');
+    expect(mines.kindAt('x')).toBe('naval');
+    // ...and still no ring for an enemy, whatever its kind.
+    expect(mines.ringsAt('c')).toEqual([]);
+  });
+
+  it('the three kinds draw three different markers', () => {
+    const drawn = (['naval', 'captive', 'fouling'] as const).map((k) => marker(k).join(','));
+    expect(new Set(drawn).size).toBe(3);
+    // The kind-less defensive branch draws exactly the naval glyph.
+    expect(marker().join(',')).toBe(drawn[0]);
+  });
+
+  it('the naval marker is the spiked sphere: one circle and eight spikes', () => {
+    const a = marker('naval');
+    expect(a.filter((x) => x === 'circle')).toHaveLength(1);
+    expect(a.filter((x) => x === 'lineTo')).toHaveLength(8);
   });
 });
 

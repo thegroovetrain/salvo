@@ -1395,14 +1395,23 @@ describe('a stocked BELT square', () => {
     expect(row.badge).toBeNull();
   });
 
-  it('draws the mock PLUS for HULL REPAIR, NO glyph for a STUB consumable, and invents none', () => {
-    // Story 8.21: HULL REPAIR takes the ratified results mock's `ic-repair` — a
-    // bare plus, two strokes — from the one glyph source (Story 8.8 had left it
-    // artless rather than invent; the mock now supplies the art).
-    const plus = glyphPaths('hullRepair');
-    expect(plus).not.toBeNull();
-    expect(plus).toHaveLength(2);
-    expect(plus?.every((p) => p.kind === 'path' && p.pts.length === 2)).toBe(true);
+  it('draws a ROD OF ASCLEPIUS for HULL REPAIR, NO glyph for a STUB consumable, and invents none', () => {
+    // Cycle 162 (Eric 2026-10-01: "a rod of asclepius or a caduceus or
+    // something, not a cross"): one upright staff, one serpent winding across
+    // it, a small head — replacing Story 8.21's bare plus.
+    const rod = glyphPaths('hullRepair');
+    expect(rod).not.toBeNull();
+    const staff = rod!.find((p) => p.kind === 'path' && p.pts.length === 2 && p.pts[0][0] === 0 && p.pts[1][0] === 0);
+    expect(staff, 'a vertical staff').toBeDefined();
+    expect(rod!.some((p) => p.kind === 'circle'), 'the serpent head').toBe(true);
+    const serpent = rod!.find((p) => p.kind === 'path' && p.pts.length > 2);
+    expect(serpent, 'a sinuous serpent').toBeDefined();
+    // The serpent crosses the staff at least twice — it winds, it is not a line.
+    const xs = serpent!.kind === 'path' ? serpent!.pts.map(([x]) => x) : [];
+    const crossings = xs.slice(1).filter((x, i) => Math.sign(x) !== Math.sign(xs[i]) && x !== 0).length;
+    expect(crossings).toBeGreaterThanOrEqual(2);
+    // ...and it is no longer the plus: no horizontal bar through the centre.
+    expect(rod!.some((p) => p.kind === 'path' && p.pts.length === 2 && p.pts[0][1] === 0 && p.pts[1][1] === 0)).toBe(false);
     expect(equipmentGlyphSvg('hullRepair', 24)?.tagName.toLowerCase()).toBe('svg');
     // DEPTH CHARGE is a STUB (Story 8.13, epic-8 amendment 83): no mechanism,
     // so no linework — the same blank every other stub consumable renders. No
@@ -1414,16 +1423,26 @@ describe('a stocked BELT square', () => {
     expect(equipmentGlyphSvg('heavyTorpedo', 24)?.tagName.toLowerCase()).toBe('svg');
   });
 
-  // STORY 8.13 — THE FAMILY GLYPHS ARE REUSED, and the icon pass (UX-DR50)
-  // stays ledgered: a light torpedo IS a torpedo and a captive or fouling mine
-  // IS a mine, so each new line takes its family's shipped linework rather than
-  // art invented here. The SUPERCAV TORPEDO is the first CONSUMABLE with a
-  // glyph at all, because it is the first with a weapon behind it.
-  it('gives every new 8.13 line its FAMILY glyph — torpedoes and mines', () => {
-    expect(glyphPaths('lightTorpedo')).toEqual(glyphPaths('heavyTorpedo'));
-    expect(glyphPaths('supercavTorpedo')).toEqual(glyphPaths('heavyTorpedo'));
-    expect(glyphPaths('captiveMines')).toEqual(glyphPaths('navalMines'));
-    expect(glyphPaths('foulingMines')).toEqual(glyphPaths('navalMines'));
+  // CYCLE 162 — THE ICON PASS (Eric 2026-10-01): the family glyphs are no
+  // longer shared. Each torpedo line and each mine line draws its OWN glyph,
+  // all inside the unit box.
+  it('gives every torpedo line and every mine line its OWN glyph', () => {
+    for (const family of [
+      ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'],
+      ['navalMines', 'captiveMines', 'foulingMines'],
+    ]) {
+      const drawn = family.map((id) => glyphPaths(id));
+      for (const [i, parts] of drawn.entries()) {
+        expect(parts, family[i]).not.toBeNull();
+        for (const p of parts!) {
+          for (const [x, y] of p.kind === 'path' ? p.pts : [p.c]) {
+            expect(Math.abs(x), family[i]).toBeLessThanOrEqual(1 + 1e-9);
+            expect(Math.abs(y), family[i]).toBeLessThanOrEqual(1 + 1e-9);
+          }
+        }
+      }
+      expect(new Set(drawn.map((d) => JSON.stringify(d))).size, family.join()).toBe(3);
+    }
     // ...and the two families are still drawn differently from each other.
     expect(glyphPaths('navalMines')).not.toEqual(glyphPaths('heavyTorpedo'));
     expect(equipmentGlyphSvg('supercavTorpedo', 24)?.tagName.toLowerCase()).toBe('svg');

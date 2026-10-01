@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  LINE_IDS,
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
@@ -70,8 +71,13 @@ describe('the four new glyphs (amendment 110 — implementer drafts)', () => {
     }
   });
 
-  it('no two of the four share a drawing, and none copies the cannon or the star shell', () => {
-    const ids = ['gun', 'starShells', 'boost', 'machineGun', 'flak', 'instantReload', 'damageCut'];
+  // Cycle 162 (the icon pass): the set now spans every glyphed CARD LINE too,
+  // so none of the four may copy any line's drawing either. `deckGun` is left
+  // out because it IS the gun's glyph (the CANNON ladder), and the stub
+  // `depthCharge` has none.
+  it('no two of the four share a drawing, and none copies the cannon, the star shell or any line', () => {
+    const lines = LINE_IDS.filter((id) => id !== 'deckGun' && id !== 'depthCharge');
+    const ids = [...new Set(['gun', 'starShells', 'boost', 'machineGun', 'flak', 'instantReload', 'damageCut', ...lines])];
     const drawn = ids.map((id) => JSON.stringify(glyphPaths(id)));
     expect(new Set(drawn).size).toBe(ids.length);
   });

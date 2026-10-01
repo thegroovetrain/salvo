@@ -178,6 +178,10 @@ describe('how-to-play page mount', () => {
       expect(names[i]!.querySelector('svg') !== null, entry.name).toBe(has);
     });
     expect(entries.some((e) => entryGlyphId(e) !== null && glyphPaths(entryGlyphId(e)!) !== null)).toBe(true);
+    // Cycle 162 (the icon pass): the ship-upgrade ladders draw a glyph too.
+    const ship = entries.filter((e) => e.table === 'shipUpgrade');
+    expect(ship.length).toBeGreaterThan(0);
+    for (const e of ship) expect(names[entries.indexOf(e)]!.querySelector('svg'), e.name).not.toBeNull();
   });
 
   it('mounts once, not twice, when booted again', () => {

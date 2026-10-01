@@ -22,23 +22,42 @@
 // CLIENT_CONFIG.ordnance.creep* knobs — and reconcile() is back to the pure
 // add/remove lifecycle diff (unit-tested) that render/litZones.ts also uses.
 // Nothing may re-add a move path without a mine that can move.
+//
+// CYCLE 162 — A MINE ON THE WATER DRAWS ITS KIND'S GLYPH (Eric 2026-10-01). The
+// ring-and-dot marker is gone: each sprite strokes the SAME linework its line's
+// hotbar square draws (`drawEquipmentIcon`, render/equipmentIcons.ts) — naval,
+// captive and fouling each their own — in the dropper's hue, in a box the size
+// of the deck guns' "on the mine" disc. The kind rides `MineView.c` for EVERY
+// observer who can see the mine ("Everyone sees the kind", reversing amendment
+// 76), so an enemy's field reads by kind too.
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import { CONFIG, type EffectiveMine, type MineKind, type MineView } from '@salvo/shared';
+import { CONFIG, type EffectiveMine, type MineKind, type MineView, type SlotItemId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
+import { drawEquipmentIcon } from './equipmentIcons.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 
 export type { HueFor };
 
 const R = CLIENT_CONFIG.mineRings;
 const P = CLIENT_CONFIG.aimPreview;
-// u — the marker ring IS the deck guns' "on the mine" disc (amendment 201(a)):
-// one number, `CONFIG.mine.hitRadiusU`, read by the server's landing test and
-// by this drawing (10 u since Eric 2026-07-22: the graphic read a bit small).
+// u — the marker's glyph box IS the deck guns' "on the mine" disc (amendment
+// 201(a)): one number, `CONFIG.mine.hitRadiusU`, read by the server's landing
+// test and by this drawing (10 u since Eric 2026-07-22: the graphic read a bit
+// small). The glyph is drawn in a box `2 × RING_R` across, centred on the mine.
 const RING_R = CONFIG.mine.hitRadiusU;
-const DOT_R = 3.5; // u
+/** The marker glyph's stroke width (the old marker ring's weight). */
+const MARKER_W = 1.5;
+
+/** The slot-item id whose glyph a mine of each kind draws on the water — the
+ *  same linework as that line's hotbar square. */
+const MARKER_GLYPH: Readonly<Record<MineKind, SlotItemId>> = {
+  naval: 'navalMines',
+  captive: 'captiveMines',
+  fouling: 'foulingMines',
+};
 
 /**
  * THE OWNER'S LIVE MINE NUMBERS, fed in every sync — the three mine ROWS
@@ -51,7 +70,7 @@ const DOT_R = 3.5; // u
  * amendments 76/81). One hull may now lay naval, captive and fouling mines at
  * once, so "the owner's blast radius" is not a number any more — it is a
  * question about WHICH mine. Each sprite answers it from the kind on its own
- * wire view (`MineView.c`, emitted for own mines only) and reads THAT kind's
+ * wire view (`MineView.c`, on every mine since cycle 162) and reads THAT kind's
  * row; nothing here may read `navalMines` for a captive.
  *
  * THE `captive` FLAG IS GONE with the verb it named: CAPTIVE MINES is its own
@@ -80,10 +99,10 @@ export interface OwnMineRings {
   now: number;
 }
 
-/** The kind an own mine's rings are drawn at when the wire view carries none.
- *  A frame built by this server ALWAYS stamps `c` on an own mine (amendment
- *  76), so this is the defensive branch only — an old/foreign frame draws the
- *  naval pair rather than nothing, which is the pre-8.13 behaviour. */
+/** The kind a mine is drawn as when the wire view carries none. A frame built
+ *  by this server ALWAYS stamps `c` on every mine it sends (cycle 162, Eric
+ *  2026-10-01: "Everyone sees the kind"), so this is the defensive branch only
+ *  — an old/foreign frame draws the naval glyph and pair rather than nothing. */
 const DEFAULT_MINE_KIND: MineKind = 'naval';
 
 /** Pure: the kind a mine view declares, or the naval default (see above). */
@@ -182,9 +201,9 @@ interface MineSprite extends HueState {
   g: Graphics;
   own: boolean;
   /** THE KIND THIS MINE WAS LAID AS (Story 8.13) — read once off the wire view
-   *  at spawn and never re-derived. It is present only on OUR own mines
-   *  (`MineView.c`, epic-8 amendment 76), so an enemy sprite carries the naval
-   *  default and never draws a ring anyway. */
+   *  at spawn and never re-derived. It is read off the wire view for EVERY
+   *  mine (`MineView.c`, on every row since cycle 162), own or enemy: it picks
+   *  the marker glyph for both, and the ring row for our own. */
   kind: MineKind;
   /** The color the marker is currently painted in (the hue latch's resolved
    *  hue, or the amber fallback) — a recolor/ring redraw needs it without
@@ -262,7 +281,7 @@ export class Mines {
 
   /** The whole sprite: marker + (own) radius rings, in its current hue. */
   private redraw(s: MineSprite): void {
-    this.drawMarker(s.g, s.own, s.color);
+    this.drawMarker(s.g, s.kind, s.own, s.color);
     for (const ring of s.rings) drawRing(s.g, ring, s.color);
   }
 
@@ -302,7 +321,7 @@ export class Mines {
     };
     this.sprites.set(m.id, s);
     this.refreshRings(s, own); // draws the rings; redraw() paints the marker too
-    if (s.rings.length === 0) this.drawMarker(g, m.own, color);
+    if (s.rings.length === 0) this.drawMarker(g, s.kind, m.own, color);
     if (m.own) this.onOwnMineSpawn?.(m);
   }
 
@@ -319,15 +338,14 @@ export class Mines {
    * all observers); `own` drives only the brightness (dim on your own chart,
    * brighter as an enemy warning).
    *
-   * THE CREEP TICK IS GONE (Story 7-5 wave 2): the spur out of the ring showed
-   * the course a SELF-PROPELLED mine was making good, and no mine has a course
-   * any more. A marker is a ring and a dot.
+   * A MARKER IS ITS KIND'S GLYPH (cycle 162): the hotbar linework of the line
+   * that laid it, in a `2 × RING_R` box centred on the mine. (The creep tick
+   * left in Story 7-5 wave 2; the ring and dot left in cycle 162.)
    */
-  private drawMarker(g: Graphics, own: boolean, color: number): void {
+  private drawMarker(g: Graphics, kind: MineKind, own: boolean, color: number): void {
     const alpha = own ? 0.7 : 0.9;
     g.clear();
-    g.circle(0, 0, RING_R).stroke({ width: 1.5, color, alpha });
-    g.circle(0, 0, DOT_R).fill({ color, alpha: own ? 0.8 : 1 });
+    drawEquipmentIcon(g, MARKER_GLYPH[kind], 0, 0, 2 * RING_R, { width: MARKER_W, color, alpha });
   }
 }
 

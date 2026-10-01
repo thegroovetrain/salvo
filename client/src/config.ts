@@ -100,6 +100,15 @@ const COLORS = {
   echoFaint: 0x00ff00, // "honestly not sure, could be something tiny" — green
   echoFuzzy: 0x0000ff, // "probably a thing, but fuzzy" — blue
   echoSolid: 0xff0000, // "this is definitely a thing" — red
+  // THE CHAFF OWNER'S GHOST GREYS (cycle 162, Eric 2026-10-01: the owner sees
+  // their own fake returns "greyscale rather than green/blue/red", at half the
+  // scope's alpha). NOT scope registers — they paint a SEPARATE sprite
+  // (render/chaffGhosts.ts) and never reach the scope's buffer, which still
+  // has exactly the three colors above. DRAFT values for Eric's eye, ordered
+  // faint → solid at the scope's own band thresholds.
+  ghostFaint: 0x4a4a4a,
+  ghostFuzzy: 0x8c8c8c,
+  ghostSolid: 0xd0d0d0,
   // THERE IS NO FOURTH APPEARANCE ON THE SCOPE (cycle 69). Story 4.11 added an
   // `echoNoData` grey here — a fourth token drawn wherever terrain had shadowed
   // the beam. Eric, on the shipped 0.17.68 build: *"i don't like the grey showing
@@ -284,6 +293,11 @@ const TYPE = {
 /** The RED->BLUE boundary: `bands[2].at`, the intensity a hull must land on
  *  exactly at 7/8 intel range. Stated once, used twice. */
 const HEAT_RED_AT = 0.7;
+
+/** The GREEN->BLUE boundary: `bands[1].at` — hoisted (cycle 162) so the chaff
+ *  owner's grey ghost bands (`chaffGhost.bands`) share the scope's thresholds
+ *  rather than restating them. */
+const HEAT_BLUE_AT = 0.36;
 
 /** The TRANSPARENCY threshold: `bands[0].at`. Below it a cell draws nothing at
  *  all, which makes it the rail every weak material is calibrated against —
@@ -935,11 +949,19 @@ export const CLIENT_CONFIG = {
    * the captive trip ring inherits that ring's dotted STYLE but is the primary
    * (and only) ring on the mine, so it takes `triggerAlpha`, the weight the
    * trip radius has always had.
+   *
+   * LOUDER SINCE CYCLE 162 (Eric 2026-10-01: blast and trigger rings on all
+   * mines "a lot more visible"): width 1 → 2, blastAlpha 0.3 → 0.6,
+   * triggerAlpha 0.34 → 0.65 — IMPLEMENTER DRAFTS for his eye on staging.
+   * `armingScale` is unchanged, so an arming mine still reads quieter.
+   * render/decoys.ts borrows `width` for the owner-only masthead hp arc (a
+   * 9.5 u clock face at the topmark, never around the hull), which therefore
+   * also thickens to 2 — it still cannot read as a mine ring.
    */
   mineRings: {
-    width: 1, // ring stroke width
-    blastAlpha: 0.3,
-    triggerAlpha: 0.34,
+    width: 2, // ring stroke width (cycle 162 draft; was 1)
+    blastAlpha: 0.6, // cycle 162 draft; was 0.3
+    triggerAlpha: 0.65, // cycle 162 draft; was 0.34
     /** Multiplier applied to every ring alpha while the mine is still ARMING
      *  (client-inferred: first-seen + CONFIG.mine.armDelay). Dim = "not live
      *  yet"; it snaps to full the moment it arms. */
@@ -2340,15 +2362,44 @@ export const CLIENT_CONFIG = {
    * render/chaffRing.ts. A dim phosphor DASHED circle of `CONFIG.chaff.radius`
    * around the owner's own burst point (self-private `you.chaff`), fading to
    * nothing at the cloud's expiry. Client-only feel: none of these is gameplay.
+   *
+   * MORE VISIBLE SINCE CYCLE 162 (Eric 2026-10-01: "the chaff ring more
+   * visible"): alpha 0.45 → 0.85, width 1.5 → 2.5 — IMPLEMENTER DRAFTS for his
+   * eye on staging. Dash and gap unchanged.
    */
   chaffRing: {
     /** Stroke alpha of a FRESH cloud; it falls linearly to 0 at `until`. */
-    alpha: 0.45,
+    alpha: 0.85,
     /** Dash and gap lengths (world u) along the circumference. */
     dash: 10,
     gap: 8,
     /** Stroke width (world u). */
-    width: 1.5,
+    width: 2.5,
+  },
+
+  /**
+   * THE CHAFF OWNER'S GHOSTS (cycle 162, Eric 2026-10-01 — reversing amendment
+   * 191's "never the fakes": the owner now sees their own fake returns "at 50 %
+   * of their normal alpha in greyscale") — render/chaffGhosts.ts. The server
+   * hands the owner the coverage rects of their OWN fakes on the self-private
+   * `you.chaffGhosts`; they are marched and rasterized through the scope's own
+   * pure functions into a SEPARATE grid and sprite, so the scope's three-color
+   * contract is untouched.
+   *
+   * DERIVED FROM `blip.heatmap`, never restated: the band THRESHOLDS are the
+   * scope's own (`HEAT_*_AT`), only the colors swap to the three grey tokens,
+   * and the opacity is the scope's `bandAlpha × alphaScale` ("50 % whatever
+   * alpha it would be otherwise"). Grey VALUES are drafts (see `COLORS.ghost*`).
+   */
+  chaffGhost: {
+    /** Multiplier on `blip.heatmap.bandAlpha` (Eric: 50 %). */
+    alphaScale: 0.5,
+    /** The scope's thresholds, grey colors — ascending, exactly three. */
+    bands: [
+      { at: HEAT_GREEN_AT, color: COLORS.ghostFaint },
+      { at: HEAT_BLUE_AT, color: COLORS.ghostFuzzy },
+      { at: HEAT_RED_AT, color: COLORS.ghostSolid },
+    ],
   },
 
   /**
@@ -2461,7 +2512,7 @@ export const CLIENT_CONFIG = {
        */
       bands: [
         { at: HEAT_GREEN_AT, color: COLORS.echoFaint },
-        { at: 0.36, color: COLORS.echoFuzzy },
+        { at: HEAT_BLUE_AT, color: COLORS.echoFuzzy },
         { at: HEAT_RED_AT, color: COLORS.echoSolid },
       ],
       /**
@@ -3199,6 +3250,50 @@ export const CLIENT_CONFIG = {
       peakAlpha: 0.58,
       stagger: 300,
     },
+  },
+
+  /**
+   * ON FIRE (cycle 162, Eric 2026-10-01: "some kind of 'on fire' effect for a
+   * ship under 25%") — render/fire.ts. Flame tongues ride the SAME anonymous
+   * `sm` pulse wounded smoke rides, and only its heavy tier (`tier === 2`,
+   * hull below `CONFIG.damageBands.criticalBelow`): no wire change, no
+   * correlation handle, the plume's own disclosure and nothing more. EVERY
+   * number here is an IMPLEMENTER DRAFT for Eric's eye on staging.
+   *
+   * INFORMATION, NOT JUICE (the amendment-43 rule smoke.ts states): presence,
+   * size and tier are never motion-gated. Only the flicker and the rise scale
+   * with the motion setting; at `motion: 'off'` the flames are still, present
+   * and full-sized.
+   */
+  fire: {
+    /** Flame tongues spawned per tier-2 `sm` pulse. */
+    flames: 2,
+    /** How long one tongue lives, ms. Well under smoke's `puffLifeMs`, so the
+     *  flames sit ON the hull rather than trailing behind it (the same
+     *  not-a-track arithmetic smoke's life is bound by). */
+    lifeMs: 600,
+    /** Fraction of the life over which a tongue blooms in; it fades linearly
+     *  to nothing across the whole life from there (smoke's curve). */
+    riseFraction: 0.15,
+    /** Radius at birth → radius at death, u. */
+    r0: 6,
+    r1: 14,
+    /** Peak opacity (top of the bloom-in ramp). Never motion-scaled. */
+    peakAlpha: 0.9,
+    /** Age head-start (ms) for the Nth extra tongue of one pulse — depth, not
+     *  one hard stamp (smoke's `stagger`). */
+    stagger: 150,
+    /** Rise, u/s, OPPOSITE the smoke wind's y (upward on screen); scaled by
+     *  motion intensity, so `off` pins a tongue at the pulse point. */
+    riseSpeed: 14,
+    /** Flicker: a fast sin wobble on alpha and width, amplitude scaled by
+     *  motion intensity (exactly 1 at intensity 0). `flickerHz` is well under
+     *  the ≤3 flashes/s ceiling's spirit — it is a wobble, never an on/off. */
+    flickerHz: 6,
+    flickerAmp: 0.25,
+    /** Global backstop on live tongues (`capOldest`) — sized like smoke's:
+     *  20 hulls critical at once × ~3 live pulses × 2 tongues = 120, doubled. */
+    maxFlames: 256,
   },
 
   /**
