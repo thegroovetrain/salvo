@@ -2782,3 +2782,8 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: OPEN — comments only
   summary: HUNDREDS OF CODE COMMENTS STILL SAY "Torpedo Boat" / "Mine Layer" / "Battleship" (and the test-profile ids `randomTorpedoBoat` / `randomMineLayer` / `randomBattleship`). Amendment 204 keeps the ids and leaves the comments as history; a reader of the code meets both vocabularies. `classNames.ts` is the one place the mapping is written down.
   evidence: `grep -rn "Torpedo Boat\|Mine Layer\|Battleship" shared/src server/src client/src`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-22-how-to-play-and-copy-re-cut.md`
+  status: OPEN — Eric, another session ("I will make sure everything has an icon in another session", 2026-10-01)
+  summary: THE FIVE SHIP LADDERS HAVE NO GLYPH. ARMOR / SPEED / TURNING / RADAR SWEEP / RELOAD have no entry in `render/equipmentIcons.ts`; the refit card draws an empty box for them and How-to-Play renders their names alone. Eric will author the icons himself; no agent draws one.
+  evidence: `client/src/render/equipmentIcons.ts` glyph registry; `how-to-play/main.ts` `entryGlyphId`.

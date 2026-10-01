@@ -126,7 +126,7 @@ warnings: [oversized, multiple-goals]
 
 ## Auto Run Result
 
-**Status:** done — cycle 161, 0.18.26, `PROTOCOL_VERSION` 66 → 67; branch `worktree-dev-auto-8-22-how-to-play`, ONE PR to `development`, NOT merged (Eric merges). Epic 8 (The Pool) is complete: 8-0 … 8-22 landed.
+**Status:** done — cycle 161, 0.18.26, `PROTOCOL_VERSION` 66 → 67; branch `worktree-dev-auto-8-22-how-to-play`, ONE PR to `development`, NOT merged (Eric merges). 8-0 … 8-22 have landed; Eric has more he wants in Epic 8 before it wraps (2026-10-01).
 
 **Summary.** The three classes print their names — SPEEDBOAT (`torpedoBoat`), REPEATER (`mineLayer`), DREADNOUGHT (`battleship`) — from the one display table; ids, identity test and comments untouched. How-to-Play is re-cut from code facts into nine sections: the five play sections (SHOOTING teaches the gun pick; EQUIPMENT the hulls, the SPECIAL on Shift, the nine squares and the keys; UPGRADING the shared pool, the countdown offer and REDRAW, consumable stocking and the two fire modes, HULL REPAIR as built, regen) plus THE GUNS · WEAPONS · CONSUMABLES · SHIP UPGRADES describing every gun, weapon line, live consumable and ship ladder in plain words, never "fish" (Eric mid-run, amendment 206). Settings' three false key rows fixed. Mid-run CONFIG rulings folded in: STAR SHELLS ↔ PHOSPHOR SHELLS burst damage swapped (208), FLAK reload 6 → 4 s (210).
 
@@ -136,7 +136,7 @@ warnings: [oversized, multiple-goals]
 
 **Review.** One pass: Blind Hunter + Edge Case Hunter (Fable) + Codex `gpt-5.6-sol`. Patched 12 (2 medium: "half a hull" flagged by BOTH Blind Hunter and Codex; DAMAGE CUT vs the storm; 10 low wording-precision and regex fixes); rejected 3; deferred 0. `followup_review_recommended: false` — every patch is a one-clause copy edit or a test tightening, each re-verified against CONFIG.
 
-**Verification.** `npm run check` exit 0: shared 40 files / 1024 tests, server 83 / 2316, client 117 / 3755, hook suite 266 PASS; lint 0 errors (3 pre-existing `max-lines-per-function` warnings); tsc clean on server and client. `grep "TORPEDO BOAT\|MINE LAYER\|BATTLESHIP" client/src --include='*.ts' | grep -v __tests__` → nothing. `PROTOCOL_VERSION = 67`.
+**Verification.** `npm run check` exit 0: shared 40 files / 1024 tests, server 83 / 2316, client 118 / 3761, hook suite 266 PASS; lint 0 errors (3 pre-existing `max-lines-per-function` warnings); tsc clean on server and client. `grep "TORPEDO BOAT\|MINE LAYER\|BATTLESHIP" client/src --include='*.ts' | grep -v __tests__` → nothing. `PROTOCOL_VERSION = 67`.
 
 **Residual risks.** The whole page is draft for Eric's pen (ledgered). The star/phosphor swap and the flak reload are untested in play — Eric's staging eye. Subagent routing note: a mid-run instruction relayed by message to a Sonnet landing agent was refused by its classifier as untrusted; the orchestrator applied that one-line change itself.
 
