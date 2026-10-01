@@ -90,6 +90,8 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
       'A nasty storm is closing in. Stay inside the ring or it will drown you.',
       'If you run out of HP, you sink. You have 5 seconds to try and snag a revenge kill before you go down with the ship.',
       'You slowly regenerate HP as long as you haven\'t taken damage in the last 15 seconds.',
+      'Shoot a spotted mine with your deck gun to damage/destroy it.',
+      'Islands block sight, radar, ships, and incoming ordinance.'
     ],
   },
   {
@@ -123,36 +125,23 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
   },
   {
     heading: '[ DECK GUNS ]',
-    paragraphs: [
-      'Every ship mounts one Deck Gun. You pick it before the match and keep it all game. All three fire in any direction out to radar range. Islands block shells.',
-    ],
     entries: [
-      { name: 'CANNON', lineId: 'deckGun', table: 'tier', description: 'One shell per click. Lands where you click and explodes.' },
-      { name: 'MACHINE GUN', lineId: 'machineGun', table: 'tier', description: 'Hold to fire a stream of shells at your cursor. Letting go early starts the reload.' },
-      { name: 'FLAK', lineId: 'flak', table: 'tier', description: 'One shell per click that explodes in the air with a big blast radius.' },
-    ],
-    tail: [
-      'Each Deck Gun has its own upgrade cards. You will only be offered upgrades for the gun you have.',
-    ],
+      { name: 'CANNON', lineId: 'deckGun', table: 'tier', description: 'Decent damage and fire rate. Small blast radius.' },
+      { name: 'MACHINE GUN', lineId: 'machineGun', table: 'tier', description: 'Hold to fire a stream of shells.' },
+      { name: 'FLAK', lineId: 'flak', table: 'tier', description: 'Slightly less damage than the Cannon, but faster reload and larger blast radius.' },
+    ]
   },
   {
     heading: '[ WEAPONS ]',
-    paragraphs: [
-      'Weapons go in your Q/E/R slots. The first card equips the weapon, each additional card upgrades it.',
-    ],
     entries: [
       { name: 'HEAVY TORPEDO', lineId: 'heavyTorpedo', table: 'tier', description: 'Fires forward within the bow arc. From Tier II on it homes in on the nearest ship.' },
       { name: 'LIGHT TORPEDO', lineId: 'lightTorpedo', table: 'tier', description: 'Fires out of either side. Slower and lighter than the heavy.' },
       { name: 'BROADSIDE GUN', lineId: 'broadside', table: 'tier', description: 'Click to either side and every turret on that side fires. Shorter range than your Deck Gun, and it can\'t fire forward or backward.' },
-      { name: 'STAR SHELLS', lineId: 'starShells', table: 'tier', description: 'Fires a flare to where you click. Lights up everything in the circle, for you only, islands included, and damages every ship under it when it bursts.' },
+      { name: 'STAR SHELLS', lineId: 'starShells', table: 'tier', description: 'Fires a flare to where you click. Grants you vision on anything in the circle, and damages every ship under it when it bursts. You can always fire your Deck Gun anywhere into the region lit up by your Star Shells no matter where it is on the map.' },
       { name: 'PHOSPHOR SHELLS', lineId: 'phosphorShells', table: 'tier', description: 'Explodes into a patch of burning water. Damages on burst, then keeps burning anyone who sits in it.' },
       { name: 'NAVAL MINES', lineId: 'navalMines', table: 'tier', description: 'Click behind your ship to drop a mine. Explodes when an enemy sails over it, and sets off every other Naval Mine in its blast.' },
       { name: 'CAPTIVE MINES', lineId: 'captiveMines', table: 'tier', description: 'Drops like a Naval Mine. Instead of exploding, it fires a torpedo at the first enemy to come in range.' },
       { name: 'FOULING MINES', lineId: 'foulingMines', table: 'tier', description: 'Drops like a Naval Mine. Barely hurts, but slows any enemy caught in the blast.' },
-    ],
-    tail: [
-      // CONFIG.mine.hp 10 / hitRadiusU 10 (amendments 200–202); own mines are the one friendly-fire exception
-      'Mines have 10 HP. Only a Deck Gun shell that lands on the mine damages it. Cannon and Flak kill a mine in one shot, Machine Gun in three. You can shoot your own mines.',
     ],
   },
   {
@@ -162,19 +151,16 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
     ],
     entries: [
       { name: 'HULL REPAIR', lineId: 'hullRepair', table: 'consumable', description: 'Heals some HP instantly and the rest over a few seconds. Using another one restarts the timer instead of adding to it.' },
-      { name: 'SHIELD BLOCK', lineId: 'shieldBlock', table: 'consumable', description: 'Absorbs incoming damage until it is used up or runs out of time. Works on everything, storm included. A second shield replaces the first.' },
-      { name: 'SMOKE SCREEN', lineId: 'smokeScreen', table: 'consumable', description: 'Lays a trail of smoke behind you. Smoke blocks sight, not radar. Anyone inside smoke, including you, is nearly blind.' },
-      { name: 'CHAFF', lineId: 'chaff', table: 'consumable', description: 'Fills the area around you with fake radar contacts. Only other players see them.' },
-      { name: 'DECOY BUOY', lineId: 'decoyBuoy', table: 'consumable', description: 'Select it, then click behind your ship to drop a buoy. It shows up on radar as a ship and homing torpedoes will chase it. Your own weapons can\'t hurt it.' },
+      { name: 'SHIELD BLOCK', lineId: 'shieldBlock', table: 'consumable', description: 'Absorbs incoming damage until it is used up or runs out of time.' },
+      { name: 'SMOKE SCREEN', lineId: 'smokeScreen', table: 'consumable', description: 'Lays a trail of smoke behind you. Smoke blocks sight, not radar. Anyone inside smoke, including you, is nearly blind. But they also can\'t see you.' },
+      { name: 'CHAFF', lineId: 'chaff', table: 'consumable', description: 'Fills the area around you with fake radar contacts.' },
+      { name: 'DECOY BUOY', lineId: 'decoyBuoy', table: 'consumable', description: 'Select it, then click behind your ship to drop a buoy. It shows up on radar and homing torpedoes will chase it instead of you.' },
       { name: 'SUPERCAV TORPEDO', lineId: 'supercavTorpedo', table: 'consumable', description: 'Select it, then click near the bow. Very fast, no homing.' },
       { name: 'FLASH SHELLS', lineId: 'dazzleShells', table: 'consumable', description: 'Select it, then click. Every enemy caught in the flash is blinded for a while. Radar unaffected. No damage.' },
     ],
   },
   {
     heading: '[ SHIP UPGRADES ]',
-    paragraphs: [
-      'Ship upgrades stack. Each card is one tier.',
-    ],
     entries: [
       { name: 'ARMOR', lineId: 'armor', table: 'shipUpgrade', description: 'More max HP, and heals you by the same amount.' },
       { name: 'SPEED', lineId: 'speed', table: 'shipUpgrade', description: 'Higher top speed.' },
