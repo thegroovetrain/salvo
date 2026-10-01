@@ -7,9 +7,16 @@
 //
 // The copy itself is DRAFT pending Eric's pass, so nothing here asserts an exact
 // sentence except the one line the story exists to deliver.
+//
+// STORY 8.22 RE-CUT (2026-10-01): the page now teaches the pool draw, the gun
+// pick, the class SPECIAL on Shift, the nine squares, consumables, REDRAW and
+// the three class names (epic-8 amendment 204). The section set is pinned
+// EXACTLY and in order, the banned-word list grows the retired deck words, and
+// the facts each section owes are pinned by name.
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  type HowToSection,
   HOWTO_FOOTER_LINK,
   HOWTO_SECTIONS,
   HOWTO_TITLE,
@@ -18,6 +25,9 @@ import { mountHowToPlayPage } from '../how-to-play/main.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const page = (): HTMLElement => document.getElementById('how-to-play-page') as HTMLElement;
+const section = (heading: string): HowToSection | undefined =>
+  HOWTO_SECTIONS.find((s) => s.heading === heading);
+const sectionText = (heading: string): string => JSON.stringify(section(heading) ?? {});
 
 describe('how-to-play copy', () => {
   it('every section has a heading, and something under it', () => {
@@ -46,15 +56,56 @@ describe('how-to-play copy', () => {
   // (speed boost, decoy), not a weapon.
   it('carries no boon glossary', () => {
     const all = JSON.stringify(HOWTO_SECTIONS).toLowerCase();
-    for (const banned of ['glossary', 'rarity', 'exclusive', 'mk i', 'subdeck']) {
+    for (const banned of ['glossary', 'rarity', 'exclusive', 'mk i', 'subdeck', 'starter', 'default deck', 'your deck']) {
       expect(all, `copy mentions ${banned}`).not.toContain(banned);
     }
   });
 
-  it('teaches the four basics Eric named', () => {
-    const headings = HOWTO_SECTIONS.map((s) => s.heading).join(' ');
-    for (const topic of ['STEERING', 'SHOOTING', 'EQUIPMENT', 'UPGRADING']) {
-      expect(headings, topic).toContain(topic);
+  it('teaches the objective and the four basics Eric named — exactly, in order', () => {
+    expect(HOWTO_SECTIONS.map((s) => s.heading)).toEqual([
+      'THE OBJECTIVE',
+      'STEERING',
+      'SHOOTING',
+      'EQUIPMENT',
+      'UPGRADING',
+    ]);
+  });
+
+  it('no heading is a glossary', () => {
+    for (const s of HOWTO_SECTIONS) expect(s.heading.toUpperCase()).not.toContain('GLOSSARY');
+  });
+
+  // STORY 8.22: the facts each section owes, pinned by name.
+  it('EQUIPMENT names the three hulls and their three SPECIALs', () => {
+    const text = sectionText('EQUIPMENT');
+    for (const name of ['SPEEDBOAT', 'DREADNOUGHT', 'REPEATER']) expect(text, name).toContain(name);
+    for (const name of ['SPEED BOOST', 'INSTANT RELOAD', 'DAMAGE CUT']) expect(text, name).toContain(name);
+  });
+
+  it('SHOOTING names the three guns', () => {
+    const text = sectionText('SHOOTING');
+    for (const name of ['CANNON', 'MACHINE GUN', 'FLAK']) expect(text, name).toContain(name);
+  });
+
+  it('UPGRADING teaches REDRAW and both consumable fire modes', () => {
+    const paragraphs = section('UPGRADING')?.paragraphs ?? [];
+    expect(paragraphs.join(' ')).toContain('REDRAW');
+    const consumables = paragraphs.find((p) => p.includes('Consumables')) ?? '';
+    expect(consumables).toContain('fire the moment you press');
+    expect(consumables).toContain('fire where you click');
+  });
+
+  it('the EQUIPMENT keys teach SHIFT, Q / E / R and the belt digits 1-4', () => {
+    const keys = (section('EQUIPMENT')?.keys ?? []).flatMap((k) => k.keys);
+    for (const k of ['SHIFT', 'Q', 'E', 'R', '1', '2', '3', '4']) expect(keys, k).toContain(k);
+  });
+
+  it('no keycaps row carries CTRL or SPACE', () => {
+    for (const s of HOWTO_SECTIONS) {
+      for (const row of s.keys ?? []) {
+        expect(row.keys, s.heading).not.toContain('CTRL');
+        expect(row.keys, s.heading).not.toContain('SPACE');
+      }
     }
   });
 

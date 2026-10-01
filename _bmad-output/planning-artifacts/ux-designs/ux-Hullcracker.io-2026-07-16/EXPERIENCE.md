@@ -270,7 +270,7 @@ Personas are constructed from the brief's audience sketches (no upstream persona
 
 Failure path *is* the flow: death is the teaching surface, and it costs two presses, zero menus.
 
-### Journey B — "Dee" (WoWS refugee, Mine Layer)
+### Journey B — "Dee" (WoWS refugee, Mine Layer) *(class prints REPEATER since 2026-10-01, Story 8.22, epic-8 amendment 204)*
 
 1. `[ASSUMPTION]` (v3, unbuilt) `SOLO` opens the LOADOUT screen: four rows. She presses the SHIP value and the picker shows three hull cards; she picks the Mine Layer and the modal closes — SPECIAL now reads INSTANT RELOAD, DECK GUN sits on CANNON, no grind wall (v4: everything is unlocked on day one; unlocks are variety, never power); anonymous, every card in every picker is lit and there is no price anywhere. She hoists Rose at the foot of the tiles and presses CONFIRM SELECTION.
 2. `[ASSUMPTION]` (v3, unbuilt) Countdown: the window opens on her level-zero offer with NAVAL MINES I in it; she takes it and Q fills. Early game: radar discipline — she hunts by return strength, keeps islands between herself and a Battleship's sweep, and seeds a mine seam across a channel mouth from the rear arc.
@@ -284,7 +284,7 @@ Failure path: `[ASSUMPTION]` (v3, unbuilt) if the Torpedo Boat spots the seam (m
 
 *(The party/friend-group protagonist reserved in 2026-07-16 is DELETED — Eric ruling 2026-08-21: those modes come after beta launch, and the mode row is built to take them when they are actually ruled in. Dee's beats double as the read for the brief's primary 16–35 "design compass" audience; the third journey is Journey C, the signed-in loop, added 2026-09-11 and redrawn 2026-09-23 for The Pool.)*
 
-### Journey C — "Okafor" (28, signed-in regular, Battleship) (v3, unbuilt; redrawn v4.1 2026-09-28 for the LOADOUT screen — every beat a facilitator draft for Eric's redline)
+### Journey C — "Okafor" (28, signed-in regular, Battleship) *(prints DREADNOUGHT since 2026-10-01, amendment 204)* (v3, unbuilt; redrawn v4.1 2026-09-28 for the LOADOUT screen — every beat a facilitator draft for Eric's redline)
 
 `[ASSUMPTION: the name and the protagonist]`
 

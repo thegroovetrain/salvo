@@ -358,11 +358,28 @@ describe('bindingRows — current truth (amendments 1–13), view-only', () => {
     expect(rudder?.keys).toContain('ARROWS');
   });
 
-  it('the gun (slot 0) is listed as the keyless default, reachable via its hotbar tile', () => {
+  // Story 8.22: DEFAULT left the gun row — no client copy may carry the word.
+  it('the gun (slot 0) is listed as keyless and always selected, reachable via its hotbar tile', () => {
     const gun = rows.find((r) => r.action.includes('GUN'));
     expect(gun).toBeDefined();
-    expect(gun?.action).toContain('DEFAULT');
+    expect(gun?.action).toContain('ALWAYS SELECTED');
     expect(gun?.action).toContain('HOTBAR');
+  });
+
+  // STORY 8.22 (2026-10-01): Q/E/R are three weapon slots since Story 8.5 and
+  // the class SPECIAL is on Shift since Story 8.15.
+  it('lists Q / E / R as the weapon slots and SHIFT as the class SPECIAL', () => {
+    const weapons = rows.find((r) => r.keys === 'Q / E / R');
+    expect(weapons?.action).toContain('WEAPON SLOTS');
+    const shift = rows.find((r) => r.keys === 'SHIFT');
+    expect(shift?.action).toContain('SPECIAL');
+  });
+
+  it('never advertises the retired PICKUP slot or CLASS SPECIAL SLOTS', () => {
+    for (const r of rows) {
+      expect(r.action, r.keys).not.toContain('PICKUP');
+      expect(r.action, r.keys).not.toContain('CLASS SPECIAL SLOTS');
+    }
   });
 
   it('never advertises P — the netcode debug toggle stays out of this surface', () => {

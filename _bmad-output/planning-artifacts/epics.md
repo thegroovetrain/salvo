@@ -2164,6 +2164,8 @@ So that the only place a feature is explained is not describing the old one.
 **And** no `deck`, `DEFAULT` or `STARTER` string ships in client copy (UX-DR77 is void — there is no built-in deck to name)
 **And** `client/src/__tests__` pins the section set and the absence of a glossary heading, as Story 7.3's tests did; client-only, no PV change.
 
+*(Built 2026-10-01, cycle 161 — epic-8 amendments 204–207. Eric's rulings in-run: the three classes print **SPEEDBOAT · REPEATER · DREADNOUGHT** (204); the toasts stay `◆ <LINE> FITTED` / `◆ <LINE> STOCKED` — the `card fitted` / `consumable stocked` line above is shorthand for 8.7 ruling 14 (205); the page ALSO describes every weapon, in a human voice, never "fish" — "no glossary" was never "no weapon descriptions" (206). SHOOTING is re-cut with the gun pick too, and the Settings key rows that became false are fixed (207).)*
+
 
 ## Epic 9: The Account *(GDD E9; re-cut 2026-09-21 — no decks)*
 

@@ -227,7 +227,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
 describe('the HP globe opens a SHIP panel with the five ship stats (amendment 186)', () => {
   it('names the hull over SHIP and the five ladders\' live values', () => {
     const m = shipTooltipModel('torpedoBoat', STATS)!;
-    expect(m.name).toBe('TORPEDO BOAT');
+    expect(m.name).toBe('SPEEDBOAT');
     expect(m.interaction).toBe(SHIP_INTERACTION);
     expect(m.interaction).toBe('SHIP');
     expect(m.stats.map((r) => r.label)).toEqual(['MAX HULL', 'TOP SPEED', 'TURNING', 'RADAR SWEEP', 'ALL COOLDOWNS']);

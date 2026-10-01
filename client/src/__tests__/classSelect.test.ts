@@ -126,11 +126,11 @@ describe('cardViewModel — pips, keys, loadout', () => {
     }
   });
 
-  it('names classes with their two-word display labels', () => {
+  it('names classes with the display labels Eric ruled (amendment 204)', () => {
     expect(CLASS_DISPLAY_NAMES).toEqual({
-      torpedoBoat: 'TORPEDO BOAT',
-      battleship: 'BATTLESHIP',
-      mineLayer: 'MINE LAYER',
+      torpedoBoat: 'SPEEDBOAT',
+      battleship: 'DREADNOUGHT',
+      mineLayer: 'REPEATER',
     });
   });
 });
@@ -340,9 +340,9 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const text = layer.textContent ?? '';
     expect(text).toContain('WHAT WILL YOU SAIL?');
-    expect(text).toContain('TORPEDO BOAT');
-    expect(text).toContain('BATTLESHIP');
-    expect(text).toContain('MINE LAYER');
+    expect(text).toContain('SPEEDBOAT');
+    expect(text).toContain('DREADNOUGHT');
+    expect(text).toContain('REPEATER');
     expect(text).toContain('MORE CLASSES');
     expect(text).toContain('CONFIRM SELECTION'); // RE-TAKEN pin: was SET SAIL
     expect(text).not.toContain('SET SAIL');
