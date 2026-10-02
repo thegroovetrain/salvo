@@ -73,8 +73,13 @@ function rawSources(): { label: string; amount: number }[] {
     // `damage` on contact (no burst, no smaller bodyblock); flak bursts for
     // `damage` and bodyblocks for `contactDamage`. Since Eric's 2026-10-02
     // numbers (amendment 232) the MG's 5 and flak's bodyblock 4 no longer
-    // collide; the merge-by-amount below stays, so any future collision still
-    // prints as one merged label rather than a silent mislabel.
+    // collide AT TIER I; the merge-by-amount below stays, so any future
+    // collision still prints as one merged label rather than a silent mislabel.
+    // KNOWN BLIND SPOT (2026-10-02 review gate): only BASE amounts are sources,
+    // so a laddered hit is classified by first match on its amount — a tier-II
+    // flak burst (20) files under `starShells` (20) and a tier-II/III machine
+    // gun shell (6) under `gunBodyblock` (6). Harness attribution only; the
+    // fix (classify by shell family, not amount) is in deferred-work.md.
     { label: 'machineGun', amount: CONFIG.machineGun.damage },
     { label: 'flak', amount: CONFIG.flak.damage },
     { label: 'flakBodyblock', amount: CONFIG.flak.contactDamage },
@@ -202,7 +207,12 @@ export interface CatalogSample {
    *  is the known contaminant — reported, not hidden). */
   multiBarrelTicks: Record<string, number>;
   /** victim hull id -> largest gun-ONLY per-tick total. 63 is the theoretical
-   *  max (3 barrels x 21 at CANNON tier V — Eric 2026-10-02, amendment 232). */
+   *  max (3 barrels x 21 at CANNON tier V — Eric 2026-10-02, amendment 232),
+   *  but THIS METRIC CANNOT SEE IT: a hit counts as 'gun' only at the bare
+   *  amount (`CONFIG.gun.damage`, 16), so laddered cannon shells (18 / 21)
+   *  file under `other:<amount>` and the only multi-barrel click it records
+   *  is the tier-II twin (2 x 16 = 32). Attribution by shell family is open
+   *  work (deferred-work.md, 2026-10-02 review gate). */
   maxGunOnlyTick: Record<string, number>;
   /** victim hull id -> kills from FULL hp by a gun-only multi-burst tick. */
   gunClickKills: Record<string, number>;

@@ -841,8 +841,9 @@ function faceFields(target: EquipmentId): readonly string[] {
  *
  * THE DECK GUN IS UNAFFECTED and stays as epic-8 amendment 71 ruled it: it is
  * a LADDER line, so it never reaches this function at all — `ladderRows` prints
- * its authored rows (damage, plus the rung's pool or barrel step at III and V,
- * amendment 197) and its tier-derived reload cut stays silent.
+ * its authored rows (a barrel step at II and IV, damage + the turret at III,
+ * damage alone at V — Eric 2026-10-02, amendment 232; amendment 197's III/V
+ * placement is superseded) and its tier-derived reload cut stays silent.
  *
  * The single-row face this replaced was honest for the three live lines with
  * EMPTY tiers II–V (BROADSIDE, STAR SHELLS, RADAR BUOY), which still print

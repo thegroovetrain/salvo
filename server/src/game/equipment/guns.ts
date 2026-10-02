@@ -183,8 +183,9 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
  * that premise. The accepted consequence: every shell of a multi-barrel click
  * lands; the reachable max is the CANNON's tier-V triple mount (3 barrels × 21 =
  * 63; 3 × 18 = 54 at tier IV — Eric 2026-10-02, amendment 232). No PLAYER hull
- * can be one-clicked — the lightest is the 125hp Torpedo Boat; the 45 hp small
- * drone one-click is an ACCEPTED consequence (amendment 232).
+ * can be one-clicked — the lightest class hull is 250 hp; the 45 hp small and
+ * 60 hp medium drone one-clicks at tier V are ACCEPTED consequences (Eric
+ * 2026-10-02, amendment 232; the 75 hp large drone still takes two).
  *
  * Every shell carries the gun's hit rule off the OWNER's effective stats:
  * target point + burstRadius + damage/contactDamage (Story 2.8 — stats, never

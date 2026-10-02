@@ -102,6 +102,34 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-10-02 — Review pass (Blind Hunter + Edge Case Hunter on Opus 5.5 at Eric's instruction — low weekly Fable credits — and Codex `gpt-5.6-sol`; all three BUILD-ON-IT, zero sim or wire defects)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 12: (high 0, medium 1, low 11)
+- defer: 1: (high 0, medium 1, low 0)
+- reject: 0
+- addressed_findings:
+  - `[medium]` `[patch]` Both hunters: a tier-V cannon's 3 × 21 = 63 click also one-clicks the 60 hp MEDIUM drone, which amendment 232 had not shown Eric — put to Eric before the PR (AskUserQuestion): "Accepted consequence"; recorded in amendment 234, the guardrail test now pins 63 ≥ 60 and 63 < 75
+  - `[low]` `[patch]` Both hunters: flak reload tiers II and IV (3325 / 2975 ms) are not whole 50 ms ticks (from-idle reload lands 3350 / 3000 ms; the card prints 3.3 / 3.1 / 3.0 s) — put to Eric: "Accept as is"; recorded as a reading in amendment 234
+  - `[low]` `[patch]` Blind Hunter: 0-byte stray `client/src/__tests__/eaponTables.test.ts` committed in wave 2 — deleted
+  - `[low]` `[patch]` All three: stale ladder comments naming the superseded cannon tables / flak turret rungs / "125hp Torpedo Boat" in `shared/src/index.ts` (PV-70 history), `sim/effects.ts`, `sim/catalog.ts` (×4), `damageGuardrail.test.ts` (×2), `client/src/ui/boonCopy.ts`, `server/src/game/equipment/guns.ts` — re-worded
+  - `[low]` `[patch]` Blind Hunter: amendment 233(d) arithmetic "60 (3 × 21)" → 63
+  - `[low]` `[patch]` Both hunters: `catalogMetrics.ts` comments claimed the 63 click is observable — made honest (see the deferred item)
+  - deferred `[medium]`: both hunters CONFIRMED the batch-sim damage ledger classifies by first match on amount against base amounts only, so laddered cannon shells (18/21) file under `other:<amount>` and `multiBarrelTicks` / `maxGunOnlyTick` / `gunClickKills` only ever see the tier-II twin (32); a tier-II flak burst (20) files under `starShells`, a tier-II/III MG shell (6) under `gunBodyblock`. Pre-existing (the metric was fully dead before this cycle), harness-only, surfaced by this cycle's comments → `deferred-work.md`
+- Codex alone: no defect; flagged two of the stale comments. Nothing was flagged by one model and refuted by another.
+
+## Auto Run Result
+
+**Summary:** the three deck guns take Eric's 2026-10-02 tables, authored per rung so every tier lands exactly on his integers: MACHINE GUN damage 5/6/6/7/7, magazine 12/16/20/24/28, delay 0.30 → 0.10 s, 12 s base reload (−5 %/tier); CANNON base 16, damage 16/16/18/18/21 (steps only at III and V), barrels 1/2/2/3/3, rounds 1/1/2/2/2; FLAK damage 12/20/28/36/44, turrets 1/2/2/3/3, 3.5 s base reload; INSTANT RELOAD 45 → 60 s. PV 69 → 70. How-to-Play flak line rewritten to Eric's ruled sentence. Consequences accepted by Eric: a maxed cannon one-clicks small and medium drones; a tier-I MG pops a mine in two shells; flak reload tiers II/IV land a quarter-tick late from idle. Version 0.18.31, cycle 166, amendments 232–234.
+
+**Files changed:** `shared/src/constants.ts` (CONFIG moves), `sim/catalog.ts` (per-rung ladders), `sim/stats.ts` / `sim/effects.ts` (comments), `index.ts` (PV 70); server comments (`guns.ts`, `machineGun.ts`, `flak.ts`, `instantReload.ts`, `world.ts`), `scripts/batchsim/balanceProbe.ts` + `catalogMetrics.ts`; `client/src/how-to-play/copy.ts` (flak line), `ui/boonCopy.ts` (comments); tests re-pinned across all three workspaces (machineGunStream redesigned on an injected 310 ms; mineHp two-shell; combat/gunnery/aimPreview on real barrel builds; golden snapshot: four cannon-hit amounts 15 → 16); docs: VERSION/package(.lock), CHANGELOG, both trackers, amendments 232–234, epic-8-context, GDD/catalog-v3/deferred-work stamps.
+
+**Review:** 12 patches, 1 deferred, 0 rejected. Follow-up review: not recommended (every patch is a comment, a stray file or a doc line; the two rulings changed no number).
+
+**Verification:** `npm run check` green on the final tree — lint 0 errors (3 pre-existing warnings), tsc ×3 clean, shared 1025 / server 2413 / client 3813, hook test green. Bot gunnery bars (amendment 230(h)) all pass under the new magazine and cadence.
+
+**Residual risks:** the batch-sim ledger's amount-based attribution (deferred); the drone shots-to-kill test now pins by ceiling rather than exact ratio (Eric may veto, amendment 233).
+
 ## Verification
 
 **Commands:**

@@ -4,14 +4,14 @@
 
 ### Changed
 - **Machine gun re-tuned** — damage 5 / 6 / 6 / 7 / 7 by tier, magazine 12 / 16 / 20 / 24 / 28 shells, 0.30 / 0.25 / 0.20 / 0.15 / 0.10 s between shots, and a 12 s reload at tier I that shortens 5 % per tier (9.6 s at V). Was 4 to 8 damage, 16 to 24 shells, 0.35 to 0.20 s and a 10 s reload. A tier-I stream now pops a 10 hp mine in two shells. (Eric, 2026-10-02.)
-- **Cannon re-tuned** — damage 16 / 16 / 18 / 18 / 21 by tier (the base shell rises 15 -> 16; the steps land at tiers III and V), and barrels 1 / 2 / 2 / 3 / 3: the second barrel arrives at tier II and a third at tier IV (it was a single second barrel at tier V). A fully upgraded cannon lands 3 x 21 = 63 hp in one click, so it takes a 45 hp small drone in one click again; Eric accepted this.
+- **Cannon re-tuned** — damage 16 / 16 / 18 / 18 / 21 by tier (the base shell rises 15 -> 16; the steps land at tiers III and V), and barrels 1 / 2 / 2 / 3 / 3: the second barrel arrives at tier II and a third at tier IV (it was a single second barrel at tier V). A fully upgraded cannon lands 3 x 21 = 63 hp in one click, so it takes a 45 hp small drone in one click again, and a 60 hp medium drone; Eric accepted both.
 - **Flak re-tuned** — damage 12 / 20 / 28 / 36 / 44 by tier (a flat +8 per tier) and a 3.5 s reload at tier I that shortens 5 % per tier (2.8 s at V). Turrets (the banked-shot pool) are 1 / 2 / 2 / 3 / 3 by tier: the second turret arrives at tier II and the third at tier IV (was 1 / 1 / 2 / 2 / 3). The 50 u blast is unchanged. (Eric, 2026-10-02.)
 - **Instant Reload cools down longer** — the Repeater's Shift recharges in 60 s instead of 45 (45 s with a fully upgraded Reload ladder, was 33.75 s). (Eric, 2026-10-02.)
 - **How to Play, flak line** — now reads "Faster reload and a larger blast radius than the Cannon; its damage climbs steeply with tier." The stat tables are derived and show the new numbers on their own.
 
 ### Internal
 - PROTOCOL_VERSION 69 -> 70 (catalog content and `CONFIG.machineGun` / `CONFIG.flak` values the client reads). `CONFIG` moves: `gun.damage` 15 -> 16; `machineGun` maxAmmo 16 -> 12, rateMs 350 -> 300, reloadMs 10000 -> 12000, damage 4 -> 5; `flak.reloadMs` 4000 -> 3500; `instantReload.reloadMs` 45000 -> 60000. The ladders are authored per rung in the catalog so every table lands exactly on Eric's integers (the machine gun's rungs to III and V carry no damage step).
-- Epic-8 amendments 232–233; `spec-deck-gun-numbers-retune.md`.
+- Epic-8 amendments 232–234; `spec-deck-gun-numbers-retune.md`.
 - Tests: shared 1025 (re-pinned, none added), server 2412 -> 2413 (+1: the tier-II 250 ms cadence pin; machineGunStream's carry-over tests now run on an injected 310 ms because every ruled delay is a whole 50 ms tick), client 3811 -> 3813 (+2: aimPreview 1 card = 2 barrels straddling, 4 cards = 3 with one on the click). Golden-frames snapshot regenerated: four cannon-hit amounts 15 -> 16, nothing else.
 
 ## [0.18.30] - 2026-10-02

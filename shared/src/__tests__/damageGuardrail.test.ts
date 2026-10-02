@@ -195,7 +195,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
       expect(read(s2, path), path).toBeLessThan(minHullHp);
     }
     // THE LADDERS THAT ACTUALLY MOVE DAMAGE TODAY: the DECK GUN (R14,
-    // +1/+1/+2/+1, amendment 232), the FOUR Story 8.13 lines that step
+    // +2 at III and +3 at V, amendment 232), the FOUR Story 8.13 lines that step
     // +5/tier, the two Story 8.15 gun ladders (MACHINE GUN +1 at II and IV,
     // FLAK +8/tier — Eric 2026-10-02, amendment 232), and
     // since Story 8.17 STAR SHELLS (10 → 20) and PHOSPHOR SHELLS (20 → 30)
@@ -269,7 +269,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // barrels — the top of the 1..3 clamp.
     const barrels = stacked('deckGun').equipment.gun.barrels;
     // The per-shell number under the strongest build catalog v3 can reach: the
-    // DECK GUN ladder at its cap (R14), 20 damage.
+    // DECK GUN ladder at its cap (R14 as retuned by amendment 232), 21 damage.
     const perShell = stacked('deckGun').equipment.gun.damage;
     expect(barrels).toBe(3); // CANNON ×4 — barrels at tiers II and IV
     expect(perShell).toBeLessThan(minHullHp); // the law, per SHELL — the thing that holds
@@ -307,11 +307,15 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // epic-8 amendment 232). Eric's cannon table puts barrels at tiers II and
     // IV (1/2/2/3/3) and damage 16/16/18/18/21, so the maxed click is
     // 3 × 21 = 63 (54 at tier IV) — every shell landing one-clicks an
-    // undamaged 45hp small drone again. This test DOCUMENTS THE CEILING; it
+    // undamaged 45hp small drone again, and the 60hp MEDIUM drone too (both
+    // accepted by Eric at the cycle-166 review gate, amendment 234; the 75hp
+    // large drone still takes two). This test DOCUMENTS THE CEILING; it
     // is no longer a "below drone hp" guarantee. A future barrel or damage
     // change moves this pin, which keeps that a visible decision.
     expect(perShell * barrels).toBe(63);
     expect(perShell * barrels).toBeGreaterThanOrEqual(minDroneHp); // accepted, amendment 232
+    expect(perShell * barrels).toBeGreaterThanOrEqual(CONFIG.drones.medium.hp); // 63 >= 60 — accepted, amendment 234
+    expect(perShell * barrels).toBeLessThan(CONFIG.drones.large.hp); // 63 < 75 — the large drone takes two
     expect(perShell * barrels).toBeLessThan(minHullHp); // minHullHp === Math.min(...classHps)
   });
 

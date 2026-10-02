@@ -12,7 +12,7 @@
 // BARREL are DELETED. The second turret and the extra barrels are now rungs of
 // the CANNON ladder (the turret at tier III; a barrel at tier II and tier IV
 // since Eric's 2026-10-02 tables, epic-8 amendment 232), and the FLAK ladder
-// gains a turret at tier III and tier V. See `ladderSteps`.
+// gains a turret at tier II and tier IV (same tables). See `ladderSteps`.
 //
 // THE COUNT MOVED 109 -> 117 IN STORY 8.17 (Eric 2026-09-29, amendments
 // 130–133), purely by re-cutting KINDS: the last two ADD-ONS are gone —
@@ -254,10 +254,11 @@ function ladder(
  * A ladder whose rungs are NOT UNIFORM (Eric 2026-09-30): the `ladder` twin of
  * `tieredWeaponSteps`. `steps[k]` is the effect list of the rung copy k+1
  * buys, and `cap` is `steps.length`. A rung may carry more than one authored
- * effect — CANNON's tier-III rung is its damage step AND the second turret,
- * and its damage steps +1, +1, +2, +1; the MACHINE GUN takes +1 damage only on
- * the rungs to II and IV beside its uniform +4 shells / −50 ms (Eric
- * 2026-10-02, epic-8 amendment 232) — shapes one repeated list cannot say. The `ladder`
+ * effect — CANNON's tier-III rung is its +2 damage step AND the second turret,
+ * its rungs to II and IV are a barrel each with no damage step, and its rung
+ * to V is +3 damage alone (16 / 16 / 18 / 18 / 21); the MACHINE GUN takes +1
+ * damage only on the rungs to II and IV beside its uniform +4 shells / −50 ms
+ * (Eric 2026-10-02, epic-8 amendment 232) — shapes one repeated list cannot say. The `ladder`
  * law holds: a FRESH ARRAY PER RUNG, copied from the caller's lists, so no
  * rung aliases another or the caller's array; the effect objects are
  * deep-frozen with the catalog.
@@ -391,7 +392,7 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *   TURNING R6  — flat +0.05 rad/s per tier, 4 tiers. [DRAFT]
  *   RADAR SWEEP R11 — +3 rpm per tier, 5 tiers (the 30 rpm clamp stays).
  *   RELOAD  R12 — −5 % per tier, 5 tiers, cap 25 % (cooldownScale 1.0 → 0.75).
- *   DECK GUN R14 — damage +1/+1/+2/+1 (15 → 20) AND −5 % own reload per
+ *   DECK GUN R14 — damage 16/16/18/18/21 (base 16; +2 at III, +3 at V) AND −5 % own reload per
  *                  tier, 4 tiers (Eric 2026-10-02, amendment 232); the
  *                  reload half is DERIVED from the tier in clampStats.
  *                  R15 (turret) / R16 (barrel) folded into the CANNON rungs:
@@ -400,8 +401,8 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *   MACHINE GUN — +4 shells and −50 ms per tier, +1 damage at tiers II and
  *                  IV only, 4 tiers (Eric 2026-10-02, amendment 232).
  *   FLAK — damage +8 per tier (12 → 44), 4 tiers, blast fixed (Eric
- *                  2026-10-02, amendment 232); +1 pool at tier III and
- *                  tier V (Eric 2026-09-30).
+ *                  2026-10-02, amendment 232); +1 pool at tier II and
+ *                  tier IV (1/2/2/3/3, same tables; was III and V).
  *   BROADSIDE R35 · STAR SHELLS R31 · PHOSPHOR SHELLS · FLASH SHELLS — as
  *                  ruled by Eric 2026-09-29, amendments 130–133 (Story 8.17).
  *   LIGHT TORPEDO R18 · HEAVY TORPEDO R17 · NAVAL MINES R23/R24 ·

@@ -156,8 +156,9 @@ export const EQUIPMENT_STAT_FIELDS = {
  */
 // `damage` and `contactDamage` are integers too (Eric 2026-09-17, epic-8
 // amendment 39): a shell NEVER deals a fractional hit point. The deck-gun
-// ladder now steps whole numbers per rung (+1, +1, +2, +1 → 15 / 16 / 17 /
-// 19 / 20, Eric 2026-10-02, amendment 232), so the floor is a no-op on it.
+// ladder now steps whole numbers (base 16; +2 on the rung to III, +3 on the
+// rung to V → 16 / 16 / 18 / 18 / 21, Eric 2026-10-02, amendment 232), so the
+// floor is a no-op on it.
 export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 'turrets', 'damage', 'contactDamage'];
 
 /**
