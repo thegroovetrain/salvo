@@ -1424,6 +1424,14 @@ export class World {
    * client — which never learns the seed — cannot predict them.
    */
   private readonly fakeRng: Rng;
+  /**
+   * THE DROP STREAM (Eric ruling 2026-10-01): the coin and the pick behind a
+   * drone kill's consumable drops (rollDroneDrops). Its OWN decorrelated
+   * stream (0x6c078965 is unused by any other stream here; see the spawnPhase
+   * doc for the roster) so a drop never shifts the spawn stream, a ship's
+   * private draw stream (its offers) or any other sequence. NEVER Math.random().
+   */
+  private readonly dropRng: Rng;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
@@ -1527,7 +1535,8 @@ export class World {
    * shared spawn stream would reorder every later fleet-anchor sample), and one
    * value read once wants a stream it cannot desynchronize from. 0xb5297a4d is
    * unused by any other stream here (spawn 0x9e3779b9, pseudonym 0x1b873593,
-   * fleet 0x85ebca6b, draw 0x165667b1).
+   * fleet 0x85ebca6b, draw 0x165667b1, bots 0xc2b2ae35, chaff 0x94d049bb,
+   * drone drops 0x6c078965).
    *
    * DISCLOSURE NOTE, so nobody reads this as a new leak: the phase derives from
    * the client-known map seed — but so does `this.rng` itself, so spawn
@@ -1569,6 +1578,9 @@ export class World {
     // here (0xc2b2ae35 is unused by any of them — see the spawnPhase doc for
     // the roster of constants in use).
     this.bots = new BotController(this, (seed ^ 0xc2b2ae35) >>> 0);
+    // Drone-drop stream (Eric ruling 2026-10-01), decorrelated from every
+    // stream above (0x6c078965 is unused by any of them).
+    this.dropRng = mulberry32((seed ^ 0x6c078965) >>> 0);
   }
 
   /** The pseudonym map, read-only — for perception context threading and
@@ -2462,12 +2474,52 @@ export class World {
     if (killer !== undefined) {
       // The PvE TALLY keys on the fleet reading (economy): `pveKills` counts
       // fleet tonnage. An AI captain sunk in 6.4 is a captain kill, not PvE.
-      if (roleIsFleetHull(victim)) killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
-      else killer.kills += 1;
+      if (roleIsFleetHull(victim)) {
+        killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
+        this.rollDroneDrops(killer, victim);
+      } else killer.kills += 1;
       if (victimHeldBounty) this.grantXp(killer, CONFIG.bounty.killLevels);
     }
     this.payKillValue(victim, killer);
     victim.damageFrom.clear(); // the ledger dies with the life it described
+  }
+
+  /**
+   * DRONE DROPS (Eric ruling 2026-10-01, CONFIG.droneDrops): the credited
+   * killer of a PvE drone rolls `rolls[victim.hullId]` times; each roll passes
+   * with `chance` and stocks one consumable copy (pickDrop). Only an AFLOAT
+   * PARTICIPANT rolls — a fleet hull never does, and a killer already sinking
+   * (mutual destruction) keeps its XP but gets no drop. Server-only; each
+   * landed copy queues the self-private `dp` event for the killer's toast.
+   */
+  private rollDroneDrops(killer: ShipRecord, victim: ShipRecord): void {
+    if (!roleIsParticipant(killer) || !isAfloat(killer.lifecycle)) return;
+    const rolls: Partial<Record<HullId, number>> = CONFIG.droneDrops.rolls;
+    const n = rolls[victim.hullId] ?? 0;
+    for (let i = 0; i < n; i++) {
+      // The coin is drawn for EVERY roll; the pick only when it passed.
+      if (this.dropRng.next() < CONFIG.droneDrops.chance) this.pickDrop(killer);
+    }
+  }
+
+  /**
+   * One passing drop roll: a uniform pick over the consumable lines this ship
+   * could legally take RIGHT NOW by the refit card's own predicate
+   * (`refusesCard` → `pickRefusal`: a stub or a line at its cap is skipped, and
+   * a full belt limits the pick to the lines already held), recomputed per
+   * roll because a first drop can fill the belt. An empty set wastes the roll
+   * without drawing. The copy lands through applyCard (cards + belt fold stay
+   * the single truth); the event is queued only if the stock actually landed.
+   */
+  private pickDrop(ship: ShipRecord): void {
+    const eligible = Object.keys(this.catalog).filter(
+      (id) => this.catalog[id].kind === 'consumable' && !this.refusesCard(ship, id),
+    );
+    if (eligible.length === 0) return;
+    const lineId = eligible[this.dropRng.int(0, eligible.length - 1)];
+    const before = boonStackCount(ship.cards, lineId);
+    this.applyCard(ship, lineId);
+    if (boonStackCount(ship.cards, lineId) > before) this.pending.push({ k: 'dp', id: ship.id, boon: lineId });
   }
 
   /**

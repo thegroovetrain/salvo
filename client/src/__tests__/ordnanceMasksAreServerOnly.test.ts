@@ -74,7 +74,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
   // that is what the three scans above assert, and they are the substance of
   // this file. This line only witnesses that a bump, when it happens, happens
   // deliberately.
-  it('PROTOCOL_VERSION is 68 — bumped by cycle 162 (MineView.c for every observer, OwnShip.chaffGhosts, chaff/smoke radii ×1.5; 67 by the star / phosphor burst-damage swap), not by masks', () => {
+  it('PROTOCOL_VERSION is 69 — bumped by the drone-drop `dp` event (68 by cycle 162: MineView.c for every observer, OwnShip.chaffGhosts, chaff/smoke radii ×1.5), not by masks', () => {
     // 55 until Story 8.13, whose ONE bump covered the catalog content, the id
     // moves and `MineView`'s own-only kind field (epic-8 amendment 76); 56
     // until Story 8.14, whose ONE bump covers the seat's `gun` join option,
@@ -117,7 +117,8 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // MineView.c on every observer's mine row (Eric 2026-10-01, superseding
     // amendment 76), the self-private OwnShip.chaffGhosts, and the client
     // drawing chaff.radius 180 / smoke-screen 123.75→247.5 u from CONFIG;
-    // the machine gun's mask is unchanged — still not a mask bump.
-    expect(PROTOCOL_VERSION).toBe(68);
+    // the machine gun's mask is unchanged — still not a mask bump. 68 -> 69
+    // (cycle 163) is the self-private `dp` drone-drop event — no mask moved.
+    expect(PROTOCOL_VERSION).toBe(69);
   });
 });

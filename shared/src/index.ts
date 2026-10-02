@@ -3,6 +3,10 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  69 — cycle 163: new self-private `dp` GameEvent (DropEvent {k,id,boon} —
+ *  a consumable stocked by a drone kill, Eric 2026-10-01), riding the
+ *  killer's frame only like `pt`/`bn`; server-only CONFIG.droneDrops (the
+ *  client does not read it). Perception exception count stays SIX.
  *  68 — cycle 162: MineView.c rides for every observer (Eric 2026-10-01);
  *  OwnShip.chaffGhosts (self-private owner fake paints); chaff.radius
  *  120→180, smokeScreen r0/r1 ×1.5 — the client draws both from CONFIG.
@@ -774,7 +778,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 68;
+export const PROTOCOL_VERSION = 69;
 
 // Tunables
 export * from './constants.js';

@@ -398,8 +398,10 @@ describe('shared barrel', () => {
     // amendment 76's own-only rule); the self-private OwnShip.chaffGhosts
     // (the owner's own fake paints, GhostPaint rects); chaff.radius 120 -> 180
     // and smokeScreen r0/r1 x1.5 (123.75 / 247.5), which the client draws from
-    // CONFIG. The exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(68);
+    // CONFIG. The exception count stays SIX. 68 -> 69 (cycle 163): the new
+    // self-private `dp` GameEvent (a consumable a drone kill stocked, Eric
+    // 2026-10-01). The exception count still stays SIX.
+    expect(PROTOCOL_VERSION).toBe(69);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat

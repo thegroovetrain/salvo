@@ -94,6 +94,7 @@ import {
   type ReturnBlipEvent,
   type BoomEvent,
   type BoonFitEvent,
+  type DropEvent,
   type BurstEvent,
   type Contact,
   type Island,
@@ -3776,6 +3777,15 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     expect((e as BoonFitEvent).id).toBe(me.id);
     expect(Object.hasOwn(CATALOG, (e as BoonFitEvent).boon)).toBe(true);
   },
+  dp: (_w, me, e) => {
+    // Drone drops (Eric ruling 2026-10-01): killer-private on the pt/bn terms,
+    // a LIVE consumable catalog id, and nothing else on the event.
+    const ev = e as DropEvent;
+    expect(ev.id).toBe(me.id);
+    expect(Object.hasOwn(CATALOG, ev.boon)).toBe(true);
+    expect(CATALOG[ev.boon].kind).toBe('consumable');
+    expect(Object.keys(ev).sort()).toEqual(['boon', 'id', 'k']);
+  },
   // Story 4.3 — the gunnery conversation's three DECLARED exceptions, each
   // reimplemented here independently of its registry row (the header rule).
   sp: (_w, me, e) => {
@@ -4507,19 +4517,19 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // oracle (verifySmoke); the puff's OCCLUSION is verified through every
   // sight-tier oracle's `sightClearOracle` term, not through a row.
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'burnzone', 'decoy', 'smoke'];
-  // The 18 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
+  // The 19 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
   // CONTROL strip brought 'heal' BACK, on stricter no-severity terms; Story
   // 4.4 added the anonymous wounded-smoke row 'sm'; Story 4.5 added the
   // bearing-only foghorn row 'fh'; Story 4.12 added the identity-free radar
-  // wake row 'wk').
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk'];
+  // wake row 'wk'; the 2026-10-01 drone drops added self-private 'dp').
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'dp', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 24 expected channel keys (18 event kinds + contact + mine + litzone + burnzone + decoy + smoke)', () => {
+  it('has exactly the 25 expected channel keys (19 event kinds + contact + mine + litzone + burnzone + decoy + smoke)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(24);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(25);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {

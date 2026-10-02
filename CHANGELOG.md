@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.28] - 2026-10-01
+
+### Added
+- **Drone kills drop consumables** — the captain who gets the last hit on a PvE drone rolls for loot: one 50 % roll for a small drone, two for a medium, three for a large (so 0–1 / 0–2 / 0–3 items). Each successful roll stocks one random consumable straight into your belt and shows the usual `◆ <LINE> STOCKED` toast. The pick is drawn from every live consumable you could legally take at that moment: with a full belt you only get more of what you already hold, and a line already at five copies is skipped. Bots get drops by the same rule. (Eric, 2026-10-01.)
+
+### Internal
+- `CONFIG.droneDrops` (`chance: 0.5`, `rolls: { droneSmall: 1, droneMedium: 2, droneLarge: 3 }`). The roll runs in `World.creditKill`'s fleet-hull branch for an afloat participant killer, off a NEW dedicated `dropRng` stream (spawns and refit offers are pinned byte-identical to before); eligibility is the refit card's own `pickRefusal` predicate, re-evaluated per roll; the copy enters through `applyCard`. A new self-private `dp` event (killer only, not a seventh fog exception — the SIX stand) drives the toast, the stock tone and the belt flash without the spend ack.
+- PROTOCOL_VERSION 68 -> 69 (new event kind).
+- The toast stack holds 4 lines (was 3): a large drone's three STOCKED receipts plus the kill's LEVEL UP can land in one frame (Eric, review gate). A drop that lands while your refit hand is open is accepted as designed: the hand never rerolls, a card the drop made unpickable greys SLOTS FULL until you fire a stack (amendment 44). The drop receipt shows even if you are sunk later in the same tick (the copy is stocked).
+- Tests (on top of 0.18.27): shared 1025 (unchanged; PV pins re-cut), server 2326 -> 2347 (`droneDrops.test.ts`: 21 pins through the real sink path incl. determinism, the untouched spawn/offer streams and the open-hand cases), client 3806 -> 3811 (`roomBindings.test.ts`: the `dp` handler); hook test 266; lint 0 errors; golden-frame snapshot unchanged.
+- Epic-8 amendments 225–227; GDD roving-fleet bullet; DESIGN.md toast row stamped (max 4); `spec-drone-kill-consumable-drops.md`. How-to-Play is untouched (Eric holds the pen on `[ EXPERIENCE ]`).
+
 ## [0.18.27] - 2026-10-01
 
 ### Changed

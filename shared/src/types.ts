@@ -1252,6 +1252,21 @@ export interface BoonFitEvent {
 }
 
 /**
+ * A consumable copy STOCKED by a drone kill (Eric ruling 2026-10-01): the
+ * killer of a PvE drone rolled a drop and the copy landed in its belt.
+ * SELF-PRIVATE: `id` is the killer's id and perception forwards the event ONLY
+ * to that observer — the same gate as `pt`/`bn`/`heal`, never a fog exception.
+ * Purely UX (the STOCKED toast + tone + belt flash), and unlike `bn` it does
+ * NOT ack a spend (nothing was spent): the authoritative card list self-syncs
+ * every frame via OwnShip.cards.
+ */
+export interface DropEvent {
+  k: 'dp';
+  id: string; // the killer (= the only observer this is ever delivered to)
+  boon: string; // the stocked consumable's catalog line id
+}
+
+/**
  * A HULL REPAIR copy FIRED (catalog-v3 R13; the consumable that replaced the
  * DAMAGE CONTROL level spend, epic-8 amendment 46): marks the INSTANT
  * application at activation time. SELF-PRIVATE: `id` is the healing ship's id
@@ -1479,6 +1494,7 @@ export type GameEvent =
   | SpawnEvent
   | PointEvent
   | BoonFitEvent
+  | DropEvent
   | HealEvent
   | SplashEvent
   | HitCallEvent

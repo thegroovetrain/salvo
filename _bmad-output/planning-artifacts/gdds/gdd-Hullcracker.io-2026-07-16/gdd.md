@@ -283,6 +283,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 - Ships carrying a basic gun on a longer cooldown, used **only to defend themselves** — they never hunt players.
 - Three tiers: **common** small ships (1/4 level per kill), **uncommon** medium ships with more HP (1/2 level), **rare** large ships with even more HP (3/4 level). *(Raised from ¼/⅓/½ on 2026-08-16.)*
 - They rove; finding them is part of the sensor game.
+- **They drop consumables** *(Eric 2026-10-01, epic-8 amendment 225)*: the captain credited with the kill rolls once for a small drone, twice for a medium, three times for a large — each roll a 50 % chance of one random consumable stocked straight into the belt (0–1 / 0–2 / 0–3 items). The pick is uniform over every live consumable the ship could legally take right then; with a full belt it is limited to lines already held; a line at its 5-copy cap is skipped. Bots roll by the same rule. The `◆ <LINE> STOCKED` toast announces each item.
 - They are an XP source feeding the upgrade economy, not world density — the forge's rejection of "PvE fleets as mandatory world density" stands; these are bounded, huntable pockets.
 
 **Rules that hold for every non-human ship:** driven through the same input pipeline as human ships (no special code paths) and subject to the same perception rules.
