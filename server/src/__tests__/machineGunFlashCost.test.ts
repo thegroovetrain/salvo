@@ -27,7 +27,15 @@
 //   world.step()       best-of-5 mean 1.039 ms/tick run alone; worst tick of
 //                      that run 1.742 ms (inside the full parallel suite, a
 //                      loaded box: mean 1.7–2.6 ms, worst tick 14–22 ms)
-// Against the 50 ms tick that is ~2 % of the budget on average. The log line
+// RE-MEASURED 2026-10-02 at Eric's 300 ms cadence, 12-shell magazine and 12 s
+// swap (epic-8 amendment 232; same machine, seed and window, run alone):
+//   mz per tick        mean 0.69, max 6 (137 stream shells, one flash each:
+//                      a 12-shell magazine empties in 3.3 s and the 12 s
+//                      swap then outlasts the rest of the window, so the
+//                      window streams roughly one magazine per gun)
+//   shells in flight   mean 1.33, max 10
+//   world.step()       best-of-5 mean 1.607 ms/tick; worst tick 2.414 ms
+// Against the 50 ms tick that is ~2–3 % of the budget on average. The log line
 // (HC_PERF_LOG=1) re-measures on the machine that runs it.
 
 import { describe, it, expect } from 'vitest';
@@ -37,7 +45,7 @@ import { World } from '../game/world.js';
 const BOTS = 20;
 const RING_U = 220; // every bot within 440 u of every other — inside the 660 u reach
 const WARMUP_TICKS = 60; // 3 s: acquire (reaction gate) and open the streams
-const WINDOW_TICKS = 200; // 10 s: a full 16-shell magazine (5.25 s at 350 ms) and the 10 s swap after it
+const WINDOW_TICKS = 200; // 10 s: a full 12-shell magazine (3.3 s at 300 ms) and most of the 12 s swap after it
 
 interface RunStats {
   meanStepMs: number;

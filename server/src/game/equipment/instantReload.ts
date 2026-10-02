@@ -1,6 +1,7 @@
 // INSTANT RELOAD — the MINE LAYER's class Shift (Story 8.15, Eric rulings
 // 2026-09-28, epic-8 amendments 97–98). An ACTIVATED ABILITY on the boost's
-// grammar exactly: a 1-charge pool on a 45 s cooldown through the shared
+// grammar exactly: a 1-charge pool on a 60 s cooldown (Eric 2026-10-02, epic-8
+// amendment 232; was 45 s) through the shared
 // consume/tickReload machine (the reload takes `cooldownScale` like every row),
 // activated off the Shift edge (actSeq), aimed at nothing, emitting nothing
 // spatial. Its whole effect is the World's `finishReloads` capability: for the

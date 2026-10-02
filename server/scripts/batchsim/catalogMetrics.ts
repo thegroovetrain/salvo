@@ -68,9 +68,10 @@ function rawSources(): { label: string; amount: number }[] {
     { label: 'gunBodyblock', amount: CONFIG.gun.contactDamage },
     // Story 8.15: the two pickable guns. The machine gun's direct shell deals
     // `damage` on contact (no burst, no smaller bodyblock); flak bursts for
-    // `damage` and bodyblocks for `contactDamage`. At shipped numbers the MG's
-    // 4 and flak's bodyblock 4 COLLIDE and print as one merged label — the
-    // ledger cannot tell them apart by amount, and says so.
+    // `damage` and bodyblocks for `contactDamage`. Since Eric's 2026-10-02
+    // numbers (amendment 232) the MG's 5 and flak's bodyblock 4 no longer
+    // collide; the merge-by-amount below stays, so any future collision still
+    // prints as one merged label rather than a silent mislabel.
     { label: 'machineGun', amount: CONFIG.machineGun.damage },
     { label: 'flak', amount: CONFIG.flak.damage },
     { label: 'flakBodyblock', amount: CONFIG.flak.contactDamage },
@@ -186,15 +187,15 @@ export interface CatalogSample {
   /** victim hull id -> total kills observed (the denominator for the two above). */
   killsByHull: Record<string, number>;
   /** THE BARREL QUESTION (Story 7-5). A multi-barrel gun CLICK is N separate
-   *  15hp bursts inside one tick, so it is invisible in every per-event row and
+   *  gun bursts inside one tick, so it is invisible in every per-event row and
    *  indistinguishable from N shooters in the per-tick row. These three isolate
    *  it: a victim-tick whose damage is gun bursts and NOTHING else, with two or
    *  more of them, IS a multi-barrel click landing (a second shooter's gun
    *  burst in the exact same 50ms tick on the exact same hull is possible and
    *  is the known contaminant — reported, not hidden). */
   multiBarrelTicks: Record<string, number>;
-  /** victim hull id -> largest gun-ONLY per-tick total. 40 is the theoretical
-   *  max (2 barrels x 20 at CANNON tier V — amendment 197). */
+  /** victim hull id -> largest gun-ONLY per-tick total. 63 is the theoretical
+   *  max (3 barrels x 21 at CANNON tier V — Eric 2026-10-02, amendment 232). */
   maxGunOnlyTick: Record<string, number>;
   /** victim hull id -> kills from FULL hp by a gun-only multi-burst tick. */
   gunClickKills: Record<string, number>;

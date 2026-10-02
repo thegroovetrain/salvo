@@ -155,10 +155,12 @@ function barrelBlock(): void {
   console.log(`== BARREL PARALLEL TRACKS (DRAFT barrelSpacingU = ${g.barrelSpacingU}u, burstRadius ${g.burstRadius}u) ==`);
   console.log(`spacing ${g.barrelSpacingU}u vs burst DIAMETER ${g.burstRadius * 2}u: adjacent bursts ${g.barrelSpacingU < g.burstRadius * 2 ? 'OVERLAP' : 'are separate'}`);
   console.log('barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u)');
-  // Each row is priced at the damage of the BUILD that reaches that barrel
-  // count: 1 barrel = the bare cannon (15), 2 barrels = CANNON ×4, the rung to
-  // tier V (20) — the only build with two barrels since amendment 197.
-  for (const [barrels, copies] of [[1, 0], [2, 4]] as const) {
+  // Each row is priced at the damage of the BUILD named for that barrel
+  // count on Eric's 2026-10-02 CANNON ladder (amendment 232: barrels 1/2/2/3/3,
+  // damage 15/16/18/19/21): 1 barrel = the bare cannon (15), 2 barrels =
+  // CANNON ×1 (16, tier II), 3 barrels = CANNON ×4 (21, tier V — the max;
+  // tier IV reaches 3 barrels at 19). The damage is read off the real fold.
+  for (const [barrels, copies] of [[1, 0], [2, 1], [3, 4]] as const) {
     const dmg = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), Array<LineId>(copies).fill('deckGun')).equipment.gun.damage;
     const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);
     const cells: string[] = [];
@@ -170,8 +172,8 @@ function barrelBlock(): void {
     console.log(`${String(barrels).padStart(7)} | ${String(barrels * dmg).padStart(12)} | ${cells.join(' ')}`);
   }
   console.log('');
-  console.log('OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (2 barrels — the reachable max, R=300u):');
-  const offsets = parallelOffsets(0, 2, g.barrelSpacingU);
+  console.log('OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (3 barrels — the reachable max, R=300u):');
+  const offsets = parallelOffsets(0, 3, g.barrelSpacingU);
   for (const hullId of [...SHIP_CLASS_IDS, 'droneSmall' as HullId]) {
     const row: string[] = [];
     for (const miss of [0, 10, 20, 30, 40, 60]) {

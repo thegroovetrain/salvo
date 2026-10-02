@@ -702,8 +702,9 @@ export interface ShipRecord {
   /**
    * ms — server-clock time the MACHINE GUN's stream may fire its next shell
    * (Story 8.15, amendment 103). While the stream stays live it CARRIES OVER
-   * (`previous due + rateMs`, orchestrator ruling 2026-09-30, so a 310 ms
-   * delay averages 310 ms on 50 ms ticks); a fresh stream re-anchors to
+   * (`previous due + rateMs`, orchestrator ruling 2026-09-30, so a
+   * non-tick delay such as 310 ms averages 310 ms on 50 ms ticks; Eric's
+   * 2026-10-02 delays are all whole ticks); a fresh stream re-anchors to
    * `now + rateMs`. Server-private, written only by the machineGun row's
    * `stream`. 0 = fire on the first held tick.
    */
