@@ -9,7 +9,7 @@ superseded_in_part_3: '2026-09-30 (epic-8 amendment 197, Eric): R15 DECK GUN TUR
 superseded_in_part_4: '2026-10-01 (cycle 161, epic-8 amendments 208 and 210, Eric): STAR SHELLS and PHOSPHOR SHELLS swap their burst-damage ladders — star 20/22/25/27/30, phosphor 10/12/15/17/20 (phosphor burn 5→10 hp/s, zone and durations unchanged); FLAK reloads 4 s at tier I (was 6 s), 3.2 s at V; PROTOCOL_VERSION 66→67'
 superseded_in_part_4: '2026-10-01 (epic-8 amendment 200, Eric): every mine has 10 hp that only a deck gun click ON the mine can take (cannon/flak one shot, machine gun three at tier I); bursts covering a mine and non-deck-gun shells no longer set mines off; naval mines alone chain; arming mines pop; captive mines can be destroyed by gunfire'
 superseded_in_part_5: '2026-10-01 (cycle 162, epic-8 amendments 218 and 221, Eric): R39/R41 CHAFF r120u → r180u (×1.5); R38 SMOKE SCREEN puffs r82.5 → r165u (amendment 174) → r123.75 → r247.5u (×1.5); R19 SUPERCAVITATING TORPEDO damage 50 → 85 (a consumable since amendment 74); PROTOCOL_VERSION 67→68'
-superseded_in_part_6: '2026-10-02 (cycle 166, epic-8 amendment 232, Eric): MACHINE GUN damage 5/6/6/7/7, magazine 12/16/20/24/28, delay 0.30/0.25/0.20/0.15/0.10 s, reload 12 s at tier I then -5 %/tier; CANNON (R14) damage 15/16/18/19/21 with barrels 1/2/2/3/3 (second barrel at the rung to II, third at IV); FLAK damage 12/20/28/36/44 and a 3.5 s tier-I reload then -5 %/tier (turrets/pool 1/2/2/3/3, the +1 steps on the rungs to II and IV; 50 u blast unchanged); INSTANT RELOAD (the Repeater's class Shift) cooldown 45 s -> 60 s; a maxed cannon 3 x 21 = 63 hp one-clicks a 45 hp small drone again (accepted).'
+superseded_in_part_6: '2026-10-02 (cycle 166, epic-8 amendment 232, Eric): MACHINE GUN damage 5/6/6/7/7, magazine 12/16/20/24/28, delay 0.30/0.25/0.20/0.15/0.10 s, reload 12 s at tier I then -5 %/tier; CANNON (R14) damage 16/16/18/18/21 (base 15 -> 16 since Eric's later 2026-10-02 message; supersedes the 15/16/18/19/21 correction; steps +2 to III and +3 to V only; contactDamage stays 6) with barrels 1/2/2/3/3 (second barrel at the rung to II, third at IV); FLAK damage 12/20/28/36/44 and a 3.5 s tier-I reload then -5 %/tier (turrets/pool 1/2/2/3/3, the +1 steps on the rungs to II and IV; 50 u blast unchanged); INSTANT RELOAD (the Repeater's class Shift) cooldown 45 s -> 60 s; a maxed cannon 3 x 21 = 63 hp one-clicks a 45 hp small drone again (accepted).'
 source: 'Eric spreadsheet, shared 2026-09-09 (screenshot); brainstorming-session-2026-09-04.md; GDD v3 (2026-09-03)'
 ---
 
@@ -85,7 +85,7 @@ Sensor ladder (frozen): detect 247.5 · sight 330 · muzzle/smoke 412.5 · radar
 | Shield Block | — | new |
 | Smoke Screen | — (deferred since 07-19) | new |
 | Chaff | — | new (jamming buoy's fakes are the nearest shipped mechanism: 10 fakes) |
-| Deck Gun | universal gun | 360°, 500 u/s, 1-round pool, 5 s reload, 15 dmg burst r15u, 6 contact, range = radar 660u; no damage/range card shipped |
+| Deck Gun | universal gun | 360°, 500 u/s, 1-round pool, 5 s reload, 15 dmg (base 16 since 2026-10-02, amendment 232) burst r15u, 6 contact, range = radar 660u; no damage/range card shipped |
 | Deck Gun Turret | `gunTurret` ×1 | pool 1 → 2 |
 | Deck Gun Barrel | `gunBarrel` ×2 | +1 barrel/card (1 → 3), parallel tracks 12u apart |
 | Light Torpedo | — | new: side arcs, ~45 kn (brainstorm) |
@@ -136,7 +136,7 @@ Sensor ladder (frozen): detect 247.5 · sight 330 · muzzle/smoke 412.5 · radar
 
 *(2026-09-29, Story 8.18, amendment 141: a re-press REPLACES the pool — fresh 50 over 5 s, remainder lost; "pools add" is superseded.)*
 
-**R14 (Eric) — DECK GUN ladder, 4 tiers: +1.25 damage AND −5% own reload per tier.** Damage 15 → 16.25 → 17.5 → 18.75 → 20 (Eric wrote it rounded: 15 → 16 → 17 → 18 → 20); own reload 100% → 95% → 90% → 85% → 80% (additive 5-point steps, not compounding). Since the deck gun is slotless and always fitted, its tier I is a real upgrade (unlike an equipment line, where copy 1 is the weapon itself). **SUPERSEDED 2026-10-02 (epic-8 amendment 232, Eric): damage is 15/16/18/19/21 by per-rung integer steps +1/+2/+1/+2 (the +1.25 floored reading is retired); barrels 1/2/2/3/3.**
+**R14 (Eric) — DECK GUN ladder, 4 tiers: +1.25 damage AND −5% own reload per tier.** Damage 15 → 16.25 → 17.5 → 18.75 → 20 (Eric wrote it rounded: 15 → 16 → 17 → 18 → 20); own reload 100% → 95% → 90% → 85% → 80% (additive 5-point steps, not compounding). Since the deck gun is slotless and always fitted, its tier I is a real upgrade (unlike an equipment line, where copy 1 is the weapon itself). **SUPERSEDED 2026-10-02 (epic-8 amendment 232, Eric): damage is 16/16/18/18/21 (base 15 -> 16 since Eric's later 2026-10-02 message, which supersedes his 15/16/18/19/21 correction; integer steps +2 on the rung to III and +3 on the rung to V only, the +1.25 floored reading is retired); barrels 1/2/2/3/3, the rungs to II and IV carrying the barrel step alone.**
 
 **STANDING RULE (Eric, from R14) — THE EQUIPMENT RELOAD STEP:** *"5% reduced reload will be a thing on most if not all equipment tier levels. This applies BEFORE the global reload reduction."* Composition: `reload = base × (1 − 0.05 × equipmentTier) × (1 − 0.05 × globalReloadTiers)`, so a maxed deck gun under a maxed global Reload runs at 0.80 × 0.75 = **60%** of base. Any line that departs from the 5% step says so in its own block.
 
@@ -215,11 +215,11 @@ Conventions: **tier I of an equipment line is the bare weapon**; tiers II–V ar
 
 | Line | Cap | Per tier / copy | At cap | Starter |
 |---|---|---|---|---|
-| DECK GUN | 4 | +1.25 dmg, −5% own reload (tier I is a real step) | 20 dmg, 80% (4 s; 3 s under max Reload) | 1/1/1 **SUPERSEDED 2026-10-02 (epic-8 amendment 232, Eric): CANNON damage 15/16/18/19/21, barrels 1/2/2/3/3 (3 x 21 = 63 hp maxed).** |
+| DECK GUN | 4 | +1.25 dmg, −5% own reload (tier I is a real step) | 20 dmg, 80% (4 s; 3 s under max Reload) | 1/1/1 **SUPERSEDED 2026-10-02 (epic-8 amendment 232, Eric): CANNON damage 16/16/18/18/21 (base 16 since 2026-10-02, amendment 232; first stated 15/16/18/19/21), barrels 1/2/2/3/3 (3 x 21 = 63 hp maxed).** |
 | DECK GUN TURRET | 1 | pool 1 → 2 | 2 rounds | 1/1/1 *(SUPERSEDED 2026-09-30, amendment 197: deleted — folded into the CANNON rungs to III / V.)* |
 | DECK GUN BARREL | 2 | +1 barrel, parallel tracks 12u | 3 shells | 2/2/2 *(SUPERSEDED 2026-09-30, amendment 197: deleted — folded into the CANNON rungs to III / V.)* |
 
-Base gun unchanged: 360°, 500 u/s, 15 dmg burst r15u, 6 contact, range 660u, 5 s.
+Base gun unchanged except damage (base 16 since 2026-10-02, amendment 232): 360°, 500 u/s, 15 dmg burst r15u, 6 contact, range 660u, 5 s.
 
 ### Equipment lines (11)
 

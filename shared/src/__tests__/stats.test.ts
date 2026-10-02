@@ -364,13 +364,13 @@ describe('effectiveStats — the five universal ladders (catalog-v3 §4)', () =>
 });
 
 describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
-  it('DECK GUN (R14, amendment 232): whole-number steps +1/+2/+1/+2 — 15 -> 16 -> 18 -> 19 -> 21, never a fraction', () => {
+  it('DECK GUN (R14, amendment 232): base 16, whole-number steps +2 (to III) and +3 (to V) — 16 -> 16 -> 18 -> 18 -> 21, never a fraction', () => {
     // Every authored damage step is an integer, so no fold ever passes
     // through a fraction (amendment 39: Eric's integers ARE the scale).
     const steps = CATALOG.deckGun.tiers.flatMap((tier) =>
       tier.filter((e) => e.kind === 'stat' && e.path === 'equipment.gun.damage').map((e) => (e as { add: number }).add));
-    expect(steps).toEqual([1, 2, 1, 2]);
-    const damage = [15, 16, 18, 19, 21];
+    expect(steps).toEqual([2, 3]); // the rungs to II and IV author no damage effect
+    const damage = [16, 16, 18, 18, 21];
     damage.forEach((d, n) => {
       const got = effectiveStats(BASE, stack('deckGun', n)).equipment.gun.damage;
       expect(got, `${n} copies`).toBe(d);
@@ -383,10 +383,10 @@ describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
     const baseReload = effectiveStats(BASE).equipment.gun.reloadMs;
     const table: [number, number, number, number, number, number][] = [
       // copies, tier, damage, maxAmmo (pool), barrels, reload scale
-      [0, 1, 15, 1, 1, 1],
+      [0, 1, 16, 1, 1, 1],
       [1, 2, 16, 1, 2, 0.95],
       [2, 3, 18, 2, 2, 0.9],
-      [3, 4, 19, 2, 3, 0.85],
+      [3, 4, 18, 2, 3, 0.85],
       [4, 5, 21, 2, 3, 0.8],
     ];
     for (const [copies, tier, damage, maxAmmo, barrels, scale] of table) {

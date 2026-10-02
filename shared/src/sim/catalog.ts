@@ -272,7 +272,8 @@ export function ladderSteps(
 }
 
 /** One CANNON rung's whole-number damage step (Eric 2026-10-02, epic-8
- *  amendment 232: +1, +2, +1, +2 → 15 / 16 / 18 / 19 / 21). */
+ *  amendment 232: base 16; +2 on the rung to III, +3 on the rung to V →
+ *  16 / 16 / 18 / 18 / 21; the rungs to II and IV carry no damage effect). */
 const cannonDamage = (step: number): BoonEffect => statEffect('equipment.gun.damage', { add: step });
 /** One FLAK rung's damage step (Eric 2026-10-02, epic-8 amendment 232:
  *  +8 → 12 / 20 / 28 / 36 / 44). */
@@ -429,9 +430,9 @@ export const CATALOG: Catalog = deepFreezeRows({
   // AND the Shift boost cooldown; consumables have no reload.
   reload: ladder('reload', 5, [statEffect('cooldownScale', { add: -0.05 })]),
   // --- the CANNON ladder ----------------------------------------------------
-  // DECK GUN (R14 as retuned by Eric 2026-10-02, epic-8 amendment 232): the
-  // damage steps +1, +1, +2, +1 — whole numbers per rung — so the gun deals
-  // Eric's scale 15 → 16 → 17 → 19 → 20 exactly (amendment 39: his integers
+  // DECK GUN (R14 as retuned by Eric 2026-10-02, epic-8 amendment 232): base
+  // 16, damage steps +2 (to III) and +3 (to V) — whole numbers — so the gun deals
+  // Eric's scale 16 → 16 → 18 → 18 → 21 exactly (amendment 39: his integers
   // ARE the scale; the fold is still floored once by effects.ts
   // EQUIPMENT_INT_FIELDS, a no-op on integer steps). The OTHER half of
   // the line — −5 % own reload per tier — is NOT an effect: it is derived from
@@ -447,10 +448,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   deckGun: ladderSteps(
     'deckGun',
     [
-      [cannonDamage(1), statEffect('equipment.gun.barrels', { add: 1 })], // I → II — a second barrel
-      [cannonDamage(2), statEffect('equipment.gun.maxAmmo', { add: 1 })], // II → III — the second turret
-      [cannonDamage(1), statEffect('equipment.gun.barrels', { add: 1 })], // III → IV — a third barrel
-      [cannonDamage(2)], // IV → V
+      [statEffect('equipment.gun.barrels', { add: 1 })], // I → II — a second barrel (no damage step: 16 → 16)
+      [cannonDamage(2), statEffect('equipment.gun.maxAmmo', { add: 1 })], // II → III — 16 → 18 and the second turret
+      [statEffect('equipment.gun.barrels', { add: 1 })], // III → IV — a third barrel (no damage step: 18 → 18)
+      [cannonDamage(3)], // IV → V — 18 → 21
     ],
     { appliesTo: ['gun'] },
   ),

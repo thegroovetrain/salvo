@@ -1674,7 +1674,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
 
   // The fire path reads EFFECTIVE stats, never raw CONFIG. Catalog v3 gave the
   // gun a damage writer again (the DECK GUN ladder — per-rung whole-number
-  // steps to Eric's 15/16/18/19/21, 2026-10-02, amendment 232), so the pin
+  // steps to Eric's 16/16/18/18/21, 2026-10-02, amendment 232), so the pin
   // asserts BOTH ends of the seam: the base shell carries the CONFIG number,
   // and a laddered one carries the laddered number.
   it('gun damage rides the EFFECTIVE stat — base, and up the DECK GUN ladder', () => {
@@ -1696,7 +1696,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(base.shells).toBe(1);
     const capped = fireOne(CATALOG['deckGun'].cap);
     expect(capped.damage).toBe(capped.effective);
-    expect(capped.damage).toBe(21); // 15 -> 21 at tier V (Eric 2026-10-02)
+    expect(capped.damage).toBe(21); // 16 -> 21 at tier V (Eric 2026-10-02)
     expect(capped.shells).toBe(3); // three barrels at tier V
   });
 

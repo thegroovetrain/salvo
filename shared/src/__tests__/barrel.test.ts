@@ -403,7 +403,7 @@ describe('shared barrel', () => {
     // 2026-10-01). The exception count still stays SIX.
     // 69 -> 70 (cycle 166): catalog content — the three deck-gun ladders
     // re-authored to Eric's 2026-10-02 tables (amendment 232: cannon barrels
-    // at II and IV, damage 15/16/18/19/21; machine gun +4 shells / -50 ms,
+    // at II and IV, damage 16/16/18/18/21 (base 15 → 16); machine gun +4 shells / -50 ms,
     // damage 5/6/6/7/7; flak damage 12/20/28/36/44) and CONFIG.machineGun /
     // CONFIG.flak.reloadMs, which the client reads. No wire shape moved; the
     // exception count stays SIX.

@@ -48,7 +48,7 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(labels(CATALOG.turning)).toEqual(['TURNING']);
     expect(labels(CATALOG.radarSweep)).toEqual(['RADAR SWEEP']);
     expect(labels(CATALOG.reload)).toEqual(['ALL COOLDOWNS']);
-    expect(labels(CATALOG.deckGun)).toEqual(['GUN DAMAGE', 'SHELLS PER SHOT']);
+    expect(labels(CATALOG.deckGun)).toEqual(['SHELLS PER SHOT']); // rung to II: a barrel alone
   });
 
   it('TURNING prints WHOLE DEGREES PER SECOND with the unit (Eric 2026-09-30): 46°/s → 49°/s on a bare Torpedo Boat', () => {
@@ -69,13 +69,16 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
   });
 
   it('prints the DECK GUN ladder in whole hit points (amendment 39)', () => {
-    // Eric's own scale (2026-10-02): 15 → 16 → 18 → 19 → 21, whole numbers per
-    // rung. Nothing on this row may show a fraction.
-    const steps = [0, 1, 2, 3].map((k) => cardStatRows(CATALOG.deckGun, k, held('deckGun', k))[0]);
-    expect(steps.map((r) => [r.cur, r.next])).toEqual([
-      ['15', '16'], ['16', '18'], ['18', '19'], ['19', '21'],
+    // Eric's own scale (2026-10-02): 16 / 16 / 18 / 18 / 21 — damage moves only
+    // on the rungs to III and V, so only those faces carry a GUN DAMAGE row.
+    // Nothing on this row may show a fraction.
+    const steps = [0, 1, 2, 3]
+      .map((k) => cardStatRows(CATALOG.deckGun, k, held('deckGun', k)).find((r) => r.label === 'GUN DAMAGE'));
+    expect(steps.map((r) => (r === undefined ? null : [r.cur, r.next]))).toEqual([
+      null, ['16', '18'], null, ['18', '21'],
     ]);
     for (const r of steps) {
+      if (r === undefined) continue;
       expect(r.cur).not.toContain('.');
       expect(r.next).not.toContain('.');
     }
@@ -391,12 +394,13 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   // THE DECK GUN FACE (amendment 71, read since amendment 197 as ONE ROW PER
   // AUTHORED STEP — 198(a)): it is a LADDER, not an equipment line, so it never
   // touches the tier-card rule and its tier-derived reload cut stays silent.
-  // The rungs to II, III and IV author two steps (damage plus a barrel / a
-  // turret), the rung to V damage alone (Eric 2026-10-02), printed with the
-  // copy table's existing words `ROUNDS` and `SHELLS PER SHOT`.
-  it('prints the CANNON face one row per authored step — two at II, III and IV, one at V', () => {
+  // Under Eric's 16/16/18/18/21 (2026-10-02) the rungs to II and IV author a
+  // barrel alone, the rung to III damage plus a turret, the rung to V damage
+  // alone, printed with the copy table's existing words `ROUNDS` and
+  // `SHELLS PER SHOT`.
+  it('prints the CANNON face one row per authored step — one at II, two at III, one at IV and V', () => {
     const rowsAt = (k: number): number => cardStatRows(CATALOG.deckGun, k, held('deckGun', k)).length;
-    expect([0, 1, 2, 3].map(rowsAt)).toEqual([2, 2, 2, 1]);
+    expect([0, 1, 2, 3].map(rowsAt)).toEqual([1, 2, 1, 1]);
   });
 });
 
@@ -407,9 +411,8 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
 // on the rungs to III and V. Every authored step prints its own row, with no
 // new words.
 describe('cardStatRows — the CANNON and FLAK rungs that carry a turret or a barrel', () => {
-  it('CANNON rung to II: GUN DAMAGE 15 to 16 and SHELLS PER SHOT 1 to 2 (the second barrel)', () => {
+  it('CANNON rung to II: SHELLS PER SHOT 1 to 2 (the second barrel), alone', () => {
     expect(cardStatRows(CATALOG.deckGun, 0, held('deckGun', 0))).toEqual([
-      { label: 'GUN DAMAGE', cur: '15', next: '16' },
       { label: 'SHELLS PER SHOT', cur: '1', next: '2' },
     ]);
   });
@@ -421,16 +424,15 @@ describe('cardStatRows — the CANNON and FLAK rungs that carry a turret or a ba
     ]);
   });
 
-  it('CANNON rung to IV: GUN DAMAGE 18 to 19 and SHELLS PER SHOT 2 to 3 (the third barrel)', () => {
+  it('CANNON rung to IV: SHELLS PER SHOT 2 to 3 (the third barrel), alone', () => {
     expect(cardStatRows(CATALOG.deckGun, 2, held('deckGun', 2))).toEqual([
-      { label: 'GUN DAMAGE', cur: '18', next: '19' },
       { label: 'SHELLS PER SHOT', cur: '2', next: '3' },
     ]);
   });
 
-  it('CANNON rung to V: GUN DAMAGE 19 to 21, alone', () => {
+  it('CANNON rung to V: GUN DAMAGE 18 to 21, alone', () => {
     expect(cardStatRows(CATALOG.deckGun, 3, held('deckGun', 3))).toEqual([
-      { label: 'GUN DAMAGE', cur: '19', next: '21' },
+      { label: 'GUN DAMAGE', cur: '18', next: '21' },
     ]);
   });
 

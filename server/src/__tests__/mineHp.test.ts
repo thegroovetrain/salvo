@@ -108,11 +108,11 @@ describe('CONFIG — the two numbers (amendments 200/201)', () => {
   });
 });
 
-describe('the CANNON — one click on the mine pops it (15 >= 10)', () => {
+describe('the CANNON — one click on the mine pops it (16 >= 10)', () => {
   it('cannon click on an armed naval mine: boom, blast, and the shooter gets `sp` (no hull victim)', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0);
-    expect(a.stats.equipment.gun.damage).toBe(15);
+    expect(a.stats.equipment.gun.damage).toBe(16);
     lay(w, 'm1', 'x', 300, 0);
     const log = click(w, 'a', 300);
     expect(w.mines.has('m1')).toBe(false);

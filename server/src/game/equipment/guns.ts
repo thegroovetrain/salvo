@@ -182,7 +182,7 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
  * no upgrades at all); the cycle-44 rebalance (gun 15, lightest hull 80) removed
  * that premise. The accepted consequence: every shell of a multi-barrel click
  * lands; the reachable max is the CANNON's tier-V triple mount (3 barrels × 21 =
- * 63; 3 × 19 = 57 at tier IV — Eric 2026-10-02, amendment 232). No PLAYER hull
+ * 63; 3 × 18 = 54 at tier IV — Eric 2026-10-02, amendment 232). No PLAYER hull
  * can be one-clicked — the lightest is the 125hp Torpedo Boat; the 45 hp small
  * drone one-click is an ACCEPTED consequence (amendment 232).
  *

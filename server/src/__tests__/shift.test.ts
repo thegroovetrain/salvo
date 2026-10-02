@@ -227,7 +227,7 @@ describe('DAMAGE CUT — the Battleship\'s Shift (amendments 99–102)', () => {
 // ---------- THE NINE-COMBO PIN ------------------------------------------------
 
 describe('every hull × every gun (the nine-combo pin)', () => {
-  const EXPECTED_DAMAGE: Record<GunId, number> = { deckGun: 15, machineGun: 5, flak: 12 };
+  const EXPECTED_DAMAGE: Record<GunId, number> = { deckGun: 16, machineGun: 5, flak: 12 };
   const EXPECTED_FAMILY: Record<GunId, string> = { deckGun: 'cannon', machineGun: 'mg', flak: 'flak' };
 
   for (const hull of SHIP_CLASS_IDS) {

@@ -140,7 +140,7 @@ describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming e
     // This is the one that must hold: the gun is the weapon the TTK ladder is
     // written against (3/4/5 shots = 15/20/25s), so a one-shot here would
     // collapse the whole envelope rather than reward a build.
-    expect(CONFIG.gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 15 < 45
+    expect(CONFIG.gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 16 < 45
   });
 
   it('EVERY heavier player weapon one-shots a small drone at BASE — INTENDED, and the Mine Layer case is the point', () => {
@@ -238,7 +238,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
   });
 
   it('the drafted ladder endpoints land where the spec ruled them', () => {
-    // THE DECK GUN LADDER (amendment 232, Eric 2026-10-02): 15 -> 21 across
+    // THE DECK GUN LADDER (amendment 232, Eric 2026-10-02): 16 -> 21 across
     // four tiers, and 21 is still comfortably under the 250hp floor.
     expect(stacked('deckGun').equipment.gun.damage).toBe(21);
     expect(stacked('deckGun').equipment.gun.damage).toBeLessThan(minHullHp);
@@ -305,8 +305,8 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     //
     // 2026-10-02: THE SMALL-DRONE ONE-CLICK IS BACK, AND ACCEPTED (Eric,
     // epic-8 amendment 232). Eric's cannon table puts barrels at tiers II and
-    // IV (1/2/2/3/3) and damage 15/16/18/19/21, so the maxed click is
-    // 3 × 21 = 63 (57 at tier IV) — every shell landing one-clicks an
+    // IV (1/2/2/3/3) and damage 16/16/18/18/21, so the maxed click is
+    // 3 × 21 = 63 (54 at tier IV) — every shell landing one-clicks an
     // undamaged 45hp small drone again. This test DOCUMENTS THE CEILING; it
     // is no longer a "below drone hp" guarantee. A future barrel or damage
     // change moves this pin, which keeps that a visible decision.

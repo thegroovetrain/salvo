@@ -201,7 +201,7 @@ export const CONFIG = {
   drones: {
     small: {
       hull: { length: 85, beam: 25 }, // u — legacy 34×10 chevron ×2.5
-      hp: 45, // hit points — 3 captain gun hits (15 dmg) to sink, 15s
+      hp: 45, // hit points — 3 captain gun hits (16 dmg since 2026-10-02; was 15) to sink, 15s
       // The self-defence gun. Lives on the ENVELOPE rather than in
       // CONFIG.fleet so effectiveStats() can apply it structurally, with no
       // hull-id parameter threaded through the one derivation path.
@@ -998,15 +998,18 @@ export const CONFIG = {
     // weapon balance pass): a permanently-fitted default weapon hit far too
     // hard. HEAVY SHELLS ×5 (+3/card) used to top the ladder at 30; that CARD
     // IS GONE (`gunDamage`, deleted in Story 7-5 wave 1 — Eric: *"The gun is
-    // absurdly powerful and does not need damage bonuses"*), so 15 is now the
-    // gun's BASE damage. Since 2026-10-02 (Eric, epic-8 amendment 232) the
-    // `deckGun` ladder steps it +1/+2/+1/+2 to 21 at tier V with 3 barrels, so
-    // the max cannon click is 3 × 21 = 63 — the 45hp small drone one-clicks
-    // again, an ACCEPTED consequence (damageGuardrail.test pins the ceiling).
-    damage: 15,
+    // absurdly powerful and does not need damage bonuses"*), so 15 became the
+    // gun's BASE damage. RETUNED 15 → 16 (Eric 2026-10-02, epic-8 amendment
+    // 232: "Cannon Damage 16/16/18/18/21"): the `deckGun` ladder authors
+    // damage ONLY on the rungs to III (+2) and V (+3) — 16/16/18/18/21 — with
+    // 3 barrels at tier V, so the max cannon click is 3 × 21 = 63 (54 at IV);
+    // the 45hp small drone one-clicks again, an ACCEPTED consequence
+    // (damageGuardrail.test pins the ceiling).
+    damage: 16,
     // hp to an early interceptor outside the blast (bodyblock). RETUNED 10 → 6
-    // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of `damage`,
-    // the ratio the bodyblock was tuned at.
+    // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of the then
+    // 15 `damage`, the ratio the bodyblock was tuned at. NOT re-derived for the
+    // 2026-10-02 base move (Eric: only the numbers he names change).
     contactDamage: 6,
     burstRadius: 15, // u — blast radius around the clicked point
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)

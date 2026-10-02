@@ -37,8 +37,8 @@ describe('tier tables', () => {
     }
   });
 
-  it('CANNON damage reads 15 / 16 / 18 / 19 / 21', () => {
-    expect(row(tierTable('deckGun'), 'DAMAGE')).toEqual(['15', '16', '18', '19', '21']);
+  it('CANNON damage reads 16 / 16 / 18 / 18 / 21', () => {
+    expect(row(tierTable('deckGun'), 'DAMAGE')).toEqual(['16', '16', '18', '18', '21']);
   });
 
   it('FLAK reload runs 3.5 s down to 2.8 s (Eric 2026-10-02)', () => {

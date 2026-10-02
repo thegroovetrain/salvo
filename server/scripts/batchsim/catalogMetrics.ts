@@ -36,9 +36,12 @@
 //    LAZILY, on the first classification rather than at module import, because
 //    `--tune` / `--set` mutate CONFIG after every import: a table baked at
 //    import would score a tuned run against untuned amounts.
-//    THE AMOUNTS ARE NOT ALL UNIQUE, AND THE LEDGER SAYS SO: balance cycle 1
+//    THE AMOUNTS NEED NOT BE UNIQUE, AND THE LEDGER SAYS SO: balance cycle 1
 //    made `broadside.damage` exactly equal `gun.damage` (both 15), so a first-
-//    match lookup would silently file every broadside burst under 'gun'. Sources
+//    match lookup would have filed every broadside burst under 'gun'. Eric's
+//    2026-10-02 cannon table (16/16/18/18/21, amendment 232) moved the bare
+//    cannon to 16 while the broadside stays 15, so today the two print under
+//    their OWN labels — the correct outcome, not a regression. Sources
 //    that collide on an amount are reported under ONE merged label
 //    ('gun/broadside') — an honest ambiguity beats a confident wrong answer. Any
 //    amount that matches nothing is bucketed by its own value under
@@ -95,7 +98,11 @@ let sourcesMemo: { label: string; amount: number }[] | null = null;
  * The sources, with any that COLLIDE on an amount merged into one honest label.
  * Balance cycle 1 set `broadside.damage` to exactly `gun.damage` (both 15), and
  * a first-match lookup would have filed every broadside burst under 'gun' in
- * silence. 'gun/broadside' says what the ledger actually knows.
+ * silence. 'gun/broadside' says what the ledger actually knows. Since Eric's
+ * 2026-10-02 cannon table the bare cannon is 16 and the broadside 15, so they
+ * no longer merge and print as 'gun' and 'broadside' separately (correct). Only
+ * the BARE cannon's amount is a source here: a laddered cannon shell (18 / 21)
+ * still files under `other:<amount>`, as every laddered amount always has.
  *
  * BUILT LAZILY, ON FIRST CLASSIFICATION — never at module import. The harness's
  * `--tune` / `--set` overrides MUTATE CONFIG after every module is imported, so

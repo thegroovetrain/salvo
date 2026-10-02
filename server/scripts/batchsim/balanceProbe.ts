@@ -157,9 +157,9 @@ function barrelBlock(): void {
   console.log('barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u)');
   // Each row is priced at the damage of the BUILD named for that barrel
   // count on Eric's 2026-10-02 CANNON ladder (amendment 232: barrels 1/2/2/3/3,
-  // damage 15/16/18/19/21): 1 barrel = the bare cannon (15), 2 barrels =
+  // damage 16/16/18/18/21): 1 barrel = the bare cannon (16), 2 barrels =
   // CANNON ×1 (16, tier II), 3 barrels = CANNON ×4 (21, tier V — the max;
-  // tier IV reaches 3 barrels at 19). The damage is read off the real fold.
+  // tier IV reaches 3 barrels at 18). The damage is read off the real fold.
   for (const [barrels, copies] of [[1, 0], [2, 1], [3, 4]] as const) {
     const dmg = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), Array<LineId>(copies).fill('deckGun')).equipment.gun.damage;
     const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);

@@ -370,7 +370,7 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
   // AMENDMENT 200 — the shell LANDING on the mine is the one gunfire path
   // -------------------------------------------------------------------------
 
-  it('(c) a cannon shell LANDING on a mine pops it (15 dmg >= 10 hp) — any owner, the mine\'s own blast at the mine', () => {
+  it('(c) a cannon shell LANDING on a mine pops it (16 dmg >= 10 hp) — any owner, the mine\'s own blast at the mine', () => {
     const w = board(22);
     mine(w, 'm1', 'x', 600, 0); // an ENEMY mine, AT the clicked point
     shootAt(w, 'a', 600);

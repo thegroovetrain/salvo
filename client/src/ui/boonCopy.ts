@@ -339,9 +339,10 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   reload: { label: 'All cooldowns', path: 'cooldownScale', fmt: pct },
   // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
   // the tier in clampStats and stays silent): damage is the number the player
-  // watches change. Since Eric's 2026-10-02 tables the rungs to II and IV also
-  // author a barrel, the rung to III the second turret, the rung to V damage
-  // alone. The pool is `equipment.gun.maxAmmo` and the barrels
+  // watches change. Since Eric's 2026-10-02 tables (damage 16/16/18/18/21)
+  // the rungs to II and IV author a barrel ALONE (no damage step, so their face
+  // prints no GUN DAMAGE row), the rung to III damage plus the second turret,
+  // the rung to V damage alone. The pool is `equipment.gun.maxAmmo` and the barrels
   // (`equipment.gun.barrels`); those rows print through the FIELD_WORDS
   // fallback (`ROUNDS`, `SHELLS PER SHOT`) — no entry here, no new words.
   deckGun: { label: 'Gun damage', path: 'equipment.gun.damage' },
@@ -362,8 +363,9 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
  * two print it too, first, then their authored steps. The DECK GUN (CANNON)
  * ladder is NOT here: amendment 71 ruled its face the damage row and no reload
  * row, read since amendment 197 (198(a)) as ONE ROW PER AUTHORED STEP — the
- * rungs to II and IV print damage plus `SHELLS PER SHOT` (a barrel), the rung to
- * III damage plus `ROUNDS` (the second turret), the rung to V damage alone.
+ * rungs to II and IV print `SHELLS PER SHOT` alone (a barrel, no damage step
+ * under Eric's 16/16/18/18/21), the rung to III damage plus `ROUNDS` (the
+ * second turret), the rung to V damage alone.
  */
 const GUN_LADDER_RELOAD: ReadonlySet<string> = new Set(['machineGun', 'flak']);
 
