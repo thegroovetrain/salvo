@@ -37,14 +37,14 @@ describe('tier tables', () => {
     }
   });
 
-  it('CANNON damage reads 15 / 16 / 17 / 18 / 20', () => {
-    expect(row(tierTable('deckGun'), 'DAMAGE')).toEqual(['15', '16', '17', '18', '20']);
+  it('CANNON damage reads 16 / 16 / 18 / 18 / 21', () => {
+    expect(row(tierTable('deckGun'), 'DAMAGE')).toEqual(['16', '16', '18', '18', '21']);
   });
 
-  it('FLAK reload runs 4.0 s down to 3.2 s (amendment 210)', () => {
+  it('FLAK reload runs 3.5 s down to 2.8 s (Eric 2026-10-02)', () => {
     const reload = row(tierTable('flak'), 'RELOAD');
-    expect(reload[0]).toBe('4.0 s');
-    expect(reload[4]).toBe('3.2 s');
+    expect(reload[0]).toBe('3.5 s');
+    expect(reload[4]).toBe('2.8 s');
   });
 
   it('STAR SHELLS and PHOSPHOR SHELLS burst damage (amendment 208)', () => {

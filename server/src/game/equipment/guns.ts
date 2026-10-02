@@ -138,8 +138,9 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
 }
 
 /**
- * Gun fire control against one slot pool: `stats.equipment.gun.barrels` shells (1..2
- * reachable — the CANNON rung to tier V, amendment 197; the clamp still admits 3)
+ * Gun fire control against one slot pool: `stats.equipment.gun.barrels` shells (1..3
+ * — the CANNON rungs to tiers II and IV each add one, Eric 2026-10-02, epic-8
+ * amendment 232; the 1..3 clamp is now reached exactly)
  * for ONE consumed round, each a REAL shell
  * bursting at its OWN point. The ONLY denial is an empty pool ('no-ammo' — the
  * shot cooldown; single-consume, so the denial mapping is unchanged from the
@@ -180,9 +181,11 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
  * numbers (gun 25, lightest hull 70 — base 3 × 25 = 75 breached the floor with
  * no upgrades at all); the cycle-44 rebalance (gun 15, lightest hull 80) removed
  * that premise. The accepted consequence: every shell of a multi-barrel click
- * lands; the reachable max is the CANNON's tier-V twin mount (2 barrels × 20 =
- * 40 — amendment 197), and the 1..3 barrel clamp's ceiling is now unreachable. No
- * PLAYER hull can be one-clicked — the lightest is the 125hp Torpedo Boat.
+ * lands; the reachable max is the CANNON's tier-V triple mount (3 barrels × 21 =
+ * 63; 3 × 18 = 54 at tier IV — Eric 2026-10-02, amendment 232). No PLAYER hull
+ * can be one-clicked — the lightest class hull is 250 hp; the 45 hp small and
+ * 60 hp medium drone one-clicks at tier V are ACCEPTED consequences (Eric
+ * 2026-10-02, amendment 232; the 75 hp large drone still takes two).
  *
  * Every shell carries the gun's hit rule off the OWNER's effective stats:
  * target point + burstRadius + damage/contactDamage (Story 2.8 — stats, never
@@ -205,7 +208,7 @@ function fireGunShells(
   const dir = ship.input.aim;
   const center = burstPointAlong(ship, mapRadius, reachU, dir);
   // Every barrel carries the ONE unclamped click centre (amendment 202): the
-  // twin mount's straddle offsets move where each shell lands, not the cursor.
+  // multi-barrel mount's straddle offsets move where each shell lands, not the cursor.
   const cursor = rawAimPoint(ship, dir);
   const muzzle = muzzleOrTarget(ship, dir, center, CONFIG.gun.shellRadius);
   const range = Math.hypot(center.x - muzzle.x, center.y - muzzle.y) + CONFIG.gun.shellRadius;

@@ -9,9 +9,10 @@
 //
 // THE COUNT MOVED 26/117 -> 24/114 ON 2026-09-30 (Eric: "there are NO MORE
 // one-off upgrades; EVERY upgrade is tiered"): DECK GUN TURRET and DECK GUN
-// BARREL are DELETED. The second turret and the second barrel are now rungs of
-// the CANNON ladder (tier III and tier V), and the FLAK ladder gains a turret
-// at tier III and tier V. See `ladderSteps`.
+// BARREL are DELETED. The second turret and the extra barrels are now rungs of
+// the CANNON ladder (the turret at tier III; a barrel at tier II and tier IV
+// since Eric's 2026-10-02 tables, epic-8 amendment 232), and the FLAK ladder
+// gains a turret at tier II and tier IV (same tables). See `ladderSteps`.
 //
 // THE COUNT MOVED 109 -> 117 IN STORY 8.17 (Eric 2026-09-29, amendments
 // 130–133), purely by re-cutting KINDS: the last two ADD-ONS are gone —
@@ -253,9 +254,11 @@ function ladder(
  * A ladder whose rungs are NOT UNIFORM (Eric 2026-09-30): the `ladder` twin of
  * `tieredWeaponSteps`. `steps[k]` is the effect list of the rung copy k+1
  * buys, and `cap` is `steps.length`. A rung may carry more than one authored
- * effect — CANNON's tier-III rung is its damage step AND the second turret;
- * the MACHINE GUN's shot delay steps −40, −40, −40, −30 ms beside its uniform
- * +2 shells / +1 damage — shapes one repeated list cannot say. The `ladder`
+ * effect — CANNON's tier-III rung is its +2 damage step AND the second turret,
+ * its rungs to II and IV are a barrel each with no damage step, and its rung
+ * to V is +3 damage alone (16 / 16 / 18 / 18 / 21); the MACHINE GUN takes +1
+ * damage only on the rungs to II and IV beside its uniform +4 shells / −50 ms
+ * (Eric 2026-10-02, epic-8 amendment 232) — shapes one repeated list cannot say. The `ladder`
  * law holds: a FRESH ARRAY PER RUNG, copied from the caller's lists, so no
  * rung aliases another or the caller's array; the effect objects are
  * deep-frozen with the catalog.
@@ -269,10 +272,13 @@ export function ladderSteps(
   return { id, kind: 'ladder', cap: tiers.length, tiers, ...extra };
 }
 
-/** One CANNON rung's damage step (R14): +1.25, floored once after the fold. */
-const cannonDamage = (): BoonEffect => statEffect('equipment.gun.damage', { add: 1.25 });
-/** One FLAK rung's damage step (amendment 105): +2. */
-const flakDamage = (): BoonEffect => statEffect('equipment.flak.damage', { add: 2 });
+/** One CANNON rung's whole-number damage step (Eric 2026-10-02, epic-8
+ *  amendment 232: base 16; +2 on the rung to III, +3 on the rung to V →
+ *  16 / 16 / 18 / 18 / 21; the rungs to II and IV carry no damage effect). */
+const cannonDamage = (step: number): BoonEffect => statEffect('equipment.gun.damage', { add: step });
+/** One FLAK rung's damage step (Eric 2026-10-02, epic-8 amendment 232:
+ *  +8 → 12 / 20 / 28 / 36 / 44). */
+const flakDamage = (): BoonEffect => statEffect('equipment.flak.damage', { add: 8 });
 
 /**
  * An equipment line WITH its ladder: copy 1 fits the weapon and tiers II–V
@@ -326,13 +332,16 @@ export function tieredWeaponSteps(
   return { id, kind: 'equipment', cap: 5, tiers };
 }
 
-/** One upgrade tier of the MACHINE GUN ladder (Eric 2026-09-30): +2 shells,
- *  +1 damage, and the tier's shot-delay step (−40, −40, −40, −30 ms). */
-function machineGunTier(rateStepMs: number): BoonEffect[] {
+/** One upgrade tier of the MACHINE GUN ladder (Eric 2026-10-02, epic-8
+ *  amendment 232): +4 shells and −50 ms of shot delay on every rung, and +1
+ *  damage ONLY when `damageUp` (the rungs to II and IV). The rungs to III and
+ *  V author NO damage effect at all — the validator refuses `add: 0`, and a
+ *  rung carrying the magazine and delay steps is not empty. */
+function machineGunTier(damageUp: boolean): BoonEffect[] {
   return [
-    statEffect('equipment.machineGun.maxAmmo', { add: 2 }),
-    statEffect('equipment.machineGun.damage', { add: 1 }),
-    statEffect('equipment.machineGun.rateMs', { add: rateStepMs }),
+    statEffect('equipment.machineGun.maxAmmo', { add: 4 }),
+    ...(damageUp ? [statEffect('equipment.machineGun.damage', { add: 1 })] : []),
+    statEffect('equipment.machineGun.rateMs', { add: -50 }),
   ];
 }
 
@@ -383,13 +392,17 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *   TURNING R6  — flat +0.05 rad/s per tier, 4 tiers. [DRAFT]
  *   RADAR SWEEP R11 — +3 rpm per tier, 5 tiers (the 30 rpm clamp stays).
  *   RELOAD  R12 — −5 % per tier, 5 tiers, cap 25 % (cooldownScale 1.0 → 0.75).
- *   DECK GUN R14 — +1.25 damage AND −5 % own reload per tier, 4 tiers; the
+ *   DECK GUN R14 — damage 16/16/18/18/21 (base 16; +2 at III, +3 at V) AND −5 % own reload per
+ *                  tier, 4 tiers (Eric 2026-10-02, amendment 232); the
  *                  reload half is DERIVED from the tier in clampStats.
- *                  R15 (turret) / R16 (barrel) folded into the CANNON rungs
- *                  on 2026-09-30: +1 pool at tier III, +1 barrel at tier V.
- *   MACHINE GUN — +2 shells, +1 damage per tier, 4 tiers (amendment 104).
- *   FLAK — +2 damage per tier, 4 tiers, blast fixed (amendment 105); +1 pool
- *                  at tier III and tier V (Eric 2026-09-30).
+ *                  R15 (turret) / R16 (barrel) folded into the CANNON rungs:
+ *                  +1 pool at tier III (2026-09-30), +1 barrel at tier II
+ *                  and tier IV (2026-10-02, amendment 232).
+ *   MACHINE GUN — +4 shells and −50 ms per tier, +1 damage at tiers II and
+ *                  IV only, 4 tiers (Eric 2026-10-02, amendment 232).
+ *   FLAK — damage +8 per tier (12 → 44), 4 tiers, blast fixed (Eric
+ *                  2026-10-02, amendment 232); +1 pool at tier II and
+ *                  tier IV (1/2/2/3/3, same tables; was III and V).
  *   BROADSIDE R35 · STAR SHELLS R31 · PHOSPHOR SHELLS · FLASH SHELLS — as
  *                  ruled by Eric 2026-09-29, amendments 130–133 (Story 8.17).
  *   LIGHT TORPEDO R18 · HEAVY TORPEDO R17 · NAVAL MINES R23/R24 ·
@@ -418,27 +431,28 @@ export const CATALOG: Catalog = deepFreezeRows({
   // AND the Shift boost cooldown; consumables have no reload.
   reload: ladder('reload', 5, [statEffect('cooldownScale', { add: -0.05 })]),
   // --- the CANNON ladder ----------------------------------------------------
-  // DECK GUN (R14): +1.25 damage per tier, 4 tiers, FLOORED once after the fold
-  // (effects.ts EQUIPMENT_INT_FIELDS) so the gun deals Eric's whole-number
-  // scale 15 → 16 → 17 → 18 → 20 — never 16.25 / 17.5 / 18.75 (epic-8
-  // amendment 39: catalog-v3 R14's "Eric wrote it rounded" was the error; his
-  // integers ARE the scale). The OTHER half of
+  // DECK GUN (R14 as retuned by Eric 2026-10-02, epic-8 amendment 232): base
+  // 16, damage steps +2 (to III) and +3 (to V) — whole numbers — so the gun deals
+  // Eric's scale 16 → 16 → 18 → 18 → 21 exactly (amendment 39: his integers
+  // ARE the scale; the fold is still floored once by effects.ts
+  // EQUIPMENT_INT_FIELDS, a no-op on integer steps). The OTHER half of
   // the line — −5 % own reload per tier — is NOT an effect: it is derived from
   // `equipment.gun.tier` in clampStats, exactly as every equipment line's step
   // is, so there is one reload derivation in the engine rather than two.
   // `appliesTo: ['gun']` is how this ladder names the row whose tier it moves.
   // THE ONE-OFF TURRET AND BARREL CARDS ARE RUNGS NOW (Eric 2026-09-30, "EVERY
   // upgrade is tiered"; R15/R16 folded in): the rung that reaches tier III
-  // (copy 2) adds the second turret (gun pool 1 → 2) and the rung that
-  // reaches tier V (copy 4) a second barrel per turret (two parallel shells
-  // per click). Pool by copies 0..4: 1,1,2,2,2; barrels: 1,1,1,1,2.
+  // (copy 2) adds the second turret (gun pool 1 → 2), and the rungs that
+  // reach tier II (copy 1) and tier IV (copy 3) each add a barrel per turret
+  // (parallel shells per click; Eric 2026-10-02, amendment 232). Pool by
+  // copies 0..4: 1,1,2,2,2; barrels: 1,2,2,3,3.
   deckGun: ladderSteps(
     'deckGun',
     [
-      [cannonDamage()], // I → II
-      [cannonDamage(), statEffect('equipment.gun.maxAmmo', { add: 1 })], // II → III — the second turret
-      [cannonDamage()], // III → IV
-      [cannonDamage(), statEffect('equipment.gun.barrels', { add: 1 })], // IV → V — a second barrel
+      [statEffect('equipment.gun.barrels', { add: 1 })], // I → II — a second barrel (no damage step: 16 → 16)
+      [cannonDamage(2), statEffect('equipment.gun.maxAmmo', { add: 1 })], // II → III — 16 → 18 and the second turret
+      [statEffect('equipment.gun.barrels', { add: 1 })], // III → IV — a third barrel (no damage step: 18 → 18)
+      [cannonDamage(3)], // IV → V — 18 → 21
     ],
     { appliesTo: ['gun'] },
   ),
@@ -488,31 +502,34 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('equipment.captiveMines.maxAmmo', { add: 0.5 }),
     statEffect('equipment.captiveMines.homingTurnRate', { add: 0.075 }),
   ]),
-  // MACHINE GUN (amendment 104; the shot delay Eric 2026-09-30): the machine
-  // gun's LADDER — offered only while it is mounted (sim/draw.ts ladderHost
-  // reads `appliesTo`). Tiers II–V each +2 shells to the magazine and +1
-  // damage per shell (16 -> 24 shells, 4 -> 8 damage at V) and step the shot
-  // delay −40, −40, −40, −30 ms (0.35 / 0.31 / 0.27 / 0.23 / 0.20 s). The −5 %
-  // reload per tier (10 s -> 8 s at V) is NOT an effect: it is derived from
+  // MACHINE GUN (amendment 104; the numbers Eric 2026-10-02, amendment 232):
+  // the machine gun's LADDER — offered only while it is mounted (sim/draw.ts
+  // ladderHost reads `appliesTo`). Tiers II–V each +4 shells to the magazine
+  // (12 / 16 / 20 / 24 / 28) and −50 ms of shot delay (0.30 / 0.25 / 0.20 /
+  // 0.15 / 0.10 s); +1 damage per shell only on the rungs to II and IV
+  // (5 / 6 / 6 / 7 / 7). The −5 % reload per tier (12 s -> 9.6 s at V) is NOT
+  // an effect: it is derived from
   // `equipment.machineGun.tier`, which `appliesTo` makes this line advance —
   // the `deckGun` precedent exactly.
   machineGun: ladderSteps(
     'machineGun',
-    [machineGunTier(-40), machineGunTier(-40), machineGunTier(-40), machineGunTier(-30)],
+    [machineGunTier(true), machineGunTier(false), machineGunTier(true), machineGunTier(false)],
     { appliesTo: ['machineGun'] },
   ),
-  // FLAK (amendment 105): the flak gun's LADDER, offered only while mounted.
-  // Tiers II–V each +2 damage (12 -> 20 at V); the blast radius does NOT grow;
-  // the −5 % reload per tier is the derived tier step (6 s -> 4.8 s at V).
-  // The rungs reaching tier III and tier V each add a TURRET (Eric
-  // 2026-09-30): flak pool by copies 0..4 is 1,1,2,2,3.
+  // FLAK (amendment 105; the numbers Eric 2026-10-02, amendment 232): the
+  // flak gun's LADDER, offered only while mounted. Tiers II–V step damage
+  // +8 per rung (12 / 20 / 28 / 36 / 44); the blast radius does NOT grow;
+  // the −5 % reload per tier is the derived tier step (3.5 s -> 2.8 s at V).
+  // The rungs reaching tier II and tier IV each add a TURRET (Eric
+  // 2026-10-02, amendment 232; was III and V): flak pool by copies 0..4 is
+  // 1,2,2,3,3.
   flak: ladderSteps(
     'flak',
     [
-      [flakDamage()], // I → II
-      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // II → III
-      [flakDamage()], // III → IV
-      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // IV → V
+      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // I → II — the second turret (Eric 2026-10-02)
+      [flakDamage()], // II → III
+      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // III → IV — the third turret
+      [flakDamage()], // IV → V
     ],
     { appliesTo: ['flak'] },
   ),

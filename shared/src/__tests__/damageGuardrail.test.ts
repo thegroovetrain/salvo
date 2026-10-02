@@ -113,22 +113,22 @@ describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, 
 });
 
 describe('one-hit-kill guardrail — THE TWO PICKABLE GUNS (Story 8.15, amendments 103–105)', () => {
-  it('the MACHINE GUN, restated PER SHELL: 8 dmg at cap × 1 barrel stays under the lightest class hull', () => {
+  it('the MACHINE GUN, restated PER SHELL: 7 dmg at cap × 1 barrel stays under the lightest class hull', () => {
     // The machine gun is a STREAM, so the law is stated per shell — the unit
     // the gate sees — exactly as a multi-barrel cannon click is bounded per
     // shell below. One barrel, direct hit, no burst.
     const capped = stacked('machineGun').equipment.machineGun;
-    expect(capped.damage).toBe(8); // 4 → 8 at tier V (amendment 104)
+    expect(capped.damage).toBe(7); // 5 → 7 at tier V (Eric 2026-10-02, amendment 232)
     expect(capped.damage * 1).toBeLessThan(minHullHp);
     expect(CONFIG.machineGun.damage).toBeLessThan(minHullHp);
-    // Even a WHOLE capped magazine (24 × 8 = 192) cannot sink the 250 hp hull
+    // Even a WHOLE capped magazine (28 × 7 = 196) cannot sink the 250 hp hull
     // from full — a record, not a law: the stream is bounded per shell.
     expect(capped.maxAmmo * capped.damage).toBeLessThan(minHullHp);
   });
 
-  it('the FLAK burst and bodyblock stay under the floor at every rung (12 → 20)', () => {
+  it('the FLAK burst and bodyblock stay under the floor at every rung (12 → 44)', () => {
     const capped = stacked('flak').equipment.flak;
-    expect(capped.damage).toBe(20);
+    expect(capped.damage).toBe(44); // Eric 2026-10-02, amendment 232
     expect(capped.damage).toBeLessThan(minHullHp);
     expect(capped.contactDamage).toBe(4); // FIXED — the ladder never steps it
     expect(CONFIG.flak.contactDamage).toBeLessThanOrEqual(CONFIG.flak.damage);
@@ -140,7 +140,7 @@ describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming e
     // This is the one that must hold: the gun is the weapon the TTK ladder is
     // written against (3/4/5 shots = 15/20/25s), so a one-shot here would
     // collapse the whole envelope rather than reward a build.
-    expect(CONFIG.gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 15 < 45
+    expect(CONFIG.gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 16 < 45
   });
 
   it('EVERY heavier player weapon one-shots a small drone at BASE — INTENDED, and the Mine Layer case is the point', () => {
@@ -195,8 +195,9 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
       expect(read(s2, path), path).toBeLessThan(minHullHp);
     }
     // THE LADDERS THAT ACTUALLY MOVE DAMAGE TODAY: the DECK GUN (R14,
-    // +1.25/tier, Story 8.1), the FOUR Story 8.13 lines that step +5/tier, the
-    // two Story 8.15 gun ladders (MACHINE GUN +1/tier, FLAK +2/tier), and
+    // +2 at III and +3 at V, amendment 232), the FOUR Story 8.13 lines that step
+    // +5/tier, the two Story 8.15 gun ladders (MACHINE GUN +1 at II and IV,
+    // FLAK +8/tier — Eric 2026-10-02, amendment 232), and
     // since Story 8.17 STAR SHELLS (10 → 20) and PHOSPHOR SHELLS (20 → 30)
     // (Eric 2026-09-29, amendments 130/131). FOULING MINES is deliberately
     // absent — its 10 hp is FIXED at every tier (epic-8 amendment 81) — and so
@@ -237,9 +238,9 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
   });
 
   it('the drafted ladder endpoints land where the spec ruled them', () => {
-    // THE DECK GUN LADDER (catalog-v3 R14): 15 -> 20 across four tiers, and
-    // 20 is still comfortably under the 250hp floor.
-    expect(stacked('deckGun').equipment.gun.damage).toBe(20);
+    // THE DECK GUN LADDER (amendment 232, Eric 2026-10-02): 16 -> 21 across
+    // four tiers, and 21 is still comfortably under the 250hp floor.
+    expect(stacked('deckGun').equipment.gun.damage).toBe(21);
     expect(stacked('deckGun').equipment.gun.damage).toBeLessThan(minHullHp);
     // Every other damage endpoint IS its base this cycle — pinned so a silent
     // re-add is visible.
@@ -263,14 +264,14 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     //
     // What CI still enforces is the per-shell law, above and here: no single
     // shell of any weapon, max-stacked, reaches the lightest hull.
-    // The CANNON ladder at its cap (Eric 2026-09-30): the tier-V rung is the
-    // second barrel — the deleted DECK GUN BARREL card's effect, one copy's
-    // worth, so the reachable max is 2 barrels (the 1..3 clamp stays).
+    // The CANNON ladder at its cap (Eric 2026-10-02, amendment 232): the rungs
+    // to tier II and tier IV each add a barrel, so the reachable max is 3
+    // barrels — the top of the 1..3 clamp.
     const barrels = stacked('deckGun').equipment.gun.barrels;
     // The per-shell number under the strongest build catalog v3 can reach: the
-    // DECK GUN ladder at its cap (R14), 20 damage.
+    // DECK GUN ladder at its cap (R14 as retuned by amendment 232), 21 damage.
     const perShell = stacked('deckGun').equipment.gun.damage;
-    expect(barrels).toBe(2); // CANNON ×4 — a second barrel at tier V
+    expect(barrels).toBe(3); // CANNON ×4 — barrels at tiers II and IV
     expect(perShell).toBeLessThan(minHullHp); // the law, per SHELL — the thing that holds
     // And this is the consequence Eric was shown and ACCEPTED: a fully
     // max-stacked triple mount whose three overlapping bursts all connect
@@ -298,13 +299,23 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // is the minefield paying out, not the gun, and it is deliberately outside
     // this pin.
     //
-    // 2026-09-30: THE ZERO MARGIN ABOVE IS GONE. With the triple mount no
-    // longer reachable (TURRET/BARREL folded into CANNON tiers, Eric), the
-    // max-stacked click is 2 × 20 = 40, BELOW the 45hp small drone — it no
-    // longer one-clicks it. Pinned so a future barrel or damage change that
-    // restores the one-click is a visible decision.
-    expect(perShell * barrels).toBe(40);
-    expect(perShell * barrels).toBeLessThan(minDroneHp);
+    // 2026-09-30: the triple mount left the catalog (TURRET/BARREL folded into
+    // CANNON tiers) and the max-stacked click fell to 2 × 20 = 40, below the
+    // 45hp small drone.
+    //
+    // 2026-10-02: THE SMALL-DRONE ONE-CLICK IS BACK, AND ACCEPTED (Eric,
+    // epic-8 amendment 232). Eric's cannon table puts barrels at tiers II and
+    // IV (1/2/2/3/3) and damage 16/16/18/18/21, so the maxed click is
+    // 3 × 21 = 63 (54 at tier IV) — every shell landing one-clicks an
+    // undamaged 45hp small drone again, and the 60hp MEDIUM drone too (both
+    // accepted by Eric at the cycle-166 review gate, amendment 234; the 75hp
+    // large drone still takes two). This test DOCUMENTS THE CEILING; it
+    // is no longer a "below drone hp" guarantee. A future barrel or damage
+    // change moves this pin, which keeps that a visible decision.
+    expect(perShell * barrels).toBe(63);
+    expect(perShell * barrels).toBeGreaterThanOrEqual(minDroneHp); // accepted, amendment 232
+    expect(perShell * barrels).toBeGreaterThanOrEqual(CONFIG.drones.medium.hp); // 63 >= 60 — accepted, amendment 234
+    expect(perShell * barrels).toBeLessThan(CONFIG.drones.large.hp); // 63 < 75 — the large drone takes two
     expect(perShell * barrels).toBeLessThan(minHullHp); // minHullHp === Math.min(...classHps)
   });
 

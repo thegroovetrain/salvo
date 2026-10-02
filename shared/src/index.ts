@@ -3,6 +3,16 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  70 — cycle 166: catalog content — the three deck-gun ladders re-authored
+ *  to Eric's 2026-10-02 tables (amendment 232): CANNON damage 16/16/18/18/21
+ *  (base 15→16; +2 at III, +3 at V) with a barrel on the rungs to II and IV
+ *  (1/2/2/3/3); MACHINE GUN +4 shells and −50 ms per rung, +1 damage at II
+ *  and IV only; FLAK damage +8 per rung (12/20/28/36/44) with a turret at II
+ *  and IV (1/2/2/3/3). CONFIG.machineGun maxAmmo 16→12, rateMs 350→300,
+ *  reloadMs 10000→12000, damage 4→5; CONFIG.flak.reloadMs 4000→3500;
+ *  CONFIG.gun.damage 15→16; CONFIG.instantReload.reloadMs 45000→60000 — the
+ *  refit card and tooltips print these from CONFIG.
+ *  Perception exception count stays SIX.
  *  69 — cycle 163: new self-private `dp` GameEvent (DropEvent {k,id,boon} —
  *  a consumable stocked by a drone kill, Eric 2026-10-01), riding the
  *  killer's frame only like `pt`/`bn`; server-only CONFIG.droneDrops (the
@@ -778,7 +788,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 69;
+export const PROTOCOL_VERSION = 70;
 
 // Tunables
 export * from './constants.js';

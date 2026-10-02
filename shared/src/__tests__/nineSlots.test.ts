@@ -187,8 +187,8 @@ describe("loadoutFor(stats, fleet, gun) — slot 0 is the SEAT'S gun", () => {
     expect(EQUIPMENT_IS_WEAPON[eq]).toBe(true);
   });
 
-  it('the machine gun mounts a 16-shell magazine and the flak gun one shell (amendments 103/105)', () => {
-    expect(loadoutFor(stats, false, 'machineGun')[SLOT_GUN].state).toEqual({ n: 16, reloadMsLeft: 0 });
+  it('the machine gun mounts a 12-shell magazine and the flak gun one shell (amendments 103/105; 12 since Eric 2026-10-02, amendment 232)', () => {
+    expect(loadoutFor(stats, false, 'machineGun')[SLOT_GUN].state).toEqual({ n: 12, reloadMsLeft: 0 });
     expect(loadoutFor(stats, false, 'flak')[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 

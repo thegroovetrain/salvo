@@ -128,7 +128,7 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
     entries: [
       { name: 'CANNON', lineId: 'deckGun', table: 'tier', description: 'Decent damage and fire rate. Small blast radius.' },
       { name: 'MACHINE GUN', lineId: 'machineGun', table: 'tier', description: 'Hold to fire a stream of shells.' },
-      { name: 'FLAK', lineId: 'flak', table: 'tier', description: 'Slightly less damage than the Cannon, but faster reload and larger blast radius.' },
+      { name: 'FLAK', lineId: 'flak', table: 'tier', description: 'Faster reload and a larger blast radius than the Cannon; its damage climbs steeply with tier.' },
     ]
   },
   {

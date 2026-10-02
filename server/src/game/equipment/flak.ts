@@ -8,7 +8,8 @@
 // ordinary consume/tickReload pool, the normal D1 fire-time back-date, the
 // deduped `mz`, `sp`/`hc` exactly as the cannon's — every rule the cannon has,
 // with Eric's numbers off the ship's EFFECTIVE `flak` row (the ladder moves
-// damage and reload; the blast never grows). 360°, no arc (amendment 106).
+// damage, reload and the turret pool — 1/2/2/3/3 rounds, Eric 2026-10-02,
+// amendment 232; the blast never grows). 360°, no arc (amendment 106).
 //
 // THE MASK is AR44's `hull | mine | decoy | ordnance` (CONFIG.flak.hits): a
 // shell LANDING within `mine.hitRadiusU` of a mine deals its damage to the

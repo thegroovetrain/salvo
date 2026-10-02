@@ -38,8 +38,9 @@
 //   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling);
 //   - the mine ring derivations (deriveMineRings): a CONTACT mine's trip ring
 //     from its folded blastRadius, the CAPTIVE's from its TIER;
-//   - gun.barrels clamped to 1..3 integer (the reachable max is 2 — the
-//     CANNON ladder's tier-V rung adds the second barrel; the clamp stays);
+//   - gun.barrels clamped to 1..3 integer (3 is reachable — the CANNON
+//     ladder's rungs to tier II and tier IV each add a barrel, Eric
+//     2026-10-02, amendment 232; the clamp stays);
 //   - EVERY integer equipment field (tubes/turrets/barrels/pools) FLOORED
 //     ONCE here, after a fold that accumulated it as a float — catalog-v3 R17's
 //     standing rule (a +0.5 tube step shows nothing until it completes a whole);
@@ -502,7 +503,7 @@ function gunRow(cls: ShipClass): EffectiveGun {
     damage: cls.gun?.damage ?? CONFIG.gun.damage,
     contactDamage: CONFIG.gun.contactDamage,
     burstRadius: CONFIG.gun.burstRadius,
-    barrels: 1, // base single mount — the CANNON ladder's tier-V rung adds one
+    barrels: 1, // base single mount — the CANNON ladder's rungs to II and IV add one each
   };
 }
 
@@ -682,7 +683,7 @@ export function deriveMineRings(eq: EquipmentRows): void {
 }
 
 /** THE MACHINE GUN'S SHOT DELAY GUARD (review gate 2026-09-30). `rateMs` is
- *  ladder-stepped (−40/−40/−40/−30 ms, 350 → 200 ms at V) and the server's
+ *  ladder-stepped (−50 ms × 4, 300 → 100 ms at V, Eric 2026-10-02) and the server's
  *  stream reads it as the gap between shells, so a non-finite or ≤ 0 value
  *  would fire a shell every tick (or stall the clock on NaN). A PLUMBING
  *  guard like reloadTierScale's 0.1 floor — NOT a balance ceiling: every

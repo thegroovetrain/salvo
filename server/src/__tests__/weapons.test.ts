@@ -447,7 +447,7 @@ describe('mines — a deck-gun shell LANDING on a mine (any mine, any owner, arm
     const { w, a, b } = board();
     w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0, kind: 'naval', hp: 10 }); // armed, at the click point
     shootAt(w, 300);
-    expect(w.mines.size).toBe(0); // popped by the owner's shell (15 dmg >= 10 hp)
+    expect(w.mines.size).toBe(0); // popped by the owner's shell (16 dmg >= 10 hp)
     // b's hull is outside the 30u gun burst but inside the mine's 48u blast:
     // exactly one full mine damage, nothing from the shell.
     expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage);

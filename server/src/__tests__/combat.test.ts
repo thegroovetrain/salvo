@@ -20,10 +20,7 @@ import {
   type BurstEvent,
   type DamageEvent,
   type GameEvent,
-  type Catalog,
-  type CatalogLine,
   type HullId,
-  CATALOG,
   gunReachU as sharedGunReachU,
 } from '@salvo/shared';
 import { clampToArc, gunTarget } from '../game/combat.js';
@@ -56,8 +53,8 @@ const gunInput = (aim: number, aimDist = 1000, fireSeq = 1, seq = 1, fireT = 0) 
   ({ seq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot: SLOT_GUN as 0, fireT, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
 
 /** A bare world (islands cleared) with one ship pinned at the origin. */
-function armed(seed = 5, hullId: HullId = 'torpedoBoat', catalog?: Catalog): { w: World; a: ShipRecord } {
-  const w = new World(seed, undefined, undefined, catalog ? { catalog } : {});
+function armed(seed = 5, hullId: HullId = 'torpedoBoat'): { w: World; a: ShipRecord } {
+  const w = new World(seed);
   w.map.islands.length = 0;
   const a = w.addShip('a', 'A', 'captain', hullId, undefined, undefined);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
@@ -387,8 +384,9 @@ describe('World combat — burst at the clicked point', () => {
 // they separate only past ~573u of a 660u base range). Story 2.8's review added
 // a same-click salvo ledger that held one victim to ONE application per click —
 // so two of the three shells did nothing and the two rare MOUNT cards added no
-// single-target damage at all. (Since amendment 197 the reachable mount is the
-// TWIN — the CANNON ladder's rung to tier V — so the pins below fire two.)
+// single-target damage at all. (Since Eric's 2026-10-02 ladder, epic-8
+// amendment 232, ONE deckGun card is the TWIN and three are the TRIPLE —
+// barrels 1/2/2/3/3; the pins below fire the twin on its ±6 u tracks.)
 //
 // RULING (2026-08-05): "everything that connects should deal damage." The
 // ledger, the tag, and both gates are DELETED. The one-hit-kill law governs a
@@ -396,11 +394,12 @@ describe('World combat — burst at the clicked point', () => {
 // rule: one shell hits one hull at most once (contact XOR burst, never both).
 
 describe('multi-barrel click — every shell that connects deals its own damage', () => {
-  /** A twin-mount gun: the CANNON ladder at tier V (deckGun x4 — the rung to
-   *  V adds the second barrel, amendment 197; 2 is the reachable max). */
+  /** A twin-mount gun: the CANNON ladder at tier II (ONE deckGun card — the
+   *  rung to II adds the second barrel, Eric 2026-10-02, amendment 232). The
+   *  geometry below is built on the twin's ±6 u tracks, so it stays two. */
   function twinMount(seed = 11): { w: World; a: ShipRecord } {
     const { w, a } = armed(seed);
-    for (let i = 0; i < 4; i++) w.applyCard(a, 'deckGun');
+    w.applyCard(a, 'deckGun');
     expect(a.stats.equipment.gun.barrels).toBe(2);
     return { w, a };
   }
@@ -419,7 +418,7 @@ describe('multi-barrel click — every shell that connects deals its own damage'
     expect(dmgs).toHaveLength(2);
     for (const d of dmgs) expect(d.amount).toBe(a.stats.equipment.gun.damage);
     expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.equipment.gun.damage);
-    // A tier-V twin mount is 40 into a 125hp hull — a real bite, not a kill.
+    // A tier-II twin mount is 2 × 16 = 32 into a 125hp hull — a real bite, not a kill.
     expect(isAfloat(b.lifecycle)).toBe(true);
   });
 
@@ -480,24 +479,19 @@ describe('multi-barrel click — every shell that connects deals its own damage'
 // commit; these cases are what stops that from happening again.
 
 describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
-  /** A TEST line (+1 barrel per copy) for the three-barrel geometry cases: no
-   *  production card reaches 3 barrels since amendment 197 (the CANNON
-   *  ladder's rung to V is the one barrel step), but the straddle law and the
-   *  1..3 clamp still cover 3, and the ODD case needs a middle shell. */
-  const testGunBarrel = {
-    id: 'testGunBarrel', kind: 'ladder', cap: 2,
-    tiers: [[{ kind: 'stat', path: 'equipment.gun.barrels', add: 1 }], [{ kind: 'stat', path: 'equipment.gun.barrels', add: 1 }]],
-  } as unknown as CatalogLine;
-  const BARREL_CATALOG: Catalog = { ...CATALOG, testGunBarrel };
+  /** deckGun copies that reach each barrel count on Eric's 2026-10-02 CANNON
+   *  ladder (amendment 232: barrels 1/2/2/3/3 by copies 0..4). Three barrels
+   *  are PRODUCTION now (three cards), so the injected test barrel line the
+   *  three-barrel geometry cases used to ride is gone. */
+  const DECK_GUN_COPIES_FOR_BARRELS: Record<number, number> = { 1: 0, 2: 1, 3: 3 };
 
   /** Fire one gun click of `barrels` shells at range `range` up the +y axis and
    *  return the live shells (fire control runs AFTER stepShells, so a single
    *  step leaves the whole volley in the water). 2 barrels is the production
-   *  CANNON at tier V (deckGun x4); 3 rides the injected test line. */
+   *  CANNON at tier II (deckGun x1); 3 is tier IV (deckGun x3). */
   function volley(range: number, barrels: number, seed: number) {
-    const { w, a } = armed(seed, 'torpedoBoat', barrels > 2 ? BARREL_CATALOG : undefined);
-    if (barrels === 2) for (let i = 0; i < 4; i++) w.applyCard(a, 'deckGun');
-    if (barrels > 2) for (let i = 1; i < barrels; i++) w.applyCard(a, 'testGunBarrel');
+    const { w, a } = armed(seed);
+    for (let i = 0; i < DECK_GUN_COPIES_FOR_BARRELS[barrels]; i++) w.applyCard(a, 'deckGun');
     expect(a.stats.equipment.gun.barrels).toBe(barrels);
     w.submitInput('a', gunInput(HALF_PI, range));
     w.step();
@@ -550,11 +544,12 @@ describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
 
   it('SIGNALS DO NOT MOVE: a multi-barrel gun salvo still collapses to ONE mz', () => {
     const { w, a } = armed(26);
-    for (let i = 0; i < 4; i++) w.applyCard(a, 'deckGun'); // tier V: the twin barrel
-    expect(a.stats.equipment.gun.barrels).toBe(2);
+    for (let i = 0; i < 3; i++) w.applyCard(a, 'deckGun'); // tier IV: the triple barrel
+    expect(a.stats.equipment.gun.barrels).toBe(3);
     w.submitInput('a', gunInput(HALF_PI, 300));
     w.step();
-    expect(w.tickEvents.filter((e) => e.k === 'mz')).toHaveLength(1);
+    expect(w.shells.size).toBe(3); // three shells...
+    expect(w.tickEvents.filter((e) => e.k === 'mz')).toHaveLength(1); // ...one flash
   });
 });
 
@@ -673,7 +668,7 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
 
   it('BARREL still straddles at the extended reach (the two features compose)', () => {
     const { w, a } = litBoard('a', 35);
-    for (let i = 0; i < 4; i++) w.applyCard(a, 'deckGun'); // tier V: the twin barrel
+    w.applyCard(a, 'deckGun'); // tier II: the twin barrel (Eric 2026-10-02, amendment 232)
     w.submitInput('a', gunInput(HALF_PI, REACH));
     w.step();
     const shells = [...w.shells.values()];

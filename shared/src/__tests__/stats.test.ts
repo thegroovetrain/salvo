@@ -162,15 +162,15 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
         // `missile` and `monitor` are CUT (amendment 89e) and have no row.
         machineGun: {
           tier: 1,
-          reloadMs: 10000,
-          maxAmmo: 16,
+          reloadMs: 12000, // Eric 2026-10-02, amendment 232
+          maxAmmo: 12,
           rangeU: CONFIG.vision.radar,
-          damage: 4,
-          rateMs: 350,
+          damage: 5,
+          rateMs: 300,
         },
         flak: {
           tier: 1,
-          reloadMs: 4000, // 6 s → 4 s (amendment 210)
+          reloadMs: 3500, // 4 s → 3.5 s (Eric 2026-10-02, amendment 232)
           maxAmmo: 1,
           rangeU: CONFIG.vision.radar,
           damage: 12,
@@ -215,7 +215,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
         // (radarBuoy's row DELETED with the buoy, Story 8.16; the DECOY BUOY
         // consumable that replaces it carries NO row — the consumable law.)
         // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97/99).
-        instantReload: { tier: 1, reloadMs: 45000, maxAmmo: 1 },
+        instantReload: { tier: 1, reloadMs: 60000, maxAmmo: 1 }, // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
         damageCut: { tier: 1, reloadMs: 30000, maxAmmo: 1, durationMs: 8000, factor: 0.5 },
       },
     });
@@ -364,8 +364,13 @@ describe('effectiveStats — the five universal ladders (catalog-v3 §4)', () =>
 });
 
 describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
-  it('DECK GUN (R14, amendment 39): +1.25 per tier FLOORED — 15 -> 16 -> 17 -> 18 -> 20, never a fraction', () => {
-    const damage = [15, 16, 17, 18, 20];
+  it('DECK GUN (R14, amendment 232): base 16, whole-number steps +2 (to III) and +3 (to V) — 16 -> 16 -> 18 -> 18 -> 21, never a fraction', () => {
+    // Every authored damage step is an integer, so no fold ever passes
+    // through a fraction (amendment 39: Eric's integers ARE the scale).
+    const steps = CATALOG.deckGun.tiers.flatMap((tier) =>
+      tier.filter((e) => e.kind === 'stat' && e.path === 'equipment.gun.damage').map((e) => (e as { add: number }).add));
+    expect(steps).toEqual([2, 3]); // the rungs to II and IV author no damage effect
+    const damage = [16, 16, 18, 18, 21];
     damage.forEach((d, n) => {
       const got = effectiveStats(BASE, stack('deckGun', n)).equipment.gun.damage;
       expect(got, `${n} copies`).toBe(d);
@@ -374,15 +379,15 @@ describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
     expect(CATALOG.deckGun.cap).toBe(4);
   });
 
-  it('CANNON climbs I -> V: the second TURRET at tier III, the second BARREL at tier V (Eric 2026-09-30; R15/R16 folded in)', () => {
+  it('CANNON climbs I -> V: a BARREL at tiers II and IV, the second TURRET at tier III (Eric 2026-10-02, amendment 232; R15/R16 folded in)', () => {
     const baseReload = effectiveStats(BASE).equipment.gun.reloadMs;
     const table: [number, number, number, number, number, number][] = [
       // copies, tier, damage, maxAmmo (pool), barrels, reload scale
-      [0, 1, 15, 1, 1, 1],
-      [1, 2, 16, 1, 1, 0.95],
-      [2, 3, 17, 2, 1, 0.9],
-      [3, 4, 18, 2, 1, 0.85],
-      [4, 5, 20, 2, 2, 0.8],
+      [0, 1, 16, 1, 1, 1],
+      [1, 2, 16, 1, 2, 0.95],
+      [2, 3, 18, 2, 2, 0.9],
+      [3, 4, 18, 2, 3, 0.85],
+      [4, 5, 21, 2, 3, 0.8],
     ];
     for (const [copies, tier, damage, maxAmmo, barrels, scale] of table) {
       const gun = effectiveStats(BASE, stack('deckGun', copies)).equipment.gun;
@@ -399,17 +404,18 @@ describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
 // the gun's TIER (1 + copies), and the −5 % reload per tier is DERIVED from
 // that tier in clampStats — additive five-point steps (×1.00 → ×0.80 at V),
 // the one formula every row uses, which is what lands the machine gun on
-// Eric's "10 s → 8 s at V" (2026-09-30; was 15 s → 12 s).
+// Eric's "12 s at tier I" on 9.6 s at V (2026-10-02, amendment 232; was
+// 10 s → 8 s, earlier 15 s → 12 s).
 // ---------------------------------------------------------------------------
 describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)', () => {
-  it('MACHINE GUN: magazine 16 → 24 (+2), damage 4 → 8 (+1), shot delay 0.35 → 0.20 s, reload 10 s → 8 s at V', () => {
+  it('MACHINE GUN: magazine 12 → 28 (+4), damage 5/6/6/7/7, shot delay 0.30 → 0.10 s, reload 12 s → 9.6 s at V', () => {
     const table: [number, number, number, number, number, number][] = [
-      // copies, tier, maxAmmo, damage, rateMs, reloadMs (Eric 2026-09-30)
-      [0, 1, 16, 4, 350, 10000],
-      [1, 2, 18, 5, 310, 9500],
-      [2, 3, 20, 6, 270, 9000],
-      [3, 4, 22, 7, 230, 8500],
-      [4, 5, 24, 8, 200, 8000],
+      // copies, tier, maxAmmo, damage, rateMs, reloadMs (Eric 2026-10-02, amendment 232)
+      [0, 1, 12, 5, 300, 12000],
+      [1, 2, 16, 6, 250, 11400],
+      [2, 3, 20, 6, 200, 10800],
+      [3, 4, 24, 7, 150, 10200],
+      [4, 5, 28, 7, 100, 9600],
     ];
     for (const [copies, tier, maxAmmo, damage, rateMs, reloadMs] of table) {
       const mg = effectiveStats(BASE, stack('machineGun', copies)).equipment.machineGun;
@@ -422,7 +428,7 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
     expect(CATALOG.machineGun.cap).toBe(4);
   });
 
-  it('MACHINE GUN: a malformed shot delay (≤ 0 or non-finite) falls back to the CONFIG base; the ladder\'s 200 ms is untouched (plumbing guard)', () => {
+  it('MACHINE GUN: a malformed shot delay (≤ 0 or non-finite) falls back to the CONFIG base; the ladder\'s 100 ms is untouched (plumbing guard)', () => {
     const bad = (over: { add?: number; mult?: number }): Catalog => ({
       machineGun: {
         id: 'machineGun', kind: 'ladder', cap: 1, appliesTo: ['machineGun'],
@@ -435,23 +441,23 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
       const mg = effectiveStats(BASE, ['machineGun'], bad(over)).equipment.machineGun;
       expect(mg.rateMs, JSON.stringify(over)).toBe(CONFIG.machineGun.rateMs);
     }
-    expect(effectiveStats(BASE, stack('machineGun', 4)).equipment.machineGun.rateMs).toBe(200);
+    expect(effectiveStats(BASE, stack('machineGun', 4)).equipment.machineGun.rateMs).toBe(100);
   });
 
   it('MACHINE GUN: RELOAD scales the reload but never the shot delay (cooldownScale reaches reloadMs only)', () => {
     const mg = effectiveStats(BASE, [...stack('machineGun', 4), ...stack('reload', 5)]).equipment.machineGun;
-    expect(mg.rateMs).toBe(200);
-    expect(mg.reloadMs).toBeCloseTo(8000 * 0.75, 6);
+    expect(mg.rateMs).toBe(100);
+    expect(mg.reloadMs).toBeCloseTo(9600 * 0.75, 6);
   });
 
-  it('FLAK: damage 12 → 20 (+2), pool 1 → 3 (a turret at III and at V), reload 4 s → 3.2 s at V (6 s → 4 s at tier I, Eric 2026-10-01, amendment 210); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
+  it('FLAK: damage 12/20/28/36/44 (+8 per tier), pool 1/2/2/3/3 (a turret at II and at IV), reload 3.5 s → 2.8 s at V (Eric 2026-10-02, amendment 232); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
     const table: [number, number, number, number, number][] = [
       // copies, tier, damage, maxAmmo (pool), reloadMs
-      [0, 1, 12, 1, 4000],
-      [1, 2, 14, 1, 3800],
-      [2, 3, 16, 2, 3600],
-      [3, 4, 18, 2, 3400],
-      [4, 5, 20, 3, 3200],
+      [0, 1, 12, 1, 3500],
+      [1, 2, 20, 2, 3325],
+      [2, 3, 28, 2, 3150],
+      [3, 4, 36, 3, 2975],
+      [4, 5, 44, 3, 2800],
     ];
     for (const [copies, tier, damage, maxAmmo, reloadMs] of table) {
       const flak = effectiveStats(BASE, stack('flak', copies)).equipment.flak;
@@ -481,11 +487,11 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
 });
 
 describe('STORY 8.15 — the class Shift rows take RELOAD like every row (amendments 97/99)', () => {
-  it('INSTANT RELOAD 45 s → 33.75 s and DAMAGE CUT 30 s → 22.5 s under a maxed RELOAD ladder', () => {
+  it('INSTANT RELOAD 60 s → 45 s (Eric 2026-10-02, amendment 232; was 45 s → 33.75 s) and DAMAGE CUT 30 s → 22.5 s under a maxed RELOAD ladder', () => {
     const base = effectiveStats(BASE).equipment;
-    expect([base.instantReload.reloadMs, base.damageCut.reloadMs, base.boost.reloadMs]).toEqual([45000, 30000, 25000]);
+    expect([base.instantReload.reloadMs, base.damageCut.reloadMs, base.boost.reloadMs]).toEqual([60000, 30000, 25000]);
     const maxed = effectiveStats(BASE, stack('reload', 5)).equipment;
-    expect(maxed.instantReload.reloadMs).toBe(33750);
+    expect(maxed.instantReload.reloadMs).toBe(45000);
     expect(maxed.damageCut.reloadMs).toBe(22500);
     expect(maxed.boost.reloadMs).toBe(18750); // the Story 8.9 pin, beside them
     // The window and the factor are Eric's fixed numbers — RELOAD never moves them.

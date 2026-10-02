@@ -130,13 +130,13 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
     expect(Math.hypot(shell.x - mz[0].x, shell.y - mz[0].y)).toBeGreaterThan(50);
   });
 
-  it('a multi-barrel salvo (TWIN MOUNT) spawns 2 shells but exactly ONE mz for that ship that tick', () => {
+  it('a multi-barrel salvo (TRIPLE MOUNT) spawns 3 shells but exactly ONE mz for that ship that tick', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    for (let i = 0; i < 4; i++) w.applyCard(a, 'deckGun'); // CANNON tier V: barrels 1 -> 2
+    for (let i = 0; i < 3; i++) w.applyCard(a, 'deckGun'); // CANNON tier IV: barrels 1 -> 3 (Eric 2026-10-02, amendment 232)
     fire(w, 'a', 0, 0, 400);
     w.step();
-    expect(w.shells.size).toBe(2); // the salvo really is multi-barrel
+    expect(w.shells.size).toBe(3); // the salvo really is multi-barrel
     expect(ofKind(w.tickEvents, 'mz')).toHaveLength(1); // per-tick per-owner dedupe
   });
 

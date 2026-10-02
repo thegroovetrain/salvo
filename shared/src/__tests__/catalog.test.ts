@@ -11,7 +11,8 @@
 // 2026-09-30 DELETED THE TWO ONE-OFF GUN CARDS (Eric: "there are NO MORE
 // one-off upgrades; EVERY upgrade is tiered"): 26/117 -> 24/114. −1
 // (`deckGunTurret`) and −2 (`deckGunBarrel`); the turret and the barrel are
-// now CANNON rungs (tier III / tier V) and FLAK gained a turret at III and V.
+// now CANNON rungs (tier III / tier V) and FLAK gained a turret at III and V
+// (2026-10-02, amendment 232: the flak turrets moved to II and IV).
 //
 // STORY 8.14 DELETED THE DECK PINS (Eric ruling 2026-09-21, epic-8 amendment
 // 89a). `DEFAULT_DECKS`, `DEFAULT_OWNED` and `deckFromCounts` no longer exist:
@@ -143,14 +144,15 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('authors the CANNON ladder rung by rung: turret at tier III, barrel at tier V (Eric 2026-09-30)', () => {
-    const dmg = { kind: 'stat', path: 'equipment.gun.damage', add: 1.25 };
+  it('authors the CANNON ladder rung by rung: barrels at tiers II and IV, turret at tier III (Eric 2026-10-02, amendment 232)', () => {
+    const dmg = (add: number) => ({ kind: 'stat', path: 'equipment.gun.damage', add });
+    const barrel = { kind: 'stat', path: 'equipment.gun.barrels', add: 1 };
     expect(CATALOG.deckGun.appliesTo).toEqual(['gun']);
     expect(CATALOG.deckGun.tiers).toEqual([
-      [dmg], // I → II
-      [dmg, { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }], // II → III
-      [dmg], // III → IV
-      [dmg, { kind: 'stat', path: 'equipment.gun.barrels', add: 1 }], // IV → V
+      [barrel], // I → II — 16 → 16, no damage effect
+      [dmg(2), { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }], // II → III — 16 → 18
+      [barrel], // III → IV — 18 → 18, no damage effect
+      [dmg(3)], // IV → V — 18 → 21
     ]);
   });
 
@@ -322,29 +324,35 @@ describe('catalog v3 identity', () => {
   });
 
   it('the MACHINE GUN and FLAK lines are their guns\' LADDERS, exactly like DECK GUN (amendments 104/105)', () => {
-    // Per tier: MACHINE GUN +2 shells, +1 damage and the shot-delay step
-    // −40/−40/−40/−30 ms (Eric 2026-09-30); FLAK +2 damage, +1 pool on the
-    // rungs to III and V (blast fixed).
+    // Per tier (Eric 2026-10-02, amendment 232): MACHINE GUN +4 shells and
+    // −50 ms of shot delay, +1 damage ONLY on the rungs to II and IV (the
+    // rungs to III and V author no damage effect); FLAK damage +8 per rung,
+    // +1 pool on the rungs to II and IV (blast fixed).
     // The −5 % reload is the derived tier step, never an effect.
     expect(CATALOG.machineGun.appliesTo).toEqual(['machineGun']);
     expect(CATALOG.flak.appliesTo).toEqual(['flak']);
-    expect(CATALOG.machineGun.tiers.map((tier) => tier)).toEqual([-40, -40, -40, -30].map((rate) => [
-      { kind: 'stat', path: 'equipment.machineGun.maxAmmo', add: 2 },
-      { kind: 'stat', path: 'equipment.machineGun.damage', add: 1 },
-      { kind: 'stat', path: 'equipment.machineGun.rateMs', add: rate },
-    ]));
+    const mgAmmo = { kind: 'stat', path: 'equipment.machineGun.maxAmmo', add: 4 };
+    const mgDmg = { kind: 'stat', path: 'equipment.machineGun.damage', add: 1 };
+    const mgRate = { kind: 'stat', path: 'equipment.machineGun.rateMs', add: -50 };
+    expect(CATALOG.machineGun.tiers).toEqual([
+      [mgAmmo, mgDmg, mgRate], // I → II
+      [mgAmmo, mgRate], // II → III
+      [mgAmmo, mgDmg, mgRate], // III → IV
+      [mgAmmo, mgRate], // IV → V
+    ]);
     // A fresh array per tier (the `ladder` law): no tier aliases another.
     const mgTiers = CATALOG.machineGun.tiers;
     expect(new Set(mgTiers).size).toBe(mgTiers.length);
     expect(mgTiers.every((tier) => Object.isFrozen(tier) && tier.every((e) => Object.isFrozen(e)))).toBe(true);
-    // FLAK: +2 damage every rung, and a TURRET (+1 pool) on the rungs reaching
-    // tier III and tier V (Eric 2026-09-30). The blast radius never moves.
-    const flakDmg = { kind: 'stat', path: 'equipment.flak.damage', add: 2 };
+    // FLAK: damage +8 every rung, and a TURRET (+1 pool) on the rungs reaching
+    // tier II and tier IV (Eric 2026-10-02, amendment 232; was III and V).
+    // The blast radius never moves.
+    const flakDmg = { kind: 'stat', path: 'equipment.flak.damage', add: 8 };
     const flakPool = { kind: 'stat', path: 'equipment.flak.maxAmmo', add: 1 };
-    expect(CATALOG.flak.tiers[0]).toEqual([flakDmg]);
-    expect(CATALOG.flak.tiers[1]).toEqual([flakDmg, flakPool]);
-    expect(CATALOG.flak.tiers[2]).toEqual([flakDmg]);
-    expect(CATALOG.flak.tiers[3]).toEqual([flakDmg, flakPool]);
+    expect(CATALOG.flak.tiers[0]).toEqual([flakDmg, flakPool]);
+    expect(CATALOG.flak.tiers[1]).toEqual([flakDmg]);
+    expect(CATALOG.flak.tiers[2]).toEqual([flakDmg, flakPool]);
+    expect(CATALOG.flak.tiers[3]).toEqual([flakDmg]);
     // Each ladder advances its OWN gun's tier (the reload step reads it).
     expect(tierTargetOf(CATALOG.machineGun)).toBe('machineGun');
     expect(tierTargetOf(CATALOG.flak)).toBe('flak');

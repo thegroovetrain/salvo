@@ -977,7 +977,7 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
     expect(() => w.applyCard(a, 'machineGun')).not.toThrow();
     expect(a.loadout[3].equipmentId).toBeNull(); // the first empty weapon slot is untouched
     expect(a.stats.equipment.machineGun.tier).toBe(2);
-    expect(a.stats.equipment.machineGun.maxAmmo).toBe(before.equipment.machineGun.maxAmmo + 2);
+    expect(a.stats.equipment.machineGun.maxAmmo).toBe(before.equipment.machineGun.maxAmmo + 4); // 12 -> 16 (Eric 2026-10-02, amendment 232)
     expect(a.stats.equipment.machineGun.damage).toBe(before.equipment.machineGun.damage + 1);
   });
 
@@ -1073,17 +1073,17 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
     expect(a.loadout[SLOT_GUN].state!.n).toBe(2); // everything arrives loaded
   });
 
-  // The FLAK ladder's turrets (amendment 197): the rungs to tiers III and V
-  // each add a round. Pinned through the REAL flak module and the ordinary
+  // The FLAK ladder's turrets (amendment 197; moved by Eric 2026-10-02,
+  // amendment 232 — turrets 1/2/2/3/3): the rungs to tiers II and IV each add
+  // a round. Pinned through the REAL flak module and the ordinary
   // consume/tickReload pool — no flak-specific pool code exists.
-  it('FLAK tier III (flak x2) fires twice before the reload and refills to 2; tier V (flak x4) holds 3', () => {
+  it('FLAK tier II (flak x1) fires twice before the reload and refills to 2; tier III stays 2; tier IV (flak x3) holds 3', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, 'flak');
     a.state.speed = 0;
     expect(a.loadout[SLOT_GUN].equipmentId).toBe('flak');
-    w.applyCard(a, 'flak'); // tier II: damage only
-    expect(a.stats.equipment.flak.maxAmmo).toBe(1);
-    w.applyCard(a, 'flak'); // tier III: the second turret
+    expect(a.stats.equipment.flak.maxAmmo).toBe(1); // tier I: one turret
+    w.applyCard(a, 'flak'); // tier II: the second turret
     expect(a.stats.equipment.flak.maxAmmo).toBe(2);
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 2, reloadMsLeft: 0 });
     const reloadMs = a.stats.equipment.flak.reloadMs;
@@ -1105,10 +1105,16 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
     const ticks = Math.ceil((2 * reloadMs) / CONFIG.tick.simDtMs) + 1;
     for (let i = 0; i < ticks; i++) w.step();
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 2, reloadMsLeft: 0 });
-    // Tier V: the rung to V adds the third round, filled the same tick.
-    stack(w, a, 'flak', 2);
+    // Tier III: damage only — the pool stays 2.
+    w.applyCard(a, 'flak');
+    expect(a.stats.equipment.flak.maxAmmo).toBe(2);
+    // Tier IV: the rung to IV adds the third round, filled the same tick.
+    w.applyCard(a, 'flak');
     expect(a.stats.equipment.flak.maxAmmo).toBe(3);
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 3, reloadMsLeft: 0 });
+    // Tier V: damage only — still 3.
+    w.applyCard(a, 'flak');
+    expect(a.stats.equipment.flak.maxAmmo).toBe(3);
   });
 });
 
@@ -1667,27 +1673,31 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   });
 
   // The fire path reads EFFECTIVE stats, never raw CONFIG. Catalog v3 gave the
-  // gun a damage writer again (the DECK GUN ladder, +1.25/tier), so the pin
+  // gun a damage writer again (the DECK GUN ladder — per-rung whole-number
+  // steps to Eric's 16/16/18/18/21, 2026-10-02, amendment 232), so the pin
   // asserts BOTH ends of the seam: the base shell carries the CONFIG number,
   // and a laddered one carries the laddered number.
   it('gun damage rides the EFFECTIVE stat — base, and up the DECK GUN ladder', () => {
-    const fireOne = (cards: number): { damage: number; contactDamage: number; burstRadius: number; effective: number } => {
+    const fireOne = (cards: number): { damage: number; contactDamage: number; burstRadius: number; effective: number; shells: number } => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0);
       stack(w, a, 'deckGun', cards);
       a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
       w.step();
-      const [shell] = [...w.shells.values()];
-      return { ...shell, effective: a.stats.equipment.gun.damage };
+      const shells = [...w.shells.values()];
+      for (const s of shells) expect(s.damage).toBe(shells[0].damage); // every barrel carries the same number
+      return { ...shells[0], effective: a.stats.equipment.gun.damage, shells: shells.length };
     };
     const base = fireOne(0);
     expect(base.damage).toBe(base.effective);
     expect(base.damage).toBe(CONFIG.gun.damage); // zero cards: effective === base
     expect(base.contactDamage).toBe(CONFIG.gun.contactDamage);
     expect(base.burstRadius).toBe(CONFIG.gun.burstRadius);
+    expect(base.shells).toBe(1);
     const capped = fireOne(CATALOG['deckGun'].cap);
     expect(capped.damage).toBe(capped.effective);
-    expect(capped.damage).toBe(CONFIG.gun.damage + 1.25 * CATALOG['deckGun'].cap); // 15 -> 20
+    expect(capped.damage).toBe(21); // 16 -> 21 at tier V (Eric 2026-10-02)
+    expect(capped.shells).toBe(3); // three barrels at tier V
   });
 
   // TORPEDO SPEED is gone with the v2 torpedo ladder (Story 8.13 authors the

@@ -1462,10 +1462,13 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
   });
 
   it('--tune machineGun.damage is a live dial (and restores); every new family passes the gate', () => {
-    expect(parseArgs(['--tune', 'machineGun.damage=5']).tune).toEqual({ 'machineGun.damage': 5 });
+    // 6, not the shipped 5 (Eric 2026-10-02, amendment 232): the dial must
+    // MOVE the value, or a no-op override would pass.
+    expect(parseArgs(['--tune', 'machineGun.damage=6']).tune).toEqual({ 'machineGun.damage': 6 });
     const before = CONFIG.machineGun.damage;
-    const restore = applyOverrides({}, { 'machineGun.damage': 5 });
-    expect(CONFIG.machineGun.damage).toBe(5);
+    expect(before).not.toBe(6);
+    const restore = applyOverrides({}, { 'machineGun.damage': 6 });
+    expect(CONFIG.machineGun.damage).toBe(6);
     restore();
     expect(CONFIG.machineGun.damage).toBe(before);
     for (const key of ['flak.damage=14', 'instantReload.reloadMs=40000', 'damageCut.durationMs=6000']) {

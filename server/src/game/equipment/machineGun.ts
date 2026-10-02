@@ -24,8 +24,8 @@
 // contact; a shell reaching its aim point simply EXPIRES there (the shooter's
 // self-private `sp` splash, no `burst` event). That arrival point is where it
 // LANDS (amendment 200, Eric 2026-10-01): a mine within `CONFIG.mine.hitRadiusU`
-// of it takes the shell's `damage` off its 10 hp — three tier-I shells pop one
-// — and a shell in flight never touches a mine (amendment 20). 360°, no arc (amendment 106). Every shell emits its OWN `mz`
+// of it takes the shell's `damage` off its 10 hp — two tier-I shells (5 + 5)
+// pop one — and a shell in flight never touches a mine (amendment 20). 360°, no arc (amendment 106). Every shell emits its OWN `mz`
 // (amendment 89(i): the stream IS the spectacle, like the broadside's barrage).
 //
 // Every number is read off the ship's cached EFFECTIVE stats row
@@ -57,7 +57,10 @@ function tickSwap(state: WeaponAmmo, maxAmmo: number, dtMs: number): boolean {
 
 /** THE CADENCE CARRY-OVER (orchestrator ruling 2026-09-30 — Eric's per-tier
  *  delays are the spec, and 20 Hz ticks would otherwise round every delay UP
- *  to the next 50 ms, so tier II's 310 ms would fire at tier I's 350). While
+ *  to the next 50 ms, so a 310 ms delay would fire every 350). Eric's
+ *  2026-10-02 table (300/250/200/150/100 ms, amendment 232) is all whole
+ *  ticks, where carried and fresh due times coincide; the rule stays so any
+ *  non-tick delay keeps its exact average. While
  *  the stream stays live the next shot is due at the PREVIOUS due time +
  *  rateMs; a FRESH stream (first shot after a release, a deselect or a swap)
  *  re-anchors to `now + rateMs`, and so does a shot more than one rateMs late

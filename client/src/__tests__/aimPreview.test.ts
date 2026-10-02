@@ -100,10 +100,10 @@ function broadsideStats(rung: number, turrets: number): EffectiveStats {
  * Battleship stats with the deck gun firing `barrels` parallel shells, set
  * directly on the fold's output — the same WHY-NOT-CARDS reasoning as
  * `broadsideStats` above. The claim under test is the PREVIEW GEOMETRY of an
- * ODD volley, and since DECK GUN BARREL folded into the CANNON ladder
- * (2026-09-30, amendment 197) no shipped card build reaches three barrels any
- * more (the CANNON's tier V buys the second); the `barrels` clamp still allows
- * three, so the preview must still draw it honestly.
+ * ODD volley, set directly so the claim does not ride on a card build.
+ * Since Eric's 2026-10-02 tables the CANNON reaches two barrels at ONE card
+ * (tier II) and three at FOUR (tier V); the end-to-end builds are asserted in
+ * the EVEN-count test below.
  */
 function gunBarrelStats(barrels: number): EffectiveStats {
   const base = stats();
@@ -267,9 +267,9 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
   // shell is on the click" are different promises to the player, and only one of
   // them can be true at a time.
   it('EVEN barrel count: the shells STRADDLE the click, none on it', () => {
-    // The real build that reaches two barrels: four CANNON cards, tier V
-    // (amendment 197).
-    const inp = input({ stats: stats('deckGun', 'deckGun', 'deckGun', 'deckGun') });
+    // The real build that reaches two barrels: ONE CANNON card, tier II
+    // (Eric 2026-10-02; four cards now reach THREE barrels).
+    const inp = input({ stats: stats('deckGun') });
     expect(inp.stats.equipment.gun.barrels).toBe(2);
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(2);
@@ -278,6 +278,16 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
     // Symmetric about the click, exactly one spacing apart.
     expect(m.bursts[0].y + m.bursts[1].y).toBeCloseTo(2 * truth.y, 9);
     expect(Math.abs(m.bursts[1].y - m.bursts[0].y)).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
+  });
+
+  it('ODD barrel count from a real build: four CANNON cards reach THREE barrels, one on the click', () => {
+    const inp = input({ stats: stats('deckGun', 'deckGun', 'deckGun', 'deckGun') });
+    expect(inp.stats.equipment.gun.barrels).toBe(3);
+    const m = computeAimPreview(inp);
+    expect(m.bursts).toHaveLength(3);
+    const truth = burstPointAlong(SHIP, 300, MAP_R, inp.stats.equipment.gun.rangeU, 0);
+    expect(m.bursts[1].y).toBeCloseTo(truth.y, 9);
+    expect(m.bursts[0].y + m.bursts[2].y).toBeCloseTo(2 * truth.y, 9);
   });
 
   // THE PROPERTY THAT DISCRIMINATES PARALLEL FROM FANNED, stated as a

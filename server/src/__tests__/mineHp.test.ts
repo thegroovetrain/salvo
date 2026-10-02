@@ -108,11 +108,11 @@ describe('CONFIG — the two numbers (amendments 200/201)', () => {
   });
 });
 
-describe('the CANNON — one click on the mine pops it (15 >= 10)', () => {
+describe('the CANNON — one click on the mine pops it (16 >= 10)', () => {
   it('cannon click on an armed naval mine: boom, blast, and the shooter gets `sp` (no hull victim)', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0);
-    expect(a.stats.equipment.gun.damage).toBe(15);
+    expect(a.stats.equipment.gun.damage).toBe(16);
     lay(w, 'm1', 'x', 300, 0);
     const log = click(w, 'a', 300);
     expect(w.mines.has('m1')).toBe(false);
@@ -243,7 +243,10 @@ describe('the CANNON — one click on the mine pops it (15 >= 10)', () => {
   it('TWIN MOUNT: a centred click lands both shells 6 u off the mine; the first pops it, the second is a no-op', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0);
-    for (let i = 0; i < 4; i += 1) w.applyCard(a, 'deckGun');
+    // ONE deckGun card is the twin mount since Eric's 2026-10-02 ladder
+    // (barrels 1/2/2/3/3, epic-8 amendment 232) — the ±6 u geometry below
+    // is the two-barrel straddle.
+    w.applyCard(a, 'deckGun');
     expect(a.stats.equipment.gun.barrels).toBe(2);
     lay(w, 'm1', 'x', 300, 0);
     const log = click(w, 'a', 300);
@@ -281,7 +284,7 @@ describe('the FLAK GUN — 12 >= 10, but only ON the mine', () => {
   });
 });
 
-describe('the MACHINE GUN — 4 a shell, three shells to pop one at tier I', () => {
+describe('the MACHINE GUN — 5 a shell, two shells to pop one at tier I', () => {
   /** Hold the trigger with the aim on (dist, 0) until `shellsResolved` shells
    *  have resolved, recording the mine's hp after every resolving tick. */
   function stream(w: World, id: string, dist: number, mineId: string, shellsResolved: number) {
@@ -303,36 +306,37 @@ describe('the MACHINE GUN — 4 a shell, three shells to pop one at tier I', () 
     return { log, hpAfter };
   }
 
-  it('held on the mine: hp 10 -> 6 -> 2 -> pops on the THIRD shell; the first two are `sp` with no boom', () => {
+  it('held on the mine: hp 10 -> 5 -> pops on the SECOND shell; the first is an `sp` with no boom', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
-    expect(a.stats.equipment.machineGun.damage).toBe(4);
+    expect(a.stats.equipment.machineGun.damage).toBe(5);
     lay(w, 'm1', 'x', 300, 0);
-    const { log, hpAfter } = stream(w, 'a', 300, 'm1', 3);
-    expect(hpAfter).toEqual([6, 2, null]);
+    const { log, hpAfter } = stream(w, 'a', 300, 'm1', 2);
+    expect(hpAfter).toEqual([5, null]);
     expect(mineBooms(log, 'm1')).toEqual([{ k: 'boom', id: 'm1', x: 300, y: 0 }]);
-    expect(count(log, 'sp')).toBe(3); // every shell reached the water: fall of shot each
+    expect(count(log, 'sp')).toBe(2); // every shell reached the water: fall of shot each
     expect(count(log, 'hc')).toBe(0);
     expect(count(log, 'burst')).toBe(0); // a direct shell never bursts
   });
 
-  it('two shells are not enough: the mine survives at 2 hp', () => {
+  it('one shell is not enough: the mine survives at 5 hp', () => {
     const w = bareWorld();
     captain(w, 'a', 0, 0, { gun: 'machineGun' });
     lay(w, 'm1', 'x', 300, 0);
-    const { log, hpAfter } = stream(w, 'a', 300, 'm1', 2);
-    expect(hpAfter).toEqual([6, 2]);
+    const { log, hpAfter } = stream(w, 'a', 300, 'm1', 1);
+    expect(hpAfter).toEqual([5]);
+    expect(w.mines.get('m1')!.hp).toBe(5);
     expect(mineBooms(log, 'm1')).toEqual([]);
   });
 
-  it('tier II (5 a shell) pops one in two', () => {
+  it('tier II (6 a shell) pops one in two', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
     w.applyCard(a, 'machineGun');
-    expect(a.stats.equipment.machineGun.damage).toBe(5);
+    expect(a.stats.equipment.machineGun.damage).toBe(6);
     lay(w, 'm1', 'x', 300, 0);
     const { hpAfter } = stream(w, 'a', 300, 'm1', 2);
-    expect(hpAfter).toEqual([5, null]);
+    expect(hpAfter).toEqual([4, null]);
   });
 
   it('a hull in the stream\'s path takes the hit; the mine behind it is untouched', () => {
@@ -347,7 +351,10 @@ describe('the MACHINE GUN — 4 a shell, three shells to pop one at tier I', () 
     expect(count(log, 'hc')).toBe(3);
   });
 
-  it('THE CURSOR IS READ PER SHELL (amendment 202): cursor moved 40 u past reach after shell 2 fired — shell 3 still lands on the mine at the 660 u clamp, and leaves it at 2 hp', () => {
+  it('THE CURSOR IS READ PER SHELL (amendment 202): shell 1 on the mine leaves it at 5; shell 2, cursor 40 u past reach, lands at the 660 u clamp and leaves it at 5; shell 3, cursor back on, pops it', () => {
+    // REDESIGNED (cycle 166): two tier-I shells pop a mine now (5 + 5), so
+    // the off-cursor shell sits BETWEEN two on-cursor ones — the mine must
+    // survive shell 1, shrug off shell 2, and pop only on shell 3.
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
     expect(a.stats.equipment.machineGun.rangeU).toBe(660);
@@ -357,16 +364,16 @@ describe('the MACHINE GUN — 4 a shell, three shells to pop one at tier I', () 
     let seq = 1;
     for (let i = 0; i < 200 && hpAfter.length < 3; i += 1) {
       seq += 1;
-      // On the mine until two shells are out; then the cursor jumps to 700 u.
-      w.submitInput('a', input({ seq, held: true, aimDist: fired.size < 2 ? 660 : 700 }));
+      // Shell 1 on the mine; shell 2 with the cursor at 700 u; shell 3 back on it.
+      w.submitInput('a', input({ seq, held: true, aimDist: fired.size === 1 ? 700 : 660 }));
       const before = new Set([...w.shells.keys()]);
       w.step();
       for (const [sid, sh] of w.shells) if (sh.family === 'mg' && fired.size < 3) fired.add(sid);
       const gone = [...before].filter((sid) => !w.shells.has(sid)).length;
       for (let k = 0; k < gone; k += 1) hpAfter.push(w.mines.get('m1')?.hp ?? null);
     }
-    expect(hpAfter.slice(0, 3)).toEqual([6, 2, 2]);
-    expect(w.mines.get('m1')!.hp).toBe(2);
+    expect(hpAfter.slice(0, 3)).toEqual([5, 5, null]);
+    expect(w.mines.has('m1')).toBe(false);
   });
 
   it('a stream aimed 12 u off the mine never scratches it', () => {

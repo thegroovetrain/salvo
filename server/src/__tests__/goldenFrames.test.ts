@@ -624,7 +624,7 @@ function scnMineBlast(g: Golden): void {
 
 /**
  * Owner gun mine detonation (Story 1.8) — ML `a` clicks its own ARMED mine
- * (injected, mines precedent): the cannon shell LANDS on it (15 dmg >= the
+ * (injected, mines precedent): the cannon shell LANDS on it (16 dmg >= the
  * mine's 10 hp, amendment 200 — the snapshot did not move with that ruling)
  * and it pops as a plain blast at the MINE's position whose boom carries NO
  * victim id (no tripping ship).

@@ -5,11 +5,12 @@
 //   * slot 1 per hull, from `classShift`, on every life boundary;
 //   * INSTANT RELOAD: finishes exactly ONE reload per running weapon slot
 //     (cannon / torpedo / mines; the MG magazine fills), the belt and the
-//     Shift itself untouched, a 45 s cooldown, `cooling` on a second press;
+//     Shift itself untouched, a 60 s cooldown (Eric 2026-10-02, amendment
+//     232; was 45 s), `cooling` on a second press;
 //   * DAMAGE CUT: an 8 s window on a 30 s cooldown, `damageCutUntil` on the
 //     own frame only — never a contact or spectator field;
 //   * THE NINE-COMBO PIN: every hull × every gun in a World mounts the gun's
-//     module in slot 0, lands ONE hit for the CONFIG damage (4 direct / 12
+//     module in slot 0, lands ONE hit for the CONFIG damage (5 direct / 12
 //     burst / 15 burst), reveals with the matching `w`, and holds its Shift.
 
 import { describe, it, expect } from 'vitest';
@@ -81,7 +82,7 @@ describe('slot 1 is the hull\'s CLASS SHIFT (amendment 89(c))', () => {
     expect(d.loadout[SLOT_BOOST]).toEqual({ equipmentId: null, state: null });
   });
 
-  it('the two new Shifts take the RELOAD ladder\'s cooldownScale like every row (45 s -> 33.75 s, 30 s -> 22.5 s)', () => {
+  it('the two new Shifts take the RELOAD ladder\'s cooldownScale like every row (60 s -> 45 s, 30 s -> 22.5 s)', () => {
     const w = bareWorld();
     const ml = place(w, 'ml', 'mineLayer');
     const bs = place(w, 'bs', 'battleship');
@@ -89,7 +90,7 @@ describe('slot 1 is the hull\'s CLASS SHIFT (amendment 89(c))', () => {
       w.applyCard(ml, 'reload');
       w.applyCard(bs, 'reload');
     }
-    expect(ml.stats.equipment.instantReload.reloadMs).toBe(33750);
+    expect(ml.stats.equipment.instantReload.reloadMs).toBe(45000); // 60000 × 0.75
     expect(bs.stats.equipment.damageCut.reloadMs).toBe(22500);
     expect(bs.stats.equipment.damageCut.durationMs).toBe(8000); // the window is not a reload
   });
@@ -116,7 +117,7 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
     return a;
   }
 
-  it('finishes exactly ONE reload per running slot: cannon 1/0, torp 1/0, mines 2/0; the belt untouched; the Shift spent for 45 s', () => {
+  it('finishes exactly ONE reload per running slot: cannon 1/0, torp 1/0, mines 2/0; the belt untouched; the Shift spent for 60 s', () => {
     const w = bareWorld();
     const a = loaded(w);
     const belt = a.loadout.slice(5).map((s) => ({ ...s, state: s.state === null ? null : { ...s.state } }));
@@ -126,7 +127,7 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
     expect(a.loadout[WEAPON_SLOTS[1]].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
     expect(a.loadout.slice(5)).toEqual(belt); // HULL REPAIR ×2, byte-identical
     expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: CONFIG.instantReload.reloadMs });
-    expect(CONFIG.instantReload.reloadMs).toBe(45000);
+    expect(CONFIG.instantReload.reloadMs).toBe(60000);
   });
 
   it('a weapon that is NOT reloading is untouched, and a deep deficit tops up by ONE round only (never a refill)', () => {
@@ -149,19 +150,19 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
     expect(a.loadout[WEAPON_SLOTS[1]].state!.n).toBe(1); // still 1 a tick later
   });
 
-  it('the MACHINE GUN magazine FILLS (5/16 mid partial swap -> 16, timer 0); an idle full magazine is untouched', () => {
+  it('the MACHINE GUN magazine FILLS (5/12 mid partial swap -> 12, timer 0); an idle full magazine is untouched', () => {
     const w = bareWorld();
     const a = place(w, 'a', 'mineLayer', 'machineGun');
     a.loadout[SLOT_GUN].state = { n: 5, reloadMsLeft: 9000 };
     pressShift(w, 'a', 1);
-    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 16, reloadMsLeft: 0 });
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 12, reloadMsLeft: 0 });
     const w2 = bareWorld();
     const b = place(w2, 'b', 'mineLayer', 'machineGun');
     pressShift(w2, 'b', 1);
-    expect(b.loadout[SLOT_GUN].state).toEqual({ n: 16, reloadMsLeft: 0 });
+    expect(b.loadout[SLOT_GUN].state).toEqual({ n: 12, reloadMsLeft: 0 });
   });
 
-  it('a second press inside the 45 s is refused no-ammo -> `cooling` on the wire, and touches nothing', () => {
+  it('a second press inside the 60 s is refused no-ammo -> `cooling` on the wire, and touches nothing', () => {
     const w = bareWorld();
     const a = loaded(w);
     pressShift(w, 'a', 1);
@@ -226,7 +227,7 @@ describe('DAMAGE CUT — the Battleship\'s Shift (amendments 99–102)', () => {
 // ---------- THE NINE-COMBO PIN ------------------------------------------------
 
 describe('every hull × every gun (the nine-combo pin)', () => {
-  const EXPECTED_DAMAGE: Record<GunId, number> = { deckGun: 15, machineGun: 4, flak: 12 };
+  const EXPECTED_DAMAGE: Record<GunId, number> = { deckGun: 16, machineGun: 5, flak: 12 };
   const EXPECTED_FAMILY: Record<GunId, string> = { deckGun: 'cannon', machineGun: 'mg', flak: 'flak' };
 
   for (const hull of SHIP_CLASS_IDS) {

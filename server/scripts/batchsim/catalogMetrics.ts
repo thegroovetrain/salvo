@@ -36,9 +36,12 @@
 //    LAZILY, on the first classification rather than at module import, because
 //    `--tune` / `--set` mutate CONFIG after every import: a table baked at
 //    import would score a tuned run against untuned amounts.
-//    THE AMOUNTS ARE NOT ALL UNIQUE, AND THE LEDGER SAYS SO: balance cycle 1
+//    THE AMOUNTS NEED NOT BE UNIQUE, AND THE LEDGER SAYS SO: balance cycle 1
 //    made `broadside.damage` exactly equal `gun.damage` (both 15), so a first-
-//    match lookup would silently file every broadside burst under 'gun'. Sources
+//    match lookup would have filed every broadside burst under 'gun'. Eric's
+//    2026-10-02 cannon table (16/16/18/18/21, amendment 232) moved the bare
+//    cannon to 16 while the broadside stays 15, so today the two print under
+//    their OWN labels — the correct outcome, not a regression. Sources
 //    that collide on an amount are reported under ONE merged label
 //    ('gun/broadside') — an honest ambiguity beats a confident wrong answer. Any
 //    amount that matches nothing is bucketed by its own value under
@@ -68,9 +71,15 @@ function rawSources(): { label: string; amount: number }[] {
     { label: 'gunBodyblock', amount: CONFIG.gun.contactDamage },
     // Story 8.15: the two pickable guns. The machine gun's direct shell deals
     // `damage` on contact (no burst, no smaller bodyblock); flak bursts for
-    // `damage` and bodyblocks for `contactDamage`. At shipped numbers the MG's
-    // 4 and flak's bodyblock 4 COLLIDE and print as one merged label — the
-    // ledger cannot tell them apart by amount, and says so.
+    // `damage` and bodyblocks for `contactDamage`. Since Eric's 2026-10-02
+    // numbers (amendment 232) the MG's 5 and flak's bodyblock 4 no longer
+    // collide AT TIER I; the merge-by-amount below stays, so any future
+    // collision still prints as one merged label rather than a silent mislabel.
+    // KNOWN BLIND SPOT (2026-10-02 review gate): only BASE amounts are sources,
+    // so a laddered hit is classified by first match on its amount — a tier-II
+    // flak burst (20) files under `starShells` (20) and a tier-II/III machine
+    // gun shell (6) under `gunBodyblock` (6). Harness attribution only; the
+    // fix (classify by shell family, not amount) is in deferred-work.md.
     { label: 'machineGun', amount: CONFIG.machineGun.damage },
     { label: 'flak', amount: CONFIG.flak.damage },
     { label: 'flakBodyblock', amount: CONFIG.flak.contactDamage },
@@ -94,7 +103,11 @@ let sourcesMemo: { label: string; amount: number }[] | null = null;
  * The sources, with any that COLLIDE on an amount merged into one honest label.
  * Balance cycle 1 set `broadside.damage` to exactly `gun.damage` (both 15), and
  * a first-match lookup would have filed every broadside burst under 'gun' in
- * silence. 'gun/broadside' says what the ledger actually knows.
+ * silence. 'gun/broadside' says what the ledger actually knows. Since Eric's
+ * 2026-10-02 cannon table the bare cannon is 16 and the broadside 15, so they
+ * no longer merge and print as 'gun' and 'broadside' separately (correct). Only
+ * the BARE cannon's amount is a source here: a laddered cannon shell (18 / 21)
+ * still files under `other:<amount>`, as every laddered amount always has.
  *
  * BUILT LAZILY, ON FIRST CLASSIFICATION — never at module import. The harness's
  * `--tune` / `--set` overrides MUTATE CONFIG after every module is imported, so
@@ -186,15 +199,20 @@ export interface CatalogSample {
   /** victim hull id -> total kills observed (the denominator for the two above). */
   killsByHull: Record<string, number>;
   /** THE BARREL QUESTION (Story 7-5). A multi-barrel gun CLICK is N separate
-   *  15hp bursts inside one tick, so it is invisible in every per-event row and
+   *  gun bursts inside one tick, so it is invisible in every per-event row and
    *  indistinguishable from N shooters in the per-tick row. These three isolate
    *  it: a victim-tick whose damage is gun bursts and NOTHING else, with two or
    *  more of them, IS a multi-barrel click landing (a second shooter's gun
    *  burst in the exact same 50ms tick on the exact same hull is possible and
    *  is the known contaminant — reported, not hidden). */
   multiBarrelTicks: Record<string, number>;
-  /** victim hull id -> largest gun-ONLY per-tick total. 40 is the theoretical
-   *  max (2 barrels x 20 at CANNON tier V — amendment 197). */
+  /** victim hull id -> largest gun-ONLY per-tick total. 63 is the theoretical
+   *  max (3 barrels x 21 at CANNON tier V — Eric 2026-10-02, amendment 232),
+   *  but THIS METRIC CANNOT SEE IT: a hit counts as 'gun' only at the bare
+   *  amount (`CONFIG.gun.damage`, 16), so laddered cannon shells (18 / 21)
+   *  file under `other:<amount>` and the only multi-barrel click it records
+   *  is the tier-II twin (2 x 16 = 32). Attribution by shell family is open
+   *  work (deferred-work.md, 2026-10-02 review gate). */
   maxGunOnlyTick: Record<string, number>;
   /** victim hull id -> kills from FULL hp by a gun-only multi-burst tick. */
   gunClickKills: Record<string, number>;
