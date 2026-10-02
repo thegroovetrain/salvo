@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isAfloat, CONFIG } from '@salvo/shared';
+
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -13,13 +14,13 @@ const input = (seq: number, extra = {}) => ({
   slot: 0,
   fireT: 0,
   actSeq: 0,
-  actSlot: 0, hornSeq: 0,
+  actSlot: 0, hornSeq: 0, held: false,
   ...extra,
 });
 
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(w: World, id: string, x: number, y: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;
@@ -60,16 +61,26 @@ describe('buildFrame — shape and clock', () => {
       speed: ship.state.speed,
       hp: CONFIG.shipClasses.torpedoBoat.hp,
       alive: true,
-      // Slot-aligned ammo: length SLOT_COUNT, null for the empty extra slot.
-      // The Torpedo Boat fits speedBoost (not mine) in slot 2 (Story 1.6).
+      // Slot-aligned ammo: length SLOT_COUNT — NINE since Story 8.5, null for
+      // every empty slot. Gun in 0, the universal boost in 1, and SEVEN
+      // empties since Story 8.10 deleted the spawn seed: a fresh hull's
+      // weapon row is bare until its first card.
       ammo: [
         { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
-        { n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 },
-        { n: CONFIG.speedBoost.maxAmmo, reloadMsLeft: 0 },
+        { n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 },
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
         null,
       ],
       sweep: ship.sweepAngle,
       cls: 'torpedoBoat',
+      // THE SEAT'S GUN (Story 8.14, amendment 95) — self-private beside `cls`,
+      // and the deck gun unless the client picked otherwise at the door.
+      gun: 'deckGun',
       // (upg died with the legacy upgrade economy — Story 2.8 strip; slowedUntil
       // / dazzledUntil are OMITTED, not 0, while inactive.)
       pts: 0, // no points banked
@@ -79,7 +90,9 @@ describe('buildFrame — shape and clock', () => {
       // on the boostUntil terms. REQUIRED (never omitted), so a pool-less hull
       // still carries an explicit 0 rather than a missing key.
       repairHp: 0,
-      boons: [], // applied boon ids — self-private, dormant until 2.7 (Story 2.5)
+      // Fitted card LINE ids — self-private (Story 8.1). EMPTY at spawn since
+      // Story 8.10: nothing is held until the captain takes a card.
+      cards: [],
       // Story 2.6, self-private too: levels completed + progress toward the
       // next as a 0..1 fraction of CONFIG.xp.levelMs. One 50ms step of passive
       // accrual has already landed (the world defaults to the active policy).
@@ -93,7 +106,7 @@ describe('buildFrame — shape and clock', () => {
     // OwnShip.cls is a ShipClassId by construction; a drone hull id reaching
     // toOwnShip means a drone was mis-routed to a client frame — fail loud.
     const w = makeWorld();
-    w.addShip('drone1', 'DRONE', 'fleet', 'droneMedium');
+    w.addShip('drone1', 'DRONE', 'fleet', 'droneMedium', undefined, undefined);
     expect(() => buildFrame(w, 'drone1')).toThrow(/drone hull id/);
   });
 
@@ -147,7 +160,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
 
   it('drone contacts carry their DRONE hull id on the wire (Contact.cls: HullId)', () => {
     const w = makeWorld();
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneMedium', undefined, undefined);
     d.state.x = 0;
     d.state.y = 120; // inside a's sight bubble
     d.state.heading = 0;
@@ -179,7 +192,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
 describe('buildFrame — events (fogged via perception)', () => {
   it('emits your own spawn event on the tick after a join, then goes quiet', () => {
     const w = new World(7);
-    w.addShip('a', 'ALPHA');
+    w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.step();
     const f = buildFrame(w, 'a');
     expect(f.events).toEqual([expect.objectContaining({ k: 'spawn', id: 'a' })]);
@@ -212,7 +225,7 @@ describe('buildFrame — events (fogged via perception)', () => {
 
   it('spawn events carry the spawn position', () => {
     const w = new World(11);
-    const rec = w.addShip('a', 'ALPHA');
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     w.step();
     expect(buildFrame(w, 'a').events[0]).toEqual({
       k: 'spawn',
@@ -220,5 +233,101 @@ describe('buildFrame — events (fogged via perception)', () => {
       x: rec.state.x,
       y: rec.state.y,
     });
+  });
+});
+
+describe('buildFrame — the `smoke` channel (Story 8.18)', () => {
+  it('is OMITTED (not []) when the observer sees no puff, and carries {id,x,y,t0} — nothing else — when it does', () => {
+    const w = makeWorld();
+    w.step();
+    const quiet = buildFrame(w, 'a');
+    expect('smoke' in quiet).toBe(false); // the litZones / burnZones / decoys rule, applied to smoke
+    // A puff laid by `b` (a raw store write — the injectMine posture) 56.6 u off
+    // `a` — `a` stands INSIDE the fresh 123.75 u disc (delivered trivially; this
+    // test pins the wire shape, not the gate).
+    w.smoke.set('sk1', { id: 'sk1', ownerId: 'b', x: 40, y: 40, bornAt: w.now, until: w.now + CONFIG.smokeScreen.lifeMs });
+    const f = buildFrame(w, 'a');
+    expect(f.smoke).toEqual([{ id: 'sk1', x: 40, y: 40, t0: w.now }]);
+    expect(Object.keys(f.smoke![0])).toEqual(['id', 'x', 'y', 't0']); // key order is the wire order
+    expect(JSON.stringify(f)).not.toContain('ownerId');
+    expect(JSON.stringify(f)).not.toContain('until'); // no zone in this frame, so the store's `until` may appear nowhere
+    // The spectator path carries the same optional channel on the same rule.
+    const spec = buildFrame(w, 'a', 'finished');
+    expect(spec.spec).toBe(true);
+    expect(spec.smoke).toEqual([{ id: 'sk1', x: 40, y: 40, t0: w.now }]);
+  });
+});
+
+describe('buildFrame — the self-private wake-draft lift (Story 8.19)', () => {
+  it('omits `draft` from `you` at 0 (never undefined, never 0) and carries the EXACT double when positive — never on a contact', () => {
+    const w = makeWorld();
+    const a = w.ships.get('a')!;
+    a.draft = 0;
+    const off = buildFrame(w, 'a');
+    expect('draft' in off.you!).toBe(false);
+    const lift = 0.05 * 0.7319281734; // an arbitrary non-round double
+    a.draft = lift;
+    const on = buildFrame(w, 'a');
+    expect(Object.is(on.you!.draft, lift)).toBe(true);
+    // b sees a as a contact: the lift rides a's own `you` and NOTHING else.
+    const other = buildFrame(w, 'b');
+    expect(other.contacts.some((c) => c.id === 'a')).toBe(true);
+    expect(JSON.stringify({ ...other, you: undefined })).not.toContain('"draft"');
+    expect('draft' in other.you!).toBe(false);
+  });
+});
+
+describe('buildFrame — the self-private chaff cloud (amendment 191)', () => {
+  it('carries `you.chaff` {x, y, until} while the owner\'s source is live, omits it after expiry, and never on another hull\'s frame', () => {
+    const w = makeWorld();
+    const a = w.ships.get('a')!;
+    expect('chaff' in buildFrame(w, 'a').you!).toBe(false); // no source: absent, never undefined
+    const until = w.now + CONFIG.chaff.durationMs;
+    w.chaffSources.set('a', {
+      ownerId: 'a', x: 30, y: -12, radius: CONFIG.chaff.radius, count: CONFIG.chaff.count,
+      until, seed: 7, at: w.now, sweepPeriodMs: a.stats.sweepPeriodMs,
+    });
+    expect(buildFrame(w, 'a').you!.chaff).toEqual({ x: 30, y: -12, until });
+    const other = buildFrame(w, 'b');
+    expect('chaff' in other.you!).toBe(false);
+    expect(JSON.stringify({ ...other, you: undefined })).not.toContain('chaff');
+    // Expired (the source may still sit in the map): the key is gone.
+    w.chaffSources.get('a')!.until = w.now;
+    expect('chaff' in buildFrame(w, 'a').you!).toBe(false);
+  });
+
+  it('carries `you.chaffGhosts` (cycle 162) ONLY in the owner\'s `you` — present iff the owner\'s beam painted a fake, never in `events`, never anywhere in another hull\'s frame', () => {
+    const w = makeWorld();
+    const a = w.ships.get('a')!;
+    expect('chaffGhosts' in buildFrame(w, 'a').you!).toBe(false); // no source: absent, never undefined or []
+    const until = w.now + CONFIG.chaff.durationMs;
+    w.chaffSources.set('a', {
+      ownerId: 'a', x: 0, y: 0, radius: CONFIG.chaff.radius, count: CONFIG.chaff.count,
+      until, seed: 7, at: w.now, sweepPeriodMs: a.stats.sweepPeriodMs,
+    });
+    // Beam closed: the cloud is live (`chaff` rides) but nothing was painted.
+    a.prevSweepAngle = 0;
+    a.sweepAngle = 0;
+    const dark = buildFrame(w, 'a');
+    expect('chaff' in dark.you!).toBe(true);
+    expect('chaffGhosts' in dark.you!).toBe(false);
+    // Beam wide open over the cloud at a's own position: the ghosts ride `you`.
+    a.prevSweepAngle = 0;
+    a.sweepAngle = Math.PI * 2 - 1e-9;
+    const lit = buildFrame(w, 'a');
+    const ghosts = lit.you!.chaffGhosts!;
+    expect(ghosts.length).toBeGreaterThan(0);
+    for (const g of ghosts) expect(Object.keys(g)).toEqual(['gx', 'gy', 'w', 'h', 'bits']); // the blip rect, no `k`, no `t`
+    expect(lit.events.filter((e) => e.k === 'blip')).toEqual([]); // the owner's fakes never ride `events`
+    expect(JSON.stringify({ ...lit, you: undefined })).not.toContain('chaffGhosts');
+    // The other hull: no ghost list anywhere in its frame.
+    const other = buildFrame(w, 'b');
+    expect('chaffGhosts' in other.you!).toBe(false);
+    expect(JSON.stringify(other)).not.toContain('chaffGhosts');
+    // Expired: both keys gone together.
+    w.chaffSources.get('a')!.until = w.now;
+    const gone = buildFrame(w, 'a');
+    expect('chaff' in gone.you!).toBe(false);
+    expect('chaffGhosts' in gone.you!).toBe(false);
   });
 });

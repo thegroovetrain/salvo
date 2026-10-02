@@ -126,15 +126,18 @@ describe('applySinkingDecel — the linear cap (the applyGroundingDamp precedent
   });
 });
 
-describe('speedBoost composes (amendment 10) — a doomed surge, never a no-op', () => {
-  const BONUS = CONFIG.speedBoost.speedBonus;
+describe('the Shift boost composes (amendment 10) — a doomed surge, never a no-op', () => {
+  // Story 8.9: the bonus is PROPORTIONAL — `CONFIG.boost.factor` of the
+  // post-fold max speed, never a flat u/s (epic-8 amendment 55).
+  const FACTOR = CONFIG.boost.factor;
+  const BONUS = TB.maxSpeed * FACTOR;
 
-  it('the boosted per-tick max raises the cap by bonus × remaining', () => {
+  it('the boosted per-tick max raises the cap by (max × factor) × remaining', () => {
     const t = WINDOW / 2;
-    const boosted = boostedKinematics(TB, BONUS, true);
+    const boosted = boostedKinematics(TB, FACTOR, true);
     const capBase = sinkingSpeedCap(TB.maxSpeed, 0, t);
     const capBoosted = sinkingSpeedCap(boosted.maxSpeed, 0, t);
-    // The decel is a cap the boost PUSHES AGAINST: Eric admitted speedBoost
+    // The decel is a cap the boost PUSHES AGAINST: Eric admitted the boost
     // while sinking on the fitment criterion, knowing it fights the
     // ritardando — so it must genuinely lift the ceiling, not be refused.
     expect(capBoosted).toBeCloseTo(capBase + BONUS * 0.5, 12);
@@ -143,7 +146,7 @@ describe('speedBoost composes (amendment 10) — a doomed surge, never a no-op',
 
   it('a mid-window boost lets the hull ACCELERATE above the unboosted cap', () => {
     const s = ship(TB.maxSpeed);
-    const boosted = boostedKinematics(TB, BONUS, true);
+    const boosted = boostedKinematics(TB, FACTOR, true);
     // Sail unboosted to mid-window (speed pinned to the falling cap)...
     for (let now = DT; now <= WINDOW / 2; now += DT) {
       stepShip(s, { throttle: 1, rudder: 0 }, TB, DT / 1000);
@@ -158,7 +161,7 @@ describe('speedBoost composes (amendment 10) — a doomed surge, never a no-op',
   });
 
   it('...and is still DOOMED: boosted or not, the cap is exactly 0 at the deadline', () => {
-    const boosted = boostedKinematics(TB, BONUS, true);
+    const boosted = boostedKinematics(TB, FACTOR, true);
     expect(sinkingSpeedCap(boosted.maxSpeed, 0, WINDOW)).toBe(0);
     const s = ship(TB.maxSpeed + BONUS);
     applySinkingDecel(s, boosted.maxSpeed, 0, WINDOW);

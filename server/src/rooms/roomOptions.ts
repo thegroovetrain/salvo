@@ -5,7 +5,17 @@
 // options — see sanitizeRoomOptions for why they must never reach a
 // production room ungated).
 
-import { CONFIG, PROTOCOL_VERSION, REGATTA_HUES, type ZoneTimeline } from '@salvo/shared';
+import {
+  CONFIG,
+  DEFAULT_GUN,
+  isGunId,
+  PROTOCOL_VERSION,
+  REGATTA_HUES,
+  type GunId,
+  type ZoneTimeline,
+} from '@salvo/shared';
+import type { Logger } from '../log.js';
+import { isTrustedTicket } from './lobbyTicket.js';
 
 /**
  * Callsign cap, in CODE POINTS. Mirrors the client's display/entry cap
@@ -65,6 +75,103 @@ export interface JoinOptions {
    * sanitizeSolo — only the boolean `true` counts.
    */
   solo?: boolean;
+  /**
+   * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
+   * captain picked — `deckGun` | `machineGun` | `flak`. A PLAIN join option
+   * (NOT gated by HC_DEV_OPTIONS, like `cls`): onJoin runs it through
+   * `sanitizeGun`, so anything missing, unknown or non-string becomes
+   * `deckGun`. The queue freezes the sanitized value into the seat
+   * reservation's server-only `auth`, exactly as the deck used to ride it.
+   *
+   * All three ids are ACCEPTED NOW and `machineGun`/`flak` mount the shipped
+   * deck-gun module until Story 8.15 builds the other two (MOUNTED_GUN); the
+   * shipped client sends `deckGun` until the picker exists.
+   */
+  gun?: unknown;
+  /**
+   * DEV SMOKE ARM for tests/smokes only (Story 8.10, epic-8 amendment 65) —
+   * the real client NEVER sets it, and production never sees it. A list of
+   * card LINE ids the World pre-fits at the CAPTAIN's spawn, each consuming
+   * one copy from the hull's own deck exactly as a pick does. It exists
+   * because FR48 deleted the interim spawn seed: a hull now spawns holding
+   * NOTHING, which left the two weapon smokes (matchSmoke, weaponsSmoke)
+   * clicking an empty Q slot. Honoured ONLY under HC_DEV_OPTIONS=1 (the
+   * matchOverride precedent); otherwise dropped, reported in `rejectedKeys`
+   * and logged once. SHAPE-sanitized when honoured, but the IDS are NOT
+   * filtered here: the World drops an id the catalog cannot resolve, a stub,
+   * and a line already held at its cap (`applyDevFit`).
+   *
+   * A JOIN OPTION THE ROOM SANITIZER RETURNS (Story 8.14): the deck door it
+   * used to arrive through is gone, so `sanitizeRoomOptions` carries it now,
+   * behind the same dev gate.
+   */
+  fitOverride?: readonly string[];
+}
+
+/**
+ * THE SEAT'S GUN, SANITIZED (Story 8.14, amendment 95). One of the three
+ * `GunId`s, or `DEFAULT_GUN` for anything else — missing, unknown, non-string,
+ * an object, a number. FAIL-OPEN TO THE DEFAULT, never a refusal: a gun is an
+ * identity option like `cls` and `horn`, not a privileged override, and a
+ * captain whose client sends junk sails the deck gun rather than bouncing off
+ * the door.
+ *
+ * A PRESENT-BUT-INVALID value is LOGGED once, in the coerced-option style the
+ * other doors use, so a client shipping a bad id is visible instead of silently
+ * reinterpreted; an ABSENT value logs nothing (that is every shipped client
+ * until the Story 8.15 picker). Pure apart from the optional logger.
+ */
+export function sanitizeGun(raw: unknown, log?: Logger): GunId {
+  if (isGunId(raw)) return raw;
+  if (raw !== undefined) log?.warn('join.gunCoerced', { to: DEFAULT_GUN });
+  return DEFAULT_GUN;
+}
+
+/** Bounds on a dev id list: entries, and code points per entry. Generous —
+ *  they exist to keep a hostile payload from reaching the World at all. */
+export const DEV_LIST_MAX = 256;
+const DEV_ID_MAX = 64;
+
+/**
+ * A bounded array of PLAIN STRINGS, or undefined when the value is not an
+ * array, carries more than DEV_LIST_MAX entries, or holds a non-string /
+ * over-long entry — in which case the caller DROPS the list and reports it, so
+ * a malformed dev payload is never silent.
+ *
+ * DELIBERATELY NOT FILTERED AGAINST THE CATALOG: the ids are somebody else's
+ * problem — the World drops a fit id it cannot resolve, a stub line, and one
+ * the hull already holds at its cap. The list is copied, so nothing downstream
+ * aliases the raw join options.
+ */
+function sanitizeIdList(v: unknown): readonly string[] | undefined {
+  if (!Array.isArray(v) || v.length > DEV_LIST_MAX) return undefined;
+  for (const id of v) {
+    if (typeof id !== 'string' || Array.from(id).length > DEV_ID_MAX) return undefined;
+  }
+  return [...(v as string[])];
+}
+
+/**
+ * ONE dev id-list option, gated and reported: absent → nothing at all (no
+ * rejection noise); present but the gate is closed OR the shape is malformed →
+ * `undefined` and the key pushed onto `rejectedKeys` for the door to log once.
+ * A DROP IS ALWAYS REPORTED — the silent half of this used to be the malformed
+ * case, which then sailed the default with nothing in the log to say the
+ * override had been thrown away.
+ *
+ * THE ONE DEV ID LIST LEFT since Story 8.14 retired the deck: `fitOverride`
+ * (amendment 65). The helper keeps its shape so a second one costs nothing.
+ */
+function admitDevIdList(
+  raw: readonly string[] | undefined,
+  devEnabled: boolean,
+  key: 'fitOverride',
+  rejectedKeys: string[],
+): readonly string[] | undefined {
+  if (raw === undefined) return undefined;
+  const list = devEnabled ? sanitizeIdList(raw) : undefined;
+  if (list === undefined) rejectedKeys.push(key);
+  return list;
 }
 
 /**
@@ -103,6 +210,15 @@ export interface MatchOverride {
   joinWindowMs?: number;
   /** DEV: humans needed to start the countdown (e.g. 1 for a solo drone smoke). */
   minHumans?: number;
+  /**
+   * DEV SMOKE ARM (Story 8.10): the room performs the level-zero MULLIGAN for
+   * every captain on the first tick after the countdown arms, so a headless
+   * smoke can watch offer A become offer B without racing its own socket. It
+   * rides into the Match as `MatchTimings.autoMulligan`. Dev-gated like every
+   * other field here — the whole matchOverride is stripped without
+   * HC_DEV_OPTIONS=1, so production can never reach it.
+   */
+  mulligan?: boolean;
   sandbox?: boolean;
 }
 
@@ -142,18 +258,39 @@ export interface RoomOptions extends JoinOptions {
    * sanitizeExpectedCaptains.
    */
   expectedCaptains?: number;
+  /**
+   * PRIVATE LOBBY (cycle 167, Eric ruling 4): fill the empty slots to
+   * CONFIG.map.playerCap with combat bots before activation. Honoured ONLY in a
+   * bag carrying the server's lobby ticket (see lobbyTicket.ts) — a client bag
+   * naming it is stripped and reported.
+   */
+  botFill?: boolean;
+  /** PRIVATE LOBBY: the arena was formed by a private lobby. Ticket-gated like
+   *  botFill. */
+  mode?: 'private';
+  /** The server-private trust ticket (lobbyTicket.ts). Never echoed into the
+   *  sanitized result. */
+  lobbyTicket?: string;
 }
 
 export interface SanitizedRoomOptions {
   matchOverride?: MatchOverride;
   zoneOverride?: ZoneTimeline;
   mapSeed?: number;
+  /** THE DEV SPAWN FIT (Story 8.10, amendment 65; re-homed here in 8.14 when
+   *  the deck door was deleted) — shape-sanitized, ids judged by the World.
+   *  Present ONLY under HC_DEV_OPTIONS=1; stripped and reported otherwise. */
+  fitOverride?: readonly string[];
   /** Clamped group size from the queue; undefined = no boarding expectation
    *  (a directly-created dev/smoke arena). */
   expectedCaptains?: number;
   /** Solo vs AI (Story 6.5): true, or ABSENT — never false. The room fills the
    *  roster to CONFIG.map.playerCap with bots and runs a 1-captain cohort. */
   solo?: true;
+  /** Private-lobby bot fill: true, or ABSENT. Only from a trusted bag. */
+  botFill?: true;
+  /** 'private' when a private lobby formed this arena. Only from a trusted bag. */
+  mode?: 'private';
 }
 
 export interface SanitizeResult {
@@ -172,6 +309,46 @@ export interface SanitizeResult {
  * server logs.
  */
 export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): SanitizeResult {
+  // THE LOBBY TRUST TICKET (cycle 167): a bag carrying this process's exact
+  // ticket came from the private lobby's server-side createRoom, never from a
+  // client. It may pin a map (ruling 3) and ask for bot fill / private mode
+  // (ruling 4); every other bag is stripped of all three exactly as before.
+  const trusted = isTrustedTicket(options.lobbyTicket);
+  const result = sanitizeGated(options, devEnabled, trusted);
+  const priv = admitPrivateKeys(options, trusted, result.rejectedKeys);
+  return { sanitized: { ...result.sanitized, ...priv }, rejectedKeys: result.rejectedKeys };
+}
+
+/**
+ * The private-lobby keys (`botFill`, `mode`), admitted ONLY under the trust
+ * ticket. Untrusted, each PRESENT key is dropped and reported in
+ * `rejectedKeys` (after the dev keys), and so is a present-but-wrong ticket —
+ * a guessed ticket is a probe worth seeing in the log. Absent keys add no
+ * noise. The ticket itself never appears in the output.
+ */
+function admitPrivateKeys(
+  options: RoomOptions,
+  trusted: boolean,
+  rejectedKeys: string[],
+): Pick<SanitizedRoomOptions, 'botFill' | 'mode'> {
+  if (trusted) {
+    return {
+      botFill: options.botFill === true ? true : undefined,
+      mode: options.mode === 'private' ? 'private' : undefined,
+    };
+  }
+  for (const key of ['botFill', 'mode', 'lobbyTicket'] as const) {
+    if (options[key] !== undefined) rejectedKeys.push(key);
+  }
+  return {};
+}
+
+/** The pre-cycle-167 body of sanitizeRoomOptions: the dev-gated keys. A
+ *  TRUSTED (lobby-ticket) bag may additionally pin the map without
+ *  HC_DEV_OPTIONS — and only the map: matchOverride / zoneOverride /
+ *  fitOverride stay dev-only, so the ticket opens exactly the one key the
+ *  lobby needs. */
+function sanitizeGated(options: RoomOptions, devEnabled: boolean, trusted: boolean): SanitizeResult {
   // NOT dev-gated: the queue sets expectedCaptains on every production arena it
   // creates, so stripping it without HC_DEV_OPTIONS would delete the boarding
   // expectation in exactly the deployment that needs it. Safety comes from the
@@ -181,23 +358,33 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
   // door. Safety is structural rather than environmental: the flag only ever
   // reaches a room the asker just created for itself (see JoinOptions.solo).
   const solo = sanitizeSolo(options.solo);
+  // fitOverride goes through admitDevIdList rather than the pass-it-through
+  // treatment matchOverride gets, so a MALFORMED shape is dropped AND reported
+  // even with the gate open.
+  const rejectedKeys: string[] = [];
   if (devEnabled) {
     return {
       sanitized: {
         matchOverride: options.matchOverride,
         zoneOverride: options.zoneOverride,
         mapSeed: sanitizeMapSeed(options.mapSeed),
+        fitOverride: admitDevIdList(options.fitOverride, true, 'fitOverride', rejectedKeys),
         expectedCaptains,
         solo,
       },
-      rejectedKeys: [],
+      rejectedKeys,
     };
   }
-  const rejectedKeys: string[] = [];
   if (options.matchOverride !== undefined) rejectedKeys.push('matchOverride');
   if (options.zoneOverride !== undefined) rejectedKeys.push('zoneOverride');
-  if (options.mapSeed !== undefined) rejectedKeys.push('mapSeed');
-  return { sanitized: { expectedCaptains, solo }, rejectedKeys };
+  // The ONE dev key the lobby ticket opens (cycle 167, ruling 3: the host's
+  // seed). Still value-sanitized; still stripped and reported untrusted.
+  const mapSeed = trusted ? sanitizeMapSeed(options.mapSeed) : undefined;
+  if (!trusted && options.mapSeed !== undefined) rejectedKeys.push('mapSeed');
+  // Reported LAST of the room keys, and only when present (admitDevIdList's
+  // absent-means-silent rule) — the gate is closed, so the list is dropped.
+  admitDevIdList(options.fitOverride, false, 'fitOverride', rejectedKeys);
+  return { sanitized: { expectedCaptains, solo, mapSeed }, rejectedKeys };
 }
 
 /**

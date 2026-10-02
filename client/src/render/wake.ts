@@ -38,9 +38,9 @@
 // on-water FOAM is drawn at the stern instead (that is where foam physically
 // is); the ribbon is the geometry, the foam is a rendering of it.
 //
-// AMENDMENT 201 — NO BUOY SPECIAL-CASING, IN EITHER DIRECTION. A radar buoy is
-// anchored at its drop point (as the decoy this rule was written for was), so it
-// never travels one sample cadence and `appendWakeSample` stores nothing after
+// AMENDMENT 201 — NO BUOY SPECIAL-CASING, IN EITHER DIRECTION. A DECOY BUOY is
+// anchored at its drop point (amendment 123, Story 8.16: a decoy lays no wake),
+// so it never travels one sample cadence and `appendWakeSample` stores nothing after
 // its first sample: no segments, no foam, no chop, BY CONSTRUCTION. There is
 // deliberately no buoy branch here to delete.
 //
@@ -60,12 +60,15 @@ import {
   islandBlocksSegment,
   paintSegmentCoverage,
   pruneWake,
+  puffRadius,
+  segCircleHit,
   type HullId,
   type Island,
+  type SmokeView,
   type Vec2,
   type WakeRibbon,
 } from '@salvo/shared';
-import { FASTEST_HULL_SPEED } from '../config.js';
+import { FASTEST_BOOSTED_HULL_SPEED } from '../config.js';
 import { CONTACT_STALE_MS } from './contacts.js';
 import { buildWakeStamp, type CellStamp, type WakeSegmentCover } from './radarField.js';
 import type { ReturnModelOpts } from './radarHeatmap.js';
@@ -84,9 +87,11 @@ export type WakeSourceKind = HullId | 'torp';
 
 /** One visible source, as the wake layer needs it: pose, kind and the tint its
  *  foam carries. `maxSpeedU` provisions the ring buffer — pass the source's
- *  TRUE attainable top speed when it is known (own ship: `kinematics.maxSpeed +
- *  boost.speedBonus`, mirroring `World.wakeTopSpeed`); omitted, the class
- *  envelope is used and a boosted hull loses a little tail early, which is the
+ *  TRUE attainable top speed when it is known (own ship:
+ *  `draftedKinematics(boostedKinematics(kinematics, CONFIG.boost.factor, true),
+ *  CONFIG.wake.draft.lift, true).maxSpeed`, mirroring `World.wakeTopSpeed` —
+ *  boost AND full wake-draft lift, Story 8.19); omitted, the class
+ *  envelope is used and a boosted or drafting hull loses a little tail early, which is the
  *  shared model's documented graceful degradation. A `'torp'` source ignores it
  *  entirely — `createTorpWake` provisions off the fixed `CONFIG.torpedo.speed`,
  *  exactly as `World.sampleTorpWake` does. */
@@ -369,20 +374,29 @@ export const WAKE_STAMP_REBUILD_MS = CONFIG.vision.wakeLifeMs / WAKE_AGE_BUCKETS
  *
  * `FASTEST_HULL_SPEED` alone is the wrong number for a bound that has to hold
  * at every instant of a match, and it was wrong TWICE over: it is the
- * base-kinematics maximum, so it misses the boost bonus (a boosted Torpedo Boat
- * runs 45 + 10 = 55 u/s), and since the torpedo became a wake source in its own
- * right it misses the fish entirely (a fixed 60 u/s). Every other derivation in
- * this cycle already uses the true attainable figure (`World.wakeTopSpeed`,
- * `wakeHulls`' own-ship `maxSpeedU`), so this is the one place that was left
- * behind — and the floor below CITED the guarantee it was failing to deliver.
+ * base-kinematics maximum, so it misses the boost (which since Story 8.9 is
+ * +25 % OF THE POST-FOLD CAP, so a SPEED-capped Torpedo Boat runs 55 × 1.25 =
+ * 68.75 u/s — epic-8 amendment 55), and since the torpedo became a wake source
+ * in its own right it misses the fish entirely (a fixed 65 u/s, catalog-v3
+ * R17). Every other derivation in this cycle already uses the true attainable
+ * figure (`World.wakeTopSpeed`, `wakeHulls`' own-ship `maxSpeedU`), so this is
+ * the one place that was left behind — and the floor below CITED the guarantee
+ * it was failing to deliver.
  *
- * It is an upper bound rather than an exact maximum: no hull exceeds the
- * fastest envelope and boost adds at most `speedBonus`, so the sum can only
- * over-state (drones cannot boost). Over-stating shortens the floor, which
- * fails toward correctness.
+ * `FASTEST_BOOSTED_HULL_SPEED` is the MAXIMUM ACHIEVABLE hull speed, derived in
+ * client/config.ts through `effectiveStats` (a capped SPEED card stack) and the one
+ * shared `boostedKinematics` hook — NOT a base speed plus a flat bonus, which
+ * would now UNDER-state the bound (the proportional boost grows with the
+ * ladder) and under-provision every ring this number sizes.
+ *
+ * STORY 8.19 RAISED IT ONCE MORE: a hull riding another hull's wake runs up to
+ * `CONFIG.wake.draft.lift` (5 %) past its boosted cap, so the constant now folds
+ * the full lift through the one shared `draftedKinematics` hook on top of the
+ * boost (68.75 → 72.1875 u/s at the shipped numbers) — the same double the
+ * server's `World.wakeTopSpeed` provisions with.
  */
 export const FASTEST_AFLOAT_SPEED = Math.max(
-  FASTEST_HULL_SPEED + CONFIG.speedBoost.speedBonus,
+  FASTEST_BOOSTED_HULL_SPEED,
   CONFIG.torpedo.speed,
 );
 
@@ -425,7 +439,7 @@ export const WAKE_STAMP_MIN_MS = (CONFIG.vision.radarCellU / FASTEST_AFLOAT_SPEE
  * a second. So it rebuilds on the things that can actually change it:
  *
  *  • THE SIGHT RADIUS (`sightU`) — the complement's own boundary. It is a STEP
- *    function of two discrete inputs (`fogHoleRadiusU(sightRange, dazzled)`),
+ *    function of discrete inputs (`fogHoleRadiusU({ sightRange, radarRange }, dazzled, inSmoke)`),
  *    so a dazzle onset/end moves it by a large
  *    fraction all at once and nothing else in this list notices. It was
  *    missing from the key (cycle-69 review gate, P6), which left a stationary
@@ -439,6 +453,12 @@ export const WAKE_STAMP_MIN_MS = (CONFIG.vision.radarCellU / FASTEST_AFLOAT_SPEE
  *  • THE GLINT SEED (`seedT`, the sweep revolution index) — a new revolution
  *    re-scintillates every flank, exactly as `buildShipStamp`'s does.
  *  • The bucket clock (`WAKE_STAMP_REBUILD_MS`).
+ *  • THE SMOKE STATE (Story 8.18) — the live puff set, its growth bucket and
+ *    whether the observer stands in smoke (`smokeSetKey`). Like the sight
+ *    radius it is checked AHEAD of the rate floor: a puff laid on the line, a
+ *    puff leaving, or an in-smoke flip changes what may be revealed at once,
+ *    and a stamp held across it for one floor interval shows water the server
+ *    is hiding (or hides water it now shows).
  *
  * A cached stamp is never MUTATED, only replaced, so a slice that froze samples
  * out of it keeps exactly what it froze (amendment 83).
@@ -451,6 +471,7 @@ export class WakeStampCache {
   private sight = NaN;
   private seed = NaN;
   private builtMs = -Infinity;
+  private smokeKey = '';
 
   /** Live cell count of the cached stamp — the measurement seam. */
   get size(): number {
@@ -466,24 +487,32 @@ export class WakeStampCache {
     model: ReturnModelOpts,
     islands: readonly Island[] = [],
     seedT = 0,
+    smoke: readonly SmokeView[] = [],
+    inSmoke = false,
   ): CellStamp {
-    if (!this.stale(sources.version, own, sightU, nowMs, seedT)) return this.stamp;
+    const smokeKey = smokeSetKey(smoke, nowMs, inSmoke);
+    if (!this.stale(sources.version, own, sightU, nowMs, seedT, smokeKey)) return this.stamp;
     this.key = sources.version;
+    this.smokeKey = smokeKey;
     this.ox = own.x;
     this.oy = own.y;
     this.sight = sightU;
     this.seed = seedT;
     this.builtMs = nowMs;
-    this.stamp = buildTruesightWakeStamp(sources, own, sightU, nowMs, cellU, model, islands, seedT);
+    this.stamp = buildTruesightWakeStamp(sources, own, sightU, nowMs, cellU, model, islands, seedT, smoke, inSmoke);
     return this.stamp;
   }
 
-  private stale(version: number, own: Vec2, sightU: number, nowMs: number, seedT: number): boolean {
-    // AHEAD OF THE FLOOR, and only this one (see the class doc): the sight
-    // radius is a step function of dazzle and boons, so it cannot churn — but
-    // when it does move it moves far, and holding a stamp built against the old
-    // radius for even one floor interval is the double-paint P6 found.
+  private stale(version: number, own: Vec2, sightU: number, nowMs: number, seedT: number, smokeKey: string): boolean {
+    // AHEAD OF THE FLOOR, and only these two (see the class doc): the sight
+    // radius is a step function of dazzle, smoke and boons, so it cannot churn —
+    // but when it does move it moves far, and holding a stamp built against the
+    // old radius for even one floor interval is the double-paint P6 found. The
+    // smoke key (Story 8.18) is the same kind of input: a puff laid or gone, an
+    // in-smoke flip, or a growth bucket ticking over (at most every
+    // SMOKE_GROWTH_BUCKET_MS, and only while a puff is live) — never per frame.
     if (!(sightU === this.sight)) return true;
+    if (smokeKey !== this.smokeKey) return true;
     const age = nowMs - this.builtMs;
     // THE FLOOR WINS OVER EVERY OTHER REASON TO REBUILD (see WAKE_STAMP_MIN_MS):
     // under it, no input can have moved by more than the lattice can express.
@@ -519,6 +548,11 @@ function innerBoundU(src: WakeSource, sightU: number): number {
  * May this segment be REVEALED to the local scope — the binary-LOS half of the
  * P5 gate.
  *
+ * `smoke` is the puff list the SMOKE term tests against — the caller passes an
+ * EMPTY list for an in-smoke observer (amendment 149: inside its shrunken
+ * bubble it sees INTO other smoke), and the shrunken bubble itself is the
+ * `sightU` the caller already bounded the segment by.
+ *
  * The whole reason the server refuses to disclose water inside these radii is
  * that its height-aware shadow accumulator must never reveal water that BINARY
  * island LOS is hiding (`losClear`, the rule `pointSighted` and `pointDetected`
@@ -526,19 +560,90 @@ function innerBoundU(src: WakeSource, sightU: number): number {
  * test: `marchRay`'s accumulator alone would let a low island pass water that
  * truesight itself would not.
  */
-function segmentRevealable(own: Vec2, mx: number, my: number, islands: readonly Island[]): boolean {
-  if (islands.length === 0) return true;
+function segmentRevealable(
+  own: Vec2,
+  mx: number,
+  my: number,
+  islands: readonly Island[],
+  smoke: readonly SmokeView[],
+  nowMs: number,
+): boolean {
   LOS_SCRATCH.x = mx;
   LOS_SCRATCH.y = my;
   for (const isle of islands) {
     if (islandBlocksSegment(own, LOS_SCRATCH, isle)) return false;
   }
-  return true;
+  return !smokeCrossed(own, LOS_SCRATCH, smoke, nowMs);
+}
+
+/**
+ * THE SMOKE HALF of the binary-LOS gate (Story 8.18, Eric ruling 143 — torpedo
+ * water inside the sight bubble is hidden by smoke). The server's sight
+ * predicate (`sightClear`) is island LOS AND no live puff crossed, and the
+ * synthesis stands in for that disclosure, so it owes the same term: the
+ * observer→segment line may cross no puff at the shared `puffRadius` (never a
+ * client re-derivation). Ownership plays no part — the observer's own trail
+ * occludes like anyone's.
+ *
+ * AN IN-SMOKE OBSERVER NEVER REACHES THIS TEST (Eric ruling 2026-09-29,
+ * amendment 149, final): `buildTruesightWakeStamp` hands it no puffs, because
+ * the server's `sightClear` drops the puff term for an observer whose centre is
+ * in smoke and bounds it by the 1/8-intel `effectiveSight` instead — which is
+ * the `sightU` the stamp is already clamped to.
+ */
+function smokeCrossed(own: Vec2, at: Vec2, smoke: readonly SmokeView[], nowMs: number): boolean {
+  for (const p of smoke) {
+    if (segCircleHit(own, at, p, puffRadius(p.t0, nowMs)) !== null) return true;
+  }
+  return false;
+}
+
+/**
+ * ms — the growth bucket the smoke key carries while any puff is live. A puff
+ * grows (r1 − r0) / expandMs = 82.5 u / 30 s = 2.75 u/s (the 2026-09-30 radii,
+ * 82.5 → 165 u), so a stamp held for one bucket judges the line against a
+ * radius at most 1.375 u stale — still well under one 9 u radar cell — while
+ * rebuilding twice a second at most on growth alone.
+ */
+export const SMOKE_GROWTH_BUCKET_MS = 500;
+
+/**
+ * The stamp cache's smoke key (Story 8.18, cycle-153 review gate). It changes
+ * when, and only when, what the smoke term may answer can change:
+ *   • ANY membership change — every id is folded into an FNV-1a hash, so a
+ *     mid-list swap with the same count and the same first/last id still moves
+ *     it (the old `count:first:last` key missed that);
+ *   • GROWTH — `SMOKE_GROWTH_BUCKET_MS` buckets of the frame clock, and only
+ *     while the set is non-empty (an empty sky never ticks the key);
+ *   • AN IN-SMOKE FLIP — an in-smoke observer applies no puff term at all, so
+ *     its key is a constant that neither the set nor its growth moves.
+ */
+export function smokeSetKey(smoke: readonly SmokeView[], nowMs: number, inSmoke = false): string {
+  if (inSmoke) return 'in';
+  const n = smoke.length;
+  if (n === 0) return '';
+  return `${n}:${idHash(smoke)}:${Math.floor(nowMs / SMOKE_GROWTH_BUCKET_MS)}`;
+}
+
+/** The 32-bit FNV prime (decimal — hex literals read as colours to the token scan). */
+const FNV_PRIME = 16777619;
+
+/** FNV-1a (32-bit) over every puff id, with a separator between ids. */
+function idHash(smoke: readonly SmokeView[]): number {
+  let h = 2166136261; // FNV offset basis
+  for (const p of smoke) {
+    for (let i = 0; i < p.id.length; i++) h = Math.imul(h ^ p.id.charCodeAt(i), FNV_PRIME);
+    h = Math.imul(h ^ 44, FNV_PRIME); // ',' — "ab","c" ≠ "a","bc"
+  }
+  return h >>> 0;
 }
 
 /** Reused endpoint for `segmentRevealable` (the SEG_SCRATCH pattern): filled
  *  and consumed synchronously, so the per-frame scan allocates nothing. */
 const LOS_SCRATCH: Vec2 = { x: 0, y: 0 };
+
+/** The puff list an in-smoke observer tests against: none. */
+const NO_PUFFS: readonly SmokeView[] = [];
 
 /**
  * THE ONE-PER-REBUILD ISLAND SHORTLIST — the broadphase that keeps the P5 LOS
@@ -614,8 +719,13 @@ export function buildTruesightWakeStamp(
   model: ReturnModelOpts,
   islands: readonly Island[] = [],
   seedT = 0,
+  smoke: readonly SmokeView[] = [],
+  inSmoke = false,
 ): CellStamp {
   const segs: WakeSegmentCover[] = [];
+  // IN SMOKE (amendment 149): no puff term at all — `sightU` (the 1/8-intel
+  // `effectiveSight` the caller resolved) is the whole of the clamp.
+  const puffs = inSmoke ? NO_PUFFS : smoke;
   // ONE island cull for the whole rebuild (see nearIslands): a per-segment walk
   // over every island on the map was measured at 5× the sharp path's cost.
   const near = nearIslands(own, sightU, islands);
@@ -627,7 +737,7 @@ export function buildTruesightWakeStamp(
       const dx = s.mx - own.x;
       const dy = s.my - own.y;
       if (dx * dx + dy * dy > reach) return;
-      if (!segmentRevealable(own, s.mx, s.my, near)) return;
+      if (!segmentRevealable(own, s.mx, s.my, near, puffs, nowMs)) return;
       segs.push({
         cov: paintSegmentCoverage(s.ax, s.ay, s.bx, s.by, src.ribbon.widthU, cellU, seedT),
         a: s.bucket,

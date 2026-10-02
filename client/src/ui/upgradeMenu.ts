@@ -23,13 +23,13 @@
 // + post-click blur), so a later Space/Enter can't re-trigger the button and a
 // focused button can't trip the chokepoint's text-entry guard.
 //
-// THE DAMAGE CONTROL RAIL (cycle 46) hangs one seam BELOW the row: the
-// always-available heal spend, addressed by the reserved negative wire sentinel
-// HEAL_CHOICE (-1) and picked with [5] or a click. It is deliberately NOT a
-// fifth card — a five-card row is 1160px, which leaves 60px of margin at the
-// 1280×614 logical floor and would supersede the ratified UX-DR14 geometry — and
-// it is never drawn, never exhausted, and never in `OwnShip.offer`. The cards,
-// the gaps, the 924px row and `CONFIG.offer.size` are untouched by it.
+// THE DAMAGE CONTROL RAIL IS GONE (Story 8.8, epic-8 amendment 46). Cycle 46
+// hung a fifth control one seam below the row — the always-available heal spend,
+// addressed by a reserved negative wire sentinel and picked with [5] — and Story
+// 8.8 deleted it outright: healing is a CARD now (HULL REPAIR, stocked in the
+// belt and fired with its own digit while the window is CLOSED), so the band is
+// exactly the four cards and their pips. The band's LOWEST edge is therefore the
+// card row's bottom, still seated `barGap` above the HUD bar (amendment 36).
 //
 // z-index sits at 1000 — below the pre-join menu (1100) and settings (1050) and
 // above the toast stacks (900). Nothing rides on that last relation visually:
@@ -38,40 +38,62 @@
 // same DOM-chrome scale as everything else (modals above it, feed chrome below).
 
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
-  HEAL_CHOICE,
+  MULLIGAN_CHOICE,
   boonStackCount,
-  effectiveStats,
-  resolveBoons,
-  type BoonDef,
+  isStubLine,
+  pickRefusal,
+  resolveCards,
+  type CatalogLine,
   type OwnShip,
+  type SlotItemId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { FLASH_ELEMENTS, type FlashBudget } from '../render/flashBudget.js';
-import { REFIT_TYPE } from './refitCardFit.js';
-import { REFIT_TIP, refitTooltipLeft, refitTooltipMaxPanelH } from './refitTooltip.js';
+import { hudBarLayout } from '../render/hudBar.js';
+import { UI_SCALE_VAR } from './theme.js';
 import {
-  boonCategoryLabel,
-  boonDescription,
-  boonLineageLine,
+  FOOT_BOX_PAD,
+  FOOT_BOX_GROWTH,
+  MICRO_VAR,
+  REFIT_TYPE,
+  cardNameSize,
+  cardNameTracking,
+  domMicroScale,
+} from './refitCardFit.js';
+import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
+import { LINEAGE_TIERS } from './tierRamp.js';
+import {
+  REFIT_TIP,
+  refitTooltipLeft,
+  refitTooltipMaxPanelH,
+  refitTooltipMetrics,
+  refitTooltipModel,
+  type RefitTooltipModel,
+} from './refitTooltip.js';
+import {
+  TIER_ARROW,
   boonName,
-  boonRarityLabel,
-  boonTooltipText,
+  cardHoverRows,
+  cardKind,
+  cardKindLabel,
+  cardStatRows,
+  cardTierLabel,
+  cardTierSteps,
+  statValueText,
+  type CardKind,
+  type CardStatRow,
+  type CardTierStep,
 } from './boonCopy.js';
 
 const PANEL_ID = 'upgrade-menu';
-/** The DAMAGE CONTROL rail's element id — a stable handle for the band's one
- *  permanent control (the cards are rebuilt per offer; this never is). */
-const STRIP_ID = 'refit-damage-control';
-/** The hover tooltip's element id (R2.17) — the band's other permanent, never
- *  rebuilt child, so tests and future callers have a stable handle. */
+/** The hover tooltip's element id (R2.17) — the band's one permanent, never
+ *  rebuilt child (the cards are rebuilt per offer), so tests and future callers
+ *  have a stable handle. */
 const TIP_ID = 'refit-card-tooltip';
-/** The rail's key hint. Digit 5 sits immediately after the four card digits,
- *  and input/keyboard.ts maps BOTH Digit5 and Numpad5 to HEAL_CHOICE. */
-const STRIP_KEY_GLYPH = '5';
 const R = CLIENT_CONFIG.refit;
 /** The card's text metrics — letter-spacings, line-heights and the row gap. The
  *  CSS below INTERPOLATES these, and ui/refitCardFit.ts measures with the very
@@ -85,15 +107,49 @@ const REST = 'var(--hc-text-primary)';
 const AMBER = 'var(--hc-amber)';
 const PHOSPHOR = 'var(--hc-phosphor)';
 const DENIED = 'var(--hc-denied)';
-const HAIRLINE = 'var(--hc-hairline)';
-/** Rarity tag colors (Story 2.8, implementer-drafted inside the ratified CVD
- *  constraints): INFO blue (~199°) for RARE and the STORM READOUT family
- *  (~277°) for EXCLUSIVE, both clear of the denied (0°) and amber (43°) bands
- *  and distinct from the phosphor (152°) the card's own data text rides. They
- *  are TEXT colors only — the card's border/box-shadow channel belongs to the
- *  denied pulse and the armed edge, and nothing else may claim it. */
-const RARE = 'var(--hc-info)';
-const EXCLUSIVE = 'var(--hc-storm-readout)';
+/** The mock's `--t3` (muted text): the in-row arrow, the tier arrow, and the
+ *  greyed key chip's dashed edge. */
+const MUTED = 'var(--hc-text-muted)';
+/** The greyed foot's word — `silver` at FULL alpha, so the reason still reads
+ *  through the card's own dim (mock `.rc.grey .foot`). */
+const SILVER = 'var(--hc-silver)';
+/** The shipped secondary-text token — the key chip at rest, the row labels. */
+const META = 'var(--hc-text-secondary)';
+
+/**
+ * THE KIND COLORS (Eric ruling 2026-09-30, epic-8 amendment 188 — supersedes
+ * amendment 8's neutral kind word). The refit card is color-coded by what it
+ * does for the player: WEAPON phosphor · WEAPON UPGRADE info · SHIP UPGRADE
+ * storm-readout · CONSUMABLE silver (ADD-ON, the unused kind, keeps the
+ * secondary text it always had). Eric's picks avoid amber and the denied red,
+ * which already mean ARMED and REFUSED on this surface.
+ *
+ * DUAL-CODED: the KIND WORD carries the kind with the color stripped. The color
+ * rides the word at full strength and the card's RESTING edge at `KIND_EDGE_ALPHA`
+ * (`cssRgba` off the numeric token, never a literal); the armed amber edge and
+ * glow and the greyed `.55` face are unchanged.
+ */
+export const KIND_COLORS: Readonly<Record<CardKind, string>> = {
+  weapon: 'var(--hc-phosphor)',
+  weaponUpgrade: 'var(--hc-info)',
+  shipUpgrade: 'var(--hc-storm-readout)',
+  consumable: 'var(--hc-silver)',
+  addon: 'var(--hc-text-secondary)',
+};
+
+/** The resting edge's alpha on the kind token (an orchestrator reading of
+ *  amendment 188's "reduced alpha"). */
+export const KIND_EDGE_ALPHA = 0.55;
+
+const KC = CLIENT_CONFIG.colors;
+/** The kind's resting 1px edge — the same tokens as KIND_COLORS, at reduced alpha. */
+export const KIND_EDGES: Readonly<Record<CardKind, string>> = {
+  weapon: cssRgba(KC.phosphor, KIND_EDGE_ALPHA),
+  weaponUpgrade: cssRgba(KC.info, KIND_EDGE_ALPHA),
+  shipUpgrade: cssRgba(KC.stormReadout, KIND_EDGE_ALPHA),
+  consumable: cssRgba(KC.silver, KIND_EDGE_ALPHA),
+  addon: cssRgba(KC.textSecondary, KIND_EDGE_ALPHA),
+};
 /** The slot tooltip's ratified surface, reused verbatim for the refit card's
  *  hover panel (DESIGN.md `components.slot-tooltip`): the `panel` bed at .97 and
  *  a `silver` edge at .4. Composed from the TOKENS through `cssRgba` rather than
@@ -152,13 +208,7 @@ const TIP_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.4);
  * compete for the same pixels — but if rung IV ever reads as "this card is
  * refused", that is the thing to change.
  */
-export const LINEAGE_TIERS: readonly string[] = [
-  'var(--hc-phosphor)', // I   — green
-  'var(--hc-info)', // II  — blue
-  'var(--hc-storm-readout)', // III — purple
-  'var(--hc-denied)', // IV  — red
-  'var(--hc-amber)', // V   — gold
-];
+export { LINEAGE_TIERS }; // the five strings live in ./tierRamp.ts since Story 8.21
 
 export function lineageTint(stack: number, copies: number): string {
   if (copies <= 1) return LINEAGE_TIERS[0];
@@ -187,15 +237,26 @@ export interface RefitBandLayout {
   /** The queue-pip strip, left-aligned with the row, above the cards. */
   pips: RefitBox;
   /**
-   * THE DAMAGE CONTROL RAIL (cycle 46): the always-present heal spend, one
-   * `stripGap` seam BELOW the row and exactly as wide as it. It is NOT a card
-   * — `cards` and `row` are byte-identical with or without it, which is the
-   * property the geometry suite pins.
+   * The COUNTDOWN FOOTER's seat — the `REDRAW` button's box (Story 8.10,
+   * amendments 60 + 63a). Degenerate (`h: 0`, seated exactly on the card row's
+   * bottom) whenever `footerPx` is 0, which is every phase but `countdown`.
    */
-  strip: RefitBox;
-  /** The whole band (pips + row + rail) — what the keep-out checks measure. */
+  footer: RefitBox;
+  /** The whole band (pips + row + the countdown footer). Its BOTTOM edge — the
+   *  card row's bottom since Story 8.8 deleted the DAMAGE CONTROL rail, the
+   *  REDRAW button's during the countdown — is the anchored one: `barGap`
+   *  above the HUD bar's top (epic-8 amendment 36). */
   band: RefitBox;
 }
+
+/**
+ * The countdown footer's height (px): the 14px seam plus the 30px `REDRAW`
+ * button (epic-8 amendment 63a). Passed to `refitBandLayout` as `footerPx`
+ * ONLY while the match is in `countdown` — the band's bottom is anchored, so
+ * the whole 44px comes off the TOP and the card row lifts by exactly this much
+ * (380 → 336 at 1366×768).
+ */
+export const REDRAW_FOOTER_PX = R.redrawGap + R.redrawHeight;
 
 /** The band's card count — the ratified four (UX-DR14), DERIVED from the wire
  *  contract (`CONFIG.offer.size`) rather than re-stated as a literal, so the
@@ -205,39 +266,47 @@ export interface RefitBandLayout {
 const CARD_SLOTS = CONFIG.offer.size;
 
 /**
- * Pure: the band laid out for a (logical) viewport. The row is a FIXED 924px
- * (four 216s + three 20s) and is horizontally CENTERED; the top edge sits at
- * `bandTopFrac` of the viewport height. Deliberately independent of the offer's
- * actual length: slot k always occupies the same box, so a short offer (a small
- * catalog) leaves a gap rather than re-centering the digits under the player.
+ * Pure: the band laid out for a LOGICAL viewport — the same units the HUD bar
+ * is laid out in (`hudBarLayout`), i.e. screen px ÷ the UI-scale factor.
  *
- * The row NEVER wraps and never re-flows — at a viewport too narrow to hold 924
- * the row would clip, which is why the layout tests pin both ratified floors
- * (1366×768 at 100%, and the 1280×614 logical floor of the ≥1600px-gated 125%
- * tier).
+ * EPIC-8 AMENDMENT 36 (Eric, 2026-09-17) replaced the old viewport-fraction
+ * anchor (`bandTopFrac`) with UX-DR53's placement rule: the band's LOWEST edge
+ * — the CARD ROW's bottom, since Story 8.8 deleted the DAMAGE CONTROL strip that
+ * used to hang under it — sits `barGap` (8px) above the HUD bar's
+ * top edge. The below-centre own-hull keep-out is WAIVED by the same ruling, so
+ * the band's top may now climb above the screen centre. Laying out in the bar's
+ * own units is what retires the physical-anchor / CSS-scale mismatch the
+ * cycle-47 review ledgered: see `place()`.
  *
- * CYCLE 46 added the DAMAGE CONTROL rail below the row and NOTHING else: the
- * row and the cards come out byte-identical, and only `band.h` grows (by
- * `stripGap + stripHeight`) to keep covering everything the band paints.
- *
- * CYCLE 47 (Eric amendment 65) grew the rail from a 16px seam to a 40px
- * choosable button and paid for it by LIFTING the anchor — `bandTopFrac` 0.58 →
- * 0.534 — rather than by touching the row. The row, the cards, the gaps and the
- * pip offset are all still byte-identical; only where the whole band sits moved.
- * That anchor is now wedged between two hard constraints at the 1280×614 floor
- * (below-center keep-out above, container-fit law below) with five pixels of
- * total slack — see CLIENT_CONFIG.refit.bandTopFrac for the arithmetic, and the
- * geometry suite for the pins that make a future drift fail loudly.
+ * The row is a FIXED 924px (four 216s + three 20s) and is horizontally CENTERED,
+ * deliberately independent of the offer's actual length: slot k always occupies
+ * the same box, so a short offer (a small catalog) leaves a gap rather than
+ * re-centering the digits under the player. It NEVER wraps and never re-flows —
+ * at a viewport too narrow to hold 924 the row would clip, which is why the
+ * layout tests pin both ratified floors (1366×768 at 100%, and the 1280×614
+ * logical floor of the ≥1600px-gated 125% tier).
  */
-export function refitBandLayout(screenW: number, screenH: number, cards = CARD_SLOTS): RefitBandLayout {
+export function refitBandLayout(
+  screenW: number,
+  screenH: number,
+  cards = CARD_SLOTS,
+  footerPx = 0,
+): RefitBandLayout {
   const rowW = cards * R.card + (cards - 1) * R.gap;
   const x = Math.round((screenW - rowW) / 2);
-  const y = Math.round(screenH * R.bandTopFrac);
+  // Top-down: pips, card row, and (countdown only) the REDRAW footer — and the
+  // whole stack hangs from its BOTTOM (the card row's own bottom since Story
+  // 8.8, the button's while the footer stands), `barGap` clear of the bar. The
+  // footer is therefore a LIFT, never a drop: see REDRAW_FOOTER_PX.
+  const bandH = R.pipsAbove + R.cardHeight + footerPx;
+  const bandY = hudBarLayout(screenW, screenH).bar.y - R.barGap - bandH;
+  const y = bandY + R.pipsAbove;
   const row = { x, y, w: rowW, h: R.cardHeight };
-  const pips = { x, y: y - R.pipsAbove, w: rowW, h: R.pip };
-  const strip = { x, y: row.y + row.h + R.stripGap, w: rowW, h: R.stripHeight };
+  const pips = { x, y: bandY, w: rowW, h: R.pip };
+  const footerH = footerPx > 0 ? R.redrawHeight : 0;
   return {
     row,
+    footer: { x, y: y + R.cardHeight + (footerPx - footerH), w: rowW, h: footerH },
     cards: Array.from({ length: cards }, (_, i) => ({
       x: x + i * (R.card + R.gap),
       y,
@@ -245,126 +314,133 @@ export function refitBandLayout(screenW: number, screenH: number, cards = CARD_S
       h: R.cardHeight,
     })),
     pips,
-    strip,
-    band: { x, y: pips.y, w: rowW, h: strip.y + strip.h - pips.y },
+    band: { x, y: bandY, w: rowW, h: bandH },
   };
+}
+
+/**
+ * The live UI-scale FACTOR, read back from the custom property `ui/theme.ts`
+ * writes (`setUiScaleVar(scaleFactor(effectiveScale(...)))`). Read rather than
+ * recomputed on purpose: the tier logic — including the width gate that can
+ * demote a stored 125% — lives in ONE place (`settings/store.ts`), and the var
+ * is what the panel's own `scale()` actually uses, so the anchor and the
+ * contents cannot disagree. Absent or malformed (a test DOM, an early frame)
+ * reads as 1, which is exactly what the CSS fallback renders at.
+ */
+function uiScaleFactor(root: HTMLElement = document.documentElement): number {
+  const raw = Number.parseFloat(root.style.getPropertyValue(UI_SCALE_VAR));
+  return Number.isFinite(raw) && raw > 0 ? raw : 1;
+}
+
+/** Where the hover tooltip opens, and the cap it opens under. */
+export interface RefitTipPlacement {
+  /** true = the ratified placement, bottom edge `gap` above the band's top.
+   *  false = opening DOWNWARD from the band's top edge, over the card row. */
+  above: boolean;
+  /** The panel's rendered height (px) — independent of which way it opens. */
+  height: number;
+  /** The CSS `max-height` cap (px) at this placement. */
+  maxH: number;
+  /**
+   * DOWNWARD ONLY: how far ABOVE the band's top edge the panel starts (px), 0
+   * for every panel that fits between the band's top and its `barGap` seat.
+   *
+   * STORY 8.8 MADE THIS REACHABLE. The downward budget is the band's own height,
+   * which is what puts the panel's bottom exactly `barGap` above the bar — and
+   * deleting the DAMAGE CONTROL rail shortened the band by 46px (the rail plus
+   * its seam) without shortening the copy. At the 1280×614 floor the tallest
+   * catalog panel (261px) then wanted 17px more than the band has. Amendment
+   * 37's two binding halves are NEVER OVER THE BAR and NEVER CLIPPED, so the
+   * panel slides up by exactly the shortfall — into clear water the band's lift
+   * left above itself — rather than clipping or reaching the bar. Above 0 it
+   * covers the WHOLE card row instead of part of it; the bar is untouched
+   * either way. Capped at `band.y` so the panel can never leave the screen.
+   */
+  offset: number;
+}
+
+/**
+ * Pure: which way the hover tooltip opens (EPIC-8 AMENDMENT 37, Eric
+ * 2026-09-17).
+ *
+ * Amendment 36 hung the band off the HUD bar, which at short viewports leaves
+ * far less clear water above it than the tallest catalog explanation needs —
+ * 130px against 261px at the 1280×614 logical floor. Rather than clip the copy
+ * (information lost) or pull Story 8.7's 236px re-cut forward, the panel FLIPS:
+ * it opens above the band whenever it fits there, exactly as before, and
+ * otherwise opens from the band's TOP EDGE downward, covering part of the card
+ * row it describes.
+ *
+ * The downward budget is the band's OWN height, which is what keeps the ruling's
+ * other half — never over the bar: the band's bottom edge is `barGap` above the
+ * bar by construction, so a panel that fits the band lands exactly `barGap`
+ * short of it. A panel that does NOT fit slides UP by the shortfall (`offset`)
+ * instead of clipping or reaching the bar — see `RefitTipPlacement.offset` for
+ * why Story 8.8 made that case reachable. `overflow:hidden` stays what it has
+ * always been: belt and braces, never the fix.
+ */
+export function refitTooltipPlacement(model: RefitTooltipModel, band: RefitBox): RefitTipPlacement {
+  const water = refitTooltipMaxPanelH(band.y);
+  const height = refitTooltipMetrics(model, water).height;
+  if (height <= water) return { above: true, height, maxH: water, offset: 0 };
+  // Never off the top of the screen either: the lift is capped at the water the
+  // band actually left above itself, and `maxH` then clips what is left over.
+  const offset = Math.min(Math.max(0, height - band.h), Math.max(0, band.y));
+  return { above: false, height, maxH: band.h + offset, offset };
 }
 
 // --- pure core: the spend view -------------------------------------------------
 
-/** One resolved card: its catalog def plus every line of copy the DOM renders
- *  (Story 2.8's card anatomy — name by stack position, rarity tier, lineage
- *  handrail, doctrine-swap line, and rules text with LIVE values). */
+/**
+ * One resolved card, as the RATIFIED FACE renders it (Story 8.7, ruling 11 —
+ * `hud-composite-3.html` `.rc`): an icon box, the line's name, the cap-rung
+ * ladder with its `cur → next` numerals, the KIND word, up to five stat rows
+ * and a foot. NO description span, NO lineage handrail, NO copy count — those
+ * three fields went with the interim face they belonged to.
+ */
 export interface OfferCard {
   id: string;
-  /** Uppercase category tag (one of the ratified nine). */
-  category: string;
-  /** Rarity tag — '' for a plain common (the absence IS the tier). */
-  rarity: string;
-  /** The ladder name at this card's stack position. */
+  /** The KIND word (WEAPON / WEAPON UPGRADE / SHIP UPGRADE / CONSUMABLE /
+   *  ADD-ON) — the mock's `.ck`, and the non-color channel of the kind. */
+  kind: string;
+  /** The kind itself (amendment 188) — what colors the word and the edge. */
+  kindTone: CardKind;
+  /** The line's name, uppercase (the face's one display-face mark). */
   name: string;
-  /** Lineage handrail for a multi-copy line ("II/V"), null for a single. */
-  lineage: string | null;
-  /** THE FACE'S ONE TEXT ROW (R2.17): a stat line's live `current → next`
-   *  sentence, and '' for a verb or acquisition card — whose face is the ladder
-   *  name and the tags alone. An empty string here is expected, not a fault. */
-  description: string;
-  /** The HOVER-ONLY explanation (R2.17) — what the card actually does, in plain
-   *  terms. Never rendered on the face; the band's hover panel shows it. */
-  tooltip: string;
+  /** The `cur → next` tier numerals, or null for a line with no ladder (a
+   *  consumable or an add-on), whose ladder row renders EMPTY but still 16px
+   *  tall so every card in the row keeps one baseline. */
+  tier: string | null;
+  /** The same step as NUMBERS, so each numeral can be tinted on the absolute
+   *  ladder ramp without re-parsing "III → IV" back apart. Null with `tier`. */
+  tierStep: CardTierStep | null;
+  /** Up to five live stat rows (ruling 12). Fewer is normal; an add-on has
+   *  none at all and its five rows render blank. */
+  rows: readonly CardStatRow[];
+  /** The HOVER-ONLY stat list (R2.17; amendment 187) — the full table of what
+   *  the card touches, valued after the card. Never rendered on the face; an
+   *  empty list means no hover panel. */
+  hover: readonly CardStatRow[];
+  /**
+   * THE REFUSAL (Story 8.7, ruling 10; widened by the 8.14 review F1). A card
+   * this hull cannot take — a consumable with a full belt, a line already at
+   * its `cap`, or a bare weapon with Q/E/R full — is greyed BEFORE the press:
+   * `SLOTS FULL` in the foot, a dashed key chip, the face at `greyedAlpha`, and
+   * its digit and its click both send nothing. The predicate is the SHARED
+   * `pickRefusal`, over the same replayed slot ids and held cards the server
+   * folds, so the client cannot grey a card the server would have taken (or
+   * take one the server would refuse).
+   */
+  greyed: boolean;
   /** How many of this line the player already holds, and how many the line has
-   *  in total. Carried so the lineage handrail can tint by ladder POSITION
-   *  (Eric's colour ruling — see `lineageTint`) without the DOM layer having to
-   *  re-parse "III/V" back into numbers. */
+   *  in total — the ladder's rung count and its filled prefix. */
   stack: number;
-  copies: number;
+  cap: number;
 }
 
-// --- pure core: the DAMAGE CONTROL rail ----------------------------------------
-
-/**
- * The rail's two states, DUAL-CODED so nothing rides on hue (DESIGN.md · Do's
- * and Don'ts):
- *   • 'armed' — a damaged, living hull: live edge, hoverable/focusable,
- *     amber-on-armed exactly like a card, and NO status word;
- *   • 'inert' — the server would reject this pick (full hp, or a sunk hull) or
- *     a spend is already in flight: the rail dims to `lockedAlpha`, goes
- *     genuinely `disabled` (keyboard and AT see it, not just the eye), and — for
- *     the two REJECTION cases — prints the reason as a word. The word is the
- *     non-color channel; the dim alone would be hue/lightness only.
- */
-export type HealArm = 'armed' | 'inert';
-
-export interface HealView {
-  state: HealArm;
-  /** The dual-coding reason word; '' while armed (the absence IS the state). */
-  status: string;
-  /** 'DAMAGE CONTROL' — deliberately NOT "repair/patch HULL": `hull` is the
-   *  +maxHp `shipHull` ladder's vocabulary and must not be echoed here. */
-  label: string;
-  /** The amounts, printed from CONFIG.damageControl — never hardcoded, so a
-   *  retune of the ruling moves the rail's own copy with it. */
-  readout: string;
-}
-
-export const HEAL_LABEL = 'DAMAGE CONTROL';
-/** Rejection reasons — the two fail-closed guards the server itself applies. */
-export const HEAL_STATUS_FULL = 'AT FULL HP';
-export const HEAL_STATUS_SUNK = 'SUNK';
-
-/** Pure: the rail's amounts line, straight off the shared config. Cycle 47 moved
- *  the voice from a bare stat line (`+25 HP NOW · +25 HP OVER 5S`) to a sentence
- *  at Eric's direction — *"Restores 25 HP now and 25 HP/5s or something"* — the
- *  same instinct as the rail's resize: say plainly what pressing it does. The
- *  numbers are still composed from CONFIG.damageControl and never hardcoded, so
- *  a retune of the ruling keeps moving the copy with it. */
-export function healReadout(): string {
-  const dc = CONFIG.damageControl;
-  const secs = dc.regenMs / 1000;
-  const s = Number.isInteger(secs) ? `${secs}` : secs.toFixed(1);
-  return `RESTORES ${dc.instantHp} HP NOW AND ${dc.regenHp} HP OVER ${s}S`;
-}
-
-/**
- * Pure: the own hull's max HP, through the ONE derivation path — the shared
- * `effectiveStats()` desync firewall, fed by (class + fitted boons), exactly
- * as the HUD's HP rail and the cards' preview diffs already do it. Nothing here
- * re-derives, hardcodes, or reads a class table ad hoc.
- */
-function ownMaxHp(you: Pick<OwnShip, 'cls' | 'boons'>): number | null {
-  // FAIL-OPEN on the class table (cycle 91), null = "cannot judge". An
-  // unresolvable `cls` would hand `effectiveStats` an undefined spec and throw
-  // on `cls.kinematics`, from a render path, which until this cycle meant a
-  // permanent freeze. Null rather than a number because the ONE caller asks
-  // "is the hull already full?" — and answering a fabricated "yes" would deny a
-  // player a heal they need, which is strictly worse than offering a redundant
-  // one. So an unknown hull leaves the rail armed.
-  if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return null;
-  return effectiveStats(CONFIG.shipClasses[you.cls], resolveBoons(you.boons)).maxHp;
-}
-
-/**
- * Pure: the rail's state for this frame. The two INERT cases mirror the
- * server's fail-closed heal guard exactly (dead hull, or `hp >= maxHp`), which
- * is what makes the affordance honest rather than decorative — a rail the
- * player can press is a rail the server will honor. `locked` (a spend already
- * in flight) inerts it too, for the same reason the cards dim: a second pick
- * inside one server-tick+RTT would reference an offer the FIFO has moved on
- * from. It carries no reason word, being transient rather than a refusal.
- */
-export function healView(you: OwnShip | null | undefined, locked: boolean): HealView {
-  const copy = { label: HEAL_LABEL, readout: healReadout() };
-  if (!you || !you.alive) return { ...copy, state: 'inert', status: HEAL_STATUS_SUNK };
-  const maxHp = ownMaxHp(you); // null = unresolvable hull; never claim FULL on a guess
-  if (maxHp !== null && you.hp >= maxHp) return { ...copy, state: 'inert', status: HEAL_STATUS_FULL };
-  if (locked) return { ...copy, state: 'inert', status: '' };
-  return { ...copy, state: 'armed', status: '' };
-}
-
-/** The rail's render memo key — every mark it actually paints. */
-function healSignature(heal: HealView): string {
-  return `${heal.state}|${heal.status}|${heal.label}|${heal.readout}`;
-}
+/** The foot's one word today: the belt is full and this consumable has nowhere
+ *  to go. Ratified copy (UX-DR52) — the card's non-colour refusal channel. */
+export const SLOTS_FULL = 'SLOTS FULL';
 
 /** The spendable state the band renders — derived purely from `you`. */
 export interface OfferView {
@@ -379,11 +455,24 @@ export interface OfferView {
    * timeout clears it; digit picks are gated on the same flag.
    */
   locked: boolean;
-  /** The DAMAGE CONTROL rail's state (cycle 46) — a SIBLING of `options`,
-   *  never a member of it: the rail is never drawn, never exhausted, and never
-   *  appears in `OwnShip.offer`. */
-  heal: HealView;
+  /**
+   * THE ONE FREE REDRAW (Story 8.10, epic-8 amendment 60) — `hidden` off the
+   * start line (the button is not in the DOM at all), `unspent` while the
+   * countdown's level-zero offer may still be thrown back, `spent` once the
+   * server acked the mulligan (the button stays, inert, with its pip filled:
+   * the answer to "can I redraw again?" must be on screen, not absent).
+   *
+   * PHASE IS THE CALLER'S FACT, not this function's: `offerView()` is a pure
+   * projection of `you` and knows nothing about the match plane, so it always
+   * returns `hidden` and main.ts's `currentOfferView()` sets the real state
+   * from the polled `matchPhase` + its own `mulliganUsed` latch — the same
+   * shape `locked` already has.
+   */
+  redraw: RedrawState;
 }
+
+/** The REDRAW button's three states (see OfferView.redraw). */
+export type RedrawState = 'hidden' | 'unspent' | 'spent';
 
 /**
  * Pure: the current spend view, or null when there is nothing to show — no own
@@ -405,10 +494,16 @@ export interface OfferView {
  * through must go inert (digit picks included, since currentOfferView() also
  * returns null) rather than silently misfire.
  */
-export function offerView(you: OwnShip | null, spectating: boolean, locked: boolean, sinking: boolean): OfferView | null {
+export function offerView(
+  you: OwnShip | null,
+  spectating: boolean,
+  locked: boolean,
+  sinking: boolean,
+  ownSlots: readonly (SlotItemId | null)[] = [],
+): OfferView | null {
   // ONCE SINKING, YOU'RE DONE (Story 5.2, amendment 10). A sinking hull keeps
   // every weapon, every ability and the foghorn — what it loses is the ECONOMY:
-  // the refit window, the picks and the DAMAGE CONTROL heal.
+  // the refit window and the picks.
   //
   // IT MUST BE ITS OWN FLAG, and neither of the two nearby shortcuts works:
   // `!you.alive` would also close the band for a WRECK AWAITING RESPAWN in the
@@ -418,12 +513,56 @@ export function offerView(you: OwnShip | null, spectating: boolean, locked: bool
   // design. So the third state arrives here the same way it arrives everywhere
   // else — as an explicit caller-supplied fact, exactly like `spectating`
   // beside it. With the whole view null the band auto-hides, TAB opens nothing
-  // and every digit pick falls through main.ts's own guard; `healView` below
-  // separately inerts the DAMAGE CONTROL rail on its own `!alive` clause.
+  // and every digit pick falls through main.ts's own guard.
   if (!you || spectating || sinking || you.pts === 0 || you.offer.length === 0) return null;
-  const defs = resolveBoons(you.offer, BOON_CATALOG);
-  if (defs.length !== you.offer.length) return null; // fail-closed: row k == server slot k
-  return { pts: you.pts, options: defs.map((def) => toCard(def, you)), locked, heal: healView(you, locked) };
+  const lines = resolveCards(you.offer, CATALOG);
+  if (lines.length !== you.offer.length) return null; // fail-closed: row k == server slot k
+  return {
+    pts: you.pts,
+    options: lines.map((line) => toCard(line, you, ownSlots)),
+    locked,
+    // Phase-agnostic by construction (see OfferView.redraw): the caller owns it.
+    redraw: 'hidden',
+  };
+}
+
+/**
+ * Pure: may the refit window OPEN ITSELF this frame (Story 8.10, amendment 59)?
+ *
+ * The window opens once per match epoch, on the first frame that carries a
+ * level-zero offer while the match is in `countdown`. The latch is "not yet
+ * THIS epoch", never a numeric rise, which is exactly what makes a reconnect
+ * mid-countdown (whose very first frame already reads `pts 1`) open too — and
+ * what makes a player who closed it with Tab stay closed, because main.ts sets
+ * the latch on the attempt, not on the result.
+ */
+export function shouldAutoOpen(s: { latched: boolean; phase: string; visible: boolean; hasOffer: boolean }): boolean {
+  return !s.latched && s.phase === 'countdown' && !s.visible && s.hasOffer;
+}
+
+/**
+ * Pure: is this offered line REFUSED (ruling 10, widened by the Story 8.14
+ * review F1)? The answer comes from the SHARED `pickRefusal` over the replayed
+ * slot ids AND the held cards, which is byte-for-byte what `world.spendCard`
+ * evaluates before it mutates anything. Two evaluations of one function, so the
+ * greyed face and the server's refusal can never disagree.
+ *
+ * THREE REFUSALS CAN REACH A DEALT CARD: a consumable the belt cannot take, a
+ * line already at its `cap` (the draw deals a capped consumable on purpose —
+ * amendment 94 — and it owns a belt slot, so `canStock` alone said yes to a
+ * sixth copy), and copy 1 of a weapon with Q/E/R full (the draw closes that
+ * kind, so it is the fail-closed twin of the server's own guard).
+ *
+ * THE FOOT WORD DOES NOT BRANCH. Every refusal shows the ratified `SLOTS FULL`
+ * (Eric's copy) — this predicate is a boolean for the face, and no new
+ * player-facing text comes with it.
+ */
+export function cardGreyed(
+  line: CatalogLine,
+  ownSlots: readonly (SlotItemId | null)[],
+  ownCards: readonly string[] = [],
+): boolean {
+  return pickRefusal(ownCards, ownSlots, line.id) !== null;
 }
 
 /**
@@ -434,18 +573,20 @@ export function offerView(you: OwnShip | null, spectating: boolean, locked: bool
  * effectiveStats preview diff). Everything here is pure — `you` is read, never
  * touched.
  */
-function toCard(def: BoonDef, you: OwnShip): OfferCard {
-  const stack = boonStackCount(you.boons, def.id);
+function toCard(line: CatalogLine, you: OwnShip, ownSlots: readonly (SlotItemId | null)[]): OfferCard {
+  const stack = boonStackCount(you.cards, line.id);
   return {
-    id: def.id,
-    category: boonCategoryLabel(def.category),
-    rarity: boonRarityLabel(def.rarity),
-    name: boonName(def.id, stack),
-    lineage: boonLineageLine(def, stack),
-    description: boonDescription(def, you),
-    tooltip: boonTooltipText(def.id),
+    id: line.id,
+    kind: cardKindLabel(cardKind(line, stack)),
+    kindTone: cardKind(line, stack),
+    name: boonName(line.id, stack),
+    tier: cardTierLabel(line, stack),
+    tierStep: cardTierSteps(line, stack),
+    rows: cardStatRows(line, stack, you),
+    hover: cardHoverRows(line, stack, you),
+    greyed: cardGreyed(line, ownSlots, you.cards),
     stack,
-    copies: def.copies,
+    cap: line.cap,
   };
 }
 
@@ -577,11 +718,45 @@ export function spendOutcome(
   return you.pts < latch.pts || frontOfferSignature(you) !== latch.offerSig ? 'success' : 'failed';
 }
 
+/**
+ * Pure: did the MULLIGAN in flight LAND (Story 8.10, amendment 60)?
+ *
+ * A redraw is acked by the FRONT OFFER CHANGING at an UNCHANGED bank: the
+ * server queues `pt` for it, never `bn`, and `pts` does not move (the level is
+ * still banked — the redraw costs nothing). Both halves are asserted here.
+ *
+ * WHY THIS IS STRICTER THAN `spendOutcome` (the 8.10 review, P4). That
+ * function calls a `pts` DROP a success, because for a card pick it is one. A
+ * redraw that cost the player a level did not land — it is something else
+ * entirely (a pick the server processed, a desync) — and reporting it as an
+ * ack would fill the pip and swallow the evidence. So the pip fills only on
+ * the signal a redraw actually produces, and anything else runs out the latch
+ * and fires the denied pulse. It still shares `spendLatchReleased`, so the two
+ * can never disagree about WHEN the latch clears — only about why.
+ *
+ * `latch.acked` (a `bn` receipt) is kept as an accepting clause: an explicit
+ * server receipt outranks every inference, exactly as it does in
+ * `spendOutcome`.
+ *
+ * A redraw that rolls a BYTE-IDENTICAL offer is invisible and times out as
+ * 'failed' (the denied pulse on the button, the pip still hollow) — the same
+ * accepted corner every other spend has when nothing observable moves.
+ */
+export function mulliganLanded(
+  latch: SpendLatch,
+  you: { pts: number; offer: string[] } | null | undefined,
+  nowMs: number,
+): boolean {
+  if (latch.choice !== MULLIGAN_CHOICE) return false;
+  if (!spendLatchReleased(latch, you, nowMs) || !you) return false;
+  if (you.pts !== latch.pts) return false; // a redraw NEVER moves the bank
+  return latch.acked || frontOfferSignature(you) !== latch.offerSig;
+}
+
 // --- DOM ------------------------------------------------------------------------
 
-// The panel carries NO flex `gap`: the pips sit `pipsAbove` over the row and
-// the DAMAGE CONTROL rail sits `stripGap` under it — two different seams, so
-// each child owns its own margin and the DOM matches refitBandLayout() exactly.
+// The panel carries NO flex `gap`: the pips sit `pipsAbove` over the row and own
+// that seam as their own margin, so the DOM matches refitBandLayout() exactly.
 const PANEL_CSS = [
   'position:fixed',
   'left:50%',
@@ -636,37 +811,137 @@ const GHOST_CSS = [
   'z-index:-1',
 ].join(';');
 
-/** One card: square corners, hairline edge, no filled panel bed. The card itself
- *  keeps `overflow` visible because the digit key chip deliberately OVERHANGS
- *  its top-left corner; the clip lives one level in, on the body (below). */
+/**
+ * THE COUNTDOWN FOOTER (Story 8.10, amendment 60) — the seam under the row that
+ * holds the one `REDRAW` button, centred on the row and present ONLY while the
+ * match is in `countdown`. It stretches to the panel's width (the row's, the
+ * panel's widest child) so `justify-content:center` centres the button under
+ * the row rather than under its own content box, and it takes NO pointer
+ * events: only the button inside it does, exactly like the cards.
+ */
+const FOOTER_CSS = [
+  'display:flex',
+  'justify-content:center',
+  'align-self:stretch',
+  `margin-top:${R.redrawGap}px`,
+  `height:${R.redrawHeight}px`,
+  'pointer-events:none',
+].join(';');
+
+/**
+ * The `REDRAW` button — the ratified mock's `.redraw` and DESIGN.md's Primary
+ * Button register: transparent bed, 1px amber hairline, radius 8, 12px mono at
+ * `.18em`, 30px tall on `0 18px` padding, with the amber bloom. 12px is well
+ * above the 9px readable floor (amendment 43), so it rides the band's geometry
+ * and deliberately does NOT reference `--hc-micro`.
+ */
+const REDRAW_CSS = [
+  'display:inline-flex',
+  'align-items:center',
+  'gap:10px',
+  `height:${R.redrawHeight}px`,
+  'padding:0 18px',
+  'box-sizing:border-box',
+  'background-color:transparent', // outline + glow, NEVER a filled slab
+  'border-width:1px',
+  'border-style:solid',
+  `border-radius:${CLIENT_CONFIG.results.controlRadius}px`,
+  `font:600 12px var(--hc-font-mono)`,
+  'letter-spacing:.18em',
+  'text-transform:uppercase',
+  'white-space:nowrap',
+  'cursor:pointer',
+  'pointer-events:auto',
+  `box-shadow:0 0 18px ${cssRgba(CLIENT_CONFIG.colors.amber, 0.28)}`,
+].join(';');
+
+/** The button's own id — the stable handle for tests and the denied pulse. */
+const REDRAW_ID = 'refit-redraw';
+
+/** The ratified word, and the ONLY copy the footer carries (amendment 60 — no
+ *  explanation, no tooltip, no title attribute; 8.20 owns How-to-Play). */
+export const REDRAW_WORD = 'REDRAW';
+
+/** The SPENT button's label alpha. The PIP stays at full alpha: the fill is the
+ *  glyph channel that says "gone", and dimming it too would hide the answer. */
+const REDRAW_SPENT_ALPHA = 0.55;
+
+/** The "once" pip beside the word (mock `.redraw i`): an 8px amber CIRCLE,
+ *  hollow while the redraw is unspent, filled once it is gone. Dual-coded with
+ *  the button's own disabled/dimmed label, never hue alone. */
+const REDRAW_PIP_CSS = [
+  `width:${R.pip}px`,
+  `height:${R.pip}px`,
+  'border-width:1px',
+  'border-style:solid',
+  'border-radius:50%',
+  'display:block',
+  'flex:none',
+].join(';');
+
+/**
+ * Paint the REDRAW control for its two independent dims — the one place they
+ * compose (Story 8.10, amendment 60; the 8.10 review, P5).
+ *
+ * `spent` is PERMANENT for the match: the free redraw is gone, the label drops
+ * to `.55` amber and the pip FILLS (the dual coding the greyed card uses).
+ * `locked` is MOMENTARY: a spend is in flight, so the button takes the cards'
+ * exact locked treatment — a real `disabled` (keyboard and assistive tech see
+ * it, not just the eye), `lockedAlpha`, `cursor:default` — and the pip does NOT
+ * move, because a momentary lock says nothing about whether the redraw is
+ * still there to spend.
+ */
+function paintRedraw(btn: HTMLButtonElement, pip: HTMLElement, spent: boolean, locked: boolean): void {
+  btn.disabled = spent || locked;
+  btn.style.cursor = btn.disabled ? 'default' : 'pointer';
+  btn.style.opacity = locked ? String(R.lockedAlpha) : '1';
+  btn.style.color = spent ? cssRgba(CLIENT_CONFIG.colors.amber, REDRAW_SPENT_ALPHA) : AMBER;
+  pip.style.backgroundColor = spent ? AMBER : 'transparent';
+}
+
+/**
+ * One card — the mock's `.rc` VERBATIM (epic-8 amendment 31): a fixed 216×226
+ * box, square corners, a silver hairline edge over the panel bed, asymmetric
+ * `10px 12px 8px` padding, and a CENTRED column. The card keeps `overflow`
+ * visible because the digit key chip deliberately overhangs its top-left
+ * corner; the clip lives one level in, on the body (below).
+ *
+ * TEXT IS CENTRED NOW, not left-aligned: every mark on the ratified face is a
+ * single `nowrap` line whose width is data-driven, and a centred column is what
+ * makes four cards of different name lengths read as one row.
+ */
 const CARD_CSS = [
   'position:relative',
   `width:${R.card}px`,
   `height:${R.cardHeight}px`,
-  `padding:${R.pad}px`,
+  `padding:${R.pad.top}px ${R.pad.side}px ${R.pad.bottom}px`,
   'box-sizing:border-box',
   'border-width:1px',
   'border-style:solid',
   'border-radius:0', // square corners (DESIGN.md CIC chrome)
   'display:flex',
   'flex-direction:column',
-  'align-items:flex-start',
-  'text-align:left',
+  'align-items:center',
+  'text-align:center',
   'cursor:pointer',
   'pointer-events:auto',
   'flex:none',
 ].join(';');
 
 /**
- * The card BODY — every text row, clipped to the card's inner box.
+ * The card BODY — every mark below the key chip, clipped to the card's inner box.
  *
  * `overflow:hidden` here is the amendment-47 BELT AND BRACES, not the fix: the
- * fix is the copy/type budget that ui/refitCardFit.ts models and
+ * fix is the type/width budget that ui/refitCardFit.ts models and
  * __tests__/refitCardFit.test.ts pins, so no card ever WANTS to paint outside
  * this box. The clip is what guarantees an unforeseen state (a future catalog
  * line, a font fallback wider than the model's 0.605em advance, a browser that
  * rounds line boxes up) still cannot lay text over the neighbouring card or the
  * dimmed corner clusters the band renders above (amendment 40).
+ *
+ * NO FLEX `gap`: the ratified face declares a DIFFERENT `margin-top` per block
+ * (the mock's 4 / 4 / 2 / 6 / 2), so each child owns its own seam and the DOM
+ * matches `refitCardMetrics` exactly.
  *
  * `min-height:0` is load-bearing: a flex item's default `min-height:auto` is its
  * CONTENT height, which would let an over-long body stretch the card instead of
@@ -675,8 +950,7 @@ const CARD_CSS = [
 const CARD_BODY_CSS = [
   'display:flex',
   'flex-direction:column',
-  'align-items:flex-start',
-  `gap:${T.rowGap}px`,
+  'align-items:center',
   'align-self:stretch',
   'flex:1 1 auto',
   'min-height:0',
@@ -691,18 +965,20 @@ const CARD_LOCKED_CSS = `${CARD_CSS};opacity:${R.lockedAlpha};cursor:default`;
 // One panel, built once with the band and re-filled per hover — never one per
 // card, so the pointer moving along the row cannot leave a trail of panels.
 //
-// It hangs off the PANEL rather than the row, with `bottom: calc(100% + gap)`:
-// the panel's own box starts at the queue pips, so that one declaration pins the
-// tooltip's BOTTOM edge `gap` above the band's top edge without anybody having
-// to know the tooltip's height. It grows upward from there, into the clear water
-// above the band, which is exactly the container ui/refitTooltip.ts models.
+// It hangs off the PANEL rather than the row: the panel's own box starts at the
+// queue pips, so `bottom: calc(100% + gap)` pins the tooltip's BOTTOM edge `gap`
+// above the band's top edge without anybody having to know the tooltip's height,
+// and it grows upward from there into the clear water ui/refitTooltip.ts models.
+//
+// SINCE AMENDMENT 37 that is one of TWO placements: a panel too tall for the
+// water opens DOWNWARD from the same edge (`top: 0`) over the card row instead.
+// `showTip` sets whichever applies, so neither edge is declared here.
 //
 // `pointer-events:none` is load-bearing: the panel overhangs the cards' hover
 // targets, and a panel that took the pointer would make its own card's
 // `mouseleave` fire and flicker it out from under the cursor.
 const TIP_CSS = [
   'position:absolute',
-  `bottom:calc(100% + ${REFIT_TIP.gap}px)`,
   `width:${REFIT_TIP.width}px`,
   `padding:${REFIT_TIP.pad}px`,
   'box-sizing:border-box',
@@ -730,191 +1006,272 @@ const TIP_NAME_CSS = [
   'overflow-wrap:anywhere',
 ].join(';');
 
-/** The explanation paragraph — data, so phosphor rather than grey (amendment
- *  16), at the card description's own opacity so the two read as one voice. */
-const TIP_BODY_CSS = [
-  `font:400 ${REFIT_TIP.bodySize}px var(--hc-font-mono)`,
-  `letter-spacing:${REFIT_TIP.bodyLetterSpacing}px`,
-  `line-height:${REFIT_TIP.bodyLineHeight}`,
-  `color:${PHOSPHOR}`,
-  'opacity:0.85',
+/** The CONSUMABLE shape line (Story 8.7, ruling 13) — the same grammar the belt's
+ *  slot tooltip prints, in the AMBER interaction register that panel uses, so a
+ *  player meets one vocabulary for "how does this fire" and not two. */
+const TIP_INTERACTION_CSS = [
+  `font:400 ${REFIT_TIP.nameSize}px var(--hc-font-mono)`,
+  `letter-spacing:${REFIT_TIP.nameLetterSpacing}px`,
+  `line-height:${REFIT_TIP.nameLineHeight}`,
+  `color:${AMBER}`,
   'overflow-wrap:anywhere',
 ].join(';');
 
-/** The mono key-chip glyph (the ONE key-chip family — hotbar slots and helm
- *  glyphs render the same treatment): a bordered digit OVERHANGING the card's
- *  top-left corner by half its size, riding currentColor so the card's
- *  rest/armed state cascades into it. */
+/** The stat block (amendment 187): ONE flex child of the panel, so the panel's
+ *  `rowGap` falls once before it, and its rows stack with no gap of their own
+ *  — exactly what refitTooltipMetrics models. */
+const TIP_ROWS_CSS = ['display:flex', 'flex-direction:column', 'align-self:stretch'].join(';');
+
+/** One stat row: label hard left, value hard right, one mono line box at the
+ *  heading's register (the card face's row grammar, at the hover's 14px). */
+const TIP_ROW_CSS = [
+  'display:flex',
+  'justify-content:space-between',
+  'align-items:baseline',
+  `gap:${REFIT_TIP.statColGap}px`,
+  `font:400 ${REFIT_TIP.nameSize}px var(--hc-font-mono)`,
+  `letter-spacing:${REFIT_TIP.nameLetterSpacing}px`,
+  `line-height:${REFIT_TIP.nameLineHeight}`,
+  'white-space:nowrap',
+].join(';');
+/** A row's label — the secondary-text register the card face's labels use. */
+const TIP_ROW_LABEL_CSS = `color:${META}`;
+/** A row's value — data, so phosphor (amendment 16). */
+const TIP_ROW_VALUE_CSS = [`color:${PHOSPHOR}`, 'font-variant-numeric:tabular-nums'].join(';');
+
+/**
+ * The mono key-chip glyph — the mock's `.rc .kc.big`: a 22px bordered digit
+ * sitting PROUD of the card's top-left corner by 8px (not centred on it, as the
+ * interim face had it), on the `void` bed so the card's own edge does not read
+ * through it, in 11px mono at the secondary-text token with a silver hairline.
+ *
+ * It rides its OWN colours rather than `currentColor` because the ratified chip
+ * is deliberately quieter than the name beside it; `paintCard` flips the whole
+ * chip to amber on arm, exactly as the mock's `.rc.armed .kc.big` does.
+ */
 const KEY_CHIP_CSS = [
   'position:absolute',
-  `left:-${R.keyChip / 2}px`,
-  `top:-${R.keyChip / 2}px`,
+  `left:-${R.keyChipOffset}px`,
+  `top:-${R.keyChipOffset}px`,
   `width:${R.keyChip}px`,
   `height:${R.keyChip}px`,
   'display:flex',
   'align-items:center',
   'justify-content:center',
-  'border:1px solid currentColor',
-  `font:400 ${R.categorySize}px var(--hc-font-mono)`,
+  'border-width:1px',
+  'border-style:solid',
+  `font:400 ${R.keyChipSize}px var(--hc-font-mono)`,
+  'letter-spacing:0',
   'flex:none',
 ].join(';');
 
-// --- THE DAMAGE CONTROL RAIL (cycle 46) ----------------------------------------
+// --- THE RATIFIED CARD FACE (Story 8.7, ruling 11) -----------------------------
 //
-// A one-line rail under the row, in the card's own grammar (square corners,
-// hairline edge, panel bed, amber-on-armed, 80ms denied edge pulse) — at FULL
-// scale since cycle 47, not at "rail scale". It is a real <button>:
-// pointer-events live on it, it is keyboard- and AT-reachable, and it goes
-// genuinely `disabled` when the server would refuse the pick. Focus hygiene is
-// the card's, verbatim (mousedown preventDefault + post-click blur), so a strip
-// click can never fire the gun (MouseInput only counts canvas-target clicks)
-// and can never retain focus.
-const STRIP_CSS = [
-  'position:relative',
-  `height:${R.stripHeight}px`,
-  'align-self:stretch', // the rail is exactly as wide as the ratified row
-  `padding:${R.stripPadY}px ${R.stripPad}px`,
+// Every declaration below is the mock's `.rc` block read literally
+// (`hud-composite-3.html`:160-191, epic-8 amendment 31), with two translations
+// and no third:
+//
+//   • the mock's `em` trackings are resolved to px in REFIT_TYPE, so the fit
+//     model and the DOM measure the same numbers;
+//   • every colour is a `var(--hc-*)` token, and every ALPHA on a token is
+//     composed through `cssRgba` from the numeric token in config.ts — the
+//     module's existing pattern (see TIP_BED / TIP_EDGE). `color-mix` is not
+//     available to us and a raw literal fails the token guard, which scans
+//     comments too.
+
+/** The icon box's edge — the mock's `silver` hairline at .28 — and the same
+ *  silver at .4 for the key chip's. */
+const ICON_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.28);
+const CHIP_EDGE = cssRgba(CLIENT_CONFIG.colors.silver, 0.4);
+/** The armed icon box's edge — mock `.rc.armed .ci`, the `amber` token at .6. */
+const ICON_EDGE_ARMED = cssRgba(CLIENT_CONFIG.colors.amber, 0.6);
+/** A row's bottom hairline — the EXISTING `hairline` token, which IS the colour
+ *  the mock writes there, at full weight. No new token (ruling 11). */
+const ROW_RULE = cssRgba(CLIENT_CONFIG.colors.hairline, 0.95);
+/** The greyed foot's box — `1px` `textSecondary` at .5 (mock `.rc.grey .foot`). */
+const FOOT_BOX_EDGE = cssRgba(CLIENT_CONFIG.colors.textSecondary, 0.5);
+/** An unreached rung — mock `.ladder i.off { opacity:.35 }`. */
+const RUNG_OFF_ALPHA = 0.35;
+/** The NEXT rung's glow radius (px) — mock `box-shadow: 0 0 8px`. */
+const RUNG_GLOW_PX = 8;
+
+/** The icon box — mock `.ci`: a 40px square with a silver hairline, holding a
+ *  24px glyph in phosphor. EMPTY for every line with no linework (ruling 11). */
+const ICON_BOX_CSS = [
+  `width:${R.iconBox}px`,
+  `height:${R.iconBox}px`,
+  'flex:none',
   'box-sizing:border-box',
   'border-width:1px',
   'border-style:solid',
-  'border-radius:0', // square corners (DESIGN.md CIC chrome)
-  'display:flex',
-  'flex-direction:row',
-  'align-items:center',
-  `gap:${R.stripColGap}px`,
-  'text-align:left',
-  'cursor:pointer',
-  'pointer-events:auto',
-  'flex:none',
-  `margin-top:${R.stripGap}px`,
-  'overflow:hidden', // amendment-47 belt and braces; the fit model is the fix
-].join(';');
-
-/** The rail's key chip: the ONE mono key-chip family at FAMILY size since cycle
- *  47 — the 40px rail has the room the 16px one did not, so the "proportional
- *  below" carve-out is retired. Rides currentColor, so the rail's rest/armed
- *  state cascades into it. Unlike the card's chip this one sits INSIDE the box
- *  (no corner overhang): the rail is a single flex row, and an overhanging chip
- *  would collide with the card row's bottom edge one `stripGap` above it. */
-const STRIP_CHIP_CSS = [
-  `width:${R.stripKeyChip}px`,
-  `height:${R.stripKeyChip}px`,
+  'border-radius:0',
   'display:flex',
   'align-items:center',
   'justify-content:center',
-  'border:1px solid currentColor',
-  `font:400 ${R.stripFontSize}px var(--hc-font-mono)`,
-  'flex:none',
+  `color:${PHOSPHOR}`,
 ].join(';');
 
-/** One rail text column. `white-space:nowrap` is the horizontal half of the
- *  container-fit law here: the rail is ONE line high by construction, so a wrap
- *  would paint outside it rather than growing it. */
-const STRIP_TEXT_CSS = [
-  `font:400 ${R.stripFontSize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.categoryLetterSpacing}px`,
+/**
+ * The line NAME — mock `.cn { font: 600 15px/1.15 var(--sans) }`, uppercase,
+ * `.02em`, and `nowrap`.
+ *
+ * SANS, NOT MONO: this is the one display-face mark on the card, and it is the
+ * mark the eye lands on first. The SIZE is decided per name by
+ * `refitCardFit.cardNameSize` (the mock's own `.cn.long` 12.5px step), so the
+ * declaration below carries everything except the size and its tracking.
+ */
+const NAME_CSS = [
+  `color:${REST}`,
+  `line-height:${T.nameLineHeight}`,
+  'text-transform:uppercase',
+  'white-space:nowrap',
+  `margin-top:${T.nameGap}px`,
+].join(';');
+
+/** The KIND word — mock `.ck { font: 10px var(--mono); letter-spacing:.2em }`. */
+const KIND_CSS = [
+  `font:400 ${R.kindSize}px var(--hc-font-mono)`,
+  `letter-spacing:${T.kindLetterSpacing}px`,
   `line-height:${T.lineHeight}`,
   'text-transform:uppercase',
   'white-space:nowrap',
+  `margin-top:${T.kindGap}px`,
+].join(';');
+
+/** The LADDER row — mock `.ladder`: a fixed 16px row of `cap` rungs with the
+ *  `cur → next` numerals beside them. Rendered EMPTY (but still 16px) for a
+ *  consumable or an add-on, so every card in the row keeps one baseline. */
+const LADDER_CSS = [
+  `height:${R.ladderH}px`,
+  `margin-top:${T.ladderGap}px`,
+  'display:flex',
+  `gap:${R.ladderGap}px`,
+  'align-items:center',
+  'justify-content:center',
   'flex:none',
 ].join(';');
 
-/** The amounts column — data, so phosphor (amendment 16: never grey). */
-const STRIP_READOUT_CSS = `${STRIP_TEXT_CSS};color:${PHOSPHOR};opacity:0.85`;
-
-/** The reason word, hard right — the rail's non-color state channel. */
-const STRIP_STATUS_CSS = `${STRIP_TEXT_CSS};margin-left:auto;color:${PHOSPHOR};opacity:0.7`;
-
-/** Every text row declares an EXPLICIT line-height and `overflow-wrap:anywhere`
- *  (amendment 47): the line-height makes the fit model exact rather than
- *  font-dependent, and the wrap rule means even a token wider than the 186px
- *  inner box breaks instead of painting out through the card's side. */
-const TEXT_ROW = [`line-height:${T.lineHeight}`, 'overflow-wrap:anywhere'].join(';');
-
-const CATEGORY_CSS = [
-  `font:400 ${R.categorySize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.categoryLetterSpacing}px`,
-  'text-transform:uppercase',
-  TEXT_ROW,
+/** One rung — mock `.ladder i { width:14px; height:7px; border:1px solid }`,
+ *  coloured by its ABSOLUTE position on the loot-tier ramp. */
+const RUNG_CSS = [
+  `width:${R.rungW}px`,
+  `height:${R.rungH}px`,
+  'box-sizing:border-box',
+  'border-width:1px',
+  'border-style:solid',
+  'border-radius:0',
+  'display:block',
+  'flex:none',
 ].join(';');
 
-// The ladder names are AUTHORED in their final case (amendment 42's canon —
-// "HEAVY SHELLS Mk III"), so there is deliberately NO text-transform here: an
-// uppercase transform would print "MK III" and break the period-authentic mark.
-// `--hc-white` is a UTILITY-only token that theme.ts never projects, so the old
-// `color:var(--hc-white)` here (and in paintCard) resolved to nothing and the
-// name silently inherited the card's currentColor — fixed to the real rest
-// token, which is what it was always meant to be.
-const NAME_CSS = [
-  `font:600 ${R.nameSize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.nameLetterSpacing}px`,
-  `color:${REST}`,
-  TEXT_ROW,
+/** The `cur → next` numerals — mock `.tl { font: 600 12px mono; .14em }`. */
+const TIER_LABEL_CSS = [
+  `font:600 ${R.tierSize}px var(--hc-font-mono)`,
+  `letter-spacing:${T.tierLetterSpacing}px`,
+  `margin-left:${T.tierGap}px`,
+  'white-space:nowrap',
 ].join(';');
 
-/** The category/rarity line: the category tag at rest, the rarity tag beside it
- *  (commons render no rarity span at all — the absence IS the tier). */
-const META_ROW_CSS = [
+/** The arrow between the numerals — mock `.rc .arr { color: var(--t3) }`. */
+const TIER_ARROW_CSS = [`color:${MUTED}`, 'font-weight:400', `margin:0 ${T.arrowMargin - 1}px`].join(';');
+
+/** The five-row grid — mock `.rows { display:grid; grid-template-rows: repeat(5,17px) }`. */
+const ROWS_CSS = [
+  'width:100%',
+  `margin-top:${T.rowsGap}px`,
+  'display:grid',
+  `grid-template-rows:repeat(${R.rowCount}, ${R.rowH}px)`,
+  'flex:none',
+].join(';');
+
+/** One row — mock `.rw`: label hard left, value hard right, a hairline under. */
+const ROW_CSS_LINE = [
   'display:flex',
-  'flex-direction:row',
+  'justify-content:space-between',
   'align-items:baseline',
-  `gap:${R.metaGap}px`,
-  'align-self:stretch',
+  'border-bottom-width:1px',
+  'border-bottom-style:solid',
+  `padding:0 ${T.rowPadX}px`,
+  'overflow:hidden',
 ].join(';');
 
-const RARITY_CSS = [
-  `font:600 ${R.raritySize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.rarityLetterSpacing}px`,
+// THE TWO FLOOR-SEATED REGISTERS (epic-8 amendment 43, Eric 2026-09-17: "Text
+// *MUST* be readable"). The band scales as ONE block, so a 9px mark drew at
+// 8.1px at the 90% tier. Both marks below divide their size AND their tracking
+// by `--hc-micro` — the DOM twin of the bar's Pixi counter-scale, published on
+// the band's root by `place()` — so the rendered glyph never goes under the
+// floor. LONGHANDS, not the `font:` shorthand, for the same reason as the
+// borders above — a `var()` inside a shorthand is a whole-declaration gamble on
+// the parser — and because the shorthand would reset `line-height` to `normal`,
+// which is a font metric no pure model can know: the explicit 1.2 is what makes
+// refitCardFit's box arithmetic the render rather than a guess.
+// Nothing else on the card references the property: every other register is
+// already above the floor and rides the geometry (amendment 31's mock literal).
+const MICRO_SIZE = (px: number): string => `calc(${px}px * var(${MICRO_VAR}, 1))`;
+
+/** A row's LABEL — mock `.rw .l { font: 9px mono; .14em }`, counter-scaled. */
+const ROW_LABEL_CSS = [
+  'font-weight:400',
+  `font-size:${MICRO_SIZE(R.labelSize)}`,
+  'font-family:var(--hc-font-mono)',
+  `line-height:${T.lineHeight}`,
+  `letter-spacing:${MICRO_SIZE(T.labelLetterSpacing)}`,
   'text-transform:uppercase',
-  'margin-left:auto', // the tier sits at the card's outer edge, opposite the category
-  'white-space:nowrap', // the tier tag is one token; the category yields first
-  TEXT_ROW,
+  `color:${META}`,
+  'white-space:nowrap',
 ].join(';');
 
-/** The lineage handrail ("II/V") — Sally's ratified marker that ARMOR BELT
- *  continues REINFORCED HULL. Dim-not-grey (amendment 16): phosphor at reduced
- *  opacity, never a grey. */
-const LINEAGE_CSS = [
-  `font:400 ${R.lineageSize}px var(--hc-font-mono)`,
-  `letter-spacing:${T.lineageLetterSpacing}px`,
-  `color:${PHOSPHOR}`,
-  // The flat 0.7 is gone: `lineageEl` writes a per-rung opacity over this (Eric's
-  // ladder-position colour ruling). The declaration stays as the fallback for
-  // any future consumer that renders a handrail without a known stack.
-  'opacity:0.7',
-  TEXT_ROW,
+/** A row's VALUE — mock `.rw .v { font: 11px mono; .04em; tabular }`. */
+const ROW_VALUE_CSS = [
+  `font:400 ${R.valueSize}px var(--hc-font-mono)`,
+  `letter-spacing:${T.valueLetterSpacing}px`,
+  `color:${REST}`,
+  'font-variant-numeric:tabular-nums',
+  'white-space:nowrap',
 ].join(';');
 
-/** Phosphor, NOT grey (amendment 16): the description is data, and grey text is
- *  retired for load-bearing copy everywhere. */
-const DESC_CSS = [
-  `font:400 ${R.descSize}px var(--hc-font-mono)`,
-  `line-height:${T.descLineHeight}`,
-  `color:${PHOSPHOR}`,
-  'opacity:0.85',
-  'overflow-wrap:anywhere',
+/** The NEXT value inside that cell — mock `.rw .v .nx { color: var(--ph) }`. */
+const ROW_NEXT_CSS = `color:${PHOSPHOR}`;
+/** The in-row arrow — mock `.rw .v .ar { color: var(--t3); margin: 0 4px }`. */
+const ROW_ARROW_CSS = `color:${MUTED};margin:0 ${T.arrowMargin}px`;
+
+/** The FOOT — mock `.foot`: 14px tall, 9px mono at `.24em`, blank unless the
+ *  card is refused. */
+const FOOT_CSS = [
+  'box-sizing:border-box', // the declared height IS the box (refitCardFit measures it)
+  `height:${R.footH}px`,
+  `margin-top:${T.footGap}px`,
+  'font-weight:600',
+  `font-size:${MICRO_SIZE(R.footSize)}`,
+  'font-family:var(--hc-font-mono)',
+  `line-height:${T.lineHeight}`,
+  `letter-spacing:${MICRO_SIZE(T.footLetterSpacing)}`,
+  'text-transform:uppercase',
+  `color:${META}`,
+  'white-space:nowrap',
+  'display:flex',
+  'align-items:center',
+  'justify-content:center',
+  'flex:none',
 ].join(';');
 
-/** The armed (hover/focus) treatment: amber edge + glow, amber chip/category/
- *  name — the hotbar's SELECTED grammar, one family. The RARITY tag keeps its
- *  tier color through the arm (the tier is a fact about the card, not a state
- *  of the pointer), and so does the lineage copy. */
+/**
+ * The armed (hover/focus) treatment — mock `.rc.armed`: amber edge + glow, amber
+ * key chip on the void bed, amber name and amber icon box. The KIND word (in its
+ * kind color — amendment 188), the rows and the ladder stay put through the
+ * arm: they are facts about the card, not states of the pointer. At REST the
+ * edge is the kind token at reduced alpha.
+ */
 function paintCard(card: RefitCardEls, armed: boolean): void {
   const c = armed ? AMBER : REST;
-  card.root.style.borderColor = armed ? AMBER : HAIRLINE;
+  card.root.style.borderColor = armed ? AMBER : KIND_EDGES[card.tone];
   card.root.style.boxShadow = armed ? `0 0 8px ${AMBER}` : 'none';
-  card.root.style.color = c; // the key chip rides currentColor
-  card.category.style.color = armed ? AMBER : PHOSPHOR;
   card.name.style.color = c;
-}
-
-/** One rarity tag span (RARE / EXCLUSIVE) in its tier color. */
-function rarityEl(rarity: string): HTMLSpanElement {
-  const el = document.createElement('span');
-  el.style.cssText = RARITY_CSS;
-  el.style.color = rarity === 'EXCLUSIVE' ? EXCLUSIVE : RARE;
-  el.textContent = rarity;
-  return el;
+  card.icon.style.color = c;
+  card.icon.style.borderColor = armed ? ICON_EDGE_ARMED : ICON_EDGE;
+  card.chip.style.borderColor = armed ? AMBER : card.greyed ? MUTED : CHIP_EDGE;
+  card.chip.style.color = armed ? AMBER : card.greyed ? MUTED : META;
+  card.kind.style.color = KIND_COLORS[card.tone];
 }
 
 /** One plain text line at a prepared style. */
@@ -925,58 +1282,208 @@ function lineEl(css: string, text: string): HTMLSpanElement {
   return el;
 }
 
-/** The lineage handrail ("III/V"), tinted by LADDER POSITION — Eric's colour
- *  ruling, carried on the loot-tier ramp (see `lineageTint`). The numeral
- *  itself is the non-colour channel, so the tint is a fast read and never the
- *  only one. */
-function lineageEl(text: string, stack: number, copies: number): HTMLSpanElement {
-  const el = lineEl(LINEAGE_CSS, text);
-  el.style.color = lineageTint(stack, copies);
+/** The 40px icon box, holding the line's glyph. `id` is the card's LINE id,
+ *  passed straight to the one glyph lookup, which answers every card line
+ *  since cycle 162 (ladders included; the CANNON ladder draws the gun). Only
+ *  the stub DEPTH CHARGE has no glyph, and its box stays EMPTY — no
+ *  placeholder, no word, no invented art (ruling 11). */
+function iconBoxEl(id: string): HTMLDivElement {
+  const box = document.createElement('div');
+  box.style.cssText = ICON_BOX_CSS;
+  box.style.borderColor = ICON_EDGE;
+  const svg = equipmentGlyphSvg(id, R.iconGlyph);
+  if (svg !== null) box.appendChild(svg);
+  return box;
+}
+
+/** The line NAME at the size `refitCardFit` picked for it (15px, or the mock's
+ *  `.cn.long` 12.5px step for the one name too wide for the 192px inner box). */
+function nameEl(name: string): HTMLSpanElement {
+  const el = lineEl(NAME_CSS, name);
+  el.style.font = `600 ${cardNameSize(name)}px var(--hc-font-display)`;
+  el.style.letterSpacing = `${cardNameTracking(name)}px`;
   return el;
 }
 
-/** The render memo's per-card component: every line the face actually shows,
- *  so a copy change with an unchanged id still repaints (see render()). This
- *  SUBSUMES stack changes — a line fitted to a new rung moves its name,
- *  lineage, and current→next numbers, all of which are in here — so no
- *  separate build/stack signature is needed alongside it. */
-function cardSignature(card: OfferCard): string {
-  return [card.id, card.rarity, card.name, card.lineage ?? '', card.description, card.tooltip].join('~');
+/**
+ * The LADDER row: one rung per copy the line carries, filled up to the copies
+ * held, with the NEXT rung filled AND glowing in its own colour and the rest at
+ * `.35`. Beside them, the `cur → next` numerals on the same absolute ramp.
+ *
+ * A line with no ladder (a consumable, an add-on) gets the row and nothing in
+ * it — 16px of deliberate emptiness, so the KIND word, the five rows and the
+ * foot sit on one baseline across all four cards.
+ */
+function ladderEl(card: OfferCard): HTMLDivElement {
+  const row = document.createElement('div');
+  row.style.cssText = LADDER_CSS;
+  if (card.tierStep === null) return row;
+  for (let i = 0; i < card.cap; i += 1) row.appendChild(rungEl(i, card.stack));
+  row.appendChild(tierLabelEl(card.tierStep));
+  return row;
 }
 
-/** The DOM handles of one built card. */
+/** One rung, tinted by its ABSOLUTE position on the loot-tier ramp. */
+function rungEl(index: number, held: number): HTMLElement {
+  const rung = document.createElement('i');
+  rung.style.cssText = RUNG_CSS;
+  const tint = LINEAGE_TIERS[Math.min(index, LINEAGE_TIERS.length - 1)];
+  rung.style.borderColor = tint;
+  if (index < held) rung.style.backgroundColor = tint;
+  else if (index === held) {
+    rung.style.backgroundColor = tint;
+    rung.style.boxShadow = `0 0 ${RUNG_GLOW_PX}px ${tint}`;
+  } else rung.style.opacity = String(RUNG_OFF_ALPHA);
+  return rung;
+}
+
+/** The `cur → next` numerals, each tinted by the tier it names. */
+function tierLabelEl(step: CardTierStep): HTMLSpanElement {
+  const el = document.createElement('span');
+  el.style.cssText = TIER_LABEL_CSS;
+  el.appendChild(numeralEl(step.cur));
+  if (step.next === null) return el;
+  el.appendChild(lineEl(TIER_ARROW_CSS, TIER_ARROW));
+  el.appendChild(numeralEl(step.next));
+  return el;
+}
+
+/** One Roman numeral at its tier's colour on the absolute ramp. */
+function numeralEl(tier: number): HTMLSpanElement {
+  const el = lineEl('', ROMAN_TIERS[Math.min(Math.max(tier, 1), ROMAN_TIERS.length) - 1] ?? String(tier));
+  el.style.color = LINEAGE_TIERS[Math.min(Math.max(tier, 1), LINEAGE_TIERS.length) - 1];
+  return el;
+}
+
+/** The Roman numerals the ladder prints. Longer than any catalog cap, so the
+ *  clamp above is belt and braces rather than the rule. */
+const ROMAN_TIERS: readonly string[] = ['I', 'II', 'III', 'IV', 'V'];
+
+/** The five-row grid: one row per stat the card moves, blank rows after. */
+function rowsEl(rows: readonly CardStatRow[]): HTMLDivElement {
+  const grid = document.createElement('div');
+  grid.style.cssText = ROWS_CSS;
+  for (let i = 0; i < R.rowCount; i += 1) grid.appendChild(statRowEl(rows[i]));
+  return grid;
+}
+
+/** One row — label left, value right — or an EMPTY ruled row past the end of
+ *  the card's stats (the mock's own `<div class="rw"></div>`). */
+function statRowEl(row: CardStatRow | undefined): HTMLDivElement {
+  const el = document.createElement('div');
+  el.style.cssText = ROW_CSS_LINE;
+  el.style.borderBottomColor = ROW_RULE;
+  if (row === undefined) return el;
+  el.appendChild(lineEl(ROW_LABEL_CSS, row.label));
+  el.appendChild(valueEl(row));
+  return el;
+}
+
+/** A row's value cell: `next` alone on an absolute row, `cur → next` on a diff
+ *  row with the NEXT value in phosphor (the mock's `.nx`). */
+function valueEl(row: CardStatRow): HTMLSpanElement {
+  const cell = document.createElement('span');
+  cell.style.cssText = ROW_VALUE_CSS;
+  if (row.cur !== null) {
+    cell.appendChild(lineEl('', row.cur));
+    cell.appendChild(lineEl(ROW_ARROW_CSS, TIER_ARROW));
+  }
+  cell.appendChild(lineEl(ROW_NEXT_CSS, row.next));
+  return cell;
+}
+
+/**
+ * The foot: blank on every card but a REFUSED one, where it carries the boxed
+ * `SLOTS FULL` reason word (mock `.rc.grey .foot`) in `silver` at FULL alpha, so
+ * it still reads through the card's own `greyedAlpha` dim. The dim is never the
+ * refusal's only channel — that is the whole point of the word and the box.
+ */
+function footEl(greyed: boolean): HTMLDivElement {
+  const el = document.createElement('div');
+  el.style.cssText = FOOT_CSS;
+  if (!greyed) return el;
+  el.textContent = SLOTS_FULL;
+  el.style.color = SILVER;
+  el.style.borderWidth = '1px';
+  el.style.borderStyle = 'solid';
+  el.style.borderColor = FOOT_BOX_EDGE;
+  el.style.padding = `0 ${FOOT_BOX_PAD}px`;
+  el.style.height = `${R.footH + FOOT_BOX_GROWTH}px`; // 16px boxed where the bare word is 14
+  return el;
+}
+
+/** The render memo's per-card component: every mark the face actually shows, so
+ *  a copy change with an unchanged id still repaints (see render()). This
+ *  SUBSUMES stack changes — a line fitted to a new rung moves its ladder, its
+ *  numerals and its current→next numbers, all of which are in here. */
+function cardSignature(card: OfferCard): string {
+  const rows = card.rows.map((r) => `${r.label}=${r.cur ?? ''}>${r.next}`).join('|');
+  const hover = card.hover.map((r) => `${r.label}=${r.cur ?? ''}>${r.next}`).join('|');
+  return [card.id, card.kind, card.kindTone, card.name, card.tier ?? '', card.stack, card.cap, rows, hover, card.greyed ? 'g' : ''].join('~');
+}
+
+/** The DOM handles of one built card — the marks `paintCard` repaints on arm. */
 interface RefitCardEls {
   root: HTMLButtonElement;
-  category: HTMLSpanElement;
+  chip: HTMLSpanElement;
+  icon: HTMLDivElement;
+  kind: HTMLSpanElement;
   name: HTMLSpanElement;
+  /** The card's kind — its word color and resting edge (amendment 188). */
+  tone: CardKind;
+  /** Carried so the arm/rest repaint can restore a GREYED chip's own colours
+   *  rather than the resting ones (the refusal outlives a hover). */
+  greyed: boolean;
 }
 
 /** The DOM handles of the hover tooltip (built once with the panel). */
 interface RefitTipEls {
   root: HTMLDivElement;
   name: HTMLSpanElement;
-  body: HTMLSpanElement;
+  /** The CONSUMABLE shape line (Story 8.7, ruling 13) — hidden on every other
+   *  kind, so it spends no vertical rhythm where there is nothing to say. */
+  interaction: HTMLSpanElement;
+  /** The stat block (amendment 187) — one row line per stat, re-filled per hover. */
+  rows: HTMLDivElement;
 }
 
-/** The DOM handles of the DAMAGE CONTROL rail (built once, never rebuilt — it
- *  is the one element in the band that no offer can take away). */
-interface RefitStripEls {
-  root: HTMLButtonElement;
-  chip: HTMLSpanElement;
-  label: HTMLSpanElement;
-  readout: HTMLSpanElement;
-  status: HTMLSpanElement;
+/** Pure: the hover panel's model for one card — the name over its stat rows,
+ *  plus the CONSUMABLE shape line (ruling 13) where the catalog resolves. The
+ *  card's OWN stack feeds the shape line's `×n` (review patch P7), so the hover
+ *  and the belt square can never print different counts. */
+function tipModelFor(copy: OfferCard): RefitTooltipModel {
+  const line = Object.hasOwn(CATALOG, copy.id) ? CATALOG[copy.id] : undefined;
+  return line === undefined
+    ? { name: copy.name, stats: copy.hover }
+    : refitTooltipModel(line, copy.name, copy.hover, copy.stack);
 }
 
-/** The rail's armed (hover/focus) treatment — the card's `paintCard`, one line
- *  high: amber edge + glow and amber chip/label, or the resting hairline. The
- *  READOUT keeps its phosphor through the arm (the amounts are a fact about the
- *  spend, not a state of the pointer), exactly as a card's rarity tag does. */
-function paintStrip(strip: RefitStripEls, armed: boolean): void {
-  strip.root.style.borderColor = armed ? AMBER : HAIRLINE;
-  strip.root.style.boxShadow = armed ? `0 0 8px ${AMBER}` : 'none';
-  strip.root.style.color = armed ? AMBER : REST; // the key chip rides currentColor
-  strip.label.style.color = armed ? AMBER : REST;
+/** Pure: the panel model a hovered card OPENS, or null for no panel — a stub
+ *  (never dealt), or a card with nothing to say (no stat rows AND no consumable
+ *  shape line). A consumable whose rows are empty still opens on its shape
+ *  line (review gate P6). */
+function shownTipModel(copy: OfferCard | undefined): RefitTooltipModel | null {
+  if (copy === undefined || isStubLine(copy.id)) return null;
+  const model = tipModelFor(copy);
+  return model.stats.length === 0 && !model.interaction ? null : model;
+}
+
+/** One stat row of the hover panel: label left, value right. */
+function tipRowEl(row: CardStatRow): HTMLDivElement {
+  const el = document.createElement('div');
+  el.style.cssText = TIP_ROW_CSS;
+  el.append(lineEl(TIP_ROW_LABEL_CSS, row.label), lineEl(TIP_ROW_VALUE_CSS, statValueText(row)));
+  return el;
+}
+
+/** Fill the one hover panel from a model. The SHAPE row is REMOVED rather than
+ *  left blank on the kinds that have none, so it spends no vertical rhythm on
+ *  information that is not there. */
+function fillTip(tip: RefitTipEls, model: RefitTooltipModel): void {
+  tip.name.textContent = model.name;
+  tip.interaction.textContent = model.interaction ?? '';
+  tip.interaction.style.display = model.interaction ? 'block' : 'none';
+  tip.rows.replaceChildren(...model.stats.map(tipRowEl));
 }
 
 /**
@@ -990,12 +1497,10 @@ function paintStrip(strip: RefitStripEls, armed: boolean): void {
  * — main.ts's single per-client `FlashBudget` (`render/flashBudget.ts`), layered
  * on TOP of the 300ms same-source floor and the motion=off suppression in
  * `pulseDenied`, never replacing either. It claims `FLASH_ELEMENTS.refitDenied`
- * once per accepted denial (cards and the DAMAGE CONTROL rail share ONE
- * element, since a denial is a denial regardless of which control it lands
- * on); a `'degrade'` verdict still marks the target — the border still snaps
- * to the denied color for the pulse's full life — it only drops the box-shadow
- * glow to its flat rest value, the same "no shadow at rest" vocabulary
- * `paintCard`/`paintStrip` already use elsewhere. Undefined (no budget wired
+ * once per accepted denial; a `'degrade'` verdict still marks the target — the
+ * border still snaps to the denied color for the pulse's full life — it only
+ * drops the box-shadow glow to its flat rest value, the same "no shadow at
+ * rest" vocabulary `paintCard` already uses elsewhere. Undefined (no budget wired
  * yet, or any caller that never passes one — every existing test constructs a
  * bare `UpgradeMenu`) behaves byte-identical to before this wave: every claim
  * reads as `'animate'`.
@@ -1005,23 +1510,30 @@ export class UpgradeMenu {
   private pipsEl: HTMLDivElement | null = null;
   private rowEl: HTMLDivElement | null = null;
   private ghostEl: HTMLDivElement | null = null;
+  /** The countdown footer and the REDRAW button inside it (Story 8.10) — built
+   *  once with the panel, shown/hidden and repainted per `view.redraw`. */
+  private footerEl: HTMLDivElement | null = null;
+  private redrawEl: HTMLButtonElement | null = null;
+  private redrawPip: HTMLElement | null = null;
   private cards: RefitCardEls[] = [];
-  private strip: RefitStripEls | null = null;
   /** The ONE hover tooltip (R2.17), built with the panel and re-filled per
    *  hover — never one per card, so a pointer running along the row cannot
    *  leave a trail of panels behind it. */
   private tip: RefitTipEls | null = null;
+  /** The copy the OPEN tip is showing, or null when no tip is up. Kept so the
+   *  per-frame `place()` can re-run the amendment-37 above/below decision after
+   *  a viewport change — the decision is a function of the band's geometry, and
+   *  the band moves under a stationary pointer (review gate, cycle 141). */
+  private tipModel: RefitTooltipModel | null = null;
   /** The last rendered view — the tooltip's copy source. Kept as state rather
-   *  than stamped onto the DOM: the panel shows ONE card's explanation at a
+   *  than stamped onto the DOM: the panel shows ONE card's stat rows at a
    *  time, and re-reading it from the view keeps the cards free of copy. */
   private view: OfferView | null = null;
   private shown = false;
   private sig = '';
-  private stripSig = '';
-  /** Denied-pulse bookkeeping: the CHOICE flashing (a card index, or
-   *  HEAL_CHOICE for the rail — hence `null`, not -1, as the nothing-lit
-   *  sentinel: -1 is now a real target), when it ends, and the last trigger
-   *  time (the 300ms same-source floor — deniedFire's grammar). */
+  /** Denied-pulse bookkeeping: the card index flashing (`null` = nothing lit),
+   *  when it ends, and the last trigger time (the 300ms same-source floor —
+   *  deniedFire's grammar). */
   private deniedChoice: number | null = null;
   private deniedUntil = -Infinity;
   private deniedLastAt = -Infinity;
@@ -1029,6 +1541,10 @@ export class UpgradeMenu {
   constructor(
     private readonly onSpend: (choice: number) => void,
     private readonly budget?: FlashBudget,
+    /** The REDRAW press (Story 8.10) — main.ts's `tryMulligan`. Optional, and
+     *  absent it the button simply sends nothing: every existing construction
+     *  site (and every test) predates the countdown footer. */
+    private readonly onRedraw?: () => void,
   ) {}
 
   get visible(): boolean {
@@ -1049,64 +1565,86 @@ export class UpgradeMenu {
     ghost.style.borderColor = PHOSPHOR;
     ghost.style.display = 'none';
     row.appendChild(ghost);
-    this.strip = this.makeStrip();
+    const footer = this.makeFooter();
     this.tip = this.makeTip();
-    // The tooltip is the panel's LAST child so it paints over the cards, and it
-    // is a sibling of the row rather than a member of it: `render()` rebuilds
-    // the row's children wholesale, and a tooltip inside it would be destroyed
-    // on every offer swap.
-    panel.append(pips, row, this.strip.root, this.tip.root);
+    // DOM ORDER IS PINNED: pips, row, countdown footer, tooltip. The tooltip is
+    // the panel's LAST child so it paints over the cards, and it is a sibling
+    // of the row rather than a member of it: `render()` rebuilds the row's
+    // children wholesale, and a tooltip inside it would be destroyed on every
+    // offer swap. The REDRAW footer sits AFTER the row and OUTSIDE it for the
+    // mirror-image reason — the row is exactly the four cards, and the button
+    // is neither a card nor a fifth pick (amendment 60).
+    panel.append(pips, row, footer, this.tip.root);
     document.body.appendChild(panel);
     this.panel = panel;
     this.pipsEl = pips;
     this.rowEl = row;
     this.ghostEl = ghost;
+    this.footerEl = footer;
     return panel;
   }
 
   /**
-   * The DAMAGE CONTROL rail, built ONCE with the panel: chip · label · amounts
-   * · reason word. It is deliberately outside the card row's render memo — the
-   * rail is never drawn and never exhausted, so nothing about an offer may
-   * rebuild it (and a rebuild would strand a lit denied edge on a dead node).
-   * The click routes the SAME path a digit does, through `onSpend(HEAL_CHOICE)`.
+   * The countdown footer, built ONCE with the band and hidden until a view
+   * arrives with `redraw !== 'hidden'` (Story 8.10, amendment 60). One button,
+   * one pip, no tooltip, no title attribute and no copy but the ratified word:
+   * the whole surface is `REDRAW` plus the once-pip that says whether it is
+   * still there to spend.
    */
-  private makeStrip(): RefitStripEls {
+  private makeFooter(): HTMLDivElement {
+    const footer = document.createElement('div');
+    footer.style.cssText = FOOTER_CSS;
+    footer.style.display = 'none';
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.id = STRIP_ID;
-    btn.style.cssText = STRIP_CSS;
-    btn.style.backgroundColor = 'var(--hc-panel)';
-    const chip = document.createElement('span');
-    chip.style.cssText = STRIP_CHIP_CSS;
-    chip.textContent = STRIP_KEY_GLYPH;
-    const label = document.createElement('span');
-    label.style.cssText = STRIP_TEXT_CSS;
-    const readout = document.createElement('span');
-    readout.style.cssText = STRIP_READOUT_CSS;
-    const status = document.createElement('span');
-    status.style.cssText = STRIP_STATUS_CSS;
-    btn.append(chip, label, readout, status);
-    const els: RefitStripEls = { root: btn, chip, label, readout, status };
-    paintStrip(els, false);
-    // Focus hygiene, the card's verbatim: never acquire focus on click, so a
-    // later Space/Enter cannot re-trigger the spend and a focused button cannot
-    // trip the keyboard chokepoint's text-entry guard mid-battle.
+    btn.id = REDRAW_ID;
+    btn.style.cssText = REDRAW_CSS;
+    btn.style.borderColor = AMBER;
+    btn.style.color = AMBER;
+    btn.appendChild(document.createTextNode(REDRAW_WORD));
+    const pip = document.createElement('i');
+    pip.style.cssText = REDRAW_PIP_CSS;
+    pip.style.borderColor = AMBER;
+    btn.appendChild(pip);
+    // Focus hygiene, verbatim from the cards: a focus-retaining control would
+    // let a later Space/Enter re-fire it AND would trip the keyboard
+    // chokepoint's text-entry guard mid-battle.
     btn.addEventListener('mousedown', (e) => e.preventDefault());
-    btn.addEventListener('mouseenter', () => this.armStrip(true));
-    btn.addEventListener('mouseleave', () => this.armStrip(false));
-    btn.addEventListener('focus', () => this.armStrip(true));
-    btn.addEventListener('blur', () => this.armStrip(false));
     btn.addEventListener('click', () => {
       btn.blur();
-      this.onSpend(HEAL_CHOICE);
+      this.onRedraw?.();
     });
-    return els;
+    footer.appendChild(btn);
+    this.redrawEl = btn;
+    this.redrawPip = pip;
+    return footer;
+  }
+
+  /** Paint the footer for this view's redraw state — hidden, the live button
+   *  with a hollow pip, or the spent button: inert, its label at `.55` amber
+   *  and its pip FILLED at full alpha (the dual coding the greyed card uses).
+   *
+   *  `locked` IS THE ROW'S LOCK, MIRRORED (the 8.10 review, P5). While a spend
+   *  is in flight every card is `disabled` and dimmed to `lockedAlpha`; a
+   *  REDRAW that stayed bright and clickable inside that row invited a second
+   *  send the latch would drop on the floor, with no feedback and no pulse.
+   *  The button takes the cards' exact treatment — real `disabled` (so the
+   *  keyboard and assistive tech see it, not just the eye), `lockedAlpha`,
+   *  `cursor:default`. The PIP is untouched: it reports whether the one free
+   *  redraw is still there to spend, which a momentary lock does not change. */
+  private renderFooter(state: RedrawState, locked: boolean): void {
+    const footer = this.footerEl;
+    const btn = this.redrawEl;
+    const pip = this.redrawPip;
+    if (!footer || !btn || !pip) return;
+    footer.style.display = state === 'hidden' ? 'none' : 'flex';
+    if (state === 'hidden') return;
+    paintRedraw(btn, pip, state === 'spent', locked);
   }
 
   /**
    * The hover tooltip's panel (R2.17), built ONCE with the band: heading row
-   * over explanation paragraph. It takes no pointer events and registers no
+   * over the stat rows (amendment 187). It takes no pointer events and registers no
    * listeners of its own — every appearance is driven by a card's mouseenter.
    */
   private makeTip(): RefitTipEls {
@@ -1117,79 +1655,76 @@ export class UpgradeMenu {
     root.style.borderColor = TIP_EDGE;
     const name = document.createElement('span');
     name.style.cssText = TIP_NAME_CSS;
-    const body = document.createElement('span');
-    body.style.cssText = TIP_BODY_CSS;
-    root.append(name, body);
-    return { root, name, body };
+    const interaction = document.createElement('span');
+    interaction.style.cssText = TIP_INTERACTION_CSS;
+    interaction.style.display = 'none';
+    const rows = document.createElement('div');
+    rows.style.cssText = TIP_ROWS_CSS;
+    root.append(name, interaction, rows);
+    return { root, name, interaction, rows };
   }
 
   /**
-   * Show the explanation for the card in slot `index`, or hide the panel.
+   * Show the stat list for the card in slot `index`, or hide the panel.
    *
    * HOVER ONLY, BY RULING (R2.17). The single caller is a card's `mouseenter` /
    * `mouseleave`; nothing on the keyboard path reaches here, because Tab/1–4/5
    * exist precisely so an experienced player can skip the reading.
    *
-   * A card with NO explanation written (fail-open on an unwritten id) shows no
-   * panel at all rather than an empty box — the totality pin in
-   * __tests__/refitTooltipFit.test.ts is what makes that unreachable for any
-   * shipped catalog line.
+   * A STUB (never dealt) or a card with NOTHING to say — no stat rows AND no
+   * consumable shape line — shows no panel at all rather than an empty box; a
+   * consumable whose rows are empty still opens on its shape line (review
+   * gate P6).
    */
   private showTip(index: number | null): void {
     const tip = this.tip;
     if (!tip) return;
-    const card = index === null ? null : this.cards[index];
-    const copy = index === null ? null : this.view?.options[index] ?? null;
-    if (!card || !copy || copy.tooltip === '') {
+    const model = index === null || !this.cards[index] ? null : shownTipModel(this.view?.options[index]);
+    if (!model) {
       tip.root.style.display = 'none';
+      this.tipModel = null;
       return;
     }
-    tip.name.textContent = copy.name;
-    tip.body.textContent = copy.tooltip;
+    fillTip(tip, model);
     tip.root.style.left = `${refitTooltipLeft(index!, this.rowWidth())}px`;
+    this.tipModel = model;
+    this.placeTip(tip.root, model);
     tip.root.style.display = 'flex';
+  }
+
+  /**
+   * The panel's VERTICAL placement (epic-8 amendment 37): above the band while
+   * it fits in the water there, otherwise downward from the band's top edge over
+   * the card row. `bottom: calc(100% + gap)` is the above placement — the
+   * panel's own box starts at the queue pips, so that one declaration pins the
+   * tooltip `gap` above the band — and `top: 0` is the downward one. Exactly one
+   * of the two is ever set; the other is explicitly cleared, because the panel
+   * is re-filled rather than rebuilt and would otherwise keep the last hover's.
+   */
+  private placeTip(root: HTMLElement, model: RefitTooltipModel): void {
+    const p = refitTooltipPlacement(model, this.bandLayout().band);
+    root.style.bottom = p.above ? `calc(100% + ${REFIT_TIP.gap}px)` : 'auto';
+    // `top: 0` is the band's own top edge; a NEGATIVE top is the amendment-37
+    // slide-up a panel taller than the band takes (see `offset`).
+    root.style.top = p.above ? 'auto' : `${-p.offset}px`;
+    root.style.maxHeight = `${p.maxH}px`;
   }
 
   /** The laid-out card row's width — the ONE place the tooltip's horizontal
    *  clamp reads it from, derived exactly as `refitBandLayout` derives it. */
   private rowWidth(): number {
-    return refitBandLayout(window.innerWidth, window.innerHeight).row.w;
-  }
-
-  /** Hover/focus arm — suppressed while the denied edge is lit on the rail, so
-   *  a pointer sitting on the strip cannot paint the refusal away mid-pulse. */
-  private armStrip(armed: boolean): void {
-    if (this.strip && this.deniedChoice !== HEAL_CHOICE) paintStrip(this.strip, armed);
-  }
-
-  /**
-   * Repaint the rail from its state. Memoized on its own signature (NOT the
-   * card row's): hp crossing maxHp must not rebuild four cards, and a fresh
-   * offer must not disturb the rail.
-   */
-  private renderStrip(heal: HealView): void {
-    const strip = this.strip!;
-    const sig = healSignature(heal);
-    if (sig === this.stripSig) return;
-    this.stripSig = sig;
-    strip.label.textContent = heal.label;
-    strip.readout.textContent = heal.readout;
-    strip.status.textContent = heal.status;
-    const armed = heal.state === 'armed';
-    strip.root.disabled = !armed; // real disabled state — keyboard/AT see it too
-    strip.root.style.opacity = armed ? '1' : String(R.lockedAlpha);
-    strip.root.style.cursor = armed ? 'pointer' : 'default';
-    if (this.deniedChoice !== HEAL_CHOICE) paintStrip(strip, false);
+    return this.bandLayout().row.w;
   }
 
   /**
    * One card, top-down: the overhanging digit chip (PINNED as the card's FIRST
-   * span — the digit-to-slot mapping is read off it), the category/rarity meta
-   * row, the ladder name, the lineage handrail, and the rules text. Two of the
-   * Story 2.8 lines are CONDITIONAL: a plain common renders no rarity span and a
-   * single-copy line no lineage span — an empty element would eat vertical
-   * rhythm for information that isn't there. The doctrine-swap line is GONE with
-   * the exclusivity mechanism (Story 7-5 wave 2, R2.6).
+   * span — the digit-to-slot mapping is read off it), the KIND + copy-count
+   * meta row, the line name, the lineage handrail, and the rules text. The
+   * lineage span stays CONDITIONAL (a single-copy line has no rung to print, and
+   * an empty element would eat vertical rhythm for information that isn't
+   * there); the meta row is now UNCONDITIONAL — every line has a kind and a
+   * count. The doctrine-swap line is GONE with the exclusivity mechanism
+   * (Story 7-5 wave 2, R2.6).
    */
   private makeCard(card: OfferCard, choice: number, enabled: boolean): RefitCardEls {
     const btn = document.createElement('button');
@@ -1198,33 +1733,33 @@ export class UpgradeMenu {
     btn.style.backgroundColor = 'var(--hc-panel)';
     const chip = document.createElement('span');
     chip.style.cssText = KEY_CHIP_CSS;
-    chip.style.backgroundColor = 'var(--hc-panel)'; // opaque under the overhang
+    // The mock's `.rc .kc.big { background: var(--void) }` — opaque under the
+    // overhang, and deliberately the VOID rather than the panel bed, so the
+    // chip reads as sitting proud of the card rather than cut out of it.
+    chip.style.backgroundColor = 'var(--hc-void)';
     chip.textContent = `${choice + 1}`;
     btn.appendChild(chip); // FIRST child, always — pinned DOM order
-    const category = document.createElement('span');
-    category.style.cssText = CATEGORY_CSS;
-    category.textContent = card.category;
-    const meta = document.createElement('div');
-    meta.style.cssText = META_ROW_CSS;
-    meta.appendChild(category);
-    if (card.rarity) meta.appendChild(rarityEl(card.rarity));
-    const name = document.createElement('span');
-    name.style.cssText = NAME_CSS;
-    name.textContent = card.name;
-    const desc = document.createElement('span');
-    desc.style.cssText = DESC_CSS;
-    desc.textContent = card.description;
-    // Every text row hangs off the CLIPPED body, never off the button itself:
-    // the button has to keep `overflow` visible for the overhanging key chip,
-    // so the amendment-47 clip lives exactly one level in (CARD_BODY_CSS). The
+    const icon = iconBoxEl(card.id);
+    const name = nameEl(card.name);
+    const kind = lineEl(KIND_CSS, card.kind);
+    // Every mark hangs off the CLIPPED body, never off the button itself: the
+    // button has to keep `overflow` visible for the overhanging key chip, so
+    // the amendment-47 clip lives exactly one level in (CARD_BODY_CSS). The
     // chip stays the button's FIRST child — the pinned digit-to-slot mapping.
     const body = document.createElement('div');
     body.style.cssText = CARD_BODY_CSS;
-    body.append(meta, name);
-    if (card.lineage) body.appendChild(lineageEl(card.lineage, card.stack, card.copies));
-    body.appendChild(desc);
+    body.append(icon, name, ladderEl(card), kind, rowsEl(card.rows), footEl(card.greyed));
     btn.appendChild(body);
-    const els: RefitCardEls = { root: btn, category, name };
+    const els: RefitCardEls = { root: btn, chip, icon, kind, name, tone: card.kindTone, greyed: card.greyed };
+    if (card.greyed) {
+      // The DASHED chip is the refusal's glyph channel and rides through
+      // everything. The DIM is only applied while the card is otherwise live:
+      // the spend-latch dim is ROW-WIDE and darker (`lockedAlpha`), and a
+      // greyed card inside a locked row must read as locked like its
+      // neighbours rather than as the brightest thing on screen.
+      chip.style.borderStyle = 'dashed';
+      if (enabled) btn.style.opacity = String(R.greyedAlpha);
+    }
     paintCard(els, false);
     // Focus hygiene (full-lockout modal): never acquire focus on click —
     // a focus-retaining card would (a) let Space/Enter re-trigger the spend
@@ -1234,7 +1769,7 @@ export class UpgradeMenu {
       btn.disabled = true; // real disabled state, not just opacity — keyboard/AT see it too
       return els;
     }
-    this.wireCard(els, choice);
+    this.wireCard(els, choice, card.greyed);
     return els;
   }
 
@@ -1244,7 +1779,7 @@ export class UpgradeMenu {
    * keyboard path exists precisely so an experienced player can skip the
    * reading). The two pairs stay asymmetric on purpose, and a pin asserts it.
    */
-  private wireCard(els: RefitCardEls, choice: number): void {
+  private wireCard(els: RefitCardEls, choice: number, greyed: boolean): void {
     const btn = els.root;
     btn.addEventListener('mouseenter', () => {
       paintCard(els, true);
@@ -1258,6 +1793,12 @@ export class UpgradeMenu {
     btn.addEventListener('blur', () => paintCard(els, false));
     btn.addEventListener('click', () => {
       btn.blur(); // belt-and-braces with the mousedown preventDefault above
+      // A GREYED card sends NOTHING (ruling 10, UX-DR52): no spend, no latch,
+      // no denied pulse. The refusal was already stated — the card is dim, its
+      // chip is dashed and its foot reads SLOTS FULL — so a pulse would be the
+      // game shouting a fact the player is looking at. The hover panel still
+      // works, because reading a card you cannot take is legitimate.
+      if (greyed) return;
       this.onSpend(choice);
     });
   }
@@ -1287,13 +1828,13 @@ export class UpgradeMenu {
   private render(view: OfferView): void {
     this.ensurePanel();
     this.view = view;
-    // The rail first, on its OWN memo: it outlives every offer, so it must be
-    // repainted even on the frames the card row memo skips (a hull crossing
-    // maxHp mid-window moves nothing about the cards).
-    this.renderStrip(view.heal);
-    const sig = `${view.pts}|${view.options.map(cardSignature).join(',')}|${view.locked ? 1 : 0}`;
+    // `redraw` rides the signature (Story 8.10): the footer appears, fills its
+    // pip and goes inert without any card changing, and a diff that could not
+    // see it would leave a live REDRAW on live water.
+    const sig = `${view.pts}|${view.options.map(cardSignature).join(',')}|${view.locked ? 1 : 0}|${view.redraw}`;
     if (sig === this.sig) return;
     this.sig = sig;
+    this.renderFooter(view.redraw, view.locked);
     // A rebuilt row destroys the buttons the pointer was over, so no mouseleave
     // can ever arrive for them: drop the tooltip with them or it strands, still
     // showing the offer that just left.
@@ -1308,23 +1849,58 @@ export class UpgradeMenu {
     // displaying. Digit glyphs 1..N map row-for-row, left to right.
     this.cards = view.options.map((card, i) => this.makeCard(card, i, !view.locked));
     for (const c of this.cards) row.appendChild(c.root);
-    // A fresh ROW never inherits the last row's pulse. A lit RAIL is untouched:
-    // the rail's node survives the rebuild, so its pulse is still on screen and
-    // still owns the same-source floor it consumed.
-    if (this.deniedChoice !== null && this.deniedChoice >= 0) this.deniedChoice = null;
+    // A fresh ROW never inherits the last row's pulse: the buttons the pulse was
+    // painted on no longer exist. The REDRAW button DOES survive a rebuild, so
+    // a lit one is repainted rather than merely forgotten (its pending clear
+    // no-ops once the register is dropped, which would strand it red).
+    if (this.deniedChoice === MULLIGAN_CHOICE) this.restRedraw();
+    this.deniedChoice = null;
   }
 
-  /** Position the band from the pure layout (never from CSS guesses), and hand
-   *  the hover tooltip the container the same layout leaves above the band. */
+  /**
+   * Position the band from the pure layout (never from CSS guesses), and hand
+   * the hover tooltip the container the same layout leaves above the band.
+   *
+   * SCALE-AWARE SINCE STORY 8.6 (epic-8 amendment 36), which closes the
+   * physical-anchor / CSS-scale mismatch the cycle-47 review ledgered BY
+   * CONSTRUCTION. The band is laid out in LOGICAL units (screen px ÷ the UI
+   * scale — the same units `hudBarLayout` uses), and only the finished anchor
+   * is converted back to CSS px. `PANEL_CSS` scales the panel by
+   * `--hc-ui-scale` about `transform-origin: top center`, so writing
+   * `band.y × s` to `top` puts the panel's rendered bottom at
+   * `(band.y + band.h) × s` = `(bar.y − barGap) × s` — exactly `barGap` scaled
+   * pixels above the bar, which is itself drawn from the same logical layout
+   * scaled by the same factor. The two can no longer drift at any tier.
+   */
   private place(): void {
-    const layout = refitBandLayout(window.innerWidth, window.innerHeight);
-    this.ensurePanel().style.top = `${layout.band.y}px`;
-    // The tooltip grows UPWARD from a bottom edge pinned above the band, so its
-    // container is the clear water between the band's top and the viewport's
-    // margin. The cap is belt-and-braces (the fit pin in refitTooltipFit is the
-    // fix): it guarantees an unforeseen state still cannot lay text over the
-    // queue pips or run off the top of the screen. `band.y` IS the pips' top.
-    if (this.tip) this.tip.root.style.maxHeight = `${refitTooltipMaxPanelH(layout.band.y)}px`;
+    const s = uiScaleFactor();
+    const panel = this.ensurePanel();
+    // AMENDMENT 43, published once per placement: the band's floor-seated
+    // registers (the row labels, the reason-word foot) read this property and
+    // divide their size by it, so a 9px mark still renders at 9px when the
+    // whole band is drawn at 90%. Above 1 it is exactly 1 and nothing moves.
+    panel.style.setProperty(MICRO_VAR, String(domMicroScale(s)));
+    panel.style.top = `${this.bandLayout().band.y * s}px`;
+    // WHICH WAY AN OPEN TIP OPENS IS RE-DECIDED HERE TOO (review gate, cycle
+    // 141). The above/below choice depends on the hovered card's copy AND on the
+    // water above the band, and the band moves whenever the viewport does —
+    // under a pointer that never left the card, so no hover ever fires to fix
+    // it. Deciding it only in `showTip` left the panel opening upward into water
+    // that was no longer there. The copy still comes from the hover.
+    if (this.tipModel && this.tip) this.placeTip(this.tip.root, this.tipModel);
+  }
+
+  /** The band as the panel's own (LOGICAL) coordinate space sees it — the ONE
+   *  place the DOM converts the viewport into the units `refitBandLayout` and
+   *  `hudBarLayout` both work in. */
+  private bandLayout(): RefitBandLayout {
+    const s = uiScaleFactor();
+    // The countdown footer is part of the band's HEIGHT, and the band hangs
+    // from its bottom — so the 44px it adds is what LIFTS the card row while
+    // the REDRAW button stands (amendment 63a), and the row drops straight back
+    // the frame the water goes live.
+    const footerPx = this.view !== null && this.view.redraw !== 'hidden' ? REDRAW_FOOTER_PX : 0;
+    return refitBandLayout(window.innerWidth / s, window.innerHeight / s, CARD_SLOTS, footerPx);
   }
 
   /** TAB toggle: open with this view, or close if already open. */
@@ -1373,7 +1949,7 @@ export class UpgradeMenu {
    * `'degrade'` verdict NEVER skips the mark — the border still snaps to the
    * denied color for the pulse's full life, so the card/rail still reads as
    * refused — it only drops the box-shadow glow to its flat rest value
-   * (`'none'`, same as `paintCard`/`paintStrip`'s resting state), since the
+   * (`'none'`, same as `paintCard`'s resting state), since the
    * glow is the one purely-decorative flourish here and the border alone
    * already carries the information.
    */
@@ -1392,10 +1968,11 @@ export class UpgradeMenu {
     setTimeout(() => this.clearDenied(choice), R.deniedPulseMs);
   }
 
-  /** The element a pick's denied pulse paints: a card, or the DAMAGE CONTROL
-   *  rail for HEAL_CHOICE (the one negative choice on the wire). */
+  /** The element a pick's denied pulse paints: the card in that offer slot —
+   *  or, for the ONE negative the wire carries again (`MULLIGAN_CHOICE`, Story
+   *  8.10), the REDRAW button itself. Every other choice is an offer index. */
   private deniedTarget(choice: number): HTMLElement | null {
-    if (choice === HEAL_CHOICE) return this.strip?.root ?? null;
+    if (choice === MULLIGAN_CHOICE) return this.redrawEl;
     return this.cards[choice]?.root ?? null;
   }
 
@@ -1404,12 +1981,21 @@ export class UpgradeMenu {
     if (this.deniedChoice !== choice) return;
     this.deniedChoice = null;
     this.deniedUntil = -Infinity;
-    if (choice === HEAL_CHOICE) {
-      if (this.strip) paintStrip(this.strip, false);
+    if (choice === MULLIGAN_CHOICE) {
+      this.restRedraw();
       return;
     }
     const card = this.cards[choice];
     if (card) paintCard(card, false);
+  }
+
+  /** The REDRAW button's resting edge — its amber hairline and its bloom, the
+   *  two marks the denied pulse overwrites. */
+  private restRedraw(): void {
+    const btn = this.redrawEl;
+    if (!btn) return;
+    btn.style.borderColor = AMBER;
+    btn.style.boxShadow = `0 0 18px ${cssRgba(CLIENT_CONFIG.colors.amber, 0.28)}`;
   }
 
   /** True while the denied pulse is lit (test/observation seam). */

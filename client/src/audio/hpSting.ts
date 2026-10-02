@@ -69,7 +69,8 @@ export function hpStingFloor(): ToneFloor {
  *
  * The stings shipped unbounded on the reasoning that an edge cannot repeat: the
  * band is only re-armed by recovering above it, so crossing it twice takes a
- * heal in between. That is wrong under sustained fire. DAMAGE CONTROL regen pays
+ * heal in between. That is wrong under sustained fire. A HULL REPAIR pool (and,
+ * out of combat, the regen) pays
  * into `hp` every server tick while incoming rounds subtract from it, so a hull
  * held around 50% crosses the band downward again and again — one sting per
  * crossing, several a second, exactly the machine-gun the floor exists to stop.

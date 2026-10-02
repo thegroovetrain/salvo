@@ -36,7 +36,7 @@
 // world.js outright and makes perception.js type-only for this directory.
 
 import { CONFIG, SHIP_CLASS_IDS, mulberry32, type InputMsg, type Rng, type ShipClassId } from '@salvo/shared';
-import { profileOf } from './profiles.js';
+import { testProfileHull } from './profiles.js';
 import { COMBAT_BRAIN } from './tactics.js';
 import type {
   AnyProfileId,
@@ -88,6 +88,7 @@ const FROZEN_DECISION: BotDecision = Object.freeze({
   aimDist: 0,
   fireSlot: null,
   actSlot: null,
+  held: false,
   spendChoice: null,
 });
 
@@ -139,8 +140,11 @@ export class BotController {
    * uniformly at random from its offer — the tuned-profile instance of the
    * blind-vacuum rows' measurement design, reachable only through the
    * batch-sim harness (`--bot-spend random`), set before any enrollment.
+   * Under 'gun' (2026-10-01, same door: `--bot-spend gun`) a bot takes its
+   * mounted gun's ladder card whenever the hand deals it, else the weighted
+   * scorer — so a campaign can reach and measure tier V guns.
    */
-  spend: 'profile' | 'random' = 'profile';
+  spend: 'profile' | 'random' | 'gun' = 'profile';
 
   constructor(port: BotWorldPort, seed: number) {
     this.port = port;
@@ -198,23 +202,26 @@ export class BotController {
    * behaviour change — a bot's brain does not know where its class came from.
    *
    * `profile` (Story 7-6 wave 4) is the batch-sim harness's door to the
-   * TEST-ONLY rows and obeys the SAME stream discipline: the profile roll
-   * still happens off the class the roll landed on, and is then discarded —
-   * so every downstream draw (callsign order, every later enrollment's class
-   * and mind seed) is byte-identical whether or not a profile was forced. A
-   * forced profile also governs the HULL (each row is hull-bound by
-   * construction), so a caller passes the profile alone. The in-game path
-   * (ArenaRoom.buildBotFleet) never passes one, and the rolled profile comes
-   * from CONFIG.bots.profiles — which contains no test id — so a real Solo vs
-   * AI opponent can never carry a test row.
+   * TEST-ONLY rows and obeys the SAME stream discipline: the personality roll
+   * (ONE pick over the flat CONFIG.bots.profiles list — Story 8.20, Eric
+   * ruling 2026-09-30: any personality on any hull) still happens and is then
+   * discarded — so every downstream draw (callsign order, every later
+   * enrollment's class and mind seed) is byte-identical whether or not a
+   * profile was forced. A forced TEST row governs the HULL (each is
+   * hull-bound through TEST_PROFILE_HULL), so the harness passes the profile
+   * alone; a forced IN-GAME personality never decides the hull — the
+   * rolled/passed hull stands. The in-game path (ArenaRoom.buildBotFleet)
+   * never passes one, and the rolled profile comes from CONFIG.bots.profiles
+   * — which contains no test id — so a real Solo vs AI opponent can never
+   * carry a test row.
    */
   enroll(id: string, hull?: ShipClassId, profile?: AnyProfileId): { name: string; hullId: ShipClassId } {
     this.enrollCounter += 1;
     const rolled = this.rng.pick(SHIP_CLASS_IDS);
     const rolledHull = hull ?? rolled;
-    const rolledProfile = this.rng.pick(CONFIG.bots.profiles[rolledHull]);
+    const rolledProfile = this.rng.pick(CONFIG.bots.profiles);
     const prof: AnyProfileId = profile ?? rolledProfile;
-    const hullId = profile === undefined ? rolledHull : profileOf(profile).hullId;
+    const hullId = (profile === undefined ? null : testProfileHull(profile)) ?? rolledHull;
     const name = this.drawCallsign();
     this.minds.set(id, {
       rng: mulberry32((this.seed + this.enrollCounter * MIND_STREAM_K) >>> 0),
@@ -224,10 +231,13 @@ export class BotController {
       actSeq: 0,
       profile: prof,
       spendRandom: this.spend === 'random',
+      spendGunFirst: this.spend === 'gun',
       phase: botPhase(id, this.cadenceTicks),
       view: null,
       viewAt: -1,
       contacts: new Map(),
+      wakeCells: [],
+      lastSweep: -1,
       targetKey: null,
       posture: 'reposition',
       stuckMs: 0,
@@ -288,11 +298,14 @@ export class BotController {
     mind.view = null;
     mind.viewAt = -1;
     mind.contacts.clear();
+    mind.wakeCells = [];
+    mind.lastSweep = -1;
     mind.targetKey = null;
     mind.posture = 'reposition';
     mind.stuckMs = 0;
     mind.unbeachUntil = 0;
     mind.unbeach = null;
+    mind.torps = null;
   }
 
   /** Observe + decide + emit for one live bot. */
@@ -308,6 +321,8 @@ export class BotController {
     // live bot per tick, EVERY tick (the exactly-once-and-always pin).
     mind.view = e.observe();
     mind.viewAt = this.port.now;
+    mind.chaffUntil = e.chaffUntil; // the bot's OWN cloud (amendment 127 — world-owned)
+    mind.smokeUntil = e.smokeUntil; // the bot's OWN lay window (Story 8.18)
     this.observesLastTickCount += 1;
     // Deliberation (target reselection, posture, spends) runs on this bot's
     // own stagger slot; steering and firing are emitted every tick.
@@ -315,8 +330,8 @@ export class BotController {
     // THE ENGAGE GATE: while closed, the HELD decision — full ring rhythm and
     // economy, zero weapons. Perception stays per-tick either way (a fairness
     // gate may hold a bot's fire; it may never delete its perception).
-    const held = this.engage === 'endgame' && !this.port.zoneEndgameReached;
-    const d = held
+    const gateClosed = this.engage === 'endgame' && !this.port.zoneEndgameReached;
+    const d = gateClosed
       ? this.brain.decideHeld(e.self, mind, this.port, deliberate)
       : this.brain.decide(e.self, mind, this.port, deliberate);
     this.submit(e.id, mind, d);
@@ -338,6 +353,10 @@ export class BotController {
       fireT: 0, // no-claim sentinel: a server-driven shooter never back-dates
       actSeq: mind.actSeq,
       actSlot: d.actSlot ?? 0,
+      // Story 8.15: the machine gun's LEVEL, straight from the decision. A held
+      // tick carries fireSlot null, so `slot` is 0 — the one slot the World's
+      // streamControl lets a level fire — and fireSeq does not move.
+      held: d.held,
       hornSeq: 0, // bots never honk (question-gate B5)
     };
     this.port.submitInput(id, msg);

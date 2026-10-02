@@ -1,6 +1,6 @@
 // Pins the ratified beta class table and the drone/fleet envelope table. The
 // HULL HP DOUBLED in balance cycle 1 (Eric ruling 2026-08-20): TB 125→250,
-// BS 175→350, ML 150→300, alongside CONFIG.damageControl 25→50 (flat amounts
+// BS 175→350, ML 150→300, alongside the paid heal's 25→50 (flat amounts
 // that would otherwise be silently repriced) and the client's toughness pip
 // ladder 100/25→200/50 (which preserves the 2/3/4 readout). The doubling is
 // PROPORTIONAL by design — a flat +100 was measured first and rejected because
@@ -25,6 +25,12 @@
 // speed retune. Hull dims are unchanged. These pins fail the moment any
 // envelope value drifts from the approved table without a matching test
 // change.
+//
+// THE `shift` KEY IS A DELIBERATE ADDITION (Story 8.15, Eric rulings
+// 2026-09-21/28, epic-8 amendments 89(c) and 97–99): hull identity is
+// envelope + a FIXED class Shift — TB `boost`, ML `instantReload`, BS
+// `damageCut`. Every envelope number is untouched; the identity table gains
+// exactly one key per class, knowingly.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -42,6 +48,7 @@ describe('ratified class table (exact Eric-approved values)', () => {
     expect(CONFIG.shipClasses.torpedoBoat).toEqual({
       hull: { length: 100, beam: 9 },
       hp: 250,
+      shift: 'boost', // Story 8.15, amendment 89(c)
       kinematics: {
         maxSpeed: 45,
         reverseSpeed: 15,
@@ -57,6 +64,7 @@ describe('ratified class table (exact Eric-approved values)', () => {
     expect(CONFIG.shipClasses.battleship).toEqual({
       hull: { length: 124, beam: 32 },
       hp: 350,
+      shift: 'damageCut', // Story 8.15, amendments 89(c)/99
       kinematics: {
         maxSpeed: 35,
         reverseSpeed: 9,
@@ -72,6 +80,7 @@ describe('ratified class table (exact Eric-approved values)', () => {
     expect(CONFIG.shipClasses.mineLayer).toEqual({
       hull: { length: 88, beam: 20 },
       hp: 300,
+      shift: 'instantReload', // Story 8.15, amendments 89(c)/97
       kinematics: {
         maxSpeed: 40,
         reverseSpeed: 14,
@@ -138,14 +147,18 @@ describe('SHIP_CLASS_IDS / HULL_IDS', () => {
 describe('drone envelope table (Story 5.6, amendment 34 — retuned off the retired destroyer/cruiser/battleship blocks)', () => {
   it('hp 45/60/75, chevron dims 85×25 / 100×30 / 115×35 (hull dims unchanged)', () => {
     // RETUNED 60/75/90 -> 45/60/75 (Eric ruling 2026-08-16, epic-6 amendment
-    // 24). The ladder is now exactly 3/4/5 hits from the base 15-damage gun,
-    // which at its 5s reload is the ruled 15/20/25s time-to-kill. HULL DIMS DO
-    // NOT MOVE: size still reads on the water at 85/100/115u.
+    // 24). The ladder was exactly 3/4/5 hits from the then base 15-damage gun,
+    // which at its 5s reload is the ruled 15/20/25s time-to-kill. The cannon's
+    // base moved 15 -> 16 on 2026-10-02 (epic-8 amendment 232; drone hp did
+    // NOT move — Eric changes only the numbers he names), so the ratio is no
+    // longer whole, but the SHOTS TO KILL a drone at tier I are still 3/4/5
+    // (48/64/80 >= 45/60/75) and so is the time-to-kill. HULL DIMS DO NOT
+    // MOVE: size still reads on the water at 85/100/115u.
     expect(CONFIG.drones.small.hp).toBe(45);
     expect(CONFIG.drones.medium.hp).toBe(60);
     expect(CONFIG.drones.large.hp).toBe(75);
     for (const [size, shots] of [['small', 3], ['medium', 4], ['large', 5]] as const) {
-      expect(CONFIG.drones[size].hp / CONFIG.gun.damage).toBe(shots);
+      expect(Math.ceil(CONFIG.drones[size].hp / CONFIG.gun.damage)).toBe(shots);
       expect((shots * CONFIG.gun.reloadMs) / 1000).toBe(shots * 5); // 15 / 20 / 25s
     }
     expect(CONFIG.drones.small.hull).toEqual({ length: 85, beam: 25 });
@@ -201,9 +214,11 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     for (const size of DRONE_SIZE_IDS) {
       expect(CONFIG.drones[size].gun).toEqual({ damage: 1, reloadMs: 5000 });
     }
+    // Shots-to-kill is a whole count of clicks (ceil) — the cannon's base is
+    // 16 since 2026-10-02 (amendment 232), so 45/60/75 hp take 3/4/5 clicks.
     const lifetimeDamage = (size: (typeof DRONE_SIZE_IDS)[number]) =>
       Math.floor(
-        ((CONFIG.drones[size].hp / CONFIG.gun.damage) * CONFIG.gun.reloadMs) /
+        (Math.ceil(CONFIG.drones[size].hp / CONFIG.gun.damage) * CONFIG.gun.reloadMs) /
           CONFIG.drones[size].gun!.reloadMs,
       ) * CONFIG.drones[size].gun!.damage;
     expect(lifetimeDamage('small')).toBe(3);

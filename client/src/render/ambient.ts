@@ -246,7 +246,7 @@ export class AmbientScene {
     this.effects = new Effects(stage.layers.wake);
     this.radar.setWakeSources(this.effects.wakeSources, this.map.islands);
     this.fog = new Fog(stage.fogSprite);
-    this.fog.setSightRange(stats.sightRange);
+    this.fog.setSightRange(stats.sightRange, stats.radarRange);
     for (const h of this.world.hulls) {
       const style = contactStyle(h.cls, h.hue);
       this.styles.set(h.id, style);

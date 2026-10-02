@@ -11,45 +11,28 @@
 // the second captain, and hands the arena a fully-formed roster in a single
 // reservation. The arena never learns the mode — it only ever receives seats.
 
-import { ClientState, CloseCode, ErrorCode, Room, ServerError, matchMaker, type AuthContext, type Client } from 'colyseus';
-import {
-  CONFIG,
-  MSG,
-  sanitizeClassId,
-  sanitizeHornId,
-  type QueueStatusMsg,
-} from '@salvo/shared';
-import {
-  protocolVersionError,
-  sanitizeColorPref,
-  sanitizeName,
-  type JoinOptions,
-} from './roomOptions.js';
+import { ClientState, CloseCode, ErrorCode, Room, ServerError, type AuthContext, type Client } from 'colyseus';
+import { CONFIG, MSG, type QueueStatusMsg } from '@salvo/shared';
+import { protocolVersionError, sanitizeGun, type JoinOptions } from './roomOptions.js';
 import { stagingGateError } from '../stagingGate.js';
 import { defaultQueueConfig, queueStep, type QueueConfig, type QueueDecision } from './queue.js';
-import { createLogger, type LogFields, type Logger } from '../log.js';
+import { formArena, sanitizeArenaOptions, type SeatedCaptain } from './formArena.js';
+import { createLogger, type Logger } from '../log.js';
 
-/** The room name the queue seats captains into — must match app.config.ts. */
-const ARENA_ROOM = 'arena';
 /** Telemetry mode tag, mirroring ArenaRoom's MODE. */
 const MODE = 'queue';
 /** Queue evaluation cadence. 1 Hz on the ROOM CLOCK (clock.setInterval, never
- *  setSimulationInterval — there is no simulation here, and a queue that ticks
+ *  setTimestep — there is no simulation here, and a queue that ticks
  *  at 60 Hz would burn a core doing arithmetic on an unchanged pool). One
  *  second is also the resolution QueueStatusMsg's countdown is rendered at. */
 const TICK_MS = 1000;
-
-/** Client-facing message when the arena could not be created or a seat could
- *  not be reserved. Never a silent drop — the client shows this and un-busies
- *  the home screen. */
-const FORM_FAILED_ERROR = 'could not start a match — please try again';
 
 /**
  * The listing-metadata block this room publishes for `GET /liveness` (Story
  * 6.6). It carries exactly what QueueStatusMsg already carries, with the
  * countdown re-expressed as an ABSOLUTE epoch deadline (see resolveDeadlineAt).
  */
-interface QueueListingMeta {
+export interface QueueListingMeta {
   pooled: number;
   min: number;
   cap: number;
@@ -58,53 +41,12 @@ interface QueueListingMeta {
 }
 
 /**
- * The IRoomCache handle matchMaker.createRoom hands back. Derived from the
- * function's own return type rather than imported by name: it is the ONLY
- * arena handle the queue ever holds, and it is deliberately metadata — not a
- * Room instance (see formMatch's D8 note).
+ * A pooled captain: the shared SeatedCaptain shape (formArena.ts — sanitized
+ * identity options plus the gun frozen at THIS door, Story 8.14 amendment 95).
+ * The arena-forming routine and its sanitizers moved there in cycle 167 so the
+ * private lobby forms arenas exactly the way the queue does.
  */
-type RoomCache = Awaited<ReturnType<typeof matchMaker.createRoom>>;
-
-interface PooledCaptain {
-  client: Client;
-  /**
-   * Join options ALREADY run through the arena's own sanitizers (see
-   * sanitizeArenaOptions). They ride the seat reservation verbatim, so
-   * ArenaRoom.onJoin receives exactly the shape it receives today — the
-   * sanitizing simply happens one door earlier.
-   */
-  options: JoinOptions;
-}
-
-/**
- * Render a thrown value into log fields without ever throwing ourselves (the
- * ArenaRoom.describeError posture, trimmed: a failed form is reported, never
- * escalated into a second failure inside the reporting).
- */
-function errorFields(err: unknown): LogFields {
-  if (err instanceof Error) return { error: err.message };
-  try {
-    return { error: String(err) };
-  } catch {
-    return { error: 'unstringifiable' };
-  }
-}
-
-/**
- * Sanitize the client-supplied identity options at the QUEUE door, using the
- * arena's existing pure helpers. Only the plain identity options travel: the
- * dev-only room overrides (matchOverride/zoneOverride/mapSeed) are room-CREATE
- * options and are never forwarded — the queue always creates its arena with
- * `{}`, so a queued client can never reach them at all.
- */
-function sanitizeArenaOptions(options: JoinOptions): JoinOptions {
-  return {
-    name: sanitizeName(options.name),
-    cls: sanitizeClassId(options.cls),
-    horn: sanitizeHornId(options.horn),
-    colorPref: sanitizeColorPref(options.colorPref),
-  };
-}
+type PooledCaptain = SeatedCaptain;
 
 export class StandardQueueRoom extends Room {
   // No maxClients: the pool may legitimately exceed CONFIG.map.playerCap (the
@@ -117,8 +59,11 @@ export class StandardQueueRoom extends Room {
   /**
    * PROTOCOL_VERSION gate, re-implemented at the queue's door and load-bearing
    * there: matchMaker.reserveSeatFor / reserveMultipleSeatsFor call the room's
-   * `_reserveSeat` directly and NEVER call `callOnAuth` (verified in the
-   * installed @colyseus/core 0.17). So the arena's static onAuth no longer runs
+   * `_reserveSeat` directly and NEVER call `callOnAuth` (re-verified in the
+   * installed @colyseus/core 0.18.13: MatchMaker.mjs `reserveSeatFor` :438 and
+   * `reserveMultipleSeatsFor` :461 both go straight to the remote room call,
+   * while `callOnAuth` :509 is reached only from the join/create routes at
+   * :91/:115/:121/:160). So the arena's static onAuth no longer runs
    * for any real player — the queue is the only door left where a stale bundle
    * can be turned away with a readable "refresh" message instead of failing
    * later at schema decode.
@@ -169,7 +114,15 @@ export class StandardQueueRoom extends Room {
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
-    this.pool.push({ client, options: sanitizeArenaOptions(options) });
+    // THE GUN IS FROZEN HERE (Story 8.14, amendment 95) and rides the seat's
+    // `auth`. Nothing at this door can refuse a join any more — the deck door
+    // and its 4402 are gone — so a malformed gun simply coerces to `deckGun`.
+    const arenaOptions = sanitizeArenaOptions(options);
+    // ONLY THE GUN travels: the dev spawn fit (`fitOverride`, amendment 65) is
+    // a direct-door smoke arm and is deliberately NOT written into the seat
+    // reservation — a queued captain can never reach it.
+    const gun = sanitizeGun(options.gun, this.log);
+    this.pool.push({ client, options: arenaOptions, gun });
     this.log.info('queue.join', { sessionId: client.sessionId, pooled: this.pool.length });
     this.armJoiningDeadline(client);
     this.evaluate(true);
@@ -272,6 +225,12 @@ export class StandardQueueRoom extends Room {
    *
    * `decision === null` is the onCreate seed: shape with no countdown.
    *
+   * EVERY KEY OF QueueListingMeta IS WRITTEN ON EVERY CALL, and since Colyseus
+   * 0.18 that is load-bearing rather than tidy: `setMetadata` REPLACES the whole
+   * metadata object (`this._listing.metadata = meta` — @colyseus/core 0.18.13
+   * Room.mjs:663-669) where 0.17 shallow-merged into it, so a partial write is a
+   * SILENT WIPE of every key it omits. colyseus018.test.ts pins the key set.
+   *
    * Policy is untouched by all of this — nothing here decides anything, it only
    * mirrors what queueStep already computed.
    */
@@ -310,15 +269,10 @@ export class StandardQueueRoom extends Room {
   }
 
   /**
-   * Create an arena and seat the first `count` captains into it.
-   *
-   * D8 — the queue may use ONLY matchMaker.createRoom /
-   * reserveMultipleSeatsFor / buildSeatReservation. It must NEVER call
-   * getLocalRoomById or hold a Room instance: that would silently bind the
-   * queue to same-process co-residency with the arena it just created, and the
-   * whole point of routing through the matchmaker is that the arena may live on
-   * another process entirely. Everything below works on the IRoomCache handle
-   * (metadata + roomId), which is process-agnostic by construction.
+   * Create an arena and seat the first `count` captains into it — through
+   * formArena (formArena.ts), the routine this method used to inline. The D8
+   * rule (matchMaker.createRoom / reserveMultipleSeatsFor /
+   * buildSeatReservation only, never a Room instance) is stated and kept there.
    */
   private async formMatch(count: number): Promise<void> {
     this.forming = true;
@@ -333,57 +287,18 @@ export class StandardQueueRoom extends Room {
       // of them has loaded in, so it must know the size of the group it is
       // waiting for). Explicitly NOT a mode, and not a client-supplied option:
       // the arena still never learns what kind of queue formed it.
-      const arena = await matchMaker.createRoom(ARENA_ROOM, { expectedCaptains: seated.length });
-      const reserved = await matchMaker.reserveMultipleSeatsFor(
-        arena,
-        seated.map((p) => ({ sessionId: p.client.sessionId, options: p.options, auth: p.client.auth })),
-      );
-      this.deliverSeats(arena, seated, reserved);
-    } catch (err) {
-      this.failSeats(seated, err);
+      await formArena({
+        createOptions: { expectedCaptains: seated.length },
+        seated,
+        log: this.log,
+        tag: 'queue',
+        formFields: () => ({ pooled: this.pool.length }),
+      });
     } finally {
       this.forming = false;
     }
     // A surplus is a live pool again the instant the form completes.
     this.evaluate(true);
-  }
-
-  /**
-   * Hand each successfully-reserved captain its seat. reserveMultipleSeatsFor
-   * returns a PER-SEAT boolean (the arena's _reserveSeat returns false rather
-   * than throwing when the room is full), so a partial success is normal and
-   * must be handled seat by seat.
-   */
-  private deliverSeats(arena: RoomCache, seated: PooledCaptain[], reserved: boolean[]): void {
-    const refused: PooledCaptain[] = [];
-    for (const [i, pooled] of seated.entries()) {
-      if (!reserved[i]) {
-        refused.push(pooled);
-        continue;
-      }
-      pooled.client.send(MSG.seat, matchMaker.buildSeatReservation(arena, pooled.client.sessionId));
-    }
-    this.log.info('queue.form', {
-      arenaRoomId: arena.roomId,
-      seated: seated.length - refused.length,
-      refused: refused.length,
-      pooled: this.pool.length,
-    });
-    if (refused.length > 0) this.failSeats(refused, new Error('seat reservation refused'));
-  }
-
-  /**
-   * Never silently drop a captain a form failed for: tell them (the SDK
-   * surfaces client.error as onError) and close the connection so the home
-   * screen un-busies rather than sitting on a queue that will never fire. They
-   * are already out of the pool, so nothing here can re-seat them.
-   */
-  private failSeats(seated: PooledCaptain[], err: unknown): void {
-    this.log.error('queue.formFailed', { ...errorFields(err), affected: seated.length });
-    for (const pooled of seated) {
-      pooled.client.error(ErrorCode.MATCHMAKE_UNHANDLED, FORM_FAILED_ERROR);
-      pooled.client.leave(CloseCode.WITH_ERROR);
-    }
   }
 
   /**

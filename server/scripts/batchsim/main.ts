@@ -23,22 +23,17 @@ import { writeFileSync } from 'node:fs';
 import { USAGE, UsageError, buildVariants, parseArgs, type CliOptions } from './args.js';
 import { TunableError, applyOverrides } from './overrides.js';
 import { CONTROL_REGISTRY } from './controls.js';
-import { runBatch, type BatchResult } from './runner.js';
-import { runDeckSim, type DeckAggregate } from './deckSim.js';
+import { runBatch, type BatchResult, type RunSpec } from './runner.js';
 import {
   buildAggregate,
   renderBatchReport,
   renderComparison,
-  renderDeckComparison,
-  renderDeckReport,
   type BatchAggregate,
 } from './report.js';
 import { buildBotAggregate, renderBotReport } from './botReport.js';
 import {
   buildCatalogAggregate,
   renderCatalogLines,
-  renderDeckComposition,
-  renderDeckLines,
   renderFitSlices,
   renderOrdnanceLedger,
 } from './catalogReport.js';
@@ -56,7 +51,7 @@ function tuneLine(tune: Record<string, number>): string {
 }
 
 function headerLines(opts: CliOptions): string[] {
-  const mode = opts.deckOnly ? `deck-only draws=${opts.draws}` : `batch matches=${opts.matches}`;
+  const mode = `batch matches=${opts.matches}`;
   // BOTS JOIN THE RUN KEY (Story 6.4): a bot lobby is a different roster, so
   // the deterministic body's own header must say so. Only printed when there
   // are bots, so every captain-only run key is byte-unchanged.
@@ -74,9 +69,9 @@ function headerLines(opts: CliOptions): string[] {
   // only-when-non-default terms as every flag before them (NFR5).
   const botSpend = opts.botSpend !== 'profile' ? ` botSpend=${opts.botSpend}` : '';
   const botHull = opts.botHull !== null ? ` botHull=${opts.botHull}` : '';
-  const roster = opts.deckOnly
-    ? ''
-    : ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage}${botSpend}${botHull} control=${opts.control}`;
+  // Story 8.15: a forced gun is a different lobby (NFR5), printed only when set.
+  const botGun = opts.botGun !== null ? ` botGun=${opts.botGun}` : '';
+  const roster = ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage}${botSpend}${botHull}${botGun} control=${opts.control}`;
   const tune = Object.keys(opts.tune).length > 0 ? ` tune=${tuneLine(opts.tune)}` : '';
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
@@ -99,6 +94,11 @@ interface JsonVariant {
   tune: Record<string, number>;
   /** The applied hull policy ('rolled' on every pre-existing run). */
   roster: string;
+  /** The bot arm settings (null = the shipped default: seeded gun deal,
+   *  rolled hull, profile spend) — so a JSON report is self-describing. */
+  botGun: string | null;
+  botHull: string | null;
+  botSpend: string | null;
   aggregate: unknown;
   bots?: unknown;
   /** RAW per-match bot rows (--raw only): the per-upgrade evidence surface —
@@ -114,6 +114,25 @@ interface ModeOutput {
   variants: JsonVariant[];
 }
 
+/** The parsed options as the runner's RunSpec (null → undefined = the shipped
+ *  default on every optional arm). Split out of batchMode for the complexity
+ *  budget when --gun (Story 8.15) joined the list. */
+function runSpecOf(opts: CliOptions): RunSpec {
+  return {
+    seed: opts.seed,
+    matches: opts.matches,
+    captains: opts.captains,
+    bots: opts.bots,
+    botProfile: opts.botProfile ?? undefined,
+    botEngage: opts.botEngage,
+    botSpend: opts.botSpend,
+    botHull: opts.botHull ?? undefined,
+    botGun: opts.botGun ?? undefined,
+    roster: opts.roster,
+    control: CONTROL_REGISTRY[opts.control],
+  };
+}
+
 function batchMode(opts: CliOptions): ModeOutput {
   const body = headerLines(opts);
   const rendered: { label: string; agg: BatchAggregate }[] = [];
@@ -123,18 +142,7 @@ function batchMode(opts: CliOptions): ModeOutput {
     const restore = applyOverrides(variant.set, opts.tune);
     try {
       const result = runBatch(
-        {
-          seed: opts.seed,
-          matches: opts.matches,
-          captains: opts.captains,
-          bots: opts.bots,
-          botProfile: opts.botProfile ?? undefined,
-          botEngage: opts.botEngage,
-          botSpend: opts.botSpend,
-          botHull: opts.botHull ?? undefined,
-          roster: opts.roster,
-          control: CONTROL_REGISTRY[opts.control],
-        },
+        runSpecOf(opts),
         opts.quiet ? undefined : progressLogger(variant.label, opts.matches),
       );
       const agg = buildAggregate(result, opts.captains);
@@ -147,19 +155,19 @@ function batchMode(opts: CliOptions): ModeOutput {
       if (botAgg !== null) body.push(...renderBotReport(variant.label, botAgg), '');
       // STORY 7-5 EVIDENCE PASS: per-line catalog reachability + the ordnance /
       // one-hit-kill ledger. Always appended — every run key gains the block.
-      // WAVE 4 (cycle 110): the fits slices and the STRUCTURAL deck-composition
-      // block now print in batch mode too, so the structural denominator sits
-      // beside the observed one — a deliberate golden change to the body.
+      // WAVE 4 (cycle 110): the fits slices print in batch mode too. The
+      // STRUCTURAL deck-composition block that used to sit beside them is GONE
+      // with the decks themselves (Story 8.14) — 8.19 re-cuts the bars.
       const catAgg = buildCatalogAggregate(result);
       body.push(...renderCatalogLines(variant.label, catAgg), '');
       body.push(...renderFitSlices(variant.label, catAgg), '');
-      body.push(...renderDeckComposition(), '');
       body.push(...renderOrdnanceLedger(variant.label, catAgg), '');
       out.variants.push({
         label: variant.label,
         overrides: variant.set,
         tune: opts.tune,
         roster: opts.roster,
+        ...botArmOf(opts),
         aggregate: agg,
         bots: botAgg,
         ...(opts.raw ? { raw: rawRows(result) } : {}),
@@ -173,34 +181,13 @@ function batchMode(opts: CliOptions): ModeOutput {
   return out;
 }
 
-function deckMode(opts: CliOptions): ModeOutput {
-  const body = headerLines(opts);
-  const rendered: { label: string; agg: DeckAggregate }[] = [];
-  const out: ModeOutput = { body, exitCode: 0, variants: [] };
-  for (const variant of buildVariants(opts)) {
-    const restore = applyOverrides(variant.set, opts.tune);
-    try {
-      const agg = runDeckSim({ seed: opts.seed, draws: opts.draws });
-      rendered.push({ label: variant.label, agg });
-      body.push(...renderDeckReport(variant.label, agg), '');
-      body.push(...renderDeckLines(variant.label, agg), '');
-      body.push(...renderDeckComposition(), '');
-      // tune/roster are structurally EMPTY/'rolled' here — parseArgs refuses
-      // both flags with --deck-only — but the envelope shape stays uniform so a
-      // reader never has to branch on the mode to find them.
-      out.variants.push({
-        label: variant.label,
-        overrides: variant.set,
-        tune: opts.tune,
-        roster: opts.roster,
-        aggregate: agg,
-      });
-    } finally {
-      restore();
-    }
-  }
-  if (rendered.length > 1) body.push(...renderDeckComparison(rendered), '');
-  return out;
+/** The bot-arm keys of a JsonVariant (null = the default arm). */
+function botArmOf(opts: CliOptions): Pick<JsonVariant, 'botGun' | 'botHull' | 'botSpend'> {
+  return {
+    botGun: opts.botGun,
+    botHull: opts.botHull,
+    botSpend: opts.botSpend === 'profile' ? null : opts.botSpend,
+  };
 }
 
 /** The --raw surface: per-match outcome + every BotSample, nothing re-derived —
@@ -251,7 +238,7 @@ function gateFailure(opts: CliOptions): number | null {
     console.error(
       'batchSim: refusing --tune without HC_BALANCE=1 — --tune mutates COMBAT ' +
         'CONFIG (gun.*, broadside.*, torpedo.*, mine.*, starShells.*, ' +
-        'speedBoost.*, radarBuoy.*, shipClasses.*), ' +
+        'boost.*, shipClasses.*), ' +
         'a separate surface from the --set/--sweep harness dials.',
     );
     return 2;
@@ -280,7 +267,7 @@ function main(): number {
   if (gate !== null) return gate;
   const t0 = performance.now();
   try {
-    const output = opts.deckOnly ? deckMode(opts) : batchMode(opts);
+    const output = batchMode(opts);
     console.log(output.body.join('\n'));
     // Wall-clock metadata — deliberately OUTSIDE the deterministic body.
     const meta = { generatedAt: new Date().toISOString(), wallMs: Math.round(performance.now() - t0) };

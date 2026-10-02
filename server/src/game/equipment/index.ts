@@ -1,9 +1,12 @@
 // Equipment registry + the Equipment interface (Story 1.2). Every fitted
 // system — the weapons (guns / torpedoes / mines / broadside), non-weapon
 // specials from stories 1.6+ — implements one interface over a ship's loadout
-// SLOT. The click's InputMsg.slot names the slot it activates (0 = the gun,
-// the permanently-selected default; a primed skillshot click carries its
-// slot — the server keeps NO priming state); the World routes each consumed
+// SLOT. Since Story 8.5 a loadout is NINE FIXED-ROLE SLOTS — [gun, boost,
+// weapon ×3, consumable ×4] — identical for every captain hull, with the
+// weapon row filled by cards. The click's InputMsg.slot names the slot it
+// activates (0 = the gun, the permanently-selected default; 1 = the boost on
+// every captain; a primed skillshot click carries its slot — the server keeps
+// NO priming state); the World routes each consumed
 // click (one activation per fireSeq increment) to that slot's row through the
 // single sinking-activation gate (world.ts), but EVERY fitted slot's equipment
 // ticks every tick regardless of selection (so a weapon reloads while another
@@ -15,21 +18,30 @@
 // exposed to rows through the narrow ActivationContext capabilities.
 
 import {
+  isConsumableId,
   type EquipmentId,
   type Island,
   type LitCircle,
   type LoadoutSlot,
+  type MineKind,
   type ShellState,
+  type SlotItemId,
   type WeaponAmmo,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
+import type { FakeSource } from '../fakes.js';
+import { CONSUMABLES, type ConsumableRegistry } from './consumables.js';
 import { gunEquipment } from './guns.js';
-import { torpedoEquipment } from './torpedoes.js';
-import { mineEquipment } from './mines.js';
+import { lightTorpedoEquipment, torpedoEquipment } from './torpedoes.js';
+import { captiveMineEquipment, foulingMineEquipment, mineEquipment } from './mines.js';
 import { boostEquipment } from './boost.js';
 import { broadsideEquipment } from './broadside.js';
 import { starShellsEquipment } from './starShells.js';
-import { radarBuoyEquipment } from './radarBuoy.js';
+import { phosphorShellsEquipment } from './phosphorShells.js';
+import { machineGunEquipment } from './machineGun.js';
+import { flakEquipment } from './flak.js';
+import { instantReloadEquipment } from './instantReload.js';
+import { damageCutEquipment } from './damageCut.js';
 
 /**
  * The exact capabilities equipment needs from the World to activate — no more
@@ -62,17 +74,23 @@ export interface ActivationContext {
    *  BROADSIDE BARRAGE emits a flash PER SHELL (Story 7-5 wave 2, R2.5), where
    *  a multi-barrel gun salvo still collapses to one. */
   spawnBallistic: (shell: ShellState, opts?: BallisticSpawnOptions) => void;
-  dropMine: (x: number, y: number) => void;
-  /** Place a RADAR BUOY at an already-validated point (Story 7-5 wave 2,
-   *  R2.7) — the dropMine sibling: the row validates the rear sector /
-   *  placeRange / water legality and hands the World the clicked point. */
-  dropBuoy: (x: number, y: number) => void;
+  /** Lay a mine at an already-validated point. `kind` is the LAYING LINE's
+   *  (Story 8.13): the row knows which rack it is and stamps the mine, because
+   *  one hull may now hold all three and the owner's stats can no longer say
+   *  which kind a given mine is. */
+  dropMine: (x: number, y: number, kind: MineKind) => void;
+  /** Place a DECOY BUOY at an already-validated point (Story 8.16) — the
+   *  dropMine sibling: the row validates the rear sector / placeRange / water
+   *  legality and hands the World the clicked point. (Replaces the deleted
+   *  radar buoy's `dropBuoy`.) */
+  dropDecoy: (x: number, y: number) => void;
   /**
    * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): the LIVE lit zones owned
-   * by the ACTIVATING ship, as centre+radius circles. The gun row feeds them to
-   * the SHARED reach predicate (`@salvo/shared` `gunReachU`) before it clamps an
-   * out-of-range click; no other row calls it, which is what makes the extension
-   * gun-only.
+   * by the ACTIVATING ship, as centre+radius circles. The three DECK GUN rows
+   * (cannon, machine gun, flak — amendment 114) feed them to the SHARED reach
+   * predicate (`@salvo/shared` `gunReachU`) before they clamp an out-of-range
+   * click; no other row calls it, which is what keeps the extension to the
+   * deck guns.
    *
    * A CAPABILITY, NOT THE ZONE STORE. Rows get a list already filtered to
    * OWN + LIVE — never the zone map, never an owner id or expiry they could
@@ -82,6 +100,67 @@ export interface ActivationContext {
    * asks, pays nothing to build the list.
    */
   ownLitZones: () => readonly LitCircle[];
+  /**
+   * THE REPAIR CAPABILITY (Story 8.8) — HULL REPAIR's whole body, World-owned.
+   * `instantHp` lands on the hull at once (clamped to maxHp); `regenHp` is
+   * ADDED to the ship's paid repair pool, which drains at the one fixed
+   * regenHp/regenMs rate (pools ADD, the rate never changes — the ratified
+   * anti-flask rule: a second copy makes the drain run twice as LONG, never
+   * twice as fast). The self-private `heal` cue is queued here too.
+   *
+   * IT IS A CAPABILITY, NOT AN hp WRITE THE ROW COULD MAKE ITSELF: every
+   * hp-INCREASE path in the World is whitelisted by the Story 8.4 gate pins,
+   * and the cue needs the pending queue. The row keeps only its guards — which
+   * is why "afloat-only" has exactly one home (equipment/consumables/
+   * hullRepair.ts) that the sinking-activation gate cannot bypass.
+   */
+  applyRepair: (instantHp: number, regenHp: number) => void;
+  /**
+   * INSTANT RELOAD's whole body (Story 8.15, the Mine Layer's Shift, Eric
+   * rulings 2026-09-28, epic-8 amendments 97–98), World-owned: for the mounted
+   * gun (slot 0) and every fitted Q/E/R weapon whose reload timer is RUNNING,
+   * that ONE reload completes at once — a per-round pool gains one round
+   * (capped at its max) and its timer drops to zero; the machine gun's
+   * MAGAZINE fills. Nothing else is touched: rounds spent beyond the running
+   * one stay spent, a weapon that is not reloading is left alone, and the belt
+   * (5–8) and the Shift slot itself (1) are never visited. A CAPABILITY rather
+   * than a loadout write the row could make itself, so the walk over the
+   * activating ship's OTHER slots has one home the row cannot widen.
+   */
+  finishReloads: () => void;
+  /**
+   * DAMAGE CUT's whole body (Story 8.15, the Battleship's Shift, amendments
+   * 99–102): open the halving window on the ACTIVATING ship until `until`
+   * (server clock). The World's damage gate reads it; the row only computes
+   * the deadline off its own stats row. Keyed on the activating ship, so a row
+   * can never cut anyone else's damage.
+   */
+  setDamageCut: (until: number) => void;
+  /**
+   * SHIELD BLOCK's whole body (Story 8.16, amendments 100/116–118): write the
+   * ACTIVATING ship's shield seat. A second call REPLACES the seat (fresh hp,
+   * fresh window — never stacked). The World's damage gate is the only reader.
+   */
+  setShield: (shield: { hpLeft: number; until: number }) => void;
+  /**
+   * CHAFF's whole body (Story 8.16, amendment 124(b)(c)): put a false-return
+   * source on the water for the ACTIVATING ship. The World mints the server-
+   * private `seed` (the row never sees an RNG), stamps the owner's id and
+   * captures its sweep period, and files it in `World.chaffSources` under the
+   * owner (amendment 127); a second call REPLACES the owner's source.
+   */
+  setChaff: (source: Omit<FakeSource, 'seed' | 'ownerId' | 'sweepPeriodMs'>) => void;
+  /**
+   * SMOKE SCREEN's whole body (Story 8.18, catalog-v3 R38, amendments
+   * 138–145): open the ACTIVATING ship's lay window — `smokeUntil = now +
+   * CONFIG.smokeScreen.layMs`, `nextPuffAt = now` — so World.stepSmoke drops a
+   * puff at the hull's center (amendment 190) on the very next tick and every `puffIntervalMs` after,
+   * until the window closes (10 puffs per copy). A second call while laying
+   * RESTARTS the clock (fresh 5 s from the re-press — ruling 140; the copy is
+   * spent, the shield/chaff "replaces" posture). Puffs are WORLD-owned
+   * (World.smoke) and outlive the hull.
+   */
+  setSmokeScreen: () => void;
 }
 
 /** Per-spawn options for `ActivationContext.spawnBallistic`. */
@@ -120,14 +199,35 @@ export type ActivationResult = { ok: true } | { ok: false; reason: ActivationDen
  *  rows via slot.state!) asserts non-null. A violation crashes loudly rather
  *  than improvising a zero pool or silently skipping. */
 export interface Equipment {
-  readonly id: EquipmentId;
+  /**
+   * WHAT THIS ROW IS FITTED AS — a `SlotItemId` since Story 8.7, because a
+   * slot may hold a CONSUMABLE line as well as a piece of equipment and both
+   * kinds are dispatched through this one interface (`slotRow` below resolves
+   * either). The EQUIPMENT registry stays keyed by `EquipmentId` and the
+   * consumable registry (equipment/consumables.ts) by `ConsumableId` — the two
+   * id spaces are disjoint and neither record gains a fake row.
+   */
+  readonly id: SlotItemId;
   /** True for systems that launch ordnance (all three today); non-weapon
    *  specials (smoke, boost, …) arrive in stories 1.6+ with false. */
   readonly isWeapon: boolean;
-  /** Tick this slot's reload timer (called for every fitted slot, every tick). */
-  tick(ship: ShipRecord, slot: LoadoutSlot, dtMs: number): void;
+  /** Tick this slot's reload timer (called for every fitted slot, every tick).
+   *  `now` is server time this tick — no row reads it since the machine gun's
+   *  idle clock was deleted (Eric 2026-09-30); kept on the contract for a
+   *  row that needs a server-clock read. */
+  tick(ship: ShipRecord, slot: LoadoutSlot, dtMs: number, now: number): void;
   /** Run activation when this slot is selected and a click landed this tick. */
   activate(ctx: ActivationContext, slot: LoadoutSlot): ActivationResult;
+  /**
+   * THE HELD-FIRE STREAM (Story 8.15, amendment 103) — declared by the MACHINE
+   * GUN alone. Called by the World EVERY TICK for slot 0 only (World.
+   * streamControl, right after the reload ticks and through the same
+   * frozen/dead/sinking gate a click passes), with `held` = the LEVEL off the
+   * ship's LATEST input. A row that declares `stream` is a LEVEL weapon: the
+   * World's click channel skips it entirely (no activation, no denial, no
+   * fire-time bookkeeping on a `fireSeq` edge), so the level alone fires.
+   */
+  stream?(ctx: ActivationContext, slot: LoadoutSlot, held: boolean): void;
 }
 
 /** Freeze the registry AND every row inside it (the SIGNAL_REGISTRY freeze
@@ -137,24 +237,48 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
   return Object.freeze(rows);
 };
 
-/** String-keyed registry of every fitted system, by EquipmentId. Rows are
- *  added at authoring time only; the World resolves a slot's equipmentId here. */
-export const EQUIPMENT: Readonly<Record<EquipmentId, Equipment>> = deepFreezeRows({
+/**
+ * String-keyed registry of every fitted system, by EquipmentId. Rows are
+ * added at authoring time only; the World resolves a slot's equipmentId here.
+ *
+ * PARTIAL, NOT TOTAL (Story 8.1) — by TYPE. Since Story 8.15 every
+ * `EquipmentId` HAS a row (missile and monitor were CUT, amendment 89e; the
+ * machine gun, the flak gun and the two new Shifts were built), so the record
+ * happens to be total in content, but the type stays `Partial` on purpose:
+ * the registry holds only what exists, and the invariant that keeps that safe
+ * is pinned in equipment.test.ts — EVERY NON-STUB catalog `slotFill` target
+ * and every gun ladder's `appliesTo` host has a row here, and every STUB
+ * target has none. World.applyCard refuses to fit an id with no
+ * row, and both dispatch sites (`tick`, `activate`) resolve fail-closed — so
+ * an unbuilt weapon can never reach a slot, and could do nothing there if it
+ * somehow did.
+ */
+export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deepFreezeRows({
   gun: gunEquipment,
-  torpedo: torpedoEquipment,
-  mine: mineEquipment, // Story 1.8: flipped to a non-weapon (instant drop-astern ability)
-  speedBoost: boostEquipment, // Story 1.6: the first non-weapon (ability) row
+  heavyTorpedo: torpedoEquipment, // Story 8.1: the shipped torpedo under its v3 id
+  lightTorpedo: lightTorpedoEquipment, // Story 8.13: the twin-beam fish (catalog-v3 R18)
+  navalMines: mineEquipment, // Story 8.1: the shipped mine under its v3 id
+  captiveMines: captiveMineEquipment, // Story 8.13: the moored torpedo launcher (R25)
+  foulingMines: foulingMineEquipment, // Story 8.13: the slowing rack (amendment 81)
+  boost: boostEquipment, // Story 1.6 / 8.9: the universal slot-1 ability (the first non-weapon row)
   broadside: broadsideEquipment, // Story 7-5 wave 2: the Battleship's twin-beam barrage (replaced the cannon)
   starShells: starShellsEquipment, // Story 1.7: the Battleship's lit-zone flare
-  radarBuoy: radarBuoyEquipment, // Story 7-5 wave 2: the Mine Layer's click-placed radar relay (replaced the decoy)
+  phosphorShells: phosphorShellsEquipment, // Story 8.17: the burning-zone shell (amendment 131)
+  machineGun: machineGunEquipment, // Story 8.15: the held-fire magazine stream (amendments 103–104)
+  flak: flakEquipment, // Story 8.15: the air-bursting pickable gun (amendment 105)
+  instantReload: instantReloadEquipment, // Story 8.15: the Mine Layer's Shift (amendments 97–98)
+  damageCut: damageCutEquipment, // Story 8.15: the Battleship's Shift (amendments 99–102)
 });
 
 /**
- * SLOT-ALIGNED ammo for OwnShip.ammo: length SLOT_COUNT, one entry per loadout
- * slot in slot order — null iff that slot is empty (mirrors the LoadoutSlot
- * invariant: state is null iff equipmentId is null), else a FRESH
- * {n, reloadMsLeft} copy of the slot's live pool. maxAmmo/reloadMs are NOT on
- * the wire — the client derives them from its own effective-stats computation.
+ * SLOT-ALIGNED ammo for OwnShip.ammo: length SLOT_COUNT (NINE since Story
+ * 8.5), one entry per loadout slot in slot order — null iff that slot is empty
+ * (mirrors the LoadoutSlot invariant: state is null iff equipmentId is null),
+ * else a FRESH {n, reloadMsLeft} copy of the slot's live pool. It maps over
+ * the loadout, so the widening from four slots to nine cost it no edit; the
+ * empty weapon and consumable slots simply ride as `null`. maxAmmo/reloadMs
+ * are NOT on the wire — the client derives them from its own effective-stats
+ * computation, and the equipment id per slot by replaying `OwnShip.cards`.
  */
 export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
   return ship.loadout.map((slot) =>
@@ -162,24 +286,64 @@ export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
   );
 }
 
+/**
+ * THE ONE LOOKUP FOR A SLOT'S CONTENT (Story 8.7). A slot holds a `SlotItemId`
+ * — equipment in slots 0–4, a CONSUMABLE line in the belt (5–8) — and the two
+ * live in SEPARATE registries, each total over nothing and partial over its own
+ * id space. This narrows through the shared guard (never a cast) and answers
+ * with whichever row owns the id, or `undefined` when nothing is built for it.
+ *
+ * Every dispatch site reads through here — the per-slot tick loop, the two
+ * activation channels' walls and the sinking-activation gate — so an id with no
+ * module behind it fails closed at ALL of them, exactly as an unbuilt weapon
+ * already did. `consumables` is the World's injected registry (production holds
+ * seven built lines since Story 8.18; only the depth charge is still `stub`);
+ * the default keeps directed callers honest.
+ *
+ * IT LIVES HERE, NOT IN consumables.ts, for one mechanical reason: it needs
+ * `EQUIPMENT`, and consumables.ts imports this module for the `Equipment`
+ * interface — TYPES ONLY, which erase, so there is no runtime import cycle. A
+ * value import back the other way would create one.
+ */
+export function slotRow(
+  id: SlotItemId | null,
+  consumables: ConsumableRegistry = CONSUMABLES,
+): Equipment | undefined {
+  if (id === null) return undefined;
+  return isConsumableId(id) ? consumables[id] : EQUIPMENT[id];
+}
+
 export { freshAmmo, tickReload, consume } from './ammo.js';
-export { boostEquipment } from './boost.js';
 export {
-  BUOY_SIZE_U,
-  addBuoy,
-  buoySilhouette,
-  buoyTarget,
-  radarBuoyEquipment,
-  scatterJamFakes,
-  type BuoyState,
-  type JamFake,
-} from './radarBuoy.js';
+  CONSUMABLES,
+  buildConsumableRegistry,
+  consumableRow,
+  type ConsumableEffect,
+  type ConsumableRegistry,
+  type ConsumableRow,
+} from './consumables.js';
+export { boostEquipment } from './boost.js';
+export { machineGunEquipment } from './machineGun.js';
+export { flakEquipment } from './flak.js';
+export { instantReloadEquipment } from './instantReload.js';
+export { damageCutEquipment } from './damageCut.js';
 export { broadsideAim, broadsideEquipment } from './broadside.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';
-export { torpedoEquipment, fireTorpedo } from './torpedoes.js';
+export { torpedoEquipment, lightTorpedoEquipment, fireTorpedo, type TorpedoLineId } from './torpedoes.js';
+export {
+  launchTorpedo,
+  torpedoBearing,
+  type TorpedoLaunchContext,
+  type TorpedoLaunchOptions,
+  type TorpedoRow,
+} from './torpedoCore.js';
 export {
   mineEquipment,
+  captiveMineEquipment,
+  foulingMineEquipment,
+  MINE_ROW_ID,
+  configTriggerRadius,
   addMine,
   captiveTorpedo,
   checkMineTriggers,
@@ -188,6 +352,7 @@ export {
   hullFor,
   mineBlastVictims,
   minePlacePoint,
+  type MineLineId,
   type MineState,
   type MineTripRules,
   type MineTrigger,

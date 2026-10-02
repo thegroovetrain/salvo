@@ -53,13 +53,16 @@ import {
   CONFIG,
   isAfloat,
   isSinking,
+  type GunId,
   type HullId,
+  type LineId,
   type MatchPhase,
   type ResultsMsg,
   type ResultsRow,
 } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { isHuman, isParticipant, type ShipRole } from './participants.js';
+import type { HandRecord } from './matchRecord.js';
 
 /**
  * BOARDING GRACE (Story 6.1, epic-6 amendment 8) — the backstop under the
@@ -105,6 +108,17 @@ export interface MatchTimings {
   expectedCaptains?: number;
   /** Boarding backstop (see BOARDING_GRACE_MS). Overridable for tests. */
   boardingGraceMs?: number;
+  /**
+   * DEV SMOKE ARM (Story 8.10, from `matchOverride.mulligan`, HC_DEV_OPTIONS
+   * only): perform the level-zero MULLIGAN for every captain on the first
+   * update() tick after the countdown arms, through the very same
+   * `world.mulligan()` the wire uses. A headless smoke then sees offer A on
+   * its first countdown frame and offer B on the next WITHOUT sending
+   * anything, and the captain's own later sentinel is the no-op it should be
+   * (the one redraw is spent). Never set in production — `sanitizeRoomOptions`
+   * strips the whole matchOverride without the dev env.
+   */
+  autoMulligan?: boolean;
 }
 
 export function defaultTimings(): MatchTimings {
@@ -316,7 +330,7 @@ function isAfloatCaptain(s: ShipRecord): boolean {
 }
 
 /** Snapshot of a participant's identity + tallies (survives their ship's removal). */
-interface Participant {
+export interface Participant {
   name: string;
   /** The hull's ROLE at activation (Story 6.3 — was the `isDrone` boolean).
    *  Read only through participants.ts's predicates. */
@@ -329,6 +343,33 @@ interface Participant {
    *  end-of-match telemetry. */
   pveKills: Record<string, number>;
   damageDealt: number;
+  /** THE BUILD AND THE HAND LOG (Story 8.21, R3 "leavers yes"): the seat's
+   *  gun, the fitted card ids (fit order, repeats intact), every hand dealt and
+   *  the levels still unspent — snapshotted with the tallies at leave and at
+   *  finish, COPIED (hands deep), so `buildMatchRecord` reads a leaver whose
+   *  record is long gone. Server-private: never on `ResultsMsg`. */
+  gun: GunId;
+  cards: LineId[];
+  hands: HandRecord[];
+  bankedLevels: number;
+}
+
+/** A fresh participant snapshot of `ship` — every field COPIED, never aliased
+ *  (the snapshot outlives the record). The one constructor activate(), the
+ *  finish backfill and snapshotStats share (Story 8.21). */
+function participantOf(ship: ShipRecord): Participant {
+  return {
+    name: ship.name,
+    role: ship.role,
+    hullId: ship.hullId,
+    kills: ship.kills,
+    pveKills: { ...ship.pveKills },
+    damageDealt: ship.damageDealt,
+    gun: ship.gun,
+    cards: [...ship.cards] as LineId[],
+    hands: ship.hands.map((h) => ({ ...h, offered: [...h.offered] })),
+    bankedLevels: ship.bankedLevels,
+  };
 }
 
 export class Match {
@@ -379,6 +420,13 @@ export class Match {
    *  exit/finish). Telemetry reads all of it; the results rows read the
    *  captains only. */
   private readonly participants = new Map<string, Participant>();
+  /** Captains who left DURING THE COUNTDOWN — dealt the opening hand (maybe
+   *  redrawn, maybe spent) and gone before 0:00. The activation roster above
+   *  is rebuilt without them, so they live here and reach the match record
+   *  with placement 0 and no kills (Eric 2026-09-30, Story 8.21 review gate:
+   *  *"If the game starts, I want the player's choices tracked."*). Server-
+   *  private; one match per room, so never cleared. */
+  private readonly countdownLeavers = new Map<string, Participant>();
   private finishedAt = 0;
   private disconnectFired = false;
 
@@ -408,6 +456,8 @@ export class Match {
    *  so it strictly bounds every window it could ever wait on. Past it the
    *  finish fires regardless of lifecycle state. */
   private finishDeadline = 0;
+  /** DEV smoke arm armed for the next tick (MatchTimings.autoMulligan). */
+  private autoMulliganPending = false;
 
   constructor(
     private readonly world: World,
@@ -445,6 +495,14 @@ export class Match {
     } else if (this.phase === 'countdown' && !enough) {
       this.phase = 'waiting';
       this.countdownEndT = 0;
+      // The start line stands down with the countdown (Story 8.10): no
+      // mulligan while the room waits. The banked level and the hand STAY —
+      // the room is still pre-live, and a re-arm grants nothing more to a hull
+      // that already holds its opening (World's per-ship `openingGranted`),
+      // while a captain who joins during the wait gets one at their own
+      // re-arm.
+      this.world.countdownOpen = false;
+      this.autoMulliganPending = false;
       this.applyPolicy();
       // A QUEUE-FORMED room is never unlocked (Eric ruling 2026-08-15: "No more
       // late arrivals"). Its cohort was fixed the moment the queue formed it, so
@@ -513,6 +571,7 @@ export class Match {
       this.departed.add(id); // reapDeparted: remove at founder, not before
       this.world.sinkShip(id); // no killer — credits nobody by construction
     } else if (!this.departed.has(id)) {
+      this.keepCountdownLeaver(id, ship); // before the hull goes (Story 8.21)
       // Not the repeat-leave case: core can route onLeave twice (the
       // drop -> failed-reconnect path), and a second call for a hull we
       // already scuttled must not truncate the deferred window.
@@ -520,6 +579,14 @@ export class Match {
     }
     this.notifyRosterChanged();
     if (this.phase === 'active') this.checkWin();
+  }
+
+  /** A captain leaving DURING THE COUNTDOWN keeps its choices for the record
+   *  (see countdownLeavers): snapshotted here, before onPlayerLeave removes
+   *  the hull. Any other phase, or a non-participant, keeps nothing. */
+  private keepCountdownLeaver(id: string, ship: ShipRecord | undefined): void {
+    if (ship === undefined || this.phase !== 'countdown' || !isParticipant(ship)) return;
+    this.countdownLeavers.set(id, participantOf(ship));
   }
 
   /**
@@ -535,7 +602,15 @@ export class Match {
       const ship = this.world.ships.get(id);
       if (ship !== undefined && isSinking(ship.lifecycle)) continue; // window still open
       this.departed.delete(id);
-      if (ship !== undefined) this.world.removeShip(id);
+      if (ship === undefined) continue;
+      // Story 8.21 (review gate, both hunters): the scuttled hull stays on the
+      // water for its window and can still be CREDITED there — a torpedo it
+      // launched sinks someone, the kill banks a level, a hand is dealt. The
+      // leave-time snapshot predates that; refreshing it here, at the hull's
+      // last moment, makes the leaver's record the same whether the match
+      // finished during the window (finish re-snapshots) or after it.
+      this.snapshotStats(ship);
+      this.world.removeShip(id);
     }
   }
 
@@ -580,6 +655,7 @@ export class Match {
   /** Advance the state machine one tick. Call right after world.step(). */
   update(): void {
     this.reapDeparted(); // scuttled leavers whose window ran out (Story 6.7)
+    this.tickAutoMulligan(); // DEV smoke arm only — a no-op on every other path
     // THE BOARDING BACKSTOP'S CLOCK (amendment 8). boardingReady() turns true
     // on its own timer with no roster event to announce it, so a waiting
     // boarding room re-runs the one gate that arms. Confined to queue-formed
@@ -616,8 +692,36 @@ export class Match {
   private startCountdown(): void {
     this.phase = 'countdown';
     this.countdownEndT = this.world.now + this.timings.countdownMs;
+    // THE OPENING (Story 8.10, FR48): the sim learns the phase through ONE
+    // flag — it holds no Match reference — and every participant banks its
+    // level-zero offer BEFORE the policy and the lock, so the very first
+    // countdown frame a client receives already carries `pts 1 / lvl 0 /
+    // offer[4]`. Called on EVERY arming: `World.grantOpening()` is idempotent
+    // per hull (the 8.10 review, P2), so a countdown that cancelled back to
+    // `waiting` and re-armed banks nothing extra for the hulls that stayed and
+    // a full opening for whoever joined in between.
+    this.world.countdownOpen = true;
+    this.world.grantOpening();
     this.applyPolicy();
     this.hooks.lock();
+    // The dev smoke arm redraws on the NEXT tick, not this one (see
+    // MatchTimings.autoMulligan): a smoke must be able to see offer A first.
+    this.autoMulliganPending = this.timings.autoMulligan === true;
+  }
+
+  /**
+   * The dev smoke arm (MatchTimings.autoMulligan), run unconditionally from
+   * update() so the state machine's own branch count does not move. Fires at
+   * most once per countdown: the first tick after the arm, for every captain,
+   * through the public wire path. A bot is deliberately skipped — bots never
+   * redraw (amendment 60).
+   */
+  private tickAutoMulligan(): void {
+    if (!this.autoMulliganPending) return;
+    this.autoMulliganPending = false;
+    for (const s of this.world.ships.values()) {
+      if (s.role === 'captain') this.world.mulligan(s);
+    }
   }
 
   /** Countdown end → active. Field reset, THEN the storm anchors — which is
@@ -630,6 +734,11 @@ export class Match {
    *  the shipped re-roll, which is load-bearing there — captains really sail
    *  away and fire during its waiting phase. */
   private activate(): void {
+    // THE START LINE IS GONE FIRST (Story 8.10): the mulligan window shuts
+    // before anything else moves, so nothing inside this transition can
+    // redraw a hand on live water.
+    this.world.countdownOpen = false;
+    this.autoMulliganPending = false;
     this.world.resetForMatchStart(this.boardingRoom);
     this.world.startZone(this.world.now);
     this.phase = 'active';
@@ -646,16 +755,10 @@ export class Match {
     // rosterSize/rosterByClass/killsByClass must count every hull). They are
     // NOT shown in the RESULTS: resultsMsg() filters them out and
     // computePlacements() places captains only (Eric ruling 2026-08-11).
-    for (const s of this.world.ships.values()) {
-      this.participants.set(s.id, {
-        name: s.name,
-        role: s.role,
-        hullId: s.hullId,
-        kills: 0,
-        pveKills: {},
-        damageDealt: 0,
-      });
-    }
+    // (The tallies read 0 here: resetForMatchStart's redeploy just zeroed
+    // kills/pveKills/damageDealt. The build and hand log carry through — the
+    // countdown's opening hand is part of the record, Story 8.21.)
+    for (const s of this.world.ships.values()) this.participants.set(s.id, participantOf(s));
     this.applyPolicy();
   }
 
@@ -676,14 +779,7 @@ export class Match {
     // resultsMsg()/computePlacements() — simplest option that keeps every
     // downstream read (snapshotStats, resultsMsg) correct with no other change.
     if (aliveWinner && !this.participants.has(aliveWinner.id)) {
-      this.participants.set(aliveWinner.id, {
-        name: aliveWinner.name,
-        role: aliveWinner.role,
-        hullId: aliveWinner.hullId,
-        kills: aliveWinner.kills,
-        pveKills: { ...aliveWinner.pveKills },
-        damageDealt: aliveWinner.damageDealt,
-      });
+      this.participants.set(aliveWinner.id, participantOf(aliveWinner));
     }
     // RULING (Story 5.2, amendment 14): with 0 captains afloat the winner is
     // the latest-sunk HUMAN — drones can never win, so we skip past them in
@@ -974,12 +1070,7 @@ export class Match {
       rows.push({
         id,
         name: p.name,
-        // UNREACHABLE by computePlacements()' partition invariant (every
-        // captain participant is the winner or in the sink order). The fallback
-        // sorts LAST rather than first so that if that invariant is ever
-        // broken, an unplaced hull can never be seated above the winner again —
-        // the exact shape of the defect this replaced.
-        placement: this.placements.get(id) ?? this.participants.size + 1,
+        placement: this.placementOf(id), // the fallback's WHY lives on placementOf
         kills: p.kills,
         damageDealt: p.damageDealt,
       });
@@ -1034,12 +1125,45 @@ export class Match {
     return this.winnerId === '' ? 'draw' : 'winner';
   }
 
+  /**
+   * A participant's placement — the results row and the match record read the
+   * SAME rule (Story 8.21: one truth). The fallback is UNREACHABLE by
+   * computePlacements()' partition invariant (every captain participant is the
+   * winner or in the sink order); it sorts LAST rather than first so that if
+   * that invariant is ever broken, an unplaced hull can never be seated above
+   * the winner — the exact shape of the defect this replaced.
+   */
+  placementOf(id: string): number {
+    return this.placements.get(id) ?? this.participants.size + 1;
+  }
+
+  /** The participant snapshots (activation roster, leavers included, FLEET
+   *  HULLS INCLUDED — filter with isParticipant), read-only, for the
+   *  server-private match record (Story 8.21). */
+  participantRecords(): ReadonlyMap<string, Readonly<Participant>> {
+    return this.participants;
+  }
+
+  /** The captains who left during the countdown (see countdownLeavers) —
+   *  for the record only; they are in no placement and no results row. */
+  countdownLeaverRecords(): ReadonlyMap<string, Readonly<Participant>> {
+    return this.countdownLeavers;
+  }
+
+  /** Refresh a participant's snapshot from its live record — at leave and at
+   *  finish. Everything is COPIED, never aliased (the record outlives the
+   *  ship); identity (name/role/hull) stays the activation value. */
   private snapshotStats(ship: ShipRecord): void {
     const p = this.participants.get(ship.id);
     if (!p) return;
-    p.kills = ship.kills;
-    p.pveKills = { ...ship.pveKills }; // COPIED, never aliased (the record outlives the ship)
-    p.damageDealt = ship.damageDealt;
+    const fresh = participantOf(ship);
+    p.kills = fresh.kills;
+    p.pveKills = fresh.pveKills;
+    p.damageDealt = fresh.damageDealt;
+    p.gun = fresh.gun;
+    p.cards = fresh.cards;
+    p.hands = fresh.hands;
+    p.bankedLevels = fresh.bankedLevels;
   }
 
   /**

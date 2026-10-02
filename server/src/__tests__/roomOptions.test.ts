@@ -3,9 +3,19 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { NAME_MAX, sanitizeName, sanitizeRoomOptions, type RoomOptions } from '../rooms/roomOptions.js';
+import { DEFAULT_GUN, GUN_IDS } from '@salvo/shared';
+import {
+  DEV_LIST_MAX,
+  NAME_MAX,
+  sanitizeGun,
+  sanitizeName,
+  sanitizeRoomOptions,
+  type JoinOptions,
+  type RoomOptions,
+} from '../rooms/roomOptions.js';
+import { lobbyTicket } from '../rooms/lobbyTicket.js';
 
-const MATCH_OVERRIDE = { sandbox: true, minHumans: 1, countdownMs: 1, resultsMs: 1, joinWindowMs: 0 };
+const MATCH_OVERRIDE = { sandbox: true, minHumans: 1, countdownMs: 1, resultsMs: 1, joinWindowMs: 0, mulligan: true };
 const ZONE_OVERRIDE = { beatMs: 1000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0.5, terminalSightFactor: 1 };
 
 describe('sanitizeRoomOptions — devEnabled=false (production default)', () => {
@@ -40,6 +50,15 @@ describe('sanitizeRoomOptions — devEnabled=false (production default)', () => 
     const options: RoomOptions = { matchOverride: { minHumans: 9999, resultsMs: 1e9 } };
     const { sanitized } = sanitizeRoomOptions(options, false);
     expect(sanitized.matchOverride).toBeUndefined();
+  });
+
+  it('the Story 8.10 smoke arm {mulligan:true} is stripped with the rest', () => {
+    // It makes the ROOM redraw every captain's opening hand — a dev tool for
+    // the headless smoke, never something a production client may ask for.
+    const options: RoomOptions = { matchOverride: { mulligan: true } };
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions(options, false);
+    expect(sanitized.matchOverride).toBeUndefined();
+    expect(rejectedKeys).toEqual(['matchOverride']);
   });
 
   it('no rejection noise when the caller passed neither override', () => {
@@ -104,6 +123,74 @@ describe('sanitizeRoomOptions — devEnabled=true (HC_DEV_OPTIONS=1, smokes/test
       expect(sanitized.mapSeed).toBeUndefined();
       expect(rejectedKeys).toEqual([]); // stripped silently — dev asked, dev gave junk
     }
+  });
+});
+
+// --- fitOverride (Story 8.10, amendment 65; re-homed here in Story 8.14) -----
+// THE DEV SPAWN FIT is the ONE dev id list left now that the deck door is gone.
+// It used to arrive through `sanitizeDeckOptions` at the seat; with no deck to
+// pay a copy out of it is admitted here instead, by the same `admitDevIdList`
+// — same gate, same bounds, same reporting. PRODUCTION MUST NEVER SEE IT, which
+// is what the gate-off rows pin. Ids are NOT filtered here: the World drops an
+// id the catalog cannot resolve, a stub line, and one already held at its cap.
+
+describe('sanitizeRoomOptions — fitOverride (the dev spawn fit)', () => {
+  const FIT = ['heavyTorpedo', 'nope', 'lightTorpedo'];
+
+  it('is DROPPED and reported without HC_DEV_OPTIONS, whatever its shape', () => {
+    const out = sanitizeRoomOptions({ fitOverride: FIT }, false);
+    expect(out.sanitized.fitOverride).toBeUndefined();
+    expect(out.rejectedKeys).toEqual(['fitOverride']);
+    expect(sanitizeRoomOptions({ fitOverride: 'junk' as unknown as string[] }, false).rejectedKeys)
+      .toEqual(['fitOverride']);
+  });
+
+  it('is honoured under devEnabled as a FRESH array, ids unfiltered (the World judges them)', () => {
+    const list = [...FIT];
+    const out = sanitizeRoomOptions({ fitOverride: list }, true);
+    expect(out.sanitized.fitOverride).toEqual(FIT);
+    expect(out.sanitized.fitOverride).not.toBe(list);
+    expect(out.rejectedKeys).toEqual([]);
+  });
+
+  it('DROPS AND REPORTS a malformed shape, on the shared dev-list bounds', () => {
+    const bad: unknown[] = [
+      'heavyTorpedo',
+      { 0: 'heavyTorpedo' },
+      null,
+      ['heavyTorpedo', 7],
+      new Array<string>(DEV_LIST_MAX + 1).fill('heavyTorpedo'),
+      ['x'.repeat(65)],
+    ];
+    for (const v of bad) {
+      const out = sanitizeRoomOptions({ fitOverride: v as string[] }, true);
+      expect(out.sanitized.fitOverride, JSON.stringify(v)?.slice(0, 40)).toBeUndefined();
+      // A drop is never silent — the room logs the rejected keys once.
+      expect(out.rejectedKeys, JSON.stringify(v)?.slice(0, 40)).toEqual(['fitOverride']);
+    }
+    // ...and the bounds themselves are inclusive.
+    expect(sanitizeRoomOptions({ fitOverride: new Array<string>(DEV_LIST_MAX).fill('heavyTorpedo') }, true)
+      .sanitized.fitOverride).toHaveLength(DEV_LIST_MAX);
+    expect(sanitizeRoomOptions({ fitOverride: ['x'.repeat(64)] }, true).sanitized.fitOverride)
+      .toEqual(['x'.repeat(64)]);
+  });
+
+  it('an EMPTY list is honoured — an explicit "fit nothing" is a legal ask', () => {
+    expect(sanitizeRoomOptions({ fitOverride: [] }, true).sanitized.fitOverride).toEqual([]);
+  });
+
+  it('no rejection noise when the caller passed no override', () => {
+    expect(sanitizeRoomOptions({}, true).rejectedKeys).toEqual([]);
+    expect(sanitizeRoomOptions({}, false).rejectedKeys).toEqual([]);
+  });
+
+  it('is reported LAST of the room keys when a hostile payload carries all four', () => {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions(
+      { matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE, mapSeed: 7, fitOverride: FIT },
+      false,
+    );
+    expect(sanitized).toEqual({});
+    expect(rejectedKeys).toEqual(['matchOverride', 'zoneOverride', 'mapSeed', 'fitOverride']);
   });
 });
 
@@ -175,5 +262,133 @@ describe('sanitizeName — options.name is client-supplied and untrusted', () =>
   it('leaves ordinary names — including emoji — untouched', () => {
     expect(sanitizeName('SALTY DOG')).toBe('SALTY DOG');
     expect(sanitizeName('🚢 AHOY')).toBe('🚢 AHOY'); // a paired surrogate is one code point
+  });
+});
+
+// sanitizeGun (Story 8.14, epic-8 amendment 95) — THE SEAT'S GUN at both
+// doors, and the whole of what replaced the deck door. It is an IDENTITY option
+// like `cls` and `horn`, not a privileged override: it fails OPEN to `deckGun`
+// and can never refuse a join. All three ids are accepted today;
+// `machineGun`/`flak` mount the shipped deck-gun module until Story 8.15.
+
+describe('sanitizeGun — the three ids', () => {
+  it('passes every GunId through verbatim', () => {
+    for (const id of GUN_IDS) expect(sanitizeGun(id)).toBe(id);
+    expect(GUN_IDS).toEqual(['deckGun', 'machineGun', 'flak']);
+  });
+
+  it('coerces anything else to deckGun — never a throw, never a refusal', () => {
+    for (const bad of ['gun', 'DECKGUN', '', ' deckGun', 'monitor', 42, {}, [], null, true, undefined]) {
+      expect(sanitizeGun(bad), String(bad)).toBe(DEFAULT_GUN);
+    }
+    expect(DEFAULT_GUN).toBe('deckGun');
+  });
+
+  it('LOGS a present-but-invalid value once, and says nothing at all about an absent one', () => {
+    const lines: { event: string; fields: unknown }[] = [];
+    const log = { warn: (event: string, fields?: unknown) => lines.push({ event, fields }) };
+    expect(sanitizeGun('bogus', log as unknown as Parameters<typeof sanitizeGun>[1])).toBe(DEFAULT_GUN);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].event).toBe('join.gunCoerced');
+    sanitizeGun(undefined, log as unknown as Parameters<typeof sanitizeGun>[1]);
+    sanitizeGun('flak', log as unknown as Parameters<typeof sanitizeGun>[1]);
+    expect(lines).toHaveLength(1); // absent and valid both stay silent
+  });
+
+  it('never reads the prototype: an inherited gun is not this seat\'s pick', () => {
+    const inherited = Object.create({ gun: 'flak' }) as { gun?: unknown };
+    expect(sanitizeGun(inherited.gun)).toBe('flak'); // a READ of the value still resolves...
+    expect(sanitizeGun((inherited as JoinOptions).gun)).toBe('flak'); // ...the door passes the value, not the object
+  });
+});
+
+// THE DECK KEYS ARE DEAD KEYS (Story 8.14, amendment 89a). `deck`, `deckId`
+// and `deckOverride` used to be a refusal, a bounded string and a dev override.
+// The deck door is deleted: they are now unknown options, dropped in silence
+// like any other, and there is no 4402 refusal code to export.
+
+describe('the retired deck keys are dropped like any unknown option', () => {
+  it('sanitizeRoomOptions ignores them entirely, dev gate open or shut', () => {
+    const opts = { deck: ['armor'], deckId: 'd', deckOverride: ['armor'] } as unknown as RoomOptions;
+    for (const dev of [false, true]) {
+      const { sanitized, rejectedKeys } = sanitizeRoomOptions(opts, dev);
+      expect(rejectedKeys, String(dev)).toEqual([]);
+      expect(Object.hasOwn(sanitized, 'deck'), String(dev)).toBe(false);
+      expect(Object.hasOwn(sanitized, 'deckId'), String(dev)).toBe(false);
+      expect(Object.hasOwn(sanitized, 'deckOverride'), String(dev)).toBe(false);
+    }
+  });
+
+  it('a `deck` key beside a real option does not disturb it', () => {
+    const opts = { deck: [], fitOverride: ['heavyTorpedo'] } as unknown as RoomOptions;
+    expect(sanitizeRoomOptions(opts, true).sanitized.fitOverride).toEqual(['heavyTorpedo']);
+    expect(sanitizeRoomOptions(opts, true).rejectedKeys).toEqual([]);
+  });
+
+  it('the module exports no deck surface at all — no refusal code, no deck sanitizer', async () => {
+    const mod = await import('../rooms/roomOptions.js');
+    for (const gone of ['sanitizeDeckOptions', 'DECK_ID_MAX', 'DECK_OVERRIDE_MAX', 'DECK_REFUSED_CODE']) {
+      expect(Object.hasOwn(mod, gone), gone).toBe(false);
+    }
+  });
+});
+
+// THE LOBBY TRUST TICKET (private lobbies, cycle 167). A private lobby forms
+// its arena from SERVER code with a per-process ticket; only a bag carrying
+// that exact ticket may pin the map, ask for bot fill or tag the arena
+// private. Every client bag — including one carrying a GUESSED ticket — is
+// stripped exactly as before.
+
+describe('sanitizeRoomOptions — the lobby trust ticket', () => {
+  const PRIVATE = { mapSeed: 1234, botFill: true, mode: 'private' } as const;
+
+  it('an untrusted bag naming botFill/mode/mapSeed with a WRONG ticket is stripped and reported', () => {
+    for (const dev of [false, true]) {
+      const opts: RoomOptions = { ...PRIVATE, lobbyTicket: 'not-the-ticket' };
+      const { sanitized, rejectedKeys } = sanitizeRoomOptions(opts, dev);
+      expect(sanitized.botFill, String(dev)).toBeUndefined();
+      expect(sanitized.mode, String(dev)).toBeUndefined();
+      // Dev keeps its own mapSeed door; production never pins a map.
+      expect(sanitized.mapSeed, String(dev)).toBe(dev ? 1234 : undefined);
+      const expected = dev ? ['botFill', 'mode', 'lobbyTicket'] : ['mapSeed', 'botFill', 'mode', 'lobbyTicket'];
+      expect(rejectedKeys, String(dev)).toEqual(expected);
+    }
+  });
+
+  it('a bag with no ticket at all is stripped too', () => {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions({ ...PRIVATE }, false);
+    expect(sanitized).toEqual({ expectedCaptains: undefined, solo: undefined });
+    expect(rejectedKeys).toEqual(['mapSeed', 'botFill', 'mode']);
+  });
+
+  it('a bag with the REAL ticket admits mapSeed, botFill and mode in production', () => {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions({ ...PRIVATE, lobbyTicket: lobbyTicket() }, false);
+    expect(sanitized.mapSeed).toBe(1234);
+    expect(sanitized.botFill).toBe(true);
+    expect(sanitized.mode).toBe('private');
+    expect(rejectedKeys).toEqual([]);
+  });
+
+  it('never echoes the ticket into the sanitized result', () => {
+    const { sanitized } = sanitizeRoomOptions({ ...PRIVATE, lobbyTicket: lobbyTicket() }, false);
+    expect(JSON.stringify(sanitized)).not.toContain(lobbyTicket());
+    expect(Object.hasOwn(sanitized, 'lobbyTicket')).toBe(false);
+  });
+
+  it('the ticket opens ONLY the map seed among the dev keys', () => {
+    const opts: RoomOptions = { matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE, mapSeed: 7, lobbyTicket: lobbyTicket() };
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions(opts, false);
+    expect(sanitized.matchOverride).toBeUndefined();
+    expect(sanitized.zoneOverride).toBeUndefined();
+    expect(sanitized.mapSeed).toBe(7);
+    expect(rejectedKeys).toEqual(['matchOverride', 'zoneOverride']);
+  });
+
+  it('values are coerced strictly even when trusted', () => {
+    const opts = { botFill: 'yes', mode: 'public', mapSeed: -1, lobbyTicket: lobbyTicket() } as unknown as RoomOptions;
+    const { sanitized } = sanitizeRoomOptions(opts, false);
+    expect(sanitized.botFill).toBeUndefined();
+    expect(sanitized.mode).toBeUndefined();
+    expect(sanitized.mapSeed).toBeUndefined();
   });
 });

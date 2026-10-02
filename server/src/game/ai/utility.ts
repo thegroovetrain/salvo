@@ -23,6 +23,10 @@
 //    lit cells and the track is stored identity-free (`id: null`, `heading:
 //    null`, `speed: null`), associated to an existing anonymous track by
 //    proximity the way a real plotting table associates returns to a track.
+//    Since cycle 165 the plot also carries an ESTIMATED course (ai/plot.ts —
+//    the wake ribbon's age gradient on a first paint, paint-to-paint after
+//    that), association measures from the plot's PREDICTED position, and a
+//    plot whose predicted spot the bot's own beam sweeps clean is dropped.
 //
 // 3. THE BOT'S OWN HIT CALLS. `hc` (Hit Call) is a SELF-PRIVATE row the
 //    shooter is entitled to — it is how a human learns a fog shot connected —
@@ -33,9 +37,10 @@
 //    consumed, and the review gate deleted the dead knob rather than invent
 //    a correction loop late in the cycle (a bracket-and-walk behaviour is
 //    LEDGERED in deferred-work.md, not smuggled in). NOTHING ELSE is read
-//    from the event stream beyond blips and `sunk` (which merely retires a
-//    dead track); no event the bot is not entitled to is consulted, because
-//    the view it is handed contains none.
+//    from the event stream beyond blips, `wk` wake segments (cycle 165 — the
+//    course channel the radar grammar was designed to carry) and `sunk`
+//    (which merely retires a dead track); no event the bot is not entitled to
+//    is consulted, because the view it is handed contains none.
 //
 // 4. THE REACTION GATE, IN ONE PLACE. `isActionable()` is the sole consumer of
 //    CONFIG.bots.reactionMs — one of the two competence knobs (E2). A track
@@ -54,20 +59,42 @@
 import {
   CONFIG,
   SHIP_CLASS_IDS,
-  islandBlocksSegment,
   type BlipEvent,
   type Contact,
   type EffectiveStats,
   type GameEvent,
   type HullId,
   type Island,
-  type ReturnBlipEvent,
   type Vec2,
   type ZoneRing,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
 import type { BotMind, BotPosture, RememberedContact } from './types.js';
 import { engagementBand, type BotProfile } from './profiles.js';
+import {
+  ANON_ASSOC_U,
+  LONGEST_HULL_U,
+  TRACK_PERSIST_MS,
+  PAINT_BASELINE_MIN_MS,
+  PAINT_STILL_U,
+  associatePaint,
+  foldWakeCells,
+  lineBlocked,
+  nearestPredicted,
+  paintCenter,
+  paintVelocity,
+  plotPoint,
+  predictedPos,
+  refitWakeCourses,
+  trackVelocity,
+} from './plot.js';
+import { settleSweptMisses, type SweepBeam, type SweepSite } from './sweepMiss.js';
+import type { WakeCell } from './types.js';
+
+/** Moved to ai/plot.ts (cycle 165 — the plotting table reads both and may
+ *  not import this module, which imports it); re-exported so every existing
+ *  consumer keeps its import path. */
+export { TRACK_PERSIST_MS, lineBlocked } from './plot.js';
 
 /** Re-exported from types.ts (moved there so BotMind can cache the
  *  deliberated posture without an import cycle); tactics and tests keep
@@ -96,8 +123,9 @@ export interface BotSituation {
   /** u/s — the hull's CURRENT signed speed, straight off its own ShipState.
    *  A self-read of the bot's own hull, the same category as `hp`, and it
    *  discloses nothing. It exists for exactly one reason: `EffectiveStats`
-   *  does NOT carry the speed boost (World.stepShips raises the per-tick cap
-   *  outside it), so `ringDeadband` cannot size a boosted hull's turn radius
+   *  does NOT carry the speed boost (World.stepShips layers the +25 % of the
+   *  ladder-raised cap per tick, outside the stat block — Story 8.9), so
+   *  `ringDeadband` cannot size a boosted hull's turn radius
    *  without it. See ringDeadband. */
   speed: number;
   profile: BotProfile;
@@ -108,42 +136,30 @@ export interface BotSituation {
    *  IS THERE A LINE OF FIRE (see lineBlocked). Steering reads the port's copy
    *  directly; scoring and the trigger read it from here. */
   islands: readonly Island[];
+  /** The public map radius about the map centre (`port.map.radius`): plot
+   *  predictions stay on the water (ai/plot.ts predictedPos). Optional so a
+   *  hand-built situation can omit it (no clamp). */
+  waterR?: number;
 }
 
-/**
- * IS THE STRAIGHT LINE FROM `a` TO `b` STOPPED BY LAND?
- *
- * The bot's line-of-fire test, and it is the SIM'S OWN PRIMITIVE
- * (`islandBlocksSegment` — bounding-circle broadphase, `core` early-out, then
- * the exact coastline walk), which is what `stepShell` resolves flight against
- * and what `clipAtIslands` draws the human's aim preview with. One question,
- * one answer, three consumers.
- *
- * NOTHING IS DISCLOSED: the map is public (both sides rebuild it from
- * `welcome.mapSeed`) and ai/tactics.ts already iterates `port.map.islands`
- * every tick for coastline avoidance.
- */
-export function lineBlocked(a: Vec2, b: Vec2, islands: readonly Island[]): boolean {
-  for (const isle of islands) {
-    if (islandBlocksSegment(a, b, isle)) return true;
-  }
-  return false;
+/** Where this situation reads a plot: its predicted point (ai/plot.ts
+ *  plotPoint — cycle 165 review, B4: the scorer and the helm read the same
+ *  point the guns lead from). */
+export function plotAt(sit: Pick<BotSituation, 'now' | 'waterR'>, t: BotTrack): Vec2 {
+  return plotPoint(t, sit.now, sit.waterR);
 }
 
-/** u — association radius for an identity-free return-grammar paint. Six
- *  lattice cells: a hull makes ~11u between observes at full ahead, the
- *  lattice itself quantizes to 9u and the mask is deliberately fuzzed, so
- *  this is a few steps of slop and no more. Beyond it, a paint is a NEW
- *  track — which is honest: nothing on the wire linked them. */
-const ANON_ASSOC_U = CONFIG.vision.radarCellU * 6;
-
-/** u — how near a Hit Call must land to be credited to a track. Twice the
- *  WIDEST gun-family blast covers "that was the thing I was shooting at"
- *  without crediting a hull a map away. Derived from the max rather than a
- *  named weapon (it was the cannon's 30u until Story 7-5 wave 2 deleted the
- *  cannon; the broadside that replaced it bursts at the gun's 15u), so a
- *  retune of either blast moves this with it. */
-const HIT_ASSOC_U = Math.max(CONFIG.gun.burstRadius, CONFIG.broadside.burstRadius) * 2;
+/** u — how near a Hit Call must land (to a plot's PREDICTED centre) to be
+ *  credited to it. Twice the WIDEST gun-family blast covers "that was the
+ *  thing I was shooting at" for a burst (derived from the max rather than a
+ *  named weapon — it was the cannon's 30u until Story 7-5 wave 2 deleted the
+ *  cannon — so a retune of either blast moves this with it). AND at least
+ *  HALF THE LONGEST HULL (cycle 165 review): a direct-hit connection proves
+ *  the hull covers the impact point, and a hull covers half its length either
+ *  side of its centre — measured, 30u split a streamed target into a stray
+ *  plot at every hit near the bow or stern and cost the radar-orbit probe 24
+ *  points of hit rate. */
+const HIT_ASSOC_U = Math.max(Math.max(CONFIG.gun.burstRadius, CONFIG.broadside.burstRadius) * 2, LONGEST_HULL_U / 2);
 
 /** Hit Calls that read as "crippled" (the damage term saturates here). A
  *  severity-free count is all the wire gives; three connections is a real
@@ -206,14 +222,44 @@ interface Sighting {
 
 type TrackMap = Map<string, RememberedContact>;
 
+/** The half of a track a refresh CARRIES OVER rather than re-reads. */
+type Carried = Pick<
+  BotTrack,
+  'id' | 'cls' | 'fleet' | 'firstSeenAt' | 'hits' | 'vx' | 'vy' | 'vAt' | 'vSrc' | 'paintX' | 'paintY' | 'paintAt'
+>;
+
 /** A brand-new track's carried-over half (no history to preserve). */
-function freshBase(now: number): Pick<BotTrack, 'id' | 'cls' | 'fleet' | 'firstSeenAt' | 'hits'> {
-  return { id: null, cls: null, fleet: false, firstSeenAt: now, hits: 0 };
+function freshBase(now: number): Carried {
+  return {
+    id: null,
+    cls: null,
+    fleet: false,
+    firstSeenAt: now,
+    hits: 0,
+    vx: null,
+    vy: null,
+    vAt: -1,
+    vSrc: null,
+    paintX: 0,
+    paintY: 0,
+    paintAt: -1,
+  };
+}
+
+/** The course a refreshed track carries: a sighting's DISCLOSED pose becomes
+ *  the estimate (so the plot leaves the bubble already knowing where it was
+ *  headed); a pose-less source keeps whatever estimate the plot had. */
+function courseOf(s: Sighting, base: Carried, now: number): Pick<BotTrack, 'vx' | 'vy' | 'vAt' | 'vSrc'> {
+  if (s.heading === null || s.speed === null) {
+    return { vx: base.vx, vy: base.vy, vAt: base.vAt, vSrc: base.vSrc };
+  }
+  return { vx: Math.cos(s.heading) * s.speed, vy: Math.sin(s.heading) * s.speed, vAt: now, vSrc: 'sight' };
 }
 
 /** Write (or refresh) one track. Position/pose come from the sighting;
- *  acquisition time, hit history and any previously-disclosed class survive. */
-function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, live: boolean): void {
+ *  acquisition time, hit history, any previously-disclosed class and the
+ *  radar paint baseline survive (only foldPaint writes the baseline). */
+function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, live: boolean): BotTrack {
   const base = tracks.get(key) ?? freshBase(now);
   const cls = s.cls ?? base.cls;
   const track: BotTrack = {
@@ -228,27 +274,14 @@ function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, liv
     fleet: cls === null ? base.fleet : isFleetHullId(cls),
     firstSeenAt: base.firstSeenAt,
     hits: base.hits,
+    ...courseOf(s, base, now),
+    paintX: base.paintX,
+    paintY: base.paintY,
+    paintAt: base.paintAt,
+    missSweptAt: -1, // a refresh is the opposite of a miss
   };
   tracks.set(key, track);
-}
-
-/** Nearest track key within `maxU` of a point, or null. `anonOnly` restricts
- *  the search to identity-free tracks (return-grammar association). Ties keep
- *  the earliest insertion — Map order, so the fold stays deterministic. */
-function nearestKey(tracks: TrackMap, x: number, y: number, maxU: number, anonOnly: boolean): string | null {
-  let best: string | null = null;
-  let bestD2 = maxU * maxU;
-  for (const [key, t] of tracks) {
-    if (anonOnly && t.id !== null) continue;
-    const dx = t.x - x;
-    const dy = t.y - y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 <= bestD2) {
-      bestD2 = d2;
-      best = key;
-    }
-  }
-  return best;
+  return track;
 }
 
 /** A deterministic key for a brand-new identity-free track (position-derived,
@@ -257,51 +290,100 @@ function anonKey(x: number, y: number): string {
   return `a:${Math.round(x)}:${Math.round(y)}`;
 }
 
-/** Fold an identity-free position (a return-grammar paint, or a Hit Call in
- *  empty water) into the nearest anonymous track, or open a new one. */
-function foldAnonymous(tracks: TrackMap, x: number, y: number, now: number): string {
-  const key = nearestKey(tracks, x, y, ANON_ASSOC_U, true) ?? anonKey(x, y);
+/**
+ * A Hit Call that credited no plot inside HIT_ASSOC_U: join an anonymous plot
+ * whose predicted position is within the FIXED ANON_ASSOC_U, or open a new
+ * one. Deliberately NOT the paint association (cycle 165 review): a burst
+ * point is not a radar paint, and the age-grown course radius and the
+ * sole-course-less second chance are paint-association rules — letting a
+ * stray connection drag a plot ~100 u through them would corrupt the plot the
+ * next paint associates to. Writes NO paint baseline.
+ */
+function foldStrayHitCall(tracks: TrackMap, x: number, y: number, fx: FoldCtx): string {
+  const now = fx.now;
+  const key = nearestPredicted(tracks, { x, y }, now, ANON_ASSOC_U, true, fx.waterR) ?? anonKey(x, y);
   writeTrack(tracks, key, { id: null, x, y, heading: null, speed: null, cls: null }, now, false);
   return key;
 }
 
-/** Centroid of a return blip's LIT cells in world units, or null for an empty
- *  mask. `gx`/`gy` are absolute lattice indices, so a cell's centre is
- *  `(index + 0.5) * radarCellU` — the only geometry the grammar discloses. */
-function returnBlipCenter(e: ReturnBlipEvent): { x: number; y: number } | null {
-  const cell = CONFIG.vision.radarCellU;
-  let sx = 0;
-  let sy = 0;
-  let n = 0;
-  for (let row = 0; row < e.h; row += 1) {
-    for (let col = 0; col < e.w; col += 1) {
-      const bit = row * e.w + col;
-      const word = e.bits[bit >> 5] ?? 0;
-      if ((word & (1 << (bit & 31))) === 0) continue;
-      sx += (e.gx + col + 0.5) * cell;
-      sy += (e.gy + row + 0.5) * cell;
-      n += 1;
-    }
+/**
+ * IS THIS PAINT ANOTHER HULL (cycle 165 review, E3)? One beam paints one hull
+ * once per revolution, so a plot already painted less than a measurement
+ * baseline ago that now "moves" two lattice cells or more is not moving — it
+ * is a second hull the beam reached a tick or two later (two hulls close
+ * together, consecutive bearings). Folding it in would write a paint pair
+ * over 50 ms as a several-hundred-u/s course.
+ */
+function secondHull(prev: BotTrack | undefined, x: number, y: number, now: number): boolean {
+  if (prev === undefined || prev.paintAt < 0 || now - prev.paintAt >= PAINT_BASELINE_MIN_MS) return false;
+  return Math.hypot(x - prev.paintX, y - prev.paintY) >= PAINT_STILL_U;
+}
+
+/** Fold one radar paint at (x, y): associate it, then measure. A paint a
+ *  second or more after the plot's previous paint is a velocity measurement
+ *  and overrides any wake guess (and stays until the next paint — a wake fit
+ *  never replaces it); every paint then becomes the new baseline. A paint
+ *  that reads as a second hull (secondHull) opens its own plot. */
+function foldPaint(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
+  const now = fx.now;
+  const chosen = associatePaint(tracks, { x, y }, now, fx.cells, fx.waterR) ?? anonKey(x, y);
+  const key = secondHull(tracks.get(chosen), x, y, now) ? anonKey(x, y) : chosen;
+  const prev = tracks.get(key);
+  const v = prev === undefined ? null : paintVelocity(prev, x, y, now);
+  const t = writeTrack(tracks, key, { id: null, x, y, heading: null, speed: null, cls: null }, now, false);
+  if (v !== null) {
+    t.vx = v.vx;
+    t.vy = v.vy;
+    t.vAt = now;
+    t.vSrc = 'paint';
   }
-  return n === 0 ? null : { x: sx / n, y: sy / n };
+  t.paintX = x;
+  t.paintY = y;
+  t.paintAt = now;
 }
 
 /** Fold one radar paint — an identity-free coverage footprint. */
-function foldBlip(tracks: TrackMap, e: BlipEvent, now: number): void {
-  const c = returnBlipCenter(e);
-  if (c !== null) foldAnonymous(tracks, c.x, c.y, now);
+function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
+  const c = paintCenter(e);
+  if (c !== null) foldPaint(tracks, c.x, c.y, fx);
+}
+
+/**
+ * Where a Hit Call puts the plot it credits. A LIVE track has better position
+ * data than the burst point, so it stays put. A plot WITH A COURSE moves to
+ * its own dead-reckoned position (orchestrator ruling F1, cycle 165), NEVER
+ * the impact point: a machine-gun round connects anywhere along a 100 u hull,
+ * and re-solving the next lead from wherever the last one struck carries that
+ * offset forward — measured, the stream walked 4–6 u along the hull per hit
+ * until it walked off the end. A course-less plot has nothing better than the
+ * impact point, so the impact point becomes its new plot (as before).
+ */
+function hitCallPosition(t: BotTrack, x: number, y: number, now: number, waterR: number): Vec2 {
+  if (t.live) return { x: t.x, y: t.y };
+  if (trackVelocity(t) !== null) return predictedPos(t, now, waterR);
+  return { x, y };
 }
 
 /** Fold the bot's own Hit Call: something of ours connected HERE. Credits the
- *  nearest track (refreshing it — a connection proves presence) or opens one,
- *  which is exactly what the shooter is entitled to conclude. */
-function foldHitCall(tracks: TrackMap, x: number, y: number, now: number): void {
-  const key = nearestKey(tracks, x, y, HIT_ASSOC_U, false) ?? foldAnonymous(tracks, x, y, now);
+ *  plot whose PREDICTED position is nearest (the bot aims at the predicted
+ *  spot, so that is where its connections land — cycle 165), refreshing it,
+ *  or opens one, which is exactly what the shooter is entitled to conclude.
+ *  It never touches the paint baseline or the course. */
+function foldHitCall(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
+  const now = fx.now;
+  const key =
+    nearestPredicted(tracks, { x, y }, now, HIT_ASSOC_U, false, fx.waterR) ?? foldStrayHitCall(tracks, x, y, fx);
   const t = tracks.get(key);
   if (t === undefined) return;
-  // A LIVE track has better position data than the burst point; a stale one
-  // does not, so the impact point becomes its new plot.
-  const hit: BotTrack = { ...t, hits: t.hits + 1, seenAt: now, x: t.live ? t.x : x, y: t.live ? t.y : y };
+  const at = hitCallPosition(t, x, y, now, fx.waterR);
+  const hit: BotTrack = {
+    ...t,
+    hits: t.hits + 1,
+    seenAt: now,
+    x: at.x,
+    y: at.y,
+    missSweptAt: -1, // a connection proves presence: no longer a miss
+  };
   tracks.set(key, hit);
 }
 
@@ -313,14 +395,23 @@ function foldContact(tracks: TrackMap, c: Contact, now: number): void {
 /** Route one event to its fold. Everything not named here — the `sp` splash
  *  included, since the review gate deleted its dead feedback channel — is
  *  deliberately ignored: a bot reads only what it is entitled to and only
- *  what it uses. */
-function foldEvent(tracks: TrackMap, e: GameEvent, now: number): void {
+ *  what it uses. (`wk` wake rows are read too, by foldWakeCells in foldView,
+ *  before this routing runs.) */
+/** What every event fold reads besides the store: the clock, the wake buffer
+ *  (rule (b)'s evidence) and the water disc (predictions stay on the map). */
+interface FoldCtx {
+  now: number;
+  cells: readonly WakeCell[];
+  waterR: number;
+}
+
+function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
   if (e.k === 'blip') {
-    foldBlip(tracks, e, now);
+    foldBlip(tracks, e, fx);
     return;
   }
   if (e.k === 'hc') {
-    foldHitCall(tracks, e.x, e.y, now);
+    foldHitCall(tracks, e.x, e.y, fx);
     return;
   }
   if (e.k === 'sunk') tracks.delete(e.id);
@@ -356,24 +447,50 @@ function prune(tracks: TrackMap, now: number): void {
   }
 }
 
+/** The bot's own beam and position for the sweep-miss drop: its BotSelf
+ *  (the two beam angles) and its BotSituation (position, radar reach,
+ *  coastlines) satisfy these structurally. */
+export interface FoldSweep {
+  beam: SweepBeam;
+  site: SweepSite;
+}
+
 /**
  * Fold one perception view into the bot's contact memory. THE only writer of
  * `mind.contacts`. Runs once per captured view — which, since the
  * review-gate cadence fix, is once per live tick.
  *
- * ORDER IS LOAD-BEARING: `live` is DROPPED on every track first (see
- * dropTruesight), then events (blips, Hit Calls) fold, then live truesight
- * contacts fold LAST — so a hull that is both painted and sighted this tick
- * ends up stored LIVE. The reverse order would let a same-tick radar paint
- * demote a sighted hull to a stale plot — the sensors disagree about
- * confidence, never about existence, and truesight always wins.
+ * ORDER IS LOAD-BEARING (extended in cycle 165):
+ *   1. `live` is DROPPED on every track (see dropTruesight);
+ *   2. the view's `wk` wake rows go into the wake buffer (ai/plot.ts) — before
+ *      the paints, so nothing below reads a stale buffer;
+ *   3. events fold (radar paints with predicted-position association and
+ *      paint-to-paint velocity, Hit Calls, sunk);
+ *   4. live truesight contacts fold — so a hull that is both painted and
+ *      sighted this tick ends up stored LIVE (the reverse order would let a
+ *      same-tick radar paint demote a sighted hull to a stale plot — the
+ *      sensors disagree about confidence, never about existence, and
+ *      truesight always wins);
+ *   5. THE SWEEP-MISS DROP (Eric ruling 2026-10-02): a plot the bot's own
+ *      beam swept clean is MARKED, and goes once it is still unrefreshed two
+ *      ticks after the mark AND once the beam has cleared the plot's whole
+ *      association band (ai/sweepMiss.ts `settleSweptMisses`) —
+ *      AFTER the paints and the sightings, so a plot refreshed this tick is
+ *      never a miss. Runs only when the caller hands in the beam (`sweep`);
+ *   6. the wake course re-fit for every plot without a disclosed pose — after
+ *      the drop, so no work is spent on a plot that is gone;
+ *   7. the memory prune.
  * Deterministic: no rng, no clock read (`now` is passed in).
  */
-export function foldView(mind: BotMind, view: PerceptionView, now: number): void {
+export function foldView(mind: BotMind, view: PerceptionView, now: number, sweep?: FoldSweep): void {
   const tracks = mind.contacts;
   dropTruesight(tracks);
-  for (const e of view.events) foldEvent(tracks, e, now);
+  foldWakeCells(mind, view.events, now);
+  const fx: FoldCtx = { now, cells: mind.wakeCells, waterR: sweep?.site.waterR ?? Infinity };
+  for (const e of view.events) foldEvent(tracks, e, fx);
   for (const c of view.contacts) foldContact(tracks, c, now);
+  if (sweep !== undefined) settleSweptMisses(tracks, sweep.beam, sweep.site, now);
+  refitWakeCourses(tracks, mind.wakeCells, now);
   prune(tracks, now);
 }
 
@@ -387,10 +504,10 @@ export function tracksOf(mind: BotMind): BotTrack[] {
  * perception view's `mines` through the `own` flag, the SAME data a human
  * client in this seat receives (the mine signal row always discloses the
  * owner's own mines, at any range, so this is a true board count — no port
- * change, no perception widening). Consumed by the mine tactic's lay bounds
- * (ai/equipment.ts): `addMine` silently EVICTS the owner's oldest mine at
- * `stats.mine.maxLive`, so a bot that lays without counting churns the field
- * it just built. A null view (never observed — a frozen boarding room, or a
+ * change, no perception widening). Consumed by the PREPARED-lay reserve in
+ * ai/equipment.ts and nothing else since Story 8.4 deleted the mine caps (and
+ * with them the churn bound this count used to serve: nothing evicts any more).
+ * A null view (never observed — a frozen boarding room, or a
  * hand-built test) reads as an empty board, matching tactics.ts's
  * `avoidMines` fail-open reading of the same array.
  */
@@ -413,13 +530,10 @@ export function isActionable(t: BotTrack, now: number): boolean {
   return now - t.firstSeenAt >= CONFIG.bots.reactionMs;
 }
 
-/** ms — one full sweep revolution at the BASE rotation rate: the persistence
- *  bar a fog track must clear before 30s-reload ordnance commits to it. */
-export const TRACK_PERSIST_MS = 60000 / CONFIG.vision.sweepRpm;
-
 /**
- * TRACK PERSISTENCE — the structural counter to an enemy JAMMING BUOY. A
- * jamming buoy scatters 10 fakes per revolution, wire-indistinguishable from
+ * TRACK PERSISTENCE — the structural counter to an enemy CHAFF cloud (the
+ * deleted jamming buoy's successor, Story 8.16): chaff scatters 10 fakes per the
+ * owner's sweep period, wire-indistinguishable from
  * real blips and folded into this store as ordinary tracks; but fakes
  * RE-SCATTER WHOLESALE each revolution, so no fake survives association as
  * one coherent track across a full sweep period, while a real hull's paints
@@ -475,11 +589,17 @@ function damageEstimate(t: BotTrack): number {
 
 /** 0..1 isolation: 1 when nothing else is tracked nearby, falling off as
  *  company arrives. */
-function isolation(t: BotTrack, neighbours: readonly BotTrack[]): number {
+function isolation(
+  t: BotTrack,
+  neighbours: readonly BotTrack[],
+  sit: Pick<BotSituation, 'now' | 'waterR'>,
+): number {
+  const p = plotAt(sit, t);
   let n = 0;
   for (const o of neighbours) {
     if (o === t) continue;
-    if (Math.hypot(o.x - t.x, o.y - t.y) <= ISOLATION_U) n += 1;
+    const a = plotAt(sit, o);
+    if (Math.hypot(a.x - p.x, a.y - p.y) <= ISOLATION_U) n += 1;
   }
   return 1 / (1 + n);
 }
@@ -495,14 +615,15 @@ function isolation(t: BotTrack, neighbours: readonly BotTrack[]): number {
  */
 export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly BotTrack[]): number {
   const horizon = sit.stats.radarRange * TARGET_HORIZON_FACTOR;
-  const d = Math.hypot(t.x - sit.x, t.y - sit.y);
+  const p = plotAt(sit, t);
+  const d = Math.hypot(p.x - sit.x, p.y - sit.y);
   if (d > horizon) return 0;
   const w = sit.profile.targetWeights;
   const kind = t.fleet ? w.fleet : w.captain;
   const prox = 1 - d / horizon;
   const dmg = 1 + w.damaged * damageEstimate(t);
-  const iso = 1 + w.isolated * isolation(t, neighbours);
-  const reach = lineBlocked({ x: sit.x, y: sit.y }, t, sit.islands) ? BLOCKED_LINE_SCORE : 1;
+  const iso = 1 + w.isolated * isolation(t, neighbours, sit);
+  const reach = lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands) ? BLOCKED_LINE_SCORE : 1;
   return kind * prox * freshness(t, sit.now) * dmg * iso * reach;
 }
 
@@ -558,7 +679,8 @@ export function selectTarget(mind: BotMind, sit: BotSituation): BotTrack | null 
  *
  * THE SPEED IS THE GREATER OF RATED AND ACTUAL, for the same reason
  * `ringLookaheadU` takes it and NOT for free: THE SPEED BOOST IS NOT IN
- * `EffectiveStats`. `World.stepShips` raises the per-tick `maxSpeed` cap
+ * `EffectiveStats`. `World.stepShips` raises the per-tick `maxSpeed` cap by
+ * +25 % of the ladder-raised cap for 10 s on a 25 s reload (Story 8.9),
  * outside the stat block entirely, so a boosted hull turns through a WIDER
  * circle than its rated stats describe — and `chooseAct` spends the boost on
  * `disengage`, which is precisely the posture that runs at the rim. Sizing the
@@ -641,9 +763,10 @@ export function choosePosture(
   if (ringEscaping(sit, prev === 'ringRun')) return 'ringRun';
   if (sit.maxHp > 0 && sit.hp / sit.maxHp < sit.profile.disengageHpFrac) return 'disengage';
   if (target === null) return 'reposition';
-  if (lineBlocked({ x: sit.x, y: sit.y }, target, sit.islands)) return 'pursue';
+  const p = plotAt(sit, target);
+  if (lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands)) return 'pursue';
   const w = sit.profile.targetWeights;
   if (target.fleet && w.fleet >= w.captain) return 'farm';
   const band = engagementBand(sit.profile, sit.stats);
-  return Math.hypot(target.x - sit.x, target.y - sit.y) <= band.max ? 'engage' : 'pursue';
+  return Math.hypot(p.x - sit.x, p.y - sit.y) <= band.max ? 'engage' : 'pursue';
 }

@@ -87,24 +87,34 @@ export interface BindingRow {
  * Story 7-3 (Eric ruling 2026-08-19): this list disagreed with keyboard.ts on
  * three points and is now reconciled — W/S and A/D alias the arrows
  * (`THROTTLE_AHEAD`/`THROTTLE_ASTERN` in telegraph.ts, `LEFT`/`RIGHT` in
- * keyboard.ts), the refit digit row silently stopped at 4 and omitted 5
- * (DAMAGE CONTROL, the always-available heal rail — `REFIT_DIGIT_CODES`,
- * which also aliases the numpad), and the gun (slot 0) had no row at all even
+ * keyboard.ts), the refit digit row disagreed about the digits themselves, and
+ * the gun (slot 0) had no row at all even
  * though it is the permanently-selected default reachable ONLY by clicking
  * its hotbar tile — Q/E/R are the OTHER slots, never the gun's key. `P`
  * (netcode debug) is deliberately still absent; it stays out of this surface.
+ *
+ * STORY 8.8 (epic-8 amendment 50) re-cut the digit row for the second time. The
+ * `5` key is GONE — the DAMAGE CONTROL rail it spent a level on was deleted
+ * when healing became a card — and `1`-`4` carry the TWO MEANINGS Story 8.7
+ * gave them (`REFIT_DIGIT_CODES` with the window open, `BELT_KEY_CODES` with it
+ * closed), which is what the row now states. The numpad aliasing is unchanged.
+ *
+ * STORY 8.22 (2026-10-01) re-cut the slot rows: they became false when Story
+ * 8.5 made Q/E/R three weapon slots and Story 8.15 put the class SPECIAL on
+ * Shift, so `Q / E` + `R` are one `Q / E / R` row and SHIFT has its own. The
+ * word DEFAULT left the gun row because no client copy may carry it.
  */
 export function bindingRows(): BindingRow[] {
   return [
     { keys: 'W / S (+ ARROWS)', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
     { keys: 'A / D (+ ARROWS)', action: 'RUDDER — HELD' },
-    { keys: '(NONE)', action: 'GUN — ALWAYS-SELECTED DEFAULT; CLICK ITS HOTBAR TILE TO RESELECT' },
-    { keys: 'Q / E', action: 'CLASS SPECIAL SLOTS' },
-    { keys: 'R', action: 'PICKUP SLOT — INERT WHILE EMPTY' },
+    { keys: '(NONE)', action: 'GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT' },
+    { keys: 'Q / E / R', action: 'WEAPON SLOTS — PRESS TO SELECT, AGAIN TO CANCEL' },
+    { keys: 'SHIFT', action: 'CLASS SPECIAL' },
     { keys: 'F', action: 'FOGHORN — SOUND OFF (BEARING ONLY)' },
     { keys: 'CLICK', action: 'FIRE THE SELECTED WEAPON / PRIME A SKILLSHOT' },
     { keys: 'TAB', action: 'REFIT WINDOW — TOGGLE' },
-    { keys: '1 – 5 (+ NUMPAD)', action: 'PICK A REFIT CARD — 5 IS DAMAGE CONTROL (WHILE THE WINDOW IS OPEN)' },
+    { keys: '1 – 4 (+ NUMPAD)', action: 'PICK A REFIT CARD (WINDOW OPEN) / FIRE A BELT SLOT (WINDOW CLOSED)' },
     { keys: 'ESC', action: 'CLOSE THE TOPMOST SURFACE / OPEN SETTINGS' },
     { keys: 'Z / X', action: 'CAMERA ZOOM OUT / IN — WHEEL ZOOMS SMOOTHLY' },
     { keys: 'M', action: 'MUTE' },
@@ -168,6 +178,21 @@ export function escapeAction(open: OpenSurfaces, spectating = false): EscapeActi
  */
 export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces): boolean {
   return !Object.entries(open).some(([k, v]) => v && k !== surface);
+}
+
+/**
+ * Pure: does a WHEEL tick belong to an open SCROLLABLE surface rather than to
+ * the camera? The results modal and the settings overlay are both scrollable
+ * DOM panels; while either is up, a wheel is the player scrolling that panel,
+ * never a zoom (Eric 2026-10-01, cycle 162: *"if the ESC menu is open in-game,
+ * the scroll wheel does NOT zoom in/out … the intent of the user when that is
+ * open is to scroll that menu"*; the results half is the cycle-100 review
+ * finding this generalizes). The refit modal is NOT scrollable and is not in
+ * this set — zoom stays live under it. The one `window` wheel listener
+ * (main.ts bindWheelZoom) consults this before touching either zoom path.
+ */
+export function wheelScrollsSurface(open: OpenSurfaces): boolean {
+  return open.results || open.settings;
 }
 
 /**

@@ -4,36 +4,97 @@
 // gate off shared `inArc`.
 //
 // Keyed by the fitted EQUIPMENT ID (Story 1.7), NOT the loadout slot index: the
-// slot-index == equipment coupling died when the fit went per-hull (BB slot 1 is
-// the broadside, TB slot 1 is the torpedo), so a slot-number branch would light the
+// slot-index == equipment coupling died when the fit went per-hull, and Story
+// 8.5 buried it for good — the three weapon slots are GENERIC, so whatever a
+// captain drew sits in whichever of Q/E/R was empty first, and a slot-number branch would light the
 // wrong marker. As of Story 1.10 the classification DERIVES from the shared
 // arcFor descriptor (sim/arcs.ts — the single arc-shape source both sides
 // consume), so the rendered arc and the server's enforced arc can never
 // diverge: the gun FAMILY (gun / star shells) declares `full` (360° — always in
 // arc, never denied for bearing, aimed to the clicked point); the torpedo
 // declares its bow `sector` and — as of Story 2.8 (amendment 45) — the MINE and
-// (Story 7-5 wave 2) the RADAR BUOY declare their rear placement `sector`; the
+// (Story 8.16) the DECOY BUOY consumable declare their rear placement `sector`; the
 // BROADSIDE BARRAGE declares `twin-sector`, two mirrored beam sectors at
-// `heading ± 90°` each 60° wide; the speedBoost aims nothing (`none`). Callers
+// `heading ± 90°` each 60° wide; the boost aims nothing (`none`). Callers
 // derive the id from the own loadout (main.ts's slotIdsFor / shared loadoutFor).
 //
-// STORY 7-5 WAVE 2 RETIRED the `stern-drop` branch: the decoy buoy was that
-// shape's only user, and the radar buoy replacing it is click-placed in the
-// mine's rear SECTOR. Nothing here may re-add a branch for it.
+// STORY 7-5 WAVE 2 RETIRED the `stern-drop` branch: the old decoy buoy was that
+// shape's only user, and every buoy since (the radar buoy, deleted in Story
+// 8.16, and the 8.16 DECOY BUOY consumable) is click-placed in the mine's rear
+// SECTOR. Nothing here may re-add a branch for it.
+//
+// STORY 8.13 TOOK THE ID EQUALITIES OUT. Three mine LINES now share the rear
+// placement grammar (naval/captive/fouling), the LIGHT TORPEDO declares a
+// TWIN sector on both beams, and the SUPERCAV TORPEDO — a belt CONSUMABLE —
+// declares the bow ±15° sector, so every predicate below is keyed on the
+// shared `arcFor` descriptor or on an explicit, pinned id SET, never on
+// `id === 'navalMines'` / `id === 'heavyTorpedo'`. The signatures widened from
+// `EquipmentId` to `SlotItemId` for the same reason `arcFor` did.
 
 import {
   CONFIG,
   arcFor,
   gunReachU,
   inArc,
+  isConsumableId,
+  isMineEquipment,
+  isWeaponItem,
   pointInLitZone,
   twinSectorSide,
   wrapAngle,
   type EffectiveStats,
-  type EquipmentId,
   type LitCircle,
+  type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
+
+/**
+ * THE THREE MINE LINES (Story 8.13) — RE-EXPORTED FROM `shared/sim/arcs.ts`,
+ * where the list lives. One hull may fit naval, captive and fouling mines at
+ * once, so every id-keyed branch that used to read `'navalMines'` asks "is this
+ * A mine?" instead — the placement leash, the rear wedge's placement grammar,
+ * the own rings and the drop preview.
+ *
+ * The list, the guard and the two kind maps were briefly a CLIENT-LOCAL
+ * restatement of a shared fact, held to the shared `isMineChassis` by a
+ * cross-check pin. They are one declaration now: the rear placement sector is
+ * what makes these ids one family, so `sim/arcs.ts` is their home and both
+ * sides import them. The cross-check in __tests__/weaponArc.test.ts is kept —
+ * trivially true today, and still the thing that fails when a FOURTH mine kind
+ * declares the placement sector without joining the list.
+ */
+export {
+  MINE_EQUIPMENT_IDS,
+  isMineEquipment,
+  mineEquipmentFor,
+  mineKindOf,
+  type MineEquipmentId,
+} from '@salvo/shared';
+
+/** Pure: does this id share the mine's REAR PLACEMENT grammar — the three mine
+ *  lines plus the click-placed DECOY BUOY consumable (Story 8.16 — it replaced
+ *  the deleted radar buoy in this set)? The one predicate the placement leash,
+ *  the true-radius wedge and the amber placement tint read. */
+export function isPlacedItem(id: SlotItemId | null): boolean {
+  return isMineEquipment(id) || id === 'decoyBuoy';
+}
+
+/**
+ * THE TORPEDO FAMILY — the two equipment LINES plus the belt's SUPERCAV
+ * TORPEDO (a click-aimed consumable since epic-8 amendment 74). Every fish
+ * shares the family's identity on screen: the cool-green arc, reticle and
+ * preview tint, and the torpedo glyph.
+ */
+export const TORPEDO_ITEM_IDS = ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo'] as const satisfies
+  readonly SlotItemId[];
+
+/** One of the three torpedo ids (two lines + the belt consumable). */
+export type TorpedoItemId = (typeof TORPEDO_ITEM_IDS)[number];
+
+/** Pure: is this slot content a TORPEDO of any line? */
+export function isTorpedoItem(id: SlotItemId | null): id is TorpedoItemId {
+  return id !== null && (TORPEDO_ITEM_IDS as readonly string[]).includes(id);
+}
 
 /**
  * The firing-arc behavior class of a fitted equipment id. Drives every id-keyed
@@ -41,26 +102,32 @@ import {
  * - `gunLike` — a `full` (360°) descriptor: aimed to the clicked point,
  *   range-clamped, no arc sector drawn.
  * - `sector`  — a `sector` descriptor: an AIM-GATED weapon that draws its wedge
- *   (the torpedo's bow arc; the mine's and radar buoy's rear placement arc as of
+ *   (the torpedo's bow arc; the mine's and the decoy buoy's rear placement arc as of
  *   Story 2.8 — PIN FLIPPED from 'none' knowingly, amendment 45).
  * - `twin`    — a `twin-sector` descriptor (the BROADSIDE BARRAGE, R2.1): TWO
  *   mirrored aim-gated wedges at `heading ± offset`. A click inside EITHER is
  *   legal and fires THAT side (R2.2); a click in neither — the bow and stern
  *   dead zones — is denied exactly like a `sector` miss.
- * - `none`    — the `none` descriptor (the speed boost) or the empty slot: not
+ * - `none`    — the `none` descriptor (the speed boost) or an empty slot: not
  *   an aimed weapon, no marker, no reticle.
  */
 export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'none';
 
-/** Pure: classify a fitted equipment id (or null empty slot) by firing-arc
- *  kind — a straight projection of the shared arcFor descriptor. */
-export function fireArcKind(id: EquipmentId | null): FireArcKind {
-  if (id === null) return 'none'; // empty slot 3 / defensive null
+/** Pure: classify a fitted slot's content (or null empty slot) by firing-arc
+ *  kind — a straight projection of the shared arcFor descriptor.
+ *
+ *  IT TAKES A `SlotItemId` SINCE STORY 8.13, because `arcFor` does: the
+ *  SUPERCAV TORPEDO is a click-aimed BELT consumable (epic-8 amendment 74) and
+ *  declares the bow ±15° sector, so it must classify as a `sector` weapon and
+ *  draw its wedge like any other aimed launch. Every consumable that aims
+ *  nothing still answers `none`, exactly as before. */
+export function fireArcKind(id: SlotItemId | null): FireArcKind {
+  if (id === null) return 'none'; // an unfitted weapon slot / defensive null
   const arc = arcFor(id);
-  if (arc.kind === 'full') return 'gunLike'; // gun / starShells
-  if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / mine + buoy rear arc
+  if (arc.kind === 'full') return 'gunLike'; // the guns / starShells / phosphorShells / dazzleShells (FLASH)
+  if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / mine + decoy rear arc
   if (arc.kind === 'twin-sector') return 'twin'; // broadside beams
-  return 'none'; // none (speedBoost)
+  return 'none'; // none (boost)
 }
 
 /**
@@ -68,7 +135,7 @@ export function fireArcKind(id: EquipmentId | null): FireArcKind {
  * given the hull's `heading`? Driven by the shared arcFor descriptor: a `full`
  * arc is always true; a `sector` checks heading + offset ± halfArc via shared
  * `inArc` (the exact server gate — the torpedo's bow sector, and the mine's and
- * radar buoy's rear placement sector); a `twin-sector` is in arc when EITHER
+ * decoy buoy's rear placement sector); a `twin-sector` is in arc when EITHER
  * mirrored beam contains the aim (the broadside, R2.1/R2.2). An instant ability
  * (`none`) or the empty slot is NOT a firing weapon, so it is never "in arc".
  *
@@ -77,7 +144,7 @@ export function fireArcKind(id: EquipmentId | null): FireArcKind {
  * is denied by the server exactly like an out-of-arc one (see weaponRangeU,
  * which supplies that ring to the firing UX).
  */
-export function weaponArcHit(heading: number, aim: number, id: EquipmentId | null): boolean {
+export function weaponArcHit(heading: number, aim: number, id: SlotItemId | null): boolean {
   if (id === null) return false;
   const arc = arcFor(id);
   if (arc.kind === 'full') return true; // 360° — never out of arc
@@ -106,26 +173,38 @@ export { twinSectorSide };
  * gun family reads its OWN stats block — and as of Story 2.8 all of them ride
  * the folded radarRange, so they move together with it (no boon writes
  * `radarRange` today, but the derivation seam is what keeps them one number).
- * The BROADSIDE reads `stats.broadside.rangeU`,
+ * The BROADSIDE reads `stats.equipment.broadside.rangeU`,
  * THE 5/8 RUNG (R2.4) — the one weapon that does not reach the radar horizon,
  * so the shared gun-range fallback would over-promise it by 247.5u. The MINE and
- * — since Story 7-5 wave 2 — the RADAR BUOY read the ratified
+ * — since Story 8.16 — the DECOY BUOY read the ratified
  * CONFIG.mine.placeRange: their placement reach is a fixed short leash, NOT radar
- * range, and no boon moves it. (The buoy's OWN 330u radar set is a different
- * number entirely and never belongs here: that is the circle it watches once
- * dropped, not how far you can throw it.)
+ * range, and no boon moves it.
  *
  * CONTRACT — MEANINGFUL FOR `gunLike` IDS, THE BROADSIDE AND THE PLACED IDS ONLY.
  * For a torpedo / ability / empty slot there is NO range ring, and this returns
- * `stats.gun.rangeU` purely as a non-crashing fallback — it is NOT that
+ * `stats.equipment.gun.rangeU` purely as a non-crashing fallback — it is NOT that
  * weapon's range (a torpedo runs to the map edge). Do NOT consult this for
  * those ids; gate on the id first, as firing.ts's markers do.
  */
-export function weaponRangeU(stats: EffectiveStats, id: EquipmentId | null): number {
-  if (id === 'broadside') return stats.broadside.rangeU;
-  if (id === 'starShells') return stats.starShells.rangeU;
-  if (id === 'mine' || id === 'radarBuoy') return CONFIG.mine.placeRange;
-  return stats.gun.rangeU; // gun (radar-derived) — and the default
+export function weaponRangeU(stats: EffectiveStats, id: SlotItemId | null): number {
+  if (id === 'broadside') return stats.equipment.broadside.rangeU;
+  if (id === 'starShells') return stats.equipment.starShells.rangeU;
+  // STORY 8.17: PHOSPHOR SHELLS reads its own row (re-pinned to the radar rung
+  // post-fold, like the star shell); the FLASH SHELLS consumable has no row and
+  // reaches exactly as far as the star shell — the post-fold radar range.
+  if (id === 'phosphorShells') return stats.equipment.phosphorShells.rangeU;
+  if (id === 'dazzleShells') return stats.radarRange;
+  // THE TWO PICKABLE GUNS (Story 8.15) read their OWN row — both re-pinned to
+  // the radar rung today (660 u, amendments 103/105), but a gun's range is its
+  // row's number, never the cannon's by assumption.
+  if (id === 'machineGun') return stats.equipment.machineGun.rangeU;
+  if (id === 'flak') return stats.equipment.flak.rangeU;
+  // ALL THREE MINE LINES share the ONE leash (Story 8.13) — the naval chassis
+  // is shared, not duplicated (`CONFIG.captiveMines`/`CONFIG.foulingMines` restate
+  // no placement field), so an id-equality test on `navalMines` would have given
+  // a captive or fouling drop the gun's radar-derived range.
+  if (isPlacedItem(id)) return CONFIG.mine.placeRange;
+  return stats.equipment.gun.rangeU; // gun (radar-derived) — and the default
 }
 
 /**
@@ -147,26 +226,35 @@ export type { LitCircle };
 export { pointInLitZone };
 
 /**
- * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): the reach the primed
- * system actually has FOR THIS AIM, which is `weaponRangeU` except where the
- * flare extension applies.
+ * THE DECK GUNS (amendment 114) — the three slot-0 gun rows that fire into the
+ * shooter's own lit-up area: the cannon (`gun`), the MACHINE GUN and the FLAK
+ * GUN. An explicit, pinned id SET (never an id equality), mirroring the server,
+ * where exactly these three rows call `gunReachU`.
+ */
+const DECK_GUNS: ReadonlySet<SlotItemId> = new Set<SlotItemId>(['gun', 'machineGun', 'flak']);
+
+/**
+ * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15; amendment 114): the reach
+ * the primed system actually has FOR THIS AIM, which is `weaponRangeU` except
+ * where the flare extension applies.
  *
- * A GUN click whose target point lies inside a LIVE lit zone the clicking
- * player OWNS is legal beyond `stats.gun.rangeU` — you can shell what your own
- * flare is lighting.
+ * A DECK-GUN click whose target point lies inside a LIVE lit zone the clicking
+ * player OWNS is legal beyond that gun's own row `rangeU` — you can shell what
+ * your own flare is lighting. Eric ruling 2026-09-29 (amendment 114): every
+ * deck gun — cannon, machine gun, flak — gets it, exactly as the cannon did.
  *
- * THE RULE ITSELF IS NOT WRITTEN HERE ANY MORE. It used to be, mirrored line
- * for line off the server's legality gate; both sides now CALL the promoted
- * shared `gunReachU` (sim/aim.ts), the same promotion `blockedWater` and
+ * THE RULE ITSELF IS NOT WRITTEN HERE. Both sides CALL the promoted shared
+ * `gunReachU` (sim/aim.ts), the same promotion `blockedWater` and
  * `burstPointAlong` already made. All that survives on this side is the part
  * that is genuinely the client's:
  *
- *  - THE ID GATE. Gun ONLY — never the broadside (its 5/8 rung is a weapon
- *    identity, not a horizon), never the star shell itself, never the torpedo,
- *    never the mine. It lives HERE rather than at the call sites so nothing can
- *    forget it and quietly widen a second weapon; on the server the same clause
- *    is structural (only the gun row calls the predicate at all).
- *  - THE BASE RANGE, resolved per id through `weaponRangeU`.
+ *  - THE ID GATE. Deck guns ONLY (`DECK_GUNS`) — never the broadside (its 5/8
+ *    rung is a weapon identity, not a horizon), never the star shell itself,
+ *    never the torpedo, never the mine. It lives HERE rather than at the call
+ *    sites so nothing can forget it and quietly widen another weapon; on the
+ *    server the same clause is structural (only the three deck-gun rows call
+ *    the predicate at all).
+ *  - THE BASE RANGE, resolved per id through `weaponRangeU` (each gun's OWN row).
  *  - THE ZONE LIST, already filtered to own + live by `ownActiveZones`.
  *
  * This is the number BOTH the range-clamp marker (render/firing.ts) and the aim
@@ -178,7 +266,7 @@ export { pointInLitZone };
  */
 export function weaponReachU(
   stats: EffectiveStats,
-  id: EquipmentId | null,
+  id: SlotItemId | null,
   ship: Vec2,
   aim: number,
   aimDist: number,
@@ -186,15 +274,15 @@ export function weaponReachU(
   ownLitZones: readonly LitCircle[],
 ): number {
   const base = weaponRangeU(stats, id);
-  if (id !== 'gun') return base; // gun only — every other id keeps its own range
+  if (id === null || !DECK_GUNS.has(id)) return base; // deck guns only — every other id keeps its own range
   return gunReachU(ship, aim, aimDist, base, mapRadius, ownLitZones);
 }
 
 
 /**
  * Pure: is the CLICKED POINT within a hard range DENIAL gate? Only the CLICK-
- * PLACED ids have one (Story 2.8, amendment 45; the RADAR BUOY joined the mine
- * on it in Story 7-5 wave 2): a click past CONFIG.mine.placeRange is refused
+ * PLACED ids have one (Story 2.8, amendment 45; the DECOY BUOY joined the mine
+ * on it in Story 8.16): a click past CONFIG.mine.placeRange is refused
  * outright, exactly like a click outside the rear arc — nothing is consumed and
  * the denial register fires. Every other id answers true, because none of them
  * denies on distance: the gun family CLAMPS the aim point to rangeU and fires
@@ -206,13 +294,37 @@ export function weaponReachU(
  * out-of-range click would silently consume the prime (reverting to the gun)
  * for a placement the server refused.
  */
-export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean {
-  // ONE leash for both click-placed ids: server/src/game/equipment/radarBuoy.ts
-  // reuses CONFIG.mine.placeRange verbatim (R2.7 — "the mine's rear sector at
-  // placeRange 150u"), so the client must refuse at exactly the same distance
-  // or a long buoy click silently consumes the prime for a drop it will deny.
-  if (id !== 'mine' && id !== 'radarBuoy') return true;
+export function weaponRangeHit(aimDist: number, id: SlotItemId | null): boolean {
+  // ONE leash for every click-placed id: the DECOY BUOY row reuses
+  // CONFIG.mine.placeRange verbatim (Story 8.16, catalog-v3 R36 — the mine's
+  // rear sector) and the captive/fouling rows read the naval chassis's
+  // `placeRange` too (Story 8.13), so the client must refuse at exactly the same
+  // distance or a long placement click silently consumes the prime for a drop
+  // the server will deny.
+  if (!isPlacedItem(id)) return true;
   return aimDist <= CONFIG.mine.placeRange;
+}
+
+/**
+ * THE CLICK GATE over a slot's CONTENT — the one predicate main.ts's click
+ * prediction asks (review patch P8).
+ *
+ * Every click-aimed CONSUMABLE now DECLARES geometry and is gated exactly like
+ * a fitted weapon: the SUPERCAV TORPEDO's bow ±15° sector (Story 8.13, epic-8
+ * amendment 74) and — Story 8.16 — the DECOY BUOY, click-placed in the mine's
+ * rear sector out to `CONFIG.mine.placeRange` (`isPlacedItem` gives it the
+ * leash). The decoy was blind-trusted to the server while it had no arc; that
+ * trust is gone with the arc's arrival. The test is the DESCRIPTOR, not the
+ * id: anything that declares an arc is gated by it.
+ *
+ * What survives of the `none` branch is the KEY-FIRES consumables, which answer
+ * false: a click on an ability square fires nothing on either side. (Should a
+ * future click-aimed consumable ever land without an arc, `isWeaponItem` makes
+ * it trust the server's verdict rather than paint a false denial.)
+ */
+export function clickInArc(heading: number, aim: number, aimDist: number, id: SlotItemId | null): boolean {
+  if (id !== null && isConsumableId(id) && arcFor(id).kind === 'none') return isWeaponItem(id);
+  return weaponArcHit(heading, aim, id) && weaponRangeHit(aimDist, id);
 }
 
 

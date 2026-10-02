@@ -31,7 +31,7 @@ function bareWorld(seed = 1): World {
 
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(w: World, id: string, x: number, y: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;
@@ -58,8 +58,14 @@ const subject = (x: number, y: number, id: string): FoghornEvent =>
  *  through rather than hardcoding anything. */
 const radarCtx = (w: World) => ({
   pseudonymOf: (id: string) => w.pseudonymFor(id),
-  // Story 7-5 wave 2: the buoy channel's subjects; the fh row reads none.
-  buoys: w.buoys,
+  // Story 8.16: the decoy channel's subjects; the fh row reads none.
+  decoys: w.decoys,
+  // ...and the world-owned chaff clouds (amendment 127); the fh row reads none.
+  chaffSources: w.chaffSources,
+  // Story 8.18: the live smoke puffs — the fh row's muffle DOES read these
+  // (sightClear), so the World's own live list passes through.
+  smoke: w.smokePuffs,
+  mapRadius: w.map.radius,
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.
   wakes: w.wakeRibbons,
@@ -69,11 +75,11 @@ const radarCtx = (w: World) => ({
 
 /** A fogged SignalContext for `me` (the signals.test.ts helper, verbatim). */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
-  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, me, ...radarCtx(w) };
+  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, burnZones: w.burnZones, me, ...radarCtx(w) };
 }
 
 function spectatorCtx(w: World, observerId: string): SpectatorSignalContext {
-  return { mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, me: w.ships.get(observerId), ...radarCtx(w) };
+  return { mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, burnZones: w.burnZones, me: w.ships.get(observerId), ...radarCtx(w) };
 }
 
 const row = signalFor('fh')!;
@@ -153,7 +159,7 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
 
   it('a drone never honks — the press is consumed and dropped', () => {
     const w = bareWorld();
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
     // Out-run the drone controller's own per-tick submit (mind.seq counts up
     // from 1): a seq-10 forged press wins latest, the controller's input reads
     // stale — this is exactly the shape a hijacked drone channel would take.
@@ -213,7 +219,7 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     expect(a.horn).toBe(DEFAULT_HORN_ID);
-    const b = w.addShip('b', 'B', 'captain', 'torpedoBoat', 'standard');
+    const b = w.addShip('b', 'B', 'captain', 'torpedoBoat', 'standard', undefined);
     expect(b.horn).toBe('standard');
   });
 });
@@ -580,7 +586,7 @@ describe('SIGNAL_REGISTRY — fh row: spectators', () => {
   it('a record-less spectator (me undefined) receives {k,h,x,y} — the short-circuit before any me math', () => {
     const w = bareWorld();
     const e = subject(9_000, 9_000, 'honker'); // absurdly far from everything
-    const ctx: SpectatorSignalContext = { mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, me: undefined, ...radarCtx(w) };
+    const ctx: SpectatorSignalContext = { mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, burnZones: w.burnZones, me: undefined, ...radarCtx(w) };
     expect(row.visible(ctx, e)).toBe(true);
     const wire = row.materialize(ctx, e) as FoghornEvent;
     expect(wire).not.toBe(e);

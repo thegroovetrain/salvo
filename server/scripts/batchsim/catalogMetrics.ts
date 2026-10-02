@@ -6,12 +6,13 @@
 // server/src imports it.
 //
 // WHY IT EXISTS. The shipped report answers "how fast does the economy run"
-// (levels, picks, deck depletion) and "how well do bots fight", but it has no
+// (levels, picks, cards fitted) and "how well do bots fight", but it has no
 // per-LINE resolution at all: a card that is never offered, never picked, or
 // picked every single time is invisible in every existing row. Story 7-5
-// rewrote the catalog wholesale (33 -> 29 lines, every equipment subdeck to
-// exactly 6, every hull deck to exactly 41), so per-line reachability is the
-// question and there was no row for it.
+// rewrote the catalog wholesale, so per-line reachability is the question and
+// there was no row for it. Story 8.14 makes it the ONLY reachability answer:
+// with the decks retired the pool is the whole catalog, so a line that never
+// shows up here is one the eligibility law never admits.
 //
 // THREE LEDGERS, all pure observation:
 //
@@ -19,11 +20,11 @@
 //    level and frozen until spent (world.ts materializeOffer), so a REFERENCE
 //    comparison counts each distinct hand exactly once — no id-set hashing, no
 //    double counting across the ticks a hand sits open. Fits are read by
-//    diffing `ship.boons`, which is append-only within a life.
+//    diffing `ship.cards`, which is append-only within a life.
 //    READ THE PICK COLUMN AS "POLICY + REACHABILITY", NEVER AS PLAYER TASTE:
 //    captains spend through spendPolicy.pickSpendChoice (rarity-preferring, 75%
 //    top-rank) and bots through their per-profile weights. The OFFER column is
-//    the policy-free half — it is deck composition and the offer roll alone.
+//    the policy-free half — it is the common-pool draw alone.
 //
 // 2. THE DAMAGE LEDGER, attributed BY AMOUNT. DamageEvent carries no weapon
 //    field, and adding one would mean touching server/src. It does not need
@@ -35,9 +36,12 @@
 //    LAZILY, on the first classification rather than at module import, because
 //    `--tune` / `--set` mutate CONFIG after every import: a table baked at
 //    import would score a tuned run against untuned amounts.
-//    THE AMOUNTS ARE NOT ALL UNIQUE, AND THE LEDGER SAYS SO: balance cycle 1
+//    THE AMOUNTS NEED NOT BE UNIQUE, AND THE LEDGER SAYS SO: balance cycle 1
 //    made `broadside.damage` exactly equal `gun.damage` (both 15), so a first-
-//    match lookup would silently file every broadside burst under 'gun'. Sources
+//    match lookup would have filed every broadside burst under 'gun'. Eric's
+//    2026-10-02 cannon table (16/16/18/18/21, amendment 232) moved the bare
+//    cannon to 16 while the broadside stays 15, so today the two print under
+//    their OWN labels — the correct outcome, not a regression. Sources
 //    that collide on an amount are reported under ONE merged label
 //    ('gun/broadside') — an honest ambiguity beats a confident wrong answer. Any
 //    amount that matches nothing is bucketed by its own value under
@@ -65,13 +69,31 @@ function rawSources(): { label: string; amount: number }[] {
   return [
     { label: 'gun', amount: CONFIG.gun.damage },
     { label: 'gunBodyblock', amount: CONFIG.gun.contactDamage },
+    // Story 8.15: the two pickable guns. The machine gun's direct shell deals
+    // `damage` on contact (no burst, no smaller bodyblock); flak bursts for
+    // `damage` and bodyblocks for `contactDamage`. Since Eric's 2026-10-02
+    // numbers (amendment 232) the MG's 5 and flak's bodyblock 4 no longer
+    // collide AT TIER I; the merge-by-amount below stays, so any future
+    // collision still prints as one merged label rather than a silent mislabel.
+    // KNOWN BLIND SPOT (2026-10-02 review gate): only BASE amounts are sources,
+    // so a laddered hit is classified by first match on its amount — a tier-II
+    // flak burst (20) files under `starShells` (20) and a tier-II/III machine
+    // gun shell (6) under `gunBodyblock` (6). Harness attribution only; the
+    // fix (classify by shell family, not amount) is in deferred-work.md.
+    { label: 'machineGun', amount: CONFIG.machineGun.damage },
+    { label: 'flak', amount: CONFIG.flak.damage },
+    { label: 'flakBodyblock', amount: CONFIG.flak.contactDamage },
     { label: 'broadside', amount: CONFIG.broadside.damage },
     { label: 'torpedo', amount: CONFIG.torpedo.damage },
     { label: 'mine', amount: CONFIG.mine.damage },
-    { label: 'buoyGun', amount: CONFIG.radarBuoy.gunDamage },
     { label: 'fleetGun', amount: CONFIG.drones.small.gun.damage },
     { label: 'storm', amount: CONFIG.zone.stormDps * tickS },
-    { label: 'incendiary', amount: CONFIG.starShells.incendiaryDps * tickS },
+    // Story 8.17: the burn is PHOSPHOR SHELLS' own zone (tier-I dps here; a
+    // tiered zone's per-tick bite prints under whichever label it collides
+    // with, and the ledger says so) — plus the two new burst amounts.
+    { label: 'incendiary', amount: CONFIG.phosphorShells.dps * tickS },
+    { label: 'starShells', amount: CONFIG.starShells.damage },
+    { label: 'phosphorShells', amount: CONFIG.phosphorShells.damage },
   ];
 }
 
@@ -81,7 +103,11 @@ let sourcesMemo: { label: string; amount: number }[] | null = null;
  * The sources, with any that COLLIDE on an amount merged into one honest label.
  * Balance cycle 1 set `broadside.damage` to exactly `gun.damage` (both 15), and
  * a first-match lookup would have filed every broadside burst under 'gun' in
- * silence. 'gun/broadside' says what the ledger actually knows.
+ * silence. 'gun/broadside' says what the ledger actually knows. Since Eric's
+ * 2026-10-02 cannon table the bare cannon is 16 and the broadside 15, so they
+ * no longer merge and print as 'gun' and 'broadside' separately (correct). Only
+ * the BARE cannon's amount is a source here: a laddered cannon shell (18 / 21)
+ * still files under `other:<amount>`, as every laddered amount always has.
  *
  * BUILT LAZILY, ON FIRST CLASSIFICATION — never at module import. The harness's
  * `--tune` / `--set` overrides MUTATE CONFIG after every module is imported, so
@@ -108,15 +134,21 @@ function classifyDamage(amount: number): string {
 }
 
 /** Ordnance classification from the ShellState signature (no weapon id exists
- *  on a shell either — same constraint, same solution). */
-function classifyShell(kind: string, damage: number, lit: boolean): string {
+ *  on a shell either — same constraint, same solution). Since Story 8.15 a
+ *  shell DOES carry its gun family, so the two new guns are filed by family,
+ *  never by amount: a machine-gun shell and a flak shell are unambiguous even
+ *  where their damage collides with another source. */
+function classifyShell(kind: string, damage: number, lit: boolean, family: string | null = null): string {
+  if (family === 'mg') return 'machineGun';
+  if (family === 'flak') return 'flak';
   // A CAPTIVE MINE's torpedo is a `torp` carrying MINE damage (55) rather than
   // torpedo damage (70) — R2.12. Splitting them here is the only way to see
   // whether captive mines ever actually fire, since neither the shell nor the
   // DamageEvent names its weapon.
   if (kind === 'torp') return damage === CONFIG.mine.damage ? 'captiveTorpedo' : 'torpedo';
   if (lit) return 'starShell';
-  // Everything else goes through the ONE collision-honest table: the buoy gun
+  // Everything else goes through the ONE collision-honest table: the (deleted,
+  // Story 8.16) buoy gun
   // used to be matched here with an exact `===` AHEAD of the merge, so a tune
   // that put buoy damage on a gun/broadside amount would have filed every such
   // shell under a confident 'buoyGun'. It is a row in that table like any
@@ -133,16 +165,17 @@ export interface CatalogSample {
   fits: Record<string, number>;
   /** distinct materialized offers observed (the offers denominator). */
   offerHands: number;
-  /** ship class -> boon id -> offers (deck composition is per class). */
+  /** ship class -> boon id -> offers (kept per class: hull identity still
+   *  shapes WHICH lines a captain ends up eligible for). */
   offersByClass: Record<string, Record<string, number>>;
-  /** ship class -> boon id -> fits (wave 4: the observed numerator beside the
-   *  structural deck-composition denominator). OPTIONAL because sample
+  /** ship class -> boon id -> fits (wave 4: the observed per-class numerator;
+   *  its structural denominator died with the decks). OPTIONAL because sample
    *  literals predating the field exist in the harness's own tests — read it
    *  defensively (`?? {}`), like `bots` on MatchSample. */
   fitsByClass?: Record<string, Record<string, number>>;
   /** spender label -> boon id -> fits. The label is a bot's PROFILE id (an
    *  in-game or test-only row), or the ship's role ('captain'; 'fleet' is
-   *  structurally empty — fleet hulls have no decks) — so a blind-vacuum run
+   *  structurally empty — fleet hulls never draw) — so a blind-vacuum run
    *  reads per-test-row and a mixed lobby splits policy from policy. Same
    *  optionality as fitsByClass. */
   fitsByProfile?: Record<string, Record<string, number>>;
@@ -151,9 +184,9 @@ export interface CatalogSample {
   hp: Record<string, number>;
   /** ordnance label -> projectiles spawned. */
   launched: Record<string, number>;
-  /** mines laid / buoys deployed (not projectiles — counted by id diff). */
+  /** mines laid / decoys deployed (not projectiles — counted by id diff). */
   minesLaid: number;
-  buoysDeployed: number;
+  decoysDeployed: number;
   /** largest SINGLE DamageEvent, and largest per-victim PER-TICK total. */
   maxEventDamage: number;
   maxTickDamage: number;
@@ -166,15 +199,20 @@ export interface CatalogSample {
   /** victim hull id -> total kills observed (the denominator for the two above). */
   killsByHull: Record<string, number>;
   /** THE BARREL QUESTION (Story 7-5). A multi-barrel gun CLICK is N separate
-   *  15hp bursts inside one tick, so it is invisible in every per-event row and
+   *  gun bursts inside one tick, so it is invisible in every per-event row and
    *  indistinguishable from N shooters in the per-tick row. These three isolate
    *  it: a victim-tick whose damage is gun bursts and NOTHING else, with two or
    *  more of them, IS a multi-barrel click landing (a second shooter's gun
    *  burst in the exact same 50ms tick on the exact same hull is possible and
    *  is the known contaminant — reported, not hidden). */
   multiBarrelTicks: Record<string, number>;
-  /** victim hull id -> largest gun-ONLY per-tick total. 45 is the theoretical
-   *  max (3 barrels x 15). */
+  /** victim hull id -> largest gun-ONLY per-tick total. 63 is the theoretical
+   *  max (3 barrels x 21 at CANNON tier V — Eric 2026-10-02, amendment 232),
+   *  but THIS METRIC CANNOT SEE IT: a hit counts as 'gun' only at the bare
+   *  amount (`CONFIG.gun.damage`, 16), so laddered cannon shells (18 / 21)
+   *  file under `other:<amount>` and the only multi-barrel click it records
+   *  is the tier-II twin (2 x 16 = 32). Attribution by shell family is open
+   *  work (deferred-work.md, 2026-10-02 review gate). */
   maxGunOnlyTick: Record<string, number>;
   /** victim hull id -> kills from FULL hp by a gun-only multi-burst tick. */
   gunClickKills: Record<string, number>;
@@ -191,7 +229,7 @@ const emptySample = (): CatalogSample => ({
   hp: {},
   launched: {},
   minesLaid: 0,
-  buoysDeployed: 0,
+  decoysDeployed: 0,
   maxEventDamage: 0,
   maxTickDamage: 0,
   maxTickByHull: {},
@@ -228,7 +266,7 @@ export class CatalogCollector {
   private readonly seenBoons = new Map<string, number>();
   private readonly seenShells = new Set<string>();
   private readonly seenMines = new Set<string>();
-  private readonly seenBuoys = new Set<string>();
+  private readonly seenDecoys = new Set<string>();
 
   observe(world: World, active: boolean): void {
     if (!active) return;
@@ -254,35 +292,35 @@ export class CatalogCollector {
       }
     }
     const seen = this.seenBoons.get(ship.id) ?? 0;
-    if (ship.boons.length > seen) {
+    if (ship.cards.length > seen) {
       const byClass = (this.sample.fitsByClass![ship.hullId] ??= {});
       const byProfile = (this.sample.fitsByProfile![spender] ??= {});
-      for (let i = seen; i < ship.boons.length; i += 1) {
-        bump(this.sample.fits, ship.boons[i]);
-        bump(byClass, ship.boons[i]);
-        bump(byProfile, ship.boons[i]);
+      for (let i = seen; i < ship.cards.length; i += 1) {
+        bump(this.sample.fits, ship.cards[i]);
+        bump(byClass, ship.cards[i]);
+        bump(byProfile, ship.cards[i]);
       }
     }
     // Assign unconditionally: redeployShip WIPES boons, and a stale high-water
     // mark would then silently swallow every refit of the next life.
-    this.seenBoons.set(ship.id, ship.boons.length);
+    this.seenBoons.set(ship.id, ship.cards.length);
   }
 
   private observeOrdnance(world: World): void {
     for (const [id, shell] of world.shells) {
       if (this.seenShells.has(id)) continue;
       this.seenShells.add(id);
-      bump(this.sample.launched, classifyShell(shell.kind, shell.damage, shell.lit !== undefined));
+      bump(this.sample.launched, classifyShell(shell.kind, shell.damage, shell.lit !== undefined, shell.family));
     }
     for (const id of world.mines.keys()) {
       if (this.seenMines.has(id)) continue;
       this.seenMines.add(id);
       this.sample.minesLaid += 1;
     }
-    for (const id of world.buoys.keys()) {
-      if (this.seenBuoys.has(id)) continue;
-      this.seenBuoys.add(id);
-      this.sample.buoysDeployed += 1;
+    for (const id of world.decoys.keys()) {
+      if (this.seenDecoys.has(id)) continue;
+      this.seenDecoys.add(id);
+      this.sample.decoysDeployed += 1;
     }
   }
 

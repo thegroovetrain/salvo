@@ -71,7 +71,7 @@ function setup(ids: string[]): Harness {
   const m = new Match(w, TIMINGS, hooks);
   const players = new Map<string, unknown>();
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase());
+    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
     players.set(id, {});
     m.notifyRosterChanged();
   }
@@ -113,7 +113,7 @@ function activate(h: Harness): void {
 }
 
 function input(seq: number, throttle: number, rudder = 0): unknown {
-  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
+  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
 }
 
 // --- dropPolicy --------------------------------------------------------------
@@ -261,7 +261,7 @@ describe('ArenaRoom.teardown', () => {
   it('sandbox rooms (match=null) tear down via bare removeShip', () => {
     const w = new World(1);
     w.map.islands.length = 0;
-    w.addShip('a', 'A');
+    w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     const players = new Map<string, unknown>([['a', {}]]);
     const room = new ArenaRoom() as unknown as {
       world: World;
@@ -312,7 +312,7 @@ describe('deferred teardown (grace window)', () => {
     activate(h);
     // One click (fireSeq 1) fires once; the SAME held value must not fire again.
     expect(
-      h.w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 }),
+      h.w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false }),
     ).toBe(true);
     step(h); // click consumed this tick (lastFireSeq catches up)
     const shellsAfterClick = h.w.shells.size;
@@ -330,7 +330,7 @@ describe('deferred teardown (grace window)', () => {
 // and stub allowReconnection with a spy returning a controllable promise.
 
 interface WiringRoom {
-  world: { ships: Map<string, { lifecycle: ShipLifecycle }> };
+  world: { ships: Map<string, { lifecycle: ShipLifecycle }>; releaseHeld: (id: string) => void };
   match: { phase: string } | null;
   lastResults: ResultsMsg | null;
   allowReconnection: (client: unknown, seconds: number) => Promise<unknown>;
@@ -342,16 +342,17 @@ function wiringRoom(opts: {
   ship?: { lifecycle: ShipLifecycle };
   lastResults?: ResultsMsg;
   reconnectPromise?: Promise<unknown>;
-}): { room: WiringRoom; allow: ReturnType<typeof vi.fn> } {
+}): { room: WiringRoom; allow: ReturnType<typeof vi.fn>; release: ReturnType<typeof vi.fn> } {
+  const release = vi.fn();
   const allow = vi.fn(() => opts.reconnectPromise ?? new Promise<unknown>(() => undefined));
   const room = new ArenaRoom() as unknown as WiringRoom;
   const ships = new Map<string, { lifecycle: ShipLifecycle }>();
   if (opts.ship) ships.set('a', opts.ship);
-  room.world = { ships };
+  room.world = { ships, releaseHeld: release as unknown as WiringRoom['world']['releaseHeld'] };
   room.match = { phase: opts.phase };
   room.lastResults = opts.lastResults ?? null;
   room.allowReconnection = allow as unknown as WiringRoom['allowReconnection'];
-  return { room, allow };
+  return { room, allow, release };
 }
 
 const RESUMABLE = CloseCode.ABNORMAL_CLOSURE; // 1006, in RECONNECTABLE_CLOSE_CODES
@@ -363,6 +364,13 @@ describe('ArenaRoom.onDrop wiring', () => {
     room.onDrop(CLIENT, RESUMABLE);
     expect(allow).toHaveBeenCalledTimes(1);
     expect(allow.mock.calls[0][1]).toBe(CONFIG.net.reconnectGraceSeconds);
+  });
+
+  it('(a2) a held seat is released BEFORE the grace window opens (a dropped machine gun stops streaming)', () => {
+    const { room, allow, release } = wiringRoom({ phase: 'active', ship: { lifecycle: LIFECYCLE_ALIVE } });
+    room.onDrop(CLIENT, RESUMABLE);
+    expect(release).toHaveBeenCalledWith('a');
+    expect(release.mock.invocationCallOrder[0]).toBeLessThan(allow.mock.invocationCallOrder[0]);
   });
 
   it('(b) punitive close (WITH_ERROR 4002) -> allowReconnection NOT called', () => {
@@ -448,7 +456,7 @@ describe('CONFIG.net.reconnectGraceSeconds', () => {
 // A refreshed page loses its JS heap, so it resumes into a socket that has
 // never told it its own sessionId or the map seed — and can render nothing.
 // Core calls onReconnect INSTEAD OF onJoin on the reconnection branch
-// (@colyseus/core 0.17.44 Room.mjs:693-701), so the re-send is the ONLY way
+// (@colyseus/core 0.18.13 Room.mjs:1070-1090), so the re-send is the ONLY way
 // those bytes reach a resumed client, and equally: nothing on this path may
 // re-run the SPAWN half of onJoin. Harness is radarModes.test.ts's joinRoom —
 // a bare `new ArenaRoom()` never runs core's __init(), so world/state/clock
@@ -552,8 +560,9 @@ describe('ArenaRoom.onReconnect (Story 6.7 — the welcome re-send)', () => {
   });
 
   it('is TOTAL — a throwing send is swallowed, because core answers a throw by ABORTING the resume', () => {
-    // Core wraps onReconnect rethrow-true (Room.mjs:1129-1130) and its own
-    // catch runs _onLeave(FAILED_TO_RECONNECT). A captain who reconnected
+    // Core wraps onReconnect rethrow-true (@colyseus/core 0.18.13
+    // Room.mjs:1534-1535) and its own catch runs _onLeave(FAILED_TO_RECONNECT)
+    // (Room.mjs:1089). A captain who reconnected
     // successfully must never lose the seat to a diagnostic failure.
     const room = resumeRoom();
     const c = resumeClient('alice');

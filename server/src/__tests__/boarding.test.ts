@@ -46,7 +46,7 @@ function setup(timings: Partial<MatchTimings>): Ctx {
 }
 
 function join(ctx: Ctx, id: string): void {
-  ctx.w.addShip(id, id.toUpperCase());
+  ctx.w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
   ctx.m.notifyRosterChanged();
 }
 
@@ -75,14 +75,14 @@ const ALL_ON = { damage: true, xp: true, helm: true, weapons: true, radar: true 
 /** Full ahead + hard over, on the named seq. */
 function helmOrder(ctx: Ctx, id: string, seq: number): void {
   ctx.w.submitInput(id, {
-    seq, throttle: 1, rudder: 1, aim: 1.25, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
+    seq, throttle: 1, rudder: 1, aim: 1.25, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
   });
 }
 
 /** One fresh gun click (seq doubles as the click counter). */
 function fire(ctx: Ctx, id: string, seq: number): void {
   ctx.w.submitInput(id, {
-    seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
+    seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
   });
 }
 
@@ -151,6 +151,9 @@ describe('boarding gate — the countdown waits for the last loader (amendment 8
     // A seat the matchmaker has already expired is never going to be consumed,
     // so a shorter grace would abandon captains who could still legitimately
     // arrive. Pinned so the constant cannot drift under that floor.
+    // Re-verified for Colyseus 0.18 (Story 8.0): the default is still
+    // `Number(process.env.COLYSEUS_SEAT_RESERVATION_TIME || 15)` seconds —
+    // @colyseus/core 0.18.13 build/Room.mjs:43.
     expect(BOARDING_GRACE_MS).toBeGreaterThan(15_000);
   });
 });
@@ -283,7 +286,7 @@ describe('boarding freeze — weapons locked', () => {
     // exactly the loadout they boarded with.
     const slot = a.loadout[0]!;
     expect(slot.state!.reloadMsLeft).toBe(0);
-    expect(slot.state!.n).toBe(a.stats.gun.maxAmmo);
+    expect(slot.state!.n).toBe(a.stats.equipment.gun.maxAmmo);
   });
 
   it('the same click fires in a non-boarding room', () => {
@@ -464,23 +467,30 @@ describe('the held start line — a boarding captain starts where they boarded',
     expect(activateAndDrainSpawns(ctx)).toEqual([]);
   });
 
-  it('still runs the whole rest of the reset — only the placement is held', () => {
+  it('still runs the whole rest of the reset — the placement AND the card economy are held', () => {
     const ctx = setup({ expectedCaptains: 2 });
     join(ctx, 'a');
     join(ctx, 'b');
     const a = ctx.w.ships.get('a')!;
-    // Damage/spend the hull mid-boarding so a skipped reset would be visible.
+    // Damage/dirty the hull mid-boarding so a skipped reset would be visible.
     a.hp = 3;
     a.loadout[0]!.state!.n = 0;
     a.loadout[0]!.state!.reloadMsLeft = 4321;
-    a.bankedLevels = 7;
     a.xpMs = 99_999;
     a.level = 4;
+    // THE COUNTDOWN ECONOMY (Story 8.10, amendment 63b): the start line hands
+    // every captain a banked level and a hand, and a card taken there must be
+    // ABOARD when the water goes live — so the hold preserves the bank, the
+    // offer, the cards and the deck while resetting everything else. (The
+    // level-zero grant already banked one; this stands a bigger number on it.)
+    a.bankedLevels = 7;
+    const offer = a.offer;
     activateAndDrainSpawns(ctx);
     expect(a.hp).toBe(a.stats.maxHp);
-    expect(a.loadout[0]!.state!.n).toBe(a.stats.gun.maxAmmo);
+    expect(a.loadout[0]!.state!.n).toBe(a.stats.equipment.gun.maxAmmo);
     expect(a.loadout[0]!.state!.reloadMsLeft).toBe(0);
-    expect(a.bankedLevels).toBe(0);
+    expect(a.bankedLevels).toBe(7); // PRESERVED under the hold
+    expect(a.offer).toBe(offer); // ...and the same hand, byte for byte
     expect(a.level).toBe(0);
     // xpMs was wiped to 0 and has since accrued the ONE post-activation tick
     // this helper steps to publish the event window (xpEnabled is live now).

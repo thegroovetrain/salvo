@@ -48,7 +48,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, type OwnShip } from '@salvo/shared';
+import { CONFIG, effectiveSight, type OwnShip } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from '../render/camera.js';
 import { hullSightSoftness } from '../render/fog.js';
@@ -68,7 +68,8 @@ import {
 import { FOG_FILL_ALPHA, HOLE_FEATHER_START } from '../render/textures.js';
 
 const SIGHT = CONFIG.vision.sight;
-const DAZZLE = CONFIG.starShells.dazzleSightFactor;
+// A FLASHED observer's bubble — the shared effectiveSight, 1/8 of radar (Story 8.17).
+const DAZZLED = effectiveSight({ sightRange: SIGHT, radarRange: CONFIG.vision.radar }, true);
 
 // jsdom has no canvas text metrics, so Pixi's Text cannot rasterize here (every
 // other client render test constructs only Graphics). Partial-mock pixi.js the
@@ -121,9 +122,9 @@ function readIndexHtml(): string {
 function refitViewFixture(): OfferView {
   const you: OwnShip = {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', pts: 1,
-    offer: ['intelSweep', 'shipHull', 'gunBarrel', 'mineBlast'],
-    boostUntil: 0, boons: [], lvl: 0, xp: 0, repairHp: 0,
+    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', pts: 1,
+    offer: ['radarSweep', 'armor', 'deckGun', 'navalMines'],
+    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
   };
   const v = offerView(you, false, false, false);
   if (!v) throw new Error('fixture produced no spendable offer');
@@ -190,7 +191,7 @@ describe('the declared ROOT order (the gap deferred-work named)', () => {
 
   it('leaves the world and HUD child orders alone — this cycle moved one layer', () => {
     expect(WORLD_LAYER_ORDER as readonly string[]).toEqual([
-      'ocean', 'wake', 'projectile', 'mineWorld', 'buoyWorld',
+      'ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld', // Story 8.16: buoyWorld renamed
     ]);
     expect(HUD_LAYER_ORDER as readonly string[]).toEqual(['vignette', 'hud', 'foghorn']);
   });
@@ -387,7 +388,7 @@ describe('the plate feather (what the fog composite used to do for a plate)', ()
   });
 
   it('SCALES WITH THE OBSERVER: a dazzled bubble feathers a plate earlier', () => {
-    const dazzled = SIGHT * DAZZLE;
+    const dazzled = DAZZLED;
     expect(hullSightSoftness(dazzled, dazzled)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
     const d = SIGHT * 0.6;
     expect(hullSightSoftness(d, SIGHT), 'untouched for a base observer').toBe(1);

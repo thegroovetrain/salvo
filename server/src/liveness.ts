@@ -53,6 +53,9 @@ import { CONFIG, type LivenessPayload } from '@salvo/shared';
 /** Room names, mirroring app.config.ts's `gameServer.define` calls. */
 export const ARENA_ROOM = 'arena';
 export const QUEUE_ROOM = 'queue';
+/** The private lobby (cycle 167). Its captains are humans online like any
+ *  room's (the fold counts every room's humans); it is never a live game. */
+export const LOBBY_ROOM = 'lobby';
 
 /** How long one driver query is reused. Many pollers, one query. */
 export const LIVENESS_CACHE_MS = 2000;
@@ -68,8 +71,12 @@ export interface RoomRecord {
   metadata?: unknown;
 }
 
-/** `metadata.mode` as published by ArenaRoom.finishCreate. */
-type ModeKey = 'standard' | 'soloVsAi';
+/** `metadata.mode` as published by ArenaRoom.finishCreate. 'private'
+ *  (cycle 167) is a KNOWN mode — it counts toward LIVE GAMES and PLAYERS
+ *  ONLINE — but has no `modes` bucket: LivenessPayload's wire shape is frozen
+ *  in shared, so the operator split stays standard + soloVsAi and a private
+ *  arena is simply in neither (like a queued captain). */
+type ModeKey = 'standard' | 'soloVsAi' | 'private';
 
 /** Narrow unknown metadata to a bag, or null. */
 function bagOf(metadata: unknown): Record<string, unknown> | null {
@@ -91,7 +98,8 @@ function num(bag: Record<string, unknown> | null, key: string): number | null {
  * account for.
  */
 export function modeOf(metadata: unknown): ModeKey {
-  return bagOf(metadata)?.mode === 'soloVsAi' ? 'soloVsAi' : 'standard';
+  const mode = bagOf(metadata)?.mode;
+  return mode === 'soloVsAi' || mode === 'private' ? mode : 'standard';
 }
 
 /**
@@ -111,7 +119,9 @@ function clientsOf(room: RoomRecord): number {
  * `metadata.humans` FIRST, the driver's `clients` only as a fallback — because
  * the driver's number is not the room's population, it is the room's SEAT
  * ledger, and the two differ in both directions (verified against
- * @colyseus/core 0.17.44's Room.mjs):
+ * @colyseus/core 0.18.13's Room.mjs — `#_onAfterLeave` :1472,
+ * `#_incrementClientCount` :1482, `#_decrementClientCount` :1492,
+ * `_reserveSeat` :1302):
  *
  *   TOO HIGH, FOR UP TO 60 s. `#_decrementClientCount()` runs in
  *   `#_onAfterLeave`, which for a room defining `onDrop` is deferred until the
@@ -222,7 +232,10 @@ export function foldLiveness(
     playersOnline += humans;
     if (room.name === ARENA_ROOM) {
       liveGames++;
-      const bucket = modes[modeOf(room.metadata)];
+      const mode = modeOf(room.metadata);
+      // A private arena is a live game with no operator bucket (see ModeKey).
+      if (mode === 'private') continue;
+      const bucket = modes[mode];
       bucket.players += humans;
       bucket.games++;
     } else if (room.name === QUEUE_ROOM && queue === null) {
@@ -471,8 +484,11 @@ function cachedRooms(now: number): readonly RoomRecord[] | null {
  *
  * `matchMaker.query()` hands back the driver's LIVE listing objects, not
  * snapshots: core mutates `listing.clients` on every seat edge, and
- * `Room.setMetadata()` writes field-by-field INTO `listing.metadata` in place
- * (@colyseus/core 0.17.44, Room.ts:674-688). Caching those references would make
+ * `Room.setMetadata()` REPLACES `listing.metadata` wholesale on the live
+ * listing object (`this._listing.metadata = meta` — @colyseus/core 0.18.13
+ * Room.mjs:663-669; 0.17.44 merged field-by-field into it instead, which
+ * changes HOW the mutation lands but not THAT it lands on the object this
+ * cache would otherwise be holding). Caching those references would make
  * the "2 s cache" silently track live state — livenessSmoke.mjs caught exactly
  * that, a poll 3 ms inside the window already reporting a captain who joined
  * after the query settled. The pre-ruling code got away with it only because it
@@ -551,7 +567,7 @@ export async function livenessPayload(
   return foldLiveness(rooms, nowMs(), viewers);
 }
 
-// --- HTTP endpoint (Colyseus 0.17 typed route) -------------------------------
+// --- HTTP endpoint (Colyseus 0.18 typed route) -------------------------------
 
 /**
  * GET /liveness — the public, cross-process, player-facing snapshot.

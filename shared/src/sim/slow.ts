@@ -1,5 +1,5 @@
 // Prop-fouling slow kinematics hook (Story 2.8) — the bespoke mirror of
-// sim/boost.ts for the PROP-FOULING MINES doctrine's victim debuff. THE one
+// sim/boost.ts for the FOULING MINES line's victim debuff. THE one
 // shared function both sim sides call, per tick, to fold an active slow into a
 // ship's kinematics before stepShip: the server's stepShips and the client's
 // prediction/replay each derive the same per-tick ShipConfig from (kinematics,
@@ -7,13 +7,16 @@
 // drift (the victim knows via self-private you.slowedUntil).
 //
 // The slow scales BOTH speed caps — maxSpeed AND reverseSpeed — by `factor`
-// (CONFIG.mine.foulFactor): a fouled prop is slow in every direction. accel,
+// (the FOULING MINES row's folded `slowFactor`, base CONFIG.foulingMines
+// .slowFactor; it was CONFIG.mine.foulFactor until epic-8 amendment 81 made
+// fouling its own tiered line): a fouled prop is slow in every direction. accel,
 // decel, turnRate and steerageSpeed are untouched. Pure, zero I/O, plain
 // objects — never mutates its input.
 //
 // PINNED COMPOSITION ORDER (server AND predictor, byte-identical):
-//   boostedKinematics → slowedKinematics → hookKinematics
-// (boost first, slow second, hooks last — see sim/boost.ts and sim/hooks.ts).
+//   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
+// (boost first, slow second, the wake draft third, hooks last — see
+// sim/boost.ts, sim/draft.ts and sim/hooks.ts).
 
 import type { ShipConfig } from './ship.js';
 

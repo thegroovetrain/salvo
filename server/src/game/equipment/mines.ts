@@ -11,35 +11,63 @@
 // every non-owner hull silhouette within the owner's effective blastRadius
 // takes the owner's effective damage (mineBlastVictims below — the owner is
 // ALWAYS excluded, the universal AoE convention), with one boom at the mine
-// point; same-owner chains cascade in the World (amendment 46). Max `maxLive`
-// live mines per player (dropping past the cap despawns that player's OLDEST
-// silently — no boom); a defensive global cap bounds total growth. Mines never
+// point; chains cascade in the World from a NAVAL mine into every armed NAVAL
+// mine in range WHOEVER LAID IT (amendment 200, narrowing amendment 18 —
+// fouling and captive mines neither propagate nor receive). MINES HAVE NO CAP AT ALL (Story 8.4, FR57/AR48): the per-player
+// `maxLive` board cap with its silent oldest-eviction and the defensive global
+// cap are both DELETED — a mine exists until it is triggered or destroyed, and
+// shooting one is the sanctioned way to clear it: every mine carries
+// `CONFIG.mine.hp` that only a DECK GUN shell LANDING on it takes (amendment
+// 200 — the World's landing test and `damageMine`). Mines never
 // radar-paint; their per-observer visibility is contact-like (the `mine`
 // signal row).
 //
+// THREE KINDS, ONE CHASSIS (Story 8.13, epic-8 amendments 76/81). NAVAL,
+// CAPTIVE and FOULING MINES are three EQUIPMENT LINES over the same rack: the
+// same rear sector, the same 150 u leash, the same 3000 ms arm delay, the same
+// blocked-water refusal. They differ in their own rows' numbers and in what
+// the trip does, and `mineLine` below builds all three from that one body.
+//
+// THE KIND RIDES THE MINE, NOT THE OWNER. Until 8.13 `captive` and
+// `propFouling` were DOCTRINE flags on the naval row, so a refit converted a
+// whole field already on the water and "which kind is this" was a read of the
+// layer's live stats. With three racks fittable at once that answer is no
+// longer unique, so the kind is stamped on `MineState` at drop and every
+// reader keys off it — while every NUMBER still comes from the owner's live
+// row for that kind (`MINE_ROW_ID`), with the vacated-owner CONFIG fallback.
+//
 // CAPTIVE MINES (Story 7-5 wave 2, R2.12-R2.14) change the TRIP and what
-// follows it, and nothing else: the same drop, the same 3000ms arm delay, the
-// same `maxLive` board cap. A captive mine NEVER detonates on contact — it
+// follows it, and nothing else. A captive mine never receives or propagates a
+// chain (R2.18), NEVER detonates on contact, and
 // trips only on a HOSTILE (R2.13: an enemy captain or bot, or a fleet drone
 // whose CURRENT acquired target is the layer; a neutral drone may sail straight
-// over it) and answers by LAUNCHING its one torpedo, expending itself. The
-// doctrine is read live off the owner's stats at trip time like every other
-// mine number, so it needs no field on MineState and a vacated owner's mine
-// reverts to an ordinary contact mine.
+// over it) — answering by LAUNCHING its one torpedo and expending itself. A
+// deck gun CAN destroy one (amendment 200): at 0 hp it is removed with a boom,
+// no blast and no fish.
+//
+// FOULING MINES (amendment 81) detonate exactly as a naval mine does, for a
+// fixed 10 hp over a much larger blast, and SLOW every victim: `slowFactor` x
+// both speed caps for CONFIG.foulingMines.slowDurationMs, REFRESH-NOT-STACK.
+// A NAVAL MINE NEVER FOULS any more — the PROP FOULING add-on is deleted.
 
 import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
   blockedWater,
+  mineTriggerRadius,
   burstVictims,
   hullSilhouette,
   inArc,
+  mineEquipmentFor,
+  mineKindOf,
   pointPolygonDistance,
   sectorArcFor,
   transformPolygon,
   wrapAngle,
   type Island,
-  type HullTarget,
+  type MineEquipmentId,
+  type MineKind,
+  type Target,
   type ShellState,
   type Vec2,
 } from '@salvo/shared';
@@ -54,20 +82,67 @@ export interface MineState {
   x: number; // u
   y: number; // u
   armedAt: number; // ms — server time it becomes live (drop time + armDelay)
+  /**
+   * WHICH LINE LAID IT (Story 8.13, epic-8 amendments 76/81). The kind is
+   * STAMPED AT DROP from the laying slot's equipment id and never changes:
+   * one hull may now hold naval, captive AND fouling racks at once, so "which
+   * kind is this mine" can no longer be answered by reading the OWNER's
+   * doctrine (the pre-8.13 rule, where refitting converted a whole field).
+   *
+   * Every runtime number still comes from the OWNER's live row FOR THIS KIND,
+   * with the CONFIG base as the vacated-owner fallback — so a laid trap tracks
+   * its layer's tier exactly as it always did, and an orphan keeps no dead
+   * build's numbers. The kind is the only per-mine field.
+   */
+  kind: MineKind;
+  /**
+   * HIT POINTS (Eric 2026-10-01, amendment 200) — `CONFIG.mine.hp` at drop for
+   * every kind. SERVER-ONLY: never on `MineView` or any wire shape, never
+   * predicted. Only a DECK GUN shell landing on the mine takes them (the
+   * World's landing test via `World.damageMine` — beside `damageDecoy`, the
+   * other non-hull decrement the damage-gate fence admits in world.ts); a
+   * trip, a chain or a burst merely
+   * covering the mine never reads them.
+   */
+  hp: number;
 }
 
-/** A mine that triggered this tick, with the ship that set it off. */
+/** The three MINE LINE ids — the EquipmentId subset whose stat row is an
+ *  `EffectiveMine`. Narrow on purpose: a reader indexing `stats.equipment`
+ *  with one of these gets the mine row back without a cast.
+ *
+ *  A THIN ALIAS of the shared `MineEquipmentId` since Story 8.13: the list
+ *  lives in `sim/arcs.ts` (the rear placement sector is what makes these ids
+ *  one family) and the server keeps the local name its callers already
+ *  import. */
+export type MineLineId = MineEquipmentId;
+
+/** The EQUIPMENT ROW each mine kind reads its live numbers from — the ONE
+ *  mapping, so no reader re-derives it from a string. A thin re-expression of
+ *  the shared `mineEquipmentFor` (Story 8.13), kept because `world.ts` reads
+ *  it as a table (`MINE_ROW_ID[kind]`) at two hot sites. */
+export const MINE_ROW_ID: Readonly<Record<MineKind, MineLineId>> = Object.freeze({
+  naval: mineEquipmentFor('naval'),
+  captive: mineEquipmentFor('captive'),
+  fouling: mineEquipmentFor('fouling'),
+});
+
+/** The VACATED-OWNER trip ring for one kind — the CONFIG base a mine falls
+ *  back to when its layer has left the room. Naval and fouling derive 2/3 of
+ *  their own base blast (the shared `mineTriggerRadius`); the captive's trip
+ *  ring is its own tier-I literal (amendment 84d). */
+export function configTriggerRadius(kind: MineKind): number {
+  if (kind === 'captive') return CONFIG.captiveMines.triggerRadius;
+  if (kind === 'fouling') return mineTriggerRadius(CONFIG.foulingMines.blastRadius);
+  return CONFIG.mine.triggerRadius;
+}
+
+/** A mine that triggered this tick, with the ship that set it off. The
+ *  `captive` flag is GONE (Story 8.13): the answer is `mine.kind === 'captive'`
+ *  — a per-mine fact stamped at drop, not a doctrine read off the owner. */
 export interface MineTrigger {
   mine: MineState;
   victimId: string;
-  /**
-   * CAPTIVE (Story 7-5 wave 2, R2.12): this mine's owner holds the CAPTIVE
-   * MINES doctrine, so the trip LAUNCHES its torpedo instead of detonating.
-   * Resolved here, at trip time, off the owner's live stats — the same
-   * owner-lookup-with-CONFIG-fallback rule the trip ring and the blast already
-   * use, so a VACATED owner's mine reverts to an ordinary contact mine.
-   */
-  captive: boolean;
 }
 
 /**
@@ -76,49 +151,47 @@ export interface MineTrigger {
  * the owner-stats lookups and the aggro read, tests supply whatever they mean.
  */
 export interface MineTripRules {
-  /** The owner's EFFECTIVE trip ring (u). */
-  triggerRadius(ownerId: string): number;
-  /** Is the owner running CAPTIVE MINES? */
-  captive(ownerId: string): boolean;
+  /** The owner's EFFECTIVE trip ring (u) for THIS mine's kind — the row
+   *  `MINE_ROW_ID[kind]` names, with the vacated-owner CONFIG fallback. */
+  triggerRadius(ownerId: string, kind: MineKind): number;
   /**
    * CAPTIVE-ONLY (R2.13, Eric): is `victimId` HOSTILE to `ownerId`? An enemy
    * captain or bot always is; a fleet drone is hostile ONLY while its CURRENT
    * acquired target is the mine's owner, so a drone that breaks off becomes
-   * safe to sail past again. NEVER consulted for an ordinary or prop-fouling
-   * mine — those still trip on ANY non-owner hull, drones included.
+   * safe to sail past again. NEVER consulted for a naval or fouling mine —
+   * those still trip on ANY non-owner hull, drones included.
    */
   hostile(ownerId: string, victimId: string): boolean;
 }
 
-/** The CONFIG-base policy: base trip ring, nobody captive, everyone hostile.
- *  The default for direct callers (tests) — byte-identical to the pre-wave-2
- *  behaviour of the old `triggerRadiusFor` default. */
+/** The CONFIG-base policy: each kind's base trip ring, everyone hostile. The
+ *  default for direct callers (tests). */
 const CONFIG_TRIP_RULES: MineTripRules = {
-  triggerRadius: () => CONFIG.mine.triggerRadius,
-  captive: () => false,
+  triggerRadius: (_ownerId, kind) => configTriggerRadius(kind),
   hostile: () => true,
 };
 
-/** Count a player's currently-live mines. */
-function ownMineCount(mines: Map<string, MineState>, ownerId: string): number {
-  let n = 0;
-  for (const m of mines.values()) if (m.ownerId === ownerId) n++;
-  return n;
-}
-
-/** First (oldest, by insertion order) mine owned by `ownerId`, or undefined. */
-function oldestOwnMine(mines: Map<string, MineState>, ownerId: string): string | undefined {
-  for (const [id, m] of mines) if (m.ownerId === ownerId) return id;
-  return undefined;
-}
+/**
+ * THE TRIP SCAN'S TARGET SET, PER MINE KIND (cycle-148 review gate, P4).
+ *
+ * Every mine line authors its own `hits` mask, and one hull may hold all three
+ * racks — so the scan cannot take a single collected list and call it "the
+ * hulls". It takes a per-kind lookup instead, which the World backs with its
+ * memoized `hitTargets(mask)`: identical masks resolve to the identical array,
+ * so the three kinds cost exactly as much as the distinct masks among them (one
+ * collection today, since all three are hull-only).
+ */
+export type MineTripHulls = (kind: MineKind) => readonly Target[];
 
 /**
- * Add a mine to the world store, enforcing the per-player cap (despawn the
- * player's oldest, silently) and the defensive global cap (despawn the globally
- * oldest). `maxLive` is the OWNER'S effective live-mine cap (Stage D: the
- * maxMines upgrade) — the World threads it in from the owner's cached stats,
- * so this stays a pure store operation. Returns the new mine. Exported for
- * tests + the World drop closure.
+ * Add a mine to the world store. NO CAP OF ANY KIND (Story 8.4, FR57/AR48):
+ * `ownMineCount`, `oldestOwnMine`, the per-player `maxLive` eviction branch,
+ * the `globalCap` eviction branch and the `maxLive` parameter are all DELETED.
+ * A mine now exists until it is triggered or destroyed, so a laid trap is never
+ * silently taken off the water by the act of laying another one. The only
+ * bound left is pools x reloads; the 500-live-mine perf pin is what holds that
+ * honest, not a ceiling. Returns the new mine. Exported for tests + the World
+ * drop closure.
  */
 export function addMine(
   mines: Map<string, MineState>,
@@ -127,17 +200,9 @@ export function addMine(
   y: number,
   now: number,
   id: string,
-  maxLive: number = CONFIG.mine.maxLive,
+  kind: MineKind = 'naval',
 ): MineState {
-  if (ownMineCount(mines, ownerId) >= maxLive) {
-    const oldest = oldestOwnMine(mines, ownerId);
-    if (oldest !== undefined) mines.delete(oldest);
-  }
-  if (mines.size >= CONFIG.mine.globalCap) {
-    const first = mines.keys().next().value;
-    if (first !== undefined) mines.delete(first);
-  }
-  const mine: MineState = { id, ownerId, x, y, armedAt: now + CONFIG.mine.armDelay };
+  const mine: MineState = { id, ownerId, x, y, armedAt: now + CONFIG.mine.armDelay, kind, hp: CONFIG.mine.hp };
   mines.set(id, mine);
   return mine;
 }
@@ -147,7 +212,7 @@ export function addMine(
 // can never drift from what the client classifies/renders. Resolved at module
 // load — a non-sector mine arc is a CONFIG/arcs authoring error, failed loudly
 // at boot (sectorArcFor throws), never mid-tick.
-const REAR_SECTOR = sectorArcFor('mine');
+const REAR_SECTOR = sectorArcFor('navalMines');
 
 /** The clicked placement point: along the aim bearing at the clicked distance
  *  (never negative), measured from the ship CENTER — "place the mine AT the
@@ -182,7 +247,7 @@ export function dropBlocked(p: Vec2, islands: readonly Island[], mapRadius: numb
  */
 function firstTripper(
   mine: MineState,
-  hulls: readonly HullTarget[],
+  hulls: readonly Target[],
   radius: number,
   hostile: ((victimId: string) => boolean) | null,
 ): string | null {
@@ -202,20 +267,29 @@ function firstTripper(
  * the CAPTIVE doctrine read and its hostile gate (R2.13). One victim per mine
  * (the first qualifying ship found). Pure — the World deletes the mine and
  * resolves the detonation or the launch.
+ *
+ * `hulls` IS PER KIND (cycle-148 review gate, P4 — see `MineTripHulls`): each
+ * mine is scanned against the target set ITS OWN row's `hits` mask collects,
+ * not against one list gathered for the naval rack.
  */
 export function checkMineTriggers(
   mines: Map<string, MineState>,
-  hulls: readonly HullTarget[],
+  hulls: MineTripHulls,
   now: number,
   rules: MineTripRules = CONFIG_TRIP_RULES,
 ): MineTrigger[] {
   const triggers: MineTrigger[] = [];
   for (const mine of mines.values()) {
     if (now < mine.armedAt) continue; // still arming
-    const captive = rules.captive(mine.ownerId);
-    const hostile = captive ? (victimId: string) => rules.hostile(mine.ownerId, victimId) : null;
-    const victimId = firstTripper(mine, hulls, rules.triggerRadius(mine.ownerId), hostile);
-    if (victimId !== null) triggers.push({ mine, victimId, captive });
+    const hostile =
+      mine.kind === 'captive' ? (victimId: string) => rules.hostile(mine.ownerId, victimId) : null;
+    const victimId = firstTripper(
+      mine,
+      hulls(mine.kind),
+      rules.triggerRadius(mine.ownerId, mine.kind),
+      hostile,
+    );
+    if (victimId !== null) triggers.push({ mine, victimId });
   }
   return triggers;
 }
@@ -236,19 +310,30 @@ export function checkMineTriggers(
  */
 export function mineBlastVictims(
   mine: { x: number; y: number; ownerId: string },
-  hulls: readonly HullTarget[],
+  hulls: readonly Target[],
   blastRadius: number = CONFIG.mine.blastRadius,
-): string[] {
+): Target[] {
   return burstVictims(mine, blastRadius, hulls, mine.ownerId);
 }
 
 /**
  * THE CAPTIVE MINE'S TORPEDO (Story 7-5 wave 2, R2.12). A captive mine NEVER
- * detonates on contact: it holds ONE UN-UPGRADED torpedo — base CONFIG.torpedo
- * speed, hit radius and run-until-impact range, with NO torpedo boon of any kind
- * applied, because the fish belongs to the MINE and not to the layer's tubes —
- * fired along `dir` (the World's lead solution) from the mine's own point. The
- * mine is EXPENDED on fire.
+ * detonates on contact: it holds ONE torpedo on the HEAVY fish's hull — the
+ * family's speed, hit radius and target mask (amendment 82 leaves speed alone)
+ * — fired along `dir` (the World's lead solution) from the mine's own point.
+ * The mine is EXPENDED on fire.
+ *
+ * ITS HOMING IS A TIER STAT (Eric ruling 2026-09-19, amendment 82): the
+ * CAPTIVE row's `homingTurnRate` is 0 at tier I and steps +0.075 to 0.3 rad/s
+ * at tier V. At zero the fish is a straight-runner with no steering and no
+ * die-distance; above zero it takes the FAMILY's acquire range and the
+ * FAMILY's total-travel budget, exactly as a launched fish does (the one
+ * rule, `equipment/torpedoCore.ts`, applied here by hand because this fish is
+ * spawned from a mine point rather than a hull).
+ *
+ * ...AND ITS LOCK IS THE TRIPPING HULL, PINNED (cycle-148 review gate, P6):
+ * `targetId` is the victim the hostile gate cleared, and `locked` stops the
+ * fish re-acquiring anybody else for the rest of its run.
  *
  * IT IS THE GAME'S ONE CONTACT-BLAST PROJECTILE, and it says so entirely through
  * its per-projectile hit rule (the Story 1.4 seam — nothing about a projectile's
@@ -260,25 +345,33 @@ export function mineBlastVictims(
  * table, no extra ShellState field and no cleanup path that a reset or a spent
  * shell could leak through.
  *
- * `damage`/`blastRadius` arrive from the OWNER's effective MINE stats at LAUNCH
- * time; the World re-reads them at detonation exactly as a mine blast does (so
- * PROP FOULING rides along — R2.14 — and a vacated owner falls back to CONFIG).
+ * `damage`/`blastRadius`/`homingTurnRate` arrive from the OWNER's effective
+ * CAPTIVE MINES row at LAUNCH time; the World re-reads damage and blast at
+ * detonation exactly as a mine blast does (a vacated owner falls back to
+ * CONFIG). The captive's burst is FIXED at 32 u and never steps (amendment
+ * 84d), so the trap's reach grows with the line but the bang does not.
  */
 export function captiveTorpedo(
   id: string,
   mine: MineState,
   dir: number,
   now: number,
-  p: { damage: number; blastRadius: number },
+  p: { damage: number; blastRadius: number; homingTurnRate: number; targetId: string },
 ): ShellState {
-  return {
+  const homes = p.homingTurnRate > 0;
+  const shell: ShellState = {
     id,
     ownerId: mine.ownerId,
+    // AR44: the captive's fish is a TORPEDO — hulls and decoys. It runs under
+    // a minefield exactly as a launched torpedo does.
+    hits: CONFIG.torpedo.hits,
     x: mine.x,
     y: mine.y,
     vx: Math.cos(dir) * CONFIG.torpedo.speed,
     vy: Math.sin(dir) * CONFIG.torpedo.speed,
-    distLeft: Number.POSITIVE_INFINITY, // the base fish runs until impact
+    // A straight-runner runs until impact; only a STEERING fish carries the
+    // family's finite travel budget (an orbiting fish must die).
+    distLeft: homes ? CONFIG.torpedo.homingMaxRangeU : Number.POSITIVE_INFINITY,
     bornAt: now,
     kind: 'torp',
     damage: p.damage,
@@ -287,7 +380,23 @@ export function captiveTorpedo(
     targetY: null,
     burstRadius: p.blastRadius,
     contactDamage: p.damage,
+    family: null, // Story 8.15: a fish carries no gun family (no `w` on its reveal)
   };
+  // THE LOCK IS PINNED AT LAUNCH (cycle-148 review gate, P6): this fish was
+  // fired at the ONE hull that tripped the mine and cleared the hostile gate
+  // (R2.13), so it must never re-acquire. A neutral fleet drone drifting nearer
+  // mid-run would otherwise steal a trap it was never allowed to spring — and
+  // the gate cannot be re-run in flight, because `steerHoming` is pure shared
+  // sim with no idea what a drone's current aggro is. See `ShellState.homing`.
+  if (homes) {
+    shell.homing = {
+      turnRate: p.homingTurnRate,
+      acquireRange: CONFIG.torpedo.homingAcquireRange,
+      targetId: p.targetId,
+      locked: true,
+    };
+  }
+  return shell;
 }
 
 /** The CONTACT-BLAST radius of a spent projectile, or 0 if it is not one: a
@@ -301,39 +410,58 @@ export function contactBlastRadius(shell: ShellState): number {
 
 /** The world-space hull target for a ship pose (test/inspection convenience —
  *  the sim itself builds targets in World.aliveHulls with per-ship scratch). */
-export function hullFor(ship: ShipRecord): HullTarget {
+export function hullFor(ship: ShipRecord): Target {
   const s = ship.state;
-  return { id: ship.id, poly: transformPolygon(hullSilhouette(ship.hullId), s.x, s.y, s.heading) };
+  return { id: ship.id, kind: 'hull', poly: transformPolygon(hullSilhouette(ship.hullId), s.x, s.y, s.heading) };
 }
 
-/** The mine Equipment row — a click-aimed WEAPON as of Story 2.8 (amendment
- *  45, isWeapon true via the shared flag): activation rides the fireSeq click
- *  channel with the D1-validated fireT (armedAt = fireT + armDelay). Checks in
- *  the torpedo's arc-first order, nothing consumed on a denial: the click must
- *  lie in the REAR sector (heading + offset ± placeHalfArcDeg) AND within
- *  CONFIG.mine.placeRange — either miss is 'out-of-arc' (the aim-denial
- *  channel, per the amendment ruling); a clicked point inside a rock / off the
- *  water is 'blocked' (Story 1.10); an empty pool is 'no-ammo'. The drop ammo
- *  pool is distinct from the live-mine board cap (stats.mine.maxLive) that
- *  addMine enforces. Pool size + reload come from the ship's cached effective
- *  stats. Slot state is non-null by the loadout invariant (see index.ts). */
-export const mineEquipment: Equipment = {
-  id: 'mine',
-  isWeapon: EQUIPMENT_IS_WEAPON.mine, // shared weapon/ability split — single source
-  tick(ship, slot, dtMs): void {
-    tickReload(slot.state!, ship.stats.mine.maxAmmo, ship.stats.mine.reloadMs, dtMs);
-  },
-  activate(ctx, slot) {
-    const ship = ctx.ship;
-    const center = wrapAngle(ship.state.heading + REAR_SECTOR.offset); // astern-centered
-    if (!inArc(ship.input.aim, center, REAR_SECTOR.halfArc)) return { ok: false, reason: 'out-of-arc' };
-    // Out-of-RANGE shares the aim-denial channel (amendment 45 ruling): the
-    // click names a point the rack cannot reach — same "bad aim" grammar.
-    if (ship.input.aimDist > CONFIG.mine.placeRange) return { ok: false, reason: 'out-of-arc' };
-    const p = minePlacePoint(ship);
-    if (dropBlocked(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' }; // nothing consumed
-    if (!consume(slot.state!, ship.stats.mine.reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
-    ctx.dropMine(p.x, p.y);
-    return { ok: true };
-  },
-};
+/**
+ * ONE MINE LINE'S Equipment row — the shared chassis, built three times
+ * (Story 8.13). A click-aimed WEAPON since Story 2.8 (amendment 45, isWeapon
+ * true via the shared flag): activation rides the fireSeq click channel with
+ * the D1-validated fireT (armedAt = fireT + armDelay). Checks in the torpedo's
+ * arc-first order, nothing consumed on a denial: the click must lie in the
+ * REAR sector (heading + offset ± placeHalfArcDeg) AND within
+ * CONFIG.mine.placeRange — either miss is 'out-of-arc' (the aim-denial
+ * channel, per the amendment ruling); a clicked point inside a rock / off the
+ * water is 'blocked' (Story 1.10); an empty pool is 'no-ammo'. The drop ammo
+ * pool is the ONLY mine bound since Story 8.4 deleted the live-board cap.
+ *
+ * EVERY CHASSIS FIELD IS SHARED AND READ FROM `CONFIG.mine` — the rear sector,
+ * the 150 u leash and the 3 s arm delay are the naval rack's, deliberately not
+ * restated per line (the CONFIG blocks say so). Only pool size and reload come
+ * from THIS line's own effective row, and the kind is what the drop stamps.
+ */
+function mineLine(id: MineLineId): Equipment {
+  const kind = mineKindOf(id);
+  return {
+    id,
+    isWeapon: EQUIPMENT_IS_WEAPON[id], // shared weapon/ability split — single source
+    tick(ship, slot, dtMs): void {
+      const row = ship.stats.equipment[id];
+      tickReload(slot.state!, row.maxAmmo, row.reloadMs, dtMs);
+    },
+    activate(ctx, slot) {
+      const ship = ctx.ship;
+      const center = wrapAngle(ship.state.heading + REAR_SECTOR.offset); // astern-centered
+      if (!inArc(ship.input.aim, center, REAR_SECTOR.halfArc)) return { ok: false, reason: 'out-of-arc' };
+      // Out-of-RANGE shares the aim-denial channel (amendment 45 ruling): the
+      // click names a point the rack cannot reach — same "bad aim" grammar.
+      if (ship.input.aimDist > CONFIG.mine.placeRange) return { ok: false, reason: 'out-of-arc' };
+      const p = minePlacePoint(ship);
+      if (dropBlocked(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' }; // nothing consumed
+      if (!consume(slot.state!, ship.stats.equipment[id].reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
+      ctx.dropMine(p.x, p.y, kind);
+      return { ok: true };
+    },
+  };
+}
+
+/** NAVAL MINES — the contact rack (the shipped mine under its v3 id). */
+export const mineEquipment: Equipment = mineLine('navalMines');
+
+/** CAPTIVE MINES (catalog-v3 R25) — the moored torpedo launcher. */
+export const captiveMineEquipment: Equipment = mineLine('captiveMines');
+
+/** FOULING MINES (epic-8 amendment 81) — minimal damage, wide blast, a slow. */
+export const foulingMineEquipment: Equipment = mineLine('foulingMines');

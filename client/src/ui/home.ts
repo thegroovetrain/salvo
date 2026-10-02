@@ -47,6 +47,16 @@
 // replaces the server status"*). The modal keeps its own `N/20 QUEUED` line
 // (epic-6 amendment 42); that surface is untouched by the ruling above.
 //
+// THE UNDERPLAY ROW CARRIES THE COMMUNITY NOW (Eric ruling 2026-08-28):
+// HOW TO PLAY · PRIVACY · DISCORD · REDDIT. The two new anchors take the same
+// treatment as the static-page links because the row means one thing — places
+// you can go — and DISCORD/REDDIT are two more of them. Their URLs are BUILT,
+// never literal: the templates live in ui/communityLinks.ts and the identity
+// arrives as `VITE_DISCORD_INVITE` / `VITE_SUBREDDIT`, so an unset (or
+// malformed) var simply renders no anchor at all — the GA4/AdSense absence
+// gating, applied to navigation. Both vars ship UNSET, so today the row is
+// still exactly the two static-page links.
+//
 // The settings overlay is TRANSPARENT so the ambient scene breathes behind it;
 // the ambient's scrim keeps this text legible.
 //
@@ -69,7 +79,10 @@
 // cssHex for the personal hues, which have no --hc-* var).
 
 import {
+  DEFAULT_GUN,
+  isGunId,
   sanitizeClassId,
+  type GunId,
   type LivenessPayload,
   type QueueStatusMsg,
   type ShipClassId,
@@ -81,10 +94,12 @@ import {
   updateQueueModal,
 } from './queueModal.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { communityLinks, type CommunityLink } from './communityLinks.js';
 import { applySafeCenterScroll } from './fit.js';
 import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
 import { registerCss } from './theme.js';
+import { makePrivateRow, type PrivateRow } from './privateRow.js';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
 import { pickTagline } from './taglines.js';
 import {
@@ -102,6 +117,8 @@ export { NAME_MAX };
 const HOME_ID = 'main-menu'; // kept id so index.html / any external hook is stable
 const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
+/** THE GUN PICK (Story 8.15, amendment 107), stored beside the class. */
+export const GUN_KEY = 'hullcracker.gun';
 const MODE_KEY = 'hullcracker.mode';
 
 const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY is pressed mid-connect
@@ -172,6 +189,28 @@ function saveClass(cls: ShipClassId): void {
 }
 
 /**
+ * The saved gun pick (Story 8.15, amendment 107) — `deckGun` (the CANNON) when
+ * nothing is stored, the value is unknown, or storage is unavailable. Unlike
+ * the class there is no first-run signal: CANNON is simply preselected.
+ */
+export function loadSavedGun(): GunId {
+  try {
+    const raw = localStorage.getItem(GUN_KEY);
+    return isGunId(raw) ? raw : DEFAULT_GUN;
+  } catch {
+    return DEFAULT_GUN;
+  }
+}
+
+function saveGun(gun: GunId): void {
+  try {
+    localStorage.setItem(GUN_KEY, gun);
+  } catch {
+    // storage unavailable — the gun just won't persist
+  }
+}
+
+/**
  * The MODE a deploy goes out through. `standard` is the queue; `soloVsAi` is
  * the queue-free `create('arena', {solo:true})` door (Story 6.5). It is an
  * IDENTIFIER rather than a boolean so DUO/TRIO slot in beside it without
@@ -182,6 +221,17 @@ function saveClass(cls: ShipClassId): void {
  * module (the reverse would be a cycle).
  */
 export type DeployMode = 'standard' | 'soloVsAi';
+
+/** A deploy door's callback: the callsign, the hull, and the gun pick (Story
+ *  8.15 threads the gun through `startGame` → `connect` → `joinOptions`). */
+export type DeployFn = (name: string, cls: ShipClassId, gun: GunId) => void;
+
+/** The private-lobby doors (cycle 167): CREATE and JOIN. Not `DeployMode`s —
+ *  neither is ever persisted as `hullcracker.mode`. */
+export interface PrivateDoors {
+  onCreate: DeployFn;
+  onJoin: DeployFn;
+}
 
 const DEPLOY_MODES: readonly DeployMode[] = ['standard', 'soloVsAi'];
 
@@ -652,10 +702,11 @@ function makeModeRow(...buttons: HTMLElement[]): HTMLElement {
  * The stack carries the primary's old `margin-top:26px`, so the chip→buttons
  * spacing is unchanged: 22px console gap + 26px = the same 48px as shipped.
  */
-function makeDeployStack(modeRow: HTMLElement, soloBtn: HTMLElement): HTMLElement {
+function makeDeployStack(modeRow: HTMLElement, soloBtn: HTMLElement, privateRow: HTMLElement): HTMLElement {
   const stack = document.createElement('div');
   stack.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:26px';
-  stack.append(modeRow, soloBtn);
+  // ROW 3 (cycle 167, Eric ruling 7): CREATE / JOIN — ui/privateRow.ts.
+  stack.append(modeRow, soloBtn, privateRow);
   return stack;
 }
 
@@ -683,6 +734,23 @@ const UNDERPLAY_LINK_CSS =
  * own footer, so two surfaces must agree on it. This URL has exactly one reader.
  */
 const HOWTO_HREF = '/how-to-play';
+
+/**
+ * A community anchor (Eric ruling 2026-08-28). Same treatment as the two
+ * static-page links — the row is uniform — but OFF-SITE, so it opens in a new
+ * tab and `rel="noopener noreferrer"` denies the destination a window handle
+ * back onto the game tab (and withholds the referrer). The href is already
+ * built and validated by ui/communityLinks.ts; nothing is templated here.
+ */
+function makeCommunityLink(link: CommunityLink): HTMLAnchorElement {
+  const el = document.createElement('a');
+  el.textContent = link.label;
+  el.href = link.href;
+  el.target = '_blank';
+  el.rel = 'noopener noreferrer';
+  el.style.cssText = UNDERPLAY_LINK_CSS;
+  return el;
+}
 
 function makeUnderplay(statusEl: HTMLElement): HTMLElement {
   // TWO LINES NOW (Eric ruling 2026-08-18, Story 7.2): the LINKS share the top
@@ -716,6 +784,10 @@ function makeUnderplay(statusEl: HTMLElement): HTMLElement {
   privacy.href = CLIENT_CONFIG.consent.policyHref;
   privacy.style.cssText = UNDERPLAY_LINK_CSS;
   row.append(howto, privacy);
+  // The community links FOLLOW the static-page ones, in a fixed order, and an
+  // unconfigured one contributes nothing — so with neither var set this loop
+  // runs zero times and the row is byte-identical to what shipped before.
+  for (const link of communityLinks()) row.append(makeCommunityLink(link));
   col.append(row, statusEl);
   return col;
 }
@@ -814,17 +886,23 @@ interface Home {
   playBtn: HTMLButtonElement;
   /** SOLO VS AI (Story 6.5) — the port's second door, one row below. */
   soloBtn: HTMLButtonElement;
+  /** CREATE / JOIN (cycle 167) — the third line, built by ui/privateRow.ts. */
+  privateRow: PrivateRow;
+  /** The private doors — same (name, cls, gun) contract, never a saved mode. */
+  privateDoors: PrivateDoors;
   /** The bottom-left PLAYERS ONLINE / LIVE GAMES register (Story 6.6). */
   livenessEls: LivenessEls;
   /** The last `/liveness` read, or null while UNAVAILABLE (nothing renders). */
   liveness: LivenessPayload | null;
-  onDeploy: (name: string, cls: ShipClassId) => void;
-  /** Deploy into a solo-vs-AI match. Same (name, cls) contract as onDeploy —
-   *  the mode is the DOOR, not a field on the identity. */
-  onSolo: (name: string, cls: ShipClassId) => void;
+  onDeploy: DeployFn;
+  /** Deploy into a solo-vs-AI match. Same (name, cls, gun) contract as
+   *  onDeploy — the mode is the DOOR, not a field on the identity. */
+  onSolo: DeployFn;
   /** Open/toggle the settings overlay (gear + home ESC — Story 2.3). */
   onSettings: () => void;
   currentClass: ShipClassId | null;
+  /** The captain's gun pick (Story 8.15) — never null, CANNON by default. */
+  currentGun: GunId;
   layerOpen: boolean;
   busy: boolean;
   /** Drives the callsign field's personal-color focus ring (see paintCallsign). */
@@ -926,7 +1004,7 @@ function setClass(h: Home, cls: ShipClassId): void {
 /** Commit the typed callsign and hand it to ONE deploy door (`go`). Both home
  *  actions share this body — the class, the callsign and the never-silence rule
  *  are identical; only the door differs. */
-function deploy(h: Home, go: (name: string, cls: ShipClassId) => void): void {
+function deploy(h: Home, go: DeployFn): void {
   // Never-silence: a press mid-connect re-asserts the LIVE status line rather
   // than dying. It re-asserts what is ALREADY painted (not a fixed CONNECTING…)
   // because Story 6.1's queue readout only refreshes when the server pushes —
@@ -935,7 +1013,7 @@ function deploy(h: Home, go: (name: string, cls: ShipClassId) => void): void {
   if (h.currentClass === null) return;
   const name = sanitizeName(h.input.value);
   saveName(name);
-  go(name, h.currentClass);
+  go(name, h.currentClass, h.currentGun);
 }
 
 function onPlay(h: Home): void {
@@ -949,6 +1027,12 @@ function onPlay(h: Home): void {
 function onSolo(h: Home): void {
   if (h.currentClass === null) return openLayer(h);
   deploy(h, h.onSolo);
+}
+
+/** CREATE / JOIN take SOLO VS AI's first-run routing and busy rule verbatim. */
+function onPrivate(h: Home, go: DeployFn): void {
+  if (h.currentClass === null) return openLayer(h);
+  deploy(h, go);
 }
 
 /** Refocus the callsign field after any layer exit, so Enter=PLAY lives again —
@@ -965,13 +1049,18 @@ function openLayer(h: Home): void {
   h.layerOpen = true;
   h.layer = openClassSelect({
     initial: h.currentClass ?? 'torpedoBoat',
+    initialGun: h.currentGun,
     hoist: h.hoist,
     blurTarget: h.overlay,
     // CONFIRM SELECTION (and Enter) saves the class and comes back to port —
     // deliberately NO deploy(h) here: PLAY is the only path to onDeploy.
-    onConfirm: (cls) => {
+    onConfirm: (cls, gun) => {
       h.layerOpen = false;
       h.layer = null;
+      // The gun is saved beside the class (Story 8.15). The home chip stays
+      // slim — no `class · gun` sub-line until Story 9.4 (amendment 107).
+      h.currentGun = gun;
+      saveGun(gun);
       setClass(h, cls);
       refocusInput(h);
     },
@@ -999,7 +1088,7 @@ function mountHome(
     h.chip.root,
     // ROW 1 (the mode row: SOLO today, DUO/TRIO beside it later) over ROW 2
     // (SOLO VS AI, centered) — Eric ruling 2026-08-17.
-    makeDeployStack(makeModeRow(playBtn), soloBtn),
+    makeDeployStack(makeModeRow(playBtn), soloBtn, h.privateRow.root),
     makeUnderplay(h.statusEl),
   );
   h.overlay.append(
@@ -1072,20 +1161,21 @@ function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
 }
 
 /**
- * Show the pre-join home. `onDeploy(name, cls)` fires ONLY from PLAY with a
+ * Show the pre-join home. `onDeploy(name, cls, gun)` fires ONLY from PLAY with a
  * chosen class — the class bay never deploys (CONFIRM SELECTION saves and comes
  * back to port). First-run SOLO opens the layer instead of connecting.
  * `onSettings()` is the gear + home-ESC settings toggle (Story 2.3).
- * `onSoloDeploy(name, cls)` is Story 6.5's SOLO VS AI door — same contract,
+ * `onSoloDeploy(name, cls, gun)` is Story 6.5's SOLO VS AI door — same contract,
  * different route (no queue). It defaults to the standard deploy so a caller
  * that predates the second button still behaves.
  * Returns the handle main.ts drives for status/busy/hide.
  */
 export function showHome(
   version: string,
-  onDeploy: (name: string, cls: ShipClassId) => void,
+  onDeploy: DeployFn,
   onSettings: () => void = () => undefined,
-  onSoloDeploy: (name: string, cls: ShipClassId) => void = onDeploy,
+  onSoloDeploy: DeployFn = onDeploy,
+  privateDoors: PrivateDoors = { onCreate: () => undefined, onJoin: () => undefined },
 ): HomeHandle {
   document.getElementById(HOME_ID)?.remove();
   const overlay = document.createElement('div');
@@ -1108,12 +1198,15 @@ export function showHome(
     chip,
     playBtn: play,
     soloBtn: solo,
+    privateRow: makePrivateRow(() => onPrivate(h, h.privateDoors.onCreate), () => onPrivate(h, h.privateDoors.onJoin)),
+    privateDoors,
     livenessEls: makeLiveness(),
     liveness: null,
     onDeploy,
     onSolo: onSoloDeploy,
     onSettings,
     currentClass: loadSavedClassOrNull(),
+    currentGun: loadSavedGun(),
     layerOpen: false,
     busy: false,
     inputFocused: false,
@@ -1149,6 +1242,7 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
         btn.style.opacity = busy ? '0.4' : '1';
         btn.style.cursor = busy ? 'default' : 'pointer';
       }
+      h.privateRow.setBusy(busy);
     },
     // The queue modal's whole lifecycle hangs off this ONE call, which is what
     // makes "the modal is up exactly while cancelling is meaningful" structural:

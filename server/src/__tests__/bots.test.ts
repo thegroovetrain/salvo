@@ -23,9 +23,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { BOON_CATALOG, CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
 import { World } from '../game/world.js';
-import { botPhase } from '../game/ai/botDriver.js';
+import { BotController, botPhase } from '../game/ai/botDriver.js';
+import type { BotWorldPort } from '../game/ai/types.js';
 import { isFleetHull, isHuman, isParticipant } from '../game/participants.js';
 
 /** The DELIBERATION round-robin window in ticks — recomputed here
@@ -37,7 +38,9 @@ function botWorld(seed: number, bots: number): { w: World; ids: string[] } {
   const w = new World(seed);
   w.map.islands.length = 0; // open water: spawn placement never retries ashore
   const ids: string[] = [];
-  for (let i = 0; i < bots; i += 1) ids.push(w.addBot().id);
+  // Bots sail the hull's default deck (Story 8.2) — the resolver the arena
+  // passes is the loader, which answers exactly this with no account module.
+  for (let i = 0; i < bots; i += 1) ids.push(w.addBot(undefined, undefined).id);
   return { w, ids };
 }
 
@@ -46,8 +49,8 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
     expect(Object.keys(CONFIG.bots).sort()).toEqual([
       'aimScatterRefU',
       'aimScatterU',
-      'boonWeights',
       'callsigns',
+      'cardPoints', // Story 8.20: the points table replaced `boonWeights` (a DELIBERATE edit to this pin)
       'contactMemoryMs',
       'decisionCadenceMs',
       'disengageHpFrac',
@@ -98,34 +101,25 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
     }
   });
 
-  it('profiles: 2 per class, every class covered; callsigns: ~30, unique', () => {
-    expect(Object.keys(CONFIG.bots.profiles).sort()).toEqual([...SHIP_CLASS_IDS].sort());
-    for (const cls of SHIP_CLASS_IDS) expect(CONFIG.bots.profiles[cls].length).toBe(2);
+  it('profiles: the flat six, in dealing order; callsigns: ~30, unique', () => {
+    // Story 8.20 (Eric ruling 2026-09-30, R6): personalities are no longer
+    // per hull. The order is the dealing order the seeded pick indexes into.
+    expect([...CONFIG.bots.profiles]).toEqual(['raider', 'duelist', 'bulwark', 'siege', 'forager', 'trapper']);
     expect(CONFIG.bots.callsigns.length).toBeGreaterThanOrEqual(30);
     expect(new Set(CONFIG.bots.callsigns).size).toBe(CONFIG.bots.callsigns.length);
   });
 
-  it('boonWeights are keyed by PROFILE and speak every profile\'s drawable categories', () => {
-    // WAVE-2 RESTRUCTURE (deliberate pin update): this table was keyed by
-    // CLASS with a flat category map. It is now keyed by PRIORITY PROFILE
-    // with `{ cat, lines }` — a class-keyed table cannot express what the E1
-    // ruling asks for, namely that two battleships of different profiles want
-    // different cards (siege buys star shells, bulwark buys hull). The
-    // per-line overrides address REAL boon ids so a renamed catalog line
-    // fails loudly here rather than silently scoring at the category base.
-    const profileIds = SHIP_CLASS_IDS.flatMap((cls) => [...CONFIG.bots.profiles[cls]]);
-    expect(Object.keys(CONFIG.bots.boonWeights).sort()).toEqual([...profileIds].sort());
-    for (const id of profileIds) {
-      const t = CONFIG.bots.boonWeights[id] as { cat: Record<string, number>; lines: Record<string, number> };
-      // Universal categories (intel/ship/guns) — every deck draws them, so
-      // an unlisted one would score at spending.ts's unlisted default.
-      for (const cat of ['intel', 'ship', 'guns']) expect(t.cat[cat]).toBeGreaterThan(0);
-      for (const line of Object.keys(t.lines)) expect(Object.hasOwn(BOON_CATALOG, line)).toBe(true);
-    }
-    // The class arsenal's own category leads its profiles' tables.
-    expect((CONFIG.bots.boonWeights.raider.cat as Record<string, number>).torpedoes).toBeGreaterThan(0);
-    expect((CONFIG.bots.boonWeights.siege.cat as Record<string, number>).broadside).toBeGreaterThan(0);
-    expect((CONFIG.bots.boonWeights.trapper.cat as Record<string, number>).mines).toBeGreaterThan(0);
+  it('cardPoints carries exactly Eric\'s R3 table (2026-09-30)', () => {
+    expect(CONFIG.bots.cardPoints).toEqual({
+      base: 2,
+      favorite: 1,
+      style: 1,
+      beltHunger: { low: -1, medium: 0, high: 1 },
+      carried: -1,
+      hurtRepair: 2,
+      weapon: 3.5,
+      favoriteWeapon: 3.75,
+    });
   });
 });
 
@@ -139,15 +133,17 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
     expect(isFleetHull(rec)).toBe(false);
   });
 
-  it('ids are namespaced bot-N; class is a real ship class; the deck is real', () => {
+  it('ids are namespaced bot-N; class is a real ship class; the economy is real', () => {
     const { w, ids } = botWorld(12, 3);
     expect(ids).toEqual(['bot-1', 'bot-2', 'bot-3']);
     for (const id of ids) {
       const rec = w.ships.get(id)!;
       expect(SHIP_CLASS_IDS).toContain(rec.hullId);
-      // ECONOMY: a bot is a participant that plays the game — it draws a real
-      // boon deck (fleet hulls get EMPTY_DECK; the addShip comment pins this).
-      expect(rec.deck.cards.length).toBeGreaterThan(0);
+      // ECONOMY: a bot is a participant that plays the game — it draws from
+      // the SAME common pool a human draws from (Story 8.14), on its own
+      // private stream and with the default seat gun.
+      expect(rec.gun).toBe('deckGun');
+      expect(w.weightsFor(rec).size).toBe(0); // nothing taken yet
     }
   });
 
@@ -161,13 +157,36 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
     for (const name of names.slice(n)) expect(name.endsWith(' 2')).toBe(true);
   });
 
-  it('profile assignment matches the bot\'s own class table', () => {
+  it('profile assignment comes from the flat in-game list, never a test row', () => {
     const { w, ids } = botWorld(14, 8);
-    for (const id of ids) {
-      const rec = w.ships.get(id)!;
-      const table: readonly string[] = CONFIG.bots.profiles[rec.hullId as keyof typeof CONFIG.bots.profiles];
-      expect(table).toContain(w.bots.profileOf(id));
+    const table: readonly string[] = CONFIG.bots.profiles;
+    for (const id of ids) expect(table).toContain(w.bots.profileOf(id));
+  });
+
+  it('HULL UNLOCK: 600 seeded enrollments put all six personalities on all three hulls', () => {
+    // Story 8.20 (Eric ruling 2026-09-30, R6): any personality on any hull.
+    // The controller alone (enroll never touches the port): 600 hulls would
+    // not fit a World's arena.
+    const ctl = new BotController({} as BotWorldPort, 15);
+    const seen = new Set<string>();
+    for (let i = 0; i < 600; i += 1) {
+      const id = `bot-${i}`;
+      const { hullId } = ctl.enroll(id);
+      seen.add(`${ctl.profileOf(id)}@${hullId}`);
     }
+    for (const p of CONFIG.bots.profiles) {
+      for (const cls of SHIP_CLASS_IDS) expect(seen.has(`${p}@${cls}`), `${p}@${cls}`).toBe(true);
+    }
+  });
+
+  it('a forced TEST row stays hull-bound; a forced in-game personality never decides the hull', () => {
+    const w = new World(16);
+    w.map.islands.length = 0;
+    expect(w.addBot(undefined, 'randomBattleship').hullId).toBe('battleship');
+    expect(w.addBot('torpedoBoat', 'randomMineLayer').hullId).toBe('mineLayer');
+    const forced = w.addBot('mineLayer', 'raider');
+    expect(forced.hullId).toBe('mineLayer');
+    expect(w.bots.profileOf(forced.id)).toBe('raider');
   });
 
   it('enrollment is deterministic per world seed (the decorrelated stream)', () => {
@@ -238,7 +257,7 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
   it('a stationary hull in the radar annulus is TRACKED despite sweep aliasing', () => {
     const w = new World(61, 8);
     w.map.islands.length = 0; // open water: LOS/shadow can never gate the paint
-    const bot = w.addBot();
+    const bot = w.addBot(undefined, undefined);
     expect(bot.id).toBe('bot-1');
     const tx = 500;
     const ty = 0;
@@ -402,10 +421,10 @@ describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => 
     a.map.islands.length = 0;
     const b = new World(9);
     b.map.islands.length = 0;
-    a.addBot();
+    a.addBot(undefined, undefined);
     b.addBot(undefined, 'randomMineLayer');
-    const nextA = a.addBot();
-    const nextB = b.addBot();
+    const nextA = a.addBot(undefined, undefined);
+    const nextB = b.addBot(undefined, undefined);
     expect(nextB.hullId).toBe(nextA.hullId);
     expect(w2names(a)).toEqual(w2names(b));
     expect(a.bots.profileOf(nextA.id)).toBe(b.bots.profileOf(nextB.id));
@@ -415,8 +434,8 @@ describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => 
     const w = new World(31);
     w.map.islands.length = 0;
     for (let i = 0; i < 12; i += 1) {
-      const rec = w.addBot();
-      const table: readonly string[] = CONFIG.bots.profiles[rec.hullId as keyof typeof CONFIG.bots.profiles];
+      const rec = w.addBot(undefined, undefined);
+      const table: readonly string[] = CONFIG.bots.profiles;
       expect(table).toContain(w.bots.profileOf(rec.id));
     }
   });
@@ -434,7 +453,7 @@ describe('the engage gate — endgame bots hold fire until the terminal ring (wa
     const w = new World(3101, 8, zone);
     w.map.islands.length = 0;
     const ids: string[] = [];
-    for (let i = 0; i < 4; i += 1) ids.push(w.addBot().id);
+    for (let i = 0; i < 4; i += 1) ids.push(w.addBot(undefined, undefined).id);
     ids.forEach((id, i) => {
       const a = (i / ids.length) * Math.PI * 2;
       const rec = w.ships.get(id)!;

@@ -61,7 +61,8 @@ function bareWorld(seed = 1): World {
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+  // A captain fixture sails its hull's default deck (Story 8.2).
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -80,12 +81,14 @@ function injectShell(w: World, id: string, ownerId: string, x: number, y: number
     distLeft: 300,
     bornAt: w.now,
     kind: 'shell',
+    family: 'cannon',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
     targetX: null,
     targetY: null,
     burstRadius: 0,
     contactDamage: CONFIG.gun.damage, // contact-only injection: legacy full-damage hit
+    hits: CONFIG.gun.hits,
   });
 }
 
@@ -137,15 +140,21 @@ describe('spectator frames — dead observer in the active phase', () => {
     });
   });
 
-  it('carries every mine, flagging only the observer-owned ones', () => {
+  it('carries every mine, flagging only the observer-owned ones — and the KIND rides every row (cycle 162)', () => {
     const w = deadObserverWorld();
-    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 800, y: 800, armedAt: 0 });
-    w.mines.set('m2', { id: 'm2', ownerId: 'b', x: -800, y: -800, armedAt: 0 });
+    w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 800, y: 800, armedAt: 0, kind: 'captive', hp: 10 });
+    w.mines.set('m2', { id: 'm2', ownerId: 'b', x: -800, y: -800, armedAt: 0, kind: 'fouling', hp: 10 });
     const f = buildFrame(w, 'a', 'active');
+    // A SPECTATOR IS STILL AN OWNER of the mines it laid while it was afloat,
+    // so `own` rides its own wreck's field exactly as it did in life. The KIND
+    // `c` rides EVERY delivered row since cycle 162 (Eric 2026-10-01,
+    // "Everyone sees the kind" — superseding epic-8 amendment 76's own-only
+    // rule): someone ELSE's mine carries its kind too, LAST, after `by`.
     expect(f.mines.sort((x, y) => x.id.localeCompare(y.id))).toEqual([
-      { id: 'm1', x: 800, y: 800, own: true, by: 'a' },
-      { id: 'm2', x: -800, y: -800, own: false, by: 'b' },
+      { id: 'm1', x: 800, y: 800, own: true, by: 'a', c: 'captive' },
+      { id: 'm2', x: -800, y: -800, own: false, by: 'b', c: 'fouling' },
     ]);
+    for (const m of f.mines) expect(Object.keys(m)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
   });
 
   // RETIRED (Story 7-5 wave 2): "carries every decoy buoy (the truth)". The
@@ -232,7 +241,7 @@ describe('spectator frames — dead observer in the active phase', () => {
     const f1 = buildFrame(w, 'a', 'active');
     const ev = f1.events.filter((e) => e.k === 'shell');
     expect(ev).toEqual([
-      { k: 'shell', id: 's1', x: sh.x, y: sh.y, vx: sh.vx, vy: sh.vy, t: w.now },
+      { k: 'shell', id: 's1', x: sh.x, y: sh.y, vx: sh.vx, vy: sh.vy, t: w.now, w: 'cannon' }, // `w`: Story 8.15
     ]);
     // Exactly once: the next spec frame does not re-send it.
     const f2 = buildFrame(w, 'a', 'active');
@@ -438,7 +447,7 @@ describe('THE INVARIANT extension — spec frames only for the dead/finished', (
             fireT: 0,
             slot: 0,
             actSeq: 0,
-            actSlot: 0, hornSeq: 0,
+            actSlot: 0, hornSeq: 0, held: false,
           });
         }
         w.step();

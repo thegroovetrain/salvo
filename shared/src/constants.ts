@@ -5,12 +5,49 @@
 //
 // Angle helpers below keep mount/arc definitions readable in degrees.
 
+import type { TargetKind } from './sim/shell.js';
+import type { ShiftId } from './sim/loadout.js';
+
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 // u — base true-sight radius (Eric ruling 2026-07-23). Star shells derive
 // their lit-zone radius from this as a structural ratio (SIGHT / 2) so the
 // two retune together; see CONFIG.vision.sight and CONFIG.starShells.litRadius.
 const SIGHT = 330;
+
+/**
+ * THE ORDNANCE TARGET MASKS (Story 8.4, AR44). Every ordnance row declares,
+ * right here in the single source of truth, which KINDS of thing its
+ * projectiles may touch; the World's one collector (`hitTargets(mask)`) builds
+ * the list and an ordnance step never enumerates world entities itself.
+ *
+ * They are named by CONTENT rather than by weapon so the same list is shared
+ * by every row that wants it and a reader can see at a glance which rows agree.
+ * A STUB weapon gets NO row until its own story — an undeclared mask is a loud
+ * failure, a defaulted one is a silent wrong answer. Story 8.15 declared the
+ * two pickable guns' rows; the FLAK GUN adds `ordnance` (AR44; amendment
+ * 96(f)) — fish in flight, a SIDE EFFECT nothing leans on (amendment 105).
+ *
+ * `mine` IN A MASK MEANS "THIS SHELL DAMAGES A MINE IT LANDS ON" (amendment
+ * 200, Eric 2026-10-01, superseding amendment 20's burst rule). Exactly the
+ * three DECK GUNS carry it — cannon, flak and machine gun: a shell of theirs
+ * that LANDS (its burst point, or a direct shell's arrival point) within
+ * `CONFIG.mine.hitRadiusU` of a mine's centre deals its full `damage` to that
+ * mine's `CONFIG.mine.hp`. A burst that merely COVERS a mine does nothing to
+ * it, and no other weapon ever damages a mine. It never means a projectile in
+ * flight may touch one (amendment 20's shooter-information rule stands): a
+ * shell passing over a mine on its way somewhere else does not stop, does not
+ * hurt it and tells the shooter nothing (the World strips the bit off the
+ * mask it sweeps with).
+ *
+ * NOT a wire contract: the client never reads `hits` (pinned by the client's
+ * ordnanceMasksAreServerOnly test), so adding or changing these rows never by
+ * itself bumps PROTOCOL_VERSION.
+ */
+const HITS_HULL_MINE_DECOY_ORDNANCE: readonly TargetKind[] = ['hull', 'mine', 'decoy', 'ordnance'];
+const HITS_HULL_MINE_DECOY: readonly TargetKind[] = ['hull', 'mine', 'decoy'];
+const HITS_HULL_DECOY: readonly TargetKind[] = ['hull', 'decoy'];
+const HITS_HULL: readonly TargetKind[] = ['hull'];
 
 export const CONFIG = {
   /**
@@ -78,6 +115,9 @@ export const CONFIG = {
     torpedoBoat: {
       hull: { length: 100, beam: 9 }, // u — silhouette bow-to-stern / max beam
       hp: 250, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 2 pips
+      // THE CLASS SHIFT (Story 8.15, amendment 89(c)): hull identity is
+      // envelope + a FIXED Shift in slot 1 — SPEED BOOST on the Torpedo Boat.
+      shift: 'boost',
       kinematics: {
         maxSpeed: 45, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 15, // u/s — full-astern (magnitude)
@@ -90,6 +130,7 @@ export const CONFIG = {
     battleship: {
       hull: { length: 124, beam: 32 }, // u
       hp: 350, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 4 pips
+      shift: 'damageCut', // DAMAGE CUT (amendments 89(c), 99–102)
       kinematics: {
         maxSpeed: 35, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 9, // u/s — full-astern (magnitude)
@@ -102,6 +143,7 @@ export const CONFIG = {
     mineLayer: {
       hull: { length: 88, beam: 20 }, // u
       hp: 300, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 3 pips
+      shift: 'instantReload', // INSTANT RELOAD (amendments 89(c), 97–98)
       kinematics: {
         maxSpeed: 40, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 14, // u/s — full-astern (magnitude)
@@ -142,8 +184,9 @@ export const CONFIG = {
    * The speed change DISCHARGES the rescale epics.md:1090 has owed since Story
    * 1.6 (2026-07-21): the small drone at 46 u/s was the FASTEST HULL AFLOAT,
    * ahead of the Torpedo Boat's 45. At 40 it sits below every player class,
-   * medium at 35 ties the Battleship, and CONFIG.torpedo.speed (60) still
-   * outruns everything — the damageGuardrail pin holds.
+   * medium at 35 ties the Battleship, and CONFIG.torpedo.speed (65 as of
+   * catalog-v3 R17, Eric 2026-09-15) still outruns everything — the
+   * damageGuardrail pin holds.
    *
    * `reverseSpeed`/`accel`/`decel` scale PROPORTIONALLY with maxSpeed;
    * `turnRate`/`steerageSpeed` deliberately DO NOT MOVE, so agility stays a
@@ -158,7 +201,7 @@ export const CONFIG = {
   drones: {
     small: {
       hull: { length: 85, beam: 25 }, // u — legacy 34×10 chevron ×2.5
-      hp: 45, // hit points — 3 captain gun hits (15 dmg) to sink, 15s
+      hp: 45, // hit points — 3 captain gun hits (16 dmg since 2026-10-02; was 15) to sink, 15s
       // The self-defence gun. Lives on the ENVELOPE rather than in
       // CONFIG.fleet so effectiveStats() can apply it structurally, with no
       // hull-id parameter threaded through the one derivation path.
@@ -380,20 +423,23 @@ export const CONFIG = {
      */
     disengageHpFrac: 0.35,
     /**
-     * Fraction of max hp below which a banked level is spent on DAMAGE CONTROL
-     * (HEAL_CHOICE) instead of a card (D2). Above it, bots always build.
+     * Fraction of max hp below which a bot PRESSES a stocked HULL REPAIR belt
+     * slot (epic-8 amendment 49). The same threshold that used to buy the
+     * always-available -1 heal spend (D2) — the heal is a card now,
+     * so it gates firing one, never the spend. Above it, bots never heal.
      */
     healHpFrac: 0.5,
     /**
      * Own-live-mine count below which a bot may lay a PREPARED mine — seeded
      * with NO target while the posture is safe (Eric ruling 2026-08-20,
      * cycle 111: the ML *"wants certain things… you just have to be lined up
-     * well and prepare"*). This is the headroom kept under `mine.maxLive`
-     * (5) so a REACTIVE lay always has room: `addMine` silently EVICTS the
-     * owner's oldest mine at the cap, so an unbounded prepared lay every
-     * reload would churn the very field it just built. 3 = maxLive − the
-     * 2-deep drop pool (mine.maxAmmo), so even a full rack of reactive
-     * drops on top of a fully-prepared field never evicts a laid trap.
+     * well and prepare"*). It WAS the headroom kept under `mine.maxLive` (5),
+     * whose silent oldest-eviction meant an unbounded prepared lay every reload
+     * churned the very field the bot had just built. Story 8.4 DELETED every
+     * mine cap (FR57/AR48), so nothing is ever evicted any more and this is now
+     * purely a restraint dial: it bounds how much water a bot seeds with no
+     * target in sight, and 3 (the old maxLive 5 minus the 2-deep drop pool)
+     * is kept as the shipped value rather than retuned by an implementer.
      * Consumed by server ai/equipment.ts (the prepared-lay gate) and nothing
      * else — bot policy, never a combat constant.
      */
@@ -476,207 +522,40 @@ export const CONFIG = {
      */
     unbeachHoldMs: 3000,
     /**
-     * The 2 priority profiles per class (Eric ruling E1: *"Each ship should
-     * just get 2-3 different 'priority profiles'"*) — assigned per-bot at
-     * spawn off the seeded RNG. Profiles decide what a bot WANTS, never its
-     * competence: TB raider = isolated/damaged targets, torpedo opener, boost
-     * out; TB duelist = rear-quarter turn-fights vs peers; BS bulwark =
-     * attrition on HP; BS siege = standoff broadside + star shells; ML forager =
-     * fleet clearing for the level lead; ML trapper = mines astern while
-     * withdrawing. Behaviour tables live in server ai/profiles.ts — only the
-     * ID VOCABULARY is data, so it lives here.
+     * The six priority profiles (Eric ruling E1: *"Each ship should just get
+     * 2-3 different 'priority profiles'"*; unlocked from hulls by Eric ruling
+     * 2026-09-30, R6: ANY personality on ANY hull). Enrollment deals one off
+     * the seeded RNG with a single pick over this flat list — the hull is
+     * rolled separately and a personality never decides it. Profiles decide
+     * what a bot WANTS, never its competence: raider = isolated/damaged
+     * targets, torpedo opener, boost out; duelist = rear-quarter turn-fights vs
+     * peers; bulwark = attrition on HP; siege = standoff broadside + star
+     * shells; forager = fleet clearing for the level lead; trapper = mines
+     * astern while withdrawing. Behavior tables (fighting style + build taste)
+     * live in server ai/profiles.ts — only the ID VOCABULARY is data, so it
+     * lives here.
      */
-    profiles: {
-      torpedoBoat: ['raider', 'duelist'],
-      battleship: ['bulwark', 'siege'],
-      mineLayer: ['forager', 'trapper'],
-    } as const,
+    profiles: ['raider', 'duelist', 'bulwark', 'siege', 'forager', 'trapper'] as const,
     /**
-     * PER-PROFILE boon weights (Eric ruling D1: *"Sure"* — first-pass weights
-     * derived by the orchestrator, placed in CONFIG as a tuning panel, like
-     * the height-field knobs). Keyed by PRIORITY PROFILE, not by class: two
-     * bots of the same hull sailing different profiles want DIFFERENT cards,
-     * which is the whole point of the E1 ruling — a class-keyed table cannot
-     * express "the standoff battleship buys star shells and the attrition
-     * battleship buys hull".
-     *
-     * Two levels, resolved by wave-2 ai/spending.ts as `lines[id] ?? cat[def
-     * .category] ?? default`:
-     *   `cat`   — the base weight for every card of a boon CATEGORY, covering
-     *             exactly the categories that profile's deck can draw (the
-     *             three universals — intel/ship/guns — plus its carried
-     *             equipment's).
-     *   `lines` — per-BOON-LINE overrides (real ids from sim/boons.ts) for the
-     *             handful of cards a profile wants more or less than its
-     *             category base. Everything unnamed falls through to `cat`.
-     * A bot picks the highest-weighted offered card, rarity as tiebreak.
-     * Higher = wanted more; the absolute scale is arbitrary.
-     *
-     * THE MINE-LAYER DOCTRINE SPLIT, AND A CORRECTION OF RECORD. These weights
-     * were first written against the PRE-cycle-95 mine rack, where
-     * `minePropFouling` carried `mult: 0.6` on `mine.damage`. That mattered
-     * arithmetically: a base mine does 55 and a small PvE fleet hull has 45 hp,
-     * so a base mine ONE-SHOTS a fleet hull while a fouling mine (33) does not
-     * — and one-shotting fleet hulls is what `forager` lives on (C3). So
-     * forager weighted the card 0.4 and trapper 2.0, a genuine same-card
-     * disagreement.
-     *
-     * AMENDMENT 25 DELETED THAT MULTIPLIER (Eric: *"remove damage decrease for
-     * the fouling mines"*), so the penalty forager was avoiding no longer
-     * exists and prop-fouling is now a PURE ADD. Forager's 0.4 is therefore
-     * retired rather than defended — keeping it would have been a bot avoiding
-     * a card for a reason the game no longer contains, which is exactly the
-     * stale-rationale trap this comment block exists to prevent.
-     *
-     * What survives is a WEAKER, still-real split: `trapper` keeps the fouling
-     * want because the slow drags a victim INTO its minefield, which is its
-     * whole plan; `forager` merely has no special use for a slow (a fleet hull
-     * dies to one mine either way). Both doctrines are pure adds and
-     * side-grades to each other, so neither profile refuses one.
-     *
-     * CAPTIVE IS A SURVIVAL-AND-PAYOFF TOOL, NOT A FARMING TOOL (Eric
-     * playtest ruling 2026-08-20, cycle 111 — partially reversing the
-     * cycle-110 demotion). The mechanical fact from that cycle STANDS: a
-     * captive mine's trip gate is HOSTILE-ONLY (isCaptiveMineHostile), so a
-     * neutral PvE fleet drone walks straight over it and CAPTIVE can never
-     * farm fleet. But the conclusion drawn from it — that `forager` therefore
-     * doesn't want the card — was the wrong frame. Eric ran CAPTIVE MINES and
-     * GUN BUOY together and reports both as *"REALLY powerful weapons, you
-     * just have to be lined up well and prepare"*: a 144u-trip torpedo
-     * launcher covers the water a hull that HANGS BACK is withdrawing
-     * through, which is precisely what a class whose measured problem is
-     * SURVIVAL (181.1s vs the random control's 264.0s) should buy. Forager's
-     * entry is restored as a wanted line at 2.0 — above its mines category
-     * base and its fouling want, below its gun ladder (it is still a
-     * gun-led fleet-clearer) and below `trapper`'s 2.4, which stays the
-     * stronger signature. `buoyGun` — the other half of the combo — gets an
-     * explicit override in BOTH ML tables; it was previously named by
-     * neither and fell through to a bare category weight.
-     *
-     * THE SIX ACQUISITION CARDS GET A FULL RANKING PER PROFILE (same ruling).
-     * An acquisition card inherits its TARGET equipment's category
-     * (sim/boons.ts `acquire`), and no profile's `cat` table names a category
-     * its hull does not already carry — so all six scored the 0.5 unlisted
-     * default and the extra slot stayed empty by accident. Every profile now
-     * ranks ALL SIX explicitly, every entry above that floor: a bot PREFERS
-     * its favourite pickup but SETTLES for the best on offer — it never
-     * passes out of pickiness. (Entries for equipment a hull already carries
-     * are undrawable and exist only to make the ranking total.)
-     *
-     * STORY 7-5 WAVE 2 RE-KEYED FIVE MORE for the same forced reason — the
-     * cannon and the decoy buoy were replaced outright, taking `cannonDamage`,
-     * `decoyDuration` and `mineSelfPropelled` with them. Each moved to the
-     * surviving line carrying the same INTENT, never re-tuned: siege's cannon
-     * want becomes `broadsideTurrets` (the broadside's throughput line, its
-     * only damage-shaped card), both Mine Layer profiles' SELF-PROPELLED want
-     * becomes `mineCaptive` (its direct successor — a mine that reaches the
-     * target itself), and trapper's decoy want becomes `buoyDuration`. The two
-     * `cannon`/`decoyBuoy` CATEGORY weights carry over verbatim onto
-     * `broadside`/`radarBuoy`.
-     *
-     * STORY 7-5 WAVE 1 RE-KEYED FOUR OVERRIDES, and this was forced rather
-     * than chosen: `starRadius`, `mineDamage` and `mineMax` were DELETED from
-     * the catalog, and a per-line override naming a card that no longer exists
-     * is dead data that scores nothing (a test pins that every key here is a
-     * real line, precisely so a catalog move fails loudly instead of silently
-     * dropping a bot's priority). Each was re-pointed at the surviving line
-     * that carries the same INTENT for that profile, never re-tuned:
-     * siege's star-shell want moves to `starDuration` (its only remaining
-     * star-shell line), and both Mine Layer profiles' mine want consolidates
-     * onto `mineBlast` — which since the cycle-95 merge grows the trip ring
-     * too, so it is now the whole mine rack in one card. `trapper` picks up an
-     * explicit `decoyDuration` in the freed slot, matching the `decoyBuoy: 2.0`
-     * category weight it already carried.
+     * THE CARD POINTS TABLE (Eric ruling 2026-09-30, R3) — how a bot scores
+     * each card on offer; highest wins, ties by a seeded coin flip. Any upgrade
+     * or consumable starts at `base`; `favorite` if it is one of the
+     * personality's favorites; `style` if an upgrade matches its style
+     * (rounded = its lowest line, specialist = its highest); a consumable it
+     * carries none of adds `beltHunger[hunger]`, one it already carries adds
+     * `carried`; HULL REPAIR while hurt and carrying none adds `hurtRepair`
+     * (belt hunger NOT applied then). A weapon for an empty Q/E/R slot scores
+     * `weapon` flat, a favorite weapon `favoriteWeapon`.
      */
-    boonWeights: {
-      // TB raider — torpedo opener at credible range, then boost out. Buys
-      // tubes/homing/speed to make the one opener count, and hull last.
-      raider: {
-        cat: { torpedoes: 2.2, ship: 2.0, guns: 1.5, speedBoost: 1.8, intel: 1.5 },
-        lines: {
-          torpedoTube: 2.5, torpedoHoming: 3.0, torpedoSpeed: 2.2, shipSpeed: 2.2, shipCooldown: 2.0, shipHull: 1.2,
-          // Acquisitions, ranked: a striker wants more strike (flares to
-          // light a straggler), then intel, then off-identity settles.
-          acquireTorpedo: 1.6, acquireBoost: 1.4, acquireStarShells: 1.2, acquireRadarBuoy: 1.0, acquireMine: 0.8, acquireBroadside: 0.7,
-        },
-      },
-      // TB duelist — rear-quarter turn-fight, guns through the 30s torpedo
-      // reload. Guns and the global cooldown lever come first.
-      duelist: {
-        cat: { guns: 2.4, ship: 2.2, torpedoes: 1.4, speedBoost: 1.6, intel: 1.3 },
-        lines: {
-          gunBarrel: 2.6, gunTurret: 2.2, shipCooldown: 2.4, shipSpeed: 2.2, shipHull: 1.6, torpedoHoming: 2.0,
-          // Acquisitions: knife-range tools first — a beam fan and a dazzle
-          // flare are both decided inside the turn-fight.
-          acquireBroadside: 1.4, acquireStarShells: 1.3, acquireBoost: 1.2, acquireTorpedo: 1.1, acquireMine: 0.9, acquireRadarBuoy: 0.8,
-        },
-      },
-      // BS bulwark — attrition. Trades on hp, so hull is the top line of any
-      // profile's table.
-      bulwark: {
-        cat: { ship: 2.4, guns: 2.0, broadside: 2.0, starShells: 1.0, intel: 1.0 },
-        lines: {
-          shipHull: 3.0, shipCooldown: 2.2, shipSpeed: 1.4, gunBarrel: 2.2, starDazzle: 1.6,
-          // Acquisitions: ground-holding tools — a field and a picket buoy
-          // both defend the water it refuses to leave.
-          acquireMine: 1.4, acquireRadarBuoy: 1.2, acquireTorpedo: 1.1, acquireBroadside: 1.0, acquireStarShells: 0.9, acquireBoost: 0.8,
-        },
-      },
-      // BS siege — standoff, broadside-led, star shells to resolve stale
-      // contacts into live sight (C2). Its reach is FIXED: gun, broadside and
-      // star-shell rangeU all ride radarRange (the broadside at the 5/8 rung),
-      // and no card moves that number since RANGE I–IV was deleted
-      // (2026-08-20), so `intel` now buys sweep rate only. The appetite is
-      // deliberately LEFT UNTUNED here — a bot retune belongs to a balance
-      // pass, not to a card removal (ledgered in deferred-work.md).
-      siege: {
-        cat: { broadside: 2.6, starShells: 2.0, intel: 2.2, ship: 1.8, guns: 1.6 },
-        lines: {
-          // `intelRange` was dropped here when RANGE I–IV left the catalog
-          // (2026-08-20, cycle 118) — the key would name a card that no
-          // longer exists, which a pin refuses.
-          broadsideTurrets: 2.8, starDuration: 2.2, shipCooldown: 2.2, shipHull: 1.6,
-          // Acquisitions: sensors for standoff fire first, then a torpedo the
-          // band pull can ease it in behind.
-          acquireRadarBuoy: 1.5, acquireStarShells: 1.3, acquireTorpedo: 1.2, acquireMine: 1.1, acquireBoost: 0.9, acquireBroadside: 0.8,
-        },
-      },
-      // ML forager — clears PvE fleet groups for the level lead (C3). Guns
-      // and rate of fire do that work; see the propFouling note above.
-      forager: {
-        cat: { guns: 2.4, mines: 1.8, intel: 2.2, ship: 1.8, radarBuoy: 1.0 },
-        lines: {
-          // `intelRange` dropped with RANGE I–IV (cycle 118) — see siege.
-          gunBarrel: 2.6, gunTurret: 2.4, shipCooldown: 2.6, mineBlast: 2.0,
-          // CAPTIVE restored as a WANTED line (Eric playtest, 2026-08-20):
-          // a survival-and-payoff tool for a hull that hangs back — its
-          // hostile-only trip still cannot farm fleet, but that was never
-          // the point. Priced WITH the gun buoy (the other half of Eric's
-          // powerhouse combo), below the gun ladder and below trapper's 2.4
-          // signature — see the block comment.
-          mineCaptive: 2.0, buoyGun: 2.0, minePropFouling: 1.2,
-          // Acquisitions: faster rotation between fleet groups, more
-          // clearing throughput, light for the next group.
-          acquireBoost: 1.4, acquireBroadside: 1.3, acquireStarShells: 1.2, acquireTorpedo: 1.0, acquireMine: 0.9, acquireRadarBuoy: 0.8,
-        },
-      },
-      // ML trapper — mines astern while withdrawing, a radar buoy for reach,
-      // fights near its own field.
-      trapper: {
-        cat: { mines: 2.6, radarBuoy: 2.0, ship: 1.8, guns: 1.6, intel: 1.6 },
-        lines: {
-          // CAPTIVE's strongest want lives HERE (2026-08-20): a hostile-only
-          // torpedo mine is a trap for exactly the hulls a trapper traps.
-          // Fouling stays its signature (drags victims into the field), and
-          // the GUN BUOY gets its explicit want (cycle 111 — half of Eric's
-          // "lined up well and prepare" powerhouse combo, previously falling
-          // through to the bare 2.0 category weight): a picket that fights
-          // over the field while the trapper itself stands off.
-          mineBlast: 2.8, minePropFouling: 3.0, mineCaptive: 2.4, buoyGun: 2.2, shipCooldown: 2.2, buoyDuration: 2.0,
-          // Acquisitions: ambush weapons that fire FROM the field.
-          acquireTorpedo: 1.5, acquireStarShells: 1.3, acquireBoost: 1.1, acquireMine: 1.0, acquireBroadside: 0.9, acquireRadarBuoy: 0.8,
-        },
-      },
+    cardPoints: {
+      base: 2,
+      favorite: 1,
+      style: 1,
+      beltHunger: { low: -1, medium: 0, high: 1 },
+      carried: -1,
+      hurtRepair: 2,
+      weapon: 3.5,
+      favoriteWeapon: 3.75,
     },
     /**
      * The callsign pool (Eric ruling E5(a)): nautical names drawn without
@@ -763,7 +642,8 @@ export const CONFIG = {
     // constraint tests and the weapons smoke and by NO production code: at
     // RUNTIME the gate is OBSERVER-SCALED (amendment 121) and multiplies by
     // `detectFactor` below, never by this. The server resolves it as
-    // `sightOf(me, now) * detectFactor`, so a star-shell dazzle halves it,
+    // `sightOf(me, now) * detectFactor`, so a FLASH SHELLS dazzle shrinks it
+    // (sight → radarRange/8, sim/sight.ts — Story 8.17, amendment 132),
     // with island LOS applied unchanged. Nothing WIDENS it any more: the card
     // that once did (intelTruesight, merged into intelRange in cycle 92) was
     // deleted in cycle 119, so the only live scale is dazzle. The resolver
@@ -840,7 +720,7 @@ export const CONFIG = {
     // ratio h/H: the same number that decides which terrain is an absolute
     // radar wall (h ≥ H ⇒ dark to the rim) also sets how long every softer
     // shadow runs. Consumed ONLY by sim/radarShadow.ts, alongside the derived
-    // K = radar²/4 (amendment 185: K stays on the BASE range above, never an
+    // K = radar²/4 (amendment 197: K stays on the BASE range above, never an
     // observer's boon-widened stats.radarRange).
     //
     // THIS IS A FIXED CONSTANT, NEVER A PERCENTILE. Amendment 184: q64 is a
@@ -1000,8 +880,9 @@ export const CONFIG = {
     // alternative of raising it to hold the torpedo track near its old
     // absolute 360u and declined, because that would put a fish's tell above
     // any ship's and break the one-model-one-ratio shape. So the torpedo
-    // shrinks with everything else: 2.75s at the fixed 60 u/s torpedo speed =
-    // 165u of one-cell-wide ribbon (was 6s / 360u), still the LONGEST track
+    // shrinks with everything else: 2.75s at the fixed torpedo speed (65 u/s
+    // as of catalog-v3 R17, Eric 2026-09-15) = 178.75u of one-cell-wide
+    // ribbon (was 6s / 360u; 165u at the pre-R17 60 u/s speed), still the LONGEST track
     // in the game per second of travel because the fish is the fastest thing
     // afloat. Findable if you happen to be watching that stretch of water,
     // easy to miss — which is the ruled reading. The FISH
@@ -1096,10 +977,16 @@ export const CONFIG = {
    */
   gun: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
+    // AR44: the cannon hits hulls, decoys and — ONLY where its shell LANDS
+    // (amendment 200) — any MINE within `mine.hitRadiusU` of the burst point,
+    // yours included, for its full damage. A shell in flight never touches a
+    // mine, and the burst merely covering one does nothing to it.
+    hits: HITS_HULL_MINE_DECOY,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
-    // AFT TURRET boon (gunTurret) may raise the pool to 2 via the whitelisted
-    // gun.maxAmmo stat path. The base fit is still one round.
+    // CANNON ladder's tier-III rung (catalog `deckGun`, Eric 2026-09-30) raises
+    // the pool to 2 via the whitelisted gun.maxAmmo stat path. The base fit is
+    // still one round.
     maxAmmo: 1,
     // ms — cooldown between shots. RETUNED 3000 → 5000 (Eric ruling
     // 2026-08-04, the global-cooldown-reduction cycle): the gun fired far too
@@ -1111,14 +998,18 @@ export const CONFIG = {
     // weapon balance pass): a permanently-fitted default weapon hit far too
     // hard. HEAVY SHELLS ×5 (+3/card) used to top the ladder at 30; that CARD
     // IS GONE (`gunDamage`, deleted in Story 7-5 wave 1 — Eric: *"The gun is
-    // absurdly powerful and does not need damage bonuses"*), so 15 is now the
-    // gun's damage at every build. Note the knock-on: a max-stacked TRIPLE
-    // MOUNT click is now 3 × 15 = 45, exactly the 45hp small drone rather than
-    // double it (damageGuardrail.test carries the margin note).
-    damage: 15,
+    // absurdly powerful and does not need damage bonuses"*), so 15 became the
+    // gun's BASE damage. RETUNED 15 → 16 (Eric 2026-10-02, epic-8 amendment
+    // 232: "Cannon Damage 16/16/18/18/21"): the `deckGun` ladder authors
+    // damage ONLY on the rungs to III (+2) and V (+3) — 16/16/18/18/21 — with
+    // 3 barrels at tier V, so the max cannon click is 3 × 21 = 63 (54 at IV);
+    // the 45hp small drone one-clicks again, an ACCEPTED consequence
+    // (damageGuardrail.test pins the ceiling).
+    damage: 16,
     // hp to an early interceptor outside the blast (bodyblock). RETUNED 10 → 6
-    // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of `damage`,
-    // the ratio the bodyblock was tuned at.
+    // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of the then
+    // 15 `damage`, the ratio the bodyblock was tuned at. NOT re-derived for the
+    // 2026-10-02 base move (Eric: only the numbers he names change).
     contactDamage: 6,
     burstRadius: 15, // u — blast radius around the clicked point
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
@@ -1132,6 +1023,82 @@ export const CONFIG = {
     // on it. This REPLACES the retired BARREL_FAN_STEP_RAD 3° angular step.
     // DRAFT VALUE (implementer handwave inside Eric's ratified shape).
     barrelSpacingU: 12,
+  },
+
+  /**
+   * THE MACHINE GUN (Story 8.15, Eric rulings 2026-09-28, epic-8 amendments
+   * 103, 104 and 106) — a pickable deck gun mounted in slot 0 from the seat's
+   * `gun`. A HELD-FIRE MAGAZINE STREAM: while `InputMsg.held` is true it fires
+   * one shell every `rateMs` at `now` (no fire-time back-date), draining a
+   * `maxAmmo`-shell magazine. The full `reloadMs` reload starts the moment the
+   * magazine is EMPTY, or on the first tick the stream is not live with shells
+   * left (released, or the gun not the selected slot — Eric 2026-09-30, the
+   * 5 s idle delay deleted); a shot during that partial-magazine reload
+   * cancels it and it restarts from the full time when the stream stops
+   * again; an EMPTY magazine's reload cannot be interrupted; a completed
+   * reload always FILLS the magazine (amendment 103: every reload takes the
+   * full time — 12 s at tier I since 2026-10-02, amendment 232).
+   *
+   * DIRECT-HIT SHELLS WITH NO BURST: a shell that strikes a hull deals `damage`
+   * on contact; a shell reaching its aim point simply EXPIRES (the shooter's
+   * `sp` splash, no `burst` event). A shell that arrives within
+   * `mine.hitRadiusU` of a mine deals its `damage` to the mine's hp (amendment
+   * 200 — two tier-I shells pop one since 2026-10-02, amendment 232); a shell in flight never touches a mine
+   * (amendment 20), and one spent on a hull on the way never arrives. NO
+   * `burstRadius` and NO range field: range is DERIVED = the radar rung
+   * (660 u, re-pinned in effectiveStats like `gun.rangeU`; Eric: "set the
+   * Machine Gun range to 660"). 360° (amendment 106: "There
+   * is no 'arc.'"). Its ladder (+4 shells and −50 ms of shot delay per tier,
+   * +1 damage on the rungs to II and IV only — magazine 12/16/20/24/28,
+   * damage 5/6/6/7/7, delay 0.30 → 0.10 s, Eric 2026-10-02, epic-8 amendment
+   * 232 — and −5 % reload from the tier step) is the `machineGun` catalog
+   * line. Every number is a harness dial.
+   */
+  machineGun: {
+    arc: 'full', // 360° — amendment 106
+    hits: HITS_HULL_MINE_DECOY, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
+    shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
+    maxAmmo: 12, // shells — the MAGAZINE at tier I (Eric 2026-10-02, amendment 232; was 16)
+    rateMs: 300, // ms — one shell per 0.30 s while held at tier I (Eric 2026-10-02, amendment 232; was 350, earlier 500)
+    reloadMs: 12000, // ms — the full-magazine reload, always the whole 12 s at tier I (Eric 2026-10-02, amendment 232; was 10 s, earlier 15 s)
+    damage: 5, // hp per shell (Eric 2026-10-02, amendment 232; was 4) — two tier-I shells pop a 10 hp mine
+    shellRadius: 2, // u — shell collision radius (the gun family's)
+  },
+
+  /**
+   * THE FLAK GUN (Story 8.15, Eric rulings 2026-09-28, epic-8 amendments 96(f),
+   * 105 and 106) — a pickable deck gun mounted in slot 0 from the seat's `gun`.
+   * One shell per click to the clicked point at 500 u/s, AIR-BURSTING there in
+   * a `burstRadius` blast for `damage` to every hull inside it — the cannon's
+   * burst rule with Eric's numbers ("12 dmg / 50u blast / 660 u range / 6s").
+   * A hull crossing the shell's path takes `contactDamage` and stops it (the
+   * cannon's bodyblock rule; a fixed 4 hp, set once off the base damage at
+   * Eric's standing 40 % ratio, floored — the ladder never re-derives it). NO
+   * range field: DERIVED = the radar rung (660 u). 360° (amendment 106).
+   *
+   * THE MASK is AR44's `hull | mine | decoy | ordnance` (amendment 96(f): a
+   * weapon for killing other players first). The `ordnance` half (enemy fish
+   * in flight inside the blast) is a SIDE EFFECT that might go away
+   * (amendment 105) — nothing in the design, copy or balance may lean on it.
+   * `mine`, as for every deck gun, is by LANDING on it only (amendment 200).
+   * Its ladder (damage +8 per tier → 12/20/28/36/44, Eric 2026-10-02,
+   * epic-8 amendment 232; −5 % reload per tier; blast FIXED) is the `flak`
+   * catalog line.
+   * Every number is a harness dial.
+   */
+  flak: {
+    arc: 'full', // 360° — amendment 106
+    hits: HITS_HULL_MINE_DECOY_ORDNANCE, // AR44 / amendment 96(f)
+    shellSpeed: 500, // u/s (amendment 105)
+    maxAmmo: 1, // one shell (amendment 105)
+    reloadMs: 3500, // ms (4 s → 3.5 s, Eric 2026-10-02, epic-8 amendment 232; was 6 s → 4 s, amendment 210; amendment 105's 6 s before) — the −5 %/tier step runs it to 2.8 s at V
+    damage: 12, // hp per burst victim (amendment 105)
+    // hp to an early interceptor — a FIXED 4 hp bodyblock, derived ONCE from
+    // the base damage (floor(40 % × 12), like `gun.contactDamage`) and NOT
+    // re-derived per tier: the ladder's damage steps never move it.
+    contactDamage: 4,
+    burstRadius: 50, // u — FIXED; the ladder never grows it (amendment 105)
+    shellRadius: 2, // u — shell collision radius (the gun family's)
   },
 
   /**
@@ -1150,14 +1117,26 @@ export const CONFIG = {
    */
   torpedo: {
     offset: deg(0), // bow-centered — RATIFIED class-era sector (Eric 2026-07-23; see sim/arcs.ts)
+    // AR44: a torpedo hits hulls and decoys — it runs UNDER a minefield and
+    // never sets one off.
+    hits: HITS_HULL_DECOY,
     halfArc: deg(30), // +/-30deg launch arc
-    // u/s — must outrun every hull, classes AND drones (after Eric's 2026-07-21
-    // rescale droneSmall at 46 is the fastest afloat, and a boosted Torpedo Boat
-    // tops out at 55 = 45 + CONFIG.speedBoost.speedBonus) so a full-speed firer
-    // can never re-catch its own fish; pinned by damageGuardrail.test. Also a
+    // u/s — FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, epics.md AR49; epic-8
+    // amendment 55): nothing requires a torpedo to outrun every hull any more.
+    // What 65 buys today is a FACT, not a requirement — the base fish still
+    // outruns every BASE hull and drone (droneSmall at 46 is the fastest afloat
+    // un-boosted; the fastest BASE boosted hull is 56.25). A SPEED-capped
+    // Torpedo Boat under the Shift boost runs 68.75 u/s (55 x 1.25,
+    // CONFIG.boost.factor) and OUTRUNS its own fish: allowed, because own
+    // ordnance never damages the own hull (Story 8.4, no friendly fire), so a
+    // firer that re-catches its own torpedo is not a self-damage hazard. Also a
     // deliberate balance change: torps are harder to dodge (owner call,
     // 2026-07-14 self-hit fix session).
-    speed: 60, // u/s
+    // RETUNED 60 -> 65 (catalog-v3 R17, Eric 2026-09-15, epic-8 amendment 6): the
+    // shipped torpedo module IS catalog v3's HEAVY TORPEDO, whose Tier I speed
+    // R17 authors at 65 u/s. See damageGuardrail.test.ts for the re-pinned
+    // facts.
+    speed: 65, // u/s
     // hp. RETUNED 55 → 70 (Eric ruling 2026-08-04, the weapon balance pass): a
     // heavier fish on a much longer commitment cycle. HEAVY WARHEAD ×5 was
     // simultaneously cut to +1/card so the ladder topped at 75 — strictly under
@@ -1177,10 +1156,19 @@ export const CONFIG = {
     // cooldownScale 0.5) lands it at 15s.
     reloadMs: 30000,
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
-    // --- ACOUSTIC HOMING doctrine (Story 2.8, exclusive boon) — DRAFT values,
-    // 2.10 tunes. A homing fish steers toward the nearest non-owner hull within
-    // acquireRange at ≤ homingTurnRate rad/s (speed unchanged; sim/shell.ts).
-    homingTurnRate: 0.5, // rad/s — max steering rate while homing
+    // --- HOMING — the family's shared fields (epic-8 amendment 84e). A homing
+    // fish steers toward the nearest non-owner hull within acquireRange at
+    // ≤ its turn rate (speed unchanged; sim/shell.ts steerHoming).
+    //
+    // HOMING IS NO LONGER A CARD (Eric ruling 2026-09-19, amendment 80): the
+    // ACOUSTIC HOMING add-on is deleted and the turn rate is a TIER STAT on
+    // the light and heavy torpedo lines — 0 at tier I, +0.125 rad/s per tier,
+    // 0.5 at tier V. So every torpedo ROW's `homingTurnRate` base is 0, and
+    // the value below is what tier V REFERENCES, not what the row starts at.
+    // The captive mine's fish tops out at 0.3 (amendment 82, its own block).
+    // At turn rate 0 the fish is a straight-runner: no steering, no `torpU`
+    // updates and no die-distance.
+    homingTurnRate: 0.5, // rad/s — the tier-V reference rate (see above)
     homingAcquireRange: 120, // u — target acquisition radius around the fish
     // deg — min velocity-direction change since last emit before the server
     // re-emits a ballistic update ('torpU') to observers (wire cadence knob).
@@ -1203,6 +1191,66 @@ export const CONFIG = {
   },
 
   /**
+   * LIGHT TORPEDO (catalog-v3 R18) — the Torpedo Boat's fast, cheap fish, and
+   * the second member of the torpedo family (Story 8.13). It shares the HEAVY
+   * torpedo's chassis fields — `CONFIG.torpedo.hitRadius`, `spawnClearance`,
+   * `homingAcquireRange`, `homingMaxRangeU`, `homingUpdateAngleDeg` — which is
+   * why they are NOT restated here (epic-8 amendment 84e: `CONFIG.torpedo`
+   * stays the heavy's block AND the family's shared fields).
+   *
+   * THE ARC IS A TWIN SECTOR (sim/arcs.ts), not the heavy's bow cone: ±45°
+   * about BOTH beams, leaving 90°-wide dead zones fore and aft (catalog-v3
+   * R18). The side whose sector contains the click is the side that fires, the
+   * broadside's rule verbatim (`twinSectorSide`).
+   *
+   * NO MAX RANGE (catalog-v3 §4; epic-8 amendment 84f): a straight-running
+   * fish runs until impact or the map edge. Only the homing die-distance
+   * bounds one, and only once its turn rate is above zero.
+   *
+   * HOMING IS A TIER STAT, NOT A CARD (Eric ruling 2026-09-19, amendment 80):
+   * the ROW's `homingTurnRate` is 0 at tier I and the line's tiers II–V add
+   * +0.125 rad/s each, so there is no `homingTurnRate` base to author here.
+   */
+  lightTorpedo: {
+    offset: deg(90), // the twin sector's CENTER bearing — ±90° = both beams
+    halfArc: deg(45), // ±45° about each beam (90° dead zones fore and aft, R18)
+    speed: 45, // u/s — tier I (R18); tiers II–V add +2.5 each → 55 at V
+    damage: 40, // hp per contact hit — tier I (R18); +5/tier → 60 at V
+    maxAmmo: 1, // tubes — tier I (R18); +0.5/tier, FLOORED → 1,1,2,2,3
+    reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
+    // AR44: a torpedo hits hulls and decoys — it runs UNDER a minefield.
+    hits: HITS_HULL_DECOY,
+  },
+
+  /**
+   * SUPERCAV TORPEDO — a prime-and-click BELT CONSUMABLE, not an equipment
+   * line (Eric ruling 2026-09-19, epic-8 amendment 74, verbatim: *"I have
+   * decided that Supercavitating Torpedos should be a consumable item, rather
+   * than a weapon line."*). The digit primes, a click inside the bow ±15°
+   * sector fires ONE fish per copy, and the copy leaves the belt.
+   *
+   * SO IT HAS NO RELOAD AND NO TIERS. Consumables never reload (catalog-v3
+   * R40, Story 8.7) and a consumable line's copies STOCK rather than step, so
+   * catalog-v3 R19's tiers II–V and its 45 s reload are VOID — there is no
+   * `reloadMs` and no `maxAmmo` here, and `supercavTorpedo` carries no
+   * `EffectiveStats` row at all. The numbers below are read straight from
+   * CONFIG by the launch path, exactly as a consumable's numbers always are.
+   *
+   * IT NEVER HOMES (amendment 74): a straight-runner at every build, whatever
+   * the captain's torpedo tiers say — homing is a TIER stat on the light and
+   * heavy lines (amendment 80) and this line has no tiers. It shares the
+   * family's `hitRadius` / `spawnClearance` from `CONFIG.torpedo`.
+   */
+  supercavTorpedo: {
+    offset: deg(0), // bow-centered
+    halfArc: deg(15), // ±15° bow sector (amendment 74, R19's arc kept)
+    speed: 195, // u/s (amendment 74, R19's speed kept)
+    damage: 85, // hp per contact hit — 50 → 85, Eric 2026-10-01 (cycle 162; supersedes amendment 74's "R19's damage kept")
+    // AR44: hulls and decoys, never a mine — it runs UNDER a minefield.
+    hits: HITS_HULL_DECOY,
+  },
+
+  /**
    * Mines (Mine Layer slot 1): a click-aimed WEAPON as of Story 2.8 (amendment
    * 45 — supersedes the 1.8 instant-activate stern drop): prime the slot, aim
    * within the REAR arc (heading + `offset` ± `placeHalfArcDeg`), and a click
@@ -1210,10 +1258,12 @@ export const CONFIG = {
    * the denial register). Arms after `armDelay`; an enemy silhouette within
    * `triggerRadius` trips it, BLASTING every non-owner hull within the larger
    * `blastRadius` for full `damage` (owner excluded — the gun/starShells
-   * owner-excluded AoE precedent). Chain reactions are SAME-OWNER only
-   * (amendment 46): a detonation cascades to the owner's other ARMED mines
-   * whose centers lie within its blast radius; enemy mines never sympathize.
-   * Every number is a DESIGN TARGET, tunable.
+   * owner-excluded AoE precedent). Chain reactions are NAVAL-ONLY, BOTH WAYS
+   * (amendment 200, narrowing amendment 18): a NAVAL detonation cascades to
+   * every ARMED NAVAL mine, whoever laid it, whose centre lies within its
+   * blast radius; fouling and captive mines neither propagate nor receive.
+   * Every mine carries `hp` that only a deck gun's shell landing on it takes
+   * (amendment 200). Every number is a DESIGN TARGET, tunable.
    */
   mine: {
     // astern — RATIFIED class-era stern bearing (Eric 2026-07-23; sim/arcs.ts).
@@ -1260,42 +1310,52 @@ export const CONFIG = {
     // (Eric ruling 2026-08-04, weapon balance pass): a Mine Layer could not lay
     // a FIELD with a one-deep rack. This is a BASE change with no new
     // machinery — the same shared pool path torpedoTube already exercises for a
-    // 2-deep pool — and deliberately NOT a new catalog card. `maxLive` (5) is
-    // untouched and remains a distinct cap (see below).
+    // 2-deep pool — and deliberately NOT a new catalog card. Since Story 8.4
+    // the drop pool is the ONLY mine bound: no live-board cap exists (below).
     maxAmmo: 2,
     // ms — reload between drops. RETUNED 8000 → 15000 (Eric ruling 2026-08-04,
     // weapon balance pass): the rack got deeper, so each round costs more. A
     // max shipCooldown build (5 copies, cooldownScale 0.5) lands it at 7.5s.
     reloadMs: 15000,
-    // maxLive is DISTINCT from the ammo pool: the drop pool caps how many you
-    // can drop before reloading; maxLive caps how many stay LIVE on the board at
-    // once (oldest evicted past it). Separate stat, separate upgrade later.
-    maxLive: 5, // max simultaneous live mines per player
-    globalCap: 60, // defensive ceiling on total live mines across all players
-    // --- PROP-FOULING MINES doctrine. Victims of a fouling blast are slowed
-    // (self-private you.slowedUntil; sim/slow.ts slowedKinematics — composition
-    // pinned boosted → slowed → hooks).
+    // MINES HAVE NO CAP (Story 8.4, FR57/AR48). `maxLive` (the per-player live
+    // board cap, with its silent oldest-eviction) and `globalCap` (the room
+    // ceiling) are DELETED, along with the `maxLive` stat path: a mine now
+    // exists until it is triggered or destroyed, and the only bound on the
+    // water is pools × reloads. Do not reintroduce a ceiling here — the answer
+    // to a crowded ocean is the perf pin (500 live mines inside the 50 ms
+    // tick), not a cap that silently deletes a captain's laid trap.
     //
-    // RETUNED (Eric ruling 2026-08-19, Story 7-5): *"simply slows affected ships
-    // by 25% for 5 seconds"* — a WEAKER slow held LONGER (was 0.5 / 4000ms). It
-    // is also no longer an EXCLUSIVE and no longer trades damage: the cycle-95
-    // ruling deleted the damage penalty, and Story 7-5 made every doctrine an
-    // added verb, so this is a pure addition that STACKS with CAPTIVE MINES
-    // (whose torpedo carries the foul with it — Eric, same ruling).
-    foulFactor: 0.75, // × maxSpeed AND reverseSpeed while fouled (25% slower)
-    foulDurationMs: 5000, // ms — slow window per blast (refresh, don't stack)
-    // --- CAPTIVE MINES doctrine (Story 7-5 wave 2, `mineCaptive`) — REPLACES
-    // SELF-PROPELLED MINES outright (Eric: *"this replaces the old tracking
-    // mines with a more realistic torpedo mine"*). A captive mine NEVER
-    // detonates on contact: it holds ONE un-upgraded torpedo doing the MINE's
-    // damage at the MINE's blast radius, fired with intelligent lead at the
-    // first HOSTILE to enter its (much larger) trigger ring, and is EXPENDED on
-    // fire. THE TRANSFORM, derived post-fold in sim/stats.ts: the trigger and
-    // blast radii SWAP, then the trigger is multiplied by this factor — 144u
-    // trigger / 32u blast at base, 210.8u / 46.9u at a maxed MINES ladder. It
-    // is linear in the folded blast radius, so MINES cards apply on top and
-    // card ORDER CANNOT MATTER.
-    captiveTriggerFactor: 3,
+    // AR44: a mine TRIPS on hulls only — a decoy, a buoy or another mine
+    // sailing into its ring is not a hull and must not set it off (remote
+    // minefield clearing is a mechanic nobody ruled on; CLICKING ON the mine,
+    // with a deck gun, is the sanctioned way — amendment 200).
+    hits: HITS_HULL,
+    // hp — EVERY mine (naval, captive, fouling) carries this many hit points,
+    // SERVER-SIDE ONLY, never on the wire (Eric 2026-10-01, amendment 200).
+    // Only a DECK GUN shell (cannon, flak, machine gun) that LANDS on the mine
+    // takes them, for the shell's full damage: cannon and flak pop one in a
+    // single shell, the machine gun needs two at every tier (5..7 hp a shell,
+    // amendment 232). Nothing else ever
+    // damages a mine. At 0 a naval/fouling mine detonates; a captive is
+    // destroyed (a boom, no blast, no fish).
+    hp: 10,
+    // u — "ON the mine" (amendment 201(a)): a shell landing within this
+    // distance of a mine's centre damages it. It IS the marker ring the client
+    // draws (`client/src/render/mines.ts` RING_R reads it) — one number for
+    // the cursor pointing at the mine, read by both sides (PROTOCOL_VERSION 66).
+    hitRadiusU: 10,
+    // PROP FOULING LEFT THIS BLOCK (Eric ruling 2026-09-19, epic-8 amendment
+    // 81): the FOULING MINES add-on is deleted and fouling became its OWN
+    // tiered equipment line, so a NAVAL mine no longer slows anything. Its
+    // dials moved verbatim into `CONFIG.foulingMines` below (`slowFactor` /
+    // `slowDurationMs`) — do not restate them here.
+    //
+    // THE CAPTIVE TRANSFORM LEFT TOO (amendment 84d). `captiveTriggerFactor`
+    // (the swap-and-triple multiplier) is DELETED: CAPTIVE MINES is its own
+    // line with its own ring pair in `CONFIG.captiveMines` (144u trip / 32u
+    // blast, the trip stepping ×1.1 per tier), derived from the row's TIER
+    // rather than from this block's blast radius.
+    //
     // SELF-PROPELLED MINES IS GONE, AND SO IS ITS CREEP (Story 7-5 wave 2).
     // The card, the `mine.selfPropelled` verb, the World's creep step and the
     // client's creep tell/wake were deleted with it; `creepSpeed` (14 u/s) and
@@ -1308,21 +1368,152 @@ export const CONFIG = {
   },
 
   /**
-   * Speed boost (Torpedo Boat slot 2, Story 1.6): an ACTIVATED ABILITY, not a
-   * weapon — it fires nothing and emits nothing spatial. One press consumes its
-   * single charge and opens a `durationMs` window during which the FORWARD
-   * maxSpeed cap rises by `speedBonus` (reverseSpeed untouched); the hull
-   * accelerates toward the raised cap at class accel and decays back at class
-   * decel on expiry (see sim/boost.ts). `reloadMs` ≥ `durationMs` by design, so
-   * an active window always implies a cooling pool — re-activation while active
-   * is impossible by construction. No legacy upgrade touches it. Every number
-   * is a DESIGN TARGET, tunable.
+   * CAPTIVE MINES (catalog-v3 R25) — its OWN equipment line since catalog v3,
+   * and its own CONFIG block since Story 8.13 (it was a doctrine on the naval
+   * mine, then a STUB_ROW). A captive mine NEVER detonates on contact: it
+   * holds ONE torpedo, fires it with intelligent lead at the first HOSTILE to
+   * enter its (much larger) trip ring, and is EXPENDED on fire.
+   *
+   * THE RING PAIR IS ITS OWN, not a transform of the naval mine's (epic-8
+   * amendment 84d). The trip ring is the LARGE one and the fish's burst is the
+   * SMALL one, and the tier steps the TRIP RING only: `triggerRadius ×
+   * triggerStepPerTier^(tier − 1)` → 144 · 158.4 · 174.2 · 191.7 · 210.8 u,
+   * derived inside the stat clamp from the row's tier (no `triggerRadius` stat
+   * path is opened). `blastRadius` is FIXED at 32 u and never steps, so the
+   * fish's burst does not grow with the line.
+   *
+   * THE FISH is the heavy torpedo's hull: it runs at `CONFIG.torpedo.speed`
+   * (65 u/s base — amendment 82 leaves speed alone) and carries the CAPTIVE
+   * row's `damage`. Its homing is a TIER STAT (Eric ruling 2026-09-19,
+   * amendment 82, verbatim: *"Homing should be a Tiered stat on Captive Mines,
+   * but it should only grow to a max of 0.3 rad/s, starting at 0 and growing
+   * to that by Tier V"*), so the row's `homingTurnRate` base is 0 and the
+   * line's tiers II–V add +0.075 each.
+   *
+   * NO MAX RANGE (amendment 84f): the fish is bounded only by the homing
+   * die-distance, and only once its turn rate is above zero.
+   *
+   * `[DRAFT]` LIFTED on the pool/reload pair (Eric ruling 2026-09-19,
+   * amendment 77): 1 held and 20 s, NOT the naval numbers — tiers II–V give
+   * +0.5 held (2 at III, 3 at V) and −5 % reload (16 s at V).
    */
-  speedBoost: {
-    speedBonus: 10, // u/s added to forward maxSpeed cap while active
-    durationMs: 6000, // ms — active window opened by one activation
+  captiveMines: {
+    reloadMs: 20000, // ms — tier I (amendment 77); −5 %/tier → 16 s at V
+    maxAmmo: 1, // held mines — tier I (amendment 77); +0.5/tier, FLOORED → 1,1,2,2,3
+    triggerRadius: 144, // u — the TRIP ring at tier I (R25)
+    triggerStepPerTier: 1.1, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
+    blastRadius: 32, // u — the fish's burst. FIXED: it never steps (amendment 84d)
+    damage: 55, // hp — the fish's warhead at tier I (R25); +5/tier → 75 at V
+    // The naval chassis is SHARED, not duplicated: the rear placement sector
+    // (`CONFIG.mine.offset` / `placeHalfArcDeg`), the 150 u leash
+    // (`placeRange`) and the 3 s `armDelay` are read from `CONFIG.mine`.
+  },
+
+  /**
+   * FOULING MINES — its OWN tiered equipment line since Eric's 2026-09-19
+   * ruling (epic-8 amendment 81, verbatim: *"I'd also like to remove the Prop
+   * Fouling Mines card and instead build out Fouling Mines as its own Tiered
+   * equipment line, which deals minimal damage with a larger trigger/blast
+   * radius and slows the enemy."*). The add-on card is deleted and NAVAL MINES
+   * NO LONGER FOUL.
+   *
+   * `[DRAFT]` — every NUMBER below is a harness dial Eric tagged draft; only
+   * the SHAPE is ratified (amendment 81, AskUserQuestion "Draft, but tiers
+   * deepen the SLOW not the duration"). Tiers II–V each: −5 % reload (derived),
+   * ×1.1 blast (the trip ring follows), +1 held, slow factor −0.05 → ×0.55 at
+   * V. DAMAGE AND DURATION ARE FIXED: 10 hp and 5 s at every tier.
+   *
+   * THE VICTIM'S SLOW is `slowFactor` × BOTH speed caps for `slowDurationMs`,
+   * REFRESH-NOT-STACK (a later fouling overwrites factor and clock, never
+   * multiplies) — sim/slow.ts `slowedKinematics`, victim-private exactly as
+   * the retired naval-mine foul was.
+   *
+   * THE TRIP RING reuses `CONFIG.mine.triggerFactor` (2/3 of blast) — ONE
+   * source for the fraction, shared with the naval mine, so the two can never
+   * drift apart. No `triggerFactor` is restated here, and neither are the
+   * naval chassis fields (rear sector, 150 u leash, 3 s arm delay), which are
+   * read from `CONFIG.mine`.
+   */
+  foulingMines: {
+    damage: 10, // hp — FIXED at every tier (amendment 81) [DRAFT]
+    blastRadius: 72, // u — tier I; ×1.1/tier → 105.4 u at V [DRAFT]
+    slowFactor: 0.75, // × maxSpeed AND reverseSpeed; −0.05/tier → 0.55 at V [DRAFT]
+    slowDurationMs: 5000, // ms — FIXED at every tier (refresh, don't stack) [DRAFT]
+    maxAmmo: 2, // held mines — tier I; +1/tier → 6 at V [DRAFT]
+    reloadMs: 15000, // ms — tier I; −5 %/tier → 12 s at V [DRAFT]
+    // AR44: a mine TRIPS on hulls only (the naval mine's rule, unchanged).
+    hits: HITS_HULL,
+  },
+
+  /**
+   * THE SHIFT BOOST (Story 8.9) — an ACTIVATED ABILITY, not a weapon: it fires
+   * nothing and emits nothing spatial. It was UNIVERSAL until Story 8.15 made
+   * it the TORPEDO BOAT's class Shift (amendment 89(c)), and NO CARD EVER TOUCHES IT — there is no boost line,
+   * no tier and no stat path a card can address (Eric ruling 2026-09-18,
+   * epic-8 amendments 54–55, verbatim: *"Build as-written, except 25s
+   * reload."*). One press consumes its single charge and opens a `durationMs`
+   * window.
+   *
+   * `factor` is the FRACTION OF THE POST-FOLD forward maxSpeed added while the
+   * window is open, so the SPEED ladder is INSIDE the bonus (amendment 55):
+   * a capped Torpedo Boat goes 55 → 68.75, Mine Layer 50 → 62.5, Battleship
+   * 45 → 56.25; at base 45/40/35 → 56.25/50/43.75. FORWARD CAP ONLY —
+   * `reverseSpeed`, accel, decel, turn rate and steerage are untouched, so the
+   * hull accelerates toward the raised cap at class accel and decays back at
+   * class decel on expiry. The bonus is layered per tick by the one shared hook
+   * (sim/boost.ts `boostedKinematics`, called by the server's stepShips AND the
+   * client's predictor) and is NEVER folded into `EffectiveStats.kinematics`.
+   *
+   * `reloadMs` ≥ `durationMs` is a DESIGN INVARIANT — an active window always
+   * implies a cooling pool, so re-activation while active is impossible by
+   * construction — and it is now ENFORCED by the batch-sim override validator
+   * on the finished CONFIG (`--tune boost.*`; `--set` never reaches `boost.*`
+   * — it is refused at the family gate), through the real fold at a maxed
+   * RELOAD ladder, with `maxAmmo` pinned to 1. `reloadMs` takes
+   * `cooldownScale` through the ONE multiply in clampStats like every
+   * equipment row (catalog-v3 R40), so a maxed RELOAD ladder (0.75) gives
+   * 18.75 s. Every number is a DESIGN TARGET the harness tunes (`--tune
+   * boost.*`).
+   */
+  boost: {
+    factor: 0.25, // fraction of the POST-FOLD forward maxSpeed added while active
+    durationMs: 10000, // ms — active window opened by one activation
     maxAmmo: 1, // single charge in the pool
-    reloadMs: 18000, // ms — cooldown between activations
+    reloadMs: 25000, // ms — cooldown between activations (≥ durationMs, enforced)
+  },
+
+  /**
+   * INSTANT RELOAD — the MINE LAYER's class Shift (Story 8.15, Eric rulings
+   * 2026-09-28, epic-8 amendments 97–98). An instant activation, aimed at
+   * nothing: for the mounted gun and every fitted Q/E/R weapon whose reload is
+   * RUNNING, that ONE reload completes at once (one round tops up, timer to
+   * zero; the machine gun's magazine fills); rounds spent beyond that stay
+   * spent, and the belt and the Shift slot itself are never touched. One
+   * charge on a 60 s cooldown (Eric 2026-10-02, amendment 232; was 45 s,
+   * amendment 97) — longer than the longest weapon reload, so it never acts
+   * as a permanent second tube. `reloadMs` takes `cooldownScale` through the
+   * one multiply in clampStats like every row (45 s at a maxed RELOAD ladder).
+   */
+  instantReload: {
+    maxAmmo: 1, // single charge (amendment 97)
+    reloadMs: 60000, // ms — cooldown (Eric 2026-10-02; was 45000, amendment 97)
+  },
+
+  /**
+   * DAMAGE CUT — the BATTLESHIP's class Shift (Story 8.15, Eric rulings
+   * 2026-09-28, epic-8 amendments 99–102). An instant activation, aimed at
+   * nothing, that opens a `durationMs` window during which every WEAPON blow
+   * to this hull is multiplied by `factor` BEFORE the shield absorbs it
+   * (amendment 100) — a hit floored to a whole number, a burn tick halved
+   * exactly (amendment 102); storm bites land in full (amendment 101). One
+   * charge on a 30 s cooldown; `reloadMs` takes `cooldownScale` like every row
+   * (22.5 s at a maxed RELOAD ladder).
+   */
+  damageCut: {
+    factor: 0.5, // × incoming weapon damage while the window is open (amendment 89(c))
+    durationMs: 8000, // ms — the active window (amendment 99)
+    maxAmmo: 1, // single charge (amendment 99)
+    reloadMs: 30000, // ms — cooldown (amendment 99)
   },
 
   /**
@@ -1357,6 +1548,9 @@ export const CONFIG = {
   broadside: {
     // deg — bearing of each sector's CENTER off the bow (±): the beams.
     arcOffsetDeg: 90,
+    // AR44: hulls and decoys. NEVER a mine (amendment 200, Eric 2026-10-01):
+    // only a deck gun's shell landing on a mine damages one.
+    hits: HITS_HULL_DECOY,
     // deg — half-width of each beam sector about its center.
     arcHalfArcDeg: 60,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
@@ -1476,9 +1670,13 @@ export const CONFIG = {
    * spawns a server-side LIT ZONE at the burst point: for `litDurationMs` the
    * FIRER — and only the firer — gains full truesight parity inside it ("lit
    * from above", no island LOS: ships as contacts, mines, ballistic reveals).
-   * DAMAGELESS as of Story 2.8 (amendment 39): the flare deals ZERO damage —
-   * interception does 0 and still spawns the lit zone at the stop point; the
-   * INCENDIARY/DAZZLE exclusive doctrines take over the damage/denial role.
+   * THE FLARE DEALS DAMAGE AGAIN (Story 8.17, Eric ruling 2026-09-29, epic-8
+   * amendment 130 — amendment 39's "structurally damageless" is SUPERSEDED):
+   * at burst it deals the tier's `damage` (10 / 12 / 15 / 17 / 20, tier I–V)
+   * to EVERY non-owner hull whose centre is inside the WHOLE lit circle
+   * (`burstRadius = litRadius`). Its old PHOSPHOR/DAZZLE verbs are DELETED
+   * (amendment 134): PHOSPHOR SHELLS is its own weapon (`CONFIG.phosphorShells`)
+   * and DAZZLE is the FLASH SHELLS consumable (`CONFIG.flashShells`).
    * The zone CIRCLE itself is visible to any observer whose effective radar
    * range reaches its center (no LOS, no sweep gate — a flare in the sky),
    * tagged with the firer's id. NO range field: range is DERIVED from
@@ -1487,11 +1685,23 @@ export const CONFIG = {
    */
   starShells: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
+    // AR44: ILLUMINATION DETONATES NOTHING. The flare is a gun-family shell
+    // that deliberately does NOT carry the gun's mine bit: a damageless star
+    // shell bursting over a minefield leaves it standing, so lighting the water
+    // can never double as remote minefield clearing. (Before Story 8.4 a flare
+    // burst DID set off the firer's own armed mines, through the owner-only
+    // self-detonation path that amendment 16 replaced.)
+    hits: HITS_HULL_DECOY,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between flares
-    // NO `damage` field (amendment 39): star shells deal zero damage anywhere,
-    // structurally — a retune cannot quietly re-arm the flare.
+    // hp — TIER-I burst damage to every non-owner hull inside the whole lit
+    // circle (Eric ruling 2026-09-29, epic-8 amendment 130; the STAR SHELLS
+    // ladder steps it +2/+3/+2/+3 — sim/catalog.ts: 20 / 22 / 25 / 27 / 30,
+    // I–V). Whole numbers only (amendment 39's integer-damage rule still
+    // stands). (Swapped 2026-10-01, Eric, epic-8 amendment 208 — phosphor
+    // over-performed, star under-performed.)
+    damage: 20,
     // u — lit-zone radius, STRUCTURALLY half of base truesight (Eric ruling
     // 2026-07-23: star shells always light exactly half the BASE sight range,
     // independent of any player's sightRange upgrade stacks). Keep this as a
@@ -1502,101 +1712,198 @@ export const CONFIG = {
     // u — flare collision radius. Own field (cannon plumbing parity) so a gun
     // retune can never silently change flare interception; same value today.
     shellRadius: 2,
-    // --- INCENDIARY COMPOUND doctrine (Story 2.8, exclusive boon) — DRAFT.
-    incendiaryRadiusFactor: 0.8, // × litRadius — the burning zone is slightly smaller
-    incendiaryDps: 5, // hp/s — DoT to non-owner hulls inside while lit
-    // --- DAZZLE BURST doctrine (Story 2.8, exclusive boon) — DRAFT.
-    // × sightRange — truesight factor applied to non-owner ships whose center
-    // is inside the zone (perception-side; victims get self-private
-    // you.dazzledUntil so their own fog hole shrinks honestly).
-    dazzleSightFactor: 0.5,
+    // The INCENDIARY (`incendiaryRadiusFactor`/`incendiaryDps`) and DAZZLE
+    // (`dazzleSightFactor`) doctrine fields are DELETED with the star-shell
+    // verbs (Story 8.17, epic-8 amendment 134): their numbers now live on
+    // `CONFIG.phosphorShells` and `CONFIG.flashShells` below.
   },
 
   /**
-   * RADAR BUOY (Mine Layer slot 2, Story 7-5 wave 2) — REPLACES the decoy buoy
-   * outright (Eric's `7-5-decks.md`). THE DECOY ROLE IS DELETED: nothing in
-   * the game fakes a ship contact any more. What is dropped now is a real
-   * sensor — a stationary, destructible buoy carrying its OWN radar set that
-   * RELAYS its returns to the player who placed it.
-   *
-   * It is CLICK-PLACED like a mine (R2.7), reusing the mine's rear sector
-   * (`CONFIG.mine.offset` ± `placeHalfArcDeg`, out to `placeRange`), which is
-   * why it is a WEAPON in EQUIPMENT_IS_WEAPON rather than the 1.8 stern-drop
-   * ability. `radarRange` is a FLAT SET — the buoy's own equipment, NOT the
-   * owner's intel range — and its sweep is its own too. (Since cycle 119 the
-   * owner's radar range is itself fixed at base, no card moves it; the buoy's
-   * independence is still the point, and still what a future radar card would
-   * have to respect.)
-   *
-   * ONE BUOY, AND A GAP — AT BASE COOLDOWN (Eric ruling 2026-08-19, amending
-   * R2.7 mid-flight): the base life is SHORTER than the base reload, so out of
-   * the box at most ONE buoy is ever live and there is a ~10s dead window
-   * between one expiring and the next becoming available. That gap is the
-   * starting point — a buoy is a commitment, not permanent cover. The earlier
-   * ordering (30s life on a 20s reload) allowed two overlapping and is
-   * superseded as the BASE.
-   *
-   * CARDS LEGITIMATELY CLOSE IT, and that is a reward curve rather than a leak:
-   * BUOY I-IV adds +2.5s of life per card (to exactly the base reload at ×4),
-   * and RELOAD — the universal `shipCooldown` lever — scales `reloadMs` like it
-   * scales every other piece of equipment (stats.ts clampStats), reaching
-   * 15 000 ms at a full stack against a 20 000 ms life, so a heavy RELOAD build
-   * can hold TWO buoys on the water at once. Neither is an oversight: exempting
-   * the buoy from the one global cooldown lever would make it the odd equipment
-   * out. The instruction below is aimed at IMPLEMENTERS, not at player cards:
-   * do NOT close the BASE gap by raising `maxAmmo` or shortening `reloadMs`.
-   * It paints on radar with its OWN profile carrying no owner identity (R2.9),
-   * and killing one pays no XP and prints no kill-feed line. Every number is a
-   * DESIGN TARGET, tunable.
+   * PHOSPHOR SHELLS (Story 8.17, Eric ruling 2026-09-29, epic-8 amendments
+   * 131/132) — its OWN tiered 360° equipment line, no longer a star-shell
+   * add-on. One gun-pattern shell to the click at the radar rung (`rangeU =
+   * radarRange` post-fold, like the star shell). At burst it deals `damage` to
+   * every non-owner hull inside the WHOLE zone, then spawns a BURNING ZONE of
+   * `zoneRadius` for `zoneDurationMs` that burns `dps` hp/s on every non-owner
+   * afloat hull whose centre is inside. A HAZARD ONLY: the zone is drawn for
+   * every observer who can see it, reveals nothing, extends no gun's reach and
+   * is not a lit zone. Tiers II–V (sim/catalog.ts): damage 10 → 20, dps 5 → 10,
+   * radius ×1.1 per tier, duration 8 / 8 / 9 / 9 / 10 s, −5 % reload per tier
+   * derived. The zone's numbers are STAMPED from the owner's effective row at
+   * spawn (amendment 135(e)).
    */
-  radarBuoy: {
-    radarRange: 330, // u — the buoy's OWN radar reach (flat; never observer-scaled)
-    sweepRpm: 15, // rev/min — its own sweep; FIXED (R2.20 moved BUOY I-IV to durationMs; no card writes it)
-    durationMs: 20000, // ms — lifetime before natural expiry
-    hp: 50, // hp — destructible by anything that damages a ship
-    // ms — cooldown between placements. LONGER than the life at BASE cooldown
-    // (Eric 2026-08-19), so one buoy at a time with a ~10s dead gap between
-    // them; the BUOY and RELOAD ladders both eat into that gap (see above).
-    reloadMs: 30000,
-    maxAmmo: 1, // single charge in the pool
-    // --- GUN BUOY doctrine (buoyGun): the buoy defends itself.
-    gunDamage: 5, // hp per shot at a hostile inside its own radarRange
-    gunReloadMs: 5000, // ms — cooldown between its shots
-    // --- JAMMING BUOY doctrine (buoyJamming): SERVER-GENERATED false returns,
-    // wire-indistinguishable from real blips, re-scattered each sweep inside
-    // the buoy's circle. It ADDS fakes and never deletes a real return; the
-    // buoy's owner is exempt. DRAFT count (R2.11).
-    jamFakes: 10,
+  phosphorShells: {
+    arc: 'full', // 360° — the gun family's grammar (sim/arcs.ts)
+    // AR44: hulls and decoys. NEVER a mine (amendment 200, Eric 2026-10-01,
+    // superseding amendment 135(c)): only a deck gun's shell landing on a mine
+    // damages one.
+    hits: HITS_HULL_DECOY,
+    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
+    maxAmmo: 1, // one shell in the pool — presented as a pure cooldown
+    reloadMs: 20000, // ms — cooldown between shells (−5 %/tier derived)
+    // hp — tier-I burst damage to every non-owner hull inside the zone; tiers
+    // I–V read 10 / 12 / 15 / 17 / 20 (swapped 2026-10-01, Eric, epic-8
+    // amendment 208 — phosphor over-performed, star under-performed).
+    damage: 10,
+    zoneRadius: 100, // u — tier-I burst AND burning-zone radius (×1.1 per tier)
+    zoneDurationMs: 8000, // ms — tier-I burning-zone lifetime
+    dps: 5, // hp/s — tier-I burn on every non-owner afloat hull inside
+    shellRadius: 2, // u — shell collision radius (star-shell parity)
   },
 
   /**
-   * THE DECK MODEL's draw-weight dials (Story 2.8, amendment 38). A rare or
-   * exclusive card LINE's per-card draw weight escalates the longer no rare/
-   * exclusive has landed in a draw (invisible soft pity):
-   *   perCardWeight = rareWeightBase + levelsSinceRare × rareWeightPerDryLevel
-   * (commons are always weight 1; a line's total weight = copiesInDeck ×
-   * perCardWeight — see sim/deck.ts). Values RATIFIED by Eric 2026-07-31 from
-   * the 2.10 batch-sim evidence (amendment 57): at 0.35 the escalation only
-   * offset natural rare depletion (flat pity curve); 0.7 makes the ratified
-   * soft pity genuinely rise (rareRate climbs from the dry-1 dip of ~0.43 to
-   * ~0.57 by dry 6, vs a ≈flat ~0.4 across the same span at the old 0.35 dial;
-   * the dry-0 opening rate is ~0.48 either way) and trims the
-   * first-exclusive tail without flooding shallow draws.
-   *
-   * STALE RATES, DIALS UNCHANGED (2026-08-04, global-cooldown cycle 41): the
-   * ~0.48/~0.57 figures above were measured against the 42-line catalog.
-   * Deleting the seven per-equipment reload ladders removed 35 COMMON cards
-   * while leaving every rare/exclusive in place, so rare DENSITY rose on every
-   * deck (TB 14.5% -> 17.2%, ML 11.4% -> 13.2%) and with it the draw rate — a
-   * review simulation puts TB dry-0 P(>=1 rare per offer) at ~0.59, i.e. the
-   * new OPENING rate now exceeds the old ratified dry-6 pity CEILING. The dials
-   * themselves are untouched: retuning them is a balance decision that needs an
-   * Eric ruling + a batch-sim pass, and is ledgered in deferred-work.md. Treat
-   * the numbers above as the amendment-57 provenance record, not current rates.
+   * FLASH SHELLS (Story 8.17, Eric ruling 2026-09-29, epic-8 amendments
+   * 131/132) — the DAZZLE SHELLS line re-cut as a belt CONSUMABLE (display
+   * name FLASH SHELLS; the internal id stays `dazzleShells`). The key primes,
+   * a click fires ONE 360° gun-pattern shell to the radar rung that bursts
+   * ONCE in `radius`: every non-friendly afloat hull whose centre is inside is
+   * dazzled for `durationMs` (a second flash sets the LATER expiry — never
+   * stacks, never shortens). While dazzled a hull's effective sight is
+   * `radarRange × sightFraction` (sim/sight.ts `effectiveSight` — 82.5 u at the
+   * base 660 u radar), replacing the old ×0.5-of-sight factor. NO lingering
+   * zone, no light, no reveal, no damage. No `EffectiveStats` row: a
+   * consumable's numbers are read straight from CONFIG (the consumable law).
    */
-  deck: {
-    rareWeightBase: 1, // per-card weight of a rare/exclusive at zero dry levels
-    rareWeightPerDryLevel: 0.7, // weight added per level without a rare/exclusive drawn
+  flashShells: {
+    arc: 'full', // 360° (sim/arcs.ts consumableArc)
+    // The star shell's mask: interception by a hull or a decoy flashes at the
+    // stop point; a flash never detonates a mine (amendment 135(d)).
+    hits: HITS_HULL_DECOY,
+    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
+    shellRadius: 2, // u — shell collision radius (star-shell parity)
+    radius: 150, // u — the one-time burst radius
+    durationMs: 10000, // ms — how long a flashed hull stays dazzled
+    sightFraction: 0.125, // × radarRange — a dazzled hull's effective sight (1/8 of intel range)
+  },
+
+  /**
+   * SHIELD BLOCK (catalog-v3 R37; Story 8.16, epic-8 amendments 100, 116–118)
+   * — a key-fired consumable. Firing one copy writes the ship's shield seat
+   * `{ hpLeft: hp, until: now + durationMs }`; a second copy REPLACES it (a
+   * fresh `hp` for a fresh `durationMs`), never stacks. The damage gate's
+   * `absorbShield` runs AFTER the DAMAGE CUT (amendment 100) on EVERY damage
+   * source — storm bites and phosphor burn included (amendment 118) — so a
+   * fully absorbed hit lands `dealt` 0. No `EffectiveStats` row: a
+   * consumable's numbers are read straight from CONFIG (the consumable law).
+   */
+  shieldBlock: {
+    hp: 100, // hp the shield absorbs before it breaks (R37)
+    durationMs: 10000, // ms the shield lasts once fired (R37)
+  },
+
+  /**
+   * CHAFF (catalog-v3 R39; Story 8.16, epic-8 amendment 124(b)(c)) — a
+   * key-fired consumable that bursts at the owner's position at activation
+   * and paints `count` server-generated false returns inside `radius`,
+   * re-scattered once per the OWNER's sweep period, water-filtered, for
+   * `durationMs`. The fakes never ride the owner's `events`; the owner receives
+   * their OWN ghosts only via the self-private `OwnShip.chaffGhosts` (Eric
+   * 2026-10-01, cycle 162). A second copy REPLACES the source (fresh seed,
+   * fresh duration). No `EffectiveStats` row.
+   */
+  chaff: {
+    radius: 180, // u — scatter circle around the burst point (R39's 120 ×1.5, Eric 2026-10-01 "to 150 %")
+    count: 10, // fake returns per scatter (R39; fewer is legal beside an island)
+    durationMs: 15000, // ms the fakes keep painting (R39)
+  },
+
+  /**
+   * DECOY BUOY (catalog-v3 R36/R41; Story 8.16, epic-8 amendments 119–124) —
+   * a click-placed consumable dropped in the MINE's rear sector
+   * (`CONFIG.mine.offset` ± `placeHalfArcDeg`, out to `placeRange`). It floats
+   * until destroyed (no lifetime, it does not sink with its owner — amendment
+   * 122), paints on radar as an anonymous `sizeU` square, and is the `decoy`
+   * target kind: enemy shells, bursts and fish damage it (a 50-damage fish
+   * kills a fresh one — amendment 120); the owner's own ordnance never does
+   * (amendment 119). It REPLACES the deleted RADAR BUOY (Story 8.16) — the
+   * radar buoy's `CONFIG.radarBuoy` block, its gun, its jamming and its bot
+   * weights are gone. No `EffectiveStats` row.
+   */
+  decoyBuoy: {
+    hp: 50, // hp — destructible by enemy ordnance (R36)
+    sizeU: 12, // u — side of its radar paint square (R36)
+  },
+
+  /**
+   * SMOKE SCREEN (catalog-v3 R38; Story 8.18, Eric rulings 2026-09-29, epic-8
+   * amendments 138–145) — a key-fired consumable. Firing one copy opens a
+   * `layMs` lay window: every `puffIntervalMs` the hull drops a stationary
+   * puff at its CENTER (its own position, amendment 190), so one copy lays 10 puffs. A re-press while laying
+   * RESTARTS the lay clock (a fresh `layMs` from the press; the copy is spent —
+   * the shield/chaff "replaces" posture). Each puff lives `lifeMs` and grows
+   * linearly from `r0` to `r1` over `expandMs` (the whole life) — the one pure
+   * curve is `puffRadius` in sim/smoke.ts, run by both sides, so no radius
+   * rides the wire. A puff blocks every SIGHT-tier sensor like an island
+   * (flare zone included) and never radar — for an observer NOT standing in
+   * smoke. STANDING IN SMOKE (Eric ruling 2026-09-29, epic-8 amendment 149,
+   * final — verbatim: "if I'm in smoke, I should be able to see at 1/8 intel
+   * range, including into other smoke. If I'm not in smoke, I can't see into
+   * it. If I'm in it, go ahead and occlude everything outside of that range,
+   * no matter what. Radar still works."): while a hull's centre is inside ANY
+   * live puff, whoever laid it, its effective sight is `radarRange ×
+   * inSmokeSightFraction` (sim/sight.ts `effectiveSight`; 82.5 u at the base
+   * 660 u radar), smoke no longer occludes it inside that bubble (islands
+   * still do), nothing optical — its own flare included — reaches it from
+   * beyond, and its radar is untouched. Ownership plays no part in smoke.
+   * Radar also paints a hull inside a clear observer's sight bubble that
+   * smoke alone hides (amendment 147). No `EffectiveStats` row: a
+   * consumable's numbers are read straight from CONFIG (the consumable law).
+   *
+   * NOT `CONFIG.smoke` above: that block is WOUNDED smoke (the damage-band
+   * plume, 250 ms emission cadence, no occlusion) — a different thing, and
+   * untouched by this one. Never conflate the two.
+   */
+  smokeScreen: {
+    // Eric 2026-10-01: ×1.5 ("to 150 %") — a puff starts at 1.5/8 of intel
+    // range and grows to 3/8 (supersedes amendment 174's 1/8 → 2/8, which had
+    // superseded R38's r40 → r60, amendment 139). Intel range is vision.radar
+    // (SIGHT × 2 = 660 u, a global constant no card raises), so these are
+    // authored as fractions of that same constant. The old coincidence that
+    // r0 equalled the in-smoke sight (radar × 1/8) ENDS here — the two were
+    // always separate dials, and `inSmokeSightFraction` is untouched. The
+    // radius rides no wire: both sides derive it from sim/smoke.ts puffRadius.
+    r0: SIGHT * 2 * (1.5 / 8), // u — puff radius at the instant it is laid (123.75)
+    r1: SIGHT * 2 * (3 / 8), // u — puff radius at full growth (247.5)
+    lifeMs: 30000, // ms a puff lives on the water (R38)
+    layMs: 5000, // ms of laying per copy fired; a re-press restarts it (R38; amendment 140)
+    puffIntervalMs: 500, // ms between puffs while laying — 10 per lay (amendment 138)
+    expandMs: 30000, // ms for a puff to grow r0 → r1 — the whole life (amendment 139)
+    inSmokeSightFraction: 0.125, // × radarRange — effective sight while the hull's centre is inside ANY live puff, whoever laid it (Eric: "see at 1/8 intel range" — a harness dial, separate from flashShells.sightFraction by ruling; amendment 149)
+  },
+
+  /**
+   * WAKE DRAFTING (Story 8.19, FR50 / D23; Eric rulings 2026-09-30, epic-8
+   * amendments 151–152). A hull sailing in another source's wake ribbon is
+   * lifted: its FORWARD speed cap rises by `lift × ageFactor × headFactor` of
+   * itself (sim/wake.ts `draftLift` → sim/draft.ts `draftedKinematics`), the
+   * best single lane only — a MAX, never a sum.
+   *
+   * `lift` (amendment 151): 5 % of the rider's OWN per-tick forward cap at the
+   * freshest water, dead astern, same heading. `halfWidthBeams` (amendment
+   * 152): the lane's half-width is the WAKE-MAKER's own hull width
+   * (`ribbon.widthU`, 9 / 20 / 32 u for the three captain hulls) × this — so
+   * there is no fixed half-width in u. Both are harness dials.
+   *
+   * The wake's own clocks (life, sample cadence, torpedo factor) stay in
+   * `CONFIG.vision` — this block holds the drafting dials only.
+   */
+  wake: {
+    draft: {
+      lift: 0.05, // fraction of the rider's own forward cap added at full lift (amendment 151)
+      halfWidthBeams: 1, // × the wake-maker's hull width (ribbon.widthU) — the lane's half-width each side of the trail (amendment 152)
+    },
+  },
+
+  /**
+   * THE CATALOG's engine dials (Story 8.1). `reloadStepPerTier` is catalog-v3's
+   * STANDING RULE (§3, from R14): every equipment line steps −5 % of its OWN
+   * base reload per tier, in ADDITIVE five-point steps (100 → 95 → 90 → 85 →
+   * 80 %), composed BEFORE the global RELOAD ladder — so a maxed weapon under a
+   * maxed Reload runs at 0.80 × 0.75 = 60 % of base. Applied in ONE place
+   * (sim/stats.ts clampStats), never restated as a per-tier effect.
+   */
+  catalog: {
+    reloadStepPerTier: 0.05, // −5 % of base reload per tier (catalog-v3 §3 standing rule, §4 conventions)
   },
 
   /**
@@ -1699,19 +2006,66 @@ export const CONFIG = {
   },
 
   /**
-   * OFFERS (Story 2.7) — the shape of the pre-rolled offer a banked level
-   * carries. `size` is the ratified card count: 4 DIFFERENT CARD LINES, DRAWN
-   * FROM THE PLAYER'S OWN DECK and weighted by rarity. The old "one from each
-   * of 4 distinct CATEGORIES" roll died wholesale with Story 2.8's deck model
-   * (amendment 38 — see sim/offers.ts:1-8 and sim/deck.ts `drawOffer`); the
-   * category is a card's label, not a slot in the offer. It is
-   * gameplay-authoritative (it bounds the server's accepted `SpendMsg.choice`
-   * and the client's digit picks), so it lives here and not in CLIENT_CONFIG.
-   * A deck that has run thin draws a SHORTER offer rather than throwing, and
-   * an empty draw materializes no offer at all.
+   * DRONE DROPS (Eric ruling 2026-10-01) — sinking a PvE drone also rolls
+   * consumables for the credited killer (the same `by` the drone-kill XP pays),
+   * but ONLY an afloat participant (human or bot) rolls; a fleet hull, a
+   * sinking killer, a storm/self/unattributed sink and a captain victim never do.
+   *
+   * `rolls` is keyed by DRONE HULL ID (the victim's `hullId`): one roll for a
+   * small drone, two for a medium, three for a large. Each roll passes with
+   * `chance`; a passing roll stocks ONE copy of a consumable picked uniformly
+   * from the lines the ship could legally take right now by the refit card's
+   * own predicate (`pickRefusal === null` — a stub or a line at its cap is
+   * skipped, and a full belt limits the pick to the lines already held). An
+   * empty eligible set wastes the roll. Server-only; the killer sees the
+   * STOCKED toast via the self-private `dp` event.
+   */
+  droneDrops: {
+    chance: 0.5,
+    rolls: { droneSmall: 1, droneMedium: 2, droneLarge: 3 } satisfies Record<DroneHullId, number>,
+  },
+
+  /**
+   * OFFERS (Story 2.7, re-cut for THE COMMON POOL in Story 8.14) — the shape of
+   * the pre-rolled offer a banked level carries, and the one dial pair behind
+   * the draw. It is gameplay-authoritative (it bounds the server's accepted
+   * `SpendMsg.choice` and the client's digit picks), so it lives here and not
+   * in CLIENT_CONFIG.
+   *
+   * `size` is the ratified card count: 4 DIFFERENT CARD LINES, drawn from THE
+   * COMMON POOL — every dealable catalog line, unlimited copies, bounded only
+   * by each line's `cap`, the three weapon slots and the mounted gun
+   * (sim/draw.ts). There is no deck and no match pool any more (Eric ruling
+   * 2026-09-21, epic-8 amendment 89a).
+   *
+   * THE DRAW IS TWO-STAGE (Eric ruling 2026-09-22, amendment 92): for each
+   * card, stage 1 picks the KIND — a weapon (copy 1 of an equipment line), an
+   * upgrade (a tier card, a ladder rung, the mounted gun's ladder, an add-on)
+   * or a consumable — with each kind's odds equal to its SHARE of the lines
+   * currently eligible for that ship; stage 2 picks WHICH line within that
+   * kind. So `weighting` below changes WHICH weapon is drawn and never the odds
+   * of drawing A weapon at all.
+   *
+   * THE WEIGHTING (amendment 90; named by amendment 91 — it is called
+   * WEIGHTING): each OTHER participant, human or bot, who has taken COPY 1 of
+   * an equipment line this match multiplies that line's weight for you by
+   * `factor`, never below `floor`; base weight is 1.0. Copies 2+ never move
+   * anyone's weight, the taker's own weight is untouched, and a take is
+   * PERMANENT for the match (the taker sinking restores nothing). Both numbers
+   * are `[DRAFT]` harness dials, reachable by `--tune`.
+   *
+   * THE OFFER IS NEVER EMPTY (amendment 94): consumable lines are always dealt
+   * — at their cap or with a full belt they are dealt anyway, greyed by the
+   * existing SLOTS FULL treatment, and the pick is a silent no-op until space
+   * frees. An offer is SHORTER than `size` only when fewer than `size` dealable
+   * lines exist at all; there is no exhaustion and no banked-empty branch.
    */
   offer: {
-    size: 4, // card lines per offer — drawn from the deck, all different
+    size: 4, // card lines per offer — drawn from the common pool, all different
+    weighting: {
+      factor: 0.75, // [DRAFT] weight multiplier per OTHER captain who took copy 1 (amendment 90)
+      floor: 0.25, // [DRAFT] the weight never falls below this — less likely, never impossible
+    },
   },
 
   /**
@@ -1732,22 +2086,24 @@ export const CONFIG = {
   },
 
   /**
-   * DAMAGE CONTROL (Eric rulings 2026-08-04) — the always-available heal
-   * spend: a permanent strip beneath the refit band's four-card row. NOT a
-   * card: never drawn, never in the deck (BOON_CATALOG / CONFIG.deck /
-   * CONFIG.offer untouched — deck composition is byte-identical). Spending
-   * one banked level restores `instantHp` immediately (clamped to maxHp) and
-   * adds `regenHp` to a regen pool that drains at the fixed rate
-   * regenHp/regenMs (5 hp/s). Pools ADD, never accelerate: two heals run 10s
-   * at 5 hp/s, never 5s at 10 hp/s. Amounts are FLAT on every hull — no
-   * maxHp scaling, no upgrade scaling, no class variation. Every number is a
-   * DESIGN TARGET, tunable.
+   * HULL REPAIR (catalog-v3 R13; Eric rulings 2026-08-04, relocated by epic-8
+   * amendment 46) — the PAID heal, now the first LIVE consumable card rather
+   * than an always-available level spend. Firing one stocked copy restores
+   * `instantHp` immediately (clamped to maxHp) and REPLACES the regen pool
+   * with `regenHp`, which drains at the fixed rate regenHp/regenMs. A re-press
+   * never stacks: whatever the old pool still owed is discarded and a fresh
+   * `regenHp` pays over a fresh `regenMs` (Eric 2026-09-29, epic-8 amendment
+   * 141 — SUPERSEDES the old "pools ADD, the rate never changes" stacking
+   * law); the rate never changes either way. Amounts are FLAT on every hull — no maxHp scaling, no upgrade
+   * scaling, no class variation. Every number is a DESIGN TARGET, tunable.
    *
-   * The `levelMissingPct` / `levelRegenMs` pair below is a SECOND, FREE channel
-   * (the per-level auto-heal, 2026-08-23) with its own pool and its own rate.
-   * The spend above is untouched by it in every respect.
+   * THIS BLOCK WAS THE DAMAGE-CONTROL BLOCK (renamed by epic-8 amendment 46).
+   * What left with the rename: the level spend and its reserved -1 wire
+   * sentinel (the heal is a card now) and the FREE per-level auto-heal channel,
+   * whose two dials `CONFIG.regen` below replaces. What stayed: these three
+   * numbers, byte-identical.
    */
-  damageControl: {
+  hullRepair: {
     // BALANCE CYCLE 1 (Eric ruling 2026-08-20): both 25 → 50, DOUBLED IN STEP
     // WITH HULL HP. These amounts are FLAT by ruling, so doubling hull HP without
     // them silently reprices every heal — measured: a heal fell from ~33 % of an
@@ -1755,54 +2111,50 @@ export const CONFIG = {
     // boons (Battleship boons 2.27 → 1.95 while its levels ROSE), and the
     // highest-HP hull paid most. Doubling both holds a heal at the same fraction
     // of every hull it was worth before, and boons recovered past baseline.
-    instantHp: 50, // hp restored immediately at spend time (clamped to maxHp)
-    regenHp: 50, // hp added to the regen pool per heal spend
-    regenMs: 5000, // ms — payout time of one regenHp pool (the 5 hp/s rate)
-    /**
-     * THE PER-LEVEL AUTO-HEAL (Eric ruling 2026-08-23) — the fraction of
-     * MISSING hull restored automatically, FOR FREE, each time a level is
-     * EARNED. It sits IN ADDITION TO the paid heal above, which is untouched.
-     *
-     * WHY IN ADDITION AND NOT INSTEAD. Eric likes the heal being a strategic
-     * decision; what feels bad is the SHARE of levels it eats — measured at
-     * 58.7 % of every level earned going to `HEAL_CHOICE` rather than an
-     * upgrade, a ratio that holds at ~50-59 % across every XP rate tested,
-     * because volume scales cards and heals together. Replacing the menu heal
-     * would delete the decision he wants kept; layering a free trickle under it
-     * pays for routine chip damage out of progression instead of out of the
-     * card budget. Measured with the assist split: cards/bot 3.33 → 3.59.
-     *
-     * WHY A FRACTION OF MISSING RATHER THAN A FLAT AMOUNT. A flat heal is worth
-     * the same at 90 % hp as at 5 %, and a different fraction of every hull —
-     * which is why balance cycle 1 had to double `damageControl` in step with
-     * hull HP. A missing-hull term is worth most when nearly dead, and NEEDS NO
-     * REPRICING WHEN HULL HP NEXT MOVES.
-     *
-     * It pays NOTHING to a full hull (10 % of zero missing is zero, and no heal
-     * cue fires), nothing to a sinking or sunk hull, and nothing to a fleet
-     * hull. It is tied to LEVELLING, not to a clock — Eric has ruled against a
-     * cooldown-paced global heal repeatedly, and healing paced by the economy
-     * is a different thing.
-     *
-     * 0 IS A REACHABLE OFF CONFIGURATION, not dead code: the harness measures
-     * an OFF arm via `--set damageControl.levelMissingPct=0`.
-     */
-    levelMissingPct: 0.1,
-    /**
-     * ms — payout time of the free per-level pool. It has its OWN pool and its
-     * OWN rate: `levelRepairHp / levelRegenMs`, recomputed on each grant, so
-     * the pool empties exactly one window after the most recent level.
-     *
-     * DELIVERY IS BY DURATION, which is a deliberate departure from the
-     * anti-flask rule ("pools ADD, the RATE never changes") and is CONFINED TO
-     * THIS FREE CHANNEL — the paid menu pool keeps its fixed regenHp/regenMs
-     * rate, byte-identical and pinned. A fixed hp/s cannot deliver a variable
-     * amount in a fixed time, and Eric ruled the duration ("over 5 seconds")
-     * knowingly against the shared pool's rate. Two rates cannot live in one
-     * pool, which is why this channel exists at all: the free trickle must be
-     * out-damageable while the paid heal answers an emergency.
-     */
-    levelRegenMs: 5000,
+    instantHp: 50, // hp restored the instant the copy fires (clamped to maxHp)
+    regenHp: 50, // hp the regen pool is SET to per HULL REPAIR copy fired (replaces, never adds)
+    // ms — payout time of ONE regenHp pool. The rate is regenHp/regenMs =
+    // 0.01 hp/ms; it was ruled as 5 hp/s at regenHp 25 and doubled with the
+    // amount in balance cycle 1, so the shipped pool pays 50 hp over 5 s. The
+    // old stacking law (pools ADD, the rate never changes) is SUPERSEDED (Eric
+    // 2026-09-29, amendment 141): a re-press REPLACES the pool (`repairHp =
+    // regenHp`, remainder discarded); the 0.01 hp/ms rate is unchanged — see
+    // hullRepair.test.ts.
+    regenMs: 5000,
+  },
+
+  /**
+   * OUT-OF-COMBAT REGEN (Eric ruling 2026-09-17 — epic-8 amendments 46-48).
+   * REPLACES the cycle-129 per-level auto-heal — the free second channel that
+   * lived inside the paid block above, with its own pool and its own
+   * duration-based rate, both dials now deleted. Healing is no longer paced by
+   * the economy but by DISENGAGING.
+   *
+   * SHAPE (amendment 46): once `outOfCombatMs` have passed since the hull last
+   * took LANDED damage, every second restores `missingPctPerS` of the hull's
+   * MISSING hp — `hp += (maxHp − hp) × 0.01` per second. Asymptotic on purpose:
+   * fast when badly hurt, slow near full, and it needs no repricing when hull
+   * HP next moves (a flat amount is worth a different fraction of every hull —
+   * the problem that forced the paid heal to double in balance cycle 1). It pays
+   * STRAIGHT INTO hp — no pool, no pending band, no `heal` cue (a continuous
+   * trickle would loop the tone) — and SNAPS to full once under 1 hp is
+   * missing, because 1 % of missing never reaches zero on its own and HULL
+   * REPAIR's "full hull" refusal must stay reachable.
+   *
+   * THE CLOCK (amendment 47): ANY hull-hp decrement that actually lands
+   * (`dealt > 0` — shells, torpedoes, mines, burn ticks, STORM bites) resets it
+   * at the damage gate. Dealing damage never does; a hit fully eaten by a
+   * future SHIELD BLOCK (`dealt` 0) is not taking damage. Consequence, stated
+   * to Eric and accepted: nobody regens inside the storm or through the
+   * sudden-death collapse, so the storm's listed rate is its net rate.
+   *
+   * WHO (amendment 48): captains and combat bots — the participants the level
+   * heal reached. A PvE FLEET DRONE NEVER REGENS (it is environment, amendments
+   * 12/24), so a disengaged drone keeps the damage it took.
+   */
+  regen: {
+    missingPctPerS: 0.01, // fraction of MISSING hull restored per second out of combat
+    outOfCombatMs: 15000, // ms since the last landed hull damage before it starts (Eric 2026-09-30: 30 s was "far too long given the current deadliness of the game"; was 30000, amendment 46)
   },
 
   /**
@@ -1878,6 +2230,18 @@ export const CONFIG = {
     // modal carrying the MATCH LOG. The dev-only matchOverride.resultsMs is
     // untouched, so every headless smoke still runs at its own 3000 ms.
     resultsSeconds: 45,
+  },
+
+  /** Private lobbies — Eric rulings 2026-10-02 (private lobbies, cycle 167). */
+  lobby: {
+    codeLength: 6, // join code length, A–Z only, case-insensitive (ruling 5)
+    // ms — all-ready countdown before the lobby forms the arena (ruling 1); the
+    // arena's own CONFIG.match.countdown still runs after boarding (they stack).
+    countdownMs: 10000,
+    seedTextMax: 32, // chars — host seed text cap after trim (ruling 3)
+    // ms — a started lobby lingers so a dead code answers MATCH STARTED, then
+    // NO SUCH LOBBY once it is gone (ruling 11).
+    startedLingerMs: 60000,
   },
 
   /** Fixed-tick timing (both server sim and client accumulator). */
@@ -2067,6 +2431,17 @@ export function fleetLevels(): number {
     CONFIG.fleet.composition.medium * tiers.droneMedium +
     CONFIG.fleet.composition.small * tiers.droneSmall
   );
+}
+
+/**
+ * THE CLASS SHIFT a hull fits in slot 1 (Story 8.15, amendment 89(c)) — the
+ * one read of `CONFIG.shipClasses.<id>.shift`, and the compile check that
+ * every class names a real `ShiftId`. Both sides call it with the class id, so
+ * the server's fit and the client's replay can never disagree. Drones have no
+ * Shift (and no ship-class id), so they never reach it.
+ */
+export function classShift(id: ShipClassId): ShiftId {
+  return CONFIG.shipClasses[id].shift;
 }
 
 /** Coerce arbitrary (wire/localStorage) input to a valid class id, default 'torpedoBoat'. */

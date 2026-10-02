@@ -5,7 +5,7 @@
 // an `addChild` argument list or an object literal, so a test can assert it
 // without a GPU and a future refactor cannot quietly re-stack the scene:
 //
-//   worldRoot   (camera-transformed): ocean, wake, projectile, mines, buoys
+//   worldRoot   (camera-transformed): ocean, wake, projectile, mines, decoys
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
 //   chartRoot   (camera-transformed): map, smoke, blip, SHIP, PLATE, aim, burstFx,
 //                                     sweep  (fog-immune: above fog)
@@ -168,9 +168,9 @@ export interface StageLayers {
   projectile: Container;
   /** Enemy mines (render/mines.ts) — fogged; they only arrive when sighted. */
   mineWorld: Container;
-  /** Truesighted enemy radar buoys (render/buoys.ts) — fogged; they only
+  /** Other captains' DECOY BUOYS (render/decoys.ts) — fogged; they only
    *  arrive when the observer legitimately sees them (mineWorld precedent). */
-  buoyWorld: Container;
+  decoyWorld: Container;
   // chartRoot children
   map: Container;
   /** Storm circle (render/zone.ts) — charted, fog-immune; above the base map. */
@@ -186,11 +186,27 @@ export interface StageLayers {
    *  litZone's own stated reason — blips, mines and the reticle must stay
    *  readable on top of it, and a plume is soft ambient texture, not a mark. */
   smoke: Container;
+  /**
+   * THE CHAFF OWNER'S RADAR PICTURE — the dashed ring (render/chaffRing.ts) and
+   * the grey ghost paints (render/chaffGhosts.ts). Fog-immune, directly ABOVE
+   * `smoke` and below `mineChart`.
+   *
+   * Eric, 2026-10-01: *"Radar returns should never be below the smoke screen."*
+   * Not `litZone` (where both lived until that ruling): `litZone` sits UNDER
+   * `smoke`, so a smoke screen laid over the cloud buried the ghost returns.
+   * Not `blip` either, though the real returns live there: `blip` carries the
+   * radar's near-range DIM MASK (amendment 181 — 20 % across the whole sight
+   * bubble), and the cloud bursts at the owner's own position, always inside
+   * that bubble, so a ghost on `blip` would draw at 20 % of half alpha —
+   * invisible. A layer of its own is the one seat that is both over the smoke
+   * and outside the mask.
+   */
+  chaff: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
-  /** OWN radar buoys (render/buoys.ts) — fog-immune chart markers so your own
-   *  buoy is always readable; a truesighted enemy buoy goes to buoyWorld. */
-  buoyChart: Container;
+  /** OWN decoy buoys (render/decoys.ts) — fog-immune chart markers so your own
+   *  decoy is always readable; anyone else's goes to decoyWorld. */
+  decoyChart: Container;
   blip: Container;
   /**
    * HULL SILHOUETTES — own ship (main.ts), every contact (render/contacts.ts)
@@ -259,7 +275,7 @@ export type LayerName = keyof StageLayers;
 // keeps the pin honest.
 
 /** worldRoot, bottom → top: everything the fog composite dims. */
-export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'buoyWorld'] as const;
+export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld'] as const;
 /** chartRoot, bottom → top: everything above the fog. The four rungs in the
  *  middle are the whole legibility contract, read upward: `blip` (radar paint),
  *  `ship` (the hull that outranks its own echo), `plate` (the name that outranks
@@ -270,8 +286,10 @@ export const CHART_LAYER_ORDER = [
   'zone',
   'litZone',
   'smoke',
+  // Eric 2026-10-01: "Radar returns should never be below the smoke screen."
+  'chaff',
   'mineChart',
-  'buoyChart',
+  'decoyChart',
   'blip',
   'ship',
   'plate',

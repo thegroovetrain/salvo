@@ -2,7 +2,7 @@
 // own suite (killFeed.test.ts) when it grew colored segments (Story 1.12).
 
 import { describe, it, expect } from 'vitest';
-import { heldAtStartLine, matchUx, secondsUntil, spectateBannerText } from '../ui/phase.js';
+import { epochLatchReset, heldAtStartLine, matchUx, secondsUntil, spectateBannerText } from '../ui/phase.js';
 
 describe('matchUx — phase to HUD strings', () => {
   it('waiting: CAPTAINS BOARDING — n ABOARD + ALL STATIONS LOCKED, no countdown', () => {
@@ -126,3 +126,40 @@ describe('secondsUntil', () => {
   });
 });
 
+
+// THE MATCH EPOCH EDGE (Story 8.10 review, P3). `main.ts`'s updateMatchEpoch
+// hangs four resets on one edge: the personal score, the helm's held orders,
+// the refit window's one auto-open and the one free redraw. The two opening
+// latches used to reset on EVERY phase edge, which re-armed the auto-open on
+// the `countdown -> waiting` edge of a CANCELLED countdown — so the window
+// flung itself open a second time at the re-arm, over whatever the captain was
+// doing. They belong on the live edge with the score, and a new match's
+// countdown can only ever follow the previous match's live edge.
+describe('epochLatchReset — the -> ACTIVE edge and nothing else', () => {
+  it('is true ONLY on the edge into active', () => {
+    expect(epochLatchReset('countdown', 'active')).toBe(true);
+    expect(epochLatchReset('waiting', 'active')).toBe(true);
+    expect(epochLatchReset('gathering', 'active')).toBe(true);
+  });
+
+  it('a CANCELLED countdown does not re-arm the latches', () => {
+    expect(epochLatchReset('countdown', 'waiting')).toBe(false);
+  });
+
+  it('arming the countdown does not reset them either — the offer is already in flight', () => {
+    expect(epochLatchReset('waiting', 'countdown')).toBe(false);
+    expect(epochLatchReset('gathering', 'countdown')).toBe(false);
+  });
+
+  it('the tail of a match resets nothing', () => {
+    expect(epochLatchReset('active', 'finished')).toBe(false);
+    expect(epochLatchReset('finished', 'waiting')).toBe(false);
+    expect(epochLatchReset('active', 'waiting')).toBe(false);
+  });
+
+  it('is total and idempotent — a non-edge is never a reset', () => {
+    for (const p of ['waiting', 'gathering', 'countdown', 'active', 'finished']) {
+      expect(epochLatchReset(p, p), p).toBe(false);
+    }
+  });
+});

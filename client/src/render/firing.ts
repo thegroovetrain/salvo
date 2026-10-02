@@ -13,7 +13,7 @@
 //     ruling 2026-08-27) — exactly the side containing the aim lights.
 //     The gun FAMILY (gun / star shells) draws NO arc sector: it is 360° and
 //     fires to the clicked point (Eric ruling 2026-07-21), so a wedge would lie.
-//     The remaining instant ability (speedBoost) never primes and draws no
+//     The remaining instant ability (the boost) never primes and draws no
 //     marker at all.
 //   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
 //     because gun range (radar range, 660u) exceeds sight range (330u): aiming
@@ -33,11 +33,11 @@ import {
   turretMountBearings,
   turretMuzzles,
   wrapAngle,
-  type EquipmentId,
   type HullId,
+  type SlotItemId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { fireArcKind, sectorOutline, twinSectorSide, weaponArcHit } from './weaponArc.js';
+import { fireArcKind, isPlacedItem, isTorpedoItem, sectorOutline, twinSectorSide, weaponArcHit } from './weaponArc.js';
 
 const AMBER = CLIENT_CONFIG.colors.amber;
 const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torpedo bow arc (legacy tone)
@@ -56,6 +56,41 @@ const IMPACT_R = 4; // u — range-clamped impact marker ring
  *  ARE local coordinates. This is the whole reason the render can reuse the
  *  sim's geometry instead of re-deriving spacing. */
 const IDENTITY_POSE = { x: 0, y: 0, heading: 0 };
+
+/**
+ * Pure: the aim colour of one primed system — THE TORPEDO FAMILY's cool green,
+ * or aim amber for everything else.
+ *
+ * ONE ANSWER, THREE SURFACES (the sector wedge, the twin-beam outlines and the
+ * reticle), because they are one statement: "this is the system you are
+ * aiming". It keys on the FAMILY since Story 8.13 rather than on
+ * `id === 'heavyTorpedo'` — the LIGHT torpedo's twin beams and the belt's
+ * SUPERCAV bow sector are torpedoes too, and a fish that drew amber would read
+ * as gunnery.
+ */
+function weaponTint(id: SlotItemId | null): number {
+  return isTorpedoItem(id) ? TORP_TINT : AMBER;
+}
+
+/**
+ * Pure: HOW a `twin-sector` weapon draws each of its two beams.
+ *
+ * - `outline-turrets` — the BROADSIDE's grammar (Eric ruling 2026-08-27, ruling
+ *   4): a hairline legal boundary plus one small filled wedge per gun, because
+ *   under the zero-overlap ladder a big filled beam would promise water no gun
+ *   can reach.
+ * - `filled-sector` — a TORPEDO's grammar: the beam IS the aim-gated wedge, the
+ *   same indicative ARC_R fill the heavy torpedo's bow sector draws, mirrored on
+ *   both beams. A fish has no turret fan to draw instead, so an outline alone
+ *   leaves the player aiming into an empty green line (Eric, 2026-09-21).
+ *
+ * Exported so the decision is pinned as a decision (firingArcs.test.ts), the
+ * file's convention for everything the arcs Graphics draws.
+ */
+export type TwinBeamStyle = 'outline-turrets' | 'filled-sector';
+export function twinBeamStyle(id: SlotItemId | null): TwinBeamStyle {
+  return isTorpedoItem(id) ? 'filled-sector' : 'outline-turrets';
+}
 
 export interface FiringPose {
   x: number;
@@ -160,7 +195,7 @@ export class FiringUX {
    *  by update(); base = radar range. Drives the gun-family range-clamp burst
    *  marker AND the mine's placement-arc radius. weaponArc.weaponReachU is the
    *  one source, and it is the SAME number the aim preview bursts at — including
-   *  the star-shell lift (R2.15), where a gun click inside one of our own live
+   *  the star-shell lift (R2.15, amendment 114), where a deck-gun click inside one of our own live
    *  lit zones raises the reach to the click and the clamp marker correctly
    *  stops drawing. */
   private rangeU: number = CONFIG.vision.radar;
@@ -190,13 +225,13 @@ export class FiringUX {
    * driven by render/deniedFire.ts's rate-limited predicate. `rangeU` is the
    * primed weapon's EFFECTIVE range (weaponArc.weaponRangeU) for the gun-family
    * range-clamp burst marker — since Story 7-5 wave 2 that is weaponReachU, so
-   * the marker lifts with the gun inside our own flare. The gun family draws no
+   * the marker lifts with any deck gun inside our own flare. The gun family draws no
    * arc sector (360°).
    */
   update(
     pose: FiringPose,
     aim: number,
-    id: EquipmentId | null,
+    id: SlotItemId | null,
     ammo: FiringAmmo,
     cursor: { x: number; y: number },
     denied = false,
@@ -211,7 +246,7 @@ export class FiringUX {
     // Only an AIM-GATED weapon draws a wedge — the torpedo's bow arc and the
     // mine's rear placement arc (Story 2.8), or the broadside's twin beams
     // (Story 7-5 wave 2). The gun family is 360° (no wedge) and the remaining
-    // ability (speedBoost) draws no marker.
+    // ability (the boost) draws no marker.
     if (kind === 'sector' && id !== null) this.drawSectorArc(id, aim, pose.heading, ammo, denied);
     if (kind === 'twin' && id !== null) this.drawTwinArcs(id, aim, pose.heading, ammo, denied, broadside);
     this.drawReticle(pose, aim, id, ammo.hasAmmo, cursor);
@@ -226,7 +261,7 @@ export class FiringUX {
    * ARC_R (its fish runs to the map edge, so a radius would be a lie).
    */
   private drawSectorArc(
-    id: EquipmentId,
+    id: SlotItemId,
     aim: number,
     heading: number,
     ammo: FiringAmmo,
@@ -242,12 +277,17 @@ export class FiringUX {
     // — see weaponRangeU) so they must share the whole grammar: true radius,
     // armed amber, and a stroked boundary that is a real line on the chart.
     //
-    // THE RADAR BUOY USED TO FALL TO THE ELSE and was drawn as a TORPEDO —
-    // indicative ARC_R (72u, less than half its real 150u reach), torpedo green,
-    // no boundary. That is Eric's "the buoy's targeting range indicator isn't
-    // correct": it was not the buoy's range at all.
-    const placement = id === 'mine' || id === 'radarBuoy';
-    const tint = placement ? AMBER : TORP_TINT;
+    // THE (since-deleted) RADAR BUOY USED TO FALL TO THE ELSE and was drawn as
+    // a TORPEDO — indicative ARC_R (72u, less than half its real 150u reach),
+    // torpedo green, no boundary. That was Eric's "the buoy's targeting range
+    // indicator isn't correct". The 8.16 DECOY BUOY takes the placement grammar
+    // through `isPlacedItem`, exactly as the mines do.
+    // ALL THREE MINE LINES place (Story 8.13), not just the naval one, and the
+    // belt's SUPERCAV TORPEDO is a LAUNCH, so the two halves are asked
+    // separately: `isPlacedItem` decides the placement grammar, `weaponTint`
+    // decides the family colour.
+    const placement = isPlacedItem(id);
+    const tint = weaponTint(id);
     const radius = placement ? this.rangeU : ARC_R;
     const color = denied ? DENIED_RED : tint;
     this.sector(t.offset, t.halfArc, color, denied || lit, ammo.reloadFrac, radius, placement);
@@ -277,7 +317,7 @@ export class FiringUX {
    * range-clamp marker and by the aim preview's per-shell burst circles.
    */
   private drawTwinArcs(
-    id: EquipmentId,
+    id: SlotItemId,
     aim: number,
     heading: number,
     ammo: FiringAmmo,
@@ -287,10 +327,24 @@ export class FiringUX {
     const t = arcFor(id);
     if (t.kind !== 'twin-sector') return; // descriptor law: only twin sectors draw a pair
     const firing = twinSectorSide(heading, aim, t);
-    const color = denied ? DENIED_RED : AMBER;
+    const color = denied ? DENIED_RED : weaponTint(id);
+    const style = twinBeamStyle(id);
     for (const side of [1, -1] as const) {
       const lit = denied || (firing === side && ammo.hasAmmo);
+      if (style === 'filled-sector') {
+        // A TORPEDO'S BEAM IS A FILLED WEDGE (quiet fix, Eric 2026-09-21): the
+        // LIGHT TORPEDO shares the twin-sector SHAPE with the broadside but not
+        // its battery — it fires tubes, not turrets — so each beam draws the
+        // same indicative ARC_R sector fill the heavy torpedo's bow arc draws,
+        // mirrored. Story 8.13's first cut turned the turret wedges off for it
+        // and left only the hairline outline: a beam with no fill at all.
+        this.sector(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
+        continue;
+      }
       this.drawLegalOutline(side * t.offset, t.halfArc, color, lit, ammo.reloadFrac);
+      // PER-TURRET WEDGES ARE THE BROADSIDE'S ALONE (Story 8.13): drawing the
+      // barrage's gun wedges on a torpedo's beams would invent a fan of shells
+      // that no fish has.
       if (bs !== null) this.drawTurretWedges(side, color, lit, bs);
     }
   }
@@ -422,7 +476,7 @@ export class FiringUX {
   private drawReticle(
     pose: FiringPose,
     aim: number,
-    id: EquipmentId | null,
+    id: SlotItemId | null,
     hasAmmo: boolean,
     cursor: { x: number; y: number },
   ): void {
@@ -440,7 +494,15 @@ export class FiringUX {
     // anyway, so both owe the player the true burst distance. The broadside is
     // the one that needs it most: its 5/8 reach is 247.5u shorter than the radar
     // horizon every other gun-family weapon runs to.
-    if (kind === 'gunLike' || kind === 'twin') this.drawRangeClampMarker(pose, aim, cursor, color);
+    //
+    // NEVER FOR A TORPEDO (Story 8.13). The LIGHT TORPEDO is the second
+    // `twin-sector` weapon in the game, and no torpedo line has a max range
+    // (epic-8 amendment 84f): `weaponRangeU` hands it the gun's radar-derived
+    // fallback purely so nothing crashes, and drawing a clamp ring at it would
+    // promise the fish stops there.
+    if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id)) {
+      this.drawRangeClampMarker(pose, aim, cursor, color);
+    }
   }
 
   /**
@@ -470,8 +532,8 @@ export class FiringUX {
   /** Reticle tint: bright when the aim is in the primed weapon's arc + has ammo.
    *  The torpedo keeps its cool-green identity; everything else (gun family, the
    *  broadside's beams, the mine's rear placement) is amber. */
-  private reticleColor(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): number {
+  private reticleColor(heading: number, aim: number, id: SlotItemId | null, hasAmmo: boolean): number {
     if (!(weaponArcHit(heading, aim, id) && hasAmmo)) return DIM;
-    return id === 'torpedo' ? TORP_TINT : AMBER;
+    return weaponTint(id);
   }
 }

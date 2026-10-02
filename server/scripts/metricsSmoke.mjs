@@ -64,6 +64,7 @@ const ZONE_OVERRIDE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1,
 const KNOWN_EVENTS = new Set([
   'room.create', 'room.dispose', 'room.devOptionsRejected',
   'client.join', 'client.leave', 'client.drop', 'client.resume', 'client.joiningKick',
+  'join.devOptionsRejected',
   'match.activate', 'match.end', 'match.abort',
   'tick.error', 'tick.summary',
 ]);
@@ -197,7 +198,7 @@ async function joinClient(name) {
 
 /** Send a benign input (weapons-cold, no throttle) — bumps the message counter. */
 function pingInput(ctx) {
-  ctx.room.send('i', { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  ctx.room.send('i', { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
 }
 
 function phase(ctx) {

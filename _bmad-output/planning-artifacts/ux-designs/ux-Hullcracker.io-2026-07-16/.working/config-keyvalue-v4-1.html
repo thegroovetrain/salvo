@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker — Ship config as key · value rows v4-1 (value opens a picker modal)</title>
+<style>
+/* ============================================================
+   HULLCRACKER — SHIP CONFIG · KEY / VALUE v4-1 · 2026-09-28
+   Eric (2026-09-28): "Each entry in the ship config should be a key
+   and value; clicking the value should open a modal to select from
+   all the options unlocked for that category."
+   So: ONE list. Every row = KEY (the category) · VALUE (what is set)
+   · a caret. Press the value → a picker MODAL (the {components.modal}
+   register: never stacks, ESC closes) listing the category's UNLOCKED
+   options as cards; pick = press, the modal closes, the row updates.
+   Locked options are ABSENT from the picker, not disabled. A new
+   category (captain, starting kit) is one more row. SHIFT is a row
+   whose value has no caret today (fixed per hull) — it becomes a
+   picker the day it is a choice.
+   Frame 1: the list at rest. Frame 2: the GUN picker open.
+   Inline CSS only. No JS. System fonts stand in for Geist / Geist Mono.
+   ============================================================ */
+:root{--void:#050807;--panel:#0A0F0D;--pd:#070B0A;--hair:#1B2621;--silver:#C0C0C0;--t1:#E2E8F0;--t2:#8B95A5;--t3:#7A8496;
+--ph:#00FF88;--amber:#FFB800;--own:#11A5D7;--ownfill:#084A61;
+--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--void);color:var(--t1);font-family:var(--sans);line-height:1.5;padding:40px 20px 96px}
+.page{max-width:1320px;margin:0 auto}
+.kicker{font:11px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--ph);margin-bottom:10px}
+h1{font-size:30px;font-weight:700;letter-spacing:.01em}
+.lede{color:var(--t2);font-size:14px;max-width:92ch;margin-top:10px}.lede strong{color:var(--t1)}
+section.dir{margin-top:56px;border-top:1px solid var(--hair);padding-top:28px}
+.dh{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.dh .idx{font:600 15px var(--mono);color:var(--ph);letter-spacing:.15em}
+.dh h2{font-size:24px;font-weight:700;letter-spacing:.02em}.dh .pers{color:var(--t2);font-size:14px;font-style:italic}
+.rat{color:var(--t2);font-size:14px;max-width:100ch;margin:8px 0 18px}.rat strong{color:var(--t1)}
+.row{display:flex;gap:24px;align-items:flex-start;margin-top:22px}
+.scaler{width:1024px;height:576px;overflow:hidden;border:1px solid var(--hair);flex:none;position:relative}
+.frame{position:relative;width:1366px;height:768px;transform:scale(.75);transform-origin:0 0;background:var(--void);overflow:hidden}
+.side{width:262px;flex:none}
+.side h3{font:10px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--t3);margin:0 0 4px 10px}
+.side ul{margin:0 0 8px 24px;font-size:12px;color:var(--t2)}.side ul b{color:var(--t1);font-weight:600}
+.tag{display:inline-block;font:9px var(--mono);letter-spacing:.14em;border:1px solid var(--amber);color:var(--amber);padding:1px 6px;border-radius:3px;text-transform:uppercase;white-space:nowrap;vertical-align:middle}
+.cic{position:absolute;inset:0;overflow:hidden}
+.cic .rings{position:absolute;left:50%;top:54%;width:1300px;height:1300px;transform:translate(-50%,-50%);border-radius:50%;
+ background:radial-gradient(circle,transparent 0 95px,rgba(127,255,196,.10) 95px 96px,transparent 96px 210px,rgba(192,192,192,.07) 210px 211px,transparent 211px 330px,rgba(192,192,192,.06) 330px 331px,transparent 331px 460px,rgba(192,192,192,.05) 460px 461px,transparent 461px)}
+.cic .scrim{position:absolute;inset:0;background:rgba(5,8,7,.86)}
+/* the config sheet */
+.lay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:760px;background:var(--panel);border:1px solid var(--hair);border-radius:12px;padding:22px 28px 24px}
+.hd{display:flex;align-items:center;justify-content:space-between;height:30px;margin-bottom:10px}
+.hd .ttl{font:500 15px var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--t1)}
+.hd .ttl em{font-style:normal;color:var(--amber)}
+.acct{height:30px;border:1px solid var(--hair);border-radius:6px;padding:0 12px;display:inline-flex;align-items:center;gap:8px;font:500 14px var(--mono);letter-spacing:.18em;color:var(--ph);background:var(--pd)}
+.acct .tok{font-family:var(--sans);color:var(--t1);letter-spacing:0}
+.kv{display:grid;grid-template-columns:150px 1fr;align-items:center;height:74px;border-top:1px solid var(--hair)}
+.kv .k{font:10px var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--ph)}
+.kv .k small{display:block;font:9px var(--mono);letter-spacing:.14em;color:var(--t3);margin-top:3px;text-transform:none}
+.kv .v{height:52px;border:1px solid var(--hair);border-radius:8px;background:var(--pd);display:flex;align-items:center;gap:14px;padding:0 14px 0 12px;position:relative}
+.kv .v .g{width:30px;height:30px;border:1px solid rgba(192,192,192,.28);display:inline-flex;align-items:center;justify-content:center;color:var(--ph);font:600 10px var(--mono);flex:none}
+.kv .v .g svg{width:14px;height:28px;fill:var(--ownfill);stroke:var(--own);stroke-width:1.4}
+.kv .v .n{font:600 14px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--t1);white-space:nowrap}
+.kv .v .n small{display:block;font:9px var(--mono);letter-spacing:.12em;color:var(--t3);text-transform:uppercase;margin-top:2px;font-weight:500}
+.kv .v .car{margin-left:auto;color:var(--ph);font:12px var(--mono)}
+.kv .v.ro{border-style:dashed;border-color:rgba(27,38,33,1)}
+.kv .v.ro .car{display:none}
+.kv .v.ro .fx{margin-left:auto;font:9px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--t3)}
+.kv .v .sw{width:16px;height:16px;border-radius:50%;background:var(--own);display:block}
+.kv .v .pips{display:flex;gap:12px;margin-left:8px}
+.kv .v .pips span{display:flex;align-items:center;gap:5px;font:9px var(--mono);letter-spacing:.12em;color:var(--t3);text-transform:uppercase}
+.kv .v .pips i{width:9px;height:4px;border:1px solid var(--silver);opacity:.45;display:inline-block}.kv .v .pips i.on{background:var(--silver);opacity:.9}
+.kv .v:hover{border-color:var(--silver)}
+.kv .v.arm{border-color:var(--amber);box-shadow:0 0 14px rgba(255,184,0,.3)}
+.foot{margin-top:18px;display:flex;justify-content:flex-end;border-top:1px solid var(--hair);padding-top:18px}
+.cta{height:50px;padding:0 26px;border:1px solid var(--amber);border-radius:6px;display:inline-flex;align-items:center;font:500 15px var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--amber);box-shadow:0 0 22px rgba(255,184,0,.25);background:var(--pd)}
+.cta small{font:10px var(--mono);letter-spacing:.14em;color:var(--t3);margin-left:14px}
+/* the picker modal */
+.dim{position:absolute;inset:0;background:rgba(5,8,7,.55)}
+.mod{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:760px;background:var(--panel);border:1px solid var(--silver);border-radius:12px;padding:20px 24px 22px;box-shadow:0 0 40px rgba(0,0,0,.6)}
+.mod .mh{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px}
+.mod .mh .t{font:500 13px var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--t1)}
+.mod .mh .t b{color:var(--ph);font-weight:500}
+.mod .mh .esc{font:10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--t3)}
+.mod .mh .esc i{font-style:normal;border:1px solid var(--hair);padding:1px 6px;border-radius:3px;margin-right:6px;color:var(--t2)}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.card{height:140px;border:1px solid var(--hair);border-radius:8px;background:var(--pd);padding:12px 14px;display:flex;flex-direction:column;gap:4px;position:relative}
+.card .g{width:34px;height:34px;border:1px solid rgba(192,192,192,.28);display:inline-flex;align-items:center;justify-content:center;color:var(--ph);font:600 11px var(--mono);margin-bottom:4px}
+.card .n{font:600 14px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--t1)}
+.card .s{font:9px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--t3);line-height:1.6}
+.card .s b{color:var(--t2);font-weight:500}
+.card.on{border-color:var(--own);box-shadow:0 0 14px rgba(17,165,215,.3)}.card.on .n{color:var(--own)}.card.on .g{color:var(--own);border-color:var(--own)}
+.card.on:after{content:"CURRENT";position:absolute;right:12px;top:12px;font:9px var(--mono);letter-spacing:.18em;color:var(--own)}
+.card.lk{border-color:rgba(27,38,33,1)}.card.lk .g{color:var(--t3);border-color:rgba(122,132,150,.5)}.card.lk .n{color:var(--t3)}.card.lk .s{color:var(--t3);opacity:.7}
+.card.lk:after{content:"🔒  ⬢ 1";position:absolute;right:12px;top:12px;font:600 10px var(--mono);letter-spacing:.14em;color:var(--t2)}
+.card .key{position:absolute;left:-1px;top:-1px;width:22px;height:22px;border:1px solid var(--hair);border-radius:4px 0 4px 0;font:600 11px var(--mono);color:var(--t2);display:flex;align-items:center;justify-content:center;background:var(--panel)}
+</style></head><body><div class="page">
+<div class="kicker">Hullcracker.io · gds-ux · key screen draft · v4-1 · 2026-09-28</div>
+<h1>Ship config — key · value rows, value opens a picker</h1>
+<p class="lede"><strong>Eric's shape:</strong> one list. Every row is a <strong>KEY</strong> (the category) and a <strong>VALUE</strong> (what is set); pressing the value opens a <strong>modal</strong> listing every option <em>unlocked</em> for that category; pick one and the modal closes with the row updated. A new category — a captain, a starting kit — is one more row. The <strong>SPECIAL</strong> row (the Shift ability — the key can be reassigned, so the row is not called Shift) has no caret today (fixed per hull) and becomes a picker the day it is a choice. <strong>The picker is also the unlock surface</strong> (Eric 2026-09-28): a locked option is listed, greyed with the lock and its ⬢ price, and PRESS, THEN CONFIRM on the card unlocks it in place — nothing is locked on day one. <strong>Descriptions live in the picker only</strong> — a value is glyph · name · caret; the colour value is the swatch and the hue name.</p>
+
+<section class="dir"><div class="dh"><span class="idx">FRAME 1</span><h2>The list at rest</h2><span class="pers">Okafor, signed in · Battleship · FLAK GUN · his hue</span></div>
+<p class="rat"><strong>760 px sheet centred over the dimmed home</strong> <span class="tag">assumption</span> — the class layer's 1318 is not needed by a list. Row = 150 px key column · a 52 px value control: glyph · NAME · caret and NOTHING ELSE — every description lives in the picker (Eric 2026-09-28). Color is swatch · NAME like every other value.</p>
+<div class="row"><div class="scaler"><div class="frame">
+<div class="cic"><div class="rings"></div><div class="scrim"></div></div>
+<div class="lay">
+ <div class="hd"><div class="ttl">LOADOUT</div><div class="acct">LV 7 · 2 <span class="tok">⬢</span></div></div>
+ <div class="kv"><div class="k">Ship</div><div class="v"><span class="g"><svg viewBox="0 0 14 28"><path d="M7 1 L13 8 L13 24 L7 27 L1 24 L1 8 Z"/></svg></span><span class="n">Battleship</span><span class="car">▾</span></div></div>
+ <div class="kv"><div class="k">Special</div><div class="v ro"><span class="g">½</span><span class="n">Damage Cut</span></div></div>
+ <div class="kv"><div class="k">Deck Gun</div><div class="v"><span class="g">FL</span><span class="n">Flak</span><span class="car">▾</span></div></div>
+ <div class="kv"><div class="k">Color</div><div class="v"><span class="g"><i class="sw"></i></span><span class="n">Azure</span><span class="car">▾</span></div></div>
+ <div class="foot"><div class="cta">Confirm<small>⏎</small></div></div>
+</div></div></div>
+<div class="side"><h3>Frame 1 — notes</h3>
+<ul><li><b>Row grammar:</b> KEY (10 px mono phosphor) · VALUE (52 px control: 30 px glyph · 14 px name · caret). No sub-labels, no sub-lines — a description exists only inside the picker (Eric 2026-09-28). Hover lifts the border to silver; the pressed value goes amber while its picker is open.</li>
+<li><b>Ship value</b> is the silhouette glyph and the name; the pip scales live on the hull cards inside the SHIP picker <span class="tag">assumption</span>.</li>
+<li><b>Special value</b> (Eric 2026-09-28: not "Shift" — the key can be reassigned): dashed border, no caret — read-only until it is a choice; no words say so. What the ability does is read in match, not here.</li>
+<li><b>Color</b> is the swatch glyph · the hue's NAME from the shared wheel (`REGATTA_HUES`: lemon … rose; here AZURE) · caret — a value like every other; no explanation of the in-match grant (the caption was retired 2026-08-21 and Eric re-ruled it 2026-09-28: nobody needs to know how it works in match). The picker is the 20-hue wheel as swatch · NAME cards; the hoist's one home (UX-DR26) moves there <span class="tag">assumption</span>.</li>
+<li><b>Header: LOADOUT</b> (Eric 2026-09-28, "LOADOUT or something" — his working word; the same word names the results modal's end-state block, ratified 2026-09-11: the screen sets the loadout you sail, the results block shows the one you ended with). <b>Rows</b> SHIP · SPECIAL · DECK GUN · COLOR and the word CONFIRM — ruled 2026-09-28. Deck-gun choices: CANNON · MACHINE GUN · FLAK.</li>
+<li><b>Anonymous:</b> identical minus the account chip. Keys: 1–4 focus a row, Enter opens its picker / confirms, ESC home <span class="tag">assumption</span>.</li></ul></div></div>
+</section>
+
+<section class="dir"><div class="dh"><span class="idx">FRAME 2</span><h2>The DECK GUN picker open</h2><span class="pers">the value pressed · the modal lists every unlocked gun</span></div>
+<p class="rat"><strong>The modal register</strong> ({components.modal}: never stacks; ESC closes without changing the row). The list behind it dims; the pressed value stays amber. Cards are 3-up, glyph · NAME · the description, the current pick outlined in the hull's hue with a CURRENT tag; 1–3 key chips pick <span class="tag">assumption</span>. MACHINE GUN is drawn LOCKED here only to fix the state (lock + ⬢ price; press-then-confirm on the card unlocks in place, Story 9.6) — on day one it is lit like the others.</p>
+<div class="row"><div class="scaler"><div class="frame">
+<div class="cic"><div class="rings"></div><div class="scrim"></div></div>
+<div class="lay">
+ <div class="hd"><div class="ttl">LOADOUT</div><div class="acct">LV 7 · 2 <span class="tok">⬢</span></div></div>
+ <div class="kv"><div class="k">Ship</div><div class="v"><span class="g"><svg viewBox="0 0 14 28"><path d="M7 1 L13 8 L13 24 L7 27 L1 24 L1 8 Z"/></svg></span><span class="n">Battleship</span><span class="car">▾</span></div></div>
+ <div class="kv"><div class="k">Special</div><div class="v ro"><span class="g">½</span><span class="n">Damage Cut</span></div></div>
+ <div class="kv"><div class="k">Deck Gun</div><div class="v arm"><span class="g">FL</span><span class="n">Flak</span><span class="car">▾</span></div></div>
+ <div class="kv"><div class="k">Color</div><div class="v"><span class="g"><i class="sw"></i></span><span class="n">Azure</span><span class="car">▾</span></div></div>
+ <div class="foot"><div class="cta">Confirm<small>⏎</small></div></div>
+</div>
+<div class="dim"></div>
+<div class="mod">
+ <div class="mh"><div class="t">DECK GUN</div><div class="esc"><i>ESC</i>close</div></div>
+ <div class="cards">
+  <div class="card"><span class="key">1</span><span class="g">CN</span><span class="n">Cannon</span><span class="s"><b>Reload</b> 5 s · <b>Shell</b> single<br><b>Ladder</b> Cannon · Turret · Barrel</span></div>
+  <div class="card lk"><span class="key">2</span><span class="g">MG</span><span class="n">Machine Gun</span><span class="s"><b>Fire</b> held stream · bow sector<br><b>Ladder</b> [draft] (8.15)</span></div>
+  <div class="card on"><span class="key">3</span><span class="g">FL</span><span class="n">Flak</span><span class="s"><b>Fire</b> air-burst at the aim point<br><b>Hits</b> hulls · mines · decoys · ordnance in flight</span></div>
+ </div>
+</div>
+</div></div>
+<div class="side"><h3>Frame 2 — notes</h3>
+<ul><li><b>Picker = modal</b>, one per category, opened from the value only. Pick: press a card → the modal closes, the row's value updates, nothing is saved until CONFIRM <span class="tag">assumption</span>.</li>
+<li><b>Unlock lives here</b> (Eric 2026-09-28): every option of the category is listed; a locked one is greyed with the lock glyph and `⬢ n` at full alpha; first press arms it amber, second press buys it and it lights in place; a pending card cancels on ESC or any click elsewhere; unaffordable = inert with the price dimmed. The token count on the account chip ticks. Anonymous: locked cards show the lock, no price, inert.</li>
+<li><b>Card face</b> 3-up, 140 px: glyph · NAME · the description, as stat lines in the refit-card's label register <span class="tag">assumption</span> — this is the ONE place a category's options are described.</li>
+<li><b>The SHIP picker</b> is the same modal with three hull cards (silhouette · name · pips · the Shift it carries) <span class="tag">assumption</span>. <b>COLOR</b>: the 20-hue wheel as swatch · NAME cards, nothing else.</li>
+<li><b>Future rows</b> — CAPTAIN (portrait cards), STARTING KIT (line cards) — are the same modal with different card faces.</li>
+<li><b>Modals never stack</b> (EXPERIENCE · Modal) — a picker is the only modal over this sheet; the settings overlay is not reachable from here <span class="tag">assumption</span>.</li></ul></div></div>
+</section>
+</div></body></html>

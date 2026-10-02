@@ -6,6 +6,7 @@
 // (server->client, every tick).
 
 import type { GameConfig, HornId, HullId, ShipClassId } from './constants.js';
+import type { GunId } from './sim/loadout.js';
 import type { Vec2 } from './math/vec.js';
 
 /** Short message-name tags used on the Colyseus channel. */
@@ -28,7 +29,48 @@ export const MSG = {
   // untouched" reasoning does not cover it and PROTOCOL_VERSION moves with it
   // (epic-6 amendment 17).
   requeue: 'rq', // server->client RequeueMsg (go home, then queue again)
+  // Private lobbies (cycle 167, Eric rulings 2026-10-02). These ride the LOBBY
+  // room, never the arena; the lobby's own onAuth runs the PROTOCOL_VERSION gate.
+  lobbyReady: 'lr', // client->server LobbyReadyMsg (any captain, host included)
+  lobbySeed: 'ls', // client->server LobbySeedMsg (host only; others dropped)
+  lobbyBotFill: 'lb', // client->server LobbyBotFillMsg (host only; others dropped)
+  lobbyStart: 'lg', // client->server force start, no payload (host only, when eligible)
 } as const;
+
+/** Client -> server ready toggle in a private lobby ("lr"). Non-boolean is dropped. */
+export interface LobbyReadyMsg {
+  ready: boolean;
+}
+
+/**
+ * Client -> server host seed text ("ls"). Free text, trimmed and capped at
+ * CONFIG.lobby.seedTextMax server-side; blank means no seed (random map).
+ * The server resolves it to a uint32 via sim/seedText.ts.
+ */
+export interface LobbySeedMsg {
+  text: string;
+}
+
+/** Client -> server host bot-fill toggle ("lb"): fill empty slots to 20 with bots. */
+export interface LobbyBotFillMsg {
+  on: boolean;
+}
+
+/**
+ * `GET /lobby/resolve?code=` answer: the Colyseus roomId to `joinById`, or a
+ * machine reason that the client shows verbatim (Eric's ruling-9 copy). A
+ * malformed code answers 'NO SUCH LOBBY', never a 500.
+ */
+export type LobbyResolveResponse =
+  | { roomId: string }
+  | { reason: 'NO SUCH LOBBY' | 'LOBBY FULL' | 'MATCH STARTED' };
+
+/**
+ * Private lobby lifecycle, mirrored in the lobby room's listing metadata.
+ * 'started' — the arena formed; the code is dead and the room lingers
+ * CONFIG.lobby.startedLingerMs so a late JOIN answers 'MATCH STARTED'.
+ */
+export type LobbyPhase = 'open' | 'started';
 
 /**
  * Server -> client "go home and start a fresh queue join" ("rq"), broadcast on
@@ -290,6 +332,20 @@ export interface InputMsg {
    * Validated server-side like every field (finite int ≥ 0, monotonic).
    */
   hornSeq: number;
+  /**
+   * THE HELD-FIRE LEVEL (Story 8.15, Eric rulings 2026-09-28, epic-8 amendment
+   * 103; D26 `held`, carried over by amendment 89(i)). `true` while the
+   * captain's fire button is DOWN — a LEVEL sampled from the live pointer at
+   * input time, never a click and never an edge. It drives the MACHINE GUN's
+   * stream (one shell per `CONFIG.machineGun.rateMs` while held, magazine
+   * permitting) and nothing else: a click edge (`fireSeq`) on a mounted machine
+   * gun fires nothing, and every other weapon ignores this field. The server
+   * reads it off the LATEST input (never the intent queue); a tap shorter than
+   * one sample is latched client-side so it still yields one `true` sample.
+   * REQUIRED: a non-boolean drops the whole message (server/src/game/inputs.ts).
+   * Drones and neutral inputs send `false`.
+   */
+  held: boolean;
 }
 
 /**
@@ -313,27 +369,23 @@ export interface PongMsg {
 }
 
 /**
- * SpendMsg.choice sentinel for the DAMAGE CONTROL heal (Eric rulings
- * 2026-08-04): EXACTLY -1 = spend the level on the always-available heal
- * strip instead of a card. Deliberately a reserved NEGATIVE value: a positive
- * sentinel (e.g. 4) would collide with a real card index the moment
- * CONFIG.offer.size moves — a negative can never alias an offer slot, since
- * card choices are 0..length-1 by construction.
- */
-export const HEAL_CHOICE = -1;
-
-/**
- * Client -> server spend ("u"): consume one banked level. `choice` is either
- * a card index — 0..N-1, bounded by the FRONT offer's actual length (see
- * OwnShip.offer / BoonOffer) — or EXACTLY `HEAL_CHOICE` (-1) for the
- * always-available DAMAGE CONTROL heal (Eric rulings 2026-08-04). EVERYTHING
- * else (out-of-range, other negatives, non-integers) is rejected with the
- * level intact. Deliberately a DISCRETE reliable message, NOT a field on the
- * per-tick InputMsg: the latest-input-wins coalescing there would silently
- * drop back-to-back spends (two quick kills → two spends).
+ * Client -> server spend ("u"): consume one banked level. `choice` is AN OFFER
+ * SLOT INDEX — 0..N-1, bounded by the FRONT offer's actual length (see
+ * OwnShip.offer / BoonOffer) — OR the ONE sentinel `MULLIGAN_CHOICE` (-2,
+ * sim/offers.ts): THE COUNTDOWN REDRAW, which spends no level and throws the
+ * level-zero offer back for one fresh draw (Story 8.10, FR48, epic-8
+ * amendment 60 — honoured once per ship, countdown only). EVERYTHING else
+ * (out-of-range, every OTHER negative, non-integers) is malformed and rejected
+ * with the level intact. In particular -1 stays malformed: the reserved -1
+ * DAMAGE CONTROL spend left the wire in PV 53 (epic-8 amendment 46 — healing
+ * is the HULL REPAIR card, fired from a belt slot, not a level spend) and -2
+ * re-opens the negative channel for exactly one value, not for -1.
+ * Deliberately a DISCRETE reliable message, NOT a field on the per-tick
+ * InputMsg: the latest-input-wins coalescing there would silently drop
+ * back-to-back spends (two quick kills → two spends).
  */
 export interface SpendMsg {
-  choice: number; // 0..N-1 = offer slot (front-offer-bounded) | HEAL_CHOICE (-1) = heal
+  choice: number; // 0..N-1 = offer slot; MULLIGAN_CHOICE (-2) = the countdown redraw; every other negative is malformed
 }
 
 /**
@@ -354,12 +406,14 @@ export interface WeaponAmmo {
  * Your own ship as seen in a frame — full, unfogged. `sweep` is the current
  * radar angle (rad), used to draw the sweep wedge client-side.
  *
- * `ammo` is SLOT-ALIGNED: length SLOT_COUNT (see sim/loadout.ts), one entry
- * per loadout slot — null iff that slot is empty (mirrors the loadout
- * invariant: an empty slot carries no state). Under the universal fit that is
- * [gun, torpedo, mine, null]. maxAmmo / reloadMs are NOT on the wire — the
- * client reads them from CONFIG (and, after upgrades, from its own
- * effective-stats computation) and derives reload fractions from reloadMsLeft.
+ * `ammo` is SLOT-ALIGNED: length SLOT_COUNT — NINE since Story 8.5 (see
+ * sim/loadout.ts), one entry per loadout slot — null iff that slot is empty
+ * (mirrors the loadout invariant: an empty slot carries no state). A Torpedo
+ * Boat holding its spawn seed reads
+ * [gun, boost, heavyTorpedo, null, null, null, null, null, null].
+ * maxAmmo / reloadMs are NOT on the wire — the client reads them from CONFIG
+ * (and, after upgrades, from its own effective-stats computation) and derives
+ * reload fractions from reloadMsLeft.
  */
 export interface OwnShip {
   id: string;
@@ -373,6 +427,19 @@ export interface OwnShip {
   sweep: number; // rad — current radar sweep angle
   cls: ShipClassId; // ship class (drives hull dims / kinematics / max hp client-side)
   /**
+   * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
+   * captain picked at class select, frozen at queue — `deckGun`, `machineGun`
+   * or `flak`, defaulting to `deckGun`. The client replays its own loadout from
+   * it (`loadoutFor(stats, false, gun, shift)`), which is why it rides the
+   * frame at all; slot 0 mounts each gun's OWN module since Story 8.15
+   * (sim/loadout.ts MOUNTED_GUN).
+   *
+   * SELF-PRIVATE by construction, exactly like `cards` below: it rides `you`
+   * and NOTHING else — never a Contact, a blip, a ballistic event or a
+   * spectator payload. Which gun an enemy picked is build information.
+   */
+  gun: GunId;
+  /**
    * Banked LEVELS not yet spent (Story 2.6/2.8 — the economy is levels, earned
    * by passive XP, not kills; `lvl` is the running total earned, `pts` what is
    * still unspent). The server's bare banked-level COUNT — every level banks
@@ -382,13 +449,14 @@ export interface OwnShip {
    */
   pts: number;
   /**
-   * The FRONT offer, as BOON IDS (Story 2.8 — up to CONFIG.offer.size
-   * DIFFERENT card lines drawn from this player's deck; sim/deck.ts). `[]`
-   * when pts is 0 (and, degenerately, when the deck drew nothing). Only the
+   * The FRONT offer, as CARD LINE IDS (Story 2.8, catalog v3, re-cut for THE
+   * COMMON POOL in Story 8.14 — up to CONFIG.offer.size DIFFERENT card lines
+   * drawn from the common pool; sim/draw.ts). `[]` when pts is 0. Only the
    * front level ever has a hand at all — levels behind it are a bare count
-   * server-side, and the DECK never leaves the server.
+   * server-side, and the DRAW STATE (the take ledger, this ship's weights)
+   * never leaves the server.
    * Self-private like `pts`: it rides `you` and NOTHING else. The client
-   * resolves each id against the shared BOON_CATALOG and drops the WHOLE view
+   * resolves each id against the shared CATALOG and drops the WHOLE view
    * on an unresolvable id (row k must stay server slot k).
    */
   offer: string[];
@@ -403,21 +471,22 @@ export interface OwnShip {
    */
   boostUntil: number;
   /**
-   * Applied boon ids, in application order (Story 2.5 — dormant until 2.7's
-   * spend flow grants any). Self-syncing every frame like `upg`: the client
-   * resolves ids through the shared BOON_CATALOG (fail-closed — unknown ids
-   * dropped) and feeds the defs to effectiveStats / the slot derivation / the
-   * predictor's behavior hooks. ANTI-CHEAT: like upgrade counts, boons appear
-   * ONLY here, on your own ship — never on a Contact, blip, ballistic event,
-   * boom, or spectator contact (enemy builds are inferable only from observed
-   * behavior on the water, never from the wire).
+   * Fitted card LINE ids, in fit order (Story 8.1 — renamed from `boons` with
+   * catalog v3). Self-syncing every frame like `upg`: the client feeds them
+   * straight to effectiveStats / the slot derivation / the predictor's behavior
+   * hooks, which resolve them through the shared CATALOG fail-closed (unknown
+   * ids dropped). REPEATS ARE THE STACK COUNT — a line held three times appears
+   * three times. ANTI-CHEAT: like upgrade counts, cards appear ONLY here, on
+   * your own ship — never on a Contact, blip, ballistic event, boom, or
+   * spectator contact (enemy builds are inferable only from observed behavior
+   * on the water, never from the wire).
    */
-  boons: string[];
+  cards: string[];
   /**
    * Levels COMPLETED so far this life-of-the-match (Story 2.6) — an integer,
    * starting at 0 and wiped with the build at the match boundary. Every level
    * banks one point (see `pts`): `lvl` is the running total earned, `pts` what
-   * is still unspent. ANTI-CHEAT: self-private like `upg`/`pts`/`boons` — it
+   * is still unspent. ANTI-CHEAT: self-private like `upg`/`pts`/`cards` — it
    * rides `you` and NOTHING else (never a Contact, blip, ballistic event,
    * boom, spectator payload, or the roster schema). An enemy's level is
    * inferable only from what their ship does on the water.
@@ -431,15 +500,14 @@ export interface OwnShip {
    */
   xp: number;
   /**
-   * hp still owed to this hull — `0` = no pool draining. Since 2026-08-23 this
-   * is the SUM of two server-side pools folded together on the wire
-   * (frames.ts: `ship.repairHp + ship.levelRepairHp`): the PAID damage-control
-   * regen pool (Eric rulings 2026-08-04) — each heal spend adds
-   * CONFIG.damageControl.regenHp here, drained at the fixed regenHp/regenMs
-   * rate (pools ADD, the rate never changes) — and the FREE per-level
-   * auto-heal pool (CONFIG.damageControl.levelMissingPct), drained at its own
-   * DURATION-based rate (`levelRepairHp / levelRegenMs`, recomputed against
-   * the whole pool on every grant). Both pools reset to 0 wherever boostUntil
+   * hp still owed to this hull — `0` = no pool draining. ONE pool since PV 53:
+   * the PAID HULL REPAIR regen pool (Eric rulings 2026-08-04, catalog-v3 R13)
+   * — each HULL REPAIR copy fired adds CONFIG.hullRepair.regenHp here, drained
+   * at the fixed regenHp/regenMs rate (pools ADD, the rate never changes). The
+   * FREE per-level auto-heal pool that used to be folded in beside it
+   * (`ship.levelRepairHp`) IS GONE: epic-8 amendment 46 replaced the per-level
+   * heal with out-of-combat regen (CONFIG.regen), which pays STRAIGHT INTO hp
+   * and never owes this field a thing. The pool resets to 0 wherever boostUntil
    * does (spawn, sink, respawn, match boundary). SELF-PRIVATE BY CONSTRUCTION
    * (the boostUntil precedent): this field rides `you` and NOTHING else — it
    * never appears on a Contact, blip, ballistic event, boom, or spectator
@@ -458,12 +526,40 @@ export interface OwnShip {
    */
   slowedUntil?: number;
   /**
+   * × BOTH speed caps while the fouling slow runs — the MINE OWNER's folded
+   * `slowFactor` (0.75 → 0.55 by tier, amendment 81). Omitted when 1 / not
+   * slowed, exactly as `slowedUntil` is. Victim-private: rides `you` and
+   * nothing else.
+   */
+  slowFactor?: number;
+  /**
    * ms — server-clock time the DAZZLE truesight reduction on this ship ends
-   * (Story 2.8); absent/0 = not dazzled. While dazzled the server's perception
-   * shrinks this ship's effective sight, and the client shrinks its own fog
-   * hole honestly from THIS field. VICTIM-PRIVATE exactly like `slowedUntil`.
+   * (Story 2.8; set by a FLASH SHELLS burst since Story 8.17, amendment 132);
+   * absent/0 = not dazzled. While dazzled the server's perception shrinks this
+   * ship's effective sight to 1/8 of its intel range (sim/sight.ts
+   * `effectiveSight`), and the client shrinks its own fog hole honestly from
+   * THIS field through the same function. VICTIM-PRIVATE exactly like
+   * `slowedUntil`.
    */
   dazzledUntil?: number;
+  /**
+   * PRESENT (`true`) IFF this hull's centre is inside ANY live SMOKE SCREEN
+   * puff this tick (Story 8.18, Eric ruling 2026-09-29, epic-8 amendment 149,
+   * revised — "whoever laid it"); OMITTED entirely otherwise, never `false`
+   * (the msgpack rule; the `dazzledUntil` precedent beside it). While present
+   * the server's perception shrinks this ship's effective sight to
+   * `radarRange × CONFIG.smokeScreen.inSmokeSightFraction` (1/8 of intel
+   * range; sim/sight.ts `effectiveSight`'s third argument — dazzle wins when
+   * both hold), lets it see INTO other smoke inside that bubble and shows it
+   * nothing optical beyond (Eric: "occlude everything outside of that range,
+   * no matter what. Radar still works."), and the client shrinks its own fog
+   * hole honestly from THIS field through the same function. The stamp is the server's per-tick
+   * `stepSmoke` read of the store, so the client never re-derives it from the
+   * `smoke` channel. SELF-PRIVATE exactly like `dazzledUntil`: rides `you` and
+   * NOTHING else — no contact, blip or spectator payload — so the perception
+   * exception count stays SIX.
+   */
+  inSmoke?: true;
   /**
    * ms — server-clock time this SINKING hull founders (Story 5.2, amendments
    * 13/16): `sinceMs + CONFIG.ship.sinkingWindowMs`, stamped at sink-entry via
@@ -482,6 +578,84 @@ export interface OwnShip {
    * what keeps hull/helm/hotbar/firing-arc/horn live instead of spectate.
    */
   sinkingUntil?: number;
+  /**
+   * ms — server-clock time this ship's DAMAGE CUT window ends (Story 8.15, the
+   * `battleship` Shift, Eric rulings 2026-09-28, epic-8 amendments 99–102);
+   * absent = no cut running. While `serverNow < damageCutUntil` every weapon
+   * blow to this hull is halved (a hit floored, a burn tick halved exactly —
+   * storm bites land in full), which drives the HUD's ACTIVE grammar on the
+   * Shift square. Present IFF a cut has been opened this life; OMITTED
+   * otherwise, never an `undefined` value (the `slowedUntil` conditional-spread
+   * precedent). SELF-PRIVATE BY CONSTRUCTION (the boostUntil precedent): rides
+   * `you` and NOTHING else — an enemy reads a cut hull only through its
+   * persistence under fire, and the perception exception count stays at SIX.
+   */
+  damageCutUntil?: number;
+  /**
+   * The SHIELD BLOCK seat (Story 8.16, catalog-v3 R37, epic-8 amendments
+   * 100/116–118): `hp` = shield hp left to absorb, ROUNDED UP to a whole
+   * number (display only — a live shield never reads 0), `until` = the server-clock
+   * time it expires. Present IFF a shield is up (hp left and not yet expired);
+   * OMITTED otherwise, never an `undefined` value (the `slowedUntil` /
+   * `damageCutUntil` conditional-spread precedent). The HUD prints hull +
+   * `hp` in the `info` colour while it is up (amendment 116) — number only.
+   * SELF-PRIVATE BY CONSTRUCTION (the boostUntil precedent): rides `you` and
+   * NOTHING else — an enemy reads a shielded hull only through its
+   * persistence under fire, and the perception exception count stays at SIX.
+   */
+  shield?: { hp: number; until: number };
+  /**
+   * THE CHAFF OWNER'S CLOUD (Eric 2026-09-30, epic-8 amendment 191): the
+   * burst point (`x`, `y`, u) of THIS hull's live CHAFF and the server-clock
+   * time it expires (`until`) — what the client's dim dashed ring of
+   * `CONFIG.chaff.radius` is drawn around. Present IFF the owner's chaff
+   * source is live (`now < until`); OMITTED otherwise, never an `undefined`
+   * value; a re-fire replaces the source, so the key follows it. The owner's
+   * FAKES never ride `events` (amendment 127); the owner receives them only
+   * as `chaffGhosts` below (Eric 2026-10-01). SELF-PRIVATE BY
+   * CONSTRUCTION (the `shield` / `inSmoke` precedent): rides `you` and
+   * NOTHING else — never on any other observer's frame — so the perception
+   * exception count stays at SIX.
+   */
+  chaff?: { x: number; y: number; until: number };
+  /**
+   * THE CHAFF OWNER'S OWN GHOSTS (Eric 2026-10-01, cycle 162; PROTOCOL_VERSION
+   * 68 — supersedes amendment 191's "never the fakes"): the coverage rects of
+   * THIS hull's OWN chaff fakes that THIS hull's beam painted this tick, in
+   * EXACTLY the blip's payload shape minus `k` and `t` (`GhostPaint`, which
+   * `ReturnBlipEvent` extends, so the two can never drift). Gated by the
+   * owner's beam crossing and the height-raster shadow but NOT by the sight
+   * annulus (the cloud bursts at the owner's position, inside their own
+   * bubble — orchestrator ruling). The client renders them greyscale at half
+   * the scope's alpha (Eric 2026-10-01), on a separate grid from the scope.
+   * OMITTED when no fake was painted this tick, never an empty array or an
+   * `undefined` value.
+   *
+   * SELF-PRIVATE BY CONSTRUCTION (rides `you`, like `chaff` / `shield` /
+   * `inSmoke`): never on any other observer's frame and never an `events`
+   * blip, so the wire `BlipEvent` stays seven keys and fake-vs-real stays
+   * indistinguishable for every other observer; the perception exception
+   * count stays at SIX.
+   */
+  chaffGhosts?: GhostPaint[];
+  /**
+   * The WAKE-DRAFT lift (Story 8.19, Eric rulings 2026-09-30, epic-8
+   * amendments 151–155) the server folded into this hull's forward speed cap
+   * THIS tick (`draftLift` → `draftedKinematics`), in (0,
+   * CONFIG.wake.draft.lift] — the exact double the server used, so the
+   * client's predictor folds the identical cap. OMITTED when 0, never an
+   * `undefined` value and never 0 on the wire (the `slowedUntil` conditional-
+   * spread precedent). SELF-PRIVATE own-ship state like `slowedUntil`: rides
+   * `you` and NOTHING else — not a perception exception (the count stays at
+   * SIX). DECLARED DISCLOSURE (NFR21; Eric ruling 2026-09-30, amendment
+   * 160): the exact scalar is `lift × ageFactor × headFactor`, so a MODIFIED
+   * client that varies its heading over a few ticks can recover the
+   * direction and rough age of a wake it cannot see (island- or smoke-
+   * hidden) — i.e. a rough bearing toward a hidden hull within one wake
+   * length (~250 u). Honest clients show nothing. Accepted by Eric because
+   * prediction needs the exact double, and the exception count is unaffected.
+   */
+  draft?: number;
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */
@@ -553,12 +727,12 @@ export interface Contact {
  * ruling's point (a fogged hull finally points the way it is moving).
  *
  * ANTI-CHEAT BOUND (amendment 66's rule carried forward): the mask derives
- * from hull geometry + pose ONLY — never boons, hp, damage state, or any
+ * from hull geometry + pose ONLY — never cards, hp, damage state, or any
  * range-derivable quantity. It is observer-INDEPENDENT: every observer
- * painting this hull this tick receives the identical mask. A radar buoy's
- * paint is rasterized by the same shared function from its frozen drop-time
- * pose (owner hull, drop heading) — byte-for-byte a genuine footprint by
- * construction (amendment 11).
+ * painting this hull this tick receives the identical mask. (The radar buoy's
+ * frozen-pose paint went with the buoy in Story 8.16; a DECOY BUOY paints as
+ * an anonymous `CONFIG.decoyBuoy.sizeU` square, and a CHAFF fake is shaped
+ * exactly like a real hull's footprint.)
  *
  * WIRE LAYOUT: `gx`/`gy` are ABSOLUTE world cell indices of the rect's min
  * corner (`floor(worldU / radarCellU)`), `w`/`h` the rect in cells, `bits`
@@ -567,34 +741,29 @@ export interface Contact {
  * with `|=`, so a word whose bit 31 is set serializes NEGATIVE; consumers
  * must compare words as int32, never coerce through `>>> 0`. A battleship
  * broadside is ~16×6 cells at the 9u lattice ≈ 3 mask words. KEY
- * ORDER (msgpack key-insertion order): k,t,gx,gy,w,h,bits.
+ * ORDER (msgpack key-insertion order): k,t,gx,gy,w,h,bits — and NOTHING else:
+ * the optional `src` sensor tag (PV 44, the radar buoy's own-scope
+ * attribution) was DELETED with the radar buoy in Story 8.16 (PV 59), so every
+ * blip is untagged and fake-vs-real stays wire-indistinguishable.
  */
-export interface ReturnBlipEvent {
+export interface ReturnBlipEvent extends GhostPaint {
   k: 'blip';
   t: number; // ms — server time the blip was painted (drives phosphor decay)
+}
+
+/**
+ * The blip's COVERAGE RECT — `ReturnBlipEvent`'s payload minus `k` and `t`
+ * (cycle 162). `ReturnBlipEvent` extends it, so `OwnShip.chaffGhosts` (the
+ * chaff owner's self-private ghost paints) can never drift from the blip
+ * rect. Same semantics as the blip's: absolute world cell indices of the min
+ * corner, rect in cells, packed row-major mask of signed int32 words.
+ */
+export interface GhostPaint {
   gx: number; // absolute world cell index (x) of the rect's min corner
   gy: number; // absolute world cell index (y) of the rect's min corner
   w: number; // rect width in cells
   h: number; // rect height in cells
   bits: number[]; // packed row-major coverage mask (32 bits/word, LSB-first, signed int32 words)
-  /**
-   * THE SENSOR ATTRIBUTION (PV 44 — the buoy's-own-scope fix; Eric: *"It gets
-   * its own returns. I just get to see them as the owner."*): the id of the
-   * RECEIVING OBSERVER'S OWN radar buoy whose antenna made this return. Absent
-   * on every return the observer's own set made (the overwhelmingly common
-   * case), and NEVER present in any frame whose observer does not own the named
-   * buoy — an enemy learns nothing (R2.9 holds; the id resolves against the
-   * owner's own `FrameMsg.buoys` truth channel). The client prices a tagged
-   * return from the BUOY's position — its range falloff, its terrain shadow,
-   * its scope — which is the entire reason the field exists.
-   *
-   * IT SAYS WHICH OF YOUR SENSORS RETURNED IT, NEVER WHETHER THE SUBJECT IS
-   * REAL. An enemy jamming buoy's fakes that pass your buoy's own gate arrive
-   * tagged with your buoy's `src` exactly as a real hull does (signals.ts,
-   * ownBuoyScopeBlips), so fake-vs-real stays wire-indistinguishable INSIDE
-   * every scope — the jamming guarantee survives attribution by construction.
-   */
-  src?: string;
 }
 
 /**
@@ -666,6 +835,14 @@ export interface WakeBlipEvent {
  * ttl·speed, launch = pos − unit(v)·traveled. A constant-free wire shape
  * ({id,x,y,vx,vy,t}) cannot encode traveled distance, so it cannot leak a
  * fogged shooter's position. Termination stays a client concern.
+ *
+ * ONE DECLARED FAMILY FIELD, and only one (Story 8.15, amendment 89(i)): a
+ * `shell` reveal carries `w`, the GUN FAMILY that fired it — exactly what the
+ * client needs to draw a tracer, a flak shell or a cannon shell. It is a
+ * DECLARED, ledgered disclosure widening, and it is never range-derivable: it
+ * names no shooter, no range, no tier and no target, and the three families
+ * share one `shellSpeed` and one radar-rung range. A `torp` reveal NEVER
+ * carries it (torpedoes stay blind). Nothing else may ever be added here.
  */
 export interface BallisticEvent {
   k: 'shell' | 'torp';
@@ -675,7 +852,22 @@ export interface BallisticEvent {
   vx: number; // u/s
   vy: number; // u/s
   t: number; // ms — reveal server time
+  /** The gun family (Story 8.15, amendment 89(i)) — present on `k: 'shell'`
+   *  ONLY, from the fixed three-word set; never on `torp`. */
+  w?: ShellFamily;
 }
+
+/**
+ * THE GUN FAMILY a shell belongs to (Story 8.15): `cannon` for the deck gun
+ * (and the broadside and star shells, which fly gun-pattern shells), `mg` for
+ * the MACHINE GUN's stream, `flak` for the FLAK GUN's air-burst. The ONE value
+ * set the reveal's `w` may carry (amendment 89(i)).
+ */
+export type ShellFamily = 'cannon' | 'mg' | 'flak';
+
+/** Every ShellFamily, in pick order — the fixed set a reveal's `w` is
+ *  validated against on both sides. */
+export const SHELL_FAMILIES: readonly ShellFamily[] = Object.freeze(['cannon', 'mg', 'flak'] as const);
 
 /**
  * An explosion at a point (shell/torp impact or mine detonation). `id` matches
@@ -801,7 +993,7 @@ export interface HitCallEvent {
  * deliberately does not exist). The flash must create a question, never
  * answer one. GUN FAMILY ONLY by the wire-kind predicate ('shell' selects
  * gun + broadside + star shells and excludes 'torp' exactly — no per-weapon
- * table exists to leak through); mine/buoy placements never spawn a
+ * table exists to leak through); mine/decoy placements never spawn a
  * ballistic at all. KEY ORDER IS LOAD-BEARING (msgpack): k,x,y.
  */
 export interface MuzzleEvent {
@@ -877,7 +1069,7 @@ export interface SmokeEvent {
  * at all. Anchoring on intel range rather than on
  * sight is what RETIRES amendment 53's max() clamps: dazzle never touches
  * radar range, so *dazzle cannot also DEAFEN* is now true BY CONSTRUCTION
- * rather than by defensive coding, and no arrangement of dazzle and boons can
+ * rather than by defensive coding, and no arrangement of dazzle and cards can
  * invert the bands. Hearing therefore widens with `intelRadar` rather than
  * with `intelTruesight` — a deliberate trade. No vision constant was added for
  * the foghorn (amendment 42's rule, still holding).
@@ -1092,7 +1284,7 @@ export interface PointEvent {
  * observer — the same gate as `upg`/`pt`, so an enemy build never rides another
  * observer's frame. Queued by World.spendPoint (NOT by applyBoon, which stays
  * event-free so directed grants make no UX noise). Purely UX (fitted toast +
- * tone): the authoritative boon list self-syncs every frame via OwnShip.boons.
+ * tone): the authoritative card list self-syncs every frame via OwnShip.cards.
  */
 export interface BoonFitEvent {
   k: 'bn';
@@ -1101,13 +1293,31 @@ export interface BoonFitEvent {
 }
 
 /**
- * A DAMAGE CONTROL heal spent (Eric rulings 2026-08-04): marks the INSTANT
- * application at spend time. SELF-PRIVATE: `id` is the healing ship's id and
- * perception forwards the event ONLY to that observer — the same gate as
+ * A consumable copy STOCKED by a drone kill (Eric ruling 2026-10-01): the
+ * killer of a PvE drone rolled a drop and the copy landed in its belt.
+ * SELF-PRIVATE: `id` is the killer's id and perception forwards the event ONLY
+ * to that observer — the same gate as `pt`/`bn`/`heal`, never a fog exception.
+ * Purely UX (the STOCKED toast + tone + belt flash), and unlike `bn` it does
+ * NOT ack a spend (nothing was spent): the authoritative card list self-syncs
+ * every frame via OwnShip.cards.
+ */
+export interface DropEvent {
+  k: 'dp';
+  id: string; // the killer (= the only observer this is ever delivered to)
+  boon: string; // the stocked consumable's catalog line id
+}
+
+/**
+ * A HULL REPAIR copy FIRED (catalog-v3 R13; the consumable that replaced the
+ * DAMAGE CONTROL level spend, epic-8 amendment 46): marks the INSTANT
+ * application at activation time. SELF-PRIVATE: `id` is the healing ship's id
+ * and perception forwards the event ONLY to that observer — the same gate as
  * `pt`/`bn`, so a heal never rides another observer's frame. Purely UX (tone
  * + HUD flash): the authoritative numbers self-sync every frame via
  * OwnShip.hp / OwnShip.repairHp. ANTI-CHEAT — deliberately omitted: any hp
- * amount or total, any victim id, anything derivable about another ship.
+ * amount or total, any victim id, anything derivable about another ship. The
+ * out-of-combat regen (CONFIG.regen) fires NO event at all — a continuous
+ * trickle would loop the tone.
  */
 export interface HealEvent {
   k: 'heal';
@@ -1126,12 +1336,43 @@ export interface HealEvent {
  * dropper's personal hue for EVERY observer come Story 1.12, a deliberate intel
  * grant, Eric 2026-07-23; amber only when the dropper has left the roster).
  */
+/**
+ * THE THREE MINE KINDS (Story 8.13 — catalog v3 as amended by Eric's
+ * 2026-09-19 rulings). Each is its own equipment LINE with its own row, and a
+ * laid mine carries the kind of the slot that laid it: `naval` (contact burst),
+ * `captive` (moored torpedo launcher, never detonates on contact) and
+ * `fouling` (a wide, weak burst that slows). The kind IS the row identity —
+ * there is no `captive` or `propFouling` flag any more (epic-8 amendments
+ * 76/81).
+ */
+export type MineKind = 'naval' | 'captive' | 'fouling';
+
 export interface MineView {
   id: string;
   x: number; // u
   y: number; // u
   own: boolean;
   by: string; // the dropper's ship id (personal-hue + roster attribution)
+  /**
+   * THE MINE'S KIND — PRESENT ON EVERY MINE ROW, for EVERY observer who
+   * receives the mine (Eric ruling 2026-10-01, "Everyone sees the kind";
+   * PROTOCOL_VERSION 68). This SUPERSEDES epic-8 amendment 76's own-only rule
+   * (PROTOCOL_VERSION 56), under which the server stripped the kind for every
+   * non-owner.
+   *
+   * One hull may lay naval, captive and fouling mines at once; the marker on
+   * the water draws the kind's own glyph in the dropper's hue, and the owner's
+   * rings differ by kind (a captive draws one trip ring; the other two draw
+   * blast + trigger).
+   *
+   * ANTI-CHEAT: the kind rides a row that is ALREADY sight-gated (owner always;
+   * anyone else only within sight + island LOS, or their own lit zone) — it is
+   * a field on a delivered row, not a new delivery, so it adds no perception
+   * exception and the count stays at SIX. It stays OPTIONAL on the type so a
+   * frame from an older server (PV < 68, where non-owners received no kind)
+   * still type-checks; a client that finds it absent must not guess.
+   */
+  c?: MineKind;
 }
 
 /**
@@ -1148,17 +1389,12 @@ export interface MineView {
  * `until` is the server-clock expiry (drives the client's fade); a zone
  * dropping out of the list means expired OR out of radar range — the client
  * cannot tell, and that ambiguity is the point (the mines precedent).
- * `phos`/`daz` are the firer's star-shell DOCTRINE VERBS stamped on the zone
- * record at zone-spawn time — delivered to EVERY legitimate observer (Story
- * 2.9, amendment 50: counterplay over concealment — the zone's nature is
- * observable behavior of the fired shell, not a build leak).
  *
- * STORY 7-5 WAVE 1 replaced the single `mode` field with these TWO INDEPENDENT
- * OPTIONAL FLAGS, because PHOSPHOR and DAZZLE stopped being an either/or pair:
- * one zone may now burn AND blind, which a single-valued mode cannot say. They
- * follow the established optional-flag wire style (`aggro`, `slowedUntil`) —
- * present as `true` only when set, OMITTED entirely when false, so a plain
- * star-shell zone costs the same bytes it always did.
+ * STORY 8.17 DELETED THE `phos`/`daz` FLAGS (Eric ruling 2026-09-29, epic-8
+ * amendment 134): the star shell's PHOSPHOR and DAZZLE verbs are gone —
+ * PHOSPHOR SHELLS burns through its own `BurnZoneView` channel and FLASH
+ * SHELLS leaves no zone at all — so a lit zone only ever LIGHTS. KEY ORDER
+ * (msgpack): id,x,y,r,until,by.
  */
 export interface LitZoneView {
   id: string;
@@ -1167,48 +1403,91 @@ export interface LitZoneView {
   r: number; // u — lit radius
   until: number; // ms — server time the zone expires
   by: string; // the firer's ship id
-  phos?: true; // PHOSPHOR verb — the zone burns; omitted when false
-  daz?: true; // DAZZLE verb — the zone blinds; omitted when false
 }
 
 /**
- * A RADAR BUOY visible to this viewer, synced as CONTACT-LIKE state (not an
- * event): FrameMsg.buoys is recomputed per observer every tick, exactly like
- * mines. Delivered to the OWNER (always sees own buoy), to enemies whose
- * sight/lit-zone covers it, and to spectators.
+ * A PHOSPHOR SHELLS BURNING ZONE visible to this viewer (Story 8.17, Eric
+ * ruling 2026-09-29, epic-8 amendments 131 and 135(f)), synced as
+ * CONTACT-LIKE state (not an event): FrameMsg.burnZones is recomputed per
+ * observer every tick, exactly like lit zones — and through the LIT ZONE'S
+ * VISIBILITY GATE byte-for-byte: the OWNER always sees its own zones; any
+ * other observer sees a zone iff its CENTER is within the observer's effective
+ * radar range (no island LOS, no sweep gate); spectators see all.
  *
- * STORY 7-5 WAVE 2 REPLACED `DecoyView` WITH THIS, and the rename is the point:
- * the DECEPTION is gone. The decoy's whole purpose was painting on enemy radar
- * as the owner's own ship (the `counterIntel` blip lie), and nothing in the game
- * fakes a ship contact any more. What paints now is the buoy itself, on its OWN
- * radar profile carrying NO owner identity (R2.9) — so this shape is no longer
- * the "truth channel" behind a lie, it is simply the buoy seen up close.
- *
- * `until` is the server-clock expiry (informational — the current client renders
- * a static marker and removes it on despawn). A buoy dropping out of the list
- * means expired, DESTROYED, or out of view — the client cannot tell (the
- * mines/litZones precedent). `by` is the OWNER'S ship id (roster-resolvable —
- * the marker renders in the owner's personal hue for every observer, the
- * deliberate intel grant of Eric 2026-07-23; amber when the owner has left the
- * roster). NOTE: the buoy's 50 hp does NOT ride this shape — no damage-state
- * channel is specified for it, and adding one is a wire decision, not an
- * implementation detail.
+ * A HAZARD ONLY: the circle is drawn so every observer who can see it can
+ * steer clear (counterplay), but it REVEALS NOTHING — no contact, no mine, no
+ * ballistic ever rides it — extends no gun's reach and is NOT a lit zone.
+ * `until` is the server-clock expiry (drives the client's fade); a zone
+ * dropping out of the list means expired OR out of radar range — the client
+ * cannot tell (the mines precedent). `by` is the firer's ship id (personal
+ * hue). KEY ORDER (msgpack): id,x,y,r,until,by.
  */
-export interface BuoyView {
-  id: string; // the buoy's own id
+export interface BurnZoneView {
+  id: string;
+  x: number; // u — zone center
+  y: number; // u
+  r: number; // u — burning radius (stamped from the firer's row at spawn)
+  until: number; // ms — server time the zone expires
+  by: string; // the firer's ship id
+}
+
+/**
+ * A DECOY BUOY visible to this viewer (Story 8.16, catalog-v3 R36/R41, epic-8
+ * amendments 119–124), synced as CONTACT-LIKE state (not an event):
+ * FrameMsg.decoys is recomputed per observer every tick, exactly like mines.
+ * Delivered to the OWNER always, to any other observer whose sight or own lit
+ * zone covers it (the `mineSignal` rule), and to spectators. It REPLACES the
+ * deleted RADAR BUOY's `BuoyView` (and `FrameMsg.buoys`).
+ *
+ * `by` is the OWNER'S ship id and rides EVERY observer's view (the `MineView.by`
+ * precedent; amendment 124(a)): the decoy renders in the owner's personal hue
+ * for all observers, and the client's hue latch keys on it. The dead-owner id
+ * tell is accepted (amendment 122): only an observer who already SEES the decoy
+ * receives `by`, and a sighted observer already sees the hue.
+ *
+ * `hp` is PRESENT ONLY WHEN `own` (SELF-PRIVATE, the `OwnShip` `shield` /
+ * `chaff` / `inSmoke` privacy idiom): the owner's readout of the decoy's
+ * remaining hull; the key is ABSENT for every other observer, never an
+ * `undefined` value. Own-only field on an own-only object — it opens no new
+ * disclosure and the perception exception count stays at SIX. A decoy
+ * dropping out of the list means DESTROYED or out of view — the client cannot
+ * tell (the mines precedent); it has no lifetime and outlives its owner.
+ */
+export interface DecoyView {
+  id: string; // the decoy's own id
   x: number; // u
   y: number; // u
-  until: number; // ms — server time the buoy expires
-  own: boolean; // true iff the receiving observer OWNS this buoy (per-observer, the mines precedent)
-  by: string; // the owner's ship id (personal-hue + roster attribution)
-  /** rad — the buoy's OWN radar antenna angle this tick (PV 44, the buoy's-own-
-   *  scope fix: Eric — "It gets its own returns. I just get to see them as the
-   *  owner."). The owner's client draws the buoy's rotating sweep wedge from it
-   *  (extrapolated at the fixed CONFIG.radarBuoy.sweepRpm between frames). It
-   *  rides EVERY BuoyView, sighted-enemy ones included: an antenna's rotation
-   *  phase is physically observable on a buoy you can see, and it carries no
-   *  owner identity, no doctrine and no return data — R2.9 stands. */
-  sweep: number;
+  own: boolean; // true iff the receiving observer OWNS this decoy (per-observer, the mines precedent)
+  by: string; // the owner's ship id (personal-hue + roster attribution) — every observer
+  hp?: number; // hp left — PRESENT ONLY when `own` (self-private, the OwnShip shield/chaff idiom)
+}
+
+/**
+ * A SMOKE SCREEN puff visible to this viewer (Story 8.18, catalog-v3 R38,
+ * epic-8 amendments 138–145), synced as CONTACT-LIKE state (not an event):
+ * FrameMsg.smoke is recomputed per observer every tick. Delivered to the
+ * OWNER always, to spectators, and to any other observer whose sight reaches
+ * the puff's edge (centre within sight + current radius) with an island-clear
+ * line to the point of the disc NEAREST the observer (Eric ruling 2026-09-29,
+ * epic-8 amendment 148: a puff is delivered if any part of it is island-
+ * visible — its water-side rim shows past an island that hides its centre; an
+ * observer inside the disc is trivially clear) — smoke never blocks the view
+ * OF smoke.
+ *
+ * NO RADIUS, NO OWNER, NO EXPIRY on the wire (amendment 149: not even an
+ * own-flag — ownership plays no part in smoke; whether the client's own hull
+ * stands in smoke arrives as the self-private `OwnShip.inSmoke`): `t0` is the server time the puff
+ * was laid, and the client derives the radius with the shared `puffRadius(t0,
+ * serverNow)` (sim/smoke.ts) — the same curve the server's sight predicate
+ * runs. A puff dropping out of the list means expired OR out of view — the
+ * client cannot tell (the mines precedent). NOT the wounded-smoke `SmokeEvent`
+ * (`sm`), which is a different thing. KEY ORDER (msgpack): id,x,y,t0.
+ */
+export interface SmokeView {
+  id: string; // the puff's own id
+  x: number; // u — puff centre (stationary)
+  y: number; // u
+  t0: number; // ms — server time the puff was laid (drives puffRadius)
 }
 
 /**
@@ -1218,7 +1497,7 @@ export interface BuoyView {
  *   'cooling'    — a WEAPON click against an empty pool (the round is
  *                  reloading; the weapon channel's empty-pool vocabulary).
  *   'no-ammo'    — an ABILITY press against an empty pool (no charge).
- *   'blocked'    — a placement (mine/radarBuoy) whose point lands inside an
+ *   'blocked'    — a placement (mine/decoyBuoy) whose point lands inside an
  *                  island or outside the water — nothing consumed.
  * The gate's 'dead'/'empty-slot' refusals never ride the wire: they are
  * either perfectly client-predictable (dead) or unreachable for an honest
@@ -1256,6 +1535,7 @@ export type GameEvent =
   | SpawnEvent
   | PointEvent
   | BoonFitEvent
+  | DropEvent
   | HealEvent
   | SplashEvent
   | HitCallEvent
@@ -1277,7 +1557,13 @@ export interface FrameMsg {
   events: GameEvent[];
   mines: MineView[]; // per-observer mine visibility (contact-like, recomputed per tick)
   litZones?: LitZoneView[]; // per-observer lit-zone visibility (contact-like; omitted when none)
-  buoys?: BuoyView[]; // per-observer radar-buoy visibility (contact-like; omitted when none)
+  // per-observer PHOSPHOR burning-zone visibility (Story 8.17 — the lit-zone
+  // gate, contact-like; omitted when none, the litZones rule)
+  burnZones?: BurnZoneView[];
+  decoys?: DecoyView[]; // per-observer decoy-buoy visibility (contact-like; omitted when none)
+  // per-observer SMOKE SCREEN puff visibility (Story 8.18 — contact-like;
+  // omitted when none, the litZones rule). NOT the wounded `sm` SmokeEvent.
+  smoke?: SmokeView[];
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on
    *  spectator frames — a dead ship cannot press). See DeniedView. */

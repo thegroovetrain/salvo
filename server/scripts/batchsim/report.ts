@@ -9,7 +9,6 @@
 import { CONFIG, zoneEndgameAtMs } from '@salvo/shared';
 import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import { BOON_N_MAX, LEVEL_SAMPLE_MS, type BatchResult } from './runner.js';
-import type { DeckAggregate } from './deckSim.js';
 
 export interface ReachAggregate {
   reachRate: number; // fraction of captain-matches that ever reached it
@@ -53,14 +52,11 @@ export interface BatchAggregate {
   finalLevel: Summary;
   picks: Summary;
   boonsFitted: Summary;
-  deckRemaining: Summary;
   cappedLines: Summary;
   anyCapRate: number;
   timeToNBoons: { n: number; reachRate: number; timeS: Summary }[];
-  exclusiveOffered: ReachAggregate;
-  exclusiveFitted: ReachAggregate;
-  /** Story 7-5: the DOCTRINE reaches. The `exclusive` rarity is extinct (R2.6),
-   *  so the two rows above are structurally 0% and these replace them. */
+  /** Story 7-5: the DOCTRINE reaches. Rarity — and with it the old
+   *  first-exclusive pair — is deleted (Story 8.1); these are what is left. */
   doctrineOffered: ReachAggregate;
   doctrineFitted: ReachAggregate;
   levelCurve: { tS: number; n: number; mean: number; p50: number }[];
@@ -159,12 +155,9 @@ export function buildAggregate(result: BatchResult, captainsPerMatch: number): B
     finalLevel: summarize(captains.map((c) => c.finalLevel)),
     picks: summarize(captains.map((c) => c.picks)),
     boonsFitted: summarize(captains.map((c) => c.boonsFitted)),
-    deckRemaining: summarize(captains.map((c) => c.deckRemaining)),
     cappedLines: summarize(captains.map((c) => c.cappedLines)),
     anyCapRate: captains.length === 0 ? 0 : captains.filter((c) => c.cappedLines > 0).length / captains.length,
     timeToNBoons: aggregateBoonTimes(captains),
-    exclusiveOffered: reachAggregate(captains.map((c) => c.firstExclusiveOffered)),
-    exclusiveFitted: reachAggregate(captains.map((c) => c.firstExclusiveFitted)),
     doctrineOffered: reachAggregate(captains.map((c) => c.firstDoctrineOffered)),
     doctrineFitted: reachAggregate(captains.map((c) => c.firstDoctrineFitted)),
     levelCurve: aggregateLevelCurve(captains),
@@ -217,10 +210,7 @@ function captainEconomyLines(agg: BatchAggregate): string[] {
   lines.push(`final level per captain: ${fmtSummary(agg.finalLevel)}`);
   lines.push(`picks per captain: ${fmtSummary(agg.picks)}`);
   lines.push(`boons fitted per captain: ${fmtSummary(agg.boonsFitted)}`);
-  lines.push(`deck cards remaining: ${fmtSummary(agg.deckRemaining)}`);
   lines.push(`copy-capped lines per captain: ${fmtSummary(agg.cappedLines)} | captains with >=1 cap: ${pct(agg.anyCapRate)}`);
-  lines.push(reachLine('first exclusive OFFERED', agg.exclusiveOffered));
-  lines.push(reachLine('first exclusive FITTED ', agg.exclusiveFitted));
   lines.push(reachLine('first doctrine OFFERED ', agg.doctrineOffered));
   lines.push(reachLine('first doctrine FITTED  ', agg.doctrineFitted));
   lines.push('time-to-N-boons (sim-s):');
@@ -234,57 +224,6 @@ function captainEconomyLines(agg: BatchAggregate): string[] {
   return lines;
 }
 
-/** The deck-only mode's report body (pity curve + exclusive/cap evidence).
- *  The stopping-rule caveat is printed IN the report, not just in the code:
- *  see deckSim.ts's header — production never terminates an economy. */
-export function renderDeckReport(label: string, agg: DeckAggregate): string[] {
-  const lines: string[] = [];
-  lines.push(`== DECK-ONLY ${label} ==`);
-  lines.push('stopping rule (harness model, NOT production): an economy ends when the deck is');
-  lines.push('EMPTY OR holds only terminal rival cards. Production has no economy termination —');
-  lines.push('a fitted doctrine returns its rival to the deck forever. All variants share this');
-  lines.push('rule, so cross-variant deltas are comparable; per-economy totals are model numbers.');
-  lines.push(`economies: ${agg.economies} | total draws: ${agg.totalDraws}`);
-  lines.push(`draws played per economy: ${fmtSummary(agg.drawsPlayed)} | decks empty-or-rivals-only at stop: ${pct(agg.deckExhaustedRate)}`);
-  lines.push('pity curve (rare/exclusive landing rate vs pre-draw levelsSinceRare):');
-  for (const row of agg.pity) {
-    if (row.draws === 0) continue;
-    const dry = row.dry === 15 ? '15+' : String(row.dry);
-    lines.push(`  dry=${dry.padStart(3)} draws=${String(row.draws).padStart(6)} rareRate=${pct(row.rareRate)}`);
-  }
-  lines.push(`first exclusive OFFERED: reach=${pct(agg.exclusiveOfferedReach)} drawIndex[${fmtSummary(agg.exclusiveOfferedDraw)}]`);
-  lines.push(`first exclusive PICKED : reach=${pct(agg.exclusivePickedReach)} drawIndex[${fmtSummary(agg.exclusivePickedDraw)}]`);
-  lines.push(`copy-capped lines per economy: ${fmtSummary(agg.cappedLines)} | economies with >=1 cap: ${pct(agg.anyCapRate)}`);
-  lines.push('deck depletion (mean cards remaining after draw k AND its immediate spend, give-backs included):');
-  for (const row of agg.depletion) {
-    lines.push(`  k=${String(row.draw).padStart(3)} n=${String(row.n).padStart(6)} meanRemaining=${fmt(row.meanRemaining, 1)}`);
-  }
-  return lines;
-}
-
-/** Side-by-side comparison across sweep variants — deck-only mode. */
-export function renderDeckComparison(variants: readonly { label: string; agg: DeckAggregate }[]): string[] {
-  const rows: { name: string; value: (a: DeckAggregate) => string }[] = [
-    { name: 'draws played p50', value: (a) => fmt(a.drawsPlayed.p50) },
-    { name: 'empty-or-rivals-only', value: (a) => pct(a.deckExhaustedRate) },
-    { name: 'rareRate dry=0', value: (a) => pct(a.pity[0]?.rareRate ?? 0) },
-    { name: 'rareRate dry=3', value: (a) => pct(a.pity[3]?.rareRate ?? 0) },
-    { name: 'rareRate dry=6', value: (a) => pct(a.pity[6]?.rareRate ?? 0) },
-    { name: 'excl OFFERED reach', value: (a) => pct(a.exclusiveOfferedReach) },
-    { name: 'excl OFFERED p50 draw', value: (a) => fmt(a.exclusiveOfferedDraw.p50) },
-    { name: 'excl PICKED p50 draw', value: (a) => fmt(a.exclusivePickedDraw.p50) },
-    { name: 'capped lines mean', value: (a) => fmt(a.cappedLines.mean, 2) },
-  ];
-  const nameW = Math.max(...rows.map((r) => r.name.length));
-  const colW = Math.max(18, ...variants.map((v) => v.label.length));
-  const lines: string[] = ['== SWEEP COMPARISON (deck-only) =='];
-  lines.push(`${' '.repeat(nameW)} | ${variants.map((v) => v.label.padEnd(colW)).join(' | ')}`);
-  for (const row of rows) {
-    lines.push(`${row.name.padEnd(nameW)} | ${variants.map((v) => row.value(v.agg).padEnd(colW)).join(' | ')}`);
-  }
-  return lines;
-}
-
 /** Side-by-side comparison of key rows across sweep variants. */
 export function renderComparison(variants: readonly { label: string; agg: BatchAggregate }[]): string[] {
   const rows: { name: string; value: (a: BatchAggregate) => string }[] = [
@@ -293,10 +232,9 @@ export function renderComparison(variants: readonly { label: string; agg: BatchA
     { name: 'final level mean', value: (a) => fmt(a.finalLevel.mean, 2) },
     { name: 'picks p50', value: (a) => fmt(a.picks.p50) },
     { name: 'boons fitted p50', value: (a) => fmt(a.boonsFitted.p50) },
-    { name: 'excl OFFERED reach', value: (a) => pct(a.exclusiveOffered.reachRate) },
-    { name: 'excl FITTED reach', value: (a) => pct(a.exclusiveFitted.reachRate) },
-    { name: 'excl FITTED p50 s', value: (a) => fmt(a.exclusiveFitted.timeS.p50) },
-    { name: 'deck remaining p50', value: (a) => fmt(a.deckRemaining.p50) },
+    { name: 'doctrine OFFERED reach', value: (a) => pct(a.doctrineOffered.reachRate) },
+    { name: 'doctrine FITTED reach', value: (a) => pct(a.doctrineFitted.reachRate) },
+    { name: 'doctrine FITTED p50 s', value: (a) => fmt(a.doctrineFitted.timeS.p50) },
     { name: 'kills/captain mean', value: (a) => fmt(a.killsPerCaptain.mean, 2) },
     { name: 'storm deaths total', value: (a) => String(a.stormDeathsTotal) },
     { name: 'endedBy', value: (a) => countLine(a.endedBy) },

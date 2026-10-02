@@ -7,22 +7,29 @@
 // shared/). Every apply returns a restore closure; the sweep path restores
 // between variants, single runs simply exit.
 //
-// The whitelist is EXACTLY the spec's tunable-dial surface: xp.*, deck.*,
-// offer.size, match.fillTo, map.baseRadius, zone.*. Anything else — even a
-// real CONFIG path like gun.damage — is rejected with a clear error, so the
-// harness can never quietly become a general balance-editing backdoor.
+// The whitelist is EXACTLY the spec's tunable-dial surface: xp.*, offer.size,
+// match.fillTo, map.baseRadius, zone.*. Anything else — even a real CONFIG
+// path like gun.damage — is rejected with a clear error, so the harness can
+// never quietly become a general balance-editing backdoor.
+//
+// `CONFIG.deck` AND `CONFIG.pool` NO LONGER EXIST (Story 8.14, amendment 89a):
+// decks and the hidden match pool are retired, so the two refusals that named
+// them are gone with them — those keys now fail the ordinary whitelist like any
+// other unknown path. What replaced them is `offer.weighting.*`, the two
+// `[DRAFT]` weighting dials (amendment 90), which ARE tunable: they sit on the
+// --tune surface because they are balance numbers Eric expects to move.
 // zone.* keys address the PHASED timeline shape (Story 3.1): zone.beatMs,
 // zone.offsetCap, zone.terminalSightFactor, zone.stormDps, and the per-group
 // ring exponents by INDEX — zone.ringSteps.0 / zone.ringSteps.1 (resolveLeaf
 // walks any dotted path, array indices included). map.baseRadius joins for the
 // 3.1 map-radius × ring evidence sweeps (amendment 7).
 
-import { CONFIG } from '@salvo/shared';
+import { CATALOG, CONFIG, effectiveStats } from '@salvo/shared';
 
 /** Unknown / non-tunable / non-numeric --set key — main prints and exits 2. */
 export class TunableError extends Error {}
 
-const TUNABLE_FAMILIES = ['xp.', 'deck.', 'zone.'];
+const TUNABLE_FAMILIES = ['xp.', 'zone.'];
 const TUNABLE_EXACT = new Set(['offer.size', 'match.fillTo', 'map.baseRadius']);
 
 export function isTunableKey(key: string): boolean {
@@ -42,16 +49,22 @@ export function isTunableKey(key: string): boolean {
 // cannon outright with the BROADSIDE BARRAGE. Shipping `cannon.` verbatim would
 // pass this family gate and then die on the CONFIG walk, while the battleship's
 // actual main weapon stayed unreachable — so the dead family is dropped and the
-// three live blocks the doc predates (broadside, speedBoost, radarBuoy) are in.
+// three live blocks the doc predates (broadside, boost, and the radar buoy —
+// deleted in Story 8.16) are in.
 // Keep this list in step with the top-level equipment blocks of CONFIG.
 const TUNE_FAMILIES = [
   'gun.',
+  // Story 8.15: the two pickable guns and the two new class Shifts — every
+  // number Eric ruled for them is a harness dial (amendments 97-105).
+  'machineGun.',
+  'flak.',
+  'instantReload.',
+  'damageCut.',
   'broadside.',
   'torpedo.',
   'mine.',
   'starShells.',
-  'speedBoost.',
-  'radarBuoy.',
+  'boost.',
   'shipClasses.',
   // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
   // "should a drone be worth, through damage, what its kill tier already says
@@ -61,14 +74,27 @@ const TUNE_FAMILIES = [
   // even though the question that reaches for it is an economy one. The `hp`
   // leaf inherits the existing floor of 1 via TUNE_MIN_ONE_LEAVES.
   'drones.',
-  // DAMAGE CONTROL is a COMBAT dial, not an economy one, so it belongs on this
-  // surface rather than the --set whitelist: `damageControl` amounts are FLAT
+  // HULL REPAIR is a COMBAT dial, not an economy one, so it belongs on this
+  // surface rather than the --set whitelist: `hullRepair` amounts are FLAT
   // on every hull by ruling ("no maxHp scaling, no upgrade scaling"), which
   // means any change to hull HP silently reprices every heal. A +100 HP arm
   // measured here dropped a heal from ~33% of an average hull to ~20% of one,
   // and the highest-HP hull paid most — so the heal has to be reachable to
   // tell a real class problem apart from that repricing.
-  'damageControl.',
+  'hullRepair.',
+  // OUT-OF-COMBAT REGEN (epic-8 amendment 46) rides the same surface for the
+  // same reason: it is the other half of how a hull gets hp back, and the
+  // fraction-of-MISSING shape means it never needs repricing with hull HP —
+  // but a class read still has to be able to turn it off or up.
+  'regen.',
+  // THE WEAPON WEIGHTING (Story 8.14, epic-8 amendments 90/91) — `factor` and
+  // `floor`, both `[DRAFT]` numbers Eric expects the harness to move. They are
+  // on the --tune surface and not the --set whitelist for the hullRepair
+  // reason: weighting decides WHICH weapon a captain is likely to be dealt, so
+  // it is a combat-shape dial, not an economy one. The family prefix is
+  // `offer.weighting.` rather than `offer.` so `offer.size` keeps its --set
+  // home and its floor of 1.
+  'offer.weighting.',
 ];
 
 /** True for an EQUIPMENT dial family (--tune only, never --set/--sweep). */
@@ -84,7 +110,7 @@ export function isTuneKey(key: string): boolean {
 // may not have (the same argument the prototype-walk refusal above is written
 // on), so these are refused up front with the real dial named instead.
 // `mine.triggerRadius` exists in CONFIG and would be silently ignored; the
-// three rangeU paths are not CONFIG entries at all and would otherwise fail
+// rangeU paths are not CONFIG entries at all and would otherwise fail
 // with the generic not-a-numeric-entry message, which tells the reader nothing
 // about WHY the range they are trying to move is unreachable.
 const DERIVED_TUNE_KEYS = new Map<string, string>([
@@ -93,6 +119,14 @@ const DERIVED_TUNE_KEYS = new Map<string, string>([
     'the trip ring is DERIVED as mine.blastRadius x CONFIG.mine.triggerFactor (Eric ruling 2026-08-16) — tune mine.blastRadius instead',
   ],
   ['gun.rangeU', 'gun range is DERIVED from radar range (Eric ruling 2026-07-21) and is not independently tunable'],
+  [
+    'machineGun.rangeU',
+    'machine-gun range is DERIVED from radar range like gun.rangeU (Story 8.15, amendment 103) and is not independently tunable',
+  ],
+  [
+    'flak.rangeU',
+    'flak range is DERIVED from radar range like gun.rangeU (Story 8.15, amendment 105) and is not independently tunable',
+  ],
   ['starShells.rangeU', 'star-shell range is DERIVED from radar range and is not independently tunable'],
   [
     'broadside.rangeU',
@@ -120,7 +154,7 @@ function assertKeyAllowed(key: string, allowTune: boolean): void {
   }
   if (isTunableKey(key)) return;
   throw new TunableError(
-    `'${key}' is not a tunable dial (allowed: xp.*, deck.*, offer.size, match.fillTo, map.baseRadius, zone.*)`,
+    `'${key}' is not a tunable dial (allowed: xp.*, offer.size, match.fillTo, map.baseRadius, zone.*)`,
   );
 }
 
@@ -186,13 +220,12 @@ export function validateTunableKey(key: string): void {
 
 /** Per-key numeric FLOOR. A dial the sim divides by, or loops until it consumes,
  *  cannot legally be <= 0: `offer.size` 0 makes drawOffer return an empty offer
- *  forever (the deck never depletes -> the deck-only economy loop never
- *  terminates), `xp.levelMs` 0 makes passive accrual a divide-by-zero,
+ *  forever (every level would bank with nothing to spend it on),
+ *  `xp.levelMs` 0 makes passive accrual a divide-by-zero,
  *  `zone.beatMs` 0 collapses zoneClosedAtMs to 0 (a zero tick budget — the
  *  shared timeline fails closed, but every match would report as unresolved
  *  nonsense), and `map.baseRadius` 0 is a zero-area board. Everything else may
- *  legitimately be 0 — `deck.rareWeightPerDryLevel=0` (the ratified no-pity
- *  sweep arm), `zone.offsetCap=0` (concentric rings), `zone.ringSteps.N=0`
+ *  legitimately be 0 — `zone.offsetCap=0` (concentric rings), `zone.ringSteps.N=0`
  *  (a hold-at-map-radius ring) are real evidence values. */
 const MIN_ONE_KEYS = new Set(['xp.levelMs', 'offer.size', 'zone.beatMs', 'map.baseRadius']);
 
@@ -232,10 +265,11 @@ export function validateTuneKey(key: string): void {
 const TUNE_MIN_ONE_LEAVES = new Set(['steerageSpeed', 'turnRate', 'shellSpeed', 'speed', 'hp']);
 
 /** The per-key --tune floor. Reload/cooldown leaves are matched by
- *  CASE-INSENSITIVE SUFFIX, not by exact leaf name: `radarBuoy.gunReloadMs` is
+ *  CASE-INSENSITIVE SUFFIX, not by exact leaf name: a prefixed reload leaf
+ *  (the machine gun's idle clock was one, until it was deleted 2026-09-30) is
  *  a genuine reload in the same divide-or-spin class as `gun.reloadMs` and an
- *  exact match let it through at floor 0. `cooldownms` is kept in the rule even
- *  though no CONFIG leaf uses it today — this names a HAZARD CLASS, and a
+ *  exact match let it through at floor 0. The suffix rule and `cooldownms`
+ *  stay although no CONFIG leaf needs them today — they name a HAZARD CLASS, and a
  *  future `<equipment>.cooldownMs` must inherit the floor by existing, not by
  *  someone remembering to come back here. */
 /**
@@ -273,9 +307,125 @@ function tuneFloor(key: string): number {
  *  be 0 — `gun.burstRadius=0` is what ARMOR-PIERCING already does, and a
  *  0-damage arm is a real control. */
 export function validateTuneValue(key: string, value: number): void {
+  if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   const floor = tuneFloor(key);
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
+  }
+}
+
+/**
+ * THE TWO WEIGHTING LEAVES ARE MULTIPLIERS IN (0, 1] (Story 8.14 review, F5),
+ * not merely "finite and >= 0" — the generic floor of 0 let three arms through
+ * that do not measure the mechanism amendments 90/91 describe:
+ *
+ *   - `factor = 0` (with `floor = 0`) makes EVERY taken line weigh zero, so
+ *     stage 2's cumulative walk never crosses `r` and falls through to its
+ *     float-dust fallback — the LAST candidate, every time. That is not "a
+ *     strong discount"; it is a deterministic pick dressed as a random one.
+ *   - `floor = 0` on its own is the same trap at five takers.
+ *   - `factor > 1` INVERTS the rule: a line other captains have taken becomes
+ *     MORE likely, not less, while the report header still says "weighting".
+ *
+ * A balance harness may not produce false evidence (the same argument
+ * DERIVED_TUNE_KEYS is written on), so the range is refused at the leaf. The
+ * pair relation (`floor <= factor`) cannot be judged one leaf at a time and is
+ * checked on the finished CONFIG in validateCrossKeyInvariants.
+ */
+const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.floor']);
+
+function validateUnitInterval(key: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0 || value > 1) {
+    throw new TunableError(`'${key}': expected a finite value in (0, 1], got '${value}'`);
+  }
+}
+
+/**
+ * CROSS-KEY INVARIANTS — relations between two CONFIG leaves, checked ONCE on
+ * the FINISHED CONFIG rather than per key.
+ *
+ * `--set` and `--tune` each validate their leaves INDEPENDENTLY (family gate,
+ * finiteness, per-leaf floor), which is all a single leaf can be judged on. An
+ * invariant that RELATES two leaves cannot be judged that way: whichever key is
+ * written first is legal on its own, and the pair only becomes illegal once
+ * both are in. So the relation is checked after every write, from inside the
+ * all-or-nothing try — a violation rolls the whole apply back and no match ever
+ * runs on the bad pair.
+ *
+ * `boost.reloadMs >= boost.durationMs` (Story 8.9, epic-8 amendment 54): the
+ * boost is a 1-charge pool, so a reload shorter than the window means the
+ * charge is back before the window closes and the boost is PERMANENTLY active
+ * — a state the design forbids. Either leaf can break it (`--tune
+ * boost.reloadMs=1` shortens the reload, `--tune boost.durationMs=60000`
+ * lengthens the window), hence the check on the pair rather than on either.
+ * `boost.*` lives on the `--tune` combat surface only — `--set` refuses it at
+ * the family gate before any write (pinned) — but the check runs on the
+ * finished CONFIG after BOTH surfaces have written, so it is surface-blind.
+ *
+ * Story 8.9 REVIEW (Edge Case Hunter): the check above compared the RAW pair,
+ * but the LIVE reload a match ever ticks against is `reloadMs *
+ * cooldownScale`, and `cooldownScale` is moved by the RELOAD ladder (catalog-v3
+ * R12: −5%/tier, cap 5 copies -> 0.75, floored at 0.1 in clampStats) — the same
+ * fold every equipment reload takes (shared/src/sim/stats.ts clampStats).
+ * `--tune boost.reloadMs=12000` cleared the raw check (12000 >= 10000) while a
+ * five-RELOAD deck folds it to 9000ms < the 10000ms window — the exact
+ * permanently-re-tappable state the raw check exists to forbid, just reached
+ * one card-count away. So the relation is now checked through the REAL fold,
+ * at the worst case the ladder can reach: `effectiveStats()` on a class with
+ * RELOAD stacked to `CATALOG.reload.cap` copies, which is CONFIG-live so a
+ * tuned `boost.reloadMs`/`boost.durationMs` is exactly what gets folded. The
+ * class chosen (torpedoBoat) is arbitrary — the boost row carries no
+ * per-class numbers (see boostRow) — so any class would fold identically.
+ *
+ * `boost.maxAmmo` (Story 8.9 REVIEW, Edge Case Hunter): the reload/duration
+ * relation assumes a single charge. A second charge lets a mid-window tap
+ * re-stamp `boostUntil` and extend the active window indefinitely no matter
+ * how reload and duration relate, so `maxAmmo` is pinned to exactly 1 here
+ * rather than folded into the reload/duration arithmetic.
+ *
+ * deferred-work: the harness has no general cross-key mechanism — these are
+ * the only such relations (Story 8.9), and a third one should turn this
+ * helper into a table rather than growing another `if`.
+ */
+function validateCrossKeyInvariants(): void {
+  validateWeightingPair();
+  const { durationMs, maxAmmo } = CONFIG.boost;
+  if (maxAmmo !== 1) {
+    throw new TunableError(
+      `'boost.maxAmmo' must be exactly 1 (got ${maxAmmo}): the Shift boost is a single-charge pool ` +
+        "— a second charge makes the active window extendable by a mid-window tap, which 'reload >= " +
+        "duration' cannot prevent",
+    );
+  }
+  const rawReloadMs = CONFIG.boost.reloadMs;
+  const maxedReloadMs = effectiveStats(
+    CONFIG.shipClasses.torpedoBoat,
+    Array.from({ length: CATALOG.reload.cap }, () => 'reload'),
+  ).equipment.boost.reloadMs;
+  if (maxedReloadMs < durationMs) {
+    throw new TunableError(
+      `'boost.reloadMs' × the RELOAD ladder at cap must stay >= 'boost.durationMs' (raw ${rawReloadMs} ` +
+        `-> ${maxedReloadMs} live at five RELOAD copies < ${durationMs}): an active window must ` +
+        'always imply a cooling pool',
+    );
+  }
+}
+
+/**
+ * `offer.weighting.floor <= offer.weighting.factor` (Story 8.14 review, F5).
+ * `lineWeight(n) = max(floor, factor ** n)` is meant to STEP DOWN from 1.0 and
+ * settle on the floor; a floor ABOVE the factor makes the very first take jump
+ * the weight back UP to the floor and hold it there, so the dial reads as a
+ * discount and behaves as a flat constant. Either leaf alone is legal in
+ * (0, 1], so like the boost pair this is only judgeable once both are written.
+ */
+function validateWeightingPair(): void {
+  const { factor, floor } = CONFIG.offer.weighting;
+  if (floor > factor) {
+    throw new TunableError(
+      `'offer.weighting.floor' (${floor}) must stay <= 'offer.weighting.factor' (${factor}): a floor above ` +
+        'the factor turns max(floor, factor ** n) into a constant from the first take on',
+    );
   }
 }
 
@@ -312,6 +462,9 @@ export function applyOverrides(
   try {
     for (const key of Object.keys(set)) write(key, set[key], false);
     for (const key of Object.keys(tune)) write(key, tune[key], true);
+    // Relations between leaves, on the FINISHED CONFIG — inside the try, so a
+    // violation rolls every write back exactly like a bad leaf does.
+    validateCrossKeyInvariants();
   } catch (err) {
     rollback();
     throw err;

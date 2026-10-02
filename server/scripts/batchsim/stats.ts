@@ -38,12 +38,12 @@ export function summarize(values: readonly number[]): Summary {
 }
 
 /** Decorrelate a sub-stream seed from the run seed by ordinal (the World
- *  deckRngFor idiom: golden-ratio Math.imul scramble, coerced to uint32). */
+ *  drawRngFor idiom: golden-ratio Math.imul scramble, coerced to uint32). */
 export function mixSeed(seed: number, ordinal: number): number {
   return (seed ^ Math.imul(ordinal + 1, 0x9e3779b9)) >>> 0;
 }
 
-/** Multiset tally of string ids (deck.test tally idiom). */
+/** Multiset tally of string ids (draw.test tally idiom). */
 export function tally(ids: readonly string[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const id of ids) out.set(id, (out.get(id) ?? 0) + 1);

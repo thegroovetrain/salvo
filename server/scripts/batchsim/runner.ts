@@ -10,7 +10,7 @@
 // is beyond the CaptainControl interface.
 //
 // Determinism: matchSeed = mixSeed(runSeed, matchIndex); every stream in the
-// match (map, spawns, drones, decks, controls) derives from it. No Math.random,
+// match (map, spawns, drones, draws, controls) derives from it. No Math.random,
 // no Date.now — wall-clock metadata lives in main.ts, outside the run key.
 //
 // Timings: production CONFIG.match values EXCEPT a short 1000ms countdown,
@@ -23,11 +23,14 @@
 // drone/solo tests use — no production code changes.
 
 import {
-  BOON_CATALOG,
+  CATALOG,
   CONFIG,
+  GUN_IDS,
   SHIP_CLASS_IDS,
+  mulberry32,
   zoneClosedAtMs,
   zoneGroups,
+  type GunId,
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../../src/game/world.js';
@@ -39,6 +42,7 @@ import { TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
 import type { BotEngageGate, TestProfileId } from '../../src/game/ai/types.js';
 import { BotCollector, type BotSample } from './botMetrics.js';
 import { CatalogCollector, type CatalogSample } from './catalogMetrics.js';
+import { PoolCollector, type PoolMatchSample } from './poolReadouts.js';
 import { mixSeed, tally } from './stats.js';
 
 /** ms of sim time each level-curve sample bucket spans. */
@@ -54,6 +58,9 @@ const COUNTDOWN_MS = 1000;
  *  ring index; captains use 0x100 + i — keep this band outside any
  *  roster-sized range). */
 const ZONE_SEED_ORDINAL = 0x7a0e;
+/** mixSeed ordinal reserved for a match's BOT-GUN stream (Story 8.15) — outside
+ *  the captain band (0x100 + i) and the zone band (ZONE_SEED_ORDINAL + ring). */
+const BOT_GUN_SEED_ORDINAL = 0x6a4e;
 
 export interface RunSpec {
   seed: number;
@@ -80,13 +87,20 @@ export interface RunSpec {
   /** SPEND MODE (balance campaign, 2026-08-24): 'random' makes every rolled
    *  in-game profile keep its temperament but pick cards uniformly at random
    *  (BotController.spend — the engage-gate seam's sibling). Default
-   *  undefined = 'profile', the shipped weighted policy, byte-identical. */
-  botSpend?: 'profile' | 'random';
+   *  undefined = 'profile', the shipped weighted policy, byte-identical.
+   *  'gun' takes the mounted gun's ladder card whenever dealt, else weighted. */
+  botSpend?: 'profile' | 'random' | 'gun';
   /** Force every rolled-path bot's hull (mono-class arms with tuned
-   *  temperaments); profiles still roll among that hull's own rows. args.ts
+   *  temperaments); personalities still roll among all six (Story 8.20: any
+   *  personality on any hull). args.ts
    *  refuses the combinations this would contradict (--bot-profile, --roster
    *  even). */
   botHull?: ShipClassId;
+  /** FORCED GUN for every bot (Story 8.15, `--gun`). Undefined = production's
+   *  rule: each bot mounts a gun drawn UNIFORMLY off a seeded per-match stream
+   *  (the ArenaRoom.buildBotFleet rule, amendment 109), so a harness run
+   *  fights all three guns exactly as staging does. */
+  botGun?: GunId;
   /** Scripted captain control factory; defaults to the storm-pacing pacifist
    *  (CONTROL_REGISTRY.pacifist — the only row there is). */
   control?: ControlFactory;
@@ -140,10 +154,11 @@ export function botProfileFor(
  *  seeded stream and the brain drives itself from World's `botsTick` row.
  *  The engage gate is set BEFORE any tick runs, so a gated lobby never fires
  *  a single pre-endgame shot; default undefined leaves the shipped 'always'. */
-function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: number): string[] {
+export function buildBotLobby(world: World, spec: RunSpec, botCount: number, matchSeed: number, index: number): string[] {
   if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
   // BEFORE any enrollment — the mode is stamped onto each mind at enroll.
   if (spec.botSpend !== undefined) world.bots.spend = spec.botSpend;
+  const guns = botGunDealer(spec, matchSeed);
   const ids: string[] = [];
   for (let i = 0; i < botCount; i += 1) {
     const profile = botProfileFor(spec, i, index);
@@ -154,9 +169,29 @@ function buildBotLobby(world: World, spec: RunSpec, botCount: number, index: num
     // battleship. On the rolled path (no forcing) a forced --bot-hull beats
     // the roster deal (args.ts refuses the ambiguous combinations), else the
     // roster policy deals as it does for captains.
-    ids.push(world.addBot(profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined, profile).id);
+    // Bots draw from the SAME common pool a captain draws from (Story 8.14)
+    // and MOUNT A GUN (Story 8.15): the forced --gun, else a seeded uniform
+    // draw — production's rule (see botGunDealer).
+    const hull = profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined;
+    ids.push(world.addBot(hull, profile, guns()).id);
   }
   return ids;
+}
+
+/**
+ * THE BOT GUN DEAL (Story 8.15, amendment 109). `--gun` forces every bot onto
+ * one gun; without it each bot draws one of GUN_IDS UNIFORMLY off a stream
+ * seeded from the MATCH seed on its own ordinal — the mirror of
+ * ArenaRoom.buildBotFleet's seeded draw, so a harness lobby fights the gun mix
+ * staging fights, and the deal is part of the reproducible run key. A stream
+ * of its own, never the World's or the controller's: drawing guns must not
+ * move any other roll. Exported for the determinism pin.
+ */
+export function botGunDealer(spec: Pick<RunSpec, 'botGun'>, matchSeed: number): () => GunId {
+  const forced = spec.botGun;
+  if (forced !== undefined) return () => forced;
+  const rng = mulberry32(mixSeed(matchSeed, BOT_GUN_SEED_ORDINAL));
+  return () => GUN_IDS[rng.int(0, GUN_IDS.length - 1)];
 }
 
 export interface ReachSample {
@@ -172,12 +207,9 @@ export interface CaptainSample {
   deaths: number;
   picks: number;
   boonsFitted: number;
-  deckRemaining: number;
   cappedLines: number;
   /** boonTimesS[n-1] = sim-seconds to the n-th fitted boon (null = never). */
   boonTimesS: (number | null)[];
-  firstExclusiveOffered: ReachSample | null;
-  firstExclusiveFitted: ReachSample | null;
   /** Story 7-5: the same two reaches over DOCTRINE lines (see isDoctrineId). */
   firstDoctrineOffered: ReachSample | null;
   firstDoctrineFitted: ReachSample | null;
@@ -224,6 +256,9 @@ export interface MatchSample {
    *  pass). OPTIONAL for the same reason `bots` is: sample literals predating
    *  the field exist in the harness's own tests. Read it defensively. */
   catalog?: CatalogSample;
+  /** POOL READOUTS (Story 8.20): gun, level-reach slot state, weapon takes and
+   *  the live-mine peak. OPTIONAL for the same reason `bots` is. */
+  pool?: PoolMatchSample;
 }
 
 export interface BatchResult {
@@ -231,23 +266,22 @@ export interface BatchResult {
   failures: { index: number; seed: number; error: string }[];
 }
 
-const isExclusiveId = (id: string): boolean => BOON_CATALOG[id]?.rarity === 'exclusive';
-
-/** A DOCTRINE line — a card carrying a `doctrine` effect (Story 7-5 evidence
- *  pass). The `exclusive` RARITY is extinct as of Story 7-5 wave 2 (R2.6
- *  deleted exclusivity outright), so both `firstExclusive*` rows above now read
- *  0% structurally and no longer answer "how long until a build commits". These
- *  two rows are their honest replacement: a doctrine is still the shape-changing
- *  pick, it is just an ordinary `rare` now, and doctrines STACK. */
+/** A DOCTRINE line — a card any of whose tiers carries a `doctrine` effect
+ *  (Story 7-5 evidence pass; re-keyed to catalog v3's ADD-ONS in Story 8.1).
+ *  It is the shape-changing pick, and doctrines STACK. The old
+ *  `firstExclusive*` pair is deleted with rarity itself (Story 8.1).
+ *  VACUOUS since Story 8.17 (amendment 134): no add-on line remains in the
+ *  catalog, so this matches nothing and both doctrine reaches print 0/never;
+ *  kept compiling for the report shape, deleted when the `addon` kind is. */
 const isDoctrineId = (id: string): boolean =>
-  BOON_CATALOG[id]?.effects.some((e) => e.kind === 'doctrine') ?? false;
+  Object.hasOwn(CATALOG, id) &&
+  CATALOG[id].tiers.some((tier) => tier.some((e) => e.kind === 'doctrine'));
 
 /** Lines whose fitted stack has physically consumed every copy in the catalog. */
-function cappedLineCount(boons: readonly string[]): number {
+function cappedLineCount(cards: readonly string[]): number {
   let capped = 0;
-  for (const [id, n] of tally(boons)) {
-    const def = BOON_CATALOG[id];
-    if (def !== undefined && n >= def.copies) capped += 1;
+  for (const [id, n] of tally(cards)) {
+    if (Object.hasOwn(CATALOG, id) && n >= CATALOG[id].cap) capped += 1;
   }
   return capped;
 }
@@ -255,8 +289,6 @@ function cappedLineCount(boons: readonly string[]): number {
 /** Per-captain progression tracking over the active phase. */
 class CaptainTracker {
   readonly boonTimesS: (number | null)[] = new Array<number | null>(BOON_N_MAX).fill(null);
-  firstExclusiveOffered: ReachSample | null = null;
-  firstExclusiveFitted: ReachSample | null = null;
   firstDoctrineOffered: ReachSample | null = null;
   firstDoctrineFitted: ReachSample | null = null;
   readonly levelCurve: number[] = [];
@@ -264,14 +296,12 @@ class CaptainTracker {
 
   observe(ship: ShipRecord, tS: number): void {
     for (let n = 0; n < BOON_N_MAX; n += 1) {
-      if (this.boonTimesS[n] === null && ship.boons.length >= n + 1) this.boonTimesS[n] = tS;
+      if (this.boonTimesS[n] === null && ship.cards.length >= n + 1) this.boonTimesS[n] = tS;
     }
     const offer = ship.offer ?? [];
     const at = { s: tS, level: ship.level };
-    this.firstExclusiveOffered = firstReach(this.firstExclusiveOffered, offer.some(isExclusiveId), at);
-    this.firstExclusiveFitted = firstReach(this.firstExclusiveFitted, ship.boons.some(isExclusiveId), at);
     this.firstDoctrineOffered = firstReach(this.firstDoctrineOffered, offer.some(isDoctrineId), at);
-    this.firstDoctrineFitted = firstReach(this.firstDoctrineFitted, ship.boons.some(isDoctrineId), at);
+    this.firstDoctrineFitted = firstReach(this.firstDoctrineFitted, ship.cards.some(isDoctrineId), at);
   }
 }
 
@@ -340,12 +370,9 @@ export class MatchCollector {
       kills: ship.kills,
       deaths: ship.deaths,
       picks: t.picks,
-      boonsFitted: ship.boons.length,
-      deckRemaining: ship.deck.cards.length,
-      cappedLines: cappedLineCount(ship.boons),
+      boonsFitted: ship.cards.length,
+      cappedLines: cappedLineCount(ship.cards),
       boonTimesS: t.boonTimesS,
-      firstExclusiveOffered: t.firstExclusiveOffered,
-      firstExclusiveFitted: t.firstExclusiveFitted,
       firstDoctrineOffered: t.firstDoctrineOffered,
       firstDoctrineFitted: t.firstDoctrineFitted,
       levelCurve: t.levelCurve,
@@ -416,6 +443,8 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   // (byte-identical reruns). Server-side only — nothing rides a wire, so the
   // derivation leaks nothing.
   const zoneSeeds = Array.from({ length: zoneGroups(CONFIG.zone) }, (_, i) => mixSeed(matchSeed, ZONE_SEED_ORDINAL + i));
+  // NO POOL SEED ANY MORE (Story 8.14): the hidden match pool is retired, and
+  // a draw is a pure read of the drawing ship's own state off its own stream.
   const world = new World(matchSeed, playerCap, CONFIG.zone, { zoneSeeds });
   const timings: MatchTimings = {
     countdownMs: COUNTDOWN_MS,
@@ -459,17 +488,21 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   for (let i = 0; i < spec.captains; i += 1) {
     const id = `cap-${i + 1}`;
     captainIds.push(id);
-    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', rotate(offset, i));
-    controls.push(factory(id, mixSeed(matchSeed, 0x100 + i)));
+    // A control no longer declares a deck (Story 8.14): every captain draws
+    // from the one common pool and sails the DEFAULT GUN.
+    const control = factory(id, mixSeed(matchSeed, 0x100 + i));
+    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, 'captain', rotate(offset, i), undefined, undefined);
+    controls.push(control);
   }
   // THE BOT LOBBY — see buildBotLobby: there is no bot control and nothing
   // bot-shaped in the per-tick loop below. The roster policy deals the hull
   // and the test rig deals the profile; buildBotLobby resolves which wins.
-  const botIds = buildBotLobby(world, spec, botCount, index);
+  const botIds = buildBotLobby(world, spec, botCount, matchSeed, index);
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
   const bots = new BotCollector(botIds);
   const catalog = new CatalogCollector();
+  const pool = new PoolCollector(botIds);
   // Tick budget from the SHARED time-to-closed helper: the full phased
   // timeline (12:00 at production CONFIG — ~14400 ticks) + countdown + endgame
   // slack. Honest but bounded: a full control run fits comfortably; nothing
@@ -482,12 +515,20 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     collector.observe(world, match);
     bots.observe(world, match.activatedAt);
     catalog.observe(world, match.activatedAt !== 0);
-    if (match.phase === 'finished') return finishSample(index, matchSeed, world, match, collector, captainIds, bots, catalog);
+    pool.observe(world, match.activatedAt);
+    if (match.phase === 'finished') return withPool(finishSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world);
   }
   if (match.activatedAt === 0) {
     throw new Error(`match ${index} (seed ${matchSeed}) never activated within ${tickCap} ticks`);
   }
-  return capSample(index, matchSeed, world, match, collector, captainIds, bots, catalog);
+  return withPool(capSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world);
+}
+
+/** Attach the pool readings to a finished sample — only when the lobby has
+ *  bots, so a captains-only sample keeps its exact pre-8.20 shape. */
+function withPool(sample: MatchSample, pool: PoolCollector, world: World): MatchSample {
+  if (sample.bots === undefined || sample.bots.length === 0) return sample;
+  return { ...sample, pool: pool.result(world) };
 }
 
 /**
@@ -518,7 +559,7 @@ export function capSample(
  *  world.removeShip). The end-of-match sample must not assume presence.
  *  RULING (minimal honest option): a departed captain is RECORDED by id and
  *  EXCLUDED from the per-captain rows. The alternative — reconstructing a row
- *  from the Match participant snapshot — would emit final-level / deck /
+ *  from the Match participant snapshot — would emit final-level /
  *  boon numbers that Match never snapshots (it keeps only name/kills/damage),
  *  i.e. fabricated economy evidence. An honest omission beats an invented row;
  *  the id list keeps the omission visible. */

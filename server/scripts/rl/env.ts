@@ -21,8 +21,7 @@
 
 import {
   CONFIG,
-  EQUIPMENT_IS_WEAPON,
-  HEAL_CHOICE,
+  isWeaponItem,
   mulberry32,
   zoneClosedAtMs,
   zoneGroups,
@@ -125,7 +124,9 @@ export class HullcrackerEnv {
       disconnect: () => {},
     });
     this.agents = enrollAgents(world, seed, opts);
-    for (let i = 0; i < botCount; i += 1) world.addBot();
+    // Bots draw from the COMMON POOL on the default gun (Story 8.14), like
+    // the arena's.
+    for (let i = 0; i < botCount; i += 1) world.addBot(undefined, undefined);
     match.notifyRosterChanged();
     this.world = world;
     this.match = match;
@@ -184,7 +185,7 @@ export class HullcrackerEnv {
     const boostSlot = action.boost === 1 ? nonWeaponSlot(me) : -1;
     if (boostSlot >= 0) agent.actSeq += 1;
     const bearing = me.state.heading + (action.bearing / ACTION_BINS.bearing) * Math.PI * 2;
-    const reach = me.stats.gun.rangeU;
+    const reach = me.stats.equipment.gun.rangeU;
     world.submitInput(agent.id, {
       seq: agent.seq,
       throttle: THROTTLE[action.throttle] ?? 0,
@@ -196,21 +197,19 @@ export class HullcrackerEnv {
       fireT: 0,
       actSeq: agent.actSeq,
       actSlot: boostSlot >= 0 ? boostSlot : 0,
-      hornSeq: 0,
+      hornSeq: 0, held: false,
     });
   }
 
-  /** Randomized build assignment (see module header): heal under 40%, else a
-   *  uniform card off the front offer. One spend per agent per tick, exactly
-   *  the public path a SpendMsg lands on. */
+  /** Randomized build assignment (see module header): a uniform card off the
+   *  front offer. One spend per agent per tick, exactly the public path a
+   *  SpendMsg lands on. The old "heal under 40%" arm is GONE with the -1
+   *  sentinel (Story 8.8): an RL agent spends a level on CARDS and nothing
+   *  else — healing is a HULL REPAIR copy it fires from the belt. */
   private autoSpend(world: World): void {
     for (const agent of this.agents) {
       const me = world.ships.get(agent.id);
       if (me === undefined || me.bankedLevels <= 0) continue;
-      if (me.stats.maxHp > 0 && me.hp / me.stats.maxHp < 0.4) {
-        world.spendPoint(agent.id, HEAL_CHOICE);
-        continue;
-      }
       const offer = me.offer;
       if (offer === null || offer.length === 0) continue;
       world.spendPoint(agent.id, agent.spendRng.int(0, offer.length - 1));
@@ -260,7 +259,8 @@ function enrollAgents(world: World, seed: number, opts: ResetOptions): AgentStat
   for (let i = 0; i < opts.agents; i += 1) {
     const id = `rl-${i + 1}`;
     const hull = opts.agentHulls?.[i] ?? HULLS[i % HULLS.length];
-    world.addShip(id, `RL-${String(i + 1).padStart(2, '0')}`, 'captain', hull);
+    // RL captains draw from the COMMON POOL on the default gun (Story 8.14).
+    world.addShip(id, `RL-${String(i + 1).padStart(2, '0')}`, 'captain', hull, undefined, undefined);
     agents.push({
       id,
       seq: 0,
@@ -284,7 +284,7 @@ function ringOf(ring: { cx: number; cy: number; r: number } | null): { cx: numbe
 function nonWeaponSlot(me: ShipRecord): number {
   for (let i = 0; i < me.loadout.length; i += 1) {
     const id = me.loadout[i]?.equipmentId;
-    if (id !== null && id !== undefined && !EQUIPMENT_IS_WEAPON[id]) return i;
+    if (id !== null && id !== undefined && !isWeaponItem(id)) return i;
   }
   return -1;
 }

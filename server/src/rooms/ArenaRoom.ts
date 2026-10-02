@@ -12,15 +12,18 @@ import {
   CONFIG,
   MSG,
   REGATTA_NO_HUE,
+  GUN_IDS,
   SHIP_CLASS_IDS,
   isAfloat,
   mulberry32,
   sanitizeClassId,
   sanitizeHornId,
   zoneGroups,
+  isGunId,
   type RequeueMsg,
   type ResultsMsg,
   type Rng,
+  type GunId,
   type ShipClassId,
   type WelcomeMsg,
 } from '@salvo/shared';
@@ -38,11 +41,19 @@ import {
   type MatchTimings,
 } from '../game/match.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
-import { registerRoom, type RoomMetricsHandle } from '../metrics.js';
+import { buildMatchRecord, handCount } from '../game/matchRecord.js';
+import { getAccountWriter, getGameVersion } from '../game/accountWriter.js';
+import {
+  recordMinesLive,
+  recordSmokeLive,
+  registerRoom,
+  type RoomMetricsHandle,
+} from '../metrics.js';
 import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
   sanitizeColorPref,
+  sanitizeGun,
   sanitizeName,
   sanitizeRoomOptions,
   type JoinOptions,
@@ -50,18 +61,13 @@ import {
   type SanitizedRoomOptions,
 } from './roomOptions.js';
 import { stagingGateError } from '../stagingGate.js';
-import {
-  SOLO_CREATE_THROTTLE_ERROR,
-  SOLO_CREATE_WINDOW_MS,
-  admitSoloCreate,
-  clientIpFrom,
-  resolveSoloCreateLimit,
-  xffEntryCount,
-  type SoloCreateLedger,
-} from './soloThrottle.js';
+import { assertSoloCreateAllowed, resetSoloCreateThrottle } from './createThrottle.js';
+
+/** TEST SEAM, re-exported from createThrottle.ts (its home since cycle 167). */
+export { resetSoloCreateThrottle };
 
 const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
-const INTERVAL_MS = 1000 / 60; // setSimulationInterval cadence
+const INTERVAL_MS = 1000 / 60; // setTimestep cadence
 const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
 /**
  * Cap on unanswered ping nonces retained per client. With one ping per
@@ -78,8 +84,10 @@ const MODE = 'arena';
  * 6.6): which door created it, and how many humans are aboard RIGHT NOW (see
  * publishListing for why the driver's own `clients` count cannot answer that).
  */
-interface ArenaListingMeta {
-  mode: 'standard' | 'soloVsAi';
+export interface ArenaListingMeta {
+  /** 'private' (cycle 167): formed by a private lobby — the trust-ticketed
+   *  create path, never a client bag (see sanitizeRoomOptions). */
+  mode: 'standard' | 'soloVsAi' | 'private';
   humans: number;
 }
 /** The zeroed "unrevealed" next-ring mirror (r 0 = no reveal — see ArenaState). */
@@ -101,99 +109,6 @@ export const ARENA_DIRECT_JOIN_ERROR = 'this room is not joinable directly — u
 const CALLSIGN_REDRAWS = 4;
 
 /**
- * PER-IP SOLO-CREATE THROTTLE state (Story 7-8, Eric ruling 2026-08-27,
- * epic-7 amendment 45). Module-level because the door it guards is STATIC
- * onAuth — there is no room instance yet, and there must not be: the whole
- * point is refusing before a room is minted. Policy lives in soloThrottle.ts
- * (pure, injectable clock); this is the adapter's ledger + env read +
- * wall-clock, the I/O trio that stays out of the pure module. Memory is
- * bounded by the sweep inside admitSoloCreate (see that module's header).
- */
-const soloCreateLedger: SoloCreateLedger = new Map();
-/** One warning per process for the no-derivable-address fail-open (local dev —
- *  see clientIpFrom's trust model); never per-request log spam. */
-let warnedSoloThrottleNoIp = false;
-/**
- * Logged once per process on the FIRST create the throttle actually admits
- * (reviewer finding, Story 7-8): the rightmost-XFF trust model documented on
- * clientIpFrom is an unverified deployment assumption — nobody has confirmed
- * Render's edge appends exactly one hop. This flag caps the admit line to one
- * per process (the shape doesn't change request to request); every refusal
- * still logs unconditionally, since a refusal is by construction rare enough
- * not to be spam and is exactly the case where seeing the shape matters most.
- */
-let loggedFirstSoloThrottleAdmit = false;
-/** Static-door logger: no room, no matchId yet. */
-const doorLog = createLogger({ mode: MODE });
-
-/** TEST SEAM: clear the throttle's process-level state between tests. */
-export function resetSoloCreateThrottle(): void {
-  soloCreateLedger.clear();
-  warnedSoloThrottleNoIp = false;
-  loggedFirstSoloThrottleAdmit = false;
-}
-
-/**
- * `room.soloThrottleShape` — the ops observability line (Story 7-8 follow-up).
- * Never logs the raw header, only its entry COUNT and the derived rightmost
- * key, so the real XFF shape on Render can be read off logs without recording
- * anything a raw-header ban would object to. See `loggedFirstSoloThrottleAdmit`
- * for the admit/refusal cadence.
- */
-function logSoloThrottleShape(context: AuthContext | undefined, ip: string, admitted: boolean): void {
-  if (admitted) {
-    if (loggedFirstSoloThrottleAdmit) return;
-    loggedFirstSoloThrottleAdmit = true;
-  }
-  doorLog.info('room.soloThrottleShape', {
-    entries: xffEntryCount(context?.headers?.get('x-forwarded-for')),
-    rightmost: ip,
-    verdict: admitted ? 'admitted' : 'refused',
-  });
-}
-
-/**
- * The throttle verdict for one solo create — refusal message, or null to
- * admit (the stagingGateError shape). Runs AFTER the PV and staging gates, so
- * only a request that would otherwise mint a room ever consumes quota.
- *
- * Address derivation: the RIGHTMOST x-forwarded-for entry (proxy-appended —
- * client-forgeable only on its LEFT; see clientIpFrom for the full trust
- * model). The socket remote address is unreachable from static onAuth in
- * @colyseus/core 0.17.44 (the matchmake route's AuthContext carries headers
- * and a socketless WHATWG Request — router/default_routes.mjs builds `ip`
- * from the same headers), so with no header at all — a bare local run, where
- * no proxy exists to append one — the throttle FAILS OPEN with one logged
- * warning rather than refusing every local solo player.
- */
-function soloCreateGateError(context: AuthContext | undefined): string | null {
-  const limit = resolveSoloCreateLimit(process.env.HC_SOLO_CREATE_LIMIT);
-  if (limit === 0) return null; // explicitly disabled (load-test self-boot)
-  const ip = clientIpFrom(context?.headers?.get('x-forwarded-for'));
-  if (ip === null) {
-    if (!warnedSoloThrottleNoIp) {
-      warnedSoloThrottleNoIp = true;
-      doorLog.warn('room.soloThrottleNoIp', { reason: 'no x-forwarded-for; throttle fails open' });
-    }
-    return null;
-  }
-  const ok = admitSoloCreate(soloCreateLedger, ip, Date.now(), {
-    limit,
-    windowMs: SOLO_CREATE_WINDOW_MS,
-  });
-  logSoloThrottleShape(context, ip, ok);
-  return ok ? null : SOLO_CREATE_THROTTLE_ERROR;
-}
-
-/** The throwing shape of soloCreateGateError, so static onAuth stays under the
- *  complexity budget: refusal becomes the same ServerError the PV and staging
- *  gates throw, admission returns quietly. */
-function assertSoloCreateAllowed(context: AuthContext | undefined): void {
-  const throttled = soloCreateGateError(context);
-  if (throttled) throw new ServerError(ErrorCode.AUTH_FAILED, throttled);
-}
-
-/**
  * Render a thrown value into log fields WITHOUT ever throwing ourselves:
  * `String(err)` itself throws for prototype-less values (`throw
  * Object.create(null)`), and a throw here would escape the tick-error
@@ -212,11 +127,11 @@ function describeError(err: unknown): LogFields {
 /**
  * Close codes that earn the reconnect grace window (story 0.2, finding F1).
  * EXACTLY the set the @colyseus/sdk itself auto-reconnects on (verified against
- * @colyseus/sdk 0.17.43 Connection.onclose → handleReconnection) — genuine
+ * @colyseus/sdk 0.18.2 Connection.onclose → handleReconnection) — genuine
  * abnormal/network drops. Every other code is a punitive or deliberate close
  * that must tear down immediately: WITH_ERROR 4002 (rate-limit / malformed-
  * message kick — verified as the code core passes onDrop from
- * #_forciblyCloseClient in @colyseus/core 0.17.44 Room.ts), SERVER_SHUTDOWN,
+ * #_forciblyCloseClient in @colyseus/core 0.18.13 Room.mjs:1432), SERVER_SHUTDOWN,
  * FAILED_TO_RECONNECT, etc. (CONSENTED 4000 never reaches onDrop — core routes
  * it straight to onLeave). Referenced by name off the CloseCode enum re-exported
  * from 'colyseus'.
@@ -245,7 +160,9 @@ interface PingState {
 
 // Colyseus 0.17 changed the Room generic from `Room<State>` to
 // `Room<{ state: State }>` (the parameter is now a RoomOptions bag carrying
-// state/metadata/client types), so `this.state` types as ArenaState again.
+// state/metadata/client types — @colyseus/core 0.18.13 Room.d.ts:49 declares
+// `RoomOptions`, :128 declares `Room<T extends RoomOptions = RoomOptions>`),
+// so `this.state` types as ArenaState again.
 export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = CONFIG.map.playerCap;
   autoDispose = true;
@@ -400,9 +317,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const devEnabled = process.env.HC_DEV_OPTIONS === '1';
     const { sanitized, rejectedKeys } = sanitizeRoomOptions(options, devEnabled);
 
-    // mapSeed (dev-only, HC_DEV_OPTIONS-gated like the other overrides) pins
-    // the deterministic map for latency-harness smokes; production rooms
-    // always roll a random seed.
+    // mapSeed pins the deterministic map: dev-only (HC_DEV_OPTIONS-gated like
+    // the other overrides) for latency-harness smokes, OR the private lobby's
+    // host seed (cycle 167, ruling 3), admitted only under the server's lobby
+    // trust ticket. Every other room rolls a random seed.
     const seed = sanitized.mapSeed ?? (Math.random() * 0xffffffff) >>> 0;
     this.world = this.buildWorld(seed, sanitized);
 
@@ -439,6 +357,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * a dev option: nothing needs to pin rolls (smokes assert ring structure,
    * not specific offsets). Split out of onCreate so tests can pin that the
    * world actually receives caller-supplied seed material.
+   *
+   * NOTHING ABOUT THE CARD ECONOMY COMES THROUGH HERE ANY MORE (Story 8.14):
+   * the match pool, its seed and the three `deck.*` reporting seams are gone
+   * with the deck itself (amendments 89a/94). The common pool is the catalog,
+   * per-ship state is the only draw input, and the take ledger never leaves
+   * the World.
    */
   private buildWorld(seed: number, sanitized: SanitizedRoomOptions): World {
     const zoneCfg = sanitized.zoneOverride ?? CONFIG.zone;
@@ -474,7 +398,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    *
    * WHY `humans` IS PUBLISHED AT ALL — the driver's own `clients` count is not
    * this room's population, it is its SEAT LEDGER, and it over-reports in two
-   * ways that both land on the front page (verified in @colyseus/core 0.17.44
+   * ways that both land on the front page (verified in @colyseus/core 0.18.13
    * Room.mjs):
    *
    *   1. `#_decrementClientCount()` runs inside `#_onAfterLeave`, which for a
@@ -491,9 +415,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * reserved-but-unjoined seat is never in it. So the count published here is
    * the number of humans actually connected to this room, right now.
    *
-   * Both keys are written together as ONE object every time. setMetadata
-   * shallow-merges, so a partial write would be safe — but writing the pair
-   * keeps "what this room publishes" readable in one place.
+   * Both keys are written together as ONE object every time, and since
+   * Colyseus 0.18 that is a CORRECTNESS requirement rather than a tidiness
+   * one: `setMetadata` REPLACES the whole metadata object outright
+   * (`this._listing.metadata = meta`, @colyseus/core 0.18.13 Room.mjs:663-669)
+   * where 0.17 shallow-merged into it. A partial write is therefore a SILENT
+   * WIPE of every key it omits — so `publishListing` writes every key of
+   * ArenaListingMeta on every call, and colyseus018.test.ts pins that.
    *
    * The catch is load-bearing, not decoration: a bare `void` on an async call
    * makes any failure an UNHANDLED REJECTION that fails the whole test file
@@ -538,7 +466,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // Locking does NOT interfere with the seats the queue is about to reserve:
     // _reserveSeat checks maxClients and never consults `locked`, and the join
     // path consumes a reservation without testing it either. Verified against
-    // @colyseus/core 0.17.10.
+    // @colyseus/core 0.18.13 (Room.mjs:1302-1304 — the only gate is
+    // hasReachedMaxClients()).
     //
     // In production this is defence in depth — ArenaRoom.onAuth already refuses
     // every direct join without HC_DEV_OPTIONS — but it makes the guarantee
@@ -557,9 +486,15 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // participants from world.ships and checkWin() runs in that SAME update(),
     // so a roster holding only the human latches an instant victory, and any
     // bot arriving after that snapshot sinks unrecorded (recordSink refuses ids
-    // outside it). Building here — before setSimulationInterval below — is what
+    // outside it). Building here — before setTimestep below — is what
     // makes "before activate" structural rather than a race.
-    if (sanitized.solo) this.buildBotFleet();
+    if (sanitized.solo) this.buildBotFleet(CONFIG.map.playerCap - 1);
+    // PRIVATE LOBBY BOT FILL (cycle 167, ruling 4): fill the slots the lobby's
+    // captains do not take, to the fixed 20 — at the SAME point as solo, so the
+    // bots are in the water before activate() for the same reason.
+    if (sanitized.mode === 'private' && sanitized.botFill) {
+      this.buildBotFleet(CONFIG.map.playerCap - (sanitized.expectedCaptains ?? 1));
+    }
 
     // LISTING metadata for /liveness (Story 6.6). This is the ONLY place the
     // arena's mode is written down, and it goes on the ROOM LISTING — never
@@ -568,18 +503,19 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     //
     // FREE at create time: setMetadata skips its driver.persist while
     // `_internalState` is CREATING, and core only flips that to CREATED after
-    // onCreate returns (@colyseus/core 0.17.44 MatchMaker.mjs:298). It mutates
-    // `_listing` in place, and the create-time `driver.persist(listing, true)`
+    // onCreate returns (@colyseus/core 0.18.13 MatchMaker.mjs:307). It assigns
+    // `_listing.metadata` in place on the live listing, and the create-time
+    // `driver.persist(listing, true)`
     // that runs right after onCreate carries the metadata with it. So this
     // costs zero extra driver writes — one write, as before.
-    this.mode = sanitized.solo ? 'soloVsAi' : 'standard';
+    this.mode = ArenaRoom.listingModeOf(sanitized);
     this.publishListing();
 
     this.onMessage(MSG.input, (client: Client, raw: unknown) => this.onInputMessage(client, raw));
     this.onMessage(MSG.spend, (client: Client, raw: unknown) => this.onSpendMessage(client, raw));
     this.onMessage(MSG.ping, (client: Client, raw: unknown) => this.onPongMessage(client, raw));
 
-    this.setSimulationInterval((dt) => this.update(dt), INTERVAL_MS);
+    this.setTimestep((dt) => this.update(dt), INTERVAL_MS);
     // D1 RTT loop: ping every connected client on the room clock. The 'p'
     // channel rides the room-wide transport guard only (never the input store).
     this.clock.setInterval(() => this.sendPings(), CONFIG.net.pingIntervalMs);
@@ -704,14 +640,38 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       countdownMs: override?.countdownMs ?? base.countdownMs,
       resultsMs: override?.resultsMs ?? base.resultsMs,
       joinWindowMs: override?.joinWindowMs ?? base.joinWindowMs,
-      // ONE human is the whole cohort in a Solo vs AI room (Story 6.5), so the
-      // countdown must arm at one. minHumans is a PEOPLE count and stays one:
-      // the nineteen bots are participants, never humans, and never advance it.
-      // A dev matchOverride still wins, so no smoke's timings moved.
-      minHumans: override?.minHumans ?? (sanitized.solo ? 1 : undefined),
+      minHumans: ArenaRoom.minHumansFor(sanitized),
       expectedCaptains: sanitized.expectedCaptains,
       boardingGraceMs: base.boardingGraceMs,
+      // DEV ONLY (Story 8.10): sanitizeRoomOptions has already stripped the
+      // whole override without HC_DEV_OPTIONS=1, so this is undefined in
+      // production and the Match's arm stays dead.
+      autoMulligan: override?.mulligan,
     };
+  }
+
+  /** ONE human is the whole cohort in a Solo vs AI room (Story 6.5), so the
+   *  countdown must arm at one. minHumans is a PEOPLE count and stays one: the
+   *  nineteen bots are participants, never humans, and never advance it. A dev
+   *  matchOverride still wins, so no smoke's timings moved. (Split out of
+   *  timings() for the complexity budget — Story 8.10 added a field.) */
+  private static minHumansFor(sanitized: SanitizedRoomOptions): number | undefined {
+    return sanitized.matchOverride?.minHumans ?? ArenaRoom.doorMinHumans(sanitized);
+  }
+
+  /** The door's own minHumans: one for solo, and one for a BOT-FILLED private
+   *  arena (cycle 167, ruling 2 — the host may start alone with bot-fill on);
+   *  undefined = the CONFIG default (a private arena without bots needs 2,
+   *  exactly like a standard one). */
+  private static doorMinHumans(sanitized: SanitizedRoomOptions): number | undefined {
+    if (sanitized.solo) return 1;
+    return sanitized.mode === 'private' && sanitized.botFill ? 1 : undefined;
+  }
+
+  /** The listing tag for /liveness: which door formed this room. */
+  private static listingModeOf(sanitized: SanitizedRoomOptions): ArenaListingMeta['mode'] {
+    if (sanitized.solo) return 'soloVsAi';
+    return sanitized.mode === 'private' ? 'private' : 'standard';
   }
 
   /** The Match state machine's side effects, implemented on the room. */
@@ -729,8 +689,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
         this.lastResults = msg;
         this.broadcast(MSG.results, msg);
         // Match.finish() is the only caller — the one finish hook, so this is
-        // where match.end telemetry is emitted (story 0.3).
-        this.emitMatchEnd();
+        // where match.end telemetry is emitted (story 0.3) — and the match
+        // record handed over, under the SAME latch (Story 8.21, R3: a match
+        // that aborted wrote no match.end and writes no record).
+        if (this.emitMatchEnd() && this.match) this.handOverRecord(this.match);
       },
       // Story 6.3 (epic-6 amendments 15/17/18): the cohort-collapse signal, fired
       // by Match immediately BEFORE the disconnect it annotates. BEST-EFFORT AND
@@ -778,8 +740,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
   /**
    * FILL THE ROSTER WITH AI CAPTAINS (Story 6.5) — the whole server side of
-   * Solo vs AI. `CONFIG.map.playerCap - 1` bots, so the ocean holds a full
-   * lobby with the one human: the count is DERIVED from the cap rather than
+   * Solo vs AI. `count` is `CONFIG.map.playerCap - 1` for solo, and
+   * `playerCap - expectedCaptains` for a bot-filled private arena (cycle 167),
+   * so the ocean holds a full lobby either way: the count is DERIVED from the cap rather than
    * being a new constant, which keeps it in step with the spawn lattice (also
    * exactly playerCap candidates) and with the map radius, which is sized off
    * the same number.
@@ -791,11 +754,16 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * meets nineteen amber-hollow, plateless UNKNOWN VESSELs while the chrome bar
    * insists `1 AFLOAT`. With one, every surface works unmodified.
    */
-  private buildBotFleet(): void {
+  private buildBotFleet(count: number): void {
     const order = this.shuffledClasses();
-    const count = CONFIG.map.playerCap - 1;
     for (let i = 0; i < count; i += 1) {
-      const rec = this.world.addBot(order[i % order.length]);
+      // Bots draw from the SAME common pool a captain draws from (Story 8.14)
+      // and each MOUNTS A RANDOM GUN (Story 8.15, amendment 109): one of the
+      // three drawn UNIFORMLY off the room's seeded stream — the hue RNG, the
+      // one stream every other room roll rides — so staging fights all three
+      // guns and a pinned map seed seats a pinned fleet. Never Math.random.
+      const gun = GUN_IDS[this.hueRng.int(0, GUN_IDS.length - 1)];
+      const rec = this.world.addBot(order[i % order.length], undefined, gun);
       const meta = new PlayerMeta();
       meta.id = rec.id;
       meta.name = rec.name;
@@ -923,17 +891,28 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
+    const classId = sanitizeClassId(options.cls);
+    // Foghorn variant (Story 4.5): sanitized HERE like cls — a plain identity
+    // option, never a dev override — and handed straight to the ship record.
+    // Fail-open to 'standard'; no roster/PlayerMeta field (amendment 52).
+    const horn = sanitizeHornId(options.horn);
+    // THE SEAT'S GUN (Story 8.14) and the dev spawn fit — both resolved BEFORE
+    // anything is spawned or written. Neither can refuse a join any more (the
+    // deck door and its 4402 are gone): a bad gun coerces to `deckGun` and a
+    // dev fit outside HC_DEV_OPTIONS=1 is stripped.
+    const gun = this.resolveJoinGun(client, options);
+    const devFit = this.resolveDevFit(client, options);
+    // THE JOIN ORDINAL IS ROOM STATE, so it is bumped only once the join can
+    // no longer be refused. Incrementing it first BURNED an ordinal on every
+    // refusal: the next nameless captain came aboard as CAPTAIN-2 with no
+    // CAPTAIN-1 in the room, and assignHue's exhaustion fallback (joinOrder %
+    // 20) drifted with it.
     this.joinCounter += 1;
     // SECURITY (Story 2.3, deferred-work 127/130): options.name arrives verbatim
     // from joinOrCreate. sanitizeName type-guards it (a non-string used to THROW
     // on .trim()), trims it, and caps it at NAME_MAX code points; undefined ⇒
     // the CAPTAIN-n fallback.
     const name = sanitizeName(options.name) ?? `CAPTAIN-${this.joinCounter}`;
-    const classId = sanitizeClassId(options.cls);
-    // Foghorn variant (Story 4.5): sanitized HERE like cls — a plain identity
-    // option, never a dev override — and handed straight to the ship record.
-    // Fail-open to 'standard'; no roster/PlayerMeta field (amendment 52).
-    const horn = sanitizeHornId(options.horn);
     // A bot fleet was drawn BEFORE this captain arrived (Story 6.5), so its
     // callsigns were picked without knowing the player's. A shared name would
     // print two identical hulls in one kill feed with no way to tell them
@@ -944,7 +923,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // 13): the socket is the proof. Fleet hulls are world content spawned by
     // World itself and never reach this door; Story 6.4's AI captains will not
     // either.
-    this.world.addShip(client.sessionId, name, 'captain', classId, horn);
+    // `devFit` (Story 8.10, amendment 65) is EMPTY on every production path —
+    // the dev gate strips `fitOverride` and the queue never forwards it — so
+    // this is the shipped spawn unless a smoke asked for a pre-fitted weapon.
+    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, gun, devFit);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the
@@ -967,7 +949,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
     this.match?.notifyRosterChanged();
 
-    this.log.info('client.join', { sessionId: client.sessionId });
+    // The seat's gun rides the join line (Story 8.14, replacing `deckSource`):
+    // ops-only, and a captain's OWN pick — never another client's.
+    this.log.info('client.join', { sessionId: client.sessionId, gun });
     this.armJoiningDeadline(client);
     // /liveness (Story 6.6): the population moved. Publish-on-change, so a room
     // whose roster is stable never writes to the driver again.
@@ -975,8 +959,54 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   /**
+   * THE SEAT'S GUN AT THE ARENA DOOR (Story 8.14, amendment 95), in precedence
+   * order:
+   *
+   *   1. THE SEAT'S `auth.gun` — the value StandardQueueRoom sanitized and
+   *      FROZE when it seated this captain. It rides the server-only `auth`
+   *      payload exactly as the deck used to (core surfaces it as `client.auth`
+   *      in onJoin), so a queued captain's gun is one a client cannot reshape
+   *      between the queue and the arena.
+   *   2. THE JOIN OPTION, sanitized here — the Solo vs AI door and the dev
+   *      direct join, neither of which carries a seat.
+   *   3. `DEFAULT_GUN`, which is what both of the above fail open to anyway.
+   *
+   * NOTHING REFUSES. `sanitizeGun` coerces rather than throwing, so unlike the
+   * deck door this join can never bounce; a malformed seat value is simply not
+   * a GunId and falls through to the option, then to the default.
+   */
+  private resolveJoinGun(client: Client, options: JoinOptions): GunId {
+    const auth: unknown = client.auth;
+    const seated: unknown = typeof auth === 'object' && auth !== null ? (auth as { gun?: unknown }).gun : undefined;
+    if (isGunId(seated)) return seated;
+    return sanitizeGun(options.gun, this.log);
+  }
+
+  /**
+   * THE DEV SPAWN FIT at the arena door (Story 8.10, amendment 65; re-homed in
+   * 8.14 when the deck door was deleted). `sanitizeRoomOptions` owns the dev
+   * gate and the shape check, so this is the same admission every other dev
+   * knob gets — and EMPTY on every production path, because the env is unset
+   * and the queue never forwards the key.
+   *
+   * THE REJECTIONS ARE LOGGED (Story 8.14 review, F6), once, on the same
+   * `devOptionsRejected` event `onCreate` writes for the ROOM's options — the
+   * roomOptions contract promises a rejected dev key is announced rather than
+   * silently swallowed, and until now this door threw `rejectedKeys` away, so a
+   * smoke that mistyped `fitOverride` saw a ship spawn bare with no line saying
+   * why. `sessionId` distinguishes it from the room-create line.
+   */
+  private resolveDevFit(client: Client, options: JoinOptions): readonly string[] {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions(options as RoomOptions, process.env.HC_DEV_OPTIONS === '1');
+    if (rejectedKeys.length > 0) {
+      this.log.warn('join.devOptionsRejected', { rejected: rejectedKeys, sessionId: client.sessionId });
+    }
+    return sanitized.fitOverride ?? [];
+  }
+
+  /**
    * Resume door (Story 6.7). Core calls this INSTEAD OF onJoin on the
-   * reconnection branch (verified in @colyseus/core 0.17.44 Room.mjs:693-701 —
+   * reconnection branch (verified in @colyseus/core 0.18.13 Room.mjs:1063-1090 —
    * `isWaitingReconnection` short-circuits the onJoin path entirely), so the
    * seat, the ship, the roster row, the hue and the input store all still exist
    * and NOTHING here may re-create any of them: a second `world.addShip` would
@@ -1010,7 +1040,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * JOINING-deadline kick (story 0.3, deferred-work pickup). Core pushes the
    * client into `this.clients` BEFORE onJoin runs, and the client stays
    * ClientState.JOINING until its JOIN_ROOM ack arrives over the wire
-   * (verified in @colyseus/core 0.17 Room._onJoin → _onMessage) — so a client
+   * (verified in @colyseus/core 0.18.13 Room._onJoin → _onMessage) — so a client
    * that never completes the handshake holds a roster slot and an unbounded
    * `_enqueuedMessages` buffer forever. Arm an unconditional per-client
    * deadline and decide at FIRE time (race-free: a client that reached JOINED
@@ -1055,8 +1085,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * clears the input store) as a visible, huntable participant that still
    * counts in the win check. Everyone else falls through to immediate teardown.
    *
-   * Teardown ordering, verified against the installed @colyseus/core 0.17
-   * Room.ts (_onLeave → #_onAfterLeave):
+   * Teardown ordering, verified against the installed @colyseus/core 0.18.13
+   * Room.mjs (_onLeave :1442 → #_onAfterLeave :1472):
    * - 'teardown': we do NOTHING here — core always invokes onLeave right
    *   after an onDrop that set up no reconnection.
    * - 'hold': core defers; on grace expiry / rejection / room dispose it
@@ -1093,6 +1123,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // `code ?? null` so the close code ALWAYS survives JSON.stringify —
       // undefined would silently drop the field and lose the forensics.
       this.log.info('client.drop', { sessionId: client.sessionId, code: code ?? null });
+      // A machine gun held at the drop would stream on the ghost for the
+      // whole grace (streamControl reads the stored LEVEL): release it. The
+      // helm keeps its last input (ghost sailing, as before).
+      this.world.releaseHeld(client.sessionId);
       this.allowReconnection(client, CONFIG.net.reconnectGraceSeconds)
         .then((newClient) => {
           this.log.info('client.resume', { sessionId: client.sessionId });
@@ -1114,9 +1148,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
           this.armJoiningDeadline(newClient);
         })
         // Finding F3: defensive — the deferred REJECTS on grace expiry / room
-        // dispose. Core routes that into onLeave → teardown (Room.ts _onLeave,
-        // ~1750), and @colyseus/core 0.17.44 already attaches its own internal
-        // rejection handler, so the installed version never leaks an
+        // dispose. Core routes that into onLeave → teardown (Room.mjs
+        // _onLeave :1442), and @colyseus/core 0.18.13 already attaches its own
+        // internal rejection handler, so the installed version never leaks an
         // unhandledRejection. This catch is belt-and-suspenders against a
         // future core patch dropping that guarantee, and also swallows the
         // rejection on the promise reference we retain via .then() above.
@@ -1220,6 +1254,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const start = performance.now();
     try {
       this.world.step(SIM_DT_MS);
+      // The uncapped minefield's only bound is measurement (Story 8.4): report
+      // this room's live-mine count so `/metrics` can hold its process-wide
+      // peak. A count, nothing else — and read right after the step, so a
+      // cascade that cleared the water is already reflected.
+      recordMinesLive(this.world.mineCount);
+      // ...and the live SMOKE SCREEN puff count (Story 8.18), on the same terms.
+      recordSmokeLive(this.world.smokeCount);
       this.match?.update();
       this.observeMatchActivation();
       this.afterStep();
@@ -1317,10 +1358,44 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * abort guard here is load-bearing, not decorative. No session ids or
    * player names ride on this line (telemetry PII rule).
    */
-  private emitMatchEnd(): void {
-    if (this.matchEndEmitted || this.matchAbortEmitted || !this.match) return;
+  private emitMatchEnd(): boolean {
+    if (this.matchEndEmitted || this.matchAbortEmitted || !this.match) return false;
     this.matchEndEmitted = true;
     this.log.info('match.end', { matchId: this.matchId, mode: MODE, ...this.match.endSummary() });
+    return true;
+  }
+
+  /**
+   * THE MATCH RECORD HAND-OVER (Story 8.21) — called only when emitMatchEnd
+   * just emitted, so exactly once per finished match and never on an abort.
+   * FIRE-AND-FORGET: the writer's promise is never awaited on the tick, and a
+   * writer that rejects OR throws synchronously is logged, never propagated
+   * (the tick that finishes a match must not be the tick a store breaks).
+   * The log is COUNTS ONLY — no names, ids or line ids (NFR24).
+   */
+  private handOverRecord(match: Match): void {
+    const matchId = this.matchId;
+    const failed = (err: unknown): void => {
+      try {
+        this.log.warn('account.write.failed', { matchId, err: describeError(err).error });
+      } catch {
+        /* diagnostics are best-effort; the tick behind us is not */
+      }
+    };
+    try {
+      const record = buildMatchRecord(match, {
+        matchId,
+        mode: this.mode,
+        gameVersion: getGameVersion(),
+        endedAtEpochMs: Date.now(),
+      });
+      void getAccountWriter().recordMatch(record).catch(failed);
+      // Logged AFTER the call returns, so the count line never asserts a
+      // hand-over a synchronously throwing writer refused (review gate).
+      this.log.info('match.record', { matchId, participants: record.participants.length, hands: handCount(record) });
+    } catch (err) {
+      failed(err);
+    }
   }
 
   /**

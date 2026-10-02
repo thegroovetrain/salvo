@@ -6,16 +6,18 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, SHELL_FAMILIES, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
   SIGNAL_REGISTRY,
+  ballisticGateOpen,
   signalFor,
   type BurstSubject,
   type FoggedSignalContext,
   type SpectatorSignalContext,
 } from '../game/signals.js';
+import { observe } from '../game/perception.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 
 const SIGHT = CONFIG.vision.sight;
@@ -35,7 +37,7 @@ function bareWorld(seed = 1, opts: WorldOptions = {}): World {
 
 /** Add a ship and teleport it to an exact pose (speed 0 unless overridden). */
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+  const rec = w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -47,8 +49,8 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
  *  and the radar modes + pseudonym resolver (radar realism cycle) — off the world. */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
-    mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, buoys: w.buoys, me, wakes: w.wakeRibbons,
+    mode: 'fogged', observerId: me.id, now, islands: w.map.islands, mapRadius: w.map.radius, heightRaster: w.map.heightRaster, ships: w.ships,
+    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, chaffSources: w.chaffSources, smoke: w.smokePuffs, me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -57,8 +59,8 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 /** The spectator sibling of foggedCtx (the record-less 'ghost' observer). */
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
-    mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, buoys: w.buoys, me: undefined, wakes: w.wakeRibbons,
+    mode: 'spectator', observerId, now: w.now, islands: w.map.islands, mapRadius: w.map.radius, heightRaster: w.map.heightRaster, ships: w.ships,
+    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, chaffSources: w.chaffSources, smoke: w.smokePuffs, me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -66,7 +68,7 @@ function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
 
 /** Drop a lit zone directly into world state (Story 1.7). */
 function injectZone(w: World, id: string, ownerId: string, x: number, y: number, r = CONFIG.starShells.litRadius, until = 999_999): void {
-  w.litZones.set(id, { id, ownerId, x, y, r, until, phosphor: false, dazzle: false });
+  w.litZones.set(id, { id, ownerId, x, y, r, until });
 }
 
 function makeShell(overrides: Partial<ShellState> = {}): ShellState {
@@ -80,25 +82,29 @@ function makeShell(overrides: Partial<ShellState> = {}): ShellState {
     distLeft: 100,
     bornAt: 0,
     kind: 'shell',
+    family: overrides.kind === 'torp' ? null : 'cannon',
     damage: 10,
     hitRadius: 5,
     targetX: null,
     targetY: null,
     burstRadius: 0,
     contactDamage: 10,
+    hits: CONFIG.gun.hits,
     ...overrides,
   };
 }
 
 function makeMine(overrides: Partial<MineState> = {}): MineState {
-  return { id: 'm1', ownerId: 'a', x: 0, y: 0, armedAt: 0, ...overrides };
+  return { id: 'm1', ownerId: 'a', x: 0, y: 0, armedAt: 0, kind: 'naval', hp: 10, ...overrides };
 }
 
 const REGISTRY_KEYS = [
   'contact',
   'mine',
   'litzone',
-  'buoy', // Story 7-5 wave 2: the radar buoy's contact-like frame channel
+  'burnzone', // Story 8.17: the PHOSPHOR burning zone's contact-like channel, on the lit zone's gate (amendment 135(f))
+  'decoy', // Story 8.16: the DECOY BUOY's contact-like frame channel (the deleted radar buoy's `buoy` seat)
+  'smoke', // Story 8.18: the SMOKE SCREEN puff's contact-like frame channel (owner / spectator / sight + radius with island-only LOS)
   'blip',
   'shell',
   'torp',
@@ -112,6 +118,8 @@ const REGISTRY_KEYS = [
   'torpU',
   'pt',
   'bn',
+  // Drone drops (Eric ruling 2026-10-01) — the killer-private STOCKED receipt.
+  'dp',
   // Story 4.3 — the gunnery conversation's three declared fog exceptions.
   'sp',
   'hc',
@@ -134,9 +142,9 @@ const REGISTRY_KEYS = [
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 22 known channels (18 event kinds + 4 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added)', () => {
+  it('has exactly the 25 known channels (19 event kinds + 6 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added; Story 8.17: `burnzone` added; Story 8.18: `smoke` added; 2026-10-01: `dp` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(22);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(25);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; NO row carries a counterIntel seam any more (Story 7-5 wave 2)', () => {
@@ -146,8 +154,8 @@ describe('SIGNAL_REGISTRY — row shape', () => {
       expect(typeof row.materialize).toBe('function');
       // The blip row carried the game's ONLY counterIntel implementation — the
       // decoy's radar-double lie. The decoy is deleted (R2.6) and the seam went
-      // with it: nothing fabricates a signal. The jamming buoy (R2.11) will
-      // re-establish it WITH its own oracle carve-out, not inherit a dormant one.
+      // with it. CHAFF's fakes (Story 8.16) are not a row seam: they merge
+      // into the blip subsequence with their own oracle carve-out.
       expect((row as { counterIntel?: unknown }).counterIntel).toBeUndefined();
     }
   });
@@ -184,15 +192,46 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(wire).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   });
 
-  it('shell row: [k,id,x,y,vx,vy,t]', () => {
+  it('shell row: [k,id,x,y,vx,vy,t,w] — the family LAST (Story 8.15), from the three-word set', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const shell = makeShell({ id: 's1', ownerId: 'a', kind: 'shell' }); // owner always sees it
     const row = signalFor('shell')!;
     const ctx = foggedCtx(w, a);
-    expect(row.visible(ctx, shell)).toBe(true);
-    const wire = row.materialize(ctx, shell);
+    for (const family of SHELL_FAMILIES) {
+      const shell = makeShell({ id: 's1', ownerId: 'a', kind: 'shell', family }); // owner always sees it
+      expect(row.visible(ctx, shell)).toBe(true);
+      const wire = row.materialize(ctx, shell);
+      expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't', 'w']);
+      expect((wire as BallisticEvent).w).toBe(family);
+    }
+  });
+
+  it('shell row with NO family (a directed record) carries no `w` key at all — never an undefined value', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const shell = makeShell({ id: 's1', ownerId: 'a', kind: 'shell', family: null });
+    const wire = signalFor('shell')!.materialize(foggedCtx(w, a), shell);
     expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't']);
+  });
+
+  it('torp row NEVER carries `w`, even on a record that (illegally) names a family', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const torp = makeShell({ id: 't1', ownerId: 'a', kind: 'torp', family: 'cannon' });
+    const wire = signalFor('torp')!.materialize(foggedCtx(w, a), torp);
+    expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't']);
+  });
+
+  it('the World\'s own LAUNCH ballisticEvent carries `w` for every shell family and NEVER for a torp (even one naming a family)', () => {
+    const w = bareWorld();
+    const launch = (s: ShellState): BallisticEvent => (w as unknown as { ballisticEvent(s: ShellState): BallisticEvent }).ballisticEvent(s);
+    for (const family of SHELL_FAMILIES) {
+      const ev = launch(makeShell({ id: 's1', kind: 'shell', family }));
+      expect(Object.keys(ev)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't', 'w']);
+      expect(ev.w).toBe(family);
+    }
+    expect('w' in launch(makeShell({ id: 't1', kind: 'torp' }))).toBe(false);
+    expect('w' in launch(makeShell({ id: 't2', kind: 'torp', family: 'cannon' }))).toBe(false);
   });
 
   it('torp row: [k,id,x,y,vx,vy,t]', () => {
@@ -243,26 +282,69 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(foggedCtx(w, me), wireShaped as never)).toBe(false);
   });
 
-  it('mine row: [id,x,y,own,by] — `by` (dropper id) appended LAST (Story 1.12)', () => {
+  it('mine row: [id,x,y,own,by,c] for the OWNER — `by` (dropper id, Story 1.12) then the kind `c` LAST (Story 8.13; for everyone since cycle 162)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const mine = makeMine({ ownerId: 'a', x: 50, y: 0 }); // owner sees it always
+    const mine = makeMine({ ownerId: 'a', x: 50, y: 0, kind: 'captive' }); // owner sees it always
     const row = SIGNAL_REGISTRY.mine; // pseudo-row: direct access (not signalFor)
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, mine)).toBe(true);
     const wire = row.materialize(ctx, mine);
-    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'own', 'by']);
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
     expect((wire as { by: string }).by).toBe('a'); // the dropper's ship id
+    expect((wire as MineView).c).toBe('captive');
+  });
+
+  it('mine row: [id,x,y,own,by,c] for EVERY OTHER observer too — the kind rides every delivered row (Eric 2026-10-01, cycle 162, PV 68; supersedes amendment 76)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const row = SIGNAL_REGISTRY.mine;
+    for (const kind of ['naval', 'captive', 'fouling'] as const) {
+      const mine = makeMine({ id: kind, ownerId: 'z', x: 50, y: 0, kind }); // enemy mine, inside detect
+      expect(row.visible(foggedCtx(w, a), mine)).toBe(true);
+      const wire = row.materialize(foggedCtx(w, a), mine) as MineView;
+      expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']); // the historical prefix, then the kind LAST
+      expect(wire).toEqual({ id: kind, x: 50, y: 0, own: false, by: 'z', c: kind });
+      // The spectator path carries it too (it is a field on a delivered row,
+      // not a new delivery — the sight gate above is what guards the mine).
+      const spec = row.materialize(specCtx(w), mine) as MineView;
+      expect(Object.keys(spec)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
+      expect(spec.c).toBe(kind);
+    }
   });
 
   // RETIRED (Story 7-5 wave 2): the `decoy` row's key-order pin and the two
   // blip-counterIntel pins (wire-shape identity with a real paint, and the
   // FR10 contact-coexistence suppression). All three assert about a channel
   // and a seam that are DELETED — the decoy buoy no longer exists and nothing
-  // fabricates a ship contact. They are not adapted to the RADAR BUOY: it
-  // paints on its OWN profile with no owner identity (R2.9), which is an
-  // ordinary return rather than a lie, and its `buoys` channel lands with the
-  // buoy itself (a later agent) along with its own key-order pin.
+  // fabricates a ship contact. (The Story 8.16 DECOY BUOY's `decoy` row is
+  // pinned below with its own key order.)
+
+  it('decoy row (Story 8.16): [id,x,y,own,by] for others, `hp` appended LAST for the owner only; the mine visibility rule', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 2000, 0); // far away: neither sight nor detect
+    const decoy = { id: 'd1', ownerId: 'a', x: 30, y: 0, hp: 50, poly: [] };
+    const row = SIGNAL_REGISTRY.decoy; // pseudo-row: direct access (not signalFor)
+    // OWNER: always visible, `hp` present and LAST.
+    expect(row.visible(foggedCtx(w, a), decoy)).toBe(true);
+    const own = row.materialize(foggedCtx(w, a), decoy);
+    expect(Object.keys(own as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'hp']);
+    expect(own).toEqual({ id: 'd1', x: 30, y: 0, own: true, by: 'a', hp: 50 });
+    // A FAR non-owner: invisible (beyond detect, no lit zone).
+    expect(row.visible(foggedCtx(w, b), decoy)).toBe(false);
+    // Move b inside DETECT range: visible, `by` rides, `hp` key ABSENT.
+    b.state.x = 60;
+    expect(row.visible(foggedCtx(w, b), decoy)).toBe(true);
+    const other = row.materialize(foggedCtx(w, b), decoy);
+    expect(Object.keys(other as object)).toEqual(['id', 'x', 'y', 'own', 'by']);
+    expect('hp' in (other as object)).toBe(false);
+    // The spectator sees every decoy, never as own.
+    expect(row.visible(specCtx(w), decoy)).toBe(true);
+    expect('hp' in (row.materialize(specCtx(w), decoy) as object)).toBe(false);
+    // A fabricated k:'decoy' world event never dispatches (pseudo-row).
+    expect(signalFor('decoy')).toBeUndefined();
+  });
 
   it('litzone row: [id,x,y,r,until,by,mode] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {
     const w = bareWorld();
@@ -280,26 +362,41 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect('ownerId' in (wire as object)).toBe(false); // the wire key is `by`, never the internal name
   });
 
-  it('litzone row carries the zone\'s DOCTRINE VERBS verbatim and INDEPENDENTLY (Story 2.9 amendment 50, Story 7-5 wave 1)', () => {
+  it('litzone row carries NO doctrine verbs any more (Story 8.17, amendment 134): exactly [id,x,y,r,until,by]', () => {
     const w = bareWorld();
     const b = place(w, 'b', 0, 0); // a NON-owner observer within radar range
-    w.litZones.set('zi', { id: 'zi', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, phosphor: true, dazzle: false });
-    w.litZones.set('zd', { id: 'zd', ownerId: 'a', x: 0, y: 400, r: 165, until: 999_999, phosphor: false, dazzle: true });
-    w.litZones.set('zb', { id: 'zb', ownerId: 'a', x: 0, y: -400, r: 165, until: 999_999, phosphor: true, dazzle: true });
+    w.litZones.set('zi', { id: 'zi', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999 });
     const row = SIGNAL_REGISTRY.litzone;
     const ctx = foggedCtx(w, b);
-    const cases = [
-      ['zi', true, undefined],
-      ['zd', undefined, true],
-      ['zb', true, true], // BOTH verbs on one zone — unrepresentable pre-7-5
-    ] as const;
-    for (const [id, phos, daz] of cases) {
-      const zone = w.litZones.get(id)!;
-      expect(row.visible(ctx, zone)).toBe(true); // radar-gated non-owner sees the circle
-      const wire = row.materialize(ctx, zone) as { phos?: true; daz?: true };
-      expect(wire.phos).toBe(phos);
-      expect(wire.daz).toBe(daz);
+    const wire = row.materialize(ctx, w.litZones.get('zi')!) as unknown as Record<string, unknown>;
+    expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'r', 'until', 'by']);
+    expect('phos' in wire).toBe(false);
+    expect('daz' in wire).toBe(false);
+  });
+
+  it('burnzone row (Story 8.17, amendment 135(f)): the LIT ZONE\'s gate byte-for-byte, shape [id,x,y,r,until,by], `dps` never rides', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0); // the firer
+    const b = place(w, 'b', 100, 0); // a NON-owner observer within radar range of the centre
+    const far = place(w, 'far', -RADAR - 100, 0); // centre at RADAR + 500: beyond its radar
+    w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 110, until: 12_345, dps: 7 });
+    const zone = w.burnZones.get('bz1')!;
+    const row = SIGNAL_REGISTRY.burnzone;
+    expect(row.eventType).toBe('burnzone');
+    expect(row.visible(foggedCtx(w, a), zone)).toBe(true); // owner always
+    expect(row.visible(foggedCtx(w, b), zone)).toBe(true); // centre within radar — no LOS, no sweep
+    expect(row.visible(foggedCtx(w, far), zone)).toBe(false); // centre beyond radar
+    expect(row.visible(specCtx(w, 'far'), zone)).toBe(true); // spectators see all
+    // The lit-zone gate, byte-for-byte: the SAME predicate answers for both rows.
+    const asLit = { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 110, until: 12_345 };
+    for (const me of [a, b, far]) {
+      expect(row.visible(foggedCtx(w, me), zone)).toBe(SIGNAL_REGISTRY.litzone.visible(foggedCtx(w, me), asLit));
     }
+    const wire = row.materialize(foggedCtx(w, b), zone) as unknown as Record<string, unknown>;
+    expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'r', 'until', 'by']);
+    expect(wire).toEqual({ id: 'bz1', x: 400, y: 0, r: 110, until: 12_345, by: 'a' });
+    expect('dps' in wire).toBe(false); // the firer's tier is a build read — never on the wire
+    expect('ownerId' in wire).toBe(false);
   });
 
   it('boom row, STRIPPED variant: [k,id,x,y], no "hit" key — fogged observer sights the impact but not the victim center', () => {
@@ -588,7 +685,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
   function zoneWorld(): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, phosphor: false, dazzle: false });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
     return { w, a };
   }
 
@@ -624,7 +721,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     const { w, a } = zoneWorld();
     // A DRONE wreck isolates the zone clause: a human wreck would be visible
     // via the public register regardless (PV 23), a drone only when witnessed.
-    const d = w.addShip('db', 'DRONE-01', 'fleet', 'droneSmall');
+    const d = w.addShip('db', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
     d.state.x = 900;
     d.state.y = 0;
     w.sinkShip('db');
@@ -648,7 +745,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     // The sunk row's zone clause is probed with a DRONE wreck: a human wreck
     // is now visible everywhere via the public-register clause (PV 23 — see
     // the dedicated suite below), so only a drone still isolates the zone term.
-    const d = w.addShip('db', 'DRONE-01', 'fleet', 'droneSmall');
+    const d = w.addShip('db', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
     d.state.x = 900;
     d.state.y = 0;
     w.sinkShip('db');
@@ -673,7 +770,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     a.sweepAngle = wrapPositive(0.02); // beam crossing bearing 0 this tick
     const row = signalFor('blip')!;
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // sanity: paints without a zone
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, phosphor: false, dazzle: false });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
     expect(row.visible(foggedCtx(w, a), b)).toBe(false); // contact tier now — never a blip
   });
 });
@@ -685,7 +782,7 @@ describe('SIGNAL_REGISTRY — sunk: the public register (PV 23, 4th declared exc
 
   /** A drone wreck teleported far outside every range, sunk by `by`. */
   function sinkDroneFar(w: World, by?: string): void {
-    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall');
+    const d = w.addShip('d1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
     d.state.x = 2000;
     d.state.y = 0;
     w.sinkShip('d1', by);
@@ -883,6 +980,87 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
   });
 });
 
+// ---------- Story 8.13: ONE gate predicate, and a mark that is per-visit -----
+
+describe('SIGNAL_REGISTRY — ballisticGateOpen is THE reveal gate (Story 8.13, amendment 78): rows and the clear step share one boolean', () => {
+  const DETECT = SIGHT * 0.75;
+
+  it('answers the torp row\'s gate: owner-always / DETECT+LOS / owned zone; spectator open; record-less spectator closed', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const ctx = foggedCtx(w, a);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'own', ownerId: 'a', kind: 'torp', x: 5_000, y: 0 }))).toBe(true);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'in', ownerId: 'z', kind: 'torp', x: DETECT, y: 0 }))).toBe(true);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'out', ownerId: 'z', kind: 'torp', x: DETECT + 0.01, y: 0 }))).toBe(false);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'sighted', ownerId: 'z', kind: 'torp', x: 300, y: 0 }))).toBe(false); // sighted ≠ detected
+    injectZone(w, 'z1', 'a', 500, 0);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'zoned', ownerId: 'z', kind: 'torp', x: 500, y: 0 }))).toBe(true);
+    w.map.islands.push(circleIsland(100, 0, 40));
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'rock', ownerId: 'z', kind: 'torp', x: 200, y: 0 }))).toBe(false); // LOS is in the gate
+    expect(ballisticGateOpen(specCtx(w), makeShell({ id: 'ghost', ownerId: 'z', kind: 'torp', x: 5_000, y: 0 }))).toBe(false); // no record: closed
+    expect(ballisticGateOpen({ ...specCtx(w), me: a }, makeShell({ id: 'spec', ownerId: 'z', kind: 'torp', x: 5_000, y: 0 }))).toBe(true);
+  });
+
+  it('branches on the record\'s own kind: a shell opens at truesight where a torpedo stays closed', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const ctx = foggedCtx(w, a);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 's', ownerId: 'z', kind: 'shell', x: SIGHT, y: 0 }))).toBe(true);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 's2', ownerId: 'z', kind: 'shell', x: SIGHT + 0.01, y: 0 }))).toBe(false);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 't', ownerId: 'z', kind: 'torp', x: SIGHT, y: 0 }))).toBe(false);
+  });
+
+  it('the rows AGREE with the gate on every probe: visible() ⇔ (unmarked ∧ gate open), for shell, torp, and — with a drifted baseline — torpU', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    injectZone(w, 'z1', 'a', 600, 0);
+    w.map.islands.push(circleIsland(150, 0, 30));
+    const ctx = foggedCtx(w, a);
+    const probes: Array<[string, number, number]> = [
+      ['a', 900, 900], ['z', DETECT, 0], ['z', DETECT + 0.01, 0], ['z', 300, 0], ['z', SIGHT, 0], ['z', SIGHT + 0.01, 0],
+      ['z', 600, 0], ['z', 610, 0], ['z', 200, 0], ['z', 200, 40], ['z', -200, 0], ['z', 0, 0],
+    ];
+    let checked = 0;
+    for (const [ownerId, x, y] of probes) {
+      for (const kind of ['shell', 'torp'] as const) {
+        const id = `${kind}-${x}-${y}-${ownerId}`;
+        const shell = makeShell({ id, ownerId, kind, x, y });
+        const gate = ballisticGateOpen(ctx, shell);
+        expect(signalFor(kind)!.visible(ctx, shell)).toBe(gate); // unmarked: the row IS the gate
+        a.seenBallistics.add(id);
+        expect(signalFor(kind)!.visible(ctx, shell)).toBe(false); // marked: silent whatever the gate says
+        if (kind === 'torp') {
+          a.torpDirs.set(id, Math.PI); // baseline far from the live +x heading: drifted
+          const homing = { ...shell, homing: { turnRate: 1, acquireRange: 120 } };
+          expect(signalFor('torpU')!.visible(ctx, homing)).toBe(gate); // updates stop exactly where the gate closes
+        }
+        checked += 1;
+      }
+    }
+    expect(checked).toBe(probes.length * 2);
+  });
+
+  it('the mark is PER VISIT: a marked projectile OUTSIDE the gate is un-marked by the scan and reveals again on re-entry; INSIDE it stays marked and silent', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const torp = makeShell({ id: 't1', ownerId: 'z', kind: 'torp', x: 200, y: 0, homing: { turnRate: 1, acquireRange: 120 } });
+    w.shells.set('t1', torp);
+    const torps = (): BallisticEvent[] => observe(w, 'a').events.filter((e): e is BallisticEvent => e.k === 'torp');
+    expect(torps().map((e) => e.id)).toEqual(['t1']); // first visit
+    expect(a.seenBallistics.has('t1')).toBe(true);
+    expect(a.torpDirs.has('t1')).toBe(true);
+    expect(torps()).toEqual([]); // inside, marked: silent, mark kept
+    expect(a.seenBallistics.has('t1')).toBe(true);
+    torp.x = 300; // sighted but NOT detected: outside the torp gate
+    expect(torps()).toEqual([]);
+    expect(a.seenBallistics.has('t1')).toBe(false); // the clear step ran
+    expect(a.torpDirs.has('t1')).toBe(false); // ...and took the homing baseline with it
+    torp.x = 200; // back inside
+    expect(torps().map((e) => e.id)).toEqual(['t1']); // second visit: revealed again, once
+    expect(torps()).toEqual([]);
+  });
+});
+
 // ---------- the Story 4.9 detect gate (mine / torp / torpU — and ONLY those) --
 
 describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): mine, torp, and torpU rows only', () => {
@@ -931,13 +1109,17 @@ describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): m
     }
   });
 
-  it('detect is the OBSERVER\'S OWN scaled sight (amendment 121): dazzle halves it on all three rows', () => {
+  it('detect is the OBSERVER\'S OWN scaled sight (amendment 121): a FLASH dazzle collapses it on all three rows', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.dazzledUntil = w.now + 10_000; // detect collapses to 0.75 × 165 = 123.75
-    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 200, y: 0 }))).toBe(false);
-    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 120, y: 0 }))).toBe(true);
-    expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 200, y: 0 }))).toBe(false);
+    // Story 8.17 (amendment 132): dazzled sight is radarRange / 8 = 82.5, so
+    // detect collapses to 0.75 × 82.5 = 61.875 (it was 123.75 under the ×0.5
+    // star-shell verb).
+    a.dazzledUntil = w.now + 10_000;
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 120, y: 0 }))).toBe(false);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 61.875, y: 0 }))).toBe(true);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 62, y: 0 }))).toBe(false);
+    expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 120, y: 0 }))).toBe(false);
   });
 
   // RETIRED (Story 7-5 wave 2): "the decoy row does NOT ride detect". The row
@@ -952,7 +1134,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
   // kinds. The three contact/mine/litzone pseudo-rows are unreachable from
   // it (a fabricated k:'mine'/'litzone' world event can never
   // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'dp', 'sp', 'hc', 'mz', 'heal', 'sm'];
 
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();
@@ -970,6 +1152,9 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(signalFor('contact')).toBeUndefined();
     expect(signalFor('mine')).toBeUndefined();
     expect(signalFor('litzone')).toBeUndefined();
+    expect(signalFor('burnzone')).toBeUndefined(); // Story 8.17: the fifth pseudo-row, never a world event
+    expect(signalFor('smoke')).toBeUndefined(); // Story 8.18: the sixth pseudo-row — a forged k:'smoke' world event never materializes a SmokeView
+    expect(SIGNAL_REGISTRY.smoke).toBeDefined();
     // ...but the rows themselves still exist for direct scan-driven access.
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();

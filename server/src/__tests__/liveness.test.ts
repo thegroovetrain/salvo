@@ -29,6 +29,7 @@ import {
   LIVENESS_CACHE_MS,
   ARENA_ROOM,
   QUEUE_ROOM,
+  LOBBY_ROOM,
   livenessEndpoint,
   viewerIdOf,
   homeViewers,
@@ -226,9 +227,10 @@ describe('modeOf — defensive defaulting', () => {
     expect(modeOf({ mode: 42 })).toBe('standard');
   });
 
-  it('recognizes exactly the tag ArenaRoom publishes', () => {
+  it('recognizes exactly the tags ArenaRoom publishes', () => {
     expect(modeOf({ mode: 'soloVsAi' })).toBe('soloVsAi');
     expect(modeOf({ mode: 'standard' })).toBe('standard');
+    expect(modeOf({ mode: 'private' })).toBe('private'); // cycle 167
   });
 });
 
@@ -814,7 +816,7 @@ function arenaRoom(options: Record<string, unknown> = {}): {
   r.disconnect = vi.fn(() => Promise.resolve());
   r.broadcast = vi.fn();
   r.onMessage = vi.fn();
-  r.setSimulationInterval = vi.fn();
+  r.setTimestep = vi.fn();
   r.clock = { setInterval: vi.fn(), setTimeout: vi.fn() };
   r.clients = [];
   r.setMetadata = vi.fn(() => Promise.resolve());
@@ -903,19 +905,38 @@ describe('ArenaRoom publishes its live human count (F12)', () => {
 // --- F11: one router, so the playground still lists /liveness ----------------
 
 describe('the HTTP router carries both endpoints (F11)', () => {
-  it('registers /metrics AND /liveness in core __globalEndpoints', async () => {
-    // core's createRouter is the ONLY thing that assigns __globalEndpoints,
-    // which @colyseus/playground reads to list the server's routes; better-
-    // call's `.extend()` builds its own router and never touches the global,
-    // so the endpoint added by extend was invisible in the dev playground.
-    const colyseus = await import('colyseus');
-    await import('../app.config.js');
-    // Read THROUGH the namespace: `__globalEndpoints` is a live `let` binding
-    // that createRouter reassigns, so destructuring it early captures the
-    // pre-app.config value and the test proves nothing.
-    const paths = Object.values(colyseus.__globalEndpoints).map((e) => (e as { path: string }).path);
+  it('registers /metrics AND /liveness on ONE router object', async () => {
+    // Story 8.0: Colyseus 0.18 DELETED the module-level `__globalEndpoints`
+    // this test used to read (@colyseus/core 0.18.13 build/router/index.mjs:
+    // 79-92 — `createRouter` now only wraps better-call's factory). The
+    // invariant it guarded is unchanged and simply has a new vehicle: the
+    // playground lists routes from `Server.current?.router?.endpoints`
+    // (@colyseus/playground 0.18.4 build/index.mjs:101), which is the ONE
+    // router built from app.config's `routes` — so both endpoints must live on
+    // that same router object.
+    //
+    // NOT because `.extend()` would drop one: better-call's `extend` MERGES
+    // (`createRouter({ ...endpoints, ...newEndpoints }, config)`,
+    // @colyseus/better-call dist/router.mjs:117), and core's own
+    // `Server.bindRoutes()` always extends the declared router with its
+    // framework defaults (@colyseus/core 0.18.13 build/Server.mjs:152-159) —
+    // so `Server.current.router.endpoints` is always an EXTENDED router, keys
+    // additive, nothing silently dropped. What this pin actually guards is
+    // DECLARATION COMPLETENESS: that the one router object app.config hands
+    // to `config({ routes })` — the object this test imports and reads
+    // directly, before any framework extension touches it — already carries
+    // both endpoints itself, rather than relying on some other call site to
+    // have added the second one.
+    const appConfig = (await import('../app.config.js')).default as unknown as {
+      routes: { endpoints: Record<string, { path: string }> };
+    };
+    // BOTH declared in the one call.
+    // (cycle 167: `/lobby/resolve` joined the same router.)
+    expect(Object.keys(appConfig.routes.endpoints).sort()).toEqual(['getLiveness', 'getLobbyResolve', 'getMetrics']);
+    const paths = Object.values(appConfig.routes.endpoints).map((e) => e.path);
     expect(paths).toContain('/metrics');
     expect(paths).toContain('/liveness');
+    expect(paths).toContain('/lobby/resolve');
   });
 
   it('serves both paths, with /metrics byte-identical to the object metrics.ts exports', async () => {
@@ -1410,5 +1431,47 @@ describe('presence lives on matchMaker.presence, not in this process (D8)', () =
 
   it('namespaces its key so it cannot collide with a Colyseus-internal one', () => {
     expect(PRESENCE_KEY.startsWith('hc:')).toBe(true);
+  });
+});
+
+// =============================================================================
+// PRIVATE LOBBIES (cycle 167, Eric ruling 8): private play counts
+// =============================================================================
+//
+// PLAYERS ONLINE includes captains waiting in a lobby; LIVE GAMES includes
+// private arenas. The per-mode split's wire shape is frozen in shared, so a
+// private arena sits in NEITHER operator bucket (like a queued captain).
+
+function lobbyListing(clients: number, phase = 'open'): RoomRecord {
+  return { name: LOBBY_ROOM, clients, metadata: { code: 'KXQZMA', phase, mode: 'private' } };
+}
+
+describe('foldLiveness — private lobbies and private arenas', () => {
+  it('lobby captains count toward PLAYERS ONLINE and never as a live game', () => {
+    const out = foldLiveness([lobbyListing(3), lobbyListing(2)], NOW);
+    expect(out.playersOnline).toBe(5);
+    expect(out.liveGames).toBe(0);
+    expect(out.queue?.pooled).toBe(0); // a lobby is not the queue
+  });
+
+  it('a lobby\'s mode:private metadata never makes it an arena', () => {
+    const out = foldLiveness([lobbyListing(4, 'started')], NOW);
+    expect(out.liveGames).toBe(0);
+    expect(out.modes.standard).toEqual({ players: 0, games: 0 });
+  });
+
+  it('a private arena counts toward LIVE GAMES and PLAYERS ONLINE, in neither operator bucket', () => {
+    const out = foldLiveness([arena(4, 'private'), arena(6, 'standard'), arena(1, 'soloVsAi')], NOW);
+    expect(out.liveGames).toBe(3);
+    expect(out.playersOnline).toBe(11);
+    expect(out.modes.standard).toEqual({ players: 6, games: 1 });
+    expect(out.modes.soloVsAi).toEqual({ players: 1, games: 1 });
+    expect(Object.keys(out.modes).sort()).toEqual(['soloVsAi', 'standard']); // wire shape unchanged
+  });
+
+  it('prefers the private arena\'s published humans like any arena', () => {
+    const out = foldLiveness([{ name: ARENA_ROOM, clients: 9, metadata: { mode: 'private', humans: 2 } }], NOW);
+    expect(out.playersOnline).toBe(2);
+    expect(out.liveGames).toBe(1);
   });
 });

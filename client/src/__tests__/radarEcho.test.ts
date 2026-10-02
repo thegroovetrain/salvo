@@ -35,6 +35,7 @@ import {
   WAKE_AGE_BUCKETS,
   buildHeightRaster,
   coverageHas,
+  effectiveSight,
   paintCoverage,
   rasterizeSegmentCoverage,
   type HeightRaster,
@@ -760,28 +761,31 @@ describe('a sighted ship paints from its Contact when the beam crosses it', () =
 
 describe('the source seam is `fogHoleRadiusU`, so client and server agree', () => {
   const SIGHT = CONFIG.vision.sight;
-  const DAZZLE = CONFIG.starShells.dazzleSightFactor;
+  const BASE = { sightRange: SIGHT, radarRange: CONFIG.vision.radar };
+  /** A FLASHED observer's truesight — the shared effectiveSight, 1/8 of the
+   *  intel range (82.5 u at base; Story 8.17, amendment 132). */
+  const DAZZLED = effectiveSight(BASE, true);
   /** Between the dazzled hole and the un-dazzled one: the annulus a dazzle hands
    *  from the client's synthesis to the server's blips. */
-  const MID = SIGHT * ((1 + DAZZLE) / 2);
+  const MID = (SIGHT + DAZZLED) / 2;
 
   it('the seam radius IS fogHoleRadiusU, at base stats and dazzled', () => {
     const { radar } = makeRadar();
     // Called, not re-derived: it is also, by construction, the server's own
     // dazzle-scaled `sightOf`. If either side ever changes, this equality is the
     // thing that breaks — rather than a hull at the seam painting twice.
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(SIGHT, false));
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, false));
     expect(radar.setDazzled(true)).toBe(true); // mirrors Fog's changed-flag
     expect(radar.isDazzled).toBe(true);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(SIGHT, true));
-    // And that IS a shrink, by exactly the ratified factor.
-    expect(radar.sightHoleU).toBe(SIGHT * DAZZLE);
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, true));
+    // And that IS a shrink, to exactly one eighth of the intel range.
+    expect(radar.sightHoleU).toBe(82.5);
     expect(radar.setDazzled(true)).toBe(false); // no-op flip reports no change
   });
 
   it('a DAZZLE hands the annulus over: the client stops synthesizing there, '
     + 'because the server has started blipping it', () => {
-    expect(MID).toBeGreaterThan(SIGHT * DAZZLE);
+    expect(MID).toBeGreaterThan(DAZZLED);
     expect(MID).toBeLessThan(SIGHT);
     const store = sightedStore(MID);
 
@@ -854,6 +858,47 @@ describe('the source seam is `fogHoleRadiusU`, so client and server agree', () =
     }
     expect(both, 'the footprints really overlap').toBeGreaterThan(5);
     expect(onlyOne, 'and disagree on at most a corner cell or two').toBeLessThanOrEqual(2);
+  });
+
+  // --- Story 8.18: IN SMOKE moves the seam exactly as a dazzle does ----------
+
+  it('IN SMOKE the seam is fogHoleRadiusU(…, inSmoke) — 1/8 intel range, the '
+    + 'shared effectiveSight (amendment 149)', () => {
+    const { radar } = makeRadar();
+    expect(radar.setInSmoke(false)).toBe(false); // no change, no report
+    expect(radar.setInSmoke(true)).toBe(true); // mirrors setDazzled's changed-flag
+    expect(radar.isInSmoke).toBe(true);
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, false, true));
+    expect(radar.sightHoleU).toBe(effectiveSight(BASE, false, true));
+    expect(radar.sightHoleU).toBe(CONFIG.vision.radar * CONFIG.smokeScreen.inSmokeSightFraction);
+    expect(radar.setInSmoke(true)).toBe(false);
+    expect(radar.setInSmoke(false)).toBe(true);
+    expect(radar.sightHoleU).toBe(SIGHT);
+  });
+
+  it('IN SMOKE hands the annulus over like a dazzle: the client stops '
+    + 'synthesizing a contact echo the server now blips', () => {
+    const store = sightedStore(MID);
+    const smoked = makeRadar().radar;
+    smoked.setInSmoke(true);
+    revolution(smoked, OWN, store);
+    expect(smoked.bandAt(MID, 0), 'in smoke: the wire covers it').toBe(-1);
+  });
+
+  it('A WIRE BLIP INSIDE THE BUBBLE PAINTS (amendment 147): a smoke-hidden hull '
+    + 'arrives as an ordinary blip at bubble range, and nothing culls it', () => {
+    // Un-dazzled, not in smoke: the seam is the full 330 u, and MID sits well
+    // inside it — territory that before 8.18 only ever held synthesized echoes.
+    // The server now blips a hull a puff hides there; the adapter has no range
+    // gate on the wire path, so it paints (under the in-bubble dim mask, which
+    // is a display ramp on the layer, not a suppression).
+    const { radar } = makeRadar();
+    expect(MID).toBeLessThan(radar.sightHoleU);
+    radar.render(OWN, 900);
+    const c = paintCoverage('battleship', MID, 0, 0, CELL, 0);
+    radar.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
+    radar.render(OWN, 1000);
+    expect(radar.bandAt(MID, 0), 'the in-bubble wire blip is on the scope').toBeGreaterThanOrEqual(0);
   });
 });
 

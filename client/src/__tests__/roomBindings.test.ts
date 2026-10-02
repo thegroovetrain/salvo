@@ -9,9 +9,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CONFIG, MSG } from '@salvo/shared';
 import {
+  BURN_AMOUNT_CAP,
   bindRoom,
   frameIsDeadOrSpectating,
   inEnemyBurningZone,
+  maxBurnDps,
   readsAsBurn,
   windowRunning,
   type RoomBindingDeps,
@@ -54,7 +56,7 @@ function ownFrame(x: number, y: number): unknown {
     t: 100,
     tick: 1,
     ackSeq: 0,
-    you: { x, y, heading: 0, speed: 0, cls: 'torpedoBoat', upg: [], boons: [], alive: true, sweep: 0 },
+    you: { x, y, heading: 0, speed: 0, cls: 'torpedoBoat', upg: [], cards: [], alive: true, sweep: 0 },
     contacts: [],
     mines: [],
     events: [],
@@ -78,7 +80,7 @@ function setup() {
     clock: { addSample: vi.fn() },
     ownBuffer: { clear: ownBufferClear, push: vi.fn() },
     predictor: { forceSnap, onServerState: vi.fn() },
-    radar: { onSweepSample: vi.fn(), setOwnBuoys: vi.fn() },
+    radar: { onSweepSample: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
     // The own-private preview seams (aim-preview cycle): the burst ring's
@@ -86,9 +88,10 @@ function setup() {
     // which is exactly the pre-stats behavior (CONFIG default / no rings).
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
-    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    buoys: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn,
     onDrop,
@@ -158,7 +161,7 @@ function setupChannels(over: Partial<RoomBindingDeps> = {}) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
   const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
-  const buoysSync = vi.fn();
+  const decoysSync = vi.fn();
   const deps = {
     // spectating:true so a spec frame's onSpectate branch is skipped (the
     // existing spectator-frame tests use the same shortcut).
@@ -171,43 +174,64 @@ function setupChannels(over: Partial<RoomBindingDeps> = {}) {
     // which is exactly the pre-stats behavior (CONFIG default / no rings).
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
-    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    buoys: { sync: buoysSync },
+    burnZones: { sync: vi.fn() },
+    decoys: { sync: decoysSync },
+    smokeScreen: { sync: vi.fn() },
     colors: vi.fn(() => null),
     ordnanceHue: vi.fn(() => 0),
     ...over,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, buoysSync };
+  return { sink, decoysSync, deps };
 }
 
-describe('bindRoom buoy channel', () => {
-  // Story 7-5 wave 2: FrameMsg.decoys → FrameMsg.buoys (BuoyView, same fields
-  // plus the owner-side readout, which rides the third argument).
-  it('syncs the buoy list contact-like every frame (the mines/litZones precedent)', () => {
-    const { sink, buoysSync } = setupChannels();
-    const buoys = [{ id: 'd1', x: 10, y: 20, until: 5000, own: true, by: 'p1' }];
-    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], buoys });
-    // + the firer-hue resolver (Story 1.12) and the own-buoy readout params.
-    expect(buoysSync).toHaveBeenCalledWith(buoys, expect.any(Function), undefined);
+describe('bindRoom decoy channel (Story 8.16)', () => {
+  // Story 8.16: the radar buoy's FrameMsg.buoys is DELETED and FrameMsg.decoys
+  // (DecoyView — `by` for everyone, `hp` own-only) carries the DECOY BUOY. It
+  // is contact-like state, reconciled every frame like mines/litZones, with the
+  // firer-hue resolver and nothing else (no owner stats: a decoy has no ring,
+  // no doctrine and no lifetime).
+  it('syncs the decoy list contact-like every frame (the mines/litZones precedent)', () => {
+    const { sink, decoysSync } = setupChannels();
+    const decoys = [{ id: 'd1', x: 10, y: 20, own: true, by: 'p1', hp: 50 }];
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], decoys });
+    expect(decoysSync).toHaveBeenCalledWith(decoys, expect.any(Function));
   });
 
-  it('treats an omitted buoys key as an empty list (frames omit it when none)', () => {
-    const { sink, buoysSync } = setupChannels();
+  it('treats an omitted decoys key as an empty list (frames omit it when none)', () => {
+    const { sink, decoysSync } = setupChannels();
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
-    expect(buoysSync).toHaveBeenCalledWith([], expect.any(Function), undefined);
+    expect(decoysSync).toHaveBeenCalledWith([], expect.any(Function));
   });
 
-  // The life arc is measured against `until`, a SERVER-clock value, so its
-  // other end has to be the FRAME's own timestamp — the ownMineRings rule, and
-  // for the same reason (a local estimate charges the buoy for transport delay
-  // and runs the arc systematically short).
-  it('stamps the own-buoy readout with the FRAME time, not a local clock reading', () => {
-    const ownBuoy = vi.fn(() => undefined);
-    const { sink } = setupChannels({ ownBuoy });
-    sink.handler({ t: 4242, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
-    expect(ownBuoy).toHaveBeenCalledWith(4242);
+  it('ignores a stale `buoys` key entirely — the radar-buoy channel is gone', () => {
+    const { sink, decoysSync } = setupChannels();
+    const buoys = [{ id: 'b1', x: 0, y: 0, until: 5000, own: true, by: 'p1', sweep: 0 }];
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], buoys });
+    expect(decoysSync).toHaveBeenCalledWith([], expect.any(Function));
+  });
+});
+
+describe('bindRoom SMOKE SCREEN channel (Story 8.18)', () => {
+  // FrameMsg.smoke (SmokeView {id,x,y,t0}) is contact-like state, reconciled
+  // every frame like burnZones/decoys, and mirrored into state.net.smoke for the
+  // wake mirror (render/wake.ts). No hue: a puff says nothing about whose it is.
+  it('hands a present smoke list to the renderer and mirrors it into state', () => {
+    const smokeSync = vi.fn();
+    const { sink, deps } = setupChannels({ smokeScreen: { sync: smokeSync } as never });
+    const smoke = [{ id: 'sk1', x: 10, y: 20, t0: 90 }];
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], smoke });
+    expect(smokeSync).toHaveBeenCalledWith(smoke);
+    expect(deps.state.net.smoke).toEqual(smoke);
+  });
+
+  it('treats an omitted smoke key as an empty list (frames omit it when none)', () => {
+    const smokeSync = vi.fn();
+    const { sink, deps } = setupChannels({ smokeScreen: { sync: smokeSync } as never });
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(smokeSync).toHaveBeenCalledWith([]);
+    expect(deps.state.net.smoke).toEqual([]);
   });
 });
 
@@ -237,9 +261,10 @@ function setupEvents(over: Record<string, unknown> = {}) {
     // which is exactly the pre-stats behavior (CONFIG default / no rings).
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
-    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    buoys: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
     projectiles: {
       onBurst: over.onBurst ?? onBurst,
       onBoom,
@@ -338,9 +363,10 @@ describe('bindRoom own sunk', () => {
       // which is exactly the pre-stats behavior (CONFIG default / no rings).
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
-      ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    buoys: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -387,9 +413,10 @@ describe('bindRoom own sunk', () => {
       mines: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
-      ownBuoy: () => undefined,
       litZones: { sync: vi.fn() },
-      buoys: { sync: vi.fn() },
+      burnZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      smokeScreen: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -397,7 +424,7 @@ describe('bindRoom own sunk', () => {
       ordnanceHue: () => 0,
       onOwnStats: vi.fn(),
       ownBuffer: { push: vi.fn() },
-      radar: { onSweepSample: vi.fn(), setOwnBuoys: vi.fn() },
+      radar: { onSweepSample: vi.fn() },
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetPrime,
@@ -409,7 +436,7 @@ describe('bindRoom own sunk', () => {
     // events, so the window is read off the very frame that opened it.
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 0, alive: false, ammo: [], sweep: 0,
-      cls: 'torpedoBoat', pts: 0, offer: [], boostUntil: 0, boons: [], lvl: 0, xp: 0,
+      cls: 'torpedoBoat', pts: 0, offer: [], boostUntil: 0, cards: [], lvl: 0, xp: 0,
       repairHp: 0, sinkingUntil: 5200,
     };
     sink.handler({ t: 200, tick: 2, ackSeq: 0, you, contacts: [], mines: [], events: [{ k: 'sunk', id: 'me', by: 'rival' }] });
@@ -450,9 +477,10 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       mines: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
-      ownBuoy: () => undefined,
       litZones: { sync: vi.fn() },
-      buoys: { sync: vi.fn() },
+      burnZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      smokeScreen: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -460,7 +488,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       ordnanceHue: () => 0,
       onOwnStats: vi.fn(),
       ownBuffer: { push: vi.fn() },
-      radar: { onSweepSample: vi.fn(), setOwnBuoys: vi.fn() },
+      radar: { onSweepSample: vi.fn() },
       predictor: { onServerState: vi.fn() },
       resetThrottle: vi.fn(),
       resetPrime: vi.fn(),
@@ -478,7 +506,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
     t, tick: 1, ackSeq: 0, contacts: [], mines: [], events,
     you: {
       id: 'me', x, y, heading: 0, speed: 10, hp: 0, alive: false, ammo: [], sweep: 0,
-      cls: 'torpedoBoat', pts: 0, offer: [], boons: [], boostUntil: 0, lvl: 0, xp: 0,
+      cls: 'torpedoBoat', pts: 0, offer: [], cards: [], boostUntil: 0, lvl: 0, xp: 0,
       repairHp: 0, sinkingUntil: 1000 + CONFIG.ship.sinkingWindowMs,
     },
   });
@@ -552,9 +580,10 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
       mines: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
-      ownBuoy: () => undefined,
       litZones: { sync: vi.fn() },
-      buoys: { sync: vi.fn() },
+      burnZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      smokeScreen: { sync: vi.fn() },
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetHonkCooldown,
@@ -647,9 +676,10 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       mines: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
-      ownBuoy: () => undefined,
       litZones: { sync: vi.fn() },
-      buoys: { sync: vi.fn() },
+      burnZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      smokeScreen: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play },
       // Story 4.7: this harness spectates (`you` is null), so the witnessed
@@ -1092,16 +1122,16 @@ describe('bindRoom denial channel (Story 1.10)', () => {
  *  `boons` is the list the frame ALREADY carries when its `bn` event fans out
  *  (handleFrame applies `you` before the events), which is what lets the fitted
  *  toast name the ladder rung the card showed. */
-function rewardFrame(event: unknown, own: { alive: boolean; boons?: string[] } | null): unknown {
+function rewardFrame(event: unknown, own: { alive: boolean; cards?: string[] } | null): unknown {
   const base = { t: 300, tick: 3, ackSeq: 0, contacts: [], mines: [], events: [event] };
   if (!own) return { ...base, spec: true };
   return {
     ...base,
-    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: own.boons ?? [], alive: own.alive, sweep: 0 },
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: own.cards ?? [], alive: own.alive, sweep: 0 },
   };
 }
 
-function setupToasts(spectating = false) {
+function setupToasts(spectating = false, held = false) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
   const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
@@ -1121,12 +1151,13 @@ function setupToasts(spectating = false) {
     // which is exactly the pre-stats behavior (CONFIG default / no rings).
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
-    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    buoys: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
-    radar: { onSweepSample: vi.fn(), onBlip: vi.fn(), setOwnBuoys: vi.fn() },
+    radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
     effects: { spawnEffect: vi.fn() },
     audio: { play },
     names: (id: string) => id,
@@ -1138,6 +1169,10 @@ function setupToasts(spectating = false) {
     onSunkObserved: vi.fn(),
     onSpendAck,
     onBoonFitted,
+    // Story 8.10 (amendment 61): the start-line read the `pt` handler consults.
+    // Default false = live water, which is the pre-8.10 behaviour every other
+    // pin in this file is taken against.
+    heldAtStartLine: () => held,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
   return { sink, play, onSpendAck, onBoonFitted };
@@ -1168,6 +1203,39 @@ describe('bindRoom reward toasts', () => {
     expect(play).toHaveBeenCalledWith('point');
   });
 
+  // THE OPENING'S GRANT IS SILENT (Story 8.10, epic-8 amendment 61). The
+  // countdown banks a level for everyone through an ordinary self-private `pt`,
+  // and the refit window opens ITSELF on it — so the toast telling the captain
+  // to press TAB, and the ping under it, would both narrate a surface already
+  // on screen. The XP strip's own `TAB TO REFIT` cue is untouched: it is true
+  // copy, and this suppression is the event's, not the strip's.
+  it('a `pt` at the START LINE is SILENT — no toast, no tone (amendment 61)', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts(false, true);
+    sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
+    expect(toastLines()).toEqual([]);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('...and a `pt` on LIVE water still toasts and pings, byte for byte', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts(false, false);
+    sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
+    expect(toastLines()).toEqual(['▲ LEVEL UP — TAB TO REFIT']);
+    expect(play).toHaveBeenCalledWith('point');
+  });
+
+  it('the start line silences the LEVEL only — a fitted card still confirms', () => {
+    // The countdown is a legal place to SPEND (that is the whole point of the
+    // opening), and the fit's own confirmation is the player's own action
+    // answering back — never suppressed.
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts(false, true);
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: true, cards: ['reload'] }));
+    expect(toastLines()).toEqual(['◆ RELOAD FITTED']);
+    expect(play).toHaveBeenCalled();
+  });
+
   it('a SPECTATING captain gets NO level-up toast and NO tone (amendment 37)', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts(true);
@@ -1184,61 +1252,63 @@ describe('bindRoom reward toasts', () => {
     expect(play).not.toHaveBeenCalled();
   });
 
-  it('a fitted boon toasts with the ladder name + its TIER cue, even while dead', () => {
+  it('a fitted card toasts with the line name + its KIND cue, even while dead', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipCooldown' }, { alive: false, boons: ['shipCooldown'] }));
-    expect(toastLines()).toEqual(['◆ RELOAD I FITTED']);
-    // The cue carries BOTH axes as of Story 2.9: the tier picks the tone, the
-    // category transposes it (see the fitDetune suite below).
-    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('ship') });
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: false, cards: ['reload'] }));
+    expect(toastLines()).toEqual(['◆ RELOAD FITTED']);
+    // The cue carries BOTH axes as of Story 2.9, re-keyed in 8.1: the KIND picks
+    // the tone AND transposes it (see the fitDetune suite below).
+    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('ladder') });
   });
 
-  // The EXCLUSIVE rung is asserted through `fitTone` alone from Story 7-5 wave 2
-  // on: the cannon pair was the last exclusive LINE in the catalog (R2.6), so
-  // there is no boon id left that routes a `bn` event to that cue.
-  it('WEIGHTS the fit cue by the fitted line\'s tier (Story 2.9)', () => {
-    expect(fitTone('exclusive')).toBe('fitExclusive');
-    for (const [boon, tone] of [['shipCooldown', 'fitCommon'], ['gunBarrel', 'fitRare'], ['mineCaptive', 'fitRare']]) {
+  it('WEIGHTS the fit cue by the fitted line\'s KIND (Story 2.9, re-keyed in 8.1)', () => {
+    // An EQUIPMENT card fits a whole new weapon and gets the fuller cue; a
+    // ladder rung, an add-on verb and a consumable all land light.
+    for (const [boon, tone] of [
+      ['reload', 'fitCommon'], ['deckGun', 'fitCommon'],
+      ['captiveMines', 'fitRare'], ['acousticHoming', 'fitCommon'],
+    ]) {
       document.body.replaceChildren();
       const { sink, play } = setupToasts();
-      sink.handler(rewardFrame({ k: 'bn', id: 'me', boon }, { alive: true, boons: [boon] }));
+      sink.handler(rewardFrame({ k: 'bn', id: 'me', boon }, { alive: true, cards: [boon] }));
       expect(play).toHaveBeenCalledWith(tone, expect.anything());
     }
   });
 
-  it('routes the fit FLASH to the fitted line\'s category (amendment 51)', () => {
+  it('routes the fit FLASH by the fitted LINE ID (amendment 51, re-keyed in 8.1)', () => {
     document.body.replaceChildren();
     const { sink, onBoonFitted } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
-    expect(onBoonFitted).toHaveBeenCalledWith('mines');
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'intelSweep' }, { alive: true, boons: ['intelSweep'] }));
-    expect(onBoonFitted).toHaveBeenCalledWith('intel'); // shipwide -> the rank-wide flash
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'navalMines' }, { alive: true, cards: ['navalMines'] }));
+    expect(onBoonFitted).toHaveBeenCalledWith('navalMines');
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'radarSweep' }, { alive: true, cards: ['radarSweep'] }));
+    expect(onBoonFitted).toHaveBeenCalledWith('radarSweep'); // shipwide -> rank-wide flash
   });
 
   it('never goes SILENT on an unknown id (FR22): the common cue + a rank-wide flash', () => {
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, boons: ['notARealBoon'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, cards: ['notARealBoon'] }));
     expect(play).toHaveBeenCalledWith('fitCommon', { detune: 0 });
-    expect(onBoonFitted).toHaveBeenCalledWith('');
+    expect(onBoonFitted).toHaveBeenCalledWith('notARealBoon');
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 
-  it('the fitted toast names the RUNG that was fitted, not the line\'s first name', () => {
-    // Story 2.8's name-by-stack-position: the frame's `boons` already carries
-    // the new occurrence, so the third RELOAD card toasts as RELOAD III — exactly
-    // the name the card the player clicked was showing.
+  it('the fitted toast names the LINE, whatever rung it landed on (catalog v3)', () => {
+    // Catalog v3 names the LINE, not the rung (Eric's sheet §1), so the third
+    // RELOAD card toasts with the same words as the first — exactly the name the
+    // card the player clicked was showing.
     document.body.replaceChildren();
     const { sink } = setupToasts();
     sink.handler(rewardFrame(
-      { k: 'bn', id: 'me', boon: 'shipCooldown' },
-      { alive: true, boons: ['shipCooldown', 'shipCooldown', 'shipCooldown'] },
+      { k: 'bn', id: 'me', boon: 'reload' },
+      { alive: true, cards: ['reload', 'reload', 'reload'] },
     ));
-    expect(toastLines()).toEqual(['◆ RELOAD III FITTED']);
+    expect(toastLines()).toEqual(['◆ RELOAD FITTED']);
   });
 
-  // DAMAGE CONTROL (cycle 46): the `heal` row is a pure self-private
+  // THE HEAL (cycle 46; a HULL REPAIR copy since Story 8.8): the `heal` row is
+  // a pure self-private
   // CONFIRMATION — one tone, no toast, no numbers. Every authoritative value
   // (the new hp, the pool still draining) self-syncs on `you` every frame, and
   // the visual twin is the HP rail's jump plus its incoming band.
@@ -1268,7 +1338,7 @@ describe('bindRoom reward toasts', () => {
     document.body.replaceChildren();
     const { sink, play, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'pt', id: 'someone-else' }, { alive: true }));
-    sink.handler(rewardFrame({ k: 'bn', id: 'someone-else', boon: 'shipSpeed' }, { alive: true }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'someone-else', boon: 'speed' }, { alive: true }));
     expect(toastLines()).toEqual([]);
     expect(play).not.toHaveBeenCalled();
     expect(onSpendAck).not.toHaveBeenCalled(); // and no foreign spend can ack ours
@@ -1282,14 +1352,14 @@ describe('bindRoom reward toasts', () => {
   it('routes a SELF boon-fit to deps.onSpendAck (the spend latch receipt)', () => {
     document.body.replaceChildren();
     const { sink, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipCooldown' }, { alive: true, boons: ['shipCooldown'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: true, cards: ['reload'] }));
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 
   it('acks a boon fitted while DEAD too (spending while dead is legal)', () => {
     document.body.replaceChildren();
     const { sink, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipSpeed' }, { alive: false, boons: ['shipSpeed'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'speed' }, { alive: false, cards: ['speed'] }));
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 
@@ -1321,6 +1391,67 @@ describe('bindRoom reward toasts', () => {
   });
 });
 
+// DRONE DROPS (Eric ruling 2026-10-01): a drone kill stocked a consumable. The
+// receipt is the `bn` STOCKED UX — toast, consumable cue, belt flash — with NO
+// spend ack (nothing was spent), spectating-gated only (NOT dead-gated), self only.
+describe('bindRoom drone-drop receipt (`dp`)', () => {
+  it('a LIVE captain gets the STOCKED toast, the consumable cue and the belt flash — and NO spend ack', () => {
+    document.body.replaceChildren();
+    const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'hullRepair' }, { alive: true, cards: ['hullRepair'] }));
+    expect(toastLines()).toEqual(['◆ HULL REPAIR STOCKED']);
+    expect(play).toHaveBeenCalledWith(fitTone('consumable'), { detune: fitDetune('consumable') });
+    expect(onBoonFitted).toHaveBeenCalledWith('hullRepair');
+    expect(onSpendAck).not.toHaveBeenCalled();
+  });
+
+  it('one toast line per drop (three drops in one frame = three lines)', () => {
+    document.body.replaceChildren();
+    const { sink } = setupToasts();
+    const frame = rewardFrame(null, { alive: true, cards: ['chaff', 'chaff', 'decoyBuoy'] }) as { events: unknown[] };
+    frame.events = [
+      { k: 'dp', id: 'me', boon: 'chaff' },
+      { k: 'dp', id: 'me', boon: 'chaff' },
+      { k: 'dp', id: 'me', boon: 'decoyBuoy' },
+    ];
+    sink.handler(frame);
+    expect([...toastLines()].sort()).toEqual(['◆ CHAFF STOCKED', '◆ CHAFF STOCKED', '◆ DECOY BUOY STOCKED']);
+  });
+
+  it('a captain sunk LATER IN THE SAME TICK still gets the receipt (the copy is stocked; the frame reads dead)', () => {
+    // Cycle-163 review gate (Codex, CONFIRMED): the server guard is "afloat at
+    // the drone's sink"; a mine/storm later in the tick can sink the killer, so
+    // the end-of-tick frame carries `alive: false` AND a legitimate `dp`.
+    document.body.replaceChildren();
+    const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'chaff' }, { alive: false, cards: ['chaff'] }));
+    expect(toastLines()).toEqual(['◆ CHAFF STOCKED']);
+    expect(play).toHaveBeenCalledWith(fitTone('consumable'), { detune: fitDetune('consumable') });
+    expect(onBoonFitted).toHaveBeenCalledWith('chaff');
+    expect(onSpendAck).not.toHaveBeenCalled();
+  });
+
+  it('a SPECTATING frame (no `you`) gets nothing — no toast, no tone, no flash', () => {
+    document.body.replaceChildren();
+    const { sink, play, onBoonFitted, onSpendAck } = setupToasts(true);
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'chaff' }, null));
+    expect(toastLines()).toEqual([]);
+    expect(play).not.toHaveBeenCalled();
+    expect(onBoonFitted).not.toHaveBeenCalled();
+    expect(onSpendAck).not.toHaveBeenCalled();
+  });
+
+  it("another player's `dp` is ignored", () => {
+    document.body.replaceChildren();
+    const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'dp', id: 'someone-else', boon: 'chaff' }, { alive: true, cards: [] }));
+    expect(toastLines()).toEqual([]);
+    expect(play).not.toHaveBeenCalled();
+    expect(onBoonFitted).not.toHaveBeenCalled();
+    expect(onSpendAck).not.toHaveBeenCalled();
+  });
+});
+
 // --- STORY 2.9: the net side of "the build must be felt" ------------------------
 //
 // Three separate contracts live down here, and they share one theme: the client
@@ -1339,7 +1470,7 @@ function victimFrame(
   if (!you) return { ...base, spec: true };
   return {
     ...base,
-    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: [], alive: true, sweep: 0, ...you },
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0, ...you },
   };
 }
 
@@ -1368,15 +1499,20 @@ function setupWater(
   const onShell = vi.fn();
   const trigger = vi.fn();
   const flash = vi.fn();
+  // The projectile store's "have I heard of this id?" seam (cycle-148 review
+  // gate, P2). Empty = every reveal in this harness is a FIRST reveal, which is
+  // what every pre-existing pin below assumes; a test adds an id to stand a
+  // known track (live / culled-but-claimed) up.
+  const knownIds = new Set<string>();
   const deps = {
     state: {
-      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0, litZones: [] },
+      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0, litZones: [], burnZones: [] },
       spectating: false, phase: '', respawnEta: null, mode: 'interp',
     },
     clock: { addSample: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
-    radar: { onSweepSample: vi.fn(), onBlip: vi.fn(), setOwnBuoys: vi.fn() },
+    radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
     contacts: { pushFrame: vi.fn(), ids: () => [], get: () => null },
     contactViews: { flash, sinkFlash: vi.fn(), setSink: vi.fn() },
     mines: { sync: vi.fn() },
@@ -1385,10 +1521,16 @@ function setupWater(
     // default, which is exactly the pre-stats behavior (CONFIG default / no rings).
     ownBurstRadius: () => burstRadius,
     ownMineRings: () => undefined,
-    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    buoys: { sync: vi.fn() },
-    projectiles: { onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(), ownFireOf: () => null },
+    burnZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
+    // Cycle 162: the chaff owner's grey ghosts (render/chaffGhosts.ts).
+    chaffGhosts: { onGhosts: vi.fn() },
+    projectiles: {
+      onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(),
+      ownFireOf: () => null, isKnown: (id: string) => knownIds.has(id),
+    },
     effects: { spawnEffect },
     shake: { trigger },
     audio: { play },
@@ -1410,7 +1552,7 @@ function setupWater(
     resetPrime: vi.fn(),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, play, spawnEffect, onShell, trigger, flash, deps, ownFireWeapon };
+  return { sink, play, spawnEffect, onShell, trigger, flash, deps, ownFireWeapon, knownIds };
 }
 
 describe('own-fire correlation (Story 2.9) — telling our broadside from our gun', () => {
@@ -1420,6 +1562,19 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'broadside', 'broadside');
     expect(spawnEffect).toHaveBeenCalledWith('muzzleHeavy', 0, 0);
     expect(play).toHaveBeenCalledWith('fireBroadside'); // the heavier report, finally played
+  });
+
+  // STORY 8.17: PHOSPHOR SHELLS and the FLASH SHELLS consumable each fire one
+  // shell on the `shell` kind — a genuine claim (it sizes the own burst ring)
+  // that reports with the star shell's launch cue, and no heavy muzzle.
+  it('an OWN phosphor or flash shell is claimed, and reports with the flare cue', () => {
+    for (const id of ['phosphorShells', 'dazzleShells'] as const) {
+      const { sink, play, spawnEffect, onShell } = setupWater(id);
+      sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
+      expect(onShell, id).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), id, id);
+      expect(spawnEffect, id).not.toHaveBeenCalled();
+      expect(play, id).toHaveBeenCalledWith('fireStarShells');
+    }
   });
 
   it('an OWN gun shot keeps its crack — and no longer flashes from here (Story 4.3)', () => {
@@ -1453,11 +1608,36 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
     expect(play).not.toHaveBeenCalled(); // ...and certainly no own-fire cue
   });
 
-  it('marks an own TORPEDO as ours (styled from own doctrine at launch)', () => {
-    const { sink, play, onShell } = setupWater('torpedo');
+  it('marks an own TORPEDO as ours (styled from its own line at launch)', () => {
+    const { sink, play, onShell } = setupWater('heavyTorpedo');
     sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'torpedo', 'torpedo');
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'heavyTorpedo', 'heavyTorpedo');
     expect(play).toHaveBeenCalledWith('fireTorp');
+  });
+
+  // STORY 8.13 — THREE IDS RIDE THE `torp` WIRE KIND (epic-8 amendments 74/80):
+  // the LIGHT and HEAVY lines and the belt's SUPERCAV TORPEDO. The claim used to
+  // be an id equality on `heavyTorpedo`, so a light or supercav fish launched
+  // off our own bow was attributed to NOBODY — it took the enemy look and, worse,
+  // the enemy cull ring, on a fish the server keeps correcting for us.
+  it('claims an own LIGHT or SUPERCAV fish too — all three ride the `torp` kind', () => {
+    for (const fired of ['lightTorpedo', 'supercavTorpedo'] as const) {
+      const { sink, play, onShell } = setupWater(fired);
+      sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+      expect(onShell, fired).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), fired, fired);
+      expect(play, fired).toHaveBeenCalledWith('fireTorp');
+    }
+  });
+
+  it('...and a standing GUN or BROADSIDE claim still cannot dress a fish', () => {
+    // A mine claim cannot even reach here — `OwnFireLatch.claim` rejects every
+    // non-ballistic id — so the cases worth pinning are the two SHELL weapons
+    // whose claims are live and must not cross the wire-kind line.
+    for (const fired of ['gun', 'broadside'] as const) {
+      const { sink, onShell } = setupWater(fired);
+      sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+      expect(onShell, fired).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), null, null);
+    }
   });
 
   // --- 2.9 REVIEW: the latch must not dress what it did not fire --------------
@@ -1513,6 +1693,40 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
     expect(ownFireWeapon).not.toHaveBeenCalled();
     expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 'e1' }), null, null);
     expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 'e2' }), null, null);
+  });
+
+  // --- CYCLE-148 REVIEW GATE, P2: a RE-REVEAL is not a click ----------------
+  //
+  // Amendment 78 made the server's ballistic memory non-permanent: a projectile
+  // that leaves an observer's reveal gate and comes back is revealed AGAIN. So
+  // the same id can reach this path twice — and the second time is not a shot
+  // leaving our tube. An enemy fish circling back across our bow used to eat the
+  // standing latch (dressing itself as OUR torpedo) and sound our own fire tone.
+  it('a RE-REVEALED fish on our bow never claims the latch and never sounds our tone', () => {
+    const { sink, play, onShell, ownFireWeapon, knownIds } = setupWater('heavyTorpedo');
+    knownIds.add('t1'); // we are already tracking this fish
+    sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), null, null);
+    expect(ownFireWeapon).not.toHaveBeenCalled(); // the latch is still standing
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('...and the same gate holds for a re-revealed SHELL', () => {
+    const { sink, play, spawnEffect, onShell, ownFireWeapon, knownIds } = setupWater('broadside');
+    knownIds.add('s1');
+    sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), null, null);
+    expect(ownFireWeapon).not.toHaveBeenCalled();
+    expect(spawnEffect).not.toHaveBeenCalled();
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('a FIRST reveal on our bow still claims exactly as it did (unchanged pin)', () => {
+    const { sink, play, onShell, knownIds } = setupWater('heavyTorpedo');
+    expect(knownIds.size).toBe(0); // nothing tracked: this is a genuine launch
+    sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'heavyTorpedo', 'heavyTorpedo');
+    expect(play).toHaveBeenCalledWith('fireTorp');
   });
 
   it('gives an own STAR SHELL its own report — and the ordinary shell look', () => {
@@ -1664,51 +1878,64 @@ describe('the gunnery rows (Story 4.3) — mz / sp / hc', () => {
 });
 
 describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', () => {
-  const burning = (by: string) => [{ id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by, phos: true as const }];
-  const dmg = [{ k: 'dmg', id: 'me', amount: 6 }];
+  // A PHOSPHOR SHELLS burning zone on its own channel (Story 8.17 — the
+  // star-shell `phos` lit-zone flag is deleted, amendment 134).
+  const burning = (by: string) => [{ id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by }];
+  // An ordinary small hit / DoT-sized amount (below BURN_AMOUNT_CAP).
+  const dmg = [{ k: 'dmg', id: 'me', amount: 5 }];
 
   it('reads an ordinary hit as damage: full shake, the impact thud', () => {
     const { sink, play, trigger } = setupWater();
     sink.handler(victimFrame(dmg, {}));
     expect(play).toHaveBeenCalledWith('damage');
-    expect(trigger).toHaveBeenCalledWith(6);
+    expect(trigger).toHaveBeenCalledWith(5);
+  });
+
+  it('a hit the SHIELD BLOCK fully absorbed (amount 0) still plays the ordinary hit cue (Story 8.16, amendment 117)', () => {
+    const { sink, play, trigger } = setupWater();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 0, hp: 250 }], {}));
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(trigger).toHaveBeenCalledWith(0);
+  });
+
+  it('a frame with no own dmg event plays no hit cue at all', () => {
+    const { sink, play, trigger } = setupWater();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'someone-else', amount: 0, hp: 250 }], {}));
+    expect(play).not.toHaveBeenCalledWith('damage');
+    expect(trigger).not.toHaveBeenCalled();
   });
 
   it('reads a tick inside an ENEMY burning zone as BURN: the burn cue, a softened shake', () => {
     const { sink, play, trigger } = setupWater();
-    sink.handler(victimFrame(dmg, {}, { litZones: burning('foe') }));
+    sink.handler(victimFrame(dmg, {}, { burnZones: burning('foe') }));
     expect(play).toHaveBeenCalledWith('burn');
     expect(play).not.toHaveBeenCalledWith('damage');
     const shaken = trigger.mock.calls[0][0] as number;
     expect(shaken).toBeGreaterThan(0); // it is still damage — never silent
-    expect(shaken).toBeLessThan(6); // ...but a DoT tick, not a slam
+    expect(shaken).toBeLessThan(5); // ...but a DoT tick, not a slam
   });
 
   it('our OWN flare never burns us (you cannot set fire to yourself)', () => {
     const { sink, play } = setupWater();
-    sink.handler(victimFrame(dmg, {}, { litZones: burning('me') }));
+    sink.handler(victimFrame(dmg, {}, { burnZones: burning('me') }));
     expect(play).toHaveBeenCalledWith('damage');
   });
 
-  it('a NON-burning enemy zone is not fire, and neither is standing outside one', () => {
+  it('an enemy LIT zone is not fire, and neither is standing outside a burning one', () => {
     const { sink, play } = setupWater();
-    const dazzleOnly = { id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', daz: true as const };
-    sink.handler(victimFrame(dmg, {}, { litZones: [dazzleOnly] }));
+    // Story 8.17: a lit zone only ever LIGHTS — standing in an enemy flare's
+    // circle is not standing in fire, whatever the zone looks like.
+    const litOnly = { id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by: 'foe' };
+    sink.handler(victimFrame(dmg, {}, { litZones: [litOnly] }));
     expect(play).toHaveBeenCalledWith('damage');
     play.mockClear();
-    sink.handler(victimFrame(dmg, {}, { litZones: [{ ...burning('foe')[0], x: 900 }] }));
+    sink.handler(victimFrame(dmg, {}, { burnZones: [{ ...burning('foe')[0], x: 900 }] }));
     expect(play).toHaveBeenCalledWith('damage');
   });
 
-  // THE INDEPENDENT-CHECKS PIN (Story 7-5 wave 1): the verbs STACK, so a zone
-  // that both burns AND dazzles is still a burning zone. An equality read
-  // against one enum value would have classified this tick as a plain hit.
-  it('a zone carrying BOTH verbs still reads as BURN', () => {
-    const { sink, play } = setupWater();
-    sink.handler(victimFrame(dmg, {}, { litZones: [{ ...burning('foe')[0], daz: true as const }] }));
-    expect(play).toHaveBeenCalledWith('burn');
-    expect(play).not.toHaveBeenCalledWith('damage');
-  });
+  // (The Story 7-5 "BOTH verbs still reads as BURN" pin is DELETED with the
+  // star-shell verbs — Story 8.17, amendment 134: every zone on the burning
+  // channel burns, so there is no second flag that could mask the first.)
 
   // --- 2.9 REVIEW: burn is a CLASSIFICATION, not a location -------------------
   //
@@ -1716,9 +1943,20 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
   // torpedo that slams a hull parked in a burning patch is not a crackle, and
   // the last DoT flush of a fire we have already sailed clear of is not a shell.
 
+  it('a full tier-V window flush (11 bites = 5.5 hp) inside an enemy burn zone reads as BURN; 5.6 does not', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 5.5 }], {}, { burnZones: burning('foe') }));
+    expect(play).toHaveBeenCalledWith('burn');
+    expect(play).not.toHaveBeenCalledWith('damage');
+    play.mockClear();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 5.6 }], {}, { burnZones: burning('foe') }));
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(play).not.toHaveBeenCalledWith('burn');
+  });
+
   it('reads a BIG hit taken inside the fire as the slam it was', () => {
     const { sink, play, trigger } = setupWater();
-    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 40 }], {}, { litZones: burning('foe') }));
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 40 }], {}, { burnZones: burning('foe') }));
     expect(play).toHaveBeenCalledWith('damage');
     expect(play).not.toHaveBeenCalledWith('burn');
     expect(trigger).toHaveBeenCalledWith(40); // full amplitude — a torpedo, not a tick
@@ -1727,25 +1965,25 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
   it('still reads a DoT flush that lands just after the fire left the frame', () => {
     const { sink, play, trigger } = setupWater();
     // Frame 1 (t=1000): standing in the fire, no damage yet.
-    sink.handler(victimFrame([], {}, { litZones: burning('foe') }));
+    sink.handler(victimFrame([], {}, { burnZones: burning('foe') }));
     // Frame 2: the zone is gone from the list (expired, or we sailed clear) and
     // the server's aggregated flush for the window we DID burn in arrives.
     sink.handler({
       t: 1400, tick: 4, ackSeq: 0, contacts: [], mines: [],
-      events: [{ k: 'dmg', id: 'me', amount: 6 }],
-      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: [], alive: true, sweep: 0 },
+      events: [{ k: 'dmg', id: 'me', amount: 5 }],
+      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0 },
     });
     expect(play).toHaveBeenLastCalledWith('burn');
-    expect(trigger).toHaveBeenLastCalledWith(6 * CLIENT_CONFIG.litZone.burnShakeScale);
+    expect(trigger).toHaveBeenLastCalledWith(5 * CLIENT_CONFIG.burnZone.burnShakeScale);
   });
 
   it('lets the grace EXPIRE — a hit long after the fire is an ordinary hit', () => {
     const { sink, play } = setupWater();
-    sink.handler(victimFrame([], {}, { litZones: burning('foe') })); // t=1000
+    sink.handler(victimFrame([], {}, { burnZones: burning('foe') })); // t=1000
     sink.handler({
       t: 6000, tick: 9, ackSeq: 0, contacts: [], mines: [],
-      events: [{ k: 'dmg', id: 'me', amount: 6 }],
-      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: [], alive: true, sweep: 0 },
+      events: [{ k: 'dmg', id: 'me', amount: 5 }],
+      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0 },
     });
     expect(play).toHaveBeenLastCalledWith('damage');
   });
@@ -1758,7 +1996,15 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
   });
 
   it('readsAsBurn pins both halves: recent enough AND small enough', () => {
-    const cap = CONFIG.starShells.incendiaryDps * 0.5 * 4;
+    // Story 8.17: the cap is ONE owner's largest burn flush — the tier-V
+    // phosphor rate (10 hp/s) × the server's INCLUSIVE window: bankDot flushes
+    // once `now - since >= 500 ms` AFTER adding the bite, so at 20 Hz a window
+    // holds 11 bites (t = 0..500 ms) = 0.55 s of burn.
+    const cap = BURN_AMOUNT_CAP;
+    expect(cap).toBeCloseTo(5.5, 9);
+    expect(maxBurnDps()).toBe(10);
+    expect(cap).toBeCloseTo(maxBurnDps() * (0.5 + CONFIG.tick.simDtMs / 1000), 9);
+    expect(CONFIG.phosphorShells.dps).toBeLessThan(maxBurnDps()); // the ladder raised it
     expect(readsAsBurn(cap, 0)).toBe(true);
     expect(readsAsBurn(cap, 600)).toBe(true); // the grace's last instant
     expect(readsAsBurn(cap + 0.1, 0)).toBe(false); // too big to be a DoT flush
@@ -1795,7 +2041,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     const { sink, play, trigger } = setupWater();
     sink.handler(victimFrame(dmg, {}));
     expect(trigger).toHaveBeenCalledTimes(1);
-    expect(trigger).toHaveBeenCalledWith(6);
+    expect(trigger).toHaveBeenCalledWith(5);
     expect(play).toHaveBeenCalledTimes(1);
     expect(play).toHaveBeenCalledWith('damage');
   });
@@ -1841,66 +2087,103 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     sink.handler(
       victimFrame(
         [
-          { k: 'dmg', id: 'me', amount: 6 },
+          { k: 'dmg', id: 'me', amount: 5 },
           { k: 'dmg', id: 'me', amount: 30 },
         ],
         {},
-        { litZones: burning('foe') },
+        { burnZones: burning('foe') },
       ),
     );
     expect(play).toHaveBeenCalledWith('damage');
     expect(play).not.toHaveBeenCalledWith('burn');
-    expect(trigger).toHaveBeenCalledWith(36);
+    expect(trigger).toHaveBeenCalledWith(35);
   });
 
   it('a lone DoT flush still reads as BURN', () => {
     const { sink, play, trigger } = setupWater();
-    sink.handler(victimFrame(dmg, {}, { litZones: burning('foe') }));
+    sink.handler(victimFrame(dmg, {}, { burnZones: burning('foe') }));
     expect(play).toHaveBeenCalledWith('burn');
-    expect(trigger).toHaveBeenCalledWith(6 * CLIENT_CONFIG.litZone.burnShakeScale);
+    expect(trigger).toHaveBeenCalledWith(5 * CLIENT_CONFIG.burnZone.burnShakeScale);
   });
 
   it('MANY simultaneous burners still read as BURN even though the SUM passes the cap', () => {
     // The reason burn is classified PER EVENT and folded, rather than by testing
     // the total: applyZoneEffects emits one bite per (owner, victim) per tick, so
     // four distinct enemy burners produce four separate small flushes. Their sum
-    // (24) sails past BURN_AMOUNT_CAP (10), whose ×4 headroom was derived for ONE
-    // event covering overlapping patches. Testing the sum would report standing
+    // (20) sails past BURN_AMOUNT_CAP (5), which is ONE owner's largest flush
+    // (Story 8.17). Testing the sum would report standing
     // in four fires as being shelled — a full-amplitude shake and a thud for
     // damage that was entirely DoT.
     const { sink, play, trigger } = setupWater();
     sink.handler(
       victimFrame(
         [
-          { k: 'dmg', id: 'me', amount: 6 },
-          { k: 'dmg', id: 'me', amount: 6 },
-          { k: 'dmg', id: 'me', amount: 6 },
-          { k: 'dmg', id: 'me', amount: 6 },
+          { k: 'dmg', id: 'me', amount: 5 },
+          { k: 'dmg', id: 'me', amount: 5 },
+          { k: 'dmg', id: 'me', amount: 5 },
+          { k: 'dmg', id: 'me', amount: 5 },
         ],
         {},
-        { litZones: burning('foe') },
+        { burnZones: burning('foe') },
       ),
     );
     expect(play).toHaveBeenCalledWith('burn');
     expect(play).not.toHaveBeenCalledWith('damage');
-    expect(trigger).toHaveBeenCalledWith(24 * CLIENT_CONFIG.litZone.burnShakeScale);
+    expect(trigger).toHaveBeenCalledWith(20 * CLIENT_CONFIG.burnZone.burnShakeScale);
   });
 
   it('inEnemyBurningZone pins the predicate itself', () => {
+    // Story 8.17: the PHOSPHOR burning-zone channel — every zone on it burns.
     const zones = [
-      { id: 'a', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', phos: true as const },
-      { id: 'b', x: 0, y: 0, r: 100, until: 9e9, by: 'me', phos: true as const },
-      // A dazzle-only zone is not fire, whoever fired it.
-      { id: 'c', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', daz: true as const },
+      { id: 'a', x: 0, y: 0, r: 100, until: 9e9, by: 'foe' },
+      { id: 'b', x: 0, y: 0, r: 100, until: 9e9, by: 'me' },
     ];
     expect(inEnemyBurningZone(zones, { x: 50, y: 0 }, 'me')).toBe(true);
     expect(inEnemyBurningZone(zones, { x: 100, y: 0 }, 'me')).toBe(true); // on the edge
     expect(inEnemyBurningZone(zones, { x: 101, y: 0 }, 'me')).toBe(false);
-    expect(inEnemyBurningZone([zones[1]], { x: 0, y: 0 }, 'me')).toBe(false); // our own flare
-    expect(inEnemyBurningZone([zones[2]], { x: 0, y: 0 }, 'me')).toBe(false); // dazzle is not fire
-    // ...and a BOTH-verb enemy zone still burns (the verbs stack).
-    expect(inEnemyBurningZone([{ ...zones[0], daz: true as const }], { x: 0, y: 0 }, 'me')).toBe(true);
+    expect(inEnemyBurningZone([zones[1]], { x: 0, y: 0 }, 'me')).toBe(false); // our own fire
     expect(inEnemyBurningZone([], { x: 0, y: 0 }, 'me')).toBe(false);
+  });
+});
+
+// STORY 8.18 (amendment 149): the self-private `you.inSmoke` rides the own-ship
+// mirror VERBATIM — main.ts `inSmokeActive` reads it off `state.net.you` to
+// shrink fog, radar seam and projectile cull through the shared
+// `effectiveSight`. No cue and no tell ride it (Eric asked for none).
+describe('the in-smoke own-ship read (Story 8.18)', () => {
+  it('mirrors you.inSmoke onto state.net.you, and drops it when the server omits it', () => {
+    const { sink, play, deps } = setupWater();
+    const you = (): { inSmoke?: true } | null => (deps.state.net as { you: { inSmoke?: true } | null }).you;
+    sink.handler(victimFrame([], {}));
+    expect(you()?.inSmoke).toBeUndefined();
+    sink.handler(victimFrame([], { inSmoke: true }));
+    expect(you()?.inSmoke).toBe(true);
+    sink.handler(victimFrame([], {})); // stepped out: the key is absent, not false
+    expect(you()?.inSmoke).toBeUndefined();
+    expect(play).not.toHaveBeenCalled(); // no sound, no DAZZLED-style tell
+  });
+});
+
+// CYCLE 162 (Eric 2026-10-01): the chaff owner's OWN fakes ride the
+// self-private `you.chaffGhosts` and go to their own grey renderer at the
+// frame's server time — NEVER to the scope, whose blips stay identity-free.
+describe('the chaff owner\'s ghosts (cycle 162)', () => {
+  const rect = { gx: 3, gy: -4, w: 2, h: 2, bits: [15] };
+
+  it('routes you.chaffGhosts to the ghost renderer at the FRAME\'s time, and never to the scope', () => {
+    const { sink, deps } = setupWater();
+    sink.handler(victimFrame([], { chaffGhosts: [rect] }));
+    const onGhosts = (deps.chaffGhosts as unknown as { onGhosts: ReturnType<typeof vi.fn> }).onGhosts;
+    expect(onGhosts).toHaveBeenCalledTimes(1);
+    expect(onGhosts).toHaveBeenCalledWith([rect], 1000);
+    expect((deps.radar as unknown as { onBlip: ReturnType<typeof vi.fn> }).onBlip).not.toHaveBeenCalled();
+  });
+
+  it('an omitted key (nothing painted this tick) routes nothing', () => {
+    const { sink, deps } = setupWater();
+    sink.handler(victimFrame([], {}));
+    sink.handler(victimFrame([], null)); // a spectator frame carries no `you` at all
+    expect((deps.chaffGhosts as unknown as { onGhosts: ReturnType<typeof vi.fn> }).onGhosts).not.toHaveBeenCalled();
   });
 });
 
@@ -1956,28 +2239,28 @@ describe('victim tells (Story 2.9) — SLOWED / DAZZLED cue edges', () => {
   });
 });
 
-describe('the fit cue is transposed by CATEGORY (Story 2.9 carry-over)', () => {
-  it('plays the tier tone at its category\'s detune', () => {
+describe('the fit cue is transposed by KIND (Story 2.9 carry-over, re-keyed in 8.1)', () => {
+  it('plays the kind tone at its kind\'s detune', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
-    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('mines') });
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'navalMines' }, { alive: true, cards: ['navalMines'] }));
+    expect(play).toHaveBeenCalledWith('fitRare', { detune: fitDetune('equipment') });
   });
 
-  it('gives two same-tier fits on DIFFERENT slots different voices', () => {
+  it('gives two fits of DIFFERENT kinds different voices', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipCooldown' }, { alive: true, boons: ['shipCooldown'] }));
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: true, cards: ['reload'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'dazzleShells' }, { alive: true, cards: ['dazzleShells'] }));
     const [first, second] = play.mock.calls;
-    expect(first[0]).toBe(second[0]); // same tier → same tone id
+    expect(first[0]).toBe(second[0]); // both light → same tone id
     expect(first[1]).not.toEqual(second[1]); // ...heard as a different event
   });
 
   it('an unknown boon still sounds — common weight, untransposed root', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, boons: ['x'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, cards: ['x'] }));
     expect(play).toHaveBeenCalledWith('fitCommon', { detune: 0 });
   });
 });
@@ -1997,6 +2280,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
     const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
     const onBlip = vi.fn();
     const onSmoke = vi.fn();
+    const onFire = vi.fn();
     const onHonk = vi.fn();
     const playHorn = vi.fn();
     const play = vi.fn();
@@ -2007,12 +2291,14 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       contacts: { pushFrame: vi.fn() },
       mines: { sync: vi.fn() },
       litZones: { sync: vi.fn() },
-      buoys: { sync: vi.fn() },
+      burnZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      smokeScreen: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
-      ownBuoy: () => undefined,
-      radar: { onSweepSample: vi.fn(), onBlip, setOwnBuoys: vi.fn() },
+      radar: { onSweepSample: vi.fn(), onBlip },
       smoke: { onSmoke },
+      fire: { onSmoke: onFire },
       foghorn: { onHonk },
       cameraCenter: () => ({ x: 0, y: 0 }),
       effects: { spawnEffect },
@@ -2023,7 +2309,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       ordnanceHue: vi.fn(() => 0),
     } as unknown as RoomBindingDeps;
     bindRoom(conn, deps);
-    return { sink, onBlip, onSmoke, onHonk, playHorn, play };
+    return { sink, onBlip, onSmoke, onFire, onHonk, playHorn, play };
   }
 
   it('fans blip, sm and fh out of ONE frame, each to its own subsystem', () => {
@@ -2040,6 +2326,17 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
     expect(onSmoke).toHaveBeenCalledTimes(1);
     expect(onHonk).toHaveBeenCalledWith(1.25, 2, 400); // the FRAME's timestamp
     expect(playHorn).toHaveBeenCalledTimes(1);
+  });
+
+  it('fans every `sm` out to BOTH the smoke plume and the fire (cycle 162), at the frame\'s time', () => {
+    // The fire decides tier itself (render/fire.ts spawns only for tier 2), so
+    // the binding hands it every pulse, exactly as it hands smoke every pulse.
+    const { sink, onSmoke, onFire } = setupPulses();
+    const light = { k: 'sm', x: 30, y: 40, tier: 1 };
+    const heavy = { k: 'sm', x: 50, y: 60, tier: 2 };
+    sink.handler({ t: 400, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [], events: [light, heavy] });
+    expect(onSmoke.mock.calls).toEqual([[light, 400], [heavy, 400]]);
+    expect(onFire.mock.calls).toEqual([[light, 400], [heavy, 400]]);
   });
 
   it('a honk plays on its OWN path — never through the short-tone table', () => {
@@ -2421,9 +2718,9 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
 // nothing else does.
 
 /**
- * A Colyseus 0.17 room SIGNAL, faithfully: callable to register, with its own
+ * A Colyseus 0.18 room SIGNAL, faithfully: callable to register, with its own
  * `remove` for unregistration. VERIFIED against the installed
- * @colyseus/sdk 0.17.43 (`build/core/signal.mjs` — `createSignal` hangs
+ * @colyseus/sdk 0.18.2 (`build/core/signal.mjs:27-44` — `createSignal` hangs
  * `remove`/`once`/`clear` off the register function), not assumed.
  */
 interface SignalFake<C> {
@@ -2459,9 +2756,11 @@ interface MsgRoom {
 /**
  * A fake room that actually delivers messages (the shared one drops them) —
  * and, since the Story 6.3 review gate, one that models the SDK's REMOVAL
- * surface too: `onMessage` hands back the unbind function 0.17.43 really
- * returns, and the four signals expose `remove`. Without that the disposal
- * tests below would only ever exercise the latch.
+ * surface too: `onMessage` hands back the unbind function 0.18.2 really
+ * returns (`Room.onMessage` → `onMessageHandlers.on()`, @colyseus/sdk 0.18.2
+ * build/Room.mjs:170-171 over build/core/nanoevents.mjs:37-40), and the four
+ * signals expose `remove`. Without that the disposal tests below would only
+ * ever exercise the latch.
  */
 function msgRoom(): MsgRoom {
   const handlers = new Map<string, Set<(msg: unknown) => void>>();
@@ -2515,14 +2814,15 @@ function setupSignals(early: { results: unknown; bound: boolean } = { results: n
     clock: { addSample },
     ownBuffer: { clear: vi.fn(), push: vi.fn() },
     predictor: { forceSnap: vi.fn(), onServerState: vi.fn() },
-    radar: { onSweepSample: vi.fn(), setOwnBuoys: vi.fn() },
+    radar: { onSweepSample: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
-    ownBuoy: () => undefined,
     litZones: { sync: vi.fn() },
-    buoys: { sync: vi.fn() },
+    burnZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn: vi.fn(),
     audio: { play: vi.fn(), playHorn: vi.fn() },
@@ -2651,7 +2951,7 @@ describe('bindRoom — the disposer', () => {
 
   it('really UNREGISTERS through the SDK rather than only latching', () => {
     // The latch alone would leave every callback attached to a room that keeps
-    // firing them forever. 0.17.43 can undo all of it (onMessage returns an
+    // firing them forever. 0.18.2 can undo all of it (onMessage returns an
     // unbind fn; the signals expose remove), so the room must end up empty.
     const { room, unbind } = setupSignals();
     expect(room.liveHandlers()).toBeGreaterThan(0);
@@ -2696,5 +2996,40 @@ describe('bindRoom — the disposer', () => {
     unbind();
     handlers.get(MSG.requeue)?.({ reason: 'cohortLost' });
     expect(onRequeue).toHaveBeenCalledTimes(1); // still attached, now inert
+  });
+});
+
+
+// STORY 8.15: the machine gun's stream shells are claimed per shell off the
+// held level (`ownStreamWeapon`, sim/ownFire.ts `claimStream`) — NEVER off the
+// one-shot click latch, which stays whole for the weapon that will use it.
+describe('own-fire correlation (Story 8.15) — the machine gun stream and the flak gun', () => {
+  const MG = (id: string) => ({ k: 'shell' as const, id, x: 0, y: 0, vx: 500, vy: 0, t: 900, w: 'mg' as const });
+
+  it('EVERY own `w: mg` reveal on our hull claims the stream, and the click latch is untouched', () => {
+    const { sink, onShell, deps, ownFireWeapon } = setupWater('gun');
+    const stream = vi.fn((): OwnFire => 'machineGun');
+    (deps as { ownStreamWeapon?: () => OwnFire }).ownStreamWeapon = stream;
+    sink.handler(victimFrame([MG('m1')], {}));
+    sink.handler(victimFrame([MG('m2')], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), 'machineGun', 'machineGun');
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'm2' }), 'machineGun', 'machineGun');
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(ownFireWeapon).not.toHaveBeenCalled();
+  });
+
+  it('with no stream held, a `w: mg` reveal on our hull is NOT ours: no near-hull fallback, no own crack (an ENEMY tracer on our bow)', () => {
+    const { sink, onShell, play, deps, ownFireWeapon } = setupWater('gun');
+    (deps as { ownStreamWeapon?: () => OwnFire }).ownStreamWeapon = () => null;
+    sink.handler(victimFrame([MG('m1')], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }), null, null);
+    expect(play).not.toHaveBeenCalled();
+    expect(ownFireWeapon).not.toHaveBeenCalled(); // the click latch stays whole
+  });
+
+  it('a flak click latch dresses the flak shell as ours (it may size the 50 u ring)', () => {
+    const { sink, onShell } = setupWater('flak');
+    sink.handler(victimFrame([{ k: 'shell', id: 'f1', x: 0, y: 0, vx: 500, vy: 0, t: 900, w: 'flak' }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'f1' }), 'flak', 'flak');
   });
 });

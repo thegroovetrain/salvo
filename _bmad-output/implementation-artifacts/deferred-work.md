@@ -27,7 +27,7 @@ Append-only log of work items deliberately deferred by bmad-dev-auto runs.
   evidence: Blind Hunter traced that nothing counts reconnections per session; CONFIG's "bounded liability" comment is per-incident only. Metrics visibility arrives with Story 0.3.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-2-reconnect-into-your-own-ship.md`
-  status: PARTIAL 2026-08-18 by Story 6-7 (Eric ruling R9/Q10, epic-6 amendment 48). The ORIGINAL window (socket dies between allowReconnection resolve and the JOIN_ROOM ack) REMAINS OPEN — an acking-aware server hold policy was offered and declined as a Colyseus-internals fight for a narrow window. What WAS closed is the fresh instance of the same fault class that refresh-resume created: persisting the token once at connect would leave a later refresh carrying a dead pre-resume token after any in-page resume rotated it. The token is now re-written on every ack and cleared on any failure. NOTE for whoever takes the original: the SDK invokes `onReconnect` and assigns the rotated token on the NEXT LINE (`@colyseus/sdk/build/Room.mjs:241` then `:243`), so a handler reading `room.reconnectionToken` sees the OLD value — persistence must not hang off that hook.
+  status: PARTIAL 2026-08-18 by Story 6-7 (Eric ruling R9/Q10, epic-6 amendment 48). The ORIGINAL window (socket dies between allowReconnection resolve and the JOIN_ROOM ack) REMAINS OPEN — an acking-aware server hold policy was offered and declined as a Colyseus-internals fight for a narrow window. What WAS closed is the fresh instance of the same fault class that refresh-resume created: persisting the token once at connect would leave a later refresh carrying a dead pre-resume token after any in-page resume rotated it. The token is now re-written on every ack and cleared on any failure. NOTE for whoever takes the original: the SDK invokes `onReconnect` and assigns the rotated token on the NEXT LINE (`@colyseus/sdk/build/Room.mjs:241` then `:243`), so a handler reading `room.reconnectionToken` sees the OLD value — persistence must not hang off that hook. — 2026-09-14 Story 8.0: the SDK line is RE-LOCATED to `@colyseus/sdk` 0.18.2 `build/Room.mjs:483` (`onReconnect.invoke()`) / `:485` (`reconnectionToken` assignment); ordering unchanged, the client's microtask persister stays, the window stays open.
   summary: Half-resume double-fault — if the socket dies between the server resolving allowReconnection and the client's JOIN_ROOM ack, the rotated reconnection token was never delivered, so the client's retries carry a stale token and fast-fail to DISCONNECTED while the ghost is held for another grace window; consider acking-aware hold policy or token-retry tolerance in Epic 6.7.
   evidence: Edge Case Hunter traced core's token rotation at reconnection resolve vs SDK token update on JOIN_ROOM ack; consequence is a failed resume degrading to pre-0.2 behavior (no seizure, no crash), hence deferred not patched.
 
@@ -89,12 +89,14 @@ Triage of all 9 items above, run per `_bmad-output/implementation-artifacts/spec
   summary: Rescale + rebalance the drone envelopes at Epic 5 (Story 5.6, Roving PvE Fleets) — Eric ruled 2026-07-21 that the pinned prototype blocks (small 46 / medium 38 / large 30) get re-tuned against the post-1.6 class envelopes (TB 45 / ML 40 / BS 35); until then droneSmall remains the fastest hull afloat by design acceptance.
   evidence: 1.6 review flagged the inversion (droneSmall 46 > TB 45); Eric's directive after the 1.6 PR: "rescale and rebalance the drones when we get to Epic 5" — note also recorded in epics.md Story 5.6.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-8-mine-layer-loadout.md`
+  status: RESOLVED 2026-09-18 (Story 8.9, cycle 144) — stale since 8.5: the smoke already joins cls:'mineLayer' and click-drops navalMines on the first WEAPON slot (Q, inp.slot 2); all four phases proven LIVE against a booted server on port 2699 (seed 530969477): "torpedo: B sank; 50-dmg hits=6", "mines: A held 6 own mines live at once (6 laid)", "ambush: B.hp 250->195 boom=true"; header re-derived (50-dmg fish, 300 hp Mine Layer, 15 s drop cadence read from CONFIG).
   summary: server/scripts/weaponsSmoke.mjs mine phases are dead — broken since 1.6 (joins default to torpedoBoat, whose slot 2 is speedBoost) and 1.8's mine→ability flip removed the last click-fire mine path in the game; convert the smoke to join with cls:'mineLayer' and drive actSeq/actSlot presses (slot 1) in a smoke-hygiene pass.
   evidence: Blind Hunter traced dropMines() (inp.slot=2 + fireSeq clicks, no cls in joinClient) at the 1.8 review gate; phases 3-4 cannot produce a mine on any post-1.6 build, and after 1.8 fireControl's weapon wall refuses mine slots entirely.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-8-mine-layer-loadout.md`
   summary: dropPoint (mines + the new decoy) is island/boundary-blind — an ML with its stern against an island can lay a mine or buoy inside the rock; for the decoy the failure is total (LOS-blocked from every bearing, so it never blips or truesights while the owner burns the charge + 20 s reload with zero feedback) — fold into the future island-clearance pass alongside the 1-4 muzzleSpawn entry.
   evidence: Edge Case Hunter traced decoy.ts→mines.dropPoint at the 1.8 review gate: hull-clear of the OWNER only, no island check anywhere on the drop path; same family as the 1-4 muzzleSpawn ledger entry (island-blind spawn offsets), with a new higher-stakes consumer.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-8-mine-layer-loadout.md`
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — accepted by Eric — the DECOY BUOY persists until destroyed and the dead-owner id tell is harmless: only a sighted observer receives `DecoyView.by`, and it already sees the owner's hue (amendment 122).
   summary: Decoy 30 s persistence past owner death is a cross-reference wire tell — genuine blips never carry a dead ship's id (blipSignal gates target.alive) and deaths are globally visible, so a modified client can flag every dead-owner blip as certainly-fake for up to 30 s; needs an Eric ruling (despawn-on-death vs accept the tell) — spec-ruled behavior (litZone precedent), so not patchable in review.
   evidence: Blind Hunter at the 1.8 review gate; composes two ruled behaviors (persistence + alive-gated genuine blips); visual client unaffected (blips render anonymously), FR10 wire-level only.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-8-mine-layer-loadout.md`
@@ -113,11 +115,14 @@ Story 1.10 (spec-1-10-firing-arcs-for-the-class-era.md) made denial authoritativ
 2. **Denial-prediction staleness race — server-signal halves** (spec-1-6) — RESOLVED (the halves a server signal can fix) by Story 1.10. A click the client predicts READY but the server refuses (reload-boundary race) now travels as a `'cooling'` denial and produces explicit late feedback (denials.test "cooling: a weapon click against an empty (reloading) pool…"). The INVERSE half — client predicts DENIED while the server accepts — is inherent to prediction (no server signal exists for "accepted"; the shot's own success feedback self-corrects) and stays accepted behavior, not deferred work.
 3. **mine/decoy dropPoint island/boundary-blindness** (spec-1-8) — RESOLVED by Story 1.10. `equipment/mines.ts dropBlocked()` (shared `pointInCircle` — island circles + the water disk) is checked BEFORE the pool in both the mine and decoy rows: a blocked stern drop returns `'blocked'`, consumes NOTHING (charge + reload kept), and reaches the owner as an explicit denial. Pinned by denials.test blocked cases (island + boundary, mine + decoy) and the goldenFrames `denied-blocked-stern-drop` sub-case. NOTE: the sibling **gun-family muzzleSpawn island-blindness** (spec-1-4) REMAINS OPEN by explicit 1.10 scope ruling — a ship pressed against an island still wastes a gun/cannon shell into the rock (benign splash, no denial).
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-10-firing-arcs-for-the-class-era.md`
+  status: STAMPED 2026-09-16 (Story 8.5, cycle 140) — re-derived for nine slots: the FIFO cap is SLOT_COUNT = 9 presses per 50 ms sample (was 4); only one ability slot (the Shift boost) exists until 8.7 stocks the belt, so the silent drop at cap is reachable only by mashing; still open.
   summary: Transport-coalescing press swallow — two input messages (fireSeq/actSeq n and n+1) landing within one server tick leave only the newest in the latest-input store, so the older press is neither activated nor denied (the denial channel structurally cannot see a press the server never evaluates); closing it needs seq-gap detection or a server-side press queue.
   evidence: Both 1.10 review hunters traced fireControl/activationControl over the latest-input store; the client's 1.8 FIFO spaces same-sample presses across ticks, so the residual trigger is network jitter bunching deliveries — real but rare, feel-level.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-10-firing-arcs-for-the-class-era.md`
+  status: STAMPED 2026-09-16 (Story 8.5, cycle 140) — re-derived for nine slots: the FIFO cap is SLOT_COUNT = 9 presses per 50 ms sample (was 4); only one ability slot (the Shift boost) exists until 8.7 stocks the belt, so the silent drop at cap is reachable only by mashing; still open.
   summary: Keyboard ability FIFO cap (SLOT_COUNT) silently drops a further same-window press — it never queues, never reaches the wire, and produces no denial feedback (pre-existing from the 1.8 dual-press queue).
   evidence: Edge Case Hunter traced activateAbility's early return at pendingActs.length >= SLOT_COUNT (client/src/input/keyboard.ts); requires mashing 5+ ability presses inside one 50 ms sample — extreme edge, but formally violates never-silence.
+  resolution: Story 8.7: belt presses are now reachable through the same FIFO; still open.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-11-design-tokens-typography.md`
   summary: DESIGN.md frontmatter carries a self-inconsistent card-scrim annotation — hex '#030605' (rgb 3,6,5) vs its inline comment "rendered as rgba(3,7,5,.9)" — needing Eric's one-character doc ruling (hex was treated as authoritative and shipped verbatim).
   evidence: Both review hunters independently flagged it; #030605 decodes to rgb(3,6,5), so the comment's 7 is a typo in one direction or the hex in the other; client tokens pin 0x030605 until the doc rules.
@@ -207,6 +212,7 @@ Verified with `resolve_customization.py` (three-layer merge: protocol appends to
   status: RESOLVED 2026-07-31 by Story 2.9 (Eric ruling, amendment 48) — the hotbar gains an 8th state, ACTIVE: while a boost/decoy window runs, its slot carries a persistent phosphor breathing outline (≥2s cycle, under `pulseCapHz`) plus a remaining-seconds countdown in the quick-info line, dual-coded (outline shape + text, never color alone) and motion-aware, at `denied>activated>active>cooling` precedence (boost keyed off `boostUntil`, decoy off the own-spawn latch).
   summary: The ratified 7-state hotbar grammar has no "active ability window" state — the retired chip row outlined a slot while speedBoost ran, and the new hotbar drops that signal (only the ≤80 ms activated pop and the speed-needle cap remain), so a running boost/decoy window has no persistent hotbar indication; needs an Eric ruling (natural home: Story 2.9 The Build Must Be Felt) before inventing an eighth state.
   evidence: Edge Case Hunter traced the deleted drawOneChip boost-active outline against DESIGN.md UX-DR11's state grammar, which contains no active-window state — adding one is a gated design decision, not an implementation choice.
+  resolution: CARRIED TO THE BAR 2026-09-17 (Story 8.6, epic-8 amendment 34) — the ACTIVE grammar this entry's own `status:` line above records (Story 2.9, amendment 48) survives the HUD-bar re-cut unchanged in meaning: the breathing phosphor outline stays, and the remaining-seconds countdown that used to live in the quick-info line now renders as the cooldown wipe's centred numeral, still with no overlay, still at `denied > activated > active > cooling` precedence.
 
 ## 2026-07-26 — Story 2.3 (Settings & Accessibility Options + Legibility Pass)
 
@@ -249,6 +255,7 @@ Verified with `resolve_customization.py` (three-layer merge: protocol appends to
 ## 2026-07-30 — Story 2.8 (Boon Catalog v1 — THE DECK MODEL)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-8-boon-catalog-v1.md`
+  status: RESOLVED 2026-09-15 by Story 8.4 (cycle 139). The snapshot became the ordnance target collector (`World.hitTargets(mask)`), and `sinkShip` now bumps a GENERATION that retires every memoized list — so a hull killed early in a tick is gone from every target list built afterwards in that same tick: later shells pass through it, mine triggers no longer see it, and homing acquire drops the lock. What stays deliberately stale is a list a caller is ALREADY holding (a mine blast resolves against the list captured before it fired, with a per-victim liveness re-check — amendment 5); that was always the semantic part. Determinism is unaffected: the invalidation is a counter compare, not a re-order, and the pinned STEP_ORDER is untouched. Pinned by `hitTargets.test.ts` ("A SINK retires every memoized list", ":594 — the wreck is not a collision subject").
   summary: Per-tick hull-snapshot staleness (PRE-EXISTING, surfaced by Codex at the 2.8 gate) — `aliveHulls()` is snapshotted once before stepShells/stepMines, so a ship killed early in a tick still collides with later shells, can still trip mine triggers, and can be homing-acquired as a target for the remainder of that tick (~50ms). Predates 2.8 (same pattern for ordinary shells since the ballistics era); homing/creep are merely new consumers. Fix shape: re-filter or invalidate hulls on death within the tick, with careful attention to determinism and the defined step order.
   evidence: Codex CONFIRMED with file:line traces (world.ts stepShells/stepMines/homing-acquire all reading the pre-step snapshot); orchestrator adjudicated pre-existing (the snapshot idiom and step order are original architecture).
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-8-boon-catalog-v1.md`
@@ -299,6 +306,7 @@ Story 2-10 (spec-2-10-economy-batch-sim-harness.md) shipped the triple-duty harn
   summary: The 12–20 picks-per-match draft band is arithmetically unreachable at current match lengths — the shipped storm closes at 3:45 and harness matches end 0:40–1:20 p50 by elimination, while the band requires ~10+ minutes of active play (NFR6's ring-closed-~12:00 shape). Routed to Story 3.1 (epics.md already assigns the harness match-length confirm there); the harness's zone.* sweep support is ready for it. No XP dial change should chase this number before 3.1 lands.
   evidence: batch-sim-evidence-2026-07-31.md campaign matrix (roster baselines, levelMs sweeps showing picks mean 0.72–3.80 across all variants; zone sweep showing insensitivity at current pilot lethality); Eric ratified the attribution at the amendment-55 checkpoint.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-10-economy-batch-sim-harness.md`
+  status: CLOSED BY DELETION 2026-09-15, Story 8.3 (cycle 138) — the doctrine-swap/rival mechanism was deleted in Story 7-5 and rarity in 8.1; "deck exhausted" now means the pool is empty, nothing else.
   summary: Doctrine-rival cards never leave circulation — once a doctrine is fitted, its rival presents as a free REPLACE forever (ratified ping-pong, amendment 44), so decks floor at the rival cards instead of emptying; "deck exhausted" in the harness is defined as empty-or-terminal-rivals-only. Awareness entry, no rule change proposed; revisit only if live play shows late-game offers degenerating to rival spam.
   evidence: Wave-2 implementation finding (spend-policy loop never terminated under always-prefer-exclusive); documented in server/scripts/batchsim/controls.ts (renamed from pilots.ts, cycle 110) and deckSim.ts headers; visible in the evidence report's depletion stats.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-10-economy-batch-sim-harness.md`
@@ -456,6 +464,7 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
 ## 2026-08-04 — Global cooldown reduction (cycle 42): review-gate findings deferred for Eric
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-global-cooldown-reduction.md`
+  status: CLOSED BY DELETION 2026-09-15, Story 8.3 (cycle 138) — rarity and its draw-rate no longer exist (Story 8.1); provenance record only.
   summary: [ACCEPTED 2026-08-04 — Eric reviewed the drift and ruled it fine as-is; the dials stay untuned. Kept as the provenance record for whoever next reads the stale ~0.48/~0.57 figures.] RARE/EXCLUSIVE DRAW RATE DRIFTED UPWARD — deleting the seven per-equipment reload ladders removed 35 COMMON cards while every rare/exclusive line survived, so rare density rose on every deck (TB 14.5% -> 17.2%, ML 11.4% -> 13.2%) and the draw rate rose with it. A review simulation of the exact `pickLine`/`drawLines` semantics puts TB dry-0 P(>=1 rare in an offer) at ~0.59, up from ~0.51 — the new OPENING rate now EXCEEDS the old ratified dry-6 pity CEILING (~0.57, amendment 57, ratified by Eric 2026-07-31 from the 2.10 batch-sim evidence). Because all four acquisition cards are rares, R-slot equipment also arrives earlier in a run. `CONFIG.deck.rareWeightBase`/`rareWeightPerDryLevel` were deliberately LEFT UNTOUCHED this cycle — retuning dials that were ratified from measured evidence is a balance decision needing an Eric ruling plus a fresh batch-sim pass, not an implementer pick. The now-stale rate figures in the `CONFIG.deck` doc comment were annotated in place rather than rewritten. DECIDED: Eric accepted the faster rare cadence as a side effect of the thinner catalog; the dials are NOT retuned.
   evidence: Fable review-gate finding (CONFIRMED, medium) from a 200k-trial simulation of `drawOffer` semantics, 2026-08-04; `shared/src/sim/deck.ts` (`perCardWeight`, weight = copiesInDeck x perCard); `shared/src/constants.ts` CONFIG.deck provenance comment.
 
@@ -494,7 +503,8 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-weapon-balance-and-radar-vector-length.md`
   summary: THE SAME-OWNER MINE CASCADE IS PRE-EXISTING IN KIND BUT WIDENED IN DEGREE by the 2-deep rack, and is NOT a one-hit-kill law violation. The law and `damageGuardrail.test` are per-HIT, and a cascade resolves as separate `hitShip` applications per mine — so two co-located 55hp mines apply 55 + 55, not a single 110 hit. What changed: stacking two mines at effectively the same point previously required waiting out an 8s reload, whereas the 2-deep rack makes a co-located double-trap instantly layable, and its 110 total now one-cascades a full-hp 100hp medium drone (the old instant capability was a single 45). Capability itself is old (maxLive 5 always allowed 5x45 = 225 with patience). Flagged so that if the SPIRIT of the 80hp floor is ever extended to cascades, this is the known loophole and its entry point.
-  evidence: Adversarial review (Fable systems hunter, CONFIRMED) traced `world.ts` `detonateMine`/`chainMines` (same-owner cascade within blastRadius) against `consume` semantics permitting two drops ~50ms apart; `damageGuardrail.test.ts` asserts per-hit ceilings only.
+  status: RE-DERIVED 2026-09-15 under Story 8.4 (cycle 139), STILL OPEN as a flagged loophole. Two things changed and one did not. (1) The cascade is no longer same-owner: Eric's amendment 18 makes one blast set off EVERY armed non-captive mine in range whoever laid it, so an enemy field laid across yours now cascades together — the reach of a cascade grew, in a direction Eric chose. (2) The bound is no longer `maxLive`: Story 8.4 deleted every mine cap, so the only ceiling on co-located mines is POOLS x RELOADS — per layer, `mine.maxAmmo` (2) instantly, then one more per `mine.reloadMs` (15 s at base, 7.5 s at a full cooldown stack), with nothing evicting what is already down. A patient layer can stack arbitrarily many at one point; the INSTANT capability is unchanged at 2 x 55 = 110. (3) What did NOT change is the thing the entry is about: the cascade is still resolved as SEPARATE per-mine applications through the one damage gate (`applyDamage`, src 'mine'), never a single summed hit, so the per-HIT one-hit-kill law and `damageGuardrail.test` are untouched and stayed green byte-for-byte. The loophole and its entry point are the same; only its ceiling moved from "5 x 45 with patience" to "unbounded with patience".
+  evidence: Adversarial review (Fable systems hunter, CONFIRMED) traced `world.ts` `detonateMine`/`chainMines` (same-owner cascade within blastRadius) against `consume` semantics permitting two drops ~50ms apart; `damageGuardrail.test.ts` asserts per-hit ceilings only. Story 8.4: `chainMines` (owner condition deleted, both captive carve-outs kept), `equipment/mines.ts addMine` (no cap parameter, no eviction branch), `weapons.test.ts` "mines — NO CAP: a laid mine stays laid".
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-weapon-balance-and-radar-vector-length.md`
   summary: THE BATCH-SIM HARNESS IS BLIND TO THREE OF THE FOUR WEAPONS RETUNED THIS CYCLE. Its `gunner` pilot fires slot 0 only, so the torpedo, mine, and cannon changes are structurally invisible to every before/after column — the measured +30% match length is close to a pure read of the GUN nerf alone. Concretely this made the Mine Layer's win share appear to FALL (31 -> 26 of 200) in the same cycle that buffed the mine hardest, purely because the harness never lays one. A multi-slot pilot (or per-slot pilots) would make future weapon rebalances measurable rather than partially observable. Natural home: whichever cycle next touches `server/scripts/batchsim/pilots.ts`, or a standalone harness chore.
@@ -562,8 +572,9 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
   evidence: `client/src/audio/tones.ts` `heal` tone row; `client/src/config.ts` `CLIENT_CONFIG.refit` strip block (comment cites amendment 47, the container-fit law, as the geometry's forcing constraint).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-damage-control-heal-strip.md`
+  status: DECIDED 2026-09-15 at the damage gate (Story 8.4, cycle 139) — **PINNED AS DELIBERATE, un-gated, no change**. The gate itself is what settles it: `applyDamage` refuses every source while `damageEnabled` is false, so in a weapons-safe phase there is structurally nothing to heal FROM; an open pool there can only be one a captain paid for before the phase changed, and letting it drain is the honest outcome (the pool drains on the wall clock whether or not the hp lands — the ruled overflow behaviour). Gating it would add a phase read to a regen path Story 8.8 is about to rewrite, buying nothing. Pinned by `damageGate.test.ts` ("tickRepairs stays UN-gated on damageEnabled"), whose second case asserts the gate really does refuse damage in that same room, so the two can never disagree. If a future phase ever makes ready-room damage possible, this entry is the place to reopen.
   summary: `tickRepairs` IS NOT GATED ON `damageEnabled`, so a hull heals normally in the weapons-safe ready room. Flagged by the implementing agent as a judgment call rather than an unruled invention: the rulings specify only an alive gate (amendment 62 — dead or full-HP is rejected; nothing says heal should also be inert pre-match). Practically inert today (nothing can damage you in the ready room, so there is nothing to heal), but record it as a known, deliberate un-gated path in case a future phase makes ready-room damage possible.
-  evidence: `server/src/game/world.ts` `tickRepairs()` — guards only `if (!ship.alive || ship.repairHp <= 0) continue;`, no `this.damageEnabled` check (contrast the zone-damage and dazzle/incendiary paths at `world.ts` lines ~1409 and ~2015, both explicitly gated on `damageEnabled`).
+  evidence: `server/src/game/world.ts` `tickRepairs()` — CORRECTION 2026-09-15: the quoted guard `if (!ship.alive || ship.repairHp <= 0) continue;` is STALE. `ship.alive` was replaced by the lifecycle model in Story 5.2; the shipped guard is `if (!isAfloat(ship.lifecycle)) continue;` followed by a per-channel `> 0` test, and there are now TWO channels (the paid pool and the free per-level pool, both drained through `payRepair`). The `damageEnabled` half of the observation was and remains correct: there is no such check. Contrast `applyStorm` and `applyZoneEffects`, both explicitly gated.
 
 ## 2026-08-05 — the DAMAGE CONTROL rail made choosable (cycle 47): ledgered consequences
 
@@ -578,6 +589,7 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
 - source_spec: `_bmad-output/implementation-artifacts/spec-heal-strip-legibility.md`
   summary: THE REFIT BAND IS ANCHORED IN PHYSICAL PIXELS BUT SCALED IN CSS — a pre-existing mismatch between the geometry model and the runtime, surfaced by the cycle-47 review. `UpgradeMenu.place()` computes `refitBandLayout(window.innerWidth, window.innerHeight)` in PHYSICAL px and writes `band.y` to the panel's `top`, but `PANEL_CSS` scales the panel's contents by `--hc-ui-scale` about `transform-origin: top center`. So at the 125% tier the band's real footprint is 1.25x its laid-out height hanging off an UNSCALED anchor — which is NOT what the geometry suite's "1280x614 logical floor" models (that models a layout computed in logical units, i.e. `refitBandLayout(w/1.25, h/1.25)`). The two have simply never agreed. Consequence today is bounded and now pinned (a new scale-tier test walks every committed tier at four viewports), and cycle 47 kept the shipped geometry legal by trimming `stripGap` to 6 — but the MODEL is still wrong, which means every future refit-band change has to rediscover this by hand. The real fix is to make `place()` scale-aware (lay out in logical units and scale the anchor with the contents); it was NOT taken here because it moves the band for every user at 90% and 125% alike, which is a visible change wanting its own cycle and probably Eric's eye.
   evidence: `client/src/ui/upgradeMenu.ts` `place()` (physical `window.innerHeight` -> `panel.style.top`) vs `PANEL_CSS` (`transform: translateX(-50%) scale(var(--hc-ui-scale, 1))`, `transform-origin: top center`); `client/src/__tests__/upgradeMenu.test.ts` "keeps the scaled band inside the viewport at every UI-scale tier" (the new pin, which reported "1600x768 @125%: band 1.5px past the bottom" at an 8px seam); `CLIENT_CONFIG.settings.scaleGateWidthPx` 1600 is a WIDTH-only gate, which is why a 768px-tall viewport can select the 125% tier at all.
+  resolution: RESOLVED 2026-09-17 (Story 8.6, epic-8 amendment 36) — `place()` is now scale-aware: the refit band lays out in the same LOGICAL units as the hud-bar (`hudBarLayout`'s units) and its anchor scales with the contents instead of being written in physical px, which is exactly the fix this entry named. The physical-anchor / CSS-scale mismatch does not recur under the new bar-relative placement rule.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-heal-strip-legibility.md`
   status: RE-HOMED to **Story 7-6** and RESOLVED — verified 2026-08-21 (cycle 126, Eric ruling C4 "yes"). STORY NUMBER CORRECTED (Eric ruling A2): the doc-sync batch is 7-6 after the 2026-08-18 rescope, not 7-5. DESIGN.md now carries a DAMAGE CONTROL row (four `damage control` matches where there were none) alongside the new Foghorn Chevron and advertising/consent rows, and the digit-5 heal is in the ratified binding set (Eric ruling D1).
@@ -588,9 +600,11 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-salvo-per-shell-damage.md`
   summary: A gun burst over a hull that an EARLIER shell of the same multi-barrel click just sank emits `sp` (fall of shot — the MISS mark) instead of `hc`, so the shooter sees miss markers painted on the exact point of their own kill.
+  status: RESOLVED 2026-09-15 by Story 8.4 (cycle 139) under **Eric ruling, epic-8 amendment 19**: a burst covering a hull that sank THIS tick counts it as a GEOMETRIC victim for the hit-call mark only — `hc` is emitted, no damage is dealt, no assist is paid, nothing else changes. The wreck is no longer a collision subject at all (the collector's sink invalidation), so its silhouette is copied into `sunkThisTick` at sink time and read by `wrecksInBurst`. THE STAR SHELL'S EXCLUSION IS PRESERVED EXACTLY AS THIS ENTRY DEMANDED: the new count sits inside the existing `damage > 0` branch, so a zero-damage flare still cannot answer "is a hull within burstRadius of this point?" and mints no detection channel. Pinned by `hitTargets.test.ts` ("a DAMAGING burst over it marks `hc`" / "the ZERO-DAMAGE star shell keeps its exclusion").
   evidence: `resolveBurst` (server/src/game/world.ts) increments `resolved` only AFTER the `!victim.alive` guard, and `resolved === 0` routes to `emitSplash`. Verbatim tick output from a click that kills on shell 1: `burst s1 | dmg b 15 hp:0 | sunk b by:a | hc a`, then `burst s2 | sp a` and `burst s3 | sp a`. Both review hunters found this independently. The site is PRE-EXISTING (the deleted salvo gate also sat after the alive check), but cycle 47 made clicks deal up to 3x damage, so they now kill mid-fan far more often and the wrong mark is common rather than rare. NOT fixed in-cycle because the fix means changing what "resolved" means in Story 4.3's ratified `hc`/`sp` grammar (amendments 16-18) — counting GEOMETRIC victims instead of live ones — which is an Eric design call, not a patch. Note the same file's existing comment explicitly forbids counting geometric victims for the ZERO-DAMAGE star shell (it would mint an unsanctioned detection channel); a fix must preserve that exclusion. No anti-cheat exposure either way: `sp` and `hc` are both self-private to the shooter.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-salvo-per-shell-damage.md`
+  status: RESOLVED 2026-09-15 by Story 8.4 (cycle 139), by the route this entry predicted ("refreshing the tick's hull list on sink"). `sinkShip` bumps the ordnance collector's generation, so every target list built after the kill excludes the wreck: a later shell of the same click simply does not collide with it, keeps flying, and delivers its burst to the live hulls nearby. No `boom`, no `hc`, nothing consumed. The "focused cycle" the entry asked for is this one — the collector is the shared collision ordering it warned about, rebuilt deliberately rather than patched. Pinned by `hitTargets.test.ts` (":594 — the wreck is not a collision subject, so a later shell passes THROUGH it").
   summary: A same-tick shell intercepted by a hull that an earlier shell of the same click already sank still emits `boom` + `hc` and is consumed by the wreck, denying its burst to live hulls nearby.
   evidence: In `resolveShell` (server/src/game/world.ts) `emitHitCall` fires before the `!victim.alive` check, and the per-tick `hulls` snapshot is built once and never refreshed when a ship sinks mid-tick, so `earliestHull` still collides with wrecks for the remainder of that tick. Pre-existing; same aggravating factor as the entry above (mid-click kills are now common). Fixing it means either refreshing the tick's hull list on sink or moving the alive lookup above the Hit Call — both touch shared collision ordering, so it wants its own focused cycle.
 
@@ -677,6 +691,7 @@ touch either.
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-9-the-eighths-ladder.md`
   summary: A STRAIGHT-RUNNING ENEMY TORPEDO CAN BECOME PERMANENTLY INVISIBLE, and the shorter detect ring makes it easier to reach. Ballistic reveal is exactly-once (`seenBallistics`), the cull is client-side, and only HOMING torpedoes emit a `torpU` that can resurrect a culled track. So a straight fish revealed at the detect boundary, then culled when it leaves the client's ring, is never drawn again even if the observer's own movement re-encloses it — and it can hit unseen. This existed before Story 4.9 at the wider ring; shrinking the ring to 287.5u means an observer's own speed opens and closes that gap far more often. NOT FIXED because the honest fix is a server-side re-reveal rule for ballistics that have gone out and come back, which is a perception-invariant change needing its own story and its own oracle.
   evidence: Blind adversarial hunter at the step-04 gate, traced. `server/src/game/perception.ts` (exactly-once `seenBallistics`; the `torpU` scan skips `shell.homing === undefined`), `client/src/render/projectiles.ts` (client-side cull, `spawnFromUpdate` resurrect path is homing-only).
+  status: RESOLVED 2026-09-19 (Story 8.13, epic-8 amendment 78) — per-visit reveal mark; re-entry re-reveals; pinned in perception/signals/goldenFrames
 
 ### 2026-08-07 — RESOLVED by Eric ruling (amendment 126), same day they were filed
 
@@ -725,6 +740,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
 ### 2026-08-08 — cycle 69 (Story 4-12, radar wakes)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-12-radar-wakes.md`
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — accepted by Eric — a decoy lays no wake, exactly as a stopped ship; nothing stamped (amendment 123).
   summary: THE DECOY LAYS NO WAKE, AND UNDER THIS STORY THAT IS A NEW TELL — deferred BY ERIC, not missed. A decoy is frozen at its drop pose at speed 0, so it never advances a wake head and therefore paints no track, while every moving hull now does. "A wakeless paint is a stopped ship or a decoy" is inference a defender can now make, which dents amendment 11's wire-indistinguishability law. Put to Eric at the pre-implementation gate with the fix costed (stamp the decoy with the dropping ship's ribbon at release, which reads exactly like a ship that came to a stop and reuses data already kept); he answered *"Decoy will get major changes soon so lets not worry about it for now."* So NO decoy special-casing exists anywhere in the cycle, in either direction, and the next agent must not read the gap as an oversight and "fix" it into a mechanism the rework will delete. Reopen this WITH the decoy rework, not before.
   evidence: amendment 201. `shared/src/sim/wake.ts` `appendWakeSample` requires travel before a second sample exists and `eachWakeSegment` needs two — so a stationary source produces zero segments by construction, with no decoy branch in `server/src/game/signals.ts` or `client/src/render/wake.ts`.
 
@@ -919,6 +935,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
   resolution: RESOLVED 2026-08-17 (cycle 97, Story 6-5; epic-6 amendment 29) — and the debt turned out to be already discharged rather than needing payment. This entry conflates "solo MATCH" with "solo HUMAN". Story 6-5's roster is 1 human + 19 AI captains, and `isParticipant` is `role !== 'fleet'`, so bots count in `afloatCaptains()`; `latchOutcome()` returns early while `captains.length > 1`, the match runs normally, and `latchedWinner` MAY BE A BOT (the results modal names it). The sinking hold generalises for free via `holdsForSinkingCaptain`'s `isParticipant` test. Amendment 13's participant seam — built ahead of its consumer over the orchestrator's objection — is what paid this off. STILL OPEN and deliberately untouched: 1 human + ONLY PvE fleet hulls has no defined end, is pinned as current correct behaviour by `drones.test.ts:911`, and is still refused by `queue.ts`. 6-5 did not open that case.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-1-lifecycle-state-machine-step-order-registry.md`
+  status: RESOLVED (already, by Story 6.3 — epic-6 amendment 16 retired the value; `MatchEndCause` is `'lastHumanSunk' | 'fieldCleared'`); verified 2026-09-30 at Story 8.21 before the enum was persisted into `MatchRecord`.
   summary: `endedBy: 'lastHumanLeft'` IS NOW EFFECTIVELY UNREACHABLE THROUGH THE ROOM, and nobody decided that — it fell out of the drone-gate removal. Any event leaving one afloat captain now finishes immediately, so a DEPARTURE can only be terminal if it lands between a sink and the next win check, which `ArenaRoom` makes impossible (it calls `world.step()` and `match.update()` synchronously). The telemetry enum value, its classification branch and its unit test all still exist and are green — the unit test drives sink-then-leave with no tick between — but no real socket session can now produce it, and `metricsSmoke`'s real finish moved from `lastHumanLeft` to `fieldCleared`. Either the enum value should be retired or the classification revisited; it is currently a telemetry category that can only be reached synthetically.
   evidence: `match.ts` `classifyEnd`; `matchTelemetry.test.ts` (`lastHumanLeft` case, now synthetic); `metricsSmoke.mjs` observed `"endedBy":"fieldCleared"`.
 
@@ -954,13 +971,14 @@ and the permanently-invisible straight torpedo — remain OPEN.
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-2-the-sinking-window.md`
   summary: THIS CYCLE SHIPPED WITH NO LIVE OR VISUAL VERIFICATION — everything is code plus 4189 unit tests. Three things specifically want one human look before they are trusted: the `GOING DOWN WITH THE SHIP!` banner's timing and legibility, the hotbar/firing arc surviving the window while the hull visibly slows, and the camera holding on the own hull instead of cutting to the killer. The audio seam in particular had NO test coverage at all before this cycle, which is exactly why a double-sounding shot on every shot of the beat survived implementation and was caught only at the review gate.
   evidence: Story 5-2 client wave report ("No visual sanity check"); review finding P1 (`hasLiveOwnHull`), which the full suite was green against.
-  resolution: PARTLY BORNE OUT 2026-08-20 (cycle 116) — this is the defect this entry predicted, and it took a human look to find it. Eric, on watching his own reveal: *"my ship should be sunk, not visible in full-color motionless in the middle of the map."* Amendment 21's cap held past founder forever once Story 5.3 made the own wreck stay on screen; fixed by `spectateSettle` completing the ramp to the one wreck look (epic-7 amendment 32). ENTRY STAYS OPEN — the banner, the hotbar-through-the-window and the camera hold are still unverified by eye.
+  resolution: PARTLY BORNE OUT 2026-08-20 (cycle 116) — this is the defect this entry predicted, and it took a human look to find it. Eric, on watching his own reveal: *"my ship should be sunk, not visible in full-color motionless in the middle of the map."* Amendment 21's cap held past founder forever once Story 5.3 made the own wreck stay on screen; fixed by `spectateSettle` completing the ramp to the one wreck look (epic-7 amendment 32). ENTRY STAYS OPEN — the banner, the hotbar-through-the-window and the camera hold are still unverified by eye. UPDATE 2026-09-17 (Story 8.6, cycle 141): the "hotbar surviving the window" clause is now the BAR surviving the window — the whole hud-bar (slots, both globes, the xp-strip) stays visible through the sinking window by construction (`conning(status)` gates it, not `alive`); still unverified by eye — Eric's look on staging is the acceptance (no browser tooling in this worktree).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-2-the-sinking-window.md`
   summary: TWO SMALL TEST-HYGIENE ITEMS, NEITHER PRODUCTION-REACHABLE. (a) Ready-room respawn is now effectively `max(respawnDelay, sinkingWindowMs)` = 5000ms rather than 3000ms, because `processRespawns` gates on `isSunk` and a hull cannot be sunk until founder — so `respawnDelay` is unobservable and the `SUNK — RESPAWNING IN Ns` placard has no frames left to draw in. Unreachable in a real match (`damageEnabled` is active-only and `respawnEnabled` is ready-room-only, mutually exclusive), so it bites tests and standalone Worlds only; the honest fix is to arm the client ETA off `founderDeadline` or put `respawnAt` on the wire. (b) About a dozen existing server tests were retrofitted to cross the window with a single `w.step(5000)` call, which runs ONE tick at `dtMs = 5000` — so motion, reloads, mines, storm, smoke and wake each integrate a five-second step and the post-founder states those tests pin are no longer reached by the path production takes. Assertions hold; the fidelity does not.
   evidence: `server/src/game/world.ts` `processRespawns` (`isSunk` gate) and its own "production-unreachable" comment; `match.ts:418-419`; the `w.step(CONFIG.ship.sinkingWindowMs)` retrofits in `denials`/`foghorn`/`smoke`/`spectator`/`xp`/`decoy`/`equipment`/`cannon`/`starShells`/`combat`/`world`/`perception`/`upgrades` tests.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-3-omniscient-reveal-results.md`
+  status: RESOLVED 2026-09-30 (Story 8.21, cycle 157): both blocks CUT, replaced by the LOADOUT block (UX-DR55, Eric 2026-09-11 ruling, built).
   summary: NEEDS AN ERIC DECISION HE DEFERRED IN THE SAME BREATH — THE BOONS + LAST-OFFER BLOCKS. Asked whether the results modal should review the build he died with, Eric said *"I don't know if I care about what boons I have selected at this point, i'll need to think on that."* Both blocks are ratified in UX-DR27 and drawn in mockup F3, and both cost ZERO wire (`net.you` is never cleared on death, so `you.boons`/`you.offer` are still in hand), so they were BUILT rather than withheld — per the standing "ship it behind a flag and look" agreement. Each is one self-contained `HTMLElement | null` render function with one append line, so cutting either is a two-line deletion and nothing else reads them. This is an open OWNER decision, not a defect: look at the modal and keep or cut.
   evidence: epic-5 amendment 28; `client/src/ui/results.ts` `makeBoons`/`makeOffer` and the cut-ability comment above them.
 
@@ -979,6 +997,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
   resolution: RESOLVED 2026-08-21 (cycle 123, epic-7 amendment 34) — the nameplate lift RETIRED the `plateRoot` root (the container became the `plate` CHART layer, seated between `ship` and `aim`), which is exactly the class of root-order change this entry left unguarded, so the order was promoted to declared data rather than edited in place. `createStage` now ITERATES the exported `STAGE_ROOT_ORDER` to build and mount the roots (the array IS the order), with `EVERY_ROOT_PLACED` as the build-failing completeness check, the root-level sibling of `EVERY_LAYER_PLACED`. Pinned in `client/src/__tests__/nameplatesAboveTerrain.test.ts`; `fog.test.ts`'s "asserted only by inspection" note is retired. The reveal's "hide, never fade" rule no longer rests on the asymmetry this entry described — plates are above the fog now too — so its rationale was restated in `enterSpectateVisuals` alongside the pin.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-lazy-offer-draw.md`
+  status: RE-DERIVED 2026-09-15 by Story 8.3 (cycle 138, epic-8 amendment 14) — with a 40-card deck a hull has 23 drawable cards today (rising toward 39 as stubs flip); the terminal offer-less state needs exactly 23 FITS (banks, passes and heals cost no cards), so it is reachable in one long match but unlikely. Ruled behaviour: the level still banks, no offer, no pt, no TAB cue; the menu-heal reachability half stays open until Story 8.8 makes heal a card. The server now logs deck.exhausted once per ship and /metrics counts it. CLOSED 2026-09-22 by construction (8.14, amendment 94: consumables always dealt, no empty offer).
   summary: A DEGENERATE OFFER-LESS LEVEL IS SERVER-SPENDABLE BUT CLIENT-UNREACHABLE, AND THE STATE IS TERMINAL. Since the lazy-draw bugfix a level ALWAYS banks, so `bankedLevels > 0` with `offer: null` is legitimate when a draw comes up empty. `spendHeal` accepts that level over the wire (it needs only a banked level), but the client can never send it — `offerView` refuses to open the band on an empty offer, and the digit-5 heal requires the band visible — so the level is permanently unspendable. Both review models flagged the visible half independently at the cycle-80 gate and the FALSE CUE was fixed then (`cueLine` now takes `refitable`, so the rail no longer tells you to press a TAB that opens nothing, while the chip still reports the bank you earned); what remains ledgered is the unreachable heal and the chip counting a level that can never be spent. NOT FIXED because reaching it needs the deck emptied to zero drawable lines — about 59 fits against roughly 25 levels in a full match — and because it is a FROZEN state once entered: an empty deck can never refill, since both refill paths (doctrine return, acquisition subdeck) require a fit, which requires an offer, which requires a non-empty draw. Deliberately NOT dismissed as impossible: epic-2 amendment 67 dismissed deck-run-dry as "near-hypothetical" and amendment 72 records that it was in fact the shipped bug's terminal state. If a future change can shrink a deck faster (a bigger `CONFIG.offer.size`, a card that burns cards, a much longer match), re-derive this before assuming the margin still holds.
   evidence: epic-2 amendments 69-72; `server/src/game/world.ts` `materializeOffer`/`spendHeal`; `client/src/ui/upgradeMenu.ts:329` (`offerView` empty-offer refusal) and `client/src/render/xpRail.ts` `cueLine`; the Fable reviewer's 24,000-op fuzz over 60 seeds found no other coherence gap, and its trace proving the empty-deck state cannot refill.
 
@@ -1407,44 +1426,45 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: `client/src/analytics/consent.ts` `loadConsent()` catch; `client/src/analytics/index.ts` `dispatch()`. Raised by the edge-case review agent at the cycle-107 gate.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — the feature is SHIPPED and ENTIRELY UNMEASURED; only play can close it
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — moot: the RADAR BUOY is deleted end to end (Story 8.16).
   summary: THE RADAR BUOY IS UNEXERCISED BY EVERY INSTRUMENT THE PROJECT HAS. Zero buoys were deployed in 2 600 bot-matches: `server/src/game/ai/tactics.ts` says so in its own comment — the buoy is now a CLICK-PLACED weapon on the mine's rear sector (R2.7), not an `actSeq` ability, and *"its tactics belong with the buoy itself and are a later agent's"* — while the scripted captain pilots fire slot 0 only. So the relay (R2.8), the jamming density (`jamFakes = 10`, a `[DRAFT]`), the autonomous gun (R2.21), the 20s life on a 30s reload and the destructible 50 hp hull have never been generated, delivered or acted on. It also DEPRESSES the Mine Layer's measured numbers by whatever fraction of its ~82 picks per 1 000 bot-matches went into a weapon it never used. Two ways to close it: give the bots buoy tactics (which also unblocks the next balance campaign), or take it from Eric's own play.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Q3 / "What this pass could NOT measure" item 1; `server/src/game/ai/tactics.ts`. Story 7-5 evidence pass, 2026-08-19.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — bot-tuning finding, structural; biases every per-class balance number
+  status: RESOLVED by obsolescence, Story 8.1, 2026-09-15 — acquisition cards no longer exist. Catalog v3 (`shared/src/sim/catalog.ts`) deletes acquisition cards, categories, and `EQUIPMENT_CATEGORY`/`UNLISTED_SCORE` entirely; bots now weight the new v3 equipment lines by kind through the v2→v3 alias table in `server/src/game/ai/spending.ts`. The specific policy gap this entry named cannot recur against a catalog that has no acquisition tier.
   summary: BOTS NEVER FIT AN ACQUISITION CARD — 0 fits out of 2 495 offers — AND IT IS A POLICY GAP, NOT A COINCIDENCE. An acquisition card carries its TARGET equipment's category (`EQUIPMENT_CATEGORY[equipmentId]`), a bot profile's weight table only names categories that profile's hull ALREADY carries, and an unnamed category scores `UNLISTED_SCORE = 0.5` — below every real weight. A bot can therefore only take an acquisition when the WHOLE HAND is unlisted, which the universal lines make almost impossible. Consequences: **~12 % of every offer hand a bot sees is dead to it**, and **no bot ever fields a third weapon**, so every per-class number in a bot campaign is measuring the AI's gap as much as the catalog. The captain campaign is the control that proves the CARDS are fine — acquisitions convert at 0.50–0.60 fits per offer, the highest conversion of any tier. Fix before the next balance campaign is trusted to per-class resolution.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Q3 "Never picked"; `CONFIG.bots.boonWeights`, `UNLISTED_SCORE`. Story 7-5 evidence pass, 2026-08-19.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — consequence of R2.7, documented in-code, needs an Eric ruling to change
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — moot: the RADAR BUOY is deleted end to end; its successor the DECOY BUOY is owner-exempt by construction (amendment 119).
   summary: A RADAR BUOY IS AN ORDINARY ORDNANCE SUBJECT, SO IT ATTRACTS AND ABSORBS FRIENDLY FIRE. Two live consequences, both flowing from the single decision that made "destructible by anything that damages a ship" true by construction: (1) an ACOUSTIC HOMING torpedo locks onto a buoy INCLUDING ONE ITS OWN OWNER PLACED, because the owner exclusion keys on the SHIP id and a buoy is not a ship; (2) your own shells can INTERCEPT your own buoy, taking the interceptor's contact damage and stopping the shot. Neither is a defect against any ruling — a buoy is a real object in the water — but both are player-facing surprises with no cue, and the homing case in particular can waste a fish on your own equipment. Whether either wants an owner exclusion is a design call.
   evidence: `shared/src/sim/shell.ts:99-105` (the homing note, written when the behaviour changed); `server/src/game/world.ts` `hitBuoy` call sites (burst, interception, blast). Story 7-5 wave 2, R2.7.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — presentation gap; the disclosure is correct, the render under-serves it
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — moot: the RADAR BUOY, its relayed returns and the client buoy scope are deleted end to end.
   summary: A RELAYED RETURN RENDERS ALONG THE OWNER'S RAY. The server gates a buoy's returns correctly — island LOS and the height-aware shadow march run FROM THE BUOY (R2.8) — but the CLIENT's scope march runs from the local hull, so a contact the buoy paints from around an island can render at speck intensity for a viewer whose own line to that water is blocked. That is the exact case the relay exists for, and it is the case that reads weakest. Nothing leaks and nothing is wrong on the wire; the fix is a render-side question (march relayed cells from the relaying buoy, or exempt them from the owner-anchored attenuation) and it interacts with the near-range dim mask (epic-4 amendment 181) and with amendment 83's "never re-evaluate a frozen paint", so it wants its own pass rather than a drive-by.
   evidence: `client/src/render/radar.ts` beam march origin; `client/src/__tests__/blipProvenance.test.ts` ("a relay from ACROSS the map paints exactly where its cells say"). Story 7-5 wave 2 review gate.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — needs an Eric ruling (wire shape, would bump PROTOCOL_VERSION)
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — moot: `BuoyView` is deleted with the RADAR BUOY; the DECOY BUOY's `DecoyView` carries `hp` to its owner (amendment 124(a)).
   summary: `BuoyView` CARRIES NO HP CHANNEL, SO A KILLED BUOY IS INDISTINGUISHABLE FROM AN EXPIRED ONE. The buoy has 50 HP and is destructible by anything that damages a ship, but the wire shape carries only `{id, x, y, until, own, by}` — no damage state, no death cause. The owner sees their buoy vanish and cannot tell whether it timed out or was shot, which is exactly the information that would tell them someone is nearby and hunting their sensors. The type's own doc calls this out deliberately: adding a damage-state channel is a wire decision, not an implementation detail. Decide between leaving it silent (a buoy is cheap and disposable) and adding a channel (a kill is intel worth having).
   evidence: `shared/src/types.ts:1128-1141` (`BuoyView` and its preceding NOTE). Story 7-5 wave 2.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — a potential tell that partially defeats the feature
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — jamming is deleted with the RADAR BUOY; its successor CHAFF rejection-samples every fake against `blockedWater` with the same seeded stream (≤ 16 re-draws, else dropped), and the perception oracle recomputes it (amendment 124(c)).
   summary: JAMMING FAKES ARE NOT WATER-FILTERED, SO A FALSE RETURN CAN LAND ON AN ISLAND. `scatterJamFakes` scatters points across the buoy's 330u circle with no land test, and nothing else in the return grammar can paint a ship-shaped return on dry land. A player who knows the map — and both sides rebuild it deterministically from the seed — can therefore discard some fraction of the fakes by inspection, which is the one thing R2.11's "wire-indistinguishable from real blips" was written to prevent. Not a leak (a fake still discloses nothing real, so the perception carve-out is unaffected) and not necessarily worth fixing at 10 fakes, but it is a real erosion of the denial the card is sold on. The fix is a rejection sample against the same island geometry every other consumer uses.
   evidence: `server/src/game/world.ts` `scatterJamFakes` call site; `shared/src/constants.ts:1389` `jamFakes: 10`. Story 7-5 wave 2 review gate.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — design question, not a defect; measured and safe either way
-  summary: `barrelSpacingU` 12u IS SMALLER THAN THE 15u BURST RADIUS, SO BARREL IS A DAMAGE MULTIPLIER RATHER THAN A PATTERN. The three burst circles always overlap, so any hull covering the clicked point is inside all three and a maxed 3-barrel click is a single 45 hp hit that forgives ~10–15u of aim error. Measured, not inferred: `maxGunOnlyTick` is exactly 45.0 on EVERY hull type across three campaigns, and 168 full-health 45 hp small drones were killed by one such click in the `endgame` campaign. **The class-hull guardrail is untouched** — 0 one-tick-from-full class kills in 940 — and the deletions moved the ceiling the safe way (max click fell from 72 % of a Torpedo Boat to 36 %). The question is Eric's: if BARREL is meant to read as a visible spread (his words: *"fires +1 bullet at once… in parallel lines"*) the spacing must exceed the 30u burst DIAMETER; if it is meant to be a damage upgrade that forgives aim error, 12u is already correct.
+  status: RESOLVED-AS-RULED 2026-09-18 (Story 8.12, cycle 147) — the 8.12 AC carries Eric's 2026-09-11 ruling "kept as shipped": BARREL is +1 parallel barrel at 12u, a damage upgrade that forgives aim error; the spacing does not change.
+  summary: `barrelSpacingU` 12u IS SMALLER THAN THE 15u BURST RADIUS, SO BARREL IS A DAMAGE MULTIPLIER RATHER THAN A PATTERN. The three burst circles always overlap, so any hull covering the clicked point is inside all three and a maxed 3-barrel click is a single 45 hp hit that forgives ~10–15u of aim error. Measured, not inferred: `maxGunOnlyTick` is exactly 45.0 on EVERY hull type across three campaigns, and 168 full-health 45 hp small drones were killed by one such click in the `endgame` campaign. **The class-hull guardrail is untouched** — 0 one-tick-from-full class kills in 940 — and the deletions moved the ceiling the safe way (max click fell from 72 % of a Torpedo Boat to 36 %). The question is Eric's: if BARREL is meant to read as a visible spread (his words: *"fires +1 bullet at once… in parallel lines"*) the spacing must exceed the 30u burst DIAMETER; if it is meant to be a damage upgrade that forgives aim error, 12u is already correct. *(2026-09-30: the three-barrel click is gone — amendment 197 caps the cannon at two barrels, 40 hp at tier V; Eric accepted that a maxed cannon no longer one-clicks a 45 hp small drone, amendment 199.)* *(2026-10-02 (cycle 166, amendment 232): the one-click returns with barrels 1/2/2/3/3 (3 × 21 = 63); accepted by Eric as a consequence.)*
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Q4 + Q5 (`balanceProbe.ts` BARREL PARALLEL TRACKS block). Story 7-5 evidence pass, 2026-08-19.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
   status: OPEN — ACCEPTED as shipped by Eric (R2.19); revisit only on a specific trigger
   summary: THE CAPTIVE MINE'S TORPEDO HAS NO MAX RANGE. It inherits base `CONFIG.torpedo` behaviour, which runs until impact, so a missed fish crosses the map until it hits something or reaches the rim. Eric ruled it accepted rather than an oversight — *"sounds fine to me, until I start adding torpedo max ranges or shit like that"* — so no cap was added. Ledgered as THE FIRST THING TO REVISIT if a torpedo max-range mechanic is ever introduced; whoever adds one must decide the captive fish's budget in the same change rather than letting it inherit silently.
   evidence: `plan-7-5-wave-2.md` R2.19; `server/src/game/equipment/mines.ts` captive launch (the fish is marked by `targetX === null && burstRadius > 0`). Eric ruling 2026-08-19.
+  status: CHECKED 2026-09-19 (Story 8.13, amendment 84f) — no torpedo line has a max range; only the homing die-distance bounds a fish, and only above zero turn rate; nothing inherited silently
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
   status: OPEN — orchestrator calls flagged to Eric, both shipped as defaults and both one line to flip
@@ -1457,7 +1477,7 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Q2 and Findings #2/#5. Story 7-5 evidence pass, 2026-08-19.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-5-upgrade-cards-v2.md`
-  status: OPEN — a ratified tunable that no longer does what it was tuned to do
+  status: RESOLVED by obsolescence, Story 8.1, 2026-09-15 — the rarity system this dial belonged to no longer exists. Catalog v3 deletes rarity, the pity/dry-level mechanism, the subdeck walk, and `CONFIG.deck.rareWeightPerDryLevel` itself; the interim deck is every buildable line at its cap (epic-8 amendment 5), so there is no draw economy left to re-tune this constant against. Closure confirmed by Story 8.3 (cycle 138, 2026-09-15): the dial, its tests and its ledger thread are gone by deletion.
   summary: `deck.rareWeightPerDryLevel = 0.7` WAS TUNED AGAINST A 53–58 CARD DECK AND THE DECK IS NOW 41. Deck lifetime fell 39 % — an economy played to exhaustion runs exactly 44 draws AFTER against 72.2 (55–105) BEFORE, with zero variance, because 44 is arithmetic rather than luck. The escalating soft pity now INVERTS past dry=3: rare-landing rate runs 46 / 51 / 48 / 35 / 21 / 9 / 3 % as dry levels climb, where BEFORE it ROSE 57 % → 68 %. A 41-card deck simply runs out of rare copies. Real matches rarely reach that far (gunner picks p50 3 / mean 4.5; bots mean 2.4), so this is a tail property of the deck-only MODEL rather than a live problem today — but the constant is ratified (cycle 39) and its premise is gone, so it should be re-derived rather than left to be rediscovered.
   evidence: `batch-sim-evidence-7-5-2026-08-19.md` Finding #7 and Q1's deck-only rows; `CONFIG.deck.rareWeightPerDryLevel`. Story 7-5 evidence pass, 2026-08-19.
 
@@ -1501,7 +1521,7 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: `server/scripts/batchsim/runner.ts` `runBatch` failure path. Review gate 2026-08-20.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-balance-sim-harness-prep.md`
-  status: OPEN — cross-key invariant, unenforced
+  status: RESOLVED 2026-09-18 (Story 8.9, cycle 144) — validateCrossKeyInvariants() in server/scripts/batchsim/overrides.ts checks boost.reloadMs >= boost.durationMs on the FINISHED CONFIG inside the all-or-nothing apply (both --tune directions pinned fail-first, rollback pinned; boost.* is --tune-only, --set never reaches it); the harness still has no general cross-key table — a second relation should turn the helper into one.
   summary: `--tune` CAN BREAK A STATED DESIGN INVARIANT ACROSS TWO KEYS. `CONFIG.speedBoost` documents `reloadMs >= durationMs` "by design", but both leaves are independently tunable and validated only against their own floor, so `--tune speedBoost.durationMs=60000` (or `speedBoost.reloadMs=1`) yields a permanently-active boost and kinematics evidence taken from a state the design forbids. No cross-key validation exists on either the `--set` or `--tune` surface.
   evidence: `shared/src/constants.ts` speedBoost block ("reloadMs >= durationMs by design"); `server/scripts/batchsim/overrides.ts` per-key-only validation. Review gate 2026-08-20.
 
@@ -1680,7 +1700,7 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: epic-7 amendment 23 ("THE DECOY ROLE IS GONE"); epic-7 amendment 25 (jamming's false blips and why they are not impersonation); the GDD's deferred-expansion blueprint.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-7-6-design-and-doc-reconciliation.md`
-  status: POINTER, not a new entry — CONFIRMED STILL OPEN 2026-08-21 (cycle 126)
+  status: RESOLVED 2026-09-17 (Story 8.8, cycle 143) — heals stay ALLOWED during the collapse (Eric 2026-09-11, FR47); the bound is the card itself (3 authored copies per deck, catalog cap 5, up to 5 more from the 8.11 pool; 100 hp each) and nobody regens inside the storm (amendment 47), so the NFR6 ceiling arithmetic is pinned in shared/src/__tests__/hullRepair.test.ts. Was: POINTER, not a new entry — CONFIRMED STILL OPEN 2026-08-21 (cycle 126)
   summary: WHETHER A HEAL STAYS SPENDABLE DURING THE SUDDEN-DEATH COLLAPSE IS STILL UNRULED. This is PRE-EXISTING, filed 2026-08-14 with the cycle-82 sudden-death entry above ("Also unresolved in the same family: whether a heal should be spendable DURING the collapse at all, since `bankedLevels` is uncapped and hoarded heals are what set the true worst case") — recorded here only so the 7-6 pass does not read as having missed it, and deliberately NOT duplicated. Re-verified: nothing has ruled on it, and cycle 122 made it MORE load-bearing, not less — `damageControl` instant+regen doubled 25 -> 50 each, so a banked heal is now worth ~100 hp and ~25 s of collapse survival rather than ~12.5 s. It is one of the nine calls in the "BATCH the nine small Eric calls" action item in `sprint-status.yaml`.
   evidence: the 2026-08-14 sudden-death ledger entry above; epic-3 amendment 30's worst-case correction; `batch-sim-evidence-2026-08-20.md` (the cycle-122 damageControl doubling).
 
@@ -1761,6 +1781,7 @@ Four threads left open by the broadside zero-overlap arc ladder. None is a defec
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-broadside-zero-overlap-arcs.md`
   status: OPEN — belongs to a balance pass with campaign evidence, not to this cycle
+  status: RESOLVED by Story 8.20, 2026-09-30 — resolved by replacement; the weight tables are gone and broadside eagerness is unchanged (amendments 164, 170)
   summary: BOT BROADSIDE WEIGHTS AND `EquipmentTactic` GATING WERE NOT RETUNED FOR THE ZERO-OVERLAP LADDER. `fanAcceptsPlot`'s polarity is correct again after this cycle, but the boon weight tables predate the ladder entirely: they were written when SPREAD narrowed an authored fan, and they still price it as a precision card rather than as the mount-choke card it now is. A bot on the broadside profiles will therefore under-value the single card that decides whether its barrage converges. Not touched here because a weight change is only defensible against a campaign, and this cycle's evidence is geometric.
   evidence: `server/src/game/ai/equipment.ts` (broadside tactic, `fanAcceptsPlot`); `CONFIG.bots.boonWeights` `siege` / `bulwark` rows in `shared/src/constants.ts`.
 
@@ -1785,3 +1806,1043 @@ Four threads left open by the broadside zero-overlap arc ladder. None is a defec
   status: OPEN — cheap, needs a config-glob change only
   summary: `server/scripts/*.mjs` IS OUTSIDE THE ESLINT CONFIG — only `client/scripts/**/*.mjs` and `**/*.ts` are covered, so `loadTest.mjs` (859 lines) and every smoke has no lint gate; the exact gap Story 7.1 closed for client scripts.
   evidence: `eslint.config.js` include globs; noted by the cycle-131 loadTest implementer.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-home-community-links.md`
+  summary: `client/.env.local` (and every `.env.*` variant Vite loads) is NOT gitignored — only bare `.env` is — so a developer who follows the render.yaml invitation to set `VITE_*` vars locally can commit them; a real secret in one would ship to a public repo.
+  evidence: Blind Hunter review, cycle 132 — `.gitignore` ignores `.env` only; Vite loads `.env.local`, `.env.[mode]`, `.env.[mode].local` (vite/dist/node/chunks loadEnv). Pre-existing, surfaced by the community-links vars being the first `VITE_*` a developer is invited to set locally.
+
+## 2026-09-09 — gds-game-architecture account-store amendment (E9): ledgered, not resolved
+
+Source: `_bmad-output/game-architecture.md`, "Architecture Validation — Account Store amendment (2026-09-09)". A planning pass, not a build cycle — nothing below is a defect in shipped code; each is a consequence of a decision Eric made that the E9 stories must carry.
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, D12)
+  status: RESOLVED 2026-09-14 by Story 8.0 (cycle 133) — `@colyseus/database` is pinned EXACTLY at `0.18.3` in `server/package.json` (no caret), so the RC inside it cannot drift; revisit when the module moves to a stable Drizzle.
+  summary: `@colyseus/database` 0.18.3 depends on `drizzle-orm 1.0.0-rc.2`, the only pre-release in the tree. Pin the module's exact version in `server/package.json`; revisit when the module moves to a stable Drizzle.
+  evidence: `npm view @colyseus/database@0.18.3 dependencies`, 2026-09-09.
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, Step 5 env table)
+  status: OPEN — ops step before the account PR reaches `main`
+  summary: Six new `sync: false` secrets (`JWT_SECRET`, `SESSION_SECRET`, `HC_OAUTH_GOOGLE_ID/SECRET`, `HC_OAUTH_DISCORD_ID/SECRET`) join `HC_STAGING_KEY` in `render.yaml`. An unattended Blueprint sync reports `error` and skips each until its value is set in the dashboard (cycle-127 observation, now ×7). The module is inert until `DATABASE_URL` exists, so the game is safe either way — but accounts on production will be OFF until every value is set by hand. Set them on `hullcracker-dev` first.
+  evidence: cycle 127 `HC_STAGING_KEY` sync behaviour (this file, 2026-08-22 section); `render.yaml` header.
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, D16)
+  status: ACCEPTED — knowing exception, Eric 2026-09-09
+  summary: `@colyseus/admin`'s login stores ONE password hash (Eric's bootstrap admin) in `colyseus_users`. The forge's "no own email/password storage" rejection was about PLAYERS and stands; this is the operator's console credential. Bootstrap is out of band, never a route.
+  evidence: `@colyseus/admin` 0.18.5 docs (session login + RBAC); `@colyseus/database` `colyseus_users.password_hash`.
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, D16)
+  status: OPEN — revisit if the console ever holds more than one admin
+  summary: `@colyseus/admin`'s own guidance — "serve on separate hostname or behind network guard until access controls tighten" — is NOT followed at launch: `/admin` sits on the public host behind its login (and behind the staging gate on dev). One admin, in-memory rate limiter, single instance.
+  evidence: docs.colyseus.io/admin production-safety notes, read 2026-09-09.
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, D9)
+  status: OPEN — one line for the 7-7 revival brief
+  summary: The account API is same-origin HTTP with a Bearer token (no cookie). If Story 7-7 is ever revived, option A (full cross-origin split) needs CORS on `/api/*` and `/auth/*` and a matching `HC_SITE_ORIGIN`; options B (assets-only CDN) and C (status quo) need nothing. Append to the 2026-08-21 7-7 section's revival brief when it is next touched.
+  evidence: this file, 2026-08-21 — Story 7-7 DEFERRED IN FULL, "three options, not two".
+
+- source_spec: `_bmad-output/game-architecture.md` (Account Store amendment, Epic Mapping)
+  status: OPEN — for `gds-create-epics-and-stories`
+  summary: E9 as written (epics.md, stories 1–7) has NO story for the Colyseus 0.17 → 0.18 upgrade that D10 makes a prerequisite. Add it as E9 story 0: its own PR, `PROTOCOL_VERSION` bump (schema 5 encoder), full headless-smoke pass, sequenced before any account code and before E8.
+  evidence: `npm view` 2026-09-09 — `@colyseus/database` and `@colyseus/admin` exist only with `@colyseus/core` 0.18.x peers.
+
+## 2026-09-10 — gds-game-architecture deck amendment (E8 / upgrades v3): ledgered, not resolved
+
+Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The Deck amendment (2026-09-10)". A planning pass, not a build cycle — nothing below is a defect in shipped code; each is a consequence of a decision Eric took on 2026-09-10 (D19–D31) or a GDD open note the pass could not close, that the E8 stories must carry.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, Epic Mapping)
+  status: OPEN — for `gds-create-epics-and-stories`
+  summary: The damage gate (D28: ONE `applyDamage`, replacing the three `hp` writers at `HEAD` — `applyStorm`, `hitShip`, `burnShip`) and the target collector (D25: `hitTargets(mask)`) are prerequisites of E8 stories 5, 12, 13 and 15 but belong to none of them. Land them in story 4 (the slot rework already touches `fireControl`) or as an E8 story 0, own PR, no wire change.
+  evidence: `server/src/game/world.ts` lines 2780 / 3369 / 3738 (`ship.hp -=` sites), read 2026-09-10.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D30)
+  status: RESOLVED 2026-09-18 (Story 8.9, epic-8 amendments 54-55) — ladder-raised max confirmed by Eric (capped TB 68.75); FR7's outrun law and its pins are RETIRED in the tests (no friendly fire is the safety property); the LIGHT TORPEDO's own speed is Story 8.13's, unconstrained by the boost.
+  summary: D30 rules the Shift boost scales the LADDER-RAISED max, so a capped Torpedo Boat boosts to 68.75 u/s; catalog v3's LIGHT TORPEDO runs 45 u/s at tier I and 55 at V. The "torpedoes outrun every hull at base speed / can never self-hit" law and its pin no longer hold for that line as written. Eric re-scopes the law (bow-launched fish only; a beam-launched fish's self-hit geometry differs) or moves the number. The architecture guarantees nothing about it until he does.
+  evidence: catalog-v3.md R9/R18; gdd.md open note 19.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D27)
+  status: OPEN — declared disclosure widening, no ruling needed unless contested
+  summary: The ballistic reveal gains a weapon-FAMILY field (`w`) so the client can draw a tracer, a missile and a plunging arc differently. A sighted shell now names the weapon that fired it, where today it says only shell-or-torpedo. It carries no range-derivable value and no identity. Recorded so nobody rediscovers it as a leak.
+  evidence: `shared/src/types.ts` `BallisticEvent` at HEAD (pos + velocity only).
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D27)
+  status: OPEN — measure before trusting the cadence
+  summary: Eric ruled the machine-gun stream flashes PER SHELL. At 4 Hz × 20 streaming bots that is ~80 `mz` events/s at the emitter. `flashBudget.ts` caps the RENDER; the wire and perception cost is unmeasured. Measure in the first E8 perf pass; the fix if it fails is the cadence (a `[DRAFT]` number), not the rule.
+  evidence: catalog-v3.md R20/R21 (`[DRAFT]` 0.25 s); epic-4 amendments 19/20 (the dedupe the stream opts out of).
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D26)
+  status: OPEN — build-time, gated by the `[DRAFT]` numbers
+  summary: `ammo.ts` refills round-by-round with overshoot carry; catalog v3's "6 s of fire per pool, 15 s reload" reads as a MAGAZINE reload (the pool refills as a whole after a fixed time). The architecture reserves one optional switch — `ammo.refill: 'round' | 'magazine'` per equipment row, default `round` — and does NOT build it unless the confirmed numbers demand it.
+  evidence: `server/src/game/equipment/ammo.ts` `tickReload` (overshoot carry).
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D28)
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — both defaults built as ruled (FR55, Eric 2026-09-11): an absorbed hit still emits `hc`, the victim's `dmg` reads 0 and plays the ordinary hit cue (amendment 117), a second shield REPLACES.
+  summary: SHIELD BLOCK gives the shooter no tell (an absorbed hit still emits `hc`; `dmg` is victim-private and reads 0), and a second shield while one is up REPLACES it with a fresh 100 / 10 s rather than stacking. Both are the quieter default; both are one line to change.
+  evidence: catalog-v3.md R37 (`[DRAFT]` scope — scope itself RULED 2026-09-10: all sources).
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D25/D29)
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — (a) the decoy paints on radar (a 12 u return, built); (b) Eric: the owner IS exempt — own fish pass through and own shells/bursts pass over the owner's decoy (amendment 119); (c) own flak never touches own fish (8.15).
+  summary: (a) Whether the DECOY BUOY paints on radar is unruled; the default is that it does, through the deleted radar buoy's footprint path. (b) The owner's own fish detonate on the owner's own decoy, and (c) own flak kills own torpedoes — the GDD's DRAFT reading that the owner is NOT exempt, carried; each is one mask entry in `CONFIG.<ordnance>.hits` to change.
+  evidence: gdd.md Consumables (DECOY BUOY `[DRAFT]` owner exemption); catalog-v3.md R36.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D24)
+  status: RESOLVED 2026-09-29 (Story 8.18, cycle 153, epic-8 amendment 142) — Eric ruled the OTHER way: the lit-zone reveal gains a smoke-only term; islands still do not block the flare
+  summary: A star shell's firer-only truesight (`ownZoneCovers`) has no island term today and gains no smoke term, so a lit zone sees INTO smoke exactly as it sees past islands. Pinned. If a flare should not pierce smoke, the fix is one term in `ownZoneCovers`, not a second predicate. Also pinned: a puff's own visibility uses island-only LOS (so it never vanishes around you), and a destroyed torpedo or missile emits no boom — a presentation gap.
+  evidence: `server/src/game/signals.ts` `ownZoneCovers` (no LOS term at HEAD).
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D22)
+  status: CLOSED — MOOT 2026-09-30 (Story 8.21): the hidden match pool was retired at 8.14 (amendment 89a); there is no `MatchRecord.pool` and nothing to reveal.
+  summary: A player's own match history shows the pool cards they DREW and nothing else, because the pool is hidden during play. Implemented as a filter on `MatchRecord` (which records the whole pool for Eric's metrics). Awaiting Eric's confirmation; the alternative (reveal the pool after the match) is a client change only.
+  evidence: gdd.md open note 20.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D23)
+  status: OPEN — accepted disclosure, ledgered
+  summary: `OwnShip.draft` tells a client "a wake is under you" even when the hull that laid it is island-hidden. Accepted: the kinematics would disclose the same thing one frame later, and the scalar carries no position. Not a perception exception (own-ship state, like `slowedUntil`).
+  evidence: D23; `client/src/sim/prediction.ts` reads only own-ship state at HEAD.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, D24/D26/D29)
+  status: OPEN — perf pins owed at build
+  summary: Three pins the amendment names and the stories must write: perception at 20 observers × 200 smoke puffs against the 50 ms tick; `checkMineTriggers` + `hitTargets` at 500 live mines (no cap of any kind survives, Eric 2026-09-10); the kinematics parity test at `draft = 0` (both sides byte-identical to HEAD).
+  evidence: D24, D26, D29 cost paragraphs.
+
+- source_spec: `_bmad-output/game-architecture.md` (Deck amendment, Configuration)
+  status: RESOLVED 2026-09-17 (Story 8.8, cycle 143, epic-8 amendment 46) — the per-level auto-heal is DELETED, replaced by out-of-combat regen (1 % of missing hull per second after 30 s since the last landed damage); GDD note 14 closes. Was: OPEN — GDD open note 14, unchanged by this pass
+  summary: The free per-level auto-heal (cycle 129) stays built and its fields stay under `CONFIG.damageControl` while the paid heal's numbers move to `hullRepair`. Its fate is the balance pass's call once bots sail v3 decks; nothing here deletes or keeps it by decision.
+  evidence: gdd.md open note 14; `server/src/game/world.ts` `grantLevelHeal`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-claude-md-rewrite.md`
+  status: OPEN — interstitial chore, owner: gds-generate-project-context
+  summary: `_bmad-output/project-context.md` needs a full regeneration via `gds-generate-project-context` — only the facts current code directly contradicted were corrected at cycle 133 (PROTOCOL_VERSION, drawOffer/BoonOffer, the Equipment interface, the fleet-envelope identity test, the participants win-check rule, versioning, dates, and the new CLAUDE.md-frozen rule). The file is still substantively the 2026-07-17 generation and does not describe the boon deck, equipment loadouts, combat bots, sudden death, height-aware radar shadows, or the eighths ladder.
+  evidence: `_bmad-output/project-context.md` frontmatter `date:` corrected in place from 2026-07-17 to 2026-09-14 at cycle 133 without a full regeneration; spec-claude-md-rewrite.md R5.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-claude-md-rewrite.md` (R3)
+  status: OPEN — accepted limitation, Eric's call whether to close it
+  summary: The CLAUDE.md moratorium hook is a TRIPWIRE for DIRECT edits, not a wall. It sees one command string, so anything that keeps the target out of that string still passes: variable indirection (`p=CLAUDE; echo x > ${p}.md`), a symlink pointed at the file, an interpreter reading its program from stdin or from a script file whose CONTENTS never appear in the command, `sponge`/`ed`/`ex`/`rsync`/`curl -o` invoked under a name not on the verb list, and pathless history rewrites (`git reset --hard`, `git checkout -- .`, `git stash` with no path) which are deliberately out of scope because the bare form names no file. The candidate HARD stop is a content-based `PostToolUse` check — `git hash-object CLAUDE.md` against `git rev-parse HEAD:CLAUDE.md`, skipped under `HC_UNLOCK_CLAUDE_MD=1` — and it was NOT adopted: a `PostToolUse` hook fires AFTER the write, so it can only report or auto-revert, and auto-reverting would destroy Eric's own concurrent hand edits to the file (the one editor the moratorium exists to protect). Reporting-only was judged not worth a second mechanism. Also ledgered as ACCEPTED OVER-BREADTH in the other direction: the verb rule is target-scoped but not intent-aware, so a read through an interpreter or archiver is denied (`awk '{print}' CLAUDE.md`, `cp CLAUDE.md CLAUDE.local.md`, `tar -xf x.tar CLAUDE.md`) — use Read, `cat`, `grep`, `head`, `wc`, `sed -n` or `git diff/log/show` instead.
+  evidence: `.claude/hooks/protect-claude-md.sh` header ("SCOPE, STATED HONESTLY") and `.claude/hooks/protect-claude-md.test.sh` rows `Bash git reset without a path` (exit 0) and `Bash awk reading the file` (exit 2).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-claude-md-rewrite.md` (Eric ruling 2026-09-14: gstack retired)
+  status: OPEN — Eric's call; surfaced by the cycle-133 review gate
+  summary: Two client rigs still resolve Playwright from gstack's own install — `client/scripts/perfLib.mjs` and `client/scripts/readabilityCapture.mjs` look under `~/.claude/skills/gstack/node_modules/playwright-core` — so uninstalling gstack on the strength of "gstack is not used on this project" would silently break the perf and readability captures; they need a direct `playwright-core` devDependency (or a documented local install) before gstack can actually be removed from the machine.
+  evidence: `grep -n gstack client/scripts/perfLib.mjs client/scripts/readabilityCapture.mjs`; `.gitignore` and `eslint.config.js` still carry `.gstack/`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-claude-md-rewrite.md` (incidental, pre-existing)
+  status: OPEN — interstitial chore
+  summary: `_bmad-output/gds-workflow-status.yaml` does not parse as YAML (PyYAML ParserError at line 61) because a `next_expected` value contains literal `'\''` sequences — a shell single-quote-escaping artifact from an earlier cycle — instead of YAML's `''` doubled-quote escape; the file is read by humans and skills as text so nothing has broken, but any tool that loads it as YAML will fail until the value is re-quoted.
+  evidence: `python3 -c "import yaml; yaml.safe_load(open('_bmad-output/gds-workflow-status.yaml'))"` fails identically on `git show ad1ed35:_bmad-output/gds-workflow-status.yaml`, i.e. before cycle 133 touched the file.
+
+## 2026-09-14 — Story 8.0 Colyseus 0.18 upgrade (cycle 134): ledgered, not resolved
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  status: OPEN — for Story 9.1
+  summary: `postgres` and `drizzle-kit` were DEFERRED out of 8.0 by Eric ruling 2026-09-14 (epic-8 amendment 3); the AC's `drizzle-kit` 0.31.10 is the 0.44-era kit while `@colyseus/database` 0.18.3 hard-pins `drizzle-orm` 1.0.0-rc.2, whose matching kit is the `1.0.0-rc` line — 9.1 must install both at versions verified against the ORM the module ships with, never the AC's literal.
+  evidence: `npm view drizzle-kit@0.31.10` (no drizzle-orm peer), `npm view @colyseus/database@0.18.3 dependencies`, 2026-09-14.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  status: OPEN — tooling hazard
+  summary: `npm@10.9.3` CRASHES (`TypeError: Cannot read properties of null (reading 'edgesOut')` in arborist `build-ideal-tree.js`) when asked to resolve this monorepo WITHOUT a `package-lock.json` — the trigger is the `vitest` / `@vitest/browser-playwright` peer set, not Colyseus. Wave 1 had to do targeted lockfile surgery (mirror the workspace dependency blocks, delete only the `colyseus`/`@colyseus/*` `packages` entries, re-run `npm install`); `npm ci` then passes. Anyone regenerating the lockfile from scratch will hit this until npm or vitest moves.
+  evidence: reproduced twice during Story 8.0 wave 1, 2026-09-14; `npm ci --include=dev` exit 0 on the resulting lockfile.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  status: OPEN — pre-existing, surfaced by the lockfile refresh
+  summary: `npm audit` reports 11 high/critical advisories, ALL in dev tooling (`vitest`, `vite`, `concurrently`, `postcss`, `nanoid`, `undici`, `shell-quote`, …), none in the Colyseus subtree or any production dependency. Not addressed by 8.0 (a framework upgrade and a dependency sweep never share a PR).
+  evidence: `npm audit` after `npm ci`, 2026-09-14.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  status: OPEN — design note, no action
+  summary: `@colyseus/core` 0.18's own `resolveClientIp` takes the FIRST `X-Forwarded-For` hop (`Transport.mjs:50`) while `server/src/rooms/soloThrottle.ts` deliberately takes the RIGHTMOST; that divergence is why `AuthContext.ip` (now typed `string | undefined`) must stay unread and the throttle keeps parsing headers itself.
+  evidence: wave 1 read of `node_modules/@colyseus/core/build/Transport.mjs`, 2026-09-14.
+
+### Story 8.0 review-gate defers (2026-09-14, cycle 133) — pre-existing, surfaced by the 0.18 review
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  summary: `server/scripts/reconnectSmoke.mjs` (~:314-316) simulates a drop with `ws.terminate()` falling back to `ws.close()`, but on Node 22.19 the SDK picks `globalThis.WebSocket` (undici) over the `ws` package (`@colyseus/sdk/build/transport/WebSocketTransport.mjs:10`), which has no `terminate()` — so the fallback `close()` produces close code 1005, never 1006, and the documented ABNORMAL_CLOSURE reconnect branch is exercised by no smoke; a regression narrowing the server's reconnectable set to 1006 alone would pass. Fix candidates: import `ws` and force the Node transport in the smoke, or accept-and-assert the actual code emitted.
+  evidence: Edge Case Hunter, Story 8.0 review, traced `WebSocketTransport.mjs:7,10` in sdk 0.18.2; the smoke passes today because its assertion admits either path.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  summary: `server/src/rooms/ArenaRoom.ts` `onDrop` hold branch (~:1092-1102) calls `allowReconnection` for a client that never acked JOIN_ROOM (core still holds `_enqueuedMessages`); core rejects with "not joined" (`@colyseus/core/build/Room.mjs` ~:1179-1181) and the `.catch` swallows the reason, so the `client.drop` log records a hold that core immediately tore down. Guard: treat a non-JOINED drop as teardown and log `held:false`. Behaviour identical on 0.17.44 (`allowReconnection` is byte-identical), so not a 0.18 regression.
+  evidence: Edge Case Hunter, Story 8.0 review; the JOINING kick timer already bounds the enqueue buffer, so the consequence is a misleading log line, not a leak.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-0-colyseus-0-18-upgrade.md`
+  summary: `ArenaRoom` defines no `onUncaughtException`, and core wraps the timestep tick in try/catch ONLY when that hook exists (`@colyseus/core/build/Room.mjs` ~:487-489, same in 0.17.44), so one throwing `update()` tick escapes `setInterval` as a process-level uncaught exception and every room on the node dies with it. Adding the hook (log `room.uncaught` with the method name, keep the room alive or disconnect just that room) is a one-method operability change; it belongs with the Epic 0 operability baseline, not a framework floor story.
+  evidence: Edge Case Hunter + Blind Hunter (independently), Story 8.0 review; propagation is unchanged 0.17 → 0.18.
+
+### Story 8.1 deferred items (2026-09-15, cycle 135) — card model and catalog engine
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — honest-home gap, structural
+  status: RESOLVED by Story 8.20, 2026-09-30 — `boonWeights` and the alias layer are deleted; the points scorer (`CONFIG.bots.cardPoints`) reads the v3 pool directly (amendments 162, 164)
+  summary: `CONFIG.bots.boonWeights` IS STILL AUTHORED IN V2 VOCABULARY. Story 8.1 folds the new v3 equipment lines into bot spending through an alias table in `server/src/game/ai/spending.ts` that maps old v2 keys (e.g. `torpedoSpeed`, `torpedoTube`) onto the v3 lines they now land on (e.g. `heavyTorpedo`), so bots can spend on the new catalog without CONFIG itself changing. The honest home for v3 bot weights is `CONFIG.bots.boonWeights` directly, authored in v3 line ids; fold this into the bot retune that follows the deck landing rather than carrying the alias table indefinitely.
+  evidence: `server/src/game/ai/spending.ts` v2→v3 alias table and its header comment, Story 8.1 wave 2.
+  note: 2026-09-19 (Story 8.13, amendment 86) — the `torpedoHoming`/`minePropFouling` aliases are now homeless (their equipment lines are gone); the trapper profile's old fouling preference is an interim tie against captive until 8.20 authors per-line entries.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — needs an Eric ruling (a shorter name or a type step)
+  summary: `SUPERCAVITATING TORPEDO` (the catalog-v3 line name) DOES NOT FIT the refit card's 186px inner box or the hotbar's 268px label column at any of the type sizes those layouts use elsewhere. It is pinned as a declared exemption in `client/src/__tests__/refitCardFit.test.ts` and `client/src/__tests__/hotbar.test.ts` rather than silently overflowing or truncating. Stories 8.6 (refit UI) and 8.13 (the supercavitating torpedo content) need either a shorter display name from Eric or a type-size step for long names before the exemption can be closed.
+  evidence: `client/src/__tests__/refitCardFit.test.ts`, `client/src/__tests__/hotbar.test.ts` exemption pins, Story 8.1 wave 2.
+  resolution: PARTLY MOOT 2026-09-17 (Story 8.6) — the hotbar's label column (and the whole per-slot name field it belonged to) is DELETED outright in the HUD bar re-cut, so the 268px label-column half of this exemption is moot; the bar draws no slot names at all. The refit card's 186px inner-box fit STANDS — that card face is untouched until Story 8.7 — so this entry stays open for the card-fit half only.
+  resolution: RE-CUT 2026-09-17 (Story 8.7) — the face is the fixed five-row 216×226 card; refitCardFit re-cut wholesale.
+  resolution: RESOLVED 2026-09-19 (Story 8.13, amendment 75) — display name SUPERCAV TORPEDO; exemption pins retired.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — interim home, by design; closes incrementally
+  summary: BASE STAT ROWS FOR THE 7 UNBUILT EQUIPMENT IDS LIVE IN A `STUB_ROWS` TABLE IN `shared/src/sim/stats.ts`, NOT IN `CONFIG`. Story 8.1 authors the catalog with 13 stub lines so `EffectiveStats.equipment` can stay a TOTAL record over `EquipmentId` from day one, but a stub's numbers are placeholders rather than ratified CONFIG values. Each content story (8.13–8.16) promotes its own row out of `STUB_ROWS` and into `CONFIG` when that weapon or consumable actually lands, rather than one story doing all seven at once.
+  evidence: `shared/src/sim/stats.ts` `STUB_ROWS`, Story 8.1 wave 1.
+  resolution: PARTLY CLOSED 2026-09-19 (Story 8.13) — light torpedo, captive mines and supercav rows promoted to CONFIG; missile/machineGun/flak/monitor remain for 8.14.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — dead branch, low priority
+  summary: `server/scripts/batchsim/encounterSpan.ts:95` COMPARES `MatchPhase` TO `'results'`, A VALUE THE UNION DOES NOT CONTAIN. The comparison can never be true, so the branch is dead code. It was not caught by `npm run check` because `server/scripts/**` sits outside `server/tsconfig.json`'s `include`, so the batchsim scripts are not type-checked by the gate. Fix is a one-line correction (or bringing the scripts under the tsconfig); either way it is cosmetic today since the branch never fires.
+  evidence: `server/scripts/batchsim/encounterSpan.ts:95`; `server/tsconfig.json` `include`, found during Story 8.1 verification.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — harness state, not a game bug
+  summary: `combatSmoke.mjs` FAILS WITH "B sank but the roster booked no death" WHEN RE-RUN AGAINST AN ALREADY-USED SERVER, but passes cleanly on a fresh boot. The symptom points at the smoke's own state handling (a stale room or roster left over from a prior run) rather than at the sinking/death-booking path itself, which the fresh-boot pass already exercises successfully. Needs a fix to the smoke's setup/teardown before it can be trusted to run back-to-back without a server restart.
+  evidence: observed during Story 8.1 verification — fails against a warm server, passes against a fresh boot.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: RESOLVED 2026-09-18 (Story 8.12, cycle 147) — Eric ratified both labels (epic-8 amendment 71).
+  summary: CLIENT `STAT_LINES` LABELS `turning` → 'Turning' AND `deckGun` → 'Gun damage' ARE AGENT-CHOSEN MINIMAL LABELS, not copy Eric has reviewed. They were picked to be unambiguous and short enough to fit the existing stat-line layout, but per the no-in-game-copy-unasked rule they should be confirmed (or replaced) by Eric before being treated as final UI text.
+  evidence: client `STAT_LINES` table, Story 8.1 wave 2.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: RESOLVED 2026-09-16 (Story 8.5, cycle 140) — the slot half is done: three generic weapon slots, `slotFill` takes the first empty one, a legal deck can never overflow (property-tested over 250 random legal decks). Was: PARTIALLY DISCHARGED 2026-09-15 (Story 8.2, cycle 137) — the deck half is done: `checkDeck` now enforces ≤ 3 equipment lines per deck at the door and every hull sails its authored default deck (23 drawable cards, the carried weapon seeded out); the no-op itself (a second equipment card against the single extra slot) STILL waits for Story 8.5's nine slots. Was: OPEN — pre-existing structural gap, resolved by Story 8.5 (nine slots) and 8.2 (authored decks)
+  summary: WITH ONE EXTRA WEAPON SLOT, EVERY EQUIPMENT CARD AFTER THE FIRST FIT IS A NO-OP, and an add-on for a weapon the hull never fits sets a verb on a row nothing fires. Codex and Blind Hunter both flagged it at the 8.1 gate; it is the same "at most one acquisition can ever fire" gap the v2 deck had, so it is NOT resolved by obsolescence yet — it persists in the interim deck until the nine-slot array (8.5) and per-hull authored decks (8.2) land. Bots are exposed the same way (`ai/spending.ts` scores kind/weights without a slot-free check).
+  evidence: `shared/src/sim/boons.ts` applySlotEffect no-ops on an occupied extra slot; `world.ts` settleSpend still consumes the level; review gate 2026-09-15.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — hand to Story 8.13 (captive mines module)
+  summary: CAPTIVE-MINE READERS ARE KEYED TO THE NAVAL ROW: `captiveMines` carries `captive: true` at base in `stats.ts`, but every reader (`world.ts` mine trip/blast rules, `ai/equipment.ts` captive tactic, `client/src/render/equipmentInfo.ts`) reads `equipment.navalMines.captive`, which is always false in production, so the captive path is dead until 8.13 re-keys every site per the equipment that laid the mine. Tests keep the path alive by poking the naval row.
+  evidence: Blind Hunter finding 6, review gate 2026-09-15; `botTactics.test.ts` pokes `stats.equipment.navalMines.captive = true`.
+  status: RESOLVED 2026-09-19 (Story 8.13) — MineState.kind; every reader keyed by kind
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-1-the-card-model-and-catalog-engine.md`
+  status: OPEN — Eric ruling needed with the bot retune
+  summary: BOT LINE WEIGHTS: `KIND_BASE` (ladder 1.8 / addon 1.6 / equipment 1.2 / consumable 1.0) in `ai/spending.ts` is an agent-invented table (inert today: every non-stub line is covered by the v2→v3 alias mapping), and the alias resolution is max-wins, so e.g. the raider's old `torpedoTube 2.5` now prices a copy-1 `heavyTorpedo` fit — a policy change with no ruling. Fold both into the bot retune alongside the stale `CONFIG.bots.boonWeights` entry above.
+  evidence: Blind Hunter finding 7 and Edge Case Hunter bot finding, review gate 2026-09-15.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-2-legal-decks-default-decks-and-the-door.md`
+  status: RESOLVED 2026-09-15 by Story 8.3 (cycle 138) — re-derived and ruled (epic-8 amendment 14): see the stamp on the lazy-offer-draw entry above; deck.exhausted log + /metrics counter shipped. CLOSED 2026-09-22: decks and exhaustion deleted (8.14).
+  summary: THE 40-CARD DECK CHANGES THE DECK-EXHAUSTION ARITHMETIC AND THE OLD MARGIN NO LONGER HOLDS. The lazy-offer-draw entry above (`:982`, "about 59 fits against roughly 25 levels in a full match") was derived against the v2 deck; since Story 8.2 a captain sails a 40-card default deck of which only 23 cards are DRAWABLE today (16 stub cards never dealt, one carried copy seeded out — rising toward 39 as Stories 8.7–8.15 flip the stub flags). Banking still costs nothing (only a FIT removes a card), so the terminal offer-less state needs 23 fits — no longer "unreachable", merely unlikely in one match — and the harness's deck-only economy now exhausts in ~23 draws. Story 8.3 (the draw: exhaustion banks silently and logs once, per the epic) must re-derive the margin and decide what a 24th level looks like; until then the entry above's "unreachable in production" wording is stale and its client-unreachable-heal consequence is closer than it was.
+  evidence: `shared/src/__tests__/deck.test.ts` drawable-size table (23 / 23 / 23); `server/src/__tests__/upgrades.test.ts` "empty deck" block; `server/scripts/batchsim/deckSim.ts` `defaultPoolFor`; epic-8 amendment 11.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-2-legal-decks-default-decks-and-the-door.md`
+  status: OPEN — hand to the Epic 9 door story (account-backed decks); a trap, not a bug today. CLOSED 2026-09-22: the deck door and DEFAULT_OWNED are deleted (8.14); Epic 9's door checks hull + gun only.
+  summary: THE ARENA'S SEAT RE-CHECK IS HARD-WIRED TO A FRESH ACCOUNT'S UNLOCKS. `ArenaRoom.resolveJoinDeck` re-runs `checkAtDoor` on a seat-carried list, and `checkAtDoor` always checks against `DEFAULT_OWNED`. Correct while only default decks exist, but the moment Epic 9's queue door admits an account deck holding any of the five unhomed lines (`supercavTorpedo`, `broadside`, `decoyBuoy`, `heatSeeking`, `phosphorShells`) against the account's REAL owned set, the arena — which has no account — refuses it as `unowned` after the queue said yes. Epic 9 must either carry the owned set (or the verdict) in the reservation `auth` alongside the deck, or drop the arena's ownership re-check for seat-carried lists and keep only the size/equipmentLines/overCap rules there.
+  evidence: Blind Hunter plausible finding 5, review gate 2026-09-15; `server/src/rooms/deckDoor.ts` `checkAtDoor` (`checkDeck(deck, DEFAULT_OWNED)`), `server/src/rooms/ArenaRoom.ts` `resolveJoinDeck` seat branch.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-2-legal-decks-default-decks-and-the-door.md`
+  status: OPEN — pre-existing, outside the gate; a five-minute fix for any harness cycle
+  summary: THE BATCH-SIM TSCONFIG IS NOT TYPE-CHECKED BY `npm run check`, AND IT HAS ONE STANDING ERROR: `server/scripts/batchsim/encounterSpan.ts:98` compares `match.phase` (a `MatchPhase`) with the literal `'results'`, which is not a member of the union (tsc TS2367); the loop condition is therefore partly dead. Present at baseline 5ca9b58 (line 95 there). Story 8.2's review pass fixed the two OTHER errors that project reported (`deckSim.ts` `carriedLinesFor` passed a class id where `effectiveStats` wants a hull envelope — new in 8.2; `batchSim.test.ts` `quitterFactory` control without a `deck`). Consider adding `tsc --noEmit -p server/scripts/batchsim/tsconfig.json` to the gate so harness code stays honest.
+  evidence: `npx tsc --noEmit -p server/scripts/batchsim/tsconfig.json` on the 8.2 tree; `git show 5ca9b58:server/scripts/batchsim/encounterSpan.ts` line 95.
+
+## 2026-09-15 — Story 8.3 The Draw (cycle 138): threads for later stories
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-3-the-draw.md`
+  status: RESOLVED 2026-09-17 (Story 8.8, cycle 143, epic-8 amendments 46-48) — Eric ruled for his recollection: the per-level version is deleted and the out-of-combat regen is built (1 %/s of missing after 30 s; any landed damage incl. storm resets; captains and bots only). Was: OPEN — hand to Story 8.8 (heal is a card); an Eric ruling is needed there
+  summary: Eric believes the per-level 10% heal was replaced by 1%/s of missing hp out of combat after 30 s without damage; `development` carries the per-level version. Story 8.8's "check which version is live" clause must resolve it WITH Eric — do not build either version unasked.
+  evidence: `shared/src/constants.ts` `CONFIG.damageControl.levelMissingPct` / `levelRegenMs`; AskUserQuestion answer 2026-09-15; epics.md Story 8.8 AC.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-3-the-draw.md`
+  status: RESOLVED 2026-09-18 by Story 8.11 (cycle 146, epic-8 amendment 68b) — the match pool is the first thing that pushes a line past its cap, so the guard is LIVE and the drift became a real divergence; `deckSim.ts` now rolls a pool per economy and calls `drawOffer(st.deck, rng, CATALOG, { held: st.fitted })`, pinned by a guard-live discriminator in `batchSim.test.ts`.
+  summary: THE BATCH-SIM DECK ECONOMY DRAWS UNGUARDED WHILE PRODUCTION PASSES `held = ship.cards`. `server/scripts/batchsim/deckSim.ts` calls `drawOffer` with no `held`, starts its `fitted` list at `[]` with no carried seed, and its `cappedLines` therefore undercounts the carried copy. Outcomes match production today only because the at-cap guard is provably idle on every door-admitted deck (pool + held ≤ cap for every line — pinned in `shared/src/__tests__/deck.test.ts`); the day a deck can violate that invariant (an Epic 9 account deck, a harness `--set` that grants cards without consuming) the harness and the server will draw differently. Fix: seed `fitted` from the hull's carried lines and pass `{ held: fitted }` to `drawOffer`.
+  evidence: Blind Hunter plausible finding, review gate 2026-09-15; `deckSim.ts` `runDeckSim` draw call and `cappedLines`; `server/src/game/world.ts` `materializeOffer`.
+
+## 2026-09-15 — Story 8.4 The Damage Gate and the Ordnance Collector (cycle 139): ledgered consequences
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
+  status: OPEN BY DESIGN — hand to Story 8.14 (flak); nothing to do before it
+  summary: THE `ordnance` TARGET KIND IS EMPTY AND PINNED EMPTY. `TargetKind` declares four kinds; the collector builds three. Nothing in the game shoots down a projectile, so `hitTargets(['ordnance'])` returns `[]` — memoized, and asserted empty by `hitTargets.test.ts`. The kind exists now rather than later because AR44 names it and because adding a kind after the fact would mean revisiting every `hits` row; the cost is one branch that is currently dead. Story 8.14 fills it from `world.shells` and gives FLAK the `['hull','mine','decoy','ordnance']` mask. TWO RULES AR44 ALREADY SETTLED must land with it and are not implemented here: the owner's own flak never destroys the owner's own ordnance, and a struck fish/missile is removed with NO boom (a ledgered presentation gap in AR44's own words).
+  evidence: `shared/src/sim/shell.ts` `TargetKind`; `server/src/game/world.ts` `hitTargets` (no `ordnance` branch, with the comment saying why); `server/src/__tests__/hitTargets.test.ts` "`ordnance` is EMPTY and pinned empty until flak".
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — both seats filled: `DecoyState` occupies the `decoy` kind (the buoy is deleted), and SHIELD BLOCK writes `ship.shield` through `ActivationContext.setShield`.
+  summary: THE RADAR BUOY IS THE INTERIM OCCUPANT OF THE `decoy` KIND, AND `ship.shield` IS AN INERT FIELD. Two Story 8.15 seats were built here and left empty on purpose, because the gate and the collector are the only places either could ever be read. (1) `collectDecoys` emits the buoy's frozen square as kind `decoy`; every buoy OUTCOME is byte-identical to before (`hitBuoy`, `buoy.hp`, no XP, no feed line, never through the damage gate — a buoy is not a ship). 8.15 deletes the buoy and lands `DecoyState` behind the same kind, and must re-read AR44's own decoy rules, which are NOT implemented here: a shell damages a decoy, a torpedo or missile DETONATES on it, and the owner's own fish PASS THROUGH the owner's own decoy. (2) `ShipRecord.shield` is `{ hpLeft, until } | null`, always `null` — nothing writes it. The gate's step (c) reads and expires it and is pinned by `damageGate.test.ts` against a test-set shield, so the absorb semantics are already fixed: it absorbs from EVERY source, a fully absorbed hit still runs the gate to the end, and a second shield REPLACES rather than stacks (Eric 2026-09-11 — that rule belongs to whatever GRANTS one, and is not implemented here).
+  evidence: `server/src/game/world.ts` `collectDecoys` / `absorbShield` / `ShipRecord.shield`; `server/src/game/equipment/radarBuoy.ts` `buoyTarget`; AR44 and AR47 in `epics.md`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
+  status: RESOLVED 2026-09-16 by epic-8 amendment 20 (Eric) — the path this described no longer exists.
+  summary: A SHOT MINE PRODUCED TWO BOOMS AT NEARLY THE SAME POINT. A shell that CONTACTED a mine emitted its own `boom` at the contact point and then `detonateMine` emitted the MINE's boom at the mine centre, within the shell's own radius of it, so a client drew two impacts on top of one another. Amendment 20 deletes the contact path outright: a mine is never a collision subject for a projectile in flight, so no shell is ever consumed by one and only the MINE's own boom is ever drawn. The review correction this entry also carried (a mine-consumed shell emits neither `hc` nor `sp`) is moot for the same reason, and Story 4.3's "exactly one of hc/sp per shell resolution" is back to having NO exception. A burst that covers only a mine still resolves as `sp` (unchanged).
+  evidence: `server/src/game/world.ts` `stepShells` (the sweep list is built from `sweepMask`, which strips `mine`), `resolveBurst` → `detonateBurstMine`, `detonateMine` (its own boom at `m.x, m.y`); `shared/src/sim/shell.ts` `earliestTarget` (skips kind `mine`); `server/src/__tests__/hitTargets.test.ts` "gunfire and mines (amendments 16/18/20)".
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
+  status: OPEN — a measurement of record, not a threshold to defend; re-measure on a real host before it is trusted for production
+  summary: THE 500-MINE PERF PIN IS A DEV-MACHINE NUMBER. `hitTargets.test.ts` builds 20 afloat hulls and 500 armed mines and times `stepMines` + `hitTargets(['hull','mine','decoy'])` + one full `resolveBurst`, asserting the best of 5 runs is under the 50 ms tick. Measured 2026-09-15 at **1.922 ms** (best of 5) on the dev machine — Darwin 25.4.0 / Node 22, running under vitest, not on Render's starter plan. The ASSERTION is the tick budget, so the pin is robust to a slower box, but the 1.9 ms headline is not a production figure and staging cannot produce one either (`docs/deploy.md`: staging is a starter plan and cannot catch performance). The number that would actually matter — 20 observers x 500 mines inside a live 20 Hz room — is a production smoke, not a unit test.
+  evidence: `server/src/__tests__/hitTargets.test.ts` "the 500-live-mine performance pin (NFR23)"; run with `HC_PERF_LOG=1` to print the measured best-of-5.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
+  status: OPEN — a gameplay consequence of Eric's own rulings, recorded so it is not rediscovered as a bug
+  summary: A MINEFIELD IS NOW A LIABILITY AS WELL AS A TRAP, AND NOTHING BOUNDS ITS SIZE. Three of this story's rulings compose: mines have no caps (FR57/AR48), any armed mine can be set off by a burst that covers it (amendments 16/20), and a blast chains across owners (amendment 18). So a Mine Layer can now cover arbitrarily much water given patience, and an enemy can set the whole connected field off from outside it with one well-aimed shot — and a layer's own field can be detonated on top of them by someone else's blast, since only the OWNER's HULL is immune to a mine, never the owner's mines. None of this is a defect; all of it is ruled. It is recorded because it is the first time a mine's placement carries a risk the layer did not choose, and because the bot policy was NOT retuned for it: `mineFieldFull` is deleted and `CONFIG.bots.preparedMineReserve` (3) is now a pure restraint dial with no cap behind it, chosen for a world where laying a sixth mine deleted your first. Whether bots should seed more (or less) water under no cap is a balance question for a harness cycle, not an implementation one.
+  evidence: `server/src/game/ai/equipment.ts` (`mineFieldFull` deleted, `mineWant` unchanged otherwise); `shared/src/constants.ts` `CONFIG.bots.preparedMineReserve`; `server/src/__tests__/botTactics.test.ts` "NO CAP REFUSAL".
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
+  summary: KILL AND ASSIST CREDIT FOR A MINE YOU SET OFF GO TO THE MINE'S LAYER, NOT THE SHOOTER. `detonateBurstMine → detonateMine → applyMineBlast(m, m.ownerId)` so the blast's damage, assist refresh, `sunk.by` and kill-feed line all name the layer; the shooter contributes only the trigger and receives nothing. Since amendment 20 the trigger is always a deliberate one — you must CLICK so that your burst covers the mine — so a captain who pops an enemy mine beside a third ship hands the enemy layer the tally and possibly the kill, knowingly. Consistent with amendments 16/18 (a mine is the layer's weapon) but never stated as a design outcome — flagged for Eric's veto; the alternative (credit the shooter) is a one-argument change at `detonateBurstMine` and a small perception question (the shooter's id would ride a `sunk.by` for a blast they never saw).
+  evidence: Blind Hunter (session model) traced the call chain; `hitTargets.test.ts` pins the layer as `by`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
+  summary: TWO SHIPPED BEHAVIOURS MOVED AS CONSEQUENCES OF THE RULINGS, BEYOND THE NUMBERED AMENDMENTS. (i) A PvE fleet drone's BURSTS now detonate ANY armed non-captive mine (the gun mask is per weapon row, not per shooter), so a wave firing into a minefield can clear it around the players it hunts — passively, since a drone aims at hulls, and only when a burst happens to cover a mine (amendment 20: nothing detonates in flight). (ii) With `mineFieldFull` gone, a Mine Layer bot lays one mine per reload for as long as its tactic wants; `CONFIG.bots.preparedMineReserve` bounds only the prepared occasion. Also pre-existing and unchanged by design: the GUN BUOY's auto-fire bursts already detonated the owner's own armed mines under the old owner-only gate, so the buoy keeping the gun mask is parity, not a new behaviour (and under amendment 20 the buoy, like everyone else, reaches a mine only with a burst) (and the buoy is deleted in Story 8.15).
+  evidence: Blind Hunter (session model) finding I; Edge Case Hunter finding on `radarBuoy.hits`; orchestrator adjudicated (ii) as ruling 7's "nothing else in bot policy changes" and the buoy as parity against `detonateMinesInBurst` at 21bafd9.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
+  summary: NOTES FOR STORY 8.15 ON THE SHIELD SEAT. (a) A fully absorbed hit still runs the gate and, for an immediate source, pushes a `dmg` event with `amount: 0` — the first zero-valued `dmg` a client could ever see; 8.15 decides whether to suppress it or give it a "blocked" identity. (b) `dmg.amount` and `damageDealt` carry the NOMINAL post-shield blow, so a shielded hit counts toward the results tally at whatever the shield let through — 8.15 decides whether an absorbed hit should tally. (c) `ship.shield` is reset to `null` at `sinkShip` (seated on the `clearRepair` "economy dies at sink entry" rule, not the `boostUntil` rule that waits for `founderSinking`), `redeployShip` and `respawn`.
+  evidence: Edge Case Hunter + Blind Hunter (session model) findings on `absorbShield`/`reportDamage`; review patch P5.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
+  summary: THE 500-MINE PERF PIN IS NARROWER THAN NFR23 READS, AND ITS FIXTURE NEVER DETONATED. It times `stepMines` + the collector + one `resolveBurst`; the per-tick costs that actually scale with an uncapped field — `perception.observe`'s mine row (O(mines × observers) every frame build) and `chainMines` (O(mines) per hop, O(mines²) for a dense field going up at once) — are not in it, and staging cannot measure them. Review patch P9 gave each timed run a fresh world on the premise that the first run's cascade emptied the grid; measured, the shared fixture still held 500 mines every run (hulls sit clear of every trigger ring, the burst point is ~240u from the nearest mine), so the original number (1.922 ms) was unguarded rather than wrong; the guarded number is 1.879 ms best-of-5 on the dev machine.
+  evidence: Blind Hunter finding F; patch agent's measurement written into the test's comment (`hitTargets.test.ts`, `perfField()`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-4-the-damage-gate-and-the-ordnance-collector.md`
+  summary: PRE-EXISTING, NOT 8.4: `generateMap` THROWS FOR SOME RANDOM SEEDS AT PLAYER CAP 20, AND THE ARENA ROOM DRAWS ITS SEED AT RANDOM. Seed `1365201989` at `playerCap` 20 throws `MapGenerationError` ("no map satisfying all invariants ... after 4 repair attempts") deterministically against the shared build with `sim/map.ts` untouched by this story; `ArenaRoom.onCreate` picks `Math.random() * 0xffffffff` when no dev override is given, so a production room that draws such a seed fails to create. Surfaced as a one-off failure of `liveness.test.ts` ("counts DOWN the instant a captain drops") during the cycle-139 gate; the file passes on rerun (91/91). Fix shape: retry `generateMap` with a re-mixed seed inside `buildWorld` (bounded), or raise `navRepairAttempts`; either wants a pin over a sweep of seeds.
+  evidence: `node -e "import('./shared/dist/index.js').then(m=>m.generateMap(1365201989,20))"` throws; `server/src/rooms/ArenaRoom.ts:411`; gate log of 2026-09-16 01:05.
+
+## 2026-09-16 — Story 8.5 Nine Slots (cycle 140): ledgered consequences
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
+  summary: THE SPAWN-SEED TRIPWIRE: `shared/src/__tests__/nineSlots.test.ts` pins `|SPAWN_SEED[hull] ∪ non-stub equipment lines of DEFAULT_DECKS[hull]| ≤ 3`; the Battleship's seed (`broadside`, `starShells`) plus its deck's `missile`/`monitor` makes 4 the day Story 8.14 un-stubs them — the intended fix is Story 8.10 deleting `SPAWN_SEED`, never editing the number.
+  resolution: RESOLVED 2026-09-18 (Story 8.10, cycle 145) — `SPAWN_SEED` is deleted outright; every hull spawns with the gun and Shift only, so the tripwire's premise (a seed line plus deck lines totalling 4) is gone and the pinning test was deleted with it.
+  evidence: amendment 21; 8.10 precedes 8.14 in the epic order.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
+  summary: The interim hotbar clips on short viewports: nine rows at the 62/14 pitch are a 670 px column; at the 614 px floor viewport the top rows are off-screen and at 768 px the stack top sits at 72 px. Accepted by Eric (amendment 25, "Ignore it entirely. The next story fixes the HUD."); Story 8.6 replaces the geometry.
+  resolution: RESOLVED 2026-09-17 by Story 8.6's bar. The nine-row column is deleted; the nine slots now lay out horizontally on the 768 px-wide bar (squares 0-4 at 54 px, belt 5-8 at 44 px), which is pinned to fit the 1280×614 logical floor (bar top at 460, bottom 18 px above the floor) at every committed UI-scale tier — no viewport-height dependence remains.
+  evidence: amendment 25.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — the RADAR BUOY is deleted end to end (Story 8.16), not relit.
+  summary: The radar buoy is dark from 8.5 to 8.15: its module, config row and tests stay (tests fit it directly into a weapon slot), no ship can reach it in play (amendment 22).
+  evidence: no card carries `radarBuoy` and `loadoutFor` is hull-agnostic.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
+  summary: The Shift key chip renders `⇧` (U+21E7) in the 22 px chip (amendment 29); Story 8.6 restyles the bar and may replace it.
+  evidence: the word does not fit the chip.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
+  summary: A DECK THAT IS LEGAL AT THE DOOR CAN, TOGETHER WITH THE INTERIM SPAWN SEED, HOLD FOUR WEAPON LINES — `checkDeck` caps a deck at three equipment lines without counting `SPAWN_SEED[hull]`, so a deck built WITHOUT its hull's seed lines (today reachable only through the dev-only `deckOverride` under `HC_DEV_OPTIONS=1`; every `DEFAULT_DECK` is pinned safe by the `nineSlots.test.ts` tripwire) spawns with the seed in Q(/E) and its fourth distinct weapon card is consumed on pick but fits nothing (`applySlotEffect`'s full-row no-op has no refusal signal; the client's fit flash still fires). Eric ruling 2026-09-16: LEDGER IT, NO CODE — unreachable in production until decks become editable (Epic 9), by which point Story 8.10 has deleted the seed. If a deck editor ever lands BEFORE 8.10, the fix shape is: the door counts the hull's seed lines toward the three-line cap.
+  resolution: RESOLVED 2026-09-18 (Story 8.10, cycle 145) — `SPAWN_SEED` no longer exists, so a fitted-but-unspawned fourth weapon line can no longer arise this way; a deck's three-equipment-line cap is now the whole story at spawn.
+  evidence: Flagged by all three 8.5 reviewers (Codex `gpt-5.6-sol` CONFIRMED, Edge Case Hunter CONFIRMED dev-gated, Blind Hunter P3); `shared/src/sim/deckRules.ts` `equipmentLineCount`, `server/src/rooms/deckDoor.ts:47`, `shared/src/sim/boons.ts` `applySlotEffect`, `shared/src/__tests__/nineSlots.test.ts` (default decks + seed ≤ 3).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
+  status: STAMPED 2026-09-18 (Story 8.9, cycle 144) — the burst every BS/ML bot withdrawal carries is now +25 % of the ladder-raised cap for 10 s on a 25 s reload (was +10 u/s, 6 s, 18 s); tactic and appetite keys renamed speedBoost → boost with NO retune; still an unmeasured balance shift for the harness.
+  summary: BATTLESHIP AND MINE LAYER BOTS NOW BOOST ON DISENGAGE — an emergent consequence of amendment 23 (the boost in slot 1 on every captain hull), not a policy edit: `chooseAct` scans fitted slots by `equipmentId`, the default `speedBoost` appetite is NEUTRAL, and `speedBoostTactic` fires on `disengage` whenever appetite ≥ NEUTRAL, so every BS/ML bot withdrawal now carries a +10 u/s, 6 s burst. This moves the win-share/attrition numbers the batch sims were last tuned on; no bot code changed and nothing was retuned. A balance-harness question for a later cycle, and on Eric's veto list in the 8.5 run result.
+  evidence: Blind Hunter P2 and the Edge Case Hunter's note at the 8.5 gate; `server/src/game/ai/equipment.ts` (`speedBoost: APPETITE_NEUTRAL`, `speedBoostTactic`), `ai/tactics.ts` `chooseAct`; `botTactics.test.ts` "a withdrawing MINE LAYER … now boosts too" pin flipped with the reason.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-5-nine-slots.md`
+  summary: `matchSmoke.mjs`'s "A sinking B" phase is MARGINAL BY ARITHMETIC, not by 8.5 — its comments still budget a 70-damage fish (two hits sink a 125 hp Torpedo Boat) but `CONFIG.torpedo.damage` has been 50 since catalog v3 (Story 8.1), so the kill needs THREE hits at a 30 s reload (≥ 60 s of perfect passes plus the converge) inside a 135 s storm-free window, and every miss costs 30 s; when the window closes the storm sinks B and the smoke fails on `B sunk by undefined, expected A` (the very mode its own comment at :85 describes). Seen twice in cycle 140 on a quiet machine after `weaponsSmoke` (same torpedo, seven hits, Mine Layer target) passed and a headless probe proved the seed-fitted fish fires and hits after the match-start redeploy; no gameplay number changed this cycle (`constants.ts` diff is one comment). Fix shape for whoever owns it: re-derive the smoke's beat/budget comments for 50 damage, or widen `beatMs` once more — a smoke tuning, never a CONFIG change.
+  evidence: `server/scripts/matchSmoke.mjs:70-100, 512-528`; `shared/src/constants.ts:1217` (`damage: 50`); cycle-139 run result (four attempts, one pass); cycle-140 runs `matchSmoke2/3.log` (timeout, then storm kill).
+
+## 2026-09-17 — Story 8.6 The HUD Bar (cycle 141): ledgered consequences
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: THE START-LINE DIM READING IS AN ORCHESTRATOR EXTENSION OF UX-DR53, ON ERIC'S VETO LIST. `HudBar.dim()` treats "refit window open" and "held at the start line" identically — only the two slot groups (the gun/Shift/Q/E/R row and the belt frame) drop to `dimAlpha` .38; the two globes and the xp-strip stay at full alpha in both cases. UX-DR53 only ever ruled on the refit-open case; reading the held start line into the same bucket was this cycle's call, not a re-derivation of an existing ruling, so it is flagged for Eric's review rather than presented as settled.
+  evidence: spec-8-6-the-hud-bar.md ruling 9 ("extends UX-DR53's refit rule to the start line, veto item"); `client/src/render/hudBar.ts` `combatLocked(g)`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: THE XP STRIP STAYS VISIBLE THROUGH THE SINKING WINDOW AS PART OF THE BAR — an orchestrator reading, not a new Eric ruling. The whole hud-bar (including the strip) shows while `conning(status)` is true, which spans the sinking window; the strip's `TAB TO REFIT` cue is suppressed by `refitable`, which since the review gate also requires `!sinking` (the offer survives sink-entry on the wire), so nothing false is shown, but the DECISION to keep the bar (rather than the slots only, or nothing) through the window was made in-cycle on the stated reasoning that splitting the bar's visibility by member would re-create the three-corner problem in code.
+  evidence: spec-8-6-the-hud-bar.md ruling 10 ("Gating (veto item)"); Design Notes "Why the strip stays through sinking".
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: THE HELM GLOBE'S CROWN LETTERS READ S LEFT / W RIGHT, AS THE MOCK DRAWS THEM. `helmGlobe.ts` places `S` at `(cx-39, cy-20)` and `W` at `(cx+39, cy-20)` — astern on the left, ahead on the right — matching `hud-composite-3.html` exactly; this is a straight transcription, not a new design call, but it is the opposite hand from what a reader expecting "W for forward on the right hand" might assume, so it is ledgered rather than left to be rediscovered.
+  evidence: spec-8-6-the-hud-bar.md ruling 7; `mockups/hud-composite-3.html`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: THE `microScale` MECHANISM COUNTER-SCALES ONLY THE SIX DECLARED 9 PX TEXT REGISTERS, NOT THE 10 PX BADGE DIGIT. At 90% UI scale, `microScale(uiScale) = 1/uiScale` is applied to chips, tier numerals, helm key letters, the HDG label, KTS and the cue — every Text node whose CONFIGURED size is 9px — via `text.scale.set(microScale)` about its own anchor; the ammo badge's 10px digit is deliberately left OUT of the counter-scale (spec ruling 2 names only the 9px registers), so it renders at 9px effective at the 90% tier rather than holding a 10px floor. Not a defect — the container-fit law is pinned only for the 9px set — but a fact worth having in one place before someone "fixes" the badge to match.
+  evidence: spec-8-6-the-hud-bar.md ruling 2; `client/src/render/hudBar.ts` `microScale`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: THE BAR HAS NOT BEEN SEEN BY A HUMAN EYE THIS CYCLE — no browser tooling exists in this worktree, so verification is 862/1892/3419 unit tests plus lint/tsc, not a screenshot. Eric's look on staging is the acceptance gate: the bar at 1366×768 and at the 1280×614 floor, the cooldown wipe sweeping on the gun, the Shift slot breathing while the boost runs and then wiping through its reload, both 104px globes, the xp-strip, the whole bar persisting through the sinking window, and the bar disappearing at founder while the chrome bar and kill feed remain.
+  evidence: spec-8-6-the-hud-bar.md Verification "Manual checks (if no CLI)"; ledger `:964` (updated above).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: TWO SURFACES DEFERRED PAST 8.6, NAMED SO THEY ARE NOT RE-DISCOVERED COLD. The shielded `HULL 312/250` readout and its shield ring (UX-DR46) are deferred to Story 8.15 — `hpGlobe.ts` carries a one-line comment at the spot instead of a stub. The 236px slot-tooltip re-cut (UX-DR48) and the bar-relative REDRAW button seat are Story 8.7's — today's tooltip keeps its existing 320px panel and placement logic, anchored above the hovered square.
+  evidence: spec-8-6-the-hud-bar.md ruling 4 (tooltip), ruling 6 (shielded readout comment), "Never" list.
+  resolution: content re-cut 2026-09-17 (Story 8.7, amendment 42: widths kept at 320/300).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: THE REFIT TOOLTIP OPENS DOWNWARD OVER THE CARD ROW ON SHORT VIEWPORTS (amendment 37) — measured at 45 of 114 catalog tooltip panels at the 1280×614 floor, where the water above the bar-relative band is only 130px but the tallest panel is 261px tall. This is an interim placement rule, not the final one; Story 8.7's 236px slot-tooltip re-cut (UX-DR48) should aim to fit every panel above the band rather than carry this fallback forward.
+  evidence: amendment 37; spec-8-6-the-hud-bar.md ruling 4.
+  resolution: STANDS as the placement rule (amendment 42, Story 8.7).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: TWO FILES SIT OVER THE ~500 LOC SOFT CAP AFTER THE RE-CUT: `client/src/render/hotbar.ts` at roughly 1570 LOC and `client/src/render/hud.ts` at 557 LOC. Neither was split this cycle (the spec re-cuts `hotbar.ts` in place rather than rewriting it, to keep its ~1100 test lines of ratified state-derivation grammar intact). The tooltip core inside `hotbar.ts` (roughly 450 LOC: `tooltipModel`/`tooltipPlacement` and their supporting formatters) is the natural split candidate, and Story 8.7 is already re-cutting that same tooltip (UX-DR48), so the split and the re-cut should happen together rather than as two separate churns of the same code.
+  evidence: `wc -l client/src/render/hotbar.ts client/src/render/hud.ts`; CLAUDE.md "~500 LOC per file is a soft cap; exceed only when cohesive."
+  resolution: tooltip core split into render/slotTooltip.ts 2026-09-17 (Story 8.7).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: `CLIENT_CONFIG.xpRail` KEEPS ITS NAME WHILE FEEDING THE NEW XP STRIP. The config block that drives `xpStrip.ts` (track colours, chip breathing timings, the state machine constants moved over unchanged from `xpRail.ts`) is still named `xpRail` in `client/src/config.ts`; renaming it to `xpStrip` would touch every pin that reads it for zero behavioural change, so the name was left as a known mismatch rather than churned for cosmetics.
+  evidence: `client/src/config.ts` `hudBar`/`xpRail` blocks; spec-8-6-the-hud-bar.md Code Map (`config.ts` line ranges).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: THE HELM GLOBE'S HEADING READOUT CAN PRINT `360°` — `pad3(round(deg))` over a `wrapPositive` angle in [0, 2π) rounds headings in [359.5°, 360°) up to 360 instead of wrapping to `000°`. Pre-existing (moved verbatim from the retired telegraph cluster, Edge Case Hunter at the 8.6 review gate); one-line fix (`% 360` after rounding) for whoever next touches `helmGlobe.ts`.
+  evidence: `client/src/render/helmGlobe.ts` `headingText` / `pad3`; visible for at most a fraction of a degree of heading.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: A BELT BADGE READING `×10` OR MORE CANNOT FIT ITS 16 PX BOX at the ruled 10 px mono size (`×10` measures ~18 px; the badge does not counter-scale by ruling). Dormant this cycle — the belt is empty until Story 8.7 stocks it and the catalog caps are ≤ 5 today — but 8.7's `canStock`/stack work should decide whether the badge widens with its text (the weapon badge already does via `min-width`) before a two-digit stock can exist.
+  evidence: Blind Hunter finding 6 at the 8.6 review gate; `client/src/render/hotbar.ts` `BADGE_STYLE`, `CLIENT_CONFIG.hudBar.badge` 16.
+  resolution: CLOSED 2026-09-17 (Story 8.7): the belt badge widens with its text like the weapon badge; caps ≤ 5 so two digits never occur.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-6-the-hud-bar.md`
+  summary: THE SLOT ROW ALLOCATES PER FRAME — nine slot view models, per-slot point/flat arrays for the outline and glow rings, one polygon (plus a Set of angles) per COOLING slot for the wipe, a spread copy of the hotbar view in `HudBar.update`, and the denied/degraded arrays in `main.ts`'s view builder. The view-model and outline-array pattern is pre-existing (the 2.2 hotbar did the same each frame and cleared its Graphics per frame); the wipe polygon and the view spread are new. Codex flagged GC pressure as PLAUSIBLE at 60–120 Hz; nothing was measured. Not optimised at the gate — measure first (the perf-gate harness), then pool the fixed nine models and the polygon buffers if it shows.
+  evidence: `client/src/render/hudBar.ts` `update`, `client/src/render/hotbar.ts` `slotViewModels` / `drawSlot`, `client/src/render/cooldownWipe.ts` `wipePolygon`; project-context.md performance rule ("avoid fresh allocations inside render-loop code paths").
+
+## 2026-09-17 — Story 8.7 (consumable slots + refit card v3)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: A USED CONSUMABLE COPY LEAVES `cards` ON ACTIVATION, RATHER THAN ONLY DECREMENTING THE SLOT'S STACK COUNT, SO THE CLIENT'S OWN REPLAY AND THE SERVER AGREE WITH NO NEW WIRE FIELD. This was the design reading behind ruling 4, on Eric's veto list: since the client rebuilds every slot's contents by replaying `cards`, a use that only decremented `n` server-side would restock on the next respawn/reconnect replay and disagree with the wire `ammo` array after a refresh; removing the spent copy from `cards` makes it the single source of truth for both `equipmentId` and stack count.
+  evidence: spec-8-7 ruling 4; Design Notes "Why a used copy leaves cards"; `World.sinkingActivationGate`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE CLIENT-SIDE EMPTY-SLOT KEY DENIAL NOW APPLIES TO THE BELT AS WELL AS THE WEAPON ROW — completing amendment 26's grammar (an orchestrator reading, veto item, ruling 7). Pressing a digit on an empty belt slot with the refit window closed now produces the same denied pulse + tone as an empty Q/E/R press, with nothing sent to the server.
+  evidence: spec-8-7 ruling 7; `client/src/input/keyboard.ts` `slotAction`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE POST-REFIT-CLOSE DIGIT GRACE IS 400 MS (`CLIENT_CONFIG.refit.closeGraceMs`) — an implementer dial, not an Eric ruling, chosen to match the existing `results.keyGraceMs` precedent elsewhere in the client config. Within the grace window after any close (Tab, ESC, last spend, spectate, `update(null)`), a belt digit is inert and consumes the keypress without queuing or priming anything.
+  evidence: spec-8-7 ruling 8; `client/src/config.ts` `refit.closeGraceMs`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: ADD-ON CARDS PRINT NO STAT ROWS IN 8.7 — a verb moves no number, so `cardStatRows` returns an empty list for an add-on line and its five-row face renders blank. The holding line (what the add-on actually does) stays in the hover panel's prose, never on the face itself.
+  evidence: spec-8-7 ruling 12 ("add-ons: NO rows in 8.7... veto item").
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE CONSUMABLE REGISTRY SHIPS EMPTY BEHIND A `buildConsumableRegistry` SEAM — production calls it with `[]` (amendment 41), so every consumable stub stays set and the belt is unreachable on staging. Story 8.8 adds the first row (`hullRepair`) and flips its stub flag; the factory and the `World` test seam (`opts.consumables`) already exist so that story is one row and one flag flip, not new plumbing.
+  evidence: spec-8-7 ruling 5; Design Notes "Why the registry ships empty".
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE ICON GAP — LADDERS, ADD-ONS AND CONSUMABLES HAVE NO GLYPH. The refit card's 40px icon box and the belt square both draw a shared glyph source (`equipmentIcons.ts`) when a line has one; lines with no glyph today (ladders, add-ons, and every consumable since none is dealt) draw an empty outlined box — pinned as no-crash, no placeholder word — until the icon pass UX-DR50 names glyphs for them.
+  evidence: spec-8-7 ruling 11, ruling 15.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: "VERIFIED BY EYE" WAS NOT DONE IN-CYCLE — no browser tooling exists in this worktree, so verification is `npm run check` (lint, tsc ×3, all tests) rather than a screenshot. Eric's look on staging is the acceptance gate for the five-row card face (a ladder, a weapon fit and an add-on), the greyed `SLOTS FULL` state (unreachable until 8.8 stocks a real consumable), the two-meaning digits, and the slot tooltip's tier/stock line.
+  evidence: spec-8-7 Verification "Manual checks (if no CLI)".
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: TEXT MUST BE READABLE (Eric 2026-09-17, epic-8 amendment 43) — the refit card's 9 px registers (stat-row labels, the reason-word foot) counter-scale at the 90 % UI tier through a DOM twin of the bar's `microScale` (`domMicroScale`, a `--hc-micro` custom property on the band), so nothing renders under `settings.monoFloorPx`; the 9 px floor now binds the RENDERED size on every DOM surface (8.10 REDRAW, 8.19 LOADOUT, Epic 9 must honour it).
+  evidence: amendment 43; refitCardFit.test.ts floor pin at the 0.9 tier; the card is DOM because CLAUDE.md lists the refit window as DOM chrome.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE SHARED `applyStock` IS FAIL-OPEN ON A LINE ID THE CATALOG DOES NOT DECLARE (mirrors `slotFill`'s posture; the production catalog declares all five consumables, so it is inert) — a server test (`boons.test.ts` `omni` card) relies on it; if a later story wants stock fail-CLOSED on an unknown id it is a one-line shared change plus that test's fixture.
+  evidence: wave-2A report; shared/src/sim/boons.ts `applyStock` stub gate.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: A PRIMED BELT SLOT HAS NO CLIENT WEAPON GEOMETRY IN 8.7 — an `isWeapon` consumable (the decoy shape, Story 8.15) narrows to `null` for arc/range/reload/aim preview on the client; the click still reaches the server through `input.slot`. Story 8.15 owns the decoy's arc preview.
+  evidence: main.ts firing-path narrowing (post-wave-3 clean-up); CONSUMABLE_IS_WEAPON.decoyBuoy === true.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE SLOT TOOLTIP'S INTERACTION ROW NOW WRAPS — the ratified content (`WEAPON · Q · SWITCH-TO · TIER V`, `CONSUMABLE · 1 · KEY PRIMES · CLICK FIRES · ×2`) exceeds one 320 px line, so the row word-wraps and the heading height feeds the fit chain; the boon-row trim absorbs the extra line from the same budget. Amendment 42 kept widths and type; this is the one arithmetic change in the fit chain (veto item).
+  evidence: tooltipFit.test.ts "grows the panel by exactly one line box"; wave-2B deviation 1.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE BELT IS ALWAYS THE REPLAY — after every consumable use the server rebuilds belt slots 5–8 from `slotsWithCards(cards)` (in place; weapon slots keep their timers), because the client re-packs the belt leftward from `cards` while an in-place clear left a hole (review finding, both models; reproduced). Spec-8-7 ruling 4's "clear the slot in the gate" is superseded by this rebuild; property-pinned over random stock/use sequences (upgrades.test.ts).
+  evidence: Blind Hunter 1 + Codex 1 (CONFIRMED); the P1 patch; `rebuildBelt` in world.ts.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: ONE SPEND LAW — a DENIED consumable effect costs nothing (n, cards and the slot untouched); only a successful activation decrements n and removes the copy from cards. Story 8.8/8.15/8.16 effects that can deny (heal at full hp, blocked decoy drop) rely on this.
+  evidence: all three reviewers (CONFIRMED); the P2 patch; equipment.test.ts pin flipped.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: BOT RE-PICKS A REFUSED CONSUMABLE FOREVER (deferred to 8.18) — `spending.ts` has no `canStock` awareness; on a full belt the bot's pure decision re-picks the same refused card every tick and its level is stuck. Dormant (consumables stub). Story 8.18 (bots sail decks) adds the shared `canStock` skip to the bot spend policy; amendment 44 names it.
+  evidence: Edge Case Hunter 5 / Blind Hunter 5 (PLAUSIBLE, traced); botDriver.ts:344 re-calls spendPoint each tick.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: THE CARD HOVER'S STOCK READS `held + 1` — the hover sits on a card about to be stocked, so it prints what the belt will read once the card is taken (the same tense as the face's ladder and stat rows); the belt tooltip prints the live `ammo[slot].n`. Veto item.
+  evidence: P7 patch reading; refitTooltipFit.test.ts pin.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-7-consumable-slots-and-the-refit-card-v3.md`
+  summary: STORY 8.10 MUST PUT THE OPENING FLOW TO ERIC EXPLICITLY BEFORE BUILDING IT — UX-DR54's "ratified as rendered 2026-09-11" auto-open + REDRAW stamp is the planning pass's own claim; Eric did not recall discussing an auto-open (2026-09-17) and accepted it only as the level-zero countdown case (amendment 45). Ask, do not assume.
+  resolution: RESOLVED 2026-09-18 (Story 8.10, cycle 145) — asked via AskUserQuestion; Eric ruled both the auto-open (amendment 59) and the REDRAW mechanism (amendment 60) as designed, plus the silent grant (amendment 61) and the class-select card cut (amendment 62); built as ruled.
+  evidence: Eric 2026-09-17 in the 8.7 run; memory rule "artifacts contain assumptions".
+
+## 2026-09-17 — Story 8.8 Heal Is a Card (cycle 143): threads for later stories
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
+  status: OPEN — Story 8.20 (bots sail decks) or the next RL harness pass
+  summary: RL AGENTS DRAW HULL REPAIR CARDS THEY CAN NEVER FIRE — `server/scripts/rl/env.ts` autoSpend picks uniformly over the front offer (which now holds `hullRepair`) and the RL action space has no belt press, so those levels are dead for RL runs; batchsim bots are unaffected (they use the tactic table and the 8.8 consumable row).
+  evidence: Blind Hunter finding 4 (PLAUSIBLE-low, harness only); rl/env.ts autoSpend after the heal branch was removed.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
+  status: RESOLVED-AS-RESTATED 2026-10-01 (Story 8.22, cycle 161, amendment 207(d)) — the page imports no game module by design (`how-to-play/main.ts`), so the numbers stay prose; every sentence that states a number now carries a `// CONFIG.xxx` citation comment beside it in `copy.ts`, so a retune greps its way to the copy. Not derived, deliberately. (Earlier note 2026-09-30, cycle 156, amendment 175: the delay moved 30 s → 15 s and the sentence was corrected to "fifteen seconds" in the same PR.)
+  summary: THE HOW-TO-PLAY REGEN SENTENCE HARDCODES "THIRTY SECONDS" AND "EVERY SECOND" while `regen.` is on the batchsim --tune surface; a retune of `CONFIG.regen.outOfCombatMs` / `missingPctPerS` silently strands the copy (the HULL REPAIR card face reads CONFIG live, this sentence does not). Amendment 50 fixed only the lines that became false; 8.22 owns the re-cut and should derive or restate them.
+  evidence: Blind Hunter finding 5; client/src/how-to-play/copy.ts UPGRADING paragraph; howToPlay.test.ts pin.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
+  status: OPEN — consequence of amendments 14 + 46, recorded for the balance pass
+  summary: AN EXHAUSTED DECK'S BANKED LEVELS NOW HAVE NO SINK AT ALL — amendment 14 kept an offer-less level spendable only through the menu heal "until 8.8 makes heal a card"; with the rail gone a banked level on an empty draw buys nothing and simply stays banked (upgrades.test.ts re-cut from "still spendable as a heal" to "stays banked"). Not a deadlock (nothing waits on it), but the level is inert; whether it should buy anything is a design question for the draw-economy review once decks fill out.
+  evidence: server wave report; upgrades.test.ts offer-less-level cases; amendment 14's wording.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
+  status: OPEN — pre-existing, outside the gate; five-minute fixes for any harness cycle
+  summary: TWO MORE STANDING SCRIPT TSC ERRORS beside the ledgered `encounterSpan.ts:98`: `server/scripts/batchsim/balanceProbe.ts:50` (`Target.kind` missing) and `server/scripts/rl/env.ts:290` (`EQUIPMENT_IS_WEAPON[id]` indexed by `SlotItemId` since Story 8.7's widening). Neither tsconfig is in `npm run check`; 8.8 proved both pre-existing by compiling HEAD's files in place.
+  evidence: server wave report (tsc on the two script tsconfigs on the 8.8 tree and at the 8.7 merge commit).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-9-the-shift-boost-universal.md`
+  summary: The boost/slow composition order (boosted → slowed → hooks) is no longer OBSERVABLE in the sim: with a proportional boost and a multiplicative prop-fouling slow the two folds commute exactly, so the order pins in shared/src/__tests__/slow.test.ts and client/src/__tests__/prediction.test.ts were re-pinned as equalities that document the convention rather than detect a swap; any future non-proportional fold in that chain makes the order load-bearing again and those two tests must be flipped back to inequalities.
+  evidence: Wave 1 and wave 2b of cycle 144 both watched the old `not.toBeCloseTo` pins fail (42.1875 both ways) after the factor landed; shared/src/sim/boost.ts header still states the pinned order.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-9-the-shift-boost-universal.md`
+  summary: `EQUIPMENT_STAT_FIELDS.boost` still whitelists `durationMs` and `maxAmmo` as card-addressable stat paths (`shared/src/sim/effects.ts`) although no card may ever touch the Shift boost (amendment 54) and the cross-key harness invariant's whole premise is `maxAmmo === 1`; a future catalog line targeting `equipment.boost.maxAmmo` would validate and silently void "an active window always implies a cooling pool". Narrowing the whitelist changes what the slot tooltip prints for slot 1 (it reads the same whitelist), so this is a small design call, not a patch — the `--tune` half is closed (the validator pins `maxAmmo === 1`).
+  evidence: Blind Hunter at the 8.9 gate; `effects.ts` `boost: ['durationMs','maxAmmo','reloadMs']`; `client/src/render/slotTooltip.ts` stat rows come off the whitelist; no shipped line targets any `boost.*` path.
+
+## 2026-09-18 — Story 8.10 The Opening (cycle 145): ledgered consequences
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-10-the-opening.md`
+  summary: THE LEVEL-ZERO GUARANTEE IS A COIN FLIP TODAY — with the current stub set each hull's default deck has exactly two usable lines at spawn (Torpedo Boat: `heavyTorpedo` or `hullRepair`; Mine Layer: `navalMines` or `hullRepair`; Battleship: `starShells` or `hullRepair`), so roughly half of countdown openings guarantee HULL REPAIR rather than a weapon. Not a defect — the guarantee's contract (`drawOffer`'s `usableLines`) is satisfied exactly as designed — but a fact QA and any early balance read should know going in; it widens toward an even spread across more outcomes as Stories 8.12-8.16 un-stub the remaining weapon and consumable lines.
+  evidence: `shared/src/sim/catalog.ts` `DEFAULT_DECKS` non-stub equipment lines per hull; `shared/src/sim/deck.ts` `usableLines`; amendment 63(a) note on the same stub set.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-10-the-opening.md`
+  summary: THE COUNTDOWN'S 44 PX TALLER BAND SHRINKS THE HOVER TOOLTIP'S CLEAR WATER ABOVE THE ROW — the row top is 336 px (not 380) while `phase === 'countdown'`, so the amendment-37 "flip the tooltip down when it doesn't fit above" branch is reachable sooner, at a shorter viewport than the live 380 px case; a downward-flipped tooltip is inside the countdown footer's own box and could paint over the REDRAW button's seat. Not ruled — a display-order/z-index question for whoever next touches the tooltip or the footer.
+  evidence: `client/src/ui/upgradeMenu.ts` `refitBandLayout`/tooltip-flip logic; amendment 63(a) (row top 336 px during countdown).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-10-the-opening.md`
+  summary: A REDRAW PRESS WHILE A CARD SPEND IS IN FLIGHT IS SILENTLY DROPPED — the spend latch guard rejects the click with no pulse of any kind on the REDRAW button itself (the four cards dim as they already do mid-spend, but the button gives no feedback that its own press did nothing). Cosmetic; the mulligan is not lost, the player just has to press it again once the latch frees.
+  evidence: `client/src/main.ts` `tryMulligan`/spend-latch guard (shared with the ordinary card-pick latch).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-10-the-opening.md`
+  summary: THE REFIT WINDOW'S AUTO-OPEN LATCH IS SET ON THE ATTEMPT, NOT ON SUCCESS — if another surface (settings, the results modal) is blocking the Tab path on the exact frame the level-zero offer arrives, the window never auto-opens for that match; Tab still opens it manually. Narrow window (surfaces rarely block the very first countdown frame) but real.
+  evidence: `client/src/main.ts` auto-open latch (`heldAtStartLine` + `handleRefitToggle`'s surface-stacking guard), set unconditionally on the attempted open rather than on `handleRefitToggle`'s own success return.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-10-the-opening.md`
+  summary: `matchSmoke.mjs` AND `weaponsSmoke.mjs` NOW DEPEND ON THE DEV-ONLY `fitOverride` ROOM OPTION for their torpedo/mines — deleting `SPAWN_SEED` left both scripts firing an empty Q slot; amendment 65's `fitOverride` (`HC_DEV_OPTIONS=1` only, captains only, pre-fits listed line ids through the ordinary card path at spawn) restores their old behaviour. Anyone editing either smoke should know the torpedo/mines in Q come from `fitOverride`, not the countdown draw.
+  evidence: amendment 65; `server/src/rooms/roomOptions.ts` `fitOverride`; `server/scripts/matchSmoke.mjs`, `server/scripts/weaponsSmoke.mjs`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-9-the-shift-boost-universal.md`
+  summary: An OBSERVER's wake ring for a contact is provisioned off the class envelope max (TB 45) because `wakeHulls` never passes `maxSpeedU` for contacts (their cards are private), so a SPEED-capped boosted enemy Torpedo Boat at 68.75 u/s now keeps only ~65 % of its tail in the observer's ring (pre-8.9: 45/55 ≈ 82 %); the `wake.ts` doc still calls this "loses a little tail early". Visual only, but the boosted wake is a tell the design leans on — either provision contacts off `FASTEST_BOOSTED_HULL_SPEED` (memory cost per contact ring) or accept and re-word.
+  evidence: Blind Hunter at the 8.9 gate; `client/src/render/wake.ts:130-132`, `client/src/main.ts:3102-3108`; `client/src/config.ts` `FASTEST_BOOSTED_HULL_SPEED` = 68.75.
+
+## 2026-09-18 — Story 8.10 review gate (cycle 145): three findings deferred
+
+- source_spec: `spec-8-10-the-opening.md`
+  summary: THE REDRAW PIP CAN STAY HOLLOW AFTER THE SERVER HAS SPENT THE MULLIGAN — the client infers the ack from the front offer's signature changing at unchanged `pts`; a reconnect mid-countdown (fresh `Game`, `mulliganUsed false`), an ack landing after the 1.5 s spend-latch timeout, or a byte-identical redraw (~1 in 1000 with today's two usable lines per deck) leaves a live REDRAW whose every press is a server no-op with a denied pulse. Cosmetic, self-corrects at the live edge. The clean fix is `mulliganed` on the `you` wire row — a wire addition nobody asked for; do not add it without a ruling.
+  evidence: Edge Case Hunter #1, Blind Hunter #3/#4 at the 8.10 gate; `client/src/ui/upgradeMenu.ts` `mulliganLanded`, `server/src/game/world.ts` `mulligan()`.
+- source_spec: `spec-8-10-the-opening.md`
+  summary: A MULLIGAN HONOURED INSIDE THE LAST TICK OF THE COUNTDOWN CAN TOAST `LEVEL UP — TAB TO REFIT` ON LIVE WATER — the redraw's `pt` rides the frame built after the same tick's activation, and if Colyseus flushes the `matchPhase` patch first the client reads `active` and `handlePoint` is no longer silenced. Needs a press within ~50 ms of 0:00.
+  evidence: Blind Hunter #5; `server/src/rooms/ArenaRoom.ts` tick order, `client/src/net/roomBindings.ts` `handlePoint`.
+- source_spec: `spec-8-10-the-opening.md`
+  summary: A DEV `matchOverride.countdownMs <= 0` (with `joinWindowMs <= 0`) ARMS AND ACTIVATES INSIDE ONE `update()`, so the opening's `pt` is wiped by `resetForMatchStart`'s pending clear and clients never observe `countdown` (no auto-open). No clamp exists in `roomOptions.ts`; the grant itself survives (amendment 66). Dev override only.
+  evidence: Edge Case Hunter #3; `server/src/game/match.ts` `update()` arm-then-activate path.
+
+## 2026-09-18 — Story 8.11 The Match Consumable Pool (cycle 146): ledgered consequences
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  status: OPEN BY DESIGN — a fact for QA and 8.20's balance read, not a defect (wording corrected at the review gate, amendment 69)
+  summary: POOL COPIES PAST A LINE'S CAP ARE GATED BEHIND USE, AND "EXHAUSTED" CAN NOW MEAN "ONLY CAP-HELD LINES REMAIN". R44 bounds the cap WITHIN the pool alone, so a hull can sail 3 authored + up to 5 pool HULL REPAIR (8 > stock cap 5); while it holds five, the at-cap guard (Story 8.3, idle until now) never offers the line; a fired copy leaves `cards` (8.7) and the line reopens, so the copies past the cap are supply behind use, not dead cards. Consequence: an empty draw — which latches `deckExhausted` and fires the `deck.exhausted` log/metric once per ship — now also happens for a deck whose only remaining copies are of a line held at cap; the next level retries and succeeds after a use, but the latch/metric has already counted it. Nothing to fix; 8.20's harness bars must read `deck.exhausted` with this in mind.
+  evidence: epic-8 amendments 68(b), 69; `server/src/game/world.ts` `spendStock` / `materializeOffer` / `reportExhaustion`; `shared/src/__tests__/deck.test.ts` "the guard is LIVE" pins.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  status: OPEN — hand to Story 8.20 (the bar is SET here, measured for real there)
+  status: RESOLVED by Story 8.20, 2026-09-30 — measured by the weaponless-at-level readout; no bar set (Eric, amendment 171)
+  summary: THE 50-CARD ONE-COPY APPEARANCE RATE AND OFFER-SIZE MATH, RE-MEASURED (FR59): unstubbed catalog, 2000 seeded economies per hull, uniform pick per level — `deckGunTurret` seen in an offer by pick 8/12/15/20 in 56.1/73.4/81.0/90.5 % (TB), 53.6/71.0/79.3/89.6 % (BS), 52.3/69.5/80.3/90.0 % (ML); first offer under four lines at mean level ≈ 46.0 (fewer than four distinct drawable lines OR the rest held at cap). The forge's 40-card figures (66/82/90/97 % at 8/12/15/20) are superseded. These are a UNIFORM-PICK, NEVER-USE read (amendment 69: no consumable is ever fired, so a consumable line fitted to cap stays closed for the rest of the economy — a pessimistic floor for consumables, exact for equipment/ladder lines), not a bot-policy read: 8.20 re-measures with the full harness, where bots fire consumables, and pins the bar there.
+  evidence: `shared/src/__tests__/poolMeasure.test.ts` (prints the table); epic-8 amendment 68(a).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  status: CLOSED — MOOT 2026-09-30 (Story 8.21): the hidden match pool was retired at 8.14 (amendment 89a); there is no `MatchRecord.pool` and nothing to reveal; (b) of the 8.11 entry (unlocks preview) is an Epic 9 question and is restated in the Story 8.21 entry below.
+  summary: THE POOL'S TWO UNRULED EDGES ARE NOT DECIDED BY 8.11: (a) whether results/match history ever reveal the pool after the match (8.21's `MatchRecord.pool` is the only persistence path and does not exist yet — nothing in this story records the pool anywhere but the room log's count); (b) the pool deals consumables an account has not unlocked (a preview, not power — Epic 9). Both remain facilitator readings.
+  evidence: gdd.md open note 20; `deferred-work.md` D22 entry above; no `MatchRecord` in the repo at cycle 146.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  status: OPEN — interim, closes itself when 8.15/8.16 flip the stub flags
+  summary: THE POOL IS FOUR-FIFTHS INERT ON STAGING UNTIL THE CONSUMABLE STORIES LAND: rolled from all five lines (amendment 67) but only HULL REPAIR copies are dealable today, so a match adds 0–5 extra heals per hull (≈ 2 on average) and nothing else visible. QA should not read "I never saw a shield from the pool" as a defect.
+  evidence: epic-8 amendments 41, 67; `shared/src/sim/catalog.ts` stub flags; `server/src/__tests__/decks.test.ts` `poolDealable` helper.
+
+## 2026-09-18 — Story 8.11 review gate (cycle 146): two findings deferred
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  summary: SERVER TESTS THAT BUILD A REAL `ArenaRoom` WITHOUT `poolOverride` NOW SAIL A RANDOM POOL — `abandon`, `colyseus018`, `joiningGuard`, `liveness`, `operability`, `regatta`, `rateLimit`, `rtt`, `solo`, `reconnect`, `zoneSeeds` all construct rooms with no pool pin; none asserts on offers or deck depth today, so nothing flakes, but the suite has a latent `Math.random` dependency: a future room-level pin on an offer's contents or a deck length that forgets `poolOverride: []` (the `deckExhausted.test.ts` pattern) will flake at 0–5 HULL REPAIR per run.
+  evidence: Blind Hunter P3 at the 8.11 gate; grep of `server/src/__tests__` for `new ArenaRoom(` without `poolOverride`; `server/src/__tests__/deckExhausted.test.ts` shows the fix pattern.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-11-the-match-consumable-pool.md`
+  summary: `shared/src/__tests__/poolMeasure.test.ts` RUNS 6,000 FULL ECONOMIES (≈2.3 s) AND PRINTS A TABLE ON EVERY `npm test -w shared` — it is a measurement, not a regression pin (its header says so); the cost and stdout noise ride every gate run. If it grows or the gate slows, move it behind an env flag like the batch sims and keep only the loose structural assertions in the default run.
+  evidence: Blind Hunter P8 at the 8.11 gate; the test's wall time in the wave-1 report (2.30 s).
+
+## 2026-09-18 — Story 8.12 Catalog v3: Ladders and the Deck Gun (cycle 147): ledgered consequences
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-12-catalog-v3-ladders-and-the-deck-gun.md`
+  status: OPEN — record for 8.13–8.16 readers
+  summary: THE 8.12 AC WAS PRE-SATISFIED BY STORY 8.1 — every numeric clause was live and pinned from cycle 135 (amendment 73); the content stories 8.13–8.16 fill equipment tiers II–V only and must not re-author the five ladders or the deck-gun family; the AC's `deferred-work.md:463` citation for the cycle-42 proportional in-flight rescale rule resolves to the entry now at `:471`.
+  evidence: amendment 5, amendment 73, `shared/src/__tests__/stats.test.ts` (RELOAD table, DECK GUN damage `[15,16,17,18,20]`, 60 % composition), `server/src/__tests__/upgrades.test.ts` (tier-grant rescale; ARMOR heals the delta).
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-12-catalog-v3-ladders-and-the-deck-gun.md`
+  status: OPEN — the icon gap stays with UX-DR50
+  summary: THE GUN SQUARE NOW CARRIES A TIER NUMERAL BUT LADDERS STILL HAVE NO GLYPH — the 8.7 icon-gap entry above is untouched by 8.12; the DECK GUN card face prints its damage row only while the line also moves its own reload (amendment 71 keeps that, the v2 broadside-SPREAD precedent).
+  evidence: amendments 70–71; `client/src/ui/boonCopy.ts` STAT_LINES comment.
+
+## 2026-09-18 — Story 8.12 review gate (cycle 147): two findings deferred
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-12-catalog-v3-ladders-and-the-deck-gun.md`
+  summary: `_bmad-output/gds-workflow-status.yaml` DOES NOT PARSE AS YAML — a `\'` apostrophe escape (shell-style) inside the cycle-131 clause of `next_expected` ("AR12's load-test leg") should be YAML's `''`; pre-existing since cycle 131, untouched by 8.12 (which only prepended clauses); harmless to every reader today because nothing parses the file, but the first tool that does will choke — a one-character fix for whoever next stamps the tracker, ideally with Eric's nod since the trackers are his.
+  evidence: `python3 -c "import yaml; yaml.safe_load(open('_bmad-output/gds-workflow-status.yaml'))"` fails at the same offset on `git show c78b0b5:_bmad-output/gds-workflow-status.yaml` (the pre-8.12 file); docs agent report, 2026-09-18.
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-12-catalog-v3-ladders-and-the-deck-gun.md`
+  summary: THE GUN SLOT TOOLTIP'S FIT SLACK IS NOW 4 PX AT THE 1280×614 FLOOR — the ` · TIER n` suffix wraps the gun's interaction row to two lines on every hull (33 glyphs against a 29-glyph inner line), the fit model absorbs it by trimming boon rows (9 rows on the full ladder build), and the worst panel sits 4 px under `TOOLTIP_MAX_PANEL_H`; whoever next lengthens a tooltip row spends the last of the budget.
+  evidence: Blind Hunter scratch measurement at the 8.12 gate (`overflow = -4 px` for all three classes); `client/src/__tests__/slotTooltip.test.ts` headroom pin (≥ 2 px).
+
+## 2026-09-19 — Story 8.13 (Catalog v3 — Torpedoes and Mines, cycle 148)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — a doc-sync pass is owed, not done here (Eric's minimal-edits rule)
+  summary: `catalog-v3.md` AND THE GDD NOW DISAGREE WITH THIS STORY'S RULINGS. Amendments 74/80/81/82/83 rewrote the shape of five catalog lines out from under the source documents: SUPERCAVITATING TORPEDO moved from an equipment row to a belt consumable (74); ACOUSTIC HOMING is deleted and homing is a tier stat on light/heavy torpedoes (80) and the captive fish (82); FOULING MINES left the add-on-card model for its own tiered equipment line, and naval mines no longer foul (81); DEPTH CHARGE is a new stub consumable line neither document mentions (83). Nobody edited `catalog-v3.md` or the GDD to match — Eric's minimal-edits rule says a change signal authorizes only what it rules on, not a reword of surrounding settled text — so both documents are stale until a dedicated doc-sync pass reconciles them against the amendments.
+  evidence: `_bmad-output/planning-artifacts/.../catalog-v3.md` §4 (SUPERCAVITATING TORPEDO, ACOUSTIC HOMING, FOULING MINES rows as originally authored); `gdd.md` FR53/FR54; epic-8 amendments 74, 80, 81, 82, 83.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — hand to Story 8.14 (Eric's own words: "I will revisit this when we get back to missiles")
+  summary: HEAT SEEKING ON THE MISSILE IS NOT DECIDED. Amendment 80 removed ACOUSTIC HOMING and built homing into the torpedo and captive-mine tiers instead, but explicitly left the missile's own homing mechanism (heat seeking, per catalog-v3) untouched pending Story 8.14, when the missile line itself gets built. Whoever builds 8.14 should treat homing-as-tier-stat as the established pattern to weigh against, not a foregone conclusion for missiles.
+  evidence: epic-8 amendment 80 (final sentence); catalog-v3.md missile row (unbuilt, `STUB_ROWS`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — tracked under UX-DR50, not this story's scope
+  summary: THE ICON PASS STAYS OWED. LIGHT TORPEDO, the three mine kinds and SUPERCAV TORPEDO all reuse their family's existing glyph (the torpedo icon, the mine icon) rather than getting a distinguishing icon of their own, continuing the gap UX-DR50 already tracks from earlier catalog stories. A card face and a refit-slot icon for these new lines are visually identical to their sibling lines today.
+  evidence: `client/src/render/equipmentIcons.ts`; UX-DR50 (design doc open item).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — moot: the buoy jam-fake oracle is deleted with the RADAR BUOY; the chaff oracle recomputes every fake deterministically from `(seed, epoch, source)` and the fuzz is green.
+  summary: THE INVARIANT FUZZ'S BUOY JAM-FAKE ORACLE IS SEED-FRAGILE. Certain seeds consume two extra RNG draws after tick 2 and then fail `verifyBlipCompleteness` with "gated jam fake of buoy1 accounted for by its own blip: expected -1 ≥ 0" — an oracle bookkeeping bug in the fuzz harness itself, not a perception leak (the jamming-buoy fakes carve-out is unaffected). The Wave 2b implementer reproduced it twice while working this story's perception changes and confirmed by bisection that it predates 8.13 and is untouched by the re-reveal fix. Not fixed here — it is the fuzz oracle's arithmetic, not `perception.ts` or `signals.ts`.
+  evidence: Wave 2b implementer report, 2026-09-19; `server/src/__tests__/` perception invariant fuzz (buoy jam-fake accounting).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — no round added by design, float dust is expected
+  summary: THE FOULING MINE'S TIER-V SLOW FACTOR HAS FLOAT DUST. `0.75 - 0.05 * 4` folds to `0.5499999999999998` rather than an exact `0.55`, on both the server and the client (identical arithmetic, so prediction never disagrees with the authority) — pinned with `toBeCloseTo` rather than exact equality. No rounding step was added because one would diverge the two sides' derivations from `effectiveStats` in different float paths; the dust is cosmetic and never visible on a stat row (which the client formats to a fixed number of decimals).
+  evidence: `shared/src/sim/stats.ts` fouling `slowFactor` derivation; `shared/src/__tests__/stats.test.ts` tier-V fouling pin (`toBeCloseTo`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — presentation choices for Eric to ratify or retune
+  summary: TWO CARD-FACE ROW CHOICES WERE MADE BY THE IMPLEMENTER, NOT RULED BY ERIC. (1) The FOULING MINES card face drops its RELOAD row from the five-row grid to make room for `SLOW`, on the reasoning that SLOW is the line's distinguishing stat and reload is shared family furniture; every other mine/torpedo card keeps RELOAD. (2) The captive mine card's TRIGGER row is placed directly after DAMAGE, with no BLAST field shown at all (blast is fixed at 32 across every captive tier, so it never changes and was judged not worth a row); naval and fouling mines show both TRIGGER and BLAST since both move by tier. Neither layout call was put to Eric; both are one-line changes if he wants them differently.
+  evidence: `client/src/render/equipmentInfo.ts` card-row tables for `foulingMines` and `captiveMines`; amendment 85 (rows print every authored step, silent on which rows a line chooses to show).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — hand to Story 8.20
+  status: RESOLVED by Story 8.20, 2026-09-30 — `APPETITE_FAMILY` deleted; explicit per-line appetites with the equivalence pinned (amendment 173(d))
+  summary: BOTS' PER-LINE APPETITES FOR THIS STORY'S FIVE LINES ARE STILL THE INTERIM `APPETITE_FAMILY` FALLBACK, NOT AUTHORED ENTRIES. Amendment 79 shipped minimal tactics (light torpedo reuses the heavy torpedo tactic, captive/fouling mines reuse the mine tactic) rather than a full per-line tactic and weight table; the `APPETITE_FAMILY` fallback map that lets an unlisted line inherit its family's generic appetite is marked for deletion once Story 8.20 authors real per-line entries for every line, this story's five included.
+  evidence: `server/src/game/ai/equipment.ts` `APPETITE_FAMILY`; `server/src/game/ai/spending.ts`; epic-8 amendment 79, amendment 86's note on the trapper's fouling tie.
+
+### Story 8.13 review-gate defers (2026-09-19, cycle 148)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — perf/chatter, bounded; measure on a production smoke
+  summary: THE PER-VISIT REVEAL MARK (amendment 78) HAS TWO BOUNDED COSTS THE OLD PERMANENT MARK DID NOT: (1) a live enemy projectile hugging an observer's detect/sight rim, an island LOS edge or a dazzle-shrunk rim can alternate inside/outside per tick and draw one full `{k,id,x,y,vx,vy,t}` reveal per re-entry tick (geometry stays correct — the client re-anchors — but the chatter is unbounded per rim-hugging projectile); (2) `ballisticGateOpen` now runs every tick for every MARKED non-owner projectile per observer (one `losClear` raycast each), where a marked projectile used to short-circuit. Candidate fixes if either ever matters: clear only after N consecutive outside ticks, or a per-(observer, id) reveal-rate floor. Not fixed at the gate — no evidence it matters at 20 observers × live ordnance.
+  evidence: Blind Hunter F4 + Edge Case Hunter finding 6, both PLAUSIBLE, traced against `server/src/game/perception.ts` `ballisticScan`/`forgetIfExited` and `signals.ts` `ballisticGateOpen`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — bots; hand to Story 8.20
+  summary: THE LIGHT TORPEDO'S LEAD SOLVER CAN RETURN A MEANINGLESS INTERCEPT AGAINST A TARGET IT CANNOT CATCH: `ai/equipment.ts` `leadPoint` runs three fixed-point iterations with no "target faster than the fish and opening" guard, so a bot may spend a 25 s light-torpedo tube (45 u/s at tier I) on a Torpedo Boat running away at 45+ u/s. The heavy at 65 u/s never met this case. Guard shape: `if (t.speed >= fishSpeed && closingRate <= 0) return null`.
+  evidence: Edge Case Hunter finding 4 (PLAUSIBLE), traced through `solveTorpedoShot` for `lightTorpedo`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — Eric's call (copy)
+  summary: THE FOULING CARD'S `SLOW 75%` ROW IS AMBIGUOUS — it means "speed ×0.75" but reads as "slows by 75 %". Label `SLOW` was the orchestrator's minimal word (amendment 81's build); a clearer form (`SPEED ×0.75`, `SPEED 75%`) is Eric's to pick.
+  evidence: Blind Hunter F7; `client/src/ui/boonCopy.ts` `pct` under `SLOW`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — QA note, by design
+  summary: THE WHOLE FOULING RUNTIME IS UNREACHABLE IN LIVE PLAY UNTIL EPIC 9: `foulingMines` is in no default deck and `DEFAULT_OWNED` excludes it, so the server slow write, `OwnShip.slowFactor` on the wire and the predictor's `authSlowFactor` are covered by tests and smokes only. Likewise `depthCharge` is a stub in the Mine Layer's default deck (its 40th card buys nothing today — amendment 83, Eric knows).
+  evidence: Blind Hunter F6; `shared/src/sim/catalog.ts` default decks + `DEFAULT_OWNED`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-13-catalog-v3-torpedoes-and-mines.md`
+  status: OPEN — Eric's call (card copy)
+  summary: THE NO-OP ROW SKIP (amendment 87b) APPLIES TO WEAPON TIER CARDS ONLY. Applying it to pure LADDER lines made some TURNING rungs print ZERO rows (the +0.05 rad/s step disappears under the row's display rounding), a blank card and a breach of "every card has at least one row" — so ladder cards still print their one `STAT cur → next` row even when the displayed values match. Either widen the display precision for TURNING or accept the unchanged-looking row; Eric to pick.
+  evidence: review-gate patch P5 (`client/src/ui/boonCopy.ts` `ladderRows(dropUnchanged)`, `weaponRows` passes true; `cardStatRows.test.ts` law `rows.length === min(1 + changedSteps, 5)` for weapon tiers).
+
+## 2026-09-21 — Correct course: THE POOL (decks retired, class Shifts, the gun pick) — open threads
+
+Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (Eric-approved), epic-8 amendment 89. Everything below is Eric's to fill; nothing is a facilitator number. This section CLOSES the 8.13 entry "HEAT SEEKING ON THE MISSILE IS NOT DECIDED" (`:2330`) — the missile and HEAT SEEKING are cut.
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
+  status: RESOLVED 2026-10-01 (Story 8.22, cycle 161, epic-8 amendment 204) — Eric: **SPEEDBOAT** (`torpedoBoat`), **REPEATER** (`mineLayer`), **DREADNOUGHT** (`battleship`); plain uppercase in `client/src/ui/classNames.ts`; the designation-prefix shape is closed unbuilt; ids and the identity test untouched.
+  summary: THE THREE CLASS DESIGNATIONS. The hulls become named ship classes with real designations (shape `IBK-01 KABUKI CLASS`); all three are `[NAME PENDING]`. Internal ids `torpedoBoat` / `mineLayer` / `battleship` and the identity test stay until the names land; Story 8.22 (copy) cannot close without them.
+  evidence: GDD class table (2026-09-21 supersession); epics.md Story 8.14.
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
+  status: RESOLVED 2026-09-22 — Eric (amendments 90–92): ×0.75 per other taker, floor 0.25, first copies only, permanent; the mechanism is called WEIGHTING (amendment 91); built in 8.14
+  summary: THE MATCH-WIDE TILT. `CONFIG.offer.tilt.factor` and `.floor` have no numbers; whether copies 2+ of a line also tilt is undecided. The rule itself is ruled (a line another captain took becomes less likely for everyone else, never impossible).
+  evidence: epics.md Story 8.14; GDD "THE COMMON POOL".
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
+  status: RESOLVED 2026-09-28 — Eric (amendments 97-102): INSTANT RELOAD 45 s cooldown, finishes one reload only (never a pool refill); DAMAGE CUT 8 s active / 30 s cooldown, applied before the shield, weapons only (storm excluded), a whole-number hit rounds down and a burn tick halves exactly; SPEED BOOST keeps the shipped 25 s cooldown (not re-opened). Built in 8.15.
+  summary: THE CLASS SHIFT NUMBERS. INSTANT RELOAD (`mineLayer`) cooldown; DAMAGE CUT (`battleship`) duration and cooldown, and its order relative to SHIELD BLOCK inside `applyDamage`; SPEED BOOST (`torpedoBoat`) keeps the shipped numbers but the GDD's 20 s cooldown vs the shipped 25 s (`CONFIG.boost.reloadMs`) needs Eric's confirm-or-re-rule.
+  evidence: epics.md Story 8.15; GDD "The class `Shift`".
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
+  status: RESOLVED 2026-09-28 — Eric (amendments 103-105): machine gun 4 dmg/shell, 0.5 s cadence, 660 u, 16-shell magazine at Tier I, 15 s flat reload, ladder +2 shells/+1 dmg/-5% per tier; flak 12 dmg in a 50 u blast, 660 u, 6 s reload, ladder +2 dmg/-5% per tier (blast fixed); both supersede the catalog-v3 draft numbers named below. Built in 8.15.
+  summary: MACHINE GUN AND FLAK GUN LADDERS. Each mountable gun gets its own ladder offered only while mounted; the steps and caps are unauthored. The MG's 4 dmg / 0.25 s / 250 u / 6 s / 15 s and the flak's 10 dmg r40 u / 8 s are carried from catalog v3 as `[DRAFT]` and may be re-tuned as guns rather than equipment lines.
+  evidence: epics.md Story 8.15; GDD "The mountable guns".
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.1
+  status: OPEN — Eric, needed by Story 8.20
+  status: RESOLVED by Story 8.20, 2026-09-30 — bot guns stay random, final (amendment 163); the shift rows are the rows (amendment 170); no table to author
+  summary: `BOT_GUNS` (which gun each of the six bot profiles mounts) and the `SHIFT_TACTICS` bodies (when a bot fires boost / instant reload / damage cut) are `[DRAFT]`.
+  evidence: epics.md Story 8.19.
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.2
+  status: OPEN — Eric, after playtest data (Epic 9)
+  summary: THE DEFAULT SET. Everything is unlocked for everyone until accounts, progression and playtest data exist; Eric then pares the lines / guns / hulls a new account starts with. `CONFIG.progression.defaultSet` ships as "everything" in 9.6.
+  evidence: Eric 2026-09-21: "For now, everything is unlocked for everyone. Once accounts and progression are a thing and I have some playtest data, I'll pare that down to a 'Default Set.'"
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §4.5
+  status: RESOLVED 2026-09-23 — gds-ux v4 pass (planning, no cycle): DESIGN.md + EXPERIENCE.md re-cut for The Pool (two-pane Ship Screen, collection tile, class tile Shift line + gun picker, UX-DR71/75/77 void, UX-DR50 icons re-owed); `mockups/loadout-1.html` after Eric's 2026-09-28 redlines (the port screen is LOADOUT — key · value rows + picker modals; epic-8 amendment 96); record `ux-designs/…/.decision-log.md` § Update 2026-09-23
+  summary: DESIGN.md IS NOT EDITED BY THE PROPOSAL. UX-DR60–66 (Ship & Deck screen, deck card tile, copies rail, deck column) need a re-cut for the Ship Screen (class tile regains a `Shift` line and a gun picker; no deck column); UX-DR71, UX-DR75 and UX-DR77 are void; UX-DR50 icons: missile and monitor no longer owed, machine gun and flak gun glyphs are; UX-DR52 stands.
+  evidence: proposal §4.5; Story 9.4 as re-cut.
+
+- source_spec: `sprint-change-proposal-2026-09-21.md` §2.3
+  status: OPEN — Story 9.11 (already ledgered at `:1843`, widened)
+  summary: `game-architecture.md`'s deck amendment (D22 `DeckState`, the deck door, `checkDeck`, `deckId`) is void; the seat now carries `gun`; the requirements inventory in `epics.md` (FR41+, AR26+, UX-DR60+) is read through the 2026-09-21 latest-wins block until 9.11 rewrites it.
+  evidence: epics.md inventory block "RE-CUT 2026-09-21".
+
+## 2026-09-22 — Story 8.14 The Common Pool (cycle 149, 0.18.14)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: RESOLVED 2026-09-30 (Story 8.21): ABSORBED — `MatchRecord.participants[].hands` records every hand (offered ids, taken id, REDRAW, `T+`), epic-8 amendment 178.
+  summary: PER-DRAW OFFERED/PICKED RECORD. Eric 2026-09-22: "I'm more interested in *what* cards were picked in each draw, that's way more valuable info. So I am interested in doing a side story for that, we don't need to suck it up into this sprint." The `/metrics` `deck.{exhausted,picks,mulligans}` counters were deleted with no replacement (amendment 94); the record should capture, per participant and per draw, the four offered ids and the taken id with a `T+` stamp — a natural companion to Story 8.21's match record.
+  evidence: amendment 94.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: RESOLVED 2026-09-28 — Story 8.15 mapped the two guns: `MOUNTED_GUN` now sends `machineGun` -> `machineGun` and `flak` -> `flak` (deck gun unchanged at `'gun'`).
+  summary: `MOUNTED_GUN` (shared/src/sim/loadout.ts) maps all three GunIds to the deck-gun module `'gun'`; 8.15 changes the `machineGun`/`flak` entries when their modules exist. `slotsWithCards(…, gun)` and `loadoutFor(…, gun)` already carry the seat's gun on both sides, so nothing else re-mounts.
+  evidence: `shared/src/sim/loadout.ts` `MOUNTED_GUN`; amendment 95.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — Story 8.20
+  status: RESOLVED by Story 8.20, 2026-09-30 — POOL READOUTS (measurements, no bars by Eric's ruling) replace the bars and the dead usage line is removed (amendment 171)
+  summary: the harness lost `--deck-only`, `--draws`, `deckSim.ts`, `PACIFIST_DECK` and `catalogReport`'s DECK COMPOSITION block (the deterministic batch report body changed); 8.20 authors the pool-era bars (gun mix, offer composition, weighting effect). Also: `BOT_DECKS` named in the 2026-09-21 proposal never existed in code — bots were seated via `loadDeckFor` inline in ArenaRoom; nothing to delete in 8.20.
+  evidence: amendment 95(b); server/scripts/batchsim (deleted deck-era files).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — Story 9.11 doc-sync
+  summary: epics.md Story 8.14 AC, amendment 89(b) and the GDD's COMMON POOL paragraph still say the weapon guarantee holds "at every level with an open slot" and use the word "tilt"; amendments 91 and 93 supersede both (level-zero-only guarantee; the mechanism is weighting). catalog-v3.md/GDD deck-era text also still stands (already ledgered).
+  evidence: amendments 91, 93; epics.md Story 8.14 AC; GDD "THE COMMON POOL".
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: RESOLVED 2026-09-29 by cycle 151 (0.18.16) — five consumable lines are live (HULL REPAIR, SUPERCAV TORPEDO, SHIELD BLOCK, CHAFF, DECOY BUOY), so a capped captain's offer is full again.
+  summary: only two consumable lines are live (HULL REPAIR, SUPERCAV TORPEDO), so a captain with every equipment/ladder/add-on capped sees a two-card offer of consumables (never empty, but short); it fills to four when 8.16 flips SHIELD/CHAFF/DECOY/SMOKE.
+  evidence: amendment 94.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — Eric, optional dial
+  summary: authored kind odds (a fixed weapon/upgrade/consumable split for stage 1 of the draw) were offered on 2026-09-22 and NOT authored — the shipped stage 1 uses each kind's share of the eligible lines (amendment 92). A `CONFIG.offer.kindOdds` block would drop straight in if he ever wants it.
+  evidence: amendment 92.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-14-the-common-pool.md`
+  status: OPEN — pre-existing, widened
+  summary: `server/scripts/batchsim/tsconfig.json` (not in `npm run check`) has 2 standing errors — `balanceProbe.ts:50` `Target.kind` missing and `encounterSpan.ts:97` (already ledgered ~:2028); neither is 8.14's.
+  evidence: `npx tsc --noEmit -p server/scripts/batchsim/tsconfig.json` on the 8.14 tree.
+
+- source_spec: `spec-8-14-the-common-pool.md`
+  status: OPEN — awareness (ledgered flake, like matchSmoke)
+  summary: `weaponsSmoke.mjs` IS PILOTING-FLAKY ACROSS PHASES: on the final 8.14 code it failed three times in a row at three DIFFERENT hit-dependent phases (six mines live at once — 200 s; the mine ambush — 60 s; the light-torpedo kill — 300 s, seven straight 40-dmg hits at a 25 s cadence racing the out-of-combat regen) and passed cleanly on the fourth run (every phase, the seven fish landing at T+4/29/54/80/105/131/156 s). The server was not slow (tick p50 0.45 ms) and nothing in 8.14 touches mines or torpedoes; the variance is the rendezvous/hold geometry on a random map. The smoke now prints its phase trace and per-hit progress on failure, so the next reader can see which phase starved instead of guessing. Widen the budgets or seed the map before trusting a single red run.
+  evidence: runs 1–4 on 2026-09-22 against a scratch server on :2621 (job tmp logs weaponsSmoke*.log); `/metrics` tick p50 0.45 ms during run 3.
+
+## 2026-09-28 — Story 8.15 The Gun Pick and the Class Shifts (cycle 150, 0.18.15)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Eric, standing (amendment 105)
+  summary: THE FLAK GUN'S `ordnance` TARGET KIND IS A SIDE EFFECT, NOT A FEATURE. Eric, verbatim: *"'Anti-ordinance tool' is a SIDE EFFECT, not a FEATURE, and it might GO AWAY. These are tools for KILLING ENEMY SHIPS first and foremost."* The flak burst's mask (`hull | mine | decoy | ordnance`) does take down enemy torpedoes and decoys caught in the blast, but nothing in the design, the copy or a future balance pass may lean on it being there — Eric may cut the `ordnance` half of the mask at any time with no further ceremony.
+  evidence: amendment 105; `server/src/game/world.ts` flak burst mask / `hitTargets(['ordnance'])`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — 8.16/8.20 or a later pass
+  summary: A FISH SHOT DOWN BY FLAK LEAVES A CLIENT-SIDE GHOST. A torpedo removed by a flak burst (`shells.delete` + `forgetBallistic` + `orphanTorpWake`) gets no boom and no `hc`, so the observing client — which was dead-reckoning that torpedo from its last reveal — keeps drawing it until its own prediction culls it off naturally. This is AR44's presentation gap, carried forward rather than fixed: it needs either a removal signal or a client-side "this torpedo is gone" hint, and both are out of 8.15's scope (amendment 105's "side effect, may go away" makes investing in the presentation now a bad bet).
+  evidence: AR44; amendment 105; `server/src/game/world.ts` ordnance-collector removal path (no `hc`/boom on a struck fish).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Eric's eye on staging (amendment 110)
+  summary: FOUR IMPLEMENTER DRAFTS AWAIT ERIC'S SIGN-OFF. The four new HUD glyphs (machine gun, flak gun, INSTANT RELOAD, DAMAGE CUT), the class-select card's chip layout (the new `SPECIAL` row + the `DECK GUN` three-chip row), the held-fire drain bar (amber outline + magazine level draining along the slot floor while the stream fires), the tracer look driven by shell family `w` (mg/flak/cannon), and the two new ladder lines' hover stat descriptions are all drawn/written in the existing style but are drafts, not ratified — flag them for review once staging is up.
+  evidence: amendment 110.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Story 8.20
+  summary: THE RL FEATURE VECTOR SHRANK — SAVED MODELS ARE NOW INVALID. `server/scripts/rl/features.ts`'s `CARD_IDS` is derived from `Object.keys(CATALOG)`, so the missile/monitor/heat-seeking cut shrinks it along with everything else the catalog loses; `FEATURE_VERSION` was bumped to 2 with a comment recording the break, but any saved model trained against version 1 no longer lines up with the new vector and must be retrained.
+  evidence: `server/scripts/rl/features.ts:18` (`FEATURE_VERSION = 2` comment), `:21` (`CARD_IDS`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Story 8.20
+  status: RESOLVED by Story 8.20, 2026-09-30 — guns random final (amendment 163); `SHIFT_TACTICS` derived from `classShift` and kept (amendments 170, 173(d))
+  summary: REAL BOT GUN-MIX AND SHIFT-TACTIC TABLES ARE DEFERRED. 8.15 seats each bot with one of the three guns drawn uniformly from the room's seeded stream (no per-profile gun preference) and runs the interim Shift tactics amendment 109 spells out (Mine Layer: INSTANT RELOAD when target-in-range and readiest weapon reloading; Battleship: DAMAGE CUT after taking damage within the last second; Torpedo Boat: the shipped boost rule). The harness's bars for gun mix and Shift-tactic effectiveness are 8.20's, per the amendment.
+  evidence: amendment 109; `server/src/game/ai/profiles.ts`, `botDriver.ts`, `types.ts` (interim tactics + `BotDecision.held`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — flag for Eric (orchestrator reading of amendment 98)
+  summary: INSTANT RELOAD RESTARTS A STILL-SHORT POOL'S TIMER AT THE FULL RELOAD, NOT AT ZERO. `World.finishReloads` completes one round on every reloading slot; if that round still leaves the pool short of `maxAmmo` (any pool bigger than one round from full — e.g. a torpedo pool of 2+), the slot's timer restarts at the FULL `reloadMs` rather than being left at 0. The implementer's read of amendment 98 ("finishes one reload only — it does not refill a pool") is that a zero timer on a still-short pool would silently hand out a second free round on the very next tick, which the amendment's wording rules out — but Eric never said which way the timer should land, only that the pool isn't refilled. Worth his explicit call if the behavior reads wrong on staging.
+  evidence: `server/src/game/world.ts:5349` `finishReloads` (`slot.state.reloadMsLeft = slot.state.n < maxAmmo ? equipmentReloadMs(...) : 0`); amendment 98.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — flag for Eric (orchestrator reading)
+  summary: THE ATTACKER'S DAMAGE TALLY READS THE POST-CUT AMOUNT. `applyDamage` halves the blow (DAMAGE CUT) before the shield, then calls `creditDamage(byId, victim.id, net, dealt)` with `net` — the POST-cut, post-shield figure — so a Battleship under DAMAGE CUT deflates every attacker's `damageDealt` (the results-screen tally) exactly as much as it deflates the hp actually lost, even though `damageDealt` is documented elsewhere as "the FULL nominal damage of the blow." Eric may prefer the attacker's tally to read the NOMINAL (pre-cut) amount instead, so the results screen credits what was swung rather than what landed.
+  evidence: `server/src/game/world.ts:4349` (`this.creditDamage(byId, victim.id, net, dealt)`), `:4427-4442` (`creditDamage` comment: "`amount` is the FULL nominal damage of the blow... is what `damageDealt` has always counted"), `:4367` `cutDamage`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — awareness (audio is design, not code)
+  summary: THE MACHINE GUN HAS NO GUN-SPECIFIC FIRING SOUND, AND ITS EMPTY-MAGAZINE CLICK PLAYS A DENIAL TONE THE SERVER NEVER SENT. Every own `mz` (muzzle flash) event, whatever the shooter's mounted gun, plays the same single `gunReport` world tone (`client/src/net/roomBindings.ts` `handleMuzzle`) — there is no distinct machine-gun crack. Separately, a click on an empty machine-gun magazine is predicted client-side as a denial and plays the existing `denied` cue, even though the server sends no denial message for a held-fire weapon at zero ammo (the empty state is only ever visible in the ammo readout). Both are ledgered as awareness for whoever next touches gun audio; nothing here blocks the story.
+  evidence: `client/src/net/roomBindings.ts` `handleMuzzle`/`worldTone('gunReport', ...)`; `client/src/audio/deniedCue.ts` (the shared predicted-denial cue).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: OPEN — Story 9.11 doc-sync
+  summary: SEVERAL PLANNING DOCS NOW CARRY SUPERSEDED 8.15 CLAUSES. `epics.md`'s Story 8.15 AC, the GDD and `catalog-v3.md` still say the machine gun has a bow ±90° arc (voided by amendment 106, "no arc — every gun fires 360°"), still carry the catalog-v3 R20/R21/R26/R27 draft numbers (superseded by amendments 103-105), still use the word "tilt" (superseded by amendment 91's "weighting"), and the 8.15 AC's class-select wording still describes a picker/unlock surface rather than the minimal chip row amendment 107 actually built; the GDD's Shift boost also still lists a 20 s cooldown against the shipped 25 s. None of this is corrected here — Story 9.11 is the doc-sync pass.
+  evidence: amendments 91, 97-108; epics.md Story 8.15 AC; GDD class/arc tables; catalog-v3.md R20/R21/R26/R27.
+
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: RESOLVED 2026-09-29 — Eric: "I can fire any of my deck guns into the lit up area" (amendment 114); the machine gun and flak now take the R2.15 reach extension exactly as the cannon, both sides
+  summary: THE LIT-ZONE REACH EXTENSION (R2.15, a click beyond range whose far point lies in an OWN live star-shell zone) APPLIES TO THE CANNON ONLY. The machine gun and the flak gun clamp to the plain radar rung (660 u) on both server (`machineGun.ts` / `flak.ts` use `burstPointAlong` with `row.rangeU`, no `ownLitZones` read) and client (`aimPreview.ts`), so the three 360°/660 u guns differ in one reach rule amendments 103–106 never mention. Consistent both sides, no desync; a one-line decision either way.
+  evidence: Blind Hunter finding 11 at the 8.15 review gate; `server/src/game/equipment/guns.ts` `gunReachU` vs the two new modules.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-15-the-gun-pick-and-the-class-shifts.md`
+  status: RESOLVED 2026-09-29 — Eric: DAMAGE CUT is PROACTIVE (amendment 115); the interim rule now fires on the engage posture or an inbound enemy torpedo under 150 u on a collision line, and the damage-taken trigger is deleted; 8.19 inherits the two cues; superseded by amendment 115, so the shield note is moot (confirmed at 8.16, cycle 151)
+  summary: THE INTERIM BATTLESHIP BOT OPENS DAMAGE CUT OFF ITS OWN `dmg` EVENT, WHICH CARRIES THE POST-SHIELD AMOUNT. A fully absorbed hit reports `amount 0`, so once SHIELD BLOCK (8.16) lands a shielded Battleship bot will not brace on absorbed hits; `lastDamagedAt` is not observable by bots (no widening was added). 8.19's table should trigger on "was hit" rather than "took damage" if Eric wants the cut under a shield.
+  evidence: Blind Hunter finding 12 at the 8.15 review gate; `server/src/game/ai/equipment.ts` `damageCutTactic` / `noteHurt`.
+
+## 2026-09-29 — Story 8.16 Catalog v3: Shield, Chaff, Decoy (cycle 151)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — Eric's eye on staging (amendment 124(f)); the three HOVER DESCRIPTIONS half is RESOLVED 2026-09-30 by deletion (cycle 158, amendment 185: tooltips print stats, no prose) — the glyphs and the hp readout stay open
+  summary: FIVE IMPLEMENTER DRAFTS AWAIT ERIC'S SIGN-OFF. The three belt glyphs (SHIELD BLOCK, CHAFF, DECOY BUOY) drawn in the existing Pixi line-glyph style, the three hover descriptions, and the owner-only decoy hp readout (the old buoy marker's masthead arc re-used as `hp / CONFIG.decoyBuoy.hp`) were authored by the implementer, not Eric (the amendment 110 precedent).
+  evidence: amendment 124(f); `client/src/render/equipmentIcons.ts` (`shieldBlock`/`chaff`/`decoyBuoy` glyphs), `client/src/ui/boonCopy.ts` (hover copy), `client/src/render/decoys.ts` (own hp arc).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — a later cleanup
+  summary: `ShellState.noAggro` IS A DEAD FIELD. Its only setter was the deleted radar buoy's gun; nothing sets it now, but `world.ts` still threads `shell.noAggro === true` into `hitShip` on the contact and burst paths. Harmless (always false); delete the field and both reads in a cleanup pass.
+  evidence: `shared/src/sim/shell.ts:133`; `server/src/game/world.ts` contact/burst `hitShip` calls (the burst site's comment records the deletion).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — record correction, no code change
+  summary: THE PERCEPTION FUZZ RUNS 20 SEEDED WORLDS, NOT 2000. The 8.16 spec's acceptance criterion said "2000 seeded perception fuzz worlds" — 8.15's wording carried forward; the shipped fuzz is 20 worlds (unchanged by this story), now seeding chaff sources and decoys, with non-vacuity counters proving the chaff and decoy-paint arms ran. The spec AC is corrected to the shipped size.
+  evidence: `server/src/__tests__/perception.test.ts` (`for (let world = 0; world < 20; world++)`, `CHAFF_EXPECTED` / `DECOY_PAINT_EXPECTED`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — awareness for Story 8.20
+  status: RESOLVED by Story 8.20, 2026-09-30 — kept as self-only reads; the registries read them and no wire field exists (amendment 173(d))
+  summary: `BotSelf.shield?` / `BotSelf.chaff?` ARE BOT SELF-READS, NOT WIRE FIELDS. The interim tactics read the bot's own shield and chaff off its `BotSelf` view so a live copy is not re-fired; neither is on any client frame (`OwnShip.shield` is the wire field; chaff has none). 8.20's table should keep them self-only.
+  evidence: `server/src/game/ai/types.ts:131`, `:138`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — Story 8.20
+  status: RESOLVED by Story 8.20, 2026-09-30 — DECOY BUOY is now a favorite consumable of forager and trapper (amendment 165)
+  summary: DECOY BUOY SCORES AT THE PLAIN CONSUMABLE BASE IN THE BOT CARD POLICY. The radar buoy's profile weights died with it and no decoy weight replaced them, so a bot values a DECOY BUOY card exactly like any other belt line; the three consumable tactics are interim (SHIELD BLOCK on the DAMAGE CUT cues, CHAFF on disengage, DECOY BUOY astern when a torpedo is inbound — amendment 124(g)).
+  evidence: `server/src/game/ai/spending.ts` (consumable kind base); `server/src/game/ai/equipment.ts` `CONSUMABLE_TACTICS`; amendment 124(g).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: PARTLY RESOLVED 2026-09-29 (Story 8.18) — SMOKE SCREEN built; DEPTH CHARGE stays the one stub for Eric; bot tables still 8.20
+  summary: THE LAST TWO CATALOG STUBS AND THE BOT TABLES. SMOKE SCREEN is Story 8.18 (smoke screen as a sight occluder) and DEPTH CHARGE stays a stub for Eric; the real bot consumable/Shift tables are Story 8.20.
+  evidence: `shared/src/sim/catalog.ts` (2 stubs); `sprint-status.yaml` 8-17 / 8-19 rows.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — awareness (the ledgered piloting flake at `:2473`, re-confirmed at cycle 151)
+  summary: `weaponsSmoke.mjs` FAILED FOUR TIMES IN A ROW ON THE 8.16 BRANCH AT HIT-DEPENDENT PHASES (mine ambush ×3 — once with "B saw 0 distinct A-mines" in the phase before it, so the sailing hull had no mine to steer onto; torpedo kill ×1) and the SAME smoke run against the untouched `development` baseline (`cc86ac9`, a second headless server on a scratch port) also timed out inside its 560 s budget. A read-only trace of every path phase 4 depends on (mine trip, blast damage, `STEP_ORDER`, the `hp` in the own frame, respawn/redeploy resets, the `hitTargets` per-tick memo) found NO 8.16 change reaching any of them; the mine signal is byte-identical apart from the `buoy`→`decoy` pseudo-row rename; `goldenFrames` re-pinned with only `you.offer` moving. Reading of record: the random-map rendezvous/detect geometry the `:2473` entry describes, not a regression. `queueSmoke` and `openingSmoke` passed first time. Widen the budgets or seed the map before trusting a single red run of this smoke.
+  evidence: `$CLAUDE_JOB_DIR/tmp/weaponsSmoke{,2,3,4,-base}.log` for the cycle; `deferred-work.md:2473` (8.14: three reds in a row at three different phases, green on the fourth); the phase-4 trace report in the cycle's run.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — structural, low (review gate, Codex PLAUSIBLE)
+  summary: TARGET ID NAMESPACES ARE NOT ENFORCED — a decoy is `d${seq}`, a mine `m${seq}`, a shell `s${seq}`, a hull a 9-char Colyseus session id / `bot-N` / `fleet-N`; `resolveShell` re-derives the struck target's KIND by bare id lookup in the burst set (hulls before decoys), so a hull whose id happened to equal a decoy's would take the decoy's hit. Unreachable in production (a session id is never two characters; bot/fleet ids carry a prefix) and the mines have carried the identical caveat since Story 8.4 (`world.ts` "ids live in different namespaces but nothing enforces that"). A robust fix is to carry `TargetKind` in the collision outcome instead of re-looking it up.
+  evidence: `server/src/game/world.ts` `resolveShell` → `targetKindOf(hulls, outcome.victimId)`; `spawnDecoy` `d${this.decoySeq}`; the pre-existing namespace comment beside `targetKindOf`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
+  status: OPEN — cosmetic (review gate, Edge Case Hunter; the mines precedent)
+  summary: THE `placeDecoy` TONE REPLAYS ONCE PER LIVE OWN DECOY ON A REFRESH-REJOIN — `Decoys`' own-spawn hook fires for every own decoy a fresh renderer receives in its first frame, exactly as `onOwnMineSpawn` does for mines; decoys have no lifetime so the set can be up to five. Suppress the hook on the first sync after construction if it grates.
+  evidence: `client/src/render/decoys.ts` `onOwnDecoySpawn`; the mines precedent in `client/src/render/mines.ts`.
+
+## 2026-09-29 — Story 8.17 Catalog v3: Star Shells, Broadside, Phosphor, Flash (cycle 152)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
+  status: OPEN — for Eric's eye on staging; the BOTH HOVER DESCRIPTIONS half is RESOLVED 2026-09-30 by deletion (cycle 158, amendment 185) — the two glyphs stay open
+  summary: THE PHOSPHOR SHELLS SLOT GLYPH, THE FLASH SHELLS BELT GLYPH AND BOTH HOVER DESCRIPTIONS ARE IMPLEMENTER DRAFTS (the amendment 110 precedent). Nothing about them was ruled; they are in the existing icon and copy style and Eric may redraw or reword either.
+  evidence: `client/src/render/equipmentIcons.ts`; `client/src/render/equipmentInfo.ts`; `client/src/ui/boonCopy.ts`; epic-8 amendment 110.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
+  status: OPEN — structural, Eric's call
+  summary: NO ADD-ON LINE REMAINS IN THE CATALOG. The `addon` kind, the `addon()` helper and the doctrine-effect machinery are now unused and were kept in place (amendment 134); deleting them or keeping them for a future add-on is Eric's call.
+  evidence: `shared/src/sim/catalog.ts` (`addon()`, the `addon` kind); `shared/src/sim/effects.ts` (`EQUIPMENT_DOCTRINES`); epic-8 amendment 134.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
+  status: OPEN — recorded reading, Eric may veto (amendment 135(b))
+  summary: A PHOSPHOR BURST OVER FOG EMITS `hc` FOR ANY HULL INSIDE ITS 100 u+ ZONE — accepted as the flak precedent (a 50 u blast already does this) and recorded rather than asked. If Eric wants a phosphor hit to stay silent over fog, the burst needs a different hit-call rule.
+  evidence: epic-8 amendment 135(b); `server/src/game/world.ts` `resolveBurst`; `server/src/game/equipment/phosphorShells.ts`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
+  status: OPEN — Story 8.20
+  status: RESOLVED by Story 8.20, 2026-09-30 — the interim rows are the rows; phosphor is a favorite weapon of siege, flash shells a favorite consumable of duelist and siege (amendments 165, 166, 170)
+  summary: THE BOTS' PHOSPHOR SHELLS AND FLASH SHELLS ROWS ARE INTERIM. PHOSPHOR SHELLS fires at the nearest live contact inside sight; the FLASH SHELLS belt tactic primes and fires at the nearest live contact in sight while engaged; the verb-keyed offensive-flare branch and `phosphorStaleCapMs` were deleted. 8.20 owns the real table.
+  evidence: `server/src/game/ai/equipment.ts`; `server/src/game/ai/consumables.ts`; epic-8 amendment 135(h).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-17-catalog-v3-star-shells-broadside-phosphor-flash.md`
+  status: OPEN — awareness (renumber)
+  summary: THE 8.16 POINTER ENTRY "SMOKE SCREEN IS STORY 8.17" NOW READS 8.18. Eric inserted this story as the new 8.17 (amendment 129), so old 8.17-8.21 are 8.18-8.22; the OPEN forward pointers in this ledger were renumbered by meaning (smoke 8.18, wake 8.19, bots 8.20, results 8.21, How-to-Play 8.22), and dated or resolved entries were left as written.
+  evidence: `epics.md` Stories 8.17-8.22; `sprint-status.yaml` 8-17 to 8-22 rows; epic-8 amendment 129.
+
+## 2026-09-29 — Story 8.18 Smoke Screen as a Sight Occluder (cycle 153)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — for Eric's eye on staging
+  summary: THE SMOKE SCREEN CLIENT VISUALS AND COPY ARE IMPLEMENTER DRAFTS. The disc render (wounded-smoke grey, fill alpha 0.35, 1 u rim alpha 0.6, easing out over the last 5 s), the belt glyph (three growing puffs trailing over a short waterline), the hover text "Lays a trail of smoke astern for 5 s; each puff hides everything behind it from eyes for 30 s — radar sees through." and the card rows `TRAIL 5 S` / `PUFF 30 S` / `RADIUS 40 → 60 U` await Eric's sign-off.
+  evidence: epic-8 amendment 146(g); `client/src/render/` smoke disc renderer; the draft belt glyph and card rows.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — Story 8.20
+  status: RESOLVED by Story 8.20, 2026-09-30 — smoke is pressed only while none of the bot's own is running (amendments 169, 170)
+  summary: THE BOTS' SMOKE SCREEN ROW IS INTERIM. A bot in its `disengage` posture presses SMOKE SCREEN once (not while already laying); Story 8.20 owns the real bot table.
+  evidence: epic-8 amendment 145; `server/src/game/ai/consumables.ts`; `BotTickEntry.smokeUntil`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — Story 9.11 reconciliation list
+  summary: UPSTREAM DOCS STILL SAY WHAT THIS CYCLE SUPERSEDED. `game-architecture.md` D24 / Novel Pattern 12 and `epics.md` AR43 / the Story 8.18 AC still say "a lit zone ignores smoke" and "six call sites" — superseded by amendments 142 and 146(a). Catalog-v3 R38's self-hiding `[DRAFT]` is confirmed by construction. Amendment 51 / catalog-v3 R13 / FR47 "pools add" is superseded by amendment 141. D24 / Novel Pattern 12 / AR43 / the 8.18 AC's "blinds an observer inside it" and "centre … island-only LOS" clauses are superseded by amendments 148–149; amendment 179's "sight wins inside its radius" is refined by 147.
+  evidence: epic-8 amendments 141, 142, 146(a), 147–149; `catalog-v3.md` R13 / R38 stamps.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — awareness
+  summary: `server/scripts/matchSmoke.mjs` CARRIES ITS OWN CLIENT-SIDE `losClear` COPY for a bot script's torpedo-lane check. It is not a server predicate and was left alone, so that script's pilot does not know about smoke.
+  evidence: `server/scripts/matchSmoke.mjs`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — recorded reading
+  summary: THE CLIENT'S SYNTHESIZED WAKE MIRROR APPLIES THE SMOKE TERM TO SHIP WATER AS WELL AS TORPEDO WATER INSIDE THE BUBBLE (one shared gate). This changes nothing visible, because a smoked hull is not held by the client at all. For an observer inside a puff the mirror applies no puff term (amendment 149: they see into smoke, clamped at 1/8 intel range).
+  evidence: epic-8 amendment 143; the client wake-stamp mirror (`setWakeSources`).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — for Eric's eye on staging
+  summary: THE IN-BUBBLE RADAR PAINT OF A SMOKE-HIDDEN HULL RENDERS AT THE EXISTING 20 % IN-BUBBLE DIM (amendment 181). Eric wants to see it before deciding whether the intensity changes.
+  evidence: epic-8 amendment 147; `blipGate` in-bubble arm.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — recorded readings Eric may veto
+  summary: TWO READINGS UNDER AMENDMENT 149: a foghorn beyond 82.5 u is muffled one step (not silenced) for an in-smoke listener; the smoke-hidden in-bubble blip carries no ship-wake tell.
+  evidence: epic-8 amendment 149.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-18-smoke-screen-as-a-sight-occluder.md`
+  status: OPEN — dials for staging
+  summary: `CONFIG.smokeScreen.inSmokeSightFraction` is 0.125 (Eric: 1/8) and the puff render alphas (fill 0.35, rim 0.6) are dials to tune on staging.
+  evidence: epic-8 amendments 147, 149, 150(b); `shared/src/constants.ts`.
+
+## 2026-09-30 — Story 8.19 Wake Drafting (cycle 154)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: RESOLVED 2026-09-30 (Story 8.19, cycle 154) — the D23 disclosure landed as declared
+  summary: THE `OwnShip.draft` DISCLOSURE SHIPPED AS ACCEPTED. `you.draft` is self-private own-ship state (present only when positive, like `slowedUntil`), carries no position, and is declared in the `perception.test.ts` header note and its self-private clause. It is not a perception exception (still SIX). Points at the original entry ("Deck amendment, D23", OPEN — accepted disclosure, ledgered), which is left as written.
+  evidence: epic-8 amendment 158(e); `server/src/game/perception.test.ts` header note + self-private clause; the D23 entry above.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — Story 9.11 reconciliation list
+  summary: UPSTREAM DOCS STILL SAY WHAT THIS CYCLE SUPERSEDED. FR50 / AR42 / D23 / the Story 8.19 AC still say `cfg.halfWidthU` and the position-only `draftLift(ribbons, x, y, now, cfg)`, and D23 says `setDraft` sits "beside `setBoostStats`" — superseded by amendments 152, 154 and 158(f).
+  evidence: epic-8 amendments 152, 154, 158(f); `shared/src/sim/` `draftLift`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — harness, on Eric's ask only
+  summary: THE 5 % LIFT AND `halfWidthBeams` ARE DIALS AWAITING A `/balance-sim` LOOK AT `draft%`. The harness reports `draft%` beside `land%`; no batch sim was run in this cycle.
+  evidence: epic-8 amendments 151, 152, 158(k); `CONFIG.wake.draft`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — not measured
+  summary: THE CLIENT WAKE-STAMP REBUILD FLOOR SHORTENED ABOUT 5 % (the wake-ring headroom folds the lift) and was not measured. Prediction shimmer at lane entry and exit is bounded by the lift and smoothed, but is to be eyeballed on staging.
+  evidence: epic-8 amendment 158(f), 158(h).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — for Eric's eye on staging
+  summary: WHETHER 5 % IS FELT AT ALL IN A TAIL CHASE is Eric's eye to judge on staging; the lift is a dial if it reads as nothing.
+  evidence: epic-8 amendment 151.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — 8.20 tuning note
+  summary: THE HARNESS `draft%` COLUMN COUNTS LANE OCCUPANCY, NOT BENEFIT: a stopped, reversing or nose-to-tail-holding hull with `draft > 0` counts as a drafting tick, so the column overstates "rode a wake to close a gap". Fine as a first signal; refine (e.g. count only ticks above the rated cap) if 8.20 tuning leans on it.
+  evidence: review gate 2026-09-30 (Blind Hunter 9, Edge Case Hunter 4); epic-8 amendment 161(e); `server/scripts/batchsim/botMetrics.ts` `draftTicks`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-19-wake-drafting.md`
+  status: OPEN — accepted disclosure, recorded honestly (Eric 2026-09-30)
+  summary: `OwnShip.draft` DISCLOSES MORE THAN "A WAKE IS UNDER YOU": the exact scalar is lift × age × heading alignment, so a modified client can steer back and forth for a few ticks and recover a hidden wake's direction and rough age — a rough bearing toward a hidden hull within one wake length (~250 u). Accepted by Eric (prediction needs the exact double; honest clients show nothing; still six exceptions). Supersedes the wording of the D23 entry above.
+  evidence: epic-8 amendment 160; `shared/src/types.ts` `OwnShip.draft` doc; `server/src/__tests__/perception.test.ts` header note.
+
+### Story 8.20 review-gate defers / resolutions (2026-09-30, cycle 155)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-20-bots-draw-from-the-pool.md`
+  status: RESOLVED by Story 8.20, 2026-09-30 — eleven open bot entries above (the `boonWeights` v2 vocabulary, broadside weights, `APPETITE_FAMILY`, `BOT_GUNS` / `SHIFT_TACTICS`, the harness `--deck-only` bars, the real gun-mix and shift tables, `BotSelf.shield?` / `chaff?`, the decoy buoy base score, the phosphor / flash rows, the smoke row, the 50-card one-copy rate) each carry their own RESOLVED line.
+  summary: THE STORY 8.20 CLOSE-OUT OF THE BOT LEDGER. Bots choose cards with the points scorer, guns stay random, the tactic tables are total registries, the harness prints POOL READOUTS (measurements, no bars). Still open and NOT touched: the Battleship -26 % entry, trapper weak, the `encounterSpan` killing-blow bias, the light-torpedo lead guard, RL hull-repair, the RL feature vector.
+  evidence: epic-8 amendments 162-173; `batch-sim-evidence-2026-09-30.md`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-20-bots-draw-from-the-pool.md`
+  status: OPEN — minor
+  summary: `slotAppetite` RETURNS NaN FOR AN ID NEITHER REGISTRY KNOWS. The appetite sort then falls back to slot order; the runtime fail-closed skip in `tacticFor` already prevents a throw, so nothing misbehaves. Only reachable from a hand-built or future-drifted slot id.
+  evidence: review gate 2026-09-30 (Edge Case Hunter 2); `server/src/game/ai/tacticRegistry.ts`; epic-8 amendment 173(d).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-20-bots-draw-from-the-pool.md`
+  status: OPEN — measurement note
+  summary: A KILLER THAT IS ITSELF SINKING STILL GAINS LEVELS, AND THE POOL COLLECTOR NOW RECORDS THEM (it samples sinking and sunk records after the review-gate death-tick fix). The weaponless-at-level and levels-wasted readouts therefore include a last-gasp level earned by a hull already going down.
+  evidence: review gate 2026-09-30 (Codex, death-tick omission); `server/scripts/batchsim/poolReadouts.ts`; epic-8 amendment 173(f).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-20-bots-draw-from-the-pool.md`
+  status: OPEN — readout caveat, restated in the evidence
+  summary: THE HEAL-TAKE DENOMINATOR COUNTS HANDS WHERE HULL REPAIR WAS UNTAKEABLE (at cap, or the belt full), so late-match heal-take rates under-read the bots' willingness to take it. Read the rate as a floor, not a bar.
+  evidence: review gate 2026-09-30 (Blind Hunter F3/F7); epic-8 amendment 173(e); `batch-sim-evidence-2026-09-30.md`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-20-bots-draw-from-the-pool.md`
+  status: OPEN — readout caveat, restated in the evidence
+  summary: A LEVEL EARNED WITHIN ONE DELIBERATION OF DEATH READS AS WASTED. The bot dies before its next spend decision, so the levels-wasted readout counts it although no policy could have used it.
+  evidence: review gate 2026-09-30 (Blind Hunter F3/F7); epic-8 amendment 173(e).
+
+
+## 2026-09-30 — cycle 156 (smoke size + regen delay), review-gate deferrals
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-smoke-size-and-regen-delay.md`
+  summary: THE PUFF'S RIM STROKE IS HALF A PIXEL AT BIRTH — `client/src/render/smokeScreen.ts` draws the rim as a 1 px stroke at `PUFF_DRAW_RADIUS = r1` and scales the container by `r/r1`, so the birth scale is now 0.5 (was 0.667) and the "crisp occlusion edge" the cycle-153 gate wanted (amendment 150(b)) is an anti-aliased half-pixel line for the first seconds; Pixi 8 `stroke({ pixelLine: true })` would hold it at 1 px. Client draft for Eric's eye on staging.
+  evidence: Blind Hunter finding 3 (PLAUSIBLE); pre-existing scale-the-container design made worse by the 82.5/165 radii.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-smoke-size-and-regen-delay.md`
+  summary: EXPERIENCE.md:236 (and epics.md FR55/AR43/UX-DR56, game-architecture.md:962, review-accessibility.md, review-hud-legibility.md) still state the SMOKE SCREEN puff as r40 → 60 u; by the standing rule those are Story 9.11's reconciliation (amendment 89(k)), but a player-facing design number is now wrong in the design source of truth — 9.11's list must carry amendment 174.
+  evidence: Blind Hunter finding 9; spec Never clause ("edit epics.md / game-architecture.md / UX docs — Story 9.11 reconciles").
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-smoke-size-and-regen-delay.md`
+  summary: THE POOL-ERA BATCH-SIM BASELINE PREDATES THIS CYCLE — `batch-sim-evidence-2026-09-30.md` (99 matches, Story 8.20) was taken at r40/60 puffs and a 30 s regen wait; `regen.` is on the `--tune` surface so a re-run is one flag away. Not launched (standing rule: never unprompted); the next approved balance run supersedes it.
+  evidence: Blind Hunter finding 12 (PLAUSIBLE); amendment 171 set that run as the first pool-era baseline.
+
+## 2026-09-30 — Story 8.21 (cycle 157; results LOADOUT + the match record)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-21-results-loadout-and-the-match-record.md`
+  status: OPEN — Epic 9 (Story 9.1/9.7)
+  summary: AR33's `AccountWriter` queue (in-process FIFO, retry once, `flush()` on shutdown) is NOT built — the `NullWriter` cannot fail; the real writer brings them, and the server has NO graceful-shutdown hook today (`flush()` has no caller).
+  evidence: `server/src/game/accountWriter.ts`, `app.config.ts` comment.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-21-results-loadout-and-the-match-record.md`
+  status: OPEN — Epic 9
+  summary: `account.write.failed` logs the writer's error text verbatim (`describeError(err).error`); an ORM/HTTP error that embeds the payload could put a captain's name on stdout — the real writer must scrub before the PII rule (NFR24) is breached.
+  evidence: review gate, Blind Hunter finding 8.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-21-results-loadout-and-the-match-record.md`
+  status: OPEN — Epic 9 (match history, 9.x)
+  summary: a player's own history reads `ParticipantRecord.hands` for THEIR OWN id only; enemy hands never leave the server; the "pool preview of locked consumables" question (old 8.11 entry (b)) is restated here for 9.6.
+  evidence: FR60; amendment 178.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-21-results-loadout-and-the-match-record.md`
+  status: OPEN — Eric's eye on staging
+  summary: the HULL REPAIR plus glyph (ratified mock art, implementer-mapped to the unit frame) now shows on the LIVE bar's belt square as well as in results; and the LOADOUT block's square skins / numeral placement are drafts to the mock.
+  evidence: amendment 183(b)(c).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-21-results-loadout-and-the-match-record.md`
+  status: OPEN — note
+  summary: `ShipRecord.cards`'s doc comment in `world.ts` still says cards do not survive `redeployShip`, untrue since 8.10 (found, not fixed — comment only).
+  evidence: `server/src/game/world.ts` `cards` doc.
+
+## 2026-10-01 — Story 8.22 How-to-Play and Copy Re-cut (cycle 161) — open threads
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-22-how-to-play-and-copy-re-cut.md`
+  status: OPEN — Eric's copy pass
+  summary: THE WHOLE HOW-TO-PLAY PAGE IS DRAFT FOR ERIC'S PEN (7.3 precedent, epic-6 amendment 41). Nine sections (the five play sections re-cut, plus THE GUNS · WEAPONS · CONSUMABLES · SHIP UPGRADES, amendment 206) were drafted from code facts in his voice as best the implementer could hear it; he said "Write it like a human. Like *I* wrote it." Every sentence is his to strike or rewrite; the tests pin facts and scope, never exact sentences beyond the win condition and the regen rule.
+  evidence: `client/src/how-to-play/copy.ts`; amendments 206–207.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-22-how-to-play-and-copy-re-cut.md`
+  status: OPEN — note for a later copy or Settings pass
+  summary: FLAK'S ANTI-ORDNANCE SIDE EFFECT IS DELIBERATELY NOT TAUGHT. The page describes FLAK as a wide, lighter burst only; the torpedo-interception half is amendment 105's "side effect that may go away", which no copy may lean on. If Eric ever ratifies it as a feature, the FLAK paragraph gains a sentence.
+  evidence: `CONFIG.flak` comment; amendment 105; `copy.ts` THE GUNS.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-22-how-to-play-and-copy-re-cut.md`
+  status: OPEN — comments only
+  summary: HUNDREDS OF CODE COMMENTS STILL SAY "Torpedo Boat" / "Mine Layer" / "Battleship" (and the test-profile ids `randomTorpedoBoat` / `randomMineLayer` / `randomBattleship`). Amendment 204 keeps the ids and leaves the comments as history; a reader of the code meets both vocabularies. `classNames.ts` is the one place the mapping is written down.
+  evidence: `grep -rn "Torpedo Boat\|Mine Layer\|Battleship" shared/src server/src client/src`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-22-how-to-play-and-copy-re-cut.md`
+  status: OPEN — Eric, another session ("I will make sure everything has an icon in another session", 2026-10-01)
+  summary: THE FIVE SHIP LADDERS HAVE NO GLYPH. ARMOR / SPEED / TURNING / RADAR SWEEP / RELOAD have no entry in `render/equipmentIcons.ts`; the refit card draws an empty box for them and How-to-Play renders their names alone. Eric will author the icons himself; no agent draws one.
+  evidence: `client/src/render/equipmentIcons.ts` glyph registry; `how-to-play/main.ts` `entryGlyphId`.
+
+## 2026-10-01 — cycle 162 (interstitial legibility cleanup) — open threads
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
+  status: OPEN — Eric's eye on staging
+  summary: THE CYCLE'S LOOK-AND-FEEL NUMBERS ARE IMPLEMENTER DRAFTS. The three ghost greys (`ghostFaint` 0x4a4a4a / `ghostFuzzy` 0x8c8c8c / `ghostSolid` 0xd0d0d0); `mineRings` width 2, blastAlpha 0.6, triggerAlpha 0.65; `chaffRing` alpha 0.85, width 2.5; and the whole fire look (2 tongues per tier-2 pulse, 600 ms, r6 → 14 u, rise 14 u/s, 6 Hz flicker at 0.25, peak alpha 0.9). The glyph drawings are NOT drafts — Eric approved the sheet.
+  evidence: `client/src/config.ts` (`COLORS.ghost*`, `mineRings`, `chaffRing`, `fire`); epic-8 amendments 216, 217, 219, 222(a).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
+  status: RESOLVED 2026-10-01 at the cycle-162 review gate — Eric: "Radar returns should never be below the smoke screen." The ghosts and the chaff ring moved to a new `chaff` chart layer above `smoke` (epic-8 amendment 224(b)); the annulus-free gate stands, now bounded by the owner's radar range (224(e)).
+  summary: THE CHAFF OWNER'S GHOSTS DREW UNDER SMOKE-SCREEN DISCS (first build). They sit on the `litZone` chart layer beside the chaff ring (the `blip` layer's in-bubble dim mask would have drawn them at 20 % of half alpha), so a smoke-screen disc over the cloud covers them. The ghost gate also omits the sight annulus (orchestrator ruling, flagged for Eric's veto).
+  evidence: `client/src/render/chaffGhosts.ts` header; epic-8 amendments 217, 222(b)(c).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
+  status: OPEN — note only
+  summary: THE DECOY HP ARC SHARES `mineRings.width`, so it thickened 1 → 2 with the louder mine rings. It still reads as a clock face at the topmark, not a mine ring; split the knob if Eric wants the arc back at 1.
+  evidence: `client/src/render/decoys.ts`; `CLIENT_CONFIG.mineRings` comment; epic-8 amendment 216.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
+  status: OPEN — note only
+  summary: THE REFIT MODAL IS NOT WHEEL-GATED. `wheelScrollsSurface` answers results ∨ settings; the refit modal is not scrollable, so the wheel still zooms under it. If the refit modal ever scrolls, it joins the set.
+  evidence: `client/src/ui/settings.ts` `wheelScrollsSurface`; `main.ts` `bindWheelZoom`; epic-8 amendment 220.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
+  status: RESOLVED 2026-10-01 — cycle 162
+  summary: THE ICON GAP IS CLOSED. Every card line but the stub DEPTH CHARGE draws its own glyph (Eric: "All cards need their own unique icon"; he approved the sheet before it was built). This resolves the 8.7 "ICON GAP", the 8.12 "the icon gap stays with UX-DR50", the 8.13 "THE ICON PASS STAYS OWED" and the 8.22 "THE FIVE SHIP LADDERS HAVE NO GLYPH" entries above.
+  evidence: `client/src/render/equipmentIcons.ts` (`LINE_GLYPHS`, `glyphPaths`); `client/src/__tests__/lineGlyphs.test.ts`; epic-8 amendment 213.
+
+## 2026-10-01 — balance-sim campaign (gun tiers, class share, attrition) — open threads
+
+- source_spec: `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-10-01.md`
+  status: OPEN — WORK ITEM (Eric ruling 2026-10-01, in chat during the balance-sim run): "Bodyblocking is not supposed to reduce damage output. That feature should have been removed."
+  summary: A HULL THAT BODYBLOCKS A CANNON OR FLAK SHELL STILL TAKES THE SMALLER `contactDamage` (cannon 6, flak 4) INSTEAD OF THE SHELL'S FULL DAMAGE. The early-interception rule (`resolveShell` `hitShip` branch: "the interceptor takes the smaller contactDamage") is live for both burst guns at every tier; the ladders never move it, so at tier V a bodyblocked cannon shell deals 6 instead of 20 and a flak shell 4 instead of 20. Eric's ruling: an intercepting hull takes the SAME damage the burst would have dealt it — bodyblocking must never cost the shooter output (the machine gun already does this: `contactDamage: mg.damage`; so do broadside, phosphor and the torpedoes).
+  fix shape (for the implementing agent, not a design decision): (1) delete `CONFIG.gun.contactDamage` and `CONFIG.flak.contactDamage` (`shared/src/constants.ts` ~1009, ~1093) and the `contactDamage` fields of the gun/flak stat rows (`shared/src/sim/stats.ts` ~85, ~185, ~454, ~503; `effects.ts` ~104 `gun` whitelist and ~161 `EQUIPMENT_INT_FIELDS`); (2) in `server/src/game/equipment/guns.ts` ~225 and `flak.ts` ~48 pass `contactDamage: <row>.damage` as the machine gun does; (3) retire the "cannon's bodyblock rule" wording in `flak.ts` header, `world.ts` ~4242/~4892 and `ballistics.ts` ~61-66 (the field itself stays on the projectile — torpedoes, star shells and the flash rely on it); (4) check `client/src` for any reader of the two CONFIG keys before deciding on a `PROTOCOL_VERSION` bump (a CONFIG block bumps it only when the client reads it); (5) tests: `gunnery.test.ts`, `flak.test.ts`, `combat.test.ts`, `decoy.test.ts` (a decoy intercepting a shell takes the full amount under the new rule — confirm with Eric whether decoys follow hulls here), `upgrades.test.ts`, `shieldBlock.test.ts`, `assistSplit.test.ts`; (6) `--tune` refuses `gun.contactDamage`/`flak.contactDamage` once gone — drop them from `server/scripts/batchsim/overrides.ts` if listed; (7) amendment + CHANGELOG line; the How-to-Play copy does not mention bodyblocking, so no copy change unless Eric asks.
+  evidence: `server/src/game/world.ts` `resolveShell` (~4889-4996); `server/src/game/equipment/{guns,flak,machineGun}.ts`; `shared/src/constants.ts` `gun.contactDamage` 6 / `flak.contactDamage` 4; balance-sim chat 2026-10-01 (Eric: "There are no direct hit bonuses… Bodyblocking is not supposed to reduce damage output").
+
+## 2026-10-02 — cycle 166 (deck gun numbers retune) — batchsim catalogMetrics attribution
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-deck-gun-numbers-retune.md`
+  status: open
+  summary: `server/scripts/batchsim/catalogMetrics.ts` CLASSIFIES A HIT BY FIRST MATCH ON ITS DAMAGE AMOUNT against base amounts only, so laddered shells are misfiled: cannon shells at 18 / 21 land under `other:<amount>`, which leaves `multiBarrelTicks`, `maxGunOnlyTick` and `gunClickKills` able to see only the tier-II twin (32), never the 54 / 63 click; a tier-II flak burst (20) files under `starShells` (20); a tier-II/III machine-gun shell (6) files under `gunBodyblock` (6). Harness-only (no sim or wire effect). Fix shape: attribute by shell family (the projectile's source and gun kind), not by amount. Found by both review-gate hunters (Opus 5.5), CONFIRMED; Codex did not raise it.
+  evidence: `server/scripts/batchsim/catalogMetrics.ts` amount-bucket classifier; cycle-166 review gate, epic-8 amendment 234(d). Pre-existing: before cycle 166 the metric was fully dead because gun and broadside both dealt 15; this cycle's comments were made honest about the limit.
+
+## 2026-10-02 — cycle 167 (private lobbies) — open threads
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-private-lobby-join-code.md`
+  status: open
+  summary: A CAPTAIN WHO LEAVES DURING ASYNCHRONOUS ARENA FORMATION (lobby OR Standard queue) KEEPS THEIR SEAT RESERVED, AND A SEALED ARENA BELOW `minHumans` WAITS FOREVER AFTER THE BOARDING GRACE. A 2-captain cohort that loses one before boarding is stranded: `match.ts` `boardingReady` ("a grace expiry below minHumans arms nothing"). Pre-existing boarding semantics shared with Standard, not introduced by the lobby; the lobby's failed-form path disconnects stragglers but cannot reclaim a seat reserved before the leave. Found by Codex at the cycle-167 review gate.
+  evidence: `server/src/game/match.ts` `boardingReady` comment; `server/src/rooms/formArena.ts`; epic-8 amendment 239(i).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-private-lobby-join-code.md`
+  status: open
+  summary: `GET /lobby/resolve` HAS NO RATE LIMIT. Guessing a live code at 26^6 (about 309 million) is hours at hundreds of requests per second, and the route sits outside the staging password gate; the create throttle covers creating, not resolving. Fix shape: a per-IP bucket on the route, like `createThrottle.ts`. Found by Blind Hunter (Opus 5.5) at the cycle-167 review gate.
+  evidence: `server/src/lobbyResolve.ts`; `server/src/app.config.ts` route registration; epic-8 amendment 239(ii).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-private-lobby-join-code.md`
+  status: open — note only
+  summary: A JOINER RACING A LOBBY THAT JUST HIT 20 CAPTAINS GETS COLYSEUS "IS LOCKED" AND READS `MATCH STARTED` INSTEAD OF `LOBBY FULL`, because Colyseus auto-locks a room at `maxClients` between the resolve answer and `joinById`. The resolve route answers `LOBBY FULL` for the common (non-racing) case. Found by the client patch agent at the cycle-167 review gate.
+  evidence: `client/src/net/lobby.ts` join-error mapping (locked -> `MATCH STARTED`, full -> `LOBBY FULL`); `server/src/lobbyResolve.ts`; epic-8 amendment 239(iii).

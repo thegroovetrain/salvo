@@ -27,7 +27,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Texture } from 'pixi.js';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, effectiveSight } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { hullSightSoftness } from '../render/fog.js';
 import { Radar } from '../render/radar.js';
@@ -59,7 +59,9 @@ vi.mock('../render/textures.js', async (importOriginal) => {
 
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
-const DAZZLE = CONFIG.starShells.dazzleSightFactor;
+// A FLASHED observer's bubble: the shared effectiveSight — 1/8 of the intel
+// (radar) range, 82.5 u at base (Story 8.17, amendment 132; was sight × 0.5).
+const DAZZLED = effectiveSight({ sightRange: SIGHT, radarRange: RADAR }, true);
 const FLOOR = CLIENT_CONFIG.blip.heatmap.dim.minScale;
 
 describe('the dim ramp is anchored to TRUESIGHT, on the eighths ladder', () => {
@@ -125,7 +127,7 @@ describe('the dim ramp is anchored to TRUESIGHT, on the eighths ladder', () => {
   });
 
   it('TRACKS A DAZZLED (SHRUNKEN) BUBBLE rather than a fixed radius', () => {
-    const dazzled = SIGHT * DAZZLE;
+    const dazzled = DAZZLED;
     expect(dazzled, 'the fixture really is smaller').toBeLessThan(SIGHT);
     const r = dimRadii(dazzled);
     expect(r.innerU).toBeCloseTo(dazzled, 12);
@@ -175,17 +177,18 @@ describe('the dim mask is re-baked when the observer\'s bubble moves', () => {
 
     radar.setDazzled(true);
     radar.render(own, 200, null, null);
-    expect(baked.calls.at(-1), 'the dazzled bubble').toBeCloseTo(SIGHT * DAZZLE, 12);
+    expect(baked.calls.at(-1), 'the dazzled bubble').toBeCloseTo(DAZZLED, 12);
     expect(baked.calls).toHaveLength(2);
 
     radar.render(own, 300, null, null);
     expect(baked.calls, 'still dazzled: no second bake').toHaveLength(2);
 
-    // An intel boon while the dazzle holds — both terms compose, exactly as
-    // `fogHoleRadiusU` composes them for the fog hole.
-    radar.setRanges(SIGHT * 1.5, RADAR, 6000);
+    // A stat change while the dazzle holds: a dazzled bubble follows the RADAR
+    // range (1/8 of it), exactly as `fogHoleRadiusU` derives the fog hole —
+    // the wider sight buys nothing until the flash wears off.
+    radar.setRanges(SIGHT * 1.5, RADAR * 1.25, 6000);
     radar.render(own, 400, null, null);
-    expect(baked.calls.at(-1)).toBeCloseTo(SIGHT * 1.5 * DAZZLE, 12);
+    expect(baked.calls.at(-1)).toBeCloseTo(RADAR * 1.25 * CONFIG.flashShells.sightFraction, 12);
 
     radar.setDazzled(false);
     radar.render(own, 500, null, null);
@@ -239,7 +242,7 @@ describe('the hull sight-boundary feather (what the fog used to do for free)', (
 
   it('SCALES WITH THE OBSERVER, like the hole it mirrors: a dazzled bubble '
     + 'feathers earlier, an intel boon later', () => {
-    const dazzled = SIGHT * DAZZLE;
+    const dazzled = DAZZLED;
     expect(hullSightSoftness(dazzled, dazzled)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
     // A hull at 60% of the BASE bubble is untouched for a base observer and deep
     // in the feather for a dazzled one.

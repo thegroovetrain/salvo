@@ -11,13 +11,14 @@
 // NEVER import ../main.ts here — it runs the CLI (process.exit) at import time.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type Island } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, type Island } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
 import { BotCollector, hullTouchesLand, lifeSamples, type BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
+import type { GameEvent } from '@salvo/shared';
 import { botProfileFor, runMatch, type BatchResult, type MatchSample } from '../runner.js';
 import { TEST_PROFILE_IDS } from '../../../src/game/ai/profiles.js';
 
@@ -45,8 +46,13 @@ describe('args — the --bots flag', () => {
     expect(() => parseArgs(['--captains', '0'])).toThrow(UsageError);
   });
 
-  it('still allows --captains 0 in deck-only mode (no lobby exists there)', () => {
-    expect(() => parseArgs(['--captains', '0', '--deck-only'])).not.toThrow();
+  // `--deck-only` and `--draws` are DELETED (Story 8.14, amendment 95b): the
+  // deck-economy fast mode modelled a deck, and there is none. They are now
+  // unknown flags, which is the strongest possible pin that they are gone.
+  it('--deck-only and --draws are unknown flags now', () => {
+    expect(() => parseArgs(['--captains', '0', '--deck-only'])).toThrow(UsageError);
+    expect(() => parseArgs(['--bots', '4', '--deck-only'])).toThrow(/unknown argument/);
+    expect(() => parseArgs(['--bots', '4', '--draws', '20000'])).toThrow(/unknown argument/);
   });
 
   it('rejects a negative bot count', () => {
@@ -111,11 +117,12 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     levelsUnspent: 0,
     boonsFitted: 10,
     shots: 20,
-    buoysDeployed: 0,
+    decoysDeployed: 0,
     minesLaid: 0,
     damageDealt: 200,
     ticks: 2000,
     landTicks: 0,
+    draftTicks: 0,
     landEpisodes: 0,
     maxLandRunTicks: 0,
     boons: [],
@@ -123,6 +130,9 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     offersSeen: {},
     offerHands: 0,
     placement: null,
+    gun: 'deckGun',
+    gunTier: 1,
+    killsByTier: [0, 0, 0, 0, 0, 0],
     ...over,
   };
 }
@@ -193,6 +203,43 @@ describe('botReport — the quality bars', () => {
     // 100 / 10000 = 1%, not the 5% a per-bot mean would report.
     expect(agg.landContactRate).toBeCloseTo(0.01, 6);
     expect(barByName(agg, 'land contact').pass).toBe(false); // bar is STRICTLY < 1%
+  });
+
+  it('wake drafting pools TICKS per group and renders a draft% column beside land% (Story 8.19)', () => {
+    const agg = buildBotAggregate(
+      result([[
+        sample({ ticks: 1000, draftTicks: 300 }),
+        sample({ id: 'b2', ticks: 3000, draftTicks: 100 }),
+        sample({ id: 'b3', profile: 'siege', cls: 'battleship', ticks: 500, draftTicks: 0 }),
+      ]]),
+      3,
+    );
+    // 400 / 4000 = 10%, not the 16.7% a per-bot mean would report.
+    expect(agg.byProfile.find((g) => g.key === 'raider')!.draftRate).toBeCloseTo(0.1, 6);
+    expect(agg.byClass.find((g) => g.key === 'torpedoBoat')!.draftRate).toBeCloseTo(0.1, 6);
+    expect(agg.byClass.find((g) => g.key === 'battleship')!.draftRate).toBe(0);
+    const text = renderBotReport('baseline', agg);
+    const heads = text.filter((l) => l.includes('land%'));
+    expect(heads).toHaveLength(2); // BY PROFILE and BY CLASS
+    for (const h of heads) {
+      expect(h).toContain('draft%');
+      expect(h.indexOf('draft%')).toBeGreaterThan(h.indexOf('land%'));
+    }
+    expect(text.join('\n')).toContain('10.0%');
+  });
+
+  it('the collector counts afloat ticks whose ship.draft is positive (Story 8.19)', () => {
+    const world = new World(7, 20);
+    const bot = world.addBot(undefined, undefined);
+    const collector = new BotCollector([bot.id]);
+    bot.draft = 0;
+    collector.observe(world, 1);
+    bot.draft = 0.03;
+    collector.observe(world, 1);
+    collector.observe(world, 1);
+    const [row] = collector.samples(world);
+    expect(row.ticks).toBe(3);
+    expect(row.draftTicks).toBe(2);
   });
 
   it('levels spent is earned-minus-still-banked, pooled', () => {
@@ -300,9 +347,11 @@ describe('runner — the bot lobby', () => {
       expect(m.bots).toHaveLength(4);
       for (const b of m.bots!) {
         expect(b.id).toMatch(/^bot-\d+$/);
-        expect(Object.values(CONFIG.bots.profiles).flat() as string[]).toContain(b.profile);
-        expect(Object.keys(CONFIG.bots.profiles)).toContain(b.cls);
+        expect(CONFIG.bots.profiles as readonly string[]).toContain(b.profile);
+        expect(SHIP_CLASS_IDS as readonly string[]).toContain(b.cls);
         expect(b.ticks).toBeGreaterThan(0);
+        expect(b.draftTicks).toBeGreaterThanOrEqual(0);
+        expect(b.draftTicks).toBeLessThanOrEqual(b.ticks);
       }
     } finally {
       restore();
@@ -321,7 +370,7 @@ describe('runner — the bot lobby', () => {
 
   it('bots are participants: they are NOT humans and never arm a countdown', () => {
     const world = new World(7, 20);
-    const bot = world.addBot();
+    const bot = world.addBot(undefined, undefined);
     expect(bot.role).toBe('bot');
     expect(world.bots.profileOf(bot.id)).not.toBeNull();
   });
@@ -404,7 +453,7 @@ describe('runner — forced test profiles and the engage gate (wave 4)', () => {
       for (const b of m.bots!) {
         // A test id can NEVER be an in-game id (the disjointness pin lives in
         // botPolicy.test.ts); here: the forced row governed the hull.
-        expect(Object.values(CONFIG.bots.profiles).flat() as string[]).not.toContain(b.profile);
+        expect(CONFIG.bots.profiles as readonly string[]).not.toContain(b.profile);
       }
     } finally {
       restore();
@@ -421,5 +470,60 @@ describe('runner — forced test profiles and the engage gate (wave 4)', () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe('botMetrics/botReport — gun and gun tier (balance campaign)', () => {
+  it('gunTier is the mounted gun module tier: 1 bare, +1 per copy of the gun line', () => {
+    const world = new World(31, 20);
+    const bot = world.addBot('torpedoBoat', undefined, 'deckGun');
+    const col = new BotCollector([bot.id]);
+    col.observe(world, 1);
+    expect(col.samples(world)[0]).toMatchObject({ gun: 'deckGun', gunTier: 1 });
+
+    bot.bankedLevels = 1;
+    bot.offer = ['deckGun', 'reload', 'radarSweep', 'speed'] as never;
+    expect(world.spendPoint(bot.id, 0)).toBe(true);
+    col.observe(world, 1);
+    const s = col.samples(world)[0];
+    expect(s.gunTier).toBe(2);
+    expect(s.gunTier).toBe(1 + bot.cards.filter((c) => c === 'deckGun').length);
+  });
+
+  it('killsByTier stamps the killer\'s CURRENT tier; fleet kills stay out', () => {
+    const world = new World(32, 20);
+    const killer = world.addBot('torpedoBoat', undefined, 'flak');
+    const victim = world.addBot('torpedoBoat', undefined);
+    const col = new BotCollector([killer.id, victim.id]);
+    killer.stats = { ...killer.stats, equipment: { ...killer.stats.equipment, flak: { ...killer.stats.equipment.flak, tier: 3 } } };
+    const events: GameEvent[] = [{ k: 'sunk', id: victim.id, by: killer.id } as GameEvent];
+    Object.defineProperty(world, 'tickEvents', { value: events, configurable: true });
+    col.observe(world, 1);
+    const row = col.samples(world).find((r) => r.id === killer.id)!;
+    expect(row.kills).toBe(1);
+    expect(row.killsByTier).toEqual([0, 0, 0, 1, 0, 0]);
+  });
+
+  it('byGun / byGunTier group by gun and gun/Tn; a draw\'s placement 1 is not a win', () => {
+    const agg = buildBotAggregate(
+      {
+        ...result([
+          [
+            sample({ gun: 'flak', gunTier: 3, placement: 1, end: 'alive', kills: 2, killsByTier: [0, 1, 0, 1, 0, 0] }),
+            sample({ id: 'b2', gun: 'deckGun', gunTier: 1, placement: 2 }),
+          ],
+        ]),
+      },
+      2,
+    );
+    const draw = buildBotAggregate(result([[sample({ gun: 'flak', gunTier: 3, placement: 1 })]], { winnerClass: null }), 1);
+    expect(agg.byGunTier.map((g) => g.key)).toEqual(['deckGun/T1', 'flak/T3']);
+    expect(agg.byGun.map((g) => g.key)).toEqual(['deckGun', 'flak']);
+    const flak = agg.byGunTier.find((g) => g.key === 'flak/T3')!;
+    expect(flak).toMatchObject({ n: 1, wins: 1, winRate: 1, meanPlacement: 1 });
+    expect(flak.killsByTierTotal).toEqual([0, 1, 0, 1, 0, 0]);
+    expect(agg.byGun.find((g) => g.key === 'deckGun')!.wins).toBe(0);
+    expect(draw.byGunTier[0].wins).toBe(0);
+    expect(renderBotReport('x', agg).join('\n')).toContain('flak/T3');
   });
 });

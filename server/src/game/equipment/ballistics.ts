@@ -14,7 +14,9 @@
 import {
   hullClearOffset as sharedHullClearOffset,
   muzzleSpawn as sharedMuzzleSpawn,
+  type ShellFamily,
   type ShellState,
+  type TargetKind,
   type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
@@ -62,9 +64,33 @@ export interface BallisticParams {
   targetY: number | null; // u
   burstRadius: number; // u — blast radius around the target point (0 = contact-only)
   contactDamage: number; // hp to an early interceptor outside the blast
+  /** The ordnance TARGET MASK (Story 8.4, AR44), always the firing row's own
+   *  `CONFIG.<ordnance>.hits`. REQUIRED like every other hit-rule field, so a
+   *  new weapon cannot silently borrow the gun's answer or default to hulls. */
+  hits: readonly TargetKind[];
+  /** THE GUN FAMILY (Story 8.15, amendment 89(i)) — `cannon` / `mg` / `flak`
+   *  for a gun-pattern shell, `null` for a torpedo. REQUIRED like `hits`, so
+   *  no constructor can silently borrow the cannon's family: the ballistic
+   *  signal materializes it as the shell reveal's `w`. */
+  family: ShellFamily | null;
+  /** DIRECT-HIT, NO BURST (Story 8.15 — the machine gun): the shell expires
+   *  at its aim point with a splash instead of bursting, and a hull it strikes
+   *  takes a plain contact hit (see ShellState.direct). */
+  direct?: true;
+  /** THE CURSOR POINT (amendment 202): the deck guns' raw click, pre-clamp
+   *  (see ShellState.cursor, guns.ts `rawAimPoint`). Never on the wire. */
+  cursor?: Vec2;
   /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
    *  zone (see ShellState.lit). Only fireStarShell sets it; never on the wire. */
   lit?: { radius: number; durationMs: number };
+  /** Server-internal PHOSPHOR tag (Story 8.17): a burst — or an interception
+   *  stop — also spawns a BURNING ZONE (see ShellState.burn). Only
+   *  firePhosphorShell sets it; never on the wire. */
+  burn?: { radius: number; durationMs: number; dps: number };
+  /** Server-internal FLASH tag (Story 8.17): a burst — or an interception
+   *  stop — dazzles every non-owner hull inside (see ShellState.flash). Only
+   *  the FLASH SHELLS belt row sets it; never on the wire. */
+  flash?: { radius: number; durationMs: number };
   /** ACOUSTIC HOMING doctrine (Story 2.8): the per-tick steering params
    *  (ShellState.homing — turn rate + acquire range). Never on the wire. */
   homing?: { turnRate: number; acquireRange: number };
@@ -100,10 +126,16 @@ export function makeBallistic(
     targetY: p.targetY,
     burstRadius: p.burstRadius,
     contactDamage: p.contactDamage,
+    hits: p.hits,
+    family: p.family,
   };
+  if (p.direct === true) shell.direct = true;
+  if (p.cursor) shell.cursor = { x: p.cursor.x, y: p.cursor.y };
   // The optional doctrine tags are set only when the caller carries one (never
   // an explicit `undefined` key — the shape stays clean for plain projectiles).
   if (p.lit) shell.lit = p.lit;
+  if (p.burn) shell.burn = p.burn;
+  if (p.flash) shell.flash = p.flash;
   if (p.homing) shell.homing = p.homing;
   return shell;
 }

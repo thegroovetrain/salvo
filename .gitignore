@@ -10,3 +10,4 @@ HULLCRACKER_NOTES.md
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .context/
+CLAUDE.local.md

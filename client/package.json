@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@salvo/shared": "*",
-    "@colyseus/sdk": "^0.17.43",
+    "@colyseus/sdk": "^0.18.2",
     "pixi.js": "^8.19.0"
   },
   "devDependencies": {

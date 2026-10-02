@@ -83,12 +83,14 @@
 // tail one — see wantsRearQuarter().
 //
 // ONE WEAPON PER TICK, THROUGH THE EQUIPMENT AXIS (Eric ruling 2026-08-20):
-// chooseShot iterates the bot's ACTUAL FITTED SLOTS through EQUIPMENT_TACTICS
-// (ai/equipment.ts) — never a hull-keyed weapon ladder — so an equipment
-// ACQUIRED into the extra slot works exactly like a native fit. Ordering
+// chooseShot iterates the bot's ACTUAL FITTED SLOTS through `tacticFor` — the
+// EQUIPMENT_TACTICS / CONSUMABLE_TACTICS pair in ai/tacticRegistry.ts — never
+// a hull-keyed weapon ladder — so an equipment
+// ACQUIRED into the WEAPON ROW (Story 8.5) works exactly like a seeded fit —
+// there is no native per-hull fit left for it to differ from. Ordering
 // comes from the ship profile's APPETITE table (gun lowest: the fallback);
-// the placement class (flare / mine / buoy) is resolved ABOVE the
-// target === null guard, because siting a sensor buoy is most valuable when
+// the placement class (flare / mine / decoy) is resolved ABOVE the
+// target === null guard, because siting a sensor was most valuable when
 // nothing is tracked. Every legality gate (arcs, ranges, water, the
 // coastline check on every flat-trajectory round) lives with its weapon in
 // the tactic's solve(), so `fireSlot` is null unless every check passed and
@@ -101,18 +103,21 @@ import {
   nearestCoastPoint,
   wrapAngle,
   type EffectiveStats,
-  type EquipmentId,
   type Island,
   type ShipState,
+  type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
 import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
-import { EQUIPMENT_TACTICS, appetiteFor, type Shot, type TacticContext } from './equipment.js';
+import { slotAppetite, tacticFor } from './tacticRegistry.js';
+import type { Shot, TacticContext } from './tacticKit.js';
+import { noteTorpedoes } from './torpedoThreat.js';
 import {
   choosePosture,
   foldView,
+  plotAt,
   pullBand,
   ringDeadband,
   ringEscaping,
@@ -166,14 +171,16 @@ function clampUnit(v: number): number {
 // hull, so nothing below this line can touch anything else.
 // ---------------------------------------------------------------------------
 
-/** The mind's resolved profile ROW, with the harness's random-spend override
- *  applied (BotMind.spendRandom): a copy whose `spend` alone is flipped, so
- *  temperament is byte-identical and chooseSpend's existing fork does the
- *  rest. The shipped path (spendRandom false) returns the frozen row itself. */
+/** The mind's resolved profile ROW, with the harness's spend overrides
+ *  applied (BotMind.spendRandom / spendGunFirst): a copy whose `spend` alone
+ *  is flipped, so temperament is byte-identical and chooseSpend's existing
+ *  fork does the rest. Gun-first flips only a WEIGHTED row (a test row stays
+ *  random). The shipped path (both false) returns the frozen row itself. */
 export function profileRowOf(mind: BotMind): BotProfile {
   const row = profileOf(mind.profile);
-  if (!mind.spendRandom || row.spend === 'random') return row;
-  return { ...row, spend: 'random' };
+  if (mind.spendRandom === true && row.spend !== 'random') return { ...row, spend: 'random' };
+  if (mind.spendGunFirst === true && row.spend === 'weighted') return { ...row, spend: 'gunFirst' };
+  return row;
 }
 
 /** Everything targeting/posture needs about the bot itself. */
@@ -189,30 +196,38 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     profile: profileRowOf(mind),
     ring: port.zoneLiveRing,
     islands: port.map.islands,
+    waterR: port.map.radius,
   };
 }
 
-/** Everything the boon policy needs about the bot's own economy. */
+/** Everything the card-spend policy needs about the bot's own economy. */
 export function spendStateOf(self: BotSelf): BotSpendState {
   return {
     bankedLevels: self.bankedLevels,
     offer: self.offer,
-    boons: self.boons,
+    cards: self.cards,
+    // The nine slot contents, so the scorer can skip a card `spendCard` would
+    // refuse (Story 8.14 review, F4) — a self-read like every other field here.
+    slotIds: self.loadout.map((s) => s.equipmentId),
     hp: self.hp,
+    // The paid HULL REPAIR still draining in (Story 8.20): the scorer's HURT
+    // read is (hp + repairHp) / maxHp — the heal tactic's own read.
+    repairHp: self.repairHp,
     maxHp: self.stats.maxHp,
   };
 }
 
 // ---------------------------------------------------------------------------
-// WEAPONS — the EQUIPMENT AXIS. Every weapon's want/solve/reach lives with
-// the weapon in ai/equipment.ts (EQUIPMENT_TACTICS); this file only walks the
-// bot's ACTUAL FITTED SLOTS through that registry, in appetite order.
+// WEAPONS — the EQUIPMENT AXIS. Every row's want/solve/reach lives with its
+// item (ai/equipment.ts weapons, ai/shift.ts Shifts, ai/consumables.ts belt),
+// assembled by ai/tacticRegistry.ts; this file only walks the bot's ACTUAL
+// FITTED SLOTS through those registries, in appetite order.
 // ---------------------------------------------------------------------------
 
 /** One fitted slot, ranked by the profile's appetite for what it holds. */
 interface RankedSlot {
   slot: number;
-  id: EquipmentId;
+  id: SlotItemId;
   appetite: number;
 }
 
@@ -221,13 +236,20 @@ interface RankedSlot {
  * descending, slot index as the deterministic tie-break. Capability is read
  * from the LOADOUT, never from the hull — an acquired R-slot weapon ranks
  * exactly like a native fit.
+ *
+ * THE BELT IS ADMITTED since Story 8.8 (epic-8 amendment 49): a stocked
+ * consumable is a fitted slot like any other, ranked by `slotAppetite` (which
+ * spans both id spaces) and resolved by `tacticFor` at each pass. Every belt
+ * line sits at the neutral base today, so a consumable ties with an unlisted
+ * weapon and the slot index breaks it — the belt is always to the right, so
+ * nothing the bot already reached for moves.
  */
 function rankedSlots(self: BotSelf, profile: BotProfile): RankedSlot[] {
   const out: RankedSlot[] = [];
   for (let i = 0; i < self.loadout.length; i += 1) {
     const id = self.loadout[i].equipmentId;
     if (id === null) continue;
-    out.push({ slot: i, id, appetite: appetiteFor(profile, id) });
+    out.push({ slot: i, id, appetite: slotAppetite(profile, id) });
   }
   out.sort((a, b) => b.appetite - a.appetite || a.slot - b.slot);
   return out;
@@ -249,8 +271,8 @@ function firePass(
   base: TacticContext,
 ): Shot | null {
   for (const r of ranked) {
-    const tactic = EQUIPMENT_TACTICS[r.id];
-    if (tactic.kind !== kind) continue;
+    const tactic = tacticFor(r.id);
+    if (tactic === undefined || tactic.kind !== kind) continue; // unknown id: fail closed
     if (!slotReady(base.self, r.slot)) continue;
     const ctx: TacticContext = { ...base, slot: r.slot };
     if (!tactic.want(ctx)) continue;
@@ -261,8 +283,8 @@ function firePass(
 }
 
 /**
- * The one weapon this tick. PLACEMENTS (flare / mine / buoy) are resolved
- * ABOVE the target guard — siting a sensor buoy is most valuable exactly when
+ * The one weapon this tick. PLACEMENTS (flare / mine / decoy) are resolved
+ * ABOVE the target guard — a placement's want() may fire exactly when
  * nothing is tracked, and a withdrawing layer's mine wants no target at all.
  * Shots need a target; the gun's low base appetite keeps it the last resort,
  * so heavy ordnance is always offered the tick first.
@@ -284,9 +306,11 @@ function chooseShot(
 }
 
 /**
- * The ability press, if any: the 'ability' rows of the same registry (the
- * speed boost — spent opening range on the way out). Abilities ride the
- * actSeq channel, so this composes with a shot in the same tick.
+ * The ability press, if any: the 'ability' rows of EITHER registry — the class
+ * Shift (the speed boost on the way out or into a fight, INSTANT RELOAD, DAMAGE
+ * CUT) and the belt's abilities (HULL REPAIR, SHIELD BLOCK, CHAFF, SMOKE
+ * SCREEN). Abilities ride the actSeq channel, so this composes with a shot in
+ * the same tick.
  */
 function chooseAct(
   self: BotSelf,
@@ -297,8 +321,8 @@ function chooseAct(
   posture: BotPosture,
 ): number | null {
   for (const r of rankedSlots(self, sit.profile)) {
-    const tactic = EQUIPMENT_TACTICS[r.id];
-    if (tactic.kind !== 'ability') continue;
+    const tactic = tacticFor(r.id);
+    if (tactic === undefined || tactic.kind !== 'ability') continue; // unknown id: fail closed
     if (!slotReady(self, r.slot)) continue;
     if (tactic.want({ self, mind, sit, port, target, posture, slot: r.slot })) return r.slot;
   }
@@ -309,14 +333,24 @@ function chooseAct(
  * The READY shot-weapon reaches for the band pull: every fitted 'shot' slot
  * with rounds in the pool contributes its tactic's effective reach. Exported
  * for the band-pull tests — the "only while loaded" clause is this list.
+ *
+ * THE BELT IS IN IT (cycle-148 review gate, P3). This used to skip every
+ * consumable slot on the claim that no consumable line was a 'shot' tactic —
+ * true when it was written, and false since Story 8.13 gave the belt the
+ * SUPERCAV TORPEDO (epic-8 amendment 74). A bot holding supercav stock will
+ * genuinely shoot it (`firePass` resolves the belt through `tacticFor`), so a
+ * band pull computed without its reach steered the hull to a range its own
+ * ready weapon did not want. The lookup goes through `tacticFor`, the ONE
+ * resolver that spans both id spaces, so the registries stay the authority on
+ * what is a shot.
  */
 export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[] {
   const out: number[] = [];
   for (let i = 0; i < self.loadout.length; i += 1) {
     const id = self.loadout[i].equipmentId;
     if (id === null || !slotReady(self, i)) continue;
-    const tactic = EQUIPMENT_TACTICS[id];
-    if (tactic.kind === 'shot') out.push(tactic.reachU(stats));
+    const tactic = tacticFor(id);
+    if (tactic !== undefined && tactic.kind === 'shot') out.push(tactic.reachU(stats)); // unknown id: skipped
   }
   return out;
 }
@@ -510,11 +544,15 @@ function wantsRearQuarter(profile: BotProfile, t: BotTrack): boolean {
   return t.cls !== 'mineLayer';
 }
 
-/** The point a bot steers AT: the target itself, or its rear quarter. */
-export function approachPoint(profile: BotProfile, t: BotTrack): Vec2 {
-  if (!wantsRearQuarter(profile, t)) return { x: t.x, y: t.y };
+/** The point a bot steers AT: the target's plot point, or its rear quarter.
+ *  The plot point is the PREDICTED position (utility.ts plotAt — cycle 165
+ *  review, B4: the helm steers at the same point the guns lead from); a
+ *  caller without a situation reads the plot's last-known position. */
+export function approachPoint(profile: BotProfile, t: BotTrack, sit?: Pick<BotSituation, 'now' | 'waterR'>): Vec2 {
+  const p = sit === undefined ? { x: t.x, y: t.y } : plotAt(sit, t);
+  if (!wantsRearQuarter(profile, t)) return p;
   const rear = wrapAngle((t.heading ?? 0) + Math.PI);
-  return { x: t.x + Math.cos(rear) * REAR_QUARTER_U, y: t.y + Math.sin(rear) * REAR_QUARTER_U };
+  return { x: p.x + Math.cos(rear) * REAR_QUARTER_U, y: p.y + Math.sin(rear) * REAR_QUARTER_U };
 }
 
 /** Band-holding geometry: close when outside the band, open when inside its
@@ -527,7 +565,7 @@ export function approachPoint(profile: BotProfile, t: BotTrack): Vec2 {
  *  Battleship eases in with a loaded torpedo and drifts back out the moment
  *  the tube empties, while the profile fractions stay the anchor. */
 function bandBearing(self: BotSelf, sit: BotSituation, t: BotTrack): number {
-  const aim = approachPoint(sit.profile, t);
+  const aim = approachPoint(sit.profile, t, sit);
   const brg = bearing(self.state, aim);
   const d = Math.hypot(aim.x - sit.x, aim.y - sit.y);
   const band = pullBand(engagementBand(sit.profile, sit.stats), readyShotReaches(self, sit.stats));
@@ -553,8 +591,8 @@ function postureBearing(
 ): number {
   const pos = self.state;
   if (target === null || posture === 'reposition') return patrolBearing(self, sit);
-  if (posture === 'disengage') return wrapAngle(bearing(pos, target) + Math.PI);
-  if (posture === 'pursue') return bearing(pos, approachPoint(sit.profile, target));
+  if (posture === 'disengage') return wrapAngle(bearing(pos, plotAt(sit, target)) + Math.PI);
+  if (posture === 'pursue') return bearing(pos, approachPoint(sit.profile, target, sit));
   return bandBearing(self, sit, target);
 }
 
@@ -573,9 +611,12 @@ function postureBearing(
  * is the SPEED BOOST. `chooseAct` spends the boost on `disengage`, precisely
  * the posture that runs at the rim, and the ability raises the hull's cap in
  * the WORLD without touching `EffectiveStats.kinematics`; a `raider` therefore
- * makes 57 u/s against a rated 45 and covers 27% more water than a rated
- * lookahead budgets for. Measured: with the rated figure alone, 15 of 19
- * residual crossings were boosted raiders. `max()` and not the live speed
+ * makes 56.25 u/s against a rated 45 — Story 8.9 pays +25 % of the
+ * ladder-raised cap for 10 s on a 25 s reload, so the gap only WIDENS as SPEED
+ * cards land — and covers ~25% more water than a rated lookahead budgets for.
+ * Measured (under the pre-8.9 flat +10 u/s boost, when the same gap was 57 vs
+ * 45): with the rated figure alone, 15 of 19 residual crossings were boosted
+ * raiders. `max()` and not the live speed
  * outright, because a hull loafing at 10 u/s can still accelerate, and
  * shrinking the horizon to match a momentary throttle would hand the storm
  * back the head start this whole constraint exists to deny.
@@ -591,7 +632,8 @@ function ringLookaheadU(stats: EffectiveStats, speed: number): number {
  * Until now the storm appeared in the bot's steering in exactly one shape: an
  * OVERRIDE, once the hull was already wet. Nothing capped how far a chosen
  * heading could travel, so `disengage`'s pure reciprocal-of-the-bearing flee
- * (`postureBearing`) ran a boosted raider at 55 u/s in a straight line into
+ * (`postureBearing`) ran a boosted raider at 55 u/s (the pre-8.9 flat boost;
+ * 56.25 and rising with SPEED cards since) in a straight line into
  * the storm whenever the enemy happened to lie inward of it. 8 of the 10
  * measured exits taken while the ring was NOT even closing were `disengage`.
  *
@@ -804,8 +846,31 @@ function helmFor(
  * the brain a view it did NOT capture this tick must not re-run the memory
  * prune or re-credit Hit Calls against it.
  */
-function ingest(mind: BotMind, port: BotWorldPort): void {
-  if (mind.view !== null && mind.viewAt === port.now) foldView(mind, mind.view, port.now);
+function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
+  if (mind.view === null || mind.viewAt !== port.now) return;
+  // Cycle 165: the bot's OWN beam — this tick's angle and the one it remembered
+  // from its last fold, as a client compares consecutive frames — and its
+  // situation feed the sweep-miss drop.
+  const beam = { sweepAngle: self.sweepAngle, lastSweep: mind.lastSweep };
+  const site = { ...situationOf(self, mind, port), raster: port.map.heightRaster };
+  foldView(mind, mind.view, port.now, { beam, site });
+  mind.lastSweep = self.sweepAngle;
+  // Story 8.15, amendment 115: the seen-torpedo table (DAMAGE CUT's inbound trigger).
+  noteTorpedoes(mind, self, port.now);
+}
+
+/** The trigger half of a decision. A LEVEL shot (the machine gun, Story 8.15)
+ *  becomes `held: true` with NO fireSlot — so no fireSeq edge and `slot` 0 on
+ *  the wire; every other shot is the ordinary click on its slot. */
+function triggerOf(
+  self: BotSelf,
+  sit: BotSituation,
+  target: BotTrack | null,
+  shot: Shot | null,
+): Pick<BotDecision, 'aim' | 'aimDist' | 'fireSlot' | 'held'> {
+  if (shot === null) return { aim: idleAim(self, sit, target), aimDist: 0, fireSlot: null, held: false };
+  const held = shot.held === true;
+  return { aim: shot.aim, aimDist: shot.aimDist, fireSlot: held ? null : shot.slot, held };
 }
 
 /**
@@ -831,8 +896,8 @@ function resolveTarget(mind: BotMind): BotTrack | null {
 /** Where the bot points when it is not shooting — at its target if it has one,
  *  else straight ahead. Aim is only consumed by a firing/priming tick, but a
  *  coherent value keeps the input stream honest. */
-function idleAim(self: BotSelf, target: BotTrack | null): number {
-  return target === null ? self.state.heading : bearing(self.state, target);
+function idleAim(self: BotSelf, sit: BotSituation, target: BotTrack | null): number {
+  return target === null ? self.state.heading : bearing(self.state, plotAt(sit, target));
 }
 
 /**
@@ -846,7 +911,7 @@ function idleAim(self: BotSelf, target: BotTrack | null): number {
  */
 export const COMBAT_BRAIN: BotBrain = {
   decide(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate = true): BotDecision {
-    ingest(mind, port);
+    ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
     if (deliberate) deliberateNow(mind, sit);
     const target = resolveTarget(mind);
@@ -856,9 +921,7 @@ export const COMBAT_BRAIN: BotBrain = {
     return {
       throttle: helm.throttle,
       rudder: helm.rudder,
-      aim: shot === null ? idleAim(self, target) : shot.aim,
-      aimDist: shot === null ? 0 : shot.aimDist,
-      fireSlot: shot === null ? null : shot.slot,
+      ...triggerOf(self, sit, target, shot),
       actSlot: chooseAct(self, mind, port, sit, target, posture),
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };
@@ -875,7 +938,7 @@ export const COMBAT_BRAIN: BotBrain = {
    * postures that chase one are unreachable), a shot, or an ability press.
    */
   decideHeld(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate = true): BotDecision {
-    ingest(mind, port);
+    ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
     mind.targetKey = null; // unconditional: a held bot NEVER carries a target
     if (deliberate) mind.posture = choosePosture(sit, null, mind.posture);
@@ -887,6 +950,7 @@ export const COMBAT_BRAIN: BotBrain = {
       aimDist: 0,
       fireSlot: null,
       actSlot: null,
+      held: false,
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };
   },

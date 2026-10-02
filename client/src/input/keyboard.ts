@@ -14,18 +14,35 @@
 // entries 1–9):
 //   W/S (+arrows)  telegraph ±1 detent, edge-only (input/telegraph.ts)
 //   A/D (+arrows)  held rudder
-//   Q / E / R      loadout slots 1 / 2 / 3 — weapons switch-to (prime toggle),
-//                  abilities activate immediately; R inert while slot 3 is
-//                  empty; ALL suspended while the refit modal is open
+//   Q / E / R      the three WEAPON slots 2 / 3 / 4 (Story 8.5's nine-slot
+//                  spine — shared WEAPON_SLOTS): weapons switch-to (prime
+//                  toggle); a key on an EMPTY weapon slot is DENIED on the
+//                  client (onEmptySlotDenied — epic-8 amendment 26: a pulse and
+//                  a tone, nothing on the wire); ALL suspended while the refit
+//                  modal is open
+//   SHIFT (L/R)    slot 1, the BOOST — a TAP (keydown edge only, so a held
+//                  Shift is ONE press) that activates through the same ability
+//                  FIFO Q/E/R's abilities use. Suspended by the refit modal and
+//                  the combat lock exactly as Q/E/R are (UX-DR42). SHIFT+TAB is
+//                  still the browser's reverse focus-cycle and is evaluated
+//                  FIRST, so Tab keeps its own (prevented-inert) treatment.
 //   F              FOGHORN (Story 4.5, amendment 56 — the reservation closed):
 //                  one honk per physical press (edge-gated, so OS auto-repeat
 //                  cannot machine-gun it), suspended with Q/E/R while the refit
 //                  modal is open and swallowed by a focused overlay
 //   TAB            toggles the refit modal (main.ts owns open/close policy)
-//   1–4            pick a refit card ONLY while the modal is open
-//                  (refit-or-nothing; meaning evaluated at its own keydown)
-//   5              spend on DAMAGE CONTROL (the always-available heal rail —
-//                  HEAL_CHOICE), under the exact same modal-only rule
+//   1–4            TWO MEANINGS, decided at the keydown itself (Story 8.7,
+//                  ruling 7 — this retires epic-8 amendments 27 and 30, which
+//                  held only while the belt could not be stocked): with the
+//                  refit window OPEN they pick a card; with it CLOSED they are
+//                  the four BELT slots' keys (shared CONSUMABLE_SLOTS), acting
+//                  through the very same slotAction the weapon keys use. In
+//                  between sits the CLOSE GRACE (ruling 8): for a few hundred
+//                  ms after the window closes by ANY path a digit is swallowed,
+//                  so the key that spent the last banked level cannot fall
+//                  through onto the belt. They are the ONLY digits bound:
+//                  Story 8.8 deleted the DAMAGE CONTROL rail, so 5 is unbound
+//                  and inert in both meanings
 //   ESC            closes the TOPMOST open surface (results modal / refit modal
 //                  / settings overlay) and, with nothing open, toggles settings
 //                  — the uniform law (Story 2.3, amendment 23). Never leaves the
@@ -41,10 +58,20 @@
 // switches to (primes) that slot; the same key again reverts to the gun;
 // firing auto-reverts (main.ts consumePrimeOnFire — a predicted-denied click
 // keeps the prime). Ability slots activate instantly through the actSeq FIFO
-// queue and never prime. Weapon-vs-ability comes ONLY from EQUIPMENT_IS_WEAPON
-// (the isAbilitySlot hook), never a slot literal or hull id.
+// queue and never prime. Weapon-vs-ability comes ONLY from `isWeaponItem` (the
+// isAbilitySlot hook) — the ONE shared predicate over either kind of slot
+// content, equipment or consumable — never a slot literal or hull id.
 
-import { EQUIPMENT_IS_WEAPON, HEAL_CHOICE, SLOT_COUNT, SLOT_GUN, type EquipmentId } from '@salvo/shared';
+import {
+  CONSUMABLE_SLOTS,
+  SLOT_BOOST,
+  SLOT_COUNT,
+  SLOT_GUN,
+  WEAPON_SLOTS,
+  hullIsFull,
+  isWeaponItem,
+  type SlotItemId,
+} from '@salvo/shared';
 import {
   Telegraph,
   stepFromKey,
@@ -74,33 +101,135 @@ const RIGHT = ['KeyD', 'ArrowRight'];
 const LABELED_THROTTLE = new Set(['KeyW', 'KeyS']);
 const LABELED_RUDDER = new Set(['KeyA', 'KeyD']);
 
-/** Slot key → the loadout slot it addresses (the ratified Q/E/R scheme):
- *  Q/E = the two class-special slots, R = the pickup/extra slot. The gun
- *  (slot 0) has NO key — it is the always-selected default. */
+/**
+ * Weapon key → the loadout slot it addresses. Story 8.5 re-cut the loadout into
+ * NINE fixed-role slots, so Q/E/R are now the three GENERIC weapon slots
+ * (shared `WEAPON_SLOTS` = [2, 3, 4]) rather than "the two class specials plus
+ * the pickup": every one of them starts EMPTY and is filled by a card.
+ *
+ * Read from the shared tuple rather than re-typed as literals — the slot
+ * grammar has exactly one home, and a future re-cut moves the keys with it.
+ * The gun (slot 0) still has NO key (it is the always-selected default) and the
+ * BOOST (slot 1) is Shift, which is bound separately because it is a modifier
+ * with its own Shift+Tab hygiene.
+ */
 export const SLOT_KEY_CODES: Record<string, number> = {
-  KeyQ: 1,
-  KeyE: 2,
-  KeyR: 3,
+  KeyQ: WEAPON_SLOTS[0],
+  KeyE: WEAPON_SLOTS[1],
+  KeyR: WEAPON_SLOTS[2],
 };
 
 /**
- * Digit key → the refit choice it sends (top row + numpad). 1–4 are card
- * indices 0..3; 5 is the DAMAGE CONTROL rail, which rides the reserved NEGATIVE
- * wire sentinel `HEAL_CHOICE` (-1) rather than an index — a positive sentinel
- * would collide with a real card the moment `CONFIG.offer.size` moved.
+ * THE TWO PHYSICAL SHIFT KEYS — slot 1's (the boost's) activation key. This is
+ * the code-side INPUT-CAPTURE RULE for the boost (Story 8.9, epic-8 amendments
+ * 56-57; Eric 2026-09-11 and 2026-09-18). Nothing below is a preference; each
+ * line is a ruling that already holds in the code, written down so the next
+ * agent does not re-derive it or "fix" it:
  *
- * Every one of them means a refit pick ONLY while the refit modal is open;
- * refit-or-nothing otherwise (amendment 3). Digit 5 joins that rule verbatim:
- * it is bound (and therefore preventDefault-ed) at all times, and acts at none
- * but the modal.
+ *  • SHIFT IS A TAP, on the KEYDOWN EDGE, and BOTH codes act identically — a
+ *    captain boosts with either hand. There is no hold semantics: the window is
+ *    `CONFIG.boost.durationMs` long from the press and the key is irrelevant
+ *    after it.
+ *  • OS AUTO-REPEAT IS DROPPED by `edge()` (`e.repeat === true` never fires the
+ *    action), so a Shift held for three seconds is exactly ONE press — the same
+ *    rule F and the refit digits obey.
+ *  • THE WINDOWS STICKY KEYS PROMPT on five Shift taps in a row is a KNOWN OS
+ *    hazard and is ACCEPTED WITH NO MITIGATION (Eric 2026-09-11). Do not add a
+ *    tap counter, a rebind offer or a warning: the browser cannot suppress the
+ *    OS dialog and every workaround costs the boost its key.
+ *  • THE BOOST IS SUSPENDED WHILE THE REFIT WINDOW IS OPEN, and under the
+ *    start-line combat lock, exactly like Q/E/R (amendment 56 — Eric: "I can't
+ *    use my equipment (like boost) while I have the upgrade window open").
+ *    `boostAction`'s `suspended()` guard IS that design, not an accident.
+ *  • SHIFT+TAB IS NOT A DESIGNED COMBINATION (amendment 57 — Eric: "Shift is
+ *    boost, Tab is ability window"). `onDown` preventDefaults the chord for
+ *    browser hygiene (focus must not escape the canvas) and does NOTHING
+ *    further; a Shift press fires the boost on its own keydown edge whatever
+ *    key follows. Nothing is built or tested for the chord, deliberately.
+ */
+export const BOOST_KEY_CODES: readonly string[] = ['ShiftLeft', 'ShiftRight'];
+
+/**
+ * Digit key → the refit choice it sends (top row + numpad): card indices 0..3,
+ * and nothing else. EVERY choice on the wire is an offer index now — Story 8.8
+ * deleted the DAMAGE CONTROL rail and with it the reserved negative sentinel
+ * `HEAL_CHOICE` (-1) that `5` used to carry, so `Digit5`/`Numpad5` are UNBOUND:
+ * they are not preventDefault-ed, they pick nothing, and they reach no belt
+ * square (the belt has four).
+ *
+ * This is the OPEN-WINDOW meaning of the digits; `1`-`4` gained their second,
+ * CLOSED-window meaning in Story 8.7 — see BELT_KEY_CODES.
  */
 export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit1: 0, Numpad1: 0,
   Digit2: 1, Numpad2: 1,
   Digit3: 2, Numpad3: 2,
   Digit4: 3, Numpad4: 3,
-  Digit5: HEAL_CHOICE, Numpad5: HEAL_CHOICE,
 };
+
+/**
+ * THE SECOND MEANING (Story 8.7, ruling 7): digit key → the BELT slot it fires
+ * while the refit window is CLOSED. Four keys for four squares, read out of the
+ * shared `CONSUMABLE_SLOTS` tuple rather than re-typed as literals — the same
+ * rule SLOT_KEY_CODES follows, so a re-cut of the slot grammar moves the keys
+ * with it. `5` is deliberately absent: the belt has four squares, and since
+ * Story 8.8 the fifth key has nothing to address in either meaning.
+ *
+ * Epic-8 amendments 27 ("1-4 stay refit-only") and 30 ("a belt press is
+ * silent") are RETIRED by this table: both were true only while nothing could
+ * enter the belt.
+ */
+export const BELT_KEY_CODES: Record<string, number> = {
+  Digit1: CONSUMABLE_SLOTS[0], Numpad1: CONSUMABLE_SLOTS[0],
+  Digit2: CONSUMABLE_SLOTS[1], Numpad2: CONSUMABLE_SLOTS[1],
+  Digit3: CONSUMABLE_SLOTS[2], Numpad3: CONSUMABLE_SLOTS[2],
+  Digit4: CONSUMABLE_SLOTS[3], Numpad4: CONSUMABLE_SLOTS[3],
+};
+
+/**
+ * The slots whose EMPTY press DENIES on the client — the two rows a card fills:
+ * the weapon row (Story 8.5, epic-8 amendment 26) and, since Story 8.7, the
+ * BELT. The gun is never empty and slot 1 is empty only on a PvE drone
+ * (amendment 24), which no keyboard is attached to, so a denial on either could
+ * only ever be a construction-gap artefact.
+ */
+const DENIABLE_SLOTS: ReadonlySet<number> = new Set<number>([...WEAPON_SLOTS, ...CONSUMABLE_SLOTS]);
+
+/**
+ * Pure: would a press on this STOCKED belt square be refused by the server for
+ * a reason the client already knows (Story 8.8)? Today there is exactly one:
+ * HULL REPAIR, whose row refuses `'blocked'` on a hull that is already full or
+ * already sinking.
+ *
+ * IT IS THE AMENDMENT-26 PRECEDENT, one square along. An empty square denies on
+ * the client because the server's refusal would tell the player nothing they
+ * cannot see; a heal at full hull is the same sentence, and it is the one the
+ * player will press most often by accident. Without this the refusal would come
+ * back as a server denial a whole round trip later — and HULL REPAIR is exactly
+ * the key that gets mashed. The server still refuses independently: this NEVER
+ * grants anything, it only declines to send.
+ *
+ * "FULL" IS THE SHARED PREDICATE (`hullIsFull`, epic-8 amendment 53): under
+ * 1 hp missing. It must be the server row's own word, or a press this lets
+ * through at 349.6 of 350 comes straight back as `blocked` — the round trip
+ * this function exists to avoid.
+ *
+ * FAILS OPEN on the hull: a non-finite or absent `maxHp` (a pre-first-frame
+ * gap, an unresolvable class) returns false, so an unknown hull gets its press
+ * SENT rather than denied a heal it may badly need — the same way the old rail
+ * refused to claim FULL on a guess. The shared predicate is read only AFTER
+ * that resolvability check, so `NaN`/`Infinity` never reach it.
+ */
+export function beltPressDenied(
+  item: SlotItemId | null | undefined,
+  hp: number,
+  maxHp: number,
+  sinking: boolean,
+): boolean {
+  if (item !== 'hullRepair') return false;
+  if (sinking) return true;
+  return Number.isFinite(maxHp) && maxHp > 0 && hullIsFull(hp, maxHp);
+}
 
 /**
  * The only keys that still act while a focused overlay is up (Story 2.3): the
@@ -138,18 +267,51 @@ export function panAxesFrom(keys: Set<string>): Axes {
 
 /**
  * Pure: does `slot` of the own loadout hold instant-activation ABILITY
- * equipment (`EQUIPMENT_IS_WEAPON[id] === false`)? The TB's speedBoost is the
- * ONLY one left that answers true. Weapons and empty/out-of-range slots return
+ * content (`isWeaponItem(id) === false`)? The `boost` — which
+ * Story 8.5 seated in SLOT_BOOST on EVERY captain hull (epic-8 amendment 23) —
+ * is the ONLY one left that answers true. Weapons and empty/out-of-range slots return
  * false (they prime / do nothing) — as of Story 2.8 (amendment 45) the MINE is
- * one of them, and as of Story 7-5 wave 2 (R2.7) so is the RADAR BUOY that
- * replaced the decoy rack: both place on a click inside the rear arc, exactly
- * like the torpedo launches inside its bow arc. The single weapon/ability split
- * source is the shared map; main.ts closes this over the own loadout
+ * one of them, and as of Story 8.16 so is the DECOY BUOY consumable: both
+ * place on a click inside the rear arc, exactly like the torpedo launches
+ * inside its bow arc. The single weapon/ability split
+ * source is the shared `isWeaponItem`; main.ts closes this over the own loadout
  * (slotsWithBoons) for the isAbilitySlot hook.
+ *
+ * SINCE STORY 8.7 A SLOT MAY HOLD A CONSUMABLE (`SlotItemId` — the belt's
+ * content), and the same one predicate answers for both id spaces: a stack that
+ * is not `isWeapon` ACTIVATES off the `1`-`4` rail, while the aimed consumables
+ * (the DECOY BUOY, the SUPERCAV TORPEDO) PRIME, exactly as the mine does. No cast
+ * and no second table — that is what `isWeaponItem` exists for.
  */
-export function slotHoldsAbility(slotIds: readonly (EquipmentId | null)[], slot: number): boolean {
+export function slotHoldsAbility(slotIds: readonly (SlotItemId | null)[], slot: number): boolean {
   const id = slotIds[slot] ?? null;
-  return id !== null && !EQUIPMENT_IS_WEAPON[id];
+  return id !== null && !isWeaponItem(id);
+}
+
+/**
+ * Pure: is a digit still inside the refit window's CLOSE GRACE (Story 8.7,
+ * ruling 8)? The interval is HALF-OPEN — `[closedAt, closedAt + graceMs)` — so
+ * a digit AT the edge fires, mirroring `resultsKeysArmed`'s `>=` on the other
+ * side of the same shape. `closedAt = -Infinity` (no window has ever closed)
+ * answers false, which is why main.ts seeds it there.
+ *
+ * The STATE lives in main.ts (it owns the clock and the window); the RULE lives
+ * here, beside the keys it governs, and is what the `isRefitGrace` hook returns.
+ */
+export function refitGraceActive(nowMs: number, closedAt: number, graceMs: number): boolean {
+  return nowMs - closedAt < graceMs;
+}
+
+/**
+ * Pure: the refit window's `closedAt` stamp after a frame that saw `open`,
+ * given the previous frame's `prevOpen`. The TRUE→FALSE edge — and only it —
+ * stamps: every close path (TAB, ESC, the last spend's update(null), spectate,
+ * the you-gone force-hide) goes through the window's own visibility, so one
+ * watcher over that boolean covers all of them and no close site has to
+ * remember to stamp for itself.
+ */
+export function refitCloseStamp(prevOpen: boolean, open: boolean, nowMs: number, closedAt: number): number {
+  return prevOpen && !open ? nowMs : closedAt;
 }
 
 /**
@@ -231,18 +393,49 @@ export interface KeyboardHooks {
   /** Does this loadout slot hold ability (non-weapon) equipment on the OWN
    *  ship? True → the slot key ACTIVATES instead of priming. */
   isAbilitySlot?: (slot: number) => boolean;
-  /** Is this loadout slot fitted at all? An unfitted slot's key (R while
-   *  slot 3 is empty) is inert — no prime, no queue, no feedback. FAILS CLOSED:
-   *  with the hook absent NO slot beyond the gun counts as fitted, so a
-   *  construction site that forgets to wire it gets inert slot keys rather than
-   *  resurrecting the ruled-away "R primes an empty slot" behavior. */
+  /** Is this loadout slot fitted at all? An unfitted slot's key primes nothing
+   *  and queues nothing. FAILS CLOSED: with the hook absent NO slot beyond the
+   *  gun counts as fitted, so a construction site that forgets to wire it gets
+   *  inert slot keys rather than resurrecting the ruled-away "R primes an empty
+   *  slot" behavior. Since Story 8.5 an unfitted slot is no longer SILENT: a
+   *  weapon key or a hotbar click on one fires `onEmptySlotDenied` (the boost
+   *  key stays silent — it addresses a slot only a drone lacks). */
   isSlotFitted?: (slot: number) => boolean;
+  /**
+   * A WEAPON key (Q/E/R) or a hotbar CLICK addressed a slot `isSlotFitted`
+   * reports EMPTY, while nothing was suspending it (epic-8 amendment 26 —
+   * Eric 2026-09-16). main.ts flashes that slot's DENIED pulse and plays the
+   * `denied` tone; NOTHING is sent. The server's own `'empty-slot'` denial
+   * stays server-internal — a fair client can no longer reach it, so no wire
+   * denial reason was added.
+   *
+   * THE COMBAT LOCK WINS AND WINS SILENTLY: the lock is checked FIRST (as it
+   * always was), so a key against the held start line produces no pulse and no
+   * tone. Locked must read as LOCKED, never as DENIED.
+   */
+  onEmptySlotDenied?: (slot: number) => void;
+  /**
+   * Is a press on this FITTED slot refused by a rule the client already knows
+   * (Story 8.8 — `beltPressDenied`: a HULL REPAIR square on a full or sinking
+   * hull)? True → `onPressDenied` fires and NOTHING is sent. Read only AFTER
+   * the suspension and fitted checks, so the combat lock keeps winning silently
+   * and an empty square still reads as empty. FAILS OPEN (no hook = never
+   * denied): a construction site that forgets to wire it sends the press and
+   * takes the server's word, which is the safe direction.
+   */
+  isPressDenied?: (slot: number) => boolean;
+  /** A press `isPressDenied` refused: main.ts plays the SAME per-slot denied
+   *  pulse + tone an empty square gets (one mark for "that key did nothing just
+   *  now"), and nothing rides an input. */
+  onPressDenied?: (slot: number) => void;
   /** A genuine ability-activation press edge was QUEUED (not yet consumed),
    *  with the actSeq it WILL ride once drained — main.ts predicts the verdict
    *  for feedback. */
   onAbility?: (slot: number, actSeq: number) => void;
-  /** A press hit the full FIFO (pendingActs at SLOT_COUNT): the press is
-   *  dropped and this fires INSTEAD — denied feedback, never silence. */
+  /** A press hit the full FIFO (pendingActs at SLOT_COUNT — NINE since Story
+   *  8.5, and still only reachable by mashing: it is nine presses inside one
+   *  50ms sample window): the press is dropped and this fires INSTEAD — denied
+   *  feedback, never silence. */
   onAbilityCapped?: (slot: number) => void;
   /**
    * F — a FOGHORN press edge (Story 4.5, amendment 56). Fires once per physical
@@ -253,9 +446,26 @@ export interface KeyboardHooks {
    * sinking verdicts to it; the chokepoint only reports the press.
    */
   onFoghorn?: () => void;
-  /** Is the refit modal open? While true: Q/E/R/F are suspended and digits
-   *  pick cards; helm/zoom/M/P stay live. */
+  /** Is the refit modal open? While true: Q/E/R/Shift/F are suspended and
+   *  digits pick cards; helm/zoom/M/P stay live (UX-DR42). */
   isModalOpen?: () => boolean;
+  /**
+   * Is a digit still inside the refit window's CLOSE GRACE (Story 8.7, ruling
+   * 8)? While true a digit `1`-`4` is INERT: it is still preventDefault-ed (the
+   * key is bound either way and focus must never escape the canvas), but it
+   * neither picks nor reaches the belt.
+   *
+   * The reason is the two meanings sharing one key: a captain who spends their
+   * last banked level on `1` closes the window with that very press, and is
+   * still holding the key a frame later. Without the grace the key-up-less
+   * remainder of that press would fall through onto belt slot 5 and fire it.
+   *
+   * FAILS OPEN, unlike `isSlotFitted`: no hook means "no window has ever closed
+   * here", which is the truth in every harness that drives the belt directly.
+   * main.ts owns the stamp (one watcher on the window's visibility) and the
+   * clock; this only asks.
+   */
+  isRefitGrace?: () => boolean;
   /**
    * Is a COMBAT LOCKOUT in force that is NOT a modal (Story 6.1, epic-6
    * amendment 8: the held start line)? While true the slot keys — and the
@@ -282,8 +492,7 @@ export interface KeyboardHooks {
   /** TAB — toggle the refit modal (main.ts owns the only-with-a-banked-point
    *  open rule and pick/TAB/ESC close rules). */
   onRefitToggle?: () => void;
-  /** Digit 1–5 while the modal is open — pick card `choice` (0-based), or
-   *  HEAL_CHOICE (-1) for the DAMAGE CONTROL rail. */
+  /** Digit 1–4 while the modal is open — pick card `choice` (0-based). */
   onRefitPick?: (choice: number) => void;
   /** ESC — close the topmost surface (in-match: the refit modal; on the results
    *  screen main.ts routes it to RETURN TO PORT — UX-DR27). */
@@ -312,8 +521,10 @@ export class KeyboardInput {
    * evaluation, but the WIRE carries at most one press per input — multiple
    * presses inside one 50ms sample window MUST be spread across successive
    * inputs; consumeActivation() drains exactly one per built input. Capped at
-   * SLOT_COUNT; a press against a full queue fires onAbilityCapped (denied
-   * feedback — Story 2.1 closes the silent-drop debt). Cleared on the hard
+   * SLOT_COUNT (NINE since Story 8.5 — the cap simply follows the slot count,
+   * so it is nine presses inside ONE 50ms window); a press against a full queue
+   * fires onAbilityCapped (denied feedback — Story 2.1 closes the silent-drop
+   * debt, and the drop at the cap stays reachable only by mashing). Cleared on the hard
    * state boundaries (death / respawn / spectate / reconnect) so a queued
    * press never fires into the next life.
    */
@@ -324,6 +535,26 @@ export class KeyboardInput {
   private actCount = 0;
   /** Loadout slot of the most recently CONSUMED activation (InputMsg.actSlot; 0 sentinel). */
   private lastActSlot = 0;
+  /**
+   * THE RELEASE-REVERT LATCH (Story 8.5, UX-DR42: "firing auto-reverts on
+   * RELEASE, never on press"). main.ts arms it at a pointerdown its own
+   * prediction says will FIRE, and consumes it on the matching pointerup — so a
+   * held trigger keeps its prime for the whole hold (which is what Story 8.14's
+   * machine gun needs) instead of dropping to the gun on the first frame.
+   *
+   * It is kept HERE, beside `primed`, rather than in main.ts, for one reason:
+   * "any prime change in between clears it" has to be true of EVERY prime
+   * change, and `slotAction` + `revertToGun` are the only two writers of
+   * `primed` there are. A latch living anywhere else would have to be told.
+   *
+   * IT NAMES ITS CLICK (Story 8.5 review fix): the value is the SEQUENCE NUMBER
+   * of the click that owes the revert (null = nothing owed), and only that
+   * click's own release may pay it. A bare boolean could be paid by any release
+   * at all — a second pointer's, or the one belonging to the previous click
+   * inside the same 50ms tick — which is how a fast double-click after a
+   * torpedo shot fired the torpedo a second time.
+   */
+  private releaseRevertSeq: number | null = null;
   /** The binding table: code → handler. Built once; onDown dispatches through
    *  it (a hit is preventDefault-ed, a miss is left native). */
   private readonly bindings: ReadonlyMap<string, (e: KeyboardEvent) => void>;
@@ -341,6 +572,14 @@ export class KeyboardInput {
     bind([...THROTTLE_AHEAD, ...THROTTLE_ASTERN], this.handleThrottleKey);
     bind([...LEFT, ...RIGHT], this.handleRudderKey);
     bind(Object.keys(SLOT_KEY_CODES), this.handleSlotKey);
+    // SHIFT: the boost TAP (Story 8.5, UX-DR42). `edge()` is the whole
+    // "a held Shift is ONE press" rule — an OS auto-repeat carries repeat=true
+    // and is dropped, exactly as F and the digits drop theirs. Binding it here
+    // also makes Shift a PREVENTED key, which is harmless (a bare Shift has no
+    // default action) and keeps the table's one-row-per-bound-key shape.
+    // SHIFT+TAB is unaffected: onDown evaluates that special case BEFORE the
+    // binding lookup, and the Tab keydown is a different event from this one.
+    bind([...BOOST_KEY_CODES], this.edge(() => this.boostAction()));
     bind(Object.keys(REFIT_DIGIT_CODES), this.handleDigitKey);
     // F: the FOGHORN (Story 4.5) — edge-gated so a held key is ONE honk, and
     // suspended by the refit modal exactly as Q/E/R are (handleSlotKey's rule,
@@ -468,16 +707,45 @@ export class KeyboardInput {
   };
 
   /**
-   * Q/E/R: the slot keys. Suspended (prevented-inert) while the refit modal is
-   * open — full combat lockout. An unfitted slot is inert (no feedback — the
-   * ruled R-while-empty behavior), and the fitted check FAILS CLOSED: no hook
-   * means no fitted slots. Ability slots ACTIVATE through the FIFO; weapon
-   * slots toggle the prime (switch-to / same-key-reverts).
+   * Q/E/R: the three WEAPON slot keys. Suspended (prevented-inert) while the
+   * refit modal is open — full combat lockout. An unfitted slot is DENIED on
+   * the client since Story 8.5 (onEmptySlotDenied — amendment 26), and the
+   * fitted check FAILS CLOSED: no hook means no fitted slots. Ability slots
+   * ACTIVATE through the FIFO; weapon slots toggle the prime (switch-to /
+   * same-key-reverts).
    */
   private readonly handleSlotKey = (e: KeyboardEvent): void => {
     if (e.repeat) return;
     this.slotAction(SLOT_KEY_CODES[e.code]);
   };
+
+  /**
+   * THE CLIENT'S TWO REFUSALS, in order — true means the press stops here and
+   * nothing rides an input. Both are reached only AFTER `suspended()`, so the
+   * combat lock keeps winning SILENTLY (locked must read as locked, never as
+   * denied); both speak in the same per-slot grammar (a pulse and a tone).
+   *
+   *   • EMPTY (Story 8.5, amendment 26; completed on the belt by Story 8.7's
+   *     ruling 7, retiring amendment 30's silence). The belt squares were mute
+   *     only because nothing could enter them, and now a card can. An empty
+   *     square is the same sentence as an empty Q, and a belt CLICK says it
+   *     identically, since it is this very entry.
+   *   • BLOCKED (Story 8.8): a STOCKED square whose press the client already
+   *     knows the server would refuse — a HULL REPAIR at full hull or on a
+   *     sinking hull. See `beltPressDenied`.
+   *
+   * Split out of `slotAction` for the complexity ceiling, and it reads better
+   * for it: one function is "what a press does", the other "when it does not".
+   */
+  private pressRefused(slot: number): boolean {
+    if (this.hooks.isSlotFitted?.(slot) !== true) {
+      if (DENIABLE_SLOTS.has(slot)) this.hooks.onEmptySlotDenied?.(slot);
+      return true;
+    }
+    if (this.hooks.isPressDenied?.(slot) !== true) return false;
+    this.hooks.onPressDenied?.(slot);
+    return true;
+  }
 
   /**
    * THE slot-action entry point — everything a slot key does, addressable by
@@ -489,14 +757,39 @@ export class KeyboardInput {
    * resolves to "select the gun" (its total-contract branch, live at last).
    */
   slotAction(slot: number): void {
-    if (this.hooks.isModalOpen?.() === true) return;
-    if (this.hooks.isCombatLocked?.() === true) return; // held start line (Story 6.1)
-    if (this.hooks.isSlotFitted?.(slot) !== true) return;
+    if (this.suspended()) return;
+    if (this.pressRefused(slot)) return;
     if (this.hooks.isAbilitySlot?.(slot) === true) {
       this.activateAbility(slot);
       return;
     }
     this.primed = nextPrimedSlot(this.primed, slot);
+    // THE KEY WINS (Story 8.5, ruling 9): a prime change between a fireable
+    // pointerdown and its pointerup cancels the owed release-revert, so the
+    // slot the captain just chose is the one still primed when they let go.
+    this.releaseRevertSeq = null;
+  }
+
+  /**
+   * SHIFT: slot 1's boost tap. The same two suspensions the slot keys obey
+   * (refit modal, combat lock) and the same fail-closed fitted check — but NO
+   * empty-slot denial: the only hull with an empty slot 1 is a PvE drone
+   * (epic-8 amendment 24), which no keyboard is attached to, so a denial there
+   * could only ever be a construction-gap artefact. The activate-vs-prime split
+   * still comes from the loadout (isAbilitySlot) and never from the key.
+   */
+  private boostAction(): void {
+    if (this.suspended()) return;
+    if (this.hooks.isSlotFitted?.(SLOT_BOOST) !== true) return;
+    this.slotAction(SLOT_BOOST);
+  }
+
+  /** Is a surface suspending the slot keys and hotbar clicks this instant — the
+   *  refit modal / a focused overlay (isModalOpen) or the held start line
+   *  (isCombatLocked, Story 6.1)? The lock is deliberately the SECOND read so
+   *  the two keep their separate meanings; both are feedback-free. */
+  private suspended(): boolean {
+    return this.hooks.isModalOpen?.() === true || this.hooks.isCombatLocked?.() === true;
   }
 
   /**
@@ -510,14 +803,30 @@ export class KeyboardInput {
     this.hooks.onFoghorn?.();
   }
 
-  /** Digits 1–5: a refit pick while the modal is open — a card (1–4) or the
-   *  DAMAGE CONTROL rail (5 → HEAL_CHOICE); refit-or-nothing otherwise (the old
-   *  digit slot-priming and closed-window spend are dead — amendment 3).
-   *  Meaning is evaluated against modal state at THIS keydown. */
+  /**
+   * Digits 1–4, and they mean TWO different things (Story 8.7, ruling 7). The
+   * meaning is read against the window's state AT THIS KEYDOWN — never at the
+   * key-up, never at sample time:
+   *   • window OPEN → a refit pick (1–4 → card 0..3). A GREYED card's digit is
+   *     swallowed downstream by main.ts's handleRefitPick (ruling 10), not here
+   *     — the chokepoint does not know what is on the cards;
+   *   • window CLOSED → the BELT: 1–4 are slots 5–8 through the very same
+   *     `slotAction` a hotbar click and the weapon keys use. Inside the CLOSE
+   *     GRACE the key does not act at all — see `isRefitGrace`.
+   * The old digit slot-priming of the WEAPON row stays dead (amendment 3): no
+   * digit addresses slots 2–4 in either meaning, and `5` addresses nothing at
+   * all since Story 8.8 deleted the DAMAGE CONTROL rail.
+   */
   private readonly handleDigitKey = (e: KeyboardEvent): void => {
     if (e.repeat) return;
-    if (this.hooks.isModalOpen?.() !== true) return;
-    this.hooks.onRefitPick?.(REFIT_DIGIT_CODES[e.code]);
+    if (this.hooks.isModalOpen?.() === true) {
+      this.hooks.onRefitPick?.(REFIT_DIGIT_CODES[e.code]);
+      return;
+    }
+    const beltSlot = BELT_KEY_CODES[e.code];
+    if (beltSlot === undefined) return; // digit 5 with the window closed: inert
+    if (this.hooks.isRefitGrace?.() === true) return;
+    this.slotAction(beltSlot);
   };
 
   /**
@@ -675,13 +984,54 @@ export class KeyboardInput {
   }
 
   /**
-   * Revert the prime to the gun (slot 0). main.ts calls this on a
-   * predicted-fireable skillshot click — the special fires once, then the gun
-   * is the weapon again (Eric ruling 2026-07-21, re-ratified 2026-07-24). A
-   * predicted-DENIED click keeps the prime instead (the caller simply doesn't
-   * call this).
+   * Revert the prime to the gun (slot 0) — the special fires once, then the gun
+   * is the weapon again (Eric ruling 2026-07-21, re-ratified 2026-07-24).
+   *
+   * SINCE STORY 8.5 THE FIRING PATH DOES NOT CALL THIS DIRECTLY: a
+   * predicted-fireable click ARMS the revert (armReleaseRevert) and the matching
+   * pointerup performs it (consumeReleaseRevert). The hard boundaries — the
+   * sinking window's hygiene and the room's resetPrime — still call it straight,
+   * which is right: those end a life, not a trigger pull. A predicted-DENIED
+   * click keeps the prime as ever (the caller simply arms nothing).
    */
   revertToGun(): void {
     this.primed = SLOT_GUN;
+    this.releaseRevertSeq = null;
+  }
+
+  /**
+   * A click the client predicts WILL FIRE landed on a primed weapon: the revert
+   * is now OWED, and only the release of THIS click (`clickSeq`, the mouse's
+   * cumulative click counter at that pointerdown) may pay it. Re-arming with
+   * the same seq is idempotent; a later click simply replaces the debt, since
+   * an unpaid older one can no longer belong to anything the player is holding.
+   * A denied click arms nothing at all (its caller doesn't call this), so the
+   * prime survives a denial exactly as it always has.
+   */
+  armReleaseRevert(clickSeq: number): void {
+    this.releaseRevertSeq = clickSeq;
+  }
+
+  /**
+   * A HOLD ENDED, for the click numbered `releasedClickSeq`: pay the owed
+   * revert if that is the very click that owes it. A no-op when nothing was
+   * armed (a release with no shot behind it), when a weapon key or a hotbar
+   * click cleared the latch in between (the key wins), and — the review fix —
+   * when the release belongs to some OTHER click: another pointer's, or the
+   * previous click's inside the same tick.
+   */
+  consumeReleaseRevert(releasedClickSeq: number): void {
+    if (this.releaseRevertSeq !== releasedClickSeq) return;
+    this.revertToGun();
+  }
+
+  /** Is a release-revert still owed? (tests/debug — main.ts never branches on it.) */
+  get releaseRevertPending(): boolean {
+    return this.releaseRevertSeq !== null;
+  }
+
+  /** The click sequence number that owes the revert (null = none) — tests/debug. */
+  get releaseRevertClickSeq(): number | null {
+    return this.releaseRevertSeq;
   }
 }

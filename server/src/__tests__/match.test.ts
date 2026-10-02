@@ -6,10 +6,11 @@
 // payload, and the post-results disconnect.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, type ResultsMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CONFIG, MULLIGAN_CHOICE, effectiveStats, type ResultsMsg, type ShipClassId } from '@salvo/shared';
 import { World } from '../game/world.js';
-import { Match, type MatchHooks } from '../game/match.js';
+import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { isFleetHull } from '../game/participants.js';
+import { fitClassWeapons } from './classWeapons.js';
 
 const DT = CONFIG.tick.simDtMs;
 // Ticks in one full sinking window. Since the amendment-17 REVERSAL (Eric veto
@@ -55,7 +56,7 @@ interface Ctx extends Recorder {
 
 /** Bare world (no islands) + match with fast timings; ships joined in order.
  *  `hull` picks the class for every joined ship — default torpedoBoat, but mine
- *  tests pass 'mineLayer' so slot 2 fits a mine (the TB carries speedBoost there,
+ *  tests pass 'mineLayer' so slot 2 fits a mine (the TB carries boost there,
  *  Story 1.6). */
 function setup(ids: string[], hull: ShipClassId = 'torpedoBoat', timings = TIMINGS): Ctx {
   const w = new World(1);
@@ -63,7 +64,7 @@ function setup(ids: string[], hull: ShipClassId = 'torpedoBoat', timings = TIMIN
   const rec = recorder();
   const m = new Match(w, timings, rec.hooks);
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase(), 'captain', hull);
+    w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
     m.notifyRosterChanged();
   }
   return { w, m, ...rec };
@@ -94,33 +95,45 @@ function injectShell(ctx: Ctx, id: string, ownerId: string, x: number, y: number
     distLeft: 60,
     bornAt: ctx.w.now,
     kind: 'shell',
+    family: 'cannon',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
     targetX: null,
     targetY: null,
     burstRadius: 0,
     contactDamage: CONFIG.gun.damage, // contact-only injection: legacy full-damage hit
+    hits: CONFIG.gun.hits,
   });
+}
+
+/** The Mine Layer's mine rack: the FIRST weapon slot (Q). Story 8.10 deleted
+ *  the spawn seed that used to put it there, so the mine fixtures fit the
+ *  card themselves (fitRack) — the slot is the same one. */
+const SLOT_MINE_ML = 2;
+
+/** Fit a hull's class weapon card, the way a countdown pick would. */
+function fitRack(ctx: Ctx, id: string): void {
+  fitClassWeapons(ctx.w, ctx.w.ships.get(id)!);
 }
 
 function fire(ctx: Ctx, id: string, slot: 0 | 1 | 2, seq: number): void {
   // seq doubles as the click counter: every call is one fresh click.
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
 }
 
 /** One fresh ability press (actSeq advance) on `actSlot` (boost/decoy). seq
  *  doubles as the press counter. */
 function press(ctx: Ctx, id: string, actSlot: 0 | 1 | 2, seq: number): void {
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: seq, actSlot, hornSeq: 0 });
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: seq, actSlot, hornSeq: 0, held: false });
 }
 
 /** One fresh mine CLICK (Story 2.8, amendment 45: the mine is an aimed weapon
  *  again) — aimed dead astern of the ship's live heading, well inside
  *  placeRange, on the named slot. seq doubles as the click counter. */
-function mineClick(ctx: Ctx, id: string, slot: 0 | 1 | 2, seq: number): void {
+function mineClick(ctx: Ctx, id: string, slot: number, seq: number): void {
   const heading = ctx.w.ships.get(id)!.state.heading;
   const aim = heading + Math.PI; // rear-sector center
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist: CONFIG.mine.placeRange / 2, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist: CONFIG.mine.placeRange / 2, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
 }
 
 /** Step until this tick's events contain a boom (shell resolution is 1-4 ticks). */
@@ -161,11 +174,12 @@ describe('match — waiting phase (ready room)', () => {
   });
 
   it('allows mine drops (no phase lockout — resetForMatchStart clears the field at activation instead)', () => {
-    const ctx = setup(['a'], 'mineLayer'); // mine at slot 1 (Story 1.8: [gun, mine, radarBuoy])
-    mineClick(ctx, 'a', 1, 1); // Story 2.8: mines are an aimed WEAPON — a rear-arc click
+    const ctx = setup(['a'], 'mineLayer');
+    fitRack(ctx, 'a'); // the rack is a CARD since Story 8.10 — fitted into slot 2
+    mineClick(ctx, 'a', SLOT_MINE_ML, 1); // Story 2.8: mines are an aimed WEAPON — a rear-arc click
     step(ctx);
     expect(ctx.w.mines.size).toBe(1);
-    expect(ctx.w.ships.get('a')!.loadout[1].state!.reloadMsLeft).toBeGreaterThan(0); // drop started the reload
+    expect(ctx.w.ships.get('a')!.loadout[SLOT_MINE_ML].state!.reloadMsLeft).toBeGreaterThan(0); // drop started the reload
   });
 
   it('a practice mine deals no damage when triggered (target practice: boom, no hp loss, mine despawns)', () => {
@@ -173,7 +187,7 @@ describe('match — waiting phase (ready room)', () => {
     const a = ctx.w.ships.get('a')!;
     // Drop an already-armed mine (owned by a bystander, like injectShell's 'ghost')
     // right on top of a — walks a ship onto an armed practice mine in waiting.
-    ctx.w.mines.set('m1', { id: 'm1', ownerId: 'ghost', x: a.state.x, y: a.state.y, armedAt: 0 });
+    ctx.w.mines.set('m1', { id: 'm1', ownerId: 'ghost', x: a.state.x, y: a.state.y, armedAt: 0, kind: 'naval', hp: 10 });
     step(ctx);
     expect(ctx.w.mines.size).toBe(0); // triggered + despawned
     expect(ctx.w.tickEvents.some((e) => e.k === 'boom')).toBe(true);
@@ -197,7 +211,7 @@ describe('match — countdown', () => {
   it('starts at minHumans, locks the room, sets countdownEndT', () => {
     const ctx = setup(['a']);
     expect(ctx.calls).toEqual([]);
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('countdown');
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + TIMINGS.countdownMs);
@@ -215,7 +229,7 @@ describe('match — countdown', () => {
     expect(ctx.w.ships.has('b')).toBe(false);
     // Reaching the minimum again starts a FRESH countdown.
     step(ctx, 5);
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('countdown');
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + TIMINGS.countdownMs);
@@ -227,7 +241,7 @@ describe('match — countdown', () => {
     const a = ctx.w.ships.get('a')!;
     // Dirty the practice field.
     injectShell(ctx, 's1', 'a', 500, 500);
-    ctx.w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 1, y: 2, armedAt: 0 });
+    ctx.w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 1, y: 2, armedAt: 0, kind: 'naval', hp: 10 });
     a.hp = 40;
     a.state.x = 5;
     a.state.y = 5;
@@ -253,14 +267,217 @@ describe('match — countdown', () => {
       expect(ship.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
       expect(isAfloat(ship.lifecycle)).toBe(true);
       expect(Math.hypot(ship.state.x, ship.state.y)).toBeCloseTo(ctx.w.map.spawnRing, 6);
-      // Full pools on every weapon slot (0-2; slot 3 is the empty extra slot).
-      expect(ship.loadout.slice(0, 3).every((s) => s.state!.n > 0 && s.state!.reloadMsLeft === 0)).toBe(true);
+      // Full pools on every FITTED slot (0-1 on a fresh TB: gun and the Shift
+      // boost; 2-8 are empty — Story 8.10 deleted the spawn seed, so the
+      // weapon row is bare until a card fills it).
+      expect(ship.loadout.slice(0, 2).every((s) => s.state!.n > 0 && s.state!.reloadMsLeft === 0)).toBe(true);
+      expect(ship.loadout.slice(2).every((s) => s.equipmentId === null)).toBe(true);
       expect(ship.seenBallistics.size).toBe(0);
     }
     // The redeploy emits spawn events (clients snap camera/prediction).
     step(ctx);
     const spawns = ctx.w.tickEvents.filter((e) => e.k === 'spawn').map((e) => e.id);
     expect(spawns.sort()).toEqual(['a', 'b']);
+  });
+});
+
+// THE OPENING (Story 8.10, FR48, epic-8 amendments 59-63). The countdown is
+// where the card economy now starts: arming it grants every participant one
+// banked level and a guaranteed hand, and the activation redeploy of a
+// QUEUE-FORMED room (expectedCaptains set — the held start line, which is also
+// every Solo vs AI room) carries that economy onto live water. The redraw
+// itself is pinned in mulligan.test.ts; this suite owns the two transitions.
+describe('match — the opening at the countdown', () => {
+  /** A boarding room (held start line) on REAL decks, so the grant can draw. */
+  function opening(ids: string[], timings: MatchTimings = { ...TIMINGS, expectedCaptains: ids.length }): Ctx {
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const rec = recorder();
+    const m = new Match(w, timings, rec.hooks);
+    for (const id of ids) {
+      w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+      m.notifyRosterChanged();
+    }
+    return { w, m, ...rec };
+  }
+
+  it('arming the countdown banks ONE level and a four-card hand for every participant', () => {
+    // Build the room BEFORE the arm so the bot and the fleet hull are aboard
+    // when the grant runs: the AI captain is a participant and must get one;
+    // the PvE hull must get nothing at all.
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const rec = recorder();
+    const m = new Match(w, { ...TIMINGS, expectedCaptains: 2 }, rec.hooks);
+    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    m.notifyRosterChanged();
+    const ai = w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', undefined, undefined);
+    const drone = w.addShip('fleet-1', 'FLEET', 'fleet', 'droneSmall', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
+    m.notifyRosterChanged(); // both captains aboard: the countdown arms here
+    const ctx: Ctx = { w, m, ...rec };
+
+    expect(m.phase).toBe('countdown');
+    for (const id of ['a', 'b', 'bot-1']) {
+      const s = w.ships.get(id)!;
+      expect(s.bankedLevels, id).toBe(1);
+      expect(s.level, id).toBe(0);
+      expect(s.xpMs, id).toBe(0);
+      expect(s.offer, id).toHaveLength(CONFIG.offer.size);
+    }
+    expect(ai.bankedLevels).toBe(1);
+    // A PvE fleet hull never draws: no bank, no hand (amendment 63e).
+    expect(drone.bankedLevels).toBe(0);
+    expect(drone.offer).toBeNull();
+    // ...and the countdown flag is what the sim reads for the redraw.
+    expect(w.countdownOpen).toBe(true);
+    // The grant's `pt` rides the next frame (the pending->events swap).
+    step(ctx);
+    expect(w.tickEvents.filter((e) => e.k === 'pt').map((e) => e.id).sort()).toEqual(['a', 'b', 'bot-1']);
+  });
+
+  // THE LATCH IS PER SHIP, NOT PER MATCH (Story 8.10 review, P2). A match-wide
+  // flag answered only half of this: it stopped the veteran double-banking,
+  // but it also starved the NEWCOMER, who would have stood on the start line
+  // at LV 0 with an empty bank and no hand while everyone else refits.
+  it('a countdown that CANCELS and re-arms banks nothing more for the veterans and a full opening for the newcomer', () => {
+    const ctx = opening(['a', 'b']);
+    const a = ctx.w.ships.get('a')!;
+    expect(a.bankedLevels).toBe(1);
+    ctx.m.onPlayerLeave('b'); // below minHumans: countdown -> waiting
+    expect(ctx.m.phase).toBe('waiting');
+    expect(ctx.w.countdownOpen).toBe(false);
+    // The level and the hand STAY — the room is still pre-live and the hand
+    // was never spent.
+    expect(a.bankedLevels).toBe(1);
+    const hand = a.offer;
+
+    const c = ctx.w.addShip('c', 'C', 'captain', 'torpedoBoat', undefined, undefined);
+    ctx.m.notifyRosterChanged();
+
+    expect(ctx.m.phase).toBe('countdown');
+    expect(ctx.w.countdownOpen).toBe(true);
+    // The veteran banks NOTHING more — the opening cannot be farmed by cycling
+    // the roster — and does not redraw either.
+    expect(a.bankedLevels).toBe(1);
+    expect(a.offer).toBe(hand);
+    // ...while the captain who arrived during the stand-down gets the opening.
+    expect(c.bankedLevels).toBe(1);
+    expect(c.level).toBe(0);
+    expect(c.offer).toHaveLength(CONFIG.offer.size);
+  });
+
+  it('a hull that JOINS while the countdown is already open gets the opening on the spot', () => {
+    const ctx = opening(['a', 'b']);
+    expect(ctx.w.countdownOpen).toBe(true);
+    // A bot the room tops up with mid-countdown, and a reconnecting captain:
+    // both are participants and both must arrive holding a hand.
+    const ai = ctx.w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', undefined, undefined);
+    const late = ctx.w.addShip('c', 'C', 'captain', 'torpedoBoat', undefined, undefined);
+    for (const s of [ai, late]) {
+      expect(s.bankedLevels, s.id).toBe(1);
+      expect(s.level, s.id).toBe(0);
+      expect(s.offer, s.id).toHaveLength(CONFIG.offer.size);
+    }
+    // ...exactly once: the arming that follows the roster change re-sweeps
+    // every hull and the per-ship latch refuses a second bank.
+    ctx.m.notifyRosterChanged();
+    expect(ai.bankedLevels).toBe(1);
+    expect(late.bankedLevels).toBe(1);
+    // A PvE hull is still excluded, mid-countdown as at the arm (amendment 63e).
+    const drone = ctx.w.addShip('fleet-1', 'FLEET', 'fleet', 'droneSmall', undefined, undefined);
+    expect(drone.bankedLevels).toBe(0);
+    expect(drone.offer).toBeNull();
+  });
+
+  // THE HARNESS SHAPE (Story 8.10 review, P1). The batch-sim runner
+  // (server/scripts/batchsim/runner.ts) and the RL env (server/scripts/rl/
+  // env.ts) both build a `Match` with NO `expectedCaptains`, so `boardingRoom`
+  // is false and the activation used to take the WIPE path — they measured an
+  // opening production never plays. The preservation is unconditional now, so
+  // this room behaves exactly like a boarding room's economy.
+  it('a room with NO expectedCaptains (the batch-sim / RL shape) carries the countdown economy too', () => {
+    const w = new World(1);
+    w.map.islands.length = 0;
+    const rec = recorder();
+    const m = new Match(w, TIMINGS, rec.hooks); // no expectedCaptains: NOT a boarding room
+    w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    m.notifyRosterChanged();
+    const ai = w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', undefined, undefined);
+    w.addShip('b', 'B', 'captain', 'torpedoBoat', undefined, undefined);
+    m.notifyRosterChanged(); // both captains aboard: the countdown arms here
+    const ctx: Ctx = { w, m, ...rec };
+    expect(m.phase).toBe('countdown');
+    expect(ai.bankedLevels).toBe(1);
+
+    // The bot spends its opening level on the guaranteed card, through the one
+    // wire path its policy uses.
+    const picked = ai.offer![0];
+    expect(w.spendPoint('bot-1', 0)).toBe(true);
+    expect(ai.bankedLevels).toBe(0);
+    const fitted = ai.loadout.filter((s) => s.equipmentId !== null).length;
+
+    activate(ctx);
+
+    // THE CARD IS ABOARD at 0:00 and the level it cost stays spent.
+    expect(ai.cards).toEqual([picked]);
+    expect(ai.bankedLevels).toBe(0);
+    expect(ai.stats).toEqual(effectiveStats(ai.cls, [picked]));
+    expect(ai.loadout.filter((s) => s.equipmentId !== null)).toHaveLength(fitted);
+    // ...on a fresh clock, and the hull itself is still reset.
+    expect(ai.loadout.every((s) => s.state === null || s.state.reloadMsLeft === 0)).toBe(true);
+    expect(ai.hp).toBe(ai.stats.maxHp);
+    expect(ai.xpMs).toBe(0);
+  });
+
+  it('activation shuts the redraw FIRST and keeps the countdown economy', () => {
+    const ctx = opening(['a', 'b']);
+    const a = ctx.w.ships.get('a')!;
+    // Take the guaranteed first card at the start line, exactly as a captain
+    // does when the window auto-opens.
+    const picked = a.offer![0];
+    expect(ctx.w.spendPoint('a', 0)).toBe(true);
+    expect(a.bankedLevels).toBe(0);
+    const b = ctx.w.ships.get('b')!;
+    const heldHand = b.offer;
+    a.hp = 11;
+
+    activate(ctx);
+
+    expect(ctx.w.countdownOpen).toBe(false);
+    // The card is ABOARD at 0:00 — fitted, on a fresh clock — and hp is reset.
+    expect(a.cards).toContain(picked);
+    expect(a.loadout.some((s) => s.equipmentId === picked)).toBe(true);
+    expect(a.loadout.every((s) => s.state === null || s.state.reloadMsLeft === 0)).toBe(true);
+    expect(a.hp).toBe(a.stats.maxHp);
+    // ...and the captain who took nothing still HOLDS the same hand.
+    expect(b.offer).toBe(heldHand);
+    expect(b.bankedLevels).toBe(1);
+  });
+
+  it('the DEV smoke arm (autoMulligan) redraws every captain on the next tick', () => {
+    const ctx = opening(['a', 'b'], { ...TIMINGS, countdownMs: 10_000, expectedCaptains: 2, autoMulligan: true });
+    const a = ctx.w.ships.get('a')!;
+    const handA = [...a.offer!];
+    step(ctx); // the first update() after startCountdown
+    expect([...a.offer!]).not.toEqual(handA);
+    expect(a.mulliganed).toBe(true);
+    // ...once only: the captain's own sentinel afterwards is the no-op.
+    const handB = a.offer;
+    expect(ctx.w.spendPoint('a', MULLIGAN_CHOICE)).toBe(false);
+    expect(a.offer).toBe(handB);
+    step(ctx);
+    expect(a.offer).toBe(handB);
+  });
+
+  it('without the arm nothing redraws itself', () => {
+    const ctx = opening(['a', 'b'], { ...TIMINGS, countdownMs: 10_000, expectedCaptains: 2 });
+    const a = ctx.w.ships.get('a')!;
+    const hand = a.offer;
+    step(ctx);
+    step(ctx);
+    expect(a.offer).toBe(hand);
+    expect(a.mulliganed).toBe(false);
   });
 });
 
@@ -272,7 +489,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
   it('NEGATIVE joinWindowMs takes the legacy path too: immediate countdown + lock', () => {
     // The contract is "<= 0 collapses to legacy", not "=== 0" — pin the < 0 leg.
     const ctx = setup(['a'], 'torpedoBoat', { countdownMs: 100, resultsMs: 200, joinWindowMs: -1 });
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('countdown');
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + 100);
@@ -282,7 +499,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
   it('opens UNLOCKED at minHumans: gathering phase, deadline set, no lock call', () => {
     const ctx = gsetup(['a']);
     expect(ctx.m.phase).toBe('waiting');
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('gathering');
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + GATHER_TIMINGS.joinWindowMs);
@@ -308,7 +525,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
     const ctx = gsetup(['a', 'b']);
     const deadline = ctx.m.countdownEndT;
     step(ctx); // let time advance so a reset would be visible
-    ctx.w.addShip('c', 'C');
+    ctx.w.addShip('c', 'C', undefined, undefined, undefined, undefined);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('gathering');
     expect(ctx.m.countdownEndT).toBe(deadline);
@@ -329,7 +546,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
   it('countdownEndT is the CURRENT-PHASE deadline: gathering end, then countdown end, 0 in waiting', () => {
     const ctx = gsetup(['a']);
     expect(ctx.m.countdownEndT).toBe(0); // waiting
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     ctx.m.notifyRosterChanged();
     const gatherEnd = ctx.w.now + GATHER_TIMINGS.joinWindowMs;
     expect(ctx.m.countdownEndT).toBe(gatherEnd);
@@ -348,7 +565,7 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
     expect(ctx.calls).toEqual([]); // never locked, so never unlocked
     // Reaching the minimum again opens a FRESH window.
     step(ctx, 3);
-    ctx.w.addShip('b', 'B');
+    ctx.w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     ctx.m.notifyRosterChanged();
     expect(ctx.m.phase).toBe('gathering');
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + GATHER_TIMINGS.joinWindowMs);
@@ -357,12 +574,16 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
 
 describe('match — active phase', () => {
   it('re-enables mine drops', () => {
-    const ctx = setup(['a', 'b'], 'mineLayer'); // mine at slot 1 (Story 1.8: [gun, mine, radarBuoy])
+    const ctx = setup(['a', 'b'], 'mineLayer');
     activate(ctx);
-    mineClick(ctx, 'a', 1, 1); // Story 2.8: mines are an aimed WEAPON — a rear-arc click
+    // AFTER the activation: this is the dev/sandbox room (no expectedCaptains),
+    // whose redeploy still WIPES the build — so the rack card is fitted on the
+    // live water, exactly where a real pick would land it.
+    fitRack(ctx, 'a');
+    mineClick(ctx, 'a', SLOT_MINE_ML, 1); // Story 2.8: mines are an aimed WEAPON — a rear-arc click
     step(ctx);
     expect(ctx.w.mines.size).toBe(1);
-    expect(ctx.w.ships.get('a')!.loadout[1].state!.reloadMsLeft).toBeGreaterThan(0); // drop started the reload
+    expect(ctx.w.ships.get('a')!.loadout[SLOT_MINE_ML].state!.reloadMsLeft).toBeGreaterThan(0); // drop started the reload
   });
 
   it('leaves sunk ships down: no respawn is ever scheduled', () => {
@@ -420,7 +641,7 @@ describe('match — active phase', () => {
     // participants is snapshotted once at activate(); simulate a ship added
     // to the World afterward without going through the normal join path (the
     // room lock makes this unreachable in production, but harden it anyway).
-    ctx.w.addShip('late', 'LATE');
+    ctx.w.addShip('late', 'LATE', undefined, undefined, undefined, undefined);
     expect(ctx.m.phase).toBe('active'); // 3 humans now alive: no insta-finish
     ctx.w.sinkShip('a', 'late');
     ctx.w.sinkShip('b', 'late');
@@ -515,7 +736,7 @@ describe('match — finished phase', () => {
 
   it('never starts a new match in the same room', () => {
     const ctx = finished();
-    ctx.w.addShip('d', 'D');
+    ctx.w.addShip('d', 'D', undefined, undefined, undefined, undefined);
     ctx.m.notifyRosterChanged();
     step(ctx, 5);
     expect(ctx.m.phase).toBe('finished');
@@ -546,7 +767,7 @@ describe('match — the results table is captains only', () => {
    *  AFTER the captains, so activation roster order is captains then drones. */
   function withDrones(captains: string[], drones: number): Ctx {
     const ctx = setup(captains);
-    for (let i = 1; i <= drones; i++) ctx.w.addShip(`drone-${i}`, `DRONE-0${i}`, 'fleet');
+    for (let i = 1; i <= drones; i++) ctx.w.addShip(`drone-${i}`, `DRONE-0${i}`, 'fleet', undefined, undefined, undefined);
     activate(ctx);
     return ctx;
   }
@@ -671,7 +892,7 @@ describe('match — the win check counts PARTICIPANTS, the countdown counts HUMA
   /** Captains + `fleet` PvE hulls in the water, activated. */
   function withFleet(captains: string[], fleet: number): Ctx {
     const ctx = setup(captains);
-    for (let i = 1; i <= fleet; i++) ctx.w.addShip(`fleet-${i}`, 'DRONE', 'fleet', 'droneSmall');
+    for (let i = 1; i <= fleet; i++) ctx.w.addShip(`fleet-${i}`, 'DRONE', 'fleet', 'droneSmall', undefined, undefined);
     activate(ctx);
     return ctx;
   }
@@ -681,7 +902,7 @@ describe('match — the win check counts PARTICIPANTS, the countdown counts HUMA
     // and zero captains, so the room stays in its ready room — the property
     // FR34 turns into a hard rule for bots in 6.4.
     const ctx = setup(['a']);
-    for (let i = 1; i <= 9; i++) ctx.w.addShip(`fleet-${i}`, 'DRONE', 'fleet', 'droneSmall');
+    for (let i = 1; i <= 9; i++) ctx.w.addShip(`fleet-${i}`, 'DRONE', 'fleet', 'droneSmall', undefined, undefined);
     ctx.m.notifyRosterChanged();
     step(ctx, 20);
     expect(ctx.m.phase).toBe('waiting');
@@ -751,8 +972,8 @@ describe('match — AI CAPTAINS are participants (Story 6.5: 1 human + a bot fle
     w.map.islands.length = 0;
     const rec = recorder();
     const m = new Match(w, timings, rec.hooks);
-    for (let i = 0; i < bots; i++) w.addBot();
-    w.addShip('alice', 'ALICE');
+    for (let i = 0; i < bots; i++) w.addBot(undefined, undefined);
+    w.addShip('alice', 'ALICE', undefined, undefined, undefined, undefined);
     m.notifyRosterChanged();
     return { w, m, ...rec };
   }
@@ -805,7 +1026,7 @@ describe('match — AI CAPTAINS are participants (Story 6.5: 1 human + a bot fle
     w.map.islands.length = 0;
     const rec = recorder();
     const m = new Match(w, SOLO, rec.hooks);
-    for (let i = 0; i < 19; i++) w.addBot();
+    for (let i = 0; i < 19; i++) w.addBot(undefined, undefined);
     m.notifyRosterChanged();
     for (let i = 0; i < 20; i++) {
       w.step();
@@ -821,7 +1042,7 @@ describe('world storm damage respects the damage policy flag', () => {
     // Fast zone: fully closed on a tiny concentric terminal within a few ticks.
     const w = new World(1, 6, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 1 });
     w.map.islands.length = 0;
-    const a = w.addShip('a', 'A');
+    const a = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
     w.startZone();
     for (let i = 0; i < 10; i++) w.step(); // zone now far smaller than the ring
     const ring = w.zoneLiveRing;

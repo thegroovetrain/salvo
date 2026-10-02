@@ -4,7 +4,7 @@
 // sets reconnection.enabled + a maxRetries sized to span that window, and rides
 // a `pv` (PROTOCOL_VERSION) in the join options for the server's version gate.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_HORN_ID, MSG, PROTOCOL_VERSION, REGATTA_HUES } from '@salvo/shared';
+import { DEFAULT_GUN, DEFAULT_HORN_ID, MSG, PROTOCOL_VERSION, REGATTA_HUES, type GunId } from '@salvo/shared';
 
 interface FakeRoom {
   reconnection: { enabled: boolean; maxRetries: number };
@@ -22,10 +22,10 @@ interface FakeRoom {
   sent: Array<{ type: string; msg: unknown }>;
   fire: (type: string, msg: unknown) => void;
   /**
-   * A RECONNECT ACK, in the SDK's real order (@colyseus/sdk 0.17.43
+   * A RECONNECT ACK, in the SDK's real order (@colyseus/sdk 0.18.2
    * `build/Room.mjs`): `onReconnect.invoke()` runs its handlers SYNCHRONOUSLY
-   * (`:241`, via `EventEmitter.invoke`'s `forEach`) and the rotated token is
-   * assigned on the NEXT LINE (`:243`). Modelling that order is the whole point
+   * (`:483`, via `EventEmitter.invoke`'s `forEach`) and the rotated token is
+   * assigned on the NEXT LINE (`:485`). Modelling that order is the whole point
    * — a handler that reads `reconnectionToken` directly sees the OLD value, and
    * only a continuation scheduled out of it sees the new one.
    */
@@ -179,8 +179,9 @@ const SEAT = { room: { roomId: 'arena-1', processId: 'p1' }, sessionId: 'arena-s
  *  reservation, then fire the ARENA welcome it awaits. */
 async function connectAndWelcome(
   hooks: ConnectHooks = {},
+  gun?: GunId,
 ): Promise<Awaited<ReturnType<typeof connect>>> {
-  const pending = connect('tester', undefined, hooks);
+  const pending = connect('tester', undefined, hooks, false, gun);
   await vi.waitFor(() => {
     if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
   });
@@ -388,6 +389,9 @@ describe('connect — the SOLO VS AI door (Story 6.5)', () => {
     expect(lastCreateOpts?.name).toBe('tester');
     expect(lastCreateOpts?.horn).toBe(DEFAULT_HORN_ID);
     expect(typeof lastCreateOpts?.colorPref).toBe('number');
+    // Story 8.14: the SEAT'S GUN rides the solo door exactly as it rides the
+    // queue door — the solo arena seats a captain the same way.
+    expect(lastCreateOpts?.gun).toBe(DEFAULT_GUN);
   });
 
   it('binds NO queue channel and hands out NO canceller — there is nothing to wait for', async () => {
@@ -438,6 +442,21 @@ describe('connect', () => {
   it('rides the current PROTOCOL_VERSION as `pv` in the join options', async () => {
     await connectAndWelcome();
     expect(lastJoinOpts?.pv).toBe(PROTOCOL_VERSION);
+  });
+
+  it("forwards the seat's gun as `gun` — DEFAULT_GUN when the caller names none", async () => {
+    await connectAndWelcome();
+    // Story 8.14 (epic-8 amendments 89d/95): the gun is the captain's PICK,
+    // frozen at queue and re-sanitized server-side exactly like `cls`. It is
+    // always SENT, never omitted, so the server's coercion path is never what
+    // decides a real captain's gun.
+    expect(lastJoinOpts?.gun).toBe(DEFAULT_GUN);
+    expect(lastJoinOpts?.gun).toBe('deckGun');
+  });
+
+  it('forwards the THREADED gun pick verbatim (Story 8.15: startGame, connect, joinOptions)', async () => {
+    await connectAndWelcome({}, 'machineGun');
+    expect(lastJoinOpts?.gun).toBe('machineGun');
   });
 
   it('forwards the persisted foghorn variant as `horn` (Story 4.5, amendment 52)', async () => {
@@ -680,7 +699,7 @@ describe('the resume token store (net/resumeToken.ts)', () => {
 
   it('reads a MALFORMED stored value as absent rather than handing it to the SDK', () => {
     // `Client.reconnect()` splits on ':' and THROWS on anything that is not
-    // `roomId:token` (@colyseus/sdk 0.17.43 build/Client.mjs), so a corrupt key
+    // `roomId:token` (@colyseus/sdk 0.18.2 build/Client.mjs:131-134), so a corrupt key
     // must land on the home screen, never as an exception on the boot path.
     for (const junk of ['', 'no-colon', ':', 'roomonly:', ':tokenonly']) {
       sessionStorage.setItem(RESUME_TOKEN_KEY, junk);
@@ -729,9 +748,9 @@ describe('connect — persisting the reconnection token (Story 6.7)', () => {
     // a refresh inside it fast-fails on a dead token, which is the half-resume
     // double fault R9 exists to prevent.
     //
-    // Verified against @colyseus/sdk 0.17.43 `build/Room.mjs`: the JOIN_ROOM
-    // handler calls `onReconnect.invoke()` (`:241`) and assigns the rotated
-    // token on the NEXT LINE (`:243`), both synchronous. So the handler itself
+    // Verified against @colyseus/sdk 0.18.2 `build/Room.mjs`: the JOIN_ROOM
+    // handler calls `onReconnect.invoke()` (`:483`) and assigns the rotated
+    // token on the NEXT LINE (`:485`), both synchronous. So the handler itself
     // must NOT read the token — a microtask scheduled out of it must.
     await connectAndWelcome();
     let insideHandler: string | null = null;

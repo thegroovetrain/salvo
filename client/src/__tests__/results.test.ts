@@ -12,7 +12,9 @@
 // no-instant-re-queue guarantee a test rather than a construction.
 
 import { describe, it, expect, afterEach } from 'vitest';
-import type { ResultsMsg, ResultsRow } from '@salvo/shared';
+import { CONFIG, effectiveStats, type ResultsMsg, type ResultsRow, type SlotItemId, type WeaponAmmo } from '@salvo/shared';
+import { LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries } from '../ui/loadoutBlock.js';
+import { LINEAGE_TIERS } from '../ui/tierRamp.js';
 import {
   BANNER_HUES,
   bannerOutcome,
@@ -22,7 +24,6 @@ import {
   fmtDamage,
   hideResults,
   matchLogRow,
-  offerHeading,
   ordinalPlace,
   placementLine,
   resultsVisible,
@@ -64,9 +65,53 @@ function log(tMs: number, kind: 'sank' | 'sunkBy', name: string): MatchLogEntry 
   return { tMs, kind, name };
 }
 
-/** An own hull with a build — the identity line + the two cut-able blocks. */
+/** An own hull with a build — the identity line + the LOADOUT block. The stats
+ *  are the real fold over `cards`, exactly as main.ts's `g.ownStats` is. */
 function own(over: Partial<ResultsOwn> = {}): ResultsOwn {
-  return { name: 'TIN SPARROW', cls: 'torpedoBoat', hue: 0x00d0ff, boons: [], offer: [], pts: 0, ...over };
+  const cards = over.cards ?? [];
+  const slots: (SlotItemId | null)[] = ['gun', 'boost', null, null, null, null, null, null, null];
+  return {
+    name: 'TIN SPARROW',
+    cls: 'torpedoBoat',
+    hue: 0x00d0ff,
+    cards,
+    gun: 'deckGun',
+    slots,
+    ammo: slots.map(() => null),
+    stats: effectiveStats(CONFIG.shipClasses.torpedoBoat, cards),
+    ...over,
+  };
+}
+
+const rep = (id: string, n: number): string[] => Array.from({ length: n }, () => id);
+
+/**
+ * THE MOCK'S FIXTURE (countdown-results-1.html frame 2): gun IV, Shift, Q light
+ * torpedo III, E II, R heavy torpedo I, belt HULL REPAIR ×1 then three empties,
+ * and the ladder line `ARMOR III · SPEED IV · TURNING II · RADAR SWEEP II ·
+ * RELOAD III`. The mock's E is a machine gun II, which since Story 8.15 is a gun
+ * pick and can no longer sit in E — naval mines II stand in for it (same tier).
+ */
+function mockOwn(over: { radarSweep?: number; hullRepair?: number } = {}): ResultsOwn {
+  const cards = [
+    ...rep('deckGun', 3), // gun: 1 + copies = IV
+    ...rep('lightTorpedo', 3),
+    ...rep('navalMines', 2),
+    'heavyTorpedo',
+    ...rep('hullRepair', over.hullRepair ?? 1),
+    ...rep('armor', 2), // base line: 1 + copies = III
+    ...rep('speed', 3), // IV
+    'turning', // II
+    ...rep('radarSweep', over.radarSweep ?? 2), // starts from nothing: copies = II
+    ...rep('reload', 3), // III
+  ];
+  const repair = over.hullRepair ?? 1;
+  const slots: (SlotItemId | null)[] = [
+    'gun', 'boost', 'lightTorpedo', 'navalMines', 'heavyTorpedo', repair > 0 ? 'hullRepair' : null, null, null, null,
+  ];
+  const ammo: (WeaponAmmo | null)[] = slots.map((id) => (id === null ? null : { n: 1, reloadMsLeft: 0 }));
+  ammo[5] = repair > 0 ? { n: repair, reloadMsLeft: 0 } : null;
+  return own({ cards, slots, ammo });
 }
 
 describe('sortRows', () => {
@@ -239,13 +284,6 @@ describe('matchLogRow — Eric\'s chosen composition, verbatim', () => {
   });
 });
 
-describe('offerHeading', () => {
-  it('states the unspent bank plainly, singular and plural', () => {
-    expect(offerHeading(1)).toBe('LAST OFFER — 1 LEVEL UNSPENT');
-    expect(offerHeading(3)).toBe('LAST OFFER — 3 LEVELS UNSPENT');
-  });
-});
-
 describe('showResults — the elimination modal', () => {
   afterEach(() => {
     hideResults();
@@ -318,34 +356,138 @@ describe('showResults — the elimination modal', () => {
     expect(name?.style.fontWeight).toBe('600');
   });
 
-  it('omits the identity line and both build blocks when there is no own hull to describe', () => {
+  it('omits the identity line and the LOADOUT block when there is no own hull to describe', () => {
     showResults(view(), { onSpectate: () => undefined, onReturn: () => undefined });
     const text = document.getElementById('results-overlay')?.textContent ?? '';
     expect(text).not.toContain('TIN SPARROW');
-    expect(text).not.toContain('BOONS ACCRUED');
-    expect(text).not.toContain('LAST OFFER');
+    expect(text).not.toContain('LOADOUT');
+    expect(document.querySelector('[data-loadout-block]')).toBeNull();
   });
 
-  // The two blocks amendment 28 records as an OPEN OWNER DECISION — built to the
-  // mockup, and a pure subtraction to cut on sight.
-  it('draws the accrued boons and the unspent last offer from the own build', () => {
-    showResults(
-      view({ own: own({ boons: ['intelSweep', 'intelSweep'], offer: ['shipHull'], pts: 1 }) }),
-      { onSpectate: () => undefined, onReturn: () => undefined },
-    );
-    const text = document.getElementById('results-overlay')?.textContent ?? '';
-    expect(text).toContain('BOONS ACCRUED');
-    expect(text).toContain('◆ INTEL II'); // stacked copies COLLAPSE to the rung held
-    expect(text).toContain('LAST OFFER — 1 LEVEL UNSPENT');
-    expect(text).toContain('SHIP'); // the card's category tag
-    expect(text).toContain('HULL I');
-  });
+  // STORY 8.21 — THE LOADOUT BLOCK (UX-DR55, FR60): the bar's own slot row at
+  // .72 plus the five-ladder line, replacing the two pre-pool build blocks.
+  describe('the LOADOUT block', () => {
+    const block = (): HTMLElement => {
+      const el = document.querySelector<HTMLElement>('[data-loadout-block]');
+      if (el === null) throw new Error('no LOADOUT block');
+      return el;
+    };
+    const square = (slot: number): HTMLElement => {
+      const el = block().querySelector<HTMLElement>(`[data-loadout-slot="${slot}"]`);
+      if (el === null) throw new Error(`no square ${slot}`);
+      return el;
+    };
+    const tierOf = (slot: number): HTMLElement | null => square(slot).querySelector<HTMLElement>('[data-loadout-tier]');
+    const ladder = (): string => block().querySelector('[data-loadout-ladder]')?.textContent ?? '';
+    const open = (o: ResultsOwn): void => showResults(view({ own: o }), { onSpectate: () => undefined, onReturn: () => undefined });
 
-  it('draws no LAST OFFER block when nothing is banked', () => {
-    showResults(view({ own: own({ boons: ['intelSweep'] }) }), { onSpectate: () => undefined, onReturn: () => undefined });
-    const text = document.getElementById('results-overlay')?.textContent ?? '';
-    expect(text).toContain('BOONS ACCRUED');
-    expect(text).not.toContain('LAST OFFER');
+    it('heads the block LOADOUT and draws nine squares in the bar order, each over its key chip', () => {
+      open(mockOwn());
+      expect(block().firstElementChild?.textContent).toBe('LOADOUT');
+      expect(block().querySelectorAll('[data-loadout-slot]')).toHaveLength(9);
+      const chips = [...block().querySelectorAll('[data-loadout-chip]')].map((c) => c.textContent);
+      expect(chips).toEqual(['·', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4']);
+      // The gun's chip is a GHOST: laid out for the baseline, never seen.
+      expect((block().querySelector('[data-loadout-chip="0"]') as HTMLElement).style.color).toBe('transparent');
+    });
+
+    it('squares are the bar × .72 (54→39, belt 44→32) and every fitted square wears its glyph', () => {
+      open(mockOwn());
+      expect(LOADOUT_PX.slot).toBe(Math.round(CLIENT_CONFIG.hudBar.slot * 0.72));
+      expect(LOADOUT_PX.beltSlot).toBe(Math.round(CLIENT_CONFIG.hudBar.beltSlot * 0.72));
+      expect(square(0).style.width).toBe(`${LOADOUT_PX.slot}px`);
+      expect(square(5).style.width).toBe(`${LOADOUT_PX.beltSlot}px`);
+      // Every fitted square — the belt's HULL REPAIR included, which takes its
+      // rod of Asclepius (cycle 162) from the ONE glyph source
+      // (equipmentIcons.ts), never art drawn by this block.
+      for (const slot of [0, 1, 2, 3, 4, 5]) expect(square(slot).querySelector('svg'), `slot ${slot}`).not.toBeNull();
+      expect(square(5).style.borderStyle).toBe('solid');
+    });
+
+    it('prints the tier numerals on the absolute ramp — gun IV, Q III, E II, R I — and none on Shift', () => {
+      open(mockOwn());
+      const expected: [number, string, number][] = [[0, 'IV', 3], [2, 'III', 2], [3, 'II', 1], [4, 'I', 0]];
+      for (const [slot, numeral, rung] of expected) {
+        expect(tierOf(slot)?.textContent, `slot ${slot}`).toBe(numeral);
+        expect(tierOf(slot)?.style.color, `slot ${slot}`).toBe(LINEAGE_TIERS[rung]);
+      }
+      expect(tierOf(1)).toBeNull(); // Shift carries no rung
+      for (const slot of [5, 6, 7, 8]) expect(tierOf(slot), `belt ${slot}`).toBeNull();
+    });
+
+    it('badges the belt stock `×1` and draws the three empties as the bar\'s dash (no ×0, no word)', () => {
+      open(mockOwn());
+      expect(square(5).querySelector('[data-loadout-badge]')?.textContent).toBe('×1');
+      for (const slot of [6, 7, 8]) {
+        expect(square(slot).textContent, `belt ${slot}`).toBe('—');
+        expect(square(slot).querySelector('svg')).toBeNull();
+        expect(square(slot).style.borderStyle).toBe('dashed');
+      }
+      expect(block().textContent).not.toContain('×0');
+      expect(block().textContent).not.toContain('EMPTY');
+    });
+
+    it('a belt stack fired to zero reads as the empty square (Eric R4)', () => {
+      open(mockOwn({ hullRepair: 0 }));
+      expect(square(5).textContent).toBe('—');
+      expect(block().querySelectorAll('[data-loadout-badge]')).toHaveLength(0);
+    });
+
+    it('renders no line NAME on the row — the glyph is the name', () => {
+      open(mockOwn());
+      const row = block().querySelector('[data-loadout-row]')?.textContent ?? '';
+      for (const name of ['CANNON', 'TORPEDO', 'MINES', 'REPAIR', 'BOOST']) expect(row).not.toContain(name);
+    });
+
+    it('the ladder line reads the mock verbatim: ARMOR III · SPEED IV · TURNING II · RADAR SWEEP II · RELOAD III', () => {
+      open(mockOwn());
+      expect(ladder()).toBe('ARMORIII·SPEEDIV·TURNINGII·RADAR SWEEPII·RELOADIII');
+      const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > span > span')];
+      expect(numerals.map((n) => n.style.color)).toEqual([2, 3, 1, 1, 2].map((i) => LINEAGE_TIERS[i]));
+    });
+
+    it('an untaken RADAR SWEEP reads `RADAR SWEEP —` in the muted label colour (Eric R2), all five still listed', () => {
+      open(mockOwn({ radarSweep: 0 }));
+      expect(ladder()).toBe('ARMORIII·SPEEDIV·TURNINGII·RADAR SWEEP—·RELOADIII');
+      const entries = ladderEntries([]);
+      expect(entries.map((e) => e.label)).toEqual(['ARMOR', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD']);
+      // Base lines sail at Tier I; the two that start from nothing dash.
+      expect(entries.map((e) => e.tier)).toEqual([1, 1, 1, null, null]);
+      const dash = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > span > span')][3];
+      expect(dash.textContent).toBe('—');
+      expect(dash.style.color).toBe('var(--hc-text-muted)');
+    });
+
+    // THE 9 PX FLOOR (amendment 43): the squares scale, the text does not. Every
+    // element that carries text reads its size from itself or its nearest sized
+    // ancestor inside the block — and none is under the floor.
+    it('THE 9 PX FLOOR — no text in the block renders under 9 px', () => {
+      open(mockOwn({ radarSweep: 0 }));
+      // jsdom keeps a `font:` shorthand whose family is a `var()` verbatim but
+      // never expands it into `fontSize`, so the size is read off the declaration
+      // text: a `font-size` longhand, else the shorthand's first px length.
+      const ownSize = (e: HTMLElement): number | null => {
+        const css = e.getAttribute('style') ?? '';
+        const m = /font-size:\s*([\d.]+)px/.exec(css) ?? /font:[^;]*?([\d.]+)px/.exec(css);
+        return m === null ? null : parseFloat(m[1]);
+      };
+      const sizeOf = (el: HTMLElement | null): number => {
+        for (let e = el; e !== null; e = e.parentElement) {
+          const px = ownSize(e);
+          if (px !== null) return px;
+        }
+        return Number.NaN;
+      };
+      const texted = [block(), ...block().querySelectorAll<HTMLElement>('*')].filter((el) =>
+        [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim() !== ''),
+      );
+      expect(texted.length).toBeGreaterThan(20); // head + 9 chips + 4 marks + 1 badge + 3 dashes + ladder
+      for (const el of texted) {
+        const px = sizeOf(el);
+        expect(Number.isFinite(px), `"${el.textContent}" has no font size`).toBe(true);
+        expect(px, `"${el.textContent}"`).toBeGreaterThanOrEqual(LOADOUT_TEXT_FLOOR_PX);
+      }
+    });
   });
 
   it('renders the MATCH LOG in order, and omits the whole block when it is empty', () => {
@@ -428,6 +570,17 @@ describe('showResults — the game-end modal', () => {
     expect(text).toContain('CAPTAIN'); // the table header
     expect(document.querySelector('#results-spectate')).toBeNull();
     expect(document.querySelector('#results-return')).not.toBeNull();
+  });
+
+  it('the game-end modal draws the same LOADOUT block, after the score card and before the table', () => {
+    showResults(view({ banner: winnerBanner(msg, 'b'), rows: msg.rows, canSpectate: false, own: mockOwn() }), {
+      onSpectate: () => undefined,
+      onReturn: () => undefined,
+    });
+    const text = document.getElementById('results-overlay')?.textContent ?? '';
+    expect(document.querySelectorAll('[data-loadout-block]')).toHaveLength(1);
+    expect(text.indexOf('SHIPS YOU SANK')).toBeLessThan(text.indexOf('LOADOUT'));
+    expect(text.indexOf('LOADOUT')).toBeLessThan(text.indexOf('CAPTAIN'));
   });
 
   it('a WINNER gets the winner indication rather than a placement', () => {
@@ -528,7 +681,7 @@ describe('updateResultsScore — an open elimination modal re-renders in place',
   // exactly once, in order, and leave the section order alone.
   it('a MATCH LOG line landing after the modal opened is appended once, in place', () => {
     const first = [log(161_000, 'sank', 'SALT SHAKER'), log(387_000, 'sunkBy', 'KRAKENS BANE')];
-    showResults(view({ score: score({ matchLog: first }), own: own({ boons: ['intelSweep'] }) }), {
+    showResults(view({ score: score({ matchLog: first }), own: mockOwn() }), {
       onSpectate: () => undefined,
       onReturn: () => undefined,
     });
@@ -544,10 +697,10 @@ describe('updateResultsScore — an open elimination modal re-renders in place',
     expect(t.indexOf('SALT SHAKER')).toBeLessThan(t.indexOf('KRAKENS BANE'));
     expect(t.indexOf('KRAKENS BANE')).toBeLessThan(t.indexOf('IRON KETTLE'));
     // And the panel's section order is untouched (the card is REPLACED in place,
-    // so BOONS ACCRUED stays below it rather than being shuffled above).
+    // so the LOADOUT block stays below it rather than being shuffled above).
     expect([...(panel?.children ?? [])].length).toBe(before);
     expect(t.indexOf('MATCH LOG')).toBeLessThan(t.indexOf('SHIPS YOU SANK'));
-    expect(t.indexOf('SHIPS YOU SANK')).toBeLessThan(t.indexOf('BOONS ACCRUED'));
+    expect(t.indexOf('SHIPS YOU SANK')).toBeLessThan(t.indexOf('LOADOUT'));
   });
 
   it('leaves the ACTIONS alone — the only paths out survive a refresh', () => {

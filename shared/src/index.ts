@@ -3,6 +3,247 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  71 — cycle 167: private lobbies: CONFIG.lobby read by the client, arena
+ *  mode 'private'; new lobby-room channels lr/ls/lb/lg and shared
+ *  sim/seedText.ts (host seed text → uint32). Perception exception count
+ *  stays SIX.
+ *  70 — cycle 166: catalog content — the three deck-gun ladders re-authored
+ *  to Eric's 2026-10-02 tables (amendment 232): CANNON damage 16/16/18/18/21
+ *  (base 15→16; +2 at III, +3 at V) with a barrel on the rungs to II and IV
+ *  (1/2/2/3/3); MACHINE GUN +4 shells and −50 ms per rung, +1 damage at II
+ *  and IV only; FLAK damage +8 per rung (12/20/28/36/44) with a turret at II
+ *  and IV (1/2/2/3/3). CONFIG.machineGun maxAmmo 16→12, rateMs 350→300,
+ *  reloadMs 10000→12000, damage 4→5; CONFIG.flak.reloadMs 4000→3500;
+ *  CONFIG.gun.damage 15→16; CONFIG.instantReload.reloadMs 45000→60000 — the
+ *  refit card and tooltips print these from CONFIG.
+ *  Perception exception count stays SIX.
+ *  69 — cycle 163: new self-private `dp` GameEvent (DropEvent {k,id,boon} —
+ *  a consumable stocked by a drone kill, Eric 2026-10-01), riding the
+ *  killer's frame only like `pt`/`bn`; server-only CONFIG.droneDrops (the
+ *  client does not read it). Perception exception count stays SIX.
+ *  68 — cycle 162: MineView.c rides for every observer (Eric 2026-10-01);
+ *  OwnShip.chaffGhosts (self-private owner fake paints); chaff.radius
+ *  120→180, smokeScreen r0/r1 ×1.5 — the client draws both from CONFIG.
+ *  Perception exception count stays SIX.
+ *  67 — cycle 161: STAR SHELLS burst damage 10→20 / PHOSPHOR SHELLS burst
+ *  20→10 by tier (swapped, Eric 2026-10-01, amendment 208); FLAK reload
+ *  6 → 4 s at tier I (amendment 210); the refit card and tooltips print
+ *  these values from CONFIG.
+ *  66 — CONFIG.mine.hitRadiusU read by the client; mine hit masks (machine
+ *  gun gains `mine`, broadside/phosphor lose it) — Eric 2026-10-01,
+ *  amendment 200.
+ *  65 — catalog content: DECK GUN TURRET and DECK GUN BARREL deleted; the
+ *  second turret and second barrel are CANNON tier III / V rungs, the flak
+ *  turrets are FLAK tier III / V rungs (Eric 2026-09-30).
+ *  64 — catalog content: the machine-gun ladder authors rateMs (−40/−40/
+ *  −40/−30 ms, 0.35 → 0.20 s); the stats row drops idleReloadMs — cycle 158.
+ *  CONFIG.machineGun.rateMs 500 → 350 and reloadMs 15000 → 10000 (Eric
+ *  2026-09-30); the swap starts the tick the stream stops (server-only).
+ *  Self-private OwnShip.chaff?: {x, y, until} (the owner's live chaff
+ *  cloud, amendment 191 — rides `you` only).
+ *  Perception exception count stays SIX.
+ *  63 — smoke puff radii 40/60 → 82.5/165 u (the client derives the disc
+ *  from the shared curve) — cycle 156. CONFIG.smokeScreen.r0/r1 become 1/8
+ *  and 2/8 of intel range (Eric 2026-09-30); CONFIG.regen.outOfCombatMs
+ *  30000 → 15000 rides along (server-only). Perception exception count stays
+ *  SIX.
+ *  62 — Story 8.19 Wake Drafting: OwnShip.draft?: number (self-private,
+ *  omitted when 0 — the wake-draft lift the server folded into this hull's
+ *  forward cap this tick, the exact double, so the predictor's
+ *  `draftedKinematics` fold matches); CONFIG.wake.draft {lift,
+ *  halfWidthBeams} (Eric rulings 2026-09-30, epic-8 amendments 151–155).
+ *  Perception exception count stays SIX.
+ *  61 — Story 8.18 Smoke Screen: FrameMsg.smoke channel (SmokeView
+ *  {id,x,y,t0} — no owner, no own-flag); smokeScreen stub flipped (a new
+ *  dealable consumable); CONFIG.smokeScreen read by the client (incl.
+ *  `inSmokeSightFraction`, amendment 149); `OwnShip.inSmoke?: true` (self-
+ *  private, omitted when false — the hull's centre is inside a live puff, so
+ *  the client's `effectiveSight(stats, dazzled, inSmoke)` mirror matches the
+ *  server's); perception exception count stays SIX.
+ *  60 — Story 8.17 Catalog v3: Star Shells, Broadside, Phosphor, Flash (Eric
+ *  rulings 2026-09-29, epic-8 amendments 129–135) — LitZoneView loses
+ *  phos/daz; FrameMsg.burnZones (BurnZoneView); phosphorShells becomes an
+ *  EquipmentId, dazzleShells a ConsumableId (FLASH SHELLS); CONFIG gains
+ *  phosphorShells + flashShells, starShells gains damage (and loses its three
+ *  doctrine fields); catalog: star/broadside/phosphor ladders, add-ons gone
+ *  (26 lines, 117 cards). Perception exception count stays SIX.
+ *  59 — Story 8.16 Catalog v3: Shield, Chaff, Decoy (Eric rulings 2026-09-29,
+ *  epic-8 amendments 116–124) — `OwnShip.shield?` (self-private),
+ *  `FrameMsg.decoys?` (`DecoyView`: `by` for every observer, `hp` own-only),
+ *  `FrameMsg.buoys` + `BuoyView` + the `src` blip tag DELETED (radar buoy
+ *  gone, with its `EquipmentId` and stat row), `CONFIG.shieldBlock/chaff/
+ *  decoyBuoy`; shieldBlock/chaff/decoyBuoy stubs flipped (catalog content).
+ *  Perception exception count stays SIX.
+ *  58 — Story 8.15 (Eric rulings 2026-09-28, epic-8 amendments 97–110):
+ *  `InputMsg.held` (required boolean, malformed drops the message), the shell
+ *  reveal's optional `w` family field ('cannon'|'mg'|'flak' — the ONE declared
+ *  disclosure widening, amendment 89(i); torpedo reveals unchanged),
+ *  `OwnShip.damageCutUntil?` (self-private), catalog content
+ *  (missile/monitor/heatSeeking deleted; machineGun/flak become the mountable
+ *  guns' ladders; LINE_IDS 29 → 26), the Shift ids. Perception exception
+ *  count stays SIX; the reveal shape gains exactly one optional key.
+ *  57 — Story 8.14: decks and the match pool retired; the seat carries `gun`
+ *  (join option, default deckGun); `OwnShip.gun`; the deck door/4402 refusal
+ *  and `deckId`/`deckOverride`/`poolOverride` join keys are gone;
+ *  `CONFIG.deck`/`CONFIG.pool` deleted (the client reads `CONFIG.offer`).
+ *  THE COMMON POOL (Eric rulings 2026-09-21/22, epic-8 amendments 89–95): no
+ *  card is class-locked and none is brought — every dealable catalog line is
+ *  drawable by every captain, bounded by `cap`, the three weapon slots and the
+ *  mounted gun, through the two-stage draw in sim/draw.ts. Catalog CONTENT is
+ *  unchanged, but WHAT A CAPTAIN CAN BE DEALT is not, and the join contract
+ *  moves in three ways a stale client cannot survive: it would send a `deckId`
+ *  nothing reads, it would not send `gun`, and it would replay its own loadout
+ *  without one. `CONFIG.offer` gains the `weighting` block (factor 0.75 /
+ *  floor 0.25) inside the welcome CONFIG snapshot. No new event kind, no
+ *  change to any spatial shape, and THE PERCEPTION EXCEPTION COUNT STAYS AT
+ *  SIX — the take ledger, the per-ship weights and every other captain's `gun`
+ *  stay server-side.
+ *  56 (Story 8.13): CATALOG V3 — TORPEDOES AND MINES (Eric rulings
+ *  2026-09-19, epic-8 amendments 74–84). ONE bump covering two independent
+ *  breaks.
+ *  (1) CATALOG CONTENT CHANGED, and catalog content IS wire contract (the
+ *  convention from 13). Five equipment lines gained their tiers II–V (LIGHT
+ *  TORPEDO, HEAVY TORPEDO, NAVAL MINES, CAPTIVE MINES, FOULING MINES), and —
+ *  the part a stale client cannot survive — FOUR LINES CHANGED KIND OR
+ *  EXISTENCE: `supercavTorpedo` moved from the equipment id space to the
+ *  CONSUMABLE one (a prime-and-click belt fish with no reload and no tiers,
+ *  amendment 74), `foulingMines` moved the other way from add-on to EQUIPMENT
+ *  line (amendment 81), `acousticHoming` is DELETED outright because homing
+ *  became a numeric tier stat on the torpedo rows (amendment 80), and a new
+ *  stub consumable `depthCharge` takes its place in `LINE_IDS` (amendment 83).
+ *  The count stays 29 lines; the physical card total moves 114 -> 122. Both
+ *  default decks re-cut with it (TB closes on one SUPERCAV TORPEDO, ML on one
+ *  DEPTH CHARGE), `DEFAULT_OWNED` changes membership, and `EquipmentId` /
+ *  `ConsumableId` / `EQUIPMENT_STAT_FIELDS` / `DOCTRINE_MODES` all change
+ *  shape. A stale client would fold a different catalog, fit weapons into the
+ *  wrong id space and mis-derive every torpedo and mine number it predicts.
+ *  (2) `MineView` GAINS AN OPTIONAL `c` (the mine's `MineKind`), emitted ONLY
+ *  when `own` is true and stripped for every other observer (amendment 76):
+ *  one hull may now lay all three kinds and the owner's rings differ by kind,
+ *  while observers still cannot tell them apart. [SUPERSEDED at 68 (Eric
+ *  2026-10-01, "Everyone sees the kind"): `c` now rides every observer's
+ *  mine row.]
+ *  (3) `OwnShip` GAINS AN OPTIONAL `slowFactor` (epic-8 amendment 86), emitted
+ *  beside `slowedUntil` on the FOULED VICTIM'S OWN FRAME and omitted when the
+ *  hull is not slowed or the factor is the inert 1. The fouling slow is per
+ *  tier now (0.75 at I → 0.55 at V, amendment 81) and the victim's own ship
+ *  carried only the WINDOW, so client prediction could assume nothing but the
+ *  tier-I 0.75 and snapped on reconcile against a deeper rack. SELF-PRIVATE by
+ *  construction, exactly like `slowedUntil` — it rides `you` and nothing else.
+ *  No new event kind exists, the reveal shape `{k,id,x,y,vx,vy,t}` gains no
+ *  field, and THE PERCEPTION EXCEPTION COUNT STAYS AT SIX.
+ *  55 — UNCHANGED by Story 8.12 (CATALOG V3 — LADDERS AND THE DECK GUN, Eric
+ *  rulings 2026-09-18, epic-8 amendments 70–73). The story authors NOTHING:
+ *  the five universal ladders and the three deck-gun lines were written at
+ *  catalog-v3's numbers by Story 8.1, and not one number, cap, stub flag, wire
+ *  SHAPE, event kind or CONFIG block moves here. What changes is two CLIENT
+ *  readings. (1) The HUD bar's gun square and its slot-tooltip header now show
+ *  the DECK GUN's rung, folded on the client from `cards` — which has ridden
+ *  the wire since PV 43 — through the same `effectiveStats` both sides run, so
+ *  the number is `equipment.gun.tier` and no new field carries it. (2) The card
+ *  face's tier step gains a CAP CLAMP, so an at-cap ladder prints the bare rung
+ *  instead of a sixth one; every below-cap label is byte-identical. Catalog
+ *  CONTENT is untouched, so the "catalog content is wire contract" convention
+ *  (13) is not engaged, and the perception exception count stays at SIX.
+ *  Hence: no bump.
+ *  55 — UNCHANGED by Story 8.11 (THE MATCH CONSUMABLE POOL, Eric ruling
+ *  2026-09-18, epic-8 amendment 67). The story adds `sim/pool.ts`
+ *  (`rollMatchPool` / `sanitizePool` / `consumableLines`) and a new
+ *  `CONFIG.pool` ({ size: 10 }), and the server appends one hidden 10-card
+ *  consumable pool to every captain's and bot's deck (40 authored + 10 = 50).
+ *  NOTHING OF IT RIDES: the pool is never on a frame, in the welcome, in the
+ *  schema or in a log line (the room logs `match.pool { count }` and nothing
+ *  else), no wire SHAPE is added or removed, no event kind exists and the
+ *  perception exception count stays at SIX. `CONFIG.pool.size` does ride
+ *  inside the welcome's CONFIG snapshot like every other block, but THE CLIENT
+ *  READS NO POOL FIELD — it predicts nothing from it — so there is no stale
+ *  client that could mis-sim against it. Catalog CONTENT is unchanged (no stub
+ *  flag flips), so the "catalog content is wire contract" convention (13) is
+ *  not engaged either. Hence: no bump.
+ *  55 (Story 8.10): THE OPENING (Eric rulings 2026-09-18, epic-8 amendments
+ *  59–63). Two breaks, both in the spend economy's opening move.
+ *  (1) `MULLIGAN_CHOICE` (-2) JOINS `SpendMsg.choice`: the negative sentinel
+ *  channel that PV 53 closed ("an offer slot index and nothing else") is
+ *  deliberately re-opened for exactly this one value — the countdown REDRAW,
+ *  honoured once per ship while the match is in countdown and a silent no-op
+ *  otherwise (-1 stays malformed). With it, a captain is granted a LEVEL-ZERO
+ *  offer at countdown start: a stale client reads `lvl 0 / pts 1 / offer[4]`
+ *  as an ordinary level, has no REDRAW to press and cannot send the sentinel,
+ *  so it plays the opening the server is not running.
+ *  (2) THE INTERIM SPAWN SEED IS DELETED: no hull sails with class weapons
+ *  any more (gun + Shift only), and the first weapon is a CARD taken from
+ *  that level-zero offer. Catalog CONTENT is wire contract (the convention
+ *  from 13), and this is a DESYNC class, not a cosmetic one: a stale client
+ *  replays its own loadout from the ship's card list plus a seed table the
+ *  server no longer fits, so it would fit weapons that are not aboard —
+ *  wrong slots, wrong pools, wrong prediction. Every default deck also goes
+ *  26 → 27 drawable cards, because nothing is carried out of it at spawn.
+ *  No wire SHAPE is added or removed, no new event kind exists, the
+ *  perception exception count stays at SIX, and no CONFIG value changes.
+ *  54 (Story 8.9): THE SHIFT BOOST, UNIVERSAL (Eric rulings 2026-09-18, epic-8
+ *  amendments 54–57). The legacy `speedBoost` equipment id is GONE and the v3
+ *  `boost` id (slot 1 on every captain hull) IS the boost — the `EquipmentId`
+ *  set and the total equipment stat record both change shape. With it:
+ *  `CONFIG.speedBoost` (+10 u/s flat, 6 s, 18 s) is deleted and a new
+ *  `CONFIG.boost` ({ factor 0.25, durationMs 10000, maxAmmo 1, reloadMs 25000 })
+ *  is added. The client reads its own BUNDLED `CONFIG.boost` — not the welcome
+ *  config snapshot, which nothing on the client consumes — in its prediction,
+ *  its helm globe and its wake ring provisioning, all deriving the boosted cap
+ *  as `maxSpeed × 1.25`; so a PV-53 client would predict a +10 u/s / 6 s window
+ *  against a server running +25% / 10 s and desync on every boost, and the
+ *  bump is the join gate that refuses that mismatch. The bonus is PROPORTIONAL
+ *  to the post-fold max speed (the SPEED ladder is inside it), so `EffectiveBoost`
+ *  loses its flat `speedBonus` field. No wire SHAPE changes:
+ *  `OwnShip.boostUntil` is byte-identical and the `ammo` array stays nine long;
+ *  the perception exception count stays at SIX.
+ *  53 (Story 8.8): THE HEAL SENTINEL LEAVES `SpendMsg`; HULL REPAIR BECOMES A
+ *  LIVE CATALOG LINE. `SpendMsg.choice` is an offer slot index and nothing
+ *  else — the reserved -1 DAMAGE CONTROL sentinel (the exported constant is
+ *  deleted outright) is gone, so a -1 from a stale client is simply malformed
+ *  and dropped. With it: `hullRepair` loses its `stub` flag and so becomes
+ *  DEALT (catalog content IS wire contract, the convention from 13 — every
+ *  default deck goes 23 → 26 drawable cards), and the CONFIG snapshot's old
+ *  damage-control block splits into `CONFIG.hullRepair` (the paid heal's
+ *  instantHp/regenHp/regenMs, unchanged) plus a new
+ *  `CONFIG.regen` (missingPctPerS/outOfCombatMs — the out-of-combat regen that
+ *  replaces the free per-level auto-heal, epic-8 amendments 46-48). No wire
+ *  SHAPE is added or removed: `OwnShip.repairHp` stays required (now the paid
+ *  pool alone) and `heal` stays the self-private {k,id} event with no amount,
+ *  so the perception exception count stays at SIX. A stale client would read a
+ *  heal it cannot stock, key a rail the server no longer honours and mis-derive
+ *  both heal channels — this join gate is the only guard.
+ *  52 (Story 8.5): OwnShip.ammo widened from 4 to 9 slot-aligned entries
+ *  (nine fixed-role slots). The loadout is now ONE flat nine-slot array —
+ *  gun, boost, three weapons, four consumables — identical for every captain
+ *  hull, so the per-hull fit and the single extra slot are gone and
+ *  `InputMsg.slot`/`actSlot` widen with SLOT_COUNT to 0..8. No wire field is
+ *  added, removed or renamed: a stale client would read a nine-entry `ammo`
+ *  through a four-slot hotbar, and this join gate is the only guard.
+ *  51: 2026-09-15 Story 8.1 — CATALOG V3 AND THE CARD MODEL. The 28-line v2
+ *  boon catalog is replaced wholesale by the 29-line / 114-card catalog v3
+ *  (new shared sim/catalog.ts + sim/effects.ts), and CATALOG CONTENT IS WIRE
+ *  CONTRACT, so the content change alone is a break. With it: `OwnShip.boons`
+ *  becomes `OwnShip.cards` (same self-private anti-cheat posture, LINE ids
+ *  only); every card id on the wire is now one of the 29 `LINE_IDS`, and the
+ *  shipped equipment ids `torpedo`/`mine` become `heavyTorpedo`/`navalMines`;
+ *  `BoonEffect` gains `stock` and loses `slotReplace`; `EffectiveStats`
+ *  re-shapes its seven named equipment blocks into one TOTAL `equipment`
+ *  record keyed by the widened `EquipmentId`, each row carrying a `tier`;
+ *  `CONFIG.deck` becomes `{ size, maxEquipmentLines }` (the soft-pity dials
+ *  die with rarity) and a new `CONFIG.catalog.reloadStepPerTier` rides the
+ *  welcome config snapshot. Both sides resolve card ids FAIL-CLOSED, so a
+ *  stale client would silently mis-simulate every build it was dealt — this
+ *  join gate is the only guard.
+ *  50: COLYSEUS 0.18 (Story 8.0, 2026-09-14) — the framework floor moves
+ *  `@colyseus/core` 0.17.44 → 0.18.13, `@colyseus/schema` 4.0.27 → 5.0.32 and
+ *  `@colyseus/sdk` 0.17.43 → 0.18.2. TWO transport-level breaks, neither of
+ *  them a change to any message SHAPE this file declares: the schema 5 encoder
+ *  re-lays out the roster state patches, and the 0.18 JOIN_ROOM handshake
+ *  changes the join payload layout. A 0.17 client fails the handshake BEFORE
+ *  `protocolVersionError` can answer it, so server and client must deploy
+ *  together; the bump is still made because the encoder break is a genuine
+ *  wire break and the join gate must refuse a 49. No `InputMsg`, `FrameMsg`,
+ *  `GameEvent`, schema field, or CONFIG value moved.
  *  49: THE BROADSIDE'S ZERO-OVERLAP ARC LADDER (Eric rulings 2026-08-24 +
  *  2026-08-27) — `CONFIG.broadside.turretMountSpreadDeg` becomes a PER-RUNG
  *  ARRAY ([28, 25, 22.5, 15, 6]) where it was the scalar 28, and `traverseDeg`
@@ -31,9 +272,10 @@
  *  (`sp`, `hc`, `mz`, `sunk`, `sm`, `fh`). Purely additive to the payload, but
  *  a wire SHAPE change on a row every client decodes, so it is a join gate.
  *  47: BALANCE CYCLE 1 (Eric rulings 2026-08-20/21) — nine combat tunables move
- *  together: hull hp DOUBLES (TB 125→250, BS 175→350, ML 150→300),
- *  `damageControl` instant/regen double with it (25→50 each, because those
- *  amounts are FLAT by ruling and would otherwise be silently repriced), the
+ *  together: hull hp DOUBLES (TB 125→250, BS 175→350, ML 150→300), the PAID
+ *  HEAL's instant/regen amounts double with it (25→50 each, because those
+ *  amounts are FLAT by ruling and would otherwise be silently repriced — that
+ *  block is `CONFIG.hullRepair` since 53), the
  *  BROADSIDE goes 3×20 on a 30s cooldown → 4×15 on 18s (base alpha unchanged at
  *  60, maxed 100→90, fired 1.67× as often), and `torpedo.damage` 70→50.
  *  NO wire SHAPE changes — this is a join gate, not a serializer break: every
@@ -391,13 +633,13 @@
  *  24: DAMAGE CONTROL (Eric rulings 2026-08-04) — the heal spend returns as
  *  an ALWAYS-AVAILABLE spend, NOT a card: nothing enters BOON_CATALOG and
  *  deck composition is byte-identical (CONFIG.offer.size stays 4).
- *  `SpendMsg.choice` gains the reserved NEGATIVE sentinel HEAL_CHOICE (-1;
- *  card picks stay 0..front-offer-length-1, everything else rejected);
- *  OwnShip gains required self-private `repairHp` (remaining regen pool, hp
- *  — rides `you` and nothing else, the boostUntil precedent); new
- *  self-private `heal` GameEvent ({k,id} — the instant application at spend
- *  time, the pt/bn gate); new CONFIG.damageControl block
- *  (instantHp/regenHp/regenMs) rides the welcome config snapshot.
+ *  `SpendMsg.choice` gains a reserved NEGATIVE heal sentinel (-1; card picks
+ *  stay 0..front-offer-length-1, everything else rejected); OwnShip gains
+ *  required self-private `repairHp` (remaining regen pool, hp — rides `you`
+ *  and nothing else, the boostUntil precedent); new self-private `heal`
+ *  GameEvent ({k,id} — the instant application at spend time, the pt/bn gate);
+ *  a new CONFIG block for the paid heal (instantHp/regenHp/regenMs — renamed
+ *  `CONFIG.hullRepair` in 53) rides the welcome config snapshot.
  *  23: the public register (global kill feed) — SunkEvent gains an optional
  *  per-observer `seen?: true` flag, stamped by the sunk row's materialize()
  *  when the observer legitimately witnessed the wreck (sight+LOS / owned lit
@@ -508,9 +750,9 @@
  *  (unknown = silently dropped), so a stale client would silently ignore a
  *  boon or hook the server is simulating; this join gate is the only guard.
  *  12: the new input scheme (Story 2.1) — the interregnum REPAIR/heal spend is
- *  deleted end-to-end (Eric ruling 2026-07-24 "1-4 cards, no repair"):
- *  HEAL_CHOICE and the self-private 'heal' GameEvent leave the wire contract
- *  (SpendMsg.choice is 0..2 only); CONFIG.upgradePoints (healHp) is removed
+ *  deleted end-to-end (Eric ruling 2026-07-24 "1-4 cards, no repair"): the
+ *  negative heal sentinel and the self-private 'heal' GameEvent leave the wire
+ *  contract (SpendMsg.choice is 0..2 only); CONFIG.upgradePoints (healHp) is removed
  *  from the welcome config snapshot.
  *  11: Regatta Hoist personal colors (Story 1.12) — the roster schema gains
  *  PlayerMeta.color (uint8 hue index 0–19, 255 = drone/no-hue sentinel);
@@ -550,7 +792,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 49;
+export const PROTOCOL_VERSION = 71;
 
 // Tunables
 export * from './constants.js';
@@ -566,17 +808,22 @@ export * from './math/rng.js';
 
 // Simulation
 export * from './sim/ship.js';
+export * from './sim/hull.js';
 export * from './sim/lifecycle.js';
 export * from './sim/sinking.js';
 export * from './sim/stats.js';
+export * from './sim/effects.js';
+export * from './sim/catalog.js';
 export * from './sim/boons.js';
 export * from './sim/hooks.js';
 export * from './sim/loadout.js';
 export * from './sim/arcs.js';
 export * from './sim/boost.js';
 export * from './sim/slow.js';
+export * from './sim/draft.js';
+export * from './sim/sight.js';
 export * from './sim/offers.js';
-export * from './sim/deck.js';
+export * from './sim/draw.js';
 export * from './sim/collision.js';
 export * from './sim/silhouette.js';
 export * from './sim/radarRaster.js';
@@ -586,7 +833,9 @@ export * from './sim/spread.js';
 export * from './sim/shell.js';
 export * from './sim/map.js';
 export * from './sim/noise.js';
+export * from './sim/seedText.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
 export * from './sim/wake.js';
+export * from './sim/smoke.js';
 export * from './sim/zone.js';

@@ -5,7 +5,7 @@
 // main.ts. Kept a leaf module: it imports only shared types, never render,
 // net, or input code.
 
-import type { LitZoneView, OwnShip } from '@salvo/shared';
+import type { BurnZoneView, LitZoneView, OwnShip, SmokeView } from '@salvo/shared';
 
 /** Coarse client phase. Expands (waiting/countdown/spectate) in later steps. */
 export type Phase = 'connecting' | 'active';
@@ -27,6 +27,14 @@ export interface NetState {
    *  observer sees none). Read by the render loop to derive the own ACTIVE zones
    *  that keep beyond-sight shells (projectiles) and clear the own fog (fog). */
   litZones: LitZoneView[];
+  /** Latest per-observer PHOSPHOR burning-zone list (mirrors FrameMsg.burnZones;
+   *  [] when none — Story 8.17). Read by the burn classifier only: a burning
+   *  zone reveals nothing, so it never feeds the fog or the projectile cull. */
+  burnZones: BurnZoneView[];
+  /** Latest per-observer SMOKE SCREEN puff list (mirrors FrameMsg.smoke; [] when
+   *  none — Story 8.18). Read by the wake mirror (render/wake.ts) so in-bubble
+   *  torpedo water behind a puff stays hidden, as the server hides it. */
+  smoke: SmokeView[];
 }
 
 export interface GameState {
@@ -48,7 +56,7 @@ export function createGameState(sessionId: string): GameState {
   return {
     phase: 'connecting',
     mode: 'predict',
-    net: { sessionId, tick: 0, ackSeq: 0, you: null, litZones: [] },
+    net: { sessionId, tick: 0, ackSeq: 0, you: null, litZones: [], burnZones: [], smoke: [] },
     respawnEta: null,
     spectating: false,
     killerId: null,

@@ -22,12 +22,21 @@ import {
   hueAngle,
   hueSortedIndices,
   makeHoistRow,
+  SPECIAL_NAMES,
+  GUN_CHIP_LABELS,
+  CARD_INNER_PX,
+  LOADOUT_KEY_COL_PX,
+  LOADOUT_KEY_GAP_PX,
+  LOADOUT_KEY_TRACKING_EM,
+  LOADOUT_VALUE_PX,
+  LOADOUT_VALUE_TRACKING_EM,
+  gunChipRowWidth,
 } from '../ui/classSelect.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import { loadColorPref, __resetSessionColorPrefForTests, COLOR_PREF_KEY } from '../net/connection.js';
 import { pipFill } from '../util/pips.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, GUN_IDS, classShift } from '@salvo/shared';
 
 // The connection module caches the session's rolled hue (review-gate fix for
 // blocked-storage divergence); reset it per test so corrupt/absent-pref cases
@@ -104,30 +113,24 @@ describe('cardViewModel — pips, keys, loadout', () => {
     expect('fantasy' in cardViewModel('torpedoBoat')).toBe(false);
   });
 
-  it('carries the two special-slot rows labeled by their future keys Q/E — no GUN row (Eric rulings 2026-07-24)', () => {
-    expect(cardViewModel('torpedoBoat').loadout).toEqual([
-      { key: 'Q', value: 'TORPEDO TUBES' },
-      { key: 'E', value: 'SPEED BOOST' },
-    ]);
-    expect(cardViewModel('battleship').loadout).toEqual([
-      // Story 7-5: the cannon is DELETED and the broadside replaces it in the
-      // Battleship's Q slot. This card was still advertising LONG-RANGE CANNON
-      // to every player picking a hull — a live player-facing lie, caught only
-      // because an agent read the class-select copy while renaming the buoy.
-      { key: 'Q', value: 'BROADSIDE BARRAGE' },
-      { key: 'E', value: 'STAR SHELLS' },
-    ]);
-    expect(cardViewModel('mineLayer').loadout).toEqual([
-      { key: 'Q', value: 'PROXIMITY MINES' },
-      { key: 'E', value: 'RADAR BUOY' },
-    ]);
+  it('carries NO weapon rows — its ONE row is the hull\'s SPECIAL, by name only (amendments 62 + 107)', () => {
+    // STORY 8.10 EMPTIED THE TABLE (amendment 62): no hull sails with a class
+    // weapon at 0:00. STORY 8.15 puts back exactly one row, the class Shift's
+    // NAME under the key `SPECIAL` (amendment 107; never "Shift" — 96(e)), read
+    // through `classShift` so the card cannot disagree with slot 1.
+    expect(cardViewModel('torpedoBoat').loadout).toEqual([{ key: 'SPECIAL', value: 'SPEED BOOST' }]);
+    expect(cardViewModel('mineLayer').loadout).toEqual([{ key: 'SPECIAL', value: 'INSTANT RELOAD' }]);
+    expect(cardViewModel('battleship').loadout).toEqual([{ key: 'SPECIAL', value: 'DAMAGE CUT' }]);
+    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+      expect(cardViewModel(cls).loadout[0].value, cls).toBe(SPECIAL_NAMES[classShift(cls)]);
+    }
   });
 
-  it('names classes with their two-word display labels', () => {
+  it('names classes with the display labels Eric ruled (amendment 204)', () => {
     expect(CLASS_DISPLAY_NAMES).toEqual({
-      torpedoBoat: 'TORPEDO BOAT',
-      battleship: 'BATTLESHIP',
-      mineLayer: 'MINE LAYER',
+      torpedoBoat: 'SPEEDBOAT',
+      battleship: 'DREADNOUGHT',
+      mineLayer: 'REPEATER',
     });
   });
 });
@@ -337,9 +340,9 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const text = layer.textContent ?? '';
     expect(text).toContain('WHAT WILL YOU SAIL?');
-    expect(text).toContain('TORPEDO BOAT');
-    expect(text).toContain('BATTLESHIP');
-    expect(text).toContain('MINE LAYER');
+    expect(text).toContain('SPEEDBOAT');
+    expect(text).toContain('DREADNOUGHT');
+    expect(text).toContain('REPEATER');
     expect(text).toContain('MORE CLASSES');
     expect(text).toContain('CONFIRM SELECTION'); // RE-TAKEN pin: was SET SAIL
     expect(text).not.toContain('SET SAIL');
@@ -394,7 +397,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const { onConfirm } = open();
     press('2'); // highlight battleship
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('battleship');
+    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun');
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
@@ -407,8 +410,30 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const cards = [...layer.querySelectorAll('.hc-ccard')];
     (cards[1] as HTMLElement).click(); // highlight battleship via click
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('battleship');
+    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun');
     expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
+  // AMENDMENT 62 (Story 8.10): the weapon-row BLOCK is not merely empty — it is
+  // not built at all. An empty wrap would still paint its 12px seam and its
+  // hairline rule above nothing, which reads as a block that failed to load.
+  // Pinned on the card's own child count and on the words themselves, so a
+  // later story cannot quietly re-advertise a weapon no hull carries.
+  it('builds ONE loadout block (SPECIAL + DECK GUN) and prints no weapon row on any card', () => {
+    open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')] as HTMLElement[];
+    expect(cards).toHaveLength(3);
+    for (const card of cards) {
+      // head, silhouette box, pip grid, the loadout block (Story 8.15: SPECIAL
+      // + the DECK GUN chips), pick-button row.
+      expect(card.children).toHaveLength(5);
+      expect(card.textContent).toContain('SPECIAL');
+      expect(card.textContent).toContain('DECK GUN');
+      for (const word of ['TORPEDO TUBES', 'BROADSIDE BARRAGE', 'STAR SHELLS', 'PROXIMITY MINES']) {
+        expect(card.textContent, word).not.toContain(word);
+      }
+    }
   });
 
   // RE-TAKEN pin (was "SET SAIL picks the highlight AND deploys in one press"):
@@ -417,7 +442,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const { onConfirm, onClose } = open();
     press('3'); // highlight mineLayer
     confirmButton().click();
-    expect(onConfirm).toHaveBeenCalledWith('mineLayer');
+    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'deckGun');
     expect(onClose).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).toBeNull(); // closed back to port
   });
@@ -492,7 +517,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     (cards[1] as HTMLElement).click(); // battleship
     confirmButton().click();
     expect(onConfirm).toHaveBeenCalledOnce();
-    expect(onConfirm).toHaveBeenCalledWith('battleship');
+    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun');
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
@@ -528,7 +553,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(hoist.selected).toBe(5); // swatch pick persisted immediately
 
     confirmButton().click();
-    expect(onConfirm).toHaveBeenCalledWith('mineLayer');
+    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'deckGun');
     expect(hoist.selected).toBe(5); // untouched by confirm — already persisted at swatch click
   });
 
@@ -621,7 +646,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     swatch.click();
     expect(document.activeElement).not.toBe(swatch); // blurred after the pick
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat'); // highlight unchanged; only the color changed
+    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat', 'deckGun'); // highlight unchanged; only the color changed
   });
 });
 
@@ -740,5 +765,94 @@ describe('the Color Hoist is displayed in hue order', () => {
     buttons[pos].click();
     expect(hoist.selected).toBe(order[pos]);
     off();
+  });
+});
+
+
+// --- Story 8.15: the SPECIAL row + the DECK GUN chips (amendment 107) ---------
+
+describe('the SPECIAL row and the gun chips — words and fit (Story 8.15)', () => {
+  it('names the three Shifts and the three guns exactly as ruled', () => {
+    expect(SPECIAL_NAMES).toEqual({ boost: 'SPEED BOOST', instantReload: 'INSTANT RELOAD', damageCut: 'DAMAGE CUT' });
+    expect(GUN_IDS.map((id) => GUN_CHIP_LABELS[id])).toEqual(['CANNON', 'MACHINE GUN', 'FLAK']);
+  });
+
+  // THE CONTAINER-FIT LAW (amendment 47). The class bay is PORT chrome and does
+  // not ride `--hc-ui-scale`, so one measurement holds at 90 / 100 / 125 %: the
+  // row's box never scales, and nothing on it sits near the 9 px floor.
+  it('every SPECIAL value fits its row beside the 108 px key column, and the keys fit the column', () => {
+    const micro = CLIENT_CONFIG.type.registers.hudMicro.size;
+    for (const key of ['SPECIAL', 'DECK GUN']) {
+      expect(monoTextWidth(key, micro, micro * LOADOUT_KEY_TRACKING_EM), key).toBeLessThanOrEqual(LOADOUT_KEY_COL_PX);
+    }
+    for (const name of Object.values(SPECIAL_NAMES)) {
+      const w = LOADOUT_KEY_COL_PX + LOADOUT_KEY_GAP_PX
+        + monoTextWidth(name, LOADOUT_VALUE_PX, LOADOUT_VALUE_PX * LOADOUT_VALUE_TRACKING_EM);
+      expect(w, `${name} is ${w.toFixed(1)}px on a ${CARD_INNER_PX}px line`).toBeLessThanOrEqual(CARD_INNER_PX);
+    }
+  });
+
+  it('the three gun chips fit ONE line of the 356 px card, above the 9 px floor', () => {
+    expect(CARD_INNER_PX).toBe(312);
+    expect(gunChipRowWidth()).toBeLessThanOrEqual(CARD_INNER_PX);
+    expect(CLIENT_CONFIG.type.registers.hudMicro.size).toBeGreaterThanOrEqual(CLIENT_CONFIG.settings.monoFloorPx);
+  });
+});
+
+describe('openClassSelect — the gun pick (Story 8.15)', () => {
+  let blurTarget: HTMLElement;
+  beforeEach(() => {
+    localStorage.clear();
+    blurTarget = document.createElement('div');
+    document.body.appendChild(blurTarget);
+  });
+  afterEach(() => {
+    document.getElementById('hc-class-select')?.remove();
+    blurTarget.remove();
+  });
+
+  function chipsOf(card: Element): HTMLButtonElement[] {
+    return [...card.querySelectorAll('.hc-gunchip')] as HTMLButtonElement[];
+  }
+  function cards(): HTMLElement[] {
+    return [...document.querySelectorAll('#hc-class-select .hc-ccard')] as HTMLElement[];
+  }
+  function confirm(): void {
+    ([...document.querySelectorAll('#hc-class-select button')].find(
+      (b) => b.textContent === 'CONFIRM SELECTION',
+    ) as HTMLButtonElement).click();
+  }
+
+  it('every card carries its hull\'s SPECIAL and the three chips, CANNON preselected', () => {
+    openClassSelect({ initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onConfirm: vi.fn(), onClose: vi.fn() });
+    const [tb, bs, ml] = cards();
+    expect(tb.textContent).toContain('SPEED BOOST');
+    expect(bs.textContent).toContain('DAMAGE CUT');
+    expect(ml.textContent).toContain('INSTANT RELOAD');
+    for (const card of cards()) {
+      expect(chipsOf(card).map((c) => c.textContent)).toEqual(['CANNON', 'MACHINE GUN', 'FLAK']);
+      expect(chipsOf(card).map((c) => c.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false']);
+    }
+  });
+
+  it('a chip moves the ONE pick on every card, highlights its own card, and rides CONFIRM', () => {
+    const onConfirm = vi.fn();
+    openClassSelect({ initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onConfirm, onClose: vi.fn() });
+    chipsOf(cards()[2])[1].click(); // MACHINE GUN on the Mine Layer's card
+    for (const card of cards()) {
+      expect(chipsOf(card).map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false']);
+    }
+    confirm();
+    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'machineGun');
+  });
+
+  it('opens on the stored pick (initialGun)', () => {
+    const onConfirm = vi.fn();
+    openClassSelect({
+      initial: 'battleship', initialGun: 'flak', hoist: new ColorHoist(), blurTarget, onConfirm, onClose: vi.fn(),
+    });
+    expect(chipsOf(cards()[0]).map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true']);
+    confirm();
+    expect(onConfirm).toHaveBeenCalledWith('battleship', 'flak');
   });
 });

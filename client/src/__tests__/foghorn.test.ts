@@ -773,11 +773,12 @@ function setupHonk(over: Record<string, unknown> = {}) {
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
     litZones: { sync: vi.fn() },
-    buoys: { sync: vi.fn() },
-    radar: { onSweepSample: vi.fn(), setOwnBuoys: vi.fn() },
+    burnZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
+    smokeScreen: { sync: vi.fn() },
+    radar: { onSweepSample: vi.fn() },
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
-    ownBuoy: () => undefined,
     effects: { spawnEffect },
     audio: { play: vi.fn(), playHorn },
     foghorn: { onHonk },
@@ -798,7 +799,7 @@ function honkFrame(e: FoghornEvent): unknown {
 
 describe("roomBindings case 'fh' — three shapes, three behaviors", () => {
   it('SELF: plays at 100%, blooms the own hull, and draws NO chevron', () => {
-    const you = { x: 40, y: -60, heading: 0, speed: 0, cls: 'torpedoBoat', boons: [], alive: true, sweep: 0 };
+    const you = { x: 40, y: -60, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0 };
     const { sink, playHorn, spawnEffect, onHonk } = setupHonk({ you });
     sink.handler(honkFrame({ k: 'fh', h: 'standard', self: true }));
     expect(playHorn).toHaveBeenCalledWith('standard', 1);

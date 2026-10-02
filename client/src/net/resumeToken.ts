@@ -33,8 +33,9 @@ export const RESUME_TOKEN_KEY = 'hullcracker.resume';
  * Is this a token the SDK could even try?
  *
  * `Client.reconnect()` splits on `:` and THROWS on anything that is not
- * `roomId:token` (verified in @colyseus/sdk 0.17.43 `build/Client.mjs`), so the
- * shape is checked here rather than discovered as an exception on the boot path.
+ * `roomId:token` (verified in @colyseus/sdk 0.18.2 `build/Client.mjs`:131-134),
+ * so the shape is checked here rather than discovered as an exception on the
+ * boot path.
  * A malformed value reads as ABSENT — which is the same landing as an expired
  * one: the home screen.
  */
@@ -70,12 +71,45 @@ export function saveResumeToken(token: string): void {
   }
 }
 
-/** Forget the stored token. Called on ANY resume failure AND on every deliberate
- *  leave, so a departure can never be undone by a later reload. */
+/** Forget the stored token — and the private flag riding beside it. Called on
+ *  ANY resume failure AND on every deliberate leave, so a departure can never be
+ *  undone by a later reload. */
 export function clearResumeToken(): void {
   try {
     sessionStorage.removeItem(RESUME_TOKEN_KEY);
+    sessionStorage.removeItem(RESUME_PRIVATE_KEY);
   } catch {
     // storage unavailable — there was nothing to clear anyway
+  }
+}
+
+// THE PRIVATE FLAG (cycle 167 review). Whether the live session came through a
+// private lobby decides what a cohort collapse does — home, never the Standard
+// queue (app/requeue.ts `collapseAutoQueues`). It lives in main.ts's memory,
+// which a refresh wipes, so a reload during a private arena's boarding would
+// resume the match as if it were Standard. It is persisted HERE, beside the
+// token whose session it describes, with the same scope (per tab, dies with the
+// tab), the same fail-open idiom, and the same lifetime: `clearResumeToken`
+// takes it too.
+
+/** sessionStorage key for "the session behind the resume token is private". */
+export const RESUME_PRIVATE_KEY = 'hullcracker.resumePrivate';
+
+/** Persist (true) or forget (false) the private flag. */
+export function savePrivateMatch(on: boolean): void {
+  try {
+    if (on) sessionStorage.setItem(RESUME_PRIVATE_KEY, '1');
+    else sessionStorage.removeItem(RESUME_PRIVATE_KEY);
+  } catch {
+    // storage unavailable — a refresh simply forgets the session was private
+  }
+}
+
+/** Was the session being resumed a private one? False when unknown. */
+export function loadPrivateMatch(): boolean {
+  try {
+    return sessionStorage.getItem(RESUME_PRIVATE_KEY) === '1';
+  } catch {
+    return false;
   }
 }

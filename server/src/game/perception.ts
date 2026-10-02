@@ -13,7 +13,8 @@
 // independently-reimplemented oracle in that suite.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 18 GameEvent kinds plus the contact/mine/litzone frame channels —
+// the 19 GameEvent kinds plus the contact/mine/litzone/burnzone/decoy/smoke
+// frame channels —
 // is one declarative SignalSpec row (visible + materialize),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
 // Adding a signal means adding a row (plus its invariant test case), never
@@ -27,9 +28,10 @@
 // alone is sorted by PUBLIC payload only — (x, y, t, id), fields the observer
 // receives anyway. It was introduced (Story 1.8/FR10) because decoy
 // counter-intel paints merged into the same subsequence and source order would
-// have de-anonymized them; the decoy is DELETED (Story 7-5 wave 2) and the
+// have de-anonymized them; that decoy is DELETED (Story 7-5 wave 2) and the
 // sort is DELIBERATELY KEPT — a payload-only order can never leak, and the
-// jamming buoy's server-generated false returns (R2.11) merge here next.
+// DECOY BUOY's paint and CHAFF's server-generated fakes (Story 8.16) merge
+// here.
 // Contacts, mines and lit zones keep their Map-insertion iteration order in
 // their own frame channels.
 //
@@ -41,9 +43,9 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BuoyView, type Contact, type GameEvent, type LitZoneView, type MineView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type GameEvent, type GhostPaint, type LitZoneView, type MineView, type ShellState, type SmokeView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
-import { SIGNAL_REGISTRY, buoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
+import { SIGNAL_REGISTRY, ballisticGateOpen, chaffFakeBlips, decoyRadarBlips, ownerChaffGhosts, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
 /** Everything one observer may know this tick. */
 export interface PerceptionView {
@@ -51,9 +53,24 @@ export interface PerceptionView {
   events: GameEvent[];
   mines: MineView[];
   litZones: LitZoneView[];
-  /** Per-observer radar-buoy visibility (Story 7-5 wave 2 — contact-like,
-   *  recomputed every tick through the `buoy` row, in drop order). */
-  buoys: BuoyView[];
+  /** Per-observer PHOSPHOR burning-zone visibility (Story 8.17 — contact-like,
+   *  recomputed every tick through the `burnzone` row on the lit zone's gate,
+   *  in burst order). A circle only; it reveals nothing. */
+  burnZones: BurnZoneView[];
+  /** Per-observer decoy-buoy visibility (Story 8.16 — contact-like,
+   *  recomputed every tick through the `decoy` row, in drop order). */
+  decoys: DecoyView[];
+  /** Per-observer SMOKE SCREEN puff visibility (Story 8.18 — contact-like,
+   *  recomputed every tick through the `smoke` row, in lay order). The disc
+   *  alone rides here (`{id,x,y,t0}`); the puff's OCCLUSION of everything
+   *  else flows through `sightClear` inside every sight-tier row. */
+  smoke: SmokeView[];
+  /** THE CHAFF OWNER'S OWN GHOSTS (cycle 162, Eric 2026-10-01): the rects of
+   *  the observer's OWN live chaff fakes its beam painted this tick — the
+   *  self-private `you.chaffGhosts` payload (frames.ts emits it beside
+   *  `you.chaff`, omitted when empty). ALWAYS `[]` on the spectator path and
+   *  under the radar lock; never an `events` blip (ownerChaffGhosts). */
+  chaffGhosts: GhostPaint[];
 }
 
 /** The narrow row context for the FOGGED path (observe() fail-closes before
@@ -65,14 +82,21 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     observerId: me.id,
     now: world.now,
     islands: world.map.islands,
+    mapRadius: world.map.radius, // Story 8.16: the chaff scatter's water filter
     // Story 4.11: the blip gate's shadow-march substrate (the raster alone,
     // never the whole GameMap — the narrow-context principle).
     heightRaster: world.map.heightRaster,
     ships: world.ships,
     litZones: world.litZones,
-    // Story 7-5 wave 2: the live radar buoys — the buoy channel's subjects,
-    // the own-scope blip sources, and the self-paint/jamming-fake sources.
-    buoys: world.buoys,
+    burnZones: world.burnZones, // Story 8.17: the burnzone channel's subjects (a circle, never a reveal source)
+    // Story 8.16: the live decoys — the decoy channel's subjects and the
+    // decoy-paint blip sources.
+    decoys: world.decoys,
+    // Story 8.18: every live SMOKE SCREEN puff — the ONE occluder input of
+    // every sight-tier predicate (sightClear) and the smoke channel's subjects.
+    smoke: world.smokePuffs,
+    // Story 8.16 / amendment 127: the world-owned chaff clouds (fake sources).
+    chaffSources: world.chaffSources,
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
     wakes: world.wakeRibbons,
@@ -92,14 +116,22 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     observerId,
     now: world.now,
     islands: world.map.islands,
+    mapRadius: world.map.radius, // inert here (no blips) — one context shape
     // Inert on this path (spectators get live contacts, never blips) — rides
     // every context uniformly so the context stays one shape.
     heightRaster: world.map.heightRaster,
     ships: world.ships,
     litZones: world.litZones,
-    // Story 7-5 wave 2: the buoy channel's subjects (spectators see every
-    // buoy); the own-scope/fake blip sources are inert on this path (no blips).
-    buoys: world.buoys,
+    burnZones: world.burnZones, // Story 8.17: spectators see every burning zone
+    // Story 8.16: the decoy channel's subjects (spectators see every decoy);
+    // the decoy-paint blip source is inert on this path (no blips).
+    decoys: world.decoys,
+    // Story 8.18: the smoke channel's subjects (spectators see every puff);
+    // the occlusion term is inert here (no spectator row reads sightClear).
+    smoke: world.smokePuffs,
+    // Inert on this path (spectators get no blips, so no chaff fakes) —
+    // rides uniformly so the context stays one shape.
+    chaffSources: world.chaffSources,
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,
@@ -152,24 +184,56 @@ function forwardedEvents(world: World, ctx: SignalContext): GameEvent[] {
 
 /** Per-observer ballistic reveals: every live projectile is offered to its own
  *  kind's row (shell/torp — registry dispatch by `shell.kind`), which owns the
- *  exactly-once seenBallistics memory and the reveal-time wire shape. */
+ *  PER-VISIT seenBallistics memory and the reveal-time wire shape.
+ *
+ *  THE PER-VISIT MARK (Story 8.13, epic-8 amendment 78): a projectile that is
+ *  already marked for this observer but FAILS the reveal gate this tick has
+ *  LEFT the gate — its mark (and this observer's homing-direction baseline for
+ *  it) is cleared here, so a later re-entry is revealed again through the row
+ *  with current pos + velocity in the unchanged wire shape. The gate is the
+ *  row's own predicate (signals.ballisticGateOpen — ONE boolean, never a
+ *  copy), so what the row reveals and what this step clears can never
+ *  disagree. A marked projectile still inside the gate stays silent, exactly
+ *  as before; the owner's own projectiles are always inside it (owner-always),
+ *  so they are marked once at launch and never cleared. Nothing new rides the
+ *  wire and the six-exception invariant is untouched: this is a change to the
+ *  gate's MEMORY, not a channel. */
 function ballisticScan(world: World, ctx: SignalContext): BallisticEvent[] {
   const out: BallisticEvent[] = [];
   for (const shell of world.shells.values()) {
     const row = SIGNAL_REGISTRY[shell.kind];
-    if (!row.visible(ctx, shell)) continue;
+    if (!row.visible(ctx, shell)) {
+      forgetIfExited(ctx, shell);
+      continue;
+    }
     out.push(row.materialize(ctx, shell));
-    // The exactly-once reveal mark lives HERE, not in materialize (which is a
-    // pure wire-shaper). visible() guarantees ctx.me exists (fogged: always;
+    // The reveal mark lives HERE, not in materialize (which is a pure
+    // wire-shaper). visible() guarantees ctx.me exists (fogged: always;
     // spectator: it fails closed when !me), so mark immediately — same tick and
     // per-projectile order the old mutating materialize used.
     ctx.me?.seenBallistics.add(shell.id);
     // A HOMING torpedo's reveal also records its direction baseline (Story
     // 2.8): the torpU row re-emits to this observer only once the live
-    // velocity direction drifts past the threshold from THIS value.
+    // velocity direction drifts past the threshold from THIS value. A
+    // RE-reveal re-sets it, so later drift is measured from the re-reveal
+    // velocity the client just received.
     if (shell.homing !== undefined) ctx.me?.torpDirs.set(shell.id, Math.atan2(shell.vy, shell.vx));
   }
   return out;
+}
+
+/** The clear half of the per-visit mark: a projectile this observer has
+ *  already been sent, now OUTSIDE the reveal gate, is forgotten — mark and
+ *  homing baseline together (the pair forgetBallistic drops when the
+ *  projectile dies). Asked only for a projectile the row did NOT reveal this
+ *  tick, so the only marked-and-silent cases are "still inside" (keep) and
+ *  "left" (forget). */
+function forgetIfExited(ctx: SignalContext, shell: ShellState): void {
+  const me = ctx.me;
+  if (me === undefined || !me.seenBallistics.has(shell.id)) return;
+  if (ballisticGateOpen(ctx, shell)) return;
+  me.seenBallistics.delete(shell.id);
+  me.torpDirs.delete(shell.id);
 }
 
 /** Per-observer HOMING-track updates (Story 2.8): every live steering torpedo
@@ -217,14 +281,41 @@ function litZoneScan(world: World, ctx: SignalContext): LitZoneView[] {
   return out;
 }
 
-/** Per-observer radar-buoy visibility (Story 7-5 wave 2) — contact-like state
- *  exactly like mines, recomputed every tick through the buoy row, in
- *  Map-insertion (drop) order. */
-function buoyScan(world: World, ctx: SignalContext): BuoyView[] {
-  const out: BuoyView[] = [];
-  const row = SIGNAL_REGISTRY.buoy;
-  for (const buoy of world.buoys.values()) {
-    if (row.visible(ctx, buoy)) out.push(row.materialize(ctx, buoy));
+/** Per-observer BURNING-ZONE visibility (Story 8.17) — contact-like state
+ *  exactly like lit zones, recomputed every tick through the burnzone row (the
+ *  lit zone's gate), in Map-insertion (burst) order. ONLY the circle rides
+ *  here; nothing inside a burning zone is revealed by it — no reveal source
+ *  reads `world.burnZones` (amendment 131). */
+function burnZoneScan(world: World, ctx: SignalContext): BurnZoneView[] {
+  const out: BurnZoneView[] = [];
+  const row = SIGNAL_REGISTRY.burnzone;
+  for (const zone of world.burnZones.values()) {
+    if (row.visible(ctx, zone)) out.push(row.materialize(ctx, zone));
+  }
+  return out;
+}
+
+/** Per-observer decoy visibility (Story 8.16) — contact-like state exactly
+ *  like mines, recomputed every tick through the decoy row, in Map-insertion
+ *  (drop) order. */
+function decoyScan(world: World, ctx: SignalContext): DecoyView[] {
+  const out: DecoyView[] = [];
+  const row = SIGNAL_REGISTRY.decoy;
+  for (const decoy of world.decoys.values()) {
+    if (row.visible(ctx, decoy)) out.push(row.materialize(ctx, decoy));
+  }
+  return out;
+}
+
+/** Per-observer SMOKE SCREEN puff visibility (Story 8.18) — contact-like
+ *  state exactly like decoys, recomputed every tick through the smoke row, in
+ *  Map-insertion (lay) order. ONLY the disc rides here; a puff's occlusion of
+ *  hulls, ordnance, marks and water is `sightClear`'s job inside the rows. */
+function smokeScan(world: World, ctx: SignalContext): SmokeView[] {
+  const out: SmokeView[] = [];
+  const row = SIGNAL_REGISTRY.smoke;
+  for (const puff of world.smoke.values()) {
+    if (row.visible(ctx, puff)) out.push(row.materialize(ctx, puff));
   }
   return out;
 }
@@ -310,8 +401,7 @@ function blipOrder(a: BlipEvent, b: BlipEvent): number {
   if (a.t !== b.t) return a.t - b.t;
   if (a.w !== b.w) return a.w - b.w;
   if (a.h !== b.h) return a.h - b.h;
-  const byBits = maskBitsOrder(a.bits, b.bits);
-  return byBits !== 0 ? byBits : blipSrcOrder(a, b);
+  return maskBitsOrder(a.bits, b.bits);
 }
 
 /** The mask-words half of `blipOrder`'s key: length first, then each signed
@@ -324,17 +414,8 @@ function maskBitsOrder(a: readonly number[], b: readonly number[]): number {
   return 0;
 }
 
-/** The closing term of `blipOrder`'s key: `src` (PV 44 — the buoy's-own-scope
- *  sensor attribution) is PUBLIC payload to its one receiver, so it belongs in
- *  the payload-only key — untagged before tagged, then lexicographic. It keeps
- *  the order a pure function of what the observer receives, the property the
- *  comparator exists for. */
-function blipSrcOrder(a: BlipEvent, b: BlipEvent): number {
-  const sa = a.src ?? '';
-  const sb = b.src ?? '';
-  if (sa < sb) return -1;
-  return sa > sb ? 1 : 0;
-}
+// (`blipSrcOrder`, the key's `src` closing term, was deleted with the radar
+// buoy's `src` tag in Story 8.16 — every blip is untagged.)
 
 
 /** One registry-driven view build — both observer modes share it; the ctx mode
@@ -362,14 +443,15 @@ function view(world: World, ctx: SignalContext): PerceptionView {
   // rather than derived. Everything else — contacts, mines, lit zones,
   // every forwarded event — is UNTOUCHED: truesight is not radar.
   if (world.radarEnabled) {
-    // RADAR-BUOY blip sources (Story 7-5 wave 2), fogged observers only: the
-    // buoy's own anonymous paint (R2.9) plus the jamming buoy's server-
-    // generated false returns (R2.11). (The RELAY — R2.8 — is not here: it
-    // rode the ship scan above, as an OR inside the blip row's gate.) These
-    // join the ONE blip subsequence BEFORE the payload-only sort, so a
-    // frame's blip ordering still carries zero source information — the exact
-    // property the sort was kept for when the decoy died.
-    if (ctx.mode === 'fogged') blips.push(...buoyRadarBlips(ctx));
+    // NON-SHIP blip sources (Story 8.16), fogged observers only: the DECOY
+    // BUOY's anonymous paint plus CHAFF's server-generated false returns
+    // (never the observer's own chaff). These join the ONE blip subsequence
+    // BEFORE the payload-only sort, so a frame's blip ordering still carries
+    // zero source information — the exact property the sort was kept for.
+    if (ctx.mode === 'fogged') {
+      blips.push(...decoyRadarBlips(ctx));
+      chaffFakeBlips(ctx, blips);
+    }
     events.push(...blips.sort(blipOrder));
     // Wake segments (Story 4.12) CLOSE the frame as a new trailing subsequence
     // — every historical kind keeps its exact position — sorted by wakeOrder
@@ -381,7 +463,13 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     events,
     mines: mineScan(world, ctx),
     litZones: litZoneScan(world, ctx),
-    buoys: buoyScan(world, ctx),
+    burnZones: burnZoneScan(world, ctx),
+    decoys: decoyScan(world, ctx),
+    smoke: smokeScan(world, ctx),
+    // The chaff owner's own ghosts (cycle 162): fogged observers only, and
+    // under the SAME radar lock as every blip — the ghosts are the owner's
+    // radar returns, so with the sensor off none leaves this function.
+    chaffGhosts: world.radarEnabled && ctx.mode === 'fogged' ? ownerChaffGhosts(ctx) : [],
   };
 }
 
@@ -394,7 +482,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [], buoys: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], smoke: [], chaffGhosts: [] };
   return view(world, foggedContext(world, me));
 }
 

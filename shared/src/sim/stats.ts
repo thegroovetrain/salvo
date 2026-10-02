@@ -1,57 +1,86 @@
 // Effective per-ship stats — THE server/client desync firewall. One pure
-// function turns (ship class, fitted boons) into every derived number the
+// function turns (ship class, fitted CARDS) into every derived number the
 // simulation and the HUD consume. The server computes it on grant/spawn
 // (cached on ShipRecord.stats); the client recomputes it from you.cls +
-// you.boons whenever either changes. Both sides MUST call this — nothing may
-// re-derive a boosted stat ad hoc, or the predictor/HUD silently drift from
-// the authoritative sim.
+// you.cards whenever either changes. Both sides MUST call this — nothing may
+// re-derive a carded stat ad hoc, or the predictor/HUD silently drift from the
+// authoritative sim.
 //
-// Story 2.8: the 14-entry legacy upgrade system (counts param, CONFIG.upgrades
-// stacking) died wholesale — boons are the ONLY stat modifier. Bases: the ship
-// class for hull-ish stats (hp, kinematics); CONFIG.vision for radar/sweep/
-// sight; the per-equipment CONFIG blocks for everything else (gun-family RANGE
-// bases on CONFIG.vision.radar — range = radar range, Eric ruling 2026-07-21).
-// Damage/blast/trigger/lit numbers are now PROMOTED onto EffectiveStats so the
-// catalog's stat ladders can move them through the one firewall.
+// STORY 8.1 RESHAPED THE TREE. The seven hand-named equipment blocks
+// (gun/torpedo/mine/boost/broadside/starShells/radarBuoy — the last deleted in
+// Story 8.16) became ONE TOTAL
+// RECORD `equipment`, keyed by the widened `EquipmentId` (sim/loadout.ts), and
+// every row carries `tier` and `reloadMs`. That is what lets catalog v3's
+// per-equipment TIER ladders exist at all, and it is what
+// `BOON_STAT_PATHS` is now GENERATED from (sim/effects.ts
+// EQUIPMENT_STAT_FIELDS) rather than hand-listed. The shipped `torpedo` id is
+// `heavyTorpedo` and `mine` is `navalMines`; the numbers did not move.
 //
-// gun/starShells rangeU are DERIVED, not independently stat-addressable
-// (brainstorm 2026-07-30: Radar Range quietly buffs gun/cannon/blast-torp
-// reach too — Intel is a stealth offense category). They are re-pinned to the
-// POST-FOLD `radarRange` every time, in both applyBoonStats (sim/boons.ts —
-// covers an intelRadar fold mid-list) and clampStats below (the firewall's
-// unconditional output pass, the sweepPeriodMs precedent) — a boon fold can
-// never leave rangeU stale.
+// Bases: the ship class for hull-ish stats (hp, kinematics); CONFIG.vision for
+// radar/sweep/sight; the per-equipment CONFIG blocks for everything else
+// (gun-family RANGE bases on CONFIG.vision.radar — range = radar range, Eric
+// ruling 2026-07-21). STORY 8.15 EMPTIED THE LAST STUB ROWS: missile and
+// monitor are CUT (amendment 89e), and the MACHINE GUN and FLAK GUN became
+// mountable guns with CONFIG blocks of their own (`CONFIG.machineGun` /
+// `CONFIG.flak`, amendments 103–105), beside the two new class Shifts
+// (`CONFIG.instantReload` / `CONFIG.damageCut`, amendments 97–102). Every row
+// is now built from a real CONFIG block.
 //
-// Defensive clamps (all inside this firewall, nowhere else):
-//   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling —
-//     re-applied over the boon fold in sim/boons.ts applyBoonStats, its only
-//     sibling site);
-//   - mine trip ring / blast radius are DERIVED from the folded blastRadius
-//     and the CAPTIVE verb (Story 7-5 wave 2 — see clampStats);
-//   - gun.barrels clamped to 1..3 integer (TWIN/TRIPLE MOUNT ladder bounds).
+// rangeU fields are DERIVED, not independently stat-addressable (brainstorm
+// 2026-07-30: Radar Range quietly buffs gun/blast-torp reach too — Intel is a
+// stealth offense category). They are re-pinned to the POST-FOLD `radarRange`
+// every time, in both applyCardStats (sim/boons.ts — covers a radarRange fold
+// mid-list) and clampStats below (the firewall's unconditional output pass) —
+// a fold can never leave rangeU stale. THE TWO RE-PIN HOMES ARE FOLD + CLAMP,
+// and there are no others.
 //
-// `cooldownScale` (Eric ruling 2026-08-04) is the ONE global cooldown lever:
-// a base-1.0 scalar the universal `shipCooldown` line drives DOWN additively
-// (-0.10/card, 5 copies -> 0.50), applied post-fold to EVERY equipment's
-// reloadMs in clampStats. One scalar, one multiply site — so per-weapon reload
-// effects (still whitelisted, none in the catalog today) compose BEFORE the
-// global scale, and stacking stays additive-linear rather than 0.9^N.
+// Defensive clamps + derivations (all inside this firewall, nowhere else):
+//   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling);
+//   - the mine ring derivations (deriveMineRings): a CONTACT mine's trip ring
+//     from its folded blastRadius, the CAPTIVE's from its TIER;
+//   - gun.barrels clamped to 1..3 integer (3 is reachable — the CANNON
+//     ladder's rungs to tier II and tier IV each add a barrel, Eric
+//     2026-10-02, amendment 232; the clamp stays);
+//   - EVERY integer equipment field (tubes/turrets/barrels/pools) FLOORED
+//     ONCE here, after a fold that accumulated it as a float — catalog-v3 R17's
+//     standing rule (a +0.5 tube step shows nothing until it completes a whole);
+//   - THE EQUIPMENT RELOAD STEP, catalog-v3 §3/§4: −5 % per tier, additive
+//     five-point steps, composed BEFORE the global Reload ladder.
+//
+// `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12) is the
+// ONE global cooldown lever: a base-1.0 scalar the universal RELOAD ladder
+// drives DOWN additively (−0.05/copy, 5 copies -> 0.75), applied post-fold to
+// EVERY equipment reloadMs in clampStats. One scalar, one multiply site.
 
 import { CONFIG, type ShipClass } from '../constants.js';
 import type { ShipConfig } from './ship.js';
-import { applyBoonStats, type BoonDef } from './boons.js';
+import { applyCardStats } from './boons.js';
+import { CATALOG, type Catalog } from './catalog.js';
+import { EQUIPMENT_INT_FIELDS } from './effects.js';
+import { EQUIPMENT_IDS, type EquipmentId } from './loadout.js';
 
 /** ms per minute — the rpm -> period conversion for effective stats. Render-
  *  side BASE defaults (radar.ts, ambient.ts) derive 60000/CONFIG rpm at their
- *  own edges; only THIS conversion ever sees boon-modified rpm. */
+ *  own edges; only THIS conversion ever sees card-modified rpm. */
 const MS_PER_MINUTE = 60000;
 
-/** The universal standard gun's effective numbers (Story 2.8: damage/burst
- *  promoted; the single-shot maxAmmo pin is deliberately retired — AFT TURRET
- *  raises the pool; TWIN/TRIPLE MOUNT raise `barrels`). */
-export interface EffectiveGun {
-  reloadMs: number; // ms per shot (the gun cooldown)
-  maxAmmo: number; // pool size — base 1; gunTurret (AFT TURRET) raises it
+/**
+ * What EVERY equipment row carries (Story 8.1).
+ *
+ * `tier` is the 1-based rung the line has reached — for an equipment line it is
+ * the COPIES HELD (copy 1 IS the weapon, catalog-v3 §4), for the slotless deck
+ * gun it is `1 + copies` because its tier I is already equipped. It is DERIVED
+ * from the card counts in the fold, never writable by an effect, and it is what
+ * the reload step below reads.
+ */
+export interface EquipmentRowCommon {
+  tier: number; // 1-based ladder rung (1 = the bare weapon / the base fit)
+  reloadMs: number; // ms per shot/charge — post-tier-step, post-cooldownScale
+  maxAmmo: number; // pool size (charges/rounds ready)
+}
+
+/** The universal standard gun's effective numbers. */
+export interface EffectiveGun extends EquipmentRowCommon {
   rangeU: number; // u — max shell travel / aimDist clamp — DERIVED = radarRange post-fold (not stat-addressable)
   damage: number; // hp per burst victim
   contactDamage: number; // hp to an early interceptor outside the blast
@@ -60,194 +89,222 @@ export interface EffectiveGun {
 }
 
 /**
- * The BROADSIDE BARRAGE's effective numbers (Story 7-5 wave 2 — replaces the
- * cannon outright, along with its `CannonMode` enum and both doctrine cards).
- * Every shell of a barrage carries `damage` and `burstRadius`; `turrets` is how
- * many fly.
+ * The BROADSIDE BARRAGE's effective numbers (Story 7-5 wave 2). Every shell of
+ * a barrage carries `damage` and `burstRadius`; `turrets` is how many fly.
  */
-export interface EffectiveBroadside {
-  reloadMs: number; // ms per barrage
-  maxAmmo: number; // pool size (barrages held)
+export interface EffectiveBroadside extends EquipmentRowCommon {
   // u — max shell travel / aimDist clamp. DERIVED post-fold as
   // `radarRange × CONFIG.vision.muzzleFlashFactor` — THE 5/8 RUNG, 412.5u base
-  // (Eric: "This weapon's range is limited to 5/8"). The first and only weapon
-  // that does not reach the full radar horizon. Not stat-addressable.
+  // (Eric: "This weapon's range is limited to 5/8"). Not stat-addressable.
   rangeU: number;
   damage: number; // hp per burst victim, PER SHELL
   burstRadius: number; // u — blast radius around each shell's own point
-  turrets: number; // shells per barrage (3 base .. 5 at the BROADSIDE TURRETS cap)
-  // The SPREAD LADDER RUNG: 1 = no BROADSIDE SPREAD cards held, 5 = the ×4 cap.
-  // This is the stat-addressable field the card writes (+1/card); the traverse
-  // itself is derived from it, because the ladder is a table of authored
-  // degrees rather than a multiplicative step. 1-based so every whitelisted
-  // stat stays strictly positive, the law applyStatEffect enforces.
+  turrets: number; // shells per barrage
+  // The SPREAD LADDER RUNG: 1 = no spread step taken, 5 = the cap. 1-based so
+  // every whitelisted stat stays strictly positive, the law applyStatEffect
+  // enforces. Both arc ladders are DERIVED from it.
   spreadRung: number;
-  // rad — EACH TURRET'S TRAVERSE half-angle about its own mount bearing (Eric
-  // ruling 2026-08-20: the SPREAD card widens every gun's arc; the salvo's
-  // spread is emergent, not designed). DERIVED post-fold from `spreadRung`
-  // against CONFIG.broadside.traverseDeg; never stat-addressable (a card
-  // writing it would be a second derivation).
-  traverseRad: number;
-  // rad — the OUTERMOST MOUNT BEARINGS' half-spread about the firing beam (Eric
-  // ruling 2026-08-27). The SPREAD card now drives BOTH halves of the geometry:
-  // the mounts rotate INWARD toward the beam while the traverses widen, which is
-  // what turns "zero overlap at tier I" into true convergence at tier V. DERIVED
-  // post-fold from the SAME `spreadRung` against CONFIG.broadside.
-  // turretMountSpreadDeg, exactly as `traverseRad` is, and absent from
-  // BOON_STAT_PATHS for exactly the same reason.
-  mountSpreadRad: number;
+  traverseRad: number; // rad — each turret's traverse half-angle (DERIVED from spreadRung)
+  mountSpreadRad: number; // rad — outermost mount bearings' half-spread (DERIVED from spreadRung)
 }
 
-// STORY 7-5 WAVE 1 — DOCTRINE IS A SET OF INDEPENDENT VERBS, NOT ONE ENUM.
-// Eric's retooling stacks verbs on the same weapon (PHOSPHOR *and* DAZZLE
-// shells; PROP FOULING beside SELF-PROPELLED), which a single-valued `mode`
-// field structurally cannot hold — the last card granted would silently erase
-// the earlier one. So the three weapons whose verbs now stack carry one
-// INDEPENDENT BOOLEAN PER VERB, folded by sim/boons.ts applyDoctrineEffect.
-// STORY 7-5 WAVE 2 finished the job: the cannon's single-valued `mode` enum
-// was the last one standing, and it died with the weapon (the BROADSIDE BARRAGE
-// has no doctrine cards at all). EVERY doctrine verb in the game is now an
-// independent boolean, so the fold has no special cases left — see
-// sim/boons.ts applyDoctrineEffect.
+// DOCTRINE IS A SET OF INDEPENDENT VERBS, NOT ONE ENUM (Story 7-5 wave 1).
+// Every verb is its own boolean, folded by sim/boons.ts — so an add-on stacks
+// with another add-on on the same weapon instead of the second silently
+// erasing the first. NO ROW CARRIES A VERB since Story 8.17 (amendment 134):
+// the star shell's `phosphor`/`dazzle` were the last, and both are deleted.
 
-export interface EffectiveTorpedo {
-  reloadMs: number; // ms per fish
-  maxAmmo: number; // tube pool size
+/**
+ * A TORPEDO LINE's effective numbers — the LIGHT and HEAVY fish (the
+ * supercavitating one left for the consumable id space, epic-8 amendment 74,
+ * and carries no row at all).
+ *
+ * `homingTurnRate` REPLACED the `homing` boolean on 2026-09-19 (Eric ruling,
+ * amendment 80): ACOUSTIC HOMING is deleted and homing is a TIER STAT — 0
+ * rad/s at tier I, +0.125 per tier, 0.5 at tier V. ZERO IS THE STRAIGHT-RUNNER
+ * (no steering, no `torpU` update, no die-distance); anything above zero
+ * steers under `CONFIG.torpedo`'s shared acquire/die/update rules.
+ */
+export interface EffectiveTorpedo extends EquipmentRowCommon {
   speed: number; // u/s — launch speed
   damage: number; // hp per contact hit
-  homing: boolean; // ACOUSTIC HOMING verb (doctrine fold) — false unless held
+  homingTurnRate: number; // rad/s — 0 = a straight-runner (the tier-I base)
 }
 
-export interface EffectiveMine {
-  reloadMs: number; // ms per drop
-  maxAmmo: number; // drop pool size
-  maxLive: number; // max simultaneous live mines on the board
+/**
+ * A MINE LINE's effective numbers, shared by the THREE mine kinds — naval,
+ * captive and fouling.
+ *
+ * THE KIND IS THE ROW IDENTITY (epic-8 amendments 76/81), never a flag: the
+ * `captive` and `propFouling` booleans are DELETED, because `captiveMines` and
+ * `foulingMines` are their own lines and every reader keys off which row (and,
+ * on the water, which `MineKind`) it is holding.
+ *
+ * TWO FIELDS ARE KIND-SPECIFIC, and the rows that do not own one carry the
+ * INERT IDENTITY rather than a lie (a row is TOTAL over the type and says so —
+ * the deleted `EffectiveRadarBuoy`'s precedent):
+ *   - `homingTurnRate` is the CAPTIVE fish's (amendment 82: 0 → 0.3 rad/s
+ *     across the five rungs); naval and fouling launch nothing and sit at 0,
+ *     which is exactly "does not steer";
+ *   - `slowFactor` is the FOULING mine's (amendment 81: 0.75 → 0.55); naval
+ *     and captive sit at 1, which is exactly "does not slow". ONE, NOT ZERO —
+ *     a stray read of zero would stop a hull dead, and every whitelisted stat
+ *     is a strictly positive scalar by law (sim/boons.ts applyStatEffect).
+ */
+export interface EffectiveMine extends EquipmentRowCommon {
+  // `maxLive` is DELETED (Story 8.4, FR57/AR48): mines have no per-player live
+  // board cap and no room ceiling, so there is no such stat to derive.
   damage: number; // hp per blast victim
   blastRadius: number; // u — full damage to every non-owner hull within it
-  triggerRadius: number; // u — detonation proximity (DERIVED = blastRadius × triggerFactor)
-  propFouling: boolean; // PROP FOULING verb (doctrine fold) — false unless held
-  // CAPTIVE MINES verb (doctrine fold) — false unless held. REPLACES the
-  // deleted SELF-PROPELLED verb. A captive mine never detonates on contact: it
-  // fires ONE un-upgraded torpedo doing `damage` at `blastRadius` and is
-  // expended. It also SWAPS the two radii and triples the trigger (derived in
-  // clampStats), which is why holding it changes the two numbers above rather
-  // than adding a third pair.
-  captive: boolean;
+  triggerRadius: number; // u — detonation proximity (DERIVED — see deriveMineRings)
+  homingTurnRate: number; // rad/s — the CAPTIVE fish's steering; 0 elsewhere
+  slowFactor: number; // × both speed caps on a FOULING victim; 1 elsewhere
 }
 
-export interface EffectiveStarShells {
-  reloadMs: number; // ms per flare (the star-shell cooldown)
-  maxAmmo: number; // pool size
-  rangeU: number; // u — max flare travel — DERIVED = radarRange post-fold (not stat-addressable)
-  litRadius: number; // u — lit-zone radius (base = the ratified SIGHT/2 CONFIG derivation)
+/**
+ * THE MACHINE GUN's effective numbers (Story 8.15, amendments 103–104). The
+ * pool IS THE MAGAZINE (`maxAmmo` shells) and `reloadMs` is the full-magazine
+ * reload; `rateMs` is the stream cadence (the shot delay), which the ladder
+ * steps (Eric 2026-09-30). Direct-hit shells with NO
+ * burst, so there is no `burstRadius` and no `contactDamage` (a hull hit IS
+ * the `damage`).
+ */
+export interface EffectiveMachineGun extends EquipmentRowCommon {
+  rangeU: number; // u — DERIVED = radarRange post-fold (not stat-addressable)
+  damage: number; // hp per shell that strikes a hull
+  rateMs: number; // ms — one shell per rateMs while held
+}
+
+/**
+ * THE FLAK GUN's effective numbers (Story 8.15, amendment 105) — the cannon's
+ * burst shape without barrels: one shell to the click, a FIXED `burstRadius`
+ * blast, the bodyblock `contactDamage` to an early interceptor.
+ */
+export interface EffectiveFlak extends EquipmentRowCommon {
+  rangeU: number; // u — DERIVED = radarRange post-fold (not stat-addressable)
+  damage: number; // hp per burst victim
+  contactDamage: number; // hp to an early interceptor outside the blast
+  burstRadius: number; // u — blast radius around the clicked point (FIXED by ruling)
+}
+
+/**
+ * INSTANT RELOAD's effective numbers (Story 8.15, the Mine Layer's Shift,
+ * amendments 97–98): a pool and a cooldown, nothing else — the effect itself
+ * (finish each running reload once) has no number to carry.
+ */
+export type EffectiveInstantReload = EquipmentRowCommon;
+
+/**
+ * DAMAGE CUT's effective numbers (Story 8.15, the Battleship's Shift,
+ * amendments 99–102): the boost's shape plus the `factor` the World applies to
+ * every weapon blow inside the window.
+ */
+export interface EffectiveDamageCut extends EquipmentRowCommon {
+  durationMs: number; // ms — the active window per activation
+  factor: number; // × incoming weapon damage while the window is open
+}
+
+/**
+ * STAR SHELLS' effective numbers. Story 8.17 (Eric ruling 2026-09-29, epic-8
+ * amendments 130/134): the flare deals `damage` to every non-owner hull inside
+ * the WHOLE lit circle at burst, and the `phosphor`/`dazzle` verbs are DELETED
+ * (PHOSPHOR SHELLS is its own row below; DAZZLE is the FLASH SHELLS consumable).
+ */
+export interface EffectiveStarShells extends EquipmentRowCommon {
+  rangeU: number; // u — max flare travel — DERIVED = radarRange post-fold
+  litRadius: number; // u — lit-zone radius (= the burst radius)
   litDurationMs: number; // ms — lit-zone lifetime
-  phosphor: boolean; // PHOSPHOR SHELLS verb (the burning zone) — false unless held
-  dazzle: boolean; // DAZZLE SHELLS verb — false unless held; STACKS with phosphor
+  damage: number; // hp per burst victim inside the whole lit circle (10 → 20)
 }
 
 /**
- * The activated speed boost's effective numbers. The additive `speedBonus` is
- * layered per-tick via sim/boost.ts boostedKinematics — never folded into
- * kinematics here.
+ * PHOSPHOR SHELLS' effective numbers (Story 8.17, Eric ruling 2026-09-29,
+ * epic-8 amendment 131) — its own 360° weapon: one shell to the click, a burst
+ * of `damage` over the whole `zoneRadius`, then a BURNING ZONE of that radius
+ * for `zoneDurationMs` burning `dps` hp/s. The server stamps the zone's three
+ * numbers from this row at spawn (amendment 135(e)).
  */
-export interface EffectiveBoost {
-  speedBonus: number; // u/s added to the forward maxSpeed cap while active
+export interface EffectivePhosphorShells extends EquipmentRowCommon {
+  rangeU: number; // u — max shell travel — DERIVED = radarRange post-fold (not stat-addressable)
+  damage: number; // hp per burst victim inside the zone (20 → 30)
+  zoneRadius: number; // u — burst AND burning-zone radius (100 → 146.41)
+  zoneDurationMs: number; // ms — burning-zone lifetime (8 → 10 s)
+  dps: number; // hp/s — burn on every non-owner afloat hull inside (5 → 10)
+}
+
+/**
+ * THE SHIFT BOOST's effective numbers (Story 8.9) — the pool, the reload and
+ * the active window, and NOTHING about the speed. There is no speed field
+ * because the bonus is PROPORTIONAL and no card can address it: it is
+ * `CONFIG.boost.factor × kinematics.maxSpeed`, layered per tick by
+ * sim/boost.ts `boostedKinematics` and NEVER folded into `kinematics` — the
+ * bots' `max(rated, actual)` deadband reads `kinematics.maxSpeed` as the RATED
+ * cap (epic-8 amendment 55). `reloadMs` sits in the row so the ONE
+ * `cooldownScale` multiply in clampStats reaches it (catalog-v3 R40).
+ */
+export interface EffectiveBoost extends EquipmentRowCommon {
   durationMs: number; // ms — active window per activation
-  maxAmmo: number; // charge pool size
-  reloadMs: number; // ms — cooldown between activations
 }
+
+/** Any one equipment row. */
+export type EquipmentStatRow =
+  | EffectiveGun
+  | EffectiveBoost
+  | EffectiveTorpedo
+  | EffectiveMine
+  | EffectiveMachineGun
+  | EffectiveFlak
+  | EffectiveBroadside
+  | EffectiveStarShells
+  | EffectivePhosphorShells
+  | EffectiveInstantReload
+  | EffectiveDamageCut;
 
 /**
- * The RADAR BUOY's effective numbers (Story 7-5 wave 2 — replaces the decoy
- * buoy; the decoy role is deleted, nothing fakes a ship contact any more).
- * `radarRange` is the BUOY'S OWN SET, flat and never observer-scaled: it is the
- * equipment's reach, not the owner's intel build (R2.7).
+ * THE TOTAL equipment record (Story 8.1) — one row per `EquipmentId`, present
+ * whether or not the hull carries that equipment. Totality is what makes
+ * `equipmentMaxAmmo`/`equipmentReloadMs` plain lookups and what lets
+ * BOON_STAT_PATHS be generated. Extending `Record<EquipmentId, …>` is the
+ * compile-time forcing function: a new EquipmentId cannot land without a row.
  */
-export interface EffectiveRadarBuoy {
-  reloadMs: number; // ms — cooldown between placements
-  maxAmmo: number; // charge pool size
-  durationMs: number; // ms — buoy lifetime before natural expiry
-  radarRange: number; // u — the buoy's own radar reach (flat, not observer-scaled)
-  sweepRpm: number; // rev/min — the buoy's own sweep (BUOY ×4: +1.25/card)
-  hp: number; // hp — destructible; killing one pays no XP and prints no feed line
-  gunDamage: number; // hp per shot — GUN BUOY verb only
-  gunReloadMs: number; // ms — cooldown between its shots — GUN BUOY verb only
-  gun: boolean; // GUN BUOY verb (doctrine fold) — false unless held
-  jamming: boolean; // JAMMING BUOY verb (doctrine fold) — false unless held
+export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
+  gun: EffectiveGun;
+  boost: EffectiveBoost;
+  lightTorpedo: EffectiveTorpedo;
+  heavyTorpedo: EffectiveTorpedo;
+  navalMines: EffectiveMine;
+  captiveMines: EffectiveMine;
+  foulingMines: EffectiveMine;
+  machineGun: EffectiveMachineGun;
+  flak: EffectiveFlak;
+  broadside: EffectiveBroadside;
+  starShells: EffectiveStarShells;
+  phosphorShells: EffectivePhosphorShells;
+  instantReload: EffectiveInstantReload;
+  damageCut: EffectiveDamageCut;
 }
 
-/** Everything (class, boons) resolves to. See effectiveStats(). */
+/** Everything (class, cards) resolves to. See effectiveStats(). */
 export interface EffectiveStats {
   kinematics: ShipConfig;
   maxHp: number;
   radarRange: number; // u
   sweepRpm: number; // rev/min — THE tracked radar rotation rate (capped at sweepRpmMax)
   sweepPeriodMs: number; // ms per radar revolution — DERIVED: 60000 / sweepRpm
-  sightRange: number; // u — true-sight bubble
+  sightRange: number; // u — true-sight bubble — DERIVED: radarRange / 2
   // Global cooldown multiplier applied to EVERY equipment reloadMs post-fold
-  // (clampStats). Base 1.0 = a true no-op; shipCooldown drives it down
-  // additively (-0.1/card) to 0.5 at the 5-copy cap. Floored at 0.1.
+  // (clampStats). Base 1.0 = a true no-op; the RELOAD ladder drives it down
+  // additively (−0.05/copy) to exactly 0.75 at the 5-copy cap.
   cooldownScale: number;
-  gun: EffectiveGun;
-  torpedo: EffectiveTorpedo;
-  mine: EffectiveMine;
-  boost: EffectiveBoost;
-  broadside: EffectiveBroadside;
-  starShells: EffectiveStarShells;
-  radarBuoy: EffectiveRadarBuoy;
+  equipment: EquipmentRows;
 }
 
-/** The count-independent ability blocks + the broadside/starShells skillshots
- *  — pure CONFIG pass-throughs, split out so baseStats stays lean. */
-function baseEquipment(): Pick<EffectiveStats, 'boost' | 'broadside' | 'starShells' | 'radarBuoy'> {
-  return {
-    boost: {
-      speedBonus: CONFIG.speedBoost.speedBonus,
-      durationMs: CONFIG.speedBoost.durationMs,
-      maxAmmo: CONFIG.speedBoost.maxAmmo,
-      reloadMs: CONFIG.speedBoost.reloadMs,
-    },
-    broadside: {
-      reloadMs: CONFIG.broadside.reloadMs,
-      maxAmmo: CONFIG.broadside.maxAmmo,
-      // rangeU base — re-derived from radarRange × muzzleFlashFactor post-fold
-      // in clampStats/applyBoonStats regardless of this seed.
-      rangeU: CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor,
-      damage: CONFIG.broadside.damage,
-      burstRadius: CONFIG.broadside.burstRadius,
-      turrets: CONFIG.broadside.turrets,
-      spreadRung: 1, // no BROADSIDE SPREAD cards held
-      // traverseRad / mountSpreadRad base — both re-derived from spreadRung
-      // post-fold, same law, same rung.
-      traverseRad: broadsideTraverse(1),
-      mountSpreadRad: broadsideMountSpread(1),
-    },
-    starShells: {
-      reloadMs: CONFIG.starShells.reloadMs,
-      maxAmmo: CONFIG.starShells.maxAmmo,
-      // rangeU base — re-derived from radarRange post-fold in clampStats/
-      // applyBoonStats regardless of this seed.
-      rangeU: CONFIG.vision.radar,
-      // Base stays the ratified SIGHT/2-derived CONFIG value (Eric 2026-07-23).
-      litRadius: CONFIG.starShells.litRadius,
-      litDurationMs: CONFIG.starShells.litDurationMs,
-      phosphor: false,
-      dazzle: false,
-    },
-    radarBuoy: {
-      reloadMs: CONFIG.radarBuoy.reloadMs,
-      maxAmmo: CONFIG.radarBuoy.maxAmmo,
-      durationMs: CONFIG.radarBuoy.durationMs,
-      radarRange: CONFIG.radarBuoy.radarRange,
-      sweepRpm: CONFIG.radarBuoy.sweepRpm,
-      hp: CONFIG.radarBuoy.hp,
-      gunDamage: CONFIG.radarBuoy.gunDamage,
-      gunReloadMs: CONFIG.radarBuoy.gunReloadMs,
-      gun: false,
-      jamming: false,
-    },
-  };
-}
+// THE STUB ROWS ARE GONE (Story 8.15). `STUB_ROWS` carried catalog-v3 §4's
+// tier-I draft numbers for equipment with no module yet; Story 8.13 promoted
+// three of its seven, and 8.15 drained the rest — `missile` and `monitor` are
+// CUT (amendment 89e), and `machineGun`/`flak` are built from their own CONFIG
+// blocks with Eric's 2026-09-28 numbers (amendments 103–105), which supersede
+// the sheet's drafts. Consumable stubs (DEPTH CHARGE…) never had a row.
 
 /** deg -> rad (CONFIG.broadside's two ladders are authored in degrees).
  *  SAME ASSOCIATION as sim/arcs.ts's `deg` — `(d * PI) / 180`, never
@@ -272,19 +329,15 @@ if (CONFIG.broadside.turretMountSpreadDeg.length !== CONFIG.broadside.traverseDe
 }
 
 /**
- * The BROADSIDE SPREAD rung, clamped to the authored ladder: 1 (no cards) ..
- * traverseDeg.length (the ×4 cap). Integer — the card adds exactly 1, so a
- * fractional value can only come from malformed effect data.
+ * The BROADSIDE SPREAD rung, clamped to the authored ladder: 1 (base) ..
+ * traverseDeg.length. Integer — a fractional value can only come from
+ * malformed effect data.
  *
  * NON-FINITE CLAMPS TO 1. `Math.round(NaN)` is NaN and every comparison against
  * it is false, so `min/max` would pass NaN straight through and index the
- * ladders into `undefined` → a NaN traverse/mount spread on a live ship. A
- * malformed effect is the only way here, and rung 1 (the un-carded base) is the
- * safe reading of "no valid card count".
+ * ladders into `undefined` → a NaN traverse/mount spread on a live ship.
  *
- * ONE LENGTH FOR BOTH LADDERS: `traverseDeg` and `turretMountSpreadDeg` are
- * indexed by the SAME rung, asserted at module load above (and pinned in
- * barrel.test.ts), so clamping against either is clamping against both.
+ * ONE LENGTH FOR BOTH LADDERS: asserted at module load above.
  */
 export function clampSpreadRung(rung: number): number {
   if (!Number.isFinite(rung)) return 1;
@@ -304,28 +357,248 @@ export function broadsideTraverse(rung: number): number {
 /**
  * rad — the outermost MOUNT BEARINGS' half-spread about the firing beam at a
  * given SPREAD rung (1-based). The exact sibling of `broadsideTraverse`, on the
- * same rung, through the same `deg` association — the mounts rotate inward as
- * the traverses widen (Eric ruling 2026-08-27), and both re-pin sites call this.
+ * same rung, through the same `deg` association.
  */
 export function broadsideMountSpread(rung: number): number {
   return deg(CONFIG.broadside.turretMountSpreadDeg[clampSpreadRung(rung) - 1]);
 }
 
 /**
- * u — the mine's TRIP RING for a folded blast radius, under the CAPTIVE verb.
- * An ordinary mine trips at a fixed fraction of its blast; a CAPTIVE mine swaps
- * the two rings and triples the trip (Story 7-5 wave 2, R2.12), so its trigger
- * is the folded blast × `captiveTriggerFactor`. Pure and linear in
- * `blastRadius`, which is what makes MINES card ORDER irrelevant. Shared by
- * clampStats and sim/boons.ts applyBoonStats — the only two sites.
+ * u — the TRIP RING of a CONTACT mine (naval or fouling) for a folded blast
+ * radius: a fixed fraction of the blast (Eric ruling 2026-08-16), so a
+ * blast-widening card carries the trip ring out with it. ONE fraction for both
+ * kinds — `CONFIG.mine.triggerFactor` — so the two can never drift apart.
+ *
+ * Pure, linear and IDEMPOTENT in `blastRadius`, which is what makes mine-line
+ * card ORDER irrelevant and what lets both re-pin homes call it. The captive
+ * mine does NOT come through here: its trip ring is derived from its TIER
+ * (`captiveTriggerRadius` below, epic-8 amendment 84d).
  */
-export function mineTriggerRadius(blastRadius: number, captive: boolean): number {
-  return blastRadius * (captive ? CONFIG.mine.captiveTriggerFactor : CONFIG.mine.triggerFactor);
+export function mineTriggerRadius(blastRadius: number): number {
+  return blastRadius * CONFIG.mine.triggerFactor;
 }
 
-/** The CONFIG-base stats tree for a class — every number a pure base, every
- *  doctrine verb false (and the cannon's enum 'standard'). Split out so
- *  effectiveStats stays lean. */
+/**
+ * u — the CAPTIVE mine's TRIP RING at a 1-based tier: 144 u at tier I, stepping
+ * ×1.1 per rung to 210.8 u at tier V (catalog-v3 R25 as amended by epic-8
+ * amendment 84d). It reads the TIER, not the blast radius, for two reasons:
+ * trigger radii are deliberately off the stat whitelist, and the captive's
+ * 32 u burst is FIXED — the line's tiers grow the reach of the trap, never the
+ * size of the bang.
+ *
+ * A non-finite or sub-1 tier clamps to the tier-I ring rather than producing a
+ * NaN trip ring on a live mine (the `clampSpreadRung` law).
+ */
+export function captiveTriggerRadius(tier: number): number {
+  const steps = Number.isFinite(tier) ? Math.max(0, tier - 1) : 0;
+  return CONFIG.captiveMines.triggerRadius * CONFIG.captiveMines.triggerStepPerTier ** steps;
+}
+
+/** A torpedo row at CONFIG base. `homingTurnRate` starts at ZERO on EVERY
+ *  line — a tier-I fish is a straight-runner, and the lines' tiers II–V buy
+ *  the steering (epic-8 amendment 80). */
+function torpedoRow(src: { reloadMs: number; maxAmmo: number; speed: number; damage: number }): EffectiveTorpedo {
+  return {
+    tier: 1,
+    reloadMs: src.reloadMs,
+    maxAmmo: src.maxAmmo,
+    speed: src.speed,
+    damage: src.damage,
+    homingTurnRate: 0,
+  };
+}
+
+/** One of the three MINE rows at CONFIG base. The kind-specific fields default
+ *  to their INERT identities and the owning row overrides its own (see
+ *  `EffectiveMine`): homing 0 = does not steer, slow 1 = does not slow. */
+function mineRow(src: {
+  reloadMs: number;
+  maxAmmo: number;
+  damage: number;
+  blastRadius: number;
+  triggerRadius: number;
+  slowFactor?: number;
+}): EffectiveMine {
+  return {
+    tier: 1,
+    reloadMs: src.reloadMs,
+    maxAmmo: src.maxAmmo,
+    damage: src.damage,
+    blastRadius: src.blastRadius,
+    triggerRadius: src.triggerRadius,
+    homingTurnRate: 0,
+    slowFactor: src.slowFactor ?? 1,
+  };
+}
+
+/** The two PICKABLE GUNS' rows at CONFIG base (Story 8.15). `rangeU` is
+ *  seeded at the radar rung and re-pinned post-fold in both re-pin homes,
+ *  exactly like `gun.rangeU`. */
+function pickableGunRows(): Pick<EquipmentRows, 'machineGun' | 'flak'> {
+  const mg = CONFIG.machineGun;
+  const flak = CONFIG.flak;
+  return {
+    machineGun: {
+      tier: 1,
+      reloadMs: mg.reloadMs,
+      maxAmmo: mg.maxAmmo,
+      rangeU: CONFIG.vision.radar,
+      damage: mg.damage,
+      rateMs: mg.rateMs,
+    },
+    flak: {
+      tier: 1,
+      reloadMs: flak.reloadMs,
+      maxAmmo: flak.maxAmmo,
+      rangeU: CONFIG.vision.radar,
+      damage: flak.damage,
+      contactDamage: flak.contactDamage,
+      burstRadius: flak.burstRadius,
+    },
+  };
+}
+
+/** The two new CLASS SHIFT rows at CONFIG base (Story 8.15). Their `reloadMs`
+ *  takes `cooldownScale` in clampStats like every row (amendments 97/99). */
+function shiftRows(): Pick<EquipmentRows, 'instantReload' | 'damageCut'> {
+  return {
+    instantReload: {
+      tier: 1,
+      reloadMs: CONFIG.instantReload.reloadMs,
+      maxAmmo: CONFIG.instantReload.maxAmmo,
+    },
+    damageCut: {
+      tier: 1,
+      reloadMs: CONFIG.damageCut.reloadMs,
+      maxAmmo: CONFIG.damageCut.maxAmmo,
+      durationMs: CONFIG.damageCut.durationMs,
+      factor: CONFIG.damageCut.factor,
+    },
+  };
+}
+
+/** THE SHIFT BOOST's row (Story 8.9) — pool, reload and window straight out of
+ *  `CONFIG.boost`. `factor` is deliberately absent: the bonus is proportional
+ *  and no card addresses it, so it is read from CONFIG at the one hook
+ *  (sim/boost.ts) rather than carried here (epic-8 amendment 55). */
+function boostRow(src: { reloadMs: number; maxAmmo: number; durationMs: number }): EffectiveBoost {
+  return {
+    tier: 1,
+    reloadMs: src.reloadMs,
+    maxAmmo: src.maxAmmo,
+    durationMs: src.durationMs,
+  };
+}
+
+/** The gun row — the ONE row a ship class may override (PvE fleet envelopes
+ *  carry their own weaker gun: Story 5.6, epic-5 amendments 34/45). */
+function gunRow(cls: ShipClass): EffectiveGun {
+  return {
+    tier: 1, // tier I is EQUIPPED at zero cards — the deck gun is slotless
+    reloadMs: cls.gun?.reloadMs ?? CONFIG.gun.reloadMs,
+    maxAmmo: CONFIG.gun.maxAmmo,
+    // Gun range IS radar range (Eric ruling 2026-07-21) — derived, never
+    // duplicated; re-pinned post-fold regardless of this seed.
+    rangeU: CONFIG.vision.radar,
+    damage: cls.gun?.damage ?? CONFIG.gun.damage,
+    contactDamage: CONFIG.gun.contactDamage,
+    burstRadius: CONFIG.gun.burstRadius,
+    barrels: 1, // base single mount — the CANNON ladder's rungs to II and IV add one each
+  };
+}
+
+/** The broadside, star-shell and phosphor rows — pure CONFIG pass-throughs,
+ *  split out so baseEquipment stays lean. (The radar-buoy row left with the
+ *  buoy, Story 8.16.) Every row starts at tier 1; its ladder's copies raise
+ *  the tier in the fold and the −5 %/tier reload is derived in clampStats,
+ *  exactly as for the torpedoes (Story 8.17). */
+function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' | 'phosphorShells'> {
+  return {
+    broadside: {
+      tier: 1,
+      reloadMs: CONFIG.broadside.reloadMs,
+      maxAmmo: CONFIG.broadside.maxAmmo,
+      // rangeU base — re-derived from radarRange × muzzleFlashFactor post-fold.
+      rangeU: CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor,
+      damage: CONFIG.broadside.damage,
+      burstRadius: CONFIG.broadside.burstRadius,
+      turrets: CONFIG.broadside.turrets,
+      spreadRung: 1,
+      traverseRad: broadsideTraverse(1),
+      mountSpreadRad: broadsideMountSpread(1),
+    },
+    starShells: {
+      tier: 1,
+      reloadMs: CONFIG.starShells.reloadMs,
+      maxAmmo: CONFIG.starShells.maxAmmo,
+      rangeU: CONFIG.vision.radar, // re-derived post-fold
+      litRadius: CONFIG.starShells.litRadius,
+      litDurationMs: CONFIG.starShells.litDurationMs,
+      damage: CONFIG.starShells.damage,
+    },
+    phosphorShells: {
+      tier: 1,
+      reloadMs: CONFIG.phosphorShells.reloadMs,
+      maxAmmo: CONFIG.phosphorShells.maxAmmo,
+      rangeU: CONFIG.vision.radar, // re-derived post-fold (the star-shell rung)
+      damage: CONFIG.phosphorShells.damage,
+      zoneRadius: CONFIG.phosphorShells.zoneRadius,
+      zoneDurationMs: CONFIG.phosphorShells.zoneDurationMs,
+      dps: CONFIG.phosphorShells.dps,
+    },
+  };
+}
+
+/** THE total equipment record at base. Every id present, every tier 1. */
+function baseEquipment(cls: ShipClass): EquipmentRows {
+  return {
+    gun: gunRow(cls),
+    // THE SPEED BOOST (Story 8.9; the Torpedo Boat's Shift since 8.15):
+    // `CONFIG.boost` verbatim — the reload then takes `cooldownScale` in
+    // clampStats like every row.
+    boost: boostRow(CONFIG.boost),
+    // LIGHT TORPEDO (catalog-v3 R18) — its own CONFIG block since Story 8.13.
+    lightTorpedo: torpedoRow(CONFIG.lightTorpedo),
+    // THE LEGACY RENAME: `heavyTorpedo` IS the shipped torpedo, CONFIG.torpedo
+    // verbatim — including catalog-v3 R17's 65 u/s tier-I speed, which Story
+    // 8.1 landed in CONFIG itself (epic-8 amendment 6).
+    heavyTorpedo: torpedoRow(CONFIG.torpedo),
+    // ...and `navalMines` IS the shipped mine, CONFIG.mine verbatim. It NO
+    // LONGER FOULS (amendment 81), so its `slowFactor` is the inert 1.
+    navalMines: mineRow({
+      reloadMs: CONFIG.mine.reloadMs,
+      maxAmmo: CONFIG.mine.maxAmmo,
+      damage: CONFIG.mine.damage,
+      blastRadius: CONFIG.mine.blastRadius,
+      triggerRadius: CONFIG.mine.triggerRadius,
+    }),
+    // CAPTIVE MINES (R25) — its OWN ring pair: the 144 u TRIP ring is the big
+    // one and the fish's 32 u burst is the small one (amendment 84d).
+    captiveMines: mineRow({
+      reloadMs: CONFIG.captiveMines.reloadMs,
+      maxAmmo: CONFIG.captiveMines.maxAmmo,
+      damage: CONFIG.captiveMines.damage,
+      blastRadius: CONFIG.captiveMines.blastRadius,
+      triggerRadius: CONFIG.captiveMines.triggerRadius,
+    }),
+    // FOULING MINES (amendment 81) — the naval chassis with a bigger, weaker
+    // blast and the victim slow the naval mine gave up.
+    foulingMines: mineRow({
+      reloadMs: CONFIG.foulingMines.reloadMs,
+      maxAmmo: CONFIG.foulingMines.maxAmmo,
+      damage: CONFIG.foulingMines.damage,
+      blastRadius: CONFIG.foulingMines.blastRadius,
+      triggerRadius: mineTriggerRadius(CONFIG.foulingMines.blastRadius),
+      slowFactor: CONFIG.foulingMines.slowFactor,
+    }),
+    ...pickableGunRows(),
+    ...shippedSkillshotRows(),
+    ...shiftRows(),
+  };
+}
+
+/** The CONFIG-base stats tree for a class — every number a pure base. Split
+ *  out so effectiveStats stays lean. */
 function baseStats(cls: ShipClass): EffectiveStats {
   return {
     kinematics: { ...cls.kinematics },
@@ -334,141 +607,165 @@ function baseStats(cls: ShipClass): EffectiveStats {
     sweepRpm: Math.min(CONFIG.vision.sweepRpm, CONFIG.vision.sweepRpmMax),
     sweepPeriodMs: MS_PER_MINUTE / Math.min(CONFIG.vision.sweepRpm, CONFIG.vision.sweepRpmMax),
     sightRange: CONFIG.vision.sight,
-    cooldownScale: 1, // base: the global cooldown scale is a no-op until shipCooldown stacks
-    gun: {
-      // A PvE fleet envelope carries its own weaker gun (Story 5.6, epic-5
-      // amendment 34, retuned by 45): damage 1/2/3 by size against a captain's 15, on a flat
-      // 5s cooldown. Read from the ENVELOPE so effectiveStats() stays the one
-      // derivation path — no hull id parameter, no post-construction mutation
-      // of ship.stats. Every real ship class omits `cls.gun` and so keeps
-      // CONFIG.gun verbatim, byte-identical to before this story.
-      reloadMs: cls.gun?.reloadMs ?? CONFIG.gun.reloadMs,
-      maxAmmo: CONFIG.gun.maxAmmo,
-      // Gun range IS radar range (Eric ruling 2026-07-21) — derived, never
-      // duplicated; re-derived from radarRange post-fold in clampStats/
-      // applyBoonStats regardless of this seed. Fleet ships are NOT clamped
-      // shorter here: they only ever fire at an acquired target, and
-      // acquisition already requires sight (330u) plus LOS, so their effective
-      // reach is bounded by the AI rather than by a second range constant.
-      rangeU: CONFIG.vision.radar,
-      damage: cls.gun?.damage ?? CONFIG.gun.damage,
-      contactDamage: CONFIG.gun.contactDamage,
-      burstRadius: CONFIG.gun.burstRadius,
-      barrels: 1, // base single mount — the TWIN/TRIPLE MOUNT ladder adds
-    },
-    torpedo: {
-      reloadMs: CONFIG.torpedo.reloadMs,
-      maxAmmo: CONFIG.torpedo.maxAmmo,
-      speed: CONFIG.torpedo.speed,
-      damage: CONFIG.torpedo.damage,
-      homing: false,
-    },
-    mine: {
-      reloadMs: CONFIG.mine.reloadMs,
-      maxAmmo: CONFIG.mine.maxAmmo,
-      maxLive: CONFIG.mine.maxLive,
-      damage: CONFIG.mine.damage,
-      blastRadius: CONFIG.mine.blastRadius,
-      triggerRadius: CONFIG.mine.triggerRadius,
-      propFouling: false,
-      captive: false,
-    },
-    ...baseEquipment(),
+    cooldownScale: 1, // base: the global cooldown scale is a no-op until RELOAD stacks
+    equipment: baseEquipment(cls),
   };
+}
+
+/** Round to 3 decimals — far finer than any authored step, and enough to kill
+ *  the additive float dust a −0.05 ladder accumulates (five steps land on
+ *  0.7500000000000001 without it). */
+const round3 = (v: number): number => Math.round(v * 1000) / 1000;
+
+/**
+ * THE EQUIPMENT RELOAD STEP (catalog-v3 §3 standing rule, §4 conventions):
+ * **−5 % of base reload per tier, in ADDITIVE five-point steps** —
+ * 100 → 95 → 90 → 85 → 80 % — composed BEFORE the global RELOAD ladder, so a
+ * maxed weapon under a maxed Reload runs at 0.80 × 0.75 = 60 % of base.
+ *
+ * THE READING PINNED HERE, and it is ONE formula for every equipment including
+ * the deck gun. §3's standing rule writes `1 − 0.05 × equipmentTier` where its
+ * `equipmentTier` counts UPGRADE STEPS TAKEN, not the 1-based rung: §4's deck
+ * gun row states "at cap (4 copies): 80 %", and its equipment rows state
+ * "tier I = the bare weapon at 100 %, tier V = 80 %". Both are
+ * `1 − 0.05 × (tier − 1)` on our 1-based `tier`, because `equipment.gun.tier`
+ * is `1 + deckGun copies` (tier I equipped at zero cards) while an equipment
+ * line's tier is its copies held (copy 1 IS tier I). So the deck gun reads
+ * ×1.00 at zero copies and ×0.80 at four, and a weapon reads ×1.00 at copy 1
+ * and ×0.80 at copy 5 — no special case, no off-by-one.
+ */
+function reloadTierScale(tier: number): number {
+  const steps = Math.max(0, tier - 1);
+  // FLOORED AT 0.1, exactly like cooldownScale below. By CONSTRUCTION the
+  // deepest reachable tier is V (x0.80) — but this multiplier is applied to
+  // EVERY equipment row unconditionally, and an injected or future line with
+  // a cap past 20 would drive it to zero (unlimited fire — and
+  // rescaleReloadTimers multiplying an in-flight timer by 0) and then
+  // negative (a reload that never completes). Defence against malformed data,
+  // not a reachable configuration.
+  return Math.max(0.1, round3(1 - CONFIG.catalog.reloadStepPerTier * steps));
+}
+
+/** Floor every INTEGER equipment field once, after a fold that accumulated it
+ *  as a float (catalog-v3 R17's standing rule). Non-finite values are left
+ *  alone — applyStatEffect already refuses to write one. */
+function floorIntegerFields(rows: EquipmentRows): void {
+  for (const id of EQUIPMENT_IDS) {
+    const row = rows[id] as unknown as Record<string, number>;
+    for (const field of EQUIPMENT_INT_FIELDS) {
+      const v = row[field];
+      if (typeof v === 'number' && Number.isFinite(v)) row[field] = Math.floor(v);
+    }
+  }
+}
+
+/**
+ * THE MINE RING DERIVATIONS, for all THREE mine rows — the one home for "what
+ * radii does this kind actually have".
+ *
+ * A CONTACT mine (naval, fouling) trips at a fixed fraction of its own folded
+ * blast, so a blast card carries the trip ring out with it. The CAPTIVE mine
+ * does neither: its trip ring steps off its TIER and its burst is pinned at
+ * `CONFIG.captiveMines.blastRadius` (epic-8 amendment 84d).
+ *
+ * IT IS NOW FULLY IDEMPOTENT, which is why it may run in BOTH re-pin homes
+ * (this is called from `clampStats` and from sim/boons.ts `rePinDerived`).
+ * The old captive "swap and triple" CONSUMED the blast radius it overwrote and
+ * so had to live in clampStats alone; nothing here reads a value it writes.
+ */
+export function deriveMineRings(eq: EquipmentRows): void {
+  eq.navalMines.triggerRadius = mineTriggerRadius(eq.navalMines.blastRadius);
+  eq.foulingMines.triggerRadius = mineTriggerRadius(eq.foulingMines.blastRadius);
+  // The captive's burst NEVER steps — re-pinned from CONFIG so no injected or
+  // future line can grow it by the back door.
+  eq.captiveMines.blastRadius = CONFIG.captiveMines.blastRadius;
+  eq.captiveMines.triggerRadius = captiveTriggerRadius(eq.captiveMines.tier);
+}
+
+/** THE MACHINE GUN'S SHOT DELAY GUARD (review gate 2026-09-30). `rateMs` is
+ *  ladder-stepped (−50 ms × 4, 300 → 100 ms at V, Eric 2026-10-02) and the server's
+ *  stream reads it as the gap between shells, so a non-finite or ≤ 0 value
+ *  would fire a shell every tick (or stall the clock on NaN). A PLUMBING
+ *  guard like reloadTierScale's 0.1 floor — NOT a balance ceiling: every
+ *  reachable tier passes through untouched; only malformed data falls back
+ *  to the CONFIG base. Today the fold's own sanity gate (sim/boons.ts
+ *  applyStatEffect skips any ≤ 0 / non-finite result) already stops a bad
+ *  EFFECT, so this is the firewall's OUTPUT contract — it holds whatever
+ *  path (a malformed base row, a future fold) hands it a bad number. */
+function guardRateMs(rateMs: number): number {
+  return Number.isFinite(rateMs) && rateMs > 0 ? rateMs : CONFIG.machineGun.rateMs;
 }
 
 /** The post-fold defensive clamps + derivations (see the header). Mutates in
  *  place. */
 function clampStats(stats: EffectiveStats): void {
-  // Sweep ceiling: the boon fold already clamps (applyBoonStats), but the
-  // firewall's OUTPUT is the contract — clamp unconditionally.
+  const eq = stats.equipment;
+  // Sweep ceiling: the fold already clamps, but the firewall's OUTPUT is the
+  // contract — clamp unconditionally.
   stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
-  // gun/starShells range is radarRange, always — the boon fold already
-  // re-derives it (applyBoonStats), but the firewall's OUTPUT is the contract
-  // — re-pin unconditionally so a boonless call is byte-consistent too.
-  stats.gun.rangeU = stats.radarRange;
-  stats.starShells.rangeU = stats.radarRange;
-  // THE BROADSIDE IS THE 5/8 RUNG (Story 7-5 wave 2, Eric: "This weapon's range
-  // is limited to 5/8") — the same re-pin law as its two siblings above, one
-  // rung short of the horizon. It rides `radarRange` rather than a literal, so
-  // there is ONE derivation of the rung rather than two — and a future card on
-  // the whitelisted `radarRange` path would carry it out for free.
-  stats.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
+  // Gun/star-shell/phosphor range IS radarRange, always — all THREE pickable
+  // guns (Story 8.15: Eric set the machine gun and flak to 660, the radar
+  // rung) and PHOSPHOR SHELLS (Story 8.17, amendment 131); the broadside rides
+  // the same number one rung short (the 5/8 muzzle rung, Eric: "limited to
+  // 5/8").
+  eq.gun.rangeU = stats.radarRange;
+  eq.machineGun.rangeU = stats.radarRange;
+  eq.flak.rangeU = stats.radarRange;
+  eq.starShells.rangeU = stats.radarRange;
+  eq.phosphorShells.rangeU = stats.radarRange;
+  eq.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
   // The spread ladder is a TABLE, not a step, so the card writes a 1-based RUNG
-  // and BOTH halves of the arc geometry are derived from it (clamped inside the
-  // helpers) — the sweepPeriodMs pattern applied to a pair of authored ladders.
-  stats.broadside.spreadRung = clampSpreadRung(stats.broadside.spreadRung);
-  stats.broadside.traverseRad = broadsideTraverse(stats.broadside.spreadRung);
-  stats.broadside.mountSpreadRad = broadsideMountSpread(stats.broadside.spreadRung);
+  // and BOTH halves of the arc geometry are derived from it.
+  eq.broadside.spreadRung = clampSpreadRung(eq.broadside.spreadRung);
+  eq.broadside.traverseRad = broadsideTraverse(eq.broadside.spreadRung);
+  eq.broadside.mountSpreadRad = broadsideMountSpread(eq.broadside.spreadRung);
   // TRUESIGHT IS THE 4/8 RUNG OF INTEL RANGE (Eric ruling 2026-08-16) — derived,
-  // never stat-addressable. `sightRange` left BOON_STAT_PATHS, so this is the
-  // firewall's authoritative answer and applyBoonStats holds the sibling copy.
-  // No card writes `radarRange` since RANGE I–IV was deleted (2026-08-20), so
-  // today this resolves the BASE ladder for every observer; it stays derived so
-  // there is one derivation rather than two, and so a future card on that
-  // whitelisted path needs no re-scaling work. At zero boons it is
-  // byte-identical to the old CONFIG.vision.sight seed, because
-  // CONFIG.vision.radar IS SIGHT*2.
+  // never stat-addressable. At zero cards it is byte-identical to the old
+  // CONFIG.vision.sight seed, because CONFIG.vision.radar IS SIGHT*2.
   stats.sightRange = stats.radarRange / 2;
-  // THE TRIP RING IS A FIXED FRACTION OF THE BLAST (Eric ruling 2026-08-16) —
-  // derived, not clamped. This REPLACES the old
-  // `min(triggerRadius, blastRadius)` clamp: that clamp existed to stop the trip
-  // ring outgrowing the blast, but it did so by silently eating most of the 5th
-  // trigger card whenever no blast card was held. A fraction of the ceiling can
-  // never cross the ceiling, so the invariant now holds by construction and the
-  // clamp has nothing left to do. At zero boons this is byte-identical to the
-  // old base: 48 × 2/3 = 32 exactly.
-  //
-  // CAPTIVE MINES (Story 7-5 wave 2) then SWAP the two radii and triple the
-  // trigger: 144u trip / 32u blast at base, 210.8u / 46.9u at a maxed MINES
-  // ladder. Both outputs are linear in the ONE folded `blastRadius`, so MINES
-  // cards apply on top and card ORDER CANNOT MATTER. The blast write is the one
-  // NON-idempotent line here — it consumes `blastRadius` and rewrites it — which
-  // is exactly the shape of the `cooldownScale` multiply below and is safe for
-  // the same reason: clampStats is the firewall's single OUTPUT pass and runs
-  // exactly once per effectiveStats() call. applyBoonStats therefore re-pins the
-  // TRIGGER only (pure in blastRadius, idempotent) and never the swap.
-  const blast = stats.mine.blastRadius;
-  stats.mine.triggerRadius = mineTriggerRadius(blast, stats.mine.captive);
-  if (stats.mine.captive) stats.mine.blastRadius = blast * CONFIG.mine.triggerFactor;
-  stats.gun.barrels = Math.min(3, Math.max(1, Math.round(stats.gun.barrels)));
-  // THE global cooldown scale, applied ONCE, post-fold, to every equipment —
-  // the sibling of the rangeU re-derivations above. Additive folding
-  // (-0.1/card) accumulates float dust (a 5-stack lands on
-  // 0.5000000000000001, not 0.5; a 4-stack on 0.6000000000000001), and
-  // because ammo.ts ticks reloads down in 50ms steps and only refills at
-  // <= 0, un-rounded dust silently costs a whole extra 50ms tick on every
-  // affected weapon (e.g. the 5-stack gun ruling of 5s -> 2.5s would land 51
-  // ticks instead of 50). Round to 3 decimals — far
-  // finer than any card's 0.1 step — so every reachable stack lands on the
-  // exact ruled number, THEN floor so a hostile or over-stacked list can
-  // never reach zero/negative cadence (applyStatEffect's own positive gate is
-  // per-effect, not per-total).
-  const cd = Math.max(0.1, Math.round(stats.cooldownScale * 1000) / 1000);
+  deriveMineRings(eq);
+  floorIntegerFields(eq);
+  eq.gun.barrels = Math.min(3, Math.max(1, eq.gun.barrels));
+  eq.machineGun.rateMs = guardRateMs(eq.machineGun.rateMs);
+  // THE global cooldown scale, applied ONCE, post-fold, to every equipment.
+  // Additive folding accumulates float dust, and because ammo.ts ticks reloads
+  // down in 50ms steps and only refills at <= 0, un-rounded dust silently costs
+  // a whole extra 50ms tick on every affected weapon. Round to 3 decimals so
+  // every reachable stack lands on the exact ruled number (five RELOAD copies
+  // land on 0.75 exactly), THEN floor so hostile or over-stacked data can never
+  // reach zero/negative cadence. By CONSTRUCTION the reachable floor is 0.75 —
+  // the ladder caps at 5 copies — and the 0.1 guard below is defence against
+  // malformed data, not a reachable configuration.
+  const cd = Math.max(0.1, round3(stats.cooldownScale));
   stats.cooldownScale = cd;
-  stats.gun.reloadMs *= cd;
-  stats.broadside.reloadMs *= cd;
-  stats.torpedo.reloadMs *= cd;
-  stats.mine.reloadMs *= cd;
-  stats.starShells.reloadMs *= cd;
-  stats.boost.reloadMs *= cd;
-  stats.radarBuoy.reloadMs *= cd;
+  // THE EQUIPMENT RELOAD STEP then the global scale, in that order, for EVERY
+  // row — one site, no per-weapon special case (see reloadTierScale).
+  for (const id of EQUIPMENT_IDS) {
+    const row = eq[id];
+    row.reloadMs = row.reloadMs * reloadTierScale(row.tier) * cd;
+  }
 }
 
 /**
- * Resolve the effective stats for a ship class + fitted boons. Zero boons ≙
+ * Resolve the effective stats for a ship class + fitted CARD IDS. Zero cards ≙
  * the class/CONFIG bases exactly. Pure and allocation-fresh (callers cache the
  * result and swap it on change).
  *
- * `boons` are resolved boon defs whose `stat` and `doctrine` effects fold in
- * over the bases, in boon-list order (sim/boons.ts applyBoonStats — the ONE
- * legal path from boons to derived numbers, so this function stays THE desync
- * firewall). A REPEATED def stacks by occurrence (the deck's copy-count law).
+ * `cards` is the raw id list off the wire. It is resolved through `catalog`
+ * INTERNALLY (sim/boons.ts applyCardStats), which counts copies per line and
+ * folds the lines in CATALOG order — never card-list order. That is what makes
+ * this function byte-identical under any permutation of the same multiset, and
+ * it is why there is no exported "resolve then fold" two-step to get wrong.
+ * Unknown ids fail closed (ignored). `catalog` is the test seam.
  */
-export function effectiveStats(cls: ShipClass, boons: readonly BoonDef[] = []): EffectiveStats {
+export function effectiveStats(
+  cls: ShipClass,
+  cards: readonly string[] = [],
+  catalog: Catalog = CATALOG,
+): EffectiveStats {
   const stats = baseStats(cls);
-  if (boons.length > 0) applyBoonStats(stats, boons);
+  if (cards.length > 0) applyCardStats(stats, cards, catalog);
   clampStats(stats);
   return stats;
 }

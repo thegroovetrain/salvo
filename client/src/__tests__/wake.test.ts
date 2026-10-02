@@ -27,11 +27,15 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Container } from 'pixi.js';
 import {
+  CATALOG,
   CONFIG,
   WAKE_AGE_BUCKETS,
+  boostedKinematics,
   createShipWake,
+  draftedKinematics,
   appendWakeSample,
   eachWakeSegment,
+  effectiveStats,
   hullEnvelope,
   islandFromPolygon,
   paintSegmentCoverage,
@@ -39,7 +43,7 @@ import {
   type HullId,
   type Island,
 } from '@salvo/shared';
-import { CLIENT_CONFIG, FASTEST_HULL_SPEED } from '../config.js';
+import { CLIENT_CONFIG, FASTEST_BOOSTED_HULL_SPEED, FASTEST_HULL_SPEED } from '../config.js';
 import { Effects, chopHalfWidthU, chopOutline, type ChopPoint } from '../render/effects.js';
 import {
   FASTEST_AFLOAT_SPEED,
@@ -626,18 +630,70 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
   // nothing can have moved by more than the lattice can express while the floor
   // holds. That was FALSE at the shipped derivation: it used
   // `FASTEST_HULL_SPEED`, the BASE kinematics maximum, so a boosted Torpedo Boat
-  // (55 u/s) and a torpedo (60 u/s — a wake source in its own right since P10)
+  // and a torpedo (65 u/s, catalog-v3 R17 — a wake source in its own right since P10)
   // both crossed a 9u cell INSIDE the 200ms floor. The property, not the number:
   // no source may cross a lattice cell faster than the floor.
+  //
+  // STORY 8.9 RAISED THE CEILING AGAIN, and this time the old shape of the sum
+  // was the bug: the boost became +25 % OF THE POST-FOLD CAP (epic-8 amendment
+  // 55), so the SPEED ladder is INSIDE the bonus and the fastest thing afloat is
+  // a SPEED-capped Torpedo Boat at 55 x 1.25 = 68.75 u/s — faster than the fish.
+  // `FASTEST_HULL_SPEED + <a flat bonus>` (45 + 10 = 55) would under-provision
+  // every ring this bound sizes and put the floor back above a cell crossing.
   it('the rebuild floor is shorter than a lattice-cell crossing for EVERY source, boost and fish included', () => {
     const cellCrossMs = (speed: number): number => (CONFIG.vision.radarCellU / speed) * 1000;
     expect(WAKE_STAMP_MIN_MS).toBeCloseTo(cellCrossMs(FASTEST_AFLOAT_SPEED), 9);
-    const boostedHull = FASTEST_HULL_SPEED + CONFIG.speedBoost.speedBonus;
-    for (const speed of [FASTEST_HULL_SPEED, boostedHull, CONFIG.torpedo.speed]) {
+    // The MAXIMUM ACHIEVABLE hull, derived the way the sim derives it: a capped
+    // SPEED deck through effectiveStats, the boost through the one shared hook.
+    const cappedDeck = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
+    const cappedTb = effectiveStats(CONFIG.shipClasses.torpedoBoat, cappedDeck).kinematics;
+    const cappedBoosted = boostedKinematics(cappedTb, CONFIG.boost.factor, true).maxSpeed;
+    expect(cappedBoosted).toBeCloseTo(68.75, 9);
+    // STORY 8.19 RAISED IT ONCE MORE: that hull, riding another hull's wake at
+    // the full draft lift, runs 5 % past its boosted cap — 72.1875 u/s. The
+    // headroom constant folds the lift through the ONE shared draft hook, on
+    // top of the boost, so it is the true ceiling and no longer the boosted cap.
+    const cappedDrafted = draftedKinematics(
+      boostedKinematics(cappedTb, CONFIG.boost.factor, true),
+      CONFIG.wake.draft.lift,
+      true,
+    ).maxSpeed;
+    expect(cappedDrafted).toBeCloseTo(72.1875, 9);
+    expect(FASTEST_BOOSTED_HULL_SPEED).toBe(cappedDrafted);
+    expect(FASTEST_BOOSTED_HULL_SPEED).toBeGreaterThan(cappedBoosted);
+    for (const speed of [FASTEST_HULL_SPEED, cappedBoosted, cappedDrafted, CONFIG.torpedo.speed]) {
       expect(WAKE_STAMP_MIN_MS, `a source at ${speed} u/s`).toBeLessThanOrEqual(cellCrossMs(speed) + 1e-9);
     }
-    // And it is a TRUE attainable bound, not the base envelope's.
+    // And it is a TRUE attainable bound, not the base envelope's — nor the base
+    // envelope plus a flat add, which the proportional boost has now outrun.
     expect(FASTEST_AFLOAT_SPEED).toBeGreaterThan(FASTEST_HULL_SPEED);
+    expect(FASTEST_AFLOAT_SPEED).toBeGreaterThanOrEqual(cappedDrafted);
+  });
+
+  // STORY 8.19 — THE HEADROOM IS THE SERVER'S DOUBLE. `World.wakeTopSpeed`
+  // provisions a hull's ring off `draftedKinematics(boostedKinematics(kin,
+  // CONFIG.boost.factor, true), CONFIG.wake.draft.lift, true).maxSpeed`; the
+  // client constant is the MAX of that exact expression over every class's
+  // SPEED-capped kinematics — `toBe`, not `toBeCloseTo`, because a hand-written
+  // `× 1.05` rounds differently in the last bit and the two sides must agree.
+  it('FASTEST_BOOSTED_HULL_SPEED is the four-hook fold — stats, boost, then the full draft lift', () => {
+    const cards = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
+    let top = FASTEST_HULL_SPEED;
+    for (const cls of Object.values(CONFIG.shipClasses)) {
+      const kin = effectiveStats(cls, cards).kinematics;
+      const folded = draftedKinematics(
+        boostedKinematics(kin, CONFIG.boost.factor, true),
+        CONFIG.wake.draft.lift,
+        true,
+      ).maxSpeed;
+      top = Math.max(top, folded);
+    }
+    expect(FASTEST_BOOSTED_HULL_SPEED).toBe(top);
+    // Non-vacuous: the draft really is inside it (the pre-8.19 value was the
+    // boosted cap alone).
+    const tb = effectiveStats(CONFIG.shipClasses.torpedoBoat, cards).kinematics;
+    const boostedOnly = boostedKinematics(tb, CONFIG.boost.factor, true).maxSpeed;
+    expect(FASTEST_BOOSTED_HULL_SPEED).toBe(boostedOnly + boostedOnly * CONFIG.wake.draft.lift);
   });
 
   // P6 — THE SIGHT RADIUS IS PART OF THE KEY. A dazzle onset/end moves

@@ -302,3 +302,63 @@ describe('MouseInput.pointerInside — hover presence for the hotbar tooltip', (
     });
   });
 });
+
+// --- Story 8.7, ruling 9: the refit window ENDS a held stream ----------------
+//
+// Opening the refit window is a full combat lockout, and the lockout only ever
+// gated the PRESS: a stream already running (Story 8.14's machine gun, a held
+// trigger of any kind) kept its hold open behind the window, and the pointerup
+// that ended it might land minutes later, on a different life. `endHolds()` is
+// the window's half of that contract — it ends every live hold exactly as a
+// pointerup would, and nothing else: no click is counted, no release is tallied,
+// and the cursor position (the aim path) is untouched.
+
+describe('MouseInput.endHolds — the refit window closing a live stream', () => {
+  it('ends the open hold exactly as its pointerup would have', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0 });
+      expect(m.clickCount).toBe(1);
+      expect(m.releasedClickSeq).toBe(0); // still held
+      m.endHolds();
+      expect(m.releasedClickSeq).toBe(1); // the hold is over, named by its click
+      expect(m.releaseCount).toBe(0); // …without inventing a button-0 release
+      expect(m.clickCount).toBe(1); // …and without counting a shot
+    });
+  });
+
+  it('is a no-op with no hold open (opening the window over a quiet pointer)', () => {
+    withMouse((m, canvas) => {
+      m.endHolds();
+      expect(m.releasedClickSeq).toBe(0);
+      fire(canvas, 'pointerdown', { button: 0 });
+      fire(canvas, 'pointerup', { button: 0 });
+      expect(m.releasedClickSeq).toBe(1);
+      m.endHolds(); // the hold is already closed — nothing to re-publish
+      expect(m.releasedClickSeq).toBe(1);
+    });
+  });
+
+  it('the stream does NOT resume: the late pointerup closes nothing', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0 });
+      m.endHolds(); // the window opened mid-hold
+      fire(canvas, 'pointerdown', { button: 0 }); // a second press behind the window…
+      expect(m.clickCount).toBe(2);
+      m.endHolds();
+      expect(m.releasedClickSeq).toBe(2);
+      fire(canvas, 'pointerup', { button: 0 }); // …the real button finally comes up
+      expect(m.releaseCount).toBe(1); // counted as the raw tally…
+      expect(m.releasedClickSeq).toBe(2); // …but it closes no hold: there is none
+    });
+  });
+
+  it('leaves the aim and the hover presence alone', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointermove', { clientX: 77, clientY: 88 });
+      fire(canvas, 'pointerdown', { button: 0 });
+      m.endHolds();
+      expect(m.screenPos).toEqual({ x: 77, y: 88 });
+      expect(m.pointerInside).toBe(true);
+    });
+  });
+});

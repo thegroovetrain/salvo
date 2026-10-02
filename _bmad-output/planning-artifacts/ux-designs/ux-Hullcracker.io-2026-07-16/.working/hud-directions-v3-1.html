@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker — In-match HUD directions v3-1 (bottom-bar rethink)</title>
+<style>
+/* ============================================================
+   HULLCRACKER — IN-MATCH HUD DIRECTIONS v3-1
+   Four bottom-bar compositions for the nine-slot v3 loadout,
+   answering the 2026-09-11 brain dump. Palette, type family and
+   the top chrome (BR bar + kill feed) are FIXED and identical in
+   every frame; directions differ on COMPOSITION, density and
+   information hierarchy only.
+
+   FRAME: each direction is a true 1366×768 game frame (the
+   ratified floor viewport), displayed at scale(.75) = 1024×576.
+   Inline CSS only. No JS. No network. System fonts stand in for
+   Geist / Geist Mono (production faces per DESIGN.md).
+
+   TOKENS (DESIGN.md frontmatter, verbatim):
+     void #050807 · fog-base #020604 · panel #0A0F0D ·
+     panel-deep #070B0A · card-scrim #030605 (rgba(3,6,5,.9)) ·
+     hairline #1B2621 · silver #C0C0C0 · text-primary #E2E8F0 ·
+     text-secondary #8B95A5 · text-muted #7A8496
+     phosphor #00FF88 (yours / ready) · amber #FFB800 (selected /
+     armed / action) · denied #FF3B3B · info #38BDF8 ·
+     storm-readout #B06EE8 · damage-marker #FF6666
+     terrain 0 shore #242F22/#4A6B33 · 1 slope #363C29/#7B8A3E ·
+     2 upland #484534/#AE9C58
+   LOOT-TIER RAMP (absolute rungs, Story 7-5): I phosphor #00FF88 ·
+     II info #38BDF8 · III storm-readout #B06EE8 · IV denied
+     #FF3B3B · V amber #FFB800
+   REGATTA HUES USED (cycle-125 wheel; fills = outline × .45):
+     own hull  lagoon  #11A5D7 → fill #084A61
+     contact   magenta #E312D9 → fill #660862
+     kill feed rose #F8118D (☠︎ ROSE, kill leader) · cobalt #5C8EFD ·
+               lemon #A1960D · iris #977AFD · drone #9AA3B2
+   COMPONENT TOKENS HONOURED: hotbar-slot 54px 1px outline
+     transparent bed, rounded none · ammo-badge 16px · bank-chip
+     30px breathe 2.4s · refit-card panel bed · activated-ability
+     chamfer 9px on 54px · mono key-chip family everywhere.
+   ============================================================ */
+:root{
+  --void:#050807;--fog:#020604;--panel:#0A0F0D;--panel-deep:#070B0A;--hair:#1B2621;
+  --silver:#C0C0C0;--t1:#E2E8F0;--t2:#8B95A5;--t3:#7A8496;
+  --ph:#00FF88;--amber:#FFB800;--denied:#FF3B3B;--info:#38BDF8;--stormr:#B06EE8;--dmgm:#FF6666;
+  --own:#11A5D7;--ownfill:#084A61;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--void);color:var(--t1);font-family:var(--sans);line-height:1.5;padding:40px 20px 96px}
+.page{max-width:1320px;margin:0 auto}
+.kicker{font:11px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--ph);margin-bottom:10px}
+h1{font-size:30px;font-weight:700;letter-spacing:.01em}
+.lede{color:var(--t2);font-size:14px;max-width:88ch;margin-top:10px}
+.lede strong{color:var(--t1)}
+blockquote{margin:18px 0 0;padding:14px 18px;border-left:2px solid rgba(0,255,136,.45);color:var(--t1);font-size:14px;max-width:96ch;background:rgba(10,15,13,.6)}
+blockquote small{display:block;margin-top:8px;color:var(--t3);font:10px var(--mono);letter-spacing:.16em;text-transform:uppercase}
+.fixed{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+.fixed span{font:10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--t2);border:1px solid var(--hair);padding:5px 9px}
+.fixed span b{color:var(--ph);font-weight:600}
+
+section.dir{margin-top:64px;border-top:1px solid var(--hair);padding-top:28px}
+.dh{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.dh .idx{font:600 15px var(--mono);color:var(--ph);letter-spacing:.15em}
+.dh h2{font-size:24px;font-weight:700;letter-spacing:.02em}
+.dh .pers{color:var(--t2);font-size:14px;font-style:italic}
+.rat{color:var(--t2);font-size:14px;max-width:100ch;margin:8px 0 18px}
+.rat strong{color:var(--t1)}
+.row{display:flex;gap:24px;align-items:flex-start}
+.scaler{width:1024px;height:576px;overflow:hidden;border:1px solid var(--hair);flex:none}
+.frame{position:relative;width:1366px;height:768px;transform:scale(.75);transform-origin:0 0;background:var(--fog);overflow:hidden}
+.side{width:262px;flex:none}
+.side h3{font:10px var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--t3);margin:0 0 4px 10px}
+.side p.sn{font-size:12px;color:var(--t2);margin:0 0 6px 10px}
+.trades{margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;color:var(--t2);max-width:1310px}
+.trades b{font:600 10px var(--mono);letter-spacing:.2em;color:var(--ph);text-transform:uppercase;padding-top:3px}
+.trades b.c{color:var(--amber)}.trades b.k{color:var(--t3)}
+
+/* ---------- scenery (identical in every frame) ---------- */
+.water{position:absolute;inset:0;background:
+  radial-gradient(circle at 683px 384px,rgba(200,255,235,.03) 0 180px,transparent 220px),
+  repeating-radial-gradient(circle at 683px 384px,transparent 0 109px,rgba(192,192,192,.05) 109px 110px),
+  #020604}
+.lyr{position:absolute;inset:0;pointer-events:none}
+.fog{position:absolute;inset:0;background:radial-gradient(circle at 683px 384px,rgba(2,10,6,0) 0 190px,rgba(2,10,6,.86) 240px,rgba(2,10,6,.9) 100%)}
+.sweep{position:absolute;left:133px;top:-166px;width:1100px;height:1100px;border-radius:50%;
+  background:conic-gradient(from 150deg at 50% 50%,rgba(0,255,136,.13),rgba(0,255,136,.035) 24deg,transparent 42deg)}
+.plate{font:9px var(--mono);letter-spacing:.18em;text-anchor:middle}
+
+/* ---------- FIXED top chrome: BR chrome bar + kill feed (as the current mock renders them) ---------- */
+.brchrome{position:absolute;top:16px;left:50%;transform:translateX(-50%);display:flex;align-items:baseline;gap:18px;
+  font:14px/1 var(--mono);letter-spacing:.14em;color:var(--t3);text-transform:uppercase;white-space:nowrap}
+.brchrome .n{color:var(--t1);font-weight:600}
+.brchrome .n.ph{color:var(--ph)}
+.brchrome .ring,.brchrome .ring .n{color:var(--stormr)}
+.brchrome .sep{color:rgba(122,132,150,.5)}
+.brchrome .kl{color:#F8118D;font-weight:600;text-shadow:0 0 10px rgba(248,17,141,.4)}
+.killfeed{position:absolute;top:16px;right:22px;text-align:right;font:13px/1.9 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--t2)}
+.killfeed .kn{font-weight:600}
+.killfeed .kl{text-shadow:0 0 10px rgba(248,17,141,.4)}
+
+/* ---------- shared slot grammar (DESIGN · Hotbar Slot) ---------- */
+.slot{position:relative;width:54px;height:54px;border:1px solid rgba(192,192,192,.28);background:transparent;
+  color:rgba(159,179,168,.85);display:flex;align-items:center;justify-content:center;flex:none}
+.slot>svg{width:28px;height:28px;display:block}
+.slot.ready{border-color:rgba(0,255,136,.4);color:rgba(0,255,136,.8);box-shadow:0 0 10px rgba(0,255,136,.15)}
+.slot.ability{clip-path:polygon(0 0,calc(100% - 9px) 0,100% 9px,100% 100%,0 100%)}
+.slot.empty{border-style:dashed;border-color:rgba(122,132,150,.45);color:rgba(122,132,150,.55);font:16px var(--mono)}
+.slot.firing{border-color:var(--amber);color:var(--amber);box-shadow:0 0 16px rgba(255,184,0,.4),inset 0 0 12px rgba(255,184,0,.12)}
+.slot.cool>svg{opacity:.4}
+.kc{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 3px;
+  border:1px solid rgba(122,132,150,.55);color:var(--t3);font:9px var(--mono);letter-spacing:0;white-space:nowrap}
+.kc.ghost{border-color:transparent;color:transparent}
+.kc.am{border-color:var(--amber);color:var(--amber)}
+.badge{position:absolute;top:-7px;right:-7px;min-width:16px;height:16px;padding:0 4px;background:#030605;border:1px solid rgba(0,255,136,.5);
+  color:var(--ph);font:10px/14px var(--mono);text-align:center;letter-spacing:0}
+.tier{position:absolute;bottom:2px;right:4px;font:600 8px var(--mono);letter-spacing:.04em}
+.tier.t1{color:var(--ph)}.tier.t2{color:var(--info)}.tier.t3{color:var(--stormr)}
+.sw{display:flex;flex-direction:column;align-items:center;gap:5px}
+@keyframes breathe{0%,100%{box-shadow:0 0 6px rgba(0,255,136,.18),inset 0 0 6px rgba(0,255,136,.06)}50%{box-shadow:0 0 16px rgba(0,255,136,.45),inset 0 0 10px rgba(0,255,136,.14)}}
+.bank{width:30px;height:30px;flex:none;border:1px solid rgba(0,255,136,.65);background:rgba(3,7,5,.6);display:flex;align-items:center;justify-content:center;
+  font:600 13px var(--mono);color:var(--ph);animation:breathe 2.4s ease-in-out infinite}
+.cue{font:9px/1.5 var(--mono);letter-spacing:.14em;color:rgba(0,255,136,.8);text-transform:uppercase;white-space:nowrap}
+.cue span{color:var(--t2)}
+/* helm readouts (shared) */
+.ro{text-align:right}
+.ro .big{font:22px/1.3 var(--mono);letter-spacing:.08em;color:var(--t1);font-variant-numeric:tabular-nums}
+.ro .big em{font-style:normal;font-size:11px;color:var(--t3);margin-left:4px;letter-spacing:.14em}
+.rud{margin-top:8px;display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.track{position:relative;width:110px;height:6px}
+.track::before{content:"";position:absolute;left:0;right:0;top:2.5px;height:1px;background:rgba(192,192,192,.3)}
+.track .mid{position:absolute;left:50%;top:0;width:1px;height:6px;background:rgba(192,192,192,.5)}
+.track .pos{position:absolute;left:65%;top:-1px;width:2px;height:8px;background:var(--amber);box-shadow:0 0 6px rgba(255,184,0,.5)}
+.tgc{display:flex;flex-direction:column;align-items:center;gap:3px}
+.tgcap{font:8px var(--mono);letter-spacing:.22em;color:var(--t3);text-transform:uppercase}
+.lad{position:relative}
+.lad .r{display:flex;align-items:center;gap:6px;height:12px}
+.lad .r i{width:22px;height:1px;background:rgba(192,192,192,.35);display:block}
+.lad .r b{font:8px var(--mono);color:var(--t3);letter-spacing:.08em;width:26px;font-weight:400}
+.lad .r.ord i{height:6px;background:transparent;border:1px solid var(--ph);box-shadow:0 0 6px rgba(0,255,136,.5)}
+.lad .r.ord b{color:var(--ph)}
+.lad .nd{position:absolute;left:-7px;width:34px;height:2px;background:var(--amber);box-shadow:0 0 6px rgba(255,184,0,.5)}
+.lad .nd::before{content:"";position:absolute;left:-6px;top:-3px;border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:6px solid var(--amber)}
+
+/* ============ A · SUMMONER'S RIFT ============ */
+.A-hud{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);width:604px}
+.A-top{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.A-lv{font:600 12px var(--mono);color:var(--ph);letter-spacing:.14em;white-space:nowrap;border:1px solid rgba(0,255,136,.4);padding:4px 7px}
+.A-bars{flex:1;display:flex;flex-direction:column;gap:4px}
+.hbar{position:relative;height:14px;border:1px solid rgba(192,192,192,.28);background:rgba(3,6,5,.55)}
+.hbar i{position:absolute;left:0;top:0;bottom:0;background:rgba(0,255,136,.5);box-shadow:0 0 8px rgba(0,255,136,.35);border-right:1px solid var(--ph)}
+.hbar .bl,.hbar .bv{position:absolute;top:0;font:9px/12px var(--mono);letter-spacing:.16em;color:var(--t1);text-shadow:0 0 4px #000,0 0 2px #000}
+.hbar .bl{left:6px}.hbar .bv{right:6px;font-weight:600}.hbar .bv em{font-style:normal;color:var(--t2);font-weight:400}
+.hbar.xp{height:5px;background:rgba(0,255,136,.06);border-color:rgba(0,255,136,.25)}
+.hbar.xp i{background:var(--ph);border-right:0;box-shadow:0 0 6px rgba(0,255,136,.45)}
+.A-bank{display:flex;align-items:center;gap:8px}
+.A-row{display:flex;align-items:flex-start;justify-content:center;gap:8px}
+.A-row .gg{width:18px;height:1px;background:rgba(192,192,192,.22);align-self:flex-start;margin-top:27px;flex:none}
+.cdA{position:absolute;inset:0;background:conic-gradient(transparent 0 65%,rgba(3,6,5,.86) 65%);display:flex;align-items:center;justify-content:center;
+  font:600 18px var(--mono);color:var(--t1);text-shadow:0 0 6px #000}
+.A-helm{position:absolute;right:26px;bottom:22px;display:flex;align-items:flex-end;gap:18px}
+
+/* ============ B · TRISTRAM ============ */
+.B-hud{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:780px}
+.B-main{display:flex;align-items:center;justify-content:center;gap:16px}
+.globe{position:relative;width:96px;height:96px;flex:none}
+.globe svg{width:96px;height:96px;display:block}
+.globe .gt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font:9px var(--mono);letter-spacing:.16em;color:var(--t2);text-transform:uppercase}
+.globe .gt b{font:600 18px var(--mono);color:var(--t1);letter-spacing:.02em;line-height:1.2}
+.globe .gt em{font-style:normal;color:var(--t2);font-size:10px}
+.B-slots{display:flex;gap:8px}
+.belt{display:flex;gap:6px;padding:8px 8px 6px;border:1px solid rgba(192,192,192,.2);position:relative;align-items:flex-start}
+.belt .slot{width:44px;height:44px}.belt .slot>svg{width:22px;height:22px}
+.belt .badge{top:-6px;right:-6px}
+.coolB{background:#030605;color:rgba(70,85,78,.6)}
+.coolB .lit{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ph);clip-path:inset(35% 0 0 0)}
+.coolB .lit svg{width:28px;height:28px}
+.coolB .rise{position:absolute;left:0;right:0;bottom:0;height:65%;background:rgba(0,255,136,.08);border-top:1px solid rgba(0,255,136,.55)}
+.coolB .n{position:absolute;top:2px;right:4px;font:600 10px var(--mono);color:var(--t1)}
+.B-xp{display:flex;align-items:center;gap:10px;margin-top:8px}
+.B-xp .lv{font:600 11px var(--mono);color:var(--ph);letter-spacing:.14em;white-space:nowrap}
+.B-xp .hbar.xp{flex:1;height:4px}
+.B-bank{display:flex;align-items:center;gap:8px}
+.B-bank .bank{width:24px;height:24px;font-size:11px}
+
+/* ============ C · BRIDGE CONSOLE ============ */
+.C-strip{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:stretch;border-top:1px solid rgba(192,192,192,.22);padding-top:10px}
+.cseg{display:flex;align-items:flex-start;gap:4px;padding:0 12px;border-left:1px solid rgba(192,192,192,.16)}
+.cseg:first-child{border-left:0;padding-left:0}
+.cseg .seglab{position:absolute;top:-16px;left:12px;font:7px var(--mono);letter-spacing:.24em;color:var(--t3);text-transform:uppercase}
+.cs{width:66px;display:flex;flex-direction:column;align-items:center;position:relative}
+.cs .slot{width:46px;height:46px}.cs .slot>svg{width:24px;height:24px}
+.cs>.kc{position:absolute;top:-7px;left:3px;background:#020604;z-index:2}
+.cs .nm{margin-top:5px;font:8px/1.2 var(--mono);letter-spacing:.06em;color:var(--t2);text-transform:uppercase;text-align:center;height:10px;white-space:nowrap}
+.cs .nm.am{color:var(--amber)}
+.cs .qi{font:8px var(--mono);letter-spacing:.06em;color:var(--t3);height:10px;white-space:nowrap}
+.cdbar{width:56px;height:3px;background:rgba(0,255,136,.12);margin-top:3px;position:relative}
+.cdbar i{position:absolute;left:0;top:0;bottom:0;background:var(--ph);box-shadow:0 0 6px rgba(0,255,136,.5)}
+.cdbar.am i{background:var(--amber);box-shadow:0 0 6px rgba(255,184,0,.5)}
+.cdbar.off{background:rgba(192,192,192,.08)}
+.cs .cdn{font:600 9px var(--mono);color:var(--t1);margin-top:3px;letter-spacing:.06em;height:11px}
+.cs .cdn.am{color:var(--amber)}
+.cs .cdn.dim{color:var(--t3);font-weight:400}
+.C-helm{display:flex;align-items:flex-start;gap:10px}
+.C-helm .lad .r{height:8px;gap:5px}.C-helm .lad .r i{width:14px}.C-helm .lad .r b{font-size:7px;width:22px}
+.C-helm .lad .r.ord i{height:5px}
+.C-helm .lad .nd{left:-6px;width:24px}
+.C-helm .ro .big{font-size:18px;line-height:1.25}
+.C-helm .track{width:80px}
+.C-seam{display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-start;padding-top:2px}
+.C-seam .lv{font:600 11px var(--mono);color:var(--ph);letter-spacing:.14em}
+.C-seam .cue{text-align:center}
+.vg{display:flex;flex-direction:column;align-items:center;gap:4px;width:52px}
+.vg .lab{font:8px var(--mono);letter-spacing:.2em;color:var(--t3);text-transform:uppercase}
+.vg .g{position:relative;width:12px;height:56px;border:1px solid rgba(192,192,192,.28);background:rgba(3,6,5,.55)}
+.vg .g i{position:absolute;left:0;right:0;bottom:0;background:rgba(0,255,136,.55);border-top:1px solid var(--ph);box-shadow:0 0 8px rgba(0,255,136,.4)}
+.vg .g.xp{width:6px;border-color:rgba(0,255,136,.25);background:rgba(0,255,136,.06)}
+.vg .g.xp i{background:var(--ph)}
+.vg .val{font:600 9px var(--mono);color:var(--t1);letter-spacing:.06em;white-space:nowrap}
+.vg .val em{font-style:normal;color:var(--t2);font-weight:400}
+
+/* ============ D · CLEAN DECK ============ */
+.D-hud{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);width:470px}
+.D-bar{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.lvchip{font:600 9px var(--mono);letter-spacing:.14em;color:var(--ph);border:1px solid rgba(0,255,136,.45);padding:3px 5px;white-space:nowrap}
+.D-comb{flex:1;position:relative;height:13px;border:1px solid rgba(192,192,192,.28);background:rgba(3,6,5,.5)}
+.D-comb .hp{position:absolute;left:0;top:0;height:8px;background:rgba(0,255,136,.5);box-shadow:0 0 8px rgba(0,255,136,.35);border-right:1px solid var(--ph)}
+.D-comb .xpt{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,255,136,.08)}
+.D-comb .xpt i{position:absolute;left:0;top:1px;height:1px;background:var(--ph);box-shadow:0 0 4px rgba(0,255,136,.6)}
+.D-comb .bv{position:absolute;right:5px;top:-1px;font:600 8px/10px var(--mono);letter-spacing:.14em;color:var(--t1);text-shadow:0 0 3px #000,0 0 3px #000}
+.D-comb .bv em{font-style:normal;color:var(--t2);font-weight:400}
+.bank.sm{width:22px;height:22px;font-size:11px}
+.D-row{display:flex;align-items:flex-end;justify-content:center;gap:8px}
+.D-row .c .slot{width:40px;height:40px}.D-row .c .slot>svg{width:20px;height:20px}
+.D-row .c .badge{top:-6px;right:-6px}
+.D-row .gap{width:12px;flex:none}
+.coolD{background:conic-gradient(rgba(0,255,136,.22) 0 var(--p),transparent var(--p))}
+.coolD>svg{opacity:.4}
+.slot .num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:600 15px var(--mono);color:var(--t1);text-shadow:0 0 5px #000}
+.D-helm{position:absolute;right:26px;bottom:24px;display:flex;align-items:flex-end;gap:12px}
+.D-helm .ro .big{font-size:18px}
+.D-helm .rud{margin-top:6px}.D-helm .track{width:70px}
+.tick{position:relative;width:16px;height:60px;flex:none}
+.tick i{position:absolute;left:5px;width:6px;height:1px;background:rgba(192,192,192,.55)}
+.tick i.ord{height:5px;width:9px;left:3px;background:transparent;border:1px solid var(--ph);box-shadow:0 0 5px rgba(0,255,136,.5)}
+.tick .nd{position:absolute;left:-4px;width:14px;height:2px;background:var(--amber);box-shadow:0 0 5px rgba(255,184,0,.5)}
+.tick .nd::before{content:"";position:absolute;left:-5px;top:-3px;border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:5px solid var(--amber)}
+.tick .kc{position:absolute;left:0}
+
+/* ============ REFIT CARD (secondary panel) ============ */
+.card{position:relative;width:236px;border:1px solid rgba(192,192,192,.28);background:var(--panel);padding:14px 14px 12px;margin:14px 0 0 10px}
+.card .kc.big{position:absolute;top:-8px;left:-8px;width:22px;height:22px;background:var(--void);font-size:11px;color:var(--t2);border-color:rgba(192,192,192,.4)}
+.card .head{display:flex;align-items:center;gap:10px}
+.card .ci{width:36px;height:36px;flex:none;border:1px solid rgba(192,192,192,.28);display:flex;align-items:center;justify-content:center;color:var(--ph)}
+.card .ci svg{width:22px;height:22px}
+.card .cn{font:600 15px/1.15 var(--sans);color:var(--t1);letter-spacing:.02em}
+.card .ck{font:10px var(--mono);letter-spacing:.2em;color:var(--t2);text-transform:uppercase;margin-top:3px}
+.card .ladder{display:flex;gap:3px;align-items:center;margin-top:12px}
+.card .ladder i{width:16px;height:7px;border:1px solid;display:block}
+.ladder i.r1{border-color:var(--ph)}.ladder i.r2{border-color:var(--info)}.ladder i.r3{border-color:var(--stormr)}.ladder i.r4{border-color:var(--denied)}.ladder i.r5{border-color:var(--amber)}
+.ladder i.on.r1{background:var(--ph)}.ladder i.on.r2{background:var(--info)}
+.ladder i.next.r3{background:var(--stormr);box-shadow:0 0 8px rgba(176,110,232,.7)}
+.ladder i.off{opacity:.35}
+.card .tl{font:600 12px var(--mono);letter-spacing:.14em;margin-left:8px;white-space:nowrap}
+.t1{color:var(--ph)}.t2{color:var(--info)}.t3{color:var(--stormr)}
+.card .arr{color:var(--t3);margin:0 3px;font-weight:400}
+.card .eff{margin-top:10px;font:12px var(--mono);letter-spacing:.06em;color:var(--ph);font-variant-numeric:tabular-nums;white-space:nowrap}
+.card .eff em{font-style:normal;color:var(--t2)}
+.card .act{margin-top:6px;font:9px var(--mono);letter-spacing:.22em;color:var(--amber);text-transform:uppercase}
+.card .stock{display:flex;gap:4px;align-items:center;margin-top:12px}
+.card .stock i{width:14px;height:14px;border:1px solid rgba(0,255,136,.55);display:block}
+.card .stock i.on{background:rgba(0,255,136,.55)}
+.card .stock i.next{border-color:var(--ph);box-shadow:0 0 8px rgba(0,255,136,.6)}
+.card .stock .tl{color:var(--ph)}
+.card.grey{opacity:.55}
+.card.grey .reason{margin-top:10px;font:600 10px var(--mono);letter-spacing:.24em;color:var(--t2);text-transform:uppercase;border:1px solid rgba(139,149,165,.5);display:inline-block;padding:3px 8px}
+.card.grey .kc.big{border-style:dashed}
+/* density variants */
+.card.b{padding:18px 16px 14px}
+.card.b .head{flex-direction:column;align-items:center;text-align:center;gap:10px}
+.card.b .ci{width:52px;height:52px}.card.b .ci svg{width:30px;height:30px}
+.card.b .cn{font-size:16px}
+.card.b .ladder,.card.b .stock{justify-content:center}
+.card.b .eff,.card.b .act{text-align:center}
+.card.b .reason{display:block;text-align:center}
+.card.c{width:216px;padding:10px 12px 10px}
+.card.c .ci{width:30px;height:30px}.card.c .ci svg{width:18px;height:18px}
+.card.c .cn{font-size:13px}.card.c .ck{margin-top:1px;font-size:9px;letter-spacing:.12em;white-space:nowrap}
+.card.c .ladder,.card.c .stock{margin-top:8px}
+.card.c .eff{margin-top:7px;font-size:11px}
+.card.c .eff2{font:10px var(--mono);letter-spacing:.06em;color:var(--t2);margin-top:3px}
+.card.c .act{margin-top:4px}
+.card.d{width:216px;padding:12px 14px}
+.card.d .cn{font-size:14px}
+.card.d .tbig{font:600 22px var(--mono);letter-spacing:.06em;margin-top:8px;line-height:1}
+.card.d .tbig .arr{font-size:14px}
+.card.d .eff{margin-top:8px;font-size:11px}
+
+.foot{margin-top:56px;color:var(--t3);font-size:12px;max-width:100ch}
+</style>
+</head>
+<body>
+
+<!-- ============ shared symbols (icons, hulls, island, blip) ============ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<defs>
+<symbol id="ic-gun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></symbol>
+<symbol id="ic-boost" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M5 13l7-7 7 7M5 20l7-7 7 7"/></symbol>
+<symbol id="ic-torp" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="9.5" width="17" height="5" rx="2.5"/><path d="M19 12h3M4.5 9.5l-2-3M4.5 14.5l-2 3"/></symbol>
+<symbol id="ic-mg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"><path d="M3 12h5M10 12h5M17 12h4"/></symbol>
+<symbol id="ic-chaff" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="1.5"/><circle cx="6" cy="8" r="1.2"/><circle cx="17" cy="6" r="1.2"/><circle cx="19" cy="14" r="1.2"/><circle cx="8" cy="17" r="1.2"/><circle cx="14" cy="19" r="1.2"/><circle cx="4" cy="14" r="1"/><circle cx="12" cy="4" r="1"/><circle cx="20" cy="20" r=".9"/></symbol>
+<symbol id="ic-repair" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square"><path d="M12 4v16M4 12h16"/></symbol>
+<symbol id="hull-own" viewBox="-40 -6 80 12"><polygon points="-38,-2.5 -28,-4.5 22,-4.5 38,0 22,4.5 -28,4.5 -38,2.5" fill="#084A61" stroke="#11A5D7" stroke-width="1.2"/></symbol>
+<symbol id="hull-c" viewBox="-40 -6 80 12"><polygon points="-38,-2.5 -28,-4.5 22,-4.5 38,0 22,4.5 -28,4.5 -38,2.5" fill="#660862" stroke="#E312D9" stroke-width="1.2"/></symbol>
+<symbol id="isle" viewBox="0 0 260 200"><polygon points="20,120 60,60 130,30 200,50 240,110 210,170 120,190 50,170" fill="#242F22" stroke="#4A6B33" stroke-width="1.5"/><polygon points="80,110 110,70 170,70 200,110 170,150 110,150" fill="#363C29" stroke="#7B8A3E" stroke-width="1.2"/><polygon points="120,110 140,90 165,100 160,125 130,130" fill="#484534" stroke="#AE9C58"/></symbol>
+<symbol id="blip" viewBox="0 0 30 18" fill="#00FF88"><rect x="0" y="6" width="6" height="6" opacity=".55"/><rect x="6" y="0" width="6" height="6" opacity=".8"/><rect x="6" y="6" width="6" height="6"/><rect x="12" y="6" width="6" height="6"/><rect x="18" y="6" width="6" height="6" opacity=".9"/><rect x="12" y="12" width="6" height="6" opacity=".7"/><rect x="24" y="6" width="6" height="6" opacity=".5"/></symbol>
+</defs>
+</svg>
+
+<div class="page">
+  <div class="kicker">Hullcracker.io · UX run 2026-07-16 · v3 update · in-match HUD directions · 2026-09-11</div>
+  <h1>Four bottom-bar directions for the nine-slot HUD</h1>
+  <p class="lede">Composition boards for the in-match HUD rethink. Each direction is a complete <strong>1366×768</strong> frame (the ratified floor viewport, shown at 0.75×) with the same ocean, the same top chrome and the same mid-match Torpedo Boat state — only the bottom cluster, its density and its hierarchy change. Beside each frame: that direction's <strong>refit card face</strong>, redesigned so a player can tell what they are getting before they press 1–4. Palette, type family and the CIC register are fixed; nothing here proposes a new colour or word.</p>
+  <blockquote>“The XP and HP bars shoved off to the side are a bit weird to read. I just think it needs to be cleaner … The chrome bar and kill feed are fine. Some players are also just picking refits randomly … so it needs better visual indication of what you're getting.” “I find myself looking all over during a fight.” “Diablo I/II, league of legends.” “I don't think columns is really working out. A hotbar at the bottom might work better. I need to visually see my abilities and cooldowns.”
+  <small>Eric · 2026-09-11 · .decision-log.md § Update 2026-09-10 (verbatim brief)</small></blockquote>
+  <div class="fixed">
+    <span>Loadout: deck gun <b>keyless</b> · <b>Shift</b> boost · <b>Q E R</b> weapons (empty at 0:00) · <b>1–4</b> consumables</span>
+    <span>State: Q <b>LIGHT TORPEDO II</b> · E <b>MACHINE GUN I</b> · R empty · 1 <b>HULL REPAIR ×3</b> · 2 <b>CHAFF ×1</b> · 3, 4 empty</span>
+    <span>Shift cooling <b>7 s of 20</b> · HULL <b>212/250</b> · <b>LV 3</b> · 1 level banked</span>
+    <span>Helm: HDG <b>271°</b> · <b>18 KTS</b> · ½ AHEAD ordered</span>
+    <span>No draw-pile counter (deleted 2026-09-10)</span>
+  </div>
+
+<!-- ======================================================================
+     A · SUMMONER'S RIFT
+     ====================================================================== -->
+<section class="dir" id="A">
+  <div class="dh"><span class="idx">A</span><h2>SUMMONER'S RIFT</h2><span class="pers">Personality — the LoL register: one bar, everything you own in a line, cooldowns you can count.</span></div>
+  <p class="rat">Vitals and abilities become <strong>one bottom-centre object</strong>: two stacked horizontal bars (HULL, then XP) span the slot row's exact width, so the eye that checks a cooldown is already on the health bar. The slot row reads Gun · Shift · <em>gap</em> · Q E R · <em>gap</em> · 1 2 3 4 with the gaps as visible hairline ties, so the three families are legible without a label. Cooldown is the LoL radial: a dark clock-wipe uncovering clockwise with a large seconds numeral — the fastest count-read of the four. The helm stays a compact instrument bottom-right, unchanged in grammar.</p>
+  <div class="row">
+    <div class="scaler"><div class="frame">
+      <div class="water"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#isle" x="180" y="90" width="260" height="200"/>
+        <use href="#isle" x="1010" y="470" width="180" height="140" transform="rotate(30 1100 540)"/>
+        <use href="#hull-c" x="776" y="316" width="72" height="12" transform="rotate(-24 812 322)"/>
+        <use href="#hull-own" x="647" y="378" width="72" height="12" transform="rotate(181 683 384)"/>
+      </svg>
+      <div class="fog"></div><div class="sweep"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#blip" x="905" y="230" width="30" height="18" opacity=".9"/><use href="#blip" x="884" y="238" width="30" height="18" opacity=".4"/><use href="#blip" x="863" y="246" width="30" height="18" opacity=".18"/>
+        <use href="#blip" x="400" y="530" width="30" height="18" opacity=".75" transform="rotate(60 415 539)"/>
+        <text class="plate" x="812" y="302" fill="#E312D9">KRAKEN'S BANE</text>
+        <text class="plate" x="683" y="366" fill="#11A5D7">TIDEWRACK</text>
+      </svg>
+      <div class="brchrome"><span><span class="n ph">6</span> AFLOAT</span><span class="sep">·</span><span><span class="n ph">2</span> KILLS</span><span class="sep">·</span><span>T+<span class="n">04:12</span></span><span class="sep">·</span><span class="ring">RING CLOSES IN <span class="n">1:48</span></span><span class="sep">·</span><span class="kl">☠︎ ROSE</span></div>
+      <div class="killfeed">
+        <div><span class="kn" style="color:#5C8EFD">SALT SHAKER</span> SUNK BY <span class="kn kl" style="color:#F8118D">☠︎ ROSE</span></div>
+        <div><span class="kn" style="color:#9AA3B2">PICKET DRONE 3</span> SUNK BY <span class="kn" style="color:#A1960D">MARIGOLD</span></div>
+        <div><span class="kn" style="color:#977AFD">IRON KETTLE</span> LOST WITH ALL HANDS</div>
+      </div>
+
+      <!-- A · bottom-centre bar -->
+      <div class="A-hud">
+        <div class="A-top">
+          <div class="A-lv">LV 3</div>
+          <div class="A-bars">
+            <div class="hbar hp"><i style="width:84.8%"></i><span class="bl">HULL</span><span class="bv">212<em>/250</em></span></div>
+            <div class="hbar xp"><i style="width:62%"></i></div>
+          </div>
+          <div class="A-bank"><div class="bank">1</div><div class="cue">1 LEVEL BANKED<br><span>TAB TO REFIT</span></div></div>
+        </div>
+        <div class="A-row">
+          <div class="sw"><div class="slot ready"><svg><use href="#ic-gun"/></svg></div><span class="kc ghost">·</span></div>
+          <div class="sw"><div class="slot ability cool"><svg><use href="#ic-boost"/></svg><div class="cdA">7</div></div><span class="kc">Shift</span></div>
+          <div class="gg"></div>
+          <div class="sw"><div class="slot ready"><svg><use href="#ic-torp"/></svg><span class="tier t2">II</span></div><span class="kc">Q</span></div>
+          <div class="sw"><div class="slot ready"><svg><use href="#ic-mg"/></svg><span class="tier t1">I</span></div><span class="kc">E</span></div>
+          <div class="sw"><div class="slot empty">—</div><span class="kc">R</span></div>
+          <div class="gg"></div>
+          <div class="sw"><div class="slot ready"><svg><use href="#ic-repair"/></svg><span class="badge">×3</span></div><span class="kc">1</span></div>
+          <div class="sw"><div class="slot ready"><svg><use href="#ic-chaff"/></svg><span class="badge">×1</span></div><span class="kc">2</span></div>
+          <div class="sw"><div class="slot empty">—</div><span class="kc">3</span></div>
+          <div class="sw"><div class="slot empty">—</div><span class="kc">4</span></div>
+        </div>
+      </div>
+
+      <!-- A · helm instrument, bottom-right (unchanged grammar) -->
+      <div class="A-helm">
+        <div class="ro">
+          <div class="big">271<em>° HDG</em></div>
+          <div class="big">18<em>KTS</em></div>
+          <div class="rud"><span class="kc">A</span><div class="track"><i class="mid"></i><i class="pos"></i></div><span class="kc">D</span></div>
+        </div>
+        <div class="tgc">
+          <span class="kc">W</span><span class="tgcap">AHEAD</span>
+          <div class="lad">
+            <div class="r"><i></i><b>FULL</b></div><div class="r"><i></i><b>¾</b></div><div class="r ord"><i></i><b>½</b></div><div class="r"><i></i><b>¼</b></div>
+            <div class="r"><i></i><b>STOP</b></div>
+            <div class="r"><i></i><b>¼</b></div><div class="r"><i></i><b>½</b></div><div class="r"><i></i><b>¾</b></div><div class="r"><i></i><b>FULL</b></div>
+            <div class="nd" style="top:34px"></div>
+          </div>
+          <span class="tgcap">ASTERN</span><span class="kc">S</span>
+        </div>
+      </div>
+    </div></div>
+
+    <aside class="side">
+      <h3>Refit card · A density</h3>
+      <p class="sn">Icon = the slot's glyph. Tier rides the absolute loot ramp. One effect line, real numbers.</p>
+      <div class="card a">
+        <span class="kc big">2</span>
+        <div class="head"><div class="ci"><svg><use href="#ic-torp"/></svg></div><div><div class="cn">LIGHT TORPEDO</div><div class="ck">WEAPON</div></div></div>
+        <div class="ladder"><i class="r1 on"></i><i class="r2 on"></i><i class="r3 next"></i><i class="r4 off"></i><i class="r5 off"></i><span class="tl"><span class="t2">II</span><span class="arr">→</span><span class="t3">III</span></span></div>
+        <div class="eff">+1 TUBE · 45 <em>→</em> 50 DMG</div>
+      </div>
+      <div class="card a grey">
+        <span class="kc big">4</span>
+        <div class="head"><div class="ci"><svg><use href="#ic-repair"/></svg></div><div><div class="cn">HULL REPAIR</div><div class="ck">CONSUMABLE</div></div></div>
+        <div class="stock"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><span class="tl">×4</span></div>
+        <div class="reason">SLOTS FULL</div>
+      </div>
+    </aside>
+  </div>
+  <div class="trades">
+    <b>Gains</b><span>One glance covers HULL, XP, LV, the bank and every cooldown; the radial numeral is the quickest "how long" read; families separate by gap, not by label.</span>
+    <b class="c">Costs</b><span>Widest footprint over the water (604 px) directly under the aim line; no slot names on the face, so first-match learning leans on the card's icon matching the slot's.</span>
+    <b class="k">Keeps</b><span>Chrome bar, kill feed, the helm instrument's whole grammar (hollow ordered rung / solid amber needle, W/S/A/D chips), 54 px Afterimage slots, ability chamfer.</span>
+  </div>
+</section>
+
+<!-- ======================================================================
+     B · TRISTRAM
+     ====================================================================== -->
+<section class="dir" id="B">
+  <div class="dh"><span class="idx">B</span><h2>TRISTRAM</h2><span class="pers">Personality — the Diablo II register: two globes, a belt, and an experience strip under everything.</span></div>
+  <p class="rat">Health becomes a <strong>globe</strong> at the bar's left end — a filled arc reads as a quantity from the corner of the eye without numerals, the numerals are there when you look — and the helm becomes its <strong>mirror globe</strong> on the right, HDG large, KTS beneath, the 9-detent telegraph drawn as a tick arc over its crown and the rudder as a track along its floor. The four consumables sit in a framed <strong>belt</strong> as a distinct object, smaller than the weapons. XP is the thin strip running the bar's full width beneath the slots, LV at its head and the banked chip at its tail. Cooldown is the Diablo icon: dimmed to scrim, refilling bottom-up, with a small numeral.</p>
+  <div class="row">
+    <div class="scaler"><div class="frame">
+      <div class="water"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#isle" x="180" y="90" width="260" height="200"/>
+        <use href="#isle" x="1010" y="470" width="180" height="140" transform="rotate(30 1100 540)"/>
+        <use href="#hull-c" x="776" y="316" width="72" height="12" transform="rotate(-24 812 322)"/>
+        <use href="#hull-own" x="647" y="378" width="72" height="12" transform="rotate(181 683 384)"/>
+      </svg>
+      <div class="fog"></div><div class="sweep"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#blip" x="905" y="230" width="30" height="18" opacity=".9"/><use href="#blip" x="884" y="238" width="30" height="18" opacity=".4"/><use href="#blip" x="863" y="246" width="30" height="18" opacity=".18"/>
+        <use href="#blip" x="400" y="530" width="30" height="18" opacity=".75" transform="rotate(60 415 539)"/>
+        <text class="plate" x="812" y="302" fill="#E312D9">KRAKEN'S BANE</text>
+        <text class="plate" x="683" y="366" fill="#11A5D7">TIDEWRACK</text>
+      </svg>
+      <div class="brchrome"><span><span class="n ph">6</span> AFLOAT</span><span class="sep">·</span><span><span class="n ph">2</span> KILLS</span><span class="sep">·</span><span>T+<span class="n">04:12</span></span><span class="sep">·</span><span class="ring">RING CLOSES IN <span class="n">1:48</span></span><span class="sep">·</span><span class="kl">☠︎ ROSE</span></div>
+      <div class="killfeed">
+        <div><span class="kn" style="color:#5C8EFD">SALT SHAKER</span> SUNK BY <span class="kn kl" style="color:#F8118D">☠︎ ROSE</span></div>
+        <div><span class="kn" style="color:#9AA3B2">PICKET DRONE 3</span> SUNK BY <span class="kn" style="color:#A1960D">MARIGOLD</span></div>
+        <div><span class="kn" style="color:#977AFD">IRON KETTLE</span> LOST WITH ALL HANDS</div>
+      </div>
+
+      <div class="B-hud">
+        <div class="B-main">
+          <!-- HP globe -->
+          <div class="globe">
+            <svg viewBox="0 0 96 96">
+              <defs><clipPath id="gcB"><circle cx="48" cy="48" r="43"/></clipPath></defs>
+              <circle cx="48" cy="48" r="44" fill="rgba(3,6,5,.7)" stroke="rgba(192,192,192,.28)"/>
+              <rect clip-path="url(#gcB)" x="0" y="17.4" width="96" height="80" fill="rgba(0,255,136,.28)"/>
+              <line clip-path="url(#gcB)" x1="0" y1="17.4" x2="96" y2="17.4" stroke="#00FF88" stroke-width="1.5"/>
+              <circle cx="48" cy="48" r="44" fill="none" stroke="rgba(0,255,136,.35)"/>
+            </svg>
+            <div class="gt">HULL<b>212</b><em>/250</em></div>
+          </div>
+          <!-- weapons: Shift · Q E R (gun omitted in this direction) -->
+          <div class="B-slots">
+            <div class="sw"><div class="slot ability coolB"><svg><use href="#ic-boost"/></svg><div class="rise"></div><div class="lit"><svg><use href="#ic-boost"/></svg></div><span class="n">7</span></div><span class="kc">Shift</span></div>
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-torp"/></svg><span class="tier t2">II</span></div><span class="kc">Q</span></div>
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-mg"/></svg><span class="tier t1">I</span></div><span class="kc">E</span></div>
+            <div class="sw"><div class="slot empty">—</div><span class="kc">R</span></div>
+          </div>
+          <!-- consumable belt -->
+          <div class="belt">
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-repair"/></svg><span class="badge">×3</span></div><span class="kc">1</span></div>
+            <div class="sw"><div class="slot ready"><svg><use href="#ic-chaff"/></svg><span class="badge">×1</span></div><span class="kc">2</span></div>
+            <div class="sw"><div class="slot empty">—</div><span class="kc">3</span></div>
+            <div class="sw"><div class="slot empty">—</div><span class="kc">4</span></div>
+          </div>
+          <!-- helm globe -->
+          <div class="globe">
+            <svg viewBox="0 0 96 96" font-family="ui-monospace,Menlo,monospace">
+              <circle cx="48" cy="48" r="44" fill="rgba(3,6,5,.7)" stroke="rgba(192,192,192,.28)"/>
+              <!-- telegraph tick arc, 9 detents from FULL ASTERN (−70°) to FULL AHEAD (+70°) -->
+              <g stroke="rgba(192,192,192,.45)" stroke-width="1">
+                <line x1="48" y1="5" x2="48" y2="11" transform="rotate(-70 48 48)"/><line x1="48" y1="5" x2="48" y2="11" transform="rotate(-52.5 48 48)"/>
+                <line x1="48" y1="5" x2="48" y2="11" transform="rotate(-35 48 48)"/><line x1="48" y1="5" x2="48" y2="11" transform="rotate(-17.5 48 48)"/>
+                <line x1="48" y1="3" x2="48" y2="12" transform="rotate(0 48 48)" stroke="rgba(192,192,192,.7)"/>
+                <line x1="48" y1="5" x2="48" y2="11" transform="rotate(17.5 48 48)"/><line x1="48" y1="5" x2="48" y2="11" transform="rotate(52.5 48 48)"/>
+                <line x1="48" y1="5" x2="48" y2="11" transform="rotate(70 48 48)"/>
+              </g>
+              <!-- ordered = hollow phosphor rung (½ AHEAD) -->
+              <rect x="44.5" y="3" width="7" height="10" fill="none" stroke="#00FF88" stroke-width="1" transform="rotate(35 48 48)"/>
+              <!-- actual = solid amber needle (still accelerating) -->
+              <g transform="rotate(26 48 48)"><line x1="48" y1="46" x2="48" y2="19" stroke="#FFB800" stroke-width="2"/><polygon points="48,13 44,20 52,20" fill="#FFB800"/></g>
+              <text x="48" y="50" font-size="15" font-weight="600" fill="#E2E8F0" text-anchor="middle" letter-spacing="1">271°</text>
+              <text x="48" y="61" font-size="8" fill="#7A8496" text-anchor="middle" letter-spacing="2">HDG</text>
+              <text x="48" y="73" font-size="9" fill="#E2E8F0" text-anchor="middle" letter-spacing="1.5">18 <tspan fill="#7A8496" font-size="7">KTS</tspan></text>
+              <!-- rudder track along the floor -->
+              <line x1="24" y1="83" x2="72" y2="83" stroke="rgba(192,192,192,.35)"/><line x1="48" y1="80" x2="48" y2="86" stroke="rgba(192,192,192,.55)"/>
+              <rect x="55" y="79" width="2" height="8" fill="#FFB800"/>
+              <text x="16" y="86" font-size="7" fill="#7A8496" text-anchor="middle">A</text><text x="80" y="86" font-size="7" fill="#7A8496" text-anchor="middle">D</text>
+              <text x="12" y="30" font-size="7" fill="#7A8496" text-anchor="middle">S</text><text x="84" y="30" font-size="7" fill="#7A8496" text-anchor="middle">W</text>
+            </svg>
+          </div>
+        </div>
+        <!-- XP strip under everything -->
+        <div class="B-xp">
+          <span class="lv">LV 3</span>
+          <div class="hbar xp"><i style="width:62%"></i></div>
+          <div class="B-bank"><div class="bank">1</div><span class="cue">1 LEVEL BANKED · <span>TAB TO REFIT</span></span></div>
+        </div>
+      </div>
+    </div></div>
+
+    <aside class="side">
+      <h3>Refit card · B density</h3>
+      <p class="sn">The item-tooltip read: icon large and central, then name, tier, kind, effect, activation.</p>
+      <div class="card b">
+        <span class="kc big">2</span>
+        <div class="head"><div class="ci"><svg><use href="#ic-torp"/></svg></div><div><div class="cn">LIGHT TORPEDO</div><div class="ck">WEAPON</div></div></div>
+        <div class="ladder"><i class="r1 on"></i><i class="r2 on"></i><i class="r3 next"></i><i class="r4 off"></i><i class="r5 off"></i><span class="tl"><span class="t2">II</span><span class="arr">→</span><span class="t3">III</span></span></div>
+        <div class="eff">+1 TUBE · 45 <em>→</em> 50 DMG</div>
+        <div class="act">KEY PRIMES · CLICK FIRES</div>
+      </div>
+      <div class="card b grey">
+        <span class="kc big">4</span>
+        <div class="head"><div class="ci"><svg><use href="#ic-repair"/></svg></div><div><div class="cn">HULL REPAIR</div><div class="ck">CONSUMABLE</div></div></div>
+        <div class="stock"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><span class="tl">×4</span></div>
+        <div class="eff">+50 HP NOW · +50 OVER 10 S</div>
+        <div class="reason">SLOTS FULL</div>
+      </div>
+    </aside>
+  </div>
+  <div class="trades">
+    <b>Gains</b><span>Health reads as a shape at any distance; helm and health are symmetric anchors so nothing lives in a far corner any more; the belt makes "consumables are a different thing" visible without a label.</span>
+    <b class="c">Costs</b><span>The widest bar of the four (780 px); the helm globe compresses the 9-detent ladder into an arc, so ordered/actual reads as an angle rather than a rung; the deck gun has no slot, so its 5 s reload is invisible.</span>
+    <b class="k">Keeps</b><span>Chrome bar, kill feed, hollow-rung / solid-needle telegraph coding, W/S/A/D chips, 54 px weapon slots, the ability chamfer, the 30 px bank chip breathing.</span>
+  </div>
+</section>
+
+<!-- ======================================================================
+     C · BRIDGE CONSOLE
+     ====================================================================== -->
+<section class="dir" id="C">
+  <div class="dh"><span class="idx">C</span><h2>BRIDGE CONSOLE</h2><span class="pers">Personality — the naval-CIC take: one continuous instrument strip, helm hand left, gun hand right, every number present.</span></div>
+  <p class="rat">The whole bottom edge becomes <strong>one instrument strip</strong> read left to right in the order the hands sit: the helm (telegraph ladder, rudder, HDG/KTS) at the far left, then Gun · Shift, then Q E R, then 1–4, then LV and the bank at the seam, then HULL and XP as <strong>vertical gauges inside the bar</strong> at the far right. Every slot carries its name and a one-line quick stat, and cooldown is a thin phosphor bar that drains and refills under the slot plus a numeral — the same gauge grammar as the vitals, so the strip has one visual language. This is the densest, most information-forward direction; E shows the MACHINE GUN's held-fire state, its pool draining in amber.</p>
+  <div class="row">
+    <div class="scaler"><div class="frame">
+      <div class="water"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#isle" x="180" y="90" width="260" height="200"/>
+        <use href="#isle" x="1010" y="470" width="180" height="140" transform="rotate(30 1100 540)"/>
+        <use href="#hull-c" x="776" y="316" width="72" height="12" transform="rotate(-24 812 322)"/>
+        <use href="#hull-own" x="647" y="378" width="72" height="12" transform="rotate(181 683 384)"/>
+      </svg>
+      <div class="fog"></div><div class="sweep"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#blip" x="905" y="230" width="30" height="18" opacity=".9"/><use href="#blip" x="884" y="238" width="30" height="18" opacity=".4"/><use href="#blip" x="863" y="246" width="30" height="18" opacity=".18"/>
+        <use href="#blip" x="400" y="530" width="30" height="18" opacity=".75" transform="rotate(60 415 539)"/>
+        <text class="plate" x="812" y="302" fill="#E312D9">KRAKEN'S BANE</text>
+        <text class="plate" x="683" y="366" fill="#11A5D7">TIDEWRACK</text>
+        <!-- held-fire stream from own bow toward the contact -->
+        <g stroke="#E8F2EC" stroke-width="1.5" opacity=".8"><line x1="650" y1="378" x2="640" y2="374"/><line x1="628" y1="369" x2="618" y2="365"/><line x1="606" y1="360" x2="596" y2="356"/></g>
+      </svg>
+      <div class="brchrome"><span><span class="n ph">6</span> AFLOAT</span><span class="sep">·</span><span><span class="n ph">2</span> KILLS</span><span class="sep">·</span><span>T+<span class="n">04:12</span></span><span class="sep">·</span><span class="ring">RING CLOSES IN <span class="n">1:48</span></span><span class="sep">·</span><span class="kl">☠︎ ROSE</span></div>
+      <div class="killfeed">
+        <div><span class="kn" style="color:#5C8EFD">SALT SHAKER</span> SUNK BY <span class="kn kl" style="color:#F8118D">☠︎ ROSE</span></div>
+        <div><span class="kn" style="color:#9AA3B2">PICKET DRONE 3</span> SUNK BY <span class="kn" style="color:#A1960D">MARIGOLD</span></div>
+        <div><span class="kn" style="color:#977AFD">IRON KETTLE</span> LOST WITH ALL HANDS</div>
+      </div>
+
+      <div class="C-strip">
+        <!-- helm hand -->
+        <div class="cseg">
+          <div class="C-helm">
+            <div class="tgc">
+              <span class="kc">W</span>
+              <div class="lad">
+                <div class="r"><i></i><b>FULL</b></div><div class="r"><i></i><b>¾</b></div><div class="r ord"><i></i><b>½</b></div><div class="r"><i></i><b>¼</b></div>
+                <div class="r"><i></i><b>STOP</b></div>
+                <div class="r"><i></i><b>¼</b></div><div class="r"><i></i><b>½</b></div><div class="r"><i></i><b>¾</b></div><div class="r"><i></i><b>FULL</b></div>
+                <div class="nd" style="top:23px"></div>
+              </div>
+              <span class="kc">S</span>
+            </div>
+            <div class="ro">
+              <div class="big">271<em>° HDG</em></div>
+              <div class="big">18<em>KTS</em></div>
+              <div class="rud"><span class="kc">A</span><div class="track"><i class="mid"></i><i class="pos"></i></div><span class="kc">D</span></div>
+            </div>
+          </div>
+        </div>
+        <!-- gun + boost -->
+        <div class="cseg">
+          <div class="cs"><span class="kc ghost">·</span><div class="slot ready cool"><svg><use href="#ic-gun"/></svg></div><div class="nm">DECK GUN</div><div class="qi">15 DMG · 5 S</div><div class="cdbar"><i style="width:76%"></i></div><div class="cdn">1.2</div></div>
+          <div class="cs"><span class="kc">Shift</span><div class="slot ability cool"><svg><use href="#ic-boost"/></svg></div><div class="nm">BOOST</div><div class="qi">10 S · 20 S</div><div class="cdbar"><i style="width:65%"></i></div><div class="cdn">7</div></div>
+        </div>
+        <!-- Q E R -->
+        <div class="cseg">
+          <div class="cs"><span class="kc">Q</span><div class="slot ready"><svg><use href="#ic-torp"/></svg><span class="tier t2">II</span></div><div class="nm">LIGHT TORPEDO</div><div class="qi">45 DMG · 1 TUBE</div><div class="cdbar"><i style="width:100%"></i></div><div class="cdn dim">READY</div></div>
+          <div class="cs"><span class="kc am">E</span><div class="slot firing"><svg><use href="#ic-mg"/></svg><span class="tier t1">I</span></div><div class="nm am">MACHINE GUN</div><div class="qi">4 DMG · 16 DPS</div><div class="cdbar am"><i style="width:42%"></i></div><div class="cdn am">FIRING</div></div>
+          <div class="cs"><span class="kc">R</span><div class="slot empty">—</div><div class="nm">—</div><div class="qi"></div><div class="cdbar off"></div><div class="cdn"></div></div>
+        </div>
+        <!-- 1–4 -->
+        <div class="cseg">
+          <div class="cs"><span class="kc">1</span><div class="slot ready"><svg><use href="#ic-repair"/></svg><span class="badge">×3</span></div><div class="nm">HULL REPAIR</div><div class="qi">+100 HP</div><div class="cdbar off"></div><div class="cdn"></div></div>
+          <div class="cs"><span class="kc">2</span><div class="slot ready"><svg><use href="#ic-chaff"/></svg><span class="badge">×1</span></div><div class="nm">CHAFF</div><div class="qi">15 S</div><div class="cdbar off"></div><div class="cdn"></div></div>
+          <div class="cs"><span class="kc">3</span><div class="slot empty">—</div><div class="nm">—</div><div class="qi"></div><div class="cdbar off"></div><div class="cdn"></div></div>
+          <div class="cs"><span class="kc">4</span><div class="slot empty">—</div><div class="nm">—</div><div class="qi"></div><div class="cdbar off"></div><div class="cdn"></div></div>
+        </div>
+        <!-- seam: LV + bank -->
+        <div class="cseg">
+          <div class="C-seam"><span class="lv">LV 3</span><div class="bank">1</div><div class="cue">1 LEVEL BANKED<br><span>TAB TO REFIT</span></div></div>
+        </div>
+        <!-- gauges -->
+        <div class="cseg">
+          <div class="vg"><span class="lab">HULL</span><div class="g"><i style="height:84.8%"></i></div><span class="val">212<em>/250</em></span></div>
+          <div class="vg"><span class="lab">XP</span><div class="g xp"><i style="height:62%"></i></div><span class="val"><em>LV</em> 4</span></div>
+        </div>
+      </div>
+    </div></div>
+
+    <aside class="side">
+      <h3>Refit card · C density</h3>
+      <p class="sn">Compact and numeric: the effect line plus the reload consequence, nothing hidden behind hover.</p>
+      <div class="card c">
+        <span class="kc big">2</span>
+        <div class="head"><div class="ci"><svg><use href="#ic-torp"/></svg></div><div><div class="cn">LIGHT TORPEDO</div><div class="ck">WEAPON · Q</div></div></div>
+        <div class="ladder"><i class="r1 on"></i><i class="r2 on"></i><i class="r3 next"></i><i class="r4 off"></i><i class="r5 off"></i><span class="tl"><span class="t2">II</span><span class="arr">→</span><span class="t3">III</span></span></div>
+        <div class="eff">+1 TUBE · 45 <em>→</em> 50 DMG</div>
+        <div class="eff2">RELOAD 23.8 S → 22.5 S</div>
+      </div>
+      <div class="card c grey">
+        <span class="kc big">4</span>
+        <div class="head"><div class="ci"><svg><use href="#ic-repair"/></svg></div><div><div class="cn">HULL REPAIR</div><div class="ck">CONSUMABLE · KEY FIRES</div></div></div>
+        <div class="stock"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><span class="tl">×4</span></div>
+        <div class="eff">+50 HP NOW · +50 OVER 10 S</div>
+        <div class="reason">SLOTS FULL</div>
+      </div>
+    </aside>
+  </div>
+  <div class="trades">
+    <b>Gains</b><span>Nothing is more than one saccade from anything else; names and quick stats on the face answer "what is in Q" without a tooltip; gun reload and boost cooldown share one gauge grammar with HULL and XP.</span>
+    <b class="c">Costs</b><span>The most pixels and the most text at the bottom edge (~1030 px wide, 8 px micro type at the floor); the vitals are the smallest of the four; the helm ladder shrinks to 8 px rungs.</span>
+    <b class="k">Keeps</b><span>Chrome bar, kill feed, every telegraph/rudder convention, the ability chamfer, the ammo badge, 1px-outline slots with the water showing through the strip.</span>
+  </div>
+</section>
+
+<!-- ======================================================================
+     D · CLEAN DECK
+     ====================================================================== -->
+<section class="dir" id="D">
+  <div class="dh"><span class="idx">D</span><h2>CLEAN DECK</h2><span class="pers">Personality — the minimal register: the smallest cluster that still shows everything, and no more.</span></div>
+  <p class="rat">One bar, one row. The bar is <strong>combined</strong>: HULL is the fill and XP is a hairline under it in the same box, LV a small chip at its head and the bank a small chip at its tail. Below it, a single row: Shift · Q E R at 54 px, then the four consumables at 40 px so the two families read by size alone. The deck gun has no slot (it is always ready or about to be). Cooldown is the <strong>icon area itself</strong> filling as a clock wipe — no numeral until the last 3 s, when one appears (Q is shown at 2 s to make the case). The helm collapses to HDG/KTS text bottom-right with the telegraph as a tick ladder beside it.</p>
+  <div class="row">
+    <div class="scaler"><div class="frame">
+      <div class="water"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#isle" x="180" y="90" width="260" height="200"/>
+        <use href="#isle" x="1010" y="470" width="180" height="140" transform="rotate(30 1100 540)"/>
+        <use href="#hull-c" x="776" y="316" width="72" height="12" transform="rotate(-24 812 322)"/>
+        <use href="#hull-own" x="647" y="378" width="72" height="12" transform="rotate(181 683 384)"/>
+      </svg>
+      <div class="fog"></div><div class="sweep"></div>
+      <svg class="lyr" width="1366" height="768">
+        <use href="#blip" x="905" y="230" width="30" height="18" opacity=".9"/><use href="#blip" x="884" y="238" width="30" height="18" opacity=".4"/><use href="#blip" x="863" y="246" width="30" height="18" opacity=".18"/>
+        <use href="#blip" x="400" y="530" width="30" height="18" opacity=".75" transform="rotate(60 415 539)"/>
+        <text class="plate" x="812" y="302" fill="#E312D9">KRAKEN'S BANE</text>
+        <text class="plate" x="683" y="366" fill="#11A5D7">TIDEWRACK</text>
+      </svg>
+      <div class="brchrome"><span><span class="n ph">6</span> AFLOAT</span><span class="sep">·</span><span><span class="n ph">2</span> KILLS</span><span class="sep">·</span><span>T+<span class="n">04:12</span></span><span class="sep">·</span><span class="ring">RING CLOSES IN <span class="n">1:48</span></span><span class="sep">·</span><span class="kl">☠︎ ROSE</span></div>
+      <div class="killfeed">
+        <div><span class="kn" style="color:#5C8EFD">SALT SHAKER</span> SUNK BY <span class="kn kl" style="color:#F8118D">☠︎ ROSE</span></div>
+        <div><span class="kn" style="color:#9AA3B2">PICKET DRONE 3</span> SUNK BY <span class="kn" style="color:#A1960D">MARIGOLD</span></div>
+        <div><span class="kn" style="color:#977AFD">IRON KETTLE</span> LOST WITH ALL HANDS</div>
+      </div>
+
+      <div class="D-hud">
+        <div class="D-bar">
+          <span class="lvchip">LV 3</span>
+          <div class="D-comb"><div class="hp" style="width:84.8%"></div><div class="xpt"><i style="width:62%"></i></div><span class="bv">HULL 212<em>/250</em></span></div>
+          <div class="bank sm">1</div><span class="cue"><span>TAB TO REFIT</span></span>
+        </div>
+        <div class="D-row">
+          <div class="sw"><div class="slot ability coolD" style="--p:65%"><svg><use href="#ic-boost"/></svg></div><span class="kc">Shift</span></div>
+          <div class="sw"><div class="slot coolD" style="--p:91%"><svg><use href="#ic-torp"/></svg><span class="num">2</span><span class="tier t2">II</span></div><span class="kc">Q</span></div>
+          <div class="sw"><div class="slot ready"><svg><use href="#ic-mg"/></svg><span class="tier t1">I</span></div><span class="kc">E</span></div>
+          <div class="sw"><div class="slot empty">—</div><span class="kc">R</span></div>
+          <div class="gap"></div>
+          <div class="sw c"><div class="slot ready"><svg><use href="#ic-repair"/></svg><span class="badge">×3</span></div><span class="kc">1</span></div>
+          <div class="sw c"><div class="slot ready"><svg><use href="#ic-chaff"/></svg><span class="badge">×1</span></div><span class="kc">2</span></div>
+          <div class="sw c"><div class="slot empty">—</div><span class="kc">3</span></div>
+          <div class="sw c"><div class="slot empty">—</div><span class="kc">4</span></div>
+        </div>
+      </div>
+
+      <div class="D-helm">
+        <div class="ro">
+          <div class="big">271<em>° HDG</em></div>
+          <div class="big">18<em>KTS</em></div>
+          <div class="rud"><span class="kc">A</span><div class="track"><i class="mid"></i><i class="pos"></i></div><span class="kc">D</span></div>
+        </div>
+        <div class="tgc">
+          <span class="kc">W</span>
+          <div class="tick">
+            <i style="top:2px"></i><i style="top:8.5px"></i><i class="ord" style="top:13px"></i><i style="top:21.5px"></i><i style="top:28px;width:9px;left:3px;background:rgba(192,192,192,.7)"></i><i style="top:34.5px"></i><i style="top:41px"></i><i style="top:47.5px"></i><i style="top:54px"></i>
+            <div class="nd" style="top:18px"></div>
+          </div>
+          <span class="kc">S</span>
+        </div>
+      </div>
+    </div></div>
+
+    <aside class="side">
+      <h3>Refit card · D density</h3>
+      <p class="sn">Icon, name, one big tier numeral on the ramp, kind, one line. Nothing else on the face.</p>
+      <div class="card d">
+        <span class="kc big">2</span>
+        <div class="head"><div class="ci"><svg><use href="#ic-torp"/></svg></div><div><div class="cn">LIGHT TORPEDO</div><div class="ck">WEAPON</div></div></div>
+        <div class="tbig"><span class="t2">II</span><span class="arr">→</span><span class="t3">III</span></div>
+        <div class="eff">+1 TUBE · 45 <em>→</em> 50 DMG</div>
+      </div>
+      <div class="card d grey">
+        <span class="kc big">4</span>
+        <div class="head"><div class="ci"><svg><use href="#ic-repair"/></svg></div><div><div class="cn">HULL REPAIR</div><div class="ck">CONSUMABLE</div></div></div>
+        <div class="tbig"><span class="t1">×4</span></div>
+        <div class="reason">SLOTS FULL</div>
+      </div>
+    </aside>
+  </div>
+  <div class="trades">
+    <b>Gains</b><span>The least water covered (470 px) and the fewest marks to parse; size alone separates weapons from consumables; the clock wipe needs no reading at all until it matters.</span>
+    <b class="c">Costs</b><span>No numeral above 3 s, so a 7 s boost is "most of the way" rather than a count; no deck-gun readout at all; the combined bar puts XP on a 1 px hairline that a 90% UI scale will press toward invisibility.</span>
+    <b class="k">Keeps</b><span>Chrome bar, kill feed, HDG/KTS readout register, hollow ordered rung / solid amber needle on the tick ladder, A/D rudder track, the ability chamfer, the ammo badge.</span>
+  </div>
+</section>
+
+  <p class="foot">Board renders the same mid-match state in all four frames so the compositions can be compared directly. States shown in every direction: an empty slot (R, 3, 4), a cooling slot with that direction's cooldown treatment (Shift at 7 s of 20), a stocked consumable with its count (HULL REPAIR ×3, CHAFF ×1), and the banked-level chip with its TAB TO REFIT cue. The greyed HULL REPAIR card is illustrative of the full-slot refusal state and does not match the frame beside it, where slots 3 and 4 are open.</p>
+</div>
+</body>
+</html>

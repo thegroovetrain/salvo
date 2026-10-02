@@ -34,6 +34,7 @@ import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import {
   CONFIG,
+  effectiveSight,
   type BallisticEvent,
   type BoomEvent,
   type BurstEvent,
@@ -42,6 +43,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { Pool } from '../util/pool.js';
 import type { WakeHull } from './wake.js';
+import type { VisionRanges } from './fog.js';
 
 const C = CLIENT_CONFIG.colors;
 const O = CLIENT_CONFIG.ordnance;
@@ -63,6 +65,11 @@ export type Kind = BallisticEvent['k'];
  *                  heuristic (self-private). The ballistic wire shape cannot
  *                  say "broadside" and must not — an onlooker sees the ordinary
  *                  shell look, which is the correct amount of information.
+ *   tracer         a MACHINE GUN shell (Story 8.15): the reveal's declared
+ *                  gun-family field `w === 'mg'` (amendment 89(i) — the ONE
+ *                  disclosure widening, visible to any observer) — a short
+ *                  streak along its velocity. `w: 'flak'` and `'cannon'` keep
+ *                  the shell dot (flak's 50 u ring comes from its burst event).
  *
  * STORY 7-5 WAVE 2 retired `cannon`/`cannonArcing`/`cannonAp` with the weapon
  * (R2.6). The BROADSIDE BARRAGE that replaces it has NO doctrine cards at all,
@@ -70,7 +77,7 @@ export type Kind = BallisticEvent['k'];
  * and ARMOR-PIERCING went the `swell` (height-as-size) and `stretch` (dart)
  * channels, which had no other user.
  */
-export type ProjectileLookId = 'shell' | 'torp' | 'torpHoming' | 'broadside';
+export type ProjectileLookId = 'shell' | 'torp' | 'torpHoming' | 'broadside' | 'tracer';
 
 /** Per-look sprite paint. Torpedoes read slower + fatter with a cooler tint. */
 interface ProjectileLook {
@@ -87,7 +94,9 @@ const LOOKS: Record<ProjectileLookId, ProjectileLook> = {
   // Torpedo: fatter, cool steel-green core (torpedo on-water render) so a fish
   // reads distinct from a shell; glow = legacy torpedo secondary tone.
   torp: { core: C.torpedo, glow: C.legacy.torpGlow, coreR: 3.4, glowR: 8, glowAlpha: 0.22 },
-  // ACOUSTIC HOMING: a brighter, bigger head — a fish under power and steering,
+  // A HOMING FISH (a TIER stat since Story 8.13, epic-8 amendment 80 — the
+  // ACOUSTIC HOMING card is deleted): a brighter, bigger head — a fish under
+  // power and steering,
   // against the straight-runner. IT NO LONGER RUNS A TIGHTER WAKE, and that is
   // a DEVIATION OF RECORD from the shipped look rather than an oversight
   // (cycle-69 review gate, P10): the fish's trail is now the ONE shared wake
@@ -113,16 +122,36 @@ const LOOKS: Record<ProjectileLookId, ProjectileLook> = {
     glowR: O.broadsideGlowR,
     glowAlpha: O.broadsideGlowAlpha,
   },
+  // THE MACHINE GUN'S TRACER (Story 8.15): the shell's own tones, a smaller
+  // head, and a streak (`O.tracerLenU`) painted behind it along the velocity —
+  // see `paint` / `aimTracer`. `glowR` sizes the streak's soft underlay.
+  tracer: {
+    core: C.legacy.shellCore,
+    glow: C.amber,
+    coreR: O.tracerCoreR,
+    glowR: O.tracerWidthU * 2,
+    glowAlpha: O.tracerGlowAlpha,
+  },
 };
 
-/** The OWN loadout's doctrine state — the self-private half of the identity
- *  split (main.applyOwnStats fans them in, mirroring setSightRange).
+/**
+ * The OWN loadout's steering state — the self-private half of the identity
+ * split (main.applyOwnStats fans it in, mirroring setSightRange).
  *
- *  STORY 7-5 WAVE 1 turned every doctrine into an independent verb FLAG, and
- *  WAVE 2 deleted the last enum with the cannon (R2.6). ACOUSTIC HOMING is the
- *  only verb the water styles, so this is now a single boolean. */
+ * STORY 7-5 WAVE 1 turned every doctrine into an independent verb FLAG, and
+ * WAVE 2 deleted the last enum with the cannon (R2.6). STORY 8.13 deleted the
+ * VERB itself: ACOUSTIC HOMING is gone and homing is a TIER STAT on each
+ * torpedo line (epic-8 amendment 80), so this is one flag PER LINE —
+ * `homingTurnRate > 0`, folded by main.applyOwnStats — rather than one flag for
+ * "the torpedo".
+ *
+ * THE SUPERCAV TORPEDO HAS NO ENTRY, and that absence is the ruling: it is a
+ * belt consumable with no tiers that never homes at any build (amendment 74),
+ * so a flag for it could only ever be false.
+ */
 export interface OwnModes {
-  torpedoHoming: boolean;
+  lightTorpedo: boolean;
+  heavyTorpedo: boolean;
 }
 
 /** Which own weapon a `shell`/`torp` reveal came out of, when the client can
@@ -131,21 +160,71 @@ export interface OwnModes {
  *  so it is claimable — it earns its OWN report (fireStarShells) while keeping
  *  the generic shell LOOK, because a flare in flight is just a shell until it
  *  bursts. */
-export type OwnFire = 'gun' | 'broadside' | 'torpedo' | 'starShells' | null;
+export type OwnFire =
+  | 'gun'
+  | 'broadside'
+  | 'starShells'
+  // STORY 8.17: PHOSPHOR SHELLS (a tiered 360° equipment line) and FLASH
+  // SHELLS (internal id `dazzleShells`, a click-fired belt consumable) both
+  // fire one gun-pattern shell on the `shell` wire kind, so both are claimable
+  // and both keep the generic shell look, like the star shell.
+  | 'phosphorShells'
+  | 'dazzleShells'
+  // THE THREE FISH (Story 8.13): two torpedo LINES and the belt's SUPERCAV
+  // TORPEDO, a click-aimed consumable (epic-8 amendment 74). All three ride the
+  // one `torp` wire kind, so all three are claimable by the own-fire latch.
+  | 'lightTorpedo'
+  | 'heavyTorpedo'
+  | 'supercavTorpedo'
+  // THE TWO PICKABLE GUNS (Story 8.15): the FLAK GUN's shell is claimed by the
+  // click latch like the cannon's; the MACHINE GUN's stream shells are claimed
+  // per shell off the held level (OwnFireLatch.claimStream), never the click.
+  | 'flak'
+  | 'machineGun'
+  | null;
 
 /**
  * Pure: the look a newly-revealed track paints with.
  *
- * A torpedo is `torpHoming` from LAUNCH only when it is OUR fish and our own
- * torpedo doctrine is homing (self-private knowledge); an enemy's homing fish
- * earns the same look the moment it visibly steers (onBallisticUpdate). A shell
- * is a broadside look only when it is OUR barrage — the wire is weapon-blind for
- * ballistics and stays that way, and an own STAR SHELL (which rides the same
- * wire kind) falls through to the generic shell look on the same clause.
+ * A torpedo is `torpHoming` from LAUNCH only when it is OUR fish and THAT
+ * LINE's fitted turn rate is above zero (self-private knowledge — a tier stat
+ * since epic-8 amendment 80, so the same captain's light torpedo may steer
+ * while the heavy does not); an enemy's homing fish earns the same look the
+ * moment it visibly steers (onBallisticUpdate). The SUPERCAV TORPEDO never
+ * takes it: it has no tiers and never homes (amendment 74), which falls out of
+ * `OwnModes` having no entry for it.
+ *
+ * A shell is a broadside look only when it is OUR barrage — the wire is
+ * weapon-blind for ballistics and stays that way, and an own STAR SHELL (which
+ * rides the same wire kind) falls through to the generic shell look on the same
+ * clause.
  */
-export function lookForReveal(kind: Kind, own: OwnFire, modes: OwnModes): ProjectileLookId {
-  if (kind === 'torp') return own === 'torpedo' && modes.torpedoHoming ? 'torpHoming' : 'torp';
-  return own === 'broadside' ? 'broadside' : 'shell';
+export function lookForReveal(
+  kind: Kind,
+  own: OwnFire,
+  modes: OwnModes,
+  w?: BallisticEvent['w'],
+): ProjectileLookId {
+  if (kind !== 'torp') return shellLook(own, w);
+  const homing = own === 'lightTorpedo' || own === 'heavyTorpedo' ? modes[own] : false;
+  return homing ? 'torpHoming' : 'torp';
+}
+
+/** Pure: a `shell` reveal's look — the own broadside's heavier dot, else the
+ *  machine gun's tracer off the reveal's family word (Story 8.15), else the
+ *  shell dot (cannon, flak, star shells, and any pre-8.15 reveal with no `w`). */
+function shellLook(own: OwnFire, w: BallisticEvent['w']): ProjectileLookId {
+  if (own === 'broadside') return 'broadside';
+  return w === 'mg' ? 'tracer' : 'shell';
+}
+
+/**
+ * Point a sprite along its velocity when it wears the TRACER look (the streak
+ * is painted along local −x), and square every other look back to 0 — the
+ * sprites are POOLED, so a dot must never inherit a tracer's rotation.
+ */
+function aimTracer(g: Graphics, look: ProjectileLookId, ev: { vx: number; vy: number }): void {
+  g.rotation = look === 'tracer' ? Math.atan2(ev.vy, ev.vx) : 0;
 }
 
 /** Extra map crossings' worth of slack on the lifetime backstop (u). */
@@ -171,7 +250,8 @@ const SIGHT_CULL_MARGIN = 40; // u
  * sight range the ring is measured against — always boon-widened
  * (`stats.sightRange`, plumbed in by main.applyOwnStats → `setSightRange`), and
  * dazzle-scaled ONLY on the enemy path (the flag main.updateDazzle fans out →
- * `setDazzled`, applied by `effectiveSight` below). `trackCullRadiusSq` is the
+ * `setDazzled`, applied through the shared `effectiveSight` in
+ * `trackCullRadiusSq`). `trackCullRadiusSq` is the
  * one caller that decides which of the two a given track gets; this function
  * takes the number already resolved.
  *
@@ -195,18 +275,6 @@ export function cullRadiusSq(sightRange: number, kind: Kind): number {
 }
 
 /**
- * Pure: the observer's EFFECTIVE sight radius (u) for cull purposes — the
- * client-side twin of the server's `sightOf()`, cut by the SAME ratified factor
- * while a DAZZLE BURST holds this ship. `render/fog.ts:fogHoleRadiusU` states
- * the identical rule for the fog hole and `render/radar.ts` for the source seam;
- * this is the third consumer, and it reads `CONFIG.starShells.dazzleSightFactor`
- * for the same reason they do — there is exactly one dazzle factor in the game.
- */
-export function effectiveSight(sightRange: number, dazzled: boolean): number {
-  return dazzled ? sightRange * CONFIG.starShells.dazzleSightFactor : sightRange;
-}
-
-/**
  * Pure: THE cull radius (squared) for one live track — the single place the
  * three inputs (ownership, kind, dazzle) turn into a ring.
  *
@@ -222,14 +290,29 @@ export function effectiveSight(sightRange: number, dazzled: boolean): number {
  *
  * EVERYTHING ELSE rides the DAZZLE-SCALED ring (the server gates it on
  * `sightOf(me, now)`, which IS dazzle-scaled), detect-derived for a torpedo.
+ * The dazzle scaling is the SHARED `effectiveSight` (shared/src/sim/sight.ts —
+ * radarRange/8 while flashed, Story 8.17, amendment 132): the server's
+ * `sightOf`, the fog hole and the radar source seam call the same function, so
+ * there is exactly one derivation of a dazzled observer's sight in the game.
+ *
+ * IN SMOKE (Story 8.18, amendment 149) is the same shrink on the same path:
+ * the server's `sightOf` passes its `inSmoke` stamp into the same
+ * `effectiveSight`, so `inSmoke` (the self-private `OwnShip.inSmoke` mirror)
+ * narrows the ENEMY ring exactly as a dazzle does, and never an own track.
  *
  * KNOWN AND ACCEPTED: ownership is a soft click-time latch, so a MISSED latch
  * degrades an own track to the enemy ring. That one-sided error is deliberate —
  * inverting it would hand every enemy fish a long ghost.
  */
-export function trackCullRadiusSq(sightRange: number, dazzled: boolean, kind: Kind, own: OwnFire): number {
-  if (own !== null) return cullRadiusSq(sightRange, 'shell'); // believed-own: un-dazzled truesight
-  return cullRadiusSq(effectiveSight(sightRange, dazzled), kind);
+export function trackCullRadiusSq(
+  ranges: VisionRanges,
+  dazzled: boolean,
+  kind: Kind,
+  own: OwnFire,
+  inSmoke = false,
+): number {
+  if (own !== null) return cullRadiusSq(ranges.sightRange, 'shell'); // believed-own: un-dazzled truesight
+  return cullRadiusSq(effectiveSight(ranges, dazzled, inSmoke), kind);
 }
 
 /** Pure: dead-reckoned shell position at server time `now` (ms). */
@@ -294,6 +377,29 @@ interface LiveShell {
  *  for a burst that arrives seconds after launch. */
 export const MAX_OWN_CLAIMS = 32;
 
+/**
+ * The velocity-direction change (rad) at or past which a RE-REVEALED fish has
+ * observably STEERED — the same threshold the server re-emits a `torpU` at
+ * (`CONFIG.torpedo.homingUpdateAngleDeg`), so the two paths that can tell a
+ * client "this fish turned" classify on one number rather than two.
+ */
+const STEER_THRESHOLD_RAD = (CONFIG.torpedo.homingUpdateAngleDeg * Math.PI) / 180;
+
+/**
+ * Pure: has the track's heading turned observably between two velocities?
+ * Signed-angle-between (atan2 of cross/dot) so it is wrap-safe without any
+ * normalization, and a zero velocity on either side reads as "no turn" (the
+ * degenerate atan2(0, 0) = 0) rather than as a spurious steer.
+ */
+export function velocityTurned(
+  prev: { vx: number; vy: number },
+  next: { vx: number; vy: number },
+): boolean {
+  const cross = prev.vx * next.vy - prev.vy * next.vx;
+  const dot = prev.vx * next.vx + prev.vy * next.vy;
+  return Math.abs(Math.atan2(cross, dot)) >= STEER_THRESHOLD_RAD;
+}
+
 export class Projectiles {
   private readonly pool: Pool<Graphics>;
   private readonly live = new Map<string, LiveShell>();
@@ -302,13 +408,16 @@ export class Projectiles {
    *  Bounded, and consumed by the burst/boom that ends the track. */
   private readonly claims = new Map<string, OwnFire>();
 
-  /** The plumbed BOON-widened sight range (u) and the DAZZLE flag — the two
+  /** The plumbed BOON-widened sight + radar ranges (u) and the DAZZLE flag — the two
    *  observer inputs every cull ring is resolved from, per track and per frame
    *  (`trackCullRadiusSq`). Kept as state so either can change alone without the
    *  other being silently reset (a boon landing mid-dazzle must not un-dazzle
    *  the enemy rings, and vice versa). */
-  private sightRange: number = CONFIG.vision.sight;
+  private ranges: VisionRanges = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
   private dazzled = false;
+  /** Does the own hull stand in a live SMOKE SCREEN puff (Story 8.18)? Same
+   *  enemy-ring-only shrink as `dazzled`, via the shared `effectiveSight`. */
+  private inSmoke = false;
 
   constructor(
     private readonly mapRadius: number,
@@ -361,14 +470,14 @@ export class Projectiles {
   /** The OWN doctrine modes, fanned in from applyOwnStats (Story 2.9) — the
    *  seam setSightRange established, for the self-private half of ordnance
    *  identity. Stock until the first authoritative `you` lands. */
-  private ownModes: OwnModes = { torpedoHoming: false };
+  private ownModes: OwnModes = { lightTorpedo: false, heavyTorpedo: false };
 
   /** Track the own ship's boon-widened sight range so reveals don't pop early.
    *  ONE plumbed value, THREE rings — the enemy-torpedo ring is `detectFactor`
    *  of it and the enemy rings are dazzle-scaled (see `trackCullRadiusSq`),
    *  never a second plumbing path. */
-  setSightRange(sightRange: number): void {
-    this.sightRange = sightRange;
+  setSightRange(sightRange: number, radarRange: number): void {
+    this.ranges = { sightRange, radarRange };
   }
 
   /**
@@ -395,6 +504,19 @@ export class Projectiles {
     return this.dazzled;
   }
 
+  /** Adopt the IN-SMOKE state (Story 8.18) — `setDazzled`'s twin, same
+   *  changed-flag contract, same enemy-ring-only reach. */
+  setInSmoke(inSmoke: boolean): boolean {
+    if (inSmoke === this.inSmoke) return false;
+    this.inSmoke = inSmoke;
+    return true;
+  }
+
+  /** Is the own hull in smoke? Test/observation seam (mirrors `Fog`). */
+  get isInSmoke(): boolean {
+    return this.inSmoke;
+  }
+
   /** Set the own loadout's doctrine modes (main.applyOwnStats). Affects only
    *  tracks revealed FROM NOW ON — a fish already in the water keeps the look it
    *  launched with, which is also what the server's already-fired ordnance does. */
@@ -405,6 +527,24 @@ export class Projectiles {
   /** Number of projectiles currently tracked (test/diagnostic observability). */
   get liveCount(): number {
     return this.live.size;
+  }
+
+  /**
+   * Have we EVER been told about this ballistic id? (cycle-148 review gate, P2.)
+   *
+   * True for a track we are still drawing AND for one whose sprite is long gone
+   * but whose claim tombstone we kept — the two shapes "already known" takes on
+   * this side. The caller is `roomBindings`' own-fire correlation: a RE-REVEAL
+   * (amendment 78) of a fish that happens to pass our own hull is not a shot
+   * leaving our tube, so it must not consume the click latch or sound the fire
+   * tone. Only a genuinely first reveal may.
+   *
+   * A fish the client culled and never claimed is NOT known here, and cannot
+   * be: no state survives an enemy cull by design. That case falls back to
+   * exactly the pre-patch heuristic, which is where it started.
+   */
+  isKnown(id: string): boolean {
+    return this.live.has(id) || this.claims.has(id);
   }
 
   /** The identity a tracked projectile is currently painted with (test/debug
@@ -428,7 +568,14 @@ export class Projectiles {
   private paint(g: Graphics, id: ProjectileLookId): void {
     const look = LOOKS[id];
     g.clear();
-    g.circle(0, 0, look.glowR).fill({ color: look.glow, alpha: look.glowAlpha });
+    if (id === 'tracer') {
+      // A SHORT STREAK trailing the head along local −x; `aimTracer` rotates
+      // the sprite onto the velocity. Soft underlay first, then the hot line.
+      g.moveTo(-O.tracerLenU, 0).lineTo(0, 0).stroke({ width: look.glowR, color: look.glow, alpha: look.glowAlpha });
+      g.moveTo(-O.tracerLenU, 0).lineTo(0, 0).stroke({ width: O.tracerWidthU, color: look.core, alpha: 0.9 });
+    } else {
+      g.circle(0, 0, look.glowR).fill({ color: look.glow, alpha: look.glowAlpha });
+    }
     g.circle(0, 0, look.coreR).fill({ color: look.core, alpha: 1 });
   }
 
@@ -455,13 +602,27 @@ export class Projectiles {
    * size a burst ring off OUR effective blast radius. Only `claimed` may.
    */
   onShell(ev: BallisticEvent, own: OwnFire = null, claimed: OwnFire = null): void {
-    if (this.live.has(ev.id)) return;
     // A GENUINE latch claim is remembered independently of the sprite, because
     // the burst that needs it arrives long after this track may be gone.
     if (claimed !== null) this.rememberClaim(ev.id, claimed);
+    const held = this.live.get(ev.id);
+    if (held !== undefined) {
+      this.reanchor(held, ev);
+      return;
+    }
+    // OWNERSHIP SURVIVES A CULL through the claim tombstone — the
+    // `spawnFromUpdate` rule, which the RE-REVEAL (amendment 78) made reachable
+    // from this path too. A re-revealed own fish is nowhere near our hull any
+    // more, so roomBindings' near-own heuristic cannot claim it a second time
+    // and hands us `null`; left at null our own resurrected fish would take the
+    // ENEMY cull ring and be dropped 82.5 u early, inside water the server is
+    // still correcting. An id we never claimed still resolves to null, so no
+    // fish is ever fabricated as ours.
+    const attributed = own ?? this.claims.get(ev.id) ?? null;
     const gfx = this.pool.acquire();
-    const look = lookForReveal(ev.k, own, this.ownModes);
+    const look = lookForReveal(ev.k, attributed, this.ownModes, ev.w);
     this.paint(gfx, look);
+    aimTracer(gfx, look, ev);
     gfx.visible = true;
     const s: LiveShell = {
       gfx,
@@ -473,9 +634,55 @@ export class Projectiles {
       vy: ev.vy,
       t0: ev.t,
       expiresAt: ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy)),
-      own,
+      own: attributed,
     };
     this.live.set(ev.id, s);
+  }
+
+  /**
+   * RE-ANCHOR a track we are already holding at a fresh reveal's
+   * position/velocity/time — THE RE-REVEAL RULE (Story 8.13, Eric ruling
+   * 2026-09-19, epic-8 amendment 78).
+   *
+   * The server's exactly-once ballistic memory is no longer permanent: the mark
+   * is cleared the first tick a still-live projectile is OUTSIDE an observer's
+   * reveal gate, so a fish or shell that leaves the gate and comes back is
+   * revealed AGAIN, with current position and velocity. Two client cases, one
+   * answer:
+   *
+   *   - THE TRACK WAS CULLED while it was away (the common case — the client
+   *     drops a track the moment it leaves its cull ring). `live` no longer
+   *     holds the id, so `onShell` falls through and SPAWNS it, which is
+   *     already correct.
+   *   - THE TRACK IS STILL LIVE (the client's cull ring is the reveal ring plus
+   *     a 40 u margin, so there is a band where the server has stopped
+   *     disclosing but the sprite is still on screen dead-reckoning). The old
+   *     `if (this.live.has(id)) return` DROPPED that reveal, which is the one
+   *     case the amendment names as wrong: the client would go on extrapolating
+   *     a stale anchor while holding a fresher one in its hand.
+   *
+   * So a reveal for a known id is treated exactly as a `torpU` is: re-anchor in
+   * place, never a duplicate sprite and never ignored.
+   *
+   * AND IT IS CLASSIFIED LIKE ONE TOO (cycle-148 review gate, P1). The reveal
+   * carries a velocity, so a fish whose heading has turned past the `torpU`
+   * threshold since the anchor we hold has STEERED where this client could see
+   * it — exactly the evidence `onBallisticUpdate` styles on, arriving down the
+   * other pipe. A homing fish that spends its turn outside the reveal gate and
+   * comes back on a new bearing would otherwise keep the straight-runner look
+   * for its whole run. The classification only ever UPGRADES: `restyle` is
+   * called with `torpHoming` alone, so a track that already earned it (or was
+   * styled homing at launch off own stats) can never fall back to `torp`.
+   */
+  private reanchor(s: LiveShell, ev: BallisticEvent): void {
+    if (s.kind === 'torp' && velocityTurned(s, ev)) this.restyle(s, 'torpHoming');
+    s.x0 = ev.x;
+    s.y0 = ev.y;
+    s.vx = ev.vx;
+    s.vy = ev.vy;
+    s.t0 = ev.t;
+    s.expiresAt = ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy));
+    aimTracer(s.gfx, s.look, ev);
   }
 
   /**
@@ -619,7 +826,7 @@ export class Projectiles {
         continue;
       }
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
-      const cull2 = trackCullRadiusSq(this.sightRange, this.dazzled, s.kind, s.own);
+      const cull2 = trackCullRadiusSq(this.ranges, this.dazzled, s.kind, s.own, this.inSmoke);
       if (ownPos && shellCulledBeyondSight(p, ownPos, cull2, keepZones)) {
         this.remove(id);
         continue;

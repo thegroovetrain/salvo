@@ -37,19 +37,26 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // absorbed: after motion, before damage/activation (see the row comment
       // in world.ts for the full placement rationale).
       'founderSinking',
+      // Story 8.18's SMOKE SCREEN laying — AFTER the founder edge (Eric ruling
+      // 144: a hull that founders this tick lays no puff, true without a
+      // second liveness read) and BEFORE the storm (see the row comment).
+      'stepSmoke',
       'applyStorm',
       'stepShells',
       'stepMines',
-      // Story 7-5 wave 2's radar buoys — a deliberate insertion in the
-      // static-entity band: expiry, the buoy's own sweep, and the GUN BUOY's
-      // auto-fire, which must land BEFORE tickRepairs (the "after every
-      // damage source" contract). See the row comment in world.ts.
-      'tickBuoys',
+      // (Story 7-5 wave 2's `tickBuoys` row was REMOVED with the radar buoy
+      // in Story 8.16: the DECOY BUOY has no tick — amendment 124(e).)
       'applyZoneEffects',
       'tickRepairs',
       'tickSmoke',
       'expireLitZones',
+      'expireBurnZones', // Story 8.17: the PHOSPHOR burning zone's expiry sweep, beside the lit zones'
       'fireControl',
+      // Story 8.15's held-fire stream — the machine gun's LEVEL channel,
+      // a deliberate insertion right after the click channel (the reloads
+      // have ticked; a click on a stream row was already skipped). See the
+      // row comment in world.ts.
+      'streamControl',
       'activationControl',
       'hornControl',
       'advanceSweeps',

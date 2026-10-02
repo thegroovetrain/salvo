@@ -8,7 +8,7 @@
 //    the fogged perception view World hands the driver as a bound per-bot
 //    observe thunk (BotTickEntry.observe — called exactly once per live bot
 //    per tick), plus a SELF-READ of its own hull (BotSelf below: its own
-//    hp/ammo/reload/boons/offer — the bot's OwnShip equivalent). Never a
+//    hp/ammo/reload/cards/offer — the bot's OwnShip equivalent). Never a
 //    world collection, and never a lookup by id: ai/ is handed exactly its
 //    own record and its own view, so it is STRUCTURALLY incapable of
 //    addressing any other ship. The lint boundary in eslint.config.js bans
@@ -34,18 +34,19 @@ import type {
   BoonOffer,
   EffectiveStats,
   LoadoutSlot,
+  ShipLifecycle,
   ShipState,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
 
 /**
- * The six priority profiles (Eric ruling E1, 2026-08-16) — derived from
- * CONFIG.bots.profiles so the CONFIG tuning panel and this union can never
- * drift: adding a profile id there without a wave-2 behaviour table here
- * fails to type-check in profiles.ts's Record<BotProfileId, ...>.
+ * The six priority profiles (Eric ruling E1, 2026-08-16; unlocked from hulls
+ * by Eric ruling 2026-09-30) — derived from the flat CONFIG.bots.profiles list
+ * so the CONFIG tuning panel and this union can never drift: adding a profile
+ * id there without a behavior row fails to type-check in profiles.ts's
+ * Record<BotProfileId, ...>.
  */
-export type BotProfileId =
-  (typeof CONFIG.bots.profiles)[keyof typeof CONFIG.bots.profiles][number];
+export type BotProfileId = (typeof CONFIG.bots.profiles)[number];
 
 /**
  * TEST-ONLY random-spend profiles (Story 7-6 wave 4) — one per hull, for the
@@ -88,6 +89,29 @@ export type BotEngageGate = 'always' | 'endgame';
 export interface BotSelf {
   readonly state: ShipState;
   readonly hp: number;
+  /**
+   * This hull's LIFE STATE. A human client is told the same thing about its
+   * own ship (`OwnShip.alive`, projected from isAfloat, plus the self-private
+   * `sinkingUntil` deadline), so the self-read stays inside its charter.
+   *
+   * Read by the HULL REPAIR belt tactic (Story 8.8): no hp ever comes back to
+   * a hull in the sinking window (amendment 10), and a tactic whose only test
+   * is `hp / maxHp` is at its MOST eager exactly there. The driver already
+   * drops non-afloat bots before they decide, so this is the row's own guard —
+   * the twin of the one the server's consumable row keeps — and not a
+   * substitute for it.
+   */
+  readonly lifecycle: ShipLifecycle;
+  /**
+   * The paid HULL REPAIR pool still draining into this hull — hp ALREADY
+   * BOUGHT, delivered over `CONFIG.hullRepair.regenMs`. The owner's client is
+   * sent exactly this (`OwnShip.repairHp`) and draws it as the pending band.
+   *
+   * A heal tactic that reads `hp` alone reads a hull mid-payment and fires
+   * again for hp that is already on its way, emptying a stack inside one
+   * pool's lifetime.
+   */
+  readonly repairHp: number;
   readonly stats: EffectiveStats;
   readonly loadout: readonly LoadoutSlot[];
   /** The sim's own "this hull is pressing into LAND" bit (map-edge press is
@@ -96,7 +120,24 @@ export interface BotSelf {
   readonly landContact: boolean;
   readonly bankedLevels: number;
   readonly offer: BoonOffer | null;
-  readonly boons: readonly string[];
+  /** Fitted card LINE ids, in fit order (Story 8.1 — repeats are stacks). */
+  readonly cards: readonly string[];
+  /**
+   * This hull's SHIELD BLOCK seat (Story 8.16) — the owner is told exactly
+   * this (`OwnShip.shield`). Read by the SHIELD BLOCK belt tactic so a
+   * bot never replaces a shield still up. Optional so hand-built fixtures that
+   * predate it stay valid; absent reads as "no shield".
+   */
+  readonly shield?: { readonly hpLeft: number; readonly until: number } | null;
+  /**
+   * This hull's OWN radar beam angle (rad, wrapped to [0, 2π)) — exactly the
+   * `OwnShip.sweep` a human client is sent every frame, and nothing more. The
+   * previous angle is NOT read off the record: the bot remembers its own
+   * last-tick angle on the mind (`BotMind.lastSweep`), the way a client
+   * compares consecutive frames — parity by construction (cycle 165 review).
+   * Read by ai/plot.ts's sweep-miss drop.
+   */
+  readonly sweepAngle: number;
 }
 
 /**
@@ -113,6 +154,22 @@ export interface BotTickEntry {
   readonly afloat: boolean;
   /** The bot's own record (see BotSelf). */
   readonly self: BotSelf;
+  /**
+   * ms — when THIS bot's own CHAFF cloud stops painting (0 = none). The cloud
+   * is WORLD-owned (amendment 127: it outlives the hull), so it is no longer
+   * on the record; world.ts reads the bot's OWN entry of the chaff map and
+   * hands only this one number in. A self-read of the bot's own action (a
+   * human knows when they pressed it): no fake, no other owner's cloud.
+   */
+  readonly chaffUntil: number;
+  /**
+   * ms — when THIS bot's own SMOKE SCREEN lay window closes (0 = not laying;
+   * Story 8.18). A self-read of the bot's own press exactly like chaffUntil
+   * (`ShipRecord.smokeUntil`, copied by world.ts): the SMOKE SCREEN tactic never
+   * re-presses while a trail is still being laid. No puff position, no other
+   * owner's window.
+   */
+  readonly smokeUntil: number;
   /** This bot's fogged perception view for THIS tick — perception.observe()
    *  bound to this bot's id by world.ts. Called exactly once per live bot per
    *  tick by the driver (observe() mutates per-observer reveal memory, so the
@@ -152,9 +209,9 @@ export interface BotWorldPort {
    *  setter). Returns false when the message was dropped. */
   submitInput(id: string, raw: unknown): boolean;
   /** THE ONE ECONOMY PATH: consume a banked level through the public spend
-   *  entry point (a card index, or HEAL_CHOICE). At most one call per bot
-   *  per tick; false is non-fatal. Driven by ai/spending.ts's doctrine-
-   *  weighted pick policy + the healHpFrac rule. */
+   *  entry point (a card index — never a negative since Story 8.8). At most
+   *  one call per bot per tick; false is non-fatal. Driven by ai/spending.ts's
+   *  doctrine-weighted pick policy. */
   spendPoint(id: string, rawChoice: unknown): boolean;
 }
 
@@ -214,6 +271,50 @@ export interface RememberedContact {
   /** Self-private Hit Calls that landed on this track — the ONLY damage
    *  estimate a bot can legitimately have (no hp, no severity, ever). */
   hits: number;
+  /**
+   * THE ESTIMATED COURSE (cycle 165), u/s — the velocity the bot INFERRED for
+   * a plot whose source disclosed no pose (a radar paint carries none), or
+   * null when it has no estimate. `heading`/`speed` above stay the DISCLOSED
+   * pose and win whenever present (ai/plot.ts `trackVelocity`); a live
+   * sighting writes its disclosed pose here too, so the estimate a plot
+   * carries into the fog is the last thing the bot actually saw.
+   */
+  vx: number | null;
+  vy: number | null;
+  /** Server ms the estimate was made; -1 = none. */
+  vAt: number;
+  /** Where the estimate came from: a live sighting, two radar paints of the
+   *  same plot (the measurement), or the age gradient of the wake ribbon
+   *  painted near it (the first-paint guess a paint pair later overrides). */
+  vSrc: 'sight' | 'paint' | 'wake' | null;
+  /**
+   * THE RADAR PAINT BASELINE — where and when this plot was last PAINTED
+   * (paintAt -1 = never). Kept apart from x/y/seenAt on purpose: a Hit Call
+   * also refreshes the plot, and a paint-to-paint velocity measured against a
+   * burst point would be a velocity of the bot's own aim error. Only a radar
+   * paint ever writes these.
+   */
+  paintX: number;
+  paintY: number;
+  paintAt: number;
+  /**
+   * THE SWEEP-MISS MARK (cycle 165 grace) — server ms the bot's own beam
+   * crossed this plot's PREDICTED spot without a paint; -1 = not marked. The
+   * plot is dropped only if it is still unrefreshed two ticks later
+   * (ai/plot.ts `settleSweptMisses`); any refresh — paint, sighting, Hit Call —
+   * clears the mark.
+   */
+  missSweptAt: number;
+}
+
+/** One painted WAKE segment remembered for the course fit (ai/plot.ts): the
+ *  centroid of its lit cells, its water-age bucket (`WakeBlipEvent.a`) and
+ *  the server ms it was painted. Identity-free, exactly like the wire row. */
+export interface WakeCell {
+  x: number;
+  y: number;
+  bucket: number;
+  t: number;
 }
 
 /**
@@ -251,6 +352,13 @@ export interface BotMind {
    *  in every hand-built test mind — only the controller's enroll ever sets
    *  it, and only when the harness set BotController.spend first. */
   spendRandom?: boolean;
+  /** GUN-FIRST SPEND OVERRIDE (balance campaign, 2026-10-01) — the
+   *  `spendRandom` sibling, stamped at enroll from BotController.spend ===
+   *  'gun' (batch-sim `--bot-spend gun` only). A weighted row keeps its whole
+   *  temperament; its card pick takes the mounted gun's ladder card whenever
+   *  the hand deals it, else the shipped weighted scorer. OPTIONAL, absent =
+   *  false on every production path and hand-built test mind. */
+  spendGunFirst?: boolean;
   /** Deliberation-stagger slot in [0, cadenceTicks) — botPhase(id,
    *  cadenceTicks). Staggers DECISION work, never perception. */
   phase: number;
@@ -262,6 +370,17 @@ export interface BotMind {
   viewAt: number;
   /** Contact memory across grammar gaps (ai/utility.ts is the only writer). */
   contacts: Map<string, RememberedContact>;
+  /** THE WAKE BUFFER (cycle 165): every wake segment this hull's beam painted
+   *  within the last base sweep revolution, folded from the view's `wk` rows
+   *  (ai/plot.ts `foldWakeCells` is the only writer). The course fit for a
+   *  first radar paint reads it. Created at enroll, cleared with the life. */
+  wakeCells: WakeCell[];
+  /** THE BEAM'S LAST ANGLE (cycle 165 review): this hull's own `sweepAngle`
+   *  as of the previous folded tick, -1 = none. The sweep-miss window is
+   *  [lastSweep, sweepAngle) — what a human client derives from two
+   *  consecutive `OwnShip.sweep` frames. Set at the end of every fold
+   *  (tactics.ts ingest), never on a frozen-helm tick, cleared with the life. */
+  lastSweep: number;
   /** THE DELIBERATED TARGET: the `contacts` key of the track chosen on the
    *  last decision tick, or null. Re-resolved against the live track store
    *  every tick (so steering/firing follow the track's freshest plot between
@@ -284,6 +403,35 @@ export interface BotMind {
    *  mind starts in — the field is optional so enrollment stays the plain
    *  literal it is in botDriver.ts and this state can never be half-built. */
   unbeach?: UnbeachState | null;
+  /** THE SEEN-TORPEDO TABLE (Story 8.15, amendment 115): every torpedo this
+   *  hull's fogged view has revealed, keyed by projectile id, dead-reckoned
+   *  from its last `torp`/`torpU` and dropped on its `boom` or when its course
+   *  must be run (ai/torpedoThreat.ts is the only writer). The DAMAGE CUT
+   *  tactic's inbound-fish trigger reads it. OPTIONAL, created lazily;
+   *  released with the life (BotController.releasePerLifeState). */
+  torps?: Map<string, SeenTorpedo> | null;
+  /** ms — this bot's own CHAFF cloud's `until` as of this tick (Story 8.16,
+   *  amendment 127), copied from BotTickEntry.chaffUntil by the driver before
+   *  every decide. The CHAFF tactic never throws a second cloud over
+   *  one still painting. OPTIONAL: absent reads as "no cloud". */
+  chaffUntil?: number;
+  /** ms — this bot's own SMOKE SCREEN lay-window end as of this tick (Story
+   *  8.18), copied from BotTickEntry.smokeUntil by the driver before every
+   *  decide. The SMOKE SCREEN tactic never presses while one of its own
+   *  puffs can still be alive (`now < smokeUntil + lifeMs`, Eric ruling R12).
+   *  OPTIONAL: absent (or 0) reads as "nothing running". */
+  smokeUntil?: number;
+}
+
+/** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics
+ *  (`t` the reveal/update server ms) and whether it is this hull's OWN fish. */
+export interface SeenTorpedo {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  t: number;
+  own: boolean;
 }
 
 /**
@@ -333,8 +481,16 @@ export interface BotDecision {
   /** Loadout slot to activate (ability press), or null. A non-null value
    *  advances the mind's actSeq exactly once. */
   actSlot: number | null;
-  /** Spend a banked level: an offer index, HEAL_CHOICE, or null for no spend.
-   *  Only ever non-null on a deliberation tick (the decision cadence). */
+  /** THE HELD LEVEL (Story 8.15, amendment 103) — `InputMsg.held`, the
+   *  machine gun's trigger. A LEVEL, never an edge: true on every tick the
+   *  stream should run, and it NEVER advances fireSeq (a click edge on a
+   *  mounted machine gun is inert server-side anyway). The stream only counts
+   *  while the input's `slot` is 0 (the World's streamControl), so the driver
+   *  leaves `fireSlot` null — and therefore `slot` 0 — on a held tick. */
+  held: boolean;
+  /** Spend a banked level: an offer index, or null for no spend. Never
+   *  negative (Story 8.8 retired the -1 heal sentinel). Only ever non-null on
+   *  a deliberation tick (the decision cadence). */
   spendChoice: number | null;
 }
 

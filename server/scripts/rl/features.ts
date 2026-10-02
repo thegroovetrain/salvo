@@ -11,26 +11,26 @@
 // FEATURE_VERSION so a stale learner fails loudly instead of training on
 // scrambled inputs.
 
-import { BOON_CATALOG, CONFIG, HEAL_CHOICE, type GameEvent } from '@salvo/shared';
+import { CATALOG, CONFIG, type GameEvent } from '@salvo/shared';
 import type { ShipRecord, World } from '../../src/game/world.js';
 import type { PerceptionView } from '../../src/game/perception.js';
 
-export const FEATURE_VERSION = 1;
+export const FEATURE_VERSION = 3; // Story 8.16: the radar-buoy channel became the DECOY channel (same dims, new meaning) — saved models break
 
 /** Stable card index: catalog literal insertion order (deterministic). */
-export const CARD_IDS: readonly string[] = Object.freeze(Object.keys(BOON_CATALOG));
+export const CARD_IDS: readonly string[] = Object.freeze(Object.keys(CATALOG));
 
 export const K_CONTACTS = 8;
 export const K_BLIPS = 6;
 export const K_MINES = 4;
-export const K_BUOYS = 2;
+export const K_DECOYS = 2;
 
 const OWN_DIMS = 15;
 const ZONE_DIMS = 8;
 const CONTACT_DIMS = 8;
 const BLIP_DIMS = 4;
 const MINE_DIMS = 4;
-const BUOY_DIMS = 4;
+const DECOY_DIMS = 4;
 
 export const FEATURE_DIM =
   OWN_DIMS +
@@ -38,7 +38,7 @@ export const FEATURE_DIM =
   K_CONTACTS * CONTACT_DIMS +
   K_BLIPS * BLIP_DIMS +
   K_MINES * MINE_DIMS +
-  K_BUOYS * BUOY_DIMS +
+  K_DECOYS * DECOY_DIMS +
   CARD_IDS.length * 4 + // offer one-hot per hand slot
   CARD_IDS.length; // build (copies held / 5)
 
@@ -89,7 +89,7 @@ function writeOwn(out: Float32Array, at: number, me: ShipRecord, R: number): num
   out[at + 5] = me.stats.maxHp > 0 ? me.hp / me.stats.maxHp : 0;
   out[at + 6] = clip(me.bankedLevels / 5, 0, 1);
   out[at + 7] = clip(me.level / 20, 0, 1);
-  out[at + 8] = clip(me.boons.length / 12, 0, 1);
+  out[at + 8] = clip(me.cards.length / 12, 0, 1);
   out[at + 9] = me.offer !== null ? 1 : 0;
   for (let i = 0; i < 4; i += 1) {
     const slot = me.loadout[i];
@@ -194,10 +194,13 @@ export function featurize(world: World, me: ShipRecord, ctx: FeatureContext): Fl
     out[base + 2] = (m.y - me.state.y) / R;
     out[base + 3] = m.own ? 1 : 0;
   });
-  at = writeNearest(out, at, ctx.view.buoys, K_BUOYS, BUOY_DIMS, me, (b, base) => {
-    out[base + 1] = (b.x - me.state.x) / R;
-    out[base + 2] = (b.y - me.state.y) / R;
-    out[base + 3] = b.own ? 1 : 0;
+  // Story 8.16: the nearest decoys this hull can see (the deleted radar
+  // buoy's slots). `hp` is owner-only on the wire, so it is NOT a feature —
+  // an enemy decoy would always read 0 and teach the net a tell.
+  at = writeNearest(out, at, ctx.view.decoys, K_DECOYS, DECOY_DIMS, me, (d, base) => {
+    out[base + 1] = (d.x - me.state.x) / R;
+    out[base + 2] = (d.y - me.state.y) / R;
+    out[base + 3] = d.own ? 1 : 0;
   });
   at = writeOffer(out, at, me);
   writeBuild(out, at, me);
@@ -216,11 +219,10 @@ function writeOffer(out: Float32Array, at: number, me: ShipRecord): number {
 }
 
 function writeBuild(out: Float32Array, at: number, me: ShipRecord): number {
-  for (const id of me.boons) {
+  for (const id of me.cards) {
     const idx = CARD_IDS.indexOf(id);
     if (idx >= 0) out[at + idx] = clip(out[at + idx] + 0.2, 0, 1); // copies / 5
   }
   return at + CARD_IDS.length;
 }
 
-export { HEAL_CHOICE };

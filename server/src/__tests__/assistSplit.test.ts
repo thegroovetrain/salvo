@@ -56,7 +56,7 @@ function bareWorld(seed = 3): World {
 }
 
 function place(w: World, id: string, x = 0, hull: HullId = 'torpedoBoat', fleet = false): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), fleet ? 'fleet' : 'captain', hull);
+  const rec = w.addShip(id, id.toUpperCase(), fleet ? 'fleet' : 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = 0;
   rec.state.speed = 0;
@@ -79,12 +79,14 @@ function hit(w: World, by: string, victim: ShipRecord, damage: number, id = `s${
     distLeft: 60,
     bornAt: w.now,
     kind: 'shell',
+    family: 'cannon',
     damage,
     hitRadius: CONFIG.gun.shellRadius,
     targetX: null,
     targetY: null,
     burstRadius: 0,
     contactDamage: damage,
+    hits: CONFIG.gun.hits,
   });
   for (let t = 0; t < 8 && w.shells.size > 0; t++) w.step();
 }

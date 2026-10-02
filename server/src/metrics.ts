@@ -19,6 +19,10 @@
 //     anything, floor >= 1)), so a lone burst in an idle minute reports its true
 //     per-second average, not the burst size. `total` is since process start and
 //     survives room unregistration (retired rooms' counts are folded forward).
+//   - THE `deck` GROUP IS GONE (Story 8.14, epic-8 amendment 94): decks are
+//     retired, nothing can exhaust, and Eric ruled the pick/mulligan counters
+//     out with them ("level counts already say how many cards were picked").
+//     Deleted with NO replacement under any name.
 //
 // No third-party libs, no Prometheus format, no auth — JSON body only.
 //
@@ -54,6 +58,18 @@ export interface MetricsPayload {
   players: number;
   tick: { p50: number; p95: number; max: number; samples: number };
   messages: { ratePerSec: number; total: number };
+  /**
+   * World-shaped gauges (Story 8.4). `minesLivePeak` is the process-wide
+   * HIGH-WATER MARK of live mines across every room, fed once per sim step by
+   * the arena adapter. It exists because Story 8.4 deleted every mine cap, so
+   * "how much water actually ends up covered" stopped having an answer in
+   * CONFIG and has to be measured. COUNT ONLY — no owner, no position, nothing
+   * an ops endpoint could turn into a wallhack. `smokeLivePeak` (Story 8.18)
+   * is its twin for live SMOKE SCREEN puffs — every puff is a segment–circle
+   * test inside every sight predicate for every observer, so the peak is the
+   * number that says what the perception pass actually paid for.
+   */
+  world: { minesLivePeak: number; smokeLivePeak: number };
 }
 
 interface MessageBucket {
@@ -109,6 +125,12 @@ const registry = new Map<string, RoomMetrics>();
 
 /** Messages from rooms that have since unregistered, kept in the since-start total. */
 let retiredMessageTotal = 0;
+/** Process-wide high-water mark of live mines (Story 8.4). Survives room
+ *  dispose — a peak is a fact about the process, not about a room. */
+let minesLivePeak = 0;
+/** Process-wide high-water mark of live SMOKE SCREEN puffs (Story 8.18) — the
+ *  minesLivePeak twin, same survival rule. */
+let smokeLivePeak = 0;
 /** Monotonic second the module first recorded anything; null until first record. */
 let firstRecordSec: number | null = null;
 
@@ -179,10 +201,31 @@ export function registerRoom(roomId: string): RoomMetricsHandle {
   };
 }
 
+/**
+ * Record one room's live-mine count for this sim step (Story 8.4). Keeps the
+ * MAXIMUM ever seen in this process — the number that tells an operator what an
+ * uncapped minefield actually costs. Called by the arena adapter after each
+ * `world.step()`; a room disposing never lowers it.
+ */
+export function recordMinesLive(count: number): void {
+  if (count > minesLivePeak) minesLivePeak = count;
+}
+
+/**
+ * Record one room's live SMOKE SCREEN puff count for this sim step (Story
+ * 8.18) — recordMinesLive's twin: MAX only, never lowered by a room disposing
+ * or a trail expiring. Called by the arena adapter after each `world.step()`.
+ */
+export function recordSmokeLive(count: number): void {
+  if (count > smokeLivePeak) smokeLivePeak = count;
+}
+
 /** Test-only: clear all registered rooms, retired totals, and first-record mark. */
 export function resetMetrics(): void {
   registry.clear();
   retiredMessageTotal = 0;
+  minesLivePeak = 0;
+  smokeLivePeak = 0;
   firstRecordSec = null;
 }
 
@@ -254,10 +297,11 @@ export function metricsPayload(): MetricsPayload {
       ratePerSec: ratePerSec(nowSeconds()),
       total: totalMessages(),
     },
+    world: { minesLivePeak, smokeLivePeak },
   };
 }
 
-// --- HTTP endpoint (Colyseus 0.17 typed route) -------------------------------
+// --- HTTP endpoint (Colyseus 0.18 typed route) -------------------------------
 
 /** GET /metrics — process-local operability snapshot as JSON. */
 export const metricsEndpoint = createEndpoint(

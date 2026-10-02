@@ -7,55 +7,61 @@
 // release predicate + its new outcome classifier. jsdom.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { BOON_CATALOG, CONFIG, HEAL_CHOICE, effectiveStats, resolveBoons, type OwnShip } from '@salvo/shared';
+import { CATALOG, CONFIG, MULLIGAN_CHOICE, type OwnShip } from '@salvo/shared';
 import {
-  HEAL_LABEL,
-  HEAL_STATUS_FULL,
-  HEAL_STATUS_SUNK,
+  REDRAW_FOOTER_PX,
+  REDRAW_WORD,
+  SLOTS_FULL,
   SPEND_LATCH_TIMEOUT_MS,
   UpgradeMenu,
   canLatchSpend,
+  cardGreyed,
   frontOfferSignature,
-  healReadout,
-  healView,
+  mulliganLanded,
   offerView,
   refitBandLayout,
+  shouldAutoOpen,
   spendLatchReleased,
   spendOutcome,
+  KIND_COLORS,
+  KIND_EDGES,
   type OfferCard,
   type OfferView,
   type RefitBox,
   type SpendLatch,
 } from '../ui/upgradeMenu.js';
-import { refitStripInnerBox, refitStripMetrics } from '../ui/refitCardFit.js';
-import { boonFitToastLine, boonName, boonTooltipText } from '../ui/boonCopy.js';
-import { vitalsLayout } from '../render/hud.js';
-import { hotbarLayout } from '../render/hotbar.js';
+import { MICRO_VAR, domMicroScale } from '../ui/refitCardFit.js';
+import {
+  boonFitToastLine,
+  boonName,
+  cardHoverRows,
+  cardKind,
+  cardKindLabel,
+  cardStatRows,
+  cardTierLabel,
+  cardTierSteps,
+} from '../ui/boonCopy.js';
+import { hudBarLayout } from '../render/hudBar.js';
+import { setUiScaleVar } from '../ui/theme.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { settings } from '../settings/store.js';
+import { scaleTierEnabled, settings } from '../settings/store.js';
 import { FLASH_ELEMENTS, type FlashBudget, type FlashVerdict } from '../render/flashBudget.js';
 
 const R = CLIENT_CONFIG.refit;
 
 /** A real four-LINE draw from the shipped Boon Catalog v1 (the deck draws four
  *  different card LINES — categories may repeat; these happen not to). */
-const OFFER = ['intelSweep', 'shipHull', 'gunBarrel', 'mineBlast'];
-const OFFER_B = ['shipCooldown', 'shipSpeed', 'intelSweep', 'mineBlast'];
+const OFFER = ['radarSweep', 'armor', 'deckGun', 'navalMines'];
+const OFFER_B = ['reload', 'speed', 'radarSweep', 'navalMines'];
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', pts: 1, offer: [...OFFER],
-    boostUntil: 0, boons: [], lvl: 0, xp: 0, repairHp: 0,
+    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', pts: 1, offer: [...OFFER],
+    boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     ...over,
   };
 }
-
-/** The own hull's max HP through the SAME derivation the strip uses (the
- *  shared effectiveStats firewall) — never a literal, so a class retune can
- *  never leave these tests asserting a stale full-hull number. */
-const maxHpOf = (cls: OwnShip['cls'], boons: readonly string[] = []): number =>
-  effectiveStats(CONFIG.shipClasses[cls], resolveBoons([...boons])).maxHp;
 
 // --- band geometry --------------------------------------------------------------
 //
@@ -100,14 +106,22 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
       expect(Math.abs(L.row.x - (w - L.row.x - L.row.w))).toBeLessThanOrEqual(1);
     });
 
-    it(`sits BELOW center — own hull at screen center stays clear at ${name}`, () => {
-      // The band's ~58% top edge is the keep-out proxy for the listening ring
-      // (UX-DR18, Epic 4/6 — it does not exist yet). The honest constraint the
-      // geometry can actually be held to today is "the own hull at screen
-      // center is never occluded", and that is what this pins.
+    it(`hangs exactly barGap above the HUD bar's top edge at ${name}`, () => {
+      // EPIC-8 AMENDMENT 36 (Eric, 2026-09-17) replaced the viewport-fraction
+      // anchor with UX-DR53's rule — row bottom = hud-bar top − 8px — applied to
+      // the band's LOWEST edge. Story 8.8 deleted the DAMAGE CONTROL strip that
+      // used to hang under the row, so that edge is THE CARD ROW'S BOTTOM. The
+      // below-centre own-hull keep-out is WAIVED by the same ruling, so the old
+      // `band.y > h/2` pin is gone; what replaces it is the property that
+      // actually matters now.
       const L = refitBandLayout(w, h);
-      expect(L.band.y).toBeGreaterThan(h / 2);
-      expect(L.row.y).toBe(Math.round(h * R.bandTopFrac));
+      const bar = hudBarLayout(w, h).bar;
+      expect(L.row.y + L.row.h).toBe(L.band.y + L.band.h); // the CARD ROW is the lowest edge
+      expect(L.band.y + L.band.h).toBe(bar.y - R.barGap);
+      expect(overlaps(L.band, bar)).toBe(false);
+      // Waived is not unbounded: the band may now start above the screen centre
+      // but never off the top of the screen.
+      expect(L.band.y).toBeGreaterThanOrEqual(0);
     });
 
     it(`keeps the pip strip above the cards, left-aligned with the row at ${name}`, () => {
@@ -140,187 +154,186 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     }
   });
 
-  // --- THE DAMAGE CONTROL RAIL (cycle 46) --------------------------------------
+  // --- THE UNTOUCHABLE ROW -----------------------------------------------------
   //
-  // THE REGRESSION PIN THAT MATTERS MOST. The heal is a SIBLING of the row, not
-  // a fifth card: the four cards stay 216px, the gaps stay 20px, the row stays
-  // exactly 924px, and CONFIG.offer.size stays 4 — with the rail present. A
-  // five-card row would be 1160px, leaving 60px of margin at the 1280×614
+  // THE REGRESSION PIN THAT MATTERS MOST. The four cards stay 216px, the gaps
+  // stay 20px, the row stays exactly 924px, and CONFIG.offer.size stays 4 —
+  // through the cycle-46 rail's whole life and through Story 8.8's deletion of
+  // it. A five-card row would be 1160px, leaving 60px of margin at the 1280×614
   // logical floor and superseding the ratified UX-DR14 geometry outright.
-  it('leaves the four-card row BYTE-IDENTICAL with the rail present (the untouchable row)', () => {
+  it('leaves the four-card row BYTE-IDENTICAL (the untouchable row)', () => {
     for (const { name, w, h } of FLOORS) {
       const L = refitBandLayout(w, h);
       expect(CONFIG.offer.size, name).toBe(4);
       expect(L.cards, name).toHaveLength(4);
       expect(L.row.w, name).toBe(4 * 216 + 3 * 20);
       expect(L.row.w, name).toBe(924);
-      expect(L.row.h, name).toBe(236);
+      expect(L.row.h, name).toBe(226);
       for (const c of L.cards) {
         expect(c.w, name).toBe(216);
-        expect(c.h, name).toBe(236);
+        expect(c.h, name).toBe(226);
         expect(c.y, name).toBe(L.row.y); // still ONE row, one baseline
       }
       for (let i = 1; i < L.cards.length; i += 1) {
         expect(L.cards[i].x - (L.cards[i - 1].x + 216), name).toBe(20);
       }
       // The row still derives from ONE anchor and the pips still hang a fixed
-      // offset above it. CYCLE 47 moved that anchor (0.58 → 0.534) to buy the
-      // rail its room — deliberately, by Eric ruling (amendment 65), which
-      // reopened amendment 40's "no band lift" for exactly this. What the pin
-      // above protects is unchanged and is the point: the row's SHAPE is
-      // untouchable, its POSITION was the only thing that moved.
-      expect(L.row.y, name).toBe(Math.round(h * R.bandTopFrac));
+      // offset above it. STORY 8.6 (epic-8 amendment 36) moved that anchor for
+      // the second time — from a viewport fraction to the HUD bar's top edge —
+      // and, as in cycle 47, only the POSITION moved: the row's SHAPE is
+      // untouchable and is what the pin above protects.
+      expect(L.row.y, name).toBe(L.band.y + R.pipsAbove);
       expect(L.pips.y, name).toBe(L.row.y - R.pipsAbove);
     }
   });
 
-  // THE FIVE-PIXEL BAND (cycle 47). The lifted anchor is wedged between two hard
-  // constraints at the 1280×614 logical floor, and the whole geometry lives or
-  // dies on both margins staying non-negative:
+  // THE ANCHORED EDGE, TO THE PIXEL (Story 8.6, epic-8 amendment 36). The band
+  // no longer floats at a fraction of the viewport between two opposing
+  // constraints — it HANGS off the HUD bar, so there is exactly one number to
+  // pin and it is an equality rather than a pair of inequalities:
   //
-  //   above — the own-hull keep-out:  band.y > h/2
-  //   below — the container-fit law:  strip bottom ≤ h
+  //   band bottom (the CARD ROW's, since Story 8.8) === hudBarLayout().bar.y − barGap
   //
-  // At that floor there are exactly five pixels of slack between them, so this
-  // is pinned with the ACTUAL numbers rather than only as an inequality: a
-  // future card-height, pip-offset, rail-height or anchor change that eats the
-  // margin fails HERE, in arithmetic, instead of clipping off the bottom of
-  // someone's laptop screen. The 1366×768 floor is comfortable and is pinned
-  // alongside so the two are never accidentally tuned apart.
-  it('keeps both floor margins non-negative at the lifted anchor', () => {
+  // The own-hull keep-out that boxed the old anchor in from above is WAIVED by
+  // the same ruling, and the container-fit law from below is now satisfied BY
+  // CONSTRUCTION (the bar is itself `floor` px off the viewport edge). What can
+  // still go wrong is the band running off the TOP of a short viewport, so that
+  // is pinned too, with the actual numbers.
+  it('seats the band exactly barGap above the bar at both ratified floors', () => {
     const cases = [
-      { name: '1366x768 @100%', w: 1366, h: 768 },
-      { name: '1280x614 (125% logical floor)', w: 1280, h: 614 },
+      { name: '1366x768 @100%', w: 1366, h: 768, barTop: 614, bandBottom: 606 },
+      { name: '1280x614 (125% logical floor)', w: 1280, h: 614, barTop: 460, bandBottom: 452 },
     ];
-    for (const { name, w, h } of cases) {
+    for (const { name, w, h, barTop, bandBottom } of cases) {
       const L = refitBandLayout(w, h);
-      const keepOut = L.band.y - h / 2; // > 0 or the band covers the own hull
-      const bottom = h - (L.strip.y + L.strip.h); // ≥ 0 or the rail clips off
-      expect(keepOut, `${name}: band ${-keepOut}px over the own-hull keep-out`).toBeGreaterThan(0);
-      expect(bottom, `${name}: rail ${-bottom}px past the bottom edge`).toBeGreaterThanOrEqual(0);
+      expect(hudBarLayout(w, h).bar.y, name).toBe(barTop);
+      expect(L.band.y + L.band.h, name).toBe(bandBottom);
+      expect(L.row.y + L.row.h, name).toBe(bandBottom);
+      expect(L.band.y, `${name}: band ${-L.band.y}px off the top of the screen`).toBeGreaterThanOrEqual(0);
+      expect(L.band.y + L.band.h, name).toBeLessThanOrEqual(h);
     }
-    // The floor case, to the pixel — 3px clear above, 4px clear below.
+    // The floor case, to the pixel. STORY 8.8 DELETED THE RAIL AND ITS SEAM, so
+    // the band is 244px (18 pips + 226 card) rather than 290: ending at 452 it
+    // now starts at 208 rather than 162, and the card row's own bottom IS the
+    // anchored edge. The ANCHOR is unchanged (amendment 36) — a shorter band
+    // simply leaves more clear water above it, which is what the tooltip's
+    // amendment-37 flip spends.
     const F = refitBandLayout(1280, 614);
-    expect(F.row.y).toBe(328);
-    expect(F.band.y).toBe(310); // 3px clear of the 307 keep-out
-    expect(F.strip.y).toBe(570);
-    expect(F.strip.y + F.strip.h).toBe(610); // 4px clear of the 614 edge
+    expect(F.band.h).toBe(R.pipsAbove + R.cardHeight);
+    expect(F.band.h).toBe(244);
+    expect(F.band.y).toBe(208);
+    expect(F.row.y).toBe(226);
+    expect(F.row.y + F.row.h).toBe(452);
   });
 
-  // THE SCALED-TIER FIT — the case the logical-floor pins above CANNOT see, and
-  // the one that actually caught a real clip during the cycle-47 review.
+  // --- THE COUNTDOWN FOOTER (Story 8.10, epic-8 amendments 60 + 63a) ----------
   //
-  // `place()` anchors the band from `window.innerHeight` in PHYSICAL pixels,
-  // but the panel's contents are scaled by `--hc-ui-scale` about `top center`.
-  // So at the 125% tier the band's real footprint is 1.25 × its laid-out height
-  // hanging off an UNSCALED anchor — which is NOT what refitBandLayout(w/1.25,
-  // h/1.25) models. The tier's own gate is width-only (`scaleGateWidthPx` 1600),
-  // so a 1600×768 viewport can select 125% and is the binding case.
+  // THE 44px IS A DELTA, NOT A PAIR OF ABSOLUTES. The band's BOTTOM is anchored
+  // (`barGap` above the bar) and the footer is the band's last block, so every
+  // pixel it adds comes off the TOP: the card row LIFTS by exactly the footer's
+  // height and the bar never moves. UX-DR54 / DESIGN.md's 388 → 344 pair forgot
+  // the 8px bar gap; the measured numbers are 380 → 336 at 1366×768, and the
+  // ratified fact is the lift between them.
+  it('lifts the card row by exactly the footer and leaves the anchored edge alone', () => {
+    const live = refitBandLayout(1366, 768);
+    const countdown = refitBandLayout(1366, 768, CONFIG.offer.size, REDRAW_FOOTER_PX);
+    expect(REDRAW_FOOTER_PX).toBe(44);
+    expect(live.row.y).toBe(380);
+    expect(countdown.row.y).toBe(336);
+    expect(live.row.y - countdown.row.y).toBe(REDRAW_FOOTER_PX);
+    // The one edge that must NOT move, in either state.
+    expect(live.band.y + live.band.h).toBe(606);
+    expect(countdown.band.y + countdown.band.h).toBe(606);
+    expect(hudBarLayout(1366, 768).bar.y - R.barGap).toBe(606);
+    // The row itself is untouchable: same shape, same width, one baseline.
+    expect(countdown.row.w).toBe(live.row.w);
+    expect(countdown.row.h).toBe(live.row.h);
+    expect(countdown.cards.map((c) => c.x)).toEqual(live.cards.map((c) => c.x));
+  });
+
+  it('seats the REDRAW button in the gap under the row, flush with the band\'s bottom', () => {
+    const L = refitBandLayout(1366, 768, CONFIG.offer.size, REDRAW_FOOTER_PX);
+    expect(L.footer.h).toBe(R.redrawHeight);
+    expect(L.footer.y).toBe(L.row.y + L.row.h + R.redrawGap);
+    expect(L.footer.y + L.footer.h).toBe(L.band.y + L.band.h); // the anchored edge
+    expect(L.footer.x).toBe(L.row.x);
+    expect(R.redrawGap + R.redrawHeight).toBe(REDRAW_FOOTER_PX);
+  });
+
+  it('is DEGENERATE with no footer — nothing hangs under the row off the start line', () => {
+    const L = refitBandLayout(1366, 768);
+    expect(L.footer.h).toBe(0);
+    expect(L.footer.y).toBe(L.row.y + L.row.h);
+    expect(L.band.h).toBe(R.pipsAbove + R.cardHeight);
+  });
+
+  it('still fits both ratified floors with the footer standing', () => {
+    for (const { name, w, h } of FLOORS) {
+      const L = refitBandLayout(w, h, CONFIG.offer.size, REDRAW_FOOTER_PX);
+      expect(L.band.y, `${name}: band ${-L.band.y}px off the top`).toBeGreaterThanOrEqual(0);
+      expect(L.band.y + L.band.h, name).toBeLessThanOrEqual(h);
+      expect(overlaps(L.band, hudBarLayout(w, h).bar), name).toBe(false);
+    }
+  });
+
+  // THE SCALED-TIER FIT — the case the logical-floor pins above cannot see, and
+  // the one that caught a real clip during the cycle-47 review.
   //
-  // This mismatch is a pre-existing defect (ledgered). What is pinned here is
-  // the consequence that must stay legal regardless: the band, at every
-  // committed scale tier, still ends inside the viewport.
-  it('keeps the scaled band inside the viewport at every UI-scale tier', () => {
-    const H = R.pipsAbove + R.cardHeight + R.stripGap + R.stripHeight;
+  // THE MISMATCH IT USED TO DOCUMENT IS GONE. `place()` anchored the band from
+  // `window.innerHeight` in PHYSICAL px while the panel's contents were scaled
+  // by `--hc-ui-scale` about `top center`, so the band's real footprint was
+  // `scale x` its laid-out height hanging off an UNSCALED anchor. Story 8.6 lays
+  // the band out in LOGICAL units (physical / the factor, the same units the bar
+  // uses) and writes `band.y * factor` to `top`, which retires the defect the
+  // cycle-47 review ledgered. This pin is re-derived on that anchor: at every
+  // selectable tier the band still ends inside the viewport, still clears the
+  // bar by exactly `barGap`, and still starts on screen.
+  it('keeps the scaled band inside the viewport, clear of the bar, at every UI-scale tier', () => {
     for (const { w, h } of [
+      { w: 1366, h: 768 },
+      { w: 1280, h: 614 },
       { w: 1600, h: 768 }, // the binding case — 125% is reachable here
-      { w: 1600, h: 900 },
       { w: 1920, h: 1080 },
-      { w: 1366, h: 768 }, // 125% gated off below 1600 wide, but 90%/100% apply
     ]) {
-      const top = refitBandLayout(w, h).band.y;
       for (const tier of CLIENT_CONFIG.settings.scaleTiers) {
-        const scale = tier / 100;
-        if (scale > 1 && w < CLIENT_CONFIG.settings.scaleGateWidthPx) continue; // tier disabled
-        const bottom = top + H * scale;
-        expect(bottom, `${w}x${h} @${tier}%: band ${(bottom - h).toFixed(1)}px past the bottom`).toBeLessThanOrEqual(h);
+        if (!scaleTierEnabled(tier, w)) continue; // gated off at this width
+        const f = tier / 100;
+        const label = `${w}x${h} @${tier}%`;
+        const L = refitBandLayout(w / f, h / f);
+        const bar = hudBarLayout(w / f, h / f).bar;
+        expect(L.band.y + L.band.h, label).toBeCloseTo(bar.y - R.barGap, 6);
+        expect(overlaps(L.band, bar), label).toBe(false);
+        // What the DOM actually renders: the logical box scaled about its top.
+        const bottom = (L.band.y + L.band.h) * f;
+        expect(bottom, `${label}: band ${(bottom - h).toFixed(1)}px past the bottom`).toBeLessThanOrEqual(h);
+        expect(L.band.y * f, `${label}: band ${(-L.band.y * f).toFixed(1)}px off the top`).toBeGreaterThanOrEqual(0);
       }
     }
   });
 
-  // The rail must READ as choosable, which is a type-and-padding property, not a
-  // box-size one (Eric, cycle 47: "big enough to actually register as 'this is
-  // something I can choose' on all viewports"). These are the three marks that
-  // were below the line in cycle 46.
-  it('carries card-grade type, the family key chip, and real vertical padding', () => {
-    expect(R.stripFontSize, 'below amendment 15 legibility floor').toBeGreaterThanOrEqual(14);
-    expect(R.stripFontSize * 0.9, 'below the 9px mono floor at the 90% tier').toBeGreaterThanOrEqual(9);
-    expect(R.stripKeyChip, 'not the ONE key-chip family size').toBe(R.keyChip);
-    expect(R.stripPadY, 'the rail has no vertical padding').toBeGreaterThan(0);
-    // The chip is the tallest mark, so it — plus its padding and borders — IS
-    // the rail height. A mismatch here means the box and its contents disagree.
-    expect(R.stripHeight).toBe(R.stripKeyChip + 2 * R.stripPadY + 2);
-  });
-
-  it('hangs the rail BELOW the row, exactly as wide, never overlapping a card', () => {
+  // THE OVERLAP IS GONE — the pin that used to ratify it now forbids it.
+  //
+  // For six epics a 924px card row sitting at a fraction of the viewport height
+  // reached into whatever the HUD had parked at the bottom of the screen, and
+  // the rule that made it acceptable was the combat lockout: the surface under
+  // the cards dims to 38% and stops taking input for exactly the window the band
+  // is open. Story 8.6 replaced the three corner clusters with ONE 768px bar and
+  // Eric ruled (epic-8 amendment 36) that the band hangs off it instead — so the
+  // overlap is not merely tolerated now, it cannot happen, at any viewport or
+  // scale tier. The dim stays: it is what tells the player the slots are inert,
+  // and it is no longer load-bearing for legibility.
+  it('clears the HUD bar it dims by exactly barGap, and stays clear of the chrome bar (1366x768)', () => {
     const L = refitBandLayout(1366, 768);
-    expect(L.strip.y).toBe(L.row.y + L.row.h + R.stripGap);
-    expect(L.strip.y).toBeGreaterThanOrEqual(L.row.y + L.row.h); // strictly below
-    expect(L.strip.x).toBe(L.row.x);
-    expect(L.strip.w).toBe(L.row.w);
-    expect(L.strip.h).toBe(R.stripHeight);
-    for (const c of L.cards) expect(overlaps(L.strip, c)).toBe(false);
-    // The band now covers the rail too — the keep-out checks measure the whole
-    // thing, so nothing can be laid out over a strip the band forgot to declare.
-    expect(L.band.y + L.band.h).toBe(L.strip.y + L.strip.h);
-  });
-
-  // THE CONTAINER-FIT LAW (amendment 47) at both ratified floors. In cycle 46
-  // this was the constraint the rail's whole geometry was DERIVED from — the
-  // card row ended 22px above the 1280×614 viewport edge and the rail had to
-  // live in that 22px, which is what produced the 16px seam Eric rejected on
-  // sight. Cycle 47 inverted the dependency: the rail is a ruled 40px and the
-  // band anchor absorbs the cost, so this check is now a GUARD on the anchor
-  // rather than the derivation of the rail.
-  for (const { name, w, h } of FLOORS) {
-    it(`fits the rail inside the viewport with nothing clipped at ${name}`, () => {
-      const L = refitBandLayout(w, h);
-      expect(L.strip.y + L.strip.h, `${name}: rail clipped off the bottom`).toBeLessThanOrEqual(h);
-      expect(L.band.y + L.band.h, `${name}: band clipped off the bottom`).toBeLessThanOrEqual(h);
-      expect(L.strip.x, name).toBeGreaterThanOrEqual(0);
-      expect(L.strip.x + L.strip.w, name).toBeLessThanOrEqual(w);
-    });
-  }
-
-  it('fits every mark INSIDE the rail box (the horizontal half of the law)', () => {
-    // Measured from the live copy, which prints CONFIG.damageControl's own
-    // numbers — a retune of the ruling moves the string and this pin with it.
-    const worst = { key: '5', label: HEAL_LABEL, readout: healReadout(), status: HEAL_STATUS_FULL };
-    const m = refitStripMetrics(worst);
-    expect(m.overflowX, `rail content overflows by ${m.overflowX}px`).toBeLessThanOrEqual(0);
-    expect(m.overflowY, `rail content is ${m.overflowY}px taller than its box`).toBeLessThanOrEqual(0);
-    expect(refitStripInnerBox().w).toBeLessThan(924); // the box is the ROW's, minus chrome
-    // The inner box must SUBTRACT the vertical padding, not just the borders.
-    // Without this the model reports a comfortable −16px overflowY on a rail
-    // whose marks actually sit in the padding — a false pass, which is exactly
-    // the failure mode a fit model exists to prevent.
-    expect(refitStripInnerBox().h).toBe(R.stripHeight - 2 * (R.stripPadY + 1));
-  });
-
-  // DELIBERATE PIN, NOT AN ASPIRATION. The ratified UX-DR14 row (924px) and the
-  // ratified below-center band (~58%) are geometrically OVER-CONSTRAINED against
-  // the bottom-left hotbar (Story 2.2) and the bottom-right vitals cluster
-  // (Story 2.4): at 1366×768 the hotbar occupies y ≥ 445 and the cluster y ≥ 490,
-  // so ANY card row with a readable height in the below-center band must overlap
-  // the two corners. That is accepted by design — the hotbar dims to 38% and slot
-  // input is suspended for exactly the window the band is open — but it is pinned
-  // here so a future geometry change (a narrower row, a shorter card, a moved
-  // corner) is a CONSCIOUS break rather than a silent regression. What must never
-  // regress is the two INNER cards, which stay clear of both clusters at the
-  // 1366×768 floor, and the own-hull keep-out above.
-  it('overlaps only the two DIMMED corner clusters, never the inner cards (1366x768)', () => {
-    const L = refitBandLayout(1366, 768);
-    const vitals = vitalsLayout(1366, 768).cluster;
-    const hotbar = hotbarLayout(768).rows.map((r) => r.row);
-    const hitsHotbar = (c: RefitBox): boolean => hotbar.some((r) => overlaps(c, r));
-    // Outer cards: the accepted overlap (documented above).
-    expect(hitsHotbar(L.cards[0])).toBe(true);
-    expect(overlaps(L.cards[3], vitals)).toBe(true);
-    // Inner cards: clear of BOTH clusters — the property that must hold.
-    for (const i of [1, 2]) {
-      expect(hitsHotbar(L.cards[i]), `card ${i} vs hotbar`).toBe(false);
-      expect(overlaps(L.cards[i], vitals), `card ${i} vs vitals`).toBe(false);
+    const hud = hudBarLayout(1366, 768);
+    expect(overlaps(L.band, hud.bar)).toBe(false);
+    expect(L.band.y + L.band.h).toBe(hud.bar.y - R.barGap);
+    // Nothing the band paints reaches the dimmed slot groups any more — the
+    // outer cards were what used to sit on them.
+    for (const card of L.cards) {
+      for (const g of hud.dimGroups) expect(overlaps(card, g)).toBe(false);
     }
+    // ...and it still never climbs into the top-centre match register.
+    expect(L.band.y).toBeGreaterThan(CLIENT_CONFIG.chromeBar.y + CLIENT_CONFIG.chromeBar.fontSize);
   });
 });
 
@@ -333,15 +346,27 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     expect(offerView(ownShip({ pts: 0, offer: [] }), false, false, false)).toBeNull();
   });
 
-  it('resolves the front offer to four cards with catalog category + ratified copy', () => {
+  it('resolves the front offer to four cards with the kind word + ratified copy', () => {
     const view = offerView(ownShip(), false, false, false);
     expect(view?.options.map((o) => o.id)).toEqual(OFFER);
     expect(view?.options).toHaveLength(CONFIG.offer.size);
     expect(view?.pts).toBe(1);
     for (const card of view!.options) {
-      expect(card.category.length).toBeGreaterThan(0);
-      expect(card.name).toBe(boonName(card.id, 0)); // first rung — the build is empty
-      expect(card.description.length).toBeGreaterThan(0);
+      expect(card.kind.length).toBeGreaterThan(0);
+      expect(card.name).toBe(boonName(card.id, 0)); // the sheet's name for the line
+      // STORY 8.7: the face is the ratified FIVE-ROW block. A LADDER card and a
+      // LIVE equipment line print rows; an add-on, a consumable and an unbuilt
+      // weapon move no number and print none, which is correct, not a fault.
+      const line = CATALOG[card.id];
+      const speaks = line.kind === 'ladder' || (line.kind === 'equipment' && line.stub !== true);
+      if (speaks) expect(card.rows.length, card.id).toBeGreaterThan(0);
+      else expect(card.rows, card.id).toEqual([]);
+      // ...and the three interim-face fields went with the face they belonged to.
+      for (const dead of ['count', 'lineage', 'description', 'tooltip']) {
+        expect(card, `${card.id}.${dead}`).not.toHaveProperty(dead);
+      }
+      // CYCLE 158 (amendment 187): the hover is the AFTER-fold stat table.
+      expect(card.hover, card.id).toEqual(cardHoverRows(line, 0, ownShip()));
     }
     // Story 2.1 ("1-4 cards, no repair"): the view carries ONLY cards — the
     // canHeal/healHp fields left with the REPAIR spend and never came back.
@@ -397,12 +422,20 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
 
   // --- Story 2.8: the card face is resolved against the PLAYER'S OWN BUILD ----
 
-  it('names each card at the rung the player\'s stack puts it at (name-by-stack-position)', () => {
+  it('names the LINE and lets the LADDER and its numerals carry the stack', () => {
+    // Catalog v3 names the line, not the rung (Eric's sheet §1). Story 8.7
+    // replaced the "n/cap" count and the "II/V" handrail with the DRAWN ladder:
+    // `stack` and `cap` are the rung count and its filled prefix, and the
+    // numerals say the STEP this card buys.
     const fresh = offerView(ownShip(), false, false, false);
-    expect(fresh?.options[0].name).toBe(boonName('intelSweep', 0));
-    const stacked = offerView(ownShip({ boons: ['intelSweep', 'intelSweep'] }), false, false, false);
-    expect(stacked?.options[0].name).toBe(boonName('intelSweep', 2));
-    expect(stacked?.options[0].name).not.toBe(fresh?.options[0].name);
+    expect(fresh?.options[0].name).toBe(boonName('radarSweep', 0));
+    expect(fresh?.options[0].stack).toBe(0);
+    expect(fresh?.options[0].cap).toBe(5);
+    expect(fresh?.options[0].tier).toBe('I');
+    const stacked = offerView(ownShip({ cards: ['radarSweep', 'radarSweep'] }), false, false, false);
+    expect(stacked?.options[0].name).toBe(fresh?.options[0].name);
+    expect(stacked?.options[0].stack).toBe(2);
+    expect(stacked?.options[0].tier).toBe('II → III');
   });
 
   // Story 7-5 wave 1 dropped the verb cards from `exclusive` to `rare` when they
@@ -410,33 +443,54 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // EXCLUSIVE line in the catalog. So no SHIPPED line carries that tier today;
   // the label itself is still supported and pinned in boonCopy.test.ts, and the
   // DOM row below still renders one from a hand-built card.
-  it('carries the rarity tier: nothing for a common, RARE otherwise', () => {
-    const view = offerView(ownShip({ offer: ['intelSweep', 'gunTurret', 'mineCaptive', 'acquireMine'] }), false, false, false);
-    expect(view?.options.map((o) => o.rarity)).toEqual(['', 'RARE', 'RARE', 'RARE']);
+  // AMENDMENT 181 (Eric 2026-09-30): the kind is what the card does for the
+  // player — a function of the line AND the copies held.
+  it('carries the KIND word and its tone, unconditional, on every card', () => {
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun', 'captiveMines', 'dazzleShells'] }), false, false, false);
+    expect(view?.options.map((o) => o.kind)).toEqual(['SHIP UPGRADE', 'WEAPON UPGRADE', 'WEAPON', 'CONSUMABLE']);
+    expect(view?.options.map((o) => o.kindTone)).toEqual(['shipUpgrade', 'weaponUpgrade', 'weapon', 'consumable']);
+    // Copy 2 of an equipment line is a WEAPON UPGRADE.
+    const tier = offerView(ownShip({ offer: ['captiveMines'], cards: ['captiveMines'] }), false, false, false);
+    expect(tier?.options[0].kind).toBe('WEAPON UPGRADE');
+    expect(tier?.options[0].kindTone).toBe('weaponUpgrade');
   });
 
-  it('carries the lineage handrail for multi-copy lines only, at the right position', () => {
-    const view = offerView(ownShip({ offer: ['intelSweep', 'gunTurret'], boons: ['intelSweep'] }), false, false, false);
-    expect(view?.options[0].lineage).toBe('II/V'); // one held → this card is the second
-    expect(view?.options[1].lineage).toBeNull(); // AFT TURRET is a single copy
+  it('carries the ladder length and the copies held — the rungs and their fill', () => {
+    const held = ['radarSweep', 'radarSweep', 'radarSweep'];
+    // The CANNON ladder replaced the one-rung DECK GUN TURRET here (amendment
+    // 197 — no one-rung card ships any more): nothing held, cap 4.
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun'], cards: held }), false, false, false);
+    expect(view?.options[0].stack).toBe(3);
+    expect(view?.options[0].cap).toBe(5);
+    expect(view?.options[1].stack).toBe(0);
+    expect(view?.options[1].cap).toBe(4);
+  });
+
+  it('draws NO ladder for a consumable or an add-on — they have no rungs', () => {
+    const view = offerView(ownShip({ offer: ['hullRepair', 'dazzleShells', 'radarSweep'] }), false, false, false);
+    expect(view?.options[0].tier).toBeNull();
+    expect(view?.options[0].tierStep).toBeNull();
+    expect(view?.options[1].tier).toBeNull();
+    expect(view?.options[2].tier).not.toBeNull();
   });
 
   // THE DOCTRINE-SWAP PIN IS RETIRED (Story 7-5 wave 2, R2.6). Amendment 44's
   // free swap needed an exclusive PAIR, and the cannon's was the last one in the
-  // game; `BoonDef.exclusiveWith` left the type with it, so an OfferCard has no
+  // game; `CatalogLine.exclusiveWith` left the type with it, so an OfferCard has no
   // `replaces` field for a card to carry.
 
-  it('prints rules text with the player\'s LIVE values (a preview diff, not a static table)', () => {
-    const fresh = offerView(ownShip({ offer: ['intelSweep'] }), false, false, false);
-    const stacked = offerView(ownShip({ offer: ['intelSweep'], boons: ['intelSweep'] }), false, false, false);
-    expect(fresh?.options[0].description).toContain('RPM →');
-    expect(stacked?.options[0].description).not.toBe(fresh?.options[0].description);
+  it('prints ROWS with the player\'s LIVE values (a preview diff, not a static table)', () => {
+    const fresh = offerView(ownShip({ offer: ['radarSweep'] }), false, false, false);
+    const stacked = offerView(ownShip({ offer: ['radarSweep'], cards: ['radarSweep'] }), false, false, false);
+    expect(fresh?.options[0].rows[0].label).toBe('RADAR SWEEP');
+    expect(fresh?.options[0].rows[0].next).toContain('RPM');
+    expect(stacked?.options[0].rows[0].cur).not.toBe(fresh?.options[0].rows[0].cur);
   });
 
   it('resolves the card face against the OWN CLASS too (hull stats differ per class)', () => {
-    const tb = offerView(ownShip({ offer: ['shipHull'] }), false, false, false);
-    const bb = offerView(ownShip({ cls: 'battleship', offer: ['shipHull'] }), false, false, false);
-    expect(bb?.options[0].description).not.toBe(tb?.options[0].description);
+    const tb = offerView(ownShip({ offer: ['armor'] }), false, false, false);
+    const bb = offerView(ownShip({ cls: 'battleship', offer: ['armor'] }), false, false, false);
+    expect(bb?.options[0].rows[0].cur).not.toBe(tb?.options[0].rows[0].cur);
   });
 
   // FINDING A (spend latch): `locked` is threaded straight through from the
@@ -448,109 +502,40 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   });
 });
 
-// --- healView: the DAMAGE CONTROL rail's pure state ------------------------------
-
-describe('healView — the rail is ARMED only where the server would honor the pick', () => {
-  it('is ARMED on a damaged, living hull, with no status word', () => {
-    const h = healView(ownShip({ hp: 80 }), false);
-    expect(h.state).toBe('armed');
-    expect(h.status).toBe(''); // the ABSENCE of a word is the armed channel
-    expect(h.label).toBe('DAMAGE CONTROL');
-  });
-
-  it('is INERT at exactly full HP — the server rejects it and banks the level', () => {
-    const full = maxHpOf('torpedoBoat');
-    expect(healView(ownShip({ hp: full }), false).state).toBe('inert');
-    expect(healView(ownShip({ hp: full }), false).status).toBe(HEAL_STATUS_FULL);
-    // ...and one point below full is still spendable (the guard is `>=`, and
-    // an overflowing heal is ruled to waste the remainder, not to be refused).
-    expect(healView(ownShip({ hp: full - 1 }), false).state).toBe('armed');
-  });
-
-  it('reads full HP through effectiveStats — a fitted hull line MOVES the threshold', () => {
-    const boons = ['shipHull', 'shipHull'];
-    const base = maxHpOf('torpedoBoat');
-    const grown = maxHpOf('torpedoBoat', boons);
-    expect(grown).toBeGreaterThan(base); // the card ladder really does move it
-    // At the BASE max with a grown hull the ship is damaged: armed, not inert.
-    expect(healView(ownShip({ hp: base, boons }), false).state).toBe('armed');
-    expect(healView(ownShip({ hp: grown, boons }), false).state).toBe('inert');
-  });
-
-  it('is INERT on a dead hull, and with no own ship at all', () => {
-    expect(healView(ownShip({ alive: false, hp: 0 }), false).state).toBe('inert');
-    expect(healView(ownShip({ alive: false, hp: 0 }), false).status).toBe(HEAL_STATUS_SUNK);
-    expect(healView(null, false).state).toBe('inert');
-    expect(healView(undefined, false).state).toBe('inert');
-  });
-
-  it('is INERT while a spend is in flight — transient, so it names no reason', () => {
-    const h = healView(ownShip({ hp: 80 }), true);
-    expect(h.state).toBe('inert');
-    expect(h.status).toBe('');
-  });
-
-  it('prints the amounts from CONFIG.damageControl, never a hardcoded 25/25/5', () => {
-    const dc = CONFIG.damageControl;
-    const line = healReadout();
-    // Cycle 47 moved the voice from a stat line to a sentence (Eric: "Restores
-    // 25 HP now and 25 HP/5s or something") — the pin is that the NUMBERS still
-    // come from config, which is what a retune of the ruling has to keep moving.
-    expect(line).toBe(`RESTORES ${dc.instantHp} HP NOW AND ${dc.regenHp} HP OVER ${dc.regenMs / 1000}S`);
-    expect(line).toContain(`${dc.instantHp} HP`);
-    expect(line).toContain(`${dc.regenHp} HP`);
-    expect(line).toContain(`${dc.regenMs / 1000}S`);
-  });
-
-  it('never echoes the shipHull ladder\'s vocabulary in its label', () => {
-    // "HULL" belongs to the +maxHp card line; the rail must not borrow it.
-    expect(HEAL_LABEL).toBe('DAMAGE CONTROL');
-    expect(HEAL_LABEL).not.toContain('HULL');
-  });
-
-  it('rides offerView as a SIBLING of the cards, never as a fifth option', () => {
-    const v = offerView(ownShip({ hp: 80 }), false, false, false);
-    expect(v?.options).toHaveLength(CONFIG.offer.size);
-    expect(v?.options.map((o) => o.id)).toEqual(OFFER); // no heal entry among them
-    expect(v?.heal.state).toBe('armed');
-    expect(offerView(ownShip({ hp: maxHpOf('torpedoBoat') }), false, false, false)?.heal.state).toBe('inert');
-  });
-});
-
 // --- DOM adapter -----------------------------------------------------------------
 
 describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   beforeEach(() => document.body.replaceChildren());
   afterEach(() => settings.set({ motion: 'full' }));
 
+  // THE RATIFIED FACE's OfferCard (Story 8.7, ruling 11): the icon box, the
+  // name, the cap-rung ladder with its `cur → next` numerals, the KIND word, up
+  // to five live stat rows and the foot. No description, no lineage handrail,
+  // no copy count — those went with the interim face.
   const cardsOf = (ids: readonly string[]): OfferCard[] =>
     ids.map((id) => ({
       id,
-      category: BOON_CATALOG[id].category.toUpperCase(),
-      rarity: '',
+      kind: cardKindLabel(cardKind(CATALOG[id], 0)),
+      kindTone: cardKind(CATALOG[id], 0),
       name: boonName(id, 0),
-      lineage: null,
-      description: '',
-      // Story 7-5 wave 2 (R2.17): the face's prose moved to a hover tooltip, so
-      // an OfferCard now carries the explanation and the ladder position the
-      // handrail's colour ramp reads.
-      tooltip: boonTooltipText(id),
+      tier: cardTierLabel(CATALOG[id], 0),
+      tierStep: cardTierSteps(CATALOG[id], 0),
+      rows: cardStatRows(CATALOG[id], 0, { cls: 'torpedoBoat', cards: [] }),
+      hover: cardHoverRows(CATALOG[id], 0, { cls: 'torpedoBoat', cards: [] }),
+      greyed: false,
       stack: 0,
-      copies: BOON_CATALOG[id].copies,
+      cap: CATALOG[id].cap,
     }));
 
   const view = (over: Partial<OfferView> = {}): OfferView => ({
-    pts: 1, options: cardsOf(OFFER), locked: false, heal: healView(ownShip(), false), ...over,
+    pts: 1, options: cardsOf(OFFER), locked: false, redraw: 'hidden', ...over,
   });
 
-  /** The CARDS — scoped to the row, deliberately. The DAMAGE CONTROL rail is a
-   *  button too, and it is the band's SIBLING of the row, not a member of it:
-   *  a query that swept it up with the cards would be the very conflation the
-   *  strip exists to avoid. */
+  /** The CARDS — scoped to the row, deliberately: the panel also holds the pip
+   *  strip and the one hover tooltip, neither of which is a card. */
   function cards(): HTMLButtonElement[] {
     return [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
   }
-  const strip = (): HTMLButtonElement => document.getElementById('refit-damage-control') as HTMLButtonElement;
   function pips(): HTMLElement[] {
     const strip = document.querySelector('#upgrade-menu > div');
     return [...(strip?.children ?? [])] as HTMLElement[];
@@ -574,13 +559,44 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(chips).toEqual(['1', '2', '3', '4']);
   });
 
-  it('a card carries the category tag, the boon name, and its description', () => {
+  // THE RATIFIED FACE, TOP-DOWN (Story 8.7, ruling 11 — mock `.rc`): key chip
+  // (outside the clipped body, pinned first) · 40px icon box · name · ladder ·
+  // KIND word · five 17px rows · foot. No prose anywhere on it.
+  it('builds the ratified face in the mock\'s own DOM order', () => {
     const menu = new UpgradeMenu(() => {});
-    menu.toggle(view({ options: cardsOf(OFFER).map((c) => ({ ...c, description: 'DESC ' + c.id })) }));
+    menu.toggle(view());
+    const card = cards()[0];
+    expect((card.firstElementChild as HTMLElement).textContent).toBe('1'); // key chip
+    const body = card.lastElementChild as HTMLElement;
+    const kids = [...body.children] as HTMLElement[];
+    expect(kids).toHaveLength(6);
+    expect(kids[0].style.width).toBe(`${R.iconBox}px`);        // icon box
+    expect(kids[1].textContent).toBe(boonName(OFFER[0], 0));   // name
+    expect(kids[2].style.height).toBe(`${R.ladderH}px`);       // ladder row
+    expect(kids[3].textContent).toBe(cardKindLabel(cardKind(CATALOG[OFFER[0]], 0)));
+    expect(kids[4].style.display).toBe('grid');                // the five-row grid
+    expect(kids[5].style.height).toBe(`${R.footH}px`);         // foot, blank at rest
+    expect(kids[5].textContent).toBe('');
+  });
+
+  it('always renders EXACTLY five rows, blank past the end of the card\'s stats', () => {
+    const menu = new UpgradeMenu(() => {});
+    // radarSweep moves ONE number, so four of its five rows are ruled blanks.
+    menu.toggle(view({ options: cardsOf(['radarSweep']) }));
+    const grid = (cards()[0].lastElementChild as HTMLElement).children[4] as HTMLElement;
+    expect(grid.children).toHaveLength(R.rowCount);
+    expect(grid.style.gridTemplateRows).toBe(`repeat(${R.rowCount}, ${R.rowH}px)`);
+    expect((grid.children[0] as HTMLElement).textContent).toContain('RADAR SWEEP');
+    for (let i = 1; i < R.rowCount; i += 1) {
+      expect((grid.children[i] as HTMLElement).textContent, `row ${i}`).toBe('');
+    }
+  });
+
+  it('carries NO prose on the face (R2.17)', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view({ options: cardsOf(['heavyTorpedo']) }));
     const text = cards()[0].textContent ?? '';
-    expect(text).toContain(BOON_CATALOG[OFFER[0]].category.toUpperCase());
-    expect(text).toContain(boonName(OFFER[0], 0));
-    expect(text).toContain('DESC ' + OFFER[0]);
+    expect(text).not.toMatch(/[a-z]{4}/); // no lowercase word: the face is all caps + numbers
   });
 
   // --- Story 2.8 card anatomy ---------------------------------------------------
@@ -588,44 +604,99 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   // The card face grew three CONDITIONAL lines. The digit chip stays the FIRST
   // span in every card (pinned above and re-pinned here against the new lines):
   // the whole 1-4 spatial mapping is read off it.
-  it('renders the RARE / EXCLUSIVE tag and nothing at all for a plain common', () => {
+  // THE KIND IS COLOR-CODED (Eric ruling 2026-09-30, epic-8 amendment 188 —
+  // supersedes amendment 8's neutral word): the word and the resting edge carry
+  // the kind's token; the armed state keeps its amber edge and glow.
+  it('renders the kind WORD on EVERY card, in the kind\'s colour, with a kind-tinted resting edge', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({
       options: [
-        { ...cardsOf(['intelSweep'])[0] }, // common: rarity ''
-        { ...cardsOf(['gunTurret'])[0], rarity: 'RARE' },
-        { ...cardsOf(['mineCaptive'])[0], rarity: 'EXCLUSIVE' },
+        { ...cardsOf(['radarSweep'])[0] },
+        // CANNON replaced the DECK GUN TURRET here (deleted, amendment 197):
+        // the gun ladder that is still a WEAPON UPGRADE.
+        { ...cardsOf(['deckGun'])[0] },
+        { ...cardsOf(['captiveMines'])[0] },
+        { ...cardsOf(['hullRepair'])[0] },
       ],
     }));
-    const [common, rare, exclusive] = cards();
-    expect(common.textContent).not.toContain('RARE');
-    expect(common.textContent).not.toContain('EXCLUSIVE');
-    expect(rare.textContent).toContain('RARE');
-    expect(exclusive.textContent).toContain('EXCLUSIVE');
-    // Tier colors are TEXT-only: the border/box-shadow channel belongs to the
-    // armed edge and the denied pulse, and a rarity tag must never touch it.
-    expect(rare.style.borderColor).not.toBe('var(--hc-info)');
-    expect(exclusive.style.borderColor).not.toBe('var(--hc-storm-readout)');
-    const tagColor = (b: HTMLButtonElement): string =>
-      [...b.querySelectorAll('span')].map((el) => (el as HTMLElement).style.color).join('|');
-    expect(tagColor(rare)).toContain('var(--hc-info)');
-    expect(tagColor(exclusive)).toContain('var(--hc-storm-readout)');
+    const expected = [
+      ['SHIP UPGRADE', 'shipUpgrade'],
+      ['WEAPON UPGRADE', 'weaponUpgrade'],
+      ['WEAPON', 'weapon'],
+      ['CONSUMABLE', 'consumable'],
+    ] as const;
+    cards().forEach((b, i) => {
+      const [word, tone] = expected[i];
+      const kindEl = ((b.lastElementChild as HTMLElement).children[3]) as HTMLElement;
+      expect(kindEl.textContent, word).toBe(word);
+      expect(kindEl.style.color, word).toBe(KIND_COLORS[tone]);
+      const probe = document.createElement('div');
+      probe.style.borderColor = KIND_EDGES[tone];
+      expect(b.style.borderColor, word).toBe(probe.style.borderColor);
+      expect(b.style.boxShadow, word).toBe('none');
+    });
+    // ARMED: amber edge + glow, the kind word keeps its colour; disarmed: back
+    // to the kind edge.
+    const first = cards()[0];
+    first.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(first.style.borderColor).toBe('var(--hc-amber)');
+    expect(first.style.boxShadow).toContain('var(--hc-amber)');
+    expect(((first.lastElementChild as HTMLElement).children[3] as HTMLElement).style.color).toBe(KIND_COLORS.shipUpgrade);
+    first.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(first.style.borderColor).not.toBe('var(--hc-amber)');
+    menu.hide();
   });
 
-  it('renders the lineage handrail for a multi-copy line and nothing for a single', () => {
+  it('opens the hover panel with ONE row line per hover stat, and none for a card with no rows', () => {
+    const menu = new UpgradeMenu(() => {});
+    const opts = cardsOf(['heavyTorpedo', 'radarSweep']);
+    menu.toggle(view({ options: [...opts, { ...opts[1], id: 'depthCharge', hover: [] }] }));
+    const tip = document.getElementById('refit-card-tooltip') as HTMLElement;
+    cards()[0].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(tip.style.display).toBe('flex');
+    const rows = [...tip.children[2].children] as HTMLElement[];
+    expect(rows).toHaveLength(opts[0].hover.length);
+    expect(rows[0].children[0].textContent).toBe(opts[0].hover[0].label);
+    expect((rows[0].children[0] as HTMLElement).style.color).toBe('var(--hc-text-secondary)');
+    expect((rows[0].children[1] as HTMLElement).style.color).toBe('var(--hc-phosphor)');
+    cards()[2].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(tip.style.display).toBe('none');
+    menu.hide();
+  });
+
+  it('a CONSUMABLE whose stat rows are empty opens NO panel — it has no shape line any more (amendment 203)', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view({ options: [{ ...cardsOf(['hullRepair'])[0], hover: [] }] }));
+    const tip = document.getElementById('refit-card-tooltip') as HTMLElement;
+    cards()[0].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(tip.style.display).toBe('none');
+    menu.hide();
+  });
+
+  it('draws one rung per copy the line carries, filled up to what is held', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view({
       options: [
-        { ...cardsOf(['intelSweep'])[0], lineage: 'II/V' },
-        { ...cardsOf(['mineCaptive'])[0], rarity: 'RARE' },
-        { ...cardsOf(['gunTurret'])[0], rarity: 'RARE' }, // 1 copy: no lineage line
+        { ...cardsOf(['radarSweep'])[0], stack: 2, tier: 'II → III', tierStep: { cur: 2, next: 3 } },
+        { ...cardsOf(['hullRepair'])[0] },   // consumable: no ladder at all
+        { ...cardsOf(['dazzleShells'])[0] }, // FLASH SHELLS (a consumable since 8.17): likewise
       ],
     }));
-    const [stacked, verb, single] = cards();
-    expect(stacked.textContent).toContain('II/V');
-    expect(verb.textContent).not.toContain('/');
-    expect(single.textContent).not.toContain('/');
-    // The chip is STILL the first span, with every line in place.
+    const [stacked, consumable, addon] = cards();
+    const ladderOf = (b: HTMLElement): HTMLElement => (b.lastElementChild as HTMLElement).children[2] as HTMLElement;
+    // Five rungs (radarSweep's cap) plus the numerals span.
+    expect(ladderOf(stacked).querySelectorAll('i')).toHaveLength(5);
+    // The arrow's spacing is the mock's 3px margin, not literal spaces — so the
+    // rendered text is tighter than the fit model's string, which is the safe
+    // direction (the model over-measures by two blanks).
+    expect(ladderOf(stacked).textContent).toBe('II→III');
+    // BLANK for a consumable and an add-on — the row is still 16px tall, so
+    // every card in the offer keeps one baseline.
+    for (const b of [consumable, addon]) {
+      expect(ladderOf(b).children).toHaveLength(0);
+      expect(ladderOf(b).style.height).toBe(`${R.ladderH}px`);
+    }
+    // The chip is STILL the first span, with every mark in place.
     expect(cards().map((b) => b.querySelector('span')?.textContent)).toEqual(['1', '2', '3']);
   });
 
@@ -635,7 +706,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view());
     const before = cards()[0].textContent;
-    menu.update(view({ options: cardsOf(OFFER).map((c, i) => (i === 0 ? { ...c, name: 'HEAVY SHELLS Mk II', lineage: 'II/V' } : c)) }));
+    menu.update(view({ options: cardsOf(OFFER).map((c, i) => (i === 0 ? { ...c, name: 'HEAVY SHELLS Mk II', tier: 'II → III' } : c)) }));
     expect(cards()[0].textContent).not.toBe(before);
     expect(cards()[0].textContent).toContain('HEAVY SHELLS Mk II');
   });
@@ -668,6 +739,81 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(panel.style.top).toBe(`${expected}px`);
     expect(panel.style.zIndex).toBe('1000');
     expect(panel.style.transform).toContain('scale(var(--hc-ui-scale, 1))');
+  });
+
+  // THE ANCHOR SCALES WITH THE CONTENTS (Story 8.6, epic-8 amendment 36) — the
+  // pre-existing defect the cycle-47 review ledgered, closed by construction.
+  //
+  // `place()` lays the band out in LOGICAL units (physical / the live
+  // `--hc-ui-scale` factor, exactly the units `hudBarLayout` works in) and then
+  // converts ONLY the finished anchor back to CSS px. Because `PANEL_CSS` scales
+  // about `transform-origin: top center`, writing `band.y * factor` to `top`
+  // puts the rendered BOTTOM at `(band.y + band.h) * factor` = `(bar.y - barGap)
+  // * factor` — the same `barGap` seam the Pixi bar is drawn with, at any tier.
+  it('scales the band anchor with its contents, landing barGap above the scaled bar', () => {
+    const menu = new UpgradeMenu(() => {});
+    for (const factor of [0.9, 1, 1.25]) {
+      setUiScaleVar(factor);
+      menu.update(view()); // re-places while open
+      if (!menu.visible) menu.toggle(view());
+      const panel = document.getElementById('upgrade-menu')!;
+      const logical = refitBandLayout(window.innerWidth / factor, window.innerHeight / factor);
+      const bar = hudBarLayout(window.innerWidth / factor, window.innerHeight / factor).bar;
+      expect(panel.style.top, `@${factor}`).toBe(`${logical.band.y * factor}px`);
+      // The arithmetic the comment above claims, checked rather than asserted.
+      const renderedBottom = Number.parseFloat(panel.style.top) + logical.band.h * factor;
+      expect(renderedBottom, `@${factor}`).toBeCloseTo((bar.y - CLIENT_CONFIG.refit.barGap) * factor, 6);
+      expect(renderedBottom, `@${factor}`).toBeLessThanOrEqual(window.innerHeight);
+    }
+    setUiScaleVar(1);
+  });
+
+  // TEXT MUST BE READABLE (epic-8 amendment 43). The band scales as ONE block,
+  // so `place()` publishes the DOM twin of the bar's `microScale` as a custom
+  // property on the band's root, and the two registers seated on the 9px mono
+  // floor — the stat-row LABELS and the reason-word FOOT — divide their size by
+  // the UI scale through it. Everything above the floor rides the geometry and
+  // must NOT reference the property at all.
+  it('publishes --hc-micro on the band root, at the bar\'s own law', () => {
+    const menu = new UpgradeMenu(() => {});
+    for (const factor of [0.9, 1, 1.25]) {
+      setUiScaleVar(factor);
+      if (!menu.visible) menu.toggle(view());
+      else menu.update(view()); // re-places while open
+      const panel = document.getElementById('upgrade-menu')!;
+      const micro = Number.parseFloat(panel.style.getPropertyValue(MICRO_VAR));
+      expect(micro, `@${factor}`).toBeCloseTo(domMicroScale(factor), 12);
+    }
+    setUiScaleVar(1);
+    menu.hide();
+  });
+
+  it('counter-scales the LABEL and the FOOT through it, and nothing else', () => {
+    const menu = new UpgradeMenu(() => {});
+    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
+    const belt = [null, null, null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const;
+    menu.toggle(offerView(you, false, false, false, belt)!);
+    // The REFUSED card (supercavTorpedo) is the one that prints a foot; the live card
+    // beside it (radarSweep) is the one that prints a stat row.
+    const foot = (cards()[0].lastElementChild as HTMLElement).lastElementChild as HTMLElement;
+    const body = cards()[1].lastElementChild as HTMLElement;
+    const [icon, name, ladder, kind, grid] = [...body.children] as HTMLElement[];
+    const label = grid.children[0].firstElementChild as HTMLElement;
+    const value = grid.children[0].lastElementChild as HTMLElement;
+    // The two registers ON the floor divide their size (and their tracking).
+    for (const [what, el] of [['label', label], ['foot', foot]] as const) {
+      expect(el.style.fontSize, what).toContain(`var(${MICRO_VAR}`);
+      expect(el.style.letterSpacing, what).toContain(`var(${MICRO_VAR}`);
+    }
+    expect(foot.textContent).toBe(SLOTS_FULL); // the foot really is printing
+    expect(label.textContent).not.toBe('');    // ...and so is the label
+    // ...and every register above the floor is untouched by it.
+    const chip = cards()[1].firstElementChild as HTMLElement;
+    for (const [what, el] of [['name', name], ['kind', kind], ['value', value], ['chip', chip],
+      ['icon', icon], ['ladder', ladder]] as const) {
+      expect(el.style.cssText, what).not.toContain(MICRO_VAR);
+    }
+    menu.hide();
   });
 
   // AMENDMENT 36 — stay open through the queue: a successful spend live-swaps
@@ -803,108 +949,6 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(cards()[1].style.borderColor).toBe('var(--hc-denied)');
   });
 
-  // --- THE DAMAGE CONTROL RAIL, in the DOM ------------------------------------
-
-  it('renders ONE rail below the row — never a fifth card in it', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    expect(cards()).toHaveLength(4);
-    expect(document.querySelectorAll('#refit-damage-control')).toHaveLength(1);
-    // The rail is the PANEL's third child (pips, row, rail) — outside the row.
-    // Story 7-5 wave 2 (R2.17) adds a FOURTH: the one hover tooltip, built with
-    // the panel and never rebuilt, deliberately last so it paints over the row.
-    const panel = document.getElementById('upgrade-menu')!;
-    expect(panel.children).toHaveLength(4);
-    expect(panel.children[2]).toBe(strip());
-    expect(panel.children[3]?.id).toBe('refit-card-tooltip');
-    expect(strip().parentElement).toBe(panel);
-    expect(strip().textContent).toContain(HEAL_LABEL);
-    expect(strip().textContent).toContain(healReadout());
-    expect((strip().firstElementChild as HTMLElement).textContent).toBe('5'); // the key chip
-  });
-
-  it('routes a rail click to HEAL_CHOICE — the same path digit 5 takes', () => {
-    const spends: number[] = [];
-    const menu = new UpgradeMenu((c) => spends.push(c));
-    menu.toggle(view());
-    strip().click();
-    expect(spends).toEqual([HEAL_CHOICE]);
-    expect(HEAL_CHOICE).toBe(-1); // never an index into the offer
-  });
-
-  it('the rail never retains focus: mousedown is prevented and click blurs', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    const el = strip();
-    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
-    expect(el.dispatchEvent(down)).toBe(false); // preventDefault — focus never taken
-    el.focus();
-    el.click();
-    expect(document.activeElement).not.toBe(el);
-  });
-
-  it('renders INERT dual-coded: dimmed AND disabled AND carrying the reason word', () => {
-    const spends: number[] = [];
-    const menu = new UpgradeMenu((c) => spends.push(c));
-    menu.toggle(view({ heal: healView(ownShip({ hp: maxHpOf('torpedoBoat') }), false) }));
-    expect(strip().disabled).toBe(true);
-    expect(strip().style.opacity).toBe(String(R.lockedAlpha));
-    expect(strip().textContent).toContain(HEAL_STATUS_FULL); // never hue alone
-    strip().click();
-    expect(spends).toEqual([]); // a disabled rail fires nothing
-  });
-
-  it('live-swaps between armed and inert without rebuilding the rail', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    const el = strip();
-    expect(el.disabled).toBe(false);
-    menu.update(view({ heal: healView(ownShip({ alive: false, hp: 0 }), false) }));
-    expect(strip()).toBe(el); // the same node — the rail is never drawn or discarded
-    expect(el.disabled).toBe(true);
-    expect(el.textContent).toContain(HEAL_STATUS_SUNK);
-    menu.update(view());
-    expect(el.disabled).toBe(false);
-    expect(el.textContent).not.toContain(HEAL_STATUS_SUNK);
-  });
-
-  it('arms amber on hover and drops back on leave (the card grammar, one line high)', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    strip().dispatchEvent(new MouseEvent('mouseenter'));
-    expect(strip().style.borderColor).toBe('var(--hc-amber)');
-    expect(strip().style.boxShadow).toContain('var(--hc-amber)');
-    strip().dispatchEvent(new MouseEvent('mouseleave'));
-    expect(strip().style.borderColor).toBe('var(--hc-hairline)');
-  });
-
-  it('fires the SAME 80ms denied pulse on the rail for a rejected heal', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    menu.pulseDenied(HEAL_CHOICE, 1000);
-    expect(menu.deniedActive(1000)).toBe(true);
-    expect(strip().style.borderColor).toBe('var(--hc-denied)');
-    expect(cards()[0].style.borderColor).not.toBe('var(--hc-denied)'); // cards untouched
-    expect(menu.deniedActive(1000 + R.deniedPulseMs)).toBe(false);
-  });
-
-  it('a lit rail pulse survives a card-row rebuild (the rail outlives every offer)', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view({ pts: 2 }));
-    menu.pulseDenied(HEAL_CHOICE, 1000);
-    menu.update(view({ pts: 1, options: cardsOf(OFFER_B) }));
-    expect(menu.deniedActive(1000)).toBe(true);
-    expect(strip().style.borderColor).toBe('var(--hc-denied)');
-  });
-
-  it('a hover cannot paint a lit rail refusal away mid-pulse', () => {
-    const menu = new UpgradeMenu(() => {});
-    menu.toggle(view());
-    menu.pulseDenied(HEAL_CHOICE, 1000);
-    strip().dispatchEvent(new MouseEvent('mouseenter'));
-    expect(strip().style.borderColor).toBe('var(--hc-denied)');
-  });
-
   it('closing the band drops a LIT denied edge (a reopened band starts at rest)', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view());
@@ -922,7 +966,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   // survives every existing gate (shown, motion, the 300ms same-source floor).
   // A 'degrade' verdict must never delete the mark: the border still snaps to
   // the denied color for the pulse's full life; only the box-shadow glow drops
-  // to its flat rest value ('none', same vocabulary as paintCard/paintStrip).
+  // to its flat rest value ('none', same vocabulary as paintCard).
 
   describe('the flash-budget claim on pulseDenied', () => {
     const fakeBudget = (verdict: FlashVerdict): FlashBudget => ({
@@ -954,14 +998,6 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       expect(menu.deniedActive(1000)).toBe(true); // still counts as lit
       expect(cards()[2].style.borderColor).toBe('var(--hc-denied)'); // still marked denied
       expect(cards()[2].style.boxShadow).toBe('none'); // the flat state: no glow
-    });
-
-    it('a DEGRADED denial still marks the DAMAGE CONTROL RAIL the same way', () => {
-      const menu = new UpgradeMenu(() => {}, fakeBudget('degrade'));
-      menu.toggle(view());
-      menu.pulseDenied(HEAL_CHOICE, 1000);
-      expect(strip().style.borderColor).toBe('var(--hc-denied)');
-      expect(strip().style.boxShadow).toBe('none');
     });
 
     it('under-budget (animate) renders the full glow — byte-identical to today', () => {
@@ -1008,6 +1044,220 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
         settings.reset();
       }
     });
+  });
+
+  // --- THE COUNTDOWN FOOTER (Story 8.10, epic-8 amendment 60) -------------------
+  //
+  // ONE button under the row, countdown only, with the "once" pip beside the
+  // word. It is NOT a fifth card: it lives in its own block AFTER the row, so
+  // the row stays exactly the four cards every digit and every existing pin
+  // addresses.
+  describe('the REDRAW button', () => {
+    const redrawBtn = (): HTMLButtonElement | null =>
+      document.getElementById('refit-redraw') as HTMLButtonElement | null;
+    const footer = (): HTMLElement => document.querySelector('#upgrade-menu > div:nth-child(3)') as HTMLElement;
+    const pip = (): HTMLElement => redrawBtn()!.querySelector('i') as HTMLElement;
+
+    it('is ABSENT from the band off the start line, and present during the countdown', () => {
+      const menu = new UpgradeMenu(() => {});
+      menu.toggle(view()); // redraw: 'hidden' — live water
+      expect(footer().style.display).toBe('none');
+      menu.update(view({ redraw: 'unspent' }));
+      expect(footer().style.display).toBe('flex');
+      expect(redrawBtn()!.textContent).toBe(REDRAW_WORD);
+    });
+
+    it('leaves the ROW at exactly four card buttons (it is not a fifth pick)', () => {
+      const spends: number[] = [];
+      const menu = new UpgradeMenu((c) => spends.push(c));
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(cards()).toHaveLength(4); // the positional selector still counts 4
+      expect(pips()).toHaveLength(1);
+      expect(redrawBtn()!.parentElement).not.toBe(cards()[0].parentElement);
+      redrawBtn()!.click();
+      expect(spends).toEqual([]); // a REDRAW is never a card spend
+    });
+
+    it('routes its click to the onRedraw hook, once per press, and never keeps focus', () => {
+      let presses = 0;
+      const menu = new UpgradeMenu(() => {}, undefined, () => (presses += 1));
+      menu.toggle(view({ redraw: 'unspent' }));
+      redrawBtn()!.click();
+      expect(presses).toBe(1);
+      expect(document.activeElement).not.toBe(redrawBtn());
+    });
+
+    it('draws the pip HOLLOW while unspent and FILLED once spent, and goes inert', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(pip().style.backgroundColor).toBe('transparent');
+      expect(redrawBtn()!.disabled).toBe(false);
+      menu.update(view({ redraw: 'spent' }));
+      // Dual-coded: the pip FILLS (at full alpha — it is the answer) while the
+      // label dims and the control really is disabled, not merely dimmed.
+      expect(pip().style.backgroundColor).toBe('var(--hc-amber)');
+      expect(pip().style.borderColor).toBe('var(--hc-amber)');
+      expect(redrawBtn()!.disabled).toBe(true);
+      expect(redrawBtn()!.style.cursor).toBe('default');
+      expect(redrawBtn()!.style.color).not.toBe('var(--hc-amber)');
+    });
+
+    // THE ROW'S LOCK REACHES THE BUTTON (the 8.10 review, P5). A spend in
+    // flight disables and dims every card; a REDRAW that stayed bright and
+    // clickable inside that locked row invited a second send the latch drops
+    // on the floor, with no feedback and no pulse.
+    it('is DISABLED and dimmed exactly like the cards while the row is locked', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(redrawBtn()!.disabled).toBe(false);
+
+      menu.update(view({ redraw: 'unspent', locked: true }));
+
+      expect(redrawBtn()!.disabled).toBe(true);
+      expect(redrawBtn()!.style.cursor).toBe('default');
+      expect(redrawBtn()!.style.opacity).toBe(String(R.lockedAlpha)); // the cards' own dim
+      for (const c of cards()) expect(c.disabled).toBe(true); // ...the same treatment
+      // The PIP is untouched: it reports whether the free redraw is still there
+      // to spend, which a momentary lock does not change.
+      expect(pip().style.backgroundColor).toBe('transparent');
+
+      menu.update(view({ redraw: 'unspent' })); // the latch released
+      expect(redrawBtn()!.disabled).toBe(false);
+      expect(redrawBtn()!.style.cursor).toBe('pointer');
+      expect(redrawBtn()!.style.opacity).toBe('1');
+    });
+
+    it('stays disabled when a SPENT redraw is also locked, with the pip still filled', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'spent', locked: true }));
+      expect(redrawBtn()!.disabled).toBe(true);
+      expect(pip().style.backgroundColor).toBe('var(--hc-amber)');
+    });
+
+    it('takes the amber denied pulse on a refused redraw, and drops it back', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      menu.pulseDenied(MULLIGAN_CHOICE, 1000);
+      expect(menu.deniedActive(1000)).toBe(true);
+      expect(redrawBtn()!.style.borderColor).toBe('var(--hc-denied)');
+      menu.hide(); // the close drops every lit edge (cards and button alike)
+      expect(redrawBtn()!.style.borderColor).toBe('var(--hc-amber)');
+    });
+
+    it('rides the GEOMETRY, never the 9px floor: no --hc-micro anywhere on it', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      // 12px mono is well clear of the readable floor (amendment 43), so the
+      // footer must not counter-scale — only the LABEL and the FOOT do.
+      expect(footer().style.cssText).not.toContain(MICRO_VAR);
+      expect(redrawBtn()!.style.cssText).not.toContain(MICRO_VAR);
+      expect(pip().style.cssText).not.toContain(MICRO_VAR);
+      // 12px, read off the SHORTHAND (jsdom keeps `style.font` verbatim but
+      // does not decompose a var()-carrying shorthand into `style.fontSize`) —
+      // and the shorthand is what the mock and every other register here use.
+      expect(redrawBtn()!.style.font).toBe('600 12px var(--hc-font-mono)');
+      expect(redrawBtn()!.style.letterSpacing).toBe('0.18em');
+    });
+
+    it('GOES when the water goes live, with the window still open (the row drops back)', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(footer().style.display).toBe('flex');
+      menu.update(view({ redraw: 'hidden' })); // countdown → active, window untouched
+      expect(menu.visible).toBe(true);
+      expect(footer().style.display).toBe('none');
+    });
+
+    it('TAB takes it with the window (the footer lives INSIDE the panel)', () => {
+      const menu = new UpgradeMenu(() => {}, undefined, () => {});
+      menu.toggle(view({ redraw: 'unspent' }));
+      expect(footer().closest('#upgrade-menu')).not.toBeNull();
+      menu.toggle(view({ redraw: 'unspent' })); // TAB again — closes
+      expect(menu.visible).toBe(false);
+      expect(document.getElementById('upgrade-menu')!.style.display).toBe('none');
+      menu.toggle(view({ redraw: 'unspent' })); // ...and TAB brings it back
+      expect(menu.visible).toBe(true);
+      expect(footer().style.display).toBe('flex');
+    });
+  });
+});
+
+// --- THE OPENING's two pure rules (Story 8.10) ----------------------------------
+
+describe('shouldAutoOpen — the window opens itself once per match (amendment 59)', () => {
+  const at = (over: Partial<Parameters<typeof shouldAutoOpen>[0]> = {}) =>
+    shouldAutoOpen({ latched: false, phase: 'countdown', visible: false, hasOffer: true, ...over });
+
+  it('opens on the first countdown frame that carries an offer', () => {
+    expect(at()).toBe(true);
+  });
+
+  it('never opens twice: the latch is "not yet THIS match", not a numeric rise', () => {
+    expect(at({ latched: true })).toBe(false);
+  });
+
+  it('opens for a RECONNECT whose very first frame already reads pts 1', () => {
+    // There is no edge to see — the offer is simply there — which is exactly
+    // why the rule is a latch over the epoch and not a rise over `pts`.
+    expect(at({ latched: false })).toBe(true);
+  });
+
+  it('never opens off the countdown, over an open window, or with nothing to show', () => {
+    expect(at({ phase: 'waiting' })).toBe(false);
+    expect(at({ phase: 'active' })).toBe(false);
+    expect(at({ visible: true })).toBe(false);
+    expect(at({ hasOffer: false })).toBe(false);
+  });
+});
+
+describe('mulliganLanded — the redraw ack rule (amendment 60)', () => {
+  const latch = (over: Partial<SpendLatch> = {}): SpendLatch => ({
+    pts: 1, offerSig: OFFER.join(','), at: 1000, choice: MULLIGAN_CHOICE, acked: false, ...over,
+  });
+  const you = (over: Partial<Pick<OwnShip, 'pts' | 'offer'>> = {}) => ({ pts: 1, offer: [...OFFER], ...over });
+  const soon = 1000 + SPEND_LATCH_TIMEOUT_MS / 2;
+  const late = 1000 + SPEND_LATCH_TIMEOUT_MS + 1;
+
+  it('lands when the FRONT OFFER changes at an unchanged bank (the redraw costs nothing)', () => {
+    expect(mulliganLanded(latch(), you({ offer: [...OFFER_B] }), soon)).toBe(true);
+  });
+
+  it('is still PENDING while the offer has not moved', () => {
+    expect(mulliganLanded(latch(), you(), soon)).toBe(false);
+  });
+
+  it('does NOT land on the timeout — nothing moved, so the redraw was refused', () => {
+    expect(mulliganLanded(latch(), you(), late)).toBe(false);
+  });
+
+  it('is only ever about a MULLIGAN latch — a card pick never fills the pip', () => {
+    expect(mulliganLanded(latch({ choice: 2 }), you({ offer: [...OFFER_B] }), soon)).toBe(false);
+  });
+
+  // THE BANK MUST NOT MOVE (the 8.10 review, P4). `spendOutcome` calls a pts
+  // DROP a success, because for a card pick it is one. A redraw that cost a
+  // level did not land — it is a pick the server processed, or a desync — and
+  // filling the pip on it would swallow the evidence and eat the free redraw.
+  it('does NOT land when the BANK DROPPED, even though the latch released', () => {
+    // The signature is unchanged, so the only release clause is `pts <`.
+    expect(mulliganLanded(latch(), you({ pts: 0 }), soon)).toBe(false);
+  });
+
+  it('does not land on a bank drop that ALSO changed the offer', () => {
+    expect(mulliganLanded(latch(), you({ pts: 0, offer: [...OFFER_B] }), soon)).toBe(false);
+  });
+
+  it('lands on a changed SIGNATURE at an unchanged bank, the redraw\'s one real signal', () => {
+    expect(mulliganLanded(latch(), you({ pts: 1, offer: [...OFFER_B] }), soon)).toBe(true);
+  });
+
+  it('a server RECEIPT still outranks the inference, as it does for a pick', () => {
+    expect(mulliganLanded(latch({ acked: true }), you(), soon)).toBe(true);
+  });
+
+  it('a vanished own ship is never an ack', () => {
+    expect(mulliganLanded(latch(), null, soon)).toBe(false);
+    expect(mulliganLanded(latch(), undefined, late)).toBe(false);
   });
 });
 
@@ -1175,5 +1425,134 @@ describe('spendOutcome — the stay-open state machine classifier (amendment 36)
     for (const [l, y, t] of cases) {
       expect(spendOutcome(l, y, t) === 'pending').toBe(!spendLatchReleased(l, y, t));
     }
+  });
+});
+
+// --- THE GREYED CARD (Story 8.7, ruling 10 / UX-DR52) ---------------------------
+//
+// A consumable the belt cannot take is refused BEFORE the press, not after it.
+// The server would return false with no mutation and no event, so a client that
+// sent the pick anyway would sit through a 1.5s latch timeout and then fire a
+// denied pulse for a refusal it could have known about. Instead the card is
+// greyed the moment the offer resolves, and its digit and its click send
+// nothing at all.
+//
+// DUAL-CODED, three ways, because the dim alone is hue/lightness only: the face
+// dims to `greyedAlpha`, the key chip goes DASHED, and the foot carries the
+// boxed reason word.
+
+describe('the greyed card — a refusal stated before the press', () => {
+  beforeEach(() => document.body.replaceChildren());
+
+  /** The four belt slots, holding four DISTINCT consumable lines — a full belt. */
+  const FULL_BELT = [null, null, null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const;
+  /** The same belt with one square free. */
+  const ROOM_LEFT = [null, null, null, null, null, 'hullRepair', null, null, null] as const;
+
+  function cards(): HTMLButtonElement[] {
+    return [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
+  }
+
+  it('greys a consumable the belt cannot take', () => {
+    // A fifth distinct line has nowhere to go. (SUPERCAV, not a stub line: the
+    // shared predicate reads an unbuilt line as a refusal of its own, and this
+    // pin is about the BELT.)
+    expect(cardGreyed(CATALOG.supercavTorpedo, FULL_BELT)).toBe(true);
+    // A line the belt ALREADY holds always fits — the stack just grows.
+    expect(cardGreyed(CATALOG.hullRepair, FULL_BELT)).toBe(false);
+    // With a square free, anything fits.
+    expect(cardGreyed(CATALOG.supercavTorpedo, ROOM_LEFT)).toBe(false);
+    // A ladder lands on the hull: it can never be refused by a full belt. (The
+    // add-on this pin also carried, DAZZLE SHELLS, is the FLASH SHELLS
+    // CONSUMABLE since Story 8.17 — so a full belt DOES refuse it now.)
+    expect(cardGreyed(CATALOG.radarSweep, FULL_BELT)).toBe(false);
+    expect(cardGreyed(CATALOG.dazzleShells, FULL_BELT)).toBe(true);
+  });
+
+  // --- THE OTHER TWO REFUSALS (Story 8.14 review, F1) -----------------------
+  // The card face used to ask `canStock` alone, which a line that already owns
+  // a belt square always passes. Amendment 94 deals a consumable AT ITS CAP on
+  // purpose, so the player was shown a live HULL REPAIR card that the server
+  // (after F1) refuses — a press into nothing, and before F1 a level spent on
+  // a sixth copy no belt square shows.
+
+  it('greys a line the player already holds AT ITS CAP, even with belt room', () => {
+    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
+    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, five)).toBe(true);
+    // ...one short of the cap it is a live card again.
+    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, five.slice(1))).toBe(false);
+    // Every kind, not just consumables.
+    expect(cardGreyed(CATALOG.armor, ROOM_LEFT, new Array<string>(CATALOG.armor.cap).fill('armor'))).toBe(true);
+  });
+
+  it('greys copy 1 of a weapon when Q/E/R are full, and never a later copy', () => {
+    const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
+    expect(cardGreyed(CATALOG.broadside, rowFull, [])).toBe(true);
+    expect(cardGreyed(CATALOG.broadside, rowFull, ['broadside'])).toBe(false); // a TIER card
+    expect(cardGreyed(CATALOG.broadside, ROOM_LEFT, [])).toBe(false); // row open
+  });
+
+  it('carries the at-cap refusal onto the OfferCard too', () => {
+    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
+    const you = ownShip({ offer: ['hullRepair', 'radarSweep'], cards: five });
+    expect(offerView(you, false, false, false, ROOM_LEFT)?.options.map((o) => o.greyed)).toEqual([true, false]);
+  });
+
+  it('carries the flag onto the OfferCard, through the same shared predicate', () => {
+    const you = ownShip({ offer: ['supercavTorpedo', 'hullRepair', 'radarSweep', 'dazzleShells'] });
+    const view = offerView(you, false, false, false, FULL_BELT);
+    // FLASH SHELLS (last) is a fifth distinct CONSUMABLE since Story 8.17, so
+    // the full belt refuses it exactly as it refuses the supercav.
+    expect(view?.options.map((o) => o.greyed)).toEqual([true, false, false, true]);
+    // ...and with room on the belt nothing is greyed.
+    expect(offerView(you, false, false, false, ROOM_LEFT)?.options.map((o) => o.greyed))
+      .toEqual([false, false, false, false]);
+  });
+
+  it('renders the refusal three ways: dimmed face, DASHED chip, boxed SLOTS FULL', () => {
+    const menu = new UpgradeMenu(() => {});
+    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
+    menu.toggle(offerView(you, false, false, false, FULL_BELT)!);
+    const [refused, ok] = cards();
+    expect(refused.style.opacity).toBe(String(R.greyedAlpha));
+    expect((refused.firstElementChild as HTMLElement).style.borderStyle).toBe('dashed');
+    const foot = (refused.lastElementChild as HTMLElement).lastElementChild as HTMLElement;
+    expect(foot.textContent).toBe(SLOTS_FULL);
+    // The reason word rides `silver` at FULL alpha so it still reads through the
+    // dim — the whole point of a non-colour channel.
+    expect(foot.style.color).toBe('var(--hc-silver)');
+    expect(foot.style.borderStyle).toBe('solid');
+    // ...and an ordinary card carries none of it.
+    expect(ok.style.opacity).toBe('');
+    expect((ok.firstElementChild as HTMLElement).style.borderStyle).toBe('solid');
+    expect(((ok.lastElementChild as HTMLElement).lastElementChild as HTMLElement).textContent).toBe('');
+    menu.hide();
+  });
+
+  it('sends NOTHING on a greyed card\'s click — no spend, and no denied pulse', () => {
+    const spends: number[] = [];
+    const menu = new UpgradeMenu((c) => spends.push(c));
+    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
+    menu.toggle(offerView(you, false, false, false, FULL_BELT)!);
+    cards()[0].click();
+    expect(spends).toEqual([]);
+    expect(menu.deniedActive()).toBe(false); // the refusal is already on screen
+    // The live card beside it still spends, so the guard is the GREY, not the row.
+    cards()[1].click();
+    expect(spends).toEqual([1]);
+    menu.hide();
+  });
+
+  it('is DISTINCT from the spend-latch dim — a refusal must stay readable', () => {
+    expect(R.greyedAlpha).toBeGreaterThan(R.lockedAlpha);
+    const menu = new UpgradeMenu(() => {});
+    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
+    // Locked dims the WHOLE row and genuinely disables it; greyed does neither.
+    menu.toggle({ ...offerView(you, false, true, false, FULL_BELT)!, locked: true });
+    for (const b of cards()) {
+      expect(b.disabled).toBe(true);
+      expect(b.style.opacity).toBe(String(R.lockedAlpha));
+    }
+    menu.hide();
   });
 });

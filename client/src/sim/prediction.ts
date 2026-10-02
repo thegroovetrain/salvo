@@ -11,7 +11,7 @@
 // so authoritative state converges immediately while the picture stays smooth.
 //
 // Speed boost (Story 1.6): every tick — local AND replayed — derives its
-// kinematics through the shared boostedKinematics(kin, bonus, active) hook,
+// kinematics through the shared boostedKinematics(kin, factor, active) hook,
 // the identical per-tick rule the server's stepShips applies. Each pending
 // input records its own server-time estimate + actSeq, so replays re-make the
 // exact boost decisions the original ticks made; see boostActiveAt for the
@@ -20,12 +20,25 @@
 // PROP-FOULING SLOW (Story 2.8): the victim-private you.slowedUntil folds in
 // per tick through the shared slowedKinematics, in the PINNED composition
 // order the server's stepShips uses byte-for-byte:
-//   boostedKinematics → slowedKinematics → hookKinematics
-// (boost first, slow second, hooks last — sim/slow.ts header). The window is
+//   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
+// (boost first, slow second, the wake draft third, hooks last — sim/slow.ts
+// and sim/draft.ts headers). The window is
 // purely authoritative: nothing on the client predicts being mined, so unlike
 // boost there is no optimistic regime — a tick is slowed iff its OWN recorded
 // server-time estimate is inside the last frame's window (`t < slowedUntil`),
 // which makes localTick and replayFrom agree by construction.
+//
+// WAKE DRAFT (Story 8.19, epic-8 amendments 151–156): the self-private
+// you.draft — the exact double the server's draftLift produced and folded on
+// the frame's tick — folds in per tick through the shared draftedKinematics,
+// third in that pinned order. Authoritative-ONLY, like the slow: the predictor
+// never recomputes the lift from any wake it can see (the rendered ribbons are
+// render-only and incomplete); it adopts the server's scalar on every frame,
+// BEFORE the replay, and applies that LATEST scalar to every tick — live and
+// replayed alike. Unlike the two windows the lift is a per-tick VALUE, not a
+// time gate, so a replayed tick cannot re-derive what the server will compute
+// for it; holding the latest value is the accepted approximation (amendment
+// 156(e)): the error is bounded by the lift, and is exactly 0 outside a wake.
 //
 // THE HELD START LINE (Story 6.1, epic-6 amendment 8) IS NOT IMPLEMENTED HERE,
 // AND DELIBERATELY SO. The server neutralizes throttle/rudder before stepping a
@@ -57,6 +70,7 @@ import {
   applyGroundingDamp,
   applySinkingDecel,
   boostedKinematics,
+  draftedKinematics,
   hookKinematics,
   slowedKinematics,
   hullSilhouette,
@@ -118,11 +132,26 @@ export interface ServerKinematics {
    */
   slowedUntil?: number;
   /**
+   * × BOTH speed caps while that window runs — the LAYER's folded fouling
+   * factor (OwnShip.slowFactor, Story 8.13 / epic-8 amendment 86); omitted
+   * when 1 / not slowed, in which case the predictor falls back to the line's
+   * BASE factor. Optional for the same reason as the two fields above.
+   */
+  slowFactor?: number;
+  /**
    * ms — server-clock time this SINKING hull founders (OwnShip.sinkingUntil,
    * Story 5.2); ABSENT = not sinking. Optional for the same reason as the two
    * windows above, and absent for all but five seconds of any hull's life.
    */
   sinkingUntil?: number;
+  /**
+   * The WAKE-DRAFT lift the server folded into this hull's forward cap on the
+   * frame's tick (OwnShip.draft, Story 8.19) — a fraction in
+   * (0, CONFIG.wake.draft.lift], the exact double; ABSENT = not drafting (0).
+   * Optional for the same reason as the fields above, and absent whenever the
+   * hull is outside every other hull's wake.
+   */
+  draft?: number;
 }
 
 interface PendingInput {
@@ -159,10 +188,13 @@ export class Predictor {
   private ready = false;
   /** Reused transform scratch for resolveShipPose (allocation-light replay). */
   private readonly scratch: Vec2[] = [];
-  /** Effective boost numbers (effectiveStats().boost pass-through; CONFIG at zero upgrades). */
-  private boost: { bonus: number; durationMs: number } = {
-    bonus: CONFIG.speedBoost.speedBonus,
-    durationMs: CONFIG.speedBoost.durationMs,
+  /** Effective boost numbers (effectiveStats().boost pass-through; CONFIG at zero
+   *  upgrades). `factor` is a FRACTION of the post-fold forward cap, never a flat
+   *  u/s add (Story 8.9, epic-8 amendment 55): the SPEED ladder is inside the
+   *  bonus because the shared hook multiplies the kinematics it is handed. */
+  private boost: { factor: number; durationMs: number } = {
+    factor: CONFIG.boost.factor,
+    durationMs: CONFIG.boost.durationMs,
   };
   /** Authoritative boost-window end (you.boostUntil from the latest server frame; 0 = inactive). */
   private authBoostUntil = 0;
@@ -173,6 +205,15 @@ export class Predictor {
    */
   private authSlowedUntil = 0;
   /**
+   * The AUTHORITATIVE fouling factor for that window (you.slowFactor, Story
+   * 8.13 / epic-8 amendment 86) — the MINE OWNER's folded `slowFactor` at the
+   * tier that actually fouled this hull, 0.75 at tier I stepping to 0.55 at
+   * tier V. Seeded from `CONFIG.foulingMines.slowFactor` (the tier-I base) and
+   * re-adopted from every frame, so a frame that omits the key — not slowed,
+   * or nothing scaled — reads as the base rather than as a stale depth.
+   */
+  private authSlowFactor: number = CONFIG.foulingMines.slowFactor;
+  /**
    * Authoritative SINKING-window deadline (you.sinkingUntil from the latest
    * server frame; 0 = not sinking). Authoritative-ONLY, exactly like the slow:
    * the client never predicts its own sinking, so there is no optimistic twin.
@@ -181,6 +222,16 @@ export class Predictor {
    * so the two sides read the same pair of numbers.
    */
   private authSinkingUntil = 0;
+  /**
+   * The AUTHORITATIVE wake-draft lift (you.draft from the latest server frame;
+   * 0 = not drafting — Story 8.19). Authoritative-ONLY, like the slow and the
+   * sinking window: the client never computes a lift of its own. Re-adopted
+   * from EVERY frame through setDraft (a frame that omits the key reads as 0,
+   * never the last wake's lift held over) and applied by tickKin to every
+   * tick, live or replayed — see the module header for why the latest value
+   * stands in for the un-acked ticks' own.
+   */
+  private authDraft = 0;
   /**
    * Optimistic boost window opened at a predicted-ready activation press
    * (predictBoostActivation), so the speed-up doesn't wait a round trip.
@@ -199,7 +250,7 @@ export class Predictor {
   /**
    * Behavior-boon hook workload for the per-tick kinematics fold (Story 2.5):
    * the own ship's `behavior` effects, handed over by main.applyOwnStats via
-   * setBoons. Empty (the pre-boon identity path) until a frame's you.boons
+   * setBoons. Empty (the pre-card identity path) until a frame's you.cards
    * resolves to a behavior-carrying def — which no production catalog entry
    * does until 2.8.
    */
@@ -237,9 +288,11 @@ export class Predictor {
     if (snap) this.forceSnap();
   }
 
-  /** Swap the effective boost numbers alongside setClassConfig (applyOwnStats seam). */
-  setBoostStats(bonus: number, durationMs: number): void {
-    this.boost = { bonus, durationMs };
+  /** Swap the effective boost numbers alongside setClassConfig (applyOwnStats
+   *  seam). `factor` is `CONFIG.boost.factor` (0.25) — a proportion of the
+   *  post-fold cap, NOT a u/s bonus; no card addresses it (amendment 55). */
+  setBoostStats(factor: number, durationMs: number): void {
+    this.boost = { factor, durationMs };
   }
 
   /**
@@ -250,6 +303,23 @@ export class Predictor {
    */
   setBoons(behaviors: readonly KinematicsBehavior[]): void {
     this.behaviors = behaviors;
+  }
+
+  /**
+   * Store the latest authoritative wake-draft lift (Story 8.19 — D23's
+   * `prediction.setDraft(you.draft)` seam). Called by onServerState on EVERY
+   * frame, before the replay; it is NOT an applyOwnStats-seam setter like the
+   * two above, because that seam only fires when the stats change and the lift
+   * changes tick to tick. NO snap, and the pending ring is kept.
+   *
+   * A non-finite or non-positive value reads as 0 (not drafting); the top is
+   * clamped to `CONFIG.wake.draft.lift` (orchestrator ruling 2026-09-30) — a
+   * defensive bound only: the server's `draftLift` never exceeds the dial, so
+   * every honest value passes through as the identical double and parity is
+   * unaffected.
+   */
+  setDraft(lift: number): void {
+    this.authDraft = Number.isFinite(lift) && lift > 0 ? Math.min(lift, CONFIG.wake.draft.lift) : 0;
   }
 
   /**
@@ -322,11 +392,16 @@ export class Predictor {
     // Same for the slow window: the server clears slowedUntil on death /
     // redeploy, and the next frame re-seeds it.
     this.authSlowedUntil = 0;
+    this.authSlowFactor = CONFIG.foulingMines.slowFactor;
     // ...and for the sinking window. A hard re-init is a respawn / reconnect /
     // class swap, none of which a sinking hull survives — leaving a stale
     // deadline behind would cap the NEXT life's speed to zero for the rest of
     // an already-expired window.
     this.authSinkingUntil = 0;
+    // ...and for the wake draft: the new life starts on open water as far as
+    // the predictor knows, and the very next frame re-seeds the lift (or its
+    // absence) before the first replay.
+    this.authDraft = 0;
   }
 
   /**
@@ -370,11 +445,7 @@ export class Predictor {
    * up to `ackSeq`. Drops acked inputs, replays the rest, folds the error.
    */
   onServerState(you: ServerKinematics, ackSeq: number): void {
-    let ackedActSeq = -1;
-    while (this.pending.length > 0 && this.pending[0].seq <= ackSeq) {
-      ackedActSeq = this.pending[0].actSeq; // actSeq is monotonic — the last shifted wins
-      this.pending.shift();
-    }
+    const ackedActSeq = this.dropAcked(ackSeq);
     // Once the frame's ack covers the optimistic press's actSeq, you.boostUntil
     // reflects the server's verdict (activated or denied) — drop the estimate
     // and let the authoritative window govern from here. A mismatch folds into
@@ -387,11 +458,21 @@ export class Predictor {
     // BEFORE the replay is what makes the replayed ticks re-make the same
     // slow decisions the original local ticks will make from here on.
     this.authSlowedUntil = you.slowedUntil ?? 0;
+    // ...and its DEPTH with it (amendment 86). A frame that omits the key is
+    // a hull that is not slowed (or one nothing scaled), so the base factor is
+    // the honest read — never the last fouling's depth held over.
+    this.authSlowFactor = you.slowFactor ?? CONFIG.foulingMines.slowFactor;
     // Adopted BEFORE the replay for the same reason the slow is: the pending
     // ticks about to be replayed will be re-stepped from here on under this
     // window, so they must re-make the same decisions the original local ticks
     // will. A frame that omits the key (not sinking / foundered) clears it.
     this.authSinkingUntil = you.sinkingUntil ?? 0;
+    // The wake draft (Story 8.19), adopted BEFORE the replay like the three
+    // above: every pending tick about to be replayed — and every live tick
+    // until the next frame — folds THIS frame's lift. A frame that omits the
+    // key is a hull in no wake, so the replay runs at 0, never at the last
+    // wake's lift held over.
+    this.setDraft(you.draft ?? 0);
     const replayed = this.replayFrom(you);
     if (!this.ready) {
       this.adopt(replayed);
@@ -399,6 +480,20 @@ export class Predictor {
       return;
     }
     this.reconcile(replayed);
+  }
+
+  /**
+   * Drop every pending input the server has applied (`seq <= ackSeq`) and
+   * return the actSeq the LAST dropped one carried (-1 when nothing was
+   * dropped) — what onServerState compares against the optimistic press.
+   */
+  private dropAcked(ackSeq: number): number {
+    let ackedActSeq = -1;
+    while (this.pending.length > 0 && this.pending[0].seq <= ackSeq) {
+      ackedActSeq = this.pending[0].actSeq; // actSeq is monotonic — the last shifted wins
+      this.pending.shift();
+    }
+    return ackedActSeq;
   }
 
   /** Decay the visual error. Call once per render frame with real frameDt (s). */
@@ -421,7 +516,9 @@ export class Predictor {
 
   /** Server state + every pending input stepped at the fixed dt, each tick
    *  re-deriving its kinematics from the boost gate at ITS OWN recorded time
-   *  (the identical per-tick rule localTick applied — see tickKin). */
+   *  (the identical per-tick rule localTick applied — see tickKin). The wake
+   *  draft is the one fold that is NOT per-tick-recorded: every replayed tick
+   *  takes the latest frame's lift (tickKin's doc). */
   private replayFrom(you: ServerKinematics): ShipState {
     const s: ShipState = { x: you.x, y: you.y, heading: you.heading, speed: you.speed };
     const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
@@ -444,9 +541,9 @@ export class Predictor {
    * sides cannot drift).
    *
    * `kin.maxSpeed` is the PER-TICK EFFECTIVE forward max — post
-   * boostedKinematics/slowedKinematics/hookKinematics — and that is
-   * DELIBERATELY UNLIKE the RATED max resolveCollisions passes to
-   * applyGroundingDamp. Amendment 10 admits speedBoost while sinking knowing it
+   * boostedKinematics/slowedKinematics/draftedKinematics/hookKinematics — and
+   * that is DELIBERATELY UNLIKE the RATED max resolveCollisions passes to
+   * applyGroundingDamp. Amendment 10 admits the boost while sinking knowing it
    * fights the ritardando, so the boost must raise the CEILING the ramp scales
    * (a doomed surge the hull can accelerate into) rather than be refused; the
    * cap still reaches exactly 0 at the deadline either way. sinking.ts's header
@@ -464,24 +561,53 @@ export class Predictor {
   /**
    * Per-tick kinematics for the tick with input `seq` at server-time estimate
    * `t` — the shared folds in the PINNED composition order the server's
-   * stepShips applies byte-for-byte (sim/slow.ts header):
+   * stepShips applies byte-for-byte (sim/slow.ts + sim/draft.ts headers):
    *
    *   hookKinematics(
-   *     slowedKinematics(
-   *       boostedKinematics(kinematics, bonus, t < boostUntil),
-   *       CONFIG.mine.foulFactor, t < slowedUntil),
+   *     draftedKinematics(
+   *       slowedKinematics(
+   *         boostedKinematics(kinematics, factor, t < boostUntil),
+   *         you.slowFactor, t < slowedUntil),
+   *       you.draft, you.draft > 0),
    *     behaviors, registry)
    *
-   * An inactive boost/slow and zero behaviors each return their input
-   * reference unchanged, so the un-boosted, un-fouled, pre-boon tick is
-   * byte-identical to the pre-2.8 one. Used identically by localTick and
-   * replayFrom (both pass the tick's OWN recorded time + seq), which is what
-   * keeps a replay across a slow window self-consistent.
+   * boost first, the prop-fouling slow second, the wake draft third, hooks
+   * last.
+   *
+   * THE SLOW FACTOR IS THE ATTACKER'S, AND THE WIRE NOW CARRIES IT (Story
+   * 8.13, epic-8 amendments 81 + 86). FOULING MINES is a tiered LINE: the
+   * victim's speed caps are scaled by the MINE OWNER's folded `slowFactor`,
+   * 0.75 at tier I stepping to 0.55 at tier V. `you` carries that number
+   * beside the window — VICTIM-PRIVATE, omitted when 1 / not slowed — so the
+   * predictor scales by the factor that actually fouled THIS hull and the
+   * prediction is exact at every tier, where the window alone could only
+   * assume the tier-I 0.75 and snap on reconcile against a deeper rack. A
+   * frame with no key falls back to the line's base, which is the honest read
+   * for a hull nothing fouled.
+   *
+   * THE WAKE DRAFT IS THE SERVER'S NUMBER, HELD (Story 8.19, epic-8
+   * amendments 151–156). `you.draft` is the lift the server's `draftLift`
+   * produced for this hull on the frame's tick, sent as the exact double; it
+   * raises the FORWARD cap only, as a fraction of the cap as it stands after
+   * the boost and the slow. Unlike the two windows it has no time gate a tick
+   * could re-evaluate at its own recorded time — it is a value the server
+   * recomputes every tick from water the client cannot fully see — so the
+   * LATEST scalar is applied to every tick, live and replayed (`t` and `seq`
+   * play no part in it). That is an accepted approximation (amendment 156(e)):
+   * the per-tick cap error is bounded by the lift, and is exactly 0 outside a
+   * wake.
+   *
+   * An inactive boost/slow/draft and zero behaviors each return their input
+   * reference unchanged, so the un-boosted, un-fouled, un-drafted, pre-boon
+   * tick is byte-identical to the pre-2.8 one. Used identically by localTick
+   * and replayFrom (both pass the tick's OWN recorded time + seq), which is
+   * what keeps a replay across a slow window self-consistent.
    */
   private tickKin(t: number, seq: number): ShipConfig {
-    const boosted = boostedKinematics(this.kin, this.boost.bonus, this.boostActiveAt(t, seq));
-    const slowed = slowedKinematics(boosted, CONFIG.mine.foulFactor, this.slowActiveAt(t));
-    return hookKinematics(slowed, this.behaviors, this.hookRegistry);
+    const boosted = boostedKinematics(this.kin, this.boost.factor, this.boostActiveAt(t, seq));
+    const slowed = slowedKinematics(boosted, this.authSlowFactor, this.slowActiveAt(t));
+    const drafted = draftedKinematics(slowed, this.authDraft, this.authDraft > 0);
+    return hookKinematics(drafted, this.behaviors, this.hookRegistry);
   }
 
   /**

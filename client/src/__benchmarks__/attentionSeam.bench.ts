@@ -148,7 +148,7 @@ describe('attention seam — per-frame tier resolution', () => {
     const t2 = tier2Active({ inStorm: true, ringUrgent: true });
     holdAtLitKeyframe(t1);
     freezeAtDimKeyframe(t1, t2);
-    amberPulseWinner({ ring: true, hpRail: hpFrac < 0.5 });
+    amberPulseWinner({ ring: true, hpGlobe: hpFrac < 0.5 });
   });
 });
 

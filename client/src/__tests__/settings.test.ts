@@ -35,6 +35,7 @@ import {
   escapeAction,
   nextArmed,
   scaleOptions,
+  wheelScrollsSurface,
 } from '../ui/settings.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -249,6 +250,25 @@ describe('escapeAction — ESC closes the TOPMOST surface, never returns to port
     expect(escapeAction({ results: true, refit: true, settings: true })).toBe('closeResults');
     expect(escapeAction({ ...none, results: true })).toBe('closeResults');
   });
+});
+
+// --- the wheel belongs to an open scrollable surface (Eric 2026-10-01) -------
+
+describe('wheelScrollsSurface — a wheel over the ESC menu or results is a scroll, not a zoom', () => {
+  const none = { results: false, refit: false, settings: false };
+
+  it('claims the wheel while the settings overlay (ESC menu) is open', () => {
+    expect(wheelScrollsSurface({ ...none, settings: true })).toBe(true);
+  });
+
+  it('claims the wheel while the results modal is open', () => {
+    expect(wheelScrollsSurface({ ...none, results: true })).toBe(true);
+  });
+
+  it('leaves the wheel to the camera when nothing scrollable is open — the refit modal is not scrollable', () => {
+    expect(wheelScrollsSurface(none)).toBe(false);
+    expect(wheelScrollsSurface({ ...none, refit: true })).toBe(false);
+  });
 
   // ERIC RULING 2026-08-19 — from spectate, ESC puts the SCORE SCREEN back,
   // not the settings overlay. The pair below is the whole toggle: nothing open
@@ -326,20 +346,28 @@ describe('bindingRows — current truth (amendments 1–13), view-only', () => {
   // the one keydown chokepoint, so the in-game reference and the How-to-Play
   // page cannot disagree.
 
-  it('the digit row covers 1 through 5, not just 1–4', () => {
-    const digits = rows.find((r) => r.keys.includes('1') && r.keys.includes('5'));
+  // STORY 8.8 (epic-8 amendment 50) re-cut this row: the DAMAGE CONTROL rail
+  // and its `5` key are deleted, and `1`-`4` carry the two meanings Story 8.7
+  // gave them. The row has to state BOTH, or an experienced player never learns
+  // that the same keys fire the belt.
+  it('the digit row covers 1 through 4 and states BOTH meanings', () => {
+    const digits = rows.find((r) => r.keys.includes('1') && r.keys.includes('4'));
     expect(digits).toBeDefined();
-    expect(digits?.keys).not.toContain('1 – 4');
+    expect(digits?.keys).toContain('1 – 4');
+    expect(digits?.keys).not.toContain('5');
+    expect(digits?.action).toContain('REFIT CARD');
+    expect(digits?.action).toContain('BELT SLOT');
+    expect(digits?.action).toContain('WINDOW OPEN');
+    expect(digits?.action).toContain('WINDOW CLOSED');
   });
 
-  it('DAMAGE CONTROL (the digit-5 heal rail, HEAL_CHOICE) has a row', () => {
-    const dc = rows.find((r) => r.action.includes('DAMAGE CONTROL'));
-    expect(dc).toBeDefined();
-    expect(dc?.keys).toContain('5');
+  it('advertises no DAMAGE CONTROL row and no `5` key anywhere', () => {
+    expect(rows.find((r) => r.action.includes('DAMAGE CONTROL'))).toBeUndefined();
+    for (const r of rows) expect(r.keys, r.action).not.toContain('5');
   });
 
   it('the digit row also advertises the NUMPAD alias', () => {
-    const digits = rows.find((r) => r.action.includes('DAMAGE CONTROL'));
+    const digits = rows.find((r) => r.action.includes('REFIT CARD'));
     expect(digits?.keys).toContain('NUMPAD');
   });
 
@@ -350,11 +378,28 @@ describe('bindingRows — current truth (amendments 1–13), view-only', () => {
     expect(rudder?.keys).toContain('ARROWS');
   });
 
-  it('the gun (slot 0) is listed as the keyless default, reachable via its hotbar tile', () => {
+  // Story 8.22: DEFAULT left the gun row — no client copy may carry the word.
+  it('the gun (slot 0) is listed as keyless and always selected, reachable via its hotbar tile', () => {
     const gun = rows.find((r) => r.action.includes('GUN'));
     expect(gun).toBeDefined();
-    expect(gun?.action).toContain('DEFAULT');
+    expect(gun?.action).toContain('ALWAYS SELECTED');
     expect(gun?.action).toContain('HOTBAR');
+  });
+
+  // STORY 8.22 (2026-10-01): Q/E/R are three weapon slots since Story 8.5 and
+  // the class SPECIAL is on Shift since Story 8.15.
+  it('lists Q / E / R as the weapon slots and SHIFT as the class SPECIAL', () => {
+    const weapons = rows.find((r) => r.keys === 'Q / E / R');
+    expect(weapons?.action).toContain('WEAPON SLOTS');
+    const shift = rows.find((r) => r.keys === 'SHIFT');
+    expect(shift?.action).toContain('SPECIAL');
+  });
+
+  it('never advertises the retired PICKUP slot or CLASS SPECIAL SLOTS', () => {
+    for (const r of rows) {
+      expect(r.action, r.keys).not.toContain('PICKUP');
+      expect(r.action, r.keys).not.toContain('CLASS SPECIAL SLOTS');
+    }
   });
 
   it('never advertises P — the netcode debug toggle stays out of this surface', () => {

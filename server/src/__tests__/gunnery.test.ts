@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG, type GameEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SplashEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { fitClassWeapons } from './classWeapons.js';
 import { circleIsland } from './islandFixture.js';
 
 /** World whose islands are cleared, for exact-geometry cases. */
@@ -27,7 +28,12 @@ function place(
   heading = 0,
   hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+  // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
+  // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
+  // weapon row, so this fixture fits it explicitly through the same applyCard
+  // path a real pick takes. Every case below keeps its subject.
+  fitClassWeapons(w, rec);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -46,12 +52,14 @@ function injectShell(w: World, overrides: Partial<ShellState> & { id: string; ow
     distLeft: 200,
     bornAt: w.now,
     kind: 'shell',
+    family: overrides.kind === 'torp' ? null : 'cannon',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
     targetX: null,
     targetY: null,
     burstRadius: 0,
     contactDamage: CONFIG.gun.damage,
+    hits: CONFIG.gun.hits,
     ...overrides,
   };
   w.shells.set(shell.id, shell);
@@ -59,7 +67,7 @@ function injectShell(w: World, overrides: Partial<ShellState> & { id: string; ow
 }
 
 function fire(w: World, id: string, slot: number, aim: number, aimDist: number, seq = 1): void {
-  w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
 }
 
 const ofKind = <K extends GameEvent['k']>(events: readonly GameEvent[], k: K) =>
@@ -110,7 +118,7 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
     // Aim a long shot (the gate reads the ship's stored input for the clicked
     // point), then fire with a time 200ms in the past: the spawned shell is
     // pre-stepped ~100u along its flight on the spawn tick.
-    a.input = { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
+    a.input = { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
     expect(w.sinkingActivationGate(a, 0, w.now - 200).ok).toBe(true);
     w.step();
     const mz = ofKind(w.tickEvents, 'mz');
@@ -122,13 +130,13 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
     expect(Math.hypot(shell.x - mz[0].x, shell.y - mz[0].y)).toBeGreaterThan(50);
   });
 
-  it('a multi-barrel salvo (TWIN MOUNT) spawns 2 shells but exactly ONE mz for that ship that tick', () => {
+  it('a multi-barrel salvo (TRIPLE MOUNT) spawns 3 shells but exactly ONE mz for that ship that tick', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.applyBoon(a, 'gunBarrel'); // barrels 1 -> 2
+    for (let i = 0; i < 3; i++) w.applyCard(a, 'deckGun'); // CANNON tier IV: barrels 1 -> 3 (Eric 2026-10-02, amendment 232)
     fire(w, 'a', 0, 0, 400);
     w.step();
-    expect(w.shells.size).toBe(2); // the salvo really is multi-barrel
+    expect(w.shells.size).toBe(3); // the salvo really is multi-barrel
     expect(ofKind(w.tickEvents, 'mz')).toHaveLength(1); // per-tick per-owner dedupe
   });
 
@@ -142,10 +150,12 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
     expect(ofKind(w.tickEvents, 'mz')).toHaveLength(2); // dedupe is per owner, never global
   });
 
-  it("the BROADSIDE (battleship slot 1) flashes PER SHELL — R2.5's declared opt-out from the per-owner dedupe", () => {
+  it("the BROADSIDE (battleship weapon slot 2) flashes PER SHELL — R2.5's declared opt-out from the per-owner dedupe", () => {
     const w = bareWorld();
     place(w, 'a', 0, 0, 0, 'battleship');
-    fire(w, 'a', 1, Math.PI / 2, 300); // abeam — inside the port beam sector
+    // Story 8.5: the Battleship's seed fits `broadside` into the first WEAPON
+    // slot (2) — the class fit that used to put it in slot 1 is gone.
+    fire(w, 'a', 2, Math.PI / 2, 300); // abeam — inside the port beam sector
     w.step();
     expect([...w.shells.values()][0]?.kind).toBe('shell'); // still the gun-family wire kind
     // Story 7-5 wave 2 (Eric A2): a barrage is N independent shells, so it is
@@ -158,7 +168,7 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
   it('a torpedo launch emits NO mz — the ratified quiet weapon (amendment 20)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    fire(w, 'a', 1, 0, 0); // TB slot 1: the bow torpedo, dead ahead
+    fire(w, 'a', 2, 0, 0); // TB weapon slot 2: the seeded bow torpedo, dead ahead
     w.step();
     expect([...w.shells.values()][0]?.kind).toBe('torp'); // the launch really happened
     expect(ofKind(w.tickEvents, 'mz')).toHaveLength(0);
@@ -295,20 +305,20 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
     const w = bareWorld();
     place(w, 'o', 900, 900, 0, 'mineLayer'); // the owner, nowhere near the trap
     place(w, 'b', 4, 0); // hull sitting on the mine — trips it on the first scan
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
     const acc = stepCollect(w, 5, (evs) => ofKind(evs, 'boom').length > 0);
     expect(acc.hc).toHaveLength(1);
     expect(acc.hc[0]).toEqual({ k: 'hc', id: 'o', x: 0, y: 0 }); // the trap's position, the owner's id
     expect(acc.sp).toHaveLength(0); // mines never splash
   });
 
-  it('a VICTIMLESS mine detonation (own gun burst) sends no hc — while the missing shell still splashes', () => {
+  it('a VICTIMLESS mine detonation (own gun shell landing on it) sends no hc — while the missing shell still splashes', () => {
     const w = bareWorld();
     place(w, 'o', 900, 900, 0, 'mineLayer'); // owner, alone on the water
-    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 300, y: 900, armedAt: 0 }); // own armed mine, 600u up-range
-    fire(w, 'o', 0, Math.PI, 600); // click the mine's position — the burst detonates it
+    w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 300, y: 900, armedAt: 0, kind: 'naval', hp: 10 }); // own armed mine, 600u up-range
+    fire(w, 'o', 0, Math.PI, 600); // click the mine's position — the shell lands on it (amendment 200)
     const acc = stepCollect(w, 60, () => w.mines.size === 0);
-    expect(w.mines.size).toBe(0); // the burst really detonated it
+    expect(w.mines.size).toBe(0); // the landing shell really popped it
     expect(acc.hc).toHaveLength(0); // neither burst nor blast resolved any victim
     expect(acc.sp).toHaveLength(1); // the SHELL's own miss splashes; the mine adds nothing
   });

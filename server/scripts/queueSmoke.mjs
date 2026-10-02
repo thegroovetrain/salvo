@@ -34,6 +34,22 @@
 //      of match.ts's 20 s boarding backstop, so the backstop cannot be what we
 //      observed.
 //
+//   6. THE GUN CROSSES THE SEAT RESERVATION (Story 8.14, amendment 95 —
+//      inheriting Story 8.2's deck proof) — the arena's own `client.join` log
+//      lines are read off the server's stdout: one per captain, every one of
+//      them `"gun":"deckGun"`, and not a single deck refusal anywhere (there
+//      is no deck door left to refuse anything). This is the ONE proof that
+//      core carries a reservation's server-only `auth` payload into
+//      `client.auth` before `onJoin` — no in-process unit test reaches it.
+//
+//   7. THE SEAT GUN AT THE DIRECT DOOR + THE LEAK SCAN (Story 8.14) — three
+//      solo joins prove the sanitizer's matrix over a real socket: `flak` is
+//      honoured and rides the OWN frame, `bogus` coerces to `deckGun`, and a
+//      `deckId` key is DROPPED rather than refused (the 4402 is gone). Every
+//      welcome and every frame they receive is scanned for the six
+//      card-economy keys no client may ever see — the check the retired
+//      poolSmoke used to make, kept alive here.
+//
 // WHY THE CAP PATH AND NOT THE TIMER: CONFIG.match.queueTimerMs (120000) is NOT
 // overridable per-room. StandardQueueRoom builds its policy from
 // defaultQueueConfig() with no options seam at all (StandardQueueRoom.ts:125),
@@ -82,9 +98,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // --- server lifecycle --------------------------------------------------------
 
+/** Every line the server wrote to stdout — its structured log (server/src/
+ *  log.ts emits `level event {json}` through console.log). Step 6 reads the
+ *  arena's own join lines out of it. */
+const serverLog = [];
+
 function bootServer() {
   const tsx = path.join(REPO, 'node_modules/.bin/tsx');
-  return spawn(tsx, ['src/index.ts'], {
+  const proc = spawn(tsx, ['src/index.ts'], {
     cwd: path.join(REPO, 'server'),
     detached: true, // own process group, so we can kill tsx + its node child
     // HC_DEV_OPTIONS=1 is NOT needed by the queue itself (it accepts no dev
@@ -92,9 +113,17 @@ function bootServer() {
     // every other smoke boots this way — kept identical so this script's server
     // is the same server the rest of the suite exercises.
     env: { ...process.env, NODE_ENV: 'development', PORT: String(PORT), HC_DEV_OPTIONS: '1' },
-    stdio: ['ignore', 'ignore', 'inherit'],
+    // stdout is PIPED (it used to be ignored) so step 6 can read the server's
+    // own structured log; stderr still passes through for diagnosability.
+    stdio: ['ignore', 'pipe', 'inherit'],
   });
+  proc.stdout.setEncoding('utf8');
+  proc.stdout.on('data', (chunk) => serverLog.push(chunk));
+  return proc;
 }
+
+/** The server's stdout so far, as whole lines. */
+const serverLines = () => serverLog.join('').split('\n');
 
 function portOpenOn(port, host) {
   return new Promise((resolve) => {
@@ -211,6 +240,55 @@ async function leaveQuietly(room) {
 
 const phase = (ctx) => ctx.arena?.state?.matchPhase ?? 'unknown';
 const seated = (all) => all.filter((c) => c.seat !== null).length;
+
+// --- the leak scan (Story 8.14, absorbed from the deleted poolSmoke) ---------
+
+/**
+ * KEYS THAT MAY NEVER REACH A CLIENT. The card economy is entirely
+ * server-private: there is no deck any more, no hidden match pool, and the
+ * match-wide TAKE LEDGER and the per-ship WEIGHTS that Story 8.14 added are
+ * server state that no frame, welcome or schema may ever carry. Only the four
+ * offered line ids leave the server.
+ *
+ * Scanned as OWN KEYS, never as text: a LINE ID riding `offer`/`cards` as a
+ * VALUE must never false-positive.
+ */
+const FORBIDDEN = ['deck', 'deckList', 'deckId', 'pool', 'takes', 'weights'];
+
+/** The path to the first OWN KEY matching `forbidden` anywhere in `value`, or
+ *  null. */
+function findForbiddenKey(value, forbidden, trail = '$') {
+  if (Array.isArray(value)) {
+    for (const [i, entry] of value.entries()) {
+      const hit = findForbiddenKey(entry, forbidden, `${trail}[${i}]`);
+      if (hit !== null) return hit;
+    }
+    return null;
+  }
+  if (value === null || typeof value !== 'object') return null;
+  for (const [key, nested] of Object.entries(value)) {
+    if (forbidden.includes(key)) return `${trail}.${key}`;
+    const hit = findForbiddenKey(nested, forbidden, `${trail}.${key}`);
+    if (hit !== null) return hit;
+  }
+  return null;
+}
+
+/** A private SOLO VS AI room on the direct door — `create()` always mints a
+ *  fresh one, so these three probes can never touch the queue's arena. */
+async function createSolo(options) {
+  const client = new Client(endpoint);
+  const room = await client.create('arena', { pv: PROTOCOL_VERSION, solo: true, name: 'ERIC', ...options });
+  const ctx = { room, welcome: null, frames: [] };
+  room.onMessage(MSG.welcome, (m) => { ctx.welcome = m; });
+  room.onMessage(MSG.frame, (f) => ctx.frames.push(f));
+  room.onMessage(MSG.results, () => undefined);
+  room.onMessage(MSG.ping, (m) => room.send(MSG.ping, { n: m.n }));
+  return ctx;
+}
+
+/** This client's frames that actually carry the own-ship block. */
+const ownFrames = (ctx) => ctx.frames.filter((f) => f.you !== undefined && f.you !== null);
 
 // --- proof steps -------------------------------------------------------------
 
@@ -355,6 +433,78 @@ async function proveBoardingToActive(pool) {
   return `boarding held at ${CAP - 1}/${CAP} for ${HOLD_MS}ms in phase 'waiting'; the last loader armed the countdown (${armedIn}ms into a ${BOARDING_GRACE_MS}ms backstop window) and the match went ACTIVE with the storm anchored`;
 }
 
+/**
+ * Step 6: THE GUN CROSSED THE RESERVATION (Story 8.14, amendment 95). Every
+ * captain reached the arena through the queue, so every arena join must report
+ * the gun the QUEUE froze into the seat's server-only `auth` payload. These
+ * captains send no `gun` at all, so the queue sanitizes it to `deckGun` and the
+ * arena must log exactly that — the same transport proof the deck used to give:
+ * if `client.auth` arrived empty the arena would fall back to the join option
+ * instead, and on this path the two answers happen to agree, so the log line is
+ * read together with step 7's DIRECT-door check, where they do not.
+ *
+ * `deck.illegal` and the 4402 refusal are GONE with the deck door: nothing at
+ * either door can refuse a join over the card economy any more, and a line
+ * claiming otherwise is a regression.
+ */
+async function proveGunRodeTheSeat(expected) {
+  await sleep(300); // let the last join's line flush through the pipe
+  const joins = serverLines().filter((l) => l.startsWith('info client.join '));
+  assert(
+    joins.length === expected,
+    `saw ${joins.length} arena client.join lines, expected ${expected}`,
+  );
+  const seat = joins.filter((l) => l.includes('"gun":"deckGun"'));
+  assert(
+    seat.length === expected,
+    `only ${seat.length}/${expected} arena joins logged gun "deckGun" — the seat's auth did not reach client.auth: ${joins.filter((l) => !l.includes('"gun":"deckGun"')).join(' | ')}`,
+  );
+  const refusals = serverLines().filter((l) => l.includes('deck.illegal') || l.includes('deck illegal'));
+  assert(refusals.length === 0, `a deck refusal fired in a codebase with no deck door: ${refusals.join(' | ')}`);
+  return `gun transport: all ${expected} arena joins logged gun "deckGun" (the seat's server-only auth reached client.auth), no deck refusal anywhere`;
+}
+
+/**
+ * Step 7: THE SEAT GUN AT THE DIRECT DOOR (Story 8.14, amendment 95). Three
+ * solo joins, each proving one row of the sanitizer's matrix end to end — over
+ * a real socket, because `OwnShip.gun` is a WIRE field and no unit test proves
+ * it left the server:
+ *
+ *   - `gun: 'flak'`   → reaches the arena and the OWN frame reads `flak`;
+ *   - `gun: 'bogus'`  → coerced to `deckGun`, never a refusal;
+ *   - `deckId: 'x'`   → a dead key now: DROPPED like any unknown option, the
+ *     join proceeds, and the 4402 refusal that used to fire does not exist.
+ */
+async function proveSeatGun() {
+  const cases = [
+    // All three seat ids (Story 8.15 builds the other two guns): each reads
+    // back on the own frame exactly as picked.
+    { label: "gun:'deckGun'", options: { gun: 'deckGun' }, expect: 'deckGun' },
+    { label: "gun:'machineGun'", options: { gun: 'machineGun' }, expect: 'machineGun' },
+    { label: "gun:'flak'", options: { gun: 'flak' }, expect: 'flak' },
+    { label: "gun:'bogus'", options: { gun: 'bogus' }, expect: 'deckGun' },
+    { label: "deckId:'x'", options: { deckId: 'x' }, expect: 'deckGun' },
+  ];
+  const seen = [];
+  for (const c of cases) {
+    const ctx = await createSolo(c.options);
+    try {
+      await waitFor(() => ownFrames(ctx).length > 0, 20000, `${c.label}: an own frame`);
+      const gun = ownFrames(ctx)[0].you.gun;
+      assert(gun === c.expect, `${c.label}: own frame reads gun '${gun}', expected '${c.expect}'`);
+      assert(findForbiddenKey(ctx.welcome, FORBIDDEN) === null, `${c.label}: the welcome carries a forbidden key`);
+      for (const [i, f] of ctx.frames.entries()) {
+        const hit = findForbiddenKey(f, FORBIDDEN);
+        assert(hit === null, `${c.label}: frame ${i} carries a forbidden key at ${hit}`);
+      }
+      seen.push(`${c.label} -> ${gun} (${ctx.frames.length} clean frames)`);
+    } finally {
+      await leaveQuietly(ctx.room);
+    }
+  }
+  return `seat gun at the direct door: ${seen.join('; ')}`;
+}
+
 // --- main --------------------------------------------------------------------
 
 async function main() {
@@ -385,6 +535,8 @@ async function main() {
 
     log.push(await step('4 one arena', 60000, () => proveOneArena(pool)));
     log.push(await step('5 boarding -> active', 90000, () => proveBoardingToActive(pool)));
+    log.push(await step('6 gun rode the seat reservation', 15000, () => proveGunRodeTheSeat(CAP)));
+    log.push(await step('7 seat gun at the direct door', 90000, () => proveSeatGun()));
 
     console.log('QUEUE SMOKE OK:', { queue: pool[0].queue.roomId, arena: pool[0].arena.roomId, trace: log });
   } finally {

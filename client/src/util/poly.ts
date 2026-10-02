@@ -15,6 +15,29 @@ export interface PolyPoint {
   y: number;
 }
 
+/**
+ * The point where a ray from the centre of an axis-aligned square crosses its
+ * PERIMETER (Story 8.6). The square has half-size `half` and is centred on the
+ * origin; `thetaDeg` is the bar's one angle convention — 0 deg = 12 o'clock,
+ * positive CLOCKWISE, in Pixi's y-down screen space.
+ *
+ * This is what makes the cooldown wipe angle-uniform. The mock draws it as a
+ * CSS `conic-gradient`, which sweeps by ANGLE; walking the perimeter by
+ * arc-length instead would run faster along the flats than through the corners
+ * and read as a visibly different clock (Design Notes).
+ *
+ * Total by construction: every direction has exactly one perimeter crossing, so
+ * there is no undefined input (a zero `half` collapses to the origin).
+ */
+export function squareRayPoint(thetaDeg: number, half: number): PolyPoint {
+  const t = (thetaDeg * Math.PI) / 180;
+  const dx = Math.sin(t);
+  const dy = -Math.cos(t);
+  const reach = Math.max(Math.abs(dx), Math.abs(dy));
+  const k = reach > 0 ? half / reach : 0;
+  return { x: dx * k, y: dy * k };
+}
+
 /** Cumulative segment lengths of a closed polygon (last entry = perimeter). */
 export function polyLengths(pts: readonly PolyPoint[]): number[] {
   const acc: number[] = [];

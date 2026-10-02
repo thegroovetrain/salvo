@@ -4,8 +4,8 @@
 // Until now the only aim-time truth on screen was the crosshair (and a range-
 // clamp tick when the cursor overran max range): a captain could not see that a
 // gun shell bursts in a 15u circle, where a BARREL volley's parallel tracks
-// actually run, where a BROADSIDE BARRAGE's shells fan out to, or where a mine's
-// trigger ring will actually sit. This module draws
+// actually run, where a BROADSIDE BARRAGE's shells fan out to, where a mine's
+// trigger ring will actually sit, or where a DECOY BUOY will float. This module draws
 // all of it, and draws it from the SAME shared helpers the server fires with
 // (shared sim/aim.ts — burstPointAlong / muzzleOrTarget / torpedoSpawn /
 // blockedWater, promoted out of the server equipment rows for exactly this
@@ -36,14 +36,17 @@ import {
   twinSectorArcFor,
   twinSectorSide,
   type EffectiveStats,
-  type EquipmentId,
   type HullId,
   type Island,
+  type MineKind,
+  type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
+import { BUOY_MARKER } from './decoys.js';
 import type { OwnFire } from './projectiles.js';
+import { isMineEquipment, isTorpedoItem, mineKindOf, type MineEquipmentId } from './weaponArc.js';
 
 const P = CLIENT_CONFIG.aimPreview;
 
@@ -60,7 +63,11 @@ export interface PreviewShip {
  *  keeps the existing denied treatment, because drawing a shot the server would
  *  refuse is worse than drawing none. */
 export interface AimPreviewInput {
-  id: EquipmentId | null;
+  /** The PRIMED slot's content — a `SlotItemId` since Story 8.13, because the
+   *  SUPERCAV TORPEDO is a click-aimed BELT consumable (epic-8 amendment 74)
+   *  and previews its run exactly like the two torpedo lines. Every consumable
+   *  that aims nothing still previews nothing. */
+  id: SlotItemId | null;
   ship: PreviewShip;
   aim: number; // world bearing to the cursor
   aimDist: number; // u — clicked distance from the ship CENTRE
@@ -69,18 +76,20 @@ export interface AimPreviewInput {
   islands: readonly Island[];
   legal: boolean;
   /**
-   * THE GUN'S RESOLVED REACH FOR THIS AIM (Story 7-5 wave 2, R2.15) — normally
-   * `stats.gun.rangeU`, but LIFTED to the click's own distance when the clicked
-   * point lies inside a live lit zone the player owns. Computed ONCE by the
-   * caller through weaponArc.weaponReachU and handed to the range-clamp marker
+   * THE PRIMED DECK GUN'S RESOLVED REACH FOR THIS AIM (Story 7-5 wave 2,
+   * R2.15; amendment 114) — normally the primed gun's own row `rangeU`, but
+   * LIFTED to the click's own distance when the clicked point lies inside a
+   * live lit zone the player owns. Computed ONCE by the caller through
+   * weaponArc.weaponReachU and handed to the range-clamp marker
    * (render/firing.ts) and to this preview as the SAME NUMBER, so the marker
    * that says "the shell stops here" and the circle that says "it bursts here"
    * cannot disagree.
    *
-   * GUN ONLY: no other branch reads it, because no other system has the
-   * extension (R2.15 names the gun and excludes the broadside and the torpedo
-   * explicitly). Omitted = `stats.gun.rangeU`, i.e. the pre-wave-2 clamp
-   * byte-for-byte, which is what every non-main caller (tests) wants.
+   * DECK GUNS ONLY: the cannon, the machine gun and the flak gun read it (Eric
+   * ruling 2026-09-29, amendment 114); no other branch does, because no other
+   * system has the extension (R2.15 excludes the broadside and the torpedo
+   * explicitly). Omitted = the primed gun's own row `rangeU`, i.e. the plain
+   * clamp byte-for-byte, which is what every non-main caller (tests) wants.
    */
   gunReachU?: number;
 }
@@ -104,11 +113,13 @@ export interface PreviewLine {
 /** A circle at the TRUE burst point. `blocked` = an island stops the shot short
  *  of it, so the circle renders dimmed rather than promising anything there.
  *
- *  `effect` marks a circle that is NOT a damage area — today only the star
- *  shell's lit radius. It renders in a quieter register: it is typically many
- *  times a blast circle's size (the flare lights half a truesight bubble), and
- *  at damage-circle weight that much ink would read as a threat and bury the
- *  actual kill circles the same aim UX draws. */
+ *  `effect` marks a circle drawn in the quieter register because it is LARGE,
+ *  not because it is harmless: the star shell's lit radius (which since Story
+ *  8.17, amendment 130, is also its damage circle — the tier's damage to every
+ *  hull inside it) and the FLASH SHELLS burst (which blinds and deals none). It
+ *  is typically many times a blast circle's size (the flare lights half a
+ *  truesight bubble), and at damage-circle weight that much ink would bury the
+ *  gun-blast circles the same aim UX draws. */
 export interface PreviewBurst {
   x: number;
   y: number;
@@ -120,26 +131,40 @@ export interface PreviewBurst {
 }
 
 /**
- * The mine's placement preview at the clicked drop point.
+ * A mine's placement preview at the clicked drop point.
  *
- * `captive` is the CAPTIVE MINES verb (R2.12) and it changes WHAT IS DRAWN, not
- * just how: a captive mine never detonates on contact, so its `blast` is the
- * radius the launched TORPEDO bursts in — wherever that torpedo connects — and
- * is NOT a circle around the drop point. Carried on the model anyway (it is the
- * honest number for the verb, and a later tooltip may print it), but the
- * renderer draws only the trip ring for it. Both radii arrive ALREADY
- * transformed off `stats.mine`; nothing here re-derives the swap-and-triple.
+ * `kind` IS THE ROW IDENTITY (Story 8.13, epic-8 amendments 76/81): three mine
+ * LINES may be fitted at once, and the preview reads the radii off THAT line's
+ * own stats row — never off `navalMines` standing in for all three.
+ *
+ * It changes WHAT IS DRAWN, not just how: a `captive` mine never detonates on
+ * contact, so its `blast` is the radius the launched TORPEDO bursts in —
+ * wherever that torpedo connects — and is NOT a circle around the drop point.
+ * Carried on the model anyway (it is the honest number for the line, and a
+ * later tooltip may print it), but the renderer draws only the trip ring for
+ * it. Both radii arrive ALREADY derived by `effectiveStats`
+ * (`deriveMineRings`); nothing here re-derives a ring.
  */
 export interface PreviewPlacement {
   x: number;
   y: number;
   blast: number;
   trigger: number;
-  captive: boolean;
+  kind: MineKind;
   blocked: boolean; // inside a rock / off the water — the server refuses it
 }
 
-/** ACOUSTIC HOMING's acquisition corridor along the initial track. */
+/** A DECOY BUOY's drop point (Story 8.16): the marker alone, no radii — a
+ *  decoy has no blast, trigger or effect circle. */
+export interface PreviewDrop {
+  x: number;
+  y: number;
+  blocked: boolean; // inside a rock / off the water — the server refuses it
+}
+
+/** A HOMING fish's acquisition corridor along the initial track (a tier stat
+ *  since epic-8 amendment 80 — drawn iff the fitted line's turn rate is
+ *  above zero). */
 export interface PreviewBand {
   x1: number;
   y1: number;
@@ -153,6 +178,9 @@ export interface AimPreviewModel {
   bursts: PreviewBurst[];
   place: PreviewPlacement | null;
   band: PreviewBand | null;
+  /** The DECOY BUOY's ring-free drop marker (Story 8.16) — absent for every
+   *  other id. */
+  drop?: PreviewDrop;
 }
 
 const EMPTY: AimPreviewModel = { lines: [], bursts: [], place: null, band: null };
@@ -170,8 +198,11 @@ interface BurstSpec {
   /** u — LATERAL spacing between adjacent tracks (CONFIG.gun.barrelSpacingU).
    *  Irrelevant at one barrel; the straddle law handles the rest. */
   spacingU: number;
-  /** The circle is an EFFECT radius (the star shell's lit zone), not a damage
-   *  area — a quieter draw. Defaults to false: everything else here kills. */
+  /** Draw the circle in the quieter EFFECT register — the star shell's lit
+   *  zone (a damage circle too since Story 8.17, amendment 130: the flare hits
+   *  every hull inside it for the tier's damage, but its size would swamp the
+   *  blast circles at full weight) and the FLASH SHELLS burst. Defaults to
+   *  false: every other circle here is drawn at damage weight. */
   effect?: boolean;
 }
 
@@ -271,6 +302,46 @@ function parallelVolley(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel 
   return model;
 }
 
+/** THE CANNON (the deck gun's `gun` row): every barrel on its own parallel
+ *  track, clamped to the resolved reach (`gunReachU` — the lit-zone lift). */
+function cannonPreview(inp: AimPreviewInput): AimPreviewModel {
+  const g = inp.stats.equipment.gun;
+  return parallelVolley(inp, {
+    rangeU: inp.gunReachU ?? g.rangeU,
+    burstRadius: g.burstRadius,
+    shellRadius: CONFIG.gun.shellRadius,
+    barrels: g.barrels,
+    spacingU: CONFIG.gun.barrelSpacingU,
+  });
+}
+
+/**
+ * THE TWO PICKABLE GUNS (Story 8.15), each off its OWN row — never the
+ * cannon's by assumption. One shell per shot on one track to the range-clamped
+ * click:
+ *  - the MACHINE GUN is a DIRECT-HIT gun with no burst (amendment 103): its
+ *    preview is the travel line alone, with NO ring — the reticle is its aim
+ *    mark (`burstRadius: 0` is the shellPreview's no-circle case);
+ *  - the FLAK GUN bursts at the click in its FIXED 50 u blast (amendment 105).
+ * Both clamp to the resolved reach (`gunReachU` — the lit-zone lift, off the
+ * gun's OWN row via weaponArc.weaponReachU): every deck gun fires into the
+ * shooter's own lit-up area (R2.15, amendment 114).
+ */
+function isPickableGun(id: SlotItemId): id is 'machineGun' | 'flak' {
+  return id === 'machineGun' || id === 'flak';
+}
+
+function pickableGunPreview(inp: AimPreviewInput, id: 'machineGun' | 'flak'): AimPreviewModel {
+  const row = inp.stats.equipment[id];
+  return parallelVolley(inp, {
+    rangeU: inp.gunReachU ?? row.rangeU,
+    burstRadius: id === 'flak' ? inp.stats.equipment.flak.burstRadius : 0,
+    shellRadius: CONFIG[id].shellRadius,
+    barrels: 1,
+    spacingU: 0,
+  });
+}
+
 /**
  * THE BROADSIDE BARRAGE (Eric ruling 2026-08-20 — per-turret firing arcs).
  * Every turret on the firing side sends one shell AS CLOSE TO THE CLICK AS ITS
@@ -281,8 +352,8 @@ function parallelVolley(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel 
  *
  * The per-shell muzzles AND targets come from the ONE shared helper
  * (sim/aim.ts `turretAimPoints`), called with the ship pose, the range-clamped
- * click point, `stats.broadside.turrets`, the side and
- * `stats.broadside.traverseRad` — the exact call the server's `broadsideAim`
+ * click point, `stats.equipment.broadside.turrets`, the side and
+ * `stats.equipment.broadside.traverseRad` — the exact call the server's `broadsideAim`
  * makes. Re-deriving the geometry here is forbidden: the project's guarantee
  * is that the previewed circle IS where the shell bursts, and two derivations
  * of one aim solution is precisely the desync class effectiveStats() exists to
@@ -293,7 +364,7 @@ function parallelVolley(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel 
  * signals (R2.5).
  */
 function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
-  const b = inp.stats.broadside;
+  const b = inp.stats.equipment.broadside;
   const spec: BurstSpec = {
     rangeU: b.rangeU,
     burstRadius: b.burstRadius,
@@ -331,19 +402,16 @@ function broadsidePreview(inp: AimPreviewInput): AimPreviewModel {
 
 /**
  * The flare's EFFECTIVE lit radius — the exact number the server hands the
- * shell (`equipment/starShells.ts`): the owner's stats.starShells.litRadius,
- * shrunk by CONFIG.starShells.incendiaryRadiusFactor while the PHOSPHOR verb is
- * held. Both halves matter: the STAR SHELLS ladder moves the stat, and phosphor
- * trades reach for the burn, so a preview built on either the raw CONFIG base or
- * the un-shrunk stat would over-draw the zone the player is trying to place.
- *
- * Reads the PHOSPHOR flag ALONE (Story 7-5 wave 1): DAZZLE is an independent
- * verb that does not touch the radius, so a captain holding both still previews
- * the phosphor-shrunk circle.
+ * shell (`equipment/starShells.ts`): the owner's
+ * stats.equipment.starShells.litRadius, which the STAR SHELLS ladder moves
+ * (×1.1 per tier), so a preview built on the raw CONFIG base would under-draw
+ * the zone the player is trying to place. It is also the flare's damage circle
+ * since Story 8.17 (amendment 130: `burstRadius = litRadius`). The PHOSPHOR
+ * verb's shrink factor that used to apply here is DELETED with the verb
+ * (amendment 134).
  */
 export function effectiveLitRadius(stats: EffectiveStats): number {
-  const stars = stats.starShells;
-  return stars.litRadius * (stars.phosphor ? CONFIG.starShells.incendiaryRadiusFactor : 1);
+  return stats.equipment.starShells.litRadius;
 }
 
 /**
@@ -357,13 +425,15 @@ export function effectiveLitRadius(stats: EffectiveStats): number {
  * takes the plain splash-boom path in World.resolveShell, which — unlike an
  * interception — spawns NO lit zone at all. So a blocked flare lights NOTHING,
  * and the standard blocked tell is exactly the right, and rather important,
- * thing to show. The circle is drawn in the quieter EFFECT register (see
+ * thing to show. Since Story 8.17 (amendment 130) the same circle is also the
+ * flare's damage area — the tier's damage (10 → 20) to every hull inside it at
+ * burst. It is still drawn in the quieter EFFECT register (see
  * PreviewBurst.effect): the lit radius is ~7× a gun blast, and at damage weight
  * it would dominate every other circle on the water.
  */
 function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
   return parallelVolley(inp, {
-    rangeU: inp.stats.starShells.rangeU,
+    rangeU: inp.stats.equipment.starShells.rangeU,
     burstRadius: effectiveLitRadius(inp.stats),
     shellRadius: CONFIG.starShells.shellRadius,
     barrels: 1,
@@ -373,22 +443,85 @@ function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
 }
 
 /**
- * The torpedo family. The line starts at the REAL tube exit (torpedoSpawn — a
- * fish is not launched from the ship's centre) and runs to the first island or
- * the map edge. HOMING additionally carries its finite travel budget and the
+ * PHOSPHOR SHELLS (Story 8.17, amendment 131): the star-shell preview pattern —
+ * one 360° shell to the click at the radar rung (`rangeU`), island- and
+ * map-clamped — with the burst ring at the owner's effective `zoneRadius`,
+ * which is both the burst's damage circle and the burning zone it leaves. Drawn
+ * at DAMAGE weight (not the flare's quieter effect register): a phosphor burst
+ * is a damage burst, and a blocked shell burns nothing, so the standard
+ * blocked tell is exactly right.
+ */
+function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
+  const row = inp.stats.equipment.phosphorShells;
+  return parallelVolley(inp, {
+    rangeU: row.rangeU,
+    burstRadius: row.zoneRadius,
+    shellRadius: CONFIG.phosphorShells.shellRadius,
+    barrels: 1,
+    spacingU: 0,
+  });
+}
+
+/**
+ * FLASH SHELLS (internal id `dazzleShells` — Story 8.17, amendment 132): the
+ * star-shell preview pattern for the belt's click-fired flash — one 360° shell
+ * to the click at the star shell's reach (the post-fold `radarRange`), with the
+ * one-time blinding burst at `CONFIG.flashShells.radius` (a consumable reads
+ * its numbers straight off CONFIG). Drawn in the quieter EFFECT register like
+ * the flare: the flash deals no damage.
+ */
+function flashShellPreview(inp: AimPreviewInput): AimPreviewModel {
+  return parallelVolley(inp, {
+    rangeU: inp.stats.radarRange,
+    burstRadius: CONFIG.flashShells.radius,
+    shellRadius: CONFIG.flashShells.shellRadius,
+    barrels: 1,
+    spacingU: 0,
+    effect: true,
+  });
+}
+
+/**
+ * u — the FITTED turn rate of the torpedo line being previewed (rad/s), which
+ * is what decides whether this fish steers at all. Homing is a TIER STAT since
+ * epic-8 amendment 80: zero at tier I on both lines, +0.125/tier to 0.5 at V.
+ *
+ * THE SUPERCAV TORPEDO IS ALWAYS ZERO and has no row to read: it is a belt
+ * CONSUMABLE (amendment 74) with no tiers, and it never homes at any build.
+ */
+function torpedoTurnRate(stats: EffectiveStats, id: 'lightTorpedo' | 'heavyTorpedo' | 'supercavTorpedo'): number {
+  return id === 'supercavTorpedo' ? 0 : stats.equipment[id].homingTurnRate;
+}
+
+/**
+ * The torpedo family — the LIGHT and HEAVY lines and the belt's SUPERCAV fish
+ * (Story 8.13: one preview, three ids, exactly as `torpedoCore` is one spawn).
+ * The line starts at the REAL tube exit (torpedoSpawn — a fish is not launched
+ * from the ship's centre) and runs to the first island or the map edge.
+ *
+ * A HOMING fish additionally carries its finite travel budget and the
  * acquisition BAND: the straight line is only the fish's INITIAL track, and
  * drawing it alone would promise a straight run it will not make — the band is
  * the honest half of that picture (anything inside it can pull the fish over).
+ * The die-distance and the acquire band are the FAMILY's shared fields
+ * (`CONFIG.torpedo`, amendment 84e) and apply to whichever line is steering.
+ *
+ * AT TURN RATE ZERO there is no band and no budget, because a straight-runner
+ * has neither: it runs until it hits something or leaves the map (no torpedo
+ * line has a max range — amendment 84f).
  */
-function torpedoPreview(inp: AimPreviewInput): AimPreviewModel {
-  const dir = inp.aim; // legal ⇒ in the bow arc ⇒ the launch bearing IS the aim
+function torpedoPreview(inp: AimPreviewInput, id: 'lightTorpedo' | 'heavyTorpedo' | 'supercavTorpedo'): AimPreviewModel {
+  // Legal ⇒ the aim is inside this line's arc (the heavy's bow sector, the
+  // supercav's ±15°, or ONE of the light torpedo's two beam sectors), and every
+  // fish launches toward the click, so the launch bearing IS the aim.
+  const dir = inp.aim;
   const hullLength = hullEnvelope(inp.ship.cls).hull.length;
   const origin = torpedoSpawn(inp.ship, hullLength, dir);
   // A tube exit past the rim launches a fish the sim expires on the spot; the
   // map clamp below would fold its whole run into a degenerate point and draw a
   // phantom track out of the ship's nose. Preview nothing instead.
   if (outsideDisk(origin, inp.mapRadius)) return EMPTY;
-  const homing = inp.stats.torpedo.homing;
+  const homing = torpedoTurnRate(inp.stats, id) > 0;
   const run = homing ? CONFIG.torpedo.homingMaxRangeU : inp.mapRadius * 2;
   const far = { x: origin.x + Math.cos(dir) * run, y: origin.y + Math.sin(dir) * run };
   const clip = clipAtIslands(origin, clampInsideMap(origin, far, inp.mapRadius), inp.islands);
@@ -402,14 +535,16 @@ function torpedoPreview(inp: AimPreviewInput): AimPreviewModel {
 }
 
 /** Mine placement: the rings at the clicked drop point (the server places the
- *  mine AT the click). Radii are the OWNER's effective ones — the same numbers
- *  the server reads off owner stats when the mine trips — READ, never
- *  re-derived: `effectiveStats` already applied the captive swap-and-triple, so
- *  a captive build arrives here at 144u/32u (210.8u/46.9u at a maxed MINES
- *  ladder) with no arithmetic on this side of the wire. */
-function minePreview(inp: AimPreviewInput): AimPreviewModel {
+ *  mine AT the click). Radii are the OWNER's effective ones FOR THE LINE BEING
+ *  PLACED (Story 8.13 — `stats.equipment[id]`, never `navalMines` standing in
+ *  for a captive or a fouling drop): the same numbers the server reads off
+ *  owner stats when that mine trips. READ, never re-derived — `effectiveStats`
+ *  (`deriveMineRings`) already produced the captive's tier-derived 144 u trip
+ *  ring and the contact kinds' 2/3-of-blast ones. */
+function minePreview(inp: AimPreviewInput, id: MineEquipmentId): AimPreviewModel {
   const dist = Math.max(0, inp.aimDist);
   const p = { x: inp.ship.x + Math.cos(inp.aim) * dist, y: inp.ship.y + Math.sin(inp.aim) * dist };
+  const row = inp.stats.equipment[id];
   return {
     lines: [],
     bursts: [],
@@ -417,40 +552,32 @@ function minePreview(inp: AimPreviewInput): AimPreviewModel {
     place: {
       x: p.x,
       y: p.y,
-      blast: inp.stats.mine.blastRadius,
-      trigger: inp.stats.mine.triggerRadius,
-      captive: inp.stats.mine.captive,
+      blast: row.blastRadius,
+      trigger: row.triggerRadius,
+      kind: mineKindOf(id),
       blocked: blockedWater(p, inp.islands, inp.mapRadius),
     },
   };
 }
 
 /**
- * RADAR BUOY placement (Story 7-5 wave 2, R2.7): the drop point plus THE WATER
- * THE BUOY WILL WATCH — its own flat 330u radar circle, drawn at the clicked
- * point before the click so a captain can place the coverage rather than guess
- * at it. Same placement rule as the mine, shared verbatim by the server
- * (`radarBuoyEquipment.activate` reuses `CONFIG.mine.placeRange` and the mine's
- * rear sector), so `blockedWater` is the same refusal test on both sides.
- *
- * The circle rides the `bursts` channel as an EFFECT radius, not a placement:
- * it is not a damage area (nothing detonates there), it is the same "this is
- * what it covers, in a quieter register" the star shell's lit zone uses, and it
- * is many times a blast circle's size — exactly the case `effect` exists for.
- * `blocked` carries the server's refusal so a drop into a rock dims rather than
- * promising coverage it will never get.
+ * DECOY BUOY placement (Story 8.16, catalog-v3 R36): the drop point ALONE — the
+ * decoy's own spar-buoy marker (render/decoys.ts `BUOY_MARKER`) drawn at the
+ * click, dimmed when the water refuses it. NO RINGS: a decoy has no blast, no
+ * trigger and no effect circle, so the mine preview's placement is taken
+ * WITHOUT any of its circles. Same placement rule as the mine, shared verbatim
+ * by the server (the mine's rear sector out to `CONFIG.mine.placeRange`), so
+ * `blockedWater` is the same refusal test on both sides.
  */
-function buoyPreview(inp: AimPreviewInput): AimPreviewModel {
+function decoyPreview(inp: AimPreviewInput): AimPreviewModel {
   const dist = Math.max(0, inp.aimDist);
   const p = { x: inp.ship.x + Math.cos(inp.aim) * dist, y: inp.ship.y + Math.sin(inp.aim) * dist };
-  const blocked = blockedWater(p, inp.islands, inp.mapRadius);
   return {
     lines: [],
-    // The BUOY's own set (stats.radarBuoy.radarRange), never the owner's
-    // radarRange: the buoy's reach is flat by ruling and no card moves it.
-    bursts: [{ x: p.x, y: p.y, r: inp.stats.radarBuoy.radarRange, blocked, effect: true }],
+    bursts: [],
     band: null,
     place: null,
+    drop: { x: p.x, y: p.y, blocked: blockedWater(p, inp.islands, inp.mapRadius) },
   };
 }
 
@@ -464,23 +591,27 @@ function buoyPreview(inp: AimPreviewInput): AimPreviewModel {
  */
 export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
   if (!inp.legal || inp.id === null) return EMPTY;
-  if (inp.id === 'gun') {
-    const g = inp.stats.gun;
-    return parallelVolley(inp, {
-      rangeU: inp.gunReachU ?? g.rangeU,
-      burstRadius: g.burstRadius,
-      shellRadius: CONFIG.gun.shellRadius,
-      barrels: g.barrels,
-      spacingU: CONFIG.gun.barrelSpacingU,
-    });
-  }
-  if (inp.id === 'broadside') return broadsidePreview(inp);
-  if (inp.id === 'starShells') return starShellPreview(inp);
-  if (inp.id === 'torpedo') return torpedoPreview(inp);
-  if (inp.id === 'mine') return minePreview(inp);
-  if (inp.id === 'radarBuoy') return buoyPreview(inp);
-  return EMPTY; // speedBoost — an instant ability aims nothing
+  const single = SINGLE_ID_PREVIEWS[inp.id];
+  if (single) return single(inp);
+  if (isPickableGun(inp.id)) return pickableGunPreview(inp, inp.id);
+  // THE FAMILIES, not the ids (Story 8.13): three torpedoes share one preview
+  // and three mine lines share one placement, each reading its OWN row.
+  if (isTorpedoItem(inp.id)) return torpedoPreview(inp, inp.id);
+  if (isMineEquipment(inp.id)) return minePreview(inp, inp.id);
+  return EMPTY; // the boost and every non-aimed consumable aim nothing
 }
+
+/** The ids with a preview of their OWN (not a family's) — a table rather than
+ *  an if-chain so each new aimed line (Story 8.17's PHOSPHOR and FLASH SHELLS)
+ *  is one row. Every id absent here falls through to the family checks. */
+const SINGLE_ID_PREVIEWS: Partial<Record<SlotItemId, (inp: AimPreviewInput) => AimPreviewModel>> = {
+  gun: cannonPreview,
+  broadside: broadsidePreview,
+  starShells: starShellPreview,
+  phosphorShells: phosphorShellPreview,
+  dazzleShells: flashShellPreview,
+  decoyBuoy: decoyPreview,
+};
 
 /**
  * The burst-ring radius for an own-correlated burst effect (render/effects.ts's
@@ -491,19 +622,30 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
  * enemy builds stay private, our own ring stops lying about our own blast.
  */
 export function ownBurstRadius(stats: EffectiveStats, own: OwnFire): number | undefined {
-  if (own === 'gun') return stats.gun.burstRadius;
-  if (own === 'broadside') return stats.broadside.burstRadius;
-  // No torpedo bursts at a POINT any more — COMMAND DETONATION left the game in
-  // Story 7-5 wave 1, and a standard/homing fish's contact hit rides the
-  // boom/spark path — so the fish keeps the CONFIG default like everything else.
-  return undefined; // torpedoes, star shells (lit, not blast), every non-own burst
+  if (own === null) return undefined;
+  return OWN_BURST_RADIUS[own]?.(stats);
 }
 
-/** The stroke tint for a weapon's preview: the torpedo keeps its cool-green
- *  identity (as its arc and reticle already do), everything else is aim amber.
- *  Color is decoration here — the INFORMATION is the geometry. */
-export function previewTint(id: EquipmentId | null): number {
-  return id === 'torpedo' ? CLIENT_CONFIG.colors.legacy.torpGlow : CLIENT_CONFIG.colors.amber;
+/** Own weapon → its effective burst radius. Absent ids keep the CONFIG default:
+ *  no torpedo bursts at a POINT any more (COMMAND DETONATION left the game in
+ *  Story 7-5 wave 1; a fish's contact hit rides the boom/spark path), and the
+ *  star shell's burst is its lit circle, drawn by the zone itself. */
+const OWN_BURST_RADIUS: Partial<Record<NonNullable<OwnFire>, (stats: EffectiveStats) => number>> = {
+  gun: (s) => s.equipment.gun.burstRadius,
+  broadside: (s) => s.equipment.broadside.burstRadius,
+  flak: (s) => s.equipment.flak.burstRadius, // Story 8.15 — the fixed 50 u blast
+  // Story 8.17: PHOSPHOR bursts over its whole (tier-grown) zone; FLASH SHELLS
+  // over the fixed CONFIG radius (a consumable reads CONFIG, never a row).
+  phosphorShells: (s) => s.equipment.phosphorShells.zoneRadius,
+  dazzleShells: () => CONFIG.flashShells.radius,
+};
+
+/** The stroke tint for a weapon's preview: the TORPEDO FAMILY keeps its
+ *  cool-green identity (as its arc and reticle already do) — all three fish
+ *  since Story 8.13, the belt's supercav included — and everything else is aim
+ *  amber. Color is decoration here — the INFORMATION is the geometry. */
+export function previewTint(id: SlotItemId | null): number {
+  return isTorpedoItem(id) ? CLIENT_CONFIG.colors.legacy.torpGlow : CLIENT_CONFIG.colors.amber;
 }
 
 /** Thin Pixi adapter: strokes one model per frame onto the fog-immune aim
@@ -533,6 +675,7 @@ export class AimPreview {
     if (model.band) this.drawBand(model.band, tint);
     for (const b of model.bursts) this.drawBurst(b, tint);
     if (model.place) this.drawPlacement(model.place, tint);
+    if (model.drop) this.drawDrop(model.drop, tint);
   }
 
   /** One alpha's worth of travel lines: every line whose `clamped` flag matches. */
@@ -592,13 +735,31 @@ export class AimPreview {
    * the circle they then see on the water. No solid ring is drawn, because a
    * captive mine never detonates on contact and a blast circle around the
    * casing would promise a kill it cannot deliver.
+   *
+   * FOULING (Story 8.13) takes the ORDINARY pair: it is a contact mine like the
+   * naval one — a wide, weak burst — so the two circles say exactly what they
+   * say for the naval mine. Nothing on the placement preview announces the slow;
+   * that is the card's row, not a circle.
    */
+  /** The DECOY BUOY's drop marker: its own spar-buoy silhouette at the click,
+   *  no circles (Story 8.16). Blocked water dims it like a refused mine drop. */
+  private drawDrop(d: PreviewDrop, tint: number): void {
+    const alpha = d.blocked ? P.blockedAlpha : P.burstAlpha;
+    const m = BUOY_MARKER;
+    const g = this.g;
+    g.moveTo(d.x + m.waterline[0].x, d.y + m.waterline[0].y).lineTo(d.x + m.waterline[1].x, d.y + m.waterline[1].y);
+    g.moveTo(d.x + m.spar[0].x, d.y + m.spar[0].y).lineTo(d.x + m.spar[1].x, d.y + m.spar[1].y);
+    g.stroke({ width: P.lineWidth, color: tint, alpha });
+    g.poly(m.topmark.flatMap((q) => [d.x + q.x, d.y + q.y]), true).stroke({ width: P.lineWidth, color: tint, alpha });
+  }
+
   private drawPlacement(p: PreviewPlacement, tint: number): void {
     const alpha = p.blocked ? P.blockedAlpha : P.burstAlpha;
     const g = this.g;
-    if (!p.captive) g.circle(p.x, p.y, p.blast).stroke({ width: P.burstWidth, color: tint, alpha });
-    const segs = p.captive ? P.dotSegments : P.dashSegments;
-    const duty = p.captive ? P.dotDuty : P.dashDuty;
+    const captive = p.kind === 'captive';
+    if (!captive) g.circle(p.x, p.y, p.blast).stroke({ width: P.burstWidth, color: tint, alpha });
+    const segs = captive ? P.dotSegments : P.dashSegments;
+    const duty = captive ? P.dotDuty : P.dashDuty;
     for (const [a0, a1] of dashArcs(segs, duty)) {
       g.moveTo(p.x + Math.cos(a0) * p.trigger, p.y + Math.sin(a0) * p.trigger);
       g.arc(p.x, p.y, p.trigger, a0, a1);

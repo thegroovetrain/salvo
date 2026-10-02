@@ -264,6 +264,60 @@ export function makeKeyTable(rows: readonly KeyBinding[]): HTMLElement {
   return table;
 }
 
+// --- the stat table -----------------------------------------------------------
+//
+// ERIC RULING (2026-10-01): each weapon on How-to-Play gets a stat table of its
+// exact attributes at each tier. Tabular data, so a real `<table>` again: a
+// header row of column labels (skipped when every label is blank — a two-column
+// attribute/value table needs none), the row label first, values right-aligned.
+// Mono at the `hudMicro` register (14px, above the 9px floor), 1px hairline
+// rules as longhands (CSSOM hazard 1), and an `overflow-x:auto` wrapper so a
+// five-tier table scrolls inside itself at phone width rather than widening
+// the page.
+
+const STAT_CELL_CSS = `${registerCss('hudMicro')};padding:4px 10px;white-space:nowrap;line-height:1.4`;
+
+function statCell(tag: 'td' | 'th', text: string, align: 'left' | 'right', color: string): HTMLElement {
+  const cell = document.createElement(tag);
+  cell.textContent = text;
+  cell.style.cssText = `${STAT_CELL_CSS};text-align:${align};color:${color}`;
+  if (tag === 'th' && text !== '') cell.setAttribute('scope', align === 'left' ? 'row' : 'col');
+  cell.style.borderBottomWidth = '1px';
+  cell.style.borderBottomStyle = 'solid';
+  cell.style.borderBottomColor = 'var(--hc-hairline)';
+  return cell;
+}
+
+/** A stat table (How-to-Play's weapon tables): row label, then one value per
+ *  column. Shape-compatible with `how-to-play/weaponTables.ts`'s `StatTable`. */
+export function makeStatTable(table: {
+  columns: readonly string[];
+  rows: readonly { label: string; values: readonly string[] }[];
+}): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'overflow-x:auto;max-width:100%';
+  const el = document.createElement('table');
+  el.style.cssText = 'border-collapse:collapse;font-variant-numeric:tabular-nums';
+  if (table.columns.some((c) => c.length > 0)) {
+    const head = document.createElement('thead');
+    const tr = document.createElement('tr');
+    tr.append(statCell('th', '', 'left', 'var(--hc-text-secondary)'));
+    for (const c of table.columns) tr.append(statCell('th', c, 'right', 'var(--hc-text-secondary)'));
+    head.appendChild(tr);
+    el.appendChild(head);
+  }
+  const body = document.createElement('tbody');
+  for (const row of table.rows) {
+    const tr = document.createElement('tr');
+    tr.append(statCell('th', row.label, 'left', 'var(--hc-text-secondary)'));
+    for (const v of row.values) tr.append(statCell('td', v, 'right', 'var(--hc-text-primary)'));
+    body.appendChild(tr);
+  }
+  el.appendChild(body);
+  wrap.appendChild(el);
+  return wrap;
+}
+
 // --- the chrome ---------------------------------------------------------------
 
 const ROOT_CSS = [

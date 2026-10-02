@@ -1,212 +1,319 @@
-// COMBAT-BOT BOON POLICY (Story 6.4, wave 2) — how a bot spends a banked
-// level (Eric ruling D1: doctrine weights; D2: the heal rule).
+// COMBAT-BOT CARD POLICY — how a bot spends a banked level.
 //
 // PURE POLICY, ZERO AUTHORITY. Nothing here calls World. `chooseSpend()`
-// returns a `spendChoice` — an offer index, HEAL_CHOICE (-1), or null for "not
-// this tick" — and the driver is the only thing that turns that into the one
+// returns a `spendChoice` — an offer index, or null for "not this tick" — and
+// the driver is the only thing that turns that into the one
 // `world.spendPoint(botId, choice)` call per bot per tick, through the same
-// public entry point a human client's SpendMsg lands on.
+// public entry point a human client's SpendMsg lands on. IT NEVER RETURNS A
+// NEGATIVE: the reserved -1 heal sentinel left the wire in Story 8.8.
 //
-// THE SCORING, in order:
-//   1. Nothing banked → null. No offer materialized → null (a degenerate
-//      offer-less level still leaves the heal strip live, which is why the
-//      heal test comes first).
-//   2. hp/maxHp below the profile's healHpFrac → HEAL_CHOICE. A bot that
-//      keeps buying cards while sinking is a bot that dies with a full hand.
-//   3. Otherwise every offered line is scored by the PROFILE's weight table
-//      (CONFIG.bots.boonWeights): the per-LINE override if the table names
-//      that card, else the per-CATEGORY base, else a low default for anything
-//      the table does not speak to. Rarity breaks a tie (rares and exclusives
-//      are the nature-changers), then the lowest index — deterministic, no rng.
+// THE HEAL IS NOT A SPEND (epic-8 amendments 46 + 49). Healing is a CARD a bot
+// draws, stocks in its belt and FIRES — so `healHpFrac` gates the belt press
+// in the HULL REPAIR tactic. The only thing this policy does with hp is WANT a HULL
+// REPAIR card more while hurt (below).
 //
-// EXCLUSIVE DEMOTION, and why it is not optional. A doctrine pair is
-// swap-legal: taking ACOUSTIC HOMING while holding COMMAND DETONATION swaps
-// the doctrine and returns the rival card to the deck, where it can be drawn
-// again. A weight table that says "raider loves torpedoHoming" would therefore
-// re-buy the same doctrine forever, ping-ponging every level the deck offers
-// it. So a line whose pair is ALREADY RESOLVED (this bot holds this card, or
-// holds its rival) drops to a neutral score — never zero, because taking it is
-// still legal and still better than nothing when the rest of the hand is
-// junk. Same shape as the batch-sim's `preferenceRank`, which is a
-// MEASUREMENT INSTRUMENT and not canon — it is deliberately not imported.
+// THE POINTS SCORER (Story 8.20, Eric ruling 2026-09-30, R3/R4). Every card
+// in the hand that the hull can actually take (`pickRefusal`) gets a score
+// from ONE table, CONFIG.bots.cardPoints, read against the bot's own build and
+// its personality's build TASTE (ai/profiles.ts). Highest score wins.
 //
-// NO PICK-ORDER AWARENESS LIVES HERE, AND NONE SHOULD.
-// This policy scores each offered card on its own merits and never reasons
-// about the order cards are acquired in. That was a deliberate ruling when the
-// `mineDamage` × `minePropFouling` pick-order bug was still open (the pair
-// composed to 53 hp or 45 hp depending on which landed first): the finding was
-// against the BOON ENGINE, not the bots, and Eric confirmed bots should eat it
-// exactly as human players do rather than route around it.
+//   - A NEW WEAPON (copy 1 of an equipment line, for an empty Q/E/R slot) is
+//     worth `weapon`, or `favoriteWeapon` if it is one of the taste's
+//     favorites. Nothing else is added to a weapon.
+//   - AN UPGRADE (a ladder rung, or a tier copy of a weapon already held) is
+//     `base`, + `favorite` if it matches a favorite upgrade, + `style` if it
+//     is the build's lowest line (a `rounded` taste) or its highest (a
+//     `specialist`). "The build" is every line the bot could still raise: the
+//     ship ladders, the mounted gun's ladders and the weapons it holds, each
+//     counted by copies held. THE STYLE BONUS NEEDS AN UNEVEN BUILD (R11): when
+//     every line in it holds the same count (the flat level-zero build), no
+//     upgrade earns it, so a favorite ladder scores 3 and a weapon opens.
+//   - A CONSUMABLE is `base`, + `favorite` if it is one, then + the taste's
+//     belt hunger if the belt carries none of it, or + `carried` (a
+//     negative) if it already does. HULL REPAIR while hurt and carrying none
+//     is `base + hurtRepair` (+ `favorite`) with belt hunger NOT applied.
 //
-// That bug is now FIXED UPSTREAM — amendment 25 deleted prop-fouling's damage
-// multiplier, so one effect writes `mine.damage` and order cannot matter. The
-// rule survives its occasion: if a future card reintroduces order-dependence,
-// the fix belongs in the boon engine for everyone, with a ruling — not as a
-// lookahead special case in here.
+// THE ORDER THAT PRODUCES: a two-bonus upgrade and a needed repair (both 4 or
+// more) beat any new weapon; a favorite weapon (3.75) beats any other weapon
+// (3.5); a new weapon beats a one-bonus upgrade or consumable (3 or less); a
+// plain card sits at 2 and a carried or unwanted consumable below it.
+// Upgrades and consumables stand on equal footing (R4).
+//
+// TIES draw the mind's decorrelated spend stream (`mind.spendRng`): a uniform
+// pick among the tied indices, ONE draw, and only when more than one index
+// ties. No rng in hand (hand-built tests) takes the lowest tied index.
+//
+// NO PICK-ORDER AWARENESS LIVES HERE, AND NONE SHOULD. The scorer reads what
+// the bot holds now, never the order it was acquired in: a future
+// order-dependence is fixed in the engine for everyone.
 
-import { BOON_CATALOG, CONFIG, HEAL_CHOICE, type BoonCatalog, type BoonDef, type Rng } from '@salvo/shared';
-import type { BotProfile } from './profiles.js';
-import type { AnyProfileId } from './types.js';
+import {
+  CATALOG,
+  CONFIG,
+  CONSUMABLE_SLOTS,
+  DEFAULT_GUN,
+  MOUNTED_GUN,
+  SLOT_COUNT,
+  SLOT_GUN,
+  boonStackCount,
+  isConsumableId,
+  ladderHost,
+  pickRefusal,
+  tierTargetOf,
+  type Catalog,
+  type CatalogLine,
+  type EquipmentId,
+  type Rng,
+  type SlotItemId,
+} from '@salvo/shared';
+import type { BotProfile, BotTaste } from './profiles.js';
 
 /** Everything the policy needs about the bot's own economy — read by the
  *  driver off the bot's OWN ShipRecord (the sanctioned self-read: its bank,
- *  its front offer, its fitted boons, its hp). */
+ *  its front offer, its fitted cards, its hp). */
 export interface BotSpendState {
   /** Unspent banked levels. */
   bankedLevels: number;
-  /** The FRONT OFFER's boon ids, or null (nothing materialized). */
+  /** The FRONT OFFER's card line ids, or null (nothing materialized). */
   offer: readonly string[] | null;
-  /** Boon ids already fitted, in application order (repeats = stacks). */
-  boons: readonly string[];
+  /** Card line ids already fitted, in fit order (repeats = stacks). */
+  cards: readonly string[];
+  /**
+   * The bot's NINE SLOT CONTENTS (`loadout.map(s => s.equipmentId)`) — the same
+   * array the server's `pickRefusal` takes, read off the bot's own ShipRecord
+   * by the driver like everything else here (ai/ never sees a World).
+   *
+   * The scorer reads three things off it: which cards `spendCard` would refuse
+   * (Story 8.14 review, F4 — the offer does NOT reroll on a refusal, so naming
+   * a refused card would spend the same level into a no-op every tick), which
+   * consumables the belt already carries, and the mounted gun (slot 0).
+   * OPTIONAL: absent reads as "the cannon mounted, every other slot empty", so
+   * the many hand-built test states keep compiling.
+   */
+  slotIds?: readonly (SlotItemId | null)[];
   hp: number;
+  /**
+   * The paid HULL REPAIR pool still draining in (`BotSelf.repairHp`) — hp
+   * already bought. The scorer's HURT read is `(hp + repairHp) / maxHp <
+   * profile.healHpFrac`, the heal tactic's own read (Story 8.20). OPTIONAL:
+   * absent reads as 0, so hand-built test states keep compiling.
+   */
+  repairHp?: number;
   maxHp: number;
 }
 
-/** Score for a line this bot already holds a copy of — deliberately neither
- *  zero (the pick stays legal) nor competitive. Sits just under the lowest
- *  category base in the table. */
-const HELD_LINE_SCORE = 0.9;
+/** A hull whose slots the caller did not supply: every slot empty, which is
+ *  what a bare `BotSpendState` in a test means. */
+const EMPTY_SLOTS: readonly (SlotItemId | null)[] = Object.freeze(
+  Array.from({ length: SLOT_COUNT }, () => null),
+);
 
-/** Score for a card in a category this profile's table says nothing about.
- *  Below every real weight, above a resolved exclusive is NOT the point — an
- *  unlisted category is simply not wanted. */
-const UNLISTED_SCORE = 0.5;
+const POINTS = CONFIG.bots.cardPoints;
 
-/** Tiebreak only: at equal weight, prefer the scarcer, more transformative
- *  card. Never a term in the weight itself. */
-const RARITY_RANK: Readonly<Record<string, number>> = { common: 0, rare: 1, exclusive: 2 };
-
-/** One profile's two-level weight table, widened for lookup. */
-interface WeightTable {
-  cat: Readonly<Record<string, number>>;
-  lines: Readonly<Record<string, number>>;
-}
-
-/** The empty table a profile OUTSIDE CONFIG.bots.boonWeights resolves to —
- *  test-only rows have no doctrine table (they spend at random and only reach
- *  the weighted scorer through a hand-built call), so every line scores at
- *  the unlisted default rather than crashing on a missing table. Unreachable
- *  for the six in-game ids, whose tables always exist. */
-const EMPTY_TABLE: WeightTable = { cat: {}, lines: {} };
-
-/** The CONFIG weight table for a profile (category bases + line overrides). */
-function weightTable(profile: AnyProfileId): WeightTable {
-  const tables = CONFIG.bots.boonWeights as Partial<
-    Record<string, { cat: Record<string, number>; lines?: Record<string, number> }>
-  >;
-  const t = Object.hasOwn(tables, profile) ? tables[profile] : undefined;
-  return t === undefined ? EMPTY_TABLE : { cat: t.cat, lines: t.lines ?? {} };
-}
-
-/** Catalog lookup, own-property only (the engine-wide fail-closed gate: a
- *  plain-object catalog answers `catalog['constructor']` otherwise). */
-function defOf(catalog: BoonCatalog, id: string): BoonDef | null {
-  if (!Object.hasOwn(catalog, id)) return null;
-  return catalog[id] ?? null;
-}
-
-/** True when this bot already holds the ONE-COPY line this def names — a rare
- *  ×1 doctrine card it has fitted is worth nothing more to it.
- *
- *  EXCLUSIVITY IS DELETED (Story 7-5 wave 2, R2.6): this used to also demote a
- *  line whose `exclusiveWith` RIVAL was held, because the cannon's AP/PLUNGING
- *  pair could only ever resolve one way. Doctrine verbs now stack, so there is
- *  no rival to be pre-empted by — only the card's own copies matter, and the
- *  deck already stops re-offering an exhausted line.
- *
- *  THE `copies === 1` TEST IS THE FIX, NOT A NARROWING (cross-model review,
- *  cycle 110). This read `fitted.includes(def.id)` with no copy test, so it
- *  demoted EVERY held line — including the deliberately stackable ones. A
- *  `siege` bot that bought one `intelRange` scored the next at 0.9 instead of
- *  its profile's 2.4 and stopped building the stacked line its whole doctrine
- *  is about; the same held for `shipCooldown` (×5), `mineBlast` (×4) and
- *  every other ladder. The docstring above always said ONE-COPY; only the
- *  implementation disagreed. A multi-copy line needs no demotion at all — the
- *  deck stops offering it once its copies are spent. */
-function alreadyHeld(def: BoonDef, fitted: readonly string[]): boolean {
-  return def.copies === 1 && fitted.includes(def.id);
+function slotIdsOf(s: BotSpendState): readonly (SlotItemId | null)[] {
+  return s.slotIds ?? EMPTY_SLOTS;
 }
 
 /**
- * How much this profile wants one offered line: the per-LINE override if the
- * table names it, else the per-CATEGORY base, else the unlisted default —
- * with an already-held one-copy line demoted to neutral. Exported so tests (and a
- * future tuning tool) can read the policy without running a spend.
+ * THE OFFER INDICES THIS HULL CAN ACTUALLY TAKE (Story 8.14 review, F4) — the
+ * cards `World.spendCard` would not refuse, through the one shared predicate
+ * both sides run. An empty result means the whole hand is refused, and the
+ * right answer is the human one (amendment 44): DO NOT SPEND — the level stays
+ * banked until firing a consumable frees a slot.
  */
-export function boonWeightFor(
-  profile: AnyProfileId,
-  id: string,
-  fitted: readonly string[] = [],
-  catalog: BoonCatalog = BOON_CATALOG,
-): number {
-  const def = defOf(catalog, id);
-  if (def === null) return 0; // unknown id: never picked
-  if (alreadyHeld(def, fitted)) return HELD_LINE_SCORE;
-  const table = weightTable(profile);
-  return table.lines[id] ?? table.cat[def.category] ?? UNLISTED_SCORE;
-}
-
-/** Rarity rank of a line (tiebreak only). */
-function rarityOf(catalog: BoonCatalog, id: string): number {
-  const def = defOf(catalog, id);
-  return def === null ? -1 : (RARITY_RANK[def.rarity] ?? 0);
-}
-
-/** True when candidate `i` beats the incumbent on weight, then rarity. Index
- *  order settles a full tie by never displacing the incumbent. */
-function beats(w: number, r: number, bestW: number, bestR: number): boolean {
-  if (w !== bestW) return w > bestW;
-  return r > bestR;
-}
-
-/** The best line in an offer under this profile's weights. Never returns -1
- *  for a non-empty offer: even an all-junk hand is spent, because a banked
- *  level held forever is a level wasted. */
-function bestOfferIndex(profile: BotProfile, s: BotSpendState, catalog: BoonCatalog): number {
+function spendableIndices(s: BotSpendState, catalog: Catalog): number[] {
   const offer = s.offer ?? [];
-  let bestI = 0;
-  let bestW = -Infinity;
-  let bestR = -1;
+  const slotIds = slotIdsOf(s);
+  const out: number[] = [];
   for (let i = 0; i < offer.length; i += 1) {
-    const w = boonWeightFor(profile.id, offer[i], s.boons, catalog);
-    const r = rarityOf(catalog, offer[i]);
-    if (beats(w, r, bestW, bestR)) {
-      bestW = w;
-      bestR = r;
-      bestI = i;
-    }
+    if (pickRefusal(s.cards, slotIds, offer[i], catalog) === null) out.push(i);
   }
-  return bestI;
+  return out;
+}
+
+/** The equipment row slot 0 carries — the cannon's when the caller supplied
+ *  no slots (or slot 0 holds nothing a gun ladder could name). */
+function mountedGunOf(s: BotSpendState): EquipmentId {
+  const g = s.slotIds?.[SLOT_GUN] ?? null;
+  return g === null || isConsumableId(g) ? MOUNTED_GUN[DEFAULT_GUN] : g;
+}
+
+/** Does this line belong to the bot's UPGRADEABLE SET — a ship ladder, a
+ *  ladder of the mounted gun, or a weapon already held? (Cap is checked by
+ *  the caller.) */
+function inUpgradeableSet(line: CatalogLine, copies: number, mounted: EquipmentId): boolean {
+  if (line.kind === 'equipment') return copies > 0;
+  if (line.kind !== 'ladder') return false;
+  const host = ladderHost(line);
+  return host === undefined || host === mounted;
 }
 
 /**
- * THE SPEND DECISION: an offer index, HEAL_CHOICE, or null for no spend this
- * tick. Pure — no World, no clock, no rng. The driver acts on it.
+ * THE UPGRADEABLE SET `U` the style bonus reads (spec "Scorer definitions"):
+ * the ship ladders, the mounted gun's ladder lines and every held equipment
+ * line, each only while BELOW CAP, valued by copies held. Derived from the
+ * catalog (a ladder with no host is a ship ladder), never a list of ids.
+ */
+function upgradeableSet(s: BotSpendState, catalog: Catalog): Map<string, number> {
+  const mounted = mountedGunOf(s);
+  const out = new Map<string, number>();
+  for (const key of Object.keys(catalog)) {
+    const line = catalog[key];
+    if (line === undefined || line.stub === true) continue;
+    const copies = boonStackCount(s.cards, key);
+    if (copies < line.cap && inUpgradeableSet(line, copies, mounted)) out.set(key, copies);
+  }
+  return out;
+}
+
+/** Does this upgrade card earn the STYLE bonus — its line holds the build's
+ *  lowest copy count (`rounded`) or highest (`specialist`)? Never on a FLAT
+ *  build, where min(U) = max(U) (R11). */
+function styleMatches(taste: BotTaste, s: BotSpendState, line: CatalogLine, catalog: Catalog): boolean {
+  const set = upgradeableSet(s, catalog);
+  const mine = set.get(line.id);
+  if (mine === undefined) return false;
+  const counts = [...set.values()];
+  const lo = Math.min(...counts);
+  const hi = Math.max(...counts);
+  if (lo === hi) return false;
+  return mine === (taste.style === 'rounded' ? lo : hi);
+}
+
+/** Does this upgrade card match one of the taste's favorite upgrades? A tier
+ *  copy of a held weapon is `weapons`; a ladder with a host row is `gun`; a
+ *  ship ladder is named by its own line id. */
+function isFavoriteUpgrade(taste: BotTaste, line: CatalogLine): boolean {
+  const favs: readonly string[] = taste.favoriteUpgrades;
+  if (line.kind === 'equipment') return favs.includes('weapons');
+  if (line.kind !== 'ladder') return false;
+  return ladderHost(line) === undefined ? favs.includes(line.id) : favs.includes('gun');
+}
+
+function upgradeScore(taste: BotTaste, s: BotSpendState, line: CatalogLine, catalog: Catalog): number {
+  const favorite = isFavoriteUpgrade(taste, line) ? POINTS.favorite : 0;
+  const style = styleMatches(taste, s, line, catalog) ? POINTS.style : 0;
+  return POINTS.base + favorite + style;
+}
+
+function weaponScore(taste: BotTaste, line: CatalogLine): number {
+  const eq = tierTargetOf(line);
+  return eq !== undefined && taste.favoriteWeapons.includes(eq) ? POINTS.favoriteWeapon : POINTS.weapon;
+}
+
+/** HURT — the heal tactic's own read, including the repair still draining in. */
+function isHurt(profile: BotProfile, s: BotSpendState): boolean {
+  return s.maxHp > 0 && (s.hp + (s.repairHp ?? 0)) / s.maxHp < profile.healHpFrac;
+}
+
+/** Does a BELT slot already carry this consumable? */
+function carries(s: BotSpendState, id: string): boolean {
+  const slotIds = slotIdsOf(s);
+  return CONSUMABLE_SLOTS.some((i) => slotIds[i] === id);
+}
+
+function consumableScore(profile: BotProfile, s: BotSpendState, id: string): number {
+  const favs: readonly string[] = profile.taste.favoriteConsumables;
+  const favorite = favs.includes(id) ? POINTS.favorite : 0;
+  const carried = carries(s, id);
+  if (!carried && id === 'hullRepair' && isHurt(profile, s)) return POINTS.base + POINTS.hurtRepair + favorite;
+  const belt = carried ? POINTS.carried : POINTS.beltHunger[profile.taste.beltHunger];
+  return POINTS.base + favorite + belt;
+}
+
+/**
+ * ONE CARD'S SCORE for this bot, or null when the hull cannot take it
+ * (`pickRefusal` — unknown, stub, at cap, belt full, no weapon slot). Pure:
+ * no rng, no clock. Exported so tests and tuning tools can read the policy
+ * without running a spend.
+ */
+export function cardScore(
+  profile: BotProfile,
+  s: BotSpendState,
+  lineId: string,
+  catalog: Catalog = CATALOG,
+): number | null {
+  if (pickRefusal(s.cards, slotIdsOf(s), lineId, catalog) !== null) return null;
+  const line = catalog[lineId];
+  if (line === undefined) return null;
+  if (line.kind === 'consumable') return consumableScore(profile, s, lineId);
+  if (line.kind === 'equipment' && boonStackCount(s.cards, lineId) === 0) return weaponScore(profile.taste, line);
+  return upgradeScore(profile.taste, s, line, catalog);
+}
+
+/** The max-scoring offer indices, in offer order (empty when all refused). */
+function topIndices(profile: BotProfile, s: BotSpendState, catalog: Catalog): number[] {
+  const offer = s.offer ?? [];
+  let best = -Infinity;
+  let ties: number[] = [];
+  for (let i = 0; i < offer.length; i += 1) {
+    const score = cardScore(profile, s, offer[i], catalog);
+    if (score === null || score < best) continue;
+    if (score > best) {
+      best = score;
+      ties = [];
+    }
+    ties.push(i);
+  }
+  return ties;
+}
+
+/** THE TIE-BREAK: one uniform draw among the tied indices, and only when
+ *  there IS a tie and an rng; otherwise the lowest index. */
+function breakTie(ties: readonly number[], rng?: Rng): number | null {
+  if (ties.length === 0) return null;
+  if (ties.length === 1 || rng === undefined) return ties[0];
+  return ties[rng.int(0, ties.length - 1)];
+}
+
+/**
+ * THE SPEND DECISION: an offer index, or null for no spend this tick. NEVER
+ * negative (Story 8.8: the reserved -1 heal sentinel is gone from the wire, and
+ * World.spendPoint refuses every negative as malformed). Pure — no World, no
+ * clock. The driver acts on it.
  *
- * The heal test precedes the offer test deliberately: HEAL_CHOICE is spendable
- * with no materialized offer at all (World.spendPoint routes it before the
- * card path), so a hurt bot holding a degenerate offer-less level still gets
- * its damage control.
- *
- * `rng` (Story 7-6 wave 4) is consumed ONLY by a `spend: 'random'` test
- * profile's uniform offer pick — the WEIGHTED path never touches it (a
- * weighted spend with an rng in hand is byte-identical to one without), so
- * every in-game profile's spend stays pure and rng-free exactly as shipped.
- * The heal rule above fires BEFORE the mode fork in both modes (ruled: the
- * card pick alone is randomized). A random profile handed no rng — only
- * reachable from a hand-built test call, never from the driver, which always
- * threads the mind's spendRng — falls through to the weighted scorer rather
- * than inventing a fixed pick.
+ * `rng` is the mind's decorrelated spendRng. The points scorer draws it only
+ * to break a tie; a `spend: 'random'` test profile's uniform offer pick
+ * consumes it; a random profile handed no rng — only reachable from a
+ * hand-built test call, never from the driver, which always threads the
+ * mind's spendRng — falls through to the scorer. A `spend: 'gunFirst'`
+ * (harness-only) row takes the mounted gun's ladder card when dealt, else the
+ * scorer.
  */
 export function chooseSpend(
   profile: BotProfile,
   s: BotSpendState,
-  catalog: BoonCatalog = BOON_CATALOG,
+  catalog: Catalog = CATALOG,
   rng?: Rng,
 ): number | null {
   if (s.bankedLevels <= 0) return null;
-  if (s.maxHp > 0 && s.hp / s.maxHp < profile.healHpFrac) return HEAL_CHOICE;
   if (s.offer === null || s.offer.length === 0) return null;
-  if (profile.spend === 'random' && rng !== undefined) return rng.int(0, s.offer.length - 1);
-  return bestOfferIndex(profile, s, catalog);
+  if (profile.spend === 'random' && rng !== undefined) return randomSpendable(s, catalog, rng);
+  const gun = profile.spend === 'gunFirst' ? gunLadderIndex(s, catalog) : null;
+  if (gun !== null) return gun;
+  return breakTie(topIndices(profile, s, catalog), rng);
+}
+
+/** The `spend: 'gunFirst'` harness mode's pick (batch-sim `--bot-spend gun`):
+ *  the first SPENDABLE offer index whose line is the MOUNTED gun's ladder
+ *  (a ladder whose host row is slot 0's module — the `deckGun` / `machineGun`
+ *  / `flak` card for that seat gun), or null when the hand deals none, and
+ *  the caller falls through to the weighted scorer. No rng: deterministic. */
+function gunLadderIndex(s: BotSpendState, catalog: Catalog): number | null {
+  const offer = s.offer ?? [];
+  const mounted = mountedGunOf(s);
+  for (const i of spendableIndices(s, catalog)) {
+    const line = catalog[offer[i]];
+    if (line?.kind === 'ladder' && ladderHost(line) === mounted) return i;
+  }
+  return null;
+}
+
+/** The `spend: 'random'` test profile's uniform pick, over the SPENDABLE cards
+ *  only (review F4) — byte-identical to the old `rng.int(0, offer.length - 1)`
+ *  whenever nothing in the hand is refused, which is every ordinary hand. */
+function randomSpendable(s: BotSpendState, catalog: Catalog, rng: Rng): number | null {
+  const spendable = spendableIndices(s, catalog);
+  if (spendable.length === 0) return null;
+  return spendable[rng.int(0, spendable.length - 1)];
 }

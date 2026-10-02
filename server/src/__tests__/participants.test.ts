@@ -52,9 +52,9 @@ describe('participants — the seam is what World actually stamps', () => {
   it('addShip defaults to captain, and World.isFleetHull agrees with the predicate', () => {
     const w = new World(1);
     w.map.islands.length = 0;
-    const cap = w.addShip('a', 'A');
-    const fleet = w.addShip('f', 'FLEET', 'fleet', 'droneSmall');
-    const bot = w.addBot(); // Story 6.4: the third role, stamped for real
+    const cap = w.addShip('a', 'A', undefined, undefined, undefined, undefined);
+    const fleet = w.addShip('f', 'FLEET', 'fleet', 'droneSmall', undefined, undefined);
+    const bot = w.addBot(undefined, undefined); // Story 6.4: the third role, stamped for real
     expect(cap.role).toBe('captain');
     expect(fleet.role).toBe('fleet');
     expect(bot.role).toBe('bot');

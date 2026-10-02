@@ -17,12 +17,14 @@
 
 import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import {
+  DEFAULT_GUN,
   generateMap,
   MSG,
   PROTOCOL_VERSION,
   REGATTA_HUES,
   sanitizeHornId,
   type FrameMsg,
+  type GunId,
   type HornId,
   type GameMap,
   type PingMsg,
@@ -179,7 +181,7 @@ export interface FrameSink {
  * The fresh-page resume registers its real bindings only once the welcome has
  * resolved and the Game is built — but on a resume the server's `lastResults`
  * re-send is dispatched from the reconnection deferred's `.then`, which core
- * runs BEFORE it calls `onReconnect` (verified against @colyseus/core 0.17.44).
+ * runs BEFORE it calls `onReconnect` (verified against @colyseus/core 0.18.13).
  * So a captain resuming into the results window receives `results` and THEN
  * `welcome`, and without this the re-send would land on no handler at all and
  * the final table would simply never open.
@@ -265,14 +267,26 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
 
 /** The join options. Sent at the QUEUE door now (Story 6.1) — matchMaker's seat
  *  reservation bypasses `onAuth`, so the arena's gate never runs for a queued
- *  player and the queue re-implements both the `pv` gate and the sanitizers. */
-function joinOptions(name?: string, cls?: string): Record<string, unknown> {
+ *  player and the queue re-implements both the `pv` gate and the sanitizers.
+ *
+ *  `gun` is THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): the captain's
+ *  pick, frozen at queue and re-sanitized server-side exactly as `cls` is. Story
+ *  8.15 (amendment 107) built the pick on the class-select cards: it is stored
+ *  under `hullcracker.gun` (ui/home.ts) and threaded here through
+ *  `startGame` → `connect(…, gun)`. Always SENT, never omitted. */
+export function joinOptions(name?: string, cls?: string, gun: GunId = DEFAULT_GUN): Record<string, unknown> {
   // `pv` is the join-time protocol gate: the server's onAuth rejects a missing
   // or mismatched PROTOCOL_VERSION with a "version mismatch" ServerError that
   // startGame() surfaces on the menu status line. Reconnects bypass onAuth, so
   // they are never re-gated.
-  const opts: { pv: number; name?: string; cls?: string; colorPref?: number; horn?: string } =
-    { pv: PROTOCOL_VERSION };
+  const opts: {
+    pv: number;
+    name?: string;
+    cls?: string;
+    colorPref?: number;
+    horn?: string;
+    gun: GunId;
+  } = { pv: PROTOCOL_VERSION, gun };
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
   // Story 4.5: the equipped foghorn variant, alongside cls/colorPref. Always
@@ -438,8 +452,12 @@ async function acquireArena(
  * TWO WRITERS, AND THE PAIR IS THE POINT.
  *
  * The SDK invokes `onReconnect` INSIDE its JOIN_ROOM handler and assigns the
- * rotated token on the LINE AFTER (@colyseus/sdk 0.17.43 `build/Room.mjs:241`
- * then `:243`; `createSignal().invoke` runs its handlers synchronously via
+ * rotated token TWO LINES LATER (@colyseus/sdk 0.18.2 `build/Room.mjs`:483 is
+ * `this.onReconnect.invoke()`, :485 assigns `this.reconnectionToken` from the
+ * roomId + the freshly-decoded token. RE-VERIFIED FOR 0.18: the ORDER is
+ * unchanged — only the line numbers moved, from 0.17.43's :241/:243 — which is
+ * exactly what keeps the microtask below necessary. `createSignal().invoke`
+ * runs its handlers synchronously via
  * `forEach`), so a handler that reads `room.reconnectionToken` DIRECTLY sees the
  * OLD value every time — which is why the first cut of this hung the write off
  * frames instead. But a continuation SCHEDULED from that handler does not: a
@@ -479,7 +497,9 @@ function tokenPersister(room: Room): () => void {
  * connection is.
  */
 function outfitArena(room: Room): { sink: FrameSink; early: EarlyMessages } {
-  // Story 0.2 re-enables the 0.17 SDK's same-Room auto-reconnect: on an abnormal
+  // Story 0.2 re-enables the SDK's same-Room auto-reconnect (0.18.2 keeps the
+  // `room.reconnection.enabled` / `.maxRetries` shape verbatim — build/
+  // Reconnection.mjs `createReconnection`): on an abnormal
   // close the SDK fires onDrop and retries the SAME room with the reconnection
   // token (all onMessage bindings survive), landing on onReconnect. The server
   // now holds the ship for CONFIG.net.reconnectGraceSeconds, so those retries
@@ -525,6 +545,17 @@ function outfitArena(room: Room): { sink: FrameSink; early: EarlyMessages } {
 }
 
 /**
+ * PRIVATE LOBBIES (cycle 167): the lobby room hands out the SAME `MSG.seat`
+ * reservation the queue does, and from there the arena flow is the queue's
+ * stage 2 byte for byte — consume, outfit, welcome. net/lobby.ts owns stage 1.
+ */
+export async function arenaFromSeat(client: Client, reservation: SeatReservation): Promise<Connection> {
+  const room = await client.consumeSeatReservation(reservation);
+  const { sink, early } = outfitArena(room);
+  return await settleArena(room, sink, early);
+}
+
+/**
  * Finish a connection: await the welcome, or tear the half-open room down.
  *
  * The token is cleared on failure by the same rule that governs every other
@@ -555,9 +586,10 @@ export async function connect(
   cls?: string,
   hooks: ConnectHooks = {},
   solo = false,
+  gun: GunId = DEFAULT_GUN,
 ): Promise<Connection> {
   const client = new Client(wsEndpoint());
-  const opts = joinOptions(name, cls);
+  const opts = joinOptions(name, cls, gun);
   // Everything below this line is the pre-6.1 flow byte for byte: `room` is the
   // ARENA room, so bindRoom/buildGame see exactly what they always did.
   const room = await acquireArena(client, opts, hooks, solo);

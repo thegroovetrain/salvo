@@ -17,7 +17,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  HEAL_CHOICE,
+  CONSUMABLE_SLOTS,
+  SLOT_BOOST,
   founderDeadline,
   isAfloat,
   isSinking,
@@ -30,9 +31,14 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 import { Match, type MatchHooks } from '../game/match.js';
 import { flatRaster } from './islandFixture.js';
+
+/** The first WEAPON slot (Q) — where Story 8.5's spawn seed lands a hull's
+ *  class weapon (the TB's torpedo, the ML's mine rack). */
+const SLOT_WEAPON = 2;
 
 const DT = CONFIG.tick.simDtMs;
 const WINDOW = CONFIG.ship.sinkingWindowMs;
@@ -48,7 +54,13 @@ function bareWorld(seed = 11): World {
 }
 
 function place(w: World, id: string, x: number, y: number, cls: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls);
+  // The hull's default deck (Story 8.2): what the door admits for a captain.
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls, undefined, undefined);
+  // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
+  // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
+  // weapon row, so this fixture fits it explicitly through the same applyCard
+  // path a real pick takes. Every case below keeps its subject.
+  fitClassWeapons(w, rec);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;
@@ -68,7 +80,7 @@ function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
     fireT: 0,
     actSeq: 0,
     actSlot: 0,
-    hornSeq: 0,
+    hornSeq: 0, held: false,
     ...extra,
   };
 }
@@ -152,14 +164,14 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
     expect(a.state.heading).not.toBe(headingAtSink); // the rudder still bit while making way
   });
 
-  it('a live speedBoost COMPOSES with the decel (amendment 10): the cap is the boosted max, not the rated one', () => {
+  it('a live boost COMPOSES with the decel (amendment 10): the cap is the boosted max, not the rated one', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0); // TB: slot 2 = speedBoost
+    const a = place(w, 'a', 0, 0); // slot 1 = boost on every captain (Story 8.5)
     a.state.speed = a.stats.kinematics.maxSpeed;
     w.respawnEnabled = false;
     w.sinkShip('a');
     // Activate the boost WHILE SINKING — the fitment criterion admits it.
-    w.submitInput('a', input(1, { throttle: 1, actSeq: 1, actSlot: 2 }));
+    w.submitInput('a', input(1, { throttle: 1, actSeq: 1, actSlot: SLOT_BOOST }));
     w.step();
     expect(a.boostUntil).toBeGreaterThan(w.now); // the doomed surge opened
     stepN(w, 19); // t = +1000ms into the window
@@ -205,12 +217,20 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
 // ---------- weapons, equipment and the horn (activation seam) ----------------
 
 describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn', () => {
-  it('all seven registry rows activate while sinking — the gate never answers dead', () => {
+  it('every FITTED registry row activates while sinking — the gate never answers dead', () => {
     const w = bareWorld();
+    // The NINE-SLOT fit (Story 8.5): gun, the universal boost, then the spawn
+    // seed's weapons. The RADAR BUOY has left the Mine Layer with the per-hull
+    // fit (amendment 22) and was deleted outright in Story 8.16
+    // — so this sweep now covers six of the seven rows, and the Battleship's
+    // two-line seed covers the fourth slot.
+    // Slot 1 is the hull's CLASS SHIFT since Story 8.15 (amendment 89(c)):
+    // boost / damageCut / instantReload — all three ride the sinking window
+    // exactly as the universal boost did (amendment 10).
     const fits: [ShipClassId, string[]][] = [
-      ['torpedoBoat', ['gun', 'torpedo', 'speedBoost']],
-      ['battleship', ['gun', 'broadside', 'starShells']],
-      ['mineLayer', ['gun', 'mine', 'radarBuoy']],
+      ['torpedoBoat', ['gun', 'boost', 'heavyTorpedo']],
+      ['battleship', ['gun', 'damageCut', 'broadside', 'starShells']],
+      ['mineLayer', ['gun', 'instantReload', 'navalMines']],
     ];
     for (const [cls, expected] of fits) {
       const ship = place(w, `s-${cls}`, 0, 0, cls);
@@ -251,9 +271,9 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     place(w, 'a', 0, 0); // TB torpedo: forward arc only
     w.respawnEnabled = false;
     w.sinkShip('a');
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 300 })); // astern
+    w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 300 })); // astern
     w.step();
-    expect(w.denialsFor('a')).toEqual([{ slot: 1, reason: 'out-of-arc', seq: 1 }]);
+    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 1 }]);
   });
 
   it('the firing window closes on exactly the founder tick', () => {
@@ -272,18 +292,23 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
 // ---------- the refit is closed (amendment 10) --------------------------------
 
 describe('refit closed — "once sinking, you\'re done"', () => {
-  it('card picks and the heal are both refused while sinking; the bank survives for the next life', () => {
+  it('card picks are refused while sinking, and a stocked HULL REPAIR refuses too; the bank survives', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.grantXp(a, 1); // bank one level
     expect(a.bankedLevels).toBe(1);
-    a.hp -= 50; // a heal would have something to restore
+    w.applyCard(a, 'hullRepair'); // a heal to press, stocked before the sink
+    a.hp -= 50; // ...and something for it to restore
     w.respawnEnabled = false;
     w.sinkShip('a');
     expect(w.spendPoint('a', 0)).toBe(false); // card pick: clean denial
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false); // heal: clean denial
+    // The BELT is not the refit: the press reaches its row through the
+    // activation gate (amendment 10's fitment rule), and the ROW refuses it
+    // — 'blocked', nothing spent (Story 8.8).
+    a.hp = a.stats.maxHp - 50; // so "full hull" is not what refuses it
+    expect(w.sinkingActivationGate(a, CONSUMABLE_SLOTS[0])).toEqual({ ok: false, reason: 'blocked' });
     expect(a.bankedLevels).toBe(1); // bank and queue untouched
-    expect(a.boons).toEqual([]);
+    expect(a.cards).toEqual(['heavyTorpedo', 'hullRepair']); // the seed + the un-spent heal copy
     expect(a.repairHp).toBe(0);
     // Once FOUNDERED, dead spending resumes (builds persist across respawns).
     w.step(WINDOW);
@@ -318,7 +343,7 @@ describe('finish-off attempt — damage is a no-op, the deadline never moves', (
     place(w, 'a', 0, 0);
     w.respawnEnabled = false;
     w.sinkShip('a');
-    w.mines.set('m1', { id: 'm1', ownerId: 'z', x: 10, y: 0, armedAt: 0 }); // inside any trigger ring
+    w.mines.set('m1', { id: 'm1', ownerId: 'z', x: 10, y: 0, armedAt: 0, kind: 'naval', hp: 10 }); // inside any trigger ring
     stepN(w, 10);
     expect(w.mines.has('m1')).toBe(true); // not a collision subject: the trap stays set
   });
@@ -453,10 +478,10 @@ function matchSetup(ids: string[], drones = 0): { w: World; m: Match; results: R
   };
   const m = new Match(w, TIMINGS, hooks);
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase());
+    w.addShip(id, id.toUpperCase(), undefined, undefined, undefined, undefined);
     m.notifyRosterChanged();
   }
-  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, 'fleet');
+  for (let i = 0; i < drones; i++) w.addShip(`d${i}`, `D${i}`, 'fleet', undefined, undefined, undefined);
   for (let i = 0; i < 100 && m.phase !== 'active'; i++) {
     w.step();
     m.update();

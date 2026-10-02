@@ -7,7 +7,7 @@ import { ShakeDriver, shakeMagnitude } from '../render/shake.js';
 import { vignetteAlpha } from '../render/zone.js';
 import { effectPeakAlpha, isJuiceEffect } from '../render/effects.js';
 import { slotFlags, slotSkin, type HotbarView } from '../render/hotbar.js';
-import { hullFillAlpha, hullPulseHz } from '../render/hud.js';
+import { hullFillAlpha, hullPulseHz } from '../render/hpGlobe.js';
 import { motionIntensity, motionScaled } from '../settings/store.js';
 import { hullLook } from '../render/ships.js';
 import { CLIENT_CONFIG } from '../config.js';
@@ -123,7 +123,7 @@ describe('hotbar — the ACTIVATED pop is juice; DENIED never is', () => {
 
   function view(motion: 'full' | 'reduced' | 'off'): HotbarView {
     return {
-      loadout: ['gun', 'torpedo', 'speedBoost', null],
+      loadout: ['gun', 'heavyTorpedo', 'boost', null],
       ammo: [null, null, null, null],
       stats,
       primedSlot: 0,

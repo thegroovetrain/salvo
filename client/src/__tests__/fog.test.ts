@@ -1,8 +1,10 @@
-// THE FOG SIGHT HOLE (render/fog.ts) — the DAZZLE BURST honesty rule (Story
-// 2.8). While an enemy dazzle zone holds the own hull, the SERVER has already
-// cut this ship's perceived sight by CONFIG.starShells.dazzleSightFactor, so the
-// baked hole must shrink by exactly the same factor: an un-shrunk hole would
-// draw clear water where the server reveals nothing — the fog circle would LIE.
+// THE FOG SIGHT HOLE (render/fog.ts) — the DAZZLE honesty rule (Story 2.8; the
+// mark is set by a FLASH SHELLS burst since Story 8.17, epic-8 amendment 132).
+// While the own hull is dazzled the SERVER has already cut its perceived sight
+// to the SHARED `effectiveSight` — radarRange × CONFIG.flashShells.sightFraction
+// (1/8 of intel range, 82.5 u at base) — so the baked hole must be exactly that
+// number: an un-shrunk hole would draw clear water where the server reveals
+// nothing — the fog circle would LIE.
 //
 // The rebake itself is a Pixi/canvas operation (untestable in jsdom); what is
 // pinned here is the pure radius rule and the staleness edge that decides WHEN
@@ -10,34 +12,33 @@
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, effectiveSight } from '@salvo/shared';
 import { Fog, fogHoleRadiusU } from '../render/fog.js';
+
+const BASE = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
 
 describe('fogHoleRadiusU — the dazzle-honest hole radius', () => {
   it('is the plain effective sight range while NOT dazzled', () => {
-    expect(fogHoleRadiusU(CONFIG.vision.sight, false)).toBe(CONFIG.vision.sight);
-    expect(fogHoleRadiusU(400, false)).toBe(400);
+    expect(fogHoleRadiusU(BASE, false)).toBe(CONFIG.vision.sight);
+    expect(fogHoleRadiusU({ sightRange: 400, radarRange: 660 }, false)).toBe(400);
   });
 
-  it('is the sight range CUT by the ratified dazzle factor while dazzled', () => {
-    expect(fogHoleRadiusU(CONFIG.vision.sight, true)).toBe(
-      CONFIG.vision.sight * CONFIG.starShells.dazzleSightFactor,
-    );
-    expect(fogHoleRadiusU(CONFIG.vision.sight, true)).toBeLessThan(CONFIG.vision.sight);
+  it('is ONE EIGHTH OF THE INTEL RANGE while dazzled — 82.5 u at base (was 165)', () => {
+    expect(fogHoleRadiusU(BASE, true)).toBe(82.5);
+    expect(fogHoleRadiusU(BASE, true)).toBe(CONFIG.vision.radar * CONFIG.flashShells.sightFraction);
+    expect(fogHoleRadiusU(BASE, true)).toBeLessThan(CONFIG.vision.sight);
   });
 
-  it('composes with a boosted sight range (an intel stack is cut, not ignored)', () => {
-    const boosted = CONFIG.vision.sight * 1.5;
-    expect(fogHoleRadiusU(boosted, true)).toBe(boosted * CONFIG.starShells.dazzleSightFactor);
-    // Being dazzled with more optics still leaves you better off than the base
-    // hull dazzled — the factor scales, it does not clamp to a constant.
-    expect(fogHoleRadiusU(boosted, true)).toBeGreaterThan(fogHoleRadiusU(CONFIG.vision.sight, true));
+  it('follows the RADAR range, not the sight range, while dazzled', () => {
+    // A wider bubble buys nothing while flashed; a longer radar does.
+    expect(fogHoleRadiusU({ ...BASE, sightRange: BASE.sightRange * 1.5 }, true)).toBe(82.5);
+    expect(fogHoleRadiusU({ ...BASE, radarRange: 800 }, true)).toBe(100);
   });
 
-  it('reads the SAME factor the server perceives a dazzled observer with', () => {
-    // One source (CONFIG.starShells.dazzleSightFactor) — never a client copy.
-    expect(CONFIG.starShells.dazzleSightFactor).toBeGreaterThan(0);
-    expect(CONFIG.starShells.dazzleSightFactor).toBeLessThan(1);
+  it('IS the shared effectiveSight — the function the server\'s sightOf calls', () => {
+    for (const r of [BASE, { sightRange: 400, radarRange: 800 }]) {
+      for (const d of [false, true]) expect(fogHoleRadiusU(r, d)).toBe(effectiveSight(r, d));
+    }
   });
 });
 
@@ -60,6 +61,35 @@ describe('Fog.setDazzled — the rebake staleness edge', () => {
     for (let i = 0; i < 120; i += 1) if (fog.setDazzled(true)) rebakes += 1;
     for (let i = 0; i < 120; i += 1) if (fog.setDazzled(false)) rebakes += 1;
     expect(rebakes).toBe(2);
+  });
+});
+
+// IN SMOKE (Story 8.18, Eric ruling 2026-09-29, amendment 149): the server
+// stamps the self-private `you.inSmoke` while the own hull's centre is in any
+// live puff and perceives it at the smoke tier of the SAME `effectiveSight` —
+// so the hole takes the same third argument and the same staleness edge.
+describe('IN SMOKE — the hole shrinks through the shared effectiveSight', () => {
+  it('is 1/8 of the intel range in smoke, the plain sight out of it', () => {
+    expect(fogHoleRadiusU(BASE, false, false)).toBe(CONFIG.vision.sight);
+    expect(fogHoleRadiusU(BASE, false, true)).toBe(CONFIG.vision.radar * CONFIG.smokeScreen.inSmokeSightFraction);
+    expect(fogHoleRadiusU({ ...BASE, radarRange: 800 }, false, true)).toBe(800 * CONFIG.smokeScreen.inSmokeSightFraction);
+    for (const d of [false, true]) {
+      for (const m of [false, true]) expect(fogHoleRadiusU(BASE, d, m)).toBe(effectiveSight(BASE, d, m));
+    }
+  });
+
+  it('Fog.setInSmoke reports a rebake only on a real flip, independent of dazzle', () => {
+    const fog = new Fog(new Container());
+    expect(fog.isInSmoke).toBe(false);
+    expect(fog.setInSmoke(false)).toBe(false);
+    expect(fog.setInSmoke(true)).toBe(true);
+    expect(fog.isInSmoke).toBe(true);
+    expect(fog.setInSmoke(true)).toBe(false);
+    // A dazzle flip neither consumes nor resets the smoke state.
+    expect(fog.setDazzled(true)).toBe(true);
+    expect(fog.isInSmoke).toBe(true);
+    expect(fog.setInSmoke(false)).toBe(true);
+    expect(fog.isDazzled).toBe(true);
   });
 });
 

@@ -4,84 +4,99 @@
 // Bot policy splits onto TWO AXES. The SHIP profile (ai/profiles.ts) is
 // temperament: engagement band, target weights, disengage/heal thresholds,
 // posture, and an APPETITE table saying how eager this captain is about each
-// piece of equipment. The EQUIPMENT TACTIC (this file) is weapon knowledge:
-// want/solve/reach and every doctrine branch for ONE equipment id. The flat
-// model this replaces keyed weapon knowledge by HULL, so a Battleship that
-// ACQUIRED mines (acquireMine) had no idea what a mine was, and `bulwark`
-// carried star shells natively while being flagged never to fire them.
+// piece of equipment. The EQUIPMENT TACTIC is weapon knowledge: want/solve/
+// reach and every doctrine branch for ONE equipment id. The flat model this
+// replaces keyed weapon knowledge by HULL, so a Battleship that ACQUIRED mines
+// had no idea what a mine was.
 //
-// `EQUIPMENT_TACTICS` is a total `Record<EquipmentId, EquipmentTactic>` — the
-// same one-interface-one-registry completeness gate the server's own
-// equipment rows use (game/equipment/index.ts): a future equipment cannot
-// ship without a bot tactic, because this Record fails to type-check without
-// its row.
+// THIS FILE holds the WEAPON rows — the three guns and every Q/E/R line —
+// as `WEAPON_TACTICS`, TOTAL over every EquipmentId that is not a class Shift.
+// The three Shift rows live in ai/shift.ts, the belt rows in ai/consumables.ts,
+// the shared vocabulary (types, aiming, appetite) in ai/tacticKit.ts, and
+// ai/tacticRegistry.ts assembles the TOTAL `EQUIPMENT_TACTICS` a fitted slot
+// resolves through.
 //
 // TEMPERAMENT MODULATES PROACTIVITY ONLY (ruled). There is ONE mine tactic
 // shared by everyone; `trapper` lays as a standing plan and `siege` lays only
 // when something is closing, and that difference is carried ENTIRELY by the
-// appetite number read against the two thresholds below. A profile may NOT
-// override placement geometry, doctrine choice or target selection — a
+// appetite number read against the two thresholds (tacticKit.ts). A profile
+// may NOT override placement geometry, doctrine choice or target selection — a
 // per-(profile × equipment) override table is the flat model this replaces
 // and is forbidden.
 //
 // EVERY DOCTRINE VERB HAS EXACTLY ONE BEHAVIOURAL CONSUMER, inside its
 // equipment's tactic:
-//   mine.captive        — full-placeRange proactive lays, hostile-only victims
-//   mine.propFouling    — the trap goes down EARLIER against a closing pursuer
-//   torpedo.homing      — the credible-range gate widens (budget − turn room)
-//   starShells.dazzle   — the flare turns OFFENSIVE (live contact in sight)
-//   starShells.phosphor — prefer the SLOW target; the ×0.8 lit shrink caps
-//                         how stale a sensor plot is worth lighting
-//   radarBuoy.jamming   — sited as COVER while in contact, not as recon
-//   radarBuoy.gun       — sited as a PICKET when a tracked hull is in its reach
+//   captiveMines (kind) — full-placeRange proactive lays, hostile-only victims
+//   foulingMines (kind) — the trap goes down EARLIER against a closing pursuer
+//   torpedo homingTurnRate — the credible-range gate widens (budget − turn room)
 //   broadside.spreadRung— the wide base fan may be spent on a just-lost plot;
 //                         a tightened fan demands a live track
+// (PHOSPHOR SHELLS is its own weapon row below; FLASH SHELLS (`dazzleShells`)
+// is a belt row in ai/consumables.ts.)
 //
 // No rng is drawn anywhere in want() — the mind's stream feeds aim scatter
 // and nothing else (the determinism pin).
 
 import {
   CONFIG,
-  SHIP_CLASS_IDS,
   bearing,
-  blockedWater,
+  hullEnvelope,
   inArc,
   sectorArcFor,
   twinSectorArcFor,
   wrapAngle,
   type EffectiveStats,
   type EquipmentId,
-  type Rng,
-  type Vec2,
+  type ShiftId,
 } from '@salvo/shared';
-import type { BotMind, BotPosture, BotSelf, BotWorldPort } from './types.js';
+import type { BotPosture, BotSelf } from './types.js';
 import {
   hasPersistence,
   isActionable,
-  lineBlocked,
   ownLiveMines,
+  plotAt,
   tracksOf,
   type BotSituation,
   type BotTrack,
 } from './utility.js';
 import type { BotProfile } from './profiles.js';
+import { LONGEST_HULL_U, TRACK_PERSIST_MS, trackVelocity } from './plot.js';
+import {
+  APPETITE_EAGER,
+  APPETITE_NEUTRAL,
+  TORPEDO_CREDIBLE_U,
+  aimPoint,
+  appetiteFor,
+  burstOnLiveContact,
+  deepFreezeRows,
+  distTo,
+  sectorPlacement,
+  shotReaches,
+  solveTorpedoShot,
+  type EquipmentTactic,
+  type Shot,
+  type TacticContext,
+  type TorpedoLineId,
+} from './tacticKit.js';
 
-const TAU = Math.PI * 2;
+// The appetite vocabulary is re-exported so a caller reading weapon appetites
+// keeps one import path for the weapon axis.
+export { APPETITE_EAGER, APPETITE_NEUTRAL, appetiteFor } from './tacticKit.js';
 
-/** The torpedo's ratified bow sector, the mine's ratified astern sector (the
- *  radar buoy shares it verbatim — sectorArcFor('radarBuoy') IS the mine's
- *  descriptor, pinned in shared arcs.test.ts) and the broadside's two beam
- *  sectors — resolved ONCE at module load from the single shared arc source
- *  the equipment rows enforce with. */
-const BOW_SECTOR = sectorArcFor('torpedo');
-const REAR_SECTOR = sectorArcFor('mine');
-const BUOY_SECTOR = sectorArcFor('radarBuoy');
+/** The MINE family id union the parameterized mine tactic is keyed by (Story
+ *  8.13) — a narrowing of `EquipmentId`, declared here because `ai/` may not
+ *  import `game/equipment/**`. */
+type MineLineId = Extract<EquipmentId, 'navalMines' | 'captiveMines' | 'foulingMines'>;
+
+/** Every equipment id a WEAPON row covers: all of them but the class Shifts. */
+type WeaponLineId = Exclude<EquipmentId, ShiftId>;
+
+/** The mine's ratified astern sector and the broadside's two beam sectors —
+ *  resolved ONCE at module load from the single shared arc source the
+ *  equipment rows enforce with. */
+const REAR_SECTOR = sectorArcFor('navalMines');
 const BEAM_SECTORS = twinSectorArcFor('broadside');
 
-/** u — the range inside which a STANDARD torpedo intercept is CREDIBLE. A 60
- *  u/s fish against a 45 u/s hull needs the target inside knife range or the
- *  lead solution is fiction; beyond this the tube is held. */
-const TORPEDO_CREDIBLE_U = 250;
 /** Fraction of CONFIG.mine.placeRange a STANDARD mine is dropped at — astern
  *  of the hull but well inside the rack's reach, so arc and range pass by
  *  construction and only the water can refuse. A CAPTIVE mine drops at the
@@ -90,9 +105,10 @@ const MINE_DROP_FRAC = 0.5;
 /** × placeRange — how close a track must be before a mine is worth laying
  *  (proactive/eager and reactive/closing branches alike at base). */
 const MINE_NEAR_MULT = 2;
-/** × placeRange — the WIDENED laying range against a CLOSING pursuer when
- *  PROP-FOULING is held: a slow only pays if the victim runs THROUGH the
- *  field, so a fouling trapper seeds the water earlier along the chase. */
+/** × placeRange — the WIDENED laying range against a CLOSING pursuer for the
+ *  FOULING rack (epic-8 amendment 81, where it was the PROP FOULING verb on
+ *  the naval rack): a slow only pays if the victim runs THROUGH the field, so
+ *  a fouling trapper seeds the water earlier along the chase. */
 const FOUL_CLOSING_MULT = 4;
 /** ms — how stale a plot must be before an EAGER flare user lights it. Below
  *  this the contact is fresh enough to shoot at directly. */
@@ -111,166 +127,31 @@ const WIDE_RUNG = 1;
  *  pattern to accept it. ~1.5s of drift at full ahead (67u) is inside the base
  *  barrage's footprint at combat range; older and the shot is a guess. */
 const WIDE_FAN_STALE_MS = 1500;
-/** u/s — the fastest playable hull, the drift bound the phosphor stale cap is
- *  derived against (never a literal: a kinematics retune moves it). */
-const FASTEST_HULL_SPEED = Math.max(
-  ...SHIP_CLASS_IDS.map((cls) => CONFIG.shipClasses[cls].kinematics.maxSpeed),
-);
 
-/** Appetite thresholds. Appetite is the SHIP profile's one word about an
- *  equipment: how PROACTIVELY this captain reaches for it. At or above EAGER
- *  the weapon is a standing plan; at or above NEUTRAL it is used reactively
- *  (when the situation demands); below NEUTRAL it is held for emergencies the
- *  tactic itself names (a mine on disengage answers a threat at ANY appetite). */
-export const APPETITE_NEUTRAL = 1;
-export const APPETITE_EAGER = 2;
-
-/** The neutral eagerness for equipment a profile's table does not name. The
- *  GUN is the deliberate exception: it is the always-available fallback, so
- *  its base appetite sits below everything else and it is tried LAST — the
- *  shipped ladder's ordering, now expressed as data. */
-const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
-  gun: 0.5,
-  torpedo: APPETITE_NEUTRAL,
-  mine: APPETITE_NEUTRAL,
-  speedBoost: APPETITE_NEUTRAL,
-  broadside: APPETITE_NEUTRAL,
-  starShells: APPETITE_NEUTRAL,
-  radarBuoy: APPETITE_NEUTRAL,
-});
-
-/** How eager this profile is about one equipment id — the profile's own entry,
- *  else the neutral base. THE one resolver both consumers (the want() gates
- *  here, the slot ordering in tactics.ts) read, so an appetite entry always
- *  has at least the ordering as its consumer. */
-export function appetiteFor(profile: BotProfile, id: EquipmentId): number {
-  return profile.appetite[id] ?? BASE_APPETITE[id];
-}
-
-/** A legal shot request: one slot, one bearing, one commanded distance. */
-export interface Shot {
-  aim: number;
-  aimDist: number;
-  slot: number;
-}
-
-/** How a tactic's output reaches the world: a 'shot' needs a target and is
- *  resolved BELOW chooseShot's target guard; a 'placement' (flare / mine /
- *  buoy) is resolved ABOVE it — siting a sensor buoy is most valuable when
- *  nothing is tracked; an 'ability' rides the actSeq channel (chooseAct). */
-export type TacticKind = 'shot' | 'placement' | 'ability';
-
-/** Everything a tactic may know when deciding: the bot's own record, its mind
- *  (track store + aim-scatter rng), the folded situation, the narrow port,
- *  the deliberated target (null is legal for placements) and the cached
- *  posture — plus the loadout slot this tactic would fire. */
-export interface TacticContext {
-  self: BotSelf;
-  mind: BotMind;
-  sit: BotSituation;
-  port: BotWorldPort;
-  target: BotTrack | null;
-  posture: BotPosture;
-  slot: number;
-}
-
-/** One equipment's bot tactic — the weapon axis. */
-export interface EquipmentTactic {
-  readonly id: EquipmentId;
-  readonly kind: TacticKind;
-  /** u — the effective COMMITTED reach at these stats (the band pull's input;
-   *  0 = never pulls). For a shot weapon this is the range it is genuinely
-   *  worth firing at, not its maximum flight. */
-  reachU(stats: EffectiveStats): number;
-  /** Spend this equipment now? Appetite modulates PROACTIVITY here and
-   *  nothing else. Must draw no rng. */
-  want(ctx: TacticContext): boolean;
-  /** The legal shot, or null (an arc/range/water/doctrine refusal — nothing
-   *  consumed). Ability rows always return null. */
-  solve(ctx: TacticContext): Shot | null;
-}
-
-// ---------------------------------------------------------------------------
-// AIMING — one lead solve, one scatter, one place (moved verbatim from
-// tactics.ts when the weapon ladder moved onto this axis).
-// ---------------------------------------------------------------------------
-
-/** Fixed-point iterations for the intercept solve (converges well inside 3). */
-const LEAD_ITERATIONS = 3;
-
-/**
- * The lead-corrected intercept point for a track at `speed` u/s of ordnance.
- * A track with no disclosed pose — the identity-free `return`-grammar plot —
- * cannot be led at all, so its last-known point IS the aim point.
- */
-function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
-  if (t.heading === null || t.speed === null) return { x: t.x, y: t.y };
-  const vx = Math.cos(t.heading) * t.speed;
-  const vy = Math.sin(t.heading) * t.speed;
-  let tof = 0;
-  for (let i = 0; i < LEAD_ITERATIONS; i += 1) {
-    const px = t.x + vx * tof;
-    const py = t.y + vy * tof;
-    tof = Math.hypot(px - sit.x, py - sit.y) / speed;
-  }
-  return { x: t.x + vx * tof, y: t.y + vy * tof };
-}
-
-/**
- * THE ONE PLACE MARKSMANSHIP LIVES (competence knob E2): a uniform disc of
- * CONFIG.bots.aimScatterU scaled by range, applied BEFORE any legality check.
- * The mind's rng feeds this and nothing else.
- */
-function scatter(p: Vec2, sit: BotSituation, rng: Rng): Vec2 {
-  const range = Math.hypot(p.x - sit.x, p.y - sit.y);
-  const r = Math.sqrt(rng.next()) * CONFIG.bots.aimScatterU * (range / CONFIG.bots.aimScatterRefU);
-  const a = rng.float(0, TAU);
-  return { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r };
-}
-
-/** The scattered lead solution for one weapon against one track. */
-function aimPoint(mind: BotMind, sit: BotSituation, t: BotTrack, speed: number): Vec2 {
-  return scatter(leadPoint(sit, t, speed), sit, mind.rng);
-}
-
-/**
- * THE TERRAIN CHECK — can this flat-trajectory round actually ARRIVE, or does
- * the coastline stop it first (the cycle-99 fix)? A physics question, never a
- * visibility one: firing into fog is a ratified feature (FR16), firing into a
- * rock is a wasted click. Origin is the hull CENTRE (BotSelf carries no hull
- * class), which is the strictly longer segment, so the check can only be
- * conservative.
- */
-function shotReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean {
-  return !lineBlocked(self.state, p, sit.islands);
-}
-
-function distTo(sit: BotSituation, t: BotTrack): number {
-  return Math.hypot(t.x - sit.x, t.y - sit.y);
-}
-
-/** Is this track making way TOWARD us? Unknown course = not closing (an
- *  identity-free plot cannot justify a reactive trap). */
+/** Is this track making way TOWARD us (evaluated at its predicted position)? Its course is the disclosed pose or
+ *  the bot's estimate (ai/plot.ts `trackVelocity`); unknown course = not
+ *  closing (a course-less plot cannot justify a reactive trap). */
 function isClosing(sit: BotSituation, t: BotTrack): boolean {
-  if (t.heading === null || t.speed === null) return false;
-  const vx = Math.cos(t.heading) * t.speed;
-  const vy = Math.sin(t.heading) * t.speed;
-  return vx * (sit.x - t.x) + vy * (sit.y - t.y) > 0;
+  const v = trackVelocity(t);
+  if (v === null) return false;
+  const p = plotAt(sit, t); // where it should be NOW, not the stale paint
+  return v.vx * (sit.x - p.x) + v.vy * (sit.y - p.y) > 0;
 }
 
 /** Is this track inside the hull's astern sector? */
 function behindUs(self: BotSelf, sit: BotSituation, t: BotTrack): boolean {
   const center = wrapAngle(self.state.heading + REAR_SECTOR.offset);
-  return inArc(Math.atan2(t.y - sit.y, t.x - sit.x), center, REAR_SECTOR.halfArc);
+  const p = plotAt(sit, t);
+  return inArc(Math.atan2(p.y - sit.y, p.x - sit.x), center, REAR_SECTOR.halfArc);
 }
 
 // ---------------------------------------------------------------------------
 // GUN — every bot's default weapon, the always-available fallback.
 // ---------------------------------------------------------------------------
 
-/** A gun-family burst (gun / broadside): aimed to a clicked point at a
- *  clamped range, coastline-gated. */
-function burstSolve(ctx: TacticContext, id: 'gun' | 'broadside', rangeU: number): Shot | null {
+/** A gun-family burst (cannon / broadside / flak): aimed to a clicked point at
+ *  a clamped range, coastline-gated. */
+function burstSolve(ctx: TacticContext, id: 'gun' | 'broadside' | 'flak', rangeU: number): Shot | null {
   const t = ctx.target;
   if (t === null) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, CONFIG[id].shellSpeed);
@@ -283,11 +164,90 @@ function burstSolve(ctx: TacticContext, id: 'gun' | 'broadside', rangeU: number)
 const gunTactic: EquipmentTactic = {
   id: 'gun',
   kind: 'shot',
-  reachU: (stats) => stats.gun.rangeU,
+  reachU: (stats) => stats.equipment.gun.rangeU,
   // Blip shooting is a ruled skill (cycle 99): the gun takes NO persistence
   // gate and no doctrine gate — every legality question lives in solve().
   want: (ctx) => ctx.target !== null,
-  solve: (ctx) => burstSolve(ctx, 'gun', ctx.sit.stats.gun.rangeU),
+  solve: (ctx) => burstSolve(ctx, 'gun', ctx.sit.stats.equipment.gun.rangeU),
+};
+
+// ---------------------------------------------------------------------------
+// THE TWO PICKABLE GUNS (Story 8.15, amendment 109). Both are 360°
+// (amendment 106) and reach the radar rung.
+// ---------------------------------------------------------------------------
+
+/** FLAK: the cannon's burst-solve on the flak row — one shell to the led point,
+ *  bursting there. Same no-persistence, no-doctrine want as the cannon. */
+const flakTactic: EquipmentTactic = {
+  id: 'flak',
+  kind: 'shot',
+  reachU: (stats) => stats.equipment.flak.rangeU,
+  want: (ctx) => ctx.target !== null,
+  solve: (ctx) => burstSolve(ctx, 'flak', ctx.sit.stats.equipment.flak.rangeU),
+};
+
+
+/**
+ * THE MAGAZINE DISCIPLINE (Eric ruling 2026-10-02, cycle 165): the machine gun
+ * does not stream at a plot with NO COURSE whose last refresh is older than
+ * one base sweep revolution — wherever that hull is now, it is not where the
+ * plot says, and a belt sprayed at it is a belt wasted. Any course (sighted,
+ * wake-fitted or paint-measured) or a fresher refresh streams as before.
+ * THE MACHINE GUN ONLY: the cannon, flak, broadside and torpedo keep no
+ * staleness rule (epic-6 amendment 32c — blip shooting is a ruled skill).
+ */
+function streamHolds(t: BotTrack, now: number): boolean {
+  return !t.live && trackVelocity(t) === null && now - t.seenAt > TRACK_PERSIST_MS;
+}
+
+/** u — how far PAST the lead point the stream is aimed (Eric ruling
+ *  2026-10-02, cycle 165): one hull length of the plot's disclosed class, else
+ *  the longest participant hull. A machine-gun shell expires at its aim
+ *  point, so scatter that lands the point short of the hull wasted the shell;
+ *  aiming a hull past the target keeps a short-scattered round live through
+ *  the hull it was meant for. */
+function overshootU(t: BotTrack): number {
+  return t.cls === null ? LONGEST_HULL_U : hullEnvelope(t.cls).hull.length;
+}
+
+/**
+ * THE MACHINE GUN'S STREAM: while the target sits inside the gun's reach, HOLD
+ * the level aimed at the lead solution (`held: true` on slot 0). It is never a
+ * click — the driver leaves fireSeq alone on a held tick — and the World fires
+ * one shell per `rateMs` for as long as the level stays up. The magazine gate
+ * is `slotReady` upstream (n > 0), so an empty magazine releases the level by
+ * never reaching here; a target leaving reach (measured at its PREDICTED
+ * position), no target, or a stale course-less plot (streamHolds) releases it
+ * too. The coastline gate is the cannon's: a stream into a rock is a wasted
+ * belt. The commanded distance runs one hull past the lead point (overshootU),
+ * clamped at the gun's reach.
+ */
+function streamSolve(ctx: TacticContext): Shot | null {
+  const t = ctx.target;
+  const sit = ctx.sit;
+  const rangeU = sit.stats.equipment.machineGun.rangeU;
+  if (t === null || streamHolds(t, sit.now)) return null;
+  if (distTo(sit, t) > rangeU) return null;
+  const p = aimPoint(ctx.mind, sit, t, CONFIG.machineGun.shellSpeed);
+  const leadD = Math.hypot(p.x - sit.x, p.y - sit.y);
+  // An intercept beyond reach holds the stream — the burstSolve rule (cycle
+  // 165 review, orchestrator ruling). A shell expires at reach, and a hull
+  // whose intercept centre lies past reach has its near edge at or beyond
+  // that expiry point, so a stream there only spends the belt (measured on
+  // the racetrack probe: strict 79.7 % vs a half-hull margin's 73.4 %). Only
+  // the aim-past overshoot may clamp at reach.
+  if (leadD > rangeU) return null;
+  if (!shotReaches(ctx.self, sit, p)) return null;
+  const d = Math.min(leadD + overshootU(t), rangeU);
+  return { aim: bearing(ctx.self.state, p), aimDist: d, slot: ctx.slot, held: true };
+}
+
+const machineGunTactic: EquipmentTactic = {
+  id: 'machineGun',
+  kind: 'shot',
+  reachU: (stats) => stats.equipment.machineGun.rangeU,
+  want: (ctx) => ctx.target !== null,
+  solve: streamSolve,
 };
 
 // ---------------------------------------------------------------------------
@@ -307,15 +267,15 @@ const gunTactic: EquipmentTactic = {
  */
 function fanAcceptsPlot(t: BotTrack, sit: BotSituation): boolean {
   if (t.live) return true;
-  if (sit.stats.broadside.spreadRung > WIDE_RUNG) return false;
+  if (sit.stats.equipment.broadside.spreadRung > WIDE_RUNG) return false;
   return sit.now - t.seenAt <= WIDE_FAN_STALE_MS;
 }
 
 function broadsideSolve(ctx: TacticContext): Shot | null {
   const t = ctx.target;
-  if (t === null || t.heading === null) return null; // an unled ghost gets the gun
+  if (t === null || trackVelocity(t) === null) return null; // a course-less ghost gets the gun
   if (!fanAcceptsPlot(t, ctx.sit)) return null;
-  const shot = burstSolve(ctx, 'broadside', ctx.sit.stats.broadside.rangeU);
+  const shot = burstSolve(ctx, 'broadside', ctx.sit.stats.equipment.broadside.rangeU);
   if (shot === null) return null;
   // THE BEAM ARC IS TESTED exactly as the equipment row tests it: a click in
   // the bow/stern dead zone is denied and would burn the click for nothing.
@@ -329,9 +289,9 @@ function broadsideSolve(ctx: TacticContext): Shot | null {
 const broadsideTactic: EquipmentTactic = {
   id: 'broadside',
   kind: 'shot',
-  reachU: (stats) => stats.broadside.rangeU,
+  reachU: (stats) => stats.equipment.broadside.rangeU,
   // A 30s reload is never committed to a plot without PERSISTENCE — the
-  // structural counter to a jamming buoy's fakes, which re-scatter wholesale
+  // structural counter to chaff's fakes, which re-scatter wholesale
   // each revolution and so can never persist as one coherent track.
   want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
   solve: broadsideSolve,
@@ -342,42 +302,43 @@ const broadsideTactic: EquipmentTactic = {
 // ---------------------------------------------------------------------------
 
 /**
- * THE HOMING CONSUMER. A standard fish is credible only at knife range
- * (TORPEDO_CREDIBLE_U). An ACOUSTIC HOMING fish corrects its own terminal
- * error, so the gate widens — bounded by BOTH ruled quantities: the
- * `homingMaxRangeU` travel budget, less one half-turn of correction room
- * (π × turn radius, where turn radius = speed / homingTurnRate — 120u at
- * base and WORSE with speed cards, so a speed-carded fish's credible range
- * genuinely SHRINKS as its turn opens).
+ * THE HOMING CONSUMER — now a TIER STAT, not a card (epic-8 amendment 80). A
+ * straight-running fish (`homingTurnRate === 0`, every line at tier I) is
+ * credible only at knife range (TORPEDO_CREDIBLE_U). A STEERING fish corrects
+ * its own terminal error, so the gate widens — bounded by BOTH ruled
+ * quantities: the family's `homingMaxRangeU` travel budget, less one half-turn
+ * of correction room (π × turn radius, where turn radius = speed / turn rate).
+ * A LOW tier buys a SLOW turn, so an early rung's credible range is barely
+ * wider than a straight-runner's, and a speed-carded fish's turn opens and
+ * shrinks it again — the honest consequence of the geometry, and the same
+ * formula the pre-8.13 doctrine read used.
  */
-function torpedoReachU(stats: EffectiveStats): number {
-  if (!stats.torpedo.homing) return TORPEDO_CREDIBLE_U;
-  const turnRadius = stats.torpedo.speed / CONFIG.torpedo.homingTurnRate;
+function torpedoReachU(stats: EffectiveStats, id: TorpedoLineId): number {
+  const row = stats.equipment[id];
+  if (row.homingTurnRate <= 0) return TORPEDO_CREDIBLE_U;
+  const turnRadius = row.speed / row.homingTurnRate;
   return Math.max(TORPEDO_CREDIBLE_U, CONFIG.torpedo.homingMaxRangeU - Math.PI * turnRadius);
 }
 
-function torpedoSolve(ctx: TacticContext): Shot | null {
-  const t = ctx.target;
-  if (t === null || t.heading === null) return null; // a return-grammar plot cannot be led
-  if (distTo(ctx.sit, t) > torpedoReachU(ctx.sit.stats)) return null;
-  const p = aimPoint(ctx.mind, ctx.sit, t, ctx.sit.stats.torpedo.speed);
-  const aim = bearing(ctx.self.state, p);
-  const center = wrapAngle(ctx.self.state.heading + BOW_SECTOR.offset);
-  if (!inArc(aim, center, BOW_SECTOR.halfArc)) return null; // ARC FIRST — an arc miss consumes nothing
-  if (!shotReaches(ctx.self, ctx.sit, p)) return null;
-  return { aim, aimDist: distTo(ctx.sit, t), slot: ctx.slot };
+/** ONE TORPEDO TACTIC, built per line (epic-8 amendment 79 — the light
+ *  torpedo reuses the heavy's tactic keyed by its own id). Everything that
+ *  differs is the row and the arc. */
+function torpedoTacticFor(id: TorpedoLineId): EquipmentTactic {
+  return {
+    id,
+    kind: 'shot',
+    reachU: (stats) => torpedoReachU(stats, id),
+    // Same persistence law as the broadside: a long-reload tube is never spent
+    // on a track that has not persisted one sweep revolution (live truesight
+    // counts instantly — a fake can never appear inside the bubble).
+    want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
+    solve: (ctx) =>
+      solveTorpedoShot(ctx, id, ctx.sit.stats.equipment[id].speed, torpedoReachU(ctx.sit.stats, id)),
+  };
 }
 
-const torpedoTactic: EquipmentTactic = {
-  id: 'torpedo',
-  kind: 'shot',
-  reachU: torpedoReachU,
-  // Same persistence law as the broadside: a 30s tube is never spent on a
-  // track that has not persisted one sweep revolution (live truesight counts
-  // instantly — a fake can never appear inside the bubble, structurally).
-  want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
-  solve: torpedoSolve,
-};
+const torpedoTactic: EquipmentTactic = torpedoTacticFor('heavyTorpedo');
+const lightTorpedoTactic: EquipmentTactic = torpedoTacticFor('lightTorpedo');
 
 // ---------------------------------------------------------------------------
 // MINE — one shared tactic; appetite is the ONLY thing trapper and siege
@@ -409,32 +370,25 @@ function captiveMineWant(ctx: TacticContext): boolean {
   // silently remove one.
   if (ctx.posture === 'disengage') return true;
   if (t === null) return false;
-  if (appetiteFor(ctx.sit.profile, 'mine') < APPETITE_NEUTRAL) return false;
-  // PROP-FOULING WIDENS THE CLOSING WINDOW HERE TOO (cross-model review, cycle
-  // 110). The two verbs STACK by design — the catalog says so, and the captive
-  // torpedo carries the foul — but `mineWant` hands the whole decision to this
-  // function the moment `captive` is set, so the base path's fouling widening
-  // was unreachable for a holder of BOTH. A neutral-appetite layer with both
-  // verbs, facing a pursuer closing astern at 450u, laid nothing where fouling
-  // ALONE would have laid: adding a card made the bot worse. Same class as the
-  // buoy, phosphor and captive-disengage downgrades.
-  const mult =
-    ctx.sit.stats.mine.propFouling && isClosing(ctx.sit, t) ? FOUL_CLOSING_MULT : MINE_NEAR_MULT;
-  return distTo(ctx.sit, t) <= CONFIG.mine.placeRange * mult;
+  if (appetiteFor(ctx.sit.profile, 'captiveMines') < APPETITE_NEUTRAL) return false;
+  // THE OLD PROP-FOULING WIDENING IS GONE FROM HERE, and it is not a
+  // regression: the two used to be DOCTRINE VERBS ON ONE RACK that stacked
+  // (a captive mine's fish carried the foul), so a holder of both needed this
+  // branch to reach the fouling range. Since amendment 81 they are two
+  // SEPARATE LINES in two separate slots with two separate racks — a fouling
+  // layer's own tactic does its own widening, and a captive mine fouls
+  // nothing — so a cross-line term here would be the flat model returning.
+  return distTo(ctx.sit, t) <= CONFIG.mine.placeRange * MINE_NEAR_MULT;
 }
 
-/**
- * THE FIELD-CHURN BOUND (Eric ruling 2026-08-20, cycle 111): EVERY lay —
- * prepared and reactive alike — is refused with the bot's own board at
- * `stats.mine.maxLive`. This closes a shipped defect: `addMine`
- * (game/equipment/mines.ts) SILENTLY EVICTS the owner's oldest mine at the
- * cap, so an uncounted lay churns the field the bot just built. The count is
- * read from the bot's own perception view (`ownLiveMines`) — the same data a
- * human client receives — never from a world collection.
- */
-function mineFieldFull(ctx: TacticContext): boolean {
-  return ownLiveMines(ctx.mind) >= ctx.sit.stats.mine.maxLive;
-}
+// THE FIELD-CHURN BOUND IS RETIRED (Story 8.4, FR57/AR48). It existed for one
+// reason — `addMine` SILENTLY EVICTED the owner's oldest mine at
+// `stats.equipment.navalMines.maxLive`, so an uncounted lay churned the field
+// the bot had just built — and Story 8.4 deleted every mine cap and every
+// eviction branch. There is nothing left to churn, so `mineFieldFull` is gone
+// and a bot lays whenever its tactic and its reload allow. NOTHING ELSE in bot
+// policy changes: the prepared occasion and every reactive occasion run exactly
+// as before, and `ownLiveMines` survives as the prepared-lay reserve's count.
 
 /** The postures in which a PREPARED lay is allowed: the bot is safe — nothing
  *  is being fought or fled — so a round spent seeding the water costs it no
@@ -455,19 +409,20 @@ const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm'];
  * first hostile into range and so works with NOBODY following — which is
  * precisely why it suits a hull that is hanging back — so holding the
  * doctrine opens the prepared occasion at mere NEUTRAL appetite. The reserve
- * (kept under `maxLive`) is what keeps headroom so a reactive lay always has
- * a round's worth of room; the profile still only says how eager it is.
+ * (which used to keep headroom under the now-deleted `maxLive`) is simply how
+ * much water a bot seeds with nobody in sight; the profile still only says how
+ * eager it is.
  *
  * PREPARED ADDS AN OCCASION, IT NEVER REMOVES ONE (epic-7 amendment 29, the
  * rule five defects produced): every reactive lay below still fires exactly
  * as before, including with the field at the reserve.
  */
-function preparedMineWant(ctx: TacticContext): boolean {
+function preparedMineWant(ctx: TacticContext, id: MineLineId): boolean {
   if (!SAFE_LAY_POSTURES.includes(ctx.posture)) return false;
   if (ownLiveMines(ctx.mind) >= CONFIG.bots.preparedMineReserve) return false;
-  const appetite = appetiteFor(ctx.sit.profile, 'mine');
+  const appetite = appetiteFor(ctx.sit.profile, id);
   if (appetite >= APPETITE_EAGER) return true;
-  return ctx.sit.stats.mine.captive && appetite >= APPETITE_NEUTRAL;
+  return id === 'captiveMines' && appetite >= APPETITE_NEUTRAL;
 }
 
 /**
@@ -481,132 +436,72 @@ function preparedMineWant(ctx: TacticContext): boolean {
  * the slow only pays if the pursuer runs through the field, so the fouling
  * trap goes down earlier along the chase.
  */
-function reactiveMineWant(ctx: TacticContext): boolean {
+function reactiveMineWant(ctx: TacticContext, id: MineLineId): boolean {
   const { sit, target: t } = ctx;
   if (ctx.posture === 'disengage') return true;
   if (t === null) return false;
-  const appetite = appetiteFor(sit.profile, 'mine');
+  const appetite = appetiteFor(sit.profile, id);
   if (appetite < APPETITE_NEUTRAL) return false;
   if (!behindUs(ctx.self, sit, t)) return false;
   const d = distTo(sit, t);
   if (isClosing(sit, t)) {
-    const mult = sit.stats.mine.propFouling ? FOUL_CLOSING_MULT : MINE_NEAR_MULT;
+    // FOULING is the widening kind now (amendment 81), not a verb on the naval
+    // rack: a slow only pays if the pursuer runs THROUGH the field.
+    const mult = id === 'foulingMines' ? FOUL_CLOSING_MULT : MINE_NEAR_MULT;
     if (d <= CONFIG.mine.placeRange * mult) return true;
   }
   return appetite >= APPETITE_EAGER && d <= CONFIG.mine.placeRange * MINE_NEAR_MULT;
 }
 
 /**
- * Does this bot want a mine in the water now? The churn bound refuses first
- * (no lay of any kind may evict), the prepared occasion ADDS next, and the
- * reactive occasions — the shipped behaviour, captive branch included — run
- * exactly as before.
+ * Does this bot want a mine in the water now? The prepared occasion ADDS first
+ * and the reactive occasions — the shipped behaviour, captive branch included —
+ * run exactly as before. Since Story 8.4 nothing refuses a lay on board count:
+ * mines have no cap and a lay can no longer evict a laid trap.
  */
-function mineWant(ctx: TacticContext): boolean {
-  if (mineFieldFull(ctx)) return false;
-  if (preparedMineWant(ctx)) return true;
-  if (ctx.sit.stats.mine.captive) return captiveMineWant(ctx);
-  return reactiveMineWant(ctx);
+function mineWant(ctx: TacticContext, id: MineLineId): boolean {
+  if (preparedMineWant(ctx, id)) return true;
+  if (id === 'captiveMines') return captiveMineWant(ctx);
+  return reactiveMineWant(ctx, id);
 }
 
-/** A drop commanded DEAD ASTERN — the centre of the given ratified placement
- *  sector — so arc and range pass by construction and only the water can
- *  refuse (`blockedWater` is the SAME predicate the equipment rows deny with). */
-function sectorPlacement(
-  ctx: TacticContext,
-  sector: { offset: number },
-  dropU: number,
-): Shot | null {
-  const aim = wrapAngle(ctx.self.state.heading + sector.offset);
-  const p = { x: ctx.sit.x + Math.cos(aim) * dropU, y: ctx.sit.y + Math.sin(aim) * dropU };
-  if (blockedWater(p, ctx.port.map.islands, ctx.port.map.radius)) return null;
-  return { aim, aimDist: dropU, slot: ctx.slot };
+/** ONE MINE TACTIC, built per line (epic-8 amendment 79 — captive and fouling
+ *  reuse the mine tactic keyed by their own ids). The three racks share every
+ *  chassis number, so only the want branches and the drop distance differ.
+ *  The drop is dead astern, at the centre of the rear sector. */
+function mineTacticFor(id: MineLineId): EquipmentTactic {
+  return {
+    id,
+    kind: 'placement',
+    reachU: () => CONFIG.mine.placeRange,
+    want: (ctx) => mineWant(ctx, id),
+    // CAPTIVE lays at the FULL placeRange: a 144u trip ring is area denial, so
+    // the round goes as far out as the rack reaches; a contact or fouling mine
+    // stays at half reach, seeding the water the hull just left.
+    solve: (ctx) =>
+      sectorPlacement(ctx, REAR_SECTOR, CONFIG.mine.placeRange * (id === 'captiveMines' ? 1 : MINE_DROP_FRAC)),
+  };
 }
 
-const mineTactic: EquipmentTactic = {
-  id: 'mine',
-  kind: 'placement',
-  reachU: () => CONFIG.mine.placeRange,
-  want: mineWant,
-  // CAPTIVE lays at the FULL placeRange: a 144u trip ring is area denial, so
-  // the round goes as far out as the rack reaches; a contact mine stays at
-  // half reach, seeding the water the hull just left.
-  solve: (ctx) =>
-    sectorPlacement(
-      ctx,
-      REAR_SECTOR,
-      CONFIG.mine.placeRange * (ctx.sit.stats.mine.captive ? 1 : MINE_DROP_FRAC),
-    ),
-};
+const mineTactic: EquipmentTactic = mineTacticFor('navalMines');
+const captiveMineTactic: EquipmentTactic = mineTacticFor('captiveMines');
+const foulingMineTactic: EquipmentTactic = mineTacticFor('foulingMines');
 
 // ---------------------------------------------------------------------------
-// STAR SHELLS — the sensor shot, plus the two offensive doctrine verbs.
+// STAR SHELLS — the sensor shot. (The two offensive doctrine verbs that used
+// to ride here are DELETED, Story 8.17 / amendment 134; PHOSPHOR SHELLS has
+// its own row below.)
 // ---------------------------------------------------------------------------
 
 /** ms — how stale a plot must be before THIS profile spends a flare on it.
  *  Eagerness only: when an eager and a neutral holder both fire, they fire at
- *  the identical point. */
+ *  the identical point. (The phosphor stale CAP that once bounded this —
+ *  `phosphorStaleCapMs`, the ×0.8 lit shrink — went with the verb; the
+ *  reluctant floor is simply the floor again.) */
 function flareStaleFloorMs(profile: BotProfile): number {
   return appetiteFor(profile, 'starShells') >= APPETITE_EAGER
     ? FLARE_STALE_MS
     : FLARE_STALE_MS * RELUCTANT_STALE_MULT;
-}
-
-/**
- * THE PHOSPHOR REACH COST: phosphor shrinks the flare's OWN lit circle ×0.8
- * (the equipment row spawns litRadius × incendiaryRadiusFactor), so a stale
- * plot is only worth lighting while its drift bound still fits inside the
- * smaller circle — staler than this and the burning zone probably misses.
- */
-function phosphorStaleCapMs(stats: EffectiveStats): number {
-  const lit = stats.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor;
-  return (lit / FASTEST_HULL_SPEED) * 1000;
-}
-
-/**
- * THE OFFENSIVE FLARE (dazzle and/or phosphor held): fired at a LIVE contact
- * inside our own sight bubble — dazzle halves the victim's whole sightOf and
- * phosphor burns 5 hp/s — rather than only at a stale far plot. PHOSPHOR
- * PREFERS THE SLOW TARGET (a DoT zone only pays on a hull that stays in it);
- * dazzle alone takes the nearest.
- */
-function offensiveFlareTarget(ctx: TacticContext): BotTrack | null {
-  const ss = ctx.sit.stats.starShells;
-  if (!ss.dazzle && !ss.phosphor) return null;
-  let best: BotTrack | null = null;
-  let bestKey = Infinity;
-  for (const t of tracksOf(ctx.mind)) {
-    if (!t.live || !isActionable(t, ctx.sit.now)) continue;
-    const d = distTo(ctx.sit, t);
-    if (d > ctx.sit.stats.sightRange) continue;
-    const key = ss.phosphor ? t.speed ?? Infinity : d;
-    if (key < bestKey) {
-      bestKey = key;
-      best = t;
-    }
-  }
-  return best;
-}
-
-/**
- * THE RELUCTANT WAIT MAY NEVER OUTLAST THE GEOMETRY (review gate, cycle 110).
- * `flareStaleFloorMs` makes a non-eager holder wait 2× before spending a
- * flare, and `phosphorStaleCapMs` refuses a plot too stale for the SHRUNKEN
- * burning circle to still cover. At shipped numbers those cross: the
- * reluctant floor is 3000ms and the phosphor cap is 165 × 0.8 / 45 × 1000 =
- * 2933ms, so the window was EMPTY by 67ms and buying PHOSPHOR silently
- * deleted the C2 sensor-flare role for every non-eager holder — `bulwark`,
- * which CARRIES star shells natively, and every acquirer at the base
- * appetite. It was invisible to the blind-vacuum rig because those rows are
- * all eager, and to the suite because the phosphor tests all use `siege`.
- *
- * The cap is real geometry and wins; RELUCTANCE DEGRADES TO THE EAGER FLOOR
- * rather than to nothing, so a doctrine still never removes a role. Pinned
- * below by a constraint test, so a future litRadius card cannot re-cross it.
- */
-function flareFloorUnderCap(profile: BotProfile, capMs: number): number {
-  const wanted = flareStaleFloorMs(profile);
-  return wanted < capMs ? wanted : FLARE_STALE_MS;
 }
 
 /**
@@ -616,16 +511,14 @@ function flareFloorUnderCap(profile: BotProfile, capMs: number): number {
  */
 function sensorFlareTarget(ctx: TacticContext): BotTrack | null {
   const sit = ctx.sit;
-  const capMs = sit.stats.starShells.phosphor ? phosphorStaleCapMs(sit.stats) : Infinity;
-  const floorMs = flareFloorUnderCap(sit.profile, capMs);
+  const floorMs = flareStaleFloorMs(sit.profile);
   let best: BotTrack | null = null;
   let bestD = Infinity;
   for (const t of tracksOf(ctx.mind)) {
     if (t.live || !isActionable(t, sit.now)) continue;
-    const age = sit.now - t.seenAt;
-    if (age < floorMs || age > capMs) continue;
+    if (sit.now - t.seenAt < floorMs) continue;
     const d = distTo(sit, t);
-    if (d <= sit.stats.sightRange || d > sit.stats.starShells.rangeU) continue;
+    if (d <= sit.stats.sightRange || d > sit.stats.equipment.starShells.rangeU) continue;
     if (d < bestD) {
       bestD = d;
       best = t;
@@ -635,19 +528,19 @@ function sensorFlareTarget(ctx: TacticContext): BotTrack | null {
 }
 
 function flareSolve(ctx: TacticContext): Shot | null {
-  const t = offensiveFlareTarget(ctx) ?? sensorFlareTarget(ctx);
+  const t = sensorFlareTarget(ctx);
   if (t === null) return null;
   // THE TERRAIN GATE IS ON THE SHOT, never on the selector: the bot still
   // wants the nearest plot; it holds the round when the round cannot arrive.
-  if (!shotReaches(ctx.self, ctx.sit, t)) return null;
-  const d = Math.min(distTo(ctx.sit, t), ctx.sit.stats.starShells.rangeU);
-  return { aim: bearing(ctx.self.state, t), aimDist: d, slot: ctx.slot };
+  if (!shotReaches(ctx.self, ctx.sit, plotAt(ctx.sit, t))) return null;
+  const d = Math.min(distTo(ctx.sit, t), ctx.sit.stats.equipment.starShells.rangeU);
+  return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
 
 const starShellsTactic: EquipmentTactic = {
   id: 'starShells',
   kind: 'placement',
-  reachU: (stats) => stats.starShells.rangeU,
+  reachU: (stats) => stats.equipment.starShells.rangeU,
   // Any holder with at least neutral appetite uses flares — the shipped
   // usesStarShells:false flag on bulwark (a hull that CARRIES them natively)
   // is exactly the capability-keyed-by-hull defect this axis retires.
@@ -656,84 +549,34 @@ const starShellsTactic: EquipmentTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// RADAR BUOY — no tactic existed at all before this file. Placement is
-// re-derived from CONFIG.mine.placeRange + sectorArcFor('radarBuoy') (the
-// equipment row is import-banned from ai/).
+// PHOSPHOR SHELLS (Story 8.17, amendment 135(h)). Fired straight at the
+// NEAREST LIVE contact inside the bot's own sight bubble, inside the row's
+// reach (tacticKit.ts burstOnLiveContact).
 // ---------------------------------------------------------------------------
 
-/**
- * WHERE a buoy is wanted depends on its doctrine, and on nothing the profile
- * says (appetite gates only WHETHER this captain bothers):
- *   plain sensor — RECON: sited when NOTHING is tracked, which is why the
- *                  placement class resolves ABOVE the target guard at all;
- *   jamming      — COVER: sited while IN CONTACT, scattering fakes over the
- *                  fight the bot is actually having;
- *   gun          — PICKET: sited when a tracked hull is inside the reach the
- *                  buoy's own gun could actually serve (its flat radarRange
- *                  around a drop one placeRange astern).
- */
-function buoyWant(ctx: TacticContext): boolean {
-  if (appetiteFor(ctx.sit.profile, 'radarBuoy') < APPETITE_NEUTRAL) return false;
-  const rb = ctx.sit.stats.radarBuoy;
-  // RECON IS AVAILABLE TO EVERY DOCTRINE. Both buoy verbs are pure ADDS in the
-  // sim — a jamming buoy still relays to its owner exactly as a plain one does
-  // (`signals.ts` buoyGate is untouched by the verb; jamming only ADDS fakes,
-  // and the owner is exempt from them), and a gun buoy is a sensor that also
-  // shoots. So a doctrine may ADD a siting occasion and may NEVER remove the
-  // base one: an empty scope is always worth a buoy. Reading the switch the
-  // other way made buying a doctrine a DOWNGRADE in the role the buoy already
-  // had, which no card in this catalog does.
-  if (ctx.target === null) return true;
-  // COVER: fakes scattered over the fight the bot is actually having.
-  if (rb.jamming) return true;
-  // PICKET: only where the buoy's own gun could actually serve, measured from
-  // a drop one placeRange astern.
-  if (rb.gun) return distTo(ctx.sit, ctx.target) <= rb.radarRange + CONFIG.mine.placeRange;
-  return false;
-}
-
-const radarBuoyTactic: EquipmentTactic = {
-  id: 'radarBuoy',
+const phosphorShellsTactic: EquipmentTactic = {
+  id: 'phosphorShells',
   kind: 'placement',
-  reachU: () => CONFIG.mine.placeRange,
-  want: buoyWant,
-  // Dropped dead astern at the FULL shared placeRange (max standoff for a
-  // sensor), through the same sector-centre construction as the mine — the
-  // buoy shares the mine's whole placement envelope (R2.7), which BUOY_SECTOR
-  // resolves from the one shared arc source — the buoy's own descriptor, not
-  // a mine assumption (the two are pinned identical in shared arcs.test.ts).
-  solve: (ctx) => sectorPlacement(ctx, BUOY_SECTOR, CONFIG.mine.placeRange),
+  reachU: (stats) => stats.equipment.phosphorShells.rangeU,
+  want: (ctx) => appetiteFor(ctx.sit.profile, 'phosphorShells') >= APPETITE_NEUTRAL,
+  solve: (ctx) => burstOnLiveContact(ctx, ctx.sit.stats.equipment.phosphorShells.rangeU),
 };
 
 // ---------------------------------------------------------------------------
-// SPEED BOOST — the one ability: spent opening range on the way out.
+// THE WEAPON TABLE — TOTAL over every non-Shift EquipmentId, deep-frozen.
+// ai/tacticRegistry.ts adds the Shift rows to make EQUIPMENT_TACTICS.
 // ---------------------------------------------------------------------------
 
-const speedBoostTactic: EquipmentTactic = {
-  id: 'speedBoost',
-  kind: 'ability',
-  reachU: () => 0,
-  want: (ctx) =>
-    ctx.posture === 'disengage' && appetiteFor(ctx.sit.profile, 'speedBoost') >= APPETITE_NEUTRAL,
-  solve: () => null,
-};
-
-// ---------------------------------------------------------------------------
-// THE REGISTRY — total over EquipmentId (the completeness gate), deep-frozen
-// like the server's own EQUIPMENT registry.
-// ---------------------------------------------------------------------------
-
-const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
-  for (const key of Object.keys(rows) as (keyof T)[]) Object.freeze(rows[key]);
-  return Object.freeze(rows);
-};
-
-export const EQUIPMENT_TACTICS: Readonly<Record<EquipmentId, EquipmentTactic>> = deepFreezeRows({
+export const WEAPON_TACTICS: Readonly<Record<WeaponLineId, EquipmentTactic>> = deepFreezeRows({
   gun: gunTactic,
-  torpedo: torpedoTactic,
-  mine: mineTactic,
-  speedBoost: speedBoostTactic,
+  machineGun: machineGunTactic,
+  flak: flakTactic,
+  heavyTorpedo: torpedoTactic,
+  lightTorpedo: lightTorpedoTactic,
+  navalMines: mineTactic,
+  captiveMines: captiveMineTactic,
+  foulingMines: foulingMineTactic,
   broadside: broadsideTactic,
   starShells: starShellsTactic,
-  radarBuoy: radarBuoyTactic,
+  phosphorShells: phosphorShellsTactic,
 });

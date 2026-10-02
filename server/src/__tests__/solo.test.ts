@@ -23,7 +23,7 @@
 //
 // Harness: the bare `new ArenaRoom()` idiom (operability/regatta/zoneSeeds
 // tests) with core's own methods stubbed — @colyseus/core's __init never runs,
-// so lock/onMessage/setSimulationInterval/clock are injected. The REAL onCreate
+// so lock/onMessage/setTimestep/clock are injected. The REAL onCreate
 // runs, which is the point: the bot fleet's construction ORDER is what is under
 // test, and a hand-rolled construction would prove nothing about it.
 
@@ -31,6 +31,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClientState } from 'colyseus';
 import {
   CONFIG,
+  GUN_IDS,
+  MOUNTED_GUN,
   PROTOCOL_VERSION,
   REGATTA_HUES,
   REGATTA_NO_HUE,
@@ -40,6 +42,7 @@ import {
 } from '@salvo/shared';
 import { ArenaRoom, ARENA_DIRECT_JOIN_ERROR } from '../rooms/ArenaRoom.js';
 import { sanitizeSolo, type RoomOptions } from '../rooms/roomOptions.js';
+import { lobbyTicket } from '../rooms/lobbyTicket.js';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import type { ArenaState, PlayerMeta } from '../rooms/schema/ArenaState.js';
@@ -123,7 +126,7 @@ function room(options: RoomOptions): SoloRoom {
   r.disconnect = vi.fn(() => Promise.resolve());
   r.broadcast = vi.fn();
   r.onMessage = vi.fn();
-  r.setSimulationInterval = vi.fn();
+  r.setTimestep = vi.fn();
   r.clock = { setInterval: vi.fn(), setTimeout: vi.fn() };
   r.clients = [];
   r.onCreate(options);
@@ -180,7 +183,7 @@ describe('the solo room — construction', () => {
 
   it('THE TIMING PIN: every bot is in the water BEFORE the first tick and before any Match.update', () => {
     const r = soloRoom();
-    // Zero ticks have run: setSimulationInterval is stubbed, so onCreate is the
+    // Zero ticks have run: setTimestep is stubbed, so onCreate is the
     // only thing that has executed. A bot built even one tick later than this
     // would miss activate()'s participant snapshot.
     expect(r.world.tick).toBe(0);
@@ -227,6 +230,31 @@ describe('the solo room — construction', () => {
     for (const b of bots(r)) counts.set(b.hullId, (counts.get(b.hullId) ?? 0) + 1);
     expect([...counts.keys()].sort()).toEqual([...SHIP_CLASS_IDS].sort());
     expect([...counts.values()].sort()).toEqual([6, 6, 7]);
+  });
+
+  // Story 8.15 (amendment 109): every bot MOUNTS A RANDOM GUN, drawn
+  // uniformly off the room's seeded stream — the hue RNG every other room roll
+  // rides — so a pinned map seed seats a pinned fleet and staging fights all
+  // three guns from this cycle. Never Math.random.
+  it('seats every bot with a gun off the SEEDED stream: a pinned seed yields the same guns twice, and all three guns appear across a few seeds', () => {
+    process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
+    const gunsOf = (r: SoloRoom): string[] => bots(r).map((b) => r.world.ships.get(b.id)!.gun);
+    const first = gunsOf(soloRoom({ mapSeed: 7 }));
+    expect(first).toHaveLength(BOTS);
+    expect(gunsOf(soloRoom({ mapSeed: 7 }))).toEqual(first); // the same seed, the same fleet
+    for (const g of first) expect(GUN_IDS).toContain(g);
+    // Slot 0 mounts the drawn gun's OWN module (MOUNTED_GUN), never the cannon
+    // for all three.
+    const r = soloRoom({ mapSeed: 7 });
+    for (const b of bots(r)) {
+      const rec = r.world.ships.get(b.id)!;
+      expect(rec.loadout[0].equipmentId).toBe(MOUNTED_GUN[rec.gun]);
+    }
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 6 && seen.size < GUN_IDS.length; seed += 1) {
+      for (const g of gunsOf(soloRoom({ mapSeed: seed }))) seen.add(g);
+    }
+    expect([...seen].sort()).toEqual([...GUN_IDS].sort());
   });
 
   it('varies WHICH class takes the odd seat across rooms (the order is rolled, not fixed)', () => {
@@ -371,7 +399,7 @@ describe('bots one tick late — the failure the timing pin exists to catch', ()
     w.map.islands.length = 0;
     const calls: string[] = [];
     const m = new Match(w, TIMINGS, hooks(calls));
-    w.addShip('alice', 'ALICE');
+    w.addShip('alice', 'ALICE', undefined, undefined, undefined, undefined);
     m.notifyRosterChanged();
     for (let i = 0; i < 10; i += 1) {
       w.step(DT);
@@ -379,7 +407,7 @@ describe('bots one tick late — the failure the timing pin exists to catch', ()
     }
     // THE DAMAGE: the match is already decided before the fleet exists.
     expect(m.winnerId).toBe('alice');
-    for (let i = 0; i < 5; i += 1) w.addBot();
+    for (let i = 0; i < 5; i += 1) w.addBot(undefined, undefined);
     expect(m.placements.size).toBeLessThanOrEqual(1); // no bot can ever place here
   });
 
@@ -388,8 +416,8 @@ describe('bots one tick late — the failure the timing pin exists to catch', ()
     w.map.islands.length = 0;
     const calls: string[] = [];
     const m = new Match(w, TIMINGS, hooks(calls));
-    for (let i = 0; i < 5; i += 1) w.addBot();
-    w.addShip('alice', 'ALICE');
+    for (let i = 0; i < 5; i += 1) w.addBot(undefined, undefined);
+    w.addShip('alice', 'ALICE', undefined, undefined, undefined, undefined);
     m.notifyRosterChanged();
     for (let i = 0; i < 10; i += 1) {
       w.step(DT);
@@ -406,17 +434,17 @@ describe('World.addBot — the optional class (Story 6.5)', () => {
   it('honours a supplied hull class', () => {
     const w = new World(1);
     w.map.islands.length = 0;
-    for (const hull of SHIP_CLASS_IDS) expect(w.addBot(hull).hullId).toBe(hull);
+    for (const hull of SHIP_CLASS_IDS) expect(w.addBot(hull, undefined).hullId).toBe(hull);
   });
 
   it('with NO argument behaves exactly as it shipped — same classes, same order', () => {
     const shipped: ShipClassId[] = [];
     const a = new World(7);
     a.map.islands.length = 0;
-    for (let i = 0; i < 8; i += 1) shipped.push(a.addBot().hullId as ShipClassId);
+    for (let i = 0; i < 8; i += 1) shipped.push(a.addBot(undefined, undefined).hullId as ShipClassId);
     const b = new World(7);
     b.map.islands.length = 0;
-    const again = Array.from({ length: 8 }, () => b.addBot().hullId as ShipClassId);
+    const again = Array.from({ length: 8 }, () => b.addBot(undefined, undefined).hullId as ShipClassId);
     expect(again).toEqual(shipped);
   });
 
@@ -427,9 +455,9 @@ describe('World.addBot — the optional class (Story 6.5)', () => {
     a.map.islands.length = 0;
     const b = new World(9);
     b.map.islands.length = 0;
-    a.addBot();
-    b.addBot('battleship');
-    expect(a.addBot().hullId).toBe(b.addBot().hullId);
+    a.addBot(undefined, undefined);
+    b.addBot('battleship', undefined);
+    expect(a.addBot(undefined, undefined).hullId).toBe(b.addBot(undefined, undefined).hullId);
     expect([...a.ships.values()].map((s) => s.name)).toEqual([...b.ships.values()].map((s) => s.name));
   });
 });
@@ -438,7 +466,7 @@ describe('World.renameBot', () => {
   it('draws a fresh unused callsign and leaves the hull alone', () => {
     const w = new World(3);
     w.map.islands.length = 0;
-    const rec = w.addBot('mineLayer');
+    const rec = w.addBot('mineLayer', undefined);
     const was = rec.name;
     const next = w.renameBot(rec.id);
     expect(next).not.toBeNull();
@@ -451,9 +479,92 @@ describe('World.renameBot', () => {
   it('refuses an unknown id and a human captain', () => {
     const w = new World(3);
     w.map.islands.length = 0;
-    w.addShip('alice', 'ALICE');
+    w.addShip('alice', 'ALICE', undefined, undefined, undefined, undefined);
     expect(w.renameBot('nobody')).toBeNull();
     expect(w.renameBot('alice')).toBeNull();
     expect(w.ships.get('alice')!.name).toBe('ALICE');
+  });
+});
+
+// --- PRIVATE ARENAS (cycle 167, Eric rulings 2026-10-02) ---------------------
+//
+// A private lobby forms its arena with a server-private TRUST TICKET carrying
+// `mode: 'private'`, `botFill` and (optionally) the host's `mapSeed`. Bot fill
+// reuses the solo fleet builder at the same point (before activate), sized to
+// the slots the lobby's captains leave empty.
+
+describe('private arenas — the lobby-formed room', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    delete process.env.HC_DEV_OPTIONS;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const privateRoom = (extra: RoomOptions = {}): SoloRoom & { setMetadata: ReturnType<typeof vi.fn> } => {
+    const opts: RoomOptions = { mode: 'private', lobbyTicket: lobbyTicket(), ...extra };
+    const r = new ArenaRoom() as unknown as SoloRoom & Record<string, unknown> & { setMetadata: ReturnType<typeof vi.fn> };
+    r.lock = vi.fn(() => Promise.resolve());
+    r.unlock = vi.fn(() => Promise.resolve());
+    r.disconnect = vi.fn(() => Promise.resolve());
+    r.broadcast = vi.fn();
+    r.onMessage = vi.fn();
+    r.setTimestep = vi.fn();
+    r.clock = { setInterval: vi.fn(), setTimeout: vi.fn() };
+    r.clients = [];
+    r.setMetadata = vi.fn(() => Promise.resolve());
+    r.onCreate(opts);
+    return r;
+  };
+  const minHumansOf = (r: SoloRoom): number => (r.match as unknown as { minHumans: number }).minHumans;
+
+  it('private + botFill adds EXACTLY playerCap - expectedCaptains bots, before any tick', () => {
+    const r = privateRoom({ botFill: true, expectedCaptains: 3 });
+    expect(r.world.tick).toBe(0);
+    expect(r.match?.phase).toBe('waiting');
+    expect(bots(r)).toHaveLength(CONFIG.map.playerCap - 3);
+    expect(r.state.players.size).toBe(CONFIG.map.playerCap - 3);
+  });
+
+  it('a lone host with bot fill gets the solo-sized fleet (19) and minHumans 1', () => {
+    const r = privateRoom({ botFill: true, expectedCaptains: 1 });
+    expect(bots(r)).toHaveLength(CONFIG.map.playerCap - 1);
+    expect(minHumansOf(r)).toBe(1);
+    join(r, 'host');
+    expect(r.match?.phase).toBe('countdown');
+  });
+
+  it('private WITHOUT botFill adds no bots and keeps the CONFIG minHumans (2)', () => {
+    const r = privateRoom({ expectedCaptains: 2 });
+    expect(bots(r)).toHaveLength(0);
+    expect(r.world.ships.size).toBe(0);
+    expect(minHumansOf(r)).toBe(CONFIG.match.minHumans);
+    expect(CONFIG.match.minHumans).toBe(2);
+  });
+
+  it('is locked at birth and listed as mode private', () => {
+    const r = privateRoom({ botFill: true, expectedCaptains: 2 });
+    expect(r.lock).toHaveBeenCalledTimes(1);
+    const metas = r.setMetadata.mock.calls.map((c) => c[0] as { mode: string; humans: number });
+    expect(metas.at(-1)).toEqual({ mode: 'private', humans: 0 });
+  });
+
+  it('honours the host seed under the ticket in PRODUCTION (no HC_DEV_OPTIONS)', () => {
+    const r = privateRoom({ expectedCaptains: 2, mapSeed: 123456 });
+    expect(r.state.mapSeed).toBe(123456);
+  });
+
+  it('a CLIENT bag naming the same keys without the ticket gets nothing (production clients can never pin a map)', () => {
+    const r = room({ solo: true, mode: 'private', botFill: true, mapSeed: 123456, expectedCaptains: 5 } as RoomOptions);
+    // Still the ordinary solo room: 19 bots, mode soloVsAi, a random map.
+    expect(bots(r)).toHaveLength(BOTS);
+    expect(r.state.mapSeed).not.toBe(123456);
+  });
+
+  it('a GUESSED ticket is a client bag like any other', () => {
+    const r = room({ solo: true, mode: 'private', botFill: true, mapSeed: 99, lobbyTicket: 'guess' } as RoomOptions);
+    expect(r.state.mapSeed).not.toBe(99);
+    expect(bots(r)).toHaveLength(BOTS);
   });
 });

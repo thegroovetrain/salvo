@@ -37,6 +37,8 @@ import {
   resetMetrics,
   metricsPayload,
   metricsEndpoint,
+  recordMinesLive,
+  recordSmokeLive,
   nearestRank,
   computeTickPercentiles,
   round2,
@@ -264,9 +266,73 @@ describe('metricsPayload counts', () => {
       players: 0,
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
+      world: { minesLivePeak: 0, smokeLivePeak: 0 },
     });
   });
 });
+
+// Story 8.4 — the live-mine high-water mark. Story 8.4 deleted every mine cap
+// (FR57/AR48), so "how much water an uncapped minefield actually covers" stopped
+// having an answer in CONFIG and has to be measured. A COUNT AND NOTHING ELSE:
+// no owner, no position, nothing an ops endpoint could turn into a wallhack.
+describe('world.minesLivePeak gauge', () => {
+  it('starts at zero and keeps the MAXIMUM, never the latest', () => {
+    expect(metricsPayload().world.minesLivePeak).toBe(0);
+    recordMinesLive(7);
+    expect(metricsPayload().world.minesLivePeak).toBe(7);
+    recordMinesLive(61); // past every cap the game used to carry
+    expect(metricsPayload().world.minesLivePeak).toBe(61);
+    recordMinesLive(2); // a cascade cleared the water — the PEAK does not fall
+    expect(metricsPayload().world.minesLivePeak).toBe(61);
+  });
+
+  it('is process-wide: it survives a room dispose and a fresh room', () => {
+    const room = registerRoom('a');
+    recordMinesLive(12);
+    room.unregister();
+    expect(metricsPayload().world.minesLivePeak).toBe(12);
+    registerRoom('b');
+    expect(metricsPayload().world.minesLivePeak).toBe(12);
+  });
+
+  it('resetMetrics() zeroes it', () => {
+    recordMinesLive(5);
+    expect(metricsPayload().world.minesLivePeak).toBe(5);
+    resetMetrics();
+    expect(metricsPayload().world.minesLivePeak).toBe(0);
+  });
+});
+
+// Story 8.18 — the live SMOKE SCREEN puff high-water mark, the mine peak's
+// twin: every live puff is one segment–circle test inside every sight
+// predicate for every observer, so the peak is what the perception pass paid
+// for. A COUNT AND NOTHING ELSE — no owner, no position.
+describe('world.smokeLivePeak gauge (Story 8.18)', () => {
+  it('keeps the MAX ever recorded, never falls, and rides the payload beside minesLivePeak', () => {
+    expect(metricsPayload().world.smokeLivePeak).toBe(0);
+    recordSmokeLive(4);
+    expect(metricsPayload().world.smokeLivePeak).toBe(4);
+    recordSmokeLive(160); // sixteen full trails on the water
+    expect(metricsPayload().world.smokeLivePeak).toBe(160);
+    recordSmokeLive(0); // every trail expired — the PEAK does not fall
+    expect(metricsPayload().world.smokeLivePeak).toBe(160);
+    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, smokeLivePeak: 160 }); // independent of the mine peak
+  });
+
+  it('resetMetrics() zeroes it', () => {
+    recordSmokeLive(9);
+    expect(metricsPayload().world.smokeLivePeak).toBe(9);
+    resetMetrics();
+    expect(metricsPayload().world.smokeLivePeak).toBe(0);
+  });
+});
+
+// THE `deck` GROUP IS GONE (Story 8.14, epic-8 amendment 94). Decks are
+// retired, nothing can exhaust, and Eric ruled the pick and mulligan counters
+// out with them — "level counts already say how many cards were picked". The
+// idle-shape test above is the pin that keeps it gone: it is an exact `toEqual`
+// over the whole payload, so re-adding a card-economy group under ANY name
+// fails there. Deliberately no replacement describe block.
 
 describe('metricsEndpoint direct invocation', () => {
   it('resolves to the payload JSON when called as a function', async () => {

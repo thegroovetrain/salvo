@@ -46,7 +46,7 @@ export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
 
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {
-  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
+  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -118,6 +118,12 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   // anything malformed. The World's lastHornSeq = max(...) consumption makes
   // any accepted-but-stale value read as "no new press".
   if (!isActSeq(m.hornSeq)) return null;
+  // Story 8.15 (amendment 103): the HELD-FIRE LEVEL is a REQUIRED boolean —
+  // anything else (missing, 0/1, 'true', null) drops the WHOLE message, the
+  // same sanitize law as every field above. It is never clamped or coerced:
+  // a level is either down or up. The World reads it off the LATEST stored
+  // input (never the intent queue) for the machine gun's stream.
+  if (typeof m.held !== 'boolean') return null;
   const seq = m.seq as number;
   if (seq <= lastSeq) return null;
   return {
@@ -132,6 +138,7 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
     actSeq: m.actSeq,
     actSlot: m.actSlot,
     hornSeq: m.hornSeq,
+    held: m.held,
   };
 }
 
@@ -236,6 +243,18 @@ export class InputStore {
   /** Highest accepted seq for `id` (0 before any input). Frames echo this. */
   ackFor(id: string): number {
     return this.latest.get(id)?.seq ?? 0;
+  }
+
+  /**
+   * Drop the held-fire LEVEL off `id`'s stored latest input (the transport
+   * dropped mid-hold, Story 8.15). The stored message is REPLACED, never
+   * mutated (it is shared by reference with ship.input); seq, helm and aim are
+   * kept, so the ghost sails on as before and the next real input still needs a
+   * higher seq. Nothing is queued — a release is not a press.
+   */
+  releaseHeld(id: string): void {
+    const last = this.latest.get(id);
+    if (last?.held) this.latest.set(id, { ...last, held: false });
   }
 
   /** Forget a client entirely (on leave). */

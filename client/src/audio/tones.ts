@@ -13,7 +13,7 @@
 // for a pure rules module reading CLIENT_CONFIG. Pure of SIDE EFFECTS and of the
 // audio stack; not free of configuration.
 
-import { CONFIG, type BoonRarity, type EquipmentId } from '@salvo/shared';
+import { CONFIG, type LineKind, type SlotItemId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** Every distinct cue the client can play. */
@@ -23,7 +23,7 @@ export type ToneId =
   | 'fireMine'
   | 'fireBroadside'
   | 'fireStarShells'
-  | 'placeBuoy'
+  | 'placeDecoy'
   | 'denied'
   | 'damage'
   | 'kill'
@@ -82,10 +82,11 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // Star shell (Story 1.7): a distinct utility POP — a bright airy rising whistle
   // (a flare climbing into the sky), no heavy noise: not a gun, not a fish.
   fireStarShells: { freqStart: 360, freqMid: 640, freqEnd: 900, duration: 0.13, volume: 0.4, type: 'triangle' },
-  // Radar buoy placement (Story 1.8): a hollow water "bloop" — same soft sine
-  // drop family as the mine plop but pitched a touch higher + brighter so
-  // seeding a buoy is audibly distinct from dropping a mine.
-  placeBuoy: { freqStart: 340, freqMid: 260, freqEnd: 160, duration: 0.13, volume: 0.38, type: 'sine' },
+  // Decoy buoy placement (Story 8.16 — the deleted radar buoy's sound, renamed):
+  // a hollow water "bloop" — same soft sine drop family as the mine plop but
+  // pitched a touch higher + brighter so dropping a decoy is audibly distinct
+  // from dropping a mine.
+  placeDecoy: { freqStart: 340, freqMid: 260, freqEnd: 160, duration: 0.13, volume: 0.38, type: 'sine' },
   // Denied press (Story 1.10 — FR12 "never silence"): a curt low square BLAT,
   // pitched fast downward with no noise layer — reads as a refusal, distinct
   // from every success cue (the gun family cracks start ≥520Hz with noise, the
@@ -112,8 +113,10 @@ export const TONES: Record<ToneId, ToneSpec> = {
   fitCommon: { freqStart: 660, freqMid: 880, freqEnd: 880, duration: 0.1, volume: 0.36, type: 'triangle' },
   fitRare: { freqStart: 550, freqMid: 733, freqEnd: 733, duration: 0.13, volume: 0.45, type: 'triangle' },
   fitExclusive: { freqStart: 440, freqMid: 587, freqEnd: 587, duration: 0.15, volume: 0.52, type: 'triangle' },
-  // --- DAMAGE CONTROL (cycle 46) ---------------------------------------------
-  // A banked level spent on the heal. The fit family's two-note INVERTED: where
+  // --- HULL REPAIR (cycle 46; the card since Story 8.8) ----------------------
+  // Fired when a HULL REPAIR copy is spent out of the belt (UX-DR49). The
+  // out-of-combat regen fires NO cue — a continuous trickle would loop the
+  // tone. The fit family's two-note INVERTED: where
   // a fit steps UP a fourth and holds (a permanent thing acquired), this settles
   // DOWN onto a held root — a hull steadying, not a capability gained — so the
   // two can never be confused even though both answer the same keypress family.
@@ -292,7 +295,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   //     and centred.
   //   • `point` (700→1100→1500) and `kill` (500→900→1200) start in the same place
   //     and RISE through two octaves; nothing about a miss rises.
-  //   • `fireMine` (220) and `placeBuoy` (340) are the catalog's other soft sine
+  //   • `fireMine` (220) and `placeDecoy` (340) are the catalog's other soft sine
   //     drops, an octave or more below and both transient-free — the hiss is what
   //     says "water", and both of those are your own hand, centred.
   splash: { freqStart: 700, freqMid: 460, freqEnd: 280, duration: 0.1, volume: 0.24, type: 'sine', noise: true },
@@ -375,19 +378,59 @@ export function telegraphTone(dir: number): ToneId {
 
 /** Equipment with a discrete own-fire/placement cue routed through fireTone. The
  *  instant abilities that have NO such cue here are excluded at the type level:
- *  speedBoost (a pure speed window) and radarBuoy (its placement cue is played
- *  as 'placeBuoy' from the buoy reconcile own-spawn hook, not via fireTone).
- *  The MINE stays included even though it is now an ability (Story 1.8) — its
- *  'fireMine' drop cue still fires, via the Mines reconcile own-spawn hook
- *  (main.ts); the buoy's cue rides the same hook shape. */
-type FiringEquipmentId = Exclude<EquipmentId, 'speedBoost' | 'radarBuoy'>;
+ *  boost (a pure speed window) and the DECOY BUOY (Story 8.16 — its placement
+ *  cue is played as 'placeDecoy' from the decoy reconcile own-spawn hook, not
+ *  via fireTone). The MINE stays included even though it is now an ability
+ *  (Story 1.8) — its 'fireMine' drop cue still fires, via the Mines reconcile
+ *  own-spawn hook (main.ts); the decoy's cue rides the same hook shape. */
+type FiringEquipmentId = Extract<
+  SlotItemId,
+  | 'gun'
+  | 'broadside'
+  | 'starShells'
+  // STORY 8.17: PHOSPHOR SHELLS (equipment) and FLASH SHELLS (`dazzleShells`,
+  // a click-fired consumable) — both launch one shell like the star shell.
+  | 'phosphorShells'
+  | 'dazzleShells'
+  // THE TORPEDO FAMILY (Story 8.13): two LINES plus the belt's SUPERCAV
+  // TORPEDO, a click-aimed CONSUMABLE (epic-8 amendment 74) — which is why the
+  // Extract widened from `EquipmentId` to `SlotItemId`.
+  | 'lightTorpedo'
+  | 'heavyTorpedo'
+  | 'supercavTorpedo'
+  // THE THREE MINE LINES (amendments 76/81) — naval, captive and fouling all
+  // drop off the same rack and report with the same cue.
+  | 'navalMines'
+  | 'captiveMines'
+  | 'foulingMines'
+>;
 
+/** TOTAL over the ids that HAVE a cue. Story 8.1 widened `EquipmentId` to
+ *  catalog v3's thirteen weapons plus two legacy ids, so the old
+ *  `Exclude<..., 'boost' | 'radarBuoy'>` (the radar buoy is deleted since
+ *  Story 8.16) would now demand a cue for weapons
+ *  that have no module to fire - the union names exactly the ones that do.
+ *
+ *  NO NEW `ToneId` (Story 8.13): every torpedo reports with the TORPEDO cue and
+ *  every mine with the MINE cue. A player cannot hear which line launched — and
+ *  should not have to: the cue says "a fish just left" / "a mine is on the
+ *  water", which is the fact the player needs, and inventing five new sounds
+ *  for five lines would be new game feel nobody asked for (the a11y twin map
+ *  pairs tones by MEANING, and these mean the same thing). */
 const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   gun: 'fireGun',
-  torpedo: 'fireTorp',
-  mine: 'fireMine',
+  lightTorpedo: 'fireTorp',
+  heavyTorpedo: 'fireTorp',
+  supercavTorpedo: 'fireTorp',
+  navalMines: 'fireMine',
+  captiveMines: 'fireMine',
+  foulingMines: 'fireMine',
   broadside: 'fireBroadside',
   starShells: 'fireStarShells',
+  // NO NEW ASSET (Story 8.17): a phosphor or flash shell leaves the deck
+  // exactly as a flare does, so it reuses the star-shell launch cue.
+  phosphorShells: 'fireStarShells',
+  dazzleShells: 'fireStarShells',
 };
 
 /** Pure: which tone a weapon's own-fire cue plays. */
@@ -395,19 +438,28 @@ export function fireTone(id: FiringEquipmentId): ToneId {
   return FIRE_TONE[id];
 }
 
-/** Boon rarity -> its fit cue (Story 2.9). The tier is the ONE audible axis:
- *  a common lands light, a rare fuller, an exclusive heaviest. */
-const FIT_TONE: Record<BoonRarity, ToneId> = {
-  common: 'fitCommon',
-  rare: 'fitRare',
-  exclusive: 'fitExclusive',
+/**
+ * Card KIND -> its fit cue (Story 2.9, re-keyed to catalog v3 in Story 8.1).
+ * Rarity is gone from the catalog, so the ONE audible axis is now the kind: an
+ * EQUIPMENT card fits a whole new weapon and lands on the fuller cue the RARE
+ * tier used to own; everything else (a ladder rung, an add-on verb, a
+ * consumable) lands light. The a11y dual-coding is unchanged - the refit card
+ * prints the kind as a WORD and the cue is the second channel, never the only
+ * one. `fitExclusive` keeps its voice in the tone table with no kind behind it:
+ * deleting a synthesised cue is a sound change, not a catalog change.
+ */
+const FIT_TONE: Record<LineKind, ToneId> = {
+  equipment: 'fitRare',
+  ladder: 'fitCommon',
+  addon: 'fitCommon',
+  consumable: 'fitCommon',
 };
 
-/** Pure: the fit cue for a fitted boon's rarity tier. Fail-open to the common
- *  weight — a junk/unknown rarity must still be AUDIBLE (FR22: a
- *  presentation-silent boon is a defect), never silent. */
-export function fitTone(rarity: BoonRarity | undefined): ToneId {
-  return rarity !== undefined && Object.hasOwn(FIT_TONE, rarity) ? FIT_TONE[rarity] : 'fitCommon';
+/** Pure: the fit cue for a fitted card's kind. Fail-open to the light weight -
+ *  a junk/unknown kind must still be AUDIBLE (FR22: a presentation-silent fit
+ *  is a defect), never silent. */
+export function fitTone(kind: LineKind | undefined): ToneId {
+  return kind !== undefined && Object.hasOwn(FIT_TONE, kind) ? FIT_TONE[kind] : 'fitCommon';
 }
 
 /** One semitone, in the CENTS `Audio.play`'s `detune` option speaks (the Web
@@ -415,40 +467,38 @@ export function fitTone(rarity: BoonRarity | undefined): ToneId {
 const SEMITONE_CENTS = 100;
 
 /**
- * Boon CATEGORY -> the fit cue's transposition, in cents (Story 2.9). The TIER
- * picks the instrument's weight (fitTone); the CATEGORY moves it up or down the
- * scale, so two commons fitted back to back on different slots are audibly
- * different events without becoming different cues. The nine v1 categories are
- * laid across ±4 semitones in the deck's own order — the four weapon families
- * below the root, the utilities above it, SHIP at the root — which keeps the
- * interval between any two neighbours a clean semitone. Draft mapping (the
- * draft-copy rule); the table is pinned exhaustive over the catalog by
- * __tests__/tones.test.ts, so a tenth category cannot ship untransposed.
+ * Card KIND -> the fit cue's transposition, in cents (Story 2.9, re-keyed in
+ * Story 8.1). The KIND picks the instrument's weight (fitTone); the same kind
+ * also moves it up or down the scale, so a ladder rung and an add-on verb are
+ * audibly different events without becoming different cues.
+ *
+ * WHY THE TABLE SHRANK FROM NINE VOICES TO FOUR. The transposition used to ride
+ * the v2 catalog's nine CATEGORIES, which are deleted: catalog v3 has no
+ * category axis at all, only the four kinds. Re-keying rather than removing
+ * keeps the axis alive (and keeps a fit distinguishable from the one before it)
+ * without inventing a new one the sheet does not state. Laid across +/-2
+ * semitones in catalog order, so the interval between neighbours stays a clean
+ * semitone and LADDER - the commonest fit - sits at the root.
  */
-const FIT_CATEGORY_CENTS: Readonly<Record<string, number>> = {
-  guns: -4 * SEMITONE_CENTS,
-  broadside: -3 * SEMITONE_CENTS,
-  torpedoes: -2 * SEMITONE_CENTS,
-  mines: -1 * SEMITONE_CENTS,
-  ship: 0,
-  intel: 1 * SEMITONE_CENTS,
-  speedBoost: 2 * SEMITONE_CENTS,
-  starShells: 3 * SEMITONE_CENTS,
-  radarBuoy: 4 * SEMITONE_CENTS,
+const FIT_KIND_CENTS: Readonly<Record<string, number>> = {
+  equipment: -2 * SEMITONE_CENTS,
+  ladder: 0,
+  addon: 1 * SEMITONE_CENTS,
+  consumable: 2 * SEMITONE_CENTS,
 };
 
 /**
- * Pure: the fit cue's detune (cents) for a fitted line's category. Fails OPEN to
- * the root — an unknown/junk category still gets the untransposed cue rather
- * than silence (FR22: a presentation-silent boon is the defect).
+ * Pure: the fit cue's detune (cents) for a fitted line's kind. Fails OPEN to
+ * the root - an unknown/junk kind still gets the untransposed cue rather than
+ * silence (FR22: a presentation-silent fit is the defect).
  */
-export function fitDetune(category: string): number {
-  return Object.hasOwn(FIT_CATEGORY_CENTS, category) ? FIT_CATEGORY_CENTS[category] : 0;
+export function fitDetune(kind: string): number {
+  return Object.hasOwn(FIT_KIND_CENTS, kind) ? FIT_KIND_CENTS[kind] : 0;
 }
 
-/** The categories the fit transposition covers (test seam — pinned against the
- *  live catalog so a new category cannot ship without a voice). */
-export const FIT_CATEGORIES: readonly string[] = Object.keys(FIT_CATEGORY_CENTS);
+/** The kinds the fit transposition covers (test seam - pinned against the live
+ *  catalog so a new kind cannot ship without a voice). */
+export const FIT_KINDS: readonly string[] = Object.keys(FIT_KIND_CENTS);
 
 // --- match-phase edge cues (countdown tick + match-start) -------------------
 

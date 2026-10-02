@@ -296,9 +296,15 @@ async function proveIdle() {
   // skew offset — a monotonic source here would be silently, badly wrong.
   const skew = Math.abs(body.serverNow - Date.now());
   assert(skew < 60_000, `serverNow does not look like an epoch (off by ${skew}ms from ours)`);
-  // ONE router now carries BOTH endpoints (so @colyseus/playground's
-  // __globalEndpoints lists /liveness too). /metrics is an ops route someone is
-  // watching: it must stay byte-identical in behaviour, not merely still exist.
+  // ONE router now carries BOTH endpoints. (The 0.17 mechanism this used to
+  // cite — `__globalEndpoints` — is GONE in 0.18: `createRouter` is now only a
+  // thin wrapper around better-call's router factory
+  // (@colyseus/core/build/router/index.mjs:81-92), and `Server.bindRoutes`
+  // EXTENDS ours with the default endpoints (Server.mjs:152-158). What reads
+  // the merged set is `Server.current.router.endpoints`, which is what
+  // @colyseus/playground enumerates — so /liveness is still listed, by a
+  // different route.) /metrics is an ops route someone is watching: it must
+  // stay byte-identical in behaviour, not merely still exist.
   const ops = await fetch(`http://localhost:${PORT}/metrics`);
   assert(ops.status === 200, `/metrics regressed to status ${ops.status} — the router stopped serving it`);
   const opsBody = await ops.json();

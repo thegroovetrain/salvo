@@ -117,6 +117,7 @@ import {
   isAfloat,
   mulberry32,
   nearestCoastPoint,
+  SLOT_GUN,
   type InputMsg,
   type Island,
   type Rng,
@@ -125,7 +126,11 @@ import {
 import type { ShipRecord, World } from '../../src/game/world.js';
 import { pickSpendChoice } from './spendPolicy.js';
 
-/** One scripted captain: drive your ship (and spend your levels) this tick. */
+/** One scripted captain: drive your ship (and spend your levels) this tick.
+ *  THE `deck` FIELD IS GONE (Story 8.14, amendments 89a/95b): decks are retired
+ *  and every captain draws from the one common pool, so a control no longer
+ *  declares what it sails — the pacifist posture is the SCRIPT (never aims,
+ *  never fires), not a hand-built card list. */
 export interface CaptainControl {
   readonly id: string;
   tick(world: World): void;
@@ -290,7 +295,11 @@ class PacifistControl implements CaptainControl {
     if (!ship) return;
     // Spends are legal while dead (builds persist across waiting-phase deaths);
     // drain at most one banked level per tick through the REAL spend flow.
-    if (ship.offer !== null) world.spendPoint(this.id, pickSpendChoice(ship.offer, this.rng, ship.boons));
+    if (ship.offer !== null) {
+      // null = every card in the hand is refused (review F4): hold the level.
+      const choice = pickSpendChoice(ship.offer, this.rng, ship.cards, ship.loadout.map((s) => s.equipmentId));
+      if (choice !== null) world.spendPoint(this.id, choice);
+    }
     if (!isAfloat(ship.lifecycle)) {
       // A respawn teleports the hull: carrying the pre-death pose forward would
       // read as a giant displacement (harmless) or, worse, keep a stale stuck
@@ -375,10 +384,10 @@ class PacifistControl implements CaptainControl {
       aim: 0,
       fireSeq: 0,
       aimDist: 0,
-      slot: 0,
+      slot: SLOT_GUN,
       fireT: 0,
       actSeq: 0,
-      actSlot: 0, hornSeq: 0,
+      actSlot: SLOT_GUN, hornSeq: 0, held: false, // slot 0 on the ability channel: inert (the gun is a weapon)
     };
   }
 
@@ -393,10 +402,10 @@ class PacifistControl implements CaptainControl {
       aim: 0, // never aims: the control is pacifist by construction
       fireSeq: 0, // never fires
       aimDist: 0,
-      slot: 0,
+      slot: SLOT_GUN,
       fireT: 0, // in-process: no latency, no claim (zero compensation)
       actSeq: 0,
-      actSlot: 0, hornSeq: 0,
+      actSlot: SLOT_GUN, hornSeq: 0, held: false, // slot 0 on the ability channel: inert (the gun is a weapon)
     };
   }
 

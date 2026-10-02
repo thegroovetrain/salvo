@@ -1,0 +1,85 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Forge Report — The Deck Model v3</title>
+<style>
+body{margin:0;background:#05080a;color:#cfe3d6;font:15px/1.5 ui-monospace,Menlo,Consolas,monospace}
+main{max-width:920px;margin:0 auto;padding:40px 24px 80px}
+h1{color:#ffb545;font-size:26px;letter-spacing:.12em;text-transform:uppercase;margin:0 0 4px}
+h2{color:#7fe3a4;font-size:14px;letter-spacing:.18em;text-transform:uppercase;margin:36px 0 10px;border-bottom:1px solid #1d3a2a;padding-bottom:6px}
+.sub{color:#7c9686;margin-bottom:24px}
+.seal{float:right;margin:0 0 16px 24px}
+ol,ul{padding-left:22px}li{margin:6px 0}
+.draft{color:#c8a1ff}.kill{color:#ff6b6b}.lock{color:#7fe3a4}
+table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid #1d3a2a;padding:6px 8px;text-align:left;vertical-align:top}th{color:#7fe3a4}
+.cast{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.p{border:1px solid #1d3a2a;padding:10px;border-radius:6px;background:#0a1210}.p b{color:#ffb545}.p i{color:#7c9686;display:block;font-size:12px;margin-top:4px}
+.q{color:#7c9686;border-left:3px solid #1d3a2a;padding-left:10px;margin:10px 0}
+</style></head><body><main>
+<svg class="seal" width="170" height="170" viewBox="0 0 170 170" aria-label="HARDENED seal">
+<defs><radialGradient id="g" cx="40%" cy="35%"><stop offset="0" stop-color="#ffd27a"/><stop offset="1" stop-color="#8a4b06"/></radialGradient></defs>
+<path fill="url(#g)" d="M85 6l16 12 20-4 8 18 19 8-4 20 12 16-12 16 4 20-19 8-8 18-20-4-16 12-16-12-20 4-8-18-19-8 4-20L6 85l12-16-4-20 19-8 8-18 20 4z"/>
+<circle cx="85" cy="85" r="52" fill="none" stroke="#3a1e04" stroke-width="3"/>
+<text x="85" y="80" text-anchor="middle" font-family="ui-monospace,monospace" font-weight="700" font-size="19" fill="#2a1503" letter-spacing="2">HARDENED</text>
+<text x="85" y="100" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#2a1503">DECK MODEL v3</text>
+<text x="85" y="114" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" fill="#2a1503">2026-09-02</text>
+</svg>
+<h1>The Deck Model v3</h1>
+<div class="sub">Forge report · Hullcracker.io · Eric · 2026-09-02 · outcome: <b class="lock">HARDENED</b></div>
+<p>One unit, on Eric's ruling "go big or go home": accounts plus server-held, per-hull, authored 40-card decks; four consumable slots instead of a hand; heal as a scarce stockable card; gun-only spawns with a weighted, mulligan-able opening draw; a deck editor; placement-scaled unlock tokens; match history as the live harness. Input was the 2026-09-01 brainstorm (82 ideas, ten bench rulings) diffed against the 2026-08-27 equipment rework, whose paused forge this one supersedes in part.</p>
+
+<h2>Locked decisions</h2>
+<ol>
+<li><b>Tab is untouched.</b> Level → four different lines from <em>your</em> deck → pick one. One level buys any card. No hand, no second clock, no storefront.</li>
+<li><b>Draw rule:</b> equal per-card weight, no pity, no class weighting. Measured: a one-copy line is offered at least once in 66% of 8-pick matches and 90% at 15 — the small deck does the pity's work. Composition carries the class tilt.</li>
+<li><b>Card model (A):</b> a weapon is one ladder line (copy 1 = the weapon; copies 2–5 = tier bundles) plus separate one-copy add-ons drawable any time. Universal lines are ladders too. <b>Copies are the tier ceiling.</b> Add-ons target a weapon family (tags).</li>
+<li><b>Legal deck:</b> exactly 40 (dials; a 25–40 band must be tested), copies ≤ line max, every card unlocked, hull as a label only, no composition rules, frozen at queue, starter decks pass the same check.</li>
+<li><b>Consumable slots:</b> four, keys 1–4 with Tab closed. Full slots grey the card and the server refuses the pick; the immutable offer is the "use one, come back" mechanism. Leaves the deck on pick. Server-owned state. Engine supports key-fires and key-primes-then-click; content is open.</li>
+<li><b>Spawn:</b> deck gun only. Level zero at countdown start; one mulligan, countdown only; weighted first draw guarantees something usable. Pinned card is a later experiment.</li>
+<li><b>Heal:</b> the 5 key dies; DAMAGE CONTROL is a consumable card at the shipped 100 hp, <span class="draft">4–5 copies per starter [DRAFT]</span>. The sudden-death heal question closes by construction. Passive per-level heal parked.</li>
+<li><b>Account:</b> no guest tier. Anonymous = today's game on the starter deck, nothing stored. Signed in via OAuth only (Google/Discord, minimal scopes, never an email or password) = decks, unlocks, tokens, history. Same rules either way — signing in changes what you keep.</li>
+<li><b>Unlocks and earn:</b> a whole line per unlock, <span class="draft">flat price [DRAFT]</span>, any order; account level → one token per level; XP placement-scaled, Solo vs AI discounted; <span class="draft">matches-to-full-catalog is an open dial, 40–60 band [DRAFT]</span>.</li>
+<li><b>Bots</b> carry authored 40-card decks in the player format, a total ConsumableTactic record, and the harness runs authored and random-legal arms with six pinned bars.</li>
+<li><b>Enemy decks</b> are shown to no player and recorded server-side for Eric's metrics; players see their own deck in results and history.</li>
+<li><b>Catalog breadth</b> <span class="draft">[DRAFT]</span>: a hull builds from ~100 cards' worth of unlockables. The catalog is Eric's document.</li>
+</ol>
+
+<h2>Rejected, and why</h2>
+<table><tr><th>What</th><th>Why</th></tr>
+<tr><td class="kill">The hand + minute drip</td><td>Two faucets on one refit surface; Eric deleted it himself once John asked what a hand does that Tab doesn't.</td></tr>
+<tr><td class="kill">Merge, lock, sell, refresh (08-27 storefront)</td><td>All bookkeeping the deck's copy count now does for free.</td></tr>
+<tr><td class="kill">Rarity weighting and the 07-30 soft pity</td><td>Deck size is the pity; composition is the tilt. Measured, not asserted.</td></tr>
+<tr><td class="kill">Instant-use on pick (#82)</td><td>Cannot work for aimed consumables; the immutable offer already solves it with zero new rules.</td></tr>
+<tr><td class="kill">Guest accounts</td><td>Existed only to persist what a browser cannot persist. Anonymous-or-signed-in collapses the tier.</td></tr>
+<tr><td class="kill">Own email/password storage</td><td>Eric: store very little; OAuth2 only.</td></tr>
+<tr><td class="kill">Deck names, class-locked cards, deck-manipulation / hull-mod / salvage cards</td><td>Eric rulings in the brainstorm; not re-proposed.</td></tr>
+</table>
+
+<h2>Weak points that survived scrutiny</h2>
+<ul>
+<li>The identity fork's "promise" is now "something to do at 0:00," not "your class weapon at 0:00." Samus lost that fight; the weighted draw has to earn it on the water.</li>
+<li>A third of median-length matches never show a given one-copy doctrine (66%). Accepted as what "one copy" means, not patched.</li>
+<li>Anonymous players earn nothing. Either a hook or a leak; only live numbers will say.</li>
+<li>The account is the project's first database and first non-ops HTTP API, and Story 7-7 stays deferred. Architecture owes this a shape.</li>
+<li>Every number marked [DRAFT] is a placeholder with a dial and a harness bar, not a ruling.</li>
+</ul>
+
+<h2>The room</h2>
+<div class="cast">
+<div class="p"><b>🧪 Murat</b> test architect<i>Found the pity's silent death; did the one-copy arithmetic; refused to let a number be asserted.</i></div>
+<div class="p"><b>🏗️ Cloud Dragonborn</b> game architect<i>Framed the card-model fork (A vs B) and named the account store as a third deploy surface.</i></div>
+<div class="p"><b>🔗 Link Freeman</b> game dev<i>Split consumables by input shape; made the bot the first customer of the legality rules.</i></div>
+<div class="p"><b>🎮 Samus Shepard</b> game designer<i>Fought for the lobby promise under gun-only spawns. Lost to the weighted draw, on the record.</i></div>
+<div class="p"><b>📋 John</b> product manager<i>"What does a hand do that Tab doesn't?" and the thermostat question for the smallest account.</i></div>
+<div class="p"><b>📊 Mary</b> analyst<i>Named the matches-to-full-catalog number as the retention thesis in one line.</i></div>
+<div class="p"><b>🐍 Vex</b> adversary<i>Tried the 41st card, six HULLs, the wrong hull's deck, and editing while queued.</i></div>
+<div class="p"><b>🃏 Renna Voss</b> live-ops (generated)<i>"A one-copy card that shows up 66% of the time is what one copy means. Put two in."</i></div>
+<div class="p"><b>🃏 Priya Raman</b> constructed-deck author (generated)<i>Wanted loose stat knobs, then read the 40 cap and reversed herself.</i></div>
+<div class="p"><b>⚓ Halvard Brekke</b> rules editor (generated)<i>"A legal deck is checked in one place, once, and the check is boring."</i></div>
+<div class="p"><b>🎮 Tomasz Wrona</b> ladder player (generated)<i>"The key does one thing. Tell me which by the card's shape."</i></div>
+<div class="p"><b>⏱️ Dr. Ines Marlow</b> first-contact analyst (generated)<i>Put level zero inside the countdown so nobody is at Tab when the guns start.</i></div>
+<div class="p"><b>💊 Dr. Amara Okonkwo</b> game economist (generated)<i>"Scarcity by copies only bites if the effect doesn't grow to compensate."</i></div>
+<div class="p"><b>⚖️ Renata Guzmán</b> privacy lawyer (generated)<i>Drew the line between an account that holds nothing and one that holds an email.</i></div>
+<div class="p"><b>🎰 Kenji Arai</b> mobile live-ops (generated)<i>"If the catalog unlocks in a weekend you built a database for nothing." Named the 40–60 band.</i></div>
+<div class="p"><b>🤖 Priyanka Shah</b> bot-league runner (generated)<i>"Six authored decks means your harness measures six decks." Demanded the random-legal arm.</i></div>
+</div>
+<div class="q">Grumbal, from the bar, for the record: "The one thing that survives every session is Tab. That's your design. Tab."</div>
+<p class="sub">Workspace: <code>_bmad-output/forge/deck-model-v3/</code> · memlog is the record · <code>forged-idea.md</code> feeds the GDD update and the new epic set.</p>
+</main></body></html>

@@ -4,11 +4,11 @@
 // untested adapter per convention — this file covers everything pure.
 
 import { describe, it, expect } from 'vitest';
-import { BOON_CATALOG, CONFIG, type BoonRarity } from '@salvo/shared';
+import { CATALOG, CONFIG, LINE_IDS, type LineKind } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   TONES,
-  FIT_CATEGORIES,
+  FIT_KINDS,
   fireTone,
   fitDetune,
   fitTone,
@@ -30,7 +30,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireMine',
   'fireBroadside',
   'fireStarShells',
-  'placeBuoy',
+  'placeDecoy',
   'denied',
   'damage',
   'kill',
@@ -102,19 +102,51 @@ describe('TONES — spec table completeness', () => {
 });
 
 describe('fireTone — weapon -> own-fire tone mapping', () => {
-  // The speedBoost ability never fires: fireTone is typed to the weapon subset
+  // The boost ability never fires: fireTone is typed to the weapon subset
   // of EquipmentId (Story 1.6), so an ability id can't even reach it.
   it('maps every firing weapon to its distinct tone', () => {
     expect(fireTone('gun')).toBe('fireGun');
-    expect(fireTone('torpedo')).toBe('fireTorp');
-    expect(fireTone('mine')).toBe('fireMine');
+    expect(fireTone('heavyTorpedo')).toBe('fireTorp');
+    expect(fireTone('navalMines')).toBe('fireMine');
     expect(fireTone('broadside')).toBe('fireBroadside'); // the BB's heavy report
     expect(fireTone('starShells')).toBe('fireStarShells'); // Story 1.7: BB flare pop
   });
 
-  it('covers all five weapon ids with no gaps', () => {
-    const ids = ['gun', 'torpedo', 'mine', 'broadside', 'starShells'] as const;
-    for (const id of ids) expect(TONES[fireTone(id)]).toBeDefined();
+  it('covers every firing id with no gaps', () => {
+    const ids = [
+      'gun', 'broadside', 'starShells',
+      'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo',
+      'navalMines', 'captiveMines', 'foulingMines',
+      'phosphorShells', 'dazzleShells',
+    ] as const;
+    for (const id of ids) expect(TONES[fireTone(id)], id).toBeDefined();
+  });
+
+  // STORY 8.17 — two new firing ids, NO new asset: a phosphor or flash shell
+  // leaves the deck exactly as a flare does, so both reuse its launch cue.
+  it('gives PHOSPHOR and FLASH SHELLS the star-shell launch cue', () => {
+    expect(fireTone('phosphorShells')).toBe('fireStarShells');
+    expect(fireTone('dazzleShells')).toBe('fireStarShells');
+  });
+
+  // STORY 8.13 — FOUR NEW FIRING IDS, NO NEW TONE (epic-8 amendments 74/76/81).
+  // Every torpedo reports with the TORPEDO cue and every mine with the MINE
+  // cue: the player hears "a fish left the tube" / "a mine is on the water",
+  // which is the fact they need, and five sounds for five lines would be new
+  // game feel nobody asked for. The a11y twin map pairs tones by MEANING, so
+  // adding a ToneId here would have made work there too.
+  it('gives the whole TORPEDO FAMILY one cue, and all THREE mine lines another', () => {
+    expect(fireTone('lightTorpedo')).toBe('fireTorp');
+    expect(fireTone('supercavTorpedo')).toBe('fireTorp'); // a BELT line, same cue
+    expect(fireTone('captiveMines')).toBe('fireMine');
+    expect(fireTone('foulingMines')).toBe('fireMine');
+  });
+
+  it('adds NO ToneId for them — the shipped five fire cues are still the five', () => {
+    const fireIds = Object.keys(TONES).filter((id) => id.startsWith('fire') && !id.startsWith('fit'));
+    expect(fireIds.sort()).toEqual(
+      ['fireBroadside', 'fireGun', 'fireMine', 'fireStarShells', 'fireTorp'],
+    );
   });
 
   it('the broadside report is heavier (lower start) than the gun crack; the flare is a distinct rise', () => {
@@ -123,18 +155,18 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
   });
 });
 
-describe('placeBuoy tone (Story 1.8) — buoy placement cue', () => {
-  // The buoy is placed, not fired, so it is NOT in the fireTone map (radarBuoy
-  // is excluded at the type level); its cue plays as 'placeBuoy' from the buoy
-  // reconcile own-spawn hook (the mine precedent). The TONE ID keeps its shipped
-  // name — the buoy's own slice owns any rename.
+describe('placeDecoy tone (Story 8.16) — decoy placement cue', () => {
+  // The DECOY BUOY is placed, not fired, so it is NOT in the fireTone map; its
+  // cue plays as 'placeDecoy' from the decoy reconcile own-spawn hook (the mine
+  // precedent). Story 8.16 RENAMED the deleted radar buoy's 'placeBuoy' tone —
+  // same sound, new id.
   // It shares the soft sine "drop" family with the mine plop but is pitched a
-  // touch higher so seeding a buoy is audibly distinct from dropping a mine.
+  // touch higher so dropping a decoy is audibly distinct from dropping a mine.
   it('is a soft sine drop, within the short-tone budget, pitched above the mine plop', () => {
-    expect(TONES.placeBuoy.type).toBe('sine');
-    expect(TONES.placeBuoy.duration).toBeLessThanOrEqual(MAX_TONE_S);
-    expect(TONES.placeBuoy.freqStart).toBeGreaterThan(TONES.fireMine.freqStart); // brighter than the mine
-    expect(TONES.placeBuoy.freqEnd).toBeLessThan(TONES.placeBuoy.freqStart); // a downward drop
+    expect(TONES.placeDecoy.type).toBe('sine');
+    expect(TONES.placeDecoy.duration).toBeLessThanOrEqual(MAX_TONE_S);
+    expect(TONES.placeDecoy.freqStart).toBeGreaterThan(TONES.fireMine.freqStart); // brighter than the mine
+    expect(TONES.placeDecoy.freqEnd).toBeLessThan(TONES.placeDecoy.freqStart); // a downward drop
   });
 });
 
@@ -153,9 +185,9 @@ describe('denied tone (Story 1.10) — the exactly-one-feedback refusal cue', ()
     // Starts well BELOW every gun-family crack (fireGun 900 / fireBroadside 520)…
     expect(TONES.denied.freqStart).toBeLessThan(TONES.fireBroadside.freqStart);
     expect(TONES.denied.freqStart).toBeLessThan(TONES.fireGun.freqStart);
-    // …is not a soft sine drop (the mine/buoy placement family)…
+    // …is not a soft sine drop (the mine/decoy placement family)…
     expect(TONES.denied.type).not.toBe(TONES.fireMine.type);
-    expect(TONES.denied.type).not.toBe(TONES.placeBuoy.type);
+    expect(TONES.denied.type).not.toBe(TONES.placeDecoy.type);
     // …and is a different waveform family from the damage thud.
     expect(TONES.denied.type).not.toBe(TONES.damage.type);
   });
@@ -196,19 +228,23 @@ describe('the FIT family (Story 2.9) — one two-note template, three tier weigh
     expect(exclusive.volume).toBeGreaterThan(rare.volume);
   });
 
-  it('routes a boon rarity to its cue, and fails OPEN (never silent) on junk', () => {
-    expect(fitTone('common')).toBe('fitCommon');
-    expect(fitTone('rare')).toBe('fitRare');
-    expect(fitTone('exclusive')).toBe('fitExclusive');
+  it('routes a card KIND to its cue, and fails OPEN (never silent) on junk', () => {
+    // Story 8.1: rarity is deleted with the v2 catalog — the kind is the one
+    // audible axis now, and an EQUIPMENT fit (a whole new weapon) is the fuller
+    // cue the RARE tier used to own.
+    expect(fitTone('equipment')).toBe('fitRare');
+    expect(fitTone('ladder')).toBe('fitCommon');
+    expect(fitTone('addon')).toBe('fitCommon');
+    expect(fitTone('consumable')).toBe('fitCommon');
     expect(fitTone(undefined)).toBe('fitCommon');
-    expect(fitTone('legendary' as BoonRarity)).toBe('fitCommon');
+    expect(fitTone('legendary' as LineKind)).toBe('fitCommon');
   });
 
-  it('every catalog line maps to a fit cue with a real spec (no silent boon)', () => {
-    const silent = Object.values(BOON_CATALOG).filter((def) => TONES[fitTone(def.rarity)] === undefined);
+  it('every catalog line maps to a fit cue with a real spec (no silent fit)', () => {
+    const silent = Object.values(CATALOG).filter((line) => TONES[fitTone(line.kind)] === undefined);
     expect(silent).toEqual([]);
-    // Story 7-5 wave 1 shrank the catalog 33 -> 28 lines.
-    expect(Object.keys(BOON_CATALOG).length).toBeGreaterThanOrEqual(28);
+    // Catalog v3 authors 29 lines (Eric ruling 2026-09-15, amendment 7).
+    expect(Object.keys(CATALOG)).toHaveLength(LINE_IDS.length);
   });
 });
 
@@ -355,40 +391,44 @@ describe('stormEnterEdge', () => {
   });
 });
 
-// --- STORY 2.9: the per-CATEGORY fit transposition ------------------------------
+// --- STORY 2.9 (re-keyed in 8.1): the per-KIND fit transposition ----------------
 //
-// Tier picks the cue's weight (fitTone); category moves it up or down the scale
-// (fitDetune, in cents). One family, nine voices — so fitting a gun common and a
-// mine common back to back are audibly different EVENTS without being different
-// cues, and neither needs a new tone spec.
+// The kind picks the cue's weight (fitTone) and moves it up or down the scale
+// (fitDetune, in cents). One family, FOUR voices — the v2 catalog's nine
+// categories are deleted, so the kind is the only axis the catalog still states.
 
-describe('fitDetune — one fit family, nine category voices', () => {
-  const CATEGORIES = [...new Set(Object.values(BOON_CATALOG).map((d) => d.category))];
+describe('fitDetune — one fit family, four kind voices', () => {
+  // The FOUR kinds the catalog's type declares. Since Story 8.17 (amendment
+  // 134) the shipped catalog USES three — no add-on line remains — but the
+  // `addon` kind stays in place, so its voice stays too.
+  const KINDS: readonly LineKind[] = ['equipment', 'ladder', 'addon', 'consumable'];
+  const USED = [...new Set(Object.values(CATALOG).map((line) => line.kind))];
 
-  it('covers EXACTLY the catalog\'s categories — no gap, no orphan', () => {
-    expect([...FIT_CATEGORIES].sort()).toEqual([...CATEGORIES].sort());
-    expect(CATEGORIES).toHaveLength(9);
+  it('covers EXACTLY the catalog\'s kinds — no gap, no orphan', () => {
+    expect([...FIT_KINDS].sort()).toEqual([...KINDS].sort());
+    for (const k of USED) expect(KINDS).toContain(k);
+    expect([...USED].sort()).toEqual(['consumable', 'equipment', 'ladder']);
   });
 
-  it('gives every category a DISTINCT transposition inside ±4 semitones', () => {
-    const cents = CATEGORIES.map((c) => fitDetune(c));
-    expect(new Set(cents).size).toBe(CATEGORIES.length);
+  it('gives every kind a DISTINCT transposition inside ±4 semitones', () => {
+    const cents = KINDS.map((k) => fitDetune(k));
+    expect(new Set(cents).size).toBe(KINDS.length);
     for (const c of cents) expect(Math.abs(c)).toBeLessThanOrEqual(400);
   });
 
-  it('every category lands on a whole semitone (no microtonal drift)', () => {
-    for (const c of CATEGORIES) expect(Math.abs(fitDetune(c) % 100)).toBe(0);
+  it('every kind lands on a whole semitone (no microtonal drift)', () => {
+    for (const k of KINDS) expect(Math.abs(fitDetune(k) % 100)).toBe(0);
   });
 
-  it('fails OPEN to the untransposed root on a junk/absent category', () => {
+  it('fails OPEN to the untransposed root on a junk/absent kind', () => {
     expect(fitDetune('')).toBe(0);
-    expect(fitDetune('notACategory')).toBe(0);
+    expect(fitDetune('notAKind')).toBe(0);
   });
 
   it('every catalog line therefore has BOTH a weight and a voice', () => {
-    for (const def of Object.values(BOON_CATALOG)) {
-      expect(TONES[fitTone(def.rarity)]).toBeDefined();
-      expect(Number.isFinite(fitDetune(def.category))).toBe(true);
+    for (const line of Object.values(CATALOG)) {
+      expect(TONES[fitTone(line.kind)]).toBeDefined();
+      expect(Number.isFinite(fitDetune(line.kind))).toBe(true);
     }
   });
 });
@@ -539,7 +579,7 @@ describe('the SOUND MAP catalog (Story 4.7) — six cues for the world, not for 
       expect(TONES[id].freqEnd, id).toBeGreaterThan(TONES[id].freqStart);
     }
     // ...and it is not one of the soft sine DROPS, which live an octave below.
-    for (const id of ['fireMine', 'placeBuoy'] as const) {
+    for (const id of ['fireMine', 'placeDecoy'] as const) {
       expect(TONES.splash.freqStart, id).toBeGreaterThan(TONES[id].freqStart * 1.5);
       expect(TONES[id].noise, id).toBeUndefined();
     }

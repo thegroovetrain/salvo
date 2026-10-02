@@ -80,7 +80,9 @@ for (let m = 0; m < MATCHES; m++) {
   );
   // Even roster, offset by match index — the same deal the campaigns use via
   // `--roster even`, so an over-represented class cannot skew the reading.
-  for (let i = 0; i < 20; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length]);
+  // ...and every bot draws from the COMMON POOL on the default gun, exactly
+  // as a production bot does (Story 8.14).
+  for (let i = 0; i < 20; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length], undefined);
   match.notifyRosterChanged();
 
   let prev = new Map<string, Per[]>();
@@ -92,7 +94,7 @@ for (let m = 0; m < MATCHES; m++) {
   const firstDmg = new Map<string, number>();
   const cap = CONFIG.zone.beatMs * 4 * 4 + 300000;
 
-  while (world.now < cap && match.phase !== 'results' && match.phase !== 'finished') {
+  while (world.now < cap && match.phase !== 'finished') {
     const snap = new Map<string, Per[]>();
     for (const s of world.ships.values()) {
       if (isFleetHull(s)) continue;

@@ -165,7 +165,9 @@ describe('ArenaRoom.static onAuth — the adapter', () => {
   });
 
   /** AuthContext as the matchmake route builds it: headers + the raw XFF-ish
-   *  ip field; no socket (verified against @colyseus/core 0.17.44). */
+   *  ip field; no socket (verified against @colyseus/core 0.18.13
+   *  Transport.d.ts:88-95 — the `AuthContext` type is `{ token?, ip, headers,
+   *  req? }`). */
   function ctx(xff?: string): AuthContext {
     const headers = new Headers();
     if (xff !== undefined) headers.set('x-forwarded-for', xff);

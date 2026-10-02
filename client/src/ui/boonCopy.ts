@@ -1,69 +1,52 @@
-// BOON PRESENTATION — the client-side copy layer for the shared BOON_CATALOG.
-// Player-facing names, rules text, category and rarity labels live HERE, never
-// on BoonDef: the catalog is pure sim AND wire contract, so a display field
+// CARD PRESENTATION — the client-side copy layer for the shared CATALOG.
+// Player-facing names, rules text and the KIND word live HERE, never on
+// CatalogLine: the catalog is pure sim AND wire contract, so a display field
 // would couple every copy edit to a PROTOCOL_VERSION bump.
 //
-// STORY 2.8 — THE RATIFIED CANON (amendment 42: "all draft card ladders are
-// RATIFIED wholesale as printed in the brainstorm document"). Every name below
-// is verbatim from _bmad-output/brainstorming-session-2026-07-30.md
-// §"Card Copy & Naming". The laws that shape this module:
+// STORY 8.1 — CATALOG V3. Every name below is verbatim from Eric's authored
+// sheet (`catalog-v3.md` §1); the nine CATEGORY labels and the three RARITY
+// tiers are DELETED with the axes behind them and replaced by ONE meta word,
+// the line's KIND. Cycle 158 (Eric ruling 2026-09-30, epic-8 amendment 188)
+// split that word by what the card DOES for the player — WEAPON / WEAPON
+// UPGRADE / SHIP UPGRADE / CONSUMABLE (ADD-ON for the unused kind) — and the
+// refit card colors it by kind (`cardKind` below); `boonKindLabel` keeps the
+// catalog-kind word for the results screen's build list.
+//
+// THE LAWS THAT SHAPE THIS MODULE (carried from Story 2.8 unchanged):
 //
 //   • Register: DRY TECHNICAL — real naval hardware vocabulary, positive
-//     adjectives, never comparatives (HEAVY WARHEAD, not HEAVIER).
+//     adjectives, never comparatives.
 //   • NAME IS FLAVOR; RULES TEXT IS THE CONTRACT — every card prints exactly
 //     what it does, with LIVE values ("Radar sweep: 15 RPM → 18 RPM."). That is
-//     why description() takes the player's class + fitted boons and computes the
+//     why description() takes the player's class + fitted cards and computes the
 //     next values through a real effectiveStats PREVIEW DIFF: the card can never
 //     print a number the firewall would not actually produce.
-//   • NAME-BY-STACK-POSITION — a multi-copy line presents the NEXT name in its
-//     ladder (held occurrences + 1), not a per-instance name. The deck's
-//     duplicate-auto-redraw rule guarantees no two copies of a line share an
-//     offer, so the next name is always unambiguous.
-//   • MIXED LADDER STYLES — bespoke ladders where the vocabulary is rich, "Mk
-//     I–V" numbering where it isn't (ammo/machinery marks are period-authentic).
-//     The Mk numerals are printed as authored; the card's name style deliberately
-//     does NOT uppercase-transform, so "Mk III" never becomes "MK III".
-//
-// STORY 7-5 WAVE 1 — THE v2 CATALOG. Eric re-authored the deck
-// (_bmad-output/implementation-artifacts/7-5-decks.md) and HIS CARD NAMES ARE
-// CANON, verbatim: HULL/SPEED/INTEL/RANGE/RELOAD, BARREL, EXTRA TURRET,
-// TORPEDO, EXTRA TUBE, BOOST DURATION, BOOST SPEED, STAR SHELLS, MINES, plus
-// PHOSPHOR SHELLS / DAZZLE SHELLS / PROP FOULING MINES. Seven lines were
-// deleted outright (gunDamage, torpedoDamage, torpedoCommand, mineDamage,
-// mineMax, starRadius, boostMax) and their copy went with them.
-//
-// STORY 7-5 WAVE 2 — TWO WHOLE EQUIPMENTS CHANGED HANDS. The cannon became the
-// BROADSIDE BARRAGE and the decoy buoy the RADAR BUOY, so every last v1 bespoke
-// ladder is now retired: HEAVY CHARGE / PLUNGING FIRE / ARMOR-PIERCING SHELLS
-// and EXTENDED BATTERY are DELETED with their catalog lines, and SELF-PROPELLED
-// MINES with the verb CAPTIVE MINES replaced. Their replacements are Eric's own
-// names, verbatim canon (`7-5-decks.md`): BROADSIDE SPREAD I–IV, BROADSIDE
-// TURRETS I–II, BUOY I–IV, GUN BUOY, JAMMING BUOY, CAPTIVE MINES.
-//
-// THE VERBS NOW STACK. PHOSPHOR and DAZZLE are independent flags on one star
-// shell, as are PROP FOULING and CAPTIVE MINES on one mine, so no doctrine
-// card's rules text may imply an either/or any more.
+//   • ONE NAME PER LINE (catalog v3). The v2 name-by-stack-position ladders are
+//     gone with the v2 catalog — the sheet names the LINE and the lineage
+//     handrail beside the name prints the rung.
 //
 // STORY 7-5 WAVE 2, R2.17 (Eric ruling 2026-08-19) — THE CARD FACE IS MINIMAL
 // AND THE EXPLANATION MOVES TO A HOVER TOOLTIP. *"I want the card itself to be
 // pretty minimal in the upgrade tab, just the name and stat change as before
 // (previous -> new) if applicable. But hovering one with the mouse should give a
 // tooltip explaining the card, so that there are no questions like 'what the
-// fuck does a captive mine do?'"* That splits this module's copy into THREE
-// surfaces with three different jobs and three different length budgets:
+// fuck does a captive mine do?'"*
 //
-//   • `boonDescription` — THE CARD FACE. A stat line's `current → next` sentence
-//     and nothing else; a verb or acquisition card returns '' and its face is
-//     name + tag alone. The `note` riders are gone from STAT_LINES entirely.
-//   • `boonTooltipText` — THE EXPLANATION (BOON_EXPLAIN). Total over the
-//     catalog, plain language, and deliberately longer than anything that ever
-//     fitted on a card, because it is no longer inside the card's box.
-//   • `boonEffectLine` — THE HOLDING readout for the hotbar slot tooltip and the
-//     results build list: the live value, or a verb's short HOLDING line.
+// CYCLE 158 (Eric ruling 2026-09-30, epic-8 amendments 185-187) REPLACED THE
+// EXPLANATION WITH NUMBERS: *"What I want to see when I hover over my weapon
+// are the weapon's actual stats/numbers. One per line."* The prose table and
+// its reader are DELETED — weapon descriptions belong to How-to-Play — and ONE
+// row builder now feeds three surfaces in one vocabulary:
 //
-// The honesty rules bind ACROSS surfaces, not per string: GUN BUOY may never
-// claim a hostility gate (R2.21) and JAMMING BUOY may never claim concealment
-// (R2.11), on the face, in the holding line, and in the explanation alike.
+//   • `cardStatRows` — THE CARD FACE: up to five `current → next` rows.
+//   • `equipmentStatRows` / `consumableStatRows` / `shipStatRows` — THE SLOT
+//     TOOLTIP (and the HP globe's SHIP panel): the live table, one per line.
+//   • `cardHoverRows` — THE REFIT CARD'S HOVER: the same table valued AFTER the
+//     card (the face's own tense).
+//
+// `boonEffectLine` (the results build list's live value) stays as it was;
+// the old `boonDescription` one-sentence reader is DELETED (the hover is
+// `cardHoverRows`, amendment 187).
 //
 // FAIL-OPEN, not fail-closed: an id with no copy renders a readable
 // de-camelCased fallback rather than an empty card, and a stack position past
@@ -73,94 +56,107 @@
 // correctness, only for legibility.
 
 import {
+  CATALOG,
   CONFIG,
+  EQUIPMENT_STAT_FIELDS,
+  LINE_IDS,
   effectiveStats,
-  resolveBoons,
-  type BoonDef,
-  type BoonRarity,
+  isStubLine,
+  tierTargetOf,
+  type BoonStatPath,
+  type CatalogLine,
   type EffectiveStats,
+  type EquipmentId,
+  type LineId,
+  type LineKind,
   type ShipClassId,
 } from '@salvo/shared';
 
 /**
- * The RATIFIED name ladders, keyed by boon id. Index 0 is the name a card
- * presents when you hold NONE of that line; index k when you hold k. A
- * single-copy line is a one-entry ladder. Amendment 42 — verbatim canon.
+ * THE CARD NAMES — catalog v3 §1, Eric's own sheet, verbatim (Story 8.1).
+ *
+ * ONE NAME PER LINE. The v2 catalog gave a multi-copy line a per-rung name
+ * ladder (BARREL I / BARREL II); catalog v3 names the LINE and prints the rung
+ * as the lineage handrail beside it, so this is a flat table and `boonName`'s
+ * `stack` argument no longer selects anything. The argument stays because both
+ * call sites (the hotbar's accrued rows and the fit toast) pass a rung they
+ * genuinely know, and a future ladder could use it again.
+ *
+ * TOTAL over LINE_IDS — pinned by __tests__/boonCopy.test.ts, so a new line
+ * cannot ship nameless.
+ *
+ * STORY 8.15 (Eric rulings 2026-09-28): the DECK GUN ladder reads `CANNON`
+ * (amendment 108 — the plain gun's player-facing name), `machineGun`/`flak` are their guns' LADDERS named `MACHINE GUN` and
+ * `FLAK`, and MISSILE, MONITOR and HEAT SEEKING are CUT (amendment 89e).
+ *
+ * DECK GUN TURRET and DECK GUN BARREL were DELETED 2026-09-30 (Eric, amendment
+ * 185: every upgrade is tiered): their pool and barrel steps became rungs of
+ * the CANNON ladder, so the family is the one line.
  */
-const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
-  // --- GUNS ----------------------------------------------------------------
-  // HEAVY SHELLS is DELETED with `gunDamage` (Eric: the gun needs no damage
-  // bonuses). BARREL keeps the ladder-of-numerals register the v2 catalog runs on.
-  gunBarrel: ['BARREL I', 'BARREL II'],
-  gunTurret: ['EXTRA TURRET'],
-  // --- BROADSIDE BARRAGE (WAVE 2 — replaces the cannon outright) ------------
-  // Eric's names, verbatim. SPREAD widens each turret's own firing arc (the
-  // 2026-08-20 per-turret-arc ruling), which is why its rules text prints the
-  // traverse half-angle rather than the rung the card writes.
-  broadsideSpread: ['BROADSIDE SPREAD I', 'BROADSIDE SPREAD II', 'BROADSIDE SPREAD III', 'BROADSIDE SPREAD IV'],
-  broadsideTurrets: ['BROADSIDE TURRETS I', 'BROADSIDE TURRETS II'],
-  // --- TORPEDOES -----------------------------------------------------------
-  // HEAVY WARHEAD and COMMAND DETONATION are both DELETED (their catalog lines
-  // are gone; command detonation left the game entirely).
-  torpedoSpeed: ['TORPEDO I', 'TORPEDO II', 'TORPEDO III', 'TORPEDO IV'],
-  torpedoTube: ['EXTRA TUBE'],
-  torpedoHoming: ['ACOUSTIC HOMING'],
-  // --- MINES ---------------------------------------------------------------
-  // TNT FILLER and DECK RACKS are DELETED with `mineDamage`/`mineMax`.
-  mineBlast: ['MINES I', 'MINES II', 'MINES III', 'MINES IV'],
-  minePropFouling: ['PROP FOULING MINES'],
-  // WAVE 2: the tracking mine becomes a torpedo mine. SELF-PROPELLED MINES is
-  // deleted with the verb it named.
-  mineCaptive: ['CAPTIVE MINES'],
-  // --- SPEED BOOST ---------------------------------------------------------
-  // `boostMax` (CLEAN BOILERS…) SPLIT into two lines: duration and speed are
-  // separate buys now, so the old one-ladder flavor had nothing left to name.
-  boostDuration: ['BOOST DURATION I', 'BOOST DURATION II', 'BOOST DURATION III', 'BOOST DURATION IV'],
-  boostSpeed: ['BOOST SPEED I', 'BOOST SPEED II'],
-  // --- STAR SHELLS ---------------------------------------------------------
-  // WIDE BURST is DELETED with `starRadius`. PHOSPHOR SHELLS is a DISPLAY
-  // rename of the `starIncendiary` line — project law (the KILL LEADER
-  // precedent): a copy rename is never an id rename.
-  starDuration: ['STAR SHELLS I', 'STAR SHELLS II', 'STAR SHELLS III', 'STAR SHELLS IV'],
-  starIncendiary: ['PHOSPHOR SHELLS'],
-  starDazzle: ['DAZZLE SHELLS'],
-  // --- RADAR BUOY (WAVE 2 — replaces the decoy buoy outright) ---------------
-  buoyDuration: ['BUOY I', 'BUOY II', 'BUOY III', 'BUOY IV'],
-  buoyGun: ['GUN BUOY'],
-  buoyJamming: ['JAMMING BUOY'],
-  // --- INTEL ---------------------------------------------------------------
-  intelSweep: ['INTEL I', 'INTEL II', 'INTEL III', 'INTEL IV', 'INTEL V'],
-  // --- SHIP ----------------------------------------------------------------
-  shipSpeed: ['SPEED I', 'SPEED II', 'SPEED III', 'SPEED IV'],
-  shipHull: ['HULL I', 'HULL II', 'HULL III', 'HULL IV'],
-  shipCooldown: ['RELOAD I', 'RELOAD II', 'RELOAD III', 'RELOAD IV', 'RELOAD V'],
-  // --- EQUIPMENT ACQUISITIONS (fill the R slot, shuffle their subdeck in) ---
-  acquireTorpedo: ['TORPEDO TUBES'],
-  acquireMine: ['MINE RACKS'],
-  acquireStarShells: ['STAR SHELL MORTAR'],
-  acquireBroadside: ['BROADSIDE BARRAGE'],
-  acquireRadarBuoy: ['RADAR BUOY'],
-  acquireBoost: ['EMERGENCY THROTTLE'], // amendment 42: the Speed Boost card's ratified name
-};
-
-/** Category tag copy, keyed by BoonDef.category — the ratified nine. */
-const CATEGORY_LABELS: Readonly<Record<string, string>> = {
-  guns: 'GUNS',
-  broadside: 'BROADSIDE',
-  torpedoes: 'TORPEDOES',
-  mines: 'MINES',
-  speedBoost: 'SPEED BOOST',
+const LINE_NAMES: Readonly<Record<LineId, string>> = {
+  // --- the five universal ladders ------------------------------------------
+  armor: 'ARMOR',
+  speed: 'SPEED',
+  turning: 'TURNING',
+  radarSweep: 'RADAR SWEEP',
+  reload: 'RELOAD',
+  // --- the deck-gun family --------------------------------------------------
+  deckGun: 'CANNON',
+  // --- the eleven equipment lines -------------------------------------------
+  // FOULING MINES joined them in Story 8.13 (epic-8 amendment 81 — the add-on
+  // card was deleted and the line took its place) and keeps its sheet name
+  // verbatim; SUPERCAV TORPEDO left for the consumables below (amendment 74).
+  lightTorpedo: 'LIGHT TORPEDO',
+  heavyTorpedo: 'HEAVY TORPEDO',
+  navalMines: 'NAVAL MINES',
+  captiveMines: 'CAPTIVE MINES',
+  foulingMines: 'FOULING MINES',
+  // THE TWO PICKABLE GUNS' LADDERS (Story 8.15, amendments 104/105) — kept in
+  // their locked catalog slots, named for the gun they climb.
+  machineGun: 'MACHINE GUN',
+  flak: 'FLAK',
+  broadside: 'BROADSIDE GUN',
   starShells: 'STAR SHELLS',
-  radarBuoy: 'RADAR BUOY',
-  intel: 'INTEL',
-  ship: 'SHIP',
+  // --- the seven consumables ------------------------------------------------
+  hullRepair: 'HULL REPAIR',
+  shieldBlock: 'SHIELD BLOCK',
+  smokeScreen: 'SMOKE SCREEN',
+  chaff: 'CHAFF',
+  decoyBuoy: 'DECOY BUOY',
+  // `SUPERCAV TORPEDO`, NOT `SUPERCAVITATING TORPEDO` (Eric ruling 2026-09-19,
+  // epic-8 amendment 75). The sheet's full word never fitted the refit card's
+  // name box — it was the ONE name carrying a Story 8.1 fit exemption — and
+  // Eric's answer was to shorten the NAME rather than to keep the exemption or
+  // add a type-size step. The exemption pins are retired with it
+  // (__tests__/refitCardFit.test.ts asserts the name fits at the ordinary size).
+  supercavTorpedo: 'SUPERCAV TORPEDO',
+  // DEPTH CHARGE (amendment 83) — Eric's line, stubbed: it is a named line with
+  // no mechanism yet, and a stub is never dealt out of the common pool (Story
+  // 8.14 retired the per-hull decks it used to pad). The NAME is his, verbatim.
+  depthCharge: 'DEPTH CHARGE',
+  // --- the former add-ons (NONE remains since Story 8.17) -------------------
+  // ACOUSTIC HOMING and the FOULING MINES add-on were DELETED on 2026-09-19
+  // (amendments 80/81): homing became a tier stat on the torpedo lines and
+  // fouling became its own equipment line, so neither card exists to name.
+  // HEAT SEEKING was CUT with the missile in Story 8.15 (amendment 89e).
+  // STORY 8.17 (Eric ruling 2026-09-29, amendments 131/132): DAZZLE SHELLS is
+  // the belt consumable FLASH SHELLS — the display name changed, the internal
+  // id `dazzleShells` did not — and PHOSPHOR SHELLS is its own equipment line.
+  dazzleShells: 'FLASH SHELLS',
+  phosphorShells: 'PHOSPHOR SHELLS',
 };
 
-/** Rarity tag copy: a plain COMMON shows NOTHING (the absence is the tier). */
-const RARITY_LABELS: Readonly<Record<BoonRarity, string>> = {
-  common: '',
-  rare: 'RARE',
-  exclusive: 'EXCLUSIVE',
+/**
+ * THE CATALOG-KIND WORD (Eric ruling 2026-09-15, amendment 8) — one word per
+ * catalog v3 kind, the sheet's own column words. Since cycle 158 it is read by
+ * the RESULTS screen's build list alone (`boonKindLabel`); the refit card prints
+ * the finer `cardKindLabel` below (amendment 188).
+ */
+const KIND_LABELS: Readonly<Record<LineKind, string>> = {
+  equipment: 'WEAPON',
+  ladder: 'UPGRADE',
+  addon: 'ADD-ON',
+  consumable: 'CONSUMABLE',
 };
 
 /** "reinforcedBulkheads" -> "Reinforced Bulkheads" — the no-copy fallback. */
@@ -170,27 +166,61 @@ function humanize(id: string): string {
 }
 
 /**
- * Pure: the card name for a boon id at a given STACK (held occurrences) —
- * name-by-stack-position. Clamped into the ladder at both ends (a stack past
- * the ladder's end keeps its last rung rather than going blank), fail-open to
- * the humanized id for an unwritten line.
+ * Pure: the card name for a line id, fail-open to the humanized id for an
+ * unwritten line. `stack` is accepted and ignored (see LINE_NAMES).
  */
-export function boonName(id: string, stack = 0): string {
-  if (!Object.hasOwn(BOON_LADDERS, id)) return humanize(id);
-  const ladder = BOON_LADDERS[id];
-  const i = Math.min(Math.max(0, Math.trunc(stack)), ladder.length - 1);
-  return ladder[i];
+export function boonName(id: string, _stack = 0): string {
+  return Object.hasOwn(LINE_NAMES, id) ? LINE_NAMES[id as LineId] : humanize(id);
 }
 
-/** Pure: the uppercase category tag for a BoonDef.category (fail-open). */
-export function boonCategoryLabel(category: string): string {
-  return Object.hasOwn(CATEGORY_LABELS, category) ? CATEGORY_LABELS[category] : category.toUpperCase();
+/** Pure: the uppercase KIND word for a catalog line's kind (fail-open). */
+export function boonKindLabel(kind: string): string {
+  return Object.hasOwn(KIND_LABELS, kind) ? KIND_LABELS[kind as LineKind] : kind.toUpperCase();
 }
 
-/** Pure: the rarity tag ('' for a plain common — commons show no tag). */
-export function boonRarityLabel(rarity: BoonRarity): string {
-  return RARITY_LABELS[rarity] ?? '';
+/**
+ * THE REFIT CARD'S KIND (Eric ruling 2026-09-30, epic-8 amendment 188) — what
+ * the card does for the player, which is a function of the line AND the copies
+ * held: copy 1 of an equipment line FITS a weapon; every later copy, and every
+ * gun ladder, upgrades a weapon; the five shipwide ladders upgrade the hull.
+ * The refit card colors its KIND word and resting edge by this (dual-coded:
+ * the word carries the kind with the color stripped).
+ */
+export type CardKind = 'weapon' | 'weaponUpgrade' | 'shipUpgrade' | 'consumable' | 'addon';
+
+/** THE GUN LADDERS and the gun each one climbs — the deck-gun family climbs the
+ *  CANNON (`gun`); the two pickable guns' ladders climb their own gun. A card on
+ *  one of these is a WEAPON UPGRADE, and its hover prints that gun's table. */
+const GUN_LADDER_TARGET: Readonly<Partial<Record<LineId, EquipmentId>>> = {
+  deckGun: 'gun',
+  machineGun: 'machineGun',
+  flak: 'flak',
+};
+
+/** Pure: the card's kind. Any ladder that is not a gun ladder reads as a SHIP
+ *  UPGRADE (fail-open: the five shipwide ladders are every such line today). */
+export function cardKind(line: CatalogLine, copiesHeld: number): CardKind {
+  if (line.kind === 'equipment') return Number.isFinite(copiesHeld) && copiesHeld >= 1 ? 'weaponUpgrade' : 'weapon';
+  if (line.kind === 'ladder') return Object.hasOwn(GUN_LADDER_TARGET, line.id) ? 'weaponUpgrade' : 'shipUpgrade';
+  return line.kind === 'consumable' ? 'consumable' : 'addon';
 }
+
+const CARD_KIND_LABELS: Readonly<Record<CardKind, string>> = {
+  weapon: 'WEAPON',
+  weaponUpgrade: 'WEAPON UPGRADE',
+  shipUpgrade: 'SHIP UPGRADE',
+  consumable: 'CONSUMABLE',
+  addon: 'ADD-ON',
+};
+
+/** Pure: the refit card's KIND word for a card kind. */
+export function cardKindLabel(kind: CardKind): string {
+  return CARD_KIND_LABELS[kind];
+}
+
+/** The refit card's kind words (test seam — the card's width model fits
+ *  against the longest of these, WEAPON UPGRADE). */
+export const KIND_WORDS: readonly string[] = Object.values(CARD_KIND_LABELS);
 
 // --- rules text: the CONTRACT, with live values --------------------------------
 
@@ -200,357 +230,276 @@ function num(v: number): string {
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
-/** Trimmed seconds for a ms duration — "3s", "2.7s" (the hotbar's grammar). */
-function secs(ms: number): string {
-  return `${num(ms / 1000)}s`;
-}
-
-/** Radians as a signed half-angle in whole-ish degrees — "±34°". The ± is
- *  doing real work: it says the number is a HALF-WIDTH about each turret's own
- *  mount bearing (its traverse), not a distance. */
-function halfAngleDeg(rad: number): string {
-  return `±${num((rad * 180) / Math.PI)}°`;
-}
-
 /** A 0..1 scale as a percentage OF BASE — "100%", "90%". Used by the global
- *  cooldown line, whose one number stands in for seven different reloads: a
- *  card that scales all of them has no single second-count to headline, so it
- *  prints the scale itself and the before→after reads honestly downward. */
+ *  cooldown line, whose one number stands in for every equipment reload: a card
+ *  that scales all of them has no single second-count to headline, so it prints
+ *  the scale itself and the before→after reads honestly downward. */
 function pct(v: number): string {
   return `${num(v * 100)}%`;
 }
 
-/** One headline stat of a stat line: what to call it, where to read it and how
- *  to print it.
+/**
+ * One headline stat of a stat line: what to call it, WHICH STAT PATH it reads
+ * and how to print it.
  *
- *  THE `note` FIELD IS DELETED (Story 7-5 wave 2, R2.17). A standing rider —
- *  "The trip ring widens with it.", "Every weapon and ability reloads faster." —
- *  is EXPLANATION, and the card face no longer carries explanation: it carries
- *  the ladder name, the lineage marker, the rarity tag and the `current → next`
- *  sentence, and nothing else. Every one of those riders was folded into the
- *  line's hover-tooltip copy (BOON_EXPLAIN) rather than dropped. */
+ * STORY 8.7 replaced the `read` closure with the `path` itself. The ratified
+ * card face prints a ROW PER STAT EFFECT rather than one headline sentence, and
+ * a card's effects are authored as paths (`equipment.gun.damage`) — so the
+ * label table has to be keyed the same way, or the face and this module would
+ * be two different answers to "what do you call this number". `readStatPath`
+ * below is the one reader both surfaces go through.
+ */
 interface StatLine {
   label: string;
-  read: (s: EffectiveStats) => number;
+  /** The EffectiveStats path this row reads — the same string the catalog's
+   *  `stat` effects address, so `STAT_LABELS` can be generated from it. */
+  path: BoonStatPath;
   fmt?: (v: number) => string;
 }
 
-/** The headline stat each COMMON/RARE line moves — the number the card prints
- *  as `current → next`, and since R2.17 the WHOLE of what a stat card's face
- *  says. One row per stat line in BOON_CATALOG. */
-const STAT_LINES: Readonly<Record<string, StatLine>> = {
-  gunBarrel: { label: 'Shells per shot', read: (s) => s.gun.barrels },
-  gunTurret: { label: 'Gun rounds ready', read: (s) => s.gun.maxAmmo },
-  // THE BROADSIDE PAIR (Story 7-5 wave 2). SPREAD's stat-addressable field is a
-  // RUNG (1..5) — an index into an authored ladder of degrees — and printing
-  // "1 → 2" would tell the player nothing about what tightens. So it reads the
-  // DERIVED half-angle instead, straight off the same effectiveStats preview
-  // diff every other line uses: the firewall does the ladder lookup and the ×4
-  // clamp, so a maxed stack honestly prints the same number twice.
-  //
-  // SINCE 2026-08-27 THE CARD MOVES TWO NUMBERS and the face still prints ONE.
-  // The rung also swings the MOUNT bearings inward (`mountSpreadRad`), which is
-  // half of what the card actually buys — but a second printed line would need
-  // NEW PLAYER-FACING WORDS, and inventing card copy is what the naming law
-  // forbids. Traverse stays the headline because it is the number the player
-  // sees change on the water (their wedges get wider). FLAGGED FOR ERIC'S COPY
-  // PASS: the choke is currently unnamed on the face.
-  broadsideSpread: { label: 'Turret traverse', read: (s) => s.broadside.traverseRad, fmt: halfAngleDeg },
-  broadsideTurrets: { label: 'Shells per barrage', read: (s) => s.broadside.turrets },
-  torpedoSpeed: { label: 'Torpedo speed', read: (s) => s.torpedo.speed },
-  torpedoTube: { label: 'Torpedoes loaded', read: (s) => s.torpedo.maxAmmo },
-  mineBlast: { label: 'Mine blast radius', read: (s) => s.mine.blastRadius },
-  // The two halves of the retired `boostMax` line, bought separately now.
-  boostDuration: { label: 'Boost duration', read: (s) => s.boost.durationMs, fmt: secs },
-  boostSpeed: { label: 'Boost speed', read: (s) => s.boost.speedBonus },
-  starDuration: { label: 'Flare burn time', read: (s) => s.starShells.litDurationMs, fmt: secs },
-  // R2.20 (Eric ruling 2026-08-19) replaced the sweep-rate line with this one:
-  // +2.5s of buoy life per card.
-  buoyDuration: { label: 'Buoy lifetime', read: (s) => s.radarBuoy.durationMs, fmt: secs },
-  intelSweep: { label: 'Radar sweep', read: (s) => s.sweepRpm, fmt: (v) => `${num(v)} RPM` },
-  shipSpeed: { label: 'Top speed', read: (s) => s.kinematics.maxSpeed },
-  shipHull: { label: 'Max hull', read: (s) => s.maxHp },
-  // The ONE global cooldown lever: `cooldownScale` multiplies every equipment's
-  // reload post-fold, so this row reads the scalar itself rather than any single
-  // weapon — printed as a percentage of base so 100% → 90% reads downward.
-  shipCooldown: { label: 'All cooldowns', read: (s) => s.cooldownScale, fmt: pct },
+/**
+ * Pure: read a dotted stat path off an EffectiveStats. Fail-open to 0 on a path
+ * that does not resolve — a card printing `0` is a visible defect, whereas a
+ * throw from inside the refit band's per-frame render is a permanent freeze
+ * (the cycle-91 lesson, applied to the reader rather than the class table).
+ */
+function readStatPath(stats: EffectiveStats, path: string): number {
+  let cur: unknown = stats;
+  for (const seg of path.split('.')) {
+    if (typeof cur !== 'object' || cur === null) return 0;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return typeof cur === 'number' ? cur : 0;
+}
+
+/** Seconds to one decimal — "30.0 s". The equipment rows' own format: a
+ *  weapon's reload is the only card number small enough that the tenth is the
+ *  whole story (a 5 % step off 30 s is 1.5 s), so it never prints bare. */
+function secs(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+/**
+ * THE EQUIPMENT LINES' headline stat: THEIR OWN RELOAD.
+ *
+ * Copy 1 of an equipment line fits the weapon; every copy after it raises that
+ * weapon's TIER, and a tier is −5 % of its own reload (derived from the tier in
+ * sim/stats.ts clampStats, not authored as an effect). So the reload IS the
+ * number that moves, and the card prints it like any ladder — through the same
+ * live preview diff, so it can never promise a step the firewall would not
+ * produce. Copy 1 on a hull WITHOUT the weapon honestly prints no change: what
+ * that copy buys is the FIT, which the hover tooltip explains.
+ *
+ * Built from the catalog rather than typed out, and only for lines whose weapon
+ * EXISTS — a stub line has no row worth reading, so it stays silent and falls
+ * back to the fail-open stub rendering.
+ */
+function equipmentStatLines(): Partial<Record<LineId, StatLine>> {
+  const out: Partial<Record<LineId, StatLine>> = {};
+  for (const id of LINE_IDS) {
+    const line = CATALOG[id];
+    if (line.kind !== 'equipment' || isStubLine(id)) continue;
+    const target = tierTargetOf(line);
+    if (target === undefined) continue;
+    out[id] = { label: 'Reload', path: `equipment.${target}.reloadMs` as BoonStatPath, fmt: secs };
+  }
+  return out;
+}
+
+/** Pure: a yaw rate (rad/s) as WHOLE degrees per second with the unit. */
+function degPerSec(radPerSec: number): string {
+  return `${Math.round((radPerSec * 180) / Math.PI)}°/s`;
+}
+
+/**
+ * The headline stat each line moves — the number the card prints as
+ * `current → next`, and the WHOLE of what a stat card's face says (R2.17).
+ *
+ * PARTIAL over the catalog: the five consumables are stubs and the five add-ons
+ * are verbs, so neither has a number. What speaks is the five universal
+ * ladders, the deck-gun family, and every LIVE equipment line (its own reload,
+ * generated above). Each label below is carried over verbatim from the v2 line
+ * this one replaces (see the `<-` notes), except TURNING, whose word is the
+ * class-select stat label already shipped in ui/classSelect.ts.
+ */
+const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
+  ...equipmentStatLines(),
+  armor: { label: 'Max hull', path: 'maxHp' }, // <- shipHull
+  speed: { label: 'Top speed', path: 'kinematics.maxSpeed' }, // <- shipSpeed
+  // TURNING PRINTS IN DEGREES PER SECOND (Eric 2026-09-30, review gate P10):
+  // a whole number with its unit — 0.8 rad/s reads `46°/s` — on the card face,
+  // the SHIP tooltip and the results build line alike (one printer).
+  turning: { label: 'Turning', path: 'kinematics.turnRate', fmt: degPerSec },
+  // <- intelSweep
+  radarSweep: { label: 'Radar sweep', path: 'sweepRpm', fmt: (v) => `${num(v)} RPM` },
+  // <- shipCooldown. The ONE global cooldown lever: `cooldownScale` multiplies
+  // every equipment's reload post-fold, so this row reads the scalar itself
+  // rather than any single weapon — printed as a percentage of base so
+  // 100% → 95% reads downward.
+  reload: { label: 'All cooldowns', path: 'cooldownScale', fmt: pct },
+  // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
+  // the tier in clampStats and stays silent): damage is the number the player
+  // watches change. Since Eric's 2026-10-02 tables (damage 16/16/18/18/21)
+  // the rungs to II and IV author a barrel ALONE (no damage step, so their face
+  // prints no GUN DAMAGE row), the rung to III damage plus the second turret,
+  // the rung to V damage alone. The pool is `equipment.gun.maxAmmo` and the barrels
+  // (`equipment.gun.barrels`); those rows print through the FIELD_WORDS
+  // fallback (`ROUNDS`, `SHELLS PER SHOT`) — no entry here, no new words.
+  deckGun: { label: 'Gun damage', path: 'equipment.gun.damage' },
+  // THE TWO PICKABLE GUNS' LADDERS (Story 8.15). Their headline is their own
+  // RELOAD, the equipment lines' grammar: a tier card prints the reload step
+  // FIRST and then every authored step (amendments 85/87(b) — see
+  // `GUN_LADDER_RELOAD`), which is the rule the torpedo/mine tier cards follow.
+  machineGun: { label: 'Reload', path: 'equipment.machineGun.reloadMs', fmt: secs },
+  flak: { label: 'Reload', path: 'equipment.flak.reloadMs', fmt: secs },
 };
 
 /**
- * The verb cards' HOLDING line — the compact "what this line is doing for you
- * RIGHT NOW" that a hotbar tooltip row and a results-screen build row print
- * under a `◆ NAME`. A verb moves no number, so `boonEffectLine` has nothing to
- * read off `EffectiveStats`; this table is what those two surfaces show instead.
- *
- * IT IS NEITHER THE CARD FACE NOR THE EXPLANATION (Story 7-5 wave 2, R2.17).
- * A verb card's FACE is now name + tag only, and the EXPLANATION — the answer
- * to *"what the fuck does a captive mine do?"* — lives in BOON_EXPLAIN below,
- * where no container budget compresses it. These stay short deliberately: they
- * ride INSIDE the hotbar panel, whose own fit pin (__tests__/tooltipFit.test.ts)
- * starts trimming accrued rows away the moment they grow.
- *
- * STORY 7-5 WAVE 1: the verbs STACK now, so no line here may imply an either/or.
- * PROP FOULING no longer claims a damage penalty (cycle 95 deleted it).
+ * THE GUN LADDERS WHOSE TIER CARD PRINTS ITS RELOAD STEP (Story 8.15). The
+ * machine gun's and the flak gun's ladders are LADDER lines (their gun is the
+ * seat's pick, never a card), but each tier ALSO cuts that gun's reload by 5 %
+ * — derived from the tier in clampStats, never authored — exactly as a
+ * torpedo's tier does. Amendment 85 prints that step on a tier card, so these
+ * two print it too, first, then their authored steps. The DECK GUN (CANNON)
+ * ladder is NOT here: amendment 71 ruled its face the damage row and no reload
+ * row, read since amendment 197 (198(a)) as ONE ROW PER AUTHORED STEP — the
+ * rungs to II and IV print `SHELLS PER SHOT` alone (a barrel, no damage step
+ * under Eric's 16/16/18/18/21), the rung to III damage plus `ROUNDS` (the
+ * second turret), the rung to V damage alone.
  */
-const DOCTRINE_HOLDING: Readonly<Record<string, string>> = {
-  torpedoHoming: 'Torpedoes steer onto the nearest hull in their acquisition band.',
-  mineCaptive: 'Mines fire one torpedo instead of blasting on contact.',
-  // R2.21 (Eric ruling 2026-08-19) SUPERSEDED R2.10's hostile gate: the gun buoy
-  // is AUTONOMOUS and shoots anything its own radar sees that is not its owner —
-  // enemy captains, bots and NEUTRAL fleet drones alike, nearest to the buoy
-  // first. So this line may not say "hostile", "enemy" or "attacker": every one
-  // of those words promises an aggro gate this weapon does not have. The same
-  // ban binds its BOON_EXPLAIN entry, and boonCopy.test.ts checks both.
-  buoyGun: 'Buoys shoot the nearest hull but yours: 5 damage every 5s.',
-  // R2.11: it ADDS fakes and never deletes a real return, and it is RADAR ONLY.
-  // The line must not imply concealment — the buoy hides nothing, it makes the
-  // water unreadable — and must leave the counter standing: sail in and look.
-  buoyJamming: 'Buoys fill their circle with false radar returns for all but you.',
-  minePropFouling: 'Mine blasts foul screws: 25% slower for 5 seconds.',
-  starIncendiary: 'Your lit zones also burn every hull but yours inside them.',
-  starDazzle: 'Your lit zones also cut the true sight of every hull but yours.',
-};
+const GUN_LADDER_RELOAD: ReadonlySet<string> = new Set(['machineGun', 'flak']);
 
-/** The acquisition cards' HOLDING line — DOCTRINE_HOLDING's sibling for the six
- *  equipment fits: same job, same two consumers, same brevity budget. */
-const ACQUISITION_HOLDING: Readonly<Record<string, string>> = {
-  acquireTorpedo: 'Torpedo tubes fitted; their cards joined your deck.',
-  acquireMine: 'Mine racks fitted; their cards joined your deck.',
-  acquireStarShells: 'A star shell mortar fitted; its cards joined your deck.',
-  acquireBroadside: 'A broadside battery fitted; its cards joined your deck.',
-  acquireRadarBuoy: 'A radar buoy rack fitted; its cards joined your deck.',
-  acquireBoost: 'An emergency throttle fitted; its cards joined your deck.',
+/**
+ * PATH-SPECIFIC row words, checked before the generic field word. One entry:
+ * the machine gun's pool is a MAGAZINE of shells (amendment 103), so its row
+ * says `SHELLS` where every other pool says `ROUNDS`.
+ */
+const PATH_WORDS: Readonly<Record<string, string>> = {
+  'equipment.machineGun.maxAmmo': 'SHELLS',
+  // STAR SHELLS' pool is FLARES (Story 8.17, amendment 135(j)): the ladder's
+  // +0.5 step buys a second and third flare, and "rounds" is the gun's word.
+  'equipment.starShells.maxAmmo': 'FLARES',
 };
 
 /**
- * THE EXPLANATIONS (Story 7-5 wave 2, R2.17 — Eric ruling 2026-08-19).
- *
- * *"hovering one with the mouse should give a tooltip explaining the card, so
- * that there are no questions like 'what the fuck does a captive mine do?'"*
- *
- * ONE ENTRY PER CATALOG LINE — TOTAL, stat lines included, because a
- * `current → next` number does not tell a new player what `cooldownScale` or a
- * trip ring IS. These are plain-language answers to "what does this actually
- * do", written for somebody who has never seen the mechanic.
- *
- * THEY ARE DELIBERATELY LONGER THAN ANYTHING THAT EVER FITTED ON A CARD.
- * Amendment 47's ~90-character / ~5-wrapped-line budget is a statement about
- * the 216×236 card BOX (Story 2.8's doctrine text overflowed it by 50–97px on
- * the live site). This copy does not live in that box, so that budget does not
- * govern it — but it is not unbounded either: __tests__/refitTooltipFit.test.ts
- * measures every entry against the hover panel's OWN container, the clear space
- * above the refit band at the 1280×614 logical floor.
- *
- * THE HONESTY PINS SURVIVE THE REWRITE. Two shipped wordings were caught lying
- * during this story, and their replacements are pinned by forbidden-word lists
- * on BOTH surfaces: GUN BUOY may not say hostile/enemy/attacker/threat (R2.21
- * made it autonomous — it shoots neutral fleet drones too), and JAMMING BUOY
- * may not say hide/conceal/invisible/cloak (R2.11 — it ADDS fakes, removes
- * nothing, and sailing in to look is the ratified counter).
- *
- * WHERE THE OLD `note` RIDERS WENT: every standing rider the card face used to
- * carry ("The trip ring widens with it.", "Repairs the hull it adds.", the
- * eighths-ladder list on RANGE, the buoy-gap curve on BUOY) was folded into the
- * matching entry below rather than dropped.
+ * THE ROW LABELS, keyed by STAT PATH and GENERATED from the table above (Story
+ * 8.7, ruling 12): every word the card face prints in a row's left column is
+ * the SAME word the hover panel and the slot tooltip already use for that
+ * number, uppercased for the 9px mono register. Generated rather than retyped
+ * so a relabelled stat cannot end up with two names.
  */
-const BOON_EXPLAIN: Readonly<Record<string, string>> = {
-  // --- guns ----------------------------------------------------------------
-  gunBarrel:
-    'Your gun throws extra shells on parallel tracks either side of the one you aimed, each bursting at its own point. An odd number puts one shell exactly on your click; an even number straddles it.',
-  gunTurret:
-    'Keeps a second gun round ready, so you can fire twice back to back instead of waiting out the whole reload between shots. The reload is unchanged — you simply have somewhere to keep the spare.',
-  // --- broadside -----------------------------------------------------------
-  broadsideSpread:
-    'Each turret in the battery has its own firing arc and fires as close to your click as that arc can swing. Each card widens every arc, so more of the salvo can train onto the point you clicked.',
-  broadsideTurrets:
-    'Adds a turret to each side, so every barrage throws one more shell — one more gun, with its own arc, that can bear on the point you click. Every gun that bears lands its shell exactly there.',
-  // --- torpedoes -----------------------------------------------------------
-  torpedoSpeed:
-    'A faster fish reaches the target sooner and leaves less water for them to turn out of. It does not hit harder: speed buys shots that are harder to dodge, not shots that hurt more.',
-  torpedoTube:
-    'Keeps a second torpedo loaded, so you can put two in the water back to back — a spread at one hull, or one each at two — instead of waiting out a full reload between them.',
-  torpedoHoming:
-    'Your torpedoes listen for hulls. Once one is inside the acquisition band the fish steers slowly onto it, correcting a near miss for you. It is a gentle turn, not a chase: hard helm still shakes it.',
-  // --- mines ---------------------------------------------------------------
-  mineBlast:
-    'Widens the mine blast, and the trip ring with it — the ring that sets a mine off is always two thirds of the blast, so one card grows both. A wider mine denies more water and is harder to thread.',
-  minePropFouling:
-    'Anything caught in one of your mine blasts has its screws fouled: 25% slower for 5 seconds. The damage is unchanged — what you buy is a hull that cannot run while you close on it.',
-  mineCaptive:
-    'A captive mine is a torpedo waiting on a mooring. It never blows up on contact. It sits on a much wider trip ring and, when a hostile crosses that ring, launches one torpedo at where they are heading — then it is spent.',
-  // --- speed boost ---------------------------------------------------------
-  boostDuration:
-    'Holds the emergency throttle open longer, so one press carries you further. It does not raise the speed you boost to — that is the other boost line.',
-  boostSpeed:
-    'Raises the speed the emergency throttle drives you to, over your rated top speed. It does not last any longer — that is the other boost line.',
-  // --- star shells ---------------------------------------------------------
-  starDuration:
-    'A star shell lights a circle of ocean wherever you drop it, and you see into your own lit circle as clearly as into your own sight. It is how you look somewhere you are not. The flare burns longer.',
-  starIncendiary:
-    'Your lit circles catch fire. A slightly smaller ring inside each one burns every hull but yours at 5 hp a second for as long as the flare lasts. It stacks with DAZZLE SHELLS — one flare can do both.',
-  starDazzle:
-    'Your lit circles dazzle. Any hull but yours standing in one has its own true sight cut in half while it stays there: it can still be seen, it just cannot see. It stacks with PHOSPHOR SHELLS.',
-  // --- radar buoy ----------------------------------------------------------
-  buoyDuration:
-    'A radar buoy is a set of eyes you leave behind: it sweeps its own circle and relays what it paints to you alone. Each card keeps one on the water longer, closing the dead gap between one buoy and the next.',
-  buoyGun:
-    'Bolts a light gun to your buoys. Each one fires by itself at the nearest hull its own radar can see — anything at all except yours — for 5 damage every 5 seconds. What it cannot see, it cannot shoot.',
-  buoyJamming:
-    'Your buoys flood their own circle with false radar returns. Every other scope fills with contacts that are not there; real returns still paint, they are simply one candidate among many. Sight sees the truth.',
-  // --- intel ---------------------------------------------------------------
-  intelSweep:
-    'Spins your radar faster. A contact paints only as the beam crosses its bearing, so a quicker sweep refreshes what you know more often and leaves a target less water to cross between paints.',
-  // --- ship ----------------------------------------------------------------
-  shipSpeed:
-    'Raises your top speed ahead. Reverse and rate of turn are untouched — this is straight-line pace, which decides whether you can close a gap or break off a fight you are losing.',
-  shipHull:
-    'Raises your maximum hull, and repairs exactly the amount it adds the moment you fit it — so it is a heal as well as a buffer. Nothing else in the game raises maximum hull.',
-  shipCooldown:
-    'There is one cooldown lever in the game and this is it: every weapon and ability you carry reloads faster by the same fraction. It reads as a percentage of base, so the number falls as you stack it.',
-  // --- acquisitions --------------------------------------------------------
-  acquireTorpedo:
-    'Fits torpedo tubes to your open slot, loaded. Torpedoes run just under the surface and hit hard, but they run straight — you lead the target yourself. Their upgrade cards join your deck.',
-  acquireMine:
-    'Fits mine racks to your open slot, loaded. Mines drop astern and sit armed on the water until something crosses the trip ring around them. Their upgrade cards join your deck.',
-  acquireStarShells:
-    'Fits a star shell mortar to your open slot. A flare lights a circle of ocean you see into as if it were your own sight — the one way to look somewhere you are not. Its upgrade cards join your deck.',
-  acquireBroadside:
-    'Fits a broadside battery to your open slot. It throws a fan of shells off whichever beam you clicked, port or starboard — never over the bow or the stern. Its upgrade cards join your deck.',
-  acquireRadarBuoy:
-    'Fits a radar buoy rack to your open slot. A buoy is a stationary set of eyes you drop astern; it sweeps its own circle and relays the returns to you until it expires or is sunk. Its cards join your deck.',
-  acquireBoost:
-    'Fits an emergency throttle to your open slot. One press drives your hull past its rated top speed for a few seconds — for closing, for breaking off, for stepping out of a torpedo. Its cards join your deck.',
-};
+const STAT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.values(STAT_LINES)
+    .filter((l): l is StatLine => l !== undefined)
+    .map((l) => [l.path as string, l.label.toUpperCase()]),
+);
 
 /** The player state a card's live values are computed against. */
 export interface BoonPreviewShip {
   cls: ShipClassId;
-  boons: readonly string[];
+  cards: readonly string[];
 }
 
 /**
- * The card's `current → next` sentence for a STAT line, computed through a real
- * effectiveStats PREVIEW DIFF: resolve the player's fitted boons, resolve them
- * again with this id appended, and read the headline stat off both. The firewall
- * does the arithmetic (clamps, caps and derivations included), so a card can
- * never promise a number the sim would not produce — a sweep line at the 30-RPM
- * ceiling honestly prints "30 RPM → 30 RPM".
- */
-function statSentence(id: string, line: StatLine, you: BoonPreviewShip): string {
-  // FAIL-OPEN on the class table (cycle 91). This runs EVERY FRAME while the
-  // refit band is open, i.e. exactly while the player is picking a card, and an
-  // unresolvable `cls` would hand `effectiveStats` an undefined spec and throw
-  // on `cls.kinematics` — inside the ticker callback, which until this cycle
-  // meant a permanent freeze. Every other catalog/registry lookup in the engine
-  // is already `Object.hasOwn`-gated; this was one of the exceptions. Returning
-  // '' prints no numbers rather than inventing a hull we cannot identify.
-  if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return '';
-  const spec = CONFIG.shipClasses[you.cls];
-  const before = effectiveStats(spec, resolveBoons(you.boons));
-  const after = effectiveStats(spec, resolveBoons([...you.boons, id]));
-  const fmt = line.fmt ?? num;
-  return `${line.label}: ${fmt(line.read(before))} → ${fmt(line.read(after))}.`;
-}
-
-/**
- * Pure: the card FACE's one text row — and, since R2.17 (Eric ruling
- * 2026-08-19), the ONLY prose a card face carries.
- *
- * *"I want the card itself to be pretty minimal in the upgrade tab, just the
- * name and stat change as before (previous -> new) if applicable."*
- *
- * So a STAT line prints its headline number as `current → next` (live, via the
- * preview diff above) and NOTHING else — no standing note. A VERB card (the
- * doctrines) and an ACQUISITION card move no number, so they print NOTHING AT
- * ALL: their face is the ladder name, the lineage marker and the rarity tag,
- * and their explanation lives in the hover tooltip (`boonTooltipText`).
- *
- * An empty string is therefore a LEGITIMATE, EXPECTED answer here, not a
- * failure — which is a real change from Story 2.8, where blank rules text meant
- * a broken card. Fail-open still holds for the one case that IS a failure: an
- * unresolvable hull prints no half-formed number.
- */
-export function boonDescription(def: BoonDef, you: BoonPreviewShip): string {
-  if (!Object.hasOwn(STAT_LINES, def.id)) return '';
-  // An empty sentence means statSentence could not resolve the hull — the ONLY
-  // way it returns '' (every other path returns a template with a label and two
-  // numbers), and printing nothing beats printing half a diff.
-  return statSentence(def.id, STAT_LINES[def.id], you);
-}
-
-/**
- * Pure: the card's HOVER-TOOLTIP EXPLANATION — what the card actually does, in
- * plain terms (Story 7-5 wave 2, R2.17).
- *
- * *"hovering one with the mouse should give a tooltip explaining the card, so
- * that there are no questions like 'what the fuck does a captive mine do?'"*
- *
- * TOTAL over BOON_CATALOG — EVERY line gets one, stat lines included, because a
- * `current → next` number does not tell a new player what `cooldownScale` or a
- * trip ring IS. Keyed on the id alone and carrying NO live values: the face
- * already prints the player's own numbers, and a static string is what makes
- * the tooltip's container-fit pin exact rather than build-dependent.
- *
- * HOVER ONLY, BY RULING. There is deliberately no keyboard path to this text:
- * Tab opens the refit window and 1–4 / 5 pick, and *"an experienced player
- * knows what they want and will use the shortcut or click faster without
- * reading"* — the shortcut exists precisely so the reading can be skipped.
- *
- * Fail-open to '' on an unwritten id, exactly like every other lookup here.
- */
-export function boonTooltipText(id: string): string {
-  return Object.hasOwn(BOON_EXPLAIN, id) ? BOON_EXPLAIN[id] : '';
-}
-
-/**
- * Pure: the ACCRUED-BOON effect line for the hotbar slot tooltip (Story 2.9) —
- * the one-line "what this line is doing for you RIGHT NOW" under a `◆ NAME` row.
+ * Pure: the ACCRUED-CARD effect line (Story 2.9) — the one-line "what this line
+ * is doing for you RIGHT NOW" under a `◆ NAME` row of the results screen's
+ * build list (the hotbar tooltip's accrued list was dropped in cycle 158,
+ * amendment 186).
  *
  * Deliberately NOT the refit card's sentence: a card sells a change and prints
  * `current → next`; a tooltip row reports a HOLDING and prints the value the
  * fitted build actually has. So the stat lines read straight off the LIVE
  * effective stats already resolved for the slot (no preview diff, no second
- * resolve — `stats` IS the firewall's output for this hull).
+ * fold — `stats` IS the firewall's output for this hull).
  *
- * Doctrine and acquisition lines have no number to report, so they print their
- * HOLDING line (DOCTRINE_HOLDING / ACQUISITION_HOLDING). Since R2.17 that is a
- * table of its own rather than a share of the card's copy: the card face stopped
- * carrying prose at all, and the hover EXPLANATION is far too long to ride
- * inside a panel whose own fit pin (__tests__/tooltipFit.test.ts) trims accrued
- * rows away as they grow. Two surfaces, two lengths, one set of honesty pins.
- *
- * TOTAL over BOON_CATALOG by construction (every line is a stat, a doctrine or
- * an acquisition); an unwritten id fails open to '' rather than breaking a row.
+ * A line with no headline stat fails open to '' — the row then shows its
+ * `◆ NAME` alone.
  */
 export function boonEffectLine(id: string, stats: EffectiveStats): string {
-  if (Object.hasOwn(DOCTRINE_HOLDING, id)) return DOCTRINE_HOLDING[id];
-  if (Object.hasOwn(ACQUISITION_HOLDING, id)) return ACQUISITION_HOLDING[id];
-  if (!Object.hasOwn(STAT_LINES, id)) return '';
-  const line = STAT_LINES[id];
+  const line = STAT_LINES[id as LineId];
+  if (line === undefined) return '';
   const fmt = line.fmt ?? num;
-  return `${line.label}: ${fmt(line.read(stats))}`;
+  return `${line.label}: ${fmt(readStatPath(stats, line.path))}`;
 }
 
-// THE "REPLACES: <rival>" GRAMMAR IS DELETED (Story 7-5 wave 2, R2.6).
-// `boonReplacesLine` existed to name the rival of an EXCLUSIVE pair, and the
-// cannon's PLUNGING FIRE / ARMOR-PIERCING was the last pair in the game — wave 1
-// had already turned every other doctrine into an independent stacking verb.
-// With the cannon deleted, `BoonDef.exclusiveWith` leaves the type entirely, so
-// there is nothing left for the line to describe. Removed with its pins rather
-// than left as a function that can only ever return null.
+// --- THE TIER NUMERALS (Story 8.7, ruling 11 / UX-DR51) ------------------------
+//
+// `boonLineageLine`'s "II/V" handrail is RETIRED with the interim face: the
+// ratified card draws the ladder itself (one rung per copy the line has), so a
+// numeral saying "two of five" would be the third time the same fact is stated.
+// What the numerals carry instead is the STEP this card buys — `cur → next` —
+// which is the one thing the rungs cannot say.
 
 /**
- * Pure: the LINEAGE marker for a multi-copy line — "II/V", the position this
- * card would take (held occurrences + 1) out of the line's total copies (Sally's
- * ratified handrail: a player under combat lockout can see that ARMOR BELT
- * continues REINFORCED HULL). A single-copy line has no lineage and returns
- * null; the position is clamped so a full stack still reads "V/V".
+ * THE BASE-TIER LINES (UX-DR51). A hull sails with armor, speed, turning and
+ * its mounted gun already fitted — the cannon, or since Story 8.15 the machine
+ * gun or the flak gun, whose ladders are likewise `1 + copies` — so its FIRST card of one of those ladders is
+ * the step from what it has to the next rung — `I → II` — rather than the
+ * acquisition of a Tier I it already owns. Every other ladder, and every weapon
+ * line, starts from nothing: its first copy IS Tier I and reads as the bare
+ * numeral, with the `cur → next` step appearing only from the second copy on.
  */
-export function boonLineageLine(def: BoonDef, stack: number): string | null {
-  if (def.copies <= 1) return null;
-  const pos = Math.min(def.copies, Math.max(1, Math.trunc(stack) + 1));
-  return `${roman(pos)}/${roman(def.copies)}`;
+const BASE_TIER_LINES: ReadonlySet<string> = new Set(['armor', 'speed', 'turning', 'deckGun', 'machineGun', 'flak']);
+
+/** The step a card buys, as NUMBERS — so the DOM can tint each numeral on the
+ *  absolute ladder ramp without re-parsing "III → IV" back apart. `next` is
+ *  null on a first copy that is itself Tier I (the bare-numeral case). */
+export interface CardTierStep {
+  cur: number;
+  next: number | null;
 }
+
+/**
+ * Pure: the tier step for a line at `copiesHeld` copies, or null for a line
+ * with NO LADDER at all — a consumable (you carry copies, you do not climb) or
+ * an add-on (a verb is fitted once and has no rungs). The card renders an empty
+ * ladder row for those, so every card in the offer keeps one baseline.
+ */
+export function cardTierSteps(line: CatalogLine, copiesHeld: number): CardTierStep | null {
+  if (line.kind === 'consumable' || line.kind === 'addon') return null;
+  // REVIEW GATE, CYCLE 147: `Math.trunc(NaN)` is `NaN`, and `Math.max(0, NaN)`
+  // is `NaN` too — so a non-finite `copiesHeld` (a caller's arithmetic slip)
+  // used to sail through untouched and poison `cur`/`next` downstream. Fenced
+  // to a held-nothing read (0) rather than propagating the NaN.
+  const k = Number.isFinite(copiesHeld) ? Math.max(0, Math.trunc(copiesHeld)) : 0;
+  const base = BASE_TIER_LINES.has(line.id);
+  const ceiling = tierCeiling(line, base);
+  const cur = Math.min(base ? k + 1 : Math.max(1, k), ceiling);
+  if (!base && k === 0) return { cur, next: null };
+  return { cur, next: cur < ceiling ? cur + 1 : null };
+}
+
+/**
+ * THE TOP RUNG a line's numerals may ever print (Story 8.12). The ramp is FIVE
+ * rungs and no more (UX-DR51), and the caps are authored to land on it: a
+ * base-tier line's ceiling is `cap + 1`, because the hull already sails at rung
+ * I and every card is a step above it, while every other line's ceiling is the
+ * cap itself, its first copy BEING rung I.
+ *
+ * At the ceiling the card prints the bare numeral — there is no next rung to
+ * sell, so `V → VI` is not merely unreachable in play, it is unwritable. Below
+ * the ceiling nothing moves: every label is what it was before this story.
+ */
+function tierCeiling(line: CatalogLine, base: boolean): number {
+  return Math.min(base ? line.cap + 1 : line.cap, RAMP_RUNGS);
+}
+
+/** Pure: those numerals as the card prints them — `III → IV`, or `I` alone on a
+ *  first copy, or null for a consumable / add-on. Replaces `boonLineageLine`. */
+export function cardTierLabel(line: CatalogLine, copiesHeld: number): string | null {
+  const step = cardTierSteps(line, copiesHeld);
+  if (step === null) return null;
+  return step.next === null ? roman(step.cur) : `${roman(step.cur)} ${TIER_ARROW} ${roman(step.next)}`;
+}
+
+/** The arrow between the two numerals, declared once (the fit model measures the
+ *  same glyph). */
+export const TIER_ARROW = '→';
+
+/** THE RAMP IS FIVE RUNGS, ABSOLUTE (UX-DR51) — a sixth is forbidden whatever a
+ *  future cap says, so `tierCeiling` clamps to this whether or not a catalog
+ *  edit ever again lets `cap + 1` (or `cap` itself) exceed it. */
+const RAMP_RUNGS = 5;
 
 /** 1..10 as Roman numerals (catalog copies never exceed a handful; anything
  *  beyond the table falls back to the digits, fail-open). */
@@ -559,11 +508,650 @@ function roman(n: number): string {
   return ROMAN[n - 1] ?? String(n);
 }
 
-/** Pure: the "boon fitted" toast line (UX-DR23 self-events-only surface, the
- *  pointToastLine sibling). Diamond glyph = the accrued-boon marker the hotbar
- *  tooltip uses (`◆n`), so the toast and the build readout share one mark.
- *  `stack` is the occurrence count AFTER the fit, so the toast names exactly the
- *  rung the card showed (1 → the ladder's first name). */
-export function boonFitToastLine(id: string, stack = 1): string {
-  return `◆ ${boonName(id, Math.max(0, stack - 1))} FITTED`;
+/**
+ * Pure: the "card fitted" toast line (UX-DR23 self-events-only surface, the
+ * pointToastLine sibling). Diamond glyph = the accrued-card marker the hotbar
+ * tooltip uses, so the toast and the build readout share one mark.
+ *
+ * A CONSUMABLE IS STOCKED, NOT FITTED (Story 8.7, ruling 14 — UX-DR48's
+ * "consumable stocked"). Nothing about the hull changed: a copy went onto the
+ * belt, and the verb has to say so or the toast claims a fit that never
+ * happened. `kind` is the line's catalog kind, passed by the caller that
+ * already has the resolved line (net/roomBindings.ts); an absent or unknown
+ * kind reads as the FITTED default, which is what every pre-8.7 caller gets.
+ */
+export function boonFitToastLine(id: string, stack = 1, kind?: string): string {
+  const verb = kind === 'consumable' ? 'STOCKED' : 'FITTED';
+  return `◆ ${boonName(id, Math.max(0, stack - 1))} ${verb}`;
+}
+
+/** Every authored line id (test seam — the name/kind pins walk this). */
+export const COPY_LINE_IDS: readonly string[] = LINE_IDS;
+
+// --- THE FIVE STAT ROWS (Story 8.7, ruling 12) ---------------------------------
+//
+// The ratified card face (mock `.rc .rows`) is a fixed grid of five 17px rows,
+// each a LABEL and a VALUE. It is the only number on the FACE (the hover
+// panel prints `cardHoverRows`, amendment 187) and the only place a number
+// reaches the card, which is what keeps the card and
+// the firewall in step: every value below comes out of `effectiveStats`.
+//
+// FEWER THAN FIVE IS NORMAL. A ladder moves one number; a weapon's first copy
+// prints its whole table; an add-on moves none at all. The DOM renders the
+// remainder BLANK rather than compacting, so the KIND word and the foot sit on
+// one baseline across all four cards in the row.
+
+/** The card's row cap — the mock's five-row grid. A line with more numbers than
+ *  that prints its first five, in the table's own order. */
+export const CARD_STAT_ROWS = 5;
+
+/** ONE row of the face: a label, the value the build has NOW (null on an
+ *  ABSOLUTE row — a weapon's first copy has no `before` to print), and the value
+ *  this card would produce. */
+export interface CardStatRow {
+  label: string;
+  cur: string | null;
+  next: string;
+}
+
+/**
+ * THE FIELD WORDS — what the face calls an equipment row's own stat fields
+ * (`EQUIPMENT_STAT_FIELDS`). PARTIAL on purpose: the entries below are the words
+ * the ruling names, and everything else falls through `fieldWord`'s humanizer,
+ * which de-camelCases the field and drops a trailing `Ms`. That fail-open is
+ * what lets Stories 8.13-8.16 land a new weapon row without a copy edit here —
+ * and, being derived from the field name Eric's own sheet authored, it invents
+ * no vocabulary.
+ */
+const FIELD_WORDS: Readonly<Record<string, string>> = {
+  reloadMs: 'RELOAD',
+  maxAmmo: 'ROUNDS',
+  damage: 'DAMAGE',
+  contactDamage: 'CONTACT DMG',
+  burstRadius: 'BURST RADIUS',
+  blastRadius: 'BLAST RADIUS',
+  triggerRadius: 'TRIGGER RADIUS',
+  speed: 'SPEED',
+  barrels: 'SHELLS PER SHOT',
+  // `speedBonus` had a row here until Story 8.9: the boost's bonus became a
+  // PROPORTION of the post-fold cap (epic-8 amendment 55), so it left
+  // `EQUIPMENT_STAT_FIELDS` entirely and no card can address it. A word for a
+  // field no row carries is a label that can never print.
+  durationMs: 'DURATION',
+  spreadRung: 'SPREAD',
+  // The torpedo lines' and the captive fish's steering, bought by TIER since
+  // Story 8.13 (epic-8 amendments 80/82). `HOMING` rather than the humanizer's
+  // `HOMING TURN RATE` (amendment 85): the row's value carries `rad/s`, which
+  // already says it is a rate, and the player's word for what it buys is that
+  // the fish homes.
+  homingTurnRate: 'HOMING',
+  // FOULING MINES' victim slow (Story 8.13, epic-8 amendment 81). `SLOW` rather
+  // than the humanizer's `SLOW FACTOR`: the row prints a PERCENTAGE OF SPEED
+  // (`75%`), and "factor" is the sim's word for the multiplier, not the
+  // player's word for what it does to them.
+  slowFactor: 'SLOW',
+  // STORY 8.17 (amendment 135(j)) — the words Eric's card-face ruling names for
+  // the three ladders it authored: STAR SHELLS (`LIT`, `RADIUS`; `FLARES` is a
+  // PATH word, see PATH_WORDS), BROADSIDE (`TURRETS`; `SPREAD` above) and
+  // PHOSPHOR SHELLS (`BURN` in hp/s, `RADIUS`, `LASTS`). `DAMAGE` was already
+  // here.
+  litDurationMs: 'LIT',
+  litRadius: 'RADIUS',
+  turrets: 'TURRETS',
+  dps: 'BURN',
+  zoneRadius: 'RADIUS',
+  zoneDurationMs: 'LASTS',
+  // THE MACHINE GUN'S SHOT DELAY (Eric 2026-09-30, amendment 189): a stat
+  // field and a tier step now. `RATE` is the humanizer's own word, spelled out.
+  rateMs: 'RATE',
+  // The derived max travel (`rangeU`, re-pinned to the radar range post-fold),
+  // printed LAST on the stat tables that carry it (amendment 185). The
+  // humanizer would say `RANGE U`; the unit rides `FIELD_UNITS`.
+  rangeU: 'RANGE',
+};
+
+/**
+ * A turn rate to at most THREE decimals, trailing zeros trimmed. `num` rounds
+ * to one, which would print the light torpedo's first 0.125 rad/s rung as
+ * "0.1" and the captive fish's 0.075 as "0.1" too — two different ladders
+ * flattened into the same lie. BARE: the unit rides `FIELD_UNITS` below, so a
+ * `cur → next` pair prints it once.
+ */
+function rad(v: number): string {
+  return String(Math.round(v * 1000) / 1000);
+}
+
+/**
+ * THE FIELDS WITH A PRINTER OF THEIR OWN, where neither the `*Ms` seconds rule
+ * nor the bare `num` is the honest register:
+ *
+ *   - `slowFactor` prints as a PERCENTAGE OF BASE — a ×0.75 speed multiplier
+ *     reads as `75%`, the same grammar the RELOAD ladder's `All cooldowns` row
+ *     already uses for `cooldownScale`;
+ *   - `homingTurnRate` prints to three decimals (see `rad`).
+ */
+const FIELD_FMTS: Readonly<Record<string, (v: number) => string>> = {
+  slowFactor: pct,
+  homingTurnRate: rad,
+  // The machine gun's shot delay steps by 50 ms (0.30 / 0.25 / 0.20 / 0.15 /
+  // 0.10 s), which the one-decimal `secs` would flatten — two decimals, the
+  // trailing zero kept so the ladder reads in one register.
+  rateMs: (v) => `${(v / 1000).toFixed(2)} s`,
+};
+
+/**
+ * THE FIELDS WHOSE ROW PRINTS ITS UNIT ONCE, on the value the card moves TO
+ * (Story 8.13, epic-8 amendment 85). `HOMING 0 → 0.125 rad/s`, never
+ * `0 rad/s → 0.125 rad/s`: repeating the unit on both halves of a rad/s pair
+ * overruns the 188px row box at the top of the ladder (`0.375 rad/s →
+ * 0.5 rad/s` is 197px — the refitCardFit walk catches it), and the arrow
+ * already says the two numbers are the same quantity. An ABSOLUTE row has only
+ * one value, so it carries the unit and a fit card still reads `HOMING
+ * 0 rad/s`.
+ *
+ * Seconds and percentages are NOT in here: their glyphs are one character and
+ * the shipped rows print them on both halves (`30.0 s → 28.5 s`, `75% → 70%`).
+ */
+const FIELD_UNITS: Readonly<Record<string, string>> = {
+  homingTurnRate: ' rad/s',
+  // PHOSPHOR's burn is a RATE (Story 8.17, amendment 135(j): `BURN` in hp/s);
+  // a bare `5 → 6` would read as a hit, not a per-second burn.
+  dps: ' hp/s',
+  // RANGE in world units, lowercase like the other unit suffixes.
+  rangeU: ' u',
+};
+
+/** Pure: a field's trailing unit, or '' for a field that needs none. */
+function fieldUnit(field: string): string {
+  return Object.hasOwn(FIELD_UNITS, field) ? FIELD_UNITS[field] : '';
+}
+
+/** Pure: a field's row label — the table above, else the humanized field name
+ *  uppercased (`litDurationMs` reads LIT DURATION). */
+function fieldWord(field: string): string {
+  if (Object.hasOwn(FIELD_WORDS, field)) return FIELD_WORDS[field];
+  return humanize(field.replace(/Ms$/, '')).toUpperCase();
+}
+
+/** Pure: a field's printer — its own entry in `FIELD_FMTS` where it has one,
+ *  else the `*Ms` duration rule ("30.0 s"), else `num`, which prints an integer
+ *  AS an integer (epic-8 amendment 39's rule, applied to every row). */
+function fieldFmt(field: string): (v: number) => string {
+  if (Object.hasOwn(FIELD_FMTS, field)) return FIELD_FMTS[field];
+  return /Ms$/.test(field) ? secs : num;
+}
+
+/** Pure: a stat PATH's row label — a ladder path takes the word its `STAT_LINES`
+ *  entry already uses, an equipment path takes its field word. */
+function statPathLabel(path: string): string {
+  if (Object.hasOwn(PATH_WORDS, path)) return PATH_WORDS[path];
+  if (Object.hasOwn(STAT_LABELS, path)) return STAT_LABELS[path];
+  return fieldWord(path.split('.').pop() ?? path);
+}
+
+/** Pure: a stat PATH's printer — the authored `fmt` where one exists (RPM, the
+ *  cooldown percentage, a weapon's seconds), else the field's own. */
+function statPathFmt(path: string): (v: number) => string {
+  for (const line of Object.values(STAT_LINES)) {
+    if (line !== undefined && line.path === path && line.fmt !== undefined) return line.fmt;
+  }
+  return fieldFmt(path.split('.').pop() ?? path);
+}
+
+/** Pure: a stat PATH's trailing unit — its field's, where the field declares
+ *  one (`FIELD_UNITS`). A ladder path whose `STAT_LINES` entry already bakes
+ *  its unit into `fmt` (RPM, the cooldown percentage) declares none here, so
+ *  nothing is ever printed twice. */
+function statPathUnit(path: string): string {
+  return fieldUnit(path.split('.').pop() ?? path);
+}
+
+/** Pure: one `current to next` row for a stat path, read off the two folds.
+ *  The unit, where the field has one, rides the NEXT value alone. */
+function diffRow(path: string, before: EffectiveStats, after: EffectiveStats): CardStatRow {
+  const fmt = statPathFmt(path);
+  return {
+    label: statPathLabel(path),
+    cur: fmt(readStatPath(before, path)),
+    next: fmt(readStatPath(after, path)) + statPathUnit(path),
+  };
+}
+
+/**
+ * Pure: a LADDER line's rows — one per `stat` effect in the tier this card
+ * WOULD apply (`tiers[copiesHeld]`, clamped to the last authored rung), valued
+ * through the live preview diff. A rung may author more than one stat effect
+ * (the CANNON rungs to II and IV add a barrel step and the rung to III a pool
+ * step, the FLAK rungs to II and IV a pool step; Eric 2026-10-02), and EVERY authored step
+ * prints its own row (amendment 85's rule, 198(a)) — a two-number rung must
+ * not silently print only one of them.
+ *
+ * `dropUnchanged` IS THE TIER CARD'S RULE, AND ONLY ITS (cycle-148 review gate,
+ * P5). The torpedo lines author +0.5 tubes per tier against an INTEGER pool, so
+ * the fold FLOORS tiers II and IV back to where they started and the card said
+ * `ROUNDS 1 → 1` — a row that promises the player a round it is not buying
+ * them, twice per ladder. The test is the DISPLAYED value, not the raw one, so
+ * it is exactly "the card would have shown the same number on both sides"; the
+ * half-tube is still bought and still lands, one tier later.
+ *
+ * A LADDER LINE'S OWN CARD DOES NOT TAKE THE RULE, because a ladder rung has no
+ * reload row to fall back on: `turning` at rungs II and IV prints the same
+ * number on both sides, and dropping those rows would hand the player a BLANK
+ * card rather than an honest one. Whether a ladder should say something else
+ * there is a design question nobody has ruled on — the grid law pins that no
+ * ladder is ever silent, and this keeps it true.
+ */
+function ladderRows(
+  line: CatalogLine,
+  copiesHeld: number,
+  before: EffectiveStats,
+  after: EffectiveStats,
+  dropUnchanged = false,
+): CardStatRow[] {
+  const k = Math.min(Math.max(0, Math.trunc(copiesHeld)), line.tiers.length - 1);
+  const rows: CardStatRow[] = [];
+  for (const e of line.tiers[k] ?? []) {
+    if (e.kind !== 'stat') continue;
+    const row = dropUnchanged ? stepRow(e.path, before, after) : diffRow(e.path, before, after);
+    if (row !== null) rows.push(row);
+  }
+  return rows;
+}
+
+/** Pure: the row one authored step contributes, or NULL when the two folds
+ *  print the same value (see `ladderRows`). The test is on the values BEFORE
+ *  the unit is appended — the unit rides `next` alone, so comparing the finished
+ *  strings would call every unit-bearing row "changed". A row that IS printed is
+ *  `diffRow`'s, byte for byte. */
+function stepRow(path: string, before: EffectiveStats, after: EffectiveStats): CardStatRow | null {
+  const fmt = statPathFmt(path);
+  if (fmt(readStatPath(before, path)) === fmt(readStatPath(after, path))) return null;
+  return diffRow(path, before, after);
+}
+
+/** Pure: one ABSOLUTE row of an equipment's own table (no `before`, no arrow).
+ *  The label is path-aware (`PATH_WORDS` first), so a pool that has its own word
+ *  — the machine gun's SHELLS, star shells' FLARES — reads it here as it does on
+ *  the tier card. */
+function absoluteRow(target: EquipmentId, field: string, stats: EffectiveStats): CardStatRow {
+  const path = `equipment.${target}.${field}`;
+  return {
+    label: Object.hasOwn(PATH_WORDS, path) ? PATH_WORDS[path] : fieldWord(field),
+    cur: null,
+    next: fieldFmt(field)(readStatPath(stats, path)) + fieldUnit(field),
+  };
+}
+
+/**
+ * THE FIELDS A WEAPON'S FIT CARD PRINTS, where that is NOT simply its whole
+ * `EQUIPMENT_STAT_FIELDS` table (Story 8.13).
+ *
+ * The face is a FIVE-row grid (`CARD_STAT_ROWS` — the mock's `.rc .rows`, and
+ * not ours to grow), and `weaponRows` slices to it. FOULING MINES is the first
+ * line whose table plus its derived trip ring comes to SIX, so something had to
+ * go, and picking it positionally would have silently dropped the LAST row —
+ * which for this line is `SLOW`, the one number that makes it a different
+ * weapon from NAVAL MINES. So the choice is made here, explicitly: the fit card
+ * drops RELOAD, which every TIER card of the line prints as its own
+ * `current → next` row anyway, and keeps the slow.
+ *
+ * PHOSPHOR SHELLS (Story 8.17) is the second: six fields, and the positional
+ * slice would drop `BURN`, the number that makes it a different weapon from a
+ * gun. Its fit card drops `ROUNDS` instead — a one-shell pool presented as a
+ * pure cooldown that no tier moves — and keeps its reload.
+ *
+ * A line absent from this table prints its whole table.
+ */
+const FACE_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
+  foulingMines: ['maxAmmo', 'damage', 'blastRadius', 'slowFactor'],
+  phosphorShells: ['reloadMs', 'damage', 'zoneRadius', 'zoneDurationMs', 'dps'],
+};
+
+/** Pure: the fields the fit card prints for one weapon — its override above, or
+ *  its whole stat table. */
+function faceFields(target: EquipmentId): readonly string[] {
+  return FACE_FIELDS[target] ?? (EQUIPMENT_STAT_FIELDS[target] as readonly string[]);
+}
+
+/**
+ * Pure: a WEAPON line's rows.
+ *
+ * COPY 1 IS THE FIT, and a fit moves no number — what it buys is the weapon, so
+ * the card prints that weapon's whole table ABSOLUTELY (`cur` null, no arrow),
+ * in `EQUIPMENT_STAT_FIELDS` order (or its `FACE_FIELDS` cut). The MINE rows add
+ * a derived `TRIGGER RADIUS` (UX-DR50's "separate rows"): the trip ring is not
+ * stat-addressable — `clampStats`/`deriveMineRings` derive it — so it has no
+ * field of its own and would otherwise never reach the player at all. It sits
+ * immediately after `BLAST RADIUS` for the two CONTACT kinds, and after
+ * `DAMAGE` for the CAPTIVE one, which has no blast field at all: its 32 u burst
+ * is fixed and its trip ring is derived from the TIER (epic-8 amendment 84d),
+ * so without this the mine's defining circle would be missing from its own
+ * card.
+ *
+ * COPY 2 AND UP IS A TIER, AND A TIER PRINTS EVERY STEP IT ACTUALLY BUYS (Story
+ * 8.13, epic-8 amendment 85; narrowed by the cycle-148 review gate, P5 — a step
+ * whose two folds PRINT THE SAME NUMBER gets no row, see `ladderRows`). The
+ * reload row comes FIRST — the 5 % cut is derived in
+ * sim/stats.ts from the tier rather than authored as an effect, so it has no
+ * place in the catalog's own order — and the line's authored `stat` effects
+ * follow it in CATALOG ORDER, each through the same live preview diff a ladder
+ * uses. The five-row grid slices the result (`cardStatRows`), so the rule when
+ * a line ever authors more than four steps is: reload, then catalog order, and
+ * the FIFTH row is the last that fits.
+ *
+ * THE DECK GUN IS UNAFFECTED and stays as epic-8 amendment 71 ruled it: it is
+ * a LADDER line, so it never reaches this function at all — `ladderRows` prints
+ * its authored rows (a barrel step at II and IV, damage + the turret at III,
+ * damage alone at V — Eric 2026-10-02, amendment 232; amendment 197's III/V
+ * placement is superseded) and its tier-derived reload cut stays silent.
+ *
+ * The single-row face this replaced was honest for the three live lines with
+ * EMPTY tiers II–V (BROADSIDE, STAR SHELLS, RADAR BUOY), which still print
+ * exactly the reload row and nothing else. It understated the five ladders 8.13
+ * authored: a tier-II LIGHT TORPEDO card said `RELOAD 25.0 s → 23.8 s` while
+ * also buying +5 damage, +2.5 u/s and the first 0.125 rad/s of homing.
+ */
+function weaponRows(
+  line: CatalogLine,
+  copiesHeld: number,
+  before: EffectiveStats,
+  after: EffectiveStats,
+): CardStatRow[] {
+  const target = tierTargetOf(line);
+  if (target === undefined) return [];
+  if (copiesHeld > 0) {
+    const stat = STAT_LINES[line.id];
+    const reload = stat === undefined ? [] : [diffRow(stat.path, before, after)];
+    return [...reload, ...ladderRows(line, copiesHeld, before, after, true)];
+  }
+  const fields = faceFields(target);
+  // The ROW OBJECT, not `readStatPath`: that reader fails open to 0 for a path
+  // that does not resolve, so it would answer "yes, a number" for every weapon
+  // in the game and print a trip ring on the deck gun's card.
+  const row = after.equipment[target] as unknown as Record<string, unknown>;
+  const hasTrigger = typeof row.triggerRadius === 'number' && !fields.includes('triggerRadius');
+  const rows: CardStatRow[] = [];
+  for (const field of fields) {
+    rows.push(absoluteRow(target, field, after));
+    if (hasTrigger && triggerFollows(field, fields)) rows.push(absoluteRow(target, 'triggerRadius', after));
+  }
+  return rows;
+}
+
+/** Pure: is `field` the row the derived TRIGGER RADIUS is printed after — the
+ *  blast radius where the line has one, else the damage (the captive mine). */
+function triggerFollows(field: string, fields: readonly string[]): boolean {
+  return fields.includes('blastRadius') ? field === 'blastRadius' : field === 'damage';
+}
+
+/**
+ * A CONSUMABLE'S ROWS (Story 8.8). A consumable moves no stat on the hull — it
+ * is a stack you fire — so there is no preview diff to read and no `cur` to
+ * print: every row below is ABSOLUTE (`cur` null, no arrow), exactly as a
+ * weapon's first copy prints its own table.
+ *
+ * The numbers come out of `CONFIG` and are NEVER hardcoded, so a retune of the
+ * ruling moves the card's own copy with it — the rule the retired DAMAGE
+ * CONTROL rail's readout followed, kept.
+ *
+ * HULL REPAIR was the first live consumable (amendment 41 flipped its stub in
+ * Story 8.8); the SUPERCAV TORPEDO (8.13) and SHIELD BLOCK, CHAFF and DECOY
+ * BUOY (8.16), FLASH SHELLS (8.17) and SMOKE SCREEN (8.18) follow below. The
+ * one remaining stub is never dealt and gets no rows.
+ */
+function hullRepairRows(): CardStatRow[] {
+  const h = CONFIG.hullRepair;
+  return [
+    // The instant half: `instantHp` the moment the copy fires, clamped to maxHp.
+    { label: 'INSTANT', cur: null, next: `+${num(h.instantHp)} HP` },
+    // The pooled half: `regenHp` paid over `regenMs` (epic-8 amendment 51 — the
+    // shipped pool is 50 hp over 5 s; the "5 hp/s" in R13/FR47 is a stale
+    // figure). Printed as the AMOUNT over its TIME rather than as a rate,
+    // because the amount is what stacks: pools ADD, the rate never changes.
+    { label: 'OVER TIME', cur: null, next: `+${num(h.regenHp)} HP / ${num(h.regenMs / 1000)} S` },
+  ];
+}
+
+/**
+ * THE SUPERCAV TORPEDO'S ROWS (Story 8.13, epic-8 amendment 74). The second
+ * live consumable, and the first that is a WEAPON: the digit primes, a click
+ * inside the bow ±15° sector fires one fish per copy.
+ *
+ * TWO NUMBERS, BOTH STRAIGHT OFF `CONFIG` and neither hardcoded — the
+ * hullRepair rule. They are the two facts that make this fish different from
+ * every other: it is three times the speed of the heavy torpedo and it hits for
+ * 50. There is no RELOAD row because a consumable never reloads (catalog-v3
+ * R40) and no tier rows because it has no tiers, so the labels are the FIELD
+ * WORDS the equipment faces already use — no new vocabulary.
+ */
+function supercavTorpedoRows(): CardStatRow[] {
+  const t = CONFIG.supercavTorpedo;
+  return [
+    { label: fieldWord('speed'), cur: null, next: num(t.speed) },
+    { label: fieldWord('damage'), cur: null, next: num(t.damage) },
+  ];
+}
+
+/**
+ * THE THREE 8.16 CONSUMABLES' ROWS (Story 8.16, catalog-v3 R36/R37/R39). Every
+ * number is read off `CONFIG` — never a literal — in the hullRepair shape
+ * (`cur` null, absolute): what the line does, and for how long.
+ *   - SHIELD BLOCK: how much it absorbs, and for how long.
+ *   - CHAFF: how many fakes, the radius they scatter in, and for how long.
+ *   - DECOY BUOY: its hull, and where it drops (the mine's rear arc).
+ */
+function shieldBlockRows(): CardStatRow[] {
+  const s = CONFIG.shieldBlock;
+  return [
+    { label: 'ABSORBS', cur: null, next: `${num(s.hp)} HP` },
+    { label: 'LASTS', cur: null, next: `${num(s.durationMs / 1000)} S` },
+  ];
+}
+
+function chaffRows(): CardStatRow[] {
+  const c = CONFIG.chaff;
+  return [
+    { label: 'FAKES', cur: null, next: num(c.count) },
+    { label: 'RADIUS', cur: null, next: `${num(c.radius)} U` },
+    { label: 'LASTS', cur: null, next: `${num(c.durationMs / 1000)} S` },
+  ];
+}
+
+function decoyBuoyRows(): CardStatRow[] {
+  return [
+    { label: 'HULL', cur: null, next: `${num(CONFIG.decoyBuoy.hp)} HP` },
+    { label: 'DROP', cur: null, next: 'REAR ARC' },
+  ];
+}
+
+/**
+ * FLASH SHELLS' ROWS (internal id `dazzleShells` — Story 8.17, Eric ruling
+ * 2026-09-29, amendment 135(j)): `RADIUS 150 U` / `BLINDS 10 S` / `SIGHT 1/8
+ * INTEL`, each number off `CONFIG.flashShells` (the eighth is
+ * `1 / sightFraction`), in the 8.16 belt register's uppercase units
+ * (`ABSORBS 100 HP`, `LASTS 10 S`).
+ */
+function flashShellRows(): CardStatRow[] {
+  const f = CONFIG.flashShells;
+  return [
+    { label: 'RADIUS', cur: null, next: `${num(f.radius)} U` },
+    { label: 'BLINDS', cur: null, next: `${num(f.durationMs / 1000)} S` },
+    { label: 'SIGHT', cur: null, next: `1/${num(1 / f.sightFraction)} INTEL` },
+  ];
+}
+
+/**
+ * SMOKE SCREEN'S ROWS (Story 8.18, catalog-v3 R38 — DRAFT labels for Eric's
+ * eye): how long the trail is laid, how long each puff lives, and how it grows
+ * — `TRAIL 5 S` / `PUFF 30 S` / `RADIUS 82.5 → 165 U`, every number off
+ * `CONFIG.smokeScreen`, in the 8.16 belt register's uppercase units.
+ */
+function smokeScreenRows(): CardStatRow[] {
+  const k = CONFIG.smokeScreen;
+  return [
+    { label: 'TRAIL', cur: null, next: `${num(k.layMs / 1000)} S` },
+    { label: 'PUFF', cur: null, next: `${num(k.lifeMs / 1000)} S` },
+    { label: 'RADIUS', cur: null, next: `${num(k.r0)} → ${num(k.r1)} U` },
+  ];
+}
+
+/** The rows each LIVE consumable line prints. A line with no entry (the one
+ *  remaining stub, DEPTH CHARGE) prints none, which is the honest answer for a
+ *  mechanism that does not exist yet. */
+const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = {
+  hullRepair: hullRepairRows,
+  supercavTorpedo: supercavTorpedoRows,
+  shieldBlock: shieldBlockRows,
+  chaff: chaffRows,
+  decoyBuoy: decoyBuoyRows,
+  dazzleShells: flashShellRows, // FLASH SHELLS (Story 8.17)
+  smokeScreen: smokeScreenRows, // Story 8.18
+};
+
+/**
+ * Pure: the rows the card face prints for one offered line, against the
+ * PLAYER'S OWN BUILD — at most `CARD_STAT_ROWS`, and legitimately EMPTY for a
+ * line that moves no number:
+ *
+ *   - an ADD-ON bolts on a verb and moves no number;
+ *   - a STUB line has no built module whose numbers could be read;
+ *   - a CONSUMABLE that is still a stub (DEPTH CHARGE) has no
+ *     mechanism to describe — the LIVE ones print `CONSUMABLE_ROWS` above instead.
+ *
+ * FAIL-OPEN on the class table (cycle 91): this runs every frame the band is
+ * open, and an unresolvable hull must print nothing rather than throw from
+ * inside the ticker.
+ */
+export function cardStatRows(
+  line: CatalogLine,
+  copiesHeld: number,
+  you: BoonPreviewShip,
+): readonly CardStatRow[] {
+  // A CONSUMABLE IS ANSWERED FIRST and never reaches the preview fold below: it
+  // fits nothing, so `effectiveStats` with its id appended moves no number.
+  if (line.kind === 'consumable') return CONSUMABLE_ROWS[line.id as LineId]?.() ?? [];
+  if (isStubLine(line.id) || line.kind === 'addon') return [];
+  if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return [];
+  const spec = CONFIG.shipClasses[you.cls];
+  const before = effectiveStats(spec, you.cards);
+  const after = effectiveStats(spec, [...you.cards, line.id]);
+  const rows = line.kind === 'equipment'
+    ? weaponRows(line, copiesHeld, before, after)
+    : gunLadderOrLadderRows(line, copiesHeld, before, after);
+  return rows.slice(0, CARD_STAT_ROWS);
+}
+
+/** Pure: a LADDER's rows — for the two pickable guns' ladders the tier card's
+ *  grammar (reload step first, then every authored step that moves a printed
+ *  value — amendments 85/87(b)); for every other ladder `ladderRows` as ever. */
+function gunLadderOrLadderRows(
+  line: CatalogLine,
+  copiesHeld: number,
+  before: EffectiveStats,
+  after: EffectiveStats,
+): CardStatRow[] {
+  const stat = STAT_LINES[line.id];
+  if (!GUN_LADDER_RELOAD.has(line.id) || stat === undefined) return ladderRows(line, copiesHeld, before, after);
+  return [diffRow(stat.path, before, after), ...ladderRows(line, copiesHeld, before, after, true)];
+}
+
+// --- THE STAT TABLES (cycle 158, Eric ruling 2026-09-30, amendments 185-187) ----
+//
+// *"What I want to see when I hover over my weapon are the weapon's actual
+// stats/numbers. One per line."* The HUD bar's slot tooltip, the HP globe's
+// SHIP panel and the refit card's hover all print these rows — ABSOLUTE rows
+// (`cur` null) in the card face's own vocabulary and formatters, so the face and
+// both hovers can never call one number two things. No row cap: a tooltip is a
+// growing panel, not the face's five-row grid.
+
+/** The Shifts whose table opens with a factor line. */
+const SHIFT_HEADS: Readonly<Partial<Record<EquipmentId, (stats: EffectiveStats) => CardStatRow>>> = {
+  // The boost's bonus is a PROPORTION of the post-fold cap and lives on no stats
+  // row (amendment 55), so it is read straight off CONFIG.
+  boost: () => ({ label: 'BOOST', cur: null, next: `+${pct(CONFIG.boost.factor)}` }),
+  // DAMAGE CUT's factor IS on its stats row (the fold's pass-through of
+  // `CONFIG.damageCut.factor`); printed as the share it takes off a blow.
+  damageCut: (stats) => ({ label: 'CUT', cur: null, next: pct(1 - stats.equipment.damageCut.factor) }),
+};
+
+/** THE SHIFTS' printed fields: a single-charge Shift prints no `ROUNDS 1`, and
+ *  the window reads before the cooldown (the I/O matrix's order). */
+const SHIFT_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
+  boost: ['durationMs', 'reloadMs'],
+  instantReload: ['reloadMs'],
+  damageCut: ['durationMs', 'reloadMs'],
+};
+
+/** Pure: a Shift's table — its factor line (where it has one), then its fields. */
+function shiftRows(target: EquipmentId, fields: readonly string[], stats: EffectiveStats): CardStatRow[] {
+  const head = SHIFT_HEADS[target];
+  return [...(head === undefined ? [] : [head(stats)]), ...fields.map((f) => absoluteRow(target, f, stats))];
+}
+
+/**
+ * Pure: one equipment's whole stat table off a LIVE fold — its
+ * `EQUIPMENT_STAT_FIELDS` in table order, the derived TRIGGER RADIUS where the
+ * row has one (the fit card's `triggerFollows` rule), and the derived RANGE
+ * LAST on a row that carries `rangeU`. A Shift prints its factor line first
+ * and its window and cooldown, never a `ROUNDS 1`.
+ */
+export function equipmentStatRows(target: EquipmentId, stats: EffectiveStats): CardStatRow[] {
+  const shift = SHIFT_FIELDS[target];
+  if (shift !== undefined) return shiftRows(target, shift, stats);
+  const fields = EQUIPMENT_STAT_FIELDS[target] as readonly string[];
+  // The ROW OBJECT, not `readStatPath`, decides what is derived (see weaponRows).
+  const row = stats.equipment[target] as unknown as Record<string, unknown>;
+  const hasTrigger = typeof row.triggerRadius === 'number' && !fields.includes('triggerRadius');
+  const rows: CardStatRow[] = [];
+  for (const field of fields) {
+    rows.push(absoluteRow(target, field, stats));
+    if (hasTrigger && triggerFollows(field, fields)) rows.push(absoluteRow(target, 'triggerRadius', stats));
+  }
+  if (typeof row.rangeU === 'number') rows.push(absoluteRow(target, 'rangeU', stats));
+  return rows;
+}
+
+/** Pure: a consumable's rows — the card face's own `CONSUMABLE_ROWS`, or none
+ *  for an id with no live mechanism. */
+export function consumableStatRows(id: string): CardStatRow[] {
+  return Object.hasOwn(CONSUMABLE_ROWS, id) ? (CONSUMABLE_ROWS[id as LineId]?.() ?? []) : [];
+}
+
+/** The five shipwide ladders, in the order the SHIP panel prints them. */
+const SHIP_STAT_LINES: readonly LineId[] = ['armor', 'speed', 'turning', 'radarSweep', 'reload'];
+
+/** Pure: the hull's five stats off a LIVE fold (the HP globe's SHIP panel and a
+ *  ship ladder's hover) — each ladder's own `STAT_LINES` word and printer. */
+export function shipStatRows(stats: EffectiveStats): CardStatRow[] {
+  const rows: CardStatRow[] = [];
+  for (const id of SHIP_STAT_LINES) {
+    const line = STAT_LINES[id];
+    if (line === undefined) continue;
+    rows.push({ label: line.label.toUpperCase(), cur: null, next: (line.fmt ?? num)(readStatPath(stats, line.path)) });
+  }
+  return rows;
+}
+
+/**
+ * Pure: the refit card's HOVER rows (amendment 187) — the full table of what
+ * the card touches, valued on the AFTER fold (the face's tense): a weapon line
+ * its weapon's table, a gun ladder its gun's, a ship ladder the five ship
+ * stats, a consumable its `CONSUMABLE_ROWS`; a stub or an add-on none (no
+ * panel). Fail-open on the class table, exactly as `cardStatRows`.
+ */
+export function cardHoverRows(line: CatalogLine, _copiesHeld: number, you: BoonPreviewShip): readonly CardStatRow[] {
+  if (line.kind === 'consumable') return consumableStatRows(line.id);
+  if (isStubLine(line.id) || line.kind === 'addon') return [];
+  if (!Object.hasOwn(CONFIG.shipClasses, you.cls)) return [];
+  const after = effectiveStats(CONFIG.shipClasses[you.cls], [...you.cards, line.id]);
+  const target = line.kind === 'equipment' ? tierTargetOf(line) : GUN_LADDER_TARGET[line.id as LineId];
+  if (target !== undefined) return equipmentStatRows(target, after);
+  return line.kind === 'ladder' ? shipStatRows(after) : [];
+}
+
+/** Pure: a stat row's printed value — the `next` alone on an absolute row, the
+ *  card face's `cur → next` otherwise. The hover panels print only absolute
+ *  rows; the one printer is shared so the two panels and their fit models agree. */
+export function statValueText(row: CardStatRow): string {
+  return row.cur === null ? row.next : `${row.cur} ${TIER_ARROW} ${row.next}`;
 }

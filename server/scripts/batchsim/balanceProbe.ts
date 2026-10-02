@@ -19,11 +19,11 @@
 //     server/scripts/batchsim/balanceProbe.ts
 
 import {
-  BOON_CATALOG,
+  CATALOG,
+  type LineId,
   CONFIG,
   effectiveStats,
   hullEnvelope,
-  resolveBoons,
   DRONE_HULL_IDS,
   HULL_IDS,
   SHIP_CLASS_IDS,
@@ -40,13 +40,13 @@ const deg = (d: number): number => (d * Math.PI) / 180;
 const fmt = (n: number, d = 1): string => n.toFixed(d);
 
 /** A stationary hull at `pos`, heading `head` (rad). */
-function hullAt(hullId: HullId, pos: Vec2, head: number): { id: string; poly: Vec2[] } {
+function hullAt(hullId: HullId, pos: Vec2, head: number): { id: string; kind: 'hull'; poly: Vec2[] } {
   const poly = transformPolygon(hullSilhouette(hullId), pos.x, pos.y, head, []);
-  return { id: 'target', poly };
+  return { id: 'target', kind: 'hull', poly };
 }
 
 /** How many of `targets` (burst points) land on the hull. */
-function shellsOn(targets: readonly Vec2[], burstRadius: number, hull: { id: string; poly: Vec2[] }): number {
+function shellsOn(targets: readonly Vec2[], burstRadius: number, hull: { id: string; kind: 'hull'; poly: Vec2[] }): number {
   let n = 0;
   for (const t of targets) if (burstVictims(t, burstRadius, [hull], 'shooter').length > 0) n += 1;
   return n;
@@ -155,18 +155,24 @@ function barrelBlock(): void {
   console.log(`== BARREL PARALLEL TRACKS (DRAFT barrelSpacingU = ${g.barrelSpacingU}u, burstRadius ${g.burstRadius}u) ==`);
   console.log(`spacing ${g.barrelSpacingU}u vs burst DIAMETER ${g.burstRadius * 2}u: adjacent bursts ${g.barrelSpacingU < g.burstRadius * 2 ? 'OVERLAP' : 'are separate'}`);
   console.log('barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u)');
-  for (const barrels of [1, 2, 3]) {
+  // Each row is priced at the damage of the BUILD named for that barrel
+  // count on Eric's 2026-10-02 CANNON ladder (amendment 232: barrels 1/2/2/3/3,
+  // damage 16/16/18/18/21): 1 barrel = the bare cannon (16), 2 barrels =
+  // CANNON ×1 (16, tier II), 3 barrels = CANNON ×4 (21, tier V — the max;
+  // tier IV reaches 3 barrels at 18). The damage is read off the real fold.
+  for (const [barrels, copies] of [[1, 0], [2, 1], [3, 4]] as const) {
+    const dmg = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), Array<LineId>(copies).fill('deckGun')).equipment.gun.damage;
     const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);
     const cells: string[] = [];
     for (const hullId of HULL_IDS) {
       const targets = offsets.map((o) => ({ x: 300 + o.x, y: o.y }));
       const hits = shellsOn(targets, g.burstRadius, hullAt(hullId, { x: 300, y: 0 }, 0));
-      cells.push(`${hullId}=${hits}(${hits * g.damage}hp)`);
+      cells.push(`${hullId}=${hits}(${hits * dmg}hp)`);
     }
-    console.log(`${String(barrels).padStart(7)} | ${String(barrels * g.damage).padStart(12)} | ${cells.join(' ')}`);
+    console.log(`${String(barrels).padStart(7)} | ${String(barrels * dmg).padStart(12)} | ${cells.join(' ')}`);
   }
   console.log('');
-  console.log('OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (3 barrels, R=300u):');
+  console.log('OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (3 barrels — the reachable max, R=300u):');
   const offsets = parallelOffsets(0, 3, g.barrelSpacingU);
   for (const hullId of [...SHIP_CLASS_IDS, 'droneSmall' as HullId]) {
     const row: string[] = [];
@@ -182,30 +188,28 @@ function barrelBlock(): void {
  *  stacked to its copy cap (the ADDITIVE speed/range ladders of Story 7-5). */
 function statsBlock(): void {
   console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
-  const universal = ['shipHull', 'shipSpeed', 'shipCooldown', 'intelSweep'];
-  const maxBoons: string[] = [];
+  const universal = ['armor', 'speed', 'turning', 'reload', 'radarSweep'];
+  const maxCards: string[] = [];
   for (const id of universal) {
     // Fail LOUDLY on an id the catalog no longer holds. This list is hand-kept
-    // and a deleted line reads back as `undefined.copies` — a bare TypeError
-    // that says nothing about which id went away (INTEL RANGE's removal on
-    // 2026-08-20 landed exactly here).
-    const def = BOON_CATALOG[id];
-    if (def === undefined) throw new Error(`balanceProbe: '${id}' is not in BOON_CATALOG (deleted line?)`);
-    maxBoons.push(...new Array<string>(def.copies).fill(id));
+    // and a deleted line reads back as `undefined.cap` — a bare TypeError that
+    // says nothing about which id went away.
+    if (!Object.hasOwn(CATALOG, id)) throw new Error(`balanceProbe: '${id}' is not in CATALOG (deleted line?)`);
+    maxCards.push(...new Array<string>(CATALOG[id].cap).fill(id));
   }
-  console.log(`stack: ${universal.map((id) => `${id}x${BOON_CATALOG[id].copies}`).join(' ')}`);
+  console.log(`stack: ${universal.map((id) => `${id}x${CATALOG[id].cap}`).join(' ')}`);
   // detect is SIGHT-scaled (`sightOf(me) * detectFactor`), NOT radar-scaled —
   // the one rung that hangs off sight rather than radar range. Derived here the
   // same way the server does it so the ladder ordering is checkable by eye.
   console.log('class        |  maxHp |  speed | radar |  sight | detect | 5/8 rung | gun rangeU | broadside rangeU | cooldownScale');
   for (const cls of SHIP_CLASS_IDS) {
-    for (const [tag, boons] of [['base', [] as string[]] as const, ['MAXED', maxBoons] as const]) {
-      const st = effectiveStats(hullEnvelope(cls), resolveBoons(boons));
+    for (const [tag, cards] of [['base', [] as string[]] as const, ['MAXED', maxCards] as const]) {
+      const st = effectiveStats(hullEnvelope(cls), cards);
       const rung = st.radarRange * CONFIG.vision.muzzleFlashFactor;
       console.log(
         `${(cls + ' ' + tag).padEnd(12)} | ${fmt(st.maxHp).padStart(6)} | ${fmt(st.kinematics.maxSpeed).padStart(6)} | ` +
           `${fmt(st.radarRange).padStart(5)} | ${fmt(st.sightRange).padStart(6)} | ${fmt(st.sightRange * CONFIG.vision.detectFactor).padStart(6)} | ` +
-          `${fmt(rung).padStart(8)} | ${fmt(st.gun.rangeU).padStart(10)} | ${fmt(st.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3)}`,
+          `${fmt(rung).padStart(8)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3)}`,
       );
     }
   }
