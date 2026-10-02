@@ -2,7 +2,8 @@
 title: 'Interstitial cycle 162: Epic 8 legibility cleanup (icons, mine markers, rings, chaff ghosts, smoke/chaff radii, fire)'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-review'
+status: 'done'
+final_revision: '9f05e477'
 baseline_revision: '9693e574'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -77,14 +78,14 @@ warnings: [oversized, multiple-goals]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/types.ts`, `shared/src/constants.ts`, `shared/src/index.ts`, shared tests -- kind-for-all doc, `OwnShip.chaffGhosts`, radii ×1.5, PV 68 -- the wire contract lands first
-- [ ] `client/src/ui/settings.ts` `wheelScrollsSurface`, `client/src/main.ts` `bindWheelZoom`, `settings.test.ts` -- item 9 (Eric mid-run 2026-10-01): a wheel while the ESC menu (settings overlay) is open scrolls the menu and never zooms; the results modal keeps the same gate; the refit modal is not scrollable and is not gated
-- [ ] `shared/src/constants.ts` `supercavTorpedo.damage` 50 → 85, `barrel.test.ts` pin -- item 10 (Eric mid-run 2026-10-01: "raise the damage of the Supercav Torpedo to … 85"); the card, tooltip and How-to-Play table read it from CONFIG (inside this cycle's PV 68)
-- [ ] `server/src/game/signals.ts`, `server/src/game/frames.ts`, server tests + golden snapshot -- emit `c` to every receiver; owner ghost list; oracle mirrors both; perf/non-vacuity re-laid for 247.5 u discs -- anti-cheat chokepoint
-- [ ] `client/src/render/equipmentIcons.ts`, `upgradeMenu.ts`, `how-to-play/main.ts`, `render/mines.ts`, client tests -- unique glyphs, line-id lookup, kind glyph on the water -- items 1–4
-- [ ] `client/src/config.ts`, `render/chaffRing.ts`, `render/chaffGhosts.ts` (new), `render/fire.ts` (new), `main.ts`, `net/roomBindings.ts`, client tests -- louder rings, grey half-alpha ghosts, fire under 25 % -- items 5, 6, 8
-- [ ] Docs wave (amendments 213+, CHANGELOG 0.18.27, VERSION/package.json 0.18.27, both trackers one-line, DESIGN/GDD stamps, deferred-work) -- the durable record
-- [ ] `npm run check` -- the gate
+- [x] `shared/src/types.ts`, `shared/src/constants.ts`, `shared/src/index.ts`, shared tests -- kind-for-all doc, `OwnShip.chaffGhosts`, radii ×1.5, PV 68 -- the wire contract lands first
+- [x] `client/src/ui/settings.ts` `wheelScrollsSurface`, `client/src/main.ts` `bindWheelZoom`, `settings.test.ts` -- item 9 (Eric mid-run 2026-10-01): a wheel while the ESC menu (settings overlay) is open scrolls the menu and never zooms; the results modal keeps the same gate; the refit modal is not scrollable and is not gated
+- [x] `shared/src/constants.ts` `supercavTorpedo.damage` 50 → 85, `barrel.test.ts` pin -- item 10 (Eric mid-run 2026-10-01: "raise the damage of the Supercav Torpedo to … 85"); the card, tooltip and How-to-Play table read it from CONFIG (inside this cycle's PV 68)
+- [x] `server/src/game/signals.ts`, `server/src/game/frames.ts`, server tests + golden snapshot -- emit `c` to every receiver; owner ghost list; oracle mirrors both; perf/non-vacuity re-laid for 247.5 u discs -- anti-cheat chokepoint
+- [x] `client/src/render/equipmentIcons.ts`, `upgradeMenu.ts`, `how-to-play/main.ts`, `render/mines.ts`, client tests -- unique glyphs, line-id lookup, kind glyph on the water -- items 1–4
+- [x] `client/src/config.ts`, `render/chaffRing.ts`, `render/chaffGhosts.ts` (new), `render/fire.ts` (new), `main.ts`, `net/roomBindings.ts`, client tests -- louder rings, grey half-alpha ghosts, fire under 25 % -- items 5, 6, 8
+- [x] Docs wave (amendments 213+, CHANGELOG 0.18.27, VERSION/package.json 0.18.27, both trackers one-line, DESIGN/GDD stamps, deferred-work) -- the durable record
+- [x] `npm run check` -- the gate
 
 **Acceptance Criteria:**
 - Given the 24 catalog line ids, when `glyphPaths(id)` is called, then every id but `depthCharge` returns a glyph and no two ids return equal JSON.
@@ -136,3 +137,17 @@ warnings: [oversized, multiple-goals]
 - `npm run build -w shared` -- expected: tsc clean
 - `npm test -w shared && npm test -w server && npm test -w client` -- expected: all green
 - `npm run check` -- expected: lint 0 errors, tsc ×3 clean, all tests + hook test green
+
+## Auto Run Result
+
+**Status:** done (cycle 162, 0.18.27, PV 67 → 68; branch `worktree-dev-auto-cycle-162-legibility`, baseline 9693e574 → final 9f05e477).
+
+**Implemented:** all ten of Eric's items — (1) a unique glyph for every card line through one lookup (consumable → equipment → line ids; the CANNON card and the five ship-upgrade cards are no longer empty; Eric approved the SVG sheet before anything was committed); (2–3) mines draw their kind's glyph on the water in a 20 u box and `MineView.c` rides to every observer (supersedes amendment 76); (4) HULL REPAIR is a rod of Asclepius; (5) mine rings 2 px at .6/.65; (6) chaff ring .85 / 2.5 px and the owner's own fake returns as greyscale half-alpha ghost paints via self-private `OwnShip.chaffGhosts`, computed in `observe()`, bounded by the owner's radar range, never in `events`, on a new `chaff` chart layer above smoke; (7) chaff 120 → 180 u, smoke-screen puffs 82.5/165 → 123.75/247.5 u (oracle literal curve, fuzz/perf geometry re-laid); (8) fire tongues on the tier-2 wounded-smoke pulse; (9) the ESC menu's wheel never zooms; (10) supercav torpedo 50 → 85.
+
+**Files:** shared types/constants/index (+ 3 tests); server signals/perception/frames (+ 10 tests, golden snapshot: 3 rows gain `c`); client equipmentIcons, mines, upgradeMenu, how-to-play main, config, chaffRing, new chaffGhosts.ts, new fire.ts, main, roomBindings, stage, ui/settings (+ 14 test files incl. new lineGlyphs/chaffGhosts/fire); docs: amendments 213–224, CHANGELOG 0.18.27, VERSION/package.json, both trackers, DESIGN/EXPERIENCE/GDD/catalog-v3 stamps, deferred-work.
+
+**Review:** Blind Hunter + Edge Case Hunter (Fable) + Codex gpt-5.6-sol. 8 patches (1 high: the ghost range bound; 3 medium; 4 low), 0 deferred, 2 rejected, 0 intent gaps, 0 bad spec; four Eric rulings taken at the gate (amendment 224). Agreement: Codex clean; Edge Case Hunter no reproduced defect; Blind Hunter alone found the range bound (confirmed, fixed) and the vacuous fixtures; both Fable hunters flagged the unknown-kind fallback.
+
+**Verification:** `npm run check` exit 0 twice (before and after the gate patches) — lint 0 errors, tsc ×3 clean, shared 1025, server 2326, client 3806, hook test 266.
+
+**Residual risks / Eric's eye on staging:** the three ghost greys, the ring/chaff knobs and the fire look are drafts; the non-owner smoke delivery reach grew to sight + 247.5 u (accepted disclosure, amendment 218); bots compute their own ghosts and ignore them (≤ 10 rects while their chaff lives).
