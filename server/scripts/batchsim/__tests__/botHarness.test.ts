@@ -18,6 +18,7 @@ import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
 import { BotCollector, hullTouchesLand, lifeSamples, type BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
+import type { GameEvent } from '@salvo/shared';
 import { botProfileFor, runMatch, type BatchResult, type MatchSample } from '../runner.js';
 import { TEST_PROFILE_IDS } from '../../../src/game/ai/profiles.js';
 
@@ -129,6 +130,9 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     offersSeen: {},
     offerHands: 0,
     placement: null,
+    gun: 'deckGun',
+    gunTier: 1,
+    killsByTier: [0, 0, 0, 0, 0, 0],
     ...over,
   };
 }
@@ -466,5 +470,60 @@ describe('runner — forced test profiles and the engage gate (wave 4)', () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe('botMetrics/botReport — gun and gun tier (balance campaign)', () => {
+  it('gunTier is the mounted gun module tier: 1 bare, +1 per copy of the gun line', () => {
+    const world = new World(31, 20);
+    const bot = world.addBot('torpedoBoat', undefined, 'deckGun');
+    const col = new BotCollector([bot.id]);
+    col.observe(world, 1);
+    expect(col.samples(world)[0]).toMatchObject({ gun: 'deckGun', gunTier: 1 });
+
+    bot.bankedLevels = 1;
+    bot.offer = ['deckGun', 'reload', 'radarSweep', 'speed'] as never;
+    expect(world.spendPoint(bot.id, 0)).toBe(true);
+    col.observe(world, 1);
+    const s = col.samples(world)[0];
+    expect(s.gunTier).toBe(2);
+    expect(s.gunTier).toBe(1 + bot.cards.filter((c) => c === 'deckGun').length);
+  });
+
+  it('killsByTier stamps the killer\'s CURRENT tier; fleet kills stay out', () => {
+    const world = new World(32, 20);
+    const killer = world.addBot('torpedoBoat', undefined, 'flak');
+    const victim = world.addBot('torpedoBoat', undefined);
+    const col = new BotCollector([killer.id, victim.id]);
+    killer.stats = { ...killer.stats, equipment: { ...killer.stats.equipment, flak: { ...killer.stats.equipment.flak, tier: 3 } } };
+    const events: GameEvent[] = [{ k: 'sunk', id: victim.id, by: killer.id } as GameEvent];
+    Object.defineProperty(world, 'tickEvents', { value: events, configurable: true });
+    col.observe(world, 1);
+    const row = col.samples(world).find((r) => r.id === killer.id)!;
+    expect(row.kills).toBe(1);
+    expect(row.killsByTier).toEqual([0, 0, 0, 1, 0, 0]);
+  });
+
+  it('byGun / byGunTier group by gun and gun/Tn; a draw\'s placement 1 is not a win', () => {
+    const agg = buildBotAggregate(
+      {
+        ...result([
+          [
+            sample({ gun: 'flak', gunTier: 3, placement: 1, end: 'alive', kills: 2, killsByTier: [0, 1, 0, 1, 0, 0] }),
+            sample({ id: 'b2', gun: 'deckGun', gunTier: 1, placement: 2 }),
+          ],
+        ]),
+      },
+      2,
+    );
+    const draw = buildBotAggregate(result([[sample({ gun: 'flak', gunTier: 3, placement: 1 })]], { winnerClass: null }), 1);
+    expect(agg.byGunTier.map((g) => g.key)).toEqual(['deckGun/T1', 'flak/T3']);
+    expect(agg.byGun.map((g) => g.key)).toEqual(['deckGun', 'flak']);
+    const flak = agg.byGunTier.find((g) => g.key === 'flak/T3')!;
+    expect(flak).toMatchObject({ n: 1, wins: 1, winRate: 1, meanPlacement: 1 });
+    expect(flak.killsByTierTotal).toEqual([0, 1, 0, 1, 0, 0]);
+    expect(agg.byGun.find((g) => g.key === 'deckGun')!.wins).toBe(0);
+    expect(draw.byGunTier[0].wins).toBe(0);
+    expect(renderBotReport('x', agg).join('\n')).toContain('flak/T3');
   });
 });

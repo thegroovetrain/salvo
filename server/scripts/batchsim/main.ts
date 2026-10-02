@@ -94,6 +94,11 @@ interface JsonVariant {
   tune: Record<string, number>;
   /** The applied hull policy ('rolled' on every pre-existing run). */
   roster: string;
+  /** The bot arm settings (null = the shipped default: seeded gun deal,
+   *  rolled hull, profile spend) — so a JSON report is self-describing. */
+  botGun: string | null;
+  botHull: string | null;
+  botSpend: string | null;
   aggregate: unknown;
   bots?: unknown;
   /** RAW per-match bot rows (--raw only): the per-upgrade evidence surface —
@@ -162,6 +167,7 @@ function batchMode(opts: CliOptions): ModeOutput {
         overrides: variant.set,
         tune: opts.tune,
         roster: opts.roster,
+        ...botArmOf(opts),
         aggregate: agg,
         bots: botAgg,
         ...(opts.raw ? { raw: rawRows(result) } : {}),
@@ -173,6 +179,15 @@ function batchMode(opts: CliOptions): ModeOutput {
   if (variants.length > 1) body.push(...renderComparison(rendered), '');
   if (rendered.every((r) => r.agg.matches === 0)) out.exitCode = 1;
   return out;
+}
+
+/** The bot-arm keys of a JsonVariant (null = the default arm). */
+function botArmOf(opts: CliOptions): Pick<JsonVariant, 'botGun' | 'botHull' | 'botSpend'> {
+  return {
+    botGun: opts.botGun,
+    botHull: opts.botHull,
+    botSpend: opts.botSpend === 'profile' ? null : opts.botSpend,
+  };
 }
 
 /** The --raw surface: per-match outcome + every BotSample, nothing re-derived —
