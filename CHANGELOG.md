@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.29] - 2026-10-02
+
+### Internal
+- Batch-sim harness: every bot sample records its `gun`, its `gunTier` (1–5, the tier at death or finish) and `killsByTier` (the killer's tier at each kill); the bot aggregate gains `byGun` / `byGunTier` groups (a win = placement 1 on a resolved match) and a gun × tier table in the text report; each JSON variant records `botGun` / `botHull` / `botSpend`, so a report is self-describing.
+- New harness-only `--bot-spend gun` mode: a bot takes its mounted gun's ladder card whenever it is dealt, otherwise its profile scorer, so a campaign can measure the guns at tier V (bots reach V in about 1–2 % of bot-matches under profile spend). No gameplay change.
+- New `gun_tier_analysis.py` in the balance-sim skill (stdlib): exact attrition, Wilson class shares, gun × final tier, time-at-tier kill rate with Poisson CIs, and arm-vs-baseline differences.
+- The 2026-10-01 balance ledger (`batch-sim-evidence-2026-10-01.md`, 99 matches per arm): the REPEATER wins about +8 pp over the 31–35 % band; ring 1 sinks too slowly, ring 2 too fast, and ring 3 is unmeasurable (the field is gone first); in bot hands the three guns are equal at tier V; paper DPS has the machine gun ahead at tier I (4.1 > cannon 3.0 = flak 3.0) and still ahead at tier V (MG 15 > cannon 10 > flak 6.25). Proposals P1–P6 are pending Eric; nothing has been applied to `CONFIG`.
+- Work item (Eric ruling 2026-10-01): a hull that bodyblocks a cannon or flak shell must take the full damage, not `contactDamage` (6 / 4). Written to `deferred-work.md`; not built this cycle.
+- Tests: server 2347 -> 2357 (10 new: 3 in `botHarness.test.ts`, 7 in `gunFirstSpend.test.ts`); shared 1025 and client 3811 unchanged; hook test 266; lint 0 errors. PROTOCOL_VERSION unchanged at 69.
+- Epic-8 amendment 228.
+
 ## [0.18.28] - 2026-10-01
 
 ### Added
