@@ -3,6 +3,10 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  71 — cycle 167: private lobbies: CONFIG.lobby read by the client, arena
+ *  mode 'private'; new lobby-room channels lr/ls/lb/lg and shared
+ *  sim/seedText.ts (host seed text → uint32). Perception exception count
+ *  stays SIX.
  *  70 — cycle 166: catalog content — the three deck-gun ladders re-authored
  *  to Eric's 2026-10-02 tables (amendment 232): CANNON damage 16/16/18/18/21
  *  (base 15→16; +2 at III, +3 at V) with a barrel on the rungs to II and IV
@@ -788,7 +792,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 70;
+export const PROTOCOL_VERSION = 71;
 
 // Tunables
 export * from './constants.js';
@@ -829,6 +833,7 @@ export * from './sim/spread.js';
 export * from './sim/shell.js';
 export * from './sim/map.js';
 export * from './sim/noise.js';
+export * from './sim/seedText.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
 export * from './sim/wake.js';

@@ -29,7 +29,48 @@ export const MSG = {
   // untouched" reasoning does not cover it and PROTOCOL_VERSION moves with it
   // (epic-6 amendment 17).
   requeue: 'rq', // server->client RequeueMsg (go home, then queue again)
+  // Private lobbies (cycle 167, Eric rulings 2026-10-02). These ride the LOBBY
+  // room, never the arena; the lobby's own onAuth runs the PROTOCOL_VERSION gate.
+  lobbyReady: 'lr', // client->server LobbyReadyMsg (any captain, host included)
+  lobbySeed: 'ls', // client->server LobbySeedMsg (host only; others dropped)
+  lobbyBotFill: 'lb', // client->server LobbyBotFillMsg (host only; others dropped)
+  lobbyStart: 'lg', // client->server force start, no payload (host only, when eligible)
 } as const;
+
+/** Client -> server ready toggle in a private lobby ("lr"). Non-boolean is dropped. */
+export interface LobbyReadyMsg {
+  ready: boolean;
+}
+
+/**
+ * Client -> server host seed text ("ls"). Free text, trimmed and capped at
+ * CONFIG.lobby.seedTextMax server-side; blank means no seed (random map).
+ * The server resolves it to a uint32 via sim/seedText.ts.
+ */
+export interface LobbySeedMsg {
+  text: string;
+}
+
+/** Client -> server host bot-fill toggle ("lb"): fill empty slots to 20 with bots. */
+export interface LobbyBotFillMsg {
+  on: boolean;
+}
+
+/**
+ * `GET /lobby/resolve?code=` answer: the Colyseus roomId to `joinById`, or a
+ * machine reason that the client shows verbatim (Eric's ruling-9 copy). A
+ * malformed code answers 'NO SUCH LOBBY', never a 500.
+ */
+export type LobbyResolveResponse =
+  | { roomId: string }
+  | { reason: 'NO SUCH LOBBY' | 'LOBBY FULL' | 'MATCH STARTED' };
+
+/**
+ * Private lobby lifecycle, mirrored in the lobby room's listing metadata.
+ * 'started' — the arena formed; the code is dead and the room lingers
+ * CONFIG.lobby.startedLingerMs so a late JOIN answers 'MATCH STARTED'.
+ */
+export type LobbyPhase = 'open' | 'started';
 
 /**
  * Server -> client "go home and start a fresh queue join" ("rq"), broadcast on
