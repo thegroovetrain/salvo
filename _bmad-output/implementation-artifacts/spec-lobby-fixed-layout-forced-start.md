@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-10-02'
 status: 'done'
 baseline_revision: 'ab718f8d'
-final_revision: 'TBD-STAMP'
+final_revision: 'd1072f0a'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
