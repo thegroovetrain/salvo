@@ -518,15 +518,16 @@ export const CATALOG: Catalog = deepFreezeRows({
   // flak gun's LADDER, offered only while mounted. Tiers II–V step damage
   // +8 per rung (12 / 20 / 28 / 36 / 44); the blast radius does NOT grow;
   // the −5 % reload per tier is the derived tier step (3.5 s -> 2.8 s at V).
-  // The rungs reaching tier III and tier V each add a TURRET (Eric
-  // 2026-09-30): flak pool by copies 0..4 is 1,1,2,2,3.
+  // The rungs reaching tier II and tier IV each add a TURRET (Eric
+  // 2026-10-02, amendment 232; was III and V): flak pool by copies 0..4 is
+  // 1,2,2,3,3.
   flak: ladderSteps(
     'flak',
     [
-      [flakDamage()], // I → II
-      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // II → III
-      [flakDamage()], // III → IV
-      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // IV → V
+      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // I → II — the second turret (Eric 2026-10-02)
+      [flakDamage()], // II → III
+      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // III → IV — the third turret
+      [flakDamage()], // IV → V
     ],
     { appliesTo: ['flak'] },
   ),

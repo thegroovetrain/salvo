@@ -11,7 +11,8 @@
 // 2026-09-30 DELETED THE TWO ONE-OFF GUN CARDS (Eric: "there are NO MORE
 // one-off upgrades; EVERY upgrade is tiered"): 26/117 -> 24/114. −1
 // (`deckGunTurret`) and −2 (`deckGunBarrel`); the turret and the barrel are
-// now CANNON rungs (tier III / tier V) and FLAK gained a turret at III and V.
+// now CANNON rungs (tier III / tier V) and FLAK gained a turret at III and V
+// (2026-10-02, amendment 232: the flak turrets moved to II and IV).
 //
 // STORY 8.14 DELETED THE DECK PINS (Eric ruling 2026-09-21, epic-8 amendment
 // 89a). `DEFAULT_DECKS`, `DEFAULT_OWNED` and `deckFromCounts` no longer exist:
@@ -326,7 +327,7 @@ describe('catalog v3 identity', () => {
     // Per tier (Eric 2026-10-02, amendment 232): MACHINE GUN +4 shells and
     // −50 ms of shot delay, +1 damage ONLY on the rungs to II and IV (the
     // rungs to III and V author no damage effect); FLAK damage +8 per rung,
-    // +1 pool on the rungs to III and V (blast fixed).
+    // +1 pool on the rungs to II and IV (blast fixed).
     // The −5 % reload is the derived tier step, never an effect.
     expect(CATALOG.machineGun.appliesTo).toEqual(['machineGun']);
     expect(CATALOG.flak.appliesTo).toEqual(['flak']);
@@ -344,13 +345,14 @@ describe('catalog v3 identity', () => {
     expect(new Set(mgTiers).size).toBe(mgTiers.length);
     expect(mgTiers.every((tier) => Object.isFrozen(tier) && tier.every((e) => Object.isFrozen(e)))).toBe(true);
     // FLAK: damage +8 every rung, and a TURRET (+1 pool) on the rungs reaching
-    // tier III and tier V (Eric 2026-09-30). The blast radius never moves.
+    // tier II and tier IV (Eric 2026-10-02, amendment 232; was III and V).
+    // The blast radius never moves.
     const flakDmg = { kind: 'stat', path: 'equipment.flak.damage', add: 8 };
     const flakPool = { kind: 'stat', path: 'equipment.flak.maxAmmo', add: 1 };
-    expect(CATALOG.flak.tiers[0]).toEqual([flakDmg]);
-    expect(CATALOG.flak.tiers[1]).toEqual([flakDmg, flakPool]);
-    expect(CATALOG.flak.tiers[2]).toEqual([flakDmg]);
-    expect(CATALOG.flak.tiers[3]).toEqual([flakDmg, flakPool]);
+    expect(CATALOG.flak.tiers[0]).toEqual([flakDmg, flakPool]);
+    expect(CATALOG.flak.tiers[1]).toEqual([flakDmg]);
+    expect(CATALOG.flak.tiers[2]).toEqual([flakDmg, flakPool]);
+    expect(CATALOG.flak.tiers[3]).toEqual([flakDmg]);
     // Each ladder advances its OWN gun's tier (the reload step reads it).
     expect(tierTargetOf(CATALOG.machineGun)).toBe('machineGun');
     expect(tierTargetOf(CATALOG.flak)).toBe('flak');

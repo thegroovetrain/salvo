@@ -215,7 +215,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
         // (radarBuoy's row DELETED with the buoy, Story 8.16; the DECOY BUOY
         // consumable that replaces it carries NO row — the consumable law.)
         // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97/99).
-        instantReload: { tier: 1, reloadMs: 45000, maxAmmo: 1 },
+        instantReload: { tier: 1, reloadMs: 60000, maxAmmo: 1 }, // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
         damageCut: { tier: 1, reloadMs: 30000, maxAmmo: 1, durationMs: 8000, factor: 0.5 },
       },
     });
@@ -450,13 +450,13 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
     expect(mg.reloadMs).toBeCloseTo(9600 * 0.75, 6);
   });
 
-  it('FLAK: damage 12/20/28/36/44 (+8 per tier), pool 1 → 3 (a turret at III and at V), reload 3.5 s → 2.8 s at V (Eric 2026-10-02, amendment 232); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
+  it('FLAK: damage 12/20/28/36/44 (+8 per tier), pool 1/2/2/3/3 (a turret at II and at IV), reload 3.5 s → 2.8 s at V (Eric 2026-10-02, amendment 232); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
     const table: [number, number, number, number, number][] = [
       // copies, tier, damage, maxAmmo (pool), reloadMs
       [0, 1, 12, 1, 3500],
-      [1, 2, 20, 1, 3325],
+      [1, 2, 20, 2, 3325],
       [2, 3, 28, 2, 3150],
-      [3, 4, 36, 2, 2975],
+      [3, 4, 36, 3, 2975],
       [4, 5, 44, 3, 2800],
     ];
     for (const [copies, tier, damage, maxAmmo, reloadMs] of table) {
@@ -487,11 +487,11 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
 });
 
 describe('STORY 8.15 — the class Shift rows take RELOAD like every row (amendments 97/99)', () => {
-  it('INSTANT RELOAD 45 s → 33.75 s and DAMAGE CUT 30 s → 22.5 s under a maxed RELOAD ladder', () => {
+  it('INSTANT RELOAD 60 s → 45 s (Eric 2026-10-02, amendment 232; was 45 s → 33.75 s) and DAMAGE CUT 30 s → 22.5 s under a maxed RELOAD ladder', () => {
     const base = effectiveStats(BASE).equipment;
-    expect([base.instantReload.reloadMs, base.damageCut.reloadMs, base.boost.reloadMs]).toEqual([45000, 30000, 25000]);
+    expect([base.instantReload.reloadMs, base.damageCut.reloadMs, base.boost.reloadMs]).toEqual([60000, 30000, 25000]);
     const maxed = effectiveStats(BASE, stack('reload', 5)).equipment;
-    expect(maxed.instantReload.reloadMs).toBe(33750);
+    expect(maxed.instantReload.reloadMs).toBe(45000);
     expect(maxed.damageCut.reloadMs).toBe(22500);
     expect(maxed.boost.reloadMs).toBe(18750); // the Story 8.9 pin, beside them
     // The window and the factor are Eric's fixed numbers — RELOAD never moves them.

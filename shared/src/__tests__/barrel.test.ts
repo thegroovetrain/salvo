@@ -1134,7 +1134,7 @@ describe('shared barrel', () => {
       arc: 'full', hits: ['hull', 'mine', 'decoy', 'ordnance'], shellSpeed: 500, maxAmmo: 1,
       reloadMs: 3500, damage: 12, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 4000 → 3500, amendment 232
     });
-    expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 45000 });
+    expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 60000 }); // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
     expect(CONFIG.damageCut).toEqual({ factor: 0.5, durationMs: 8000, maxAmmo: 1, reloadMs: 30000 });
     // Neither pickable gun carries a range field — it is the radar rung.
     expect('rangeU' in CONFIG.machineGun).toBe(false);

@@ -1486,14 +1486,14 @@ export const CONFIG = {
    * RUNNING, that ONE reload completes at once (one round tops up, timer to
    * zero; the machine gun's magazine fills); rounds spent beyond that stay
    * spent, and the belt and the Shift slot itself are never touched. One
-   * charge on a 45 s cooldown — longer than the longest weapon reload, so it
-   * never acts as a permanent second tube (amendment 97). `reloadMs` takes
-   * `cooldownScale` through the one multiply in clampStats like every row
-   * (33.75 s at a maxed RELOAD ladder).
+   * charge on a 60 s cooldown (Eric 2026-10-02, amendment 232; was 45 s,
+   * amendment 97) — longer than the longest weapon reload, so it never acts
+   * as a permanent second tube. `reloadMs` takes `cooldownScale` through the
+   * one multiply in clampStats like every row (45 s at a maxed RELOAD ladder).
    */
   instantReload: {
     maxAmmo: 1, // single charge (amendment 97)
-    reloadMs: 45000, // ms — cooldown (amendment 97)
+    reloadMs: 60000, // ms — cooldown (Eric 2026-10-02; was 45000, amendment 97)
   },
 
   /**

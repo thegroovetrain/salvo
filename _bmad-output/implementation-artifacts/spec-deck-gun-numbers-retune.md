@@ -16,7 +16,7 @@ warnings: [oversized]
 
 ## Intent
 
-**Problem:** The three deck guns' per-tier ladders do not hit Eric's DPS targets. Eric (2026-10-02, verbatim): *"new numbers for Deck Guns. Only the numbers I specify are changed. Machine Gun: Damage 5/6/6/7/7, Mag Size 12/16/20/24/28, Delay 0.3/0.25/0.2/0.15/0.1, Reload 12 at Tier I | Cannon: Damage 15/16/17/19/20, Turrets/Rounds 1/1/2/2/2, Barrels 1/2/2/3/3 || Flak: Damage 12/22/31/41/50 ... This should make the DPS pretty close for each, even when factoring the ship Reload upgrade on top of it."* Then, mid-run (verbatim): *"Also, updated flak numbers: Damage 12/22/28/38/44, Tier I Reload 3.5"*, then *"Changed mind. Flak Damage 12/20/28/36/44, Tier I Reload 3.5"* — the LAST flak message governs.
+**Problem:** The three deck guns' per-tier ladders do not hit Eric's DPS targets. Eric (2026-10-02, verbatim): *"new numbers for Deck Guns. Only the numbers I specify are changed. Machine Gun: Damage 5/6/6/7/7, Mag Size 12/16/20/24/28, Delay 0.3/0.25/0.2/0.15/0.1, Reload 12 at Tier I | Cannon: Damage 15/16/17/19/20, Turrets/Rounds 1/1/2/2/2, Barrels 1/2/2/3/3 || Flak: Damage 12/22/31/41/50 ... This should make the DPS pretty close for each, even when factoring the ship Reload upgrade on top of it."* Then, mid-run (verbatim): *"Also, updated flak numbers: Damage 12/22/28/38/44, Tier I Reload 3.5"*, then *"Changed mind. Flak Damage 12/20/28/36/44, Tier I Reload 3.5"* — the LAST flak message governs. Then *"Flak Turrets(Max Banked Shots) 1/2/2/3/3"* and *"Also please increase the reload time on Repeater's instant reload from 45 to 60 seconds."*
 
 **Approach:** Re-author the `machineGun`, `deckGun` and `flak` ladders in `shared/src/sim/catalog.ts` with per-rung integer steps that land EXACTLY on Eric's tables (tiers I..V = 0..4 cards), move the four machine-gun base values in `CONFIG.machineGun` and the flak reload base in `CONFIG.flak`, bump `PROTOCOL_VERSION` 69 → 70 (catalog content changed), re-pin every test, comment and doc that stated the old ladders, and rewrite one How-to-Play sentence Eric ruled on. Cycle 166, version 0.18.31, epic-8 amendments 232–233.
 
@@ -26,8 +26,9 @@ warnings: [oversized]
 - The tables are the literal spec (Eric's numbers are integers; no "rounded" or derived approximations — the R14 lesson):
   - MACHINE GUN: damage 5/6/6/7/7; magazine 12/16/20/24/28; delay 300/250/200/150/100 ms; reload 12 s at tier I, then the standing −5 %/tier `reloadTierScale` convention (12 / 11.4 / 10.8 / 10.2 / 9.6 s, then × `cooldownScale`). Per-rung steps: maxAmmo +4 ×4; rateMs −50 ×4; damage +1 on the rungs to II and IV only (the rungs to III and V author NO damage effect — the catalog validator refuses `add: 0`, and a rung with magazine + delay steps is not empty).
   - CANNON (`deckGun`): damage 15/16/17/19/20 (steps +1, +1, +2, +1 — `cannonDamage()` becomes per-rung); maxAmmo (turrets/rounds) 1/1/2/2/2 (unchanged: +1 on the rung to III); barrels 1/2/2/3/3 (+1 on the rungs to II and IV; the rung to V carries damage only). The existing `barrels` clamp 1..3 stands and 3 is now reachable.
-  - FLAK: damage 12/20/28/36/44 (a flat +8 per rung — `flakDamage()` stays a single helper at +8); reload 3.5 s at tier I (`CONFIG.flak.reloadMs` 4000 → 3500) with the derived −5 %/tier on top (3.5 / 3.325 / 3.15 / 2.975 / 2.8 s); pool 1/1/2/2/3, 50 u blast and the fixed 4 hp `contactDamage` unchanged.
-  - Cannon reload base is unchanged. CONFIG moves are exactly: `machineGun.{maxAmmo 16→12, rateMs 350→300, reloadMs 10000→12000, damage 4→5}` and `flak.reloadMs 4000→3500`.
+  - FLAK: damage 12/20/28/36/44 (a flat +8 per rung — `flakDamage()` stays a single helper at +8); reload 3.5 s at tier I (`CONFIG.flak.reloadMs` 4000 → 3500) with the derived −5 %/tier on top (3.5 / 3.325 / 3.15 / 2.975 / 2.8 s); turrets (pool, `maxAmmo`) 1/2/2/3/3 — the +1 pool steps sit on the rungs to II and IV (was III and V); 50 u blast and the fixed 4 hp `contactDamage` unchanged.
+  - INSTANT RELOAD (the Repeater's class Shift): `CONFIG.instantReload.reloadMs` 45000 → 60000 (45 s at a maxed RELOAD ladder, was 33.75 s). Nothing else about the Shift moves.
+  - Cannon reload base is unchanged. CONFIG moves are exactly: `machineGun.{maxAmmo 16→12, rateMs 350→300, reloadMs 10000→12000, damage 4→5}`, `flak.reloadMs 4000→3500`, `instantReload.reloadMs 45000→60000`.
 - `effectiveStats()` stays the only fold; no new mechanism, no new stat field, no new copy word. `EQUIPMENT_STAT_FIELDS` / `EQUIPMENT_INT_FIELDS` unchanged.
 - `PROTOCOL_VERSION` 69 → 70 with a history entry (catalog content + `CONFIG.machineGun`/`CONFIG.flak` values the client reads).
 - Eric rulings of this run (AskUserQuestion 2026-10-02): (1) How-to-Play `[ DECK GUNS ]` FLAK one-liner becomes exactly *"Faster reload and a larger blast radius than the Cannon; its damage climbs steeply with tier."* (2) The maxed cannon's 3 × 20 = 60 hp click (57 at tier IV) one-clicks a 45 hp small drone again — ACCEPTED CONSEQUENCE, no number moves; the guardrail test is re-pinned to the new ceiling and the deferred-work BARREL entry is restamped.
@@ -49,11 +50,13 @@ warnings: [oversized]
 |----------|--------------|---------------------------|----------------|
 | MG ladder fold | `effectiveStats` with machineGun copies 0..4 | `[maxAmmo,damage,rateMs,reloadMs]` = [12,5,300,12000] [16,6,250,11400] [20,6,200,10800] [24,7,150,10200] [28,7,100,9600] | No error expected |
 | Cannon ladder fold | deckGun copies 0..4 | damage 15/16/17/19/20; maxAmmo 1/1/2/2/2; barrels 1/2/2/3/3 | No error expected |
-| Flak ladder fold | flak copies 0..4 | damage 12/20/28/36/44; maxAmmo 1/1/2/2/3; reloadMs 3500/3325/3150/2975/2800; contactDamage 4 | No error expected |
+| Flak ladder fold | flak copies 0..4 | damage 12/20/28/36/44; maxAmmo 1/2/2/3/3; reloadMs 3500/3325/3150/2975/2800; contactDamage 4 | No error expected |
+| Instant Reload cooldown | Repeater, no RELOAD cards / 5 RELOAD cards | reloadMs 60000 / 45000 | No error expected |
 | MG rung III card face | tier card k=1 | rows RELOAD 11.4 s>10.8 s, SHELLS 16>20, RATE 0.25 s>0.20 s — no DAMAGE row | No error expected |
 | Cannon rung II card face | tier card k=0 | GUN DAMAGE 15>16 and SHELLS PER SHOT 1>2 | No error expected |
 | Cannon rung IV card face | k=2 | GUN DAMAGE 17>19 and SHELLS PER SHOT 2>3 | No error expected |
-| Flak rung III card face | k=1 | RELOAD (formatter's rounding of 3.325 → 3.15 s), DAMAGE 20>28, ROUNDS 1>2 | No error expected |
+| Flak rung II card face | k=0 | RELOAD 3.5 s → 3.3 s (formatter), DAMAGE 12>20, ROUNDS 1>2 | No error expected |
+| Flak rung III card face | k=1 | RELOAD (formatter's rounding of 3.325 → 3.15 s), DAMAGE 20>28 — no ROUNDS row | No error expected |
 | Maxed cannon click | deckGun ×4, one click on a 125 hp hull, all three shells land | 3 bursts, 60 hp total; guardrail pins 60 ≥ 45 (accepted) | No error expected |
 | MG stream, 3 s hold at tier I | fresh magazine 12 | shots at 0, 0.3, …, 2.7 s = 10 shells, 2 left; then empties; swap 12 s | No error expected |
 | MG on a mine, tier I | two shells land on the mine's 10 u ring | hp 10 → 5 → pops on the second | No error expected |
