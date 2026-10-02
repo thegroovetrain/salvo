@@ -10,6 +10,7 @@ import { CONFIG, paintCoverage, type GhostPaint } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { ChaffGhosts, GHOST_BAND_ALPHA, validGhost } from '../render/chaffGhosts.js';
 import { blipLifeMs } from '../render/phosphor.js';
+import { CHART_LAYER_ORDER } from '../render/stage.js';
 
 const CELL = CLIENT_CONFIG.blip.heatmap.cellU;
 const LIFE = blipLifeMs(60_000 / CONFIG.vision.sweepRpm);
@@ -154,5 +155,21 @@ describe('nothing renders without ghosts or without an own pose', () => {
     cg.clear();
     expect(cg.livePaints).toBe(0);
     expect(cg.visible).toBe(false);
+  });
+});
+
+describe('the chaff layer seat — radar returns are never below the smoke screen (Eric 2026-10-01)', () => {
+  const at = (name: string): number => CHART_LAYER_ORDER.indexOf(name as never);
+
+  it('seats `chaff` ABOVE `smoke` and BELOW `blip`', () => {
+    expect(at('chaff'), 'chaff is a chart layer').toBeGreaterThanOrEqual(0);
+    expect(at('chaff'), 'radar returns are never below the smoke screen').toBeGreaterThan(at('smoke'));
+    expect(at('chaff'), 'and stay off the blip layer\'s near-range dim mask').toBeLessThan(at('blip'));
+  });
+
+  it('leaves the neighbors as they were: smoke over litZone, blip over smoke, ship over blip', () => {
+    expect(at('smoke')).toBeGreaterThan(at('litZone'));
+    expect(at('blip')).toBeGreaterThan(at('smoke'));
+    expect(at('ship')).toBe(at('blip') + 1);
   });
 });

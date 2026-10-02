@@ -358,6 +358,31 @@ describe('CHAFF — THE OWNER\'S GHOSTS, `you.chaffGhosts` (Eric 2026-10-01, cyc
     expect('chaffGhosts' in buildFrame(w, e.id).you!).toBe(false);
   });
 
+  it('the ghosts are bounded by the owner\'s RADAR RANGE (inclusive): an owner who sailed beyond radar + scatter radius gets none; a fake at exactly radar range still paints', () => {
+    const { w, o, fakes } = ownBoard();
+    const fk = fakes[0];
+    const parkBeamOn = (p: { x: number; y: number }): void => {
+      const brg = bearing(o.state, p);
+      o.prevSweepAngle = wrapPositive(brg - 0.005);
+      o.sweepAngle = wrapPositive(brg + 0.005);
+    };
+    // The owner's RECORD moves far off (a long run, or a redeploy while the
+    // world-owned source lives): every fake is > radar + chaff.radius away.
+    const far = o.stats.radarRange + CONFIG.chaff.radius + 50; // 660 + 180 + 50 = 890 u from the burst point
+    o.state = { ...o.state, x: 500 + far, y: 500 };
+    for (const f of fakes) expect(Math.hypot(f.x - o.state.x, f.y - o.state.y)).toBeGreaterThan(o.stats.radarRange);
+    parkBeamOn(fk); // the beam IS on a fake's bearing — only the range bound can stop it
+    expect('chaffGhosts' in buildFrame(w, o.id).you!).toBe(false);
+    expect(observe(w, o.id).chaffGhosts).toEqual([]);
+    // A fake at EXACTLY radar range (dx² + dy² === radar², bit-for-bit) paints.
+    o.state = { ...o.state, x: fk.x + o.stats.radarRange, y: fk.y };
+    const dx = fk.x - o.state.x;
+    const dy = fk.y - o.state.y;
+    expect(dx * dx + dy * dy).toBe(o.stats.radarRange * o.stats.radarRange);
+    parkBeamOn(fk);
+    expect(ghostsOf(buildFrame(w, o.id))).toContain(fakeKey(fk, w.now));
+  });
+
   it('a SPECTATOR gets no ghosts (no `you`, no beam), and the radar lock withholds them like every blip', () => {
     const { w, o } = ownBoard();
     const spec = buildFrame(w, o.id, 'finished');

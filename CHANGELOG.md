@@ -14,9 +14,9 @@
 
 ### Internal
 - PROTOCOL_VERSION 67 -> 68: `MineView.c` rides every observer's mine row (was owner-only, amendment 76); the self-private `OwnShip.chaffGhosts?: GhostPaint[]` carries the owner's own beam-painted fake rects (`ReturnBlipEvent` now extends `GhostPaint`; the wire blip stays seven keys); the client reads `chaff.radius`, `smokeScreen.r0` / `r1` and `supercavTorpedo.damage` from CONFIG. Perception exception count stays SIX.
-- Client: `render/equipmentIcons.ts` gains `LINE_GLYPHS` and `glyphPaths` resolves consumable → equipment → line ids (every line but the stub DEPTH CHARGE answers a distinct glyph); new `render/chaffGhosts.ts` (the scope's own march/heatmap functions into a separate grey sprite on the `litZone` layer) and `render/fire.ts` (rides the tier-2 `sm` pulse, no wire change); three DRAFT grey tokens `ghostFaint` / `ghostFuzzy` / `ghostSolid`; `mineRings` and `chaffRing` knobs raised (drafts); `wheelScrollsSurface` gates the one wheel listener.
-- Tests: shared 1024 -> 1025, client 3761 -> 3802, server 2316 -> 2325 (chaff ghosts, frames, perception ghost oracle); hook test 266.
-- Epic-8 amendments 213–223; GDD, catalog-v3, DESIGN and EXPERIENCE carry dated stamps; `spec-epic-8-legibility-cleanup.md`.
+- Client: `render/equipmentIcons.ts` gains `LINE_GLYPHS` and `glyphPaths` resolves consumable → equipment → line ids (every line but the stub DEPTH CHARGE answers a distinct glyph); new `render/chaffGhosts.ts` (the scope's own march/heatmap functions into a separate grey sprite on a new `chaff` chart layer above the smoke discs — Eric: radar returns are never below the smoke screen) and `render/fire.ts` (rides the tier-2 `sm` pulse, no wire change); three DRAFT grey tokens `ghostFaint` / `ghostFuzzy` / `ghostSolid`; `mineRings` and `chaffRing` knobs raised (drafts); `wheelScrollsSurface` gates the one wheel listener.
+- Tests: shared 1024 -> 1025, client 3761 -> 3806, server 2316 -> 2326 (chaff ghosts + their radar-range bound, frames, perception ghost oracle, the chaff layer seat); hook test 266.
+- Epic-8 amendments 213–224; GDD, catalog-v3, DESIGN and EXPERIENCE carry dated stamps; `spec-epic-8-legibility-cleanup.md`.
 
 ## [0.18.26] - 2026-10-01
 

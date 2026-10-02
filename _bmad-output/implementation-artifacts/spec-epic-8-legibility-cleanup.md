@@ -2,7 +2,7 @@
 title: 'Interstitial cycle 162: Epic 8 legibility cleanup (icons, mine markers, rings, chaff ghosts, smoke/chaff radii, fire)'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '9693e574'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -104,6 +104,23 @@ warnings: [oversized, multiple-goals]
 - **Also:** Eric asked to see the icon proposals before they are built on (*"I did want to see your suggestions for icons before implementing"*) — the glyph wave's drawings are rendered as an SVG sheet for his approval and held uncommitted until he rules; KEEP: the one-lookup design (`glyphPaths` over consumable → equipment → line ids) regardless of which drawings he accepts.
 
 ## Review Triage Log
+
+### 2026-10-01 — Review pass (Blind Hunter + Edge Case Hunter on Fable; Codex gpt-5.6-sol cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 1, medium 3, low 4)
+- defer: 0
+- reject: 2: (high 0, medium 0, low 2)
+- addressed_findings:
+  - `[high]` `[patch]` Blind Hunter CONFIRMED: `ownerChaffGhosts` had no range bound (only the beam crossing bounded a ghost; the source survives redeploy) — gate now keeps the radar annulus's OUTER edge (`withinRadarRange`, inclusive), oracle `ghostPredicate` mirrors it, pinned beyond-range absent / at-range present (failed before the fix).
+  - `[medium]` `[patch]` Blind Hunter CONFIRMED: two `smokeScreen.test.ts` fixtures were vacuous at r 123.75 — re-laid with asserted distances.
+  - `[medium]` `[patch]` Eric ruling at the gate ("Radar returns should never be below the smoke screen"): ghosts + chaff ring move from `litZone` to a new `chaff` chart layer above `smoke`; layer-order pins re-laid and a new pin added (amendment 224(b)).
+  - `[medium]` `[patch]` Both Fable hunters: an unrecognized `MineView.c` drew nothing — `mineKindOfView` type-guards the kind set and falls back to naval, pinned (failed before the fix).
+  - `[low]` `[patch]` Eric ruling: "Glyph alone" — no 10 u aim ring under the mine glyph (Edge Case Hunter's PLAUSIBLE); recorded, no code change.
+  - `[low]` `[patch]` Eric ruling: the decoy hp arc keeps the shared 2 px stroke; Eric ruling: "123.8 is fine" on the card — both recorded, no code change.
+  - `[low]` `[patch]` `fire.test.ts` header cited amendment 43 for the information-not-juice rule (epic-4 amendment 49); a `mines.test.ts` title asserted the opposite of its body — both fixed.
+  - `[low]` `[patch]` Codex: no defects, build-on-it (read-only sandbox, no executable run).
+  - rejected: the `you.chaffGhosts` key position unpinned by the golden battery (keyed object, feature unreachable by the battery); bots paying `ownerChaffGhosts` for a list they never read (≤ 10 rects while their own chaff lives).
 
 ## Design Notes
 

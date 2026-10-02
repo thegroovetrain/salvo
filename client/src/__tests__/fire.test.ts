@@ -1,6 +1,6 @@
 // ON FIRE (render/fire.ts, cycle 162, Eric 2026-10-01: "some kind of 'on fire'
 // effect for a ship under 25%"). The flames ride the tier-2 `sm` pulse only, and
-// they are INFORMATION like smoke (amendment 43): presence, extent and tier are
+// they are INFORMATION like smoke (epic-4 amendment 49): presence, extent and tier are
 // motion-blind; only the flicker and the rise scale with the motion setting.
 
 import { describe, it, expect } from 'vitest';

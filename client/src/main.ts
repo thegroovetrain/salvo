@@ -2899,10 +2899,12 @@ function buildGame(
     smoke: new Smoke(stage.layers.smoke),
     fire: new Fire(stage.layers.smoke), // pins itself to the layer's bottom: under every puff
     smokeScreen: new SmokeScreen(stage.layers.smoke),
-    chaffRing: new ChaffRing(stage.layers.litZone),
-    // litZone, not `blip`: the blip layer's near-range dim mask would cut a
-    // ghost (always inside the owner's own bubble) to 20 % — see chaffGhosts.ts.
-    chaffGhosts: new ChaffGhosts(stage.layers.litZone),
+    // `chaff`, above `smoke` (Eric 2026-10-01: "Radar returns should never be
+    // below the smoke screen") and not `blip`: the blip layer's near-range dim
+    // mask would cut a ghost (always inside the owner's own bubble) to 20 % —
+    // see stage.ts / chaffGhosts.ts.
+    chaffRing: new ChaffRing(stage.layers.chaff),
+    chaffGhosts: new ChaffGhosts(stage.layers.chaff),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),

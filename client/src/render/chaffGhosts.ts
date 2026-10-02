@@ -32,8 +32,10 @@
 // whole world cell, and the sprite sits at the grid origin scaled one texel per
 // cell, so a ghost sits on the water where the fake is at every zoom.
 //
-// THE LAYER IS `litZone` (beside the chaff ring), NOT `blip`: the `blip` layer
-// carries the radar's near-range DIM MASK (amendment 181 — 20 % across the
+// THE LAYER IS `chaff` (shared with the chaff ring), directly ABOVE `smoke`:
+// Eric 2026-10-01, *"Radar returns should never be below the smoke screen."*
+// (Until then it was `litZone`, which sits under `smoke`.) And NOT `blip`: the
+// `blip` layer carries the radar's near-range DIM MASK (amendment 181 — 20 % across the
 // whole sight bubble), and the cloud bursts at the owner's own position, i.e.
 // always inside that bubble. Under the mask a ghost would draw at 20 % of half
 // alpha — invisible — whereas "the alpha it would be otherwise" is the alpha the
@@ -145,7 +147,8 @@ export class ChaffGhosts {
   private readonly paints: MarchSlice[] = [];
   private heat: GhostSurface | null = null;
 
-  /** `layer` = a fog-immune, UNMASKED chart layer (see the file header). */
+  /** `layer` = the fog-immune, UNMASKED `chaff` chart layer, above `smoke`
+   *  (see the file header). */
   constructor(layer: Container) {
     this.layer = layer;
   }

@@ -2925,10 +2925,12 @@ function chaffFakesOracle(w: World, src: FakeSource): { x: number; y: number; he
  *  the annulus never paints — orchestrator ruling, Eric may veto): the owner's
  *  paint window crossed the fake's bearing this tick ∧ the fake is at least
  *  partially lit under the height-aware radar shadow ∧ no flare the owner owns
- *  covers it (truth wins, as for every blip). Nothing else: no range term of
- *  any kind. */
+ *  covers it (truth wins, as for every blip) ∧ the fake is within the owner's
+ *  radar range (inclusive — the annulus's OUTER edge, which a ghost keeps: no
+ *  observer is painted anything beyond its radar). The annulus's INNER (sight)
+ *  edge is the one range term it drops. */
 function ghostPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
-  return inPaintWindow(me, bearing(me.state, p)) && shadowVisible(w, me, p) && !zoneCovers(w, me, p);
+  return dist(me.state, p) <= effRadar() && inPaintWindow(me, bearing(me.state, p)) && shadowVisible(w, me, p) && !zoneCovers(w, me, p);
 }
 
 /** The ghost set the OWNER must receive this tick, re-derived: its OWN live

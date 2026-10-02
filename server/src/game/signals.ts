@@ -512,8 +512,16 @@ function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
   const dy = p.y - me.state.y;
   const d2 = dx * dx + dy * dy;
   const sight = sightOf(me, now);
-  const radar2 = me.stats.radarRange * me.stats.radarRange;
-  return d2 > sight * sight && d2 <= radar2;
+  return d2 > sight * sight && withinRadarRange(me, p);
+}
+
+/** The annulus's OUTER edge alone — the point is within the observer's
+ *  effective radar range (`stats.radarRange`, inclusive `<=`). One read for
+ *  both callers: inRadarAnnulus and the chaff owner's ghost gate. */
+function withinRadarRange(me: ShipRecord, p: Vec2): boolean {
+  const dx = p.x - me.state.x;
+  const dy = p.y - me.state.y;
+  return dx * dx + dy * dy <= me.stats.radarRange * me.stats.radarRange;
 }
 
 /**
@@ -1095,15 +1103,21 @@ function pushGatedFakes(ctx: FoggedSignalContext, fakes: readonly Fake[], out: B
  * — and each rect is THE SAME shape (`paintRect`, which blipShape wraps), so
  * what the owner sees in grey is exactly what its enemies see as blips.
  *
- * THE OWNER'S GATE (orchestrator ruling, Eric may veto): the beam crossed the
- * fake's bearing this tick (sweptThisTick) ∧ the fake is at least partially
- * lit under the height-aware radar shadow (visibilityTo > 0) ∧ no flare the
- * owner owns covers it (ownZoneCovers — the truth-wins rule blipGate's
- * callers apply). It is blipGate WITHOUT its `inRadarAnnulus ∨
- * smokedInBubble` term, deliberately: the cloud bursts AT THE OWNER'S OWN
- * POSITION (R39), inside its sight bubble, where the annulus never paints —
- * an owner gated by the full blipGate would see its ghosts only once it had
- * sailed `sight` u away from its own cloud. Everything else is byte-for-byte
+ * THE OWNER'S GATE (orchestrator ruling, Eric may veto): the fake is within
+ * the owner's effective radar range (withinRadarRange — the annulus's OUTER
+ * edge, inclusive) ∧ the beam crossed the fake's bearing this tick
+ * (sweptThisTick) ∧ the fake is at least partially lit under the
+ * height-aware radar shadow (visibilityTo > 0) ∧ no flare the owner owns
+ * covers it (ownZoneCovers — the truth-wins rule blipGate's callers apply).
+ * It is blipGate with its annulus's INNER (sight) edge and its
+ * smokedInBubble alternative dropped, deliberately: the cloud bursts AT THE
+ * OWNER'S OWN POSITION (R39), inside its sight bubble, where the annulus
+ * never paints — an owner gated by the full blipGate would see its ghosts
+ * only once it had sailed `sight` u away from its own cloud. The OUTER edge
+ * stays: a ghost is the owner's picture of a radar return, and no observer
+ * is ever painted anything beyond its radar — an owner who sails (or is
+ * redeployed) away from its world-owned cloud stops seeing the ghosts past
+ * radar range, exactly as an enemy would. Everything else is byte-for-byte
  * the enemy's gate. Not a seventh perception exception: the rects disclose
  * nothing real (their poses come off the server-private scatter stream) and
  * ride `you` only — never `events`, never another observer's frame (the
@@ -1118,6 +1132,7 @@ export function ownerChaffGhosts(ctx: FoggedSignalContext): GhostPaint[] {
   if (source === undefined || source.until <= ctx.now) return out;
   for (const fake of chaffFakes(ctx, source)) {
     if (ownZoneCovers(ctx, fake)) continue;
+    if (!withinRadarRange(me, fake)) continue;
     if (!sweptThisTick(me, bearing(me.state, fake))) continue;
     if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, fake.x, fake.y) <= 0) continue;
     out.push(paintRect(ctx, fake, fake.cls, fake.heading));

@@ -99,15 +99,25 @@ export interface OwnMineRings {
   now: number;
 }
 
-/** The kind a mine is drawn as when the wire view carries none. A frame built
- *  by this server ALWAYS stamps `c` on every mine it sends (cycle 162, Eric
- *  2026-10-01: "Everyone sees the kind"), so this is the defensive branch only
- *  — an old/foreign frame draws the naval glyph and pair rather than nothing. */
+/** The kind a mine is drawn as when the wire view carries no VALID kind — the
+ *  field absent, or a value outside the three `MineKind`s. A frame built by
+ *  this server ALWAYS stamps a real `c` on every mine it sends (cycle 162,
+ *  Eric 2026-10-01: "Everyone sees the kind"), so this is the defensive branch
+ *  only — an old/foreign/garbled frame draws the naval glyph and pair rather
+ *  than nothing (an unknown kind would find no glyph and draw an empty mine). */
 const DEFAULT_MINE_KIND: MineKind = 'naval';
 
-/** Pure: the kind a mine view declares, or the naval default (see above). */
+/** The closed set a wire `c` is checked against. */
+const MINE_KINDS: ReadonlySet<string> = new Set<MineKind>(['naval', 'captive', 'fouling']);
+
+function isMineKind(c: unknown): c is MineKind {
+  return typeof c === 'string' && MINE_KINDS.has(c);
+}
+
+/** Pure: the kind a mine view declares when it is one of the three, else the
+ *  naval default (absent OR unrecognized — see above). */
 export function mineKindOfView(m: Pick<MineView, 'c'>): MineKind {
-  return m.c ?? DEFAULT_MINE_KIND;
+  return isMineKind(m.c) ? m.c : DEFAULT_MINE_KIND;
 }
 
 /** One own-mine radius ring. STYLE, not hue, is what separates them (all three

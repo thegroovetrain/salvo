@@ -8,7 +8,9 @@
 // (the burst point and the cloud's expiry — the `shield` precedent: it rides
 // `you`, so no other observer ever receives it and the fakes stay withheld from
 // the owner). This draws one dim phosphor DASHED circle of `CONFIG.chaff.radius`
-// around that point on the fog-immune chart, its alpha falling linearly to 0 at
+// around that point on the fog-immune `chaff` chart layer (above the smoke
+// screen — Eric 2026-10-01: *"Radar returns should never be below the smoke
+// screen."*), its alpha falling linearly to 0 at
 // `until`. A re-fire simply moves it (the server replaces the source); after
 // `until` the key is absent and the ring is hidden.
 //
@@ -68,8 +70,9 @@ export function chaffDashFraction(dash: number = K.dash, gap: number = K.gap): n
 export class ChaffRing {
   private readonly g = new Graphics();
 
-  /** `layer` = a fog-immune chart layer (world coordinates): the ring marks a
-   *  point on the water that may sit outside the sight bubble. */
+  /** `layer` = the fog-immune `chaff` chart layer, above `smoke` (world
+   *  coordinates): the ring marks a point on the water that may sit outside
+   *  the sight bubble. */
   constructor(layer: Container) {
     const stroke = { width: K.width, color: CLIENT_CONFIG.colors.phosphor, alpha: 1 };
     const r = CHAFF_RING_RADIUS;

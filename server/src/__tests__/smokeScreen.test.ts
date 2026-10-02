@@ -41,7 +41,7 @@
 // perception.test.ts; the perf pin in smokePerf.test.ts.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, CONSUMABLE_SLOTS, isAfloat, isSinking, wrapPositive, type FrameMsg, type GameEvent, type WakeRibbon } from '@salvo/shared';
+import { CONFIG, CONSUMABLE_SLOTS, isAfloat, isSinking, puffRadius, wrapPositive, type FrameMsg, type GameEvent, type WakeRibbon } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { sightOf } from '../game/signals.js';
@@ -594,13 +594,26 @@ describe('SMOKE SCREEN — STANDING IN SMOKE (Eric ruling 2026-09-29, amendment 
     expect(b.inSmoke).toBe(false);
   });
 
-  it('sees INTO other smoke within 82.5 u, nothing optical beyond it, and its radar still works: (200,0) blip only; (60,0) inside another puff a CONTACT; (150,0) in the clear a blip, not a contact', () => {
+  it('sees INTO other smoke within 82.5 u, nothing optical beyond it, and its radar still works: (200,0) blip only; (60,0) inside another puff a CONTACT; (175,0) in the clear a blip, not a contact', () => {
     const { w, a } = inSmokeWorld();
-    place(w, 'far', 200, 0);
-    place(w, 'near', 60, 0);
-    place(w, 'mid', 150, 0);
-    injectPuff(w, 'other', 'z', 60, 70); // `near` (70 u off) stands in a second puff — so do a (≈92 u) and mid (≈114 u) at r123.75, which changes nothing: a is in smoke either way and mid, beyond 82.5, is radar's; far (≈157) is clear of it
+    const far = place(w, 'far', 200, 0);
+    const near = place(w, 'near', 60, 0);
+    const mid = place(w, 'mid', 175, 0);
+    // `near` (70 u off) stands in a second puff — so does a (≈92.2 u), which
+    // changes nothing: a is in smoke either way. `mid` is in the CLEAR: ≈134.6 u
+    // from this puff's centre and 255 u from a's own (-80,0) puff, both beyond
+    // the ≈123.96 u radius at the sampled tick; far is ≈156.5 / 280 u off.
+    injectPuff(w, 'other', 'z', 60, 70);
     steps(w, 1);
+    const r = puffRadius(w.now - DT, w.now); // both puffs were laid one step ago
+    const off = (s: ShipRecord, x: number, y: number): number => Math.hypot(s.state.x - x, s.state.y - y);
+    expect(off(near, 60, 70)).toBeLessThanOrEqual(r);
+    for (const s of [mid, far]) {
+      expect(off(s, 60, 70)).toBeGreaterThan(r);
+      expect(off(s, -80, 0)).toBeGreaterThan(r);
+      expect(off(s, 0, 0)).toBeGreaterThan(82.5); // beyond the in-smoke bubble: radar's
+    }
+    expect(off(mid, 60, 70)).toBeCloseTo(134.6, 1);
     expect(a.inSmoke).toBe(true);
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
@@ -613,12 +626,23 @@ describe('SMOKE SCREEN — STANDING IN SMOKE (Eric ruling 2026-09-29, amendment 
     expect(eventsOf(dark, 'blip')).toHaveLength(0);
   });
 
-  it('a hull at 100 u in the CLEAR is not a contact for an in-smoke observer (82.5 is the whole optical world); at 60 u behind a THIRD puff on the segment it still is', () => {
+  it('a hull at 100 u in the CLEAR is not a contact for an in-smoke observer (82.5 is the whole optical world); at 80 u behind a THIRD puff on the segment it still is', () => {
     const { w, a } = inSmokeWorld();
-    place(w, 'b', 100, 0);
-    place(w, 'c', 60, 0);
-    injectPuff(w, 'between', 'z', 30, 80); // crosses the a→c segment (80 u off it ≤ 123.75) and, at r123.75, contains both centres (≈85.4 u from each) — a third puff on the segment either way
+    const b = place(w, 'b', 100, 0);
+    const c = place(w, 'c', 80, 0);
+    // The third puff at (40,120) crosses the a→c segment (120 u off its
+    // midpoint, inside the ≈123.96 u radius at the sampled tick) yet contains
+    // NEITHER centre: ≈126.5 u from a and from c; b is ≈134.2 u off it.
+    injectPuff(w, 'between', 'z', 40, 120);
     steps(w, 1);
+    const r = puffRadius(w.now - DT, w.now);
+    const off = (s: ShipRecord): number => Math.hypot(s.state.x - 40, s.state.y - 120);
+    expect(120).toBeLessThan(r); // the disc reaches the segment's midpoint (40,0)
+    for (const s of [a, c, b]) expect(off(s)).toBeGreaterThan(r);
+    expect(off(a)).toBeCloseTo(126.5, 1);
+    expect(off(c)).toBeCloseTo(126.5, 1);
+    expect(Math.hypot(c.state.x, c.state.y)).toBeLessThanOrEqual(82.5); // c inside a's in-smoke bubble
+    expect(Math.hypot(b.state.x, b.state.y)).toBeGreaterThan(82.5); // b beyond it
     expect(a.inSmoke).toBe(true);
     expect(contactIds(buildFrame(w, 'a'))).toEqual(['c']);
   });

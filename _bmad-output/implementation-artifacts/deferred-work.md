@@ -2796,8 +2796,8 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: `client/src/config.ts` (`COLORS.ghost*`, `mineRings`, `chaffRing`, `fire`); epic-8 amendments 216, 217, 219, 222(a).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
-  status: OPEN — revisit if it reads wrong on staging
-  summary: THE CHAFF OWNER'S GHOSTS DRAW UNDER SMOKE-SCREEN DISCS. They sit on the `litZone` chart layer beside the chaff ring (the `blip` layer's in-bubble dim mask would have drawn them at 20 % of half alpha), so a smoke-screen disc over the cloud covers them. The ghost gate also omits the sight annulus (orchestrator ruling, flagged for Eric's veto).
+  status: RESOLVED 2026-10-01 at the cycle-162 review gate — Eric: "Radar returns should never be below the smoke screen." The ghosts and the chaff ring moved to a new `chaff` chart layer above `smoke` (epic-8 amendment 224(b)); the annulus-free gate stands, now bounded by the owner's radar range (224(e)).
+  summary: THE CHAFF OWNER'S GHOSTS DREW UNDER SMOKE-SCREEN DISCS (first build). They sit on the `litZone` chart layer beside the chaff ring (the `blip` layer's in-bubble dim mask would have drawn them at 20 % of half alpha), so a smoke-screen disc over the cloud covers them. The ghost gate also omits the sight annulus (orchestrator ruling, flagged for Eric's veto).
   evidence: `client/src/render/chaffGhosts.ts` header; epic-8 amendments 217, 222(b)(c).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`

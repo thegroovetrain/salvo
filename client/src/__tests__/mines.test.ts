@@ -286,6 +286,10 @@ describe('mineKindOfView — the wire kind, for every observer (cycle 162)', () 
   it('falls back to naval when the field is absent (an old/foreign frame)', () => {
     expect(mineKindOfView(mine('m', false, 'foe'))).toBe('naval');
   });
+
+  it('falls back to naval when the field is not one of the three kinds', () => {
+    expect(mineKindOfView({ c: 'bogus' as never })).toBe('naval');
+  });
 });
 
 describe("Mines — the marker is the kind's glyph (cycle 162)", () => {
@@ -303,7 +307,7 @@ describe("Mines — the marker is the kind's glyph (cycle 162)", () => {
     return actions(layer);
   }
 
-  it('an enemy mine keeps the kind off its wire view; a kind-less one is naval', () => {
+  it('an enemy mine\'s kind is READ off its wire view; a kind-less (legacy) view falls back to naval', () => {
     const mines = new Mines(new Container(), new Container());
     mines.sync([mine('c', false, 'foe', 'captive'), mine('x', false, 'foe')], () => 0x00ff00);
     expect(mines.kindAt('c')).toBe('captive');
@@ -317,6 +321,12 @@ describe("Mines — the marker is the kind's glyph (cycle 162)", () => {
     expect(new Set(drawn).size).toBe(3);
     // The kind-less defensive branch draws exactly the naval glyph.
     expect(marker().join(',')).toBe(drawn[0]);
+  });
+
+  it('a `c` that is not one of the three kinds draws the NAVAL marker, never nothing (the defensive branch type-guards the value)', () => {
+    const bogus = marker('bogus' as never);
+    expect(bogus.length).toBeGreaterThan(0);
+    expect(bogus.join(',')).toBe(marker('naval').join(','));
   });
 
   it('the naval marker is the spiked sphere: one circle and eight spikes', () => {
