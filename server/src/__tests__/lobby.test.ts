@@ -215,12 +215,12 @@ describe('LobbyPolicy — host (ruling 6)', () => {
     p.onJoin('b', 'B');
     p.onBotFill('b', true, T0);
     expect(p.botFill).toBe(false);
-    expect(p.forceStart('b')).toBe(false);
-    expect(p.forceStart('a')).toBe(true);
+    expect(p.forceStart('b', T0)).toBe(false);
+    expect(p.forceStart('a', T0)).toBe(true);
     const solo = lobby(1);
-    expect(solo.forceStart('a')).toBe(false); // 2 CAPTAINS OR BOT-FILL REQUIRED
+    expect(solo.forceStart('a', T0)).toBe(false); // 2 CAPTAINS OR BOT-FILL REQUIRED
     solo.onBotFill('a', true, T0);
-    expect(solo.forceStart('a')).toBe(true);
+    expect(solo.forceStart('a', T0)).toBe(true);
   });
 
   it('inJoinOrder is the seat order', () => {
@@ -228,6 +228,152 @@ describe('LobbyPolicy — host (ruling 6)', () => {
     p.onLeave('a', T0);
     p.onJoin('a', 'BACK');
     expect(p.inJoinOrder().map((c) => c.id)).toEqual(['b', 'c', 'a']);
+  });
+});
+
+// --- seating: lowest free slot, names never move (Eric 2026-10-02) ---------------
+
+describe('LobbyPolicy — slots (lowest free, never moved)', () => {
+  const slots = (p: LobbyPolicy): Record<string, number> =>
+    Object.fromEntries([...p.captains.values()].map((c) => [c.id, c.slot]));
+
+  it('join A, B, C -> slots 0, 1, 2', () => {
+    expect(slots(lobby(3))).toEqual({ a: 0, b: 1, c: 2 });
+  });
+
+  it("B leaves, D joins -> D takes B's empty slot 1; A and C never move", () => {
+    const p = lobby(3);
+    p.onLeave('b', T0);
+    expect(slots(p)).toEqual({ a: 0, c: 2 });
+    p.onJoin('d', 'D');
+    expect(slots(p)).toEqual({ a: 0, c: 2, d: 1 });
+  });
+
+  it('A leaves, then E and F join -> E 0, F 3 (earliest empty first)', () => {
+    const p = lobby(3);
+    p.onLeave('a', T0);
+    p.onJoin('e', 'E');
+    p.onJoin('f', 'F');
+    expect(slots(p)).toEqual({ b: 1, c: 2, e: 0, f: 3 });
+    expect(p.inSlotOrder().map((c) => c.id)).toEqual(['e', 'b', 'c', 'f']);
+  });
+
+  it('a full lobby fills slots 0..cap-1 exactly once', () => {
+    const p = new LobbyPolicy();
+    for (let i = 0; i < CONFIG.map.playerCap; i += 1) p.onJoin(`p${i}`, `P${i}`);
+    expect([...p.captains.values()].map((c) => c.slot)).toEqual([...Array(CONFIG.map.playerCap).keys()]);
+  });
+
+  it('host succession follows joinSeq, not slot', () => {
+    const p = lobby(3); // a0 b1 c2
+    p.onLeave('b', T0);
+    p.onJoin('d', 'D'); // d takes slot 1 but joined last
+    p.onLeave('a', T0); // host: c (joinSeq 2) beats d (slot 1, joinSeq 3)
+    expect(p.hostId).toBe('c');
+    expect(p.inJoinOrder().map((c) => c.id)).toEqual(['c', 'd']);
+  });
+});
+
+// --- START NOW arms a FORCED countdown (Eric 2026-10-02) -------------------------
+
+describe('LobbyPolicy — START NOW arms a forced countdown', () => {
+  it('forced arms: START NOW with nobody ready arms now + 10 s and marks it forced', () => {
+    const p = lobby(2);
+    expect(p.forceStart('a', T0)).toBe(true);
+    expect(p.countdownEndT).toBe(T0 + COUNT);
+    expect(p.forced).toBe(true);
+    expect(p.evaluate(T0 + COUNT - 1)).toBe('counting');
+    expect(p.evaluate(T0 + COUNT)).toBe('form');
+  });
+
+  it('forced survives un-ready (regardless of ready status)', () => {
+    const p = lobby(2);
+    readyAll(p);
+    p.forceStart('a', T0 + 1000);
+    p.onReady('b', false, T0 + 2000);
+    expect(p.countdownEndT).toBe(T0 + COUNT);
+    expect(p.forced).toBe(true);
+    expect(p.evaluate(T0 + COUNT)).toBe('form');
+  });
+
+  it('forced survives a late join — the newcomer rides along', () => {
+    const p = lobby(2);
+    p.forceStart('a', T0);
+    p.onJoin('z', 'LATE');
+    expect(p.countdownEndT).toBe(T0 + COUNT);
+    expect(p.forced).toBe(true);
+    expect(p.evaluate(T0 + COUNT)).toBe('form');
+    expect(p.inJoinOrder().map((c) => c.id)).toEqual(['a', 'b', 'z']);
+  });
+
+  it('forced survives a leave that keeps the lobby eligible (same end time)', () => {
+    const p = lobby(3);
+    p.forceStart('a', T0);
+    p.onLeave('c', T0 + 4000);
+    expect(p.countdownEndT).toBe(T0 + COUNT);
+    expect(p.forced).toBe(true);
+  });
+
+  it('forced is cancelled by lost eligibility: 2 -> 1 with bot-fill off', () => {
+    const p = lobby(2);
+    p.forceStart('a', T0);
+    p.onLeave('b', T0 + 3000);
+    expect(p.countdownEndT).toBe(0);
+    expect(p.forced).toBe(false);
+    expect(p.evaluate(T0 + COUNT)).toBe('idle');
+  });
+
+  it('forced is cancelled by lost eligibility: bot-fill turned off with 1 aboard', () => {
+    const p = lobby(1);
+    p.onBotFill('a', true, T0);
+    expect(p.forceStart('a', T0)).toBe(true);
+    p.onBotFill('a', false, T0 + 2000);
+    expect(p.countdownEndT).toBe(0);
+    expect(p.forced).toBe(false);
+  });
+
+  it('all-ready -> START NOW converts the running count to forced (same end time)', () => {
+    const p = lobby(2);
+    readyAll(p, T0);
+    expect(p.forced).toBe(false);
+    expect(p.forceStart('a', T0 + 4000)).toBe(true);
+    expect(p.countdownEndT).toBe(T0 + COUNT);
+    expect(p.forced).toBe(true);
+    p.onJoin('z', 'LATE'); // now immune
+    expect(p.countdownEndT).toBe(T0 + COUNT);
+  });
+
+  it('START NOW during a running forced count is a no-op', () => {
+    const p = lobby(2);
+    p.forceStart('a', T0);
+    expect(p.forceStart('a', T0 + 5000)).toBe(false);
+    expect(p.countdownEndT).toBe(T0 + COUNT);
+    expect(p.forced).toBe(true);
+  });
+
+  it('non-host START NOW is dropped', () => {
+    const p = lobby(2);
+    expect(p.forceStart('b', T0)).toBe(false);
+    expect(p.countdownEndT).toBe(0);
+    expect(p.forced).toBe(false);
+  });
+
+  it('ineligible START NOW is dropped (lone host, bot-fill off)', () => {
+    const p = lobby(1);
+    expect(p.forceStart('a', T0)).toBe(false);
+    expect(p.countdownEndT).toBe(0);
+    expect(p.forced).toBe(false);
+  });
+
+  it('a cleared forced count goes back to the all-ready rules (forced resets)', () => {
+    const p = lobby(2);
+    p.forceStart('a', T0);
+    p.onLeave('b', T0 + 1000); // ineligible: cleared
+    p.onJoin('c', 'C');
+    readyAll(p, T0 + 2000);
+    expect(p.forced).toBe(false);
+    p.onReady('c', false, T0 + 3000); // an all-ready count cancels on un-ready
+    expect(p.countdownEndT).toBe(0);
   });
 });
 
@@ -418,6 +564,9 @@ async function lobbyRoom(): Promise<{
   tick: () => void;
   join: (id: string, options?: Record<string, unknown>) => FakeClient;
   timeouts: Array<{ fn: () => void; ms: number }>;
+  /** The host's START NOW, then the clock run past the forced countdown and
+   *  the tick that forms (Eric 2026-10-02: START NOW arms the countdown). */
+  startNow: (c: FakeClient) => Promise<void>;
 }> {
   const handlers = new Map<string, (c: FakeClient, m: unknown) => void>();
   const ticks: Array<() => void> = [];
@@ -448,6 +597,13 @@ async function lobbyRoom(): Promise<{
       return c;
     },
     timeouts,
+    startNow: async (c) => {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(T0);
+      handlers.get(MSG.lobbyStart)?.(c, undefined);
+      now.mockReturnValue(T0 + COUNT);
+      for (const fn of ticks) fn();
+      await settle();
+    },
   };
 }
 
@@ -507,6 +663,18 @@ describe('LobbyRoom — the adapter', () => {
     expect(r.state.players.get('b')?.ready).toBe(false);
   });
 
+  it("mirrors each captain's slot; a vacated slot is refilled by the next joiner", async () => {
+    const { r, join } = await lobbyRoom();
+    join('a');
+    const b = join('b');
+    join('c');
+    r.clients.splice(1, 1);
+    r.onLeave(b);
+    join('d');
+    const seen = Object.fromEntries([...r.state.players.values()].map((p) => [p.id, p.slot]));
+    expect(seen).toEqual({ a: 0, c: 2, d: 1 });
+  });
+
   it('non-host control messages are silently dropped', async () => {
     const { r, send, join } = await lobbyRoom();
     join('a');
@@ -516,6 +684,8 @@ describe('LobbyRoom — the adapter', () => {
     send(b, MSG.lobbyStart);
     expect(r.state.botFill).toBe(false);
     expect(r.state.seedText).toBe('');
+    expect(r.state.countdownEndT).toBe(0);
+    expect(r.state.forced).toBe(false);
     expect(created).toEqual([]);
   });
 
@@ -542,7 +712,7 @@ describe('LobbyRoom — the adapter', () => {
   });
 
   it('S1: seed spam never probes the map; the form probes ONCE, with the final text', async () => {
-    const { r, send, tick, join } = await lobbyRoom();
+    const { r, send, tick, join, startNow } = await lobbyRoom();
     const gen = vi.fn(() => ({}));
     r.generateMapForSeed = gen;
     const a = join('a');
@@ -553,8 +723,7 @@ describe('LobbyRoom — the adapter', () => {
     }
     expect(gen).not.toHaveBeenCalled();
     expect(r.state.seedResolved).toBe('');
-    send(a, MSG.lobbyStart);
-    await settle();
+    await startNow(a);
     expect(gen).toHaveBeenCalledTimes(1);
     expect(gen).toHaveBeenCalledWith(hashSeedText('bananas'));
     expect(r.state.seedResolved).toBe('bananas');
@@ -562,7 +731,7 @@ describe('LobbyRoom — the adapter', () => {
   });
 
   it('S1: a MapGenerationError at form time takes the suffix retry (ruling 3)', async () => {
-    const { r, send, join } = await lobbyRoom();
+    const { r, send, join, startNow } = await lobbyRoom();
     r.generateMapForSeed = vi.fn((seed: number) => {
       if (seed === hashSeedText('bananas')) throw new MapGenerationError(seed, CONFIG.map.playerCap, 1);
       return {};
@@ -570,22 +739,20 @@ describe('LobbyRoom — the adapter', () => {
     const a = join('a');
     join('b');
     send(a, MSG.lobbySeed, { text: 'bananas' });
-    send(a, MSG.lobbyStart);
-    await settle();
+    await startNow(a);
     expect(r.state.seedResolved).toBe('bananas0');
     expect(created[0].options.mapSeed).toBe(hashSeedText('bananas0'));
   });
 
   it('S1: a probe that throws anything else still forms the arena, with NO seed (random map)', async () => {
-    const { r, send, join } = await lobbyRoom();
+    const { r, send, join, startNow } = await lobbyRoom();
     r.generateMapForSeed = vi.fn(() => {
       throw new Error('unexpected');
     });
     const a = join('a');
     join('b');
     send(a, MSG.lobbySeed, { text: 'bananas' });
-    send(a, MSG.lobbyStart);
-    await settle();
+    await startNow(a);
     expect(created).toHaveLength(1);
     expect(created[0].options).not.toHaveProperty('mapSeed');
     expect(r.state.seedResolved).toBe('');
@@ -603,11 +770,10 @@ describe('LobbyRoom — the adapter', () => {
   });
 
   it('S2: a captain whose join lands AFTER the form is told MATCH STARTED and closed', async () => {
-    const { r, send, join } = await lobbyRoom();
+    const { r, send, join, startNow } = await lobbyRoom();
     const a = join('a');
     join('b');
-    send(a, MSG.lobbyStart);
-    await settle();
+    await startNow(a);
     const late = join('c');
     expect(LOBBY_STARTED_ERROR).toBe('MATCH STARTED');
     expect(late.error).toHaveBeenCalledWith(ErrorCode.MATCHMAKE_UNHANDLED, 'MATCH STARTED');
@@ -625,12 +791,11 @@ describe('LobbyRoom — the adapter', () => {
   });
 
   it('S4: a blank callsign is resolved at the lobby door and carried on the seat, so the arena shows the same name', async () => {
-    const { r, send, join } = await lobbyRoom();
+    const { r, send, join, startNow } = await lobbyRoom();
     const a = join('a', { name: '   ' });
     join('b', { name: 'BRAVO' });
     expect(r.state.players.get('a')?.name).toBe('CAPTAIN-1');
-    send(a, MSG.lobbyStart);
-    await settle();
+    await startNow(a);
     const seats = matchMaker.reserveMultipleSeatsFor.mock.calls[0][1] as Array<{ options: Record<string, unknown> }>;
     expect(seats[0].options.name).toBe('CAPTAIN-1');
     expect(seats[1].options.name).toBe('BRAVO');
@@ -639,15 +804,14 @@ describe('LobbyRoom — the adapter', () => {
   });
 
   it('a lone host with bot-fill + seed forces a start: the arena bag is trusted and complete', async () => {
-    const { r, send, tick, join, timeouts } = await lobbyRoom();
+    const { r, send, tick, join, timeouts, startNow } = await lobbyRoom();
     const a = join('a', { name: 'ERIC', gun: 'flak' });
     send(a, MSG.lobbyStart); // not eligible yet: dropped
     expect(created).toEqual([]);
     send(a, MSG.lobbyBotFill, { on: true });
     send(a, MSG.lobbySeed, { text: 'bananas' });
     tick();
-    send(a, MSG.lobbyStart);
-    await settle();
+    await startNow(a);
     const resolvedText = r.state.seedResolved;
     expect(resolvedText).toMatch(/^bananas\d*$/);
     expect(created).toHaveLength(1);
@@ -673,13 +837,40 @@ describe('LobbyRoom — the adapter', () => {
   });
 
   it('a blank seed sends no mapSeed (the arena rolls a random map)', async () => {
-    const { send, join } = await lobbyRoom();
+    const { send, join, startNow } = await lobbyRoom();
     const a = join('a');
     join('b');
-    send(a, MSG.lobbyStart);
-    await settle();
+    await startNow(a);
     expect(created[0].options).not.toHaveProperty('mapSeed');
     expect(created[0].options).toMatchObject({ expectedCaptains: 2, botFill: false, mode: 'private' });
+  });
+
+  it('START NOW arms a forced countdown in the schema and forms only when it elapses', async () => {
+    const { r, send, tick, join } = await lobbyRoom();
+    const a = join('a');
+    const b = join('b');
+    const now = vi.spyOn(Date, 'now').mockReturnValue(T0);
+    send(a, MSG.lobbyStart);
+    await settle();
+    expect(created).toHaveLength(0);
+    expect(r.state.countdownEndT).toBe(T0 + COUNT);
+    expect(r.state.forced).toBe(true);
+    send(b, MSG.lobbyReady, { ready: true });
+    send(b, MSG.lobbyReady, { ready: false }); // regardless of ready status
+    join('c'); // a late joiner rides along
+    send(a, MSG.lobbyStart); // a second press is a no-op
+    expect(r.state.countdownEndT).toBe(T0 + COUNT);
+    now.mockReturnValue(T0 + COUNT - 1);
+    tick();
+    await settle();
+    expect(created).toHaveLength(0);
+    now.mockReturnValue(T0 + COUNT);
+    tick();
+    await settle();
+    expect(created).toHaveLength(1);
+    expect(created[0].options).toMatchObject({ expectedCaptains: 3 });
+    expect(r.state.forced).toBe(false);
+    expect(r.state.countdownEndT).toBe(0);
   });
 
   it('the all-ready countdown fires the form on the tick that crosses it', async () => {
@@ -703,11 +894,10 @@ describe('LobbyRoom — the adapter', () => {
 
   it('an arena that cannot be created fails every seat and does not linger', async () => {
     mm.createRoom.mockRejectedValue(new Error('boom'));
-    const { r, send, join } = await lobbyRoom();
+    const { r, send, join, startNow } = await lobbyRoom();
     const a = join('a');
     join('b');
-    send(a, MSG.lobbyStart);
-    await settle();
+    await startNow(a);
     expect(a.error).toHaveBeenCalled();
     expect(a.leave).toHaveBeenCalled();
     expect(r.autoDispose).toBe(true);
@@ -716,11 +906,10 @@ describe('LobbyRoom — the adapter', () => {
   });
 
   it('the ticket never reaches a client', async () => {
-    const { send, join } = await lobbyRoom();
+    const { send, join, startNow } = await lobbyRoom();
     const a = join('a');
     join('b');
-    send(a, MSG.lobbyStart);
-    await settle();
+    await startNow(a);
     for (const call of a.send.mock.calls) expect(JSON.stringify(call)).not.toContain(lobbyTicket());
   });
 });

@@ -10,6 +10,7 @@
 //      1. the host creates a lobby and reads its 6-letter code off the schema;
 //         a bogus code resolves 404 NO SUCH LOBBY;
 //      2. a guest resolves the code typed in LOWERCASE -> roomId, joinById;
+//         both clients see the host in slot 0 and the guest in slot 1;
 //      3. both READY -> countdownEndT > 0; the guest UNREADY -> 0; READY again;
 //      4. the countdown fires: both receive MSG.seat; the old code now answers
 //         409 MATCH STARTED (the lobby lingers);
@@ -18,7 +19,10 @@
 //         game in NEITHER operator bucket — the observable trace of
 //         mode 'private' (the welcome carries no mode).
 //   B. LONE HOST, BOT FILL, SEED, START NOW — bot fill on, seed 'bananas',
-//      'lg' -> a seat -> an arena with 20 roster rows (1 + 19 bots) whose
+//      'lg' ARMS the countdown (countdownEndT > 0, forced === true — Eric
+//      2026-10-02: START NOW triggers the countdown, never an instant start;
+//      no seat before it elapses) -> a seat ~10 s later -> an arena with 20
+//      roster rows (1 + 19 bots) whose
 //      mapSeed is hashSeedText(the lobby's seedResolved) and whose resolved
 //      text is 'bananas' or 'bananas' + a retry suffix — resolved only at
 //      form time (seedResolved is still '' before START NOW).
@@ -177,7 +181,15 @@ async function proveCreateAndJoin(a) {
   const lobby = await client.joinById(ok.body.roomId, joinOptions('BRAVO'));
   const b = track('BRAVO', client, lobby);
   await waitFor(() => a.lobby.state.players.size === 2 && b.lobby.state?.players?.size === 2, 5000, 'both rosters show 2');
-  return { b, line: `code ${code}; bogus -> 404 NO SUCH LOBBY; '${code.toLowerCase()}' -> roomId ${ok.body.roomId}; both rosters 2/${CAP}` };
+  // Seating (Eric 2026-10-02): the server assigns the lowest free slot, so
+  // BOTH clients — including the joiner, who got the full state at once —
+  // see the host in slot 0 and the joiner in slot 1.
+  for (const view of [a, b]) {
+    const host = view.lobby.state.players.get(a.lobby.sessionId);
+    const guest = view.lobby.state.players.get(b.lobby.sessionId);
+    assert(host?.slot === 0 && guest?.slot === 1, `${view.name} sees slots host=${host?.slot} joiner=${guest?.slot} (want 0/1)`);
+  }
+  return { b, line: `code ${code}; bogus -> 404 NO SUCH LOBBY; '${code.toLowerCase()}' -> roomId ${ok.body.roomId}; both rosters 2/${CAP}; host slot 0 + joiner slot 1 on both clients` };
 }
 
 async function proveReadyCountdown(a, b) {
@@ -232,8 +244,17 @@ async function proveLoneHostBotFill() {
     await waitFor(() => h.lobby.state.botFill && h.lobby.state.seedText === 'bananas', 5000, 'seed text shown');
     // The seed is resolved ONCE, at form time (never per keystroke/tick).
     assert(h.lobby.state.seedResolved === '', `seed resolved before the form ('${h.lobby.state.seedResolved}')`);
+    const pressed = Date.now();
     h.lobby.send(MSG.lobbyStart);
-    await waitFor(() => h.seat !== null && h.lobby.state.seedResolved !== '', 15000, 'seat + seed resolved at form');
+    await waitFor(() => h.lobby.state.countdownEndT > 0, 5000, 'START NOW arms the countdown');
+    assert(h.lobby.state.forced === true, `START NOW armed a countdown that is not forced (forced=${h.lobby.state.forced})`);
+    const armed = h.lobby.state.countdownEndT - pressed;
+    assert(armed > CONFIG.lobby.countdownMs - 1000 && armed <= CONFIG.lobby.countdownMs + 1000, `START NOW countdown ends ${armed}ms out`);
+    await sleep(1500);
+    assert(h.seat === null, 'a seat arrived before the START NOW countdown elapsed (instant teleport)');
+    await waitFor(() => h.seat !== null && h.lobby.state.seedResolved !== '', CONFIG.lobby.countdownMs + 15000, 'seat + seed resolved at form');
+    const seatedAfter = Date.now() - pressed;
+    assert(seatedAfter >= CONFIG.lobby.countdownMs - 1000, `seat arrived ${seatedAfter}ms after START NOW (< countdown)`);
     const resolved = h.lobby.state.seedResolved;
     assert(/^bananas\d*$/.test(resolved), `seedResolved '${resolved}' is not bananas[+suffix]`);
     await board(h);
@@ -242,7 +263,7 @@ async function proveLoneHostBotFill() {
     const want = hashSeedText(resolved);
     assert(h.arena.state.mapSeed === want, `arena mapSeed ${h.arena.state.mapSeed} != hashSeedText('${resolved}') ${want}`);
     assert(h.welcome.mapSeed === want, `welcome mapSeed ${h.welcome.mapSeed} != ${want}`);
-    return `lone host: START NOW dropped without bot fill; bot fill + seed 'bananas' (resolved '${resolved}') + START NOW -> ${CAP} roster rows (1 + ${CAP - 1} bots), mapSeed ${want} = hashSeedText('${resolved}')`;
+    return `lone host: START NOW dropped without bot fill; bot fill + seed 'bananas' + START NOW armed a forced ~${Math.round(armed / 1000)}s countdown, seat after ${seatedAfter}ms (resolved '${resolved}') -> ${CAP} roster rows (1 + ${CAP - 1} bots), mapSeed ${want} = hashSeedText('${resolved}')`;
   } finally {
     await leaveQuietly(h.arena);
     await leaveQuietly(h.lobby);
@@ -271,7 +292,7 @@ async function main() {
     });
     await step('A2 ready / unready / countdown -> seats', 40000, () => proveReadyCountdown(all[0], all[1]));
     await step('A3 MATCH STARTED + one private arena', 40000, () => proveStartedAndArena(all[0], all[1], code));
-    await step('B lone host bot fill + seed + START NOW', 60000, () => proveLoneHostBotFill());
+    await step('B lone host bot fill + seed + START NOW countdown', 75000, () => proveLoneHostBotFill());
     console.log('LOBBY SMOKE OK');
   } catch (err) {
     failed = err;

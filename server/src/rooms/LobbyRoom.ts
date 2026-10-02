@@ -174,10 +174,11 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
     const name = arenaOptions.name ?? `CAPTAIN-${this.joinCounter}`;
     arenaOptions.name = name;
     this.seats.set(client.sessionId, { client, options: arenaOptions, gun });
-    this.policy.onJoin(client.sessionId, name);
+    const captain = this.policy.onJoin(client.sessionId, name);
     const row = new LobbyPlayer();
     row.id = client.sessionId;
     row.name = name;
+    row.slot = captain.slot;
     this.state.players.set(client.sessionId, row);
     this.log.info('lobby.join', { sessionId: client.sessionId, aboard: this.seats.size });
     this.armJoiningDeadline(client);
@@ -241,10 +242,11 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
     this.sync();
   }
 
-  /** `lg` — host only, and only while a start is legal (ruling 2). */
+  /** `lg` — host only, and only while a start is legal (ruling 2). ARMS the
+   *  forced countdown (Eric 2026-10-02); the tick forms when it elapses. */
   private onStart(client: Client): void {
-    if (!this.isHostControl(client) || !this.policy.forceStart(client.sessionId)) return;
-    this.startForm();
+    if (!this.isHostControl(client) || !this.policy.forceStart(client.sessionId, Date.now())) return;
+    this.sync();
   }
 
   /** Host-only control messages from anyone else are silently dropped. */
@@ -293,14 +295,18 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
     }
   }
 
-  /** Mirror the policy into the schema (host, bot-fill, countdown, READY). */
+  /** Mirror the policy into the schema (host, bot-fill, countdown, READY,
+   *  slot — a slot is fixed at join, so its mirror is set there too). */
   private sync(): void {
     this.state.hostId = this.policy.hostId;
     this.state.botFill = this.policy.botFill;
     this.state.countdownEndT = this.policy.countdownEndT;
+    this.state.forced = this.policy.forced;
     for (const captain of this.policy.captains.values()) {
       const row = this.state.players.get(captain.id);
-      if (row && row.ready !== captain.ready) row.ready = captain.ready;
+      if (!row) continue;
+      if (row.ready !== captain.ready) row.ready = captain.ready;
+      if (row.slot !== captain.slot) row.slot = captain.slot;
     }
   }
 
@@ -318,6 +324,7 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
     this.resolveSeed();
     this.state.phase = 'started';
     this.state.countdownEndT = 0;
+    this.state.forced = false;
     this.publishListing();
     void this.lock();
     const seated = this.policy

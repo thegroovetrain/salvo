@@ -15,18 +15,15 @@
 // pushed through `hooks.onLobby` on every state change; the UI (ui/lobbyModal.ts)
 // paints views and calls the senders below, and never touches the room.
 //
-// THE STARTS IN CLOCK IS ANCHORED AT ARRIVAL, not at `countdownEndT`. The lobby
-// schema carries the countdown as an absolute SERVER-clock instant, and before
-// the arena welcome this client has no server clock (the frame-driven
-// `ServerClock` lives in the arena). A raw `countdownEndT - Date.now()` would be
-// as wrong as the player's machine clock is — minutes, on a badly-set laptop. So
-// the moment a NEW `countdownEndT` arrives we anchor `Date.now() +
-// CONFIG.lobby.countdownMs`: the server arms the count as `now + countdownMs`
-// and the patch lands within one patch interval, so the local deadline is that
-// latency late and never skewed. Every observer sees the arm as it happens —
-// a late join CANCELS a running count (ruling 10), so nobody ever first meets a
-// countdown already in flight. The server owns the truth either way; this is a
-// 10 s cosmetic readout.
+// THE STARTS IN CLOCK IS ANCHORED AT ARRIVAL, CLAMPED. The lobby schema carries
+// the countdown as an absolute server instant (epoch ms), and before the arena
+// welcome this client has no server clock (the frame-driven `ServerClock` lives
+// in the arena). The moment a NEW `countdownEndT` arrives we anchor `now +
+// clamp(countdownEndT - now, 0, CONFIG.lobby.countdownMs)`: on a sane clock that
+// is the true remainder — a late joiner who arrives 9 s into a forced count
+// (which a join no longer cancels) sees 0:01, not 0:10 — and a badly-set
+// laptop's skew can never stretch the readout past the full 10 s or below 0:00.
+// The server owns the truth either way; this is a 10 s cosmetic readout.
 
 import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import {
@@ -62,6 +59,10 @@ export interface LobbyCaptain {
   id: string;
   name: string;
   ready: boolean;
+  /** The captain's STICKY server slot, 0..19 (Eric R2): slot i is row
+   *  floor(i/2)+1, column i%2+1; a leaver's slot stays empty until the next
+   *  joiner takes the first empty one — names never move once seated. */
+  slot: number;
 }
 
 /** The plain, UI-facing fold of the lobby schema. */
@@ -75,7 +76,14 @@ export interface LobbyView {
   countdownEndT: number;
   /** The same deadline in THIS client's epoch (see the header), or null. */
   deadlineAt: number | null;
-  /** In join order — the MapSchema's insertion order. */
+  /** The running countdown was armed by the host's START NOW (ready changes
+   *  do not stop it). No copy of its own — the modal only reads it. */
+  forced: boolean;
+  /**
+   * In the MapSchema's insertion order (join order). The lobby modal places
+   * each by its `slot`, never by its index here; a state without slots (an
+   * older server) falls back to this order.
+   */
   players: LobbyCaptain[];
   phase: LobbyPhase;
 }
@@ -170,7 +178,8 @@ export function makeDeadlineAnchor(now: () => number = Date.now): (endT: number)
       anchored = null;
     } else if (endT !== lastEnd) {
       lastEnd = endT;
-      anchored = now() + CONFIG.lobby.countdownMs;
+      const t = now();
+      anchored = t + Math.min(Math.max(endT - t, 0), CONFIG.lobby.countdownMs);
     }
     return anchored;
   };
@@ -183,16 +192,17 @@ export interface LobbyStateLike {
   seedText?: string;
   botFill?: boolean;
   countdownEndT?: number;
+  forced?: boolean;
   phase?: string;
   players?: {
-    forEach(fn: (p: { id?: string; name?: string; ready?: boolean }, key: string) => void): void;
+    forEach(fn: (p: { id?: string; name?: string; ready?: boolean; slot?: number }, key: string) => void): void;
   };
 }
 
 function rosterOf(state: LobbyStateLike): LobbyCaptain[] {
   const out: LobbyCaptain[] = [];
   state.players?.forEach((p, key) => {
-    out.push({ id: p.id ?? key, name: p.name ?? '', ready: p.ready === true });
+    out.push({ id: p.id ?? key, name: p.name ?? '', ready: p.ready === true, slot: p.slot ?? out.length });
   });
   return out;
 }
@@ -210,6 +220,7 @@ export function lobbyView(
     botFill: state.botFill === true,
     countdownEndT: state.countdownEndT ?? 0,
     deadlineAt,
+    forced: state.forced === true,
     players: rosterOf(state),
     phase: state.phase === 'started' ? 'started' : 'open',
   };

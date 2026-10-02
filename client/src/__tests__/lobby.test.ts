@@ -192,7 +192,7 @@ describe('pure helpers', () => {
     expect(joinByIdRefusal(new Error('socket'))).toBeNull();
   });
 
-  it('anchors STARTS IN at arrival — immune to the client clock', () => {
+  it('anchors STARTS IN at arrival — a skewed clock is clamped to the full 10 s', () => {
     let now = 5_000;
     const anchor = makeDeadlineAnchor(() => now);
     expect(anchor(0)).toBeNull();
@@ -202,6 +202,21 @@ describe('pure helpers', () => {
     expect(anchor(99_999_999)).toBe(5_000 + CONFIG.lobby.countdownMs); // same arm, same deadline
     expect(anchor(0)).toBeNull(); // cancelled
     expect(anchor(99_999_999)).toBe(8_000 + CONFIG.lobby.countdownMs); // re-armed fresh
+  });
+
+  // Review (Codex): a late joiner 9 s into a forced countdown saw 0:10.
+  it('a late joiner sees the true remainder, clamped to [0, countdownMs]', () => {
+    const now = 50_000;
+    expect(makeDeadlineAnchor(() => now)(now + 1_000)).toBe(now + 1_000); // ~1 s out, not 10
+    expect(makeDeadlineAnchor(() => now)(now + 10 * CONFIG.lobby.countdownMs)).toBe(now + CONFIG.lobby.countdownMs);
+    expect(makeDeadlineAnchor(() => now)(now - 3_000)).toBe(now); // past: 0:00 until the patch clears it
+  });
+
+  it('on the real clock, endT = Date.now() + 1000 anchors ~1 s out', () => {
+    const anchor = makeDeadlineAnchor();
+    const at = anchor(Date.now() + 1_000) as number;
+    expect(at - Date.now()).toBeLessThanOrEqual(1_000);
+    expect(at - Date.now()).toBeGreaterThan(500);
   });
 
   it('folds the schema into a view, roster in join order', () => {
@@ -214,12 +229,22 @@ describe('pure helpers', () => {
       botFill: false,
       countdownEndT: 0,
       deadlineAt: null,
+      forced: false,
       players: [
-        { id: 'me', name: 'NEMO', ready: false },
-        { id: 'b', name: 'AHAB', ready: true },
+        { id: 'me', name: 'NEMO', ready: false, slot: 0 },
+        { id: 'b', name: 'AHAB', ready: true, slot: 1 },
       ],
       phase: 'open',
     });
+  });
+
+  it("folds each captain's sticky server slot (Eric R2), index order when absent", () => {
+    const players = new Map([
+      ['me', { id: 'me', name: 'NEMO', ready: false, slot: 4 }],
+      ['b', { id: 'b', name: 'AHAB', ready: true, slot: 0 }],
+    ]);
+    expect(lobbyView({ ...STATE, players }, 'me', null).players.map((p) => p.slot)).toEqual([4, 0]);
+    expect(lobbyView(STATE, 'me', null).players.map((p) => p.slot)).toEqual([0, 1]);
   });
 });
 

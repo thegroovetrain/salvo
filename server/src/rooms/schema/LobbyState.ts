@@ -8,6 +8,9 @@ export class LobbyPlayer extends Schema {
   @type('string') id = '';
   @type('string') name = '';
   @type('boolean') ready = false;
+  /** Grid slot 0..19 (Eric 2026-10-02): row floor(slot/2), column slot%2;
+   *  the lowest free slot at join, never changed while seated. */
+  @type('uint8') slot = 0;
 }
 
 /**
@@ -27,8 +30,11 @@ export class LobbyState extends Schema {
    *  e.g. 'bananas0'; '' when no seed. Informational. */
   @type('string') seedResolved = '';
   @type('boolean') botFill = false;
-  /** EPOCH ms (server Date.now()) the all-ready countdown ends at; 0 = none. */
+  /** EPOCH ms (server Date.now()) the countdown ends at; 0 = none. */
   @type('float64') countdownEndT = 0;
+  /** The running countdown was started by the host's START NOW: it runs
+   *  regardless of ready status. False whenever no countdown is running. */
+  @type('boolean') forced = false;
   /** 'open' | 'started' (LobbyPhase). */
   @type('string') phase = 'open';
   @type({ map: LobbyPlayer }) players = new MapSchema<LobbyPlayer>();

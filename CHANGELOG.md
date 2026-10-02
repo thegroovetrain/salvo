@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.33] - 2026-10-02
+
+### Changed
+- **The lobby no longer changes size, and START NOW starts the countdown** — the lobby window is now one fixed size, and nothing in it moves when captains join or leave or when you turn BOT-FILL on. The roster is two columns of ten slots that fill left to right, top to bottom as captains join, and a small circle beside each callsign is green when that captain is ready and red when not. The host's options sit under the code and above the roster, each with a label and a control: SEED (a text box) and BOT-FILL (a YES / NO choice). A captain who is not the host sees the same labels with the current values and status. START NOW no longer jumps straight into the match: it starts the 10 s countdown (STARTS IN), and that countdown ignores ready status. (Eric, 2026-10-02, after staging.) Names never move once seated (a vacated slot stays empty until the next captain takes it), the lobby fits a 768-tall laptop without scrolling, and pressing START NOW during the all-ready countdown locks it.
+
+### Internal
+- `client/src/ui/lobbyLayout.ts` holds every fixed size of the lobby (panel 600 x 598, option rows 36 px, slot grid 2 columns x 10 rows of 20 px, button row of three 160 x 40 cells), and `lobbyModal.ts` mounts every region once and never unmounts or hides one for state; server `rooms/lobby.ts` gains `forceStart` and the schema gains `LobbyState.forced` (a forced countdown survives un-ready, a late join and a leave that keeps the start legal, and is cancelled only when eligibility is lost). `LobbyPlayer.slot` (sticky slot, assigned by the server). PROTOCOL_VERSION unchanged at 71 (lobby-room fields and channel only). `server/scripts/lobbySmoke.mjs` scenario B asserts the forced countdown and the seat about 10 s later.
+- Tests: shared 1034 (unchanged), server 2486 -> 2504 (+18), client 3906 -> 3929 (+23); lint 0 errors.
+- Epic-8 amendments 240-242; `spec-lobby-fixed-layout-forced-start.md`. No How-to-Play or README change.
+
 ## [0.18.32] - 2026-10-02
 
 ### Added
