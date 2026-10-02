@@ -236,6 +236,8 @@ export class BotController {
       view: null,
       viewAt: -1,
       contacts: new Map(),
+      wakeCells: [],
+      lastSweep: -1,
       targetKey: null,
       posture: 'reposition',
       stuckMs: 0,
@@ -296,6 +298,8 @@ export class BotController {
     mind.view = null;
     mind.viewAt = -1;
     mind.contacts.clear();
+    mind.wakeCells = [];
+    mind.lastSweep = -1;
     mind.targetKey = null;
     mind.posture = 'reposition';
     mind.stuckMs = 0;

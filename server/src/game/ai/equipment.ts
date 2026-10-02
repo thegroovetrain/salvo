@@ -40,6 +40,7 @@
 import {
   CONFIG,
   bearing,
+  hullEnvelope,
   inArc,
   sectorArcFor,
   twinSectorArcFor,
@@ -53,11 +54,13 @@ import {
   hasPersistence,
   isActionable,
   ownLiveMines,
+  plotAt,
   tracksOf,
   type BotSituation,
   type BotTrack,
 } from './utility.js';
 import type { BotProfile } from './profiles.js';
+import { LONGEST_HULL_U, TRACK_PERSIST_MS, trackVelocity } from './plot.js';
 import {
   APPETITE_EAGER,
   APPETITE_NEUTRAL,
@@ -125,19 +128,21 @@ const WIDE_RUNG = 1;
  *  barrage's footprint at combat range; older and the shot is a guess. */
 const WIDE_FAN_STALE_MS = 1500;
 
-/** Is this track making way TOWARD us? Unknown course = not closing (an
- *  identity-free plot cannot justify a reactive trap). */
+/** Is this track making way TOWARD us (evaluated at its predicted position)? Its course is the disclosed pose or
+ *  the bot's estimate (ai/plot.ts `trackVelocity`); unknown course = not
+ *  closing (a course-less plot cannot justify a reactive trap). */
 function isClosing(sit: BotSituation, t: BotTrack): boolean {
-  if (t.heading === null || t.speed === null) return false;
-  const vx = Math.cos(t.heading) * t.speed;
-  const vy = Math.sin(t.heading) * t.speed;
-  return vx * (sit.x - t.x) + vy * (sit.y - t.y) > 0;
+  const v = trackVelocity(t);
+  if (v === null) return false;
+  const p = plotAt(sit, t); // where it should be NOW, not the stale paint
+  return v.vx * (sit.x - p.x) + v.vy * (sit.y - p.y) > 0;
 }
 
 /** Is this track inside the hull's astern sector? */
 function behindUs(self: BotSelf, sit: BotSituation, t: BotTrack): boolean {
   const center = wrapAngle(self.state.heading + REAR_SECTOR.offset);
-  return inArc(Math.atan2(t.y - sit.y, t.x - sit.x), center, REAR_SECTOR.halfArc);
+  const p = plotAt(sit, t);
+  return inArc(Math.atan2(p.y - sit.y, p.x - sit.x), center, REAR_SECTOR.halfArc);
 }
 
 // ---------------------------------------------------------------------------
@@ -181,22 +186,59 @@ const flakTactic: EquipmentTactic = {
   solve: (ctx) => burstSolve(ctx, 'flak', ctx.sit.stats.equipment.flak.rangeU),
 };
 
+
+/**
+ * THE MAGAZINE DISCIPLINE (Eric ruling 2026-10-02, cycle 165): the machine gun
+ * does not stream at a plot with NO COURSE whose last refresh is older than
+ * one base sweep revolution — wherever that hull is now, it is not where the
+ * plot says, and a belt sprayed at it is a belt wasted. Any course (sighted,
+ * wake-fitted or paint-measured) or a fresher refresh streams as before.
+ * THE MACHINE GUN ONLY: the cannon, flak, broadside and torpedo keep no
+ * staleness rule (epic-6 amendment 32c — blip shooting is a ruled skill).
+ */
+function streamHolds(t: BotTrack, now: number): boolean {
+  return !t.live && trackVelocity(t) === null && now - t.seenAt > TRACK_PERSIST_MS;
+}
+
+/** u — how far PAST the lead point the stream is aimed (Eric ruling
+ *  2026-10-02, cycle 165): one hull length of the plot's disclosed class, else
+ *  the longest participant hull. A machine-gun shell expires at its aim
+ *  point, so scatter that lands the point short of the hull wasted the shell;
+ *  aiming a hull past the target keeps a short-scattered round live through
+ *  the hull it was meant for. */
+function overshootU(t: BotTrack): number {
+  return t.cls === null ? LONGEST_HULL_U : hullEnvelope(t.cls).hull.length;
+}
+
 /**
  * THE MACHINE GUN'S STREAM: while the target sits inside the gun's reach, HOLD
  * the level aimed at the lead solution (`held: true` on slot 0). It is never a
  * click — the driver leaves fireSeq alone on a held tick — and the World fires
  * one shell per `rateMs` for as long as the level stays up. The magazine gate
  * is `slotReady` upstream (n > 0), so an empty magazine releases the level by
- * never reaching here; a target leaving reach, or no target, releases it too.
- * The coastline gate is the cannon's: a stream into a rock is a wasted belt.
+ * never reaching here; a target leaving reach (measured at its PREDICTED
+ * position), no target, or a stale course-less plot (streamHolds) releases it
+ * too. The coastline gate is the cannon's: a stream into a rock is a wasted
+ * belt. The commanded distance runs one hull past the lead point (overshootU),
+ * clamped at the gun's reach.
  */
 function streamSolve(ctx: TacticContext): Shot | null {
   const t = ctx.target;
-  const rangeU = ctx.sit.stats.equipment.machineGun.rangeU;
-  if (t === null || distTo(ctx.sit, t) > rangeU) return null;
-  const p = aimPoint(ctx.mind, ctx.sit, t, CONFIG.machineGun.shellSpeed);
-  if (!shotReaches(ctx.self, ctx.sit, p)) return null;
-  const d = Math.min(Math.hypot(p.x - ctx.sit.x, p.y - ctx.sit.y), rangeU);
+  const sit = ctx.sit;
+  const rangeU = sit.stats.equipment.machineGun.rangeU;
+  if (t === null || streamHolds(t, sit.now)) return null;
+  if (distTo(sit, t) > rangeU) return null;
+  const p = aimPoint(ctx.mind, sit, t, CONFIG.machineGun.shellSpeed);
+  const leadD = Math.hypot(p.x - sit.x, p.y - sit.y);
+  // An intercept beyond reach holds the stream — the burstSolve rule (cycle
+  // 165 review, orchestrator ruling). A shell expires at reach, and a hull
+  // whose intercept centre lies past reach has its near edge at or beyond
+  // that expiry point, so a stream there only spends the belt (measured on
+  // the racetrack probe: strict 79.7 % vs a half-hull margin's 73.4 %). Only
+  // the aim-past overshoot may clamp at reach.
+  if (leadD > rangeU) return null;
+  if (!shotReaches(ctx.self, sit, p)) return null;
+  const d = Math.min(leadD + overshootU(t), rangeU);
   return { aim: bearing(ctx.self.state, p), aimDist: d, slot: ctx.slot, held: true };
 }
 
@@ -231,7 +273,7 @@ function fanAcceptsPlot(t: BotTrack, sit: BotSituation): boolean {
 
 function broadsideSolve(ctx: TacticContext): Shot | null {
   const t = ctx.target;
-  if (t === null || t.heading === null) return null; // an unled ghost gets the gun
+  if (t === null || trackVelocity(t) === null) return null; // a course-less ghost gets the gun
   if (!fanAcceptsPlot(t, ctx.sit)) return null;
   const shot = burstSolve(ctx, 'broadside', ctx.sit.stats.equipment.broadside.rangeU);
   if (shot === null) return null;
@@ -490,9 +532,9 @@ function flareSolve(ctx: TacticContext): Shot | null {
   if (t === null) return null;
   // THE TERRAIN GATE IS ON THE SHOT, never on the selector: the bot still
   // wants the nearest plot; it holds the round when the round cannot arrive.
-  if (!shotReaches(ctx.self, ctx.sit, t)) return null;
+  if (!shotReaches(ctx.self, ctx.sit, plotAt(ctx.sit, t))) return null;
   const d = Math.min(distTo(ctx.sit, t), ctx.sit.stats.equipment.starShells.rangeU);
-  return { aim: bearing(ctx.self.state, t), aimDist: d, slot: ctx.slot };
+  return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
 
 const starShellsTactic: EquipmentTactic = {

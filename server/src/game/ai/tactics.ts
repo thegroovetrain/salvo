@@ -117,6 +117,7 @@ import { noteTorpedoes } from './torpedoThreat.js';
 import {
   choosePosture,
   foldView,
+  plotAt,
   pullBand,
   ringDeadband,
   ringEscaping,
@@ -195,6 +196,7 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     profile: profileRowOf(mind),
     ring: port.zoneLiveRing,
     islands: port.map.islands,
+    waterR: port.map.radius,
   };
 }
 
@@ -542,11 +544,15 @@ function wantsRearQuarter(profile: BotProfile, t: BotTrack): boolean {
   return t.cls !== 'mineLayer';
 }
 
-/** The point a bot steers AT: the target itself, or its rear quarter. */
-export function approachPoint(profile: BotProfile, t: BotTrack): Vec2 {
-  if (!wantsRearQuarter(profile, t)) return { x: t.x, y: t.y };
+/** The point a bot steers AT: the target's plot point, or its rear quarter.
+ *  The plot point is the PREDICTED position (utility.ts plotAt — cycle 165
+ *  review, B4: the helm steers at the same point the guns lead from); a
+ *  caller without a situation reads the plot's last-known position. */
+export function approachPoint(profile: BotProfile, t: BotTrack, sit?: Pick<BotSituation, 'now' | 'waterR'>): Vec2 {
+  const p = sit === undefined ? { x: t.x, y: t.y } : plotAt(sit, t);
+  if (!wantsRearQuarter(profile, t)) return p;
   const rear = wrapAngle((t.heading ?? 0) + Math.PI);
-  return { x: t.x + Math.cos(rear) * REAR_QUARTER_U, y: t.y + Math.sin(rear) * REAR_QUARTER_U };
+  return { x: p.x + Math.cos(rear) * REAR_QUARTER_U, y: p.y + Math.sin(rear) * REAR_QUARTER_U };
 }
 
 /** Band-holding geometry: close when outside the band, open when inside its
@@ -559,7 +565,7 @@ export function approachPoint(profile: BotProfile, t: BotTrack): Vec2 {
  *  Battleship eases in with a loaded torpedo and drifts back out the moment
  *  the tube empties, while the profile fractions stay the anchor. */
 function bandBearing(self: BotSelf, sit: BotSituation, t: BotTrack): number {
-  const aim = approachPoint(sit.profile, t);
+  const aim = approachPoint(sit.profile, t, sit);
   const brg = bearing(self.state, aim);
   const d = Math.hypot(aim.x - sit.x, aim.y - sit.y);
   const band = pullBand(engagementBand(sit.profile, sit.stats), readyShotReaches(self, sit.stats));
@@ -585,8 +591,8 @@ function postureBearing(
 ): number {
   const pos = self.state;
   if (target === null || posture === 'reposition') return patrolBearing(self, sit);
-  if (posture === 'disengage') return wrapAngle(bearing(pos, target) + Math.PI);
-  if (posture === 'pursue') return bearing(pos, approachPoint(sit.profile, target));
+  if (posture === 'disengage') return wrapAngle(bearing(pos, plotAt(sit, target)) + Math.PI);
+  if (posture === 'pursue') return bearing(pos, approachPoint(sit.profile, target, sit));
   return bandBearing(self, sit, target);
 }
 
@@ -842,7 +848,13 @@ function helmFor(
  */
 function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
   if (mind.view === null || mind.viewAt !== port.now) return;
-  foldView(mind, mind.view, port.now);
+  // Cycle 165: the bot's OWN beam — this tick's angle and the one it remembered
+  // from its last fold, as a client compares consecutive frames — and its
+  // situation feed the sweep-miss drop.
+  const beam = { sweepAngle: self.sweepAngle, lastSweep: mind.lastSweep };
+  const site = { ...situationOf(self, mind, port), raster: port.map.heightRaster };
+  foldView(mind, mind.view, port.now, { beam, site });
+  mind.lastSweep = self.sweepAngle;
   // Story 8.15, amendment 115: the seen-torpedo table (DAMAGE CUT's inbound trigger).
   noteTorpedoes(mind, self, port.now);
 }
@@ -852,10 +864,11 @@ function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
  *  the wire; every other shot is the ordinary click on its slot. */
 function triggerOf(
   self: BotSelf,
+  sit: BotSituation,
   target: BotTrack | null,
   shot: Shot | null,
 ): Pick<BotDecision, 'aim' | 'aimDist' | 'fireSlot' | 'held'> {
-  if (shot === null) return { aim: idleAim(self, target), aimDist: 0, fireSlot: null, held: false };
+  if (shot === null) return { aim: idleAim(self, sit, target), aimDist: 0, fireSlot: null, held: false };
   const held = shot.held === true;
   return { aim: shot.aim, aimDist: shot.aimDist, fireSlot: held ? null : shot.slot, held };
 }
@@ -883,8 +896,8 @@ function resolveTarget(mind: BotMind): BotTrack | null {
 /** Where the bot points when it is not shooting — at its target if it has one,
  *  else straight ahead. Aim is only consumed by a firing/priming tick, but a
  *  coherent value keeps the input stream honest. */
-function idleAim(self: BotSelf, target: BotTrack | null): number {
-  return target === null ? self.state.heading : bearing(self.state, target);
+function idleAim(self: BotSelf, sit: BotSituation, target: BotTrack | null): number {
+  return target === null ? self.state.heading : bearing(self.state, plotAt(sit, target));
 }
 
 /**
@@ -908,7 +921,7 @@ export const COMBAT_BRAIN: BotBrain = {
     return {
       throttle: helm.throttle,
       rudder: helm.rudder,
-      ...triggerOf(self, target, shot),
+      ...triggerOf(self, sit, target, shot),
       actSlot: chooseAct(self, mind, port, sit, target, posture),
       spendChoice: deliberate ? chooseSpend(sit.profile, spendStateOf(self), undefined, mind.spendRng) : null,
     };

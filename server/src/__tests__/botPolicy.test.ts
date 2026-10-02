@@ -89,6 +89,8 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
     view: null,
     viewAt: -1,
     contacts: new Map(),
+    wakeCells: [],
+    lastSweep: -1,
     targetKey: null,
     posture: 'reposition',
     stuckMs: 0,
@@ -493,6 +495,14 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
       fleet: false,
       firstSeenAt: 0,
       hits: 0,
+      vx: null,
+      vy: null,
+      vAt: -1,
+      vSrc: null,
+      paintX: 0,
+      paintY: 0,
+      paintAt: -1,
+      missSweptAt: -1,
       ...over,
     };
   }
@@ -618,7 +628,11 @@ describe('ai/utility — profile-weighted target selection', () => {
     // can separate them, because nothing on the wire separates a human
     // captain from another bot.
     const m = mind('duelist');
-    foldView(m, view({ contacts: [contact('human', 200, 0), contact('bot-3', -200, 0)] }), 1000);
+    // Parked (speed 0): since cycle 165 the scorer reads the DEAD-RECKONED
+    // plot, and two hulls sailing the same way from mirror positions are not
+    // mirror images 19 s later — the pin is about identity, not motion.
+    const still = (c: Contact): Contact => ({ ...c, speed: 0 });
+    foldView(m, view({ contacts: [still(contact('human', 200, 0)), still(contact('bot-3', -200, 0))] }), 1000);
     const sit = situation({ now: NOW, profile: profileOf('duelist'), stats: stats('torpedoBoat') });
     const all = tracksOf(m);
     expect(scoreTrack(all[0], sit, all)).toBeCloseTo(scoreTrack(all[1], sit, all), 9);
@@ -649,7 +663,9 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
   const NOW = 20000;
 
   function target(m: BotMind, x: number): BotTrack {
-    foldView(m, view({ contacts: [contact('e1', x, 0)] }), 1000);
+    // Parked (speed 0): the posture reads the dead-reckoned plot (cycle 165),
+    // and these pins are about WHERE the target is, not where it drifts to.
+    foldView(m, view({ contacts: [{ ...contact('e1', x, 0), speed: 0 }] }), 1000);
     return onlyTrack(m);
   }
 
@@ -1236,6 +1252,7 @@ describe('ai/utility — track persistence (the chaff counter; the jamming buoy 
     return {
       id: null, x: 400, y: 0, heading: null, speed: null, seenAt: now,
       live: false, cls: null, fleet: false, firstSeenAt, hits: 0,
+      vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1,
     };
   }
 
