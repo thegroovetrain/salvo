@@ -14,7 +14,14 @@
 //     frozen start line with no menu and no reload behind them.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { makeRequeue, REQUEUE_LEAVE_TIMEOUT_MS, type RequeueDeps } from '../app/requeue.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  collapseAutoQueues,
+  makeRequeue,
+  REQUEUE_LEAVE_TIMEOUT_MS,
+  type RequeueDeps,
+} from '../app/requeue.js';
 
 /** A promise that never settles — a dead socket's leave(). */
 function never<T>(): Promise<T> {
@@ -182,5 +189,40 @@ describe('makeRequeue — the chain always settles to exactly one enterPort', ()
     makeRequeue(h.deps)();
     await vi.advanceTimersByTimeAsync(0);
     expect(h.calls).toEqual(['leave', 'enterPort']);
+  });
+});
+
+// PRIVATE LOBBIES (cycle 167): a private arena's collapse sends the same `rq`,
+// but its captains go HOME and are NOT re-queued into the Standard queue among
+// strangers. main.ts cannot be imported (it builds the Pixi stage), so the
+// wiring is pinned as SOURCE, the idiom home.test.ts / sessionLock.test.ts use.
+describe('a PRIVATE arena collapse goes home without re-queueing', () => {
+  const mainSrc = (): string => readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
+  const bodyOf = (src: string, signature: string): string => {
+    const start = src.indexOf(signature);
+    expect(start).toBeGreaterThan(-1);
+    return src.slice(start, src.indexOf('\n}\n', start));
+  };
+
+  it('collapseAutoQueues: standard re-queues, private does not', () => {
+    expect(collapseAutoQueues(false)).toBe(true);
+    expect(collapseAutoQueues(true)).toBe(false);
+  });
+
+  it("the requeue chain's terminal step asks collapseAutoQueues(privateSession)", () => {
+    const body = bodyOf(mainSrc(), 'function makeGameRequeue(');
+    expect(body).toMatch(/enterPort: \(\) => void requeueToPort\(collapseAutoQueues\(privateSession\)\)/);
+    // ...and requeueToPort hands that answer to enterPort's autoQueue flag.
+    expect(bodyOf(mainSrc(), 'async function requeueToPort(')).toMatch(/enterPort\(shell, autoQueue\)/);
+  });
+
+  it('only the private launch marks the session private; every queue/solo deploy clears it', () => {
+    const deps = bodyOf(mainSrc(), 'function privateDeps(');
+    expect(deps).toMatch(/privateSession = true;\s*launchFromPort\(/);
+    expect(bodyOf(mainSrc(), 'async function startGame(')).toMatch(/privateSession = false;/);
+  });
+
+  it('the private doors never persist a mode (no saveMode on the lobby path)', () => {
+    expect(bodyOf(mainSrc(), 'function privateDeps(')).not.toMatch(/saveMode|lastDeploy/);
   });
 });

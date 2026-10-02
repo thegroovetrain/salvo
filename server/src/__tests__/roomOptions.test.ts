@@ -13,6 +13,7 @@ import {
   type JoinOptions,
   type RoomOptions,
 } from '../rooms/roomOptions.js';
+import { lobbyTicket } from '../rooms/lobbyTicket.js';
 
 const MATCH_OVERRIDE = { sandbox: true, minHumans: 1, countdownMs: 1, resultsMs: 1, joinWindowMs: 0, mulligan: true };
 const ZONE_OVERRIDE = { beatMs: 1000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0.5, terminalSightFactor: 1 };
@@ -329,5 +330,65 @@ describe('the retired deck keys are dropped like any unknown option', () => {
     for (const gone of ['sanitizeDeckOptions', 'DECK_ID_MAX', 'DECK_OVERRIDE_MAX', 'DECK_REFUSED_CODE']) {
       expect(Object.hasOwn(mod, gone), gone).toBe(false);
     }
+  });
+});
+
+// THE LOBBY TRUST TICKET (private lobbies, cycle 167). A private lobby forms
+// its arena from SERVER code with a per-process ticket; only a bag carrying
+// that exact ticket may pin the map, ask for bot fill or tag the arena
+// private. Every client bag — including one carrying a GUESSED ticket — is
+// stripped exactly as before.
+
+describe('sanitizeRoomOptions — the lobby trust ticket', () => {
+  const PRIVATE = { mapSeed: 1234, botFill: true, mode: 'private' } as const;
+
+  it('an untrusted bag naming botFill/mode/mapSeed with a WRONG ticket is stripped and reported', () => {
+    for (const dev of [false, true]) {
+      const opts: RoomOptions = { ...PRIVATE, lobbyTicket: 'not-the-ticket' };
+      const { sanitized, rejectedKeys } = sanitizeRoomOptions(opts, dev);
+      expect(sanitized.botFill, String(dev)).toBeUndefined();
+      expect(sanitized.mode, String(dev)).toBeUndefined();
+      // Dev keeps its own mapSeed door; production never pins a map.
+      expect(sanitized.mapSeed, String(dev)).toBe(dev ? 1234 : undefined);
+      const expected = dev ? ['botFill', 'mode', 'lobbyTicket'] : ['mapSeed', 'botFill', 'mode', 'lobbyTicket'];
+      expect(rejectedKeys, String(dev)).toEqual(expected);
+    }
+  });
+
+  it('a bag with no ticket at all is stripped too', () => {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions({ ...PRIVATE }, false);
+    expect(sanitized).toEqual({ expectedCaptains: undefined, solo: undefined });
+    expect(rejectedKeys).toEqual(['mapSeed', 'botFill', 'mode']);
+  });
+
+  it('a bag with the REAL ticket admits mapSeed, botFill and mode in production', () => {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions({ ...PRIVATE, lobbyTicket: lobbyTicket() }, false);
+    expect(sanitized.mapSeed).toBe(1234);
+    expect(sanitized.botFill).toBe(true);
+    expect(sanitized.mode).toBe('private');
+    expect(rejectedKeys).toEqual([]);
+  });
+
+  it('never echoes the ticket into the sanitized result', () => {
+    const { sanitized } = sanitizeRoomOptions({ ...PRIVATE, lobbyTicket: lobbyTicket() }, false);
+    expect(JSON.stringify(sanitized)).not.toContain(lobbyTicket());
+    expect(Object.hasOwn(sanitized, 'lobbyTicket')).toBe(false);
+  });
+
+  it('the ticket opens ONLY the map seed among the dev keys', () => {
+    const opts: RoomOptions = { matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE, mapSeed: 7, lobbyTicket: lobbyTicket() };
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions(opts, false);
+    expect(sanitized.matchOverride).toBeUndefined();
+    expect(sanitized.zoneOverride).toBeUndefined();
+    expect(sanitized.mapSeed).toBe(7);
+    expect(rejectedKeys).toEqual(['matchOverride', 'zoneOverride']);
+  });
+
+  it('values are coerced strictly even when trusted', () => {
+    const opts = { botFill: 'yes', mode: 'public', mapSeed: -1, lobbyTicket: lobbyTicket() } as unknown as RoomOptions;
+    const { sanitized } = sanitizeRoomOptions(opts, false);
+    expect(sanitized.botFill).toBeUndefined();
+    expect(sanitized.mode).toBeUndefined();
+    expect(sanitized.mapSeed).toBeUndefined();
   });
 });

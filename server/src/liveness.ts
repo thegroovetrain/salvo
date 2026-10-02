@@ -53,6 +53,9 @@ import { CONFIG, type LivenessPayload } from '@salvo/shared';
 /** Room names, mirroring app.config.ts's `gameServer.define` calls. */
 export const ARENA_ROOM = 'arena';
 export const QUEUE_ROOM = 'queue';
+/** The private lobby (cycle 167). Its captains are humans online like any
+ *  room's (the fold counts every room's humans); it is never a live game. */
+export const LOBBY_ROOM = 'lobby';
 
 /** How long one driver query is reused. Many pollers, one query. */
 export const LIVENESS_CACHE_MS = 2000;
@@ -68,8 +71,12 @@ export interface RoomRecord {
   metadata?: unknown;
 }
 
-/** `metadata.mode` as published by ArenaRoom.finishCreate. */
-type ModeKey = 'standard' | 'soloVsAi';
+/** `metadata.mode` as published by ArenaRoom.finishCreate. 'private'
+ *  (cycle 167) is a KNOWN mode — it counts toward LIVE GAMES and PLAYERS
+ *  ONLINE — but has no `modes` bucket: LivenessPayload's wire shape is frozen
+ *  in shared, so the operator split stays standard + soloVsAi and a private
+ *  arena is simply in neither (like a queued captain). */
+type ModeKey = 'standard' | 'soloVsAi' | 'private';
 
 /** Narrow unknown metadata to a bag, or null. */
 function bagOf(metadata: unknown): Record<string, unknown> | null {
@@ -91,7 +98,8 @@ function num(bag: Record<string, unknown> | null, key: string): number | null {
  * account for.
  */
 export function modeOf(metadata: unknown): ModeKey {
-  return bagOf(metadata)?.mode === 'soloVsAi' ? 'soloVsAi' : 'standard';
+  const mode = bagOf(metadata)?.mode;
+  return mode === 'soloVsAi' || mode === 'private' ? mode : 'standard';
 }
 
 /**
@@ -224,7 +232,10 @@ export function foldLiveness(
     playersOnline += humans;
     if (room.name === ARENA_ROOM) {
       liveGames++;
-      const bucket = modes[modeOf(room.metadata)];
+      const mode = modeOf(room.metadata);
+      // A private arena is a live game with no operator bucket (see ModeKey).
+      if (mode === 'private') continue;
+      const bucket = modes[mode];
       bucket.players += humans;
       bucket.games++;
     } else if (room.name === QUEUE_ROOM && queue === null) {

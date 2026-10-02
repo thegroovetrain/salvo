@@ -15,6 +15,7 @@ import {
   type ZoneTimeline,
 } from '@salvo/shared';
 import type { Logger } from '../log.js';
+import { isTrustedTicket } from './lobbyTicket.js';
 
 /**
  * Callsign cap, in CODE POINTS. Mirrors the client's display/entry cap
@@ -257,6 +258,19 @@ export interface RoomOptions extends JoinOptions {
    * sanitizeExpectedCaptains.
    */
   expectedCaptains?: number;
+  /**
+   * PRIVATE LOBBY (cycle 167, Eric ruling 4): fill the empty slots to
+   * CONFIG.map.playerCap with combat bots before activation. Honoured ONLY in a
+   * bag carrying the server's lobby ticket (see lobbyTicket.ts) — a client bag
+   * naming it is stripped and reported.
+   */
+  botFill?: boolean;
+  /** PRIVATE LOBBY: the arena was formed by a private lobby. Ticket-gated like
+   *  botFill. */
+  mode?: 'private';
+  /** The server-private trust ticket (lobbyTicket.ts). Never echoed into the
+   *  sanitized result. */
+  lobbyTicket?: string;
 }
 
 export interface SanitizedRoomOptions {
@@ -273,6 +287,10 @@ export interface SanitizedRoomOptions {
   /** Solo vs AI (Story 6.5): true, or ABSENT — never false. The room fills the
    *  roster to CONFIG.map.playerCap with bots and runs a 1-captain cohort. */
   solo?: true;
+  /** Private-lobby bot fill: true, or ABSENT. Only from a trusted bag. */
+  botFill?: true;
+  /** 'private' when a private lobby formed this arena. Only from a trusted bag. */
+  mode?: 'private';
 }
 
 export interface SanitizeResult {
@@ -291,6 +309,46 @@ export interface SanitizeResult {
  * server logs.
  */
 export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): SanitizeResult {
+  // THE LOBBY TRUST TICKET (cycle 167): a bag carrying this process's exact
+  // ticket came from the private lobby's server-side createRoom, never from a
+  // client. It may pin a map (ruling 3) and ask for bot fill / private mode
+  // (ruling 4); every other bag is stripped of all three exactly as before.
+  const trusted = isTrustedTicket(options.lobbyTicket);
+  const result = sanitizeGated(options, devEnabled, trusted);
+  const priv = admitPrivateKeys(options, trusted, result.rejectedKeys);
+  return { sanitized: { ...result.sanitized, ...priv }, rejectedKeys: result.rejectedKeys };
+}
+
+/**
+ * The private-lobby keys (`botFill`, `mode`), admitted ONLY under the trust
+ * ticket. Untrusted, each PRESENT key is dropped and reported in
+ * `rejectedKeys` (after the dev keys), and so is a present-but-wrong ticket —
+ * a guessed ticket is a probe worth seeing in the log. Absent keys add no
+ * noise. The ticket itself never appears in the output.
+ */
+function admitPrivateKeys(
+  options: RoomOptions,
+  trusted: boolean,
+  rejectedKeys: string[],
+): Pick<SanitizedRoomOptions, 'botFill' | 'mode'> {
+  if (trusted) {
+    return {
+      botFill: options.botFill === true ? true : undefined,
+      mode: options.mode === 'private' ? 'private' : undefined,
+    };
+  }
+  for (const key of ['botFill', 'mode', 'lobbyTicket'] as const) {
+    if (options[key] !== undefined) rejectedKeys.push(key);
+  }
+  return {};
+}
+
+/** The pre-cycle-167 body of sanitizeRoomOptions: the dev-gated keys. A
+ *  TRUSTED (lobby-ticket) bag may additionally pin the map without
+ *  HC_DEV_OPTIONS — and only the map: matchOverride / zoneOverride /
+ *  fitOverride stay dev-only, so the ticket opens exactly the one key the
+ *  lobby needs. */
+function sanitizeGated(options: RoomOptions, devEnabled: boolean, trusted: boolean): SanitizeResult {
   // NOT dev-gated: the queue sets expectedCaptains on every production arena it
   // creates, so stripping it without HC_DEV_OPTIONS would delete the boarding
   // expectation in exactly the deployment that needs it. Safety comes from the
@@ -319,11 +377,14 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
   }
   if (options.matchOverride !== undefined) rejectedKeys.push('matchOverride');
   if (options.zoneOverride !== undefined) rejectedKeys.push('zoneOverride');
-  if (options.mapSeed !== undefined) rejectedKeys.push('mapSeed');
+  // The ONE dev key the lobby ticket opens (cycle 167, ruling 3: the host's
+  // seed). Still value-sanitized; still stripped and reported untrusted.
+  const mapSeed = trusted ? sanitizeMapSeed(options.mapSeed) : undefined;
+  if (!trusted && options.mapSeed !== undefined) rejectedKeys.push('mapSeed');
   // Reported LAST of the room keys, and only when present (admitDevIdList's
   // absent-means-silent rule) — the gate is closed, so the list is dropped.
   admitDevIdList(options.fitOverride, false, 'fitOverride', rejectedKeys);
-  return { sanitized: { expectedCaptains, solo }, rejectedKeys };
+  return { sanitized: { expectedCaptains, solo, mapSeed }, rejectedKeys };
 }
 
 /**

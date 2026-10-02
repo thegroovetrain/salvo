@@ -42,6 +42,7 @@ import {
 } from '@salvo/shared';
 import { ArenaRoom, ARENA_DIRECT_JOIN_ERROR } from '../rooms/ArenaRoom.js';
 import { sanitizeSolo, type RoomOptions } from '../rooms/roomOptions.js';
+import { lobbyTicket } from '../rooms/lobbyTicket.js';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import type { ArenaState, PlayerMeta } from '../rooms/schema/ArenaState.js';
@@ -482,5 +483,88 @@ describe('World.renameBot', () => {
     expect(w.renameBot('nobody')).toBeNull();
     expect(w.renameBot('alice')).toBeNull();
     expect(w.ships.get('alice')!.name).toBe('ALICE');
+  });
+});
+
+// --- PRIVATE ARENAS (cycle 167, Eric rulings 2026-10-02) ---------------------
+//
+// A private lobby forms its arena with a server-private TRUST TICKET carrying
+// `mode: 'private'`, `botFill` and (optionally) the host's `mapSeed`. Bot fill
+// reuses the solo fleet builder at the same point (before activate), sized to
+// the slots the lobby's captains leave empty.
+
+describe('private arenas — the lobby-formed room', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    delete process.env.HC_DEV_OPTIONS;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const privateRoom = (extra: RoomOptions = {}): SoloRoom & { setMetadata: ReturnType<typeof vi.fn> } => {
+    const opts: RoomOptions = { mode: 'private', lobbyTicket: lobbyTicket(), ...extra };
+    const r = new ArenaRoom() as unknown as SoloRoom & Record<string, unknown> & { setMetadata: ReturnType<typeof vi.fn> };
+    r.lock = vi.fn(() => Promise.resolve());
+    r.unlock = vi.fn(() => Promise.resolve());
+    r.disconnect = vi.fn(() => Promise.resolve());
+    r.broadcast = vi.fn();
+    r.onMessage = vi.fn();
+    r.setTimestep = vi.fn();
+    r.clock = { setInterval: vi.fn(), setTimeout: vi.fn() };
+    r.clients = [];
+    r.setMetadata = vi.fn(() => Promise.resolve());
+    r.onCreate(opts);
+    return r;
+  };
+  const minHumansOf = (r: SoloRoom): number => (r.match as unknown as { minHumans: number }).minHumans;
+
+  it('private + botFill adds EXACTLY playerCap - expectedCaptains bots, before any tick', () => {
+    const r = privateRoom({ botFill: true, expectedCaptains: 3 });
+    expect(r.world.tick).toBe(0);
+    expect(r.match?.phase).toBe('waiting');
+    expect(bots(r)).toHaveLength(CONFIG.map.playerCap - 3);
+    expect(r.state.players.size).toBe(CONFIG.map.playerCap - 3);
+  });
+
+  it('a lone host with bot fill gets the solo-sized fleet (19) and minHumans 1', () => {
+    const r = privateRoom({ botFill: true, expectedCaptains: 1 });
+    expect(bots(r)).toHaveLength(CONFIG.map.playerCap - 1);
+    expect(minHumansOf(r)).toBe(1);
+    join(r, 'host');
+    expect(r.match?.phase).toBe('countdown');
+  });
+
+  it('private WITHOUT botFill adds no bots and keeps the CONFIG minHumans (2)', () => {
+    const r = privateRoom({ expectedCaptains: 2 });
+    expect(bots(r)).toHaveLength(0);
+    expect(r.world.ships.size).toBe(0);
+    expect(minHumansOf(r)).toBe(CONFIG.match.minHumans);
+    expect(CONFIG.match.minHumans).toBe(2);
+  });
+
+  it('is locked at birth and listed as mode private', () => {
+    const r = privateRoom({ botFill: true, expectedCaptains: 2 });
+    expect(r.lock).toHaveBeenCalledTimes(1);
+    const metas = r.setMetadata.mock.calls.map((c) => c[0] as { mode: string; humans: number });
+    expect(metas.at(-1)).toEqual({ mode: 'private', humans: 0 });
+  });
+
+  it('honours the host seed under the ticket in PRODUCTION (no HC_DEV_OPTIONS)', () => {
+    const r = privateRoom({ expectedCaptains: 2, mapSeed: 123456 });
+    expect(r.state.mapSeed).toBe(123456);
+  });
+
+  it('a CLIENT bag naming the same keys without the ticket gets nothing (production clients can never pin a map)', () => {
+    const r = room({ solo: true, mode: 'private', botFill: true, mapSeed: 123456, expectedCaptains: 5 } as RoomOptions);
+    // Still the ordinary solo room: 19 bots, mode soloVsAi, a random map.
+    expect(bots(r)).toHaveLength(BOTS);
+    expect(r.state.mapSeed).not.toBe(123456);
+  });
+
+  it('a GUESSED ticket is a client bag like any other', () => {
+    const r = room({ solo: true, mode: 'private', botFill: true, mapSeed: 99, lobbyTicket: 'guess' } as RoomOptions);
+    expect(r.state.mapSeed).not.toBe(99);
+    expect(bots(r)).toHaveLength(BOTS);
   });
 });

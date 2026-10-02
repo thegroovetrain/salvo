@@ -61,15 +61,10 @@ import {
   type SanitizedRoomOptions,
 } from './roomOptions.js';
 import { stagingGateError } from '../stagingGate.js';
-import {
-  SOLO_CREATE_THROTTLE_ERROR,
-  SOLO_CREATE_WINDOW_MS,
-  admitSoloCreate,
-  clientIpFrom,
-  resolveSoloCreateLimit,
-  xffEntryCount,
-  type SoloCreateLedger,
-} from './soloThrottle.js';
+import { assertSoloCreateAllowed, resetSoloCreateThrottle } from './createThrottle.js';
+
+/** TEST SEAM, re-exported from createThrottle.ts (its home since cycle 167). */
+export { resetSoloCreateThrottle };
 
 const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
 const INTERVAL_MS = 1000 / 60; // setTimestep cadence
@@ -90,7 +85,9 @@ const MODE = 'arena';
  * publishListing for why the driver's own `clients` count cannot answer that).
  */
 export interface ArenaListingMeta {
-  mode: 'standard' | 'soloVsAi';
+  /** 'private' (cycle 167): formed by a private lobby — the trust-ticketed
+   *  create path, never a client bag (see sanitizeRoomOptions). */
+  mode: 'standard' | 'soloVsAi' | 'private';
   humans: number;
 }
 /** The zeroed "unrevealed" next-ring mirror (r 0 = no reveal — see ArenaState). */
@@ -110,99 +107,6 @@ export const ARENA_DIRECT_JOIN_ERROR = 'this room is not joinable directly — u
  * able to spin on a pathological pool.
  */
 const CALLSIGN_REDRAWS = 4;
-
-/**
- * PER-IP SOLO-CREATE THROTTLE state (Story 7-8, Eric ruling 2026-08-27,
- * epic-7 amendment 45). Module-level because the door it guards is STATIC
- * onAuth — there is no room instance yet, and there must not be: the whole
- * point is refusing before a room is minted. Policy lives in soloThrottle.ts
- * (pure, injectable clock); this is the adapter's ledger + env read +
- * wall-clock, the I/O trio that stays out of the pure module. Memory is
- * bounded by the sweep inside admitSoloCreate (see that module's header).
- */
-const soloCreateLedger: SoloCreateLedger = new Map();
-/** One warning per process for the no-derivable-address fail-open (local dev —
- *  see clientIpFrom's trust model); never per-request log spam. */
-let warnedSoloThrottleNoIp = false;
-/**
- * Logged once per process on the FIRST create the throttle actually admits
- * (reviewer finding, Story 7-8): the rightmost-XFF trust model documented on
- * clientIpFrom is an unverified deployment assumption — nobody has confirmed
- * Render's edge appends exactly one hop. This flag caps the admit line to one
- * per process (the shape doesn't change request to request); every refusal
- * still logs unconditionally, since a refusal is by construction rare enough
- * not to be spam and is exactly the case where seeing the shape matters most.
- */
-let loggedFirstSoloThrottleAdmit = false;
-/** Static-door logger: no room, no matchId yet. */
-const doorLog = createLogger({ mode: MODE });
-
-/** TEST SEAM: clear the throttle's process-level state between tests. */
-export function resetSoloCreateThrottle(): void {
-  soloCreateLedger.clear();
-  warnedSoloThrottleNoIp = false;
-  loggedFirstSoloThrottleAdmit = false;
-}
-
-/**
- * `room.soloThrottleShape` — the ops observability line (Story 7-8 follow-up).
- * Never logs the raw header, only its entry COUNT and the derived rightmost
- * key, so the real XFF shape on Render can be read off logs without recording
- * anything a raw-header ban would object to. See `loggedFirstSoloThrottleAdmit`
- * for the admit/refusal cadence.
- */
-function logSoloThrottleShape(context: AuthContext | undefined, ip: string, admitted: boolean): void {
-  if (admitted) {
-    if (loggedFirstSoloThrottleAdmit) return;
-    loggedFirstSoloThrottleAdmit = true;
-  }
-  doorLog.info('room.soloThrottleShape', {
-    entries: xffEntryCount(context?.headers?.get('x-forwarded-for')),
-    rightmost: ip,
-    verdict: admitted ? 'admitted' : 'refused',
-  });
-}
-
-/**
- * The throttle verdict for one solo create — refusal message, or null to
- * admit (the stagingGateError shape). Runs AFTER the PV and staging gates, so
- * only a request that would otherwise mint a room ever consumes quota.
- *
- * Address derivation: the RIGHTMOST x-forwarded-for entry (proxy-appended —
- * client-forgeable only on its LEFT; see clientIpFrom for the full trust
- * model). The socket remote address is unreachable from static onAuth in
- * @colyseus/core 0.18.13 (the matchmake route's AuthContext carries headers
- * and a socketless WHATWG Request — router/default_routes.mjs builds `ip`
- * from the same headers), so with no header at all — a bare local run, where
- * no proxy exists to append one — the throttle FAILS OPEN with one logged
- * warning rather than refusing every local solo player.
- */
-function soloCreateGateError(context: AuthContext | undefined): string | null {
-  const limit = resolveSoloCreateLimit(process.env.HC_SOLO_CREATE_LIMIT);
-  if (limit === 0) return null; // explicitly disabled (load-test self-boot)
-  const ip = clientIpFrom(context?.headers?.get('x-forwarded-for'));
-  if (ip === null) {
-    if (!warnedSoloThrottleNoIp) {
-      warnedSoloThrottleNoIp = true;
-      doorLog.warn('room.soloThrottleNoIp', { reason: 'no x-forwarded-for; throttle fails open' });
-    }
-    return null;
-  }
-  const ok = admitSoloCreate(soloCreateLedger, ip, Date.now(), {
-    limit,
-    windowMs: SOLO_CREATE_WINDOW_MS,
-  });
-  logSoloThrottleShape(context, ip, ok);
-  return ok ? null : SOLO_CREATE_THROTTLE_ERROR;
-}
-
-/** The throwing shape of soloCreateGateError, so static onAuth stays under the
- *  complexity budget: refusal becomes the same ServerError the PV and staging
- *  gates throw, admission returns quietly. */
-function assertSoloCreateAllowed(context: AuthContext | undefined): void {
-  const throttled = soloCreateGateError(context);
-  if (throttled) throw new ServerError(ErrorCode.AUTH_FAILED, throttled);
-}
 
 /**
  * Render a thrown value into log fields WITHOUT ever throwing ourselves:
@@ -413,9 +317,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const devEnabled = process.env.HC_DEV_OPTIONS === '1';
     const { sanitized, rejectedKeys } = sanitizeRoomOptions(options, devEnabled);
 
-    // mapSeed (dev-only, HC_DEV_OPTIONS-gated like the other overrides) pins
-    // the deterministic map for latency-harness smokes; production rooms
-    // always roll a random seed.
+    // mapSeed pins the deterministic map: dev-only (HC_DEV_OPTIONS-gated like
+    // the other overrides) for latency-harness smokes, OR the private lobby's
+    // host seed (cycle 167, ruling 3), admitted only under the server's lobby
+    // trust ticket. Every other room rolls a random seed.
     const seed = sanitized.mapSeed ?? (Math.random() * 0xffffffff) >>> 0;
     this.world = this.buildWorld(seed, sanitized);
 
@@ -583,7 +488,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // bot arriving after that snapshot sinks unrecorded (recordSink refuses ids
     // outside it). Building here — before setTimestep below — is what
     // makes "before activate" structural rather than a race.
-    if (sanitized.solo) this.buildBotFleet();
+    if (sanitized.solo) this.buildBotFleet(CONFIG.map.playerCap - 1);
+    // PRIVATE LOBBY BOT FILL (cycle 167, ruling 4): fill the slots the lobby's
+    // captains do not take, to the fixed 20 — at the SAME point as solo, so the
+    // bots are in the water before activate() for the same reason.
+    if (sanitized.mode === 'private' && sanitized.botFill) {
+      this.buildBotFleet(CONFIG.map.playerCap - (sanitized.expectedCaptains ?? 1));
+    }
 
     // LISTING metadata for /liveness (Story 6.6). This is the ONLY place the
     // arena's mode is written down, and it goes on the ROOM LISTING — never
@@ -597,7 +508,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // `driver.persist(listing, true)`
     // that runs right after onCreate carries the metadata with it. So this
     // costs zero extra driver writes — one write, as before.
-    this.mode = sanitized.solo ? 'soloVsAi' : 'standard';
+    this.mode = ArenaRoom.listingModeOf(sanitized);
     this.publishListing();
 
     this.onMessage(MSG.input, (client: Client, raw: unknown) => this.onInputMessage(client, raw));
@@ -745,7 +656,22 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    *  matchOverride still wins, so no smoke's timings moved. (Split out of
    *  timings() for the complexity budget — Story 8.10 added a field.) */
   private static minHumansFor(sanitized: SanitizedRoomOptions): number | undefined {
-    return sanitized.matchOverride?.minHumans ?? (sanitized.solo ? 1 : undefined);
+    return sanitized.matchOverride?.minHumans ?? ArenaRoom.doorMinHumans(sanitized);
+  }
+
+  /** The door's own minHumans: one for solo, and one for a BOT-FILLED private
+   *  arena (cycle 167, ruling 2 — the host may start alone with bot-fill on);
+   *  undefined = the CONFIG default (a private arena without bots needs 2,
+   *  exactly like a standard one). */
+  private static doorMinHumans(sanitized: SanitizedRoomOptions): number | undefined {
+    if (sanitized.solo) return 1;
+    return sanitized.mode === 'private' && sanitized.botFill ? 1 : undefined;
+  }
+
+  /** The listing tag for /liveness: which door formed this room. */
+  private static listingModeOf(sanitized: SanitizedRoomOptions): ArenaListingMeta['mode'] {
+    if (sanitized.solo) return 'soloVsAi';
+    return sanitized.mode === 'private' ? 'private' : 'standard';
   }
 
   /** The Match state machine's side effects, implemented on the room. */
@@ -814,8 +740,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
   /**
    * FILL THE ROSTER WITH AI CAPTAINS (Story 6.5) — the whole server side of
-   * Solo vs AI. `CONFIG.map.playerCap - 1` bots, so the ocean holds a full
-   * lobby with the one human: the count is DERIVED from the cap rather than
+   * Solo vs AI. `count` is `CONFIG.map.playerCap - 1` for solo, and
+   * `playerCap - expectedCaptains` for a bot-filled private arena (cycle 167),
+   * so the ocean holds a full lobby either way: the count is DERIVED from the cap rather than
    * being a new constant, which keeps it in step with the spawn lattice (also
    * exactly playerCap candidates) and with the map radius, which is sized off
    * the same number.
@@ -827,9 +754,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * meets nineteen amber-hollow, plateless UNKNOWN VESSELs while the chrome bar
    * insists `1 AFLOAT`. With one, every surface works unmodified.
    */
-  private buildBotFleet(): void {
+  private buildBotFleet(count: number): void {
     const order = this.shuffledClasses();
-    const count = CONFIG.map.playerCap - 1;
     for (let i = 0; i < count; i += 1) {
       // Bots draw from the SAME common pool a captain draws from (Story 8.14)
       // and each MOUNTS A RANDOM GUN (Story 8.15, amendment 109): one of the

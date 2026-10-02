@@ -277,7 +277,10 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     const stack = modeRow.parentElement as HTMLElement;
     expect(stack.style.flexDirection).toBe('column');
     expect(stack.style.alignItems).toBe('center');
-    expect([...stack.children]).toEqual([modeRow, soloButton()]);
+    // Row 3 (cycle 167, Eric ruling 7) is the private row: CREATE / JOIN.
+    const privateRow = stack.children[2] as HTMLElement;
+    expect([...stack.children]).toEqual([modeRow, soloButton(), privateRow]);
+    expect([...privateRow.children].map((b) => b.textContent)).toEqual(['CREATE', 'JOIN']);
   });
 
   it('sits AFTER the mode row in the DOM, so Tab reaches it in reading order', () => {
@@ -1392,7 +1395,11 @@ describe('main.ts stands liveness down at the deploy door (F3)', () => {
     // ...and the outright stop sits with home.hide(), where there is no longer a
     // register to feed. stopLivenessPoll, not stopHomeLiveness: painting a home
     // that hide() has already torn down is the one thing it exists to end.
-    expect(body).toMatch(/home\.hide\(\);[\s\S]{0,600}?stopLivenessPoll\(\)/);
+    // Cycle 167 moved the landing into `launchFromPort`, shared with the private
+    // lobby doors, so the pin follows it there.
+    expect(body).toMatch(/launchFromPort\(shell, home, stopAmbient, conn, cls\)/);
+    const landing = bodyOf(mainSrc(), 'function launchFromPort(');
+    expect(landing).toMatch(/home\.hide\(\);[\s\S]{0,600}?stopLivenessPoll\(\)/);
   });
 
   it('a poll RESTART does not blink the paint through "unavailable"', () => {

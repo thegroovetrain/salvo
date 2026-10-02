@@ -98,3 +98,14 @@ export function makeRequeue(deps: RequeueDeps): () => void {
     );
   };
 }
+
+/**
+ * Does a cohort collapse re-queue at all? (Cycle 167, private lobbies.) A
+ * PRIVATE arena's collapse sends the same `rq`, but its captains came through a
+ * join code, not the Standard queue — re-queueing them among strangers would be
+ * a door they never chose. They go home and wait for input instead; the chain
+ * above runs unchanged, only its terminal `enterPort` skips the auto-queue.
+ */
+export function collapseAutoQueues(privateMatch: boolean): boolean {
+  return !privateMatch;
+}

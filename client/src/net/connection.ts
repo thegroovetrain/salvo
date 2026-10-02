@@ -274,7 +274,7 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
  *  8.15 (amendment 107) built the pick on the class-select cards: it is stored
  *  under `hullcracker.gun` (ui/home.ts) and threaded here through
  *  `startGame` → `connect(…, gun)`. Always SENT, never omitted. */
-function joinOptions(name?: string, cls?: string, gun: GunId = DEFAULT_GUN): Record<string, unknown> {
+export function joinOptions(name?: string, cls?: string, gun: GunId = DEFAULT_GUN): Record<string, unknown> {
   // `pv` is the join-time protocol gate: the server's onAuth rejects a missing
   // or mismatched PROTOCOL_VERSION with a "version mismatch" ServerError that
   // startGame() surfaces on the menu status line. Reconnects bypass onAuth, so
@@ -542,6 +542,17 @@ function outfitArena(room: Room): { sink: FrameSink; early: EarlyMessages } {
   // the SDK's same-room auto-reconnect for the whole session. Stateless.
   room.onMessage(MSG.ping, (msg: PingMsg) => room.send(MSG.ping, { n: msg.n }));
   return { sink, early };
+}
+
+/**
+ * PRIVATE LOBBIES (cycle 167): the lobby room hands out the SAME `MSG.seat`
+ * reservation the queue does, and from there the arena flow is the queue's
+ * stage 2 byte for byte — consume, outfit, welcome. net/lobby.ts owns stage 1.
+ */
+export async function arenaFromSeat(client: Client, reservation: SeatReservation): Promise<Connection> {
+  const room = await client.consumeSeatReservation(reservation);
+  const { sink, early } = outfitArena(room);
+  return await settleArena(room, sink, early);
 }
 
 /**
