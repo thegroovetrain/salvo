@@ -28,6 +28,7 @@ import type { BotMind, BotWorldPort, RememberedContact, WakeCell } from '../game
 import {
   ANON_ASSOC_U,
   FASTEST_HULL_SPEED,
+  LONGEST_HULL_U,
   SWEEP_MISS_GRACE_MS,
   TRACK_PERSIST_MS,
   WAKE_REACH_U,
@@ -42,7 +43,7 @@ import {
 import { foldView } from '../game/ai/utility.js';
 import { aimPoint, type TacticContext } from '../game/ai/tacticKit.js';
 import { EQUIPMENT_TACTICS } from '../game/ai/tacticRegistry.js';
-import { situationOf } from '../game/ai/tactics.js';
+import { COMBAT_BRAIN, situationOf } from '../game/ai/tactics.js';
 
 const CELL = CONFIG.vision.radarCellU;
 const LIFE = CONFIG.vision.wakeLifeMs;
@@ -61,6 +62,7 @@ function mkMind(seed = 7): BotMind {
     viewAt: -1,
     contacts: new Map(),
     wakeCells: [],
+    lastSweep: -1,
     targetKey: null,
     posture: 'engage',
     stuckMs: 0,
@@ -343,6 +345,35 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     expect(fresh.contacts.size).toBe(2);
   });
 
+  it('a Hit Call 55 u from a course plot\'s predicted centre credits it (half a hull either side)', () => {
+    expect(LONGEST_HULL_U / 2).toBeGreaterThan(55);
+    const m = mkMind();
+    m.contacts.set('c', anon({ x: 500, y: 0, seenAt: NOW - 1000, vx: 0, vy: 45, vSrc: 'paint', vAt: NOW - 1000 }));
+    foldView(m, view([{ k: 'hc', id: 'me', x: 500, y: 45 + 55 }]), NOW);
+    expect(m.contacts.size).toBe(1);
+    const t = m.contacts.get('c')!;
+    expect(t.hits).toBe(1);
+    expect([t.x, t.y]).toEqual([500, 45]); // F1: the prediction, not the bow
+  });
+
+  it('STRAY HIT CALL (P4): no age-grown course radius and no rule (b) — it opens its own plot', () => {
+    const m = mkMind();
+    // A course plot 4 s old predicted at (480, 0): a PAINT 90 u off would join it (F2); a Hit Call must not.
+    m.contacts.set('c', anon({ x: 300, y: 0, seenAt: NOW - 4000, paintX: 300, paintY: 0, paintAt: NOW - 4000, vx: 45, vy: 0, vSrc: 'wake', vAt: NOW - 4000 }));
+    // A course-less plot 150 u off: rule (b) would take a paint; a Hit Call must not.
+    m.contacts.set('n', anon({ x: -150, y: 300, seenAt: NOW - 4000, paintX: -150, paintY: 300, paintAt: NOW - 4000 }));
+    foldView(m, view([{ k: 'hc', id: 'me', x: 480, y: 90 }, { k: 'hc', id: 'me', x: 0, y: 300 }]), NOW);
+    expect(m.contacts.size).toBe(4);
+    expect(m.contacts.get('c')!.hits).toBe(0);
+    expect(m.contacts.get('n')!.hits).toBe(0);
+    // Within the FIXED 54 u of a prediction it still joins, as before this cycle.
+    const j = mkMind();
+    j.contacts.set('n', anon({ x: -150, y: 300, seenAt: NOW - 4000 }));
+    foldView(j, view([{ k: 'hc', id: 'me', x: -110, y: 300 }]), NOW);
+    expect(j.contacts.size).toBe(1);
+    expect(j.contacts.get('n')!.hits).toBe(1);
+  });
+
   it('a Hit Call in empty water opens a plot with NO paint baseline', () => {
     const m = mkMind();
     foldView(m, view([{ k: 'hc', id: 'me', x: 300, y: 300 }]), NOW);
@@ -362,7 +393,7 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
 
 describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
   const SITE: SweepSite = { x: 0, y: 0, stats: { radarRange: 1000 }, islands: [] };
-  const ACROSS = { prevSweepAngle: 2 * Math.PI - 0.05, sweepAngle: 0.05 }; // wraps through bearing 0
+  const ACROSS = { lastSweep: 2 * Math.PI - 0.05, sweepAngle: 0.05 }; // wraps through bearing 0
   const stale = anon({ x: 500, y: 0, seenAt: NOW - 1000 });
 
   it('drops a plot whose predicted spot the beam just swept clean (wrap-safe window)', () => {
@@ -376,19 +407,53 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
   it('keeps it out of radar range, behind an island, off the beam, painted this tick, live, or under a frozen beam', () => {
     expect(sweptAndMissed(ACROSS, { ...SITE, stats: { radarRange: 400 } }, stale, NOW)).toBe(false);
     expect(sweptAndMissed(ACROSS, { ...SITE, islands: [circleIsland(250, 0, 40)] }, stale, NOW)).toBe(false);
-    expect(sweptAndMissed({ prevSweepAngle: 1, sweepAngle: 1.1 }, SITE, stale, NOW)).toBe(false);
+    expect(sweptAndMissed({ lastSweep: 1, sweepAngle: 1.1 }, SITE, stale, NOW)).toBe(false);
     expect(sweptAndMissed(ACROSS, SITE, { ...stale, seenAt: NOW }, NOW)).toBe(false);
     expect(sweptAndMissed(ACROSS, SITE, { ...stale, live: true }, NOW)).toBe(false);
-    expect(sweptAndMissed({ prevSweepAngle: 0, sweepAngle: 0 }, SITE, stale, NOW)).toBe(false);
+    expect(sweptAndMissed({ lastSweep: 0, sweepAngle: 0 }, SITE, stale, NOW)).toBe(false);
   });
 
   it('the window is half-open: start-inclusive, end-exclusive', () => {
-    expect(sweptAndMissed({ prevSweepAngle: 0, sweepAngle: 0.1 }, SITE, stale, NOW)).toBe(true);
-    expect(sweptAndMissed({ prevSweepAngle: 2 * Math.PI - 0.1, sweepAngle: 0 }, SITE, stale, NOW)).toBe(false);
+    expect(sweptAndMissed({ lastSweep: 0, sweepAngle: 0.1 }, SITE, stale, NOW)).toBe(true);
+    expect(sweptAndMissed({ lastSweep: 2 * Math.PI - 0.1, sweepAngle: 0 }, SITE, stale, NOW)).toBe(false);
+  });
+
+  it('PARITY BY CONSTRUCTION (P1): no remembered angle sweeps nothing; the brain remembers its own last angle', () => {
+    expect(sweptAndMissed({ lastSweep: -1, sweepAngle: 0.05 }, SITE, stale, NOW)).toBe(false);
+    const { rec, port } = mgShooter();
+    const m = mkMind();
+    rec.sweepAngle = 1.23;
+    m.view = view([]);
+    m.viewAt = NOW;
+    COMBAT_BRAIN.decide(rec, m, port);
+    expect(m.lastSweep).toBe(1.23);
+    // A view not captured this tick is not folded, and the angle is not taken.
+    rec.sweepAngle = 2.5;
+    m.viewAt = NOW - 50;
+    COMBAT_BRAIN.decideHeld(rec, m, port);
+    expect(m.lastSweep).toBe(1.23);
+    m.viewAt = NOW;
+    COMBAT_BRAIN.decideHeld(rec, m, port);
+    expect(m.lastSweep).toBe(2.5);
+  });
+
+  it('ONE PAINT PER PLOT PER TICK (P2): two paints in one cell refresh two nearby plots once each, neither swept', () => {
+    const m = mkMind();
+    const c = cellCentre(500, 0);
+    m.contacts.set('A', anon({ ...c, seenAt: NOW - 4000, paintX: c.x, paintY: c.y, paintAt: NOW - 4000 }));
+    m.contacts.set('B', anon({ x: c.x + 18, y: c.y, seenAt: NOW - 4000, paintX: c.x + 18, paintY: c.y, paintAt: NOW - 4000 }));
+    foldView(m, view([blipAt(500, 0, NOW), blipAt(500, 0, NOW)]), NOW, { beam: ACROSS, site: SITE });
+    expect(m.contacts.size).toBe(2);
+    for (const k of ['A', 'B']) {
+      const t = m.contacts.get(k)!;
+      expect(t.seenAt).toBe(NOW);
+      expect(t.paintAt).toBe(NOW);
+      expect(t.missSweptAt).toBe(-1);
+    }
   });
 
   const DT = CONFIG.tick.simDtMs;
-  const FROZEN = { prevSweepAngle: 3, sweepAngle: 3 }; // later ticks: the beam has moved on
+  const FROZEN = { lastSweep: 3, sweepAngle: 3 }; // later ticks: the beam has moved on
 
   it('through foldView: a swept plot is MARKED, not dropped, on the tick of the miss', () => {
     const m = mkMind();
@@ -530,6 +595,18 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
     // Last paint inside reach, sailing out of it: 2 s at 45 u/s carries it past.
     const leaving = anon({ x: rangeU - 30, y: 0, seenAt: NOW - 2000, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW - 2000 });
     expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), leaving))).toBeNull();
+  });
+
+  it('HOLDS when the INTERCEPT is beyond reach (P3): outbound at 650 u holds, inbound at 650 u streams', () => {
+    const { rec, port } = mgShooter();
+    const rangeU = rec.stats.equipment.machineGun.rangeU;
+    expect(rangeU).toBe(660);
+    const out = anon({ x: 650, y: 0, seenAt: NOW, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW });
+    expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), out))).toBeNull();
+    const inbound = anon({ x: 650, y: 0, seenAt: NOW, vx: -45, vy: 0, vSrc: 'paint', vAt: NOW });
+    const shot = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), inbound))!;
+    expect(shot.held).toBe(true);
+    expect(shot.aimDist).toBe(rangeU); // the overshoot alone clamps at reach
   });
 });
 

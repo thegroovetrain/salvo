@@ -130,17 +130,14 @@ export interface BotSelf {
    */
   readonly shield?: { readonly hpLeft: number; readonly until: number } | null;
   /**
-   * This hull's OWN radar beam — the post-advance angle and the angle before
-   * this tick's advance, so this tick's paint window is the half-open arc
-   * [prevSweepAngle, sweepAngle) (rad, wrapped to [0, 2π)). PARITY, not a
-   * widening: a human client is sent `OwnShip.sweep` every frame, and the
-   * previous frame's value IS the previous angle. Read by ai/plot.ts's
-   * sweep-miss drop (cycle 165): a plot whose predicted spot the beam just
-   * crossed without a paint is gone — exactly what a human watching the
-   * sweep line pass an empty scope concludes. World's ShipRecord carries both.
+   * This hull's OWN radar beam angle (rad, wrapped to [0, 2π)) — exactly the
+   * `OwnShip.sweep` a human client is sent every frame, and nothing more. The
+   * previous angle is NOT read off the record: the bot remembers its own
+   * last-tick angle on the mind (`BotMind.lastSweep`), the way a client
+   * compares consecutive frames — parity by construction (cycle 165 review).
+   * Read by ai/plot.ts's sweep-miss drop.
    */
   readonly sweepAngle: number;
-  readonly prevSweepAngle: number;
 }
 
 /**
@@ -371,6 +368,12 @@ export interface BotMind {
    *  (ai/plot.ts `foldWakeCells` is the only writer). The course fit for a
    *  first radar paint reads it. Created at enroll, cleared with the life. */
   wakeCells: WakeCell[];
+  /** THE BEAM'S LAST ANGLE (cycle 165 review): this hull's own `sweepAngle`
+   *  as of the previous folded tick, -1 = none. The sweep-miss window is
+   *  [lastSweep, sweepAngle) — what a human client derives from two
+   *  consecutive `OwnShip.sweep` frames. Set at the end of every fold
+   *  (tactics.ts ingest), never on a frozen-helm tick, cleared with the life. */
+  lastSweep: number;
   /** THE DELIBERATED TARGET: the `contacts` key of the track chosen on the
    *  last decision tick, or null. Re-resolved against the live track store
    *  every tick (so steering/firing follow the track's freshest plot between

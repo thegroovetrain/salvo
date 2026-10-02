@@ -2,7 +2,7 @@
 title: 'Bots lead radar plots: course from wake and paint-to-paint, dead-reckoned aim, sweep-miss drop, MG magazine discipline'
 type: 'bugfix'
 created: '2026-10-02'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '433fd485'
 review_loop_iteration: 0
 followup_review_recommended: false

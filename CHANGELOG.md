@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.30] - 2026-10-02
+
+### Changed
+- **Bots can hit what they only have on radar** — a bot now works out a radar plot's course and speed the way a captain reads the scope: from the wake trail behind a fresh paint (the old water is where the ship was) and from how far the paint moved since the last sweep. Every weapon's lead is aimed at where the plot should be now, not where it was last painted. Measured on a pinned machine-gun bot against a torpedo boat sailing at full speed 500 u away: hits went from 0 % to 86 % on a circling target and from 0 % to 100 % on a straight runner; a target in sight stays at 100 %. (Eric, 2026-10-02.)
+- **Bots stop shooting at ghosts** — when a bot's own sweep passes the spot where a plot should be and nothing paints there, the plot is dropped (two ticks of grace for a paint running a hair late). A moving ship stays one plot instead of leaving a trail of stale ones.
+- **The machine gun saves its magazine** — a bot holds the stream when its plot has no course and its last paint is older than one sweep (4 s). The cannon and flak keep firing at stale paint as before (shooting at blips is a skill). The stream is aimed one hull length past the target so a shell cannot die just short of the hull.
+
+### Internal
+- New `server/src/game/ai/plot.ts` (the plotting table: `fitWakeVelocity` off the `wk` age buckets — youngest bucket with a ≥ 36 u baseline, else the oldest; `paintVelocity` with an 18 u stationary floor; `predictedPos`; `associatePaint` — nearest predicted within 54 u + (fastest hull / 3) × age, else the sole course-less plot in reach; `settleSweptMisses` with `SWEEP_MISS_GRACE_MS` = 2 ticks, island LOS as the conservative shadow proxy). `RememberedContact` gains `vx/vy/vAt/vSrc`, `paintX/paintY/paintAt`, `missSweptAt`; `BotMind.wakeCells`; `BotSelf.sweepAngle/prevSweepAngle` (self-reads — a human client is sent `OwnShip.sweep` every frame; no port widening, no perception change, the six exceptions stand). `foldView` order: drop truesight → wake cells → events → contacts → sweep-miss mark/drop → wake refit → prune. A Hit Call on a course plot refreshes it at its predicted position (never the impact point). `leadPoint` leads the predicted position; torpedo/broadside refuse only a course-less plot; the MG hold rule and the aim-past overshoot live in `streamSolve`.
+- Tests: server 2347 -> 2387 (`botPlot.test.ts` 35, `botGunnery.test.ts` 6 regression pins with bars from the measured geometry — a parked END-ON torpedo boat is a 9 u silhouette against the bot's 12 u scatter disc at 500 u, so its bar is 50 %; beam-on is 95 %), shared 1025 and client 3811 unchanged, hook test 266, lint 0 errors.
+- Epic-8 amendments 229–231; `spec-bot-radar-plots-lead-and-wake.md`. No How-to-Play change (bots only).
+
 ## [0.18.28] - 2026-10-01
 
 ### Added

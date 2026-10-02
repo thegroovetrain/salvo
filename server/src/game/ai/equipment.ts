@@ -39,7 +39,6 @@
 
 import {
   CONFIG,
-  SHIP_CLASS_IDS,
   bearing,
   hullEnvelope,
   inArc,
@@ -60,7 +59,7 @@ import {
   type BotTrack,
 } from './utility.js';
 import type { BotProfile } from './profiles.js';
-import { TRACK_PERSIST_MS, predictedPos, trackVelocity } from './plot.js';
+import { LONGEST_HULL_U, TRACK_PERSIST_MS, predictedPos, trackVelocity } from './plot.js';
 import {
   APPETITE_EAGER,
   APPETITE_NEUTRAL,
@@ -184,9 +183,6 @@ const flakTactic: EquipmentTactic = {
   solve: (ctx) => burstSolve(ctx, 'flak', ctx.sit.stats.equipment.flak.rangeU),
 };
 
-/** u — the LONGEST participant hull, the aim-past overshoot for a plot of
- *  unknown class (off the class table, never a literal). */
-const LONGEST_HULL_U = Math.max(...SHIP_CLASS_IDS.map((id) => hullEnvelope(id).hull.length));
 
 /**
  * THE MAGAZINE DISCIPLINE (Eric ruling 2026-10-02, cycle 165): the machine gun
@@ -231,8 +227,12 @@ function streamSolve(ctx: TacticContext): Shot | null {
   const q = predictedPos(t, sit.now);
   if (Math.hypot(q.x - sit.x, q.y - sit.y) > rangeU) return null;
   const p = aimPoint(ctx.mind, sit, t, CONFIG.machineGun.shellSpeed);
+  const leadD = Math.hypot(p.x - sit.x, p.y - sit.y);
+  // An intercept beyond reach is a stream that can only fall short — hold, the
+  // burstSolve rule (cycle 165 review). Only the overshoot may clamp at reach.
+  if (leadD > rangeU) return null;
   if (!shotReaches(ctx.self, sit, p)) return null;
-  const d = Math.min(Math.hypot(p.x - sit.x, p.y - sit.y) + overshootU(t), rangeU);
+  const d = Math.min(leadD + overshootU(t), rangeU);
   return { aim: bearing(ctx.self.state, p), aimDist: d, slot: ctx.slot, held: true };
 }
 

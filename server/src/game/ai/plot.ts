@@ -44,7 +44,7 @@ import {
   type Island,
   type Vec2,
 } from '@salvo/shared';
-import type { BotMind, BotSelf, RememberedContact, WakeCell } from './types.js';
+import type { BotMind, RememberedContact, WakeCell } from './types.js';
 
 export type { WakeCell } from './types.js';
 
@@ -64,6 +64,11 @@ export const TRACK_PERSIST_MS = 60000 / CONFIG.vision.sweepRpm;
 export const FASTEST_HULL_SPEED = Math.max(
   ...SHIP_CLASS_IDS.map((id) => hullEnvelope(id).kinematics.maxSpeed),
 );
+
+/** u — the LONGEST participant hull (off the class table, never a literal):
+ *  the machine gun's aim-past overshoot for a plot of unknown class, and half
+ *  of it bounds how far from a plot's centre a Hit Call can land. */
+export const LONGEST_HULL_U = Math.max(...SHIP_CLASS_IDS.map((id) => hullEnvelope(id).hull.length));
 
 /** u — how far from a plot a wake cell may lie and still be ITS water: the
  *  longest ribbon the fastest hull can leave (top speed × the water's life)
@@ -380,7 +385,7 @@ function nearestPredictedAnon(tracks: TrackMap, p: Vec2, now: number): string | 
   let best: string | null = null;
   let bestD = Infinity;
   for (const [key, t] of tracks) {
-    if (t.id !== null) continue;
+    if (t.id !== null || t.seenAt === now) continue; // one paint per plot per tick
     const q = predictedPos(t, now);
     const d = Math.hypot(q.x - p.x, q.y - p.y);
     if (d <= predictedAssocRadius(t, now) && d < bestD) {
@@ -404,7 +409,7 @@ function courselessReach(t: RememberedContact, now: number): number {
 function soleCourselessCandidate(tracks: TrackMap, p: Vec2, now: number): string | null {
   let found: string | null = null;
   for (const [key, t] of tracks) {
-    if (t.id !== null || trackVelocity(t) !== null) continue;
+    if (t.id !== null || t.seenAt === now || trackVelocity(t) !== null) continue;
     if (Math.hypot(t.x - p.x, t.y - p.y) > courselessReach(t, now)) continue;
     if (found !== null) return null;
     found = key;
@@ -422,6 +427,11 @@ function soleCourselessCandidate(tracks: TrackMap, p: Vec2, now: number): string
  *       last paint at the fastest hull's speed — the second paint that gives
  *       a plot its first measured course;
  *   else null (the caller opens a new plot).
+ * ONE PAINT PER PLOT PER TICK (cycle 165 review): a plot already refreshed
+ * this tick is skipped by both rules, so a second same-tick paint (two hulls
+ * close together) cannot re-take the plot the first paint just moved — it
+ * goes to the next candidate or opens its own plot, and the other hull's plot
+ * is not left looking swept clean.
  */
 export function associatePaint(tracks: TrackMap, p: Vec2, now: number): string | null {
   return nearestPredictedAnon(tracks, p, now) ?? soleCourselessCandidate(tracks, p, now);
@@ -440,17 +450,23 @@ export interface SweepSite {
   readonly islands: readonly Island[];
 }
 
-/** The two beam angles off the bot's own record (BotSelf's self-read). */
-export type SweepBeam = Pick<BotSelf, 'sweepAngle' | 'prevSweepAngle'>;
+/** The beam: this tick's angle (BotSelf's self-read) and the angle the bot
+ *  remembered from its previous fold (`BotMind.lastSweep`, -1 = none). */
+export interface SweepBeam {
+  readonly sweepAngle: number;
+  readonly lastSweep: number;
+}
 
-/** Did this tick's beam cross bearing `brg`? The perception boundary's own
- *  half-open, wrap-safe window [prevSweepAngle, sweepAngle) — replicated
- *  rather than imported (ai/ may not import signals.js). Start-inclusive,
- *  strict at the end, so a bearing is crossed exactly once per revolution and
- *  a zero-width window (a frozen beam) crosses nothing. */
+/** Did the beam cross bearing `brg` since the last fold? The perception
+ *  boundary's own half-open, wrap-safe window — [lastSweep, sweepAngle) —
+ *  replicated rather than imported (ai/ may not import signals.js).
+ *  Start-inclusive, strict at the end, so a bearing is crossed exactly once
+ *  per revolution; a zero-width window (a frozen beam) or no remembered angle
+ *  (the first fold of a life) crosses nothing. */
 function beamCrossed(beam: SweepBeam, brg: number): boolean {
-  const window = wrapPositive(beam.sweepAngle - beam.prevSweepAngle);
-  return wrapPositive(brg - beam.prevSweepAngle) < window;
+  if (beam.lastSweep < 0) return false;
+  const window = wrapPositive(beam.sweepAngle - beam.lastSweep);
+  return wrapPositive(brg - beam.lastSweep) < window;
 }
 
 /**

@@ -97,6 +97,7 @@ function mkMind(profile: BotProfileId, seed = 7): BotMind {
     viewAt: -1,
     contacts: new Map(),
     wakeCells: [],
+    lastSweep: -1,
     targetKey: null,
     posture: 'reposition',
     stuckMs: 0,

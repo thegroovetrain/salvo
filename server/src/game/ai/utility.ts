@@ -72,6 +72,8 @@ import type { PerceptionView } from '../perception.js';
 import type { BotMind, BotPosture, RememberedContact } from './types.js';
 import { engagementBand, type BotProfile } from './profiles.js';
 import {
+  ANON_ASSOC_U,
+  LONGEST_HULL_U,
   TRACK_PERSIST_MS,
   associatePaint,
   settleSweptMisses,
@@ -134,13 +136,17 @@ export interface BotSituation {
   islands: readonly Island[];
 }
 
-/** u — how near a Hit Call must land to be credited to a track. Twice the
- *  WIDEST gun-family blast covers "that was the thing I was shooting at"
- *  without crediting a hull a map away. Derived from the max rather than a
- *  named weapon (it was the cannon's 30u until Story 7-5 wave 2 deleted the
- *  cannon; the broadside that replaced it bursts at the gun's 15u), so a
- *  retune of either blast moves this with it. */
-const HIT_ASSOC_U = Math.max(CONFIG.gun.burstRadius, CONFIG.broadside.burstRadius) * 2;
+/** u — how near a Hit Call must land (to a plot's PREDICTED centre) to be
+ *  credited to it. Twice the WIDEST gun-family blast covers "that was the
+ *  thing I was shooting at" for a burst (derived from the max rather than a
+ *  named weapon — it was the cannon's 30u until Story 7-5 wave 2 deleted the
+ *  cannon — so a retune of either blast moves this with it). AND at least
+ *  HALF THE LONGEST HULL (cycle 165 review): a direct-hit connection proves
+ *  the hull covers the impact point, and a hull covers half its length either
+ *  side of its centre — measured, 30u split a streamed target into a stray
+ *  plot at every hit near the bow or stern and cost the radar-orbit probe 24
+ *  points of hit rate. */
+const HIT_ASSOC_U = Math.max(Math.max(CONFIG.gun.burstRadius, CONFIG.broadside.burstRadius) * 2, LONGEST_HULL_U / 2);
 
 /** Hit Calls that read as "crippled" (the damage term saturates here). A
  *  severity-free count is all the wire gives; three connections is a real
@@ -271,13 +277,17 @@ function anonKey(x: number, y: number): string {
   return `a:${Math.round(x)}:${Math.round(y)}`;
 }
 
-/** Fold an identity-free position (a return-grammar paint, or a Hit Call in
- *  empty water) into the anonymous plot it belongs to (ai/plot.ts
- *  `associatePaint` — predicted position first, then the sole course-less
- *  candidate), or open a new one. Writes NO paint baseline: a Hit Call that
- *  opens a plot here is not a radar measurement. */
-function foldAnonymous(tracks: TrackMap, x: number, y: number, now: number): string {
-  const key = associatePaint(tracks, { x, y }, now) ?? anonKey(x, y);
+/**
+ * A Hit Call that credited no plot inside HIT_ASSOC_U: join an anonymous plot
+ * whose predicted position is within the FIXED ANON_ASSOC_U, or open a new
+ * one. Deliberately NOT the paint association (cycle 165 review): a burst
+ * point is not a radar paint, and the age-grown course radius and the
+ * sole-course-less second chance are paint-association rules — letting a
+ * stray connection drag a plot ~100 u through them would corrupt the plot the
+ * next paint associates to. Writes NO paint baseline.
+ */
+function foldStrayHitCall(tracks: TrackMap, x: number, y: number, now: number): string {
+  const key = nearestPredicted(tracks, { x, y }, now, ANON_ASSOC_U, true) ?? anonKey(x, y);
   writeTrack(tracks, key, { id: null, x, y, heading: null, speed: null, cls: null }, now, false);
   return key;
 }
@@ -330,7 +340,7 @@ function hitCallPosition(t: BotTrack, x: number, y: number, now: number): Vec2 {
  *  or opens one, which is exactly what the shooter is entitled to conclude.
  *  It never touches the paint baseline or the course. */
 function foldHitCall(tracks: TrackMap, x: number, y: number, now: number): void {
-  const key = nearestPredicted(tracks, { x, y }, now, HIT_ASSOC_U, false) ?? foldAnonymous(tracks, x, y, now);
+  const key = nearestPredicted(tracks, { x, y }, now, HIT_ASSOC_U, false) ?? foldStrayHitCall(tracks, x, y, now);
   const t = tracks.get(key);
   if (t === undefined) return;
   const at = hitCallPosition(t, x, y, now);
