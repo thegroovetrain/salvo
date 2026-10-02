@@ -1000,8 +1000,8 @@ export const CONFIG = {
     // IS GONE (`gunDamage`, deleted in Story 7-5 wave 1 — Eric: *"The gun is
     // absurdly powerful and does not need damage bonuses"*), so 15 is now the
     // gun's BASE damage. Since 2026-10-02 (Eric, epic-8 amendment 232) the
-    // `deckGun` ladder steps it +1/+1/+2/+1 to 20 at tier V with 3 barrels, so
-    // the max cannon click is 3 × 20 = 60 — the 45hp small drone one-clicks
+    // `deckGun` ladder steps it +1/+2/+1/+2 to 21 at tier V with 3 barrels, so
+    // the max cannon click is 3 × 21 = 63 — the 45hp small drone one-clicks
     // again, an ACCEPTED consequence (damageGuardrail.test pins the ceiling).
     damage: 15,
     // hp to an early interceptor outside the blast (bodyblock). RETUNED 10 → 6

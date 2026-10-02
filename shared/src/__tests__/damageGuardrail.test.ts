@@ -238,9 +238,9 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
   });
 
   it('the drafted ladder endpoints land where the spec ruled them', () => {
-    // THE DECK GUN LADDER (catalog-v3 R14): 15 -> 20 across four tiers, and
-    // 20 is still comfortably under the 250hp floor.
-    expect(stacked('deckGun').equipment.gun.damage).toBe(20);
+    // THE DECK GUN LADDER (amendment 232, Eric 2026-10-02): 15 -> 21 across
+    // four tiers, and 21 is still comfortably under the 250hp floor.
+    expect(stacked('deckGun').equipment.gun.damage).toBe(21);
     expect(stacked('deckGun').equipment.gun.damage).toBeLessThan(minHullHp);
     // Every other damage endpoint IS its base this cycle — pinned so a silent
     // re-add is visible.
@@ -305,12 +305,12 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     //
     // 2026-10-02: THE SMALL-DRONE ONE-CLICK IS BACK, AND ACCEPTED (Eric,
     // epic-8 amendment 232). Eric's cannon table puts barrels at tiers II and
-    // IV (1/2/2/3/3) and damage 15/16/17/19/20, so the maxed click is
-    // 3 × 20 = 60 (57 at tier IV) — every shell landing one-clicks an
+    // IV (1/2/2/3/3) and damage 15/16/18/19/21, so the maxed click is
+    // 3 × 21 = 63 (57 at tier IV) — every shell landing one-clicks an
     // undamaged 45hp small drone again. This test DOCUMENTS THE CEILING; it
     // is no longer a "below drone hp" guarantee. A future barrel or damage
     // change moves this pin, which keeps that a visible decision.
-    expect(perShell * barrels).toBe(60);
+    expect(perShell * barrels).toBe(63);
     expect(perShell * barrels).toBeGreaterThanOrEqual(minDroneHp); // accepted, amendment 232
     expect(perShell * barrels).toBeLessThan(minHullHp); // minHullHp === Math.min(...classHps)
   });

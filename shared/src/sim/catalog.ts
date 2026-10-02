@@ -272,7 +272,7 @@ export function ladderSteps(
 }
 
 /** One CANNON rung's whole-number damage step (Eric 2026-10-02, epic-8
- *  amendment 232: +1, +1, +2, +1 → 15 / 16 / 17 / 19 / 20). */
+ *  amendment 232: +1, +2, +1, +2 → 15 / 16 / 18 / 19 / 21). */
 const cannonDamage = (step: number): BoonEffect => statEffect('equipment.gun.damage', { add: step });
 /** One FLAK rung's damage step (Eric 2026-10-02, epic-8 amendment 232:
  *  +8 → 12 / 20 / 28 / 36 / 44). */
@@ -448,9 +448,9 @@ export const CATALOG: Catalog = deepFreezeRows({
     'deckGun',
     [
       [cannonDamage(1), statEffect('equipment.gun.barrels', { add: 1 })], // I → II — a second barrel
-      [cannonDamage(1), statEffect('equipment.gun.maxAmmo', { add: 1 })], // II → III — the second turret
-      [cannonDamage(2), statEffect('equipment.gun.barrels', { add: 1 })], // III → IV — a third barrel
-      [cannonDamage(1)], // IV → V
+      [cannonDamage(2), statEffect('equipment.gun.maxAmmo', { add: 1 })], // II → III — the second turret
+      [cannonDamage(1), statEffect('equipment.gun.barrels', { add: 1 })], // III → IV — a third barrel
+      [cannonDamage(2)], // IV → V
     ],
     { appliesTo: ['gun'] },
   ),

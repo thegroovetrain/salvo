@@ -149,10 +149,10 @@ describe('catalog v3 identity', () => {
     const barrel = { kind: 'stat', path: 'equipment.gun.barrels', add: 1 };
     expect(CATALOG.deckGun.appliesTo).toEqual(['gun']);
     expect(CATALOG.deckGun.tiers).toEqual([
-      [dmg(1), barrel], // I → II
-      [dmg(1), { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }], // II → III
-      [dmg(2), barrel], // III → IV
-      [dmg(1)], // IV → V
+      [dmg(1), barrel], // I → II — 15 → 16
+      [dmg(2), { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }], // II → III — 16 → 18
+      [dmg(1), barrel], // III → IV — 18 → 19
+      [dmg(2)], // IV → V — 19 → 21
     ]);
   });
 

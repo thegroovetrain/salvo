@@ -48,7 +48,7 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(labels(CATALOG.turning)).toEqual(['TURNING']);
     expect(labels(CATALOG.radarSweep)).toEqual(['RADAR SWEEP']);
     expect(labels(CATALOG.reload)).toEqual(['ALL COOLDOWNS']);
-    expect(labels(CATALOG.deckGun)).toEqual(['GUN DAMAGE']);
+    expect(labels(CATALOG.deckGun)).toEqual(['GUN DAMAGE', 'SHELLS PER SHOT']);
   });
 
   it('TURNING prints WHOLE DEGREES PER SECOND with the unit (Eric 2026-09-30): 46°/s → 49°/s on a bare Torpedo Boat', () => {
@@ -69,11 +69,11 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
   });
 
   it('prints the DECK GUN ladder in whole hit points (amendment 39)', () => {
-    // Eric's own scale: 15 → 16 → 17 → 18 → 20, floored once post-fold. Nothing
-    // on this row may show the +1.25 the catalog actually authors.
+    // Eric's own scale (2026-10-02): 15 → 16 → 18 → 19 → 21, whole numbers per
+    // rung. Nothing on this row may show a fraction.
     const steps = [0, 1, 2, 3].map((k) => cardStatRows(CATALOG.deckGun, k, held('deckGun', k))[0]);
     expect(steps.map((r) => [r.cur, r.next])).toEqual([
-      ['15', '16'], ['16', '17'], ['17', '18'], ['18', '20'],
+      ['15', '16'], ['16', '18'], ['18', '19'], ['19', '21'],
     ]);
     for (const r of steps) {
       expect(r.cur).not.toContain('.');
@@ -391,12 +391,12 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   // THE DECK GUN FACE (amendment 71, read since amendment 197 as ONE ROW PER
   // AUTHORED STEP — 198(a)): it is a LADDER, not an equipment line, so it never
   // touches the tier-card rule and its tier-derived reload cut stays silent.
-  // The rungs to II and IV author damage alone (one row); the rungs to III and
-  // V also author the second turret / the second barrel (two rows), printed
-  // with the copy table's existing words `ROUNDS` and `SHELLS PER SHOT`.
-  it('prints the CANNON face one row per authored step — one at II and IV, two at III and V', () => {
+  // The rungs to II, III and IV author two steps (damage plus a barrel / a
+  // turret), the rung to V damage alone (Eric 2026-10-02), printed with the
+  // copy table's existing words `ROUNDS` and `SHELLS PER SHOT`.
+  it('prints the CANNON face one row per authored step — two at II, III and IV, one at V', () => {
     const rowsAt = (k: number): number => cardStatRows(CATALOG.deckGun, k, held('deckGun', k)).length;
-    expect([0, 1, 2, 3].map(rowsAt)).toEqual([1, 2, 1, 2]);
+    expect([0, 1, 2, 3].map(rowsAt)).toEqual([2, 2, 2, 1]);
   });
 });
 
@@ -407,44 +407,45 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
 // on the rungs to III and V. Every authored step prints its own row, with no
 // new words.
 describe('cardStatRows — the CANNON and FLAK rungs that carry a turret or a barrel', () => {
-  it('CANNON rung to II: GUN DAMAGE 15 to 16, alone', () => {
+  it('CANNON rung to II: GUN DAMAGE 15 to 16 and SHELLS PER SHOT 1 to 2 (the second barrel)', () => {
     expect(cardStatRows(CATALOG.deckGun, 0, held('deckGun', 0))).toEqual([
       { label: 'GUN DAMAGE', cur: '15', next: '16' },
-    ]);
-  });
-
-  it('CANNON rung to III: GUN DAMAGE 16 to 17 and ROUNDS 1 to 2 (the second turret)', () => {
-    expect(cardStatRows(CATALOG.deckGun, 1, held('deckGun', 1))).toEqual([
-      { label: 'GUN DAMAGE', cur: '16', next: '17' },
-      { label: 'ROUNDS', cur: '1', next: '2' },
-    ]);
-  });
-
-  it('CANNON rung to IV: GUN DAMAGE 17 to 18, alone', () => {
-    expect(cardStatRows(CATALOG.deckGun, 2, held('deckGun', 2))).toEqual([
-      { label: 'GUN DAMAGE', cur: '17', next: '18' },
-    ]);
-  });
-
-  it('CANNON rung to V: GUN DAMAGE 18 to 20 and SHELLS PER SHOT 1 to 2 (the second barrel)', () => {
-    expect(cardStatRows(CATALOG.deckGun, 3, held('deckGun', 3))).toEqual([
-      { label: 'GUN DAMAGE', cur: '18', next: '20' },
       { label: 'SHELLS PER SHOT', cur: '1', next: '2' },
     ]);
   });
 
-  it('FLAK rung to III: RELOAD, DAMAGE 14 to 16 and ROUNDS 1 to 2', () => {
-    expect(cardStatRows(CATALOG.flak, 1, held('flak', 1))).toEqual([
-      { label: 'RELOAD', cur: '3.8 s', next: '3.6 s' },
-      { label: 'DAMAGE', cur: '14', next: '16' },
+  it('CANNON rung to III: GUN DAMAGE 16 to 18 and ROUNDS 1 to 2 (the second turret)', () => {
+    expect(cardStatRows(CATALOG.deckGun, 1, held('deckGun', 1))).toEqual([
+      { label: 'GUN DAMAGE', cur: '16', next: '18' },
       { label: 'ROUNDS', cur: '1', next: '2' },
     ]);
   });
 
-  it('FLAK rung to V: RELOAD, DAMAGE 18 to 20 and ROUNDS 2 to 3', () => {
-    expect(cardStatRows(CATALOG.flak, 3, held('flak', 3))).toEqual([
-      { label: 'RELOAD', cur: '3.4 s', next: '3.2 s' },
-      { label: 'DAMAGE', cur: '18', next: '20' },
+  it('CANNON rung to IV: GUN DAMAGE 18 to 19 and SHELLS PER SHOT 2 to 3 (the third barrel)', () => {
+    expect(cardStatRows(CATALOG.deckGun, 2, held('deckGun', 2))).toEqual([
+      { label: 'GUN DAMAGE', cur: '18', next: '19' },
+      { label: 'SHELLS PER SHOT', cur: '2', next: '3' },
+    ]);
+  });
+
+  it('CANNON rung to V: GUN DAMAGE 19 to 21, alone', () => {
+    expect(cardStatRows(CATALOG.deckGun, 3, held('deckGun', 3))).toEqual([
+      { label: 'GUN DAMAGE', cur: '19', next: '21' },
+    ]);
+  });
+
+  it('FLAK rung to II: RELOAD, DAMAGE 12 to 20 and ROUNDS 1 to 2', () => {
+    expect(cardStatRows(CATALOG.flak, 0, held('flak', 0))).toEqual([
+      { label: 'RELOAD', cur: '3.5 s', next: '3.3 s' },
+      { label: 'DAMAGE', cur: '12', next: '20' },
+      { label: 'ROUNDS', cur: '1', next: '2' },
+    ]);
+  });
+
+  it('FLAK rung to IV: RELOAD, DAMAGE 28 to 36 and ROUNDS 2 to 3', () => {
+    expect(cardStatRows(CATALOG.flak, 2, held('flak', 2))).toEqual([
+      { label: 'RELOAD', cur: '3.1 s', next: '3.0 s' },
+      { label: 'DAMAGE', cur: '28', next: '36' },
       { label: 'ROUNDS', cur: '2', next: '3' },
     ]);
   });
@@ -677,20 +678,24 @@ describe('cardStatRows — the machine gun and flak ladders (Story 8.15)', () =>
     return cardStatRows(CATALOG[id], copiesHeld, held(id, copiesHeld)).map((r) => `${r.label} ${r.cur ?? ''}>${r.next}`);
   }
 
-  it('MACHINE GUN tier II: RELOAD 10.0 s to 9.5 s, SHELLS 16 to 18, DAMAGE 4 to 5, RATE 0.35 s to 0.31 s', () => {
-    expect(face('machineGun', 0)).toEqual(['RELOAD 10.0 s>9.5 s', 'SHELLS 16>18', 'DAMAGE 4>5', 'RATE 0.35 s>0.31 s']);
+  it('MACHINE GUN tier II: RELOAD 12.0 s to 11.4 s, SHELLS 12 to 16, DAMAGE 5 to 6, RATE 0.30 s to 0.25 s', () => {
+    expect(face('machineGun', 0)).toEqual(['RELOAD 12.0 s>11.4 s', 'SHELLS 12>16', 'DAMAGE 5>6', 'RATE 0.30 s>0.25 s']);
   });
 
-  it('MACHINE GUN tops out at 24 shells / 8 damage / 8.0 s / 0.20 s at tier V', () => {
-    expect(face('machineGun', 3)).toEqual(['RELOAD 8.5 s>8.0 s', 'SHELLS 22>24', 'DAMAGE 7>8', 'RATE 0.23 s>0.20 s']);
+  it('MACHINE GUN rungs to III and V author no damage: RELOAD, SHELLS and RATE only', () => {
+    expect(face('machineGun', 1)).toEqual(['RELOAD 11.4 s>10.8 s', 'SHELLS 16>20', 'RATE 0.25 s>0.20 s']);
+    expect(face('machineGun', 3)).toEqual(['RELOAD 10.2 s>9.6 s', 'SHELLS 24>28', 'RATE 0.15 s>0.10 s']);
   });
 
-  it('FLAK tier II: RELOAD 4.0 s to 3.8 s (6 s → 4 s at tier I, amendment 210), DAMAGE 12 to 14 — and the blast never moves', () => {
-    // The rungs to III and V also add a flak turret (amendment 197): ROUNDS.
-    expect(face('flak', 0)).toEqual(['RELOAD 4.0 s>3.8 s', 'DAMAGE 12>14']);
-    expect(face('flak', 1)).toEqual(['RELOAD 3.8 s>3.6 s', 'DAMAGE 14>16', 'ROUNDS 1>2']);
-    expect(face('flak', 2)).toEqual(['RELOAD 3.6 s>3.4 s', 'DAMAGE 16>18']);
-    expect(face('flak', 3)).toEqual(['RELOAD 3.4 s>3.2 s', 'DAMAGE 18>20', 'ROUNDS 2>3']);
+  it('MACHINE GUN rung to IV: damage 6 to 7 returns', () => {
+    expect(face('machineGun', 2)).toEqual(['RELOAD 10.8 s>10.2 s', 'SHELLS 20>24', 'DAMAGE 6>7', 'RATE 0.20 s>0.15 s']);
+  });
+
+  it('FLAK ladder: DAMAGE climbs 12 / 20 / 28 / 36 / 44 and the pool steps sit on the rungs to II and IV — the blast never moves', () => {
+    expect(face('flak', 0)).toEqual(['RELOAD 3.5 s>3.3 s', 'DAMAGE 12>20', 'ROUNDS 1>2']);
+    expect(face('flak', 1)).toEqual(['RELOAD 3.3 s>3.1 s', 'DAMAGE 20>28']);
+    expect(face('flak', 2)).toEqual(['RELOAD 3.1 s>3.0 s', 'DAMAGE 28>36', 'ROUNDS 2>3']);
+    expect(face('flak', 3)).toEqual(['RELOAD 3.0 s>2.8 s', 'DAMAGE 36>44']);
     expect(face('flak', 3).some((r) => r.startsWith('BURST'))).toBe(false);
   });
 

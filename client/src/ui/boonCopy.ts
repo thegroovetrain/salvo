@@ -339,8 +339,9 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   reload: { label: 'All cooldowns', path: 'cooldownScale', fmt: pct },
   // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
   // the tier in clampStats and stays silent): damage is the number the player
-  // watches change. Since amendment 197 the rungs to III and V also author the
-  // second turret (`equipment.gun.maxAmmo`) and the second barrel
+  // watches change. Since Eric's 2026-10-02 tables the rungs to II and IV also
+  // author a barrel, the rung to III the second turret, the rung to V damage
+  // alone. The pool is `equipment.gun.maxAmmo` and the barrels
   // (`equipment.gun.barrels`); those rows print through the FIELD_WORDS
   // fallback (`ROUNDS`, `SHELLS PER SHOT`) — no entry here, no new words.
   deckGun: { label: 'Gun damage', path: 'equipment.gun.damage' },
@@ -361,8 +362,8 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
  * two print it too, first, then their authored steps. The DECK GUN (CANNON)
  * ladder is NOT here: amendment 71 ruled its face the damage row and no reload
  * row, read since amendment 197 (198(a)) as ONE ROW PER AUTHORED STEP — the
- * rungs to II and IV print damage alone, the rungs to III and V print damage
- * plus `ROUNDS` (the second turret) or `SHELLS PER SHOT` (the second barrel).
+ * rungs to II and IV print damage plus `SHELLS PER SHOT` (a barrel), the rung to
+ * III damage plus `ROUNDS` (the second turret), the rung to V damage alone.
  */
 const GUN_LADDER_RELOAD: ReadonlySet<string> = new Set(['machineGun', 'flak']);
 
@@ -630,8 +631,8 @@ function rad(v: number): string {
 const FIELD_FMTS: Readonly<Record<string, (v: number) => string>> = {
   slowFactor: pct,
   homingTurnRate: rad,
-  // The machine gun's shot delay steps by 30-40 ms (0.35 / 0.31 / 0.27 / 0.23 /
-  // 0.20 s), which the one-decimal `secs` would flatten — two decimals, the
+  // The machine gun's shot delay steps by 50 ms (0.30 / 0.25 / 0.20 / 0.15 /
+  // 0.10 s), which the one-decimal `secs` would flatten — two decimals, the
   // trailing zero kept so the ladder reads in one register.
   rateMs: (v) => `${(v / 1000).toFixed(2)} s`,
 };
@@ -718,8 +719,8 @@ function diffRow(path: string, before: EffectiveStats, after: EffectiveStats): C
  * Pure: a LADDER line's rows — one per `stat` effect in the tier this card
  * WOULD apply (`tiers[copiesHeld]`, clamped to the last authored rung), valued
  * through the live preview diff. A rung may author more than one stat effect
- * (since amendment 197 the CANNON rungs to III and V add a pool and a barrel
- * step, the FLAK rungs to III and V a pool step), and EVERY authored step
+ * (the CANNON rungs to II and IV add a barrel step and the rung to III a pool
+ * step, the FLAK rungs to II and IV a pool step; Eric 2026-10-02), and EVERY authored step
  * prints its own row (amendment 85's rule, 198(a)) — a two-number rung must
  * not silently print only one of them.
  *
