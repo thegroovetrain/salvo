@@ -108,7 +108,7 @@ Readings: at tier V in bot hands **all three guns are equal within CI** (≈ 6.2
 | --- | --- | --- | --- | --- | --- | --- |
 | P1 | `shipClasses.mineLayer.hp` + `shipClasses.torpedoBoat.hp` together | 300 → 275 and 250 → 275 | class share 25/28/46 → 37/33/29 (all consistent with band); attrition unchanged (+0.2 alive@4:00, n.s.) | 99 + 99 + 99 | flat heals and ARMOR (+25) are worth proportionally more to the 250 hp hull; the SPEEDBOAT at 275 narrows its hp gap to the REPEATER to 0 | PENDING |
 | P2 | `zone.ringSteps.0` | 0.333 → 0.45 | alive@4:00 11.8 → 10.8 (hits 10); alive@8:00 3.3 → 2.7 (worse); matches 26 s shorter | 99 | fixes ring 1, worsens ring 2; the geometry is amendment 5's pure-geometric shrink | PENDING |
-| P3 | `flak.reloadMs` | 4000 → 5000 | flak T1 kill rate 1.15 → 0.88 (sig.); T5 6.6 → 5.2; MG becomes T1 leader on point estimate; paper flak DPS 3.0 → 2.4 at I, 6.25 → 5.0 at V | 99 gun-first | flak was just cut 6 → 4 s on 2026-10-01 (amendment 210); this gives back half | PENDING |
+| P3 | `flak.reloadMs` | 4000 → 5000 | flak T1 kill rate 1.15 → 0.88 (sig.); T5 6.6 → 5.2; MG becomes T1 leader on point estimate; paper flak DPS 3.0 → 2.4 at I, 6.25 → 5.0 at V | 99 gun-first | flak was just cut 6 → 4 s on 2026-10-01 (amendment 210); this gives back half | WITHDRAWN — Eric 2026-10-02: gun balance will be done by math, not sim; bot MG aim makes the gun readings untrusted |
 | P4 | `instantReload.reloadMs` | 45000 → 90000 | REPEATER −4 pp (null at this tier) | 99 | — | NOT RECOMMENDED (no measured effect) |
 | P5 | `boost.reloadMs` | 25000 → 15000 | SPEEDBOAT −3 pp, DREADNOUGHT +12 pp | 99 | — | NOT RECOMMENDED (did not help the SPEEDBOAT) |
 | P6 | `gun.damage` | 15 → 17 | no measurable cannon change at any tier | 99 gun-first | — | NOT RECOMMENDED (null) |
@@ -124,3 +124,7 @@ Readings: at tier V in bot hands **all three guns are equal within CI** (≈ 6.2
 - Ring 3 is unmeasurable while matches end around 10:20; it becomes measurable only after ring 2 is fixed.
 - The `anyKill` bar (49 %) stays failing; Eric's 2026-09-30 ruling treats pool-era bars as measurements.
 - Bodyblock contact damage is live and reduces cannon/flak output; work item open.
+
+## 5. Ruling after delivery (Eric, 2026-10-02)
+
+Eric: *"I think the math is all off with the guns. I'm going to use a math approach to balance those. Frankly because of how 'bad' the bots are with the MG I don't think I trust your results."* **Standing:** target 2 (gun tiers) leaves the sim; every gun reading in §1c and §2c is bot-hand evidence Eric does not trust, and no gun proposal is to be made off it. P3 is withdrawn. The sim remains the instrument for targets 1 (attrition) and 3 (class share) only. P1 and P2 are still pending his ruling.
