@@ -22,7 +22,9 @@ import {
   hullSilhouette,
   islandDistance,
   isAfloat,
+  MOUNTED_GUN,
   transformPolygon,
+  type GunId,
   type Island,
   type Vec2,
 } from '@salvo/shared';
@@ -159,6 +161,25 @@ export interface BotSample {
    *  instead of merely red. */
   landEpisodes: number;
   maxLandRunTicks: number;
+  /** The gun this bot mounted (`ship.gun` — fixed for the whole match). */
+  gun: GunId;
+  /** The gun's ladder rung (1..5) at the last AFLOAT reading, read off
+   *  `ship.stats.equipment[MOUNTED_GUN[gun]].tier` — the tier effectiveStats
+   *  itself derives (1 + copies of the gun's line in ship.cards). */
+  gunTier: number;
+  /** PARTICIPANT kills bucketed by this bot's gun tier AT THE MOMENT of the
+   *  kill. Length 6, indexed by tier directly: index 0 is always 0 (unused),
+   *  1..5 = tier I..V. Sums to `kills` (PvE fleet kills are not counted). */
+  killsByTier: number[];
+}
+
+/** A zeroed killsByTier column (see BotSample.killsByTier). */
+export const emptyKillsByTier = (): number[] => [0, 0, 0, 0, 0, 0];
+
+/** The ship's current gun-ladder rung — the canonical reading effectiveStats
+ *  pins on the mounted gun module's equipment row. */
+export function gunTierOf(ship: Pick<ShipRecord, 'gun' | 'stats'>): number {
+  return ship.stats.equipment[MOUNTED_GUN[ship.gun]].tier;
 }
 
 /** Mutable per-bot accumulation; frozen into a BotSample at the finish. */
@@ -186,6 +207,8 @@ interface BotTrack {
   picks: BotPick[];
   offersSeen: Record<string, number>;
   offerHands: number;
+  gunTier: number;
+  killsByTier: number[];
   /** The offer array reference last tallied (CatalogCollector.seenOffer's
    *  exact mechanism — an offer is materialized once and frozen). */
   lastOffer: unknown;
@@ -214,6 +237,8 @@ function newTrack(): BotTrack {
     picks: [],
     offersSeen: {},
     offerHands: 0,
+    gunTier: 1,
+    killsByTier: emptyKillsByTier(),
     lastOffer: null,
   };
 }
@@ -364,8 +389,16 @@ export class BotCollector {
     const track = this.tracks.get(by);
     const victim = world.ships.get(victimId);
     if (track === undefined || victim === undefined) return;
-    if (isFleetHull(victim)) track.pveKills += 1;
-    else track.kills += 1;
+    if (isFleetHull(victim)) {
+      track.pveKills += 1;
+      return;
+    }
+    track.kills += 1;
+    // The killer's CURRENT rung; a killer whose record is gone (never a bot —
+    // only fleet hulls are removed early) falls back to the last reading.
+    const killer = world.ships.get(by);
+    const tier = killer === undefined ? track.gunTier : gunTierOf(killer);
+    track.killsByTier[tier] = (track.killsByTier[tier] ?? 0) + 1;
   }
 
   /** Freeze every track into a report row. `profileOf` comes from the live
@@ -403,6 +436,9 @@ export class BotCollector {
         offersSeen: track.offersSeen,
         offerHands: track.offerHands,
         placement: placements?.get(id) ?? null,
+        gun: ship.gun,
+        gunTier: track.gunTier,
+        killsByTier: track.killsByTier.slice(),
       });
     }
     return out;
@@ -456,6 +492,7 @@ function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.boonsFitted = ship.cards.length;
   track.shots = ship.lastFireSeq;
   track.damageDealt = Math.round(ship.damageDealt * 10) / 10;
+  track.gunTier = gunTierOf(ship);
   // Copy-on-grow keeps the 20Hz loop allocation-light: boons is append-only
   // within a life and a bot has exactly one, so length IS the change signal.
   if (ship.cards.length !== track.boons.length) track.boons = ship.cards.slice();

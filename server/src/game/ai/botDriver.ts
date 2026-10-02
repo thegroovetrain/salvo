@@ -140,8 +140,11 @@ export class BotController {
    * uniformly at random from its offer — the tuned-profile instance of the
    * blind-vacuum rows' measurement design, reachable only through the
    * batch-sim harness (`--bot-spend random`), set before any enrollment.
+   * Under 'gun' (2026-10-01, same door: `--bot-spend gun`) a bot takes its
+   * mounted gun's ladder card whenever the hand deals it, else the weighted
+   * scorer — so a campaign can reach and measure tier V guns.
    */
-  spend: 'profile' | 'random' = 'profile';
+  spend: 'profile' | 'random' | 'gun' = 'profile';
 
   constructor(port: BotWorldPort, seed: number) {
     this.port = port;
@@ -228,6 +231,7 @@ export class BotController {
       actSeq: 0,
       profile: prof,
       spendRandom: this.spend === 'random',
+      spendGunFirst: this.spend === 'gun',
       phase: botPhase(id, this.cadenceTicks),
       view: null,
       viewAt: -1,

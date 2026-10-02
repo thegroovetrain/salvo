@@ -171,14 +171,16 @@ function clampUnit(v: number): number {
 // hull, so nothing below this line can touch anything else.
 // ---------------------------------------------------------------------------
 
-/** The mind's resolved profile ROW, with the harness's random-spend override
- *  applied (BotMind.spendRandom): a copy whose `spend` alone is flipped, so
- *  temperament is byte-identical and chooseSpend's existing fork does the
- *  rest. The shipped path (spendRandom false) returns the frozen row itself. */
+/** The mind's resolved profile ROW, with the harness's spend overrides
+ *  applied (BotMind.spendRandom / spendGunFirst): a copy whose `spend` alone
+ *  is flipped, so temperament is byte-identical and chooseSpend's existing
+ *  fork does the rest. Gun-first flips only a WEIGHTED row (a test row stays
+ *  random). The shipped path (both false) returns the frozen row itself. */
 export function profileRowOf(mind: BotMind): BotProfile {
   const row = profileOf(mind.profile);
-  if (!mind.spendRandom || row.spend === 'random') return row;
-  return { ...row, spend: 'random' };
+  if (mind.spendRandom === true && row.spend !== 'random') return { ...row, spend: 'random' };
+  if (mind.spendGunFirst === true && row.spend === 'weighted') return { ...row, spend: 'gunFirst' };
+  return row;
 }
 
 /** Everything targeting/posture needs about the bot itself. */
