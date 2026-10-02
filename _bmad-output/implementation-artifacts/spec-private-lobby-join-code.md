@@ -2,8 +2,9 @@
 title: 'Private lobbies: create with a join code, join by code, host seed / bot-fill / force start, ready-up countdown'
 type: 'feature'
 created: '2026-10-02'
-status: 'in-review'
+status: 'done'
 baseline_revision: '4dc617e6'
+final_revision: '2a98a5b6'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
