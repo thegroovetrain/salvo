@@ -1393,7 +1393,7 @@ describe('bindRoom reward toasts', () => {
 
 // DRONE DROPS (Eric ruling 2026-10-01): a drone kill stocked a consumable. The
 // receipt is the `bn` STOCKED UX — toast, consumable cue, belt flash — with NO
-// spend ack (nothing was spent), dead/spectating-gated like `pt`, self only.
+// spend ack (nothing was spent), spectating-gated only (NOT dead-gated), self only.
 describe('bindRoom drone-drop receipt (`dp`)', () => {
   it('a LIVE captain gets the STOCKED toast, the consumable cue and the belt flash — and NO spend ack', () => {
     document.body.replaceChildren();
@@ -1418,16 +1418,27 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
     expect([...toastLines()].sort()).toEqual(['◆ CHAFF STOCKED', '◆ CHAFF STOCKED', '◆ DECOY BUOY STOCKED']);
   });
 
-  it('a DEAD-but-present or SPECTATING captain gets nothing — no toast, no tone, no flash', () => {
-    for (const own of [{ alive: false, cards: ['chaff'] }, null]) {
-      document.body.replaceChildren();
-      const { sink, play, onBoonFitted, onSpendAck } = setupToasts(own === null);
-      sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'chaff' }, own));
-      expect(toastLines()).toEqual([]);
-      expect(play).not.toHaveBeenCalled();
-      expect(onBoonFitted).not.toHaveBeenCalled();
-      expect(onSpendAck).not.toHaveBeenCalled();
-    }
+  it('a captain sunk LATER IN THE SAME TICK still gets the receipt (the copy is stocked; the frame reads dead)', () => {
+    // Cycle-162 review gate (Codex, CONFIRMED): the server guard is "afloat at
+    // the drone's sink"; a mine/storm later in the tick can sink the killer, so
+    // the end-of-tick frame carries `alive: false` AND a legitimate `dp`.
+    document.body.replaceChildren();
+    const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'chaff' }, { alive: false, cards: ['chaff'] }));
+    expect(toastLines()).toEqual(['◆ CHAFF STOCKED']);
+    expect(play).toHaveBeenCalledWith(fitTone('consumable'), { detune: fitDetune('consumable') });
+    expect(onBoonFitted).toHaveBeenCalledWith('chaff');
+    expect(onSpendAck).not.toHaveBeenCalled();
+  });
+
+  it('a SPECTATING frame (no `you`) gets nothing — no toast, no tone, no flash', () => {
+    document.body.replaceChildren();
+    const { sink, play, onBoonFitted, onSpendAck } = setupToasts(true);
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'chaff' }, null));
+    expect(toastLines()).toEqual([]);
+    expect(play).not.toHaveBeenCalled();
+    expect(onBoonFitted).not.toHaveBeenCalled();
+    expect(onSpendAck).not.toHaveBeenCalled();
   });
 
   it("another player's `dp` is ignored", () => {

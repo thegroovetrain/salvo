@@ -1408,14 +1408,17 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
  * `◆ <LINE> STOCKED` toast, the consumable fit cue and the belt flash — the
  * `bn` receipt's UX exactly, MINUS the spend ack (nothing was spent, so the
  * spend latch must not release on it). `dp` is self-private (perception
- * forwards it only to the killer), so the id check is defensive. Dead-gated
- * like `pt`: a captain sunk in the same tick as the drone gets no drop at all
- * server-side, and a spectating frame has no belt to flash. The authoritative
+ * forwards it only to the killer), so the id check is defensive. NOT dead-gated
+ * (unlike `pt`): the server rolls only for a killer afloat at the drone's sink,
+ * but a mine or the storm later in the SAME tick can sink that killer, and the
+ * end-of-tick frame then reads `alive: false` while the copy is authoritatively
+ * stocked (cycle-162 review gate, Codex) — the receipt still shows. Only a
+ * spectating frame (no `you`, no belt to flash) is skipped. The authoritative
  * card list rides OwnShip.cards; this is UX only.
  */
 function handleDrop(e: DropEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
-  if (frameIsDeadOrSpectating(f)) return;
+  if (!f.you) return;
   pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon), 'consumable'));
   deps.audio.play(fitTone('consumable'), { detune: fitDetune('consumable') });
   deps.onBoonFitted(e.boon);

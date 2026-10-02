@@ -2,7 +2,7 @@
 title: 'Drone kills drop consumables: 50 % rolls by drone size, into the belt, with the STOCKED toast'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '9693e574'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -105,6 +105,18 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-10-01 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 2, low 1)
+- defer: 0
+- reject: 9
+- addressed_findings:
+  - `[medium]` `[patch]` Codex CONFIRMED / Blind Hunter PLAUSIBLE: the client dead-gate swallowed a legitimate `dp` when the killer sank later in the same tick — `handleDrop` now skips only a spectating frame; pinned both ways (amendment 215c).
+  - `[medium]` `[patch]` Blind Hunter CONFIRMED: a drop can make an open hand's card unpickable and the hand never rerolls — Eric: accept as designed (amendment 44's rule); two server pins added (amendment 215a).
+  - `[low]` `[patch]` Edge Case Hunter: three STOCKED + one LEVEL UP in one frame overflowed the 3-line toast stack — Eric: cap raised to 4; DESIGN.md stamped (amendment 215b).
+  - Rejected (amendment 215d/e): score inflation (no boon count renders since 8.21), match-record `cards` carrying drops (by design), empty-belt-key same-tick fire (feel), non-integer CONFIG rolls, consumable kind without stock effect, per-copy toast ordinal, verifier catalog source, catalog key order (pinned already), spend-latch "superseded" ack.
 
 ## Design Notes
 

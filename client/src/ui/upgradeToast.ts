@@ -2,8 +2,11 @@
 // banked-level prompt (pointToastLine) and the fitted-boon receipt
 // (boonFitToastLine, ui/boonCopy.ts). Both line builders are pure (unit-
 // tested); the DOM stack is a thin adapter mirroring ui/killFeed.ts. Lines
-// expire after ~3s; the stack is capped at 3 so a burst cannot wallpaper the
-// screen.
+// expire after ~3s; the stack is capped at 4 so a burst cannot wallpaper the
+// screen — 4, not 3, since cycle 162 (Eric ruling 2026-10-01, epic-8 amendment
+// 215): a large drone's three `◆ … STOCKED` drops plus the same kill's
+// `▲ LEVEL UP` can land in one frame, and at 3 the first receipt was evicted
+// before it ever rendered.
 //
 // Story 2.8: the killer-private `upg` event and its 14-entry LABELS map died
 // with the legacy upgrade strip (PV 16) — nothing on the wire grants a stat
@@ -12,7 +15,7 @@
 const TOAST_ID = 'upgrade-toast';
 const LINE_TTL_MS = 3000;
 const FADE_MS = 600;
-const MAX_LINES = 3;
+const MAX_LINES = 4;
 
 /** Pure: the toast line for a banked level (Story 2.6 — a LEVEL UP is now the
  *  only thing that banks a point, whether it came from the passive tick or a

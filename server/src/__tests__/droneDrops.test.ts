@@ -375,3 +375,66 @@ describe('drone drops — determinism and stream isolation', () => {
     expect(spawnCalls).toBe(0);
   });
 });
+
+describe('drone drops — a drop landing while a refit hand is open (Eric 2026-10-01, amendment 215)', () => {
+  const HELD = ['hullRepair', 'shieldBlock', 'chaff'];
+  const spendStock = (w: World, s: ShipRecord, id: string) =>
+    (w as unknown as { spendStock(ship: ShipRecord, line: string): void }).spendStock(s, id);
+
+  it('the hand is NOT rerolled; a card the drop made illegal is refused like any full-belt pick; firing a stack to zero frees room', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    for (const id of HELD) w.applyCard(a, id);
+    a.bankedLevels = 1;
+    a.offer = ['decoyBuoy', 'speed', 'reload', 'radarSweep'];
+    const offer = a.offer;
+    const offerBefore = [...offer];
+    // The drop lands a DIFFERENT fourth line, so the offered decoyBuoy is now unstockable.
+    const fourth = LIVE_CONSUMABLES.find((id) => !HELD.includes(id) && id !== 'decoyBuoy')!;
+    const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
+    scriptDrops(w, [PASS], [LIVE_CONSUMABLES.indexOf(fourth)]);
+    w.sinkShip(d.id, 'a');
+    expect(new Set(beltIds(a).filter((id) => id !== null))).toEqual(new Set([...HELD, fourth]));
+    // Accepted as designed: same hand, same object, same bank.
+    expect(a.offer).toBe(offer);
+    expect([...a.offer!]).toEqual(offerBefore);
+    expect(a.bankedLevels).toBe(1);
+    // The now-illegal pick is refused and nothing moves.
+    const cardsBefore = [...a.cards];
+    expect(w.spendPoint('a', 0)).toBe(false);
+    expect(a.offer).toBe(offer);
+    expect([...a.offer!]).toEqual(offerBefore);
+    expect(a.bankedLevels).toBe(1);
+    expect(a.cards).toEqual(cardsBefore);
+    // Fire one stack to zero: a slot frees and the same pick now succeeds.
+    spendStock(w, a, 'hullRepair');
+    expect(boonStackCount(a.cards, 'hullRepair')).toBe(0);
+    expect(w.spendPoint('a', 0)).toBe(true);
+    expect(a.bankedLevels).toBe(0);
+    expect(boonStackCount(a.cards, 'decoyBuoy')).toBe(1);
+  });
+
+  it('a drop that tops a held line to its cap while the hand offers it: that pick is refused (at cap), nothing throws', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    const cap = CATALOG.hullRepair.cap;
+    for (let i = 0; i < cap - 1; i++) w.applyCard(a, 'hullRepair');
+    a.bankedLevels = 1;
+    a.offer = ['hullRepair', 'speed', 'reload', 'radarSweep'];
+    const offer = a.offer;
+    const offerBefore = [...offer];
+    const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
+    scriptDrops(w, [PASS], [LIVE_CONSUMABLES.indexOf('hullRepair')]);
+    expect(() => w.sinkShip(d.id, 'a')).not.toThrow();
+    expect(boonStackCount(a.cards, 'hullRepair')).toBe(cap);
+    expect(a.offer).toBe(offer);
+    let result: boolean | undefined;
+    expect(() => {
+      result = w.spendPoint('a', 0);
+    }).not.toThrow();
+    expect(result).toBe(false);
+    expect([...a.offer!]).toEqual(offerBefore);
+    expect(a.bankedLevels).toBe(1);
+    expect(boonStackCount(a.cards, 'hullRepair')).toBe(cap);
+  });
+});
