@@ -98,3 +98,28 @@ export function makeRequeue(deps: RequeueDeps): () => void {
     );
   };
 }
+
+/**
+ * Does a cohort collapse re-queue at all? (Cycle 167, private lobbies.) A
+ * PRIVATE arena's collapse sends the same `rq`, but its captains came through a
+ * join code, not the Standard queue — re-queueing them among strangers would be
+ * a door they never chose. They go home and wait for input instead; the chain
+ * above runs unchanged, only its terminal `enterPort` skips the auto-queue.
+ */
+export function collapseAutoQueues(privateMatch: boolean): boolean {
+  return !privateMatch;
+}
+
+/**
+ * The collapse's landing, as `requeueToPort` takes it: whether to auto-queue —
+ * and, when it does NOT (a private arena), hand the single-session lock back
+ * first. Every other way home releases it (return to port, a disconnect, a
+ * failed connect); the auto-queue keeps it only because `startGame` re-uses it
+ * at once. A private captain idling on the home screen must not hold the port
+ * against a second tab.
+ */
+export function collapseLanding(privateMatch: boolean, releaseLock: () => void): boolean {
+  const autoQueue = collapseAutoQueues(privateMatch);
+  if (!autoQueue) releaseLock();
+  return autoQueue;
+}

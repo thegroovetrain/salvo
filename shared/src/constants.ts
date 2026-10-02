@@ -2232,6 +2232,18 @@ export const CONFIG = {
     resultsSeconds: 45,
   },
 
+  /** Private lobbies — Eric rulings 2026-10-02 (private lobbies, cycle 167). */
+  lobby: {
+    codeLength: 6, // join code length, A–Z only, case-insensitive (ruling 5)
+    // ms — all-ready countdown before the lobby forms the arena (ruling 1); the
+    // arena's own CONFIG.match.countdown still runs after boarding (they stack).
+    countdownMs: 10000,
+    seedTextMax: 32, // chars — host seed text cap after trim (ruling 3)
+    // ms — a started lobby lingers so a dead code answers MATCH STARTED, then
+    // NO SUCH LOBBY once it is gone (ruling 11).
+    startedLingerMs: 60000,
+  },
+
   /** Fixed-tick timing (both server sim and client accumulator). */
   tick: {
     simDtMs: 50, // ms — simulation step (20 Hz)

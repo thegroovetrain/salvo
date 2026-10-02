@@ -114,7 +114,8 @@ import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
-import { makeRequeue } from './app/requeue.js';
+import { collapseLanding, makeRequeue } from './app/requeue.js';
+import { createPrivateLobby, openJoinPrivateLobby, type PrivateLobbyDeps } from './app/privateLobby.js';
 import { acquireSessionLock, claimSessionForDeploy, releaseSessionLock } from './app/sessionLock.js';
 import {
   connect,
@@ -126,7 +127,7 @@ import {
   resumeFailedStatus,
   type Connection,
 } from './net/connection.js';
-import { clearResumeToken, loadResumeToken } from './net/resumeToken.js';
+import { clearResumeToken, loadPrivateMatch, loadResumeToken, savePrivateMatch } from './net/resumeToken.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
@@ -2218,7 +2219,9 @@ function requeueAfterCollapse(g: Game): void {
 function makeGameRequeue(getG: () => Game | null): () => void {
   return makeRequeue({
     leaveRoom: () => getG()?.room.leave() ?? Promise.resolve(),
-    enterPort: () => void requeueToPort(),
+    // A private arena's collapse goes home WITHOUT re-queueing (cycle 167) —
+    // and so hands the session lock back, as every other way home does.
+    enterPort: () => void requeueToPort(collapseLanding(privateSession, releaseSessionLock)),
     onStart: () => {
       const g = getG();
       if (!g) return;
@@ -5191,6 +5194,18 @@ function startHomeLiveness(home: HomeHandle, countMe = true): void {
  */
 let lastDeploy: { name: string; cls: ShipClassId; gun: GunId; mode: DeployMode } | null = null;
 
+/** Did the live session come through a private lobby (cycle 167)? Read only by
+ *  the collapse requeue, which sends a private captain home instead of into the
+ *  Standard queue. Set at each launch through `markPrivateSession`, which also
+ *  persists it beside the resume token so a refresh-resume restores it
+ *  (`tryResumeMatch`); cleared from storage wherever the token is. */
+let privateSession = false;
+
+function markPrivateSession(on: boolean): void {
+  privateSession = on;
+  savePrivateMatch(on);
+}
+
 // RETIRED (Eric rulings 2026-08-18): `REQUEUE_STATUS_HOLD_MS` and
 // `makeStatusHold`. Both existed for ONE reason — the home had a single status
 // register and TWO callers competing for it, the collapse reason and the queue's
@@ -5216,7 +5231,7 @@ let lastDeploy: { name: string; cls: ShipClassId; gun: GunId; mode: DeployMode }
  * A failure here is terminal for the session, so it falls back to the reload
  * that every other exit uses — the player still gets home.
  */
-async function requeueToPort(): Promise<void> {
+async function requeueToPort(autoQueue = true): Promise<void> {
   const shell = shellRef;
   if (!shell) return;
   gameRef = null;
@@ -5233,7 +5248,7 @@ async function requeueToPort(): Promise<void> {
     // enterPort/showHome would reject a `void`-ed promise, leaving the player
     // staring at a blank canvas with no home, no ambient and no error. The
     // fallback below is the same one every earlier step already has.
-    enterPort(shell, true);
+    enterPort(shell, autoQueue);
   } catch (err) {
     console.error('[app] in-place requeue failed; falling back to a reload', err);
     location.reload();
@@ -5274,6 +5289,17 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
       shell.audio.resume(); // same user-gesture rule as the SOLO primary
       analytics.modePick('soloVsAi'); // FUNNEL: mode_pick, same guard story
       void startGame(shell, home, stopAmbient, name, cls, 'soloVsAi', gun);
+    },
+    // PRIVATE LOBBIES (cycle 167): CREATE / JOIN — the flow is app/privateLobby.ts.
+    {
+      onCreate: (name, cls, gun) => {
+        shell.audio.resume(); // same user-gesture rule as the other doors
+        void createPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, gun });
+      },
+      onJoin: (name, cls, gun) => {
+        shell.audio.resume();
+        openJoinPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, gun });
+      },
     },
   );
   homeRef = home;
@@ -5393,6 +5419,7 @@ async function startGame(
     return;
   }
   lastDeploy = { name, cls, gun, mode }; // what the auto-requeue re-deploys with
+  markPrivateSession(false);
   saveMode(mode); // ...and what a RELOAD re-deploys with (Story 6.6)
   // Every deploy opens on CONNECTING… now, the auto-requeue included: the
   // collapse's own opening register is gone (Eric ruling 2026-08-18), so there
@@ -5455,6 +5482,21 @@ async function startGame(
     startHomeLiveness(home); // back at a live port — resume the population read
     return; // the ambient keeps breathing behind the still-live home
   }
+  launchFromPort(shell, home, stopAmbient, conn, cls);
+}
+
+/**
+ * The deploy door's landing, shared by the queue/solo path and the private
+ * lobby (cycle 167): the arena welcome is in hand, so the port comes down and
+ * the session starts.
+ */
+function launchFromPort(
+  shell: Shell,
+  home: HomeHandle,
+  stopAmbient: () => void,
+  conn: Connection,
+  cls: ShipClassId,
+): void {
   home.hide();
   // THE POLL ENDS WITH THE HOME, not with the button press. It was demoted to a
   // reader at the door so the register stayed live through the pooled wait; now
@@ -5474,6 +5516,38 @@ async function startGame(
   // match starting: that match predates the page. Same reason R13 exists.
   funnelStartSent = true;
   analytics.matchStart();
+}
+
+/**
+ * The port-side seams the private-lobby doors drive (app/privateLobby.ts) —
+ * each one the queue door's own step, so a lobby deploy claims the same lock,
+ * says the same things on the status line and launches the same way.
+ */
+function privateDeps(
+  shell: Shell,
+  home: HomeHandle,
+  stopAmbient: () => void,
+  cls: ShipClassId,
+): PrivateLobbyDeps {
+  return {
+    home,
+    claimPort: async () => {
+      startHomeLiveness(home, false); // the lobby socket counts this player now
+      if (await claimPortForDeploy(home)) return true;
+      startHomeLiveness(home);
+      return false;
+    },
+    serverReady: () => handStatusBackToServer(home),
+    backToPort: () => {
+      releaseSessionLock();
+      home.setBusy(false);
+      startHomeLiveness(home);
+    },
+    launch: (conn) => {
+      markPrivateSession(true);
+      launchFromPort(shell, home, stopAmbient, conn, cls);
+    },
+  };
 }
 
 /**
@@ -5526,6 +5600,8 @@ function launchSession(shell: Shell, conn: Connection, cls: ShipClassId): Game {
 async function tryResumeMatch(shell: Shell): Promise<'none' | 'resumed' | 'failed'> {
   if (loadResumeToken() === null) return 'none';
   if (!(await acquireSessionLock())) return 'none'; // another tab holds the port
+  // Read BEFORE the rejoin: a failed resume clears the token and this flag with it.
+  privateSession = loadPrivateMatch();
   let conn: Connection | null;
   try {
     conn = await resumeConnection();

@@ -14,7 +14,23 @@
 //     frozen start line with no menu and no reload behind them.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { makeRequeue, REQUEUE_LEAVE_TIMEOUT_MS, type RequeueDeps } from '../app/requeue.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  collapseAutoQueues,
+  collapseLanding,
+  makeRequeue,
+  REQUEUE_LEAVE_TIMEOUT_MS,
+  type RequeueDeps,
+} from '../app/requeue.js';
+import {
+  RESUME_PRIVATE_KEY,
+  clearResumeToken,
+  loadPrivateMatch,
+  loadResumeToken,
+  savePrivateMatch,
+  saveResumeToken,
+} from '../net/resumeToken.js';
 
 /** A promise that never settles — a dead socket's leave(). */
 function never<T>(): Promise<T> {
@@ -182,5 +198,103 @@ describe('makeRequeue — the chain always settles to exactly one enterPort', ()
     makeRequeue(h.deps)();
     await vi.advanceTimersByTimeAsync(0);
     expect(h.calls).toEqual(['leave', 'enterPort']);
+  });
+});
+
+// PRIVATE LOBBIES (cycle 167): a private arena's collapse sends the same `rq`,
+// but its captains go HOME and are NOT re-queued into the Standard queue among
+// strangers. main.ts cannot be imported (it builds the Pixi stage), so the
+// wiring is pinned as SOURCE, the idiom home.test.ts / sessionLock.test.ts use.
+describe('a PRIVATE arena collapse goes home without re-queueing', () => {
+  const mainSrc = (): string => readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
+  const bodyOf = (src: string, signature: string): string => {
+    const start = src.indexOf(signature);
+    expect(start).toBeGreaterThan(-1);
+    return src.slice(start, src.indexOf('\n}\n', start));
+  };
+
+  it('collapseAutoQueues: standard re-queues, private does not', () => {
+    expect(collapseAutoQueues(false)).toBe(true);
+    expect(collapseAutoQueues(true)).toBe(false);
+  });
+
+  it("the requeue chain's terminal step asks collapseLanding(privateSession, releaseSessionLock)", () => {
+    const body = bodyOf(mainSrc(), 'function makeGameRequeue(');
+    expect(body).toMatch(/enterPort: \(\) => void requeueToPort\(collapseLanding\(privateSession, releaseSessionLock\)\)/);
+    // ...and requeueToPort hands that answer to enterPort's autoQueue flag.
+    expect(bodyOf(mainSrc(), 'async function requeueToPort(')).toMatch(/enterPort\(shell, autoQueue\)/);
+  });
+
+  it('only the private launch marks the session private; every queue/solo deploy clears it', () => {
+    const deps = bodyOf(mainSrc(), 'function privateDeps(');
+    expect(deps).toMatch(/markPrivateSession\(true\);\s*launchFromPort\(/);
+    expect(bodyOf(mainSrc(), 'async function startGame(')).toMatch(/markPrivateSession\(false\);/);
+  });
+
+  it('the private doors never persist a mode (no saveMode on the lobby path)', () => {
+    expect(bodyOf(mainSrc(), 'function privateDeps(')).not.toMatch(/saveMode|lastDeploy/);
+  });
+});
+
+// REVIEW C2: a private collapse lands at home WITHOUT a queue join, so nothing
+// re-uses the single-session lock — it must be handed back, as every other
+// way home does, or a second tab is refused by an idle home screen.
+describe('collapseLanding releases the session lock when it does not re-queue', () => {
+  it('private: no auto-queue, the lock is released exactly once', () => {
+    const release = vi.fn();
+    expect(collapseLanding(true, release)).toBe(false);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('standard: auto-queues and KEEPS the lock for the re-entered startGame', () => {
+    const release = vi.fn();
+    expect(collapseLanding(false, release)).toBe(true);
+    expect(release).not.toHaveBeenCalled();
+  });
+});
+
+// REVIEW C1: the private flag must survive a refresh, or a reload during a
+// private arena's boarding followed by a collapse drops the captain into the
+// Standard queue.
+describe('the private flag survives a refresh beside the resume token', () => {
+  const mainSrc = (): string => readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
+  const bodyOf = (src: string, signature: string): string => {
+    const start = src.indexOf(signature);
+    expect(start).toBeGreaterThan(-1);
+    return src.slice(start, src.indexOf('\n}\n', start));
+  };
+
+  beforeEach(() => sessionStorage.clear());
+  afterEach(() => sessionStorage.clear());
+
+  it('persists in sessionStorage and is cleared with the resume token', () => {
+    expect(loadPrivateMatch()).toBe(false);
+    saveResumeToken('arena-1:tok');
+    savePrivateMatch(true);
+    expect(sessionStorage.getItem(RESUME_PRIVATE_KEY)).not.toBeNull();
+    expect(loadPrivateMatch()).toBe(true);
+    clearResumeToken();
+    expect(loadResumeToken()).toBeNull();
+    expect(loadPrivateMatch()).toBe(false);
+    savePrivateMatch(true);
+    savePrivateMatch(false);
+    expect(loadPrivateMatch()).toBe(false);
+  });
+
+  it('resume with the flag set: the collapse goes home without auto-queueing', () => {
+    savePrivateMatch(true); // written at the private launch, before the reload
+    const release = vi.fn();
+    expect(collapseLanding(loadPrivateMatch(), release)).toBe(false);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('tryResumeMatch restores privateSession from storage before rejoining', () => {
+    const body = bodyOf(mainSrc(), 'async function tryResumeMatch(');
+    expect(body).toMatch(/privateSession = loadPrivateMatch\(\);/);
+    expect(body.indexOf('loadPrivateMatch()')).toBeLessThan(body.indexOf('resumeConnection()'));
+  });
+
+  it('markPrivateSession writes the flag through to storage', () => {
+    expect(bodyOf(mainSrc(), 'function markPrivateSession(')).toMatch(/savePrivateMatch\(on\)/);
   });
 });

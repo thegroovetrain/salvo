@@ -237,6 +237,7 @@ describe('both doors are wired', () => {
   it.each([
     ['../rooms/StandardQueueRoom.ts', 'the queue door (multiplayer)'],
     ['../rooms/ArenaRoom.ts', 'the arena door (SOLO VS AI)'],
+    ['../rooms/LobbyRoom.ts', 'the private lobby door (cycle 167)'],
   ])('%s calls stagingGateError in static onAuth — %s', (file) => {
     const src = read(file);
     expect(src).toContain('stagingGateError(');

@@ -8,8 +8,10 @@ import { createRouter } from 'colyseus';
 import express, { type Request, type Response } from 'express';
 import { ArenaRoom } from './rooms/ArenaRoom.js';
 import { StandardQueueRoom } from './rooms/StandardQueueRoom.js';
+import { LobbyRoom } from './rooms/LobbyRoom.js';
 import { metricsEndpoint } from './metrics.js';
 import { livenessEndpoint } from './liveness.js';
+import { lobbyResolveEndpoint } from './lobbyResolve.js';
 import { noIndexEnabled, robotsTagMiddleware } from './robots.js';
 import {
   GATE_PATH,
@@ -60,7 +62,14 @@ export default config({
   // `metricsEndpoint` itself is untouched — same object, same path, same
   // method, same handler — and metrics.ts still exports its own `metricsRoutes`
   // for anything that wants the ops route standalone.
-  routes: createRouter({ getMetrics: metricsEndpoint, getLiveness: livenessEndpoint }),
+  //
+  // `/lobby/resolve` (cycle 167, private lobbies) joins them on the SAME router
+  // for the same reason: it turns a typed join code into a roomId.
+  routes: createRouter({
+    getMetrics: metricsEndpoint,
+    getLiveness: livenessEndpoint,
+    getLobbyResolve: lobbyResolveEndpoint,
+  }),
 
   initializeGameServer: (gameServer) => {
     // 'queue' is the ONLY door a production client knocks on (Story 6.1): it
@@ -70,6 +79,9 @@ export default config({
     // unless HC_DEV_OPTIONS=1 (smokes still join it directly).
     gameServer.define('queue', StandardQueueRoom);
     gameServer.define('arena', ArenaRoom);
+    // The private lobby (cycle 167): the third door. It forms its arena the
+    // way the queue does — through the matchmaker, never a room handle.
+    gameServer.define('lobby', LobbyRoom);
   },
 
   initializeExpress: (app) => {

@@ -407,7 +407,10 @@ describe('shared barrel', () => {
     // damage 5/6/6/7/7; flak damage 12/20/28/36/44) and CONFIG.machineGun /
     // CONFIG.flak.reloadMs, which the client reads. No wire shape moved; the
     // exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(70);
+    // 70 -> 71 (cycle 167): private lobbies — CONFIG.lobby read by the client,
+    // arena mode 'private', lobby-room channels lr/ls/lb/lg. The exception
+    // count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(71);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat

@@ -99,6 +99,7 @@ import { applySafeCenterScroll } from './fit.js';
 import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
 import { registerCss } from './theme.js';
+import { makePrivateRow, type PrivateRow } from './privateRow.js';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
 import { pickTagline } from './taglines.js';
 import {
@@ -224,6 +225,13 @@ export type DeployMode = 'standard' | 'soloVsAi';
 /** A deploy door's callback: the callsign, the hull, and the gun pick (Story
  *  8.15 threads the gun through `startGame` → `connect` → `joinOptions`). */
 export type DeployFn = (name: string, cls: ShipClassId, gun: GunId) => void;
+
+/** The private-lobby doors (cycle 167): CREATE and JOIN. Not `DeployMode`s —
+ *  neither is ever persisted as `hullcracker.mode`. */
+export interface PrivateDoors {
+  onCreate: DeployFn;
+  onJoin: DeployFn;
+}
 
 const DEPLOY_MODES: readonly DeployMode[] = ['standard', 'soloVsAi'];
 
@@ -694,10 +702,11 @@ function makeModeRow(...buttons: HTMLElement[]): HTMLElement {
  * The stack carries the primary's old `margin-top:26px`, so the chip→buttons
  * spacing is unchanged: 22px console gap + 26px = the same 48px as shipped.
  */
-function makeDeployStack(modeRow: HTMLElement, soloBtn: HTMLElement): HTMLElement {
+function makeDeployStack(modeRow: HTMLElement, soloBtn: HTMLElement, privateRow: HTMLElement): HTMLElement {
   const stack = document.createElement('div');
   stack.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:26px';
-  stack.append(modeRow, soloBtn);
+  // ROW 3 (cycle 167, Eric ruling 7): CREATE / JOIN — ui/privateRow.ts.
+  stack.append(modeRow, soloBtn, privateRow);
   return stack;
 }
 
@@ -877,6 +886,10 @@ interface Home {
   playBtn: HTMLButtonElement;
   /** SOLO VS AI (Story 6.5) — the port's second door, one row below. */
   soloBtn: HTMLButtonElement;
+  /** CREATE / JOIN (cycle 167) — the third line, built by ui/privateRow.ts. */
+  privateRow: PrivateRow;
+  /** The private doors — same (name, cls, gun) contract, never a saved mode. */
+  privateDoors: PrivateDoors;
   /** The bottom-left PLAYERS ONLINE / LIVE GAMES register (Story 6.6). */
   livenessEls: LivenessEls;
   /** The last `/liveness` read, or null while UNAVAILABLE (nothing renders). */
@@ -1016,6 +1029,12 @@ function onSolo(h: Home): void {
   deploy(h, h.onSolo);
 }
 
+/** CREATE / JOIN take SOLO VS AI's first-run routing and busy rule verbatim. */
+function onPrivate(h: Home, go: DeployFn): void {
+  if (h.currentClass === null) return openLayer(h);
+  deploy(h, go);
+}
+
 /** Refocus the callsign field after any layer exit, so Enter=PLAY lives again —
  *  but only while the home is still on screen. */
 function refocusInput(h: Home): void {
@@ -1069,7 +1088,7 @@ function mountHome(
     h.chip.root,
     // ROW 1 (the mode row: SOLO today, DUO/TRIO beside it later) over ROW 2
     // (SOLO VS AI, centered) — Eric ruling 2026-08-17.
-    makeDeployStack(makeModeRow(playBtn), soloBtn),
+    makeDeployStack(makeModeRow(playBtn), soloBtn, h.privateRow.root),
     makeUnderplay(h.statusEl),
   );
   h.overlay.append(
@@ -1156,6 +1175,7 @@ export function showHome(
   onDeploy: DeployFn,
   onSettings: () => void = () => undefined,
   onSoloDeploy: DeployFn = onDeploy,
+  privateDoors: PrivateDoors = { onCreate: () => undefined, onJoin: () => undefined },
 ): HomeHandle {
   document.getElementById(HOME_ID)?.remove();
   const overlay = document.createElement('div');
@@ -1178,6 +1198,8 @@ export function showHome(
     chip,
     playBtn: play,
     soloBtn: solo,
+    privateRow: makePrivateRow(() => onPrivate(h, h.privateDoors.onCreate), () => onPrivate(h, h.privateDoors.onJoin)),
+    privateDoors,
     livenessEls: makeLiveness(),
     liveness: null,
     onDeploy,
@@ -1220,6 +1242,7 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
         btn.style.opacity = busy ? '0.4' : '1';
         btn.style.cursor = busy ? 'default' : 'pointer';
       }
+      h.privateRow.setBusy(busy);
     },
     // The queue modal's whole lifecycle hangs off this ONE call, which is what
     // makes "the modal is up exactly while cancelling is meaningful" structural:

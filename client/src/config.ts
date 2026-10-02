@@ -3403,3 +3403,11 @@ export const CLIENT_CONFIG = {
 // by the radar realism cycle's server-side mode flags — and cycle 105 then
 // deleted the modes themselves: the identity-free coverage footprint is the one
 // wire shape, so the question the variant asked no longer exists.
+
+/**
+ * ms — the lobby host's seed field sends what is typed after this long without
+ * a keystroke (cycle 167 review), on top of Enter and blur, so text typed during
+ * a countdown still reaches the lobby before it forms. The server stores the
+ * text on receipt (no map probe), so a send per pause is cheap.
+ */
+export const LOBBY_SEED_DEBOUNCE_MS = 400;
