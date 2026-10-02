@@ -2,10 +2,10 @@
 title: 'Private lobbies: create with a join code, join by code, host seed / bot-fill / force start, ready-up countdown'
 type: 'feature'
 created: '2026-10-02'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '4dc617e6'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/spec-6-1-queue-based-lobbies.md'
@@ -33,6 +33,8 @@ warnings: [oversized]
 9. **Copy (Eric accepted with two edits):** heading `LOBBY` (not "PRIVATE LOBBY"); code line `CODE K7XQ2M` (click copies); roster `N/20 ABOARD` with each captain's callsign and a READY mark; buttons `READY` / `UNREADY`; host-only controls: seed field with placeholder `SEED (OPTIONAL)`, toggle `BOT-FILL`, `START NOW` (disabled with the reason `2 CAPTAINS OR BOT-FILL REQUIRED`); `LEAVE` for everyone; countdown line `STARTS IN 0:0s`; join modal `ENTER CODE` / `JOIN`, failures `NO SUCH LOBBY`, `LOBBY FULL`, `MATCH STARTED`; host hand-off notice `YOU ARE HOST`. **Every player sees the seed text even when they cannot edit it.**
 10. **Late join during the countdown is allowed and stops the countdown** (the newcomer is not ready).
 11. **After the match everyone goes to the home screen; the code dies when the match starts.** Joining with a dead code answers `MATCH STARTED` while the lobby lingers, `NO SUCH LOBBY` after it is gone.
+12. **(Review gate, same day) Seed is checked ONCE, when the match forms** — "Yes, check at start". The per-entry probe was a full synchronous map generation that one host could repeat every second against the shared event loop. Players see no difference: the typed text shows at once, the suffix retry and the map are identical.
+13. **(Review gate, same day) A no-show in a bot-filled lobby is acceptable** — "Acceptable, leave it". If a reserved captain never boards, the match starts after the boarding grace with 20 − 1 hulls; no bot top-up.
 
 ## Boundaries & Constraints
 
@@ -115,34 +117,34 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (wave 1 — shared contract, Opus):**
-- [ ] `shared/src/types.ts` -- add `MSG.lobbyReady/lobbySeed/lobbyBotFill/lobbyStart`, `LobbyReadyMsg {ready:boolean}`, `LobbySeedMsg {text:string}`, `LobbyBotFillMsg {on:boolean}`, `LobbyResolveResponse = {roomId:string} | {reason:'NO SUCH LOBBY'|'LOBBY FULL'|'MATCH STARTED'}`, `LobbyPhase = 'open'|'started'`, arena mode union + `'private'` -- the wire contract both sides compile against.
-- [ ] `shared/src/constants.ts` -- add `CONFIG.lobby` block (values above) with comments naming the 2026-10-02 rulings -- single source of truth.
-- [ ] `shared/src/sim/seedText.ts` + `shared/src/__tests__/seedText.test.ts` -- hash + resolve with injected probe; tests: determinism, blank → null, suffix order `''`,`0`,`1`,`2`, same failing text → same result, hash is uint32 for unicode input.
-- [ ] `shared/src/index.ts` -- export seedText, `PROTOCOL_VERSION = 71` with the comment convention used by the previous bumps.
+- [x] `shared/src/types.ts` -- add `MSG.lobbyReady/lobbySeed/lobbyBotFill/lobbyStart`, `LobbyReadyMsg {ready:boolean}`, `LobbySeedMsg {text:string}`, `LobbyBotFillMsg {on:boolean}`, `LobbyResolveResponse = {roomId:string} | {reason:'NO SUCH LOBBY'|'LOBBY FULL'|'MATCH STARTED'}`, `LobbyPhase = 'open'|'started'`, arena mode union + `'private'` -- the wire contract both sides compile against.
+- [x] `shared/src/constants.ts` -- add `CONFIG.lobby` block (values above) with comments naming the 2026-10-02 rulings -- single source of truth.
+- [x] `shared/src/sim/seedText.ts` + `shared/src/__tests__/seedText.test.ts` -- hash + resolve with injected probe; tests: determinism, blank → null, suffix order `''`,`0`,`1`,`2`, same failing text → same result, hash is uint32 for unicode input.
+- [x] `shared/src/index.ts` -- export seedText, `PROTOCOL_VERSION = 71` with the comment convention used by the previous bumps.
 
 **Execution (wave 2a — server, Opus; shared frozen):**
-- [ ] `server/src/rooms/lobby.ts` + `server/src/__tests__/lobby.test.ts` -- pure policy per the I/O matrix (eligibility, all-ready arm, un-ready cancel, late-join cancel, leave re-arm, host succession by joinSeq, `mintCode` uniqueness/alphabet).
-- [ ] `server/src/rooms/lobbyTicket.ts` -- per-process ticket.
-- [ ] `server/src/rooms/roomOptions.ts` + `roomOptions.test.ts` -- trusted-ticket admission of `mapSeed`/`botFill`/`mode:'private'`; untrusted bags still strip (existing pins green; add: a client bag carrying a guessed ticket of the wrong value is stripped).
-- [ ] `server/src/rooms/formArena.ts` -- extracted from `StandardQueueRoom.formMatch`; `StandardQueueRoom` calls it; `queue.test.ts` and `queueSmoke.mjs` stay green.
-- [ ] `server/src/rooms/schema/LobbyState.ts` -- schema.
-- [ ] `server/src/rooms/LobbyRoom.ts` -- adapter; seed resolution injects `generateMap(seed, CONFIG.map.baseRadius)` as the probe (catch only `MapGenerationError`); started-linger via `this.clock.setTimeout`, `autoDispose` handling so the lingering room disposes on its own.
-- [ ] `server/src/rooms/ArenaRoom.ts` -- private mode: `buildBotFleet(count)`, `minHumansFor` (private: botFill ? 1 : CONFIG default), metadata mode `'private'`, seed from trusted options; `solo.test.ts`-style test for "private + botFill adds exactly playerCap − expectedCaptains bots before activate" and "private without botFill adds none".
-- [ ] `server/src/app.config.ts` -- `define('lobby', LobbyRoom)`; `GET /lobby/resolve?code=` via `matchMaker.query({name:'lobby'})` filtered on `metadata.code`; answers per the matrix; add to `colyseus018.test.ts` router pin.
-- [ ] `server/src/liveness.ts` + `liveness.test.ts` -- count lobby clients and private arenas.
-- [ ] `server/scripts/lobbySmoke.mjs` (port 2613, self-booting, `HC_DEV_OPTIONS` not required) -- host creates, reads code from state, second client resolves + joins, both ready, countdown arms, un-ready cancels, re-ready, countdown fires, both receive seats, both land in an arena with `mode:'private'`; a second run with botFill and START NOW from a lone host lands in an arena with 19 bots. Wire into `package.json` smoke scripts the way `queueSmoke` is.
+- [x] `server/src/rooms/lobby.ts` + `server/src/__tests__/lobby.test.ts` -- pure policy per the I/O matrix (eligibility, all-ready arm, un-ready cancel, late-join cancel, leave re-arm, host succession by joinSeq, `mintCode` uniqueness/alphabet).
+- [x] `server/src/rooms/lobbyTicket.ts` -- per-process ticket.
+- [x] `server/src/rooms/roomOptions.ts` + `roomOptions.test.ts` -- trusted-ticket admission of `mapSeed`/`botFill`/`mode:'private'`; untrusted bags still strip (existing pins green; add: a client bag carrying a guessed ticket of the wrong value is stripped).
+- [x] `server/src/rooms/formArena.ts` -- extracted from `StandardQueueRoom.formMatch`; `StandardQueueRoom` calls it; `queue.test.ts` and `queueSmoke.mjs` stay green.
+- [x] `server/src/rooms/schema/LobbyState.ts` -- schema.
+- [x] `server/src/rooms/LobbyRoom.ts` -- adapter; seed resolution injects `generateMap(seed, CONFIG.map.baseRadius)` as the probe (catch only `MapGenerationError`); started-linger via `this.clock.setTimeout`, `autoDispose` handling so the lingering room disposes on its own.
+- [x] `server/src/rooms/ArenaRoom.ts` -- private mode: `buildBotFleet(count)`, `minHumansFor` (private: botFill ? 1 : CONFIG default), metadata mode `'private'`, seed from trusted options; `solo.test.ts`-style test for "private + botFill adds exactly playerCap − expectedCaptains bots before activate" and "private without botFill adds none".
+- [x] `server/src/app.config.ts` -- `define('lobby', LobbyRoom)`; `GET /lobby/resolve?code=` via `matchMaker.query({name:'lobby'})` filtered on `metadata.code`; answers per the matrix; add to `colyseus018.test.ts` router pin.
+- [x] `server/src/liveness.ts` + `liveness.test.ts` -- count lobby clients and private arenas.
+- [x] `server/scripts/lobbySmoke.mjs` (port 2613, self-booting, `HC_DEV_OPTIONS` not required) -- host creates, reads code from state, second client resolves + joins, both ready, countdown arms, un-ready cancels, re-ready, countdown fires, both receive seats, both land in an arena with `mode:'private'`; a second run with botFill and START NOW from a lone host lands in an arena with 19 bots. Wire into `package.json` smoke scripts the way `queueSmoke` is.
 
 **Execution (wave 2b — client, Opus; shared frozen; parallel with 2a, touches only `client/`):**
-- [ ] `client/src/net/lobby.ts` -- create/join/resolve/bindings; `rq` in a private arena → home, no auto-requeue (mode flag carried from the lobby path).
-- [ ] `client/src/ui/privateRow.ts` + `home.ts` -- third mode-row line CREATE / JOIN; disabled with the other doors while a deploy is in flight; never persists a mode.
-- [ ] `client/src/ui/joinCodeModal.ts` -- ENTER CODE (uppercases as typed, 6 max), JOIN, failure line; ESC closes.
-- [ ] `client/src/ui/lobbyModal.ts` -- everything in ruling 9; host controls rendered only for `hostId === sessionId`; seed shown read-only to non-hosts; READY/UNREADY toggles; STARTS IN only while `countdownEndT > now`; LEAVE leaves the room and returns home; ESC = LEAVE.
-- [ ] `client/src/main.ts` -- wire doors and the seat → arena hand-off through the existing `consumeSeatReservation` flow.
-- [ ] `client/src/__tests__/lobbyModal.test.ts`, `joinCodeModal.test.ts`, `privateRow.test.ts`, extend `home.test.ts` -- pinned copy of ruling 9, host/non-host control visibility, countdown line presence rule, failure reasons.
+- [x] `client/src/net/lobby.ts` -- create/join/resolve/bindings; `rq` in a private arena → home, no auto-requeue (mode flag carried from the lobby path).
+- [x] `client/src/ui/privateRow.ts` + `home.ts` -- third mode-row line CREATE / JOIN; disabled with the other doors while a deploy is in flight; never persists a mode.
+- [x] `client/src/ui/joinCodeModal.ts` -- ENTER CODE (uppercases as typed, 6 max), JOIN, failure line; ESC closes.
+- [x] `client/src/ui/lobbyModal.ts` -- everything in ruling 9; host controls rendered only for `hostId === sessionId`; seed shown read-only to non-hosts; READY/UNREADY toggles; STARTS IN only while `countdownEndT > now`; LEAVE leaves the room and returns home; ESC = LEAVE.
+- [x] `client/src/main.ts` -- wire doors and the seat → arena hand-off through the existing `consumeSeatReservation` flow.
+- [x] `client/src/__tests__/lobbyModal.test.ts`, `joinCodeModal.test.ts`, `privateRow.test.ts`, extend `home.test.ts` -- pinned copy of ruling 9, host/non-host control visibility, countdown line presence rule, failure reasons.
 
 **Execution (wave 3 — docs/trackers, Sonnet):**
-- [ ] `VERSION`, `package.json` -- 0.18.32; `CHANGELOG.md` -- `[0.18.32] - 2026-10-02` Added entry (player-facing) + Internal (PV 70 → 71, new rooms/routes, test counts).
-- [ ] `_bmad-output/implementation-artifacts/epic-8-context-amendments.md` -- append amendments 235+ recording rulings 1–11 verbatim with the build facts; `_bmad-output/gds-workflow-status.yaml` + `sprint-status.yaml` -- one-line cycle 167 stamps in the existing format.
+- [x] `VERSION`, `package.json` -- 0.18.32; `CHANGELOG.md` -- `[0.18.32] - 2026-10-02` Added entry (player-facing) + Internal (PV 70 → 71, new rooms/routes, test counts).
+- [x] `_bmad-output/implementation-artifacts/epic-8-context-amendments.md` -- append amendments 235+ recording rulings 1–11 verbatim with the build facts; `_bmad-output/gds-workflow-status.yaml` + `sprint-status.yaml` -- one-line cycle 167 stamps in the existing format.
 
 **Acceptance Criteria:**
 - Given a client on the home screen, when it clicks CREATE, then a lobby modal shows `LOBBY`, a 6-letter A–Z code, `1/20 ABOARD`, and the host controls.
@@ -161,6 +163,29 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-10-02 — Review pass (Blind Hunter + Edge Case Hunter on Opus 5.5 at Eric's instruction — low weekly Fable credits — and Codex `gpt-5.6-sol`; all three FIX-FIRST; the trust ticket held under all three)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 13: (high 2, medium 5, low 6)
+- defer: 3: (medium 1, low 2)
+- reject: 3: (low 3)
+- addressed_findings:
+  - `[high]` `[patch]` Seed probe per entry stalled the shared event loop (all three reviewers) → probed once at form time, any throw falls back to a random map, tick never leaks an exception (Eric ruling 12).
+  - `[high]` `[patch]` Private flag lost on refresh → cohort collapse auto-queued into Standard (all three) → `hullcracker.resumePrivate` beside the resume token, restored in `tryResumeMatch`.
+  - `[medium]` `[patch]` Late joiner whose seat was reserved just before the form sat unseated in a dead lobby (BH + ECH) → `onJoin` after `started` answers `MATCH STARTED` + leave; a failed form disconnects stragglers.
+  - `[medium]` `[patch]` Session lock never released on a private collapse (BH) → released when landing home without auto-queue.
+  - `[medium]` `[patch]` Colyseus "is locked" read as LOBBY FULL (all three) → locked → MATCH STARTED, "already full" → LOBBY FULL, gone → NO SUCH LOBBY.
+  - `[medium]` `[patch]` READY / BOT-FILL double-click resent the stale value (ECH) → local intent until the server view matches.
+  - `[medium]` `[patch]` ESC during an in-flight join still opened the lobby (BH) → cancel token; the arriving lobby is left at once.
+  - `[low]` `[patch]` Code-mint race between the live-codes query and the listing (Codex + ECH) → in-process reservation, released on dispose.
+  - `[low]` `[patch]` A throw inside the form after `phase='started'` wedged a listed, unlocked lobby (ECH) → covered by the form-time try/catch.
+  - `[low]` `[patch]` Seed typed during the countdown without Enter/blur was lost (ECH) → debounce-sent at 400 ms (`LOBBY_SEED_DEBOUNCE_MS`).
+  - `[low]` `[patch]` Blank callsign read CAPTAIN-n in the lobby and a different draw in the arena (ECH) → resolved at the lobby door, carried on the seat.
+  - `[low]` `[patch]` Pasted "CODE ABCDEF" normalized to CODEAB (ECH) → the last 6 letters win.
+  - `[low]` `[patch]` Tab could reach the home doors under the join modal (BH) → doors busy while a modal is up.
+  - deferred: leave during the async arena form strands a 2-cohort below minHumans (Codex; pre-existing boarding semantics shared with Standard: "a grace expiry below minHumans arms nothing"); `/lobby/resolve` has no rate limit (BH); a joiner racing a lobby that just hit 20 reads MATCH STARTED because Colyseus auto-locks at maxClients (client patch agent).
+  - rejected: dev-mode client `mapSeed` admission (Codex; by design, `HC_DEV_OPTIONS` only); countdown readout lag on a throttled tab (ECH; cosmetic, the server owns the truth); a no-show in a bot-filled lobby leaving 19 hulls (ECH; Eric ruling 13 accepts it).
+
 ## Design Notes
 
 - **Why an HTTP resolve + `joinById` rather than Colyseus `filterBy`.** `filterBy` matches a joiner's options against the options the room was CREATED with; the code is minted server-side after creation, so it is not in those options. A resolve route also answers `LOBBY FULL` / `MATCH STARTED` cleanly before any socket work.
@@ -168,6 +193,20 @@ warnings: [oversized]
 - **Seed resolve example.** `resolveSeedText('bananas', probe)`: probe(hash('bananas')) false → probe(hash('bananas0')) true → `{text:'bananas0', seed:hash('bananas0')}`. The schema shows `seedText:'bananas'` to players and `seedResolved:'bananas0'` is informational.
 - **Countdown restart on leave.** A leave can make the remaining set all-ready; treat it as a fresh all-ready moment (restart from 10 s) rather than continuing a count the departed captain was part of.
 - **Keep the lobby room ignorant of the sim** — it never imports `world.js`/`match.js`; its whole picture of the arena is the `createRoom` option bag.
+
+## Auto Run Result
+
+**Summary.** Private lobbies landed as a third door: a `lobby` Colyseus room (pure policy in `rooms/lobby.ts`) with a 6-letter A–Z join code resolved over `GET /lobby/resolve`, READY/UNREADY with a server-authoritative 10 s all-ready countdown that any un-ready or late join cancels, host controls (free-text seed hashed FNV-1a and probed once at form time with the deterministic `0/1/2…` suffix retry; BOT-FILL to 20; START NOW gated on 2 captains or bot-fill), host succession to the longest-present captain, and a `private` arena formed through the extracted `formArena` with a per-process trust ticket that is the only way `mapSeed` / `botFill` / `mode` reach the arena. Client: CREATE / JOIN on the home's third line, join-code modal, lobby modal in Eric's words, private collapse goes home.
+
+**Files.** shared: `types.ts` (MSG lr/ls/lb/lg + lobby types), `constants.ts` (`CONFIG.lobby`), `sim/seedText.ts` (+test), `index.ts` (PV 71). server: `rooms/lobby.ts`, `LobbyRoom.ts`, `schema/LobbyState.ts`, `lobbyTicket.ts`, `formArena.ts`, `createThrottle.ts`, `roomOptions.ts` (trusted admission), `ArenaRoom.ts` (private mode, `buildBotFleet(count)`, minHumans), `app.config.ts` + `lobbyResolve.ts` (route), `liveness.ts`; tests `lobby.test.ts`, `roomOptions`, `solo`, `liveness`, `colyseus018`, `denials`, `stagingGate`; `scripts/lobbySmoke.mjs`. client: `net/lobby.ts`, `app/privateLobby.ts`, `ui/privateRow.ts`, `ui/joinCodeModal.ts`, `ui/lobbyModal.ts`, `ui/portModal.ts`, `net/connection.ts` (`arenaFromSeat`), `net/resumeToken.ts` (`hullcracker.resumePrivate`), `app/requeue.ts`, `ui/home.ts`, `main.ts`, `config.ts`; tests for each. docs: `VERSION` / `package.json` 0.18.32, `CHANGELOG.md`, epic-8 amendments 235–239, `epic-8-context.md` pointers, `deferred-work.md` (3 entries), both trackers.
+
+**Review.** 13 patches applied, 3 deferred, 3 rejected (see the triage log). The trust ticket held under all three reviewers.
+
+**Follow-up review recommended:** true — the gate produced thirteen patches across both sides, two of them high (seed-probe timing, private flag on refresh), touching lifecycle and session-lock behavior; an independent pass on staging QA is worth it.
+
+**Verification.** `npm run check` green after the patches: shared 1034, server 2486, client 3906, lint 0 errors (2 pre-existing warnings), hook test green. `lobbySmoke.mjs` PASS (A1 create/resolve/join by code, A2 ready/unready/countdown → seats, A3 MATCH STARTED + one private arena with 2 rows, B lone host + BOT-FILL + seed 'bananas' + START NOW → 20 rows, `mapSeed` = `hashSeedText('bananas')`), `queueSmoke.mjs` and `soloSmoke.mjs` still PASS.
+
+**Residual risks.** Not exercised in a browser this run (no dev server; staging QA is the gate): the home's deploy stack is ~76 px taller than the documented 768 px headroom and relies on the safe-center scroll; the lobby countdown readout is anchored locally at patch arrival (cosmetic). Deferred: leave-during-form strands a 2-cohort (pre-existing, shared with Standard); `/lobby/resolve` is unthrottled; a full-lobby `joinById` race reads MATCH STARTED. Open for Eric: How-to-Play has no private-lobby section (no copy authored unasked).
 
 ## Verification
 

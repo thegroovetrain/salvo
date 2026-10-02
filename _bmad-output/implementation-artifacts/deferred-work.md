@@ -2829,3 +2829,20 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: open
   summary: `server/scripts/batchsim/catalogMetrics.ts` CLASSIFIES A HIT BY FIRST MATCH ON ITS DAMAGE AMOUNT against base amounts only, so laddered shells are misfiled: cannon shells at 18 / 21 land under `other:<amount>`, which leaves `multiBarrelTicks`, `maxGunOnlyTick` and `gunClickKills` able to see only the tier-II twin (32), never the 54 / 63 click; a tier-II flak burst (20) files under `starShells` (20); a tier-II/III machine-gun shell (6) files under `gunBodyblock` (6). Harness-only (no sim or wire effect). Fix shape: attribute by shell family (the projectile's source and gun kind), not by amount. Found by both review-gate hunters (Opus 5.5), CONFIRMED; Codex did not raise it.
   evidence: `server/scripts/batchsim/catalogMetrics.ts` amount-bucket classifier; cycle-166 review gate, epic-8 amendment 234(d). Pre-existing: before cycle 166 the metric was fully dead because gun and broadside both dealt 15; this cycle's comments were made honest about the limit.
+
+## 2026-10-02 — cycle 167 (private lobbies) — open threads
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-private-lobby-join-code.md`
+  status: open
+  summary: A CAPTAIN WHO LEAVES DURING ASYNCHRONOUS ARENA FORMATION (lobby OR Standard queue) KEEPS THEIR SEAT RESERVED, AND A SEALED ARENA BELOW `minHumans` WAITS FOREVER AFTER THE BOARDING GRACE. A 2-captain cohort that loses one before boarding is stranded: `match.ts` `boardingReady` ("a grace expiry below minHumans arms nothing"). Pre-existing boarding semantics shared with Standard, not introduced by the lobby; the lobby's failed-form path disconnects stragglers but cannot reclaim a seat reserved before the leave. Found by Codex at the cycle-167 review gate.
+  evidence: `server/src/game/match.ts` `boardingReady` comment; `server/src/rooms/formArena.ts`; epic-8 amendment 239(i).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-private-lobby-join-code.md`
+  status: open
+  summary: `GET /lobby/resolve` HAS NO RATE LIMIT. Guessing a live code at 26^6 (about 309 million) is hours at hundreds of requests per second, and the route sits outside the staging password gate; the create throttle covers creating, not resolving. Fix shape: a per-IP bucket on the route, like `createThrottle.ts`. Found by Blind Hunter (Opus 5.5) at the cycle-167 review gate.
+  evidence: `server/src/lobbyResolve.ts`; `server/src/app.config.ts` route registration; epic-8 amendment 239(ii).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-private-lobby-join-code.md`
+  status: open — note only
+  summary: A JOINER RACING A LOBBY THAT JUST HIT 20 CAPTAINS GETS COLYSEUS "IS LOCKED" AND READS `MATCH STARTED` INSTEAD OF `LOBBY FULL`, because Colyseus auto-locks a room at `maxClients` between the resolve answer and `joinById`. The resolve route answers `LOBBY FULL` for the common (non-racing) case. Found by the client patch agent at the cycle-167 review gate.
+  evidence: `client/src/net/lobby.ts` join-error mapping (locked -> `MATCH STARTED`, full -> `LOBBY FULL`); `server/src/lobbyResolve.ts`; epic-8 amendment 239(iii).
