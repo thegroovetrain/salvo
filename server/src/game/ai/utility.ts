@@ -75,19 +75,21 @@ import {
   ANON_ASSOC_U,
   LONGEST_HULL_U,
   TRACK_PERSIST_MS,
+  PAINT_BASELINE_MIN_MS,
+  PAINT_STILL_U,
   associatePaint,
-  settleSweptMisses,
   foldWakeCells,
   lineBlocked,
   nearestPredicted,
   paintCenter,
   paintVelocity,
+  plotPoint,
   predictedPos,
   refitWakeCourses,
   trackVelocity,
-  type SweepBeam,
-  type SweepSite,
 } from './plot.js';
+import { settleSweptMisses, type SweepBeam, type SweepSite } from './sweepMiss.js';
+import type { WakeCell } from './types.js';
 
 /** Moved to ai/plot.ts (cycle 165 — the plotting table reads both and may
  *  not import this module, which imports it); re-exported so every existing
@@ -134,6 +136,17 @@ export interface BotSituation {
    *  IS THERE A LINE OF FIRE (see lineBlocked). Steering reads the port's copy
    *  directly; scoring and the trigger read it from here. */
   islands: readonly Island[];
+  /** The public map radius about the map centre (`port.map.radius`): plot
+   *  predictions stay on the water (ai/plot.ts predictedPos). Optional so a
+   *  hand-built situation can omit it (no clamp). */
+  waterR?: number;
+}
+
+/** Where this situation reads a plot: its predicted point (ai/plot.ts
+ *  plotPoint — cycle 165 review, B4: the scorer and the helm read the same
+ *  point the guns lead from). */
+export function plotAt(sit: Pick<BotSituation, 'now' | 'waterR'>, t: BotTrack): Vec2 {
+  return plotPoint(t, sit.now, sit.waterR);
 }
 
 /** u — how near a Hit Call must land (to a plot's PREDICTED centre) to be
@@ -286,18 +299,35 @@ function anonKey(x: number, y: number): string {
  * stray connection drag a plot ~100 u through them would corrupt the plot the
  * next paint associates to. Writes NO paint baseline.
  */
-function foldStrayHitCall(tracks: TrackMap, x: number, y: number, now: number): string {
-  const key = nearestPredicted(tracks, { x, y }, now, ANON_ASSOC_U, true) ?? anonKey(x, y);
+function foldStrayHitCall(tracks: TrackMap, x: number, y: number, fx: FoldCtx): string {
+  const now = fx.now;
+  const key = nearestPredicted(tracks, { x, y }, now, ANON_ASSOC_U, true, fx.waterR) ?? anonKey(x, y);
   writeTrack(tracks, key, { id: null, x, y, heading: null, speed: null, cls: null }, now, false);
   return key;
+}
+
+/**
+ * IS THIS PAINT ANOTHER HULL (cycle 165 review, E3)? One beam paints one hull
+ * once per revolution, so a plot already painted less than a measurement
+ * baseline ago that now "moves" two lattice cells or more is not moving — it
+ * is a second hull the beam reached a tick or two later (two hulls close
+ * together, consecutive bearings). Folding it in would write a paint pair
+ * over 50 ms as a several-hundred-u/s course.
+ */
+function secondHull(prev: BotTrack | undefined, x: number, y: number, now: number): boolean {
+  if (prev === undefined || prev.paintAt < 0 || now - prev.paintAt >= PAINT_BASELINE_MIN_MS) return false;
+  return Math.hypot(x - prev.paintX, y - prev.paintY) >= PAINT_STILL_U;
 }
 
 /** Fold one radar paint at (x, y): associate it, then measure. A paint a
  *  second or more after the plot's previous paint is a velocity measurement
  *  and overrides any wake guess (and stays until the next paint — a wake fit
- *  never replaces it); every paint then becomes the new baseline. */
-function foldPaint(tracks: TrackMap, x: number, y: number, now: number): void {
-  const key = associatePaint(tracks, { x, y }, now) ?? anonKey(x, y);
+ *  never replaces it); every paint then becomes the new baseline. A paint
+ *  that reads as a second hull (secondHull) opens its own plot. */
+function foldPaint(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
+  const now = fx.now;
+  const chosen = associatePaint(tracks, { x, y }, now, fx.cells, fx.waterR) ?? anonKey(x, y);
+  const key = secondHull(tracks.get(chosen), x, y, now) ? anonKey(x, y) : chosen;
   const prev = tracks.get(key);
   const v = prev === undefined ? null : paintVelocity(prev, x, y, now);
   const t = writeTrack(tracks, key, { id: null, x, y, heading: null, speed: null, cls: null }, now, false);
@@ -313,9 +343,9 @@ function foldPaint(tracks: TrackMap, x: number, y: number, now: number): void {
 }
 
 /** Fold one radar paint — an identity-free coverage footprint. */
-function foldBlip(tracks: TrackMap, e: BlipEvent, now: number): void {
+function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
   const c = paintCenter(e);
-  if (c !== null) foldPaint(tracks, c.x, c.y, now);
+  if (c !== null) foldPaint(tracks, c.x, c.y, fx);
 }
 
 /**
@@ -328,9 +358,9 @@ function foldBlip(tracks: TrackMap, e: BlipEvent, now: number): void {
  * until it walked off the end. A course-less plot has nothing better than the
  * impact point, so the impact point becomes its new plot (as before).
  */
-function hitCallPosition(t: BotTrack, x: number, y: number, now: number): Vec2 {
+function hitCallPosition(t: BotTrack, x: number, y: number, now: number, waterR: number): Vec2 {
   if (t.live) return { x: t.x, y: t.y };
-  if (trackVelocity(t) !== null) return predictedPos(t, now);
+  if (trackVelocity(t) !== null) return predictedPos(t, now, waterR);
   return { x, y };
 }
 
@@ -339,11 +369,13 @@ function hitCallPosition(t: BotTrack, x: number, y: number, now: number): Vec2 {
  *  spot, so that is where its connections land — cycle 165), refreshing it,
  *  or opens one, which is exactly what the shooter is entitled to conclude.
  *  It never touches the paint baseline or the course. */
-function foldHitCall(tracks: TrackMap, x: number, y: number, now: number): void {
-  const key = nearestPredicted(tracks, { x, y }, now, HIT_ASSOC_U, false) ?? foldStrayHitCall(tracks, x, y, now);
+function foldHitCall(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
+  const now = fx.now;
+  const key =
+    nearestPredicted(tracks, { x, y }, now, HIT_ASSOC_U, false, fx.waterR) ?? foldStrayHitCall(tracks, x, y, fx);
   const t = tracks.get(key);
   if (t === undefined) return;
-  const at = hitCallPosition(t, x, y, now);
+  const at = hitCallPosition(t, x, y, now, fx.waterR);
   const hit: BotTrack = {
     ...t,
     hits: t.hits + 1,
@@ -365,13 +397,21 @@ function foldContact(tracks: TrackMap, c: Contact, now: number): void {
  *  deliberately ignored: a bot reads only what it is entitled to and only
  *  what it uses. (`wk` wake rows are read too, by foldWakeCells in foldView,
  *  before this routing runs.) */
-function foldEvent(tracks: TrackMap, e: GameEvent, now: number): void {
+/** What every event fold reads besides the store: the clock, the wake buffer
+ *  (rule (b)'s evidence) and the water disc (predictions stay on the map). */
+interface FoldCtx {
+  now: number;
+  cells: readonly WakeCell[];
+  waterR: number;
+}
+
+function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
   if (e.k === 'blip') {
-    foldBlip(tracks, e, now);
+    foldBlip(tracks, e, fx);
     return;
   }
   if (e.k === 'hc') {
-    foldHitCall(tracks, e.x, e.y, now);
+    foldHitCall(tracks, e.x, e.y, fx);
     return;
   }
   if (e.k === 'sunk') tracks.delete(e.id);
@@ -433,7 +473,8 @@ export interface FoldSweep {
  *      truesight always wins);
  *   5. THE SWEEP-MISS DROP (Eric ruling 2026-10-02): a plot the bot's own
  *      beam swept clean is MARKED, and goes once it is still unrefreshed two
- *      ticks after the mark (the grace — ai/plot.ts `settleSweptMisses`) —
+ *      ticks after the mark AND once the beam has cleared the plot's whole
+ *      association band (ai/sweepMiss.ts `settleSweptMisses`) —
  *      AFTER the paints and the sightings, so a plot refreshed this tick is
  *      never a miss. Runs only when the caller hands in the beam (`sweep`);
  *   6. the wake course re-fit for every plot without a disclosed pose — after
@@ -445,7 +486,8 @@ export function foldView(mind: BotMind, view: PerceptionView, now: number, sweep
   const tracks = mind.contacts;
   dropTruesight(tracks);
   foldWakeCells(mind, view.events, now);
-  for (const e of view.events) foldEvent(tracks, e, now);
+  const fx: FoldCtx = { now, cells: mind.wakeCells, waterR: sweep?.site.waterR ?? Infinity };
+  for (const e of view.events) foldEvent(tracks, e, fx);
   for (const c of view.contacts) foldContact(tracks, c, now);
   if (sweep !== undefined) settleSweptMisses(tracks, sweep.beam, sweep.site, now);
   refitWakeCourses(tracks, mind.wakeCells, now);
@@ -547,11 +589,17 @@ function damageEstimate(t: BotTrack): number {
 
 /** 0..1 isolation: 1 when nothing else is tracked nearby, falling off as
  *  company arrives. */
-function isolation(t: BotTrack, neighbours: readonly BotTrack[]): number {
+function isolation(
+  t: BotTrack,
+  neighbours: readonly BotTrack[],
+  sit: Pick<BotSituation, 'now' | 'waterR'>,
+): number {
+  const p = plotAt(sit, t);
   let n = 0;
   for (const o of neighbours) {
     if (o === t) continue;
-    if (Math.hypot(o.x - t.x, o.y - t.y) <= ISOLATION_U) n += 1;
+    const a = plotAt(sit, o);
+    if (Math.hypot(a.x - p.x, a.y - p.y) <= ISOLATION_U) n += 1;
   }
   return 1 / (1 + n);
 }
@@ -567,14 +615,15 @@ function isolation(t: BotTrack, neighbours: readonly BotTrack[]): number {
  */
 export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly BotTrack[]): number {
   const horizon = sit.stats.radarRange * TARGET_HORIZON_FACTOR;
-  const d = Math.hypot(t.x - sit.x, t.y - sit.y);
+  const p = plotAt(sit, t);
+  const d = Math.hypot(p.x - sit.x, p.y - sit.y);
   if (d > horizon) return 0;
   const w = sit.profile.targetWeights;
   const kind = t.fleet ? w.fleet : w.captain;
   const prox = 1 - d / horizon;
   const dmg = 1 + w.damaged * damageEstimate(t);
-  const iso = 1 + w.isolated * isolation(t, neighbours);
-  const reach = lineBlocked({ x: sit.x, y: sit.y }, t, sit.islands) ? BLOCKED_LINE_SCORE : 1;
+  const iso = 1 + w.isolated * isolation(t, neighbours, sit);
+  const reach = lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands) ? BLOCKED_LINE_SCORE : 1;
   return kind * prox * freshness(t, sit.now) * dmg * iso * reach;
 }
 
@@ -714,9 +763,10 @@ export function choosePosture(
   if (ringEscaping(sit, prev === 'ringRun')) return 'ringRun';
   if (sit.maxHp > 0 && sit.hp / sit.maxHp < sit.profile.disengageHpFrac) return 'disengage';
   if (target === null) return 'reposition';
-  if (lineBlocked({ x: sit.x, y: sit.y }, target, sit.islands)) return 'pursue';
+  const p = plotAt(sit, target);
+  if (lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands)) return 'pursue';
   const w = sit.profile.targetWeights;
   if (target.fleet && w.fleet >= w.captain) return 'farm';
   const band = engagementBand(sit.profile, sit.stats);
-  return Math.hypot(target.x - sit.x, target.y - sit.y) <= band.max ? 'engage' : 'pursue';
+  return Math.hypot(p.x - sit.x, p.y - sit.y) <= band.max ? 'engage' : 'pursue';
 }

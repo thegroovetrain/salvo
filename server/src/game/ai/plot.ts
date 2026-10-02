@@ -37,8 +37,6 @@ import {
   WAKE_AGE_BUCKETS,
   hullEnvelope,
   islandBlocksSegment,
-  wrapPositive,
-  type EffectiveStats,
   type GameEvent,
   type GhostPaint,
   type Island,
@@ -160,14 +158,56 @@ export function trackVelocity(t: RememberedContact): { vx: number; vy: number } 
   return null;
 }
 
-/** Where the plot should be NOW: its last-known position run forward on its
- *  course over the time since it was last refreshed. Identity for a
- *  course-less plot (and for anything refreshed this tick). */
-export function predictedPos(t: RememberedContact, now: number): Vec2 {
+/**
+ * ms — THE SWEEP-MISS GRACE: two sim ticks (~9° of beam travel at the base
+ * rate). A hull paints when the beam crosses its REAL bearing, and that can
+ * trail the plot's PREDICTED bearing by a tick or two — a 20 u prediction
+ * error is ~2.3° at 500 u (~4.6° at 250 u) against a beam moving 4.5° a tick.
+ * Dropping on the tick of the miss would delete the plot one tick before its
+ * own paint arrived, and that paint would then open a FRESH plot: reaction
+ * gate, persistence, target key and course all lost. The grace lets the real
+ * paint land on the plot it belongs to (orchestrator ruling, cycle 165).
+ * Defined here (re-exported by ai/sweepMiss.ts) because the dead-reckoning
+ * horizon below is built from it.
+ */
+export const SWEEP_MISS_GRACE_MS = 2 * CONFIG.tick.simDtMs;
+
+/** ms — THE DEAD-RECKONING HORIZON (cycle 165 review, B5): a plot runs
+ *  forward on its course for at most one base sweep revolution plus the
+ *  sweep-miss grace past its last refresh, then FREEZES. By then the beam has
+ *  been round once; a plot that missed its paint has no better evidence of
+ *  where the hull went, and running a stale course on for the rest of the
+ *  memory window would carry it hundreds of u into nowhere. */
+export const DEAD_RECKON_HORIZON_MS = TRACK_PERSIST_MS + SWEEP_MISS_GRACE_MS;
+
+/**
+ * Where the plot should be NOW: its last-known position run forward on its
+ * course over the time since it was last refreshed — capped at the
+ * dead-reckoning horizon — and kept on the water: a prediction past the map's
+ * rim (`waterR`, the public map radius about the map centre; omitted = no
+ * clamp) is pulled back onto it, because no hull sails off the map. Identity
+ * for a course-less plot (and for anything refreshed this tick).
+ */
+export function predictedPos(t: RememberedContact, now: number, waterR = Infinity): Vec2 {
   const v = trackVelocity(t);
   if (v === null) return { x: t.x, y: t.y };
-  const dt = Math.max(0, now - t.seenAt) / 1000;
-  return { x: t.x + v.vx * dt, y: t.y + v.vy * dt };
+  const dt = Math.min(Math.max(0, now - t.seenAt), DEAD_RECKON_HORIZON_MS) / 1000;
+  const x = t.x + v.vx * dt;
+  const y = t.y + v.vy * dt;
+  const r = Math.hypot(x, y);
+  if (r <= waterR) return { x, y };
+  return { x: (x / r) * waterR, y: (y / r) * waterR };
+}
+
+/**
+ * THE PLOT'S POINT — where the whole brain reads a plot (cycle 165 review,
+ * B4): its predicted position. An orchestrator reading of Eric's 2026-10-02
+ * ruling that every weapon leads the dead-reckoned plot: the helm, the scorer
+ * and the placement checks steer at the SAME point the guns lead from, so one
+ * plot never sits in two places in one bot's head. Eric may veto.
+ */
+export function plotPoint(t: RememberedContact, now: number, waterR = Infinity): Vec2 {
+  return predictedPos(t, now, waterR);
 }
 
 /** u — a paint-to-paint displacement shorter than this is MEASURED
@@ -176,7 +216,7 @@ export function predictedPos(t: RememberedContact, now: number): Vec2 {
  *  mask is fuzzed on the 9 u lattice), and reading that jitter as a slow
  *  crawl dead-reckons the parked plot off its hull — a few u per second,
  *  compounding for the whole sweep. */
-const PAINT_STILL_U = 2 * CONFIG.vision.radarCellU;
+export const PAINT_STILL_U = 2 * CONFIG.vision.radarCellU;
 
 /** Paint-to-paint velocity: the displacement between the plot's last radar
  *  paint and this one over the time between them — or null when there is no
@@ -265,6 +305,38 @@ function oldestBucketWith(counts: readonly number[], min: number): number {
   return -1;
 }
 
+/** cos 30° — how squarely the plot must sit AHEAD of the ribbon's young end. */
+const HEAD_COS = Math.cos(Math.PI / 6);
+
+/**
+ * IS THE PLOT AT THE HEAD OF THIS RIBBON (cycle 165 review, E5)? A wake cell
+ * carries no owner, so another hull's ribbon passing BESIDE a plot is, by
+ * reach alone, indistinguishable from the plot's own — and fitted, it hands
+ * the plot a passer-by's course. A hull's own ribbon runs from old water
+ * through young water TO the hull: the direction old → young and the
+ * direction young → plot agree. So when the reference bucket is not the
+ * youngest present, the plot must lie within 30° of the ribbon's own heading
+ * past its young end. With one bucket only there is no gradient to check and
+ * the fit stands as before; a plot sitting ON its young water (closer than
+ * one lattice cell) has no direction to test and passes.
+ */
+function atRibbonHead(near: readonly WakeCell[], ref: readonly WakeCell[], t: Pick<RememberedContact, 'x' | 'y'>): boolean {
+  const youngest = Math.min(...near.map((c) => c.bucket));
+  const refBucket = ref[0]?.bucket ?? youngest;
+  if (refBucket === youngest) return true;
+  const y = centroidOf(near.filter((c) => c.bucket === youngest));
+  const r = centroidOf(ref);
+  const ax = y.x - r.x;
+  const ay = y.y - r.y;
+  const bx = t.x - y.x;
+  const by = t.y - y.y;
+  const lb = Math.hypot(bx, by);
+  if (lb < CONFIG.vision.radarCellU) return true;
+  const la = Math.hypot(ax, ay);
+  if (la === 0) return false;
+  return (ax * bx + ay * by) / (la * lb) >= HEAD_COS;
+}
+
 /** Mean of a non-empty cell list's positions and paint times. */
 function centroidOf(cells: readonly WakeCell[]): { x: number; y: number; t: number } {
   let x = 0;
@@ -311,7 +383,7 @@ export function fitWakeVelocity(
   const near = nearCells(t, cells, now);
   if (near.length < WAKE_MIN_CELLS) return null;
   const ref = referenceCells(near, t);
-  if (ref.length === 0) return null;
+  if (ref.length === 0 || !atRibbonHead(near, ref, t)) return null;
   const c = centroidOf(ref);
   const dx = t.x - c.x;
   const dy = t.y - c.y;
@@ -339,14 +411,15 @@ export function nearestPredicted(
   now: number,
   maxU: number,
   anonOnly: boolean,
+  waterR = Infinity,
 ): string | null {
   let best: string | null = null;
-  let bestD2 = maxU * maxU;
+  let bestD2 = Infinity;
   for (const [key, t] of tracks) {
     if (anonOnly && t.id !== null) continue;
-    const q = predictedPos(t, now);
+    const q = predictedPos(t, now, waterR);
     const d2 = (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
-    if (d2 <= bestD2) {
+    if (d2 <= maxU * maxU && d2 < bestD2) {
       bestD2 = d2;
       best = key;
     }
@@ -371,22 +444,32 @@ const ASSOC_GROWTH_FRAC = 1 / 3;
 
 /** u — rule (a)'s radius for one plot: the fixed slop for a course-less plot
  *  (its second chance is rule b), plus prediction-age growth for one with a
- *  course. */
-function predictedAssocRadius(t: RememberedContact, now: number): number {
+ *  course. THE AGE RUNS FROM THE LAST PAINT (cycle 165 review, E2) — else the
+ *  course estimate, else the last refresh — never from a Hit-Call-bumped
+ *  `seenAt`: a connection proves presence, not where the hull is heading,
+ *  and a stream of hits must not shrink the band the next paint has to land
+ *  in. The sweep-miss drop reads the same radius (ai/sweepMiss.ts). */
+export function predictedAssocRadius(t: RememberedContact, now: number): number {
   if (trackVelocity(t) === null) return ANON_ASSOC_U;
-  const ageS = Math.max(0, now - t.seenAt) / 1000;
+  const since = t.paintAt >= 0 ? t.paintAt : t.vAt >= 0 ? t.vAt : t.seenAt;
+  const ageS = Math.max(0, now - since) / 1000;
   return ANON_ASSOC_U + FASTEST_HULL_SPEED * ASSOC_GROWTH_FRAC * ageS;
 }
 
-/** Rule (a): the identity-free plot whose PREDICTED position is nearest `p`
- *  among those within their own radius (predictedAssocRadius), or null. Ties
- *  keep the earliest insertion (Map order). */
-function nearestPredictedAnon(tracks: TrackMap, p: Vec2, now: number): string | null {
+/** Rule (a): the NON-LIVE plot — identity-free OR id-keyed (cycle 165
+ *  review, B2) — whose PREDICTED position is nearest `p` among those within
+ *  their own radius (predictedAssocRadius), or null. An id-keyed plot is a
+ *  hull the bot SAW that has since left the bubble; it dead-reckons on its
+ *  disclosed course, and its radar paints must land on it — identity stays
+ *  on the plot ("that blip is the ship I watched sail out"). A live plot is
+ *  never a candidate (sight already has it). Ties keep the earliest insertion
+ *  (Map order). */
+function nearestPredictedPlot(tracks: TrackMap, p: Vec2, now: number, waterR: number): string | null {
   let best: string | null = null;
   let bestD = Infinity;
   for (const [key, t] of tracks) {
-    if (t.id !== null || t.seenAt === now) continue; // one paint per plot per tick
-    const q = predictedPos(t, now);
+    if (t.live || t.seenAt === now) continue; // one paint per plot per tick
+    const q = predictedPos(t, now, waterR);
     const d = Math.hypot(q.x - p.x, q.y - p.y);
     if (d <= predictedAssocRadius(t, now) && d < bestD) {
       bestD = d;
@@ -403,13 +486,42 @@ function courselessReach(t: RememberedContact, now: number): number {
   return FASTEST_HULL_SPEED * (Math.max(0, now - since) / 1000) + ANON_ASSOC_U;
 }
 
-/** The ONE course-less identity-free plot that could have reached `p`, or
- *  null when none — or more than one — could (ambiguity opens a new plot:
- *  nothing on the wire says which it was). */
-function soleCourselessCandidate(tracks: TrackMap, p: Vec2, now: number): string | null {
+/**
+ * WAKE EVIDENCE AT A PAINT (cycle 165 review, E4): some wake water painted
+ * within the last sweep revolution, within wake reach of `p`. Rule (b) lets a
+ * course-less plot take a paint up to ~230 u away, and a CHAFF fake is a paint
+ * with nothing behind it — a fake lays no wake (the decoy precedent,
+ * amendment 123) — so without this a fake could hand a real plot along, or a
+ * chain of fakes could survive as ONE coherent plot across sweeps, breaking
+ * the premise `hasPersistence` (utility.ts) stands on: no fake survives
+ * association as one track. A hull that sailed 100+ u since its last paint
+ * leaves water behind it.
+ */
+function wakeNear(p: Vec2, cells: readonly WakeCell[], now: number): boolean {
+  return cells.some((c) => now - c.t <= TRACK_PERSIST_MS && Math.hypot(c.x - p.x, c.y - p.y) <= WAKE_REACH_U);
+}
+
+/** Can this plot take a paint through rule (b)? Identity-free, not live, not
+ *  refreshed this tick, and either course-less or holding only a WAKE GUESS
+ *  (cycle 165 review, B3): a measurement must be able to replace a guess — a
+ *  hull that just stopped keeps its ribbon for 5.5 s, the wake fit keeps
+ *  leading it, and without this its next paint lands outside the grown
+ *  radius and opens a new plot while the old one is led ~150 u ahead of a
+ *  stopped hull for a whole revolution. */
+function ruleBCandidate(t: RememberedContact, now: number): boolean {
+  if (t.id !== null || t.live || t.seenAt === now) return false;
+  return trackVelocity(t) === null || t.vSrc === 'wake';
+}
+
+/** The ONE rule-(b) candidate (ruleBCandidate) that could have reached `p`,
+ *  or null when none — or more than one — could (ambiguity opens a new plot:
+ *  nothing on the wire says which it was), or when no wake water backs the
+ *  paint (wakeNear — the whole rule needs it). */
+function soleCourselessCandidate(tracks: TrackMap, p: Vec2, now: number, cells: readonly WakeCell[]): string | null {
+  if (!wakeNear(p, cells, now)) return null;
   let found: string | null = null;
   for (const [key, t] of tracks) {
-    if (t.id !== null || t.seenAt === now || trackVelocity(t) !== null) continue;
+    if (!ruleBCandidate(t, now)) continue;
     if (Math.hypot(t.x - p.x, t.y - p.y) > courselessReach(t, now)) continue;
     if (found !== null) return null;
     found = key;
@@ -418,14 +530,16 @@ function soleCourselessCandidate(tracks: TrackMap, p: Vec2, now: number): string
 }
 
 /**
- * Which identity-free plot does a position at `p` belong to (cycle 165)?
- *   (a) the nearest plot whose PREDICTED position is within its radius —
+ * Which plot does a radar paint at `p` belong to (cycle 165)?
+ *   (a) the nearest NON-LIVE plot (identity-free or id-keyed) whose
+ *       PREDICTED position is within its radius —
  *       ANON_ASSOC_U, growing with the prediction's age for a plot with a
  *       course — so one hull stays one plot however far it sailed between
  *       sweeps, as long as the bot has its course;
- *   (b) else the SOLE course-less plot that could have sailed there since its
+ *   (b) else the SOLE identity-free course-less (or wake-guessed) plot that could have sailed there since its
  *       last paint at the fastest hull's speed — the second paint that gives
- *       a plot its first measured course;
+ *       a plot its first measured course — and only with wake water near the
+ *       paint (wakeNear: a chaff fake leaves none);
  *   else null (the caller opens a new plot).
  * ONE PAINT PER PLOT PER TICK (cycle 165 review): a plot already refreshed
  * this tick is skipped by both rules, so a second same-tick paint (two hulls
@@ -433,87 +547,14 @@ function soleCourselessCandidate(tracks: TrackMap, p: Vec2, now: number): string
  * goes to the next candidate or opens its own plot, and the other hull's plot
  * is not left looking swept clean.
  */
-export function associatePaint(tracks: TrackMap, p: Vec2, now: number): string | null {
-  return nearestPredictedAnon(tracks, p, now) ?? soleCourselessCandidate(tracks, p, now);
-}
-
-// ---------------------------------------------------------------------------
-// THE SWEEP-MISS DROP (Eric ruling 2026-10-02, cycle 165)
-// ---------------------------------------------------------------------------
-
-/** The bot's own position, radar reach and the public coastlines — the
- *  `BotSituation` fields the sweep-miss test reads. */
-export interface SweepSite {
-  readonly x: number;
-  readonly y: number;
-  readonly stats: Pick<EffectiveStats, 'radarRange'>;
-  readonly islands: readonly Island[];
-}
-
-/** The beam: this tick's angle (BotSelf's self-read) and the angle the bot
- *  remembered from its previous fold (`BotMind.lastSweep`, -1 = none). */
-export interface SweepBeam {
-  readonly sweepAngle: number;
-  readonly lastSweep: number;
-}
-
-/** Did the beam cross bearing `brg` since the last fold? The perception
- *  boundary's own half-open, wrap-safe window — [lastSweep, sweepAngle) —
- *  replicated rather than imported (ai/ may not import signals.js).
- *  Start-inclusive, strict at the end, so a bearing is crossed exactly once
- *  per revolution; a zero-width window (a frozen beam) or no remembered angle
- *  (the first fold of a life) crosses nothing. */
-function beamCrossed(beam: SweepBeam, brg: number): boolean {
-  if (beam.lastSweep < 0) return false;
-  const window = wrapPositive(beam.sweepAngle - beam.lastSweep);
-  return wrapPositive(brg - beam.lastSweep) < window;
-}
-
-/**
- * Did the bot's beam just sweep this plot's predicted spot and come back
- * empty? True iff the plot is not in sight, was not refreshed THIS tick (a
- * paint folded this tick is the opposite of a miss), its predicted position
- * is inside the bot's radar range with clear island LOS, and the bearing to
- * it lies in this tick's paint window.
- */
-export function sweptAndMissed(beam: SweepBeam, site: SweepSite, t: RememberedContact, now: number): boolean {
-  if (t.live || t.seenAt === now) return false;
-  const p = predictedPos(t, now);
-  const dx = p.x - site.x;
-  const dy = p.y - site.y;
-  if (Math.hypot(dx, dy) > site.stats.radarRange) return false;
-  if (lineBlocked({ x: site.x, y: site.y }, p, site.islands)) return false;
-  return beamCrossed(beam, Math.atan2(dy, dx));
-}
-
-/**
- * ms — THE SWEEP-MISS GRACE: two sim ticks (~9° of beam travel at the base
- * rate). A hull paints when the beam crosses its REAL bearing, and that can
- * trail the plot's PREDICTED bearing by a tick or two — a 20 u prediction
- * error is ~2.3° at 500 u (~4.6° at 250 u) against a beam moving 4.5° a tick.
- * Dropping on the tick of the miss would delete the plot one tick before its
- * own paint arrived, and that paint would then open a FRESH plot: reaction
- * gate, persistence, target key and course all lost. The grace lets the real
- * paint land on the plot it belongs to (orchestrator ruling, cycle 165).
- */
-export const SWEEP_MISS_GRACE_MS = 2 * CONFIG.tick.simDtMs;
-
-/**
- * The sweep-miss pass. A plot the beam swept clean this tick is MARKED
- * (`missSweptAt`); a marked plot still unrefreshed once the grace has run is
- * deleted. A refresh clears the mark at the writer (utility.ts writeTrack /
- * foldHitCall), so `seenAt < missSweptAt` here is a belt-and-braces check.
- * Map deletion during iteration is safe and keeps the survivors' order.
- */
-export function settleSweptMisses(tracks: TrackMap, beam: SweepBeam, site: SweepSite, now: number): void {
-  for (const [key, t] of tracks) {
-    if (t.missSweptAt >= 0) {
-      const stale = t.seenAt < t.missSweptAt && now - t.missSweptAt >= SWEEP_MISS_GRACE_MS;
-      if (stale) tracks.delete(key);
-      continue;
-    }
-    if (sweptAndMissed(beam, site, t, now)) t.missSweptAt = now;
-  }
+export function associatePaint(
+  tracks: TrackMap,
+  p: Vec2,
+  now: number,
+  cells: readonly WakeCell[],
+  waterR = Infinity,
+): string | null {
+  return nearestPredictedPlot(tracks, p, now, waterR) ?? soleCourselessCandidate(tracks, p, now, cells);
 }
 
 /**

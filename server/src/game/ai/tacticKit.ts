@@ -37,10 +37,10 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import type { BotMind, BotPosture, BotSelf, BotWorldPort } from './types.js';
-import { isActionable, lineBlocked, tracksOf, type BotSituation, type BotTrack } from './utility.js';
+import { isActionable, lineBlocked, plotAt, tracksOf, type BotSituation, type BotTrack } from './utility.js';
 import type { BotProfile } from './profiles.js';
 import { torpedoInbound } from './torpedoThreat.js';
-import { predictedPos, trackVelocity } from './plot.js';
+import { trackVelocity } from './plot.js';
 
 const TAU = Math.PI * 2;
 
@@ -206,7 +206,7 @@ const LEAD_ITERATIONS = 3;
  * this tick, so its prediction is its position and the solve is the old one.
  */
 function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
-  const base = predictedPos(t, sit.now);
+  const base = plotAt(sit, t);
   const v = trackVelocity(t);
   if (v === null) return base;
   let tof = 0;
@@ -247,8 +247,13 @@ export function shotReaches(self: BotSelf, sit: BotSituation, p: Vec2): boolean 
   return !lineBlocked(self.state, p, sit.islands);
 }
 
+/** u — the distance to a plot's PREDICTED point (utility.ts plotAt — cycle
+ *  165 review, B4): every range, band and placement check reads the same
+ *  point the lead solve starts from. Identical to the raw distance for a live
+ *  sighting or a course-less plot. */
 export function distTo(sit: BotSituation, t: BotTrack): number {
-  return Math.hypot(t.x - sit.x, t.y - sit.y);
+  const p = plotAt(sit, t);
+  return Math.hypot(p.x - sit.x, p.y - sit.y);
 }
 
 // ---------------------------------------------------------------------------
@@ -276,12 +281,14 @@ export function solveTorpedoShot(
 ): Shot | null {
   const t = ctx.target;
   if (t === null || trackVelocity(t) === null) return null; // a course-less plot cannot be led
-  if (distTo(ctx.sit, t) > reachU) return null;
+  // Range is gated on where the plot should be NOW, not its stale paint.
+  const d = distTo(ctx.sit, t);
+  if (d > reachU) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, speed);
   const aim = bearing(ctx.self.state, p);
   if (!torpedoAimLegal(id, ctx.self.state.heading, aim)) return null;
   if (!shotReaches(ctx.self, ctx.sit, p)) return null;
-  return { aim, aimDist: distTo(ctx.sit, t), slot: ctx.slot };
+  return { aim, aimDist: d, slot: ctx.slot };
 }
 
 // ---------------------------------------------------------------------------
@@ -328,7 +335,7 @@ export function burstOnLiveContact(ctx: TacticContext, rangeU: number): Shot | n
   const d = distTo(ctx.sit, t);
   if (d > rangeU) return null;
   if (!shotReaches(ctx.self, ctx.sit, t)) return null;
-  return { aim: bearing(ctx.self.state, t), aimDist: d, slot: ctx.slot };
+  return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
 
 /**

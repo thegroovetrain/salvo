@@ -21,27 +21,26 @@ import {
   type HullId,
   type Rng,
 } from '@salvo/shared';
-import { circleIsland } from './islandFixture.js';
+import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
 import type { PerceptionView } from '../game/perception.js';
 import type { BotMind, BotWorldPort, RememberedContact, WakeCell } from '../game/ai/types.js';
 import {
   ANON_ASSOC_U,
+  DEAD_RECKON_HORIZON_MS,
   FASTEST_HULL_SPEED,
   LONGEST_HULL_U,
-  SWEEP_MISS_GRACE_MS,
   TRACK_PERSIST_MS,
   WAKE_REACH_U,
   fitWakeVelocity,
   foldWakeCells,
   paintVelocity,
   predictedPos,
-  sweptAndMissed,
   trackVelocity,
-  type SweepSite,
 } from '../game/ai/plot.js';
+import { SWEEP_MISS_GRACE_MS, sweptAndMissed, type SweepSite } from '../game/ai/sweepMiss.js';
 import { foldView } from '../game/ai/utility.js';
-import { aimPoint, type TacticContext } from '../game/ai/tacticKit.js';
+import { aimPoint, solveTorpedoShot, type TacticContext } from '../game/ai/tacticKit.js';
 import { EQUIPMENT_TACTICS } from '../game/ai/tacticRegistry.js';
 import { COMBAT_BRAIN, situationOf } from '../game/ai/tactics.js';
 
@@ -164,6 +163,16 @@ describe('ai/plot — kinematics', () => {
     expect([t.vx, t.vy, t.vSrc]).toEqual([0, 0, 'paint']);
   });
 
+  it('THE HORIZON AND THE WATER (B5): dead reckoning freezes past one sweep + grace, and stays on the map', () => {
+    const t = anon({ x: 0, y: 0, seenAt: NOW - 20000, vx: 10, vy: 0 });
+    expect(predictedPos(t, NOW).x).toBeCloseTo((10 * DEAD_RECKON_HORIZON_MS) / 1000, 9);
+    expect(DEAD_RECKON_HORIZON_MS).toBe(TRACK_PERSIST_MS + 2 * CONFIG.tick.simDtMs);
+    const edge = anon({ x: 0, y: 950, seenAt: NOW - 2000, vx: 0, vy: 45 });
+    const q = predictedPos(edge, NOW, 1000);
+    expect(Math.hypot(q.x, q.y)).toBeCloseTo(1000, 9);
+    expect(predictedPos(edge, NOW).y).toBeCloseTo(1040, 9); // no radius given: no clamp
+  });
+
   it('paintVelocity: displacement over Δt, and null with no earlier paint or a sub-second pair', () => {
     expect(paintVelocity(anon(), 680, 0, NOW)).toBeNull();
     expect(paintVelocity(anon({ paintX: 500, paintY: 0, paintAt: NOW - 500 }), 520, 0, NOW)).toBeNull();
@@ -208,6 +217,18 @@ describe('ai/plot — the wake-ribbon course fit (first paint)', () => {
     ];
     const old = fitWakeVelocity(t, short, NOW)!;
     expect(old.vx).toBeCloseTo(200 / ((3.5 / WAKE_AGE_BUCKETS) * LIFE / 1000), 6);
+  });
+
+  it('PASSER-BY RIBBON (E5): a plot 40 u beside someone else\'s ribbon gets no course; at the head of its own it does', () => {
+    // A ribbon heading +x: one young cell at x = 200, two older at x = 140.
+    const cells: WakeCell[] = [
+      { x: 200, y: 0, bucket: 0, t: NOW },
+      { x: 140, y: 0, bucket: 1, t: NOW }, { x: 140, y: 0, bucket: 1, t: NOW },
+    ];
+    expect(fitWakeVelocity(anon({ x: 100, y: 40, seenAt: NOW }), cells, NOW)).toBeNull();
+    const head = fitWakeVelocity(anon({ x: 230, y: 0, seenAt: NOW }), cells, NOW)!;
+    expect(head.vx).toBeGreaterThan(0);
+    expect(head.vy).toBeCloseTo(0, 9);
   });
 
   it('too short a ribbon is no course: fewer than three cells, or a baseline under two lattice cells', () => {
@@ -274,11 +295,83 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     m.contacts.set('a:500:0', anon({ ...p0, seenAt: NOW - 4000, paintX: p0.x, paintY: p0.y, paintAt: NOW - 4000 }));
     expect(180).toBeGreaterThan(ANON_ASSOC_U);
     expect(180).toBeLessThan(FASTEST_HULL_SPEED * 4 + ANON_ASSOC_U);
-    foldView(m, view([blipAt(p0.x + 180, 0, NOW)]), NOW);
+    // Its own water lies behind the paint (E4: rule b needs wake evidence).
+    foldView(m, view([wakeAt(p0.x + 100, 0, 1, NOW), blipAt(p0.x + 180, 0, NOW)]), NOW);
     expect(m.contacts.size).toBe(1);
     const t = m.contacts.get('a:500:0')!;
     expect(t.vSrc).toBe('paint');
     expect(t.vx!).toBeGreaterThan(40);
+  });
+
+  it('A SIGHTED HULL KEEPS ITS NAME (B2): lost at the bubble edge, its first annulus paint lands on the SAME key, not dropped', () => {
+    const SITE2: SweepSite = { x: 0, y: 0, stats: { radarRange: 1000, sightRange: 250, sweepPeriodMs: 4000 }, islands: [] };
+    const m = mkMind();
+    const seen: PerceptionView = { ...view([]), contacts: [{ id: 's1', x: 248, y: 0, heading: 0, speed: 45, cls: 'torpedoBoat' }] as PerceptionView['contacts'] };
+    foldView(m, seen, NOW);
+    expect(m.contacts.get('s1')!.live).toBe(true);
+    // Out of the bubble: one tick dark, then the beam crosses it ~1 s later at 293 u.
+    foldView(m, view([]), NOW + 50, { beam: { lastSweep: 3, sweepAngle: 3.05 }, site: SITE2 });
+    foldView(m, view([blipAt(293, 0, NOW + 1000)]), NOW + 1000, { beam: { lastSweep: 2 * Math.PI - 0.05, sweepAngle: 0.05 }, site: SITE2 });
+    expect([...m.contacts.keys()]).toEqual(['s1']);
+    const t = m.contacts.get('s1')!;
+    expect(t.paintAt).toBe(NOW + 1000);
+    expect(t.cls).toBe('torpedoBoat');
+    expect(t.missSweptAt).toBe(-1);
+  });
+
+  it('A MEASUREMENT OVERRIDES A GUESS (B3): a stopped hull with a stale wake course takes its next paint via rule (b) and reads stationary', () => {
+    const m = mkMind();
+    // Parked at (500, 0) but still carrying a 40 u/s wake guess: predicted 160 u ahead, outside its ~114 u band.
+    m.contacts.set('a', anon({ x: 500, y: 0, seenAt: NOW - 4000, paintX: 500, paintY: 0, paintAt: NOW - 4000, vx: 40, vy: 0, vSrc: 'wake', vAt: NOW - 4000 }));
+    foldView(m, view([wakeAt(420, 0, 3, NOW), blipAt(500, 0, NOW)]), NOW);
+    expect([...m.contacts.keys()]).toEqual(['a']);
+    const t = m.contacts.get('a')!;
+    expect([t.vx, t.vy, t.vSrc]).toEqual([0, 0, 'paint']);
+  });
+
+  it('CHAFF CHAIN (E4): rule (b) refuses a paint with no wake water near it — 233 u away opens a new plot; with a wake cell it joins', () => {
+    const plotAt = (m: BotMind): void => {
+      m.contacts.set('a', anon({ x: 500, y: 0, seenAt: NOW - 4000, paintX: 500, paintY: 0, paintAt: NOW - 4000 }));
+    };
+    expect(233).toBeLessThan(FASTEST_HULL_SPEED * 4 + ANON_ASSOC_U);
+    const bare = mkMind();
+    plotAt(bare);
+    foldView(bare, view([blipAt(733, 0, NOW)]), NOW);
+    expect(bare.contacts.size).toBe(2);
+    expect(bare.contacts.get('a')!.paintAt).toBe(NOW - 4000);
+    const wet = mkMind();
+    plotAt(wet);
+    foldView(wet, view([wakeAt(620, 0, 2, NOW), blipAt(733, 0, NOW)]), NOW);
+    expect(wet.contacts.size).toBe(1);
+    expect(wet.contacts.get('a')!.paintAt).toBe(NOW);
+  });
+
+  it('TWO HULLS ON CONSECUTIVE TICKS (E3): a "move" of 2+ cells inside a second is another hull; next revolution both read stationary', () => {
+    const m = mkMind();
+    const t0 = NOW;
+    foldView(m, view([blipAt(0, 0, t0)]), t0);
+    foldView(m, view([blipAt(40, 0, t0 + 50)]), t0 + 50);
+    expect(m.contacts.size).toBe(2);
+    for (const t of m.contacts.values()) expect(t.vSrc).toBeNull();
+    foldView(m, view([blipAt(0, 0, t0 + 4000)]), t0 + 4000);
+    foldView(m, view([blipAt(40, 0, t0 + 4050)]), t0 + 4050);
+    expect(m.contacts.size).toBe(2);
+    for (const t of m.contacts.values()) expect([t.vx, t.vy, t.vSrc]).toEqual([0, 0, 'paint']);
+  });
+
+  it('HIT CALLS DO NOT SHRINK THE BAND (E2): 11 Hit Calls after a 4 s-old paint, then a paint 85 u off joins', () => {
+    const m = mkMind();
+    m.contacts.set('c', anon({ x: 300, y: 0, seenAt: NOW - 4000, paintX: 300, paintY: 0, paintAt: NOW - 4000, vx: 45, vy: 0, vSrc: 'wake', vAt: NOW - 4000 }));
+    for (let i = 11; i >= 1; i -= 1) {
+      const at = NOW - i * 50;
+      const q = predictedPos(m.contacts.get('c')!, at);
+      foldView(m, view([{ k: 'hc', id: 'me', x: q.x, y: q.y }]), at);
+    }
+    expect(m.contacts.get('c')!.hits).toBe(11);
+    const q = predictedPos(m.contacts.get('c')!, NOW); // (480, 0)
+    foldView(m, view([blipAt(q.x, 85, NOW)]), NOW);
+    expect([...m.contacts.keys()]).toEqual(['c']);
+    expect(m.contacts.get('c')!.paintAt).toBe(NOW);
   });
 
   it('two course-less candidates are AMBIGUOUS: the paint opens a new plot', () => {
@@ -392,7 +485,7 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
 });
 
 describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
-  const SITE: SweepSite = { x: 0, y: 0, stats: { radarRange: 1000 }, islands: [] };
+  const SITE: SweepSite = { x: 0, y: 0, stats: { radarRange: 1000, sightRange: 250, sweepPeriodMs: 4000 }, islands: [] };
   const ACROSS = { lastSweep: 2 * Math.PI - 0.05, sweepAngle: 0.05 }; // wraps through bearing 0
   const stale = anon({ x: 500, y: 0, seenAt: NOW - 1000 });
 
@@ -405,12 +498,48 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
   });
 
   it('keeps it out of radar range, behind an island, off the beam, painted this tick, live, or under a frozen beam', () => {
-    expect(sweptAndMissed(ACROSS, { ...SITE, stats: { radarRange: 400 } }, stale, NOW)).toBe(false);
+    expect(sweptAndMissed(ACROSS, { ...SITE, stats: { ...SITE.stats, radarRange: 400 } }, stale, NOW)).toBe(false);
     expect(sweptAndMissed(ACROSS, { ...SITE, islands: [circleIsland(250, 0, 40)] }, stale, NOW)).toBe(false);
     expect(sweptAndMissed({ lastSweep: 1, sweepAngle: 1.1 }, SITE, stale, NOW)).toBe(false);
     expect(sweptAndMissed(ACROSS, SITE, { ...stale, seenAt: NOW }, NOW)).toBe(false);
     expect(sweptAndMissed(ACROSS, SITE, { ...stale, live: true }, NOW)).toBe(false);
     expect(sweptAndMissed({ lastSweep: 0, sweepAngle: 0 }, SITE, stale, NOW)).toBe(false);
+  });
+
+  it('THE RADAR SHADOW (E7): beyond sight, the gate is the perception boundary\'s own height march', () => {
+    // A hard ridge on the ray that no island polygon models: shadowed → not a miss.
+    const ridge = { ...SITE, raster: rasterFrom(700, ridgeField(250, 0, 10, 10, 255)) };
+    expect(sweptAndMissed(ACROSS, ridge, stale, NOW)).toBe(false);
+    // An island polygon on the ray over a flat raster: the march says the hull answers → a miss.
+    const flat = { ...SITE, islands: [circleIsland(250, 0, 40)], raster: flatRaster(700) };
+    expect(sweptAndMissed(ACROSS, flat, stale, NOW)).toBe(true);
+  });
+
+  it('THE WHOLE BAND (E1): a plot is not dropped before its paint lands inside the band; an empty band drops once cleared', () => {
+    const STEP = (2 * Math.PI * DT) / 4000; // 4.5° a tick
+    const course = (): RememberedContact =>
+      anon({ x: 300, y: -80, seenAt: NOW - 4000, paintX: 300, paintY: -80, paintAt: NOW - 4000, vx: 0, vy: 20, vSrc: 'paint', vAt: NOW - 4000 });
+    const run = (paintHull: boolean): BotMind => {
+      const m = mkMind();
+      m.contacts.set('c', course()); // predicted (300, 0) at NOW, band ~114 u
+      let last = 2 * Math.PI - 0.05;
+      for (let k = 0; k <= 6; k += 1) {
+        const at = NOW + k * DT;
+        const cur = (0.05 + k * STEP) % (2 * Math.PI);
+        // The hull runs 80 u AHEAD of the prediction (~15° of bearing): its paint lands when the beam gets there.
+        const hb = Math.atan2(80, 300);
+        const events: GameEvent[] = paintHull && hb >= last && hb < cur ? [blipAt(300, 80, at)] : [];
+        foldView(m, view(events), at, { beam: { lastSweep: last, sweepAngle: cur }, site: SITE });
+        last = cur;
+        if (k === 2) expect(m.contacts.has('c')).toBe(true); // grace run, band not cleared: kept
+      }
+      return m;
+    };
+    const painted = run(true);
+    expect(painted.contacts.size).toBe(1);
+    expect(painted.contacts.get('c')!.paintX).toBe(cellCentre(300, 80).x);
+    const empty = run(false);
+    expect(empty.contacts.size).toBe(0);
   });
 
   it('the window is half-open: start-inclusive, end-exclusive', () => {
@@ -597,7 +726,7 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
     expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), leaving))).toBeNull();
   });
 
-  it('HOLDS when the INTERCEPT is beyond reach (P3): outbound at 650 u holds, inbound at 650 u streams', () => {
+  it('HOLDS when the INTERCEPT is beyond reach: outbound at 650 u (≈714 u intercept) holds, inbound at 650 u streams', () => {
     const { rec, port } = mgShooter();
     const rangeU = rec.stats.equipment.machineGun.rangeU;
     expect(rangeU).toBe(660);
@@ -607,6 +736,20 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
     const shot = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), inbound))!;
     expect(shot.held).toBe(true);
     expect(shot.aimDist).toBe(rangeU); // the overshoot alone clamps at reach
+  });
+});
+
+describe('ai/tacticKit / equipment — gates read the PREDICTED position (E6, E8)', () => {
+  it('the torpedo gates range on, and reports, the predicted distance', () => {
+    const { rec, port } = mgShooter();
+    const ctxOf = (t: RememberedContact): TacticContext => mgCtx(rec, port, mkMind(), t);
+    // Last painted 200 u ahead, opening at 45 u/s for 2 s: predicted 290 u — past a 250 u reach.
+    const opening = anon({ x: 200, y: 0, seenAt: NOW - 2000, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW - 2000 });
+    expect(solveTorpedoShot(ctxOf(opening), 'heavyTorpedo', 60, 250)).toBeNull();
+    // Last painted 300 u ahead, closing: predicted 210 u — inside, and reported as 210.
+    const closing = anon({ x: 300, y: 0, seenAt: NOW - 2000, vx: -45, vy: 0, vSrc: 'paint', vAt: NOW - 2000 });
+    const shot = solveTorpedoShot(ctxOf(closing), 'heavyTorpedo', 60, 250)!;
+    expect(shot.aimDist).toBeCloseTo(210, 9);
   });
 });
 

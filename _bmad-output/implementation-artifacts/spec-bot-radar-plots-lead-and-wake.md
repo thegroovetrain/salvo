@@ -2,10 +2,10 @@
 title: 'Bots lead radar plots: course from wake and paint-to-paint, dead-reckoned aim, sweep-miss drop, MG magazine discipline'
 type: 'bugfix'
 created: '2026-10-02'
-status: 'in-review'
+status: 'done'
 baseline_revision: '433fd485'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-8-context-amendments.md'
@@ -61,7 +61,8 @@ warnings: [oversized]
 - `server/src/game/ai/utility.ts` -- `foldView` routes `wk` to the wake buffer, `foldBlip` associates to predicted positions, sweep-miss pass after the fold; `freshness()` unchanged.
 - `server/src/game/ai/tacticKit.ts` -- `leadPoint` leads the dead-reckoned plot using `trackVelocity`; `aimPoint` unchanged API.
 - `server/src/game/ai/equipment.ts` -- `streamSolve`: hold rule + aim-past overshoot.
-- `server/src/game/world.ts` -- nothing (BotTickEntry.self is the ShipRecord, which already carries both sweep angles).
+- `server/src/game/ai/sweepMiss.ts` -- NEW (review gate): the sweep-miss mark/drop, gated by `visibilityTo(map.heightRaster)` beyond sight.
+- `server/src/game/world.ts` -- nothing (the map, its raster and the own sweep angle were already on the port / the record).
 - `server/src/__tests__/botPlot.test.ts` -- NEW: unit pins for the matrix above.
 - `server/src/__tests__/botTactics.test.ts` -- fixture `track()` helper updated; "a return-grammar plot cannot be led" pin re-cut (it CAN be led once it has a course).
 - `server/src/__tests__/botGunnery.test.ts` -- NEW: the probe scenarios as regression pins (radar-only orbit/straight at 500 u: MG hit rate ≥ 40 %; parked ≥ 90 %; sight 100 %; ghost ticks near zero).
@@ -70,13 +71,13 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `server/src/game/ai/types.ts` -- add the track velocity fields, paint baseline, wake buffer, sweep self-reads -- the one track shape.
-- [ ] `server/src/game/ai/plot.ts` -- `foldWakeCells`, `fitWakeVelocity`, `paintVelocity`, `predictedPos`, `trackVelocity`, `sweptAndMissed` -- pure, exported, unit-tested.
-- [ ] `server/src/game/ai/utility.ts` -- wire the fold (events → wake buffer → paints with predicted association → contacts → sweep-miss → prune) -- order is load-bearing.
-- [ ] `server/src/game/ai/tacticKit.ts` -- `leadPoint` on `predictedPos` + `trackVelocity`.
-- [ ] `server/src/game/ai/equipment.ts` -- MG hold + overshoot.
-- [ ] tests (three files above); `npm run check` green; lint 0 errors.
-- [ ] docs: amendments 229+, CHANGELOG 0.18.30, VERSION/package.json, trackers, this spec's result.
+- [x] `server/src/game/ai/types.ts` -- add the track velocity fields, paint baseline, wake buffer, sweep self-reads -- the one track shape.
+- [x] `server/src/game/ai/plot.ts` -- `foldWakeCells`, `fitWakeVelocity`, `paintVelocity`, `predictedPos`, `trackVelocity`, `sweptAndMissed` -- pure, exported, unit-tested.
+- [x] `server/src/game/ai/utility.ts` -- wire the fold (events → wake buffer → paints with predicted association → contacts → sweep-miss → prune) -- order is load-bearing.
+- [x] `server/src/game/ai/tacticKit.ts` -- `leadPoint` on `predictedPos` + `trackVelocity`.
+- [x] `server/src/game/ai/equipment.ts` -- MG hold + overshoot.
+- [x] tests (three files above); `npm run check` green; lint 0 errors.
+- [x] docs: amendments 229+, CHANGELOG 0.18.30, VERSION/package.json, trackers, this spec's result.
 
 **Acceptance Criteria:**
 - Given a pinned MG bot and a torpedo boat sailing at 45 u/s at 500 u radar-only, when 60 s run, then MG hit rate ≥ 40 % (was 0 %) and ticks aimed at a plot > 60 u from truth < 25 % (was 80–90 %).
@@ -89,6 +90,32 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-10-02 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 19 (high 3, medium 11, low 5)
+- defer: 0
+- reject: 3 (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[high]` `[patch]` Edge: the 2-tick grace dropped a plot whose bearing error the age-grown association radius accepts (reproduced at 300 u) — a marked plot is now dropped only after the grace AND once the beam has cleared the whole association disc (sweepMiss.ts).
+  - `[high]` `[patch]` Blind: the gunnery fixture cleared islands but not the height raster (a phantom radar shadow across the orbit) — flat raster + an open-ocean assertion along every probe path; MG-only hit counting; S4 reverses through real 60 u semicircles.
+  - `[high]` `[patch]` Blind: a sighted hull leaving the bubble could never take a radar paint (id-keyed plots were excluded) and a wake guess could never be replaced by a measurement — rule (a) now covers every non-live plot, rule (b) covers wake-sourced plots.
+  - `[medium]` `[patch]` Codex: two same-tick paints could re-take one plot and starve its neighbor — one paint per plot per tick in both association rules.
+  - `[medium]` `[patch]` Codex: the MG committed to an intercept past reach and every shell died short — hold when the lead point is beyond reach (strict; a softened +half-hull margin was measured worse and reverted).
+  - `[medium]` `[patch]` Codex + Blind: Hit Call crediting (30 u) split a streamed 100 u hull into stray plots and the stray path fell through the wide paint matcher — credit radius = half the longest hull (62 u, derived); stray Hit Calls use the fixed 54 u and never the age-grown radius.
+  - `[medium]` `[patch]` Edge: Hit Calls reset the age-grown radius (seenAt) — the radius ages from the last paint.
+  - `[medium]` `[patch]` Edge: two hulls painted on consecutive ticks collapsed into one plot with a phantom course — a second paint < 1 s after the last that moved ≥ 18 u opens a new plot.
+  - `[medium]` `[patch]` Edge: chaff fakes could chain through rule (b)'s 234 u reach and pass persistence — rule (b) requires wake evidence near the paint (a fake lays no wake).
+  - `[medium]` `[patch]` Edge: the torpedo range gate and aimDist read the stale paint — predicted distance.
+  - `[medium]` `[patch]` Edge + Blind: island LOS as the "would have painted" proxy is false in a one-cell band along coastlines (0.05 % of pairs measured) — the sweep-miss gate now uses the perception boundary's own `visibilityTo(port.map.heightRaster)` beyond sight (island LOS inside the bubble); the spec's HALT clause is discharged by using the exact primitive.
+  - `[medium]` `[patch]` Blind: the helm, the scorer, posture, isolation, idle aim and every distance check still read the stale paint while the guns aimed at the prediction — one `plotPoint` for every consumer (orchestrator reading; Eric may veto).
+  - `[medium]` `[patch]` Blind: dead reckoning was unbounded (off the map, into islands, 8 s) — frozen past one sweep + grace and clamped to the water disc.
+  - `[low]` `[patch]` Codex: the bot read the record's `prevSweepAngle`, which no frame carries — the mind remembers its own last-tick `sweep` like a client.
+  - `[low]` `[patch]` Edge: a passer-by's ribbon could hand a plot a course — the plot must sit at the ribbon's head (30° cone) when more than one bucket is present.
+  - `[low]` `[patch]` Edge: `isClosing` at the stale paint — predicted point.
+  - `[low]` `[patch]` Blind: `nearestPredicted` tie-break kept the last candidate while its comment claimed the earliest — strict `<`.
+  - rejected (3, low): Blind's "revert the strict reach hold" (measured worse; Codex's rule stands); the MG hold reading `seenAt` refreshed by Hit Calls (a connection is presence evidence, by orchestrator reading); residual wake-fit noise (a kept estimate when a refit returns null; torpedo buckets read on the hull life scale) — bounded by the plausibility cap, the ribbon-head cone and the next paint pair, recorded in amendment 231 as a stated limit.
 
 ## Design Notes
 
@@ -103,3 +130,18 @@ warnings: [oversized]
 - `npm test -w server` -- expected: all green incl. the three bot test files.
 - `npm run lint` -- expected: 0 errors (complexity ≤ 10).
 - `npm run check` -- expected: green; test counts recorded in the CHANGELOG.
+
+## Auto Run Result
+
+Status: done (cycle 165 / 0.18.30, PROTOCOL_VERSION 69 unchanged).
+
+**Implemented:** radar plots carry an estimated course (wake age-gradient fit on first paint, paint-to-paint displacement after, 18 u stationary floor, sticky paint courses); every lead solve, the helm and the scorer read the dead-reckoned plot (`plotPoint`); paints associate to predicted positions (54 u + fastest/3 × paint age; a sole course-less or wake-guessed plot with wake evidence; one paint per plot per tick; a second hull inside 1 s opens its own plot); a plot swept clean by the bot's own beam (the perception boundary's `visibilityTo` beyond sight) is dropped after a 2-tick grace once the beam has cleared the whole association disc; dead reckoning frozen past one sweep + grace and clamped to the water disc; Hit Calls credit within half the longest hull at the predicted center and never walk a course plot; the MG holds on a course-less plot older than one sweep and when the intercept is past reach, and aims one hull length past the target (Eric rulings 2026-10-02: hold MG only, drop on a clean miss, course feeds every weapon, aim past).
+
+**Files:** `server/src/game/ai/plot.ts` (new, the plotting table), `ai/sweepMiss.ts` (new), `ai/types.ts`, `ai/utility.ts` (fold order), `ai/tacticKit.ts` (lead on the prediction), `ai/equipment.ts` (MG hold/overshoot, predicted gates), `ai/tactics.ts` (ingest passes beam/site/raster, lastSweep), `ai/botDriver.ts` (wakeCells/lastSweep lifecycle); tests `botPlot.test.ts` (49, new), `botGunnery.test.ts` (6, new), `botTactics.test.ts` / `botPolicy.test.ts` fixtures; docs: CHANGELOG 0.18.30, VERSION/package.json, epic-8 amendments 229–231, both trackers, GDD stamp.
+
+**Review:** 19 patches applied (3 high, 11 medium, 5 low), 0 deferred, 3 rejected — see the Review Triage Log. Follow-up review recommended: true (the gate reworked association, the drop gate, Hit Call crediting and routed the helm/scorer through the prediction).
+
+**Verification:** `npm run check` green on the final tree — shared 1025, server 2402, client 3811, hook test 266, lint 0 errors. Gunnery pins on a flat-raster open ocean: sight orbit 100 %, radar orbit 500 u 97 %, parked end-on 67 %, parked beam-on 100 %, racetrack with 60 u U-turns 80 %, swept-clean plot gone in 3 ticks (was: 0 % / 53 % / — / 0 % / 81 ticks).
+
+**Residual risks:** the helm/scorer-on-prediction reading (amendment 231(c)) is Eric's to veto; a parked hull's still-live ribbon gives its fresh plot a false course for one revolution until the paint pair measures stationary; torpedo water is read on the hull life scale (bounded by the plausibility cap and the head cone); `ai/utility.ts` is 772 lines. No batch-sim was run (not requested); a quick approved run would show the match-level effect on bot kill share.
+

@@ -628,7 +628,11 @@ describe('ai/utility — profile-weighted target selection', () => {
     // can separate them, because nothing on the wire separates a human
     // captain from another bot.
     const m = mind('duelist');
-    foldView(m, view({ contacts: [contact('human', 200, 0), contact('bot-3', -200, 0)] }), 1000);
+    // Parked (speed 0): since cycle 165 the scorer reads the DEAD-RECKONED
+    // plot, and two hulls sailing the same way from mirror positions are not
+    // mirror images 19 s later — the pin is about identity, not motion.
+    const still = (c: Contact): Contact => ({ ...c, speed: 0 });
+    foldView(m, view({ contacts: [still(contact('human', 200, 0)), still(contact('bot-3', -200, 0))] }), 1000);
     const sit = situation({ now: NOW, profile: profileOf('duelist'), stats: stats('torpedoBoat') });
     const all = tracksOf(m);
     expect(scoreTrack(all[0], sit, all)).toBeCloseTo(scoreTrack(all[1], sit, all), 9);
@@ -659,7 +663,9 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
   const NOW = 20000;
 
   function target(m: BotMind, x: number): BotTrack {
-    foldView(m, view({ contacts: [contact('e1', x, 0)] }), 1000);
+    // Parked (speed 0): the posture reads the dead-reckoned plot (cycle 165),
+    // and these pins are about WHERE the target is, not where it drifts to.
+    foldView(m, view({ contacts: [{ ...contact('e1', x, 0), speed: 0 }] }), 1000);
     return onlyTrack(m);
   }
 

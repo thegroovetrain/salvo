@@ -6,7 +6,9 @@
 // Deterministic: fixed seed, scripted target, no randomness in the harness.
 
 import { describe, it, expect } from 'vitest';
+import { visibilityTo } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { flatRaster } from './islandFixture.js';
 import type { BotMind } from '../game/ai/types.js';
 import { predictedPos } from '../game/ai/plot.js';
 
@@ -43,22 +45,44 @@ interface Result {
 
 interface Rig {
   w: World;
+  /** Bot-owned ballistics that are NOT machine-gun rounds (must stay 0). */
+  foreign: number;
   bot: ShipRecord;
   tgt: ShipRecord;
   minds: Map<string, BotMind>;
   seq: number;
 }
 
+/** The fixture can never silently shadow: every probe radius, 36 bearings,
+ *  must be radar-visible from the origin. */
+function assertOpenOcean(w: World): void {
+  for (const r of [250, 500, 600]) {
+    for (let k = 0; k < 36; k += 1) {
+      const a = (k / 36) * Math.PI * 2;
+      const v = visibilityTo(w.map.heightRaster, 0, 0, Math.cos(a) * r, Math.sin(a) * r);
+      expect(v, `shadowed at r=${r} bearing ${k * 10} deg`).toBeGreaterThan(0);
+    }
+  }
+}
+
 function buildRig(start: { x: number; y: number }): Rig {
   const w = new World(9101, 4);
   w.map.islands.length = 0;
+  // Clearing islands leaves the generated height raster in place and it would
+  // still cast radar shadows: install genuinely open ocean.
+  w.map.heightRaster = flatRaster(1000);
+  assertOpenOcean(w);
   const bot = w.addBot('torpedoBoat', 'duelist', 'machineGun');
+  // MG-only: every slot but 0 is emptied, so hp lost is machine-gun damage.
+  bot.loadout.forEach((_slot, i) => {
+    if (i !== 0) bot.loadout[i] = { equipmentId: null, state: null };
+  });
   bot.state.x = 0;
   bot.state.y = 0;
   bot.prevPose = { ...bot.state };
   const tgt = w.addShip('tgt', 'TGT', 'captain', 'torpedoBoat', undefined, start);
   const minds = (w.bots as unknown as { minds: Map<string, BotMind> }).minds;
-  return { w, bot, tgt, minds, seq: 0 };
+  return { w, foreign: 0, bot, tgt, minds, seq: 0 };
 }
 
 /** Pin the bot in place (heading stays free) and re-seat the target. */
@@ -152,7 +176,9 @@ function countNewMgShells(rig: Rig, seen: Set<string>): number {
   for (const [id, s] of rig.w.shells) {
     if (seen.has(id)) continue;
     seen.add(id);
-    if ((s as unknown as { family?: string }).family === 'mg' && s.ownerId === rig.bot.id) n += 1;
+    if (s.ownerId !== rig.bot.id) continue;
+    if ((s as unknown as { family?: string }).family === 'mg') n += 1;
+    else rig.foreign += 1;
   }
   return n;
 }
@@ -176,6 +202,7 @@ function run(start: { x: number; y: number }, sc: Scenario, label: string, decom
     shells += countNewMgShells(rig, seen);
     observeMind(rig, acc);
   }
+  expect(rig.foreign, 'the bot fired something other than machine-gun rounds').toBe(0);
   const hits = lost / dmg;
   const r: Result = {
     shells, hits, hitRate: shells > 0 ? hits / shells : 0, targeted: acc.targeted,
@@ -209,16 +236,33 @@ function parked(x: number, y: number, heading = 0): Scenario {
   };
 }
 
+/** A racetrack: legs on x = 500 (north-bound) and x = 380 (south-bound) joined
+ *  by 60 u radius semicircles, 45 u/s along the path, heading = tangent, so the
+ *  target's velocity is continuous (no hull can reverse instantly). */
+const LEG = 600;
+const TURN_R = 60;
+function racetrack(sArc: number): { x: number; y: number; heading: number } {
+  const half = Math.PI * TURN_R;
+  const s = sArc % (2 * LEG + 2 * half);
+  if (s < LEG) return { x: 500, y: -300 + s, heading: Math.PI / 2 };
+  if (s < LEG + half) return arc(440, 300, (s - LEG) / TURN_R);
+  if (s < 2 * LEG + half) return { x: 380, y: 300 - (s - LEG - half), heading: -Math.PI / 2 };
+  return arc(440, -300, Math.PI + (s - 2 * LEG - half) / TURN_R);
+}
+
+function arc(cx: number, cy: number, phi: number): { x: number; y: number; heading: number } {
+  return { x: cx + TURN_R * Math.cos(phi), y: cy + TURN_R * Math.sin(phi), heading: phi + Math.PI / 2 };
+}
+
 function straight(): Scenario {
-  let y = -300;
-  let dir = 1;
+  let arcLen = 0;
   return {
     place: (_t, tgt) => {
-      y += dir * SPEED * DT;
-      if (Math.hypot(500, y) > 600) dir = -dir; // turn around: never a jump
-      tgt.state.x = 500;
-      tgt.state.y = y;
-      return { heading: (dir * Math.PI) / 2, speed: SPEED };
+      arcLen += SPEED * DT;
+      const p = racetrack(arcLen);
+      tgt.state.x = p.x;
+      tgt.state.y = p.y;
+      return { heading: p.heading, speed: SPEED };
     },
   };
 }
@@ -250,7 +294,7 @@ describe('machine-gun bot gunnery (probe scenarios as pins)', () => {
 
   it('S2 RADAR MOVING: orbit at 500 u (radar only)', () => {
     const r = run({ x: 500, y: 0 }, orbit(500), 'S2 radar orbit 500');
-    // Measured ~84 % after the estimator fixes; the margin covers the chord bias
+    // Measured ~97 % on the clean fixture; the margin covers the chord bias
     // of a straight-line lead on a curved course.
     expect(r.hitRate).toBeGreaterThanOrEqual(0.7);
     expect(r.ghostFrac).toBeLessThan(0.25);
@@ -272,12 +316,15 @@ describe('machine-gun bot gunnery (probe scenarios as pins)', () => {
     expect(r.hitRate).toBeGreaterThanOrEqual(0.95);
   });
 
-  it('S4 RADAR STRAIGHT: a runner on x = 500 that turns around at 600 u', () => {
+  it('S4 RADAR STRAIGHT: a racetrack: straight legs joined by 60 u semicircles', () => {
     const r = run({ x: 500, y: -300 }, straight(), 'S4 radar straight x=500');
-    // Measured ~97 %; a constant-velocity lead on a straight course is near exact.
-    expect(r.hitRate).toBeGreaterThanOrEqual(0.8);
+    // The racetrack reverses the target twice a minute through 60 u-radius U-turns
+    // that complete inside one sweep, which no dead-reckoning can follow. Measured
+    // 73-80 % across the review-gate variants; the third plot is the post-turn
+    // re-acquisition.
+    expect(r.hitRate).toBeGreaterThanOrEqual(0.65);
     expect(r.ghostFrac).toBeLessThan(0.25);
-    expect(r.maxTracks).toBeLessThanOrEqual(2);
+    expect(r.maxTracks).toBeLessThanOrEqual(3);
   });
 
   it('S5 SWEEP-MISS: a vanished target\'s plot is gone within 4 ticks', () => {

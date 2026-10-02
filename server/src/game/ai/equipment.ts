@@ -54,12 +54,13 @@ import {
   hasPersistence,
   isActionable,
   ownLiveMines,
+  plotAt,
   tracksOf,
   type BotSituation,
   type BotTrack,
 } from './utility.js';
 import type { BotProfile } from './profiles.js';
-import { LONGEST_HULL_U, TRACK_PERSIST_MS, predictedPos, trackVelocity } from './plot.js';
+import { LONGEST_HULL_U, TRACK_PERSIST_MS, trackVelocity } from './plot.js';
 import {
   APPETITE_EAGER,
   APPETITE_NEUTRAL,
@@ -127,19 +128,21 @@ const WIDE_RUNG = 1;
  *  barrage's footprint at combat range; older and the shot is a guess. */
 const WIDE_FAN_STALE_MS = 1500;
 
-/** Is this track making way TOWARD us? Its course is the disclosed pose or
+/** Is this track making way TOWARD us (evaluated at its predicted position)? Its course is the disclosed pose or
  *  the bot's estimate (ai/plot.ts `trackVelocity`); unknown course = not
  *  closing (a course-less plot cannot justify a reactive trap). */
 function isClosing(sit: BotSituation, t: BotTrack): boolean {
   const v = trackVelocity(t);
   if (v === null) return false;
-  return v.vx * (sit.x - t.x) + v.vy * (sit.y - t.y) > 0;
+  const p = plotAt(sit, t); // where it should be NOW, not the stale paint
+  return v.vx * (sit.x - p.x) + v.vy * (sit.y - p.y) > 0;
 }
 
 /** Is this track inside the hull's astern sector? */
 function behindUs(self: BotSelf, sit: BotSituation, t: BotTrack): boolean {
   const center = wrapAngle(self.state.heading + REAR_SECTOR.offset);
-  return inArc(Math.atan2(t.y - sit.y, t.x - sit.x), center, REAR_SECTOR.halfArc);
+  const p = plotAt(sit, t);
+  return inArc(Math.atan2(p.y - sit.y, p.x - sit.x), center, REAR_SECTOR.halfArc);
 }
 
 // ---------------------------------------------------------------------------
@@ -224,12 +227,15 @@ function streamSolve(ctx: TacticContext): Shot | null {
   const sit = ctx.sit;
   const rangeU = sit.stats.equipment.machineGun.rangeU;
   if (t === null || streamHolds(t, sit.now)) return null;
-  const q = predictedPos(t, sit.now);
-  if (Math.hypot(q.x - sit.x, q.y - sit.y) > rangeU) return null;
+  if (distTo(sit, t) > rangeU) return null;
   const p = aimPoint(ctx.mind, sit, t, CONFIG.machineGun.shellSpeed);
   const leadD = Math.hypot(p.x - sit.x, p.y - sit.y);
-  // An intercept beyond reach is a stream that can only fall short — hold, the
-  // burstSolve rule (cycle 165 review). Only the overshoot may clamp at reach.
+  // An intercept beyond reach holds the stream — the burstSolve rule (cycle
+  // 165 review, orchestrator ruling). A shell expires at reach, and a hull
+  // whose intercept centre lies past reach has its near edge at or beyond
+  // that expiry point, so a stream there only spends the belt (measured on
+  // the racetrack probe: strict 79.7 % vs a half-hull margin's 73.4 %). Only
+  // the aim-past overshoot may clamp at reach.
   if (leadD > rangeU) return null;
   if (!shotReaches(ctx.self, sit, p)) return null;
   const d = Math.min(leadD + overshootU(t), rangeU);
@@ -526,9 +532,9 @@ function flareSolve(ctx: TacticContext): Shot | null {
   if (t === null) return null;
   // THE TERRAIN GATE IS ON THE SHOT, never on the selector: the bot still
   // wants the nearest plot; it holds the round when the round cannot arrive.
-  if (!shotReaches(ctx.self, ctx.sit, t)) return null;
+  if (!shotReaches(ctx.self, ctx.sit, plotAt(ctx.sit, t))) return null;
   const d = Math.min(distTo(ctx.sit, t), ctx.sit.stats.equipment.starShells.rangeU);
-  return { aim: bearing(ctx.self.state, t), aimDist: d, slot: ctx.slot };
+  return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
 
 const starShellsTactic: EquipmentTactic = {
